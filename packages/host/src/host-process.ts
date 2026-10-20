@@ -335,6 +335,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       verificationService = new VerificationService({
         storage,
         events: store,
+        listenAll: (listener) => store.listenAll(listener),
         checks: new ChecksStore({
           dir: homePath(home, 'checksDir'),
           onWarning: (message, fields) => logger.warn(message, fields),
@@ -343,6 +344,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           dir: toolOutput.dir,
           onWarning: (message, fields) => logger.warn(message, fields),
         }),
+        checkpoints,
         onWarning: (message, fields) => logger.warn(message, fields),
         onError: (error) => logger.error('verification error', { error }),
       });

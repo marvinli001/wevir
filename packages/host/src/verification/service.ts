@@ -3,9 +3,10 @@
 // - **检查配置**存在 Host（ChecksStore），仓库里的命令只是候选；用户保存才算认可，脚本正文变了要重新认可。
 // - **验证记录**是会话事件流里的 `verification.updated`，与回合分开；一次触发是一轮（`roundId`），一轮里的检查按顺序跑，每个工作区
 //   同时最多 `VERIFICATION_MAX_CONCURRENT` 个。每条记录绑定开始时的代码状态，结束时代码状态变了就是 `stale`。
-// - **验收状态**（`acceptance.changed`）按最近一轮算，与引擎的回合状态分开；`verification.status` 发现代码变了就回到 `unverified`。
+// - **验收状态**（`acceptance.changed`）按最近一轮算，与引擎的回合状态分开；之后的回合改了代码就回到 `unverified`。
+// - **回合后自动运行**：普通会话的回合以 `completed` 结束、改到了文件时，按适用条件跑 `after_turn` 的检查；同一回合只跑一轮。
 //
-// 事件直接追加到事件库（不经 SessionManager 的状态机，这些事件不改会话状态）。
+// 事件直接追加到事件库（不经 SessionManager 的状态机，这些事件不改会话状态）；会话里的动静从事件总线的 `listenAll` 收。
 
 import { join } from 'node:path';
 import type {
@@ -20,13 +21,16 @@ import type {
   SessionSnapshot,
   SessionVerification,
   TurnId,
+  TurnOutcome,
   VerificationRoundId,
   VerificationRun,
   VerificationRunId,
   VerificationTrigger,
+  WevirEvent,
   WorkspaceId,
 } from '@wevir/protocol';
 import type { SessionRecord, Storage } from '@wevir/storage';
+import type { TurnCheckpoints } from '../checkpoints.js';
 import { HostError } from '../errors.js';
 import type { AppendInput, EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
@@ -38,6 +42,49 @@ import { type CheckRunner, environmentPrecheck } from './runner.js';
 
 /** 每个工作区同时最多跑几个检查。 */
 export const VERIFICATION_MAX_CONCURRENT = 2;
+/** 适用条件：回合改到的文件（相对会话目录）有一个命中 `paths` 的某一项。 */
+export function matchesPaths(
+  paths: readonly string[] | undefined,
+  changed: readonly string[],
+): boolean {
+  if (paths === undefined || paths.length === 0) return changed.length > 0;
+  return changed.some((file) => paths.some((pattern) => matchPath(pattern, file)));
+}
+
+function matchPath(pattern: string, file: string): boolean {
+  if (!/[*?[]/.test(pattern)) {
+    const prefix = pattern.replace(/\/+$/, '');
+    return file === prefix || file.startsWith(`${prefix}/`);
+  }
+  return globRegExp(pattern).test(file);
+}
+
+function globRegExp(pattern: string): RegExp {
+  let source = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i] as string;
+    if (char === '*') {
+      if (pattern[i + 1] === '*') {
+        i++;
+        if (pattern[i + 1] === '/') {
+          i++;
+          source += '(?:.*/)?';
+        } else {
+          source += '.*';
+        }
+      } else {
+        source += '[^/]*';
+      }
+    } else if (char === '?') {
+      source += '[^/]';
+    } else {
+      source += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  // 没有 `/` 的模式（`*.ts`）在任何一层都算。
+  return new RegExp(pattern.includes('/') ? `^${source}$` : `(?:^|/)${source}$`);
+}
+
 /** 一轮记录 → 验收状态。 */
 export function acceptanceOf(
   runs: readonly VerificationRun[],
@@ -96,8 +143,11 @@ interface Round {
 export interface VerificationServiceOptions {
   storage: Storage;
   events: EventStore;
+  /** 事件总线的 `listenAll`。 */
+  listenAll: (listener: (event: WevirEvent) => void) => () => void;
   checks: ChecksStore;
   runner: CheckRunner;
+  checkpoints?: Pick<TurnCheckpoints, 'changedPaths'>;
   maxConcurrent?: number;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   onError?: (error: unknown) => void;
@@ -108,12 +158,18 @@ export class VerificationService {
   readonly #events: EventStore;
   readonly #checks: ChecksStore;
   readonly #runner: CheckRunner;
+  readonly #checkpoints: VerificationServiceOptions['checkpoints'];
   readonly #maxConcurrent: number;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #onError: (error: unknown) => void;
+  readonly #unlisten: () => void;
   readonly #rounds = new Map<VerificationRoundId, Round>();
+  /** 每个会话的回合后处理排队执行。 */
+  readonly #tails = new Map<SessionId, Promise<unknown>>();
   /** 每个工作区正在跑的检查数与排队等的。 */
   readonly #slots = new Map<WorkspaceId, { running: number; waiting: Array<() => void> }>();
+  /** 已经处理过的回合（同一回合只开一轮）。 */
+  readonly #handledTurns = new Set<TurnId>();
   #disposed = false;
 
   constructor(options: VerificationServiceOptions) {
@@ -121,10 +177,12 @@ export class VerificationService {
     this.#events = options.events;
     this.#checks = options.checks;
     this.#runner = options.runner;
+    this.#checkpoints = options.checkpoints;
     this.#maxConcurrent = options.maxConcurrent ?? VERIFICATION_MAX_CONCURRENT;
     this.#onWarning = options.onWarning ?? (() => {});
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] verification:', error));
+    this.#unlisten = options.listenAll((event) => this.#onEvent(event));
   }
 
   // ── 检查配置 ─────────────────────────────────────────────────
@@ -270,6 +328,10 @@ export class VerificationService {
       });
     }
     return { record, snapshot };
+  }
+
+  #record(sessionId: SessionId): SessionRecord | undefined {
+    return this.#storage.sessions.get(sessionId);
   }
 
   #activeRounds(sessionId: SessionId): Round[] {
@@ -518,6 +580,73 @@ export class VerificationService {
     this.#write(round.sessionId, [acceptanceChanged(acceptance)]);
   }
 
+  // ── 会话里的动静 ─────────────────────────────────────────────
+
+  #onEvent(event: WevirEvent): void {
+    if (this.#disposed) return;
+    const sessionId = event.sessionId;
+    switch (event.type) {
+      case 'turn.started':
+        // 新回合开始：这个会话还在跑的检查反正会过期，取消掉。
+        this.#cancelRounds(sessionId, 'turn_started');
+        break;
+      case 'turn.finished': {
+        const { turnId, outcome } = event.payload;
+        this.#enqueue(sessionId, () => this.#afterTurn(sessionId, turnId, outcome));
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  #enqueue(sessionId: SessionId, task: () => Promise<void> | void): void {
+    const next = (this.#tails.get(sessionId) ?? Promise.resolve())
+      .then(task)
+      .catch((error: unknown) => {
+        if (!(error instanceof HostError)) this.#onError(error);
+      });
+    this.#tails.set(sessionId, next);
+    void next.finally(() => {
+      if (this.#tails.get(sessionId) === next) this.#tails.delete(sessionId);
+    });
+  }
+
+  /** 回合后自动运行（决策 11）。 */
+  async #afterTurn(sessionId: SessionId, turnId: TurnId, outcome: TurnOutcome): Promise<void> {
+    if (this.#disposed || this.#handledTurns.has(turnId)) return;
+    this.#handledTurns.add(turnId);
+    if (outcome !== 'completed') return;
+    const record = this.#record(sessionId);
+    if (!record || record.parentSessionId !== undefined || record.side) return;
+    const workspace = this.#storage.workspaces.get(record.workspaceId);
+    if (!workspace || workspace.removedAt !== undefined) return;
+    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
+    const snapshot = this.#events.snapshot(sessionId);
+    if (checks.length === 0 && snapshot?.verification === undefined) return;
+    const changed = await this.#checkpoints?.changedPaths(sessionId, record.cwd, turnId);
+    if (changed !== undefined && changed.length === 0) return;
+    // 回合改了代码（或不知道改没改）：之前的验收不再算数。
+    this.#markUnverified(sessionId, 'code_changed');
+    const automatic = checks.filter((check) => check.trigger === 'after_turn');
+    if (automatic.length === 0) return;
+    const run: CheckDefinition[] = [];
+    const skipped: Array<{ check: CheckDefinition; reason: string }> = [];
+    for (const check of automatic) {
+      if (changed === undefined) {
+        if (check.paths === undefined || check.paths.length === 0) run.push(check);
+        else skipped.push({ check, reason: 'changes_unknown' });
+      } else if (matchesPaths(check.paths, changed)) {
+        run.push(check);
+      }
+    }
+    if (run.length === 0 && skipped.length === 0) return;
+    // 等待期间用户可能又开了回合。
+    const now = this.#events.snapshot(sessionId);
+    if (now?.session.state !== 'idle') return;
+    this.#startRound(record, { trigger: 'after_turn', turnId }, run, skipped);
+  }
+
   #markUnverified(sessionId: SessionId, reason: string): void {
     const current = this.#events.snapshot(sessionId)?.verification?.acceptance;
     if (current === undefined || current.status === 'unverified') return;
@@ -585,6 +714,7 @@ export class VerificationService {
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#unlisten();
     for (const round of this.#rounds.values()) {
       round.cancelReason ??= 'host_shutdown';
       round.abort.abort();

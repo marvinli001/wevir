@@ -20,6 +20,8 @@ interface Subscription {
  */
 export class EventBus {
   readonly #subscriptions = new Map<SessionId, Set<Subscription>>();
+  /** 收全部会话事件的监听者（0.65.0，回合后验证）：按发布顺序，不回放。 */
+  readonly #everything = new Set<EventListener>();
   readonly #queue: WevirEvent[] = [];
   readonly #onError: (error: unknown) => void;
   #draining = false;
@@ -47,6 +49,12 @@ export class EventBus {
     };
   }
 
+  /** 收此后发布的全部会话的事件（不回放），返回取消函数。监听者在回调里追加的事件同样排在队尾。 */
+  listenAll(listener: EventListener): () => void {
+    this.#everything.add(listener);
+    return () => this.#everything.delete(listener);
+  }
+
   publish(events: readonly WevirEvent[]): void {
     this.#queue.push(...events);
     if (this.#draining) return;
@@ -61,6 +69,13 @@ export class EventBus {
   }
 
   #deliver(event: WevirEvent): void {
+    for (const listener of [...this.#everything]) {
+      try {
+        listener(event);
+      } catch (error) {
+        this.#onError(error);
+      }
+    }
     const set = this.#subscriptions.get(event.sessionId);
     if (!set) return;
     for (const subscription of [...set]) {

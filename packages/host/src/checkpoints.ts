@@ -177,6 +177,48 @@ export class TurnCheckpoints {
   }
 
   /**
+   * 回合前后快照之间改到的文件（0.65.0，回合后验证的适用条件）：相对会话目录，`/` 分隔，含删除与重命名前后的路径。目录不在仓库里、
+   * 这个回合缺前或后的快照、git 出错时是 undefined（不知道改了什么）。
+   */
+  async changedPaths(
+    sessionId: string,
+    cwd: string,
+    turnId: string,
+  ): Promise<string[] | undefined> {
+    await this.settled(sessionId);
+    const repo = await repoInfo(cwd);
+    if (!repo) return undefined;
+    try {
+      const [before, after] = await Promise.all([
+        resolveRef(repo, checkpointRef(sessionId, turnId, 'before')),
+        resolveRef(repo, checkpointRef(sessionId, turnId, 'after')),
+      ]);
+      if (before === undefined || after === undefined) return undefined;
+      const { stdout } = await runGit(repo.cwd, [
+        ...repo.config,
+        'diff',
+        '--name-status',
+        '-z',
+        '--no-renames',
+        '--relative',
+        before,
+        after,
+        '--',
+        '.',
+      ]);
+      const parts = stdout.toString('utf8').split('\0');
+      const paths: string[] = [];
+      for (let index = 0; index + 1 < parts.length; index += 2) {
+        const path = parts[index + 1];
+        if (path) paths.push(path);
+      }
+      return paths;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * `session.undo` 的文件部分（0.51.0）：目录还原到这个回合开始前的样子。先把现在的样子存成 `undone`。目录不在 git 仓库里、这个回合没有
    * “前”快照、HEAD 动过、现在的样子存不了（`captureBlocker` 的原因）时什么都不动，结果说明原因；还原中途出错时把目录放回原样再抛错。
    */

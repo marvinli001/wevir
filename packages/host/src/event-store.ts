@@ -123,6 +123,11 @@ export class EventStore {
    * 事件在同一事务里提交。事件不合 schema 时抛 zod 的错误，违反事件目录或状态机时抛
    * `EventRejectedError`，会话不存在时抛 `SessionNotFoundError`；抛错时什么都不写。
    */
+  /** 收此后写入的全部会话的事件（0.65.0，回合后验证），返回取消函数；见 `EventBus.listenAll`。 */
+  listenAll(listener: EventListener): () => void {
+    return this.#bus.listenAll(listener);
+  }
+
   append<I extends AppendInput>(sessionId: SessionId, input: I): WevirEventOf<I['type']> {
     return this.appendMany(sessionId, [input])[0] as WevirEventOf<I['type']>;
   }

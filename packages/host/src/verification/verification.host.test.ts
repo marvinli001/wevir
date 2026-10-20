@@ -347,3 +347,66 @@ describe('检查与手动运行', () => {
     expect(existsSync(join(repo, 'ran.txt'))).toBe(true);
   }, 60_000);
 });
+
+describe('回合后自动运行', () => {
+  it('回合改到的文件命中适用路径才跑；没改文件不跑；之后的回合改了代码，验收回到未验证', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    h.adapter.onTurn = (cwd, text) => {
+      if (text === 'fix it') writeConv(cwd, 32);
+      if (text === 'write docs') writeFileSync(join(cwd, 'README.md'), 'docs\n');
+      return undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.save({
+      name: 'docs',
+      command: 'node -e "console.log(1)"',
+      kind: 'other',
+      trigger: 'after_turn',
+      paths: ['docs/'],
+    });
+    await h.save({
+      name: 'manual only',
+      command: 'node -e "process.exit(1)"',
+      kind: 'other',
+      trigger: 'manual',
+    });
+    const sessionId = await h.create();
+    const turnFinished = (turnId: string) =>
+      h.waitFor(
+        sessionId,
+        () => h.of(sessionId, 'turn.finished').find((event) => event.payload.turnId === turnId),
+        'turn finished',
+      );
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 800));
+
+    const first = await h.send(sessionId, 'fix it');
+    await h.waitFor(
+      sessionId,
+      () => (h.acceptance(sessionId)?.status === 'accepted' ? true : undefined),
+      'accepted',
+    );
+    expect(
+      h.finalRuns(sessionId).map((run) => [run.name, run.trigger, run.status, run.turnId]),
+    ).toEqual([['test', 'after_turn', 'passed', first.turnId]]);
+
+    // 没改文件的回合：不开新的一轮，验收不变。
+    const quiet = await h.send(sessionId, 'hello');
+    await turnFinished(quiet.turnId);
+    await settle();
+    expect(h.finalRuns(sessionId)).toHaveLength(1);
+    expect(h.acceptance(sessionId)?.status).toBe('accepted');
+
+    // 改了别处（不命中适用路径）：不跑检查，但之前的验收不再算数。
+    const docs = await h.send(sessionId, 'write docs');
+    await h.waitFor(
+      sessionId,
+      () => (h.acceptance(sessionId)?.status === 'unverified' ? true : undefined),
+      'unverified',
+    );
+    expect(h.acceptance(sessionId)).toMatchObject({ reason: 'code_changed' });
+    await turnFinished(docs.turnId);
+    await settle();
+    expect(h.finalRuns(sessionId)).toHaveLength(1);
+  }, 60_000);
+});
