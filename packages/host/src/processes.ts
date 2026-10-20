@@ -5,7 +5,7 @@
 //
 // 进程只在内存里登记，Host 退出时全部结束（SIGTERM，3 秒后 SIGKILL），删除会话时结束它的。stdout 与 stderr 按到达顺序写进
 // `<数据目录>/tool-output/<会话 ID>/process-<ID>.log`（tool-output.ts），超过 `PROCESS_LOG_ROTATE_BYTES` 时换到 `.1`。
-// 客户端经 `process.*`（0.68.0，process-output.ts）也看得到、停得了这些进程；`onChange` 报起来、退出、被停与输出变多。
+// 客户端经 `process.*`（0.69.0，process-output.ts）也看得到、停得了这些进程；`onChange` 报起来、退出、被停与输出变多。
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createWriteStream, type WriteStream } from 'node:fs';

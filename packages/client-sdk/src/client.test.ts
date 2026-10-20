@@ -807,7 +807,7 @@ describe('自动化（0.66.0）', () => {
   });
 });
 
-describe('进程输出（0.68.0）', () => {
+describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();
     host.on('host.hello', () => ({ result: { ...HELLO, features: { process_output: true } } }));
@@ -831,7 +831,7 @@ describe('进程输出（0.68.0）', () => {
   });
 });
 
-describe('用户终端（0.68.0）', () => {
+describe('用户终端（0.69.0）', () => {
   it('onTerminalOutput / onTerminalsChanged：带上通知的内容，重连后 changed 以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();
     host.on('host.hello', () => ({ result: { ...HELLO, features: { user_terminal: true } } }));

@@ -77,7 +77,7 @@ export type MethodHandler<M extends MethodName> = (
   context: RequestContext,
 ) => MethodResult<M> | Promise<MethodResult<M>>;
 
-/** 由 RPC 连接自己处理的方法：握手、心跳、退出、订阅、浏览器提供方（0.33.0）与终端的 attach（0.68.0），登记的都是这条连接。 */
+/** 由 RPC 连接自己处理的方法：握手、心跳、退出、订阅、浏览器提供方（0.33.0）与终端的 attach（0.69.0），登记的都是这条连接。 */
 export type ConnectionMethodName =
   | 'host.hello'
   | 'host.ping'
@@ -133,9 +133,9 @@ export interface HostMethodsOptions {
   verification?: VerificationService;
   /** 自动化（0.66.0，`automation.*`）；省略时 `automation.*` 回 `INVALID_PARAMS`（测试）。 */
   automations?: AutomationService;
-  /** 进程输出（0.68.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
-  /** 用户的交互终端（0.68.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
+  /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
   terminals?: TerminalService;
 }
 
@@ -442,7 +442,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           sessionIds: open.map((session) => session.id as SessionId),
         });
       }
-      // 不属于会话的用户终端也随项目结束（0.68.0）。
+      // 不属于会话的用户终端也随项目结束（0.69.0）。
       options.terminals?.removeWorkspace(workspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
       return {};

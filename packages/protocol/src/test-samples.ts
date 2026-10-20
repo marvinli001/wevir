@@ -133,7 +133,7 @@ export const verificationRun: VerificationRun = {
   fingerprint: 'sha256:77aa',
 };
 
-/** Agent 起的后台进程（0.68.0）：还在跑。 */
+/** Agent 起的后台进程（0.69.0）：还在跑。 */
 export const agentProcess: HostProcess = {
   id: 'p3',
   workspaceId: ids.workspace,
@@ -150,7 +150,7 @@ export const agentProcess: HostProcess = {
   stopSignals: ['SIGINT', 'SIGTERM', 'SIGKILL'],
 };
 
-/** 检查的进程（0.68.0）：用户取消后退出。 */
+/** 检查的进程（0.69.0）：用户取消后退出。 */
 export const checkProcess: HostProcess = {
   id: 'v1',
   workspaceId: ids.workspace,
@@ -176,7 +176,7 @@ export const checkProcess: HostProcess = {
   stopSignals: [],
 };
 
-/** 用户的交互终端（0.68.0）：在跑，前台是 vim。 */
+/** 用户的交互终端（0.69.0）：在跑，前台是 vim。 */
 export const terminalSample: Terminal = {
   id: `trm_${ULID}`,
   workspaceId: ids.workspace,
@@ -195,7 +195,7 @@ export const terminalSample: Terminal = {
   clients: 1,
 };
 
-/** 用户的交互终端（0.68.0）：shell 自己退出了，还没关。 */
+/** 用户的交互终端（0.69.0）：shell 自己退出了，还没关。 */
 export const exitedTerminal: Terminal = {
   id: `trm_${ULID}`,
   workspaceId: ids.workspace,

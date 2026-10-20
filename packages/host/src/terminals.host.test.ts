@@ -1,4 +1,4 @@
-// 用户的交互终端（0.68.0，Host 功能 `user_terminal`）：startHost 组装出的真实 Host，客户端经 WebSocket 用 `terminal.*` 开 PTY、输入、
+// 用户的交互终端（0.69.0，Host 功能 `user_terminal`）：startHost 组装出的真实 Host，客户端经 WebSocket 用 `terminal.*` 开 PTY、输入、
 // 改尺寸、断线后补上、关闭。客户端一侧用 @xterm/headless 还原屏幕，比较一直连着的客户端与重连后拿快照的客户端看到的是否一样。
 // 覆盖 Ctrl-C 只打断前台程序、shell 自己退出、全屏程序（vi 的备用屏）、大输出、非 UTF-8、超长行、关闭时结束后台作业、Host 重启。
 // 第一个用例各平台都跑（Windows 上是 ConPTY + PowerShell），其余在 POSIX 上跑，shell 用 /bin/sh。

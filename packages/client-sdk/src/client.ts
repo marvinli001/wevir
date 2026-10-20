@@ -32,9 +32,9 @@ import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
 
 /** `automation.changed` 的内容（0.66.0）。 */
 export type AutomationChange = NotificationParams<'automation.changed'>;
-/** `process.changed` 的内容（0.68.0）。 */
+/** `process.changed` 的内容（0.69.0）。 */
 export type ProcessChange = NotificationParams<'process.changed'>;
-/** `terminal.changed` 与 `terminal.output` 的内容（0.68.0）。 */
+/** `terminal.changed` 与 `terminal.output` 的内容（0.69.0）。 */
 export type TerminalChange = NotificationParams<'terminal.changed'>;
 export type TerminalOutput = NotificationParams<'terminal.output'>;
 
@@ -513,7 +513,7 @@ export class WevirClient {
   }
 
   /**
-   * 进程变了（0.68.0，`process.changed`）：起来、退出、被停、输出变多，或被忘掉（`removed`）。重连上之后以 `undefined` 调一次（Host 只给
+   * 进程变了（0.69.0，`process.changed`）：起来、退出、被停、输出变多，或被忘掉（`removed`）。重连上之后以 `undefined` 调一次（Host 只给
    * 调过 `process.*` 的连接发通知，重连后要重新列一次才会再收到），客户端重新列出、从记下的偏移量接着读。返回取消函数。
    */
   onProcessesChanged(listener: (change: ProcessChange | undefined) => void): () => void {
@@ -522,7 +522,7 @@ export class WevirClient {
   }
 
   /**
-   * 用户终端变了（0.68.0，`terminal.changed`）：开、退出、标题、前台进程、尺寸、attach 的连接数，或被忘掉（`removed`）。重连上之后以
+   * 用户终端变了（0.69.0，`terminal.changed`）：开、退出、标题、前台进程、尺寸、attach 的连接数，或被忘掉（`removed`）。重连上之后以
    * `undefined` 调一次：连接断开时 Host 已经不再给这条连接发输出，客户端重新列出，并带上自己读到的位置重新 `terminal.attach`。返回取消函数。
    */
   onTerminalsChanged(listener: (change: TerminalChange | undefined) => void): () => void {
@@ -530,7 +530,7 @@ export class WevirClient {
     return () => this.#terminalListeners.delete(listener);
   }
 
-  /** 用户终端的输出（0.68.0，`terminal.output`）：这条连接 `terminal.attach` 过的终端。返回取消函数。 */
+  /** 用户终端的输出（0.69.0，`terminal.output`）：这条连接 `terminal.attach` 过的终端。返回取消函数。 */
   onTerminalOutput(listener: (output: TerminalOutput) => void): () => void {
     this.#terminalOutputListeners.add(listener);
     return () => this.#terminalOutputListeners.delete(listener);

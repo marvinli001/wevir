@@ -385,7 +385,7 @@ export class VerificationService {
   }
 
   /**
-   * 只取消一次检查（`process.stop` 停检查的进程，0.68.0）：这次记 `cancelled`（`user`），同一轮里别的检查照跑；修复链在两次修复之间
+   * 只取消一次检查（`process.stop` 停检查的进程，0.69.0）：这次记 `cancelled`（`user`），同一轮里别的检查照跑；修复链在两次修复之间
    * 时停下（`user_cancelled`），同 `verification.cancel`。不在跑时返回 false。
    */
   cancelRun(sessionId: SessionId, runId: VerificationRunId): boolean {

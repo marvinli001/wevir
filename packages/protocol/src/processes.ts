@@ -1,4 +1,4 @@
-// 进程输出（0.68.0，Host 功能 `process_output`）：客户端看 Host 起的后台进程。
+// 进程输出（0.69.0，Host 功能 `process_output`）：客户端看 Host 起的后台进程。
 //
 // 两种来源：会话里的 Agent 经 `wevir_process_start` 起的（`agent`），回合后验证跑的检查（`check`，ADR-0008）。客户端能列出、
 // 分页读输出（去掉了终端控制序列的文本）、停止；不能写 stdin，也不是终端——用户自己的交互终端另做。进程只在 Host 的内存里登记，

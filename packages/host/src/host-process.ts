@@ -234,7 +234,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     void toolOutput
       .prune()
       .catch((error: unknown) => logger.warn('failed to prune tool output', { error }));
-    // 用户的交互终端（0.68.0，terminals.ts）：node-pty 加载不了时没有，不声明 user_terminal。
+    // 用户的交互终端（0.69.0，terminals.ts）：node-pty 加载不了时没有，不声明 user_terminal。
     const terminalModules = loadTerminalModules((message, fields) => logger.warn(message, fields));
     const terminals =
       terminalModules !== undefined
@@ -245,7 +245,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           })
         : undefined;
     userTerminals = terminals;
-    // 进程输出（0.68.0，process-output.ts）：客户端看 Agent 的后台进程与检查的进程。
+    // 进程输出（0.69.0，process-output.ts）：客户端看 Agent 的后台进程与检查的进程。
     const processOutput = new ProcessOutputService({ storage });
     const processes =
       adapter.appTools === true
@@ -683,7 +683,7 @@ interface ShutdownParts {
   appMcp: AppMcpServer | undefined;
   /** 后台进程（processes.ts）；没有应用级工具时没有。 */
   processes: ProcessManager | undefined;
-  /** 用户的交互终端（0.68.0）；node-pty 加载不了时没有。 */
+  /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
   terminals: TerminalService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
   verification: VerificationService | undefined;

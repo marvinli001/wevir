@@ -3,7 +3,7 @@
 // 存成 `<tool-output>/<会话 ID>/verification/<记录 ID>.log`，`verification.output` 从这里读，Host 重启后也在。放在会话的大输出目录
 // 里：删除会话时随会话删、存储页算进会话的文件，同大输出一样七天后清掉（记录里的输出尾部一直在）。
 //
-// 检查的进程在“进程输出”里也看得到（0.68.0，ID `v<n>`）：原始日志留到进程记录被忘掉（每个会话留最近 `CHECK_PROCESSES_KEPT` 个），
+// 检查的进程在“进程输出”里也看得到（0.69.0，ID `v<n>`）：原始日志留到进程记录被忘掉（每个会话留最近 `CHECK_PROCESSES_KEPT` 个），
 // 客户端在检查跑完后也能按同一套偏移量读完。
 
 import { mkdir, open, stat } from 'node:fs/promises';

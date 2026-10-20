@@ -47,7 +47,7 @@ const TRIGGER_LABELS: Record<string, PlainMessageKey> = {
 };
 
 /**
- * “进程输出”窗格（0.68.0，desktop-layout.md §2.1）：当前会话或项目里 Host 起的后台进程（Agent 起的、回合后检查起的），看输出、
+ * “进程输出”窗格（0.69.0，desktop-layout.md §2.1）：当前会话或项目里 Host 起的后台进程（Agent 起的、回合后检查起的），看输出、
  * 停止。不是终端：不能输入。
  */
 export function ProcessesPane({ context }: { context: PaneContext }) {

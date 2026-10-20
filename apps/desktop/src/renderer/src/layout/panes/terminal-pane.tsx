@@ -33,7 +33,7 @@ import {
 const FONT_SIZE = 12;
 
 /**
- * “终端”窗格（0.68.0，ADR-0010）：Host 上的用户交互终端，xterm.js 渲染。标签的参数记着终端 ID（`id`）与标签名（`label`）；
+ * “终端”窗格（0.69.0，ADR-0010）：Host 上的用户交互终端，xterm.js 渲染。标签的参数记着终端 ID（`id`）与标签名（`label`）；
  * 没有 ID 时开一个新的（在会话的目录，没有会话时在项目根目录）。关掉标签结束终端；断线重连后带上读到的位置重新 attach。
  */
 export function TerminalPane({ tab, context }: { tab: PaneTab; context: PaneContext }) {

@@ -268,12 +268,12 @@ export const HOST_FEATURES = {
    */
   automations: 'automations',
   /**
-   * 进程输出（0.68.0）：`process.list`、`process.output`、`process.stop` 与 `process.changed` 通知。客户端看 Agent 起的后台进程与
+   * 进程输出（0.69.0）：`process.list`、`process.output`、`process.stop` 与 `process.changed` 通知。客户端看 Agent 起的后台进程与
    * 回合后验证的检查进程、读输出、停止；不是终端，不能输入。有后台进程或回合后验证时声明。
    */
   processOutput: 'process_output',
   /**
-   * 用户的交互终端（0.68.0）：`terminal.*` 方法、`terminal.output` 与 `terminal.changed` 通知。Host 上的 PTY，跑用户的登录 shell，
+   * 用户的交互终端（0.69.0）：`terminal.*` 方法、`terminal.output` 与 `terminal.changed` 通知。Host 上的 PTY，跑用户的登录 shell，
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',

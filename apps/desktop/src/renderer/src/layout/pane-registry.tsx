@@ -47,7 +47,7 @@ const placeholder = (kind: PaneKind) => () => <PlaceholderPane name={t(VIEWS[kin
 const ChangesPane = lazy(() =>
   import('./panes/changes-pane').then((module) => ({ default: module.ChangesPane })),
 );
-// “终端”带着 xterm.js（0.68.0），第一次打开时才加载。
+// “终端”带着 xterm.js（0.69.0），第一次打开时才加载。
 const TerminalPane = lazy(() =>
   import('./panes/terminal-pane').then((module) => ({ default: module.TerminalPane })),
 );
@@ -103,7 +103,7 @@ const VIEWS: Record<PaneKind, PaneView> = {
     name: 'pane.kind.processes',
     render: (_, context) => <ProcessesPane context={context} />,
   },
-  // 用户的交互终端（0.68.0）：参数是终端 ID 与标签名（程序设的标题或 shell 名）。
+  // 用户的交互终端（0.69.0）：参数是终端 ID 与标签名（程序设的标题或 shell 名）。
   terminal: {
     icon: SquareTerminal,
     name: 'pane.kind.terminal',

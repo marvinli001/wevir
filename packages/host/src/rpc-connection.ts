@@ -85,11 +85,11 @@ export interface ConnectionHost {
   readonly automations?: {
     watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
   };
-  /** 进程输出（0.68.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
+  /** 进程输出（0.69.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
   readonly processes?: {
     watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
   };
-  /** 用户的交互终端（0.68.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
+  /** 用户的交互终端（0.69.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
@@ -730,7 +730,7 @@ export class RpcConnection {
     });
   }
 
-  /** 调过 `process.*` 的连接之后收 `process.changed`（0.68.0），连接关闭即止。 */
+  /** 调过 `process.*` 的连接之后收 `process.changed`（0.69.0），连接关闭即止。 */
   #watchProcesses(): void {
     if (this.#unwatchProcesses !== undefined || this.#host.processes === undefined) return;
     if (this.#phase !== 'ready') return;
@@ -753,7 +753,7 @@ export class RpcConnection {
     return this.#host.terminals;
   }
 
-  /** 调过 `terminal.*` 的连接之后收 `terminal.changed`（0.68.0），连接关闭即止。 */
+  /** 调过 `terminal.*` 的连接之后收 `terminal.changed`（0.69.0），连接关闭即止。 */
   #watchTerminals(): void {
     if (this.#unwatchTerminals !== undefined || this.#host.terminals === undefined) return;
     if (this.#phase !== 'ready') return;

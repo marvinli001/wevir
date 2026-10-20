@@ -1,4 +1,4 @@
-// “终端”窗格（0.68.0）的纯逻辑：大段输入分成几次发、按位置接上输出（重复的丢掉、缺了一段就重新 attach）、标签名与配色。
+// “终端”窗格（0.69.0）的纯逻辑：大段输入分成几次发、按位置接上输出（重复的丢掉、缺了一段就重新 attach）、标签名与配色。
 
 import type { Terminal } from '@wevir/protocol';
 import { TERMINAL_INPUT_MAX_LENGTH } from '@wevir/protocol';

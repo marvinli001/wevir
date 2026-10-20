@@ -1,4 +1,4 @@
-// 进程输出（0.68.0，Host 功能 `process_output`）：startHost 组装出的真实 Host（echo 引擎声明能挂应用级工具），Agent 那一侧直接按 MCP
+// 进程输出（0.69.0，Host 功能 `process_output`）：startHost 组装出的真实 Host（echo 引擎声明能挂应用级工具），Agent 那一侧直接按 MCP
 // 调 `wevir_process_start`，客户端经 WebSocket 用 `process.*` 列出、分页读输出、停止，并收 `process.changed`。另跑一个检查，看检查的
 // 进程也列得出、停止等于取消这次检查。覆盖大输出、断线重连后接着读、Host 重启、进程自己退出、非 UTF-8 输出与超长行。POSIX 上跑。
 

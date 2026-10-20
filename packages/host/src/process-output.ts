@@ -1,4 +1,4 @@
-// 进程输出（0.68.0，`process.*`）：客户端看 Host 起的后台进程。两处来源合在一起：Agent 的后台进程（processes.ts，ID `p<n>`）与
+// 进程输出（0.69.0，`process.*`）：客户端看 Host 起的后台进程。两处来源合在一起：Agent 的后台进程（processes.ts，ID `p<n>`）与
 // 回合后验证的检查进程（verification/runner.ts，ID `v<n>`）。列表按会话所在的工作区过滤；读输出按字节偏移量分页（去掉控制序列）；
 // 停止时 Agent 的进程按所选信号发给进程组，检查的进程等于取消这次检查（`VerificationService.cancelRun`）。不能写 stdin：这不是终端。
 
