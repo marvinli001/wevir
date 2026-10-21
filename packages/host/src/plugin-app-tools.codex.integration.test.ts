@@ -144,7 +144,10 @@ describe.skipIf(!binary || process.platform === 'win32')(
           );
           expect(request.source).toBe(permissionMode === 'full_access' ? 'host' : 'engine');
           expect(existsSync(join(session.cwd, 'conversation-skill', 'SKILL.md'))).toBe(true);
-          expect((await client.request('plugins.list', {})).skills).toEqual([]);
+          // 内置 skills（prompts/skills/）不算这次安装的。
+          const installedSkills = (list: PluginsList) =>
+            list.skills.filter((skill) => !skill.builtin).map((skill) => skill.name);
+          expect(installedSkills(await client.request('plugins.list', {}))).toEqual([]);
           const option = approval.options.find(
             (option) => option.category === (allow ? 'allow' : 'reject'),
           );
@@ -162,14 +165,16 @@ describe.skipIf(!binary || process.platform === 'win32')(
             50_000,
           );
           const installed: PluginsList = await client.request('plugins.list', {});
-          expect(installed.skills.map((skill) => skill.name)).toEqual(
-            allow ? ['conversation-skill'] : [],
-          );
+          expect(installedSkills(installed)).toEqual(allow ? ['conversation-skill'] : []);
           expect(events().filter((event) => event.type === 'approval.requested')).toHaveLength(1);
           if (allow)
-            expect(readFileSync(installed.skills[0]?.path as string, 'utf8')).toContain(
-              'follow the user request',
-            );
+            expect(
+              readFileSync(
+                installed.skills.find((skill) => skill.name === 'conversation-skill')
+                  ?.path as string,
+                'utf8',
+              ),
+            ).toContain('follow the user request');
           expect(
             readdirSync(join(home, 'plugins')).filter((name) => name.startsWith('.install-')),
           ).toEqual([]);

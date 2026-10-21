@@ -1834,6 +1834,7 @@ export const messages: Messages = {
   'plugins.skill.group.project': '프로젝트',
   'plugins.skill.enabled': '{name} 사용',
   'plugins.skill.path': '경로',
+  'plugins.skill.builtin': '기본 제공',
   'plugins.skill.previewFailed': 'SKILL.md를 읽을 수 없음: {error}',
   'plugins.skill.delete': '삭제',
   'plugins.skill.delete.title': 'Skill “{name}”을(를) 삭제할까요?',

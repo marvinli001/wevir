@@ -76,13 +76,15 @@ function SkillRow({
   const origin =
     originName(skill.pluginId, plugins) ??
     (skill.importedFrom && t(IMPORT_APP_LABEL[skill.importedFrom.app]));
-  // 名称后面的小字：来自哪个插件；项目 Skills 写项目文件夹名。
+  // 名称后面的小字：来自哪个插件；随 Wevir 分发的写“内置”；项目 Skills 写项目文件夹名。
   const note =
     origin !== undefined
       ? t('plugins.from', { name: origin })
-      : skill.source === 'project'
-        ? skillProject(skill)
-        : undefined;
+      : skill.builtin
+        ? t('plugins.skill.builtin')
+        : skill.source === 'project'
+          ? skillProject(skill)
+          : undefined;
   return (
     <ExpandableRow
       id={skill.id}
@@ -120,8 +122,8 @@ function SkillDetail({ skill }: { skill: Skill }) {
   const { client, data, plugins, notify, openPlugin } = usePluginsContext();
   const [confirming, setConfirming] = useState(false);
   const owner = skill.pluginId === undefined ? undefined : plugins.get(skill.pluginId);
-  // 只有 Wevir 自己装的（不属于插件的）能删；别的由插件卸载或用户的文件管理。
-  const removable = skill.source === 'wevir' && skill.pluginId === undefined;
+  // 只有 Wevir 自己装的（不属于插件的）能删；内置的只能关；别的由插件卸载或用户的文件管理。
+  const removable = skill.source === 'wevir' && skill.pluginId === undefined && !skill.builtin;
   return (
     <>
       <p className="text-sm break-words text-soft-foreground">{skill.description}</p>

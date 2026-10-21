@@ -1839,6 +1839,7 @@ export const zhCN = {
   'plugins.skill.group.project': '项目',
   'plugins.skill.enabled': '启用 {name}',
   'plugins.skill.path': '路径',
+  'plugins.skill.builtin': '内置',
   'plugins.skill.previewFailed': '无法读取 SKILL.md：{error}',
   'plugins.skill.delete': '删除',
   'plugins.skill.delete.title': '删除 Skill“{name}”？',

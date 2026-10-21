@@ -334,6 +334,21 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `packages/host/src/lsp/manager.ts` | `packages/opencode/src/lsp/lsp.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：失败 3 次的窗口代替永久的 `broken`，加空闲关闭、上限、回收与引擎改动文件的记录；起服务器前读版本，记下每个服务器的状态、能力与启动日志，可以重启 |
 | `packages/host/src/lsp-tools.ts` | `packages/opencode/src/tool/lsp.ts`、`tool/lsp.txt`、`lsp/diagnostic.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：一个 `lsp` 工具拆成七个应用级工具，结果写成路径:行:列加那一行，位置可给符号名，加诊断工具与改动文件的错误反馈，说明文字重写 |
 
+内置的 skill-creator（0.96.0，`prompts/skills/skill-creator/`）移植自 [anthropics/skills](https://github.com/anthropics/skills)，Apache-2.0，`Copyright 2026 Anthropic, PBC.`，目录里的 `LICENSE.txt` 随文件分发；不在 `upstream/` 里克隆。另对照了 Claude Code 自带的同名 skill（[asgeirtj/system_prompts_leaks](https://github.com/asgeirtj/system_prompts_leaks) 提交 `e7e53f2bc29199dfada98aa9f5d24621c2f65684` 的 `Anthropic/claude-code/skills/skill-creator/`，同为 Apache-2.0）与 Codex 的示例 skill-creator（`codex-rs/skills/src/assets/samples/skill-creator/`），只取了下表写明的部分。`NOTICE` 第 14 节。
+
+| Wevir 文件（`prompts/skills/skill-creator/`） | 来源路径（anthropics/skills 的 `skills/skill-creator/`） | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `SKILL.md` | `SKILL.md` | `dbd4588f1e1033efb41dad4bef2f7947c8993d44` | Apache-2.0 | 不限定模型；测试运行、计时、评审页、安装与分享改用 Wevir 的工具（子智能体或 `wevir_session_create`、`wevir_session_wait`、`wevir_process_start`、`wevir_show`、`wevir_skill_install`、`wevir_share_file`）；描述优化改成子智能体的选择判断；Claude.ai 与 Cowork 两节并成“缺少工具时”；加 Wevir 的名字与位置规则 |
+| `scripts/quick_validate.py` | `scripts/quick_validate.py`（单个 SKILL.md 检查取自 Claude Code 自带的副本） | 同上 | Apache-2.0 | PyYAML 可选（自带精简解析），嵌套 SKILL.md 的提示改为 Wevir 的加载规则，检查 `metadata.short-description` |
+| `scripts/package_skill.py` | `scripts/package_skill.py` | 同上 | Apache-2.0 | 输出 `<名字>.zip`（Wevir 的安装认 ZIP），跳过 `.git`，不写字节码，可按路径运行 |
+| `scripts/trigger_eval.py` | `scripts/run_eval.py`、`run_loop.py`、`improve_description.py` | 同上 | Apache-2.0 | 改写：不调 `claude -p`；保留分层的训练 / 测试切分、触发率与看不到测试分数的改写提示，模型调用交给 agent 的子智能体 |
+| `eval-viewer/generate_review.py` | `eval-viewer/generate_review.py` | 同上 | Apache-2.0 | 不再结束占用端口的其他进程（改用空闲端口），绑定并打印 `127.0.0.1`，`--no-browser`，输出立即刷新，支持 Python 3.9 |
+| `eval-viewer/viewer.html`、`assets/eval_review.html`、`references/schemas.md` | 同名文件 | 同上 | Apache-2.0 | 文案指回 Wevir；评审页由 `scripts/review_trigger_evals.py` 提供时导出经服务器保存；示例模型名 |
+| `scripts/aggregate_benchmark.py` | `scripts/aggregate_benchmark.py` | 同上 | Apache-2.0 | token 只取 `timing.json`（不再拿输出字数顶替，`grading.json` 有计时时也读），`runs_per_configuration` 按实际次数算，`--model` 填模型名 |
+| `agents/{grader,comparator,analyzer}.md`、`scripts/{utils,__init__}.py`、`LICENSE.txt` | 同名文件 | 同上 | Apache-2.0 | 原样（只加文件头） |
+
+`scripts/review_trigger_evals.py` 与 `agents/openai.yaml` 是 Wevir 新增的；上游的 `generate_report.py` 只给 `run_loop.py` 出报告，没有移植。
+
 ### 4.1 其他第三方来源的文件
 
 不来自上面五个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。

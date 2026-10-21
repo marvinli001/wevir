@@ -99,6 +99,10 @@ export const SkillSchema = z.object({
   pluginId: text.optional(),
   /** 从别的应用导入的（0.74.0）。 */
   importedFrom: ImportedFromSchema.optional(),
+  /**
+   * 随 Wevir 分发的（0.96.0），`source` 是 `wevir`：文件在安装包的 `prompts/skills/` 里，默认启用，可以关掉，不能删除。
+   */
+  builtin: z.literal(true).optional(),
 });
 export type Skill = z.infer<typeof SkillSchema>;
 // ---- Wevir 插件包（0.42.0）----

@@ -1826,6 +1826,7 @@ export const messages: Messages = {
   'plugins.skill.group.project': '專案',
   'plugins.skill.enabled': '啟用 {name}',
   'plugins.skill.path': '路徑',
+  'plugins.skill.builtin': '內建',
   'plugins.skill.previewFailed': '無法讀取 SKILL.md：{error}',
   'plugins.skill.delete': '刪除',
   'plugins.skill.delete.title': '刪除 Skill「{name}」？',

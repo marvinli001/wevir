@@ -1869,6 +1869,7 @@ export const messages: Messages = {
   'plugins.skill.group.project': 'Projekt',
   'plugins.skill.enabled': '{name} aktivieren',
   'plugins.skill.path': 'Pfad',
+  'plugins.skill.builtin': 'Integriert',
   'plugins.skill.previewFailed': 'SKILL.md nicht lesbar: {error}',
   'plugins.skill.delete': 'Löschen',
   'plugins.skill.delete.title': 'Skill „{name}“ löschen?',

@@ -11,7 +11,9 @@
       "**",
       "!packages/model-gateway/src/test-fixtures/codex-requests",
       "!packages/model-gateway/src/__snapshots__",
-      "!assets/icons/source/Wevir.icon"
+      "!assets/icons/source/Wevir.icon",
+      "!prompts/skills/skill-creator/eval-viewer/viewer.html",
+      "!prompts/skills/skill-creator/assets/eval_review.html"
     ]
   },
   "formatter": {
