@@ -97,6 +97,7 @@ export type ShutdownTrigger =
   | { kind: 'rpc'; client: ClientIdentity }
   | { kind: 'signal'; signal: NodeJS.Signals }
   | { kind: 'stdin_eof' }
+  | { kind: 'parent_port' }
   | { kind: 'fatal'; error: unknown }
   | { kind: 'api' };
 
@@ -302,7 +303,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       .prune()
       .catch((error: unknown) => logger.warn('failed to prune tool output', { error }));
     // 用户的交互终端（0.69.0，terminals.ts）：node-pty 加载不了时没有，不声明 user_terminal。
-    const terminalModules = loadTerminalModules((message, fields) => logger.warn(message, fields));
+    const terminalModules = await loadTerminalModules((message, fields) =>
+      logger.warn(message, fields),
+    );
     const terminals =
       terminalModules !== undefined
         ? new TerminalService({

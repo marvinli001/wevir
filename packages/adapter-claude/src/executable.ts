@@ -320,7 +320,8 @@ export type VersionProbe =
   | { ok: false; reason: 'missing' | 'timeout' | 'failed'; message: string };
 
 /**
- * 跑一次 `claude --version`（T3 的健康检查第一步）。`cli.js` 用 Host 自己的 Node 跑。不经 shell，Windows 的启动脚本已在
+ * 跑一次 `claude --version`（T3 的健康检查第一步）。`cli.js` 用 Host 自己的 Node 跑：Electron 里是 Electron，要带
+ * `ELECTRON_RUN_AS_NODE=1`（桌面端的 Host 是 utility process，自己的环境里没有它）。不经 shell，Windows 的启动脚本已在
  * `findClaude` 里换成包入口。
  */
 export function probeClaudeVersion(
@@ -329,7 +330,8 @@ export function probeClaudeVersion(
   timeoutMs: number = VERSION_TIMEOUT_MS,
   signal?: AbortSignal,
 ): Promise<VersionProbe> {
-  const [command, args] = executable.endsWith('.js')
+  const script = executable.endsWith('.js');
+  const [command, args] = script
     ? [process.execPath, [executable, '--version']]
     : [executable, ['--version']];
   return new Promise((resolve) => {
@@ -337,7 +339,7 @@ export function probeClaudeVersion(
       command,
       args,
       {
-        env,
+        env: script ? { ...env, ELECTRON_RUN_AS_NODE: '1' } : env,
         timeout: timeoutMs,
         windowsHide: true,
         maxBuffer: 1024 * 1024,

@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import type TurndownService from 'turndown';
 
 // 网页 → 正文 Markdown（docs/architecture/web-tools.md §4）：turndown 7.2.4（MIT，ADR-0004 补记 12）加它在 Node 里用的 DOM
@@ -7,7 +6,7 @@ import type TurndownService from 'turndown';
 
 /**
  * domino（BSD-2-Clause，turndown 在 Node 里用的 DOM）自带的类型声明的是模块 `domino`、用的是浏览器的 DOM 类型，在 Node 的包里
- * 解析不了；这里经 require 取它（CommonJS），只声明用到的部分。
+ * 解析不了；这里只声明用到的部分。
  */
 interface DominoElement {
   textContent: string | null;
@@ -83,12 +82,20 @@ interface Converter {
 
 let converter: Converter | undefined;
 
-/** domino 与 turndown 在第一次转网页时才加载（Host 启动时不必为没用到的 web_fetch 付出加载时间与内存）。 */
-function load(): Converter {
+/**
+ * domino 与 turndown 在第一次转网页时才加载（Host 启动时不必为没用到的 web_fetch 付出加载时间与内存）。用 `import()` 而不是
+ * `createRequire`：安装包里的 Host 打成一个 bundle，打包器只认得 `import()`，把它们拆成按需加载的文件。两者都是 CommonJS，
+ * `default` 是它们的 `module.exports`。
+ */
+async function load(): Promise<Converter> {
   if (converter !== undefined) return converter;
-  const require = createRequire(import.meta.url);
-  const { createDocument } = require('@mixmark-io/domino') as Pick<Converter, 'createDocument'>;
-  const Turndown = require('turndown') as typeof TurndownService;
+  const [domino, turndownModule] = await Promise.all([
+    // @ts-expect-error 没有能解析的类型声明（见上面 DominoElement 的说明）。
+    import('@mixmark-io/domino') as Promise<{ default: Pick<Converter, 'createDocument'> }>,
+    import('turndown'),
+  ]);
+  const { createDocument } = domino.default;
+  const Turndown: typeof TurndownService = turndownModule.default;
   const turndown = new Turndown({
     headingStyle: 'atx',
     codeBlockStyle: 'fenced',
@@ -111,8 +118,8 @@ export interface HtmlPage {
 }
 
 /** HTML → 标题与正文 Markdown。`baseUrl` 是网页最终的地址，相对链接按它补全。 */
-export function htmlToMarkdown(html: string, baseUrl: string): HtmlPage {
-  const { createDocument, turndown } = load();
+export async function htmlToMarkdown(html: string, baseUrl: string): Promise<HtmlPage> {
+  const { createDocument, turndown } = await load();
   const document = createDocument(html, true);
   const title = document.title.replace(/\s+/g, ' ').trim();
   for (const element of Array.from(document.querySelectorAll(NOISE))) element.remove();

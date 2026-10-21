@@ -11,6 +11,8 @@ const code = await runHostCli({
   stderr: process.stderr,
   on: process.on.bind(process) as HostCliProcess['on'],
   pid: process.pid,
+  // 只在 Electron 的 utility process 里有（@types/node 没有这个属性）。
+  parentPort: (process as { parentPort?: HostCliProcess['parentPort'] }).parentPort,
 });
 // 管道上的 stdout / stderr 可能是异步写的，先等写完，再退出。stdin、残留的计时器或句柄都不该让
 // 进程继续挂着，所以显式 exit。

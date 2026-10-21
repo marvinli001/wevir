@@ -11,9 +11,11 @@
  *   resources/engines/codex/codex-resources/bwrap    只有 Linux（LGPL-2.0-or-later）
  *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
- *   resources/host/                                  wevir-host（dist/main.js）与它的生产依赖：pnpm deploy 的 hoisted
- *                                                    布局（没有符号链接），不含 EXCLUDED_PACKAGES 与运行时用不到的
- *                                                    文件（pruneUnusedFiles）；桌面端用 Electron 自带的 Node 运行
+ *   resources/host/dist/                             wevir-host 打成的 bundle（main.js 与按需加载的几个文件，bundleHost），
+ *                                                    桌面端以 Electron 的 utilityProcess 运行它
+ *   resources/host/migrations/                       @wevir/storage 的 SQL 迁移（bundle 按 `../migrations/` 找）
+ *   resources/host/node_modules/                     只有 ON_DISK_PACKAGES 与它们的依赖：pnpm deploy 的 hoisted 布局（没有
+ *                                                    符号链接），不含运行时用不到的文件（pruneUnusedFiles）
  *
  * `--target` 默认是本机平台；打别的平台的安装包时给出那个平台的三元组（fetch-codex.sh 的列表），Host 的平台可选依赖
  * 也按它装。`WEVIR_GITHUB_MIRROR` 同 fetch-codex.sh。
@@ -28,11 +30,15 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { type OutputChunk, rolldown } from 'rolldown';
 
 const desktop = fileURLToPath(new URL('..', import.meta.url));
 const repo = join(desktop, '..', '..');
@@ -87,6 +93,23 @@ export const EXCLUDED_PACKAGES: readonly string[] = [
   '@anthropic-ai/sdk',
   'node-addon-api',
 ];
+
+/**
+ * 不打进 bundle、原样放在 `host/node_modules/` 的包（连同它们的依赖）。别的依赖都打进 bundle，新依赖要按路径找自己的文件、是原生
+ * 模块，或者要被别的进程加载时加到这里：
+ * - `node-pty`：原生模块（用户终端，Host 的可选依赖）；
+ * - `@anthropic-ai/claude-agent-sdk`：adapter-claude 先 `import.meta.resolve` 它判断装没装，SDK 自己也按 `import.meta.url` 找包里的文件；
+ * - `zod`：OpenCode 的应用工具插件在 OpenCode 的进程里按 `file:` 地址 import 它（adapter-opencode 的 `zodModuleUrl`），它也是
+ *   Claude Agent SDK 的 peer。
+ */
+export const ON_DISK_PACKAGES: readonly string[] = [
+  'node-pty',
+  '@anthropic-ai/claude-agent-sdk',
+  'zod',
+];
+
+/** ws 在 try 里 require 的可选原生加速包，Host 不装，打包时留成外部依赖（运行时找不到，ws 照常用 JS 的实现）。 */
+const WS_OPTIONAL_NATIVE: readonly string[] = ['bufferutil', 'utf-8-validate'];
 
 /**
  * 审查过、可以带着安装脚本进安装包的包（deploy 用 `--ignore-scripts`，脚本不会跑，要的东西由 `trimNodePty` 准备好）：
@@ -319,6 +342,105 @@ export function checkHostTree(
   if (problems.length > 0) throw new Error(`resources/host 不符合要求：\n${problems.join('\n')}`);
 }
 
+/** 包名（`@scope/name` 或 `name`）：去掉子路径。 */
+function packageName(specifier: string): string {
+  const parts = specifier.split('/');
+  return (specifier.startsWith('@') ? parts.slice(0, 2) : parts.slice(0, 1)).join('/');
+}
+
+/**
+ * 运行时才 require 的包名：`createRequire` 得到的 `require(…)` / `require.resolve(…)`、直接调用的 `createRequire(…)(…)`，以及打包器给
+ * CommonJS 留下的 `__require(…)`。
+ * 打包器不跟这些调用，它们要的包不会打进 bundle。
+ */
+const RUNTIME_REQUIRE =
+  /(?:(?<![\w$.])(?:__)?require(?:\$\d+)?(?:\.resolve)?|createRequire\([^()]*\))\(\s*["']([^"'./][^"']*)["']\s*\)/g;
+
+/**
+ * bundle 里剩下的 import 与运行时的 require 只能是 Node 内置模块与 `allowed` 里的包；别的包没打进去，安装包里也没有，运行时会
+ * 找不到（例如 `createRequire(import.meta.url)('x')` 取的包，要改成 `import()` 才会打进去）。
+ */
+export function checkBundleImports(
+  chunks: readonly Pick<OutputChunk, 'fileName' | 'imports' | 'dynamicImports' | 'code'>[],
+  allowed: readonly string[],
+): void {
+  const local = new Set(chunks.map((chunk) => chunk.fileName));
+  const builtins = new Set(builtinModules);
+  const problems: string[] = [];
+  const check = (fileName: string, specifier: string, how: string) => {
+    if (local.has(specifier) || specifier.startsWith('node:') || builtins.has(specifier)) return;
+    if (!allowed.includes(packageName(specifier)))
+      problems.push(`${fileName}：${how} ${specifier}`);
+  };
+  for (const chunk of chunks) {
+    for (const specifier of [...chunk.imports, ...chunk.dynamicImports]) {
+      check(chunk.fileName, specifier, 'import');
+    }
+    for (const match of chunk.code.matchAll(RUNTIME_REQUIRE)) {
+      check(chunk.fileName, match[1] as string, 'require');
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`Host 的 bundle 引用了没打进去的包：\n${problems.join('\n')}`);
+  }
+}
+
+/**
+ * 把 deploy 出来的 Host（`<dir>/dist/main.js` 与 `<dir>/node_modules`）打成 `<dir>/dist/` 下的一个 bundle：工作区包与第三方依赖
+ * 都打进去，`import()` 的模块拆成按需加载的文件（LSP 协议、domino 与 turndown、OpenCode SDK），`ON_DISK_PACKAGES` 与
+ * `EXCLUDED_PACKAGES` 留成外部依赖。不压缩、不出 source map：日志里的堆栈要能读。返回输出的文件名。
+ */
+export async function bundleHost(dir: string): Promise<string[]> {
+  const external = [...ON_DISK_PACKAGES, ...EXCLUDED_PACKAGES, ...WS_OPTIONAL_NATIVE];
+  const out = join(dir, '.bundle');
+  rmSync(out, { recursive: true, force: true });
+  const bundle = await rolldown({
+    input: join(dir, 'dist', 'main.js'),
+    platform: 'node',
+    external: (id) => external.includes(packageName(id)),
+    logLevel: 'warn',
+  });
+  try {
+    const { output } = await bundle.write({
+      dir: out,
+      format: 'esm',
+      entryFileNames: 'main.js',
+      chunkFileNames: '[name]-[hash].js',
+    });
+    const chunks = output.filter((item): item is OutputChunk => item.type === 'chunk');
+    checkBundleImports(chunks, external);
+    rmSync(join(dir, 'dist'), { recursive: true, force: true });
+    renameSync(out, join(dir, 'dist'));
+    return chunks.map((chunk) => chunk.fileName);
+  } finally {
+    await bundle.close();
+  }
+}
+
+/**
+ * bundle 之后 `<dir>/package.json` 只声明 `ON_DISK_PACKAGES`（版本取 deploy 装上的），`pruneDependencies` 据此只留它们与它们的依赖；
+ * `"type": "module"` 让 Node 把 `dist/` 里的 `.js` 当 ES 模块。没装上的（Linux 上没有 node-pty 的预编译时照样装上，由
+ * `trimNodePty` 去掉）跳过。
+ */
+export function writeBundleManifest(dir: string): void {
+  const dependencies: Record<string, string> = {};
+  const optionalDependencies: Record<string, string> = {};
+  const host = readManifest(dir);
+  for (const name of ON_DISK_PACKAGES) {
+    const installed = join(dir, 'node_modules', name);
+    if (!existsSync(join(installed, 'package.json'))) continue;
+    const { version } = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    (host.optionalDependencies?.[name] === undefined ? dependencies : optionalDependencies)[name] =
+      version;
+  }
+  writeFileSync(
+    join(dir, 'package.json'),
+    `${JSON.stringify({ name: 'wevir-host', private: true, type: 'module', main: 'dist/main.js', dependencies, optionalDependencies }, null, 2)}\n`,
+  );
+}
+
 /** 运行命令，失败时以它的退出码结束进程。Windows 上 pnpm 是 .cmd，要经 shell 启动；bash 是 Git Bash 的可执行文件。 */
 export function run(command: string, args: readonly string[], cwd: string = repo): void {
   const result = spawnSync(command, args, {
@@ -347,7 +469,7 @@ function stagePrompts(dir: string): void {
   });
 }
 
-function stageHost(dir: string, target: string): void {
+async function stageHost(dir: string, target: string): Promise<void> {
   const entry = join(repo, 'packages', 'host', 'dist', 'main.js');
   if (!existsSync(entry)) {
     console.error(`没有 ${entry}：先在仓库根目录运行 pnpm build`);
@@ -370,13 +492,19 @@ function stageHost(dir: string, target: string): void {
   ]);
   for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml'])
     rmSync(join(dir, file), { force: true });
+  const chunks = await bundleHost(dir);
+  // storage 的 migrate.ts 按自己所在目录的 `../migrations/` 找迁移；打进 bundle 后那是 dist/ 的上一级。
+  cpSync(join(dir, 'node_modules', '@wevir', 'storage', 'migrations'), join(dir, 'migrations'), {
+    recursive: true,
+  });
+  writeBundleManifest(dir);
   const removed = pruneDependencies(dir, EXCLUDED_PACKAGES);
   const files = pruneUnusedFiles(dir);
   checkHostTree(dir, EXCLUDED_PACKAGES);
   const pty = trimNodePty(dir, os, cpu);
   console.log(
-    `resources/host：去掉了 ${removed.length} 个包（${EXCLUDED_PACKAGES.join('、')} 与只被它们用到的）、` +
-      `${files} 个运行时用不到的文件`,
+    `resources/host：bundle ${chunks.length} 个文件（${chunks.join('、')}），node_modules 只留 ` +
+      `${ON_DISK_PACKAGES.join('、')} 与它们的依赖（去掉 ${removed.length} 个包、${files} 个运行时用不到的文件）`,
   );
   console.log(
     pty === undefined
@@ -386,17 +514,17 @@ function stageHost(dir: string, target: string): void {
 }
 
 /** 按目标平台准备整个资源目录。 */
-export function stageResources(target: string): void {
+export async function stageResources(target: string): Promise<void> {
   const resources = join(desktop, 'resources');
   stageCodex(join(resources, 'engines', 'codex'), target);
   stagePrompts(join(resources, 'prompts'));
-  stageHost(join(resources, 'host'), target);
+  await stageHost(join(resources, 'host'), target);
   console.log(`资源目录已准备好（${target}）：${resources}`);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { values } = parseArgs({ options: { target: { type: 'string' } } });
-  stageResources(values.target ?? hostTarget());
+  await stageResources(values.target ?? hostTarget());
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

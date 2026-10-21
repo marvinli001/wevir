@@ -1,14 +1,14 @@
 // 桌面主进程里 Host 的发现、拉起、重新拉起与停止（ADR-0002 §6、补记 3，Paseo A17）。不依赖 Electron，单独可测。
 //
 // - 先读 run/host.json 并探活（连接 + hello）：Host 在运行就附着，退出时不停它。
-// - 否则以子进程启动 wevir-host（默认用 Electron 自带的 Node，见 hostRuntime），带归属管道参数
-//   --exit-on-stdin-eof 并持有其 stdin，
+// - 否则经 HostSpawner 拉起 wevir-host：桌面端是 Electron 的 utility process（utility-host.ts，ADR-0007 补记 10），
+//   测试与 WEVIR_NODE 是 Node 子进程（nodeHostSpawner，带归属管道 --exit-on-stdin-eof）。
 //   等 stdout 的就绪行或 host.json 出现 url，记下 {pid, startedAt}，视为拥有。退出码 3 说明有别的 Host
 //   抢先占住了数据目录，改为等它就绪后附着。
 // - 拥有的 Host 意外退出（T5.5）：按 host.json 的 {pid, startedAt} 确认旧进程已退出后重新拉起，最多 3 次；
 //   这期间别人启动了 Host 就附着它。都失败了进入 failed，界面显示原因与日志路径，可以手动重试。
 // - 附着的 Host 不在了（T5.5）：不替它拉起，等 host.json 出现新的地址再附着。
-// - 退出时只停自己拉起的 Host：先关归属管道，超时再 host.shutdown，仍不退出才强制结束。
+// - 退出时只停自己拉起的 Host：先请它退出（关归属管道或经 parentPort 发消息），超时再 host.shutdown，仍不退出才强制结束。
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -54,7 +54,7 @@ export interface HostLifecycleTimeouts {
   probeMs: number;
   /** 拉起后等就绪、或退出码 3 之后等已有 Host 写出 url 的上限。 */
   startMs: number;
-  /** 关闭归属管道后等 Host 自己退出的时间；超过就发 `host.shutdown`。 */
+  /** 请 Host 退出（`HostChild.requestExit`）后等它自己退出的时间；超过就发 `host.shutdown`。 */
   pipeCloseMs: number;
   /** 发出 `host.shutdown` 后再等的时间（Host 自己的优雅退出上限是 10 s）；超过就强制结束。 */
   shutdownMs: number;
@@ -92,12 +92,9 @@ export interface HostLifecycleOptions {
    * 探活与 `host.shutdown` 时 hello 用的身份。可以是还在读的 Promise：拉起 Host 不等它，只有 hello 用到时才等。
    */
   identity: ClientIdentity | Promise<ClientIdentity>;
-  /**
-   * 启动 Host 的可执行文件。桌面端默认是 Electron 自己，环境里要有 `ELECTRON_RUN_AS_NODE=1`（`hostRuntime`）；
-   * 测试里是运行测试的 Node。
-   */
-  nodePath: string;
-  /** wevir-host 的入口（`@wevir/host` 的 `bin['wevir-host']`，见 `resolveHostEntry`）。 */
+  /** 怎么拉起 Host：桌面端是 utility process（`utilityHostSpawner`），测试里是运行测试的 Node（`nodeHostSpawner`）。 */
+  spawner: HostSpawner;
+  /** wevir-host 的入口（安装包里是 `packagedHostEntry`，开发时是 `@wevir/host` 的 `bin['wevir-host']`，见 `resolveHostEntry`）。 */
   hostEntry: string;
   /** 追加给 wevir-host 的参数，例如测试用的 `--adapter echo`。 */
   hostArgs?: readonly string[];
@@ -171,13 +168,76 @@ function toExit(exit: { code: number | null; signal: NodeJS.Signals | null }): H
 const STDERR_TAIL_LIMIT = 4096;
 const POLL_INTERVAL_MS = 100;
 
+type ExitInfo = { code: number | null; signal: NodeJS.Signals | null };
+
+/** 拉起的 Host 进程（`HostSpawner` 给出）：Node 的子进程或 Electron 的 utility process。 */
+export interface HostChild {
+  /** 进程号；没能启动时是 undefined。 */
+  readonly pid: number | undefined;
+  readonly stdout: NodeJS.ReadableStream | null;
+  readonly stderr: NodeJS.ReadableStream | null;
+  /** 进程退出或没能启动时 resolve，只 resolve 一次。 */
+  readonly exited: Promise<ExitInfo>;
+  /** 没能启动时的错误（例如可执行文件不存在）。 */
+  spawnError(): Error | undefined;
+  /** 请 Host 优雅退出：关归属管道（子进程），或经 parentPort 发 `PARENT_SHUTDOWN_MESSAGE`（utility process）。 */
+  requestExit(): void;
+  /** 强制结束（SIGKILL）。 */
+  kill(): void;
+}
+
+export interface HostSpawner {
+  /** 拉起方式的说法：进日志，起不来时作为 `spawnFailed` 的 `path`。 */
+  readonly executable: string;
+  /**
+   * 以 `args` 运行 Host 的入口 `entry`，环境是 `env`。resolve 时进程已经启动（有 `pid`）或已经失败（`exited` 已 resolve），
+   * 归属通道（`--exit-on-stdin-eof` 等）由拉起方式自己加。
+   */
+  spawn(entry: string, args: readonly string[], env: NodeJS.ProcessEnv): Promise<HostChild>;
+}
+
+/**
+ * 以 `nodePath` 的子进程跑 Host：stdin 是归属管道（`--exit-on-stdin-eof`），本进程退出或崩溃时操作系统关闭它，Host 读到 EOF
+ * 即优雅退出。测试用运行测试的 Node；桌面端设了 `WEVIR_NODE`（`nodeOverride`）时用它。
+ */
+export function nodeHostSpawner(nodePath: string): HostSpawner {
+  return {
+    executable: nodePath,
+    spawn: async (entry, args, env) => {
+      const proc: ChildProcess = spawn(nodePath, [entry, ...args, '--exit-on-stdin-eof'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env,
+        windowsHide: true,
+      });
+      let spawnError: Error | undefined;
+      const exited = new Promise<ExitInfo>((resolveExit) => {
+        proc.once('exit', (code, signal) => resolveExit({ code, signal }));
+        proc.once('error', (error) => {
+          // 多半是 Node 可执行文件不存在（ENOENT）；不会再有 exit 事件。
+          spawnError = error;
+          resolveExit({ code: null, signal: null });
+        });
+      });
+      // Host 退出后再写 stdin 会 EPIPE；归属管道只用来传 EOF，写失败无关紧要。
+      proc.stdin?.on('error', () => {});
+      return {
+        pid: proc.pid,
+        stdout: proc.stdout,
+        stderr: proc.stderr,
+        exited,
+        spawnError: () => spawnError,
+        requestExit: () => proc.stdin?.end(),
+        kill: () => proc.kill('SIGKILL'),
+      };
+    },
+  };
+}
+
 interface OwnedChild {
-  process: ChildProcess;
-  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
+  host: HostChild;
+  exited: Promise<ExitInfo>;
   hasExited: () => boolean;
   stderrTail: () => string;
-  /** 进程没能启动（spawn 的 `error` 事件）时的错误。 */
-  spawnError: () => Error | undefined;
 }
 
 export class HostLifecycle {
@@ -283,9 +343,9 @@ export class HostLifecycle {
   }
 
   /**
-   * 退出时调用：只停止本次拉起的 Host（含还没就绪的）；附着的 Host 不动。先关归属管道（Host 读到 EOF
-   * 即优雅退出），`pipeCloseMs` 内没退出就确认 host.json 仍是它之后发 `host.shutdown`，再过
-   * `shutdownMs` 仍没退出才 SIGKILL。可重复调用。
+   * 退出时调用：只停止本次拉起的 Host（含还没就绪的）；附着的 Host 不动。先请它退出（`HostChild.requestExit`：关归属管道
+   * 或经 parentPort 发消息，Host 随即优雅退出），`pipeCloseMs` 内没退出就确认 host.json 仍是它之后发 `host.shutdown`，
+   * 再过 `shutdownMs` 仍没退出才 SIGKILL。可重复调用。
    */
   stop(): Promise<void> {
     this.#stopping ??= this.#stop();
@@ -492,17 +552,11 @@ export class HostLifecycle {
   }
 
   async #launch(): Promise<HostReady> {
-    const { home, nodePath, hostEntry } = this.#options;
-    const args = [
-      hostEntry,
-      '--home',
-      home,
-      '--exit-on-stdin-eof',
-      ...(this.#options.hostArgs ?? []),
-    ];
-    this.#log('info', 'launching host', { node: nodePath, args });
-    const child = this.#spawn(nodePath, args);
+    const { home, spawner, hostEntry } = this.#options;
+    const args = ['--home', home, ...(this.#options.hostArgs ?? [])];
+    this.#log('info', 'launching host', { via: spawner.executable, entry: hostEntry, args });
     const deadline = performance.now() + this.#timeouts.startMs;
+    const child = await this.#spawn(hostEntry, args);
 
     const outcome = await Promise.race([
       this.#waitReady(child, deadline).then((info) => ({ kind: 'ready' as const, info })),
@@ -516,11 +570,11 @@ export class HostLifecycle {
         this.#log('info', 'another host owns the data directory; waiting to attach');
         return this.#waitAttach(deadline);
       }
-      const spawnError = child.spawnError();
+      const spawnError = child.host.spawnError();
       if (spawnError) {
         throw new HostStartError({
           code: 'spawnFailed',
-          path: nodePath,
+          path: spawner.executable,
           detail: spawnError.message,
         });
       }
@@ -545,47 +599,28 @@ export class HostLifecycle {
     };
   }
 
-  #spawn(nodePath: string, args: string[]): OwnedChild {
-    const proc = spawn(nodePath, args, {
-      // stdin 是归属管道：本进程退出或崩溃时操作系统关闭它，Host 读到 EOF 即优雅退出。
-      stdio: ['pipe', 'pipe', 'pipe'],
+  async #spawn(entry: string, args: string[]): Promise<OwnedChild> {
+    const host = await this.#options.spawner.spawn(entry, args, {
       // wevir-host 的数据目录 WEVIR_HOME 优先于 --home：两处都给同一个值，继承来的 WEVIR_HOME 不会让它
       // 用到别的目录。
-      env: {
-        ...(this.#options.env ?? hostEnvironment(process.env)),
-        WEVIR_HOME: this.#options.home,
-      },
-      windowsHide: true,
+      ...(this.#options.env ?? hostEnvironment(process.env)),
+      WEVIR_HOME: this.#options.home,
     });
-    let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    let exitInfo: ExitInfo | undefined;
     let stderr = '';
-    let spawnError: Error | undefined;
-    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolveExit) => {
-        proc.once('exit', (code, signal) => {
-          exitInfo = { code, signal };
-          resolveExit(exitInfo);
-        });
-        proc.once('error', (error) => {
-          // 多半是 Node 可执行文件不存在（ENOENT）；不会再有 exit 事件。
-          spawnError = error;
-          exitInfo = { code: null, signal: null };
-          resolveExit(exitInfo);
-        });
-      },
-    );
-    // Host 退出后再写 stdin 会 EPIPE；归属管道只用来传 EOF，写失败无关紧要。
-    proc.stdin?.on('error', () => {});
-    proc.stderr?.setEncoding('utf8');
-    proc.stderr?.on('data', (chunk: string) => {
+    const exited = host.exited.then((exit) => {
+      exitInfo = exit;
+      return exit;
+    });
+    host.stderr?.setEncoding('utf8');
+    host.stderr?.on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-STDERR_TAIL_LIMIT);
     });
     const child: OwnedChild = {
-      process: proc,
+      host,
       exited,
       hasExited: () => exitInfo !== undefined,
       stderrTail: () => stderr.trim(),
-      spawnError: () => spawnError,
     };
     void exited.then((exit) => {
       // 就绪之前的退出由 #launch 处理；这里只管已经就绪、视为拥有的那个子进程。
@@ -594,7 +629,7 @@ export class HostLifecycle {
         this.#stopping ||
         this.#child !== child ||
         ownership?.kind !== 'owned' ||
-        ownership.pid !== proc.pid
+        ownership.pid !== host.pid
       ) {
         return;
       }
@@ -611,13 +646,13 @@ export class HostLifecycle {
   async #waitReady(child: OwnedChild, deadline: number): Promise<HostRuntimeInfo | undefined> {
     // 轮询 host.json；收到就绪行时立即重读，不等下一轮。Host 先原子替换 host.json 再写就绪行（T2.5）。
     let wake: (() => void) | undefined;
-    const stdout = child.process.stdout;
+    const stdout = child.host.stdout;
     if (stdout) {
       // 就绪行之后 Host 不再写 stdout，但仍读到底，避免管道写满。
       createInterface({ input: stdout }).on('line', (line) => {
         try {
           const value = JSON.parse(line) as { event?: unknown; pid?: unknown };
-          if (value.event === 'ready' && value.pid === child.process.pid) wake?.();
+          if (value.event === 'ready' && value.pid === child.host.pid) wake?.();
         } catch {
           // 不是 JSON 的行忽略。
         }
@@ -625,7 +660,7 @@ export class HostLifecycle {
     }
     while (performance.now() < deadline && !child.hasExited()) {
       const info = await this.#readRuntimeInfo();
-      if (info?.url !== undefined && info.pid === child.process.pid) return info;
+      if (info?.url !== undefined && info.pid === child.host.pid) return info;
       await new Promise<void>((resolveWait) => {
         const timer = setTimeout(resolveWait, POLL_INTERVAL_MS);
         wake = () => {
@@ -688,19 +723,17 @@ export class HostLifecycle {
     const ownership = this.#ready?.ownership;
     if (ownership?.kind === 'attached') return;
 
-    this.#log('info', 'stopping owned host: closing the ownership pipe', {
-      pid: child.process.pid,
-    });
+    this.#log('info', 'stopping owned host: asking it to exit', { pid: child.host.pid });
     const stopStartedAt = Date.now();
-    const elapsed = () => ({ pid: child.process.pid, ms: Date.now() - stopStartedAt });
-    child.process.stdin?.end();
+    const elapsed = () => ({ pid: child.host.pid, ms: Date.now() - stopStartedAt });
+    child.host.requestExit();
     if (await exitsWithin(child, this.#timeouts.pipeCloseMs)) {
       this.#log('info', 'owned host exited', elapsed());
       return;
     }
 
-    this.#log('warn', 'host did not exit after the pipe closed; requesting host.shutdown', {
-      pid: child.process.pid,
+    this.#log('warn', 'host did not exit when asked; requesting host.shutdown', {
+      pid: child.host.pid,
       waitedMs: this.#timeouts.pipeCloseMs,
     });
     if (ownership && (await this.#isStillOurs(ownership))) {
@@ -718,7 +751,7 @@ export class HostLifecycle {
 
   async #terminate(child: OwnedChild): Promise<void> {
     if (child.hasExited()) return;
-    child.process.kill('SIGKILL');
+    child.host.kill();
     await child.exited;
   }
 
@@ -779,9 +812,9 @@ function describe(error: unknown): string {
 }
 
 /**
- * Host 子进程的环境：继承桌面的环境，去掉 Electron 与 electron-vite 的变量（例如
- * `ELECTRON_RUN_AS_NODE`、`ELECTRON_RENDERER_URL`），继承来的这些对 Host 没有意义；用 Electron 跑 Host 要的
- * `ELECTRON_RUN_AS_NODE=1` 由 `hostRuntime` 另加。Host 给引擎的环境另有白名单（ADR-0001、ADR-0005 决策 5）。
+ * Host 进程的环境：继承桌面的环境，去掉 Electron 与 electron-vite 的变量（例如
+ * `ELECTRON_RUN_AS_NODE`、`ELECTRON_RENDERER_URL`），继承来的这些对 Host 没有意义。Host 给引擎的环境另有白名单
+ * （ADR-0001、ADR-0005 决策 5）；Host 用自己的可执行文件跑脚本（MCP 桥、`cli.js` 等）时自己带 `ELECTRON_RUN_AS_NODE=1`。
  *
  * `resourcesDir` 是安装包随附的运行时所在的目录（打包后的 `process.resourcesPath`，ADR-0007 决策 5），作为
  * `WEVIR_RESOURCES_DIR` 交给 Host，adapter-codex 先在这里找 codex-app-server；环境里已经有这个变量时不覆盖（测试与
@@ -802,31 +835,18 @@ export function hostEnvironment(env: NodeJS.ProcessEnv, resourcesDir?: string): 
 /** 资源目录的环境变量，与 adapter-codex 的 `RESOURCES_DIR_ENV` 相同（桌面端不依赖引擎包）。 */
 export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
 
-/** 拉起 Host 用什么运行它。 */
-export interface HostRuntime {
-  /** 可执行文件。 */
-  nodePath: string;
-  /** 要加进 Host 环境的变量（在 `hostEnvironment` 去掉 `ELECTRON_*` 之后加）。 */
-  env: Readonly<Record<string, string>>;
-}
-
 /**
- * 默认用 Electron 自带的 Node 跑 Host：`process.execPath`（开发时是 Electron，打包后是 Wevir 主程序）加
- * `ELECTRON_RUN_AS_NODE=1`，用户不用另装 Node（ADR-0007 决策 4）。Host 给引擎的环境按白名单构造，这个变量不会
- * 传到 codex-app-server 和它跑的命令里。`WEVIR_NODE` 指定别的 Node 时改用它，排查问题时用。
+ * `WEVIR_NODE` 指定了 Node 时返回它：桌面端改以它的子进程跑 Host（`nodeHostSpawner`），排查问题时用。否则 undefined，
+ * 桌面端以 Electron 的 utility process 跑 Host（utility-host.ts，ADR-0007 决策 4、补记 10），用户不用另装 Node。
  */
-export function hostRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-  execPath: string = process.execPath,
-): HostRuntime {
+export function nodeOverride(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const override = env.WEVIR_NODE;
-  if (override !== undefined && override !== '') return { nodePath: override, env: {} };
-  return { nodePath: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
+  return override === undefined || override === '' ? undefined : override;
 }
 
 /**
- * 安装包里 wevir-host 的入口：资源目录的 `host/dist/main.js`（scripts/stage-resources.ts 用 pnpm deploy 准备，连同
- * 生产依赖在 `host/node_modules/`，ADR-0007）。主进程打成单个文件，安装包里没有 `@wevir/host` 可解析。
+ * 安装包里 wevir-host 的入口：资源目录的 `host/dist/main.js`（scripts/stage-resources.ts 打成的 bundle，要原样在磁盘上的几个
+ * 包在 `host/node_modules/`，ADR-0007 补记 10）。主进程打成单个文件，安装包里没有 `@wevir/host` 可解析。
  */
 export function packagedHostEntry(resourcesDir: string): string {
   const entry = join(resourcesDir, 'host', 'dist', 'main.js');

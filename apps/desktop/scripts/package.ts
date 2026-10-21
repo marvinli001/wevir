@@ -46,7 +46,7 @@ function localActoolVersion(): string | undefined {
   return result.status === 0 ? actoolVersion(result.stdout) : undefined;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     options: { target: { type: 'string' }, 'app-version': { type: 'string' } },
     allowPositionals: true,
@@ -58,7 +58,7 @@ function main(): void {
       '没有 Xcode 26 的 actool：macOS 安装包改用浅色 ICNS，图标不会在应用没启动时跟随系统的深色外观。',
     );
   }
-  stageResources(target);
+  await stageResources(target);
   run('pnpm', ['exec', 'electron-vite', 'build'], desktop);
   run(
     'pnpm',
@@ -81,4 +81,4 @@ function main(): void {
   );
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

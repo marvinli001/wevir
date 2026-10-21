@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -14,14 +15,18 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { actoolVersion, builderArgs, MAC_FALLBACK_ICON, macIconArgs } from './package.js';
 import {
+  bundleHost,
+  checkBundleImports,
   checkHostTree,
   EXCLUDED_PACKAGES,
   entryFiles,
   hostTarget,
   nodePlatform,
+  ON_DISK_PACKAGES,
   pruneDependencies,
   pruneUnusedFiles,
   trimNodePty,
+  writeBundleManifest,
 } from './stage-resources.js';
 
 describe('hostTarget', () => {
@@ -130,6 +135,104 @@ describe('pruneDependencies / checkHostTree', () => {
     deployLike();
     expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).toThrow(
       /符号链接[\s\S]*vite 有 postinstall 脚本[\s\S]*不该进安装包的包/,
+    );
+  });
+});
+
+describe('bundleHost / checkBundleImports / writeBundleManifest', () => {
+  let root: string;
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function file(path: string, content: string): void {
+    mkdirSync(join(root, path, '..'), { recursive: true });
+    writeFileSync(join(root, path), content);
+  }
+
+  it('依赖打进 bundle，import() 拆成按需加载的文件，ON_DISK_PACKAGES 留成外部依赖；产物能跑', async () => {
+    root = mkdtempSync(join(tmpdir(), 'wevir-bundle-'));
+    file('package.json', JSON.stringify({ name: '@wevir/host', type: 'module' }));
+    file(
+      'dist/main.js',
+      [
+        "import { greet } from 'esm-dep';",
+        "const lazy = (await import('cjs-dep')).default;",
+        "const zod = await import('zod').catch(() => 'zod stays outside the bundle');",
+        'console.log(greet(lazy.name), typeof zod);',
+      ].join('\n'),
+    );
+    pkg(root, 'esm-dep', { type: 'module', exports: './index.js' });
+    file('node_modules/esm-dep/index.js', 'export const greet = (n) => "hello " + n;');
+    pkg(root, 'cjs-dep', { main: 'index.js' });
+    file('node_modules/cjs-dep/index.js', "module.exports = { name: 'cjs' };");
+    pkg(root, 'zod', { version: '4.0.0', type: 'module', exports: './index.js' });
+    file('node_modules/zod/index.js', 'export const z = 1;');
+
+    const files = await bundleHost(root);
+    expect(files[0]).toBe('main.js');
+    expect(files.length).toBeGreaterThan(1);
+    expect(readdirSync(join(root, 'dist')).sort()).toEqual([...files].sort());
+    const main = readFileSync(join(root, 'dist', 'main.js'), 'utf8');
+    // esm-dep 打进 main.js，cjs-dep 拆成按需加载的文件，zod 留在外面。
+    expect(main).toContain('"hello " + n');
+    expect(main).not.toMatch(/from "esm-dep"|import\("cjs-dep"\)/);
+    expect(main).toMatch(/import\("zod"\)/);
+
+    // 只留 zod：bundle 照样能跑，打进去的包不再需要。
+    writeBundleManifest(root);
+    expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))).toEqual({
+      name: 'wevir-host',
+      private: true,
+      type: 'module',
+      main: 'dist/main.js',
+      dependencies: { zod: '4.0.0' },
+      optionalDependencies: {},
+    });
+    expect(pruneDependencies(root, EXCLUDED_PACKAGES).sort()).toEqual(['cjs-dep', 'esm-dep']);
+    const output = execFileSync(process.execPath, [join(root, 'dist', 'main.js')], {
+      encoding: 'utf8',
+    });
+    expect(output.trim()).toBe('hello cjs object');
+  });
+
+  it('checkBundleImports 指出没打进去的 import 与运行时的 require，内置模块、外部包与相对路径不算', () => {
+    const chunk = (code: string, imports: string[] = []) => ({
+      fileName: 'main.js',
+      imports,
+      dynamicImports: [],
+      code,
+    });
+    const allowed = [...ON_DISK_PACKAGES, ...EXCLUDED_PACKAGES];
+    expect(() =>
+      checkBundleImports(
+        [
+          chunk(
+            [
+              'const require = createRequire(import.meta.url);',
+              "require('node-pty'); require.resolve('zod/package.json'); require('./local.js');",
+              '__require("fs"); __require("node:path"); some.require("x");',
+            ].join('\n'),
+            ['node:fs', 'events', 'zod', '@anthropic-ai/claude-agent-sdk', 'chunk-1.js'],
+          ),
+          { ...chunk(''), fileName: 'chunk-1.js' },
+        ],
+        allowed,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      checkBundleImports(
+        [
+          chunk(
+            [
+              "createRequire(import.meta.url)('vscode-languageserver-protocol/node');",
+              "const t = require$1('turndown');",
+            ].join('\n'),
+            ['ws'],
+          ),
+        ],
+        allowed,
+      ),
+    ).toThrow(
+      /main\.js：import ws[\s\S]*require vscode-languageserver-protocol\/node[\s\S]*require turndown/,
     );
   });
 });
