@@ -10,8 +10,11 @@ export const OAUTH_TOOL = 'oauth_echo';
 export const SCOPED_TOOL = 'oauth_write';
 
 export interface FakeOAuthOptions {
-  /** 受保护资源元数据怎么发现：`header` 只在 401 的 WWW-Authenticate 里，`wellknown` 只在 well-known（带路径），`none` 没有（回退到 origin）。 */
-  resourceMetadata?: 'header' | 'wellknown' | 'none';
+  /**
+   * 受保护资源元数据怎么发现：`header` 只在 401 的 WWW-Authenticate 里，`wellknown` 只在 well-known（带路径），`root` 只在根上的
+   * well-known（Slack），`none` 没有（回退到 origin）。
+   */
+  resourceMetadata?: 'header' | 'wellknown' | 'root' | 'none';
   /** 授权服务器元数据在哪：`oauth` RFC 8414，`oidc` 只有 OpenID Connect Discovery。 */
   asMetadata?: 'oauth' | 'oidc';
   /** 授权服务器的 issuer 路径，如 `/tenant`。 */
@@ -35,6 +38,13 @@ export interface FakeOAuthOptions {
   scopesSupported?: string[];
   /** 换令牌延迟（毫秒），测并发刷新。 */
   tokenDelayMs?: number;
+  /**
+   * 令牌端点的回复形状：`github` 没有 expires_in 与 refresh_token、scope 用逗号分隔、出错也回 200，请求没要 JSON 时回表单编码；
+   * `slack` 是 `{ ok, access_token, token_type: 'user', authed_user: { id, scope }, team }`，出错回 200 的 `{ ok: false, error }`。
+   */
+  tokenShape?: 'standard' | 'github' | 'slack';
+  /** 注册过的回调地址：给了就只认完全相同的 redirect_uri（Slack、Google）。 */
+  registeredRedirects?: string[];
   /** 授权服务器元数据里的端点用这个 origin（测不安全地址）。 */
   endpointOrigin?: string;
   /** 带了有效令牌的 MCP 请求一律 307 到这个地址（测不跟随跨 origin 跳转）。 */
@@ -70,7 +80,7 @@ export interface FakeOAuthServer {
   /** 工具调用次数。 */
   toolCalls: number;
   /** 让下一次授权回调用这些参数（拒绝、错 iss 等）。 */
-  nextAuthorize: { deny?: boolean; iss?: string } | undefined;
+  nextAuthorize: { deny?: boolean; iss?: string; badCode?: boolean } | undefined;
   /** 让所有访问令牌作废（测 401 后刷新重发）。 */
   revokeAllAccess(): void;
   /** SSE：打开的 GET 流写一个事件。 */
@@ -166,6 +176,10 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
     if (path.startsWith('/.well-known/oauth-protected-resource')) {
       if (options.resourceMetadata === 'none') return json(404, {});
       if (options.resourceMetadata === 'header' && path !== '/prm') return json(404, {});
+      if (options.resourceMetadata === 'root')
+        return path === '/.well-known/oauth-protected-resource'
+          ? json(200, resourceMetadata())
+          : json(404, {});
       if (path === '/.well-known/oauth-protected-resource/mcp')
         return json(200, resourceMetadata());
       return json(404, {});
@@ -189,6 +203,11 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
     if (path === '/authorize') {
       const params = url.searchParams;
       state.authorizeRequests.push(params);
+      if (
+        options.registeredRedirects &&
+        !options.registeredRedirects.includes(params.get('redirect_uri') ?? '')
+      )
+        return json(400, { error: 'invalid_request', error_description: 'redirect_uri mismatch' });
       const redirect = new URL(params.get('redirect_uri') ?? '');
       const next = state.nextAuthorize;
       state.nextAuthorize = undefined;
@@ -206,7 +225,7 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
           resource: params.get('resource') ?? undefined,
           scope: params.get('scope') ?? '',
         });
-        redirect.searchParams.set('code', code);
+        redirect.searchParams.set('code', next?.badCode ? 'code-unknown' : code);
       }
       res.writeHead(302, { location: redirect.href }).end();
       return;
@@ -222,6 +241,46 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
         ...(basic && { basic_client_secret: decodeURIComponent(basic[1] ?? '') }),
       });
       if (options.tokenDelayMs) await new Promise((r) => setTimeout(r, options.tokenDelayMs));
+      const shape = options.tokenShape ?? 'standard';
+      const fail = (error: string, status = 400) => {
+        if (shape === 'github') return json(200, { error, error_description: 'Rejected.' });
+        if (shape === 'slack') return json(200, { ok: false, error });
+        return json(status, { error });
+      };
+      const success = (access: string, refresh: string | undefined, scope: string) => {
+        if (shape === 'github') {
+          const value = {
+            access_token: access,
+            token_type: 'bearer',
+            scope: scope.split(' ').filter(Boolean).join(','),
+          };
+          if (!String(req.headers.accept ?? '').includes('application/json')) {
+            res
+              .writeHead(200, { 'content-type': 'application/x-www-form-urlencoded' })
+              .end(new URLSearchParams(value).toString());
+            return;
+          }
+          return json(200, value);
+        }
+        const ttl = options.tokenTtlSec;
+        if (shape === 'slack')
+          return json(200, {
+            ok: true,
+            access_token: access,
+            token_type: 'user',
+            ...(refresh !== undefined && { refresh_token: refresh }),
+            ...(ttl !== undefined && { expires_in: ttl }),
+            authed_user: { id: 'U0001', scope: scope.split(' ').filter(Boolean).join(',') },
+            team: { id: 'T0001' },
+          });
+        return json(200, {
+          access_token: access,
+          token_type: 'Bearer',
+          ...(refresh !== undefined && { refresh_token: refresh }),
+          ...(ttl !== undefined && { expires_in: ttl }),
+          ...(scope !== '' && { scope }),
+        });
+      };
       if (params.grant_type === 'authorization_code') {
         const grant = grants.get(params.code ?? '');
         grants.delete(params.code ?? '');
@@ -233,37 +292,27 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
           grant.redirectUri !== params.redirect_uri ||
           grant.resource !== params.resource
         )
-          return json(400, { error: 'invalid_grant' });
+          return fail(shape === 'github' ? 'bad_verification_code' : 'invalid_grant');
         const configured = options.clients?.find((client) => client.id === grant.clientId);
         const secret =
           basic?.[1] !== undefined ? decodeURIComponent(basic[1]) : params.client_secret;
         if (configured?.secret !== undefined && configured.secret !== secret)
-          return json(401, { error: 'invalid_client' });
+          return fail('invalid_client', 401);
         const { access, refresh } = issue(grant.scope);
-        return json(200, {
-          access_token: access,
-          token_type: 'Bearer',
-          refresh_token: refresh,
-          ...(options.tokenTtlSec !== undefined && { expires_in: options.tokenTtlSec }),
-          ...(grant.scope !== '' && { scope: grant.scope }),
-        });
+        if (shape === 'github') state.refreshTokens.delete(refresh);
+        return success(access, shape === 'github' ? undefined : refresh, grant.scope);
       }
       if (params.grant_type === 'refresh_token') {
         const refresh = params.refresh_token ?? '';
         if (options.rejectRefresh || !state.refreshTokens.has(refresh))
-          return json(400, { error: 'invalid_grant' });
+          return fail(shape === 'slack' ? 'invalid_refresh_token' : 'invalid_grant');
         const { access, refresh: rotated } = issue('');
         state.refreshTokens.delete(rotated);
         if (options.rotateRefresh) {
           state.refreshTokens.delete(refresh);
           state.refreshTokens.add(rotated);
         }
-        return json(200, {
-          access_token: access,
-          token_type: 'bearer',
-          ...(options.rotateRefresh && { refresh_token: rotated }),
-          ...(options.tokenTtlSec !== undefined && { expires_in: options.tokenTtlSec }),
-        });
+        return success(access, options.rotateRefresh ? rotated : undefined, '');
       }
       return json(400, { error: 'unsupported_grant_type' });
     }
@@ -279,7 +328,7 @@ export async function startFakeOAuth(options: FakeOAuthOptions = {}): Promise<Fa
       const grant = token === undefined ? undefined : state.accessTokens.get(token);
       if (!grant || grant.expiresAt <= Date.now()) {
         const params = [
-          ...(options.resourceMetadata !== 'wellknown' && options.resourceMetadata !== 'none'
+          ...(options.resourceMetadata === undefined || options.resourceMetadata === 'header'
             ? [`resource_metadata="${origin}/prm"`]
             : []),
           ...(options.challengeScope ? [`scope="${options.challengeScope}"`] : []),

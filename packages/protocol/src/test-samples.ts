@@ -2689,6 +2689,7 @@ export const methodSamples: MethodSamples = {
               callbackPort: 33418,
               callbackUrl: 'http://127.0.0.1:33418/callback',
               resource: 'https://api.githubcopilot.com/mcp/',
+              authorizeParams: { access_type: 'offline' },
             },
           },
         },
@@ -2699,6 +2700,14 @@ export const methodSamples: MethodSamples = {
         {
           name: 'x',
           config: { transport: 'http', url: 'https://a.example/mcp', oauth: { callbackPort: 0 } },
+        },
+        {
+          name: 'x',
+          config: {
+            transport: 'http',
+            url: 'https://a.example/mcp',
+            oauth: { authorizeParams: { redirect_uri: 'http://127.0.0.1/x' } },
+          },
         },
         { name: 'x', config: { transport: 'stdio', command: 'node' }, workspaceId: 'ws-' },
         { name: 'Upper', config: { transport: 'stdio', command: 'node' } },

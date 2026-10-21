@@ -664,8 +664,15 @@ const standaloneCases: Case[] = [
       {},
       { clientId: 'abc', clientSecret: 'input-only', scopes: ['read'], callbackPort: 33418 },
       { callbackUrl: 'http://127.0.0.1:33418/callback', resource: 'https://mcp.example.com/' },
+      { authorizeParams: { access_type: 'offline', prompt: 'consent' } },
     ],
-    invalid: [{ clientId: '' }, { callbackPort: 70000 }, { callbackUrl: 'wevir://callback' }],
+    invalid: [
+      { clientId: '' },
+      { callbackPort: 70000 },
+      { callbackUrl: 'wevir://callback' },
+      { authorizeParams: { state: 'x' } },
+      { authorizeParams: { '': 'x' } },
+    ],
   },
   {
     name: 'ConnectorOAuthStatus',

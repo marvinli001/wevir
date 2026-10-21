@@ -179,6 +179,16 @@
                         "type": "string",
                         "format": "uri"
                       },
+                      "authorizeParams": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
                       "clientSecret": {
                         "type": "string"
                       }

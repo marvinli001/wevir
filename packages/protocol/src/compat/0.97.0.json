@@ -282,7 +282,8 @@
               "scopes": ["repo"],
               "callbackPort": 33418,
               "callbackUrl": "http://127.0.0.1:33418/callback",
-              "resource": "https://api.githubcopilot.com/mcp/"
+              "resource": "https://api.githubcopilot.com/mcp/",
+              "authorizeParams": { "access_type": "offline" }
             }
           }
         }

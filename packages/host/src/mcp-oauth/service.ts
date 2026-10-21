@@ -6,7 +6,11 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { lookup as dnsLookup } from 'node:dns';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { ConnectorOAuth, McpOAuthConfig } from '@wevir/protocol';
+import {
+  type ConnectorOAuth,
+  type McpOAuthConfig,
+  OAUTH_RESERVED_AUTHORIZE_PARAMS,
+} from '@wevir/protocol';
 import type { EngineMcpConfig } from '@wevir/runtime-adapter';
 import type { SecretStore } from '@wevir/storage';
 import { HostError } from '../errors.js';
@@ -134,6 +138,8 @@ interface Login {
   scopes: string[];
   scope: AddressScope;
   callback: CallbackServer;
+  /** 用配置的固定回调地址（没有按服务器区分的路径）：这样的登录同一时间只能有一个。 */
+  fixedCallback: boolean;
   timer: NodeJS.Timeout;
   done: boolean;
 }
@@ -372,6 +378,7 @@ export class McpOAuthService {
     this.#errors.delete(target.id);
     const scope = scopeOf(target.url);
     const oauth = target.oauth ?? {};
+    const fixedCallback = oauth.callbackUrl !== undefined;
     let discovery: Discovery;
     try {
       discovery = await discover(target.url, target.headers, { scope, ...this.#lookup });
@@ -391,15 +398,18 @@ export class McpOAuthService {
     const issuerBound =
       metadata.authorization_response_iss_parameter_supported === true &&
       metadata.issuer !== undefined;
-    // 回调地址：授权服务器回 `iss` 时用共用的 /callback，否则加上按服务器区分的一段（RFC 9700 §4.4）。
+    // 回调地址：授权服务器回 `iss` 时用共用的 /callback，否则加上按服务器区分的一段（RFC 9700 §4.4）。配置了 callbackUrl 的
+    // 原样用（Slack、Google 要求与注册的完全一致），防混淆靠 state 与同一时间只有一个这样的登录。
     const base = new URL(oauth.callbackUrl ?? 'http://127.0.0.1/callback');
     if (base.protocol !== 'http:' || !isLoopbackHost(base.hostname))
       throw failed('callback_unavailable', 'The callback URL must be a loopback http URL');
-    if (!issuerBound) {
+    if (!issuerBound && !fixedCallback) {
       const id = callbackId(target.url);
       if (base.pathname.split('/').at(-1) !== id)
         base.pathname = `${base.pathname.replace(/\/$/, '')}/${id}`;
     }
+    for (const other of [...this.#logins.values()])
+      if (fixedCallback || other.fixedCallback) this.#finish(other, undefined);
     const login = { loginId: `login_${randomUUID()}` } as Login;
     let callback: CallbackServer;
     try {
@@ -428,7 +438,9 @@ export class McpOAuthService {
       const { verifier, challenge } = pkcePair();
       const state = randomState();
       const authUrl = new URL(metadata.authorization_endpoint);
+      const extra = authorizeParams(oauth, this.#tokens.get(target.id));
       for (const [key, value] of Object.entries({
+        ...extra,
         response_type: 'code',
         client_id: client.credentials.clientId,
         redirect_uri: redirectUri,
@@ -453,6 +465,7 @@ export class McpOAuthService {
         scopes: requested,
         scope,
         callback,
+        fixedCallback,
         done: false,
         timer: setTimeout(
           () => this.#finish(login, 'timeout'),
@@ -484,9 +497,7 @@ export class McpOAuthService {
     const metadata = discovery.metadata;
     const oauth = target.oauth ?? {};
     if (oauth.clientId !== undefined && oauth.clientId !== '') {
-      const secret = target.clientSecretStored
-        ? await this.#readSecret(clientSecretRef(target.id))
-        : oauth.clientSecret || undefined;
+      const secret = await this.#configuredSecret(target);
       const authMethod = configuredAuthMethod(
         secret,
         metadata.token_endpoint_auth_methods_supported,
@@ -729,14 +740,21 @@ export class McpOAuthService {
       });
   }
 
+  /**
+   * 配置的客户端密钥：用户填的在密钥文件里；插件清单里写死的是分发出去的客户端的公开密钥（照样打码，但不算用户密钥）。
+   */
+  async #configuredSecret(target: OAuthTarget): Promise<string | undefined> {
+    if (target.clientSecretStored) return this.#readSecret(clientSecretRef(target.id));
+    const literal = target.oauth?.clientSecret || undefined;
+    if (literal !== undefined) this.#options.onSecret?.(literal);
+    return literal;
+  }
+
   async #credentials(target: OAuthTarget, stored: StoredOAuth): Promise<ClientCredentials> {
     let secret: string | undefined;
     if (stored.registration === 'dynamic' && stored.clientSecretRef)
       secret = await this.#readSecret(stored.clientSecretRef);
-    else if (stored.registration === 'configured')
-      secret = target.clientSecretStored
-        ? await this.#readSecret(clientSecretRef(target.id))
-        : target.oauth?.clientSecret || undefined;
+    else if (stored.registration === 'configured') secret = await this.#configuredSecret(target);
     return {
       clientId: stored.clientId,
       authMethod: stored.authMethod,
@@ -875,6 +893,24 @@ function toHostError(error: unknown): Error {
       error.message,
     );
   return error instanceof Error ? error : new Error(String(error));
+}
+
+const RESERVED_AUTHORIZE: ReadonlySet<string> = new Set(OAUTH_RESERVED_AUTHORIZE_PARAMS);
+
+/**
+ * 授权请求另加的参数（清单或配置的 `authorizeParams`，Host 自己设的那几个跳过）。Google 要 `access_type=offline` 才给刷新令牌，
+ * 而且同一账号授权过以后只有带 `prompt=consent` 才再给：手上没有刷新令牌时自动加上（写了 `prompt` 的照写的）。
+ */
+function authorizeParams(
+  oauth: McpOAuthConfig,
+  tokens: TokenSet | undefined,
+): Record<string, string> {
+  const params = Object.fromEntries(
+    Object.entries(oauth.authorizeParams ?? {}).filter(([key]) => !RESERVED_AUTHORIZE.has(key)),
+  );
+  if (params.access_type === 'offline' && params.prompt === undefined && !tokens?.refreshToken)
+    params.prompt = 'consent';
+  return params;
 }
 
 function parseTokens(raw: string): TokenSet | undefined {

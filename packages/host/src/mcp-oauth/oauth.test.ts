@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -338,6 +338,188 @@ describe('授权码与回调', () => {
     s.oauth.cancel(second.loginId);
     expect(await status(s)).toEqual({ status: 'required' });
     expect(() => s.oauth.cancel(second.loginId)).toThrow();
+  });
+});
+
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as AddressInfo).port;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+/** 只有一个 OAuth 连接器的插件包。 */
+function oauthPlugin(fake: FakeOAuthServer, oauth: Record<string, unknown>): string {
+  homes += 1;
+  const root = join(temp(), `plugin-${homes}`);
+  mkdirSync(root, { recursive: true });
+  writeFileSync(
+    join(root, 'wevir-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'tracker-kit',
+      name: 'Tracker kit',
+      version: '1.0.0',
+      description: 'OAuth test plugin',
+      author: { name: 'Wevir tests' },
+      license: 'MIT',
+      connectors: { tracker: { transport: 'http', url: fake.url, auth: 'oauth', oauth } },
+    }),
+  );
+  return root;
+}
+
+describe('预注册客户端（GitHub、Slack、Google 的形状）', () => {
+  it('清单里的公开 secret 不要求用户填、照样打码；固定 callbackUrl 原样用；authorizeParams 与 prompt=consent；PKCE 照带', async () => {
+    const port = await freePort();
+    const callbackUrl = `http://127.0.0.1:${port}/oauth/callback`;
+    const s = await setup({
+      dcr: false,
+      clients: [{ id: 'wevir-app', secret: 'public-secret-5d2' }],
+      registeredRedirects: [callbackUrl],
+      tokenTtlSec: 3600,
+    });
+    const { plugin } = await s.store.installPlugin(
+      oauthPlugin(s.fake, {
+        clientId: 'wevir-app',
+        clientSecret: 'public-secret-5d2',
+        callbackUrl,
+        authorizeParams: { access_type: 'offline' },
+      }),
+    );
+    const view = (await s.store.list()).connectors.find((c) => c.id === plugin.connectors[0]);
+    expect(view?.config).toMatchObject({
+      oauth: {
+        clientId: 'wevir-app',
+        clientSecret: true,
+        authorizeParams: { access_type: 'offline' },
+      },
+    });
+    expect(view?.missingInputs).toBeUndefined();
+    expect(view?.oauth).toEqual({ status: 'required' });
+
+    const ref = { name: 'tracker', pluginId: 'tracker-kit' };
+    const { authUrl } = await s.oauth.login(ref);
+    const query = new URL(authUrl).searchParams;
+    expect(query.get('redirect_uri')).toBe(callbackUrl);
+    expect(query.get('access_type')).toBe('offline');
+    expect(query.get('prompt')).toBe('consent');
+    expect(query.get('code_challenge_method')).toBe('S256');
+    expect((await browse(authUrl)).status).toBe(200);
+    expect(s.fake.tokenRequests[0]).toMatchObject({
+      basic_client_id: 'wevir-app',
+      basic_client_secret: 'public-secret-5d2',
+      redirect_uri: callbackUrl,
+    });
+    expect(s.fake.tokenRequests[0]?.code_verifier).toMatch(/^[\w-]{43}$/);
+    expect((await s.engine('tracker-kit_tracker'))?.url).toContain('/mcp/remote/');
+    expect(JSON.stringify(await s.store.engineConfig())).not.toContain('public-secret-5d2');
+    expect(JSON.stringify(await s.store.list())).not.toContain('public-secret-5d2');
+    expect(s.store.appToolSecrets()).toContain('public-secret-5d2');
+    // 不算用户密钥：不进密钥文件。
+    expect(readFileSync(join(s.home, 'secrets.json'), 'utf8')).not.toContain('public-secret-5d2');
+
+    // 手上已经有刷新令牌：不再加 prompt=consent。
+    const again = await s.oauth.login(ref);
+    expect(new URL(again.authUrl).searchParams.get('prompt')).toBeNull();
+    s.oauth.cancel(again.loginId);
+  });
+
+  it('固定回调的登录同一时间只有一个；写了 prompt 的照写的', async () => {
+    const callbackUrl = `http://127.0.0.1:${await freePort()}/callback`;
+    const s = await setup({ dcr: false, clients: [{ id: 'fixed' }] });
+    const config = (authorizeParams?: Record<string, string>) =>
+      ({
+        transport: 'http',
+        url: s.fake.url,
+        auth: 'oauth',
+        oauth: { clientId: 'fixed', callbackUrl, ...(authorizeParams && { authorizeParams }) },
+      }) as const;
+    await s.store.add('one', config({ access_type: 'offline', prompt: 'select_account' }));
+    await s.store.add('two', config());
+    const first = await s.oauth.login({ name: 'one' });
+    expect(new URL(first.authUrl).searchParams.get('prompt')).toBe('select_account');
+    const second = await s.oauth.login({ name: 'two' });
+    expect(new URL(second.authUrl).searchParams.get('redirect_uri')).toBe(callbackUrl);
+    expect(await status(s, 'one')).toEqual({ status: 'required' });
+    expect(() => s.oauth.cancel(first.loginId)).toThrow('No such sign-in');
+    expect((await browse(second.authUrl)).status).toBe(200);
+    expect(await status(s, 'two')).toMatchObject({ status: 'signed_in' });
+  });
+
+  it('GitHub 形状：不过期、没有刷新令牌、scope 逗号分隔、出错回 200；回调地址没写端口时随机取；被撤销后要重新登录', async () => {
+    const s = await setup({
+      dcr: false,
+      clients: [{ id: 'gh-app', secret: 'gh-public' }],
+      tokenShape: 'github',
+      scopesSupported: ['repo', 'read:org'],
+    });
+    await s.store.add('remote', {
+      transport: 'http',
+      url: s.fake.url,
+      auth: 'oauth',
+      oauth: {
+        clientId: 'gh-app',
+        clientSecret: 'gh-public',
+        callbackUrl: 'http://127.0.0.1/callback',
+      },
+    });
+    s.fake.nextAuthorize = { badCode: true };
+    const failed = await s.oauth.login({ name: 'remote' });
+    expect(new URL(failed.authUrl).searchParams.get('redirect_uri')).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/callback$/,
+    );
+    expect((await browse(failed.authUrl)).status).toBe(502);
+    expect(await status(s)).toEqual({ status: 'error', error: 'token_exchange_failed' });
+
+    const { authUrl } = await s.oauth.login({ name: 'remote' });
+    expect((await browse(authUrl)).status).toBe(200);
+    expect(await status(s)).toEqual({
+      status: 'signed_in',
+      issuer: s.fake.issuer,
+      scopes: ['repo', 'read:org'],
+    });
+    expect((await s.call(tools)).status).toBe(200);
+    s.fake.revokeAllAccess();
+    expect((await s.call(tools)).status).toBe(401);
+    expect(s.fake.tokenRequests.some((r) => r.grant_type === 'refresh_token')).toBe(false);
+    expect(await status(s)).toEqual({ status: 'required', error: 'refresh_failed' });
+  });
+
+  it('Slack 形状：受保护资源元数据只在根上；token_type user、scope 在 authed_user 里；刷新与出错回 200 的 ok:false', async () => {
+    const callbackUrl = `http://127.0.0.1:${await freePort()}/slack/callback`;
+    const s = await setup({
+      resourceMetadata: 'root',
+      dcr: false,
+      clients: [{ id: 'slack-app', secret: 'slack-public' }],
+      tokenShape: 'slack',
+      tokenTtlSec: 3600,
+      rotateRefresh: true,
+      registeredRedirects: [callbackUrl],
+      scopesSupported: ['channels:history', 'chat:write'],
+    });
+    const { page } = await signIn(s, {
+      auth: 'oauth',
+      oauth: { clientId: 'slack-app', clientSecret: 'slack-public', callbackUrl },
+    });
+    expect(page.status).toBe(200);
+    expect(await status(s)).toMatchObject({
+      status: 'signed_in',
+      scopes: ['channels:history', 'chat:write'],
+    });
+    expect(s.fake.requests.map((r) => r.path)).toContain('/.well-known/oauth-protected-resource');
+
+    s.fake.revokeAllAccess();
+    expect((await s.call(tools)).status).toBe(200);
+    expect(s.fake.tokenRequests.at(-1)).toMatchObject({
+      grant_type: 'refresh_token',
+      basic_client_id: 'slack-app',
+    });
+    s.fake.revokeAllAccess();
+    s.fake.refreshTokens.clear();
+    expect((await s.call(tools)).status).toBe(401);
+    expect(await status(s)).toEqual({ status: 'required', error: 'refresh_failed' });
   });
 });
 

@@ -10,6 +10,8 @@ import type { lookup as dnsLookup } from 'node:dns';
 import { OAuthLoginError } from './discovery.js';
 import { type AddressScope, jsonObject, OAuthHttpError, oauthRequest } from './http.js';
 
+const BEARER_TYPES = new Set(['bearer', 'user']);
+
 export type ClientAuthMethod = 'none' | 'client_secret_basic' | 'client_secret_post';
 
 export interface ClientCredentials {
@@ -115,27 +117,41 @@ export async function tokenRequest(
     throw new TokenEndpointError(error instanceof Error ? error.message : String(error));
   }
   const body = jsonObject(response);
-  if (response.status !== 200 || !body) {
-    const code = typeof body?.error === 'string' ? body.error : undefined;
+  // GitHub 与 Slack 出错也回 200：GitHub 带 `error`，Slack 是 `{ ok: false, error }`。
+  const code = typeof body?.error === 'string' ? body.error : undefined;
+  if (response.status !== 200 || !body || code !== undefined || body.ok === false)
     throw new TokenEndpointError(
       `The token endpoint answered HTTP ${response.status}${code ? ` (${code})` : ''}`,
-      code,
+      code ?? (body?.ok === false ? 'unknown_error' : undefined),
     );
-  }
-  const access = body.access_token;
-  const type = body.token_type;
+  // Slack 的旧形状把用户令牌放在 `authed_user` 里。
+  const user = body.authed_user;
+  const nested =
+    typeof user === 'object' && user !== null ? (user as Record<string, unknown>) : undefined;
+  const source = typeof body.access_token === 'string' || !nested ? body : nested;
+  const access = source.access_token;
+  const type = source.token_type;
   if (typeof access !== 'string' || access === '')
     throw new TokenEndpointError('The token response has no access_token');
-  if (typeof type !== 'string' || type.toLowerCase() !== 'bearer')
+  // Slack 用户令牌的 token_type 是 `user`，用法同 Bearer；省略的也按 Bearer。DPoP 等别的类型用不了。
+  if (type !== undefined && !(typeof type === 'string' && BEARER_TYPES.has(type.toLowerCase())))
     throw new TokenEndpointError('The token response is not a Bearer token');
-  const expiresIn = Number(body.expires_in);
+  const expiresIn = Number(source.expires_in);
   const now = options.now ?? Date.now;
+  const scope = source.scope ?? nested?.scope;
+  // GitHub OAuth App 的令牌没有 expires_in 与 refresh_token：一直有效，直到被撤销。
   return {
     accessToken: access,
-    ...(typeof body.refresh_token === 'string' &&
-      body.refresh_token !== '' && { refreshToken: body.refresh_token }),
+    ...(typeof source.refresh_token === 'string' &&
+      source.refresh_token !== '' && { refreshToken: source.refresh_token }),
     ...(Number.isFinite(expiresIn) && expiresIn > 0 && { expiresAt: now() + expiresIn * 1000 }),
-    ...(typeof body.scope === 'string' && { scope: body.scope }),
+    // GitHub 的 scope 用逗号分隔。
+    ...(typeof scope === 'string' && {
+      scope: scope
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .join(' '),
+    }),
   };
 }
 

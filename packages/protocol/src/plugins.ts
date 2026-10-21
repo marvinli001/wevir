@@ -37,6 +37,18 @@ const httpUrl = PluginUrlSchema;
  * （服务器回 401 且能发现授权服务器就记成 `oauth`）。
  */
 export const McpAuthModeSchema = z.enum(['oauth', 'none']);
+/** 授权请求里 Host 自己设的参数，`authorizeParams` 不能覆盖。 */
+export const OAUTH_RESERVED_AUTHORIZE_PARAMS = [
+  'response_type',
+  'client_id',
+  'redirect_uri',
+  'state',
+  'code_challenge',
+  'code_challenge_method',
+  'resource',
+  'scope',
+] as const;
+const RESERVED_AUTHORIZE: ReadonlySet<string> = new Set(OAUTH_RESERVED_AUTHORIZE_PARAMS);
 const oauthCommon = {
   /** 预先注册的客户端 ID；没有时 Host 依次试 CIMD 与动态注册。插件清单里可以写 `${input:KEY}`。 */
   clientId: text.optional(),
@@ -46,9 +58,20 @@ const oauthCommon = {
   resource: httpUrl.optional(),
   /** 固定的回调端口或地址（有些预先注册的客户端要求）；省略时 Host 每次登录在 127.0.0.1 上随机取一个端口。 */
   callbackPort: z.int().min(1).max(65535).optional(),
+  /** 给了就原样作为 redirect_uri（不加按服务器区分的路径）；没写端口时用 `callbackPort` 或随机端口。 */
   callbackUrl: httpUrl.optional(),
+  /** 授权请求另加的参数，如 Google 的 `access_type: 'offline'`；不能是 Host 自己设的参数（`OAUTH_RESERVED_AUTHORIZE_PARAMS`）。 */
+  authorizeParams: z
+    .record(text, z.string())
+    .refine((params) => !Object.keys(params).some((key) => RESERVED_AUTHORIZE.has(key)), {
+      message: 'Reserved authorization parameter',
+    })
+    .optional(),
 };
-/** 连接器的 OAuth 设置（0.97.0）。`clientSecret` 是密钥：Host 存进密钥文件，视图里只有 `true`。 */
+/**
+ * 连接器的 OAuth 设置（0.97.0）。`clientSecret` 有两种：用户加连接器时填的是密钥，Host 存进密钥文件；插件清单里写死的是分发出去的
+ * 预注册客户端的公开密钥（安全靠 PKCE），留在清单里、不要求用户填。两种在视图里都只有 `true`。
+ */
 export const McpOAuthConfigSchema = z.object({
   ...oauthCommon,
   clientSecret: z.string().optional(),
