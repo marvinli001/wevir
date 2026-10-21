@@ -13,6 +13,7 @@ import {
   IsoTimeSchema,
   ProfileVersionIdSchema,
   SessionIdSchema,
+  TuningProposalIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
 
@@ -87,6 +88,14 @@ export const ProfileVersionRefSchema = z.object({
 });
 export type ProfileVersionRef = z.infer<typeof ProfileVersionRefSchema>;
 
+/**
+ * 版本的由来（0.87.0，Host 功能 `tuning_proposals`）：上一版之后采纳过的建议。建议采纳后不立即开版本，下一个会话开的版本记下它们。
+ */
+export const ProfileVersionCauseSchema = z.object({
+  proposalIds: z.array(TuningProposalIdSchema).min(1),
+});
+export type ProfileVersionCause = z.infer<typeof ProfileVersionCauseSchema>;
+
 /** 与前一版比，一层里新增、删除、修改了几个条目。 */
 export const ProfileLayerChangeSchema = z.object({
   key: z.string().min(1),
@@ -104,6 +113,8 @@ export const ProfileVersionSummarySchema = ProfileVersionRefSchema.extend({
   sessions: z.int().min(0),
   /** 与前一版比变了的层，按 `PROFILE_LAYERS` 的先后；第一版省略。 */
   changes: z.array(ProfileLayerChangeSchema).optional(),
+  /** 这一版由什么产生（0.87.0）；会话开始时自动生成、之前没有采纳过建议的省略。 */
+  cause: ProfileVersionCauseSchema.optional(),
 });
 export type ProfileVersionSummary = z.infer<typeof ProfileVersionSummarySchema>;
 

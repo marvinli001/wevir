@@ -165,8 +165,14 @@ export class RetroService {
     return state.lastSubstantiveSeq > summary.throughSeq ? { ...summary, outdated: true } : summary;
   }
 
-  /** `retro.summarize`：用会话当前的模型写一份摘要，存下（替换上一份）。失败回 `reason`，不抛错，不动骨架。 */
-  async summarize(sessionId: SessionId): Promise<{ summary?: RetroSummary; reason?: string }> {
+  /**
+   * `retro.summarize`：用会话当前的模型写一份摘要，存下（替换上一份）。失败回 `reason`，不抛错，不动骨架。`onUsage` 收到这次请求的
+   * 用量（解析失败时也有；调优的建议把它算进同一次操作）。
+   */
+  async summarize(
+    sessionId: SessionId,
+    options: { onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void } = {},
+  ): Promise<{ summary?: RetroSummary; reason?: string }> {
     const { instructions, generate } = this.#options;
     if (instructions === undefined || generate === undefined) return { reason: 'unsupported' };
     const retro = await this.#retro(sessionId);
@@ -181,6 +187,7 @@ export class RetroService {
       timeoutMs: RETRO_SUMMARY_TIMEOUT_MS,
       onUsage: (reported) => {
         usage = reported;
+        options.onUsage?.(reported);
       },
     });
     if ('reason' in result) return { reason: result.reason };

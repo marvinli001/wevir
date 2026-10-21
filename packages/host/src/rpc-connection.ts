@@ -105,6 +105,10 @@ export interface ConnectionHost {
   readonly tuning?: {
     watch(listener: (workspaceId: string | undefined) => void): () => void;
   };
+  /** 调优的建议（0.87.0）：调过 `tuning.*` 的连接也用它收 `tuning.proposal.changed`。 */
+  readonly proposals?: {
+    watch(listener: (workspaceId: string | undefined) => void): () => void;
+  };
   /** 护栏（0.86.0）：调过 `guardrail.*` 或 `repoHook.*` 的连接用它收 `guardrail.changed`。 */
   readonly guardrails?: {
     watch(listener: (change: NotificationParams<'guardrail.changed'>) => void): () => void;
@@ -196,6 +200,8 @@ export class RpcConnection {
   #unwatchPreviews: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.changed`。 */
   #unwatchTuning: (() => void) | undefined;
+  /** 调过 `tuning.*` 之后：退订 `tuning.proposal.changed`。 */
+  #unwatchProposals: (() => void) | undefined;
   /** 调过 `guardrail.*` 或 `repoHook.*` 之后：退订 `guardrail.changed`。 */
   #unwatchGuardrails: (() => void) | undefined;
   /** 调过 `lsp.*` 之后：退订 `lsp.changed`。 */
@@ -798,6 +804,27 @@ export class RpcConnection {
       }
       this.#send({ jsonrpc: JSONRPC_VERSION, method: 'tuning.changed', params: parsed.data });
     });
+    this.#watchProposals();
+  }
+
+  /** 调过 `tuning.*` 的连接之后也收 `tuning.proposal.changed`（0.87.0），连接关闭即止。 */
+  #watchProposals(): void {
+    if (this.#unwatchProposals !== undefined || this.#host.proposals === undefined) return;
+    this.#unwatchProposals = this.#host.proposals.watch((workspaceId) => {
+      const params = workspaceId === undefined ? {} : { workspaceId };
+      const parsed = NotificationSchemas['tuning.proposal.changed'].params.safeParse(params);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`tuning.proposal.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({
+        jsonrpc: JSONRPC_VERSION,
+        method: 'tuning.proposal.changed',
+        params: parsed.data,
+      });
+    });
   }
 
   /** 调过 `guardrail.*` 或 `repoHook.*` 的连接之后收 `guardrail.changed`（0.86.0），连接关闭即止。 */
@@ -999,6 +1026,8 @@ export class RpcConnection {
     this.#unwatchPreviews = undefined;
     this.#unwatchTuning?.();
     this.#unwatchTuning = undefined;
+    this.#unwatchProposals?.();
+    this.#unwatchProposals = undefined;
     this.#unwatchGuardrails?.();
     this.#unwatchGuardrails = undefined;
     this.#unwatchLsp?.();

@@ -24,6 +24,7 @@ export * from './search.js';
 export * from './search-ranking.js';
 export * from './terminals.js';
 export * from './tuning.js';
+export * from './tuning-proposals.js';
 export * from './usage.js';
 export * from './verification.js';
 export * from './version.js';

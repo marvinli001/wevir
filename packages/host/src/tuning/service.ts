@@ -14,6 +14,8 @@ import {
   type ProfileLayer,
   type ProfileLayerChange,
   type ProfileLayerDiff,
+  type ProfileVersionCause,
+  ProfileVersionCauseSchema,
   type ProfileVersionId,
   type ProfileVersionRef,
   type ProfileVersionSummary,
@@ -42,6 +44,14 @@ export interface TuningServiceOptions {
   wevirVersion?: string;
   /** “对话”工作区：里面的会话用全局档案。 */
   isChats?: (workspace: Pick<WorkspaceRecord, 'rootPath'>) => boolean;
+  /**
+   * 版本的由来（0.87.0）：`pending` 给出这个项目上一版之后采纳过的建议，开了新版本时记进它的 `cause`，再用 `recorded` 告诉建议
+   * 产生了哪一版。指纹没变（不开版本）时建议留到下一次。
+   */
+  causes?: {
+    pending(workspaceId: string): ProfileVersionCause | undefined;
+    recorded(versionId: ProfileVersionId, cause: ProfileVersionCause): void;
+  };
   now?: () => Date;
 }
 
@@ -51,6 +61,7 @@ export class TuningService {
   readonly #blobs: ProfileBlobStore;
   readonly #wevirVersion: string | undefined;
   readonly #isChats: NonNullable<TuningServiceOptions['isChats']>;
+  #causes: TuningServiceOptions['causes'];
   readonly #now: () => Date;
   readonly #listeners = new Set<(workspaceId: WorkspaceId | undefined) => void>();
 
@@ -60,7 +71,13 @@ export class TuningService {
     this.#blobs = options.blobs;
     this.#wevirVersion = options.wevirVersion;
     this.#isChats = options.isChats ?? (() => false);
+    this.#causes = options.causes;
     this.#now = options.now ?? (() => new Date());
+  }
+
+  /** 建议服务比档案服务后建（它要用档案服务），之后接上（0.87.0）。 */
+  setCauses(causes: TuningServiceOptions['causes']): void {
+    this.#causes = causes;
   }
 
   /** 档案可能变了（`tuning.changed`）。返回退订函数。 */
@@ -87,13 +104,19 @@ export class TuningService {
       layers: profile.layers,
       ...(this.#wevirVersion !== undefined && { wevirVersion: this.#wevirVersion }),
     };
+    const cause =
+      scope.workspaceId === undefined ? undefined : this.#causes?.pending(scope.workspaceId);
     const { version, created } = this.#storage.profileVersions.ensure({
       id: newId('pfv'),
       ...(scope.workspaceId !== undefined && { workspaceId: scope.workspaceId }),
       fingerprint: profile.fingerprint,
       manifest,
       createdAt: this.#now().toISOString(),
+      ...(cause !== undefined && { cause }),
     });
+    if (created && cause !== undefined) {
+      this.#causes?.recorded(version.id as ProfileVersionId, cause);
+    }
     if (created) this.changed(scope.workspaceId);
     return refOf(version);
   }
@@ -239,6 +262,7 @@ export class TuningService {
         previous === undefined
           ? undefined
           : layerChanges(manifestOf(previous).layers, manifestOf(record).layers);
+      const cause = ProfileVersionCauseSchema.safeParse(record.cause);
       return {
         ...refOf(record),
         ...(record.workspaceId !== undefined && {
@@ -247,6 +271,7 @@ export class TuningService {
         createdAt: record.createdAt,
         sessions: counts.get(record.id) ?? 0,
         ...(changes !== undefined && { changes }),
+        ...(cause.success && { cause: cause.data }),
       };
     });
   }

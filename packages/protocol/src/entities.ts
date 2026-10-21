@@ -19,6 +19,7 @@ import {
   SessionIdSchema,
   StreamIdSchema,
   TaskIdSchema,
+  TuningProposalIdSchema,
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
@@ -1039,6 +1040,8 @@ export const MemorySourceSchema = z.object({
   status: MemorySourceStatusSchema.optional(),
   /** 用户从别的应用导入的（0.74.0，`import.apply`）：这时 `by` 是 `user`，没有会话。 */
   importedFrom: ImportedFromSchema.optional(),
+  /** 用户采纳调优的建议写下的（0.87.0，`tuning.proposal.decide`）：这时 `by` 是 `user`，`sessionId` 是提出建议的会话。 */
+  proposalId: TuningProposalIdSchema.optional(),
 });
 export type MemorySource = z.infer<typeof MemorySourceSchema>;
 

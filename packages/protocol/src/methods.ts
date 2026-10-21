@@ -239,6 +239,16 @@ import {
   TuningVersionsResultSchema,
 } from './tuning.js';
 import {
+  TuningProposalChangedParamsSchema,
+  TuningProposalDecideParamsSchema,
+  TuningProposalGenerateParamsSchema,
+  TuningProposalGenerateResultSchema,
+  TuningProposalListParamsSchema,
+  TuningProposalListResultSchema,
+  TuningProposalResultSchema,
+  TuningProposalUpdateParamsSchema,
+} from './tuning-proposals.js';
+import {
   UsageChangedParamsSchema,
   UsagePricingParamsSchema,
   UsagePricingResultSchema,
@@ -2474,6 +2484,27 @@ export const MethodSchemas = {
     result: RepoHookResultSchema,
     permission: 'host.manage',
   },
+  /** 调优的建议（0.87.0）：生成调用会话的模型；采纳写项目文件、记忆与护栏。 */
+  'tuning.proposal.generate': {
+    params: TuningProposalGenerateParamsSchema,
+    result: TuningProposalGenerateResultSchema,
+    permission: 'session.write',
+  },
+  'tuning.proposal.list': {
+    params: TuningProposalListParamsSchema,
+    result: TuningProposalListResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.proposal.update': {
+    params: TuningProposalUpdateParamsSchema,
+    result: TuningProposalResultSchema,
+    permission: 'host.manage',
+  },
+  'tuning.proposal.decide': {
+    params: TuningProposalDecideParamsSchema,
+    result: TuningProposalResultSchema,
+    permission: 'host.manage',
+  },
 
   'browser.register': {
     params: BrowserRegisterParamsSchema,
@@ -2537,6 +2568,8 @@ export const NotificationSchemas = {
   'tuning.changed': { params: TuningChangedParamsSchema },
   /** 发给调用过 `guardrail.*` 或 `repoHook.*` 的连接（0.86.0）。 */
   'guardrail.changed': { params: GuardrailChangedParamsSchema },
+  /** 发给调用过 `tuning.*` 的连接（0.87.0）。 */
+  'tuning.proposal.changed': { params: TuningProposalChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

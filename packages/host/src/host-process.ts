@@ -76,6 +76,8 @@ import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
 import { ProfileBlobStore } from './tuning/blobs.js';
 import { ProfileCollector } from './tuning/profile.js';
+import { ProposalService } from './tuning/proposals.js';
+import { loadProposalInstructions } from './tuning/proposals-input.js';
 import { TuningService } from './tuning/service.js';
 import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
@@ -661,6 +663,49 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
+    // 调优的建议（0.87.0）：同回顾摘要，适配器能生成才读提示词；读不到就没有建议（不声明 `tuning_proposals`）。
+    let proposalInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        proposalInstructions = loadProposalInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the tuning proposals prompt; proposals are unavailable', {
+          error,
+        });
+      }
+    }
+    const proposals =
+      proposalInstructions === undefined
+        ? undefined
+        : new ProposalService({
+            storage,
+            events: store,
+            retro,
+            instructions: proposalInstructions,
+            generate: (sessionId, request) => manager.generateOnce(sessionId, request),
+            isChats: (workspace) => chats.isChats(workspace),
+            ruleFiles: (cwd) => discoverRuleFiles({ cwd, home: userHome }),
+            skills: () => plugins.enabledSkills(),
+            enableSkill: async (path) => {
+              const real = await realpath(path).catch(() => path);
+              const skill = (await plugins.skills()).find(
+                (item) => item.path === real || item.path === path,
+              );
+              if (skill !== undefined && !skill.enabled)
+                await plugins.setSkillEnabled(skill.id, true);
+            },
+            memory,
+            ...(guardrails !== undefined && { guardrails }),
+            userHome,
+            onProfileChanged: (workspaceId) => tuning.changed(workspaceId),
+            onWarning: (message, fields) => logger.warn(message, fields),
+          });
+    if (proposals !== undefined) {
+      tuning.setCauses({
+        pending: (workspaceId) => proposals.pendingCause(workspaceId),
+        recorded: (versionId, cause) => proposals.recordCause(versionId, cause),
+      });
+    }
 
     // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
     const sessionStore = storage;
@@ -829,6 +874,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         approvalRules,
         tuning,
         ...(guardrails !== undefined && { guardrails }),
+        ...(proposals !== undefined && { proposals }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -907,6 +953,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(previews !== undefined && { dev_preview: true }),
         tuning: true,
         ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
+        ...(proposals !== undefined && { tuning_proposals: true }),
       },
       engineFeatures,
       plugins,
@@ -922,6 +969,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(terminals !== undefined && { terminals }),
       ...(lspStatus !== undefined && { lsp: lspStatus }),
       tuning,
+      ...(proposals !== undefined && { proposals }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。

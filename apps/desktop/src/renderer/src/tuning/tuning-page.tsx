@@ -27,6 +27,7 @@ import { EmptyList, LIST_CARD, NoticeBanner, Segmented } from '@/settings/settin
 import { canOpenExternally } from '../../../shared/open-path.js';
 import { GuardrailsLayerRow } from './guardrails-layer';
 import { ProfileDiffList } from './profile-diff';
+import { ProposalsTab } from './proposals-tab';
 import {
   changesSummary,
   itemDetail,
@@ -142,7 +143,7 @@ export function TuningPage({
               options={tabs.map((value) => ({ value, label: t(`tuning.tab.${value}`) }))}
             />
           </div>
-          {data.error !== undefined && (
+          {tab !== 'proposals' && data.error !== undefined && (
             <div className="mb-4">
               <NoticeBanner
                 notice={{
@@ -152,7 +153,9 @@ export function TuningPage({
               />
             </div>
           )}
-          {current === undefined ? (
+          {tab === 'proposals' ? (
+            <ProposalsTab client={client} workspaceId={scopeWorkspaceId(scope)} />
+          ) : current === undefined ? (
             data.error === undefined && (
               <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
             )
@@ -444,7 +447,13 @@ function VersionRow({
           </span>
         </span>
       }
-      meta={[formatTime(version.createdAt), changes].filter((part) => part !== '').join(' · ')}
+      meta={[
+        formatTime(version.createdAt),
+        changes,
+        version.cause !== undefined ? t('tuning.version.fromProposals') : '',
+      ]
+        .filter((part) => part !== '')
+        .join(' · ')}
       summary={t('tuning.sessionCount', { count: version.sessions })}
     >
       {expanded && <VersionDetail client={client} version={version} previous={previous} />}

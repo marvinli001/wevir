@@ -86,6 +86,7 @@ import frozen0830 from './compat/0.83.0.json' with { type: 'json' };
 import frozen0840 from './compat/0.84.0.json' with { type: 'json' };
 import frozen0850 from './compat/0.85.0.json' with { type: 'json' };
 import frozen0860 from './compat/0.86.0.json' with { type: 'json' };
+import frozen0870 from './compat/0.87.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -197,6 +198,7 @@ const frozenVersions: FrozenSamples[] = [
   frozen0840,
   frozen0850,
   frozen0860,
+  frozen0870,
 ];
 
 function issuesOf(schema: z.ZodType, value: unknown) {

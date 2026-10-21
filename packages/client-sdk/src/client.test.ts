@@ -907,6 +907,33 @@ describe('护栏（0.86.0）', () => {
   });
 });
 
+describe('调优的建议（0.87.0）', () => {
+  it('onTuningProposalsChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { tuning_proposals: true } },
+    }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onTuningProposalsChanged((change) => changes.push(change));
+    const change = { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' };
+    host.last.notify('tuning.proposal.changed', change);
+    host.last.notify('tuning.proposal.changed', {});
+    await vi.waitFor(() => expect(changes).toEqual([change, {}]));
+    host.last.notify('tuning.proposal.changed', { workspaceId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(2);
+    expect(warnings.join('\n')).toMatch(/malformed tuning.proposal.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(3));
+    expect(changes[2]).toBeUndefined();
+    stop();
+    host.last.notify('tuning.proposal.changed', change);
+    await tick();
+    expect(changes).toHaveLength(3);
+  });
+});
+
 describe('语言服务器（0.71.0）', () => {
   it('onLspChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();
