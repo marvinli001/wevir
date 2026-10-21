@@ -292,6 +292,7 @@ import {
   VerificationStatusResultSchema,
 } from './verification.js';
 import { ProtocolVersionSchema } from './version.js';
+import { WritingStyleMethodSchemas } from './writing-style.js';
 
 // Host API v0 的方法与通知。语义、错误与示例报文见 docs/architecture/host-api.md。
 
@@ -1718,6 +1719,7 @@ export const MethodSchemas = {
   ...PluginMethodSchemas,
   ...ImportMethodSchemas,
   ...MarketMethodSchemas,
+  ...WritingStyleMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,

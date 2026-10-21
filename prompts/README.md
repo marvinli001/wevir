@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格、写作风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`writing-style/` 从 0.95.0 起由 Host 加载（同一个文件），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -23,6 +23,7 @@
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见，0.83.0 起也包括用户选了要处理的审查发现 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
 | [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
 | [`user-instructions.md`](user-instructions.md) | 用户说明的开头：交给引擎的“用户的说明”最前面那段，说明优先级与边界 | Host（0.78.0，`packages/host/src/custom-instructions.ts`）：去掉注释，后面接用户的说明与风格的正文 | 已接入，与引擎无关 |
+| [`writing-style/`](writing-style/) | 写作风格：`apply.md`（有档案时的用法）、`none.md`（设置开着但还没有档案）、`setup.md`（建档步骤） | Host（0.95.0，`packages/host/src/custom-instructions.ts` 与 `writing-style/tools.ts`）：设置里打开“参考我的写作风格”时把前两份之一接在用户说明的最后；`setup.md` 由 `wevir_writing_style_setup` 返回 | 已接入，与引擎无关 |
 | [`output-styles/`](output-styles/) | 输出风格：`concise`（简洁）、`explanatory`（讲解）、`learning`（边做边学）、`proactive`（主动）、`pragmatic`（务实）、`friendly`（友好） | Host（0.78.0）：用户在设置里选了哪种就接哪份的正文；开头 `---` 块里的 `reminder` 在每条新回合的消息末尾附上（只有简洁与主动有） | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
@@ -170,6 +171,14 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 选了带 `reminder` 的风格（简洁、主动）时，每个新回合交给引擎的消息末尾多一段 `<system-reminder>`，消息记录里没有。插话不带。
 
 已经开着的会话不跟着设置变：下一次恢复或接力时按当时的设置重新给。
+
+## 写作风格
+
+用户在设置 → 个性化里打开“参考我的写作风格”后（0.95.0，默认关），Host 在上面那一段的最后再接一块：有档案时是 `writing-style/apply.md` 加包在 `<writing_style_profile>` 里的档案，没有时是 `writing-style/none.md`；`session.rules` 的 `custom.writingStyle` 记下是 `profile` 还是 `setup`。它和说明一样对所有会话都给，走同一个通道。
+
+档案由 Agent 建：用户要求并同意后，Agent 调 `wevir_writing_style_setup` 取 `writing-style/setup.md` 的步骤，用 `wevir_writing_style_samples` 收集用户自己写的文字（`collect_chats` 取用户在 Wevir 里亲手发的消息，`add` 交用户指定的文件与已连接应用里用户发出的文字）、`analyze` 做文体统计，再用 `wevir_writing_style_save` 存档案。样本存在 Host 数据目录的 `writing-style/samples/`，建档结束、关掉设置、删档案或放了七天后删除。四个工具只读写 Host 数据目录，不用批准；设置关着时不列出。
+
+已经开着的会话不跟着变：新档案从下一次建会话、恢复或接力起生效。
 
 ## 自动修复
 

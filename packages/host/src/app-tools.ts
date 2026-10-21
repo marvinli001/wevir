@@ -77,6 +77,8 @@ import { describeSharedFile, SharedFileError } from './shared-files.js';
 import type { TaskBoardStore } from './task-board.js';
 import { taskTools } from './task-tools.js';
 import { toolPresetInstructions, toolPresetsInfo, toolsAllowed } from './tool-presets.js';
+import type { WritingStyleStore } from './writing-style/store.js';
+import { WRITING_STYLE_TOOLS, writingStyleTools } from './writing-style/tools.js';
 
 /** 一页最多几条、默认几条、每条默认多少字（同读历史的工具）。 */
 export const READ_PAGE_LIMIT = 50;
@@ -175,6 +177,11 @@ export interface AppToolsOptions {
   memory?: MemoryStore;
   /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时 `filterTools` 去掉记忆工具，调用也被拒绝。省略当作开着。 */
   memoryEnabled?: () => boolean;
+  /**
+   * 写作风格（0.95.0）：有它时加上 `wevir_writing_style_*`；`enabled`（Host 设置的 `writingStyle`）返回 false 时 `filterTools` 去掉
+   * 它们，调用也被拒绝。
+   */
+  writingStyle?: { store: WritingStyleStore; guide: string; enabled: () => boolean };
   /** 预设角色：有它时加上 `wevir_roles`，`wevir_session_create` 认 `role`，角色限制的工具由 `filterTools` 过滤。 */
   roles?: RoleStore;
   /** 共享任务清单：有它时加上 `wevir_tasks`、`wevir_task_create`、`wevir_task_update`。 */
@@ -306,6 +313,9 @@ export class AppTools {
               };
             },
           })),
+      ...(options.writingStyle === undefined
+        ? []
+        : writingStyleTools({ ...options.writingStyle, storage: options.storage })),
       ...(options.browser === undefined
         ? []
         : browserTools({ storage: options.storage, broker: options.browser })),
@@ -1684,16 +1694,23 @@ export class AppTools {
   /**
    * 这个会话能用的工具（app-mcp.ts 的 `filterTools`）：预设角色限制的去掉，再按会话的工具预设（tool-presets.ts）收窄——角色是
    * 上限，预设不会放宽它。没有角色、没有预设的会话（调用方不明时也一样）不限；自动记忆关着（Host 设置的 `autoMemory`）时记忆工具
-   * 一律去掉。只管这里的应用级工具：引擎自带的工具与用户接入的 MCP 不经过它。
+   * 一律去掉，写作风格关着（`writingStyle`）时写作风格工具一律去掉。只管这里的应用级工具：引擎自带的工具与用户接入的 MCP 不经过它。
    */
   async filterTools(
     sessionId: SessionId | undefined,
     tools: readonly AppTool[],
   ): Promise<readonly AppTool[]> {
     const memoryOff = this.#options.memoryEnabled?.() === false;
-    const allowed = memoryOff
-      ? tools.filter((tool) => !(MEMORY_TOOLS as readonly string[]).includes(tool.name))
-      : tools;
+    const writingOff =
+      this.#options.writingStyle !== undefined && !this.#options.writingStyle.enabled();
+    const allowed =
+      memoryOff || writingOff
+        ? tools.filter(
+            (tool) =>
+              !(memoryOff && (MEMORY_TOOLS as readonly string[]).includes(tool.name)) &&
+              !(writingOff && (WRITING_STYLE_TOOLS as readonly string[]).includes(tool.name)),
+          )
+        : tools;
     if (sessionId === undefined) return allowed;
     return toolsAllowed(allowed, {
       role: await this.#roleOf(sessionId),

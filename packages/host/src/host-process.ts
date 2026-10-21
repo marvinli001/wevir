@@ -34,6 +34,7 @@ import {
   loadCustomPrompts,
   planCustom,
   styleReminder,
+  writingStyleInput,
 } from './custom-instructions.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
@@ -97,6 +98,7 @@ import { ChecksStore } from './verification/checks-store.js';
 import { CheckRunner } from './verification/runner.js';
 import { loadRepairTemplate, VerificationService } from './verification/service.js';
 import type { WebService } from './web/service.js';
+import { WritingStyleStore } from './writing-style/store.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
 export const HOST_VERSION: string = packageJson.version;
@@ -357,6 +359,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
+    // 写作风格（0.95.0）：档案与建档期间的样本；放了太久的样本启动时删掉。
+    const writingStyle = new WritingStyleStore({ dir: homePath(home, 'writingStyleDir') });
+    writingStyle.pruneStale().catch((error: unknown) => {
+      logger.warn('failed to prune writing style samples', { error });
+    });
     // 从其他应用导入（0.74.0）：读用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录。
     const externalImport = new ExternalImport({
       userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
@@ -543,7 +550,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       // 用户的说明与输出风格（0.78.0）：每次建立、恢复与接力引擎会话时按当时的设置与项目算。
       ...(customPrompts !== undefined && {
-        customInstructions: customInstructionsOf(customPrompts, settings),
+        customInstructions: customInstructionsOf(customPrompts, settings, writingStyle),
       }),
       toolOutputDir: toolOutput.dir,
       images,
@@ -831,6 +838,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(lsp !== undefined && { lsp }),
         memory,
         memoryEnabled: () => settings.get().autoMemory !== false,
+        ...(customPrompts !== undefined && {
+          writingStyle: {
+            store: writingStyle,
+            guide: customPrompts.writingStyle.setup,
+            enabled: () => settings.get().writingStyle === true,
+          },
+        }),
         roles,
         tasks: taskBoards,
         automations: automationService,
@@ -936,6 +950,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         fileUrls,
         chats,
         memory,
+        writingStyle,
         usage: { service: usageStats, pricing },
         ...(verification !== undefined && { verification }),
         automations: automationService,
@@ -1031,7 +1046,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         external_import: true,
         ...(secondOpinions !== undefined && { second_opinion: true }),
         session_search: true,
-        ...(customPrompts !== undefined && { agent_instructions: true }),
+        ...(customPrompts !== undefined && { agent_instructions: true, writing_style: true }),
         approval_rules: true,
         ...(previews !== undefined && { dev_preview: true }),
         tuning: true,
@@ -1341,13 +1356,22 @@ export function hostEngineFeatures(
   return Object.fromEntries(ProviderKindSchema.options.map((kind) => [kind, features]));
 }
 
-/** SessionManager 的 `customInstructions`（0.78.0）：按当时的 Host 设置算。 */
+/** SessionManager 的 `customInstructions`（0.78.0）：按当时的 Host 设置算；写作风格（0.95.0）开着时读档案。 */
 function customInstructionsOf(
   prompts: CustomPrompts,
   settings: HostSettingsStore,
+  writingStyle: WritingStyleStore,
 ): NonNullable<SessionManagerOptions['customInstructions']> {
   return {
-    plan: ({ styled }) => planCustom(prompts, customInputs(settings.get(), styled)),
+    plan: async ({ styled }) => {
+      const current = settings.get();
+      const profile = current.writingStyle === true ? await writingStyle.get() : undefined;
+      const writing = writingStyleInput(current, profile?.content);
+      return planCustom(prompts, {
+        ...customInputs(current, styled),
+        ...(writing !== undefined && { writingStyle: writing }),
+      });
+    },
     reminder: (outputStyle) => styleReminder(prompts, outputStyle),
   };
 }

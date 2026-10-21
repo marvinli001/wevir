@@ -1040,6 +1040,12 @@ export const HostSettingsSchema = z.object({
    * 省略按关着。
    */
   speechPolish: z.boolean().optional(),
+  /**
+   * 参考我的写作风格（0.95.0，Host 功能 `writing_style`，domain-model §3.43）：打开后 Host 把写作风格档案（有的话）与用法交给会话，
+   * `wevir_writing_style_*` 工具列出；Agent 经用户同意读用户自己写过的东西建档，起草以用户名义发出的文字时按档案写。关掉后工具不再
+   * 列出，从下一次建会话、恢复或接力起不再交档案；档案留着，用户照样能用 `writingStyle.*` 看、改、删。省略按关着。
+   */
+  writingStyle: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
@@ -1376,7 +1382,12 @@ export type RuleDeliveryChannel = z.infer<typeof RuleDeliveryChannelSchema>;
 export const SessionCustomInstructionsSchema = z.object({
   instructions: z.boolean(),
   outputStyle: OutputStyleSchema.optional(),
-  /** 这一段正文（说明与风格）的 UTF-8 字节数。 */
+  /**
+   * 写作风格（0.95.0，domain-model §3.43），开放字符串：`profile` 交了档案，`setup` 设置开着但还没有档案（只交了建档的用法）。设置
+   * 关着时省略。
+   */
+  writingStyle: z.string().min(1).optional(),
+  /** 这一段正文（说明、风格与写作风格）的 UTF-8 字节数。 */
   bytes: z.int().min(1),
 });
 export type SessionCustomInstructions = z.infer<typeof SessionCustomInstructionsSchema>;

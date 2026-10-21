@@ -87,6 +87,7 @@ import {
   WriteRejected,
   writeWorkspaceFile,
 } from './workspace-files.js';
+import { WritingStyleError, type WritingStyleStore } from './writing-style/store.js';
 
 /** 一次请求的上下文：发起请求的连接在 `host.hello` 里给出的身份与能力位。 */
 export interface RequestContext {
@@ -147,6 +148,8 @@ export interface HostMethodsOptions {
   chats?: ChatFolders;
   /** 跨会话记忆（0.57.0，`memory.*`）；省略时 `memory.*` 回 `INVALID_PARAMS`（测试）。 */
   memory?: MemoryStore;
+  /** 写作风格（0.95.0，`writingStyle.*`）；省略时 `writingStyle.*` 回 `INVALID_PARAMS`（测试）。 */
+  writingStyle?: WritingStyleStore;
   /** 工具预设的清单（0.61.0，`tools.presets`，AppTools 的 `presets`）；没有应用级工具时省略，方法回 `INVALID_PARAMS`。 */
   toolPresets?: () => MethodResult<'tools.presets'>;
   /** 用量统计（0.62.0，`usage.*`）；省略时 `usage.*` 回 `INVALID_PARAMS`（测试）。 */
@@ -384,6 +387,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const importer = (): ExternalImport => {
     if (options.externalImport === undefined) throw invalidParams([], 'this host cannot import');
     return options.externalImport;
+  };
+  const writingStyleStore = (): WritingStyleStore => {
+    if (options.writingStyle === undefined) {
+      throw invalidParams([], 'this host has no writing style store');
+    }
+    return options.writingStyle;
   };
   const memoryStore = (): MemoryStore => {
     if (options.memory === undefined) throw invalidParams([], 'this host has no memory store');
@@ -1157,7 +1166,34 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (style !== undefined && !isOutputStyle(style)) {
         throw invalidParams(['settings', 'outputStyle'], `unknown output style ${style}`);
       }
-      return { settings: await settings.update(params.settings) };
+      const updated = await settings.update(params.settings);
+      // 0.95.0：关掉写作风格时删掉建档用的样本（档案留着）。
+      if (params.settings.writingStyle === false) {
+        await options.writingStyle?.discardSamples();
+      }
+      return { settings: updated };
+    },
+
+    // 0.95.0：用户看、改、删写作风格档案（domain-model §3.43）。
+    'writingStyle.get': async () => {
+      const profile = await writingStyleStore().get();
+      return profile === undefined ? {} : { profile };
+    },
+    'writingStyle.update': async ({ content, revision }) => {
+      const store = writingStyleStore();
+      try {
+        return await store.save(content, {
+          by: 'user',
+          ...(revision !== undefined && { revision }),
+        });
+      } catch (error) {
+        if (error instanceof WritingStyleError) throw invalidParams(['content'], error.message);
+        throw error;
+      }
+    },
+    'writingStyle.delete': async () => {
+      await writingStyleStore().delete();
+      return {};
     },
 
     // 0.57.0：用户管理跨会话记忆（domain-model §3.21）。

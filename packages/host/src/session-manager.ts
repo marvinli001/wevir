@@ -296,7 +296,7 @@ export interface SessionManagerOptions {
    * 引擎（要有 `ruleFiles`）；`reminder` 给出风格的每回合提醒。没给时不交。
    */
   customInstructions?: {
-    plan(target: CustomTarget): CustomPlan | undefined;
+    plan(target: CustomTarget): CustomPlan | undefined | Promise<CustomPlan | undefined>;
     reminder(outputStyle: string | undefined): string | undefined;
   };
   /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
@@ -844,7 +844,7 @@ export class SessionManager {
     // 用户的说明（0.78.0）：找规则文件出错时照样交。
     let custom: CustomPlan | undefined;
     try {
-      custom = this.#customInstructions?.plan(target);
+      custom = await this.#customInstructions?.plan(target);
     } catch (error) {
       this.#onWarning('failed to compose custom instructions', { error: errorText(error) });
     }

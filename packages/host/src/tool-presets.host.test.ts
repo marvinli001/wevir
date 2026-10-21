@@ -139,7 +139,7 @@ describe('工具预设经 Host API', () => {
       sessions: 16,
       catalog: 2,
       tasks: 3,
-      memory: 4,
+      memory: 8,
       workbench: 4,
       browser: 27,
       lsp: 7,

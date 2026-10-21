@@ -408,6 +408,11 @@ export const HOST_FEATURES = {
    * `speechPolish`、`ProviderProfile.transcriptionModels`。本机模型能不能用看 `speech.status`。与引擎无关。
    */
   speech: 'speech',
+  /**
+   * 写作风格（0.95.0，domain-model §3.43）：设置 `writingStyle`、`writingStyle.*` 方法、`session.rules` 的 `custom.writingStyle` 与
+   * `wevir_writing_style_*` 工具。与引擎无关。
+   */
+  writingStyle: 'writing_style',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -491,6 +496,7 @@ export const HostFeaturesSchema = z.looseObject({
   plugin_market: z.boolean().optional(),
   market_files: z.boolean().optional(),
   speech: z.boolean().optional(),
+  writing_style: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

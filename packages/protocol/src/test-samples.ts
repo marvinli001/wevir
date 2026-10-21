@@ -65,6 +65,7 @@ import type {
   SessionAcceptance,
   VerificationRun,
 } from './verification.js';
+import type { WritingStyleProfile } from './writing-style.js';
 
 export const ULID = '01JA2B3C4D5E6F7G8H9JKMNPQR';
 export const TS = '2026-10-12T08:00:00.000Z';
@@ -772,6 +773,14 @@ export const repairChain: RepairChain = {
 };
 
 /** 浏览器的一个标签页（0.33.0）。 */
+export const writingStyleProfile: WritingStyleProfile = {
+  content: '> 来自 40 条聊天 · 2026 年 10 月更新。\n\n## 整体\n\n- 句子短，先说结论。',
+  updatedAt: TS,
+  updatedBy: 'agent',
+  setupComplete: true,
+  revision: 'a1b2c3d4e5f60718',
+};
+
 export const browserTab: BrowserTabInfo = {
   browserId: 'tab_m2k1_1',
   url: 'http://localhost:5173/',
@@ -1799,7 +1808,13 @@ export const eventPayloads: PayloadSamples = {
       engineSessionId: 'claude-6a1e0c2f',
       bytes: 2048,
       // 0.78.0：用户的说明与输出风格。
-      custom: { instructions: true, outputStyle: 'concise', bytes: 1024 },
+      custom: {
+        instructions: true,
+        outputStyle: 'concise',
+        // 0.95.0：交了写作风格档案。
+        writingStyle: 'profile',
+        bytes: 1024,
+      },
       // 0.85.0：档案版本。
       profileVersion: profileVersionRef,
     },
@@ -2880,6 +2895,8 @@ export const methodSamples: MethodSamples = {
         },
         // 0.79.0：你应该知道的开关。
         { settings: { sendWhileBusy: 'steer', sessionInsights: true } },
+        // 0.95.0：参考我的写作风格。
+        { settings: { sendWhileBusy: 'steer', writingStyle: true } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -2903,6 +2920,7 @@ export const methodSamples: MethodSamples = {
         { settings: { ruleFiles: false } },
         { settings: { agentInstructions: '' } },
         { settings: { outputStyle: 'friendly' } },
+        { settings: { writingStyle: true } },
         { settings: { marketMirror: 'cnb' } },
         { settings: { marketMirror: 'auto' } },
         // 0.92.0：听写的转写方与润色
@@ -2929,6 +2947,7 @@ export const methodSamples: MethodSamples = {
         { settings: { autoMemory: 'no' } },
         { settings: { ruleFiles: 1 } },
         { settings: { outputStyle: 1 } },
+        { settings: { writingStyle: 'on' } },
         { settings: { marketMirror: 'npm' } },
         {},
       ],
@@ -2991,6 +3010,41 @@ export const methodSamples: MethodSamples = {
       valid: [{ data: 'IyBOb3Rlcwo=' }, { data: '' }],
       invalid: [{}, { data: 1 }],
     },
+  },
+  'writingStyle.get': {
+    params: empty,
+    result: {
+      valid: [{}, { profile: writingStyleProfile }],
+      invalid: [
+        { profile: { ...writingStyleProfile, content: '' } },
+        { profile: { ...writingStyleProfile, updatedBy: 'someone' } },
+      ],
+    },
+  },
+  'writingStyle.update': {
+    params: {
+      valid: [
+        { content: '# 写作风格\n\n句子短。' },
+        { content: '句子短。', revision: writingStyleProfile.revision },
+      ],
+      invalid: [
+        {},
+        { content: '' },
+        { content: 'x'.repeat(16_001) },
+        { content: 'x', revision: '' },
+      ],
+    },
+    result: {
+      valid: [
+        { profile: { ...writingStyleProfile, updatedBy: 'user' } },
+        { profile: writingStyleProfile, conflict: true },
+      ],
+      invalid: [{}, { profile: writingStyleProfile, conflict: false }],
+    },
+  },
+  'writingStyle.delete': {
+    params: empty,
+    result: empty,
   },
   'workspace.list': {
     params: empty,

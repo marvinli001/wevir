@@ -9,6 +9,9 @@
 // 代码，“主动”会少问，这些会话没有人在看）。
 //
 // 带 `reminder` 的风格（简洁、主动）在每条新回合的消息末尾附一行提醒（`<system-reminder>`），只进引擎、不进消息记录。
+//
+// 写作风格（0.95.0，domain-model §3.43）：设置开着时接在最后。有档案时是 prompts/writing-style/apply.md 加包在
+// `<writing_style_profile>` 里的档案，没有时是 none.md（用户要时再建档）。和说明一样对所有会话都给：替用户起草的也可能是子会话。
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -30,10 +33,12 @@ export interface StylePrompt {
 export interface CustomPrompts {
   header: string;
   outputStyles: ReadonlyMap<string, StylePrompt>;
+  /** 写作风格（0.95.0）：有档案时的用法、没有档案时的提示、建档步骤（工具返回）。 */
+  writingStyle: { apply: string; none: string; setup: string };
 }
 
 /**
- * 读 prompts/user-instructions.md 与 output-styles/ 下 Host 认识的那几份。按 prompts/README.md 的模板语法删掉 HTML 注释；开头的
+ * 读 prompts/user-instructions.md、output-styles/ 下 Host 认识的那几份与 writing-style/ 的三份。按 prompts/README.md 的模板语法删掉 HTML 注释；开头的
  * `---` 块里只认 `reminder: …` 一行。缺文件或残留 `{{` 就报错。
  */
 export function loadCustomPrompts(dir: string = defaultPromptsDir()): CustomPrompts {
@@ -43,6 +48,11 @@ export function loadCustomPrompts(dir: string = defaultPromptsDir()): CustomProm
     outputStyles: new Map(
       OUTPUT_STYLES.map((name) => [name, read(join('output-styles', `${name}.md`))]),
     ),
+    writingStyle: {
+      apply: read(join('writing-style', 'apply.md')).body,
+      none: read(join('writing-style', 'none.md')).body,
+      setup: read(join('writing-style', 'setup.md')).body,
+    },
   };
 }
 
@@ -68,6 +78,8 @@ export function parsePrompt(source: string, path: string): StylePrompt {
 export interface CustomInputs {
   instructions?: string;
   outputStyle?: string;
+  /** 设置开着时有；`profile` 是档案正文，还没有档案时省略。 */
+  writingStyle?: { profile?: string };
 }
 
 /**
@@ -88,6 +100,15 @@ export function customInputs(
   return inputs;
 }
 
+/** 写作风格的输入（0.95.0）：设置关着时 `undefined`。 */
+export function writingStyleInput(
+  settings: Pick<HostSettings, 'writingStyle'>,
+  profile: string | undefined,
+): CustomInputs['writingStyle'] {
+  if (settings.writingStyle !== true) return undefined;
+  return profile === undefined ? {} : { profile };
+}
+
 /** 交给引擎的那一段与 `session.rules` 的 `custom`；什么都没有时 `undefined`。 */
 export interface CustomPlan {
   custom: SessionCustomInstructions;
@@ -102,12 +123,23 @@ export function planCustom(prompts: CustomPrompts, inputs: CustomInputs): Custom
     blocks.push(`<user_instructions>\n${inputs.instructions.trim()}\n</user_instructions>`);
   }
   if (style !== undefined) blocks.push(style.body);
+  const writing = inputs.writingStyle;
+  if (writing !== undefined) {
+    blocks.push(
+      writing.profile === undefined
+        ? prompts.writingStyle.none
+        : `${prompts.writingStyle.apply}\n\n<writing_style_profile>\n${writing.profile.trim()}\n</writing_style_profile>`,
+    );
+  }
   if (blocks.length === 0) return undefined;
   const text = [prompts.header, ...blocks].join('\n\n');
   return {
     custom: {
       instructions: inputs.instructions !== undefined,
       ...(style !== undefined && { outputStyle: inputs.outputStyle }),
+      ...(writing !== undefined && {
+        writingStyle: writing.profile === undefined ? 'setup' : 'profile',
+      }),
       bytes: Buffer.byteLength(text),
     },
     text,

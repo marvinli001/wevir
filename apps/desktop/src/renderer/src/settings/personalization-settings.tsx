@@ -1,5 +1,6 @@
 // 设置 → 个性化（0.78.0，Host 功能 `agent_instructions`）：照 Claude Code 的输出风格设置只留两样，输出风格与“给 Agent 的说明”，
-// 都存在 Host 设置。Host 把它们交给新建、恢复与接力的会话，已经开着的会话不跟着改。
+// 都存在 Host 设置。Host 把它们交给新建、恢复与接力的会话，已经开着的会话不跟着改。0.95.0 起下面多一组“写作”
+// （writing-style-settings.tsx，Host 功能 `writing_style`）。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { HostSettings } from '@wevir/protocol';
@@ -13,12 +14,15 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { globalStyle, OUTPUT_STYLE_LABELS, OUTPUT_STYLE_OPTIONS } from './personalization-model';
 import { LIST_CARD, type Notice, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
+import { WritingStyleSettings } from './writing-style-settings';
 
 export function PersonalizationSettings() {
   const { view } = useHostConnection();
   const { settings, update } = useHostSettings();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'agent_instructions');
+  const writingSupported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'writing_style');
   const [notice, setNotice] = useState<Notice>();
 
   const save = async (patch: Partial<HostSettings>) => {
@@ -40,35 +44,43 @@ export function PersonalizationSettings() {
   }
 
   return (
-    <SettingsSection>
-      {notice && (
-        <div className="mb-3">
-          <NoticeBanner notice={notice} />
+    <>
+      <SettingsSection>
+        {notice && (
+          <div className="mb-3">
+            <NoticeBanner notice={notice} />
+          </div>
+        )}
+        <div className={LIST_CARD}>
+          <SettingsRow
+            title={t('settings.personalization.outputStyle')}
+            data-setting="output-style"
+            control={
+              <Select
+                className="w-40"
+                aria-label={t('settings.personalization.outputStyle')}
+                value={globalStyle(settings.outputStyle)}
+                onValueChange={(outputStyle) => void save({ outputStyle })}
+                options={OUTPUT_STYLE_OPTIONS.map((value) => ({
+                  value,
+                  label: t(OUTPUT_STYLE_LABELS[value]),
+                }))}
+              />
+            }
+          />
+          <InstructionsEditor
+            value={settings.agentInstructions ?? ''}
+            onSave={(agentInstructions) => save({ agentInstructions })}
+          />
         </div>
+      </SettingsSection>
+      {writingSupported && (
+        <WritingStyleSettings
+          enabled={settings.writingStyle === true}
+          onToggle={(writingStyle) => void save({ writingStyle })}
+        />
       )}
-      <div className={LIST_CARD}>
-        <SettingsRow
-          title={t('settings.personalization.outputStyle')}
-          data-setting="output-style"
-          control={
-            <Select
-              className="w-40"
-              aria-label={t('settings.personalization.outputStyle')}
-              value={globalStyle(settings.outputStyle)}
-              onValueChange={(outputStyle) => void save({ outputStyle })}
-              options={OUTPUT_STYLE_OPTIONS.map((value) => ({
-                value,
-                label: t(OUTPUT_STYLE_LABELS[value]),
-              }))}
-            />
-          }
-        />
-        <InstructionsEditor
-          value={settings.agentInstructions ?? ''}
-          onSave={(agentInstructions) => save({ agentInstructions })}
-        />
-      </div>
-    </SettingsSection>
+    </>
   );
 }
 
