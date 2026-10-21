@@ -1,9 +1,10 @@
 // 设置 → 个性化 → 写作（0.95.0，Host 功能 `writing_style`，domain-model §3.43）：“参考我的写作风格”的开关（Host 设置的
 // `writingStyle`），与 Agent 建好的写作风格档案（`writingStyle.*`：查看与编辑、删除）。档案只有一份，对所有项目有效；改动从下一次
-// 建会话、恢复或接力起生效。编辑带着读到的版本保存，期间被 Agent 改过时留着草稿，再存一次就覆盖。
+// 建会话、恢复或接力起生效。编辑带着读到的版本保存，期间被 Agent 改过时留着草稿并列出现在的版本，由用户选覆盖或放弃。
 
 import type { WritingStyleProfile } from '@wevir/protocol';
 import { WRITING_STYLE_MAX_LENGTH } from '@wevir/protocol';
+import { cn } from 'cn';
 import { Pencil, Trash2 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -146,7 +147,10 @@ function updatedText(updatedAt: string): string | undefined {
   });
 }
 
-/** 档案的编辑框：改动后才能保存；被别处改过时提示并换成新的版本，草稿留着，再存一次就覆盖。 */
+/**
+ * 档案的编辑框：改动后才能保存。保存带着读到的版本，期间被改过（Agent 存了、别的窗口改了）时不写，草稿留着，上面列出现在的版本，
+ * 由用户选“用草稿覆盖”或“放弃草稿”（同记忆的编辑框）。
+ */
 function ProfileEditor({
   profile,
   onSaved,
@@ -159,26 +163,22 @@ function ProfileEditor({
   const { client } = useHostConnection();
   const [draft, setDraft] = useState(profile.content);
   const [base, setBase] = useState(profile);
+  const [conflict, setConflict] = useState<WritingStyleProfile>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>();
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const save = async (revision: string) => {
     if (!client) return;
     setBusy(true);
     setNotice(undefined);
     try {
-      const result = await client.request('writingStyle.update', {
-        content: draft,
-        revision: base.revision,
-      });
+      const result = await client.request('writingStyle.update', { content: draft, revision });
+      onSaved(result.profile);
       if (result.conflict) {
         setBase(result.profile);
-        onSaved(result.profile);
-        setNotice({ tone: 'warning', text: t('settings.personalization.writingProfile.conflict') });
+        setConflict(result.profile);
         return;
       }
-      onSaved(result.profile);
       onClose();
     } catch (reason) {
       setNotice({
@@ -190,6 +190,17 @@ function ProfileEditor({
     }
   };
 
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (draft.trim() !== '' && draft !== base.content) void save(base.revision);
+  };
+
+  const discard = () => {
+    if (!conflict) return;
+    setDraft(conflict.content);
+    setConflict(undefined);
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="sm:max-w-2xl" showCloseButton={false}>
@@ -199,25 +210,64 @@ function ProfileEditor({
             <DialogDescription>{updatedText(base.updatedAt)}</DialogDescription>
           </DialogHeader>
           {notice && <NoticeBanner notice={notice} />}
+          {conflict && (
+            <div
+              className="space-y-2 rounded-lg bg-warning/10 px-3 py-2 text-sm"
+              data-writing-conflict
+            >
+              <p className="text-warning">
+                {t('settings.personalization.writingProfile.conflict')}
+              </p>
+              <p className="text-xs font-medium">{t('settings.memory.conflict.current')}</p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-card p-2 font-mono text-xs">
+                {conflict.content}
+              </pre>
+            </div>
+          )}
           <Textarea
             aria-label={t('settings.personalization.writingProfile')}
             value={draft}
             maxLength={WRITING_STYLE_MAX_LENGTH}
             onChange={(event) => setDraft(event.target.value)}
-            className="max-h-[60vh] min-h-64 font-mono text-xs md:text-xs"
+            className={cn(
+              'font-mono text-xs md:text-xs',
+              conflict ? 'max-h-64 min-h-40' : 'max-h-[60vh] min-h-64',
+            )}
             data-writing-profile
           />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-              {t('common.cancel')}
+              {conflict ? t('common.close') : t('common.cancel')}
             </Button>
-            <Button
-              type="submit"
-              disabled={busy || draft.trim() === '' || draft === base.content}
-              data-confirm
-            >
-              {t('settings.personalization.save')}
-            </Button>
+            {conflict ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={discard}
+                  disabled={busy}
+                  data-action="discard-draft"
+                >
+                  {t('settings.memory.conflict.discard')}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void save(conflict.revision)}
+                  disabled={busy || draft.trim() === ''}
+                  data-action="overwrite-writing-profile"
+                >
+                  {t('settings.memory.conflict.overwrite')}
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="submit"
+                disabled={busy || draft.trim() === '' || draft === base.content}
+                data-confirm
+              >
+                {t('settings.personalization.save')}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>
