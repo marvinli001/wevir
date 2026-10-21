@@ -1,6 +1,7 @@
 // 仅供测试：各 schema 的合法与非法样例。不从 index.ts 导出，不进入构建产物。
 // 合法样例以 TS 类型约束（与 z.infer 一致），非法样例各自只破坏一处，便于定位。
 
+import type { ApprovalRule } from './approval-rules.js';
 import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
@@ -102,6 +103,8 @@ export const ids = {
   opinionSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR5',
   /** 你应该知道（0.79.0）。 */
   insight: `isg_${ULID}`,
+  /** 审批规则（0.80.0）。 */
+  approvalRule: `arl_${ULID}`,
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -1198,6 +1201,27 @@ export const userResolution: ApprovalResolution = {
   optionId: 'allow-once',
   decidedBy: { deviceId: 'dev-6f1c2a', clientId: 'desk-81d0aa', clientKind: 'desktop' },
   reason: 'user',
+};
+
+/** 审批规则（0.80.0）：审批卡片上选了“总是允许”加的项目规则，用过两次。 */
+export const approvalRule: ApprovalRule = {
+  id: ids.approvalRule,
+  workspaceId: ids.workspace,
+  kind: 'command_prefix',
+  prefix: ['git', 'status'],
+  source: 'approval',
+  sourceSessionId: ids.session,
+  sourceApprovalId: ids.approval,
+  createdAt: TS,
+  useCount: 2,
+  lastUsedAt: TS2,
+};
+
+/** Host 按规则替用户允许（0.80.0）。 */
+export const ruleResolution: ApprovalResolution = {
+  optionId: 'allow-once',
+  reason: 'rule',
+  ruleIds: [ids.approvalRule],
 };
 
 /** 引擎会话丢失后只读的会话（0.3.0）。 */
@@ -5412,12 +5436,77 @@ export const methodSamples: MethodSamples = {
   },
   'approval.respond': {
     params: {
-      valid: [{ approvalId: ids.approval, optionId: 'allow-once' }],
-      invalid: [{ approvalId: ids.approval }],
+      valid: [
+        { approvalId: ids.approval, optionId: 'allow-once' },
+        // 0.80.0：总是允许，只对这个项目。
+        { approvalId: ids.approval, optionId: 'allow-once', remember: 'project' },
+      ],
+      invalid: [
+        { approvalId: ids.approval },
+        { approvalId: ids.approval, optionId: 'allow-once', remember: 'session' },
+      ],
     },
     result: {
-      valid: [{ approvalId: ids.approval, status: 'approved', resolution: userResolution }],
+      valid: [
+        { approvalId: ids.approval, status: 'approved', resolution: userResolution },
+        {
+          approvalId: ids.approval,
+          status: 'approved',
+          resolution: { ...userResolution, ruleIds: [ids.approvalRule] },
+        },
+      ],
       invalid: [{ approvalId: ids.approval, status: 'pending', resolution: userResolution }],
+    },
+  },
+  'approvalRule.list': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [
+        {
+          rules: [
+            approvalRule,
+            { ...approvalRule, workspaceId: undefined, useCount: 0, lastUsedAt: undefined },
+          ],
+        },
+      ],
+      invalid: [{ rules: [{ ...approvalRule, prefix: [] }] }],
+    },
+  },
+  'approvalRule.add': {
+    params: {
+      valid: [
+        { prefix: ['pnpm', 'test'] },
+        { prefix: ['git', 'diff'], workspaceId: ids.workspace },
+      ],
+      invalid: [{ prefix: [] }, { prefix: [''] }],
+    },
+    result: {
+      valid: [{ rule: approvalRule }],
+      invalid: [{ rule: { ...approvalRule, useCount: -1 } }],
+    },
+  },
+  'approvalRule.delete': {
+    params: { valid: [{ ruleId: ids.approvalRule }], invalid: [{ ruleId: ids.approval }] },
+    result: { valid: [{ deleted: true }, { deleted: false }], invalid: [{}] },
+  },
+  'approvalRule.suggest': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 1 }] },
+    result: {
+      valid: [
+        {
+          suggestions: [
+            {
+              prefix: ['pnpm', 'test'],
+              workspaceId: ids.workspace,
+              count: 3,
+              lastApprovedAt: TS2,
+              example: 'pnpm test --filter host',
+            },
+          ],
+        },
+        { suggestions: [] },
+      ],
+      invalid: [{ suggestions: [{ prefix: ['pnpm'], workspaceId: ids.workspace, count: 0 }] }],
     },
   },
   'browser.register': {

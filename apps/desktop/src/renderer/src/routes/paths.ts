@@ -41,6 +41,7 @@ export const SETTINGS_TABS = [
   'personalization',
   'web',
   'memory',
+  'approvalRules',
   'import',
   'workspaces',
   'archived',

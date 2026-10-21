@@ -287,6 +287,11 @@ export interface PendingApproval {
   /** 引擎要执行的工具调用。审批详情由 Host 从同一 `toolCallId` 的 `tool.started` 取（ADR-0001 §5）。 */
   toolCallId: string;
   options: ApprovalOption[];
+  /**
+   * 引擎提议的“以后这个前缀不再问”（Codex 的 `proposedExecpolicyAmendment`，按词）。只是给 Host 提议审批规则作参考
+   * （domain-model §3.35），Host 自己判断用不用；没有时省略。
+   */
+  proposedPrefix?: string[];
 }
 
 /** 工具调用的展示类型，与 @wevir/protocol 的 `ToolDisplayKind` 同形（domain-model.md §7）。 */

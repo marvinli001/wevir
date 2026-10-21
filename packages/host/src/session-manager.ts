@@ -7,6 +7,8 @@ import {
   type ApprovalOption,
   type ApprovalRequest,
   type ApprovalResolution,
+  type ApprovalRuleId,
+  type ApprovalRuleScope,
   type ClientIdentity,
   DEFAULT_PERMISSION_MODE,
   type EngineErrorCategory,
@@ -74,6 +76,7 @@ import {
   type QuestionCancelledEvent,
   type QuestionRequestedEvent,
   type ReviewRequest,
+  type ApprovalOption as RuntimeApprovalOption,
   type SessionCommandMethod,
   type SessionConfig,
   type SessionLostReason,
@@ -92,6 +95,7 @@ import {
   type Storage,
   type WorkspaceRecord,
 } from '@wevir/storage';
+import { type ApprovalRuleService, approvalCommand } from './approval-rules/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { type CustomPlan, styledSession } from './custom-instructions.js';
@@ -299,6 +303,11 @@ export interface SessionManagerOptions {
     context: { sessionId: SessionId; providerId: string; modelId: string },
     event: UsageRecordedEvent,
   ) => void;
+  /**
+   * 审批规则（0.80.0，approval-rules/service.ts）：引擎发来命令审批时按规则替用户允许，没匹配上时提议“总是允许”的前缀；
+   * `approval.respond` 带 `remember` 时加规则。没给时都没有。
+   */
+  approvalRules?: Pick<ApprovalRuleService, 'match' | 'propose' | 'remember' | 'recordUse'>;
 }
 
 /** `session.send` 之外的发送参数（0.30.0）。 */
@@ -393,6 +402,8 @@ interface SessionRuntime {
   /** 引擎的审批 requestId ↔ Host 的 ApprovalId，只保留未决的。 */
   readonly approvalIds: Map<string, ApprovalId>;
   readonly requestIds: Map<ApprovalId, string>;
+  /** 未决审批上 Host 提议的规则前缀（0.80.0）：`approval.respond` 的 `remember` 按它加规则。 */
+  readonly proposedRules: Map<ApprovalId, string[][]>;
   /** 引擎的提问 requestId ↔ Host 的 QuestionId（0.10.0），只保留未结束的。 */
   readonly questionIds: Map<string, QuestionId>;
   readonly questionRequests: Map<QuestionId, string>;
@@ -651,6 +662,7 @@ export class SessionManager {
   readonly #customInstructions: SessionManagerOptions['customInstructions'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
+  readonly #approvalRules: SessionManagerOptions['approvalRules'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
@@ -710,6 +722,7 @@ export class SessionManager {
     this.#projectConnectors = options.projectConnectors;
     this.#onTurnFinished = options.onTurnFinished;
     this.#onUsage = options.onUsage;
+    this.#approvalRules = options.approvalRules;
   }
 
   /** 引擎会话的配置：存下的配置加上这个会话的应用级工具（适配器能挂时）。 */
@@ -3280,10 +3293,30 @@ export class SessionManager {
     decidedBy: ClientIdentity,
   ): Promise<MethodResult<'approval.respond'>> {
     this.#assertOpen();
-    const { approvalId, optionId } = params;
+    const { approvalId, optionId, remember } = params;
     const found = this.#storage.approvals.get(approvalId);
     if (!found) throw new HostError('APPROVAL_NOT_FOUND', `approval ${approvalId} not found`);
     const runtime = this.#runtime(found.sessionId as SessionId, 'APPROVAL_NOT_FOUND');
+    return this.#decide(
+      runtime,
+      approvalId,
+      optionId,
+      { reason: 'user', optionId, decidedBy },
+      remember,
+    );
+  }
+
+  /**
+   * 结算一个未决审批（`approval.respond` 与按规则自动允许共用）：按会话串行，回复引擎成功后写 `approval.resolved`。`remember`
+   * （0.80.0）在回复成功后按审批提议的前缀加规则，规则 ID 记进结果。
+   */
+  #decide(
+    runtime: SessionRuntime,
+    approvalId: ApprovalId,
+    optionId: string,
+    base: ApprovalResolution,
+    remember?: ApprovalRuleScope,
+  ): Promise<MethodResult<'approval.respond'>> {
     return this.#serial(runtime, async () => {
       const approval = this.#approvalRecord(approvalId);
       if (approval.status !== 'pending') throw alreadyDecided(approval);
@@ -3291,9 +3324,19 @@ export class SessionManager {
       if (!option) throw invalidOption(approvalId, optionId);
       const requestId = runtime.requestIds.get(approvalId);
       if (requestId === undefined) throw new Error(`审批 ${approvalId} 没有对应的引擎请求`);
+      const proposed = runtime.proposedRules.get(approvalId);
+      if (
+        remember !== undefined &&
+        (this.#approvalRules === undefined || proposed === undefined || option.category !== 'allow')
+      ) {
+        const message = `approval ${approvalId} has no rule to remember`;
+        throw new HostError('INVALID_PARAMS', message, {
+          issues: [{ path: ['remember'], message }],
+        });
+      }
 
       const status: ResolvedApprovalStatus = option.category === 'allow' ? 'approved' : 'denied';
-      const resolution: ApprovalResolution = { reason: 'user', optionId, decidedBy };
+      let resolution: ApprovalResolution = base;
       let failure: { error: unknown } | undefined;
       runtime.holds += 1;
       try {
@@ -3304,6 +3347,27 @@ export class SessionManager {
           failure = { error };
         }
         if (!failure) {
+          if (
+            remember !== undefined &&
+            proposed !== undefined &&
+            this.#approvalRules !== undefined
+          ) {
+            try {
+              const ruleIds = this.#approvalRules.remember(
+                proposed,
+                remember,
+                this.workspaceOf(runtime.id),
+                {
+                  sessionId: runtime.id,
+                  approvalId,
+                },
+              );
+              resolution = { ...base, ruleIds };
+            } catch (error) {
+              // 引擎已经按允许执行了：规则没加上只告警，审批照常结算。
+              this.#onWarning('审批规则没有加上', { approvalId, error: String(error) });
+            }
+          }
           const snapshot = this.#snapshot(runtime);
           const inputs: AppendInput[] = [resolved(approvalId, status, resolution)];
           if (
@@ -4371,6 +4435,14 @@ export class SessionManager {
     };
     runtime.approvalIds.set(event.requestId, approvalId);
     runtime.requestIds.set(approvalId, event.requestId);
+    const rule =
+      source === 'engine' && state !== 'cancelling'
+        ? this.#ruleFor(runtime, tool, event)
+        : undefined;
+    if (rule?.proposed !== undefined) {
+      approval.proposedRule = { prefixes: rule.proposed };
+      runtime.proposedRules.set(approvalId, rule.proposed);
+    }
     const inputs: AppendInput[] = [{ type: 'approval.requested', source, payload: { approval } }];
     if (state === 'running') {
       inputs.push(stateChanged('running', 'awaiting_approval', 'approval_requested'));
@@ -4379,6 +4451,44 @@ export class SessionManager {
       inputs.push(resolved(approvalId, 'cancelled', { reason: 'turn_cancelled' }));
     }
     this.#write(runtime, inputs);
+    if (rule?.matched !== undefined) {
+      const { optionId, ruleIds } = rule.matched;
+      this.#decide(runtime, approvalId, optionId, { reason: 'rule', optionId, ruleIds })
+        .then(() => this.#approvalRules?.recordUse(ruleIds))
+        .catch((error: unknown) => {
+          // 用户抢先决定了、或回合已经结束：审批已不在未决状态，不是错误。
+          if (!isHostError(error, 'ALREADY_DECIDED')) this.#onError(error);
+        });
+    }
+  }
+
+  /**
+   * 审批规则（0.80.0）：命令审批的命令被对这个项目有效的规则全部允许时，给出要替用户选的“允许”选项与匹配上的规则；否则给出
+   * “总是允许”提议的前缀。只看引擎发来、带命令原文的审批，选项里要有只允许这一次的那种。
+   */
+  #ruleFor(
+    runtime: SessionRuntime,
+    tool: ToolInfo | undefined,
+    event: ApprovalRequestedEvent,
+  ):
+    | { matched?: { optionId: string; ruleIds: ApprovalRuleId[] }; proposed?: string[][] }
+    | undefined {
+    const rules = this.#approvalRules;
+    const command = approvalCommand(tool);
+    if (rules === undefined || command === undefined) return undefined;
+    const option = allowOnceOption(event.options);
+    if (option === undefined) return undefined;
+    const workspaceId = this.workspaceOf(runtime.id);
+    try {
+      const ruleIds = rules.match(command, workspaceId);
+      if (ruleIds !== null) return { matched: { optionId: option.optionId, ruleIds } };
+      const proposed = rules.propose(command, workspaceId, event.proposedPrefix);
+      return proposed === null ? undefined : { proposed };
+    } catch (error) {
+      // 规则出错不能挡住审批：照常问用户。
+      this.#onError(error);
+      return undefined;
+    }
   }
 
   /**
@@ -5152,6 +5262,7 @@ export class SessionManager {
           this.#appApprovals.delete(requestId);
           runtime.requestIds.delete(event.payload.approvalId);
           runtime.approvalIds.delete(requestId);
+          runtime.proposedRules.delete(event.payload.approvalId);
         }
       } else if (event.type === 'question.resolved') {
         this.#clearQuestionTimer(event.payload.questionId);
@@ -5202,6 +5313,7 @@ export class SessionManager {
         held: [],
         approvalIds: new Map(),
         requestIds: new Map(),
+        proposedRules: new Map(),
         questionIds: new Map(),
         questionRequests: new Map(),
       };
@@ -5689,6 +5801,16 @@ function makeTitle(content: readonly UserContentPart[]): string {
     .replace(/\s+/g, ' ')
     .trim();
   return Array.from(text).slice(0, TITLE_MAX_LENGTH).join('');
+}
+
+/**
+ * 按规则替用户选的选项：只允许这一次的那种（ACP 的 `allow_once`、Codex 等的 `allow_accept`）；没有就不自动允许，不替用户选
+ * “本会话都允许”“总是允许”这类会改变引擎自己记忆的选项。
+ */
+function allowOnceOption(
+  options: readonly RuntimeApprovalOption[],
+): RuntimeApprovalOption | undefined {
+  return options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_accept');
 }
 
 function approvalDetail(tool: ToolInfo): ApprovalDetail {

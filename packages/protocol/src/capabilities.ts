@@ -39,6 +39,9 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
   /** 认得 `QuestionResolutionReason` 的 `timeout`；没有时 Host 把它降级成 `user`（回答照旧，没有 `answeredBy`）。 */
   questionTimeout: 'question_timeout',
+  // COMPAT(approvalRules): added in 0.80.0, remove gate after 2027-06-01
+  /** 认得 `ApprovalResolutionReason` 的 `rule`；没有时 Host 把它降级成 `user`（没有 `decidedBy`）。 */
+  approvalRules: 'approval_rules',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -51,6 +54,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   subscription_accounts: z.boolean().optional(),
   user_images: z.boolean().optional(),
   question_timeout: z.boolean().optional(),
+  approval_rules: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
@@ -345,6 +349,11 @@ export const HOST_FEATURES = {
    * Host 把它们与补给的规则文件一起交给引擎，选了带提醒的风格时每条用户消息末尾附一行提醒。与引擎无关。
    */
   agentInstructions: 'agent_instructions',
+  /**
+   * 审批规则（0.80.0，domain-model §3.35）：`approvalRule.*`、`ApprovalRequest.proposedRule`、`approval.respond` 的 `remember` 与
+   * `ApprovalResolution` 的 `rule` / `ruleIds`。Host 在审批前按规则替用户允许命令，与引擎无关。
+   */
+  approvalRules: 'approval_rules',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -416,6 +425,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_retro: z.boolean().optional(),
   session_search: z.boolean().optional(),
   agent_instructions: z.boolean().optional(),
+  approval_rules: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

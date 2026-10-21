@@ -713,7 +713,11 @@ export interface CommandExecutionRequestApprovalParams {
   command?: string | null;
   cwd?: string | null;
   commandActions?: CommandAction[] | null;
-  /** “以后以这个前缀开头的命令不再问”的提议（R3 不做，codex-event-mapping.md §6.6）。 */
+  /**
+   * “以后以这个前缀开头的命令不再问”的提议（按词）：模型给了 `prefix_rule` 用它，否则多半是整条命令。适配器原样转给 Host 作审批
+   * 规则的参考（`PendingApproval.proposedPrefix`）；不回 `acceptWithExecpolicyAmendment`，规则由 Host 记、Host 匹配
+   * （codex-event-mapping.md §6.6）。
+   */
   proposedExecpolicyAmendment?: unknown;
 }
 

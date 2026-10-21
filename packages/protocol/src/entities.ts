@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { ProposedApprovalRuleSchema } from './approval-rules.js';
 import {
   ApprovalIdSchema,
+  ApprovalRuleIdSchema,
   AutomationIdSchema,
   AutomationRunIdSchema,
   ClientIdentitySchema,
@@ -582,6 +584,8 @@ export const ApprovalResolutionReasonSchema = z.enum([
   'engine_exited',
   'host_shutdown',
   'host_restarted',
+  /** Host 按审批规则替用户允许（0.80.0）：带 `optionId` 与 `ruleIds`，没有 `decidedBy`。 */
+  'rule',
 ]);
 export type ApprovalResolutionReason = z.infer<typeof ApprovalResolutionReasonSchema>;
 
@@ -591,6 +595,11 @@ export const ApprovalResolutionSchema = z.object({
   /** `reason` 为 `user` 时必有。 */
   decidedBy: ClientIdentitySchema.optional(),
   reason: ApprovalResolutionReasonSchema,
+  /**
+   * 审批规则（0.80.0）：`reason` 为 `rule` 时是匹配上的规则；为 `user` 时是这次选“总是允许”加的规则（`approval.respond` 的
+   * `remember`）。规则之后可能被删掉，这里只是当时的 ID。
+   */
+  ruleIds: z.array(ApprovalRuleIdSchema).optional(),
 });
 export type ApprovalResolution = z.infer<typeof ApprovalResolutionSchema>;
 
@@ -641,7 +650,7 @@ export type QuestionStatus = z.infer<typeof QuestionStatusSchema>;
  * 回答，Host 按每题的 `defaultOption` 回答（状态 `answered`，没有选项的题跳过）。
  */
 export const QuestionResolutionReasonSchema = z.enum([
-  ...ApprovalResolutionReasonSchema.options,
+  ...ApprovalResolutionReasonSchema.exclude(['rule']).options,
   'timeout',
 ]);
 export type QuestionResolutionReason = z.infer<typeof QuestionResolutionReasonSchema>;
@@ -683,6 +692,8 @@ export const ApprovalRequestSchema = z.object({
   options: z.array(ApprovalOptionSchema).min(1),
   /** 找不到对应 `tool.started` 时为 null。 */
   detail: ApprovalDetailSchema.nullable(),
+  /** Host 提议的“总是允许”的前缀（0.80.0，Host 功能 `approval_rules`）；没有时卡片不给这个选项。 */
+  proposedRule: ProposedApprovalRuleSchema.optional(),
   status: ApprovalStatusSchema,
   createdAt: IsoTimeSchema,
   resolvedAt: IsoTimeSchema.optional(),

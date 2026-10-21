@@ -53,6 +53,14 @@ export interface ApprovalRepository {
    * 返回 false，什么都不改。
    */
   resolve(id: string, resolve: ApprovalResolve): boolean;
+  /**
+   * 用户手动允许过的审批（从历史建议审批规则用，协议 0.80.0），带会话所在的项目，最近的在前，最多 `limit` 条；给了
+   * `workspaceId` 只列这个项目的。
+   */
+  listUserApproved(options: {
+    workspaceId?: string;
+    limit: number;
+  }): (ApprovalRecord & { workspaceId: string })[];
 }
 
 export function createApprovalRepository(db: SqliteDatabase): ApprovalRepository {
@@ -71,6 +79,12 @@ export function createApprovalRepository(db: SqliteDatabase): ApprovalRepository
   const listPending = db.prepare(
     "SELECT * FROM approvals WHERE status = 'pending' ORDER BY created_at, id",
   );
+  const listUserApproved = db.prepare(`
+    SELECT approvals.*, sessions.workspace_id FROM approvals JOIN sessions ON sessions.id = approvals.session_id
+    WHERE approvals.status = 'approved' AND approvals.resolution_reason = 'user'
+      AND (:workspaceId IS NULL OR sessions.workspace_id = :workspaceId)
+    ORDER BY approvals.created_at DESC, approvals.id DESC
+    LIMIT :limit`);
   const resolve = db.prepare(`
     UPDATE approvals SET
       status = :status, resolved_at = :resolvedAt, resolution_reason = :reason,
@@ -100,6 +114,10 @@ export function createApprovalRepository(db: SqliteDatabase): ApprovalRepository
       return listBySession.all({ sessionId, status: options?.status ?? null }).map(fromRow);
     },
     listPending: () => listPending.all().map(fromRow),
+    listUserApproved: ({ workspaceId, limit }) =>
+      listUserApproved
+        .all({ workspaceId: workspaceId ?? null, limit })
+        .map((row) => ({ ...fromRow(row), workspaceId: text(row, 'workspace_id') })),
     resolve(id, { status, resolvedAt, resolution }) {
       if (status === 'pending') throw new TypeError('resolve() 的 status 不能是 pending');
       return changed(resolve.run({ id, status, resolvedAt, ...resolutionParams(resolution) }));

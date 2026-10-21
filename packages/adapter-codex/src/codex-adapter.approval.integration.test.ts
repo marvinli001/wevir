@@ -122,6 +122,8 @@ describe.skipIf(binary === undefined)(
       const { adapter, id, events } = await open();
       const { from, request } = await requestApproval(adapter, id, events, '[cmd:accept]');
       expect(request.options).toEqual(COMMAND_APPROVAL_OPTIONS);
+      // Codex 的 proposedExecpolicyAmendment 原样转给 Host（模型没给 prefix_rule，是整条命令）。
+      expect(request.proposedPrefix).toEqual(['touch', expect.stringContaining('accept')]);
       const before = events.slice(from, events.indexOf(request));
       const started = before.find(ofType('tool.started'));
       expect(started).toMatchObject({

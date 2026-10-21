@@ -4,6 +4,7 @@ import {
   createSubscriptionAccountRepository,
   type SubscriptionAccountRepository,
 } from './accounts.js';
+import { type ApprovalRuleRepository, createApprovalRuleRepository } from './approval-rules.js';
 import { type ApprovalRepository, createApprovalRepository } from './approvals.js';
 import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
@@ -35,6 +36,8 @@ export interface Storage {
   readonly sessions: SessionRepository;
   readonly events: EventRepository;
   readonly approvals: ApprovalRepository;
+  /** 可持久的审批规则（0017_approval_rules）。 */
+  readonly approvalRules: ApprovalRuleRepository;
   readonly sendReceipts: SendReceiptRepository;
   /** 用量统计（0011_usage_records）。 */
   readonly usage: UsageRepository;
@@ -73,6 +76,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       sessions: createSessionRepository(db),
       events: createEventRepository(db),
       approvals: createApprovalRepository(db),
+      approvalRules: createApprovalRuleRepository(db),
       sendReceipts: createSendReceiptRepository(db),
       usage: createUsageRepository(db),
       accounts: createSubscriptionAccountRepository(db),

@@ -20,6 +20,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { AppTools, engineSessionResolver } from './app-tools.js';
+import { ApprovalRuleService } from './approval-rules/service.js';
 import { automationRunMessage } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
@@ -191,6 +192,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
+  let approvalRules: ApprovalRuleService | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -361,10 +363,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     const usageStats = usage;
     void pricing.start();
+    // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。
+    approvalRules = new ApprovalRuleService({ storage });
     const manager = new SessionManager({
       storage,
       events: store,
       adapter,
+      approvalRules,
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
         prepareEvent: (sessionId, event) => {
@@ -728,6 +733,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
         externalImport,
         search,
+        approvalRules,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -798,6 +804,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(secondOpinions !== undefined && { second_opinion: true }),
         session_search: true,
         ...(customPrompts !== undefined && { agent_instructions: true }),
+        approval_rules: true,
       },
       engineFeatures,
       plugins,

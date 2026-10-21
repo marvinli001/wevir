@@ -14,6 +14,7 @@ import {
   Palette,
   Search,
   Settings2,
+  ShieldCheck,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import { layoutPrefs, useViewportWidth } from '@/layout/layout-state';
 import { Splitter } from '@/layout/splitter';
 import { WindowControls } from '@/layout/window-controls';
 import { AppearanceSettings } from '@/settings/appearance-settings';
+import { ApprovalRuleSettings } from '@/settings/approval-rule-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
 import { GeneralSettings } from '@/settings/general-settings';
 import { ImportSettings } from '@/settings/import-settings';
@@ -125,6 +127,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Brain,
     keywords: ['settings.memory.auto', 'settings.memory.global'],
   },
+  approvalRules: {
+    label: 'settings.tab.approvalRules',
+    icon: ShieldCheck,
+    keywords: ['settings.approvalRules.rules', 'settings.approvalRules.suggested'],
+  },
   import: {
     label: 'settings.tab.import',
     icon: Import,
@@ -167,7 +174,16 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
   },
   {
     label: 'settings.group.work',
-    tabs: ['providers', 'personalization', 'web', 'memory', 'import', 'workspaces', 'archived'],
+    tabs: [
+      'providers',
+      'personalization',
+      'web',
+      'memory',
+      'approvalRules',
+      'import',
+      'workspaces',
+      'archived',
+    ],
   },
 ];
 
@@ -347,6 +363,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <WebSettingsPage />;
     case 'memory':
       return <MemorySettings />;
+    case 'approvalRules':
+      return <ApprovalRuleSettings />;
     case 'import':
       return <ImportSettings />;
     case 'workspaces':

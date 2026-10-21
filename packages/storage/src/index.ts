@@ -6,6 +6,7 @@
 // 记录与线缆类型之间的转换由 Host 负责。
 
 export * from './accounts.js';
+export * from './approval-rules.js';
 export * from './approvals.js';
 export {
   BUSY_TIMEOUT_MS,

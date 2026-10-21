@@ -2,11 +2,13 @@ import type { ApprovalRequest, ClientIdentity } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   type ApprovalScope,
+  alwaysAllow,
   approvalLayout,
   approvalScope,
   clientLabel,
   decidedHere,
   optionLabel,
+  prefixText,
   presentApproval,
   resolutionText,
 } from './approval-model';
@@ -250,5 +252,32 @@ describe('选项与处理者', () => {
       false,
     );
     expect(decidedHere({ reason: 'host_restarted' }, self)).toBe(false);
+  });
+});
+
+describe('总是允许（0.80.0）', () => {
+  it('审批带 Host 提议的规则时才有，用允许那个选项，前缀按词显示', () => {
+    const plain = approval(null);
+    expect(alwaysAllow(plain)).toBeUndefined();
+    const proposed = {
+      ...plain,
+      proposedRule: {
+        prefixes: [
+          ['git', 'status'],
+          ['echo', 'a b'],
+        ],
+      },
+    };
+    expect(alwaysAllow(proposed)).toEqual({
+      option: plain.options[0],
+      prefix: "git status、echo 'a b'",
+    });
+    expect(prefixText(['echo', "it's"])).toBe(`echo 'it'\\''s'`);
+  });
+
+  it('按规则允许的结算写“已按规则允许”', () => {
+    expect(
+      resolutionText(approval(null), { reason: 'rule', optionId: 'allow-once', ruleIds: [] }, self),
+    ).toBe('已按规则允许');
   });
 });
