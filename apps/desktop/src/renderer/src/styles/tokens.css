@@ -42,6 +42,13 @@
   --warning: var(--ochre-deep);
   --destructive: var(--red-deep);
 
+  /* 插件市场的认证徽章（图形，WCAG 1.4.11 的 3:1）：verified 蓝、official 金，里面的勾用 -foreground。深色也用金，
+   * 铂金上白勾看不清。 */
+  --verified: var(--blue-verified);
+  --verified-foreground: var(--ivory-1);
+  --official: var(--gold);
+  --official-foreground: var(--ivory-1);
+
   /* 代码：块底色与语法高亮（highlight.js 的类名在 markdown.css 里映射到这些变量）。 */
   --code-background: var(--ivory-4);
   --code-keyword: var(--blue-deep);
@@ -93,6 +100,13 @@
   --success: var(--green-pale);
   --warning: var(--ochre-pale);
   --destructive: var(--red-pale);
+
+  /* 插件市场的认证徽章（图形，WCAG 1.4.11 的 3:1）：verified 蓝、official 金，里面的勾用 -foreground。深色也用金，
+   * 铂金上白勾看不清。 */
+  --verified: var(--blue-verified);
+  --verified-foreground: var(--ivory-1);
+  --official: var(--gold);
+  --official-foreground: var(--ivory-1);
 
   --code-background: var(--graphite-3);
   --code-keyword: var(--blue-pale);

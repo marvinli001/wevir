@@ -199,6 +199,10 @@
   --color-selected: var(--selected);
   --color-selected-border: var(--selected-border);
   --color-brand: var(--brand);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-official: var(--official);
+  --color-official-foreground: var(--official-foreground);
   --color-running: var(--running);
   --color-success: var(--success);
   --color-warning: var(--warning);

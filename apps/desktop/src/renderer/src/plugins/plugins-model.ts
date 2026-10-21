@@ -20,25 +20,48 @@ export function pluginsAvailability(features: HostFeatures | undefined): Plugins
   return hostSupports(features, 'plugins') ? 'ready' : 'unsupported';
 }
 
-/** Host 有 `plugin_packages`（0.42.0）才有“插件”分段；0.41.0 的 Host 只有连接器与 Skills。 */
+/** Host 有 `plugin_market`（0.91.0）才有“市场”分段，有 `plugin_packages`（0.42.0）才有“插件”分段。 */
 export function visibleTabs(features: HostFeatures): readonly PluginsTab[] {
-  return hostSupports(features, 'plugin_packages')
-    ? PLUGINS_TABS
-    : PLUGINS_TABS.filter((tab) => tab !== 'plugins');
+  return PLUGINS_TABS.filter((tab) => {
+    if (tab === 'market') return hostSupports(features, 'plugin_market');
+    if (tab === 'plugins') return hostSupports(features, 'plugin_packages');
+    return true;
+  });
 }
 
+/** 没有记下上次的分段时用的：第一个不是“市场”的分段。 */
 export function defaultTab(features: HostFeatures): PluginsTab {
-  return visibleTabs(features)[0] ?? 'connectors';
+  return visibleTabs(features).find((tab) => tab !== 'market') ?? 'connectors';
 }
 
-/** URL 里的分段：认得且 Host 支持就用，否则要转到默认分段（`redirect`）。 */
+/** 插件、MCP 服务与 Skills 一个都没有（从没装过任何东西）。 */
+export function nothingInstalled(list: Pick<PluginsList, 'plugins' | 'connectors' | 'skills'>) {
+  return (
+    (list.plugins ?? []).length === 0 && list.connectors.length === 0 && list.skills.length === 0
+  );
+}
+
+/**
+ * `/plugins`（左栏的入口）转去的分段（plugin-market.md §9）：从没装过任何东西时进市场，其余沿用上次的分段，没有记下的或它已不
+ * 可用时用 `defaultTab`。`list` 读不到时按装过东西处理。
+ */
+export function landingTab(
+  features: HostFeatures,
+  last: PluginsTab | undefined,
+  list: Pick<PluginsList, 'plugins' | 'connectors' | 'skills'> | undefined,
+): PluginsTab {
+  const visible = visibleTabs(features);
+  if (list !== undefined && visible.includes('market') && nothingInstalled(list)) return 'market';
+  if (last !== undefined && visible.includes(last)) return last;
+  return defaultTab(features);
+}
+
+/** URL 里的分段：认得且 Host 支持就用；否则 undefined，转回 `/plugins` 由 `landingTab` 决定。 */
 export function resolveTab(
   param: string | undefined,
   features: HostFeatures,
-): { tab: PluginsTab; redirect: boolean } {
-  const visible = visibleTabs(features);
-  const found = visible.find((tab) => tab === param);
-  return found ? { tab: found, redirect: false } : { tab: defaultTab(features), redirect: true };
+): PluginsTab | undefined {
+  return visibleTabs(features).find((tab) => tab === param);
 }
 
 // ---- 连接器 ----

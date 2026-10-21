@@ -109,6 +109,14 @@ const PAIRS: { fg: string[]; bg: string[]; min: number }[] = [
   },
   // 品牌主标是图形，不是文字：WCAG 1.4.11 的 3:1。
   { fg: ['--brand'], bg: ['--background', '--sidebar', '--card'], min: 3 },
+  // 认证徽章（插件市场）：徽章在列表、详情、悬停行与浮层的底色上，勾在徽章上，都是图形的 3:1。
+  {
+    fg: ['--verified', '--official'],
+    bg: ['--background', '--sidebar', '--card', '--popover', '--muted', '--accent'],
+    min: 3,
+  },
+  { fg: ['--verified-foreground'], bg: ['--verified'], min: 3 },
+  { fg: ['--official-foreground'], bg: ['--official'], min: 3 },
 ];
 
 describe.each(['light', 'dark'] as const)('设计 Token：%s', (theme) => {

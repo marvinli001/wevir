@@ -93,6 +93,30 @@ describe('路由', () => {
     router.dispose();
   });
 
+  it('市场：分组与条目详情的地址，与 /plugins/:tab 不冲突', () => {
+    expect(paths.marketGroup('popular')).toBe('/plugins/market/group/popular');
+    expect(paths.marketEntry('official', 'notion')).toBe('/plugins/market/official/notion');
+    expect(
+      matchPath(ROUTE_PATTERNS.marketEntry, paths.marketEntry('official', 'notion'))?.params,
+    ).toEqual({ source: 'official', entry: 'notion' });
+    const routes = [
+      { path: ROUTE_PATTERNS.plugins },
+      { path: ROUTE_PATTERNS.pluginsTab },
+      { path: ROUTE_PATTERNS.marketGroup },
+      { path: ROUTE_PATTERNS.marketEntry },
+      { path: '*' },
+    ];
+    for (const [url, pattern] of [
+      ['/plugins/market', ROUTE_PATTERNS.pluginsTab],
+      ['/plugins/market/group/popular', ROUTE_PATTERNS.marketGroup],
+      ['/plugins/market/official/notion', ROUTE_PATTERNS.marketEntry],
+    ] as const) {
+      const router = createMemoryRouter(routes, { initialEntries: [url] });
+      expect(router.state.matches.map((match) => match.route.path)).toEqual([pattern]);
+      router.dispose();
+    }
+  });
+
   it('调优页：/tuning 与 /tuning/:tab 都匹配；范围与版本放在查询串里', () => {
     expect(paths.tuning()).toBe('/tuning');
     expect(paths.tuning('profile')).toBe('/tuning/profile');
@@ -110,7 +134,8 @@ describe('路由', () => {
 
   it('只认识列出的插件页分段', () => {
     expect(isPluginsTab('skills')).toBe(true);
-    expect(isPluginsTab('market')).toBe(false);
+    expect(isPluginsTab('market')).toBe(true);
+    expect(isPluginsTab('store')).toBe(false);
     expect(isPluginsTab(undefined)).toBe(false);
   });
 
