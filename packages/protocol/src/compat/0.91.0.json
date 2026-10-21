@@ -6173,7 +6173,7 @@
                 "reasoning": 0
               },
               "cost": {
-                "input": 1e-5,
+                "input": 0.00001,
                 "output": 0.0032,
                 "cacheRead": 0.0451,
                 "cacheWrite": 0.0056,
@@ -11821,6 +11821,13 @@
                   "zh-CN": "效率",
                   "en": "Productivity"
                 }
+              },
+              {
+                "id": "other",
+                "name": {
+                  "zh-CN": "其他",
+                  "en": "Other"
+                }
               }
             ],
             "featured": [
@@ -11830,7 +11837,7 @@
                   "zh-CN": "热门",
                   "en": "Popular"
                 },
-                "entries": ["notes"]
+                "entries": ["notes", "tracker"]
               }
             ],
             "entries": [
@@ -11844,7 +11851,8 @@
                 "i18n": {
                   "zh-CN": {
                     "name": "笔记",
-                    "description": "让 agent 记笔记"
+                    "description": "让 agent 记笔记",
+                    "examples": ["把今天的会议要点记下来"]
                   }
                 },
                 "author": {
@@ -11854,7 +11862,16 @@
                 "icon": "plugins/notes/icon.svg",
                 "category": "productivity",
                 "keywords": ["notes"],
-                "trust": "official",
+                "listedAt": "2026-10-21T08:00:00Z",
+                "verification": {
+                  "level": "official",
+                  "since": "2026-10"
+                },
+                "examples": ["Write down the key points of today's meeting"],
+                "links": {
+                  "privacy": "https://example.com/privacy",
+                  "terms": "https://example.com/terms"
+                },
                 "requires": {
                   "runtimes": ["node>=20"]
                 },
@@ -11901,6 +11918,48 @@
                     "commit": "dddddddddddddddddddddddddddddddddddddddd"
                   }
                 ]
+              },
+              {
+                "id": "tracker",
+                "kind": "mcp",
+                "path": "plugins/tracker",
+                "name": "Tracker",
+                "version": "2.4.1",
+                "category": "other",
+                "listedAt": "2026-10-20T12:30:00Z",
+                "verification": {
+                  "level": "verified",
+                  "publisher": "Acme Inc.",
+                  "since": "2026-10",
+                  "note": {
+                    "en": "Published from Acme's own repository"
+                  }
+                },
+                "upstream": {
+                  "url": "https://github.com/acme/tracker-mcp",
+                  "version": "2.4.0",
+                  "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "license": "Apache-2.0"
+                },
+                "contents": {
+                  "connectors": [
+                    {
+                      "name": "tracker",
+                      "transport": "http",
+                      "url": "https://mcp.acme.example/mcp"
+                    }
+                  ],
+                  "skills": [],
+                  "inputs": []
+                },
+                "files": [
+                  {
+                    "path": "wevir-plugin.json",
+                    "size": 300,
+                    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                  }
+                ],
+                "digest": "0000000000000000000000000000000000000000000000000000000000000000"
               }
             ]
           },
@@ -11921,6 +11980,13 @@
                   "zh-CN": "效率",
                   "en": "Productivity"
                 }
+              },
+              {
+                "id": "other",
+                "name": {
+                  "zh-CN": "其他",
+                  "en": "Other"
+                }
               }
             ],
             "featured": [
@@ -11930,7 +11996,7 @@
                   "zh-CN": "热门",
                   "en": "Popular"
                 },
-                "entries": ["notes"]
+                "entries": ["notes", "tracker"]
               }
             ],
             "entries": [
@@ -11944,7 +12010,8 @@
                 "i18n": {
                   "zh-CN": {
                     "name": "笔记",
-                    "description": "让 agent 记笔记"
+                    "description": "让 agent 记笔记",
+                    "examples": ["把今天的会议要点记下来"]
                   }
                 },
                 "author": {
@@ -11954,7 +12021,16 @@
                 "icon": "plugins/notes/icon.svg",
                 "category": "productivity",
                 "keywords": ["notes"],
-                "trust": "official",
+                "listedAt": "2026-10-21T08:00:00Z",
+                "verification": {
+                  "level": "official",
+                  "since": "2026-10"
+                },
+                "examples": ["Write down the key points of today's meeting"],
+                "links": {
+                  "privacy": "https://example.com/privacy",
+                  "terms": "https://example.com/terms"
+                },
                 "requires": {
                   "runtimes": ["node>=20"]
                 },
@@ -12001,6 +12077,48 @@
                     "commit": "dddddddddddddddddddddddddddddddddddddddd"
                   }
                 ]
+              },
+              {
+                "id": "tracker",
+                "kind": "mcp",
+                "path": "plugins/tracker",
+                "name": "Tracker",
+                "version": "2.4.1",
+                "category": "other",
+                "listedAt": "2026-10-20T12:30:00Z",
+                "verification": {
+                  "level": "verified",
+                  "publisher": "Acme Inc.",
+                  "since": "2026-10",
+                  "note": {
+                    "en": "Published from Acme's own repository"
+                  }
+                },
+                "upstream": {
+                  "url": "https://github.com/acme/tracker-mcp",
+                  "version": "2.4.0",
+                  "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "license": "Apache-2.0"
+                },
+                "contents": {
+                  "connectors": [
+                    {
+                      "name": "tracker",
+                      "transport": "http",
+                      "url": "https://mcp.acme.example/mcp"
+                    }
+                  ],
+                  "skills": [],
+                  "inputs": []
+                },
+                "files": [
+                  {
+                    "path": "wevir-plugin.json",
+                    "size": 300,
+                    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                  }
+                ],
+                "digest": "0000000000000000000000000000000000000000000000000000000000000000"
               }
             ]
           },

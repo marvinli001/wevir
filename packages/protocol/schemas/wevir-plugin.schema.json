@@ -226,10 +226,36 @@
           "description": {
             "type": "string",
             "maxLength": 1024
+          },
+          "examples": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
           }
         },
         "additionalProperties": false
       }
+    },
+    "examples": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "privacyPolicy": {
+      "type": "string",
+      "format": "uri"
+    },
+    "termsOfService": {
+      "type": "string",
+      "format": "uri"
     },
     "requires": {
       "type": "object",

@@ -1,4 +1,4 @@
-// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存。
+// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存；0.93.0 起读索引时丢掉未知字段。
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -27,7 +27,8 @@ interface Served {
   /** 毫秒；省略立即回答。 */
   delay?: number;
   status?: number;
-  index?: WevirMarketIndex;
+  /** 不一定合乎当前的 schema：市场仓库可能比客户端新。 */
+  index?: unknown;
   /** 用别的私钥签名。 */
   forged?: boolean;
 }
@@ -57,6 +58,22 @@ function mirrors(served: Partial<Record<MarketMirror, Served>>) {
     },
   };
 }
+
+/** 比客户端新的市场仓库生成的条目：各层多出几个字段。 */
+const futureEntry = {
+  id: 'notes',
+  kind: 'plugin',
+  path: 'plugins/notes',
+  name: 'Notes',
+  version: '1.0.0',
+  category: 'productivity',
+  listedAt: '2026-10-21T08:00:00Z',
+  verification: { level: 'verified', publisher: 'Acme', since: '2026-10', badge: 'gold' },
+  rating: 4.5,
+  contents: { connectors: [], skills: [], inputs: [], apps: [] },
+  files: [{ path: 'wevir-plugin.json', size: 10, sha256: 'b'.repeat(64) }],
+  digest: 'c'.repeat(64),
+};
 
 describe('MarketService', () => {
   const temp = useTempDir();
@@ -151,6 +168,39 @@ describe('MarketService', () => {
       ...down.options,
     });
     await expect(empty.index()).rejects.toBeInstanceOf(HostError);
+  });
+
+  it('索引里不认识的字段丢掉，不拒收整份索引', async () => {
+    const index = {
+      ...indexOf(2),
+      layout: 'grid',
+      categories: [{ id: 'productivity', name: { en: 'Productivity' }, icon: 'x.svg' }],
+      entries: [futureEntry],
+    };
+    const result = await service(mirrors({ github: { index } }).options, () => 'github').index();
+    expect(result.mirror).toBe('github');
+    expect(result.index).not.toHaveProperty('layout');
+    expect(result.index.categories[0]).not.toHaveProperty('icon');
+    const [entry] = result.index.entries;
+    expect(entry).not.toHaveProperty('rating');
+    expect(entry?.verification).toEqual({ level: 'verified', publisher: 'Acme', since: '2026-10' });
+    expect(entry?.contents).not.toHaveProperty('apps');
+  });
+
+  it('不认识的 schemaVersion 当作读取失败：换镜像，都不行就回缓存', async () => {
+    const v2 = { ...indexOf(9), schemaVersion: 2 };
+    const fallback = await service(
+      mirrors({ github: { index: v2 }, cnb: { index: indexOf(3) } }).options,
+      () => 'github',
+    ).index();
+    expect(fallback).toMatchObject({ mirror: 'cnb', index: { sequence: 3 } });
+
+    const cached = await service(
+      mirrors({ github: { index: v2 }, cnb: { index: v2 }, gitee: { index: v2 } }).options,
+      () => 'github',
+    ).index(true);
+    expect(cached.index.sequence).toBe(3);
+    expect(cached.error).toMatch(/unsupported index schemaVersion: 2/);
   });
 
   it('从手动改回自动时忘掉之前测出的镜像', async () => {

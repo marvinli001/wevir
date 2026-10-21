@@ -8,7 +8,7 @@ import {
   type MarketStatus,
   type MethodResult,
   type WevirMarketIndex,
-  WevirMarketIndexSchema,
+  WevirMarketIndexLenientSchema,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
 
@@ -205,10 +205,7 @@ export class MarketService {
     ]);
     const signature = signatureBytes.toString('utf8').trim();
     if (!this.#verify(bytes, signature)) throw new Error('signature does not match');
-    const parsed = WevirMarketIndexSchema.safeParse(JSON.parse(bytes.toString('utf8')));
-    if (!parsed.success)
-      throw new Error(`index does not match its schema: ${parsed.error.message}`);
-    return { index: parsed.data, bytes, signature };
+    return { index: parseIndex(bytes), bytes, signature };
   }
 
   #verify(bytes: Buffer, signature: string): boolean {
@@ -268,8 +265,7 @@ export class MarketService {
         readFile(join(this.#options.dir, 'index.json.sig'), 'utf8'),
       ]);
       if (!this.#verify(bytes, signature.trim())) return undefined;
-      const parsed = WevirMarketIndexSchema.safeParse(JSON.parse(bytes.toString('utf8')));
-      if (parsed.success) this.#index = parsed.data;
+      this.#index = parseIndex(bytes);
     } catch {}
     return this.#index;
   }
@@ -286,4 +282,17 @@ export class MarketService {
     await writeFile(tmp, data, { mode: 0o600 });
     await rename(tmp, file);
   }
+}
+
+/**
+ * 读索引时丢掉不认识的字段（市场仓库以后加字段，这里只是看不到），已知字段仍按 schema 检查。
+ * 不认识的 `schemaVersion` 是不兼容的格式，当作读取失败：换镜像，都不行就回缓存。
+ */
+function parseIndex(bytes: Buffer): WevirMarketIndex {
+  const raw: unknown = JSON.parse(bytes.toString('utf8'));
+  const version = (raw as { schemaVersion?: unknown } | null)?.schemaVersion;
+  if (version !== 1) throw new Error(`unsupported index schemaVersion: ${JSON.stringify(version)}`);
+  const parsed = WevirMarketIndexLenientSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(`index does not match its schema: ${parsed.error.message}`);
+  return parsed.data;
 }

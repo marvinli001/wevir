@@ -21,7 +21,8 @@ const common = {
 };
 const stdio = { command: text, args: z.array(z.string()).optional(), cwd: text.optional() };
 // zod 4 在 z.url() 失败后仍会跑 refine，所以这里要自己接住 new URL 的解析错误，不能抛 TypeError。
-const httpUrl = z.url().refine((value) => {
+/** http(s) 地址，不带用户名与口令。 */
+export const PluginUrlSchema = z.url().refine((value) => {
   try {
     const url = new URL(value);
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
@@ -29,6 +30,7 @@ const httpUrl = z.url().refine((value) => {
     return false;
   }
 });
+const httpUrl = PluginUrlSchema;
 
 export const McpServerConfigSchema = z.discriminatedUnion('transport', [
   z.object({ transport: z.literal('stdio'), ...stdio, env: secrets.optional(), ...common }),
@@ -159,6 +161,8 @@ export const MarketCategoryIdSchema = z
   .string()
   .max(64)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+/** 示例 prompt（0.93.0）：最多 3 条，每条最长 200 字。 */
+export const PluginExamplesSchema = z.array(z.string().min(1).max(200)).max(3);
 
 /** 插件包根目录的 `wevir-plugin.json`。 */
 export const WevirPluginManifestSchema = z
@@ -186,16 +190,21 @@ export const WevirPluginManifestSchema = z
     keywords: z.array(z.string().min(1).max(32)).max(16).optional(),
     /** 市场分类 ID，取值见市场的分类表。 */
     category: MarketCategoryIdSchema.optional(),
-    /** 名称与描述的多语言版本。 */
+    /** 名称、描述与示例的多语言版本。 */
     i18n: z
       .record(
         LocaleTagSchema,
         z.strictObject({
           name: z.string().min(1).max(128).optional(),
           description: z.string().max(1024).optional(),
+          examples: PluginExamplesSchema.optional(),
         }),
       )
       .optional(),
+    /** 以下三项也给插件市场（0.93.0）。示例 prompt，详情页里点一下就填进输入框。 */
+    examples: PluginExamplesSchema.optional(),
+    privacyPolicy: httpUrl.optional(),
+    termsOfService: httpUrl.optional(),
     /** 运行要求，如 `node>=20`、`python>=3.11`、`uv`。 */
     requires: z
       .strictObject({

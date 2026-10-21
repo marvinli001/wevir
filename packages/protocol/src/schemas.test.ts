@@ -640,19 +640,71 @@ const standaloneCases: Case[] = [
     invalid: ['app'],
   },
   {
-    name: 'MarketTrust',
-    schema: protocol.MarketTrustSchema,
-    valid: ['official', 'community'],
-    invalid: ['verified'],
+    name: 'MarketVerificationLevel',
+    schema: protocol.MarketVerificationLevelSchema,
+    valid: ['official', 'verified'],
+    invalid: ['community', 'blue'],
+  },
+  {
+    name: 'PluginExamples',
+    schema: protocol.PluginExamplesSchema,
+    valid: [[], ['Summarize my inbox'], ['a', 'b', 'c'], ['x'.repeat(200)]],
+    invalid: [['a', 'b', 'c', 'd'], [''], ['x'.repeat(201)]],
+  },
+  {
+    name: 'PluginUrl',
+    schema: protocol.PluginUrlSchema,
+    valid: ['https://example.com/privacy', 'http://localhost:3000/terms'],
+    invalid: ['ftp://example.com/x', 'https://user:pw@example.com/', 'example.com'],
   },
   {
     name: 'MarketEntry',
     schema: protocol.MarketEntrySchema,
-    valid: [...marketIndex.entries],
+    valid: [
+      ...marketIndex.entries,
+      {
+        ...marketIndex.entries[0],
+        verification: { level: 'official', publisher: 'Wevir', since: '2025-01' },
+      },
+    ],
     invalid: [
       { ...marketIndex.entries[0], path: '../plugins/notes' },
       { ...marketIndex.entries[0], files: [] },
       { ...marketIndex.entries[0], digest: 'x' },
+      // 0.93.0：去掉了 trust，category 与 listedAt 必有
+      { ...marketIndex.entries[0], trust: 'official' },
+      { ...marketIndex.entries[0], category: undefined },
+      { ...marketIndex.entries[0], listedAt: undefined },
+      { ...marketIndex.entries[0], listedAt: '2026-10-21' },
+      { ...marketIndex.entries[1], verification: { level: 'verified', since: '2026-10' } },
+      { ...marketIndex.entries[1], verification: { level: 'community', since: '2026-10' } },
+      { ...marketIndex.entries[1], verification: { level: 'official', since: '2026-13' } },
+      { ...marketIndex.entries[1], verification: { level: 'official', since: '2026-10-01' } },
+      { ...marketIndex.entries[1], upstream: { url: 'git@github.com:acme/tracker.git' } },
+      { ...marketIndex.entries[1], upstream: { url: 'https://github.com/acme/x', commit: 'main' } },
+      { ...marketIndex.entries[1], examples: ['a', 'b', 'c', 'd'] },
+      { ...marketIndex.entries[1], examples: ['x'.repeat(201)] },
+      { ...marketIndex.entries[1], links: { privacy: 'mailto:privacy@acme.example' } },
+      { ...marketIndex.entries[1], links: { cookies: 'https://acme.example/cookies' } },
+      { ...marketIndex.entries[0], i18n: { en: { examples: ['a', 'b', 'c', 'd'] } } },
+    ],
+  },
+  {
+    name: 'MarketEntryLenient',
+    schema: protocol.MarketEntryLenientSchema,
+    valid: [
+      ...marketIndex.entries,
+      { ...marketIndex.entries[0], trust: 'official', rating: 5 },
+      {
+        ...marketIndex.entries[1],
+        verification: { ...marketIndex.entries[1]?.verification, badge: 'gold' },
+        contents: { ...marketIndex.entries[1]?.contents, apps: [] },
+      },
+    ],
+    invalid: [
+      { ...marketIndex.entries[0], listedAt: undefined },
+      { ...marketIndex.entries[1], verification: { level: 'verified', since: '2026-10' } },
+      { ...marketIndex.entries[0], kind: 'app' },
     ],
   },
   {
@@ -662,6 +714,24 @@ const standaloneCases: Case[] = [
     invalid: [
       { ...marketIndex, schemaVersion: 2 },
       { ...marketIndex, extra: 1 },
+      { ...marketIndex, categories: [{ id: 'other', name: { en: 'Other' }, icon: 'x.svg' }] },
+    ],
+  },
+  {
+    name: 'WevirMarketIndexLenient',
+    schema: protocol.WevirMarketIndexLenientSchema,
+    valid: [
+      marketIndex,
+      {
+        ...marketIndex,
+        extra: 1,
+        categories: [{ id: 'other', name: { en: 'Other' }, icon: 'x.svg' }],
+        featured: [{ id: 'popular', name: { en: 'Popular' }, entries: [], layout: 'carousel' }],
+      },
+    ],
+    invalid: [
+      { ...marketIndex, schemaVersion: 2 },
+      { ...marketIndex, sequence: 0 },
     ],
   },
   {
