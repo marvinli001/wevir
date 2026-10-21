@@ -241,6 +241,7 @@ describe('按预设裁剪说明', () => {
       '- browser_*',
       '- lsp_*',
       '- wevir_process_*',
+      '- wevir_preview_list',
       '- wevir_workspace_readiness',
       '- wevir_plugins_list',
     ]) {
@@ -262,7 +263,7 @@ describe('按预设裁剪说明', () => {
       expect(core).toContain(kept);
     }
     const kept = new Set(core.split('\n'));
-    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(5);
+    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(6);
     expect(Buffer.byteLength(APP_TOOLS_INSTRUCTIONS) - Buffer.byteLength(core)).toBeGreaterThan(
       2000,
     );

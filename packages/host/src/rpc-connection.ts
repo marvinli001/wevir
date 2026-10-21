@@ -97,6 +97,10 @@ export interface ConnectionHost {
   readonly processes?: {
     watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
   };
+  /** 开发服务器预览（0.84.0）：调过 `preview.*` 的连接用它收 `preview.changed`。 */
+  readonly previews?: {
+    watch(listener: (change: NotificationParams<'preview.changed'>) => void): () => void;
+  };
   /** 用户的交互终端（0.69.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
@@ -180,6 +184,8 @@ export class RpcConnection {
   #unwatchProcesses: (() => void) | undefined;
   /** 调过 `readiness.*` 之后：退订 `readiness.changed`。 */
   #unwatchReadiness: (() => void) | undefined;
+  /** 调过 `preview.*` 之后：退订 `preview.changed`。 */
+  #unwatchPreviews: (() => void) | undefined;
   /** 调过 `lsp.*` 之后：退订 `lsp.changed`。 */
   #unwatchLsp: (() => void) | undefined;
   /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
@@ -520,6 +526,11 @@ export class RpcConnection {
         if (method.startsWith('automation.')) this.#watchAutomations();
         if (method.startsWith('process.')) this.#watchProcesses();
         if (method.startsWith('readiness.')) this.#watchReadiness();
+        // 预览的就绪与退出走 `process.changed`。
+        if (method.startsWith('preview.')) {
+          this.#watchPreviews();
+          this.#watchProcesses();
+        }
         if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('terminal.')) this.#watchTerminals();
       }
@@ -744,6 +755,20 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `preview.*` 的连接之后收 `preview.changed`（0.84.0），连接关闭即止。 */
+  #watchPreviews(): void {
+    if (this.#unwatchPreviews !== undefined || this.#host.previews === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchPreviews = this.#host.previews.watch((change) => {
+      const parsed = NotificationSchemas['preview.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(new Error(`preview.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'preview.changed', params: parsed.data });
+    });
+  }
+
   /** 调过 `readiness.*` 的连接之后收 `readiness.changed`（0.70.0），连接关闭即止。 */
   #watchReadiness(): void {
     if (this.#unwatchReadiness !== undefined || this.#host.readiness === undefined) return;
@@ -779,6 +804,14 @@ export class RpcConnection {
     if (this.#unwatchProcesses !== undefined || this.#host.processes === undefined) return;
     if (this.#phase !== 'ready') return;
     this.#unwatchProcesses = this.#host.processes.watch((change) => {
+      // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
+      if (
+        'process' in change &&
+        change.process.source.kind === 'preview' &&
+        this.#capabilities.dev_preview !== true
+      ) {
+        return;
+      }
       const parsed = NotificationSchemas['process.changed'].params.safeParse(change);
       if (!parsed.success) {
         this.#host.onError(new Error(`process.changed does not match its schema: ${parsed.error}`));
@@ -915,6 +948,8 @@ export class RpcConnection {
     this.#unwatchProcesses = undefined;
     this.#unwatchReadiness?.();
     this.#unwatchReadiness = undefined;
+    this.#unwatchPreviews?.();
+    this.#unwatchPreviews = undefined;
     this.#unwatchLsp?.();
     this.#unwatchLsp = undefined;
     this.#unwatchTerminals?.();
@@ -1015,6 +1050,14 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
+  if (method === 'process.list' && capabilities.dev_preview !== true) {
+    const listed = value as MethodResult<'process.list'>;
+    return {
+      ...listed,
+      processes: listed.processes.filter((process) => process.source.kind !== 'preview'),
+    };
+  }
   // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
   if (method === 'question.respond' && capabilities.question_timeout !== true) {
     const answered = value as MethodResult<'question.respond'>;

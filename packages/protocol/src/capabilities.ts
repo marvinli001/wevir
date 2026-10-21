@@ -42,6 +42,9 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(approvalRules): added in 0.80.0, remove gate after 2027-06-01
   /** 认得 `ApprovalResolutionReason` 的 `rule`；没有时 Host 把它降级成 `user`（没有 `decidedBy`）。 */
   approvalRules: 'approval_rules',
+  // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
+  /** 认得 `ProcessSource` 的 `preview`；没有时 Host 从 `process.list` 与 `process.changed` 里去掉预览进程。 */
+  devPreview: 'dev_preview',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -55,6 +58,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   user_images: z.boolean().optional(),
   question_timeout: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
+  dev_preview: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
@@ -374,6 +378,12 @@ export const HOST_FEATURES = {
    * 的结果由适配器拆成结构化的发现；其他引擎的 agent 调工具报出。发现存成批注，可以跳到那几行、发给会话去修。
    */
   reviewFindings: 'review_findings',
+  /**
+   * 开发服务器预览（0.84.0，ADR-0013）：`preview.*` 方法与 `preview.changed` 通知、`ProcessSource` 的 `preview` 与
+   * `HostProcess.preview`；有应用级工具时还有 `wevir_preview_list` / `wevir_preview_start`。项目的运行配置存在 Host，启动是会话里的
+   * 后台进程。有后台进程（应用级工具）时声明。
+   */
+  devPreview: 'dev_preview',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -450,6 +460,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_move: z.boolean().optional(),
   transcript_chapters: z.boolean().optional(),
   review_findings: z.boolean().optional(),
+  dev_preview: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

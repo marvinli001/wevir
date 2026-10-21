@@ -1181,6 +1181,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_process_list',
       'mcp__wevir__wevir_process_output',
       'mcp__wevir__wevir_process_wait',
+      'mcp__wevir__wevir_preview_list',
       // 0.33.0：只读的浏览器工具。
       'mcp__wevir__browser_list_tabs',
       'mcp__wevir__browser_snapshot',

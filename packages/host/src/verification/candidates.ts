@@ -38,7 +38,7 @@ export function scriptHash(body: string): string {
   return `sha256:${createHash('sha256').update(body).digest('hex').slice(0, 32)}`;
 }
 
-async function readSmall(path: string): Promise<string | undefined> {
+export async function readSmall(path: string): Promise<string | undefined> {
   try {
     const info = await stat(path);
     if (!info.isFile() || info.size > FILE_MAX_BYTES) return undefined;
@@ -65,7 +65,7 @@ export async function readScript(
   }
 }
 
-async function packageManager(root: string): Promise<string> {
+export async function packageManager(root: string): Promise<string> {
   const exists = (name: string) =>
     stat(join(root, name)).then(
       () => true,
@@ -77,7 +77,7 @@ async function packageManager(root: string): Promise<string> {
   return 'npm';
 }
 
-async function packageFiles(root: string): Promise<string[]> {
+export async function packageFiles(root: string): Promise<string[]> {
   const files = ['package.json'];
   for (const dir of PACKAGE_DIRS) {
     const entries = await readdir(join(root, dir), { withFileTypes: true }).catch(() => []);

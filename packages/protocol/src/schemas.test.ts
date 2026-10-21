@@ -245,6 +245,9 @@ import {
   pendingHeld,
   pendingQuestion,
   pendingSteer,
+  previewCandidate,
+  previewConfig,
+  previewProcess,
   promptSuggestion,
   quotedOpinion,
   readinessReport,
@@ -2919,9 +2922,13 @@ const standaloneCases: Case[] = [
     valid: [
       agentProcess.source,
       checkProcess.source,
+      previewProcess.source,
       { kind: 'agent', sessionId: agentProcess.source.sessionId },
     ],
-    invalid: [{ kind: 'check', sessionId: agentProcess.source.sessionId }],
+    invalid: [
+      { kind: 'check', sessionId: agentProcess.source.sessionId },
+      { kind: 'preview', sessionId: agentProcess.source.sessionId },
+    ],
   },
   {
     name: 'ProcessStopSignal',
@@ -2997,8 +3004,65 @@ const standaloneCases: Case[] = [
   {
     name: 'HostProcess',
     schema: protocol.HostProcessSchema,
-    valid: [agentProcess, checkProcess],
-    invalid: [{ ...agentProcess, status: 'paused' }],
+    valid: [agentProcess, checkProcess, previewProcess],
+    invalid: [
+      { ...agentProcess, status: 'paused' },
+      { ...previewProcess, preview: { ...previewProcess.preview, ready: undefined } },
+    ],
+  },
+  {
+    name: 'ProcessPreview',
+    schema: protocol.ProcessPreviewSchema,
+    valid: [previewProcess.preview, { name: 'api', root: '/x', ready: false }],
+    invalid: [
+      { name: '', root: '/x', ready: false },
+      { name: 'a', root: '/x', ready: true, port: 0 },
+    ],
+  },
+  {
+    name: 'PreviewFields',
+    schema: protocol.PreviewFieldsSchema,
+    valid: [{ name: 'web', command: 'pnpm run dev', cwd: '' }],
+    invalid: [
+      { name: 'web', command: 'pnpm run dev' },
+      { name: 'web', command: ' ', cwd: '' },
+    ],
+  },
+  {
+    name: 'PreviewConfig',
+    schema: protocol.PreviewConfigSchema,
+    valid: [previewConfig, { ...previewConfig, addedBy: 'agent', env: { PORT: '5173' } }],
+    invalid: [
+      { ...previewConfig, addedBy: 'system' },
+      { ...previewConfig, name: 'x'.repeat(61) },
+    ],
+  },
+  {
+    name: 'PreviewInput',
+    schema: protocol.PreviewInputSchema,
+    valid: [
+      { name: 'web', command: 'pnpm run dev' },
+      { name: 'web', command: 'x', url: 'https://a.test:8443/' },
+    ],
+    invalid: [{ name: 'web' }, { name: 'web', command: 'x', url: 'localhost:3000' }],
+  },
+  {
+    name: 'PreviewCandidate',
+    schema: protocol.PreviewCandidateSchema,
+    valid: [
+      previewCandidate,
+      { ...previewCandidate, origin: 'claude_launch', file: '.claude/launch.json' },
+    ],
+    invalid: [
+      { ...previewCandidate, origin: 'vscode' },
+      { ...previewCandidate, file: '' },
+    ],
+  },
+  {
+    name: 'PreviewBlockingItem',
+    schema: protocol.PreviewBlockingItemSchema,
+    valid: [{ kind: 'runtime', name: 'node', path: '', status: 'incompatible', reason: 'version' }],
+    invalid: [{ kind: 'runtime', name: 'node', path: '', status: 'broken' }],
   },
   {
     name: 'InstallRunId',
