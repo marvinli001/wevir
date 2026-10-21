@@ -66,7 +66,7 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
  * 给已有枚举加的值，按能力位 `provider_kind_chatgpt` 门控：没有声明它的连接在 `provider.list` 里看不到这类 Provider
  * （host-api.md §10）。
  * 订阅来源（0.19.0）：`claude`（Claude Agent，用用户本机 `claude auth login` 的登录）、`cursor`、`opencode`、`grok`、
- * `antigravity`、`workbuddy`（0.55.0），各自由对应的引擎运行（ADR-0005 补记 14），同样没有 Key 与地址，模型来自引擎，ID 固定等于种类。按能力位
+ * `antigravity`、`workbuddy`（0.55.0）、`devin`（0.88.0），各自由对应的引擎运行（ADR-0005 补记 14），同样没有 Key 与地址，模型来自引擎，ID 固定等于种类。按能力位
  * `subscription_kinds` 门控，规则同 `chatgpt`。
  */
 export const SUBSCRIPTION_KINDS = [
@@ -76,6 +76,7 @@ export const SUBSCRIPTION_KINDS = [
   'grok',
   'antigravity',
   'workbuddy',
+  'devin',
 ] as const;
 export const SubscriptionKindSchema = z.enum(SUBSCRIPTION_KINDS);
 export type SubscriptionKind = z.infer<typeof SubscriptionKindSchema>;

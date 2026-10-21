@@ -415,6 +415,15 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/adapter-devin:
+    dependencies:
+      '@wevir/adapter-acp':
+        specifier: workspace:*
+        version: link:../adapter-acp
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/adapter-grok:
     dependencies:
       '@wevir/adapter-acp':
@@ -481,6 +490,9 @@ importers:
       '@wevir/adapter-cursor':
         specifier: workspace:*
         version: link:../adapter-cursor
+      '@wevir/adapter-devin':
+        specifier: workspace:*
+        version: link:../adapter-devin
       '@wevir/adapter-grok':
         specifier: workspace:*
         version: link:../adapter-grok

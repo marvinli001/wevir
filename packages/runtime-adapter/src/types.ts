@@ -478,7 +478,8 @@ export type SubscriptionKind =
   | 'opencode'
   | 'grok'
   | 'antigravity'
-  | 'workbuddy';
+  | 'workbuddy'
+  | 'devin';
 
 /** 与 @wevir/protocol 的 `AccountKind` 同形。 */
 export type AccountKind = 'chatgpt' | SubscriptionKind;

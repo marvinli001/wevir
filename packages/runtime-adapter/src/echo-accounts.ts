@@ -23,6 +23,7 @@ export const ECHO_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = [
   'grok',
   'antigravity',
   'workbuddy',
+  'devin',
 ];
 
 const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>> = {
@@ -32,6 +33,7 @@ const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>>
   grok: 'signed_in',
   antigravity: 'installable',
   workbuddy: 'signed_out',
+  devin: 'installable',
 };
 
 /** 每种订阅的登录方式与安装说明，照各自 CLI 的真实做法（T3 Code 的调研）。 */
@@ -63,6 +65,12 @@ const PROFILES: Readonly<
     signIn: 'command',
     loginCommand: 'codebuddy',
     installCommand: 'npm install -g @tencent-ai/codebuddy-code',
+  },
+  devin: {
+    signIn: 'in_app',
+    loginMethods: ['browser'],
+    loginCommand: 'devin auth login',
+    installCommand: 'curl -fsSL https://cli.devin.ai/install.sh | bash',
   },
 };
 
@@ -104,6 +112,13 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
   workbuddy: {
     models: [{ id: 'workbuddy-auto', displayName: 'Auto' }],
     defaultModelId: 'workbuddy-auto',
+  },
+  devin: {
+    models: [
+      { id: 'adaptive', displayName: 'Adaptive' },
+      { id: 'swe-1-6-fast', displayName: 'SWE-1.6 Fast' },
+    ],
+    defaultModelId: 'adaptive',
   },
   antigravity: {
     models: [

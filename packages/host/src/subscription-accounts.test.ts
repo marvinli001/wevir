@@ -121,6 +121,7 @@ describe('订阅多账号（0.63.0）', () => {
       'grok',
       'antigravity',
       'workbuddy',
+      'devin',
     ]);
     const byId = new Map(accounts.map((account) => [account.id, account]));
     expect(byId.get('claude')).toMatchObject({ localLogin: true, multiAccount: true });
@@ -128,6 +129,8 @@ describe('订阅多账号（0.63.0）', () => {
     expect(byId.get('cursor')?.localLogin).toBeUndefined();
     expect(byId.get('opencode')?.multiAccount).toBeUndefined();
     expect(byId.get('workbuddy')?.multiAccount).toBeUndefined();
+    expect(byId.get('devin')).toMatchObject({ localLogin: true });
+    expect(byId.get('devin')?.multiAccount).toBeUndefined();
   });
 
   it('添加的账号未登录、在应用内登录；登录后有自己的 Provider，会话交给它自己的引擎', async () => {

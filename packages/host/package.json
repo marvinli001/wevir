@@ -36,6 +36,7 @@
     "@wevir/adapter-claude": "workspace:*",
     "@wevir/adapter-codex": "workspace:*",
     "@wevir/adapter-cursor": "workspace:*",
+    "@wevir/adapter-devin": "workspace:*",
     "@wevir/adapter-grok": "workspace:*",
     "@wevir/adapter-opencode": "workspace:*",
     "@wevir/adapter-workbuddy": "workspace:*",

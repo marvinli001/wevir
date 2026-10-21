@@ -982,6 +982,44 @@ export const workbuddyLoginAccount: AccountState = {
   version: '2.168.2',
 };
 
+/** Devin（0.88.0）：应用内经浏览器登录的 Devin CLI，Wevir 下载的那份。 */
+export const devinAccount: AccountState = {
+  kind: 'devin',
+  status: 'signed_in',
+  email: 'me@example.com',
+  planLabel: 'Pro',
+  signIn: 'in_app',
+  loginMethods: ['browser'],
+  loginCommand: '"/Users/me/.wevir/engines/devin/runtime/versions/3000.11.92/bin/devin" auth login',
+  installed: true,
+  version: '3000.11.92',
+  executablePath: '/Users/me/.wevir/engines/devin/runtime/versions/3000.11.92/bin/devin',
+};
+/** 0.88.0：Devin 登录中（CLI 自己打开浏览器，没有 `authUrl`）。 */
+export const devinSigningIn: AccountState = {
+  kind: 'devin',
+  status: 'signing_in',
+  signIn: 'in_app',
+  loginMethods: ['browser'],
+  loginCommand: 'devin auth login',
+  installed: true,
+  version: '3000.11.92',
+  login: { loginId: 'login-devin', method: 'browser', startedAt: TS },
+};
+export const devinProvider: ProviderProfile = {
+  id: 'devin',
+  kind: 'devin',
+  displayName: 'Devin',
+  models: [
+    { id: 'adaptive', displayName: 'Adaptive' },
+    { id: 'swe-1-6-fast', displayName: 'SWE-1.6 Fast' },
+  ],
+  defaultModelId: 'swe-1-6-fast',
+  hasSecret: false,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
 export const antigravityInstalling: AccountState = {
   kind: 'antigravity',
   status: 'signed_out',
@@ -3173,6 +3211,7 @@ export const methodSamples: MethodSamples = {
         {
           providers: [{ ...compatibleProvider, enabled: true }, claudeProvider, workbuddyProvider],
         },
+        { providers: [devinProvider] },
       ],
       invalid: [
         { providers: [{ ...compatibleProvider, hasSecret: undefined }] },
@@ -3340,6 +3379,7 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         { accounts: [signedInAccount, claudeAccount, antigravityInstalling, workbuddyAccount] },
+        { accounts: [devinAccount] },
         {
           accounts: [
             {
@@ -3369,6 +3409,7 @@ export const methodSamples: MethodSamples = {
         { kind: 'claude', refresh: true },
         { kind: 'grok' },
         { kind: 'workbuddy', refresh: true },
+        { kind: 'devin', refresh: true },
         // 0.63.0：按账号 ID 读添加的账号。
         { kind: 'claude', id: 'claude-3f9a', refresh: true },
       ],
@@ -6710,6 +6751,8 @@ export const notificationSamples: NotificationSamples = {
       { account: claudeAccount },
       { account: antigravityInstalling },
       { account: workbuddyAccount },
+      { account: devinAccount },
+      { account: devinSigningIn },
     ],
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },

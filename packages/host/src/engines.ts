@@ -14,6 +14,7 @@ import {
   cursorSdkInstalled,
   isCursorShellSpawnFailure,
 } from '@wevir/adapter-cursor';
+import { DevinAdapter } from '@wevir/adapter-devin';
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
@@ -109,6 +110,19 @@ export function subscriptionEngines(
       }),
       kinds: ['workbuddy'],
     },
+    // Devin（devin-event-mapping.md）：用户自己装的或 Wevir 下载的 `devin acp` 与 Devin 自己存的登录，复用通用 ACP 与 MCP 桥，
+    // 按会话切模式；恢复用 session/load。
+    {
+      name: 'devin',
+      adapter: new DevinAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+        ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+      kinds: ['devin'],
+    },
   ];
   return routes.filter(
     (route) => (route.name !== 'claude' || sdks.claude) && (route.name !== 'cursor' || sdks.cursor),
@@ -118,7 +132,7 @@ export function subscriptionEngines(
 /**
  * 添加的订阅账号（0.63.0）的引擎：同 `subscriptionEngines` 的那一种，凭据与会话放进账号自己的目录（`<数据目录>/accounts/<id>/`）。
  * 第一轮是 Claude、Cursor、Grok 与 Antigravity（ChatGPT 的在 cli.ts）；OpenCode 隔离起来就没了用户自己的配置与上游，WorkBuddy
- * 没有能换的登录位置、也不能登出，都只有首个账号。SDK 没装的种类不能添加。
+ * 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没装的种类不能添加。
  */
 export function subscriptionAccountEngines(
   context: AdapterContext,

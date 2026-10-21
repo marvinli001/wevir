@@ -30,6 +30,11 @@ export interface AcpEngine {
   /** `session/resume` 失败的归类。不是 ACP 错误（连接断开等）的归 `unknown`。 */
   classifyResumeError(error: unknown): ClassifiedResumeError;
   /**
+   * 恢复会话发哪个请求：`resume`（默认）是 `session/resume`；`load` 是 `session/load`（Devin 只实现了它）。`session/load` 先把
+   * 历史作 `session/update` 回放，引擎的适配器要在恢复期间丢掉这些回放，不然它们落进还挂着的会话成了 `engine.raw`。
+   */
+  readonly resumeMethod?: 'resume' | 'load';
+  /**
    * `agent_message_chunk` / `agent_thought_chunk` 的语义（acp-event-mapping.md §1.5）。`committed`（默认）：每条是一块已提交的
    * 完整内容，必须带 `messageId`，没有逐字增量；`streamed`（Grok Build、Gemini CLI）：每条是一段逐字增量，适配器自己
    * 把连续的增量合成一块再提交（chunk-stream.ts）。

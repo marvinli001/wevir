@@ -1290,16 +1290,22 @@ function unref<T extends ReturnType<typeof setTimeout>>(timer: T): T {
   return timer;
 }
 
-/** subscription_kinds 早于 WorkBuddy；旧版已声明该能力也不认识这个新枚举值。 */
+/** 后加的订阅种类与它们进协议的版本：subscription_kinds 早于它们，旧版已声明该能力也不认识这些新枚举值。 */
+const LATER_SUBSCRIPTION_KINDS: Readonly<Record<string, string>> = {
+  workbuddy: '0.55.0',
+  devin: '0.88.0',
+};
+
 function subscriptionKindSupported(
   kind: string,
   capabilities: ClientCapabilities,
   protocolVersion: string,
 ): boolean {
+  const since = LATER_SUBSCRIPTION_KINDS[kind];
   return (
     !isSubscriptionKind(kind) ||
     (capabilities.subscription_kinds === true &&
-      (kind !== 'workbuddy' || compareProtocolVersions(protocolVersion, '0.55.0') >= 0))
+      (since === undefined || compareProtocolVersions(protocolVersion, since) >= 0))
   );
 }
 
