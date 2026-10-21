@@ -122,7 +122,9 @@ function setup(options: { git?: boolean; wire?: boolean } = {}) {
     manager.send({ sessionId, content: [{ type: 'text', text }] }, identity);
   const state = (sessionId: SessionId) => events.snapshot(sessionId)?.session.state;
   const settle = (sessionId: SessionId) =>
-    vi.waitFor(() => expect(state(sessionId)).toBe('idle'), { timeout: 15_000 });
+    vi.waitFor(() => expect(state(sessionId)).toBe('idle'), {
+      timeout: process.platform === 'win32' ? 60_000 : 15_000,
+    });
   const all = (sessionId: SessionId): WevirEvent[] => events.readSince(sessionId, 0);
   const opinionsOf = (sessionId: SessionId): SecondOpinion[] =>
     events.snapshot(sessionId)?.opinions ?? [];
@@ -325,7 +327,7 @@ describe('session.secondOpinion', () => {
     await h.settle(originId);
   });
 
-  it('拒绝：不在 git 仓库、意见会话再要意见、同时进行中的太多', async () => {
+  it('拒绝：不在 git 仓库、意见会话再要意见、同时进行中的太多', { timeout: 90_000 }, async () => {
     const plain = setup({ git: false });
     const plainId = await plain.origin();
     await expect(

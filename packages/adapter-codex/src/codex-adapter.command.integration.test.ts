@@ -210,8 +210,19 @@ describe.skipIf(binary === undefined)(
       expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain(
         'Review the current code changes',
       );
+      // 0.83.0：消息只留总体说明，发现另报 review.findings。
       const answer = turn.find(ofType('assistant.message'));
-      expect(answer?.text).toContain('读了未初始化的变量');
+      expect(answer?.text).toBe('有一个问题。');
+      const findings = turn.find(ofType('review.findings'));
+      expect(findings?.findings).toMatchObject([
+        {
+          title: '读了未初始化的变量',
+          body: 'a.txt 的第一行。',
+          priority: 1,
+          startLine: 1,
+          endLine: 1,
+        },
+      ]);
       expect(turn.filter((event) => event.type === 'engine.raw')).toEqual([]);
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
 

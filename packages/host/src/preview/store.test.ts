@@ -43,7 +43,8 @@ describe('PreviewStore', () => {
     expect(renamed[0]?.createdAt).toBe(replaced[0]?.createdAt);
 
     const file = join(dir, `${WS}.json`);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows 没有 POSIX 权限位。
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ version: 1 });
     expect((await new PreviewStore({ dir }).list(WS)).map((config) => config.name)).toEqual([
       'site',

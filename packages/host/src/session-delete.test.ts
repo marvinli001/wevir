@@ -109,6 +109,8 @@ async function setup(adapter: EchoAdapter = new EchoAdapter({ stepDelayMs: 0 }))
     writeFileSync(join(dir, 'a.txt'), 'a\n');
     writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
     git(dir, 'init', '-q', '-b', 'main');
+    // Windows 上 git 默认 core.autocrlf=true，还原与检出会把 LF 的文件写成 CRLF；这里测的是改动怎么跟着走，行尾由仓库自己定。
+    git(dir, 'config', 'core.autocrlf', 'false');
     git(dir, 'add', '.');
     git(dir, 'commit', '-q', '-m', 'init');
     return {
