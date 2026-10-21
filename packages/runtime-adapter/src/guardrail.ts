@@ -83,7 +83,7 @@ export function parseGuardrailMarkers(text: string): GuardrailMarker[] {
  */
 export const GUARDRAIL_CHECKER_SCRIPT = String.raw`// 由 Wevir 生成（packages/runtime-adapter/src/guardrail.ts），Host 每次启动时重写，不要手改。
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -767,12 +767,28 @@ export function decide(argv, stdin) {
   return undefined;
 }
 
+/** 意外的错误记到规则目录下的 checker-error.log（Codex 只在退出码 2 时看 stderr，别的退出码的输出都丢掉）。 */
+function logError(argv, error) {
+  try {
+    const at = argv.indexOf('--dir');
+    const dir = at >= 0 ? argv[at + 1] : undefined;
+    if (typeof dir !== 'string') return;
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'checker-error.log'), new Date().toISOString() + ' ' + (error instanceof Error ? error.stack : String(error)) + '\n');
+  } catch {}
+}
+
 export async function main(argv) {
-  const result = decide(argv, await readStdin());
-  if (result === undefined) return;
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  process.exitCode = result.exitCode;
+  try {
+    const result = decide(argv, await readStdin());
+    if (result === undefined) return;
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exitCode = result.exitCode;
+  } catch (error) {
+    logError(argv, error);
+    throw error;
+  }
 }
 
 function isEntry() {

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent, GuardrailBlockedEvent } from '@wevir/runtime-adapter';
 import {
@@ -112,11 +112,16 @@ async function start(home: string, workspace: string, extra: Record<string, unkn
 const blocked = (turn: AgentEvent[]): GuardrailBlockedEvent[] =>
   turn.filter(ofType('guardrail.blocked'));
 
-/** hook 跑完但没有标记的结果（退出码、输出）：检查程序没拦下时，断言的失败信息里带上它们，看得出 hook 跑没跑、怎么失败的。 */
-const hookRuns = (turn: AgentEvent[]): string =>
-  `hook/completed without a marker: ${JSON.stringify(
+/**
+ * 检查程序没拦下时，断言的失败信息里带上这些：hook 跑完但没有标记的结果（退出码、输出），和检查程序自己记下的意外错误
+ * （checker-error.log）。看得出 hook 跑没跑、怎么失败的。
+ */
+const hookRuns = (turn: AgentEvent[], home: string): string => {
+  const logFile = join(home, 'guardrails', 'checker-error.log');
+  return `hook/completed without a marker: ${JSON.stringify(
     turn.filter(ofType('engine.raw')).filter((event) => event.method === 'hook/completed'),
-  )}`;
+  )}; checker-error.log: ${existsSync(logFile) ? readFileSync(logFile, 'utf8') : '(none)'}`;
+};
 
 describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_000 }, () => {
   beforeAll(async () => {
@@ -158,7 +163,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     const [hit, ...rest] = blocked(turn);
     expect(rest).toEqual([]);
-    expect(hit, hookRuns(turn)).toMatchObject({
+    expect(hit, hookRuns(turn, home)).toMatchObject({
       guardrailId: 'grd_rm',
       kind: 'forbidden_command',
       action: 'denied',
@@ -181,7 +186,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     const turn = await runTurn(adapter, engineSessionId, 'fix', events);
 
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-    expect(blocked(turn), hookRuns(turn)).toEqual([
+    expect(blocked(turn), hookRuns(turn, home)).toEqual([
       expect.objectContaining({
         guardrailId: 'grd_ok',
         kind: 'stop_check',
@@ -207,7 +212,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     expect(
       blocked(turn).map((event) => [event.action, event.attempt]),
-      hookRuns(turn),
+      hookRuns(turn, home),
     ).toEqual([
       ['continued', 1],
       ['continued', 2],

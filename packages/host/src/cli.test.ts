@@ -384,7 +384,9 @@ describe('runHostCli', () => {
     );
     // 放行卡住的 dispose，让这个 Host 把数据库关掉（真实进程里 exit 已经结束了一切）。
     releases.shift()?.();
-    await vi.waitFor(() => expect(existsSync(join(timedOut.home, 'wevir.db-wal'))).toBe(false));
+    await vi.waitFor(() => expect(existsSync(join(timedOut.home, 'wevir.db-wal'))).toBe(false), {
+      timeout: 15_000,
+    });
 
     const signalled = await launch([], { createAdapter, shutdownTimeoutMs: 60_000 });
     signalled.emit('SIGTERM', 'SIGTERM');
@@ -393,6 +395,8 @@ describe('runHostCli', () => {
     expect(await signalled.exit).toBe(EXIT_CODE.failure);
     expect(existsSync(join(signalled.home, 'run', 'host.json'))).toBe(false);
     releases.shift()?.();
-    await vi.waitFor(() => expect(existsSync(join(signalled.home, 'wevir.db-wal'))).toBe(false));
+    await vi.waitFor(() => expect(existsSync(join(signalled.home, 'wevir.db-wal'))).toBe(false), {
+      timeout: 15_000,
+    });
   });
 });

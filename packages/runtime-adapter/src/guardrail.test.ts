@@ -61,6 +61,24 @@ function nodeCommand(name: string, source: string): string {
   return `"${process.execPath}" "${file}"`;
 }
 
+/**
+ * 按 Codex 跑 hook 的方式运行一条命令行（command_runner.rs）：POSIX 是 `/bin/sh -lc <命令>`，Windows 是 `cmd /C "<命令>"`，
+ * 整条命令再包一层引号。stdin 给事件的 JSON。
+ */
+function runAsCodexHook(command: string, input: unknown) {
+  const options = { input: JSON.stringify(input), encoding: 'utf8' as const, windowsHide: true };
+  const result =
+    process.platform === 'win32'
+      ? spawnSync('cmd.exe', ['/C', `"${command}"`], { ...options, windowsVerbatimArguments: true })
+      : spawnSync('/bin/sh', ['-lc', command], options);
+  return {
+    code: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    error: result.error?.message,
+  };
+}
+
 const bash = (command: string) => ({
   hook_event_name: 'PreToolUse',
   session_id: 'thread-1',
@@ -342,6 +360,25 @@ process.stdin.on('end', () => {
     expect(result.stdout).toBe('{"hello":1}');
     expect(result.stderr).toContain('[]');
     expect(parseGuardrailMarkers(result.stderr)).toEqual([]);
+  });
+});
+
+describe('hook 命令行（经平台的 shell 跑）', () => {
+  it('拦下禁止命令：退出码 2，标记在 stderr', () => {
+    writeRules(
+      'global.json',
+      rules({
+        id: 'grd_shell',
+        rule: { kind: 'forbidden_command', match: 'prefix', pattern: 'rm -rf' },
+      }),
+    );
+    const [hook] = guardrailHooks(checker, WORKSPACE, [{ kind: 'forbidden_command' }]);
+    const result = runAsCodexHook(hook?.command ?? '', bash('rm -rf build'));
+    expect(result.code, JSON.stringify(result)).toBe(2);
+    expect(parseGuardrailMarkers(result.stderr)[0], JSON.stringify(result)).toMatchObject({
+      guardrailId: 'grd_shell',
+      action: 'denied',
+    });
   });
 });
 
