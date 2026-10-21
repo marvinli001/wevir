@@ -35,6 +35,7 @@ import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.j
 import type { GitStatusResult } from './git.js';
 import type { Guardrail, GuardrailBlocked, RepoHook } from './guardrails.js';
 import type { LspInstallRun, LspServerStatus } from './lsp.js';
+import type { WevirMarketIndex } from './market.js';
 import {
   IMAGE_UPLOAD_DATA_MAX_LENGTH,
   type MethodName,
@@ -2464,6 +2465,53 @@ export const searchIndexStatus: MethodResult<'search.status'> = {
   pendingEvents: 0,
 };
 
+/** 官方插件市场的索引（0.90.0）：一个带 skill 与 stdio 连接器的插件。 */
+export const marketIndex: WevirMarketIndex = {
+  schemaVersion: 1,
+  name: 'Wevir',
+  generatedAt: '2026-10-21T08:00:00Z',
+  sequence: 3,
+  commit: '2333fc8d1e0b9a7c6f5e4d3c2b1a09f8e7d6c5b4',
+  categories: [{ id: 'productivity', name: { 'zh-CN': '效率', en: 'Productivity' } }],
+  featured: [{ id: 'popular', name: { 'zh-CN': '热门', en: 'Popular' }, entries: ['notes'] }],
+  entries: [
+    {
+      id: 'notes',
+      kind: 'plugin',
+      path: 'plugins/notes',
+      name: 'Notes',
+      version: '1.2.0',
+      description: 'Take notes from the agent',
+      i18n: { 'zh-CN': { name: '笔记', description: '让 agent 记笔记' } },
+      author: { name: 'Wevir' },
+      license: 'MIT',
+      icon: 'plugins/notes/icon.svg',
+      category: 'productivity',
+      keywords: ['notes'],
+      trust: 'official',
+      requires: { runtimes: ['node>=20'] },
+      contents: {
+        connectors: [
+          {
+            name: 'api',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', '@acme/notes-mcp@1.2.3'],
+          },
+        ],
+        skills: [{ name: 'jot', description: 'Write a note' }],
+        inputs: [{ key: 'TOKEN', label: 'Token', secret: true, required: true }],
+      },
+      files: [
+        { path: 'wevir-plugin.json', size: 512, sha256: 'a'.repeat(64) },
+        { path: 'README.md', size: 120, sha256: 'b'.repeat(64) },
+      ],
+      digest: 'c'.repeat(64),
+      history: [{ version: '1.1.0', commit: 'd'.repeat(40) }],
+    },
+  ],
+};
+
 export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
@@ -2800,6 +2848,8 @@ export const methodSamples: MethodSamples = {
         { settings: { ruleFiles: false } },
         { settings: { agentInstructions: '' } },
         { settings: { outputStyle: 'friendly' } },
+        { settings: { marketMirror: 'cnb' } },
+        { settings: { marketMirror: 'auto' } },
         { settings: {} },
       ],
       invalid: [
@@ -2809,6 +2859,7 @@ export const methodSamples: MethodSamples = {
         { settings: { autoMemory: 'no' } },
         { settings: { ruleFiles: 1 } },
         { settings: { outputStyle: 1 } },
+        { settings: { marketMirror: 'npm' } },
         {},
       ],
     },
@@ -2818,6 +2869,31 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'queue', promptSuggestions: false } },
       ],
       invalid: [{ settings: {} }],
+    },
+  },
+  'market.status': {
+    params: empty,
+    result: {
+      valid: [
+        { preference: 'auto', mirror: 'cnb' },
+        { preference: 'gitee', mirror: 'gitee' },
+        { preference: 'auto' },
+      ],
+      invalid: [{ preference: 'fastest' }, { preference: 'auto', mirror: 'npm' }, {}],
+    },
+  },
+  'market.index': {
+    params: { valid: [{}, { refresh: true }], invalid: [{ refresh: 'yes' }] },
+    result: {
+      valid: [
+        { index: marketIndex, mirror: 'github', fetchedAt: TS },
+        { index: marketIndex, mirror: 'gitee', fetchedAt: TS, error: 'HTTP 503 from cnb' },
+      ],
+      invalid: [
+        { index: marketIndex, fetchedAt: TS },
+        { index: { ...marketIndex, sequence: 0 }, mirror: 'github', fetchedAt: TS },
+        { index: { ...marketIndex, commit: 'main' }, mirror: 'github', fetchedAt: TS },
+      ],
     },
   },
   'workspace.list': {

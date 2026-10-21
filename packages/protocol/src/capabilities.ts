@@ -399,6 +399,8 @@ export const HOST_FEATURES = {
    * 记忆来源的 `proposalId`。引擎能不带工具生成（适配器有 `generateTitle`）时声明。
    */
   tuningProposals: 'tuning_proposals',
+  /** 官方插件市场（0.90.0）：`market.*` 方法与设置项 `marketMirror`。 */
+  pluginMarket: 'plugin_market',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -479,6 +481,7 @@ export const HostFeaturesSchema = z.looseObject({
   tuning: z.boolean().optional(),
   tuning_guardrails: z.boolean().optional(),
   tuning_proposals: z.boolean().optional(),
+  plugin_market: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

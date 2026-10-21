@@ -151,6 +151,7 @@ import {
   LspStatusParamsSchema,
   LspStatusResultSchema,
 } from './lsp.js';
+import { MarketMethodSchemas } from './market.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   PreviewChangedParamsSchema,
@@ -1695,6 +1696,7 @@ export interface MethodSpec {
 export const MethodSchemas = {
   ...PluginMethodSchemas,
   ...ImportMethodSchemas,
+  ...MarketMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,

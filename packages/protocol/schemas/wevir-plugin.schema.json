@@ -193,6 +193,58 @@
         "required": ["key", "label"],
         "additionalProperties": false
       }
+    },
+    "keywords": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 32
+      }
+    },
+    "category": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "i18n": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 35,
+        "pattern": "^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "requires": {
+      "type": "object",
+      "properties": {
+        "runtimes": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9-]*(?:(?:>=|=)[0-9][0-9A-Za-z.+-]*)?$"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": ["schemaVersion", "id", "name", "version"],

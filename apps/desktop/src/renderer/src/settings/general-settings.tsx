@@ -19,6 +19,7 @@ import {
 import { suggestionsEnabled } from '@/session/prompt-suggestion';
 import { usePermissionModes } from '@/session/start-session';
 import { LanguagePicker } from './language-picker';
+import { MarketMirrorRow } from './market-mirror';
 import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
 
 /** 会话侧栏的可选卡片：名称与 Host 要声明的功能（没有这项功能的 Host 上那张卡片本来就不出现，不列）。 */
@@ -56,6 +57,9 @@ export function GeneralSettings() {
     supported &&
     view.status === 'connected' &&
     hostSupports(view.hello.features, 'session_insights');
+  // 官方插件市场（0.90.0）：Host 声明了 `plugin_market` 才有“插件市场”一组。
+  const marketSupported =
+    supported && view.status === 'connected' && hostSupports(view.hello.features, 'plugin_market');
   const ruleFilesSupported =
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'rule_files');
   const [error, setError] = useState<string>();
@@ -226,6 +230,17 @@ export function GeneralSettings() {
           )}
         </div>
       </SettingsSection>
+      {marketSupported && (
+        <SettingsSection title={t('settings.section.market')}>
+          <div className={LIST_CARD}>
+            <MarketMirrorRow
+              settings={settings}
+              disabled={saving}
+              save={(patch) => void save(patch)}
+            />
+          </div>
+        </SettingsSection>
+      )}
       {railOptions.length > 0 && (
         <SettingsSection title={t('rail.label')}>
           <div className={LIST_CARD}>

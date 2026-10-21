@@ -50,6 +50,7 @@ import type { GuardrailService } from './guardrails/service.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import type { LspStatusService } from './lsp/service.js';
+import type { MarketService } from './market/service.js';
 import {
   MemoryError,
   type MemoryNote,
@@ -183,6 +184,8 @@ export interface HostMethodsOptions {
   proposals?: ProposalService;
   /** 护栏（0.86.0，`guardrail.*` 与 `repoHook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   guardrails?: GuardrailService;
+  /** 官方插件市场（0.90.0，`market.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  market?: MarketService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -314,6 +317,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const guardrails = (): GuardrailService => {
     if (options.guardrails === undefined) throw invalidParams([], 'this host has no guardrails');
     return options.guardrails;
+  };
+  const market = (): MarketService => {
+    if (options.market === undefined) throw invalidParams([], 'this host has no plugin market');
+    return options.market;
   };
   const search = (): SessionSearch => {
     if (options.search === undefined) throw invalidParams([], 'this host has no session search');
@@ -1118,6 +1125,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+
+    // 0.90.0：官方插件市场。
+    'market.status': () => market().status(),
+    'market.index': ({ refresh }) => market().index(refresh === true),
 
     'settings.update': async (params) => {
       // 0.78.0：输出风格只收 Host 认识的名字。
