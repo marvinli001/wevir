@@ -1168,6 +1168,8 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_task_update',
       'mcp__wevir__wevir_show',
       'mcp__wevir__wevir_share_file',
+      // 0.83.0：报审查发现。
+      'mcp__wevir__wevir_report_findings',
       'mcp__wevir__wevir_plugins_list',
       'mcp__wevir__wevir_memory_list',
       'mcp__wevir__wevir_memory_read',

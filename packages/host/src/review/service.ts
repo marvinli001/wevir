@@ -8,27 +8,37 @@
 // 行级批注（0.67.0，`review.*`，ADR-0009）：批注存在 Host 的库里，按目录（仓库或会话的 worktree）分组。写批注时 Host 自己从那一侧
 // 读出那几行作为原文，之后每次读批注都按原文现算位置（anchor.ts）。发送时把一组批注拼成一条用户消息（prompts/review-comments.md），
 // 经 SessionManager.send 发给指定的会话，再标为已发送。只是本地反馈，不碰 GitHub。
+//
+// 审查发现（0.83.0）：agent 报出的发现（Codex 审查命令的结果、`wevir_report_findings`）定位到会话目录里的文件与行时也存成批注，
+// 带 `finding`（标题、严重度、把握、回合）；之后与用户的批注一样重新定位、发给会话、删除。
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import {
   type ClientIdentity,
   type DiffSource,
   type MethodParams,
   type MethodResult,
+  REVIEW_COMMENT_BODY_MAX_LENGTH,
   REVIEW_COMMENT_MAX_LINES,
   REVIEW_COMMENTS_MAX_PER_DIRECTORY,
+  REVIEW_FINDING_TITLE_MAX_LENGTH,
+  REVIEW_FINDINGS_MAX,
   REVIEW_SNIPPET_MAX_LENGTH,
   type ReviewAnchor,
   type ReviewComment,
   type ReviewCommentId,
+  type ReviewFinding,
+  type ReviewFindingFields,
   type ReviewSide,
   type SessionId,
+  type TurnId,
   type WorkspaceId,
 } from '@wevir/protocol';
 import type { ReviewCommentRecord, Storage } from '@wevir/storage';
 import { HostError } from '../errors.js';
-import { isSafeRelativePath, readDiffFile, repoInfo } from '../git-diff.js';
+import { diffBase, isSafeRelativePath, readDiffFile, repoInfo } from '../git-diff.js';
 import { newId } from '../ids.js';
 import { defaultPromptsDir } from '../title.js';
 import { captureRange, locate, splitLines } from './anchor.js';
@@ -77,6 +87,17 @@ export interface ReviewAddInput {
   startLine: number;
   endLine: number;
   body: string;
+}
+
+/** agent 报出的一条发现（0.83.0）：`path` 相对会话目录或绝对路径。 */
+export interface FindingInput {
+  title: string;
+  body: string;
+  priority?: number;
+  confidence?: number;
+  path: string;
+  startLine: number;
+  endLine: number;
 }
 
 export class ReviewService {
@@ -248,6 +269,102 @@ export class ReviewService {
     };
   }
 
+  /**
+   * 把 agent 报出的发现存成批注（0.83.0），返回 `review.findings` 事件里的样子。会话目录是 git 仓库、文件在目录里、行在文件里时存成
+   * 批注（`commentId`）；否则只有文字。`source` 是发现针对的那段 diff：审查命令按它的范围，工具报的按未提交的改动。最多
+   * `REVIEW_FINDINGS_MAX` 条，目录里的批注满了之后的不再存。
+   */
+  async recordFindings(
+    sessionId: SessionId,
+    input: {
+      findings: readonly FindingInput[];
+      source: 'uncommitted' | 'branch';
+      turnId?: TurnId;
+    },
+  ): Promise<ReviewFinding[]> {
+    const session = this.#storage.sessions.get(sessionId);
+    if (!session) throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    const dir = await realpath(session.cwd).catch(() => session.cwd);
+    const version = await diffBase(dir, input.source);
+    let room = REVIEW_COMMENTS_MAX_PER_DIRECTORY - this.#storage.reviewComments.countByDir(dir);
+    const reads = new Map<string, Promise<string[] | undefined>>();
+    const linesOf = (path: string) => {
+      let read = reads.get(path);
+      if (!read) {
+        read = readDiffFile(dir, { newPath: path }).then((result) =>
+          result && result.unavailable === undefined
+            ? splitLines(result.newContents ?? '')
+            : undefined,
+        );
+        reads.set(path, read);
+      }
+      return read;
+    };
+    const now = new Date().toISOString();
+    const out: ReviewFinding[] = [];
+    for (const finding of input.findings.slice(0, REVIEW_FINDINGS_MAX)) {
+      const fields: ReviewFindingFields = {
+        title: clip(finding.title.trim(), REVIEW_FINDING_TITLE_MAX_LENGTH) || '—',
+        ...(finding.priority !== undefined &&
+          Number.isInteger(finding.priority) &&
+          finding.priority >= 0 &&
+          finding.priority <= 3 && { priority: finding.priority }),
+        ...(finding.confidence !== undefined &&
+          finding.confidence >= 0 &&
+          finding.confidence <= 1 && { confidence: finding.confidence }),
+      };
+      const body = clip(finding.body.trim(), REVIEW_COMMENT_BODY_MAX_LENGTH);
+      const startLine = Math.max(1, Math.trunc(finding.startLine));
+      const endLine = Math.min(
+        Math.max(startLine, Math.trunc(finding.endLine)),
+        startLine + REVIEW_COMMENT_MAX_LINES - 1,
+      );
+      const path = pathIn(dir, session.cwd, finding.path);
+      if (path === undefined) {
+        out.push({ ...fields, body, location: `${finding.path}:${startLine}-${endLine}` });
+        continue;
+      }
+      const item: ReviewFinding = { ...fields, body, path, startLine, endLine };
+      const lines = version === undefined || room <= 0 ? undefined : await linesOf(path);
+      // 行超出文件时收到文件末尾；起始行都在文件外的不存。
+      const range =
+        lines === undefined
+          ? undefined
+          : captureRange(lines, startLine, Math.min(endLine, lines.length));
+      if (
+        version === undefined ||
+        range === undefined ||
+        range.snippet.length > REVIEW_SNIPPET_MAX_LENGTH
+      ) {
+        out.push(item);
+        continue;
+      }
+      const record: ReviewCommentRecord = {
+        id: newId('rvc'),
+        workspaceId: session.workspaceId,
+        dir,
+        sessionId,
+        path,
+        side: 'new',
+        startLine,
+        endLine: Math.min(endLine, lines?.length ?? endLine),
+        source: { kind: input.source },
+        base: version.base,
+        ...(version.branch !== undefined && { branch: version.branch }),
+        ...range,
+        body: body || fields.title,
+        status: 'pending',
+        finding: { ...fields, ...(input.turnId !== undefined && { turnId: input.turnId }) },
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.#storage.reviewComments.insert(record);
+      room -= 1;
+      out.push({ ...item, endLine: record.endLine, commentId: record.id as ReviewCommentId });
+    }
+    return out;
+  }
+
   #get(id: ReviewCommentId, path: string[]): ReviewCommentRecord {
     const record = this.#storage.reviewComments.get(id);
     if (!record) throw invalid(path, `comment ${id} not found`);
@@ -330,9 +447,31 @@ function toComment(record: ReviewCommentRecord, anchor: ReviewAnchor): ReviewCom
       sent: record.sent as NonNullable<ReviewComment['sent']>,
     }),
     anchor,
+    ...(record.finding !== undefined && { finding: record.finding as ReviewFindingFields }),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+/**
+ * 发现报的路径 → 相对会话目录的路径：相对路径照用，绝对路径要在目录里（目录的 realpath 或会话记的 cwd 下）。目录外或不合规时
+ * undefined。
+ */
+function pathIn(dir: string, cwd: string, path: string): string | undefined {
+  let candidate = path.trim();
+  if (isAbsolute(candidate)) {
+    const inside = [dir, cwd]
+      .map((root) => relative(root, candidate))
+      .find((rel) => rel !== '' && !rel.startsWith('..') && !isAbsolute(rel));
+    if (inside === undefined) return undefined;
+    candidate = inside;
+  }
+  candidate = candidate.split(sep).join('/').replace(/^\.\//, '');
+  return isSafeRelativePath(candidate) ? candidate : undefined;
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 function invalid(path: (string | number)[], message: string): HostError {
@@ -390,7 +529,7 @@ export function renderReviewMessage(
       comment.snippet,
       fence,
       '',
-      `意见：${comment.body}`,
+      comment.finding === undefined ? `意见：${comment.body}` : describeFinding(comment),
     ].join('\n');
   });
   const [head, tail = ''] = template
@@ -399,6 +538,14 @@ export function renderReviewMessage(
     .replace(/\{\{\s*version\s*\}\}/g, input.version)
     .split(/\{\{\s*comments\s*\}\}/);
   return `${head ?? ''}${blocks.join('\n\n')}${tail}`.trim();
+}
+
+/** 审查发现在消息里的说法：严重度、标题与说明（说明就是标题时不重复）。 */
+function describeFinding(comment: ReviewComment): string {
+  const finding = comment.finding as NonNullable<ReviewComment['finding']>;
+  const priority = finding.priority === undefined ? '' : `（P${finding.priority}）`;
+  const head = `审查发现${priority}：${finding.title}`;
+  return comment.body === finding.title ? head : `${head}\n\n${comment.body}`;
 }
 
 /** 代码块的围栏：比片段里最长的一串反引号多一个，至少三个。（T3 formatReviewCommentFence） */

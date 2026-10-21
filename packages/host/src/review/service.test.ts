@@ -253,7 +253,7 @@ describe('review.send', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ sessionId: SES, delivery: 'queue' });
     const text = textOf(sent[0]);
-    expect(text).toContain('3 条批注（用户的审阅意见）');
+    expect(text).toContain('选出的 3 条意见');
     expect(text).toContain(`路径相对目录 \`${dir}\``);
     expect(text).toContain(`分支 main，HEAD ${base.slice(0, 7)}`);
     expect(text).toContain('### 1. convert.ts，第 7 行（当前文件；写批注时在第 6 行）');
@@ -312,5 +312,116 @@ describe('review.send', () => {
     const comment = await service.add(where, { ...newSide(base, 1, 1), path: 'doc.md' });
     await service.send(where, { commentIds: [comment.id], targetSessionId: SES }, identity);
     expect(textOf(sent[0])).toContain('````md\nuse ```js``` fences\n````');
+  });
+});
+
+describe('审查发现（0.83.0）', () => {
+  it('定位到目录里的文件与行时存成批注：绝对路径换成相对的、行超出文件收到末尾；目录外、文件外的只有文字', async () => {
+    const { dir, service, where, base, sent } = setup();
+    const findings = await service.recordFindings(SES, {
+      source: 'uncommitted',
+      turnId: 'trn_1' as never,
+      findings: [
+        {
+          title: '  华氏换算没有取整  ',
+          body: '小数会一直带到界面上。',
+          priority: 1,
+          confidence: 0.7,
+          path: join(dir, 'convert.ts'),
+          startLine: 6,
+          endLine: 6,
+        },
+        { title: '末尾', body: '', path: 'convert.ts', startLine: 7, endLine: 99 },
+        { title: '目录外', body: 'x', priority: 9, path: '/etc/hosts', startLine: 1, endLine: 1 },
+        { title: '文件外', body: 'y', path: 'convert.ts', startLine: 50, endLine: 51 },
+        { title: '没有的文件', body: 'z', path: 'missing.ts', startLine: 1, endLine: 1 },
+      ],
+    });
+    expect(findings).toEqual([
+      {
+        title: '华氏换算没有取整',
+        body: '小数会一直带到界面上。',
+        priority: 1,
+        confidence: 0.7,
+        path: 'convert.ts',
+        startLine: 6,
+        endLine: 6,
+        commentId: expect.stringMatching(/^rvc_/),
+      },
+      {
+        title: '末尾',
+        body: '',
+        path: 'convert.ts',
+        startLine: 7,
+        endLine: 7,
+        commentId: expect.stringMatching(/^rvc_/),
+      },
+      { title: '目录外', body: 'x', location: '/etc/hosts:1-1' },
+      { title: '文件外', body: 'y', path: 'convert.ts', startLine: 50, endLine: 51 },
+      { title: '没有的文件', body: 'z', path: 'missing.ts', startLine: 1, endLine: 1 },
+    ]);
+
+    const stored = await service.list(where);
+    const first = stored.find((comment) => comment.id === findings[0]?.commentId);
+    const second = stored.find((comment) => comment.id === findings[1]?.commentId);
+    expect(first).toMatchObject({
+      id: findings[0]?.commentId,
+      sessionId: SES,
+      path: 'convert.ts',
+      side: 'new',
+      source: { kind: 'uncommitted' },
+      base,
+      branch: 'main',
+      snippet: '  return c * 9 / 5 + 32;',
+      body: '小数会一直带到界面上。',
+      status: 'pending',
+      anchor: { state: 'current', startLine: 6, endLine: 6 },
+      finding: { title: '华氏换算没有取整', priority: 1, confidence: 0.7, turnId: 'trn_1' },
+    });
+    // 没有说明时正文是标题。
+    expect(second).toMatchObject({ body: '末尾', finding: { title: '末尾' } });
+
+    await service.send(
+      where,
+      { commentIds: [first?.id as never, second?.id as never], targetSessionId: SES },
+      identity,
+    );
+    const text = textOf(sent[0]);
+    expect(text).toContain(
+      '```ts\n  return c * 9 / 5 + 32;\n```\n\n审查发现（P1）：华氏换算没有取整\n\n小数会一直带到界面上。',
+    );
+    expect(text).toContain('```\n\n审查发现：末尾');
+    expect(text).not.toContain('审查发现：末尾\n\n末尾');
+  });
+
+  it('branch 的发现以 merge-base 为基线；不是 git 仓库时只有文字', async () => {
+    const { dir, service, where, storage, base } = setup();
+    sh(dir, 'checkout', '-q', '-b', 'feature');
+    sh(dir, 'commit', '-q', '-am', 'change');
+    const [onBranch] = await service.recordFindings(SES, {
+      source: 'branch',
+      findings: [{ title: 'b', body: '', path: 'convert.ts', startLine: 1, endLine: 1 }],
+    });
+    expect((await service.list(where)).find((c) => c.id === onBranch?.commentId)).toMatchObject({
+      source: { kind: 'branch' },
+      base,
+      branch: 'feature',
+    });
+
+    const plain = join(realpathSync(tempDir()), 'plain');
+    mkdirSync(plain);
+    writeFileSync(join(plain, 'a.txt'), 'one\n');
+    storage.sessions.insert({
+      ...(storage.sessions.get(SES) as NonNullable<ReturnType<Storage['sessions']['get']>>),
+      id: 'ses_plain' as SessionId,
+      engineSessionId: 'engine-plain',
+      cwd: plain,
+    });
+    expect(
+      await service.recordFindings('ses_plain' as SessionId, {
+        source: 'uncommitted',
+        findings: [{ title: 'p', body: '', path: 'a.txt', startLine: 1, endLine: 1 }],
+      }),
+    ).toEqual([{ title: 'p', body: '', path: 'a.txt', startLine: 1, endLine: 1 }]);
   });
 });

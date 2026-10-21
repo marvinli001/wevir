@@ -223,6 +223,7 @@ import {
   eventOf,
   eventPayloads,
   exitedTerminal,
+  findingComment,
   gitStatusSample,
   handedOffSession,
   identity,
@@ -3234,11 +3235,51 @@ const standaloneCases: Case[] = [
   {
     name: 'ReviewComment',
     schema: protocol.ReviewCommentSchema,
-    valid: [reviewComment, sentReviewComment],
+    valid: [reviewComment, sentReviewComment, findingComment],
     invalid: [
       { ...reviewComment, body: '' },
       { ...reviewComment, status: 'draft' },
+      { ...findingComment, finding: { title: '' } },
     ],
+  },
+  // 0.83.0：审查发现。
+  {
+    name: 'ReviewPriority',
+    schema: protocol.ReviewPrioritySchema,
+    valid: [0, 3],
+    invalid: [-1, 4, 1.5],
+  },
+  {
+    name: 'ReviewFindingFields',
+    schema: protocol.ReviewFindingFieldsSchema,
+    valid: [
+      { title: '越界读取' },
+      { title: '越界读取', priority: 0, confidence: 1, turnId: `trn_${ULID}` },
+    ],
+    invalid: [{ title: '' }, { title: 'x', confidence: 2 }],
+  },
+  {
+    name: 'ReviewFinding',
+    schema: protocol.ReviewFindingSchema,
+    valid: [
+      { title: '越界读取', body: '' },
+      {
+        title: '越界读取',
+        body: '下标从 1 开始',
+        path: 'src/a.ts',
+        startLine: 3,
+        endLine: 3,
+        commentId: `rvc_${ULID}`,
+      },
+      { title: '越界读取', body: '', location: '/tmp/a.ts:3-3' },
+    ],
+    invalid: [{ title: 'x' }, { title: 'x', body: '', startLine: 0 }],
+  },
+  {
+    name: 'ReviewFindingsOrigin',
+    schema: protocol.ReviewFindingsOriginSchema,
+    valid: ['review', 'tool', 'future'],
+    invalid: ['', 3],
   },
   // 0.76.0：任务回顾。
   {

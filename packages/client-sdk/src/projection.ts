@@ -40,6 +40,7 @@ import type {
   QuestionId,
   QuestionRequest,
   RepairChain,
+  ReviewFinding,
   SecondOpinion,
   SessionAcceptance,
   SessionGoal,
@@ -227,7 +228,18 @@ export type ChatPart =
   /**
    * Agent 交给用户的文件（0.40.0，`file.shared`）：在当时所在的位置（`key` 是 `f:<seq>`），`path` 相对会话的 `cwd`。
    */
-  | { type: 'files'; key: string; files: readonly SharedFile[] };
+  | { type: 'files'; key: string; files: readonly SharedFile[] }
+  /**
+   * 审查发现（0.83.0，`review.findings`）：在当时所在的位置（`key` 是 `r:<seq>`）。`commentId` 指向存成的批注，之后的状态（已发送、
+   * 已删、过期）以 `review.list` 为准。
+   */
+  | {
+      type: 'findings';
+      key: string;
+      origin: string;
+      summary?: string;
+      findings: readonly ReviewFinding[];
+    };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -781,6 +793,15 @@ export class TranscriptProjection {
           type: 'files',
           key: `f:${event.seq}`,
           files: event.payload.files,
+        });
+        return;
+      case 'review.findings':
+        this.#target(event.payload.turnId, event.seq).parts.push({
+          type: 'findings',
+          key: `r:${event.seq}`,
+          origin: event.payload.origin,
+          ...(event.payload.summary !== undefined && { summary: event.payload.summary }),
+          findings: event.payload.findings,
         });
         return;
     }

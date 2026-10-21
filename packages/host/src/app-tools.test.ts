@@ -320,6 +320,7 @@ describe('应用级工具的端点', () => {
       'wevir_session_archive',
       'wevir_show',
       'wevir_share_file',
+      'wevir_report_findings',
     ]);
     expect(tools.find((tool) => tool.name === 'wevir_session_create')?.annotations).toMatchObject({
       destructiveHint: true,
@@ -382,7 +383,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(17);
+    expect(list.body.result.tools).toHaveLength(18);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -947,6 +948,60 @@ describe('应用级工具', () => {
     ]);
   });
 
+  it('wevir_report_findings：写成 review.findings（origin tool）；没有批注功能时只有文字；缺字段、越界的拒绝', async () => {
+    const h = await setup();
+    const a = await h.create();
+    expect(
+      await h.call(a, 'wevir_report_findings', {
+        summary: '一处越界。',
+        findings: [
+          {
+            title: '越界读取',
+            body: '下标从 1 开始。',
+            priority: 0,
+            confidence: 0.9,
+            path: 'notes.md',
+            startLine: 3,
+            endLine: 2,
+          },
+        ],
+      }),
+    ).toEqual({ reported: 1, pinned: 0, notPinned: ['notes.md:3-3'] });
+    expect(await h.call(a, 'wevir_report_findings', { findings: [] })).toEqual({
+      reported: 0,
+      pinned: 0,
+    });
+    for (const findings of [
+      [{ title: 'x', path: 'notes.md' }],
+      [{ title: '', path: 'notes.md', startLine: 1 }],
+      [{ title: 'x', path: 'notes.md', startLine: 1, priority: 'high' }],
+      [{ title: 'x', path: 'notes.md', startLine: 1, confidence: 2 }],
+      'nope',
+    ]) {
+      expect(
+        await h.call(a, 'wevir_report_findings', { findings }),
+        JSON.stringify(findings),
+      ).toHaveProperty('error');
+    }
+    const reported = h.all(a).filter((e) => e.type === 'review.findings');
+    expect(reported.map((e) => e.type === 'review.findings' && e.payload)).toEqual([
+      {
+        origin: 'tool',
+        summary: '一处越界。',
+        findings: [
+          {
+            title: '越界读取',
+            body: '下标从 1 开始。',
+            priority: 0,
+            confidence: 0.9,
+            location: 'notes.md:3-3',
+          },
+        ],
+      },
+      { origin: 'tool', findings: [] },
+    ]);
+  });
+
   it('可选的模型与权限模式', async () => {
     const h = await setup();
     const a = await h.create({ permissionMode: 'auto_review' });
@@ -1450,6 +1505,7 @@ describe('工具预设', () => {
     'wevir_session_archive',
     'wevir_show',
     'wevir_share_file',
+    'wevir_report_findings',
   ];
   const visible = async (h: Setup, sessionId: SessionId) => {
     const list = await h.rpc(sessionId, 'tools/list');

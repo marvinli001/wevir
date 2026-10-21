@@ -354,6 +354,11 @@ export const HOST_FEATURES = {
    * `ApprovalResolution` 的 `rule` / `ruleIds`。Host 在审批前按规则替用户允许命令，与引擎无关。
    */
   approvalRules: 'approval_rules',
+  /**
+   * 审查发现（0.83.0）：`review.findings` 事件与 `ReviewComment.finding`；有应用级工具时还有 `wevir_report_findings`。Codex 审查命令
+   * 的结果由适配器拆成结构化的发现；其他引擎的 agent 调工具报出。发现存成批注，可以跳到那几行、发给会话去修。
+   */
+  reviewFindings: 'review_findings',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -426,6 +431,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_search: z.boolean().optional(),
   agent_instructions: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
+  review_findings: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

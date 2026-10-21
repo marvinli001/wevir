@@ -1,5 +1,14 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
-import { changed, integer, json, optionalText, orNull, text, toJson } from './rows.js';
+import {
+  changed,
+  integer,
+  json,
+  optionalJson,
+  optionalText,
+  orNull,
+  text,
+  toJson,
+} from './rows.js';
 
 /** `review_comments` 表的一行（0015_review_comments，协议 0.67.0 的 `review.*`）。 */
 export interface ReviewCommentRecord {
@@ -28,6 +37,8 @@ export interface ReviewCommentRecord {
   /** `pending` / `sent`。 */
   status: string;
   sent?: { sessionId: string; at: string; turnId?: string; pendingId?: string };
+  /** agent 报出的审查发现（0018_review_findings）：ReviewFindingFields，原样存 JSON。 */
+  finding?: unknown;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,11 +61,11 @@ export function createReviewCommentRepository(db: SqliteDatabase): ReviewComment
     INSERT INTO review_comments (
       id, workspace_id, dir, session_id, path, previous_path, side, start_line, end_line, source, base, head, branch,
       snippet, context_before, context_after, body, status, sent_session_id, sent_turn_id, sent_pending_id, sent_at,
-      created_at, updated_at
+      finding, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :dir, :sessionId, :path, :previousPath, :side, :startLine, :endLine, :source, :base, :head,
       :branch, :snippet, :contextBefore, :contextAfter, :body, :status, :sentSessionId, :sentTurnId, :sentPendingId,
-      :sentAt, :createdAt, :updatedAt
+      :sentAt, :finding, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM review_comments WHERE id = ?');
   const listByDir = db.prepare(
@@ -97,6 +108,7 @@ export function createReviewCommentRepository(db: SqliteDatabase): ReviewComment
         sentTurnId: orNull(record.sent?.turnId),
         sentPendingId: orNull(record.sent?.pendingId),
         sentAt: orNull(record.sent?.at),
+        finding: record.finding === undefined ? null : toJson(record.finding),
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
       }),
@@ -136,6 +148,7 @@ function fromRow(row: SqlRow): ReviewCommentRecord {
   const sentAt = optionalText(row, 'sent_at');
   const sentTurnId = optionalText(row, 'sent_turn_id');
   const sentPendingId = optionalText(row, 'sent_pending_id');
+  const finding = optionalJson(row, 'finding');
   return {
     id: text(row, 'id'),
     workspaceId: text(row, 'workspace_id'),
@@ -164,6 +177,7 @@ function fromRow(row: SqlRow): ReviewCommentRecord {
           ...(sentPendingId !== undefined && { pendingId: sentPendingId }),
         },
       }),
+    ...(finding !== undefined && { finding }),
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at'),
   };

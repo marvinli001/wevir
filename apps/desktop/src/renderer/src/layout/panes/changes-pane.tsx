@@ -85,7 +85,7 @@ import {
   type ReviewRange,
   toReviewRange,
 } from '@/changes/review-model';
-import { commentState, lineLabel, ReviewPanel } from '@/changes/review-panel';
+import { commentState, findingTag, lineLabel, ReviewPanel } from '@/changes/review-panel';
 import { DIFF_HEADER_HEIGHT, StyledDiffCodeView } from '@/changes/styled-code-view';
 import { IconButton } from '@/components/icon-button';
 import { ScrollFade } from '@/components/scroll-fade';
@@ -419,6 +419,10 @@ function SessionChanges({
             <DiffCommentNote
               key={entry.comment.id}
               text={entry.comment.body}
+              {...(entry.comment.finding !== undefined && {
+                title: entry.comment.finding.title,
+                tag: findingTag(entry.comment) ?? '',
+              })}
               rangeLabel={lineLabel(entry.range.startLine, entry.range.endLine)}
               stateLabel={commentState(entry.comment)}
               outdated={entry.comment.anchor.state === 'outdated'}
@@ -431,7 +435,7 @@ function SessionChanges({
     [draft, cancelDraft, saveDraft, removeComment],
   );
 
-  // 从入口带来的文件：展开它、滚过去。
+  // 从入口带来的文件：展开它、滚过去；带了行（审查发现，0.83.0）时再滚到新的一侧的那一行（不在 diff 里时停在文件头）。
   const [codeView, setCodeView] = useState<CodeViewHandle<ReviewGroup, undefined> | null>(null);
   const revealed = useRef<number>(undefined);
   const reveal = selection.reveal;
@@ -447,6 +451,18 @@ function SessionChanges({
       return next;
     });
     codeView.scrollTo({ type: 'item', id: target.fileKey, align: 'start' });
+    const line = reveal.line;
+    if (line === undefined) return;
+    const frame = window.requestAnimationFrame(() =>
+      codeView.scrollTo({
+        type: 'line',
+        id: target.fileKey,
+        lineNumber: line,
+        side: 'additions',
+        align: 'center',
+      }),
+    );
+    return () => window.cancelAnimationFrame(frame);
   }, [reveal, entries, codeView, updateCollapsed]);
 
   const loadDiffFiles = useMemo(() => {

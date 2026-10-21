@@ -380,6 +380,28 @@ export interface TasksSuggestedEvent {
   tasks: Array<{ title: string; prompt: string; reason?: string }>;
 }
 
+/**
+ * 引擎的审查命令给出的结构化结果（0.83.0，协议的 `review.findings`）：`review` 回合里报出，Host 把能定位到会话目录里文件与行的发现
+ * 存成批注，再写 `review.findings` 事件。`path` 是引擎给的原样（Codex 是绝对路径），Host 换成相对会话目录的；`summary` 是审查的
+ * 总体说明，已经作为助手消息报过的不用再给。Codex：`exitedReviewMode` 的文字由适配器拆开（codex-event-mapping.md §4.9）。
+ */
+export interface ReviewFindingsEvent {
+  type: 'review.findings';
+  engineSessionId: string;
+  summary?: string;
+  findings: Array<{
+    title: string;
+    body: string;
+    /** 0–3，同 Codex 的 P0–P3。 */
+    priority?: number;
+    /** 0–1。 */
+    confidence?: number;
+    path: string;
+    startLine: number;
+    endLine: number;
+  }>;
+}
+
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */
 export interface EngineRawEvent {
   type: 'engine.raw';
@@ -421,6 +443,7 @@ export type AgentEvent =
   | SubagentStartedEvent
   | SubagentUpdatedEvent
   | TasksSuggestedEvent
+  | ReviewFindingsEvent
   | GoalUpdatedEvent;
 
 export type AgentEventType = AgentEvent['type'];

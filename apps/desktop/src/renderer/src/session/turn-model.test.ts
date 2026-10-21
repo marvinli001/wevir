@@ -331,6 +331,37 @@ describe('foldTurn', () => {
     ]);
   });
 
+  it('审查发现（0.83.0）：在收起的回合里照样显示，不算过程', () => {
+    const s = session();
+    s.turn();
+    s.run(TURN, 'r1', { kind: 'read', paths: ['src/a.ts'] });
+    s.add('review.findings', {
+      origin: 'tool',
+      findings: [{ title: '空指针', body: '', path: 'src/a.ts', startLine: 3 }],
+      turnId: TURN,
+    });
+    s.say(TURN, '报了一条。');
+    s.finish(TURN, 'completed');
+    const messages = s.project().messages;
+    const fold = foldTurn(messages, false, false);
+    expect(fold.defaultFolded).toBe(true);
+    const assistant = messages.find((m) => m.role === 'assistant');
+    expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual([
+      'findings',
+      'text',
+    ]);
+
+    const review = session();
+    review.turn();
+    review.add('review.findings', { origin: 'review', findings: [], turnId: TURN });
+    review.say(TURN, '没发现问题。');
+    review.finish(TURN, 'completed');
+    expect(foldTurn(review.project().messages, false, false)).toMatchObject({
+      hasProcess: false,
+      showHeader: false,
+    });
+  });
+
   it('流式进行到一半：没有那一行；正在运行的工具是当前动作，增量里的思考是“正在思考”', () => {
     const s = session();
     s.turn();

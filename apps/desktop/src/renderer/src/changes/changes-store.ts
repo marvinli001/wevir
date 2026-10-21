@@ -8,8 +8,8 @@ import { type ChangesScope, DEFAULT_SCOPE } from './changes-model';
 
 export interface ChangesSelection {
   scope: ChangesScope;
-  /** 打开时要滚到的文件；`id` 每次请求加一，同一个文件再点也会滚过去。 */
-  reveal?: { path: string; id: number };
+  /** 打开时要滚到的文件（0.83.0 起可带新的一侧的行）；`id` 每次请求加一，同一个文件再点也会滚过去。 */
+  reveal?: { path: string; line?: number; id: number };
 }
 
 const DEFAULT_SELECTION: ChangesSelection = { scope: DEFAULT_SCOPE };
@@ -21,25 +21,37 @@ export function useChangesSelection(sessionId: SessionId): ChangesSelection {
   return selections.use().get(sessionId) ?? DEFAULT_SELECTION;
 }
 
-export function selectScope(sessionId: SessionId, scope: ChangesScope, revealPath?: string): void {
+export function selectScope(
+  sessionId: SessionId,
+  scope: ChangesScope,
+  revealPath?: string,
+  revealLine?: number,
+): void {
   selections.set((current) => {
     const next = new Map(current);
     next.set(sessionId, {
       scope,
-      ...(revealPath !== undefined && { reveal: { path: revealPath, id: ++revealCounter } }),
+      ...(revealPath !== undefined && {
+        reveal: {
+          path: revealPath,
+          ...(revealLine !== undefined && { line: revealLine }),
+          id: ++revealCounter,
+        },
+      }),
     });
     return next;
   });
 }
 
-/** 选好范围（可带要滚到的文件）再打开“变更”窗格。 */
+/** 选好范围（可带要滚到的文件与行）再打开“变更”窗格。 */
 export function openChanges(
   panes: PaneController | undefined,
   sessionId: SessionId,
   scope: ChangesScope,
   revealPath?: string,
+  revealLine?: number,
 ): void {
-  selectScope(sessionId, scope, revealPath);
+  selectScope(sessionId, scope, revealPath, revealLine);
   panes?.open({ kind: 'changes' });
 }
 

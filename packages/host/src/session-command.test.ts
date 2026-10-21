@@ -4,11 +4,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
+import type { AgentEvent } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventStore } from './event-store.js';
 import { createHostMethods } from './host-methods.js';
+import { ReviewService } from './review/service.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir } from './test-utils.js';
 
@@ -68,13 +70,20 @@ describe('session.compact / session.review', () => {
       updatedAt: T0,
     });
     const events = new EventStore({ storage, deltaWindowMs: 5 });
-    const manager = new SessionManager({ storage, events, adapter });
+    const manager = new SessionManager({
+      storage,
+      events,
+      adapter,
+      reviewFindings: (sessionId, input) => review.recordFindings(sessionId, input),
+    });
+    const review = new ReviewService({ storage, sessions: manager });
     managers.push(manager);
     const methods = createHostMethods({
       storage,
       events,
       sessions: manager,
       secrets: new FileSecretStore(join(root, 'data')),
+      review,
     });
     return { events, manager, methods, workspaceDir };
   }
@@ -163,6 +172,89 @@ describe('session.compact / session.review', () => {
       command: { kind: 'review', target: 'branch', baseBranch: 'main' },
     });
     expect(events.at(-1)?.payload).toMatchObject({ outcome: 'completed' });
+  });
+
+  it('审查结果里的发现（0.83.0）：按审查的范围存成批注，在回合里写 review.findings', async () => {
+    /** 审查回合的回答之后报一组发现（Codex 的适配器从审查结果的文字拆出来）。 */
+    class ReviewingEcho extends EchoAdapter {
+      override subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
+        const inner = super.subscribe(engineSessionId);
+        return {
+          async *[Symbol.asyncIterator]() {
+            for await (const event of inner) {
+              yield event;
+              if (event.type === 'assistant.message' && event.text.startsWith('Echo: Review')) {
+                yield {
+                  type: 'review.findings',
+                  engineSessionId,
+                  findings: [
+                    {
+                      title: '少了换行',
+                      body: '',
+                      priority: 2,
+                      path: join(realpathSync(env.workspaceDir), 'a.txt'),
+                      startLine: 1,
+                      endLine: 1,
+                    },
+                    { title: '别处', body: 'b', path: '/nowhere/b.ts', startLine: 2, endLine: 3 },
+                  ],
+                };
+              }
+            }
+          },
+        };
+      }
+    }
+    const env = setup(new ReviewingEcho({ stepDelayMs: 0 }));
+    initRepo(env.workspaceDir);
+    git(env.workspaceDir, 'checkout', '-q', '-b', 'feature');
+    const sessionId = await newSession(env);
+    const { turnId } = await env.methods['session.review'](
+      { sessionId, target: 'branch' },
+      context,
+    );
+    await idle(env, sessionId);
+    const events = turnEvents(env, sessionId, turnId).filter(
+      (event) =>
+        !event.type.startsWith('assistant.delta') && event.type !== 'assistant.stream_ended',
+    );
+    expect(events.map((event) => event.type)).toEqual([
+      'turn.started',
+      'assistant.message',
+      'review.findings',
+      'turn.finished',
+    ]);
+    const reported = events[2];
+    expect(reported).toMatchObject({ source: 'host' });
+    expect(reported?.type === 'review.findings' && reported.payload).toEqual({
+      origin: 'review',
+      turnId,
+      findings: [
+        {
+          title: '少了换行',
+          body: '',
+          priority: 2,
+          path: 'a.txt',
+          startLine: 1,
+          endLine: 1,
+          commentId: expect.stringMatching(/^rvc_/),
+        },
+        { title: '别处', body: 'b', location: '/nowhere/b.ts:2-3' },
+      ],
+    });
+    const { comments } = await env.methods['review.list'](
+      { workspaceId: 'ws_1', sessionId },
+      context,
+    );
+    expect(comments).toMatchObject([
+      {
+        path: 'a.txt',
+        source: { kind: 'branch' },
+        branch: 'feature',
+        body: '少了换行',
+        finding: { title: '少了换行', priority: 2, turnId },
+      },
+    ]);
   });
 
   it('审查：不是 git 仓库、找不到基础分支时 INVALID_PARAMS，不写事件', async () => {

@@ -33,6 +33,8 @@ import type {
 import {
   AUTOMATION_QUIET_MARKER,
   DEFAULT_PERMISSION_MODE,
+  REVIEW_FINDING_TITLE_MAX_LENGTH,
+  REVIEW_FINDINGS_MAX,
   SEARCH_KINDS,
   SEARCH_PAGE_MAX,
   SEARCH_QUERY_MAX_LENGTH,
@@ -61,6 +63,7 @@ import type { ReadinessService } from './readiness/service.js';
 import { readinessTools } from './readiness-tools.js';
 import { retroMarkdown } from './retro/markdown.js';
 import type { RetroService } from './retro/service.js';
+import type { FindingInput } from './review/service.js';
 import { ROLE_READONLY_TOOLS, type RoleDefinition, type RoleStore } from './roles.js';
 import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
@@ -112,6 +115,7 @@ export const APP_TOOLS_INSTRUCTIONS = `You are running inside Wevir, a desktop a
 - wevir_models: providers and models you can choose for a new session.
 - wevir_roles: preset roles for new sessions (wevir_session_create role=...): a role sets the model, a ceiling on the permission mode, a task brief and which Wevir tools the session may use. Built in: explorer (read-only search that answers where things are; say how thorough: quick, medium or very thorough), planner (read-only; explores and returns a plan and the critical files), reviewer (read-only; ranks the problems in a change), worker (does one well-scoped task and reports) and advisor (a second opinion on a session's work in progress, which it reads with wevir_session_read). Pick one when the job fits it. On a long task, consider asking an advisor to look at your own session before you commit to an approach, when you are stuck or about to change approach, and before you call the work done (save the result first: the advisor takes time). Weigh its advice seriously; if you have direct evidence against a specific claim, say so in a follow-up instead of silently dropping it.
 - wevir_show: open a file, the changes view, the file tree, another session or a local web page in the Wevir window next to this conversation, when showing it is clearer than describing it.
+- wevir_report_findings: when you review code, report what you found as typed findings (file, lines, priority) instead of prose; each becomes a card the user can jump to in the changes view and send back to be fixed.
 - wevir_share_file: hand files you made to the user (documents, spreadsheets, images, archives). They appear as file cards in this conversation, where the user can open them or save a copy anywhere. Save the file in this session's folder first; when the session has no project, that folder is the only place the user will find your output.
 - wevir_plugins_list: inspect global plugins, MCP servers and skills without secrets. To install one, first write or download its files into this session's folder, then use wevir_plugin_install (Wevir/Claude/Codex package), wevir_skill_install (skill folder/SKILL.md/ZIP), or wevir_connector_add (MCP configuration). The three changes require the user's approval. Missing required plugin inputs are returned as an error: ask the user for them and retry. Changes are global; Codex uses them on subsequent turns after hot reload or in the next new session, with no guarantee for this current turn. Other engines need MCP/skills support to use them.
 - wevir_automations / wevir_automation_*: automations, prompts Wevir runs on a schedule in a new session (a reminder tomorrow at 9, a daily summary, a weekly dependency check). Create one when the user asks for something to happen later or repeatedly; list them first and update an existing one instead of adding a duplicate. They run only while Wevir is open on this computer.
@@ -251,6 +255,7 @@ export class AppTools {
       this.#archiveTool(),
       this.#showTool(),
       this.#shareTool(),
+      this.#findingsTool(),
       ...(this.plugins?.tools ?? []),
       ...(options.processes === undefined
         ? []
@@ -1328,6 +1333,99 @@ export class AppTools {
         const shared = [...files.values()];
         this.#options.sessions.shareFiles(sessionId, shared);
         return jsonResult({ shared: shared.map(({ path, name, size }) => ({ path, name, size })) });
+      },
+    };
+  }
+
+  #findingsTool(): AppTool {
+    return {
+      name: 'wevir_report_findings',
+      title: 'Report review findings',
+      description:
+        'Report the results of a code review as a typed list: each finding appears as a card in this conversation, pinned ' +
+        "to its lines in the changes view, where the user can jump to it and send it back to be fixed. Use it when you review a change (the user asked for a review, or you are a reviewer); call it once with the findings you verified, most severe first, and an empty list when nothing survived verification. A finding is a defect: what breaks and under which input, not a style note. path is a file in this session's folder (relative or absolute), lines are 1-based in the current file and as short as possible. priority: 0 blocks release or major use, 1 urgent, 2 normal, 3 low. Then end your turn with a short summary; do not repeat the findings in prose. Up to " +
+        `${REVIEW_FINDINGS_MAX} findings.`,
+      inputSchema: objectSchema(
+        {
+          findings: {
+            type: 'array',
+            maxItems: REVIEW_FINDINGS_MAX,
+            items: objectSchema(
+              {
+                title: { type: 'string', maxLength: REVIEW_FINDING_TITLE_MAX_LENGTH },
+                body: { type: 'string' },
+                priority: { type: 'integer', minimum: 0, maximum: 3 },
+                confidence: { type: 'number', minimum: 0, maximum: 1 },
+                path: { type: 'string' },
+                startLine: { type: 'integer', minimum: 1 },
+                endLine: { type: 'integer', minimum: 1 },
+              },
+              ['title', 'path', 'startLine'],
+            ),
+          },
+          summary: { type: 'string' },
+        },
+        ['findings'],
+      ),
+      // 不改项目里的文件，只存成 Wevir 自己的批注、在消息流里放卡片：标成只读（同 wevir_share_file），只读的角色（reviewer）也能用。
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      call: async (args, { sessionId }) => {
+        this.#callerRecord(sessionId);
+        const raw = args.findings;
+        if (!Array.isArray(raw) || raw.length > REVIEW_FINDINGS_MAX) {
+          throw new AppToolError(
+            `findings must be a list of at most ${REVIEW_FINDINGS_MAX} findings.`,
+          );
+        }
+        const findings = raw.map((value, index): FindingInput => {
+          if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+            throw new AppToolError(`findings[${index}] must be an object.`);
+          }
+          const finding = value as Record<string, unknown>;
+          const title = requiredString(finding, 'title').trim();
+          const path = requiredString(finding, 'path').trim();
+          const startLine = optionalInt(finding, 'startLine', 1, Number.MAX_SAFE_INTEGER);
+          if (title === '' || path === '' || startLine === undefined) {
+            throw new AppToolError(`findings[${index}] needs title, path and startLine.`);
+          }
+          const endLine = optionalInt(finding, 'endLine', 1, Number.MAX_SAFE_INTEGER);
+          const priority = optionalInt(finding, 'priority', 0, 3);
+          const confidence = finding.confidence;
+          if (
+            confidence !== undefined &&
+            (typeof confidence !== 'number' || !(confidence >= 0 && confidence <= 1))
+          ) {
+            throw new AppToolError(`findings[${index}].confidence must be a number from 0 to 1.`);
+          }
+          return {
+            title,
+            body: optionalString(finding, 'body') ?? '',
+            ...(priority !== undefined && { priority }),
+            ...(confidence !== undefined && { confidence }),
+            path,
+            startLine,
+            endLine: Math.max(startLine, endLine ?? startLine),
+          };
+        });
+        const summary = optionalString(args, 'summary');
+        const reported = await this.#options.sessions.reportFindings(sessionId, {
+          findings,
+          ...(summary !== undefined && { summary }),
+        });
+        return jsonResult({
+          reported: reported.length,
+          pinned: reported.filter((finding) => finding.commentId !== undefined).length,
+          ...(reported.some((finding) => finding.commentId === undefined) && {
+            notPinned: reported
+              .filter((finding) => finding.commentId === undefined)
+              .map((finding) => finding.location ?? `${finding.path}:${finding.startLine}`),
+          }),
+        });
       },
     };
   }

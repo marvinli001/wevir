@@ -60,6 +60,12 @@ import {
   UserContentPartSchema,
 } from './entities.js';
 import {
+  REVIEW_FINDINGS_MAX,
+  REVIEW_SUMMARY_MAX_LENGTH,
+  ReviewFindingSchema,
+  ReviewFindingsOriginSchema,
+} from './review.js';
+import {
   RepairChainSchema,
   SessionAcceptanceSchema,
   VerificationRunSchema,
@@ -513,6 +519,17 @@ export const EventPayloadSchemas = {
    * 替换同一 `id` 的上一份；不开回合、不进引擎上下文。Host 设置 `sessionInsights` 关着时不会有新的。
    */
   'insight.updated': z.object({ insight: SessionInsightSchema }),
+  /**
+   * Agent 报出了审查发现（0.83.0，Host 功能 `review_findings`）：Codex 审查命令的结果（`origin: 'review'`），或 agent 调
+   * `wevir_report_findings`（`tool`）。消息流里在当时的位置出现发现卡片；定位到文件与行的同时存成批注（`commentId`），之后的状态
+   * 以 `review.list` 为准。`summary` 是审查的总体说明；`findings` 为空表示审查过、没有发现。
+   */
+  'review.findings': z.object({
+    origin: ReviewFindingsOriginSchema,
+    summary: z.string().max(REVIEW_SUMMARY_MAX_LENGTH).optional(),
+    findings: z.array(ReviewFindingSchema).max(REVIEW_FINDINGS_MAX),
+    turnId: TurnIdSchema.optional(),
+  }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -608,6 +625,7 @@ export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
 export const RepairUpdatedEventSchema = eventSchema('repair.updated');
 export const OpinionUpdatedEventSchema = eventSchema('opinion.updated');
 export const InsightUpdatedEventSchema = eventSchema('insight.updated');
+export const ReviewFindingsEventSchema = eventSchema('review.findings');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -662,6 +680,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   RepairUpdatedEventSchema,
   OpinionUpdatedEventSchema,
   InsightUpdatedEventSchema,
+  ReviewFindingsEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

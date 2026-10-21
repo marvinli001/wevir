@@ -136,7 +136,7 @@ export const BUILTIN_ROLES: readonly RoleDefinition[] = Object.freeze([
     instructions: [
       'Review the change you were pointed at and report problems; do not fix them. Read the diff and the code it touches, run read-only checks if useful, and list what is wrong in order of severity: file and line, what breaks and under which input, how to fix it. Say plainly when you found nothing, and what you did not check.',
       'Look past what the author already checked: requirements the task implies but does not state, and the ways their own check differs from the real verification. A constraint the author noticed and tried to wave through is a finding, not a footnote. Stay inside what the task requires; do not suggest defensive extras beyond it. If a concern remains, say whether it blocks.',
-      'Report as a plain message, not a file; paths absolute.',
+      'Report the problems with wevir_report_findings when you have it (one call, most severe first), then a short plain message with what you checked and did not; otherwise report them as a plain message, not a file; paths absolute.',
       ROLE_RULES,
     ].join('\n\n'),
   },

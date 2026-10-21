@@ -6,7 +6,7 @@
 // 角标；外形是 Wevir 的卡片（行号、状态、正文），组件与颜色换成 Wevir 的。
 //
 // diff 里的一条批注（0.67.0）：草稿是一张卡片，输入框加取消 / 保存（⌘/Ctrl+Enter 保存、Esc 取消）；保存后是同样的卡片，
-// 顶上一行是行号与状态，悬停时出删除。
+// 顶上一行是行号与状态，悬停时出删除。审查发现（0.83.0）多一个“审查发现 P1”的标记，正文前是标题。
 
 import { cn } from 'cn';
 import { MessageSquare, Trash2 } from 'lucide-react';
@@ -144,12 +144,18 @@ export function DiffCommentDraft({
 
 export function DiffCommentNote({
   text,
+  title,
+  tag,
   rangeLabel,
   stateLabel,
   outdated,
   onDelete,
 }: {
   text: string;
+  /** 审查发现（0.83.0）的标题；正文与它相同时不重复。 */
+  title?: string;
+  /** 审查发现的标记（“审查发现 P1”）。 */
+  tag?: string;
   rangeLabel: string;
   /** 位置状态（改动前、已移动），没有时不写。 */
   stateLabel: string | undefined;
@@ -164,13 +170,23 @@ export function DiffCommentNote({
             · {stateLabel}
           </span>
         )}
+        {tag !== undefined && <span className="shrink-0">· {tag}</span>}
         <span className="ml-auto flex shrink-0 opacity-0 transition-opacity group-hover/comment:opacity-100 focus-within:opacity-100">
           <IconButton label={t('comments.delete')} size="icon-xs" onClick={onDelete}>
             <Trash2 />
           </IconButton>
         </span>
       </CardHead>
-      <p className="min-w-0 px-2.5 pb-2.5 text-sm leading-5 whitespace-pre-wrap">{text}</p>
+      {title !== undefined && (
+        <p
+          className={cn('min-w-0 px-2.5 text-sm leading-5 font-medium', text === title && 'pb-2.5')}
+        >
+          {title}
+        </p>
+      )}
+      {text !== title && (
+        <p className="min-w-0 px-2.5 pb-2.5 text-sm leading-5 whitespace-pre-wrap">{text}</p>
+      )}
     </CommentCard>
   );
 }
