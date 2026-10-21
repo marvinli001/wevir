@@ -92,12 +92,12 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.4 OpenAI Codex（`codex-app-server`）
 
-`rust-v0.162.1`（锁定提交 `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`），Apache-2.0，`Copyright 2025 OpenAI`。随包的文件（`apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边）：
+`rust-v0.163.0`（锁定提交 `83086188ae0614bd882818ff1aa23f3194962012`），Apache-2.0，`Copyright 2025 OpenAI`。随包的文件（`apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边）：
 
 - `LICENSE`：Apache License 2.0 全文。
 - `NOTICE`：`OpenAI Codex`、`Copyright 2025 OpenAI`，以及派生自 Ratatui 的代码（MIT，`Copyright (c) 2016-2022 Florian Dehau`、`Copyright (c) 2023-2025 The Ratatui Developers`）。没有核实 `codex-app-server` 里是否链接了这部分代码，整份照附。
 
-Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁定提交的 `codex-rs/vendor/bubblewrap/`（https://github.com/openai/codex/tree/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/vendor/bubblewrap ）。
+Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁定提交的 `codex-rs/vendor/bubblewrap/`（https://github.com/openai/codex/tree/83086188ae0614bd882818ff1aa23f3194962012/codex-rs/vendor/bubblewrap ）。
 
 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证还没有核对，打包前做（UPSTREAM.md §2.4）。
 

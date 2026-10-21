@@ -120,6 +120,8 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'thread/reverted',
   // 删除会话（0.43.0，`thread/delete`）的回执：thread 已经不在了。
   'thread/deleted',
+  // rust-v0.163.0 的实验面新增：thread 的已读位置（第一条未读的回合）；Host 自己维护未读状态。
+  'thread/readState/changed',
 ] as const);
 
 /**

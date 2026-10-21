@@ -28,7 +28,7 @@ import type { BasePromptVars } from './prompts.js';
 import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
 
 // 生成 CODEX_HOME/config.toml 与模型目录（ADR-0005 决策 5，docs/architecture/codex-event-mapping.md §3）。
-// 每次启动 codex-app-server 之前重写；配置键以 rust-v0.162.1 为准，进程带 --strict-config 启动，写错就启动失败。
+// 每次启动 codex-app-server 之前重写；配置键以 rust-v0.163.0 为准，进程带 --strict-config 启动，写错就启动失败。
 
 /**
  * 加固项（ADR-0005 决策 5 与补记 1，codex-notes §6）。顶层键必须写在任何表之前，所以分成两段。

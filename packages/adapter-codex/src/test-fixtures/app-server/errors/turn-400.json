@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "turn-400",
     "description": "上游 400：other，原文是上游的错误体"
   },
@@ -18,9 +18,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1791949271,
-      "completedAt": 1791949271,
-      "durationMs": 18
+      "startedAt": 1792554323,
+      "completedAt": 1792554323,
+      "durationMs": 55
     }
   }
 }

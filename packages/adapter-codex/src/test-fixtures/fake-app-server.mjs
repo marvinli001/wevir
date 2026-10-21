@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.162.1';
+const VERSION = '0.163.0';
 const args = process.argv.slice(2);
 if (args.includes('--version')) {
   process.stdout.write(`codex-app-server ${VERSION}\n`);

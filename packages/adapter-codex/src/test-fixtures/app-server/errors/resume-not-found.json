@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "resume-not-found",
     "description": "CODEX_HOME 里没有这个 thread 的 rollout"
   },

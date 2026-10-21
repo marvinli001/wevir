@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
  * 本包锁定的 Codex 版本（ADR-0005 决策 1.2）：与 docs/upstream/upstream.lock 的 codex 行、scripts/fetch-codex.sh
  * 的 `version` 一致。启动前用 `codex-app-server --version` 核对（`checkCodexVersion`）。
  */
-export const CODEX_VERSION = 'rust-v0.162.1';
+export const CODEX_VERSION = 'rust-v0.163.0';
 
 /** 指定 codex-app-server 可执行文件的环境变量，优先于资源目录与开发缓存。 */
 export const CODEX_BIN_ENV = 'WEVIR_CODEX_BIN';

@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "codex": "rust-v0.163.0",
+    "case": "turn-incomplete",
+    "description": "上游以 response.incomplete 结束（输出达到上限）：other，不重试（rust-v0.163.0 起）"
+  },
+  "params": {
+    "threadId": "<thread>",
+    "turn": {
+      "id": "<turn>",
+      "rootTurnId": "<turn>",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "Incomplete response returned, reason: max_output_tokens",
+        "codexErrorInfo": "other",
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1792554560,
+      "completedAt": 1792554560,
+      "durationMs": 69
+    }
+  }
+}

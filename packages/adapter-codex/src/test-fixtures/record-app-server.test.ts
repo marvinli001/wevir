@@ -465,6 +465,12 @@ const TURN_ERRORS: TurnErrorCase[] = [
     script: () => ({ httpError: { status: 400, message: 'mock: bad request' } }),
   },
   {
+    name: 'turn-incomplete',
+    description:
+      '上游以 response.incomplete 结束（输出达到上限）：other，不重试（rust-v0.163.0 起）',
+    script: () => ({ text: ['截断'], incomplete: 'max_output_tokens' }),
+  },
+  {
     name: 'turn-missing-key',
     description: 'Provider 没有 Key：网关回 401（wevir gateway: Provider … 没有 API Key）',
     provider: () => ({ apiKey: undefined }),

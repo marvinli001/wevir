@@ -19,14 +19,14 @@ bash scripts/upstream-sync.sh
 | `deepseek-harness`（dsh） | https://github.com/deepseek-ai/deepseek-harness | `master` | `d743267388641bc76f17c45ce8b4c231aed1d32c` | 2026-10-09 | 2026-10-12 | **MIT**（部分子目录 BSD-3-Clause，见 §2.1） |
 | `openwork` | https://github.com/different-ai/openwork | `dev` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | 2026-10-11 | 2026-10-12 | **`ee/` 之外 MIT；`ee/` 为 OpenWork EE License（非开源）** |
 | `paseo` | https://github.com/getpaseo/paseo | `main` | `dc7bc8db124e837ba909ffd3b4b20e16adaebe24` | 2026-10-12 | 2026-10-12 | **Apache-2.0**（少数第三方组件 MIT） |
-| `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.162.1` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | 2026-10-09 | 2026-10-14 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
+| `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.163.0` | `83086188ae0614bd882818ff1aa23f3194962012` | 2026-10-15 | 2026-10-21 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
 | `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `ec1313c8f8333292506f05a355bb72d308a455d8` | 2026-10-15 | 2026-10-15 | **MIT**（见 §2.5） |
 | `opencode` | https://github.com/sst/opencode（现为 anomalyco/opencode） | tag `v1.19.3` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | 2026-10-16 | 2026-10-17 | **MIT**（见 §2.6） |
 
 补充：
 
 - dsh 不再作为依赖或引擎使用：Wevir 的运行时以 Codex 为底，吸收了 dsh 的长处；这份只读克隆只留作设计参考，不移植源码。锁定提交是 tag `dsh-v0.2.1-alpha.2` 指向的提交。
-- codex 锁定的是 release tag `rust-v0.162.1` 指向的提交（2026-10-14 时的最新 release），与 `spikes/codex-app-server` 下载的二进制同一版本，源码与运行的程序一致。Codex 的 release 提交不在任何分支上（与 `main` 分叉：领先 4 个版本号提交，落后 245 个），所以 lock 的“分支”一栏写 tag，`upstream-sync.sh` 的回退路径按 tag 浅拉取。
+- codex 锁定的是 release tag `rust-v0.163.0` 指向的提交（2026-10-21 时的最新稳定 release；此前是 `rust-v0.162.1` / `092d3ac`），与 `scripts/fetch-codex.sh` 下载的二进制同一版本，源码与运行的程序一致。§4 登记的移植来源文件在两个提交之间没有改动，文件头与 `NOTICE` 的来源提交仍写 `092d3ac`。Codex 的 release 提交不在任何分支上（`rust-v0.163.0` 与 `main` 分叉：2026-10-21 领先 5 个版本号提交，落后 282 个），所以 lock 的“分支”一栏写 tag，`upstream-sync.sh` 的回退路径按 tag 浅拉取。
 
 ### 1.1 作为依赖运行的 npm 包
 
@@ -48,9 +48,9 @@ R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程�
 
 | 程序 | 版本 | 来源 | 校验 | 用处 |
 |---|---|---|---|---|
-| `codex-app-server`（独立二进制） | `rust-v0.162.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/bin/`，CI 按脚本内容缓存；安装包的资源目录 `apps/desktop/resources/engines/codex/`；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
-| `codex-code-mode-host`（独立二进制） | `rust-v0.162.1` | 同一 release 的 `codex-code-mode-host-<target>.tar.gz`（Windows 是 `.exe.tar.gz`） | 6 个 sha256 同样写在 `scripts/fetch-codex.sh` | 放在 `codex-app-server` 旁边：code mode 的 `exec` 在这个独立进程里跑，codex-app-server 在自己所在目录找它（`codex-rs/install-context/src/lib.rs` 的 `code_mode_host_program`）；没有它时只给 code mode 的模型（ChatGPT 模型目录的 `tool_mode`）调不了任何工具 |
-| `bwrap`（Linux） | `rust-v0.162.1` | 同一 release 的 `bwrap-<target>.tar.gz`（只有两个 Linux musl 目标，0.2 MiB） | 两个 sha256 同样写在 `scripts/fetch-codex.sh` | Linux 上放在二进制旁边的 `codex-resources/bwrap`：`PATH` 上没有 `bwrap` 时 Codex 用它（§2.4）；Linux 还没实测，是否保留由 ADR-0005 未决事项 4 定 |
+| `codex-app-server`（独立二进制） | `rust-v0.163.0` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/bin/`，CI 按脚本内容缓存；安装包的资源目录 `apps/desktop/resources/engines/codex/`；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
+| `codex-code-mode-host`（独立二进制） | `rust-v0.163.0` | 同一 release 的 `codex-code-mode-host-<target>.tar.gz`（Windows 是 `.exe.tar.gz`） | 6 个 sha256 同样写在 `scripts/fetch-codex.sh` | 放在 `codex-app-server` 旁边：code mode 的 `exec` 在这个独立进程里跑，codex-app-server 在自己所在目录找它（`codex-rs/install-context/src/lib.rs` 的 `code_mode_host_program`）；没有它时只给 code mode 的模型（ChatGPT 模型目录的 `tool_mode`）调不了任何工具 |
+| `bwrap`（Linux） | `rust-v0.163.0` | 同一 release 的 `bwrap-<target>.tar.gz`（只有两个 Linux musl 目标，0.2 MiB） | 两个 sha256 同样写在 `scripts/fetch-codex.sh` | Linux 上放在二进制旁边的 `codex-resources/bwrap`：`PATH` 上没有 `bwrap` 时 Codex 用它（§2.4）；Linux 还没实测，是否保留由 ADR-0005 未决事项 4 定 |
 | Antigravity ACP 运行体（`agy_acp_server.par` 加 `localharness_external`，Windows 是 `.exe`） | `1.3.0` | Google 的 `https://dl.google.com/agy-extensions/releases/<平台>/agy-acp-server-1.3.0-<平台>-<架构>.zip`，地址取自 ACP Registry（`agentclientprotocol/registry` 提交 `dc55a34900fdd60e5e97c1cbd7825c5a1df673fc` 的 `antigravity-acp/agent.json`），与 T3 Code 钉的相同 | 6 个平台的 sha256、压缩包与两个文件的字节数写在 `packages/adapter-antigravity/src/release.ts`（T3 于 2026-10-05 核对）；解包时逐项核对条目名、类型与大小，再启动它核对 `initialize` | 订阅来源 Antigravity 的引擎（ADR-0005 补记 14）。**不随安装包分发**：用户在设置里点下载时由 Host 从 Google 下载到 `<数据目录>/engines/antigravity/runtime/`（`WEVIR_ANTIGRAVITY_MIRROR` 可替换 `https://dl.google.com` 前缀），或用户用 `account.setPath` 指定自己装的。Google 的软件，许可条款以 Google 的为准、不是开源许可证（能否再分发待维护者核对），Wevir 不复制它的代码（antigravity-event-mapping.md §2） |
 
 同一个 release 还有 `codex-app-server-package-<target>.tar.gz`（压缩后大 20–40 MiB），没有用；Linux 的 `bwrap` 单独取（上表），Windows 的沙箱附带程序（`codex-windows-sandbox-setup` / `-service`）是否要随包等 Windows 实测后定（ADR-0007 未决事项 1）。

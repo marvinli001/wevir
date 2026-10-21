@@ -39,6 +39,7 @@ describe('classifyTurnError', () => {
     ['turn-unreachable', 'provider', 502],
     ['turn-500', 'provider', undefined],
     ['turn-400', 'provider', undefined],
+    ['turn-incomplete', 'provider', undefined],
   ] as const)('%s → %s', (name, category, httpStatus) => {
     expect(classifyTurnError(sample(name))).toEqual({
       category,

@@ -1,5 +1,5 @@
 // codex-app-server 协议里本包用到的子集，手写（不整批拷贝生成的类型）。每个类型注明它对应的生成文件，路径相对
-// upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.162.1 = 092d3ac）。只写本包读写的
+// upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.163.0 = 8308618）。只写本包读写的
 // 字段，其余字段按 `[key: string]: unknown` 不管；收到的消息不做 schema 校验，读之前自己检查要用的字段（mapping.ts）。
 // 0.36.0 起 initialize 带 `experimentalApi: true`（ADR-0005 补记 16，结束未决事项 5），为的是协作模式（计划模式）：
 // `turn/start` 的 `collaborationMode` 与 `item/plan/delta`。其余仍只用稳定面的字段，用到的实验字段逐个注明。升级时与新版本的

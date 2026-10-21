@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "turn-429",
     "description": "上游 429：重试用完，responseTooManyFailedAttempts（429）"
   },
@@ -22,9 +22,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1791949270,
-      "completedAt": 1791949270,
-      "durationMs": 19
+      "startedAt": 1792554323,
+      "completedAt": 1792554323,
+      "durationMs": 57
     }
   }
 }
