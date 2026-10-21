@@ -7,6 +7,7 @@ import {
   checkPlatformDir,
   compareVersions,
   type Digest,
+  devBuildNumber,
   devVersion,
   filesToPrune,
   githubAssetName,
@@ -48,6 +49,15 @@ describe('版本号', () => {
     // 正式版发布后，开发版用户收到的下一个开发版高于它，正式版又高于之前所有开发版。
     expect(compareVersions(devVersion('0.1.0', 1), '0.1.0')).toBe(1);
     expect(compareVersions('0.1.0', devVersion('0.0.0', 999))).toBe(1);
+  });
+
+  it('开发版的 N 不低于线路上已发布的同一预发布的号 + 1', () => {
+    expect(devBuildNumber('0.0.0', 358, ['0.0.1-beta.364', '0.0.1-beta.362'])).toBe(365);
+    expect(devBuildNumber('0.0.0', 370, ['0.0.1-beta.364'])).toBe(370);
+    expect(devBuildNumber('0.0.0', 5, [])).toBe(5);
+    // 别的预发布（正式版之后重新计数）不算。
+    expect(devBuildNumber('0.1.0', 3, ['0.0.1-beta.364', '0.1.0'])).toBe(3);
+    expect(devBuildNumber('0.0.0', 3, ['0.0.10-beta.900'])).toBe(3);
   });
 });
 

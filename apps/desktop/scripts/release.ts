@@ -4,8 +4,9 @@
  *   node scripts/release.ts plan [<提交>]
  *     算出这次发布的通道与版本，写进 $GITHUB_OUTPUT（不在 Actions 里时打印）。GITHUB_REF_TYPE=tag 时是正式版，版本取
  *     tag `vX.Y.Z`；否则是开发版：上一个 `vX.Y.Z` tag 之后的 X.Y.(Z+1)-beta.N，N 是从那个 tag 到这个提交的 master
- *     提交数（--first-parent，master 只有一条线，N 只增不减）；还没有 tag 时按 v0.0.0 算。提交正好是 tag 时
- *     skip=true（那是正式版的事）。
+ *     提交数（--first-parent）；还没有 tag 时按 v0.0.0 算。master 被快进到一个以功能分支为第一父提交的合并时，
+ *     first-parent 计数会变小，所以 N 至少取线路上已发布的同一预发布的号 + 1（读 PUBLISHED_DIRS 的公开清单）。
+ *     提交正好是 tag 时 skip=true（那是正式版的事）。
  *
  *   node scripts/release.ts publish --channel dev|stable --version <版本> --dir <目录> [--only <线路>] [--skip-prune]
  *     <目录> 下每个子目录是一个平台（`darwin-arm64`、`darwin-x64`、`win32-x64`，与 src/main/updates/feed.ts 的
@@ -94,6 +95,25 @@ export function devVersion(lastStable: string, commits: number): string {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(lastStable);
   if (match === null) throw new Error(`not a stable version: ${lastStable}`);
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}-beta.${commits}`;
+}
+
+/**
+ * 开发版的 N：first-parent 计数与线路上已发布的同一预发布（同一个 X.Y.(Z+1)-beta）的最大号 + 1 中取大的，
+ * 免得 first-parent 线变短后算出比线上低的版本、发布时被“只许更高的版本覆盖”拦下。别的预发布的版本不算。
+ */
+export function devBuildNumber(
+  lastStable: string,
+  commits: number,
+  published: readonly string[],
+): number {
+  const prefix = devVersion(lastStable, 0).replace(/0$/, '');
+  let next = commits;
+  for (const version of published) {
+    if (!version.startsWith(prefix)) continue;
+    const n = Number(version.slice(prefix.length));
+    if (Number.isInteger(n) && n + 1 > next) next = n + 1;
+  }
+  return next;
 }
 
 // ---------- 发布目录 ----------
@@ -822,7 +842,33 @@ export interface ReleasePlan {
   skip: boolean;
 }
 
-function plan(commit: string, env: NodeJS.ProcessEnv): ReleasePlan {
+/** 开发版发布的平台目录（release.yml 的 build 矩阵）。plan 读它们在各线路上的公开清单。 */
+export const PUBLISHED_DIRS = ['darwin-arm64', 'darwin-x64', 'win32-x64'] as const;
+
+/** 各线路公开地址上开发版清单的版本。取不到（没有、网络出错）的跳过，发布时的覆盖检查仍会兜底。 */
+async function publishedDevVersions(): Promise<string[]> {
+  const versions: string[] = [];
+  for (const mirror of MIRRORS) {
+    for (const dir of PUBLISHED_DIRS) {
+      const url = `${mirror.publicUrl}/desktop/${dir}/${manifestFile(channelName('dev'), dir)}`;
+      try {
+        const response = await fetch(url, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) continue;
+        versions.push(readManifest(await response.text()).version);
+      } catch (error) {
+        console.error(
+          `release: could not read ${url}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+  return versions;
+}
+
+async function plan(commit: string, env: NodeJS.ProcessEnv): Promise<ReleasePlan> {
   if (env.GITHUB_REF_TYPE === 'tag') {
     const tag = env.GITHUB_REF_NAME ?? '';
     const version = stableVersionOfTag(tag);
@@ -846,13 +892,15 @@ function plan(commit: string, env: NodeJS.ProcessEnv): ReleasePlan {
   } catch {
     commits = Number(git(['rev-list', '--count', '--first-parent', commit]));
   }
-  return { channel: 'dev', version: devVersion(lastStable, commits), skip: commits === 0 };
+  if (commits === 0) return { channel: 'dev', version: devVersion(lastStable, 0), skip: true };
+  const n = devBuildNumber(lastStable, commits, await publishedDevVersions());
+  return { channel: 'dev', version: devVersion(lastStable, n), skip: false };
 }
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   if (command === 'plan') {
-    const result = plan(rest[0] ?? 'HEAD', process.env);
+    const result = await plan(rest[0] ?? 'HEAD', process.env);
     const lines = `channel=${result.channel}\nversion=${result.version}\nskip=${result.skip}\n`;
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, lines);
     process.stdout.write(lines);
