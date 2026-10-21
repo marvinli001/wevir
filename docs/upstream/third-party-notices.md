@@ -10,7 +10,7 @@
 
 | 部分 | 内容 | 第三方组件 |
 |---|---|---|
-| Electron 运行时 | Electron 44.7.0 的二进制 | Electron、Chromium、V8、Node.js 及其第三方组件 |
+| Electron 运行时 | Electron 44.9.3 的二进制 | Electron、Chromium、V8、Node.js 及其第三方组件 |
 | 渲染进程与主进程的产物 | Vite 打包的 `apps/desktop/out/` | 打进包里的 `devDependencies`（§2.2）与工作区包的源码 |
 | Host | `packages/host/dist` 与它的生产依赖 | `ws`、`zod` 等（§2.1） |
 | CLI（T4.2） | `apps/cli/dist` | `mute-stream`（§2.1） |
@@ -88,7 +88,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.3 Electron
 
-`electron` 44.7.0，MIT，Copyright (c) Electron contributors；Copyright (c) 2013-2020 GitHub Inc.。二进制包里的 `dist/LICENSE` 是 Electron 自己的许可证，`dist/LICENSES.chromium.html`（约 20 MB）是 Chromium、V8、Node.js 等捆绑组件的许可证全集，两份都要随安装包分发。
+`electron` 44.9.3，MIT，Copyright (c) Electron contributors；Copyright (c) 2013-2020 GitHub Inc.。二进制包里的 `dist/LICENSE` 是 Electron 自己的许可证，`dist/LICENSES.chromium.html`（约 20 MB）是 Chromium、V8、Node.js 等捆绑组件的许可证全集，两份都要随安装包分发。
 
 ### 2.4 OpenAI Codex（`codex-app-server`）
 

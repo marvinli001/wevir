@@ -51,3 +51,7 @@ patchedDependencies:
   # 模块级的共享状态，同一次提交里新建的实例（切换会话时输入框重挂）拿到的新状态被标成“上下文丢失”，永远
   # visibility:hidden，发送按钮整个不见。补丁让两个回调只认自己那块画布。只改 ESM 产物（渲染进程只用它）。
   metal-fx@2.0.11: patches/metal-fx@2.0.11.patch
+
+# 跳过发布时长门槛的版本。electron@44.9.3：44.9.1 起屏蔽私钥泄露的 8 个中间 CA，安全修复不等满一天。
+minimumReleaseAgeExclude:
+  - electron@44.9.3
