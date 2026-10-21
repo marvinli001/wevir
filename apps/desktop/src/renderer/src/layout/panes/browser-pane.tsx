@@ -1,10 +1,22 @@
 // “浏览器”窗格（0.33.0，desktop-layout.md §21）：当前会话的标签页、前进后退刷新与地址栏；网页本身是主进程放在窗口上的原生
 // 视图（WebContentsView，main/browser/browser-host.ts），这里只占位并把位置告诉主进程。agent 操作的标签页带标记，agent 的命令
-// 正在执行时显示“Agent 操作中”；用户在 agent 的标签页里点过敲过就接手了，agent 之后只读，“交给 Agent”再交回去。
+// 正在执行时显示“Agent 操作中”；用户在 agent 的标签页里点过敲过就接手了，agent 之后只读，“交给 Agent”再交回去。agent 收尾时
+// 留下的标签页（0.89.0）标“交付物”或“待接手”。
 // 弹出菜单与对话框盖住窗格时先把原生视图收起来（它总在页面之上）。
 
 import { cn } from 'cn';
-import { ArrowLeft, ArrowRight, Bot, ExternalLink, Globe, Plus, RotateCw, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  ExternalLink,
+  Globe,
+  Hand,
+  PackageCheck,
+  Plus,
+  RotateCw,
+  X,
+} from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { sessionTabs, tabLabel, useBrowserState } from '@/browser/browser-store';
 import { IconButton } from '@/components/icon-button';
@@ -97,6 +109,8 @@ function TabButton({
             aria-label={t('browser.agentTab')}
             className={cn('size-3.5 shrink-0', tab.agentBusy && 'text-primary')}
           />
+        ) : tab.disposition !== undefined ? (
+          <DispositionIcon disposition={tab.disposition} className="size-3.5 shrink-0" labelled />
         ) : (
           <Globe aria-hidden className="size-3.5 shrink-0" />
         )}
@@ -112,6 +126,21 @@ function TabButton({
       </button>
     </div>
   );
+}
+
+/** agent 收尾时留下的标签页的标记。 */
+function DispositionIcon({
+  disposition,
+  className,
+  labelled = false,
+}: {
+  disposition: NonNullable<BrowserTabState['disposition']>;
+  className: string;
+  labelled?: boolean;
+}) {
+  const Icon = disposition === 'deliverable' ? PackageCheck : Hand;
+  const label = labelled ? t(`browser.${disposition}`) : undefined;
+  return <Icon aria-hidden={label === undefined} aria-label={label} className={className} />;
 }
 
 function Toolbar({
@@ -210,6 +239,16 @@ function Toolbar({
         >
           <Bot className="size-3.5" />
           {t('browser.agentWorking')}
+        </span>
+      )}
+      {tab?.disposition !== undefined && !tab.agentBusy && (
+        <span
+          className="flex shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+          data-testid="browser-disposition"
+          data-disposition={tab.disposition}
+        >
+          <DispositionIcon disposition={tab.disposition} className="size-3.5" />
+          {t(`browser.${tab.disposition}`)}
         </span>
       )}
       {tab &&

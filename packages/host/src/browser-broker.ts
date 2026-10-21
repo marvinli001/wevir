@@ -148,6 +148,9 @@ export class BrowserBroker {
     if (input.signal?.aborted) return browserFailure('browser_unknown_error', 'cancelled');
     const timeoutMs = input.timeoutMs ?? this.#defaultTimeoutMs;
     if (input.command.command === 'list_tabs') return this.#listTabs(input, timeoutMs);
+    if (input.command.command === 'finalize_tabs') {
+      return this.#finalizeTabs(input, input.command.args.keep, timeoutMs);
+    }
     const selected = this.#select(input.command);
     if ('ok' in selected) return selected;
     const unsupported = this.#unsupported(selected, input.command.command);
@@ -214,9 +217,70 @@ export class BrowserBroker {
     };
   }
 
+  /**
+   * 收尾（0.89.0）：每个提供方都要收尾自己的标签页。只有一个提供方时原样交给它；有几个时先按开出标签页的提供方分开 `keep`
+   * （有一个找不到就什么都不做），再交给所有提供方、把结果合起来。
+   */
+  async #finalizeTabs(
+    input: BrowserExecuteInput,
+    keep: Extract<BrowserCommand, { command: 'finalize_tabs' }>['args']['keep'],
+    timeoutMs: number,
+  ): Promise<BrowserPayload> {
+    const providers = [...this.#providers.values()];
+    if (providers.length === 0) return noProvider();
+    for (const provider of providers) {
+      const unsupported = this.#unsupported(provider, 'finalize_tabs');
+      if (unsupported) return unsupported;
+    }
+    if (providers.length === 1) {
+      return this.#send(providers[0] as Registered, input, timeoutMs, true);
+    }
+    const keepByProvider = new Map<string, typeof keep>();
+    for (const entry of keep) {
+      const selected = this.#ownerOf(entry.browserId);
+      if ('ok' in selected) return selected;
+      const id = selected.provider.id;
+      keepByProvider.set(id, [...(keepByProvider.get(id) ?? []), entry]);
+    }
+    const answers = await Promise.all(
+      providers.map(async (provider) => ({
+        provider,
+        payload: await this.#send(
+          provider,
+          {
+            ...input,
+            command: {
+              command: 'finalize_tabs',
+              args: { keep: keepByProvider.get(provider.provider.id) ?? [] },
+            },
+          },
+          timeoutMs,
+          false,
+        ),
+      })),
+    );
+    for (const { provider, payload } of answers) this.#remember(provider.provider.id, payload);
+    const failed = answers.find(({ payload }) => !payload.ok);
+    if (failed) return failed.payload;
+    return {
+      ok: true,
+      result: {
+        command: 'finalize_tabs',
+        tabs: answers.flatMap(({ payload }) =>
+          payload.ok && payload.result.command === 'finalize_tabs' ? payload.result.tabs : [],
+        ),
+      },
+    };
+  }
+
   #select(command: BrowserCommand): Registered | BrowserPayload {
     const browserId = browserIdOf(command);
     if (browserId === undefined) return this.#latest() ?? noProvider();
+    return this.#ownerOf(browserId);
+  }
+
+  /** 开出这个标签页的提供方。 */
+  #ownerOf(browserId: string): Registered | BrowserPayload {
     const owner = this.#ownerByTab.get(browserId);
     if (owner !== undefined) {
       return this.#providers.get(owner) ?? stranded(browserId);
@@ -266,6 +330,14 @@ export class BrowserBroker {
     if (result.command === 'close_tab') {
       this.#ownerByTab.delete(result.browserId);
       this.#strandedByTab.delete(result.browserId);
+      return;
+    }
+    if (result.command === 'finalize_tabs') {
+      for (const tab of result.tabs) {
+        if (tab.outcome === 'closed') this.#ownerByTab.delete(tab.browserId);
+        else this.#ownerByTab.set(tab.browserId, providerId);
+        this.#strandedByTab.delete(tab.browserId);
+      }
       return;
     }
     this.#ownerByTab.set(result.browserId, providerId);
@@ -335,7 +407,13 @@ export class BrowserBroker {
 }
 
 function browserIdOf(command: BrowserCommand): string | undefined {
-  if (command.command === 'list_tabs' || command.command === 'new_tab') return undefined;
+  if (
+    command.command === 'list_tabs' ||
+    command.command === 'new_tab' ||
+    command.command === 'finalize_tabs'
+  ) {
+    return undefined;
+  }
   return command.args.browserId;
 }
 

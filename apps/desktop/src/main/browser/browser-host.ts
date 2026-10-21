@@ -16,6 +16,8 @@
 // 0.48.0：browser_query 与 browser_network 只读（用户的标签页也能用）；evaluate 之后也看页面有没有跳转；beforeunload 按标签页的
 // 对话框策略离开或留下（只在 agent 操作时，用户接手时策略回到默认）；browser_download 要的那一个下载存进会话文件夹的
 // `downloads/`（downloads.ts），其余照旧拦下。
+// 0.89.0：标签页记下谁开的（`origin`）；agent 回合结束前收尾（finalize_tabs）：留下的标上去向（交付物 / 交还用户）并交回用户，
+// 其余 agent 开、仍由 agent 操作的关掉，agent 接管过的用户标签页交回用户；claim_tab 接管会话里用户的标签页。
 //
 // 内置浏览器（0.33.0，desktop-layout.md §21）：整个窗口一个浏览器表面，每个标签页属于开它的会话。
 
@@ -26,6 +28,8 @@ import {
   type BrowserEffects,
   type BrowserRequest,
   BrowserRequestSchema,
+  type BrowserResult,
+  type BrowserTabDisposition,
   type BrowserTabInfo,
 } from '@wevir/protocol';
 import { BrowserWindow, type Session, session, type WebContents, WebContentsView } from 'electron';
@@ -132,6 +136,10 @@ interface Tab {
   readonly tabId: string;
   readonly view: WebContentsView;
   controller: BrowserController;
+  /** 谁开的（弹出的新标签页随开它的标签页当时的操作方）：收尾时只关 agent 开的。 */
+  readonly origin: BrowserController;
+  /** 上次收尾标的去向；agent 再接管、用户在地址栏换页面时去掉。 */
+  disposition: BrowserTabDisposition | undefined;
   /** 在后台窗口里（不在屏幕上）。 */
   parked: boolean;
   domReady: boolean;
@@ -253,6 +261,8 @@ export function createBrowserHost(options: BrowserHostOptions) {
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
       controller: tab.controller,
+      origin: tab.origin,
+      ...(tab.disposition !== undefined && { disposition: tab.disposition }),
       agentBusy: tab.agentBusy > 0,
       ...(failed !== undefined && { loadError: failed }),
     };
@@ -300,6 +310,8 @@ export function createBrowserHost(options: BrowserHostOptions) {
       tabId,
       view,
       controller,
+      origin: controller,
+      disposition: undefined,
       parked: false,
       domReady: false,
       agentBusy: 0,
@@ -406,9 +418,10 @@ export function createBrowserHost(options: BrowserHostOptions) {
     return tab;
   }
 
-  /** 换操作方：用户的标签页里选文件交给用户（原生文件框），agent 的拦下来报给 agent。 */
+  /** 换操作方：用户的标签页里选文件交给用户（原生文件框），agent 的拦下来报给 agent。交给 agent 时去掉收尾标的去向。 */
   function setTabController(tab: Tab, controller: BrowserController): void {
     tab.controller = controller;
+    if (controller === 'agent') tab.disposition = undefined;
     if (!tab.view.webContents.isDestroyed()) {
       interceptFileChooser(tab.view.webContents.id, controller === 'agent');
       if (controller === 'user') resetDialogPolicy(tab.view.webContents.id);
@@ -614,6 +627,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
   function navigateForUser(tabId: string, url: string): void {
     const tab = userTab(tabId);
     setTabController(tab, 'user');
+    tab.disposition = undefined;
     tab.loadError = undefined;
     tab.pendingUrl = url;
     void tab.view.webContents.loadURL(url).catch(() => {});
@@ -692,6 +706,8 @@ export function createBrowserHost(options: BrowserHostOptions) {
               canGoBack: info.canGoBack,
               canGoForward: info.canGoForward,
               controller: info.controller,
+              origin: info.origin,
+              ...(info.disposition !== undefined && { disposition: info.disposition }),
             },
           ];
         });
@@ -754,6 +770,26 @@ export function createBrowserHost(options: BrowserHostOptions) {
           result: { command: 'close_tab', browserId: command.args.browserId },
         };
       }
+      case 'finalize_tabs':
+        return { requestId, ok: true, result: finalizeTabs(sessionId, command.args.keep) };
+      case 'claim_tab': {
+        const tab = owned(sessionId, command.args.browserId);
+        const previousController = tab.controller;
+        setTabController(tab, 'agent');
+        sendState();
+        const info = tabState(tab);
+        return {
+          requestId,
+          ok: true,
+          result: {
+            command: 'claim_tab',
+            browserId: tab.tabId,
+            url: info.url,
+            title: info.title,
+            previousController,
+          },
+        };
+      }
       default:
         break;
     }
@@ -769,7 +805,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       return failure(
         requestId,
         'browser_denied',
-        `The user is using browser tab ${tab.tabId}, so you can only read it. Ask the user to hand it to you ("Hand to agent" in the browser pane), or open your own tab with browser_new_tab.`,
+        `The user is using browser tab ${tab.tabId}, so you can only read it. Take it over with browser_claim_tab if the user wants you to work on that page, or open your own tab with browser_new_tab.`,
       );
     }
     if (command.command === 'navigate') {
@@ -828,6 +864,41 @@ export function createBrowserHost(options: BrowserHostOptions) {
         });
       }),
     );
+  }
+
+  /**
+   * 收尾（finalize_tabs）：`keep` 里的标上去向、交回用户；其余 agent 开、仍由 agent 操作的关掉；agent 接管过的用户标签页交回
+   * 用户；用户正在操作、又没列出的不动。先核对 `keep` 全属于这个会话，有一个不是就什么都不做。
+   */
+  function finalizeTabs(
+    sessionId: string,
+    keep: ReadonlyArray<{ browserId: string; status: BrowserTabDisposition }>,
+  ): Extract<BrowserResult, { command: 'finalize_tabs' }> {
+    const kept = new Map(
+      keep.map((entry) => [owned(sessionId, entry.browserId).tabId, entry.status]),
+    );
+    const outcomes: Extract<BrowserResult, { command: 'finalize_tabs' }>['tabs'] = [];
+    for (const { tabId } of registry.tabsFor(sessionId)) {
+      const tab = tabs.get(tabId);
+      if (!tab) continue;
+      const status = kept.get(tabId);
+      if (status === undefined && tab.controller === 'user') continue;
+      const info = tabState(tab);
+      const entry = { browserId: tabId, url: info.url, title: info.title };
+      if (status !== undefined) {
+        setTabController(tab, 'user');
+        tab.disposition = status;
+        outcomes.push({ ...entry, outcome: status });
+      } else if (tab.origin === 'agent') {
+        closeTab(tabId);
+        outcomes.push({ ...entry, outcome: 'closed' });
+      } else {
+        setTabController(tab, 'user');
+        outcomes.push({ ...entry, outcome: 'released' });
+      }
+    }
+    sendState();
+    return { command: 'finalize_tabs', tabs: outcomes };
   }
 
   const automationRegistry = {

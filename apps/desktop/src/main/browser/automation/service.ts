@@ -325,8 +325,17 @@ type CommandHandler = (
   context: CommandHandlerContext,
 ) => AutomationCommandPayload | Promise<AutomationCommandPayload>;
 
-/** 由 browser-host.ts 自己处理的命令（标签页的开关、列出与显示，0.48.0 起还有要接住下载的 download）。 */
-export type HostHandledCommand = 'list_tabs' | 'new_tab' | 'close_tab' | 'show' | 'download';
+/**
+ * 由 browser-host.ts 自己处理的命令（标签页的开关、列出与显示，0.48.0 起还有要接住下载的 download，0.89.0 起还有收尾与接管）。
+ */
+export type HostHandledCommand =
+  | 'list_tabs'
+  | 'new_tab'
+  | 'close_tab'
+  | 'show'
+  | 'download'
+  | 'finalize_tabs'
+  | 'claim_tab';
 
 export function isHostHandled(command: BrowserCommand['command']): command is HostHandledCommand {
   return (
@@ -334,7 +343,9 @@ export function isHostHandled(command: BrowserCommand['command']): command is Ho
     command === 'new_tab' ||
     command === 'close_tab' ||
     command === 'show' ||
-    command === 'download'
+    command === 'download' ||
+    command === 'finalize_tabs' ||
+    command === 'claim_tab'
   );
 }
 

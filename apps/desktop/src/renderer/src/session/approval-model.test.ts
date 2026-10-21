@@ -135,6 +135,7 @@ describe('审批标题按会话的边界', () => {
     expect(title(mcp('mcp__wevir__browser_click'), claude)).toBe('允许操作浏览器中的网页？');
     expect(title(mcp('mcp__wevir__browser_fill'), codex)).toBe('允许操作浏览器中的网页？');
     expect(title(mcp('mcp__wevir__browser_close_tab'), codex)).toBe('允许关闭浏览器标签页？');
+    expect(title(mcp('mcp__wevir__browser_claim_tab'), codex)).toBe('允许接管浏览器标签页？');
   });
 
   it('Claude Agent：路径出了目录时照实说', () => {

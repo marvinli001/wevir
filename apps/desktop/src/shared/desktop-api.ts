@@ -228,6 +228,10 @@ export interface BrowserTabState {
   canGoBack: boolean;
   canGoForward: boolean;
   controller: BrowserController;
+  /** 谁开的（0.89.0）。 */
+  origin: BrowserController;
+  /** agent 收尾时标的去向（0.89.0）：交付物，或交还用户接着做。 */
+  disposition?: 'deliverable' | 'handoff';
   /** agent 的命令正在这个标签页上执行。 */
   agentBusy: boolean;
   /** 页面打不开（Chromium 的错误码与说明）。 */

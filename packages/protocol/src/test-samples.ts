@@ -6634,6 +6634,47 @@ export const methodSamples: MethodSamples = {
             state: 'completed',
           },
         },
+        // 0.89.0
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'list_tabs',
+            tabs: [{ ...browserTab, controller: 'user', origin: 'agent', disposition: 'handoff' }],
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'finalize_tabs',
+            tabs: [
+              {
+                browserId: browserTab.browserId,
+                url: browserTab.url,
+                title: browserTab.title,
+                outcome: 'deliverable',
+              },
+              {
+                browserId: 'tab_m2k1_2',
+                url: 'https://example.com/',
+                title: '',
+                outcome: 'closed',
+              },
+            ],
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'claim_tab',
+            browserId: browserTab.browserId,
+            url: browserTab.url,
+            title: browserTab.title,
+            previousController: 'user',
+          },
+        },
         {
           requestId: ids.browserRequest,
           ok: true,
@@ -6959,8 +7000,39 @@ export const notificationSamples: NotificationSamples = {
         cwd: '/Users/me/projects/wevir',
         command: { command: 'show', args: { url: 'http://127.0.0.1:3000/' } },
       },
+      // 0.89.0
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'finalize_tabs',
+          args: { keep: [{ browserId: browserTab.browserId, status: 'deliverable' }] },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'finalize_tabs', args: { keep: [] } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'claim_tab', args: { browserId: browserTab.browserId } },
+      },
     ],
     invalid: [
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'finalize_tabs',
+          args: { keep: [{ browserId: browserTab.browserId, status: 'later' }] },
+        },
+      },
       {
         requestId: ids.browserRequest,
         sessionId: ids.session,

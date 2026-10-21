@@ -2631,10 +2631,23 @@ const standaloneCases: Case[] = [
     invalid: ['gone'],
   },
   {
+    name: 'BrowserTabDisposition',
+    schema: protocol.BrowserTabDispositionSchema,
+    valid: ['deliverable', 'handoff'],
+    invalid: ['keep'],
+  },
+  {
     name: 'BrowserTabInfo',
     schema: protocol.BrowserTabInfoSchema,
-    valid: [browserTab, { ...browserTab, controller: 'user', canGoBack: undefined }],
-    invalid: [{ ...browserTab, controller: '' }],
+    valid: [
+      browserTab,
+      { ...browserTab, controller: 'user', canGoBack: undefined },
+      { ...browserTab, controller: 'user', origin: 'agent', disposition: 'deliverable' },
+    ],
+    invalid: [
+      { ...browserTab, controller: '' },
+      { ...browserTab, disposition: '' },
+    ],
   },
   {
     name: 'BrowserSnapshotStats',

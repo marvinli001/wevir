@@ -8,6 +8,8 @@
 // HTTP 状态码（0.44.0）；快照可以分段读、带总行数，回答带命令引起的页面变化（跳转、新标签页、下载、选文件），日志带总数与
 // 进行中的请求，错误码多了对话框阻塞与参数不对（0.46.0）。0.48.0 加回 Paseo 去掉的 evaluate 与 upload（只在 agent 操作的标签页、
 // 文件限会话文件夹），另加 query、network、dialogs、download；快照、等待、执行与查询能指定 frame，快照能限定范围与节点数。
+// 0.89.0 加 finalize_tabs（回合结束前收尾：留下交付物与交还用户的，其余 agent 开的关掉）与 claim_tab（接管会话里用户的标签页），
+// 标签页多了 `origin` 与 `disposition`（照 Codex Chrome 控制的 `tabs.finalize` / `claimTab`）。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：浏览器在桌面端的主进程里，Host 是另一个进程。桌面端用 `browser.register` 把
 // 自己的连接登记为浏览器提供方，Host 经 `browser.request` 通知把会话里的 agent 调的浏览器工具交给它，提供方用
@@ -46,6 +48,9 @@ export const BROWSER_COMMANDS = [
   'dialogs',
   'upload',
   'download',
+  // 0.89.0
+  'finalize_tabs',
+  'claim_tab',
 ] as const;
 export type BrowserCommandName = (typeof BROWSER_COMMANDS)[number];
 
@@ -101,6 +106,14 @@ export const BrowserFrameSchema = z.string().min(1).max(500);
 export const BrowserDialogActionSchema = z.enum(['accept', 'dismiss']);
 /** 等元素的哪种状态（0.48.0）：出现、消失、可见、不可见（含不存在）。 */
 export const BrowserElementStateSchema = z.enum(['attached', 'detached', 'visible', 'hidden']);
+/**
+ * 收尾时留下的标签页（0.89.0）：`deliverable` 交付物（标签页本身就是给用户的结果），`handoff` 交还用户（事情没做完，等用户或之后的
+ * 回合接着做）。两种都交回用户操作。
+ */
+export const BrowserTabDispositionSchema = z.enum(['deliverable', 'handoff']);
+export type BrowserTabDisposition = z.infer<typeof BrowserTabDispositionSchema>;
+/** `finalize_tabs` 一次最多留下的标签页数。 */
+export const BROWSER_FINALIZE_KEEP_MAX = 20;
 
 const tab = { browserId: BrowserTabIdSchema };
 const selector = z.string().min(1).max(2_000);
@@ -285,10 +298,28 @@ export const BrowserCommandSchema = z.discriminatedUnion('command', [
       timeoutMs: z.int().min(1).max(120_000).optional(),
     }),
   }),
+  /**
+   * 回合结束前收尾（0.89.0）：`keep` 里的标签页标上去向、交回用户；其余由 agent 开、仍由 agent 操作的关掉；agent 接管过的用户
+   * 标签页交回用户、不关；用户正在操作的不动。`keep` 里有不属于这个会话的标签页时整个命令不执行。
+   */
+  z.object({
+    command: z.literal('finalize_tabs'),
+    args: z.object({
+      keep: z
+        .array(z.object({ ...tab, status: BrowserTabDispositionSchema }))
+        .max(BROWSER_FINALIZE_KEEP_MAX),
+    }),
+  }),
+  /** 接管这个会话里用户在操作的标签页（0.89.0），之后 agent 能操作它；用户在里面点或敲时照旧收回。 */
+  z.object({ command: z.literal('claim_tab'), args: z.object(tab) }),
 ]);
 export type BrowserCommand = z.infer<typeof BrowserCommandSchema>;
 
-/** 一个标签页。`controller` 是谁在操作它：`agent`（agent 开的或交给了 agent）、`user`（用户开的或用户接手了）。 */
+/**
+ * 一个标签页。`controller` 是谁在操作它：`agent`（agent 开的或交给了 agent）、`user`（用户开的或用户接手了）。0.89.0：`origin`
+ * 是谁开的（`agent` / `user`，开放字符串，收尾时只关 agent 开的）；`disposition` 是上次收尾标的去向（`deliverable` /
+ * `handoff`，开放字符串），agent 再接管或用户在地址栏换了页面后去掉。
+ */
 export const BrowserTabInfoSchema = z.object({
   browserId: BrowserTabIdSchema,
   url: z.string(),
@@ -298,6 +329,8 @@ export const BrowserTabInfoSchema = z.object({
   canGoBack: z.boolean().optional(),
   canGoForward: z.boolean().optional(),
   controller: z.string().min(1),
+  origin: z.string().min(1).optional(),
+  disposition: z.string().min(1).optional(),
 });
 export type BrowserTabInfo = z.infer<typeof BrowserTabInfoSchema>;
 
@@ -540,6 +573,24 @@ export const BrowserResultSchema = z.discriminatedUnion('command', [
     size: z.int().min(0),
     mimeType: z.string().optional(),
     state: z.string().min(1),
+  }),
+  /**
+   * 收尾的结果（0.89.0）：每个处理过的标签页一项，`outcome` 是 `deliverable`、`handoff`、`released`（agent 接管过的用户标签页，
+   * 交回用户）或 `closed`，开放字符串。用户正在操作、又没列在 `keep` 里的标签页不列。
+   */
+  z.object({
+    command: z.literal('finalize_tabs'),
+    tabs: z.array(
+      z.object({ ...tabResult, url: z.string(), title: z.string(), outcome: z.string().min(1) }),
+    ),
+  }),
+  /** `previousController`：接管前谁在操作，已经是 `agent` 时什么也没变。 */
+  z.object({
+    command: z.literal('claim_tab'),
+    ...tabResult,
+    url: z.string(),
+    title: z.string(),
+    previousController: z.string().min(1),
   }),
 ]);
 export type BrowserResult = z.infer<typeof BrowserResultSchema>;

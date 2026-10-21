@@ -9,7 +9,8 @@
 // （`browser_invalid_url` / `browser_invalid_argument`）；结果写出命令引起的跳转、新标签页、下载与选文件框；快照分段（`offset`）；
 // 日志写出总数与省略了多少；超时的提示按命令给。0.48.0：加回 browser_evaluate 与 browser_upload（上传的文件由这里按会话目录解析、
 // 核对在会话文件夹里），另加 browser_query、browser_network、browser_dialogs、browser_download；快照可以限定范围（selector、ref、
-// frame、viewportOnly）与节点数；browser_wait 多了地址正则、元素状态与网络空闲。
+// frame、viewportOnly）与节点数；browser_wait 多了地址正则、元素状态与网络空闲。0.89.0：加 browser_finalize_tabs（回合结束前收尾，
+// 照 Codex Chrome 控制的 `tabs.finalize`）与 browser_claim_tab（接管用户的标签页，照 `claimTab`）；列标签页写出谁开的与收尾的去向。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：工具经 `BrowserBroker` 交给桌面端的浏览器。
 
@@ -18,6 +19,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import type { BrowserCommand, BrowserResult, SessionId } from '@wevir/protocol';
 import {
   BROWSER_DOWNLOAD_MAX_BYTES,
+  BROWSER_FINALIZE_KEEP_MAX,
   BROWSER_RESULT_MAX_BYTES,
   BROWSER_SNAPSHOT_MAX_NODES,
   BROWSER_UPLOAD_MAX_FILES,
@@ -34,7 +36,10 @@ import {
 } from './app-tools.js';
 import type { BrowserBroker, BrowserPayload } from './browser-broker.js';
 
-/** 不用批准的浏览器工具（只读）。Claude 的 `allowedTools` 也用这张表（runtime-adapter 的 `APP_TOOLS_NO_APPROVAL`）。 */
+/**
+ * 不用批准的浏览器工具（标 `readOnlyHint`）：只读的，加上收尾（只关 agent 自己开的、交回用户，不碰用户正在用的标签页；每个回合末尾
+ * 都调，问用户只是打扰，同 `wevir_task_*` 的做法）。Claude 的 `allowedTools` 也用这张表（runtime-adapter 的 `APP_TOOLS_NO_APPROVAL`）。
+ */
 export const BROWSER_READ_ONLY_TOOLS = [
   'browser_list_tabs',
   'browser_snapshot',
@@ -43,6 +48,7 @@ export const BROWSER_READ_ONLY_TOOLS = [
   'browser_logs',
   'browser_query',
   'browser_network',
+  'browser_finalize_tabs',
 ] as const;
 
 const REF = {
@@ -61,6 +67,13 @@ const READ_ONLY = {
   openWorldHint: false,
 };
 const ACTS = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
+/** 收尾：会关标签页，但只关 agent 自己开的；不用批准。 */
+const FINALIZES = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+};
 
 const REF_NOTE =
   'refs come from the latest browser_snapshot (or browser_query) of the same tab, work inside iframes too, and expire when the page changes.';
@@ -81,6 +94,8 @@ interface ToolSpec {
   properties: Record<string, Record<string, unknown>>;
   required: string[];
   readOnly: boolean;
+  /** 不同于 `readOnly` 推出来的标注。 */
+  annotations?: Record<string, boolean>;
   /** 把参数换成命令；参数不对时抛 `AppToolError`。`cwd` 是会话的目录。 */
   command(args: Record<string, unknown>, cwd: string): BrowserCommand;
   timeoutMs?(args: Record<string, unknown>): number | undefined;
@@ -98,7 +113,7 @@ export function browserTools(options: BrowserToolsOptions): AppTool[] {
     title: spec.title,
     description: spec.description,
     inputSchema: objectSchema(spec.properties, spec.required),
-    annotations: spec.readOnly ? READ_ONLY : ACTS,
+    annotations: spec.annotations ?? (spec.readOnly ? READ_ONLY : ACTS),
     call: async (args, { sessionId, signal }) => {
       const cwd = callerCwd(options.storage, sessionId);
       let command: BrowserCommand;
@@ -131,7 +146,8 @@ const SPECS: ToolSpec[] = [
     description:
       "List this session's tabs in the Wevir browser (the browser pane next to the conversation). Use the returned " +
       'browserId values with the other browser tools. controller "user" means the user is using that tab: you can ' +
-      'read it but not act on it.',
+      'read it but not act on it (browser_claim_tab takes it over). opened_by says who opened the tab; left_as is ' +
+      'how an earlier browser_finalize_tabs left it (deliverable or handoff).',
     properties: {},
     required: [],
     readOnly: true,
@@ -163,6 +179,54 @@ const SPECS: ToolSpec[] = [
     required: ['browserId'],
     readOnly: false,
     command: (args) => ({ command: 'close_tab', args: tab(args) }),
+  },
+  {
+    name: 'browser_finalize_tabs',
+    title: 'Finish with the browser tabs',
+    description:
+      'Call this once, as your last browser action, before ending a turn in which you used the Wevir browser. List ' +
+      'in keep only the tabs the user needs after the turn: status "deliverable" when the page itself is the result ' +
+      'or a page the user asked to see (an edited document, a dashboard, a filled-in form ready to submit), "handoff" ' +
+      'when the work is unfinished and the user (or a later turn) should continue on that page (it waits for a ' +
+      'login, a payment, a CAPTCHA or a decision). Leave out search results, sources, error pages and other ' +
+      'intermediate tabs once you have what you need, even ones that helped you answer. Kept tabs are handed to the ' +
+      'user and marked in the browser pane; tabs you opened and left out are closed; tabs you took over from the ' +
+      'user are handed back, not closed; tabs the user is using are not touched. To put a deliverable in front of ' +
+      'the user, call wevir_show with its browserId before this. Use the browser tools again after this only if the ' +
+      'user asks for more browser work.',
+    properties: {
+      keep: {
+        type: 'array',
+        maxItems: BROWSER_FINALIZE_KEEP_MAX,
+        description: 'Tabs to leave open for the user; the default is none.',
+        items: {
+          type: 'object',
+          properties: {
+            browserId: BROWSER_ID,
+            status: { type: 'string', enum: ['deliverable', 'handoff'] },
+          },
+          required: ['browserId', 'status'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: [],
+    readOnly: true,
+    annotations: FINALIZES,
+    command: (args) => ({ command: 'finalize_tabs', args: { keep: keepArg(args) } }),
+  },
+  {
+    name: 'browser_claim_tab',
+    title: 'Take over a browser tab',
+    description:
+      'Take over a tab of this session that the user is using (controller "user" in browser_list_tabs, for example ' +
+      'a page the user opened in the browser pane or one handed back by browser_finalize_tabs), so you can act on ' +
+      'it. Claim a tab only when the user wants you to work on that page; use only browserId values from ' +
+      'browser_list_tabs. The user gets the tab back as soon as they click or type in it.',
+    properties: { browserId: BROWSER_ID },
+    required: ['browserId'],
+    readOnly: false,
+    command: (args) => ({ command: 'claim_tab', args: tab(args) }),
   },
   {
     name: 'browser_snapshot',
@@ -808,6 +872,32 @@ function stringArray(
   return value as string[];
 }
 
+/** 收尾时留下的标签页：同一个只能列一次。 */
+function keepArg(
+  args: Record<string, unknown>,
+): Array<{ browserId: string; status: 'deliverable' | 'handoff' }> {
+  const value = args.keep;
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new AppToolError('keep must be an array.');
+  const seen = new Set<string>();
+  return value.map((item) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new AppToolError('Each keep item must be an object with browserId and status.');
+    }
+    const entry = item as Record<string, unknown>;
+    const browserId = requiredString(entry, 'browserId');
+    const status = entry.status;
+    if (status !== 'deliverable' && status !== 'handoff') {
+      throw new AppToolError(
+        `status of ${browserId} must be "deliverable" or "handoff" (got ${JSON.stringify(status)}).`,
+      );
+    }
+    if (seen.has(browserId)) throw new AppToolError(`keep lists ${browserId} twice.`);
+    seen.add(browserId);
+    return { browserId, status };
+  });
+}
+
 /** 不在会话文件夹里（`browser_denied`）。 */
 class BrowserDeniedError extends AppToolError {}
 
@@ -963,6 +1053,22 @@ export function browserToolResult(
   return { content: [{ type: 'text', text }] };
 }
 
+const FINALIZE_OUTCOMES: Record<string, string> = {
+  deliverable: 'Left open for the user as a deliverable',
+  handoff: 'Handed to the user to continue',
+  released: 'Handed back to the user',
+  closed: 'Closed',
+};
+
+function finalizeText(tabs: Extract<BrowserResult, { command: 'finalize_tabs' }>['tabs']): string {
+  if (tabs.length === 0) return 'No browser tabs of yours to finish with.';
+  const lines = tabs.map(
+    (tab) =>
+      `- ${FINALIZE_OUTCOMES[tab.outcome] ?? tab.outcome}: browserId=${tab.browserId} title=${JSON.stringify(tab.title || 'Untitled')} url=${tab.url}`,
+  );
+  return ['Finished with the browser tabs:', ...lines].join('\n');
+}
+
 function successText(payload: Extract<BrowserPayload, { ok: true }>): string {
   const { result } = payload;
   switch (result.command) {
@@ -972,7 +1078,7 @@ function successText(payload: Extract<BrowserPayload, { ok: true }>): string {
       }
       const lines = result.tabs.map(
         (tab) =>
-          `- browserId=${tab.browserId}${tab.isActive ? ' active' : ''} controller=${tab.controller} title=${JSON.stringify(tab.title || 'Untitled')} url=${tab.url}`,
+          `- browserId=${tab.browserId}${tab.isActive ? ' active' : ''} controller=${tab.controller}${tab.origin ? ` opened_by=${tab.origin}` : ''}${tab.disposition ? ` left_as=${tab.disposition}` : ''} title=${JSON.stringify(tab.title || 'Untitled')} url=${tab.url}`,
       );
       return [
         `${result.tabs.length} browser tab${result.tabs.length === 1 ? '' : 's'}:`,
@@ -983,6 +1089,12 @@ function successText(payload: Extract<BrowserPayload, { ok: true }>): string {
       return `Opened browser tab browserId=${result.browserId} url=${result.url}${httpStatus(result.status)}. Use this browserId with the other browser tools.`;
     case 'close_tab':
       return `Closed browser tab ${result.browserId}.`;
+    case 'finalize_tabs':
+      return finalizeText(result.tabs);
+    case 'claim_tab':
+      return result.previousController === 'agent'
+        ? `Browser tab ${result.browserId} (${result.url}) is already yours to act on.`
+        : `You now control browser tab ${result.browserId} (${result.url}). The user gets it back as soon as they click or type in it.`;
     case 'show':
       return result.shown
         ? `Showing browser tab ${result.browserId} (${result.url}${httpStatus(result.status)}) to the user.`

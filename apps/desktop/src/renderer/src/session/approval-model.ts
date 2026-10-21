@@ -211,6 +211,7 @@ const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
   browser_new_tab: 'approval.title.browserOpen',
   browser_navigate: 'approval.title.browserOpen',
   browser_close_tab: 'approval.title.browserClose',
+  browser_claim_tab: 'approval.title.browserClaim',
   browser_click: 'approval.title.browserAct',
   browser_fill: 'approval.title.browserAct',
   browser_type: 'approval.title.browserAct',

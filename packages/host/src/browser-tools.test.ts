@@ -376,6 +376,158 @@ describe('浏览器工具（0.48.0）', () => {
   });
 });
 
+describe('浏览器工具（0.89.0）：收尾与接管', () => {
+  it('收尾不用批准、接管要批准；keep 在 Host 核对（状态、重复），结果写出每个标签页的去向', async () => {
+    const { connect, call, mcp } = await setup();
+    const { tools } = await mcp('tools/list');
+    const byName = new Map(
+      (tools as Array<{ name: string; annotations: { readOnlyHint?: boolean } }>).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    );
+    expect(byName.get('browser_finalize_tabs')?.annotations.readOnlyHint).toBe(true);
+    expect(byName.get('browser_claim_tab')?.annotations.readOnlyHint).toBe(false);
+    expect(APP_TOOLS_NO_APPROVAL).toContain('browser_finalize_tabs');
+    expect(APP_TOOLS_NO_APPROVAL).not.toContain('browser_claim_tab');
+
+    const desktop = await fakeDesktop(connect, (request) => ({
+      ok: true,
+      result:
+        request.command.command === 'finalize_tabs'
+          ? {
+              command: 'finalize_tabs',
+              tabs: [
+                {
+                  browserId: 'tab_1',
+                  url: 'http://a.test/doc',
+                  title: 'Doc',
+                  outcome: 'deliverable',
+                },
+                { browserId: 'tab_2', url: 'http://a.test/pay', title: '', outcome: 'handoff' },
+                {
+                  browserId: 'tab_3',
+                  url: 'http://a.test/mine',
+                  title: 'Mine',
+                  outcome: 'released',
+                },
+                { browserId: 'tab_4', url: 'http://a.test/q', title: 'Search', outcome: 'closed' },
+              ],
+            }
+          : {
+              command: 'claim_tab',
+              browserId: 'tab_3',
+              url: 'http://a.test/mine',
+              title: 'Mine',
+              previousController: 'user',
+            },
+    }));
+
+    const finalized = await call('browser_finalize_tabs', {
+      keep: [
+        { browserId: 'tab_1', status: 'deliverable' },
+        { browserId: 'tab_2', status: 'handoff' },
+      ],
+    });
+    expect(finalized.isError).toBeUndefined();
+    expect(finalized.content[0]?.text).toBe(
+      [
+        'Finished with the browser tabs:',
+        '- Left open for the user as a deliverable: browserId=tab_1 title="Doc" url=http://a.test/doc',
+        '- Handed to the user to continue: browserId=tab_2 title="Untitled" url=http://a.test/pay',
+        '- Handed back to the user: browserId=tab_3 title="Mine" url=http://a.test/mine',
+        '- Closed: browserId=tab_4 title="Search" url=http://a.test/q',
+      ].join('\n'),
+    );
+    expect(desktop.requests.at(-1)?.command).toEqual({
+      command: 'finalize_tabs',
+      args: {
+        keep: [
+          { browserId: 'tab_1', status: 'deliverable' },
+          { browserId: 'tab_2', status: 'handoff' },
+        ],
+      },
+    });
+    await call('browser_finalize_tabs');
+    expect(desktop.requests.at(-1)?.command).toEqual({
+      command: 'finalize_tabs',
+      args: { keep: [] },
+    });
+
+    const claimed = await call('browser_claim_tab', { browserId: 'tab_3' });
+    expect(claimed.content[0]?.text).toBe(
+      'You now control browser tab tab_3 (http://a.test/mine). The user gets it back as soon as they click or type in it.',
+    );
+
+    const refused = await Promise.all(
+      (
+        [
+          { keep: [{ browserId: 'tab_1', status: 'keep' }] },
+          {
+            keep: [
+              { browserId: 'tab_1', status: 'handoff' },
+              { browserId: 'tab_1', status: 'deliverable' },
+            ],
+          },
+          { keep: 'tab_1' },
+          { keep: [{ status: 'handoff' }] },
+        ] as const
+      ).map(async (args) => {
+        const result = await call('browser_finalize_tabs', args);
+        expect(result.isError, JSON.stringify(args)).toBe(true);
+        return result.content[0]?.text ?? '';
+      }),
+    );
+    expect(refused[0]).toBe(
+      '[browser_invalid_argument] status of tab_1 must be "deliverable" or "handoff" (got "keep").',
+    );
+    expect(refused[1]).toBe('[browser_invalid_argument] keep lists tab_1 twice.');
+    expect(desktop.requests).toHaveLength(3);
+  });
+
+  it('列标签页写出谁开的与收尾的去向；已经归 agent 的接管说明没变', () => {
+    const first = (payload: Parameters<typeof browserToolResult>[0]) =>
+      (browserToolResult(payload).content[0] as { text: string }).text;
+    expect(
+      first({
+        ok: true,
+        result: {
+          command: 'list_tabs',
+          tabs: [
+            {
+              browserId: 'tab_1',
+              url: 'http://a.test/',
+              title: 'A',
+              isActive: true,
+              isLoading: false,
+              controller: 'user',
+              origin: 'agent',
+              disposition: 'handoff',
+            },
+          ],
+        },
+      }),
+    ).toBe(
+      '1 browser tab:\n- browserId=tab_1 active controller=user opened_by=agent left_as=handoff title="A" url=http://a.test/',
+    );
+    expect(
+      first({
+        ok: true,
+        result: {
+          command: 'claim_tab',
+          browserId: 'tab_1',
+          url: 'http://a.test/',
+          title: 'A',
+          previousController: 'agent',
+        },
+      }),
+    ).toBe('Browser tab tab_1 (http://a.test/) is already yours to act on.');
+    expect(first({ ok: true, result: { command: 'finalize_tabs', tabs: [] } })).toBe(
+      'No browser tabs of yours to finish with.',
+    );
+  });
+});
+
 describe('browserToolResult（0.48.0）', () => {
   const text = (payload: Parameters<typeof browserToolResult>[0]) => {
     const first = browserToolResult(payload).content[0];

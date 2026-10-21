@@ -205,6 +205,88 @@ describe('BrowserBroker', () => {
     expect(await pending).toMatchObject({ error: { code: 'browser_timeout' } });
   });
 
+  it('收尾（0.89.0）：几个提供方时按标签页所在的提供方分开 keep，都问到再合起来；关掉的标签页不再记着', async () => {
+    const broker = new BrowserBroker();
+    const finalizeAnswer =
+      (browserId: string) =>
+      (request: BrowserRequest): BrowserResponse =>
+        request.command.command === 'finalize_tabs'
+          ? {
+              requestId: request.requestId,
+              ok: true,
+              result: {
+                command: 'finalize_tabs',
+                tabs: [
+                  ...request.command.args.keep.map((entry) => ({
+                    browserId: entry.browserId,
+                    url: 'http://a.test/',
+                    title: '',
+                    outcome: entry.status,
+                  })),
+                  {
+                    browserId: `${browserId}_tmp`,
+                    url: 'http://a.test/',
+                    title: '',
+                    outcome: 'closed',
+                  },
+                ],
+              },
+            }
+          : tabAnswer(browserId)(request);
+    const first = provider('a', finalizeAnswer('tab_a'));
+    const second = provider('b', finalizeAnswer('tab_b'));
+    first.attach(broker);
+    second.attach(broker);
+    await broker.execute({
+      sessionId: SESSION,
+      cwd: '/work',
+      command: { command: 'list_tabs', args: {} },
+    });
+    const finalize = (keep: Array<{ browserId: string; status: 'deliverable' | 'handoff' }>) =>
+      broker.execute({
+        sessionId: SESSION,
+        cwd: '/work',
+        command: { command: 'finalize_tabs', args: { keep } },
+      });
+
+    const unknown = await finalize([{ browserId: 'tab_x', status: 'handoff' }]);
+    expect(unknown).toMatchObject({ ok: false, error: { code: 'browser_tab_not_found' } });
+    expect(first.requests).toHaveLength(1);
+
+    const payload = await finalize([{ browserId: 'tab_b', status: 'deliverable' }]);
+    expect(first.requests.at(-1)?.command).toEqual({
+      command: 'finalize_tabs',
+      args: { keep: [] },
+    });
+    expect(second.requests.at(-1)?.command).toEqual({
+      command: 'finalize_tabs',
+      args: { keep: [{ browserId: 'tab_b', status: 'deliverable' }] },
+    });
+    expect(
+      payload.ok && payload.result.command === 'finalize_tabs'
+        ? payload.result.tabs.map((tab) => `${tab.browserId}:${tab.outcome}`)
+        : [],
+    ).toEqual(['tab_a_tmp:closed', 'tab_b:deliverable', 'tab_b_tmp:closed']);
+    const closed = await broker.execute({
+      sessionId: SESSION,
+      cwd: '/work',
+      command: { command: 'reload', args: { browserId: 'tab_a_tmp' } },
+    });
+    expect(closed).toMatchObject({ ok: false, error: { code: 'browser_tab_not_found' } });
+  });
+
+  it('收尾：有一个提供方不会时不发', async () => {
+    const broker = new BrowserBroker();
+    provider('new', tabAnswer('tab_1')).attach(broker);
+    broker.register({ id: 'old', commands: ['list_tabs', 'new_tab'], send: () => true });
+    const payload = await broker.execute({
+      sessionId: SESSION,
+      cwd: '/work',
+      command: { command: 'finalize_tabs', args: { keep: [] } },
+    });
+    expect(payload).toMatchObject({ ok: false, error: { code: 'browser_unsupported' } });
+  });
+
   it('提供方没声明的命令不发过去', async () => {
     const broker = new BrowserBroker();
     broker.register({ id: 'old', commands: ['list_tabs', 'new_tab'], send: () => true });
