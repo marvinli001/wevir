@@ -1,4 +1,4 @@
-// 插件市场（0.91.0；0.93.0 改了条目字段并加了读取用的宽松版本）：官方市场仓库 wevir-marketplace 的索引格式，与读取镜像的选择。
+// 插件市场（0.91.0；0.93.0 改了条目字段并加了读取用的宽松版本；0.94.0 加了读条目文件的 market.file）：官方市场仓库 wevir-marketplace 的索引格式，与读取镜像的选择。
 // 本文件只依赖 zod：scripts/plugin-schema.ts 用 Node 直接加载它生成 schemas/wevir-market.schema.json。
 import { z } from 'zod';
 import {
@@ -21,6 +21,9 @@ const repoPath = z
   .max(512)
   .regex(/^(?!\.{1,2}(?:\/|$))[^/\\]+(?:\/(?!\.{1,2}(?:\/|$))[^/\\]+)*$/);
 const localized = z.record(LocaleTagSchema, z.string().min(1).max(128));
+
+/** `market.file` 一次能读的最大文件（0.94.0），同市场仓库单个文件的上限。 */
+export const MARKET_FILE_MAX_BYTES = 1024 * 1024;
 
 /** 条目类型，由 CI 按包内容推导：只有一个 skill 是 `skill`，只有连接器是 `mcp`，其余是 `plugin`。 */
 export const MarketEntryKindSchema = z.enum(['plugin', 'mcp', 'skill']);
@@ -191,6 +194,19 @@ export const MarketMethodSchemas = {
       fetchedAt: z.iso.datetime(),
       /** 这次刷新失败的原因；索引是之前的缓存。 */
       error: z.string().optional(),
+    }),
+    permission: 'host.manage',
+  },
+  /**
+   * 条目目录里的一个文件（0.94.0，Host 功能 `market_files`）：详情页的 README、列表的图标。只认当前索引里这个条目 `files` 列出的
+   * 路径（相对条目目录），按索引的 `commit` 从镜像读，校验大小与 sha256 后按 `<commit>/<path>` 缓存；读不到或校验不符时换镜像。
+   * 条目或文件不在索引里、文件超过 `MARKET_FILE_MAX_BYTES` 时回 INVALID_PARAMS，三家都读不到时回 ENGINE_ERROR。
+   */
+  'market.file': {
+    params: z.object({ entry: PluginIdSchema, path: repoPath }),
+    result: z.object({
+      /** 文件的字节，base64。 */
+      data: z.string(),
     }),
     permission: 'host.manage',
   },

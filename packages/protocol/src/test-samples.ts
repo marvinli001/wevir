@@ -2973,6 +2973,25 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'market.file': {
+    params: {
+      valid: [
+        { entry: 'notes', path: 'README.md' },
+        { entry: 'notes', path: 'assets/icon.svg' },
+      ],
+      invalid: [
+        {},
+        { entry: 'notes' },
+        { entry: 'notes', path: '../keys/market.pub' },
+        { entry: 'notes', path: '/etc/passwd' },
+        { entry: 'Notes!', path: 'README.md' },
+      ],
+    },
+    result: {
+      valid: [{ data: 'IyBOb3Rlcwo=' }, { data: '' }],
+      invalid: [{}, { data: 1 }],
+    },
+  },
   'workspace.list': {
     params: empty,
     result: {

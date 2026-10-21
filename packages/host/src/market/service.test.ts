@@ -1,5 +1,5 @@
-// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存；0.93.0 起读索引时丢掉未知字段。
-import { generateKeyPairSync, sign } from 'node:crypto';
+// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存；0.93.0 起读索引时丢掉未知字段；0.94.0 读条目文件。
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MarketMirror, MarketMirrorPreference, WevirMarketIndex } from '@wevir/protocol';
@@ -215,5 +215,85 @@ describe('MarketService', () => {
     await market.preferenceChanged();
     const state = JSON.parse(readFileSync(join(temp(), 'market', 'state.json'), 'utf8'));
     expect(state.mirror).toBeUndefined();
+  });
+});
+
+describe('MarketService.file（0.94.0）', () => {
+  const temp = useTempDir();
+  const readme = Buffer.from('# Notes\n');
+  const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  const index: WevirMarketIndex = {
+    ...indexOf(1),
+    entries: [
+      {
+        ...(futureEntry as unknown as WevirMarketIndex['entries'][number]),
+        files: [
+          { path: 'README.md', size: readme.length, sha256: sha(readme) },
+          { path: 'big.bin', size: 2 * 1024 * 1024, sha256: 'd'.repeat(64) },
+        ],
+      },
+    ],
+  };
+
+  /** 镜像上的条目文件：`files` 是 `<镜像>` → 内容；索引照常签名。 */
+  function serve(files: Partial<Record<MarketMirror, Buffer>>, dir = 'market') {
+    const base = mirrors({ github: { index }, cnb: { index }, gitee: { index } });
+    const requests: string[] = [];
+    const fake = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.startsWith('/dist/')) return base.options.fetch(input);
+      requests.push(`${url.host}${url.pathname}`);
+      const body = files[url.host as MarketMirror];
+      return body === undefined
+        ? new Response('no', { status: 404 })
+        : new Response(new Uint8Array(body));
+    }) as typeof fetch;
+    const market = new MarketService({
+      dir: join(temp(), dir),
+      preference: () => 'github',
+      ...base.options,
+      fetch: fake,
+    });
+    return { market, requests };
+  }
+
+  it('按索引的提交读条目目录下的文件，校验后缓存，第二次不再请求', async () => {
+    const { market, requests } = serve({ github: readme });
+    const result = await market.file('notes', 'README.md');
+    expect(Buffer.from(result.data, 'base64').toString()).toBe('# Notes\n');
+    expect(requests).toEqual([`github/${'a'.repeat(40)}/plugins/notes/README.md`]);
+    expect(
+      readFileSync(
+        join(temp(), 'market', 'files', 'a'.repeat(40), 'plugins', 'notes', 'README.md'),
+        'utf8',
+      ),
+    ).toBe('# Notes\n');
+    await market.file('notes', 'README.md');
+    expect(requests).toHaveLength(1);
+  });
+
+  it('sha256 不符或读不到时换镜像；都不行回 ENGINE_ERROR', async () => {
+    const tampered = serve({ github: Buffer.from('# Evil!\n'), cnb: readme });
+    const result = await tampered.market.file('notes', 'README.md');
+    expect(Buffer.from(result.data, 'base64').toString()).toBe('# Notes\n');
+    expect(tampered.requests.map((request) => request.split('/')[0])).toEqual(['github', 'cnb']);
+
+    const { market } = serve({ github: Buffer.from('# Evil!\n') }, 'other');
+    const error = await market.file('notes', 'README.md').catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(HostError);
+    expect((error as HostError).code).toBe('ENGINE_ERROR');
+  });
+
+  it('条目或路径不在索引里、文件太大时回 INVALID_PARAMS，不请求镜像', async () => {
+    const { market, requests } = serve({ github: readme });
+    for (const [entry, path] of [
+      ['missing', 'README.md'],
+      ['notes', 'SKILL.md'],
+      ['notes', 'big.bin'],
+    ] as const) {
+      const error = await market.file(entry, path).catch((reason: unknown) => reason);
+      expect((error as HostError).code).toBe('INVALID_PARAMS');
+    }
+    expect(requests).toEqual([]);
   });
 });
