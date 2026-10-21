@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent, GuardrailBlockedEvent } from '@wevir/runtime-adapter';
 import {
-  GUARDRAIL_TOOL_MATCHER,
   guardrailChecker,
   guardrailHooks,
   writeGuardrailChecker,
@@ -35,6 +34,12 @@ const dirs = new TempDirs();
 const adapters: CodexAdapter[] = [];
 let mock: MockModel;
 
+/** 模型建出 ok.txt 的命令：sh 与 PowerShell 都认（PowerShell 里 `touch` 不存在）。 */
+const MAKE_OK = 'echo ok > ok.txt';
+
+/** 结束前检查：ok.txt 在不在。检查程序用 shell 跑它（Windows 是 cmd），`test -f` 在那里没有，用 Node 判断，路径带双引号两边都认。 */
+const CHECK_OK = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync('ok.txt') ? 0 : 1)"`;
+
 /** 结束前检查给 Agent 的理由（hookPrompt）出现了几次。 */
 function stopPrompts(view: MockView): number {
   return JSON.stringify(view.body.input).split('requires the check').length - 1;
@@ -54,13 +59,11 @@ function script(view: MockView) {
   if (prompt.startsWith('fix')) {
     // 第一次直接说做完；被结束前检查拦回来后建出 ok.txt 再说做完。
     if (stopPrompts(view) === 0) return { text: ['finished'] };
-    const ran = JSON.stringify(view.body.input).includes('touch ok.txt');
+    const ran = JSON.stringify(view.body.input).includes(MAKE_OK);
     return ran
       ? { text: ['fixed'] }
       : {
-          toolCalls: [
-            { kind: 'function' as const, name: 'exec_command', args: { cmd: 'touch ok.txt' } },
-          ],
+          toolCalls: [{ kind: 'function' as const, name: 'exec_command', args: { cmd: MAKE_OK } }],
         };
   }
   return { text: [`reply ${stopPrompts(view)}`] };
@@ -147,7 +150,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
       JSON.stringify({
         hooks: {
           PreToolUse: [
-            { matcher: 'Bash', hooks: [{ type: 'command', command: `touch '${marker}'` }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: `echo ran > "${marker}"` }] },
           ],
         },
       }),
@@ -178,51 +181,9 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     expect(JSON.stringify(last)).toContain('Blocked by a Wevir guardrail');
   });
 
-  // TEMPORARY DIAGNOSTIC (remove once the Windows hook failure is understood): a wrapper hook started the way Codex starts
-  // every hook runs the real checker as a child process and records what it did (exit status, stderr, the environment Codex
-  // gave the hook), then passes its output and exit code on. Codex drops the stderr of a hook that exits with anything but 2.
-  it('diagnostic: the checker run from a hook under Codex, with its stderr', async () => {
-    const { root, home, workspace } = setup('diag', [
-      { id: 'grd_rm', rule: { kind: 'forbidden_command', match: 'prefix', pattern: 'rm -rf' } },
-    ]);
-    const checker = guardrailChecker(join(home, 'guardrails'));
-    const logFile = join(root, 'wrapper.json');
-    const wrapper = join(root, 'wrapper.cjs');
-    writeFileSync(
-      wrapper,
-      `const { spawnSync } = require('node:child_process');
-const fs = require('node:fs');
-const [logFile, node, ...rest] = process.argv.slice(2);
-let input = '';
-process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
-  const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
-  const r = spawnSync(node, rest, { input, encoding: 'utf8', env });
-  fs.writeFileSync(logFile, JSON.stringify({ status: r.status, signal: r.signal, error: r.error && r.error.message, stdout: r.stdout, stderr: r.stderr, cwd: process.cwd(), comspec: process.env.ComSpec ?? process.env.COMSPEC, envKeys: Object.keys(process.env).sort(), stdin: input.slice(0, 200) }));
-  if (r.stdout) process.stdout.write(r.stdout);
-  if (r.stderr) process.stderr.write(r.stderr);
-  process.exit(r.status ?? 1);
-});`,
-    );
-    const hook = {
-      event: 'PreToolUse' as const,
-      matcher: GUARDRAIL_TOOL_MATCHER,
-      command: `"${process.execPath}" "${wrapper}" "${logFile}" "${checker.node}" "${checker.script}" "--dir" "${checker.dir}"`,
-      timeoutSec: 60,
-    };
-    mkdirSync(join(workspace, 'build'));
-    const { adapter, engineSessionId, events } = await start(home, workspace, { hooks: [hook] });
-
-    const turn = await runTurn(adapter, engineSessionId, 'forbidden', events);
-
-    const read = (file: string) => (existsSync(file) ? readFileSync(file, 'utf8') : '(missing)');
-    const diag = `command: ${hook.command} | wrapper log: ${read(logFile)} | ${hookRuns(turn, home)}`;
-    expect(blocked(turn).length, diag).toBeGreaterThan(0);
-  });
-
   it('a failing stop check makes the agent continue until the check passes', async () => {
     const { home, workspace, hooks } = setup('stop', [
-      { id: 'grd_ok', rule: { kind: 'stop_check', command: 'test -f ok.txt', timeoutSec: 30 } },
+      { id: 'grd_ok', rule: { kind: 'stop_check', command: CHECK_OK, timeoutSec: 30 } },
     ]);
     const { adapter, engineSessionId, events } = await start(home, workspace, { hooks });
 

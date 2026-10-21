@@ -137,10 +137,7 @@ describe('护栏（SessionManager）', () => {
     expect(config?.hooks).toEqual([
       expect.objectContaining({ event: 'PreToolUse', matcher: 'Bash|apply_patch' }),
     ]);
-    // 命令行的引号：POSIX 用单引号，Windows 的 cmd 用双引号。
-    expect(config?.hooks?.[0]?.command).toContain(
-      process.platform === 'win32' ? '"--workspace" "ws_1"' : "'--workspace' 'ws_1'",
-    );
+    expect(config?.hooks?.[0]?.command).toContain("'--workspace' 'ws_1'");
     expect(config?.disabledHooks).toEqual([
       `${join(env.workspaceDir, '.codex', 'hooks.json')}:pre_tool_use:0:0`,
     ]);

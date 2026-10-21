@@ -822,12 +822,21 @@ export function writeGuardrailChecker(checker: GuardrailChecker): void {
   chmodSync(checker.script, 0o600);
 }
 
-/** 一个参数给 shell：POSIX 用单引号；Windows 的 cmd 用双引号（路径里不会有双引号）。 */
+/**
+ * 一个参数给 shell：POSIX 与 PowerShell 都用单引号。POSIX 的单引号里写 `'\''`；PowerShell 的单引号里 `'` 写两遍（弯引号它
+ * 也当单引号，一并处理）。
+ */
 function quote(value: string, platform: NodeJS.Platform): string {
-  return platform === 'win32' ? `"${value}"` : `'${value.replaceAll("'", `'\\''`)}'`;
+  return platform === 'win32'
+    ? `'${value.replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`
+    : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-/** 让 shell 运行检查程序的整条命令行（Codex 用 `$SHELL -lc` 或 `cmd /C` 跑它）。 */
+/**
+ * 让 shell 运行检查程序的整条命令行。Codex 用会话的 shell 跑 hook（core/src/session/mod.rs 的 build_hooks_config）：POSIX 是
+ * `$SHELL -c`，Windows 是 PowerShell（`-NoProfile -Command`，没装 PowerShell 才退到 cmd）。PowerShell 不认 cmd 的 `set … &&`，
+ * 也不能直接执行一个带引号的路径，要 `&`；`-Command` 只把退出码折成 0 或 1，要保留 2 得 `exit $LASTEXITCODE`。
+ */
 export function guardrailCheckerCommand(
   checker: GuardrailChecker,
   args: readonly string[],
@@ -835,7 +844,7 @@ export function guardrailCheckerCommand(
 ): string {
   const words = [checker.node, checker.script, ...args].map((word) => quote(word, platform));
   return platform === 'win32'
-    ? `set "ELECTRON_RUN_AS_NODE=1" && ${words.join(' ')}`
+    ? `$env:ELECTRON_RUN_AS_NODE='1'; & ${words.join(' ')}; exit $LASTEXITCODE`
     : `ELECTRON_RUN_AS_NODE=1 exec ${words.join(' ')}`;
 }
 

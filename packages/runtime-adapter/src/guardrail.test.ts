@@ -62,15 +62,15 @@ function nodeCommand(name: string, source: string): string {
 }
 
 /**
- * 按 Codex 跑 hook 的方式运行一条命令行（command_runner.rs）：POSIX 是 `/bin/sh -lc <命令>`，Windows 是 `cmd /C "<命令>"`，
- * 整条命令再包一层引号。stdin 给事件的 JSON。
+ * 按 Codex 跑 hook 的方式运行一条命令行（core/src/session/mod.rs 的 build_hooks_config、hooks/src/engine/command_runner.rs）：
+ * 用会话的 shell，POSIX 是 `/bin/sh -c <命令>`，Windows 是 `powershell.exe -NoProfile -Command <命令>`。stdin 给事件的 JSON。
  */
 function runAsCodexHook(command: string, input: unknown) {
   const options = { input: JSON.stringify(input), encoding: 'utf8' as const, windowsHide: true };
   const result =
     process.platform === 'win32'
-      ? spawnSync('cmd.exe', ['/C', `"${command}"`], { ...options, windowsVerbatimArguments: true })
-      : spawnSync('/bin/sh', ['-lc', command], options);
+      ? spawnSync('powershell.exe', ['-NoProfile', '-Command', command], options)
+      : spawnSync('/bin/sh', ['-c', command], options);
   return {
     code: result.status,
     stdout: result.stdout,
@@ -410,7 +410,7 @@ describe('挂哪些 hook', () => {
     expect(guardrailHooks(checker, undefined, [], 'linux')).toEqual([]);
   });
 
-  it('命令行：POSIX 单引号转义，Windows 走 cmd 的 set', () => {
+  it('命令行：POSIX 与 PowerShell 都用单引号转义，Windows 给 PowerShell 的写法', () => {
     // 路径写死 POSIX 形式：guardrailChecker() 用 join 拼 script，在 Windows 上会是反斜杠。
     const quoted: GuardrailChecker = {
       dir: "/tmp/it's here",
@@ -420,9 +420,16 @@ describe('挂哪些 hook', () => {
     expect(guardrailCheckerCommand(quoted, ['--dir', quoted.dir], 'darwin')).toBe(
       `ELECTRON_RUN_AS_NODE=1 exec '/usr/bin/node' '/tmp/it'\\''s here/bin/wevir-guardrail.mjs' '--dir' '/tmp/it'\\''s here'`,
     );
-    const win = guardrailChecker('C:\\Wevir\\guardrails', 'C:\\Wevir\\Wevir.exe');
+    const win: GuardrailChecker = {
+      dir: "C:\\Wevir\\it's here",
+      script: "C:\\Wevir\\it's here\\bin\\wevir-guardrail.mjs",
+      node: 'C:\\Wevir\\Wevir.exe',
+    };
+    expect(guardrailCheckerCommand(win, ['--dir', win.dir], 'win32')).toBe(
+      `$env:ELECTRON_RUN_AS_NODE='1'; & 'C:\\Wevir\\Wevir.exe' 'C:\\Wevir\\it''s here\\bin\\wevir-guardrail.mjs' '--dir' 'C:\\Wevir\\it''s here'; exit $LASTEXITCODE`,
+    );
     expect(repoHookCommand(win, 'echo hi', 'win32')).toMatch(
-      /^set "ELECTRON_RUN_AS_NODE=1" && "C:\\Wevir\\Wevir.exe" ".+wevir-guardrail\.mjs" "--exec" "ZWNobyBoaQ=="$/,
+      /^\$env:ELECTRON_RUN_AS_NODE='1'; & 'C:\\Wevir\\Wevir.exe' '.+wevir-guardrail\.mjs' '--exec' 'ZWNobyBoaQ=='; exit \$LASTEXITCODE$/,
     );
   });
 
