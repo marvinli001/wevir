@@ -211,6 +211,8 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `packages/adapter-codex/src/plugins.ts` | `codex-rs/config/src/{mcp_types,skills_config}.rs`、`app-server-protocol/src/protocol/v2/{plugin,mcp,config}.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 取配置子集生成 TOML / 热更新；禁用 Host 未启用的 skills；MCP 分页状态只投影状态与工具元数据 |
 | `packages/protocol/src/plugins.ts` | `codex-rs/config/src/mcp_types.rs`；0.42.0 起另取 `core-plugins/src/manifest.rs` 的清单字段名 | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | Wevir 判别联合与配置子集；camelCase；密钥写入和脱敏结果分开；`wevir-plugin.json` 沿用 name、version、description、skills（默认 ./skills）与 `./` 路径规则，mcpServers 换成 connectors，另加 schemaVersion、id、icon、inputs |
 | `packages/host/src/plugin-packages.ts` | `codex-rs/core-plugins/src/manifest.rs`、`codex-rs/codex-mcp/src/agent_plugin_config.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 插件 P1a（0.42.0）：Codex / Claude 包导入成 Wevir 插件，清单元数据与 interface（displayName、developerName、websiteURL、logo）映射到 Plugin，`${PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}` 换成 `${pluginDir}`，hooks、commands、agents、apps 等列为已忽略 |
+| `packages/host/src/mcp-oauth/www-authenticate.ts` | `codex-rs/rmcp-client/src/www_authenticate.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 远程 MCP 的 OAuth（0.97.0）：Rust 改为 TS；按 RFC 9110 切分挑战与解引号的规则照原文，不只认 `insufficient_scope`，返回 Bearer 挑战的 `resource_metadata`、`scope`、`error` |
+| `packages/host/src/mcp-oauth/client.ts` | `codex-rs/rmcp-client/src/oauth_callback.rs`（`callback_id_from_server_url`） | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 只有按服务器区分的回调路径段（服务器地址的 SHA-256 前 9 字节，base64url）取自原文；注册、换令牌、刷新、撤销与 PKCE 是 Wevir 按 RFC 7591 / 6749 / 7009 / 7636 写的 |
 
 | Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|

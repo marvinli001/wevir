@@ -24,6 +24,8 @@ const MUTATIONS = ['wevir_plugin_install', 'wevir_skill_install', 'wevir_connect
 type Mutation = (typeof MUTATIONS)[number];
 const AVAILABILITY =
   'Saved globally for all sessions. Codex uses changes on subsequent turns after hot reload, or in the next new session; availability in the current turn is not guaranteed. Other engines need MCP/skills support to use them.';
+const OAUTH_REQUIRED =
+  'This MCP server requires OAuth sign-in. Ask the user to sign in on the Plugins page; its tools are unavailable until then.';
 const MASK = '[REDACTED]';
 const CREDENTIAL = /(?:token|secret|password|passwd|api[-_]?key|authorization|credential)/i;
 
@@ -91,7 +93,7 @@ export class PluginAppTools {
               ? "Install a Wevir, Claude or Codex plugin folder or ZIP from this session's folder. To create a plugin, write wevir-plugin.json and its contents there first. Supply declared inputs; if required inputs are missing, ask the user for the listed keys and retry. Does not replace an installed plugin. "
               : name === 'wevir_skill_install'
                 ? "Install a skill folder, SKILL.md or ZIP from this session's folder. Write or download it there first. Uses Codex SKILL.md frontmatter (name, description); paths may be relative to cwd or absolute, but must stay inside the session folder. "
-                : 'Add a global MCP server. Fields follow McpServerConfig: stdio command/args/env/cwd or Streamable HTTP url/headers; optional enabled and toolTimeoutSec. Credentials belong in env or headers. ') +
+                : 'Add a global MCP server. Fields follow McpServerConfig: stdio command/args/env/cwd or Streamable HTTP url/headers; optional enabled and toolTimeoutSec. Credentials belong in env or headers; remote servers that use OAuth need no headers, the user signs in on the Plugins page. ') +
             "Requires the user's approval of the actual contents before changing configuration. " +
             AVAILABILITY,
           inputSchema: mutationSchema(name),
@@ -226,9 +228,18 @@ export class PluginAppTools {
           'Invalid MCP server name or McpServerConfig. Use stdio command/args/env/cwd or http url/headers.',
         );
       prepared.summary = { name: parsed.data.name, ...safeConnector(parsed.data.config) };
-      prepared.run = async (signal) => ({
-        connector: await registry.add(parsed.data.name, parsed.data.config, undefined, signal),
-      });
+      prepared.run = async (signal) => {
+        const connector = await registry.add(
+          parsed.data.name,
+          parsed.data.config,
+          undefined,
+          signal,
+        );
+        // 0.97.0：要 OAuth 登录的服务登录前不交给引擎；这次不给 agent 发起登录的工具。
+        return connector.oauth?.status === 'required'
+          ? { connector, next: OAUTH_REQUIRED }
+          : { connector };
+      };
       return;
     }
     const parsed = PluginMethodSchemas['plugin.install'].params.safeParse(args);
@@ -429,11 +440,15 @@ function mutationSchema(name: Mutation): Record<string, unknown> {
 }
 
 function secretValues(args: Record<string, unknown>): string[] {
-  return ['env', 'headers', 'inputs'].flatMap((key) =>
-    Object.values(record(args[key])).filter(
-      (value): value is string => typeof value === 'string' && value !== '',
+  const clientSecret = record(args.oauth).clientSecret;
+  return [
+    ...['env', 'headers', 'inputs'].flatMap((key) =>
+      Object.values(record(args[key])).filter(
+        (value): value is string => typeof value === 'string' && value !== '',
+      ),
     ),
-  );
+    ...(typeof clientSecret === 'string' && clientSecret !== '' ? [clientSecret] : []),
+  ];
 }
 
 function redactText(text: string, secrets: string[]): string {
@@ -471,6 +486,8 @@ function safeConnector(
       result[key] = Object.fromEntries(Object.keys(record(config[key])).map((key) => [key, true]));
   for (const key of ['command', 'url', 'cwd'])
     if (typeof result[key] === 'string') result[key] = redactText(result[key], secrets);
+  if (config.oauth && 'clientSecret' in record(config.oauth))
+    result.oauth = { ...record(config.oauth), clientSecret: true };
   if (Array.isArray(config.args))
     result.args = config.args.map((value, index, args) =>
       typeof value === 'string'

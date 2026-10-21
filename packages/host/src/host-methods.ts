@@ -51,6 +51,7 @@ import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import type { LspStatusService } from './lsp/service.js';
 import type { MarketService } from './market/service.js';
+import type { McpOAuthService } from './mcp-oauth/service.js';
 import {
   MemoryError,
   type MemoryNote,
@@ -118,6 +119,8 @@ export type HostMethods = { [M in HostMethodName]: MethodHandler<M> };
 
 export interface HostMethodsOptions {
   plugins?: PluginRegistry;
+  /** 远程 MCP 服务的 OAuth 登录（0.97.0）。 */
+  mcpOAuth?: McpOAuthService;
   storage: Storage;
   events: EventStore;
   sessions: SessionManager;
@@ -235,6 +238,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (!options.plugins)
       throw new HostError('INVALID_PARAMS', 'This Host has no plugin registry', { issues: [] });
     return options.plugins;
+  };
+  const mcpOAuth = (): McpOAuthService => {
+    if (!options.mcpOAuth)
+      throw new HostError('INVALID_PARAMS', 'This Host has no MCP OAuth support', { issues: [] });
+    return options.mcpOAuth;
   };
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
@@ -506,6 +514,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'connector.setEnabled': async ({ id, enabled }) => ({
       connector: await plugins().update(id, { enabled }),
     }),
+    // 0.97.0：远程 MCP 服务的 OAuth 登录。
+    'connector.login': ({ scopes, ...ref }) => mcpOAuth().login(ref, scopes),
+    'connector.loginCancel': async ({ loginId }) => {
+      mcpOAuth().cancel(loginId);
+      return {};
+    },
+    'connector.logout': async (ref) => {
+      await mcpOAuth().logout(ref);
+      return {};
+    },
     'skill.install': ({ path }) => plugins().install(path),
     // 0.74.0：从 Claude Code、Codex、Grok Build、Antigravity 导入。
     'import.scan': ({ app }) => importer().scan(app),
