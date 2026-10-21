@@ -80,6 +80,8 @@ interface Registry {
   skills: Skill[];
   enabled: Record<string, boolean>;
   plugins: StoredPlugin[];
+  /** 内置 skills 的开关（0.96.0），按名字存：安装包换了位置路径就变。没有的是开着的。 */
+  builtin?: Record<string, boolean>;
 }
 
 const engineName = (plugin: { id: string }, name: string) => `${plugin.id}_${name}`;
@@ -100,6 +102,7 @@ export class PluginRegistry {
     return this.#packagesRoot;
   }
   readonly #roots: () => string[];
+  readonly #builtinRoot: string | undefined;
   readonly #userHome: string;
   readonly #adapter: AgentRuntimeAdapter;
   readonly #warning: (message: string) => void;
@@ -111,6 +114,8 @@ export class PluginRegistry {
     home: string;
     roots: () => string[];
     adapter: AgentRuntimeAdapter;
+    /** 随 Wevir 分发的 skills 所在目录（0.96.0，`prompts/skills/`）；省略时没有内置 skills。 */
+    builtinSkillsRoot?: string;
     userHome?: string;
     onWarning?: (message: string) => void;
   }) {
@@ -118,6 +123,7 @@ export class PluginRegistry {
     this.#skillsRoot = join(this.dir, 'skills');
     this.#packagesRoot = join(this.dir, 'packages');
     this.#roots = options.roots;
+    this.#builtinRoot = options.builtinSkillsRoot;
     this.#adapter = options.adapter;
     this.#userHome = options.userHome ?? homedir();
     this.#warning = options.onWarning ?? (() => {});
@@ -147,9 +153,16 @@ export class PluginRegistry {
       )
         throw new Error('Invalid managed skill path');
       const enabled = record(raw.enabled);
-      if (Object.values(enabled).some((value) => typeof value !== 'boolean'))
+      const builtin = record(raw.builtin);
+      if ([enabled, builtin].some((map) => Object.values(map).some((v) => typeof v !== 'boolean')))
         throw new Error('Invalid skill enablement');
-      this.#state = { connectors, skills, enabled: enabled as Record<string, boolean>, plugins };
+      this.#state = {
+        connectors,
+        skills,
+        enabled: enabled as Record<string, boolean>,
+        plugins,
+        ...(Object.keys(builtin).length > 0 && { builtin: builtin as Record<string, boolean> }),
+      };
       await chmod(join(this.dir, 'registry.json'), 0o600);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
@@ -176,6 +189,20 @@ export class PluginRegistry {
         { ...skill },
       ]),
     );
+    // 内置的让给同名的已装 skill（升级前用户自己装过同名的），外部的同名项照旧列出、默认关着。
+    if (this.#builtinRoot !== undefined) {
+      const names = new Set([...items.values()].map((skill) => skill.name));
+      for (const skill of await scanSkills(this.#builtinRoot, 'wevir')) {
+        if (names.has(skill.name) || items.has(skill.path)) continue;
+        names.add(skill.name);
+        items.set(skill.path, {
+          ...skill,
+          id: `builtin_${skill.name}`,
+          enabled: state.builtin?.[skill.name] !== false,
+          builtin: true,
+        });
+      }
+    }
     const roots = new Map<string, Skill['source']>([
       [join(this.#userHome, '.agents', 'skills'), 'user'],
     ]);
@@ -726,6 +753,7 @@ export class PluginRegistry {
         next.skills.find((item) => item.id === id) ??
         next.plugins.flatMap((plugin) => plugin.skills).find((item) => item.id === id);
       if (managed) managed.enabled = enabled;
+      else if (skill.builtin) next.builtin = { ...next.builtin, [skill.name]: enabled };
       else next.enabled[skill.path] = enabled;
       return { ...skill, enabled };
     });
@@ -738,6 +766,8 @@ export class PluginRegistry {
         if (plugin)
           throw invalid(`Skill belongs to plugin "${plugin.id}"; remove the plugin instead`);
         const skill = next.skills.find((item) => item.id === id);
+        if (!skill && id.startsWith('builtin_'))
+          throw invalid('Built-in skills cannot be removed; turn them off instead');
         if (!skill) throw invalid('Only Wevir-installed skills can be removed');
         const folder = dirname(skill.path);
         const trash = join(this.dir, `.removed-${randomUUID()}`);

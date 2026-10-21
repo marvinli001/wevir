@@ -149,7 +149,7 @@ export interface StartHostOptions {
   /** 默认 `SHUTDOWN_BUDGET_MS`。 */
   shutdownBudgetMs?: number;
   /**
-   * Wevir 提示词目录（会话标题用 `thread-title.md`），默认仓库的 `prompts/`。wevir-host 传 adapter-codex 的
+   * Wevir 提示词目录（会话标题用 `thread-title.md`，内置 skills 在 `skills/`），默认仓库的 `prompts/`。wevir-host 传 adapter-codex 的
    * `resolvePromptsDir`（安装包里是资源目录的 `prompts/`）。
    */
   promptsDir?: string;
@@ -296,6 +296,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(options.pluginUserHome !== undefined && { userHome: options.pluginUserHome }),
       roots: () => sessionsDb.workspaces.list().map((workspace) => workspace.rootPath),
       adapter,
+      builtinSkillsRoot: join(options.promptsDir ?? defaultPromptsDir(), 'skills'),
       onWarning: (message) => logger.warn(message),
     });
     await plugins.load();

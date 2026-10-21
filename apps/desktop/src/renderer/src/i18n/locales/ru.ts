@@ -1866,6 +1866,7 @@ export const messages: Messages = {
   'plugins.skill.group.project': 'Проект',
   'plugins.skill.enabled': 'Включить {name}',
   'plugins.skill.path': 'Путь',
+  'plugins.skill.builtin': 'Встроенный',
   'plugins.skill.previewFailed': 'Не удалось прочитать SKILL.md: {error}',
   'plugins.skill.delete': 'Удалить',
   'plugins.skill.delete.title': 'Удалить skill «{name}»?',

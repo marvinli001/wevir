@@ -1833,6 +1833,7 @@ export const messages: Messages = {
   'plugins.skill.group.project': 'プロジェクト',
   'plugins.skill.enabled': '{name} を有効にする',
   'plugins.skill.path': 'パス',
+  'plugins.skill.builtin': '組み込み',
   'plugins.skill.previewFailed': 'SKILL.md を読み込めません: {error}',
   'plugins.skill.delete': '削除',
   'plugins.skill.delete.title': 'Skill「{name}」を削除しますか？',

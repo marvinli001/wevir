@@ -2,7 +2,7 @@
 
 这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位；0.96.0 起 `skills/` 下是随 Wevir 分发的内置 skills。
 
 ## 文件
 
@@ -29,6 +29,7 @@
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
 | [`plugins/shared/browser-operation.md`](plugins/shared/browser-operation.md) | 两个浏览器插件共用的操作要领与安全规则 | 被引入 | 可用 |
 | [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则 | 被引入 | 可用 |
+| [`skills/skill-creator/`](skills/skill-creator/SKILL.md) | 内置 skill：创建、测试与改进 skills（移植自 anthropics/skills，Apache-2.0，见 `NOTICE` 第 14 节） | Host（0.96.0，`packages/host/src/plugins.ts`）：`prompts/skills/` 下每个文件夹是一个内置 skill，`plugins.list` 里 `source: wevir`、`builtin: true`，默认启用、可以关、不能删；和别的 skills 一样交给引擎（Codex）。文件原样给模型读，不走下面的模板语法；脚本由 agent 用 `python3 -B` 按路径运行，输出不写进这个目录 | 已接入（Codex 引擎） |
 
 ## 用在哪些模型上
 

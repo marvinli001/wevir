@@ -15,6 +15,7 @@ import { createLogger } from './logger.js';
 import { parseSkill, scanSkills } from './plugin-skills.js';
 import { PluginRegistry } from './plugins.js';
 import { TestRpcClient, useTempDir, zip } from './test-utils.js';
+import { defaultPromptsDir } from './title.js';
 
 const temp = useTempDir();
 const running: RunningHost[] = [];
@@ -42,6 +43,16 @@ async function registry() {
 }
 
 describe('Codex skill metadata and discovery', () => {
+  it('仓库里的内置 skills 都能解析，每个文件夹一个 SKILL.md', async () => {
+    const root = join(defaultPromptsDir(), 'skills');
+    const skills = await scanSkills(root, 'wevir', true);
+    expect(skills.map((item) => item.name)).toEqual(['skill-creator']);
+    for (const item of skills) {
+      expect(item.description.length).toBeLessThanOrEqual(1024);
+      expect(item.shortDescription).toBeTruthy();
+    }
+  });
+
   it('YAML、标量修复、折行与 short-description，长度按 Unicode 字符计', () => {
     expect(
       parseSkill(
@@ -75,6 +86,79 @@ describe('Codex skill metadata and discovery', () => {
 });
 
 describe('Host plugin registry', () => {
+  it('内置 skills：默认启用、按名字记开关（安装包换位置后仍在）、不能删除、不让同名安装', async () => {
+    const home = join(temp(), 'home');
+    const builtinSkillsRoot = join(temp(), 'app-1', 'skills');
+    skill(builtinSkillsRoot, 'builtin-one');
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const open = async (root: string) => {
+      const store = new PluginRegistry({
+        home,
+        userHome: join(temp(), 'user'),
+        roots: () => [],
+        adapter,
+        builtinSkillsRoot: root,
+      });
+      await store.load();
+      return store;
+    };
+    const store = await open(builtinSkillsRoot);
+    const [listed] = (await store.list()).skills;
+    expect(listed).toMatchObject({
+      id: 'builtin_builtin-one',
+      name: 'builtin-one',
+      source: 'wevir',
+      enabled: true,
+      builtin: true,
+      shortDescription: 'Short description',
+    });
+    expect((await store.engineConfig()).skills).toEqual([
+      { name: 'builtin-one', path: listed?.path, enabled: true },
+    ]);
+    await expect(store.removeSkill('builtin_builtin-one')).rejects.toThrow('turn them off');
+    await expect(store.install(skill(join(temp(), 'sources'), 'builtin-one'))).rejects.toThrow(
+      'already exists',
+    );
+    await store.setSkillEnabled('builtin_builtin-one', false);
+    expect((await store.engineConfig()).skills).toEqual([
+      expect.objectContaining({ name: 'builtin-one', enabled: false }),
+    ]);
+    // 升级后安装包在别处：同名的内置 skill 仍是关着的。
+    const moved = join(temp(), 'app-2', 'skills');
+    skill(moved, 'builtin-one');
+    const reboot = await open(moved);
+    expect((await reboot.list()).skills).toEqual([
+      expect.objectContaining({ id: 'builtin_builtin-one', enabled: false, builtin: true }),
+    ]);
+    await reboot.setSkillEnabled('builtin_builtin-one', true);
+    expect((await reboot.enabledSkills()).map((item) => item.name)).toEqual(['builtin-one']);
+  });
+
+  it('已装的同名 skill 优先，内置的不再列出', async () => {
+    const home = join(temp(), 'home');
+    const userHome = join(temp(), 'user');
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const plain = new PluginRegistry({ home, userHome, roots: () => [], adapter });
+    await plain.load();
+    await plain.install(skill(join(temp(), 'sources'), 'shared-name'));
+    const builtinSkillsRoot = join(temp(), 'app', 'skills');
+    skill(builtinSkillsRoot, 'shared-name');
+    skill(builtinSkillsRoot, 'other-builtin');
+    const store = new PluginRegistry({
+      home,
+      userHome,
+      roots: () => [],
+      adapter,
+      builtinSkillsRoot,
+    });
+    await store.load();
+    const skills = (await store.list()).skills;
+    expect(skills.map((item) => [item.name, item.builtin === true])).toEqual([
+      ['shared-name', false],
+      ['other-builtin', true],
+    ]);
+  });
+
   it.skipIf(process.platform === 'win32')(
     '数据目录经符号链接访问时，托管路径仍规范化且可重启读取；支持最长 Unicode 名字',
     async () => {

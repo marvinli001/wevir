@@ -170,6 +170,8 @@ describe.skipIf(!binary || process.platform === 'win32')(
         ).toBe(true);
         const context = () => JSON.stringify(model.requests.at(-1)?.body.input ?? []);
         expect(context()).toContain('managed-canary');
+        // 随 Wevir 分发的 skill（prompts/skills/）默认启用，同样进上下文。
+        expect(context()).toContain('skill-creator');
         expect(context()).not.toContain('external-canary');
         expect(context()).not.toContain('project-canary');
         const codexSkills = await engine.process.request<{
@@ -178,6 +180,7 @@ describe.skipIf(!binary || process.platform === 'win32')(
         expect(codexSkills.data.flatMap((item) => item.skills)).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ name: 'managed-canary', enabled: true }),
+            expect.objectContaining({ name: 'skill-creator', enabled: true }),
             expect.objectContaining({ name: 'external-canary', enabled: false }),
             expect.objectContaining({ name: 'project-canary', enabled: false }),
           ]),

@@ -2273,6 +2273,15 @@ const skill = {
   enabled: true,
 };
 const pluginList = { connectors: [connector], skills: [skill] };
+const builtinSkill = {
+  id: 'builtin_skill-creator',
+  name: 'skill-creator',
+  description: 'Create and improve skills',
+  source: 'wevir' as const,
+  path: '/Applications/Wevir.app/Contents/Resources/prompts/skills/skill-creator/SKILL.md',
+  enabled: true,
+  builtin: true as const,
+};
 const plugin = {
   id: 'sample-plugin',
   name: 'Sample plugin',
@@ -2571,9 +2580,15 @@ export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
     result: {
-      valid: [pluginList, pluginList042, pluginList071],
+      valid: [
+        pluginList,
+        pluginList042,
+        pluginList071,
+        { ...pluginList, skills: [skill, builtinSkill] },
+      ],
       invalid: [
         { connectors: [] },
+        { ...pluginList, skills: [{ ...builtinSkill, builtin: false }] },
         { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] },
         { ...pluginList071, connectors: [{ ...importedConnector, workspaceId: 'project-1' }] },
         {
