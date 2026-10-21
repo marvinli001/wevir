@@ -68,6 +68,7 @@ import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import type { TerminalService } from './terminals.js';
+import type { TuningService } from './tuning/service.js';
 import type { PricingStore } from './usage/pricing.js';
 import type { UsageService } from './usage/usage-service.js';
 import type { VerificationService } from './verification/service.js';
@@ -174,6 +175,8 @@ export interface HostMethodsOptions {
   search?: SessionSearch;
   /** 审批规则（0.80.0，`approvalRule.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   approvalRules?: ApprovalRuleService;
+  /** 调优的档案（0.85.0，`tuning.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  tuning?: TuningService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -292,6 +295,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (options.approvalRules === undefined)
       throw invalidParams([], 'this host has no approval rules');
     return options.approvalRules;
+  };
+  const tuning = (): TuningService => {
+    if (options.tuning === undefined) throw invalidParams([], 'this host has no tuning profile');
+    return options.tuning;
   };
   const search = (): SessionSearch => {
     if (options.search === undefined) throw invalidParams([], 'this host has no session search');
@@ -1406,6 +1413,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
       return { suggestions: approvalRules().suggest(workspaceId) };
     },
+
+    // 0.85.0：调优的档案。
+    'tuning.get': (params) => tuning().get(params),
+    'tuning.versions': (params) => tuning().versions(params),
+    'tuning.version': (params) => tuning().version(params),
+    'tuning.diff': (params) => tuning().diff(params),
+    'tuning.blob': (params) => tuning().blob(params),
   };
 }
 

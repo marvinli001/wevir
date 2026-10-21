@@ -49,6 +49,13 @@ import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
 import type { Terminal } from './terminals.js';
 import type {
+  Profile,
+  ProfileItem,
+  ProfileLayer,
+  ProfileVersionRef,
+  ProfileVersionSummary,
+} from './tuning.js';
+import type {
   CheckDefinition,
   RepairChain,
   SessionAcceptance,
@@ -106,6 +113,9 @@ export const ids = {
   insight: `isg_${ULID}`,
   /** 审批规则（0.80.0）。 */
   approvalRule: `arl_${ULID}`,
+  /** 档案版本（0.85.0）。 */
+  profileVersion: `pfv_${ULID}`,
+  profileVersion2: 'pfv_01JA2B3C4D5E6F7G8H9JKMNPR2',
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -1280,6 +1290,58 @@ export const approvalRule: ApprovalRule = {
   lastUsedAt: TS2,
 };
 
+const HASH_A = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+const HASH_B = '9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f';
+const HASH_C = '3f9a2c1e00000000000000000000000000000000000000000000000000000001';
+
+/** 档案的条目（0.85.0）：项目里的 AGENTS.md。 */
+export const profileItem: ProfileItem = {
+  id: '/Users/me/projects/wevir/AGENTS.md',
+  label: 'AGENTS.md',
+  scope: 'project',
+  hash: HASH_A,
+  text: true,
+  path: '/Users/me/projects/wevir/AGENTS.md',
+};
+
+export const profileLayer: ProfileLayer = { key: 'rules', hash: HASH_B, items: [profileItem] };
+
+/** 一份档案：规则文件一条，连接器一条（只有键名，没有文本），其余层空。 */
+export const profile: Profile = {
+  fingerprint: HASH_C,
+  wevirVersion: '0.1.0-beta.240',
+  layers: [
+    profileLayer,
+    {
+      key: 'connectors',
+      hash: HASH_A,
+      items: [
+        {
+          id: 'github',
+          label: 'github',
+          scope: 'global',
+          hash: HASH_B,
+          detail: 'npx -y github-mcp',
+        },
+      ],
+    },
+  ],
+};
+
+export const profileVersionRef: ProfileVersionRef = {
+  id: ids.profileVersion,
+  seq: 7,
+  fingerprint: HASH_C,
+};
+
+export const profileVersionSummary: ProfileVersionSummary = {
+  ...profileVersionRef,
+  workspaceId: ids.workspace,
+  createdAt: TS,
+  sessions: 14,
+  changes: [{ key: 'rules', added: 0, removed: 0, modified: 1 }],
+};
+
 /** Host 按规则替用户允许（0.80.0）。 */
 export const ruleResolution: ApprovalResolution = {
   optionId: 'allow-once',
@@ -1558,6 +1620,8 @@ export const eventPayloads: PayloadSamples = {
       bytes: 2048,
       // 0.78.0：用户的说明与输出风格。
       custom: { instructions: true, outputStyle: 'concise', bytes: 1024 },
+      // 0.85.0：档案版本。
+      profileVersion: profileVersionRef,
     },
     invalid: {
       ...sessionRules,
@@ -5837,6 +5901,117 @@ export const methodSamples: MethodSamples = {
       invalid: [{ suggestions: [{ prefix: ['pnpm'], workspaceId: ids.workspace, count: 0 }] }],
     },
   },
+  'tuning.get': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [
+        {
+          profile,
+          latest: profileVersionSummary,
+          pending: true,
+          pendingLayers: ['rules', 'memory'],
+        },
+        { profile: { fingerprint: HASH_A, layers: [] }, pending: false, pendingLayers: [] },
+      ],
+      invalid: [{ profile: { ...profile, fingerprint: 'abc' }, pending: false, pendingLayers: [] }],
+    },
+  },
+  'tuning.versions': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace, cursor: '7', limit: 20 }],
+      invalid: [{ limit: 0 }],
+    },
+    result: {
+      valid: [
+        {
+          versions: [
+            profileVersionSummary,
+            { ...profileVersionSummary, id: ids.profileVersion2, seq: 1, changes: undefined },
+          ],
+          nextCursor: '1',
+        },
+        { versions: [] },
+      ],
+      invalid: [{ versions: [{ ...profileVersionSummary, seq: 0 }] }],
+    },
+  },
+  'tuning.version': {
+    params: {
+      valid: [{ versionId: ids.profileVersion }],
+      invalid: [{ versionId: ids.approvalRule }],
+    },
+    result: {
+      valid: [
+        {
+          version: { ...profileVersionSummary, layers: profile.layers, wevirVersion: '0.1.0' },
+          sessionIds: [ids.session],
+        },
+      ],
+      invalid: [{ version: profileVersionSummary, sessionIds: [] }],
+    },
+  },
+  'tuning.diff': {
+    params: {
+      valid: [
+        { from: ids.profileVersion2, to: ids.profileVersion },
+        { from: ids.profileVersion, to: 'current' },
+      ],
+      invalid: [{ from: ids.profileVersion, to: 'latest' }],
+    },
+    result: {
+      valid: [
+        {
+          from: { ...profileVersionRef, id: ids.profileVersion2, seq: 6, fingerprint: HASH_A },
+          to: profileVersionRef,
+          layers: [
+            {
+              key: 'rules',
+              items: [
+                {
+                  id: profileItem.id,
+                  label: profileItem.label,
+                  scope: 'project',
+                  change: 'modified',
+                  before: { ...profileItem, hash: HASH_B },
+                  after: profileItem,
+                },
+              ],
+            },
+            {
+              key: 'memory',
+              items: [
+                {
+                  id: 'project/test-before-build',
+                  label: 'test-before-build',
+                  scope: 'project',
+                  change: 'added',
+                  after: {
+                    id: 'project/test-before-build',
+                    label: 'test-before-build',
+                    scope: 'project',
+                    hash: HASH_C,
+                    text: true,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        { from: profileVersionRef, to: { fingerprint: HASH_C }, layers: [] },
+      ],
+      invalid: [
+        {
+          from: profileVersionRef,
+          to: profileVersionRef,
+          layers: [{ key: 'rules', items: [{ ...profileItem, change: 'renamed' }] }],
+        },
+      ],
+    },
+  },
+  'tuning.blob': {
+    params: { valid: [{ hash: HASH_A }], invalid: [{ hash: 'ABC' }] },
+    result: { valid: [{ text: '# AGENTS.md\n' }, {}], invalid: [{ text: 1 }] },
+  },
   'browser.register': {
     params: {
       valid: [
@@ -6257,6 +6432,10 @@ export const notificationSamples: NotificationSamples = {
   'preview.changed': {
     valid: [{ workspaceId: ids.workspace, configs: [previewConfig] }],
     invalid: [{ workspaceId: ids.workspace }],
+  },
+  'tuning.changed': {
+    valid: [{}, { workspaceId: ids.workspace }],
+    invalid: [{ workspaceId: 'x' }],
   },
   'readiness.changed': {
     valid: [

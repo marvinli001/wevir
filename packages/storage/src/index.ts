@@ -22,6 +22,7 @@ export {
 export * from './environments.js';
 export * from './events.js';
 export * from './migrate.js';
+export * from './profile-versions.js';
 export * from './providers.js';
 export * from './retros.js';
 export * from './review-comments.js';

@@ -212,6 +212,19 @@ import {
   TerminalResizeResultSchema,
 } from './terminals.js';
 import {
+  TuningBlobParamsSchema,
+  TuningBlobResultSchema,
+  TuningChangedParamsSchema,
+  TuningDiffParamsSchema,
+  TuningDiffResultSchema,
+  TuningGetParamsSchema,
+  TuningGetResultSchema,
+  TuningVersionParamsSchema,
+  TuningVersionResultSchema,
+  TuningVersionsParamsSchema,
+  TuningVersionsResultSchema,
+} from './tuning.js';
+import {
   UsageChangedParamsSchema,
   UsagePricingParamsSchema,
   UsagePricingResultSchema,
@@ -2384,6 +2397,32 @@ export const MethodSchemas = {
     result: ApprovalRuleSuggestResultSchema,
     permission: 'session.read',
   },
+  /** 调优的档案（0.85.0）。 */
+  'tuning.get': {
+    params: TuningGetParamsSchema,
+    result: TuningGetResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.versions': {
+    params: TuningVersionsParamsSchema,
+    result: TuningVersionsResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.version': {
+    params: TuningVersionParamsSchema,
+    result: TuningVersionResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.diff': {
+    params: TuningDiffParamsSchema,
+    result: TuningDiffResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.blob': {
+    params: TuningBlobParamsSchema,
+    result: TuningBlobResultSchema,
+    permission: 'session.read',
+  },
 
   'browser.register': {
     params: BrowserRegisterParamsSchema,
@@ -2443,6 +2482,8 @@ export const NotificationSchemas = {
   'readiness.changed': { params: ReadinessChangedParamsSchema },
   /** 发给调用过 `preview.*` 的连接（0.84.0）。 */
   'preview.changed': { params: PreviewChangedParamsSchema },
+  /** 发给调用过 `tuning.*` 的连接（0.85.0）。 */
+  'tuning.changed': { params: TuningChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

@@ -28,6 +28,7 @@ import {
   SettingsUpdatedParamsSchema,
   TerminalChangedParamsSchema,
   TerminalOutputParamsSchema,
+  TuningChangedParamsSchema,
   WevirEventEnvelopeSchema,
   type WorkspaceId,
 } from '@wevir/protocol';
@@ -43,6 +44,8 @@ export type ProcessChange = NotificationParams<'process.changed'>;
 export type ReadinessChange = NotificationParams<'readiness.changed'>;
 /** `preview.changed` 的内容（0.84.0）。 */
 export type PreviewChange = NotificationParams<'preview.changed'>;
+/** `tuning.changed` 的内容（0.85.0）。 */
+export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `terminal.changed` 与 `terminal.output` 的内容（0.69.0）。 */
 export type TerminalChange = NotificationParams<'terminal.changed'>;
 export type TerminalOutput = NotificationParams<'terminal.output'>;
@@ -279,6 +282,7 @@ export class WevirClient {
   readonly #processListeners = new Set<(change: ProcessChange | undefined) => void>();
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
+  readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #lspListeners = new Set<(change: LspChange | undefined) => void>();
   readonly #terminalListeners = new Set<(change: TerminalChange | undefined) => void>();
   readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
@@ -567,6 +571,25 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a preview listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 调优的档案可能变了（0.85.0，`tuning.changed`）：开了新版本，或记忆、设置、审批规则、插件改了。只有调过 `tuning.*` 的连接收得到。
+   * 重连上之后以 `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
+   */
+  onTuningChanged(listener: (change: TuningChange | undefined) => void): () => void {
+    this.#tuningListeners.add(listener);
+    return () => this.#tuningListeners.delete(listener);
+  }
+
+  #tuningChanged(change: TuningChange | undefined): void {
+    for (const listener of [...this.#tuningListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a tuning listener threw', { error });
       }
     }
   }
@@ -931,6 +954,7 @@ export class WevirClient {
         if (this.supports('process_output')) this.#processesChanged(undefined);
         if (this.supports('workspace_readiness')) this.#readinessChanged(undefined);
         if (this.supports('dev_preview')) this.#previewChanged(undefined);
+        if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('lsp_status')) this.#lspChanged(undefined);
         if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
@@ -1188,6 +1212,15 @@ export class WevirClient {
         return;
       }
       this.#automationsChanged(parsed.data);
+      return;
+    }
+    if (method === 'tuning.changed') {
+      const parsed = TuningChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed tuning.changed notification');
+        return;
+      }
+      this.#tuningChanged(parsed.data);
       return;
     }
     if (method === 'preview.changed') {

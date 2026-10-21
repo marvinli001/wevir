@@ -267,6 +267,28 @@ export class PluginRegistry {
     return this.#skills(undefined, this.#state);
   }
 
+  /** 交给引擎的 skills（0.85.0 调优的档案）：启用的，所属插件停用时不算；不问引擎状态。 */
+  async enabledSkills(): Promise<Skill[]> {
+    const state = this.#state;
+    const off = new Set<string>();
+    for (const plugin of state.plugins) {
+      for (const skill of plugin.skills) if (!plugin.enabled || !skill.enabled) off.add(skill.path);
+    }
+    return (await this.#skills(undefined, state)).filter(
+      (skill) => skill.enabled && !off.has(skill.path),
+    );
+  }
+
+  /** 插件的名字、版本与开关（0.85.0 调优的档案），不读图标、不含输入项。 */
+  pluginVersions(): { id: string; name: string; version: string; enabled: boolean }[] {
+    return this.#state.plugins.map(({ id, name, version, enabled }) => ({
+      id,
+      name,
+      version,
+      enabled,
+    }));
+  }
+
   /** 全部连接器的视图（散装的与插件里的），不问引擎状态（0.74.0 导入比对用）。 */
   connectors(): Connector[] {
     const state = this.#state;

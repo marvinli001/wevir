@@ -24,6 +24,7 @@ import {
 } from './common.js';
 import { GitObjectIdSchema } from './git.js';
 import { ImportedFromSchema } from './plugins.js';
+import { ProfileVersionRefSchema } from './tuning.js';
 import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
 
 // 领域实体的线缆形状，字段含义见 docs/architecture/domain-model.md §3。
@@ -1328,6 +1329,8 @@ export const SessionRulesSchema = z.object({
   budgetBytes: z.int().min(1).optional(),
   /** 用户的说明与输出风格（0.78.0）；都没有时省略。 */
   custom: SessionCustomInstructionsSchema.optional(),
+  /** 写这份规则时会话所在范围的档案版本（0.85.0，Host 功能 `tuning`）；Host 没记档案时省略。 */
+  profileVersion: ProfileVersionRefSchema.optional(),
 });
 export type SessionRules = z.infer<typeof SessionRulesSchema>;
 

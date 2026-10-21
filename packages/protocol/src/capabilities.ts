@@ -384,6 +384,11 @@ export const HOST_FEATURES = {
    * 后台进程。有后台进程（应用级工具）时声明。
    */
   devPreview: 'dev_preview',
+  /**
+   * 调优的档案（0.85.0，domain-model §3.39，ADR-0014）：`tuning.*` 方法与 `tuning.changed` 通知、`session.rules` 的 `profileVersion`。
+   * 建会话时记下用的档案版本。与引擎无关。
+   */
+  tuning: 'tuning',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -461,6 +466,7 @@ export const HostFeaturesSchema = z.looseObject({
   transcript_chapters: z.boolean().optional(),
   review_findings: z.boolean().optional(),
   dev_preview: z.boolean().optional(),
+  tuning: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

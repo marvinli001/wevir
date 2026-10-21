@@ -70,8 +70,11 @@ import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
-import { loadTitleInstructions } from './title.js';
+import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
+import { ProfileBlobStore } from './tuning/blobs.js';
+import { ProfileCollector } from './tuning/profile.js';
+import { TuningService } from './tuning/service.js';
 import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
 import { ChecksStore } from './verification/checks-store.js';
@@ -367,8 +370,43 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     const usageStats = usage;
     void pricing.start();
-    // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。
-    approvalRules = new ApprovalRuleService({ storage });
+    // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。规则变了档案也跟着变。
+    const ruleService = new ApprovalRuleService({
+      storage,
+      onChange: (workspaceId) => tuning.changed(workspaceId),
+    });
+    approvalRules = ruleService;
+    // 调优的档案（0.85.0）：建会话、恢复与接力时记下用的档案版本；条目的文本存在 `<数据目录>/tuning/blobs`。
+    const userHome = options.userHome ?? options.pluginUserHome ?? homedir();
+    const tuning = new TuningService({
+      storage,
+      collector: new ProfileCollector({
+        promptsDir: options.promptsDir ?? defaultPromptsDir(),
+        userHome,
+        ruleFiles: (cwd) => discoverRuleFiles({ cwd, home: userHome }),
+        settings: () => settings.get(),
+        memory,
+        skills: () => plugins.enabledSkills(),
+        roles,
+        rolesDir: homePath(home, 'rolesDir'),
+        // 全局档案只算全局规则；项目的算全局的与这个项目的。
+        approvalRules: (workspaceId) =>
+          workspaceId === undefined
+            ? ruleService.list().filter((rule) => rule.workspaceId === undefined)
+            : ruleService.list(workspaceId),
+        connectors: () => plugins.connectors(),
+        plugins: () => plugins.pluginVersions(),
+      }),
+      blobs: new ProfileBlobStore(join(homePath(home, 'tuningDir'), 'blobs')),
+      wevirVersion: HOST_VERSION,
+      isChats: (workspace) => chats.isChats(workspace),
+    });
+    memory.watch((change) => tuning.changed(change.workspaceId));
+    settings.watch(() => tuning.changed());
+    plugins.watch(() => tuning.changed());
+    void tuning
+      .prune()
+      .catch((error: unknown) => logger.warn('tuning blob cleanup failed', { error }));
     const manager = new SessionManager({
       storage,
       events: store,
@@ -446,6 +484,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       toolOutputDir: toolOutput.dir,
       images,
+      profile: { ensure: (workspaceId) => tuning.ensure(workspaceId) },
     });
     sessions = manager;
     // 自动化（0.66.0，automations/service.ts）：Host 自己计时，到点开会话、发指令；对账之后再开始计时。
@@ -759,6 +798,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         externalImport,
         search,
         approvalRules,
+        tuning,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -835,6 +875,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(customPrompts !== undefined && { agent_instructions: true }),
         approval_rules: true,
         ...(previews !== undefined && { dev_preview: true }),
+        tuning: true,
       },
       engineFeatures,
       plugins,
@@ -848,6 +889,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
       ...(lspStatus !== undefined && { lsp: lspStatus }),
+      tuning,
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。

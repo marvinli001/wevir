@@ -50,6 +50,8 @@ export const HOME_LAYOUT = {
    */
   readinessDir: 'readiness',
   previewsDir: 'previews',
+  /** 调优的档案（0.85.0，tuning/）：`blobs/<sha256>` 是各版本条目的文本，按内容去重（0700 / 0600）。 */
+  tuningDir: 'tuning',
 } as const;
 
 export interface ResolveHomeOptions {

@@ -64,10 +64,17 @@ export interface RuleOrigin {
 export class ApprovalRuleService {
   readonly #storage: Storage;
   readonly #now: () => Date;
+  readonly #onChange: ((workspaceId: string | undefined) => void) | undefined;
 
-  constructor(options: { storage: Storage; now?: () => Date }) {
+  /** `onChange`：加了或删了规则（调优的档案据此通知 `tuning.changed`）；参数是规则所在的项目，全局规则是 `undefined`。 */
+  constructor(options: {
+    storage: Storage;
+    now?: () => Date;
+    onChange?: (workspaceId: string | undefined) => void;
+  }) {
     this.#storage = options.storage;
     this.#now = options.now ?? (() => new Date());
+    this.#onChange = options.onChange;
   }
 
   /** 给了项目只列对它有效的（全局的与它的），否则全部。 */
@@ -87,11 +94,16 @@ export class ApprovalRuleService {
     if (workspaceId !== undefined && this.#storage.workspaces.get(workspaceId) === undefined) {
       throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
     }
-    return toRule(this.#insert(prefix, workspaceId, 'suggestion'));
+    const rule = toRule(this.#insert(prefix, workspaceId, 'suggestion'));
+    this.#onChange?.(workspaceId);
+    return rule;
   }
 
   delete(ruleId: string): boolean {
-    return this.#storage.approvalRules.remove(ruleId);
+    const workspaceId = this.#storage.approvalRules.get(ruleId)?.workspaceId;
+    const deleted = this.#storage.approvalRules.remove(ruleId);
+    if (deleted) this.#onChange?.(workspaceId);
+    return deleted;
   }
 
   /** 命令每一段都被对这个项目有效的规则允许时，返回用到的规则；否则 null。 */
@@ -147,11 +159,13 @@ export class ApprovalRuleService {
     origin: RuleOrigin,
   ): ApprovalRuleId[] {
     const target = scope === 'project' ? workspaceId : undefined;
-    return this.#storage.transaction(() =>
+    const ids = this.#storage.transaction(() =>
       prefixes.map(
         (prefix) => this.#insert(prefix, target, 'approval', origin).id as ApprovalRuleId,
       ),
     );
+    this.#onChange?.(target);
+    return ids;
   }
 
   /**

@@ -807,6 +807,29 @@ describe('自动化（0.66.0）', () => {
   });
 });
 
+describe('调优的档案（0.85.0）', () => {
+  it('onTuningChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { tuning: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onTuningChanged((change) => changes.push(change));
+    host.last.notify('tuning.changed', { workspaceId: 'ws_1' });
+    await vi.waitFor(() => expect(changes).toEqual([{ workspaceId: 'ws_1' }]));
+    host.last.notify('tuning.changed', { workspaceId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed tuning.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+    host.last.notify('tuning.changed', {});
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
 describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

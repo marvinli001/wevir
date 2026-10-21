@@ -35,6 +35,7 @@ import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, paths, ROUTE_PATTERNS } from './pa
 import { PluginsRoute } from './plugins-route';
 import { SessionRoute } from './session-route';
 import { SettingsRoute } from './settings-route';
+import { TuningRoute } from './tuning-route';
 import { UsageRoute } from './usage-route';
 
 /**
@@ -62,6 +63,9 @@ export const router = createHashRouter([
           // 自动化（0.66.0）：同插件页，在工作台里。
           { path: ROUTE_PATTERNS.automations, Component: AutomationsRoute },
           { path: ROUTE_PATTERNS.automation, Component: AutomationsRoute },
+          // 调优（0.85.0）：同插件页，在工作台里。
+          { path: ROUTE_PATTERNS.tuning, Component: TuningRoute },
+          { path: ROUTE_PATTERNS.tuningTab, Component: TuningRoute },
           {
             path: ROUTE_PATTERNS.session,
             Component: SessionRoute,
