@@ -60,6 +60,28 @@ export interface SessionConfig {
    * 会话上，别的适配器忽略。
    */
   connectors?: EnginePluginConfig['connectors'];
+  /**
+   * 挂到这个引擎会话上的 hooks（护栏，domain-model §3.40）：Host 的检查程序与用户启用的仓库 hooks。只有 `hookDialect` 回答 `codex` 的来源
+   * 会收到（Codex：`thread/start` 等的 SessionFlags 层，带信任散列）；恢复与分支会话时 Host 按当时的规则重新给。
+   */
+  hooks?: EngineHook[];
+  /**
+   * 引擎自己会从仓库读的 hooks 的键（Codex 的 `<文件>:<事件>:<组>:<处理器>`）：适配器把它们停用（护栏，默认不执行仓库带来的脚本；
+   * Codex 本来也不执行没有信任记录的，这是第二道）。用户启用的仓库 hook 由 Host 改写成 `hooks` 里的一项，原处的仍停用。
+   */
+  disabledHooks?: string[];
+}
+
+/**
+ * 一个命令 hook（Codex 与 Claude Code 同一套写法）：`event` 是引擎的事件名（`PreToolUse`、`Stop`…），`matcher` 选工具（`Bash`、
+ * `apply_patch`，正则或 `|` 分隔），`command` 是交给 shell 的整条命令行（stdin 是事件的 JSON），`timeoutSec` 是时限。
+ */
+export interface EngineHook {
+  event: string;
+  matcher?: string;
+  command: string;
+  timeoutSec?: number;
+  statusMessage?: string;
 }
 
 /** 规则文件的种类（0.68.0，protocol 的 `RuleFileKind` 已知的那几个）。 */

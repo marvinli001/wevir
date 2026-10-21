@@ -229,6 +229,8 @@ import {
   exitedTerminal,
   findingComment,
   gitStatusSample,
+  globalGuardrail,
+  guardrail,
   handedOffSession,
   identity,
   ids,
@@ -258,6 +260,7 @@ import {
   readinessReport,
   readOnlySession,
   repairChain,
+  repoHook,
   reportedTask,
   retroSummary,
   reviewComment,
@@ -3678,6 +3681,51 @@ const approvalRuleCases: Case[] = [
     schema: protocol.ApprovalRuleIdSchema,
     valid: [ids.approvalRule],
     invalid: [ids.approval],
+  },
+  {
+    name: 'GuardrailId',
+    schema: protocol.GuardrailIdSchema,
+    valid: [ids.guardrail],
+    invalid: [ids.approvalRule],
+  },
+  {
+    name: 'GuardrailKind',
+    schema: protocol.GuardrailKindSchema,
+    valid: ['forbidden_command', 'protected_path', 'stop_check', 'commit_check'],
+    invalid: ['shell'],
+  },
+  {
+    name: 'GuardrailRule',
+    schema: protocol.GuardrailRuleSchema,
+    valid: [
+      guardrail.rule,
+      globalGuardrail.rule,
+      { kind: 'protected_path', glob: 'secrets/**' },
+      { kind: 'commit_check', command: 'pnpm lint' },
+    ],
+    invalid: [
+      { kind: 'forbidden_command', match: 'glob', pattern: 'rm' },
+      { kind: 'stop_check', command: ' ' },
+      { kind: 'commit_check', command: 'pnpm lint', timeoutSec: 0 },
+    ],
+  },
+  {
+    name: 'Guardrail',
+    schema: protocol.GuardrailSchema,
+    valid: [guardrail, globalGuardrail],
+    invalid: [
+      { ...guardrail, enabled: 'yes' },
+      { ...guardrail, workspaceId: 'global' },
+    ],
+  },
+  {
+    name: 'RepoHook',
+    schema: protocol.RepoHookSchema,
+    valid: [repoHook, { ...repoHook, status: 'changed', matcher: undefined, command: undefined }],
+    invalid: [
+      { ...repoHook, id: '' },
+      { ...repoHook, timeoutSec: 0 },
+    ],
   },
   {
     name: 'ApprovalRule',

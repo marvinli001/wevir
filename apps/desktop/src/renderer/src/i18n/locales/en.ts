@@ -76,6 +76,7 @@ export const messages: Messages = {
   'rpcError.MEMORY_NOT_FOUND': 'Note not found',
   'rpcError.AUTOMATION_NOT_FOUND': 'Automation not found',
   'rpcError.PROFILE_VERSION_NOT_FOUND': 'Profile version not found',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'Guardrail not found',
   'rpcError.INVALID_STATE': 'Not available in the session’s current state',
   'rpcError.SESSION_BUSY': 'Session busy',
   'rpcError.ALREADY_DECIDED': 'Approval already handled',

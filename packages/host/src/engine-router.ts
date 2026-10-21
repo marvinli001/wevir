@@ -98,6 +98,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly clearGoal?: AgentRuntimeAdapter['clearGoal'];
   readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
   readonly ruleFiles?: AgentRuntimeAdapter['ruleFiles'];
+  readonly hookDialect?: AgentRuntimeAdapter['hookDialect'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
   readonly deleteSession?: AgentRuntimeAdapter['deleteSession'];
 
@@ -203,6 +204,11 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.ruleFiles !== undefined)) {
       // 0.68.0：问承载这个 Provider 的引擎读哪些规则文件；不认识的 Provider 没有。
       this.ruleFiles = (providerId) => this.#routeOf(providerId)?.adapter.ruleFiles?.(providerId);
+    }
+    if (adapters.some((adapter) => adapter.hookDialect !== undefined)) {
+      // 护栏（0.86.0）：问承载这个 Provider 的引擎会不会挂 hooks；不认识的 Provider 不会。
+      this.hookDialect = (providerId) =>
+        this.#routeOf(providerId)?.adapter.hookDialect?.(providerId);
     }
     if (adapters.some((adapter) => adapter.bindEngineAppTools !== undefined)) {
       // 引擎令牌只认交给这个引擎的 Provider 种类：别的引擎的会话冒充不了。

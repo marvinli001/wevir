@@ -72,6 +72,7 @@ export const messages: Messages = {
   'rpcError.MEMORY_NOT_FOUND': '筆記不存在',
   'rpcError.AUTOMATION_NOT_FOUND': '自動化不存在',
   'rpcError.PROFILE_VERSION_NOT_FOUND': '設定檔版本不存在',
+  'rpcError.GUARDRAIL_NOT_FOUND': '護欄規則不存在',
   'rpcError.INVALID_STATE': '工作階段目前的狀態不支援此操作',
   'rpcError.SESSION_BUSY': '工作階段忙碌中',
   'rpcError.ALREADY_DECIDED': '核准請求已處理',

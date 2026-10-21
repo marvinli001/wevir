@@ -33,6 +33,7 @@ import type {
 import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
 import type { GitStatusResult } from './git.js';
+import type { Guardrail, GuardrailBlocked, RepoHook } from './guardrails.js';
 import type { LspInstallRun, LspServerStatus } from './lsp.js';
 import {
   IMAGE_UPLOAD_DATA_MAX_LENGTH,
@@ -116,6 +117,8 @@ export const ids = {
   /** 档案版本（0.85.0）。 */
   profileVersion: `pfv_${ULID}`,
   profileVersion2: 'pfv_01JA2B3C4D5E6F7G8H9JKMNPR2',
+  /** 护栏（0.86.0）。 */
+  guardrail: `grd_${ULID}`,
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -1342,6 +1345,56 @@ export const profileVersionSummary: ProfileVersionSummary = {
   changes: [{ key: 'rules', added: 0, removed: 0, modified: 1 }],
 };
 
+/** 护栏规则（0.86.0）：项目里的结束前检查，与全局的禁止命令。 */
+export const guardrail: Guardrail = {
+  id: ids.guardrail,
+  workspaceId: ids.workspace,
+  name: '测试通过才结束',
+  rule: { kind: 'stop_check', command: 'pnpm test', maxAttempts: 3, timeoutSec: 600 },
+  enabled: true,
+  revision: 2,
+  createdAt: TS,
+  updatedAt: TS2,
+  hits: 4,
+  lastHitAt: TS2,
+};
+
+export const globalGuardrail: Guardrail = {
+  id: 'grd_01JA2B3C4D5E6F7G8H9JKMNPR5',
+  rule: { kind: 'forbidden_command', match: 'prefix', pattern: 'rm -rf' },
+  enabled: false,
+  revision: 1,
+  createdAt: TS,
+  updatedAt: TS,
+  hits: 0,
+};
+
+/** 仓库自带的 hook（0.86.0）：启用过，内容没变。 */
+export const repoHook: RepoHook = {
+  id: '.codex/hooks.json:pre_tool_use:0:0',
+  file: '.codex/hooks.json',
+  event: 'PreToolUse',
+  matcher: 'Bash',
+  handler: 'command',
+  command: './scripts/check-command.sh',
+  timeoutSec: 600,
+  hash: 'sha256:d4f69cdd2c00f2ca673c7703b2aa6420430b66df86546d5334979761548590b4',
+  status: 'enabled',
+  enabledAt: TS,
+};
+
+/** 一次拦截（0.86.0）。 */
+export const guardrailBlocked: GuardrailBlocked = {
+  guardrailId: ids.guardrail,
+  kind: 'stop_check',
+  action: 'continued',
+  turnId: ids.turn,
+  command: 'pnpm test',
+  reason: 'Guardrail check `pnpm test` failed (exit 1). Fix the failures before finishing.',
+  attempt: 1,
+  maxAttempts: 3,
+};
+
 /** Host 按规则替用户允许（0.80.0）。 */
 export const ruleResolution: ApprovalResolution = {
   optionId: 'allow-once',
@@ -1964,6 +2017,10 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
     },
     invalid: { origin: 'tool', findings: [{ title: '', body: 'x' }] },
+  },
+  'guardrail.blocked': {
+    valid: guardrailBlocked,
+    invalid: { ...guardrailBlocked, guardrailId: 'arl_x' },
   },
 };
 
@@ -6012,6 +6069,93 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ hash: HASH_A }], invalid: [{ hash: 'ABC' }] },
     result: { valid: [{ text: '# AGENTS.md\n' }, {}], invalid: [{ text: 1 }] },
   },
+  'guardrail.list': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [{ guardrails: [globalGuardrail, guardrail] }, { guardrails: [] }],
+      invalid: [{ guardrails: [{ ...guardrail, hits: -1 }] }],
+    },
+  },
+  'guardrail.add': {
+    params: {
+      valid: [
+        { rule: { kind: 'forbidden_command', match: 'regex', pattern: '\\bgit\\s+push\\b' } },
+        {
+          workspaceId: ids.workspace,
+          name: '保护密钥',
+          rule: { kind: 'protected_path', glob: '.env*' },
+          enabled: false,
+        },
+        { rule: { kind: 'commit_check', command: 'pnpm lint', timeoutSec: 120 } },
+      ],
+      invalid: [
+        { rule: { kind: 'protected_path', glob: '' } },
+        { rule: { kind: 'stop_check', command: 'pnpm test', maxAttempts: 0 } },
+        { rule: { kind: 'shell_hook', command: 'x' } },
+      ],
+    },
+    result: { valid: [{ guardrail }], invalid: [{}] },
+  },
+  'guardrail.update': {
+    params: {
+      valid: [
+        { guardrailId: ids.guardrail, name: null },
+        {
+          guardrailId: ids.guardrail,
+          rule: { kind: 'stop_check', command: 'pnpm test --run', maxAttempts: 5 },
+        },
+      ],
+      invalid: [{ guardrailId: ids.approvalRule }],
+    },
+    result: { valid: [{ guardrail }], invalid: [{ guardrail: { ...guardrail, revision: 0 } }] },
+  },
+  'guardrail.delete': {
+    params: { valid: [{ guardrailId: ids.guardrail }], invalid: [{}] },
+    result: { valid: [{}], invalid: ['x'] },
+  },
+  'guardrail.setEnabled': {
+    params: {
+      valid: [{ guardrailId: ids.guardrail, enabled: false }],
+      invalid: [{ guardrailId: ids.guardrail }],
+    },
+    result: { valid: [{ guardrail: globalGuardrail }], invalid: [{ guardrail: null }] },
+  },
+  'repoHook.list': {
+    params: { valid: [{ workspaceId: ids.workspace }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          hooks: [
+            repoHook,
+            {
+              id: '.codex/config.toml:stop:0:0',
+              file: '.codex/config.toml',
+              event: 'Stop',
+              handler: 'mcp_tool',
+              hash: 'sha256:986c1d80d388aded1290775be2649e6ff370e859042cbd29bdd8471950dec011',
+              status: 'unsupported',
+            },
+          ],
+          warnings: ['.codex/hooks.json: Unexpected token'],
+        },
+        { hooks: [], warnings: [] },
+      ],
+      invalid: [{ hooks: [{ ...repoHook, hash: '' }], warnings: [] }],
+    },
+  },
+  'repoHook.setEnabled': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, hookId: repoHook.id, enabled: true }],
+      invalid: [{ workspaceId: ids.workspace, hookId: '', enabled: true }],
+    },
+    result: {
+      valid: [
+        { hook: repoHook },
+        { hook: { ...repoHook, status: 'disabled', enabledAt: undefined } },
+      ],
+      invalid: [{ hook: { ...repoHook, file: '' } }],
+    },
+  },
   'browser.register': {
     params: {
       valid: [
@@ -6436,6 +6580,10 @@ export const notificationSamples: NotificationSamples = {
   'tuning.changed': {
     valid: [{}, { workspaceId: ids.workspace }],
     invalid: [{ workspaceId: 'x' }],
+  },
+  'guardrail.changed': {
+    valid: [{}, { workspaceId: ids.workspace }],
+    invalid: [{ workspaceId: 'global' }],
   },
   'readiness.changed': {
     valid: [

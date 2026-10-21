@@ -123,6 +123,20 @@ import {
   GitStatusParamsSchema,
   GitStatusResultSchema,
 } from './git.js';
+import {
+  GuardrailAddParamsSchema,
+  GuardrailChangedParamsSchema,
+  GuardrailDeleteParamsSchema,
+  GuardrailListParamsSchema,
+  GuardrailListResultSchema,
+  GuardrailResultSchema,
+  GuardrailSetEnabledParamsSchema,
+  GuardrailUpdateParamsSchema,
+  RepoHookListParamsSchema,
+  RepoHookListResultSchema,
+  RepoHookResultSchema,
+  RepoHookSetEnabledParamsSchema,
+} from './guardrails.js';
 import { ImportMethodSchemas } from './imports.js';
 import {
   LspCancelInstallParamsSchema,
@@ -2423,6 +2437,43 @@ export const MethodSchemas = {
     result: TuningBlobResultSchema,
     permission: 'session.read',
   },
+  /** 护栏（0.86.0，Host 功能 `tuning_guardrails`）。没有这条规则时 `GUARDRAIL_NOT_FOUND`。 */
+  'guardrail.list': {
+    params: GuardrailListParamsSchema,
+    result: GuardrailListResultSchema,
+    permission: 'session.read',
+  },
+  'guardrail.add': {
+    params: GuardrailAddParamsSchema,
+    result: GuardrailResultSchema,
+    permission: 'host.manage',
+  },
+  'guardrail.update': {
+    params: GuardrailUpdateParamsSchema,
+    result: GuardrailResultSchema,
+    permission: 'host.manage',
+  },
+  'guardrail.delete': {
+    params: GuardrailDeleteParamsSchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'guardrail.setEnabled': {
+    params: GuardrailSetEnabledParamsSchema,
+    result: GuardrailResultSchema,
+    permission: 'host.manage',
+  },
+  /** 仓库自带的 hooks（0.86.0）：默认不执行，逐个启用。 */
+  'repoHook.list': {
+    params: RepoHookListParamsSchema,
+    result: RepoHookListResultSchema,
+    permission: 'workspace.read',
+  },
+  'repoHook.setEnabled': {
+    params: RepoHookSetEnabledParamsSchema,
+    result: RepoHookResultSchema,
+    permission: 'host.manage',
+  },
 
   'browser.register': {
     params: BrowserRegisterParamsSchema,
@@ -2484,6 +2535,8 @@ export const NotificationSchemas = {
   'preview.changed': { params: PreviewChangedParamsSchema },
   /** 发给调用过 `tuning.*` 的连接（0.85.0）。 */
   'tuning.changed': { params: TuningChangedParamsSchema },
+  /** 发给调用过 `guardrail.*` 或 `repoHook.*` 的连接（0.86.0）。 */
+  'guardrail.changed': { params: GuardrailChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

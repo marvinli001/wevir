@@ -389,6 +389,11 @@ export const HOST_FEATURES = {
    * 建会话时记下用的档案版本。与引擎无关。
    */
   tuning: 'tuning',
+  /**
+   * 护栏（0.86.0，domain-model §3.40）：`guardrail.*`、`repoHook.*`、`guardrail.changed` 通知与 `guardrail.blocked` 事件。规则只对
+   * 声明了 hooks 的引擎（Codex）生效；Host 有这样的引擎时声明。
+   */
+  tuningGuardrails: 'tuning_guardrails',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -467,6 +472,7 @@ export const HostFeaturesSchema = z.looseObject({
   review_findings: z.boolean().optional(),
   dev_preview: z.boolean().optional(),
   tuning: z.boolean().optional(),
+  tuning_guardrails: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

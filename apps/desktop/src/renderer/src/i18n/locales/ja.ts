@@ -77,6 +77,7 @@ export const messages: Messages = {
   'rpcError.MEMORY_NOT_FOUND': 'メモが見つかりません',
   'rpcError.AUTOMATION_NOT_FOUND': '自動化が見つかりません',
   'rpcError.PROFILE_VERSION_NOT_FOUND': 'プロファイルのバージョンが見つかりません',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'ガードレールが見つかりません',
   'rpcError.INVALID_STATE': 'セッションの現在の状態では実行できません',
   'rpcError.SESSION_BUSY': 'セッション処理中',
   'rpcError.ALREADY_DECIDED': '承認は処理済みです',

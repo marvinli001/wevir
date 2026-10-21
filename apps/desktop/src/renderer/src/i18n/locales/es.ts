@@ -81,6 +81,7 @@ export const messages: Messages = {
   'rpcError.MEMORY_NOT_FOUND': 'Nota no encontrada',
   'rpcError.AUTOMATION_NOT_FOUND': 'Automatización no encontrada',
   'rpcError.PROFILE_VERSION_NOT_FOUND': 'Versión de perfil no encontrada',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'Barrera de protección no encontrada',
   'rpcError.INVALID_STATE': 'No disponible en el estado actual de la sesión',
   'rpcError.SESSION_BUSY': 'Sesión ocupada',
   'rpcError.ALREADY_DECIDED': 'Aprobación ya resuelta',

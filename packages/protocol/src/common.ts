@@ -50,6 +50,8 @@ export const InsightIdSchema = z.templateLiteral(['isg_', IdBodySchema]);
 export const ApprovalRuleIdSchema = z.templateLiteral(['arl_', IdBodySchema]);
 /** 档案的一个版本（0.85.0）。 */
 export const ProfileVersionIdSchema = z.templateLiteral(['pfv_', IdBodySchema]);
+/** 一条护栏规则（0.86.0）。 */
+export const GuardrailIdSchema = z.templateLiteral(['grd_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -73,6 +75,7 @@ export type LspInstallId = z.infer<typeof LspInstallIdSchema>;
 export type InsightId = z.infer<typeof InsightIdSchema>;
 export type ApprovalRuleId = z.infer<typeof ApprovalRuleIdSchema>;
 export type ProfileVersionId = z.infer<typeof ProfileVersionIdSchema>;
+export type GuardrailId = z.infer<typeof GuardrailIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;

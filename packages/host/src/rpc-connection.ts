@@ -105,6 +105,10 @@ export interface ConnectionHost {
   readonly tuning?: {
     watch(listener: (workspaceId: string | undefined) => void): () => void;
   };
+  /** 护栏（0.86.0）：调过 `guardrail.*` 或 `repoHook.*` 的连接用它收 `guardrail.changed`。 */
+  readonly guardrails?: {
+    watch(listener: (change: NotificationParams<'guardrail.changed'>) => void): () => void;
+  };
   /** 用户的交互终端（0.69.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
@@ -192,6 +196,8 @@ export class RpcConnection {
   #unwatchPreviews: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.changed`。 */
   #unwatchTuning: (() => void) | undefined;
+  /** 调过 `guardrail.*` 或 `repoHook.*` 之后：退订 `guardrail.changed`。 */
+  #unwatchGuardrails: (() => void) | undefined;
   /** 调过 `lsp.*` 之后：退订 `lsp.changed`。 */
   #unwatchLsp: (() => void) | undefined;
   /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
@@ -539,6 +545,9 @@ export class RpcConnection {
         }
         if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('tuning.')) this.#watchTuning();
+        if (method.startsWith('guardrail.') || method.startsWith('repoHook.')) {
+          this.#watchGuardrails();
+        }
         if (method.startsWith('terminal.')) this.#watchTerminals();
       }
     }
@@ -791,6 +800,22 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `guardrail.*` 或 `repoHook.*` 的连接之后收 `guardrail.changed`（0.86.0），连接关闭即止。 */
+  #watchGuardrails(): void {
+    if (this.#unwatchGuardrails !== undefined || this.#host.guardrails === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchGuardrails = this.#host.guardrails.watch((change) => {
+      const parsed = NotificationSchemas['guardrail.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`guardrail.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'guardrail.changed', params: parsed.data });
+    });
+  }
+
   /** 调过 `readiness.*` 的连接之后收 `readiness.changed`（0.70.0），连接关闭即止。 */
   #watchReadiness(): void {
     if (this.#unwatchReadiness !== undefined || this.#host.readiness === undefined) return;
@@ -974,6 +999,8 @@ export class RpcConnection {
     this.#unwatchPreviews = undefined;
     this.#unwatchTuning?.();
     this.#unwatchTuning = undefined;
+    this.#unwatchGuardrails?.();
+    this.#unwatchGuardrails = undefined;
     this.#unwatchLsp?.();
     this.#unwatchLsp = undefined;
     this.#unwatchTerminals?.();

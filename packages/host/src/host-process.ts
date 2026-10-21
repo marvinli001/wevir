@@ -15,6 +15,7 @@ import {
   type WorkspaceId,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
+import { guardrailChecker } from '@wevir/runtime-adapter/guardrail';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
@@ -39,6 +40,7 @@ import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
 import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
+import { GuardrailService } from './guardrails/service.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
@@ -199,6 +201,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
   let approvalRules: ApprovalRuleService | undefined;
+  let guardrails: GuardrailService | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -407,11 +410,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     void tuning
       .prune()
       .catch((error: unknown) => logger.warn('tuning blob cleanup failed', { error }));
+    // 护栏（0.86.0）：规则文件与检查程序在数据目录；只有认 Codex hooks 的引擎挂得上。
+    const workspaces = storage.workspaces;
+    guardrails = new GuardrailService({
+      checker: guardrailChecker(homePath(home, 'guardrailsDir')),
+      workspaceRoot: (workspaceId) => {
+        const workspace = workspaces.get(workspaceId);
+        return workspace === undefined || workspace.removedAt !== undefined
+          ? undefined
+          : workspace.rootPath;
+      },
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
     const manager = new SessionManager({
       storage,
       events: store,
       adapter,
       approvalRules,
+      guardrails,
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
         prepareEvent: (sessionId, event) => {
@@ -799,6 +815,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         search,
         approvalRules,
         tuning,
+        ...(guardrails !== undefined && { guardrails }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -876,6 +893,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         approval_rules: true,
         ...(previews !== undefined && { dev_preview: true }),
         tuning: true,
+        ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
       },
       engineFeatures,
       plugins,
@@ -886,6 +904,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
       ...(previews !== undefined && { previews }),
+      ...(guardrails !== undefined && { guardrails }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
       ...(lspStatus !== undefined && { lsp: lspStatus }),
