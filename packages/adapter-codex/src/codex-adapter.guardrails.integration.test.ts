@@ -112,6 +112,12 @@ async function start(home: string, workspace: string, extra: Record<string, unkn
 const blocked = (turn: AgentEvent[]): GuardrailBlockedEvent[] =>
   turn.filter(ofType('guardrail.blocked'));
 
+/** hook 跑完但没有标记的结果（退出码、输出）：检查程序没拦下时，断言的失败信息里带上它们，看得出 hook 跑没跑、怎么失败的。 */
+const hookRuns = (turn: AgentEvent[]): string =>
+  `hook/completed without a marker: ${JSON.stringify(
+    turn.filter(ofType('engine.raw')).filter((event) => event.method === 'hook/completed'),
+  )}`;
+
 describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_000 }, () => {
   beforeAll(async () => {
     mock = await startMockModel(script);
@@ -152,7 +158,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     const [hit, ...rest] = blocked(turn);
     expect(rest).toEqual([]);
-    expect(hit).toMatchObject({
+    expect(hit, hookRuns(turn)).toMatchObject({
       guardrailId: 'grd_rm',
       kind: 'forbidden_command',
       action: 'denied',
@@ -175,7 +181,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     const turn = await runTurn(adapter, engineSessionId, 'fix', events);
 
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-    expect(blocked(turn)).toEqual([
+    expect(blocked(turn), hookRuns(turn)).toEqual([
       expect.objectContaining({
         guardrailId: 'grd_ok',
         kind: 'stop_check',
@@ -199,7 +205,10 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     const turn = await runTurn(adapter, engineSessionId, 'cap', events);
 
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-    expect(blocked(turn).map((event) => [event.action, event.attempt])).toEqual([
+    expect(
+      blocked(turn).map((event) => [event.action, event.attempt]),
+      hookRuns(turn),
+    ).toEqual([
       ['continued', 1],
       ['continued', 2],
       ['allowed', 2],

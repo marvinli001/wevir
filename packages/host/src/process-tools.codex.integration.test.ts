@@ -72,10 +72,38 @@ function outputText(output: string | undefined): string {
   return output ?? '';
 }
 
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
+}
+
 /** 模型在每个工具结果里实际看到的文本（第二个回合的检查用）。 */
 const seen: string[] = [];
 
 const script: MockScript = (view) => {
+  // 进程退出的通知经 <relayed_message> 包着发来，开头是 `<`，mock 的 lastUserText 会跳过它：靠整条消息的开头认出第二个回合
+  // （标题与建议的请求把整段对话放进 <conversation>，里面也有这几个字，但开头不同）。
+  const input = view.body.input;
+  const notified = input.findIndex(
+    (item) =>
+      item.type === 'message' &&
+      item.role === 'user' &&
+      messageText(item.content).startsWith('<relayed_message') &&
+      messageText(item.content).includes('Background process'),
+  );
+  if (notified >= 0) {
+    const outputs = input
+      .slice(notified + 1)
+      .filter((item) => item.type === 'function_call_output')
+      .map((item) =>
+        outputText(typeof item.output === 'string' ? item.output : JSON.stringify(item.output)),
+      );
+    if (outputs.length === 0)
+      return call(view.body, 'wevir_process_output', { id: 'p1', lines: 1000 });
+    seen.push(...outputs);
+    return { text: ['read the log'] };
+  }
   const outputs = view.toolOutputs.map(outputText);
   if (view.lastUserText.includes('[proc]')) {
     if (outputs.length === 0) {
@@ -87,12 +115,6 @@ const script: MockScript = (view) => {
       });
     }
     return { text: [`started: ${outputs[0] ?? ''}`] };
-  }
-  if (view.lastUserText.includes('Background process')) {
-    if (outputs.length === 0)
-      return call(view.body, 'wevir_process_output', { id: 'p1', lines: 1000 });
-    seen.push(...outputs);
-    return { text: ['read the log'] };
   }
   return { text: ['你好。'] };
 };

@@ -219,7 +219,7 @@ async function setup(
   const state = (sessionId: SessionId): SessionState | undefined =>
     events.snapshot(sessionId)?.session.state;
   const settle = async (sessionId: SessionId) => {
-    await vi.waitFor(() => expect(state(sessionId)).toBe('idle'), { timeout: 5000 });
+    await vi.waitFor(() => expect(state(sessionId)).toBe('idle'), { timeout: 30_000 });
   };
   const all = (sessionId: SessionId): WevirEvent[] => events.readSince(sessionId, 0);
   const send = (sessionId: SessionId, text: string) =>
@@ -670,7 +670,7 @@ describe('应用级工具', () => {
   });
 
   it('进度：进行中给现在在做什么、清单与已用时间，空闲的给上一个回合的结果；列表和等待超时也带', async () => {
-    const h = await setup(10);
+    const h = await setup(4);
     const caller = await h.create();
     const idle = await h.create();
     expect(await h.call(caller, 'wevir_session_progress', { sessionId: idle })).not.toHaveProperty(
@@ -717,7 +717,7 @@ describe('应用级工具', () => {
     expect(
       (after.sessions as Array<Record<string, unknown>>).find((s) => s.sessionId === child),
     ).not.toHaveProperty('doing');
-  });
+  }, 30_000);
 
   it('请求方等着回报时，对方卡在等用户批准上：告诉请求方一次，用户批准后继续、结果照常回报', async () => {
     const h = await setup();

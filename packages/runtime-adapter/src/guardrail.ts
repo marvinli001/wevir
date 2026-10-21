@@ -499,7 +499,10 @@ export function pathProtected(glob, target, cwd, home, ignoreCase) {
   if (pattern.endsWith('/')) pattern = pattern.slice(0, -1);
   if (pattern === '') return false;
   if (pattern.startsWith('/') || /^[A-Za-z]:\//.test(pattern)) {
-    return selfOrAncestorMatches(globRegExp(pattern, ignoreCase), abs);
+    const re = globRegExp(pattern, ignoreCase);
+    if (selfOrAncestorMatches(re, abs)) return true;
+    // Windows：以 / 开头的 glob 不带盘符（/etc/**），绝对路径去掉盘符再比一次。
+    return pattern.startsWith('/') && /^[A-Za-z]:\//.test(abs) && selfOrAncestorMatches(re, abs.slice(2));
   }
   const rel = slashes(relative(cwd, abs));
   const inside = rel !== '' && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
