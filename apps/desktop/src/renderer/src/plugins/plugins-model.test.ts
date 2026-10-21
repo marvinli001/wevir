@@ -7,8 +7,10 @@ import {
   connectorState,
   defaultTab,
   groupSkills,
+  landingTab,
   missingRequiredInputs,
   missingSecretKeys,
+  nothingInstalled,
   originName,
   pluginItems,
   pluginsAvailability,
@@ -56,6 +58,7 @@ describe('功能门控与分段', () => {
   const none: HostFeatures = {};
   const plain: HostFeatures = { plugins: true };
   const packages: HostFeatures = { plugins: true, plugin_packages: true };
+  const market: HostFeatures = { ...packages, plugin_market: true };
 
   it('还没连上是 pending，没有 plugins 功能是 unsupported（左栏不显示入口）', () => {
     expect(pluginsAvailability(undefined)).toBe('pending');
@@ -72,13 +75,34 @@ describe('功能门控与分段', () => {
     expect(defaultTab(plain)).toBe('connectors');
   });
 
-  it('URL 里的分段：认得且支持就用，认不出或不支持转到默认分段', () => {
-    expect(resolveTab('skills', packages)).toEqual({ tab: 'skills', redirect: false });
-    expect(resolveTab('plugins', packages)).toEqual({ tab: 'plugins', redirect: false });
-    expect(resolveTab(undefined, packages)).toEqual({ tab: 'plugins', redirect: true });
-    expect(resolveTab('market', packages)).toEqual({ tab: 'plugins', redirect: true });
-    expect(resolveTab('plugins', plain)).toEqual({ tab: 'connectors', redirect: true });
-    expect(resolveTab('skills', plain)).toEqual({ tab: 'skills', redirect: false });
+  it('有 plugin_market 时“市场”在最前，但默认分段仍是第一个已安装的分段', () => {
+    expect(visibleTabs(market)).toEqual(['market', 'plugins', 'connectors', 'skills']);
+    expect(defaultTab(market)).toBe('plugins');
+  });
+
+  it('URL 里的分段：认得且支持就用，认不出或不支持是 undefined（转回 /plugins）', () => {
+    expect(resolveTab('skills', packages)).toBe('skills');
+    expect(resolveTab('plugins', packages)).toBe('plugins');
+    expect(resolveTab(undefined, packages)).toBeUndefined();
+    expect(resolveTab('market', packages)).toBeUndefined();
+    expect(resolveTab('market', market)).toBe('market');
+    expect(resolveTab('plugins', plain)).toBeUndefined();
+    expect(resolveTab('skills', plain)).toBe('skills');
+  });
+
+  it('/plugins 的落点：从没装过东西进市场，其余沿用上次的分段，没有记下的用默认分段', () => {
+    const empty = { plugins: [], connectors: [], skills: [] };
+    const some = { plugins: [], connectors: [connector()], skills: [] };
+    expect(nothingInstalled(empty)).toBe(true);
+    expect(nothingInstalled({ connectors: [], skills: [skill()] })).toBe(false);
+    expect(landingTab(market, 'skills', empty)).toBe('market');
+    expect(landingTab(market, 'skills', some)).toBe('skills');
+    expect(landingTab(market, 'market', some)).toBe('market');
+    expect(landingTab(market, undefined, some)).toBe('plugins');
+    // 列表读不到时按装过东西处理；Host 没有市场时空列表也不去市场。
+    expect(landingTab(market, undefined, undefined)).toBe('plugins');
+    expect(landingTab(packages, 'market', empty)).toBe('plugins');
+    expect(landingTab(plain, 'plugins', some)).toBe('connectors');
   });
 });
 

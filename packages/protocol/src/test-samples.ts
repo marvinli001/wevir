@@ -2478,15 +2478,20 @@ export const searchIndexStatus: MethodResult<'search.status'> = {
   pendingEvents: 0,
 };
 
-/** 官方插件市场的索引（0.91.0）：一个带 skill 与 stdio 连接器的插件。 */
+/** 官方插件市场的索引（0.91.0；0.93.0 的条目字段）：Wevir 维护的插件，与一个已认证、搬自上游的 MCP。 */
 export const marketIndex: WevirMarketIndex = {
   schemaVersion: 1,
   name: 'Wevir',
   generatedAt: '2026-10-21T08:00:00Z',
   sequence: 3,
   commit: '2333fc8d1e0b9a7c6f5e4d3c2b1a09f8e7d6c5b4',
-  categories: [{ id: 'productivity', name: { 'zh-CN': '效率', en: 'Productivity' } }],
-  featured: [{ id: 'popular', name: { 'zh-CN': '热门', en: 'Popular' }, entries: ['notes'] }],
+  categories: [
+    { id: 'productivity', name: { 'zh-CN': '效率', en: 'Productivity' } },
+    { id: 'other', name: { 'zh-CN': '其他', en: 'Other' } },
+  ],
+  featured: [
+    { id: 'popular', name: { 'zh-CN': '热门', en: 'Popular' }, entries: ['notes', 'tracker'] },
+  ],
   entries: [
     {
       id: 'notes',
@@ -2495,13 +2500,22 @@ export const marketIndex: WevirMarketIndex = {
       name: 'Notes',
       version: '1.2.0',
       description: 'Take notes from the agent',
-      i18n: { 'zh-CN': { name: '笔记', description: '让 agent 记笔记' } },
+      i18n: {
+        'zh-CN': {
+          name: '笔记',
+          description: '让 agent 记笔记',
+          examples: ['把今天的会议要点记下来'],
+        },
+      },
       author: { name: 'Wevir' },
       license: 'MIT',
       icon: 'plugins/notes/icon.svg',
       category: 'productivity',
       keywords: ['notes'],
-      trust: 'official',
+      listedAt: '2026-10-21T08:00:00Z',
+      verification: { level: 'official', since: '2026-10' },
+      examples: ["Write down the key points of today's meeting"],
+      links: { privacy: 'https://example.com/privacy', terms: 'https://example.com/terms' },
       requires: { runtimes: ['node>=20'] },
       contents: {
         connectors: [
@@ -2521,6 +2535,34 @@ export const marketIndex: WevirMarketIndex = {
       ],
       digest: 'c'.repeat(64),
       history: [{ version: '1.1.0', commit: 'd'.repeat(40) }],
+    },
+    {
+      id: 'tracker',
+      kind: 'mcp',
+      path: 'plugins/tracker',
+      name: 'Tracker',
+      version: '2.4.1',
+      category: 'other',
+      listedAt: '2026-10-20T12:30:00Z',
+      verification: {
+        level: 'verified',
+        publisher: 'Acme Inc.',
+        since: '2026-10',
+        note: { en: "Published from Acme's own repository" },
+      },
+      upstream: {
+        url: 'https://github.com/acme/tracker-mcp',
+        version: '2.4.0',
+        commit: 'e'.repeat(40),
+        license: 'Apache-2.0',
+      },
+      contents: {
+        connectors: [{ name: 'tracker', transport: 'http', url: 'https://mcp.acme.example/mcp' }],
+        skills: [],
+        inputs: [],
+      },
+      files: [{ path: 'wevir-plugin.json', size: 300, sha256: 'f'.repeat(64) }],
+      digest: '0'.repeat(64),
     },
   ],
 };
@@ -2929,6 +2971,25 @@ export const methodSamples: MethodSamples = {
         { index: { ...marketIndex, sequence: 0 }, mirror: 'github', fetchedAt: TS },
         { index: { ...marketIndex, commit: 'main' }, mirror: 'github', fetchedAt: TS },
       ],
+    },
+  },
+  'market.file': {
+    params: {
+      valid: [
+        { entry: 'notes', path: 'README.md' },
+        { entry: 'notes', path: 'assets/icon.svg' },
+      ],
+      invalid: [
+        {},
+        { entry: 'notes' },
+        { entry: 'notes', path: '../keys/market.pub' },
+        { entry: 'notes', path: '/etc/passwd' },
+        { entry: 'Notes!', path: 'README.md' },
+      ],
+    },
+    result: {
+      valid: [{ data: 'IyBOb3Rlcwo=' }, { data: '' }],
+      invalid: [{}, { data: 1 }],
     },
   },
   'workspace.list': {

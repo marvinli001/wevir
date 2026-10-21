@@ -1,20 +1,24 @@
+import type { HostFeatures } from '@wevir/protocol';
 import { Blocks } from 'lucide-react';
 import { Navigate, useParams } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { pluginsAvailability, resolveTab } from '@/plugins/plugins-model';
-import { PluginsPage } from '@/plugins/plugins-page';
+import { getLastPluginsTab } from '@/plugins/last-tab';
+import { landingTab, pluginsAvailability, resolveTab } from '@/plugins/plugins-model';
+import { type MarketView, PluginsPage } from '@/plugins/plugins-page';
+import { usePlugins } from '@/plugins/use-plugins';
 import { CenterPage } from './center-page';
 import { paths } from './paths';
 import { PendingPage } from './route-states';
 
 /**
- * `/plugins` 与 `/plugins/:tab`（0.42.0，desktop-layout.md §23）：Host 没有 `plugins` 功能时是空状态；没连上过先等；分段认不出或
- * Host 不支持（没有 `plugin_packages` 就没有“插件”分段）时转到默认分段，URL 里不留不能用的分段。
+ * `/plugins`、`/plugins/:tab` 与市场的 `/plugins/market/group/:groupId`、`/plugins/market/:source/:entry`（0.42.0，desktop-layout.md
+ * §23；市场见 plugin-market.md §9）：Host 没有 `plugins` 功能时是空状态；没连上过先等；`/plugins` 按 `landingTab` 转到一个分段；
+ * 分段认不出或 Host 不支持时转回 `/plugins`，URL 里不留不能用的分段。
  */
 export function PluginsRoute() {
-  const { tab } = useParams();
+  const { tab, groupId, source, entry } = useParams();
   const { client } = useHostConnection();
   // 断线重连期间 client 还在，沿用上次 hello 的功能表，页面不跳回加载状态。
   const features = client?.hello.features;
@@ -29,7 +33,23 @@ export function PluginsRoute() {
       </CenterPage>
     );
   }
-  const resolved = resolveTab(tab, features);
-  if (resolved.redirect) return <Navigate to={paths.plugins(resolved.tab)} replace />;
-  return <PluginsPage tab={resolved.tab} client={client} features={features} />;
+  const market: MarketView | undefined =
+    groupId !== undefined
+      ? { kind: 'group', groupId }
+      : source !== undefined && entry !== undefined
+        ? { kind: 'entry', source, entry }
+        : undefined;
+  const param = market === undefined ? tab : 'market';
+  if (param === undefined) return <PluginsLanding features={features} />;
+  const resolved = resolveTab(param, features);
+  if (resolved === undefined) return <Navigate to={paths.plugins()} replace />;
+  return <PluginsPage tab={resolved} market={market} client={client} features={features} />;
+}
+
+/** `/plugins`：等 `plugins.list` 读到（看装没装过东西），再转到 `landingTab` 定的分段。 */
+function PluginsLanding({ features }: { features: HostFeatures }) {
+  const { state } = usePlugins();
+  if (state.status === 'loading') return <PendingPage />;
+  const list = state.status === 'ready' ? state.list : undefined;
+  return <Navigate to={paths.plugins(landingTab(features, getLastPluginsTab(), list))} replace />;
 }

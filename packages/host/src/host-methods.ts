@@ -1149,6 +1149,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     // 0.91.0：官方插件市场。
     'market.status': () => market().status(),
     'market.index': ({ refresh }) => market().index(refresh === true),
+    'market.file': ({ entry, path }) => market().file(entry, path),
 
     'settings.update': async (params) => {
       // 0.78.0：输出风格只收 Host 认识的名字。

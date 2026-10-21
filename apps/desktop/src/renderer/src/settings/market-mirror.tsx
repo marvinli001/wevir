@@ -1,5 +1,6 @@
 import type { HostSettings, MarketMirror, MarketMirrorPreference } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router';
 import { Select } from '@/components/ui/select';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -24,6 +25,15 @@ export function MarketMirrorRow({
   const { client } = useHostConnection();
   const preference = settings.marketMirror ?? 'auto';
   const [resolved, setResolved] = useState<MarketMirror>();
+  const location = useLocation();
+
+  // 插件页市场分段的齿轮带着 `focus: 'market-mirror'` 进来：滚到这一行。
+  useEffect(() => {
+    if ((location.state as { focus?: string } | null)?.focus !== 'market-mirror') return;
+    document
+      .querySelector('[data-setting="market-mirror"]')
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [location.state]);
 
   // 自动模式下 `market.status` 可能要先测速（几秒），所以单独取，不挡住设置页。
   useEffect(() => {

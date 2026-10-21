@@ -1038,6 +1038,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
         ...(proposals !== undefined && { tuning_proposals: true }),
         plugin_market: true,
+        market_files: true,
         speech: true,
       },
       engineFeatures,

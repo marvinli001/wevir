@@ -1,11 +1,13 @@
-// 插件市场（0.91.0）：官方市场仓库 wevir-marketplace 的索引格式，与读取镜像的选择。
+// 插件市场（0.91.0；0.93.0 改了条目字段并加了读取用的宽松版本；0.94.0 加了读条目文件的 market.file）：官方市场仓库 wevir-marketplace 的索引格式，与读取镜像的选择。
 // 本文件只依赖 zod：scripts/plugin-schema.ts 用 Node 直接加载它生成 schemas/wevir-market.schema.json。
 import { z } from 'zod';
 import {
   LocaleTagSchema,
   MarketCategoryIdSchema,
+  PluginExamplesSchema,
   PluginIdSchema,
   PluginInputSchema,
+  PluginUrlSchema,
   SemverSchema,
   WevirPluginManifestSchema,
 } from './plugins.js';
@@ -20,77 +22,141 @@ const repoPath = z
   .regex(/^(?!\.{1,2}(?:\/|$))[^/\\]+(?:\/(?!\.{1,2}(?:\/|$))[^/\\]+)*$/);
 const localized = z.record(LocaleTagSchema, z.string().min(1).max(128));
 
+/** `market.file` 一次能读的最大文件（0.94.0），同市场仓库单个文件的上限。 */
+export const MARKET_FILE_MAX_BYTES = 1024 * 1024;
+
 /** 条目类型，由 CI 按包内容推导：只有一个 skill 是 `skill`，只有连接器是 `mcp`，其余是 `plugin`。 */
 export const MarketEntryKindSchema = z.enum(['plugin', 'mcp', 'skill']);
 export type MarketEntryKind = z.infer<typeof MarketEntryKindSchema>;
-/** 信任级别：`official` 由 Wevir 维护，`community` 由社区投稿、经维护者审核。 */
-export const MarketTrustSchema = z.enum(['official', 'community']);
+/** 认证级别（0.93.0）：`official` 由 Wevir 维护，`verified` 经维护者审核并核实了发布者身份。 */
+export const MarketVerificationLevelSchema = z.enum(['official', 'verified']);
+export type MarketVerificationLevel = z.infer<typeof MarketVerificationLevelSchema>;
 
-export const MarketEntrySchema = z.strictObject({
-  id: PluginIdSchema,
-  kind: MarketEntryKindSchema,
-  /** 条目目录，如 `plugins/notion`、`skills/pdf`。 */
-  path: repoPath,
-  name: z.string().min(1).max(128),
-  version: SemverSchema,
-  description: z.string().max(1024).optional(),
-  i18n: WevirPluginManifestSchema.shape.i18n,
-  author: z.strictObject({ name: text, url: z.string().optional() }).optional(),
-  homepage: z.string().optional(),
-  license: z.string().max(128).optional(),
-  /** 仓库内路径。 */
-  icon: repoPath.optional(),
-  category: MarketCategoryIdSchema.optional(),
-  keywords: z.array(z.string()).optional(),
-  trust: MarketTrustSchema,
-  requires: WevirPluginManifestSchema.shape.requires,
-  /** 详情页与风险提示用，不必先下载包。 */
-  contents: z.strictObject({
-    connectors: z.array(
-      z.strictObject({
-        name: text,
-        transport: z.enum(['stdio', 'http']),
-        command: z.string().optional(),
-        args: z.array(z.string()).optional(),
-        url: z.string().optional(),
+type ObjectFactory = typeof z.strictObject | typeof z.object;
+
+/**
+ * 索引的条目、分类与推荐位。`z.strictObject` 给 CI 与 JSON Schema，拒绝未知字段；
+ * `z.object` 给客户端读取，丢掉未知字段，市场仓库以后加字段时旧客户端只是看不到。
+ */
+function marketSchemas(object: ObjectFactory) {
+  const i18nFields = WevirPluginManifestSchema.shape.i18n.unwrap().valueType.shape;
+  const verificationFields = {
+    /** 首次认证的年月，`YYYY-MM`。 */
+    since: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/),
+    /** 悬停卡片里多一行。 */
+    note: z.record(LocaleTagSchema, z.string().min(1).max(280)).optional(),
+  };
+  const entry = object({
+    id: PluginIdSchema,
+    kind: MarketEntryKindSchema,
+    /** 条目目录，如 `plugins/notion`、`skills/pdf`。 */
+    path: repoPath,
+    name: z.string().min(1).max(128),
+    version: SemverSchema,
+    description: z.string().max(1024).optional(),
+    /** 名称、描述与示例的多语言版本。 */
+    i18n: z.record(LocaleTagSchema, object(i18nFields)).optional(),
+    author: object({ name: text, url: z.string().optional() }).optional(),
+    homepage: z.string().optional(),
+    license: z.string().max(128).optional(),
+    /** 仓库内路径。 */
+    icon: repoPath.optional(),
+    /** 市场仓库的归类结果（0.93.0 起总是有）：仓库登记的、作者清单里建议的，都没有时是 `other`。 */
+    category: MarketCategoryIdSchema,
+    keywords: z.array(z.string()).optional(),
+    /** 上架时间（0.93.0）：条目目录在 `main` 上首次出现的提交时间。 */
+    listedAt: z.iso.datetime(),
+    /** 认证（0.93.0），由市场仓库登记，作者改不了；`verified` 必须写核实过的发布者。 */
+    verification: z
+      .discriminatedUnion('level', [
+        object({
+          level: z.literal('official'),
+          publisher: z.string().min(1).max(128).optional(),
+          ...verificationFields,
+        }),
+        object({ level: z.literal('verified'), publisher: text.max(128), ...verificationFields }),
+      ])
+      .optional(),
+    /** 搬自的外部项目（0.93.0），只给展示用，客户端不连。 */
+    upstream: object({
+      /** 仓库（带子目录时是 tree 链接）或包页面。 */
+      url: PluginUrlSchema,
+      /** 上游自己的版本。 */
+      version: z.string().min(1).max(64).optional(),
+      /** git 上游搬入的提交。 */
+      commit: commit.optional(),
+      /** SPDX。 */
+      license: z.string().min(1).max(128).optional(),
+    }).optional(),
+    /** 示例 prompt（0.93.0）。 */
+    examples: PluginExamplesSchema.optional(),
+    /** 隐私政策与服务条款（0.93.0），来自清单的 `privacyPolicy` 与 `termsOfService`。 */
+    links: object({
+      privacy: PluginUrlSchema.optional(),
+      terms: PluginUrlSchema.optional(),
+    }).optional(),
+    requires: object(WevirPluginManifestSchema.shape.requires.unwrap().shape).optional(),
+    /** 详情页与风险提示用，不必先下载包。 */
+    contents: object({
+      connectors: z.array(
+        object({
+          name: text,
+          transport: z.enum(['stdio', 'http']),
+          command: z.string().optional(),
+          args: z.array(z.string()).optional(),
+          url: z.string().optional(),
+        }),
+      ),
+      skills: z.array(object({ name: text, description: z.string() })),
+      inputs: z.array(object(PluginInputSchema.shape)),
+    }),
+    /** 条目目录下的全部文件，路径相对条目目录。 */
+    files: z.array(object({ path: repoPath, size: z.number().int().min(0), sha256 })).min(1),
+    /** `files` 按路径排序后，每行 `<sha256>  <path>\n` 拼起来的 sha256。 */
+    digest: sha256,
+    /** 最近的旧版本，新的在前。 */
+    history: z
+      .array(object({ version: SemverSchema, commit }))
+      .max(5)
+      .optional(),
+  });
+  /** `dist` 分支的 `index.json`；`index.json.sig` 是对它原始字节的 ed25519 签名（base64）。 */
+  const index = object({
+    $schema: z.string().optional(),
+    /** 只有不兼容的改动才升；客户端不认识的版本当作读取失败。 */
+    schemaVersion: z.literal(1),
+    name: z.string().min(1).max(128),
+    generatedAt: z.iso.datetime(),
+    /** 每次发布加一；客户端拒绝比缓存小的，防回滚。 */
+    sequence: z.number().int().min(1),
+    /** 条目文件按这个 `main` 提交读取。 */
+    commit,
+    categories: z.array(object({ id: MarketCategoryIdSchema, name: localized })),
+    featured: z.array(
+      object({
+        id: MarketCategoryIdSchema,
+        name: localized,
+        entries: z.array(PluginIdSchema),
       }),
     ),
-    skills: z.array(z.strictObject({ name: text, description: z.string() })),
-    inputs: z.array(PluginInputSchema),
-  }),
-  /** 条目目录下的全部文件，路径相对条目目录。 */
-  files: z.array(z.strictObject({ path: repoPath, size: z.number().int().min(0), sha256 })).min(1),
-  /** `files` 按路径排序后，每行 `<sha256>  <path>\n` 拼起来的 sha256。 */
-  digest: sha256,
-  /** 最近的旧版本，新的在前。 */
-  history: z
-    .array(z.strictObject({ version: SemverSchema, commit }))
-    .max(5)
-    .optional(),
-});
-export type MarketEntry = z.infer<typeof MarketEntrySchema>;
+    entries: z.array(entry),
+  });
+  return { entry, index };
+}
 
-/** `dist` 分支的 `index.json`；`index.json.sig` 是对它原始字节的 ed25519 签名（base64）。 */
-export const WevirMarketIndexSchema = z.strictObject({
-  $schema: z.string().optional(),
-  schemaVersion: z.literal(1),
-  name: z.string().min(1).max(128),
-  generatedAt: z.iso.datetime(),
-  /** 每次发布加一；客户端拒绝比缓存小的，防回滚。 */
-  sequence: z.number().int().min(1),
-  /** 条目文件按这个 `main` 提交读取。 */
-  commit,
-  categories: z.array(z.strictObject({ id: MarketCategoryIdSchema, name: localized })),
-  featured: z.array(
-    z.strictObject({
-      id: MarketCategoryIdSchema,
-      name: localized,
-      entries: z.array(PluginIdSchema),
-    }),
-  ),
-  entries: z.array(MarketEntrySchema),
-});
+const strict = marketSchemas(z.strictObject);
+const lenient = marketSchemas(z.object);
+
+/** 严格版本：CI 与生成的 JSON Schema 用，拒绝未知字段。 */
+export const MarketEntrySchema = strict.entry;
+export type MarketEntry = z.infer<typeof MarketEntrySchema>;
+export type MarketVerification = NonNullable<MarketEntry['verification']>;
+export type MarketUpstream = NonNullable<MarketEntry['upstream']>;
+export const WevirMarketIndexSchema = strict.index;
 export type WevirMarketIndex = z.infer<typeof WevirMarketIndexSchema>;
+/** 读取用的版本（0.93.0）：形状同上，但丢掉条目、分类、推荐位等各层的未知字段。Host 读索引与 `market.index` 的结果用它。 */
+export const MarketEntryLenientSchema = lenient.entry;
+export const WevirMarketIndexLenientSchema = lenient.index;
 
 /** 官方市场的镜像。 */
 export const MarketMirrorSchema = z.enum(['github', 'cnb', 'gitee']);
@@ -122,12 +188,25 @@ export const MarketMethodSchemas = {
   'market.index': {
     params: z.object({ refresh: z.boolean().optional() }),
     result: z.object({
-      index: WevirMarketIndexSchema,
+      index: WevirMarketIndexLenientSchema,
       /** 这份索引来自哪个镜像。 */
       mirror: MarketMirrorSchema,
       fetchedAt: z.iso.datetime(),
       /** 这次刷新失败的原因；索引是之前的缓存。 */
       error: z.string().optional(),
+    }),
+    permission: 'host.manage',
+  },
+  /**
+   * 条目目录里的一个文件（0.94.0，Host 功能 `market_files`）：详情页的 README、列表的图标。只认当前索引里这个条目 `files` 列出的
+   * 路径（相对条目目录），按索引的 `commit` 从镜像读，校验大小与 sha256 后按 `<commit>/<path>` 缓存；读不到或校验不符时换镜像。
+   * 条目或文件不在索引里、文件超过 `MARKET_FILE_MAX_BYTES` 时回 INVALID_PARAMS，三家都读不到时回 ENGINE_ERROR。
+   */
+  'market.file': {
+    params: z.object({ entry: PluginIdSchema, path: repoPath }),
+    result: z.object({
+      /** 文件的字节，base64。 */
+      data: z.string(),
     }),
     permission: 'host.manage',
   },

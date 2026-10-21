@@ -58,6 +58,8 @@ export const router = createHashRouter([
           // 插件页（0.42.0）：在工作台里，左栏照常。
           { path: ROUTE_PATTERNS.plugins, Component: PluginsRoute },
           { path: ROUTE_PATTERNS.pluginsTab, Component: PluginsRoute },
+          { path: ROUTE_PATTERNS.marketGroup, Component: PluginsRoute },
+          { path: ROUTE_PATTERNS.marketEntry, Component: PluginsRoute },
           // 使用统计（0.62.0）：同插件页，在工作台里。
           { path: ROUTE_PATTERNS.usage, Component: UsageRoute },
           // 自动化（0.66.0）：同插件页，在工作台里。

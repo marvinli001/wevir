@@ -18,6 +18,10 @@ export const ROUTE_PATTERNS = {
   /** 插件页（0.42.0，desktop-layout.md §23）：`/plugins` 转到默认分段，`/plugins/:tab` 是分段。 */
   plugins: '/plugins',
   pluginsTab: '/plugins/:tab',
+  /** 市场分段的一个分组的完整列表（plugin-market.md §9.1）。 */
+  marketGroup: '/plugins/market/group/:groupId',
+  /** 市场条目的详情（§9.2）：`source` 是市场源（现在只有 `official`），`entry` 是条目 ID。 */
+  marketEntry: '/plugins/market/:source/:entry',
   /** 使用统计（0.62.0）：每次模型请求的 token 与估算成本。 */
   usage: '/usage',
   /** 自动化（0.66.0）：列表与模板；`/automations/:automationId` 是一个自动化的详情。 */
@@ -61,8 +65,11 @@ export function isSettingsTab(value: string | undefined): value is SettingsTab {
   return (SETTINGS_TABS as readonly (string | undefined)[]).includes(value);
 }
 
-/** 插件页的各分段（0.42.0）；Host 没有 `plugin_packages` 时没有“插件”（plugins/plugins-model.ts 的 visibleTabs）。 */
-export const PLUGINS_TABS = ['plugins', 'connectors', 'skills'] as const;
+/**
+ * 插件页的各分段（0.42.0；“市场”见 plugin-market.md §9）；Host 没有 `plugin_market` 时没有“市场”，没有 `plugin_packages` 时没有
+ * “插件”（plugins/plugins-model.ts 的 visibleTabs）。
+ */
+export const PLUGINS_TABS = ['market', 'plugins', 'connectors', 'skills'] as const;
 export type PluginsTab = (typeof PLUGINS_TABS)[number];
 
 export function isPluginsTab(value: string | undefined): value is PluginsTab {
@@ -93,6 +100,9 @@ export const paths = {
   /** 不带分段是 `/plugins`，由路由转到默认分段（左栏的入口用它）。 */
   plugins: (tab?: PluginsTab): string =>
     tab === undefined ? ROUTE_PATTERNS.plugins : `${ROUTE_PATTERNS.plugins}/${tab}`,
+  marketGroup: (groupId: string): string => `/plugins/market/group/${segment(groupId)}`,
+  marketEntry: (source: string, entry: string): string =>
+    `/plugins/market/${segment(source)}/${segment(entry)}`,
   usage: (): string => ROUTE_PATTERNS.usage,
   automations: (): string => ROUTE_PATTERNS.automations,
   automation: (automationId: string): string =>

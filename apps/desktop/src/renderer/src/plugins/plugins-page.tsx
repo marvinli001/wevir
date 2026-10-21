@@ -1,12 +1,19 @@
-// 插件页（0.42.0，docs/architecture/desktop-layout.md §23、desktop-tokens.md §52）：主窗格里的一列，顶上是分段切换与“添加”，下面是
-// 当前分段的列表；整页是拖放区。数据是 `plugins.list`（use-plugins.ts），各组件经 PluginsContext 取用。
+// 插件页（0.42.0，docs/architecture/desktop-layout.md §23、desktop-tokens.md §52；市场分段见 plugin-market.md §9）：主窗格里的一列，
+// 顶行是页标题与右边的操作（市场分段的搜索、刷新、齿轮，各分段共用的“添加”下拉），下面是分段切换与当前分段；市场的分组列表与
+// 条目详情各占整页。整页是拖放区。数据是 `plugins.list`（use-plugins.ts）与 `market.index`（market/use-market.ts）。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { Connector, HostFeatures } from '@wevir/protocol';
-import { Plus } from 'lucide-react';
+import { ChevronDown, FileUp, Import, Server } from 'lucide-react';
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { chatsOf, projectsOf } from '@/data/workbench-model';
@@ -18,23 +25,42 @@ import { type Notice, NoticeBanner, Segmented } from '@/settings/settings-ui';
 import { AddDialog, type AddRequest } from './add-dialog';
 import { ConnectorDialog, type ConnectorDialogRequest } from './connector-dialog';
 import { ConnectorList } from './connector-list';
+import { rememberPluginsTab } from './last-tab';
+import { MarketEntryPage } from './market/market-entry-page';
+import { MarketGroupPage, MarketHome, MarketToolbar } from './market/market-tab';
+import { useMarket, useMarketSource } from './market/use-market';
 import { PluginList } from './plugin-list';
 import { PluginsContext, type PluginsContextValue } from './plugins-context';
 import { pluginsById, visibleTabs } from './plugins-model';
 import { SkillList } from './skill-list';
 import { usePlugins } from './use-plugins';
 
+/** 市场分段里占整页的视图：一个分组的完整列表，或一个条目的详情。 */
+export type MarketView =
+  | { kind: 'group'; groupId: string }
+  | { kind: 'entry'; source: string; entry: string };
+
 export function PluginsPage({
   tab,
+  market,
   client,
   features,
 }: {
   tab: PluginsTab;
+  market?: MarketView;
   client: WevirClient;
   features: HostFeatures;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const data = usePlugins();
+  const marketSource = useMarketSource(client);
+  const marketData = useMarket(tab === 'market' ? marketSource : undefined);
+  // 搜索词放在地址里（`?q=`），进详情再返回时还在。
+  const [search, setSearch] = useSearchParams();
+  const query = search.get('q') ?? '';
+  const setQuery = (next: string) =>
+    setSearch(next === '' ? {} : { q: next }, { replace: true, preventScrollReset: true });
   const workbench = useWorkbenchData();
   const scoped = hostSupports(features, 'external_import');
   const workspaces = useMemo(() => {
@@ -54,9 +80,11 @@ export function PluginsPage({
   const requests = useRef(0);
   const state = data.state;
 
-  // 换分段时收起上一个分段的结果通知。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在换分段时触发。
-  useEffect(() => setNotice(undefined), [tab]);
+  // 换分段时收起上一个分段的结果通知，并记下分段（左栏的入口下次沿用它）。
+  useEffect(() => {
+    setNotice(undefined);
+    rememberPluginsTab(tab);
+  }, [tab]);
 
   const run = useCallback<PluginsContextValue['run']>((id, task, failure) => {
     setBusy((current) => new Set(current).add(id));
@@ -98,7 +126,6 @@ export function PluginsPage({
     setNotice(undefined);
     setAdd({ id: ++requests.current, ...init });
   };
-  const onAddClick = () => (tab === 'connectors' ? setConnector({ kind: 'add' }) : openAdd());
 
   // 拖放：拖进文件夹、.zip 或 SKILL.md 等于点“添加”选了它，只认一项；对话框开着时不再接。
   const acceptsDrop = context !== undefined && add === null && connector === null;
@@ -126,6 +153,16 @@ export function PluginsPage({
   const tabs = visibleTabs(features);
   const expand = (id: string | undefined) => setExpanded((current) => ({ ...current, [tab]: id }));
 
+  const lists = context && (
+    <PluginsContext value={context}>
+      {tab === 'plugins' && <PluginList expanded={expanded.plugins} onExpand={expand} />}
+      {tab === 'connectors' && <ConnectorList expanded={expanded.connectors} onExpand={expand} />}
+      {tab === 'skills' && <SkillList expanded={expanded.skills} onExpand={expand} />}
+      <AddDialog request={add} packages={tabs.includes('plugins')} onClose={() => setAdd(null)} />
+      <ConnectorDialog request={connector} onClose={() => setConnector(null)} />
+    </PluginsContext>
+  );
+
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 拖放只是“添加”按钮的快捷方式，键盘与读屏走按钮。
     <div
@@ -136,52 +173,102 @@ export function PluginsPage({
       onDrop={onDrop}
       data-testid="plugins-page"
       data-tab={tab}
+      data-market-view={market?.kind}
     >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-180 px-5 pt-6 pb-16 sm:px-10">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <Segmented<PluginsTab>
-              label={t('plugins.tabs')}
-              value={tab}
-              onChange={(next) => navigate(paths.plugins(next), { replace: true })}
-              options={tabs.map((value) => ({ value, label: t(`plugins.tab.${value}`) }))}
-            />
-            <Button onClick={onAddClick} disabled={context === undefined} data-action="add">
-              <Plus data-icon="inline-start" />
-              {t('plugins.add')}
-            </Button>
-          </div>
-          {notice && (
+        <div className="mx-auto w-full max-w-240 px-5 pt-6 pb-16 sm:px-10">
+          {notice && market !== undefined && (
             <div className="mb-4" data-testid="plugins-notice">
               <NoticeBanner notice={notice} />
             </div>
           )}
-          {state.status === 'loading' && (
-            <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          {market?.kind === 'group' && (
+            <MarketGroupPage data={marketData} source={marketSource} groupId={market.groupId} />
           )}
-          {state.status === 'error' && (
-            <NoticeBanner
-              notice={{
-                tone: 'error',
-                text: t('plugins.loadFailed', { error: describe(state.error) }),
-              }}
+          {market?.kind === 'entry' && (
+            <MarketEntryPage
+              data={marketData}
+              source={marketSource}
+              sourceId={market.source}
+              entryId={market.entry}
+              onCopied={() => setNotice({ tone: 'success', text: t('plugins.market.copied') })}
             />
           )}
-          {context && (
-            <PluginsContext value={context}>
-              {tab === 'plugins' && <PluginList expanded={expanded.plugins} onExpand={expand} />}
-              {tab === 'connectors' && (
-                <ConnectorList expanded={expanded.connectors} onExpand={expand} />
+          {market === undefined && (
+            <>
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <h1 className="text-xl font-semibold">{t('plugins.title')}</h1>
+                <div className="flex min-w-0 items-center gap-2">
+                  {tab === 'market' && (
+                    <MarketToolbar data={marketData} query={query} onQuery={setQuery} />
+                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button disabled={context === undefined} data-action="add">
+                          {t('plugins.add')}
+                          <ChevronDown data-icon="inline-end" />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuItem onClick={() => openAdd()} data-action="add-file">
+                        <FileUp />
+                        {t('plugins.add.fromFile')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setConnector({ kind: 'add' })}
+                        data-action="add-connector"
+                      >
+                        <Server />
+                        {t('plugins.add.connector')}
+                      </DropdownMenuItem>
+                      {scoped && (
+                        <DropdownMenuItem
+                          onClick={() =>
+                            navigate(paths.settings('import'), { state: { from: location } })
+                          }
+                          data-action="add-import"
+                        >
+                          <Import />
+                          {t('plugins.add.import')}
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+              <div className="mb-5">
+                <Segmented<PluginsTab>
+                  label={t('plugins.tabs')}
+                  value={tab}
+                  onChange={(next) => navigate(paths.plugins(next), { replace: true })}
+                  options={tabs.map((value) => ({ value, label: t(`plugins.tab.${value}`) }))}
+                />
+              </div>
+              {notice && (
+                <div className="mb-4" data-testid="plugins-notice">
+                  <NoticeBanner notice={notice} />
+                </div>
               )}
-              {tab === 'skills' && <SkillList expanded={expanded.skills} onExpand={expand} />}
-              <AddDialog
-                request={add}
-                packages={tabs.includes('plugins')}
-                onClose={() => setAdd(null)}
-              />
-              <ConnectorDialog request={connector} onClose={() => setConnector(null)} />
-            </PluginsContext>
+              {tab === 'market' && (
+                <MarketHome data={marketData} source={marketSource} query={query} />
+              )}
+              {tab !== 'market' && state.status === 'loading' && (
+                <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+              )}
+              {tab !== 'market' && state.status === 'error' && (
+                <NoticeBanner
+                  notice={{
+                    tone: 'error',
+                    text: t('plugins.loadFailed', { error: describe(state.error) }),
+                  }}
+                />
+              )}
+            </>
           )}
+          {/* 列表只在三个已安装分段里画；两个对话框在市场里也要（“添加”下拉）。 */}
+          {lists}
         </div>
       </ScrollArea>
       {dragging && (

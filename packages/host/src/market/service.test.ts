@@ -1,5 +1,5 @@
-// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存。
-import { generateKeyPairSync, sign } from 'node:crypto';
+// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存；0.93.0 起读索引时丢掉未知字段；0.94.0 读条目文件。
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MarketMirror, MarketMirrorPreference, WevirMarketIndex } from '@wevir/protocol';
@@ -27,7 +27,8 @@ interface Served {
   /** 毫秒；省略立即回答。 */
   delay?: number;
   status?: number;
-  index?: WevirMarketIndex;
+  /** 不一定合乎当前的 schema：市场仓库可能比客户端新。 */
+  index?: unknown;
   /** 用别的私钥签名。 */
   forged?: boolean;
 }
@@ -57,6 +58,22 @@ function mirrors(served: Partial<Record<MarketMirror, Served>>) {
     },
   };
 }
+
+/** 比客户端新的市场仓库生成的条目：各层多出几个字段。 */
+const futureEntry = {
+  id: 'notes',
+  kind: 'plugin',
+  path: 'plugins/notes',
+  name: 'Notes',
+  version: '1.0.0',
+  category: 'productivity',
+  listedAt: '2026-10-21T08:00:00Z',
+  verification: { level: 'verified', publisher: 'Acme', since: '2026-10', badge: 'gold' },
+  rating: 4.5,
+  contents: { connectors: [], skills: [], inputs: [], apps: [] },
+  files: [{ path: 'wevir-plugin.json', size: 10, sha256: 'b'.repeat(64) }],
+  digest: 'c'.repeat(64),
+};
 
 describe('MarketService', () => {
   const temp = useTempDir();
@@ -153,6 +170,39 @@ describe('MarketService', () => {
     await expect(empty.index()).rejects.toBeInstanceOf(HostError);
   });
 
+  it('索引里不认识的字段丢掉，不拒收整份索引', async () => {
+    const index = {
+      ...indexOf(2),
+      layout: 'grid',
+      categories: [{ id: 'productivity', name: { en: 'Productivity' }, icon: 'x.svg' }],
+      entries: [futureEntry],
+    };
+    const result = await service(mirrors({ github: { index } }).options, () => 'github').index();
+    expect(result.mirror).toBe('github');
+    expect(result.index).not.toHaveProperty('layout');
+    expect(result.index.categories[0]).not.toHaveProperty('icon');
+    const [entry] = result.index.entries;
+    expect(entry).not.toHaveProperty('rating');
+    expect(entry?.verification).toEqual({ level: 'verified', publisher: 'Acme', since: '2026-10' });
+    expect(entry?.contents).not.toHaveProperty('apps');
+  });
+
+  it('不认识的 schemaVersion 当作读取失败：换镜像，都不行就回缓存', async () => {
+    const v2 = { ...indexOf(9), schemaVersion: 2 };
+    const fallback = await service(
+      mirrors({ github: { index: v2 }, cnb: { index: indexOf(3) } }).options,
+      () => 'github',
+    ).index();
+    expect(fallback).toMatchObject({ mirror: 'cnb', index: { sequence: 3 } });
+
+    const cached = await service(
+      mirrors({ github: { index: v2 }, cnb: { index: v2 }, gitee: { index: v2 } }).options,
+      () => 'github',
+    ).index(true);
+    expect(cached.index.sequence).toBe(3);
+    expect(cached.error).toMatch(/unsupported index schemaVersion: 2/);
+  });
+
   it('从手动改回自动时忘掉之前测出的镜像', async () => {
     let preference: MarketMirrorPreference = 'auto';
     const served = mirrors({ github: {}, cnb: { delay: 50 }, gitee: { delay: 50 } });
@@ -165,5 +215,85 @@ describe('MarketService', () => {
     await market.preferenceChanged();
     const state = JSON.parse(readFileSync(join(temp(), 'market', 'state.json'), 'utf8'));
     expect(state.mirror).toBeUndefined();
+  });
+});
+
+describe('MarketService.file（0.94.0）', () => {
+  const temp = useTempDir();
+  const readme = Buffer.from('# Notes\n');
+  const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  const index: WevirMarketIndex = {
+    ...indexOf(1),
+    entries: [
+      {
+        ...(futureEntry as unknown as WevirMarketIndex['entries'][number]),
+        files: [
+          { path: 'README.md', size: readme.length, sha256: sha(readme) },
+          { path: 'big.bin', size: 2 * 1024 * 1024, sha256: 'd'.repeat(64) },
+        ],
+      },
+    ],
+  };
+
+  /** 镜像上的条目文件：`files` 是 `<镜像>` → 内容；索引照常签名。 */
+  function serve(files: Partial<Record<MarketMirror, Buffer>>, dir = 'market') {
+    const base = mirrors({ github: { index }, cnb: { index }, gitee: { index } });
+    const requests: string[] = [];
+    const fake = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.startsWith('/dist/')) return base.options.fetch(input);
+      requests.push(`${url.host}${url.pathname}`);
+      const body = files[url.host as MarketMirror];
+      return body === undefined
+        ? new Response('no', { status: 404 })
+        : new Response(new Uint8Array(body));
+    }) as typeof fetch;
+    const market = new MarketService({
+      dir: join(temp(), dir),
+      preference: () => 'github',
+      ...base.options,
+      fetch: fake,
+    });
+    return { market, requests };
+  }
+
+  it('按索引的提交读条目目录下的文件，校验后缓存，第二次不再请求', async () => {
+    const { market, requests } = serve({ github: readme });
+    const result = await market.file('notes', 'README.md');
+    expect(Buffer.from(result.data, 'base64').toString()).toBe('# Notes\n');
+    expect(requests).toEqual([`github/${'a'.repeat(40)}/plugins/notes/README.md`]);
+    expect(
+      readFileSync(
+        join(temp(), 'market', 'files', 'a'.repeat(40), 'plugins', 'notes', 'README.md'),
+        'utf8',
+      ),
+    ).toBe('# Notes\n');
+    await market.file('notes', 'README.md');
+    expect(requests).toHaveLength(1);
+  });
+
+  it('sha256 不符或读不到时换镜像；都不行回 ENGINE_ERROR', async () => {
+    const tampered = serve({ github: Buffer.from('# Evil!\n'), cnb: readme });
+    const result = await tampered.market.file('notes', 'README.md');
+    expect(Buffer.from(result.data, 'base64').toString()).toBe('# Notes\n');
+    expect(tampered.requests.map((request) => request.split('/')[0])).toEqual(['github', 'cnb']);
+
+    const { market } = serve({ github: Buffer.from('# Evil!\n') }, 'other');
+    const error = await market.file('notes', 'README.md').catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(HostError);
+    expect((error as HostError).code).toBe('ENGINE_ERROR');
+  });
+
+  it('条目或路径不在索引里、文件太大时回 INVALID_PARAMS，不请求镜像', async () => {
+    const { market, requests } = serve({ github: readme });
+    for (const [entry, path] of [
+      ['missing', 'README.md'],
+      ['notes', 'SKILL.md'],
+      ['notes', 'big.bin'],
+    ] as const) {
+      const error = await market.file(entry, path).catch((reason: unknown) => reason);
+      expect((error as HostError).code).toBe('INVALID_PARAMS');
+    }
+    expect(requests).toEqual([]);
   });
 });

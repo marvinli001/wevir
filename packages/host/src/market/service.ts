@@ -1,14 +1,15 @@
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
+  MARKET_FILE_MAX_BYTES,
   type MarketMirror,
   type MarketMirrorPreference,
   MarketMirrorSchema,
   type MarketStatus,
   type MethodResult,
   type WevirMarketIndex,
-  WevirMarketIndexSchema,
+  WevirMarketIndexLenientSchema,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
 
@@ -34,6 +35,8 @@ const PROBE_TIMEOUT_MS = 5_000;
 const FETCH_TIMEOUT_MS = 20_000;
 const INDEX_MAX_BYTES = 8 * 1024 * 1024;
 const SIGNATURE_MAX_BYTES = 1024;
+/** `market.file` 同时读镜像的个数（列表一次要几十个图标）。 */
+const FILE_CONCURRENCY = 6;
 /** `market.index` 不带 `refresh` 时，缓存在这么久之内直接用。 */
 export const MARKET_INDEX_MAX_AGE_MS = 60 * 60 * 1000;
 
@@ -76,6 +79,9 @@ export class MarketService {
   #probing: Promise<MarketMirror | undefined> | undefined;
   #refreshing: Promise<MethodResult<'market.index'>> | undefined;
   #lastPreference: MarketMirrorPreference;
+  /** `market.file` 正在读的个数与排队的。 */
+  #fileSlots = 0;
+  readonly #fileQueue: (() => void)[] = [];
 
   constructor(options: MarketServiceOptions) {
     this.#options = options;
@@ -123,6 +129,81 @@ export class MarketService {
       this.#refreshing = undefined;
     });
     return this.#refreshing;
+  }
+
+  /**
+   * 条目目录里的一个文件（0.94.0）：只认当前索引里这个条目 `files` 列出的路径，按索引的 `commit` 读，校验大小与 sha256。
+   * 缓存在 `files/<commit>/<条目目录>/<path>`，用之前同样校验；从索引来自的镜像读起，失败换另外两家。
+   */
+  async file(entryId: string, path: string): Promise<MethodResult<'market.file'>> {
+    const index = (await this.#loadIndex()) ?? (await this.index()).index;
+    const entry = index.entries.find((item) => item.id === entryId);
+    if (entry === undefined) {
+      throw new HostError('INVALID_PARAMS', `no market entry ${entryId}`, {
+        issues: [{ path: ['entry'], message: 'not in the market index' }],
+      });
+    }
+    const file = entry.files.find((item) => item.path === path);
+    if (file === undefined || file.size > MARKET_FILE_MAX_BYTES) {
+      const message = file === undefined ? 'not a file of this entry' : 'file too large';
+      throw new HostError('INVALID_PARAMS', `${entryId}/${path}: ${message}`, {
+        issues: [{ path: ['path'], message }],
+      });
+    }
+    const repoPath = `${entry.path}/${file.path}`;
+    const cached = join(this.#options.dir, 'files', index.commit, ...repoPath.split('/'));
+    const matches = (bytes: Buffer) =>
+      bytes.length === file.size &&
+      createHash('sha256').update(bytes).digest('hex') === file.sha256;
+    try {
+      const bytes = await readFile(cached);
+      if (matches(bytes)) return { data: bytes.toString('base64') };
+    } catch {}
+
+    await this.#acquireFileSlot();
+    try {
+      const first = (await this.#loadState()).indexMirror;
+      const order = [
+        ...(first === undefined ? [] : [first]),
+        ...MIRRORS.filter((m) => m !== first),
+      ];
+      const failures: string[] = [];
+      for (const mirror of order) {
+        try {
+          const bytes = await this.#get(this.#mirrors[mirror](index.commit, repoPath), {
+            maxBytes: file.size,
+            timeoutMs: FETCH_TIMEOUT_MS,
+          });
+          if (!matches(bytes)) throw new Error('sha256 does not match the index');
+          await mkdir(dirname(cached), { recursive: true, mode: 0o700 });
+          const tmp = `${cached}.${process.pid}.tmp`;
+          await writeFile(tmp, bytes, { mode: 0o600 });
+          await rename(tmp, cached);
+          return { data: bytes.toString('base64') };
+        } catch (error) {
+          failures.push(`${mirror}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      const message = `could not read ${repoPath} from the plugin market: ${failures.join('; ')}`;
+      throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
+    } finally {
+      this.#releaseFileSlot();
+    }
+  }
+
+  async #acquireFileSlot(): Promise<void> {
+    if (this.#fileSlots < FILE_CONCURRENCY) {
+      this.#fileSlots++;
+      return;
+    }
+    await new Promise<void>((resolve) => this.#fileQueue.push(resolve));
+  }
+
+  /** 把名额直接交给排队的下一个，没有排队的才归还。 */
+  #releaseFileSlot(): void {
+    const next = this.#fileQueue.shift();
+    if (next === undefined) this.#fileSlots--;
+    else next();
   }
 
   async #refresh(): Promise<MethodResult<'market.index'>> {
@@ -205,10 +286,7 @@ export class MarketService {
     ]);
     const signature = signatureBytes.toString('utf8').trim();
     if (!this.#verify(bytes, signature)) throw new Error('signature does not match');
-    const parsed = WevirMarketIndexSchema.safeParse(JSON.parse(bytes.toString('utf8')));
-    if (!parsed.success)
-      throw new Error(`index does not match its schema: ${parsed.error.message}`);
-    return { index: parsed.data, bytes, signature };
+    return { index: parseIndex(bytes), bytes, signature };
   }
 
   #verify(bytes: Buffer, signature: string): boolean {
@@ -268,8 +346,7 @@ export class MarketService {
         readFile(join(this.#options.dir, 'index.json.sig'), 'utf8'),
       ]);
       if (!this.#verify(bytes, signature.trim())) return undefined;
-      const parsed = WevirMarketIndexSchema.safeParse(JSON.parse(bytes.toString('utf8')));
-      if (parsed.success) this.#index = parsed.data;
+      this.#index = parseIndex(bytes);
     } catch {}
     return this.#index;
   }
@@ -286,4 +363,17 @@ export class MarketService {
     await writeFile(tmp, data, { mode: 0o600 });
     await rename(tmp, file);
   }
+}
+
+/**
+ * 读索引时丢掉不认识的字段（市场仓库以后加字段，这里只是看不到），已知字段仍按 schema 检查。
+ * 不认识的 `schemaVersion` 是不兼容的格式，当作读取失败：换镜像，都不行就回缓存。
+ */
+function parseIndex(bytes: Buffer): WevirMarketIndex {
+  const raw: unknown = JSON.parse(bytes.toString('utf8'));
+  const version = (raw as { schemaVersion?: unknown } | null)?.schemaVersion;
+  if (version !== 1) throw new Error(`unsupported index schemaVersion: ${JSON.stringify(version)}`);
+  const parsed = WevirMarketIndexLenientSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(`index does not match its schema: ${parsed.error.message}`);
+  return parsed.data;
 }
