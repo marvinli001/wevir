@@ -12,11 +12,14 @@ import { dirname, join, relative, sep } from 'node:path';
 import {
   type ApprovalRule,
   type Connector,
+  type Guardrail,
+  type GuardrailRule,
   isOutputStyle,
   PROFILE_LAYERS,
   type ProfileItem,
   type ProfileLayer,
   type ProfileLayerKey,
+  type RepoHook,
   type Skill,
 } from '@wevir/protocol';
 import type { MemoryNote, MemorySummary } from '../memory.js';
@@ -64,6 +67,10 @@ export interface ProfileSources {
   rolesDir?: string;
   /** 对这个范围有效的审批规则（全局的，与项目的）。 */
   approvalRules?: (workspaceId: string | undefined) => ApprovalRule[];
+  /** 对这个范围有效的护栏规则（全局的，与项目的；0.86.0）。 */
+  guardrails?: (workspaceId: string | undefined) => Guardrail[];
+  /** 项目里检测到的仓库 hooks 与启用状态（读不出时空）。 */
+  repoHooks?: (workspaceId: string) => RepoHook[];
   /** 连接器的脱敏视图（plugins.ts 的 `connectors`）。 */
   connectors?: () => Connector[];
   plugins?: () => { id: string; name: string; version: string; enabled: boolean }[];
@@ -146,6 +153,19 @@ export function canonicalJson(value: unknown): string {
       ),
     );
   });
+}
+
+/** 护栏规则的参数摘要：命令模式、glob 或检查命令。 */
+export function guardrailSummary(rule: GuardrailRule): string {
+  switch (rule.kind) {
+    case 'forbidden_command':
+      return rule.pattern;
+    case 'protected_path':
+      return rule.glob;
+    case 'stop_check':
+    case 'commit_check':
+      return rule.command;
+  }
 }
 
 /** 采集档案。`known(hash)` 为 true 的文本不再交出（已经存过）。 */
@@ -371,12 +391,38 @@ export class ProfileCollector {
     return items;
   }
 
-  /** 护栏：现在只有审批规则（`approval:` 开头的 id）；使用次数不进散列。 */
+  /**
+   * 护栏：启用的护栏规则（`guardrail:` 开头）、启用且内容没变的仓库 hooks（`repoHook:`）与审批规则（`approval:`）。命中与使用次数、
+   * 规则名不进散列；停用的规则与没启用的仓库 hooks 不交给引擎，不算。
+   */
   #guardrails({ scope }: LayerContext): ProfileItem[] {
-    const rules = this.#sources.approvalRules?.(scope.workspaceId) ?? [];
-    const seen = new Set<string>();
     const items: ProfileItem[] = [];
-    for (const rule of rules) {
+    for (const guardrail of this.#sources.guardrails?.(scope.workspaceId) ?? []) {
+      if (!guardrail.enabled) continue;
+      const ruleScope = guardrail.workspaceId === undefined ? 'global' : 'project';
+      items.push({
+        id: `guardrail:${ruleScope}:${guardrail.id}`,
+        label: guardrail.name ?? guardrailSummary(guardrail.rule),
+        scope: ruleScope,
+        hash: sha256(canonicalJson(guardrail.rule)),
+        detail: guardrail.rule.kind,
+      });
+    }
+    if (scope.workspaceId !== undefined) {
+      for (const hook of this.#sources.repoHooks?.(scope.workspaceId) ?? []) {
+        if (hook.status !== 'enabled') continue;
+        items.push({
+          id: `repoHook:${hook.id}`,
+          label: [hook.file, hook.event, hook.command].filter(Boolean).join(' · '),
+          scope: 'project',
+          hash: sha256(hook.hash),
+          ...(scope.rootPath !== undefined && { path: join(scope.rootPath, hook.file) }),
+          detail: 'repoHook',
+        });
+      }
+    }
+    const seen = new Set<string>();
+    for (const rule of this.#sources.approvalRules?.(scope.workspaceId) ?? []) {
       const ruleScope = rule.workspaceId === undefined ? 'global' : 'project';
       const id = `approval:${ruleScope}:${rule.kind}:${JSON.stringify(rule.prefix)}`;
       if (seen.has(id)) continue;

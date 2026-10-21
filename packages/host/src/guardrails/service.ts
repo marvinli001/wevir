@@ -46,7 +46,11 @@ interface ScopeFile {
   repoHooks: Record<string, { hash: string; enabledAt: string }>;
 }
 
-type ChangeListener = (change: NotificationParams<'guardrail.changed'>) => void;
+/** `hitsOnly`：只是命中计数变了（规则与启用都没变，档案不受影响）。 */
+type ChangeListener = (
+  change: NotificationParams<'guardrail.changed'>,
+  meta: { hitsOnly: boolean },
+) => void;
 
 export interface GuardrailServiceOptions {
   checker: GuardrailChecker;
@@ -310,7 +314,7 @@ export class GuardrailService {
       if (bump) next.revision += 1;
       await this.#write(scope, next);
       this.#files.set(scope, next);
-      this.#emit(scope);
+      this.#emit(scope, !bump);
       return result;
     };
     const result = this.#tail.then(task);
@@ -321,11 +325,11 @@ export class GuardrailService {
     return result;
   }
 
-  #emit(scope: Scope): void {
+  #emit(scope: Scope, hitsOnly: boolean): void {
     const change = scope === 'global' ? {} : { workspaceId: scope };
     for (const listener of this.#listeners) {
       try {
-        listener(change);
+        listener(change, { hitsOnly });
       } catch (error) {
         this.#warn('guardrail listener failed', { error: errorText(error) });
       }

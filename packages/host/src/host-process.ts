@@ -397,6 +397,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           workspaceId === undefined
             ? ruleService.list().filter((rule) => rule.workspaceId === undefined)
             : ruleService.list(workspaceId),
+        // 护栏在下面才建好；采集总在之后。
+        guardrails: (workspaceId) => guardrails?.list(workspaceId as WorkspaceId | undefined) ?? [],
+        repoHooks: (workspaceId) => {
+          try {
+            return guardrails?.repoHooks(workspaceId as WorkspaceId).hooks ?? [];
+          } catch {
+            return [];
+          }
+        },
         connectors: () => plugins.connectors(),
         plugins: () => plugins.pluginVersions(),
       }),
@@ -421,6 +430,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           : workspace.rootPath;
       },
       onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    // 规则与仓库 hooks 的启用进档案；只是命中计数变了不算。
+    guardrails.watch((change, { hitsOnly }) => {
+      if (!hitsOnly) tuning.changed(change.workspaceId);
     });
     const manager = new SessionManager({
       storage,

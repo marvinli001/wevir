@@ -102,11 +102,14 @@ describe('GuardrailService', () => {
     );
   });
 
-  it('命中计数不改版本；规则已删时不记', async () => {
+  it('命中计数不改版本、通知标明只是计数；规则已删时不记', async () => {
     const { service } = setup();
+    const metas: { hitsOnly: boolean }[] = [];
+    service.watch((_change, meta) => metas.push(meta));
     const g = await service.add({ rule: { kind: 'protected_path', glob: '.env' } });
     await service.recordHit(g.id);
     await service.recordHit(g.id);
+    expect(metas).toEqual([{ hitsOnly: false }, { hitsOnly: true }, { hitsOnly: true }]);
     expect(service.list()[0]).toMatchObject({
       hits: 2,
       revision: 1,

@@ -24,6 +24,7 @@ import { providerLogo } from '@/settings/provider-catalog';
 import { CopyButton } from './copy-button';
 import { FindingsCard } from './findings-card';
 import { formatMessageTime } from './format';
+import { GuardrailPart } from './guardrail-part';
 import { HandoffDetailDialog } from './handoff-detail';
 import { type HandoffNoticeOf, modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
@@ -442,6 +443,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <OpinionCard part={part} />;
     case 'findings':
       return <FindingsCard part={part} />;
+    case 'guardrail':
+      return <GuardrailPart part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
     case 'reasoning':
     case 'tool':

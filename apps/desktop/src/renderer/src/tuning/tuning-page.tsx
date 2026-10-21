@@ -2,7 +2,7 @@
 // 当前版本一行（有待生效的改动时多一行与“对比”）、八层（展开看条目与打开、管理入口）、版本列表（展开看与前一版的变化和用它的
 // 会话）与两版对比。数据是 `tuning.*`（use-tuning.ts）。
 
-import type { WevirClient } from '@wevir/client-sdk';
+import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type {
   HostFeatures,
   MethodResult,
@@ -25,6 +25,7 @@ import { DetailSection, ExpandableRow } from '@/plugins/plugin-rows';
 import { paths, type TuningTab } from '@/routes/paths';
 import { EmptyList, LIST_CARD, NoticeBanner, Segmented } from '@/settings/settings-ui';
 import { canOpenExternally } from '../../../shared/open-path.js';
+import { GuardrailsLayerRow } from './guardrails-layer';
 import { ProfileDiffList } from './profile-diff';
 import {
   changesSummary,
@@ -165,16 +166,30 @@ export function TuningPage({
                     setComparison({ from: current.latest.id, to: 'current' })
                   }
                 />
-                {knownLayers(current.profile.layers).map((layer) => (
-                  <LayerRow
-                    key={layer.key}
-                    layer={layer}
-                    expanded={expandedLayer === layer.key}
-                    onToggle={() =>
-                      setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
-                    }
-                  />
-                ))}
+                {knownLayers(current.profile.layers).map((layer) =>
+                  layer.key === 'guardrails' && hostSupports(features, 'tuning_guardrails') ? (
+                    <GuardrailsLayerRow
+                      key={layer.key}
+                      client={client}
+                      layer={layer}
+                      workspaceId={scopeWorkspaceId(scope)}
+                      expanded={expandedLayer === layer.key}
+                      onToggle={() =>
+                        setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
+                      }
+                      onExpand={() => setExpandedLayer(layer.key)}
+                    />
+                  ) : (
+                    <LayerRow
+                      key={layer.key}
+                      layer={layer}
+                      expanded={expandedLayer === layer.key}
+                      onToggle={() =>
+                        setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
+                      }
+                    />
+                  ),
+                )}
               </ul>
 
               <div className="mt-8 mb-2 flex items-center justify-between gap-3">

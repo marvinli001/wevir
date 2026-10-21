@@ -1,6 +1,6 @@
 import { mkdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ApprovalRule, Connector, Skill } from '@wevir/protocol';
+import type { ApprovalRule, Connector, Guardrail, RepoHook, Skill } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { discoverRuleFiles } from '../rule-files.js';
 import { useTempDir } from '../test-utils.js';
@@ -199,6 +199,82 @@ describe('档案采集', () => {
       'instructions',
       'skills',
     ]);
+  });
+
+  it('护栏层：启用的护栏规则与启用、内容没变的仓库 hooks，命中次数与规则名不进散列', async () => {
+    const guardrail = (id: string, patch: Partial<Guardrail>): Guardrail => ({
+      id: id as Guardrail['id'],
+      rule: { kind: 'forbidden_command', match: 'prefix', pattern: 'rm -rf' },
+      enabled: true,
+      revision: 1,
+      createdAt: '2026-10-21T00:00:00.000Z',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+      hits: 0,
+      ...patch,
+    });
+    const hook = (id: string, status: string): RepoHook => ({
+      id,
+      file: '.codex/hooks.json',
+      event: 'PreToolUse',
+      handler: 'command',
+      command: `./scripts/${id}.sh`,
+      hash: `sha256:${id}`,
+      status,
+    });
+    const guardrails: Guardrail[] = [
+      guardrail('grd_1', {}),
+      guardrail('grd_2', {
+        workspaceId: 'ws_1' as Guardrail['workspaceId'],
+        rule: { kind: 'stop_check', command: 'pnpm test' },
+      }),
+      guardrail('grd_3', { enabled: false, rule: { kind: 'protected_path', glob: '.env' } }),
+    ];
+    const hooks = [hook('a', 'enabled'), hook('b', 'disabled'), hook('c', 'changed')];
+    const env = setup({ guardrails: () => guardrails, repoHooks: () => hooks });
+    const profile = await env.collector.collect(env.scope);
+    expect(layer(profile, 'guardrails')?.items).toEqual([
+      expect.objectContaining({
+        id: 'guardrail:global:grd_1',
+        label: 'rm -rf',
+        scope: 'global',
+        detail: 'forbidden_command',
+      }),
+      expect.objectContaining({
+        id: 'guardrail:project:grd_2',
+        label: 'pnpm test',
+        scope: 'project',
+        detail: 'stop_check',
+      }),
+      expect.objectContaining({
+        id: 'repoHook:a',
+        label: '.codex/hooks.json · PreToolUse · ./scripts/a.sh',
+        scope: 'project',
+        path: join(env.project, '.codex/hooks.json'),
+        detail: 'repoHook',
+      }),
+      expect.objectContaining({ id: expect.stringMatching(/^approval:/), detail: 'approval' }),
+    ]);
+    const hash = { hash: profile.layers.find((item) => item.key === 'guardrails')?.hash };
+    // 命中与改名不改散列；停用、改规则、启用仓库 hook 都改。
+    guardrails[0] = { ...(guardrails[0] as Guardrail), hits: 7, name: 'no rm' };
+    const renamed = await env.collector.collect(env.scope);
+    expect(layer(renamed, 'guardrails')).toMatchObject({ hash: hash.hash });
+    expect(layer(renamed, 'guardrails')?.items[0]).toMatchObject({ label: 'no rm' });
+    guardrails[0] = { ...(guardrails[0] as Guardrail), enabled: false };
+    const disabled = await env.collector.collect(env.scope);
+    expect(layer(disabled, 'guardrails')).not.toMatchObject({ hash: hash.hash });
+    hooks[1] = hook('b', 'enabled');
+    const enabled = await env.collector.collect(env.scope);
+    expect(
+      layer(enabled, 'guardrails')?.items.map((item) => (item as { id: string }).id),
+    ).toContain('repoHook:b');
+    // 全局档案没有仓库 hooks。
+    const global = await env.collector.collect({});
+    expect(
+      layer(global, 'guardrails')?.items.some((item) =>
+        (item as { id: string }).id.startsWith('repoHook:'),
+      ),
+    ).toBe(false);
   });
 
   it('连接器只记名称、命令与去掉查询串的地址：密钥与参数不进条目，键名与参数只影响散列', async () => {
