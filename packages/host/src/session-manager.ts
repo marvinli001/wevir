@@ -32,7 +32,12 @@ import {
   type QuestionId,
   type QuestionRequest,
   type QuestionResolution,
+  REVIEW_COMMENT_BODY_MAX_LENGTH,
+  REVIEW_FINDING_TITLE_MAX_LENGTH,
+  REVIEW_FINDINGS_MAX,
+  REVIEW_SUMMARY_MAX_LENGTH,
   type ResolvedApprovalStatus,
+  type ReviewFinding,
   type ReviewTarget,
   SESSION_RECAP_MIN_AWAY_MS,
   type Session,
@@ -154,6 +159,7 @@ import {
   RecapCache,
   recapInput,
 } from './recap.js';
+import type { FindingInput } from './review/service.js';
 import {
   type FoundRuleFile,
   planRules,
@@ -300,6 +306,18 @@ export interface SessionManagerOptions {
   projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
+  /**
+   * 审查发现（0.83.0，review/service.ts 的 `recordFindings`）：引擎的审查结果（`review.findings`）与 `wevir_report_findings`
+   * 报出的发现，存成批注后写 `review.findings` 事件。没给时发现只有文字。
+   */
+  reviewFindings?: (
+    sessionId: SessionId,
+    input: {
+      findings: readonly FindingInput[];
+      source: 'uncommitted' | 'branch';
+      turnId?: TurnId;
+    },
+  ) => Promise<ReviewFinding[]>;
   /**
    * 引擎报了一次模型请求的用量（0.62.0 的用量统计，`usage.recorded`）：不写事件流，交给它记到用量表。给出会话此刻的 Provider 与
    * 模型，引擎没报模型时用会话的。
@@ -673,6 +691,7 @@ export class SessionManager {
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
+  readonly #reviewFindings: SessionManagerOptions['reviewFindings'];
   readonly #onUsage: SessionManagerOptions['onUsage'];
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
@@ -727,6 +746,7 @@ export class SessionManager {
     this.#appTools = options.appTools;
     this.#projectConnectors = options.projectConnectors;
     this.#onTurnFinished = options.onTurnFinished;
+    this.#reviewFindings = options.reviewFindings;
     this.#onUsage = options.onUsage;
     this.#approvalRules = options.approvalRules;
   }
@@ -3151,6 +3171,74 @@ export class SessionManager {
     ]);
   }
 
+  /**
+   * 应用级工具的 `wevir_report_findings`（0.83.0）：发现存成批注（针对未提交的改动），在会话的流里写 `review.findings`，消息流在
+   * 当时的位置出现发现卡片。返回事件里的发现。
+   */
+  async reportFindings(
+    sessionId: SessionId,
+    input: { findings: readonly FindingInput[]; summary?: string },
+  ): Promise<ReviewFinding[]> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const findings = await this.#recordFindings(
+      sessionId,
+      input.findings,
+      'uncommitted',
+      runtime.turn?.turnId,
+    );
+    this.#writeFindings(runtime, 'tool', findings, input.summary);
+    return findings;
+  }
+
+  async #recordFindings(
+    sessionId: SessionId,
+    findings: readonly FindingInput[],
+    source: 'uncommitted' | 'branch',
+    turnId: TurnId | undefined,
+  ): Promise<ReviewFinding[]> {
+    const input = { findings, source, ...(turnId !== undefined && { turnId }) };
+    if (this.#reviewFindings !== undefined) {
+      try {
+        return await this.#reviewFindings(sessionId, input);
+      } catch (error) {
+        this.#onWarning('failed to store review findings as comments', {
+          sessionId,
+          error: errorText(error),
+        });
+      }
+    }
+    return findings.slice(0, REVIEW_FINDINGS_MAX).map((finding) => ({
+      title: finding.title.slice(0, REVIEW_FINDING_TITLE_MAX_LENGTH) || '—',
+      body: finding.body.slice(0, REVIEW_COMMENT_BODY_MAX_LENGTH),
+      ...(finding.priority !== undefined && { priority: finding.priority }),
+      ...(finding.confidence !== undefined && { confidence: finding.confidence }),
+      location: `${finding.path}:${finding.startLine}-${finding.endLine}`,
+    }));
+  }
+
+  #writeFindings(
+    runtime: SessionRuntime,
+    origin: 'review' | 'tool',
+    findings: ReviewFinding[],
+    summary: string | undefined,
+  ): void {
+    const turnId = runtime.turn?.turnId;
+    const text = summary?.trim().slice(0, REVIEW_SUMMARY_MAX_LENGTH);
+    this.#write(runtime, [
+      {
+        type: 'review.findings',
+        source: 'host',
+        payload: {
+          origin,
+          ...(text !== undefined && text !== '' && { summary: text }),
+          findings,
+          ...(turnId !== undefined && { turnId }),
+        },
+      },
+    ]);
+  }
+
   async rename(sessionId: SessionId, title: string): Promise<Session> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
@@ -4390,6 +4478,22 @@ export class SessionManager {
         const event = await (this.#appTools?.prepareEvent?.(runtime.id, result.value) ??
           result.value);
         if (attachment.detached) return;
+        if (event.type === 'review.findings') {
+          // 存批注要读文件：先存好，再按到达的顺序写事件。
+          const turn = runtime.turn;
+          const source = turn?.command?.kind === 'review' ? turn.command.target : 'uncommitted';
+          const findings = await this.#recordFindings(
+            runtime.id,
+            event.findings,
+            source,
+            turn?.turnId,
+          );
+          if (attachment.detached) return;
+          this.#dispatch(runtime, () =>
+            this.#writeFindings(runtime, 'review', findings, event.summary),
+          );
+          continue;
+        }
         this.#dispatch(runtime, () => this.#handle(runtime, event));
         // engine.exited 是该会话订阅的最后一个事件。
         if (event.type === 'engine.exited') return;

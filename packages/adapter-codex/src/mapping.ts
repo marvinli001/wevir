@@ -33,6 +33,7 @@ import type {
   TurnPlanStepStatus,
   TurnPlanUpdatedNotification,
 } from './protocol.js';
+import { type CodexReview, parseCodexReview } from './review-findings.js';
 import { SUGGEST_TASKS_SERVER, SUGGEST_TASKS_TOOL, suggestedTasksOf } from './suggest-tasks.js';
 import {
   fileChangeDisplay,
@@ -123,7 +124,8 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
 
 /**
  * 这些 item 不产生事件：用户消息由 Host 自己记（`user.message`）；审查的进入与退出（0.24.0，§4.9）由 Host 的
- * `turn.started.command` 表示，审查结果是随后的 agentMessage。
+ * `turn.started.command` 表示，审查结果是随后的 agentMessage。0.83.0 起 `exitedReviewMode` 的文字拆得出发现时，随后同样文字的
+ * agentMessage 只报总体说明，发现另报 `review.findings`。
  */
 const SILENT_ITEMS = new Set(['userMessage', 'enteredReviewMode', 'exitedReviewMode']);
 
@@ -196,6 +198,8 @@ export class CodexEventMapper {
   /** 上一条用量通知的 thread 累计（0.62.0）：累计没变的通知不是新的请求。 */
   #usageTotal?: TokenUsageBreakdown;
   #timing: RequestTiming = {};
+  /** 这个回合的审查结果（0.83.0）：`exitedReviewMode` 的文字与从中拆出的发现，等随后同样文字的 agentMessage。 */
+  #review?: { text: string; parsed: CodexReview };
 
   constructor(engineSessionId: string, options: CodexEventMapperOptions = {}) {
     this.engineSessionId = engineSessionId;
@@ -209,6 +213,7 @@ export class CodexEventMapper {
   reset(compaction: 'manual' | 'auto' = 'auto'): void {
     this.#items.clear();
     this.#compaction = compaction;
+    this.#review = undefined;
     // 回合的第一个请求从这里算起（0.62.0）。
     this.#timing = { startedAt: this.#now() };
   }
@@ -433,9 +438,18 @@ export class CodexEventMapper {
     const item = params.item;
     switch (item.type) {
       case 'agentMessage':
-        return isAgentMessage(item)
-          ? this.#commit(item.id, 'text', item.text)
-          : [this.raw('item/completed', params, item.type)];
+        if (!isAgentMessage(item)) return [this.raw('item/completed', params, item.type)];
+        if (this.#review !== undefined && item.text === this.#review.text) {
+          const { parsed } = this.#review;
+          this.#review = undefined;
+          return [...this.#commit(item.id, 'text', parsed.summary), this.#findings(parsed)];
+        }
+        return this.#commit(item.id, 'text', item.text);
+      case 'exitedReviewMode': {
+        const parsed = typeof item.review === 'string' ? parseCodexReview(item.review) : undefined;
+        if (parsed && typeof item.review === 'string') this.#review = { text: item.review, parsed };
+        return [];
+      }
       case 'reasoning':
         return isReasoning(item)
           ? this.#commit(item.id, 'reasoning', reasoningText(item))
@@ -609,6 +623,16 @@ export class CodexEventMapper {
       events.push(this.#streamEnded(attemptId, 'committed'));
     }
     return events;
+  }
+
+  /** 审查的发现（0.83.0）；总体说明已作为助手消息报过时不再带。 */
+  #findings(review: CodexReview, withSummary = false): AgentEvent {
+    return {
+      type: 'review.findings',
+      engineSessionId: this.engineSessionId,
+      ...(withSummary && review.summary !== '' && { summary: review.summary }),
+      findings: review.findings,
+    };
   }
 
   #streamEnded(attemptId: string, outcome: 'committed' | 'abandoned'): AssistantStreamEndedEvent {
@@ -812,9 +836,12 @@ export class CodexEventMapper {
       default:
         return [this.raw('turn/completed', params)];
     }
+    // 审查结果之后没有那条 agentMessage（不该发生）：发现连同总体说明一起报。
+    const review = this.#review;
     const events = [
       ...this.#flushOpenStreams(),
       ...(turn.status === 'interrupted' ? this.#failOpenTools() : []),
+      ...(review !== undefined ? [this.#findings(review.parsed, true)] : []),
       terminal,
     ];
     this.reset();

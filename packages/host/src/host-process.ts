@@ -292,6 +292,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
     let opinions: SecondOpinionService | undefined;
+    let review: ReviewService | undefined;
     // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
     const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
     void toolOutput
@@ -398,6 +399,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         if (providerId !== undefined) accounts?.usage.turnEnded(providerId);
       },
       onUsage: (context, event) => usageStats.record(context, event),
+      // 审查发现（0.83.0）存成批注；没有批注功能时只记文字。
+      reviewFindings: (sessionId, input) =>
+        review === undefined
+          ? Promise.reject(new Error('review comments are unavailable'))
+          : review.recordFindings(sessionId, input),
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
@@ -518,7 +524,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }
     const verification = verificationService;
     // 行级批注（0.67.0，ADR-0009）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。
-    let review: ReviewService | undefined;
     try {
       review = new ReviewService({
         storage,
@@ -797,6 +802,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(verification !== undefined && { verification: true }),
         rule_files: true,
         ...(review !== undefined && { review_comments: true }),
+        ...(review !== undefined && { review_findings: true }),
         git_commit: true,
         session_retro: true,
         ...(processOutput.available && { process_output: true }),

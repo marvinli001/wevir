@@ -104,6 +104,40 @@ describe('historyItems', () => {
 });
 
 describe('compactText', () => {
+  it('审查发现（0.83.0）是一条回答：总体说明、严重度、位置与说明；没有发现时也说一声', () => {
+    seq = 0;
+    const items = historyItems([
+      event('review.findings', {
+        origin: 'review',
+        summary: 'One bug.',
+        turnId: 'trn_1',
+        findings: [
+          {
+            title: 'Off by one',
+            body: 'Index starts at 1.',
+            priority: 1,
+            path: 'a.ts',
+            startLine: 3,
+            endLine: 4,
+          },
+          { title: 'Outside', body: '', location: '/x/b.ts:1-1' },
+        ],
+      }),
+      event('review.findings', { origin: 'tool', findings: [] }),
+    ]);
+    expect(items).toEqual([
+      {
+        itemId: 'e1',
+        seq: 1,
+        turnId: 'trn_1',
+        role: 'assistant',
+        kind: 'assistant_message',
+        text: 'One bug.\nReview findings:\n- [P1] Off by one — a.ts:3-4: Index starts at 1.\n- Outside — /x/b.ts:1-1',
+      },
+      { ...item(2, 'assistant_message', 'Review findings: none.') },
+    ]);
+  });
+
   it('折叠空白，超出时截到 240 个字符（含结尾的 ...），不切开代理对', () => {
     expect(compactText('  a \n\n b\tc  ')).toBe('a b c');
     const long = '字'.repeat(300);

@@ -710,6 +710,63 @@ describe('映射的边界情况', () => {
     }
   });
 
+  it('审查结果（0.83.0）拆得出发现时：消息只留总体说明，随后报 review.findings；拆不出照原样', () => {
+    const review = [
+      'One bug in the converter.',
+      '',
+      'Full review comments:',
+      '',
+      '- [P1] Round negative temperatures correctly — /repo/src/convert.ts:12-14',
+      '  `Math.round` rounds -0.5 up.',
+      '  ',
+      '  Use `Math.floor`.',
+    ].join('\n');
+    const mapper = new CodexEventMapper(id);
+    const exited = { type: 'exitedReviewMode', id: 'r-exit', review };
+    expect(mapper.map('item/completed', { threadId: id, turnId, item: exited })).toEqual([]);
+    const message = { type: 'agentMessage', id: 'm-1', text: review };
+    expect(mapper.map('item/started', { threadId: id, turnId, item: message })).toEqual([]);
+    expect(mapper.map('item/completed', { threadId: id, turnId, item: message })).toEqual([
+      {
+        type: 'assistant.message',
+        engineSessionId: id,
+        messageId: 'm-1',
+        text: 'One bug in the converter.',
+        replaces: [],
+      },
+      {
+        type: 'review.findings',
+        engineSessionId: id,
+        findings: [
+          {
+            title: 'Round negative temperatures correctly',
+            body: '`Math.round` rounds -0.5 up.\n\nUse `Math.floor`.',
+            priority: 1,
+            path: '/repo/src/convert.ts',
+            startLine: 12,
+            endLine: 14,
+          },
+        ],
+      },
+    ]);
+
+    // 没有那条消息就结束了：发现连同总体说明在终结事件之前报出。
+    mapper.map('item/completed', { threadId: id, turnId, item: exited });
+    const ended = mapper.map('turn/completed', {
+      threadId: id,
+      turn: { id: turnId, status: 'completed' },
+    });
+    expect(types(ended)).toEqual(['review.findings', 'turn.settled']);
+    expect(of(ended, 'review.findings')[0]?.summary).toBe('One bug in the converter.');
+
+    const plain = { type: 'exitedReviewMode', id: 'r-2', review: 'Looks good to me.' };
+    expect(mapper.map('item/completed', { threadId: id, turnId, item: plain })).toEqual([]);
+    const text = { type: 'agentMessage', id: 'm-2', text: 'Looks good to me.' };
+    expect(types(mapper.map('item/completed', { threadId: id, turnId, item: text }))).toEqual([
+      'assistant.message',
+    ]);
+  });
+
   it('turn.failed 的说明带上 additionalDetails', () => {
     const mapper = new CodexEventMapper(id);
     const [event] = mapper.map('turn/completed', {

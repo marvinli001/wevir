@@ -40,6 +40,7 @@ import type {
   QuestionId,
   QuestionRequest,
   RepairChain,
+  ReviewFinding,
   SecondOpinion,
   SessionAcceptance,
   SessionGoal,
@@ -240,7 +241,18 @@ export type ChatPart =
    * 章节的开始（0.82.0，`chapter.marked`）：在当时所在的位置（`key` 是 `h:<seq>`）。界面画一条带标题的分隔线；所有章节另见
    * `Transcript.chapters`。
    */
-  | { type: 'chapter'; key: string; seq: number; title: string; summary?: string };
+  | { type: 'chapter'; key: string; seq: number; title: string; summary?: string }
+  /**
+   * 审查发现（0.83.0，`review.findings`）：在当时所在的位置（`key` 是 `r:<seq>`）。`commentId` 指向存成的批注，之后的状态（已发送、
+   * 已删、过期）以 `review.list` 为准。
+   */
+  | {
+      type: 'findings';
+      key: string;
+      origin: string;
+      summary?: string;
+      findings: readonly ReviewFinding[];
+    };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -834,6 +846,15 @@ export class TranscriptProjection {
         });
         return;
       }
+      case 'review.findings':
+        this.#target(event.payload.turnId, event.seq).parts.push({
+          type: 'findings',
+          key: `r:${event.seq}`,
+          origin: event.payload.origin,
+          ...(event.payload.summary !== undefined && { summary: event.payload.summary }),
+          findings: event.payload.findings,
+        });
+        return;
     }
   }
 

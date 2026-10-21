@@ -28,6 +28,15 @@ export function commentState(comment: ReviewComment): string | undefined {
   return undefined;
 }
 
+/** 审查发现（0.83.0）的标记：“审查发现 P1”；用户写的批注没有。 */
+export function findingTag(comment: ReviewComment): string | undefined {
+  const { finding } = comment;
+  if (finding === undefined) return undefined;
+  return finding.priority === undefined
+    ? t('findings.title')
+    : `${t('findings.title')} P${finding.priority}`;
+}
+
 export function ReviewPanel({
   review,
   sessions,
@@ -216,6 +225,7 @@ function CommentRow({
 }) {
   const lines = currentLines(comment);
   const state = commentState(comment);
+  const tag = findingTag(comment);
   return (
     <li className="group/row ml-3.5 flex min-w-0 items-start gap-1 rounded-lg border-s border-border hover:bg-muted/60">
       <button
@@ -231,8 +241,11 @@ function CommentRow({
               · {state}
             </span>
           )}
+          {tag !== undefined && <span className="shrink-0">· {tag}</span>}
         </span>
-        <span className="line-clamp-2 text-sm leading-5">{comment.body}</span>
+        <span className="line-clamp-2 text-sm leading-5">
+          {comment.finding?.title ?? comment.body}
+        </span>
       </button>
       <span className="pt-1 pr-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
         <IconButton label={t('comments.delete')} size="icon-xs" onClick={onDelete}>

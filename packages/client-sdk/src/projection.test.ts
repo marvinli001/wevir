@@ -1770,6 +1770,42 @@ describe('章节（0.82.0）', () => {
   });
 });
 
+describe('审查发现（0.83.0）', () => {
+  it('review.findings 是回合里当时位置的 findings 部件，带来源与总体说明', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.message', {
+      turnId: TURN,
+      messageId: 'msg_1',
+      text: '有一处问题。',
+      replaces: [],
+    });
+    const finding = {
+      title: '越界',
+      body: '',
+      priority: 0,
+      path: 'a.ts',
+      startLine: 2,
+      endLine: 2,
+    };
+    const reported = add('review.findings', {
+      origin: 'review',
+      summary: '总体',
+      findings: [finding],
+      turnId: TURN,
+    });
+    const { messages } = projectTranscript(list);
+    const answer = messages.find((m) => m.role === 'assistant');
+    expect(answer?.parts.at(-1)).toEqual({
+      type: 'findings',
+      key: `r:${reported.seq}`,
+      origin: 'review',
+      summary: '总体',
+      findings: [finding],
+    });
+  });
+});
+
 describe('回合后验证（0.65.0）', () => {
   const run = {
     id: 'vrn_01JA2B3C4D5E6F7G8H9JKMNPQR',

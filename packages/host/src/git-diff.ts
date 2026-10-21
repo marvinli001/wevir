@@ -781,19 +781,7 @@ export function readBranch(dir: string): Promise<WorkspaceDiffResult> {
     const repo = await repoInfo(dir);
     if (!repo) return NOT_REPO;
     try {
-      let base = repo.head ?? (await emptyTree(repo));
-      let baseRef: string | undefined;
-      if (repo.head !== undefined) {
-        const candidate = await defaultBranch(repo);
-        if (candidate !== undefined) {
-          const merge = await git(repo, ['merge-base', candidate, 'HEAD'], { okCodes: [0, 1] });
-          const sha = merge.stdout.toString('utf8').trim();
-          if (merge.code === 0 && sha !== '') {
-            base = sha;
-            baseRef = candidate;
-          }
-        }
-      }
+      const { base, baseRef } = await branchBase(repo);
       const diff = await readRange(repo, { from: base });
       return {
         repo: true,
@@ -806,6 +794,38 @@ export function readBranch(dir: string): Promise<WorkspaceDiffResult> {
       return NOT_REPO;
     }
   });
+}
+
+/** `branch` 的旧的一侧：默认分支与 HEAD 的 merge-base；找不到默认分支或没有共同的提交时是 HEAD（还没有提交时是空树）。 */
+async function branchBase(repo: RepoInfo): Promise<{ base: string; baseRef?: string }> {
+  if (repo.head !== undefined) {
+    const candidate = await defaultBranch(repo);
+    if (candidate !== undefined) {
+      const merge = await git(repo, ['merge-base', candidate, 'HEAD'], { okCodes: [0, 1] });
+      const sha = merge.stdout.toString('utf8').trim();
+      if (merge.code === 0 && sha !== '') return { base: sha, baseRef: candidate };
+    }
+  }
+  return { base: repo.head ?? (await emptyTree(repo)) };
+}
+
+/**
+ * `uncommitted` 或 `branch` 那段 diff 的旧的一侧（0.83.0，审查发现存成批注时用），不读 diff 本身。不是 git 仓库或读不了时
+ * undefined。
+ */
+export async function diffBase(
+  dir: string,
+  kind: 'uncommitted' | 'branch',
+): Promise<{ base: string; branch?: string } | undefined> {
+  const repo = await repoInfo(dir);
+  if (!repo) return undefined;
+  try {
+    const base =
+      kind === 'branch' ? (await branchBase(repo)).base : (repo.head ?? (await emptyTree(repo)));
+    return { base, ...branchOf(repo) };
+  } catch {
+    return undefined;
+  }
 }
 
 function branchOf(repo: RepoInfo): { branch?: string } {

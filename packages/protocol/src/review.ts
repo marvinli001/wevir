@@ -4,6 +4,9 @@
 // 原文片段）。批注存在 Host，绑定目录（仓库或会话的 worktree）、文件、左右侧、行范围、diff 的范围与基线，以及 Host 自己从那一侧
 // 读出的原文片段。文件后来变了，Host 按片段重新定位；找不到或不唯一时标为过期，不会悄悄指向另一段代码。只是本地反馈，不发布到
 // GitHub。
+//
+// 审查发现（0.83.0，Host 功能 `review_findings`）：agent 报出的结构化审查结果（Codex 的 `/review`、任何引擎的 `wevir_report_findings`）
+// 也存成批注，带标题与严重度；会话的流里有 `review.findings` 事件，界面画成卡片，可以跳到“变更”窗格里那几行、一键发给会话去修。
 
 import { z } from 'zod';
 import {
@@ -47,6 +50,51 @@ export const ReviewAnchorSchema = z.object({
 });
 export type ReviewAnchor = z.infer<typeof ReviewAnchorSchema>;
 
+// ── 审查发现（0.83.0，Host 功能 `review_findings`） ─────────────────────────────
+
+/** 一条发现的标题上限（字符）。 */
+export const REVIEW_FINDING_TITLE_MAX_LENGTH = 300;
+/** 一次报出的发现最多几条（`review.findings` 事件、`wevir_report_findings`）。 */
+export const REVIEW_FINDINGS_MAX = 50;
+/** 审查总体说明的上限（字符）。 */
+export const REVIEW_SUMMARY_MAX_LENGTH = 8000;
+
+/**
+ * 严重度（Codex 审查的 P0–P3）：`0` 必须马上修（阻塞发布或主要用法），`1` 紧急，`2` 一般，`3` 低。省略是没给。
+ */
+export const ReviewPrioritySchema = z.int().min(0).max(3);
+
+/**
+ * 批注是 agent 提出的审查发现时（0.83.0）：标题、严重度、把握（0–1），以及提出它的回合。批注的 `sessionId` 是提出它的会话，`body`
+ * 是说明。
+ */
+export const ReviewFindingFieldsSchema = z.object({
+  title: z.string().min(1).max(REVIEW_FINDING_TITLE_MAX_LENGTH),
+  priority: ReviewPrioritySchema.optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  turnId: TurnIdSchema.optional(),
+});
+export type ReviewFindingFields = z.infer<typeof ReviewFindingFieldsSchema>;
+
+/**
+ * 一条审查发现（`review.findings` 事件）：报出时的样子。定位到了会话目录里的文件与行时 Host 存成一条批注（`commentId`），之后的状态
+ * （已发送、已删、过期）以 `review.list` 为准；文件不在目录里、行超出文件、目录里的批注已满时没有 `commentId`，只有文字。`path`
+ * 相对会话目录；报的路径在目录外时省略，原样写进 `location`。
+ */
+export const ReviewFindingSchema = ReviewFindingFieldsSchema.omit({ turnId: true }).extend({
+  body: z.string().max(REVIEW_COMMENT_BODY_MAX_LENGTH),
+  path: z.string().min(1).optional(),
+  startLine: z.int().min(1).optional(),
+  endLine: z.int().min(1).optional(),
+  /** 报出的位置定位不到目录里的文件时，报的原文（如绝对路径与行号）。 */
+  location: z.string().min(1).optional(),
+  commentId: ReviewCommentIdSchema.optional(),
+});
+export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
+
+/** 发现从哪来：`review` 审查命令（`session.review`）的结果，`tool` agent 调 `wevir_report_findings`。开放字符串。 */
+export const ReviewFindingsOriginSchema = z.string().min(1);
+
 /** 批注发到了哪个会话：成为回合时有 `turnId`，排队时有 `pendingId`。 */
 export const ReviewSentSchema = z.object({
   sessionId: SessionIdSchema,
@@ -84,6 +132,8 @@ export const ReviewCommentSchema = z.object({
   status: z.enum(['pending', 'sent']),
   sent: ReviewSentSchema.optional(),
   anchor: ReviewAnchorSchema,
+  /** agent 提出的审查发现（0.83.0）；省略是用户写的批注。 */
+  finding: ReviewFindingFieldsSchema.optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });

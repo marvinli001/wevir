@@ -72,4 +72,13 @@ describe('review_comments', () => {
     expect(reviewComments.remove('rvc_2')).toBe(true);
     expect(reviewComments.remove('rvc_2')).toBe(false);
   });
+
+  it('审查发现（0018）：finding 原样存取，用户写的批注没有', () => {
+    const { reviewComments } = storage();
+    const finding = { title: '越界读取', priority: 1, confidence: 0.6, turnId: 'trn_1' };
+    reviewComments.insert(comment({ id: 'rvc_f', finding }));
+    reviewComments.insert(comment({ id: 'rvc_u' }));
+    expect(reviewComments.get('rvc_f')?.finding).toEqual(finding);
+    expect(reviewComments.get('rvc_u')).not.toHaveProperty('finding');
+  });
 });

@@ -130,6 +130,14 @@ export const reviewComment: ReviewComment = {
   updatedAt: TS,
 };
 
+/** agent 报出的审查发现（0.83.0）：存成批注，带标题、严重度与提出它的回合。 */
+export const findingComment: ReviewComment = {
+  ...reviewComment,
+  body: '负数换算差一度：`Math.round` 对 -0.5 取到 0。',
+  anchor: { state: 'current', startLine: 12, endLine: 14 },
+  finding: { title: '负数温度换算错误', priority: 1, confidence: 0.8, turnId: ids.turn },
+};
+
 /** 已发送、过期的批注（0.67.0）：旧的一侧，回合快照上写的。 */
 export const sentReviewComment: ReviewComment = {
   ...reviewComment,
@@ -1821,6 +1829,32 @@ export const eventPayloads: PayloadSamples = {
   'insight.updated': {
     valid: { insight: openInsight },
     invalid: { insight: { ...openInsight, tag: 'fyi' } },
+  },
+  'review.findings': {
+    valid: {
+      origin: 'review',
+      summary: '换算对负数有误，其余无问题。',
+      findings: [
+        {
+          title: '负数温度换算错误',
+          body: '负数换算差一度：`Math.round` 对 -0.5 取到 0。',
+          priority: 1,
+          confidence: 0.8,
+          path: 'src/convert.ts',
+          startLine: 12,
+          endLine: 14,
+          commentId: ids.reviewComment,
+        },
+        {
+          title: '依赖的版本范围过宽',
+          body: '',
+          priority: 3,
+          location: '/opt/other/package.json:4-4',
+        },
+      ],
+      turnId: ids.turn,
+    },
+    invalid: { origin: 'tool', findings: [{ title: '', body: 'x' }] },
   },
 };
 
@@ -4872,7 +4906,11 @@ export const methodSamples: MethodSamples = {
       invalid: [{}, { workspaceId: ids.workspace, status: 'draft' }],
     },
     result: {
-      valid: [{ comments: [] }, { comments: [reviewComment, sentReviewComment] }],
+      valid: [
+        { comments: [] },
+        { comments: [reviewComment, sentReviewComment] },
+        { comments: [findingComment] },
+      ],
       invalid: [{}, { comments: [{ ...reviewComment, side: 'left' }] }],
     },
   },

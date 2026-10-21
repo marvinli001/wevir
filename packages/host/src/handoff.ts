@@ -168,6 +168,31 @@ export function historyItems(
           });
         }
         break;
+      case 'review.findings': {
+        // 审查发现（0.83.0）：Codex 的消息只留了总体说明，发现在这条事件里；接手的引擎与读历史的 agent 要看得到。
+        const { summary, findings, turnId } = event.payload;
+        const lines = findings.map((finding) => {
+          const priority = finding.priority === undefined ? '' : `[P${finding.priority}] `;
+          const where =
+            finding.path !== undefined
+              ? `${finding.path}:${finding.startLine ?? 1}-${finding.endLine ?? finding.startLine ?? 1}`
+              : (finding.location ?? '');
+          return `- ${priority}${finding.title}${where === '' ? '' : ` — ${where}`}${finding.body === '' ? '' : `: ${finding.body}`}`;
+        });
+        items.push({
+          itemId: id(event),
+          seq: event.seq,
+          ...(turnId !== undefined && { turnId }),
+          role: 'assistant',
+          kind: 'assistant_message',
+          text: [
+            ...(summary !== undefined ? [summary] : []),
+            findings.length === 0 ? 'Review findings: none.' : 'Review findings:',
+            ...lines,
+          ].join('\n'),
+        });
+        break;
+      }
       case 'session.handoff': {
         const { from, to } = event.payload;
         items.push({
