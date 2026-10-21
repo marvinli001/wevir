@@ -97,6 +97,7 @@ export type ShutdownTrigger =
   | { kind: 'rpc'; client: ClientIdentity }
   | { kind: 'signal'; signal: NodeJS.Signals }
   | { kind: 'stdin_eof' }
+  | { kind: 'parent_port' }
   | { kind: 'fatal'; error: unknown }
   | { kind: 'api' };
 

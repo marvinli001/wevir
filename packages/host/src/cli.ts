@@ -24,7 +24,7 @@ import {
   subscriptionAccountEngines,
   subscriptionEngines,
 } from './engines.js';
-import { EXIT_CODE } from './exit-code.js';
+import { EXIT_CODE, PARENT_SHUTDOWN_MESSAGE } from './exit-code.js';
 import { homePath, resolveHome } from './home.js';
 import {
   HOST_VERSION,
@@ -259,6 +259,11 @@ export interface HostCliProcess {
     listener: (error: unknown) => void,
   ): unknown;
   pid: number;
+  /**
+   * 作为 Electron 的 utility process 运行时的 `process.parentPort`（桌面端，ADR-0007 补记 10）：收到 `PARENT_SHUTDOWN_MESSAGE`
+   * 即优雅退出。普通的 Node 进程里没有。
+   */
+  parentPort?: { on(event: 'message', listener: (message: { data: unknown }) => void): unknown };
 }
 
 /** 测试用：替换适配器的构造与退出时限。 */
@@ -270,7 +275,7 @@ export interface HostCliOverrides {
 /**
  * `wevir-host` 的主流程，返回退出码（调用方负责 `process.exit`）。启动成功后一直运行，直到以下任一
  * 触发优雅退出（ADR-0002 §6）：`host.shutdown`、SIGINT / SIGTERM、`--exit-on-stdin-eof` 时 stdin
- * 读到 EOF、未捕获的异常（退出码 1）。退出流程超过 10 s，或退出期间再收到 SIGINT / SIGTERM，就删除
+ * 读到 EOF、作为 utility process 时拉起方经 parentPort 发来的 `PARENT_SHUTDOWN_MESSAGE`、未捕获的异常（退出码 1）。退出流程超过 10 s，或退出期间再收到 SIGINT / SIGTERM，就删除
  * 自己的 `host.json` 后以 1 强制结束。
  *
  * 就绪后向 stdout 写一行 JSON：`{"event":"ready","pid","url","hostId","home"}`（不含令牌），方便
@@ -313,6 +318,7 @@ export async function runHostCli(
     port: options.port,
     logLevel: options.logLevel,
     exitOnStdinEof: options.exitOnStdinEof,
+    parentPort: proc.parentPort !== undefined,
     hostVersion: HOST_VERSION,
     node: process.version,
   });
@@ -410,6 +416,16 @@ export async function runHostCli(
       proc.stdin.once('error', onEof);
       proc.stdin.resume();
     }
+    // 拉起方（桌面主进程）崩溃时 Electron 直接结束 utility process，不会走到这里；正常退出时它先发这条消息。
+    proc.parentPort?.on('message', ({ data }) => {
+      if (
+        typeof data === 'object' &&
+        data !== null &&
+        (data as { type?: unknown }).type === PARENT_SHUTDOWN_MESSAGE.type
+      ) {
+        beginShutdown({ kind: 'parent_port' }, EXIT_CODE.ok);
+      }
+    });
 
     startHost({
       home,

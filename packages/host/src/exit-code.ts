@@ -10,3 +10,9 @@ export const EXIT_CODE = {
   /** 该数据目录已有活着的 Host（读 `run/host.json` 附着即可）。 */
   alreadyRunning: 3,
 } as const;
+
+/**
+ * 桌面端以 Electron 的 utility process 运行 Host 时（ADR-0007 补记 10），utility process 没有 stdin 管道，`--exit-on-stdin-eof`
+ * 用不上：拉起方经 `parentPort` 发这条消息请 Host 优雅退出，效果同 SIGTERM。
+ */
+export const PARENT_SHUTDOWN_MESSAGE = { type: 'wevir-host:shutdown' } as const;

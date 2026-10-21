@@ -53,8 +53,9 @@ import {
   failureOf,
   HostLifecycle,
   hostEnvironment,
-  hostRuntime,
   type Log,
+  nodeHostSpawner,
+  nodeOverride,
   packagedHostEntry,
   resolveHostEntry,
 } from './host-lifecycle.js';
@@ -74,6 +75,7 @@ import {
   type StartupMarks,
   startInstallTiming,
 } from './updates/install-timing.js';
+import { utilityHostSpawner } from './utility-host.js';
 import {
   DEFAULT_WINDOW_APPEARANCE,
   loadWindowAppearance,
@@ -190,18 +192,15 @@ function run(): void {
   // 在这里（app ready 之前）就拉起：Host 是打开后可用的关键路径，身份文件并行读，只有探活的 hello 等它。
   const host = (async () => {
     const identity = loadDesktopIdentity(home);
-    // Host 跑在 Electron 自带的 Node 上，用户不用装 Node（ADR-0007 决策 4）。
-    const runtime = hostRuntime();
+    // Host 是 Electron 的 utility process，用户不用装 Node（ADR-0007 决策 4、补记 10）；WEVIR_NODE 改用别的 Node 时以子进程跑。
+    const node = nodeOverride();
     const lifecycle = new HostLifecycle({
       home,
       identity,
-      nodePath: runtime.nodePath,
+      spawner: node === undefined ? utilityHostSpawner() : nodeHostSpawner(node),
       hostEntry: app.isPackaged ? packagedHostEntry(process.resourcesPath) : resolveHostEntry(),
-      env: {
-        // 打包后随附的 Host、codex-app-server 与提示词都在资源目录里（ADR-0007 决策 5）。
-        ...hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
-        ...runtime.env,
-      },
+      // 打包后随附的 Host、codex-app-server 与提示词都在资源目录里（ADR-0007 决策 5）。
+      env: hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
       log,
     });
     lifecycle.onStatus((status) => {

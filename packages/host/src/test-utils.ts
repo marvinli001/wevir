@@ -408,7 +408,11 @@ export class TestRpcClient {
 type Listener = (arg: never) => void;
 
 /** runHostCli 用的假进程：信号与 stdin 由测试触发，stdout / stderr 收进 `out`。 */
-export function fakeProcess(argv: string[], env: NodeJS.ProcessEnv = {}) {
+export function fakeProcess(
+  argv: string[],
+  env: NodeJS.ProcessEnv = {},
+  parentPort?: HostCliProcess['parentPort'],
+) {
   const listeners = new Map<string, Listener[]>();
   const out = { stdout: '', stderr: '' };
   const stdin = new PassThrough();
@@ -422,6 +426,7 @@ export function fakeProcess(argv: string[], env: NodeJS.ProcessEnv = {}) {
       listeners.set(event, [...(listeners.get(event) ?? []), listener]);
     }) as HostCliProcess['on'],
     pid: process.pid,
+    ...(parentPort !== undefined && { parentPort }),
   };
   const emit = (event: string, arg?: unknown) => {
     for (const listener of listeners.get(event) ?? []) listener(arg as never);

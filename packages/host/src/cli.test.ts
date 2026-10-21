@@ -2,6 +2,7 @@
 // 真正的子进程（SIGKILL 后重启等）见 scripts/gate-m2.ts，
 // --adapter codex 接真实 codex-app-server 见 cli.codex.integration.test.ts。
 
+import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AntigravityAdapter } from '@wevir/adapter-antigravity';
@@ -19,12 +20,14 @@ import {
   createAdapter,
   EXIT_CODE,
   type HostCliOverrides,
+  type HostCliProcess,
   hostCliLocale,
   hostUsage,
   parseHostArgs,
   runHostCli,
 } from './cli.js';
 import { EngineRouter } from './engine-router.js';
+import { PARENT_SHUTDOWN_MESSAGE } from './exit-code.js';
 import { HOST_VERSION } from './host-process.js';
 import { createLogger, LOG_FILE } from './logger.js';
 import type { HostRuntimeInfo } from './runtime-file.js';
@@ -116,9 +119,14 @@ function logLines(home: string): Array<Record<string, unknown>> {
 }
 
 /** 启动一个 echo Host，等它就绪。 */
-async function launch(extra: string[] = [], overrides: HostCliOverrides = {}, env = {}) {
+async function launch(
+  extra: string[] = [],
+  overrides: HostCliOverrides = {},
+  env = {},
+  parentPort?: HostCliProcess['parentPort'],
+) {
   const home = join(tempDir(), 'home');
-  const fake = fakeProcess(['--home', home, '--adapter', 'echo', ...extra], env);
+  const fake = fakeProcess(['--home', home, '--adapter', 'echo', ...extra], env, parentPort);
   const exit = runHostCli(fake.proc, {
     createAdapter: () => new EchoAdapter({ stepDelayMs: 1 }),
     ...overrides,
@@ -304,6 +312,22 @@ describe('runHostCli', () => {
       .filter((l) => l.msg === 'shutting down')
       .at(-1)?.trigger;
     expect(trigger).toEqual({ kind: 'stdin_eof' });
+  });
+
+  it('utility process：parentPort 收到 PARENT_SHUTDOWN_MESSAGE 即优雅退出，别的消息不理', async () => {
+    const port = new EventEmitter();
+    const owned = await launch([], {}, {}, port as HostCliProcess['parentPort']);
+    port.emit('message', { data: { type: 'something-else' } });
+    port.emit('message', { data: 'wevir-host:shutdown' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(existsSync(join(owned.home, 'run', 'host.json'))).toBe(true);
+    port.emit('message', { data: PARENT_SHUTDOWN_MESSAGE });
+    expect(await owned.exit).toBe(EXIT_CODE.ok);
+    expect(existsSync(join(owned.home, 'run', 'host.json'))).toBe(false);
+    const trigger = logLines(owned.home)
+      .filter((l) => l.msg === 'shutting down')
+      .at(-1)?.trigger;
+    expect(trigger).toEqual({ kind: 'parent_port' });
   });
 
   it('host.shutdown 经 RPC 触发优雅退出，退出码 0', async () => {

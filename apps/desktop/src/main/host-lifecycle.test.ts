@@ -1,6 +1,7 @@
 // T5.1：桌面主进程的 Host 生命周期，对着真实的 wevir-host 子进程（dist/main.js，EchoAdapter），要先
-// pnpm build。Electron 本身不参与：HostLifecycle 不依赖 Electron。T5.5：拥有的 Host 意外退出后重新拉起、
-// 附着的 Host 不在了等它回来，以及客户端照渲染进程的做法重连后按 seq 补齐。
+// pnpm build。HostLifecycle 不依赖 Electron，这里用 Node 子进程拉起（nodeHostSpawner）；Host 在 Electron 的 utility
+// process 里能跑、能经 parentPort 退出，由一个用例拿本机的 Electron 跑 test-fixtures/utility-host-main.mjs 核对。
+// T5.5：拥有的 Host 意外退出后重新拉起、附着的 Host 不在了等它回来，以及客户端照渲染进程的做法重连后按 seq 补齐。
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,7 @@ import {
   WevirClient,
   webSocketTransport,
 } from '@wevir/client-sdk';
-import { isProcessAlive } from '@wevir/host/runtime';
+import { isProcessAlive, PARENT_SHUTDOWN_MESSAGE } from '@wevir/host/runtime';
 import {
   type ClientIdentity,
   PROTOCOL_VERSION,
@@ -29,7 +30,8 @@ import {
   type HostProcessStatus,
   HostStartError,
   hostEnvironment,
-  hostRuntime,
+  nodeHostSpawner,
+  nodeOverride,
   packagedHostEntry,
   resolveHostEntry,
 } from './host-lifecycle.js';
@@ -42,6 +44,9 @@ const identity: ClientIdentity = {
 const hostEntry = resolveHostEntry();
 const stubbornHost = fileURLToPath(new URL('./test-fixtures/stubborn-host.mjs', import.meta.url));
 const flakyHost = fileURLToPath(new URL('./test-fixtures/flaky-host.mjs', import.meta.url));
+const utilityHostMain = fileURLToPath(
+  new URL('./test-fixtures/utility-host-main.mjs', import.meta.url),
+);
 
 /**
  * 本机已下载的 Electron 二进制（`install-electron`，`pnpm dev` 会先做）。没下载时跳过用它的用例：不经
@@ -96,7 +101,7 @@ function lifecycle(home: string, options: Partial<HostLifecycleOptions> = {}) {
   const result = new HostLifecycle({
     home,
     identity,
-    nodePath: process.execPath,
+    spawner: nodeHostSpawner(process.execPath),
     hostEntry,
     hostArgs: ['--adapter', 'echo'],
     log: (level, message, detail) => logs.push({ level, message, ...(detail && { detail }) }),
@@ -192,33 +197,49 @@ describe('HostLifecycle', () => {
     expect(existsSync(runtimeFile(home))).toBe(false);
     // 关管道就够了，没有走到 host.shutdown。
     expect(logs.map((l) => l.message)).not.toContain(
-      'host did not exit after the pipe closed; requesting host.shutdown',
+      'host did not exit when asked; requesting host.shutdown',
     );
   });
 
-  it.skipIf(electronBinary === undefined)(
-    '用 Electron 自带的 Node 拉起 Host（桌面端的默认做法，ADR-0007 决策 4）：就绪，stop 后退出',
+  // Linux 上 Electron 的主进程要有显示服务（CI 里没有 xvfb）。
+  it.skipIf(electronBinary === undefined || (process.platform === 'linux' && !process.env.DISPLAY))(
+    'Electron 的 utility process 里跑 Host（桌面端的默认做法，ADR-0007 补记 10）：就绪，退出码传得回来，parentPort 的消息让它优雅退出',
     async () => {
       const home = join(tempDir, 'home');
-      const runtime = hostRuntime({}, electronBinary);
-      const { lifecycle: host } = lifecycle(home, {
-        nodePath: runtime.nodePath,
-        env: { ...hostEnvironment(process.env), ...runtime.env },
+      const env: NodeJS.ProcessEnv = {
+        ...hostEnvironment(process.env),
+        WEVIR_TEST_HOST_ENTRY: hostEntry,
+        WEVIR_TEST_HOST_HOME: home,
+        WEVIR_TEST_SHUTDOWN: JSON.stringify(PARENT_SHUTDOWN_MESSAGE),
+      };
+      const output = execFileSync(electronBinary as string, [utilityHostMain], {
+        env,
+        encoding: 'utf8',
+        timeout: 60_000,
       });
-
-      const ready = await host.start();
-      expect(ready.ownership.kind).toBe('owned');
-      expect(ready.hello.protocolVersion).toBe(PROTOCOL_VERSION);
-      if (process.platform !== 'win32') {
-        const command = execFileSync('ps', ['-o', 'command=', '-p', String(ready.ownership.pid)], {
-          encoding: 'utf8',
-        });
-        expect(command.startsWith(electronBinary as string)).toBe(true);
-      }
-
-      await host.stop();
-      expect(isProcessAlive(ready.ownership.pid)).toBe(false);
+      const steps = output
+        .split('\n')
+        .filter((line) => line.startsWith('{'))
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const [ready, second, shutdown] = steps as [
+        { step: string; ready: { event: string; pid: number }; utilityPid: number },
+        { step: string; code: number },
+        { step: string; code: number },
+      ];
+      expect(ready.step).toBe('ready');
+      expect(ready.ready.event).toBe('ready');
+      expect(ready.ready.pid).toBe(ready.utilityPid);
+      // 同一数据目录的第二个 Host 以退出码 3 结束（HostLifecycle 据此改为附着）。
+      expect(second).toEqual({ step: 'second', code: 3 });
+      expect(shutdown).toEqual({ step: 'shutdown', code: 0 });
       expect(existsSync(runtimeFile(home))).toBe(false);
+      const trigger = readFileSync(join(home, 'logs', 'host.log'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { msg: string; trigger?: unknown })
+        .filter((line) => line.msg === 'shutting down')
+        .at(-1)?.trigger;
+      expect(trigger).toEqual({ kind: 'parent_port' });
     },
   );
 
@@ -363,7 +384,9 @@ describe('HostLifecycle', () => {
 
   it('Node 可执行文件不存在：报出路径', async () => {
     const home = join(tempDir, 'home');
-    const { lifecycle: host } = lifecycle(home, { nodePath: join(tempDir, 'no-such-node') });
+    const { lifecycle: host } = lifecycle(home, {
+      spawner: nodeHostSpawner(join(tempDir, 'no-such-node')),
+    });
     const error = await host.start().catch((e: unknown) => e);
     expect((error as HostStartError).failure).toEqual({
       code: 'spawnFailed',
@@ -385,7 +408,7 @@ describe('HostLifecycle', () => {
 
     await host.stop();
     expect(logs.map((l) => l.message)).toContain(
-      'host did not exit after the pipe closed; requesting host.shutdown',
+      'host did not exit when asked; requesting host.shutdown',
     );
     expect(isProcessAlive(ready.ownership.pid)).toBe(false);
     expect(existsSync(runtimeFile(home))).toBe(false);
@@ -446,17 +469,11 @@ describe('hostEnvironment', () => {
   });
 });
 
-describe('hostRuntime', () => {
-  it('默认用 Electron 自己当 Node 跑 Host；WEVIR_NODE 指定时改用它', () => {
-    expect(hostRuntime({ PATH: '' }, '/Applications/Wevir.app/Contents/MacOS/Wevir')).toEqual({
-      nodePath: '/Applications/Wevir.app/Contents/MacOS/Wevir',
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    });
-    expect(hostRuntime({ WEVIR_NODE: '/opt/node/bin/node' }, '/App/Wevir')).toEqual({
-      nodePath: '/opt/node/bin/node',
-      env: {},
-    });
-    expect(hostRuntime({ WEVIR_NODE: '' }, '/App/Wevir').nodePath).toBe('/App/Wevir');
+describe('nodeOverride', () => {
+  it('WEVIR_NODE 指定 Node 时改以它的子进程跑 Host，否则用 utility process', () => {
+    expect(nodeOverride({ PATH: '' })).toBeUndefined();
+    expect(nodeOverride({ WEVIR_NODE: '/opt/node/bin/node' })).toBe('/opt/node/bin/node');
+    expect(nodeOverride({ WEVIR_NODE: '' })).toBeUndefined();
   });
 });
 
