@@ -344,7 +344,8 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `scripts/trigger_eval.py` | `scripts/run_eval.py`、`run_loop.py`、`improve_description.py` | 同上 | Apache-2.0 | 改写：不调 `claude -p`；保留分层的训练 / 测试切分、触发率与看不到测试分数的改写提示，模型调用交给 agent 的子智能体 |
 | `eval-viewer/generate_review.py` | `eval-viewer/generate_review.py` | 同上 | Apache-2.0 | 不再结束占用端口的其他进程（改用空闲端口），绑定并打印 `127.0.0.1`，`--no-browser`，输出立即刷新，支持 Python 3.9 |
 | `eval-viewer/viewer.html`、`assets/eval_review.html`、`references/schemas.md` | 同名文件 | 同上 | Apache-2.0 | 文案指回 Wevir；评审页由 `scripts/review_trigger_evals.py` 提供时导出经服务器保存；示例模型名 |
-| `agents/{grader,comparator,analyzer}.md`、`scripts/{aggregate_benchmark,utils,__init__}.py`、`LICENSE.txt` | 同名文件 | 同上 | Apache-2.0 | 原样（只加文件头） |
+| `scripts/aggregate_benchmark.py` | `scripts/aggregate_benchmark.py` | 同上 | Apache-2.0 | token 只取 `timing.json`（不再拿输出字数顶替，`grading.json` 有计时时也读），`runs_per_configuration` 按实际次数算，`--model` 填模型名 |
+| `agents/{grader,comparator,analyzer}.md`、`scripts/{utils,__init__}.py`、`LICENSE.txt` | 同名文件 | 同上 | Apache-2.0 | 原样（只加文件头） |
 
 `scripts/review_trigger_evals.py` 与 `agents/openai.yaml` 是 Wevir 新增的；上游的 `generate_report.py` 只给 `run_loop.py` 出报告，没有移植。
 

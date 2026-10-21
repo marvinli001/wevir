@@ -246,7 +246,7 @@ Save timing for each run to `timing.json` in its run directory as soon as it fin
 }
 ```
 
-For a `wevir_session_create` run, call `wevir_session_wait` on it: `lastTurn.durationMs` is the run's duration and `totalTokens` (when the engine reports it) its token count. For other subagents, use what their result reports; if it reports nothing, note the start and end time yourself and leave `total_tokens` out. Record it right away; it is hard to recover later. If a run didn't write its transcript, save its conversation (`wevir_session_read`) as `transcript.md`.
+For a `wevir_session_create` run, call `wevir_session_wait` on it: `lastTurn.durationMs` is the run's duration and `totalTokens` (when the engine reports it) its token count. Codex's built-in subagents report neither, so when the user wants the time and token comparison, run the test cases as Wevir sessions. With built-in subagents, record only what you measured (for example `date +%s` right before a run starts and when its result reaches you) and leave the rest out. Never estimate a number or put another measure (such as output length) in its place: the benchmark shows a missing value as 0, and you say so when you present it. Record timing right away; it is hard to recover later. If a run didn't write its transcript, save its conversation (`wevir_session_read`) as `transcript.md`.
 
 ### Step 4: Grade, aggregate, and launch the viewer
 
@@ -256,7 +256,7 @@ Once all runs are done:
 
 2. **Aggregate into benchmark**:
    ```bash
-   python3 -B <skill-creator>/scripts/aggregate_benchmark.py <workspace>/iteration-N --skill-name <name>
+   python3 -B <skill-creator>/scripts/aggregate_benchmark.py <workspace>/iteration-N --skill-name <name> --model <model id>
    ```
    This produces `benchmark.json` and `benchmark.md` with pass_rate, time, and tokens for each configuration, with mean ± stddev and the delta. If generating benchmark.json manually, see `references/schemas.md` for the exact schema the viewer expects. Put each with_skill version before its baseline counterpart.
 
@@ -269,7 +269,7 @@ Once all runs are done:
    ```
    with `waitFor: "URL:"`, so the call returns once it prints its address. For iteration 2+, also pass `--previous-workspace <workspace>/iteration-<N-1>`. Then open the printed `http://127.0.0.1:<port>` with `wevir_show` (`kind: "browser"`), which puts it in the Wevir browser pane next to the conversation.
 
-   Without background processes, or when the user prefers a file, use `--static <workspace>/iteration-N/review.html` to write a standalone page and hand it over with `wevir_share_file`. Its "Submit All Reviews" button then downloads `feedback.json` instead of saving it; ask the user to put it in the workspace or paste it.
+   Without background processes, when `wevir_show` can't open the Wevir browser (no Wevir window is connected), or when the user prefers a file, use `--static <workspace>/iteration-N/review.html` to write a standalone page and hand it over with `wevir_share_file`. Its "Submit All Reviews" button then downloads `feedback.json` instead of saving it; ask the user to put it in the workspace or paste it.
 
    Use generate_review.py to create the viewer; there's no need to write custom HTML. Generate it *before* you evaluate the outputs yourself: get the results in front of the human as soon as possible.
 

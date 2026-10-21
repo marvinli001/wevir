@@ -620,8 +620,8 @@ Apache-2.0），scripts/quick_validate.py 的单个 SKILL.md 检查取自那里�
   scripts/trigger_eval.py
       <- scripts/run_eval.py、scripts/run_loop.py、scripts/improve_description.py（改写）
 
-Wevir 新增的文件：scripts/review_trigger_evals.py、agents/openai.yaml。原样分发的文件：agents/{grader,comparator,analyzer}.md、
-scripts/{aggregate_benchmark,utils,__init__}.py、LICENSE.txt。
+Wevir 新增的文件：scripts/review_trigger_evals.py、agents/openai.yaml。另外改过的有 scripts/aggregate_benchmark.py。原样分发的文件：
+agents/{grader,comparator,analyzer}.md、scripts/{utils,__init__}.py、LICENSE.txt。
 
 
 MIT License

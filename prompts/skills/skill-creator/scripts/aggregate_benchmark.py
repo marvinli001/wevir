@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Anthropic, PBC.
-# From anthropics/skills, commit dbd4588f1e1033efb41dad4bef2f7947c8993d44, skills/skill-creator/scripts/aggregate_benchmark.py. Unchanged.
+# Adapted from anthropics/skills, commit dbd4588f1e1033efb41dad4bef2f7947c8993d44,
+# skills/skill-creator/scripts/aggregate_benchmark.py. Changes for Wevir: tokens come only from
+# timing.json (no output-character count standing in for them, and read even when grading.json has
+# timing), runs_per_configuration is counted instead of fixed at 3, and --model fills in the model.
 """
 Aggregate individual run results into benchmark summary statistics.
 
@@ -140,11 +143,13 @@ def load_run_results(benchmark_dir: Path) -> dict:
                 timing = grading.get("timing", {})
                 result["time_seconds"] = timing.get("total_duration_seconds", 0.0)
                 timing_file = run_dir / "timing.json"
-                if result["time_seconds"] == 0.0 and timing_file.exists():
+                result["tokens"] = 0
+                if timing_file.exists():
                     try:
                         with open(timing_file) as tf:
                             timing_data = json.load(tf)
-                        result["time_seconds"] = timing_data.get("total_duration_seconds", 0.0)
+                        if result["time_seconds"] == 0.0:
+                            result["time_seconds"] = timing_data.get("total_duration_seconds", 0.0)
                         result["tokens"] = timing_data.get("total_tokens", 0)
                     except json.JSONDecodeError:
                         pass
@@ -152,8 +157,6 @@ def load_run_results(benchmark_dir: Path) -> dict:
                 # Extract metrics if available
                 metrics = grading.get("execution_metrics", {})
                 result["tool_calls"] = metrics.get("total_tool_calls", 0)
-                if not result.get("tokens"):
-                    result["tokens"] = metrics.get("output_chars", 0)
                 result["errors"] = metrics.get("errors_encountered", 0)
 
                 # Extract expectations — viewer requires fields: text, passed, evidence
@@ -227,7 +230,7 @@ def aggregate_results(results: dict) -> dict:
     return run_summary
 
 
-def generate_benchmark(benchmark_dir: Path, skill_name: str = "", skill_path: str = "") -> dict:
+def generate_benchmark(benchmark_dir: Path, skill_name: str = "", skill_path: str = "", model: str = "") -> dict:
     """
     Generate complete benchmark.json from run results.
     """
@@ -267,11 +270,14 @@ def generate_benchmark(benchmark_dir: Path, skill_name: str = "", skill_path: st
         "metadata": {
             "skill_name": skill_name or "<skill-name>",
             "skill_path": skill_path or "<path/to/skill>",
-            "executor_model": "<model-name>",
-            "analyzer_model": "<model-name>",
+            "executor_model": model or "<model-name>",
+            "analyzer_model": model or "<model-name>",
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "evals_run": eval_ids,
-            "runs_per_configuration": 3
+            "runs_per_configuration": max(
+                (len([r for r in config if r["eval_id"] == eval_id]) for config in results.values() for eval_id in eval_ids),
+                default=0,
+            )
         },
         "runs": runs,
         "run_summary": run_summary,
@@ -358,6 +364,11 @@ def main():
         help="Path to the skill being benchmarked"
     )
     parser.add_argument(
+        "--model",
+        default="",
+        help="Model that ran the evals (shown in the benchmark)"
+    )
+    parser.add_argument(
         "--output", "-o",
         type=Path,
         help="Output path for benchmark.json (default: <benchmark_dir>/benchmark.json)"
@@ -370,7 +381,7 @@ def main():
         sys.exit(1)
 
     # Generate benchmark
-    benchmark = generate_benchmark(args.benchmark_dir, args.skill_name, args.skill_path)
+    benchmark = generate_benchmark(args.benchmark_dir, args.skill_name, args.skill_path, args.model)
 
     # Determine output paths
     output_json = args.output or (args.benchmark_dir / "benchmark.json")
