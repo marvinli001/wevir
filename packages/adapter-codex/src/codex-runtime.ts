@@ -7,6 +7,7 @@ import type {
   EngineAccounts,
   EngineGoal,
   EnginePluginSource,
+  EngineRuleFiles,
   EngineSession,
   ForkOptions,
   GoalStartRequest,
@@ -19,7 +20,12 @@ import type {
   SessionConfig,
   TitleRequest,
 } from '@wevir/runtime-adapter';
-import { CodexAdapter, type CodexAdapterOptions, PERMISSION_MODES } from './codex-adapter.js';
+import {
+  CODEX_RULE_FILES,
+  CodexAdapter,
+  type CodexAdapterOptions,
+  PERMISSION_MODES,
+} from './codex-adapter.js';
 
 export type CodexRuntimeOptions = Omit<CodexAdapterOptions, 'mode'>;
 
@@ -83,6 +89,14 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     const session = await adapter.createSession(config);
     this.#owners.set(session.engineSessionId, adapter);
     return session;
+  }
+
+  /**
+   * 规则文件（0.68.0）与用户的说明（0.78.0）：两个进程读的一样（`CODEX_RULE_FILES`），补给的经 `SessionConfig.ruleInstructions`
+   * 进 thread 的 `developerInstructions`。
+   */
+  ruleFiles(): EngineRuleFiles {
+    return CODEX_RULE_FILES;
   }
 
   bindPlugins(source: EnginePluginSource): void {

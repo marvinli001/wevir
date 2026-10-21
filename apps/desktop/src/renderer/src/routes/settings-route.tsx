@@ -14,6 +14,7 @@ import {
   Palette,
   Search,
   Settings2,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
@@ -32,6 +33,7 @@ import { GeneralSettings } from '@/settings/general-settings';
 import { ImportSettings } from '@/settings/import-settings';
 import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
+import { PersonalizationSettings } from '@/settings/personalization-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, SettingsSection } from '@/settings/settings-ui';
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
@@ -108,6 +110,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Cpu,
     keywords: ['provider.section.accounts', 'provider.section.keyed', 'account.chatgpt.title'],
   },
+  personalization: {
+    label: 'settings.tab.personalization',
+    icon: Sparkles,
+    keywords: ['settings.personalization.outputStyle', 'settings.personalization.instructions'],
+  },
   web: {
     label: 'settings.tab.web',
     icon: Globe,
@@ -160,7 +167,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
   },
   {
     label: 'settings.group.work',
-    tabs: ['providers', 'web', 'memory', 'import', 'workspaces', 'archived'],
+    tabs: ['providers', 'personalization', 'web', 'memory', 'import', 'workspaces', 'archived'],
   },
 ];
 
@@ -334,6 +341,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <AboutSettings />;
     case 'providers':
       return <ProviderSettings />;
+    case 'personalization':
+      return <PersonalizationSettings />;
     case 'web':
       return <WebSettingsPage />;
     case 'memory':

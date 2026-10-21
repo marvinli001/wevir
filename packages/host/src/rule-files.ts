@@ -20,7 +20,13 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import type { RuleDeliveryChannel, RuleFile, RuleFileScope, SessionRules } from '@wevir/protocol';
+import type {
+  RuleDeliveryChannel,
+  RuleFile,
+  RuleFileScope,
+  SessionCustomInstructions,
+  SessionRules,
+} from '@wevir/protocol';
 import type { EngineRuleFiles, RuleFileKind } from '@wevir/runtime-adapter';
 
 /** Host 补给的规则正文的预算（UTF-8 字节）。 */
@@ -267,6 +273,28 @@ export function planRules(
   };
 }
 
+/**
+ * 把用户的说明（0.78.0，custom-instructions.ts）接在补给的规则文件后面：走同一个通道（引擎有说明可放时进说明，否则随下一条消息），
+ * `bytes` 是整段的字节数，`custom` 记下交了哪些。没有用户的说明时原样返回。
+ */
+export function withCustomInstructions(
+  plan: RulePlan,
+  custom: { custom: SessionCustomInstructions; text: string } | undefined,
+  engine: EngineRuleFiles,
+): RulePlan {
+  if (custom === undefined) return plan;
+  const text = plan.text === undefined ? custom.text : `${plan.text}\n\n${custom.text}`;
+  return {
+    rules: {
+      ...plan.rules,
+      channel: engine.instructions ? 'instructions' : 'message',
+      bytes: Buffer.byteLength(text),
+      custom: custom.custom,
+    },
+    text,
+  };
+}
+
 /** 两份规则列表是不是一样（决定恢复引擎会话时要不要再写 `session.rules`）。 */
 export function sameRules(a: SessionRules | undefined, b: SessionRules): boolean {
   if (a === undefined) return false;
@@ -275,6 +303,7 @@ export function sameRules(a: SessionRules | undefined, b: SessionRules): boolean
       rules.providerId,
       rules.channel ?? null,
       rules.bytes ?? null,
+      rules.custom ?? null,
       rules.files.map((file) => [
         file.path,
         file.delivery,

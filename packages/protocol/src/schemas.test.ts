@@ -12,6 +12,7 @@ import {
   AccountUpstreamMethodSchema,
   AccountUpstreamSchema,
   ActiveTurnSchema,
+  AgentInstructionsSchema,
   ApprovalDetailSchema,
   ApprovalIdSchema,
   ApprovalOptionSchema,
@@ -88,6 +89,7 @@ import {
   MessageFromSchema,
   MethodSchemas,
   NotificationSchemas,
+  OutputStyleSchema,
   PendingDeliverySchema,
   PendingFallbackReasonSchema,
   PendingMessageIdSchema,
@@ -123,6 +125,7 @@ import {
   SeqCursorSchema,
   SeqSchema,
   SessionCommandSchema,
+  SessionCustomInstructionsSchema,
   SessionEngineSchema,
   SessionForkedFromSchema,
   SessionGoalSchema,
@@ -1887,8 +1890,47 @@ const standaloneCases: Case[] = [
   {
     name: 'SessionRules',
     schema: SessionRulesSchema,
-    valid: [sessionRules, { providerId: 'deepseek-official', files: [] }],
-    invalid: [{ files: [] }, { ...sessionRules, channel: 'system' }, { ...sessionRules, bytes: 0 }],
+    valid: [
+      sessionRules,
+      { providerId: 'deepseek-official', files: [] },
+      {
+        providerId: 'cursor',
+        files: [],
+        channel: 'message',
+        bytes: 900,
+        custom: { instructions: true, bytes: 900 },
+      },
+    ],
+    invalid: [
+      { files: [] },
+      { ...sessionRules, channel: 'system' },
+      { ...sessionRules, bytes: 0 },
+      { ...sessionRules, custom: { instructions: true } },
+    ],
+  },
+  {
+    name: 'AgentInstructions',
+    schema: AgentInstructionsSchema,
+    valid: ['', '回答用中文。', 'x'.repeat(16_000)],
+    invalid: ['x'.repeat(16_001), 1],
+  },
+  {
+    name: 'OutputStyle',
+    schema: OutputStyleSchema,
+    valid: ['default', 'concise', 'pragmatic', 'friendly', 'future_style'],
+    invalid: ['', null],
+  },
+  {
+    name: 'SessionCustomInstructions',
+    schema: SessionCustomInstructionsSchema,
+    valid: [
+      { instructions: false, outputStyle: 'concise', bytes: 400 },
+      { instructions: true, bytes: 1200 },
+    ],
+    invalid: [
+      { instructions: true, bytes: 0 },
+      { outputStyle: 'friendly', bytes: 10 },
+    ],
   },
   {
     name: 'HandoffNoteRef',

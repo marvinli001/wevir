@@ -25,6 +25,13 @@ import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
+import {
+  type CustomPrompts,
+  customInputs,
+  loadCustomPrompts,
+  planCustom,
+  styleReminder,
+} from './custom-instructions.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
@@ -54,7 +61,7 @@ import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
 import { loadOpinionTemplate, SecondOpinionService } from './second-opinion.js';
-import { SessionManager } from './session-manager.js';
+import { SessionManager, type SessionManagerOptions } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
@@ -226,6 +233,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         logger.warn('failed to load the session recap prompt; recaps are unavailable', { error });
       }
     }
+    // 用户的说明与输出风格（0.78.0）：读不到提示词就没有这个功能，不阻止 Host 启动。
+    let customPrompts: CustomPrompts | undefined;
+    try {
+      customPrompts = loadCustomPrompts(options.promptsDir);
+    } catch (error) {
+      logger.warn('failed to load the output style prompts; custom instructions are off', {
+        error,
+      });
+    }
     // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
     const settings = new HostSettingsStore({
       path: homePath(home, 'settingsFile'),
@@ -392,6 +408,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           discoverRuleFiles({ cwd, home: options.userHome ?? options.pluginUserHome ?? homedir() }),
         enabled: () => settings.get().ruleFiles !== false,
       },
+      // 用户的说明与输出风格（0.78.0）：每次建立、恢复与接力引擎会话时按当时的设置与项目算。
+      ...(customPrompts !== undefined && {
+        customInstructions: customInstructionsOf(customPrompts, settings),
+      }),
       toolOutputDir: toolOutput.dir,
       images,
     });
@@ -758,6 +778,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         external_import: true,
         ...(secondOpinions !== undefined && { second_opinion: true }),
         session_search: true,
+        ...(customPrompts !== undefined && { agent_instructions: true }),
       },
       engineFeatures,
       plugins,
@@ -1042,4 +1063,15 @@ export function hostEngineFeatures(
   if (adapter instanceof EngineRouter) return adapter.engineFeatures();
   const features = engineFeaturesOf(engine, adapter);
   return Object.fromEntries(ProviderKindSchema.options.map((kind) => [kind, features]));
+}
+
+/** SessionManager 的 `customInstructions`（0.78.0）：按当时的 Host 设置算。 */
+function customInstructionsOf(
+  prompts: CustomPrompts,
+  settings: HostSettingsStore,
+): NonNullable<SessionManagerOptions['customInstructions']> {
+  return {
+    plan: ({ styled }) => planCustom(prompts, customInputs(settings.get(), styled)),
+    reminder: (outputStyle) => styleReminder(prompts, outputStyle),
+  };
 }

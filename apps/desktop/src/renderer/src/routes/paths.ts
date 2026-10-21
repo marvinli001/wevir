@@ -38,6 +38,7 @@ export const SETTINGS_TABS = [
   'shortcuts',
   'storage',
   'providers',
+  'personalization',
   'web',
   'memory',
   'import',

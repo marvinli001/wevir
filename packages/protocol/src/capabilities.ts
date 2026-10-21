@@ -335,6 +335,11 @@ export const HOST_FEATURES = {
    * SQLite 没有 FTS5 trigram 时照样声明，查询都是有上限的扫描（`search.status` 的 `fts` 为 false）。
    */
   sessionSearch: 'session_search',
+  /**
+   * 用户的说明与输出风格（0.78.0，domain-model §3.34）：Host 设置的 `agentInstructions`、`outputStyle`，`session.rules` 的 `custom`。
+   * Host 把它们与补给的规则文件一起交给引擎，选了带提醒的风格时每条用户消息末尾附一行提醒。与引擎无关。
+   */
+  agentInstructions: 'agent_instructions',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -404,6 +409,7 @@ export const HostFeaturesSchema = z.looseObject({
   second_opinion: z.boolean().optional(),
   session_retro: z.boolean().optional(),
   session_search: z.boolean().optional(),
+  agent_instructions: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

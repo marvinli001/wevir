@@ -19,6 +19,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
+import { isOutputStyle } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type {
   EnvironmentRecord,
@@ -1074,7 +1075,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'settings.get': () => ({ settings: settings.get() }),
 
-    'settings.update': async (params) => ({ settings: await settings.update(params.settings) }),
+    'settings.update': async (params) => {
+      // 0.78.0：输出风格只收 Host 认识的名字。
+      const style = params.settings.outputStyle;
+      if (style !== undefined && !isOutputStyle(style)) {
+        throw invalidParams(['settings', 'outputStyle'], `unknown output style ${style}`);
+      }
+      return { settings: await settings.update(params.settings) };
+    },
 
     // 0.57.0：用户管理跨会话记忆（domain-model §3.21）。
     'memory.list': async ({ workspaceId }) => {
