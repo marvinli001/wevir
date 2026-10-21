@@ -133,6 +133,13 @@ export interface SessionRepository {
   /** 归档或取消归档（`undefined`）；会话不存在时返回 false。 */
   setArchived(id: string, archivedAt: string | undefined): boolean;
   /**
+   * 会话换了目录（0.81.0，`session.move`）：改 `cwd` 与 `worktrees`（空数组清掉）；会话不存在时返回 false。
+   */
+  setLocation(
+    id: string,
+    location: { cwd: string; worktrees: NonNullable<SessionRecord['worktrees']> },
+  ): boolean;
+  /**
    * 会话的“一家”（0.43.0，`session.delete`）：它自己、它的子会话（按 `parent_session_id` 一层层往下）与从它分出的支线（`forked_from`
    * 指向它的 `side` 会话），以及这些会话各自的子会话与支线。它自己在前，父会话在子会话之前。不存在时为空数组。
    */
@@ -202,6 +209,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
       END
     ORDER BY s.updated_at DESC, s.id DESC`);
   const setArchived = db.prepare('UPDATE sessions SET archived_at = ? WHERE id = ?');
+  const setLocation = db.prepare('UPDATE sessions SET cwd = ?, worktrees = ? WHERE id = ?');
   const countOpenByWorkspace = db.prepare(
     "SELECT COUNT(*) AS n FROM sessions WHERE workspace_id = ? AND state <> 'closed' AND parent_session_id IS NULL AND side IS NULL",
   );
@@ -303,6 +311,11 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
     },
     setArchived(id, archivedAt) {
       return changed(setArchived.run(archivedAt ?? null, id));
+    },
+    setLocation(id, { cwd, worktrees }) {
+      return changed(
+        setLocation.run(cwd, worktrees.length > 0 ? JSON.stringify(worktrees) : null, id),
+      );
     },
     update(id, patch) {
       const sets: string[] = [];

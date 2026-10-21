@@ -638,8 +638,21 @@ export function checkEvent(
       ) {
         reject(`会话是 ${projection.state}，回合进行中不能接力`);
       }
-      if (e.payload.from.providerId === e.payload.to.providerId) {
-        reject('接力要换到别的 Provider');
+      // 同一个 Provider 只在换目录（0.81.0，`session.moved` 之后）新开引擎会话时出现。
+      if (
+        e.payload.from.providerId === e.payload.to.providerId &&
+        e.payload.from.engineSessionId === e.payload.to.engineSessionId
+      ) {
+        reject('接力要换到别的引擎会话');
+      }
+      break;
+    case 'session.moved':
+      if (
+        projection.state !== 'idle' &&
+        projection.state !== 'error' &&
+        projection.state !== 'closed'
+      ) {
+        reject(`会话是 ${projection.state}，回合进行中不能换目录`);
       }
       break;
     case 'session.read_only':

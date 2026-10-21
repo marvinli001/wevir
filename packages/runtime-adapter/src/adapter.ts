@@ -185,6 +185,11 @@ export interface AgentRuntimeAdapter {
    * 多文件夹的环境会话。
    */
   readonly additionalRoots?: boolean;
+  /**
+   * `resumeSession` 接受和建会话时不同的 `cwd`，引擎会话之后在新目录里跑（0.81.0，`session.move`）。没有时 Host 换目录要新开引擎
+   * 会话、交摘要。
+   */
+  readonly relocatable?: boolean;
   /** 服务账号认证的 Vertex Provider（0.21.0）。 */
   readonly googleVertex?: boolean;
 

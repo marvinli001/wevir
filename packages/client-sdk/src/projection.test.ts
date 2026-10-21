@@ -441,6 +441,31 @@ describe('TranscriptProjection：会话级事件', () => {
     expect(transcript.lastError).toBeUndefined();
   });
 
+  it('换目录（0.81.0）在移动处成为一条系统消息；紧跟着的引擎恢复不另起一行', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 3 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    add('session.moved', {
+      to: 'worktree',
+      from: '/app',
+      cwd: '/w/1-app',
+      branch: 'wevir/a1',
+      ref: 'refs/wevir/move/ses_x/1',
+      engine: 'resumed',
+    });
+    add('session.resumed', {});
+    const transcript = projectTranscript(list);
+    expect(transcript.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'system']);
+    expect(transcript.messages[2]?.parts).toEqual([
+      {
+        type: 'notice',
+        key: `n:${list.length - 1}`,
+        notice: { kind: 'moved', to: 'worktree', cwd: '/w/1-app', branch: 'wevir/a1' },
+      },
+    ]);
+  });
+
   it('接力（0.25.0）在切换处成为一条系统消息，带新旧两头；摘要不进消息', () => {
     const { list, add, turn } = events();
     turn();

@@ -359,6 +359,11 @@ export const HOST_FEATURES = {
    * 会话时重开；结果的 `worktrees`、`SessionWorktreeUsage.archived`。与引擎无关。
    */
   worktreeArchive: 'worktree_archive',
+  /**
+   * 会话在本地 checkout 与 worktree 之间换目录（0.81.0，domain-model §3.36）：`session.move`、`session.moved` 事件、`engineFeatures` 的
+   * `relocate`。与引擎无关（换不了目录的引擎新开引擎会话、交摘要）。
+   */
+  sessionMove: 'session_move',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -432,6 +437,7 @@ export const HostFeaturesSchema = z.looseObject({
   agent_instructions: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
   worktree_archive: z.boolean().optional(),
+  session_move: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

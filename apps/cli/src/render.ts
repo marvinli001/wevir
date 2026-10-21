@@ -140,6 +140,16 @@ export class EventRenderer {
           ),
         );
         return;
+      case 'session.moved':
+        // 0.81.0：会话换了目录（移到工作树或移回本地）。
+        this.#sink.line(
+          this.#s.dim(
+            t(event.payload.to === 'local' ? 'render.movedToLocal' : 'render.movedToWorktree', {
+              cwd: event.payload.cwd,
+            }),
+          ),
+        );
+        return;
       case 'session.read_only':
         this.#sink.line(
           this.#s.yellow(

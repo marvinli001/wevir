@@ -20,6 +20,7 @@ import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { deleteWorktree, worktreeState } from './git-worktree.js';
 import type { ImageStore } from './images.js';
+import { dropMoveRefs } from './session-move.js';
 import {
   type ArchivedWorktree,
   dropArchived,
@@ -271,6 +272,9 @@ export async function deleteSessionData(
     const { branchKept } = await deleteWorktree(worktree.root, worktree.branch);
     if (branchKept) keptBranches.push(worktree.branch);
   }
+  // 移动会话时原处的快照（0.81.0）在项目的仓库里。
+  const projectDir = storage.workspaces.get(record.workspaceId)?.rootPath;
+  if (projectDir !== undefined) await dropMoveRefs(projectDir, ids);
   if (deps.worktreesDir !== undefined) {
     const dir = deps.worktreesDir;
     await Promise.all(

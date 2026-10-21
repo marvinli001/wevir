@@ -36,6 +36,7 @@ import {
   SessionEnvironmentFields,
   SessionGoalSchema,
   SessionInsightSchema,
+  SessionMoveSchema,
   SessionOpenedBySchema,
   SessionOpinionOfSchema,
   SessionReadOnlyReasonSchema,
@@ -207,6 +208,12 @@ export const EventPayloadSchemas = {
     engineSessionId: z.string().min(1),
     context: z.string().min(1).optional(),
   }),
+  /**
+   * 会话换了目录（0.81.0，`session.move`，Host 功能 `session_move`，domain-model §3.36）：之后的回合在 `cwd` 里跑，`Session.cwd` 与
+   * `worktrees` 已经改过。`engine` 是 `handoff` 时紧接着写同一来源的 `session.handoff`；会话原来是 `error` 或 `closed` 时接着转
+   * `idle`（`resumed`）。
+   */
+  'session.moved': SessionMoveSchema,
   'session.state_changed': z.object({
     from: SessionStateSchema,
     to: SessionStateSchema,
@@ -564,6 +571,7 @@ export const SessionTitleChangedEventSchema = eventSchema('session.title_changed
 export const SessionGoalChangedEventSchema = eventSchema('session.goal_changed');
 export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionHandoffEventSchema = eventSchema('session.handoff');
+export const SessionMovedEventSchema = eventSchema('session.moved');
 export const SessionRulesEventSchema = eventSchema('session.rules');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
@@ -618,6 +626,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionGoalChangedEventSchema,
   SessionConfiguredEventSchema,
   SessionHandoffEventSchema,
+  SessionMovedEventSchema,
   SessionRulesEventSchema,
   SessionStateChangedEventSchema,
   UserMessageEventSchema,

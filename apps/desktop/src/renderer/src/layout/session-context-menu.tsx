@@ -3,6 +3,7 @@ import {
   CalendarClock,
   Copy,
   Eye,
+  FolderGit2,
   FolderOpen,
   GitBranch,
   Pencil,
@@ -43,6 +44,7 @@ export function SessionContextMenuItems({
   const groups = sessionMenuGroups({
     rename: actions.rename !== undefined,
     branch: actions.branch !== undefined,
+    move: actions.move !== undefined,
     automate: actions.automate !== undefined,
     archive: actions.archive !== undefined,
     delete: actions.remove !== undefined,
@@ -66,6 +68,11 @@ export function SessionContextMenuItems({
     branch: () => (
       <MenuItem id="branch" icon={<GitBranch />} onClick={actions.branch}>
         {t('message.branch')}
+      </MenuItem>
+    ),
+    move: () => (
+      <MenuItem id="move" icon={<FolderGit2 />} onClick={actions.move?.run}>
+        {t(actions.move?.to === 'local' ? 'session.moveToLocal' : 'session.moveToWorktree')}
       </MenuItem>
     ),
     automate: () => (

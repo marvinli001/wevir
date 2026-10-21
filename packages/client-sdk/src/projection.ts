@@ -45,6 +45,7 @@ import type {
   SessionGoal,
   SessionId,
   SessionInsight,
+  SessionMoveTarget,
   SessionReadOnly,
   SessionReadOnlyReason,
   SessionState,
@@ -128,6 +129,13 @@ export type SessionNotice =
         notes: readonly HandoffNoteRef[];
       };
       delivery: HandoffDelivery;
+    }
+  /** 会话换了目录（0.81.0，`session.moved`）：移进了 worktree，或移回了项目目录。 */
+  | {
+      kind: 'moved';
+      to: SessionMoveTarget;
+      cwd: string;
+      branch?: string;
     };
 
 /**
@@ -453,6 +461,8 @@ export class TranscriptProjection {
   #activeTurnId: TurnId | undefined;
   #title = '';
   #readOnly: SessionReadOnly | undefined;
+  /** 最近一条 `session.moved` 的 seq（0.81.0）：紧跟着的 `session.resumed` 不另起一行。 */
+  #lastMoved: number | undefined;
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
   #goal: SessionGoal | undefined;
@@ -511,6 +521,7 @@ export class TranscriptProjection {
     this.#activeTurnId = undefined;
     this.#title = '';
     this.#readOnly = undefined;
+    this.#lastMoved = undefined;
     this.#lastError = undefined;
     this.#usage = undefined;
     this.#goal = undefined;
@@ -552,8 +563,16 @@ export class TranscriptProjection {
       }
       case 'session.resumed':
         this.#readOnly = undefined;
+        // 换目录时接着用原来的引擎会话（0.81.0）：只显示换目录那一行。
+        if (this.#lastMoved === event.seq - 1) return;
         this.#notice(event, { kind: 'resumed', engineVersion: event.payload.engineVersion });
         return;
+      case 'session.moved': {
+        const { to, cwd, branch } = event.payload;
+        this.#lastMoved = event.seq;
+        this.#notice(event, { kind: 'moved', to, cwd, ...(branch !== undefined && { branch }) });
+        return;
+      }
       case 'session.read_only': {
         const { reason, message } = event.payload;
         this.#readOnly = { reason, message, since: event.ts };

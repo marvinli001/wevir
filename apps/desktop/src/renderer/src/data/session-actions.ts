@@ -3,7 +3,13 @@
 // 的对话框由 `requestRename`、`requestDelete` 打开（rename-dialog.tsx、delete-session-dialog.tsx 挂在根上）。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
-import type { HostFeatures, Session, SessionId, SessionWorktreeArchive } from '@wevir/protocol';
+import type {
+  HostFeatures,
+  Session,
+  SessionId,
+  SessionMoveTarget,
+  SessionWorktreeArchive,
+} from '@wevir/protocol';
 import { openAutomationDialog } from '@/automations/automation-dialog';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -14,6 +20,7 @@ import { engineFeaturesOf } from '@/session/handoff-model';
 import { reportActionFailure } from './action-notices';
 import { markSeen, markUnread, useUnread } from './seen-sessions';
 import { useWorkbenchProviders, useWorkbenchStore } from './workbench-data';
+import { isChats } from './workbench-model';
 import type { WorkbenchStore } from './workbench-store';
 
 /** Host 能改名、能归档（0.23.0）、能永久删除（0.43.0）。 */
@@ -180,6 +187,47 @@ export async function branchSession(
   void router.navigate(paths.session(created.workspaceId, created.id));
 }
 
+// ── 移动 ─────────────────────────────────────────────────────────
+
+/**
+ * 会话能往哪儿移（0.81.0，`session.move`）：Host 声明了 `session_move`，是可写、没归档、不是环境会话的顶层会话，不在“对话”里。在项目
+ * 目录里时移到工作树；在 Host 开的一个工作树里时移回本地。Host 还会查 git 的情况，不符时报错由调用方提示。
+ */
+export function moveTarget(
+  session: Pick<
+    Session,
+    'parentSessionId' | 'side' | 'readOnly' | 'archivedAt' | 'environmentId' | 'worktrees'
+  >,
+  features: HostFeatures,
+  chats: boolean,
+): SessionMoveTarget | undefined {
+  if (
+    !hostSupports(features, 'session_move') ||
+    chats ||
+    session.parentSessionId !== undefined ||
+    session.side === true ||
+    session.readOnly !== undefined ||
+    session.archivedAt !== undefined ||
+    session.environmentId !== undefined
+  ) {
+    return undefined;
+  }
+  const worktrees = session.worktrees?.length ?? 0;
+  if (worktrees === 0) return 'worktree';
+  return worktrees === 1 ? 'local' : undefined;
+}
+
+/** 移到工作树或移回本地；结果的会话放进列表（事件也会更新它）。 */
+export async function moveSession(
+  client: WevirClient,
+  store: WorkbenchStore | undefined,
+  sessionId: SessionId,
+  to: SessionMoveTarget,
+): Promise<void> {
+  const { session } = await client.request('session.move', { sessionId, to });
+  store?.upsertSession(session);
+}
+
 // ── 永久删除 ─────────────────────────────────────────────────────
 
 export const deleteRequest = createStore<Session | undefined>(undefined);
@@ -220,7 +268,7 @@ export async function deleteSessionPermanently(
 
 // ── 行上的动作（右键菜单与悬停的按钮共用） ──────────────────────────
 
-type ActionFailure = 'session.archiveFailed' | 'message.branchFailed';
+type ActionFailure = 'session.archiveFailed' | 'message.branchFailed' | 'session.moveFailed';
 
 export interface SessionActions {
   pinned: boolean;
@@ -230,6 +278,8 @@ export interface SessionActions {
   rename?: () => void;
   archive?: () => void;
   branch?: () => void;
+  /** 移到工作树或移回本地（0.81.0）。 */
+  move?: { to: SessionMoveTarget; run: () => void };
   /** 新建发进这个会话的自动化（0.73.0，Host 功能 `automation_conditions`）。 */
   automate?: () => void;
   remove?: () => void;
@@ -255,6 +305,17 @@ export function useSessionActions(session: Session): SessionActions {
       : undefined;
   const branchable =
     view.status === 'connected' && canBranchSession(session, view.hello.features, engine);
+
+  const workspace = (() => {
+    const data = store?.get();
+    return data?.status === 'ready'
+      ? data.workspaces.find((entry) => entry.workspace.id === session.workspaceId)?.workspace
+      : undefined;
+  })();
+  const moveTo =
+    view.status === 'connected'
+      ? moveTarget(session, view.hello.features, workspace !== undefined && isChats(workspace))
+      : undefined;
 
   const automatable =
     view.status === 'connected' &&
@@ -284,6 +345,15 @@ export function useSessionActions(session: Session): SessionActions {
     ...(branchable &&
       client && {
         branch: guard('message.branchFailed', () => branchSession(client, store, session)),
+      }),
+    ...(moveTo !== undefined &&
+      client && {
+        move: {
+          to: moveTo,
+          run: guard('session.moveFailed', () =>
+            moveSession(client, store, session.id as SessionId, moveTo),
+          ),
+        },
       }),
     ...(automatable && {
       automate: () => openAutomationDialog({ kind: 'create', sessionId: session.id }),

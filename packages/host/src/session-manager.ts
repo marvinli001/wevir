@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -38,6 +39,7 @@ import {
   type SessionAutomation,
   type SessionGoal,
   type SessionId,
+  type SessionMove,
   type SessionOpinionOf,
   type SessionReadOnlyReason,
   type SessionRecap,
@@ -160,6 +162,7 @@ import {
   withCustomInstructions,
 } from './rule-files.js';
 import { deleteSessionData, measureUsage, worktreeRoots } from './session-delete.js';
+import { MoveError, type PreparedMove, prepareToLocal, prepareToWorktree } from './session-move.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
@@ -2597,6 +2600,7 @@ export class SessionManager {
       ...(this.#adapter.additionalRoots === true && { additionalRoots: true }),
       ...(this.#adapter.historyTool === true && { historyTool: true }),
       ...(this.#adapter.planMode === true && { planMode: true }),
+      ...(this.#adapter.relocatable === true && { relocate: true }),
     };
   }
 
@@ -2796,6 +2800,228 @@ export class SessionManager {
       if (roots.length === 0) return [];
       return archiveWorktrees(worktreesDir, roots, new Date().toISOString());
     });
+  }
+
+  /**
+   * `session.move`（0.81.0，domain-model §3.36，照 Codex 的 handoff_thread）：顶层会话在项目目录（本地 checkout）与 Host 开的 worktree
+   * 之间换目录，没提交的改动跟着走。会话要是 `idle`、`error` 或 `closed`，不是支线、没归档、不是环境会话。先停下活动中的子会话、在
+   * 原处打快照、搬好 git（session-move.ts），再放下当前的引擎会话：引擎能换目录（`relocate`）时在新目录恢复同一个引擎会话，否则在那里
+   * 新开一个、交整段对话的摘要（同接力）。引擎挂不上时撤回 git 的改动、回 `ENGINE_ERROR`，会话还在原处（引擎会话下次发消息时自动
+   * 恢复）。成功后改会话的目录，写 `session.moved`（不能换目录的引擎接着写同一来源的 `session.handoff`），引擎收得了说明时补一条。
+   */
+  async move(params: MethodParams<'session.move'>): Promise<MethodResult<'session.move'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const record = this.#record(runtime);
+      const { session } = this.#snapshot(runtime);
+      const refuse = (message: string) =>
+        new HostError('INVALID_STATE', message, { state: session.state });
+      const invalid = (message: string) =>
+        new HostError('INVALID_PARAMS', message, { issues: [{ path: ['to'], message }] });
+      if (record.side) throw refuse('a side session cannot move');
+      if (record.archivedAt !== undefined) throw refuse('unarchive the session before moving it');
+      if (ACTIVE_STATES.includes(session.state)) {
+        throw new HostError(
+          'SESSION_BUSY',
+          'wait for the turn to finish before moving the session',
+          {
+            state: session.state,
+            ...(session.activeTurn !== undefined && { activeTurn: session.activeTurn }),
+          },
+        );
+      }
+      if (record.environmentId !== undefined) {
+        throw invalid('a session started from an environment cannot move');
+      }
+      const worktreesDir = this.#worktreesDir;
+      if (worktreesDir === undefined) throw invalid('this host has no place for worktrees');
+      const workspace = this.#storage.workspaces.get(record.workspaceId);
+      if (!workspace || workspace.removedAt !== undefined) {
+        throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${record.workspaceId} not found`);
+      }
+      if (this.#chats?.isChats(workspace) === true) throw invalid('a chat is not in a project');
+      await this.#readyDirectory(record);
+      const provider = this.#storage.providers.get(record.providerId);
+      if (!provider) {
+        throw new HostError('PROVIDER_NOT_FOUND', `provider ${record.providerId} not found`);
+      }
+      // 子会话跟着原来的目录与引擎：还在跑的先停下（父会话空闲时一般没有）。
+      await this.#cancelChildren(runtime, 'turn_cancelled');
+
+      const refId = newId('mov').slice('mov_'.length);
+      let prepared: PreparedMove;
+      try {
+        if (params.to === 'worktree') {
+          if ((record.worktrees?.length ?? 0) > 0) {
+            throw new MoveError('state', 'the session is already in a worktree');
+          }
+          if (record.cwd !== workspace.rootPath) {
+            throw new MoveError('params', "the session's folder is not the project folder");
+          }
+          const dir = join(worktreesDir, record.id);
+          const roundTrip = this.#lastMovedToLocal(runtime);
+          prepared = await prepareToWorktree({
+            sessionId: record.id,
+            cwd: record.cwd,
+            dir,
+            index: nextWorktreeIndex(dir),
+            branch: `wevir/${record.id.slice(-8).toLowerCase()}`,
+            ...(roundTrip !== undefined && { roundTrip }),
+            refId,
+          });
+        } else {
+          const roots = worktreeRoots([record], worktreesDir);
+          const [root] = roots;
+          if (root === undefined || roots.length !== 1 || record.worktrees?.length !== 1) {
+            throw new MoveError('state', 'the session is not in a worktree Wevir opened');
+          }
+          prepared = await prepareToLocal({
+            sessionId: record.id,
+            cwd: record.cwd,
+            root: root.root,
+            localDir: workspace.rootPath,
+            refId,
+          });
+        }
+      } catch (error) {
+        if (!(error instanceof MoveError)) throw error;
+        throw error.kind === 'state' ? refuse(error.message) : invalid(error.message);
+      }
+
+      // 引擎：当前的引擎会话先放下，再在新目录挂上。
+      const features = this.#featuresOf(provider.kind);
+      const relocate = features?.relocate === true;
+      const config: SessionConfig = { ...sessionConfig(record), cwd: prepared.cwd };
+      const rules = await this.#rulePlan(prepared.cwd, record.providerId, customTarget(record));
+      const from = {
+        providerId: session.providerId,
+        modelId: session.modelId,
+        engineSessionId: runtime.engineSessionId,
+      };
+      const attachment = runtime.attachment;
+      if (attachment) {
+        attachment.detached = true;
+        await this.#adapter.close(runtime.engineSessionId).catch((error: unknown) => {
+          this.#onWarning('移动会话时关闭原来的引擎会话失败', {
+            sessionId: runtime.id,
+            error: errorText(error),
+          });
+        });
+        this.#detach(runtime);
+      }
+      let engine: EngineSession;
+      try {
+        engine = relocate
+          ? await this.#adapter.resumeSession(
+              runtime.engineSessionId,
+              this.#engineConfig(runtime.id, config, rules),
+            )
+          : await this.#adapter.createSession(this.#engineConfig(runtime.id, config, rules));
+      } catch (error) {
+        await prepared.rollback();
+        const info = engineErrorInfo(error, 'session_unavailable');
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+
+      const moved: SessionMove = {
+        to: params.to,
+        from: record.cwd,
+        cwd: prepared.cwd,
+        ...(prepared.branch !== undefined && { branch: prepared.branch }),
+        ...(prepared.previousBranch !== undefined && { previousBranch: prepared.previousBranch }),
+        ref: prepared.ref,
+        engine: relocate ? 'resumed' : 'handoff',
+      };
+      // 换不了目录的引擎：新的引擎会话没看过之前的对话，交给它整段对话的摘要（同接力的 full_thread_summary）。
+      const plan = relocate
+        ? undefined
+        : this.#handoffPlan(runtime, from, undefined, features, { constraints: [], notes: [] });
+      this.#storage.sessions.setLocation(record.id, {
+        cwd: prepared.cwd,
+        worktrees:
+          params.to === 'worktree' && prepared.branch !== undefined
+            ? [
+                {
+                  workspaceId: record.workspaceId,
+                  path: prepared.cwd,
+                  branch: prepared.branch,
+                },
+              ]
+            : [],
+      });
+      const inputs: AppendInput[] = [{ type: 'session.moved', source: 'host', payload: moved }];
+      if (plan === undefined) {
+        inputs.push(resumedEvent(engine));
+      } else {
+        runtime.engineSessionId = engine.engineSessionId;
+        const describe = (providerId: string, modelId: string) =>
+          this.#describeModel(providerId, modelId);
+        if (plan.historyTool && plan.assembly.kind === 'material') {
+          this.#writeHistory(runtime.id, plan.toSeq, describe);
+        }
+        inputs.push({
+          type: 'session.handoff',
+          source: 'host',
+          payload: {
+            from,
+            to: {
+              providerId: record.providerId,
+              modelId: engine.modelId ?? session.modelId,
+              engineSessionId: engine.engineSessionId,
+            },
+            ...((engine.reasoningEffort ?? session.reasoningEffort) !== undefined && {
+              reasoningEffort: engine.reasoningEffort ?? session.reasoningEffort,
+            }),
+            ...(session.permissionMode !== undefined && { permissionMode: session.permissionMode }),
+            resumed: false,
+            strategy: plan.strategy,
+            ...(plan.assembly.kind === 'material'
+              ? handoffReceipt(plan)
+              : { items: 0, omittedItems: 0 }),
+            ...(engine.engineVersion !== undefined && { engineVersion: engine.engineVersion }),
+          },
+        });
+      }
+      const { state: sessionState } = this.#snapshot(runtime).session;
+      if (sessionState !== 'idle') inputs.push(stateChanged(sessionState, 'idle', 'resumed'));
+      this.#write(runtime, inputs);
+      const rulesInput = this.#rulesInput(runtime.id, rules, runtime.engineSessionId, {
+        fresh: !relocate,
+      });
+      if (rulesInput !== undefined) this.#write(runtime, [rulesInput]);
+      try {
+        this.#attach(runtime);
+      } catch (error) {
+        this.#engineFailed(runtime, engineErrorInfo(error));
+      }
+      if (
+        this.#adapter.injectNote !== undefined &&
+        this.#adapter.supports?.(runtime.engineSessionId, 'injectNote') !== false
+      ) {
+        await this.#adapter.injectNote(runtime.engineSessionId, moveNote(moved)).catch((error) =>
+          this.#onWarning('移动会话的说明没能补进引擎的上下文', {
+            sessionId: runtime.id,
+            error: errorText(error),
+          }),
+        );
+      }
+      return { session: this.#snapshot(runtime).session, moved };
+    });
+  }
+
+  /** 上一次移动是移回本地、本地换到了 worktree 的分支（再移进 worktree 时重开那个分支、本地换回之前的分支）。 */
+  #lastMovedToLocal(
+    runtime: SessionRuntime,
+  ): { branch: string; previousBranch: string } | undefined {
+    let last: SessionMove | undefined;
+    for (const event of this.#events.readSince(runtime.id, 0)) {
+      if (event.type === 'session.moved') last = event.payload;
+    }
+    return last?.to === 'local' && last.branch !== undefined && last.previousBranch !== undefined
+      ? { branch: last.branch, previousBranch: last.previousBranch }
+      : undefined;
   }
 
   /** 重开一家会话归档时删掉的 worktree（0.81.0）；在会话的命令队列里调用。 */
@@ -5792,6 +6018,33 @@ async function assertDirectory(path: string): Promise<void> {
       reason,
     });
   }
+}
+
+/** `<worktreesDir>/<会话 ID>` 里下一个 worktree 的序号（目录名开头的 `<序号>-`）。 */
+function nextWorktreeIndex(dir: string): number {
+  let max = 0;
+  try {
+    for (const name of readdirSync(dir)) {
+      const index = Number(/^(\d+)-/.exec(name)?.[1] ?? 0);
+      if (index > max) max = index;
+    }
+  } catch {
+    // 目录还没有。
+  }
+  return max + 1;
+}
+
+/** 移动之后补给引擎的说明（0.81.0）：之前的对话里的路径是旧目录的。 */
+function moveNote(moved: SessionMove): string {
+  const where =
+    moved.to === 'worktree'
+      ? `a new git worktree${moved.branch !== undefined ? ` on branch ${moved.branch}` : ''}`
+      : `the project folder${moved.branch !== undefined ? ` (now on branch ${moved.branch})` : ''}`;
+  return (
+    `Wevir moved this session from ${moved.from} to ${moved.cwd}, ${where}. ` +
+    'Uncommitted changes moved with it and the old folder was reset to its last commit. ' +
+    `Work in ${moved.cwd} from now on; paths under ${moved.from} earlier in this conversation now mean the same files under ${moved.cwd}.`
+  );
 }
 
 function sessionConfig(record: SessionRecord): SessionConfig {

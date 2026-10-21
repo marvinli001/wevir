@@ -1472,6 +1472,22 @@ export const eventPayloads: PayloadSamples = {
       omittedItems: 0,
     },
   },
+  'session.moved': {
+    valid: {
+      to: 'worktree',
+      from: '/Users/me/projects/wevir',
+      cwd: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir',
+      branch: 'wevir/fix-login',
+      ref: 'refs/wevir/move/ses_x/01JA2B3C4D5E6F7G8H9JKMNPQR',
+      engine: 'resumed',
+    },
+    invalid: {
+      to: 'remote',
+      from: '/Users/me/projects/wevir',
+      cwd: '/x',
+      engine: 'resumed',
+    },
+  },
   'session.rules': {
     valid: {
       ...sessionRules,
@@ -3540,6 +3556,56 @@ export const methodSamples: MethodSamples = {
             engines: [{ providerId: 'claude', modelId: 'm', sessionId: 'e', seenSeq: -1 }],
           },
         },
+      ],
+    },
+  },
+  'session.move': {
+    params: {
+      valid: [
+        { sessionId: ids.session, to: 'worktree' },
+        { sessionId: ids.session, to: 'local' },
+      ],
+      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, to: 'cloud' }],
+    },
+    result: {
+      valid: [
+        {
+          session,
+          moved: {
+            to: 'worktree',
+            from: '/Users/me/projects/wevir',
+            cwd: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir',
+            branch: 'wevir/fix-login',
+            ref: 'refs/wevir/move/ses_x/01JA2B3C4D5E6F7G8H9JKMNPQR',
+            engine: 'resumed',
+          },
+        },
+        {
+          session,
+          moved: {
+            to: 'local',
+            from: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir',
+            cwd: '/Users/me/projects/wevir',
+            branch: 'wevir/fix-login',
+            previousBranch: 'main',
+            ref: 'refs/wevir/move/ses_x/01JA2B3C4D5E6F7G8H9JKMNPR1',
+            engine: 'handoff',
+          },
+        },
+        {
+          session,
+          moved: {
+            to: 'worktree',
+            from: '/Users/me/projects/wevir',
+            cwd: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/2-wevir',
+            engine: 'handoff',
+            sourceKept: true,
+          },
+        },
+      ],
+      invalid: [
+        { session },
+        { session, moved: { to: 'worktree', from: '', cwd: '/x', engine: 'resumed' } },
       ],
     },
   },

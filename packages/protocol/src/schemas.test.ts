@@ -130,6 +130,8 @@ import {
   SessionForkedFromSchema,
   SessionGoalSchema,
   SessionIdSchema,
+  SessionMoveSchema,
+  SessionMoveTargetSchema,
   SessionOpenedBySchema,
   SessionOriginSchema,
   SessionReadOnlyReasonSchema,
@@ -1467,6 +1469,33 @@ const standaloneCases: Case[] = [
       { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', path: '/w/1-wevir', branch: 'wevir/a1' },
     ],
     invalid: [{ workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', path: '', branch: 'b' }],
+  },
+  {
+    name: 'SessionMoveTarget',
+    schema: SessionMoveTargetSchema,
+    valid: ['worktree', 'local'],
+    invalid: ['cloud', ''],
+  },
+  {
+    name: 'SessionMove',
+    schema: SessionMoveSchema,
+    valid: [
+      { to: 'worktree', from: '/app', cwd: '/w/1-app', branch: 'wevir/a1', engine: 'resumed' },
+      {
+        to: 'local',
+        from: '/w/1-app',
+        cwd: '/app',
+        branch: 'wevir/a1',
+        previousBranch: 'main',
+        ref: 'refs/wevir/move/ses_x/1',
+        engine: 'handoff',
+      },
+      { to: 'worktree', from: '/app', cwd: '/w/2-app', engine: 'handoff', sourceKept: true },
+    ],
+    invalid: [
+      { to: 'worktree', from: '/app', cwd: '/w/1-app', engine: 'new' },
+      { to: 'worktree', from: '/app', cwd: '/w/1-app', engine: 'resumed', sourceKept: false },
+    ],
   },
   {
     name: 'WorktreeArchiveReason',

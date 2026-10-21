@@ -93,6 +93,8 @@ import {
   SecondOpinionSchema,
   SessionGoalSchema,
   SessionInsightSchema,
+  SessionMoveSchema,
+  SessionMoveTargetSchema,
   SessionOriginSchema,
   SessionRecapSchema,
   SessionSchema,
@@ -1031,6 +1033,19 @@ export const SessionWorktreeArchiveSchema = z.object({
 });
 export type SessionWorktreeArchive = z.infer<typeof SessionWorktreeArchiveSchema>;
 
+/**
+ * 会话在本地 checkout 与 worktree 之间换目录（0.81.0，Host 功能 `session_move`，domain-model §3.36）：照 Codex 的 handoff_thread。
+ */
+export const SessionMoveParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  to: SessionMoveTargetSchema,
+});
+
+export const SessionMoveResultSchema = z.object({
+  session: SessionSchema,
+  moved: SessionMoveSchema,
+});
+
 export const SessionArchiveResultSchema = z.object({
   session: SessionSchema,
   /** 0.81.0：会话（连同子会话）开的 worktree；没有时省略。 */
@@ -1843,6 +1858,11 @@ export const MethodSchemas = {
     params: SessionHandoffPreviewParamsSchema,
     result: SessionHandoffPreviewResultSchema,
     permission: 'session.read',
+  },
+  'session.move': {
+    params: SessionMoveParamsSchema,
+    result: SessionMoveResultSchema,
+    permission: 'session.write',
   },
   'session.send': {
     params: SessionSendParamsSchema,

@@ -340,6 +340,8 @@ Also:
   'render.resumed': '(engine session resumed)',
   'render.resumedVersion': '(engine session resumed, {version})',
   'render.handoff': '(switched to {provider} · {model})',
+  'render.movedToWorktree': '(moved to worktree {cwd})',
+  'render.movedToLocal': '(moved back to local {cwd})',
   'render.readOnly': 'Read-only session: {reason} ({message})',
   'render.sessionError': 'Session error; sending a message tries to recover it',
   'render.sessionErrorWhy': 'Session error: {why}; sending a message tries to recover it',

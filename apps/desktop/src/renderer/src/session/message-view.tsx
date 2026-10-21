@@ -557,13 +557,17 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   const { notice } = part;
   if (notice.kind === 'handoff') return <HandoffNotice notice={notice} />;
   const text =
-    notice.kind === 'resumed'
-      ? notice.engineVersion
-        ? t('notice.resumedVersion', { version: notice.engineVersion })
-        : t('notice.resumed')
-      : notice.kind === 'read_only'
-        ? t('notice.readOnly', { reason: t(`readOnly.${notice.reason}`) })
-        : t('notice.closed');
+    notice.kind === 'moved'
+      ? [t(notice.to === 'local' ? 'notice.movedToLocal' : 'notice.movedToWorktree'), notice.branch]
+          .filter(Boolean)
+          .join(' · ')
+      : notice.kind === 'resumed'
+        ? notice.engineVersion
+          ? t('notice.resumedVersion', { version: notice.engineVersion })
+          : t('notice.resumed')
+        : notice.kind === 'read_only'
+          ? t('notice.readOnly', { reason: t(`readOnly.${notice.reason}`) })
+          : t('notice.closed');
   return (
     <p className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
       <Info aria-hidden className="size-3.5" />
@@ -572,7 +576,10 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   );
 }
 
-/** 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。 */
+/**
+ * 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。换目录（0.81.0）时同一来源新开的引擎
+ * 会话写“已转到新的引擎会话”。
+ */
 function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const data = useWorkbenchData();
   const accounts = useAccounts();
@@ -601,7 +608,9 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
         ) : (
           <ArrowLeftRight aria-hidden className="size-3.5" />
         )}
-        {t('notice.handoff', { model: label })}
+        {notice.fromProviderId === notice.providerId
+          ? t('notice.handoffSameSource')
+          : t('notice.handoff', { model: label })}
       </button>
       <HandoffDetailDialog
         notice={notice}

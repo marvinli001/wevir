@@ -21,6 +21,7 @@ import {
   archiveSessions,
   canBranchSession,
   deleteSessionPermanently,
+  moveTarget,
   pinnedSessions,
   worktreeRestoreNotices,
 } from './session-actions';
@@ -75,6 +76,34 @@ describe('canBranchSession', () => {
         engine,
       ),
     ).toBe(false);
+  });
+});
+
+describe('moveTarget', () => {
+  const features = { session_move: true };
+  it('项目目录里的会话移到工作树，Host 开的一个工作树里的移回本地（0.81.0）', () => {
+    expect(moveTarget({}, features, false)).toBe('worktree');
+    expect(
+      moveTarget(
+        { worktrees: [{ workspaceId: 'ws_x', path: '/w', branch: 'b' }] } as never,
+        features,
+        false,
+      ),
+    ).toBe('local');
+  });
+
+  it('Host 不支持、对话、子会话、支线、只读、已归档、环境会话都不能移', () => {
+    expect(moveTarget({}, {}, false)).toBeUndefined();
+    expect(moveTarget({}, features, true)).toBeUndefined();
+    for (const session of [
+      { parentSessionId: 'ses_p' },
+      { side: true },
+      { readOnly: { reason: 'engine_lost', message: 'x', since: 't' } },
+      { archivedAt: 't' },
+      { environmentId: 'env_x' },
+    ]) {
+      expect(moveTarget(session as never, features, false)).toBeUndefined();
+    }
   });
 });
 

@@ -336,6 +336,8 @@ export const zh = {
   'render.resumed': '（引擎会话已恢复）',
   'render.resumedVersion': '（引擎会话已恢复，{version}）',
   'render.handoff': '（已切换到 {provider} · {model}）',
+  'render.movedToWorktree': '（已移到工作树 {cwd}）',
+  'render.movedToLocal': '（已移回本地 {cwd}）',
   'render.readOnly': '会话只读：{reason}（{message}）',
   'render.sessionError': '会话出错；发送消息时将尝试恢复',
   'render.sessionErrorWhy': '会话出错：{why}；发送消息时将尝试恢复',

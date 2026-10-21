@@ -6,6 +6,7 @@ export type SessionMenuItem =
   | 'pin'
   | 'unread'
   | 'branch'
+  | 'move'
   | 'automate'
   | 'copy'
   | 'openWith'
@@ -15,6 +16,8 @@ export type SessionMenuItem =
 export interface SessionMenuAvailability {
   rename: boolean;
   branch: boolean;
+  /** 在本地与工作树之间移动（0.81.0）。 */
+  move?: boolean;
   /** 新建发进这个会话的自动化（0.73.0）。 */
   automate?: boolean;
   archive: boolean;
@@ -27,11 +30,15 @@ function present<T>(groups: readonly (readonly (T | false)[])[]): T[][] {
     .filter((group) => group.length > 0);
 }
 
-/** 会话行的菜单：重命名、置顶、标记为未读 | 分支、新建自动化 | 复制 ▸ | 打开方式 ▸ | 归档、永久删除。 */
+/** 会话行的菜单：重命名、置顶、标记为未读 | 分支、移到工作树或本地、新建自动化 | 复制 ▸ | 打开方式 ▸ | 归档、永久删除。 */
 export function sessionMenuGroups(available: SessionMenuAvailability): SessionMenuItem[][] {
   return present<SessionMenuItem>([
     [available.rename && 'rename', 'pin', 'unread'],
-    [available.branch && 'branch', available.automate === true && 'automate'],
+    [
+      available.branch && 'branch',
+      available.move === true && 'move',
+      available.automate === true && 'automate',
+    ],
     ['copy'],
     ['openWith'],
     [available.archive && 'archive', available.delete && 'delete'],

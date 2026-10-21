@@ -27,6 +27,12 @@ describe('sessionMenuGroups', () => {
     ).toEqual([['pin', 'unread'], ['copy'], ['openWith']]);
   });
 
+  it('能移动时“移到工作树 / 移回本地”跟在分支后面（0.81.0）', () => {
+    expect(
+      sessionMenuGroups({ rename: true, branch: true, move: true, archive: true, delete: true })[1],
+    ).toEqual(['branch', 'move']);
+  });
+
   it('能归档但不能永久删除时，归档单独一项', () => {
     const groups = sessionMenuGroups({ rename: true, branch: false, archive: true, delete: false });
     expect(groups.at(-1)).toEqual(['archive']);

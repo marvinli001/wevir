@@ -1155,6 +1155,8 @@ export const EngineFeaturesSchema = z.object({
   rewind: z.boolean().optional(),
   /** 撤销 / 重做回合（0.51.0，`session.undo` / `session.redo`，还要 Host 声明 `session_undo`）：引擎能收到补进上下文的说明（`injectNote`）。 */
   undo: z.boolean().optional(),
+  /** 换目录（0.81.0，`session.move`）时接着用原来的引擎会话；没有时新开一个、交摘要（同接力）。 */
+  relocate: z.boolean().optional(),
 });
 export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
 
@@ -1394,6 +1396,33 @@ export const SessionWorktreeSchema = z.object({
   branch: z.string().min(1),
 });
 export type SessionWorktree = z.infer<typeof SessionWorktreeSchema>;
+
+/**
+ * 会话换了目录（0.81.0，`session.move`，domain-model §3.36）：`worktree` 从项目目录（本地 checkout）移进 Host 新开的 worktree，`local`
+ * 从 Host 开的 worktree 移回项目目录。没提交的改动与未跟踪文件跟着走，原处回到 HEAD。
+ */
+export const SessionMoveTargetSchema = z.enum(['worktree', 'local']);
+export type SessionMoveTarget = z.infer<typeof SessionMoveTargetSchema>;
+
+/** 一次移动（`session.moved` 事件与 `session.move` 的结果，0.81.0）。 */
+export const SessionMoveSchema = z.object({
+  to: SessionMoveTargetSchema,
+  /** 原来的目录。 */
+  from: z.string().min(1),
+  /** 现在的目录（`Session.cwd`）。 */
+  cwd: z.string().min(1),
+  /** 现在检出的分支：移进 worktree 时是新开的分支，移回本地时是本地 checkout 换到的分支；分离 HEAD 时省略。 */
+  branch: z.string().min(1).optional(),
+  /** 移回本地之前本地 checkout 所在的分支。 */
+  previousBranch: z.string().min(1).optional(),
+  /** 移动前原处的样子（HEAD 加没提交的改动），挂在原仓库的这个 ref 上，留着找回用。 */
+  ref: z.string().min(1).optional(),
+  /** `resumed`：接着用原来的引擎会话（引擎能换目录）；`handoff`：新开引擎会话，紧接着的 `session.handoff` 交摘要。 */
+  engine: z.enum(['resumed', 'handoff']),
+  /** 移进 worktree 后原处没能清回 HEAD（改动两边都有）。 */
+  sourceKept: z.literal(true).optional(),
+});
+export type SessionMove = z.infer<typeof SessionMoveSchema>;
 
 /** 环境会话的目录（0.15.0）：`session.created` 与 `Session` 共用的三个字段，建会话后不变。 */
 export const SessionEnvironmentFields = {

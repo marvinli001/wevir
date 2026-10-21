@@ -584,6 +584,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly planMode = true;
   /** 分支到新会话（0.38.0，codex-event-mapping.md §6.15）：`thread/fork` 带 `lastTurnId`，不临时、不加边界说明。 */
   readonly branches = true;
+  /** 换目录（0.81.0）：`thread/resume` 带新的 `cwd`，thread 之后在那里跑。 */
+  readonly relocatable = true;
   /** 读历史的工具（0.25.0，codex-event-mapping.md §6.10）：给了 `historyTool` 时登记。 */
   get historyTool(): boolean {
     return this.#options.historyTool !== undefined;

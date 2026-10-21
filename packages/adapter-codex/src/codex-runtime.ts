@@ -55,6 +55,8 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   readonly planMode = true;
   /** 分支到新会话（0.38.0）：两个进程都是 `thread/fork`。 */
   readonly branches = true;
+  /** 换目录（0.81.0）：两个进程都是 `thread/resume` 带新的 `cwd`。 */
+  readonly relocatable = true;
   readonly googleVertex = true;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时两个进程都登记。 */
   readonly historyTool: boolean;

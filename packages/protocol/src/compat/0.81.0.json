@@ -4458,6 +4458,125 @@
         }
       ]
     },
+    "session.move": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "to": "worktree"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "to": "local"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "closed",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12,
+            "archivedAt": "2026-10-12T08:00:05.250Z"
+          },
+          "moved": {
+            "to": "worktree",
+            "from": "/Users/me/projects/wevir",
+            "cwd": "/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir",
+            "branch": "wevir/fix-login",
+            "ref": "refs/wevir/move/ses_x/01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "engine": "resumed"
+          }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "closed",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12,
+            "archivedAt": "2026-10-12T08:00:05.250Z"
+          },
+          "moved": {
+            "to": "local",
+            "from": "/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir",
+            "cwd": "/Users/me/projects/wevir",
+            "branch": "wevir/fix-login",
+            "previousBranch": "main",
+            "ref": "refs/wevir/move/ses_x/01JA2B3C4D5E6F7G8H9JKMNPR1",
+            "engine": "handoff"
+          }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "closed",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12,
+            "archivedAt": "2026-10-12T08:00:05.250Z"
+          },
+          "moved": {
+            "to": "worktree",
+            "from": "/Users/me/projects/wevir",
+            "cwd": "/Users/me/Library/Application Support/Wevir/worktrees/ses_x/2-wevir",
+            "engine": "handoff",
+            "sourceKept": true
+          }
+        }
+      ]
+    },
     "session.send": {
       "params": [
         {
@@ -10764,6 +10883,21 @@
         "omittedItems": 0,
         "context": "Context handoff (full_thread_summary):\n…",
         "engineVersion": "2.1.0"
+      }
+    },
+    {
+      "seq": 6,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "session.moved",
+      "source": "host",
+      "payload": {
+        "to": "worktree",
+        "from": "/Users/me/projects/wevir",
+        "cwd": "/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir",
+        "branch": "wevir/fix-login",
+        "ref": "refs/wevir/move/ses_x/01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "engine": "resumed"
       }
     },
     {

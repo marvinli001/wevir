@@ -1014,6 +1014,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.configure': async (params) => ({ session: await sessions.configure(params) }),
     'session.handoffPreview': (params) => sessions.handoffPreview(params),
+    // 0.81.0：在本地 checkout 与 worktree 之间换目录（domain-model §3.36）。
+    'session.move': async (params) => {
+      assertSessionVisible(storage, params.sessionId);
+      const result = await sessions.move(params);
+      return { ...result, session: withArchive(result.session) };
+    },
 
     'session.send': (params, { client }) => sessions.send(params, client),
 

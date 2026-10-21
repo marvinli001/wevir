@@ -65,6 +65,21 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       delete next.readOnly;
       break;
     }
+    case 'session.moved':
+      // 0.81.0：会话换了目录；移进的 worktree 是 Host 开的，移回本地时没有 worktree。
+      next.cwd = event.payload.cwd;
+      if (event.payload.to === 'worktree' && event.payload.branch !== undefined) {
+        next.worktrees = [
+          {
+            workspaceId: session.workspaceId,
+            path: event.payload.cwd,
+            branch: event.payload.branch,
+          },
+        ];
+      } else {
+        delete next.worktrees;
+      }
+      break;
     case 'session.rules': {
       // 0.68.0：当前来源加载的规则文件；交给引擎的正文与引擎会话不放进 `Session`。
       const { engineSessionId: _engine, context: _context, ...rules } = event.payload;

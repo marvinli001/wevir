@@ -174,6 +174,18 @@ describe('sessions', () => {
     expect(s.sessions.setArchived('ses_missing', T2)).toBe(false);
   });
 
+  it('换目录（0.81.0）：改 cwd 与 worktrees，空数组清掉', () => {
+    const s = storage();
+    seedSession(s);
+    const worktrees = [{ workspaceId: 'ws_01', path: '/wt/1-app', branch: 'wevir/a' }];
+    expect(s.sessions.setLocation('ses_01', { cwd: '/wt/1-app', worktrees })).toBe(true);
+    expect(s.sessions.get('ses_01')).toMatchObject({ cwd: '/wt/1-app', worktrees });
+    expect(s.sessions.setLocation('ses_01', { cwd: '/app', worktrees: [] })).toBe(true);
+    expect(s.sessions.get('ses_01')?.cwd).toBe('/app');
+    expect(s.sessions.get('ses_01')).not.toHaveProperty('worktrees');
+    expect(s.sessions.setLocation('ses_missing', { cwd: '/x', worktrees: [] })).toBe(false);
+  });
+
   it('环境（0004）：增删改查，按创建时间', () => {
     const s = storage();
     const record = {

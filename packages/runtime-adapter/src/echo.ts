@@ -36,6 +36,8 @@ export interface EchoAdapterOptions {
   incrementalStream?: boolean;
   /** `createSession` / `resumeSession` 报的引擎版本（`EngineSession.engineVersion`）；默认不报。 */
   engineVersion?: string;
+  /** `resumeSession` 接受别的 `cwd`（0.81.0，`relocatable`）；默认不接受，cwd 不同时报 `session_unavailable`。 */
+  relocatable?: boolean;
 }
 
 /** `simulateEngineExit` 的参数，对应真实进程的退出信息。 */
@@ -228,7 +230,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     this.#stepDelayMs = Math.max(0, options.stepDelayMs ?? 2);
     this.#incremental = options.incrementalStream ?? true;
     this.#engineVersion = options.engineVersion;
+    this.relocatable = options.relocatable === true;
   }
+
+  /** 换目录时接着用引擎会话（0.81.0）。 */
+  readonly relocatable: boolean;
 
   /** 未触发的计时器数；dispose 之后应为 0。 */
   get pendingTimerCount(): number {
@@ -270,7 +276,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       });
     }
     if (session.status === 'open') return this.#describe(session);
-    if (config.cwd !== session.config.cwd) {
+    if (config.cwd !== session.config.cwd && !this.relocatable) {
       throw new AdapterError('session_unavailable', `session cwd does not match: ${config.cwd}`);
     }
     session.status = 'open';
@@ -284,6 +290,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     } = session.config;
     session.config = {
       ...rest,
+      cwd: config.cwd,
       providerId: config.providerId,
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),

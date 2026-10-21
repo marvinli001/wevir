@@ -752,6 +752,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_archive: true,
         session_delete: true,
         worktree_archive: true,
+        session_move: true,
         session_handoff: true,
         handoff_material: true,
         handoff_preview: true,
