@@ -140,6 +140,20 @@ describe('父会话的消息流', () => {
     expect(visibleParts(parts, true)).toEqual([marker(spawned), text, failed, shell]);
   });
 
+  it('成功标了章节的调用藏起来，分隔线留下；失败的照常显示', () => {
+    const mark = tool('call_chapter', {
+      toolName: 'mcp__wevir__wevir_mark_chapter',
+      display: { kind: 'unknown' },
+    });
+    const failed = tool('call_chapter_2', {
+      toolName: 'wevir.wevir_mark_chapter',
+      display: { kind: 'unknown' },
+      status: 'failed',
+    });
+    const divider: ChatPart = { type: 'chapter', key: 'h:9', seq: 9, title: '实现' };
+    expect(visibleParts([mark, divider, failed, text], false)).toEqual([divider, failed, text]);
+  });
+
   it('没有子会话的会话（dsh）照常显示子 agent 的工具卡片', () => {
     const parts = [tool('call_dsh_subagent', { toolName: 'subagent' }), text];
     expect(visibleParts(parts, false)).toBe(parts);

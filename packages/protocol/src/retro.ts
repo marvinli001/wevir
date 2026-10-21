@@ -27,7 +27,7 @@ import {
 } from './verification.js';
 
 /** 投影（归约规则）的版本；改了归约规则就加一，旧投影随之重建。 */
-export const RETRO_SCHEMA_VERSION = 1;
+export const RETRO_SCHEMA_VERSION = 2;
 /** 摘要最多几点、每点多少字（按码点）。 */
 export const RETRO_SUMMARY_MAX_POINTS = 6;
 export const RETRO_SUMMARY_POINT_MAX_CHARS = 200;
@@ -127,9 +127,23 @@ export const RetroTurnSchema = z.object({
   added: z.int().min(0).optional(),
   removed: z.int().min(0).optional(),
   inherited: z.literal(true).optional(),
+  /** 回合所在的章节（0.82.0，`RetroChapter.id`）；第一章之前的回合没有。 */
+  chapter: z.string().min(1).optional(),
   at: IsoTimeSchema,
 });
 export type RetroTurn = z.infer<typeof RetroTurnSchema>;
+
+/**
+ * 一个章节（0.82.0，`chapter.marked`）：`id` 是 `h<seq>`，`text` 是标题，`ref` 指向标记它的事件。回顾按章节给回合分段：回合归到它结束
+ * 之前最后开始的那一章（标记章节的回合算在那一章里，同一回合标了两章时归后一章）；第一章之前的回合不属于任何一章。撤销或撤回的回合
+ * 里标的章节不列。
+ */
+export const RetroChapterSchema = RetroItemSchema.extend({
+  summary: z.string().optional(),
+  /** 这一章里的回合数（`RetroTurn.chapter` 是它的回合）。 */
+  turns: z.int().min(0),
+});
+export type RetroChapter = z.infer<typeof RetroChapterSchema>;
 
 /** 改动的一个文件：哪几个回合改过（最后一个在后）。 */
 export const RetroFileSchema = z.object({
@@ -337,6 +351,8 @@ export const SessionRetroSchema = z.object({
   /** 任务清单只属于会话树的根；别的会话里 `false`。 */
   boardRecorded: z.boolean(),
   turns: z.array(RetroTurnSchema),
+  /** 章节（0.82.0），按先后；没有章节时是空数组，0.82.0 之前的 Host 不给。 */
+  chapters: z.array(RetroChapterSchema).optional(),
   /** 撤销且没重做的回合数（它们不出现在回顾里）。 */
   hiddenTurns: z.int().min(0),
   changes: RetroChangesSchema,

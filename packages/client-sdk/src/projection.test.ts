@@ -1685,6 +1685,66 @@ describe('交给用户的文件（0.40.0）', () => {
   });
 });
 
+describe('章节（0.82.0）', () => {
+  const TURN2 = 'trn_01JA2B3C4D5E6F7G8H9JKMNP02' as TurnId;
+
+  it('chapter.marked 是当时位置的 chapter 部件；chapters 按先后列出，撤销的回合里的不列；没变时是同一个数组', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.message', {
+      turnId: TURN,
+      messageId: 'msg_1',
+      text: '先看代码。',
+      replaces: [],
+    });
+    const impl = add('chapter.marked', { title: '实现', summary: '改协议', turnId: TURN });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    turn(TURN2, '跑测试');
+    const verify = add('chapter.marked', { title: '验证', turnId: TURN2 });
+    add('turn.finished', { turnId: TURN2, outcome: 'completed', durationMs: 5 });
+
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const first = projection.snapshot();
+    const answer = first.messages.find((m) => m.role === 'assistant');
+    expect(answer?.parts.at(-1)).toEqual({
+      type: 'chapter',
+      key: `h:${impl.seq}`,
+      seq: impl.seq,
+      title: '实现',
+      summary: '改协议',
+    });
+    expect(first.chapters.map((c) => [c.title, c.turnId, c.messageId])).toEqual([
+      ['实现', TURN, answer?.id],
+      ['验证', TURN2, expect.any(String)],
+    ]);
+    expect(first.chapters[1]?.key).toBe(`h:${verify.seq}`);
+
+    const usage = add('usage.updated', { contextUsed: 10, contextSize: 100 });
+    projection.apply(usage);
+    expect(projection.snapshot().chapters).toBe(first.chapters);
+
+    const undone = add('turn.undone', { turnId: TURN2 });
+    projection.apply(undone);
+    expect(projection.snapshot().chapters.map((c) => c.title)).toEqual(['实现']);
+  });
+
+  it('没有回合时是一条系统消息；没有章节时 chapters 是空数组', () => {
+    const { list, add } = events();
+    expect(projectTranscript(list).chapters).toEqual([]);
+    add('chapter.marked', { title: '收尾' });
+    const transcript = projectTranscript(list);
+    expect(transcript.messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'chapter', title: '收尾' }],
+    });
+    expect(transcript.chapters).toEqual([
+      expect.objectContaining({ title: '收尾', messageId: transcript.messages.at(-1)?.id }),
+    ]);
+    expect(transcript.chapters[0]).not.toHaveProperty('turnId');
+  });
+});
+
 describe('回合后验证（0.65.0）', () => {
   const run = {
     id: 'vrn_01JA2B3C4D5E6F7G8H9JKMNPQR',

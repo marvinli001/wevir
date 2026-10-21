@@ -79,9 +79,9 @@ const CORE: ToolPreset = { id: 'core' };
 const FULL: ToolPreset = { id: 'full' };
 
 describe('工具分组', () => {
-  it('Host 的每个应用级工具都属于一个组；core 留 20 个，另 4 组是浏览器 25、LSP 7、进程 6、插件 4', () => {
+  it('Host 的每个应用级工具都属于一个组；core 留 21 个，另 4 组是浏览器 25、LSP 7、进程 6、插件 4', () => {
     const tools = allTools().tools;
-    expect(tools).toHaveLength(62);
+    expect(tools).toHaveLength(63);
     expect(tools.filter((tool) => toolGroupOf(tool.name) === undefined)).toEqual([]);
     const contents = toolGroupContents(tools);
     expect(Object.fromEntries(contents.map((group) => [group.id, group.tools.length]))).toEqual({
@@ -89,7 +89,7 @@ describe('工具分组', () => {
       catalog: 2,
       tasks: 3,
       memory: 4,
-      workbench: 2,
+      workbench: 3,
       browser: 25,
       lsp: 7,
       processes: 6,
@@ -104,7 +104,7 @@ describe('工具分组', () => {
         .flatMap((group) => group.tools)
         .sort(byOrder(tools)),
     );
-    expect(toolsAllowed(tools, { preset: CORE })).toHaveLength(20);
+    expect(toolsAllowed(tools, { preset: CORE })).toHaveLength(21);
   });
 
   it('core 留下协作入口：读写会话、记忆读写、任务清单、模型与角色、展示与交文件', () => {
@@ -123,6 +123,7 @@ describe('工具分组', () => {
       'wevir_models',
       'wevir_roles',
       'wevir_share_file',
+      'wevir_mark_chapter',
       'wevir_show',
     ]) {
       expect(presetAllowsTool(CORE, name), name).toBe(true);
@@ -210,7 +211,7 @@ describe('与角色取交集', () => {
     expect(core).toContain('wevir_session_list');
     expect(core).not.toContain('wevir_session_create');
     expect(core).not.toContain('wevir_process_start');
-    expect(core).toHaveLength(15);
+    expect(core).toHaveLength(16);
   });
 
   it('没有角色也没有预设时原样返回同一个数组', () => {
@@ -252,6 +253,7 @@ describe('按预设裁剪说明', () => {
       '- wevir_roles',
       '- wevir_show',
       '- wevir_share_file',
+      '- wevir_mark_chapter',
       '- Results too long',
       'Sessions you open or message cannot get broader permissions',
     ]) {

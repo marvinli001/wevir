@@ -320,6 +320,7 @@ describe('应用级工具的端点', () => {
       'wevir_session_archive',
       'wevir_show',
       'wevir_share_file',
+      'wevir_mark_chapter',
     ]);
     expect(tools.find((tool) => tool.name === 'wevir_session_create')?.annotations).toMatchObject({
       destructiveHint: true,
@@ -382,7 +383,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(17);
+    expect(list.body.result.tools).toHaveLength(18);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -947,6 +948,37 @@ describe('应用级工具', () => {
     ]);
   });
 
+  it('wevir_mark_chapter：写成 chapter.marked，标题与说明折成一行；空的、超长的拒绝', async () => {
+    const h = await setup();
+    const a = await h.create();
+    expect(
+      await h.call(a, 'wevir_mark_chapter', {
+        title: '  实现\n协议 ',
+        summary: '改协议、\nHost 与桌面端',
+      }),
+    ).toEqual({ marked: true, title: '实现 协议' });
+    expect(await h.call(a, 'wevir_mark_chapter', { title: '验证', summary: '' })).toEqual({
+      marked: true,
+      title: '验证',
+    });
+    for (const args of [
+      {},
+      { title: '   ' },
+      { title: 'x'.repeat(81) },
+      { title: '验证', summary: 'y'.repeat(201) },
+      { title: '验证', summary: 3 },
+    ]) {
+      expect(await h.call(a, 'wevir_mark_chapter', args), JSON.stringify(args)).toHaveProperty(
+        'error',
+      );
+    }
+    const chapters = h.all(a).filter((e) => e.type === 'chapter.marked');
+    expect(chapters.map((e) => e.type === 'chapter.marked' && e.payload)).toEqual([
+      { title: '实现 协议', summary: '改协议、 Host 与桌面端' },
+      { title: '验证' },
+    ]);
+  });
+
   it('可选的模型与权限模式', async () => {
     const h = await setup();
     const a = await h.create({ permissionMode: 'auto_review' });
@@ -1450,6 +1482,7 @@ describe('工具预设', () => {
     'wevir_session_archive',
     'wevir_show',
     'wevir_share_file',
+    'wevir_mark_chapter',
   ];
   const visible = async (h: Setup, sessionId: SessionId) => {
     const list = await h.rpc(sessionId, 'tools/list');

@@ -227,7 +227,12 @@ export type ChatPart =
   /**
    * Agent 交给用户的文件（0.40.0，`file.shared`）：在当时所在的位置（`key` 是 `f:<seq>`），`path` 相对会话的 `cwd`。
    */
-  | { type: 'files'; key: string; files: readonly SharedFile[] };
+  | { type: 'files'; key: string; files: readonly SharedFile[] }
+  /**
+   * 章节的开始（0.82.0，`chapter.marked`）：在当时所在的位置（`key` 是 `h:<seq>`）。界面画一条带标题的分隔线；所有章节另见
+   * `Transcript.chapters`。
+   */
+  | { type: 'chapter'; key: string; seq: number; title: string; summary?: string };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -359,7 +364,23 @@ export interface Transcript {
    * `verification`。
    */
   verification: SessionVerification | undefined;
+  /**
+   * 0.82.0：章节（`chapter.marked`），按先后，给目录用；只有 `messages` 里看得见的（撤销、撤回的回合里标的不在）。没有新章节时
+   * 是同一个数组。
+   */
+  chapters: readonly TranscriptChapter[];
   lastSeq: number;
+}
+
+/** `Transcript.chapters`（0.82.0）：一个章节与它所在的消息。 */
+export interface TranscriptChapter {
+  /** 同消息里那个部件的 `key`。 */
+  key: string;
+  seq: number;
+  title: string;
+  summary?: string;
+  messageId: string;
+  turnId?: TurnId;
 }
 
 /** `Transcript.latestPlan`（0.36.0）。 */
@@ -783,6 +804,17 @@ export class TranscriptProjection {
           files: event.payload.files,
         });
         return;
+      case 'chapter.marked': {
+        const { title, summary } = event.payload;
+        this.#target(event.payload.turnId, event.seq).parts.push({
+          type: 'chapter',
+          key: `h:${event.seq}`,
+          seq: event.seq,
+          title,
+          ...(summary !== undefined && { summary }),
+        });
+        return;
+      }
     }
   }
 
@@ -840,6 +872,7 @@ export class TranscriptProjection {
               runs: [...this.#runs.values()],
               ...(this.#repair !== undefined && { repair: this.#repair }),
             },
+      chapters: chaptersOf(messages, previous?.chapters),
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -1603,4 +1636,39 @@ function freeze(message: MutableMessage): ChatMessage {
     case 'system':
       return { ...base, role: 'system' };
   }
+}
+
+const NO_CHAPTERS: readonly TranscriptChapter[] = [];
+
+/** 看得见的消息里的章节；与上一份相同（同样的章节在同样的消息里）时返回上一份。 */
+function chaptersOf(
+  messages: readonly ChatMessage[],
+  previous: readonly TranscriptChapter[] | undefined,
+): readonly TranscriptChapter[] {
+  const chapters: TranscriptChapter[] = [];
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type !== 'chapter') continue;
+      chapters.push({
+        key: part.key,
+        seq: part.seq,
+        title: part.title,
+        ...(part.summary !== undefined && { summary: part.summary }),
+        messageId: message.id,
+        ...(message.role !== 'system' && { turnId: message.turnId }),
+      });
+    }
+  }
+  if (chapters.length === 0) return NO_CHAPTERS;
+  if (
+    previous !== undefined &&
+    previous.length === chapters.length &&
+    previous.every(
+      (chapter, index) =>
+        chapter.key === chapters[index]?.key && chapter.messageId === chapters[index]?.messageId,
+    )
+  ) {
+    return previous;
+  }
+  return Object.freeze(chapters);
 }

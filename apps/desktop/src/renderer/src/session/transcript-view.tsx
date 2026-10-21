@@ -1,4 +1,4 @@
-import type { Transcript } from '@wevir/client-sdk';
+import type { Transcript, TranscriptChapter } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -6,6 +6,8 @@ import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { turnOrb } from '@/fx/orb-state';
 import { t } from '@/i18n';
+import { CHAPTER_NAV_MIN } from './chapter-model';
+import { ChapterNav } from './chapter-nav';
 import { FoldScopeProvider, setFolds } from './fold-state';
 import type { LiveState } from './live-indicator';
 import { SystemMessage } from './message-view';
@@ -109,7 +111,7 @@ export function TranscriptView({
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const claim = useMemo(
-    () => (index: number, text?: string) => {
+    () => (index: number, text?: string, anchor?: string) => {
       const message = messagesRef.current[index];
       if (!message) return false;
       release();
@@ -118,6 +120,7 @@ export function TranscriptView({
         messageId: message.id,
         ...(message.role !== 'system' && { turnId: message.turnId }),
         ...(text !== undefined && { text }),
+        ...(anchor !== undefined && { anchor }),
         tries: 0,
       };
       setFocusTick((tick) => tick + 1);
@@ -127,6 +130,12 @@ export function TranscriptView({
   );
   const revealSeq = useMemo(
     () => (seq: number) => claim(messageIndexForSeq(messagesRef.current, seq)),
+    [claim],
+  );
+  // 章节目录（0.82.0）：滚到那一章的分隔线。
+  const jumpToChapter = useMemo(
+    () => (chapter: TranscriptChapter) =>
+      claim(messageIndexForSeq(messagesRef.current, chapter.seq), undefined, chapter.key),
     [claim],
   );
   // 搜索结果：消息流追到那个事件之后认领。
@@ -254,6 +263,15 @@ export function TranscriptView({
       {quote && (
         <SelectionToolbar containerRef={containerRef} sessionId={sessionId} actions={quote} />
       )}
+      {transcript.chapters.length >= CHAPTER_NAV_MIN && (
+        <div className="rail-clear pointer-events-none absolute inset-x-0 top-2 flex justify-end px-3">
+          <ChapterNav
+            chapters={transcript.chapters}
+            containerRef={containerRef}
+            onJump={jumpToChapter}
+          />
+        </div>
+      )}
       {showJump && (
         <div className="rail-clear pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <button
@@ -286,6 +304,8 @@ interface FocusTarget {
   messageId: string;
   turnId?: string;
   text?: string;
+  /** 章节分隔线的 `data-chapter-anchor`（0.82.0）：滚到它，停在视口顶上，不闪。 */
+  anchor?: string;
   tries: number;
   /** 收起的回合已经展开过。 */
   unfolded?: boolean;
@@ -298,6 +318,9 @@ interface FocusTarget {
   /** 用户动了滚动：不再校正。 */
   cancelled?: boolean;
 }
+
+/** 跳到章节时分隔线停在视口顶下多少（让开顶部的渐隐与目录按钮）。 */
+const CHAPTER_TOP_PX = 40;
 
 /** 最多等几帧让目标出现在 DOM 里。 */
 const FOCUS_MAX_TRIES = 16;
@@ -322,10 +345,15 @@ function scrollToFocus(
     target.turnId === undefined
       ? null
       : container.querySelector(`[data-turn="${CSS.escape(target.turnId)}"]`);
-  if (!message && !turn) {
+  const anchor =
+    target.anchor === undefined
+      ? null
+      : container.querySelector(`[data-chapter-anchor="${CSS.escape(target.anchor)}"]`);
+  if (!message && !turn && !anchor) {
     target.tries += 1;
     return target.tries < FOCUS_MAX_TRIES ? 'retry' : 'done';
   }
+  if (anchor) target.marked = true;
   const range =
     message && target.text !== undefined ? findTextRange(message, target.text) : undefined;
   if (!range && !target.unfolded && target.turnId && turn?.hasAttribute('data-turn-folded')) {
@@ -334,10 +362,13 @@ function scrollToFocus(
     return 'retry';
   }
   const box =
-    message && getComputedStyle(message).display !== 'contents' ? message : (turn ?? message);
+    anchor ??
+    (message && getComputedStyle(message).display !== 'contents' ? message : (turn ?? message));
   const rect = (range ?? box)?.getBoundingClientRect();
   const offset = rect
-    ? rect.top - container.getBoundingClientRect().top - container.clientHeight / 3
+    ? rect.top -
+      container.getBoundingClientRect().top -
+      (anchor ? CHAPTER_TOP_PX : container.clientHeight / 3)
     : 0;
   const before = container.scrollTop;
   container.scrollTop += offset;

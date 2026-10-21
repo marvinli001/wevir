@@ -690,6 +690,7 @@ export const messages: Messages = {
   'transcript.loading': 'Chargement de la session…',
   'transcript.failed': 'Échec de la lecture de la session : {error}',
   'transcript.jumpToLatest': 'Aller en bas',
+  'transcript.chapters': 'Chapitres',
   'transcript.showEarlier':
     'Afficher {count, plural, one {# message précédent} other {# messages précédents}}',
   'transcript.fromParentAgent': 'Tâche de l’agent parent',
@@ -2397,12 +2398,14 @@ export const messages: Messages = {
   'retro.goal.request': 'Demande initiale',
   'retro.board.notRecorded': 'Liste des tâches non enregistrée',
   'retro.hiddenTurns': '{count, plural, one {# tour annulé} other {# tours annulés}}',
+  'retro.chapterTurns': '{count, plural, one {# tour} other {# tours}}',
   'retro.moreFiles': '{count, plural, one {# autre fichier} other {# autres fichiers}}',
   'retro.moreDecisions':
     '{count, plural, one {# décision antérieure} other {# décisions antérieures}}',
   'retro.uncommitted': '{count, plural, one {# fichier non validé} other {# fichiers non validés}}',
   'retro.ahead': '{count, plural, one {# commit non poussé} other {# commits non poussés}}',
   'retro.section.goal': 'Objectif',
+  'retro.section.chapters': 'Chapitres',
   'retro.section.done': 'Terminé (enregistré)',
   'retro.section.open': 'En cours',
   'retro.section.verification': 'Vérification',

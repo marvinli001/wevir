@@ -354,6 +354,11 @@ export const HOST_FEATURES = {
    * `ApprovalResolution` 的 `rule` / `ruleIds`。Host 在审批前按规则替用户允许命令，与引擎无关。
    */
   approvalRules: 'approval_rules',
+  /**
+   * 消息流章节（0.82.0，domain-model §3.15.7）：应用级工具里有 `wevir_mark_chapter`，会话的流里有 `chapter.marked` 事件，任务回顾有
+   * `chapters`。有应用级工具时声明（同 `app_tools`）。
+   */
+  transcriptChapters: 'transcript_chapters',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -426,6 +431,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_search: z.boolean().optional(),
   agent_instructions: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
+  transcript_chapters: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

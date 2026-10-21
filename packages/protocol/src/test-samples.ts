@@ -387,7 +387,7 @@ export const lspMissingSample: LspServerStatus = {
 export const sessionRetro: SessionRetro = {
   sessionId: ids.session,
   title: '温度换算支持开尔文',
-  schemaVersion: 1,
+  schemaVersion: 2,
   throughSeq: 42,
   builtAt: TS,
   checkedAt: TS2,
@@ -436,6 +436,16 @@ export const sessionRetro: SessionRetro = {
       fileCount: 1,
       added: 12,
       removed: 3,
+      at: TS,
+    },
+  ],
+  chapters: [
+    {
+      id: 'h4',
+      text: '实现',
+      summary: '改换算函数并补测试',
+      ref: { kind: 'event', seq: 4, turnId: ids.turn },
+      turns: 1,
       at: TS,
     },
   ],
@@ -1771,6 +1781,10 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
     },
     invalid: { files: [], turnId: ids.turn },
+  },
+  'chapter.marked': {
+    valid: { title: '实现', summary: '按计划改协议、Host 与桌面端', turnId: ids.turn },
+    invalid: { title: '' },
   },
   'verification.updated': {
     valid: { run: verificationRun },
@@ -4713,7 +4727,11 @@ export const methodSamples: MethodSamples = {
         { retro: sessionRetro },
         { retro: { ...sessionRetro, summary: { ...retroSummary, outdated: true } }, redactions: 2 },
       ],
-      invalid: [{}, { retro: { ...sessionRetro, build: 'partial' } }],
+      invalid: [
+        {},
+        { retro: { ...sessionRetro, build: 'partial' } },
+        { retro: { ...sessionRetro, chapters: [{ id: 'h4', text: '实现', turns: -1 }] } },
+      ],
     },
   },
   'retro.summarize': {

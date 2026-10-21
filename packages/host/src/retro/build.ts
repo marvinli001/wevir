@@ -7,6 +7,7 @@ import {
   RETRO_CHECK_EARLIER_MAX,
   RETRO_SCHEMA_VERSION,
   RETRO_TEXT_MAX_CHARS,
+  type RetroChapter,
   type RetroCheck,
   type RetroCommand,
   type RetroCommit,
@@ -164,6 +165,27 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
     };
   });
   const turnById = new Map(turns.map((turn) => [turn.turnId as string, turn]));
+
+  // ── 章节 ── 撤销的回合里标的不列，撤回的回合已不在状态里；回合归到它结束之前最后开始的那一章。
+  const visibleIds = new Set(visible.map((turn) => turn.turnId));
+  const chapters: RetroChapter[] = state.chapters
+    .filter((chapter) => chapter.turnId === undefined || visibleIds.has(chapter.turnId))
+    .map((chapter) => ({
+      id: `h${chapter.seq}`,
+      text: chapter.title,
+      ...(chapter.summary !== undefined && { summary: chapter.summary }),
+      ref: eventRef(chapter.seq, chapter.turnId),
+      turns: 0,
+      ...inherited(chapter.seq),
+      at: chapter.ts,
+    }));
+  for (const turn of turns) {
+    const end = turn.endSeq ?? Number.POSITIVE_INFINITY;
+    const chapter = chapters.findLast((entry) => seqOf(entry) <= end);
+    if (chapter === undefined) continue;
+    turn.chapter = chapter.id;
+    chapter.turns += 1;
+  }
 
   // ── 目标 ──
   const firstUser = visible.find((turn) => turn.kind === 'user' && turn.message !== undefined);
@@ -580,6 +602,7 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
     open,
     boardRecorded: state.board !== undefined,
     turns,
+    chapters,
     hiddenTurns: hiddenIds.size,
     changes,
     verification,

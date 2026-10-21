@@ -114,27 +114,39 @@ export function elapsedText(summary: SubagentSummary, now: number): string {
 
 // ── 父会话的消息流 ──────────────────────────────────────────────────
 
+/** 标章节的工具调用（0.82.0）：成功的不画，紧跟着的分隔线就是它的结果。 */
+function isChapterCall(part: ChatPart): boolean {
+  return (
+    part.type === 'tool' &&
+    part.status === 'completed' &&
+    part.toolName.endsWith('wevir_mark_chapter')
+  );
+}
+
 /**
  * 父会话里不再显示成工具卡片的 collab 调用（派出、等待、关闭子 agent 等，展示类型 `sub_agent`）：子会话的“开始工作 /
  * 已完成”两行取代了它们。规则不认引擎的工具名：
  * - 派出了某个子会话的那次调用（`subagent` 部件的 `parentToolCallId`）总是藏起来；
  * - 会话有子会话时，其余的 `sub_agent` 调用也藏起来，失败的除外（失败的调用没有对应的子会话，卡片是唯一的线索）。
- * 没有子会话的会话（dsh 等引擎的子 agent 只是一次工具调用）照常显示卡片。
+ * 没有子会话的会话（dsh 等引擎的子 agent 只是一次工具调用）照常显示卡片。另外成功标了章节的调用（0.82.0）也藏起来。
  */
 export function visibleParts(
   parts: readonly ChatPart[],
   hasSubagents: boolean,
 ): readonly ChatPart[] {
   const spawned = new Set<string>();
+  let chapterCalls = false;
   for (const part of parts) {
     if (part.type === 'subagent') spawned.add(part.subagent.parentToolCallId);
+    else if (isChapterCall(part)) chapterCalls = true;
   }
-  if (!hasSubagents && spawned.size === 0) return parts;
+  if (!hasSubagents && spawned.size === 0 && !chapterCalls) return parts;
   const visible = parts.filter(
     (part) =>
       part.type !== 'tool' ||
-      part.display.kind !== 'sub_agent' ||
-      (!spawned.has(part.toolCallId) && (!hasSubagents || part.status === 'failed')),
+      (!isChapterCall(part) &&
+        (part.display.kind !== 'sub_agent' ||
+          (!spawned.has(part.toolCallId) && (!hasSubagents || part.status === 'failed')))),
   );
   return visible.length === parts.length ? parts : visible;
 }

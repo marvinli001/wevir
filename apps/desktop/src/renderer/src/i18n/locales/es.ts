@@ -690,6 +690,7 @@ export const messages: Messages = {
   'transcript.loading': 'Cargando sesión…',
   'transcript.failed': 'Error al leer la sesión: {error}',
   'transcript.jumpToLatest': 'Ir al final',
+  'transcript.chapters': 'Capítulos',
   'transcript.showEarlier':
     '{count, plural, one {Mostrar # mensaje anterior} other {Mostrar # mensajes anteriores}}',
   'transcript.fromParentAgent': 'Tarea del agente principal',
@@ -2393,6 +2394,7 @@ export const messages: Messages = {
   'retro.goal.request': 'Solicitud inicial',
   'retro.board.notRecorded': 'Lista de tareas no registrada',
   'retro.hiddenTurns': '{count, plural, one {# turno deshecho} other {# turnos deshechos}}',
+  'retro.chapterTurns': '{count, plural, one {# turno} other {# turnos}}',
   'retro.moreFiles': '{count, plural, one {# archivo más} other {# archivos más}}',
   'retro.moreDecisions':
     '{count, plural, one {# decisión anterior} other {# decisiones anteriores}}',
@@ -2400,6 +2402,7 @@ export const messages: Messages = {
     '{count, plural, one {# archivo sin confirmar} other {# archivos sin confirmar}}',
   'retro.ahead': '{count, plural, one {# commit sin enviar} other {# commits sin enviar}}',
   'retro.section.goal': 'Objetivo',
+  'retro.section.chapters': 'Capítulos',
   'retro.section.done': 'Hecho (registrado)',
   'retro.section.open': 'Pendiente',
   'retro.section.verification': 'Verificación',
