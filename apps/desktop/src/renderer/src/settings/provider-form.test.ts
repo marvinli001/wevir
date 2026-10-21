@@ -18,6 +18,7 @@ import {
   newOpenAIForm,
   serviceAccountEmail,
   toUpsertParams,
+  transcriptionIds,
   validateForm,
 } from './provider-form';
 import {
@@ -1270,5 +1271,42 @@ describe('上下文长度没填', () => {
         expect(model.contextWindow, `${preset.id} / ${model.id}`).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('转写模型', () => {
+  const saved = {
+    id: 'groq',
+    kind: 'openai-compatible',
+    displayName: 'Groq',
+    baseURL: 'https://api.groq.com/openai/v1',
+    models: [{ id: 'llama' }],
+    defaultModelId: 'llama',
+    hasSecret: true,
+    transcriptionModels: [{ id: 'whisper-large-v3', displayName: 'Whisper' }],
+  } as EditableProvider;
+
+  it('逗号或换行分隔，去掉空的与重复的', () => {
+    expect(transcriptionIds(' a, b，a\n\nc ')).toEqual(['a', 'b', 'c']);
+    expect(transcriptionIds('')).toEqual([]);
+  });
+
+  it('编辑时带出已存的，保存时同 ID 保留显示名称，清空时发空列表', () => {
+    const form = editForm(saved);
+    expect(form.transcriptionModels).toBe('whisper-large-v3');
+    const params = toUpsertParams({ ...form, transcriptionModels: 'whisper-large-v3, turbo' });
+    expect(params).toMatchObject({
+      transcriptionModels: [{ id: 'whisper-large-v3', displayName: 'Whisper' }, { id: 'turbo' }],
+    });
+    expect(upsertSchema.safeParse(params).success).toBe(true);
+    expect(toUpsertParams({ ...form, transcriptionModels: '' })).toMatchObject({
+      transcriptionModels: [],
+    });
+  });
+
+  it('模型 ID 不能含空格', () => {
+    const form = { ...editForm(saved), transcriptionModels: 'whisper large' };
+    expect(transcriptionIds(form.transcriptionModels)).toEqual(['whisper large']);
+    expect(validateForm(form, []).transcriptionModels).toBe('模型 ID 不能含空格');
   });
 });

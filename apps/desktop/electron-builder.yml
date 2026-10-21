@@ -62,6 +62,9 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # 听写（0.89.0）：系统询问麦克风时显示的说明。
+  extendInfo:
+    NSMicrophoneUsageDescription: Wevir uses the microphone for dictation.
   # 公证：环境里有 APPLE_KEYCHAIN_PROFILE（xcrun notarytool store-credentials 存的），或 APPLE_ID +
   # APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID，或 APPLE_API_KEY 三件套时自动进行；都没有时跳过并告警。
   gatekeeperAssess: false

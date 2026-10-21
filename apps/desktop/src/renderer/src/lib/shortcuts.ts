@@ -31,6 +31,8 @@ export const SHORTCUTS = {
   splitRight: { code: 'Backslash', mod: true },
   nextTab: { code: 'Tab', ctrl: true },
   previousTab: { code: 'Tab', ctrl: true, shift: true },
+  /** 0.89.0：输入框里听写，按住说话、松开转写；点一下开始，再按一次结束。 */
+  dictation: { code: 'KeyD', mod: true, shift: true },
   nextPane: { code: 'ArrowRight', mod: true, alt: true },
   previousPane: { code: 'ArrowLeft', mod: true, alt: true },
 } as const satisfies Record<string, Shortcut>;

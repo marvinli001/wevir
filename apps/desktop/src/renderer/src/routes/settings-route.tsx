@@ -11,6 +11,7 @@ import {
   Info,
   Keyboard,
   type LucideIcon,
+  Mic,
   Palette,
   Search,
   Settings2,
@@ -31,6 +32,7 @@ import { WindowControls } from '@/layout/window-controls';
 import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ApprovalRuleSettings } from '@/settings/approval-rule-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
+import { DictationSettings } from '@/settings/dictation-settings';
 import { GeneralSettings } from '@/settings/general-settings';
 import { ImportSettings } from '@/settings/import-settings';
 import { MemorySettings } from '@/settings/memory-settings';
@@ -122,6 +124,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Globe,
     keywords: ['settings.web.enabled', 'settings.web.service'],
   },
+  dictation: {
+    label: 'settings.tab.dictation',
+    icon: Mic,
+    keywords: ['settings.dictation.transcriber', 'settings.dictation.localModel'],
+  },
   memory: {
     label: 'settings.tab.memory',
     icon: Brain,
@@ -178,6 +185,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
       'providers',
       'personalization',
       'web',
+      'dictation',
       'memory',
       'approvalRules',
       'import',
@@ -361,6 +369,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <PersonalizationSettings />;
     case 'web':
       return <WebSettingsPage />;
+    case 'dictation':
+      return <DictationSettings />;
     case 'memory':
       return <MemorySettings />;
     case 'approvalRules':

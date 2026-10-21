@@ -60,6 +60,7 @@ import {
   resolveHostEntry,
 } from './host-lifecycle.js';
 import { loadDesktopIdentity } from './identity.js';
+import { allowMicrophoneCheck, allowMicrophoneRequest } from './media-permission.js';
 import { isBadgeCount, parseDesktopNotification } from './notification-input.js';
 import { inspectInstallSource, readSkillFile } from './plugin-source.js';
 import { serveRendererFile } from './renderer-files.js';
@@ -701,11 +702,27 @@ function run(): void {
   void app.whenReady().then(() => {
     mark('appReady');
     startup.readyAt = Date.now();
-    // 渲染进程不需要任何权限（摄像头、通知、剪贴板读取等），一律拒绝（Electron 安全清单第 5 条）。
-    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
-      callback(false),
+    // 渲染进程的权限（摄像头、通知、剪贴板读取等）一律拒绝（Electron 安全清单第 5 条），只有听写（0.89.0）要的麦克风例外：主窗口
+    // 的主框架、应用自己的页面、只要音频（media-permission.ts）。
+    session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>
+      callback(
+        contents === mainWindow?.webContents &&
+          allowMicrophoneRequest(
+            {
+              permission,
+              mediaTypes: 'mediaTypes' in details ? details.mediaTypes : undefined,
+              requestingUrl: details.requestingUrl,
+              isMainFrame: details.isMainFrame,
+            },
+            rendererOrigin,
+          ),
+      ),
     );
-    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionCheckHandler(
+      (contents, permission, requestingOrigin, details) =>
+        contents === mainWindow?.webContents &&
+        allowMicrophoneCheck(permission, requestingOrigin, details.mediaType, rendererOrigin),
+    );
     // 文件窗格里的网页（0.32.0）：子框架只许加载 Host 的文件地址，页面里的链接、跳转与 meta refresh 都不让框架离开（Paseo 的 HTML
     // 预览同样要挡导航，CSP 管不到）。新窗口（target=_blank、window.open）照旧由 setWindowOpenHandler 交给系统浏览器，Chromium
     // 只在用户点了之后才放行弹窗。只拦子框架：其余请求（Host 的文件、图片）不必每个都经主进程走一趟。

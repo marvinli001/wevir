@@ -6,11 +6,13 @@
 import {
   HttpUrlSchema,
   type MethodParams,
+  PROVIDER_TRANSCRIPTION_MODELS_MAX,
   type ProviderCompat,
   ProviderIdSchema,
   type ProviderKind,
   type ProviderModel,
   type ProviderProfile,
+  type ProviderTranscriptionModel,
 } from '@wevir/protocol';
 import { t } from '@/i18n';
 import {
@@ -80,6 +82,10 @@ export interface ProviderForm {
   serviceAccountJson?: string;
   /** 新建时选的模板，界面据此显示说明与文档链接。 */
   preset?: OpenAIPreset;
+  /** `openai-compatible` 的转写模型（0.89.0）：逗号分隔的模型 ID，听写设置里可选。 */
+  transcriptionModels: string;
+  /** 已存的转写模型：保存时同 ID 的保留显示名称。 */
+  savedTranscriptionModels?: readonly ProviderTranscriptionModel[];
 }
 
 let rowSeq = 0;
@@ -109,6 +115,7 @@ export function newDeepSeekForm(): ProviderForm {
     defaultModelId: DEEPSEEK_OFFICIAL_PRESET.defaultModelId,
     apiKey: '',
     preset: DEEPSEEK_OFFICIAL_PRESET,
+    transcriptionModels: '',
   };
 }
 
@@ -130,6 +137,7 @@ export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string
     apiKey: preset?.placeholderKey ?? '',
     ...(preset?.compat && { compat: { ...preset.compat } }),
     ...(preset && { preset }),
+    transcriptionModels: '',
   };
 }
 
@@ -156,6 +164,10 @@ export function editForm(provider: EditableProvider): ProviderForm {
     ...(provider.compat && { compat: provider.compat }),
     ...(provider.vertex && { vertex: { ...provider.vertex } }),
     apiKey: '',
+    transcriptionModels: (provider.transcriptionModels ?? []).map((model) => model.id).join(', '),
+    ...(provider.transcriptionModels && {
+      savedTranscriptionModels: provider.transcriptionModels,
+    }),
   };
 }
 
@@ -165,6 +177,11 @@ function uniqueId(base: string, taken: string[]): string {
     const candidate = `${base}-${n}`;
     if (!taken.includes(candidate)) return candidate;
   }
+}
+
+/** 转写模型输入框里的 ID：逗号或换行分隔，去掉空的与重复的。 */
+export function transcriptionIds(text: string): string[] {
+  return [...new Set(text.split(/[,，\n]/u).map((id) => id.trim()))].filter((id) => id !== '');
 }
 
 /** `deepseek-official` 默认模型的可选项：列了自定义模型就是它们，否则是默认模型（providers.md §2.2）。 */
@@ -245,6 +262,15 @@ export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors
       }
     });
     if (form.models.length === 0) errors.models = t('provider.form.error.noModels');
+    const transcription = transcriptionIds(form.transcriptionModels);
+    if (transcription.some(hasProviderPlaceholder))
+      errors.transcriptionModels = t('provider.form.error.placeholder');
+    else if (transcription.some((id) => id.length > 200 || /\s/.test(id)))
+      errors.transcriptionModels = t('provider.form.error.transcriptionModels');
+    else if (transcription.length > PROVIDER_TRANSCRIPTION_MODELS_MAX)
+      errors.transcriptionModels = t('provider.form.error.transcriptionLimit', {
+        count: PROVIDER_TRANSCRIPTION_MODELS_MAX,
+      });
   } else if (!deepseekModelChoices(form).includes(form.defaultModelId)) {
     errors.defaultModelId = t('provider.form.error.required');
   }
@@ -367,6 +393,10 @@ export function toUpsertParams(
     models,
     defaultModelId: models[form.defaultIndex]?.id ?? models[0]?.id ?? '',
     ...(form.compat && { compat: form.compat }),
+    // 总是带上：空列表清掉已存的。
+    transcriptionModels: transcriptionIds(form.transcriptionModels).map(
+      (id) => form.savedTranscriptionModels?.find((model) => model.id === id) ?? { id },
+    ),
   };
 }
 

@@ -1,6 +1,7 @@
 import {
   IMAGE_MAX_PER_MESSAGE,
   type PendingDelivery,
+  type SessionId,
   type SessionState,
   type UserImagePart,
 } from '@wevir/protocol';
@@ -18,6 +19,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useNavigate } from 'react-router';
 import { splitPath } from '@/changes/changes-model';
 import {
   DropdownMenu,
@@ -34,6 +36,8 @@ import { MetalCircle } from '@/fx/metal';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
+import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { paths } from '@/routes/paths';
 import {
   type ComposerCommand,
   type ComposerCommandItem,
@@ -54,11 +58,14 @@ import { ComposerPlusMenu } from './composer-plus-menu';
 import { composerPrefs, sendKeyLabel } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
+import { DictationBar, DictationButton } from './dictation-button';
+import { insertDictation } from './dictation-model';
 import { ComposerThumb, ImagePreview, readAsDataUrl, uploadImage } from './image-attachments';
 import { composerKeyAction, otherDelivery } from './pending-model';
 import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
 import { ghostText, isAcceptKey } from './prompt-suggestion';
 import { appendQuote } from './selection-model';
+import { useDictation } from './use-dictation';
 
 /** 有回合在进行（含正在取消）：没有字时按钮是“停止”；Host 不支持待发消息时不能再发送。 */
 export function isBusy(state: SessionState | undefined): boolean {
@@ -162,6 +169,9 @@ export function insertQuote(draftKey: string, selected: string): void {
  * “图片”选，立即传给 Host，缩略图排在文字上方（右上角移除，点开看大图）；传完之前不能发送，只有图片也能发。
  *
  * 0.36.0 起有计划模式（`plan`，见 `ComposerPlan`）。
+ *
+ * 0.89.0 起有听写（Host 支持 `speech` 时）：发送键左边的麦克风按钮或 ⌘⇧D，按住说话、松开转写，文字放到光标处，不自动发送；
+ * 录音时 Esc 丢掉这段。
  */
 export function Composer({
   draftKey,
@@ -183,6 +193,7 @@ export function Composer({
   acceptImages = false,
   plan,
   suggestion,
+  sessionId,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -224,6 +235,8 @@ export function Composer({
    * 打字、选命令、贴图片就消失。窄屏不显示 Tab 提示，点建议文字接受。
    */
   suggestion?: string;
+  /** 所在的会话（听写打开润色时用它的模型）；新会话的草稿页没有。 */
+  sessionId?: SessionId;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
@@ -462,6 +475,65 @@ export function Composer({
     pendingCursor.current = next.cursor;
   };
 
+  // ── 听写（0.89.0） ──────────────────────────────────────────────────
+  const navigate = useNavigate();
+  const dictation = useDictation({
+    sessionId,
+    onText: (transcript) => {
+      const next = insertDictation(text, cursor, transcript);
+      setText(next.text);
+      setCursor(next.cursor);
+      pendingCursor.current = next.cursor;
+      setHistoryIndex(-1);
+    },
+  });
+  const dictating = dictation.phase === 'starting' || dictation.phase === 'recording';
+  const canDictate = dictation.available && !disabled;
+  /** 录音条（照 Codex）：开始录音到转写完，底栏换成 ✕、波形与停止键。 */
+  const dictationBar = dictation.phase !== 'idle';
+  /** 录音时按了发送：转写完、文字放进输入框之后再发。 */
+  const sendAfterDictation = useRef(false);
+  const [sendQueued, setSendQueued] = useState(false);
+  useEffect(() => {
+    if (dictation.phase !== 'idle' || !sendAfterDictation.current) return;
+    sendAfterDictation.current = false;
+    if (dictation.errorKey === undefined) setSendQueued(true);
+  }, [dictation.phase, dictation.errorKey]);
+
+  // 录音时 Esc 丢掉这段录音，不停止回合（先于下面停止回合的监听处理）。
+  useEffect(() => {
+    if (!dictating) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      dictation.cancel();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [dictating, dictation.cancel]);
+
+  /** ⌘⇧D：按下开始，松开（D 或任一修饰键，macOS 按着 ⌘ 时 D 的 keyup 不一定来）结束。 */
+  const onDictationKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (!canDictate || !matchesShortcut(event, SHORTCUTS.dictation)) return false;
+    if (!event.repeat) dictation.press();
+    return true;
+  };
+  const onKeyUp = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      [
+        'KeyD',
+        'MetaLeft',
+        'MetaRight',
+        'ControlLeft',
+        'ControlRight',
+        'ShiftLeft',
+        'ShiftRight',
+      ].includes(event.code)
+    ) {
+      dictation.release();
+    }
+  };
+
   /** 在光标处插入（前面不是空白时先补一个空格）。 */
   const insertAtCursor = (snippet: string) => {
     const at = Math.min(cursor, text.length);
@@ -566,6 +638,14 @@ export function Composer({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [busy, disabled, onStop]);
 
+  // 转写的文字已经在这一次渲染的 `text` 里。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只跟着排队的发送。
+  useEffect(() => {
+    if (!sendQueued) return;
+    setSendQueued(false);
+    void send();
+  }, [sendQueued]);
+
   /** 发送；回合进行中带上方式，默认按设置。 */
   const send = async (delivery = busyDelivery) => {
     if (implementReady) {
@@ -620,6 +700,10 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (onDictationKey(event)) {
+      event.preventDefault();
+      return;
+    }
     if (
       ghost !== undefined &&
       isAcceptKey({
@@ -710,6 +794,22 @@ export function Composer({
             dragging && 'border-ring ring-2 ring-ring/30',
           )}
         >
+          {dictation.errorKey && (
+            <div className="flex items-center gap-2 px-4 pt-3 text-xs" role="alert">
+              <p className="min-w-0 text-destructive" data-testid="composer-dictation-error">
+                {dictation.error}
+              </p>
+              {dictation.errorKey === 'dictation.error.modelMissing' && (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-2 outline-none hover:underline focus-visible:focus-ring"
+                  onClick={() => void navigate(paths.settings('dictation'))}
+                >
+                  {t('dictation.openSettings')}
+                </button>
+              )}
+            </div>
+          )}
           {(images.length > 0 || imageError) && (
             <div className="flex flex-col gap-1.5 px-3.5 pt-3">
               {images.length > 0 && (
@@ -745,9 +845,11 @@ export function Composer({
                 setText(event.target.value);
                 setCursor(event.target.selectionStart);
                 setHistoryIndex(-1);
+                dictation.clearError();
               }}
               onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
               onKeyDown={onKeyDown}
+              onKeyUp={onKeyUp}
               onPaste={onPaste}
               role={menuOpen ? 'combobox' : undefined}
               aria-expanded={menuOpen || undefined}
@@ -797,42 +899,59 @@ export function Composer({
             )}
           </div>
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
-              {(canMention || imagesEnabled || (commands?.length ?? 0) > 0) && (
-                <ComposerPlusMenu
-                  commands={commands ?? []}
-                  disabled={disabled}
-                  canMention={canMention}
-                  canAttachImages={imagesEnabled}
-                  onAttachImages={() => imageInputRef.current?.click()}
-                  canCommand={(commands?.length ?? 0) > 0 && text.trim() === ''}
-                  onAttach={() => void attachPaths()}
-                  onMention={() => insertAtCursor('@')}
-                  onCommand={() => replaceRange(0, text.length, '/')}
-                  onRun={(command) => runCommand(command)}
-                  onClosed={() => window.setTimeout(() => textareaRef.current?.focus(), 0)}
-                />
-              )}
-              {leading}
-              {plan?.active && (
-                <PlanChip
-                  disabled={disabled}
-                  onExit={() => {
-                    plan.onToggle();
-                    textareaRef.current?.focus();
-                  }}
-                />
-              )}
-              {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
-                <DeliverySwitch
-                  value={busyDelivery}
-                  disabled={disabled}
-                  onChange={onBusyDeliveryChange}
-                />
-              )}
-            </div>
-            {model}
-            {implementReady ? (
+            {dictationBar ? (
+              <DictationBar dictation={dictation} />
+            ) : (
+              <>
+                <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+                  {(canMention || imagesEnabled || (commands?.length ?? 0) > 0) && (
+                    <ComposerPlusMenu
+                      commands={commands ?? []}
+                      disabled={disabled}
+                      canMention={canMention}
+                      canAttachImages={imagesEnabled}
+                      onAttachImages={() => imageInputRef.current?.click()}
+                      canCommand={(commands?.length ?? 0) > 0 && text.trim() === ''}
+                      onAttach={() => void attachPaths()}
+                      onMention={() => insertAtCursor('@')}
+                      onCommand={() => replaceRange(0, text.length, '/')}
+                      onRun={(command) => runCommand(command)}
+                      onClosed={() => window.setTimeout(() => textareaRef.current?.focus(), 0)}
+                    />
+                  )}
+                  {leading}
+                  {plan?.active && (
+                    <PlanChip
+                      disabled={disabled}
+                      onExit={() => {
+                        plan.onToggle();
+                        textareaRef.current?.focus();
+                      }}
+                    />
+                  )}
+                  {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
+                    <DeliverySwitch
+                      value={busyDelivery}
+                      disabled={disabled}
+                      onChange={onBusyDeliveryChange}
+                    />
+                  )}
+                </div>
+                {model}
+                {canDictate && <DictationButton dictation={dictation} disabled={disabled} />}
+              </>
+            )}
+            {dictationBar ? (
+              <ComposerButton
+                action="send"
+                flowing={dictation.phase !== 'transcribing'}
+                disabled={disabled || dictation.phase === 'transcribing'}
+                onClick={() => {
+                  sendAfterDictation.current = true;
+                  dictation.stop();
+                }}
+              />
+            ) : implementReady ? (
               <ImplementButton
                 onImplement={followUp.onImplement}
                 {...(followUp.onImplementInNew && { onImplementInNew: followUp.onImplementInNew })}
