@@ -28,6 +28,9 @@ export function ShortcutsSettings() {
       'shortcuts.section.panes',
       [
         ['shortcuts.toggleAux', key(SHORTCUTS.toggleAux)],
+        ['shortcuts.terminal', key(SHORTCUTS.terminal)],
+        ['shortcuts.browser', key(SHORTCUTS.browser)],
+        ['shortcuts.files', key(SHORTCUTS.files)],
         ['shortcuts.openTabs', key(SHORTCUTS.openTabs)],
         ['shortcuts.maximize', key(SHORTCUTS.maximize)],
         ['shortcuts.splitRight', key(SHORTCUTS.splitRight)],

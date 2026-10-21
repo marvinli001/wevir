@@ -8,7 +8,8 @@ import { useHostSettings } from '@/data/host-settings';
 import { preventSleepPref } from '@/data/prevent-sleep';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
 import { describe, useHostConnection } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { type PlainMessageKey, t } from '@/i18n';
+import { layoutPrefs, OPTIONAL_RAIL_CARDS, setRailCardEnabled } from '@/layout/layout-state';
 import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
 import {
   PERMISSION_META,
@@ -20,11 +21,23 @@ import { usePermissionModes } from '@/session/start-session';
 import { LanguagePicker } from './language-picker';
 import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
 
+/** 会话侧栏的可选卡片：名称与 Host 要声明的功能（没有这项功能的 Host 上那张卡片本来就不出现，不列）。 */
+const RAIL_CARD_META: Record<
+  (typeof OPTIONAL_RAIL_CARDS)[number],
+  { label: PlainMessageKey; feature: Parameters<typeof hostSupports>[1] }
+> = {
+  readiness: { label: 'rail.readiness', feature: 'workspace_readiness' },
+  verification: { label: 'rail.checks', feature: 'verification' },
+  lsp: { label: 'rail.lsp', feature: 'lsp_status' },
+  retro: { label: 'rail.retro', feature: 'session_retro' },
+};
+
 /**
  * 设置 → 常规（U7，原来的“对话”并进来）：界面语言（本机，language-picker.tsx），回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
  * domain-model §3.7，桌面与 CLI 共用；别的客户端改了，这里经 `settings.updated` 跟上）。U35 起还有发送消息的按键与外部编辑器
  * （文件预览的“打开方式”默认用它），都只存在本机。U36 起照 Codex 桌面端加了“运行时防止系统休眠”与“权限”一组（输入框的权限
- * 菜单里出现哪几种模式，请求批准一直在），也只存在本机。
+ * 菜单里出现哪几种模式，请求批准一直在），也只存在本机。“会话侧栏”一组是不管有没有内容都占一张卡片的那几张，默认不显示，
+ * 只存在本机。
  */
 export function GeneralSettings() {
   const { supported, settings, update } = useHostSettings();
@@ -50,6 +63,11 @@ export function GeneralSettings() {
   const preventSleep = preventSleepPref.use();
   const permissionsSupported = usePermissionModes();
   const permissionPrefs = permissionModePrefs.use();
+  const { railCards } = layoutPrefs.use();
+  const railOptions = OPTIONAL_RAIL_CARDS.filter(
+    (id) =>
+      view.status === 'connected' && hostSupports(view.hello.features, RAIL_CARD_META[id].feature),
+  );
 
   const save = async (patch: Partial<HostSettings>) => {
     setSaving(true);
@@ -208,6 +226,26 @@ export function GeneralSettings() {
           )}
         </div>
       </SettingsSection>
+      {railOptions.length > 0 && (
+        <SettingsSection title={t('rail.label')}>
+          <div className={LIST_CARD}>
+            {railOptions.map((id) => (
+              <SettingsRow
+                key={id}
+                title={t(RAIL_CARD_META[id].label)}
+                data-setting={`rail-${id}`}
+                control={
+                  <Switch
+                    label={t(RAIL_CARD_META[id].label)}
+                    checked={railCards.includes(id)}
+                    onChange={(enabled) => setRailCardEnabled(id, enabled)}
+                  />
+                }
+              />
+            ))}
+          </div>
+        </SettingsSection>
+      )}
       {permissionsSupported && (
         <SettingsSection title={t('settings.section.permissions')}>
           <div className={LIST_CARD}>

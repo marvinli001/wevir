@@ -1,5 +1,5 @@
 // 会话侧栏的“检查”卡片（0.65.0，Host 功能 `verification`）：验收状态（与引擎的回合状态分开）、最近一轮的记录、修复链；“运行检查”
-// 与“停止”；点一条记录看完整输出。只在项目里的普通会话里有（子会话、“对话”里没有），旧 Host 没有这张卡片。
+// 与“停止”；点一条记录看完整输出。设置里打开后才显示（默认不显示）；只在项目里的普通会话里有（子会话、“对话”里没有），旧 Host 没有这张卡片。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { CheckDefinition, SessionId, VerificationRun, WorkspaceId } from '@wevir/protocol';

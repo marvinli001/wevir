@@ -24,6 +24,10 @@ export const SHORTCUTS = {
   toggleAux: { code: 'KeyB', mod: true, alt: true },
   openTabs: { code: 'KeyA', mod: true, shift: true },
   maximize: { code: 'KeyM', mod: true, shift: true },
+  /** 顶栏的终端、浏览器、文件按钮（照 Claude Code 桌面端）：显示那种窗格，没有就新开。 */
+  terminal: { code: 'KeyJ', mod: true },
+  browser: { code: 'KeyB', mod: true, shift: true },
+  files: { code: 'KeyF', mod: true, shift: true },
   splitRight: { code: 'Backslash', mod: true },
   nextTab: { code: 'Tab', ctrl: true },
   previousTab: { code: 'Tab', ctrl: true, shift: true },

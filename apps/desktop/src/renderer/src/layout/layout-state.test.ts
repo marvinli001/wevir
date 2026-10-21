@@ -13,6 +13,7 @@ describe('parseLayoutPrefs', () => {
       sidebarView: 'status',
       railShown: true,
       railOpen: ['environment'],
+      railCards: [],
     });
   });
 
@@ -25,6 +26,7 @@ describe('parseLayoutPrefs', () => {
       sidebarView: 'status',
       railShown: true,
       railOpen: ['environment'],
+      railCards: [],
     });
     expect(parseLayoutPrefs(null)).toBeUndefined();
   });
@@ -44,5 +46,12 @@ describe('parseLayoutPrefs', () => {
     expect(
       parseLayoutPrefs({ railShown: false, railOpen: ['context', 1, 'changes'] }),
     ).toMatchObject({ railShown: false, railOpen: ['context', 'changes'] });
+  });
+
+  it('可选卡片默认都不显示，记住设置里打开的', () => {
+    expect(parseLayoutPrefs({})).toMatchObject({ railCards: [] });
+    expect(parseLayoutPrefs({ railCards: ['retro', 2, 'lsp'] })).toMatchObject({
+      railCards: ['retro', 'lsp'],
+    });
   });
 });

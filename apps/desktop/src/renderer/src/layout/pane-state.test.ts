@@ -7,6 +7,7 @@ import {
   cycleTab,
   EMPTY_STORED,
   emptyScope,
+  findKindTab,
   focusedGroup,
   focusPane,
   MAX_STORED_SCOPES,
@@ -198,6 +199,25 @@ describe('拆分、移动、切换', () => {
     expect(primary.focus).toEqual([PRIMARY, 'id4', 'id2']);
     expect(focusedGroup(primary)?.id).toBe('id4');
     expect(focusPane(state, 'missing')).toBe(state);
+  });
+});
+
+describe('findKindTab', () => {
+  it('先找正显示着的标签，按最近聚焦的窗格；都没显示时取第一个', () => {
+    const state = opened(
+      { kind: 'terminal', params: { id: 'a' } },
+      { kind: 'files' },
+      { kind: 'terminal', params: { id: 'b' } },
+    );
+    expect(findKindTab(state, 'terminal')).toMatchObject({ shown: true, tab: { id: 'id5' } });
+    expect(findKindTab(activateTab(state, 'id1'), 'terminal')?.tab.id).toBe('id1');
+    expect(findKindTab(state, 'files')).toMatchObject({ shown: true, tab: { id: 'id3' } });
+    expect(findKindTab(state, 'browser')).toBeUndefined();
+    // 文件标签挪进终端那个窗格并成为当前标签：终端都没显示，取第一个。
+    expect(findKindTab(moveTab(state, 'id3', 'id2'), 'terminal')).toMatchObject({
+      shown: false,
+      tab: { id: 'id1' },
+    });
   });
 });
 

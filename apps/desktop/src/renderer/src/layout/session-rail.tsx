@@ -8,7 +8,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceGit, type WorkspaceGitState } from '@/data/workspace-git';
 import { t } from '@/i18n';
-import { layoutPrefs, toggleRailCard } from './layout-state';
+import { layoutPrefs, OPTIONAL_RAIL_CARDS, toggleRailCard } from './layout-state';
 
 /** 卡片拿到的上下文：当前会话、它的项目、Provider 列表、项目的 git 状态，与侧栏现在是否看得见。 */
 export interface RailContext {
@@ -72,7 +72,7 @@ export function SessionRail({
   floating?: boolean;
 }) {
   const data = useWorkbenchData();
-  const { railOpen } = layoutPrefs.use();
+  const { railOpen, railCards } = layoutPrefs.use();
   // 回合结束（离开 running）时重读一次，改动多半刚发生。
   // 环境会话新开了 worktree 时读它（0.15.0），否则读工作区目录。
   const git = useWorkspaceGit(entry.workspace.id, {
@@ -90,9 +90,12 @@ export function SessionRail({
   };
   const items: { card: RailCard; content: RailCardContent }[] = [];
   for (const card of cards) {
+    // 设置里没打开的可选卡片照样调用 hook（个数与顺序不变），只是当作看不见，不去 Host 读。
+    const enabled =
+      !(OPTIONAL_RAIL_CARDS as readonly string[]).includes(card.id) || railCards.includes(card.id);
     // biome-ignore lint/correctness/useHookAtTopLevel: 登记表在模块加载时就定了，每次渲染调用的 hook 个数与顺序都一样。
-    const content = card.useCard(context);
-    if (content) items.push({ card, content });
+    const content = card.useCard(enabled ? context : { ...context, visible: false });
+    if (content && enabled) items.push({ card, content });
   }
   return (
     <aside

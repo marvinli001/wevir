@@ -18,7 +18,14 @@ export interface LayoutPrefs {
   railShown: boolean;
   /** 会话侧栏里展开着的卡片（`registerRailCard` 的 id），默认只有“环境”。 */
   railOpen: readonly string[];
+  /** 用户在设置里打开的可选卡片（`OPTIONAL_RAIL_CARDS`），默认都不显示。 */
+  railCards: readonly string[];
 }
+
+/**
+ * 会话侧栏里要在设置中打开才显示的卡片（按侧栏里的顺序）：不管有没有内容都会占一张卡片的那几张。其余卡片有内容才出现。
+ */
+export const OPTIONAL_RAIL_CARDS = ['readiness', 'verification', 'lsp', 'retro'] as const;
 
 const DEFAULT_PREFS: LayoutPrefs = {
   sidebarWidth: LAYOUT.sidebarDefault,
@@ -28,6 +35,7 @@ const DEFAULT_PREFS: LayoutPrefs = {
   sidebarView: 'status',
   railShown: true,
   railOpen: ['environment'],
+  railCards: [],
 };
 
 /**
@@ -53,6 +61,9 @@ export function parseLayoutPrefs(raw: unknown, legacy = false): LayoutPrefs | un
     railOpen: Array.isArray(value.railOpen)
       ? value.railOpen.filter((id): id is string => typeof id === 'string')
       : DEFAULT_PREFS.railOpen,
+    railCards: Array.isArray(value.railCards)
+      ? value.railCards.filter((id): id is string => typeof id === 'string')
+      : DEFAULT_PREFS.railCards,
   };
 }
 
@@ -89,6 +100,18 @@ export function toggleRailCard(id: string): void {
     railOpen: prefs.railOpen.includes(id)
       ? prefs.railOpen.filter((open) => open !== id)
       : [...prefs.railOpen, id],
+  }));
+}
+
+/** 在设置里打开或关掉会话侧栏的一张可选卡片。 */
+export function setRailCardEnabled(id: string, enabled: boolean): void {
+  layoutPrefs.set((prefs) => ({
+    ...prefs,
+    railCards: enabled
+      ? prefs.railCards.includes(id)
+        ? prefs.railCards
+        : [...prefs.railCards, id]
+      : prefs.railCards.filter((card) => card !== id),
   }));
 }
 
