@@ -581,6 +581,8 @@ export const messages: Messages = {
   'composer.imageUnsupported': 'Неподдерживаемый формат изображения: {name}',
   'composer.imageTooLarge': 'Изображение больше 10 МБ: {name}',
   'composer.imageLimit': 'Не более {count} изображений',
+  'composer.pastedText':
+    'Вставленный текст #{n} · {lines, plural, one {# строка} few {# строки} many {# строк} other {# строки}}',
   'composer.imageUploadFailed': 'Не удалось загрузить изображение: {error}',
   'image.preview': 'Просмотр изображения',
   'image.unavailable': 'Изображение недоступно',
@@ -720,6 +722,8 @@ export const messages: Messages = {
   'transcript.processStopped': 'Фоновый процесс «{name}» остановлен сигналом {signal}',
   'transcript.processMatched': 'Совпадение в выводе «{name}»',
   'transcript.steered': 'Вмешательство',
+  'transcript.pastedText':
+    'Вставленный текст · {lines, plural, one {# строка} few {# строки} many {# строк} other {# строки}}',
 
   'time.seconds': '{n} с',
   'time.minutes': '{m} мин {s} с',

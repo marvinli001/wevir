@@ -288,6 +288,30 @@ describe('SessionManager：回合', () => {
     expect(ofType(h, id, 'user.message')[0]?.payload.content).toEqual(text('run the tests'));
   });
 
+  it('粘贴的段落（0.89.0）交给引擎时包进 <pasted_content>，事件里存原文与标记', async () => {
+    const h = setup();
+    const id = await create(h);
+    const sent = vi.spyOn(h.adapter, 'send');
+    const content = [
+      { type: 'text' as const, text: '这段日志为什么失败' },
+      { type: 'text' as const, text: 'Error: ENOENT', pasted: true as const },
+    ];
+    await h.manager.send({ sessionId: id, content }, cli);
+    await waitForState(h, id, 'idle');
+    expect(sent.mock.calls[0]?.[1].content).toEqual([
+      { type: 'text', text: '这段日志为什么失败' },
+      {
+        type: 'text',
+        text: expect.stringMatching(
+          /^<pasted_content id="([0-9a-f]{12})">\nError: ENOENT\n<\/pasted_content id="\1">$/,
+        ),
+      },
+    ]);
+    expect(ofType(h, id, 'user.message')[0]?.payload.content).toEqual(content);
+    // 截断的标题只取自己写的话。
+    expect(ofType(h, id, 'session.title_changed')[0]?.payload.title).toBe('这段日志为什么失败');
+  });
+
   it('#2 #6：发送、流式输出、结算；首个回合写标题', async () => {
     const h = setup();
     const id = await create(h);

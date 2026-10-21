@@ -4081,6 +4081,15 @@ export const methodSamples: MethodSamples = {
           delivery: 'queue',
           collaborationMode: 'default',
         },
+        // 0.89.0：粘贴进来的一大段单独一段，标 pasted。
+        {
+          sessionId: ids.session,
+          content: [
+            { type: 'text', text: '这段日志里为什么失败：' },
+            { type: 'text', text: 'Error: ENOENT\n    at open (node:fs)', pasted: true },
+          ],
+          clientMessageId: 'msg-6',
+        },
       ],
       invalid: [
         { sessionId: ids.session, content: [] },

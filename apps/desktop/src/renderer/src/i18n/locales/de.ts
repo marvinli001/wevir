@@ -577,6 +577,7 @@ export const messages: Messages = {
   'composer.imageUnsupported': 'Nicht unterstütztes Bildformat: {name}',
   'composer.imageTooLarge': 'Bild größer als 10 MB: {name}',
   'composer.imageLimit': 'Höchstens {count} Bilder',
+  'composer.pastedText': 'Eingefügter Text #{n} · {lines, plural, one {# Zeile} other {# Zeilen}}',
   'composer.imageUploadFailed': 'Bild-Upload fehlgeschlagen: {error}',
   'image.preview': 'Bildvorschau',
   'image.unavailable': 'Bild nicht verfügbar',
@@ -716,6 +717,7 @@ export const messages: Messages = {
   'transcript.processStopped': 'Hintergrundprozess „{name}“ durch {signal} beendet',
   'transcript.processMatched': 'Treffer in der Ausgabe von „{name}“',
   'transcript.steered': 'Eingeschoben',
+  'transcript.pastedText': 'Eingefügter Text · {lines, plural, one {# Zeile} other {# Zeilen}}',
 
   'time.seconds': '{n} s',
   'time.minutes': '{m} min {s} s',

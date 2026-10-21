@@ -580,6 +580,7 @@ export const messages: Messages = {
   'composer.imageUnsupported': 'Format d’image non pris en charge : {name}',
   'composer.imageTooLarge': 'Image de plus de 10 Mo : {name}',
   'composer.imageLimit': '{count} images au maximum',
+  'composer.pastedText': 'Texte collé #{n} · {lines, plural, one {# ligne} other {# lignes}}',
   'composer.imageUploadFailed': 'Échec de l’envoi de l’image : {error}',
   'image.preview': 'Aperçu de l’image',
   'image.unavailable': 'Image indisponible',
@@ -719,6 +720,7 @@ export const messages: Messages = {
   'transcript.processStopped': 'Processus en arrière-plan « {name} » arrêté par {signal}',
   'transcript.processMatched': 'Correspondance dans la sortie de « {name} »',
   'transcript.steered': 'Intervention',
+  'transcript.pastedText': 'Texte collé · {lines, plural, one {# ligne} other {# lignes}}',
 
   'time.seconds': '{n} s',
   'time.minutes': '{m} min {s} s',

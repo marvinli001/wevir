@@ -50,6 +50,7 @@ import {
   pickImages,
 } from './composer-images';
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
+import { isLargePaste, registerPaste } from './composer-pastes';
 import { ComposerPlusMenu } from './composer-plus-menu';
 import { composerPrefs, sendKeyLabel } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
@@ -325,14 +326,24 @@ export function Composer({
     textareaRef.current?.focus();
   };
 
-  /** 粘贴：剪贴板里有图片时当图片加进来（同 T3 Code：有文件就不粘贴文字）。 */
+  /**
+   * 粘贴：剪贴板里有图片时当图片加进来（同 T3 Code：有文件就不粘贴文字）；一大段文字（0.89.0，composer-pastes.ts）在光标处换成
+   * 占位符，发出时作为单独标 `pasted` 的一段。
+   */
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!imagesEnabled) return;
     const files = Array.from(event.clipboardData.files);
-    if (files.length === 0) return;
+    if (imagesEnabled && files.length > 0) {
+      event.preventDefault();
+      // 截图粘贴进来的文件都叫 image.png，不带名字。
+      addImages(files, false);
+      return;
+    }
+    const pasted = event.clipboardData.getData('text/plain');
+    if (files.length > 0 || !isLargePaste(pasted)) return;
     event.preventDefault();
-    // 截图粘贴进来的文件都叫 image.png，不带名字。
-    addImages(files, false);
+    const { selectionStart, selectionEnd } = event.currentTarget;
+    replaceRange(selectionStart, selectionEnd, registerPaste(pasted));
+    setHistoryIndex(-1);
   };
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {

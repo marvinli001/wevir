@@ -574,6 +574,7 @@ export const messages: Messages = {
   'composer.imageUnsupported': '対応していない画像形式：{name}',
   'composer.imageTooLarge': '10 MB を超える画像：{name}',
   'composer.imageLimit': '画像は最大 {count} 枚',
+  'composer.pastedText': '貼り付けたテキスト #{n} · {lines} 行',
   'composer.imageUploadFailed': '画像のアップロードに失敗しました：{error}',
   'image.preview': '画像プレビュー',
   'image.unavailable': '画像を表示できません',
@@ -711,6 +712,7 @@ export const messages: Messages = {
   'transcript.processStopped': 'バックグラウンドプロセス「{name}」が {signal} で停止',
   'transcript.processMatched': '「{name}」の出力が一致',
   'transcript.steered': '割り込み',
+  'transcript.pastedText': '貼り付けたテキスト · {lines} 行',
 
   'time.seconds': '{n} 秒',
   'time.minutes': '{m} 分 {s} 秒',

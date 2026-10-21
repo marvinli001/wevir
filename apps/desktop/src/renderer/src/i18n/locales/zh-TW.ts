@@ -568,6 +568,7 @@ export const messages: Messages = {
   'composer.imageUnsupported': '不支援的圖片格式：{name}',
   'composer.imageTooLarge': '圖片超過 10 MB：{name}',
   'composer.imageLimit': '最多 {count} 張圖片',
+  'composer.pastedText': '貼上的文字 #{n} · {lines} 行',
   'composer.imageUploadFailed': '圖片上傳失敗：{error}',
   'image.preview': '圖片預覽',
   'image.unavailable': '圖片無法使用',
@@ -705,6 +706,7 @@ export const messages: Messages = {
   'transcript.processStopped': '背景程序「{name}」已被 {signal} 終止',
   'transcript.processMatched': '背景程序「{name}」輸出符合',
   'transcript.steered': '插話',
+  'transcript.pastedText': '貼上的文字 · {lines} 行',
 
   'time.seconds': '{n} 秒',
   'time.minutes': '{m} 分 {s} 秒',

@@ -194,6 +194,7 @@ import {
   UserImagePartSchema,
   UserQuestionOptionSchema,
   UserQuestionSchema,
+  UserTextPartSchema,
   VertexConfigSchema,
   WEVIR_EVENT_TYPES,
   WebSearchServiceIdSchema,
@@ -1155,8 +1156,24 @@ const standaloneCases: Case[] = [
   {
     name: 'UserContentPart',
     schema: UserContentPartSchema,
-    valid: [{ type: 'text', text: '' }, imagePart],
-    invalid: [{ type: 'image', url: 'x' }, { type: 'text' }],
+    valid: [{ type: 'text', text: '' }, imagePart, { type: 'text', text: 'log', pasted: true }],
+    invalid: [
+      { type: 'image', url: 'x' },
+      { type: 'text' },
+      { type: 'text', text: 'x', pasted: false },
+    ],
+  },
+  {
+    name: 'UserTextPart',
+    schema: UserTextPartSchema,
+    valid: [
+      { type: 'text', text: 'x' },
+      { type: 'text', text: 'x', pasted: true },
+    ],
+    invalid: [
+      { type: 'text', text: 'x', pasted: 'yes' },
+      { type: 'image', text: 'x' },
+    ],
   },
   {
     name: 'UserImageMimeType',

@@ -12,6 +12,7 @@ import {
   type UserImageMimeType,
   type UserImagePart,
 } from '@wevir/protocol';
+import { textParts } from './composer-pastes';
 
 export const COMPOSER_IMAGE_TYPES: readonly UserImageMimeType[] = [
   'image/png',
@@ -76,12 +77,12 @@ export function dragHasFiles(types: readonly string[]): boolean {
   return types.includes('Files');
 }
 
-/** 发出去的内容：有字时先是文本，之后是图片。 */
+/** 发出去的内容：有字时先是文本（粘贴的大段各成一段，0.89.0），之后是图片。 */
 export function messageContent(
   text: string,
   images: readonly UserImagePart[] = [],
 ): UserContentPart[] {
-  return [...(text === '' ? [] : [{ type: 'text' as const, text }]), ...images];
+  return [...textParts(text), ...images];
 }
 
 /** `data:<类型>;base64,<数据>` 里的数据。 */

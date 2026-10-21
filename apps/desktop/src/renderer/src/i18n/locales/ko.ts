@@ -570,6 +570,7 @@ export const messages: Messages = {
   'composer.imageUnsupported': '지원하지 않는 이미지 형식: {name}',
   'composer.imageTooLarge': '10MB를 초과하는 이미지: {name}',
   'composer.imageLimit': '이미지는 최대 {count}개',
+  'composer.pastedText': '붙여 넣은 텍스트 #{n} · {lines}줄',
   'composer.imageUploadFailed': '이미지 업로드 실패: {error}',
   'image.preview': '이미지 미리보기',
   'image.unavailable': '이미지 사용 불가',
@@ -707,6 +708,7 @@ export const messages: Messages = {
   'transcript.processStopped': '백그라운드 프로세스 “{name}”이(가) {signal}(으)로 중지됨',
   'transcript.processMatched': '“{name}” 출력 일치',
   'transcript.steered': '끼어들기',
+  'transcript.pastedText': '붙여 넣은 텍스트 · {lines}줄',
 
   'time.seconds': '{n}초',
   'time.minutes': '{m}분 {s}초',

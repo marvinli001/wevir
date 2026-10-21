@@ -164,7 +164,7 @@ import {
   RecapCache,
   recapInput,
 } from './recap.js';
-import { relayContent } from './relay.js';
+import { pastedContent, relayContent } from './relay.js';
 import type { FindingInput } from './review/service.js';
 import {
   type FoundRuleFile,
@@ -1822,8 +1822,8 @@ export class SessionManager {
       assertSendable(this.#snapshot(runtime));
     }
 
-    // 图片换成磁盘上的路径；找不到时在写事件之前报错。转来的消息交给引擎时包进信封（relay.ts），事件里存原文。
-    const engineContent = relayContent(from, content);
+    // 图片换成磁盘上的路径；找不到时在写事件之前报错。转来的消息与粘贴的段落交给引擎时包起来（relay.ts），事件里存原文。
+    const engineContent = relayContent(from, pastedContent(content));
     const agentInput = await this.#agentInput(engineContent);
     const snapshot = this.#snapshot(runtime);
     const turnId = newId('trn');
@@ -1983,7 +1983,7 @@ export class SessionManager {
     const parts: AgentInput['content'] = [];
     for (const part of content) {
       if (part.type === 'text') {
-        parts.push(part);
+        parts.push({ type: 'text', text: part.text });
         continue;
       }
       const path = await this.#images?.path(part.imageId);
@@ -2093,7 +2093,7 @@ export class SessionManager {
       await steer(
         runtime.engineSessionId,
         pending.id,
-        await this.#agentInput(relayContent(pending.from, pending.content)),
+        await this.#agentInput(relayContent(pending.from, pastedContent(pending.content))),
       );
     } catch (error) {
       if (this.#disposed) return;
@@ -6380,7 +6380,9 @@ function errorText(error: unknown): string {
 }
 
 function makeTitle(content: readonly UserContentPart[]): string {
-  const text = content
+  // 粘贴的大段（0.89.0）不进截断的标题，除非整条消息只有粘贴的。
+  const own = content.filter((part) => part.type === 'text' && part.pasted !== true);
+  const text = (own.some((part) => part.type === 'text' && part.text.trim() !== '') ? own : content)
     .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join(' ')
     .replace(/\s+/g, ' ')
