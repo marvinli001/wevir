@@ -17,7 +17,7 @@ import { ProtocolVersionSchema } from './version.js';
  * JSON-RPC `error.code` 表（host-api.md「错误码」）。客户端按数值判断，`message` 只给人看。
  * 前五个是 JSON-RPC 2.0 标准码；Wevir 自己的错误在规范留给实现方的 -32000…-32099 内分段：
  * -32000…-32009 连接与握手，-32010…-32019 对象不存在，-32020…-32039 状态与冲突，
- * -32040…-32059 环境与引擎。只增不减，已分配的数值不复用。
+ * -32040…-32059 环境与引擎，-32060 起是后来的对象不存在。只增不减，已分配的数值不复用。
  */
 export const ErrorCode = {
   PARSE_ERROR: -32700,
@@ -60,6 +60,9 @@ export const ErrorCode = {
 
   WORKSPACE_PATH_INVALID: -32040,
   ENGINE_ERROR: -32041,
+
+  /** 没有这条护栏规则（0.85.0，`guardrail.*`）。-32060 留给调优页的档案版本。 */
+  GUARDRAIL_NOT_FOUND: -32061,
 } as const;
 
 export type ErrorCodeName = keyof typeof ErrorCode;

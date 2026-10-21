@@ -74,6 +74,7 @@ export const messages: Messages = {
   'rpcError.IMAGE_NOT_FOUND': 'Изображение не найдено',
   'rpcError.MEMORY_NOT_FOUND': 'Заметка не найдена',
   'rpcError.AUTOMATION_NOT_FOUND': 'Автоматизация не найдена',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'Ограничение не найдено',
   'rpcError.INVALID_STATE': 'Недоступно в текущем состоянии сессии',
   'rpcError.SESSION_BUSY': 'Сессия занята',
   'rpcError.ALREADY_DECIDED': 'Решение уже принято',

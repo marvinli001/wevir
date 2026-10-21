@@ -73,6 +73,7 @@ export const messages: Messages = {
   'rpcError.IMAGE_NOT_FOUND': '이미지 없음',
   'rpcError.MEMORY_NOT_FOUND': '노트 없음',
   'rpcError.AUTOMATION_NOT_FOUND': '자동화 없음',
+  'rpcError.GUARDRAIL_NOT_FOUND': '가드레일 없음',
   'rpcError.INVALID_STATE': '현재 세션 상태에서는 사용할 수 없음',
   'rpcError.SESSION_BUSY': '세션 사용 중',
   'rpcError.ALREADY_DECIDED': '이미 처리된 승인',

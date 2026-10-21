@@ -80,6 +80,7 @@ export const messages: Messages = {
   'rpcError.IMAGE_NOT_FOUND': 'Immagine non trovata',
   'rpcError.MEMORY_NOT_FOUND': 'Nota non trovata',
   'rpcError.AUTOMATION_NOT_FOUND': 'Automazione non trovata',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'Guardrail non trovato',
   'rpcError.INVALID_STATE': 'Operazione non disponibile nello stato attuale della sessione',
   'rpcError.SESSION_BUSY': 'Sessione occupata',
   'rpcError.ALREADY_DECIDED': 'Approvazione già gestita',

@@ -786,6 +786,67 @@ describe('映射的边界情况', () => {
   });
 });
 
+describe('护栏的 hook 结果（0.85.0）', () => {
+  const id = 'thread-1';
+  const marker = (fields: Record<string, unknown>) => `wevir-guardrail: ${JSON.stringify(fields)}`;
+  const completed = (entries: Array<{ kind: string; text: string }>) => ({
+    threadId: id,
+    turnId: 'turn-1',
+    run: { id: 'pre-tool-use:0:/<session-flags>/config.toml', eventName: 'preToolUse', entries },
+  });
+
+  it('标记 → guardrail.blocked，一个标记一条', () => {
+    const mapper = new CodexEventMapper(id);
+    const events = mapper.map(
+      'hook/completed',
+      completed([
+        {
+          kind: 'feedback',
+          text: `Blocked.\n${marker({ guardrailId: 'grd_a', kind: 'forbidden_command', action: 'denied', tool: 'Bash', command: 'rm -rf x', reason: 'Blocked.' })}`,
+        },
+        {
+          kind: 'warning',
+          text: `${marker({ guardrailId: 'grd_b', kind: 'stop_check', action: 'allowed', reason: 'r', attempt: 3, maxAttempts: 3 })}`,
+        },
+      ]),
+    );
+    expect(events).toEqual([
+      {
+        type: 'guardrail.blocked',
+        engineSessionId: id,
+        guardrailId: 'grd_a',
+        kind: 'forbidden_command',
+        action: 'denied',
+        tool: 'Bash',
+        command: 'rm -rf x',
+        reason: 'Blocked.',
+      },
+      {
+        type: 'guardrail.blocked',
+        engineSessionId: id,
+        guardrailId: 'grd_b',
+        kind: 'stop_check',
+        action: 'allowed',
+        reason: 'r',
+        attempt: 3,
+        maxAttempts: 3,
+      },
+    ]);
+  });
+
+  it('没有标记或标记不完整时照常留 engine.raw；hook/started 不发事件', () => {
+    const mapper = new CodexEventMapper(id);
+    const plain = mapper.map('hook/completed', completed([{ kind: 'feedback', text: 'nope' }]));
+    expect(types(plain)).toEqual(['engine.raw']);
+    const broken = mapper.map(
+      'hook/completed',
+      completed([{ kind: 'feedback', text: marker({ guardrailId: 'grd_a', kind: 'x' }) }]),
+    );
+    expect(types(broken)).toEqual(['engine.raw']);
+    expect(mapper.map('hook/started', completed([]))).toEqual([]);
+  });
+});
+
 describe('每次请求的用量（0.62.0）', () => {
   const breakdown = (
     input: number,

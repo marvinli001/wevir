@@ -81,6 +81,7 @@ import {
 } from './config.js';
 import { buildCodexEnv } from './env.js';
 import { engineGoal, goalNotification } from './goals.js';
+import { hooksThreadConfig } from './hooks.js';
 import {
   CodexEventMapper,
   type CodexEventMapperOptions,
@@ -577,6 +578,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     return CODEX_RULE_FILES;
   }
 
+  /** 护栏（0.85.0，codex-event-mapping.md §6.17）：会话的 hooks 挂在 thread 的 SessionFlags 层。 */
+  hookDialect(): 'codex' {
+    return 'codex';
+  }
+
   /**
    * 计划模式（0.36.0，codex-event-mapping.md §4.10）：Codex 的协作模式，每个 `turn/start` 带 `collaborationMode`；计划是
    * `plan` item。
@@ -738,6 +744,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.reasoningEffort,
           config.appTools,
           config.connectors,
+          config.hooks,
+          config.disabledHooks,
         ),
         ...threadDeveloperInstructions(config),
       };
@@ -793,6 +801,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.reasoningEffort,
           config.appTools,
           config.connectors,
+          config.hooks,
+          config.disabledHooks,
         ),
         ...threadDeveloperInstructions(config),
         excludeTurns: true,
@@ -1205,6 +1215,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.reasoningEffort,
           config.appTools,
           config.connectors,
+          config.hooks,
+          config.disabledHooks,
         ),
         ephemeral: side,
         excludeTurns: true,
@@ -2491,6 +2503,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     reasoningEffort: string | undefined,
     appTools: AppToolsEndpoint | undefined,
     connectors: SessionConfig['connectors'],
+    hooks: SessionConfig['hooks'],
+    disabledHooks: SessionConfig['disabledHooks'],
   ): Omit<ThreadStartParams, 'cwd'> {
     // 项目的连接器（0.74.0）只挂在这个 thread 上（`mcp_servers.<名字>` 的覆盖），全局的在 config.toml 里。
     const projectTools =
@@ -2500,6 +2514,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const tools = {
       ...projectTools,
       ...(appTools === undefined ? {} : appToolsConfig(appTools)),
+      // 护栏（codex-event-mapping.md §6.17）：Host 给的 hooks 连同信任散列挂在这个 thread 的 SessionFlags 层。
+      ...hooksThreadConfig(hooks ?? [], disabledHooks),
     };
     if (this.#chatgpt) {
       // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。

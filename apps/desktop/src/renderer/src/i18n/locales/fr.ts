@@ -77,6 +77,7 @@ export const messages: Messages = {
   'rpcError.IMAGE_NOT_FOUND': 'Image introuvable',
   'rpcError.MEMORY_NOT_FOUND': 'Note introuvable',
   'rpcError.AUTOMATION_NOT_FOUND': 'Automatisation introuvable',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'Garde-fou introuvable',
   'rpcError.INVALID_STATE': 'Action impossible dans l’état actuel de la session',
   'rpcError.SESSION_BUSY': 'Session occupée',
   'rpcError.ALREADY_DECIDED': 'Approbation déjà traitée',

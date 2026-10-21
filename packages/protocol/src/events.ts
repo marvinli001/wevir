@@ -62,6 +62,7 @@ import {
   UsageBreakdownSchema,
   UserContentPartSchema,
 } from './entities.js';
+import { GuardrailBlockedSchema } from './guardrails.js';
 import {
   REVIEW_FINDINGS_MAX,
   REVIEW_SUMMARY_MAX_LENGTH,
@@ -549,6 +550,11 @@ export const EventPayloadSchemas = {
     findings: z.array(ReviewFindingSchema).max(REVIEW_FINDINGS_MAX),
     turnId: TurnIdSchema.optional(),
   }),
+  /**
+   * 护栏拦下了 Agent 的一步（0.85.0，Host 功能 `tuning_guardrails`，domain-model §3.40）：拒绝了命令或改动、结束前检查失败让 Agent
+   * 接着做，或已到次数上限放行。Agent 收到的理由在 `reason`；消息流显示一行工具行。
+   */
+  'guardrail.blocked': GuardrailBlockedSchema,
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -641,6 +647,7 @@ export const UserSteeredEventSchema = eventSchema('user.steered');
 export const UiShowEventSchema = eventSchema('ui.show');
 export const FileSharedEventSchema = eventSchema('file.shared');
 export const ChapterMarkedEventSchema = eventSchema('chapter.marked');
+export const GuardrailBlockedEventSchema = eventSchema('guardrail.blocked');
 export const VerificationUpdatedEventSchema = eventSchema('verification.updated');
 export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
 export const RepairUpdatedEventSchema = eventSchema('repair.updated');
@@ -704,6 +711,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   OpinionUpdatedEventSchema,
   InsightUpdatedEventSchema,
   ReviewFindingsEventSchema,
+  GuardrailBlockedEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

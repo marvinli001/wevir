@@ -101,6 +101,11 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return CODEX_RULE_FILES;
   }
 
+  /** 护栏（0.85.0）：两个进程都把会话的 hooks 挂在 thread 上。 */
+  hookDialect(): 'codex' {
+    return 'codex';
+  }
+
   bindPlugins(source: EnginePluginSource): void {
     this.gateway.bindPlugins(source);
     this.chatgpt.bindPlugins(source);

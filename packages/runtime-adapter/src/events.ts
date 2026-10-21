@@ -402,6 +402,24 @@ export interface ReviewFindingsEvent {
   }>;
 }
 
+/**
+ * 护栏的检查程序拦下了一步（0.85.0，协议的 `guardrail.blocked`，domain-model §3.40）：适配器从引擎的 hook 结果里认出检查程序留下的
+ * 标记（`@wevir/runtime-adapter/guardrail` 的 `parseGuardrailMarker`），原样交给 Host；Host 补上回合、写事件、记命中。
+ */
+export interface GuardrailBlockedEvent {
+  type: 'guardrail.blocked';
+  engineSessionId: string;
+  guardrailId: string;
+  kind: string;
+  action: string;
+  tool?: string;
+  command?: string;
+  path?: string;
+  reason: string;
+  attempt?: number;
+  maxAttempts?: number;
+}
+
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */
 export interface EngineRawEvent {
   type: 'engine.raw';
@@ -444,6 +462,7 @@ export type AgentEvent =
   | SubagentUpdatedEvent
   | TasksSuggestedEvent
   | ReviewFindingsEvent
+  | GuardrailBlockedEvent
   | GoalUpdatedEvent;
 
 export type AgentEventType = AgentEvent['type'];

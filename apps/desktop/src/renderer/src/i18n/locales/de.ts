@@ -76,6 +76,7 @@ export const messages: Messages = {
   'rpcError.IMAGE_NOT_FOUND': 'Bild nicht gefunden',
   'rpcError.MEMORY_NOT_FOUND': 'Notiz nicht gefunden',
   'rpcError.AUTOMATION_NOT_FOUND': 'Automatisierung nicht gefunden',
+  'rpcError.GUARDRAIL_NOT_FOUND': 'Leitplanke nicht gefunden',
   'rpcError.INVALID_STATE': 'Im aktuellen Sitzungsstatus nicht möglich',
   'rpcError.SESSION_BUSY': 'Sitzung beschäftigt',
   'rpcError.ALREADY_DECIDED': 'Freigabe bereits bearbeitet',

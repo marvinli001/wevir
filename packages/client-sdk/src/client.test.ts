@@ -857,6 +857,33 @@ describe('项目环境就绪（0.70.0）', () => {
   });
 });
 
+describe('护栏（0.85.0）', () => {
+  it('onGuardrailsChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { tuning_guardrails: true } },
+    }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onGuardrailsChanged((change) => changes.push(change));
+    const change = { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' };
+    host.last.notify('guardrail.changed', change);
+    host.last.notify('guardrail.changed', {});
+    await vi.waitFor(() => expect(changes).toEqual([change, {}]));
+    host.last.notify('guardrail.changed', { workspaceId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(2);
+    expect(warnings.join('\n')).toMatch(/malformed guardrail.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(3));
+    expect(changes[2]).toBeUndefined();
+    stop();
+    host.last.notify('guardrail.changed', change);
+    await tick();
+    expect(changes).toHaveLength(3);
+  });
+});
+
 describe('语言服务器（0.71.0）', () => {
   it('onLspChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

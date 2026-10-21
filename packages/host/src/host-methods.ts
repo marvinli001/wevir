@@ -46,6 +46,7 @@ import {
   readUncommitted,
 } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
+import type { GuardrailService } from './guardrails/service.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import type { LspStatusService } from './lsp/service.js';
@@ -174,6 +175,8 @@ export interface HostMethodsOptions {
   search?: SessionSearch;
   /** 审批规则（0.80.0，`approvalRule.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   approvalRules?: ApprovalRuleService;
+  /** 护栏（0.85.0，`guardrail.*` 与 `repoHook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  guardrails?: GuardrailService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -292,6 +295,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (options.approvalRules === undefined)
       throw invalidParams([], 'this host has no approval rules');
     return options.approvalRules;
+  };
+  const guardrails = (): GuardrailService => {
+    if (options.guardrails === undefined) throw invalidParams([], 'this host has no guardrails');
+    return options.guardrails;
   };
   const search = (): SessionSearch => {
     if (options.search === undefined) throw invalidParams([], 'this host has no session search');
@@ -1405,6 +1412,34 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'approvalRule.suggest': ({ workspaceId }) => {
       if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
       return { suggestions: approvalRules().suggest(workspaceId) };
+    },
+
+    // 0.85.0：护栏。项目的规则要项目存在（未移除）；项目移除后规则留着，加回来时还在。
+    'guardrail.list': ({ workspaceId }) => {
+      if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
+      return { guardrails: guardrails().list(workspaceId as WorkspaceId | undefined) };
+    },
+    'guardrail.add': async (params) => {
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return { guardrail: await guardrails().add(params) };
+    },
+    'guardrail.update': async (params) => ({ guardrail: await guardrails().update(params) }),
+    'guardrail.delete': async ({ guardrailId }) => {
+      await guardrails().delete(guardrailId);
+      return {};
+    },
+    'guardrail.setEnabled': async ({ guardrailId, enabled }) => ({
+      guardrail: await guardrails().setEnabled(guardrailId, enabled),
+    }),
+    'repoHook.list': ({ workspaceId }) => {
+      requireWorkspace(storage, workspaceId);
+      return guardrails().repoHooks(workspaceId as WorkspaceId);
+    },
+    'repoHook.setEnabled': async ({ workspaceId, hookId, enabled }) => {
+      requireWorkspace(storage, workspaceId);
+      return {
+        hook: await guardrails().setRepoHookEnabled(workspaceId as WorkspaceId, hookId, enabled),
+      };
     },
   };
 }

@@ -384,6 +384,11 @@ export const HOST_FEATURES = {
    * 后台进程。有后台进程（应用级工具）时声明。
    */
   devPreview: 'dev_preview',
+  /**
+   * 护栏（0.85.0，domain-model §3.40）：`guardrail.*`、`repoHook.*`、`guardrail.changed` 通知与 `guardrail.blocked` 事件。规则只对
+   * 声明了 hooks 的引擎（Codex）生效；Host 有这样的引擎时声明。
+   */
+  tuningGuardrails: 'tuning_guardrails',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -461,6 +466,7 @@ export const HostFeaturesSchema = z.looseObject({
   transcript_chapters: z.boolean().optional(),
   review_findings: z.boolean().optional(),
   dev_preview: z.boolean().optional(),
+  tuning_guardrails: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -1806,6 +1806,36 @@ describe('审查发现（0.83.0）', () => {
   });
 });
 
+describe('护栏（0.85.0）', () => {
+  it('guardrail.blocked 是回合里当时位置的 guardrail 部件；没有 turnId 时是一条系统消息', () => {
+    const { list, add, turn } = events();
+    turn();
+    const blocked = {
+      guardrailId: 'grd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      kind: 'forbidden_command',
+      action: 'denied',
+      tool: 'Bash',
+      command: 'rm -rf build',
+      reason: 'Blocked.',
+      turnId: TURN,
+    } as const;
+    const inTurn = add('guardrail.blocked', blocked);
+    const { turnId: _turn, ...late } = blocked;
+    const after = add('guardrail.blocked', { ...late, kind: 'stop_check', action: 'allowed' });
+    const { messages } = projectTranscript(list);
+    const answer = messages.find((m) => m.role === 'assistant');
+    expect(answer?.parts.at(-1)).toEqual({
+      type: 'guardrail',
+      key: `g:${inTurn.seq}`,
+      blocked,
+    });
+    expect(messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'guardrail', key: `g:${after.seq}`, blocked: { action: 'allowed' } }],
+    });
+  });
+});
+
 describe('回合后验证（0.65.0）', () => {
   const run = {
     id: 'vrn_01JA2B3C4D5E6F7G8H9JKMNPQR',

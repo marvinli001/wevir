@@ -266,6 +266,13 @@ export interface AgentRuntimeAdapter {
     | Promise<import('./types.js').EngineRuleFiles | undefined>;
 
   /**
+   * 引擎会话能挂命令 hook（护栏，0.85.0，domain-model §3.40）：按 Provider 问，回答 `codex` 的引擎收 `SessionConfig.hooks` 与
+   * `disabledHooks`（写法与键都是 Codex 的）。不实现或返回 `undefined` 时 Host 不给，护栏对这个来源的会话不生效。Host 有回答的
+   * 引擎时声明 `tuning_guardrails`。
+   */
+  hookDialect?(providerId: string): 'codex' | undefined;
+
+  /**
    * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次
    * 请求起看得到；回合进行中也可以调用。不实现时 Host 只写事件（Codex：`thread/inject_items`）。
    * 错误：`session_not_found`、`session_closed`（会话没挂着）、`disposed`。

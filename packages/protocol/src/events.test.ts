@@ -118,6 +118,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.insight.status;
     case 'review.findings':
       return event.payload.origin;
+    case 'guardrail.blocked':
+      return event.payload.action;
     default: {
       const unhandled: never = event;
       return unhandled;

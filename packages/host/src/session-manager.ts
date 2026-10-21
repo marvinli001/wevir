@@ -17,6 +17,8 @@ import {
   type EngineFeatures,
   type EnvironmentId,
   type FilesRestore,
+  GUARDRAIL_EVENT_TEXT_MAX_LENGTH,
+  GuardrailBlockedSchema,
   type HandoffBinding,
   type HandoffMaterialRequest,
   type HandoffNoteRef,
@@ -80,6 +82,7 @@ import {
   type DeltaBlockRef,
   type EngineGoal,
   type EngineSession,
+  type GuardrailBlockedEvent,
   isAdapterError,
   type QuestionCancelledEvent,
   type QuestionRequestedEvent,
@@ -117,6 +120,7 @@ import {
   restoreSnapshot,
   WorktreeError,
 } from './git-worktree.js';
+import type { GuardrailService } from './guardrails/service.js';
 import {
   assembleHandoff,
   DELTA_SINCE_TARGET_LAST_SEEN,
@@ -304,6 +308,11 @@ export interface SessionManagerOptions {
    * `SessionConfig.connectors` 交给适配器。没给时不交。
    */
   projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
+  /**
+   * 护栏（0.85.0，guardrails/service.ts）：建立或恢复引擎会话时，hook 方言是 `codex` 的来源按会话所在的工作区与目录挂上 hooks；
+   * 引擎报的拦截写成 `guardrail.blocked` 并记命中。没给时不挂。
+   */
+  guardrails?: Pick<GuardrailService, 'sessionHooks' | 'recordHit'>;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
   /**
@@ -688,6 +697,7 @@ export class SessionManager {
   readonly #appTools: SessionManagerOptions['appTools'];
   readonly #approvalRules: SessionManagerOptions['approvalRules'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
+  readonly #guardrails: SessionManagerOptions['guardrails'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
@@ -745,6 +755,7 @@ export class SessionManager {
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#projectConnectors = options.projectConnectors;
+    this.#guardrails = options.guardrails;
     this.#onTurnFinished = options.onTurnFinished;
     this.#reviewFindings = options.reviewFindings;
     this.#onUsage = options.onUsage;
@@ -770,9 +781,19 @@ export class SessionManager {
       connectors === undefined || connectors.length === 0
         ? withRules
         : { ...withRules, connectors };
-    if (this.#adapter.appTools !== true) return withConnectors;
+    // 护栏（0.85.0）：只有认 Codex hooks 的来源挂；别的引擎不受影响。
+    const guardrails =
+      this.#guardrails !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
+        ? this.#guardrails.sessionHooks(workspaceId as WorkspaceId | undefined, config.cwd)
+        : undefined;
+    const withGuardrails =
+      guardrails === undefined ||
+      (guardrails.hooks.length === 0 && guardrails.disabledHooks.length === 0)
+        ? withConnectors
+        : { ...withConnectors, hooks: guardrails.hooks, disabledHooks: guardrails.disabledHooks };
+    if (this.#adapter.appTools !== true) return withGuardrails;
     const appTools = this.#appTools?.grant(sessionId);
-    return appTools === undefined ? withConnectors : { ...withConnectors, appTools };
+    return appTools === undefined ? withGuardrails : { ...withGuardrails, appTools };
   }
 
   /**
@@ -4536,6 +4557,32 @@ export class SessionManager {
     }
   }
 
+  /**
+   * 护栏拦下一步（0.85.0）：写 `guardrail.blocked`、记命中。属于进行中的回合时带 `turnId`；结束前检查在回合收尾时报，Host 可能
+   * 已判定回合结束，这时不带。形状不对的（检查程序与 Host 版本不一致）只记告警。
+   */
+  #guardrailBlocked(runtime: SessionRuntime, event: GuardrailBlockedEvent): void {
+    const { type: _type, engineSessionId: _engine, ...fields } = event;
+    const clip = (text: string | undefined) =>
+      text === undefined ? undefined : [...text].slice(0, GUARDRAIL_EVENT_TEXT_MAX_LENGTH).join('');
+    const parsed = GuardrailBlockedSchema.safeParse({
+      ...fields,
+      ...(runtime.turn !== undefined && { turnId: runtime.turn.turnId }),
+      ...(fields.command !== undefined && { command: clip(fields.command) }),
+      ...(fields.path !== undefined && { path: clip(fields.path) }),
+      reason: clip(fields.reason),
+    });
+    if (!parsed.success) {
+      this.#onWarning('dropped a malformed guardrail event', {
+        sessionId: runtime.id,
+        guardrailId: fields.guardrailId,
+      });
+      return;
+    }
+    this.#write(runtime, [{ type: 'guardrail.blocked', source: 'host', payload: parsed.data }]);
+    void this.#guardrails?.recordHit(parsed.data.guardrailId);
+  }
+
   /** 把一个引擎事件写成 WevirEvent（domain-model §6、§9）。 */
   #handle(runtime: SessionRuntime, event: AgentEvent): void {
     const sessionId = runtime.id;
@@ -4590,6 +4637,9 @@ export class SessionManager {
         return;
       case 'goal.updated':
         this.#goalUpdated(runtime, event.goal);
+        return;
+      case 'guardrail.blocked':
+        this.#guardrailBlocked(runtime, event);
         return;
     }
 

@@ -28,6 +28,7 @@ import type {
   CompactionTrigger,
   EngineErrorCategory,
   EngineErrorInfo,
+  GuardrailBlocked,
   HandoffNoteRef,
   HandoffOmittedRange,
   HandoffStrategy,
@@ -252,7 +253,12 @@ export type ChatPart =
       origin: string;
       summary?: string;
       findings: readonly ReviewFinding[];
-    };
+    }
+  /**
+   * 护栏拦下一步（0.85.0，`guardrail.blocked`）：在当时所在的位置（`key` 是 `g:<seq>`），界面画成一行工具行。结束前检查在回合收尾时
+   * 报，可能没有 `turnId`，这时是一条系统消息。
+   */
+  | { type: 'guardrail'; key: string; blocked: GuardrailBlocked };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -846,6 +852,13 @@ export class TranscriptProjection {
         });
         return;
       }
+      case 'guardrail.blocked':
+        this.#target(event.payload.turnId, event.seq).parts.push({
+          type: 'guardrail',
+          key: `g:${event.seq}`,
+          blocked: event.payload,
+        });
+        return;
       case 'review.findings':
         this.#target(event.payload.turnId, event.seq).parts.push({
           type: 'findings',
