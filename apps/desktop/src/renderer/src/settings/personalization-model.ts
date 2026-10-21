@@ -28,7 +28,7 @@ export interface CustomRow {
   value: PlainMessageKey;
 }
 
-/** 这个会话交给引擎的说明与风格，一项一行；不认识的风格不列。 */
+/** 这个会话交给引擎的说明、风格与写作风格，一项一行；不认识的风格不列。 */
 export function customRows(custom: SessionCustomInstructions): CustomRow[] {
   const rows: CustomRow[] = [];
   if (custom.instructions) {
@@ -44,6 +44,18 @@ export function customRows(custom: SessionCustomInstructions): CustomRow[] {
       key: 'style',
       label: 'settings.personalization.outputStyle',
       value: OUTPUT_STYLE_LABELS[style],
+    });
+  }
+  // 0.95.0：写作风格；不认识的值不列。
+  const writing = custom.writingStyle;
+  if (writing === 'profile' || writing === 'setup') {
+    rows.push({
+      key: 'writing',
+      label: 'settings.personalization.writingStyle',
+      value:
+        writing === 'profile'
+          ? 'settings.personalization.writingProfile.ready'
+          : 'settings.personalization.writingProfile.missing',
     });
   }
   return rows;

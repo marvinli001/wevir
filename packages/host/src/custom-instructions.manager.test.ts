@@ -13,12 +13,14 @@ import {
   loadCustomPrompts,
   planCustom,
   styleReminder,
+  writingStyleInput,
 } from './custom-instructions.js';
 import { EngineRouter } from './engine-router.js';
 import { EventStore } from './event-store.js';
 import { createHostMethods } from './host-methods.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir } from './test-utils.js';
+import { WritingStyleStore } from './writing-style/store.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -49,7 +51,7 @@ describe('用户的说明与输出风格（SessionManager）', () => {
     await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
   });
 
-  function setup(initial: Partial<HostSettings>) {
+  function setup(initial: Partial<HostSettings>, writingStyle?: WritingStyleStore) {
     let settings: HostSettings = { sendWhileBusy: 'steer', ...initial };
     const root = join(realpathSync(tempDir()), `c${managers.length}`);
     const workspaceDir = join(root, 'ws');
@@ -99,7 +101,14 @@ describe('用户的说明与输出风格（SessionManager）', () => {
       engineFeatures: router.engineFeatures(),
       ruleFiles: { discover: async () => [] },
       customInstructions: {
-        plan: ({ styled }) => planCustom(prompts, customInputs(settings, styled)),
+        plan: async ({ styled }) => {
+          const profile = settings.writingStyle === true ? await writingStyle?.get() : undefined;
+          const writing = writingStyleInput(settings, profile?.content);
+          return planCustom(prompts, {
+            ...customInputs(settings, styled),
+            ...(writing !== undefined && { writingStyle: writing }),
+          });
+        },
         reminder: (outputStyle) => styleReminder(prompts, outputStyle),
       },
     });
@@ -174,6 +183,63 @@ describe('用户的说明与输出风格（SessionManager）', () => {
       instructions: true,
       bytes: Buffer.byteLength(resumed),
     });
+  });
+
+  it('写作风格（0.95.0）：开着交档案，没有档案交建档提示，关着不交', async () => {
+    const store = new WritingStyleStore({ dir: join(realpathSync(tempDir()), 'writing-style') });
+    const env = setup({ writingStyle: true }, store);
+    const first = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    expect(env.codex.configs[0]?.ruleInstructions).toContain('wevir_writing_style_setup');
+    expect(first.rules?.custom).toMatchObject({ instructions: false, writingStyle: 'setup' });
+
+    await store.save('- 句子短，先说结论。', { by: 'agent' });
+    const second = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    expect(env.codex.configs[1]?.ruleInstructions).toContain(
+      '<writing_style_profile>\n- 句子短，先说结论。\n</writing_style_profile>',
+    );
+    expect(second.rules?.custom?.writingStyle).toBe('profile');
+
+    env.set({ writingStyle: false });
+    const third = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    expect(env.codex.configs[2]?.ruleInstructions ?? '').not.toContain('writing_style');
+    expect(third.rules?.custom).toBeUndefined();
+  });
+
+  it('writingStyle.*：用户看、改、删；关掉设置时删样本、留档案', async () => {
+    const env = setup({});
+    const root = realpathSync(tempDir());
+    const store = new WritingStyleStore({ dir: join(root, 'writing-style') });
+    const methods = createHostMethods({
+      storage: storages.open(join(root, 'methods')),
+      events: env.events,
+      sessions: env.manager,
+      secrets: new FileSecretStore(join(root, 'methods')),
+      writingStyle: store,
+    });
+    const context = { client: identity, capabilities: {} };
+    expect(await methods['writingStyle.get']({}, context)).toEqual({});
+    const { profile } = await methods['writingStyle.update']({ content: '- 句子短。' }, context);
+    expect(profile).toMatchObject({
+      content: '- 句子短。',
+      updatedBy: 'user',
+      setupComplete: true,
+    });
+    await store.save('- 先说结论。', { by: 'agent' });
+    const stale = await methods['writingStyle.update'](
+      { content: '- 用户改的', revision: profile.revision },
+      context,
+    );
+    expect(stale).toMatchObject({ conflict: true, profile: { content: '- 先说结论。' } });
+
+    await store.addSamples('chat', 'agent', [{ text: '先跑测试。' }]);
+    await methods['settings.update']({ settings: { writingStyle: true } }, context);
+    expect((await store.summary()).files).toBe(1);
+    await methods['settings.update']({ settings: { writingStyle: false } }, context);
+    expect((await store.summary()).files).toBe(0);
+    expect((await methods['writingStyle.get']({}, context)).profile?.content).toBe('- 先说结论。');
+
+    await methods['writingStyle.delete']({}, context);
+    expect(await methods['writingStyle.get']({}, context)).toEqual({});
   });
 
   it('settings.update：只收认识的风格，不认识的拒绝且不改', async () => {

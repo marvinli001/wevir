@@ -34,6 +34,8 @@ export const HOME_LAYOUT = {
   toolOutputDir: 'tool-output',
   /** 跨会话记忆（memory.ts）：`global/` 与 `projects/<工作区 ID>/`，每条一个 .md（0700）。 */
   memoryDir: 'memory',
+  /** 写作风格（0.95.0，writing-style/store.ts）：`profile.json` 与建档期间的 `samples/`（0700）。 */
+  writingStyleDir: 'writing-style',
   /** 预设角色（roles.ts）：用户自己的角色，每个一个 .md；项目的在项目里的 `.wevir/roles/`。 */
   rolesDir: 'roles',
   /** 共享任务清单（task-board.ts）：每个会话树的根一个 `<根会话 ID>.json`（0600）。 */

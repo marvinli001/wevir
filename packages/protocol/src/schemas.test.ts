@@ -294,6 +294,7 @@ import {
   waitingBoardTask,
   workbuddyLoginAccount,
   workspace,
+  writingStyleProfile,
 } from './test-samples.js';
 
 const { payload: _payload, ...withoutPayload } = eventOf('turn.started');
@@ -3829,6 +3830,27 @@ const standaloneCases: Case[] = [
       { kind: 'provider', providerId: 'groq', modelId: 'whisper-large-v3-turbo' },
     ],
     invalid: [{ kind: 'provider', providerId: 'groq' }, { kind: 'browser' }],
+  },
+  {
+    name: 'WritingStyleContent',
+    schema: protocol.WritingStyleContentSchema,
+    valid: ['句子短。', 'x'.repeat(16_000)],
+    invalid: ['', 'x'.repeat(16_001)],
+  },
+  {
+    name: 'WritingStyleAuthor',
+    schema: protocol.WritingStyleAuthorSchema,
+    valid: ['agent', 'user'],
+    invalid: ['import', ''],
+  },
+  {
+    name: 'WritingStyleProfile',
+    schema: protocol.WritingStyleProfileSchema,
+    valid: [
+      writingStyleProfile,
+      { ...writingStyleProfile, updatedBy: 'user', setupComplete: false },
+    ],
+    invalid: [{ ...writingStyleProfile, revision: '' }, { content: 'x' }],
   },
   {
     name: 'SpeechRecordingId',

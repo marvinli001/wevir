@@ -9,6 +9,7 @@ import {
   planCustom,
   styledSession,
   styleReminder,
+  writingStyleInput,
 } from './custom-instructions.js';
 
 const prompts = loadCustomPrompts();
@@ -104,5 +105,44 @@ describe('styledSession', () => {
     expect(styledSession({ origin: { kind: 'automation', automationId: 'a', runId: 'r' } })).toBe(
       false,
     );
+  });
+});
+
+describe('写作风格（0.95.0）', () => {
+  it('读到三份提示词，去掉注释', () => {
+    for (const body of Object.values(prompts.writingStyle)) {
+      expect(body).not.toContain('<!--');
+      expect(body).not.toContain('SPDX');
+    }
+    expect(prompts.writingStyle.none).toContain('wevir_writing_style_setup');
+    expect(prompts.writingStyle.apply).toContain('wevir_writing_style_save');
+  });
+
+  it('设置关着不给；开着没有档案给建档提示，有档案给用法加档案', () => {
+    expect(writingStyleInput({}, '档案')).toBeUndefined();
+    expect(writingStyleInput({ writingStyle: true }, undefined)).toEqual({});
+    expect(writingStyleInput({ writingStyle: true }, '档案')).toEqual({ profile: '档案' });
+
+    const setup = planCustom(prompts, { writingStyle: {} });
+    expect(setup?.text).toContain(prompts.writingStyle.none);
+    expect(setup?.custom).toEqual({
+      instructions: false,
+      writingStyle: 'setup',
+      bytes: Buffer.byteLength(setup?.text ?? ''),
+    });
+
+    const plan = planCustom(prompts, {
+      instructions: '回答用中文。',
+      outputStyle: 'concise',
+      writingStyle: { profile: '- 句子短。\n' },
+    });
+    const text = plan?.text ?? '';
+    expect(text.indexOf(prompts.writingStyle.apply)).toBeGreaterThan(
+      text.indexOf('# 输出风格：简洁'),
+    );
+    expect(text.endsWith('<writing_style_profile>\n- 句子短。\n</writing_style_profile>')).toBe(
+      true,
+    );
+    expect(plan?.custom.writingStyle).toBe('profile');
   });
 });
