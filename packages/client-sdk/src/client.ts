@@ -21,6 +21,7 @@ import {
   NotificationSchemas,
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
+  PreviewChangedParamsSchema,
   ProcessChangedParamsSchema,
   ReadinessChangedParamsSchema,
   type SessionId,
@@ -40,6 +41,8 @@ export type LspChange = NotificationParams<'lsp.changed'>;
 export type ProcessChange = NotificationParams<'process.changed'>;
 /** `readiness.changed` 的内容（0.70.0）。 */
 export type ReadinessChange = NotificationParams<'readiness.changed'>;
+/** `preview.changed` 的内容（0.84.0）。 */
+export type PreviewChange = NotificationParams<'preview.changed'>;
 /** `terminal.changed` 与 `terminal.output` 的内容（0.69.0）。 */
 export type TerminalChange = NotificationParams<'terminal.changed'>;
 export type TerminalOutput = NotificationParams<'terminal.output'>;
@@ -275,6 +278,7 @@ export class WevirClient {
   readonly #automationListeners = new Set<(change: AutomationChange | undefined) => void>();
   readonly #processListeners = new Set<(change: ProcessChange | undefined) => void>();
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
+  readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
   readonly #lspListeners = new Set<(change: LspChange | undefined) => void>();
   readonly #terminalListeners = new Set<(change: TerminalChange | undefined) => void>();
   readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
@@ -544,6 +548,25 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a readiness listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 工作区的运行配置变了（0.84.0，`preview.changed`）：别的客户端或 Agent 保存、删除了配置。重连上之后以 `undefined` 调一次（期间的
+   * 变化没收到，重读）。在跑的预览看 `onProcessesChanged`。返回取消函数。
+   */
+  onPreviewChanged(listener: (change: PreviewChange | undefined) => void): () => void {
+    this.#previewListeners.add(listener);
+    return () => this.#previewListeners.delete(listener);
+  }
+
+  #previewChanged(change: PreviewChange | undefined): void {
+    for (const listener of [...this.#previewListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a preview listener threw', { error });
       }
     }
   }
@@ -907,6 +930,7 @@ export class WevirClient {
         if (this.supports('automations')) this.#automationsChanged(undefined);
         if (this.supports('process_output')) this.#processesChanged(undefined);
         if (this.supports('workspace_readiness')) this.#readinessChanged(undefined);
+        if (this.supports('dev_preview')) this.#previewChanged(undefined);
         if (this.supports('lsp_status')) this.#lspChanged(undefined);
         if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
@@ -1164,6 +1188,15 @@ export class WevirClient {
         return;
       }
       this.#automationsChanged(parsed.data);
+      return;
+    }
+    if (method === 'preview.changed') {
+      const parsed = PreviewChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed preview.changed notification');
+        return;
+      }
+      this.#previewChanged(parsed.data);
       return;
     }
     if (method === 'readiness.changed') {

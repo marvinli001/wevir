@@ -82,11 +82,24 @@ export interface ProcessInfo {
   turnId?: TurnId;
   /** 回合后验证的检查（verification/runner.ts 起的）。 */
   check?: ProcessCheck;
+  /** 开发服务器预览（preview/service.ts 起的，0.84.0）。 */
+  preview?: ProcessPreviewInfo;
   /** 启动失败（找不到 shell 等）的原因。 */
   error?: string;
 }
 
 export type ProcessStopper = 'agent' | 'user' | 'host';
+
+export interface ProcessPreviewInfo {
+  /** 运行配置的名字。 */
+  name: string;
+  /** 会话目录：同一根目录、同名的只起一份。 */
+  root: string;
+  port?: number;
+  url?: string;
+  ready: boolean;
+  startedBy: 'user' | 'agent';
+}
 
 export interface ProcessCheck {
   runId: VerificationRunId;
@@ -129,6 +142,7 @@ export interface StartOptions {
   notifyLimit?: number;
   turnId?: TurnId;
   check?: ProcessCheck;
+  preview?: ProcessPreviewInfo;
 }
 
 export interface WaitResult {
@@ -249,6 +263,7 @@ export class ProcessManager {
       killed: false,
       ...(options.turnId !== undefined && { turnId: options.turnId }),
       ...(options.check !== undefined && { check: options.check }),
+      ...(options.preview !== undefined && { preview: { ...options.preview } }),
     };
     let markExited = () => {};
     const managed: Managed = {
@@ -439,6 +454,21 @@ export class ProcessManager {
       this.#changed(managed);
     }
     this.#kill(managed, signal);
+  }
+
+  /** 更新预览的地址与就绪（preview/service.ts）。不是预览进程时什么都不做。 */
+  setPreview(
+    sessionId: SessionId,
+    id: string,
+    patch: Partial<Pick<ProcessPreviewInfo, 'url' | 'ready'>>,
+  ): void {
+    const managed = this.#get(sessionId, id);
+    const current = managed.info.preview;
+    if (current === undefined) return;
+    const next = { ...current, ...patch };
+    if (next.url === current.url && next.ready === current.ready) return;
+    managed.info.preview = next;
+    this.#changed(managed);
   }
 
   /** 记下谁要停它（检查的取消由 runner 发信号，先记下是用户要停的）。已退出时什么都不做。 */

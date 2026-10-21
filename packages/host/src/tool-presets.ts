@@ -52,6 +52,7 @@ const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['wevir_task_', 'tasks'],
   ['wevir_memory_', 'memory'],
   ['wevir_process_', 'processes'],
+  ['wevir_preview_', 'processes'],
   ['lsp_', 'lsp'],
   ['browser_', 'browser'],
 ];

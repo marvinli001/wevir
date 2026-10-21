@@ -49,6 +49,7 @@ export const HOME_LAYOUT = {
    * 值在 `secrets.json`）、`logs/<安装 ID>.log` 安装的输出（凭据已遮住）、`probe/` 探测工具时用的空目录（0700 / 0600）。
    */
   readinessDir: 'readiness',
+  previewsDir: 'previews',
 } as const;
 
 export interface ResolveHomeOptions {

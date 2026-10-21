@@ -1,6 +1,7 @@
 // 进程输出（0.69.0，Host 功能 `process_output`）：客户端看 Host 起的后台进程。
 //
-// 两种来源：会话里的 Agent 经 `wevir_process_start` 起的（`agent`），回合后验证跑的检查（`check`，ADR-0008）。客户端能列出、
+// 三种来源：会话里的 Agent 经 `wevir_process_start` 起的（`agent`），回合后验证跑的检查（`check`，ADR-0008），开发服务器预览
+// （`preview`，0.84.0，ADR-0013：用户或 Agent 按项目的运行配置起的）。客户端能列出、
 // 分页读输出（去掉了终端控制序列的文本）、停止；不能写 stdin，也不是终端——用户自己的交互终端另做。进程只在 Host 的内存里登记，
 // Host 退出时全部结束，重启后列表是空的。Codex 原生后台终端、Host 的后台进程与以后的用户终端互不共享标识。
 
@@ -30,6 +31,8 @@ export type ProcessId = z.infer<typeof ProcessIdSchema>;
  * 进程从哪儿来。
  * - `agent`：会话里的 Agent 起的；`turnId` 是起它时进行中的回合（命令回合、空闲时没有）。
  * - `check`：回合后验证的一次检查；`turnId` 是它验证的回合，`runId` 是验证记录。停止它等于取消这次检查（记 `cancelled`）。
+ * - `preview`（0.84.0）：按运行配置起的开发服务器，属于起它的会话；`startedBy` 是用户（`preview.start`）还是 Agent
+ *   （`wevir_preview_start`）。协商版本低于 0.84.0 的连接看不到这种进程。
  */
 export const ProcessSourceSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -45,8 +48,32 @@ export const ProcessSourceSchema = z.discriminatedUnion('kind', [
     checkId: CheckIdSchema,
     trigger: VerificationTriggerSchema,
   }),
+  z.object({
+    kind: z.literal('preview'),
+    sessionId: SessionIdSchema,
+    turnId: TurnIdSchema.optional(),
+    startedBy: z.enum(['user', 'agent']),
+  }),
 ]);
 export type ProcessSource = z.infer<typeof ProcessSourceSchema>;
+
+/** 运行配置的名字：工作区内唯一。 */
+export const PREVIEW_NAME_MAX_LENGTH = 60;
+export const PREVIEW_URL_MAX_LENGTH = 2000;
+
+/**
+ * 预览进程的状态（0.84.0，`source.kind` 是 `preview` 时有）。`ready`：配置的端口能连上，或没配端口时输出里出现的本机地址能连上；
+ * `url` 是配置的地址，否则 `http://localhost:<端口>`，没配端口时是从输出里认出的地址（就绪前可能没有）。
+ */
+export const ProcessPreviewSchema = z.object({
+  name: z.string().min(1).max(PREVIEW_NAME_MAX_LENGTH),
+  /** 会话目录（绝对路径）：同一根目录、同名的预览只起一份。 */
+  root: z.string(),
+  port: z.int().min(1).max(65535).optional(),
+  url: z.string().max(PREVIEW_URL_MAX_LENGTH).optional(),
+  ready: z.boolean(),
+});
+export type ProcessPreview = z.infer<typeof ProcessPreviewSchema>;
 
 /** 客户端能发的停止信号：`SIGINT` 同 Ctrl-C，`SIGTERM` 请它退出，`SIGKILL` 强制结束。 */
 export const ProcessStopSignalSchema = z.enum(['SIGINT', 'SIGTERM', 'SIGKILL']);
@@ -78,6 +105,8 @@ export const HostProcessSchema = z.object({
    * 宽限后 SIGKILL）。进程退出后是空的。
    */
   stopSignals: z.array(ProcessStopSignalSchema),
+  /** 开发服务器预览（0.84.0）。 */
+  preview: ProcessPreviewSchema.optional(),
 });
 export type HostProcess = z.infer<typeof HostProcessSchema>;
 

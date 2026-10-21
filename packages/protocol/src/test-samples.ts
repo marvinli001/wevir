@@ -42,6 +42,7 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type { PreviewCandidate, PreviewConfig } from './preview.js';
 import type { HostProcess } from './processes.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { RetroSummary, SessionRetro } from './retro.js';
@@ -588,6 +589,50 @@ export const agentProcess: HostProcess = {
   startedAt: TS,
   bytes: 18_204,
   stopSignals: ['SIGINT', 'SIGTERM', 'SIGKILL'],
+};
+
+/** 开发服务器预览（0.84.0）：用户起的，端口已能连上。 */
+export const previewProcess: HostProcess = {
+  id: 'p4',
+  workspaceId: ids.workspace,
+  source: { kind: 'preview', sessionId: ids.session, startedBy: 'user' },
+  name: 'web',
+  command: 'pnpm run dev',
+  cwd: '/home/u/projects/demo/apps/web',
+  pid: 4260,
+  status: 'running',
+  exitCode: null,
+  signal: null,
+  startedAt: TS,
+  bytes: 512,
+  stopSignals: ['SIGINT', 'SIGTERM', 'SIGKILL'],
+  preview: {
+    name: 'web',
+    root: '/home/u/projects/demo',
+    port: 5173,
+    url: 'http://localhost:5173',
+    ready: true,
+  },
+};
+
+/** 运行配置（0.84.0）。 */
+export const previewConfig: PreviewConfig = {
+  name: 'web',
+  command: 'pnpm run dev',
+  cwd: 'apps/web',
+  port: 5173,
+  addedBy: 'user',
+  createdAt: TS,
+  updatedAt: TS2,
+};
+
+export const previewCandidate: PreviewCandidate = {
+  name: 'storybook',
+  command: 'pnpm run storybook',
+  cwd: '',
+  port: 6006,
+  origin: 'package_script',
+  file: 'package.json',
 };
 
 /** 检查的进程（0.69.0）：用户取消后退出。 */
@@ -4947,7 +4992,7 @@ export const methodSamples: MethodSamples = {
       invalid: [{ workspaceId: ids.session }],
     },
     result: {
-      valid: [{ processes: [] }, { processes: [agentProcess, checkProcess] }],
+      valid: [{ processes: [] }, { processes: [agentProcess, checkProcess, previewProcess] }],
       invalid: [{}, { processes: [{ ...agentProcess, id: 'proc-1' }] }],
     },
   },
@@ -4969,6 +5014,111 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ process: checkProcess }],
       invalid: [{ process: { ...checkProcess, stoppedBy: 'someone' } }],
+    },
+  },
+  'preview.list': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}, { sessionId: ids.workspace }] },
+    result: {
+      valid: [
+        { root: '/home/u/projects/demo', configs: [], candidates: [] },
+        {
+          root: '/home/u/projects/demo',
+          configs: [
+            previewConfig,
+            {
+              ...previewConfig,
+              name: 'api',
+              addedBy: 'agent',
+              port: undefined,
+              url: 'http://127.0.0.1:8787/health',
+              env: { NODE_ENV: 'development' },
+            },
+          ],
+          candidates: [
+            previewCandidate,
+            { ...previewCandidate, origin: 'claude_launch', file: '.claude/launch.json' },
+          ],
+        },
+      ],
+      invalid: [
+        {
+          root: '/home/u/projects/demo',
+          configs: [{ ...previewConfig, addedBy: 'someone' }],
+          candidates: [],
+        },
+        {
+          root: '/home/u/projects/demo',
+          configs: [{ ...previewConfig, url: 'ftp://x' }],
+          candidates: [],
+        },
+      ],
+    },
+  },
+  'preview.save': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, config: { name: 'web', command: 'pnpm run dev' } },
+        {
+          workspaceId: ids.workspace,
+          config: { name: 'web2', command: 'pnpm run dev', cwd: 'apps/web', port: 5174 },
+          previous: 'web',
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, config: { name: '', command: 'pnpm run dev' } },
+        { workspaceId: ids.workspace, config: { name: 'web', command: 'x', port: 70000 } },
+        {
+          workspaceId: ids.workspace,
+          config: { name: 'web', command: 'x', env: { 'BAD-NAME': '1' } },
+        },
+      ],
+    },
+    result: { valid: [{ configs: [previewConfig] }], invalid: [{}] },
+  },
+  'preview.remove': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, name: 'web' }],
+      invalid: [{ workspaceId: ids.workspace }],
+    },
+    result: { valid: [{ configs: [] }], invalid: [{ configs: [{ name: 'web' }] }] },
+  },
+  'preview.start': {
+    params: {
+      valid: [{ sessionId: ids.session, name: 'web' }],
+      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, name: '' }],
+    },
+    result: {
+      valid: [
+        {
+          status: 'started',
+          process: {
+            ...previewProcess,
+            preview: {
+              ...(previewProcess.preview as NonNullable<HostProcess['preview']>),
+              ready: false,
+            },
+          },
+        },
+        { status: 'reused', process: previewProcess },
+        {
+          status: 'blocked',
+          readiness: [
+            {
+              kind: 'dependencies',
+              name: 'node_modules',
+              path: 'apps/web',
+              status: 'missing',
+              reason: 'not_installed',
+            },
+          ],
+        },
+        { status: 'port_in_use', port: 5173, url: 'http://localhost:5173' },
+      ],
+      invalid: [
+        { status: 'blocked', readiness: [] },
+        { status: 'failed' },
+        { status: 'port_in_use', port: 0, url: 'http://localhost' },
+      ],
     },
   },
   'readiness.get': {
@@ -5925,6 +6075,10 @@ export const notificationSamples: NotificationSamples = {
   'process.changed': {
     valid: [{ process: agentProcess }, { removed: { id: 'p3', startedAt: TS } }],
     invalid: [{}, { removed: { id: 'p3' } }],
+  },
+  'preview.changed': {
+    valid: [{ workspaceId: ids.workspace, configs: [previewConfig] }],
+    invalid: [{ workspaceId: ids.workspace }],
   },
   'readiness.changed': {
     valid: [

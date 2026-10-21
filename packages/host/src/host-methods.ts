@@ -58,6 +58,7 @@ import {
 } from './memory.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
+import type { PreviewService } from './preview/service.js';
 import type { ProcessOutputService } from './process-output.js';
 import type { ReadinessService } from './readiness/service.js';
 import type { RetroService } from './retro/service.js';
@@ -163,6 +164,8 @@ export interface HostMethodsOptions {
   retro?: RetroService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
+  /** 开发服务器预览（0.84.0，`preview.*`）；省略时这些方法回 `INVALID_PARAMS`。`preview.start` 还要 `processes`。 */
+  previews?: PreviewService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
   terminals?: TerminalService;
   /** 从其他应用导入（0.74.0，`import.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
@@ -324,6 +327,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const processOutput = (): ProcessOutputService => {
     if (options.processes === undefined) throw invalidParams([], 'this host has no process output');
     return options.processes;
+  };
+  const previews = (): PreviewService => {
+    if (options.previews === undefined) throw invalidParams([], 'this host has no dev previews');
+    return options.previews;
   };
   const terminals = (): TerminalService => {
     if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
@@ -538,6 +545,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       // 不属于会话的用户终端也随项目结束（0.69.0）。
       options.terminals?.removeWorkspace(workspaceId);
       void options.readiness?.removeWorkspace(workspaceId as WorkspaceId);
+      void options.previews?.removeWorkspace(workspaceId as WorkspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
       return {};
     },
@@ -1277,6 +1285,36 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'process.stop': ({ processId, signal }) => ({
       process: processOutput().stop(processId, signal),
     }),
+    'preview.list': ({ sessionId }) => previews().list(sessionId),
+    'preview.save': async ({ workspaceId, config, previous }) => ({
+      configs: await previews().save(workspaceId, config, {
+        ...(previous !== undefined && { previous }),
+        addedBy: 'user',
+      }),
+    }),
+    'preview.remove': async ({ workspaceId, name }) => ({
+      configs: await previews().remove(workspaceId, name),
+    }),
+    'preview.start': async ({ sessionId, name }) => {
+      const started = await previews().start({ sessionId, name, startedBy: 'user' });
+      if (started.status === 'blocked') {
+        return {
+          status: 'blocked',
+          readiness: started.readiness.map((item) => ({
+            kind: item.kind,
+            name: item.name,
+            path: item.path,
+            status: item.status,
+            ...(item.reason !== undefined && { reason: item.reason }),
+          })),
+        };
+      }
+      if (started.status === 'port_in_use') return started;
+      const process = processOutput().toHost(started.process);
+      if (process === undefined)
+        throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+      return { status: started.status, process };
+    },
     'readiness.get': async ({ workspaceId, sessionId, refresh }) => ({
       report: await readiness().get({
         workspaceId,

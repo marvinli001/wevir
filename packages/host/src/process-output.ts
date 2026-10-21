@@ -1,6 +1,7 @@
-// 进程输出（0.69.0，`process.*`）：客户端看 Host 起的后台进程。两处来源合在一起：Agent 的后台进程（processes.ts，ID `p<n>`）与
-// 回合后验证的检查进程（verification/runner.ts，ID `v<n>`）。列表按会话所在的工作区过滤；读输出按字节偏移量分页（去掉控制序列）；
-// 停止时 Agent 的进程按所选信号发给进程组，检查的进程等于取消这次检查（`VerificationService.cancelRun`）。不能写 stdin：这不是终端。
+// 进程输出（0.69.0，`process.*`）：客户端看 Host 起的后台进程。两处来源合在一起：Agent 的后台进程（processes.ts，ID `p<n>`，
+// 0.84.0 起含开发服务器预览，带 `preview`）与回合后验证的检查进程（verification/runner.ts，ID `v<n>`）。列表按会话所在的工作区
+// 过滤；读输出按字节偏移量分页（去掉控制序列）；停止时 Agent 的进程按所选信号发给进程组，检查的进程等于取消这次检查
+// （`VerificationService.cancelRun`）。不能写 stdin：这不是终端。
 
 import {
   type HostProcess,
@@ -173,20 +174,27 @@ export class ProcessOutputService {
       id: info.id,
       workspaceId,
       source:
-        info.check === undefined
+        info.check !== undefined
           ? {
-              kind: 'agent',
-              sessionId: info.sessionId,
-              ...(info.turnId !== undefined && { turnId: info.turnId }),
-            }
-          : {
               kind: 'check',
               sessionId: info.sessionId,
               ...(info.turnId !== undefined && { turnId: info.turnId }),
               runId: info.check.runId,
               checkId: info.check.checkId,
               trigger: info.check.trigger,
-            },
+            }
+          : info.preview !== undefined
+            ? {
+                kind: 'preview',
+                sessionId: info.sessionId,
+                ...(info.turnId !== undefined && { turnId: info.turnId }),
+                startedBy: info.preview.startedBy,
+              }
+            : {
+                kind: 'agent',
+                sessionId: info.sessionId,
+                ...(info.turnId !== undefined && { turnId: info.turnId }),
+              },
       name: info.name.slice(0, 200),
       command: info.command.slice(0, PROCESS_COMMAND_MAX_LENGTH),
       cwd: info.cwd,
@@ -200,7 +208,21 @@ export class ProcessOutputService {
       ...(info.stoppedBy !== undefined && { stoppedBy: info.stoppedBy }),
       ...(info.error !== undefined && { error: info.error }),
       stopSignals,
+      ...(info.preview !== undefined && {
+        preview: {
+          name: info.preview.name,
+          root: info.preview.root,
+          ...(info.preview.port !== undefined && { port: info.preview.port }),
+          ...(info.preview.url !== undefined && { url: info.preview.url }),
+          ready: info.preview.ready,
+        },
+      }),
     };
+  }
+
+  /** `HostProcess` 的形状（preview/service.ts 的 `preview.start` 结果）。会话不在了时 undefined。 */
+  toHost(info: ProcessInfo): HostProcess | undefined {
+    return this.#toHost(info);
   }
 }
 

@@ -206,6 +206,7 @@ function stopperLabel(process: HostProcess): string | undefined {
 
 function sourceLabel(process: HostProcess): string {
   if (process.source.kind === 'agent') return t('processes.source.agent');
+  if (process.source.kind === 'preview') return t('processes.source.preview');
   const trigger = TRIGGER_LABELS[process.source.trigger];
   return `${t('processes.source.check')} · ${trigger ? t(trigger) : process.source.trigger}`;
 }

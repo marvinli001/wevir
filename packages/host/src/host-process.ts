@@ -50,6 +50,8 @@ import { LspStatusService } from './lsp/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
+import { PreviewService } from './preview/service.js';
+import { PreviewStore } from './preview/store.js';
 import { ProcessOutputService } from './process-output.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
@@ -189,6 +191,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let userTerminals: TerminalService | undefined;
   let verificationService: VerificationService | undefined;
   let readiness: ReadinessService | undefined;
+  let devPreviews: PreviewService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
@@ -517,6 +520,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('verification is unavailable', { error });
     }
     const verification = verificationService;
+    // 开发服务器预览（0.84.0，ADR-0013）：运行配置存在 Host，启动是会话里的后台进程，所以要有后台进程（应用级工具）。
+    const previews =
+      processes !== undefined
+        ? new PreviewService({
+            storage,
+            store: new PreviewStore({
+              dir: homePath(home, 'previewsDir'),
+              onWarning: (message, fields) => logger.warn(message, fields),
+            }),
+            processes,
+            readiness: readinessService,
+            onWarning: (message, fields) => logger.warn(message, fields),
+          })
+        : undefined;
+    devPreviews = previews;
     // 行级批注（0.67.0，ADR-0009）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。
     let review: ReviewService | undefined;
     try {
@@ -658,6 +676,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
         ...(processes !== undefined && { processes }),
+        ...(previews !== undefined && { previews }),
         readiness: readinessService,
         ...(lsp !== undefined && { lsp }),
         memory,
@@ -726,6 +745,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         retro,
         git,
         ...(processOutput.available && { processes: processOutput }),
+        ...(previews !== undefined && { previews }),
         readiness: readinessService,
         ...(terminals !== undefined && { terminals }),
         ...(lspStatus !== undefined && { lsp: lspStatus }),
@@ -805,6 +825,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_search: true,
         ...(customPrompts !== undefined && { agent_instructions: true }),
         approval_rules: true,
+        ...(previews !== undefined && { dev_preview: true }),
       },
       engineFeatures,
       plugins,
@@ -814,6 +835,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
+      ...(previews !== undefined && { previews }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
       ...(lspStatus !== undefined && { lsp: lspStatus }),
@@ -847,6 +869,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           rpc: server,
           appMcp: mcp,
           processes,
+          previews,
           terminals,
           verification,
           readiness: readinessService,
@@ -882,6 +905,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await rpc?.close().catch(() => {});
     await verificationService?.dispose().catch(() => {});
     await readiness?.dispose().catch(() => {});
+    devPreviews?.dispose();
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
     accounts?.dispose();
@@ -911,6 +935,8 @@ interface ShutdownParts {
   appMcp: AppMcpServer | undefined;
   /** 后台进程（processes.ts）；没有应用级工具时没有。 */
   processes: ProcessManager | undefined;
+  /** 开发服务器预览（0.84.0）：停下判定就绪的循环；进程随后台进程结束。 */
+  previews: PreviewService | undefined;
   /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
   terminals: TerminalService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
@@ -967,6 +993,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
     await step('stop_installs', () => parts.readiness?.dispose(), true);
   }
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
+  parts.previews?.dispose();
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
   }

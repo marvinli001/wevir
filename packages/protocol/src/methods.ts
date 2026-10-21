@@ -137,6 +137,17 @@ import {
 } from './lsp.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
+  PreviewChangedParamsSchema,
+  PreviewListParamsSchema,
+  PreviewListResultSchema,
+  PreviewRemoveParamsSchema,
+  PreviewRemoveResultSchema,
+  PreviewSaveParamsSchema,
+  PreviewSaveResultSchema,
+  PreviewStartParamsSchema,
+  PreviewStartResultSchema,
+} from './preview.js';
+import {
   ProcessChangedParamsSchema,
   ProcessListParamsSchema,
   ProcessListResultSchema,
@@ -2145,6 +2156,26 @@ export const MethodSchemas = {
     result: ProcessStopResultSchema,
     permission: 'session.write',
   },
+  'preview.list': {
+    params: PreviewListParamsSchema,
+    result: PreviewListResultSchema,
+    permission: 'workspace.read',
+  },
+  'preview.save': {
+    params: PreviewSaveParamsSchema,
+    result: PreviewSaveResultSchema,
+    permission: 'workspace.write',
+  },
+  'preview.remove': {
+    params: PreviewRemoveParamsSchema,
+    result: PreviewRemoveResultSchema,
+    permission: 'workspace.write',
+  },
+  'preview.start': {
+    params: PreviewStartParamsSchema,
+    result: PreviewStartResultSchema,
+    permission: 'session.write',
+  },
   'readiness.get': {
     params: ReadinessGetParamsSchema,
     result: ReadinessGetResultSchema,
@@ -2355,6 +2386,8 @@ export const NotificationSchemas = {
   'process.changed': { params: ProcessChangedParamsSchema },
   /** 发给调用过 `readiness.*` 的连接（0.70.0）。 */
   'readiness.changed': { params: ReadinessChangedParamsSchema },
+  /** 发给调用过 `preview.*` 的连接（0.84.0）。 */
+  'preview.changed': { params: PreviewChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

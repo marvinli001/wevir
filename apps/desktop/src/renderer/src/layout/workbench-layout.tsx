@@ -54,6 +54,7 @@ import './rules-card';
 import './usage-card';
 import './readiness-card';
 import './verification-card';
+import './preview-card';
 import './lsp-card';
 import './outputs-card';
 import './task-board-card';
