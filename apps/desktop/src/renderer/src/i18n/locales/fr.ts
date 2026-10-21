@@ -91,6 +91,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': 'Le dépôt a changé',
   'rpcError.WORKSPACE_PATH_INVALID': 'Chemin du projet inutilisable',
   'rpcError.SPEECH_FAILED': 'Échec de la transcription',
+  'rpcError.MCP_OAUTH_FAILED': 'Échec de la connexion',
 
   'clientError.request_timeout': 'Délai de la requête dépassé',
   'clientError.connect_timeout': 'Délai de connexion dépassé',

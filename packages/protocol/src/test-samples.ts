@@ -2325,6 +2325,42 @@ const pluginList071 = {
     },
   ],
 };
+/** 0.97.0：要 OAuth 登录的远程连接器。 */
+const oauthConnector = {
+  id: 'con_oauth',
+  name: 'linear',
+  config: {
+    transport: 'http' as const,
+    url: 'https://mcp.linear.app/mcp',
+    auth: 'oauth' as const,
+    oauth: { clientId: 'wevir-client', scopes: ['read'], clientSecret: true as const },
+  },
+  enabled: true,
+  oauth: {
+    status: 'signed_in' as const,
+    issuer: 'https://mcp.linear.app',
+    scopes: ['read'],
+    expiresAt: '2026-10-21T12:00:00.000Z',
+  },
+};
+const pluginList097 = {
+  connectors: [
+    connector,
+    oauthConnector,
+    {
+      ...oauthConnector,
+      id: 'con_oauth_2',
+      name: 'notion',
+      config: {
+        transport: 'http' as const,
+        url: 'https://mcp.notion.com/mcp',
+        auth: 'oauth' as const,
+      },
+      oauth: { status: 'error' as const, error: 'denied' },
+    },
+  ],
+  skills: [skill],
+};
 const pluginList042 = {
   connectors: [connector, pluginConnector],
   skills: [skill, { ...skill, id: 'skl_plugin', name: 'plugin-skill', pluginId: plugin.id }],
@@ -2571,9 +2607,19 @@ export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
     result: {
-      valid: [pluginList, pluginList042, pluginList071],
+      valid: [pluginList, pluginList042, pluginList071, pluginList097],
       invalid: [
         { connectors: [] },
+        { ...pluginList097, connectors: [{ ...oauthConnector, oauth: { status: 'unknown' } }] },
+        {
+          ...pluginList097,
+          connectors: [
+            {
+              ...oauthConnector,
+              config: { ...oauthConnector.config, oauth: { clientSecret: 'must-not-return' } },
+            },
+          ],
+        },
         { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] },
         { ...pluginList071, connectors: [{ ...importedConnector, workspaceId: 'project-1' }] },
         {
@@ -2582,6 +2628,31 @@ export const methodSamples: MethodSamples = {
         },
       ],
     },
+  },
+  'connector.login': {
+    params: {
+      valid: [
+        { name: 'linear' },
+        { name: 'docs', workspaceId: ids.workspace },
+        { name: 'sample-plugin_api', pluginId: 'sample-plugin', scopes: ['read', 'write'] },
+      ],
+      invalid: [{}, { name: 'Linear' }, { name: 'linear', scopes: [''] }],
+    },
+    result: {
+      valid: [{ loginId: 'login_1', authUrl: 'https://auth.example.com/authorize?state=abc' }],
+      invalid: [{ loginId: 'login_1' }, { loginId: 'login_1', authUrl: 'javascript:alert(1)' }],
+    },
+  },
+  'connector.loginCancel': {
+    params: { valid: [{ loginId: 'login_1' }], invalid: [{}, { loginId: '' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'connector.logout': {
+    params: {
+      valid: [{ name: 'linear' }, { name: 'docs', workspaceId: ids.workspace }],
+      invalid: [{}, { name: 'linear', workspaceId: 'project' }],
+    },
+    result: { valid: [{}], invalid: [null] },
   },
   'connector.add': {
     params: {
@@ -2604,9 +2675,31 @@ export const methodSamples: MethodSamples = {
           config: { transport: 'stdio', command: 'npx', args: ['db-mcp'] },
           workspaceId: ids.workspace,
         },
+        { name: 'linear', config: { transport: 'http', url: 'https://mcp.linear.app/mcp' } },
+        {
+          name: 'github',
+          config: {
+            transport: 'http',
+            url: 'https://api.githubcopilot.com/mcp/',
+            auth: 'oauth',
+            oauth: {
+              clientId: 'Iv1.sample',
+              clientSecret: 'input-only',
+              scopes: ['repo'],
+              callbackPort: 33418,
+              callbackUrl: 'http://127.0.0.1:33418/callback',
+              resource: 'https://api.githubcopilot.com/mcp/',
+            },
+          },
+        },
       ],
       invalid: [
         { name: 'wevir_bad', config: { transport: 'stdio', command: 'node' } },
+        { name: 'x', config: { transport: 'http', url: 'https://a.example/mcp', auth: 'basic' } },
+        {
+          name: 'x',
+          config: { transport: 'http', url: 'https://a.example/mcp', oauth: { callbackPort: 0 } },
+        },
         { name: 'x', config: { transport: 'stdio', command: 'node' }, workspaceId: 'ws-' },
         { name: 'Upper', config: { transport: 'stdio', command: 'node' } },
       ],
@@ -2627,8 +2720,13 @@ export const methodSamples: MethodSamples = {
     params: {
       valid: [
         { id: connector.id, config: { transport: 'stdio', env: { NEW: 'input-only', KEY: null } } },
+        {
+          id: oauthConnector.id,
+          config: { transport: 'http', auth: null, oauth: { clientId: 'x', clientSecret: null } },
+        },
+        { id: oauthConnector.id, config: { transport: 'http', auth: 'oauth', oauth: null } },
       ],
-      invalid: [{}],
+      invalid: [{}, { id: oauthConnector.id, config: { transport: 'http', auth: 'basic' } }],
     },
     result: { valid: [{ connector }], invalid: [{}] },
   },
@@ -7446,5 +7544,9 @@ export const errorDataSamples: ErrorDataSamples = {
   SPEECH_FAILED: {
     valid: { reason: 'provider_error', failure: 'auth', httpStatus: 401 },
     invalid: { reason: 'offline' },
+  },
+  MCP_OAUTH_FAILED: {
+    valid: { reason: 'client_id_required' },
+    invalid: { reason: '' },
   },
 };

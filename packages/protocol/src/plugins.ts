@@ -32,9 +32,39 @@ export const PluginUrlSchema = z.url().refine((value) => {
 });
 const httpUrl = PluginUrlSchema;
 
+/**
+ * 远程 MCP 服务的登录方式（0.97.0）：`oauth` 由 Host 走 OAuth 登录并代理请求，`none` 不登录；省略时 Host 加连接器和启动时探测一次
+ * （服务器回 401 且能发现授权服务器就记成 `oauth`）。
+ */
+export const McpAuthModeSchema = z.enum(['oauth', 'none']);
+const oauthCommon = {
+  /** 预先注册的客户端 ID；没有时 Host 依次试 CIMD 与动态注册。插件清单里可以写 `${input:KEY}`。 */
+  clientId: text.optional(),
+  /** 请求的 scope；授权服务器在 `WWW-Authenticate` 或受保护资源元数据里给了时用它们的。 */
+  scopes: z.array(text).optional(),
+  /** RFC 8707 的 `resource`；省略时用服务器地址。 */
+  resource: httpUrl.optional(),
+  /** 固定的回调端口或地址（有些预先注册的客户端要求）；省略时 Host 每次登录在 127.0.0.1 上随机取一个端口。 */
+  callbackPort: z.int().min(1).max(65535).optional(),
+  callbackUrl: httpUrl.optional(),
+};
+/** 连接器的 OAuth 设置（0.97.0）。`clientSecret` 是密钥：Host 存进密钥文件，视图里只有 `true`。 */
+export const McpOAuthConfigSchema = z.object({
+  ...oauthCommon,
+  clientSecret: z.string().optional(),
+});
+export type McpOAuthConfig = z.infer<typeof McpOAuthConfigSchema>;
+const httpAuth = { auth: McpAuthModeSchema.optional(), oauth: McpOAuthConfigSchema.optional() };
+
 export const McpServerConfigSchema = z.discriminatedUnion('transport', [
   z.object({ transport: z.literal('stdio'), ...stdio, env: secrets.optional(), ...common }),
-  z.object({ transport: z.literal('http'), url: httpUrl, headers: secrets.optional(), ...common }),
+  z.object({
+    transport: z.literal('http'),
+    url: httpUrl,
+    headers: secrets.optional(),
+    ...httpAuth,
+    ...common,
+  }),
 ]);
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 export const McpServerPatchSchema = z.discriminatedUnion('transport', [
@@ -50,13 +80,27 @@ export const McpServerPatchSchema = z.discriminatedUnion('transport', [
     transport: z.literal('http'),
     url: httpUrl.optional(),
     headers: secretPatch.optional(),
+    /** 0.97.0：null 回到自动判断。 */
+    auth: McpAuthModeSchema.nullable().optional(),
+    /** 0.97.0：给了就整体替换（`clientSecret` 省略保留、null 删除），null 删掉全部 OAuth 设置。 */
+    oauth: z
+      .object({ ...oauthCommon, clientSecret: z.string().nullable().optional() })
+      .nullable()
+      .optional(),
     ...common,
   }),
 ]);
 export type McpServerPatch = z.infer<typeof McpServerPatchSchema>;
 export const McpServerViewSchema = z.discriminatedUnion('transport', [
   z.object({ transport: z.literal('stdio'), ...stdio, env: markers.optional(), ...common }),
-  z.object({ transport: z.literal('http'), url: httpUrl, headers: markers.optional(), ...common }),
+  z.object({
+    transport: z.literal('http'),
+    url: httpUrl,
+    headers: markers.optional(),
+    auth: McpAuthModeSchema.optional(),
+    oauth: z.object({ ...oauthCommon, clientSecret: z.literal(true).optional() }).optional(),
+    ...common,
+  }),
 ]);
 /** 从哪个应用导入（0.74.0，`import.*`）：`claude` Claude Code、`codex` Codex、`grok` Grok Build、`antigravity` Antigravity。 */
 export const ImportAppSchema = z.enum(['claude', 'codex', 'grok', 'antigravity']);
@@ -66,6 +110,36 @@ export const ImportedFromSchema = z.object({ app: ImportAppSchema, path: text })
 export type ImportedFrom = z.infer<typeof ImportedFromSchema>;
 /** 同 common.ts 的 WorkspaceIdSchema；本文件只依赖 zod，这里另写一份。 */
 const workspaceId = z.string().regex(/^ws_[0-9A-Za-z]{1,64}$/);
+
+/**
+ * OAuth 连接器的登录状态（0.97.0）：`required` 要登录（没登录、退出了或刷新失败），`signing_in` 正在登录，`signed_in` 已登录，
+ * `insufficient_scope` 已登录但服务器要更多权限（重新登录时带上 `scopes`），`error` 上次登录失败（原因在 `error`）。
+ */
+export const ConnectorOAuthStatusSchema = z.enum([
+  'required',
+  'signing_in',
+  'signed_in',
+  'insufficient_scope',
+  'error',
+]);
+/**
+ * 登录失败的原因（0.97.0，开放字符串）：`not_supported` 服务器不用 OAuth 或发现不了授权服务器，`client_id_required` 要填客户端 ID，
+ * `pkce_unsupported` 授权服务器不支持 PKCE S256，`insecure_endpoint` 授权服务器的地址不是 https 或指向本机与局域网，
+ * `discovery_failed` 读元数据失败，`registration_failed` 动态注册失败，`callback_unavailable` 回调端口开不了，`denied` 用户拒绝，
+ * `timeout` 五分钟内没完成，`issuer_mismatch` 回调的 `iss` 不对，`token_exchange_failed` 换令牌失败，`refresh_failed` 刷新失败。
+ */
+export const McpOAuthErrorReasonSchema = z.string().min(1);
+export const ConnectorOAuthSchema = z.object({
+  status: ConnectorOAuthStatusSchema,
+  /** 授权服务器（元数据的 issuer）。 */
+  issuer: z.string().optional(),
+  /** 已授予的 scope；`insufficient_scope` 时是服务器要的。 */
+  scopes: z.array(text).optional(),
+  /** 访问令牌的过期时间（ISO 8601）；Host 在过期前自动刷新。 */
+  expiresAt: z.string().optional(),
+  error: McpOAuthErrorReasonSchema.optional(),
+});
+export type ConnectorOAuth = z.infer<typeof ConnectorOAuthSchema>;
 
 export const ConnectorSchema = z.object({
   id: text,
@@ -84,6 +158,8 @@ export const ConnectorSchema = z.object({
   workspaceId: workspaceId.optional(),
   /** 从别的应用导入的（0.74.0）。 */
   importedFrom: ImportedFromSchema.optional(),
+  /** OAuth 登录状态（0.97.0）；不用 OAuth 的没有。不含任何令牌。 */
+  oauth: ConnectorOAuthSchema.optional(),
 });
 export type Connector = z.infer<typeof ConnectorSchema>;
 export const SkillSchema = z.object({
@@ -275,6 +351,11 @@ const id = z.object({ id: text });
 const toggle = z.object({ id: text, enabled: z.boolean() });
 const connectorResult = z.object({ connector: ConnectorSchema });
 const pluginResult = z.object({ plugin: PluginSchema });
+const connectorRef = z.object({
+  name: ConnectorNameSchema,
+  workspaceId: workspaceId.optional(),
+  pluginId: PluginIdSchema.optional(),
+});
 export const PluginMethodSchemas = {
   'plugins.list': { params: empty, result: PluginsListResultSchema, permission: 'host.manage' },
   'connector.add': {
@@ -300,6 +381,22 @@ export const PluginMethodSchemas = {
   },
   'connector.remove': { params: id, result: empty, permission: 'host.manage' },
   'connector.setEnabled': { params: toggle, result: connectorResult, permission: 'host.manage' },
+  /**
+   * 0.97.0：开始 OAuth 登录。`name` 是 `Connector.name`，项目的连接器带 `workspaceId`，插件里的可带 `pluginId` 核对。客户端打开
+   * `authUrl`；完成、失败、超时与取消都发 `plugins.changed`。同一个连接器再调会取消上一次。
+   */
+  'connector.login': {
+    params: connectorRef.extend({ scopes: z.array(text).optional() }),
+    result: z.object({ loginId: text, authUrl: httpUrl }),
+    permission: 'host.manage',
+  },
+  'connector.loginCancel': {
+    params: z.object({ loginId: text }),
+    result: empty,
+    permission: 'host.manage',
+  },
+  /** 0.97.0：退出登录。授权服务器支持撤销时尽力撤销，失败不报错；本机的令牌总会删掉。 */
+  'connector.logout': { params: connectorRef, result: empty, permission: 'host.manage' },
   'skill.install': {
     params: z.object({ path: text }),
     result: PluginsListResultSchema,

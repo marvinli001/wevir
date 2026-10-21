@@ -94,6 +94,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': 'Repository modificato',
   'rpcError.WORKSPACE_PATH_INVALID': 'Percorso del progetto non utilizzabile',
   'rpcError.SPEECH_FAILED': 'Trascrizione non riuscita',
+  'rpcError.MCP_OAUTH_FAILED': 'Accesso non riuscito',
 
   'clientError.request_timeout': 'Richiesta scaduta',
   'clientError.connect_timeout': 'Connessione scaduta',

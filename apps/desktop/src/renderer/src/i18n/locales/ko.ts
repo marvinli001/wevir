@@ -87,6 +87,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': '저장소가 변경됨',
   'rpcError.WORKSPACE_PATH_INVALID': '프로젝트 경로를 사용할 수 없음',
   'rpcError.SPEECH_FAILED': '변환 실패',
+  'rpcError.MCP_OAUTH_FAILED': '로그인 실패',
 
   'clientError.request_timeout': '요청 시간 초과',
   'clientError.connect_timeout': '연결 시간 초과',

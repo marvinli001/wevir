@@ -408,6 +408,11 @@ export const HOST_FEATURES = {
    * `speechPolish`、`ProviderProfile.transcriptionModels`。本机模型能不能用看 `speech.status`。与引擎无关。
    */
   speech: 'speech',
+  /**
+   * 远程 MCP 服务的 OAuth 登录（0.97.0）：http 连接器的 `auth` / `oauth` 设置、`Connector.oauth`、`connector.login` /
+   * `loginCancel` / `logout` 与 `MCP_OAUTH_FAILED` 错误。没有这个功能位的 Host 不显示登录。
+   */
+  mcpOAuth: 'mcp_oauth',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -491,6 +496,7 @@ export const HostFeaturesSchema = z.looseObject({
   plugin_market: z.boolean().optional(),
   market_files: z.boolean().optional(),
   speech: z.boolean().optional(),
+  mcp_oauth: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
