@@ -984,7 +984,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return { session: withArchive(await sessions.rename(sessionId, trimmed)) };
     },
 
-    // 0.23.0：归档前先关闭会话；只有顶层、不是支线的会话能归档。已归档时不改时刻。
+    // 0.23.0：归档前先关闭会话；只有顶层、不是支线的会话能归档。已归档时不改时刻。0.81.0：归档时给会话开的 worktree 打快照、删目录，
+    // 取消归档时重开（domain-model §3.36）。
     'session.archive': async ({ sessionId, archived }) => {
       assertSessionVisible(storage, sessionId);
       const record = storage.sessions.get(sessionId);
@@ -992,15 +993,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (record.parentSessionId !== undefined || record.side) {
         throw invalidParams(['sessionId'], 'only top-level sessions can be archived');
       }
-      if (archived) {
-        await sessions.close(sessionId);
-        if (record.archivedAt === undefined) storage.sessions.setArchived(sessionId, isoNow());
-      } else {
-        storage.sessions.setArchived(sessionId, undefined);
-      }
+      const worktrees = await sessions.archive(sessionId, archived);
       const snapshot = events.snapshot(sessionId);
       if (!snapshot) throw sessionNotFound(sessionId);
-      return { session: withArchive(snapshot.session) };
+      return {
+        session: withArchive(snapshot.session),
+        ...(worktrees.length > 0 && { worktrees }),
+      };
     },
 
     // 0.43.0：永久删掉已归档的会话（domain-model §3.20）。

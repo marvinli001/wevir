@@ -523,6 +523,9 @@ export const messages: Messages = {
   'session.archive': 'Архивировать',
   'session.unarchive': 'Вернуть из архива',
   'session.archiveFailed': 'Не удалось архивировать: {error}',
+  'session.worktreeRestoreFailed': 'Рабочее дерево не восстановлено ({branch}): {error}',
+  'session.worktreeChangesKept':
+    'В {branch} новые коммиты; незакоммиченные изменения сохранены в {ref}',
   'session.rename': 'Переименовать',
   'session.renameSave': 'Сохранить',
   'session.renameFailed': 'Не удалось переименовать: {error}',
@@ -1891,6 +1894,7 @@ export const messages: Messages = {
   'settings.storage.worktreesEmpty': 'Рабочих деревьев нет',
   'settings.storage.dirty': 'Незафиксированные изменения',
   'settings.storage.missing': 'Папка отсутствует',
+  'settings.storage.snapshot': 'Снимок сохранён',
   'settings.storage.archived': 'В архиве',
   'settings.storage.cleanChats': 'Очистить архивные сеансы',
   'settings.storage.view': 'Показать',

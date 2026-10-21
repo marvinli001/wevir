@@ -22,6 +22,7 @@ import {
   canBranchSession,
   deleteSessionPermanently,
   pinnedSessions,
+  worktreeRestoreNotices,
 } from './session-actions';
 import type { WorkbenchStore } from './workbench-store';
 
@@ -96,6 +97,19 @@ describe('archiveSession', () => {
     await archiveSession(client, store, id('a'), false);
     expect(route.navigate).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+  it('取消归档时没恢复的 worktree 与改动没放回的各一条提示（0.81.0）', () => {
+    const base = { workspaceId: 'ws_x', path: '/w/1-app' } as const;
+    const notices = worktreeRestoreNotices([
+      { ...base, branch: 'wevir/a', status: 'restored' },
+      { ...base, branch: 'wevir/b', status: 'restored', reason: 'branch_moved', ref: 'refs/x/1' },
+      { ...base, branch: 'wevir/c', status: 'failed', reason: 'repository_missing' },
+      { ...base, branch: 'wevir/d', status: 'failed', reason: 'git_error', message: 'fatal: x' },
+    ] as Parameters<typeof worktreeRestoreNotices>[0]);
+    expect(notices).toHaveLength(3);
+    expect(notices[0]).toContain('refs/x/1');
+    expect(notices[1]).toContain('repository_missing');
+    expect(notices[2]).toContain('fatal: x');
   });
 });
 

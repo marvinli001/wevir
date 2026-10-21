@@ -49,10 +49,13 @@ export function archivedChatRows(
   );
 }
 
-export interface WorktreeRow extends SessionWorktreeUsage {
+export interface WorktreeRow extends Omit<SessionWorktreeUsage, 'archived'> {
   sessionId: SessionId;
   title: string;
+  /** 会话已归档。 */
   archived: boolean;
+  /** 目录是归档时删的，有快照（0.81.0），取消归档时重开。 */
+  snapshot: boolean;
 }
 
 /** Host 为会话开的 worktree（已归档的与没归档的会话），大的在前。 */
@@ -65,11 +68,13 @@ export function worktreeRows(
   for (const entry of usage) {
     const session = byId.get(entry.sessionId);
     for (const worktree of entry.worktrees) {
+      const { archived: snapshot, ...rest } = worktree;
       rows.push({
-        ...worktree,
+        ...rest,
         sessionId: entry.sessionId,
         title: session?.title ?? '',
         archived: session?.archivedAt !== undefined,
+        snapshot: snapshot === true,
       });
     }
   }

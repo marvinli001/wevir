@@ -20,6 +20,12 @@ import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { deleteWorktree, worktreeState } from './git-worktree.js';
 import type { ImageStore } from './images.js';
+import {
+  type ArchivedWorktree,
+  dropArchived,
+  dropArchiveRefs,
+  readArchived,
+} from './worktree-archive.js';
 
 /** 删完之后库文件里空闲页至少这么多时 `VACUUM`，文件才变小。 */
 export const VACUUM_MIN_FREE_BYTES = 1024 * 1024;
@@ -151,8 +157,16 @@ export async function measureUsage(
         eventBytes: family.reduce((sum, member) => sum + (eventBytes.get(member.id) ?? 0), 0),
         fileBytes: fileSizes.reduce((sum, size) => sum + size, 0),
         worktrees: await Promise.all(
-          worktreeRoots(family, options.worktreesDir).map((worktree) =>
-            measureWorktree(worktree, limit),
+          worktreeRoots(family, options.worktreesDir).map(async (worktree) =>
+            measureWorktree(
+              worktree,
+              limit,
+              options.worktreesDir === undefined
+                ? undefined
+                : (await readArchived(options.worktreesDir, worktree.sessionId)).find(
+                    (entry) => entry.root === worktree.root,
+                  ),
+            ),
           ),
         ),
       };
@@ -163,8 +177,21 @@ export async function measureUsage(
 async function measureWorktree(
   worktree: SessionWorktreeRoot,
   limit: FsLimit,
+  archived: ArchivedWorktree | undefined,
 ): Promise<SessionWorktreeUsage> {
   const state = await worktreeState(worktree.root);
+  // 0.81.0：归档时删掉了目录、有快照的，`dirty` 是快照里有没有没提交的改动。
+  if (state === 'missing' && archived !== undefined) {
+    return {
+      workspaceId: worktree.workspaceId as SessionWorktreeUsage['workspaceId'],
+      branch: worktree.branch,
+      path: worktree.root,
+      bytes: 0,
+      dirty: archived.dirty,
+      missing: true,
+      archived: true,
+    };
+  }
   return {
     workspaceId: worktree.workspaceId as SessionWorktreeUsage['workspaceId'],
     branch: worktree.branch,
@@ -189,7 +216,19 @@ export async function deleteSessionData(
   const ids = family.map((member) => member.id as SessionId);
   const worktrees = worktreeRoots(family, deps.worktreesDir);
   const states = await Promise.all(worktrees.map((worktree) => worktreeState(worktree.root)));
-  const dirty = worktrees.filter((_, index) => states[index] === 'dirty');
+  // 归档时删掉了目录的（0.81.0）：快照里有没提交的改动的同样算，删会话会连快照一起删掉。
+  const archived = new Map<string, ArchivedWorktree>();
+  if (deps.worktreesDir !== undefined) {
+    for (const member of family) {
+      for (const entry of await readArchived(deps.worktreesDir, member.id))
+        archived.set(entry.root, entry);
+    }
+  }
+  const dirty = worktrees.filter(
+    (worktree, index) =>
+      states[index] === 'dirty' ||
+      (states[index] === 'missing' && archived.get(worktree.root)?.dirty === true),
+  );
   if (dirty.length > 0 && !force) {
     throw new HostError(
       'RESOURCE_IN_USE',
@@ -224,7 +263,11 @@ export async function deleteSessionData(
   }
 
   const keptBranches: string[] = [];
+  if (deps.worktreesDir !== undefined) {
+    keptBranches.push(...(await dropArchived(deps.worktreesDir, ids)).keptBranches);
+  }
   for (const worktree of worktrees) {
+    await dropArchiveRefs(worktree.root, worktree.sessionId);
     const { branchKept } = await deleteWorktree(worktree.root, worktree.branch);
     if (branchKept) keptBranches.push(worktree.branch);
   }

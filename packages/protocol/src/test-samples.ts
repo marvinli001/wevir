@@ -3985,6 +3985,15 @@ export const methodSamples: MethodSamples = {
                   dirty: false,
                   missing: true,
                 },
+                {
+                  workspaceId: ids.workspace,
+                  branch: 'wevir/fix-login-3',
+                  path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/3-api',
+                  bytes: 0,
+                  dirty: true,
+                  missing: true,
+                  archived: true,
+                },
               ],
             },
           ],
@@ -4008,8 +4017,55 @@ export const methodSamples: MethodSamples = {
       valid: [
         { session: { ...session, state: 'closed', archivedAt: TS2 } },
         { session: { ...session, state: 'closed' } },
+        {
+          session: { ...session, state: 'closed', archivedAt: TS2 },
+          worktrees: [
+            {
+              workspaceId: ids.workspace,
+              branch: 'wevir/fix-login',
+              path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-app',
+              status: 'archived',
+              ref: 'refs/wevir/worktree-archive/ses_x/1',
+            },
+            {
+              workspaceId: ids.workspace,
+              branch: 'wevir/fix-login-2',
+              path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/2-lib',
+              status: 'kept',
+              reason: 'too_many_untracked',
+            },
+          ],
+        },
+        {
+          session: { ...session, state: 'closed' },
+          worktrees: [
+            {
+              workspaceId: ids.workspace,
+              branch: 'wevir/fix-login',
+              path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-app',
+              status: 'restored',
+              reason: 'branch_moved',
+              ref: 'refs/wevir/worktree-archive/ses_x/1',
+            },
+            {
+              workspaceId: ids.workspace,
+              branch: 'wevir/fix-login-2',
+              path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/2-lib',
+              status: 'failed',
+              reason: 'branch_checked_out',
+              ref: 'refs/wevir/worktree-archive/ses_x/2',
+              message: "fatal: 'wevir/fix-login-2' is already used by worktree at '/tmp/x'",
+            },
+          ],
+        },
       ],
-      invalid: [{ session: { ...session, archivedAt: 1 } }],
+      invalid: [
+        { session: { ...session, archivedAt: 1 } },
+        {
+          session,
+          worktrees: [{ workspaceId: ids.workspace, branch: 'b', path: '/x', status: 'deleted' }],
+        },
+      ],
     },
   },
   'session.checkpoints': {

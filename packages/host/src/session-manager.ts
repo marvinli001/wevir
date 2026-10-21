@@ -44,6 +44,7 @@ import {
   type SessionSnapshot,
   type SessionState,
   type SessionWorktree,
+  type SessionWorktreeArchive,
   type SharedFile,
   type StateChangeReason,
   type StreamBlockRef,
@@ -158,10 +159,11 @@ import {
   sameRules,
   withCustomInstructions,
 } from './rule-files.js';
-import { deleteSessionData, measureUsage } from './session-delete.js';
+import { deleteSessionData, measureUsage, worktreeRoots } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
+import { archiveWorktrees, restoreWorktrees } from './worktree-archive.js';
 
 /**
  * 取消后等回合结算的时限（domain-model §4.1 #9）。T0.3 实测 ACP 引擎 3–64 ms 结算；超过它仍没有终结
@@ -2313,7 +2315,7 @@ export class SessionManager {
       if ((record.extraRoots?.length ?? 0) > 0 && features?.additionalRoots !== true) {
         throw invalid('providerId', `the engine of ${target.id} has no additional folders`);
       }
-      await assertDirectory(record.cwd);
+      await this.#readyDirectory(record);
       // 用户为这次接力选的材料（0.59.0）：先读好笔记，材料放不下时在动原来的引擎会话之前就拒绝。
       const extras = await this.#handoffExtras(runtime, params.handoff);
       // 当前的引擎会话先放下：之后换回这个来源时再恢复它。
@@ -2768,6 +2770,67 @@ export class SessionManager {
     );
   }
 
+  /**
+   * 归档或取消归档一个顶层会话（0.23.0；worktree 快照 0.81.0，domain-model §3.36）。归档：照 `session.close` 关闭，记下归档时刻（已归档时
+   * 不改），然后排在它的命令队列里给它的一家开的 worktree 打快照、删目录（期间被恢复了就不动）。取消归档：去掉归档时刻，重开归档时删掉的
+   * worktree。返回每个 worktree 怎么样了。
+   */
+  async archive(sessionId: SessionId, archived: boolean): Promise<SessionWorktreeArchive[]> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    if (!archived) {
+      this.#storage.sessions.setArchived(sessionId, undefined);
+      return this.#serial(runtime, () => this.#restoreArchived(this.#record(runtime)));
+    }
+    await this.close(sessionId);
+    if (this.#storage.sessions.get(sessionId)?.archivedAt === undefined) {
+      this.#storage.sessions.setArchived(sessionId, new Date().toISOString());
+    }
+    return this.#serial(runtime, async () => {
+      const worktreesDir = this.#worktreesDir;
+      const record = this.#record(runtime);
+      if (worktreesDir === undefined || record.archivedAt === undefined) return [];
+      if (this.#snapshot(runtime).session.state !== 'closed') return [];
+      const roots = worktreeRoots(this.#storage.sessions.family(record.id), worktreesDir);
+      if (roots.length === 0) return [];
+      return archiveWorktrees(worktreesDir, roots, new Date().toISOString());
+    });
+  }
+
+  /** 重开一家会话归档时删掉的 worktree（0.81.0）；在会话的命令队列里调用。 */
+  async #restoreArchived(record: SessionRecord): Promise<SessionWorktreeArchive[]> {
+    if (this.#worktreesDir === undefined) return [];
+    const ids = this.#storage.sessions.family(record.id).map((member) => member.id);
+    const results = await restoreWorktrees(this.#worktreesDir, ids);
+    for (const result of results) {
+      if (result.status === 'failed') {
+        this.#onWarning('恢复归档的 worktree 失败', {
+          sessionId: record.id,
+          path: result.path,
+          reason: result.reason,
+          message: result.message,
+        });
+      }
+    }
+    return results;
+  }
+
+  /** 会话的目录要在：归档时删掉的 worktree 先重开（0.81.0），之后不在时回 `WORKSPACE_PATH_INVALID`。 */
+  async #readyDirectory(record: SessionRecord): Promise<void> {
+    const top = record.parentSessionId === undefined ? record : this.#topRecord(record);
+    if (top !== undefined) await this.#restoreArchived(top);
+    await assertDirectory(record.cwd);
+  }
+
+  #topRecord(record: SessionRecord): SessionRecord | undefined {
+    let current: SessionRecord | undefined = record;
+    while (current?.parentSessionId !== undefined) {
+      current = this.#storage.sessions.get(current.parentSessionId);
+    }
+    return current;
+  }
+
   #assertDeletable(sessionId: SessionId): SessionRecord {
     const invalid = (path: string, message: string) =>
       new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
@@ -2880,7 +2943,7 @@ export class SessionManager {
       if (!this.#storage.providers.get(record.providerId)) {
         throw new HostError('PROVIDER_NOT_FOUND', `provider ${record.providerId} not found`);
       }
-      await assertDirectory(record.cwd);
+      await this.#readyDirectory(record);
       let engine: EngineSession;
       const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record));
       try {
@@ -3958,7 +4021,7 @@ export class SessionManager {
    */
   async #autoResume(runtime: SessionRuntime): Promise<void> {
     const record = this.#record(runtime);
-    await assertDirectory(record.cwd);
+    await this.#readyDirectory(record);
     let engine: EngineSession;
     const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record));
     try {

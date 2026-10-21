@@ -519,6 +519,9 @@ export const messages: Messages = {
   'session.archive': 'Archivieren',
   'session.unarchive': 'Wiederherstellen',
   'session.archiveFailed': 'Archivieren fehlgeschlagen: {error}',
+  'session.worktreeRestoreFailed': 'Worktree nicht wiederhergestellt ({branch}): {error}',
+  'session.worktreeChangesKept':
+    '{branch} hat neue Commits; nicht committete Änderungen liegen in {ref}',
   'session.rename': 'Umbenennen',
   'session.renameSave': 'Speichern',
   'session.renameFailed': 'Umbenennen fehlgeschlagen: {error}',
@@ -1884,6 +1887,7 @@ export const messages: Messages = {
   'settings.storage.worktreesEmpty': 'Keine Worktrees',
   'settings.storage.dirty': 'Nicht committete Änderungen',
   'settings.storage.missing': 'Ordner fehlt',
+  'settings.storage.snapshot': 'Snapshot gespeichert',
   'settings.storage.archived': 'Archiviert',
   'settings.storage.cleanChats': 'Archivierte Chats bereinigen',
   'settings.storage.view': 'Anzeigen',

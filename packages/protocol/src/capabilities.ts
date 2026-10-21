@@ -354,6 +354,11 @@ export const HOST_FEATURES = {
    * `ApprovalResolution` 的 `rule` / `ruleIds`。Host 在审批前按规则替用户允许命令，与引擎无关。
    */
   approvalRules: 'approval_rules',
+  /**
+   * 归档时的 worktree 快照（0.81.0，domain-model §3.36）：`session.archive` 归档时给会话开的 worktree 打快照、删目录，取消归档与恢复
+   * 会话时重开；结果的 `worktrees`、`SessionWorktreeUsage.archived`。与引擎无关。
+   */
+  worktreeArchive: 'worktree_archive',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -426,6 +431,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_search: z.boolean().optional(),
   agent_instructions: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
+  worktree_archive: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

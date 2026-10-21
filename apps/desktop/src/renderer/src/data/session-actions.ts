@@ -3,7 +3,7 @@
 // 的对话框由 `requestRename`、`requestDelete` 打开（rename-dialog.tsx、delete-session-dialog.tsx 挂在根上）。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
-import type { HostFeatures, Session, SessionId } from '@wevir/protocol';
+import type { HostFeatures, Session, SessionId, SessionWorktreeArchive } from '@wevir/protocol';
 import { openAutomationDialog } from '@/automations/automation-dialog';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -91,16 +91,37 @@ async function afterArchive(
   await store?.refresh();
 }
 
-/** 归档或取消归档；归档掉正在看的会话时回到首页，并取消置顶。 */
+/** 归档或取消归档；归档掉正在看的会话时回到首页，并取消置顶。取消归档时没能恢复的 worktree（0.81.0）逐个提示。 */
 export async function archiveSession(
   client: WevirClient,
   store: WorkbenchStore | undefined,
   sessionId: SessionId,
   archived: boolean,
 ): Promise<void> {
-  await client.request('session.archive', { sessionId, archived });
+  const { worktrees } = await client.request('session.archive', { sessionId, archived });
   if (archived) await afterArchive(store, [sessionId]);
   else await store?.refresh();
+  for (const text of worktreeRestoreNotices(worktrees ?? [])) reportActionFailure(text);
+}
+
+/** 取消归档时要告诉用户的 worktree：没恢复的，与分支有了新提交、改动没放回的。 */
+export function worktreeRestoreNotices(worktrees: readonly SessionWorktreeArchive[]): string[] {
+  return worktrees.flatMap((worktree) => {
+    if (worktree.status === 'failed') {
+      return [
+        t('session.worktreeRestoreFailed', {
+          branch: worktree.branch,
+          error: worktree.message ?? worktree.reason ?? '',
+        }),
+      ];
+    }
+    if (worktree.status === 'restored' && worktree.reason === 'branch_moved') {
+      return [
+        t('session.worktreeChangesKept', { branch: worktree.branch, ref: worktree.ref ?? '' }),
+      ];
+    }
+    return [];
+  });
 }
 
 /** 依次归档一批会话（项目菜单的“归档会话”）；一个失败不影响其余的，返回第一个失败的原因与失败的个数。 */

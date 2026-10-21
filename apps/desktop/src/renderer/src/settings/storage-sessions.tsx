@@ -362,10 +362,15 @@ export function SessionStorageCard({
                       ]
                         .filter(Boolean)
                         .join(' · ')}
-                      {(row.dirty || row.missing) && (
+                      {row.snapshot && ` · ${t('settings.storage.snapshot')}`}
+                      {(row.dirty || (row.missing && !row.snapshot)) && (
                         <span className="text-warning">
                           {' · '}
-                          {t(row.missing ? 'settings.storage.missing' : 'settings.storage.dirty')}
+                          {t(
+                            row.missing && !row.snapshot
+                              ? 'settings.storage.missing'
+                              : 'settings.storage.dirty',
+                          )}
                         </span>
                       )}
                     </span>

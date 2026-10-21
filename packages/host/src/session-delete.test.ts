@@ -1,5 +1,5 @@
-// session.delete 与 session.usage（0.43.0，domain-model §3.20）：经方法表对着 EchoAdapter 的会话，真实的 git worktree、对话文件夹、
-// 历史文件与图片。
+// session.delete 与 session.usage（0.43.0，domain-model §3.20）、归档时的 worktree 快照（0.81.0，§3.36）：经方法表对着 EchoAdapter
+// 的会话，真实的 git worktree、对话文件夹、历史文件与图片。
 
 import { execFileSync } from 'node:child_process';
 import {
@@ -270,10 +270,9 @@ describe('session.delete', () => {
     // 被忽略的文件不算改动，但算大小。
     mkdirSync(join(root, 'node_modules'));
     writeFileSync(join(root, 'node_modules', 'big.js'), 'y'.repeat(4096));
-    await h.archive(sessionId);
 
-    const [usage] = (await h.methods['session.usage']({ archived: true }, context)).sessions;
-    expect(usage?.worktrees).toEqual([
+    const [before] = (await h.methods['session.usage']({}, context)).sessions;
+    expect(before?.worktrees).toEqual([
       {
         workspaceId: workspace.id as WorkspaceId,
         branch: worktree?.branch,
@@ -282,7 +281,22 @@ describe('session.delete', () => {
         dirty: true,
       },
     ]);
-    expect(usage?.worktrees[0]?.bytes).toBeGreaterThan(4096);
+    expect(before?.worktrees[0]?.bytes).toBeGreaterThan(4096);
+
+    // 0.81.0：归档时打快照、删目录；快照里有没提交的改动，同样算有改动。
+    await h.archive(sessionId);
+    const [usage] = (await h.methods['session.usage']({ archived: true }, context)).sessions;
+    expect(usage?.worktrees).toEqual([
+      {
+        workspaceId: workspace.id as WorkspaceId,
+        branch: worktree?.branch,
+        path: root,
+        bytes: 0,
+        dirty: true,
+        missing: true,
+        archived: true,
+      },
+    ]);
 
     const refused = await Promise.resolve()
       .then(() => h.methods['session.delete']({ sessionId }, context))
@@ -292,13 +306,14 @@ describe('session.delete', () => {
       data: { sessionIds: [sessionId], worktrees: [{ path: root, branch: worktree?.branch }] },
     });
     expect(h.storage.sessions.get(sessionId)).toBeDefined();
-    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('changed\n');
+    expect(git(dir, 'for-each-ref', 'refs/wevir/worktree-archive/')).not.toBe('');
 
     const result = await h.methods['session.delete']({ sessionId, force: true }, context);
     expect(result).toEqual({ sessionIds: [sessionId] });
     expect(existsSync(join(h.worktreesDir, sessionId))).toBe(false);
     expect(git(dir, 'worktree', 'list', '--porcelain')).not.toContain(root);
     expect(git(dir, 'branch', '--list', worktree?.branch as string)).toBe('');
+    expect(git(dir, 'for-each-ref', 'refs/wevir/worktree-archive/')).toBe('');
     // 原仓库不受影响。
     expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('a\n');
   });
@@ -381,6 +396,129 @@ describe('session.delete', () => {
     await h.methods['session.delete']({ sessionId }, context);
     expect(statSync(h.storage.path).size).toBeLessThan(before / 2);
     expect(h.storage.freeBytes()).toBeLessThan(1024 * 1024);
+  });
+});
+
+describe('session.archive 的 worktree 快照', () => {
+  async function worktreeSession(h: Awaited<ReturnType<typeof setup>>) {
+    const { dir, workspace } = await h.project('app');
+    const { session } = await h.methods['session.create'](
+      { workspaceId: workspace.id, providerId: 'mock', worktree: 'new' },
+      context,
+    );
+    const worktree = session.worktrees?.[0];
+    if (worktree === undefined) throw new Error('no worktree');
+    return { dir, workspace, session, sessionId: session.id as SessionId, worktree };
+  }
+
+  it('归档时打快照、删目录、留分支；取消归档时在原路径重开，改动与未跟踪文件放回，被忽略的不在', async () => {
+    const h = await setup();
+    const { dir, workspace, sessionId, worktree } = await worktreeSession(h);
+    const root = worktree.path;
+    await h.send(sessionId, 'hello');
+    writeFileSync(join(root, 'a.txt'), 'changed\n');
+    writeFileSync(join(root, 'new.txt'), 'new\n');
+    writeFileSync(join(root, 'staged.txt'), 'staged\n');
+    git(root, 'add', 'staged.txt');
+    mkdirSync(join(root, 'node_modules'));
+    writeFileSync(join(root, 'node_modules', 'x.js'), 'x');
+
+    const archived = await h.archive(sessionId);
+    expect(archived.worktrees).toEqual([
+      {
+        workspaceId: workspace.id,
+        branch: worktree.branch,
+        path: root,
+        status: 'archived',
+        ref: `refs/wevir/worktree-archive/${sessionId}/1`,
+      },
+    ]);
+    expect(MethodSchemas['session.archive'].result.safeParse(archived).success).toBe(true);
+    expect(existsSync(root)).toBe(false);
+    expect(git(dir, 'worktree', 'list', '--porcelain')).not.toContain(root);
+    expect(git(dir, 'branch', '--list', worktree.branch)).toContain(worktree.branch);
+    expect(git(dir, 'show', `refs/wevir/worktree-archive/${sessionId}/1:new.txt`)).toBe('new\n');
+
+    const restored = await h.methods['session.archive']({ sessionId, archived: false }, context);
+    expect(restored.session.archivedAt).toBeUndefined();
+    expect(restored.worktrees).toEqual([
+      { workspaceId: workspace.id, branch: worktree.branch, path: root, status: 'restored' },
+    ]);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('changed\n');
+    expect(readFileSync(join(root, 'new.txt'), 'utf8')).toBe('new\n');
+    expect(readFileSync(join(root, 'staged.txt'), 'utf8')).toBe('staged\n');
+    expect(existsSync(join(root, 'node_modules'))).toBe(false);
+    expect(git(root, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe(worktree.branch);
+    // 暂存区不恢复：都是没暂存的改动与未跟踪文件。
+    expect(git(root, 'status', '--porcelain').split('\n').filter(Boolean).sort()).toEqual([
+      ' M a.txt',
+      '?? new.txt',
+      '?? staged.txt',
+    ]);
+    expect(git(dir, 'for-each-ref', 'refs/wevir/worktree-archive/')).toBe('');
+    expect(existsSync(join(h.worktreesDir, sessionId, 'archive.json'))).toBe(false);
+    // 会话照常能接着用。
+    await h.methods['session.resume']({ sessionId }, context);
+    await h.send(sessionId, 'again');
+  });
+
+  it('恢复归档的会话（session.resume）也会重开 worktree', async () => {
+    const h = await setup();
+    const { sessionId, worktree } = await worktreeSession(h);
+    writeFileSync(join(worktree.path, 'new.txt'), 'new\n');
+    await h.archive(sessionId);
+    expect(existsSync(worktree.path)).toBe(false);
+    await h.methods['session.resume']({ sessionId }, context);
+    await h.send(sessionId, 'hello');
+    expect(readFileSync(join(worktree.path, 'new.txt'), 'utf8')).toBe('new\n');
+  });
+
+  it('分支之后有了新提交：只检出分支，快照留在 ref 上，删会话时删掉', async () => {
+    const h = await setup();
+    const { dir, sessionId, worktree } = await worktreeSession(h);
+    writeFileSync(join(worktree.path, 'a.txt'), 'changed\n');
+    await h.archive(sessionId);
+    // 在别处给分支加一个提交。
+    const other = join(h.root, 'other');
+    git(dir, 'worktree', 'add', '-q', other, worktree.branch);
+    writeFileSync(join(other, 'b.txt'), 'b\n');
+    git(other, 'add', '.');
+    git(other, 'commit', '-q', '-m', 'more');
+
+    const blocked = await h.methods['session.archive']({ sessionId, archived: false }, context);
+    expect(blocked.worktrees?.[0]).toMatchObject({
+      status: 'failed',
+      reason: 'branch_checked_out',
+    });
+    expect(existsSync(worktree.path)).toBe(false);
+    expect(existsSync(join(h.worktreesDir, sessionId, 'archive.json'))).toBe(true);
+
+    git(dir, 'worktree', 'remove', '--force', other);
+    const resumed = await h.methods['session.archive']({ sessionId, archived: false }, context);
+    const ref = `refs/wevir/worktree-archive/${sessionId}/1`;
+    expect(resumed.worktrees?.[0]).toMatchObject({
+      status: 'restored',
+      reason: 'branch_moved',
+      ref,
+    });
+    expect(readFileSync(join(worktree.path, 'b.txt'), 'utf8')).toBe('b\n');
+    expect(readFileSync(join(worktree.path, 'a.txt'), 'utf8')).toBe('a\n');
+    expect(git(dir, 'show', `${ref}:a.txt`)).toBe('changed\n');
+
+    await h.archive(sessionId);
+    await h.methods['session.delete']({ sessionId, force: true }, context);
+    expect(git(dir, 'for-each-ref', 'refs/wevir/worktree-archive/')).toBe('');
+  });
+
+  it('没有 worktree 的会话：结果不带 worktrees', async () => {
+    const h = await setup();
+    const { workspace } = await h.project('plain');
+    const { session } = await h.methods['session.create'](
+      { workspaceId: workspace.id, providerId: 'mock' },
+      context,
+    );
+    const archived = await h.archive(session.id as SessionId);
+    expect(archived.worktrees).toBeUndefined();
   });
 });
 

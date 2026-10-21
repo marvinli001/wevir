@@ -523,6 +523,9 @@ export const messages: Messages = {
   'session.archive': 'Archivar',
   'session.unarchive': 'Desarchivar',
   'session.archiveFailed': 'Error al archivar: {error}',
+  'session.worktreeRestoreFailed': 'Worktree no restaurado ({branch}): {error}',
+  'session.worktreeChangesKept':
+    '{branch} tiene commits nuevos; cambios sin confirmar guardados en {ref}',
   'session.rename': 'Renombrar',
   'session.renameSave': 'Guardar',
   'session.renameFailed': 'Error al renombrar: {error}',
@@ -1892,6 +1895,7 @@ export const messages: Messages = {
   'settings.storage.worktreesEmpty': 'No hay worktrees',
   'settings.storage.dirty': 'Cambios sin confirmar',
   'settings.storage.missing': 'Carpeta inexistente',
+  'settings.storage.snapshot': 'Instantánea guardada',
   'settings.storage.archived': 'Archivado',
   'settings.storage.cleanChats': 'Limpiar chats archivados',
   'settings.storage.view': 'Ver',

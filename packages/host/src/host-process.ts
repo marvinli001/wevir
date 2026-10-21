@@ -751,6 +751,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_rename: true,
         session_archive: true,
         session_delete: true,
+        worktree_archive: true,
         session_handoff: true,
         handoff_material: true,
         handoff_preview: true,

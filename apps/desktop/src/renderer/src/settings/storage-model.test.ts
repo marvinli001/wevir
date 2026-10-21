@@ -76,6 +76,24 @@ describe('storage-model', () => {
     ]);
   });
 
+  it('worktreeRows 把归档时删掉、有快照的 worktree 记成 snapshot（0.81.0）', () => {
+    const rows = worktreeRows(
+      [session('a', { archivedAt: '2026-10-03T00:00:00.000Z' })],
+      [
+        usage('a', {
+          worktrees: [
+            { ...worktree('/a', 0, true), missing: true, archived: true },
+            worktree('/b', 0),
+          ],
+        }),
+      ],
+    );
+    expect(rows.map((row) => [row.path, row.archived, row.snapshot, row.dirty])).toEqual([
+      ['/a', true, true, true],
+      ['/b', true, false, false],
+    ]);
+  });
+
   it('deleteChats 依次删，有改动的带 force；失败的记下、不挡后面的', async () => {
     const rows = archivedChatRows(
       [session('a'), session('b'), session('c')],

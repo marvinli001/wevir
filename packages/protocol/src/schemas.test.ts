@@ -140,6 +140,7 @@ import {
   SessionSnapshotSchema,
   SessionStateSchema,
   SessionUsageSchema,
+  SessionWorktreeArchiveSchema,
   SessionWorktreeSchema,
   SessionWorktreeUsageSchema,
   SharedFileSchema,
@@ -204,6 +205,7 @@ import {
   WorkspaceIdSchema,
   WorkspaceKindSchema,
   WorkspaceSchema,
+  WorktreeArchiveReasonSchema,
   WorktreeModeSchema,
 } from './index.js';
 import {
@@ -1465,6 +1467,43 @@ const standaloneCases: Case[] = [
       { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', path: '/w/1-wevir', branch: 'wevir/a1' },
     ],
     invalid: [{ workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', path: '', branch: 'b' }],
+  },
+  {
+    name: 'WorktreeArchiveReason',
+    schema: WorktreeArchiveReasonSchema,
+    valid: ['branch_moved', 'too_many_untracked', 'reason_from_the_future'],
+    invalid: ['', 1],
+  },
+  {
+    name: 'SessionWorktreeArchive',
+    schema: SessionWorktreeArchiveSchema,
+    valid: [
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'wevir/a1',
+        path: '/w/1-wevir',
+        status: 'archived',
+        ref: 'refs/wevir/worktree-archive/ses_x/1',
+      },
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'wevir/a1',
+        path: '/w/1-wevir',
+        status: 'failed',
+        reason: 'repository_missing',
+        message: 'fatal: not a git repository',
+      },
+    ],
+    invalid: [
+      { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', branch: 'b', path: '/w', status: 'gone' },
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'b',
+        path: '/w',
+        status: 'kept',
+        message: 'x'.repeat(501),
+      },
+    ],
   },
   {
     name: 'SessionWorktreeUsage',

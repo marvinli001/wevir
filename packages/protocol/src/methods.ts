@@ -1005,6 +1005,39 @@ export const SessionArchiveParamsSchema = z.object({
 });
 
 /**
+ * 归档、恢复 worktree 的原因（0.81.0，开放字符串）：`sparse_checkout`、`too_many_untracked`、`untracked_too_large`（打不了快照，
+ * 目录留着）、`not_a_repository`、`no_commits`、`repository_missing`（原仓库不在）、`snapshot_missing`、`branch_checked_out`（分支在别的
+ * worktree 检出）、`branch_moved`（分支之后有了新提交，只检出分支，快照留在 `ref` 上）、`path_exists`（目录已经在）、`git_error`。
+ */
+export const WorktreeArchiveReasonSchema = z.string().min(1);
+export type WorktreeArchiveReason = z.infer<typeof WorktreeArchiveReasonSchema>;
+
+/**
+ * 归档或取消归档时一个 worktree 怎么样了（0.81.0，Host 功能 `worktree_archive`，domain-model §3.36）。归档：`archived`（打了快照、删了
+ * 目录）、`kept`（打不了快照，目录留着）、`missing`（目录本来就不在、没有快照）；取消归档：`restored`（在原路径重开；`reason` 是
+ * `branch_moved` 时没放回没提交的改动）、`failed`（快照与记录留着，下次取消归档或恢复会话时再试）。
+ */
+export const SessionWorktreeArchiveSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  branch: z.string().min(1),
+  /** worktree 的根目录。 */
+  path: z.string().min(1),
+  status: z.enum(['archived', 'kept', 'missing', 'restored', 'failed']),
+  reason: WorktreeArchiveReasonSchema.optional(),
+  /** 快照所在的 ref（原仓库里），快照还留着时给出。 */
+  ref: z.string().min(1).optional(),
+  /** git 的原文（截到 500 字）。 */
+  message: z.string().max(500).optional(),
+});
+export type SessionWorktreeArchive = z.infer<typeof SessionWorktreeArchiveSchema>;
+
+export const SessionArchiveResultSchema = z.object({
+  session: SessionSchema,
+  /** 0.81.0：会话（连同子会话）开的 worktree；没有时省略。 */
+  worktrees: z.array(SessionWorktreeArchiveSchema).optional(),
+});
+
+/**
  * 永久删除一个已归档的会话（0.43.0，domain-model §3.20）：连同它的子会话与支线、文件、Host 开的 worktree 与引擎的数据。worktree
  * 有没提交的改动时不带 `force` 回 `RESOURCE_IN_USE`。
  */
@@ -1033,6 +1066,8 @@ export const SessionWorktreeUsageSchema = z.object({
   dirty: z.boolean(),
   /** 目录已经不在。 */
   missing: z.literal(true).optional(),
+  /** 0.81.0：目录是归档时删的，有快照，取消归档时重开；`dirty` 是快照里有没有没提交的改动。 */
+  archived: z.literal(true).optional(),
 });
 export type SessionWorktreeUsage = z.infer<typeof SessionWorktreeUsageSchema>;
 
@@ -1901,7 +1936,7 @@ export const MethodSchemas = {
   },
   'session.archive': {
     params: SessionArchiveParamsSchema,
-    result: SessionResultSchema,
+    result: SessionArchiveResultSchema,
     permission: 'session.write',
   },
   'session.delete': {

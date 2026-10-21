@@ -1191,8 +1191,8 @@ export class AppTools {
       description:
         'Archive a session you opened with wevir_session_create (or one of its descendants) once its work is ' +
         "done: it is closed first (a running turn is cancelled) and moves to the user's archive, out of the " +
-        'sidebar. archived=false brings it back to the list. Archiving never deletes anything; only the user can ' +
-        'delete an archived session. Sessions the user started, subagents and side sessions cannot be archived here.',
+        'sidebar. Git worktrees Wevir opened for it are saved as a snapshot and their folders removed; archived=false ' +
+        'brings it back to the list and reopens them. Only the user can delete an archived session. Sessions the user started, subagents and side sessions cannot be archived here.',
       inputSchema: objectSchema({ sessionId: { type: 'string' }, archived: { type: 'boolean' } }, [
         'sessionId',
       ]),
@@ -1201,15 +1201,8 @@ export class AppTools {
         this.#callerRecord(sessionId);
         const target = this.#openedTarget(sessionId, requiredString(args, 'sessionId'));
         const archived = args.archived !== false;
-        const { storage, sessions } = this.#options;
-        if (archived) {
-          await this.#host(() => sessions.close(target.id));
-          if (storage.sessions.get(target.id)?.archivedAt === undefined) {
-            storage.sessions.setArchived(target.id, new Date().toISOString());
-          }
-        } else {
-          storage.sessions.setArchived(target.id, undefined);
-        }
+        const { sessions } = this.#options;
+        await this.#host(() => sessions.archive(target.id, archived));
         return jsonResult(this.#describe(this.#session(target.id), sessionId));
       },
     };
