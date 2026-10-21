@@ -61,6 +61,15 @@ export {
 } from './config.js';
 export { buildCodexEnv, type CodexEnvOptions, GATEWAY_TOKEN_ENV, INHERITED_ENV } from './env.js';
 export {
+  CODEX_HOOK_DEFAULT_TIMEOUT_SEC,
+  type CodexHookEvent,
+  codexHookHash,
+  codexHookKey,
+  hooksThreadConfig,
+  isCodexHookEvent,
+  sessionFlagsSource,
+} from './hooks.js';
+export {
   CodexEventMapper,
   ENGINE_RAW_PROTOCOL,
   IGNORED_NOTIFICATIONS,

@@ -11,6 +11,7 @@ import type {
   UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
 import { APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
+import { parseGuardrailMarkers } from '@wevir/runtime-adapter/guardrail';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
 import type {
   AgentMessageItem,
@@ -80,6 +81,8 @@ export const MAPPED_NOTIFICATIONS = Object.freeze([
   // 会话目标（0.35.0，goals.ts，适配器在回合之外也处理）。
   'thread/goal/updated',
   'thread/goal/cleared',
+  // 护栏（0.86.0，§6.17）：检查程序拦下时的 hook 结果 → guardrail.blocked；别的 hook 的结果照常留 engine.raw。
+  'hook/completed',
 ] as const);
 
 /**
@@ -122,6 +125,8 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'thread/deleted',
   // rust-v0.163.0 的实验面新增：thread 的已读位置（第一条未读的回合）；Host 自己维护未读状态。
   'thread/readState/changed',
+  // hook 开始跑（0.86.0）：结果看 `hook/completed`。
+  'hook/started',
 ] as const);
 
 /**
@@ -129,7 +134,13 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
  * `turn.started.command` 表示，审查结果是随后的 agentMessage。0.83.0 起 `exitedReviewMode` 的文字拆得出发现时，随后同样文字的
  * agentMessage 只报总体说明，发现另报 `review.findings`。
  */
-const SILENT_ITEMS = new Set(['userMessage', 'enteredReviewMode', 'exitedReviewMode']);
+const SILENT_ITEMS = new Set([
+  'userMessage',
+  'enteredReviewMode',
+  'exitedReviewMode',
+  // Stop hook 让 Agent 接着做时注入的提示（0.86.0，§6.17）：护栏的由 `guardrail.blocked` 表示。
+  'hookPrompt',
+]);
 
 /** 上下文压缩的 item（0.24.0，§4.9）。 */
 const COMPACTION_ITEM = 'contextCompaction';
@@ -291,9 +302,32 @@ export class CodexEventMapper {
         return isTurnNotification(params)
           ? this.#turnCompleted(params)
           : [this.raw(method, params)];
+      case 'hook/completed':
+        return this.#hookCompleted(params);
       default:
         return [this.raw(method, params)];
     }
+  }
+
+  /**
+   * 一个 hook 跑完（0.86.0）：护栏的检查程序拦下（或到次数上限放行）时，它的输出里有标记（理由在 `feedback`，放行的在
+   * `systemMessage` 即 `warning`），一个标记一个 `guardrail.blocked`。没有标记的照常留 engine.raw。
+   */
+  #hookCompleted(params: Record<string, unknown>): AgentEvent[] {
+    const run = isRecord(params.run) ? params.run : undefined;
+    const entries = Array.isArray(run?.entries) ? run.entries : [];
+    const events: AgentEvent[] = [];
+    for (const entry of entries) {
+      if (!isRecord(entry) || typeof entry.text !== 'string') continue;
+      for (const marker of parseGuardrailMarkers(entry.text)) {
+        events.push({
+          type: 'guardrail.blocked',
+          engineSessionId: this.engineSessionId,
+          ...marker,
+        });
+      }
+    }
+    return events.length > 0 ? events : [this.raw('hook/completed', params)];
   }
 
   raw(method: string, params: unknown, kind?: string): EngineRawEvent {

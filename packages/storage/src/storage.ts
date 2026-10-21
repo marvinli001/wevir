@@ -10,6 +10,10 @@ import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
 import { createEventRepository, type EventRepository } from './events.js';
 import { migrate } from './migrate.js';
+import {
+  createProfileVersionRepository,
+  type ProfileVersionRepository,
+} from './profile-versions.js';
 import { createProviderProfileRepository, type ProviderProfileRepository } from './providers.js';
 import { createRetroRepository, type RetroRepository } from './retros.js';
 import { createReviewCommentRepository, type ReviewCommentRepository } from './review-comments.js';
@@ -17,6 +21,10 @@ import { createSearchRepository, type SearchRepository } from './search.js';
 import { createSendReceiptRepository, type SendReceiptRepository } from './send-receipts.js';
 import { createSessionRepository, type SessionRepository } from './sessions.js';
 import { transaction } from './transaction.js';
+import {
+  createTuningProposalRepository,
+  type TuningProposalRepository,
+} from './tuning-proposals.js';
 import { createUsageRepository, type UsageRepository } from './usage.js';
 import { createWorkspaceRepository, type WorkspaceRepository } from './workspaces.js';
 
@@ -47,6 +55,10 @@ export interface Storage {
   readonly reviewComments: ReviewCommentRepository;
   /** 任务回顾的投影与模型摘要（0016_session_retros）。 */
   readonly retros: RetroRepository;
+  /** 调优的档案版本（0019_profile_versions）。 */
+  readonly profileVersions: ProfileVersionRepository;
+  /** 调优的建议（0020_tuning_proposals）。 */
+  readonly tuningProposals: TuningProposalRepository;
   /** 会话全文搜索的派生索引（协议 0.77.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
   readonly search: SearchRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
@@ -82,6 +94,8 @@ export function openStorage(options: { dataDir: string }): Storage {
       accounts: createSubscriptionAccountRepository(db),
       reviewComments: createReviewCommentRepository(db),
       retros: createRetroRepository(db),
+      profileVersions: createProfileVersionRepository(db),
+      tuningProposals: createTuningProposalRepository(db),
       search: createSearchRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };

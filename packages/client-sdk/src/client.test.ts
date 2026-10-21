@@ -807,6 +807,29 @@ describe('自动化（0.66.0）', () => {
   });
 });
 
+describe('调优的档案（0.85.0）', () => {
+  it('onTuningChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { tuning: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onTuningChanged((change) => changes.push(change));
+    host.last.notify('tuning.changed', { workspaceId: 'ws_1' });
+    await vi.waitFor(() => expect(changes).toEqual([{ workspaceId: 'ws_1' }]));
+    host.last.notify('tuning.changed', { workspaceId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed tuning.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+    host.last.notify('tuning.changed', {});
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
 describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();
@@ -854,6 +877,60 @@ describe('项目环境就绪（0.70.0）', () => {
     host.last.notify('readiness.changed', change);
     await tick();
     expect(changes).toHaveLength(2);
+  });
+});
+
+describe('护栏（0.86.0）', () => {
+  it('onGuardrailsChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { tuning_guardrails: true } },
+    }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onGuardrailsChanged((change) => changes.push(change));
+    const change = { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' };
+    host.last.notify('guardrail.changed', change);
+    host.last.notify('guardrail.changed', {});
+    await vi.waitFor(() => expect(changes).toEqual([change, {}]));
+    host.last.notify('guardrail.changed', { workspaceId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(2);
+    expect(warnings.join('\n')).toMatch(/malformed guardrail.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(3));
+    expect(changes[2]).toBeUndefined();
+    stop();
+    host.last.notify('guardrail.changed', change);
+    await tick();
+    expect(changes).toHaveLength(3);
+  });
+});
+
+describe('调优的建议（0.87.0）', () => {
+  it('onTuningProposalsChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { tuning_proposals: true } },
+    }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onTuningProposalsChanged((change) => changes.push(change));
+    const change = { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' };
+    host.last.notify('tuning.proposal.changed', change);
+    host.last.notify('tuning.proposal.changed', {});
+    await vi.waitFor(() => expect(changes).toEqual([change, {}]));
+    host.last.notify('tuning.proposal.changed', { workspaceId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(2);
+    expect(warnings.join('\n')).toMatch(/malformed tuning.proposal.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(3));
+    expect(changes[2]).toBeUndefined();
+    stop();
+    host.last.notify('tuning.proposal.changed', change);
+    await tick();
+    expect(changes).toHaveLength(3);
   });
 });
 

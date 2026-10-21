@@ -487,6 +487,21 @@ function applyEvent(state: RetroState, event: WevirEvent): void {
       }
       break;
     }
+    case 'guardrail.blocked': {
+      // 护栏拦下的命令、文件改动或没通过的结束前检查：与拒绝审批一样是一次被否决，摘要与建议要知道推送等失败的真正原因。
+      const blocked = event.payload;
+      const what = blocked.command ?? blocked.path ?? '';
+      const text = what === '' ? blocked.reason : `${what}: ${blocked.reason}`;
+      const decision = {
+        seq: event.seq,
+        kind: 'guardrail',
+        text: clipText(text, RETRO_TEXT_MAX_CHARS),
+      };
+      const turn = blocked.turnId === undefined ? undefined : turnOf(state, blocked.turnId);
+      if (turn !== undefined) turn.decisions.push(decision);
+      else state.decisions.push(decision);
+      break;
+    }
     case 'subagent.started': {
       const { subagent } = event.payload;
       state.children.push({

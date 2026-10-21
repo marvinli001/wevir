@@ -131,7 +131,11 @@ export function retroSummaryInput(retro: SessionRetro): string {
   for (const decision of retro.decisions) {
     flexible.push({
       seq: refSeq(decision.ref),
-      text: line(decision.id, `user ${decision.kind}`, decision.text),
+      text: line(
+        decision.id,
+        decision.kind === 'guardrail' ? 'guardrail blocked' : `user ${decision.kind}`,
+        decision.text,
+      ),
     });
   }
   for (const command of retro.verification.commands) {

@@ -22,6 +22,7 @@ export {
 export * from './environments.js';
 export * from './events.js';
 export * from './migrate.js';
+export * from './profile-versions.js';
 export * from './providers.js';
 export * from './retros.js';
 export * from './review-comments.js';
@@ -31,5 +32,6 @@ export * from './send-receipts.js';
 export * from './sessions.js';
 export * from './storage.js';
 export * from './transaction.js';
+export * from './tuning-proposals.js';
 export * from './usage.js';
 export * from './workspaces.js';

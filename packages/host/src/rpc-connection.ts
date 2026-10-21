@@ -101,6 +101,18 @@ export interface ConnectionHost {
   readonly previews?: {
     watch(listener: (change: NotificationParams<'preview.changed'>) => void): () => void;
   };
+  /** 调优的档案（0.85.0）：调过 `tuning.*` 的连接用它收 `tuning.changed`；参数是范围（省略是全局或不只一个项目）。 */
+  readonly tuning?: {
+    watch(listener: (workspaceId: string | undefined) => void): () => void;
+  };
+  /** 调优的建议（0.87.0）：调过 `tuning.*` 的连接也用它收 `tuning.proposal.changed`。 */
+  readonly proposals?: {
+    watch(listener: (workspaceId: string | undefined) => void): () => void;
+  };
+  /** 护栏（0.86.0）：调过 `guardrail.*` 或 `repoHook.*` 的连接用它收 `guardrail.changed`。 */
+  readonly guardrails?: {
+    watch(listener: (change: NotificationParams<'guardrail.changed'>) => void): () => void;
+  };
   /** 用户的交互终端（0.69.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
@@ -186,6 +198,12 @@ export class RpcConnection {
   #unwatchReadiness: (() => void) | undefined;
   /** 调过 `preview.*` 之后：退订 `preview.changed`。 */
   #unwatchPreviews: (() => void) | undefined;
+  /** 调过 `tuning.*` 之后：退订 `tuning.changed`。 */
+  #unwatchTuning: (() => void) | undefined;
+  /** 调过 `tuning.*` 之后：退订 `tuning.proposal.changed`。 */
+  #unwatchProposals: (() => void) | undefined;
+  /** 调过 `guardrail.*` 或 `repoHook.*` 之后：退订 `guardrail.changed`。 */
+  #unwatchGuardrails: (() => void) | undefined;
   /** 调过 `lsp.*` 之后：退订 `lsp.changed`。 */
   #unwatchLsp: (() => void) | undefined;
   /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
@@ -532,6 +550,10 @@ export class RpcConnection {
           this.#watchProcesses();
         }
         if (method.startsWith('lsp.')) this.#watchLsp();
+        if (method.startsWith('tuning.')) this.#watchTuning();
+        if (method.startsWith('guardrail.') || method.startsWith('repoHook.')) {
+          this.#watchGuardrails();
+        }
         if (method.startsWith('terminal.')) this.#watchTerminals();
       }
     }
@@ -769,6 +791,58 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `tuning.*` 的连接之后收 `tuning.changed`（0.85.0），连接关闭即止。 */
+  #watchTuning(): void {
+    if (this.#unwatchTuning !== undefined || this.#host.tuning === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchTuning = this.#host.tuning.watch((workspaceId) => {
+      const params = workspaceId === undefined ? {} : { workspaceId };
+      const parsed = NotificationSchemas['tuning.changed'].params.safeParse(params);
+      if (!parsed.success) {
+        this.#host.onError(new Error(`tuning.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'tuning.changed', params: parsed.data });
+    });
+    this.#watchProposals();
+  }
+
+  /** 调过 `tuning.*` 的连接之后也收 `tuning.proposal.changed`（0.87.0），连接关闭即止。 */
+  #watchProposals(): void {
+    if (this.#unwatchProposals !== undefined || this.#host.proposals === undefined) return;
+    this.#unwatchProposals = this.#host.proposals.watch((workspaceId) => {
+      const params = workspaceId === undefined ? {} : { workspaceId };
+      const parsed = NotificationSchemas['tuning.proposal.changed'].params.safeParse(params);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`tuning.proposal.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({
+        jsonrpc: JSONRPC_VERSION,
+        method: 'tuning.proposal.changed',
+        params: parsed.data,
+      });
+    });
+  }
+
+  /** 调过 `guardrail.*` 或 `repoHook.*` 的连接之后收 `guardrail.changed`（0.86.0），连接关闭即止。 */
+  #watchGuardrails(): void {
+    if (this.#unwatchGuardrails !== undefined || this.#host.guardrails === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchGuardrails = this.#host.guardrails.watch((change) => {
+      const parsed = NotificationSchemas['guardrail.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`guardrail.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'guardrail.changed', params: parsed.data });
+    });
+  }
+
   /** 调过 `readiness.*` 的连接之后收 `readiness.changed`（0.70.0），连接关闭即止。 */
   #watchReadiness(): void {
     if (this.#unwatchReadiness !== undefined || this.#host.readiness === undefined) return;
@@ -950,6 +1024,12 @@ export class RpcConnection {
     this.#unwatchReadiness = undefined;
     this.#unwatchPreviews?.();
     this.#unwatchPreviews = undefined;
+    this.#unwatchTuning?.();
+    this.#unwatchTuning = undefined;
+    this.#unwatchProposals?.();
+    this.#unwatchProposals = undefined;
+    this.#unwatchGuardrails?.();
+    this.#unwatchGuardrails = undefined;
     this.#unwatchLsp?.();
     this.#unwatchLsp = undefined;
     this.#unwatchTerminals?.();

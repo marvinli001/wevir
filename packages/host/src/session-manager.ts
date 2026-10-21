@@ -17,6 +17,8 @@ import {
   type EngineFeatures,
   type EnvironmentId,
   type FilesRestore,
+  GUARDRAIL_EVENT_TEXT_MAX_LENGTH,
+  GuardrailBlockedSchema,
   type HandoffBinding,
   type HandoffMaterialRequest,
   type HandoffNoteRef,
@@ -28,6 +30,7 @@ import {
   type PendingMessageId,
   type PermissionMode,
   PROMPT_SUGGESTION_VOIDING_EVENTS,
+  type ProfileVersionRef,
   type ProviderId,
   type QuestionId,
   type QuestionRequest,
@@ -80,6 +83,7 @@ import {
   type DeltaBlockRef,
   type EngineGoal,
   type EngineSession,
+  type GuardrailBlockedEvent,
   isAdapterError,
   type QuestionCancelledEvent,
   type QuestionRequestedEvent,
@@ -117,6 +121,7 @@ import {
   restoreSnapshot,
   WorktreeError,
 } from './git-worktree.js';
+import type { GuardrailService } from './guardrails/service.js';
 import {
   assembleHandoff,
   DELTA_SINCE_TARGET_LAST_SEEN,
@@ -304,6 +309,11 @@ export interface SessionManagerOptions {
    * `SessionConfig.connectors` 交给适配器。没给时不交。
    */
   projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
+  /**
+   * 护栏（0.86.0，guardrails/service.ts）：建立或恢复引擎会话时，hook 方言是 `codex` 的来源按会话所在的工作区与目录挂上 hooks；
+   * 引擎报的拦截写成 `guardrail.blocked` 并记命中。没给时不挂。
+   */
+  guardrails?: Pick<GuardrailService, 'sessionHooks' | 'recordHit'>;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
   /**
@@ -331,6 +341,11 @@ export interface SessionManagerOptions {
    * `approval.respond` 带 `remember` 时加规则。没给时都没有。
    */
   approvalRules?: Pick<ApprovalRuleService, 'match' | 'propose' | 'remember' | 'recordUse'>;
+  /**
+   * 调优的档案（0.85.0，tuning/service.ts）：建会话与分出会话时按工作区取档案版本（指纹变了就开新版本），记进会话；恢复、接力与换目录
+   * 时重取，随 `session.rules` 的 `profileVersion` 写下。取不到时不记，不让建会话失败。没给时都不记。
+   */
+  profile?: { ensure(workspaceId: string): Promise<ProfileVersionRef | undefined> };
 }
 
 /** `session.send` 之外的发送参数（0.30.0）。 */
@@ -687,7 +702,9 @@ export class SessionManager {
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
   readonly #approvalRules: SessionManagerOptions['approvalRules'];
+  readonly #profile: SessionManagerOptions['profile'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
+  readonly #guardrails: SessionManagerOptions['guardrails'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
@@ -745,10 +762,12 @@ export class SessionManager {
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#projectConnectors = options.projectConnectors;
+    this.#guardrails = options.guardrails;
     this.#onTurnFinished = options.onTurnFinished;
     this.#reviewFindings = options.reviewFindings;
     this.#onUsage = options.onUsage;
     this.#approvalRules = options.approvalRules;
+    this.#profile = options.profile;
   }
 
   /** 引擎会话的配置：存下的配置加上这个会话的应用级工具（适配器能挂时）。 */
@@ -770,9 +789,19 @@ export class SessionManager {
       connectors === undefined || connectors.length === 0
         ? withRules
         : { ...withRules, connectors };
-    if (this.#adapter.appTools !== true) return withConnectors;
+    // 护栏（0.86.0）：只有认 Codex hooks 的来源挂；别的引擎不受影响。
+    const guardrails =
+      this.#guardrails !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
+        ? this.#guardrails.sessionHooks(workspaceId as WorkspaceId | undefined, config.cwd)
+        : undefined;
+    const withGuardrails =
+      guardrails === undefined ||
+      (guardrails.hooks.length === 0 && guardrails.disabledHooks.length === 0)
+        ? withConnectors
+        : { ...withConnectors, hooks: guardrails.hooks, disabledHooks: guardrails.disabledHooks };
+    if (this.#adapter.appTools !== true) return withGuardrails;
     const appTools = this.#appTools?.grant(sessionId);
-    return appTools === undefined ? withConnectors : { ...withConnectors, appTools };
+    return appTools === undefined ? withGuardrails : { ...withGuardrails, appTools };
   }
 
   /**
@@ -783,6 +812,7 @@ export class SessionManager {
     cwd: string,
     providerId: string,
     target: CustomTarget,
+    profile?: () => Promise<ProfileVersionRef | undefined>,
   ): Promise<RulePlan | undefined> {
     const options = this.#ruleFiles;
     if (options === undefined || this.#adapter.ruleFiles === undefined) return undefined;
@@ -809,8 +839,30 @@ export class SessionManager {
       this.#onWarning('failed to read rule files', { cwd, providerId, error: errorText(error) });
       if (custom === undefined) return undefined;
     }
-    const plan = planRules(found, { providerId, engine, enabled: options.enabled?.() !== false });
-    return withCustomInstructions(plan, custom, engine);
+    const plan = withCustomInstructions(
+      planRules(found, { providerId, engine, enabled: options.enabled?.() !== false }),
+      custom,
+      engine,
+    );
+    // 档案版本（0.85.0）：随这份规则记下。
+    const version = await profile?.();
+    return version === undefined
+      ? plan
+      : { ...plan, rules: { ...plan.rules, profileVersion: version } };
+  }
+
+  /** 这个工作区现在的档案版本（0.85.0）；没有档案服务或取不到时 `undefined`（告警）。 */
+  async #profileVersion(workspaceId: string): Promise<ProfileVersionRef | undefined> {
+    if (this.#profile === undefined) return undefined;
+    try {
+      return await this.#profile.ensure(workspaceId);
+    } catch (error) {
+      this.#onWarning('failed to record the tuning profile', {
+        workspaceId,
+        error: errorText(error),
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -1114,11 +1166,15 @@ export class SessionManager {
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
       ...(toolPreset !== undefined && { toolPreset }),
     });
+    // 档案版本（0.85.0）：不论引擎读不读规则文件都记进会话。
+    const profile = this.#profileVersion(workspace.id);
     const rules = await this.#rulePlan(
       config.cwd,
       provider.id,
       customTarget({ origin: recordOrigin }),
+      () => profile,
     );
+    const profileVersion = await profile;
     try {
       engineSession = await this.#adapter.createSession(
         this.#engineConfig(sessionId, config, rules),
@@ -1156,6 +1212,7 @@ export class SessionManager {
       if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
       if (recordOrigin !== undefined) record.origin = recordOrigin;
       if (toolPreset !== undefined) record.toolPreset = toolPreset;
+      if (profileVersion !== undefined) record.profileVersionId = profileVersion.id;
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -2365,7 +2422,9 @@ export class SessionManager {
       if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
 
       // 规则文件（0.68.0）：新来源自己不读的，在它的说明里或随下一条消息补给它。
-      const rules = await this.#rulePlan(record.cwd, target.id, customTarget(record));
+      const rules = await this.#rulePlan(record.cwd, target.id, customTarget(record), () =>
+        this.#profileVersion(record.workspaceId),
+      );
 
       const attachment = runtime.attachment;
       if (attachment) {
@@ -2915,7 +2974,12 @@ export class SessionManager {
       const features = this.#featuresOf(provider.kind);
       const relocate = features?.relocate === true;
       const config: SessionConfig = { ...sessionConfig(record), cwd: prepared.cwd };
-      const rules = await this.#rulePlan(prepared.cwd, record.providerId, customTarget(record));
+      const rules = await this.#rulePlan(
+        prepared.cwd,
+        record.providerId,
+        customTarget(record),
+        () => this.#profileVersion(record.workspaceId),
+      );
       const from = {
         providerId: session.providerId,
         modelId: session.modelId,
@@ -3281,7 +3345,9 @@ export class SessionManager {
       }
       await this.#readyDirectory(record);
       let engine: EngineSession;
-      const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record));
+      const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record), () =>
+        this.#profileVersion(record.workspaceId),
+      );
       try {
         engine = await this.#adapter.resumeSession(
           runtime.engineSessionId,
@@ -3372,7 +3438,14 @@ export class SessionManager {
         ...(origin !== undefined && { origin }),
         ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset }),
       });
-      const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget({ origin }));
+      const profile = this.#profileVersion(record.workspaceId);
+      const rules = await this.#rulePlan(
+        record.cwd,
+        record.providerId,
+        customTarget({ origin }),
+        () => profile,
+      );
+      const profileVersion = await profile;
       try {
         engineSession = await fork(
           source.engineSessionId,
@@ -3413,6 +3486,7 @@ export class SessionManager {
         if (record.extraRoots !== undefined) forked.extraRoots = record.extraRoots;
         if (origin !== undefined) forked.origin = origin;
         if (record.toolPreset !== undefined) forked.toolPreset = record.toolPreset;
+        if (profileVersion !== undefined) forked.profileVersionId = profileVersion.id;
         this.#storage.sessions.insert(forked);
         this.#events.append(sessionId, {
           type: 'session.created',
@@ -4359,7 +4433,9 @@ export class SessionManager {
     const record = this.#record(runtime);
     await this.#readyDirectory(record);
     let engine: EngineSession;
-    const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record));
+    const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record), () =>
+      this.#profileVersion(record.workspaceId),
+    );
     try {
       engine = await this.#adapter.resumeSession(
         runtime.engineSessionId,
@@ -4536,6 +4612,32 @@ export class SessionManager {
     }
   }
 
+  /**
+   * 护栏拦下一步（0.86.0）：写 `guardrail.blocked`、记命中。属于进行中的回合时带 `turnId`；结束前检查在回合收尾时报，Host 可能
+   * 已判定回合结束，这时不带。形状不对的（检查程序与 Host 版本不一致）只记告警。
+   */
+  #guardrailBlocked(runtime: SessionRuntime, event: GuardrailBlockedEvent): void {
+    const { type: _type, engineSessionId: _engine, ...fields } = event;
+    const clip = (text: string | undefined) =>
+      text === undefined ? undefined : [...text].slice(0, GUARDRAIL_EVENT_TEXT_MAX_LENGTH).join('');
+    const parsed = GuardrailBlockedSchema.safeParse({
+      ...fields,
+      ...(runtime.turn !== undefined && { turnId: runtime.turn.turnId }),
+      ...(fields.command !== undefined && { command: clip(fields.command) }),
+      ...(fields.path !== undefined && { path: clip(fields.path) }),
+      reason: clip(fields.reason),
+    });
+    if (!parsed.success) {
+      this.#onWarning('dropped a malformed guardrail event', {
+        sessionId: runtime.id,
+        guardrailId: fields.guardrailId,
+      });
+      return;
+    }
+    this.#write(runtime, [{ type: 'guardrail.blocked', source: 'host', payload: parsed.data }]);
+    void this.#guardrails?.recordHit(parsed.data.guardrailId);
+  }
+
   /** 把一个引擎事件写成 WevirEvent（domain-model §6、§9）。 */
   #handle(runtime: SessionRuntime, event: AgentEvent): void {
     const sessionId = runtime.id;
@@ -4590,6 +4692,9 @@ export class SessionManager {
         return;
       case 'goal.updated':
         this.#goalUpdated(runtime, event.goal);
+        return;
+      case 'guardrail.blocked':
+        this.#guardrailBlocked(runtime, event);
         return;
     }
 

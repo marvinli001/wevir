@@ -502,6 +502,33 @@ describe('任务回顾：证据语义', () => {
       live({ repo: false, uncommitted: undefined, upstream: undefined }),
     );
     expect(unknown.delivery).toMatchObject({ commit: 'unknown', push: 'unknown' });
+    // 没有上游时分开“仓库没有远端”与“有远端、分支没设上游”。
+    const noRemote = retroOf(s.events, live({ codeState: GIT_A, upstream: false, remote: false }));
+    expect(noRemote.delivery.push).toBe('no_remote');
+    const noUpstream = retroOf(s.events, live({ codeState: GIT_A, upstream: false, remote: true }));
+    expect(noUpstream.delivery.push).toBe('no_upstream');
+  });
+
+  it('护栏拦截记为关键决定：摘要输入里写成护栏拦下，不是用户的决定', () => {
+    const s = stream();
+    created(s);
+    s.user('trn_1', '提交并推送');
+    s.started('trn_1');
+    s.push('guardrail.blocked', {
+      guardrailId: 'grd_01JA2B3C4D5E6F7G8H9JKMNPR5',
+      kind: 'forbidden_command',
+      action: 'denied',
+      turnId: 'trn_1',
+      tool: 'Bash',
+      command: 'git push --force',
+      reason: 'Blocked by guardrail: git push --force',
+    });
+    s.finished('trn_1');
+    const retro = retroOf(s.events);
+    expect(retro.decisions.map((d) => [d.kind, d.text])).toEqual([
+      ['guardrail', 'git push --force: Blocked by guardrail: git push --force'],
+    ]);
+    expect(retroSummaryInput(retro)).toContain('guardrail blocked: git push --force');
   });
 });
 

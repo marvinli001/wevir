@@ -151,6 +151,9 @@ export async function readRetroLive(
         );
         const count = Number.parseInt(ahead?.stdout.toString('utf8').trim() ?? '', 10);
         if (Number.isInteger(count)) live.ahead = count;
+      } else {
+        const remotes = await settle(runGit(repo.cwd, [...repo.config, 'remote']));
+        if (remotes !== undefined) live.remote = remotes.stdout.toString('utf8').trim() !== '';
       }
     }
   }

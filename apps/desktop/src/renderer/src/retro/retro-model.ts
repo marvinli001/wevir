@@ -48,6 +48,7 @@ const DECISIONS: Record<string, PlainMessageKey> = {
   redone: 'retro.decision.redone',
   rewound: 'retro.decision.rewound',
   handoff: 'retro.decision.handoff',
+  guardrail: 'retro.decision.guardrail',
 };
 export const decisionLabel = (kind: string) => label(DECISIONS, kind);
 
@@ -90,6 +91,7 @@ const STATES: Record<string, PlainMessageKey> = {
   not_pushed: 'retro.state.not_pushed',
   pushed: 'retro.state.pushed',
   no_upstream: 'retro.state.no_upstream',
+  no_remote: 'retro.state.no_remote',
 };
 /** 交付各项的状态（本地检查、提交、推送、CI、部署）。 */
 export const deliveryLabel = (state: string) => label(STATES, state);

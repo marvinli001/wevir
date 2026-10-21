@@ -15,6 +15,9 @@
 // 导入（0.74.0，`import.apply`）：用户从 Claude Code、Codex 导入的笔记只新建、不覆盖同名的；来源记 `by: user` 加上 `importedFrom`
 // （应用与源文件路径，写成 frontmatter 的 `created-imported-app` 等键）。
 //
+// 建议（0.87.0，`tuning.proposal.decide`）：用户采纳调优的建议写下或改写的笔记，来源记 `by: user` 加提出建议的会话与建议
+// （`*-proposal` 键）；带着生成建议时的版本，之后笔记变了就不写。
+//
 // 布局：`<数据目录>/memory/global/<名字>.md`，`<数据目录>/memory/projects/<工作区 ID>/<名字>.md`。
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -31,6 +34,7 @@ import {
   MemoryTypeSchema,
   type MemorySource as ProtocolMemorySource,
   type SessionId,
+  type TuningProposalId,
   type TurnId,
 } from '@wevir/protocol';
 import { looksLikeSecret } from './secret-patterns.js';
@@ -312,6 +316,55 @@ export class MemoryStore {
     });
     this.#emit(scope, workspaceId, name);
     return note;
+  }
+
+  /**
+   * 用户采纳调优的建议（0.87.0）：新建或改写一条，来源记成 `by: 'user'` 加提出建议的会话与建议。`revision` 是生成建议时那一版
+   * （`undefined` 表示那时没有这条）：笔记在那之后变过、出现或被删掉都是 `conflict`，不写。停用的笔记改写后重新启用（用户亲自采纳）。
+   */
+  async adopt(
+    scope: MemoryScope,
+    workspaceId: string | undefined,
+    input: MemorySaveInput,
+    options: { revision: string | undefined; sessionId: SessionId; proposalId: TuningProposalId },
+  ): Promise<{ note: MemoryNote; created: boolean }> {
+    const name = checkName(input.name);
+    const fields = checkFields(input);
+    const dir = this.#dir(scope, workspaceId);
+    const result = await this.#exclusive(dir, async () => {
+      const existing = await this.#load(scope, workspaceId, name);
+      const current = existing.kind === 'note' ? existing.note.revision : undefined;
+      if (existing.kind === 'unreadable' || current !== options.revision) {
+        throw new MemoryError(
+          'conflict',
+          `The ${scope} note "${name}" changed after the proposal was made.`,
+          existing.kind === 'note' ? publicNote(existing.note) : undefined,
+        );
+      }
+      if (existing.kind === 'missing') await this.#checkRoom(dir, scope);
+      const at = this.#now().toISOString();
+      const source: MemorySource = {
+        by: 'user',
+        at,
+        sessionId: options.sessionId,
+        proposalId: options.proposalId,
+      };
+      const note = await this.#write(dir, {
+        scope,
+        name,
+        ...fields,
+        updatedAt: at,
+        enabled: true,
+        ...(existing.kind === 'note'
+          ? existing.note.origin !== undefined && { origin: existing.note.origin }
+          : { origin: source }),
+        lastEdit: source,
+        extra: existing.kind === 'note' ? existing.note.extra : [],
+      });
+      return { note, created: existing.kind === 'missing' };
+    });
+    this.#emit(scope, workspaceId, name);
+    return result;
   }
 
   /**
@@ -637,8 +690,16 @@ async function readOrUndefined(file: string): Promise<string | undefined> {
   }
 }
 
-/** frontmatter 里 Host 自己写的字段；其余的原样留着。`imported-*` 是导入的出处（0.74.0）。 */
-const SOURCE_FIELDS = ['by', 'session', 'turn', 'seq', 'imported-app', 'imported-path'] as const;
+/** frontmatter 里 Host 自己写的字段；其余的原样留着。`imported-*` 是导入的出处（0.74.0），`proposal` 是采纳的建议（0.87.0）。 */
+const SOURCE_FIELDS = [
+  'by',
+  'session',
+  'turn',
+  'seq',
+  'imported-app',
+  'imported-path',
+  'proposal',
+] as const;
 const KNOWN_FIELDS = new Set([
   'name',
   'description',
@@ -658,6 +719,7 @@ function sourceLines(prefix: 'created' | 'updated', source: MemorySource | undef
     ...(source.sessionId === undefined ? [] : [`${prefix}-session: ${source.sessionId}`]),
     ...(source.turnId === undefined ? [] : [`${prefix}-turn: ${source.turnId}`]),
     ...(source.seq === undefined ? [] : [`${prefix}-seq: ${source.seq}`]),
+    ...(source.proposalId === undefined ? [] : [`${prefix}-proposal: ${source.proposalId}`]),
     ...(source.importedFrom === undefined
       ? []
       : [
@@ -681,9 +743,10 @@ function parseSource(
     sessionId: fields.get(`${prefix}-session`),
     turnId: fields.get(`${prefix}-turn`),
     seq: Number.isInteger(seq) ? seq : undefined,
+    proposalId: fields.get(`${prefix}-proposal`),
   };
   const source: MemorySource = { by, at: candidate.at };
-  for (const key of ['sessionId', 'turnId', 'seq'] as const) {
+  for (const key of ['sessionId', 'turnId', 'seq', 'proposalId'] as const) {
     const value = candidate[key];
     if (value === undefined) continue;
     const checked = MemorySourceSchema.safeParse({ by, at: candidate.at, [key]: value });

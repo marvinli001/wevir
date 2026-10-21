@@ -46,6 +46,7 @@ import {
   readUncommitted,
 } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
+import type { GuardrailService } from './guardrails/service.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import type { LspStatusService } from './lsp/service.js';
@@ -68,6 +69,8 @@ import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import type { TerminalService } from './terminals.js';
+import type { ProposalService } from './tuning/proposals.js';
+import type { TuningService } from './tuning/service.js';
 import type { PricingStore } from './usage/pricing.js';
 import type { UsageService } from './usage/usage-service.js';
 import type { VerificationService } from './verification/service.js';
@@ -174,6 +177,12 @@ export interface HostMethodsOptions {
   search?: SessionSearch;
   /** 审批规则（0.80.0，`approvalRule.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   approvalRules?: ApprovalRuleService;
+  /** 调优的档案（0.85.0，`tuning.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  tuning?: TuningService;
+  /** 调优的建议（0.87.0，`tuning.proposal.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  proposals?: ProposalService;
+  /** 护栏（0.86.0，`guardrail.*` 与 `repoHook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  guardrails?: GuardrailService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -292,6 +301,19 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (options.approvalRules === undefined)
       throw invalidParams([], 'this host has no approval rules');
     return options.approvalRules;
+  };
+  const tuning = (): TuningService => {
+    if (options.tuning === undefined) throw invalidParams([], 'this host has no tuning profile');
+    return options.tuning;
+  };
+  const proposals = (): ProposalService => {
+    if (options.proposals === undefined)
+      throw invalidParams([], 'this host has no tuning proposals');
+    return options.proposals;
+  };
+  const guardrails = (): GuardrailService => {
+    if (options.guardrails === undefined) throw invalidParams([], 'this host has no guardrails');
+    return options.guardrails;
   };
   const search = (): SessionSearch => {
     if (options.search === undefined) throw invalidParams([], 'this host has no session search');
@@ -1406,6 +1428,48 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
       return { suggestions: approvalRules().suggest(workspaceId) };
     },
+
+    // 0.85.0：调优的档案。
+    'tuning.get': (params) => tuning().get(params),
+    'tuning.versions': (params) => tuning().versions(params),
+    'tuning.version': (params) => tuning().version(params),
+    'tuning.diff': (params) => tuning().diff(params),
+    'tuning.blob': (params) => tuning().blob(params),
+    // 0.86.0：护栏。项目的规则要项目存在（未移除）；项目移除后规则留着，加回来时还在。
+    'guardrail.list': ({ workspaceId }) => {
+      if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
+      return { guardrails: guardrails().list(workspaceId as WorkspaceId | undefined) };
+    },
+    'guardrail.add': async (params) => {
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return { guardrail: await guardrails().add(params) };
+    },
+    'guardrail.update': async (params) => ({ guardrail: await guardrails().update(params) }),
+    'guardrail.delete': async ({ guardrailId }) => {
+      await guardrails().delete(guardrailId);
+      return {};
+    },
+    'guardrail.setEnabled': async ({ guardrailId, enabled }) => ({
+      guardrail: await guardrails().setEnabled(guardrailId, enabled),
+    }),
+    'repoHook.list': ({ workspaceId }) => {
+      requireWorkspace(storage, workspaceId);
+      return guardrails().repoHooks(workspaceId as WorkspaceId);
+    },
+    'repoHook.setEnabled': async ({ workspaceId, hookId, enabled }) => {
+      requireWorkspace(storage, workspaceId);
+      return {
+        hook: await guardrails().setRepoHookEnabled(workspaceId as WorkspaceId, hookId, enabled),
+      };
+    },
+    // 0.87.0：调优的建议。
+    'tuning.proposal.generate': (params) => proposals().generate(params),
+    'tuning.proposal.list': (params) => {
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return proposals().list(params);
+    },
+    'tuning.proposal.update': (params) => proposals().update(params),
+    'tuning.proposal.decide': (params) => proposals().decide(params),
   };
 }
 

@@ -12,6 +12,7 @@ import {
   Rows3,
   Search,
   Settings,
+  SlidersHorizontal,
   SquarePen,
 } from 'lucide-react';
 import { memo, type ReactNode, useState } from 'react';
@@ -49,6 +50,8 @@ import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { searchOpen } from '@/search/search-model';
+import { tuningAvailability } from '@/tuning/tuning-model';
+import { useOpenProposalCount } from '@/tuning/use-proposals';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { usageAvailability } from '@/usage/usage-model';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
@@ -74,7 +77,7 @@ const COMPLETED_SHOWN = 10;
 
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
- * 它们放进 `controls`）、“新建会话”“自动化”（0.66.0，Host 有 `automations` 功能才有）与“插件”（0.42.0，Host 有 `plugins` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
+ * 它们放进 `controls`）、“新建会话”“自动化”（0.66.0，Host 有 `automations` 功能才有）与“插件”（0.42.0，Host 有 `plugins` 功能才有）、“调优”（0.85.0，Host 有 `tuning` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
  * ADR-0007 补记 4）、“使用统计”（0.62.0，Host 有 `usage_stats` 功能才有）与设置入口。不显示与 Host 的连接状态：连上时什么都不
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
@@ -83,6 +86,10 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   // Host 有 `plugins` 功能才有“插件”入口（0.42.0）；断线重连期间 client 还在，入口不闪。
   const { client } = useHostConnection();
   const showPlugins = pluginsAvailability(client?.hello.features) === 'ready';
+  // Host 有 `tuning` 功能才有“调优”入口（0.85.0），在“插件”下面。
+  const showTuning = tuningAvailability(client?.hello.features) === 'ready';
+  // 待审的建议数（0.87.0），在“调优”右边。
+  const openProposals = useOpenProposalCount(showTuning ? client : undefined);
   // Host 有 `usage_stats` 功能才有“使用统计”入口（0.62.0），在设置上面。
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
@@ -136,6 +143,27 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
           >
             <Blocks className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             {t('sidebar.plugins')}
+          </NavLink>
+        )}
+        {showTuning && (
+          <NavLink
+            to={paths.tuning()}
+            className={({ isActive }) => cn(ROW, isActive && ROW_ACTIVE)}
+            data-testid="sidebar-tuning"
+          >
+            <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="flex-1">{t('sidebar.tuning')}</span>
+            {openProposals > 0 && (
+              <span
+                className="text-xs text-muted-foreground tabular-nums"
+                data-testid="sidebar-tuning-pending"
+              >
+                <span aria-hidden>{openProposals}</span>
+                <span className="sr-only">
+                  {t('sidebar.tuningPending', { count: openProposals })}
+                </span>
+              </span>
+            )}
           </NavLink>
         )}
       </div>

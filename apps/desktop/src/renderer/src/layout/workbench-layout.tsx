@@ -826,11 +826,13 @@ interface Header {
   panes: boolean;
 }
 
-/** 顶栏标题：会话标题 · 工作区名；草稿页是“新会话”；插件页是“插件”；首页、设置、未找到等页面不显示标题。 */
+/** 顶栏标题：会话标题 · 工作区名；草稿页是“新会话”；插件页是“插件”，调优页是“调优”；首页、设置、未找到等页面不显示标题。 */
 function useHeader(workspaceId: string | undefined, sessionId: string | undefined): Header {
   const data = useWorkbenchData();
   const onPlugins = useMatch(`${ROUTE_PATTERNS.plugins}/*`) !== null;
+  const onTuning = useMatch(`${ROUTE_PATTERNS.tuning}/*`) !== null;
   if (onPlugins) return { title: t('plugins.title'), panes: false };
+  if (onTuning) return { title: t('tuning.title'), panes: false };
   if (workspaceId === undefined) return { title: '', panes: false };
   const target = resolveRoute(data, workspaceId, sessionId);
   switch (target.kind) {

@@ -123,6 +123,20 @@ import {
   GitStatusParamsSchema,
   GitStatusResultSchema,
 } from './git.js';
+import {
+  GuardrailAddParamsSchema,
+  GuardrailChangedParamsSchema,
+  GuardrailDeleteParamsSchema,
+  GuardrailListParamsSchema,
+  GuardrailListResultSchema,
+  GuardrailResultSchema,
+  GuardrailSetEnabledParamsSchema,
+  GuardrailUpdateParamsSchema,
+  RepoHookListParamsSchema,
+  RepoHookListResultSchema,
+  RepoHookResultSchema,
+  RepoHookSetEnabledParamsSchema,
+} from './guardrails.js';
 import { ImportMethodSchemas } from './imports.js';
 import {
   LspCancelInstallParamsSchema,
@@ -211,6 +225,29 @@ import {
   TerminalResizeParamsSchema,
   TerminalResizeResultSchema,
 } from './terminals.js';
+import {
+  TuningBlobParamsSchema,
+  TuningBlobResultSchema,
+  TuningChangedParamsSchema,
+  TuningDiffParamsSchema,
+  TuningDiffResultSchema,
+  TuningGetParamsSchema,
+  TuningGetResultSchema,
+  TuningVersionParamsSchema,
+  TuningVersionResultSchema,
+  TuningVersionsParamsSchema,
+  TuningVersionsResultSchema,
+} from './tuning.js';
+import {
+  TuningProposalChangedParamsSchema,
+  TuningProposalDecideParamsSchema,
+  TuningProposalGenerateParamsSchema,
+  TuningProposalGenerateResultSchema,
+  TuningProposalListParamsSchema,
+  TuningProposalListResultSchema,
+  TuningProposalResultSchema,
+  TuningProposalUpdateParamsSchema,
+} from './tuning-proposals.js';
 import {
   UsageChangedParamsSchema,
   UsagePricingParamsSchema,
@@ -2384,6 +2421,90 @@ export const MethodSchemas = {
     result: ApprovalRuleSuggestResultSchema,
     permission: 'session.read',
   },
+  /** 调优的档案（0.85.0）。 */
+  'tuning.get': {
+    params: TuningGetParamsSchema,
+    result: TuningGetResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.versions': {
+    params: TuningVersionsParamsSchema,
+    result: TuningVersionsResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.version': {
+    params: TuningVersionParamsSchema,
+    result: TuningVersionResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.diff': {
+    params: TuningDiffParamsSchema,
+    result: TuningDiffResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.blob': {
+    params: TuningBlobParamsSchema,
+    result: TuningBlobResultSchema,
+    permission: 'session.read',
+  },
+  /** 护栏（0.86.0，Host 功能 `tuning_guardrails`）。没有这条规则时 `GUARDRAIL_NOT_FOUND`。 */
+  'guardrail.list': {
+    params: GuardrailListParamsSchema,
+    result: GuardrailListResultSchema,
+    permission: 'session.read',
+  },
+  'guardrail.add': {
+    params: GuardrailAddParamsSchema,
+    result: GuardrailResultSchema,
+    permission: 'host.manage',
+  },
+  'guardrail.update': {
+    params: GuardrailUpdateParamsSchema,
+    result: GuardrailResultSchema,
+    permission: 'host.manage',
+  },
+  'guardrail.delete': {
+    params: GuardrailDeleteParamsSchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'guardrail.setEnabled': {
+    params: GuardrailSetEnabledParamsSchema,
+    result: GuardrailResultSchema,
+    permission: 'host.manage',
+  },
+  /** 仓库自带的 hooks（0.86.0）：默认不执行，逐个启用。 */
+  'repoHook.list': {
+    params: RepoHookListParamsSchema,
+    result: RepoHookListResultSchema,
+    permission: 'workspace.read',
+  },
+  'repoHook.setEnabled': {
+    params: RepoHookSetEnabledParamsSchema,
+    result: RepoHookResultSchema,
+    permission: 'host.manage',
+  },
+  /** 调优的建议（0.87.0）：生成调用会话的模型；采纳写项目文件、记忆与护栏。 */
+  'tuning.proposal.generate': {
+    params: TuningProposalGenerateParamsSchema,
+    result: TuningProposalGenerateResultSchema,
+    permission: 'session.write',
+  },
+  'tuning.proposal.list': {
+    params: TuningProposalListParamsSchema,
+    result: TuningProposalListResultSchema,
+    permission: 'session.read',
+  },
+  'tuning.proposal.update': {
+    params: TuningProposalUpdateParamsSchema,
+    result: TuningProposalResultSchema,
+    permission: 'host.manage',
+  },
+  'tuning.proposal.decide': {
+    params: TuningProposalDecideParamsSchema,
+    result: TuningProposalResultSchema,
+    permission: 'host.manage',
+  },
 
   'browser.register': {
     params: BrowserRegisterParamsSchema,
@@ -2443,6 +2564,12 @@ export const NotificationSchemas = {
   'readiness.changed': { params: ReadinessChangedParamsSchema },
   /** 发给调用过 `preview.*` 的连接（0.84.0）。 */
   'preview.changed': { params: PreviewChangedParamsSchema },
+  /** 发给调用过 `tuning.*` 的连接（0.85.0）。 */
+  'tuning.changed': { params: TuningChangedParamsSchema },
+  /** 发给调用过 `guardrail.*` 或 `repoHook.*` 的连接（0.86.0）。 */
+  'guardrail.changed': { params: GuardrailChangedParamsSchema },
+  /** 发给调用过 `tuning.*` 的连接（0.87.0）。 */
+  'tuning.proposal.changed': { params: TuningProposalChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

@@ -8,6 +8,7 @@ export default defineConfig({
     'src/history-tool.ts',
     'src/app-tools-bridge.ts',
     'src/web-tool.ts',
+    'src/guardrail.ts',
     'src/npm-package.ts',
     'src/private-home.ts',
     'src/contract.ts',

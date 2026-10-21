@@ -91,6 +91,8 @@ export interface SessionRecord {
   updatedAt: string;
   /** 归档的时刻（0009_session_archive，协议 0.23.0）；没有归档时省略。不是事件推导的缓存。 */
   archivedAt?: string;
+  /** 建会话时用的档案版本（0019_profile_versions，协议 0.85.0）；Host 没记档案时省略。建会话后不变。 */
+  profileVersionId?: string;
 }
 
 /** 可更新的缓存字段。`activeTurn`、`lastError`、`reasoningEffort` 传 `null` 表示清空。 */
@@ -180,12 +182,12 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
       permission_mode, environment_id, extra_roots, worktrees, origin, tool_preset, forked_from, side,
-      parent_session_id, parent_tool_call_id,
+      parent_session_id, parent_tool_call_id, profile_version_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
       :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :toolPreset, :forkedFrom, :side,
-      :parentSessionId, :parentToolCallId,
+      :parentSessionId, :parentToolCallId, :profileVersionId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -251,6 +253,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         side: record.side ? 1 : null,
         parentSessionId: record.parentSessionId ?? null,
         parentToolCallId: record.parentToolCallId ?? null,
+        profileVersionId: record.profileVersionId ?? null,
         title: record.title,
         titleSource: record.titleSource,
         state: record.state,
@@ -392,5 +395,7 @@ function fromRow(row: SqlRow): SessionRecord {
   if (lastError !== undefined) record.lastError = lastError as SessionErrorRecord;
   const archivedAt = optionalText(row, 'archived_at');
   if (archivedAt !== undefined) record.archivedAt = archivedAt;
+  const profileVersionId = optionalText(row, 'profile_version_id');
+  if (profileVersionId !== undefined) record.profileVersionId = profileVersionId;
   return record;
 }

@@ -304,6 +304,7 @@ export function sameRules(a: SessionRules | undefined, b: SessionRules): boolean
       rules.channel ?? null,
       rules.bytes ?? null,
       rules.custom ?? null,
+      rules.profileVersion?.id ?? null,
       rules.files.map((file) => [
         file.path,
         file.delivery,

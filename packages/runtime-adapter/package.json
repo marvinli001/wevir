@@ -27,6 +27,11 @@
       "types": "./dist/app-tools-bridge.d.ts",
       "default": "./dist/app-tools-bridge.js"
     },
+    "./guardrail": {
+      "@wevir/source": "./src/guardrail.ts",
+      "types": "./dist/guardrail.d.ts",
+      "default": "./dist/guardrail.js"
+    },
     "./web-tool": {
       "@wevir/source": "./src/web-tool.ts",
       "types": "./dist/web-tool.d.ts",

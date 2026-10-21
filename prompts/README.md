@@ -2,7 +2,7 @@
 
 这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -17,6 +17,7 @@
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-insight.md`](session-insight.md) | 你应该知道：旁观会话，偶尔提出一件用户大概没注意到、但有后果的事 | Host（0.79.0，`packages/host/src/insight.ts`）：去掉注释作为说明；回合结束后按频率限制由适配器的 `generateTitle` 用会话的模型发；设置里默认关 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-retro.md`](session-retro.md) | 任务回顾的模型摘要：把确定性生成的回顾压成几点，每点引用回顾里的行 ID | Host（0.76.0，`packages/host/src/retro/summary.ts`）：去掉注释作为说明；只在用户点“生成摘要”时由适配器的 `generateTitle` 用会话的模型发一次，输入是脱敏后的回顾；输出不覆盖回顾本身，没有有效出处的点标“推断” | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
+| [`tuning-proposals.md`](tuning-proposals.md) | 调优建议：读一个结束的会话（回顾摘要、精简的记录、验证结果、护栏拦截）与项目当前的配置，提出至多三条对规则文件、项目技能、项目记忆或护栏的改动 | Host（0.87.0，`packages/host/src/tuning/proposals.ts`）：去掉注释作为说明；只在用户点“生成建议”时由适配器的 `generateTitle` 用会话的模型发一次，不带工具；输出是严格的 JSON，解析不了就报错、不重试；建议要用户采纳才写入 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见，0.83.0 起也包括用户选了要处理的审查发现 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
 | [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
@@ -33,7 +34,7 @@
 - **Codex 引擎 + 经网关的第三方模型**（DeepSeek、通义、Kimi、GLM、自定义服务等）：`base.md`。
 - **ChatGPT 订阅登录 + OpenAI 模型**：继续用 Codex 模型目录里按模型调好的提示词（ADR-0005 未决事项 1 原先的建议）。那些提示词针对 OpenAI 模型调过，Wevir 不替换。
 - **dsh、Grok Build、Gemini CLI 等通用 ACP 引擎**：用各自的提示词。`base.md` 里的工具名都是 Codex 的，不适用。
-- **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md`、`session-insight.md` 与 `session-retro.md`**：与引擎无关，由 Host 直接调模型。
+- **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md`、`session-insight.md`、`session-retro.md` 与 `tuning-proposals.md`**：与引擎无关，由 Host 直接调模型。
 - **`verification-repair.md`**：与引擎无关，不单独调模型，是修复回合里交给会话自己的模型的一条消息。
 - **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
 - **`user-instructions.md` 与 `output-styles/`**：与引擎无关，用在所有引擎上（下面「用户说明与输出风格」）。

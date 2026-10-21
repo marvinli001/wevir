@@ -15,6 +15,7 @@ import {
   type WorkspaceId,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
+import { guardrailChecker } from '@wevir/runtime-adapter/guardrail';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
@@ -39,6 +40,7 @@ import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
 import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
+import { GuardrailService } from './guardrails/service.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
@@ -70,8 +72,13 @@ import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
-import { loadTitleInstructions } from './title.js';
+import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
+import { ProfileBlobStore } from './tuning/blobs.js';
+import { ProfileCollector } from './tuning/profile.js';
+import { ProposalService } from './tuning/proposals.js';
+import { loadProposalInstructions } from './tuning/proposals-input.js';
+import { TuningService } from './tuning/service.js';
 import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
 import { ChecksStore } from './verification/checks-store.js';
@@ -197,6 +204,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
   let approvalRules: ApprovalRuleService | undefined;
+  let guardrails: GuardrailService | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -370,13 +378,74 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     const usageStats = usage;
     void pricing.start();
-    // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。
-    approvalRules = new ApprovalRuleService({ storage });
+    // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。规则变了档案也跟着变。
+    const ruleService = new ApprovalRuleService({
+      storage,
+      onChange: (workspaceId) => tuning.changed(workspaceId),
+    });
+    approvalRules = ruleService;
+    // 调优的档案（0.85.0）：建会话、恢复与接力时记下用的档案版本；条目的文本存在 `<数据目录>/tuning/blobs`。
+    const userHome = options.userHome ?? options.pluginUserHome ?? homedir();
+    const tuning = new TuningService({
+      storage,
+      collector: new ProfileCollector({
+        promptsDir: options.promptsDir ?? defaultPromptsDir(),
+        userHome,
+        ruleFiles: (cwd) => discoverRuleFiles({ cwd, home: userHome }),
+        settings: () => settings.get(),
+        memory,
+        skills: () => plugins.enabledSkills(),
+        roles,
+        rolesDir: homePath(home, 'rolesDir'),
+        // 全局档案只算全局规则；项目的算全局的与这个项目的。
+        approvalRules: (workspaceId) =>
+          workspaceId === undefined
+            ? ruleService.list().filter((rule) => rule.workspaceId === undefined)
+            : ruleService.list(workspaceId),
+        // 护栏在下面才建好；采集总在之后。
+        guardrails: (workspaceId) => guardrails?.list(workspaceId as WorkspaceId | undefined) ?? [],
+        repoHooks: (workspaceId) => {
+          try {
+            return guardrails?.repoHooks(workspaceId as WorkspaceId).hooks ?? [];
+          } catch {
+            return [];
+          }
+        },
+        connectors: () => plugins.connectors(),
+        plugins: () => plugins.pluginVersions(),
+      }),
+      blobs: new ProfileBlobStore(join(homePath(home, 'tuningDir'), 'blobs')),
+      wevirVersion: HOST_VERSION,
+      isChats: (workspace) => chats.isChats(workspace),
+    });
+    memory.watch((change) => tuning.changed(change.workspaceId));
+    settings.watch(() => tuning.changed());
+    plugins.watch(() => tuning.changed());
+    void tuning
+      .prune()
+      .catch((error: unknown) => logger.warn('tuning blob cleanup failed', { error }));
+    // 护栏（0.86.0）：规则文件与检查程序在数据目录；只有认 Codex hooks 的引擎挂得上。
+    const workspaces = storage.workspaces;
+    guardrails = new GuardrailService({
+      checker: guardrailChecker(homePath(home, 'guardrailsDir')),
+      workspaceRoot: (workspaceId) => {
+        const workspace = workspaces.get(workspaceId);
+        return workspace === undefined || workspace.removedAt !== undefined
+          ? undefined
+          : workspace.rootPath;
+      },
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    // 规则与仓库 hooks 的启用进档案；只是命中计数变了不算。
+    guardrails.watch((change, { hitsOnly }) => {
+      if (!hitsOnly) tuning.changed(change.workspaceId);
+    });
     const manager = new SessionManager({
       storage,
       events: store,
       adapter,
       approvalRules,
+      guardrails,
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
         prepareEvent: (sessionId, event) => {
@@ -449,6 +518,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       toolOutputDir: toolOutput.dir,
       images,
+      profile: { ensure: (workspaceId) => tuning.ensure(workspaceId) },
     });
     sessions = manager;
     // 自动化（0.66.0，automations/service.ts）：Host 自己计时，到点开会话、发指令；对账之后再开始计时。
@@ -596,6 +666,49 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
+    // 调优的建议（0.87.0）：同回顾摘要，适配器能生成才读提示词；读不到就没有建议（不声明 `tuning_proposals`）。
+    let proposalInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        proposalInstructions = loadProposalInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the tuning proposals prompt; proposals are unavailable', {
+          error,
+        });
+      }
+    }
+    const proposals =
+      proposalInstructions === undefined
+        ? undefined
+        : new ProposalService({
+            storage,
+            events: store,
+            retro,
+            instructions: proposalInstructions,
+            generate: (sessionId, request) => manager.generateOnce(sessionId, request),
+            isChats: (workspace) => chats.isChats(workspace),
+            ruleFiles: (cwd) => discoverRuleFiles({ cwd, home: userHome }),
+            skills: () => plugins.enabledSkills(),
+            enableSkill: async (path) => {
+              const real = await realpath(path).catch(() => path);
+              const skill = (await plugins.skills()).find(
+                (item) => item.path === real || item.path === path,
+              );
+              if (skill !== undefined && !skill.enabled)
+                await plugins.setSkillEnabled(skill.id, true);
+            },
+            memory,
+            ...(guardrails !== undefined && { guardrails }),
+            userHome,
+            onProfileChanged: (workspaceId) => tuning.changed(workspaceId),
+            onWarning: (message, fields) => logger.warn(message, fields),
+          });
+    if (proposals !== undefined) {
+      tuning.setCauses({
+        pending: (workspaceId) => proposals.pendingCause(workspaceId),
+        recorded: (versionId, cause) => proposals.recordCause(versionId, cause),
+      });
+    }
 
     // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
     const sessionStore = storage;
@@ -762,6 +875,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         externalImport,
         search,
         approvalRules,
+        tuning,
+        ...(guardrails !== undefined && { guardrails }),
+        ...(proposals !== undefined && { proposals }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -838,6 +954,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(customPrompts !== undefined && { agent_instructions: true }),
         approval_rules: true,
         ...(previews !== undefined && { dev_preview: true }),
+        tuning: true,
+        ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
+        ...(proposals !== undefined && { tuning_proposals: true }),
       },
       engineFeatures,
       plugins,
@@ -848,9 +967,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
       ...(previews !== undefined && { previews }),
+      ...(guardrails !== undefined && { guardrails }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
       ...(lspStatus !== undefined && { lsp: lspStatus }),
+      tuning,
+      ...(proposals !== undefined && { proposals }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。

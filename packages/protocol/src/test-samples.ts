@@ -33,6 +33,7 @@ import type {
 import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
 import type { GitStatusResult } from './git.js';
+import type { Guardrail, GuardrailBlocked, RepoHook } from './guardrails.js';
 import type { LspInstallRun, LspServerStatus } from './lsp.js';
 import {
   IMAGE_UPLOAD_DATA_MAX_LENGTH,
@@ -48,6 +49,14 @@ import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
 import type { Terminal } from './terminals.js';
+import type {
+  Profile,
+  ProfileItem,
+  ProfileLayer,
+  ProfileVersionRef,
+  ProfileVersionSummary,
+} from './tuning.js';
+import type { TuningProposal } from './tuning-proposals.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -106,6 +115,14 @@ export const ids = {
   insight: `isg_${ULID}`,
   /** 审批规则（0.80.0）。 */
   approvalRule: `arl_${ULID}`,
+  /** 档案版本（0.85.0）。 */
+  profileVersion: `pfv_${ULID}`,
+  profileVersion2: 'pfv_01JA2B3C4D5E6F7G8H9JKMNPR2',
+  /** 护栏（0.86.0）。 */
+  guardrail: `grd_${ULID}`,
+  /** 调优的建议（0.87.0）。 */
+  tuningProposal: `tpr_${ULID}`,
+  tuningProposal2: 'tpr_01JA2B3C4D5E6F7G8H9JKMNPR3',
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -1280,6 +1297,179 @@ export const approvalRule: ApprovalRule = {
   lastUsedAt: TS2,
 };
 
+const HASH_A = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+const HASH_B = '9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f';
+const HASH_C = '3f9a2c1e00000000000000000000000000000000000000000000000000000001';
+
+/** 档案的条目（0.85.0）：项目里的 AGENTS.md。 */
+export const profileItem: ProfileItem = {
+  id: '/Users/me/projects/wevir/AGENTS.md',
+  label: 'AGENTS.md',
+  scope: 'project',
+  hash: HASH_A,
+  text: true,
+  path: '/Users/me/projects/wevir/AGENTS.md',
+};
+
+export const profileLayer: ProfileLayer = { key: 'rules', hash: HASH_B, items: [profileItem] };
+
+/** 一份档案：规则文件一条，连接器一条（只有键名，没有文本），其余层空。 */
+export const profile: Profile = {
+  fingerprint: HASH_C,
+  wevirVersion: '0.1.0-beta.240',
+  layers: [
+    profileLayer,
+    {
+      key: 'connectors',
+      hash: HASH_A,
+      items: [
+        {
+          id: 'github',
+          label: 'github',
+          scope: 'global',
+          hash: HASH_B,
+          detail: 'npx -y github-mcp',
+        },
+      ],
+    },
+  ],
+};
+
+export const profileVersionRef: ProfileVersionRef = {
+  id: ids.profileVersion,
+  seq: 7,
+  fingerprint: HASH_C,
+};
+
+export const profileVersionSummary: ProfileVersionSummary = {
+  ...profileVersionRef,
+  workspaceId: ids.workspace,
+  createdAt: TS,
+  sessions: 14,
+  changes: [{ key: 'rules', added: 0, removed: 0, modified: 1 }],
+};
+
+/** 护栏规则（0.86.0）：项目里的结束前检查，与全局的禁止命令。 */
+export const guardrail: Guardrail = {
+  id: ids.guardrail,
+  workspaceId: ids.workspace,
+  name: '测试通过才结束',
+  rule: { kind: 'stop_check', command: 'pnpm test', maxAttempts: 3, timeoutSec: 600 },
+  enabled: true,
+  revision: 2,
+  createdAt: TS,
+  updatedAt: TS2,
+  hits: 4,
+  lastHitAt: TS2,
+};
+
+export const globalGuardrail: Guardrail = {
+  id: 'grd_01JA2B3C4D5E6F7G8H9JKMNPR5',
+  rule: { kind: 'forbidden_command', match: 'prefix', pattern: 'rm -rf' },
+  enabled: false,
+  revision: 1,
+  createdAt: TS,
+  updatedAt: TS,
+  hits: 0,
+};
+
+/** 仓库自带的 hook（0.86.0）：启用过，内容没变。 */
+export const repoHook: RepoHook = {
+  id: '.codex/hooks.json:pre_tool_use:0:0',
+  file: '.codex/hooks.json',
+  event: 'PreToolUse',
+  matcher: 'Bash',
+  handler: 'command',
+  command: './scripts/check-command.sh',
+  timeoutSec: 600,
+  hash: 'sha256:d4f69cdd2c00f2ca673c7703b2aa6420430b66df86546d5334979761548590b4',
+  status: 'enabled',
+  enabledAt: TS,
+};
+
+/** 一次拦截（0.86.0）。 */
+export const guardrailBlocked: GuardrailBlocked = {
+  guardrailId: ids.guardrail,
+  kind: 'stop_check',
+  action: 'continued',
+  turnId: ids.turn,
+  command: 'pnpm test',
+  reason: 'Guardrail check `pnpm test` failed (exit 1). Fix the failures before finishing.',
+  attempt: 1,
+  maxAttempts: 3,
+};
+
+/** 调优的建议（0.87.0）：AGENTS.md 加两行，证据是一个回合与一次验证。 */
+export const ruleProposal: TuningProposal = {
+  id: ids.tuningProposal,
+  workspaceId: ids.workspace,
+  sessionId: ids.session,
+  sessionTitle: '修复 CI',
+  kind: 'rule',
+  title: '测试前先 pnpm build',
+  target: 'AGENTS.md',
+  change: {
+    kind: 'rule',
+    path: '/Users/me/projects/wevir/AGENTS.md',
+    before: '# AGENTS.md\n',
+    after: '# AGENTS.md\n\n- Run `pnpm build` before `pnpm test`.\n',
+  },
+  evidence: [
+    {
+      id: 't:trn_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      text: '测试为什么挂了',
+      turn: 4,
+      ref: { kind: 'event', seq: 40, turnId: ids.turn },
+    },
+    { id: 'e57', text: 'pnpm test failed' },
+  ],
+  status: 'pending',
+  usage: { inputTokens: 1520, outputTokens: 310 },
+  providerId: 'pvd_deepseek',
+  modelId: 'deepseek-chat',
+  createdAt: TS,
+};
+
+/** 采纳了的记忆建议：下一个会话开了 v8，用它的两个会话里验证通过 3 次、共 4 次。 */
+export const memoryProposal: TuningProposal = {
+  ...ruleProposal,
+  id: ids.tuningProposal2,
+  kind: 'memory',
+  title: '金额以分为单位',
+  target: 'invoice-cents',
+  change: {
+    kind: 'memory',
+    name: 'invoice-cents',
+    type: 'project',
+    description: '金额字段以分存储',
+    before: '',
+    after: 'Invoice amounts are stored in cents; never use floats.',
+  },
+  evidence: [],
+  status: 'accepted',
+  edited: true,
+  decidedAt: TS2,
+  version: { ...profileVersionRef, seq: 8 },
+  stats: { sessions: 2, checks: { passed: 3, total: 4 } },
+};
+
+/** 拒绝了的护栏建议。 */
+export const guardrailProposal: TuningProposal = {
+  ...ruleProposal,
+  id: 'tpr_01JA2B3C4D5E6F7G8H9JKMNPR4',
+  kind: 'guardrail',
+  title: '不许强推',
+  target: 'forbidden_command',
+  change: {
+    kind: 'guardrail',
+    name: '不许强推',
+    rule: { kind: 'forbidden_command', match: 'regex', pattern: 'git\\s+push\\s+(-f|--force)' },
+  },
+  status: 'rejected',
+  decidedAt: TS2,
+  usage: undefined,
+};
+
 /** Host 按规则替用户允许（0.80.0）。 */
 export const ruleResolution: ApprovalResolution = {
   optionId: 'allow-once',
@@ -1558,6 +1748,8 @@ export const eventPayloads: PayloadSamples = {
       bytes: 2048,
       // 0.78.0：用户的说明与输出风格。
       custom: { instructions: true, outputStyle: 'concise', bytes: 1024 },
+      // 0.85.0：档案版本。
+      profileVersion: profileVersionRef,
     },
     invalid: {
       ...sessionRules,
@@ -1900,6 +2092,10 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
     },
     invalid: { origin: 'tool', findings: [{ title: '', body: 'x' }] },
+  },
+  'guardrail.blocked': {
+    valid: guardrailBlocked,
+    invalid: { ...guardrailBlocked, guardrailId: 'arl_x' },
   },
 };
 
@@ -4493,6 +4689,19 @@ export const methodSamples: MethodSamples = {
       valid: [
         { note: memoryNote },
         { note: memoryImported },
+        // 0.87.0：采纳建议写下的。
+        {
+          note: {
+            ...memoryNote,
+            origin: {
+              by: 'user',
+              at: TS,
+              sessionId: ids.session,
+              proposalId: ids.tuningProposal,
+              status: 'available',
+            },
+          },
+        },
         {
           note: {
             ...memorySourced,
@@ -5837,6 +6046,269 @@ export const methodSamples: MethodSamples = {
       invalid: [{ suggestions: [{ prefix: ['pnpm'], workspaceId: ids.workspace, count: 0 }] }],
     },
   },
+  'tuning.get': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [
+        {
+          profile,
+          latest: profileVersionSummary,
+          pending: true,
+          pendingLayers: ['rules', 'memory'],
+        },
+        { profile: { fingerprint: HASH_A, layers: [] }, pending: false, pendingLayers: [] },
+      ],
+      invalid: [{ profile: { ...profile, fingerprint: 'abc' }, pending: false, pendingLayers: [] }],
+    },
+  },
+  'tuning.versions': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace, cursor: '7', limit: 20 }],
+      invalid: [{ limit: 0 }],
+    },
+    result: {
+      valid: [
+        {
+          versions: [
+            profileVersionSummary,
+            { ...profileVersionSummary, id: ids.profileVersion2, seq: 1, changes: undefined },
+          ],
+          nextCursor: '1',
+        },
+        { versions: [] },
+        // 0.87.0：采纳建议之后开的版本。
+        { versions: [{ ...profileVersionSummary, cause: { proposalIds: [ids.tuningProposal] } }] },
+      ],
+      invalid: [
+        { versions: [{ ...profileVersionSummary, seq: 0 }] },
+        { versions: [{ ...profileVersionSummary, cause: { proposalIds: [] } }] },
+      ],
+    },
+  },
+  'tuning.version': {
+    params: {
+      valid: [{ versionId: ids.profileVersion }],
+      invalid: [{ versionId: ids.approvalRule }],
+    },
+    result: {
+      valid: [
+        {
+          version: { ...profileVersionSummary, layers: profile.layers, wevirVersion: '0.1.0' },
+          sessionIds: [ids.session],
+        },
+      ],
+      invalid: [{ version: profileVersionSummary, sessionIds: [] }],
+    },
+  },
+  'tuning.diff': {
+    params: {
+      valid: [
+        { from: ids.profileVersion2, to: ids.profileVersion },
+        { from: ids.profileVersion, to: 'current' },
+      ],
+      invalid: [{ from: ids.profileVersion, to: 'latest' }],
+    },
+    result: {
+      valid: [
+        {
+          from: { ...profileVersionRef, id: ids.profileVersion2, seq: 6, fingerprint: HASH_A },
+          to: profileVersionRef,
+          layers: [
+            {
+              key: 'rules',
+              items: [
+                {
+                  id: profileItem.id,
+                  label: profileItem.label,
+                  scope: 'project',
+                  change: 'modified',
+                  before: { ...profileItem, hash: HASH_B },
+                  after: profileItem,
+                },
+              ],
+            },
+            {
+              key: 'memory',
+              items: [
+                {
+                  id: 'project/test-before-build',
+                  label: 'test-before-build',
+                  scope: 'project',
+                  change: 'added',
+                  after: {
+                    id: 'project/test-before-build',
+                    label: 'test-before-build',
+                    scope: 'project',
+                    hash: HASH_C,
+                    text: true,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        { from: profileVersionRef, to: { fingerprint: HASH_C }, layers: [] },
+      ],
+      invalid: [
+        {
+          from: profileVersionRef,
+          to: profileVersionRef,
+          layers: [{ key: 'rules', items: [{ ...profileItem, change: 'renamed' }] }],
+        },
+      ],
+    },
+  },
+  'tuning.blob': {
+    params: { valid: [{ hash: HASH_A }], invalid: [{ hash: 'ABC' }] },
+    result: { valid: [{ text: '# AGENTS.md\n' }, {}], invalid: [{ text: 1 }] },
+  },
+  'guardrail.list': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [{ guardrails: [globalGuardrail, guardrail] }, { guardrails: [] }],
+      invalid: [{ guardrails: [{ ...guardrail, hits: -1 }] }],
+    },
+  },
+  'guardrail.add': {
+    params: {
+      valid: [
+        { rule: { kind: 'forbidden_command', match: 'regex', pattern: '\\bgit\\s+push\\b' } },
+        {
+          workspaceId: ids.workspace,
+          name: '保护密钥',
+          rule: { kind: 'protected_path', glob: '.env*' },
+          enabled: false,
+        },
+        { rule: { kind: 'commit_check', command: 'pnpm lint', timeoutSec: 120 } },
+      ],
+      invalid: [
+        { rule: { kind: 'protected_path', glob: '' } },
+        { rule: { kind: 'stop_check', command: 'pnpm test', maxAttempts: 0 } },
+        { rule: { kind: 'shell_hook', command: 'x' } },
+      ],
+    },
+    result: { valid: [{ guardrail }], invalid: [{}] },
+  },
+  'guardrail.update': {
+    params: {
+      valid: [
+        { guardrailId: ids.guardrail, name: null },
+        {
+          guardrailId: ids.guardrail,
+          rule: { kind: 'stop_check', command: 'pnpm test --run', maxAttempts: 5 },
+        },
+      ],
+      invalid: [{ guardrailId: ids.approvalRule }],
+    },
+    result: { valid: [{ guardrail }], invalid: [{ guardrail: { ...guardrail, revision: 0 } }] },
+  },
+  'guardrail.delete': {
+    params: { valid: [{ guardrailId: ids.guardrail }], invalid: [{}] },
+    result: { valid: [{}], invalid: ['x'] },
+  },
+  'guardrail.setEnabled': {
+    params: {
+      valid: [{ guardrailId: ids.guardrail, enabled: false }],
+      invalid: [{ guardrailId: ids.guardrail }],
+    },
+    result: { valid: [{ guardrail: globalGuardrail }], invalid: [{ guardrail: null }] },
+  },
+  'repoHook.list': {
+    params: { valid: [{ workspaceId: ids.workspace }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          hooks: [
+            repoHook,
+            {
+              id: '.codex/config.toml:stop:0:0',
+              file: '.codex/config.toml',
+              event: 'Stop',
+              handler: 'mcp_tool',
+              hash: 'sha256:986c1d80d388aded1290775be2649e6ff370e859042cbd29bdd8471950dec011',
+              status: 'unsupported',
+            },
+          ],
+          warnings: ['.codex/hooks.json: Unexpected token'],
+        },
+        { hooks: [], warnings: [] },
+      ],
+      invalid: [{ hooks: [{ ...repoHook, hash: '' }], warnings: [] }],
+    },
+  },
+  'repoHook.setEnabled': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, hookId: repoHook.id, enabled: true }],
+      invalid: [{ workspaceId: ids.workspace, hookId: '', enabled: true }],
+    },
+    result: {
+      valid: [
+        { hook: repoHook },
+        { hook: { ...repoHook, status: 'disabled', enabledAt: undefined } },
+      ],
+      invalid: [{ hook: { ...repoHook, file: '' } }],
+    },
+  },
+  'tuning.proposal.generate': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, replaces: ids.tuningProposal }],
+      invalid: [{}, { sessionId: ids.session, replaces: ids.guardrail }],
+    },
+    result: {
+      valid: [
+        {
+          proposals: [ruleProposal],
+          usage: { inputTokens: 2400, outputTokens: 520 },
+          summarized: true,
+        },
+        { proposals: [], usage: { inputTokens: 1800, outputTokens: 12 } },
+        { proposals: [], reason: 'no_project' },
+      ],
+      invalid: [{ proposals: [ruleProposal, ruleProposal, ruleProposal, ruleProposal] }],
+    },
+  },
+  'tuning.proposal.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace, status: 'open' }, { status: 'decided' }],
+      invalid: [{ status: 'accepted' }],
+    },
+    result: {
+      valid: [{ proposals: [ruleProposal, memoryProposal, guardrailProposal] }, { proposals: [] }],
+      invalid: [
+        { proposals: [{ ...ruleProposal, status: 'superseded' }] },
+        { proposals: [{ ...ruleProposal, change: { kind: 'rule', path: '/x' } }] },
+        { proposals: [{ ...ruleProposal, evidence: Array(9).fill({ id: 'e1', text: '' }) }] },
+      ],
+    },
+  },
+  'tuning.proposal.update': {
+    params: {
+      valid: [
+        { proposalId: ids.tuningProposal, after: '# AGENTS.md\n' },
+        { proposalId: ids.tuningProposal2, after: 'x', description: '金额以分存储' },
+        {
+          proposalId: ids.tuningProposal,
+          rule: { kind: 'protected_path', glob: '.env*' },
+          name: null,
+        },
+      ],
+      invalid: [{ after: 'x' }, { proposalId: ids.tuningProposal, description: ' ' }],
+    },
+    result: { valid: [{ proposal: ruleProposal }], invalid: [{}] },
+  },
+  'tuning.proposal.decide': {
+    params: {
+      valid: [
+        { proposalId: ids.tuningProposal, decision: 'accept' },
+        { proposalId: ids.tuningProposal, decision: 'reject' },
+      ],
+      invalid: [{ proposalId: ids.tuningProposal, decision: 'later' }],
+    },
+    result: {
+      valid: [{ proposal: memoryProposal }, { proposal: guardrailProposal }],
+      invalid: [{ proposal: { ...memoryProposal, stats: { sessions: -1 } } }],
+    },
+  },
   'browser.register': {
     params: {
       valid: [
@@ -6257,6 +6729,18 @@ export const notificationSamples: NotificationSamples = {
   'preview.changed': {
     valid: [{ workspaceId: ids.workspace, configs: [previewConfig] }],
     invalid: [{ workspaceId: ids.workspace }],
+  },
+  'tuning.changed': {
+    valid: [{}, { workspaceId: ids.workspace }],
+    invalid: [{ workspaceId: 'x' }],
+  },
+  'guardrail.changed': {
+    valid: [{}, { workspaceId: ids.workspace }],
+    invalid: [{ workspaceId: 'global' }],
+  },
+  'tuning.proposal.changed': {
+    valid: [{}, { workspaceId: ids.workspace }],
+    invalid: [{ workspaceId: 'x' }],
   },
   'readiness.changed': {
     valid: [
