@@ -88,6 +88,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': 'Репозиторий изменился',
   'rpcError.WORKSPACE_PATH_INVALID': 'Путь проекта недоступен',
   'rpcError.SPEECH_FAILED': 'Сбой распознавания',
+  'rpcError.MCP_OAUTH_FAILED': 'Не удалось войти',
 
   'clientError.request_timeout': 'Время ожидания запроса истекло',
   'clientError.connect_timeout': 'Время ожидания подключения истекло',

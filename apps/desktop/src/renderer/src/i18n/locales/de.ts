@@ -90,6 +90,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': 'Repository geändert',
   'rpcError.WORKSPACE_PATH_INVALID': 'Projektpfad nicht verwendbar',
   'rpcError.SPEECH_FAILED': 'Transkription fehlgeschlagen',
+  'rpcError.MCP_OAUTH_FAILED': 'Anmeldung fehlgeschlagen',
 
   'clientError.request_timeout': 'Zeitüberschreitung der Anfrage',
   'clientError.connect_timeout': 'Zeitüberschreitung der Verbindung',

@@ -52,6 +52,8 @@ import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
 import { LspStatusService } from './lsp/service.js';
 import { MarketService, type MarketServiceOptions } from './market/service.js';
+import { McpRemoteProxy } from './mcp-oauth/proxy.js';
+import { type McpOAuthOptions, McpOAuthService } from './mcp-oauth/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
@@ -123,6 +125,8 @@ export type ShutdownTrigger =
   | { kind: 'api' };
 
 export interface StartHostOptions {
+  /** 远程 MCP 服务的 OAuth（0.97.0）：测试换掉 CIMD 地址、登录超时、时钟与 DNS 解析。 */
+  mcpOAuth?: Pick<McpOAuthOptions, 'clientMetadataUrl' | 'loginTimeoutMs' | 'now' | 'lookup'>;
   /** 官方插件市场的镜像地址、公钥与 fetch（0.91.0）；省略用 wevir-marketplace 的三个镜像（测试换成本机服务）。 */
   market?: Pick<MarketServiceOptions, 'mirrors' | 'publicKeys' | 'fetch'>;
   /** 测试时与隔离的引擎 HOME 一致；产品默认 os.homedir()。 */
@@ -293,7 +297,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await settings.load();
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
+    const secrets = new FileSecretStore(home);
+    // 远程 MCP 服务的 OAuth（0.97.0，mcp-oauth/）：令牌在密钥文件里，代理开在 RPC 的同一个端口上（监听之后才交给引擎）。
+    const mcpOAuth = new McpOAuthService({
+      secrets,
+      onSecret: (value) => logger.addSecret(value),
+      onWarning: (message) => logger.warn(message),
+      ...options.mcpOAuth,
+    });
     const plugins = new PluginRegistry({
+      oauth: mcpOAuth,
       home,
       ...(options.pluginUserHome !== undefined && { userHome: options.pluginUserHome }),
       roots: () => sessionsDb.workspaces.list().map((workspace) => workspace.rootPath),
@@ -302,6 +315,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message) => logger.warn(message),
     });
     await plugins.load();
+    await mcpOAuth.load();
+    const mcpRemote = new McpRemoteProxy({
+      oauth: mcpOAuth,
+      target: (id) => plugins.oauthTargetById(id),
+      onError: (error) => logger.warn('remote MCP proxy error', { error }),
+    });
     const checkpoints = new TurnCheckpoints({
       isOpen: (sessionId) => {
         const record = sessionsDb.sessions.get(sessionId);
@@ -582,7 +601,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ) {
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
-    const secrets = new FileSecretStore(home);
     const checksStore = new ChecksStore({
       dir: homePath(home, 'checksDir'),
       onWarning: (message, fields) => logger.warn(message, fields),
@@ -938,6 +956,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       events: store,
       methods: createHostMethods({
         plugins,
+        mcpOAuth,
         storage,
         events: store,
         sessions: manager,
@@ -1056,6 +1075,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         plugin_market: true,
         market_files: true,
         speech: true,
+        mcp_oauth: true,
       },
       engineFeatures,
       plugins,
@@ -1078,13 +1098,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
-      httpHandler: (req, res) => fileUrls.handle(req, res) || (mcp?.handle(req, res) ?? false),
+      httpHandler: (req, res) =>
+        fileUrls.handle(req, res) || mcpRemote.handle(req, res) || (mcp?.handle(req, res) ?? false),
       onError: (error) => logger.error('rpc error', { error }),
     });
     rpc = server;
     const url = await server.listen();
     mcp?.setPort(server.port);
     fileUrls.setPort(server.port);
+    // 代理有了端口，已登录的 OAuth 连接器才交给引擎；还没判断过要不要 OAuth 的远程服务在后台探测一遍。
+    mcpOAuth.setPort(server.port);
+    mcpRemote.setPort(server.port);
+    plugins.changed();
+    void adapter.reloadPlugins?.().catch(() => {});
+    void mcpOAuth
+      .detectAll()
+      .catch((error: unknown) => logger.warn('MCP OAuth detection failed', { error }));
     // 一个进程服务所有会话的引擎（OpenCode）拿引擎令牌；它的服务器下次起来时挂上。
     if (mcp !== undefined) adapter.bindEngineAppTools?.((kinds) => mcp.grantEngine(kinds));
     await runtimeFile.publish(url, token);
@@ -1102,6 +1131,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           logger,
           rpc: server,
           appMcp: mcp,
+          mcpRemote,
+          mcpOAuth,
           processes,
           previews,
           speech,
@@ -1169,6 +1200,9 @@ interface ShutdownParts {
   rpc: HostRpcServer;
   /** 应用级工具的 MCP 端点（0.30.0）；引擎挂不上时没有。 */
   appMcp: AppMcpServer | undefined;
+  /** 远程 MCP 服务的代理与 OAuth 登录（0.97.0）。 */
+  mcpRemote: McpRemoteProxy;
+  mcpOAuth: McpOAuthService;
   /** 后台进程（processes.ts）；没有应用级工具时没有。 */
   processes: ProcessManager | undefined;
   /** 开发服务器预览（0.84.0）：停下判定就绪的循环；进程随后台进程结束。 */
@@ -1222,6 +1256,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   };
   // 应用级工具不再接新调用，进行中的等待（wevir_session_wait）随即返回。
   parts.appMcp?.close();
+  parts.mcpRemote.close();
+  parts.mcpOAuth.close();
   // 回合后验证：不再接新的回合事件，还在跑的检查 SIGTERM（宽限后 SIGKILL）；下次启动时对账为 `cancelled`。
   if (parts.verification !== undefined) {
     await step('stop_verification', () => parts.verification?.dispose(), true);

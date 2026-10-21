@@ -11,6 +11,7 @@ import {
   SessionStateSchema,
 } from './entities.js';
 import { GitExpectedStateSchema } from './git.js';
+import { McpOAuthErrorReasonSchema } from './plugins.js';
 import { SpeechFailedDataSchema } from './speech.js';
 import { ProtocolVersionSchema } from './version.js';
 
@@ -63,6 +64,11 @@ export const ErrorCode = {
   ENGINE_ERROR: -32041,
   /** 听写转写失败（0.92.0，`speech.finish`）：本机模型没装好、转写服务出错等，原因在 `data.reason`。 */
   SPEECH_FAILED: -32042,
+  /**
+   * 远程 MCP 服务的 OAuth 登录开始不了（0.97.0，`connector.login`）：服务器不用 OAuth、要填客户端 ID、授权服务器不支持 PKCE S256 等，
+   * 原因在 `data.reason`（取值同 `Connector.oauth.error`）。
+   */
+  MCP_OAUTH_FAILED: -32043,
 
   /** 没有这个档案版本（0.85.0，`tuning.*`）。 */
   PROFILE_VERSION_NOT_FOUND: -32060,
@@ -149,6 +155,7 @@ export const ErrorDataSchemas = {
   }),
   ENGINE_ERROR: EngineErrorInfoSchema,
   SPEECH_FAILED: SpeechFailedDataSchema,
+  MCP_OAUTH_FAILED: z.object({ reason: McpOAuthErrorReasonSchema }),
 } as const satisfies Partial<Record<ErrorCodeName, z.ZodType>>;
 
 export type ErrorData<N extends keyof typeof ErrorDataSchemas> = z.infer<

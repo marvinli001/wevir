@@ -17,6 +17,7 @@ import {
   type WorkspaceId,
 } from '@wevir/protocol';
 import { record, scanSkills } from '../plugin-skills.js';
+import { PENDING_CLIENT_SECRET } from '../plugins.js';
 import { SECRET_PATTERNS } from '../secret-patterns.js';
 
 /** Wevir 的一个项目：根目录加其他源文件夹（0.64.0）。 */
@@ -362,15 +363,50 @@ export function convertMcp(
       ? ['Authorization']
       : [];
   const keys = [...new Set([...(headers ?? []), ...(envHeaders ?? []), ...bearer])];
+  const oauth = flavor === 'codex' ? codexOAuth(entry) : undefined;
+  if (oauth === false) return { pending: [], problem: 'invalid' };
   const parsed = McpServerConfigSchema.safeParse({
     transport: 'http',
     url,
     ...(keys.length > 0 && { headers: Object.fromEntries(keys.map((key) => [key, ''])) }),
+    ...(oauth?.config !== undefined && { auth: 'oauth', oauth: oauth.config }),
     ...common,
   });
   return parsed.success
-    ? { config: parsed.data, pending: keys }
+    ? { config: parsed.data, pending: [...keys, ...(oauth?.pending ?? [])] }
     : { pending: [], problem: 'invalid' };
+}
+
+/**
+ * Codex 的 OAuth 字段（0.97.0，mcp_types.rs 的 `scopes`、`oauth.{client_id,client_secret,callback_port,callback_url}`、
+ * `oauth_resource`）：有 `oauth` 表时记成 `auth: "oauth"`；`client_secret` 不导入值，留给用户填（`pending`）。没有这些字段时
+ * undefined（加连接器时自动判断）。Codex 的 OAuth 令牌文件不读。
+ */
+function codexOAuth(
+  entry: Record<string, unknown>,
+): { config?: Record<string, unknown>; pending: string[] } | undefined | false {
+  const table = entry.oauth;
+  const scopes = strings(entry.scopes);
+  const resource = scalar(entry.oauth_resource);
+  if (scopes === false || (table !== undefined && (table === null || typeof table !== 'object')))
+    return false;
+  if (table === undefined && scopes === undefined && resource === undefined) return undefined;
+  const oauth = record(table ?? {});
+  const clientId = scalar(oauth.client_id);
+  const callbackUrl = scalar(oauth.callback_url);
+  const port = oauth.callback_port;
+  const config: Record<string, unknown> = {
+    ...(clientId !== undefined && clientId !== '' && { clientId }),
+    ...(scopes !== undefined && scopes.length > 0 && { scopes }),
+    ...(resource !== undefined && resource !== '' && { resource }),
+    ...(typeof port === 'number' && { callbackPort: port }),
+    ...(callbackUrl !== undefined && callbackUrl !== '' && { callbackUrl }),
+  };
+  const secret = oauth.client_secret !== undefined && oauth.client_secret !== null;
+  return {
+    ...((table !== undefined || Object.keys(config).length > 0) && { config }),
+    pending: secret ? [PENDING_CLIENT_SECRET] : [],
+  };
 }
 
 /** Codex 的 `env_vars`：名字，或 `{ name, source }`。 */

@@ -85,6 +85,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': '儲存庫已變更',
   'rpcError.WORKSPACE_PATH_INVALID': '專案路徑無法使用',
   'rpcError.SPEECH_FAILED': '轉寫失敗',
+  'rpcError.MCP_OAUTH_FAILED': '登入失敗',
 
   'clientError.request_timeout': '請求逾時',
   'clientError.connect_timeout': '連線逾時',

@@ -30,8 +30,22 @@ import {
   SkillSchema,
   WorkspaceIdSchema,
 } from '@wevir/protocol';
-import type { AgentRuntimeAdapter, EnginePluginConfig } from '@wevir/runtime-adapter';
+import type {
+  AgentRuntimeAdapter,
+  EngineMcpConfig,
+  EnginePluginConfig,
+} from '@wevir/runtime-adapter';
 import { HostError } from './errors.js';
+import {
+  hasAuthorizationHeader,
+  isOAuthConfig,
+  type McpOAuthService,
+  type OAuthRegistry,
+  type OAuthTarget,
+  type OAuthTargetRef,
+  type StoredOAuth,
+  type StoredOAuthClient,
+} from './mcp-oauth/service.js';
 import { contained, copyPlugin, readSkills, stagePlugin } from './plugin-install.js';
 import { expandConnector, inputRefs, readPluginPackage } from './plugin-packages.js';
 import { record, scanSkills } from './plugin-skills.js';
@@ -50,7 +64,13 @@ interface StoredConnector {
    * `connector.update` 给了值（或删掉这个键）就不再等它。
    */
   pending?: string[];
+  /** OAuth 登录的元数据（0.97.0），不含令牌；没有就是没登录。 */
+  oauth?: StoredOAuth;
+  /** 散装连接器的 `oauth.clientSecret` 存在密钥文件里（0.97.0）。 */
+  clientSecret?: true;
 }
+/** 导入时留空、等用户填的客户端密钥（0.97.0）：`pending` 里的这一项。 */
+export const PENDING_CLIENT_SECRET = 'oauth.clientSecret';
 /** 散装连接器的额外属性（0.74.0 的项目范围与导入）。 */
 export interface ConnectorExtra {
   workspaceId?: string;
@@ -82,6 +102,8 @@ interface Registry {
   plugins: StoredPlugin[];
   /** 内置 skills 的开关（0.96.0），按名字存：安装包换了位置路径就变。没有的是开着的。 */
   builtin?: Record<string, boolean>;
+  /** 动态注册的 OAuth 客户端（0.97.0），按（issuer，重定向地址）复用。 */
+  oauthClients?: StoredOAuthClient[];
 }
 
 const engineName = (plugin: { id: string }, name: string) => `${plugin.id}_${name}`;
@@ -106,6 +128,7 @@ export class PluginRegistry {
   readonly #userHome: string;
   readonly #adapter: AgentRuntimeAdapter;
   readonly #warning: (message: string) => void;
+  readonly #oauth: McpOAuthService | undefined;
   readonly #listeners = new Set<() => void>();
   #state: Registry = { connectors: [], skills: [], enabled: {}, plugins: [] };
   #queue: Promise<unknown> = Promise.resolve();
@@ -118,6 +141,8 @@ export class PluginRegistry {
     builtinSkillsRoot?: string;
     userHome?: string;
     onWarning?: (message: string) => void;
+    /** 远程 MCP 服务的 OAuth（0.97.0）。不给时 OAuth 连接器照没登录处理，`clientSecret` 照请求头一样存在注册表里。 */
+    oauth?: McpOAuthService;
   }) {
     this.#dir = join(options.home, 'plugins');
     this.#skillsRoot = join(this.dir, 'skills');
@@ -127,6 +152,8 @@ export class PluginRegistry {
     this.#adapter = options.adapter;
     this.#userHome = options.userHome ?? homedir();
     this.#warning = options.onWarning ?? (() => {});
+    this.#oauth = options.oauth;
+    this.#oauth?.bind(this.#oauthRegistry());
   }
 
   async load(): Promise<void> {
@@ -156,12 +183,16 @@ export class PluginRegistry {
       const builtin = record(raw.builtin);
       if ([enabled, builtin].some((map) => Object.values(map).some((v) => typeof v !== 'boolean')))
         throw new Error('Invalid skill enablement');
+      const oauthClients = (Array.isArray(raw.oauthClients) ? raw.oauthClients : []).map(
+        storedOAuthClient,
+      );
       this.#state = {
         connectors,
         skills,
         enabled: enabled as Record<string, boolean>,
         plugins,
         ...(Object.keys(builtin).length > 0 && { builtin: builtin as Record<string, boolean> }),
+        ...(oauthClients.length > 0 && { oauthClients }),
       };
       await chmod(join(this.dir, 'registry.json'), 0o600);
     } catch (error) {
@@ -172,6 +203,94 @@ export class PluginRegistry {
       read: (cwd) => this.engineConfig(cwd),
       changed: () => this.changed(),
     });
+  }
+
+  /** 代理用：连接器的当前配置（展开后的地址与请求头）。 */
+  oauthTargetById(id: string): OAuthTarget | undefined {
+    return this.#oauthTargets().find((item) => item.id === id);
+  }
+
+  /** 给 OAuth 的接口（0.97.0）。 */
+  #oauthRegistry(): OAuthRegistry {
+    return {
+      target: (ref) => this.#oauthTarget(ref),
+      targetById: (id) => this.#oauthTargets().find((item) => item.id === id),
+      targets: () => this.#oauthTargets(),
+      setOAuth: async (id, update, auth) => {
+        const current = findConnector(this.#state, id);
+        if (!current) return;
+        const value = update(current.oauth);
+        if (
+          JSON.stringify(value) === JSON.stringify(current.oauth) &&
+          (auth === undefined ||
+            (current.config.transport === 'http' && current.config.auth === auth))
+        )
+          return;
+        await this.#mutate(async (next) => {
+          const item = findConnector(next, id);
+          if (!item) return;
+          const updated = update(item.oauth);
+          if (updated) item.oauth = updated;
+          else delete item.oauth;
+          if (auth !== undefined && item.config.transport === 'http') item.config.auth = auth;
+        });
+      },
+      oauthClient: (issuer, redirectUri) =>
+        this.#state.oauthClients?.find(
+          (item) => item.issuer === issuer && item.redirectUri === redirectUri,
+        ),
+      saveOAuthClient: async (client) => {
+        await this.#mutate(async (next) => {
+          next.oauthClients = [
+            ...(next.oauthClients ?? []).filter(
+              (item) => item.issuer !== client.issuer || item.redirectUri !== client.redirectUri,
+            ),
+            client,
+          ];
+        });
+      },
+      changed: () => this.changed(),
+    };
+  }
+
+  /** 全部 http 连接器（插件里的展开占位符；必填输入项没填的不算）。 */
+  #oauthTargets(): Array<OAuthTarget & { workspaceId?: string; pluginId?: string; local: string }> {
+    const state = this.#state;
+    const targets: Array<OAuthTarget & { workspaceId?: string; pluginId?: string; local: string }> =
+      [];
+    for (const item of state.connectors) {
+      if (item.config.transport !== 'http') continue;
+      targets.push({
+        ...oauthTarget(item, item.config, item.name),
+        local: item.name,
+        ...(item.workspaceId !== undefined && { workspaceId: item.workspaceId }),
+      });
+    }
+    for (const plugin of state.plugins) {
+      for (const item of plugin.connectors) {
+        if (item.config.transport !== 'http' || missingInputs(plugin, item.config).length > 0)
+          continue;
+        const parsed = McpServerConfigSchema.safeParse(
+          expandConnector(item.config, plugin.values, join(this.packagesRoot, plugin.id)),
+        );
+        if (!parsed.success || parsed.data.transport !== 'http') continue;
+        targets.push({
+          ...oauthTarget(item, parsed.data, engineName(plugin, item.name)),
+          enabled: plugin.enabled && item.enabled,
+          local: item.name,
+          pluginId: plugin.id,
+        });
+      }
+    }
+    return targets;
+  }
+
+  #oauthTarget(ref: OAuthTargetRef): OAuthTarget | undefined {
+    return this.#oauthTargets().find((item) =>
+      ref.pluginId !== undefined
+        ? item.pluginId === ref.pluginId && (item.name === ref.name || item.local === ref.name)
+        : item.name === ref.name && item.workspaceId === ref.workspaceId,
+    );
   }
 
   watch(listener: () => void): () => void {
@@ -236,7 +355,7 @@ export class PluginRegistry {
   async engineConfig(cwd?: string): Promise<EnginePluginConfig> {
     const state = this.#state;
     // 项目的连接器（0.74.0）不在这里：只交给那个项目的会话（`projectConnectors`）。
-    const connectors: EnginePluginConfig['connectors'] = engineConnectors(
+    const connectors: EnginePluginConfig['connectors'] = this.#engineConnectors(
       state.connectors.filter((item) => item.workspaceId === undefined),
     );
     const secrets: string[] = [];
@@ -260,11 +379,9 @@ export class PluginRegistry {
           this.#warning(`MCP server ${engineName(plugin, item.name)} has an invalid configuration`);
           continue;
         }
-        connectors.push({
-          name: engineName(plugin, item.name),
-          config: { ...parsed.data, enabled: item.enabled },
-          enabled: item.enabled,
-        });
+        const config = this.#engineMcp(item.id, parsed.data, item.enabled);
+        if (config === null) continue;
+        connectors.push({ name: engineName(plugin, item.name), config, enabled: item.enabled });
       }
     }
     return {
@@ -284,9 +401,29 @@ export class PluginRegistry {
    * worktree 里的会话也拿得到。还有键没填的不给。
    */
   projectConnectors(workspaceId: string): EnginePluginConfig['connectors'] {
-    return engineConnectors(
+    return this.#engineConnectors(
       this.#state.connectors.filter((item) => item.workspaceId === workspaceId),
     );
+  }
+
+  /** 交给引擎的散装连接器：键还没填完的不给；OAuth 连接器没登录的不给，登录了的换成本机代理（0.97.0）。 */
+  #engineConnectors(items: readonly StoredConnector[]): EnginePluginConfig['connectors'] {
+    return items.flatMap((item) => {
+      if (pendingKeys(item).length > 0) return [];
+      const config = this.#engineMcp(item.id, item.config, item.enabled);
+      return config === null ? [] : [{ name: item.name, config, enabled: item.enabled }];
+    });
+  }
+
+  /** 一个连接器交给引擎的配置；OAuth 连接器没登录时 null。`auth` / `oauth` 只给 Host 用，不交给引擎。 */
+  #engineMcp(id: string, config: McpServerConfig, enabled: boolean): EngineMcpConfig | null {
+    if (isOAuthConfig(config)) return this.#oauth?.engineConfig(id, config, enabled) ?? null;
+    const copy = structuredClone(config);
+    if (copy.transport === 'http') {
+      delete copy.auth;
+      delete copy.oauth;
+    }
+    return { ...copy, enabled };
   }
 
   /** 已知的全部 skills（受管的、插件里的与外部的），不问引擎状态（0.74.0 导入比对用）。 */
@@ -320,25 +457,34 @@ export class PluginRegistry {
   connectors(): Connector[] {
     const state = this.#state;
     return [
-      ...state.connectors.map((item) => view(item)),
+      ...state.connectors.map((item) => this.#view(item)),
       ...state.plugins.flatMap((plugin) =>
         plugin.connectors.map((item) => ({
-          ...view(item, engineName(plugin, item.name)),
+          ...this.#view(item, engineName(plugin, item.name)),
           pluginId: plugin.id,
         })),
       ),
     ];
   }
 
+  /** 视图加上 OAuth 登录状态（0.97.0）。 */
+  #view(item: StoredConnector, name = item.name): Connector {
+    const result = view(item, name);
+    const oauth = this.#oauth?.view(item.id, item.config, item.oauth);
+    if (oauth) result.oauth = oauth;
+    else if (isOAuthConfig(item.config)) result.oauth = { status: 'required' };
+    return result;
+  }
+
   async list(): Promise<PluginsList> {
     const state = this.#state;
     const connectors = [
-      ...state.connectors.map((item) => view(item)),
+      ...state.connectors.map((item) => this.#view(item)),
       ...state.plugins.flatMap((plugin) =>
         plugin.connectors.map((item) => {
           const missing = missingInputs(plugin, item.config);
           return {
-            ...view(item, engineName(plugin, item.name)),
+            ...this.#view(item, engineName(plugin, item.name)),
             pluginId: plugin.id,
             ...(missing.length > 0 && { missingInputs: missing }),
           };
@@ -370,8 +516,14 @@ export class PluginRegistry {
     return [
       ...new Set([
         ...configs.flatMap(({ config }) =>
-          Object.values(config.transport === 'stdio' ? (config.env ?? {}) : (config.headers ?? {})),
+          config.transport === 'stdio'
+            ? Object.values(config.env ?? {})
+            : [
+                ...Object.values(config.headers ?? {}),
+                ...(config.oauth?.clientSecret ? [config.oauth.clientSecret] : []),
+              ],
         ),
+        ...(this.#oauth?.secrets() ?? []),
         ...state.plugins.flatMap((plugin) =>
           plugin.inputs.flatMap((input) =>
             input.secret && plugin.values[input.key] ? [plugin.values[input.key] as string] : [],
@@ -445,15 +597,16 @@ export class PluginRegistry {
   removePlugin(id: string): Promise<void> {
     return this.#mutate(
       async (next) => {
-        this.#pluginOf(next, id);
+        const plugin = this.#pluginOf(next, id);
         const folder = join(this.packagesRoot, id);
         const trash = join(this.dir, `.removed-${randomUUID()}`);
         await rename(folder, trash);
         next.plugins = next.plugins.filter((item) => item.id !== id);
-        return { folder, trash };
+        return { folder, trash, connectors: plugin.connectors.map((item) => item.id) };
       },
       ({ folder, trash }) => rename(trash, folder),
-    ).then(async ({ trash }) => {
+    ).then(async ({ trash, connectors }) => {
+      await this.#oauth?.forget(connectors);
       await rm(trash, { recursive: true, force: true });
     });
   }
@@ -467,6 +620,7 @@ export class PluginRegistry {
       async (next) => {
         const stage = await mkdtemp(join(this.dir, '.install-'));
         let moved: { target: string; trash?: string } | undefined;
+        const tokensDropped: string[] = [];
         try {
           const info = await lstat(resolve(path));
           if (!info.isDirectory() && !(info.isFile() && path.toLowerCase().endsWith('.zip')))
@@ -517,11 +671,24 @@ export class PluginRegistry {
             connectors: pkg.connectors.map((item) => {
               const before = old?.connectors.find((connector) => connector.name === item.name);
               const enabled = before?.enabled ?? item.config.enabled ?? true;
+              const config = { ...item.config, enabled };
+              // 0.97.0：升级时地址与客户端没变就沿用探测结果与登录。
+              const same = before !== undefined && !oauthIdentityChanged(before.config, config);
+              if (
+                same &&
+                config.transport === 'http' &&
+                config.auth === undefined &&
+                before.config.transport === 'http' &&
+                before.config.auth !== undefined
+              )
+                config.auth = before.config.auth;
+              if (before?.oauth !== undefined && !same) tokensDropped.push(before.id);
               return {
                 id: before?.id ?? `con_${randomUUID()}`,
                 name: item.name,
-                config: { ...item.config, enabled },
+                config,
                 enabled,
+                ...(same && before.oauth !== undefined && { oauth: before.oauth }),
               };
             }),
             skills: [],
@@ -543,7 +710,10 @@ export class PluginRegistry {
           );
           plugin.values = mergeInputs(plugin, kept, options.inputs ?? {});
           next.plugins = [...others.plugins, plugin];
-          return { plugin, ignored: pkg.ignored, moved };
+          const removed = (old?.connectors ?? [])
+            .filter((item) => !plugin.connectors.some((connector) => connector.id === item.id))
+            .map((item) => item.id);
+          return { plugin, ignored: pkg.ignored, moved, removed, tokensDropped };
         } catch (error) {
           if (moved) {
             await rm(moved.target, { recursive: true, force: true });
@@ -563,6 +733,9 @@ export class PluginRegistry {
       options.signal,
     );
     if (result.moved.trash) await rm(result.moved.trash, { recursive: true, force: true });
+    await this.#oauth?.forget(result.removed);
+    await this.#oauth?.forget(result.tokensDropped, true);
+    void this.#oauth?.detectAll();
     return { plugin: await this.#plugin(result.plugin), ignored: result.ignored };
   }
 
@@ -570,18 +743,29 @@ export class PluginRegistry {
    * 加一个散装连接器。`extra.workspaceId`（0.74.0）只给那个项目（调用方先确认项目在）；名字在全局与同一项目之间唯一。
    * 导入的带 `importedFrom` 与 `pending`（留空等用户填的键）。
    */
-  add(
+  async add(
     name: string,
     config: McpServerConfig,
     enabled?: boolean,
     signal?: AbortSignal,
     extra: ConnectorExtra = {},
   ): Promise<Connector> {
+    const parsed = McpServerConfigSchema.safeParse(config);
+    if (!parsed.success) throw invalid('Invalid MCP server configuration');
+    const data = parsed.data;
+    // 0.97.0：没说用不用 OAuth、也没带 Authorization 头的远程服务先探测一次；网络不通不挡添加，下次启动再判断。
+    if (
+      data.transport === 'http' &&
+      data.auth === undefined &&
+      !hasAuthorizationHeader(data.headers) &&
+      this.#oauth !== undefined
+    ) {
+      this.#checkName(this.#state, name, extra.workspaceId);
+      if ((await this.#oauth.detect(data.url, data.headers)) === 'oauth') data.auth = 'oauth';
+    }
     return this.#mutate(
       async (next) => {
         this.#checkName(next, name, extra.workspaceId);
-        const parsed = McpServerConfigSchema.safeParse(config);
-        if (!parsed.success) throw invalid('Invalid MCP server configuration');
         if (
           extra.workspaceId !== undefined &&
           !WorkspaceIdSchema.safeParse(extra.workspaceId).success
@@ -590,26 +774,51 @@ export class PluginRegistry {
         const item: StoredConnector = {
           id: `con_${randomUUID()}`,
           name,
-          config: { ...parsed.data, enabled: enabled ?? config.enabled ?? true },
+          config: { ...data, enabled: enabled ?? config.enabled ?? true },
           enabled: enabled ?? config.enabled ?? true,
           ...(extra.workspaceId !== undefined && { workspaceId: extra.workspaceId }),
           ...(extra.importedFrom !== undefined && { importedFrom: extra.importedFrom }),
           ...(extra.pending !== undefined &&
             extra.pending.length > 0 && { pending: [...extra.pending] }),
         };
+        await this.#moveClientSecret(item, undefined);
         next.connectors.push(item);
-        return view(item);
+        return item;
       },
-      undefined,
+      async (item) => {
+        if (item.clientSecret) await this.#oauth?.setClientSecret(item.id, null);
+      },
       signal,
-    );
+    ).then((item) => this.#view(item));
+  }
+
+  /**
+   * 散装连接器的 `oauth.clientSecret` 挪进密钥文件（0.97.0）：配置里不留值，`clientSecret: true` 记下有。`patch` 是
+   * `connector.update` 的 `oauth.clientSecret`（undefined 保留、null 删除）。没有 OAuth 服务时照请求头一样留在配置里。
+   */
+  async #moveClientSecret(item: StoredConnector, patch: string | null | undefined): Promise<void> {
+    if (!this.#oauth || item.config.transport !== 'http') return;
+    const value = item.config.oauth?.clientSecret;
+    if (item.config.oauth) delete item.config.oauth.clientSecret;
+    if (patch === null || (item.config.oauth === undefined && item.clientSecret)) {
+      await this.#oauth.setClientSecret(item.id, null);
+      delete item.clientSecret;
+    } else if (value !== undefined && value !== '') {
+      await this.#oauth.setClientSecret(item.id, value);
+      item.clientSecret = true;
+      if (item.pending?.includes(PENDING_CLIENT_SECRET)) {
+        item.pending = item.pending.filter((key) => key !== PENDING_CLIENT_SECRET);
+        if (item.pending.length === 0) delete item.pending;
+      }
+    }
   }
 
   update(
     id: string,
     patch: { name?: string; config?: McpServerPatch; enabled?: boolean },
   ): Promise<Connector> {
-    return this.#mutate(async (next) => {
+    const dropped: string[] = [];
+    return this.#mutate(async (next): Promise<Connector> => {
       for (const plugin of next.plugins) {
         const owned = plugin.connectors.find((value) => value.id === id);
         if (!owned) continue;
@@ -618,7 +827,7 @@ export class PluginRegistry {
         owned.enabled = patch.enabled ?? owned.enabled;
         owned.config.enabled = owned.enabled;
         return {
-          ...view(owned, engineName(plugin, owned.name)),
+          ...this.#view(owned, engineName(plugin, owned.name)),
           pluginId: plugin.id,
           ...(missingInputs(plugin, owned.config).length > 0 && {
             missingInputs: missingInputs(plugin, owned.config),
@@ -638,31 +847,64 @@ export class PluginRegistry {
         if (item.pending !== undefined) {
           const touched = config.transport === 'stdio' ? config.env : config.headers;
           const pending = item.pending.filter((key) => {
+            if (key === PENDING_CLIENT_SECRET && config.transport === 'http') {
+              const secret = config.oauth === null ? null : config.oauth?.clientSecret;
+              return secret === undefined || secret === '';
+            }
             const value = touched?.[key];
             return value === undefined || value === '';
           });
           if (pending.length > 0) item.pending = pending;
           else delete item.pending;
         }
-        const merged = { ...(old.transport === config.transport ? old : {}), ...config };
+        const merged: Record<string, unknown> = {
+          ...(old.transport === config.transport ? old : {}),
+          ...config,
+        };
+        let secretPatch: string | null | undefined;
         if (config.transport === 'stdio')
           Object.assign(merged, {
             env: mergeSecrets(old.transport === 'stdio' ? old.env : undefined, config.env),
           });
-        else
+        else {
           Object.assign(merged, {
             headers: mergeSecrets(
               old.transport === 'http' ? old.headers : undefined,
               config.headers,
             ),
           });
+          // 0.97.0：auth 为 null 回到自动判断；oauth 给了就整体替换，clientSecret 省略保留、null 删除。
+          if (config.auth === null) delete merged.auth;
+          if (config.oauth === null) {
+            delete merged.oauth;
+            secretPatch = null;
+          } else if (config.oauth !== undefined) {
+            const { clientSecret, ...rest } = config.oauth;
+            const kept = old.transport === 'http' ? old.oauth?.clientSecret : undefined;
+            merged.oauth = {
+              ...rest,
+              ...(clientSecret === undefined && kept !== undefined && { clientSecret: kept }),
+              ...(typeof clientSecret === 'string' && { clientSecret }),
+            };
+            secretPatch = clientSecret;
+          }
+        }
         const parsed = McpServerConfigSchema.safeParse(merged);
         if (!parsed.success) throw invalid('Invalid MCP server configuration');
         item.config = parsed.data;
+        await this.#moveClientSecret(item, secretPatch);
+        // 地址、客户端或 resource 变了、或不再用 OAuth：之前的令牌不能再用。
+        if (item.oauth !== undefined && oauthIdentityChanged(old, item.config)) {
+          delete item.oauth;
+          dropped.push(item.id);
+        }
       }
       item.enabled = patch.enabled ?? patch.config?.enabled ?? item.enabled;
       item.config.enabled = item.enabled;
-      return view(item);
+      return this.#view(item);
+    }).then(async (connector) => {
+      if (dropped.length > 0) await this.#oauth?.forget(dropped, true);
+      return connector;
     });
   }
 
@@ -742,7 +984,7 @@ export class PluginRegistry {
         throw invalid(`MCP server belongs to plugin "${plugin.id}"; remove the plugin instead`);
       if (!next.connectors.some((item) => item.id === id)) throw invalid('MCP server not found');
       next.connectors = next.connectors.filter((item) => item.id !== id);
-    });
+    }).then(() => this.#oauth?.forget([id]));
   }
 
   setSkillEnabled(id: string, enabled: boolean): Promise<Skill> {
@@ -892,17 +1134,47 @@ export class PluginRegistry {
 /** 还在等用户填的键（0.74.0）：`pending` 里值仍是空串的。 */
 function pendingKeys(item: StoredConnector): string[] {
   const values = item.config.transport === 'stdio' ? item.config.env : item.config.headers;
-  return (item.pending ?? []).filter((key) => values?.[key] === '');
+  return (item.pending ?? []).filter((key) =>
+    key === PENDING_CLIENT_SECRET
+      ? item.config.transport === 'http' &&
+        item.config.oauth !== undefined &&
+        !item.clientSecret &&
+        !item.config.oauth.clientSecret
+      : values?.[key] === '',
+  );
 }
-/** 交给引擎的散装连接器：键还没填完的不给。 */
-function engineConnectors(items: readonly StoredConnector[]): EnginePluginConfig['connectors'] {
-  return items
-    .filter((item) => pendingKeys(item).length === 0)
-    .map((item) => ({
-      name: item.name,
-      config: structuredClone(item.config),
-      enabled: item.enabled,
-    }));
+function findConnector(state: Registry, id: string): StoredConnector | undefined {
+  return (
+    state.connectors.find((item) => item.id === id) ??
+    state.plugins.flatMap((plugin) => plugin.connectors).find((item) => item.id === id)
+  );
+}
+function oauthTarget(
+  item: StoredConnector,
+  config: Extract<McpServerConfig, { transport: 'http' }>,
+  name: string,
+): OAuthTarget {
+  return {
+    id: item.id,
+    name,
+    enabled: item.enabled,
+    url: config.url,
+    headers: config.headers ?? {},
+    ...(config.auth !== undefined && { auth: config.auth }),
+    ...(config.oauth !== undefined && { oauth: config.oauth }),
+    clientSecretStored: item.clientSecret === true,
+    ...(item.oauth !== undefined && { stored: item.oauth }),
+  };
+}
+/** 换了地址、客户端、resource，或不再用 OAuth：之前的令牌不能再用（0.97.0）。 */
+function oauthIdentityChanged(old: McpServerConfig, next: McpServerConfig): boolean {
+  if (old.transport !== 'http' || next.transport !== 'http') return true;
+  return (
+    old.url !== next.url ||
+    next.auth === 'none' ||
+    old.oauth?.clientId !== next.oauth?.clientId ||
+    old.oauth?.resource !== next.oauth?.resource
+  );
 }
 function view(item: StoredConnector, name = item.name): Connector {
   const missing = item.pending === undefined ? [] : pendingKeys(item);
@@ -927,7 +1199,8 @@ function view(item: StoredConnector, name = item.name): Connector {
       },
     };
   }
-  const { headers, ...rest } = config;
+  const { headers, oauth, ...rest } = config;
+  const { clientSecret, ...oauthRest } = oauth ?? {};
   return {
     id: item.id,
     name,
@@ -937,6 +1210,14 @@ function view(item: StoredConnector, name = item.name): Connector {
       ...rest,
       ...(headers !== undefined && {
         headers: Object.fromEntries(Object.keys(headers).map((key) => [key, true as const])),
+      }),
+      ...(oauth !== undefined && {
+        oauth: {
+          ...oauthRest,
+          ...((clientSecret !== undefined || item.clientSecret) && {
+            clientSecret: true as const,
+          }),
+        },
       }),
     },
   };
@@ -1001,7 +1282,42 @@ function storedConnector(
       importedFrom: ImportedFromSchema.parse(item.importedFrom),
     }),
     ...(item.pending !== undefined && { pending: item.pending as string[] }),
+    ...(item.oauth !== undefined && { oauth: storedOAuth(item.oauth) }),
+    ...(item.clientSecret === true && { clientSecret: true as const }),
   };
+}
+const CLIENT_AUTH_METHODS = ['none', 'client_secret_basic', 'client_secret_post'];
+function storedOAuth(value: unknown): StoredOAuth {
+  const item = record(value);
+  const text = (key: string) => typeof item[key] === 'string' && item[key] !== '';
+  const list = (key: string) =>
+    item[key] === undefined ||
+    (Array.isArray(item[key]) && (item[key] as unknown[]).every((v) => typeof v === 'string'));
+  if (
+    !['signed_in', 'insufficient_scope'].includes(item.status as string) ||
+    !text('issuer') ||
+    !text('tokenEndpoint') ||
+    !text('clientId') ||
+    !text('resource') ||
+    !['configured', 'cimd', 'dynamic'].includes(item.registration as string) ||
+    !CLIENT_AUTH_METHODS.includes(item.authMethod as string) ||
+    !list('scopes') ||
+    !list('requiredScopes')
+  )
+    throw new Error('Invalid MCP server sign-in state');
+  return item as unknown as StoredOAuth;
+}
+function storedOAuthClient(value: unknown): StoredOAuthClient {
+  const item = record(value);
+  if (
+    typeof item.issuer !== 'string' ||
+    typeof item.redirectUri !== 'string' ||
+    typeof item.clientId !== 'string' ||
+    !CLIENT_AUTH_METHODS.includes(item.authMethod as string) ||
+    (item.clientSecretRef !== undefined && typeof item.clientSecretRef !== 'string')
+  )
+    throw new Error('Invalid OAuth client registry');
+  return item as unknown as StoredOAuthClient;
 }
 function storedPlugin(value: unknown, packagesRoot: string): StoredPlugin {
   const item = record(value);

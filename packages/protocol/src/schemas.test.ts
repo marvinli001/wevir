@@ -653,6 +653,51 @@ const standaloneCases: Case[] = [
     invalid: [['a', 'b', 'c', 'd'], [''], ['x'.repeat(201)]],
   },
   {
+    name: 'McpAuthMode',
+    schema: protocol.McpAuthModeSchema,
+    valid: ['oauth', 'none'],
+    invalid: ['basic', ''],
+  },
+  {
+    name: 'McpOAuthConfig',
+    schema: protocol.McpOAuthConfigSchema,
+    valid: [
+      {},
+      { clientId: 'abc', clientSecret: 'input-only', scopes: ['read'], callbackPort: 33418 },
+      { callbackUrl: 'http://127.0.0.1:33418/callback', resource: 'https://mcp.example.com/' },
+      { authorizeParams: { access_type: 'offline', prompt: 'consent' } },
+    ],
+    invalid: [
+      { clientId: '' },
+      { callbackPort: 70000 },
+      { callbackUrl: 'wevir://callback' },
+      { authorizeParams: { state: 'x' } },
+      { authorizeParams: { '': 'x' } },
+    ],
+  },
+  {
+    name: 'ConnectorOAuthStatus',
+    schema: protocol.ConnectorOAuthStatusSchema,
+    valid: ['required', 'signing_in', 'signed_in', 'insufficient_scope', 'error'],
+    invalid: ['expired'],
+  },
+  {
+    name: 'McpOAuthErrorReason',
+    schema: protocol.McpOAuthErrorReasonSchema,
+    valid: ['denied', 'client_id_required', 'something_new'],
+    invalid: ['', 1],
+  },
+  {
+    name: 'ConnectorOAuth',
+    schema: protocol.ConnectorOAuthSchema,
+    valid: [
+      { status: 'required' },
+      { status: 'signed_in', issuer: 'https://auth.example.com', scopes: ['read'], expiresAt: TS },
+      { status: 'error', error: 'timeout' },
+    ],
+    invalid: [{}, { status: 'signed_in', scopes: [''] }],
+  },
+  {
     name: 'PluginUrl',
     schema: protocol.PluginUrlSchema,
     valid: ['https://example.com/privacy', 'http://localhost:3000/terms'],

@@ -386,11 +386,15 @@ function markers(config: McpServerConfig): ImportConnectorCandidate['config'] {
       }),
     };
   }
-  const { headers, ...rest } = config;
+  const { headers, oauth, ...rest } = config;
+  const { clientSecret, ...oauthRest } = oauth ?? {};
   return {
     ...rest,
     ...(headers !== undefined && {
       headers: Object.fromEntries(Object.keys(headers).map((key) => [key, true as const])),
+    }),
+    ...(oauth !== undefined && {
+      oauth: { ...oauthRest, ...(clientSecret !== undefined && { clientSecret: true as const }) },
     }),
   };
 }

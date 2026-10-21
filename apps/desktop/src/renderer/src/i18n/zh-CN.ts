@@ -98,6 +98,7 @@ export const zhCN = {
   'rpcError.GIT_STATE_CHANGED': '仓库已变更',
   'rpcError.WORKSPACE_PATH_INVALID': '项目路径不可用',
   'rpcError.SPEECH_FAILED': '转写失败',
+  'rpcError.MCP_OAUTH_FAILED': '登录失败',
 
   'clientError.request_timeout': '请求超时',
   'clientError.connect_timeout': '连接超时',

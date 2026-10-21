@@ -148,6 +148,52 @@
                       "type": "string"
                     }
                   },
+                  "auth": {
+                    "type": "string",
+                    "enum": ["oauth", "none"]
+                  },
+                  "oauth": {
+                    "type": "object",
+                    "properties": {
+                      "clientId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "scopes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "resource": {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "callbackPort": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "callbackUrl": {
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "authorizeParams": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "clientSecret": {
+                        "type": "string"
+                      }
+                    }
+                  },
                   "enabled": {
                     "type": "boolean"
                   },

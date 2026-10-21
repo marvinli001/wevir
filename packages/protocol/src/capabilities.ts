@@ -413,6 +413,11 @@ export const HOST_FEATURES = {
    * `wevir_writing_style_*` 工具。与引擎无关。
    */
   writingStyle: 'writing_style',
+  /**
+   * 远程 MCP 服务的 OAuth 登录（0.97.0）：http 连接器的 `auth` / `oauth` 设置、`Connector.oauth`、`connector.login` /
+   * `loginCancel` / `logout` 与 `MCP_OAUTH_FAILED` 错误。没有这个功能位的 Host 不显示登录。
+   */
+  mcpOAuth: 'mcp_oauth',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -497,6 +502,7 @@ export const HostFeaturesSchema = z.looseObject({
   market_files: z.boolean().optional(),
   speech: z.boolean().optional(),
   writing_style: z.boolean().optional(),
+  mcp_oauth: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

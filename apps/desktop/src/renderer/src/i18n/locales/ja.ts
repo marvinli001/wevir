@@ -90,6 +90,7 @@ export const messages: Messages = {
   'rpcError.GIT_STATE_CHANGED': 'リポジトリが変更されました',
   'rpcError.WORKSPACE_PATH_INVALID': 'プロジェクトのパスを使用できません',
   'rpcError.SPEECH_FAILED': '文字起こしに失敗しました',
+  'rpcError.MCP_OAUTH_FAILED': 'サインインに失敗しました',
 
   'clientError.request_timeout': 'リクエストがタイムアウトしました',
   'clientError.connect_timeout': '接続がタイムアウトしました',
