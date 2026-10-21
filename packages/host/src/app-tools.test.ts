@@ -602,7 +602,8 @@ describe('应用级工具', () => {
     expect(waited).toMatchObject({
       timedOut: false,
       state: 'idle',
-      lastTurn: { outcome: 'completed' },
+      lastTurn: { outcome: 'completed', durationMs: expect.any(Number) },
+      totalTokens: 1200,
     });
     expect(typeof waited.answer).toBe('string');
     await new Promise((resolve) => setTimeout(resolve, 50));

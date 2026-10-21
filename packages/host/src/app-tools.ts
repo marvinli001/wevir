@@ -1074,7 +1074,8 @@ export class AppTools {
       description:
         'Wait until another Wevir session is no longer working (its turn ended, or it waits for the user to approve ' +
         `or answer), up to timeoutMs (default ${WAIT_DEFAULT_MS}, at most ${WAIT_MAX_MS}). Returns its state, the ` +
-        "outcome of its last turn and that turn's final answer; while it is still working, progress says what it is " +
+        "outcome and duration of its last turn, that turn's final answer and the tokens the session has used so far " +
+        '(when its engine reports them); while it is still working, progress says what it is ' +
         'doing. A timeout does not stop it; call again, check wevir_session_progress or read it later. A result you ' +
         'get here is not reported to you again.',
       inputSchema: objectSchema(
@@ -1103,6 +1104,7 @@ export class AppTools {
           this.#consumed(`${target.id}:${last.turnId}`, sessionId);
         const answer = last === undefined ? undefined : lastAnswer(events, last.turnId);
         const progress = this.#progress(target.id);
+        const tokens = totalTokens(events);
         return jsonResult({
           ...this.#describe(session, sessionId),
           timedOut,
@@ -1110,6 +1112,7 @@ export class AppTools {
           ...(progress !== undefined && { progress }),
           ...(last !== undefined && { lastTurn: last }),
           ...(answer !== undefined && { answer }),
+          ...(tokens !== undefined && { totalTokens: tokens }),
         });
       },
     };
@@ -1998,12 +2001,23 @@ function lastAnswer(events: readonly WevirEvent[], turnId: TurnId): string | und
 
 function lastTurn(
   events: readonly WevirEvent[],
-): { turnId: TurnId; outcome: TurnOutcome } | undefined {
+): { turnId: TurnId; outcome: TurnOutcome; durationMs: number } | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (event?.type === 'turn.finished') {
-      return { turnId: event.payload.turnId, outcome: event.payload.outcome };
+      const { turnId, outcome, durationMs } = event.payload;
+      return { turnId, outcome, durationMs };
     }
+  }
+  return undefined;
+}
+
+/** 会话累计用掉的 token：最后一条带 `totalTokens` 的 `usage.updated`；引擎不报时没有。 */
+function totalTokens(events: readonly WevirEvent[]): number | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.type === 'usage.updated' && event.payload.totalTokens !== undefined)
+      return event.payload.totalTokens;
   }
   return undefined;
 }
