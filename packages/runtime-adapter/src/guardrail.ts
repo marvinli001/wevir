@@ -83,7 +83,7 @@ export function parseGuardrailMarkers(text: string): GuardrailMarker[] {
  */
 export const GUARDRAIL_CHECKER_SCRIPT = String.raw`// 由 Wevir 生成（packages/runtime-adapter/src/guardrail.ts），Host 每次启动时重写，不要手改。
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -499,7 +499,10 @@ export function pathProtected(glob, target, cwd, home, ignoreCase) {
   if (pattern.endsWith('/')) pattern = pattern.slice(0, -1);
   if (pattern === '') return false;
   if (pattern.startsWith('/') || /^[A-Za-z]:\//.test(pattern)) {
-    return selfOrAncestorMatches(globRegExp(pattern, ignoreCase), abs);
+    const re = globRegExp(pattern, ignoreCase);
+    if (selfOrAncestorMatches(re, abs)) return true;
+    // Windows：以 / 开头的 glob 不带盘符（/etc/**），绝对路径去掉盘符再比一次。
+    return pattern.startsWith('/') && /^[A-Za-z]:\//.test(abs) && selfOrAncestorMatches(re, abs.slice(2));
   }
   const rel = slashes(relative(cwd, abs));
   const inside = rel !== '' && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
@@ -764,12 +767,28 @@ export function decide(argv, stdin) {
   return undefined;
 }
 
+/** 意外的错误记到规则目录下的 checker-error.log（Codex 只在退出码 2 时看 stderr，别的退出码的输出都丢掉）。 */
+function logError(argv, error) {
+  try {
+    const at = argv.indexOf('--dir');
+    const dir = at >= 0 ? argv[at + 1] : undefined;
+    if (typeof dir !== 'string') return;
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'checker-error.log'), new Date().toISOString() + ' ' + (error instanceof Error ? error.stack : String(error)) + '\n');
+  } catch {}
+}
+
 export async function main(argv) {
-  const result = decide(argv, await readStdin());
-  if (result === undefined) return;
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  process.exitCode = result.exitCode;
+  try {
+    const result = decide(argv, await readStdin());
+    if (result === undefined) return;
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exitCode = result.exitCode;
+  } catch (error) {
+    logError(argv, error);
+    throw error;
+  }
 }
 
 function isEntry() {
@@ -803,12 +822,21 @@ export function writeGuardrailChecker(checker: GuardrailChecker): void {
   chmodSync(checker.script, 0o600);
 }
 
-/** 一个参数给 shell：POSIX 用单引号；Windows 的 cmd 用双引号（路径里不会有双引号）。 */
+/**
+ * 一个参数给 shell：POSIX 与 PowerShell 都用单引号。POSIX 的单引号里写 `'\''`；PowerShell 的单引号里 `'` 写两遍（弯引号它
+ * 也当单引号，一并处理）。
+ */
 function quote(value: string, platform: NodeJS.Platform): string {
-  return platform === 'win32' ? `"${value}"` : `'${value.replaceAll("'", `'\\''`)}'`;
+  return platform === 'win32'
+    ? `'${value.replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`
+    : `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-/** 让 shell 运行检查程序的整条命令行（Codex 用 `$SHELL -lc` 或 `cmd /C` 跑它）。 */
+/**
+ * 让 shell 运行检查程序的整条命令行。Codex 用会话的 shell 跑 hook（core/src/session/mod.rs 的 build_hooks_config）：POSIX 是
+ * `$SHELL -c`，Windows 是 PowerShell（`-NoProfile -Command`，没装 PowerShell 才退到 cmd）。PowerShell 不认 cmd 的 `set … &&`，
+ * 也不能直接执行一个带引号的路径，要 `&`；`-Command` 只把退出码折成 0 或 1，要保留 2 得 `exit $LASTEXITCODE`。
+ */
 export function guardrailCheckerCommand(
   checker: GuardrailChecker,
   args: readonly string[],
@@ -816,7 +844,7 @@ export function guardrailCheckerCommand(
 ): string {
   const words = [checker.node, checker.script, ...args].map((word) => quote(word, platform));
   return platform === 'win32'
-    ? `set "ELECTRON_RUN_AS_NODE=1" && ${words.join(' ')}`
+    ? `$env:ELECTRON_RUN_AS_NODE='1'; & ${words.join(' ')}; exit $LASTEXITCODE`
     : `ELECTRON_RUN_AS_NODE=1 exec ${words.join(' ')}`;
 }
 

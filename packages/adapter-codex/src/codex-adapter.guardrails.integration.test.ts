@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent, GuardrailBlockedEvent } from '@wevir/runtime-adapter';
 import {
@@ -34,6 +34,12 @@ const dirs = new TempDirs();
 const adapters: CodexAdapter[] = [];
 let mock: MockModel;
 
+/** 模型建出 ok.txt 的命令：sh 与 PowerShell 都认（PowerShell 里 `touch` 不存在）。 */
+const MAKE_OK = 'echo ok > ok.txt';
+
+/** 结束前检查：ok.txt 在不在。检查程序用 shell 跑它（Windows 是 cmd），`test -f` 在那里没有，用 Node 判断，路径带双引号两边都认。 */
+const CHECK_OK = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync('ok.txt') ? 0 : 1)"`;
+
 /** 结束前检查给 Agent 的理由（hookPrompt）出现了几次。 */
 function stopPrompts(view: MockView): number {
   return JSON.stringify(view.body.input).split('requires the check').length - 1;
@@ -53,13 +59,11 @@ function script(view: MockView) {
   if (prompt.startsWith('fix')) {
     // 第一次直接说做完；被结束前检查拦回来后建出 ok.txt 再说做完。
     if (stopPrompts(view) === 0) return { text: ['finished'] };
-    const ran = JSON.stringify(view.body.input).includes('touch ok.txt');
+    const ran = JSON.stringify(view.body.input).includes(MAKE_OK);
     return ran
       ? { text: ['fixed'] }
       : {
-          toolCalls: [
-            { kind: 'function' as const, name: 'exec_command', args: { cmd: 'touch ok.txt' } },
-          ],
+          toolCalls: [{ kind: 'function' as const, name: 'exec_command', args: { cmd: MAKE_OK } }],
         };
   }
   return { text: [`reply ${stopPrompts(view)}`] };
@@ -112,6 +116,17 @@ async function start(home: string, workspace: string, extra: Record<string, unkn
 const blocked = (turn: AgentEvent[]): GuardrailBlockedEvent[] =>
   turn.filter(ofType('guardrail.blocked'));
 
+/**
+ * 检查程序没拦下时，断言的失败信息里带上这些：hook 跑完但没有标记的结果（退出码、输出），和检查程序自己记下的意外错误
+ * （checker-error.log）。看得出 hook 跑没跑、怎么失败的。
+ */
+const hookRuns = (turn: AgentEvent[], home: string): string => {
+  const logFile = join(home, 'guardrails', 'checker-error.log');
+  return `hook/completed without a marker: ${JSON.stringify(
+    turn.filter(ofType('engine.raw')).filter((event) => event.method === 'hook/completed'),
+  )}; checker-error.log: ${existsSync(logFile) ? readFileSync(logFile, 'utf8') : '(none)'}`;
+};
+
 describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_000 }, () => {
   beforeAll(async () => {
     mock = await startMockModel(script);
@@ -135,7 +150,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
       JSON.stringify({
         hooks: {
           PreToolUse: [
-            { matcher: 'Bash', hooks: [{ type: 'command', command: `touch '${marker}'` }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: `echo ran > "${marker}"` }] },
           ],
         },
       }),
@@ -152,7 +167,7 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     const [hit, ...rest] = blocked(turn);
     expect(rest).toEqual([]);
-    expect(hit).toMatchObject({
+    expect(hit, hookRuns(turn, home)).toMatchObject({
       guardrailId: 'grd_rm',
       kind: 'forbidden_command',
       action: 'denied',
@@ -168,14 +183,14 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
 
   it('a failing stop check makes the agent continue until the check passes', async () => {
     const { home, workspace, hooks } = setup('stop', [
-      { id: 'grd_ok', rule: { kind: 'stop_check', command: 'test -f ok.txt', timeoutSec: 30 } },
+      { id: 'grd_ok', rule: { kind: 'stop_check', command: CHECK_OK, timeoutSec: 30 } },
     ]);
     const { adapter, engineSessionId, events } = await start(home, workspace, { hooks });
 
     const turn = await runTurn(adapter, engineSessionId, 'fix', events);
 
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-    expect(blocked(turn)).toEqual([
+    expect(blocked(turn), hookRuns(turn, home)).toEqual([
       expect.objectContaining({
         guardrailId: 'grd_ok',
         kind: 'stop_check',
@@ -199,7 +214,10 @@ describe.skipIf(binary === undefined)('CodexAdapter guardrails', { timeout: 90_0
     const turn = await runTurn(adapter, engineSessionId, 'cap', events);
 
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-    expect(blocked(turn).map((event) => [event.action, event.attempt])).toEqual([
+    expect(
+      blocked(turn).map((event) => [event.action, event.attempt]),
+      hookRuns(turn, home),
+    ).toEqual([
       ['continued', 1],
       ['continued', 2],
       ['allowed', 2],
