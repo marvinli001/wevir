@@ -1,5 +1,5 @@
 // 会话侧栏的“任务回顾”卡片（0.76.0，Host 功能 `session_retro`）：目标、本地检查、前几步下一步；“完整回顾”开窗格，“基于回顾新建”
-// 把回顾放进新会话的输入框。只在顶层会话里有，侧栏看得见时才读（`retro.get` 按需生成，不在后台跑）。
+// 把回顾放进新会话的输入框。只在顶层会话里有，设置里打开后才显示（默认不显示），侧栏看得见时才读（`retro.get` 按需生成，不在后台跑）。
 
 import type { SessionId } from '@wevir/protocol';
 import { StatusDot } from '@/components/status-dot';

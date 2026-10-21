@@ -58,6 +58,7 @@ import './lsp-card';
 import './outputs-card';
 import './task-board-card';
 import './retro-card';
+import { PANE_LAUNCHERS, PaneLaunchers, showPaneKind } from './pane-launchers';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';
@@ -364,6 +365,8 @@ export function WorkbenchLayout() {
             </div>
             {panes && (
               <div className="flex shrink-0 items-center gap-0.5">
+                <PaneLaunchers panes={panes} />
+                <span aria-hidden className="mx-1 h-4 w-px bg-border" />
                 {rail && (
                   <>
                     <RailToggle
@@ -751,6 +754,9 @@ function useShortcuts(
       const current = focusedPaneId(panes);
       const group = panes.scope.groups.find((candidate) => candidate.id === current);
       if (matchesShortcut(event, SHORTCUTS.toggleAux)) return run(panes.toggleAux);
+      for (const { kind, shortcut } of PANE_LAUNCHERS) {
+        if (matchesShortcut(event, shortcut)) return run(() => showPaneKind(panes, kind));
+      }
       if (matchesShortcut(event, SHORTCUTS.openTabs)) {
         if (panes.scope.groups.length > 0) run(() => setOpenTabsOpen(true));
         return;

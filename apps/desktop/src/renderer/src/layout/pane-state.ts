@@ -79,6 +79,26 @@ export function findTab(
   return undefined;
 }
 
+/**
+ * 某种窗格的标签（顶栏的终端、浏览器、文件按钮）：先找正显示着的（某个窗格当前的标签），按最近聚焦的窗格；都没显示时取
+ * 第一个。`shown` 表示它是某个窗格当前的标签。
+ */
+export function findKindTab(
+  state: ScopePanes,
+  kind: PaneKind,
+): { tab: PaneTab; shown: boolean } | undefined {
+  const rank = (group: PaneGroup) => {
+    const index = state.focus.indexOf(group.id);
+    return index < 0 ? Number.POSITIVE_INFINITY : index;
+  };
+  for (const group of [...state.groups].sort((a, b) => rank(a) - rank(b))) {
+    const active = group.tabs.find((tab) => tab.id === group.activeTabId);
+    if (active?.kind === kind) return { tab: active, shown: true };
+  }
+  const tab = state.groups.flatMap((group) => group.tabs).find((tab) => tab.kind === kind);
+  return tab && { tab, shown: false };
+}
+
 export function tabCount(state: ScopePanes): number {
   return state.groups.reduce((sum, group) => sum + group.tabs.length, 0);
 }
