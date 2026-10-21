@@ -6,6 +6,7 @@ import {
   ClientIdentitySchema,
   EnvironmentIdSchema,
   ImageIdSchema,
+  InsightIdSchema,
   IsoTimeSchema,
   OpinionIdSchema,
   PendingMessageIdSchema,
@@ -960,6 +961,11 @@ export const HostSettingsSchema = z.object({
   agentInstructions: AgentInstructionsSchema.optional(),
   /** 输出风格（0.78.0）：`default` 或 `OUTPUT_STYLES` 之一。省略按 `default`。 */
   outputStyle: OutputStyleSchema.optional(),
+  /**
+   * 你应该知道（0.79.0，Host 功能 `session_insights`，domain-model §3.33）：回合结束后，Host 用会话的模型在后台看一遍会话，偶尔提出
+   * 一件用户大概没注意到、但有后果的事（`insight.updated`）。每次检查都是一次额外的模型请求，所以默认关；省略按关着。
+   */
+  sessionInsights: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
@@ -969,6 +975,7 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
   sessionRecap: true,
   autoMemory: true,
   ruleFiles: true,
+  sessionInsights: false,
 });
 
 // ── 跨会话记忆（0.57.0） ────────────────────────────────────────────────
@@ -1684,6 +1691,40 @@ export const SessionOpinionOfSchema = z.object({
 });
 export type SessionOpinionOf = z.infer<typeof SessionOpinionOfSchema>;
 
+/** 你应该知道（0.79.0）的长度上限（按 UTF-16 code unit）：一句话的提示、展开后的标题与说明。Host 整理后不会超过它们。 */
+export const SESSION_INSIGHT_SUMMARY_MAX_LENGTH = 300;
+export const SESSION_INSIGHT_TITLE_MAX_LENGTH = 120;
+export const SESSION_INSIGHT_DETAIL_MAX_LENGTH = 3000;
+
+/** 提示的口吻：`heads_up` 这次会话里做了的事（一个决定、一个没说清的结果），现在不看有代价；`should_know` 要懂的一个概念或设计。 */
+export const SessionInsightTagSchema = z.enum(['heads_up', 'should_know']);
+export type SessionInsightTag = z.infer<typeof SessionInsightTagSchema>;
+
+/** `open` 等用户处理；`known` 用户标为已知（之后的检查不再提这个话题）；`dismissed` 用户忽略。后两者不再变化。 */
+export const SessionInsightStatusSchema = z.enum(['open', 'known', 'dismissed']);
+export type SessionInsightStatus = z.infer<typeof SessionInsightStatusSchema>;
+
+/**
+ * 你应该知道（0.79.0，domain-model §3.33）：Host 在回合结束后用会话的模型（不带工具）看一遍会话，挑出一件用户大概没意识到、不知道会有
+ * 后果的事。记在会话的事件流里（`insight.updated`），不进引擎上下文。`summary` 是收起时的一句话；展开后是 `title` 与 `detail`
+ * （Markdown）。都用会话的语言。
+ */
+export const SessionInsightSchema = z.object({
+  id: InsightIdSchema,
+  /** 检查时最后一个结束的回合。 */
+  turnId: TurnIdSchema,
+  tag: SessionInsightTagSchema,
+  summary: z.string().min(1).max(SESSION_INSIGHT_SUMMARY_MAX_LENGTH),
+  title: z.string().min(1).max(SESSION_INSIGHT_TITLE_MAX_LENGTH),
+  detail: z.string().min(1).max(SESSION_INSIGHT_DETAIL_MAX_LENGTH),
+  status: SessionInsightStatusSchema,
+  /** 检查看到了会话的哪个事件为止。 */
+  throughSeq: SeqCursorSchema,
+  createdAt: IsoTimeSchema,
+  updatedAt: IsoTimeSchema,
+});
+export type SessionInsight = z.infer<typeof SessionInsightSchema>;
+
 /**
  * 会话挂过的一个引擎会话（0.25.0，接力，domain-model §3.14）。一个 Wevir 会话可以先后用几个来源，每个来源一个引擎会话；
  * 换回用过的来源时接着用它的引擎会话，只补它错过的那段。
@@ -1814,5 +1855,7 @@ export const SessionSnapshotSchema = z.object({
   verification: SessionVerificationSchema.optional(),
   /** 这个会话收到的第二意见（0.75.0，`opinion.updated` 按 `id` 替换），按发起的先后；没有时省略。 */
   opinions: z.array(SecondOpinionSchema).optional(),
+  /** 你应该知道（0.79.0，`insight.updated` 按 `id` 替换），按提出的先后，含已处理的；没有时省略。 */
+  insights: z.array(SessionInsightSchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

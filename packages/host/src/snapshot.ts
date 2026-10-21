@@ -7,6 +7,7 @@ import type {
   BoardTask,
   EngineErrorInfo,
   EnvironmentId,
+  InsightId,
   IsoTime,
   OpinionId,
   PendingMessage,
@@ -23,6 +24,7 @@ import type {
   SessionEngine,
   SessionGoal,
   SessionId,
+  SessionInsight,
   SessionReadOnly,
   SessionRules,
   SessionSnapshot,
@@ -137,6 +139,8 @@ export interface SessionProjection {
   readonly verification?: ProjectedVerification;
   /** 第二意见（0.75.0，domain-model §3.30）：`opinion.updated` 按 `id` 替换，按发起的先后。 */
   readonly opinions: ReadonlyMap<OpinionId, SecondOpinion>;
+  /** 你应该知道（0.79.0，domain-model §3.33）：`insight.updated` 按 `id` 替换，按提出的先后。 */
+  readonly insights: ReadonlyMap<InsightId, SessionInsight>;
 }
 
 export interface ProjectedVerification {
@@ -185,6 +189,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
   questions: new Map(),
   suggestedTasks: new Map(),
   opinions: new Map(),
+  insights: new Map(),
 };
 
 /** 投影里的验证部分；还没有时是“未验收”、没有记录。 */
@@ -221,6 +226,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * - `taskBoard`（0.52.0）：`tasks.board_updated` 整份替换。
  * - `promptSuggestion`（0.53.0）：`suggestion.updated` 设置，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件清空。
  * - `opinions`（0.75.0）：`opinion.updated` 按 `id` 替换。
+ * - `insights`（0.79.0）：`insight.updated` 按 `id` 替换。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -245,6 +251,11 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     case 'opinion.updated': {
       const { opinion } = event.payload;
       next.opinions = new Map(projection.opinions).set(opinion.id, opinion);
+      break;
+    }
+    case 'insight.updated': {
+      const { insight } = event.payload;
+      next.insights = new Map(projection.insights).set(insight.id, insight);
       break;
     }
     case 'subagent.started':
@@ -715,6 +726,17 @@ export function checkEvent(
       }
       break;
     }
+    case 'insight.updated': {
+      const { insight } = e.payload;
+      const previous = projection.insights.get(insight.id);
+      if (previous === undefined) {
+        if (insight.status !== 'open') reject(`新提示 ${insight.id} 的状态必须是 open`);
+        break;
+      }
+      if (previous.status !== 'open')
+        reject(`提示 ${insight.id} 已是 ${previous.status}，不再变化`);
+      break;
+    }
     case 'task.reported': {
       const task = projection.suggestedTasks.get(e.payload.taskId);
       if (task?.status !== 'started' || task.sessionId !== e.payload.sessionId) {
@@ -832,6 +854,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     session.awaitingInput = true;
   }
   if (projection.opinions.size > 0) snapshot.opinions = [...projection.opinions.values()];
+  if (projection.insights.size > 0) snapshot.insights = [...projection.insights.values()];
   if (projection.verification) {
     const { acceptance, runs, repair } = projection.verification;
     snapshot.verification = {

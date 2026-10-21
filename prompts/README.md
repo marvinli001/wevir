@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、任务回顾摘要、自动修复、用户说明的开头与输出风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -15,6 +15,7 @@
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
 | [`prompt-suggestion.md`](prompt-suggestion.md) | 输入建议：预测用户接着会发的一句话 | Host（0.53.0，`packages/host/src/prompt-suggestion.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发（不带工具的单次生成，不另开引擎连接） | 已接入（有 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
+| [`session-insight.md`](session-insight.md) | 你应该知道：旁观会话，偶尔提出一件用户大概没注意到、但有后果的事 | Host（0.79.0，`packages/host/src/insight.ts`）：去掉注释作为说明；回合结束后按频率限制由适配器的 `generateTitle` 用会话的模型发；设置里默认关 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-retro.md`](session-retro.md) | 任务回顾的模型摘要：把确定性生成的回顾压成几点，每点引用回顾里的行 ID | Host（0.76.0，`packages/host/src/retro/summary.ts`）：去掉注释作为说明；只在用户点“生成摘要”时由适配器的 `generateTitle` 用会话的模型发一次，输入是脱敏后的回顾；输出不覆盖回顾本身，没有有效出处的点标“推断” | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
@@ -32,7 +33,7 @@
 - **Codex 引擎 + 经网关的第三方模型**（DeepSeek、通义、Kimi、GLM、自定义服务等）：`base.md`。
 - **ChatGPT 订阅登录 + OpenAI 模型**：继续用 Codex 模型目录里按模型调好的提示词（ADR-0005 未决事项 1 原先的建议）。那些提示词针对 OpenAI 模型调过，Wevir 不替换。
 - **dsh、Grok Build、Gemini CLI 等通用 ACP 引擎**：用各自的提示词。`base.md` 里的工具名都是 Codex 的，不适用。
-- **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md` 与 `session-retro.md`**：与引擎无关，由 Host 直接调模型。
+- **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md`、`session-insight.md` 与 `session-retro.md`**：与引擎无关，由 Host 直接调模型。
 - **`verification-repair.md`**：与引擎无关，不单独调模型，是修复回合里交给会话自己的模型的一条消息。
 - **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
 - **`user-instructions.md` 与 `output-styles/`**：与引擎无关，用在所有引擎上（下面「用户说明与输出风格」）。
@@ -113,6 +114,14 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 - 模型：用当前会话的模型，推理档位取最低，经适配器的 `generateTitle`（不新开引擎连接，不排进会话的命令队列，不影响状态机）。超时 30 s、失败静默（只记告警）。
 - 缓存：只在 Host 内存里、按会话存，不写事件库；同一次“看得见的最后一个回合”只生成一次，并发的请求共用同一次生成，之后的请求直接拿缓存。
 
+## 你应该知道
+
+- 触发（0.79.0，docs/architecture/domain-model.md §3.33）：设置 → 常规的“旁观提示”开着（默认关）时，回合正常结束或出错后 Host 判断要不要检查。会话是子智能体、支线、agent 或第二意见开的、只读或归档的，回合结束后不空闲、有待审批 / 待回答的提问或排着的消息，还有一条没处理的提示，距上次检查不到 10 分钟，或上次检查之后 agent 做的事（命令、文件改动）不到 3 件，都不检查。Host 重启后频率限制从会话里最近一条提示的位置接着算。
+- 输入：`<conversation>`（最近至多 60 条用户消息、助手回答与 `<action>` 命令 / 文件改动 / 错误，撤回与撤销的回合不算；用户消息截到 800 个字符、助手回答两头各留约 600 个字符、动作截到 300 个字符，总长约 16 KB 以内，丢最早的；`<`、`>`、`&` 转义）、`<state>`（`last_turn` 的结局）、`<offered>`（之前提过的一句话，最近 10 条）与 `<known>`（用户标为已知的标题与一句话，最近 10 条）。
+- 输出：`{"show": …, "tag": …, "summary": …, "title": …, "detail": …}`，五个字段都必填（有的服务的结构化输出不接受可空字段），没有值得说的事时 `show` 为 `false`。Host 取第一个 `{` 到最后一个 `}` 之间的 JSON；`show` 不是 `true`、`tag` 不是 `heads_up` / `should_know`、三段文字有一段为空都算没有；一句话与标题折叠成一行、去掉首尾引号（标题再去掉句末标点），说明只去掉外层代码块；超长的截断（300 / 120 / 3000 个字符）；像密钥的片段换成 `[REDACTED]`。
+- 成功后写 `insight.updated`（`open`）；用户点“已知”或“忽略”后经 `session.respondInsight` 再写一条（`known` / `dismissed`），已知的进之后检查的 `<known>`。提示不随撤回、撤销作废：说的是已经发生的事。请求失败、超时（60 s）只记告警，不影响会话。
+- 模型：用当前会话的模型，推理档位取最低，经适配器的 `generateTitle`（不新开引擎连接，不排进会话的命令队列，不影响状态机）。每次检查都是一次额外的请求，所以默认关。
+
 ## 任务回顾摘要
 
 - 触发（0.76.0，`retro.summarize`）：只在用户点“生成摘要”时调一次，不在后台生成。会话还在运行回合、子会话、没有回合、引擎没有 `generateTitle` 时不生成，结果里写明原因。
@@ -132,11 +141,11 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `auto-review.md` | `codex-rs/prompts/templates/guardian/{policy_template,policy,node_repl_policy}.md` |
 | `thread-title.md` | `codex-rs/tui/src/app/thread_title.rs` 里的说明文字 |
 
-`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。`prompt-suggestion.md` 也是 Wevir 自己写的，参考了网上流传的 Claude Code 输入建议提示词（asgeirtj/system_prompts_leaks，没有许可证）的做法——预测用户而不是助手、简短、拿不准就不输出、不评价不提问——只借鉴做法，没有摘抄原文。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。2026-10-18 起，`compact.md`、`plan-mode.md`、`thread-title.md`、`base.md` 的子智能体与 `update_plan` 两节，以及 Host 内置角色（`packages/host/src/roles.ts`）的说明，参考了同一个仓库里网上流传的 Claude Code 压缩、计划模式、会话标题与重命名、Explore / Plan / general-purpose 子智能体、advisor 工具、`/btw` 的提示词，也只借鉴做法（分节的交接摘要、先找可复用的、标题写成名词短语、只读探查角色的边界、第二意见的用法等）、用自己的话写，没有摘抄。`output-styles/` 里简洁、讲解、边做边学、主动四份参考网上流传的 Claude Code 输出风格（Concise、Explanatory、Learning、Proactive，同一个仓库，没有许可证），务实与友好两份参考网上流传的 Codex 性格说明（`personality_pragmatic`、`personality_friendly`，同一个仓库，没有许可证；开源的 Codex 已把 `personality` 参数标为不再选择风格）：只借鉴条目、结构与做法（先说结果、写代码前后的要点、留一处 `TODO(human)` 请用户动手、主动但破坏性操作仍要确认、看重什么与提出异议的方式等），按 Wevir 的工具与计划模式改写，措辞与示例是自己的，没有摘抄原文。`session-recap.md` 参考的是网上流传的 Claude Code 离开后摘要提示词（同一个仓库，没有许可证），只借鉴“先说高层任务、再说具体的下一步、不做状态播报”的思路，措辞、结构与示例都是 Wevir 的。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的文件（`base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md`）按 Apache-2.0。
+`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。`prompt-suggestion.md` 也是 Wevir 自己写的，参考了网上流传的 Claude Code 输入建议提示词（asgeirtj/system_prompts_leaks，没有许可证）的做法——预测用户而不是助手、简短、拿不准就不输出、不评价不提问——只借鉴做法，没有摘抄原文。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。2026-10-18 起，`compact.md`、`plan-mode.md`、`thread-title.md`、`base.md` 的子智能体与 `update_plan` 两节，以及 Host 内置角色（`packages/host/src/roles.ts`）的说明，参考了同一个仓库里网上流传的 Claude Code 压缩、计划模式、会话标题与重命名、Explore / Plan / general-purpose 子智能体、advisor 工具、`/btw` 的提示词，也只借鉴做法（分节的交接摘要、先找可复用的、标题写成名词短语、只读探查角色的边界、第二意见的用法等）、用自己的话写，没有摘抄。`output-styles/` 里简洁、讲解、边做边学、主动四份参考网上流传的 Claude Code 输出风格（Concise、Explanatory、Learning、Proactive，同一个仓库，没有许可证），务实与友好两份参考网上流传的 Codex 性格说明（`personality_pragmatic`、`personality_friendly`，同一个仓库，没有许可证；开源的 Codex 已把 `personality` 参数标为不再选择风格）：只借鉴条目、结构与做法（先说结果、写代码前后的要点、留一处 `TODO(human)` 请用户动手、主动但破坏性操作仍要确认、看重什么与提出异议的方式等），按 Wevir 的工具与计划模式改写，措辞与示例是自己的，没有摘抄原文。`session-recap.md` 参考的是网上流传的 Claude Code 离开后摘要提示词（同一个仓库，没有许可证），只借鉴“先说高层任务、再说具体的下一步、不做状态播报”的思路，措辞、结构与示例都是 Wevir 的。`session-insight.md` 参考的是同一个仓库里网上流传的 Claude Code “You should know” 提示词，只借鉴“旁观者默认不说话、只挑一件有后果的事、按用户表现出的水平说、收起时一句话展开后再讲清楚、两种口吻”的思路，措辞、结构与示例都是 Wevir 的。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的文件（`base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md`）按 Apache-2.0。
 
 ## 改提示词时
 
-- 改 `base.md` 或 `plan-mode.md` 要在至少一家真实模型上跑一遍 adapter-codex 的第三层契约测试（随 adapter-codex 建立）；改 `auto-review.md`、`thread-title.md`、`prompt-suggestion.md` 与 `session-recap.md` 要跑各自的用例集（随 Host 的实现建立）。
+- 改 `base.md` 或 `plan-mode.md` 要在至少一家真实模型上跑一遍 adapter-codex 的第三层契约测试（随 adapter-codex 建立）；改 `auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md` 与 `session-insight.md` 要跑各自的用例集（随 Host 的实现建立）。
 - 改了 Codex 来源的文件，更新文件头的“由 Wevir 修改”；升级 Codex 时对照上面四个来源的变化，决定要不要跟进。
 - 新增引擎配置（打开某个工具或功能）时，同步改 `base.md` 的“工具”一节，并删掉对应的占位。
 

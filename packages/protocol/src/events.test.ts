@@ -110,6 +110,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.repair.status;
     case 'opinion.updated':
       return event.payload.opinion.status;
+    case 'insight.updated':
+      return event.payload.insight.status;
     default: {
       const unhandled: never = event;
       return unhandled;

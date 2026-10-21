@@ -145,6 +145,7 @@ const QUIET_EVENTS: ReadonlySet<string> = new Set([
   'engine.raw',
   'usage.updated',
   'suggestion.updated',
+  'insight.updated',
   'session.state_changed',
   'pending.added',
   'pending.updated',

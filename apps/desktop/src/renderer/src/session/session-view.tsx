@@ -63,6 +63,8 @@ import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
 import { historyDigest } from './history-digest';
 import { useAcceptsImages } from './image-attachments';
+import { InsightCard } from './insight-card';
+import { currentInsight, insightsEnabled } from './insight-model';
 import { type MessageActions, MessageActionsContext } from './message-actions';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
@@ -171,6 +173,17 @@ export function SessionView({
     state: sessionState,
     seq: transcript?.lastSeq ?? session.lastSeq,
   });
+  // 旁观提示（0.79.0）：同回顾，只在主窗格的顶层会话里，Host 有功能、设置里开着（默认关）。
+  const insight = insightsEnabled({
+    featureSupported:
+      view.status === 'connected' && hostSupports(view.hello.features, 'session_insights'),
+    settings,
+    variant,
+    side: session.side,
+    parentSessionId: session.parentSessionId,
+  })
+    ? currentInsight(transcript?.insights)
+    : undefined;
   const acceptImages = useAcceptsImages(session);
 
   // 当前的引擎能做什么（0.25.0）：接力到别的来源后跟着变；旧 Host 没有时只看 Host 的功能。
@@ -801,6 +814,7 @@ export function SessionView({
             {sessionRecap && (
               <RecapCard text={sessionRecap.text} onDismiss={sessionRecap.dismiss} />
             )}
+            {insight && <InsightCard key={insight.id} sessionId={session.id} insight={insight} />}
             {transcript && <TodoDock transcript={transcript} />}
             <OllamaContextNotice
               client={client}
