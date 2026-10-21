@@ -24,6 +24,7 @@ import {
   WorkspaceIdSchema,
 } from './common.js';
 import { GitObjectIdSchema } from './git.js';
+import { MarketMirrorPreferenceSchema } from './market.js';
 import { ImportedFromSchema } from './plugins.js';
 import { ProfileVersionRefSchema } from './tuning.js';
 import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
@@ -989,6 +990,11 @@ export const HostSettingsSchema = z.object({
    * 一件用户大概没注意到、但有后果的事（`insight.updated`）。每次检查都是一次额外的模型请求，所以默认关；省略按关着。
    */
   sessionInsights: z.boolean().optional(),
+  /**
+   * 官方插件市场的镜像（0.91.0，Host 功能 `plugin_market`）：`auto` 首次使用时测速，记住最快的一家，之后一直用它；选了某一家就用那一家。
+   * 省略按 `auto`。
+   */
+  marketMirror: MarketMirrorPreferenceSchema.optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

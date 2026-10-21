@@ -149,6 +149,16 @@ const PluginAuthorSchema = z.strictObject({
   name: z.string().min(1).max(128),
   url: httpUrl.optional(),
 });
+/** 语言标签，如 `zh-CN`、`en`。 */
+export const LocaleTagSchema = z
+  .string()
+  .max(35)
+  .regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/);
+/** 市场分类 ID（0.91.0）。 */
+export const MarketCategoryIdSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
 /** 插件包根目录的 `wevir-plugin.json`。 */
 export const WevirPluginManifestSchema = z
@@ -172,6 +182,34 @@ export const WevirPluginManifestSchema = z
       .union([PluginPathSchema, z.record(PluginConnectorNameSchema, McpServerConfigSchema)])
       .optional(),
     inputs: z.array(PluginInputSchema).max(PLUGIN_INPUTS_MAX).optional(),
+    /** 以下四项给插件市场（0.91.0）。搜索用的关键词。 */
+    keywords: z.array(z.string().min(1).max(32)).max(16).optional(),
+    /** 市场分类 ID，取值见市场的分类表。 */
+    category: MarketCategoryIdSchema.optional(),
+    /** 名称与描述的多语言版本。 */
+    i18n: z
+      .record(
+        LocaleTagSchema,
+        z.strictObject({
+          name: z.string().min(1).max(128).optional(),
+          description: z.string().max(1024).optional(),
+        }),
+      )
+      .optional(),
+    /** 运行要求，如 `node>=20`、`python>=3.11`、`uv`。 */
+    requires: z
+      .strictObject({
+        runtimes: z
+          .array(
+            z
+              .string()
+              .regex(/^[a-z][a-z0-9-]*(?:(?:>=|=)[0-9][0-9A-Za-z.+-]*)?$/)
+              .max(64),
+          )
+          .max(8)
+          .optional(),
+      })
+      .optional(),
   })
   .superRefine((manifest, ctx) => {
     const keys = new Set<string>();

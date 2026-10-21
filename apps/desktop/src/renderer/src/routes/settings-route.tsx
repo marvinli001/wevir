@@ -60,6 +60,8 @@ const TABS: Record<SettingsTab, TabInfo> = {
     keywords: [
       'settings.appearance.language',
       'settings.section.permissions',
+      'settings.section.market',
+      'settings.market.mirror',
       'permission.full_access',
       'settings.preventSleep',
       'settings.chat.sendWhileBusy',

@@ -49,6 +49,7 @@ import { loadInsightInstructions } from './insight.js';
 import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
 import { LspStatusService } from './lsp/service.js';
+import { MarketService, type MarketServiceOptions } from './market/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
@@ -109,6 +110,8 @@ export type ShutdownTrigger =
   | { kind: 'api' };
 
 export interface StartHostOptions {
+  /** 官方插件市场的镜像地址、公钥与 fetch（0.91.0）；省略用 wevir-marketplace 的三个镜像（测试换成本机服务）。 */
+  market?: Pick<MarketServiceOptions, 'mirrors' | 'publicKeys' | 'fetch'>;
   /** 测试时与隔离的引擎 HOME 一致；产品默认 os.homedir()。 */
   pluginUserHome?: string;
   /** 找用户级规则文件（0.68.0，`~/.codex/AGENTS.md` 等）的家目录；省略时同 `pluginUserHome`，再省略是 os.homedir()。 */
@@ -420,6 +423,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     memory.watch((change) => tuning.changed(change.workspaceId));
     settings.watch(() => tuning.changed());
+    // 官方插件市场（0.91.0）：缓存在 plugins/market/official，镜像的选择跟着设置走。
+    const market = new MarketService({
+      dir: join(homePath(home, 'pluginsDir'), 'market', 'official'),
+      preference: () => settings.get().marketMirror ?? 'auto',
+      ...options.market,
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    settings.watch(() => {
+      void market
+        .preferenceChanged()
+        .catch((error: unknown) => logger.warn('plugin market state update failed', { error }));
+    });
     plugins.watch(() => tuning.changed());
     void tuning
       .prune()
@@ -880,6 +895,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         tuning,
         ...(guardrails !== undefined && { guardrails }),
         ...(proposals !== undefined && { proposals }),
+        market,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -959,6 +975,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         tuning: true,
         ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
         ...(proposals !== undefined && { tuning_proposals: true }),
+        plugin_market: true,
       },
       engineFeatures,
       plugins,

@@ -12,6 +12,7 @@ export * from './imports.js';
 export * from './jsonrpc.js';
 export * from './limits.js';
 export * from './lsp.js';
+export * from './market.js';
 export * from './methods.js';
 export * from './origins.js';
 export * from './plugins.js';
