@@ -42,6 +42,15 @@ describe('provider_profiles', () => {
     expect(repo.get(record.id)?.vertex).toEqual({ project: 'other-project', location: 'us' });
   });
 
+  it('转写模型（0021）随插入与修改往返，省略即没有', () => {
+    const repo = storage().providers;
+    const record = { ...compatible, transcriptionModels: [{ id: 'whisper-1' }] };
+    repo.insert(record);
+    expect(repo.get(record.id)).toEqual(record);
+    repo.update(compatible);
+    expect(repo.get(record.id)?.transcriptionModels).toBeUndefined();
+  });
+
   it('插入与读取，可选字段与 JSON 字段原样往返', () => {
     const repo = storage().providers;
     repo.insert(official);
@@ -98,6 +107,7 @@ describe('provider_profiles', () => {
       'updated_at',
       'enabled',
       'vertex',
+      'transcription_models',
     ]);
   });
 

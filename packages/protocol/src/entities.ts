@@ -130,6 +130,20 @@ export const ProviderModelSchema = z.object({
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 
 /**
+ * 转写模型（0.89.0，听写，domain-model §3.2）：`openai-compatible` 的服务上走 `POST <baseURL>/audio/transcriptions` 的模型（如
+ * `whisper-1`、`gpt-4o-transcribe`、Groq 的 `whisper-large-v3-turbo`）。与对话模型分开列，不出现在模型选择里。
+ */
+export const ProviderTranscriptionModelSchema = z.object({
+  /** 发给服务端的模型 ID。 */
+  id: z.string().min(1).max(200),
+  displayName: z.string().max(200).optional(),
+});
+export type ProviderTranscriptionModel = z.infer<typeof ProviderTranscriptionModelSchema>;
+
+/** 一个 Provider 最多几个转写模型。 */
+export const PROVIDER_TRANSCRIPTION_MODELS_MAX = 20;
+
+/**
  * 请求格式的修正，用于 `openai-compatible` 与 `google-vertex`。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
  * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；其余只有模型网关用（0.4.0、0.12.0、0.26.0，
  * model-gateway.md §4.4），dsh 忽略。
@@ -185,6 +199,11 @@ export const ProviderProfileSchema = z.object({
    * 客户端不写。
    */
   models: z.array(ProviderModelSchema),
+  /** 转写模型（0.89.0），只有 `openai-compatible` 有；省略表示没有。 */
+  transcriptionModels: z
+    .array(ProviderTranscriptionModelSchema)
+    .max(PROVIDER_TRANSCRIPTION_MODELS_MAX)
+    .optional(),
   defaultModelId: z.string().min(1),
   hasSecret: z.boolean(),
   /**
@@ -942,6 +961,22 @@ export function isOutputStyle(value: string): value is OutputStyle {
   return value === 'default' || (OUTPUT_STYLES as readonly string[]).includes(value);
 }
 
+// ── 听写的转写方（0.89.0） ─────────────────────────────────────────────
+
+/**
+ * 听写用谁转写（0.89.0，domain-model §3.7）：`local` 是本机模型（Host 下载的 SenseVoice，`speech.install`），`provider` 是某个
+ * Provider 的转写模型（`ProviderProfile.transcriptionModels`）。
+ */
+export const SpeechTranscriberSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('local') }),
+  z.object({
+    kind: z.literal('provider'),
+    providerId: ProviderIdSchema,
+    modelId: z.string().min(1).max(200),
+  }),
+]);
+export type SpeechTranscriber = z.infer<typeof SpeechTranscriberSchema>;
+
 // ── Host 设置（0.8.0，R11） ──────────────────────────────────────────────
 
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
@@ -980,6 +1015,16 @@ export const HostSettingsSchema = z.object({
    * 一件用户大概没注意到、但有后果的事（`insight.updated`）。每次检查都是一次额外的模型请求，所以默认关；省略按关着。
    */
   sessionInsights: z.boolean().optional(),
+  /**
+   * 听写的转写方（0.89.0，Host 功能 `speech`）。省略按 `local`。指向的 Provider 或模型不在了时 `speech.finish` 回 `SPEECH_FAILED`
+   * （`provider_missing`），不自动换成别的。
+   */
+  speechTranscriber: SpeechTranscriberSchema.optional(),
+  /**
+   * 听写后润色（0.89.0）：转写出的文字再交给会话当前的模型改同音字、术语与标点（只发文字）。每次是一次额外的模型请求，所以默认关；
+   * 省略按关着。
+   */
+  speechPolish: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

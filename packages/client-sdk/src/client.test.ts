@@ -830,6 +830,29 @@ describe('调优的档案（0.85.0）', () => {
   });
 });
 
+describe('听写（0.89.0）', () => {
+  it('onSpeechChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { speech: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onSpeechChanged((change) => changes.push(change));
+    const status = {
+      local: { state: 'ready', modelName: 'SenseVoice Small', downloadBytes: 1, installedBytes: 2 },
+    };
+    host.last.notify('speech.changed', { status });
+    await vi.waitFor(() => expect(changes).toEqual([{ status }]));
+    host.last.notify('speech.changed', { status: { local: { state: 'ready' } } });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed speech.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+  });
+});
+
 describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

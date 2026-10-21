@@ -255,6 +255,29 @@ describe('Provider 桥接（Host 侧）', () => {
     expect(await secrets.get('vertex')).toBeUndefined();
   });
 
+  it('转写模型（0.89.0）：保存并列出；旧客户端省略时保留，空数组清空，ID 不能重复', async () => {
+    const { methods, storage } = setup();
+    const withWhisper = { ...qwen, transcriptionModels: [{ id: 'whisper-1' }] };
+    const created = await methods['provider.upsert'](withWhisper, context);
+    expect(created.provider.transcriptionModels).toEqual([{ id: 'whisper-1' }]);
+    // 旧客户端不带这个字段：保留。
+    await methods['provider.upsert']({ ...qwen, displayName: '改名' }, context);
+    expect(storage.providers.get('qwen')?.transcriptionModels).toEqual([{ id: 'whisper-1' }]);
+    const listed = await methods['provider.list']({}, context);
+    expect(listed.providers[0]?.transcriptionModels).toEqual([{ id: 'whisper-1' }]);
+    await methods['provider.upsert']({ ...qwen, transcriptionModels: [] }, context);
+    expect(storage.providers.get('qwen')?.transcriptionModels).toBeUndefined();
+    const duplicate = await hostError(
+      Promise.resolve(
+        methods['provider.upsert'](
+          { ...qwen, transcriptionModels: [{ id: 'whisper-1' }, { id: 'whisper-1' }] },
+          context,
+        ),
+      ),
+    );
+    expect(duplicate.code).toBe('INVALID_PARAMS');
+  });
+
   it('P0a 的 compat 经协议解析、保存、list 与引擎桥接后仍保留', async () => {
     const bridge = fakeBridge();
     const { methods, storage } = setup(bridge);

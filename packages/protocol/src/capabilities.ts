@@ -399,6 +399,11 @@ export const HOST_FEATURES = {
    * 记忆来源的 `proposalId`。引擎能不带工具生成（适配器有 `generateTitle`）时声明。
    */
   tuningProposals: 'tuning_proposals',
+  /**
+   * 听写（0.89.0，domain-model §3.42）：`speech.*` 方法与 `speech.changed` 通知、`SPEECH_FAILED` 错误、设置 `speechTranscriber` /
+   * `speechPolish`、`ProviderProfile.transcriptionModels`。本机模型能不能用看 `speech.status`。与引擎无关。
+   */
+  speech: 'speech',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -479,6 +484,7 @@ export const HostFeaturesSchema = z.looseObject({
   tuning: z.boolean().optional(),
   tuning_guardrails: z.boolean().optional(),
   tuning_proposals: z.boolean().optional(),
+  speech: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

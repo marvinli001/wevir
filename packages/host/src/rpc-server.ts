@@ -74,6 +74,8 @@ export interface HostRpcServerOptions {
   readiness?: ConnectionHost['readiness'];
   /** 开发服务器预览（0.84.0）：调过 `preview.*` 的连接经它收 `preview.changed`。 */
   previews?: ConnectionHost['previews'];
+  /** 听写（0.89.0）：调过 `speech.*` 的连接经它收 `speech.changed`。 */
+  speech?: ConnectionHost['speech'];
   /** 语言服务器（0.71.0）：调过 `lsp.*` 的连接经它收 `lsp.changed`。 */
   lsp?: ConnectionHost['lsp'];
   /** 调优的档案（0.85.0）：调过 `tuning.*` 的连接经它收 `tuning.changed`。 */
@@ -178,6 +180,7 @@ export class HostRpcServer {
       ...(options.processes !== undefined && { processes: options.processes }),
       ...(options.readiness !== undefined && { readiness: options.readiness }),
       ...(options.previews !== undefined && { previews: options.previews }),
+      ...(options.speech !== undefined && { speech: options.speech }),
       ...(options.lsp !== undefined && { lsp: options.lsp }),
       ...(options.tuning !== undefined && { tuning: options.tuning }),
       ...(options.guardrails !== undefined && { guardrails: options.guardrails }),

@@ -27,6 +27,7 @@ import {
   ReadinessChangedParamsSchema,
   type SessionId,
   SettingsUpdatedParamsSchema,
+  SpeechChangedParamsSchema,
   TerminalChangedParamsSchema,
   TerminalOutputParamsSchema,
   TuningChangedParamsSchema,
@@ -46,6 +47,8 @@ export type ProcessChange = NotificationParams<'process.changed'>;
 export type ReadinessChange = NotificationParams<'readiness.changed'>;
 /** `preview.changed` 的内容（0.84.0）。 */
 export type PreviewChange = NotificationParams<'preview.changed'>;
+/** `speech.changed` 的内容（0.89.0）。 */
+export type SpeechChange = NotificationParams<'speech.changed'>;
 /** `tuning.changed` 的内容（0.85.0）。 */
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
@@ -288,6 +291,7 @@ export class WevirClient {
   readonly #processListeners = new Set<(change: ProcessChange | undefined) => void>();
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
+  readonly #speechListeners = new Set<(change: SpeechChange | undefined) => void>();
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
   readonly #proposalListeners = new Set<(change: TuningProposalChange | undefined) => void>();
@@ -579,6 +583,25 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a preview listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 听写的本机模型状态变了（0.89.0，`speech.changed`）：下载进度、装好、失败、删除。只有调过 `speech.*` 的连接收得到。重连上之后以
+   * `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
+   */
+  onSpeechChanged(listener: (change: SpeechChange | undefined) => void): () => void {
+    this.#speechListeners.add(listener);
+    return () => this.#speechListeners.delete(listener);
+  }
+
+  #speechChanged(change: SpeechChange | undefined): void {
+    for (const listener of [...this.#speechListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a speech listener threw', { error });
       }
     }
   }
@@ -1002,6 +1025,7 @@ export class WevirClient {
         if (this.supports('process_output')) this.#processesChanged(undefined);
         if (this.supports('workspace_readiness')) this.#readinessChanged(undefined);
         if (this.supports('dev_preview')) this.#previewChanged(undefined);
+        if (this.supports('speech')) this.#speechChanged(undefined);
         if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
         if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
@@ -1298,6 +1322,15 @@ export class WevirClient {
         return;
       }
       this.#previewChanged(parsed.data);
+      return;
+    }
+    if (method === 'speech.changed') {
+      const parsed = SpeechChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed speech.changed notification');
+        return;
+      }
+      this.#speechChanged(parsed.data);
       return;
     }
     if (method === 'readiness.changed') {

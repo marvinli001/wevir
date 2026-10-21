@@ -101,6 +101,10 @@ export interface ConnectionHost {
   readonly previews?: {
     watch(listener: (change: NotificationParams<'preview.changed'>) => void): () => void;
   };
+  /** 听写（0.89.0）：调过 `speech.*` 的连接用它收 `speech.changed`。 */
+  readonly speech?: {
+    watch(listener: (status: NotificationParams<'speech.changed'>['status']) => void): () => void;
+  };
   /** 调优的档案（0.85.0）：调过 `tuning.*` 的连接用它收 `tuning.changed`；参数是范围（省略是全局或不只一个项目）。 */
   readonly tuning?: {
     watch(listener: (workspaceId: string | undefined) => void): () => void;
@@ -198,6 +202,8 @@ export class RpcConnection {
   #unwatchReadiness: (() => void) | undefined;
   /** 调过 `preview.*` 之后：退订 `preview.changed`。 */
   #unwatchPreviews: (() => void) | undefined;
+  /** 调过 `speech.*` 之后：退订 `speech.changed`。 */
+  #unwatchSpeech: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.changed`。 */
   #unwatchTuning: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.proposal.changed`。 */
@@ -550,6 +556,7 @@ export class RpcConnection {
           this.#watchProcesses();
         }
         if (method.startsWith('lsp.')) this.#watchLsp();
+        if (method.startsWith('speech.')) this.#watchSpeech();
         if (method.startsWith('tuning.')) this.#watchTuning();
         if (method.startsWith('guardrail.') || method.startsWith('repoHook.')) {
           this.#watchGuardrails();
@@ -791,6 +798,20 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `speech.*` 的连接之后收 `speech.changed`（0.89.0），连接关闭即止。 */
+  #watchSpeech(): void {
+    if (this.#unwatchSpeech !== undefined || this.#host.speech === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchSpeech = this.#host.speech.watch((status) => {
+      const parsed = NotificationSchemas['speech.changed'].params.safeParse({ status });
+      if (!parsed.success) {
+        this.#host.onError(new Error(`speech.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'speech.changed', params: parsed.data });
+    });
+  }
+
   /** 调过 `tuning.*` 的连接之后收 `tuning.changed`（0.85.0），连接关闭即止。 */
   #watchTuning(): void {
     if (this.#unwatchTuning !== undefined || this.#host.tuning === undefined) return;
@@ -1024,6 +1045,8 @@ export class RpcConnection {
     this.#unwatchReadiness = undefined;
     this.#unwatchPreviews?.();
     this.#unwatchPreviews = undefined;
+    this.#unwatchSpeech?.();
+    this.#unwatchSpeech = undefined;
     this.#unwatchTuning?.();
     this.#unwatchTuning = undefined;
     this.#unwatchProposals?.();
