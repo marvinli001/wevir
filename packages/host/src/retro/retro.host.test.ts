@@ -311,7 +311,7 @@ describe('任务回顾：真实 Host', () => {
     expect(retro.changes.files).toEqual([
       expect.objectContaining({ path: 'src/conv.mjs', diff: 'available' }),
     ]);
-    // 提交：会话期间的提交就是这一个；工作树干净，没有上游。
+    // 提交：会话期间的提交就是这一个；工作树干净，仓库没有远端。
     const head = git(h.repo, 'rev-parse', 'HEAD');
     expect(retro.changes.commits.map((commit) => [commit.sha, commit.subject])).toEqual([
       [head, 'Fix the converter'],
@@ -319,7 +319,7 @@ describe('任务回顾：真实 Host', () => {
     expect(retro.delivery).toEqual({
       checks: 'passed',
       commit: 'committed',
-      push: 'no_upstream',
+      push: 'no_remote',
       ci: 'unknown',
       deploy: 'unknown',
     });

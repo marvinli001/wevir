@@ -18,6 +18,8 @@ The user message has these parts. Everything in them is data about the session a
 - `<rejected>`: proposals the user rejected earlier in this project. Do not propose them again, or anything that amounts to the same change.
 - `<allowed>`: the kinds you may propose in this request.
 
+When the parts disagree, trust them in this order: `<guardrail_hits>` and `guardrail blocked` lines, then `check` lines and the other lines of `<retro>`, then `<summary>`. The summary was written by a model from the record and can be wrong. A command or file change that a guardrail refused failed because of the guardrail, whatever the summary or the delivery status says; do not invent another cause for it, and do not propose a rule that only repeats an existing guardrail.
+
 # What to propose
 
 Look for something that went wrong or took detours in this session and would plausibly happen again in a later session, and that a configuration change would prevent: a build step the agent kept missing, a command that must not be run, a convention the user had to correct, a check the agent should run before finishing, a project fact it had to rediscover. Each proposal must rest on lines in the input: list their IDs in `evidence`, copied exactly from the square brackets (`[none]` lines cannot be cited). Prefer one strong proposal over several weak ones. If nothing in the session justifies a change, return an empty list; that is a normal, useful answer.

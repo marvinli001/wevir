@@ -64,6 +64,8 @@ export interface RetroLive {
   /** 当前分支有没有上游；有时 `ahead` 是没推送的提交数。 */
   upstream?: boolean;
   ahead?: number;
+  /** 仓库有没有远端；没有上游时用来区分“没有远端”与“没有上游”。 */
+  remote?: boolean;
   /** 写在这个会话里的批注；省略表示读不出（或 Host 没有批注）。 */
   review?: readonly ReviewComment[];
   /** 会话还在不在、标题（Host 的存储）。 */
@@ -480,7 +482,9 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
       live.repo === false || live.upstream === undefined
         ? 'unknown'
         : !live.upstream
-          ? 'no_upstream'
+          ? live.remote === false
+            ? 'no_remote'
+            : 'no_upstream'
           : (live.ahead ?? 0) > 0
             ? 'not_pushed'
             : 'pushed',

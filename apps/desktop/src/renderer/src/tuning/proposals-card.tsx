@@ -7,7 +7,7 @@ import type { CodeViewDiffItem } from '@pierre/diffs/react';
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
 import type { Session, TuningProposal, TuningProposalEvidence } from '@wevir/protocol';
 import { cn } from 'cn';
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { resolveDiffThemeName } from '@/changes/diff-rendering';
 import { PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
 import { StyledDiffCodeView } from '@/changes/styled-code-view';
@@ -247,6 +247,9 @@ function DecidedSummary({ proposal }: { proposal: TuningProposal }) {
 const DIFF_MAX_HEIGHT = 224;
 const DIFF_LINE_HEIGHT = 20;
 const DIFF_HEADER_HEIGHT = 50;
+/** 代码视图的字宽与行号栏宽（折行估算用，宁大勿小）。 */
+const DIFF_CHAR_WIDTH = 7.4;
+const DIFF_GUTTER_WIDTH = 88;
 
 /** 两段文本的 diff（改前为空时整段是新增）。 */
 function ProposalDiff({
@@ -276,12 +279,28 @@ function ProposalDiff({
       },
     ];
   }, [id, name, before, after]);
+  // 长行会折行：按框宽估每行能放几个字，框高才不会因少算而出滚动条。
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (element === null) return;
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element);
+    setWidth(element.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+  const columns =
+    width > DIFF_GUTTER_WIDTH
+      ? Math.max(1, Math.floor((width - DIFF_GUTTER_WIDTH) / DIFF_CHAR_WIDTH))
+      : Infinity;
   const height = Math.min(
     DIFF_MAX_HEIGHT,
-    DIFF_HEADER_HEIGHT + DIFF_LINE_HEIGHT * diffLineCount(before, after),
+    DIFF_HEADER_HEIGHT + DIFF_LINE_HEIGHT * diffLineCount(before, after, columns),
   );
   return (
     <div
+      ref={box}
       className="overflow-hidden rounded-md border border-border"
       style={{ height }}
       data-testid="proposal-diff"
@@ -322,7 +341,7 @@ function EvidenceList({ proposal }: { proposal: TuningProposal }) {
       <span className="text-muted-foreground">{t('tuning.proposal.evidence')}</span>
       {session === undefined ? (
         proposal.evidence.map((item) => (
-          <span key={item.id} className="max-w-48 truncate text-muted-foreground">
+          <span key={item.id} title={item.text} className="max-w-48 truncate text-muted-foreground">
             {evidenceLabel(item)}
           </span>
         ))
@@ -344,7 +363,7 @@ function EvidenceLinks({
   return evidence.map((item) => {
     const target = retroTarget(item.ref);
     return target === undefined ? (
-      <span key={item.id} className="max-w-48 truncate text-muted-foreground">
+      <span key={item.id} title={item.text} className="max-w-48 truncate text-muted-foreground">
         {evidenceLabel(item)}
       </span>
     ) : (

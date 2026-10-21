@@ -257,7 +257,7 @@ export type RetroReview = z.infer<typeof RetroReviewSchema>;
 
 /**
  * 关键决定的种类：`instruction` 后续的用户消息；`steer` 插话；`answer` 回答提问；`declined` 拒绝审批；`cancelled` 用户停止回合；
- * `undone` / `redone` / `rewound` 撤销、重做、撤回回合；`handoff` 换来源。开放字符串。
+ * `undone` / `redone` / `rewound` 撤销、重做、撤回回合；`handoff` 换来源；`guardrail` 护栏拦下的命令、文件改动或检查（0.87.0 起）。开放字符串。
  */
 export const RetroDecisionSchema = RetroItemSchema.extend({ kind: z.string().min(1) });
 export type RetroDecision = z.infer<typeof RetroDecisionSchema>;
@@ -278,7 +278,7 @@ export const RetroDeliverySchema = z.object({
   checks: z.string().min(1),
   /** `uncommitted` / `committed` / `clean` / `unknown`。 */
   commit: z.string().min(1),
-  /** `not_pushed` / `pushed` / `no_upstream` / `unknown`。 */
+  /** `not_pushed` / `pushed` / `no_upstream` / `no_remote`（仓库没有远端，0.87.0 起）/ `unknown`。 */
   push: z.string().min(1),
   ci: z.string().min(1),
   deploy: z.string().min(1),

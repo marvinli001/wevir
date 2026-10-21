@@ -70,8 +70,13 @@ export function proposalTokens(proposal: Pick<TuningProposal, 'usage'>): string 
 /** 证据的标签：回合写“回合 n”，别的用那一行的文字。 */
 export function evidenceLabel(evidence: TuningProposalEvidence): string {
   if (evidence.turn !== undefined) return t('tuning.proposal.turn', { n: evidence.turn });
-  return evidence.text === '' ? evidence.id : evidence.text;
+  if (evidence.text === '') return evidence.id;
+  // 命令与长文本只取第一行、压掉空白，过长截断；全文在悬停提示里。
+  const line = (evidence.text.split('\n', 1)[0] ?? '').replace(/\s+/g, ' ').trim();
+  return line.length > EVIDENCE_LABEL_MAX ? `${line.slice(0, EVIDENCE_LABEL_MAX - 1)}…` : line;
 }
+
+const EVIDENCE_LABEL_MAX = 28;
 
 /** 采纳之后的统计：“2 个会话 · 验证通过 3/4”。 */
 export function statsText(proposal: Pick<TuningProposal, 'stats'>): string | undefined {
@@ -150,18 +155,33 @@ export function withNewline(text: string): string {
   return text === '' || text.endsWith('\n') ? text : `${text}\n`;
 }
 
-/** diff 大约显示几行（定框高用）：改后的行，加上改前有、改后没有的行；至少 1 行。 */
-export function diffLineCount(before: string, after: string): number {
+/** diff 大约显示几行（定框高用）：改后的行，加上改前有、改后没有的行；给了每行能放几个字宽时按折行算；至少 1 行。 */
+export function diffLineCount(before: string, after: string, columns = Infinity): number {
   const lines = (text: string) => (text === '' ? [] : withNewline(text).slice(0, -1).split('\n'));
+  const rows = (line: string) => Math.max(1, Math.ceil(displayWidth(line) / columns));
   const left = new Map<string, number>();
   for (const line of lines(after)) left.set(line, (left.get(line) ?? 0) + 1);
-  let removed = 0;
+  let total = 0;
   for (const line of lines(before)) {
     const count = left.get(line) ?? 0;
-    if (count === 0) removed += 1;
+    if (count === 0) total += rows(line);
     else left.set(line, count - 1);
   }
-  return Math.max(1, lines(after).length + removed);
+  for (const line of lines(after)) total += rows(line);
+  return Math.max(1, total);
+}
+
+/** 等宽字体下的显示宽度：全角字符算两个字宽。 */
+function displayWidth(line: string): number {
+  let width = 0;
+  for (const char of line)
+    width +=
+      /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(
+        char,
+      )
+        ? 2
+        : 1;
+  return width;
 }
 
 /** 待审数（侧栏与分段上的数字）：待审与已过时都算。 */

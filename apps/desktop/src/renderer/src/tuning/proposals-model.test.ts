@@ -45,6 +45,12 @@ describe('proposals-model', () => {
     expect(evidenceLabel({ id: 't:a', text: 'fix ci', turn: 4 })).toBe('回合 4');
     expect(evidenceLabel({ id: 'v:1', text: 'test: failed' })).toBe('test: failed');
     expect(evidenceLabel({ id: 'e9', text: '' })).toBe('e9');
+    expect(
+      evidenceLabel({ id: 'c3', text: 'npm  run build &&\n  npm test -- --reporter verbose' }),
+    ).toBe('npm run build &&');
+    expect(
+      evidenceLabel({ id: 'c4', text: 'node scripts/check-engine-boundary.mjs --strict --all' }),
+    ).toBe('node scripts/check-engine-b…');
     expect(statsText({ stats: { sessions: 2, checks: { passed: 3, total: 4 } } })).toBe(
       '2 个会话 · 验证通过 3/4',
     );
@@ -74,5 +80,8 @@ describe('proposals-model', () => {
     expect(diffLineCount('', 'a\nb')).toBe(2);
     expect(diffLineCount('a\nb\n', 'a\nc\nd\n')).toBe(4);
     expect(diffLineCount('', '')).toBe(1);
+    // 折行：每行 10 个字宽时，25 字的行占 3 行，全角字符算两个字宽。
+    expect(diffLineCount('', `${'x'.repeat(25)}\nshort`, 10)).toBe(4);
+    expect(diffLineCount('', '测试测试测试', 10)).toBe(2);
   });
 });
