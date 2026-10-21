@@ -116,11 +116,13 @@ export interface TerminalModules {
 
 /**
  * 加载终端要的模块。node-pty 没装上（Linux 没有预编译、平台不支持）或加载失败时返回 undefined，Host 不声明 `user_terminal`。
- * npm 包里 macOS 的 `spawn-helper` 没有执行位（node-pty 1.1.0），没跑安装脚本时在这里补上。
+ * npm 包里 macOS 的 `spawn-helper` 没有执行位（node-pty 1.1.0），没跑安装脚本时在这里补上。xterm 的两个包（CommonJS，`default` 是
+ * `module.exports`）用 `import()` 取：安装包里的 Host 打成一个 bundle，打包器认得 `import()`，不认得 `createRequire`；node-pty
+ * 是原生模块，安装包里原样放在 `node_modules/`。
  */
-export function loadTerminalModules(
+export async function loadTerminalModules(
   onWarning: (message: string, fields?: Record<string, unknown>) => void,
-): TerminalModules | undefined {
+): Promise<TerminalModules | undefined> {
   const require = createRequire(import.meta.url);
   try {
     const pty = require('node-pty') as PtyModule;
@@ -131,10 +133,14 @@ export function loadTerminalModules(
         if (existsSync(helper) && (statSync(helper).mode & 0o111) === 0) chmodSync(helper, 0o755);
       }
     }
+    const [headless, serialize] = await Promise.all([
+      import('@xterm/headless'),
+      import('@xterm/addon-serialize'),
+    ]);
     return {
       pty,
-      headless: require('@xterm/headless') as HeadlessModule,
-      serialize: require('@xterm/addon-serialize') as SerializeModule,
+      headless: headless.default as HeadlessModule,
+      serialize: serialize.default as SerializeModule,
     };
   } catch (error) {
     onWarning('the user terminal is unavailable: node-pty could not be loaded', {

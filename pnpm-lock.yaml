@@ -332,6 +332,9 @@ importers:
       react-router:
         specifier: ^8.4.0
         version: 8.4.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      rolldown:
+        specifier: 1.2.13
+        version: 1.2.13
       semver:
         specifier: 7.7.4
         version: 7.7.4

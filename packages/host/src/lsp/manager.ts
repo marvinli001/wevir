@@ -12,7 +12,7 @@
 import path from 'node:path';
 import type { LspInstallPlan, LspServerStatus } from '@wevir/protocol';
 import type { AgentEvent } from '@wevir/runtime-adapter';
-import { capabilityNames, LspClient } from './client.js';
+import { capabilityNames, LspClient, loadLspProtocol } from './client.js';
 import { outdatedReason, probeServer, type ServerSource, serverSource } from './probe.js';
 import {
   BUILTIN_SERVERS,
@@ -288,6 +288,7 @@ export class LspManager {
       ...(resolved.version !== undefined && { version: resolved.version }),
     };
     entry.capabilities = undefined;
+    await loadLspProtocol();
     this.#log(
       entry,
       `start: ${[launch.command, ...launch.args].join(' ')} (${resolved.source}${resolved.version === undefined ? '' : `, ${resolved.version}`}) in ${entry.root}`,

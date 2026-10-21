@@ -218,9 +218,9 @@ async function readPage(
   );
   const status = response.statusCode ?? 200;
   if (kind === 'html') {
-    let page: ReturnType<typeof htmlToMarkdown>;
+    let page: Awaited<ReturnType<typeof htmlToMarkdown>>;
     try {
-      page = htmlToMarkdown(text, url.href);
+      page = await htmlToMarkdown(text, url.href);
     } catch (error) {
       throw new WebFetchError(
         'unreadable',

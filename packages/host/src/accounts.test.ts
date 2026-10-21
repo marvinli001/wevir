@@ -20,7 +20,7 @@ import { loadTerminalModules } from './terminals.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
 
 /** node-pty 装得上的平台（macOS、Windows）才有用户终端。 */
-const userTerminal = loadTerminalModules(() => {}) !== undefined;
+const userTerminal = (await loadTerminalModules(() => {})) !== undefined;
 
 const tempDir = useTempDir();
 const running: RunningHost[] = [];

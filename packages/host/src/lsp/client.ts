@@ -13,7 +13,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { type FSWatcher, watch } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type {
@@ -28,9 +27,16 @@ type LspProtocol = typeof import('vscode-languageserver-protocol/node');
 
 let protocol: LspProtocol | undefined;
 
-/** vscode-languageserver-protocol（CommonJS）在第一次起语言服务器时才加载：Host 启动时不必为没用到的 LSP 工具付出加载时间与内存。 */
+/**
+ * vscode-languageserver-protocol（CommonJS）在第一次起语言服务器时才加载：Host 启动时不必为没用到的 LSP 工具付出加载时间与内存。
+ * 用 `import()` 而不是 `createRequire`：安装包里的 Host 打成一个 bundle，打包器只认得 `import()`，把它拆成按需加载的文件。
+ */
+export async function loadLspProtocol(): Promise<void> {
+  protocol ??= (await import('vscode-languageserver-protocol/node')).default;
+}
+
 function lspProtocol(): LspProtocol {
-  protocol ??= createRequire(import.meta.url)('vscode-languageserver-protocol/node') as LspProtocol;
+  if (protocol === undefined) throw new Error('vscode-languageserver-protocol is not loaded yet');
   return protocol;
 }
 

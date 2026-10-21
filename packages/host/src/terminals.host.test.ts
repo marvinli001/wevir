@@ -165,7 +165,7 @@ async function changedUntil(
 }
 
 // node-pty 装得上的平台（macOS、Windows；Linux 没有预编译）才跑。
-describe.runIf(loadTerminalModules(() => {}) !== undefined)('用户终端经 Host API', () => {
+describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终端经 Host API', () => {
   it('开终端、输入、输出、关闭（各平台）', async () => {
     const { home, workspaceDir } = dirs();
     const h = await boot(home, workspaceDir);
