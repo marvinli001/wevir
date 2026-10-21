@@ -457,7 +457,7 @@ export function automationRunMessage(
   const parts: string[] = [];
   if (context.existingSession) {
     parts.push(
-      `[Wevir automation "${automation.title}" (${describeSchedule(automation.schedule)}). The user may not be watching, so work without follow-up questions. Unless the prompt asks for a report every run, report only a meaningful change, a completion, a failure or something the user has to act on; if there is nothing like that this time, make the last line of your answer exactly ${context.marker}.]`,
+      `[Wevir automation "${automation.title}" (${describeSchedule(automation.schedule)}). The user may not be watching, so work without follow-up questions. Unless the prompt asks for a report every run, report only a meaningful change, a completion, an error or something the user has to act on; if there is nothing like that this time, make the last line of your answer exactly ${context.marker}.]`,
     );
   }
   parts.push(automation.prompt);

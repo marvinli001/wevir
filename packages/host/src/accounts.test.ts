@@ -136,6 +136,7 @@ describe('ChatGPT 账号（account.*）', () => {
     expect((await withAccounts.connect()).hello.features).toEqual({
       plugins: true,
       plugin_packages: true,
+      plugin_market: true,
       provider_model_discovery: true,
       rule_files: true,
       second_opinion: true,
@@ -199,6 +200,7 @@ describe('ChatGPT 账号（account.*）', () => {
     expect(hello.features).toEqual({
       plugins: true,
       plugin_packages: true,
+      plugin_market: true,
       provider_model_discovery: true,
       rule_files: true,
       second_opinion: true,
