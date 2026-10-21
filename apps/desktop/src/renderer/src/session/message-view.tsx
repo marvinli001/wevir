@@ -433,6 +433,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <SharedFilesCard part={part} />;
     case 'compaction':
       return <CompactionPart part={part} />;
+    case 'chapter':
+      return <ChapterDivider part={part} />;
     case 'plan':
       return <PlanCard part={part} />;
     case 'opinion':
@@ -502,6 +504,23 @@ function CompactionPart({ part }: { part: ChatPartOf<'compaction'> }) {
         <FoldVertical aria-hidden className="size-3.5" />
         <span className={cn(running && 'shimmer')}>{label}</span>
       </span>
+      <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
+    </div>
+  );
+}
+
+/**
+ * 章节的开始（0.82.0，`wevir_mark_chapter`）：标题在左、横线向右。说明放在悬停提示里；目录（chapter-nav.tsx）按
+ * `data-chapter-anchor` 找到它滚过去。
+ */
+function ChapterDivider({ part }: { part: ChatPartOf<'chapter'> }) {
+  return (
+    <div
+      className="mt-6 mb-3 flex scroll-mt-4 items-center gap-3"
+      data-chapter-anchor={part.key}
+      title={part.summary}
+    >
+      <h3 className="min-w-0 shrink truncate text-sm font-medium text-foreground">{part.title}</h3>
       <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
     </div>
   );

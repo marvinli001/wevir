@@ -66,6 +66,15 @@ export function retroSummaryInput(retro: SessionRetro): string {
     fixed.push(line(retro.goal.goal.id, `goal (${retro.goal.goal.status})`, retro.goal.goal.text));
   if (retro.goal.request)
     fixed.push(line(retro.goal.request.id, 'first request', retro.goal.request.text));
+  // 章节（0.82.0）是 Agent 自己标的阶段，给摘要当骨架；回合行带它所在的章节。
+  for (const chapter of retro.chapters ?? [])
+    fixed.push(
+      line(
+        chapter.id,
+        `chapter (${chapter.turns} turns)`,
+        chapter.summary ? `${chapter.text}: ${chapter.summary}` : chapter.text,
+      ),
+    );
   for (const item of retro.done)
     fixed.push(
       line(
@@ -114,7 +123,7 @@ export function retroSummaryInput(retro: SessionRetro): string {
       seq: turn.seq,
       text: line(
         turn.id,
-        `turn (${turn.kind}, ${turn.outcome ?? 'running'}, ${turn.files.length} files, ${turn.commands} commands)`,
+        `turn (${turn.kind}, ${turn.outcome ?? 'running'}, ${turn.files.length} files, ${turn.commands} commands${turn.chapter ? `, in ${turn.chapter}` : ''})`,
         turn.text ?? '',
       ),
     });
@@ -209,6 +218,7 @@ export function retroIds(retro: SessionRetro): Set<string> {
   add(retro.done);
   add(retro.open);
   add(retro.turns);
+  add(retro.chapters ?? []);
   add(retro.changes.files);
   add(retro.changes.commits);
   add(retro.verification.checks);

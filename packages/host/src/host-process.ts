@@ -782,6 +782,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),
+        ...(mcp !== undefined && { transcript_chapters: true }),
         ...(mcp !== undefined && { task_board: true }),
         ...(mcp !== undefined && { tool_presets: true }),
         ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),

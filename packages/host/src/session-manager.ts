@@ -580,6 +580,7 @@ const BRANCH_HISTORY_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
   'task.started',
   'task.reported',
   'file.shared',
+  'chapter.marked',
 ]);
 
 const COMMAND_TURN_NOT_STEERABLE = 'a compact or review turn cannot be steered';
@@ -3125,6 +3126,27 @@ export class SessionManager {
         type: 'file.shared',
         source: 'host',
         payload: { files: [...files], ...(turnId !== undefined && { turnId }) },
+      },
+    ]);
+  }
+
+  /**
+   * 应用级工具的 `wevir_mark_chapter`（0.82.0）：在会话的流里写 `chapter.marked`，消息流在当时的位置出现章节分隔线。会话有进行中的回合时
+   * 带上它。
+   */
+  markChapter(sessionId: SessionId, title: string, summary?: string): void {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const turnId = runtime.turn?.turnId;
+    this.#write(runtime, [
+      {
+        type: 'chapter.marked',
+        source: 'host',
+        payload: {
+          title,
+          ...(summary !== undefined && { summary }),
+          ...(turnId !== undefined && { turnId }),
+        },
       },
     ]);
   }

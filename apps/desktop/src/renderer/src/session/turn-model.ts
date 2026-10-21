@@ -114,7 +114,8 @@ export function alwaysShown(part: ChatPart): boolean {
     part.type === 'task_report' ||
     part.type === 'opinion' ||
     part.type === 'files' ||
-    part.type === 'compaction'
+    part.type === 'compaction' ||
+    part.type === 'chapter'
   );
 }
 

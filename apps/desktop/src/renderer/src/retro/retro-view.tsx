@@ -166,7 +166,7 @@ function RetroSections({
   const row = (
     entry: RetroItem,
     children: ReactNode,
-    extra?: { tone?: StatusTone; detail?: string | undefined; mono?: boolean },
+    extra?: { tone?: StatusTone; detail?: string | undefined; mono?: boolean; title?: string },
   ) => (
     <RetroRow
       key={entry.id}
@@ -192,6 +192,17 @@ function RetroSections({
           row(retro.goal.request, retro.goal.request.text, { detail: t('retro.goal.request') })}
         {!retro.goal.recorded && <Empty>{t('retro.notRecorded')}</Empty>}
       </Section>
+
+      {retro.chapters && retro.chapters.length > 0 && (
+        <Section title={t('retro.section.chapters')} testId="retro-chapters">
+          {retro.chapters.map((chapter) =>
+            row(chapter, chapter.text, {
+              detail: t('retro.chapterTurns', { count: chapter.turns }),
+              ...(chapter.summary !== undefined && { title: chapter.summary }),
+            }),
+          )}
+        </Section>
+      )}
 
       <Section title={t('retro.section.next')} testId="retro-next">
         {retro.next.map((entry) =>

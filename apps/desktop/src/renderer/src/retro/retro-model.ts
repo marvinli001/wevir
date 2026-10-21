@@ -233,6 +233,17 @@ export function retroMarkdownText(
   }
   if (retro.goal.request) goal.push(item(`${t('retro.goal.request')}：`, retro.goal.request));
   section(t('retro.section.goal'), goal);
+  if (retro.chapters && retro.chapters.length > 0) {
+    section(
+      t('retro.section.chapters'),
+      retro.chapters.map((chapter) =>
+        item('', {
+          ...chapter,
+          text: `${chapter.text}${chapter.summary ? `：${chapter.summary}` : ''}（${t('retro.chapterTurns', { count: chapter.turns })}）`,
+        }),
+      ),
+    );
+  }
 
   section(
     t('retro.section.done'),

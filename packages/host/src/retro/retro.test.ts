@@ -244,6 +244,66 @@ describe('任务回顾：证据语义', () => {
     expect(redone.verification.checks).toHaveLength(1);
   });
 
+  it('章节：回合归到它结束前最后开始的一章；撤销、撤回的回合里标的不列；Markdown 与摘要输入都有', () => {
+    const s = stream();
+    created(s);
+    s.user('trn_1', '先看看代码');
+    s.started('trn_1');
+    s.finished('trn_1');
+    s.user('trn_2', '开始实现');
+    s.started('trn_2');
+    const impl = s.push('chapter.marked', {
+      title: '实现',
+      summary: '改换算函数',
+      turnId: 'trn_2',
+    });
+    s.edit('trn_2', 'src/convert.ts');
+    s.finished('trn_2');
+    s.user('trn_3', '再改一处');
+    s.started('trn_3');
+    s.finished('trn_3');
+    s.user('trn_4', '跑测试');
+    s.started('trn_4');
+    s.push('chapter.marked', { title: '验证', turnId: 'trn_4' });
+    s.finished('trn_4');
+    s.push('turn.undone', { turnId: 'trn_4' });
+    s.user('trn_5', '换个方向');
+    s.started('trn_5');
+    s.push('chapter.marked', { title: '撤回的章', turnId: 'trn_5' });
+    s.finished('trn_5');
+    s.push('turn.rewound', { turnId: 'trn_5' });
+
+    const retro = retroOf(s.events);
+    expect(retro.chapters).toEqual([
+      {
+        id: `h${impl.seq}`,
+        text: '实现',
+        summary: '改换算函数',
+        ref: { kind: 'event', seq: impl.seq, turnId: 'trn_2' },
+        turns: 2,
+        at: T1,
+      },
+    ]);
+    expect(retro.turns.map((turn) => [turn.turnId, turn.chapter])).toEqual([
+      ['trn_1', undefined],
+      ['trn_2', `h${impl.seq}`],
+      ['trn_3', `h${impl.seq}`],
+    ]);
+    expect(retroMarkdown(retro)).toContain(
+      `## Chapters\n- 实现: 改换算函数 (2 turns) (h${impl.seq})`,
+    );
+    expect(retroSummaryInput(retro)).toContain(
+      `[h${impl.seq}] chapter (2 turns): 实现: 改换算函数`,
+    );
+    expect(retroIds(retro).has(`h${impl.seq}`)).toBe(true);
+
+    s.push('turn.redone', { turnId: 'trn_4' });
+    expect(retroOf(s.events).chapters?.map((chapter) => [chapter.text, chapter.turns])).toEqual([
+      ['实现', 2],
+      ['验证', 1],
+    ]);
+  });
+
   it('撤回的回合整个去掉', () => {
     const s = stream();
     created(s);
@@ -491,7 +551,7 @@ describe('任务回顾：投影', () => {
   it('读回投影：坏的、版本不同的都认不出（调用方从头重放）', () => {
     expect(parseRetroState('{not json')).toBeUndefined();
     expect(parseRetroState('null')).toBeUndefined();
-    expect(parseRetroState(JSON.stringify({ ...emptyRetroState(), v: 2 }))).toBeUndefined();
+    expect(parseRetroState(JSON.stringify({ ...emptyRetroState(), v: 1 }))).toBeUndefined();
     expect(
       parseRetroState(JSON.stringify({ ...emptyRetroState(), turns: [{ turnId: 1 }] })),
     ).toBeUndefined();

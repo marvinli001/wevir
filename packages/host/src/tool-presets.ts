@@ -38,6 +38,7 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
   wevir_tasks: 'tasks',
   wevir_show: 'workbench',
   wevir_share_file: 'workbench',
+  wevir_mark_chapter: 'workbench',
   wevir_plugins_list: 'plugins',
   wevir_plugin_install: 'plugins',
   wevir_skill_install: 'plugins',

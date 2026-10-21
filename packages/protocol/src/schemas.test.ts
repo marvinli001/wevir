@@ -3369,6 +3369,12 @@ const standaloneCases: Case[] = [
     invalid: [{ ...sessionRetro.turns[0], kind: 'agent' }],
   },
   {
+    name: 'RetroChapter',
+    schema: protocol.RetroChapterSchema,
+    valid: sessionRetro.chapters ?? [],
+    invalid: [{ id: 'h4', text: '实现' }],
+  },
+  {
     name: 'RetroFile',
     schema: protocol.RetroFileSchema,
     valid: sessionRetro.changes.files,

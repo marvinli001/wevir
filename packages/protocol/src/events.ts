@@ -17,6 +17,8 @@ import {
   ApprovalRequestSchema,
   ApprovalResolutionSchema,
   BoardTaskSchema,
+  CHAPTER_SUMMARY_MAX_LENGTH,
+  CHAPTER_TITLE_MAX_LENGTH,
   CollaborationModeSchema,
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
@@ -502,6 +504,16 @@ export const EventPayloadSchemas = {
     turnId: TurnIdSchema.optional(),
   }),
   /**
+   * 消息流的一个章节从这里开始（0.82.0，`wevir_mark_chapter`，domain-model §3.15.7）：Agent 在工作换到另一个阶段时标记，消息流在当时的
+   * 位置画一条带标题的分隔线，浮动目录列出所有章节。不开回合、不进引擎上下文；所在的回合被撤销或撤回时随它一起隐藏。
+   */
+  'chapter.marked': z.object({
+    title: z.string().min(1).max(CHAPTER_TITLE_MAX_LENGTH),
+    /** 一句话说明这一章做什么。 */
+    summary: z.string().min(1).max(CHAPTER_SUMMARY_MAX_LENGTH).optional(),
+    turnId: TurnIdSchema.optional(),
+  }),
+  /**
    * 一条验证记录变了（0.65.0，ADR-0008）：检查排队、开始、结束，每次带完整记录，替换同一 `id` 的上一份。与回合分开：`turnId` 只说明
    * 它验证的是哪个回合之后的代码。
    */
@@ -611,6 +623,7 @@ export const PendingUpdatedEventSchema = eventSchema('pending.updated');
 export const UserSteeredEventSchema = eventSchema('user.steered');
 export const UiShowEventSchema = eventSchema('ui.show');
 export const FileSharedEventSchema = eventSchema('file.shared');
+export const ChapterMarkedEventSchema = eventSchema('chapter.marked');
 export const VerificationUpdatedEventSchema = eventSchema('verification.updated');
 export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
 export const RepairUpdatedEventSchema = eventSchema('repair.updated');
@@ -666,6 +679,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   UserSteeredEventSchema,
   UiShowEventSchema,
   FileSharedEventSchema,
+  ChapterMarkedEventSchema,
   VerificationUpdatedEventSchema,
   AcceptanceChangedEventSchema,
   RepairUpdatedEventSchema,

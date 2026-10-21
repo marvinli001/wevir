@@ -47,6 +47,18 @@ export function retroMarkdown(retro: SessionRetro, title?: string): string {
   if (retro.goal.request) goal.push(item('First request: ', retro.goal.request));
   section('Goal', goal);
 
+  if (retro.chapters && retro.chapters.length > 0) {
+    section(
+      'Chapters',
+      retro.chapters.map((chapter) =>
+        item('', {
+          ...chapter,
+          text: `${chapter.text}${chapter.summary ? `: ${chapter.summary}` : ''} (${chapter.turns} turn${chapter.turns === 1 ? '' : 's'})`,
+        }),
+      ),
+    );
+  }
+
   section(
     'Done (recorded)',
     retro.done.map((entry) => item(`[${entry.origin}] `, entry)),

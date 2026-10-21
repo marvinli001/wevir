@@ -364,6 +364,11 @@ export const HOST_FEATURES = {
    * `relocate`。与引擎无关（换不了目录的引擎新开引擎会话、交摘要）。
    */
   sessionMove: 'session_move',
+  /**
+   * 消息流章节（0.82.0，domain-model §3.15.7）：应用级工具里有 `wevir_mark_chapter`，会话的流里有 `chapter.marked` 事件，任务回顾有
+   * `chapters`。有应用级工具时声明（同 `app_tools`）。
+   */
+  transcriptChapters: 'transcript_chapters',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -438,6 +443,7 @@ export const HostFeaturesSchema = z.looseObject({
   approval_rules: z.boolean().optional(),
   worktree_archive: z.boolean().optional(),
   session_move: z.boolean().optional(),
+  transcript_chapters: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

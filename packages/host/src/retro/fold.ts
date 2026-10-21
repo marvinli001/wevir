@@ -47,6 +47,15 @@ export interface RetroStateMemory {
   operation: 'save' | 'delete';
 }
 
+/** 一个章节（0.82.0）；`turnId` 是标记它的回合，回合被撤销或撤回时章节随之不列。 */
+export interface RetroStateChapter {
+  seq: number;
+  ts: string;
+  title: string;
+  summary?: string;
+  turnId?: string;
+}
+
 /** 一个回合的桶。 */
 export interface RetroStateTurn {
   turnId: string;
@@ -121,6 +130,7 @@ export interface RetroState {
   /** 撤销、重做、撤回、接力。 */
   decisions: RetroStateDecision[];
   children: { sessionId: string; seq: number; relation: 'subagent' | 'opened'; text: string }[];
+  chapters: RetroStateChapter[];
 }
 
 export function emptyRetroState(): RetroState {
@@ -134,6 +144,7 @@ export function emptyRetroState(): RetroState {
     pendingQuestions: [],
     decisions: [],
     children: [],
+    chapters: [],
   };
 }
 
@@ -524,6 +535,17 @@ function applyEvent(state: RetroState, event: WevirEvent): void {
     case 'acceptance.changed':
       state.acceptance = { seq: event.seq, status: event.payload.acceptance.status };
       break;
+    case 'chapter.marked': {
+      const { title, summary, turnId } = event.payload;
+      state.chapters.push({
+        seq: event.seq,
+        ts: event.ts,
+        title: clipText(title, RETRO_TEXT_MAX_CHARS),
+        ...(summary !== undefined && { summary: clipText(summary, RETRO_TEXT_MAX_CHARS) }),
+        ...(turnId !== undefined && { turnId }),
+      });
+      break;
+    }
     default:
       break;
   }
@@ -549,6 +571,7 @@ export function parseRetroState(text: string): RetroState | undefined {
     state.pendingQuestions,
     state.decisions,
     state.children,
+    state.chapters,
   ];
   if (
     state.v !== RETRO_SCHEMA_VERSION ||

@@ -104,6 +104,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.target.kind;
     case 'file.shared':
       return event.payload.files[0]?.name ?? '';
+    case 'chapter.marked':
+      return event.payload.title;
     case 'verification.updated':
       return event.payload.run.status;
     case 'acceptance.changed':

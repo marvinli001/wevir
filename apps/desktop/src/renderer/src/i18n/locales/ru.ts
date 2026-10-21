@@ -698,6 +698,7 @@ export const messages: Messages = {
   'transcript.loading': 'Загрузка сессии…',
   'transcript.failed': 'Не удалось загрузить сессию: {error}',
   'transcript.jumpToLatest': 'К последним',
+  'transcript.chapters': 'Главы',
   'transcript.showEarlier': 'Показать предыдущие сообщения ({count})',
   'transcript.fromParentAgent': 'Задача от родительского агента',
   'transcript.fromSession': 'От «{title}»',
@@ -2409,6 +2410,7 @@ export const messages: Messages = {
   'retro.board.notRecorded': 'Список задач не записан',
   'retro.hiddenTurns':
     '{count, plural, one {Отменён # ход} few {Отменено # хода} many {Отменено # ходов} other {Отменено # хода}}',
+  'retro.chapterTurns': '{count, plural, one {# ход} few {# хода} many {# ходов} other {# хода}}',
   'retro.moreFiles':
     '{count, plural, one {Ещё # файл} few {Ещё # файла} many {Ещё # файлов} other {Ещё # файла}}',
   'retro.moreDecisions':
@@ -2418,6 +2420,7 @@ export const messages: Messages = {
   'retro.ahead':
     '{count, plural, one {Не отправлен # коммит} few {Не отправлено # коммита} many {Не отправлено # коммитов} other {Не отправлено # коммита}}',
   'retro.section.goal': 'Цель',
+  'retro.section.chapters': 'Главы',
   'retro.section.done': 'Готово (по записи)',
   'retro.section.open': 'Не завершено',
   'retro.section.verification': 'Проверка',

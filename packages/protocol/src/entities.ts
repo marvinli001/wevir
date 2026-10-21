@@ -1659,6 +1659,10 @@ export const SharedFileSchema = z.object({
 });
 export type SharedFile = z.infer<typeof SharedFileSchema>;
 
+/** 章节标题与说明的上限（0.82.0，`chapter.marked`，按码点）。 */
+export const CHAPTER_TITLE_MAX_LENGTH = 80;
+export const CHAPTER_SUMMARY_MAX_LENGTH = 200;
+
 /** 会话由哪次自动化运行开出来（0.66.0，`Session.automation`）。 */
 export const SessionAutomationSchema = z.object({
   automationId: AutomationIdSchema,

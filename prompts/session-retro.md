@@ -12,6 +12,7 @@ Wevir 自己写的。
 用户消息里的 `<retro>` 是骨架，每行是 `[ID] 种类: 内容`：
 
 - `goal`、`first request`：目标与起始请求。
+- `chapter`：Agent 在工作换阶段时标的章节（标题与一句说明），后面是这一章的回合数；`turn` 行的 `in h…` 是它所在的章节。章节说明工作分了哪几段，不说明哪一段做完了。
 - `done`、`open`：清单里登记的完成与未完成项。`done` 只是有人把它标成完成，**不等于验证通过**。
 - `check`：验证记录，后面是状态（`passed`、`failed`、`timed_out`、`environment_unavailable`、`not_run`、`cancelled`、`stale`、`running`）。`passed` 后面说明它对应的是不是当前的代码；“result is for an older version of the code” 表示之后代码又改了。
 - `verification: no verification records` 表示没有任何验证记录，也就是未验证。
