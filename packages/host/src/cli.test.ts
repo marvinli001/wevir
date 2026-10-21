@@ -8,6 +8,7 @@ import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
 import { CursorAdapter } from '@wevir/adapter-cursor';
+import { DevinAdapter } from '@wevir/adapter-devin';
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
@@ -147,7 +148,7 @@ describe('runHostCli', () => {
     );
   });
 
-  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode、Grok、Antigravity）经 EngineRouter 挂在后面，同样不起进程', () => {
+  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode、Grok、Antigravity、WorkBuddy、Devin）经 EngineRouter 挂在后面，同样不起进程', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
     const fakeBinary = join(tempDir(), 'codex-app-server');
@@ -165,6 +166,7 @@ describe('runHostCli', () => {
         ['grok', ['grok']],
         ['antigravity', ['antigravity']],
         ['workbuddy', ['workbuddy']],
+        ['devin', ['devin']],
       ]);
       expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
       expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
@@ -180,6 +182,10 @@ describe('runHostCli', () => {
       expect((router.routes[6]?.adapter as WorkBuddyAdapter | undefined)?.process.state).toBe(
         'stopped',
       );
+      expect(router.routes[7]?.adapter).toBeInstanceOf(DevinAdapter);
+      expect((router.routes[7]?.adapter as DevinAdapter | undefined)?.process.state).toBe(
+        'stopped',
+      );
       const codex = router.routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
@@ -193,6 +199,7 @@ describe('runHostCli', () => {
         'grok',
         'antigravity',
         'workbuddy',
+        'devin',
       ]);
       expect(existsSync(home)).toBe(false);
     } finally {

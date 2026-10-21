@@ -474,6 +474,10 @@ WorkBuddy 适配器复用上述 Grok 启动器与 ACP / 历史工具接法，T3 
 packages/adapter-workbuddy/src/launch.ts 与 packages/adapter-workbuddy/src/workbuddy-adapter.ts。
 其余 WorkBuddy 实现及合成夹具为 Wevir 新写，不包含腾讯 CLI 源码。
 
+Devin 适配器经 WorkBuddy 的同一套启动器与 ACP / 历史工具接法改写，T3 的署名同样覆盖
+packages/adapter-devin/src/launch.ts 与 packages/adapter-devin/src/devin-adapter.ts。
+其余 Devin 实现及合成夹具为 Wevir 新写，不包含 Cognition 的 CLI 源码。
+
 订阅来源 Antigravity 的引擎（packages/adapter-antigravity）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），
 改写成不依赖 Effect 的 TypeScript，修改说明在各文件头：
 

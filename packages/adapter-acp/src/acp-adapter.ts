@@ -294,11 +294,16 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       let modes: unknown;
       try {
         ({ configOptions, modes } = await this.#withAuth(() =>
-          connection.agent.request(methods.agent.session.resume, {
-            sessionId: engineSessionId,
-            cwd: config.cwd,
-            mcpServers: this.#sessionMcpServers(config),
-          }),
+          connection.agent.request(
+            this.engine.resumeMethod === 'load'
+              ? methods.agent.session.load
+              : methods.agent.session.resume,
+            {
+              sessionId: engineSessionId,
+              cwd: config.cwd,
+              mcpServers: this.#sessionMcpServers(config),
+            },
+          ),
         ));
       } catch (error) {
         if (isAdapterError(error)) throw error;

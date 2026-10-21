@@ -1317,6 +1317,7 @@ export const zhCN = {
   'source.grok': 'Grok',
   'source.antigravity': 'Antigravity',
   'source.workbuddy': 'WorkBuddy',
+  'source.devin': 'Devin',
   'source.status.soon': '即将支持',
   'source.status.missing': '未安装',
   'source.status.requiresGit': '需要 Git',

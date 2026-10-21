@@ -37,6 +37,7 @@ export const SOURCES: Readonly<Record<AccountKind, SourceInfo>> = {
     name: 'source.antigravity',
     logo: 'antigravity',
   },
+  devin: { kind: 'devin', name: 'source.devin', logo: 'devin' },
 };
 
 /**

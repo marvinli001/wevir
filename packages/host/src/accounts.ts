@@ -31,6 +31,7 @@ export const ACCOUNT_PROVIDER_NAMES: Readonly<Record<AccountKind, string>> = {
   grok: 'Grok',
   antigravity: 'Antigravity',
   workbuddy: 'WorkBuddy',
+  devin: 'Devin',
 };
 
 /** 以前的默认显示名：Provider 还叫它时刷新时换成 `ACCOUNT_PROVIDER_NAMES` 里现在的。 */
@@ -42,7 +43,13 @@ const LEGACY_PROVIDER_NAMES: Readonly<Partial<Record<AccountKind, string>>> = {
  * 首个账号用的是用户本机终端里的登录的种类（0.63.0 的 `localLogin`）：凭据在用户自己的 `~/.claude`、`~/.grok` 等处，登出会让
  * 终端也登出。添加的账号都在 Wevir 的数据目录里。
  */
-const LOCAL_LOGIN_KINDS: readonly AccountKind[] = ['claude', 'grok', 'opencode', 'workbuddy'];
+const LOCAL_LOGIN_KINDS: readonly AccountKind[] = [
+  'claude',
+  'grok',
+  'opencode',
+  'workbuddy',
+  'devin',
+];
 
 /** 读账号时刷新账号 Provider 的模型列表的最短间隔。 */
 export const MODEL_REFRESH_INTERVAL_MS = 10 * 60_000;

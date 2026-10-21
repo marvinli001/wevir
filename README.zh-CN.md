@@ -27,7 +27,7 @@ Wevir 是开源、本地优先的 AI 编程 Agent 工作台。Agent 会话、审
 
 - **一套运行时接多家模型**：OpenAI、Anthropic、Google AI Studio、Google Vertex AI、Azure OpenAI / Microsoft Foundry、SpaceXAI（Grok API）、DeepSeek、阿里云百炼、Kimi、Z.ai / 智谱 GLM、小米 MiMo、RedPill、Ollama（本机与云端），以及任意 OpenAI 兼容接口。网关把请求转换为 OpenAI Responses、Chat Completions 或 Anthropic Messages，推理与工具调用一并转换。
 - **密钥只在 Host**：API Key 存在 Host 的密钥存储里，不交给运行时进程。
-- **订阅**：用 ChatGPT 账号登录，或直接用已有的 Claude、Cursor、OpenCode、Grok、Antigravity、WorkBuddy 订阅。Wevir 可以在设置里下载厂商的官方客户端并完成登录，走的是厂商自己的登录流程。
+- **订阅**：用 ChatGPT 账号登录，或直接用已有的 Claude、Cursor、OpenCode、Grok、Antigravity、WorkBuddy、Devin 订阅。Wevir 可以在设置里下载厂商的官方客户端并完成登录，走的是厂商自己的登录流程。
 - **会话中切换**：回合之间换模型与推理档位，或把会话交给另一个模型服务，并附上它没看到的那段历史的摘要。
 
 ### 会话

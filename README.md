@@ -27,7 +27,7 @@ Wevir is an open-source, local-first workspace for AI coding agents. Agent sessi
 
 - **Most providers through one runtime**: OpenAI, Anthropic, Google AI Studio, Google Vertex AI, Azure OpenAI / Microsoft Foundry, SpaceXAI (Grok API), DeepSeek, Alibaba Cloud Model Studio, Kimi, Z.ai / Zhipu GLM, Xiaomi MiMo, RedPill, Ollama (local and cloud), and any OpenAI-compatible endpoint. The gateway converts requests to OpenAI Responses, Chat Completions, or Anthropic Messages, including reasoning and tool calls.
 - **Keys stay in the Host**: API keys are kept in the Host's secret store and never passed to the runtime process.
-- **Subscriptions**: Sign in with ChatGPT, or use a Claude, Cursor, OpenCode, Grok, Antigravity, or WorkBuddy subscription you already have. Wevir can download the vendor's official client and sign you in from Settings, using the vendor's own sign-in flow.
+- **Subscriptions**: Sign in with ChatGPT, or use a Claude, Cursor, OpenCode, Grok, Antigravity, WorkBuddy, or Devin subscription you already have. Wevir can download the vendor's official client and sign you in from Settings, using the vendor's own sign-in flow.
 - **Switch mid-session**: Change model and reasoning effort between turns, or hand a session to another provider with a summary of what it missed.
 
 ### Sessions

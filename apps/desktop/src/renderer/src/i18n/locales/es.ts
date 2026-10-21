@@ -1333,6 +1333,7 @@ export const messages: Messages = {
   'source.grok': 'Grok',
   'source.antigravity': 'Antigravity',
   'source.workbuddy': 'WorkBuddy',
+  'source.devin': 'Devin',
   'source.status.soon': 'Próximamente',
   'source.status.missing': 'No instalado',
   'source.status.requiresGit': 'Requiere Git',
