@@ -69,6 +69,7 @@ import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
+import type { SpeechService } from './speech/service.js';
 import type { TerminalService } from './terminals.js';
 import type { ProposalService } from './tuning/proposals.js';
 import type { TuningService } from './tuning/service.js';
@@ -186,6 +187,8 @@ export interface HostMethodsOptions {
   guardrails?: GuardrailService;
   /** 官方插件市场（0.91.0，`market.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   market?: MarketService;
+  /** 听写（0.92.0，`speech.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  speech?: SpeechService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -360,6 +363,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const previews = (): PreviewService => {
     if (options.previews === undefined) throw invalidParams([], 'this host has no dev previews');
     return options.previews;
+  };
+  const speech = (): SpeechService => {
+    if (options.speech === undefined) throw invalidParams([], 'this host has no dictation');
+    return options.speech;
   };
   const terminals = (): TerminalService => {
     if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
@@ -767,6 +774,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         ) {
           throw invalidParams(['defaultModelId'], 'defaultModelId must be one of models');
         }
+        if (params.kind === 'openai-compatible' && params.transcriptionModels !== undefined) {
+          const ids = params.transcriptionModels.map((model) => model.id);
+          if (new Set(ids).size !== ids.length) {
+            throw invalidParams(['transcriptionModels'], 'transcription model IDs must be unique');
+          }
+        }
 
         const candidate: ProviderConfig = toProviderConfig(
           {
@@ -822,6 +835,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         if (params.kind !== 'deepseek-official') {
           record.api = params.api;
           if (params.compat !== undefined) record.compat = params.compat;
+        }
+        // 转写模型（0.92.0）：省略时保留已存的（旧客户端不知道这个字段）；空数组清空。
+        if (params.kind === 'openai-compatible') {
+          const transcription = params.transcriptionModels ?? existing?.transcriptionModels;
+          if (Array.isArray(transcription) && transcription.length > 0) {
+            record.transcriptionModels = transcription;
+          }
         }
         if (secretRef !== undefined) record.secretRef = secretRef;
         if (existing?.enabled === false) record.enabled = false;
@@ -1323,6 +1343,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'process.stop': ({ processId, signal }) => ({
       process: processOutput().stop(processId, signal),
     }),
+    'speech.status': () => ({ status: speech().status() }),
+    'speech.install': () => speech().install(),
+    'speech.cancelInstall': () => speech().cancelInstall(),
+    'speech.uninstall': () => speech().uninstall(),
+    'speech.begin': () => speech().begin(),
+    'speech.append': (params) => speech().append(params),
+    'speech.finish': (params) => {
+      if (params.sessionId !== undefined) assertSessionVisible(storage, params.sessionId);
+      return speech().finish(params);
+    },
+    'speech.discard': (params) => speech().discard(params),
     'preview.list': ({ sessionId }) => previews().list(sessionId),
     'preview.save': async ({ workspaceId, config, previous }) => ({
       configs: await previews().save(workspaceId, config, {
@@ -1578,6 +1609,9 @@ function toProviderProfile(record: ProviderProfileRecord): ProviderProfile {
     ...(record.baseURL !== undefined && { baseURL: record.baseURL }),
     ...(record.compat !== undefined && { compat: record.compat }),
     ...(record.vertex !== undefined && { vertex: record.vertex }),
+    ...(record.transcriptionModels !== undefined && {
+      transcriptionModels: record.transcriptionModels,
+    }),
     ...(record.enabled === false && { enabled: false }),
   };
   // 记录里的枚举与 JSON 列是 string / unknown；形状由写入时的参数校验保证，发出前再按注册表校验。

@@ -230,6 +230,21 @@ export function ProviderEditor({
           </FormField>
           <OllamaModels client={client} form={form} onChange={update} />
           <ModelsField form={form} errors={errors} onChange={update} />
+          <FormField
+            id={`${ids}-transcription`}
+            label={t('provider.form.transcriptionModels')}
+            error={errors.transcriptionModels}
+          >
+            <Input
+              id={`${ids}-transcription`}
+              className="font-mono"
+              value={form.transcriptionModels}
+              spellCheck={false}
+              placeholder="whisper-1"
+              onChange={(event) => update({ transcriptionModels: event.target.value })}
+              aria-invalid={!!errors.transcriptionModels}
+            />
+          </FormField>
         </>
       ) : (
         <>
@@ -304,6 +319,7 @@ const FIELD_KEYS = [
   'defaultModelId',
   'vertex',
   'serviceAccountJson',
+  'transcriptionModels',
 ];
 
 function FormField({

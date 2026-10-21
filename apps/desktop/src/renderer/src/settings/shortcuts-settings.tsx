@@ -52,6 +52,7 @@ export function ShortcutsSettings() {
         ['shortcuts.stop', 'Esc'],
         ['shortcuts.commands', '/'],
         ['shortcuts.mention', '@'],
+        ['shortcuts.dictation', key(SHORTCUTS.dictation)],
       ],
     ],
   ];

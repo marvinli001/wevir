@@ -11,6 +11,7 @@ import {
   SessionStateSchema,
 } from './entities.js';
 import { GitExpectedStateSchema } from './git.js';
+import { SpeechFailedDataSchema } from './speech.js';
 import { ProtocolVersionSchema } from './version.js';
 
 /**
@@ -60,6 +61,8 @@ export const ErrorCode = {
 
   WORKSPACE_PATH_INVALID: -32040,
   ENGINE_ERROR: -32041,
+  /** 听写转写失败（0.92.0，`speech.finish`）：本机模型没装好、转写服务出错等，原因在 `data.reason`。 */
+  SPEECH_FAILED: -32042,
 
   /** 没有这个档案版本（0.85.0，`tuning.*`）。 */
   PROFILE_VERSION_NOT_FOUND: -32060,
@@ -145,6 +148,7 @@ export const ErrorDataSchemas = {
     reason: z.enum(['not_absolute', 'not_found', 'not_directory', 'not_accessible']),
   }),
   ENGINE_ERROR: EngineErrorInfoSchema,
+  SPEECH_FAILED: SpeechFailedDataSchema,
 } as const satisfies Partial<Record<ErrorCodeName, z.ZodType>>;
 
 export type ErrorData<N extends keyof typeof ErrorDataSchemas> = z.infer<

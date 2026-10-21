@@ -281,6 +281,8 @@ import {
   signedInAccount,
   signingInAccount,
   snapshot,
+  speechLocalMissing,
+  speechLocalReady,
   subagentSummary,
   suggestedTask,
   TS,
@@ -3741,6 +3743,67 @@ const standaloneCases: Case[] = [
       },
     ],
     invalid: [{ hits: [], mode: 'index', index: searchIndexStatus }],
+  },
+  // ── 听写（0.92.0） ──
+  {
+    name: 'ProviderTranscriptionModel',
+    schema: protocol.ProviderTranscriptionModelSchema,
+    valid: [{ id: 'whisper-1' }, { id: 'gpt-4o-transcribe', displayName: 'GPT-4o Transcribe' }],
+    invalid: [{ id: '' }, {}],
+  },
+  {
+    name: 'SpeechTranscriber',
+    schema: protocol.SpeechTranscriberSchema,
+    valid: [
+      { kind: 'local' },
+      { kind: 'provider', providerId: 'groq', modelId: 'whisper-large-v3-turbo' },
+    ],
+    invalid: [{ kind: 'provider', providerId: 'groq' }, { kind: 'browser' }],
+  },
+  {
+    name: 'SpeechRecordingId',
+    schema: protocol.SpeechRecordingIdSchema,
+    valid: ['rec_01JA2B3C4D5E6F7G'],
+    invalid: ['rec_', 'ses_01JA2B3C4D5E6F7G'],
+  },
+  {
+    name: 'SpeechLocalState',
+    schema: protocol.SpeechLocalStateSchema,
+    valid: ['unsupported', 'missing', 'installing', 'ready', 'failed'],
+    invalid: ['downloading'],
+  },
+  {
+    name: 'SpeechInstallProgress',
+    schema: protocol.SpeechInstallProgressSchema,
+    valid: [
+      { phase: 'downloading', completedBytes: 0 },
+      { phase: 'extracting', completedBytes: 10, totalBytes: 10 },
+    ],
+    invalid: [{ phase: 'resolving', completedBytes: 0 }],
+  },
+  {
+    name: 'SpeechLocalStatus',
+    schema: protocol.SpeechLocalStatusSchema,
+    valid: [speechLocalMissing, speechLocalReady],
+    invalid: [{ ...speechLocalMissing, modelName: '' }],
+  },
+  {
+    name: 'SpeechStatus',
+    schema: protocol.SpeechStatusSchema,
+    valid: [{ local: speechLocalReady }],
+    invalid: [{}],
+  },
+  {
+    name: 'SpeechFailureReason',
+    schema: protocol.SpeechFailureReasonSchema,
+    valid: [
+      'model_missing',
+      'runtime_missing',
+      'provider_missing',
+      'provider_error',
+      'local_error',
+    ],
+    invalid: ['offline'],
   },
 ];
 

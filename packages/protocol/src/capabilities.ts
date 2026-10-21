@@ -401,6 +401,11 @@ export const HOST_FEATURES = {
   tuningProposals: 'tuning_proposals',
   /** 官方插件市场（0.91.0）：`market.*` 方法与设置项 `marketMirror`。 */
   pluginMarket: 'plugin_market',
+  /**
+   * 听写（0.92.0，domain-model §3.42）：`speech.*` 方法与 `speech.changed` 通知、`SPEECH_FAILED` 错误、设置 `speechTranscriber` /
+   * `speechPolish`、`ProviderProfile.transcriptionModels`。本机模型能不能用看 `speech.status`。与引擎无关。
+   */
+  speech: 'speech',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -482,6 +487,7 @@ export const HostFeaturesSchema = z.looseObject({
   tuning_guardrails: z.boolean().optional(),
   tuning_proposals: z.boolean().optional(),
   plugin_market: z.boolean().optional(),
+  speech: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

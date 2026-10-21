@@ -49,6 +49,7 @@ import type { HostProcess } from './processes.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
+import type { SpeechLocalStatus } from './speech.js';
 import type { Terminal } from './terminals.js';
 import type {
   Profile,
@@ -652,6 +653,18 @@ export const previewProcess: HostProcess = {
 };
 
 /** 运行配置（0.84.0）。 */
+/** 听写（0.92.0）：本机模型没装 / 装好了。 */
+export const speechLocalMissing: SpeechLocalStatus = {
+  state: 'missing',
+  modelName: 'SenseVoice Small',
+  downloadBytes: 166_427_732,
+};
+export const speechLocalReady: SpeechLocalStatus = {
+  ...speechLocalMissing,
+  state: 'ready',
+  installedBytes: 259_000_000,
+};
+
 export const previewConfig: PreviewConfig = {
   name: 'web',
   command: 'pnpm run dev',
@@ -2850,9 +2863,24 @@ export const methodSamples: MethodSamples = {
         { settings: { outputStyle: 'friendly' } },
         { settings: { marketMirror: 'cnb' } },
         { settings: { marketMirror: 'auto' } },
+        // 0.92.0：听写的转写方与润色
+        { settings: { speechTranscriber: { kind: 'local' } } },
+        {
+          settings: {
+            speechTranscriber: {
+              kind: 'provider',
+              providerId: 'groq',
+              modelId: 'whisper-large-v3',
+            },
+            speechPolish: true,
+          },
+        },
         { settings: {} },
       ],
       invalid: [
+        { settings: { speechTranscriber: { kind: 'cloud' } } },
+        { settings: { speechTranscriber: { kind: 'provider', providerId: 'groq' } } },
+        { settings: { speechPolish: 'yes' } },
         { settings: { sendWhileBusy: 'later' } },
         { settings: { promptSuggestions: 0 } },
         { settings: { sessionRecap: 1 } },
@@ -2867,6 +2895,13 @@ export const methodSamples: MethodSamples = {
       valid: [
         { settings: { sendWhileBusy: 'queue' } },
         { settings: { sendWhileBusy: 'queue', promptSuggestions: false } },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            speechTranscriber: { kind: 'local' },
+            speechPolish: false,
+          },
+        },
       ],
       invalid: [{ settings: {} }],
     },
@@ -3317,6 +3352,17 @@ export const methodSamples: MethodSamples = {
           defaultModelId: 'qwen3:8b',
           apiKey: null,
         },
+        // 0.92.0：带转写模型
+        {
+          id: 'groq',
+          kind: 'openai-compatible',
+          displayName: 'Groq',
+          api: 'openai-completions',
+          baseURL: 'https://api.groq.com/openai/v1',
+          models: [{ id: 'llama-3.3-70b-versatile' }],
+          transcriptionModels: [{ id: 'whisper-large-v3-turbo', displayName: 'Whisper Turbo' }],
+          defaultModelId: 'llama-3.3-70b-versatile',
+        },
         { id: 'chatgpt', kind: 'chatgpt', displayName: 'ChatGPT', defaultModelId: 'gpt-6.1-sol' },
         // 0.63.0：添加的 ChatGPT 账号
         {
@@ -3350,6 +3396,17 @@ export const methodSamples: MethodSamples = {
           models: [{ id: 'qwen3:8b' }],
           defaultModelId: 'qwen3:8b',
         },
+        // 转写模型要有 ID
+        {
+          id: 'groq',
+          kind: 'openai-compatible',
+          displayName: 'Groq',
+          api: 'openai-completions',
+          baseURL: 'https://api.groq.com/openai/v1',
+          models: [{ id: 'llama-3.3-70b-versatile' }],
+          transcriptionModels: [{ id: '' }],
+          defaultModelId: 'llama-3.3-70b-versatile',
+        },
         // baseURL 只接受 http / https
         {
           id: 'local-ollama',
@@ -3363,7 +3420,13 @@ export const methodSamples: MethodSamples = {
       ],
     },
     result: {
-      valid: [{ provider: compatibleProvider, created: false }],
+      valid: [
+        { provider: compatibleProvider, created: false },
+        {
+          provider: { ...compatibleProvider, transcriptionModels: [{ id: 'whisper-1' }] },
+          created: true,
+        },
+      ],
       invalid: [{ provider: { ...compatibleProvider, id: 'Local Ollama' }, created: false }],
     },
   },
@@ -6435,6 +6498,91 @@ export const methodSamples: MethodSamples = {
       invalid: [{ proposal: { ...memoryProposal, stats: { sessions: -1 } } }],
     },
   },
+  'speech.status': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        { status: { local: speechLocalMissing } },
+        { status: { local: speechLocalReady } },
+        {
+          status: {
+            local: {
+              ...speechLocalMissing,
+              state: 'installing',
+              progress: { phase: 'downloading', completedBytes: 1024, totalBytes: 166_427_732 },
+            },
+          },
+        },
+        {
+          status: { local: { ...speechLocalMissing, state: 'failed', error: 'sha256 mismatch' } },
+        },
+        { status: { local: { ...speechLocalMissing, state: 'unsupported' } } },
+      ],
+      invalid: [{ status: { local: { ...speechLocalMissing, state: 'downloading' } } }, {}],
+    },
+  },
+  'speech.install': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ status: { local: speechLocalMissing } }], invalid: [{ status: {} }] },
+  },
+  'speech.cancelInstall': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ status: { local: speechLocalMissing } }], invalid: [{}] },
+  },
+  'speech.uninstall': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ status: { local: speechLocalMissing } }], invalid: [{}] },
+  },
+  'speech.begin': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ recordingId: 'rec_01JA2B3C4D5E6F7G' }],
+      invalid: [{ recordingId: 'x' }, {}],
+    },
+  },
+  'speech.append': {
+    params: {
+      valid: [
+        { recordingId: 'rec_01JA2B3C4D5E6F7G', offset: 0, data: 'AAAAAA==' },
+        { recordingId: 'rec_01JA2B3C4D5E6F7G', offset: 32_000, data: 'AQIDBA==' },
+      ],
+      invalid: [
+        { recordingId: 'rec_01JA2B3C4D5E6F7G', offset: -1, data: 'AAAA' },
+        { recordingId: 'rec_01JA2B3C4D5E6F7G', offset: 0, data: '' },
+        { recordingId: 'rec_01JA2B3C4D5E6F7G', data: 'AAAA' },
+      ],
+    },
+    result: { valid: [{ receivedBytes: 4 }], invalid: [{ receivedBytes: -1 }] },
+  },
+  'speech.finish': {
+    params: {
+      valid: [
+        { recordingId: 'rec_01JA2B3C4D5E6F7G' },
+        { recordingId: 'rec_01JA2B3C4D5E6F7G', sessionId: ids.session },
+      ],
+      invalid: [{}, { recordingId: 'rec_01JA2B3C4D5E6F7G', sessionId: 'x' }],
+    },
+    result: {
+      valid: [
+        { text: '把测试跑一遍', transcriber: { kind: 'local' }, durationMs: 1800 },
+        {
+          text: '把测试跑一遍。',
+          transcriber: { kind: 'provider', providerId: 'groq', modelId: 'whisper-large-v3' },
+          polished: true,
+          durationMs: 1800,
+        },
+        { text: '', transcriber: { kind: 'local' }, durationMs: 300 },
+      ],
+      invalid: [
+        { text: 'x', durationMs: 1 },
+        { text: 'x', transcriber: { kind: 'local' }, durationMs: -1 },
+      ],
+    },
+  },
+  'speech.discard': {
+    params: { valid: [{ recordingId: 'rec_01JA2B3C4D5E6F7G' }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
   'browser.register': {
     params: {
       valid: [
@@ -6899,6 +7047,10 @@ export const notificationSamples: NotificationSamples = {
     valid: [{ workspaceId: ids.workspace, configs: [previewConfig] }],
     invalid: [{ workspaceId: ids.workspace }],
   },
+  'speech.changed': {
+    valid: [{ status: { local: speechLocalReady } }],
+    invalid: [{}, { status: { local: { state: 'ready' } } }],
+  },
   'tuning.changed': {
     valid: [{}, { workspaceId: ids.workspace }],
     invalid: [{ workspaceId: 'x' }],
@@ -7229,5 +7381,9 @@ export const errorDataSamples: ErrorDataSamples = {
   ENGINE_ERROR: {
     valid: { category: 'session_unavailable', message: 'session cwd does not match' },
     invalid: { category: 'fatal', message: 'x' },
+  },
+  SPEECH_FAILED: {
+    valid: { reason: 'provider_error', failure: 'auth', httpStatus: 401 },
+    invalid: { reason: 'offline' },
   },
 };

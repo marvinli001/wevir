@@ -889,6 +889,7 @@ export function SessionView({
           <Composer
             key={session.id}
             draftKey={session.id}
+            sessionId={session.id}
             state={sessionState}
             disabled={!client || readOnly !== undefined}
             disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}

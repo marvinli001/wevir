@@ -23,6 +23,7 @@ export * from './retro.js';
 export * from './review.js';
 export * from './search.js';
 export * from './search-ranking.js';
+export * from './speech.js';
 export * from './terminals.js';
 export * from './tuning.js';
 export * from './tuning-proposals.js';

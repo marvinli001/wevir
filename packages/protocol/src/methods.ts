@@ -80,10 +80,12 @@ import {
   PendingDeliverySchema,
   PendingMessageSchema,
   PermissionModeSchema,
+  PROVIDER_TRANSCRIPTION_MODELS_MAX,
   ProviderApiSchema,
   ProviderCompatSchema,
   ProviderModelSchema,
   ProviderProfileSchema,
+  ProviderTranscriptionModelSchema,
   QuestionAnswerSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
@@ -208,6 +210,17 @@ import {
   SearchQueryParamsSchema,
   SearchQueryResultSchema,
 } from './search.js';
+import {
+  SpeechAppendParamsSchema,
+  SpeechAppendResultSchema,
+  SpeechBeginParamsSchema,
+  SpeechBeginResultSchema,
+  SpeechChangedParamsSchema,
+  SpeechDiscardParamsSchema,
+  SpeechFinishParamsSchema,
+  SpeechFinishResultSchema,
+  SpeechStatusResultSchema,
+} from './speech.js';
 import {
   TerminalAttachParamsSchema,
   TerminalAttachResultSchema,
@@ -740,6 +753,14 @@ export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
     baseURL: HttpUrlSchema,
     compat: ProviderCompatSchema.optional(),
     models: z.array(ProviderModelSchema).min(1),
+    /**
+     * 转写模型（0.92.0）。与其余字段不同，省略时保留已存的（旧客户端不知道这个字段，改 Provider 时不能把它清掉）；数组整体替换，
+     * 空数组清空。ID 不能重复。
+     */
+    transcriptionModels: z
+      .array(ProviderTranscriptionModelSchema)
+      .max(PROVIDER_TRANSCRIPTION_MODELS_MAX)
+      .optional(),
   }),
   z.object({
     id: ProviderIdSchema,
@@ -2508,6 +2529,48 @@ export const MethodSchemas = {
     permission: 'host.manage',
   },
 
+  /** 听写（0.92.0）。 */
+  'speech.status': {
+    params: EmptySchema,
+    result: SpeechStatusResultSchema,
+    permission: 'session.read',
+  },
+  'speech.install': {
+    params: EmptySchema,
+    result: SpeechStatusResultSchema,
+    permission: 'host.manage',
+  },
+  'speech.cancelInstall': {
+    params: EmptySchema,
+    result: SpeechStatusResultSchema,
+    permission: 'host.manage',
+  },
+  'speech.uninstall': {
+    params: EmptySchema,
+    result: SpeechStatusResultSchema,
+    permission: 'host.manage',
+  },
+  'speech.begin': {
+    params: SpeechBeginParamsSchema,
+    result: SpeechBeginResultSchema,
+    permission: 'session.write',
+  },
+  'speech.append': {
+    params: SpeechAppendParamsSchema,
+    result: SpeechAppendResultSchema,
+    permission: 'session.write',
+  },
+  'speech.finish': {
+    params: SpeechFinishParamsSchema,
+    result: SpeechFinishResultSchema,
+    permission: 'session.write',
+  },
+  'speech.discard': {
+    params: SpeechDiscardParamsSchema,
+    result: EmptySchema,
+    permission: 'session.write',
+  },
+
   'browser.register': {
     params: BrowserRegisterParamsSchema,
     result: EmptySchema,
@@ -2572,6 +2635,8 @@ export const NotificationSchemas = {
   'guardrail.changed': { params: GuardrailChangedParamsSchema },
   /** 发给调用过 `tuning.*` 的连接（0.87.0）。 */
   'tuning.proposal.changed': { params: TuningProposalChangedParamsSchema },
+  /** 发给调用过 `speech.*` 的连接（0.92.0）。 */
+  'speech.changed': { params: SpeechChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

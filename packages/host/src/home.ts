@@ -55,6 +55,10 @@ export const HOME_LAYOUT = {
    */
   readinessDir: 'readiness',
   previewsDir: 'previews',
+  /**
+   * 听写（0.92.0，speech/）：本机模型，`<模型键>/` 里是 SenseVoice 与 Silero VAD 的模型文件；下载中的在 `.install-` 开头的目录里（0700 / 0600）。
+   */
+  speechDir: 'speech',
   /** 调优的档案（0.85.0，tuning/）：`blobs/<sha256>` 是各版本条目的文本，按内容去重（0700 / 0600）。 */
   tuningDir: 'tuning',
 } as const;

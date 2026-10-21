@@ -91,9 +91,11 @@ const RPC_ERROR_TEXT: Record<Exclude<ErrorCodeName, 'ENGINE_ERROR'>, PlainMessag
   HANDOFF_STALE: 'rpcError.HANDOFF_STALE',
   GIT_STATE_CHANGED: 'rpcError.GIT_STATE_CHANGED',
   WORKSPACE_PATH_INVALID: 'rpcError.WORKSPACE_PATH_INVALID',
+  SPEECH_FAILED: 'rpcError.SPEECH_FAILED',
 };
 
 const RPC_DETAIL: ReadonlySet<ErrorCodeName> = new Set([
+  'SPEECH_FAILED',
   'PARSE_ERROR',
   'INVALID_REQUEST',
   'INVALID_PARAMS',

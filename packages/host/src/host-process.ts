@@ -11,6 +11,7 @@ import {
   HostIdSchema,
   PROTOCOL_VERSION,
   ProviderKindSchema,
+  type ProviderTranscriptionModel,
   type SessionId,
   type WorkspaceId,
 } from '@wevir/protocol';
@@ -71,6 +72,16 @@ import { loadOpinionTemplate, SecondOpinionService } from './second-opinion.js';
 import { SessionManager, type SessionManagerOptions } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
+import { SpeechModelInstaller } from './speech/install.js';
+import { LocalTranscriber, loadSherpa } from './speech/local.js';
+import {
+  loadPolishInstructions,
+  POLISH_OUTPUT_SCHEMA,
+  POLISH_TIMEOUT_MS,
+  parsePolish,
+  polishInput,
+} from './speech/polish.js';
+import { SpeechService } from './speech/service.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
 import { defaultPromptsDir, loadTitleInstructions } from './title.js';
@@ -203,6 +214,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let verificationService: VerificationService | undefined;
   let readiness: ReadinessService | undefined;
   let devPreviews: PreviewService | undefined;
+  let dictation: SpeechService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
@@ -851,6 +863,55 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.warn('file preview request failed', { error }),
     });
 
+    // 听写（0.92.0）：本机模型按需下载；这个平台没有 sherpa-onnx 的原生包时只有 Provider 的转写。润色要引擎能不带工具生成。
+    let polishInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        polishInstructions = loadPolishInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('dictation polish is unavailable', { error });
+      }
+    }
+    const speechInstaller = new SpeechModelInstaller({ directory: homePath(home, 'speechDir') });
+    const sherpa = loadSherpa((message, fields) => logger.info(message, fields));
+    const speech = new SpeechService({
+      installer: speechInstaller,
+      ...(sherpa !== undefined && {
+        local: new LocalTranscriber(sherpa, () => speechInstaller.installed()),
+      }),
+      settings: () => settings.get(),
+      resolveProvider: async (providerId, modelId) => {
+        const record = storage?.providers.get(providerId);
+        if (
+          record === undefined ||
+          record.kind !== 'openai-compatible' ||
+          record.baseURL === undefined ||
+          record.enabled === false
+        ) {
+          return undefined;
+        }
+        const models = record.transcriptionModels as ProviderTranscriptionModel[] | undefined;
+        if (models?.some((model) => model.id === modelId) !== true) return undefined;
+        const apiKey =
+          record.secretRef !== undefined ? await secrets.get(record.secretRef) : undefined;
+        return { baseURL: record.baseURL, apiKey, modelId };
+      },
+      ...(polishInstructions !== undefined && {
+        polish: async (sessionId: string, text: string) => {
+          const result = await manager.generateOnce(sessionId as SessionId, {
+            instructions: polishInstructions,
+            input: polishInput(text),
+            outputSchema: { ...POLISH_OUTPUT_SCHEMA },
+            timeoutMs: POLISH_TIMEOUT_MS,
+          });
+          return 'text' in result ? parsePolish(result.text, text) : undefined;
+        },
+      }),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    dictation = speech;
+    await speech.init();
+
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
     let requestShutdown: (trigger: ShutdownTrigger) => void = () => {};
@@ -896,6 +957,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(guardrails !== undefined && { guardrails }),
         ...(proposals !== undefined && { proposals }),
         market,
+        speech,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -976,6 +1038,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
         ...(proposals !== undefined && { tuning_proposals: true }),
         plugin_market: true,
+        speech: true,
       },
       engineFeatures,
       plugins,
@@ -986,6 +1049,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
       ...(previews !== undefined && { previews }),
+      speech,
       ...(guardrails !== undefined && { guardrails }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
@@ -1023,6 +1087,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           appMcp: mcp,
           processes,
           previews,
+          speech,
           terminals,
           verification,
           readiness: readinessService,
@@ -1059,6 +1124,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await verificationService?.dispose().catch(() => {});
     await readiness?.dispose().catch(() => {});
     devPreviews?.dispose();
+    dictation?.dispose();
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
     accounts?.dispose();
@@ -1090,6 +1156,8 @@ interface ShutdownParts {
   processes: ProcessManager | undefined;
   /** 开发服务器预览（0.84.0）：停下判定就绪的循环；进程随后台进程结束。 */
   previews: PreviewService | undefined;
+  /** 听写（0.92.0）：取消进行中的模型下载，放掉识别器。 */
+  speech: SpeechService;
   /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
   terminals: TerminalService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
@@ -1147,6 +1215,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   }
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
   parts.previews?.dispose();
+  parts.speech.dispose();
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
   }
