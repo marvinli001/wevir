@@ -69,6 +69,7 @@ import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import type { TerminalService } from './terminals.js';
+import type { ProposalService } from './tuning/proposals.js';
 import type { TuningService } from './tuning/service.js';
 import type { PricingStore } from './usage/pricing.js';
 import type { UsageService } from './usage/usage-service.js';
@@ -178,6 +179,8 @@ export interface HostMethodsOptions {
   approvalRules?: ApprovalRuleService;
   /** 调优的档案（0.85.0，`tuning.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   tuning?: TuningService;
+  /** 调优的建议（0.87.0，`tuning.proposal.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  proposals?: ProposalService;
   /** 护栏（0.86.0，`guardrail.*` 与 `repoHook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   guardrails?: GuardrailService;
 }
@@ -302,6 +305,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const tuning = (): TuningService => {
     if (options.tuning === undefined) throw invalidParams([], 'this host has no tuning profile');
     return options.tuning;
+  };
+  const proposals = (): ProposalService => {
+    if (options.proposals === undefined)
+      throw invalidParams([], 'this host has no tuning proposals');
+    return options.proposals;
   };
   const guardrails = (): GuardrailService => {
     if (options.guardrails === undefined) throw invalidParams([], 'this host has no guardrails');
@@ -1454,6 +1462,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         hook: await guardrails().setRepoHookEnabled(workspaceId as WorkspaceId, hookId, enabled),
       };
     },
+    // 0.87.0：调优的建议。
+    'tuning.proposal.generate': (params) => proposals().generate(params),
+    'tuning.proposal.list': (params) => {
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return proposals().list(params);
+    },
+    'tuning.proposal.update': (params) => proposals().update(params),
+    'tuning.proposal.decide': (params) => proposals().decide(params),
   };
 }
 

@@ -30,6 +30,7 @@ import {
   TerminalChangedParamsSchema,
   TerminalOutputParamsSchema,
   TuningChangedParamsSchema,
+  TuningProposalChangedParamsSchema,
   WevirEventEnvelopeSchema,
   type WorkspaceId,
 } from '@wevir/protocol';
@@ -49,6 +50,8 @@ export type PreviewChange = NotificationParams<'preview.changed'>;
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
 export type GuardrailChange = NotificationParams<'guardrail.changed'>;
+/** `tuning.proposal.changed` 的内容（0.87.0）。 */
+export type TuningProposalChange = NotificationParams<'tuning.proposal.changed'>;
 /** `terminal.changed` 与 `terminal.output` 的内容（0.69.0）。 */
 export type TerminalChange = NotificationParams<'terminal.changed'>;
 export type TerminalOutput = NotificationParams<'terminal.output'>;
@@ -287,6 +290,7 @@ export class WevirClient {
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
+  readonly #proposalListeners = new Set<(change: TuningProposalChange | undefined) => void>();
   readonly #lspListeners = new Set<(change: LspChange | undefined) => void>();
   readonly #terminalListeners = new Set<(change: TerminalChange | undefined) => void>();
   readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
@@ -613,6 +617,27 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a guardrail listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 调优的建议变了（0.87.0，`tuning.proposal.changed`）：生成、改动、采纳、拒绝、过时或删除。只有调过 `tuning.*` 的连接收得到。重连上
+   * 之后以 `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
+   */
+  onTuningProposalsChanged(
+    listener: (change: TuningProposalChange | undefined) => void,
+  ): () => void {
+    this.#proposalListeners.add(listener);
+    return () => this.#proposalListeners.delete(listener);
+  }
+
+  #proposalsChanged(change: TuningProposalChange | undefined): void {
+    for (const listener of [...this.#proposalListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a tuning proposal listener threw', { error });
       }
     }
   }
@@ -979,6 +1004,7 @@ export class WevirClient {
         if (this.supports('dev_preview')) this.#previewChanged(undefined);
         if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
+        if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
         if (this.supports('lsp_status')) this.#lspChanged(undefined);
         if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
@@ -1245,6 +1271,15 @@ export class WevirClient {
         return;
       }
       this.#tuningChanged(parsed.data);
+      return;
+    }
+    if (method === 'tuning.proposal.changed') {
+      const parsed = TuningProposalChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed tuning.proposal.changed notification');
+        return;
+      }
+      this.#proposalsChanged(parsed.data);
       return;
     }
     if (method === 'guardrail.changed') {

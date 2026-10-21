@@ -394,6 +394,11 @@ export const HOST_FEATURES = {
    * 声明了 hooks 的引擎（Codex）生效；Host 有这样的引擎时声明。
    */
   tuningGuardrails: 'tuning_guardrails',
+  /**
+   * 调优的建议（0.87.0，domain-model §3.41，ADR-0016）：`tuning.proposal.*` 方法与 `tuning.proposal.changed` 通知、档案版本的 `cause`、
+   * 记忆来源的 `proposalId`。引擎能不带工具生成（适配器有 `generateTitle`）时声明。
+   */
+  tuningProposals: 'tuning_proposals',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -473,6 +478,7 @@ export const HostFeaturesSchema = z.looseObject({
   dev_preview: z.boolean().optional(),
   tuning: z.boolean().optional(),
   tuning_guardrails: z.boolean().optional(),
+  tuning_proposals: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

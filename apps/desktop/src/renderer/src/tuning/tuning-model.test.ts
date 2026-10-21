@@ -41,6 +41,12 @@ describe('tuning-model', () => {
     expect(resolveTuningTab('profile', features)).toEqual({ tab: 'profile', redirect: false });
     expect(resolveTuningTab(undefined, features)).toEqual({ tab: 'profile', redirect: true });
     expect(resolveTuningTab('trials', features)).toEqual({ tab: 'profile', redirect: true });
+    // “建议”要 Host 有 `tuning_proposals`（0.87.0）。
+    expect(resolveTuningTab('proposals', features)).toEqual({ tab: 'profile', redirect: true });
+    expect(resolveTuningTab('proposals', { ...features, tuning_proposals: true })).toEqual({
+      tab: 'proposals',
+      redirect: false,
+    });
   });
 
   it('范围：地址优先，其次上次的，都不在时是全局', () => {

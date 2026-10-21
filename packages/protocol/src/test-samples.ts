@@ -56,6 +56,7 @@ import type {
   ProfileVersionRef,
   ProfileVersionSummary,
 } from './tuning.js';
+import type { TuningProposal } from './tuning-proposals.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -119,6 +120,9 @@ export const ids = {
   profileVersion2: 'pfv_01JA2B3C4D5E6F7G8H9JKMNPR2',
   /** 护栏（0.86.0）。 */
   guardrail: `grd_${ULID}`,
+  /** 调优的建议（0.87.0）。 */
+  tuningProposal: `tpr_${ULID}`,
+  tuningProposal2: 'tpr_01JA2B3C4D5E6F7G8H9JKMNPR3',
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -1393,6 +1397,77 @@ export const guardrailBlocked: GuardrailBlocked = {
   reason: 'Guardrail check `pnpm test` failed (exit 1). Fix the failures before finishing.',
   attempt: 1,
   maxAttempts: 3,
+};
+
+/** 调优的建议（0.87.0）：AGENTS.md 加两行，证据是一个回合与一次验证。 */
+export const ruleProposal: TuningProposal = {
+  id: ids.tuningProposal,
+  workspaceId: ids.workspace,
+  sessionId: ids.session,
+  sessionTitle: '修复 CI',
+  kind: 'rule',
+  title: '测试前先 pnpm build',
+  target: 'AGENTS.md',
+  change: {
+    kind: 'rule',
+    path: '/Users/me/projects/wevir/AGENTS.md',
+    before: '# AGENTS.md\n',
+    after: '# AGENTS.md\n\n- Run `pnpm build` before `pnpm test`.\n',
+  },
+  evidence: [
+    {
+      id: 't:trn_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      text: '测试为什么挂了',
+      turn: 4,
+      ref: { kind: 'event', seq: 40, turnId: ids.turn },
+    },
+    { id: 'e57', text: 'pnpm test failed' },
+  ],
+  status: 'pending',
+  usage: { inputTokens: 1520, outputTokens: 310 },
+  providerId: 'pvd_deepseek',
+  modelId: 'deepseek-chat',
+  createdAt: TS,
+};
+
+/** 采纳了的记忆建议：下一个会话开了 v8，用它的两个会话里验证通过 3 次、共 4 次。 */
+export const memoryProposal: TuningProposal = {
+  ...ruleProposal,
+  id: ids.tuningProposal2,
+  kind: 'memory',
+  title: '金额以分为单位',
+  target: 'invoice-cents',
+  change: {
+    kind: 'memory',
+    name: 'invoice-cents',
+    type: 'project',
+    description: '金额字段以分存储',
+    before: '',
+    after: 'Invoice amounts are stored in cents; never use floats.',
+  },
+  evidence: [],
+  status: 'accepted',
+  edited: true,
+  decidedAt: TS2,
+  version: { ...profileVersionRef, seq: 8 },
+  stats: { sessions: 2, checks: { passed: 3, total: 4 } },
+};
+
+/** 拒绝了的护栏建议。 */
+export const guardrailProposal: TuningProposal = {
+  ...ruleProposal,
+  id: 'tpr_01JA2B3C4D5E6F7G8H9JKMNPR4',
+  kind: 'guardrail',
+  title: '不许强推',
+  target: 'forbidden_command',
+  change: {
+    kind: 'guardrail',
+    name: '不许强推',
+    rule: { kind: 'forbidden_command', match: 'regex', pattern: 'git\\s+push\\s+(-f|--force)' },
+  },
+  status: 'rejected',
+  decidedAt: TS2,
+  usage: undefined,
 };
 
 /** Host 按规则替用户允许（0.80.0）。 */
@@ -4614,6 +4689,19 @@ export const methodSamples: MethodSamples = {
       valid: [
         { note: memoryNote },
         { note: memoryImported },
+        // 0.87.0：采纳建议写下的。
+        {
+          note: {
+            ...memoryNote,
+            origin: {
+              by: 'user',
+              at: TS,
+              sessionId: ids.session,
+              proposalId: ids.tuningProposal,
+              status: 'available',
+            },
+          },
+        },
         {
           note: {
             ...memorySourced,
@@ -5988,8 +6076,13 @@ export const methodSamples: MethodSamples = {
           nextCursor: '1',
         },
         { versions: [] },
+        // 0.87.0：采纳建议之后开的版本。
+        { versions: [{ ...profileVersionSummary, cause: { proposalIds: [ids.tuningProposal] } }] },
       ],
-      invalid: [{ versions: [{ ...profileVersionSummary, seq: 0 }] }],
+      invalid: [
+        { versions: [{ ...profileVersionSummary, seq: 0 }] },
+        { versions: [{ ...profileVersionSummary, cause: { proposalIds: [] } }] },
+      ],
     },
   },
   'tuning.version': {
@@ -6154,6 +6247,66 @@ export const methodSamples: MethodSamples = {
         { hook: { ...repoHook, status: 'disabled', enabledAt: undefined } },
       ],
       invalid: [{ hook: { ...repoHook, file: '' } }],
+    },
+  },
+  'tuning.proposal.generate': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, replaces: ids.tuningProposal }],
+      invalid: [{}, { sessionId: ids.session, replaces: ids.guardrail }],
+    },
+    result: {
+      valid: [
+        {
+          proposals: [ruleProposal],
+          usage: { inputTokens: 2400, outputTokens: 520 },
+          summarized: true,
+        },
+        { proposals: [], usage: { inputTokens: 1800, outputTokens: 12 } },
+        { proposals: [], reason: 'no_project' },
+      ],
+      invalid: [{ proposals: [ruleProposal, ruleProposal, ruleProposal, ruleProposal] }],
+    },
+  },
+  'tuning.proposal.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace, status: 'open' }, { status: 'decided' }],
+      invalid: [{ status: 'accepted' }],
+    },
+    result: {
+      valid: [{ proposals: [ruleProposal, memoryProposal, guardrailProposal] }, { proposals: [] }],
+      invalid: [
+        { proposals: [{ ...ruleProposal, status: 'superseded' }] },
+        { proposals: [{ ...ruleProposal, change: { kind: 'rule', path: '/x' } }] },
+        { proposals: [{ ...ruleProposal, evidence: Array(9).fill({ id: 'e1', text: '' }) }] },
+      ],
+    },
+  },
+  'tuning.proposal.update': {
+    params: {
+      valid: [
+        { proposalId: ids.tuningProposal, after: '# AGENTS.md\n' },
+        { proposalId: ids.tuningProposal2, after: 'x', description: '金额以分存储' },
+        {
+          proposalId: ids.tuningProposal,
+          rule: { kind: 'protected_path', glob: '.env*' },
+          name: null,
+        },
+      ],
+      invalid: [{ after: 'x' }, { proposalId: ids.tuningProposal, description: ' ' }],
+    },
+    result: { valid: [{ proposal: ruleProposal }], invalid: [{}] },
+  },
+  'tuning.proposal.decide': {
+    params: {
+      valid: [
+        { proposalId: ids.tuningProposal, decision: 'accept' },
+        { proposalId: ids.tuningProposal, decision: 'reject' },
+      ],
+      invalid: [{ proposalId: ids.tuningProposal, decision: 'later' }],
+    },
+    result: {
+      valid: [{ proposal: memoryProposal }, { proposal: guardrailProposal }],
+      invalid: [{ proposal: { ...memoryProposal, stats: { sessions: -1 } } }],
     },
   },
   'browser.register': {
@@ -6584,6 +6737,10 @@ export const notificationSamples: NotificationSamples = {
   'guardrail.changed': {
     valid: [{}, { workspaceId: ids.workspace }],
     invalid: [{ workspaceId: 'global' }],
+  },
+  'tuning.proposal.changed': {
+    valid: [{}, { workspaceId: ids.workspace }],
+    invalid: [{ workspaceId: 'x' }],
   },
   'readiness.changed': {
     valid: [

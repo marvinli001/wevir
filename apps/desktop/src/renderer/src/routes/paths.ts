@@ -68,8 +68,8 @@ export function isPluginsTab(value: string | undefined): value is PluginsTab {
   return (PLUGINS_TABS as readonly (string | undefined)[]).includes(value);
 }
 
-/** 调优页的各分段（0.85.0）；以后的“建议”“试验”按 Host 功能加在这里（tuning/tuning-model.ts 的 visibleTuningTabs）。 */
-export const TUNING_TABS = ['profile'] as const;
+/** 调优页的各分段（0.85.0 档案，0.87.0 建议）；“试验”以后按 Host 功能加在这里（tuning/tuning-model.ts 的 visibleTuningTabs）。 */
+export const TUNING_TABS = ['profile', 'proposals'] as const;
 export type TuningTab = (typeof TUNING_TABS)[number];
 
 export function isTuningTab(value: string | undefined): value is TuningTab {

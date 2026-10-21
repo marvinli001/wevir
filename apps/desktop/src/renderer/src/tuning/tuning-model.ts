@@ -19,9 +19,11 @@ export function tuningAvailability(features: HostFeatures | undefined): TuningAv
   return hostSupports(features, 'tuning') ? 'ready' : 'unsupported';
 }
 
-/** 这个 Host 能用的分段。H1 只有“档案”。 */
-export function visibleTuningTabs(_features: HostFeatures): TuningTab[] {
-  return [...TUNING_TABS];
+/** 这个 Host 能用的分段：“建议”要 `tuning_proposals`（0.87.0）。 */
+export function visibleTuningTabs(features: HostFeatures): TuningTab[] {
+  return TUNING_TABS.filter(
+    (tab) => tab !== 'proposals' || hostSupports(features, 'tuning_proposals'),
+  );
 }
 
 /** 地址里的分段：认不出或不能用时转到第一个。 */

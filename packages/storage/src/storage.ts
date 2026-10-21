@@ -21,6 +21,10 @@ import { createSearchRepository, type SearchRepository } from './search.js';
 import { createSendReceiptRepository, type SendReceiptRepository } from './send-receipts.js';
 import { createSessionRepository, type SessionRepository } from './sessions.js';
 import { transaction } from './transaction.js';
+import {
+  createTuningProposalRepository,
+  type TuningProposalRepository,
+} from './tuning-proposals.js';
 import { createUsageRepository, type UsageRepository } from './usage.js';
 import { createWorkspaceRepository, type WorkspaceRepository } from './workspaces.js';
 
@@ -53,6 +57,8 @@ export interface Storage {
   readonly retros: RetroRepository;
   /** 调优的档案版本（0019_profile_versions）。 */
   readonly profileVersions: ProfileVersionRepository;
+  /** 调优的建议（0020_tuning_proposals）。 */
+  readonly tuningProposals: TuningProposalRepository;
   /** 会话全文搜索的派生索引（协议 0.77.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
   readonly search: SearchRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
@@ -89,6 +95,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       reviewComments: createReviewCommentRepository(db),
       retros: createRetroRepository(db),
       profileVersions: createProfileVersionRepository(db),
+      tuningProposals: createTuningProposalRepository(db),
       search: createSearchRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };

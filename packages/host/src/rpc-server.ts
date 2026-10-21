@@ -78,6 +78,8 @@ export interface HostRpcServerOptions {
   lsp?: ConnectionHost['lsp'];
   /** 调优的档案（0.85.0）：调过 `tuning.*` 的连接经它收 `tuning.changed`。 */
   tuning?: ConnectionHost['tuning'];
+  /** 调优的建议（0.87.0）：调过 `tuning.*` 的连接经它收 `tuning.proposal.changed`。 */
+  proposals?: ConnectionHost['proposals'];
   /** 用户的交互终端（0.69.0）：`terminal.attach` 登记连接，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   terminals?: ConnectionHost['terminals'];
   /** 内置浏览器（0.33.0）：连接用 `browser.register` 登记为浏览器提供方。 */
@@ -176,6 +178,7 @@ export class HostRpcServer {
       ...(options.previews !== undefined && { previews: options.previews }),
       ...(options.lsp !== undefined && { lsp: options.lsp }),
       ...(options.tuning !== undefined && { tuning: options.tuning }),
+      ...(options.proposals !== undefined && { proposals: options.proposals }),
       ...(options.terminals !== undefined && { terminals: options.terminals }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
       limits,

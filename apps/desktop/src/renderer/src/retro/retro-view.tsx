@@ -11,7 +11,7 @@ import type {
   SessionRetro,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Download, FilePlus2, RefreshCw, Sparkles } from 'lucide-react';
+import { Download, FilePlus2, Lightbulb, RefreshCw, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
@@ -26,6 +26,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { currentLocale, t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
 import { formatMessageTime } from '@/session/format';
+import { useProposalGenerate } from '@/tuning/proposals-generate';
 import { useRetro, useRetroActions, useRetroOpen } from './retro-data';
 import {
   checkStatusText,
@@ -74,6 +75,7 @@ export function RetroView({ session }: { session: Session }) {
   const { retro, error, loading, reload } = useRetro(sessionId, true);
   const actions = useRetroActions(session, reload);
   const { open, copied } = useRetroOpen(session);
+  const proposals = useProposalGenerate(session);
 
   if (!retro) {
     return <p className="px-4 py-6 text-sm text-muted-foreground">{error ?? t('retro.loading')}</p>;
@@ -127,6 +129,22 @@ export function RetroView({ session }: { session: Session }) {
           >
             <FilePlus2 />
           </IconButton>
+          {proposals.available && (
+            <IconButton
+              label={t('retro.proposals')}
+              size="icon-xs"
+              disabled={
+                proposals.pending ||
+                actions.pending !== undefined ||
+                retro.turns.length === 0 ||
+                retro.running
+              }
+              onClick={() => void proposals.run()}
+              data-action="retro-proposals"
+            >
+              <Lightbulb className={cn(proposals.pending && 'animate-pulse')} />
+            </IconButton>
+          )}
         </header>
         {(actions.error || error) && (
           <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">
@@ -136,6 +154,11 @@ export function RetroView({ session }: { session: Session }) {
         {actions.notice && (
           <p className="text-xs text-muted-foreground" data-testid="retro-notice">
             {actions.notice}
+          </p>
+        )}
+        {proposals.message && (
+          <p className="text-xs text-muted-foreground" data-testid="retro-proposals-notice">
+            {proposals.message}
           </p>
         )}
         {retroEmpty(retro) ? (
