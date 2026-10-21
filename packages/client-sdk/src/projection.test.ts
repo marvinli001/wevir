@@ -1556,6 +1556,28 @@ describe('消息里的图片（0.28.0）', () => {
     expect(users[1]?.parts).toEqual([{ type: 'image', key: 'image:0', image }]);
   });
 
+  it('粘贴的段落（0.90.0）：文本部件另带按顺序的 segments；没有粘贴的不带', () => {
+    const { list, add } = events();
+    add('user.message', {
+      turnId: TURN,
+      content: [
+        { type: 'text', text: '为什么失败' },
+        { type: 'text', text: 'Error: ENOENT', pasted: true },
+      ],
+      sentBy: identity,
+    });
+    const [user] = projectTranscript(list).messages.filter((message) => message.role === 'user');
+    expect(user?.parts).toEqual([
+      {
+        type: 'text',
+        key: 'text',
+        text: '为什么失败\nError: ENOENT',
+        state: 'done',
+        segments: [{ text: '为什么失败' }, { text: 'Error: ENOENT', pasted: true }],
+      },
+    ]);
+  });
+
   it('userContentText 只取文本', () => {
     expect(userContentText([{ type: 'text', text: 'a' }, image, { type: 'text', text: 'b' }])).toBe(
       'a\nb',

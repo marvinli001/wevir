@@ -265,6 +265,53 @@ describe('SessionManager：建会话（#1）', () => {
 });
 
 describe('SessionManager：回合', () => {
+  it('别的会话发来的消息交给引擎时包进 <relayed_message>，事件里存原文', async () => {
+    const h = setup();
+    const id = await create(h);
+    const other = await create(h);
+    const sent = vi.spyOn(h.adapter, 'send');
+    await h.manager.send({ sessionId: id, content: text('run the tests') }, cli, {
+      from: { sessionId: other, kind: 'message' },
+    });
+    await waitForState(h, id, 'idle');
+    const input = sent.mock.calls[0]?.[1];
+    expect(input?.content).toEqual([
+      {
+        type: 'text',
+        text: expect.stringMatching(
+          new RegExp(
+            `^<relayed_message id="([0-9a-f]{12})" trust="relay" kind="message" from="session ${other}">\\nrun the tests\\n</relayed_message id="\\1">$`,
+          ),
+        ),
+      },
+    ]);
+    expect(ofType(h, id, 'user.message')[0]?.payload.content).toEqual(text('run the tests'));
+  });
+
+  it('粘贴的段落（0.90.0）交给引擎时包进 <pasted_content>，事件里存原文与标记', async () => {
+    const h = setup();
+    const id = await create(h);
+    const sent = vi.spyOn(h.adapter, 'send');
+    const content = [
+      { type: 'text' as const, text: '这段日志为什么失败' },
+      { type: 'text' as const, text: 'Error: ENOENT', pasted: true as const },
+    ];
+    await h.manager.send({ sessionId: id, content }, cli);
+    await waitForState(h, id, 'idle');
+    expect(sent.mock.calls[0]?.[1].content).toEqual([
+      { type: 'text', text: '这段日志为什么失败' },
+      {
+        type: 'text',
+        text: expect.stringMatching(
+          /^<pasted_content id="([0-9a-f]{12})">\nError: ENOENT\n<\/pasted_content id="\1">$/,
+        ),
+      },
+    ]);
+    expect(ofType(h, id, 'user.message')[0]?.payload.content).toEqual(content);
+    // 截断的标题只取自己写的话。
+    expect(ofType(h, id, 'session.title_changed')[0]?.payload.title).toBe('这段日志为什么失败');
+  });
+
   it('#2 #6：发送、流式输出、结算；首个回合写标题', async () => {
     const h = setup();
     const id = await create(h);
@@ -1486,6 +1533,46 @@ describe('SessionManager：会话标题（R3）', () => {
     await delay(20);
     expect(snapshot(h, id).session).toMatchObject({ title: '我的名字', titleSource: 'user' });
     expect(ofType(h, id, 'session.title_changed')).toHaveLength(2);
+  });
+
+  it('请求几乎只是链接：先查链接，页面标题与开头一段作为 <link_context> 交给模型；查不到的不带', async () => {
+    const lookups: string[] = [];
+    const h = setup({
+      manager: {
+        titleInstructions: '起标题',
+        lookupLink: async (url) => {
+          lookups.push(url);
+          return url.endsWith('/57')
+            ? { url, title: 'Retry uploads on 503', excerpt: 'Uploads now retry.' }
+            : undefined;
+        },
+      },
+    });
+    const inputs: string[] = [];
+    Object.assign(h.adapter, {
+      generateTitle: async (_id: string, request: { input: string }) => {
+        inputs.push(request.input);
+        return TITLE;
+      },
+    });
+    const id = await create(h);
+    await send(h, id, '看下 https://github.com/acme/app/pull/57 和 https://down.example/x');
+    await vi.waitFor(() => expect(inputs).toHaveLength(1));
+    expect(lookups).toEqual(['https://github.com/acme/app/pull/57', 'https://down.example/x']);
+    expect(inputs[0]).toContain(
+      '<link_context>\n<link url="https://github.com/acme/app/pull/57" title="Retry uploads on 503">\nUploads now retry.\n</link>\n</link_context>',
+    );
+    expect(inputs[0]).not.toContain('down.example/x"');
+
+    // 请求本身说清了主题：不查。
+    const id2 = await create(h);
+    await send(
+      h,
+      id2,
+      '把 session-manager 里生成标题的超时从六十秒改成三十秒，参考 https://x.example/doc 这篇',
+    );
+    await vi.waitFor(() => expect(inputs).toHaveLength(2));
+    expect(lookups).toHaveLength(2);
   });
 
   it('没有提示词或适配器不实现 generateTitle：只有截断的标题', async () => {

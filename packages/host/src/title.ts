@@ -50,25 +50,88 @@ export const TITLE_OUTPUT_SCHEMA: Readonly<Record<string, unknown>> = Object.fre
   additionalProperties: false,
 });
 
-/**
- * 第一条用户消息 → `<user_prompt>` 输入：`&`、`<`、`>` 转义（它是要命名的对象，不是指令），超过
- * `TITLE_INPUT_MAX_BYTES` 时截断，不切开字符与转义序列。
- */
-export function titleInput(prompt: string): string {
-  const escaped = prompt
-    .trim()
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+function escapeXml(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+/** 截到 `maxBytes`（UTF-8），不切开字符与转义序列。 */
+function clipEscaped(escaped: string, maxBytes: number): string {
   let text = '';
   let bytes = 0;
-  for (const piece of escaped.match(/&(?:amp|lt|gt);|[\s\S]/gu) ?? []) {
+  for (const piece of escaped.match(/&(?:amp|lt|gt|quot);|[\s\S]/gu) ?? []) {
     const size = Buffer.byteLength(piece, 'utf8');
-    if (bytes + size > TITLE_INPUT_MAX_BYTES) break;
+    if (bytes + size > maxBytes) break;
     text += piece;
     bytes += size;
   }
-  return `<user_prompt>\n${text}\n</user_prompt>`;
+  return text;
+}
+
+/**
+ * 链接的内容（2026-10-21，thread-title.md「输入」）：请求几乎只是链接时，Host 先抓一下链接指的页面（只读，联网开着时），
+ * 把页面标题与开头一段交给起标题的模型，让它按页面讲的东西起名，而不是写“某某 issue”。参照网上流传的 Codex 会话标题
+ * 提示词“不透明的资源先用只读工具查清再起名”。
+ */
+export interface LinkPreview {
+  url: string;
+  title?: string;
+  /** 页面开头的正文（Markdown 或原文）。 */
+  excerpt: string;
+}
+
+/** 最多查几个链接。 */
+export const TITLE_LINK_MAX = 2;
+
+/** 去掉链接后剩下的文字（不算空白与标点）不超过这么多个码点，才算“几乎只是链接”。 */
+export const TITLE_LINK_REST_MAX_LENGTH = 20;
+
+/** 每个链接交给模型的正文上限（按码点）。 */
+export const TITLE_LINK_EXCERPT_MAX_LENGTH = 300;
+
+/** 等链接内容的时限；超时就不带链接内容起标题。 */
+export const TITLE_LINK_TIMEOUT_MS = 8_000;
+
+/** 链接在空白、引号、尖括号与中文标点处结束（中文里链接后面常直接跟“，”）。 */
+const LINK_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？、（）【】「」『』《》“”‘’]+/giu;
+
+/**
+ * 请求里值得先查清的链接：去掉链接后剩下的文字很短（“看看这个”“修一下这个 PR”）时，返回前 `TITLE_LINK_MAX` 个不重复的
+ * http(s) 链接（去掉结尾的标点）；请求本身已经说清了主题时返回空数组。
+ */
+export function opaqueLinks(prompt: string): string[] {
+  const links = (prompt.match(LINK_PATTERN) ?? []).map((link) =>
+    link.replace(/[.,;:!?)\]}]+$/u, ''),
+  );
+  if (links.length === 0) return [];
+  const rest = prompt.replace(LINK_PATTERN, '').replace(/[\s\p{P}\p{S}]/gu, '');
+  if (Array.from(rest).length > TITLE_LINK_REST_MAX_LENGTH) return [];
+  return [...new Set(links)].slice(0, TITLE_LINK_MAX);
+}
+
+/** `<link_context>`：每个查到的链接一条 `<link>`，属性与正文转义，正文折叠空白、截到上限。 */
+export function linkContext(previews: readonly LinkPreview[]): string {
+  if (previews.length === 0) return '';
+  const links = previews.map((preview) => {
+    const title =
+      preview.title === undefined || preview.title.trim() === ''
+        ? ''
+        : ` title="${escapeXml(preview.title.replace(/\s+/g, ' ').trim()).replaceAll('"', '&quot;')}"`;
+    const excerpt = Array.from(preview.excerpt.replace(/\s+/g, ' ').trim())
+      .slice(0, TITLE_LINK_EXCERPT_MAX_LENGTH)
+      .join('');
+    return `<link url="${escapeXml(preview.url).replaceAll('"', '&quot;')}"${title}>\n${escapeXml(excerpt)}\n</link>`;
+  });
+  return `<link_context>\n${links.join('\n')}\n</link_context>`;
+}
+
+/**
+ * 第一条用户消息 → `<user_prompt>` 输入：`&`、`<`、`>` 转义（它是要命名的对象，不是指令），超过
+ * `TITLE_INPUT_MAX_BYTES` 时截断，不切开字符与转义序列。查到了链接的内容时接上 `<link_context>`。
+ */
+export function titleInput(prompt: string, links: readonly LinkPreview[] = []): string {
+  const text = clipEscaped(escapeXml(prompt.trim()), TITLE_INPUT_MAX_BYTES);
+  const context = linkContext(links);
+  return `<user_prompt>\n${text}\n</user_prompt>${context === '' ? '' : `\n${context}`}`;
 }
 
 export interface GeneratedTitle {

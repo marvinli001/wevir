@@ -483,6 +483,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
       ...(titleInstructions !== undefined && { titleInstructions }),
+      // 起标题前查清不透明的链接（title.ts），按联网设置。
+      ...(options.web !== undefined && { lookupLink: options.web.preview.bind(options.web) }),
       ...(suggestionInstructions !== undefined && {
         suggestion: {
           instructions: suggestionInstructions,

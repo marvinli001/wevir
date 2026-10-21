@@ -160,7 +160,8 @@ export type HandoffDelivery =
  * 文本与思考部件与 AI SDK `UIMessage` 同形（domain-model §8 第 5 条）。
  */
 export type ChatPart =
-  | ({ type: 'text' } & StreamPartFields)
+  /** 用户消息的文本带粘贴的段落（0.90.0）时另有 `segments`：按顺序的各段，`text` 仍是它们以换行相连的全文。 */
+  | ({ type: 'text'; segments?: readonly UserTextSegment[] } & StreamPartFields)
   | ({ type: 'reasoning' } & StreamPartFields & ReasoningTiming)
   /** 用户消息里的一张图片（0.28.0），在文本之后，按发送时的顺序。 */
   | { type: 'image'; key: string; image: UserImagePart }
@@ -261,6 +262,12 @@ export type ChatPart =
   | { type: 'guardrail'; key: string; blocked: GuardrailBlocked };
 
 /** 文本与思考部件共有的字段。 */
+/** 用户消息文本的一段（0.90.0）：用户自己写的，或粘贴进来的（`pasted`）。 */
+export interface UserTextSegment {
+  text: string;
+  pasted?: true;
+}
+
 export interface StreamPartFields {
   key: string;
   text: string;
@@ -1638,7 +1645,21 @@ function userParts(content: readonly UserContentPart[]): ChatPart[] {
   );
   const text = userContentText(content);
   if (text === '' && images.length > 0) return images;
-  return [{ type: 'text', key: 'text', text, state: 'done' }, ...images];
+  const segments = content.flatMap((part) =>
+    part.type === 'text'
+      ? [{ text: part.text, ...(part.pasted && { pasted: true as const }) }]
+      : [],
+  );
+  return [
+    {
+      type: 'text',
+      key: 'text',
+      text,
+      state: 'done',
+      ...(segments.some((segment) => segment.pasted) && { segments }),
+    },
+    ...images,
+  ];
 }
 
 function streamKey(ref: StreamBlockRef): string {

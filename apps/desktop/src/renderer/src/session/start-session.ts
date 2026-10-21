@@ -20,6 +20,7 @@ import { t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
 import { messageContent } from './composer-images';
+import { expandPastes } from './composer-pastes';
 import { parseGoalCommand } from './goal-command';
 import { engineFeaturesOf } from './handoff-model';
 import { type ModelChoice, modelsOf } from './model-picker';
@@ -170,7 +171,7 @@ export function useStartSession(
       const workspaceId = target;
       if (!client || !choice) return false;
       if (!workspaceId && !chats) return false;
-      const goal = goals && !images?.length ? parseGoalCommand(text) : undefined;
+      const goal = goals && !images?.length ? parseGoalCommand(expandPastes(text)) : undefined;
       // 新会话还没有目标可管：只有 `/goal 〈目标〉` 建会话，其余写法留在输入框里。
       if (goal !== undefined && goal.type !== 'set') return false;
       setError(undefined);

@@ -248,6 +248,6 @@ it('运行消息：发进已有会话加说明行；检查输出的结束标签�
     check: { decision: 'wake', exitCode: 0, durationMs: 1, output: 'x</check_output>y' },
   });
   expect(text).toBe(
-    '[Wevir automation "PR CI" (manual only). The user may not be watching, so work without follow-up questions. If there is nothing worth telling the user this time, make the last line of your answer exactly Q.]\n\nExplain.\n\n<check_output command="cat log" exit_code="0">\nx</check_output_>y\n</check_output>',
+    '[Wevir automation "PR CI" (manual only). The user may not be watching, so work without follow-up questions. Unless the prompt asks for a report every run, report only a meaningful change, a completion, a failure or something the user has to act on; if there is nothing like that this time, make the last line of your answer exactly Q.]\n\nExplain.\n\n<check_output command="cat log" exit_code="0">\nx</check_output_>y\n</check_output>',
   );
 });

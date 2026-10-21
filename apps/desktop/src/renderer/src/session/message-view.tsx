@@ -1,9 +1,17 @@
-import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
+import type {
+  ChatPart,
+  ChatPartOf,
+  SystemChatMessage,
+  UserChatMessage,
+  UserTextSegment,
+} from '@wevir/client-sdk';
 import type { MessageFrom, PendingMessage, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ArrowLeftRight,
+  ChevronRight,
   CircleAlert,
+  ClipboardList,
   FoldVertical,
   Info,
   Reply,
@@ -21,6 +29,7 @@ import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
+import { lineCount } from './composer-pastes';
 import { CopyButton } from './copy-button';
 import { FindingsCard } from './findings-card';
 import { formatMessageTime } from './format';
@@ -59,6 +68,8 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
   const text = texts.join('\n');
+  // 粘贴的段落（0.90.0）在气泡里折叠显示；复制与编辑仍用全文。
+  const segments = message.parts.find((part) => part.type === 'text')?.segments;
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
   // 编辑（0.38.0）：只有会话最后一个完成的回合的用户消息，插话不算。
   const editable =
@@ -82,7 +93,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
       {images.length > 0 && (
         <MessageImages images={images} className={texts.length > 0 ? 'mb-1.5' : undefined} />
       )}
-      {texts.length > 0 && <UserBubble text={text} />}
+      {texts.length > 0 && <UserBubble text={text} {...(segments && { segments })} />}
       {message.fromParentAgent && (
         <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.fromParentAgent')}
@@ -149,7 +160,7 @@ const USER_FOLD_PX = 300;
 const USER_FOLD_SLACK_PX = 96;
 
 /** 用户消息的气泡：很长时收起到 300 px，底部渐隐，下面是“展开 / 收起”，展开收起有高度过渡。 */
-function UserBubble({ text }: { text: string }) {
+function UserBubble({ text, segments }: { text: string; segments?: readonly UserTextSegment[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number>();
   const [expanded, setExpanded] = useState(false);
@@ -163,7 +174,9 @@ function UserBubble({ text }: { text: string }) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const foldable = height !== undefined && height > USER_FOLD_PX + USER_FOLD_SLACK_PX;
+  // 有粘贴块（0.90.0）时不再整条折叠：粘贴的部分本来就收着，展开后自己限高滚动。
+  const foldable =
+    segments === undefined && height !== undefined && height > USER_FOLD_PX + USER_FOLD_SLACK_PX;
   const folded = foldable && !expanded;
   return (
     <>
@@ -178,7 +191,17 @@ function UserBubble({ text }: { text: string }) {
         data-user-bubble={foldable ? (folded ? 'folded' : 'expanded') : undefined}
         data-quotable=""
       >
-        {text}
+        {segments
+          ? segments.map((segment, index) =>
+              segment.pasted ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 段落的顺序与内容不变
+                <PastedBlock key={index} text={segment.text} />
+              ) : (
+                // biome-ignore lint/suspicious/noArrayIndexKey: 段落的顺序与内容不变
+                <div key={index}>{segment.text}</div>
+              ),
+            )
+          : text}
       </div>
       {foldable && (
         <button
@@ -191,6 +214,35 @@ function UserBubble({ text }: { text: string }) {
         </button>
       )}
     </>
+  );
+}
+
+/** 用户消息里粘贴的一段（0.90.0）：默认收起成一行“粘贴的文本 · 42 行”，点开看原文。 */
+function PastedBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="my-1 rounded-lg border border-border bg-card text-sm" data-pasted-block="">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-soft-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+      >
+        <ClipboardList aria-hidden className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">
+          {t('transcript.pastedText', { lines: lineCount(text) })}
+        </span>
+        <ChevronRight
+          aria-hidden
+          className={cn('size-4 shrink-0 transition-transform duration-150', open && 'rotate-90')}
+        />
+      </button>
+      {open && (
+        <pre className="max-h-80 overflow-auto border-t border-border px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
+          {text}
+        </pre>
+      )}
+    </div>
   );
 }
 

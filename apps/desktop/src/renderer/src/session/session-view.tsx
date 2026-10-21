@@ -55,6 +55,7 @@ import {
   restoreDraft,
   setDraft,
 } from './composer';
+import { expandPastes } from './composer-pastes';
 import { ContextMeter } from './context-meter';
 import { type DraftOrigin, draftOrigin, newSessionDraftKey } from './draft-origin';
 import { EnvironmentBar } from './environment-bar';
@@ -279,7 +280,8 @@ export function SessionView({
       if (!client) return false;
       setNotice(undefined);
       // `/goal`（0.35.0）：设、暂停、继续、清除目标；不带参数时目标已在横幅里，没有目标时留在输入框里接着写。
-      const goalCommand = goalsEnabled && !images?.length ? parseGoalCommand(text) : undefined;
+      const goalCommand =
+        goalsEnabled && !images?.length ? parseGoalCommand(expandPastes(text)) : undefined;
       if (goalCommand !== undefined) {
         switch (goalCommand.type) {
           case 'show':
@@ -307,7 +309,7 @@ export function SessionView({
         }
       }
       // 带图片的消息不当作支线提问（支线只问文字）。
-      const question = sideEnabled && !images?.length ? btwQuestion(text) : undefined;
+      const question = sideEnabled && !images?.length ? btwQuestion(expandPastes(text)) : undefined;
       if (question !== undefined) {
         try {
           await startSide(client, session.id, question, panes);

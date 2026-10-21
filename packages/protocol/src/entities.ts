@@ -540,9 +540,18 @@ export type UserImagePart = z.infer<typeof UserImagePartSchema>;
 
 /**
  * 文本，或图片（0.28.0）。图片按客户端能力 `user_images` 门控：没声明的连接收到的事件与结果里，图片换成文本 `[image]`。
+ * 0.90.0 起文本可以标 `pasted`：用户从别处粘贴进来的一大段（客户端把它单独放一段），Host 交给引擎时包进
+ * `<pasted_content>`，让模型分清哪些是用户自己写的（prompts/base.md「不可信内容」）。旧 Host 丢掉这个字段，照普通文本发。
  */
+export const UserTextPartSchema = z.object({
+  type: z.literal('text'),
+  text: z.string(),
+  pasted: z.literal(true).optional(),
+});
+export type UserTextPart = z.infer<typeof UserTextPartSchema>;
+
 export const UserContentPartSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('text'), text: z.string() }),
+  UserTextPartSchema,
   UserImagePartSchema,
 ]);
 export type UserContentPart = z.infer<typeof UserContentPartSchema>;

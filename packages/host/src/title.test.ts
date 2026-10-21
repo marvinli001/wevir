@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   GENERATED_TITLE_MAX_LENGTH,
   loadTitleInstructions,
+  opaqueLinks,
   parseGeneratedTitle,
   TITLE_INPUT_MAX_BYTES,
+  TITLE_LINK_EXCERPT_MAX_LENGTH,
   titleInput,
 } from './title.js';
 
@@ -25,6 +27,54 @@ describe('titleInput', () => {
     expect(body).toBe('字'.repeat(Math.floor(TITLE_INPUT_MAX_BYTES / 3)));
     const amp = titleInput(`${'a'.repeat(TITLE_INPUT_MAX_BYTES - 2)}&`);
     expect(amp.endsWith('a\n</user_prompt>')).toBe(true);
+  });
+});
+
+describe('opaqueLinks', () => {
+  it('请求几乎只是链接时返回链接（去掉结尾标点、去重、最多两个）', () => {
+    expect(opaqueLinks('https://github.com/acme/app/issues/42')).toEqual([
+      'https://github.com/acme/app/issues/42',
+    ]);
+    expect(opaqueLinks('看下这个 https://github.com/acme/app/pull/57。')).toEqual([
+      'https://github.com/acme/app/pull/57',
+    ]);
+    expect(
+      opaqueLinks(
+        'https://a.example/1 https://a.example/1 https://b.example/2 https://c.example/3',
+      ),
+    ).toEqual(['https://a.example/1', 'https://b.example/2']);
+  });
+
+  it('请求本身说清了主题、或没有 http(s) 链接时返回空', () => {
+    expect(
+      opaqueLinks(
+        '登录接口返回 500，日志在 https://ci.example/run/1，帮我查一下 session-manager 里是不是 token 刷新的问题',
+      ),
+    ).toEqual([]);
+    expect(opaqueLinks('ftp://example.com/file')).toEqual([]);
+    expect(opaqueLinks('你好')).toEqual([]);
+  });
+});
+
+describe('titleInput 的链接内容', () => {
+  it('接上 <link_context>，属性与正文转义，正文折叠空白并截断', () => {
+    const input = titleInput('https://x.example/a', [
+      {
+        url: 'https://x.example/a?q="1"',
+        title: 'Retry <uploads>',
+        excerpt: `a\n\n b ${'c'.repeat(400)}`,
+      },
+    ]);
+    expect(input).toContain(
+      '</user_prompt>\n<link_context>\n<link url="https://x.example/a?q=&quot;1&quot;" title="Retry &lt;uploads&gt;">\na b ',
+    );
+    const excerpt = input.split('\n')[5] ?? '';
+    expect(Array.from(excerpt)).toHaveLength(TITLE_LINK_EXCERPT_MAX_LENGTH);
+    expect(input.endsWith('</link>\n</link_context>')).toBe(true);
+  });
+
+  it('没有查到链接时与原来一样', () => {
+    expect(titleInput('hi', [])).toBe('<user_prompt>\nhi\n</user_prompt>');
   });
 });
 

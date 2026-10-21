@@ -584,6 +584,7 @@ export const zhCN = {
   'composer.imageUnsupported': '不支持的图片格式：{name}',
   'composer.imageTooLarge': '图片超过 10 MB：{name}',
   'composer.imageLimit': '最多 {count} 张图片',
+  'composer.pastedText': '粘贴的文本 #{n} · {lines} 行',
   'composer.imageUploadFailed': '图片上传失败：{error}',
   'image.preview': '图片预览',
   'image.unavailable': '图片不可用',
@@ -721,6 +722,7 @@ export const zhCN = {
   'transcript.processStopped': '后台进程“{name}”已被 {signal} 结束',
   'transcript.processMatched': '后台进程“{name}”输出匹配',
   'transcript.steered': '插话',
+  'transcript.pastedText': '粘贴的文本 · {lines} 行',
 
   'time.seconds': '{n} 秒',
   'time.minutes': '{m} 分 {s} 秒',

@@ -287,6 +287,34 @@ export class WebService {
     return toolError(`Unknown tool: ${name}`);
   }
 
+  /**
+   * 起会话标题前查一个链接（title.ts 的 `LinkPreview`）：联网开着时按 `web_fetch` 的规矩抓页面（只认公网的 http / https），
+   * 只读前 512 KB，返回标题与开头一段正文。联网关着、地址不收或抓取失败时返回 `undefined`。
+   */
+  async preview(
+    url: string,
+    signal: AbortSignal,
+  ): Promise<{ url: string; title?: string; excerpt: string } | undefined> {
+    if (!this.#settings.enabled) return undefined;
+    try {
+      const page = await fetchPage(url, {
+        ...this.#options.fetchPage,
+        maxBytes: 512 * 1024,
+        signal,
+      });
+      return {
+        url: page.url,
+        ...(page.title !== undefined && { title: page.title }),
+        excerpt: page.content.slice(0, 2000),
+      };
+    } catch (error) {
+      this.#options.logger?.info('title link preview failed', {
+        reason: error instanceof WebFetchError ? error.reason : 'network',
+      });
+      return undefined;
+    }
+  }
+
   #callOptions(id: string) {
     return {
       fetch: this.#options.fetch ?? globalThis.fetch,
