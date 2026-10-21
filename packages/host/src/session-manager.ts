@@ -164,6 +164,7 @@ import {
   RecapCache,
   recapInput,
 } from './recap.js';
+import { relayContent } from './relay.js';
 import type { FindingInput } from './review/service.js';
 import {
   type FoundRuleFile,
@@ -175,7 +176,15 @@ import {
 import { deleteSessionData, measureUsage, worktreeRoots } from './session-delete.js';
 import { MoveError, type PreparedMove, prepareToLocal, prepareToWorktree } from './session-move.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
-import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
+import {
+  type LinkPreview,
+  opaqueLinks,
+  parseGeneratedTitle,
+  TITLE_LINK_TIMEOUT_MS,
+  TITLE_OUTPUT_SCHEMA,
+  TITLE_TIMEOUT_MS,
+  titleInput,
+} from './title.js';
 import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
 import { archiveWorktrees, restoreWorktrees } from './worktree-archive.js';
 
@@ -218,6 +227,11 @@ export interface SessionManagerOptions {
    * `generateTitle` 时，第一个回合开始后用会话的模型生成标题；否则只有首条消息截断的标题。
    */
   titleInstructions?: string;
+  /**
+   * 起标题之前查清链接（title.ts 的 `opaqueLinks`）：请求几乎只是链接时，用它读链接指的页面，标题与开头一段交给起标题的模型。
+   * 返回 `undefined` 表示查不了（联网关着、地址不收、失败）。没给时只按请求的原文起标题。
+   */
+  lookupLink?: (url: string, signal: AbortSignal) => Promise<LinkPreview | undefined>;
   /**
    * 输入建议（0.53.0，domain-model §3.23）：给了、并且适配器实现了 `generateTitle` 时，会话的回合正常结束后用会话的模型预测
    * 用户接着会发的一句话（prompts/prompt-suggestion.md，`loadSuggestionInstructions`）。`enabled` 每次回合结束时问一次（Host
@@ -679,6 +693,7 @@ export class SessionManager {
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
+  readonly #lookupLink: SessionManagerOptions['lookupLink'];
   readonly #suggestion: SessionManagerOptions['suggestion'];
   readonly #recapInstructions: string | undefined;
   readonly #recapEnabled: (() => boolean) | undefined;
@@ -745,6 +760,7 @@ export class SessionManager {
       options.onWarning ??
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
+    this.#lookupLink = options.lookupLink;
     this.#suggestion = options.suggestion;
     this.#recapInstructions = options.recapInstructions;
     this.#recapEnabled = options.recapEnabled;
@@ -1806,8 +1822,9 @@ export class SessionManager {
       assertSendable(this.#snapshot(runtime));
     }
 
-    // 图片换成磁盘上的路径；找不到时在写事件之前报错。
-    const agentInput = await this.#agentInput(content);
+    // 图片换成磁盘上的路径；找不到时在写事件之前报错。转来的消息交给引擎时包进信封（relay.ts），事件里存原文。
+    const engineContent = relayContent(from, content);
+    const agentInput = await this.#agentInput(engineContent);
     const snapshot = this.#snapshot(runtime);
     const turnId = newId('trn');
     const inputs: AppendInput[] = [
@@ -1894,7 +1911,9 @@ export class SessionManager {
     );
     try {
       const withPrefix =
-        prefix === '' ? agentInput : await this.#agentInput(withHandoffContext(prefix, content));
+        prefix === ''
+          ? agentInput
+          : await this.#agentInput(withHandoffContext(prefix, engineContent));
       const engineInput =
         reminder === undefined
           ? withPrefix
@@ -2071,7 +2090,11 @@ export class SessionManager {
     const steer = this.#adapter.steer?.bind(this.#adapter);
     if (steer === undefined) return;
     try {
-      await steer(runtime.engineSessionId, pending.id, await this.#agentInput(pending.content));
+      await steer(
+        runtime.engineSessionId,
+        pending.id,
+        await this.#agentInput(relayContent(pending.from, pending.content)),
+      );
     } catch (error) {
       if (this.#disposed) return;
       const current = this.#events.pending(runtime.id, pending.id);
@@ -3983,12 +4006,15 @@ export class SessionManager {
     const timer = setTimeout(() => abort.abort(), TITLE_TIMEOUT_MS);
     const stop = () => abort.abort();
     void this.#whenDisposed.promise.then(stop);
-    generate(runtime.engineSessionId, {
-      instructions,
-      input: titleInput(prompt),
-      outputSchema: { ...TITLE_OUTPUT_SCHEMA },
-      signal: abort.signal,
-    })
+    this.#titleLinks(prompt, abort.signal)
+      .then((links) =>
+        generate(runtime.engineSessionId, {
+          instructions,
+          input: titleInput(prompt, links),
+          outputSchema: { ...TITLE_OUTPUT_SCHEMA },
+          signal: abort.signal,
+        }),
+      )
       .then((output) => {
         if (this.#disposed || abort.signal.aborted) return;
         const generated = parseGeneratedTitle(output);
@@ -4022,6 +4048,18 @@ export class SessionManager {
         });
       })
       .finally(() => clearTimeout(timer));
+  }
+
+  /** 起标题前查清的链接：请求几乎只是链接时并行去查，各自失败或超过 `TITLE_LINK_TIMEOUT_MS` 的不带。 */
+  async #titleLinks(prompt: string, signal: AbortSignal): Promise<LinkPreview[]> {
+    const lookup = this.#lookupLink;
+    const urls = lookup === undefined ? [] : opaqueLinks(prompt);
+    if (lookup === undefined || urls.length === 0) return [];
+    const limit = AbortSignal.any([signal, AbortSignal.timeout(TITLE_LINK_TIMEOUT_MS)]);
+    const previews = await Promise.all(
+      urls.map((url) => lookup(url, limit).catch(() => undefined)),
+    );
+    return previews.filter((preview) => preview !== undefined);
   }
 
   /** 中止还在生成的输入建议（它的结果已经没有用了）。 */

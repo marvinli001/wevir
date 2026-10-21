@@ -588,7 +588,8 @@ describe('应用级工具', () => {
   });
 
   it('等待拿到结果后不再回报；超时不打断对方', async () => {
-    const h = await setup(20);
+    // 转来的消息包了信封（relay.ts），echo 的回复长了好几倍：步长取小，回合仍比一次 timeoutMs: 0 的等待长。
+    const h = await setup(5);
     const parent = await h.create();
     const created = await h.call(parent, 'wevir_session_create', { message: 'slow please' });
     const child = created.sessionId as SessionId;
@@ -669,7 +670,7 @@ describe('应用级工具', () => {
   });
 
   it('进度：进行中给现在在做什么、清单与已用时间，空闲的给上一个回合的结果；列表和等待超时也带', async () => {
-    const h = await setup(30);
+    const h = await setup(10);
     const caller = await h.create();
     const idle = await h.create();
     expect(await h.call(caller, 'wevir_session_progress', { sessionId: idle })).not.toHaveProperty(
