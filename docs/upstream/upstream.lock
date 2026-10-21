@@ -5,6 +5,6 @@
 deepseek-harness https://github.com/deepseek-ai/deepseek-harness master d743267388641bc76f17c45ce8b4c231aed1d32c
 openwork         https://github.com/different-ai/openwork         dev    ad22cdc2217370f28f24f0f8758016c2921e3c73
 paseo            https://github.com/getpaseo/paseo                main   dc7bc8db124e837ba909ffd3b4b20e16adaebe24
-codex            https://github.com/openai/codex                  rust-v0.162.1 092d3acd6bec3e3a14bdc7e7a2810ab628ab759d
+codex            https://github.com/openai/codex                  rust-v0.163.0 83086188ae0614bd882818ff1aa23f3194962012
 t3code           https://github.com/pingdotgg/t3code              main   ec1313c8f8333292506f05a355bb72d308a455d8
 opencode         https://github.com/sst/opencode                  v1.19.3 e3c4eb242585dcd77be1a867391b7c25fd47ce52

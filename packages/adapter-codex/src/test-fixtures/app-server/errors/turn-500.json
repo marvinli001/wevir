@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "turn-500",
     "description": "上游 500：internalServerError，Codex 换成自己的说明"
   },
@@ -18,9 +18,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1791949271,
-      "completedAt": 1791949271,
-      "durationMs": 19
+      "startedAt": 1792554323,
+      "completedAt": 1792554323,
+      "durationMs": 55
     }
   }
 }

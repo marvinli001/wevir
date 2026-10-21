@@ -1,9 +1,9 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "resume-corrupted",
     "description": "rollout 被清空：读不出会话的元数据"
   },
   "code": -32603,
-  "message": "failed to read thread: thread-store internal error: failed to read session metadata <data>/engines/codex/sessions/2026/10/14/rollout-2026-10-14T16-41-11-01a1387f-f293-72c0-84ad-7560399a34e0.jsonl: thread-store internal error: failed to read session metadata <data>/engines/codex/sessions/2026/10/14/rollout-2026-10-14T16-41-11-01a1387f-f293-72c0-84ad-7560399a34e0.jsonl: rollout at <data>/engines/codex/sessions/2026/10/14/rollout-2026-10-14T16-41-11-01a1387f-f293-72c0-84ad-7560399a34e0.jsonl is empty"
+  "message": "failed to read thread: thread-store internal error: failed to read session metadata <data>/engines/codex/sessions/2026/10/21/rollout-2026-10-21T16-45-23-01a15c90-4faf-7df0-b891-c4ae693987ba.jsonl: thread-store internal error: failed to read session metadata <data>/engines/codex/sessions/2026/10/21/rollout-2026-10-21T16-45-23-01a15c90-4faf-7df0-b891-c4ae693987ba.jsonl: rollout at <data>/engines/codex/sessions/2026/10/21/rollout-2026-10-21T16-45-23-01a15c90-4faf-7df0-b891-c4ae693987ba.jsonl is empty"
 }

@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "turn-missing-key",
     "description": "Provider 没有 Key：网关回 401（wevir gateway: Provider … 没有 API Key）"
   },
@@ -22,9 +22,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1791949271,
-      "completedAt": 1791949271,
-      "durationMs": 18
+      "startedAt": 1792554323,
+      "completedAt": 1792554323,
+      "durationMs": 55
     }
   }
 }

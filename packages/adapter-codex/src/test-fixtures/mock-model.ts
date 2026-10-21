@@ -54,6 +54,8 @@ export interface MockReply {
   inputTokens?: number;
   /** 发出这么多个文本分片之后结束响应，不发 `response.completed`：流中途断开，Codex 按 `stream_max_retries` 重试。 */
   endAfterText?: number;
+  /** 以 `response.incomplete`（`incomplete_details.reason` 是这个值）结束，代替 `response.completed`。 */
+  incomplete?: string;
 }
 
 export type MockScript = (view: MockView) => MockReply;
@@ -208,9 +210,13 @@ function* render(
     outputIndex += 1;
   }
   yield {
-    type: 'response.completed',
+    type: reply.incomplete === undefined ? 'response.completed' : 'response.incomplete',
     response: {
       id: responseId,
+      ...(reply.incomplete !== undefined && {
+        status: 'incomplete',
+        incomplete_details: { reason: reply.incomplete },
+      }),
       output,
       usage: {
         input_tokens: reply.inputTokens ?? 1000,

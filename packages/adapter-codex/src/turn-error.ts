@@ -10,6 +10,12 @@ import type { TurnError } from './protocol.js';
 /** 网关在 Provider 没有 Key 时的拒绝（model-gateway 的 gateway.ts，401）。 */
 const MISSING_KEY = /wevir gateway: Provider .+ 没有(?: API Key|服务账号 JSON)/;
 
+/**
+ * 上游以 `response.incomplete` 结束且原因不是 `content_filter`（输出达到上限：Chat 转换的 `finish_reason: length`
+ * 也报成 `max_output_tokens`）。rust-v0.163.0 起 Codex 不再当作流断开重试，直接以 `other` 和这句原文结束回合。
+ */
+const INCOMPLETE_RESPONSE = /^Incomplete response returned, reason: /;
+
 /** 带上游状态码的变体：连接或流的失败、重试用完。 */
 const HTTP_VARIANTS = [
   'httpConnectionFailed',
@@ -41,7 +47,7 @@ export interface ClassifiedTurnError {
 /**
  * - `missing_credentials`：网关说这个 Provider 没有 Key（401，`wevir gateway: Provider … 没有 API Key`）；
  * - `provider`：`codexErrorInfo` 带上游状态码（网关连不上上游时是 502），或是上游报的那几类，或是 `other` 而原文
- *   是上游的 JSON 错误体（Codex 对 400 等直接给出响应体）；
+ *   是上游的 JSON 错误体（Codex 对 400 等直接给出响应体）或不完整响应的说明；
  * - `unknown`：其余（沙箱错误、回滚失败、`other` 的其他原因等）。
  * 401 是 Key 无效，归 `provider`，与 dsh 相同（acp-event-mapping.md §3）。
  */
@@ -55,6 +61,8 @@ export function classifyTurnError(error: TurnError | null | undefined): Classifi
   if (typeof info === 'string') {
     if (PROVIDER_ERRORS.has(info)) return { category: 'provider' };
     if (info === 'other' && isUpstreamErrorBody(error.message)) return { category: 'provider' };
+    if (info === 'other' && INCOMPLETE_RESPONSE.test(error.message))
+      return { category: 'provider' };
   } else if (isRecord(info) && HTTP_VARIANTS.some((key) => key in info)) {
     return { category: 'provider' };
   }

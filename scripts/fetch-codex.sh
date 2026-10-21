@@ -11,9 +11,9 @@
 # 另带 codex-code-mode-host（Codex 的 code mode 工具 `exec` 在独立进程里跑 JS，codex-app-server 在自己旁边找它，
 # upstream/codex/codex-rs/install-context/src/lib.rs 的 code_mode_host_program；没有它时只给 code mode 的模型调不了任何工具）。
 #
-# 版本与 docs/upstream/upstream.lock 的 codex 行一致（rust-v0.162.1 = 092d3ac），也要与 adapter-codex 的
-# CODEX_VERSION 一致。sha256 取自 GitHub Release API 的资产 digest（2026-10-14）：
-#   curl -s https://api.github.com/repos/openai/codex/releases/tags/rust-v0.162.1 | jq '.assets[] | {name, digest}'
+# 版本与 docs/upstream/upstream.lock 的 codex 行一致（rust-v0.163.0 = 8308618），也要与 adapter-codex 的
+# CODEX_VERSION 一致。sha256 取自 GitHub Release API 的资产 digest（2026-10-21）：
+#   curl -s https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0 | jq '.assets[] | {name, digest}'
 # 升级时版本号与下面 14 个校验和一起改（docs/upstream/UPSTREAM.md 的 Codex 升级检查清单）。
 #
 # 环境变量：
@@ -27,7 +27,7 @@
 
 set -euo pipefail
 
-version="rust-v0.162.1"
+version="rust-v0.163.0"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mirror="${WEVIR_GITHUB_MIRROR:-https://github.com}"
 mirror="${mirror%/}"
@@ -59,27 +59,27 @@ exe=""
 bwrap_sha=""
 case "$target" in
   aarch64-apple-darwin)
-    sha="84d6d3ca496551628c085a8f0f0b36f9a9e1fa0cfcea77fae0e1807b6cbecda5"
-    host_sha="1f464a2894adbc916e431b6bf19bef2cb485cf7e13e636d42578c581962b3727" ;;
+    sha="8165de84cc8e436d46d5e52fe6b68de053ba729c543e6310a1bd41e881cf4c37"
+    host_sha="2e28f49a4767a97586843c92692b96481be74d837199b49038f731cec88e9941" ;;
   x86_64-apple-darwin)
-    sha="0b35efafff99a502886aafefe47d66751e22e235da91982eddeb9a2e7424712b"
-    host_sha="cd52af8a6884b18239aaf36d0c99bc990e7dcf75b0917155474ffde88a111d37" ;;
+    sha="52f272e33c2cd52531cbea9660f93068e3aebfc85f340e9e88aa8bc077cbe82f"
+    host_sha="5211c6ed5062c84ba5796e555903c22a6e38fcccf6fe11ee11d7e1b5687ce1fd" ;;
   x86_64-unknown-linux-musl)
-    sha="ff6892db3e3dcaab08097d34872a99e85d8beb320797c2841c81d50e83b73267"
-    host_sha="458239ea45c1fc508d89695f180ab352f2834709a8a46929a4466f4f04399ada"
-    bwrap_sha="fa78980959466bd7a04643384c6293511f06a3140345c1237cfc75ccde7f3eea" ;;
+    sha="bd587a5419f9b6fa488e4950b065c9127f7db0989388210a3785294b460cdf09"
+    host_sha="314263128ba6592e7e807c265deeaf928a692b72dcbfeb5e0b20c9423b703529"
+    bwrap_sha="bcc196b1d25dc2c2b912dcedf780b562deb0552f3c50648761ced145c3466a23" ;;
   aarch64-unknown-linux-musl)
-    sha="51fd0b6cac6223f97bcce9b98e78c7c0359a2cca20030548205babce98589bb4"
-    host_sha="1395ce9367f8acd280674dff083edf25bf221d908b8351d5bd4f3fdde9181e9a"
-    bwrap_sha="83377376b697058a1bf6e73d754b027c66ef58b0a0e22527e12110865b33bc9c" ;;
+    sha="38cad7aadc6cf472fbaa43cacefb9802147592f95e570a75b7ced8406cda9919"
+    host_sha="284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef"
+    bwrap_sha="953647c6f8c8adc1b8fc6534ff283bf95e6ba0230274a70a9eda33bb2c8e6a82" ;;
   x86_64-pc-windows-msvc)
     exe=".exe"
-    sha="645a5ade43c6d3636f2476dc455e886198b4ebe2c8dbcd227f608c5237c8b3ee"
-    host_sha="9fd8dbfd188fae23774081dc42297e85c87740697684ccae41c0e522b1d00382" ;;
+    sha="d4da4ba8024b0cf9caedcb428a34cf2904f6bb1b41137a5f04f551e6d0699f54"
+    host_sha="87b71dd4d0a5e2eba4971f0949627bc60523efd044f03fb58a4f8dd30d0f28e3" ;;
   aarch64-pc-windows-msvc)
     exe=".exe"
-    sha="6e8da0dd2da2579e7dd2836f9247e1c1b7f81561b963540d11ef6fa6335b394a"
-    host_sha="415038b2a58f9db858ed35cbca718005669d83b7ada2bb2a8503ec56d881f43b" ;;
+    sha="9c7b15dbf0cb7260801e46f12dc2689fb50320d902d2a1694a12ba32ed4cde94"
+    host_sha="945080034f34c85a59fed8f3c60d3d3d248215a94ab7ea81940348f178e3ce77" ;;
   *) echo "fetch-codex: 不支持的目标 $target" >&2; exit 1 ;;
 esac
 

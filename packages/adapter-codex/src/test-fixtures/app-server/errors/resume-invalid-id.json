@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.162.1",
+    "codex": "rust-v0.163.0",
     "case": "resume-invalid-id",
     "description": "不是 Codex 的 thread ID"
   },

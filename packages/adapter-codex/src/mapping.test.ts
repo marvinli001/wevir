@@ -11,7 +11,7 @@ import {
 } from './mapping.js';
 import type { ApprovalRequestMethod } from './protocol.js';
 
-// 回放真实 codex-app-server（rust-v0.162.1）录下的通知序列（src/test-fixtures/app-server/，录制方法见
+// 回放真实 codex-app-server（rust-v0.163.0）录下的通知序列（src/test-fixtures/app-server/，录制方法见
 // record-app-server.test.ts），检查映射成的 AgentEvent（docs/architecture/codex-event-mapping.md §6）。
 
 interface Notification {
@@ -115,7 +115,7 @@ describe('回放 codex-app-server 的通知', () => {
       {
         type: 'usage.recorded',
         engineSessionId: threadId,
-        requestId: '01a1383b-5255-7fa2-843a-d4ce5e9f243a:1020',
+        requestId: '01a15c90-223c-77a2-a64c-87ff2b39cd15:1020',
         inputTokens: 1000,
         outputTokens: 20,
         reasoningTokens: 2,
