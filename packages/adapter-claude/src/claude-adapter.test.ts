@@ -1182,6 +1182,10 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_writing_style_samples',
       'mcp__wevir__wevir_writing_style_read',
       'mcp__wevir__wevir_writing_style_save',
+      // 0.107.0：调优。
+      'mcp__wevir__wevir_tuning_status',
+      'mcp__wevir__wevir_tuning_propose',
+      'mcp__wevir__wevir_tuning_decide',
       'mcp__wevir__wevir_automations',
       // 0.47.0：后台进程的列出、读输出与等待。
       'mcp__wevir__wevir_process_list',

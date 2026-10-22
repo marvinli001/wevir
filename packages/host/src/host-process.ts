@@ -952,6 +952,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             enabled: () => settings.get().writingStyle === true,
           },
         }),
+        // 调优（0.107.0）：agent 读写这个项目的调优，改动进入试用。
+        ...(proposals !== undefined &&
+          trials !== undefined && {
+            tuning: {
+              proposals,
+              trials,
+              tuning,
+              isChats: (workspace) => chats.isChats(workspace),
+              spillDir: join(homePath(home, 'tuningDir'), 'texts'),
+            },
+          }),
         roles,
         tasks: taskBoards,
         automations: automationService,
