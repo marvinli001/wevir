@@ -182,10 +182,12 @@ describe('wevir remote', () => {
     expect(paired.out).toContain('名称 office');
     expect(paired.out).toContain('wevir --remote office session list');
 
-    // 记录文件：目录 0700、文件 0600，--json 不含私钥。
+    // 记录文件：目录 0700、文件 0600（Windows 没有 POSIX 权限位），--json 不含私钥。
     const dir = join(cliHome, REMOTE_HOSTS_DIR);
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(dir, 'office.json')).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(statSync(dir).mode & 0o777).toBe(0o700);
+      expect(statSync(join(dir, 'office.json')).mode & 0o777).toBe(0o600);
+    }
     const listed = await run(['remote', 'list', '--json'], { home: cliHome });
     expect(listed.code, listed.err).toBe(0);
     const records = JSON.parse(listed.out) as Record<string, unknown>[];
