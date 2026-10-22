@@ -30,7 +30,7 @@
  *   node scripts/release.ts speech-models [--only <线路>]
  *     把听写的本机模型（packages/host/src/speech/install.ts 的 SENSE_VOICE_SMALL）从上游 sherpa-onnx 的 GitHub Release
  *     搬到三条线路：先下载并按写死的 sha256 核对，再传到 S3 线路的 `speech/<模型键>/<文件>` 与 GitHub 线路
- *     tag `speech-models` 的 Release（附件名 `<模型键>-<文件>`），最后经公网地址逐个下载核对（全球线路先清 CDN 缓存）。
+ *     tag `speech-models` 的 Release（附件名 `<模型键>-<文件>`），最后逐个读回核对（GitHub 经公网地址，全球线路经 CDN 并先清缓存，R2 经 S3 接口）。
  *     只在换模型时跑（.github/workflows/speech-models.yml，手动触发）；同名文件整个重传，重跑无妨。
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
@@ -1147,32 +1147,54 @@ async function publishSpeechModels(only: string | undefined): Promise<void> {
       }
     }
 
-    // 经公网地址核对，地址与 Host 下载时用的相同（SPEECH_MIRRORS）。
+    // 读回核对。GitHub 经公网地址（与 Host 下载时相同，SPEECH_MIRRORS）；全球线路配了 BUNNY_API_KEY 时经 CDN
+    // （waitForCdn），否则与 R2 一样经 S3 接口读回：Cloudflare 对 runner 的数据中心地址回 403，R2 强一致，读桶即可。
     const bunnyKey = env.BUNNY_API_KEY?.trim();
-    for (const mirror of SPEECH_MIRRORS.filter((line) => wanted(line.id))) {
-      const checks = await Promise.all(
-        files.map(async ({ asset, file }) => ({
-          url: `${mirror.url}/${speechAssetPath(spec, asset, mirror.layout)}`,
-          expected: await fileDigest(file),
-        })),
-      );
-      if (mirror.id === 'global' && bunnyKey) {
-        await waitForCdn(checks, bunnyCheck(bunnyKey));
-        continue;
-      }
-      for (const { url, expected } of checks) {
-        const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
-        if (!response.ok || response.body === null) {
-          throw new Error(`${url}: HTTP ${response.status}`);
+    const readBack = mkdtempSync(join(tmpdir(), 'wevir-speech-check-'));
+    try {
+      for (const mirror of SPEECH_MIRRORS.filter((line) => wanted(line.id))) {
+        const checks = await Promise.all(
+          files.map(async ({ asset, file }) => ({
+            asset,
+            url: `${mirror.url}/${speechAssetPath(spec, asset, mirror.layout)}`,
+            expected: await fileDigest(file),
+          })),
+        );
+        if (mirror.id === 'global' && bunnyKey) {
+          await waitForCdn(checks, bunnyCheck(bunnyKey));
+          continue;
         }
-        const got = await digestOf(response.body);
-        if (got.size !== expected.size || got.sha512 !== expected.sha512) {
-          throw new Error(
-            `${url} does not match the upload (${got.size} bytes, expected ${expected.size})`,
-          );
+        const target = s3.find((line) => line.id === mirror.id);
+        for (const { asset, url, expected } of checks) {
+          let got: Digest;
+          if (target === undefined) {
+            const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
+            if (!response.ok || response.body === null) {
+              throw new Error(`${url}: HTTP ${response.status}`);
+            }
+            got = await digestOf(response.body);
+          } else {
+            const key = `speech/${speechAssetPath(spec, asset)}`;
+            const copy = join(readBack, `${mirror.id}-${asset.fileName}`);
+            await run(
+              'aws',
+              ['s3', 'cp', `s3://${target.bucket}/${key}`, copy, '--only-show-errors'],
+              target.awsEnv,
+              uploadTimeoutMs(asset.size),
+            );
+            got = await fileDigest(copy);
+            rmSync(copy, { force: true });
+          }
+          if (got.size !== expected.size || got.sha512 !== expected.sha512) {
+            throw new Error(
+              `${url} does not match the upload (${got.size} bytes, expected ${expected.size})`,
+            );
+          }
+          console.log(`[${mirror.id}] verified ${url}${target === undefined ? '' : ' (S3 API)'}`);
         }
-        console.log(`[${mirror.id}] verified ${url}`);
       }
+    } finally {
+      rmSync(readBack, { recursive: true, force: true });
     }
   } finally {
     rmSync(temp, { recursive: true, force: true });
