@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { REMOTE_MDNS_SERVICE_TYPE, REMOTE_MDNS_TXT_VERSION } from '@wevir/protocol';
+import type { RemoteKeys } from './identity.js';
 import type { RemoteAddress } from './network.js';
 
 /** 局域网里广播的内容（`_wevir._tcp`）。 */
@@ -23,18 +24,20 @@ export interface MdnsAnnouncement {
  * 拿到的地址或 MagicDNS 名。
  */
 export function mdnsAnnouncement(
-  routeId: string,
+  keys: Pick<RemoteKeys, 'routeId' | 'hostPublicKey'>,
   port: number,
   listening: readonly RemoteAddress[],
 ): MdnsAnnouncement | undefined {
   const lan = listening.filter((address) => address.kind === 'lan');
   if (lan.length === 0) return undefined;
+  const { routeId } = keys;
   return {
     name: routeId,
     type: REMOTE_MDNS_SERVICE_TYPE,
     port,
     hostname: `wevir-${createHash('sha256').update(routeId).digest('hex').slice(0, 16)}`,
-    txt: { v: REMOTE_MDNS_TXT_VERSION, rid: routeId },
+    // `pk` 是 Host 的 Noise 静态公钥：只拿到短码的设备要用它派生 PSK、拼 prologue。冒充的 Host 不知道短码，握手照样完不成。
+    txt: { v: REMOTE_MDNS_TXT_VERSION, rid: routeId, pk: keys.hostPublicKey },
     restrictedAddresses: lan.map((address) => address.address),
     interfaces: [...new Set(lan.map((address) => address.name))],
     ipv6: lan.some((address) => address.family === 'IPv6'),

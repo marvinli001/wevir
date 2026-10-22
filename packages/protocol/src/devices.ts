@@ -234,7 +234,7 @@ export const REMOTE_PATHS = {
 /** 从 WebSocket 升级到握手完成（配对时到第三条消息）的时限。 */
 export const REMOTE_HANDSHAKE_TIMEOUT_MS = 10_000;
 
-/** 局域网 mDNS 广播的服务类型（`_wevir._tcp`）；实例名是 Host 的路由 ID，TXT 只有 `v`（协议版本）与 `rid`（路由 ID）。 */
+/** 局域网 mDNS 广播的服务类型（`_wevir._tcp`）；实例名是 Host 的路由 ID，TXT 只有 `v`（协议版本）、`rid`（路由 ID）与 `pk`（Host 的 Noise 静态公钥，base64url；只拿到短码的设备用它派生 PSK）。 */
 export const REMOTE_MDNS_SERVICE_TYPE = 'wevir';
 export const REMOTE_MDNS_TXT_VERSION = '1';
 

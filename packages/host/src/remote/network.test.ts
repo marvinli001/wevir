@@ -48,6 +48,7 @@ const settings = (remote: Partial<RemoteSettings>): RemoteSettings => ({
   ...remote,
 });
 
+const KEYS = { routeId: 'ROUTE_id-1', hostPublicKey: 'HOST_pk-1' };
 describe('认地址', () => {
   it('局域网只认私有地址段与唯一本地 IPv6；Tailscale 按地址段；回环、链路本地、公网一律不认', () => {
     expect(classifyAddress('192.168.8.65', false)).toBe('lan');
@@ -187,19 +188,19 @@ describe('mDNS 广播的内容', () => {
       kind: 'tailscale' as const,
       address: '100.101.102.103',
     };
-    const announcement = mdnsAnnouncement('ROUTE_id-1', 47_830, [lan, tailscale]);
+    const announcement = mdnsAnnouncement(KEYS, 47_830, [lan, tailscale]);
     expect(announcement).toEqual({
       name: 'ROUTE_id-1',
       type: 'wevir',
       port: 47_830,
       hostname: expect.stringMatching(/^wevir-[0-9a-f]{16}$/),
-      txt: { v: '1', rid: 'ROUTE_id-1' },
+      txt: { v: '1', rid: 'ROUTE_id-1', pk: 'HOST_pk-1' },
       restrictedAddresses: ['192.168.8.65'],
       interfaces: ['en0'],
       ipv6: false,
     });
-    expect(mdnsAnnouncement('ROUTE_id-1', 47_830, [tailscale])).toBeUndefined();
-    expect(mdnsAnnouncement('ROUTE_id-1', 47_830, [])).toBeUndefined();
+    expect(mdnsAnnouncement(KEYS, 47_830, [tailscale])).toBeUndefined();
+    expect(mdnsAnnouncement(KEYS, 47_830, [])).toBeUndefined();
   });
 });
 

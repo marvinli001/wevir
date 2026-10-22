@@ -211,12 +211,12 @@ describe('远程监听', () => {
     // 桌面看到连接数与 mDNS 广播的内容。
     const status = await desktop.request('remote.status');
     expect(status).toMatchObject({ listening: true, port, connections: 1, advertising: true });
-    const { routeId } = await identity();
+    const { routeId, hostPublicKey } = await identity();
     expect(announcements.at(-1)).toMatchObject({
       name: routeId,
       type: 'wevir',
       port,
-      txt: { v: '1', rid: routeId },
+      txt: { v: '1', rid: routeId, pk: hostPublicKey },
       restrictedAddresses: ['127.0.0.1'],
       interfaces: ['lo0'],
     });
@@ -231,10 +231,13 @@ describe('远程监听', () => {
     expect(devices).toMatchObject([{ id: deviceId, name: 'Pixel', platform: 'android' }]);
   });
 
-  it('短码配对；错码一次就结束窗口，之后配对路径 404', async () => {
-    const { desktop, enable, base, identity } = await setup();
+  it('短码配对只靠 mDNS 广播的 rid 与 pk；错码一次就结束窗口，之后配对路径 404', async () => {
+    const { desktop, enable, base, identity, announcements } = await setup();
     await enable();
-    const host = await identity();
+    // 只拿到短码的设备从 mDNS TXT 得到路由 ID 与 Host 公钥，不需要二维码。
+    const txt = announcements.at(-1)?.txt;
+    const host = { routeId: txt?.rid ?? '', hostPublicKey: txt?.pk ?? '' };
+    expect(host).toEqual(await identity());
     let offer = await desktop.request('pairing.start');
     const wrong = pairRemote({
       base,

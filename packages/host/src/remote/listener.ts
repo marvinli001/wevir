@@ -360,9 +360,7 @@ export class RemoteListener {
       .filter((entry) => entry.listening)
       .map((entry) => entry.address);
     const announcement =
-      this.#keys === undefined
-        ? undefined
-        : mdnsAnnouncement(this.#keys.routeId, this.#port, listening);
+      this.#keys === undefined ? undefined : mdnsAnnouncement(this.#keys, this.#port, listening);
     this.#advertising = announcement !== undefined;
     advertiser.update(announcement);
   }
