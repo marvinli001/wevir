@@ -1078,6 +1078,7 @@ export const zhCN = {
   'settings.notify.approval': '需要批准',
   'settings.notify.question': '提问',
   'settings.notify.failed': '出错',
+  'settings.notify.automation': '自动化',
   'settings.tab.archived': '已归档',
   'settings.tab.web': '联网搜索',
   'settings.tab.personalization': '个性化',

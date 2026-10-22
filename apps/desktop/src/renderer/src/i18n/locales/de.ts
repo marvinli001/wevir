@@ -1080,6 +1080,7 @@ export const messages: Messages = {
   'settings.notify.approval': 'Freigabe erforderlich',
   'settings.notify.question': 'Rückfragen',
   'settings.notify.failed': 'Fehler',
+  'settings.notify.automation': 'Automatisierungen',
   'settings.tab.archived': 'Archiviert',
   'settings.tab.web': 'Websuche',
   'settings.tab.personalization': 'Personalisierung',

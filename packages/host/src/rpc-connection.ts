@@ -49,6 +49,7 @@ import { assertSessionVisible, type HostMethods, type RequestContext } from './h
 import { newId } from './ids.js';
 import type { InboxService } from './inbox.js';
 import type { MemoryChange } from './memory.js';
+import type { NotificationService } from './notifications.js';
 import {
   type ConnectionGrant,
   LOCAL_GRANT,
@@ -56,6 +57,7 @@ import {
   missingParamPermissions,
   type TestConnectionGrant,
 } from './permissions.js';
+import type { Presence } from './presence.js';
 import { type SessionListFeed, SessionListScope } from './session-list.js';
 import type { TerminalService } from './terminals.js';
 
@@ -94,6 +96,10 @@ export interface ConnectionHost {
   readonly sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.103.0）：调过 `inbox.*` 的连接用它收 `inbox.changed`。 */
   readonly inbox?: Pick<InboxService, 'watch'>;
+  /** 通知意图（0.104.0）：调过 `notification.subscribe` 的连接用它收 `notification.intent`。 */
+  readonly notifications?: Pick<NotificationService, 'watch'>;
+  /** 在场（0.104.0）：`presence.update` 记到这里，连接关闭时删掉。 */
+  readonly presence?: Pick<Presence, 'update' | 'remove'>;
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接用它收 `usage.changed`。 */
   readonly usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接用它收 `automation.changed`。 */
@@ -226,6 +232,8 @@ export class RpcConnection {
   #unwatchSessionList: (() => void) | undefined;
   /** 调过 `inbox.*` 之后：退订 `inbox.changed`。 */
   #unwatchInbox: (() => void) | undefined;
+  /** `notification.subscribe` 之后：退订 `notification.intent`。 */
+  #unwatchNotifications: (() => void) | undefined;
   /** 调过 `usage.*` 之后：退订 `usage.changed`。 */
   #unwatchUsage: (() => void) | undefined;
   /** 调过 `automation.*` 之后：退订 `automation.changed`。 */
@@ -511,6 +519,15 @@ export class RpcConnection {
         const { subscriptionId } = params as MethodParams<'events.unsubscribe'>;
         const subscription = this.#subscriptions.get(subscriptionId);
         if (subscription) this.#drop(subscription);
+        this.#respond(id, method, {});
+        return;
+      }
+      case 'notification.subscribe':
+        if (this.#respond(id, method, {})) this.#watchNotifications();
+        return;
+      case 'presence.update': {
+        const { active } = params as MethodParams<'presence.update'>;
+        this.#host.presence?.update(this, active, this.#grant.principal.kind === 'local');
         this.#respond(id, method, {});
         return;
       }
@@ -849,6 +866,18 @@ export class RpcConnection {
     this.#unwatchInbox = this.#host.inbox.watch((change) => this.#notify('inbox.changed', change));
   }
 
+  /**
+   * `notification.subscribe` 之后收 `notification.intent`（0.104.0，domain-model §3.48），连接关闭即止。意图是全局的，每条都原样发给每条
+   * 订阅了的连接；不补发。
+   */
+  #watchNotifications(): void {
+    if (this.#unwatchNotifications !== undefined || this.#host.notifications === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchNotifications = this.#host.notifications.watch((intent) =>
+      this.#notify('notification.intent', intent),
+    );
+  }
+
   /** 调过 `usage.*` 的连接之后收 `usage.changed`（0.62.0），连接关闭即止。 */
   #watchUsage(): void {
     if (this.#unwatchUsage !== undefined || this.#host.usage === undefined) return;
@@ -1169,6 +1198,9 @@ export class RpcConnection {
     this.#unwatchSessionList = undefined;
     this.#unwatchInbox?.();
     this.#unwatchInbox = undefined;
+    this.#unwatchNotifications?.();
+    this.#unwatchNotifications = undefined;
+    this.#host.presence?.remove(this);
     this.#unwatchUsage?.();
     this.#unwatchUsage = undefined;
     this.#unwatchAutomations?.();

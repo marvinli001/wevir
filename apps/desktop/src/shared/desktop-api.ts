@@ -354,6 +354,8 @@ export interface DesktopApi {
   setBadgeCount(count: number): Promise<void>;
   /** 订阅系统通知的点击，交回通知的 tag；返回取消订阅的函数。 */
   onNotificationClick(listener: (tag: string) => void): () => void;
+  /** 订阅锁屏与睡眠（true）、解锁与唤醒（false）：渲染进程据此报在场（0.104.0）。返回取消订阅的函数。 */
+  onScreenLock(listener: (locked: boolean) => void): () => void;
   /** 本机装了的外部编辑器（U32）。 */
   listEditors(): Promise<EditorInfo[]>;
   /** 用外部编辑器打开文件或文件夹（绝对路径），可跳到行。 */
@@ -418,6 +420,8 @@ export const IPC_CHANNELS = {
   setBadgeCount: 'wevir:set-badge-count',
   /** 主进程 → 渲染进程的推送。 */
   notificationClick: 'wevir:notification-click',
+  /** 主进程 → 渲染进程的推送。 */
+  screenLock: 'wevir:screen-lock',
   listEditors: 'wevir:list-editors',
   openInEditor: 'wevir:open-in-editor',
   revealPath: 'wevir:reveal-path',

@@ -76,6 +76,13 @@ const api: DesktopApi = {
       ipcRenderer.removeListener(IPC_CHANNELS.notificationClick, handler);
     };
   },
+  onScreenLock: (listener) => {
+    const handler = (_event: IpcRendererEvent, locked: boolean) => listener(locked);
+    ipcRenderer.on(IPC_CHANNELS.screenLock, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.screenLock, handler);
+    };
+  },
   listEditors: () => ipcRenderer.invoke(IPC_CHANNELS.listEditors),
   openInEditor: (editorId, path, line) =>
     ipcRenderer.invoke(IPC_CHANNELS.openInEditor, editorId, path, line),

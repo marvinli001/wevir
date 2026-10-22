@@ -777,6 +777,16 @@ function run(): void {
     updates.start();
     // 定时检查的计时器在睡眠时不走：唤醒、回到前台时，上次检查过久就补查（updater.ts 的 checkIfStale）。
     powerMonitor.on('resume', () => updates.checkIfStale());
+    // 锁屏与睡眠告诉渲染进程，它据此报在场（0.104.0，notifications/presence.ts）。
+    const sendScreenLock = (locked: boolean) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.screenLock, locked);
+      }
+    };
+    powerMonitor.on('lock-screen', () => sendScreenLock(true));
+    powerMonitor.on('suspend', () => sendScreenLock(true));
+    powerMonitor.on('unlock-screen', () => sendScreenLock(false));
+    powerMonitor.on('resume', () => sendScreenLock(false));
     app.on('browser-window-focus', () => updates.checkIfStale());
   });
 }

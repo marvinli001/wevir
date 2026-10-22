@@ -25,6 +25,7 @@ import {
 } from './common.js';
 import { GitObjectIdSchema } from './git.js';
 import { MarketMirrorPreferenceSchema } from './market.js';
+import { NotificationKindSettingsSchema } from './notifications.js';
 import { ImportedFromSchema } from './plugins.js';
 import { ProfileVersionRefSchema } from './tuning.js';
 import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
@@ -1073,6 +1074,11 @@ export const HostSettingsSchema = z.object({
     .min(0)
     .max(UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES)
     .optional(),
+  /**
+   * 哪几类事产生通知意图（0.104.0，Host 功能 `notification_intents`，domain-model §3.48）：关掉的一类不发给任何订阅的连接。省略或缺某一项
+   * 按开。
+   */
+  notifications: NotificationKindSettingsSchema.optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

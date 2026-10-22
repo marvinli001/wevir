@@ -1083,6 +1083,7 @@ export const messages: Messages = {
   'settings.notify.approval': 'Approvazione richiesta',
   'settings.notify.question': 'Domande',
   'settings.notify.failed': 'Errori',
+  'settings.notify.automation': 'Automazioni',
   'settings.tab.archived': 'Archiviate',
   'settings.tab.web': 'Ricerca web',
   'settings.tab.personalization': 'Personalizzazione',

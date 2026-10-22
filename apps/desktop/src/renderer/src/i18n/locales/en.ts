@@ -1072,6 +1072,7 @@ export const messages: Messages = {
   'settings.notify.approval': 'Approval needed',
   'settings.notify.question': 'Questions',
   'settings.notify.failed': 'Errors',
+  'settings.notify.automation': 'Automations',
   'settings.tab.archived': 'Archived',
   'settings.tab.web': 'Web search',
   'settings.tab.personalization': 'Personalization',

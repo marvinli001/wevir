@@ -450,6 +450,11 @@ export const HOST_FEATURES = {
    * `timeout` 结算与 `APPROVAL_EXPIRED`。与引擎无关。
    */
   approvalTimeout: 'approval_timeout',
+  /**
+   * 通知意图与在场（0.104.0，ADR-0017 §5，domain-model §3.48）：`notification.subscribe`、`notification.intent`、`presence.update` 与设置
+   * `notifications`。与引擎无关。
+   */
+  notificationIntents: 'notification_intents',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -542,6 +547,7 @@ export const HostFeaturesSchema = z.looseObject({
   prevent_sleep: z.boolean().optional(),
   inbox: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
+  notification_intents: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

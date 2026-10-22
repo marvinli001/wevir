@@ -161,6 +161,13 @@ import {
   LspStatusResultSchema,
 } from './lsp.js';
 import { MarketInstallProgressSchema, MarketMethodSchemas } from './market.js';
+import {
+  NotificationIntentParamsSchema,
+  NotificationSubscribeParamsSchema,
+  NotificationSubscribeResultSchema,
+  PresenceUpdateParamsSchema,
+  PresenceUpdateResultSchema,
+} from './notifications.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   PreviewChangedParamsSchema,
@@ -2525,6 +2532,17 @@ export const MethodSchemas = {
     result: InboxDismissResultSchema,
     permission: 'session.write',
   },
+  /** 通知意图与在场（0.104.0）：由 RPC 连接自己处理，登记的都是这条连接。 */
+  'notification.subscribe': {
+    params: NotificationSubscribeParamsSchema,
+    result: NotificationSubscribeResultSchema,
+    permission: 'session.read',
+  },
+  'presence.update': {
+    params: PresenceUpdateParamsSchema,
+    result: PresenceUpdateResultSchema,
+    permission: 'session.read',
+  },
   /** 审批规则（0.80.0）。 */
   'approvalRule.list': {
     params: ApprovalRuleListParamsSchema,
@@ -2719,6 +2737,8 @@ export const NotificationSchemas = {
   'sessions.changed': { params: SessionsChangedParamsSchema },
   /** 发给调用过 `inbox.*` 的连接（0.103.0）：收件箱的增量。 */
   'inbox.changed': { params: InboxChangedParamsSchema },
+  /** 发给调用过 `notification.subscribe` 的连接（0.104.0）：Host 判定要提醒的一件新事。 */
+  'notification.intent': { params: NotificationIntentParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2773,6 +2793,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'events.event': 'session.read',
   'sessions.changed': 'session.read',
   'inbox.changed': 'session.read',
+  'notification.intent': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',

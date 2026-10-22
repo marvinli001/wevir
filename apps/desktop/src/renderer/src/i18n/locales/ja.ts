@@ -1075,6 +1075,7 @@ export const messages: Messages = {
   'settings.notify.approval': '承認が必要',
   'settings.notify.question': '質問',
   'settings.notify.failed': 'エラー',
+  'settings.notify.automation': '自動化',
   'settings.tab.archived': 'アーカイブ済み',
   'settings.tab.web': 'Web 検索',
   'settings.tab.personalization': 'パーソナライズ',
