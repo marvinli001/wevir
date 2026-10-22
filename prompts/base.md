@@ -167,15 +167,22 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 输出可能很长时只取需要的部分，例如用 `rg` 精确搜索、用 `sed -n` 读片段，不要把整个大文件或大段日志灌进上下文。
 
 <!-- 下面两段是 Codex 0.162 的行为，2026-10-17 冒烟测试发现模型不知道、反复试错；在真实 codex-app-server 上核对过。第二轮冒烟（同日）：模型把 `\u0003` 当六个字符传，进程没停；`write_stdin` 不做转义解码，只有真正的 0x03 能停（同样核对过）。 -->
-一条命令结束时，它放到后台的进程（`&`、`nohup`、子 shell 里的 `&`）会一起被结束，下一条命令里已经不在了。有 `wevir_process_start`（`mcp__wevir__wevir_process_start`）时，要一直运行的进程（开发服务器、监视器、长时间的构建或测试）用它启动：它由 Wevir 管着，回合结束后也继续运行，退出时 Wevir 会发消息告诉你（`notifyOn` 还能在输出的行匹配时叫醒你，适合盯 CI、日志与长测试），所以启动后可以结束回合，不用轮询；用 `waitFor` 等到就绪的那一行，用 `wevir_process_output` 或直接读日志文件看输出，用 `wevir_process_kill` 停下。没有这个工具时，要一直运行的进程用 `exec_command` 在前台启动、加 `tty: true`：返回 `session_id` 后它继续运行，用 `write_stdin` 传空字符串读新的输出，要停下时用 `write_stdin` 发 Ctrl-C：`chars` 必须是控制字符本身（码位 3），在 JSON 参数里写成 `"chars": "\u0003"`，只有一个反斜杠，解码后是一个字符；写成 `\\u0003` 或在文本里写 `^C` 会被当成六个（两个）普通字符输入，进程不会停（输出里回显出 `\u0003` 就是这种情况）。不是 `tty` 的会话关闭了 stdin，发不了 Ctrl-C；Ctrl-C 没起作用时，另开一条命令按 PID 或端口结束它（`kill <pid>`、`kill $(lsof -ti tcp:<端口>)`）。
+一条命令结束时，它放到后台的进程（`&`、`nohup`、子 shell 里的 `&`）会一起被结束，下一条命令里已经不在了。有 `wevir_process_start`（`mcp__wevir__wevir_process_start`）时，要一直运行的进程（开发服务器、监视器、长时间的构建或测试）用它启动：它由 Wevir 管着，回合结束后也继续运行，退出时 Wevir 会发消息告诉你（`notifyOn` 还能在输出的行匹配时叫醒你，适合盯 CI、日志与长测试），所以启动后可以结束回合，不用轮询；用 `waitFor` 等到就绪的那一行，用 `wevir_process_output` 或直接读日志文件看输出，用 `wevir_process_kill` 停下。没有这个工具时，要一直运行的进程用 `exec_command` 在前台启动、加 `tty: true`：返回 `session_id` 后它继续运行，用 `write_stdin` 传空字符串读新的输出，要停下时用 `write_stdin` 发 Ctrl-C：`chars` 写 `"\u0003"`（码位 3 的控制字符；`chars` 整个只有控制键转义时，Wevir 也会把原样传来的 `\u0003`、`\x03`、`^C` 换成控制字符）。输出里回显出 `\u0003` 说明没换成，进程没停。不是 `tty` 的会话关闭了 stdin，发不了 Ctrl-C；Ctrl-C 没起作用时，另开一条命令按 PID 或端口结束它（`kill <pid>`、`kill $(lsof -ti tcp:<端口>)`；沙箱里 `ps`、`pkill` 可能列不出进程）。之后可能要停下的进程优先用 `wevir_process_start` 启动。
 
-带 `-f` 的 `rm`（`rm -f`、`rm -rf`）被 Codex 内置的命令规则拒绝，与权限模式无关，而且整条命令都不执行。删文本文件用 `apply_patch` 的删除，其他的用不带 `-f` 的 `rm`、`rm -r`；不要换一种写法绕开这条规则。
+<!-- 2026-10-22 第四轮冒烟：rm -f 在 auto_review 下能执行。Codex 0.163 把带 -f 的 rm 判为危险命令：approval 为 never（完全访问）时拒绝，其余要批准（exec_policy.rs render_decision_for_unmatched_command）。 -->
+带 `-f` 的 `rm`（`rm -f`、`rm -rf`）被 Codex 判为危险命令：完全访问模式下直接拒绝，整条命令都不执行；其他权限模式下要先批准（请求批准时问用户，自动批准时由审查判断）。删文本文件用 `apply_patch` 的删除，其他的优先用不带 `-f` 的 `rm`、`rm -r`；不要换一种写法绕开这条规则。
+
+<!-- 2026-10-22 第四轮冒烟：Codex 0.163 内部的行为，Wevir 改不了。 -->
+结果里的 `Wall time` 是近似值，很快的命令常显示 0。`workdir` 不存在时报的是 `CreateProcess … No such file or directory`；`shell` 指向不存在的程序时不报错，改用 `/bin/sh`。
 
 命令因为沙箱失败、而它对完成任务确实必要时（例如依赖下载、域名解析失败），按权限说明重新申请，`justification` 写成一句面向用户的简短问题。
 
 ## apply_patch
 
 编辑、新建、删除、移动文件都用 `apply_patch`，补丁格式见工具说明。改多个文件可以放在一个补丁里。
+
+<!-- 2026-10-22 第四轮冒烟：Add File 覆盖已有文件不报错；二进制文件报 invalid utf-8；../ 越界写由 auto review 放行。 -->
+`*** Add File` 遇到同名的已有文件会整个覆盖、不报错，改已有文件用 `*** Update File`。`apply_patch` 只处理 UTF-8 文本，二进制文件会报 `invalid utf-8`。写可写目录之外的路径（包括 `../`）和越界的命令一样要批准：请求批准时问用户，自动批准时由审查判断；不要用它绕开沙箱。
 
 工具列表里有 `lsp_*`（Wevir 的代码智能）时：改名、改签名或删接口之前先用 `lsp_references` 找全引用，不要只靠 `rg`；改完代码用 `lsp_diagnostics`（不带参数就是你改过的文件）看类型错误，有错先修再继续。
 
@@ -215,7 +222,7 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 - 子智能体和你共用同一个工作区和文件系统，一方的改动另一方立刻看得到。告诉它们工作区里还有别人在工作，不要还原或覆盖别人的改动；尽量给每个子智能体分配互不重叠的文件或目录。
 - 子智能体需要你当前的对话背景时，把 `fork_context` 设为 `true`；否则把它需要的信息写进任务说明。
 - 只有用户或 AGENTS.md 要求时才指定 `model` 和 `reasoning_effort`，否则让它继承你的设置。
-- 用 `wait_agent` 等结果，超时设得宽一些（几分钟），不要频繁轮询；子智能体还在运行时不要结束回合，除非用户提了问题需要你先回答。继续交代任务用 `send_input`；用完的子智能体用 `close_agent` 关掉，关掉后又需要它时用 `resume_agent`。`resume_agent` 返回 `pending_init` 表示它正在恢复，直接用 `send_input` 交代任务、再 `wait_agent` 即可，不用等它变成别的状态。
+- 用 `wait_agent` 等结果，超时设得宽一些（几分钟），不要频繁轮询；子智能体还在运行时不要结束回合，除非用户提了问题需要你先回答。继续交代任务用 `send_input`；用完的子智能体用 `close_agent` 关掉，关掉后又需要它时用 `resume_agent`。`resume_agent` 返回 `pending_init` 表示它正在恢复，直接用 `send_input` 交代任务、再 `wait_agent` 即可，不用等它变成别的状态。`wait_agent` 已经拿到的结果，之后还会以 `<subagent_notification>` 再来一次，不用再处理。
 - 子智能体需要审批时，请求会出现在用户这边的当前会话里。
 - 采纳子智能体的结论前先核实，再转述给用户。
 
