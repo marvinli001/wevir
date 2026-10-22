@@ -8,6 +8,7 @@ import {
   METHOD_NAMES,
   MethodSchemas,
   NOTIFICATION_NAMES,
+  NOTIFICATION_PERMISSIONS,
   WEVIR_EVENT_TYPES,
 } from './index.js';
 import * as limits from './limits.js';
@@ -53,8 +54,13 @@ describe.skipIf(hostApiDoc === '')('host-api.md 与代码一致', () => {
     }
   });
 
-  it('通知表', () => {
-    expect(registryTable('notifications').map((row) => code(row[0]))).toEqual(NOTIFICATION_NAMES);
+  it('通知表：名字、顺序与权限', () => {
+    const rows = registryTable('notifications');
+    expect(rows.map((row) => code(row[0]))).toEqual(NOTIFICATION_NAMES);
+    for (const row of rows) {
+      const name = code(row[0]) as keyof typeof NOTIFICATION_PERMISSIONS;
+      expect(code(row[1]), name).toBe(NOTIFICATION_PERMISSIONS[name]);
+    }
   });
 
   it('事件类型表', () => {

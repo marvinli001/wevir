@@ -56,6 +56,7 @@ import { McpRemoteProxy } from './mcp-oauth/proxy.js';
 import { type McpOAuthOptions, McpOAuthService } from './mcp-oauth/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
+import type { TestConnectionGrant } from './permissions.js';
 import { PluginRegistry } from './plugins.js';
 import { PreviewService } from './preview/service.js';
 import { PreviewStore } from './preview/store.js';
@@ -125,6 +126,11 @@ export type ShutdownTrigger =
   | { kind: 'api' };
 
 export interface StartHostOptions {
+  /**
+   * 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作。wevir-host 与桌面的入口不传它，Host 也不从
+   * 环境变量读，省略时每条连接都是本机身份、全部权限。
+   */
+  testConnectionGrant?: TestConnectionGrant;
   /** 远程 MCP 服务的 OAuth（0.97.0）：测试换掉 CIMD 地址、登录超时、时钟与 DNS 解析。 */
   mcpOAuth?: Pick<McpOAuthOptions, 'clientMetadataUrl' | 'loginTimeoutMs' | 'now' | 'lookup'>;
   /** 官方插件市场的镜像地址、公钥与 fetch（0.91.0）；省略用 wevir-marketplace 的三个镜像（测试换成本机服务）。 */
@@ -1076,6 +1082,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         market_files: true,
         speech: true,
         mcp_oauth: true,
+        permission_enforcement: true,
       },
       engineFeatures,
       plugins,
@@ -1095,6 +1102,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(proposals !== undefined && { proposals }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
+      ...(options.testConnectionGrant !== undefined && {
+        testConnectionGrant: options.testConnectionGrant,
+      }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),

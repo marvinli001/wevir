@@ -20,6 +20,7 @@ import {
   MethodSchemas,
   type NotificationParams,
   NotificationSchemas,
+  type Permission,
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
   PreviewChangedParamsSchema,
@@ -829,6 +830,14 @@ export class WevirClient {
   /** Host 是否声明了这项功能（host-api.md §10）。功能是否可用只在这里判断。 */
   supports(feature: HostFeature): boolean {
     return hostSupports(this.hello.features, feature);
+  }
+
+  /**
+   * 这条连接有没有这项权限（host-api.md §2 的 `permissions`）。Host 0.98.0 起按它检查请求，没有时回 `DEVICE_FORBIDDEN`；本机连接
+   * 与旧 Host 总是全部权限。只用来隐藏做不了的操作，权限由 Host 判断。
+   */
+  can(permission: Permission): boolean {
+    return this.hello.permissions.includes(permission);
   }
 
   /** Host 没有这项功能时抛 `FeatureUnavailableError`（提示升级 Host）。 */

@@ -67,6 +67,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': 'Version du service d’arrière-plan incompatible',
   'rpcError.HELLO_REQUIRED': 'Négociation de connexion non terminée',
   'rpcError.HOST_SHUTTING_DOWN': 'Arrêt du service d’arrière-plan en cours',
+  'rpcError.DEVICE_FORBIDDEN': 'Autorisation refusée',
   'rpcError.WORKSPACE_NOT_FOUND': 'Projet introuvable',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider introuvable',
   'rpcError.SESSION_NOT_FOUND': 'Session introuvable',

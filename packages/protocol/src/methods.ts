@@ -2321,7 +2321,7 @@ export const MethodSchemas = {
   'terminal.create': {
     params: TerminalCreateParamsSchema,
     result: TerminalCreateResultSchema,
-    permission: 'session.write',
+    permission: 'terminal.write',
   },
   'terminal.list': {
     params: TerminalListParamsSchema,
@@ -2341,17 +2341,17 @@ export const MethodSchemas = {
   'terminal.input': {
     params: TerminalInputParamsSchema,
     result: TerminalInputResultSchema,
-    permission: 'session.write',
+    permission: 'terminal.write',
   },
   'terminal.resize': {
     params: TerminalResizeParamsSchema,
     result: TerminalResizeResultSchema,
-    permission: 'session.write',
+    permission: 'terminal.write',
   },
   'terminal.close': {
     params: TerminalCloseParamsSchema,
     result: TerminalCloseResultSchema,
-    permission: 'session.write',
+    permission: 'terminal.write',
   },
   'lsp.status': {
     params: LspStatusParamsSchema,
@@ -2434,12 +2434,12 @@ export const MethodSchemas = {
   'approvalRule.add': {
     params: ApprovalRuleAddParamsSchema,
     result: ApprovalRuleResultSchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   'approvalRule.delete': {
     params: ApprovalRuleDeleteParamsSchema,
     result: ApprovalRuleDeleteResultSchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   'approvalRule.suggest': {
     params: ApprovalRuleSuggestParamsSchema,
@@ -2481,22 +2481,22 @@ export const MethodSchemas = {
   'guardrail.add': {
     params: GuardrailAddParamsSchema,
     result: GuardrailResultSchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   'guardrail.update': {
     params: GuardrailUpdateParamsSchema,
     result: GuardrailResultSchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   'guardrail.delete': {
     params: GuardrailDeleteParamsSchema,
     result: EmptySchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   'guardrail.setEnabled': {
     params: GuardrailSetEnabledParamsSchema,
     result: GuardrailResultSchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   /** 仓库自带的 hooks（0.86.0）：默认不执行，逐个启用。 */
   'repoHook.list': {
@@ -2507,7 +2507,7 @@ export const MethodSchemas = {
   'repoHook.setEnabled': {
     params: RepoHookSetEnabledParamsSchema,
     result: RepoHookResultSchema,
-    permission: 'host.manage',
+    permission: 'policy.write',
   },
   /** 调优的建议（0.87.0）：生成调用会话的模型；采纳写项目文件、记忆与护栏。 */
   'tuning.proposal.generate': {
@@ -2655,3 +2655,28 @@ export type NotificationParams<N extends NotificationName> = z.infer<
 >;
 
 export const NOTIFICATION_NAMES = Object.keys(NotificationSchemas) as NotificationName[];
+
+/**
+ * 收每种通知要有的读权限（0.98.0，ADR-0017 §4），一般与触发登记的读方法相同（`settings.updated` 同 `settings.get`）。Host 发通知前
+ * 按它过滤；加通知时要在这里登记，漏了类型检查就失败。
+ */
+export const NOTIFICATION_PERMISSIONS = {
+  'plugins.changed': 'host.manage',
+  'events.event': 'session.read',
+  'account.updated': 'provider.read',
+  'settings.updated': 'session.read',
+  'memory.changed': 'session.read',
+  'usage.changed': 'session.read',
+  'automation.changed': 'session.read',
+  'process.changed': 'session.read',
+  'readiness.changed': 'workspace.read',
+  'preview.changed': 'workspace.read',
+  'tuning.changed': 'session.read',
+  'guardrail.changed': 'session.read',
+  'tuning.proposal.changed': 'session.read',
+  'speech.changed': 'session.read',
+  'terminal.output': 'session.read',
+  'terminal.changed': 'session.read',
+  'lsp.changed': 'workspace.read',
+  'browser.request': 'host.manage',
+} as const satisfies Record<NotificationName, Permission>;

@@ -64,6 +64,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': 'Несовместимая версия фоновой службы',
   'rpcError.HELLO_REQUIRED': 'Рукопожатие подключения не завершено',
   'rpcError.HOST_SHUTTING_DOWN': 'Фоновая служба завершает работу',
+  'rpcError.DEVICE_FORBIDDEN': 'Нет разрешения',
   'rpcError.WORKSPACE_NOT_FOUND': 'Проект не найден',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider не найден',
   'rpcError.SESSION_NOT_FOUND': 'Сессия не найдена',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PermissionsSchema } from './capabilities.js';
 import { ApprovalIdSchema, PendingMessageIdSchema, SessionIdSchema } from './common.js';
 import {
   ActiveTurnSchema,
@@ -32,6 +33,8 @@ export const ErrorCode = {
   INCOMPATIBLE_PROTOCOL: -32002,
   HELLO_REQUIRED: -32003,
   HOST_SHUTTING_DOWN: -32004,
+  /** 这条连接没有方法或参数需要的权限（0.98.0，ADR-0017 §4）；缺少的权限名在 `data.missing`。连接不关。 */
+  DEVICE_FORBIDDEN: -32005,
 
   WORKSPACE_NOT_FOUND: -32010,
   PROVIDER_NOT_FOUND: -32011,
@@ -109,6 +112,8 @@ export const ErrorDataSchemas = {
     protocolVersion: ProtocolVersionSchema,
     minProtocolVersion: ProtocolVersionSchema,
   }),
+  /** 缺少的权限名（开放字符串，同 `PermissionsSchema`）。 */
+  DEVICE_FORBIDDEN: z.object({ missing: PermissionsSchema.min(1) }),
   INVALID_STATE: z.object({
     state: SessionStateSchema,
     /** 会话只读时有（0.3.0）：引擎会话恢复不了的原因。 */

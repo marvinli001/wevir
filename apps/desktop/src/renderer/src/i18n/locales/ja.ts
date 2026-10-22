@@ -66,6 +66,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': 'バックグラウンドサービスのバージョンに互換性がありません',
   'rpcError.HELLO_REQUIRED': '接続のハンドシェイクが完了していません',
   'rpcError.HOST_SHUTTING_DOWN': 'バックグラウンドサービスを終了しています',
+  'rpcError.DEVICE_FORBIDDEN': '権限がありません',
   'rpcError.WORKSPACE_NOT_FOUND': 'プロジェクトが見つかりません',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider が見つかりません',
   'rpcError.SESSION_NOT_FOUND': 'セッションが見つかりません',

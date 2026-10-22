@@ -70,6 +70,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': 'Versione del servizio in background incompatibile',
   'rpcError.HELLO_REQUIRED': 'Handshake di connessione non completato',
   'rpcError.HOST_SHUTTING_DOWN': 'Il servizio in background si sta chiudendo',
+  'rpcError.DEVICE_FORBIDDEN': 'Autorizzazione negata',
   'rpcError.WORKSPACE_NOT_FOUND': 'Progetto non trovato',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider non trovato',
   'rpcError.SESSION_NOT_FOUND': 'Sessione non trovata',

@@ -66,6 +66,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': 'Inkompatible Version des Hintergrunddienstes',
   'rpcError.HELLO_REQUIRED': 'Verbindungs-Handshake nicht abgeschlossen',
   'rpcError.HOST_SHUTTING_DOWN': 'Hintergrunddienst wird beendet',
+  'rpcError.DEVICE_FORBIDDEN': 'Keine Berechtigung',
   'rpcError.WORKSPACE_NOT_FOUND': 'Projekt nicht gefunden',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider nicht gefunden',
   'rpcError.SESSION_NOT_FOUND': 'Sitzung nicht gefunden',

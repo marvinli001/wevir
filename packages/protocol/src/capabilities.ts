@@ -418,6 +418,11 @@ export const HOST_FEATURES = {
    * `loginCancel` / `logout` 与 `MCP_OAUTH_FAILED` 错误。没有这个功能位的 Host 不显示登录。
    */
   mcpOAuth: 'mcp_oauth',
+  /**
+   * 权限执行（0.98.0，ADR-0017 §4）：`host.hello` 的 `permissions` 是这条连接的实际权限，Host 按方法与参数检查每个请求、按
+   * `NOTIFICATION_PERMISSIONS` 过滤通知，越权回 `DEVICE_FORBIDDEN`。本机连接拥有全部权限。与引擎无关。
+   */
+  permissionEnforcement: 'permission_enforcement',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -503,12 +508,13 @@ export const HostFeaturesSchema = z.looseObject({
   speech: z.boolean().optional(),
   writing_style: z.boolean().optional(),
   mcp_oauth: z.boolean().optional(),
+  permission_enforcement: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
 /**
- * 权限词表。每个方法需要其中一项（`MethodSchemas[*].permission`）；骨架阶段 Host 对每个连接都给全部，
- * 词表为将来的设备权限预留（ADR-0002 未决事项 3）。
+ * 权限词表。每个方法需要其中一项（`MethodSchemas[*].permission`），每种通知也标了一项（`NOTIFICATION_PERMISSIONS`）。
+ * 0.98.0 起 Host 按连接的权限检查（ADR-0017 §4）：本机连接拥有全部，远程设备的取自设备记录。只增不减。
  */
 export const PERMISSIONS = [
   'host.manage',
@@ -518,6 +524,10 @@ export const PERMISSIONS = [
   'provider.write',
   'session.read',
   'session.write',
+  /** 用户终端的建、输入、改尺寸、关（0.98.0，原为 `session.write`）；读输出仍是 `session.read`。 */
+  'terminal.write',
+  /** 审批规则、护栏、仓库 hooks 的写方法，以及“完全访问”与“总是允许”（0.98.0，原为 `host.manage` / `session.write`）。 */
+  'policy.write',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

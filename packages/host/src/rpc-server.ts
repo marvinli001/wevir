@@ -24,6 +24,7 @@ import type { BrowserBroker } from './browser-broker.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethods } from './host-methods.js';
 import type { MemoryChange } from './memory.js';
+import type { TestConnectionGrant } from './permissions.js';
 import {
   type ConnectionHost,
   type ConnectionLimits,
@@ -88,6 +89,8 @@ export interface HostRpcServerOptions {
   terminals?: ConnectionHost['terminals'];
   /** 内置浏览器（0.33.0）：连接用 `browser.register` 登记为浏览器提供方。 */
   browsers?: BrowserBroker;
+  /** 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作；不给时连接都是本机身份、全部权限。 */
+  testConnectionGrant?: TestConnectionGrant;
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
   port?: number;
   /**
@@ -187,6 +190,9 @@ export class HostRpcServer {
       ...(options.proposals !== undefined && { proposals: options.proposals }),
       ...(options.terminals !== undefined && { terminals: options.terminals }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
+      ...(options.testConnectionGrant !== undefined && {
+        testConnectionGrant: options.testConnectionGrant,
+      }),
       limits,
       resultValidation:
         options.resultValidation ?? (process.env.NODE_ENV === 'production' ? 'warn' : 'strict'),

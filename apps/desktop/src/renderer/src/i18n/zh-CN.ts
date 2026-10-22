@@ -74,6 +74,7 @@ export const zhCN = {
   'rpcError.INCOMPATIBLE_PROTOCOL': '后台服务版本不兼容',
   'rpcError.HELLO_REQUIRED': '连接尚未完成握手',
   'rpcError.HOST_SHUTTING_DOWN': '后台服务正在退出',
+  'rpcError.DEVICE_FORBIDDEN': '权限不足',
   'rpcError.WORKSPACE_NOT_FOUND': '项目不存在',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider 不存在',
   'rpcError.SESSION_NOT_FOUND': '会话不存在',

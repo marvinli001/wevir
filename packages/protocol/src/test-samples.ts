@@ -2955,6 +2955,15 @@ export const methodSamples: MethodSamples = {
           },
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
+        // 0.98.0：权限执行，受限连接的实际权限。
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.98.0',
+          minProtocolVersion: '0.1.0',
+          features: { permission_enforcement: true },
+          permissions: ['session.read', 'session.write', 'workspace.read'],
+        },
       ],
       invalid: [
         {
@@ -7575,6 +7584,10 @@ export const errorDataSamples: ErrorDataSamples = {
   INCOMPATIBLE_PROTOCOL: {
     valid: { hostVersion: '0.0.0', protocolVersion: '0.1.0', minProtocolVersion: '0.1.0' },
     invalid: { hostVersion: '0.0.0', protocolVersion: 'v1', minProtocolVersion: '0.1.0' },
+  },
+  DEVICE_FORBIDDEN: {
+    valid: { missing: ['policy.write'] },
+    invalid: { missing: [] },
   },
   INVALID_STATE: {
     valid: { state: 'error', readOnly: readOnlySession.readOnly },
