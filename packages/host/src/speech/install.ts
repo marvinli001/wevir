@@ -1,7 +1,12 @@
-// 听写的本机模型（0.92.0，domain-model §3.42）：用户在设置里点“下载”时，Host 从 sherpa-onnx 的 GitHub Release 下载 SenseVoice Small
-// （int8）与 Silero VAD，按写死的 sha256 核对，用系统的 tar 只解出要用的两个文件。照 adapter-devin 的安装器做：下载与解包都在
-// `<目录>/.install-*` 里进行，完成后整个目录改名为 `<目录>/<模型键>/` 才算装好；失败或取消不留下半成品。`WEVIR_GITHUB_MIRROR` 替换
-// `https://github.com` 前缀（同 scripts/fetch-codex.sh）。
+// 听写的本机模型（0.92.0，domain-model §3.42）：用户在设置里点“下载”时，Host 下载 SenseVoice Small（int8）与 Silero VAD，
+// 按写死的 sha256 核对，用系统的 tar 只解出要用的两个文件。照 adapter-devin 的安装器做：下载与解包都在
+// `<目录>/.install-*` 里进行，完成后整个目录改名为 `<目录>/<模型键>/` 才算装好；失败或取消不留下半成品。
+//
+// 下载线路与桌面端的更新线路相同（apps/desktop/src/main/updates/feed.ts）：GitHub Release（tag `speech-models`）与
+// Cloudflare R2 两条主线路竞速，先回应的那条下载；Bunny 是后备，最后才回到上游 sherpa-onnx 的 GitHub Release。
+// 一条线路中途断了或内容对不上，就换下一条。文件由发布脚本从上游搬过去（apps/desktop/scripts/release.ts
+// speech-models），sha256 写死，所以哪条线路下的都一样可信。`WEVIR_GITHUB_MIRROR` 替换 `https://github.com` 前缀
+// （同 scripts/fetch-codex.sh）。
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -68,6 +73,58 @@ export function mirroredUrl(url: string, env: NodeJS.ProcessEnv = process.env): 
   return `${mirror}${url.slice('https://github.com'.length)}`;
 }
 
+/** 听写模型的一条下载线路。 */
+export interface SpeechMirror {
+  id: string;
+  /** 线路的根地址，不带末尾的 `/`。 */
+  url: string;
+  /** `release`：GitHub Release 的附件，没有目录，文件名前加模型键（见 speechAssetPath）。不写时是 `<根>/<模型键>/<文件>`。 */
+  layout?: 'release';
+  /** 后备线路：主线路都失败后才按顺序试。 */
+  fallback?: true;
+}
+
+/** 听写模型在 GitHub 线路上的 Release（发布脚本往里传）。 */
+export const SPEECH_RELEASE_TAG = 'speech-models';
+
+/** 内置的线路，与 apps/desktop/src/main/updates/feed.ts 的 UPDATE_MIRRORS 是同样三处，模型放在 `speech/` 下。 */
+export const SPEECH_MIRRORS: readonly SpeechMirror[] = [
+  {
+    id: 'github',
+    url: `https://github.com/marvinli001/wevir/releases/download/${SPEECH_RELEASE_TAG}`,
+    layout: 'release',
+  },
+  { id: 'r2', url: 'https://dl.edgeweir.com/speech' },
+  { id: 'global', url: 'https://download.wevir.si/speech', fallback: true },
+];
+
+/** 文件在线路上相对根地址的路径：GitHub 线路是 `<模型键>-<文件>`，其余是 `<模型键>/<文件>`。 */
+export function speechAssetPath(
+  spec: SpeechModelSpec,
+  asset: SpeechAsset,
+  layout?: SpeechMirror['layout'],
+): string {
+  return layout === 'release' ? `${spec.key}-${asset.fileName}` : `${spec.key}/${asset.fileName}`;
+}
+
+/** 一个文件的下载地址：`primary` 同时请求、先回应的下载；都不行时按顺序试 `fallback`，最后是上游的地址。 */
+export function speechSourcesOf(
+  spec: SpeechModelSpec,
+  asset: SpeechAsset,
+  mirrors: readonly SpeechMirror[] = SPEECH_MIRRORS,
+  env: NodeJS.ProcessEnv = process.env,
+): { primary: string[]; fallback: string[] } {
+  const urlOf = (mirror: SpeechMirror) =>
+    mirroredUrl(`${mirror.url}/${speechAssetPath(spec, asset, mirror.layout)}`, env);
+  return {
+    primary: mirrors.filter((mirror) => mirror.fallback !== true).map(urlOf),
+    fallback: [
+      ...mirrors.filter((mirror) => mirror.fallback === true).map(urlOf),
+      mirroredUrl(asset.url, env),
+    ],
+  };
+}
+
 export function downloadBytesOf(spec: SpeechModelSpec): number {
   return spec.assets.reduce((sum, asset) => sum + asset.size, 0);
 }
@@ -101,6 +158,8 @@ export interface SpeechInstallerOptions {
   /** 数据目录里的 `speech/`，不存在时建。 */
   directory: string;
   spec?: SpeechModelSpec;
+  /** 下载线路（默认 SPEECH_MIRRORS）；上游的地址总是排在最后。 */
+  mirrors?: readonly SpeechMirror[];
   fetch?: typeof fetch;
   /** 测试用：替换解包（默认用系统的 tar）。 */
   extract?: (
@@ -163,6 +222,21 @@ function extractWithTar(
       },
     );
   });
+}
+
+/** 已收到回应头、正文还没读的一次下载。 */
+interface OpenedDownload {
+  url: string;
+  response: Response;
+  /** 用户取消与收不到数据的中止合在一起。 */
+  signal: AbortSignal;
+  /** 收到数据时重新计时。 */
+  arm(): void;
+  /** 收不到数据而中止时的原因。 */
+  idleReason(): unknown;
+  /** 不用这次下载了：停止计时、取消正文。 */
+  close(): void;
+  stop(): void;
 }
 
 export class SpeechModelInstaller {
@@ -329,72 +403,159 @@ export class SpeechModelInstaller {
     }
   }
 
-  /** 下载到 `file`，边下边算 sha256，与写死的值比。 */
+  /** 下载到 `file`，边下边算 sha256，与写死的值比；一条线路失败就换下一条，都失败时错误里列出每条的原因。 */
   async #download(
     asset: SpeechAsset,
     file: string,
     signal: AbortSignal,
     onReceived: (bytes: number) => void,
   ): Promise<void> {
-    const url = mirroredUrl(asset.url, this.#options.env);
-    const idle = new AbortController();
+    const sources = speechSourcesOf(this.spec, asset, this.#options.mirrors, this.#options.env);
+    const failures: string[] = [];
+    const failed = new Set<string>();
+    const fail = (url: string, error: unknown) => {
+      if (signal.aborted) throw signal.reason;
+      failed.add(url);
+      failures.push(`${hostOf(url)}: ${reasonOf(error)}`);
+    };
+    let opened = await this.#race(sources.primary, signal, fail);
+    const rest = [
+      ...sources.primary.filter((url) => url !== opened?.url && !failed.has(url)),
+      ...sources.fallback,
+    ];
+    for (;;) {
+      if (opened !== undefined) {
+        try {
+          await this.#save(opened, asset, file, signal, onReceived);
+          return;
+        } catch (error) {
+          fail(opened.url, error);
+        }
+      }
+      const next = rest.shift();
+      if (next === undefined) break;
+      opened = await this.#open(next, signal).catch((error: unknown) => {
+        fail(next, error);
+        return undefined;
+      });
+    }
+    throw new SpeechInstallError(
+      `Could not download the speech model (${failures.join('; ')}). Check your network or proxy; ${GITHUB_MIRROR_ENV} can point to a GitHub mirror.`,
+    );
+  }
+
+  /** 同时请求几条主线路，返回先回应 2xx 的那条，其余的取消；都失败时返回 undefined（原因经 `fail` 记下）。 */
+  async #race(
+    urls: readonly string[],
+    signal: AbortSignal,
+    fail: (url: string, error: unknown) => void,
+  ): Promise<OpenedDownload | undefined> {
+    const attempts = urls.map((url) => {
+      const loser = new AbortController();
+      const opened = this.#open(url, AbortSignal.any([signal, loser.signal])).catch(
+        (error: unknown) => {
+          if (!loser.signal.aborted) fail(url, error);
+          throw error;
+        },
+      );
+      return { url, loser, opened };
+    });
+    const winner = await Promise.any(attempts.map((attempt) => attempt.opened)).catch(
+      () => undefined,
+    );
+    if (signal.aborted) throw signal.reason;
+    for (const { url, loser, opened } of attempts) {
+      if (url === winner?.url) continue;
+      loser.abort(new Error('another mirror answered first'));
+      opened.then(
+        (response) => response.close(),
+        () => {},
+      );
+    }
+    return winner;
+  }
+
+  /** 发出请求，等到回应头；`idle` 从这时起计时，收不到数据就中止。 */
+  async #open(url: string, signal: AbortSignal): Promise<OpenedDownload> {
     const idleMs = this.#options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+    const idle = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
       clearTimeout(timer);
-      timer = setTimeout(
-        () => idle.abort(new Error(`no data from ${hostOf(url)} for ${idleMs} ms`)),
-        idleMs,
-      );
+      timer = setTimeout(() => idle.abort(new Error(`no data for ${idleMs} ms`)), idleMs);
     };
+    const stop = () => clearTimeout(timer);
+    const combined = AbortSignal.any([signal, idle.signal]);
     try {
       arm();
       const response = await (this.#options.fetch ?? fetch)(url, {
         headers: { 'Accept-Encoding': 'identity' },
-        signal: AbortSignal.any([signal, idle.signal]),
+        signal: combined,
       });
       if (!response.ok || response.body === null) {
-        throw new Error(`${hostOf(url)} answered ${response.status}`);
+        await response.body?.cancel().catch(() => {});
+        throw new Error(`answered ${response.status}`);
       }
-      const hash = createHash('sha256');
-      let received = 0;
-      let reportedAt = 0;
-      const interval = this.#options.progressIntervalMs ?? PROGRESS_INTERVAL_MS;
-      const counter = new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          hash.update(chunk);
-          received += chunk.length;
-          arm();
-          const now = Date.now();
-          if (now - reportedAt >= interval) {
-            reportedAt = now;
-            onReceived(received);
-          }
-          callback(null, chunk);
+      return {
+        url,
+        response,
+        signal: combined,
+        arm,
+        idleReason: () => (idle.signal.aborted ? idle.signal.reason : undefined),
+        close: () => {
+          stop();
+          response.body?.cancel().catch(() => {});
         },
-      });
+        stop,
+      };
+    } catch (error) {
+      stop();
+      throw idle.signal.aborted ? idle.signal.reason : error;
+    }
+  }
+
+  /** 把回应的正文写到 `file`，边写边算 sha256；大小或 sha256 不对时抛错。 */
+  async #save(
+    opened: OpenedDownload,
+    asset: SpeechAsset,
+    file: string,
+    signal: AbortSignal,
+    onReceived: (bytes: number) => void,
+  ): Promise<void> {
+    const hash = createHash('sha256');
+    let received = 0;
+    let reportedAt = 0;
+    const interval = this.#options.progressIntervalMs ?? PROGRESS_INTERVAL_MS;
+    const counter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk);
+        received += chunk.length;
+        opened.arm();
+        const now = Date.now();
+        if (now - reportedAt >= interval) {
+          reportedAt = now;
+          onReceived(received);
+        }
+        callback(null, chunk);
+      },
+    });
+    try {
       onReceived(0);
       await pipeline(
-        Readable.fromWeb(response.body as unknown as WebReadableStream),
+        Readable.fromWeb(opened.response.body as unknown as WebReadableStream),
         counter,
         createWriteStream(file, { mode: 0o600 }),
-        { signal: AbortSignal.any([signal, idle.signal]) },
+        { signal: opened.signal },
       );
       onReceived(received);
-      if (received !== asset.size || hash.digest('hex') !== asset.sha256) {
-        throw new SpeechInstallError(
-          'The downloaded speech model did not match the expected checksum. Try again.',
-        );
-      }
     } catch (error) {
       if (signal.aborted) throw signal.reason;
-      if (error instanceof SpeechInstallError) throw error;
-      throw new SpeechInstallError(
-        `Could not download the speech model from ${hostOf(url)}: ${reasonOf(idle.signal.aborted ? idle.signal.reason : error)}. Check your network or proxy; ${GITHUB_MIRROR_ENV} can point to a GitHub mirror.`,
-        { cause: error },
-      );
+      throw opened.idleReason() ?? error;
     } finally {
-      clearTimeout(timer);
+      opened.stop();
+    }
+    if (received !== asset.size || hash.digest('hex') !== asset.sha256) {
+      throw new Error('the file did not match the expected checksum');
     }
   }
 

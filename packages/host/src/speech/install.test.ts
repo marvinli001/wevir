@@ -8,10 +8,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   mirroredUrl,
   SENSE_VOICE_SMALL,
+  SPEECH_MIRRORS,
   SpeechInstallCancelled,
   SpeechInstallError,
+  type SpeechMirror,
   SpeechModelInstaller,
   type SpeechModelSpec,
+  speechSourcesOf,
 } from './install.js';
 
 const dirs: string[] = [];
@@ -80,6 +83,7 @@ describe('SpeechModelInstaller', () => {
     const installer = new SpeechModelInstaller({
       directory,
       spec,
+      mirrors: [],
       fetch: fakeFetch({ 'model.tar.bz2': archive, 'silero_vad.onnx': vad }),
       extract: fakeExtract,
       progressIntervalMs: 0,
@@ -108,6 +112,7 @@ describe('SpeechModelInstaller', () => {
     const installer = new SpeechModelInstaller({
       directory,
       spec,
+      mirrors: [],
       fetch: fakeFetch({ 'model.tar.bz2': Buffer.from('tampered'), 'silero_vad.onnx': vad }),
       extract: fakeExtract,
     });
@@ -120,6 +125,7 @@ describe('SpeechModelInstaller', () => {
     const installer = new SpeechModelInstaller({
       directory: tempDir(),
       spec,
+      mirrors: [],
       fetch: fakeFetch({}),
       extract: fakeExtract,
     });
@@ -135,6 +141,7 @@ describe('SpeechModelInstaller', () => {
     const installer = new SpeechModelInstaller({
       directory,
       spec,
+      mirrors: [],
       fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
         await blocked;
         init?.signal?.throwIfAborted();
@@ -155,6 +162,7 @@ describe('SpeechModelInstaller', () => {
     const installer = new SpeechModelInstaller({
       directory: tempDir(),
       spec,
+      mirrors: [],
       env: { WEVIR_GITHUB_MIRROR: 'https://mirror.example/gh/' },
       fetch: fakeFetch({ 'model.tar.bz2': archive, 'silero_vad.onnx': vad }, seen),
       extract: fakeExtract,
@@ -172,5 +180,161 @@ describe('SpeechModelInstaller', () => {
       expect(asset.url.startsWith('https://github.com/k2-fsa/sherpa-onnx/releases/')).toBe(true);
       expect(asset.sha256).toMatch(/^[0-9a-f]{64}$/);
     }
+  });
+});
+
+describe('下载线路', () => {
+  const mirrors: SpeechMirror[] = [
+    {
+      id: 'github',
+      url: 'https://github.com/o/r/releases/download/speech-models',
+      layout: 'release',
+    },
+    { id: 'r2', url: 'https://r2.example/speech' },
+    { id: 'global', url: 'https://global.example/speech', fallback: true },
+  ];
+  const upstream = {
+    archive: 'https://github.com/x/y/releases/download/t/model.tar.bz2',
+    vad: 'https://github.com/x/y/releases/download/t/silero_vad.onnx',
+  };
+  const at = {
+    github: 'https://github.com/o/r/releases/download/speech-models/test-model-model.tar.bz2',
+    r2: 'https://r2.example/speech/test-model/model.tar.bz2',
+    global: 'https://global.example/speech/test-model/model.tar.bz2',
+  };
+
+  /** 按完整地址回应；`hang` 里的地址一直不回，直到请求被取消。 */
+  function routedFetch(
+    routes: Record<string, Buffer>,
+    seen: string[],
+    hang: readonly string[] = [],
+    aborted: string[] = [],
+  ): typeof fetch {
+    return (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      seen.push(url);
+      if (hang.includes(url)) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            aborted.push(url);
+            reject(init.signal?.reason);
+          });
+        });
+      }
+      const body = routes[url];
+      if (body === undefined) return new Response('missing', { status: 404 });
+      return new Response(new Uint8Array(body));
+    }) as typeof fetch;
+  }
+
+  it('地址：GitHub 与 R2 是主线路，Bunny 与上游依次兜底', () => {
+    const [asset] = spec.assets;
+    if (asset === undefined) throw new Error('no asset');
+    expect(speechSourcesOf(spec, asset, mirrors, {})).toEqual({
+      primary: [at.github, at.r2],
+      fallback: [at.global, upstream.archive],
+    });
+    expect(
+      speechSourcesOf(spec, asset, mirrors, {
+        WEVIR_GITHUB_MIRROR: 'https://m.example',
+      }).primary[0],
+    ).toBe('https://m.example/o/r/releases/download/speech-models/test-model-model.tar.bz2');
+    expect(SPEECH_MIRRORS.map((mirror) => mirror.id)).toEqual(['github', 'r2', 'global']);
+    const vadAsset = SENSE_VOICE_SMALL.assets[1];
+    if (vadAsset === undefined) throw new Error('no VAD asset');
+    expect(speechSourcesOf(SENSE_VOICE_SMALL, vadAsset, SPEECH_MIRRORS, {})).toEqual({
+      primary: [
+        'https://github.com/marvinli001/wevir/releases/download/speech-models/sense-voice-small-int8-2025-09-09-silero_vad.onnx',
+        'https://dl.edgeweir.com/speech/sense-voice-small-int8-2025-09-09/silero_vad.onnx',
+      ],
+      fallback: [
+        'https://download.wevir.si/speech/sense-voice-small-int8-2025-09-09/silero_vad.onnx',
+        vadAsset.url,
+      ],
+    });
+  });
+
+  it('主线路竞速：先回应的那条下载，另一条取消', async () => {
+    const seen: string[] = [];
+    const aborted: string[] = [];
+    const installer = new SpeechModelInstaller({
+      directory: tempDir(),
+      spec,
+      mirrors,
+      fetch: routedFetch(
+        {
+          [at.r2]: archive,
+          'https://r2.example/speech/test-model/silero_vad.onnx': vad,
+        },
+        seen,
+        [
+          at.github,
+          'https://github.com/o/r/releases/download/speech-models/test-model-silero_vad.onnx',
+        ],
+        aborted,
+      ),
+      extract: fakeExtract,
+    });
+    await installer.install(() => {});
+    expect(aborted).toEqual([
+      at.github,
+      'https://github.com/o/r/releases/download/speech-models/test-model-silero_vad.onnx',
+    ]);
+    expect(seen.some((url) => url.startsWith('https://global.example/'))).toBe(false);
+  });
+
+  it('主线路都不行时用后备，后备也不行时用上游', async () => {
+    const seen: string[] = [];
+    const installer = new SpeechModelInstaller({
+      directory: tempDir(),
+      spec,
+      mirrors,
+      fetch: routedFetch(
+        {
+          [upstream.archive]: archive,
+          'https://global.example/speech/test-model/silero_vad.onnx': vad,
+        },
+        seen,
+      ),
+      extract: fakeExtract,
+    });
+    await installer.install(() => {});
+    expect(seen.slice(0, 4)).toEqual([at.github, at.r2, at.global, upstream.archive]);
+    expect(seen).not.toContain(upstream.vad);
+  });
+
+  it('下载的内容对不上时换下一条线路', async () => {
+    const seen: string[] = [];
+    const installer = new SpeechModelInstaller({
+      directory: tempDir(),
+      spec,
+      mirrors: mirrors.slice(1),
+      fetch: routedFetch(
+        {
+          [at.r2]: Buffer.from('tampered'),
+          [at.global]: archive,
+          'https://r2.example/speech/test-model/silero_vad.onnx': vad,
+        },
+        seen,
+      ),
+      extract: fakeExtract,
+    });
+    await installer.install(() => {});
+    expect(seen.slice(0, 2)).toEqual([at.r2, at.global]);
+  });
+
+  it('都失败时错误里列出每条线路的原因', async () => {
+    const installer = new SpeechModelInstaller({
+      directory: tempDir(),
+      spec,
+      mirrors,
+      fetch: routedFetch({ [at.r2]: Buffer.from('tampered') }, []),
+      extract: fakeExtract,
+    });
+    const error = await installer.install(() => {}).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SpeechInstallError);
+    expect((error as Error).message).toMatch(
+      /github\.com: answered 404.*r2\.example: the file did not match.*global\.example: answered 404.*github\.com: answered 404/,
+    );
   });
 });
