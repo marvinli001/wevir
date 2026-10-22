@@ -26,13 +26,21 @@
  *
  *   node scripts/release.ts prune --dir <目录> [--only <线路>]
  *     只做 publish 的第 4 步，平台取 <目录> 下的子目录。
+ *
+ *   node scripts/release.ts speech-models [--only <线路>]
+ *     把听写的本机模型（packages/host/src/speech/install.ts 的 SENSE_VOICE_SMALL）从上游 sherpa-onnx 的 GitHub Release
+ *     搬到三条线路：先下载并按写死的 sha256 核对，再传到 S3 线路的 `speech/<模型键>/<文件>` 与 GitHub 线路
+ *     tag `speech-models` 的 Release（附件名 `<模型键>-<文件>`），最后经公网地址逐个下载核对（全球线路先清 CDN 缓存）。
+ *     只在换模型时跑（.github/workflows/speech-models.yml，手动触发）；同名文件整个重传，重跑无妨。
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import {
   appendFileSync,
   copyFileSync,
   createReadStream,
+  createWriteStream,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -43,6 +51,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import {
+  SENSE_VOICE_SMALL,
+  SPEECH_MIRRORS,
+  SPEECH_RELEASE_TAG,
+  type SpeechAsset,
+  speechAssetPath,
+} from '../../../packages/host/src/speech/install.ts';
 
 export type Channel = 'stable' | 'dev';
 
@@ -1019,6 +1034,151 @@ async function plan(commit: string, env: NodeJS.ProcessEnv): Promise<ReleasePlan
   return { channel: 'dev', version: devVersion(lastStable, n), skip: false };
 }
 
+// ---------- 听写模型 ----------
+
+/** 下载上游的文件到 `file`，大小与 sha256 不对就抛错。 */
+async function fetchUpstream(asset: SpeechAsset, file: string): Promise<void> {
+  const response = await fetch(asset.url, {
+    signal: AbortSignal.timeout(uploadTimeoutMs(asset.size)),
+  });
+  if (!response.ok || response.body === null) {
+    throw new Error(`downloading ${asset.url} failed: HTTP ${response.status}`);
+  }
+  const hash = createHash('sha256');
+  let size = 0;
+  const out = createWriteStream(file);
+  for await (const chunk of response.body) {
+    hash.update(chunk);
+    size += chunk.byteLength;
+    if (!out.write(chunk)) await once(out, 'drain');
+  }
+  await new Promise<void>((resolve, reject) =>
+    out.end((error?: Error | null) => (error ? reject(error) : resolve())),
+  );
+  const sha256 = hash.digest('hex');
+  if (size !== asset.size || sha256 !== asset.sha256) {
+    throw new Error(
+      `${asset.url}: got ${size} bytes sha256:${sha256}, expected ${asset.size} bytes sha256:${asset.sha256}`,
+    );
+  }
+  console.log(`downloaded ${asset.url}`);
+}
+
+/** GitHub 线路上听写模型的 Release：没有就建（预发布、不标 Latest，同 desktop-updates）。 */
+function ensureSpeechRelease(repo: string, env: NodeJS.ProcessEnv): void {
+  const found = spawnSync(
+    'gh',
+    ['release', 'view', SPEECH_RELEASE_TAG, '--repo', repo, '--json', 'id'],
+    { env, encoding: 'utf8', timeout: AWS_CALL_TIMEOUT_MS },
+  );
+  if (found.status === 0) return;
+  if (!/not found/i.test(found.stderr)) {
+    throw new Error(
+      `[github] reading release ${SPEECH_RELEASE_TAG} failed: ${found.stderr.trim()}`,
+    );
+  }
+  execFileSync(
+    'gh',
+    [
+      'release',
+      'create',
+      SPEECH_RELEASE_TAG,
+      '--repo',
+      repo,
+      '--target',
+      env.GITHUB_SHA?.trim() || 'master',
+      '--prerelease',
+      '--latest=false',
+      '--title',
+      'Speech models',
+      '--notes',
+      'On-device dictation models mirrored from k2-fsa/sherpa-onnx for the Wevir Host. Files are named <model key>-<file>; the Host checks each against a pinned sha256.',
+    ],
+    { env, stdio: ['ignore', 'inherit', 'inherit'], timeout: AWS_CALL_TIMEOUT_MS },
+  );
+  console.log(`[github] created release ${SPEECH_RELEASE_TAG}`);
+}
+
+async function publishSpeechModels(only: string | undefined): Promise<void> {
+  const wanted = (id: string) => only === undefined || id === only;
+  if (!LINE_IDS.includes(only ?? 'github')) {
+    throw new Error(`unknown mirror ${only}; one of ${LINE_IDS.join(', ')}`);
+  }
+  const spec = SENSE_VOICE_SMALL;
+  const env = process.env;
+  // 先确认所选线路的连接信息都在，再花时间下载。
+  const s3 = MIRRORS.filter((mirror) => wanted(mirror.id)).map((mirror) =>
+    mirrorTarget(mirror, env),
+  );
+  const github = wanted('github');
+  if (github && !env.GH_TOKEN?.trim() && !env.GITHUB_TOKEN?.trim()) {
+    throw new Error('GH_TOKEN is not set');
+  }
+  const repo = env.GITHUB_REPOSITORY?.trim() || GITHUB_REPO;
+  const temp = mkdtempSync(join(tmpdir(), 'wevir-speech-'));
+  try {
+    const files = spec.assets.map((asset) => ({ asset, file: join(temp, asset.fileName) }));
+    for (const { asset, file } of files) await fetchUpstream(asset, file);
+
+    for (const mirror of s3) {
+      await forEachLimit(files, S3_UPLOAD_CONCURRENCY, ({ asset, file }) =>
+        upload(mirror, file, `speech/${speechAssetPath(spec, asset)}`),
+      );
+    }
+    if (github) {
+      ensureSpeechRelease(repo, env);
+      const named = mkdtempSync(join(tmpdir(), 'wevir-speech-gh-'));
+      try {
+        for (const { asset, file } of files) {
+          // gh 用文件名做附件名：复制一份带模型键的。
+          const path = join(named, speechAssetPath(spec, asset, 'release'));
+          copyFileSync(file, path);
+          await withRetries(`[github] ${speechAssetPath(spec, asset, 'release')}`, () =>
+            run(
+              'gh',
+              ['release', 'upload', SPEECH_RELEASE_TAG, path, '--repo', repo, '--clobber'],
+              env,
+              uploadTimeoutMs(asset.size),
+            ),
+          );
+        }
+      } finally {
+        rmSync(named, { recursive: true, force: true });
+      }
+    }
+
+    // 经公网地址核对，地址与 Host 下载时用的相同（SPEECH_MIRRORS）。
+    const bunnyKey = env.BUNNY_API_KEY?.trim();
+    for (const mirror of SPEECH_MIRRORS.filter((line) => wanted(line.id))) {
+      const checks = await Promise.all(
+        files.map(async ({ asset, file }) => ({
+          url: `${mirror.url}/${speechAssetPath(spec, asset, mirror.layout)}`,
+          expected: await fileDigest(file),
+        })),
+      );
+      if (mirror.id === 'global' && bunnyKey) {
+        await waitForCdn(checks, bunnyCheck(bunnyKey));
+        continue;
+      }
+      for (const { url, expected } of checks) {
+        const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
+        if (!response.ok || response.body === null) {
+          throw new Error(`${url}: HTTP ${response.status}`);
+        }
+        const got = await digestOf(response.body);
+        if (got.size !== expected.size || got.sha512 !== expected.sha512) {
+          throw new Error(
+            `${url} does not match the upload (${got.size} bytes, expected ${expected.size})`,
+          );
+        }
+        console.log(`[${mirror.id}] verified ${url}`);
+      }
+    }
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
   if (command === 'plan') {
@@ -1059,8 +1219,13 @@ async function main(): Promise<void> {
     prune(selectLines(values.only), platformDirs(values.dir));
     return;
   }
+  if (command === 'speech-models') {
+    const { values } = parseArgs({ args: rest, options: { only: { type: 'string' } } });
+    await publishSpeechModels(values.only);
+    return;
+  }
   console.error(
-    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir>',
+    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | speech-models [--only <mirror>]',
   );
   process.exit(2);
 }

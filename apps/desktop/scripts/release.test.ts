@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SPEECH_MIRRORS, SPEECH_RELEASE_TAG } from '../../../packages/host/src/speech/install.ts';
 import {
   CDN_RETRY_MS,
   CDN_SETTLE_MS,
@@ -355,6 +356,12 @@ describe('线路', () => {
     expect(cacheControlOf('Wevir-0.1.1-beta.3-mac-arm64.zip')).toBe(
       'public, max-age=31536000, immutable',
     );
+  });
+  it('听写模型的线路与 Host 下载用的地址一致（S3 线路的 speech/ 下与 GitHub 的 speech-models）', () => {
+    expect(SPEECH_MIRRORS.map((m) => [m.id, m.url])).toEqual([
+      ['github', `https://github.com/marvinli001/wevir/releases/download/${SPEECH_RELEASE_TAG}`],
+      ...MIRRORS.map((m) => [m.id, `${m.publicUrl}/speech`]),
+    ]);
   });
 });
 
