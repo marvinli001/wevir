@@ -164,6 +164,7 @@ function describeRpcError(error: WevirRpcError): Described {
     };
   }
   if (error.is('ALREADY_DECIDED')) return { message: t('err.alreadyDecided') };
+  if (error.is('APPROVAL_EXPIRED')) return { message: t('err.approvalExpired') };
   if (error.is('CLIENT_MESSAGE_CONFLICT')) return { message: t('err.messageConflict') };
   if (error.is('RESOURCE_IN_USE')) {
     const ids = error.data?.sessionIds ?? [];

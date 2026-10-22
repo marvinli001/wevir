@@ -47,6 +47,7 @@ import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
 import { ImageStore } from './images.js';
+import { InboxService } from './inbox.js';
 import { loadInsightInstructions } from './insight.js';
 import { KeepAwake } from './keep-awake.js';
 import type { Logger } from './logger.js';
@@ -233,6 +234,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
   let sessionList: SessionListFeed | undefined;
+  let inbox: InboxService | undefined;
   let approvalRules: ApprovalRuleService | undefined;
   let guardrails: GuardrailService | undefined;
   try {
@@ -556,6 +558,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
+      // 无人值守会话里审批的超时（0.103.0）：每次记下审批时按当时的设置。
+      approvalTimeoutMs: () => (settings.get().unattendedApprovalTimeoutMinutes ?? 0) * 60_000,
       ...(titleInstructions !== undefined && { titleInstructions }),
       // 起标题前查清不透明的链接（title.ts），按联网设置。
       ...(options.web !== undefined && { lookupLink: options.web.preview.bind(options.web) }),
@@ -829,6 +833,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 已登录账号的用量由 Host 定时重读，推给看着账号的客户端（usage-refresh.ts）。
     accounts?.usage.start();
     await automationService.start();
+    // 收件箱（0.103.0）：对账与自动化载入之后从事件、审批表与运行记录重建，之后增量维护；调过 inbox.* 的连接收 inbox.changed。
+    const inboxService = new InboxService({
+      storage,
+      events: store,
+      automations: automationService,
+      secrets: () => plugins.appToolSecrets(),
+      onError: (error) => logger.warn('inbox error', { error }),
+    });
+    inbox = inboxService;
+    inboxService.start();
     if (accounts?.hasSubscriptions === true) {
       // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
@@ -1014,6 +1028,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         market,
         speech,
         keepAwake,
+        inbox: inboxService,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -1102,6 +1117,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_list_push: true,
         files_read: true,
         prevent_sleep: true,
+        inbox: true,
+        approval_timeout: true,
       },
       engineFeatures,
       plugins,
@@ -1109,6 +1126,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       settings,
       memory,
       sessionList: listFeed,
+      inbox: inboxService,
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1181,6 +1199,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           events: store,
           search,
           sessionList: listFeed,
+          inbox: inboxService,
           storage: db,
           runtimeFile,
           ...(options.web !== undefined && { web: options.web }),
@@ -1217,6 +1236,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     try {
       sessionSearch?.close();
       sessionList?.close();
+      inbox?.close();
       events?.close();
       storage?.close();
     } catch {
@@ -1262,6 +1282,7 @@ interface ShutdownParts {
   events: EventStore;
   search: SessionSearch;
   sessionList: SessionListFeed;
+  inbox: InboxService;
   storage: Storage;
   runtimeFile: RuntimeFile;
   web?: WebService;
@@ -1338,6 +1359,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   await step('flush_storage', () => {
     parts.search.close();
     parts.sessionList.close();
+    parts.inbox.close();
     parts.events.close();
     parts.storage.close();
   });

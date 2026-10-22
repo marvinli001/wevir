@@ -84,6 +84,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': 'Im aktuellen Sitzungsstatus nicht möglich',
   'rpcError.SESSION_BUSY': 'Sitzung beschäftigt',
   'rpcError.ALREADY_DECIDED': 'Freigabe bereits bearbeitet',
+  'rpcError.APPROVAL_EXPIRED': 'Freigabe abgelaufen',
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Konflikt bei Nachrichten-ID',
   'rpcError.RESOURCE_IN_USE': 'Noch offene Sitzungen',
   'rpcError.PENDING_NOT_EDITABLE': 'Ausstehende Nachricht nicht mehr bearbeitbar',
@@ -905,6 +906,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Dieses Projekt',
   'approval.scope.global': 'Alle Projekte',
   'approval.byRule': 'Per Regel erlaubt',
+  'approval.ended.timeout': 'Freigabe abgelaufen: keine Antwort',
 
   'question.label': 'Offene Fragen',
   'question.multi': 'Mehrfachauswahl',

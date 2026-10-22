@@ -20,6 +20,7 @@ import {
   joinMonthlyArgs,
 } from './commands/automation.js';
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
+import { inboxDismiss, inboxList } from './commands/inbox.js';
 import { providerAdd, providerList, providerTest } from './commands/provider.js';
 import { sessionAttach, sessionList, sessionNew } from './commands/session.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
@@ -429,7 +430,27 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       run: (ctx, _v, [id]) => automationDelete(ctx, id as string),
     },
   },
+  inbox: {
+    list: {
+      summary: 'cmd.inbox.list.summary',
+      usage: 'cmd.inbox.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      run: (ctx, v) => inboxList(ctx, { json: v.json === true }),
+    },
+    dismiss: {
+      summary: 'cmd.inbox.dismiss.summary',
+      usage: 'cmd.inbox.dismiss.usage',
+      help: 'cmd.inbox.dismiss.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [id]) => inboxDismiss(ctx, id as string),
+    },
+  },
 };
+
+/** 只写组名（或组名后直接跟选项）时执行的命令：`wevir inbox` 即 `wevir inbox list`。 */
+const DEFAULT_COMMANDS: Record<string, string> = { inbox: 'list' };
 
 const GROUP_TITLES: Record<string, PlainMessageKey> = {
   host: 'group.host',
@@ -438,6 +459,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   web: 'group.web',
   session: 'group.session',
   automation: 'group.automation',
+  inbox: 'group.inbox',
 };
 
 /** 总帮助里的一行：用法 + 概要。 */
@@ -531,7 +553,14 @@ export async function runCli(io: CliIO): Promise<number> {
   let ctx: Context | undefined;
   try {
     const leading = parseLeading(io.argv);
-    const [group, name, ...rest] = leading.rest;
+    const [group, ...afterGroup] = leading.rest;
+    const fallback = group === undefined ? undefined : DEFAULT_COMMANDS[group];
+    const first = afterGroup[0];
+    const useDefault =
+      fallback !== undefined &&
+      !leading.help &&
+      (first === undefined || (first.startsWith('-') && first !== '-h' && first !== '--help'));
+    const [name, ...rest] = useDefault ? [fallback, ...afterGroup] : afterGroup;
     if (group === undefined || group === 'help') {
       if (leading.version && group === undefined) {
         io.stdout.write(`${CLI_VERSION}\n`);

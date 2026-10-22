@@ -79,6 +79,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': '工作階段目前的狀態不支援此操作',
   'rpcError.SESSION_BUSY': '工作階段忙碌中',
   'rpcError.ALREADY_DECIDED': '核准請求已處理',
+  'rpcError.APPROVAL_EXPIRED': '核准請求已過期',
   'rpcError.CLIENT_MESSAGE_CONFLICT': '訊息 ID 衝突',
   'rpcError.RESOURCE_IN_USE': '仍有未關閉的工作階段',
   'rpcError.PENDING_NOT_EDITABLE': '待傳訊息已無法修改',
@@ -893,6 +894,7 @@ export const messages: Messages = {
   'approval.scope.project': '本專案',
   'approval.scope.global': '所有專案',
   'approval.byRule': '已依規則允許',
+  'approval.ended.timeout': '核准已過期：無人處理',
 
   'question.label': '待回答的問題',
   'question.multi': '可複選',

@@ -220,6 +220,11 @@ export interface SessionManagerOptions {
   cancelTimeoutMs?: number;
   /** 无人值守的会话里提问的超时（0.72.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
   questionTimeoutMs?: number;
+  /**
+   * 无人值守的会话里审批的超时（0.103.0，Host 设置 `unattendedApprovalTimeoutMinutes`，domain-model §5 第 10 条），毫秒；每次记下审批时
+   * 问一次，0 表示一直等。没给时一直等。
+   */
+  approvalTimeoutMs?: () => number;
   /** 后台错误：处理引擎事件失败、丢弃的引擎事件等。默认打到 stderr。 */
   onError?: (error: unknown) => void;
   /**
@@ -690,6 +695,7 @@ export class SessionManager {
   readonly #engine: string;
   readonly #cancelTimeoutMs: number;
   readonly #questionTimeoutMs: number;
+  readonly #approvalTimeoutMs: () => number;
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
@@ -730,6 +736,9 @@ export class SessionManager {
   readonly #questionSessions = new Map<QuestionId, SessionId>();
   /** 到时按推荐回答的提问（0.72.0，`autoAnswerAt`）；问题结束时清掉。只在内存里：Host 重启后未答的问题都已取消。 */
   readonly #questionTimers = new Map<QuestionId, ReturnType<typeof setTimeout>>();
+  /** 到时按拒绝结掉的审批（0.103.0，`expiresAt`）：计时器与到期时刻，审批结算时清掉。同样只在内存里。 */
+  readonly #approvalTimers = new Map<ApprovalId, ReturnType<typeof setTimeout>>();
+  readonly #approvalDeadlines = new Map<ApprovalId, number>();
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
   /**
@@ -754,6 +763,7 @@ export class SessionManager {
     this.#engine = options.engine ?? 'echo';
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#questionTimeoutMs = options.questionTimeoutMs ?? QUESTION_TIMEOUT_MS;
+    this.#approvalTimeoutMs = options.approvalTimeoutMs ?? (() => 0);
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] session manager:', error));
     this.#onWarning =
@@ -3816,8 +3826,11 @@ export class SessionManager {
     remember?: ApprovalRuleScope,
   ): Promise<MethodResult<'approval.respond'>> {
     return this.#serial(runtime, async () => {
+      // 过了 `expiresAt`、计时器还没轮到：先按过期结掉（0.103.0），用户的回复不再生效。
+      if (base.reason === 'user' && this.#expired(approvalId))
+        await this.#expireNow(runtime, approvalId);
       const approval = this.#approvalRecord(approvalId);
-      if (approval.status !== 'pending') throw alreadyDecided(approval);
+      if (approval.status !== 'pending') throw settled(approval);
       const option = (approval.options as ApprovalOption[]).find((o) => o.optionId === optionId);
       if (!option) throw invalidOption(approvalId, optionId);
       const requestId = runtime.requestIds.get(approvalId);
@@ -3890,9 +3903,83 @@ export class SessionManager {
       if (isAdapterError(failure.error, 'invalid_option'))
         throw invalidOption(approvalId, optionId);
       const after = this.#approvalRecord(approvalId);
-      if (after.status !== 'pending') throw alreadyDecided(after);
+      if (after.status !== 'pending') throw settled(after);
       throw new Error(`引擎报告审批 ${approvalId} 已不在未决状态，但没有上报结束事件`);
     });
+  }
+
+  /** 审批过了 `expiresAt` 没有（0.103.0）。 */
+  #expired(approvalId: ApprovalId): boolean {
+    const deadline = this.#approvalDeadlines.get(approvalId);
+    return deadline !== undefined && Date.now() >= deadline;
+  }
+
+  /** 到了 `expiresAt`（0.103.0）：排在会话的命令队列里结掉；在这之前已经结算了就什么都不做。 */
+  async #expireApproval(runtime: SessionRuntime, approvalId: ApprovalId): Promise<void> {
+    if (this.#shuttingDown || this.#disposed) return;
+    await this.#serial(runtime, () => this.#expireNow(runtime, approvalId));
+  }
+
+  /**
+   * 按过期结掉一个未决审批（domain-model §5 第 10 条），要在会话的命令队列里调用：替用户选拒绝类选项（先 `reject_once`，再任意
+   * `reject` 类）回复引擎，成功后写 `approval.resolved`（`expired`，`timeout`）。没有拒绝类选项时只写过期，再取消回合。引擎回复失败
+   * 同 `#decide`：引擎侧已经结束的不算错，别的当作引擎异常。
+   */
+  async #expireNow(runtime: SessionRuntime, approvalId: ApprovalId): Promise<void> {
+    this.#clearApprovalTimer(approvalId);
+    const approval = this.#approvalRecord(approvalId);
+    const requestId = runtime.requestIds.get(approvalId);
+    if (approval.status !== 'pending' || requestId === undefined) return;
+    const options = approval.options as ApprovalOption[];
+    const option =
+      options.find((candidate) => candidate.kind === 'reject_once') ??
+      options.find((candidate) => candidate.category === 'reject');
+    const settle = (resolution: ApprovalResolution, release: boolean): void => {
+      const snapshot = this.#snapshot(runtime);
+      const inputs: AppendInput[] = [resolved(approvalId, 'expired', resolution)];
+      if (
+        release &&
+        snapshot.session.state === 'awaiting_approval' &&
+        snapshot.pendingApprovals.every((pending) => pending.id === approvalId)
+      ) {
+        inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
+      }
+      this.#write(runtime, inputs);
+    };
+    if (option === undefined) {
+      settle({ reason: 'timeout' }, false);
+      // 排在这个命令之后：回合在 awaiting_approval 里取消，引擎侧由适配器的取消一并回复。
+      this.cancel(runtime.id).catch(this.#onError);
+      return;
+    }
+    let failure: { error: unknown } | undefined;
+    runtime.holds += 1;
+    try {
+      try {
+        if (!this.#appApprovals.has(requestId))
+          await this.#adapter.respondToApproval(runtime.engineSessionId, requestId, {
+            optionId: option.optionId,
+          });
+      } catch (error) {
+        failure = { error };
+      }
+      if (!failure) {
+        settle({ reason: 'timeout', optionId: option.optionId }, true);
+      } else if (
+        !isAdapterError(failure.error, 'invalid_option') &&
+        !isAdapterError(failure.error, 'approval_not_found')
+      ) {
+        this.#engineFailed(runtime, engineErrorInfo(failure.error));
+      }
+    } finally {
+      this.#release(runtime);
+    }
+  }
+
+  #clearApprovalTimer(approvalId: ApprovalId): void {
+    clearTimeout(this.#approvalTimers.get(approvalId));
+    this.#approvalTimers.delete(approvalId);
+    this.#approvalDeadlines.delete(approvalId);
   }
 
   /** 插件写工具必须由用户批准；引擎没问时补问，不让 full_access / 自动审查绕过全局配置确认。 */
@@ -3985,6 +4072,9 @@ export class SessionManager {
     this.#appApprovals.clear();
     for (const timer of this.#questionTimers.values()) clearTimeout(timer);
     this.#questionTimers.clear();
+    for (const timer of this.#approvalTimers.values()) clearTimeout(timer);
+    this.#approvalTimers.clear();
+    this.#approvalDeadlines.clear();
     this.#appTools?.dispose?.();
     this.#recaps.clear();
     for (const abort of this.#insightRuns.values()) abort.abort();
@@ -4975,8 +5065,10 @@ export class SessionManager {
     event: ApprovalRequestedEvent,
     source: 'engine' | 'host' = 'engine',
   ): void {
-    const { state } = this.#snapshot(runtime).session;
+    const { session } = this.#snapshot(runtime);
+    const { state } = session;
     const approvalId = newId('apr');
+    const now = Date.now();
     const tool = turn.tools.get(event.toolCallId);
     const approval: ApprovalRequest = {
       id: approvalId,
@@ -4991,7 +5083,7 @@ export class SessionManager {
       })),
       detail: tool ? approvalDetail(tool) : null,
       status: 'pending',
-      createdAt: isoNow(),
+      createdAt: new Date(now).toISOString(),
     };
     runtime.approvalIds.set(event.requestId, approvalId);
     runtime.requestIds.set(approvalId, event.requestId);
@@ -5003,6 +5095,10 @@ export class SessionManager {
       approval.proposedRule = { prefixes: rule.proposed };
       runtime.proposedRules.set(approvalId, rule.proposed);
     }
+    // 无人值守的会话里，按设置给审批一个过期时间（0.103.0）；规则马上替用户允许的不用。
+    const timeoutMs = unattended(session) ? this.#approvalTimeoutMs() : 0;
+    const expires = timeoutMs > 0 && state !== 'cancelling' && rule?.matched === undefined;
+    if (expires) approval.expiresAt = new Date(now + timeoutMs).toISOString();
     const inputs: AppendInput[] = [{ type: 'approval.requested', source, payload: { approval } }];
     if (state === 'running') {
       inputs.push(stateChanged('running', 'awaiting_approval', 'approval_requested'));
@@ -5011,6 +5107,15 @@ export class SessionManager {
       inputs.push(resolved(approvalId, 'cancelled', { reason: 'turn_cancelled' }));
     }
     this.#write(runtime, inputs);
+    if (expires) {
+      const timer = setTimeout(
+        () => this.#expireApproval(runtime, approvalId).catch(this.#onError),
+        timeoutMs,
+      );
+      timer.unref?.();
+      this.#approvalTimers.set(approvalId, timer);
+      this.#approvalDeadlines.set(approvalId, now + timeoutMs);
+    }
     if (rule?.matched !== undefined) {
       const { optionId, ruleIds } = rule.matched;
       this.#decide(runtime, approvalId, optionId, { reason: 'rule', optionId, ruleIds })
@@ -5810,6 +5915,7 @@ export class SessionManager {
           queueMicrotask(() => this.#checkInsight(runtime, turnId));
         }
       } else if (event.type === 'approval.resolved') {
+        this.#clearApprovalTimer(event.payload.approvalId);
         const requestId = runtime.requestIds.get(event.payload.approvalId);
         if (requestId !== undefined) {
           const approval = this.#approvalRecord(event.payload.approvalId);
@@ -6166,6 +6272,17 @@ function assertSendable(snapshot: SessionSnapshot): void {
   if (state !== 'idle') {
     throw new HostError('INVALID_STATE', `session is ${state}; resume it first`, { state });
   }
+}
+
+/** 已结算的审批：按 `timeout` 过期的回 `APPROVAL_EXPIRED`（0.103.0），其余回 `ALREADY_DECIDED`。 */
+function settled(approval: ApprovalRecord): HostError<'ALREADY_DECIDED' | 'APPROVAL_EXPIRED'> {
+  if (approval.status === 'expired' && approval.resolution?.reason === 'timeout') {
+    return new HostError('APPROVAL_EXPIRED', 'approval expired', {
+      approvalId: approval.id as ApprovalId,
+      resolution: approval.resolution as ApprovalResolution,
+    });
+  }
+  return alreadyDecided(approval);
 }
 
 function alreadyDecided(approval: ApprovalRecord): HostError<'ALREADY_DECIDED'> {

@@ -9,6 +9,7 @@ import { type ApprovalRepository, createApprovalRepository } from './approvals.j
 import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
 import { createEventRepository, type EventRepository } from './events.js';
+import { createInboxRepository, type InboxRepository } from './inbox.js';
 import { migrate } from './migrate.js';
 import {
   createProfileVersionRepository,
@@ -59,6 +60,8 @@ export interface Storage {
   readonly profileVersions: ProfileVersionRepository;
   /** 调优的建议（0020_tuning_proposals）。 */
   readonly tuningProposals: TuningProposalRepository;
+  /** 收件箱的收起记录与重建用的查询（0022_inbox_dismissals）。 */
+  readonly inbox: InboxRepository;
   /** 会话全文搜索的派生索引（协议 0.77.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
   readonly search: SearchRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
@@ -96,6 +99,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       retros: createRetroRepository(db),
       profileVersions: createProfileVersionRepository(db),
       tuningProposals: createTuningProposalRepository(db),
+      inbox: createInboxRepository(db),
       search: createSearchRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };

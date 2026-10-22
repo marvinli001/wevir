@@ -82,6 +82,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': 'Недоступно в текущем состоянии сессии',
   'rpcError.SESSION_BUSY': 'Сессия занята',
   'rpcError.ALREADY_DECIDED': 'Решение уже принято',
+  'rpcError.APPROVAL_EXPIRED': 'Срок запроса истёк',
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Конфликт ID сообщения',
   'rpcError.RESOURCE_IN_USE': 'Есть открытые сессии',
   'rpcError.PENDING_NOT_EDITABLE': 'Ожидающее сообщение больше нельзя изменить',
@@ -922,6 +923,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Этот проект',
   'approval.scope.global': 'Все проекты',
   'approval.byRule': 'Разрешено правилом',
+  'approval.ended.timeout': 'Запрос истёк: нет ответа',
 
   'question.label': 'Вопросы без ответа',
   'question.multi': 'Можно выбрать несколько',

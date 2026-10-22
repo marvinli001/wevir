@@ -35,6 +35,7 @@ export const zh = {
   'group.web': '联网搜索',
   'group.session': '会话',
   'group.automation': '自动化',
+  'group.inbox': '收件箱',
 
   'usage.seeHelp': '运行 wevir --help',
   'usage.seeCommandHelp': '运行 wevir {command} --help',
@@ -126,6 +127,11 @@ export const zh = {
   Ctrl-C    取消当前运行；再按一次退出 attach
   Ctrl-D    退出 attach，会话保留
   /resume   发送暂停的消息`,
+  'cmd.inbox.list.summary': '列出所有会话里等处理的审批、提问、失败与自动化',
+  'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
+  'cmd.inbox.dismiss.summary': '收起一个失败的回合或自动化运行',
+  'cmd.inbox.dismiss.usage': 'wevir inbox dismiss <ID>',
+  'cmd.inbox.dismiss.help': 'ID 取自 wevir inbox；审批与提问回答后自己离开，不能收起',
   'cmd.automation.list.summary': '列出自动化',
   'cmd.automation.list.usage': 'wevir automation list [--json]',
   'cmd.automation.show.summary': '查看自动化的设置与最近运行',
@@ -243,6 +249,7 @@ export const zh = {
   'err.busy': '会话忙（{state}），消息未发送',
   'err.busy.hint': '本回合结束后再发送，或在 attach 中按 Ctrl-C 取消当前运行',
   'err.alreadyDecided': '审批已处理',
+  'err.approvalExpired': '审批已过期',
   'err.messageConflict': '消息 ID 已用于其他内容',
   'err.resourceInUse': '仍被未关闭的会话使用',
   'err.resourceInUseIds': '仍被未关闭的会话使用：{ids}',
@@ -306,6 +313,7 @@ export const zh = {
   'approvalEnd.host_shutdown': '审批已取消（Host 退出）',
   'approvalEnd.host_restarted': '审批已过期（Host 已重启）',
   'approvalEnd.rule': '已按规则允许',
+  'approvalEnd.timeout': '审批已过期（无人处理）',
   'providerTest.missing_key': '未设置 Key',
   'providerTest.network': '无法连接',
   'providerTest.timeout': '超时',
@@ -617,6 +625,21 @@ export const zh = {
   'web.reason.quota': '余额或额度不足',
   'web.reason.invalid_response': '响应格式不符',
   'identity.invalid': '{path} 中的 ID 无效',
+
+  // commands/inbox.ts
+  'inbox.unsupported': 'Host {version} 不支持收件箱',
+  'inbox.unsupported.hint': '升级 Wevir Host（需要协议 0.103.0）',
+  'inbox.none': '没有等处理的事',
+  'inbox.dismissed': '已收起 {id}',
+  'inbox.col.kind': '种类',
+  'inbox.col.title': '会话',
+  'inbox.col.summary': '说明',
+  'inbox.col.time': '时间',
+  'inbox.expiresAt': '{created}（{expires} 过期）',
+  'inbox.kind.approval': '审批',
+  'inbox.kind.question': '提问',
+  'inbox.kind.turn_failed': '失败',
+  'inbox.kind.automation': '自动化',
 
   // commands/automation.ts
   'automation.unsupported': 'Host {version} 不支持自动化',

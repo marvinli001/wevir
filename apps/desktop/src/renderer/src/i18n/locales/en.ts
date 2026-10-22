@@ -83,6 +83,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': 'Not available in the session’s current state',
   'rpcError.SESSION_BUSY': 'Session busy',
   'rpcError.ALREADY_DECIDED': 'Approval already handled',
+  'rpcError.APPROVAL_EXPIRED': 'Approval expired',
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Message ID conflict',
   'rpcError.RESOURCE_IN_USE': 'Sessions still open',
   'rpcError.PENDING_NOT_EDITABLE': 'Pending message can no longer be edited',
@@ -899,6 +900,7 @@ export const messages: Messages = {
   'approval.scope.project': 'This project',
   'approval.scope.global': 'All projects',
   'approval.byRule': 'Allowed by rule',
+  'approval.ended.timeout': 'Approval expired: no response',
 
   'question.label': 'Pending questions',
   'question.multi': 'Multi-select',

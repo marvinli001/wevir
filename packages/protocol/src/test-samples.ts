@@ -34,6 +34,7 @@ import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
 import type { GitStatusResult } from './git.js';
 import type { Guardrail, GuardrailBlocked, RepoHook } from './guardrails.js';
+import type { InboxItem } from './inbox.js';
 import type { LspInstallRun, LspServerStatus } from './lsp.js';
 import type { WevirMarketIndex } from './market.js';
 import {
@@ -1641,6 +1642,66 @@ export const pendingHeld: PendingMessage = {
   sentBy: identity,
   createdAt: TS,
   updatedAt: TS2,
+};
+
+/** 收件箱里的审批（0.103.0）。 */
+export const inboxApproval: InboxItem = {
+  id: `approval:${ids.approval}`,
+  kind: 'approval',
+  sessionId: ids.session,
+  workspaceId: ids.workspace,
+  title: '修登录页',
+  summary: '/tmp/wevir-outside.txt',
+  createdAt: TS,
+  expiresAt: TS2,
+  ref: { approvalId: ids.approval, turnId: ids.turn, options: pendingApproval.options },
+};
+
+/** 收件箱里的问题（0.103.0）：子会话的，标出父会话。 */
+export const inboxQuestion: InboxItem = {
+  id: `question:${ids.question}`,
+  kind: 'question',
+  sessionId: ids.childSession,
+  workspaceId: ids.workspace,
+  parentSessionId: ids.session,
+  title: '查依赖',
+  summary: '这次改动做到哪一步？',
+  createdAt: TS,
+  ref: {
+    questionId: ids.question,
+    turnId: ids.turn,
+    questions: [
+      {
+        id: 'scope',
+        header: '范围',
+        question: '这次改动做到哪一步？',
+        options: [{ label: '只做界面' }, { label: '全链路' }],
+        allowOther: true,
+      },
+    ],
+  },
+};
+
+/** 收件箱里失败的回合与自动化运行（0.103.0）。 */
+export const inboxTurnFailed: InboxItem = {
+  id: `turn_failed:${ids.turn}`,
+  kind: 'turn_failed',
+  sessionId: ids.session,
+  workspaceId: ids.workspace,
+  title: '修登录页',
+  summary: 'stream disconnected before completion',
+  createdAt: TS2,
+  ref: { turnId: ids.turn },
+};
+
+export const inboxAutomation: InboxItem = {
+  id: `automation:${ids.automationRun}`,
+  kind: 'automation',
+  sessionId: ids.session,
+  title: '每天看一眼 CI',
+  summary: 'main 上的 e2e 挂了两次',
+  createdAt: TS2,
+  ref: { automationId: ids.automation, runId: ids.automationRun, status: 'completed' },
 };
 
 /** 一组问题（0.10.0）：一个单选、一个多选。 */
@@ -6486,6 +6547,34 @@ export const methodSamples: MethodSamples = {
       invalid: [{ questionId: ids.question, status: 'pending' }],
     },
   },
+  'inbox.list': {
+    params: empty,
+    result: {
+      valid: [
+        {
+          items: [inboxAutomation, inboxTurnFailed, inboxQuestion, inboxApproval],
+          inboxVersion: 1792368000000,
+        },
+        { items: [], inboxVersion: 0 },
+      ],
+      invalid: [
+        { items: [] },
+        { items: [{ ...inboxApproval, summary: 'x'.repeat(301) }], inboxVersion: 1 },
+        { items: [{ ...inboxApproval, ref: { turnId: ids.turn } }], inboxVersion: 1 },
+        {
+          items: [{ ...inboxAutomation, ref: { ...inboxAutomation.ref, status: 'waiting' } }],
+          inboxVersion: 1,
+        },
+      ],
+    },
+  },
+  'inbox.dismiss': {
+    params: {
+      valid: [{ itemId: `turn_failed:${ids.turn}` }, { itemId: `automation:${ids.automationRun}` }],
+      invalid: [{}, { itemId: '' }, { itemId: 'turn failed' }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
   'approval.respond': {
     params: {
       valid: [
@@ -7344,6 +7433,18 @@ export const notificationSamples: NotificationSamples = {
       { subscriptionId: ids.subscription, event: { ...eventOf('turn.started'), seq: 0 } },
     ],
   },
+  'inbox.changed': {
+    valid: [
+      { inboxVersion: 12, upserted: [inboxApproval, inboxTurnFailed], removed: [] },
+      { inboxVersion: 13, upserted: [], removed: [`question:${ids.question}`] },
+      { inboxVersion: 14, upserted: [], removed: [] },
+    ],
+    invalid: [
+      { inboxVersion: 12, upserted: [] },
+      { inboxVersion: 12, upserted: [{ ...inboxApproval, kind: 'note' }], removed: [] },
+      { inboxVersion: 12, upserted: [], removed: ['approval'] },
+    ],
+  },
   'sessions.changed': {
     valid: [
       { listVersion: 7, upserted: [{ ...session, pendingApprovalCount: 1 }], removed: [] },
@@ -7708,7 +7809,11 @@ export const errorDataSamples: ErrorDataSamples = {
       status: 'cancelled',
       resolution: { reason: 'turn_cancelled' },
     },
-    invalid: { approvalId: ids.approval, status: 'cancelled', resolution: { reason: 'timeout' } },
+    invalid: { approvalId: ids.approval, status: 'cancelled', resolution: { reason: 'later' } },
+  },
+  APPROVAL_EXPIRED: {
+    valid: { approvalId: ids.approval, resolution: { reason: 'timeout', optionId: 'reject-once' } },
+    invalid: { approvalId: ids.approval },
   },
   CLIENT_MESSAGE_CONFLICT: { valid: { clientMessageId: 'msg-1' }, invalid: { clientMessageId: 1 } },
   RESOURCE_IN_USE: {

@@ -33,7 +33,7 @@ import type { ApprovalRuleService } from './approval-rules/service.js';
 import type { AutomationService } from './automations/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
-import { HostError } from './errors.js';
+import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import type { ExternalImport } from './external-import/service.js';
 import { type FileUrls, isServablePath } from './file-urls.js';
@@ -50,6 +50,7 @@ import { readGitStatus } from './git-status.js';
 import type { GuardrailService } from './guardrails/service.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import type { InboxService } from './inbox.js';
 import type { KeepAwake } from './keep-awake.js';
 import type { LspStatusService } from './lsp/service.js';
 import type { MarketService } from './market/service.js';
@@ -150,6 +151,8 @@ export interface HostMethodsOptions {
   fileUrls?: FileUrls;
   /** 防休眠的判定（0.102.0，`power.get`）；省略时 `power.get` 回 `keepAwake: false`（测试）。 */
   keepAwake?: KeepAwake;
+  /** 收件箱（0.103.0，`inbox.*`）；省略时 `inbox.*` 回 `INVALID_PARAMS`（测试）。 */
+  inbox?: Pick<InboxService, 'list' | 'dismiss' | 'version'>;
   /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
   web?: WebService;
   /** 不在项目里的会话（0.39.0）：认出“对话”工作区（`kind: 'chats'`）；与 SessionManager 用同一个。 */
@@ -254,6 +257,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
+  const inboxService = (): NonNullable<HostMethodsOptions['inbox']> => {
+    if (options.inbox === undefined) throw invalidParams([], 'this host has no inbox');
+    return options.inbox;
+  };
   const webService = (): WebService => {
     if (options.web === undefined) throw invalidParams([], 'this host has no web service');
     return options.web;
@@ -1571,7 +1578,32 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'question.respond': (params, { client }) => sessions.respondToQuestion(params, client),
 
-    'approval.respond': (params, { client }) => sessions.respondToApproval(params, client),
+    'approval.respond': async (params, { client, capabilities }) => {
+      try {
+        return await sessions.respondToApproval(params, client);
+      } catch (error) {
+        // COMPAT(approvalTimeout): added in 0.103.0, remove gate after 2027-06-01
+        if (capabilities.approval_timeout !== true && isHostError(error, 'APPROVAL_EXPIRED')) {
+          const { approvalId, resolution } = error.data;
+          throw new HostError('ALREADY_DECIDED', 'approval already decided', {
+            approvalId,
+            status: 'expired',
+            resolution: { ...resolution, reason: 'host_restarted' },
+          });
+        }
+        throw error;
+      }
+    },
+
+    // 0.103.0：收件箱。
+    'inbox.list': () => {
+      const inbox = inboxService();
+      return { items: inbox.list(), inboxVersion: inbox.version };
+    },
+    'inbox.dismiss': ({ itemId }) => {
+      inboxService().dismiss(itemId);
+      return {};
+    },
 
     // 0.80.0：审批规则。项目要存在（未移除）。
     'approvalRule.list': ({ workspaceId }) => {

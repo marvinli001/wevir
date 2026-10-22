@@ -23,6 +23,7 @@ import { WebSocketServer } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethods } from './host-methods.js';
+import type { InboxService } from './inbox.js';
 import type { MemoryChange } from './memory.js';
 import type { TestConnectionGrant } from './permissions.js';
 import {
@@ -68,6 +69,8 @@ export interface HostRpcServerOptions {
   memory?: { watch(listener: (change: MemoryChange) => void): () => void };
   /** 会话列表推送（0.101.0）：调过 `session.list` 的连接经它收 `sessions.changed`。 */
   sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
+  /** 收件箱（0.103.0）：调过 `inbox.*` 的连接收 `inbox.changed`。 */
+  inbox?: Pick<InboxService, 'watch'>;
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接经它收 `usage.changed`。 */
   usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接经它收 `automation.changed`。 */
@@ -186,6 +189,7 @@ export class HostRpcServer {
       ...(options.plugins !== undefined && { plugins: options.plugins }),
       ...(options.memory !== undefined && { memory: options.memory }),
       ...(options.sessionList !== undefined && { sessionList: options.sessionList }),
+      ...(options.inbox !== undefined && { inbox: options.inbox }),
       ...(options.usage !== undefined && { usage: options.usage }),
       ...(options.automations !== undefined && { automations: options.automations }),
       ...(options.processes !== undefined && { processes: options.processes }),

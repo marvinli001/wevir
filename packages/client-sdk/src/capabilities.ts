@@ -25,6 +25,7 @@ import type {
  * - `question_timeout`（0.72.0）：`QuestionResolutionReason` 的 `timeout`。回答照常投影；桌面端在回答下面写“超时，按推荐回答”，
  *   CLI 在回答前加“超时”。
  * - `approval_rules`（0.80.0）：`ApprovalResolutionReason` 的 `rule`。桌面端与 CLI 写“已按规则允许”。
+ * - `approval_timeout`（0.103.0）：`ApprovalResolutionReason` 的 `timeout` 与错误码 `APPROVAL_EXPIRED`。桌面端与 CLI 写“审批已过期”。
  * - `dev_preview`（0.84.0）：`ProcessSource` 的 `preview`。桌面端的进程窗格与“预览”卡片按它显示；CLI 不列进程。
  */
 export const DEFAULT_CLIENT_CAPABILITIES = {
@@ -36,6 +37,7 @@ export const DEFAULT_CLIENT_CAPABILITIES = {
   user_images: true,
   question_timeout: true,
   approval_rules: true,
+  approval_timeout: true,
   dev_preview: true,
 } as const satisfies Record<ClientCapability, true>;
 

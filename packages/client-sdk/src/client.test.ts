@@ -924,6 +924,27 @@ describe('防休眠（0.102.0）', () => {
   });
 });
 
+describe('收件箱（0.103.0）', () => {
+  it('onInboxChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { inbox: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onInboxChanged((change) => changes.push(change));
+    const change = { inboxVersion: 8, upserted: [], removed: ['turn_failed:trn_1'] };
+    host.last.notify('inbox.changed', change);
+    await vi.waitFor(() => expect(changes).toEqual([change]));
+    host.last.notify('inbox.changed', { inboxVersion: 9, upserted: [] });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed inbox.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+  });
+});
+
 describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

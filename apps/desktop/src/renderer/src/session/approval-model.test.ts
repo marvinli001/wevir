@@ -246,6 +246,10 @@ describe('选项与处理者', () => {
     expect(resolutionText(request, { reason: 'turn_cancelled' }, self)).toBe(
       '审批已取消：回合已停止',
     );
+    // 0.103.0：无人值守的会话里过期了。
+    expect(resolutionText(request, { reason: 'timeout', optionId: 'reject-once' }, self)).toBe(
+      '审批已过期：无人处理',
+    );
     expect(decidedHere({ reason: 'user', optionId: 'allow-once', decidedBy: self }, self)).toBe(
       true,
     );
