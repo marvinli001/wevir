@@ -4,6 +4,11 @@
 // 提出至多三条配置改动：项目的 `AGENTS.md`、项目技能、项目记忆或护栏规则。模型只提出，写入要用户逐条采纳；采纳之后下一个会话开的
 // 档案版本记下这些建议（`ProfileVersionSummary.cause`）。建议记下生成时目标的基准散列，采纳时目标已经变了就是“已过时”，只能拒绝或
 // 重新生成。拒绝的建议进入以后生成的输入，避免重复提出。
+//
+// 0.108.0（Host 功能 `tuning_auto`，domain-model §3.50，ADR-0018）：不再逐条采纳。后台生成（设置 `autoTuning`）、用户点的生成与 agent
+// 的 `wevir_tuning_propose` 提出的改动都当场写入目标、进入试用（`trial`）；一个项目同时一个试用，凑够 `TUNING_TRIAL_SESSIONS` 个会话后
+// 按回合后验证的通过率与失败回合的占比整组保留（`accepted`）或回退（`reverted`），结论记在 `outcome`。用户只能撤销
+// （`tuning.proposal.revert`）。`pending` 与 `stale` 只留给旧记录。
 
 import { z } from 'zod';
 import {
@@ -29,13 +34,29 @@ export const TUNING_PROPOSAL_EVIDENCE_TEXT_MAX_LENGTH = 200;
 export const TUNING_PROPOSAL_TEXT_MAX_LENGTH = 200_000;
 /** `tuning.proposal.list` 最多返回几条（新的在前）。 */
 export const TUNING_PROPOSALS_LIST_MAX = 200;
+/** 试用凑够几个会话就做决定（0.108.0）。 */
+export const TUNING_TRIAL_SESSIONS = 5;
+/** 试用最多等几天，到期还凑不够会话就按 `insufficient` 保留（0.108.0）。 */
+export const TUNING_TRIAL_MAX_DAYS = 14;
+/** `tuning.overview` 的 `series` 最多几个版本（0.108.0）。 */
+export const TUNING_SERIES_MAX = 12;
 
 /** 四种建议：项目的 `AGENTS.md`、项目技能、项目记忆、护栏规则。 */
 export const TuningProposalKindSchema = z.enum(['rule', 'skill', 'memory', 'guardrail']);
 export type TuningProposalKind = z.infer<typeof TuningProposalKindSchema>;
 
-/** `pending` 待审；`stale` 目标在建议之后被改过（只能拒绝或重新生成）；`accepted` 已采纳；`rejected` 已拒绝。 */
-export const TuningProposalStatusSchema = z.enum(['pending', 'stale', 'accepted', 'rejected']);
+/**
+ * `pending` 待审；`stale` 目标在建议之后被改过（只能拒绝或重新生成）；`accepted` 已采纳（0.108.0 起也是试用后保留）；`rejected` 已拒绝；
+ * `trial` 已写入、在试用（0.108.0）；`reverted` 试用后回退或被撤销，目标已恢复（0.108.0）。
+ */
+export const TuningProposalStatusSchema = z.enum([
+  'pending',
+  'stale',
+  'accepted',
+  'rejected',
+  'trial',
+  'reverted',
+]);
 export type TuningProposalStatus = z.infer<typeof TuningProposalStatusSchema>;
 
 const ProposalTextSchema = z.string().max(TUNING_PROPOSAL_TEXT_MAX_LENGTH);
@@ -106,6 +127,39 @@ export const TuningProposalStatsSchema = z.object({
 });
 export type TuningProposalStats = z.infer<typeof TuningProposalStatsSchema>;
 
+/** 改动从哪来（0.108.0）：`user` 用户点的生成，`auto` 后台生成，`agent` agent 用 `wevir_tuning_propose` 提交。 */
+export const TuningProposalOriginSchema = z.enum(['user', 'auto', 'agent']);
+export type TuningProposalOrigin = z.infer<typeof TuningProposalOriginSchema>;
+
+/**
+ * 一组会话的指标（0.108.0）：完成的回合、其中失败的（不含用户中断）、回合后验证有结果的运行与通过的次数（没有运行时省略）、护栏命中、
+ * token 合计（用量服务没有数时省略）。
+ */
+export const TuningMetricsSchema = z.object({
+  sessions: z.int().min(0),
+  turns: z.int().min(0),
+  failedTurns: z.int().min(0),
+  checks: z.object({ passed: z.int().min(0), total: z.int().min(0) }).optional(),
+  guardrailHits: z.int().min(0),
+  tokens: z.int().min(0).optional(),
+});
+export type TuningMetrics = z.infer<typeof TuningMetricsSchema>;
+
+/**
+ * 试用的结论（0.108.0）。`reason`：`better` 通过率明显变高、`no_worse` 没有变差、`worse` 变差（回退）、`insufficient` 数据不够比较、
+ * `manual` 用户或 agent 提前决定、`conflict` 目标在采纳后被改过、没有回退。开放字符串，客户端认不出的按 `no_worse` 显示。`baseline` 与
+ * `trial` 是做决定时两边的指标（手动决定时可能省略）。
+ */
+export const TuningTrialOutcomeSchema = z.object({
+  decidedBy: z.enum(['auto', 'user', 'agent']),
+  result: z.enum(['kept', 'reverted']),
+  reason: z.string().min(1),
+  baseline: TuningMetricsSchema.optional(),
+  trial: TuningMetricsSchema.optional(),
+  decidedAt: IsoTimeSchema,
+});
+export type TuningTrialOutcome = z.infer<typeof TuningTrialOutcomeSchema>;
+
 export const TuningProposalSchema = z.object({
   id: TuningProposalIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -132,6 +186,10 @@ export const TuningProposalSchema = z.object({
   version: ProfileVersionRefSchema.optional(),
   /** 有 `version` 时。 */
   stats: TuningProposalStatsSchema.optional(),
+  /** 来源（0.108.0）；旧 Host 省略，按 `user`。 */
+  origin: TuningProposalOriginSchema.optional(),
+  /** 试用的结论（0.108.0）：状态是 `accepted` 或 `reverted` 且经过试用时。 */
+  outcome: TuningTrialOutcomeSchema.optional(),
 });
 export type TuningProposal = z.infer<typeof TuningProposalSchema>;
 
@@ -189,12 +247,86 @@ export const TuningProposalResultSchema = z.object({
 
 /**
  * `tuning.proposal.decide`：采纳写入目标（`AGENTS.md`、技能文件并启用、项目记忆、护栏），拒绝只改状态。采纳时目标与生成时不同就标成
- * 已过时并回 `PROPOSAL_STALE`；已处理的再做同样的决定原样返回，不同的决定 `INVALID_PARAMS`。
+ * 已过时并回 `PROPOSAL_STALE`；已处理的再做同样的决定原样返回，不同的决定 `INVALID_PARAMS`。0.108.0：对 `trial` 的建议，`accept` 是提前
+ * 保留（`outcome.reason` 为 `manual`），`reject` 等同 `tuning.proposal.revert`。
  */
 export const TuningProposalDecideParamsSchema = z.object({
   proposalId: TuningProposalIdSchema,
   decision: z.enum(['accept', 'reject']),
 });
+
+/**
+ * `tuning.proposal.revert`（0.108.0）：撤销一条试用中或已保留的改动，把目标恢复成采纳前的内容（原来没有的删掉）。目标在采纳之后被改过
+ * 回 `PROPOSAL_STALE`，不动目标；已回退的原样返回；其余状态 `INVALID_PARAMS`。
+ */
+export const TuningProposalRevertParamsSchema = z.object({
+  proposalId: TuningProposalIdSchema,
+});
+
+// ── tuning.overview（0.108.0） ───────────────────────────────────────────
+
+export const TuningOverviewParamsSchema = z.object({
+  /** 省略是全局：只有 `auto`、`budget` 与 `series`。 */
+  workspaceId: WorkspaceIdSchema.optional(),
+});
+
+/** 本月的消耗（全局，所有项目合计）。`usedTokens` 含手动生成，`autoTokens` 只算后台生成，`exhausted` 是后台生成到了上限。 */
+export const TuningBudgetSchema = z.object({
+  /** `YYYY-MM`，Host 本地时区。 */
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  limitTokens: z.int().min(0),
+  usedTokens: z.int().min(0),
+  autoTokens: z.int().min(0),
+  exhausted: z.boolean(),
+});
+export type TuningBudget = z.infer<typeof TuningBudgetSchema>;
+
+/** 进行中的试用。`startVersion` 是第一个记下这些改动的档案版本，还没有会话开出来时省略（这时 `sessions` 是 0）。 */
+export const TuningTrialSchema = z.object({
+  proposalIds: z.array(TuningProposalIdSchema).min(1),
+  startVersion: ProfileVersionRefSchema.optional(),
+  sessions: z.int().min(0),
+  needed: z.int().min(1),
+  startedAt: IsoTimeSchema,
+  /** 到这一刻还凑不够会话就按 `insufficient` 保留。 */
+  deadline: IsoTimeSchema,
+});
+export type TuningTrial = z.infer<typeof TuningTrialSchema>;
+
+/** 一个版本上的指标；`trial` 是进行中的试用里的版本。 */
+export const TuningSeriesPointSchema = z.object({
+  version: ProfileVersionRefSchema,
+  createdAt: IsoTimeSchema,
+  metrics: TuningMetricsSchema,
+  trial: z.literal(true).optional(),
+});
+export type TuningSeriesPoint = z.infer<typeof TuningSeriesPointSchema>;
+
+/** 最近一次生成（自动或手动）。`reason` 同 `tuning.proposal.generate` 的。 */
+export const TuningRunSummarySchema = z.object({
+  at: IsoTimeSchema,
+  origin: z.enum(['user', 'auto']),
+  proposals: z.int().min(0),
+  reason: z.string().min(1).optional(),
+  usage: TuningUsageSchema.optional(),
+});
+export type TuningRunSummary = z.infer<typeof TuningRunSummarySchema>;
+
+/**
+ * `auto.enabled` 是后台生成开着，`auto.decided` 是用户在引导里选过（设置里有 `autoTuning`）。`series` 是这个范围最近
+ * `TUNING_SERIES_MAX` 个版本，从旧到新。`totals` 统计这个项目里经过试用的改动：`adopted` 进入过试用的、`kept` 保留的、`reverted` 回退的。
+ */
+export const TuningOverviewResultSchema = z.object({
+  auto: z.object({ enabled: z.boolean(), decided: z.boolean() }),
+  budget: TuningBudgetSchema,
+  trial: TuningTrialSchema.optional(),
+  series: z.array(TuningSeriesPointSchema).max(TUNING_SERIES_MAX),
+  totals: z
+    .object({ adopted: z.int().min(0), kept: z.int().min(0), reverted: z.int().min(0) })
+    .optional(),
+  lastRun: TuningRunSummarySchema.optional(),
+});
+export type TuningOverview = z.infer<typeof TuningOverviewResultSchema>;
 
 /** 发给调用过 `tuning.*` 的连接：建议生成、改动、采纳、拒绝、过时或删除了。 */
 export const TuningProposalChangedParamsSchema = z.object({

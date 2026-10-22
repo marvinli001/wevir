@@ -28,8 +28,8 @@ export const ROUTE_PATTERNS = {
   automations: '/automations',
   automation: '/automations/:automationId',
   /**
-   * 调优（0.85.0，desktop-layout.md §34）：`/tuning` 转到默认分段，`/tuning/:tab` 是分段；`?workspace=` 选范围（`global` 是全局），
-   * `?version=` 展开那个版本。
+   * 调优（0.85.0，desktop-layout.md §34）：`?workspace=` 选范围（`global` 是全局），`?version=` 展开那个版本。0.108.0 起没有分段，
+   * 旧的 `/tuning/:tab`（`/tuning/proposals` 等）转到 `/tuning`。
    */
   tuning: '/tuning',
   tuningTab: '/tuning/:tab',
@@ -77,14 +77,6 @@ export function isPluginsTab(value: string | undefined): value is PluginsTab {
   return (PLUGINS_TABS as readonly (string | undefined)[]).includes(value);
 }
 
-/** 调优页的各分段（0.85.0 档案，0.87.0 建议）；“试验”以后按 Host 功能加在这里（tuning/tuning-model.ts 的 visibleTuningTabs）。 */
-export const TUNING_TABS = ['profile', 'proposals'] as const;
-export type TuningTab = (typeof TUNING_TABS)[number];
-
-export function isTuningTab(value: string | undefined): value is TuningTab {
-  return (TUNING_TABS as readonly (string | undefined)[]).includes(value);
-}
-
 const segment = encodeURIComponent;
 
 export const paths = {
@@ -108,9 +100,9 @@ export const paths = {
   automations: (): string => ROUTE_PATTERNS.automations,
   automation: (automationId: string): string =>
     `${ROUTE_PATTERNS.automations}/${segment(automationId)}`,
-  /** 不带分段是 `/tuning`；`target` 选范围（工作区 ID 或 `global`）并展开一个版本（会话侧栏的规则卡片用）。 */
-  tuning: (tab?: TuningTab, target: { workspace?: string; version?: string } = {}): string => {
-    const base = tab === undefined ? ROUTE_PATTERNS.tuning : `${ROUTE_PATTERNS.tuning}/${tab}`;
+  /** `target` 选范围（工作区 ID 或 `global`）并展开一个版本（会话侧栏的规则卡片用）。 */
+  tuning: (target: { workspace?: string; version?: string } = {}): string => {
+    const base = ROUTE_PATTERNS.tuning;
     const query = new URLSearchParams();
     if (target.workspace !== undefined) query.set('workspace', target.workspace);
     if (target.version !== undefined) query.set('version', target.version);

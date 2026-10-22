@@ -1,4 +1,4 @@
-// 调优页（0.85.0，desktop-layout.md §34）的纯逻辑：功能判断、分段、范围、层的名称与摘要、版本的变化摘要。
+// 调优页（0.85.0，desktop-layout.md §34）的纯逻辑：功能判断、范围、层的名称与摘要、版本的变化摘要。
 
 import { hostSupports } from '@wevir/client-sdk';
 import {
@@ -10,31 +10,13 @@ import {
   type ProfileLayerKey,
 } from '@wevir/protocol';
 import { type PlainMessageKey, t } from '@/i18n';
-import { isTuningTab, type SettingsTab, TUNING_TABS, type TuningTab } from '@/routes/paths';
+import type { SettingsTab } from '@/routes/paths';
 
 export type TuningAvailability = 'pending' | 'ready' | 'unsupported';
 
 export function tuningAvailability(features: HostFeatures | undefined): TuningAvailability {
   if (features === undefined) return 'pending';
   return hostSupports(features, 'tuning') ? 'ready' : 'unsupported';
-}
-
-/** 这个 Host 能用的分段：“建议”要 `tuning_proposals`（0.87.0）。 */
-export function visibleTuningTabs(features: HostFeatures): TuningTab[] {
-  return TUNING_TABS.filter(
-    (tab) => tab !== 'proposals' || hostSupports(features, 'tuning_proposals'),
-  );
-}
-
-/** 地址里的分段：认不出或不能用时转到第一个。 */
-export function resolveTuningTab(
-  tab: string | undefined,
-  features: HostFeatures,
-): { tab: TuningTab; redirect: boolean } {
-  const tabs = visibleTuningTabs(features);
-  const first = tabs[0] ?? 'profile';
-  if (tab !== undefined && isTuningTab(tab) && tabs.includes(tab)) return { tab, redirect: false };
-  return { tab: first, redirect: true };
 }
 
 /** 范围：`global` 或工作区 ID。 */
@@ -168,11 +150,6 @@ export function changesSummary(changes: readonly ProfileLayerChange[] | undefine
       return [layerName(change.key), ...marks].join(' ');
     })
     .join(' · ');
-}
-
-/** 待生效的层：“规则文件、记忆”。 */
-export function pendingSummary(keys: readonly string[]): string {
-  return keys.filter(isKnownLayer).map(layerName).join('、');
 }
 
 /** 层的管理入口：设置的一页或插件的一个分段；没有的层是 `undefined`。 */

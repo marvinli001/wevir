@@ -9,7 +9,7 @@ import {
   toNullableJson,
 } from './rows.js';
 
-/** `tuning_proposals` 表的一行（0020_tuning_proposals，协议 0.87.0 的 `tuning.proposal.*`）。 */
+/** `tuning_proposals` 表的一行（0020_tuning_proposals，协议 0.87.0 的 `tuning.proposal.*`；0024_tuning_auto 加了来源与结论）。 */
 export interface TuningProposalRecord {
   id: string;
   workspaceId: string;
@@ -22,8 +22,12 @@ export interface TuningProposalRecord {
   /** 改动，原样存 JSON。 */
   payload: unknown;
   evidence: unknown;
-  /** `pending`、`stale`、`accepted`、`rejected`。 */
+  /** `pending`、`stale`、`accepted`、`rejected`；0024 起还有 `trial`、`reverted`。 */
   status: string;
+  /** `user`、`auto`、`agent`（0024）；旧行是 `user`。 */
+  origin: string;
+  /** 试用的结论（0024），原样存 JSON。 */
+  outcome?: unknown;
   /** 生成它的那次操作的用量与模型。 */
   usage?: unknown;
   createdAt: string;
@@ -33,7 +37,7 @@ export interface TuningProposalRecord {
 }
 
 export type TuningProposalPatch = Partial<
-  Pick<TuningProposalRecord, 'payload' | 'status' | 'decidedAt' | 'versionId'>
+  Pick<TuningProposalRecord, 'payload' | 'status' | 'decidedAt' | 'versionId' | 'outcome'>
 >;
 
 export interface TuningProposalRepository {
@@ -48,20 +52,20 @@ export interface TuningProposalRepository {
   /** 只改给出的字段。没有这一行时 false。 */
   update(id: string, patch: TuningProposalPatch): boolean;
   delete(id: string): boolean;
-  /** 这个项目里采纳了、还没有版本的，旧的在前（下一个版本的 `cause`）。 */
+  /** 这个项目里采纳了或在试用、还没有版本的，旧的在前（下一个版本的 `cause`）。 */
   unversioned(workspaceId: string): TuningProposalRecord[];
 }
 
 export function createTuningProposalRepository(db: SqliteDatabase): TuningProposalRepository {
   const insert = db.prepare(`
     INSERT INTO tuning_proposals (id, workspace_id, session_id, kind, title, target, base_hash, payload_json,
-      evidence_json, status, usage_json, created_at, decided_at, version_id)
+      evidence_json, status, origin, outcome_json, usage_json, created_at, decided_at, version_id)
     VALUES (:id, :workspaceId, :sessionId, :kind, :title, :target, :baseHash, :payload, :evidence, :status,
-      :usage, :createdAt, :decidedAt, :versionId)`);
+      :origin, :outcome, :usage, :createdAt, :decidedAt, :versionId)`);
   const get = db.prepare('SELECT * FROM tuning_proposals WHERE id = ?');
   const remove = db.prepare('DELETE FROM tuning_proposals WHERE id = ?');
   const unversioned = db.prepare(
-    "SELECT * FROM tuning_proposals WHERE workspace_id = ? AND status = 'accepted' AND version_id IS NULL ORDER BY decided_at, id",
+    "SELECT * FROM tuning_proposals WHERE workspace_id = ? AND status IN ('accepted', 'trial') AND version_id IS NULL ORDER BY decided_at, id",
   );
   const order = 'ORDER BY COALESCE(decided_at, created_at) DESC, rowid';
 
@@ -78,6 +82,8 @@ export function createTuningProposalRepository(db: SqliteDatabase): TuningPropos
         payload: toJson(record.payload),
         evidence: toJson(record.evidence),
         status: record.status,
+        origin: record.origin,
+        outcome: toNullableJson(record.outcome),
         usage: toNullableJson(record.usage),
         createdAt: record.createdAt,
         decidedAt: orNull(record.decidedAt),
@@ -125,6 +131,10 @@ export function createTuningProposalRepository(db: SqliteDatabase): TuningPropos
         sets.push('version_id = ?');
         args.push(patch.versionId ?? null);
       }
+      if ('outcome' in patch) {
+        sets.push('outcome_json = ?');
+        args.push(toNullableJson(patch.outcome));
+      }
       if (sets.length === 0) return get.get(id) !== undefined;
       return changed(
         db.prepare(`UPDATE tuning_proposals SET ${sets.join(', ')} WHERE id = ?`).run(...args, id),
@@ -137,6 +147,7 @@ export function createTuningProposalRepository(db: SqliteDatabase): TuningPropos
 
 function fromRow(row: SqlRow): TuningProposalRecord {
   const usage = optionalJson(row, 'usage_json');
+  const outcome = optionalJson(row, 'outcome_json');
   const decidedAt = optionalText(row, 'decided_at');
   const versionId = optionalText(row, 'version_id');
   return {
@@ -150,6 +161,8 @@ function fromRow(row: SqlRow): TuningProposalRecord {
     payload: JSON.parse(text(row, 'payload_json')),
     evidence: JSON.parse(text(row, 'evidence_json')),
     status: text(row, 'status'),
+    origin: text(row, 'origin'),
+    ...(outcome !== undefined && { outcome }),
     ...(usage !== undefined && { usage }),
     createdAt: text(row, 'created_at'),
     ...(decidedAt !== undefined && { decidedAt }),

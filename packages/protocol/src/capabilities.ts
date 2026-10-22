@@ -460,6 +460,12 @@ export const HOST_FEATURES = {
    * `pairing.request`、`pairing.ended` 通知。远程监听本身不在这一项里。与引擎无关。
    */
   remoteDevices: 'remote_devices',
+  /**
+   * 自动调优（0.108.0，domain-model §3.50，ADR-0018）：设置 `autoTuning` / `autoTuningMonthlyTokens`、`tuning.overview`、
+   * `tuning.proposal.revert`、建议的 `trial` / `reverted` 状态与 `origin` / `outcome`；生成的建议直接进入试用，按之后会话的指标保留或
+   * 回退。有建议服务（`tuning_proposals`）时声明。
+   */
+  tuningAuto: 'tuning_auto',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -554,6 +560,7 @@ export const HostFeaturesSchema = z.looseObject({
   approval_timeout: z.boolean().optional(),
   notification_intents: z.boolean().optional(),
   remote_devices: z.boolean().optional(),
+  tuning_auto: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

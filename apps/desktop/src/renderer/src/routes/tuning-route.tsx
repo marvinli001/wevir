@@ -3,15 +3,15 @@ import { Navigate, useLocation, useParams } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { resolveTuningTab, tuningAvailability } from '@/tuning/tuning-model';
+import { tuningAvailability } from '@/tuning/tuning-model';
 import { TuningPage } from '@/tuning/tuning-page';
 import { CenterPage } from './center-page';
 import { paths } from './paths';
 import { PendingPage } from './route-states';
 
 /**
- * `/tuning` 与 `/tuning/:tab`（0.85.0，desktop-layout.md §34）：同插件页，Host 没有 `tuning` 功能时是空状态；分段认不出时转到
- * 默认分段，地址里的范围与版本（`?workspace=&version=`）跟着带过去。
+ * `/tuning`（0.85.0，desktop-layout.md §34）：同插件页，Host 没有 `tuning` 功能时是空状态。0.108.0 起没有分段，旧的
+ * `/tuning/:tab` 转到 `/tuning`，地址里的范围与版本（`?workspace=&version=`）跟着带过去。
  */
 export function TuningRoute() {
   const { tab } = useParams();
@@ -29,7 +29,6 @@ export function TuningRoute() {
       </CenterPage>
     );
   }
-  const resolved = resolveTuningTab(tab, features);
-  if (resolved.redirect) return <Navigate to={`${paths.tuning(resolved.tab)}${search}`} replace />;
-  return <TuningPage tab={resolved.tab} client={client} features={features} />;
+  if (tab !== undefined) return <Navigate to={`${paths.tuning()}${search}`} replace />;
+  return <TuningPage client={client} features={features} />;
 }

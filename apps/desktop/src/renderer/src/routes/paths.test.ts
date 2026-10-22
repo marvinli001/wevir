@@ -4,7 +4,6 @@ import {
   AGENT_SEGMENT,
   isPluginsTab,
   isSettingsTab,
-  isTuningTab,
   PLUGINS_TABS,
   paths,
   ROUTE_PATTERNS,
@@ -117,19 +116,15 @@ describe('路由', () => {
     }
   });
 
-  it('调优页：/tuning 与 /tuning/:tab 都匹配；范围与版本放在查询串里', () => {
+  it('调优页：只有 /tuning；范围与版本放在查询串里，旧的 /tuning/:tab 仍能匹配（重定向用）', () => {
     expect(paths.tuning()).toBe('/tuning');
-    expect(paths.tuning('profile')).toBe('/tuning/profile');
-    expect(paths.tuning('profile', { workspace: 'ws_1', version: 'pfv_2' })).toBe(
-      '/tuning/profile?workspace=ws_1&version=pfv_2',
+    expect(paths.tuning({ workspace: 'ws_1', version: 'pfv_2' })).toBe(
+      '/tuning?workspace=ws_1&version=pfv_2',
     );
     expect(matchPath(ROUTE_PATTERNS.tuning, paths.tuning())).not.toBeNull();
-    const target = paths.tuning('profile', { workspace: 'global' });
-    expect(matchPath(ROUTE_PATTERNS.tuningTab, target.split('?')[0] as string)?.params).toEqual({
-      tab: 'profile',
+    expect(matchPath(ROUTE_PATTERNS.tuningTab, '/tuning/proposals')?.params).toEqual({
+      tab: 'proposals',
     });
-    expect(isTuningTab('profile')).toBe(true);
-    expect(isTuningTab('trials')).toBe(false);
   });
 
   it('只认识列出的插件页分段', () => {

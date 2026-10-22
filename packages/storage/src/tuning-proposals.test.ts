@@ -16,6 +16,7 @@ describe('tuning_proposals', () => {
     payload: { kind: 'rule', path: '/p/AGENTS.md', before: '', after: 'x\n' },
     evidence: [{ id: 'e1', text: 'x' }],
     status: 'pending',
+    origin: 'user',
     usage: { inputTokens: 10, outputTokens: 2 },
     createdAt: T0,
     ...overrides,
@@ -72,5 +73,18 @@ describe('tuning_proposals', () => {
     expect(db.tuningProposals.update('tpr_x', { status: 'rejected' })).toBe(false);
     expect(db.tuningProposals.delete('tpr_1')).toBe(true);
     expect(db.tuningProposals.delete('tpr_1')).toBe(false);
+  });
+
+  it('来源与试用的结论；试用中的也算没有版本的', () => {
+    const db = storage();
+    db.tuningProposals.insert(record('tpr_1', { status: 'trial', origin: 'auto', decidedAt: T1 }));
+    expect(db.tuningProposals.get('tpr_1')).toMatchObject({ origin: 'auto', status: 'trial' });
+    expect(db.tuningProposals.get('tpr_1')).not.toHaveProperty('outcome');
+    expect(db.tuningProposals.unversioned('ws_01').map((r) => r.id)).toEqual(['tpr_1']);
+    const outcome = { decidedBy: 'auto', result: 'kept', reason: 'no_worse', decidedAt: T2 };
+    db.tuningProposals.update('tpr_1', { status: 'accepted', outcome });
+    expect(db.tuningProposals.get('tpr_1')).toMatchObject({ status: 'accepted', outcome });
+    db.tuningProposals.update('tpr_1', { outcome: undefined });
+    expect(db.tuningProposals.get('tpr_1')).not.toHaveProperty('outcome');
   });
 });

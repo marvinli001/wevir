@@ -1001,6 +1001,11 @@ export type SpeechTranscriber = z.infer<typeof SpeechTranscriberSchema>;
 
 // ── Host 设置（0.8.0，R11） ──────────────────────────────────────────────
 
+/** `autoTuningMonthlyTokens` 的范围与省略时的值（0.108.0）。 */
+export const AUTO_TUNING_MONTHLY_TOKENS_MIN = 10_000;
+export const AUTO_TUNING_MONTHLY_TOKENS_MAX = 10_000_000;
+export const AUTO_TUNING_MONTHLY_TOKENS_DEFAULT = 200_000;
+
 /** `unattendedApprovalTimeoutMinutes` 的上限（一天）。 */
 export const UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES = 1440;
 
@@ -1085,6 +1090,18 @@ export const HostSettingsSchema = z.object({
    * `settings.update` 整个替换这一项。
    */
   remote: RemoteSettingsSchema.optional(),
+  /**
+   * 自动调优（0.108.0，Host 功能 `tuning_auto`，domain-model §3.50，ADR-0018）：开着时，项目里的顶层会话空闲或关闭后，Host 用会话的
+   * 模型在后台提出配置改动并直接进入试用。每次是一次额外的模型请求。省略表示用户还没在调优页的引导里选过（桌面端显示引导），按关着；
+   * 不进 `DEFAULT_HOST_SETTINGS`。只管后台生成，试用的评估与回退始终运行。
+   */
+  autoTuning: z.boolean().optional(),
+  /** 后台生成每个自然月（Host 本地时区）的 token 上限（输入加输出）。省略按 `AUTO_TUNING_MONTHLY_TOKENS_DEFAULT`。 */
+  autoTuningMonthlyTokens: z
+    .int()
+    .min(AUTO_TUNING_MONTHLY_TOKENS_MIN)
+    .max(AUTO_TUNING_MONTHLY_TOKENS_MAX)
+    .optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

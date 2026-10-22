@@ -7,9 +7,14 @@
 // 状态：待审 → 已采纳 / 已拒绝；目标变了 → 已过时（列出、改动与采纳时核对）。已过时的只能拒绝或重新生成（`replaces`）。采纳写入目标：
 // `AGENTS.md` 与 SKILL.md 写整份文本（技能另在插件注册表里启用），记忆经 `MemoryStore.adopt`（来源记会话与建议），护栏经
 // `GuardrailService.add`。采纳之后下一个会话开的档案版本把这些建议记进 `cause`（TuningService 的 `causes`）。
+//
+// 0.108.0（自动调优，domain-model §3.50，ADR-0018）：生成（用户点的 `user`、后台的 `auto`）与 agent 提交（`propose`，`agent`）的合格改动
+// 当场写入目标，状态记 `trial`，载荷里记下改后内容的标记 `applied`（文本的散列、记忆的版本、护栏规则的 ID 与版本）；每次调模型的生成都记
+// 进 `tuning_runs`。试用的结论由 TrialService 定：保留（`conclude`）或回退（`revert`）。回退核对 `applied`：没变就恢复采纳前的内容（原来
+// 没有的删掉），变了说明后来有人改过，不动目标（`conflict`）。
 
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import {
   type Guardrail,
@@ -21,6 +26,7 @@ import {
   type ProfileVersionId,
   type SessionId,
   type Skill,
+  TUNING_PROPOSAL_EVIDENCE_TEXT_MAX_LENGTH,
   TUNING_PROPOSAL_TEXT_MAX_LENGTH,
   TUNING_PROPOSALS_LIST_MAX,
   type TuningProposal,
@@ -30,7 +36,11 @@ import {
   TuningProposalEvidenceSchema,
   type TuningProposalId,
   type TuningProposalKind,
+  type TuningProposalOrigin,
+  TuningProposalOriginSchema,
   type TuningProposalStats,
+  type TuningTrialOutcome,
+  TuningTrialOutcomeSchema,
   type TuningUsage,
   TuningUsageSchema,
   type WorkspaceId,
@@ -64,11 +74,43 @@ const STATS_SESSIONS_MAX = 200;
 /** 读事件找护栏命中时一页多少条。 */
 const EVENTS_PAGE = 1000;
 
-/** `payload_json`：改动，与用户在采纳前改过的标记。 */
+/** 写入目标之后改后内容的标记（0.108.0）：回退前核对它，不一样说明目标后来被改过。 */
+type Applied =
+  | { afterHash: string }
+  | { revision: string }
+  | { guardrailId: string; revision: number };
+
+/** `payload_json`：改动，与用户在采纳前改过的标记、写入后的标记。 */
 interface StoredPayload {
   change: TuningProposalChange;
   edited?: true;
+  applied?: Applied;
 }
+
+/** 回退一条的结果：恢复了、目标本来就是采纳前的样子、目标被改过没动。 */
+type RestoreResult = 'restored' | 'already' | 'conflict';
+
+/** 没有调模型的生成不记进 `tuning_runs`。 */
+const NOT_RUN = new Set(['unsupported', 'running', 'empty', 'sub_session', 'no_project']);
+
+/** agent 提交的改动（`wevir_tuning_propose`）：`rule` 给 `AGENTS.md` 改后的全文。 */
+export type ProposeInput = { title: string; reason?: string } & (
+  | { kind: 'rule'; content: string }
+  | { kind: 'skill'; name: string; content: string }
+  | {
+      kind: 'memory';
+      name: string;
+      type: 'user' | 'feedback' | 'project' | 'reference';
+      description: string;
+      content: string;
+    }
+  | { kind: 'guardrail'; name?: string; rule: Guardrail['rule'] }
+);
+
+/** 交给 `#build` 的一条：模型给的（`rule` 是 diff），或 agent 给的（`rule` 是全文 `after`）。 */
+type BuildInput =
+  | ParsedProposal
+  | { kind: 'rule'; title: string; after: string; evidence: string[] };
 
 /** `usage_json`：生成它的那次操作的用量与模型。 */
 interface StoredUsage {
@@ -80,7 +122,10 @@ interface StoredUsage {
 type Generated = MethodResult<'tuning.proposal.generate'>;
 
 export interface ProposalServiceOptions {
-  storage: Pick<Storage, 'tuningProposals' | 'sessions' | 'workspaces' | 'profileVersions'>;
+  storage: Pick<
+    Storage,
+    'tuningProposals' | 'sessions' | 'workspaces' | 'profileVersions' | 'tuningRuns'
+  >;
   events: Pick<EventStore, 'readSince' | 'snapshot'>;
   retro: Pick<RetroService, 'get' | 'summarize'>;
   /** 说明（prompts/tuning-proposals.md）与发请求（SessionManager.generateOnce）；没有时生成回 `unsupported`。 */
@@ -94,11 +139,14 @@ export interface ProposalServiceOptions {
   skills: () => Promise<Skill[]>;
   /** 采纳技能后在插件注册表里启用它（SKILL.md 的路径）。 */
   enableSkill: (path: string) => Promise<void>;
-  memory: Pick<MemoryStore, 'indexText' | 'read' | 'adopt'>;
+  /** 回退删掉技能前在插件注册表里停用它（0.108.0）。 */
+  disableSkill?: (path: string) => Promise<void>;
+  memory: Pick<MemoryStore, 'indexText' | 'read' | 'adopt' | 'update' | 'delete'>;
   /** 护栏（0.86.0）；没有时不提出、也不能采纳护栏建议。 */
   guardrails?: {
     list(workspaceId?: WorkspaceId): Guardrail[];
     add(params: MethodParams<'guardrail.add'>): Promise<Guardrail>;
+    delete(guardrailId: Guardrail['id']): Promise<void>;
   };
   /** 用户家目录：规则文件的路径缩写成 `~`。 */
   userHome: string;
@@ -179,7 +227,33 @@ export class ProposalService {
 
   // ── 生成 ────────────────────────────────────────────────────────────
 
-  async generate(params: MethodParams<'tuning.proposal.generate'>): Promise<Generated> {
+  /** 生成并让合格的进入试用（0.108.0）；`origin` 是 `auto` 时是后台生成。调了模型的都记进 `tuning_runs`。 */
+  async generate(
+    params: MethodParams<'tuning.proposal.generate'>,
+    options: { origin?: 'user' | 'auto' } = {},
+  ): Promise<Generated> {
+    const origin = options.origin ?? 'user';
+    const result = await this.#generate(params, origin);
+    const session = this.#options.storage.sessions.get(params.sessionId);
+    if (session !== undefined && (result.reason === undefined || !NOT_RUN.has(result.reason))) {
+      this.#options.storage.tuningRuns.insert({
+        id: newId('trr'),
+        workspaceId: session.workspaceId,
+        sessionId: params.sessionId,
+        origin,
+        ...(result.usage !== undefined && { usage: result.usage }),
+        proposals: result.proposals.length,
+        ...(result.reason !== undefined && { reason: result.reason }),
+        createdAt: this.#now().toISOString(),
+      });
+    }
+    return result;
+  }
+
+  async #generate(
+    params: MethodParams<'tuning.proposal.generate'>,
+    origin: 'user' | 'auto',
+  ): Promise<Generated> {
     const { storage, instructions, generate } = this.#options;
     const session = storage.sessions.get(params.sessionId);
     if (session === undefined) {
@@ -301,7 +375,8 @@ export class ProposalService {
         baseHash: built.baseHash,
         payload: { change: built.change } satisfies StoredPayload,
         evidence,
-        status: 'pending',
+        status: 'trial',
+        origin,
         usage: stored,
         createdAt,
       });
@@ -312,7 +387,7 @@ export class ProposalService {
         dropped,
       });
     }
-    for (const record of records) storage.tuningProposals.insert(record);
+    const entered = await this.#enterTrial(records);
     if (params.replaces !== undefined) {
       const old = storage.tuningProposals.get(params.replaces);
       if (old !== undefined && (old.status === 'stale' || old.status === 'pending')) {
@@ -320,8 +395,9 @@ export class ProposalService {
       }
     }
     this.#emit(workspace.id);
+    if (entered.length > 0) this.#options.onProfileChanged?.(workspace.id);
     return {
-      proposals: records.map((record) => this.#toProposal(record)),
+      proposals: entered.map((record) => this.#toProposal(record)),
       ...(usage !== undefined && { usage }),
       ...(summarized && { summarized: true as const }),
     };
@@ -329,7 +405,7 @@ export class ProposalService {
 
   /** 把模型给的一条变成存下的改动与基准散列；不能用时返回原因。 */
   async #build(
-    proposal: ParsedProposal,
+    proposal: BuildInput,
     workspace: WorkspaceRecord,
     agentsText: string | undefined,
   ): Promise<{ change: TuningProposalChange; target: string; baseHash: string } | string> {
@@ -338,9 +414,11 @@ export class ProposalService {
       case 'rule': {
         const before = agentsText ?? '';
         if (before.length > TUNING_PROPOSAL_TEXT_MAX_LENGTH) return 'AGENTS.md too long';
-        const after = applyUnifiedDiff(before, proposal.diff);
+        const after =
+          'after' in proposal ? proposal.after : applyUnifiedDiff(before, proposal.diff);
         if (after === undefined) return 'diff does not apply';
         if (after.length > TUNING_PROPOSAL_TEXT_MAX_LENGTH) return 'too long';
+        if (after === before) return 'no change';
         if (looksLikeSecret(after) && !looksLikeSecret(before)) return 'looks like a secret';
         return {
           change: { kind: 'rule', path: join(root, 'AGENTS.md'), before, after },
@@ -469,9 +547,9 @@ export class ProposalService {
   ): Promise<MethodResult<'tuning.proposal.list'>> {
     const statuses =
       params.status === 'open'
-        ? ['pending', 'stale']
+        ? ['pending', 'stale', 'trial']
         : params.status === 'decided'
-          ? ['accepted', 'rejected']
+          ? ['accepted', 'rejected', 'reverted']
           : undefined;
     const records = this.#options.storage.tuningProposals.list({
       ...(params.workspaceId !== undefined && { workspaceId: params.workspaceId }),
@@ -546,31 +624,306 @@ export class ProposalService {
     params: MethodParams<'tuning.proposal.decide'>,
   ): Promise<MethodResult<'tuning.proposal.decide'>> {
     const record = this.#record(params.proposalId);
+    // 0.108.0：试用中的，采纳是提前保留，拒绝是撤销。
+    if (record.status === 'trial') {
+      const proposal =
+        params.decision === 'accept'
+          ? this.keep(record.id as TuningProposalId, 'user')
+          : await this.revert(record.id as TuningProposalId, 'user');
+      return { proposal };
+    }
     const target = params.decision === 'accept' ? 'accepted' : 'rejected';
-    if (record.status === 'accepted' || record.status === 'rejected') {
+    if (
+      record.status === 'accepted' ||
+      record.status === 'rejected' ||
+      record.status === 'reverted'
+    ) {
       if (record.status === target) return { proposal: this.#toProposal(record) };
       throw invalid(['decision'], `proposal ${record.id} is already ${record.status}`);
     }
+    let applied: Applied | undefined;
     if (params.decision === 'accept') {
       await this.#checkOpen(record);
-      await this.#apply(record);
+      try {
+        applied = await this.#apply(record);
+      } catch (error) {
+        if (error instanceof HostError && error.code === 'PROPOSAL_STALE') {
+          this.#markStale(record);
+          this.#emit(record.workspaceId);
+        }
+        throw error;
+      }
     }
     this.#options.storage.tuningProposals.update(record.id, {
       status: target,
       decidedAt: this.#now().toISOString(),
+      ...(applied !== undefined && { payload: { ...payloadOf(record), applied } }),
     });
     this.#emit(record.workspaceId);
     if (params.decision === 'accept') this.#options.onProfileChanged?.(record.workspaceId);
     return { proposal: this.#toProposal(this.#record(params.proposalId)) };
   }
 
-  /** 写入目标。目标在核对之后、写之前被改了（记忆的版本冲突）也按已过时处理。 */
-  async #apply(record: TuningProposalRecord): Promise<void> {
+  // ── 试用（0.108.0） ──────────────────────────────────────────────────
+
+  /**
+   * agent 提交一条改动（`wevir_tuning_propose`）：校验同生成（长度、密钥样文本、SKILL.md 可解析、护栏不重复、内容有变化），通过后写入
+   * 并进入试用，来源 `agent`。不合格时 `INVALID_PARAMS`（原因在消息里）。
+   */
+  async propose(sessionId: SessionId, input: ProposeInput): Promise<TuningProposal> {
+    const { storage } = this.#options;
+    const session = storage.sessions.get(sessionId);
+    if (session === undefined)
+      throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    const workspace = storage.workspaces.get(session.workspaceId);
+    if (
+      workspace === undefined ||
+      workspace.removedAt !== undefined ||
+      this.#options.isChats?.(workspace) === true
+    ) {
+      throw invalid(['sessionId'], 'tuning changes need a session in a project');
+    }
+    if (input.kind === 'guardrail' && this.#options.guardrails === undefined) {
+      throw invalid(['kind'], 'this host has no guardrails');
+    }
+    const agentsText = await readText(join(workspace.rootPath, 'AGENTS.md'));
+    const parsed: BuildInput =
+      input.kind === 'rule'
+        ? { kind: 'rule', title: input.title, after: input.content, evidence: [] }
+        : input.kind === 'skill'
+          ? { ...input, evidence: [] }
+          : input.kind === 'memory'
+            ? { ...input, evidence: [] }
+            : {
+                kind: 'guardrail',
+                title: input.title,
+                ...(input.name !== undefined && { name: input.name }),
+                rule: input.rule,
+                evidence: [],
+              };
+    const built = await this.#build(parsed, workspace, agentsText);
+    if (typeof built === 'string') throw invalid(['content'], built);
+    const reason = input.reason?.trim();
+    const record: TuningProposalRecord = {
+      id: newId('tpr'),
+      workspaceId: workspace.id,
+      sessionId,
+      kind: input.kind,
+      title: input.title,
+      target: built.target,
+      baseHash: built.baseHash,
+      payload: { change: built.change } satisfies StoredPayload,
+      evidence:
+        reason === undefined || reason === ''
+          ? []
+          : [{ id: 'agent', text: reason.slice(0, TUNING_PROPOSAL_EVIDENCE_TEXT_MAX_LENGTH) }],
+      status: 'trial',
+      origin: 'agent',
+      createdAt: this.#now().toISOString(),
+    };
+    const [entered] = await this.#enterTrial([record], { throwOnFailure: true });
+    this.#emit(workspace.id);
+    this.#options.onProfileChanged?.(workspace.id);
+    return this.#toProposal(entered as TuningProposalRecord);
+  }
+
+  /** 这个项目里试用中的，旧的在前。 */
+  trialRecords(workspaceId: string): TuningProposalRecord[] {
+    // 列表是新的在前、同一刻按写入先后；按时刻升序稳定排序，同一刻的仍按写入先后。
+    const at = (record: TuningProposalRecord) => Date.parse(record.decidedAt ?? record.createdAt);
+    return this.#options.storage.tuningProposals
+      .list({ workspaceId, statuses: ['trial'] })
+      .sort((a, b) => at(a) - at(b));
+  }
+
+  /** 试用的结论是保留：状态改为 `accepted`，记下结论。 */
+  conclude(id: TuningProposalId, outcome: Omit<TuningTrialOutcome, 'result' | 'decidedAt'>): void {
+    const record = this.#record(id);
+    if (record.status !== 'trial') return;
+    this.#options.storage.tuningProposals.update(record.id, {
+      status: 'accepted',
+      decidedAt: this.#now().toISOString(),
+      outcome: { ...outcome, result: 'kept', decidedAt: this.#now().toISOString() },
+    });
+    this.#emit(record.workspaceId);
+  }
+
+  /** 用户或 agent 提前保留一条试用中的（`outcome.reason` 为 `manual`）。已保留的原样返回；其余状态 `INVALID_PARAMS`。 */
+  keep(id: TuningProposalId, by: 'user' | 'agent'): TuningProposal {
+    const record = this.#record(id);
+    if (record.status === 'accepted') return this.#toProposal(record);
+    if (record.status !== 'trial') {
+      throw invalid(['proposalId'], `proposal ${record.id} is ${record.status}, not in trial`);
+    }
+    this.conclude(id, { decidedBy: by, reason: 'manual' });
+    return this.#toProposal(this.#record(id));
+  }
+
+  /**
+   * 撤销或回退（`tuning.proposal.revert`、`wevir_tuning_decide revert`、试用变差）：只对 `trial` 与 `accepted` 有效，`reverted` 原样返回，
+   * 其余 `INVALID_PARAMS`。目标在采纳后被改过时：手动的回 `PROPOSAL_STALE`；自动的（`by` 为 `auto`）改记保留、`reason` 为 `conflict`。
+   */
+  async revert(
+    id: TuningProposalId,
+    by: 'user' | 'agent' | 'auto',
+    outcome: Pick<TuningTrialOutcome, 'reason' | 'baseline' | 'trial'> = { reason: 'manual' },
+  ): Promise<TuningProposal> {
+    const record = this.#record(id);
+    if (record.status === 'reverted') return this.#toProposal(record);
+    if (record.status !== 'trial' && record.status !== 'accepted') {
+      throw invalid(
+        ['proposalId'],
+        `proposal ${record.id} is ${record.status} and cannot be reverted`,
+      );
+    }
+    const result = await this.#restore(record);
+    const decidedAt = this.#now().toISOString();
+    if (result === 'conflict') {
+      if (by !== 'auto') {
+        throw new HostError(
+          'PROPOSAL_STALE',
+          `the target of proposal ${record.id} changed after it was applied; change it back by hand`,
+        );
+      }
+      this.#options.storage.tuningProposals.update(record.id, {
+        status: 'accepted',
+        decidedAt,
+        outcome: { ...outcome, decidedBy: by, result: 'kept', reason: 'conflict', decidedAt },
+      });
+      this.#emit(record.workspaceId);
+      return this.#toProposal(this.#record(id));
+    }
+    this.#options.storage.tuningProposals.update(record.id, {
+      status: 'reverted',
+      decidedAt,
+      outcome: { ...outcome, decidedBy: by, result: 'reverted', decidedAt },
+    });
+    this.#emit(record.workspaceId);
+    if (result === 'restored') this.#options.onProfileChanged?.(record.workspaceId);
+    return this.#toProposal(this.#record(id));
+  }
+
+  /** 写入并进入试用；目标在生成之后变了的（或写不进去的）丢掉并记警告。返回进入试用的。 */
+  async #enterTrial(
+    records: TuningProposalRecord[],
+    options: { throwOnFailure?: boolean } = {},
+  ): Promise<TuningProposalRecord[]> {
+    const entered: TuningProposalRecord[] = [];
+    for (const record of records) {
+      try {
+        if (await this.#isStale(record)) throw stale(record.id);
+        const applied = await this.#apply(record);
+        const next: TuningProposalRecord = {
+          ...record,
+          status: 'trial',
+          decidedAt: this.#now().toISOString(),
+          payload: { ...payloadOf(record), applied } satisfies StoredPayload,
+        };
+        this.#options.storage.tuningProposals.insert(next);
+        entered.push(next);
+      } catch (error) {
+        if (options.throwOnFailure === true) throw error;
+        this.#options.onWarning?.('调优改动没能写入目标，丢掉', {
+          sessionId: record.sessionId,
+          title: record.title,
+          error: (error as Error).message,
+        });
+      }
+    }
+    return entered;
+  }
+
+  /** 按 `applied` 核对目标，没变就恢复采纳前的内容。 */
+  async #restore(record: TuningProposalRecord): Promise<RestoreResult> {
+    const { change, applied } = payloadOf(record);
+    const missingBefore = record.baseHash === MISSING;
+    switch (change.kind) {
+      case 'rule':
+      case 'skill': {
+        const current = await readText(change.path);
+        const beforeState = missingBefore ? undefined : change.before;
+        if (current === beforeState) return 'already';
+        if (
+          applied === undefined ||
+          !('afterHash' in applied) ||
+          current === undefined ||
+          sha256(current) !== applied.afterHash
+        ) {
+          return 'conflict';
+        }
+        if (beforeState !== undefined) {
+          await writeAtomic(change.path, beforeState);
+          return 'restored';
+        }
+        if (change.kind === 'skill') {
+          await this.#options.disableSkill?.(change.path).catch((error: unknown) => {
+            this.#options.onWarning?.('回退的技能没能停用', {
+              path: change.path,
+              error: (error as Error).message,
+            });
+          });
+          await rm(change.path, { force: true });
+          await rmdir(dirname(change.path)).catch(() => {});
+        } else {
+          await rm(change.path, { force: true });
+        }
+        return 'restored';
+      }
+      case 'memory': {
+        const current = await this.#note(record.workspaceId, change.name);
+        if (missingBefore ? current === undefined : current?.content === change.before) {
+          return 'already';
+        }
+        if (
+          applied === undefined ||
+          !('revision' in applied) ||
+          'guardrailId' in applied ||
+          current === undefined ||
+          current.revision !== applied.revision
+        ) {
+          return 'conflict';
+        }
+        if (missingBefore) {
+          const { conflict } = await this.#options.memory.delete(
+            'project',
+            record.workspaceId,
+            change.name,
+            { includeDisabled: true, revision: applied.revision },
+          );
+          return conflict === undefined ? 'restored' : 'conflict';
+        }
+        const { conflict } = await this.#options.memory.update(
+          'project',
+          record.workspaceId,
+          change.name,
+          applied.revision,
+          { content: change.before },
+        );
+        return conflict === true ? 'conflict' : 'restored';
+      }
+      case 'guardrail': {
+        const guardrails = this.#options.guardrails;
+        if (guardrails === undefined || applied === undefined || !('guardrailId' in applied)) {
+          return 'conflict';
+        }
+        const current = guardrails
+          .list(record.workspaceId as WorkspaceId)
+          .find((g) => g.id === applied.guardrailId);
+        if (current === undefined) return 'already';
+        if (current.revision !== applied.revision) return 'conflict';
+        await guardrails.delete(current.id);
+        return 'restored';
+      }
+    }
+  }
+
+  /** 写入目标，返回改后内容的标记。目标在核对之后、写之前被改了（记忆的版本冲突）回 `PROPOSAL_STALE`。 */
+  async #apply(record: TuningProposalRecord): Promise<Applied> {
     const { change } = payloadOf(record);
     switch (change.kind) {
       case 'rule':
         await writeAtomic(change.path, change.after);
-        return;
+        return { afterHash: sha256(change.after) };
       case 'skill':
         try {
           parseSkill(change.after, change.name);
@@ -584,10 +937,10 @@ export class ProposalService {
             error: (error as Error).message,
           });
         });
-        return;
+        return { afterHash: sha256(change.after) };
       case 'memory':
         try {
-          await this.#options.memory.adopt(
+          const { note } = await this.#options.memory.adopt(
             'project',
             record.workspaceId,
             {
@@ -602,32 +955,33 @@ export class ProposalService {
               proposalId: record.id as TuningProposalId,
             },
           );
+          return { revision: note.revision };
         } catch (error) {
-          if (error instanceof MemoryError && error.code === 'conflict') {
-            this.#markStale(record);
-            this.#emit(record.workspaceId);
-            throw stale(record.id);
-          }
+          if (error instanceof MemoryError && error.code === 'conflict') throw stale(record.id);
           if (error instanceof MemoryError) throw invalid(['after'], error.message);
           throw error;
         }
-        return;
       case 'guardrail': {
         const guardrails = this.#options.guardrails;
         if (guardrails === undefined) throw invalid(['proposalId'], 'this host has no guardrails');
-        await guardrails.add({
+        const added = await guardrails.add({
           workspaceId: record.workspaceId as WorkspaceId,
           ...(change.name !== undefined && { name: change.name }),
           rule: change.rule,
         });
-        return;
+        return { guardrailId: added.id, revision: added.revision };
       }
     }
   }
 
   /** 待审才能改与采纳：已处理 `INVALID_PARAMS`；已过时或目标刚变 `PROPOSAL_STALE`（刚变的标成已过时）。 */
   async #checkOpen(record: TuningProposalRecord): Promise<void> {
-    if (record.status === 'accepted' || record.status === 'rejected') {
+    if (
+      record.status === 'accepted' ||
+      record.status === 'rejected' ||
+      record.status === 'trial' ||
+      record.status === 'reverted'
+    ) {
       throw invalid(['proposalId'], `proposal ${record.id} is already ${record.status}`);
     }
     if (record.status === 'stale') throw stale(record.id);
@@ -701,6 +1055,7 @@ export class ProposalService {
     const title = storage.sessions.get(record.sessionId)?.title;
     const version =
       record.versionId === undefined ? undefined : storage.profileVersions.get(record.versionId);
+    const outcome = TuningTrialOutcomeSchema.safeParse(record.outcome);
     const evidence = Array.isArray(record.evidence)
       ? record.evidence.flatMap((item) => {
           const parsed = TuningProposalEvidenceSchema.safeParse(item);
@@ -732,6 +1087,9 @@ export class ProposalService {
         },
         stats: this.#stats(version.id),
       }),
+      origin: (TuningProposalOriginSchema.safeParse(record.origin).data ??
+        'user') as TuningProposalOrigin,
+      ...(outcome.success && { outcome: outcome.data }),
     };
   }
 
@@ -765,7 +1123,23 @@ function payloadOf(record: TuningProposalRecord): StoredPayload {
   const payload = record.payload as Partial<StoredPayload> | null;
   const change = TuningProposalChangeSchema.safeParse(payload?.change);
   if (!change.success) throw new Error(`proposal ${record.id} has an unreadable change`);
-  return { change: change.data, ...(payload?.edited === true && { edited: true }) };
+  const applied = appliedOf(payload?.applied);
+  return {
+    change: change.data,
+    ...(payload?.edited === true && { edited: true }),
+    ...(applied !== undefined && { applied }),
+  };
+}
+
+function appliedOf(value: unknown): Applied | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const item = value as Record<string, unknown>;
+  if (typeof item.afterHash === 'string') return { afterHash: item.afterHash };
+  if (typeof item.guardrailId === 'string' && typeof item.revision === 'number') {
+    return { guardrailId: item.guardrailId, revision: item.revision };
+  }
+  if (typeof item.revision === 'string') return { revision: item.revision };
+  return undefined;
 }
 
 function usageOf(record: TuningProposalRecord): StoredUsage {
