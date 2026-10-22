@@ -1,7 +1,7 @@
 // WevirClient 对着可编程的假 Host（test-utils.ts 的 FakeHost）：握手、类型化的请求与错误、三种超时、
 // 心跳、重连与订阅的边界情况。对着真实 Host 的验收在 client.integration.test.ts。
 
-import { CLIENT_CAPABILITIES, ErrorCode, PROTOCOL_VERSION } from '@wevir/protocol';
+import { CLIENT_CAPABILITIES, ErrorCode, PROTOCOL_VERSION, RelayCloseCode } from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CLIENT_CAPABILITIES } from './capabilities.js';
 import { type ConnectionState, WevirClient, type WevirClientOptions } from './client.js';
@@ -12,6 +12,8 @@ import {
   FeatureUnavailableError,
   isRpcError,
   ProtocolError,
+  type RemoteRelayFailure,
+  RemoteUnreachableError,
   RequestTimeoutError,
   WevirRpcError,
 } from './errors.js';
@@ -389,6 +391,51 @@ describe('连接健康与重连', () => {
     resolved.on('host.hello', () => ({ result: HELLO }));
     b.client.reconnectNow();
     await vi.waitFor(() => expect(b.client.state.status).toBe('connected'));
+  });
+
+  it('经中继（0.110.0）：4104 与中继说客户端不合规时不再重连；4103、4105、电脑不在中继上、限速时慢速重试；4100 与中继满了照常重试', async () => {
+    const outcome = (client: WevirClient) => {
+      const state = client.state;
+      return state.status === 'reconnecting' ? state.delayMs : state.status;
+    };
+    /** 连上之后中继以 `code` 断开：下一次尝试前的延迟，不再重连时是 `closed`。 */
+    const after = async (code: number) => {
+      const host = new FakeHost();
+      const { client } = await connect(host);
+      host.last.drop(code);
+      await vi.waitFor(() => expect(client.state.status).not.toBe('connected'));
+      return outcome(client);
+    };
+    /** 断线后的那次尝试以 `cause` 失败（哪条路都没走通）：再下一次尝试前的延迟（普通退避此时已翻倍成 10），或 `closed`。 */
+    const attempt = async (cause: Error) => {
+      const host = new FakeHost();
+      const { client } = await connect(host);
+      host.autoOpen = false;
+      host.last.drop(1006);
+      await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+      host.last.drop(1006, '', cause);
+      await vi.waitFor(() => {
+        const state = client.state;
+        expect(
+          state.status === 'closed' || (state.status === 'reconnecting' && state.attempt === 2),
+        ).toBe(true);
+      });
+      return outcome(client);
+    };
+    const unreachable = (relay: RemoteRelayFailure) =>
+      attempt(new RemoteUnreachableError(['relay.example.com'], relay));
+    expect(await after(RelayCloseCode.PROTOCOL_ERROR)).toBe('closed');
+    expect(await after(RelayCloseCode.LIMIT_EXCEEDED)).toBe(40);
+    expect(await after(RelayCloseCode.HOST_REJECTED)).toBe(40);
+    expect(await after(RelayCloseCode.HOST_UNAVAILABLE)).toBe(5);
+    expect(await unreachable('protocol_error')).toBe('closed');
+    expect(await unreachable('offline')).toBe(40);
+    expect(await unreachable('rate_limited')).toBe(40);
+    expect(await unreachable('limit_exceeded')).toBe(40);
+    expect(await unreachable('host_rejected')).toBe(40);
+    expect(await unreachable('busy')).toBe(10);
+    expect(await unreachable('host_unavailable')).toBe(10);
+    expect(await attempt(new RemoteUnreachableError(['192.168.1.5:47830']))).toBe(10);
   });
 
   it('重连时协议不兼容：closed，订阅的迭代以该错误结束', async () => {

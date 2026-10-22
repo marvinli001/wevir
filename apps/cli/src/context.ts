@@ -89,12 +89,24 @@ async function connectRemote(
     throw new CliError(t('remote.unknown', { name }), t('remote.unknown.hint'));
   }
   const browse = ctx.io.browseMdns;
+  // 经中继时在 stderr 说一声（比直连慢、多一程）；之后换回直连时也说。直连是常态，不提。
+  const note = stylesFor(ctx.io.stderr);
+  let lastRoute: 'direct' | 'relay' | undefined;
+  const onRoute = (kind: 'direct' | 'relay') => {
+    if (kind === 'relay' ? lastRoute !== 'relay' : lastRoute === 'relay') {
+      ctx.io.stderr.write(
+        `${note.dim(t(kind === 'relay' ? 'remote.viaRelay' : 'remote.viaDirect', { name }))}\n`,
+      );
+    }
+    lastRoute = kind;
+  };
   return connectRemoteHost({
     home: ctx.home,
     record,
     identity: await ctx.identity(),
     connectMs: options.connectMs ?? REMOTE_CONNECT_MS,
     ...(options.onStateChange && { onStateChange: options.onStateChange }),
+    onRoute,
     ...(browse !== undefined && { discover: mdnsDiscovery(record.routeId, browse) }),
     track: ctx.track,
   });

@@ -3,6 +3,7 @@ import {
   type ErrorData,
   ErrorDataSchemas,
   errorCodeName,
+  RelayCloseCode,
 } from '@wevir/protocol';
 
 // client-sdk 抛出的错误都是 `WevirClientError`，按 `kind` 区分；Host 回的 JSON-RPC 错误是
@@ -195,7 +196,45 @@ export class HostUnavailableError extends WevirClientError {
   }
 }
 
-/** 远程连接（0.109.0）：哪条路都没连上那台电脑（地址不通、电脑不在线、远程访问没开）。 */
+/**
+ * 经中继的路为什么没走通（0.110.0）：升级前的 HTTP 拒绝与中继的关闭码（`RelayCloseCode`）。
+ * - `offline`（404）：中继上没有这台电脑（电脑离线，或没开中继）。
+ * - `rate_limited`（429）：中继对这个来源限速。
+ * - `busy`（503）：中继或这台电脑的路由连接数满了。
+ * - `host_unavailable`（4100）：电脑没有及时接上，或它与中继之间断了。
+ * - `limit_exceeded`（4103）：超过了中继的限制。
+ * - `protocol_error`（4104）：中继认为这个客户端发了不合规的消息（客户端的 bug）。
+ * - `host_rejected`（4105）：电脑拒绝了这条连接（没开配对窗口、限速）。
+ */
+export type RemoteRelayFailure =
+  | 'offline'
+  | 'rate_limited'
+  | 'busy'
+  | 'host_unavailable'
+  | 'limit_exceeded'
+  | 'protocol_error'
+  | 'host_rejected';
+
+/** 中继的关闭码对应的原因；不是中继的关闭码时 undefined。 */
+export function relayCloseFailure(code: number | undefined): RemoteRelayFailure | undefined {
+  switch (code) {
+    case RelayCloseCode.HOST_UNAVAILABLE:
+      return 'host_unavailable';
+    case RelayCloseCode.LIMIT_EXCEEDED:
+      return 'limit_exceeded';
+    case RelayCloseCode.PROTOCOL_ERROR:
+      return 'protocol_error';
+    case RelayCloseCode.HOST_REJECTED:
+      return 'host_rejected';
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * 远程连接（0.109.0）：哪条路都没连上那台电脑（地址不通、电脑不在线、远程访问没开）。试过中继且中继说明了原因时 `relay` 是那个
+ * 原因（0.110.0）。
+ */
 export class RemoteUnreachableError extends WevirClientError {
   override readonly name = 'RemoteUnreachableError';
   readonly kind = 'remote_unreachable';
@@ -203,11 +242,13 @@ export class RemoteUnreachableError extends WevirClientError {
   constructor(
     /** 试过的路（`RemoteRoute.key`）。 */
     readonly tried: readonly string[],
+    readonly relay?: RemoteRelayFailure,
   ) {
     super(
-      tried.length === 0
+      (tried.length === 0
         ? 'no address is known for the remote Wevir Host'
-        : `could not reach the remote Wevir Host at ${tried.join(', ')}`,
+        : `could not reach the remote Wevir Host at ${tried.join(', ')}`) +
+        (relay === undefined ? '' : ` (relay: ${relay})`),
     );
   }
 }

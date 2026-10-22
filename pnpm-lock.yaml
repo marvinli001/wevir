@@ -208,10 +208,19 @@ importers:
       mute-stream:
         specifier: 3.0.0
         version: 3.0.0
+      ws:
+        specifier: ^8.22.0
+        version: 8.22.0
     devDependencies:
       '@types/mute-stream':
         specifier: 0.0.4
         version: 0.0.4
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
+      '@wevir/relay':
+        specifier: workspace:*
+        version: link:../relay
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../../packages/runtime-adapter
@@ -488,6 +497,9 @@ importers:
       '@wevir/host':
         specifier: workspace:*
         version: link:../host
+      '@wevir/relay':
+        specifier: workspace:*
+        version: link:../../apps/relay
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter

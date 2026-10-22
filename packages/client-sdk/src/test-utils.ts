@@ -116,11 +116,11 @@ export class FakeSocket implements Transport {
     setTimeout(() => this.drop(code ?? 1000, reason ?? ''), 0);
   }
 
-  /** Host 一侧断开（默认像网络中断一样 1006）。 */
-  drop(code = 1006, reason = ''): void {
+  /** Host 一侧断开（默认像网络中断一样 1006）。`cause` 是传输层给的原因（远程连接的路都没走通等）。 */
+  drop(code = 1006, reason = '', cause?: Error): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.#handlers.onClose({ code, reason });
+    this.#handlers.onClose({ code, reason, ...(cause !== undefined && { cause }) });
   }
 
   requests(method: string): SentFrame[] {
@@ -201,6 +201,8 @@ export function startRemoteEchoHost(
   home: string,
   announcements: (RecordedAnnouncement | undefined)[] = [],
   echo: EchoAdapterOptions = {},
+  /** 连中继的退避（中继测试里调短）。 */
+  relay?: { backoffMs: number; maxBackoffMs: number },
 ): Promise<RunningHost> {
   return startHost({
     home,
@@ -224,6 +226,7 @@ export function startRemoteEchoHost(
       lookupMagicDnsName: async () => undefined,
       advertiser: { update: (a) => announcements.push(a), shutdown: async () => {} },
       pollMs: 50,
+      ...(relay !== undefined && { relay }),
     },
   });
 }

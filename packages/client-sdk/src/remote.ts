@@ -3,7 +3,7 @@
 //
 // 分两层：
 // - `RemoteRoute` 是到 Host 的一条路，给出一条“一条二进制消息 = 一条 Noise 消息”的管道。直连是 `directRoute`（WebSocket 连 Host
-//   监听的地址）；中继以后实现同一个接口（`kind: 'relay'`），帧格式相同，握手与分片照用这里的。
+//   监听的地址）；中继是 `relayRoute`（0.110.0，WebSocket 连中继、带路由 ID），帧格式相同，握手与分片照用这里的。
 // - 隧道：在某条路上做 `IK`（重连）或 `XXpsk2`（配对）握手，之后用 `@wevir/noise` 的分片收发 JSON-RPC 文本。
 //
 // 每次连接把已知的路并行发起，第一个完成握手的胜出、其余关掉；直连给 `fallbackDelayMs`（默认 1.5 s）的先手，之后中继也开始。
@@ -27,22 +27,35 @@ import {
   type DevicePlatform,
   normalizePairingCode,
   PAIRING_WINDOW_MS,
+  RELAY_ACCEPT_TIMEOUT_MS,
+  RELAY_ROUTE_PARAM,
   REMOTE_HANDSHAKE_TIMEOUT_MS,
   REMOTE_PATHS,
   type RemoteHostPayload,
   RemoteHostPayloadSchema,
+  relayEndpoint,
 } from '@wevir/protocol';
 import { type HostEndpoint, type HostHello, WevirClient } from './client.js';
-import { RemoteHandshakeError, RemoteUnreachableError } from './errors.js';
+import {
+  RemoteHandshakeError,
+  type RemoteRelayFailure,
+  RemoteUnreachableError,
+  relayCloseFailure,
+} from './errors.js';
 import type { Transport, TransportCloseInfo, TransportFactory } from './transport.js';
 
 export type RemotePath = (typeof REMOTE_PATHS)[keyof typeof REMOTE_PATHS];
+
+/** 管道关闭的信息；`httpStatus` 是 WebSocket 升级前被拒时的 HTTP 状态码（WebSocket 实现给得出时）。 */
+export interface RemoteLinkCloseInfo extends TransportCloseInfo {
+  httpStatus?: number;
+}
 
 /** 一条到 Host 的二进制管道的回调。`onClose` 恰好调用一次，连不上也是一次。 */
 export interface RemoteLinkHandlers {
   onOpen(): void;
   onMessage(data: Uint8Array): void;
-  onClose(info: TransportCloseInfo): void;
+  onClose(info: RemoteLinkCloseInfo): void;
 }
 
 export interface RemoteLink {
@@ -52,7 +65,7 @@ export interface RemoteLink {
 
 /** 到 Host 的一条路。`open` 不得抛出：连不上时以 `onClose` 报告。 */
 export interface RemoteRoute {
-  /** 直连先试；中继（以后）在直连的先手之后才开始。 */
+  /** 直连先试；中继在直连的先手之后才开始。 */
   readonly kind: 'direct' | 'relay';
   /** 去重与显示用，例如 `192.168.1.5:47830`。 */
   readonly key: string;
@@ -124,13 +137,49 @@ export function directRoute(
   };
 }
 
-/** 用 WebSocket 做二进制管道；中继的路也可以用它。Host 只发二进制消息，收到文本消息就断开。 */
+/**
+ * 经中继连 Host（0.110.0）：设备的三个路径接在中继地址之后、带 `route=<路由 ID>`（`relayEndpoint`，中继地址可以带路径前缀）。
+ * 中继地址只用 Host 给的（配对链接的 `relay`、握手负载的 `relayUrl`）。升级前的拒绝（404 / 429 / 503）要靠 WebSocket 实现报出
+ * 状态码才分得清：Node 用 `ws` 包（全局 `WebSocket` 不给状态码）。
+ */
+export function relayRoute(
+  WebSocketImpl: BinaryWebSocketConstructor,
+  relayUrl: string,
+  routeId: string,
+): RemoteRoute {
+  const url = new URL(relayUrl);
+  return {
+    kind: 'relay',
+    key: `${url.host}${url.pathname.replace(/\/+$/, '')}`,
+    open: (path, handlers) =>
+      openWebSocketLink(
+        WebSocketImpl,
+        relayEndpoint(relayUrl, path, { [RELAY_ROUTE_PARAM]: routeId }),
+        handlers,
+      ),
+  };
+}
+
+/**
+ * 升级前被拒时的 HTTP 状态码。WHATWG 的 `WebSocket` 不给；`ws` 包的错误是 `Unexpected server response: 429`，React Native 在
+ * iOS / Android 上的错误文字里也带着状态码。
+ */
+function upgradeStatus(event: unknown): number | undefined {
+  const e = event as { error?: { message?: unknown }; message?: unknown } | undefined;
+  const text = [e?.error?.message, e?.message].find((m): m is string => typeof m === 'string');
+  const match = text === undefined ? null : /response\D{0,24}?\b([1-5]\d{2})\b/i.exec(text);
+  return match ? Number(match[1]) : undefined;
+}
+
+/** 用 WebSocket 做二进制管道（直连与中继都用）。Host 只发二进制消息，收到文本消息就断开。 */
 export function openWebSocketLink(
   WebSocketImpl: BinaryWebSocketConstructor,
   url: string,
   handlers: RemoteLinkHandlers,
 ): RemoteLink {
   let closed = false;
+  let opened = false;
+  let httpStatus: number | undefined;
   let socket: BinaryWebSocketLike;
   try {
     socket = new WebSocketImpl(url);
@@ -140,6 +189,7 @@ export function openWebSocketLink(
     return { send: () => {}, close: () => {} };
   }
   socket.addEventListener('open', () => {
+    opened = true;
     if (!closed) handlers.onOpen();
   });
   socket.addEventListener('message', (event: { data: unknown }) => {
@@ -154,10 +204,13 @@ export function openWebSocketLink(
     handlers.onClose({
       code: typeof event.code === 'number' ? event.code : 1006,
       reason: typeof event.reason === 'string' ? event.reason : '',
+      ...(httpStatus !== undefined && { httpStatus }),
     });
   });
   // `ws` 在没有 error 监听器时会把错误当作未捕获异常抛出；后面总跟着一次 close。
-  socket.addEventListener('error', () => {});
+  socket.addEventListener('error', (event: unknown) => {
+    if (!opened) httpStatus ??= upgradeStatus(event);
+  });
   return {
     // Noise 的输出都是新分配的 ArrayBuffer，不会是 SharedArrayBuffer。
     send: (data) => socket.send(data as Uint8Array<ArrayBuffer>),
@@ -191,6 +244,30 @@ interface TunnelKeys {
   readonly device: KeyPair;
 }
 
+/** 经中继的路关掉时，中继说明的原因（升级前的状态码或中继的关闭码）。直连的 404 等不算：那是 Host 自己的拒绝。 */
+function relayFailureOf(route: RemoteRoute, info: RemoteLinkCloseInfo | undefined) {
+  if (route.kind !== 'relay' || info === undefined) return undefined;
+  switch (info.httpStatus) {
+    case 404:
+      return 'offline';
+    case 429:
+      return 'rate_limited';
+    case 503:
+      return 'busy';
+  }
+  return relayCloseFailure(info.code);
+}
+
+/** 一条中继的路没走通、中继说明了原因。竞速结束时并进 `RemoteUnreachableError.relay`，不外泄。 */
+class RelayRouteError extends Error {
+  constructor(readonly failure: RemoteRelayFailure) {
+    super(`relay: ${failure}`);
+  }
+}
+
+/** 经中继时握手的时限：中继等 Host 接上最多 `RELAY_ACCEPT_TIMEOUT_MS`，之后才是握手本身。 */
+const RELAY_HANDSHAKE_TIMEOUT_MS = RELAY_ACCEPT_TIMEOUT_MS + REMOTE_HANDSHAKE_TIMEOUT_MS;
+
 const encoder = new TextEncoder();
 
 /** 一条路上的一次握手。先 `opened`（管道连上），再 `start` 握手，成功后 `attach` 成 `Transport`。 */
@@ -202,18 +279,18 @@ class NoiseTunnel {
   readonly #link: RemoteLink;
   #phase: 'opening' | 'open' | 'handshake' | 'ready' | 'closed' = 'opening';
   #onHandshakeMessage: ((data: Uint8Array) => void) | undefined;
-  #onHandshakeClose: ((info: TransportCloseInfo) => void) | undefined;
+  #onHandshakeClose: ((info: RemoteLinkCloseInfo) => void) | undefined;
   #handlers: { onMessage(text: string): void; onClose(info: TransportCloseInfo): void } | undefined;
   #reader: FrameReader | undefined;
   #ciphers: TransportCiphers | undefined;
   /** 握手完成到 `attach` 之间到达的消息。 */
   readonly #early: Uint8Array[] = [];
-  #closeInfo: TransportCloseInfo | undefined;
+  #closeInfo: RemoteLinkCloseInfo | undefined;
 
   constructor(route: RemoteRoute, path: RemotePath) {
     this.route = route;
     let resolveOpened!: () => void;
-    let rejectOpened!: (info: TransportCloseInfo) => void;
+    let rejectOpened!: (info: RemoteLinkCloseInfo) => void;
     this.opened = new Promise<void>((resolve, reject) => {
       resolveOpened = resolve;
       rejectOpened = reject;
@@ -239,15 +316,13 @@ class NoiseTunnel {
 
   /** 握手；成功时给出 Host 的负载。失败时关掉管道并以 `RemoteHandshakeError` reject。 */
   start(keys: TunnelKeys, spec: HandshakeSpec): Promise<RemoteHostPayload> {
-    if (this.#phase !== 'open') {
-      return Promise.reject(new RemoteHandshakeError('rejected', this.route.key));
-    }
+    if (this.#phase !== 'open') return Promise.reject(this.#closedBeforeHandshake(this.#closeInfo));
     this.#phase = 'handshake';
     const prologue = remotePrologue({ host: keys.routeId });
     return new Promise<RemoteHostPayload>((resolve, reject) => {
       const timer = setTimeout(
         () => fail(new RemoteHandshakeError('timeout', this.route.key)),
-        REMOTE_HANDSHAKE_TIMEOUT_MS,
+        this.route.kind === 'relay' ? RELAY_HANDSHAKE_TIMEOUT_MS : REMOTE_HANDSHAKE_TIMEOUT_MS,
       );
       const fail = (error: Error) => {
         clearTimeout(timer);
@@ -284,8 +359,8 @@ class NoiseTunnel {
         fail(error instanceof Error ? error : new Error(String(error)));
         return;
       }
-      // 第一条消息之后对方就断开：不认这台设备（IK），或配对窗口已经不在（XXpsk2）。
-      this.#onHandshakeClose = () => fail(new RemoteHandshakeError('rejected', this.route.key));
+      // 第一条消息之后对方就断开：不认这台设备（IK），或配对窗口已经不在（XXpsk2）；经中继时也可能是中继说明了原因的关闭。
+      this.#onHandshakeClose = (info) => fail(this.#closedBeforeHandshake(info));
       this.#onHandshakeMessage = (data) => {
         let host: RemoteHostPayload;
         try {
@@ -353,6 +428,14 @@ class NoiseTunnel {
     this.#link.close(code, reason);
   }
 
+  /** 握手完成之前管道就关了：中继给了原因时是 `RelayRouteError`，否则当作对方拒绝。 */
+  #closedBeforeHandshake(info: RemoteLinkCloseInfo | undefined): Error {
+    const failure = relayFailureOf(this.route, info);
+    return failure !== undefined
+      ? new RelayRouteError(failure)
+      : new RemoteHandshakeError('rejected', this.route.key);
+  }
+
   #receive(data: Uint8Array): void {
     if (this.#phase === 'handshake') this.#onHandshakeMessage?.(data);
     else if (this.#phase === 'ready') {
@@ -398,7 +481,8 @@ interface RaceOptions {
 
 /**
  * 把路并行发起，第一个 `attempt` 成功的胜出、其余关掉。直连立刻开始，中继在 `fallbackDelayMs` 之后（或直连都已失败、发现也已结束时）
- * 开始；同一个 `key` 只试一次。全部失败时：有握手被拒的报 `RemoteHandshakeError`，否则 `RemoteUnreachableError`。
+ * 开始；同一个 `key` 只试一次。全部失败时：有握手被拒的报 `RemoteHandshakeError`，否则 `RemoteUnreachableError`（中继说明了原因时
+ * 带上它）。
  */
 function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
   return new Promise<NoiseTunnel>((resolve, reject) => {
@@ -410,6 +494,7 @@ function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
     let relaysAllowed = false;
     let settled = false;
     let handshakeError: RemoteHandshakeError | undefined;
+    let relayFailure: RemoteRelayFailure | undefined;
     const discovery = new AbortController();
 
     const finish = () => {
@@ -431,7 +516,7 @@ function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
         if (pending > 0) return;
       }
       finish();
-      reject(handshakeError ?? new RemoteUnreachableError([...tried]));
+      reject(handshakeError ?? new RemoteUnreachableError([...tried], relayFailure));
     };
     const start = (route: RemoteRoute) => {
       if (settled) return;
@@ -455,6 +540,7 @@ function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
         (error: unknown) => {
           pending -= 1;
           tunnels.delete(tunnel);
+          if (error instanceof RelayRouteError) relayFailure = error.failure;
           if (error instanceof RemoteHandshakeError) {
             // 公钥不符、秘密不对比“被拒”更能说明问题。
             if (handshakeError === undefined || handshakeError.reason === 'timeout')
@@ -501,12 +587,15 @@ function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
   });
 }
 
-/** 拿到一次 `opened` 的 reject 原因时，把它变成普通的失败。 */
+/** 拿到一次 `opened` 的 reject 原因时，把它变成普通的失败（中继说明了原因时是 `RelayRouteError`）。 */
 async function openedOrFail(tunnel: NoiseTunnel): Promise<void> {
   try {
     await tunnel.opened;
-  } catch {
-    throw new Error(`could not reach ${tunnel.route.key}`);
+  } catch (info) {
+    const failure = relayFailureOf(tunnel.route, info as RemoteLinkCloseInfo);
+    throw failure !== undefined
+      ? new RelayRouteError(failure)
+      : new Error(`could not reach ${tunnel.route.key}`);
   }
 }
 
@@ -516,7 +605,7 @@ export interface RemoteTransportOptions {
   host: RemoteHostKeys;
   /** 这台设备给这台电脑的 Noise 静态密钥（配对时生成）。 */
   device: KeyPair;
-  /** 每次连接尝试前调用：已知的路（上次成功的、Host 上次给的候选地址、中继）。 */
+  /** 每次连接尝试前调用：已知的路（上次成功的、Host 上次给的候选地址、`relayRoute`）。 */
   routes(): readonly RemoteRoute[] | Promise<readonly RemoteRoute[]>;
   /** 连接期间陆续找到的路（局域网 mDNS）。 */
   discover?: RemoteDiscovery;
@@ -622,7 +711,7 @@ export interface RemotePairingResult {
 /**
  * 配对（`XXpsk2`）：先并行连上各条路，只在第一条连上的路上握手（短码一次尝试就作废，配对窗口在握手中途断开就失败，所以不能
  * 在几条路上同时握手），然后发 `host.hello` 等电脑上允许。拒绝时以 `ConnectionLostError`（关闭码 4010）reject；短码或链接不对时
- * 以 `RemoteHandshakeError('wrong_secret')` reject。
+ * 以 `RemoteHandshakeError('wrong_secret')` reject；哪条路都没走通（经中继时含中继说明的原因）时以 `RemoteUnreachableError` reject。
  */
 export async function pairRemoteHost(options: RemotePairingOptions): Promise<RemotePairingResult> {
   const keys = tunnelKeys(options.host, options.device);
@@ -646,12 +735,20 @@ export async function pairRemoteHost(options: RemotePairingOptions): Promise<Rem
     fallbackDelayMs: options.fallbackDelayMs ?? REMOTE_FALLBACK_DELAY_MS,
     signal,
   });
-  const host = await tunnel.start(keys, {
-    kind: 'pair',
-    secret,
-    name: options.name,
-    platform: options.platform,
-  });
+  let host: RemoteHostPayload;
+  try {
+    host = await tunnel.start(keys, {
+      kind: 'pair',
+      secret,
+      name: options.name,
+      platform: options.platform,
+    });
+  } catch (error) {
+    // 经中继时电脑没开配对窗口是中继的 `HOST_REJECTED`，与直连的“连不上”同类。
+    if (error instanceof RelayRouteError)
+      throw new RemoteUnreachableError([tunnel.route.key], error.failure);
+    throw error;
+  }
   try {
     options.onAwaitingApproval?.({ route: tunnel.route, host });
   } catch {

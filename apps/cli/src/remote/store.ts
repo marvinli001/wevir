@@ -5,7 +5,7 @@ import { chmod, mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promi
 import { join } from 'node:path';
 import { bytesToBase64url } from '@wevir/client-sdk';
 import { generateKeyPair, type KeyPair, publicKeyFromSecretKey } from '@wevir/noise';
-import { PublicKeySchema } from '@wevir/protocol';
+import { PublicKeySchema, RelayUrlSchema } from '@wevir/protocol';
 import { CliError } from '../errors.js';
 import { t } from '../i18n/index.js';
 
@@ -31,10 +31,12 @@ export interface RemoteHostRecord {
   /** 这台设备给那台电脑的 Noise 私钥（X25519，base64url）。公钥由它算出。 */
   deviceSecretKey: string;
   candidates: StoredCandidate[];
-  /** 上次握手胜出的地址。 */
+  /** 上次直连胜出的地址。 */
   lastAddress?: { host: string; port: number };
-  /** 那台电脑开了中继时的地址（配对链接里的 `relay`）；中继还没有接上，只记下。 */
+  /** 那台电脑开了中继时的地址：配对链接里的 `relay`，之后按握手负载的 `relayUrl` 更新。 */
   relayUrl?: string;
+  /** 上次连上走的是直连还是中继。 */
+  lastRoute?: 'direct' | 'relay';
   pairedAt: string;
   lastConnectedAt?: string;
 }
@@ -125,6 +127,8 @@ function isRecord(value: unknown): value is RemoteHostRecord {
         typeof (c as StoredCandidate).host === 'string' &&
         Number.isInteger((c as StoredCandidate).port),
     ) &&
+    (r.relayUrl === undefined || RelayUrlSchema.safeParse(r.relayUrl).success) &&
+    (r.lastRoute === undefined || r.lastRoute === 'direct' || r.lastRoute === 'relay') &&
     typeof r.pairedAt === 'string'
   );
 }
