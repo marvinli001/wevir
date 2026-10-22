@@ -1,11 +1,13 @@
 // 传输层（ADR-0002 §7，Paseo A21）：client-sdk 只认 `TransportFactory`，不 import 任何 WebSocket 实现。
 // 调用方注入：浏览器与 Electron 渲染进程传全局 `WebSocket`，Node 传全局 `WebSocket`（Node ≥ 22）或
-// `ws` 包；将来经中继的加密传输也实现这个接口。
+// `ws` 包；远程连接的加密隧道（`remote.ts`，直连与中继）也实现这个接口。
 
 /** 连接关闭的信息。`code` 是 WebSocket 关闭码（host-api.md §8）；连接异常断开时为 1006。 */
 export interface TransportCloseInfo {
   code: number;
   reason: string;
+  /** 传输层自己知道的原因（例如远程连接哪条路都没连上），会成为 `ConnectionLostError` 的 `cause`。 */
+  cause?: Error;
 }
 
 /**

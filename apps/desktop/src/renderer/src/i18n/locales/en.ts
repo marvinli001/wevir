@@ -103,6 +103,8 @@ export const messages: Messages = {
   'clientError.feature_unavailable':
     'Background service is outdated and does not support this feature',
   'clientError.host_unavailable': 'Background service not running',
+  'clientError.remote_unreachable': 'Cannot reach that computer',
+  'clientError.remote_handshake': 'Handshake with that computer failed',
 
   'layout.expandSidebar': 'Show sidebar',
   'layout.collapseSidebar': 'Hide sidebar',

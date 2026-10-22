@@ -18,6 +18,7 @@ export const en: Messages = {
   'cli.globalHelp': `Global options:
   --home <dir>     Data directory, shared with the Host. Default: macOS ~/Library/Application Support/Wevir,
                    Windows %APPDATA%\\Wevir
+  --remote <name>  Run on a paired computer (wevir remote pair); session, inbox and list commands only
   -h, --help       Show help
   -v, --version    Show the version
 
@@ -31,6 +32,7 @@ Environment:
   'group.session': 'Sessions',
   'group.automation': 'Automations',
   'group.inbox': 'Inbox',
+  'group.remote': 'Remote computers',
 
   'usage.seeHelp': 'Run wevir --help',
   'usage.seeCommandHelp': 'Run wevir {command} --help',
@@ -42,6 +44,8 @@ Environment:
   'usage.missingArgs': 'Missing argument',
   'usage.homeMissing': '--home needs a directory',
   'usage.homeEmpty': '--home cannot be empty',
+  'usage.remoteMissing': '--remote needs the name of a computer',
+  'usage.notRemote': '{command} runs on this computer only and does not take --remote',
   'usage.missingWorkspace': 'Missing -w <path>',
   'usage.missingWorkspace.hint': 'Example: wevir session new -w . "<prompt>"',
 
@@ -125,6 +129,9 @@ Keys:
   Ctrl-C    Cancel the current run; press again to leave attach
   Ctrl-D    Leave attach; the session is kept
   /resume   Send held messages`,
+  'cmd.session.send.summary': 'Send a message to a session',
+  'cmd.session.send.usage': 'wevir session send <session ID> "<message>"',
+  'cmd.session.send.help': 'A unique prefix of the session ID is enough; does not attach',
   'cmd.inbox.list.summary':
     'List approvals, questions, failures and automations waiting across sessions',
   'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
@@ -132,6 +139,28 @@ Keys:
   'cmd.inbox.dismiss.usage': 'wevir inbox dismiss <ID>',
   'cmd.inbox.dismiss.help':
     'IDs come from wevir inbox; approvals and questions leave when answered and cannot be dismissed',
+  'cmd.inbox.respond.summary': 'Answer an approval',
+  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <answer>',
+  'cmd.inbox.respond.help': `ID from wevir inbox; the approval: prefix is optional
+
+Answers:
+  <number>      The option at that position
+  <option ID>   The option's ID
+  y / n         The first allow / reject option`,
+  'cmd.remote.pair.summary': 'Pair with Wevir on another computer',
+  'cmd.remote.pair.usage': 'wevir remote pair <pairing link or code> [options]',
+  'cmd.remote.pair.help': `The pairing link is the QR code content under Settings → Devices → Add device on that computer (wevir://pair?…); a short code needs both computers on the same local network
+After the handshake, click Allow on that computer
+
+Options:
+  --name <name>          Name kept on this computer, used with --remote; defaults to the computer's name
+  --device-name <name>   Name shown for this device on that computer; defaults to this host name`,
+  'cmd.remote.list.summary': 'List paired computers',
+  'cmd.remote.list.usage': 'wevir remote list [--json]',
+  'cmd.remote.forget.summary': 'Delete a paired computer and its key from this computer',
+  'cmd.remote.forget.usage': 'wevir remote forget <name>',
+  'cmd.remote.forget.help':
+    'Removes only the local record; remove the device on that computer under Settings → Devices',
   'cmd.automation.list.summary': 'List automations',
   'cmd.automation.list.usage': 'wevir automation list [--json]',
   'cmd.automation.show.summary': 'Show an automation’s settings and recent runs',
@@ -270,6 +299,27 @@ Also:
   'err.invalidParams.root': '(root)',
   'err.methodNotFound': 'Request not supported by the Host: {message}',
   'err.host': 'Host error: {message}',
+  'err.deviceForbidden': 'This device lacks permission on that computer: {permissions}',
+  'err.deviceForbidden.hint': 'Grant it to this device under Settings → Devices on that computer',
+  'err.remoteUnreachable': 'Cannot reach that computer (tried {addresses})',
+  'err.remoteNoAddress': 'No known address for that computer',
+  'err.remoteUnreachable.hint':
+    'Check that the computer is on with remote access turned on, and on the same network or Tailscale',
+  'err.remoteRejected': 'That computer rejected this device',
+  'err.remoteRejected.hint':
+    'This device may have been removed there; run wevir remote pair to pair again',
+  'err.remoteWrongSecret': 'Wrong or already used pairing code or link',
+  'err.remoteWrongSecret.hint': 'Add the device again on that computer',
+  'err.remoteHostMismatch': 'The other side is not the computer this device paired with',
+  'err.remoteHostMismatch.hint':
+    'If Wevir was reinstalled there, run wevir remote pair to pair again',
+  'err.remoteTimeout': '{address} did not complete the handshake',
+  'err.remoteTimeout.hint': 'Retry shortly',
+  'err.deviceRevoked': 'This device was removed on that computer',
+  'err.deviceRevoked.hint': 'Run wevir remote pair to pair again',
+  'err.pairingDenied': 'That computer denied the pairing',
+  'err.remoteDisabled': 'Remote access is off on that computer',
+  'err.remoteDisabled.hint': 'Turn on remote access under Settings → Devices on that computer',
 
   'state.idle': 'Idle',
   'state.running': 'Running',
@@ -428,6 +478,8 @@ Also:
   'session.workspaceAdded': 'Added workspace {name} ({path})',
   'session.created': 'Created session {id}',
   'session.sent': 'Sent; to see the output: wevir session attach {id}',
+  'session.remotePath': 'A workspace on a remote computer needs an absolute path: {path}',
+  'session.remotePath.hint': 'Give the full path on that computer, e.g. /Users/me/project',
   'session.noSuchProvider': 'Provider {id} not found',
   'session.noSuchProvider.hint': 'Run wevir provider list',
   'session.noProviders': 'No providers configured',
@@ -651,6 +703,46 @@ Options:
   'inbox.kind.question': 'Question',
   'inbox.kind.turn_failed': 'Failed',
   'inbox.kind.automation': 'Automation',
+  'inbox.notFound': 'No inbox item {id}',
+  'inbox.notFound.hint': 'Run wevir inbox',
+  'inbox.notApproval': '{id} is not an approval',
+  'inbox.notApproval.hint': 'Answer questions in wevir session attach',
+  'inbox.badAnswer': 'Unrecognized answer: {answer}',
+  'inbox.badAnswer.hint': 'Options: {options}; or y / n',
+  'inbox.responded': 'Answered {id}: {option}',
+
+  // commands/remote.ts
+  'remote.badName': 'Names use lowercase letters, digits and hyphens, up to 32 characters: {name}',
+  'remote.badDeviceName': 'Device name must be 1–{max} characters',
+  'remote.badLink': 'Invalid pairing link, or an unsupported version',
+  'remote.badLink.hint': 'Add the device again on that computer and copy the whole link',
+  'remote.badInput': 'Neither a pairing link nor a short code',
+  'remote.badInput.hint': 'Give a wevir://pair?… link, or the 8-character code (e.g. ABCD-EFGH)',
+  'remote.searching': 'Looking for computers on the local network…',
+  'remote.noneFound': 'No Wevir with remote access found on the local network',
+  'remote.noneFound.hint':
+    'Check that both computers are on the same network and that computer has remote access and LAN turned on; or use the pairing link',
+  'remote.awaitingApproval': 'Waiting for {host} to allow the pairing request from “{device}”…',
+  'remote.thatComputer': 'that computer',
+  'remote.nameTaken': 'Name {name} is used by another computer',
+  'remote.nameTaken.hint': 'Pick another --name, or run wevir remote forget {name} first',
+  'remote.paired': 'Paired with {host} as {name}',
+  'remote.permissions': 'Permissions: {permissions}',
+  'remote.pairedNext': 'Use: wevir --remote {name} session list',
+  'remote.none': 'No paired computers',
+  'remote.col.name': 'Name',
+  'remote.col.host': 'Computer',
+  'remote.col.address': 'Address',
+  'remote.col.connected': 'Last connected',
+  'remote.col.paired': 'Paired',
+  'remote.unknown': 'No paired computer named {name}',
+  'remote.unknown.hint': 'Run wevir remote list, or pair with wevir remote pair',
+  'remote.forgotten': 'Deleted {name}',
+  'remote.forgotten.note':
+    'The device record on that computer remains; remove it under Settings → Devices',
+  'remote.storeUnreadable': 'Cannot read the remote computer record {path}',
+  'remote.storeInvalid': 'Remote computer record is damaged: {path}',
+  'remote.storeInvalid.hint': 'Delete the file and pair again',
   'automation.unsupported': 'Host {version} does not support automations',
   'automation.unsupported.hint': 'Upgrade the Wevir Host (protocol 0.66.0 or later)',
   'automation.none': 'No automations',

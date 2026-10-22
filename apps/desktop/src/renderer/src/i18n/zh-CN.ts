@@ -111,6 +111,8 @@ export const zhCN = {
   'clientError.protocol': '协议错误',
   'clientError.feature_unavailable': '后台服务版本过旧，不支持此功能',
   'clientError.host_unavailable': '后台服务未运行',
+  'clientError.remote_unreachable': '连不上那台电脑',
+  'clientError.remote_handshake': '与那台电脑的握手未完成',
 
   'layout.expandSidebar': '显示侧栏',
   'layout.collapseSidebar': '隐藏侧栏',

@@ -104,6 +104,8 @@ export const messages: Messages = {
   'clientError.feature_unavailable':
     'バックグラウンドサービスが古いため、この機能に対応していません',
   'clientError.host_unavailable': 'バックグラウンドサービスが実行されていません',
+  'clientError.remote_unreachable': 'そのコンピューターに接続できません',
+  'clientError.remote_handshake': 'そのコンピューターとのハンドシェイクに失敗しました',
 
   'layout.expandSidebar': 'サイドバーを表示',
   'layout.collapseSidebar': 'サイドバーを非表示',

@@ -16,7 +16,9 @@ export type ClientErrorKind =
   | 'client_closed'
   | 'protocol'
   | 'feature_unavailable'
-  | 'host_unavailable';
+  | 'host_unavailable'
+  | 'remote_unreachable'
+  | 'remote_handshake';
 
 export abstract class WevirClientError extends Error {
   abstract readonly kind: ClientErrorKind;
@@ -125,10 +127,13 @@ export class ConnectionLostError extends WevirClientError {
     /** WebSocket 关闭码；本端放弃连接（心跳超时等）时为 undefined。 */
     readonly closeCode: number | undefined,
     readonly closeReason = '',
+    /** 传输层给的原因（`TransportCloseInfo.cause`），例如远程连接的 `RemoteUnreachableError`。 */
+    cause?: Error,
   ) {
     super(
       `connection to the Wevir Host was lost${method ? ` before ${method} completed` : ''}` +
         `${closeCode === undefined ? '' : ` (close code ${closeCode}${closeReason ? `: ${closeReason}` : ''})`}`,
+      cause === undefined ? undefined : { cause },
     );
   }
 }
@@ -187,5 +192,40 @@ export class HostUnavailableError extends WevirClientError {
           : `cannot read the Wevir Host runtime file ${path}`,
       options,
     );
+  }
+}
+
+/** 远程连接（0.109.0）：哪条路都没连上那台电脑（地址不通、电脑不在线、远程访问没开）。 */
+export class RemoteUnreachableError extends WevirClientError {
+  override readonly name = 'RemoteUnreachableError';
+  readonly kind = 'remote_unreachable';
+
+  constructor(
+    /** 试过的路（`RemoteRoute.key`）。 */
+    readonly tried: readonly string[],
+  ) {
+    super(
+      tried.length === 0
+        ? 'no address is known for the remote Wevir Host'
+        : `could not reach the remote Wevir Host at ${tried.join(', ')}`,
+    );
+  }
+}
+
+/**
+ * 远程连接（0.109.0）：连上了，但 Noise 握手没完成。`rejected` 是对方收下第一条消息就断开（这台设备已被移除、那边换了 Host
+ * 身份，或配对窗口已经结束）；`wrong_secret` 是配对时对方的回答解不开（短码或配对链接不对、已经用过）；`host_mismatch` 是对方
+ * 出示的 Host 公钥与记下的不一致，或回的不是 Wevir 的握手；`timeout` 是对方不答话。
+ */
+export class RemoteHandshakeError extends WevirClientError {
+  override readonly name = 'RemoteHandshakeError';
+  readonly kind = 'remote_handshake';
+
+  constructor(
+    readonly reason: 'rejected' | 'wrong_secret' | 'host_mismatch' | 'timeout',
+    /** 出事的那条路（`RemoteRoute.key`）。 */
+    readonly route: string,
+  ) {
+    super(`the remote Wevir Host at ${route} did not complete the handshake (${reason})`);
   }
 }

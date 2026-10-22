@@ -7,6 +7,7 @@ import {
   type BrowserResponse,
   type ClientCapabilities,
   type ClientIdentity,
+  CloseCode,
   type Device,
   DevicesChangedParamsSchema,
   EventsSubscribeResultSchema,
@@ -96,6 +97,8 @@ import {
   HostUnavailableError,
   isRpcError,
   ProtocolError,
+  RemoteHandshakeError,
+  RemoteUnreachableError,
   RequestTimeoutError,
   WevirRpcError,
 } from './errors.js';
@@ -290,6 +293,11 @@ interface ResultSchema {
 
 const ignore: CallHandlers = { onResult: () => {}, onError: () => {} };
 
+/** 关闭后不再重连的关闭码：远程设备被移除、配对被拒（host-api.md §8）。 */
+function isFinalCloseCode(code: number | undefined): boolean {
+  return code === CloseCode.DEVICE_REVOKED || code === CloseCode.PAIRING_DENIED;
+}
+
 /** 停在同一个 `seq` 上重新订阅的次数上限（见 `#resubscribe`）。 */
 const MAX_RESYNCS_WITHOUT_PROGRESS = 3;
 
@@ -424,6 +432,7 @@ export class WevirClient {
   }
 
   #readAccountList(watcher: AccountListWatcher): void {
+    if (!this.#allowed('account.list')) return;
     const before = watcher.updates;
     const read: Promise<AccountState[]> = this.supports('subscription_sources')
       ? this.request('account.list').then(({ accounts }) => accounts)
@@ -454,6 +463,7 @@ export class WevirClient {
     if (!this.supports(watcher.kind === 'chatgpt' ? 'chatgpt_account' : 'subscription_sources')) {
       return;
     }
+    if (!this.#allowed('account.get')) return;
     const before = watcher.updates;
     this.request('account.get', { kind: watcher.kind }).then(
       ({ account }) => {
@@ -495,7 +505,7 @@ export class WevirClient {
   }
 
   #readSettings(watcher: SettingsWatcher): void {
-    if (!this.supports('host_settings')) return;
+    if (!this.supports('host_settings') || !this.#allowed('settings.get')) return;
     const before = watcher.updates;
     this.request('settings.get').then(
       ({ settings }) => {
@@ -521,7 +531,7 @@ export class WevirClient {
   }
 
   #readPlugins(watcher: PluginsWatcher): void {
-    if (!this.supports('plugins')) return;
+    if (!this.supports('plugins') || !this.#allowed('plugins.list')) return;
     const before = ++watcher.updates;
     this.request('plugins.list').then(
       (plugins) => {
@@ -900,7 +910,7 @@ export class WevirClient {
   }
 
   #readMemory(watcher: MemoryWatcher): void {
-    if (!this.supports('memory')) return;
+    if (!this.supports('memory') || !this.#allowed('memory.list')) return;
     const before = ++watcher.updates;
     this.request(
       'memory.list',
@@ -947,7 +957,7 @@ export class WevirClient {
   }
 
   #registerBrowser(entry: BrowserProviderEntry): void {
-    if (!this.supports('browser_tools')) return;
+    if (!this.supports('browser_tools') || !this.#allowed('browser.register')) return;
     this.request('browser.register', { commands: [...entry.commands] }).catch((error: unknown) =>
       this.#warn('failed to register as a browser provider', { error }),
     );
@@ -984,6 +994,12 @@ export class WevirClient {
         },
       }),
     );
+  }
+
+  /** 这条连接能不能调 `method`（按注册表里它要的权限）。 */
+  #allowed(method: MethodName): boolean {
+    const permission = MethodSchemas[method].permission;
+    return permission === null || this.can(permission);
   }
 
   /** Host 是否声明了这项功能（host-api.md §10）。功能是否可用只在这里判断。 */
@@ -1156,6 +1172,17 @@ export class WevirClient {
     }
     if (error instanceof ProtocolError || error instanceof ClientClosedError)
       return { retry: false };
+    if (error instanceof ConnectionLostError) {
+      if (isFinalCloseCode(error.closeCode)) return { retry: false };
+      // 那台电脑不认这台设备了（已移除）或换了身份：重试只会累积握手失败、被那边限速，要重新配对。
+      if (error.cause instanceof RemoteHandshakeError && error.cause.reason !== 'timeout')
+        return { retry: false };
+      if (error.cause instanceof RemoteUnreachableError)
+        return { retry: 'normal', reason: 'host_unavailable' };
+      // 远程访问在那台电脑上被关掉了：等用户重新打开，慢速重试。
+      if (error.closeCode === CloseCode.REMOTE_DISABLED)
+        return { retry: 'auth', reason: 'connection_lost' };
+    }
     if (error instanceof ConnectTimeoutError) return { retry: 'normal', reason: 'connect_timeout' };
     if (error instanceof HostUnavailableError)
       return { retry: 'normal', reason: 'host_unavailable' };
@@ -1183,26 +1210,30 @@ export class WevirClient {
           this.#dispatch(request, connection);
         }
         this.#emit({ status: 'connected', hello: connection.hello });
+        // 重读与“重连上了”的回调都按这条连接的权限跳过做不了的（远程设备只有部分权限，调了只会回 DEVICE_FORBIDDEN）；
+        // 各 `#read*` 自己检查。
         for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
         for (const watcher of this.#accountListWatchers) this.#readAccountList(watcher);
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
         for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
         for (const watcher of this.#memoryWatchers) this.#readMemory(watcher);
-        if (this.supports('usage_stats')) this.#usageChanged();
-        if (this.supports('automations')) this.#automationsChanged(undefined);
-        if (this.supports('process_output')) this.#processesChanged(undefined);
-        if (this.supports('workspace_readiness')) this.#readinessChanged(undefined);
-        if (this.supports('dev_preview')) this.#previewChanged(undefined);
-        if (this.supports('speech')) this.#speechChanged(undefined);
-        if (this.supports('session_list_push')) this.#sessionsChanged(undefined);
-        if (this.supports('prevent_sleep')) this.#powerChanged(undefined);
-        if (this.supports('inbox')) this.#inboxChanged(undefined);
-        if (this.supports('remote_devices')) this.#remoteDevicesChanged(undefined);
-        if (this.supports('tuning')) this.#tuningChanged(undefined);
-        if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
-        if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
-        if (this.supports('lsp_status')) this.#lspChanged(undefined);
-        if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
+        const reread = (feature: HostFeature, method: MethodName) =>
+          this.supports(feature) && this.#allowed(method);
+        if (reread('usage_stats', 'usage.summary')) this.#usageChanged();
+        if (reread('automations', 'automation.list')) this.#automationsChanged(undefined);
+        if (reread('process_output', 'process.list')) this.#processesChanged(undefined);
+        if (reread('workspace_readiness', 'readiness.get')) this.#readinessChanged(undefined);
+        if (reread('dev_preview', 'preview.list')) this.#previewChanged(undefined);
+        if (reread('speech', 'speech.status')) this.#speechChanged(undefined);
+        if (reread('session_list_push', 'session.list')) this.#sessionsChanged(undefined);
+        if (reread('prevent_sleep', 'power.get')) this.#powerChanged(undefined);
+        if (reread('inbox', 'inbox.list')) this.#inboxChanged(undefined);
+        if (reread('remote_devices', 'device.list')) this.#remoteDevicesChanged(undefined);
+        if (reread('tuning', 'tuning.get')) this.#tuningChanged(undefined);
+        if (reread('tuning_guardrails', 'guardrail.list')) this.#guardrailsChanged(undefined);
+        if (reread('tuning_proposals', 'tuning.proposal.list')) this.#proposalsChanged(undefined);
+        if (reread('lsp_status', 'lsp.status')) this.#lspChanged(undefined);
+        if (reread('user_terminal', 'terminal.list')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         if (this.#notificationListeners.size > 0) this.#subscribeNotifications();
         if (this.#presence !== undefined) this.#sendPresence(this.#presence);
@@ -1235,18 +1266,24 @@ export class WevirClient {
     this.#connection = undefined;
     this.#routes.clear();
     for (const feed of this.#feeds) feed.detach();
+    const error = new ConnectionLostError(
+      undefined,
+      loss.kind === 'closed' ? loss.code : undefined,
+      loss.kind === 'closed'
+        ? loss.reason
+        : loss.kind === 'abandoned'
+          ? loss.reason
+          : 'heartbeat timeout',
+    );
+    // 远程设备被移除、配对被拒（0.109.0）：重连也握不上手，要重新配对。
+    if (isFinalCloseCode(error.closeCode)) {
+      this.#lifecycle.close(error);
+      return;
+    }
     this.#lifecycle.lost(
       connection,
       loss.kind === 'heartbeat_timeout' ? 'heartbeat_timeout' : 'connection_lost',
-      new ConnectionLostError(
-        undefined,
-        loss.kind === 'closed' ? loss.code : undefined,
-        loss.kind === 'closed'
-          ? loss.reason
-          : loss.kind === 'abandoned'
-            ? loss.reason
-            : 'heartbeat timeout',
-      ),
+      error,
     );
   }
 

@@ -15,7 +15,7 @@ export interface CallHandlers {
 
 /** 连接为什么没了。 */
 export type ChannelLoss =
-  | { kind: 'closed'; code: number; reason: string }
+  | { kind: 'closed'; code: number; reason: string; cause?: Error }
   | { kind: 'heartbeat_timeout' }
   | { kind: 'abandoned'; reason: string };
 
@@ -74,7 +74,13 @@ export class RpcChannel {
         this.#resolveOpened();
       },
       onMessage: (text) => this.#onMessage(text),
-      onClose: (info) => this.#lose({ kind: 'closed', code: info.code, reason: info.reason }),
+      onClose: (info) =>
+        this.#lose({
+          kind: 'closed',
+          code: info.code,
+          reason: info.reason,
+          ...(info.cause !== undefined && { cause: info.cause }),
+        }),
     });
   }
 
@@ -172,7 +178,8 @@ export class RpcChannel {
         : loss.kind === 'abandoned'
           ? loss.reason
           : 'heartbeat timeout';
-    if (wasOpening) this.#rejectOpened(new ConnectionLostError(undefined, code, reason));
+    const cause = loss.kind === 'closed' ? loss.cause : undefined;
+    if (wasOpening) this.#rejectOpened(new ConnectionLostError(undefined, code, reason, cause));
     const pending = [...this.#pending.values()];
     this.#pending.clear();
     for (const call of pending) {

@@ -23,6 +23,7 @@ export const zh = {
   'cli.globalHelp': `全局选项：
   --home <目录>    数据目录，与 Host 共用；默认 macOS ~/Library/Application Support/Wevir、
                    Windows %APPDATA%\\Wevir
+  --remote <名称>  在配对过的电脑上执行（wevir remote pair）；只用于会话、收件箱与列表类命令
   -h, --help       显示帮助
   -v, --version    显示版本
 
@@ -36,6 +37,7 @@ export const zh = {
   'group.session': '会话',
   'group.automation': '自动化',
   'group.inbox': '收件箱',
+  'group.remote': '远程电脑',
 
   'usage.seeHelp': '运行 wevir --help',
   'usage.seeCommandHelp': '运行 wevir {command} --help',
@@ -47,6 +49,8 @@ export const zh = {
   'usage.missingArgs': '缺少参数',
   'usage.homeMissing': '--home 缺少目录',
   'usage.homeEmpty': '--home 不能为空',
+  'usage.remoteMissing': '--remote 需要电脑的名称',
+  'usage.notRemote': '{command} 只能在本机执行，不支持 --remote',
   'usage.missingWorkspace': '缺少 -w <路径>',
   'usage.missingWorkspace.hint': '示例：wevir session new -w . "<提示>"',
 
@@ -127,11 +131,35 @@ export const zh = {
   Ctrl-C    取消当前运行；再按一次退出 attach
   Ctrl-D    退出 attach，会话保留
   /resume   发送暂停的消息`,
+  'cmd.session.send.summary': '给会话发一条消息',
+  'cmd.session.send.usage': 'wevir session send <会话 ID> "<消息>"',
+  'cmd.session.send.help': '会话 ID 可用唯一前缀；发送后不进入 attach',
   'cmd.inbox.list.summary': '列出所有会话里等处理的审批、提问、失败与自动化',
   'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
   'cmd.inbox.dismiss.summary': '收起一个失败的回合或自动化运行',
   'cmd.inbox.dismiss.usage': 'wevir inbox dismiss <ID>',
   'cmd.inbox.dismiss.help': 'ID 取自 wevir inbox；审批与提问回答后自己离开，不能收起',
+  'cmd.inbox.respond.summary': '回答一个审批',
+  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <回答>',
+  'cmd.inbox.respond.help': `ID 取自 wevir inbox，可省略 approval:
+
+回答：
+  <序号>      第几个选项
+  <选项 ID>   选项的 ID
+  y / n       第一个允许 / 拒绝的选项`,
+  'cmd.remote.pair.summary': '与另一台电脑上的 Wevir 配对',
+  'cmd.remote.pair.usage': 'wevir remote pair <配对链接或短码> [选项]',
+  'cmd.remote.pair.help': `配对链接是那台电脑 设置 → 设备 → 添加设备 里二维码的内容（wevir://pair?…）；短码要求两台电脑在同一局域网
+握手后在那台电脑上点“允许”
+
+选项：
+  --name <名称>          本机记下的名称，用于 --remote；默认取自电脑名称
+  --device-name <名称>   那台电脑上显示的本机名称；默认本机主机名`,
+  'cmd.remote.list.summary': '列出配对过的电脑',
+  'cmd.remote.list.usage': 'wevir remote list [--json]',
+  'cmd.remote.forget.summary': '删除本机记着的一台电脑与给它的密钥',
+  'cmd.remote.forget.usage': 'wevir remote forget <名称>',
+  'cmd.remote.forget.help': '只删本机的记录；那台电脑上的设备在 设置 → 设备 里移除',
   'cmd.automation.list.summary': '列出自动化',
   'cmd.automation.list.usage': 'wevir automation list [--json]',
   'cmd.automation.show.summary': '查看自动化的设置与最近运行',
@@ -266,6 +294,24 @@ export const zh = {
   'err.invalidParams.root': '(根)',
   'err.methodNotFound': 'Host 不支持此请求：{message}',
   'err.host': 'Host 返回错误：{message}',
+  'err.deviceForbidden': '本设备在那台电脑上没有权限：{permissions}',
+  'err.deviceForbidden.hint': '在那台电脑的 设置 → 设备 里给本设备加上权限',
+  'err.remoteUnreachable': '连不上那台电脑（试过 {addresses}）',
+  'err.remoteNoAddress': '那台电脑没有已知的地址',
+  'err.remoteUnreachable.hint': '确认那台电脑开着、开了远程访问，且在同一网络或 Tailscale 里',
+  'err.remoteRejected': '那台电脑拒绝了本设备',
+  'err.remoteRejected.hint': '本设备可能已在那台电脑上移除；运行 wevir remote pair 重新配对',
+  'err.remoteWrongSecret': '短码或配对链接不对，或已用过',
+  'err.remoteWrongSecret.hint': '在那台电脑上重新添加设备',
+  'err.remoteHostMismatch': '对方不是配对时的那台电脑',
+  'err.remoteHostMismatch.hint': '那台电脑重装过 Wevir 时运行 wevir remote pair 重新配对',
+  'err.remoteTimeout': '{address} 没有完成握手',
+  'err.remoteTimeout.hint': '稍后重试',
+  'err.deviceRevoked': '本设备已在那台电脑上移除',
+  'err.deviceRevoked.hint': '运行 wevir remote pair 重新配对',
+  'err.pairingDenied': '那台电脑拒绝了配对',
+  'err.remoteDisabled': '那台电脑关掉了远程访问',
+  'err.remoteDisabled.hint': '在那台电脑的 设置 → 设备 里打开远程访问',
 
   // format.ts：协议里的值
   'state.idle': '空闲',
@@ -420,6 +466,8 @@ export const zh = {
   'session.workspaceAdded': '已添加工作区 {name}（{path}）',
   'session.created': '已创建会话 {id}',
   'session.sent': '已发送；查看输出：wevir session attach {id}',
+  'session.remotePath': '远程电脑上的工作区须为绝对路径：{path}',
+  'session.remotePath.hint': '给出那台电脑上的完整路径，例如 /Users/me/project',
   'session.noSuchProvider': 'Provider {id} 不存在',
   'session.noSuchProvider.hint': '运行 wevir provider list 查看',
   'session.noProviders': '未配置 Provider',
@@ -640,6 +688,44 @@ export const zh = {
   'inbox.kind.question': '提问',
   'inbox.kind.turn_failed': '失败',
   'inbox.kind.automation': '自动化',
+  'inbox.notFound': '收件箱里没有 {id}',
+  'inbox.notFound.hint': '运行 wevir inbox 查看',
+  'inbox.notApproval': '{id} 不是审批',
+  'inbox.notApproval.hint': '提问在 wevir session attach 里回答',
+  'inbox.badAnswer': '认不出的回答：{answer}',
+  'inbox.badAnswer.hint': '可选：{options}；或 y / n',
+  'inbox.responded': '已回答 {id}：{option}',
+
+  // commands/remote.ts
+  'remote.badName': '名称只能用小写字母、数字与连字符，最长 32 个字符：{name}',
+  'remote.badDeviceName': '设备名称须为 1–{max} 个字符',
+  'remote.badLink': '配对链接无效或版本不受支持',
+  'remote.badLink.hint': '在那台电脑上重新添加设备，复制完整的链接',
+  'remote.badInput': '既不是配对链接也不是短码',
+  'remote.badInput.hint': '给出 wevir://pair?… 链接，或 8 位短码（如 ABCD-EFGH）',
+  'remote.searching': '正在局域网里查找电脑…',
+  'remote.noneFound': '局域网里没有找到开着远程访问的 Wevir',
+  'remote.noneFound.hint': '确认两台电脑在同一网络、那台电脑开了远程访问与局域网；或改用配对链接',
+  'remote.awaitingApproval': '等待 {host} 上允许“{device}”的配对请求…',
+  'remote.thatComputer': '那台电脑',
+  'remote.nameTaken': '名称 {name} 已被另一台电脑使用',
+  'remote.nameTaken.hint': '换一个 --name，或先 wevir remote forget {name}',
+  'remote.paired': '已与 {host} 配对，名称 {name}',
+  'remote.permissions': '权限：{permissions}',
+  'remote.pairedNext': '使用：wevir --remote {name} session list',
+  'remote.none': '暂无配对过的电脑',
+  'remote.col.name': '名称',
+  'remote.col.host': '电脑',
+  'remote.col.address': '地址',
+  'remote.col.connected': '最近连接',
+  'remote.col.paired': '配对时间',
+  'remote.unknown': '没有配对过名为 {name} 的电脑',
+  'remote.unknown.hint': '运行 wevir remote list 查看，或 wevir remote pair 配对',
+  'remote.forgotten': '已删除 {name}',
+  'remote.forgotten.note': '那台电脑上的设备记录仍在，在 设置 → 设备 里移除',
+  'remote.storeUnreadable': '读不了远程电脑的记录 {path}',
+  'remote.storeInvalid': '远程电脑的记录已损坏：{path}',
+  'remote.storeInvalid.hint': '删除这个文件后重新配对',
 
   // commands/automation.ts
   'automation.unsupported': 'Host {version} 不支持自动化',

@@ -59,6 +59,8 @@ export interface FakeRunOptions {
   env?: NodeJS.ProcessEnv;
   /** 命令行的语言（WEVIR_LANG），默认中文：断言按中文写，不受跑测试的机器的语言影响。 */
   lang?: 'zh' | 'en';
+  /** 局域网 mDNS 发现；默认什么都找不到（测试不往局域网发查询）。 */
+  browseMdns?: CliIO['browseMdns'];
 }
 
 /** 在进程内运行 `wevir <argv>`。 */
@@ -95,6 +97,7 @@ export function runFake(argv: string[], options: FakeRunOptions): FakeRun {
       interrupts.add(listener);
       return () => interrupts.delete(listener);
     },
+    browseMdns: options.browseMdns ?? (async () => []),
   };
   // 终端上输入框被擦掉重画；按终端的效果还原屏幕，而不是简单去掉控制字符。
   const text = () => (options.tty ? screen(out) : stripVTControlCharacters(out));

@@ -42,7 +42,7 @@ function isNodeBuiltin(specifier: string): boolean {
 }
 
 describe('构建产物', () => {
-  it('浏览器入口能到达的文件里没有 node: 导入与 Node 内置模块，外部依赖只有 @wevir/protocol', async () => {
+  it('浏览器入口能到达的文件里没有 node: 导入与 Node 内置模块，外部依赖只有 @wevir/protocol 与 @wevir/noise', async () => {
     const outDir = join(tempDir(), 'dist');
     await build({ cwd: packageDir, outDir, dts: false, logLevel: 'silent' });
 
@@ -51,7 +51,7 @@ describe('构建产物', () => {
     const specifiers = [...browser.values()].flat();
     expect(specifiers.filter(isNodeBuiltin)).toEqual([]);
     expect(new Set(specifiers.filter((s) => !s.startsWith('.')))).toEqual(
-      new Set(['@wevir/protocol']),
+      new Set(['@wevir/protocol', '@wevir/noise']),
     );
     // Node 的全局 `process`（协议里的 `process.*` 方法名不算）。
     const nodeGlobals =

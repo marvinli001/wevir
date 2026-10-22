@@ -107,6 +107,8 @@ export const messages: Messages = {
   'clientError.protocol': 'Error de protocolo',
   'clientError.feature_unavailable': 'Servicio en segundo plano obsoleto: función no compatible',
   'clientError.host_unavailable': 'El servicio en segundo plano no se está ejecutando',
+  'clientError.remote_unreachable': 'No se puede conectar con ese equipo',
+  'clientError.remote_handshake': 'Falló el protocolo de enlace con ese equipo',
 
   'layout.expandSidebar': 'Mostrar barra lateral',
   'layout.collapseSidebar': 'Ocultar barra lateral',

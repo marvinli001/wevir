@@ -1,9 +1,12 @@
 import { type ConnectionState, WevirClient, webSocketTransport } from '@wevir/client-sdk';
 import { readHostEndpoint } from '@wevir/client-sdk/node';
 import type { ClientIdentity } from '@wevir/protocol';
-import { describeError } from './errors.js';
+import { CliError, describeError } from './errors.js';
 import { t } from './i18n/index.js';
 import { loadCliIdentity } from './identity.js';
+import { connectRemoteHost, mdnsDiscovery } from './remote/connect.js';
+import type { browseWevirHosts } from './remote/mdns.js';
+import { findRemoteHost } from './remote/store.js';
 import { type Styles, stylesFor } from './style.js';
 
 export interface InputStream extends NodeJS.ReadableStream {
@@ -27,6 +30,8 @@ export interface CliIO {
   stderr: OutputStream;
   /** 订阅 SIGINT（终端不在 raw 模式时的 Ctrl-C），返回取消订阅的函数。 */
   onInterrupt(listener: () => void): () => void;
+  /** 局域网 mDNS 发现（远程电脑）；测试换掉，默认发真的查询。 */
+  browseMdns?: typeof browseWevirHosts;
 }
 
 export interface Context {
@@ -39,6 +44,12 @@ export interface Context {
   /** 写一行错误说明与建议到 stderr。 */
   printError(error: unknown): void;
   identity(): Promise<ClientIdentity>;
+  /** `--remote <名称>`：命令连到这台配对过的电脑，而不是本机 Host。 */
+  remote?: string;
+  /** 登记一个退出前要等完的写入（记回远程电脑的地址）。 */
+  track(write: Promise<unknown>): void;
+  /** 等登记的写入都结束。 */
+  settle(): Promise<void>;
 }
 
 export interface ConnectOptions {
@@ -52,6 +63,7 @@ export interface ConnectOptions {
  * 重连都重读，Host 重启换了端口与令牌也能接上。
  */
 export async function connect(ctx: Context, options: ConnectOptions = {}): Promise<WevirClient> {
+  if (ctx.remote !== undefined) return connectRemote(ctx, ctx.remote, options);
   await readHostEndpoint(ctx.home);
   const identity = await ctx.identity();
   return WevirClient.connect({
@@ -60,6 +72,31 @@ export async function connect(ctx: Context, options: ConnectOptions = {}): Promi
     identity,
     timeouts: { connectMs: options.connectMs ?? 5000 },
     ...(options.onStateChange && { onStateChange: options.onStateChange }),
+  });
+}
+
+/** 远程连接的时限：要并行试几个地址、做 Noise 握手，比本机 loopback 慢。 */
+const REMOTE_CONNECT_MS = 10_000;
+
+/** 连接配对过的电脑 `name`（`wevir remote pair` 记下的）。 */
+async function connectRemote(
+  ctx: Context,
+  name: string,
+  options: ConnectOptions,
+): Promise<WevirClient> {
+  const record = await findRemoteHost(ctx.home, name);
+  if (record === undefined) {
+    throw new CliError(t('remote.unknown', { name }), t('remote.unknown.hint'));
+  }
+  const browse = ctx.io.browseMdns;
+  return connectRemoteHost({
+    home: ctx.home,
+    record,
+    identity: await ctx.identity(),
+    connectMs: options.connectMs ?? REMOTE_CONNECT_MS,
+    ...(options.onStateChange && { onStateChange: options.onStateChange }),
+    ...(browse !== undefined && { discover: mdnsDiscovery(record.routeId, browse) }),
+    track: ctx.track,
   });
 }
 
@@ -76,14 +113,23 @@ export async function withClient<T>(
   }
 }
 
-export function createContext(io: CliIO, home: string): Context {
+export function createContext(io: CliIO, home: string, remote?: string): Context {
   const styles = stylesFor(io.stdout);
   const errStyles = stylesFor(io.stderr);
   let identity: Promise<ClientIdentity> | undefined;
+  const writes = new Set<Promise<unknown>>();
   return {
     io,
     home,
+    ...(remote !== undefined && { remote }),
     styles,
+    track: (write) => {
+      writes.add(write);
+      void write.finally(() => writes.delete(write));
+    },
+    settle: async () => {
+      while (writes.size > 0) await Promise.allSettled([...writes]);
+    },
     print: (text = '') => {
       io.stdout.write(`${text}\n`);
     },

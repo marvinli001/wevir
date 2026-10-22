@@ -199,6 +199,9 @@ importers:
       '@wevir/host':
         specifier: workspace:*
         version: link:../../packages/host
+      '@wevir/noise':
+        specifier: workspace:*
+        version: link:../../packages/noise
       '@wevir/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -459,6 +462,9 @@ importers:
 
   packages/client-sdk:
     dependencies:
+      '@wevir/noise':
+        specifier: workspace:*
+        version: link:../noise
       '@wevir/protocol':
         specifier: workspace:*
         version: link:../protocol

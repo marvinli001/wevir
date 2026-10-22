@@ -107,6 +107,8 @@ export const messages: Messages = {
   'clientError.protocol': 'Errore di protocollo',
   'clientError.feature_unavailable': 'Servizio in background obsoleto: funzione non supportata',
   'clientError.host_unavailable': 'Servizio in background non in esecuzione',
+  'clientError.remote_unreachable': 'Impossibile raggiungere il computer',
+  'clientError.remote_handshake': 'Handshake con il computer non riuscito',
 
   'layout.expandSidebar': 'Mostra barra laterale',
   'layout.collapseSidebar': 'Nascondi barra laterale',
