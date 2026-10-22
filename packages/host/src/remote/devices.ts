@@ -20,7 +20,8 @@ export interface DeviceIdentity {
 
 /**
  * 配对过的远程设备（domain-model §3.49，ADR-0017 §3–§4）：增（配对允许后）、改名称与权限、移除。变了就把全部设备交给 `watch` 的
- * 监听者（`devices.changed`）；移除时另外通知 `onRevoked` 的监听者，远程监听据此立即断开那台设备的连接。
+ * 监听者（`devices.changed`）；移除时另外通知 `onRevoked` 的监听者、改了权限时通知 `onPermissionsChanged` 的监听者，远程监听据此立即
+ * 断开那台设备的连接。
  */
 export class DeviceService {
   readonly #storage: Pick<Storage, 'devices'>;
@@ -28,6 +29,7 @@ export class DeviceService {
   readonly #now: () => Date;
   readonly #listeners = new Set<(devices: Device[]) => void>();
   readonly #revokedListeners = new Set<(deviceId: DeviceId) => void>();
+  readonly #permissionListeners = new Set<(deviceId: DeviceId) => void>();
 
   constructor(options: {
     storage: Pick<Storage, 'devices'>;
@@ -108,6 +110,9 @@ export class DeviceService {
       ...(permissions !== undefined && { permissions }),
     });
     this.#changed();
+    const changed =
+      permissions !== undefined && permissions.join(' ') !== device.permissions.join(' ');
+    if (changed) for (const listener of [...this.#permissionListeners]) listener(params.id);
     return this.#require(params.id);
   }
 
@@ -132,6 +137,15 @@ export class DeviceService {
   watch(listener: (devices: Device[]) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * 设备的权限改了时调用 `listener`（0.109.0）。连接的权限在 hello 时定下，远程监听据此断开那台设备的连接，让它重连后按新的权限
+   * 工作。返回退订函数。
+   */
+  onPermissionsChanged(listener: (deviceId: DeviceId) => void): () => void {
+    this.#permissionListeners.add(listener);
+    return () => this.#permissionListeners.delete(listener);
   }
 
   /** 设备被移除时调用 `listener`。返回退订函数。 */

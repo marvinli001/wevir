@@ -1,11 +1,20 @@
-import { DEFAULT_REMOTE_SETTINGS, type Device, type PairingOffer } from '@wevir/protocol';
+import {
+  DEFAULT_REMOTE_SETTINGS,
+  type Device,
+  type PairingOffer,
+  type RemoteInterface,
+} from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   formatCountdown,
+  interfaceLabel,
   type PairingDialogState,
   pairingDialogReducer,
+  parsePort,
   parseRelayUrl,
   remoteOf,
+  setLan,
+  toggleLanInterface,
   togglePermission,
   visibleDevices,
 } from './devices-model';
@@ -137,5 +146,67 @@ describe('添加手机弹窗', () => {
       pairingId: 'prg_1',
       reason: 'cancelled',
     });
+  });
+});
+
+describe('直连的网卡', () => {
+  const interfaces: RemoteInterface[] = [
+    {
+      name: 'en0',
+      family: 'IPv4',
+      kind: 'lan',
+      addresses: ['192.168.8.65'],
+      selected: false,
+      listening: [],
+    },
+    {
+      name: 'en1',
+      family: 'IPv4',
+      kind: 'lan',
+      addresses: ['192.168.8.64'],
+      selected: false,
+      listening: [],
+    },
+    {
+      name: 'utun4',
+      family: 'IPv4',
+      kind: 'tailscale',
+      addresses: ['100.101.102.103'],
+      selected: false,
+      listening: [],
+    },
+  ];
+  const on = { ...DEFAULT_REMOTE_SETTINGS, enabled: true };
+
+  it('第一次打开局域网：当前的局域网网卡都勾上，Tailscale 不进名单；再关掉保留名单', () => {
+    const lan = setLan(on, true, interfaces);
+    expect(lan.interfaces).toEqual({
+      lan: true,
+      tailscale: false,
+      lanInterfaces: [
+        { name: 'en0', family: 'IPv4' },
+        { name: 'en1', family: 'IPv4' },
+      ],
+    });
+    expect(setLan(lan, false, []).interfaces.lanInterfaces).toEqual(lan.interfaces.lanInterfaces);
+  });
+
+  it('勾选按网卡名 + 地址族，去掉 en1 只剩 en0；没有名单时从全部局域网网卡开始', () => {
+    const only = toggleLanInterface(on, { name: 'en1', family: 'IPv4' }, false, interfaces);
+    expect(only.interfaces.lanInterfaces).toEqual([{ name: 'en0', family: 'IPv4' }]);
+    const back = toggleLanInterface(only, { name: 'en1', family: 'IPv4' }, true, interfaces);
+    expect(back.interfaces.lanInterfaces).toEqual([
+      { name: 'en0', family: 'IPv4' },
+      { name: 'en1', family: 'IPv4' },
+    ]);
+    expect(interfaceLabel(interfaces[0] as RemoteInterface)).toBe('en0 · IPv4');
+  });
+
+  it('端口：空是默认，1024–65535 的整数', () => {
+    expect(parsePort('')).toEqual({});
+    expect(parsePort(' 47830 ')).toEqual({ port: 47_830 });
+    expect(parsePort('1024')).toEqual({ port: 1024 });
+    for (const bad of ['80', '65536', '4.5', 'abc', '-1'])
+      expect(parsePort(bad), bad).toBeUndefined();
   });
 });

@@ -33,6 +33,7 @@ import {
   type Permission,
   PROTOCOL_VERSION,
   parseProtocolVersion,
+  type RemoteStatus,
   type Session,
   type SessionId,
   SUBSCRIPTION_KINDS,
@@ -41,7 +42,7 @@ import {
   type WevirEvent,
 } from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
-import type { RawData, WebSocket } from 'ws';
+import type { RawData } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
 import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
@@ -103,6 +104,8 @@ export interface ConnectionHost {
   readonly remote?: {
     readonly devices: Pick<DeviceService, 'watch'>;
     readonly pairing: Pick<PairingService, 'watch'>;
+    /** 远程监听（0.109.0）：同样的连接收 `remote.changed`。 */
+    readonly listener?: { watch(listener: (status: RemoteStatus) => void): () => void };
   };
   /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接用它收 `notification.intent`。 */
   readonly notifications?: Pick<NotificationService, 'watch'>;
@@ -204,6 +207,30 @@ interface Subscription {
 }
 
 /**
+ * `RpcConnection` 用到的 WebSocket 的部分。本机连接直接是 `ws` 的 WebSocket；远程连接（0.109.0，remote/noise-socket.ts）是 Noise
+ * 解密之后的帧，`message` 一律是文本。
+ */
+export interface RpcSocket {
+  readonly bufferedAmount: number;
+  on(event: 'message', listener: (data: RawData, isBinary: boolean) => void): unknown;
+  on(event: 'ping' | 'pong', listener: () => void): unknown;
+  on(event: 'close', listener: () => void): unknown;
+  on(event: 'error', listener: (error: Error) => void): unknown;
+  send(data: string, cb?: (error?: Error) => void): void;
+  close(code: number, reason: string): void;
+  terminate(): void;
+}
+
+/**
+ * 远程连接的来历（0.109.0，ADR-0017 §4）：Noise 握手认出的设备。hello 时不查令牌，按 `grant()` 取设备当时的权限；设备已经不在
+ * （移除了）时 `grant()` 返回 undefined，hello 以 `UNAUTHORIZED` 失败。
+ */
+export interface RemoteOrigin {
+  readonly deviceId: string;
+  grant(): ConnectionGrant | undefined;
+}
+
+/**
  * 一条 WebSocket 连接上的 JSON-RPC 会话（host-api.md §2–§4、§12）。
  *
  * - **握手。** 第一个请求必须是 `host.hello`，按 §2 的顺序检查：帧、方法、协议版本、参数、令牌；
@@ -216,8 +243,9 @@ interface Subscription {
  * - 连接关闭时丢弃它的全部订阅，不为断开的客户端保留任何状态。
  */
 export class RpcConnection {
-  readonly #ws: WebSocket;
+  readonly #ws: RpcSocket;
   readonly #host: ConnectionHost;
+  readonly #remote: RemoteOrigin | undefined;
   readonly #limits: ConnectionLimits;
   #phase: Phase = 'hello';
   #client: ClientIdentity | undefined;
@@ -288,9 +316,10 @@ export class RpcConnection {
     this.#resolveClosed = resolve;
   });
 
-  constructor(ws: WebSocket, host: ConnectionHost) {
+  constructor(ws: RpcSocket, host: ConnectionHost, remote?: RemoteOrigin) {
     this.#ws = ws;
     this.#host = host;
+    this.#remote = remote;
     this.#limits = host.limits;
     ws.on('message', (data, isBinary) => this.#onMessage(data, isBinary));
     // 客户端发 WebSocket 协议层的 ping / pong 也算“收到一帧”。
@@ -403,7 +432,13 @@ export class RpcConnection {
       return;
     }
     const hello = parsed.data;
-    if (!timingSafeEqual(sha256(hello.token), this.#host.tokenDigest)) {
+    // 远程连接的身份来自 Noise 握手，不看令牌（0.109.0）。
+    const remoteGrant = this.#remote?.grant();
+    if (
+      this.#remote === undefined
+        ? !timingSafeEqual(sha256(hello.token), this.#host.tokenDigest)
+        : remoteGrant === undefined
+    ) {
       this.#reject(id, 'UNAUTHORIZED', 'unauthorized', 'UNAUTHORIZED');
       return;
     }
@@ -420,7 +455,7 @@ export class RpcConnection {
     };
     this.#capabilities = hello.capabilities;
     this.#protocolVersion = negotiation.protocolVersion;
-    this.#grant = this.#host.testConnectionGrant?.(this.#client) ?? LOCAL_GRANT;
+    this.#grant = remoteGrant ?? this.#host.testConnectionGrant?.(this.#client) ?? LOCAL_GRANT;
     this.#permissions = new Set(this.#grant.permissions);
     this.#phase = 'ready';
     clearTimeout(this.#helloTimer);
@@ -631,7 +666,7 @@ export class RpcConnection {
           );
         }
         if (method.startsWith('inbox.')) this.#watchInbox();
-        if (method.startsWith('device.') || method.startsWith('pairing.')) this.#watchRemote();
+        if (/^(device|pairing|remote)\./.test(method)) this.#watchRemote();
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
@@ -895,8 +930,8 @@ export class RpcConnection {
   }
 
   /**
-   * 调过 `device.*` 或 `pairing.*` 的连接之后收 `devices.changed`、`pairing.request` 与 `pairing.ended`（0.107.0，domain-model §3.49），
-   * 连接关闭即止。只有本机连接调得了这些方法。
+   * 调过 `device.*`、`pairing.*` 或 `remote.*` 的连接之后收 `devices.changed`、`pairing.request`、`pairing.ended`（0.107.0，
+   * domain-model §3.49）与 `remote.changed`（0.109.0），连接关闭即止。只有本机连接调得了这些方法。
    */
   #watchRemote(): void {
     const remote = this.#host.remote;
@@ -909,9 +944,13 @@ export class RpcConnection {
       if (event.type === 'request') this.#notify('pairing.request', event.request);
       else this.#notify('pairing.ended', event.ended);
     });
+    const unwatchListener = remote.listener?.watch((status) =>
+      this.#notify('remote.changed', status),
+    );
     this.#unwatchRemote = () => {
       unwatchDevices();
       unwatchPairing();
+      unwatchListener?.();
     };
   }
 

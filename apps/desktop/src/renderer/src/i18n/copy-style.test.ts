@@ -80,6 +80,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   // 安全提醒：给手机终端与审批策略的权限等于让它在这台电脑上执行命令、放开审批，授予前必须看到。
   'settings.devices.grantBody.terminal',
   'settings.devices.grantBody.policy',
+  // 配置事实：第一次在局域网地址上监听时系统防火墙可能弹窗，不写会以为手机连不上是出了错。
+  'settings.devices.firewallNote',
 ]);
 
 /** 口语、解释腔与举例的写法。 */

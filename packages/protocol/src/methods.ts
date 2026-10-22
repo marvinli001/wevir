@@ -67,6 +67,9 @@ import {
   PairingRespondResultSchema,
   PairingStartParamsSchema,
   PairingStartResultSchema,
+  RemoteChangedParamsSchema,
+  RemoteStatusParamsSchema,
+  RemoteStatusResultSchema,
 } from './devices.js';
 import {
   AccountKindSchema,
@@ -334,7 +337,7 @@ const EmptySchema = z.object({});
 // ── host.* ────────────────────────────────────────────────────────────
 
 export const HostHelloParamsSchema = z.object({
-  /** `run/host.json` 里的令牌。 */
+  /** `run/host.json` 里的令牌。远程连接（0.109.0）不检查它：Noise 握手已经认证了设备，填任意非空字符串。 */
   token: z.string().min(1),
   protocolVersion: ProtocolVersionSchema,
   clientKind: ClientKindSchema,
@@ -2595,6 +2598,12 @@ export const MethodSchemas = {
     result: PairingRespondResultSchema,
     permission: 'host.manage',
   },
+  /** 远程监听的状态（0.109.0）：认出的网卡、在监听的地址、端口与连接数。同样只有本机连接能调。 */
+  'remote.status': {
+    params: RemoteStatusParamsSchema,
+    result: RemoteStatusResultSchema,
+    permission: 'host.manage',
+  },
   /** 审批规则（0.80.0）。 */
   'approvalRule.list': {
     params: ApprovalRuleListParamsSchema,
@@ -2808,6 +2817,8 @@ export const NotificationSchemas = {
   'pairing.request': { params: PairingRequestParamsSchema },
   /** 同上（0.107.0）：配对窗口结束。 */
   'pairing.ended': { params: PairingEndedParamsSchema },
+  /** 发给调用过 `remote.status` 的连接（0.109.0）：远程监听的状态变了。 */
+  'remote.changed': { params: RemoteChangedParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2866,6 +2877,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'devices.changed': 'host.manage',
   'pairing.request': 'host.manage',
   'pairing.ended': 'host.manage',
+  'remote.changed': 'host.manage',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',

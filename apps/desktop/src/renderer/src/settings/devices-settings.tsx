@@ -1,5 +1,12 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { Device, Permission, RemoteSettings } from '@wevir/protocol';
+import {
+  type Device,
+  type Permission,
+  REMOTE_DEFAULT_PORT,
+  type RemoteInterface,
+  type RemoteSettings,
+  type RemoteStatus,
+} from '@wevir/protocol';
 import { Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -15,11 +22,15 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { formatRelativeTime } from '@/session/subagent-model';
 import {
   DEVICE_PERMISSION_ORDER,
+  interfaceLabel,
   PERMISSION_LABEL,
   PLATFORM_LABEL,
+  parsePort,
   parseRelayUrl,
   RISKY_DEVICE_PERMISSIONS,
   remoteOf,
+  setLan,
+  toggleLanInterface,
   togglePermission,
   visibleDevices,
 } from './devices-model';
@@ -40,8 +51,9 @@ const RISK_BODY: Partial<Record<Permission, PlainMessageKey>> = {
 };
 
 /**
- * 设置 → 设备（0.107.0，domain-model §3.49，desktop-layout.md）：远程访问的总开关、直连的网卡（远程监听还没有，暂不可用）、中继与自定义
- * 地址；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要确认）、移除。远程访问默认关。
+ * 设置 → 设备（0.107.0，domain-model §3.49，desktop-layout.md）：远程访问的总开关、直连的网卡与端口（0.109.0，Host 功能
+ * `remote_listener`；旧 Host 显示为不可用）、中继与自定义地址；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要
+ * 确认）、移除。远程访问默认关。网卡逐块列出名称与地址，让用户确认（`100.64/10` 也可能是别的 VPN）。
  */
 export function DevicesSettings() {
   const { client, view } = useHostConnection();
@@ -51,7 +63,9 @@ export function DevicesSettings() {
     view.status === 'connected' &&
     hostSupports(view.hello.features, 'remote_devices');
   const remote = remoteOf(settings);
+  const listenerSupported = supported && hostSupports(view.hello.features, 'remote_listener');
   const [devices, setDevices] = useState<Device[]>();
+  const [status, setStatus] = useState<RemoteStatus>();
   const [notice, setNotice] = useState<Notice>();
   const [saving, setSaving] = useState(false);
   const [pairing, setPairing] = useState(false);
@@ -65,10 +79,11 @@ export function DevicesSettings() {
     if (!client || !supported) return;
     try {
       setDevices((await client.request('device.list', {})).devices);
+      if (listenerSupported) setStatus(await client.request('remote.status', {}));
     } catch (reason) {
       setNotice({ tone: 'error', text: t('settings.devices.failed', { error: describe(reason) }) });
     }
-  }, [client, supported]);
+  }, [client, supported, listenerSupported]);
 
   useEffect(() => {
     void load();
@@ -79,6 +94,7 @@ export function DevicesSettings() {
     return client.onRemoteDevicesChanged((change) => {
       if (change === undefined) void load();
       else if (change.kind === 'devices') setDevices(change.devices);
+      else if (change.kind === 'listener') setStatus(change.status);
     });
   }, [client, supported, load]);
 
@@ -139,23 +155,72 @@ export function DevicesSettings() {
               />
             }
           />
-          {/* 直连监听还没有：网卡的选择先存不了，显示为不可用。 */}
-          {(['lan', 'tailscale'] as const).map((key) => (
-            <SettingsRow
-              key={key}
-              title={t(key === 'lan' ? 'settings.devices.lan' : 'settings.devices.tailscale')}
-              description={t('settings.devices.unavailable')}
-              data-setting={`remote-${key}`}
-              control={
-                <Switch
-                  label={t(key === 'lan' ? 'settings.devices.lan' : 'settings.devices.tailscale')}
-                  checked={remote.interfaces[key]}
-                  disabled
-                  onChange={() => {}}
+          {(['lan', 'tailscale'] as const).map((key) => {
+            const label = t(key === 'lan' ? 'settings.devices.lan' : 'settings.devices.tailscale');
+            const listed = status?.interfaces.filter((entry) => entry.kind === key) ?? [];
+            return (
+              <div key={key}>
+                <SettingsRow
+                  title={label}
+                  description={
+                    !listenerSupported
+                      ? t('settings.devices.unavailable')
+                      : listed.length === 0
+                        ? t(
+                            key === 'lan'
+                              ? 'settings.devices.noLan'
+                              : 'settings.devices.noTailscale',
+                          )
+                        : undefined
+                  }
+                  data-setting={`remote-${key}`}
+                  control={
+                    <Switch
+                      label={label}
+                      checked={remote.interfaces[key]}
+                      disabled={!listenerSupported || saving}
+                      onChange={(enabled) =>
+                        void saveRemote(
+                          key === 'lan'
+                            ? setLan(remote, enabled, status?.interfaces ?? [])
+                            : {
+                                ...remote,
+                                interfaces: { ...remote.interfaces, tailscale: enabled },
+                              },
+                        )
+                      }
+                    />
+                  }
                 />
-              }
+                {listenerSupported &&
+                  listed.map((entry) => (
+                    <InterfaceRow
+                      key={`${entry.name}/${entry.family}`}
+                      entry={entry}
+                      magicDnsName={key === 'tailscale' ? status?.magicDnsName : undefined}
+                      checkable={key === 'lan' && remote.interfaces.lan}
+                      disabled={saving}
+                      onToggle={(checked) =>
+                        void saveRemote(
+                          toggleLanInterface(remote, entry, checked, status?.interfaces ?? []),
+                        )
+                      }
+                    />
+                  ))}
+              </div>
+            );
+          })}
+          {listenerSupported && (
+            <PortRow
+              port={remote.port}
+              error={status?.error}
+              disabled={saving}
+              onSave={(port) => {
+                const { port: _previous, ...rest } = remote;
+                return saveRemote({ ...rest, ...(port !== undefined && { port }) });
+              }}
             />
-          ))}
+          )}
         </div>
       </SettingsSection>
 
@@ -270,6 +335,98 @@ export function DevicesSettings() {
         {granting && t(RISK_BODY[granting.permission] ?? 'settings.devices.grantBody.policy')}
       </ConfirmDialog>
     </>
+  );
+}
+
+/** 一块网卡：名称与地址族、地址（在监听的标出来）；局域网网卡可以勾选，Tailscale 的只列出来确认。 */
+function InterfaceRow({
+  entry,
+  magicDnsName,
+  checkable,
+  disabled,
+  onToggle,
+}: {
+  entry: RemoteInterface;
+  magicDnsName: string | undefined;
+  checkable: boolean;
+  disabled: boolean;
+  onToggle: (checked: boolean) => void;
+}) {
+  const addresses = [...entry.addresses, ...(magicDnsName !== undefined ? [magicDnsName] : [])];
+  return (
+    <div
+      className="flex min-h-10 items-center gap-2.5 py-2 pr-4 pl-8 text-sm"
+      data-interface={`${entry.name}/${entry.family}`}
+    >
+      {checkable && (
+        <Checkbox
+          size="sm"
+          aria-label={interfaceLabel(entry)}
+          checked={entry.selected}
+          disabled={disabled}
+          onCheckedChange={(checked) => onToggle(checked)}
+        />
+      )}
+      <span className="shrink-0 font-medium">{interfaceLabel(entry)}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+        {addresses.join(', ')}
+      </span>
+      {entry.listening.length > 0 && (
+        <span className="shrink-0 text-xs text-muted-foreground" data-listening>
+          {t('settings.devices.listening')}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PortRow({
+  port,
+  error,
+  disabled,
+  onSave,
+}: {
+  port: number | undefined;
+  error: RemoteStatus['error'];
+  disabled: boolean;
+  onSave: (port: number | undefined) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(port === undefined ? '' : String(port));
+  useEffect(() => setDraft(port === undefined ? '' : String(port)), [port]);
+  const parsed = parsePort(draft);
+  const commit = () => {
+    if (parsed === undefined || parsed.port === port) return;
+    void onSave(parsed.port);
+  };
+  const description =
+    parsed === undefined
+      ? t('settings.devices.portInvalid')
+      : error?.reason === 'port_in_use'
+        ? t('settings.devices.portInUse', { port: port ?? REMOTE_DEFAULT_PORT })
+        : error !== undefined
+          ? t('settings.devices.bindFailed', { error: error.message })
+          : t('settings.devices.firewallNote');
+  return (
+    <SettingsRow
+      title={t('settings.devices.port')}
+      description={description}
+      data-setting="remote-port"
+      control={
+        <Input
+          className="w-28"
+          value={draft}
+          disabled={disabled}
+          inputMode="numeric"
+          placeholder={String(REMOTE_DEFAULT_PORT)}
+          aria-label={t('settings.devices.port')}
+          aria-invalid={parsed === undefined}
+          spellCheck={false}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => event.key === 'Enter' && commit()}
+        />
+      }
+    />
   );
 }
 

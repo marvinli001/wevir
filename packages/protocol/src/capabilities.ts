@@ -466,6 +466,11 @@ export const HOST_FEATURES = {
    * 回退。有建议服务（`tuning_proposals`）时声明。
    */
   tuningAuto: 'tuning_auto',
+  /**
+   * 直连的远程监听（0.109.0，ADR-0017 §1）：设置 `remote.port` 与 `remote.interfaces.lanInterfaces`、`remote.status` 与
+   * `remote.changed`，配对窗口带上直连的候选地址。与引擎无关。
+   */
+  remoteListener: 'remote_listener',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -561,6 +566,7 @@ export const HostFeaturesSchema = z.looseObject({
   notification_intents: z.boolean().optional(),
   remote_devices: z.boolean().optional(),
   tuning_auto: z.boolean().optional(),
+  remote_listener: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

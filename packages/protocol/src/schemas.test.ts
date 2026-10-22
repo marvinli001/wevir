@@ -271,6 +271,8 @@ import {
   quotedOpinion,
   readinessReport,
   readOnlySession,
+  remoteOffSample,
+  remoteStatusSample,
   repairChain,
   repoHook,
   reportedTask,
@@ -4064,6 +4066,77 @@ const standaloneCases: Case[] = [
     schema: protocol.PairingOfferSchema,
     valid: [pairingOfferSample],
     invalid: [{ ...pairingOfferSample, candidates: undefined }],
+  },
+  // 0.109.0：远程监听。
+  {
+    name: 'RemoteInterfaceRef',
+    schema: protocol.RemoteInterfaceRefSchema,
+    valid: [
+      { name: 'en0', family: 'IPv4' },
+      { name: 'Wi-Fi', family: 'IPv6' },
+    ],
+    invalid: [{ name: '', family: 'IPv4' }, { name: 'en0' }, { name: 'en0', family: 'ipv4' }],
+  },
+  {
+    name: 'RemoteSettings 0.109.0',
+    schema: protocol.RemoteSettingsSchema,
+    valid: [
+      {
+        ...protocol.DEFAULT_REMOTE_SETTINGS,
+        enabled: true,
+        interfaces: { lan: true, tailscale: false, lanInterfaces: [] },
+        port: 1024,
+      },
+    ],
+    invalid: [
+      { ...protocol.DEFAULT_REMOTE_SETTINGS, port: 1023 },
+      { ...protocol.DEFAULT_REMOTE_SETTINGS, port: 65_536 },
+      { ...protocol.DEFAULT_REMOTE_SETTINGS, port: 4.5 },
+    ],
+  },
+  {
+    name: 'NetworkFamily',
+    schema: protocol.NetworkFamilySchema,
+    valid: ['IPv4', 'IPv6'],
+    invalid: ['ipv4', 4],
+  },
+  {
+    name: 'RemoteInterface',
+    schema: protocol.RemoteInterfaceSchema,
+    valid: remoteStatusSample.interfaces,
+    invalid: [{ ...remoteStatusSample.interfaces[0], kind: 'public' }],
+  },
+  {
+    name: 'RemoteListenerError',
+    schema: protocol.RemoteListenerErrorSchema,
+    valid: [{ reason: 'bind_failed', message: 'permission denied' }],
+    invalid: [{ reason: 'address_unavailable', message: '' }],
+  },
+  {
+    name: 'RemoteHostPayload',
+    schema: protocol.RemoteHostPayloadSchema,
+    valid: [
+      { protocolVersion: '0.109.0', candidates: [] },
+      {
+        protocolVersion: '0.109.0',
+        hostName: 'Mac',
+        candidates: [{ kind: 'lan', host: '192.168.1.20', port: 47_830 }],
+        later: 1,
+      },
+    ],
+    invalid: [{ candidates: [] }, { protocolVersion: '0.109.0' }],
+  },
+  {
+    name: 'RemoteDevicePayload',
+    schema: protocol.RemoteDevicePayloadSchema,
+    valid: [{ name: 'iPhone', platform: 'ios' }],
+    invalid: [{ name: '', platform: 'ios' }, { name: 'iPhone' }, { name: 'x', platform: 'web' }],
+  },
+  {
+    name: 'RemoteStatus',
+    schema: protocol.RemoteStatusSchema,
+    valid: [remoteStatusSample, remoteOffSample],
+    invalid: [{ ...remoteStatusSample, advertising: undefined }],
   },
   {
     name: 'NotificationAutomationStatus',

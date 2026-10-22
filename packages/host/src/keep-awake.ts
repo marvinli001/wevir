@@ -11,7 +11,7 @@ interface SessionActivity {
  *
  * “有回合在跑”照桌面端原来的判定：某个会话 `running` 且没有未答的问题，或 `cancelling`；等审批、等回答不算。状态从会话事件
  * （`session.state_changed`、`question.requested` / `question.resolved`）逐个会话记下，不扫全部会话；Host 启动时没有回合在跑。
- * `hold()` 是内部入口，留给下一阶段的“有远程设备连着”。值变了时通知 `watch` 的监听者（`power.changed`）。
+ * `hold()` 是内部入口：远程监听（0.109.0）在每条远程连接连着期间各持一个。值变了时通知 `watch` 的监听者（`power.changed`）。
  */
 export class KeepAwake {
   readonly #sessions = new Map<SessionId, SessionActivity>();
@@ -70,7 +70,7 @@ export class KeepAwake {
     this.#update();
   }
 
-  /** 内部的保持请求（下一阶段：有远程设备连着）；返回释放函数，可重复调用。 */
+  /** 内部的保持请求（有远程设备连着，remote/listener.ts）；返回释放函数，可重复调用。 */
   hold(reason: string): () => void {
     const key = Symbol(reason);
     this.#holds.set(key, reason);

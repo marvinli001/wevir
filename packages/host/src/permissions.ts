@@ -62,9 +62,9 @@ export const PARAM_PERMISSION_RULES: ParamPermissionRules = {
   ],
 };
 
-/** 只有本机连接能调的方法（0.107.0）：设备与配对的管理。远程设备即使有 `host.manage` 也不行。 */
+/** 只有本机连接能调的方法（0.107.0）：设备与配对的管理，以及远程监听的状态（0.109.0）。远程设备即使有 `host.manage` 也不行。 */
 export function isLocalOnlyMethod(method: MethodName): boolean {
-  return method.startsWith('device.') || method.startsWith('pairing.');
+  return /^(device|pairing|remote)\./.test(method);
 }
 
 /** 方法本身要的权限里这条连接缺的（0 或 1 个）。 */

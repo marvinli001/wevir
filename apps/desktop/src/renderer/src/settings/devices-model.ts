@@ -6,7 +6,10 @@ import {
   type PairingOffer,
   type PairingRequest,
   type Permission,
+  REMOTE_PORT_MIN,
   RelayUrlSchema,
+  type RemoteInterface,
+  type RemoteInterfaceRef,
   type RemoteSettings,
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
@@ -71,6 +74,53 @@ export function parseRelayUrl(input: string): { url?: string } | undefined {
   const value = input.trim();
   if (value === '') return {};
   return RelayUrlSchema.safeParse(value).success ? { url: value } : undefined;
+}
+
+// ── 直连的网卡（0.109.0）────────────────────────────────────────────
+
+/** 设置页列出的一块网卡：`en0 · IPv4`。 */
+export function interfaceLabel(entry: Pick<RemoteInterface, 'name' | 'family'>): string {
+  return `${entry.name} · ${entry.family}`;
+}
+
+/** 打开或关掉局域网监听。第一次打开时把当前认出的局域网网卡都记成勾选，之后新出现的网卡要手动勾。 */
+export function setLan(
+  remote: RemoteSettings,
+  enabled: boolean,
+  interfaces: readonly RemoteInterface[],
+): RemoteSettings {
+  const lanInterfaces =
+    remote.interfaces.lanInterfaces ??
+    interfaces
+      .filter((entry) => entry.kind === 'lan')
+      .map(({ name, family }) => ({ name, family }));
+  return { ...remote, interfaces: { ...remote.interfaces, lan: enabled, lanInterfaces } };
+}
+
+/** 勾上或去掉一块局域网网卡（按网卡名 + 地址族记）。没有 `lanInterfaces` 时从当前认出的全部局域网网卡开始。 */
+export function toggleLanInterface(
+  remote: RemoteSettings,
+  target: RemoteInterfaceRef,
+  checked: boolean,
+  interfaces: readonly RemoteInterface[],
+): RemoteSettings {
+  const current: RemoteInterfaceRef[] =
+    remote.interfaces.lanInterfaces ??
+    interfaces
+      .filter((entry) => entry.kind === 'lan')
+      .map(({ name, family }) => ({ name, family }));
+  const rest = current.filter((ref) => ref.name !== target.name || ref.family !== target.family);
+  const lanInterfaces = checked ? [...rest, { name: target.name, family: target.family }] : rest;
+  return { ...remote, interfaces: { ...remote.interfaces, lanInterfaces } };
+}
+
+/** 端口输入：空串是默认端口（省略 `port`），不合法时返回 undefined。 */
+export function parsePort(input: string): { port?: number } | undefined {
+  const value = input.trim();
+  if (value === '') return {};
+  if (!/^\d{1,5}$/.test(value)) return undefined;
+  const port = Number(value);
+  return port >= REMOTE_PORT_MIN && port <= 65_535 ? { port } : undefined;
 }
 
 /** 倒计时 `m:ss`，不到 0 按 0。 */

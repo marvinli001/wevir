@@ -31,7 +31,9 @@ import type { Presence } from './presence.js';
 import {
   type ConnectionHost,
   type ConnectionLimits,
+  type RemoteOrigin,
   RpcConnection,
+  type RpcSocket,
   tokenDigest,
 } from './rpc-connection.js';
 import type { SessionListFeed } from './session-list.js';
@@ -264,6 +266,21 @@ export class HostRpcServer {
   get port(): number {
     if (this.#port === undefined) throw new Error('尚未监听');
     return this.#port;
+  }
+
+  /**
+   * 接进一条握手完成的远程连接（0.109.0，remote/listener.ts）：解密后的帧交给与本机连接相同的 `RpcConnection`，身份是那台设备。
+   * 退出时与本机连接一起关闭。正在退出时直接断开，返回 undefined。
+   */
+  attach(socket: RpcSocket, remote: RemoteOrigin): RpcConnection | undefined {
+    if (this.#shuttingDown) {
+      socket.terminate();
+      return undefined;
+    }
+    const connection = new RpcConnection(socket, this.#connectionHost, remote);
+    this.#connections.add(connection);
+    void connection.closed.then(() => this.#connections.delete(connection));
+    return connection;
   }
 
   /** 当前打开的连接数（含尚未 hello 的）。 */
