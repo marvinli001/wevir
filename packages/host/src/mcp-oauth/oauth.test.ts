@@ -448,6 +448,40 @@ describe('预注册客户端（GitHub、Slack、Google 的形状）', () => {
     expect(await status(s, 'two')).toMatchObject({ status: 'signed_in' });
   });
 
+  it('https 的 callbackUrl 是中转页：原样作为 redirect_uri，本机在 callbackPort 的 /callback 上接；没给端口时拒绝', async () => {
+    const relay = 'https://relay.example/oauth/callback/';
+    const port = await freePort();
+    const s = await setup({
+      dcr: false,
+      clients: [{ id: 'slack-app' }],
+      registeredRedirects: [relay],
+    });
+    const config = (callbackPort?: number) =>
+      ({
+        transport: 'http',
+        url: s.fake.url,
+        auth: 'oauth',
+        oauth: { clientId: 'slack-app', callbackUrl: relay, ...(callbackPort && { callbackPort }) },
+      }) as const;
+    await s.store.add('noport', config());
+    await expect(s.oauth.login({ name: 'noport' })).rejects.toThrow('needs callbackPort');
+
+    await s.store.add('slack', config(port));
+    const { authUrl } = await s.oauth.login({ name: 'slack' });
+    expect(new URL(authUrl).searchParams.get('redirect_uri')).toBe(relay);
+    const authorize = await fetch(authUrl, { redirect: 'manual' });
+    const location = new URL(authorize.headers.get('location') ?? '');
+    expect(`${location.origin}${location.pathname}`).toBe(relay);
+    // 中转页做的事：查询串原样转到本机。别的路径不认。
+    expect((await fetch(`http://127.0.0.1:${port}/oauth/callback/${location.search}`)).status).toBe(
+      404,
+    );
+    const page = await fetch(`http://127.0.0.1:${port}/callback${location.search}`);
+    expect(page.status).toBe(200);
+    expect(s.fake.tokenRequests[0]).toMatchObject({ redirect_uri: relay });
+    expect(await status(s, 'slack')).toMatchObject({ status: 'signed_in' });
+  });
+
   it('GitHub 形状：不过期、没有刷新令牌、scope 逗号分隔、出错回 200；回调地址没写端口时随机取；被撤销后要重新登录', async () => {
     const s = await setup({
       dcr: false,

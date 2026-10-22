@@ -52,6 +52,8 @@ export const WEVIR_OAUTH_CLIENT_METADATA_URL = '';
 export const MCP_OAUTH_LOGIN_TIMEOUT_MS = 300_000;
 /** 访问令牌剩下不到这么久时先刷新。 */
 export const MCP_OAUTH_REFRESH_SKEW_MS = 60_000;
+/** https 中转回调（`callbackUrl` 是 https 时）转到的本机路径：`http://127.0.0.1:<callbackPort>/callback`。 */
+export const RELAY_CALLBACK_PATH = '/callback';
 /** 本机代理的路径前缀：`/mcp/remote/<连接器 ID>`。 */
 export const MCP_REMOTE_PATH = '/mcp/remote/';
 
@@ -400,9 +402,17 @@ export class McpOAuthService {
       metadata.issuer !== undefined;
     // 回调地址：授权服务器回 `iss` 时用共用的 /callback，否则加上按服务器区分的一段（RFC 9700 §4.4）。配置了 callbackUrl 的
     // 原样用（Slack、Google 要求与注册的完全一致），防混淆靠 state 与同一时间只有一个这样的登录。
+    // https 的 callbackUrl 是中转页（Slack 公开分发要求 https 回调）：它把查询串原样转到本机
+    // `http://127.0.0.1:<callbackPort>/callback`，所以这时必须给 callbackPort，本机只认 /callback。
     const base = new URL(oauth.callbackUrl ?? 'http://127.0.0.1/callback');
-    if (base.protocol !== 'http:' || !isLoopbackHost(base.hostname))
-      throw failed('callback_unavailable', 'The callback URL must be a loopback http URL');
+    const relayed = base.protocol === 'https:' && !isLoopbackHost(base.hostname);
+    if (relayed && oauth.callbackPort === undefined)
+      throw failed('callback_unavailable', 'An https callback URL needs callbackPort');
+    if (!relayed && (base.protocol !== 'http:' || !isLoopbackHost(base.hostname)))
+      throw failed(
+        'callback_unavailable',
+        'The callback URL must be a loopback http URL or an https relay',
+      );
     if (!issuerBound && !fixedCallback) {
       const id = callbackId(target.url);
       if (base.pathname.split('/').at(-1) !== id)
@@ -424,7 +434,7 @@ export class McpOAuthService {
       );
     }
     try {
-      if (base.port === '') base.port = String(callback.port);
+      if (!relayed && base.port === '') base.port = String(callback.port);
       const redirectUri = base.href;
       const client = await this.#chooseClient(target, discovery, redirectUri, issuerBound, scope);
       const stored = target.stored;
@@ -456,7 +466,7 @@ export class McpOAuthService {
         state,
         verifier,
         redirectUri,
-        expectedPath: base.pathname,
+        expectedPath: relayed ? RELAY_CALLBACK_PATH : base.pathname,
         issuerBound,
         discovery,
         client: client.credentials,
