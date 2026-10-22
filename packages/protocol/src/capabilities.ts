@@ -471,6 +471,11 @@ export const HOST_FEATURES = {
    * `remote.changed`，配对窗口带上直连的候选地址。与引擎无关。
    */
   remoteListener: 'remote_listener',
+  /**
+   * 中继（0.110.0，ADR-0017 §1）：开了 `remote.relay` 时 Host 向中继发起出站连接并注册路由 ID，经中继来的连接走与直连相同的握手；
+   * `remote.status` 的 `relay`、握手负载的 `relayUrl`，配对窗口没填地址时给官方实例。与引擎无关。
+   */
+  remoteRelay: 'remote_relay',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -567,6 +572,7 @@ export const HostFeaturesSchema = z.looseObject({
   remote_devices: z.boolean().optional(),
   tuning_auto: z.boolean().optional(),
   remote_listener: z.boolean().optional(),
+  remote_relay: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

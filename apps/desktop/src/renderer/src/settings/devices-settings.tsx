@@ -228,8 +228,9 @@ export function DevicesSettings() {
         <div className={LIST_CARD}>
           <SettingsRow
             title={t('settings.devices.relay')}
-            description={t('settings.devices.relayNote')}
+            description={relayStatusText(status?.relay) ?? t('settings.devices.relayNote')}
             data-setting="remote-relay"
+            data-relay-state={status?.relay?.state}
             control={
               <Switch
                 label={t('settings.devices.relay')}
@@ -428,6 +429,22 @@ function PortRow({
       }
     />
   );
+}
+
+/** 中继开着时的连接状态（0.110.0 的 `remote.status.relay`）；关着或旧 Host 时 undefined。 */
+function relayStatusText(relay: RemoteStatus['relay']): string | undefined {
+  if (relay === undefined) return undefined;
+  if (relay.state === 'connected') return t('settings.devices.relayConnected');
+  switch (relay.error?.reason) {
+    case 'unreachable':
+      return t('settings.devices.relayUnreachable');
+    case 'rejected':
+      return t('settings.devices.relayRejected');
+    case 'replaced':
+      return t('settings.devices.relayReplaced');
+    default:
+      return t('settings.devices.relayConnecting');
+  }
 }
 
 function RelayUrlRow({

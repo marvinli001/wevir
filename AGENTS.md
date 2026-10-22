@@ -35,7 +35,8 @@ Wevir 是本地优先、开源、多模型的 AI Agent 工作台：以 OpenAI Co
 wevir/
 ├─ apps/
 │  ├─ cli/              wevir 命令行客户端
-│  └─ desktop/          Electron 桌面端（electron-vite）
+│  ├─ desktop/          Electron 桌面端（electron-vite）
+│  └─ relay/            远程访问的中继（默认关的兜底，只转发 Noise 密文；Dockerfile 与自建说明）
 ├─ assets/icons/        品牌图标的源文件与导出
 ├─ packages/
 │  ├─ protocol/         Host API 协议：zod schema、方法与事件注册表、错误码

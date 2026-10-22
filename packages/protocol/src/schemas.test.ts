@@ -272,6 +272,8 @@ import {
   readinessReport,
   readOnlySession,
   remoteOffSample,
+  remoteRelayRetrySample,
+  remoteRelaySample,
   remoteStatusSample,
   repairChain,
   repoHook,
@@ -4123,8 +4125,13 @@ const standaloneCases: Case[] = [
         candidates: [{ kind: 'lan', host: '192.168.1.20', port: 47_830 }],
         later: 1,
       },
+      { protocolVersion: '0.110.0', candidates: [], relayUrl: 'wss://relay.wevir.si' },
     ],
-    invalid: [{ candidates: [] }, { protocolVersion: '0.109.0' }],
+    invalid: [
+      { candidates: [] },
+      { protocolVersion: '0.109.0' },
+      { protocolVersion: '0.110.0', candidates: [], relayUrl: 'https://relay.wevir.si' },
+    ],
   },
   {
     name: 'RemoteDevicePayload',
@@ -4135,8 +4142,73 @@ const standaloneCases: Case[] = [
   {
     name: 'RemoteStatus',
     schema: protocol.RemoteStatusSchema,
-    valid: [remoteStatusSample, remoteOffSample],
+    valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
     invalid: [{ ...remoteStatusSample, advertising: undefined }],
+  },
+  // 0.110.0：中继。
+  {
+    name: 'RemoteRelayStatus',
+    schema: protocol.RemoteRelayStatusSchema,
+    valid: [
+      { state: 'connected', url: 'wss://relay.wevir.si', connections: 0 },
+      {
+        state: 'connecting',
+        url: 'ws://192.168.1.2:8080',
+        connections: 0,
+        error: { reason: 'replaced', message: 'route registered elsewhere' },
+      },
+    ],
+    invalid: [
+      { state: 'error', url: 'wss://relay.wevir.si', connections: 0 },
+      { state: 'connected', url: 'wss://relay.wevir.si', connections: -1 },
+      {
+        state: 'connecting',
+        url: 'wss://relay.wevir.si',
+        connections: 0,
+        error: { reason: 'timeout', message: '' },
+      },
+    ],
+  },
+  {
+    name: 'RelayConnectionId',
+    schema: protocol.RelayConnectionIdSchema,
+    valid: ['AAAAAAAAAAAAAAAAAAAAAA', 'abc_DEF-0123456789abcd'],
+    invalid: ['AAAAAAAAAAAAAAAAAAAAA', 'AAAAAAAAAAAAAAAAAAAAAA=', ''],
+  },
+  {
+    name: 'RelayDevicePath',
+    schema: protocol.RelayDevicePathSchema,
+    valid: ['/v1/pair', '/v1/pair-code', '/v1/connect'],
+    invalid: ['/v1/host', '/v1/accept', 'connect'],
+  },
+  {
+    name: 'RelayServerMessage',
+    schema: protocol.RelayServerMessageSchema,
+    valid: [
+      { type: 'challenge', nonce: pairingOfferSample.hostPublicKey },
+      { type: 'registered' },
+      { type: 'incoming', id: 'AAAAAAAAAAAAAAAAAAAAAA', path: '/v1/connect', source: 'x1' },
+      { type: 'incoming', id: 'AAAAAAAAAAAAAAAAAAAAAA', path: '/v1/pair-code', source: 'x1' },
+    ],
+    invalid: [
+      { type: 'challenge', nonce: 'short' },
+      { type: 'incoming', id: 'AAAAAAAAAAAAAAAAAAAAAA', path: '/v1/host', source: 'x1' },
+      { type: 'incoming', id: 'AAAA', path: '/v1/connect', source: 'x1' },
+      { type: 'frame' },
+    ],
+  },
+  {
+    name: 'RelayHostMessage',
+    schema: protocol.RelayHostMessageSchema,
+    valid: [
+      { type: 'register', routeId: pairingOfferSample.routeId, signature: 'A'.repeat(86) },
+      { type: 'reject', id: 'AAAAAAAAAAAAAAAAAAAAAA' },
+    ],
+    invalid: [
+      { type: 'register', routeId: pairingOfferSample.routeId, signature: 'A'.repeat(85) },
+      { type: 'register', routeId: 'x', signature: 'A'.repeat(86) },
+      { type: 'incoming', id: 'AAAAAAAAAAAAAAAAAAAAAA' },
+    ],
   },
   {
     name: 'NotificationAutomationStatus',

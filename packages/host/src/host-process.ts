@@ -146,7 +146,8 @@ export interface StartHostOptions {
    */
   testConnectionGrant?: TestConnectionGrant;
   /**
-   * 远程监听（0.109.0）：测试换掉网卡列表、MagicDNS 查询、mDNS 广播、限速与轮询间隔。省略时用 `os.networkInterfaces()` 与 ciao 广播。
+   * 远程监听（0.109.0）：测试换掉网卡列表、MagicDNS 查询、mDNS 广播、限速、轮询间隔与中继（0.110.0）的退避和心跳。省略时用
+   * `os.networkInterfaces()` 与 ciao 广播。
    */
   remoteListener?: Pick<
     RemoteListenerOptions,
@@ -157,6 +158,7 @@ export interface StartHostOptions {
     | 'limiter'
     | 'pollMs'
     | 'handshakeTimeoutMs'
+    | 'relay'
   >;
   /** 远程 MCP 服务的 OAuth（0.97.0）：测试换掉 CIMD 地址、登录超时、时钟与 DNS 解析。 */
   mcpOAuth?: Pick<McpOAuthOptions, 'clientMetadataUrl' | 'loginTimeoutMs' | 'now' | 'lookup'>;
@@ -1263,6 +1265,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         notification_intents: true,
         remote_devices: true,
         remote_listener: true,
+        remote_relay: true,
       },
       engineFeatures,
       plugins,
