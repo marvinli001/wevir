@@ -1,0 +1,37 @@
+# wevir-relay behind Caddy, which gets and renews the TLS certificate.
+# Set RELAY_DOMAIN to a name whose A/AAAA record points at this machine, then:
+#   docker compose up -d
+# Build the image first from the repository root:
+#   docker build -f apps/relay/Dockerfile -t wevir-relay .
+services:
+  relay:
+    image: wevir-relay
+    restart: unless-stopped
+    environment:
+      WEVIR_RELAY_TRUST_PROXY: "1"
+      WEVIR_RELAY_LOG_LEVEL: info
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?set RELAY_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - relay
+
+volumes:
+  caddy-data:
+  caddy-config:

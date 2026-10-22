@@ -1,0 +1,36 @@
+{
+  "name": "@wevir/relay",
+  "version": "0.0.0",
+  "private": true,
+  "description": "wevir-relay: the optional relay for Wevir remote access. Hosts register a route ID with a signed challenge and devices reach them through it; it forwards opaque Noise ciphertext and never decrypts, stores or logs frame contents.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "wevir-relay": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@wevir/protocol": "workspace:*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

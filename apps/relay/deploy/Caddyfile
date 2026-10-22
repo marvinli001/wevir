@@ -1,0 +1,6 @@
+# TLS for the relay: Caddy gets the certificate for {$RELAY_DOMAIN} and forwards WebSocket upgrades to the
+# relay container. Caddy appends the client address to X-Forwarded-For, which the relay reads with
+# WEVIR_RELAY_TRUST_PROXY=1. Access logs stay off: the relay logs what it needs without addresses.
+{$RELAY_DOMAIN} {
+	reverse_proxy relay:8080
+}

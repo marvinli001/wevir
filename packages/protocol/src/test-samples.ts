@@ -200,6 +200,28 @@ export const remoteStatusSample: RemoteStatus = {
   connections: 1,
 };
 
+/** 中继（0.110.0）：只开了中继，连着官方实例，一台设备经中继连着。 */
+export const remoteRelaySample: RemoteStatus = {
+  listening: false,
+  port: 47_830,
+  interfaces: [],
+  advertising: false,
+  connections: 1,
+  relay: { state: 'connected', url: 'wss://relay.wevir.si', connections: 1 },
+};
+
+/** 中继断了，正在退避重连。 */
+export const remoteRelayRetrySample: RemoteStatus = {
+  ...remoteRelaySample,
+  connections: 0,
+  relay: {
+    state: 'connecting',
+    url: 'wss://relay.example.com/wevir',
+    connections: 0,
+    error: { reason: 'unreachable', message: 'connect ECONNREFUSED' },
+  },
+};
+
 /** 远程访问关着，端口被占用的那次留下的错误。 */
 export const remoteOffSample: RemoteStatus = {
   listening: false,
@@ -6861,9 +6883,14 @@ export const methodSamples: MethodSamples = {
   'remote.status': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [remoteStatusSample, remoteOffSample],
+      valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
       invalid: [
         { ...remoteStatusSample, port: 0 },
+        {
+          ...remoteRelaySample,
+          relay: { state: 'off', url: 'wss://relay.wevir.si', connections: 0 },
+        },
+        { ...remoteRelaySample, relay: { state: 'connected', url: 'https://x', connections: 0 } },
         { ...remoteStatusSample, interfaces: [{ name: 'en0', family: 'IPv4', kind: 'public' }] },
         { ...remoteStatusSample, error: { reason: 'busy', message: 'x' } },
       ],
@@ -7877,7 +7904,7 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{ pairingId: ids.pairing, reason: 'timeout' }, { pairingId: ids.pairing }],
   },
   'remote.changed': {
-    valid: [remoteStatusSample, remoteOffSample],
+    valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
     invalid: [{ ...remoteStatusSample, connections: -1 }, { listening: true }],
   },
   'inbox.changed': {

@@ -20,6 +20,7 @@ import {
   REMOTE_DEFAULT_PORT,
   REMOTE_HANDSHAKE_TIMEOUT_MS,
   REMOTE_PATHS,
+  type RelayDevicePath,
   RemoteDevicePayloadSchema,
   type RemoteHostPayload,
   type RemoteSettings,
@@ -44,6 +45,7 @@ import {
 import { NoiseRpcSocket, toBytes } from './noise-socket.js';
 import type { PairingAttempt, PairingSecretKind, PairingService } from './pairing.js';
 import { HandshakeLimiter } from './rate-limit.js';
+import { type RelayAdmission, RelayClient, type RelayClientOptions } from './relay-client.js';
 
 /** 多久看一次网卡（Node 没有网卡变化的事件）。 */
 export const INTERFACE_POLL_MS = 5000;
@@ -68,7 +70,8 @@ interface ServerEntry {
 interface Connection {
   readonly deviceId: string;
   readonly ws: WebSocket;
-  readonly entry: ServerEntry;
+  /** 直连时是它所在的监听；经中继来的是 undefined。 */
+  readonly entry: ServerEntry | undefined;
 }
 
 export interface RemoteListenerOptions {
@@ -94,6 +97,8 @@ export interface RemoteListenerOptions {
   limiter?: HandshakeLimiter;
   pollMs?: number;
   handshakeTimeoutMs?: number;
+  /** 只给测试：中继的重连退避与心跳间隔。 */
+  relay?: Pick<RelayClientOptions, 'backoffMs' | 'maxBackoffMs' | 'pingMs'>;
   onError?: (error: unknown) => void;
 }
 
@@ -109,6 +114,8 @@ export interface RemoteListenerOptions {
  * - **接进分发**：握手完成的连接交给与本机连接相同的 `RpcConnection`，身份是那台设备，权限在 hello 时从设备记录取。设备被移除
  *   （`DEVICE_REVOKED`）或权限改了（`PERMISSIONS_CHANGED`，让它重连后按新权限工作）时立即断开它的全部连接。
  * - 局域网有监听时用 mDNS 广播 `_wevir._tcp`（只带路由 ID）。
+ * - **中继**（relay-client.ts）：开了中继时向中继发起出站连接；经中继来的每条连接是一条单独的 WebSocket，交给同一个握手与分发，
+ *   限速按中继给的来源标记（`relay:<标记>`）。关掉中继时断开经它来的连接（`REMOTE_DISABLED`）。
  */
 export class RemoteListener {
   readonly #options: RemoteListenerOptions;
@@ -125,6 +132,7 @@ export class RemoteListener {
   readonly #connections = new Set<Connection>();
   readonly #listeners = new Set<(status: RemoteStatus) => void>();
   readonly #unsubscribe: (() => void)[] = [];
+  readonly #relay: RelayClient;
   #keys: RemoteKeys | undefined;
   #loadingKeys = false;
   #addresses: RemoteAddress[] = [];
@@ -142,6 +150,14 @@ export class RemoteListener {
     this.#lookupMagicDnsName = options.lookupMagicDnsName ?? lookupMagicDnsName;
     this.#limiter = options.limiter ?? new HandshakeLimiter();
     this.#onError = options.onError ?? (() => {});
+    this.#relay = new RelayClient({
+      settings: options.settings,
+      identity: options.identity,
+      admit: (path, source) => this.admitRelayed(path, source),
+      onChange: () => this.#changed(),
+      onError: this.#onError,
+      ...options.relay,
+    });
     this.#unsubscribe.push(
       options.devices.onRevoked((deviceId) => this.#dropDevice(deviceId, 'DEVICE_REVOKED')),
       options.devices.onPermissionsChanged((deviceId) =>
@@ -153,6 +169,7 @@ export class RemoteListener {
   /** 按当前设置与网卡开、关监听。设置变了时调用；之后远程开着期间自己轮询网卡。 */
   refresh(): void {
     if (this.#closed) return;
+    this.#relay.refresh();
     const settings = this.#options.settings();
     const enabled = settings?.enabled === true;
     if (enabled && this.#keys === undefined) {
@@ -195,6 +212,9 @@ export class RemoteListener {
     );
     const settings = this.#options.settings();
     const magicDnsName = this.#magicDns?.name;
+    const relay = this.#relay.status(
+      [...this.#connections].filter((connection) => connection.entry === undefined).length,
+    );
     return {
       listening: listening.size > 0,
       port: this.#port,
@@ -203,6 +223,28 @@ export class RemoteListener {
       advertising: this.#advertising,
       connections: this.#connections.size,
       ...(this.#error !== undefined && { error: this.#error }),
+      ...(relay !== undefined && { relay }),
+    };
+  }
+
+  /**
+   * 中继通知有设备来连（relay-client.ts）：路径不认识、配对路径但没开配对窗口、或这个来源被限速时返回 undefined，中继以
+   * `HOST_REJECTED` 关闭它。否则占一个握手名额，数据连接连上后走与直连相同的握手。
+   */
+  admitRelayed(path: RelayDevicePath, source: string): RelayAdmission | undefined {
+    if (this.#closed || this.#keys === undefined) return undefined;
+    const kind = handshakeKind(path);
+    if (kind === undefined || (kind !== 'connect' && this.#options.pairing.pairingId === undefined))
+      return undefined;
+    const from = `relay:${source}`;
+    const release = this.#limiter.begin(from);
+    if (release === undefined) return undefined;
+    return {
+      start: (ws) => {
+        ws.on('close', release);
+        this.#handshake(undefined, ws, kind, from, release);
+      },
+      cancel: release,
     };
   }
 
@@ -244,7 +286,9 @@ export class RemoteListener {
     this.#closed = true;
     this.#setPolling(false);
     for (const unsubscribe of this.#unsubscribe) unsubscribe();
+    this.#relay.close();
     const attached = new Set([...this.#connections].map((connection) => connection.ws));
+    for (const ws of this.#relay.sockets) if (!attached.has(ws)) ws.terminate();
     for (const entry of this.#servers.values()) {
       entry.server.close();
       for (const ws of entry.sockets) if (!attached.has(ws)) ws.terminate();
@@ -412,7 +456,7 @@ export class RemoteListener {
   }
 
   #handshake(
-    entry: ServerEntry,
+    entry: ServerEntry | undefined,
     ws: WebSocket,
     kind: HandshakeKind,
     from: string,
@@ -544,7 +588,12 @@ export class RemoteListener {
     });
   }
 
-  #open(entry: ServerEntry, ws: WebSocket, deviceId: string, socket: NoiseRpcSocket): void {
+  #open(
+    entry: ServerEntry | undefined,
+    ws: WebSocket,
+    deviceId: string,
+    socket: NoiseRpcSocket,
+  ): void {
     const devices = this.#options.devices;
     const origin: RemoteOrigin = {
       deviceId,
@@ -586,10 +635,12 @@ export class RemoteListener {
   }
 
   #hostPayload(): Uint8Array {
+    const relayUrl = this.#relay.url;
     const payload: RemoteHostPayload = {
       protocolVersion: PROTOCOL_VERSION,
       ...(this.#options.hostName !== undefined && { hostName: this.#options.hostName }),
       candidates: this.candidates(),
+      ...(relayUrl !== undefined && { relayUrl }),
     };
     return new TextEncoder().encode(JSON.stringify(payload));
   }

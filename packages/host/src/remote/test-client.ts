@@ -1,5 +1,5 @@
 // 远程监听的测试客户端（0.109.0）：扮演手机或远程 CLI，经真实的 WebSocket 与 `@wevir/noise` 跟 Host 握手，握手之后的 JSON-RPC
-// 帧交给 `TestRpcClient`。只给测试用。
+// 帧交给 `TestRpcClient`。给了 `route` 时 `base` 是中继地址（0.110.0），路径带上路由 ID。只给测试用。
 
 import { EventEmitter } from 'node:events';
 import {
@@ -17,6 +17,7 @@ import {
 } from '@wevir/noise';
 import {
   type DevicePlatform,
+  RELAY_ROUTE_PARAM,
   REMOTE_PATHS,
   type RemoteHostPayload,
   RemoteHostPayloadSchema,
@@ -121,10 +122,12 @@ export async function pairRemote(options: {
   device: TestDevice;
   name?: string;
   platform?: DevicePlatform;
+  /** 经中继：Host 的路由 ID。 */
+  route?: string;
 }): Promise<RemoteTestConnection> {
   const ws = await openRemoteSocket(
     options.base,
-    options.code === true ? REMOTE_PATHS.pairCode : REMOTE_PATHS.pair,
+    withRoute(options.code === true ? REMOTE_PATHS.pairCode : REMOTE_PATHS.pair, options.route),
   );
   try {
     return await pairOver(ws, options);
@@ -166,8 +169,10 @@ export async function connectRemote(options: {
   base: string;
   host: TestHostIdentity;
   device: TestDevice;
+  /** 经中继：Host 的路由 ID。 */
+  route?: string;
 }): Promise<RemoteTestConnection> {
-  const ws = await openRemoteSocket(options.base, REMOTE_PATHS.connect);
+  const ws = await openRemoteSocket(options.base, withRoute(REMOTE_PATHS.connect, options.route));
   try {
     return await connectOver(ws, options);
   } catch (error) {
@@ -191,6 +196,11 @@ async function connectOver(
   ws.send(handshake.writeMessage());
   const host = readHostPayload(handshake, await inbox.next());
   return { client: wrap(ws, inbox, handshake.split()), ws, host };
+}
+
+/** 经中继时路径带上路由 ID。 */
+export function withRoute(path: string, route: string | undefined): string {
+  return route === undefined ? path : `${path}?${RELAY_ROUTE_PARAM}=${encodeURIComponent(route)}`;
 }
 
 function readHostPayload(handshake: HandshakeState, message: Uint8Array): RemoteHostPayload {

@@ -1,5 +1,6 @@
 // 远程设备与配对（0.107.0，Host 功能 `remote_devices`，domain-model §3.49）：配对过的手机与远程 CLI 的记录、它们的权限，以及桌面
-// “添加手机”时的配对窗口与二维码载荷。远程监听（0.109.0，Host 功能 `remote_listener`）的端口、路径、握手负载与状态也在这里。
+// “添加手机”时的配对窗口与二维码载荷。远程监听（0.109.0，Host 功能 `remote_listener`）的端口、路径、握手负载与状态也在这里；
+// 中继的线缆（0.110.0，Host 功能 `remote_relay`）在 relay.ts。
 // entities.ts 的 Host 设置引用这里的 `remote`，所以这里只引用 common.ts 与 capabilities.ts。
 
 import { z } from 'zod';
@@ -15,6 +16,9 @@ import {
 
 /** 自建中继的地址：`wss://` 或 `ws://`。 */
 export const RelayUrlSchema = z.url({ protocol: /^wss?$/ }).max(2048);
+
+/** 中继开着、没填 `remote.relay.url` 时用的官方实例（0.110.0）。 */
+export const RELAY_DEFAULT_URL = 'wss://relay.wevir.si';
 
 /** 远程监听省略 `port` 时用的端口（0.109.0）。 */
 export const REMOTE_DEFAULT_PORT = 47_830;
@@ -37,7 +41,7 @@ export type RemoteInterfaceRef = z.infer<typeof RemoteInterfaceRefSchema>;
  * - `interfaces`：直连监听哪几类网卡（局域网；Tailscale 的 `100.64.0.0/10` 与 `fd7a:115c:a1e0::/48`）。`lanInterfaces`（0.109.0）
  *   只监听这几块局域网网卡；省略时监听全部局域网网卡。Tailscale 按地址段认，没有网卡的勾选（macOS 上它的网卡名会变）。
  * - `port`（0.109.0）：直连监听的端口，省略时 `REMOTE_DEFAULT_PORT`。
- * - `relay`：不在同一网络时经中继转发同一套密文；`url` 省略时用官方实例。
+ * - `relay`：不在同一网络时经中继转发同一套密文；`url` 省略时用官方实例 `RELAY_DEFAULT_URL`。
  * - `push`：经推送网关给手机发加密的提醒。
  */
 export const RemoteSettingsSchema = z.object({
@@ -137,7 +141,7 @@ export const PairingOfferSchema = z.object({
   routeId: PublicKeySchema,
   /** 远程监听还没开时是空的。 */
   candidates: z.array(PairingCandidateSchema),
-  /** 开了中继、填了地址时有。 */
+  /** 开了中继时有：填的地址，没填时是官方实例（0.110.0 起；之前只在填了地址时有）。 */
   relayUrl: RelayUrlSchema.optional(),
 });
 export type PairingOffer = z.infer<typeof PairingOfferSchema>;
@@ -246,6 +250,8 @@ export const RemoteHostPayloadSchema = z.looseObject({
   protocolVersion: z.string(),
   hostName: z.string().max(PAIRING_HOST_NAME_MAX_LENGTH).optional(),
   candidates: z.array(PairingCandidateSchema),
+  /** 这台电脑开着中继时的中继地址（0.110.0）：设备据此更新记下的中继，关掉中继后不再有。 */
+  relayUrl: RelayUrlSchema.optional(),
 });
 export type RemoteHostPayload = z.infer<typeof RemoteHostPayloadSchema>;
 
@@ -275,6 +281,22 @@ export const RemoteListenerErrorSchema = z.object({
   message: z.string(),
 });
 
+/**
+ * 中继的出站连接（0.110.0）。`connecting` 包括断线后退避等待的时候；上一次失败的原因在 `error`：中继连不上或注册前断开
+ * （`unreachable`）、中继拒绝了注册（`rejected`，签名不对或中继满了）、同一路由 ID 在别处注册取代了这条（`replaced`，两台电脑用了
+ * 同一份密钥）。
+ */
+export const RemoteRelayStatusSchema = z.object({
+  state: z.enum(['connecting', 'connected']),
+  url: RelayUrlSchema,
+  /** 经中继、握手完成的远程连接数（也算在 `connections` 里）。 */
+  connections: z.int().min(0),
+  error: z
+    .object({ reason: z.enum(['unreachable', 'rejected', 'replaced']), message: z.string() })
+    .optional(),
+});
+export type RemoteRelayStatus = z.infer<typeof RemoteRelayStatusSchema>;
+
 /** `remote.status` 的结果与 `remote.changed` 的参数。 */
 export const RemoteStatusSchema = z.object({
   /** 远程访问开着且至少在一个地址上监听。 */
@@ -286,9 +308,11 @@ export const RemoteStatusSchema = z.object({
   magicDnsName: z.string().optional(),
   /** 正在局域网 mDNS 广播 `_wevir._tcp`。 */
   advertising: z.boolean(),
-  /** 当前的远程连接数（握手完成的）。 */
+  /** 当前的远程连接数（握手完成的，直连与经中继的合计）。 */
   connections: z.int().min(0),
   error: RemoteListenerErrorSchema.optional(),
+  /** 远程访问与中继都开着时有（0.110.0）。 */
+  relay: RemoteRelayStatusSchema.optional(),
 });
 export type RemoteStatus = z.infer<typeof RemoteStatusSchema>;
 

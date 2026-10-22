@@ -14,6 +14,7 @@ import {
   type PairingOffer,
   type PairingRequest,
   type PairingRequestId,
+  RELAY_DEFAULT_URL,
   type RemoteSettings,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
@@ -124,7 +125,7 @@ export class PairingService {
     const code = randomCode();
     const expiresAt = new Date(this.#now().getTime() + this.#windowMs).toISOString();
     const candidates = this.#candidates();
-    const relayUrl = settings.relay.enabled ? settings.relay.url : undefined;
+    const relayUrl = settings.relay.enabled ? (settings.relay.url ?? RELAY_DEFAULT_URL) : undefined;
     const timer = setTimeout(() => {
       if (this.#window?.pairingId === pairingId) this.#end('expired');
     }, this.#windowMs);
