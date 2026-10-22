@@ -11,6 +11,8 @@
 // 0.48.0：列出子 frame（WebFrameMain，跨进程的也行）给快照、执行、查询与等待用；网络记录带编号、请求头与响应头、请求体开头、
 // MIME、是否来自缓存与等待时间，响应体留在 Chromium 的缓冲里按需取（`Network.getResponseBody`），记录可以清空；对话框按标签页
 // 的策略回答（替身烤进新文档的脚本，改策略时换掉）；被拦下的选文件框记下它的元素，browser_upload 不带引用时把文件交给它。
+// 控制台记录改用 CDP（Runtime.consoleAPICalled、Runtime.exceptionThrown、Log.entryAdded，console-format.ts）：级别是页面调用的
+// 方法名、对象参数写出内容；Electron 的 console-message 只在没有调试器时用，另外补上跨进程 iframe 的消息（CDP 只连着主页面）。
 
 import type {
   BrowserConsoleEntry as BrowserAutomationConsoleLogEntry,
@@ -19,6 +21,7 @@ import type {
   BrowserNetworkEntry,
 } from '@wevir/protocol';
 import { CdpSessionQueue } from './cdp-session-queue.js';
+import { consoleApiEntry, exceptionEntry, logEntry } from './console-format.js';
 import {
   type BrowserAutomationDialogEvent,
   DEFAULT_DIALOG_POLICY,
@@ -67,6 +70,7 @@ interface FrameLike {
   readonly url: string;
   readonly name: string;
   readonly detached?: boolean;
+  readonly processId?: number;
   isDestroyed(): boolean;
   executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
 }
@@ -80,6 +84,7 @@ interface ConsoleMessageEmitter {
       message?: unknown;
       lineNumber?: unknown;
       sourceId?: unknown;
+      frame?: { readonly processId?: number } | null;
     }) => void,
   ): void;
   once(event: 'destroyed', listener: () => void): void;
@@ -346,8 +351,11 @@ class TabMonitor {
   constructor(private readonly contents: BrowserAutomationWebContents) {}
 
   start(): void {
+    const cdpConsole = Boolean(this.contents.debugger.on);
     this.contents.on('console-message', (event) => {
-      this.console.push(
+      // 有调试器时控制台走 CDP；它只连着主页面的进程，跨进程 iframe 的消息仍从这里来。
+      if (cdpConsole && !this.#fromOtherProcess(event.frame)) return;
+      this.#recordConsole(
         normalizeConsoleMessage({
           level: event.level,
           message: event.message,
@@ -355,10 +363,6 @@ class TabMonitor {
           sourceId: event.sourceId,
         }),
       );
-      this.consoleTotal += 1;
-      if (this.console.length > MAX_CONSOLE_MESSAGES_PER_TAB) {
-        this.console = this.console.slice(-MAX_CONSOLE_MESSAGES_PER_TAB);
-      }
     });
     if (this.contents.debugger.on) {
       this.contents.debugger.on('message', (_event, method, params) =>
@@ -371,6 +375,20 @@ class TabMonitor {
     void this.#enable();
   }
 
+  #recordConsole(entry: BrowserAutomationConsoleLogEntry): void {
+    this.console.push(entry);
+    this.consoleTotal += 1;
+    if (this.console.length > MAX_CONSOLE_MESSAGES_PER_TAB) {
+      this.console = this.console.slice(-MAX_CONSOLE_MESSAGES_PER_TAB);
+    }
+  }
+
+  /** 消息来自和主页面不同的渲染进程（跨进程的 iframe）。 */
+  #fromOtherProcess(frame: { readonly processId?: number } | null | undefined): boolean {
+    const main = this.contents.mainFrame?.processId;
+    return frame?.processId !== undefined && main !== undefined && frame.processId !== main;
+  }
+
   /** 打开 Page 与 Network 域、装上 prompt 的替身。标签页还没载入任何东西时这些命令要等到第一次载入才回答，所以不等它们。 */
   async #enable(): Promise<void> {
     if (this.#enabled || this.contents.isDestroyed() || !this.contents.debugger.on) return;
@@ -378,6 +396,9 @@ class TabMonitor {
     const commands: Array<[string, Record<string, unknown>?]> = [
       ['Page.enable'],
       ['Page.setInterceptFileChooserDialog', { enabled: this.#interceptFileChooser }],
+      // 控制台：打开时先补报这个页面已有的消息。
+      ['Runtime.enable'],
+      ['Log.enable'],
       // 响应体留在 Chromium 的缓冲里，要了才取（browser_network 的 body）。
       [
         'Network.enable',
@@ -656,6 +677,15 @@ class TabMonitor {
 
   #onCdpEvent(method: string, params: Record<string, unknown>): void {
     switch (method) {
+      case 'Runtime.consoleAPICalled':
+        this.#recordConsole(consoleApiEntry(params));
+        return;
+      case 'Runtime.exceptionThrown':
+        this.#recordConsole(exceptionEntry(params));
+        return;
+      case 'Log.entryAdded':
+        this.#recordConsole(logEntry(params));
+        return;
       case 'Page.javascriptDialogOpening': {
         const event = handledDialogEvent(params);
         this.openDialog = { type: event.type, message: event.message };

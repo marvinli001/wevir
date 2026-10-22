@@ -3,8 +3,9 @@
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 由 Wevir 修改：页面里的全局名改成 Wevir 的；加上省掉重复名字的文字子节点。0.48.0：快照的范围、跨域 frame 的占位、停下时的说明、
-// browser_query 的引用。
+// browser_query 的引用。选择下拉框时核对选项。
 
+import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import {
   type BrowserAriaSnapshot,
@@ -139,6 +140,69 @@ describe('BrowserSnapshotEngine', () => {
       ok: false,
       reason: 'missing_ref',
     });
+  });
+
+  it('select picks an option by value or label and leaves the selection alone when none matches', async () => {
+    class FakeSelect {
+      selectedIndex = 1;
+      events: string[] = [];
+      options = [
+        ['apple', 'Apple'],
+        ['banana', 'Banana'],
+        ['cherry', 'Cherry'],
+      ].map(([value, text], index) => {
+        const select = this;
+        return {
+          value,
+          text,
+          label: text,
+          disabled: false,
+          set selected(on: boolean) {
+            if (on) select.selectedIndex = index;
+          },
+        };
+      });
+      dispatchEvent(event: { type: string }) {
+        this.events.push(event.type);
+      }
+    }
+    const select = new FakeSelect();
+    const page = new SnapshotFixture();
+    const context = createContext({
+      window: {
+        HTMLSelectElement: FakeSelect,
+        Event: class {
+          constructor(readonly type: string) {}
+        },
+        __WEVIR_BROWSER_AUTOMATION__: { resolve: () => ({ ok: true, element: select }) },
+      },
+    });
+    page.executeJavaScript = async (code: string) =>
+      code.includes('__WEVIR_ARIA_SNAPSHOT__')
+        ? SnapshotFixture.prototype.executeJavaScript.call(page, code)
+        : runInContext(code, context);
+    const engine = new BrowserSnapshotEngine();
+    await engine.snapshot({ browserId: 'browser-1', page });
+
+    await expect(
+      engine.select({ browserId: 'browser-1', page, ref: '@e1', value: 'durian' }),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'no_option',
+      detail: 'its options are "apple" ("Apple"), "banana" ("Banana"), "cherry" ("Cherry")',
+    });
+    expect(select.selectedIndex).toBe(1);
+    expect(select.events).toEqual([]);
+
+    await expect(
+      engine.select({ browserId: 'browser-1', page, ref: '@e1', value: 'cherry' }),
+    ).resolves.toEqual({ ok: true });
+    expect(select.selectedIndex).toBe(2);
+    await expect(
+      engine.select({ browserId: 'browser-1', page, ref: '@e1', value: 'Apple' }),
+    ).resolves.toEqual({ ok: true });
+    expect(select.selectedIndex).toBe(0);
+    expect(select.events).toEqual(['input', 'change', 'input', 'change']);
   });
 
   it('clamps a very long line instead of dropping the snapshot', async () => {

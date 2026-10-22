@@ -302,7 +302,7 @@ const SPECS: ToolSpec[] = [
     name: 'browser_screenshot',
     title: 'Screenshot a browser page',
     description:
-      'Capture a PNG screenshot of a tab (the visible viewport, or the whole page with fullPage=true). Use it to check ' +
+      'Capture a PNG screenshot of a tab (the visible viewport, or the whole page with fullPage=true, up to 8000 px tall). Use it to check ' +
       'how the page looks; use browser_snapshot to find elements.',
     properties: { browserId: BROWSER_ID, fullPage: { type: 'boolean' } },
     required: ['browserId'],
@@ -380,7 +380,7 @@ const SPECS: ToolSpec[] = [
   {
     name: 'browser_keypress',
     title: 'Press a key in the browser',
-    description: `Press a key (Enter, Tab, Escape, Space, ArrowDown, a, …) on an element, or on the focused element when ref is omitted. To choose an option of a select element use browser_select (arrow keys open its menu instead of changing it on macOS). ${REF_NOTE}`,
+    description: `Press a key (Enter, Tab, Escape, Space, ArrowDown, F5, a, …) or a combination joined with + (Shift+Tab, Shift+A, ControlOrMeta+a; modifiers Shift, Control, Alt, Meta, and ControlOrMeta, which is Meta on macOS and Control elsewhere, so ControlOrMeta+a selects all everywhere) on an element, or on the focused element when ref is omitted. To choose an option of a select element use browser_select (arrow keys open its menu instead of changing it on macOS). ${REF_NOTE}`,
     properties: { browserId: BROWSER_ID, key: { type: 'string', maxLength: 32 }, ref: REF },
     required: ['browserId', 'key'],
     readOnly: false,
@@ -1108,7 +1108,7 @@ function successText(payload: Extract<BrowserPayload, { ok: true }>): string {
         result.snapshot,
       ].join('\n');
     case 'screenshot':
-      return `Captured a screenshot of browser tab ${result.browserId} (${result.width}x${result.height}).`;
+      return `Captured a screenshot of browser tab ${result.browserId} (${result.width}x${result.height}).${screenshotLimitNote(result.width, result.height)}`;
     case 'click':
       return `Clicked ${result.ref}.`;
     case 'fill':
@@ -1342,6 +1342,21 @@ function httpStatus(status: number | undefined): string {
   return status >= 400 ? ` (HTTP ${status}, an error page)` : ` (HTTP ${status})`;
 }
 
+/**
+ * 整页截图的宽高上限（CSS 像素，桌面端 automation/service.ts 的 `FULL_PAGE_MAX_PX`）。到了上限的截图说明页面在那里被截断了，
+ * 剩下的部分要滚动后截视口。视口截图不会这么大。
+ */
+const FULL_PAGE_SCREENSHOT_MAX_PX = 8_000;
+
+function screenshotLimitNote(width: number, height: number): string {
+  const cut = [
+    ...(height >= FULL_PAGE_SCREENSHOT_MAX_PX ? ['height'] : []),
+    ...(width >= FULL_PAGE_SCREENSHOT_MAX_PX ? ['width'] : []),
+  ];
+  if (cut.length === 0) return '';
+  return ` Full-page screenshots stop at ${FULL_PAGE_SCREENSHOT_MAX_PX} px of ${cut.join(' and ')}: the page may go on past the edge of the image. Scroll with browser_scroll and take viewport screenshots for the rest, or read it with browser_snapshot.`;
+}
+
 /** 快照的第一行：行数（这一段与整个）、引用数。 */
 function snapshotHeader(
   stats: Extract<BrowserResult, { command: 'snapshot' }>['stats'],
@@ -1355,6 +1370,9 @@ function snapshotHeader(
   const start = stats.startLine ?? 0;
   if (start === 0 && stats.shownLines >= stats.totalLines) {
     return `Snapshot: ${stats.totalLines} line${stats.totalLines === 1 ? '' : 's'}, ${refs}.`;
+  }
+  if (stats.shownLines === 0) {
+    return `Snapshot part: none (the offset is past the last line, ${stats.totalLines}), ${refs} in the whole page.`;
   }
   return `Snapshot part: lines ${start + 1}–${start + stats.shownLines} of ${stats.totalLines}, ${refs} in the whole page.`;
 }

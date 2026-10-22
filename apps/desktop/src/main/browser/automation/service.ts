@@ -12,6 +12,7 @@
 // 返回值在页面里序列化并截断；上传的文件再核对一遍在会话文件夹里，交给文件输入框或被拦下的选文件框），另加 query、network、
 // dialogs；快照的范围参数；等待的条件多了地址正则、元素状态与网络空闲；引用可以在跨域 frame 里（脚本在那个 frame 里跑，坐标
 // 逐层换算到顶层页面）。
+// 按键先核对键名（认不出的报 browser_invalid_argument），带修饰键的组合走 CDP；下拉框没有这个选项时报错、不动选择。
 
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative } from 'node:path';
@@ -48,6 +49,7 @@ import {
   dispatchTrustedKey,
   dispatchTrustedScroll,
   type IsolatedKeyboardInputEvent,
+  parseKeyCombo,
 } from './trusted-input.js';
 
 export interface TabContents {
@@ -943,6 +945,13 @@ function refActionFailure(
   result: Exclude<BrowserRefActionResult, { ok: true }>,
 ): FailurePayload {
   if (result.reason === 'file_input') return fileInputFailure(requestId, ref);
+  if (result.reason === 'no_option') {
+    return fail(
+      requestId,
+      'browser_invalid_argument',
+      `${ref} has no option with that value or label${result.detail ? `: ${result.detail}` : ''}. The selection is unchanged.`,
+    );
+  }
   if (result.reason === 'not_fillable') {
     return fail(
       requestId,
@@ -1227,7 +1236,16 @@ async function executeKeypress(
   if ('ok' in target) {
     return target;
   }
+  const parsed = parseKeyCombo(key);
+  if (!parsed.ok) return fail(requestId, 'browser_invalid_argument', parsed.message);
   return withDialogCapture(target.contents, async () => {
+    if (parsed.modifiers.length > 0 && !target.contents.sendDebugCommand) {
+      return fail(
+        requestId,
+        'browser_unsupported',
+        'browser_keypress requires trusted browser input',
+      );
+    }
     let actionable: Extract<ActionableRef, { ok: true }> | null = null;
     if (ref) {
       const located = await actionableRef(requestId, target, snapshotEngine, ref);
@@ -1248,10 +1266,14 @@ async function executeKeypress(
         await dispatchTrustedClick(cdpSender(target.contents), actionable.target.point);
       }
     }
-    if (target.contents.sendDebugCommand && (await focusIsInRemoteFrame(target.contents))) {
-      await dispatchCdpKey(cdpSender(target.contents), key);
+    // 带修饰键的也走 CDP：sendInputEvent 的修饰键在 macOS 上触发不了编辑命令（全选、复制等）。
+    if (
+      target.contents.sendDebugCommand &&
+      (parsed.modifiers.length > 0 || (await focusIsInRemoteFrame(target.contents)))
+    ) {
+      await dispatchCdpKey(cdpSender(target.contents), parsed.key, parsed.modifiers);
     } else {
-      dispatchTrustedKey((event) => target.contents.sendInputEvent(event), key);
+      dispatchTrustedKey((event) => target.contents.sendInputEvent(event), parsed.key);
     }
     return {
       requestId,

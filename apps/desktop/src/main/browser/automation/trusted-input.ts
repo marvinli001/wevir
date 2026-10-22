@@ -5,6 +5,8 @@
 // 由 Wevir 修改：按 Wevir 的格式重排（Biome）；Enter 也发一个 `\r` 的 char（页面的 keypress），否则输入框不会隐式提交表单。
 // 0.48.0：焦点在跨进程的 iframe 里时按键走 CDP 的 Input.dispatchKeyEvent（`dispatchCdpKey`）：sendInputEvent 只交给顶层的
 // widget，跨进程的 frame 收不到。
+// 键名先经 `parseKeyCombo` 核对：认不出的键名报错，不再发出 key 为空的 keydown；组合键（`Shift+A`、`Meta+a`、`ControlOrMeta+a`）
+// 带修饰键走 CDP，macOS 上的编辑快捷键另带 Chromium 的编辑命令（照 Playwright 的 macEditingCommands）。
 
 import type { KeyboardInputEvent } from 'electron';
 import type { ActionablePoint } from './actionability.js';
@@ -192,7 +194,7 @@ export function dispatchTrustedKey(send: KeyboardInputSender, key: string): void
   });
 }
 
-/** 常用键的 Windows 虚拟键码（CDP 的 keyDown 要它，否则编辑类的键不起作用）。 */
+/** 常用键的 Windows 虚拟键码（CDP 的 keyDown 要它，否则编辑类的键不起作用）；也是能按的键名（字符之外）。 */
 const VIRTUAL_KEY_CODES: Record<string, number> = {
   Backspace: 8,
   Tab: 9,
@@ -207,22 +209,171 @@ const VIRTUAL_KEY_CODES: Record<string, number> = {
   ArrowUp: 38,
   ArrowRight: 39,
   ArrowDown: 40,
+  Insert: 45,
   Delete: 46,
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, 112 + i])),
 };
 
-/** 用 CDP 按一个键：浏览器按焦点所在的 frame 交过去（跨进程的 iframe 也行）。 */
-export async function dispatchCdpKey(send: CdpCommandSender, key: string): Promise<void> {
-  const character = key === 'Space' ? ' ' : key === 'Enter' ? '\r' : key.length === 1 ? key : '';
-  const domKey = key === 'Space' ? ' ' : key;
+/** 键名的别名（不分大小写）。 */
+const KEY_ALIASES: Record<string, string> = {
+  esc: 'Escape',
+  return: 'Enter',
+  del: 'Delete',
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+  ' ': 'Space',
+};
+
+const MODIFIER_ALIASES: Record<string, InputModifier | 'ControlOrMeta'> = {
+  shift: 'Shift',
+  control: 'Control',
+  ctrl: 'Control',
+  alt: 'Alt',
+  option: 'Alt',
+  meta: 'Meta',
+  cmd: 'Meta',
+  command: 'Meta',
+  controlormeta: 'ControlOrMeta',
+};
+
+const NAMED_KEYS = new Map(
+  Object.keys(VIRTUAL_KEY_CODES).map((name) => [name.toLowerCase(), name]),
+);
+
+export type ParsedKey =
+  | { ok: true; key: string; modifiers: InputModifier[] }
+  | { ok: false; message: string };
+
+/**
+ * `Shift+A`、`ControlOrMeta+a`、`Enter` 这类写法拆成主键与修饰键；主键是一个字符或已知的键名，键名与修饰键不分大小写。
+ * `ControlOrMeta` 在 macOS 上是 Meta，别处是 Control。
+ */
+export function parseKeyCombo(
+  input: string,
+  platform: NodeJS.Platform = process.platform,
+): ParsedKey {
+  let main: string;
+  let prefix: string[];
+  if (input === '+' || input === ' ') {
+    main = input;
+    prefix = [];
+  } else if (input.endsWith('++')) {
+    main = '+';
+    prefix = input.slice(0, -2).split('+');
+  } else {
+    const parts = input.split('+');
+    main = parts.pop() ?? '';
+    prefix = parts;
+  }
+  const modifiers: InputModifier[] = [];
+  for (const raw of prefix) {
+    const alias = MODIFIER_ALIASES[raw.trim().toLowerCase()];
+    if (!alias) {
+      return {
+        ok: false,
+        message: `Unknown modifier "${raw}" in "${input}". Use Shift, Control, Alt, Meta or ControlOrMeta, joined with + (for example Shift+Tab or ControlOrMeta+a).`,
+      };
+    }
+    const modifier =
+      alias === 'ControlOrMeta' ? (platform === 'darwin' ? 'Meta' : 'Control') : alias;
+    if (!modifiers.includes(modifier)) modifiers.push(modifier);
+  }
+  const key = canonicalKey(main);
+  if (!key) {
+    return {
+      ok: false,
+      message: `Unknown key "${main}"${prefix.length > 0 ? ` in "${input}"` : ''}. Use one character or a key name: ${Object.keys(VIRTUAL_KEY_CODES).join(', ')}.`,
+    };
+  }
+  return { ok: true, key, modifiers };
+}
+
+function canonicalKey(name: string): string | undefined {
+  if ([...name].length === 1 && name !== ' ') return name;
+  const lower = name.toLowerCase();
+  return KEY_ALIASES[lower] ?? KEY_ALIASES[name] ?? NAMED_KEYS.get(lower);
+}
+
+/** macOS 上 Chromium 的编辑快捷键不经 keydown 生效，要随按键带上编辑命令（Playwright 的 macEditingCommands 里常用的几条）。 */
+const MAC_EDITING_COMMANDS: Record<string, string> = {
+  'Meta+a': 'selectAll',
+  'Meta+c': 'copy',
+  'Meta+x': 'cut',
+  'Meta+v': 'paste',
+  'Meta+z': 'undo',
+  'Meta+Shift+z': 'redo',
+  'Shift+ArrowLeft': 'moveLeftAndModifySelection',
+  'Shift+ArrowRight': 'moveRightAndModifySelection',
+  'Meta+ArrowLeft': 'moveToLeftEndOfLine',
+  'Meta+ArrowRight': 'moveToRightEndOfLine',
+  'Meta+Backspace': 'deleteToBeginningOfLine',
+  'Alt+Backspace': 'deleteWordBackward',
+};
+
+function editingCommands(
+  key: string,
+  modifiers: readonly InputModifier[],
+  platform: NodeJS.Platform,
+): string[] {
+  if (platform !== 'darwin' || modifiers.length === 0) return [];
+  const order: InputModifier[] = ['Meta', 'Control', 'Alt', 'Shift'];
+  const name = [
+    ...order.filter((modifier) => modifiers.includes(modifier)),
+    key.length === 1 ? key.toLowerCase() : key,
+  ].join('+');
+  const command = MAC_EDITING_COMMANDS[name];
+  return command ? [command] : [];
+}
+
+/** DOM 的 `code`（物理键位）；只给字母、数字与键名。 */
+function keyCode(key: string): string | undefined {
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
+  if (/^[0-9]$/.test(key)) return `Digit${key}`;
+  return VIRTUAL_KEY_CODES[key] !== undefined ? key : undefined;
+}
+
+/**
+ * 用 CDP 按一个键（可以带修饰键）：浏览器按焦点所在的 frame 交过去（跨进程的 iframe 也行）。带 Control、Alt、Meta 时不输入字符；
+ * Shift 加字母输入大写。
+ */
+export async function dispatchCdpKey(
+  send: CdpCommandSender,
+  key: string,
+  modifiers: readonly InputModifier[] = [],
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  const shifted = modifiers.includes('Shift') && /^[a-z]$/.test(key) ? key.toUpperCase() : key;
+  const typesText = modifiers.every((modifier) => modifier === 'Shift');
+  const character = !typesText
+    ? ''
+    : shifted === 'Space'
+      ? ' '
+      : shifted === 'Enter'
+        ? '\r'
+        : [...shifted].length === 1
+          ? shifted
+          : '';
+  const domKey = shifted === 'Space' ? ' ' : shifted;
   const windowsVirtualKeyCode =
-    VIRTUAL_KEY_CODES[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
-  await send('Input.dispatchKeyEvent', {
-    type: character ? 'keyDown' : 'rawKeyDown',
+    VIRTUAL_KEY_CODES[key] ?? (/^[a-z0-9]$/i.test(key) ? key.toUpperCase().charCodeAt(0) : 0);
+  const code = keyCode(key);
+  const mask = modifierMask([...modifiers]);
+  const commands = editingCommands(key, modifiers, platform);
+  const common = {
     key: domKey,
     windowsVirtualKeyCode,
-    ...(character && { text: character, unmodifiedText: character }),
+    ...(code && { code }),
+    ...(mask !== 0 && { modifiers: mask }),
+  };
+  await send('Input.dispatchKeyEvent', {
+    type: character ? 'keyDown' : 'rawKeyDown',
+    ...common,
+    ...(character && { text: character, unmodifiedText: shifted !== key ? key : character }),
+    ...(commands.length > 0 && { commands }),
   });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: domKey, windowsVirtualKeyCode });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', ...common });
 }
 
 function modifierMask(modifiers: InputModifier[] | undefined): number {
