@@ -118,6 +118,7 @@ export class EventStore {
   readonly #bus: EventBus;
   readonly #projections = new Map<SessionId, SessionProjection>();
   readonly #buffers = new Map<SessionId, DeltaBuffer>();
+  readonly #touchListeners = new Set<(sessionIds: readonly SessionId[]) => void>();
   #closed = false;
 
   constructor(options: EventStoreOptions) {
@@ -136,6 +137,26 @@ export class EventStore {
   /** 收此后写入的全部会话的事件（0.65.0，回合后验证），返回取消函数；见 `EventBus.listenAll`。 */
   listenAll(listener: EventListener): () => void {
     return this.#bus.listenAll(listener);
+  }
+
+  /** 收 `touch` 与 `forget`（0.101.0，会话列表推送），返回取消函数。 */
+  listenTouched(listener: (sessionIds: readonly SessionId[]) => void): () => void {
+    this.#touchListeners.add(listener);
+    return () => this.#touchListeners.delete(listener);
+  }
+
+  /**
+   * 会话的行在事件之外变了（0.101.0，domain-model §3.46）：归档与取消归档、所在工作区移除或恢复。只通知 `listenTouched`，不写事件。
+   */
+  touch(sessionIds: readonly SessionId[]): void {
+    if (sessionIds.length === 0) return;
+    for (const listener of [...this.#touchListeners]) {
+      try {
+        listener(sessionIds);
+      } catch (error) {
+        this.#onError(error);
+      }
+    }
   }
 
   append<I extends AppendInput>(sessionId: SessionId, input: I): WevirEventOf<I['type']> {
@@ -230,7 +251,7 @@ export class EventStore {
     for (const sessionId of this.#buffers.keys()) this.#commit(sessionId, []);
   }
 
-  /** 会话已从库里删掉（0.43.0，`session.delete`）：丢掉它缓冲的增量与内存里的投影。 */
+  /** 会话已从库里删掉（0.43.0，`session.delete`）：丢掉它缓冲的增量与内存里的投影，再照 `touch` 通知（0.101.0）。 */
   forget(sessionIds: readonly SessionId[]): void {
     for (const sessionId of sessionIds) {
       const buffer = this.#buffers.get(sessionId);
@@ -238,6 +259,7 @@ export class EventStore {
       this.#buffers.delete(sessionId);
       this.#projections.delete(sessionId);
     }
+    this.touch(sessionIds);
   }
 
   /**

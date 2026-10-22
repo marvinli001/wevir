@@ -67,6 +67,7 @@ import type { ReadinessService } from './readiness/service.js';
 import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
+import { listRow } from './session-list.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
@@ -297,6 +298,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   });
+  /** 工作区移除或恢复时它的会话随之移出或回到列表（0.101.0，会话列表推送）。 */
+  const workspaceSessionIds = (workspaceId: string): SessionId[] =>
+    storage.sessions
+      .list({
+        workspaceId,
+        includeRemovedWorkspaces: true,
+        includeChildren: true,
+        archived: 'include',
+      })
+      .map((record) => record.id as SessionId);
   /** 会话加上存储里的归档时刻（0.23.0，不是事件推导的）。 */
   const withArchive = (session: Session): Session => {
     const archivedAt = storage.sessions.get(session.id)?.archivedAt;
@@ -573,7 +584,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       // 查重与插入在同一个同步段里，两个并发的 add 不会都插入。
       const existing = storage.workspaces.getByRootPath(real);
       if (existing) {
-        if (existing.removedAt !== undefined) storage.workspaces.restore(existing.id, isoNow());
+        if (existing.removedAt !== undefined) {
+          storage.workspaces.restore(existing.id, isoNow());
+          events.touch(workspaceSessionIds(existing.id));
+        }
         return { workspace: toWorkspace(mustGetWorkspace(storage, existing.id)), created: false };
       }
       const now = isoNow();
@@ -610,6 +624,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       void options.readiness?.removeWorkspace(workspaceId as WorkspaceId);
       void options.previews?.removeWorkspace(workspaceId as WorkspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
+      events.touch(workspaceSessionIds(workspaceId));
       return {};
     },
 
@@ -1048,7 +1063,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {
         sessions: records.flatMap((record) => {
           const snapshot = events.snapshot(record.id as SessionId);
-          return snapshot ? [withArchive(snapshot.session)] : [];
+          return snapshot ? [listRow(snapshot, record.archivedAt)] : [];
         }),
       };
     },
@@ -1122,6 +1137,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const session = await sessions.resume(sessionId);
       if (storage.sessions.get(sessionId)?.archivedAt !== undefined) {
         storage.sessions.setArchived(sessionId, undefined);
+        events.touch([sessionId]);
       }
       return { session };
     },

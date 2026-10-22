@@ -1,23 +1,32 @@
 // 左栏的工作区与会话列表（T5.3 起实时）与 Provider 列表（T5.4）：连上 Host 时读 workspace.list、session.list 与
 // provider.list，再给每个会话订阅一条
 // 从它当前 lastSeq 开始的事件流，按事件跟上状态、标题与最近活动（client-sdk 的 applySessionEvent），所以另一个
-// 客户端发起的回合、审批也会立即显示。Host 没有“会话列表变化”的推送，别的客户端新建的会话靠定时与窗口获得
-// 焦点时重读列表发现。事件按帧合并后再通知界面。
+// 客户端发起的回合、审批也会立即显示。别的客户端建、删、改名、归档的会话：Host 有 `session_list_push`（0.101.0）时经
+// `sessions.changed` 到达，版本不连续就重读；没有时靠定时与窗口获得焦点时重读列表发现。事件按帧合并后再通知界面。
 
 import {
   applySessionEvent,
   type EventSubscription,
   isRpcError,
+  type SessionsChange,
   type WevirClient,
 } from '@wevir/client-sdk';
 import type { ProviderProfile, Session, SessionId, WevirEvent, Workspace } from '@wevir/protocol';
 import { describe } from '@/host/host-connection';
 import { frameBatcher } from '@/lib/frame';
 import { recordBaselines } from './seen-sessions';
-import { groupSessions, mergeSessions, type WorkbenchData } from './workbench-model';
+import {
+  applySessionsChange,
+  groupSessions,
+  mergeSessions,
+  type WorkbenchData,
+} from './workbench-model';
 
 /** 重读会话列表的间隔：只为发现别的客户端新建的会话，已知会话的变化走事件订阅。 */
 export const LIST_REFRESH_MS = 10_000;
+
+/** Host 推送会话列表的变化（`session_list_push`）时，定时重读只是兜底。 */
+export const LIST_FALLBACK_REFRESH_MS = 60_000;
 
 /** 列表里的会话收到一条事件（U31 的通知）：`session` 是应用这条事件之后的会话。 */
 export type SessionEventListener = (event: WevirEvent, session: Session) => void;
@@ -36,10 +45,14 @@ export class WorkbenchStore {
   readonly #batch = frameBatcher(() => this.#flush());
   #refreshing: Promise<void> | undefined;
   #rerun: Promise<void> | undefined;
+  /** 最近一次列表结果或推送的版本；旧 Host 没有。 */
+  #listVersion: number | undefined;
+  readonly #unlistenSessions: () => void;
   #disposed = false;
 
   constructor(client: WevirClient) {
     this.#client = client;
+    this.#unlistenSessions = client.onSessionsChanged((change) => this.#onSessionsChanged(change));
   }
 
   get = (): WorkbenchData => this.#data;
@@ -85,6 +98,7 @@ export class WorkbenchStore {
 
   dispose(): void {
     this.#disposed = true;
+    this.#unlistenSessions();
     this.#batch.cancel();
     for (const subscription of this.#subscriptions.values()) subscription.close();
     this.#subscriptions.clear();
@@ -94,7 +108,7 @@ export class WorkbenchStore {
 
   async #refresh(): Promise<void> {
     try {
-      const [{ workspaces }, { sessions }, { providers }] = await Promise.all([
+      const [{ workspaces }, { sessions, listVersion }, { providers }] = await Promise.all([
         this.#client.request('workspace.list'),
         this.#client.request('session.list'),
         this.#client.request('provider.list'),
@@ -104,6 +118,7 @@ export class WorkbenchStore {
       this.#workspaces = workspaces;
       this.#providers = providers;
       this.#sessions = mergeSessions(this.#sessions, sessions);
+      this.#listVersion = listVersion;
       this.#error = undefined;
       for (const [id, subscription] of this.#subscriptions) {
         if (this.#sessions.has(id)) continue;
@@ -117,6 +132,32 @@ export class WorkbenchStore {
       this.#error = describe(error);
       this.#publish();
     }
+  }
+
+  /**
+   * `sessions.changed`（0.101.0）：版本紧接着上一次就照它增删，否则（漏了、Host 重启、正在重读）重读一次列表。重连时的 `undefined`
+   * 不管，连上之后本来就重读。
+   */
+  #onSessionsChanged(change: SessionsChange | undefined): void {
+    if (change === undefined || this.#disposed || this.#listVersion === undefined) return;
+    if (this.#refreshing !== undefined || change.listVersion !== this.#listVersion + 1) {
+      void this.refresh();
+      return;
+    }
+    this.#listVersion = change.listVersion;
+    if (change.upserted.length === 0 && change.removed.length === 0) return;
+    this.#sessions = applySessionsChange(this.#sessions, change);
+    recordBaselines([...this.#sessions.values()]);
+    for (const id of change.removed) {
+      if (this.#sessions.has(id)) continue;
+      this.#subscriptions.get(id)?.close();
+      this.#subscriptions.delete(id);
+    }
+    for (const session of change.upserted) {
+      const current = this.#sessions.get(session.id);
+      if (current) this.#follow(current);
+    }
+    this.#publish();
   }
 
   /** 给会话开一条从当前 lastSeq 开始的订阅（已有就不重复开）。断线重连由 client-sdk 续订。 */

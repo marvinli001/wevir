@@ -12,7 +12,7 @@ import { useHostConnection } from '@/host/host-connection';
 import { AccountsStore } from './accounts-store';
 import { TranscriptCache, type TranscriptState } from './transcript-store';
 import type { WorkbenchData } from './workbench-model';
-import { LIST_REFRESH_MS, WorkbenchStore } from './workbench-store';
+import { LIST_FALLBACK_REFRESH_MS, LIST_REFRESH_MS, WorkbenchStore } from './workbench-store';
 
 interface Stores {
   workbench: WorkbenchStore;
@@ -26,8 +26,8 @@ const LOADING: WorkbenchData = { status: 'loading' };
 const noop = () => () => {};
 
 /**
- * 工作区与会话列表（workbench-store.ts）。每次连上 Host（含重连）、每 10 s、窗口获得焦点时重读列表；
- * 已知会话的变化经事件订阅实时到达。
+ * 工作区与会话列表（workbench-store.ts）。每次连上 Host（含重连）、窗口获得焦点时重读列表，另外定时重读：Host 推送列表的
+ * 变化（`session_list_push`）时每 60 s 兜底，否则每 10 s。已知会话的变化经事件订阅实时到达。
  */
 export function WorkbenchDataProvider({ children }: { children: ReactNode }) {
   const { view, client } = useHostConnection();
@@ -55,7 +55,9 @@ export function WorkbenchDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!store || !hello) return;
     void store.refresh();
-    const timer = window.setInterval(() => void store.refresh(), LIST_REFRESH_MS);
+    const interval =
+      hello.features.session_list_push === true ? LIST_FALLBACK_REFRESH_MS : LIST_REFRESH_MS;
+    const timer = window.setInterval(() => void store.refresh(), interval);
     const onFocus = () => void store.refresh();
     window.addEventListener('focus', onFocus);
     return () => {

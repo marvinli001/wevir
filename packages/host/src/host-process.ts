@@ -73,6 +73,7 @@ import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
 import { loadOpinionTemplate, SecondOpinionService } from './second-opinion.js';
+import { SessionListFeed } from './session-list.js';
 import { SessionManager, type SessionManagerOptions } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
@@ -230,6 +231,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
+  let sessionList: SessionListFeed | undefined;
   let approvalRules: ApprovalRuleService | undefined;
   let guardrails: GuardrailService | undefined;
   try {
@@ -248,6 +250,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const search = sessionSearch;
     store.listenAll(() => search.notify());
     search.start();
+    // 会话列表推送（0.101.0）：读过 session.list 的连接收 sessions.changed。
+    const listFeed = new SessionListFeed({
+      storage,
+      events: store,
+      onError: (error) => logger.warn('session list push error', { error }),
+    });
+    sessionList = listFeed;
     // 适配器能生成标题时才读提示词；读不到只是没有模型生成的标题，不阻止 Host 启动。
     let titleInstructions: string | undefined;
     if (adapter.generateTitle !== undefined) {
@@ -1084,12 +1093,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         speech: true,
         mcp_oauth: true,
         permission_enforcement: true,
+        session_list_push: true,
       },
       engineFeatures,
       plugins,
       ...(accounts !== undefined && { accounts }),
       settings,
       memory,
+      sessionList: listFeed,
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1160,6 +1171,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           checkpoints,
           events: store,
           search,
+          sessionList: listFeed,
           storage: db,
           runtimeFile,
           ...(options.web !== undefined && { web: options.web }),
@@ -1195,6 +1207,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await options.web?.close().catch(() => {});
     try {
       sessionSearch?.close();
+      sessionList?.close();
       events?.close();
       storage?.close();
     } catch {
@@ -1239,6 +1252,7 @@ interface ShutdownParts {
   checkpoints: TurnCheckpoints;
   events: EventStore;
   search: SessionSearch;
+  sessionList: SessionListFeed;
   storage: Storage;
   runtimeFile: RuntimeFile;
   web?: WebService;
@@ -1314,6 +1328,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);
   await step('flush_storage', () => {
     parts.search.close();
+    parts.sessionList.close();
     parts.events.close();
     parts.storage.close();
   });

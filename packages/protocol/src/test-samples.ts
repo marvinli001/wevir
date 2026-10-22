@@ -4168,9 +4168,18 @@ export const methodSamples: MethodSamples = {
             { ...session, automation: { automationId: ids.automation, runId: ids.automationRun } },
           ],
         },
+        // 0.101.0：列表的版本与待处理数。
+        {
+          sessions: [{ ...session, pendingApprovalCount: 2, pendingQuestionCount: 1 }],
+          listVersion: 1792368000000,
+        },
+        { sessions: [], listVersion: 0 },
       ],
       invalid: [
         { sessions: [{ ...session, lastSeq: -1 }] },
+        { sessions: [], listVersion: -1 },
+        { sessions: [], listVersion: 1.5 },
+        { sessions: [{ ...session, pendingApprovalCount: 0 }] },
         { sessions: [{ ...session, automation: { automationId: ids.automation } }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.workspace } }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.childSession, role: '' } }] },
@@ -7280,6 +7289,18 @@ export const notificationSamples: NotificationSamples = {
     invalid: [
       { event: eventOf('assistant.delta', 13) },
       { subscriptionId: ids.subscription, event: { ...eventOf('turn.started'), seq: 0 } },
+    ],
+  },
+  'sessions.changed': {
+    valid: [
+      { listVersion: 7, upserted: [{ ...session, pendingApprovalCount: 1 }], removed: [] },
+      { listVersion: 8, upserted: [], removed: [ids.childSession] },
+      { listVersion: 9, upserted: [], removed: [] },
+    ],
+    invalid: [
+      { listVersion: 7, upserted: [] },
+      { listVersion: -1, upserted: [], removed: [] },
+      { listVersion: 7, upserted: [], removed: [ids.workspace] },
     ],
   },
   'account.updated': {

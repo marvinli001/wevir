@@ -425,6 +425,11 @@ export const HOST_FEATURES = {
    * `NOTIFICATION_PERMISSIONS` 过滤通知，越权回 `DEVICE_FORBIDDEN`。本机连接拥有全部权限。与引擎无关。
    */
   permissionEnforcement: 'permission_enforcement',
+  /**
+   * 会话列表推送（0.101.0，ADR-0017 §5，domain-model §3.46）：`session.list` 的 `listVersion` 与待处理数、`sessions.changed` 通知。
+   * 与引擎无关。
+   */
+  sessionListPush: 'session_list_push',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -512,6 +517,7 @@ export const HostFeaturesSchema = z.looseObject({
   writing_style: z.boolean().optional(),
   mcp_oauth: z.boolean().optional(),
   permission_enforcement: z.boolean().optional(),
+  session_list_push: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

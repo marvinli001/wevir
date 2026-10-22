@@ -55,6 +55,7 @@ import {
   missingParamPermissions,
   type TestConnectionGrant,
 } from './permissions.js';
+import { type SessionListFeed, SessionListScope } from './session-list.js';
 import type { TerminalService } from './terminals.js';
 
 /** 一条连接的时限与容量。默认值见 `HostRpcServer`。 */
@@ -88,6 +89,8 @@ export interface ConnectionHost {
   readonly plugins?: { watch(listener: () => void): () => void };
   /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接用它收 `memory.changed`。 */
   readonly memory?: { watch(listener: (change: MemoryChange) => void): () => void };
+  /** 会话列表推送（0.101.0）：`session.list` 的结果加上它的版本，之后这条连接用它收 `sessions.changed`。 */
+  readonly sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接用它收 `usage.changed`。 */
   readonly usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接用它收 `automation.changed`。 */
@@ -162,6 +165,9 @@ interface ZodIssueLike {
   readonly message: string;
 }
 
+/** `sessions.changed` 从这个协议版本起有（0.101.0）。 */
+const SESSION_LIST_PUSH_SINCE = '0.101.0';
+
 /** 给旧客户端的提示（host-api.md §3.2 未知方法）。 */
 const UPGRADE_HINT = '请升级 Wevir Host';
 
@@ -210,6 +216,9 @@ export class RpcConnection {
   #unwatchPlugins: (() => void) | undefined;
   /** 调过 `memory.*` 之后：退订 `memory.changed`。 */
   #unwatchMemory: (() => void) | undefined;
+  /** 调过 `session.list` 之后：它的参数并集与见过的会话，以及退订 `sessions.changed`。 */
+  readonly #sessionListScope = new SessionListScope();
+  #unwatchSessionList: (() => void) | undefined;
   /** 调过 `usage.*` 之后：退订 `usage.changed`。 */
   #unwatchUsage: (() => void) | undefined;
   /** 调过 `automation.*` 之后：退订 `automation.changed`。 */
@@ -562,12 +571,24 @@ export class RpcConnection {
           params: unknown,
           context: RequestContext,
         ) => unknown;
-        const result = await handler(params, { client, capabilities: this.#capabilities });
-        this.#respond(
+        let result = await handler(params, { client, capabilities: this.#capabilities });
+        if (method === 'session.list' && this.#host.sessionList !== undefined) {
+          result = {
+            ...(result as MethodResult<'session.list'>),
+            listVersion: this.#host.sessionList.version,
+          };
+        }
+        const sent = this.#respond(
           id,
           method,
           adaptResultForClient(method, result, this.#capabilities, this.#protocolVersion),
         );
+        if (sent && method === 'session.list') {
+          this.#watchSessionList(
+            params as MethodParams<'session.list'>,
+            (result as MethodResult<'session.list'>).sessions,
+          );
+        }
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
@@ -785,6 +806,25 @@ export class RpcConnection {
         return;
       }
       this.#notify('memory.changed', parsed.data);
+    });
+  }
+
+  /**
+   * 调过 `session.list` 的连接之后收 `sessions.changed`（0.101.0，domain-model §3.46），连接关闭即止。协商版本更低的连接不认这个通知，
+   * 不登记。每一批都发（与它无关时两个数组都是空的），这条连接看到的版本才是连续的。
+   */
+  #watchSessionList(params: MethodParams<'session.list'>, sessions: readonly Session[]): void {
+    const feed = this.#host.sessionList;
+    if (feed === undefined || this.#phase !== 'ready') return;
+    if (compareProtocolVersions(this.#protocolVersion, SESSION_LIST_PUSH_SINCE) < 0) return;
+    this.#sessionListScope.add(params, sessions);
+    this.#unwatchSessionList ??= feed.watch((batch) => {
+      const change = this.#sessionListScope.apply(batch);
+      // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
+      if (this.#capabilities.title_source_generated !== true) {
+        change.upserted = change.upserted.map(adaptSession);
+      }
+      this.#notify('sessions.changed', change);
     });
   }
 
@@ -1095,6 +1135,8 @@ export class RpcConnection {
     this.#unwatchSettings = undefined;
     this.#unwatchMemory?.();
     this.#unwatchMemory = undefined;
+    this.#unwatchSessionList?.();
+    this.#unwatchSessionList = undefined;
     this.#unwatchUsage?.();
     this.#unwatchUsage = undefined;
     this.#unwatchAutomations?.();

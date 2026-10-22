@@ -31,6 +31,7 @@ import {
   RpcConnection,
   tokenDigest,
 } from './rpc-connection.js';
+import type { SessionListFeed } from './session-list.js';
 
 /** Host 只监听 loopback（ADR-0002 §1）。 */
 export const RPC_LISTEN_HOST = '127.0.0.1';
@@ -65,6 +66,8 @@ export interface HostRpcServerOptions {
   plugins?: { watch(listener: () => void): () => void };
   /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接经它收 `memory.changed`。 */
   memory?: { watch(listener: (change: MemoryChange) => void): () => void };
+  /** 会话列表推送（0.101.0）：调过 `session.list` 的连接经它收 `sessions.changed`。 */
+  sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接经它收 `usage.changed`。 */
   usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接经它收 `automation.changed`。 */
@@ -180,6 +183,7 @@ export class HostRpcServer {
       ...(options.settings !== undefined && { settings: options.settings }),
       ...(options.plugins !== undefined && { plugins: options.plugins }),
       ...(options.memory !== undefined && { memory: options.memory }),
+      ...(options.sessionList !== undefined && { sessionList: options.sessionList }),
       ...(options.usage !== undefined && { usage: options.usage }),
       ...(options.automations !== undefined && { automations: options.automations }),
       ...(options.processes !== undefined && { processes: options.processes }),
