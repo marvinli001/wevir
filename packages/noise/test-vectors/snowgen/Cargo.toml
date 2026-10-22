@@ -1,0 +1,7 @@
+[package]
+name = "snowgen"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+snow = { version = "=0.10.0", features = ["default-resolver"] }
+hex = "0.4"

@@ -1,0 +1,5 @@
+{
+  // 两端共用（Host、CLI、手机的 Hermes），不带 Node 类型：用到 Buffer、process、node:* 就编译失败。测试也一样，向量用 JSON import 读。
+  "extends": "../../tsconfig.base.json",
+  "include": ["src", "*.config.ts"]
+}

@@ -43,6 +43,7 @@ wevir/
 │  ├─ storage/          Host 本地存储（node:sqlite、SQL 迁移）
 │  ├─ host/             Local Agent Host：会话、事件库、审批、工具、WebSocket JSON-RPC 服务
 │  ├─ client-sdk/       Host 的 TypeScript 客户端（浏览器与 Node 共用）
+│  ├─ noise/            远程访问的 Noise 握手（XXpsk2 与 IK）与传输分片，Host、CLI 与手机共用
 │  ├─ model-gateway/    模型协议网关：把 Codex 的 Responses 请求转成各家模型服务的协议
 │  ├─ adapter-acp/      通用 ACP 适配器
 │  ├─ adapter-codex/    Codex（app-server）适配器，默认引擎
