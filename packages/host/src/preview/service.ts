@@ -2,7 +2,7 @@
 // （processes.ts，带 `preview`），复用它的日志、停止与 Host 退出时结束；这里另外管四件事：
 // - 同一根目录（会话目录）、同名的已在跑时不起第二份（`reused`）；
 // - 启动前问环境就绪（ADR-0011 的相关阻塞项），有就不起（`blocked`）；
-// - 配了端口而端口已被别的进程占着时不起（`port_in_use`）；
+// - 配了端口而端口已被别的进程占着时不起（`port_in_use`，是 Wevir 起的另一项预览时带上它）；
 // - 起来后判定就绪：配了端口时轮询 TCP 连接，没配端口时从输出里认本机地址再连，最多等 `PREVIEW_READY_TIMEOUT_MS`。
 
 import { connect } from 'node:net';
@@ -38,7 +38,8 @@ const LOCAL_URL =
 export type PreviewStart =
   | { status: 'started' | 'reused'; process: ProcessInfo }
   | { status: 'blocked'; readiness: ReadinessItem[] }
-  | { status: 'port_in_use'; port: number; url: string };
+  /** `owner`：占着端口的是 Wevir 起的另一项预览（任一会话）时是它的进程。 */
+  | { status: 'port_in_use'; port: number; url: string; owner?: ProcessInfo };
 
 export interface PreviewList {
   root: string;
@@ -273,7 +274,13 @@ export class PreviewService {
     const port = config.port ?? (config.url === undefined ? undefined : portOf(config.url));
     const url = config.url ?? (port === undefined ? undefined : `http://localhost:${port}`);
     if (port !== undefined && (await this.#open(hostsOf(config.url), port))) {
-      return { status: 'port_in_use', port, url: url ?? `http://localhost:${port}` };
+      const owner = this.#previewOnPort(port);
+      return {
+        status: 'port_in_use',
+        port,
+        url: url ?? `http://localhost:${port}`,
+        ...(owner !== undefined && { owner }),
+      };
     }
 
     let info: ProcessInfo;
@@ -342,6 +349,19 @@ export class PreviewService {
       }
       await new Promise((resolve) => setTimeout(resolve, poll));
     }
+  }
+
+  /** 在跑、端口是 `port` 的预览（配置的端口，或输出里认出的地址的端口）。 */
+  #previewOnPort(port: number): ProcessInfo | undefined {
+    return this.#options.processes
+      .listAll()
+      .find(
+        (info) =>
+          info.status === 'running' &&
+          info.preview !== undefined &&
+          (info.preview.port ??
+            (info.preview.url === undefined ? undefined : portOf(info.preview.url))) === port,
+      );
   }
 
   #alive(info: ProcessInfo): boolean {

@@ -390,6 +390,12 @@ describe('浏览器工具（0.89.0）：收尾与接管', () => {
     expect(byName.get('browser_claim_tab')?.annotations.readOnlyHint).toBe(false);
     expect(APP_TOOLS_NO_APPROVAL).toContain('browser_finalize_tabs');
     expect(APP_TOOLS_NO_APPROVAL).not.toContain('browser_claim_tab');
+    expect(byName.get('browser_close_tab')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    expect(APP_TOOLS_NO_APPROVAL).toContain('browser_close_tab');
 
     const desktop = await fakeDesktop(connect, (request) => ({
       ok: true,
@@ -761,6 +767,55 @@ describe('browserToolResult', () => {
     });
     expect(part.split('\n')[0]).toBe(
       'Snapshot part: lines 81–150 of 6402, 2 refs in the whole page.',
+    );
+    const tall = text({
+      ok: true,
+      result: {
+        command: 'screenshot',
+        browserId: 'tab_1',
+        mimeType: 'image/png',
+        dataBase64: 'AAAA',
+        width: 537,
+        height: 8000,
+      },
+    });
+    expect(tall).toMatch(
+      /^Captured a screenshot of browser tab tab_1 \(537x8000\)\. Full-page screenshots stop at 8000 px of height/,
+    );
+    const short = text({
+      ok: true,
+      result: {
+        command: 'screenshot',
+        browserId: 'tab_1',
+        mimeType: 'image/png',
+        dataBase64: 'AAAA',
+        width: 537,
+        height: 900,
+      },
+    });
+    expect(short).toBe('Captured a screenshot of browser tab tab_1 (537x900).');
+    const pastEnd = text({
+      ok: true,
+      result: {
+        command: 'snapshot',
+        browserId: 'tab_1',
+        url: 'http://a.test/big',
+        title: 'Big',
+        format: 'aria-yaml',
+        snapshot: '# The snapshot has 1266 lines; offset 1300 is past the end.',
+        truncated: true,
+        stats: {
+          nodeCount: 1300,
+          refCount: 2,
+          textLength: 10,
+          totalLines: 1266,
+          startLine: 1266,
+          shownLines: 0,
+        },
+      },
+    });
+    expect(pastEnd.split('\n')[0]).toBe(
+      'Snapshot part: none (the offset is past the last line, 1266), 2 refs in the whole page.',
     );
     const logs = text({
       ok: true,

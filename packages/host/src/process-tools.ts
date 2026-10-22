@@ -38,6 +38,8 @@ export const PROCESS_GREP_MAX = 200;
 
 const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
 const RUN = { readOnlyHint: false, destructiveHint: true, openWorldHint: true };
+/** 停 agent 自己起的进程：不用批准（2026-10-22，维护者定；用户起的预览与检查进程拒绝）。不标 `readOnlyHint`。 */
+const STOP_OWN = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
 export interface ProcessToolsOptions {
   processes: ProcessManager;
@@ -286,7 +288,8 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
       description:
         'Send a signal to a background process and everything it started (its process group). Default SIGTERM; ' +
         'SIGINT is like Ctrl-C, SIGKILL cannot be ignored, SIGHUP / SIGUSR1 / SIGUSR2 ask some servers to reload. ' +
-        'Waits up to 5 s for it to exit and reports the result. A process you stop does not send an exit message.',
+        'Waits up to 5 s for it to exit and reports the result. A process you stop does not send an exit message. ' +
+        'Only processes you started: dev servers the user started and checks Wevir runs are left to the user.',
       inputSchema: objectSchema(
         {
           id: { type: 'string' },
@@ -294,10 +297,16 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
         },
         ['id'],
       ),
-      annotations: RUN,
+      annotations: STOP_OWN,
       async call(args, call) {
         const id = requiredString(args, 'id');
         const signal: ProcessSignal = optionalEnum(args, 'signal', PROCESS_SIGNALS) ?? 'SIGTERM';
+        const owner = startedByOther(processes.info(call.sessionId, id));
+        if (owner !== undefined) {
+          throw new AppToolError(
+            `${id} was started by ${owner}, not by you; only the user can stop it (the process list in Wevir).`,
+          );
+        }
         processes.signal(call.sessionId, id, signal);
         const stops = signal === 'SIGTERM' || signal === 'SIGINT' || signal === 'SIGKILL';
         if (stops) await processes.wait(call.sessionId, id, undefined, 5000, call.signal);
@@ -449,4 +458,11 @@ export function noticeText(notice: ProcessNotice): string {
     notice.tail === '' ? '(no output)' : `Last lines:\n${notice.tail}`,
     `Full log: ${info.logPath}`,
   ].join('\n');
+}
+
+/** 不是 agent 起的进程是谁起的：用户起的预览、回合后验证的检查；agent 自己起的为 `undefined`。 */
+function startedByOther(info: ProcessInfo): string | undefined {
+  if (info.check !== undefined) return 'a Wevir check';
+  if (info.preview?.startedBy === 'user') return 'the user';
+  return undefined;
 }

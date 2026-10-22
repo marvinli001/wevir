@@ -222,13 +222,53 @@ export function restoreToolCall(
       input: customCallInput(call.arguments),
     };
   }
+  const name = origin?.name ?? call.name;
   return {
     type: 'function_call',
     call_id: call.callId,
-    name: origin?.name ?? call.name,
+    name,
     ...(origin?.namespace === undefined ? {} : { namespace: origin.namespace }),
-    arguments: call.arguments,
+    arguments:
+      name === 'write_stdin' && origin?.namespace === undefined
+        ? writeStdinArguments(call.arguments)
+        : call.arguments,
   };
+}
+
+/** `chars` 里能写成控制键的转义：`\u0003`、`\x03`、`^C`，以及 `\n` `\r` `\t` `\e`。 */
+const CONTROL_ESCAPE =
+  /\\u00([01][0-9a-fA-F]|7[fF])|\\x([01][0-9a-fA-F]|7[fF])|\^([@A-Za-z[\\\]^_?])|\\([nrte])/g;
+const ONLY_CONTROL_ESCAPES = new RegExp(`^(?:${CONTROL_ESCAPE.source})+$`);
+const NAMED_ESCAPES: Readonly<Record<string, string>> = { n: '\n', r: '\r', t: '\t', e: '\u001b' };
+
+/**
+ * Codex `write_stdin` 的参数：`chars` 整个只由控制键的转义组成时换成对应的控制字符（2026-10-22 冒烟：经 Chat / Messages 的
+ * Claude 等模型的字符串参数是原样给的，写 `\u0003` 到 Codex 是六个字符，tty 里的进程停不下来）。夹着普通文字的不动，避免改掉
+ * 真要输入的反斜杠或 `^`；解析不了的参数原样交给 Codex。
+ */
+export function writeStdinArguments(args: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(args);
+  } catch {
+    return args;
+  }
+  if (!isObject(parsed) || typeof parsed.chars !== 'string') return args;
+  if (!ONLY_CONTROL_ESCAPES.test(parsed.chars)) return args;
+  const chars = parsed.chars.replace(
+    CONTROL_ESCAPE,
+    (_match, unicode?: string, hex?: string, caret?: string, named?: string) => {
+      const code = unicode ?? hex;
+      if (code !== undefined) return String.fromCharCode(Number.parseInt(code, 16));
+      if (caret !== undefined) {
+        return caret === '?'
+          ? '\u007f'
+          : String.fromCharCode(caret.toUpperCase().charCodeAt(0) ^ 0x40);
+      }
+      return NAMED_ESCAPES[named ?? ''] ?? '';
+    },
+  );
+  return JSON.stringify({ ...parsed, chars });
 }
 
 export function isObject(value: unknown): value is JsonObject {

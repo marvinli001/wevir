@@ -1433,7 +1433,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           })),
         };
       }
-      if (started.status === 'port_in_use') return started;
+      if (started.status === 'port_in_use') {
+        return { status: 'port_in_use', port: started.port, url: started.url };
+      }
       const process = processOutput().toHost(started.process);
       if (process === undefined)
         throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);

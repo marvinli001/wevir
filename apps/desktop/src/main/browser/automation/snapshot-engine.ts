@@ -8,6 +8,7 @@
 // 0.48.0：快照能只取一个元素（选择器或引用）、一个 frame、视口里的部分，节点上限可调，停下时说明停在哪、怎么缩小范围；跨域
 // iframe 的占位节点在那个 frame 里再跑一遍脚本接上，引用全局编号、记下所在的 frame；browser_query 找到的元素也给引用（接着
 // 现有的编号）。
+// 选择下拉框时核对选项：没有这个值（也没有这段文字）的选项就报错、不动它，不再把选择清空。
 
 import {
   BROWSER_SNAPSHOT_DEFAULT_NODES,
@@ -130,7 +131,7 @@ const frameSkipped = (frameId: string) =>
 export type BrowserRefActionResult =
   | { ok: true }
   | { ok: false; reason: 'stale_ref' | 'missing_ref' }
-  | { ok: false; reason: 'file_input' | 'not_fillable'; detail?: string };
+  | { ok: false; reason: 'file_input' | 'not_fillable' | 'no_option'; detail?: string };
 type BrowserRefFailure = { ok: false; reason: 'stale_ref' | 'missing_ref' };
 
 type BrowserRefResolveResult = { ok: true; metadata: BrowserRefMetadata } | BrowserRefFailure;
@@ -428,7 +429,11 @@ function readActionResult(value: unknown, staleWhenFalse: boolean): BrowserRefAc
   }
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    if (record.reason === 'file_input' || record.reason === 'not_fillable') {
+    if (
+      record.reason === 'file_input' ||
+      record.reason === 'not_fillable' ||
+      record.reason === 'no_option'
+    ) {
       return {
         ok: false,
         reason: record.reason,
@@ -834,6 +839,35 @@ function parseQueryResult(value: unknown):
   return { ok: true, count: readNumber(record.count) ?? elements.length, elements };
 }
 
+/**
+ * 页面脚本片段：`element` 是 <select> 时按 `nextValue` 找选项（先比 value，再比显示的文字）并选中；找不到就不动它、说出有哪些选项
+ * （给 select.value 赋不存在的值会把选择清空）。fill 与 select 共用。
+ */
+const SELECT_OPTION_SNIPPET = `if (element instanceof view.HTMLSelectElement) {
+      const options = Array.from(element.options);
+      const option =
+        options.find((item) => item.value === nextValue) ??
+        options.find((item) => (item.label || item.text).trim() === nextValue.trim());
+      if (!option) {
+        const listed = options
+          .slice(0, 20)
+          .map((item) => JSON.stringify(item.value) + ((item.label || item.text).trim() !== item.value ? ' (' + JSON.stringify((item.label || item.text).trim()) + ')' : ''))
+          .join(', ');
+        return {
+          ok: false,
+          reason: 'no_option',
+          detail: options.length === 0 ? 'it has no options' : 'its options are ' + listed + (options.length > 20 ? ', …' : ''),
+        };
+      }
+      if (option.disabled) {
+        return { ok: false, reason: 'no_option', detail: 'that option is disabled' };
+      }
+      option.selected = true;
+      element.dispatchEvent(new view.Event('input', { bubbles: true }));
+      element.dispatchEvent(new view.Event('change', { bubbles: true }));
+      return { ok: true };
+    }`;
+
 function buildFillScript(metadata: BrowserRefMetadata, value: string): string {
   return `(() => {
     const resolved = ${buildResolveExpression(metadata)};
@@ -846,6 +880,7 @@ function buildFillScript(metadata: BrowserRefMetadata, value: string): string {
     element.scrollIntoView({ block: 'center', inline: 'center' });
     element.focus();
     const nextValue = ${JSON.stringify(value)};
+    ${SELECT_OPTION_SNIPPET}
     if ('value' in element) {
       try {
         element.value = nextValue;
@@ -874,6 +909,7 @@ function buildSelectScript(metadata: BrowserRefMetadata, value: string): string 
     element.scrollIntoView?.({ block: 'center', inline: 'center' });
     element.focus?.();
     const nextValue = ${JSON.stringify(value)};
+    ${SELECT_OPTION_SNIPPET}
     if ('value' in element) {
       element.value = nextValue;
       element.dispatchEvent(new view.Event('input', { bubbles: true }));

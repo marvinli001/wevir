@@ -16,6 +16,27 @@ const DIFF: Record<string, string> = {
   not_git: 'not a git repository',
 };
 
+/** 下一步每种的说明；`text` 是出处里的原文（审批、检查名、清单项）或个数（提交、推送），`run_checks` 没有。 */
+const NEXT: Record<string, (text: string) => string> = {
+  decide: (text) => `Waiting for the user to decide: ${text}`,
+  fix_check: (text) => `Fix the failing check: ${text}`,
+  rerun_check: (text) => `Rerun the check (its pass is for older code): ${text}`,
+  run_checks: () => 'Code changed with no verification records: run the relevant checks',
+  environment: (text) => `The check could not run in this environment: ${text}`,
+  send_review: (text) => `Send the pending review comment: ${text}`,
+  open_item: (text) => `Finish the open item: ${text}`,
+  retry_turn: (text) => `The last turn did not finish; retry it: ${text}`,
+  commit: (text) => `Commit the changes (${text} uncommitted files)`,
+  push: (text) => `Push the commits (${text} unpushed)`,
+};
+
+function nextLine(entry: { kind: string; text: string }): string {
+  const text = oneLine(entry.text);
+  const describe = NEXT[entry.kind];
+  if (describe === undefined) return text;
+  return describe(text).replace(/: $/, '');
+}
+
 function cite(item: { id: string; inherited?: true; source?: string }): string {
   const tags = [item.id];
   if (item.inherited) tags.push('before the branch');
@@ -133,7 +154,7 @@ export function retroMarkdown(retro: SessionRetro, title?: string): string {
 
   section(
     'Next steps',
-    retro.next.map((entry) => `- [${entry.kind}] ${oneLine(entry.text)}${cite(entry)}`),
+    retro.next.map((entry) => `- [${entry.kind}] ${nextLine(entry)}${cite(entry)}`),
     '- None derived.',
   );
 

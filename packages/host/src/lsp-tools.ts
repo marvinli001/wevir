@@ -563,7 +563,8 @@ export class LspTools {
             const timeoutMs =
               optionalInt(args, 'timeoutMs', 1000, DIAGNOSTICS_MAX_MS) ?? DIAGNOSTICS_DEFAULT_MS;
             const lsp = this.#options.lsp;
-            let files: string[];
+            // 要检查的文件；路径不对的（不存在、在会话目录外）直接是那个文件的结果，不挡住其余文件。
+            let targets: Array<string | FileDiagnostics>;
             if (args.paths !== undefined) {
               if (
                 !Array.isArray(args.paths) ||
@@ -571,18 +572,26 @@ export class LspTools {
               ) {
                 throw new AppToolError('paths must be an array of strings.');
               }
-              files = await Promise.all(
+              const resolved = await Promise.all(
                 (args.paths as string[])
                   .slice(0, DIAGNOSTICS_MAX_FILES)
-                  .map((item) => sessionFile(cwd, item)),
+                  .map((item) => resolveSessionFile(cwd, item)),
               );
-              lsp.reported(sessionId, files);
+              targets = resolved.map((entry) =>
+                entry.problem === undefined
+                  ? entry.file
+                  : { file: entry.file, error: entry.problem, badPath: true },
+              );
+              lsp.reported(
+                sessionId,
+                targets.filter((target) => typeof target === 'string'),
+              );
             } else {
               const changed = await existingFiles(cwd, lsp.takeChanged(sessionId));
-              files = changed
+              targets = changed
                 .filter((file) => lsp.spec(file) !== undefined)
                 .slice(-DIAGNOSTICS_MAX_FILES);
-              if (files.length === 0) {
+              if (targets.length === 0) {
                 return changed.length === 0
                   ? 'No files changed in this session since the last LSP result. Pass paths to check specific files.'
                   : `None of the changed files has a supported language (${lsp.languages}).`;
@@ -590,7 +599,9 @@ export class LspTools {
             }
             // 先把所有文件同步给服务器再取诊断：一个文件的错误可能来自另一个刚改过的文件。
             const synced = await Promise.all(
-              files.map((file) => this.#syncForDiagnostics(file, cwd)),
+              targets.map((target) =>
+                typeof target === 'string' ? this.#syncForDiagnostics(target, cwd) : target,
+              ),
             );
             const reports = await Promise.all(
               synced.map((entry) =>
@@ -682,7 +693,8 @@ export class LspTools {
   ): Promise<{ file: string; client: LspClient } | FileDiagnostics> {
     try {
       const client = await this.#client(file, cwd);
-      const sync = await client.sync(file);
+      // 比对内容而不只看修改时间与大小：命令行改过的文件要按磁盘上现在的内容检查。
+      const sync = await client.sync(file, { compareText: true });
       if (sync === undefined) return { file, error: 'file no longer exists' };
       return { file, client };
     } catch (error) {
@@ -749,6 +761,8 @@ interface FileDiagnostics {
   diagnostics?: Diagnostic[];
   timedOut?: boolean;
   error?: string;
+  /** 路径本身不对（不存在、不是文件、在会话目录外），与语言服务器无关。 */
+  badPath?: boolean;
 }
 
 function formatDiagnostics(
@@ -808,11 +822,12 @@ function formatDiagnostics(
     ...(unchecked > 0 ? [`${files(unchecked)} not checked`] : []),
     ...(incomplete > 0 ? [`${files(incomplete)} may be incomplete`] : []),
   ];
-  // 没检查到不是“没有错误”：说清这是环境问题，不要据此改代码。
-  const environment =
-    unchecked > 0
-      ? `\nFiles not checked say nothing about errors in them. ${ENVIRONMENT_NOTE}`
-      : '';
+  // 没检查到不是“没有错误”：服务器的原因说清这是环境问题，不要据此改代码；只是路径不对的不说。
+  const environment = reports.some(
+    (report) => report.error !== undefined && report.badPath !== true,
+  )
+    ? `\nFiles not checked say nothing about errors in them. ${ENVIRONMENT_NOTE}`
+    : '';
   const summary =
     checked === 0
       ? `No diagnostics: ${files(unchecked)} not checked.${environment}`
@@ -926,15 +941,25 @@ export function displayPath(cwd: string, file: string): string {
 
 /** 会话目录里的文件（真实路径，符号链接指到目录外的也拒绝）。 */
 export async function sessionFile(cwd: string, input: string): Promise<string> {
+  const { file, problem } = await resolveSessionFile(cwd, input);
+  if (problem !== undefined) throw new AppToolError(`${input} ${problem}.`);
+  return file;
+}
+
+/** 同 `sessionFile`，不抛错：用不了时 `problem` 是原因（接在路径后面读），`file` 是解析出的绝对路径。 */
+async function resolveSessionFile(
+  cwd: string,
+  input: string,
+): Promise<{ file: string; problem?: string }> {
   const absolute = path.resolve(cwd, input);
   const real = await realpath(absolute).catch(() => undefined);
-  if (real === undefined) throw new AppToolError(`${input} does not exist.`);
+  if (real === undefined) return { file: absolute, problem: 'does not exist' };
   if (!isInside(cwd, real)) {
-    throw new AppToolError(`${input} is not inside this session's folder (${cwd}).`);
+    return { file: absolute, problem: `is not inside this session's folder (${cwd})` };
   }
   const info = await stat(real).catch(() => undefined);
-  if (!info?.isFile()) throw new AppToolError(`${input} is not a file.`);
-  return real;
+  if (!info?.isFile()) return { file: real, problem: 'is not a file' };
+  return { file: real };
 }
 
 /** 还在的、在会话目录里的文件。 */

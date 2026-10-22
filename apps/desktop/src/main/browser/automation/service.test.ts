@@ -1170,6 +1170,39 @@ describe('executeAutomationCommand', () => {
     expect(browser.tab.inputEvents).toEqual([]);
   });
 
+  test('keypress sends modifier combinations through CDP with the modifier mask', async () => {
+    const browser = new BrowserAutomationHarness();
+
+    const action = await browser.execute({
+      command: 'keypress',
+      args: { browserId: BROWSER_A, key: 'Shift+a' },
+    });
+
+    expect(action).toMatchObject({ ok: true, result: { command: 'keypress', key: 'Shift+a' } });
+    expect(browser.tab.inputEvents).toEqual([]);
+    const keyEvents = browser.tab.debugCommands.filter(
+      (entry) => entry.command === 'Input.dispatchKeyEvent',
+    );
+    expect(keyEvents.map((entry) => entry.params)).toEqual([
+      expect.objectContaining({ type: 'keyDown', key: 'A', code: 'KeyA', text: 'A', modifiers: 8 }),
+      expect.objectContaining({ type: 'keyUp', key: 'A', modifiers: 8 }),
+    ]);
+  });
+
+  test('keypress rejects key names it does not know instead of sending an empty key', async () => {
+    const browser = new BrowserAutomationHarness();
+
+    for (const key of ['NotAKey', 'Hyper+a']) {
+      const action = await browser.execute({
+        command: 'keypress',
+        args: { browserId: BROWSER_A, key },
+      });
+      expect(action).toMatchObject({ ok: false, error: { code: 'browser_invalid_argument' } });
+    }
+    expect(browser.tab.inputEvents).toEqual([]);
+    expect(browser.tab.debugCommands).toEqual([]);
+  });
+
   test('navigate loads the requested HTTP URL in the explicit tab', async () => {
     const browser = new BrowserAutomationHarness();
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { customCallInput, flatToolName, restoreToolCall, ToolNames } from './tools.js';
+import {
+  customCallInput,
+  flatToolName,
+  restoreToolCall,
+  ToolNames,
+  writeStdinArguments,
+} from './tools.js';
 
 describe('flatToolName', () => {
   it('合法的名字原样或 <ns>__<name>', () => {
@@ -53,5 +59,39 @@ describe('ToolNames', () => {
       arguments: '{}',
     });
     expect(customCallInput('{"other":1}')).toBe('{"other":1}');
+  });
+});
+
+describe('writeStdinArguments', () => {
+  const chars = (args: string) =>
+    (JSON.parse(writeStdinArguments(args)) as { chars: string }).chars;
+
+  it('整个 chars 都是控制键转义时换成控制字符', () => {
+    expect(chars(String.raw`{"session_id":1,"chars":"\\u0003"}`)).toBe('\u0003');
+    expect(chars(String.raw`{"session_id":1,"chars":"\\x03"}`)).toBe('\u0003');
+    expect(chars('{"session_id":1,"chars":"^C"}')).toBe('\u0003');
+    expect(chars('{"session_id":1,"chars":"^d"}')).toBe('\u0004');
+    expect(chars(String.raw`{"session_id":1,"chars":"^[\\r"}`)).toBe('\u001b\r');
+    expect(chars(String.raw`{"session_id":1,"chars":"\\e[A\\n"}`)).toBe(String.raw`\e[A\n`);
+  });
+
+  it('夹着普通文字、已经是控制字符或解析不了时原样', () => {
+    const plain = String.raw`{"session_id":1,"chars":"echo \\u0003"}`;
+    expect(writeStdinArguments(plain)).toBe(plain);
+    const real = '{"session_id":1,"chars":"\\u0003"}';
+    expect(writeStdinArguments(real)).toBe(real);
+    expect(writeStdinArguments('{"session_id":1,"chars":"5^2"}')).toBe(
+      '{"session_id":1,"chars":"5^2"}',
+    );
+    expect(writeStdinArguments('not json')).toBe('not json');
+  });
+
+  it('只对 Codex 的 write_stdin 生效', () => {
+    const names = new ToolNames();
+    const args = String.raw`{"session_id":1,"chars":"\\u0003"}`;
+    const restored = restoreToolCall(names, { callId: 'c', name: 'write_stdin', arguments: args });
+    expect(JSON.parse(String(restored.arguments)).chars).toBe('\u0003');
+    const other = restoreToolCall(names, { callId: 'd', name: 'other_tool', arguments: args });
+    expect(other.arguments).toBe(args);
   });
 });

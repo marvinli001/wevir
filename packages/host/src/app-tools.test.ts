@@ -326,6 +326,16 @@ describe('应用级工具的端点', () => {
     expect(tools.find((tool) => tool.name === 'wevir_session_create')?.annotations).toMatchObject({
       destructiveHint: true,
     });
+    // 关闭、归档只动自己开的会话：不用批准（Codex 看注解，Claude 与 OpenCode 看名单）。
+    const { APP_TOOLS_NO_APPROVAL } = await import('@wevir/runtime-adapter');
+    for (const name of ['wevir_session_close', 'wevir_session_archive']) {
+      expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      });
+      expect(APP_TOOLS_NO_APPROVAL).toContain(name);
+    }
     const notification = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
       method: 'POST',
       headers: {
@@ -814,6 +824,121 @@ describe('应用级工具', () => {
     expect(h.all(caller).filter((e) => e.type === 'user.message')).toEqual([]);
   });
 
+  it('失败的回合：等待、进度与回报都带错误原文', async () => {
+    const h = await setup();
+    const caller = await h.create();
+    const opened = await h.call(caller, 'wevir_session_create', { message: 'please fail' });
+    const child = opened.sessionId as SessionId;
+    const waited = await h.call(caller, 'wevir_session_wait', { sessionId: child });
+    expect(waited).toMatchObject({
+      lastTurn: {
+        outcome: 'failed',
+        error: expect.stringContaining('echo simulated failure'),
+      },
+    });
+    const progress = await h.call(caller, 'wevir_session_progress', { sessionId: child });
+    expect(progress.lastTurn.error).toContain('echo simulated failure');
+    expect(reportText('ses_1' as SessionId, '', 'failed', undefined, 'boom')).toContain(
+      'Error: boom',
+    );
+  });
+
+  it('新开会话：Provider、模型与推理档位要在 wevir_models 列出的范围里', async () => {
+    const h = await setup();
+    h.storage.providers.insert({
+      id: 'leveled',
+      kind: 'openai-compatible',
+      displayName: 'Leveled',
+      api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9/v1',
+      models: [{ id: 'x', reasoningEfforts: [{ effort: 'low' }, { effort: 'high' }] }],
+      defaultModelId: 'x',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const caller = await h.create();
+    expect(
+      (await h.call(caller, 'wevir_session_create', { message: 'x', modelId: 'nope' })).error,
+    ).toBe('Provider mock has no model nope. Its models: m, m2 (see wevir_models).');
+    expect(
+      (await h.call(caller, 'wevir_session_create', { message: 'x', providerId: 'gone' })).error,
+    ).toBe('No provider gone; pick one from wevir_models.');
+    expect(
+      (
+        await h.call(caller, 'wevir_session_create', {
+          message: 'x',
+          providerId: 'leveled',
+          reasoningEffort: 'ultra',
+        })
+      ).error,
+    ).toBe('Model x has no reasoning level ultra. Its levels: low, high.');
+    expect(h.storage.sessions.list({}).length).toBe(1);
+  });
+
+  it('给自己开的、已关闭的会话发消息时先接上；用户的已关闭会话、归档的拒绝', async () => {
+    const h = await setup();
+    const caller = await h.create();
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'hi',
+      reportBack: false,
+    });
+    const child = opened.sessionId as SessionId;
+    await h.settle(child);
+    await h.call(caller, 'wevir_session_close', { sessionId: child });
+    expect(h.state(child)).toBe('closed');
+    const sent = await h.call(caller, 'wevir_session_send', { sessionId: child, message: 'again' });
+    expect(sent).toMatchObject({ sessionId: child, started: true });
+    await h.settle(child);
+
+    const theirs = await h.create();
+    await h.manager.close(theirs);
+    expect(
+      (await h.call(caller, 'wevir_session_send', { sessionId: theirs, message: 'x' })).error,
+    ).toBe(
+      `Session ${theirs} is closed and was not opened by this session; only the user can reopen it.`,
+    );
+
+    await h.call(caller, 'wevir_session_archive', { sessionId: child });
+    expect(
+      (await h.call(caller, 'wevir_session_send', { sessionId: child, message: 'x' })).error,
+    ).toMatch(/is archived; bring it back with wevir_session_archive archived=false first/);
+  });
+
+  it('请求方自己停下对方的回合：撤回还没交出的“在等用户”提醒，也不回报 cancelled', async () => {
+    const h = await setup(30);
+    const caller = await h.create({ permissionMode: 'full_access' });
+    // 请求方正忙：提醒只能排队。
+    await h.send(caller, 'slow slow slow please');
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'approve please',
+      permissionMode: 'on_request',
+    });
+    const child = opened.sessionId as SessionId;
+    await vi.waitFor(() => expect(h.state(child)).toBe('awaiting_approval'));
+    const reports = () =>
+      h
+        .all(caller)
+        .flatMap((e) =>
+          e.type === 'pending.added' || e.type === 'pending.updated' ? [e.payload.pending] : [],
+        )
+        .filter((p) => p.from?.kind === 'report');
+    await vi.waitFor(() => expect(reports().length).toBeGreaterThan(0));
+    expect(h.state(caller)).toBe('running');
+    await h.call(caller, 'wevir_session_interrupt', { sessionId: child });
+    await h.settle(child);
+    await vi.waitFor(() =>
+      expect(new Set(reports().map((p) => p.id)).size).toBe(
+        reports().filter((p) => p.status === 'cancelled').length,
+      ),
+    );
+    await h.settle(caller);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      h.all(caller).filter((e) => e.type === 'user.message' && e.payload.from?.kind === 'report'),
+    ).toEqual([]);
+    expect(h.errors).toEqual([]);
+  });
+
   it('停下别的会话的回合', async () => {
     const h = await setup(30);
     const caller = await h.create();
@@ -985,6 +1110,7 @@ describe('应用级工具', () => {
   it('wevir_report_findings：写成 review.findings（origin tool）；没有批注功能时只有文字；缺字段、越界的拒绝', async () => {
     const h = await setup();
     const a = await h.create();
+    writeFileSync(join(h.workspace, 'five.md'), '1\n2\n3\n4\n5\n');
     expect(
       await h.call(a, 'wevir_report_findings', {
         summary: '一处越界。',
@@ -994,13 +1120,13 @@ describe('应用级工具', () => {
             body: '下标从 1 开始。',
             priority: 0,
             confidence: 0.9,
-            path: 'notes.md',
+            path: 'five.md',
             startLine: 3,
             endLine: 2,
           },
         ],
       }),
-    ).toEqual({ reported: 1, pinned: 0, notPinned: ['notes.md:3-3'] });
+    ).toEqual({ reported: 1, pinned: 0, notPinned: ['five.md:3-3'] });
     expect(await h.call(a, 'wevir_report_findings', { findings: [] })).toEqual({
       reported: 0,
       pinned: 0,
@@ -1010,6 +1136,12 @@ describe('应用级工具', () => {
       [{ title: '', path: 'notes.md', startLine: 1 }],
       [{ title: 'x', path: 'notes.md', startLine: 1, priority: 'high' }],
       [{ title: 'x', path: 'notes.md', startLine: 1, confidence: 2 }],
+      [{ title: 'x', path: 'notes.md', startLine: 1, priority: 7 }],
+      [{ title: 'x', path: '/etc/hosts', startLine: 1 }],
+      [{ title: 'x', path: '../outside.md', startLine: 1 }],
+      [{ title: 'x', path: 'missing.md', startLine: 1 }],
+      [{ title: 'x', path: 'five.md', startLine: 9999 }],
+      [{ title: 'x', path: 'five.md', startLine: 5, endLine: 6 }],
       'nope',
     ]) {
       expect(
@@ -1028,7 +1160,7 @@ describe('应用级工具', () => {
             body: '下标从 1 开始。',
             priority: 0,
             confidence: 0.9,
-            location: 'notes.md:3-3',
+            location: 'five.md:3-3',
           },
         ],
       },
@@ -1347,6 +1479,14 @@ describe('预设角色', () => {
     expect(text).toContain(`The session that opened you is ${caller};`);
     expect(text).toContain('Plan first, then write the plan to PLAN.md.');
     expect(text.endsWith('Your task:\n\nplan the migration')).toBe(true);
+    // 读这个会话时，角色说明折成一行，只留任务正文。
+    const read = await h.call(caller, 'wevir_session_read', { sessionId: child });
+    const firstRead = (read.items as Array<{ role: string; text: string }>).find(
+      (item) => item.role === 'user',
+    );
+    expect(firstRead?.text).toBe(
+      `[Wevir's brief for the "planner" role omitted; see wevir_roles]\n\nplan the migration`,
+    );
 
     // 明说的模型盖过角色的；明说的权限不能超过角色的上限；没这个角色报可选的。
     const other = await h.call(caller, 'wevir_session_create', {
@@ -1744,7 +1884,7 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     };
   };
 
-  it('工具列表与注解：起进程、写、结束要审批，列出、读、等待不用', async () => {
+  it('工具列表与注解：起进程、写要审批，列出、读、等待与停自己起的不用', async () => {
     const h = await setup(0, false, true);
     const a = await h.create();
     const list = await h.rpc(a, 'tools/list');
@@ -1752,7 +1892,10 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
       name: string;
       annotations: { readOnlyHint?: boolean };
     }>;
-    const processTools = tools.filter((tool) => tool.name.startsWith('wevir_process_'));
+    const processTools = tools.filter((tool) => tool.name.startsWith('wevir_process_')) as Array<{
+      name: string;
+      annotations: { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean };
+    }>;
     expect(
       Object.fromEntries(processTools.map((tool) => [tool.name, tool.annotations.readOnlyHint])),
     ).toEqual({
@@ -1767,9 +1910,13 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     const { APP_TOOLS_NO_APPROVAL } = await import('@wevir/runtime-adapter');
     for (const tool of processTools) {
       expect(APP_TOOLS_NO_APPROVAL.includes(tool.name), tool.name).toBe(
-        tool.annotations.readOnlyHint === true,
+        tool.annotations.readOnlyHint === true || tool.name === 'wevir_process_kill',
       );
     }
+    // 停自己起的：Codex 看 destructive 与 openWorld 都是 false 就不问。
+    expect(
+      processTools.find((tool) => tool.name === 'wevir_process_kill')?.annotations,
+    ).toMatchObject({ destructiveHint: false, openWorldHint: false });
   });
 
   it('起进程等到某一行；退出时作为消息发回会话并开一个回合；目录外拒绝', async () => {
@@ -1902,6 +2049,18 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     ).toBe(false);
     const bad = await callText(h, a, 'wevir_process_kill', { id: 'p9' });
     expect(bad).toMatchObject({ isError: true });
+    // 用户起的预览不归 agent 停。
+    const processes = h.processes as ProcessManager;
+    const userPreview = await processes.start(a, {
+      command: 'sleep 30',
+      cwd: h.workspace,
+      preview: { name: 'web', root: h.workspace, ready: false, startedBy: 'user' },
+    });
+    const refused = await callText(h, a, 'wevir_process_kill', { id: userPreview.id });
+    expect(refused).toMatchObject({ isError: true });
+    expect(refused.text).toContain('started by the user');
+    expect(processes.info(a, userPreview.id).status).toBe('running');
+    processes.signal(a, userPreview.id, 'SIGKILL', 'user');
     expect((await callText(h, a, 'wevir_process_output', { id: 'p1', grep: '(' })).isError).toBe(
       true,
     );
@@ -2315,6 +2474,19 @@ describe('对话里安装插件（P3）', () => {
         { name: 'bad', transport: 'http', url: 'file:///etc/passwd' },
       ])
         expect(await h.call(id, 'wevir_connector_add', args)).toHaveProperty('error');
+      // 错误指出哪一项不对。
+      expect(
+        (await h.call(id, 'wevir_connector_add', { name: 'bad', transport: 'stdio' })).error,
+      ).toMatch(/Invalid MCP server: command is required/);
+      expect(
+        (
+          await h.call(id, 'wevir_connector_add', {
+            name: 'bad',
+            transport: 'http',
+            url: 'not a url',
+          })
+        ).error,
+      ).toMatch(/Invalid MCP server: url /);
       expect(readFileSync(join(h.plugins?.dir as string, 'registry.json'), 'utf8')).toBe(before);
       expect(h.errors).toEqual([]);
     },

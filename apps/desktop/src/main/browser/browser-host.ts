@@ -8,7 +8,8 @@
 // 外部协议一律拒绝、弹窗改成同一会话的新标签页）；标签页的操作方 `controller`（agent 开的归 agent，用户开的或用户在里面操作过的
 // 归用户，用户的标签页 agent 只读）；agent 的浏览器命令（Paseo 的自动化，automation/）在这里分发。不在屏幕上的标签页一律停在
 // 后台窗口里（OpenWork 只停别的会话的），这样同一会话里没选中的标签页也能截图。agent 打开、跳转的结果带主文档的 HTTP 状态码；
-// 打不开时报 Chromium 的错误名（`browser_load_failed`），新开的标签页打不开就关掉（超时的留着并说出它的 browserId）。
+// 打不开时报 Chromium 的错误名（`browser_load_failed`），新开的标签页打不开就关掉（超时的留着并说出它的 browserId）；重新载入也等结果、
+// 打不开同样报错（不再停在空白的错误页上回答成功）。
 // 0.46.0：标签页不弹原生对话框（`disableDialogs`，页面不会被 alert 卡住），对话框由 automation/contents.ts 记下、在命令结果里报，
 // beforeunload 直接离开；点击、按键之后报主框架跳到了哪里、页面开了哪些新标签页（agent 的标签页弹出的新标签页不抢当前标签页）、
 // 被拦下的下载与选文件框；每个 agent 命令有看门狗，页面卡住时说清楚原因（`browser_dialog_blocked` 或页面不响应），不再干等到
@@ -762,7 +763,15 @@ export function createBrowserHost(options: BrowserHostOptions) {
         );
       }
       case 'close_tab': {
-        owned(sessionId, command.args.browserId);
+        // 只关 agent 自己开的（同收尾）：工具不用批准，用户开的、接管过来的交给用户。
+        const tab = owned(sessionId, command.args.browserId);
+        if (tab.origin !== 'agent') {
+          return failure(
+            requestId,
+            'browser_denied',
+            `Browser tab ${tab.tabId} was opened by the user, so you cannot close it. Leave it out of browser_finalize_tabs to hand it back.`,
+          );
+        }
         closeTab(command.args.browserId);
         return {
           requestId,
@@ -824,6 +833,15 @@ export function createBrowserHost(options: BrowserHostOptions) {
               ...statusOf(tab, command.args.url),
             },
           };
+        }),
+      );
+    }
+    if (command.command === 'reload') {
+      return guarded(tab, command, LOAD_TIMEOUT_MS + 4_000, () =>
+        withTabEvents(tab, requestId, async () => {
+          snapshotEngine.clearBrowser(tab.tabId);
+          await busy(tab, () => reload(tab));
+          return { requestId, ok: true, result: { command: 'reload', browserId: tab.tabId } };
         }),
       );
     }
@@ -1206,6 +1224,49 @@ export function createBrowserHost(options: BrowserHostOptions) {
       throw new BrowserHostError('browser_load_failed', loadFailureMessage(url, failure));
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  /**
+   * 重新载入并等它结束；打不开时和 `load` 一样报 `browser_load_failed`，不把错误页当成功。停在错误页上时重试打不开的那个地址
+   * （和用户点刷新一样）。
+   */
+  async function reload(tab: Tab): Promise<void> {
+    const failedUrl = tab.loadError?.url;
+    if (failedUrl) return load(tab, failedUrl);
+    const contents = tab.view.webContents;
+    const url = contents.getURL();
+    tab.loadError = undefined;
+    tab.httpStatus = undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onStop: (() => void) | undefined;
+    const stopped = new Promise<'stopped'>((resolve) => {
+      onStop = () => resolve('stopped');
+      contents.once('did-stop-loading', onStop);
+    });
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), LOAD_TIMEOUT_MS);
+    });
+    try {
+      contents.reload();
+      const outcome = await Promise.race([stopped, timeout]);
+      if (outcome === 'timeout') {
+        throw new BrowserHostError(
+          'browser_timeout',
+          `${url} did not finish reloading within ${LOAD_TIMEOUT_MS / 1000} s; the tab stays open.`,
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+      if (onStop && !contents.isDestroyed()) contents.removeListener('did-stop-loading', onStop);
+    }
+    // did-fail-load 在等待期间记下的（TS 以为上面清空后一直是 undefined）。
+    const failed = tab.loadError as BrowserTabState['loadError'];
+    if (failed) {
+      throw new BrowserHostError(
+        'browser_load_failed',
+        loadFailureMessage(url, loadFailure(new Error(failed.description), failed)),
+      );
     }
   }
 

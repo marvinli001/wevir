@@ -13,6 +13,8 @@
 // iframe 标出 `frame=` 编号（从顶层起每层是它在父窗口 `frames` 里的序号），读不到的跨域 iframe 留一个占位节点，由
 // snapshot-engine.ts 在那个 frame 里再跑一遍接上；页面里的运行时多了 `register`（browser_query 给找到的元素引用）；
 // `mode: 'install'` 只装运行时、不走页面。
+// 禁用的元素标 `disabled`；`draggable="true"` 的元素与带 ondrop / ondragover 属性的放置区也给引用（标 `draggable`、`droppable`）；
+// label 里的文字算名字时略过 textarea 与下拉框自己的内容（textarea 的初始文字不再混进名字，也不再列成它的子节点）。
 
 export const ARIA_SNAPSHOT_SCRIPT_MARKER = '__WEVIR_ARIA_SNAPSHOT__';
 
@@ -146,8 +148,41 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
     return !parent || styleOf(parent).cursor !== 'pointer';
   }
 
+  const DROP_HANDLERS = ['ondrop', 'ondragover', 'ondragenter'];
+
+  function isDraggable(element) {
+    return isElement(element) && element.getAttribute('draggable') === 'true';
+  }
+
+  function isDroppable(element) {
+    return isElement(element) && DROP_HANDLERS.some((name) => element.hasAttribute(name) || typeof element[name] === 'function');
+  }
+
+  // 没有可操作角色、但能点、能拖或能放的元素。
+  function isInteractive(element) {
+    return isClickable(element) || isDraggable(element) || isDroppable(element);
+  }
+
   function snapshotRoleFor(element) {
-    return roleFor(element) || (isClickable(element) ? 'generic' : null);
+    return roleFor(element) || (isInteractive(element) ? 'generic' : null);
+  }
+
+  // 元素里的文字，略过表单控件自己的内容（textarea 的初始文字、下拉框的选项）。
+  function textWithoutControls(root) {
+    let text = '';
+    const walk = (node) => {
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) {
+          text += child.textContent;
+        } else if (isElement(child)) {
+          const tag = child.tagName.toLowerCase();
+          if (tag === 'textarea' || tag === 'select' || tag === 'script' || tag === 'style') continue;
+          walk(child);
+        }
+      }
+    };
+    walk(root);
+    return normalizeText(text);
   }
 
   function labelText(element) {
@@ -157,10 +192,10 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
         ? window.CSS.escape(element.id)
         : String(element.id).replace(/"/g, '\\"');
       const label = element.ownerDocument.querySelector('label[for="' + escapedId + '"]');
-      if (label) return normalizeText(label.textContent);
+      if (label) return textWithoutControls(label);
     }
     const closestLabel = element.closest('label');
-    return closestLabel ? normalizeText(closestLabel.textContent) : '';
+    return closestLabel ? textWithoutControls(closestLabel) : '';
   }
 
   function nameFor(element, role) {
@@ -205,7 +240,7 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
   }
 
   function isActionable(element, role) {
-    if (!role || (!ACTIONABLE_ROLES.has(role) && !isClickable(element))) return false;
+    if (!role || (!ACTIONABLE_ROLES.has(role) && !isInteractive(element))) return false;
     if (visibilityFor(element) !== 'box') return false;
     if (inheritedDisabled(element)) return false;
     return true;
@@ -292,6 +327,9 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
     const value = currentValue(element, name);
     if (value !== null) attrs.push(value);
     if (!ACTIONABLE_ROLES.has(role) && isClickable(element)) attrs.push('clickable');
+    if (isDraggable(element)) attrs.push('draggable');
+    if (isDroppable(element)) attrs.push('droppable');
+    if ((ACTIONABLE_ROLES.has(role) || isInteractive(element)) && inheritedDisabled(element)) attrs.push('disabled');
     return attrs;
   }
 
@@ -495,7 +533,8 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
     if (role && visibility === 'box' && !countNode(depth, domNode)) return null;
     const children = [];
     const isFrame = domNode.tagName.toLowerCase() === 'iframe' || domNode.tagName.toLowerCase() === 'frame';
-    if (!isFrame) {
+    // textarea 的子节点是它的初始文字，现在的内容已经在 value 里。
+    if (!isFrame && domNode.tagName.toLowerCase() !== 'textarea') {
       for (const child of Array.from(domNode.childNodes)) {
         const childSnapshot = visitNode(child, depth + 1, outside || (offscreen && visibility !== 'box'));
         if (childSnapshot) children.push(childSnapshot);

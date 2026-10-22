@@ -172,6 +172,9 @@ describe('任务回顾：证据语义', () => {
     expect(retro.next.map((n) => n.kind)).toContain('run_checks');
     expect(JSON.stringify(retro)).not.toContain('"passed"');
     expect(retroMarkdown(retro)).toContain('Unverified: no verification records.');
+    expect(retroMarkdown(retro)).toMatch(
+      /- \[run_checks\] Code changed with no verification records: run the relevant checks \(/,
+    );
   });
 
   it('清单标了 completed，但验证失败：完成项只是登记，交付状态是失败', () => {

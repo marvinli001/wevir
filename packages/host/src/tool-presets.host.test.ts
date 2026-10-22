@@ -143,7 +143,7 @@ describe('工具预设经 Host API', () => {
       workbench: 4,
       browser: 27,
       lsp: 7,
-      processes: 9,
+      processes: 10,
       plugins: 4,
     });
   });
@@ -199,7 +199,7 @@ describe('工具预设经 Host API', () => {
     const raw = async (sessionId: SessionId) =>
       JSON.stringify(await h.mcp(sessionId, 'tools/list'));
     expect(await raw(full.id)).toBe(await raw(plain.id));
-    expect(await h.names(plain.id)).toHaveLength(76);
+    expect(await h.names(plain.id)).toHaveLength(77);
     expect(await h.instructions(plain.id)).toBe(APP_TOOLS_INSTRUCTIONS);
     expect(await h.instructions(full.id)).toBe(APP_TOOLS_INSTRUCTIONS);
 

@@ -413,9 +413,13 @@ export class LspClient {
 
   /**
    * 把文件的磁盘内容交给服务器：没打开的 didOpen，打开过、内容变了的 didChange（加 didSave）。返回文档版本与这次有没有变。
+   * 修改时间与大小都没变时默认不再读文件；`compareText` 时照样读来比对（同样大小的改动可能落在同一个修改时间里）。
    * 文件不存在（被删了）时关掉文档，返回 `undefined`。
    */
-  async sync(file: string): Promise<{ version: number; changed: boolean } | undefined> {
+  async sync(
+    file: string,
+    options: { compareText?: boolean } = {},
+  ): Promise<{ version: number; changed: boolean } | undefined> {
     this.usedAt = Date.now();
     const info = await stat(file).catch(() => undefined);
     const document = this.#documents.get(file);
@@ -430,7 +434,11 @@ export class LspClient {
     }
     if (document !== undefined) {
       document.usedAt = Date.now();
-      if (document.mtimeMs === info.mtimeMs && document.size === info.size) {
+      if (
+        options.compareText !== true &&
+        document.mtimeMs === info.mtimeMs &&
+        document.size === info.size
+      ) {
         return { version: document.version, changed: false };
       }
     }

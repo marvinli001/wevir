@@ -1161,6 +1161,8 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_session_retro',
       'mcp__wevir__wevir_session_wait',
       'mcp__wevir__wevir_session_progress',
+      'mcp__wevir__wevir_session_close',
+      'mcp__wevir__wevir_session_archive',
       'mcp__wevir__wevir_models',
       'mcp__wevir__wevir_roles',
       'mcp__wevir__wevir_tasks',
@@ -1185,6 +1187,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_process_list',
       'mcp__wevir__wevir_process_output',
       'mcp__wevir__wevir_process_wait',
+      'mcp__wevir__wevir_process_kill',
       'mcp__wevir__wevir_preview_list',
       // 0.33.0：只读的浏览器工具。
       'mcp__wevir__browser_list_tabs',
@@ -1197,6 +1200,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__browser_network',
       // 0.89.0：收尾只关 agent 自己开的标签页。
       'mcp__wevir__browser_finalize_tabs',
+      'mcp__wevir__browser_close_tab',
       // 代码智能：只读的 LSP 工具。
       'mcp__wevir__lsp_definition',
       'mcp__wevir__lsp_references',
