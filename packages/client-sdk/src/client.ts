@@ -7,6 +7,8 @@ import {
   type BrowserResponse,
   type ClientCapabilities,
   type ClientIdentity,
+  type Device,
+  DevicesChangedParamsSchema,
   EventsSubscribeResultSchema,
   GuardrailChangedParamsSchema,
   type HostFeature,
@@ -24,6 +26,10 @@ import {
   NotificationIntentSchema,
   type NotificationParams,
   NotificationSchemas,
+  type PairingEnded,
+  PairingEndedParamsSchema,
+  type PairingRequest,
+  PairingRequestParamsSchema,
   type Permission,
   PING_INTERVAL_MS,
   PowerChangedParamsSchema,
@@ -64,6 +70,11 @@ export type MarketInstallProgress = NotificationParams<'market.installProgress'>
 export type PowerChange = NotificationParams<'power.changed'>;
 /** `inbox.changed` 的内容（0.105.0）。 */
 export type InboxChange = NotificationParams<'inbox.changed'>;
+/** 设备与配对的变化（0.107.0）：`devices.changed`、`pairing.request`、`pairing.ended`。 */
+export type RemoteDevicesChange =
+  | { kind: 'devices'; devices: Device[] }
+  | { kind: 'pairing_request'; request: PairingRequest }
+  | { kind: 'pairing_ended'; ended: PairingEnded };
 /** `tuning.changed` 的内容（0.85.0）。 */
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
@@ -311,6 +322,7 @@ export class WevirClient {
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
   readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
+  readonly #remoteDevicesListeners = new Set<(change: RemoteDevicesChange | undefined) => void>();
   readonly #notificationListeners = new Set<(intent: NotificationIntent) => void>();
   /** 最近一次 `setPresence` 的值：重连后重报。 */
   #presence: boolean | undefined;
@@ -665,6 +677,16 @@ export class WevirClient {
   }
 
   /**
+   * 设备与配对变了（0.107.0，`devices.changed`、`pairing.request`、`pairing.ended`，Host 功能 `remote_devices`）：只有调过 `device.*` 或
+   * `pairing.*` 的本机连接收得到。重连上之后以 `undefined` 调一次（期间的变化没收到：重读 `device.list`，期间的配对请求也可能错过）。
+   * 返回取消函数。
+   */
+  onRemoteDevicesChanged(listener: (change: RemoteDevicesChange | undefined) => void): () => void {
+    this.#remoteDevicesListeners.add(listener);
+    return () => this.#remoteDevicesListeners.delete(listener);
+  }
+
+  /**
    * 收 Host 判定的通知意图（0.106.0，`notification.intent`，Host 功能 `notification_intents`）：第一个监听者加入时与每次（重）连上之后
    * 调一次 `notification.subscribe`。断线期间的意图不补发。没有这项功能的 Host 上什么都不做。返回取消函数（最后一个取消后 Host 照样
    * 发给这条连接，这里丢掉）。
@@ -698,6 +720,16 @@ export class WevirClient {
     this.request('presence.update', { active }).catch((error: unknown) =>
       this.#warn('failed to update presence', { error }),
     );
+  }
+
+  #remoteDevicesChanged(change: RemoteDevicesChange | undefined): void {
+    for (const listener of [...this.#remoteDevicesListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a remote devices listener threw', { error });
+      }
+    }
   }
 
   #inboxChanged(change: InboxChange | undefined): void {
@@ -1161,6 +1193,7 @@ export class WevirClient {
         if (this.supports('session_list_push')) this.#sessionsChanged(undefined);
         if (this.supports('prevent_sleep')) this.#powerChanged(undefined);
         if (this.supports('inbox')) this.#inboxChanged(undefined);
+        if (this.supports('remote_devices')) this.#remoteDevicesChanged(undefined);
         if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
         if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
@@ -1507,6 +1540,33 @@ export class WevirClient {
         return;
       }
       this.#inboxChanged(parsed.data);
+      return;
+    }
+    if (method === 'devices.changed') {
+      const parsed = DevicesChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed devices.changed notification');
+        return;
+      }
+      this.#remoteDevicesChanged({ kind: 'devices', devices: parsed.data.devices });
+      return;
+    }
+    if (method === 'pairing.request') {
+      const parsed = PairingRequestParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed pairing.request notification');
+        return;
+      }
+      this.#remoteDevicesChanged({ kind: 'pairing_request', request: parsed.data });
+      return;
+    }
+    if (method === 'pairing.ended') {
+      const parsed = PairingEndedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed pairing.ended notification');
+        return;
+      }
+      this.#remoteDevicesChanged({ kind: 'pairing_ended', ended: parsed.data });
       return;
     }
     if (method === 'power.changed') {

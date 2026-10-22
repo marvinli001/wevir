@@ -16,6 +16,7 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -32,6 +33,7 @@ import { WindowControls } from '@/layout/window-controls';
 import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ApprovalRuleSettings } from '@/settings/approval-rule-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
+import { DevicesSettings } from '@/settings/devices-settings';
 import { DictationSettings } from '@/settings/dictation-settings';
 import { GeneralSettings } from '@/settings/general-settings';
 import { ImportSettings } from '@/settings/import-settings';
@@ -94,6 +96,16 @@ const TABS: Record<SettingsTab, TabInfo> = {
       'settings.notify.sound',
       'settings.notify.completed',
       'settings.notify.approval',
+    ],
+  },
+  devices: {
+    label: 'settings.tab.devices',
+    icon: Smartphone,
+    keywords: [
+      'settings.devices.remote',
+      'settings.devices.relay',
+      'settings.devices.add',
+      'settings.devices.lan',
     ],
   },
   shortcuts: {
@@ -179,7 +191,7 @@ const TABS: Record<SettingsTab, TabInfo> = {
 const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
   {
     label: 'settings.group.app',
-    tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'storage', 'about'],
+    tabs: ['general', 'appearance', 'notifications', 'devices', 'shortcuts', 'storage', 'about'],
   },
   {
     label: 'settings.group.work',
@@ -361,6 +373,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <AppearanceSettings />;
     case 'notifications':
       return <NotificationSettingsPage />;
+    case 'devices':
+      return <DevicesSettings />;
     case 'shortcuts':
       return <ShortcutsSettings />;
     case 'about':

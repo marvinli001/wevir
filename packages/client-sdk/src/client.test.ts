@@ -924,6 +924,42 @@ describe('防休眠（0.102.0）', () => {
   });
 });
 
+describe('设备与配对（0.107.0）', () => {
+  it('onRemoteDevicesChanged：三种通知各自带上内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { remote_devices: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onRemoteDevicesChanged((change) => changes.push(change));
+    const pairingId = 'prg_01JA2B3C4D5E6F7G8H9JKMNPQR';
+    const request = {
+      pairingId,
+      requestId: 'prq_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      name: 'iPhone',
+      platform: 'ios',
+      requestedAt: '2026-10-22T08:00:00.000Z',
+    };
+    host.last.notify('devices.changed', { devices: [] });
+    host.last.notify('pairing.request', request);
+    host.last.notify('pairing.ended', { pairingId, reason: 'denied' });
+    await vi.waitFor(() =>
+      expect(changes).toEqual([
+        { kind: 'devices', devices: [] },
+        { kind: 'pairing_request', request },
+        { kind: 'pairing_ended', ended: { pairingId, reason: 'denied' } },
+      ]),
+    );
+    host.last.notify('pairing.ended', { pairingId, reason: 'later' });
+    await tick();
+    expect(changes).toHaveLength(3);
+    expect(warnings.join('\n')).toMatch(/malformed pairing.ended/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(4));
+    expect(changes[3]).toBeUndefined();
+    stop();
+  });
+});
+
 describe('收件箱（0.105.0）', () => {
   it('onInboxChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

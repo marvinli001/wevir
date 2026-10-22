@@ -52,12 +52,15 @@ import type { MemoryChange } from './memory.js';
 import type { NotificationService } from './notifications.js';
 import {
   type ConnectionGrant,
+  isLocalOnlyMethod,
   LOCAL_GRANT,
   missingMethodPermission,
   missingParamPermissions,
   type TestConnectionGrant,
 } from './permissions.js';
 import type { Presence } from './presence.js';
+import type { DeviceService } from './remote/devices.js';
+import type { PairingService } from './remote/pairing.js';
 import { type SessionListFeed, SessionListScope } from './session-list.js';
 import type { TerminalService } from './terminals.js';
 
@@ -96,6 +99,11 @@ export interface ConnectionHost {
   readonly sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接用它收 `inbox.changed`。 */
   readonly inbox?: Pick<InboxService, 'watch'>;
+  /** 远程设备与配对（0.107.0）：调过 `device.*` 或 `pairing.*` 的连接用它收 `devices.changed`、`pairing.request`、`pairing.ended`。 */
+  readonly remote?: {
+    readonly devices: Pick<DeviceService, 'watch'>;
+    readonly pairing: Pick<PairingService, 'watch'>;
+  };
   /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接用它收 `notification.intent`。 */
   readonly notifications?: Pick<NotificationService, 'watch'>;
   /** 在场（0.106.0）：`presence.update` 记到这里，连接关闭时删掉。 */
@@ -232,6 +240,8 @@ export class RpcConnection {
   #unwatchSessionList: (() => void) | undefined;
   /** 调过 `inbox.*` 之后：退订 `inbox.changed`。 */
   #unwatchInbox: (() => void) | undefined;
+  /** 调过 `device.*` 或 `pairing.*` 之后：退订设备与配对的通知。 */
+  #unwatchRemote: (() => void) | undefined;
   /** `notification.subscribe` 之后：退订 `notification.intent`。 */
   #unwatchNotifications: (() => void) | undefined;
   /** 调过 `usage.*` 之后：退订 `usage.changed`。 */
@@ -475,6 +485,11 @@ export class RpcConnection {
       }
       // 权限（host-api.md §3 开头）：方法级在解析参数之前，参数级在之后。
       this.#authorize(missingMethodPermission(method, this.#permissions));
+      if (this.#grant.principal.kind !== 'local' && isLocalOnlyMethod(method)) {
+        throw new HostError('DEVICE_FORBIDDEN', 'forbidden: local connections only', {
+          missing: [MethodSchemas[method].permission ?? 'host.manage'],
+        });
+      }
       const parsed = MethodSchemas[method].params.safeParse(request.params ?? {});
       if (!parsed.success) {
         throw new HostError('INVALID_PARAMS', 'invalid params', {
@@ -616,6 +631,7 @@ export class RpcConnection {
           );
         }
         if (method.startsWith('inbox.')) this.#watchInbox();
+        if (method.startsWith('device.') || method.startsWith('pairing.')) this.#watchRemote();
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
@@ -876,6 +892,27 @@ export class RpcConnection {
     this.#unwatchNotifications = this.#host.notifications.watch((intent) =>
       this.#notify('notification.intent', intent),
     );
+  }
+
+  /**
+   * 调过 `device.*` 或 `pairing.*` 的连接之后收 `devices.changed`、`pairing.request` 与 `pairing.ended`（0.107.0，domain-model §3.49），
+   * 连接关闭即止。只有本机连接调得了这些方法。
+   */
+  #watchRemote(): void {
+    const remote = this.#host.remote;
+    if (this.#unwatchRemote !== undefined || remote === undefined) return;
+    if (this.#phase !== 'ready') return;
+    const unwatchDevices = remote.devices.watch((devices) =>
+      this.#notify('devices.changed', { devices }),
+    );
+    const unwatchPairing = remote.pairing.watch((event) => {
+      if (event.type === 'request') this.#notify('pairing.request', event.request);
+      else this.#notify('pairing.ended', event.ended);
+    });
+    this.#unwatchRemote = () => {
+      unwatchDevices();
+      unwatchPairing();
+    };
   }
 
   /** 调过 `usage.*` 的连接之后收 `usage.changed`（0.62.0），连接关闭即止。 */
@@ -1198,6 +1235,8 @@ export class RpcConnection {
     this.#unwatchSessionList = undefined;
     this.#unwatchInbox?.();
     this.#unwatchInbox = undefined;
+    this.#unwatchRemote?.();
+    this.#unwatchRemote = undefined;
     this.#unwatchNotifications?.();
     this.#unwatchNotifications = undefined;
     this.#host.presence?.remove(this);

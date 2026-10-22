@@ -20,7 +20,8 @@ import { ProtocolVersionSchema } from './version.js';
  * JSON-RPC `error.code` 表（host-api.md「错误码」）。客户端按数值判断，`message` 只给人看。
  * 前五个是 JSON-RPC 2.0 标准码；Wevir 自己的错误在规范留给实现方的 -32000…-32099 内分段：
  * -32000…-32009 连接与握手，-32010…-32019 对象不存在，-32020…-32039 状态与冲突，
- * -32040…-32059 环境与引擎，-32060 起是调优（0.85.0 档案、0.86.0 护栏、0.87.0 建议）。只增不减，已分配的数值不复用。
+ * -32040…-32059 环境与引擎，-32060…-32069 是调优（0.85.0 档案、0.86.0 护栏、0.87.0 建议），-32070 起是远程访问（0.107.0）。
+ * 只增不减，已分配的数值不复用。
  */
 export const ErrorCode = {
   PARSE_ERROR: -32700,
@@ -86,6 +87,11 @@ export const ErrorCode = {
   PROPOSAL_NOT_FOUND: -32062,
   /** 建议的目标在生成之后被改过（0.87.0，`tuning.proposal.update` / `decide`）：只能拒绝或重新生成。 */
   PROPOSAL_STALE: -32063,
+
+  /** 没有这台设备（0.107.0，`device.*`）。 */
+  DEVICE_NOT_FOUND: -32070,
+  /** 没有这个配对窗口或请求，或它已经结束（0.107.0，`pairing.respond`）。 */
+  PAIRING_NOT_FOUND: -32071,
 } as const;
 
 export type ErrorCodeName = keyof typeof ErrorCode;

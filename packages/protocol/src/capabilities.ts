@@ -455,6 +455,11 @@ export const HOST_FEATURES = {
    * `notifications`。与引擎无关。
    */
   notificationIntents: 'notification_intents',
+  /**
+   * 远程设备与配对的管理（0.107.0，ADR-0017 §3，domain-model §3.49）：设置 `remote`、`device.*`、`pairing.*` 与 `devices.changed`、
+   * `pairing.request`、`pairing.ended` 通知。远程监听本身不在这一项里。与引擎无关。
+   */
+  remoteDevices: 'remote_devices',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -548,6 +553,7 @@ export const HostFeaturesSchema = z.looseObject({
   inbox: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
   notification_intents: z.boolean().optional(),
+  remote_devices: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

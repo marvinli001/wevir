@@ -67,6 +67,8 @@ import type { PluginRegistry } from './plugins.js';
 import type { PreviewService } from './preview/service.js';
 import type { ProcessOutputService } from './process-output.js';
 import type { ReadinessService } from './readiness/service.js';
+import type { DeviceService } from './remote/devices.js';
+import type { PairingService } from './remote/pairing.js';
 import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
@@ -158,6 +160,11 @@ export interface HostMethodsOptions {
   keepAwake?: KeepAwake;
   /** 收件箱（0.105.0，`inbox.*`）；省略时 `inbox.*` 回 `INVALID_PARAMS`（测试）。 */
   inbox?: Pick<InboxService, 'list' | 'dismiss' | 'version'>;
+  /** 远程设备与配对（0.107.0，`device.*`、`pairing.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  remote?: {
+    devices: Pick<DeviceService, 'list' | 'update' | 'revoke'>;
+    pairing: Pick<PairingService, 'start' | 'cancel' | 'respond'>;
+  };
   /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
   web?: WebService;
   /** 不在项目里的会话（0.39.0）：认出“对话”工作区（`kind: 'chats'`）；与 SessionManager 用同一个。 */
@@ -262,6 +269,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
+  const remoteService = (): NonNullable<HostMethodsOptions['remote']> => {
+    if (options.remote === undefined) throw invalidParams([], 'this host has no remote access');
+    return options.remote;
+  };
   const inboxService = (): NonNullable<HostMethodsOptions['inbox']> => {
     if (options.inbox === undefined) throw invalidParams([], 'this host has no inbox');
     return options.inbox;
@@ -1608,6 +1619,20 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'inbox.dismiss': ({ itemId }) => {
       inboxService().dismiss(itemId);
       return {};
+    },
+
+    // 0.107.0：远程设备与配对。只有本机连接能调（rpc-connection.ts）。
+    'device.list': () => ({ devices: remoteService().devices.list() }),
+    'device.update': (params) => ({ device: remoteService().devices.update(params) }),
+    'device.revoke': async ({ id }) => ({ device: await remoteService().devices.revoke(id) }),
+    'pairing.start': () => remoteService().pairing.start(),
+    'pairing.cancel': ({ pairingId }) => {
+      remoteService().pairing.cancel(pairingId);
+      return {};
+    },
+    'pairing.respond': ({ requestId, allow }) => {
+      const device = remoteService().pairing.respond(requestId, allow);
+      return device !== undefined ? { device } : {};
     },
 
     // 0.80.0：审批规则。项目要存在（未移除）。

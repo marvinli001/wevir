@@ -5,6 +5,7 @@ import type { ApprovalRule } from './approval-rules.js';
 import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
+import type { Device, PairingOffer } from './devices.js';
 import type {
   AccountState,
   ApprovalRequest,
@@ -128,10 +129,41 @@ export const ids = {
   /** 调优的建议（0.87.0）。 */
   tuningProposal: `tpr_${ULID}`,
   tuningProposal2: 'tpr_01JA2B3C4D5E6F7G8H9JKMNPR3',
+  /** 远程设备与配对（0.107.0）。 */
+  device: `dev_${ULID}`,
+  pairing: `prg_${ULID}`,
+  pairingRequest: `prq_${ULID}`,
 } as const;
+
+/** 32 字节的 base64url（0.107.0）：公钥与配对秘密的样本。 */
+const KEY_A = 'q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE';
+const KEY_B = 'Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg';
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
 const SHA2 = '9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e';
+
+/** 配对过的一台手机（0.107.0）。 */
+export const deviceSample: Device = {
+  id: ids.device,
+  name: 'iPhone',
+  platform: 'ios',
+  publicKey: KEY_B,
+  permissions: ['session.read', 'session.write', 'workspace.read'],
+  createdAt: TS,
+  lastSeenAt: TS2,
+  status: 'active',
+};
+
+/** 一个配对窗口（0.107.0）：远程监听还没开，没有候选地址。 */
+export const pairingOfferSample: PairingOffer = {
+  pairingId: ids.pairing,
+  uri: `wevir://pair?v=1&k=${KEY_A}&r=${KEY_B}&s=${KEY_A}&n=Mac`,
+  shortCode: '7KQ2M9XD',
+  expiresAt: TS2,
+  hostPublicKey: KEY_A,
+  routeId: KEY_B,
+  candidates: [],
+};
 
 /** 一条行级批注（0.67.0）：新的一侧，原文挪了位置。 */
 export const reviewComment: ReviewComment = {
@@ -3125,6 +3157,18 @@ export const methodSamples: MethodSamples = {
             notifications: { completed: false, automation: true },
           },
         },
+        // 0.107.0：远程访问。
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: true, tailscale: false },
+              relay: { enabled: true, url: 'wss://relay.example.com' },
+              push: { enabled: false },
+            },
+          },
+        },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3135,6 +3179,7 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', agentInstructions: 'x'.repeat(16_001) } },
         { settings: { sendWhileBusy: 'steer', outputStyle: '' } },
         { settings: { sendWhileBusy: 'steer', notifications: { completed: 'off' } } },
+        { settings: { sendWhileBusy: 'steer', remote: { enabled: true } } },
         {},
       ],
     },
@@ -3154,6 +3199,16 @@ export const methodSamples: MethodSamples = {
         { settings: { marketMirror: 'auto' } },
         { settings: { preventSleep: true } },
         { settings: { notifications: { approval: true, question: false } } },
+        {
+          settings: {
+            remote: {
+              enabled: false,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: false },
+              push: { enabled: false },
+            },
+          },
+        },
         // 0.92.0：听写的转写方与润色
         { settings: { speechTranscriber: { kind: 'local' } } },
         {
@@ -6614,6 +6669,64 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ active: true }, { active: false }], invalid: [{}, { active: 'yes' }] },
     result: { valid: [{}], invalid: [null] },
   },
+  'device.list': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ devices: [] }, { devices: [deviceSample, { ...deviceSample, status: 'revoked' }] }],
+      invalid: [{}, { devices: [{ ...deviceSample, publicKey: 'short' }] }],
+    },
+  },
+  'device.update': {
+    params: {
+      valid: [
+        { id: ids.device, name: 'Pixel' },
+        { id: ids.device, permissions: ['session.read', 'terminal.write'] },
+      ],
+      invalid: [{}, { id: ids.device, name: '' }, { id: ids.device, name: 'x'.repeat(65) }],
+    },
+    result: { valid: [{ device: deviceSample }], invalid: [{}] },
+  },
+  'device.revoke': {
+    params: { valid: [{ id: ids.device }], invalid: [{}, { id: 'device' }] },
+    result: {
+      valid: [{ device: { ...deviceSample, status: 'revoked' } }],
+      invalid: [{ device: { ...deviceSample, status: 'paused' } }],
+    },
+  },
+  'pairing.start': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        pairingOfferSample,
+        {
+          ...pairingOfferSample,
+          candidates: [
+            { kind: 'lan', host: '192.168.1.20', port: 47_900 },
+            { kind: 'tailscale', host: 'fd7a:115c:a1e0::1', port: 47_900 },
+          ],
+          relayUrl: 'wss://relay.example.com',
+        },
+      ],
+      invalid: [
+        { ...pairingOfferSample, shortCode: '7KQ2M9XI' },
+        { ...pairingOfferSample, relayUrl: 'https://relay.example.com' },
+      ],
+    },
+  },
+  'pairing.cancel': {
+    params: { valid: [{}, { pairingId: ids.pairing }], invalid: [{ pairingId: ids.device }] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'pairing.respond': {
+    params: {
+      valid: [
+        { requestId: ids.pairingRequest, allow: true },
+        { requestId: ids.pairingRequest, allow: false },
+      ],
+      invalid: [{ requestId: ids.pairingRequest }, { requestId: ids.pairing, allow: true }],
+    },
+    result: { valid: [{}, { device: deviceSample }], invalid: [null] },
+  },
   'inbox.dismiss': {
     params: {
       valid: [{ itemId: `turn_failed:${ids.turn}` }, { itemId: `automation:${ids.automationRun}` }],
@@ -7478,6 +7591,30 @@ export const notificationSamples: NotificationSamples = {
       { event: eventOf('assistant.delta', 13) },
       { subscriptionId: ids.subscription, event: { ...eventOf('turn.started'), seq: 0 } },
     ],
+  },
+  'devices.changed': {
+    valid: [{ devices: [] }, { devices: [deviceSample] }],
+    invalid: [{}, { devices: [{ ...deviceSample, platform: 'watch' }] }],
+  },
+  'pairing.request': {
+    valid: [
+      {
+        pairingId: ids.pairing,
+        requestId: ids.pairingRequest,
+        name: 'iPhone',
+        platform: 'ios',
+        requestedAt: TS,
+      },
+    ],
+    invalid: [{ pairingId: ids.pairing, requestId: ids.pairingRequest, name: '', platform: 'ios' }],
+  },
+  'pairing.ended': {
+    valid: [
+      { pairingId: ids.pairing, reason: 'paired', deviceId: ids.device },
+      { pairingId: ids.pairing, reason: 'expired' },
+      { pairingId: ids.pairing, reason: 'failed' },
+    ],
+    invalid: [{ pairingId: ids.pairing, reason: 'timeout' }, { pairingId: ids.pairing }],
   },
   'inbox.changed': {
     valid: [

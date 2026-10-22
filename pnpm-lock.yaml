@@ -353,6 +353,9 @@ importers:
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
+      uqr:
+        specifier: 0.1.2
+        version: 0.1.2
       vite:
         specifier: ^7.3.7
         version: 7.3.7(@types/node@24.19.2)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1)
@@ -478,6 +481,9 @@ importers:
       '@mixmark-io/domino':
         specifier: 2.2.0
         version: 2.2.0
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
       '@wevir/adapter-antigravity':
         specifier: workspace:*
         version: link:../adapter-antigravity
@@ -4155,6 +4161,9 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
+  uqr@0.1.2:
+    resolution: {integrity: sha512-MJu7ypHq6QasgF5YRTjqscSzQp/W11zoUk6kvmlH+fmWEs63Y0Eib13hYFwAzagRJcVY8WVnlV+eBDUGMJ5IbA==}
+
   use-sync-external-store@1.7.0:
     resolution: {integrity: sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==}
     peerDependencies:
@@ -7767,6 +7776,8 @@ snapshots:
       browserslist: 4.29.3
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  uqr@0.1.2: {}
 
   use-sync-external-store@1.7.0(react@19.3.0):
     dependencies:

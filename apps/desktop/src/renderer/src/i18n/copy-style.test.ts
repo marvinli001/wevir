@@ -73,6 +73,13 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'automations.dialog.fullAccessWarning',
   // 安全提醒：安装脚本会在本机执行代码，确认安装前必须看到。
   'readiness.install.scriptsWarning',
+  // 配置事实：中继只在直连不通时兜底，不写会以为同一网络里的流量也经过服务器。
+  'settings.devices.relayNote',
+  // 确认框里的后果：移除后设备断开、推送令牌删除，只能重新配对。
+  'settings.devices.removeBody',
+  // 安全提醒：给手机终端与审批策略的权限等于让它在这台电脑上执行命令、放开审批，授予前必须看到。
+  'settings.devices.grantBody.terminal',
+  'settings.devices.grantBody.policy',
 ]);
 
 /** 口语、解释腔与举例的写法。 */
