@@ -1,8 +1,9 @@
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   MARKET_FILE_MAX_BYTES,
+  type MarketInstallProgress,
   type MarketMirror,
   type MarketMirrorPreference,
   MarketMirrorSchema,
@@ -12,6 +13,7 @@ import {
   WevirMarketIndexLenientSchema,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
+import { member } from '../plugin-install.js';
 
 /** 文件地址：`ref` 读索引时是 `dist`，读条目文件时是索引里的提交。 */
 export type MirrorUrl = (ref: string, path: string) => string;
@@ -39,6 +41,20 @@ const SIGNATURE_MAX_BYTES = 1024;
 const FILE_CONCURRENCY = 6;
 /** `market.index` 不带 `refresh` 时，缓存在这么久之内直接用。 */
 export const MARKET_INDEX_MAX_AGE_MS = 60 * 60 * 1000;
+/** 单个条目的上限（plugin-market.md §4.3），市场仓库的 CI 按同样的数拒绝 PR。 */
+const ENTRY_MAX_FILES = 200;
+const ENTRY_MAX_BYTES = 8 * 1024 * 1024;
+/** 下载中的进度最多这么久发一次。 */
+const PROGRESS_INTERVAL_MS = 100;
+/** 这些文件在条目根目录时它是插件包；都没有、只有 SKILL.md 的是 `skills/` 下的简便投稿。 */
+const PACKAGE_MARKERS = [
+  'wevir-plugin.json',
+  '.codex-plugin/plugin.json',
+  '.claude-plugin/plugin.json',
+];
+
+type IndexEntry = WevirMarketIndex['entries'][number];
+type EntryFile = IndexEntry['files'][number];
 
 /** `state.json`：自动模式测出的镜像，与缓存的索引来自哪家、何时取到。 */
 interface MarketState {
@@ -82,6 +98,12 @@ export class MarketService {
   /** `market.file` 正在读的个数与排队的。 */
   #fileSlots = 0;
   readonly #fileQueue: (() => void)[] = [];
+  /** 正在进行的安装，按条目 id。 */
+  readonly #installs = new Map<
+    string,
+    { promise: Promise<unknown>; controller: AbortController }
+  >();
+  readonly #progressListeners = new Set<(progress: MarketInstallProgress) => void>();
 
   constructor(options: MarketServiceOptions) {
     this.#options = options;
@@ -150,6 +172,136 @@ export class MarketService {
         issues: [{ path: ['path'], message }],
       });
     }
+    const bytes = await this.#entryFile(index, entry, file);
+    return { data: bytes.toString('base64') };
+  }
+
+  /** 收 `market.installProgress`（0.99.0）。返回取消函数。 */
+  watch(listener: (progress: MarketInstallProgress) => void): () => void {
+    this.#progressListeners.add(listener);
+    return () => this.#progressListeners.delete(listener);
+  }
+
+  /**
+   * 安装一个条目（0.99.0）：按索引的 `commit` 把 `files` 全部下载到 `installs/` 下的临时目录，逐个校验后交给 `run`（插件安装事务）。
+   * `skills/` 下的简便投稿先包成只含这一个 skill 的 Wevir 插件。同一条目已在安装时并入那一次。
+   */
+  install<T>(entryId: string, run: (root: string, signal: AbortSignal) => Promise<T>): Promise<T> {
+    const running = this.#installs.get(entryId);
+    if (running !== undefined) return running.promise as Promise<T>;
+    const controller = new AbortController();
+    const promise = this.#install(entryId, run, controller.signal)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) throw error;
+        const message = `installing ${entryId} was cancelled`;
+        throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
+      })
+      .finally(() => this.#installs.delete(entryId));
+    this.#installs.set(entryId, { promise, controller });
+    return promise;
+  }
+
+  /** 停下正在进行的安装；没有在装时什么也不做。 */
+  cancelInstall(entryId: string): void {
+    this.#installs.get(entryId)?.controller.abort();
+  }
+
+  async #install<T>(
+    entryId: string,
+    run: (root: string, signal: AbortSignal) => Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T> {
+    const index = (await this.#loadIndex()) ?? (await this.index()).index;
+    const entry = index.entries.find((item) => item.id === entryId);
+    if (entry === undefined) {
+      throw new HostError('INVALID_PARAMS', `no market entry ${entryId}`, {
+        issues: [{ path: ['entry'], message: 'not in the market index' }],
+      });
+    }
+    const totalBytes = entry.files.reduce((sum, file) => sum + file.size, 0);
+    if (
+      entry.files.length > ENTRY_MAX_FILES ||
+      totalBytes > ENTRY_MAX_BYTES ||
+      entry.files.some((file) => file.size > MARKET_FILE_MAX_BYTES)
+    ) {
+      throw new HostError('INVALID_PARAMS', `${entryId} exceeds the market entry size limits`, {
+        issues: [{ path: ['entry'], message: 'entry too large' }],
+      });
+    }
+    const received = new Map<string, number>();
+    let lastSent = 0;
+    const report = (phase: MarketInstallProgress['phase'], force = false) => {
+      const now = this.#now();
+      if (!force && now - lastSent < PROGRESS_INTERVAL_MS) return;
+      lastSent = now;
+      let receivedBytes = 0;
+      for (const bytes of received.values()) receivedBytes += bytes;
+      this.#emit({ entry: entryId, phase, receivedBytes, totalBytes });
+    };
+    report('download', true);
+
+    await mkdir(join(this.#options.dir, 'installs'), { recursive: true, mode: 0o700 });
+    const stage = await mkdtemp(join(this.#options.dir, 'installs', `${entryId}-`));
+    try {
+      const paths = new Set(entry.files.map((file) => file.path));
+      const wrap = !PACKAGE_MARKERS.some((path) => paths.has(path)) && paths.has('SKILL.md');
+      const root = join(stage, 'package');
+      const filesRoot = wrap ? join(root, 'skills', entry.id) : root;
+      // 一个文件失败就停下其余的，等它们都结束再删临时目录。
+      const failed = new AbortController();
+      const downloads = AbortSignal.any([signal, failed.signal]);
+      let failure: unknown;
+      await Promise.allSettled(
+        entry.files.map(async (file) => {
+          try {
+            const bytes = await this.#entryFile(index, entry, file, {
+              signal: downloads,
+              onBytes: (count) => {
+                received.set(file.path, count);
+                report('download');
+              },
+            });
+            received.set(file.path, file.size);
+            report('download');
+            const target = member(filesRoot, file.path);
+            await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+            await writeFile(target, bytes, { mode: 0o600, flag: 'wx' });
+          } catch (error) {
+            if (!downloads.aborted) failure = error;
+            failed.abort();
+          }
+        }),
+      );
+      signal.throwIfAborted();
+      if (failure !== undefined) throw failure;
+      if (wrap) await writeFile(join(root, 'wevir-plugin.json'), skillManifest(entry));
+      report('install', true);
+      return await run(root, signal);
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
+  }
+
+  #emit(progress: MarketInstallProgress): void {
+    for (const listener of [...this.#progressListeners]) {
+      try {
+        listener(progress);
+      } catch (error) {
+        this.#options.onWarning?.('a market install listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 条目目录里的一个文件，校验大小与 sha256。缓存在 `files/<commit>/<条目目录>/<path>`，用之前同样校验；从索引来自的镜像读起，
+   * 失败换另外两家。`onBytes` 报这一次请求已收到的字节（换镜像时从 0 重新算）。
+   */
+  async #entryFile(
+    index: WevirMarketIndex,
+    entry: IndexEntry,
+    file: EntryFile,
+    options: { signal?: AbortSignal; onBytes?: (count: number) => void } = {},
+  ): Promise<Buffer> {
     const repoPath = `${entry.path}/${file.path}`;
     const cached = join(this.#options.dir, 'files', index.commit, ...repoPath.split('/'));
     const matches = (bytes: Buffer) =>
@@ -157,7 +309,7 @@ export class MarketService {
       createHash('sha256').update(bytes).digest('hex') === file.sha256;
     try {
       const bytes = await readFile(cached);
-      if (matches(bytes)) return { data: bytes.toString('base64') };
+      if (matches(bytes)) return bytes;
     } catch {}
 
     await this.#acquireFileSlot();
@@ -169,18 +321,23 @@ export class MarketService {
       ];
       const failures: string[] = [];
       for (const mirror of order) {
+        options.signal?.throwIfAborted();
         try {
+          options.onBytes?.(0);
           const bytes = await this.#get(this.#mirrors[mirror](index.commit, repoPath), {
             maxBytes: file.size,
             timeoutMs: FETCH_TIMEOUT_MS,
+            ...(options.signal !== undefined && { signal: options.signal }),
+            ...(options.onBytes !== undefined && { onBytes: options.onBytes }),
           });
           if (!matches(bytes)) throw new Error('sha256 does not match the index');
           await mkdir(dirname(cached), { recursive: true, mode: 0o700 });
-          const tmp = `${cached}.${process.pid}.tmp`;
+          const tmp = `${cached}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
           await writeFile(tmp, bytes, { mode: 0o600 });
           await rename(tmp, cached);
-          return { data: bytes.toString('base64') };
+          return bytes;
         } catch (error) {
+          options.signal?.throwIfAborted();
           failures.push(`${mirror}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
@@ -295,10 +452,20 @@ export class MarketService {
     return this.#keys.some((key) => verify(null, bytes, key, raw));
   }
 
-  async #get(url: string, limits: { maxBytes: number; timeoutMs: number }): Promise<Buffer> {
+  async #get(
+    url: string,
+    limits: {
+      maxBytes: number;
+      timeoutMs: number;
+      signal?: AbortSignal;
+      /** 已收到的字节，每来一块报一次。 */
+      onBytes?: (count: number) => void;
+    },
+  ): Promise<Buffer> {
+    const timeout = AbortSignal.timeout(limits.timeoutMs);
     const response = await this.#fetch(url, {
       redirect: 'follow',
-      signal: AbortSignal.timeout(limits.timeoutMs),
+      signal: limits.signal === undefined ? timeout : AbortSignal.any([limits.signal, timeout]),
     });
     if (!response.ok) {
       await response.body?.cancel();
@@ -309,9 +476,16 @@ export class MarketService {
       await response.body?.cancel();
       throw new Error('response too large');
     }
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.length > limits.maxBytes) throw new Error('response too large');
-    return body;
+    if (response.body === null) return Buffer.alloc(0);
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    for await (const chunk of response.body) {
+      received += chunk.length;
+      if (received > limits.maxBytes) throw new Error('response too large');
+      chunks.push(chunk);
+      limits.onBytes?.(received);
+    }
+    return Buffer.concat(chunks);
   }
 
   async #loadState(): Promise<MarketState> {
@@ -376,4 +550,18 @@ function parseIndex(bytes: Buffer): WevirMarketIndex {
   const parsed = WevirMarketIndexLenientSchema.safeParse(raw);
   if (!parsed.success) throw new Error(`index does not match its schema: ${parsed.error.message}`);
   return parsed.data;
+}
+
+/** `skills/` 下的简便投稿装成插件时用的清单：id、名称、版本与描述取自索引。 */
+function skillManifest(entry: IndexEntry): string {
+  const manifest = {
+    schemaVersion: 1,
+    id: entry.id,
+    name: entry.name,
+    version: entry.version,
+    ...(entry.description !== undefined && { description: entry.description }),
+    ...(entry.author !== undefined && { author: entry.author }),
+    ...(entry.license !== undefined && { license: entry.license }),
+  };
+  return `${JSON.stringify(manifest, null, 2)}\n`;
 }

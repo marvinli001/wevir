@@ -110,6 +110,10 @@ export interface ConnectionHost {
   readonly previews?: {
     watch(listener: (change: NotificationParams<'preview.changed'>) => void): () => void;
   };
+  /** 插件市场（0.99.0）：调过 `market.*` 的连接用它收 `market.installProgress`。 */
+  readonly market?: {
+    watch(listener: (progress: NotificationParams<'market.installProgress'>) => void): () => void;
+  };
   /** 听写（0.92.0）：调过 `speech.*` 的连接用它收 `speech.changed`。 */
   readonly speech?: {
     watch(listener: (status: NotificationParams<'speech.changed'>['status']) => void): () => void;
@@ -218,6 +222,8 @@ export class RpcConnection {
   #unwatchPreviews: (() => void) | undefined;
   /** 调过 `speech.*` 之后：退订 `speech.changed`。 */
   #unwatchSpeech: (() => void) | undefined;
+  /** 调过 `market.*` 之后：退订 `market.installProgress`。 */
+  #unwatchMarket: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.changed`。 */
   #unwatchTuning: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.proposal.changed`。 */
@@ -577,6 +583,7 @@ export class RpcConnection {
         }
         if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('speech.')) this.#watchSpeech();
+        if (method.startsWith('market.')) this.#watchMarket();
         if (method.startsWith('tuning.')) this.#watchTuning();
         if (method.startsWith('guardrail.') || method.startsWith('repoHook.')) {
           this.#watchGuardrails();
@@ -834,6 +841,26 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `market.*` 的连接之后收 `market.installProgress`（0.99.0），连接关闭即止。 */
+  #watchMarket(): void {
+    if (this.#unwatchMarket !== undefined || this.#host.market === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchMarket = this.#host.market.watch((progress) => {
+      const parsed = NotificationSchemas['market.installProgress'].params.safeParse(progress);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`market.installProgress does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({
+        jsonrpc: JSONRPC_VERSION,
+        method: 'market.installProgress',
+        params: parsed.data,
+      });
+    });
+  }
+
   /** 调过 `tuning.*` 的连接之后收 `tuning.changed`（0.85.0），连接关闭即止。 */
   #watchTuning(): void {
     if (this.#unwatchTuning !== undefined || this.#host.tuning === undefined) return;
@@ -1080,6 +1107,8 @@ export class RpcConnection {
     this.#unwatchPreviews = undefined;
     this.#unwatchSpeech?.();
     this.#unwatchSpeech = undefined;
+    this.#unwatchMarket?.();
+    this.#unwatchMarket = undefined;
     this.#unwatchTuning?.();
     this.#unwatchTuning = undefined;
     this.#unwatchProposals?.();

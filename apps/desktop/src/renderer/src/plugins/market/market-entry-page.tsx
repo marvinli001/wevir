@@ -1,5 +1,5 @@
 // 市场条目的详情页（plugin-market.md §9.2，`/plugins/market/:source/:entry`）：头部（图标、名称与徽章、发布者、“···”与主按钮）、
-// 示例、README、MCP 服务器与技能列表、信息表。安装（market.install）还没有，主按钮停用、示例只看不点。
+// 示例、README、MCP 服务器与技能列表、信息表。主按钮是 install-button.tsx（0.99.0 起能装）；示例还只看不点。
 
 import type { MarketEntry, MarketMirror } from '@wevir/protocol';
 import { cn } from 'cn';
@@ -19,6 +19,7 @@ import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { commandLine } from '../plugins-model';
+import { MarketInstallButton } from './install-button';
 import {
   decodeText,
   entryPublisher,
@@ -161,10 +162,7 @@ function EntryDetail({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-          {/* 安装（market.install）做好前停用。 */}
-          <Button disabled data-action="install">
-            {t('plugins.market.installPlugin')}
-          </Button>
+          <MarketInstallButton entry={entry} variant="detail" />
         </div>
       </header>
 

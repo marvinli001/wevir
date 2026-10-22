@@ -403,6 +403,8 @@ export const HOST_FEATURES = {
   pluginMarket: 'plugin_market',
   /** 读市场条目里的文件（0.94.0）：`market.file`，详情页的 README 与列表的图标用它。 */
   marketFiles: 'market_files',
+  /** 安装市场条目（0.99.0）：`market.install` / `market.installCancel` 与 `market.installProgress` 通知。 */
+  marketInstall: 'market_install',
   /**
    * 听写（0.92.0，domain-model §3.42）：`speech.*` 方法与 `speech.changed` 通知、`SPEECH_FAILED` 错误、设置 `speechTranscriber` /
    * `speechPolish`、`ProviderProfile.transcriptionModels`。本机模型能不能用看 `speech.status`。与引擎无关。
@@ -505,6 +507,7 @@ export const HostFeaturesSchema = z.looseObject({
   tuning_proposals: z.boolean().optional(),
   plugin_market: z.boolean().optional(),
   market_files: z.boolean().optional(),
+  market_install: z.boolean().optional(),
   speech: z.boolean().optional(),
   writing_style: z.boolean().optional(),
   mcp_oauth: z.boolean().optional(),

@@ -1,4 +1,4 @@
-// 插件市场（0.91.0；0.93.0 改了条目字段并加了读取用的宽松版本；0.94.0 加了读条目文件的 market.file）：官方市场仓库 wevir-marketplace 的索引格式，与读取镜像的选择。
+// 插件市场（0.91.0；0.93.0 改了条目字段并加了读取用的宽松版本；0.94.0 加了读条目文件的 market.file；0.99.0 加了安装）：官方市场仓库 wevir-marketplace 的索引格式，与读取镜像的选择。
 // 本文件只依赖 zod：scripts/plugin-schema.ts 用 Node 直接加载它生成 schemas/wevir-market.schema.json。
 import { z } from 'zod';
 import {
@@ -6,7 +6,9 @@ import {
   MarketCategoryIdSchema,
   PluginExamplesSchema,
   PluginIdSchema,
+  PluginInputKeySchema,
   PluginInputSchema,
+  PluginSchema,
   PluginUrlSchema,
   SemverSchema,
   WevirPluginManifestSchema,
@@ -173,6 +175,18 @@ const MarketStatusSchema = z.object({
 });
 export type MarketStatus = z.infer<typeof MarketStatusSchema>;
 
+/** 安装的进度（0.99.0，`market.installProgress`）：先按字节下载条目的文件，再交给插件安装事务。 */
+export const MarketInstallProgressSchema = z.object({
+  entry: PluginIdSchema,
+  /** `download` 下载并校验文件，`install` 验证与发布（很快，没有进度）。 */
+  phase: z.enum(['download', 'install']),
+  /** 已下载的字节（缓存里已有的文件也算），不超过 `totalBytes`。 */
+  receivedBytes: z.number().int().min(0),
+  /** 条目全部文件的大小之和（索引里的 `files[].size`）。 */
+  totalBytes: z.number().int().min(0),
+});
+export type MarketInstallProgress = z.infer<typeof MarketInstallProgressSchema>;
+
 /** Host 功能 `plugin_market`（0.91.0）。 */
 export const MarketMethodSchemas = {
   /** 自动模式下还没测过速时先测速（几秒），结果记在数据目录里。 */
@@ -208,6 +222,27 @@ export const MarketMethodSchemas = {
       /** 文件的字节，base64。 */
       data: z.string(),
     }),
+    permission: 'host.manage',
+  },
+  /**
+   * 安装官方市场的一个条目（0.99.0，Host 功能 `market_install`）：按当前索引的 `commit` 下载条目 `files` 列出的全部文件，逐个校验大小与
+   * sha256（读不到或不符时换镜像），然后走 `plugin.install` 的同一套验证与发布事务；`skills/` 下的简便投稿包成只含这一个 skill 的插件。
+   * `inputs` 与 `replace` 同 `plugin.install`。期间给调过 `market.*` 的连接发 `market.installProgress`。同一条目已在安装时并入那一次，
+   * 等它的结果。条目不在索引里、包验证不过回 INVALID_PARAMS；三家都读不到、或被 `market.installCancel` 停下回 ENGINE_ERROR。
+   */
+  'market.install': {
+    params: z.object({
+      entry: PluginIdSchema,
+      inputs: z.record(PluginInputKeySchema, z.string()).optional(),
+      replace: z.boolean().optional(),
+    }),
+    result: z.object({ plugin: PluginSchema, ignored: z.array(z.string().min(1)) }),
+    permission: 'host.manage',
+  },
+  /** 停下正在进行的安装（0.99.0）：下载中的立即停，已进入发布事务的照常回滚。没有在装时什么也不做。 */
+  'market.installCancel': {
+    params: z.object({ entry: PluginIdSchema }),
+    result: z.object({}),
     permission: 'host.manage',
   },
 } as const;

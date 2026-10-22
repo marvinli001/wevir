@@ -3143,6 +3143,23 @@ export const methodSamples: MethodSamples = {
       invalid: [{}, { data: 1 }],
     },
   },
+  'market.install': {
+    params: {
+      valid: [
+        { entry: 'notes' },
+        { entry: 'notes', inputs: { TOKEN: 'input-only' }, replace: true },
+      ],
+      invalid: [{}, { entry: 'Notes!' }, { entry: 'notes', inputs: { 'bad-key': 'x' } }],
+    },
+    result: {
+      valid: [{ plugin, ignored: [] }],
+      invalid: [{ plugin }, {}],
+    },
+  },
+  'market.installCancel': {
+    params: { valid: [{ entry: 'notes' }], invalid: [{}, { entry: '' }] },
+    result: empty,
+  },
   'writingStyle.get': {
     params: empty,
     result: {
@@ -7297,6 +7314,16 @@ export const notificationSamples: NotificationSamples = {
   'speech.changed': {
     valid: [{ status: { local: speechLocalReady } }],
     invalid: [{}, { status: { local: { state: 'ready' } } }],
+  },
+  'market.installProgress': {
+    valid: [
+      { entry: 'notes', phase: 'download', receivedBytes: 512, totalBytes: 2048 },
+      { entry: 'notes', phase: 'install', receivedBytes: 2048, totalBytes: 2048 },
+    ],
+    invalid: [
+      { entry: 'notes', phase: 'verify', receivedBytes: 0, totalBytes: 1 },
+      { entry: 'notes', phase: 'download', receivedBytes: -1, totalBytes: 1 },
+    ],
   },
   'tuning.changed': {
     valid: [{}, { workspaceId: ids.workspace }],

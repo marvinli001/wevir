@@ -1177,6 +1177,19 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'market.status': () => market().status(),
     'market.index': ({ refresh }) => market().index(refresh === true),
     'market.file': ({ entry, path }) => market().file(entry, path),
+    // 0.99.0：下载、校验后走 plugin.install 的同一套事务。
+    'market.install': ({ entry, inputs, replace }) =>
+      market().install(entry, (root, signal) =>
+        plugins().installPlugin(root, {
+          ...(inputs !== undefined && { inputs }),
+          ...(replace !== undefined && { replace }),
+          signal,
+        }),
+      ),
+    'market.installCancel': ({ entry }) => {
+      market().cancelInstall(entry);
+      return {};
+    },
 
     'settings.update': async (params) => {
       // 0.78.0：输出风格只收 Host 认识的名字。

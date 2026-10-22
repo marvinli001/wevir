@@ -13,6 +13,7 @@ import {
   HostHelloResultSchema,
   type HostSettings,
   LspChangedParamsSchema,
+  MarketInstallProgressSchema,
   MemoryChangedParamsSchema,
   type MethodName,
   type MethodParams,
@@ -50,6 +51,8 @@ export type ReadinessChange = NotificationParams<'readiness.changed'>;
 export type PreviewChange = NotificationParams<'preview.changed'>;
 /** `speech.changed` 的内容（0.92.0）。 */
 export type SpeechChange = NotificationParams<'speech.changed'>;
+/** `market.installProgress` 的内容（0.99.0）。 */
+export type MarketInstallProgress = NotificationParams<'market.installProgress'>;
 /** `tuning.changed` 的内容（0.85.0）。 */
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
@@ -293,6 +296,7 @@ export class WevirClient {
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
   readonly #speechListeners = new Set<(change: SpeechChange | undefined) => void>();
+  readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
   readonly #proposalListeners = new Set<(change: TuningProposalChange | undefined) => void>();
@@ -586,6 +590,15 @@ export class WevirClient {
         this.#warn('a preview listener threw', { error });
       }
     }
+  }
+
+  /**
+   * 市场条目的安装进度（0.99.0，`market.installProgress`）：先按字节下载，再进入安装。只有调过 `market.*` 的连接收得到；断线期间的进度
+   * 不补发，安装的结果看 `market.install` 的回复。返回取消函数。
+   */
+  onMarketInstallProgress(listener: (progress: MarketInstallProgress) => void): () => void {
+    this.#marketInstallListeners.add(listener);
+    return () => this.#marketInstallListeners.delete(listener);
   }
 
   /**
@@ -1331,6 +1344,21 @@ export class WevirClient {
         return;
       }
       this.#previewChanged(parsed.data);
+      return;
+    }
+    if (method === 'market.installProgress') {
+      const parsed = MarketInstallProgressSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed market.installProgress notification');
+        return;
+      }
+      for (const listener of [...this.#marketInstallListeners]) {
+        try {
+          listener(parsed.data);
+        } catch (error) {
+          this.#warn('a market install listener threw', { error });
+        }
+      }
       return;
     }
     if (method === 'speech.changed') {

@@ -26,6 +26,7 @@ import { AddDialog, type AddRequest } from './add-dialog';
 import { ConnectorDialog, type ConnectorDialogRequest } from './connector-dialog';
 import { ConnectorList } from './connector-list';
 import { rememberPluginsTab } from './last-tab';
+import { MarketInstallContext, type MarketInstallContextValue } from './market/install-button';
 import { MarketEntryPage } from './market/market-entry-page';
 import { MarketGroupPage, MarketHome, MarketToolbar } from './market/market-tab';
 import { useMarket, useMarketSource } from './market/use-market';
@@ -122,6 +123,16 @@ export function PluginsPage({
     [client, state, data, busy, run, navigate, scoped, workspaces],
   );
 
+  // 市场的安装按钮：已装的插件 id，装好后重读列表（0.99.0）。
+  const installed = useMemo(
+    () => new Set(state.status === 'ready' ? state.plugins.map((plugin) => plugin.id) : []),
+    [state],
+  );
+  const marketInstall = useMemo<MarketInstallContextValue>(
+    () => ({ source: marketSource, installed, afterInstall: data.refresh, notify: setNotice }),
+    [marketSource, installed, data.refresh],
+  );
+
   const openAdd = (init: Omit<AddRequest, 'id'> = {}) => {
     setNotice(undefined);
     setAdd({ id: ++requests.current, ...init });
@@ -176,100 +187,102 @@ export function PluginsPage({
       data-market-view={market?.kind}
     >
       <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-240 px-5 pt-6 pb-16 sm:px-10">
-          {notice && market !== undefined && (
-            <div className="mb-4" data-testid="plugins-notice">
-              <NoticeBanner notice={notice} />
-            </div>
-          )}
-          {market?.kind === 'group' && (
-            <MarketGroupPage data={marketData} source={marketSource} groupId={market.groupId} />
-          )}
-          {market?.kind === 'entry' && (
-            <MarketEntryPage
-              data={marketData}
-              source={marketSource}
-              sourceId={market.source}
-              entryId={market.entry}
-              onCopied={() => setNotice({ tone: 'success', text: t('plugins.market.copied') })}
-            />
-          )}
-          {market === undefined && (
-            <>
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <h1 className="text-xl font-semibold">{t('plugins.title')}</h1>
-                <div className="flex min-w-0 items-center gap-2">
-                  {tab === 'market' && (
-                    <MarketToolbar data={marketData} query={query} onQuery={setQuery} />
-                  )}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button disabled={context === undefined} data-action="add">
-                          {t('plugins.add')}
-                          <ChevronDown data-icon="inline-end" />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end" className="w-52">
-                      <DropdownMenuItem onClick={() => openAdd()} data-action="add-file">
-                        <FileUp />
-                        {t('plugins.add.fromFile')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setConnector({ kind: 'add' })}
-                        data-action="add-connector"
-                      >
-                        <Server />
-                        {t('plugins.add.connector')}
-                      </DropdownMenuItem>
-                      {scoped && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            navigate(paths.settings('import'), { state: { from: location } })
-                          }
-                          data-action="add-import"
-                        >
-                          <Import />
-                          {t('plugins.add.import')}
+        <MarketInstallContext value={marketInstall}>
+          <div className="mx-auto w-full max-w-240 px-5 pt-6 pb-16 sm:px-10">
+            {notice && market !== undefined && (
+              <div className="mb-4" data-testid="plugins-notice">
+                <NoticeBanner notice={notice} />
+              </div>
+            )}
+            {market?.kind === 'group' && (
+              <MarketGroupPage data={marketData} source={marketSource} groupId={market.groupId} />
+            )}
+            {market?.kind === 'entry' && (
+              <MarketEntryPage
+                data={marketData}
+                source={marketSource}
+                sourceId={market.source}
+                entryId={market.entry}
+                onCopied={() => setNotice({ tone: 'success', text: t('plugins.market.copied') })}
+              />
+            )}
+            {market === undefined && (
+              <>
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <h1 className="text-xl font-semibold">{t('plugins.title')}</h1>
+                  <div className="flex min-w-0 items-center gap-2">
+                    {tab === 'market' && (
+                      <MarketToolbar data={marketData} query={query} onQuery={setQuery} />
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button disabled={context === undefined} data-action="add">
+                            {t('plugins.add')}
+                            <ChevronDown data-icon="inline-end" />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" className="w-52">
+                        <DropdownMenuItem onClick={() => openAdd()} data-action="add-file">
+                          <FileUp />
+                          {t('plugins.add.fromFile')}
                         </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        <DropdownMenuItem
+                          onClick={() => setConnector({ kind: 'add' })}
+                          data-action="add-connector"
+                        >
+                          <Server />
+                          {t('plugins.add.connector')}
+                        </DropdownMenuItem>
+                        {scoped && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              navigate(paths.settings('import'), { state: { from: location } })
+                            }
+                            data-action="add-import"
+                          >
+                            <Import />
+                            {t('plugins.add.import')}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-              </div>
-              <div className="mb-5">
-                <Segmented<PluginsTab>
-                  label={t('plugins.tabs')}
-                  value={tab}
-                  onChange={(next) => navigate(paths.plugins(next), { replace: true })}
-                  options={tabs.map((value) => ({ value, label: t(`plugins.tab.${value}`) }))}
-                />
-              </div>
-              {notice && (
-                <div className="mb-4" data-testid="plugins-notice">
-                  <NoticeBanner notice={notice} />
+                <div className="mb-5">
+                  <Segmented<PluginsTab>
+                    label={t('plugins.tabs')}
+                    value={tab}
+                    onChange={(next) => navigate(paths.plugins(next), { replace: true })}
+                    options={tabs.map((value) => ({ value, label: t(`plugins.tab.${value}`) }))}
+                  />
                 </div>
-              )}
-              {tab === 'market' && (
-                <MarketHome data={marketData} source={marketSource} query={query} />
-              )}
-              {tab !== 'market' && state.status === 'loading' && (
-                <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-              )}
-              {tab !== 'market' && state.status === 'error' && (
-                <NoticeBanner
-                  notice={{
-                    tone: 'error',
-                    text: t('plugins.loadFailed', { error: describe(state.error) }),
-                  }}
-                />
-              )}
-            </>
-          )}
-          {/* 列表只在三个已安装分段里画；两个对话框在市场里也要（“添加”下拉）。 */}
-          {lists}
-        </div>
+                {notice && (
+                  <div className="mb-4" data-testid="plugins-notice">
+                    <NoticeBanner notice={notice} />
+                  </div>
+                )}
+                {tab === 'market' && (
+                  <MarketHome data={marketData} source={marketSource} query={query} />
+                )}
+                {tab !== 'market' && state.status === 'loading' && (
+                  <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+                )}
+                {tab !== 'market' && state.status === 'error' && (
+                  <NoticeBanner
+                    notice={{
+                      tone: 'error',
+                      text: t('plugins.loadFailed', { error: describe(state.error) }),
+                    }}
+                  />
+                )}
+              </>
+            )}
+            {/* 列表只在三个已安装分段里画；两个对话框在市场里也要（“添加”下拉）。 */}
+            {lists}
+          </div>
+        </MarketInstallContext>
       </ScrollArea>
       {dragging && (
         <div

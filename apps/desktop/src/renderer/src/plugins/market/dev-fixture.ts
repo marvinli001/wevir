@@ -1,8 +1,9 @@
 // 开发用的假市场（只在 `pnpm dev` 且设了 `VITE_WEVIR_FAKE_MARKET` 时由 use-market.ts 动态加载，正式构建里没有）：官方市场
 // 现在一个条目都没有，点验市场分段与详情页用它。条目覆盖 official、verified、无认证、有上游、有示例、没图标与三种类型。
-// `VITE_WEVIR_FAKE_MARKET=stale` 时刷新回缓存并带 `error`（警告点），`=fail` 时读取失败（空状态与重试）。
+// `VITE_WEVIR_FAKE_MARKET=stale` 时刷新回缓存并带 `error`（警告点），`=fail` 时读取失败（空状态与重试）。安装是假的：先等一会儿，
+// 再用几秒按字节报进度，最后停在发布阶段一下；`sql-explorer` 下到一半失败。不会真装上，按钮装完回到“安装插件”。
 
-import type { MarketEntry, WevirMarketIndex } from '@wevir/protocol';
+import type { MarketEntry, MarketInstallProgress, Plugin, WevirMarketIndex } from '@wevir/protocol';
 import type { MarketIndexResult, MarketSource } from './use-market';
 
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
@@ -271,6 +272,9 @@ const INDEX: WevirMarketIndex = {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const installListeners = new Set<(progress: MarketInstallProgress) => void>();
+const cancelled = new Set<string>();
+
 export const fakeMarketSource: MarketSource = {
   async index(refresh) {
     await delay(refresh ? 900 : 500);
@@ -290,5 +294,48 @@ export const fakeMarketSource: MarketSource = {
     if (text === undefined) throw new Error(`no ${entryId}/${path}`);
     const bytes = new TextEncoder().encode(text);
     return btoa(String.fromCharCode(...bytes));
+  },
+  async install(entryId) {
+    const entry = INDEX.entries.find((item) => item.id === entryId);
+    if (entry === undefined) throw new Error(`no market entry ${entryId}`);
+    cancelled.delete(entryId);
+    const totalBytes = 2_400_000;
+    const emit = (phase: MarketInstallProgress['phase'], receivedBytes: number) => {
+      for (const listener of installListeners)
+        listener({ entry: entryId, phase, receivedBytes, totalBytes });
+    };
+    const check = () => {
+      if (cancelled.has(entryId)) throw new Error(`installing ${entryId} was cancelled`);
+    };
+    await delay(700);
+    for (let step = 0; step <= 20; step++) {
+      check();
+      if (entryId === 'sql-explorer' && step === 11)
+        throw new Error('could not read server/index.js from the plugin market: HTTP 503');
+      emit('download', Math.round((totalBytes * step) / 20));
+      await delay(120 + Math.random() * 120);
+    }
+    emit('install', totalBytes);
+    await delay(600);
+    check();
+    const plugin: Plugin = {
+      id: entry.id,
+      name: entry.name,
+      version: entry.version,
+      source: 'wevir',
+      enabled: true,
+      path: `/tmp/${entry.id}`,
+      inputs: [],
+      connectors: [],
+      skills: [],
+    };
+    return { plugin, ignored: [] };
+  },
+  async cancelInstall(entryId) {
+    cancelled.add(entryId);
+  },
+  onInstallProgress(listener) {
+    installListeners.add(listener);
+    return () => installListeners.delete(listener);
   },
 };

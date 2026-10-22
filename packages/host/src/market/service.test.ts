@@ -1,10 +1,12 @@
-// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存；0.93.0 起读索引时丢掉未知字段；0.94.0 读条目文件。
+// 官方插件市场（0.91.0）：自动测速并记住镜像、手动选择、验签与回退、序号防回滚、缓存；0.93.0 起读索引时丢掉未知字段；0.94.0 读条目文件；0.99.0 安装。
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MarketMirror, MarketMirrorPreference, WevirMarketIndex } from '@wevir/protocol';
+import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { describe, expect, it } from 'vitest';
 import { HostError } from '../errors.js';
+import { PluginRegistry } from '../plugins.js';
 import { useTempDir } from '../test-utils.js';
 import { MARKET_INDEX_MAX_AGE_MS, MarketService } from './service.js';
 
@@ -294,6 +296,149 @@ describe('MarketService.file（0.94.0）', () => {
       const error = await market.file(entry, path).catch((reason: unknown) => reason);
       expect((error as HostError).code).toBe('INVALID_PARAMS');
     }
+    expect(requests).toEqual([]);
+  });
+});
+
+describe('MarketService.install（0.99.0）', () => {
+  const temp = useTempDir();
+  const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  const manifest = Buffer.from(
+    JSON.stringify({
+      schemaVersion: 1,
+      id: 'notes',
+      name: 'Notes',
+      version: '1.0.0',
+      connectors: { notes: { transport: 'stdio', command: 'node', args: ['server.js'] } },
+    }),
+  );
+  const server = Buffer.from('console.log("notes")\n'.repeat(200));
+  const skill = Buffer.from('---\nname: pdf\ndescription: Read PDFs\n---\n\nUse it.\n');
+  const entryOf = (id: string, path: string, files: Record<string, Buffer>) => ({
+    ...(futureEntry as unknown as WevirMarketIndex['entries'][number]),
+    id,
+    name: id,
+    path,
+    files: Object.entries(files).map(([file, bytes]) => ({
+      path: file,
+      size: bytes.length,
+      sha256: sha(bytes),
+    })),
+  });
+  const index: WevirMarketIndex = {
+    ...indexOf(1),
+    entries: [
+      entryOf('notes', 'plugins/notes', { 'wevir-plugin.json': manifest, 'server.js': server }),
+      entryOf('pdf', 'skills/pdf', { 'SKILL.md': skill }),
+    ],
+  };
+  const repo: Record<string, Buffer> = {
+    'plugins/notes/wevir-plugin.json': manifest,
+    'plugins/notes/server.js': server,
+    'skills/pdf/SKILL.md': skill,
+  };
+
+  /** 镜像上的仓库：`tamper` 里的路径在 github 上被改过；`hold` 让文件请求挂起直到被中止。 */
+  function serve(options: { tamper?: string[]; tamperAll?: boolean; hold?: boolean } = {}) {
+    const base = mirrors({ github: { index }, cnb: { index }, gitee: { index } });
+    const requests: string[] = [];
+    const fake = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.startsWith('/dist/')) return base.options.fetch(input);
+      requests.push(`${url.host}${url.pathname}`);
+      if (options.hold) {
+        await new Promise((_, reject) =>
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)),
+        );
+      }
+      const path = url.pathname.split('/').slice(2).join('/');
+      const body = repo[path];
+      if (body === undefined) return new Response('no', { status: 404 });
+      const tampered =
+        options.tamperAll || (url.host === 'github' && options.tamper?.includes(path));
+      return new Response(new Uint8Array(tampered ? Buffer.from('evil') : body));
+    }) as typeof fetch;
+    const market = new MarketService({
+      dir: join(temp(), 'market'),
+      preference: () => 'github',
+      ...base.options,
+      fetch: fake,
+    });
+    const progress: { phase: string; receivedBytes: number; totalBytes: number }[] = [];
+    market.watch(({ phase, receivedBytes, totalBytes }) =>
+      progress.push({ phase, receivedBytes, totalBytes }),
+    );
+    return { market, requests, progress };
+  }
+
+  const installs = () => readdirSync(join(temp(), 'market', 'installs'));
+
+  it('下载并校验全部文件后交给安装事务，进度从 0 到全部字节再到 install，临时目录删掉', async () => {
+    const { market, progress } = serve({ tamper: ['plugins/notes/server.js'] });
+    const seen = await market.install('notes', async (root) => ({
+      files: readdirSync(root).sort(),
+      server: readFileSync(join(root, 'server.js'), 'utf8'),
+    }));
+    expect(seen.files).toEqual(['server.js', 'wevir-plugin.json']);
+    expect(seen.server).toBe(server.toString());
+    const total = manifest.length + server.length;
+    expect(progress[0]).toEqual({ phase: 'download', receivedBytes: 0, totalBytes: total });
+    expect(progress.at(-1)).toEqual({ phase: 'install', receivedBytes: total, totalBytes: total });
+    expect(progress.every((item) => item.receivedBytes <= total)).toBe(true);
+    expect(installs()).toEqual([]);
+  });
+
+  it('skills/ 下的简便投稿包成只含这个 skill 的插件，真实的插件注册表能装上', async () => {
+    const { market } = serve();
+    const store = new PluginRegistry({
+      home: join(temp(), 'home'),
+      userHome: join(temp(), 'user'),
+      roots: () => [],
+      adapter: new EchoAdapter({ stepDelayMs: 0 }),
+    });
+    await store.load();
+    const result = await market.install('pdf', (root, signal) =>
+      store.installPlugin(root, { signal }),
+    );
+    expect(result.plugin).toMatchObject({ id: 'pdf', name: 'pdf', version: '1.0.0' });
+    expect(result.plugin.skills).toHaveLength(1);
+  });
+
+  it('三家都校验不过时回 ENGINE_ERROR，不调安装事务', async () => {
+    const { market } = serve({ tamperAll: true });
+    let called = false;
+    const error = await market
+      .install('notes', async () => {
+        called = true;
+      })
+      .catch((reason: unknown) => reason);
+    expect((error as HostError).code).toBe('ENGINE_ERROR');
+    expect(called).toBe(false);
+    expect(installs()).toEqual([]);
+  });
+
+  it('同一条目并入正在进行的安装；cancelInstall 停下它，回 ENGINE_ERROR', async () => {
+    const { market } = serve({ hold: true });
+    let calls = 0;
+    const run = async () => {
+      calls++;
+    };
+    const first = market.install('notes', run).catch((reason: unknown) => reason);
+    const second = market.install('notes', run).catch((reason: unknown) => reason);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    market.cancelInstall('notes');
+    const [a, b] = await Promise.all([first, second]);
+    expect((a as HostError).code).toBe('ENGINE_ERROR');
+    expect((a as HostError).message).toMatch(/cancelled/);
+    expect(b).toBe(a);
+    expect(calls).toBe(0);
+    expect(installs()).toEqual([]);
+  });
+
+  it('条目不在索引里回 INVALID_PARAMS', async () => {
+    const { market, requests } = serve();
+    const error = await market.install('missing', async () => {}).catch((reason) => reason);
+    expect((error as HostError).code).toBe('INVALID_PARAMS');
     expect(requests).toEqual([]);
   });
 });

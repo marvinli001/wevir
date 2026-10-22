@@ -1,10 +1,11 @@
 // 插件市场的数据（plugin-market.md §9）：索引是 `market.index`（Host 默认用一小时内的缓存，刷新按钮带 `refresh`），条目里的
-// README 与图标是 `market.file`（0.94.0，Host 有 `market_files` 时）。同一个来源上次读到的索引先显示，来回进出详情页不闪骨架。
+// README 与图标是 `market.file`（0.94.0，Host 有 `market_files` 时），安装是 `market.install`（0.99.0，Host 有 `market_install` 时，
+// 状态在 market-install.ts）。同一个来源上次读到的索引先显示，来回进出详情页不闪骨架。
 // 开发时 `VITE_WEVIR_FAKE_MARKET=1` 换成 dev-fixture.ts 的假来源；正式构建里 `import.meta.env.DEV` 是 false，连同它的 chunk 一起
 // 被摇掉。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
-import type { MethodResult } from '@wevir/protocol';
+import type { MarketInstallProgress, MethodResult } from '@wevir/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { describe } from '@/host/host-connection';
 
@@ -15,6 +16,14 @@ export interface MarketSource {
   index(refresh: boolean): Promise<MarketIndexResult>;
   /** 条目文件的字节（base64）；Host 没有 `market_files` 时没有，图标用占位块、详情用描述。 */
   file?: (entry: string, path: string) => Promise<string>;
+  /** 安装一个条目；Host 没有 `market_install` 时没有，安装按钮停用。 */
+  install?: (
+    entry: string,
+    inputs: Record<string, string> | undefined,
+  ) => Promise<MethodResult<'market.install'>>;
+  cancelInstall?: (entry: string) => Promise<void>;
+  /** 收安装进度，返回取消函数。 */
+  onInstallProgress?: (listener: (progress: MarketInstallProgress) => void) => () => void;
 }
 
 const FAKE_MARKET = import.meta.env.DEV && Boolean(import.meta.env.VITE_WEVIR_FAKE_MARKET);
@@ -26,11 +35,21 @@ function hostSource(client: WevirClient): MarketSource {
   let source = hostSources.get(client);
   if (source === undefined) {
     const files = hostSupports(client.hello.features, 'market_files');
+    const install = hostSupports(client.hello.features, 'market_install');
     source = {
       index: (refresh) => client.request('market.index', refresh ? { refresh: true } : {}),
       ...(files && {
         file: async (entry: string, path: string) =>
           (await client.request('market.file', { entry, path })).data,
+      }),
+      ...(install && {
+        install: (entry: string, inputs: Record<string, string> | undefined) =>
+          client.request('market.install', { entry, ...(inputs !== undefined && { inputs }) }),
+        cancelInstall: async (entry: string) => {
+          await client.request('market.installCancel', { entry });
+        },
+        onInstallProgress: (listener: (progress: MarketInstallProgress) => void) =>
+          client.onMarketInstallProgress(listener),
       }),
     };
     hostSources.set(client, source);

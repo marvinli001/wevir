@@ -153,7 +153,7 @@ import {
   LspStatusParamsSchema,
   LspStatusResultSchema,
 } from './lsp.js';
-import { MarketMethodSchemas } from './market.js';
+import { MarketInstallProgressSchema, MarketMethodSchemas } from './market.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   PreviewChangedParamsSchema,
@@ -2639,6 +2639,8 @@ export const NotificationSchemas = {
   'tuning.proposal.changed': { params: TuningProposalChangedParamsSchema },
   /** 发给调用过 `speech.*` 的连接（0.92.0）。 */
   'speech.changed': { params: SpeechChangedParamsSchema },
+  /** 发给调用过 `market.*` 的连接（0.99.0）：`market.install` 的进度。 */
+  'market.installProgress': { params: MarketInstallProgressSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */
@@ -2675,6 +2677,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'guardrail.changed': 'session.read',
   'tuning.proposal.changed': 'session.read',
   'speech.changed': 'session.read',
+  'market.installProgress': 'host.manage',
   'terminal.output': 'session.read',
   'terminal.changed': 'session.read',
   'lsp.changed': 'workspace.read',

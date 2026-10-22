@@ -3,11 +3,11 @@
 
 import type { MarketEntry } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, Plus } from 'lucide-react';
-import { Link, useNavigate } from 'react-router';
-import { IconButton } from '@/components/icon-button';
+import { ChevronRight } from 'lucide-react';
+import { Link } from 'react-router';
 import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
+import { MarketInstallButton } from './install-button';
 import {
   entryIconPath,
   entryInitial,
@@ -67,7 +67,7 @@ export function EntryIcon({
   );
 }
 
-/** 一个条目：图标、名称与徽章、一行描述，右边“+”（安装做好前进详情页）。 */
+/** 一个条目：图标、名称与徽章、一行描述，右边“+”（安装，见 install-button.tsx）。 */
 export function EntryRow({
   entry,
   source,
@@ -77,7 +77,6 @@ export function EntryRow({
   source: MarketSource | undefined;
   commit: string;
 }) {
-  const navigate = useNavigate();
   const text = entryText(entry, currentLocale());
   const to = paths.marketEntry(OFFICIAL_SOURCE, entry.id);
   return (
@@ -107,14 +106,7 @@ export function EntryRow({
           <p className="mt-0.5 truncate text-xs text-muted-foreground">{text.description}</p>
         )}
       </div>
-      <IconButton
-        label={t('plugins.market.install')}
-        className="relative z-10"
-        onClick={() => navigate(to)}
-        data-action="install"
-      >
-        <Plus />
-      </IconButton>
+      <MarketInstallButton entry={entry} variant="row" />
     </li>
   );
 }
