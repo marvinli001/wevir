@@ -390,6 +390,12 @@ describe('浏览器工具（0.89.0）：收尾与接管', () => {
     expect(byName.get('browser_claim_tab')?.annotations.readOnlyHint).toBe(false);
     expect(APP_TOOLS_NO_APPROVAL).toContain('browser_finalize_tabs');
     expect(APP_TOOLS_NO_APPROVAL).not.toContain('browser_claim_tab');
+    expect(byName.get('browser_close_tab')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    expect(APP_TOOLS_NO_APPROVAL).toContain('browser_close_tab');
 
     const desktop = await fakeDesktop(connect, (request) => ({
       ok: true,

@@ -103,6 +103,16 @@ const BLOCKED_NOTICES_MAX = 5;
 const QUEUED_REPORTS_MAX = 200;
 
 const ACTIVE = new Set(['running', 'awaiting_approval', 'cancelling']);
+/**
+ * 关闭、归档自己开的会话：只动 agent 自己开出来的（`#openedTarget`），不用批准（2026-10-22，维护者定）。不标 `readOnlyHint`，
+ * 角色的 `readonly` 不含它们；Codex 看到 destructive 与 openWorld 都是 false 就不问，Claude 与 OpenCode 看 `APP_TOOLS_NO_APPROVAL`。
+ */
+const OWN_SESSION = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 const PERMISSION_RANK: Record<PermissionMode, number> = {
   on_request: 0,
   auto_review: 1,
@@ -1254,7 +1264,7 @@ export class AppTools {
         'user can pick it up again by sending it a message. Use wevir_session_archive to also move it out of the ' +
         'active list. Sessions the user started, subagents and side sessions cannot be closed here.',
       inputSchema: objectSchema({ sessionId: { type: 'string' } }, ['sessionId']),
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      annotations: OWN_SESSION,
       call: async (args, { sessionId }) => {
         this.#callerRecord(sessionId);
         const target = this.#openedTarget(sessionId, requiredString(args, 'sessionId'));
@@ -1276,7 +1286,7 @@ export class AppTools {
       inputSchema: objectSchema({ sessionId: { type: 'string' }, archived: { type: 'boolean' } }, [
         'sessionId',
       ]),
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      annotations: OWN_SESSION,
       call: async (args, { sessionId }) => {
         this.#callerRecord(sessionId);
         const target = this.#openedTarget(sessionId, requiredString(args, 'sessionId'));

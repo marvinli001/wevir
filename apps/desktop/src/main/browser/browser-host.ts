@@ -763,7 +763,15 @@ export function createBrowserHost(options: BrowserHostOptions) {
         );
       }
       case 'close_tab': {
-        owned(sessionId, command.args.browserId);
+        // 只关 agent 自己开的（同收尾）：工具不用批准，用户开的、接管过来的交给用户。
+        const tab = owned(sessionId, command.args.browserId);
+        if (tab.origin !== 'agent') {
+          return failure(
+            requestId,
+            'browser_denied',
+            `Browser tab ${tab.tabId} was opened by the user, so you cannot close it. Leave it out of browser_finalize_tabs to hand it back.`,
+          );
+        }
         closeTab(command.args.browserId);
         return {
           requestId,

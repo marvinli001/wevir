@@ -326,6 +326,16 @@ describe('应用级工具的端点', () => {
     expect(tools.find((tool) => tool.name === 'wevir_session_create')?.annotations).toMatchObject({
       destructiveHint: true,
     });
+    // 关闭、归档只动自己开的会话：不用批准（Codex 看注解，Claude 与 OpenCode 看名单）。
+    const { APP_TOOLS_NO_APPROVAL } = await import('@wevir/runtime-adapter');
+    for (const name of ['wevir_session_close', 'wevir_session_archive']) {
+      expect(tools.find((tool) => tool.name === name)?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      });
+      expect(APP_TOOLS_NO_APPROVAL).toContain(name);
+    }
     const notification = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
       method: 'POST',
       headers: {
@@ -1874,7 +1884,7 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     };
   };
 
-  it('工具列表与注解：起进程、写、结束要审批，列出、读、等待不用', async () => {
+  it('工具列表与注解：起进程、写要审批，列出、读、等待与停自己起的不用', async () => {
     const h = await setup(0, false, true);
     const a = await h.create();
     const list = await h.rpc(a, 'tools/list');
@@ -1882,7 +1892,10 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
       name: string;
       annotations: { readOnlyHint?: boolean };
     }>;
-    const processTools = tools.filter((tool) => tool.name.startsWith('wevir_process_'));
+    const processTools = tools.filter((tool) => tool.name.startsWith('wevir_process_')) as Array<{
+      name: string;
+      annotations: { readOnlyHint?: boolean; destructiveHint?: boolean; openWorldHint?: boolean };
+    }>;
     expect(
       Object.fromEntries(processTools.map((tool) => [tool.name, tool.annotations.readOnlyHint])),
     ).toEqual({
@@ -1897,9 +1910,13 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     const { APP_TOOLS_NO_APPROVAL } = await import('@wevir/runtime-adapter');
     for (const tool of processTools) {
       expect(APP_TOOLS_NO_APPROVAL.includes(tool.name), tool.name).toBe(
-        tool.annotations.readOnlyHint === true,
+        tool.annotations.readOnlyHint === true || tool.name === 'wevir_process_kill',
       );
     }
+    // 停自己起的：Codex 看 destructive 与 openWorld 都是 false 就不问。
+    expect(
+      processTools.find((tool) => tool.name === 'wevir_process_kill')?.annotations,
+    ).toMatchObject({ destructiveHint: false, openWorldHint: false });
   });
 
   it('起进程等到某一行；退出时作为消息发回会话并开一个回合；目录外拒绝', async () => {
@@ -2032,6 +2049,18 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     ).toBe(false);
     const bad = await callText(h, a, 'wevir_process_kill', { id: 'p9' });
     expect(bad).toMatchObject({ isError: true });
+    // 用户起的预览不归 agent 停。
+    const processes = h.processes as ProcessManager;
+    const userPreview = await processes.start(a, {
+      command: 'sleep 30',
+      cwd: h.workspace,
+      preview: { name: 'web', root: h.workspace, ready: false, startedBy: 'user' },
+    });
+    const refused = await callText(h, a, 'wevir_process_kill', { id: userPreview.id });
+    expect(refused).toMatchObject({ isError: true });
+    expect(refused.text).toContain('started by the user');
+    expect(processes.info(a, userPreview.id).status).toBe('running');
+    processes.signal(a, userPreview.id, 'SIGKILL', 'user');
     expect((await callText(h, a, 'wevir_process_output', { id: 'p1', grep: '(' })).isError).toBe(
       true,
     );

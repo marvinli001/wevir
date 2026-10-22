@@ -39,6 +39,7 @@ import type { BrowserBroker, BrowserPayload } from './browser-broker.js';
 /**
  * 不用批准的浏览器工具（标 `readOnlyHint`）：只读的，加上收尾（只关 agent 自己开的、交回用户，不碰用户正在用的标签页；每个回合末尾
  * 都调，问用户只是打扰，同 `wevir_task_*` 的做法）。Claude 的 `allowedTools` 也用这张表（runtime-adapter 的 `APP_TOOLS_NO_APPROVAL`）。
+ * 关自己开的标签页的 `browser_close_tab` 也不用批准，但不标只读，不在这张表里（`CLOSES_OWN`）。
  */
 export const BROWSER_READ_ONLY_TOOLS = [
   'browser_list_tabs',
@@ -67,6 +68,8 @@ const READ_ONLY = {
   openWorldHint: false,
 };
 const ACTS = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
+/** 关 agent 自己开的标签页（用户开的拒绝）：不用批准，不标只读（2026-10-22，维护者定）。 */
+const CLOSES_OWN = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 /** 收尾：会关标签页，但只关 agent 自己开的；不用批准。 */
 const FINALIZES = {
   readOnlyHint: true,
@@ -174,10 +177,13 @@ const SPECS: ToolSpec[] = [
   {
     name: 'browser_close_tab',
     title: 'Close a browser tab',
-    description: "Close one of this session's tabs in the Wevir browser.",
+    description:
+      'Close a tab you opened in the Wevir browser. Tabs the user opened (including ones you took over) are ' +
+      'left to the user; browser_finalize_tabs hands them back.',
     properties: { browserId: BROWSER_ID },
     required: ['browserId'],
     readOnly: false,
+    annotations: CLOSES_OWN,
     command: (args) => ({ command: 'close_tab', args: tab(args) }),
   },
   {

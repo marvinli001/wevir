@@ -119,7 +119,7 @@ export function previewTools({
         'If the same configuration is already running for this folder it is reused instead of starting a second ' +
         'copy. It is not started when the project environment is not ready (missing dependencies) or the port is ' +
         'taken by another process. Read its output with wevir_process_output and stop it with wevir_process_kill ' +
-        '(process id in the result).',
+        '(process id in the result; a copy the user started is left to the user).',
       inputSchema: objectSchema(
         {
           name: { type: 'string', description: 'Configuration name, for example "web".' },
@@ -232,9 +232,11 @@ export function previewTools({
                     'otherwise stop it or use another port.'
                 : `Not started: port ${started.port} is already in use by run configuration ` +
                     `"${owner.preview?.name ?? owner.name}" (${
-                      owner.sessionId === sessionId
-                        ? `process ${owner.id} of this session; stop it with wevir_process_kill or use another port`
-                        : 'started by another session; use another port'
+                      owner.sessionId !== sessionId
+                        ? 'started by another session; use another port'
+                        : owner.preview?.startedBy === 'user'
+                          ? `process ${owner.id}, started by the user; ask the user to stop it or use another port`
+                          : `process ${owner.id} of this session; stop it with wevir_process_kill or use another port`
                     }).`,
             ),
           );
