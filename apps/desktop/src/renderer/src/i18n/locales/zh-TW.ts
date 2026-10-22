@@ -61,6 +61,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': '背景服務版本不相容',
   'rpcError.HELLO_REQUIRED': '連線尚未完成交握',
   'rpcError.HOST_SHUTTING_DOWN': '背景服務正在結束',
+  'rpcError.DEVICE_FORBIDDEN': '權限不足',
   'rpcError.WORKSPACE_NOT_FOUND': '專案不存在',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider 不存在',
   'rpcError.SESSION_NOT_FOUND': '工作階段不存在',

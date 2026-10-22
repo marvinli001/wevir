@@ -63,6 +63,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': '호환되지 않는 백그라운드 서비스 버전',
   'rpcError.HELLO_REQUIRED': '연결 핸드셰이크 미완료',
   'rpcError.HOST_SHUTTING_DOWN': '백그라운드 서비스 종료 중',
+  'rpcError.DEVICE_FORBIDDEN': '권한 없음',
   'rpcError.WORKSPACE_NOT_FOUND': '프로젝트 없음',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider 없음',
   'rpcError.SESSION_NOT_FOUND': '세션 없음',

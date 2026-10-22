@@ -70,6 +70,7 @@ export const messages: Messages = {
   'rpcError.INCOMPATIBLE_PROTOCOL': 'Versión del servicio en segundo plano incompatible',
   'rpcError.HELLO_REQUIRED': 'Negociación de conexión sin completar',
   'rpcError.HOST_SHUTTING_DOWN': 'El servicio en segundo plano se está cerrando',
+  'rpcError.DEVICE_FORBIDDEN': 'Permiso denegado',
   'rpcError.WORKSPACE_NOT_FOUND': 'Proyecto no encontrado',
   'rpcError.PROVIDER_NOT_FOUND': 'Provider no encontrado',
   'rpcError.SESSION_NOT_FOUND': 'Sesión no encontrada',

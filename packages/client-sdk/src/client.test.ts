@@ -113,6 +113,33 @@ describe('连接与握手', () => {
     expect(() => client.requireFeature('session.share' as never)).toThrow(FeatureUnavailableError);
   });
 
+  it('can 按 hello 结果的 permissions 判断', async () => {
+    const host = new FakeHost().on('host.hello', () => ({
+      result: { ...HELLO, permissions: ['session.read', 'session.write', 'device.future'] },
+    }));
+    const { client } = await connect(host);
+    expect(client.can('session.read')).toBe(true);
+    expect(client.can('policy.write')).toBe(false);
+    expect(client.can('terminal.write')).toBe(false);
+  });
+
+  it('DEVICE_FORBIDDEN 收窄出缺少的权限', async () => {
+    const host = new FakeHost().on('approvalRule.add', () => ({
+      error: {
+        code: ErrorCode.DEVICE_FORBIDDEN,
+        message: 'forbidden: requires policy.write',
+        data: { missing: ['policy.write'] },
+      },
+    }));
+    const { client } = await connect(host);
+    const error = await client
+      .request('approvalRule.add', { prefix: ['git', 'status'] })
+      .catch((e: unknown) => e);
+    if (!isRpcError(error, 'DEVICE_FORBIDDEN')) throw new Error('expected DEVICE_FORBIDDEN');
+    expect(error.code).toBe(-32005);
+    expect(error.data?.missing).toEqual(['policy.write']);
+  });
+
   it('首次连接失败直接 reject：连不上、连接超时、令牌错误、协议不兼容、hello 结果不合 schema', async () => {
     const refused = new FakeHost();
     refused.autoOpen = false;

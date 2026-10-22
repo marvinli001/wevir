@@ -24,11 +24,13 @@ import {
   type MethodResult,
   MethodSchemas,
   MIN_PROTOCOL_VERSION,
+  NOTIFICATION_PERMISSIONS,
+  type NotificationName,
   type NotificationParams,
   NotificationSchemas,
   negotiateProtocolVersion,
-  PERMISSIONS,
   type PendingMessage,
+  type Permission,
   PROTOCOL_VERSION,
   parseProtocolVersion,
   type Session,
@@ -46,6 +48,13 @@ import type { EventStore } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
 import { newId } from './ids.js';
 import type { MemoryChange } from './memory.js';
+import {
+  type ConnectionGrant,
+  LOCAL_GRANT,
+  missingMethodPermission,
+  missingParamPermissions,
+  type TestConnectionGrant,
+} from './permissions.js';
 import type { TerminalService } from './terminals.js';
 
 /** 一条连接的时限与容量。默认值见 `HostRpcServer`。 */
@@ -121,6 +130,8 @@ export interface ConnectionHost {
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
+  /** 只给测试（permissions.ts）：hello 后让某条连接以受限的身份与权限工作。生产路径不给，连接都是 `LOCAL_GRANT`。 */
+  readonly testConnectionGrant?: TestConnectionGrant;
   readonly limits: ConnectionLimits;
   readonly resultValidation: 'strict' | 'warn';
   /** 服务正在优雅退出：新请求一律 `HOST_SHUTTING_DOWN`。 */
@@ -183,6 +194,9 @@ export class RpcConnection {
   #client: ClientIdentity | undefined;
   #capabilities: ClientCapabilities = {};
   #protocolVersion: string = PROTOCOL_VERSION;
+  /** hello 时定下的身份与权限（domain-model §3.44）。 */
+  #grant: ConnectionGrant = LOCAL_GRANT;
+  #permissions: ReadonlySet<string> = new Set(LOCAL_GRANT.permissions);
   readonly #subscriptions = new Map<SubscriptionId, Subscription>();
   readonly #inflight = new Set<Promise<void>>();
   /** 调过 `account.*` 之后：退订 `account.updated`。 */
@@ -252,6 +266,11 @@ export class RpcConnection {
   /** 完成 hello 之后才有。 */
   get client(): ClientIdentity | undefined {
     return this.#client;
+  }
+
+  /** 这条连接的身份与权限；hello 之前是 `LOCAL_GRANT`（hello 之前不分发任何请求）。 */
+  get grant(): ConnectionGrant {
+    return this.#grant;
   }
 
   get subscriptionCount(): number {
@@ -359,6 +378,8 @@ export class RpcConnection {
     };
     this.#capabilities = hello.capabilities;
     this.#protocolVersion = negotiation.protocolVersion;
+    this.#grant = this.#host.testConnectionGrant?.(this.#client) ?? LOCAL_GRANT;
+    this.#permissions = new Set(this.#grant.permissions);
     this.#phase = 'ready';
     clearTimeout(this.#helloTimer);
     this.#respond(id, 'host.hello', {
@@ -373,7 +394,7 @@ export class RpcConnection {
           EngineFeatures
         >,
       }),
-      permissions: [...PERMISSIONS],
+      permissions: [...this.#grant.permissions],
     });
   }
 
@@ -420,12 +441,15 @@ export class RpcConnection {
           hint: UPGRADE_HINT,
         });
       }
+      // 权限（host-api.md §3 开头）：方法级在解析参数之前，参数级在之后。
+      this.#authorize(missingMethodPermission(method, this.#permissions));
       const parsed = MethodSchemas[method].params.safeParse(request.params ?? {});
       if (!parsed.success) {
         throw new HostError('INVALID_PARAMS', 'invalid params', {
           issues: toIssues(parsed.error.issues),
         });
       }
+      this.#authorize(missingParamPermissions(method, parsed.data as never, this.#permissions));
       await this.#invoke(id, method, parsed.data);
     } catch (error) {
       if (isHostError(error)) {
@@ -435,6 +459,13 @@ export class RpcConnection {
         this.#sendError(id, 'INTERNAL_ERROR', 'internal error');
       }
     }
+  }
+
+  #authorize(missing: Permission[]): void {
+    if (missing.length === 0) return;
+    throw new HostError('DEVICE_FORBIDDEN', `forbidden: requires ${missing.join(', ')}`, {
+      missing,
+    });
   }
 
   async #invoke(id: JsonRpcId, method: MethodName, params: unknown): Promise<void> {
@@ -473,11 +504,7 @@ export class RpcConnection {
               );
               return false;
             }
-            return this.#send({
-              jsonrpc: JSONRPC_VERSION,
-              method: 'browser.request',
-              params: parsed.data,
-            });
+            return this.#notify('browser.request', parsed.data);
           },
         });
         this.#respond(id, method, {});
@@ -490,14 +517,7 @@ export class RpcConnection {
         this.#terminalAttachments.delete(attach.terminalId);
         const { result, start } = await terminals.attach(attach, {
           // 输出由 Host 自己拼出（每 16 ms 一条），不再逐条按 schema 校验。
-          send: (output) =>
-            this.#sendText(
-              JSON.stringify({
-                jsonrpc: JSONRPC_VERSION,
-                method: 'terminal.output',
-                params: output,
-              }),
-            ),
+          send: (output) => this.#notify('terminal.output', output),
           backlog: () => this.#backlog(),
         });
         if (this.#respond(id, method, result) && this.#phase === 'ready') {
@@ -642,6 +662,8 @@ export class RpcConnection {
   }
 
   async #replay(subscription: Subscription, sinceSeq: number, through: number): Promise<void> {
+    // `events.subscribe` 已经要了同一项权限；补发前再看一次，事件都经 `#mayNotify` 把关。
+    if (!this.#mayNotify('events.event')) return;
     // 补发按批读库，并按发送缓冲限速：缓冲到上限的四分之一就等它写出，补发本身不会撑爆缓冲。
     const highWater = this.#limits.sendBufferLimitBytes / 4;
     let cursor = sinceSeq;
@@ -671,7 +693,7 @@ export class RpcConnection {
     this.#queuedBytes -= subscription.queuedBytes;
     subscription.queue = undefined;
     subscription.queuedBytes = 0;
-    for (const text of queue) if (!this.#sendText(text)) return;
+    for (const text of queue) if (!this.#notifyText('events.event', text)) return;
   }
 
   /** 事件库提交后同步调用。 */
@@ -679,7 +701,7 @@ export class RpcConnection {
     if (!subscription.active) return;
     const text = this.#eventFrame(subscription, event);
     if (!subscription.queue) {
-      this.#sendText(text);
+      this.#notifyText('events.event', text);
       return;
     }
     const bytes = Buffer.byteLength(text);
@@ -718,7 +740,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`account.updated does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'account.updated', params: parsed.data });
+      this.#notify('account.updated', parsed.data);
     });
   }
 
@@ -734,14 +756,14 @@ export class RpcConnection {
         );
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'settings.updated', params: parsed.data });
+      this.#notify('settings.updated', parsed.data);
     });
   }
 
   #watchPlugins(): void {
     if (this.#unwatchPlugins || !this.#host.plugins || this.#phase !== 'ready') return;
     this.#unwatchPlugins = this.#host.plugins.watch(() => {
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'plugins.changed', params: {} });
+      this.#notify('plugins.changed', {});
     });
   }
 
@@ -755,7 +777,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`memory.changed does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'memory.changed', params: parsed.data });
+      this.#notify('memory.changed', parsed.data);
     });
   }
 
@@ -764,7 +786,7 @@ export class RpcConnection {
     if (this.#unwatchUsage !== undefined || this.#host.usage === undefined) return;
     if (this.#phase !== 'ready') return;
     this.#unwatchUsage = this.#host.usage.watch(() => {
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'usage.changed', params: {} });
+      this.#notify('usage.changed', {});
     });
   }
 
@@ -780,7 +802,7 @@ export class RpcConnection {
         );
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'automation.changed', params: parsed.data });
+      this.#notify('automation.changed', parsed.data);
     });
   }
 
@@ -794,7 +816,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`preview.changed does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'preview.changed', params: parsed.data });
+      this.#notify('preview.changed', parsed.data);
     });
   }
 
@@ -808,7 +830,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`speech.changed does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'speech.changed', params: parsed.data });
+      this.#notify('speech.changed', parsed.data);
     });
   }
 
@@ -823,7 +845,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`tuning.changed does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'tuning.changed', params: parsed.data });
+      this.#notify('tuning.changed', parsed.data);
     });
     this.#watchProposals();
   }
@@ -840,11 +862,7 @@ export class RpcConnection {
         );
         return;
       }
-      this.#send({
-        jsonrpc: JSONRPC_VERSION,
-        method: 'tuning.proposal.changed',
-        params: parsed.data,
-      });
+      this.#notify('tuning.proposal.changed', parsed.data);
     });
   }
 
@@ -860,7 +878,7 @@ export class RpcConnection {
         );
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'guardrail.changed', params: parsed.data });
+      this.#notify('guardrail.changed', parsed.data);
     });
   }
 
@@ -876,7 +894,7 @@ export class RpcConnection {
         );
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'readiness.changed', params: parsed.data });
+      this.#notify('readiness.changed', parsed.data);
     });
   }
 
@@ -890,7 +908,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`lsp.changed does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'lsp.changed', params: parsed.data });
+      this.#notify('lsp.changed', parsed.data);
     });
   }
 
@@ -912,7 +930,7 @@ export class RpcConnection {
         this.#host.onError(new Error(`process.changed does not match its schema: ${parsed.error}`));
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'process.changed', params: parsed.data });
+      this.#notify('process.changed', parsed.data);
     });
   }
 
@@ -937,7 +955,7 @@ export class RpcConnection {
         );
         return;
       }
-      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'terminal.changed', params: parsed.data });
+      this.#notify('terminal.changed', parsed.data);
     });
   }
 
@@ -955,6 +973,21 @@ export class RpcConnection {
 
   #send(frame: object): boolean {
     return this.#sendText(JSON.stringify(frame));
+  }
+
+  /** 这条连接有没有收这种通知的读权限（`NOTIFICATION_PERMISSIONS`）。所有通知都经它把关。 */
+  #mayNotify(method: NotificationName): boolean {
+    return this.#permissions.has(NOTIFICATION_PERMISSIONS[method]);
+  }
+
+  #notify<N extends NotificationName>(method: N, params: NotificationParams<N>): boolean {
+    if (!this.#mayNotify(method)) return false;
+    return this.#send({ jsonrpc: JSONRPC_VERSION, method, params });
+  }
+
+  /** 已经序列化好的通知帧（`events.event`）。 */
+  #notifyText(method: NotificationName, text: string): boolean {
+    return this.#mayNotify(method) && this.#sendText(text);
   }
 
   /**
