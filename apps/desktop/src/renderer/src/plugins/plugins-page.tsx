@@ -25,14 +25,16 @@ import { type Notice, NoticeBanner, Segmented } from '@/settings/settings-ui';
 import { AddDialog, type AddRequest } from './add-dialog';
 import { ConnectorDialog, type ConnectorDialogRequest } from './connector-dialog';
 import { ConnectorList } from './connector-list';
+import { signInConnector } from './connector-login';
 import { rememberPluginsTab } from './last-tab';
 import { MarketInstallContext, type MarketInstallContextValue } from './market/install-button';
 import { MarketEntryPage } from './market/market-entry-page';
 import { MarketGroupPage, MarketHome, MarketToolbar } from './market/market-tab';
 import { useMarket, useMarketSource } from './market/use-market';
+import { removePlugin } from './plugin-actions';
 import { PluginList } from './plugin-list';
 import { PluginsContext, type PluginsContextValue } from './plugins-context';
-import { pluginsById, visibleTabs } from './plugins-model';
+import { pluginSignIn, pluginsById, visibleTabs } from './plugins-model';
 import { SkillList } from './skill-list';
 import { usePlugins } from './use-plugins';
 
@@ -123,15 +125,47 @@ export function PluginsPage({
     [client, state, data, busy, run, navigate, scoped, workspaces],
   );
 
-  // 市场的安装按钮：已装的插件 id，装好后重读列表（0.99.0）。
+  // 市场的安装按钮：已装的插件 id，装好后重读列表（0.99.0）；要登录的 OAuth 连接器（0.97.0）。
   const installed = useMemo(
     () => new Set(state.status === 'ready' ? state.plugins.map((plugin) => plugin.id) : []),
     [state],
   );
-  const marketInstall = useMemo<MarketInstallContextValue>(
-    () => ({ source: marketSource, installed, afterInstall: data.refresh, notify: setNotice }),
-    [marketSource, installed, data.refresh],
-  );
+  const signIns = useMemo(() => {
+    const result = new Map<string, Connector>();
+    if (state.status !== 'ready') return result;
+    for (const plugin of state.plugins) {
+      const connector = pluginSignIn(plugin, state.list);
+      if (connector) result.set(plugin.id, connector);
+    }
+    return result;
+  }, [state]);
+  const marketInstall = useMemo<MarketInstallContextValue>(() => {
+    const signIn = (connector: Connector) =>
+      void signInConnector(client, connector).catch((reason: unknown) =>
+        setNotice({
+          tone: 'error',
+          text: t('plugins.connector.signIn.failed', { error: describe(reason) }),
+        }),
+      );
+    return {
+      source: marketSource,
+      installed,
+      afterInstall: data.refresh,
+      signIns,
+      signIn,
+      signInAfterInstall: (pluginId) =>
+        void client.request('plugins.list').then(
+          (list) => {
+            const plugin = list.plugins?.find((item) => item.id === pluginId);
+            const connector = plugin && pluginSignIn(plugin, list);
+            if (connector && connector.oauth?.status !== 'signing_in') signIn(connector);
+          },
+          () => {},
+        ),
+      uninstall: (pluginId) => removePlugin(client, data, { id: pluginId }),
+      notify: setNotice,
+    };
+  }, [client, marketSource, installed, signIns, data]);
 
   const openAdd = (init: Omit<AddRequest, 'id'> = {}) => {
     setNotice(undefined);

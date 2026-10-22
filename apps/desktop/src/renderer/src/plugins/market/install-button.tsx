@@ -1,8 +1,9 @@
 // 市场条目的安装按钮（0.99.0，plugin-market.md §9.1–§9.2）：没装时是“安装插件”（详情页）或“+”（列表行），点了变成 App Store 式的
 // 圆环——等待与发布时一段弧转圈，下载时按字节从 12 点顺时针填满，中间的小方块点了停止；装好后详情页是灰的“已安装”，列表行是
-// 一个勾。有必填输入项时先弹输入项对话框。状态在 market-install.ts，列表与详情共用。
+// 一个勾。有必填输入项时先弹输入项对话框。状态在 market-install.ts，列表与详情共用。插件带 OAuth 连接器的（0.97.0），装好后
+// 直接开始登录（打开浏览器）；还没登录时详情页的主按钮是“登录”。
 
-import type { MarketEntry } from '@wevir/protocol';
+import type { Connector, MarketEntry } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, Plus } from 'lucide-react';
 import {
@@ -39,12 +40,20 @@ export interface MarketInstallContextValue {
   installed: ReadonlySet<string>;
   /** 装好之后重读插件列表；读完圆环才变成“已安装”。 */
   afterInstall(): Promise<void>;
+  /** 已装插件里要登录或正在登录的 OAuth 连接器，按插件 id。 */
+  signIns: ReadonlyMap<string, Connector>;
+  /** 开始登录（打开浏览器）；失败时出通知。 */
+  signIn(connector: Connector): void;
+  /** 刚装好的插件有要登录的连接器时开始登录。 */
+  signInAfterInstall(pluginId: string): void;
+  /** 卸载插件；失败原样抛出。 */
+  uninstall(pluginId: string): Promise<void>;
   notify(notice: Notice | undefined): void;
 }
 
 export const MarketInstallContext = createContext<MarketInstallContextValue | undefined>(undefined);
 
-function useMarketInstallContext(): MarketInstallContextValue {
+export function useMarketInstallContext(): MarketInstallContextValue {
   const value = useContext(MarketInstallContext);
   if (!value) throw new Error('useMarketInstallContext 必须在插件页之内使用');
   return value;
@@ -57,7 +66,8 @@ export function MarketInstallButton({
   entry: MarketEntry;
   variant: 'detail' | 'row';
 }) {
-  const { source, installed, afterInstall, notify } = useMarketInstallContext();
+  const { source, installed, afterInstall, signIns, signIn, signInAfterInstall, notify } =
+    useMarketInstallContext();
   const navigate = useNavigate();
   const state = useInstallState(source, entry.id);
   const isInstalled = installed.has(entry.id);
@@ -89,6 +99,7 @@ export function MarketInstallButton({
             tone: 'success',
             text: t('plugins.add.installed', { name: result.plugin.name }) + ignored,
           });
+          signInAfterInstall(result.plugin.id);
         },
         (reason: unknown) =>
           notify({
@@ -111,6 +122,18 @@ export function MarketInstallButton({
         size={variant === 'detail' ? 'md' : 'sm'}
         onStop={() => source && marketInstalls(source).cancel(entry.id)}
       />
+    );
+  } else if (isInstalled && variant === 'detail' && signIns.has(entry.id)) {
+    const connector = signIns.get(entry.id) as Connector;
+    const signingIn = connector.oauth?.status === 'signing_in';
+    control = (
+      <Button
+        disabled={signingIn}
+        onClick={() => signIn(connector)}
+        data-action={signingIn ? 'signing-in' : 'sign-in'}
+      >
+        {t(signingIn ? 'plugins.connector.state.signingIn' : 'plugins.connector.signIn')}
+      </Button>
     );
   } else if (isInstalled) {
     control =

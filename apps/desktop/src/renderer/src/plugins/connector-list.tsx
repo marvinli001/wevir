@@ -8,9 +8,11 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { IMPORT_APP_LABEL } from '@/settings/import-model';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
+import { signInConnector, signOutConnector } from './connector-login';
+import { ConnectorSignIn } from './connector-sign-in';
 import { removeConnector, setConnectorEnabled } from './plugin-actions';
 import { ConfigLine, DetailActions, DetailSection, ExpandableRow, MonoBlock } from './plugin-rows';
 import { usePluginsContext } from './plugins-context';
@@ -96,6 +98,7 @@ function ConnectorRow({
       summary={stateLabel}
       control={
         <>
+          <ConnectorSignIn connector={connector} disabled={state.key === 'disabled'} />
           {fill && (
             <Button
               variant="outline"
@@ -129,7 +132,8 @@ function ConnectorRow({
 }
 
 function ConnectorDetail({ connector, plugin }: { connector: Connector; plugin?: Plugin }) {
-  const { client, data, notify, openPlugin, editConnector } = usePluginsContext();
+  const { client, data, busy, run, notify, openPlugin, editConnector } = usePluginsContext();
+  const { oauth } = connector;
   const [confirming, setConfirming] = useState(false);
   // 插件连接器缺的是插件的输入项；散装的（导入的）缺的是环境变量或请求头的值，在配置里逐键标出。
   const missing = connector.pluginId === undefined ? [] : (connector.missingInputs ?? []);
@@ -162,7 +166,46 @@ function ConnectorDetail({ connector, plugin }: { connector: Connector; plugin?:
       <DetailSection title={t('plugins.connector.config')}>
         <ConnectorConfig connector={connector} />
       </DetailSection>
+      {oauth?.status === 'signed_in' && (
+        <DetailSection title={t('plugins.connector.account')}>
+          <ConnectorAccount oauth={oauth} />
+        </DetailSection>
+      )}
       <DetailActions>
+        {oauth?.status === 'signed_in' && (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy.has(connector.id)}
+              onClick={() =>
+                run(
+                  connector.id,
+                  () => signInConnector(client, connector),
+                  (error) => t('plugins.connector.signIn.failed', { error }),
+                )
+              }
+              data-action="sign-in-again"
+            >
+              {t('plugins.connector.signInAgain')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy.has(connector.id)}
+              onClick={() =>
+                run(
+                  connector.id,
+                  () => signOutConnector(client, connector),
+                  (error) => t('plugins.connector.signOut.failed', { error }),
+                )
+              }
+              data-action="sign-out"
+            >
+              {t('plugins.connector.signOut')}
+            </Button>
+          </>
+        )}
         {plugin ? (
           <Button
             variant="outline"
@@ -212,6 +255,42 @@ function ConnectorDetail({ connector, plugin }: { connector: Connector; plugin?:
       </ConfirmDialog>
     </>
   );
+}
+
+/** 已登录的 OAuth 连接器：授权服务器（主机名）、权限范围与令牌过期时间。 */
+function ConnectorAccount({ oauth }: { oauth: NonNullable<Connector['oauth']> }) {
+  return (
+    <div className="space-y-1.5 text-sm" data-testid="connector-account">
+      {oauth.issuer !== undefined && (
+        <ConfigLine label={t('plugins.connector.issuer')}>
+          <MonoBlock>{hostOf(oauth.issuer)}</MonoBlock>
+        </ConfigLine>
+      )}
+      {oauth.scopes !== undefined && oauth.scopes.length > 0 && (
+        <ConfigLine label={t('plugins.connector.scopes')}>
+          <MonoBlock>{oauth.scopes.join(' ')}</MonoBlock>
+        </ConfigLine>
+      )}
+      {oauth.expiresAt !== undefined && (
+        <ConfigLine label={t('plugins.connector.expires')}>
+          <MonoBlock>
+            {new Intl.DateTimeFormat(currentLocale(), {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            }).format(new Date(oauth.expiresAt))}
+          </MonoBlock>
+        </ConfigLine>
+      )}
+    </div>
+  );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 /** 配置：传输方式对应的字段，环境变量与请求头只有键，值写“已设置”。 */

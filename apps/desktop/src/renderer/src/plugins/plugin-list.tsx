@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
+import { ConnectorSignIn } from './connector-sign-in';
 import {
   removePlugin,
   setConnectorEnabled,
@@ -202,6 +203,7 @@ function ContentConnector({ connector, plugin }: { connector: Connector; plugin:
       <StatusDot tone={state.tone} pulse={state.pulse} label={label} />
       <span className="min-w-0 flex-1 truncate">{connector.name}</span>
       <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      <ConnectorSignIn connector={connector} disabled={state.key === 'disabled'} />
       <Switch
         checked={connector.enabled}
         label={t('plugins.connector.enabled', { name: connector.name })}

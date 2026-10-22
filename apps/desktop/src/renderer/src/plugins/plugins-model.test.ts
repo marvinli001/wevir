@@ -10,9 +10,11 @@ import {
   landingTab,
   missingRequiredInputs,
   missingSecretKeys,
+  needsSignIn,
   nothingInstalled,
   originName,
   pluginItems,
+  pluginSignIn,
   pluginsAvailability,
   pluginsById,
   replaceConnector,
@@ -138,6 +140,53 @@ describe('connectorState', () => {
     expect(connectorState(connector({ enabled: false, missingInputs: ['TOKEN'] })).key).toBe(
       'disabled',
     );
+  });
+
+  it('OAuth 连接器没登录好时按 oauth.status，已登录的照引擎的状态', () => {
+    const oauth = (status: NonNullable<Connector['oauth']>['status']) =>
+      connector({ status: 'connected', oauth: { status } });
+    expect(connectorState(oauth('required'))).toEqual({
+      key: 'authRequired',
+      tone: 'warning',
+      pulse: false,
+    });
+    expect(connectorState(oauth('signing_in'))).toEqual({
+      key: 'signingIn',
+      tone: 'accent',
+      pulse: true,
+    });
+    expect(connectorState(oauth('insufficient_scope')).key).toBe('insufficientScope');
+    expect(connectorState(oauth('error')).key).toBe('signInFailed');
+    expect(connectorState(oauth('signed_in')).key).toBe('connected');
+    expect(connectorState(connector({ enabled: false, oauth: { status: 'required' } })).key).toBe(
+      'disabled',
+    );
+  });
+
+  it('要登录的：没登录、权限不够、上次失败；登录中与已登录的不算', () => {
+    expect(needsSignIn(connector())).toBe(false);
+    expect(needsSignIn(connector({ oauth: { status: 'required' } }))).toBe(true);
+    expect(needsSignIn(connector({ oauth: { status: 'insufficient_scope' } }))).toBe(true);
+    expect(needsSignIn(connector({ oauth: { status: 'error', error: 'denied' } }))).toBe(true);
+    expect(needsSignIn(connector({ oauth: { status: 'signing_in' } }))).toBe(false);
+    expect(needsSignIn(connector({ oauth: { status: 'signed_in' } }))).toBe(false);
+  });
+
+  it('插件里第一个要登录或正在登录的连接器；插件或连接器关着的不算', () => {
+    const a = connector({ id: 'con_a', name: 'a', oauth: { status: 'signed_in' } });
+    const b = connector({ id: 'con_b', name: 'b', oauth: { status: 'required' } });
+    const c = connector({ id: 'con_c', name: 'c', oauth: { status: 'signing_in' } });
+    const list = { connectors: [c, b, a], skills: [] };
+    expect(pluginSignIn(plugin({ connectors: ['con_a', 'con_b', 'con_c'] }), list)).toBe(b);
+    expect(pluginSignIn(plugin({ connectors: ['con_a', 'con_c'] }), list)).toBe(c);
+    expect(pluginSignIn(plugin({ connectors: ['con_a'] }), list)).toBeUndefined();
+    expect(pluginSignIn(plugin({ enabled: false, connectors: ['con_b'] }), list)).toBeUndefined();
+    expect(
+      pluginSignIn(plugin({ connectors: ['con_b'] }), {
+        connectors: [{ ...b, enabled: false }],
+        skills: [],
+      }),
+    ).toBeUndefined();
   });
 });
 
