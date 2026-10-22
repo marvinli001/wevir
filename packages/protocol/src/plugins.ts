@@ -58,7 +58,10 @@ const oauthCommon = {
   resource: httpUrl.optional(),
   /** 固定的回调端口或地址（有些预先注册的客户端要求）；省略时 Host 每次登录在 127.0.0.1 上随机取一个端口。 */
   callbackPort: z.int().min(1).max(65535).optional(),
-  /** 给了就原样作为 redirect_uri（不加按服务器区分的路径）；没写端口时用 `callbackPort` 或随机端口。 */
+  /**
+   * 给了就原样作为 redirect_uri（不加按服务器区分的路径）；没写端口时用 `callbackPort` 或随机端口。是 https 时当作中转页：
+   * 它要把查询串原样转到 `http://127.0.0.1:<callbackPort>/callback`，这时必须给 `callbackPort`。
+   */
   callbackUrl: httpUrl.optional(),
   /** 授权请求另加的参数，如 Google 的 `access_type: 'offline'`；不能是 Host 自己设的参数（`OAUTH_RESERVED_AUTHORIZE_PARAMS`）。 */
   authorizeParams: z
