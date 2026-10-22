@@ -1,4 +1,5 @@
-import { ed25519, x25519 } from '@noble/curves/ed25519.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { generateKeyPair, publicKeyFromSecretKey } from '@wevir/noise';
 import type { SecretStore } from '@wevir/storage';
 
 /** secrets.json 里 Host 的两对远程密钥（ADR-0017 §2）。名字带点，不会与 Provider ID 相撞。 */
@@ -23,7 +24,8 @@ export interface RemoteKeys {
 
 /**
  * Host 的远程密钥（domain-model §3.49）：第一次打开远程或第一次配对时生成，存进 `SecretStore`（secrets.json，ADR-0003），之后一直用
- * 同一对。条目缺了或读不懂时重新生成：已配对的设备认的是旧的 Host 公钥，要重新配对。
+ * 同一对。条目缺了或读不懂时重新生成：已配对的设备认的是旧的 Host 公钥，要重新配对。Noise 静态密钥用 `@wevir/noise` 生成，路由密钥
+ * （Ed25519）用 `@noble/curves`。
  */
 export class RemoteIdentity {
   readonly #secrets: SecretStore;
@@ -44,8 +46,8 @@ export class RemoteIdentity {
 
   async #load(): Promise<RemoteKeys> {
     const noise =
-      decode(await this.#secrets.get(NOISE_KEY_REF), (sk) => x25519.getPublicKey(sk)) ??
-      (await this.#create(NOISE_KEY_REF, x25519.keygen()));
+      decode(await this.#secrets.get(NOISE_KEY_REF), publicKeyFromSecretKey) ??
+      (await this.#create(NOISE_KEY_REF, generateKeyPair()));
     const route =
       decode(await this.#secrets.get(ROUTE_KEY_REF), (sk) => ed25519.getPublicKey(sk)) ??
       (await this.#create(ROUTE_KEY_REF, ed25519.keygen()));

@@ -68,6 +68,7 @@ import type { PreviewService } from './preview/service.js';
 import type { ProcessOutputService } from './process-output.js';
 import type { ReadinessService } from './readiness/service.js';
 import type { DeviceService } from './remote/devices.js';
+import type { RemoteListener } from './remote/listener.js';
 import type { PairingService } from './remote/pairing.js';
 import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
@@ -166,6 +167,8 @@ export interface HostMethodsOptions {
   remote?: {
     devices: Pick<DeviceService, 'list' | 'update' | 'revoke'>;
     pairing: Pick<PairingService, 'start' | 'cancel' | 'respond'>;
+    /** 远程监听（0.109.0，`remote.status`）；省略时 `remote.status` 回 `INVALID_PARAMS`。 */
+    listener?: Pick<RemoteListener, 'status'>;
   };
   /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
   web?: WebService;
@@ -1641,6 +1644,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'pairing.respond': ({ requestId, allow }) => {
       const device = remoteService().pairing.respond(requestId, allow);
       return device !== undefined ? { device } : {};
+    },
+    // 0.109.0：远程监听的状态。
+    'remote.status': () => {
+      const listener = remoteService().listener;
+      if (listener === undefined) throw invalidParams([], 'this host has no remote listener');
+      return listener.status();
     },
 
     // 0.80.0：审批规则。项目要存在（未移除）。

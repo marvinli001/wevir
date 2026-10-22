@@ -5,7 +5,7 @@ import type { ApprovalRule } from './approval-rules.js';
 import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
-import type { Device, PairingOffer } from './devices.js';
+import type { Device, PairingOffer, RemoteStatus } from './devices.js';
 import type {
   AccountState,
   ApprovalRequest,
@@ -163,6 +163,51 @@ export const pairingOfferSample: PairingOffer = {
   hostPublicKey: KEY_A,
   routeId: KEY_B,
   candidates: [],
+};
+
+/** 远程监听（0.109.0）：局域网与 Tailscale 都在监听，一台设备连着。 */
+export const remoteStatusSample: RemoteStatus = {
+  listening: true,
+  port: 47_830,
+  interfaces: [
+    {
+      name: 'en0',
+      family: 'IPv4',
+      kind: 'lan',
+      addresses: ['192.168.1.20'],
+      selected: true,
+      listening: ['192.168.1.20'],
+    },
+    {
+      name: 'en1',
+      family: 'IPv4',
+      kind: 'lan',
+      addresses: ['192.168.1.21'],
+      selected: false,
+      listening: [],
+    },
+    {
+      name: 'utun4',
+      family: 'IPv4',
+      kind: 'tailscale',
+      addresses: ['100.101.102.103'],
+      selected: true,
+      listening: ['100.101.102.103'],
+    },
+  ],
+  magicDnsName: 'mac.tailnet-1234.ts.net',
+  advertising: true,
+  connections: 1,
+};
+
+/** 远程访问关着，端口被占用的那次留下的错误。 */
+export const remoteOffSample: RemoteStatus = {
+  listening: false,
+  port: 47_830,
+  interfaces: [],
+  advertising: false,
+  connections: 0,
+  error: { reason: 'port_in_use', message: 'address already in use' },
 };
 
 /** 一条行级批注（0.67.0）：新的一侧，原文挪了位置。 */
@@ -3209,6 +3254,23 @@ export const methodSamples: MethodSamples = {
           settings: { sendWhileBusy: 'steer', autoTuning: true, autoTuningMonthlyTokens: 500_000 },
         },
         { settings: { sendWhileBusy: 'steer', autoTuning: false } },
+        // 0.109.0：远程监听的端口与局域网网卡。
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: {
+                lan: true,
+                tailscale: true,
+                lanInterfaces: [{ name: 'en0', family: 'IPv4' }],
+              },
+              port: 47_830,
+              relay: { enabled: false },
+              push: { enabled: false },
+            },
+          },
+        },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3221,6 +3283,29 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', notifications: { completed: 'off' } } },
         { settings: { sendWhileBusy: 'steer', remote: { enabled: true } } },
         { settings: { sendWhileBusy: 'steer', autoTuningMonthlyTokens: 5_000 } },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: true, tailscale: false },
+              port: 80,
+              relay: { enabled: false },
+              push: { enabled: false },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: true, tailscale: false, lanInterfaces: [{ name: 'en0' }] },
+              relay: { enabled: false },
+              push: { enabled: false },
+            },
+          },
+        },
         {},
       ],
     },
@@ -6773,6 +6858,17 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{}, { device: deviceSample }], invalid: [null] },
   },
+  'remote.status': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [remoteStatusSample, remoteOffSample],
+      invalid: [
+        { ...remoteStatusSample, port: 0 },
+        { ...remoteStatusSample, interfaces: [{ name: 'en0', family: 'IPv4', kind: 'public' }] },
+        { ...remoteStatusSample, error: { reason: 'busy', message: 'x' } },
+      ],
+    },
+  },
   'inbox.dismiss': {
     params: {
       valid: [{ itemId: `turn_failed:${ids.turn}` }, { itemId: `automation:${ids.automationRun}` }],
@@ -7779,6 +7875,10 @@ export const notificationSamples: NotificationSamples = {
       { pairingId: ids.pairing, reason: 'failed' },
     ],
     invalid: [{ pairingId: ids.pairing, reason: 'timeout' }, { pairingId: ids.pairing }],
+  },
+  'remote.changed': {
+    valid: [remoteStatusSample, remoteOffSample],
+    invalid: [{ ...remoteStatusSample, connections: -1 }, { listening: true }],
   },
   'inbox.changed': {
     valid: [

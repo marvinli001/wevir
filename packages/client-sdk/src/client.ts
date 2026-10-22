@@ -37,6 +37,8 @@ import {
   PreviewChangedParamsSchema,
   ProcessChangedParamsSchema,
   ReadinessChangedParamsSchema,
+  RemoteChangedParamsSchema,
+  type RemoteStatus,
   type SessionId,
   SessionsChangedParamsSchema,
   SettingsUpdatedParamsSchema,
@@ -70,11 +72,12 @@ export type MarketInstallProgress = NotificationParams<'market.installProgress'>
 export type PowerChange = NotificationParams<'power.changed'>;
 /** `inbox.changed` 的内容（0.105.0）。 */
 export type InboxChange = NotificationParams<'inbox.changed'>;
-/** 设备与配对的变化（0.107.0）：`devices.changed`、`pairing.request`、`pairing.ended`。 */
+/** 设备与配对的变化（0.107.0）：`devices.changed`、`pairing.request`、`pairing.ended`，以及远程监听的 `remote.changed`（0.109.0）。 */
 export type RemoteDevicesChange =
   | { kind: 'devices'; devices: Device[] }
   | { kind: 'pairing_request'; request: PairingRequest }
-  | { kind: 'pairing_ended'; ended: PairingEnded };
+  | { kind: 'pairing_ended'; ended: PairingEnded }
+  | { kind: 'listener'; status: RemoteStatus };
 /** `tuning.changed` 的内容（0.85.0）。 */
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
@@ -677,8 +680,9 @@ export class WevirClient {
   }
 
   /**
-   * 设备与配对变了（0.107.0，`devices.changed`、`pairing.request`、`pairing.ended`，Host 功能 `remote_devices`）：只有调过 `device.*` 或
-   * `pairing.*` 的本机连接收得到。重连上之后以 `undefined` 调一次（期间的变化没收到：重读 `device.list`，期间的配对请求也可能错过）。
+   * 设备与配对变了（0.107.0，`devices.changed`、`pairing.request`、`pairing.ended`，Host 功能 `remote_devices`；0.109.0 起还有远程监听的
+   * `remote.changed`，Host 功能 `remote_listener`）：只有调过 `device.*`、`pairing.*` 或 `remote.*` 的本机连接收得到。重连上之后以
+   * `undefined` 调一次（期间的变化没收到：重读 `device.list` 与 `remote.status`，期间的配对请求也可能错过）。
    * 返回取消函数。
    */
   onRemoteDevicesChanged(listener: (change: RemoteDevicesChange | undefined) => void): () => void {
@@ -1567,6 +1571,15 @@ export class WevirClient {
         return;
       }
       this.#remoteDevicesChanged({ kind: 'pairing_ended', ended: parsed.data });
+      return;
+    }
+    if (method === 'remote.changed') {
+      const parsed = RemoteChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed remote.changed notification');
+        return;
+      }
+      this.#remoteDevicesChanged({ kind: 'listener', status: parsed.data });
       return;
     }
     if (method === 'power.changed') {

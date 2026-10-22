@@ -204,6 +204,16 @@ export const CloseCode = {
   LEASE_EXPIRED: 4005,
   /** 这条连接的发送缓冲超过上限。 */
   SEND_BUFFER_OVERFLOW: 4006,
+
+  // 远程连接（0.109.0）：Noise 握手之后，连接以这些码关闭。握手失败不发关闭帧，直接断开。
+  /** 设备被移除。 */
+  DEVICE_REVOKED: 4007,
+  /** 远程访问被关掉，或这条连接所在的网卡不再监听。 */
+  REMOTE_DISABLED: 4008,
+  /** 设备的权限改了：重连后按新的权限工作。 */
+  PERMISSIONS_CHANGED: 4009,
+  /** 配对没有被允许：桌面拒绝、取消或窗口到期。 */
+  PAIRING_DENIED: 4010,
 } as const;
 
 export type CloseCodeName = keyof typeof CloseCode;

@@ -31,6 +31,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@homebridge/ciao": "1.3.12",
     "@mixmark-io/domino": "2.2.0",
     "@noble/curves": "2.4.0",
     "@wevir/adapter-antigravity": "workspace:*",
@@ -41,6 +42,7 @@
     "@wevir/adapter-grok": "workspace:*",
     "@wevir/adapter-opencode": "workspace:*",
     "@wevir/adapter-workbuddy": "workspace:*",
+    "@wevir/noise": "workspace:*",
     "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
     "@wevir/storage": "workspace:*",

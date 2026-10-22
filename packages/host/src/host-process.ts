@@ -72,6 +72,8 @@ import { ReadinessService } from './readiness/service.js';
 import { loadRecapInstructions } from './recap.js';
 import { DeviceService } from './remote/devices.js';
 import { RemoteIdentity } from './remote/identity.js';
+import { RemoteListener, type RemoteListenerOptions } from './remote/listener.js';
+import { createCiaoAdvertiser } from './remote/mdns.js';
 import { PairingService } from './remote/pairing.js';
 import { RetroService } from './retro/service.js';
 import { loadRetroInstructions } from './retro/summary.js';
@@ -143,6 +145,19 @@ export interface StartHostOptions {
    * 环境变量读，省略时每条连接都是本机身份、全部权限。
    */
   testConnectionGrant?: TestConnectionGrant;
+  /**
+   * 远程监听（0.109.0）：测试换掉网卡列表、MagicDNS 查询、mDNS 广播、限速与轮询间隔。省略时用 `os.networkInterfaces()` 与 ciao 广播。
+   */
+  remoteListener?: Pick<
+    RemoteListenerOptions,
+    | 'networkInterfaces'
+    | 'classifyAddress'
+    | 'lookupMagicDnsName'
+    | 'advertiser'
+    | 'limiter'
+    | 'pollMs'
+    | 'handshakeTimeoutMs'
+  >;
   /** 远程 MCP 服务的 OAuth（0.97.0）：测试换掉 CIMD 地址、登录超时、时钟与 DNS 解析。 */
   mcpOAuth?: Pick<McpOAuthOptions, 'clientMetadataUrl' | 'loginTimeoutMs' | 'now' | 'lookup'>;
   /** 官方插件市场的镜像地址、公钥与 fetch（0.91.0）；省略用 wevir-marketplace 的三个镜像（测试换成本机服务）。 */
@@ -199,8 +214,13 @@ export interface RunningHost {
   shutdown(trigger?: ShutdownTrigger): Promise<void>;
   /** 强制退出前同步删除自己的 `host.json`，返回是否删除。 */
   releaseRuntimeFileSync(): boolean;
-  /** 远程设备与配对（0.107.0）：远程监听与测试经它们走配对握手。 */
-  readonly remote: { readonly devices: DeviceService; readonly pairing: PairingService };
+  /** 远程设备与配对（0.107.0）与直连的远程监听（0.109.0）。 */
+  readonly remote: {
+    readonly identity: RemoteIdentity;
+    readonly devices: DeviceService;
+    readonly pairing: PairingService;
+    readonly listener: RemoteListener;
+  };
 }
 
 /**
@@ -903,14 +923,41 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     notifications = notificationService;
     notificationService.start();
     const presence = new Presence();
-    // 远程设备与配对（0.107.0，domain-model §3.49）：密钥在第一次打开远程访问时生成；关掉远程访问时结束配对窗口。远程监听不在这里。
+    // 远程设备与配对（0.107.0，domain-model §3.49）：密钥在第一次打开远程访问时生成；关掉远程访问时结束配对窗口。
     const remoteIdentity = new RemoteIdentity({ secrets });
     const deviceService = new DeviceService({ storage, secrets });
+    const hostName = hostname().replace(/\.local$/, '');
+    // 直连的远程监听（0.109.0，ADR-0017 §1）：在勾选的网卡上监听，握手完成的连接交给 RPC 服务（下面建好之后才有）。
+    let rpcServer: HostRpcServer | undefined;
+    const remoteListener: RemoteListener = new RemoteListener({
+      settings: () => settings.get().remote,
+      identity: remoteIdentity,
+      devices: deviceService,
+      pairing: {
+        get pairingId() {
+          return pairingService.pairingId;
+        },
+        beginAttempt: (kind) => pairingService.beginAttempt(kind),
+        requestApproval: (attempt, identity) => pairingService.requestApproval(attempt, identity),
+        failAttempt: (attempt) => pairingService.failAttempt(attempt),
+      },
+      attach: (socket, origin) => rpcServer?.attach(socket, origin),
+      hostName,
+      keepAwake,
+      advertiser:
+        options.remoteListener?.advertiser ??
+        createCiaoAdvertiser((error) => {
+          logger.warn('mDNS advertising failed', { error });
+        }),
+      ...options.remoteListener,
+      onError: (error) => logger.warn('remote listener error', { error }),
+    });
     const pairingService = new PairingService({
       identity: remoteIdentity,
       devices: deviceService,
       settings: () => settings.get().remote,
-      hostName: hostname().replace(/\.local$/, ''),
+      hostName,
+      candidates: () => remoteListener.candidates(),
     });
     const ensureRemoteKeys = (current: HostSettings): void => {
       if (current.remote?.enabled !== true) {
@@ -1122,7 +1169,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         speech,
         keepAwake,
         inbox: inboxService,
-        remote: { devices: deviceService, pairing: pairingService },
+        remote: { devices: deviceService, pairing: pairingService, listener: remoteListener },
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -1215,6 +1262,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         approval_timeout: true,
         notification_intents: true,
         remote_devices: true,
+        remote_listener: true,
       },
       engineFeatures,
       plugins,
@@ -1225,7 +1273,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       inbox: inboxService,
       notifications: notificationService,
       presence,
-      remote: { devices: deviceService, pairing: pairingService },
+      remote: { devices: deviceService, pairing: pairingService, listener: remoteListener },
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1252,7 +1300,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('rpc error', { error }),
     });
     rpc = server;
+    rpcServer = server;
     const url = await server.listen();
+    remoteListener.refresh();
+    settings.watch(() => remoteListener.refresh());
     mcp?.setPort(server.port);
     fileUrls.setPort(server.port);
     // 代理有了端口，已登录的 OAuth 连接器才交给引擎；还没判断过要不要 OAuth 的远程服务在后台探测一遍。
@@ -1273,7 +1324,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       hostId,
       url,
       runtimeFile,
-      remote: { devices: deviceService, pairing: pairingService },
+      remote: {
+        identity: remoteIdentity,
+        devices: deviceService,
+        pairing: pairingService,
+        listener: remoteListener,
+      },
       shutdown: (trigger = { kind: 'api' }) => {
         pairingService.close();
         stopping ??= shutdownSequence({
@@ -1281,6 +1337,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
           logger,
           rpc: server,
+          remoteListener,
           appMcp: mcp,
           mcpRemote,
           mcpOAuth,
@@ -1355,6 +1412,8 @@ interface ShutdownParts {
   budgetMs: number;
   logger: Logger;
   rpc: HostRpcServer;
+  /** 直连的远程监听（0.109.0）：先于 RPC 服务停止接受新连接。 */
+  remoteListener: RemoteListener;
   /** 应用级工具的 MCP 端点（0.30.0）；引擎挂不上时没有。 */
   appMcp: AppMcpServer | undefined;
   /** 远程 MCP 服务的代理与 OAuth 登录（0.97.0）。 */
@@ -1438,6 +1497,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   }
   // 自动化不再开始新的运行；进行中的随回合取消记为 cancelled。
   parts.automations.stop();
+  // 远程监听不再接新连接、停掉 mDNS 广播（发告别包）；握手完成的远程连接随下面的 RPC 连接一起关。
+  await step('stop_remote', () => parts.remoteListener.close(), true);
   // 新连接回 503、新请求回 HOST_SHUTTING_DOWN，等在途请求结束；已连上的客户端继续收事件。
   await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。

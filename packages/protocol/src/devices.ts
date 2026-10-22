@@ -1,5 +1,5 @@
 // 远程设备与配对（0.107.0，Host 功能 `remote_devices`，domain-model §3.49）：配对过的手机与远程 CLI 的记录、它们的权限，以及桌面
-// “添加手机”时的配对窗口与二维码载荷。远程监听与握手不在这里；这里只定数据、方法与载荷格式。
+// “添加手机”时的配对窗口与二维码载荷。远程监听（0.109.0，Host 功能 `remote_listener`）的端口、路径、握手负载与状态也在这里。
 // entities.ts 的 Host 设置引用这里的 `remote`，所以这里只引用 common.ts 与 capabilities.ts。
 
 import { z } from 'zod';
@@ -16,16 +16,38 @@ import {
 /** 自建中继的地址：`wss://` 或 `ws://`。 */
 export const RelayUrlSchema = z.url({ protocol: /^wss?$/ }).max(2048);
 
+/** 远程监听省略 `port` 时用的端口（0.109.0）。 */
+export const REMOTE_DEFAULT_PORT = 47_830;
+/** 设置里能填的端口范围：不用特权端口。 */
+export const REMOTE_PORT_MIN = 1024;
+
+export const NetworkFamilySchema = z.enum(['IPv4', 'IPv6']);
+export type NetworkFamily = z.infer<typeof NetworkFamilySchema>;
+
+/** 一块网卡的一个地址族（0.109.0）：勾选按“网卡名 + 地址族”记，不记具体 IP，DHCP 换了地址照样生效。 */
+export const RemoteInterfaceRefSchema = z.object({
+  name: z.string().min(1).max(64),
+  family: NetworkFamilySchema,
+});
+export type RemoteInterfaceRef = z.infer<typeof RemoteInterfaceRefSchema>;
+
 /**
  * 远程访问（Host 设置 `remote`）。整体与每一项都默认关；省略 `remote` 等于全关。
  * - `enabled`：总开关。关掉是“暂停远程”：断开远程连接、结束配对窗口，设备记录保留。
- * - `interfaces`：直连监听哪几类网卡（局域网；Tailscale 的 `100.64.0.0/10` 与 `fd7a:115c:a1e0::/48`）。
+ * - `interfaces`：直连监听哪几类网卡（局域网；Tailscale 的 `100.64.0.0/10` 与 `fd7a:115c:a1e0::/48`）。`lanInterfaces`（0.109.0）
+ *   只监听这几块局域网网卡；省略时监听全部局域网网卡。Tailscale 按地址段认，没有网卡的勾选（macOS 上它的网卡名会变）。
+ * - `port`（0.109.0）：直连监听的端口，省略时 `REMOTE_DEFAULT_PORT`。
  * - `relay`：不在同一网络时经中继转发同一套密文；`url` 省略时用官方实例。
  * - `push`：经推送网关给手机发加密的提醒。
  */
 export const RemoteSettingsSchema = z.object({
   enabled: z.boolean(),
-  interfaces: z.object({ lan: z.boolean(), tailscale: z.boolean() }),
+  interfaces: z.object({
+    lan: z.boolean(),
+    tailscale: z.boolean(),
+    lanInterfaces: z.array(RemoteInterfaceRefSchema).max(64).optional(),
+  }),
+  port: z.int().min(REMOTE_PORT_MIN).max(65_535).optional(),
   relay: z.object({ enabled: z.boolean(), url: RelayUrlSchema.optional() }),
   push: z.object({ enabled: z.boolean() }),
 });
@@ -194,12 +216,90 @@ export const PairingEndedParamsSchema = z.object({
 });
 export type PairingEnded = z.infer<typeof PairingEndedParamsSchema>;
 
+/** Host 名称在载荷里最多多少字符。 */
+export const PAIRING_HOST_NAME_MAX_LENGTH = 64;
+
+// ── 远程监听（0.109.0）────────────────────────────────────────────
+
+/**
+ * 远程监听的 WebSocket 路径：二维码里的配对秘密配对（`Noise_XXpsk2`）、手输短码配对（同一握手，PSK 从短码派生）、已配对设备的
+ * 每次连接（`Noise_IK`）。配对的两个路径只在配对窗口里接受。别的路径与普通 HTTP 请求一律 404。
+ */
+export const REMOTE_PATHS = {
+  pair: '/v1/pair',
+  pairCode: '/v1/pair-code',
+  connect: '/v1/connect',
+} as const;
+
+/** 从 WebSocket 升级到握手完成（配对时到第三条消息）的时限。 */
+export const REMOTE_HANDSHAKE_TIMEOUT_MS = 10_000;
+
+/** 局域网 mDNS 广播的服务类型（`_wevir._tcp`）；实例名是 Host 的路由 ID，TXT 只有 `v`（协议版本）与 `rid`（路由 ID）。 */
+export const REMOTE_MDNS_SERVICE_TYPE = 'wevir';
+export const REMOTE_MDNS_TXT_VERSION = '1';
+
+/**
+ * Host 在握手里发给设备的负载（`XXpsk2` 的第二条、`IK` 的第二条消息，UTF-8 JSON）：直连的最新候选地址，设备据此更新记下的
+ * 地址。只有对方认证过之后才解得开（`XXpsk2` 的这条消息已经混入了 PSK）。
+ */
+export const RemoteHostPayloadSchema = z.looseObject({
+  protocolVersion: z.string(),
+  hostName: z.string().max(PAIRING_HOST_NAME_MAX_LENGTH).optional(),
+  candidates: z.array(PairingCandidateSchema),
+});
+export type RemoteHostPayload = z.infer<typeof RemoteHostPayloadSchema>;
+
+/** 配对时设备在第三条消息里报上的自己（UTF-8 JSON）。`IK` 的第一条消息不带负载。 */
+export const RemoteDevicePayloadSchema = z.looseObject({
+  name: DeviceNameSchema,
+  platform: DevicePlatformSchema,
+});
+export type RemoteDevicePayload = z.infer<typeof RemoteDevicePayloadSchema>;
+
+/** 认出的一块网卡的一个地址族。只列局域网（私有地址段）与 Tailscale 的地址；回环、链路本地与公网地址不列、也从不监听。 */
+export const RemoteInterfaceSchema = z.object({
+  name: z.string(),
+  family: NetworkFamilySchema,
+  kind: z.enum(['lan', 'tailscale']),
+  addresses: z.array(z.string()),
+  /** 按设置该监听：对应的开关开着，局域网网卡还要在 `lanInterfaces` 里（或没有 `lanInterfaces`）。 */
+  selected: z.boolean(),
+  /** 已经在监听的地址。 */
+  listening: z.array(z.string()),
+});
+export type RemoteInterface = z.infer<typeof RemoteInterfaceSchema>;
+
+/** 远程监听出的问题：端口被占用，或别的绑定错误。地址暂时不在（`EADDRNOTAVAIL`）不算，下一轮重试。 */
+export const RemoteListenerErrorSchema = z.object({
+  reason: z.enum(['port_in_use', 'bind_failed']),
+  message: z.string(),
+});
+
+/** `remote.status` 的结果与 `remote.changed` 的参数。 */
+export const RemoteStatusSchema = z.object({
+  /** 远程访问开着且至少在一个地址上监听。 */
+  listening: z.boolean(),
+  port: z.int().min(1).max(65_535),
+  /** 认出的网卡，监听与否都列出，给设置页确认用。 */
+  interfaces: z.array(RemoteInterfaceSchema),
+  /** Tailscale 的 MagicDNS 名（有 Tailscale 地址且查得到时）。 */
+  magicDnsName: z.string().optional(),
+  /** 正在局域网 mDNS 广播 `_wevir._tcp`。 */
+  advertising: z.boolean(),
+  /** 当前的远程连接数（握手完成的）。 */
+  connections: z.int().min(0),
+  error: RemoteListenerErrorSchema.optional(),
+});
+export type RemoteStatus = z.infer<typeof RemoteStatusSchema>;
+
+export const RemoteStatusParamsSchema = z.object({});
+export const RemoteStatusResultSchema = RemoteStatusSchema;
+export const RemoteChangedParamsSchema = RemoteStatusSchema;
+
 // ── 二维码载荷 ─────────────────────────────────────────────────────
 
 export const PAIRING_URI_PREFIX = 'wevir://pair?';
 export const PAIRING_URI_VERSION = 1;
-/** Host 名称在载荷里最多多少字符。 */
-export const PAIRING_HOST_NAME_MAX_LENGTH = 64;
 
 /** 二维码里的内容（`wevir://pair?v=1&…`）。 */
 export interface PairingPayload {

@@ -1,5 +1,5 @@
-// 远程设备与配对（0.107.0，domain-model §3.49）：真实的 Host 与 WebSocket。远程监听还没有，测试经 `RunningHost.remote.pairing` 扮演
-// 配对握手：发起配对 → 握手完成后桌面收到请求 → 允许 → 设备写入；移除；受限连接调不了 `device.*` / `pairing.*`，也收不到它们的通知。
+// 远程设备与配对（0.107.0，domain-model §3.49）：真实的 Host 与 WebSocket。测试经 `RunningHost.remote.pairing` 扮演远程监听的
+// 配对握手（真实 socket 上的握手见 remote/listener.test.ts）：发起配对 → 握手完成后桌面收到请求 → 允许 → 设备写入；移除；受限连接调不了 `device.*` / `pairing.*`，也收不到它们的通知。
 
 import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -155,12 +155,12 @@ describe('设备与配对', () => {
     ).toBe(ErrorCode.PAIRING_NOT_FOUND);
   });
 
-  it('远程设备调不了任何 device.* / pairing.*，即使有全部权限；也收不到它们的通知', async () => {
+  it('远程设备调不了任何 device.* / pairing.* / remote.*，即使有全部权限；也收不到它们的通知', async () => {
     const { host, connect } = await setup();
     const desktop = await connect();
     await desktop.request('settings.update', { settings: { remote: ON } });
-    const methods = METHOD_NAMES.filter((m) => /^(device|pairing)\./.test(m));
-    expect(methods).toHaveLength(6);
+    const methods = METHOD_NAMES.filter((m) => /^(device|pairing|remote)\./.test(m));
+    expect(methods).toHaveLength(7);
     for (const permissions of [['session.read', 'session.write', 'workspace.read'], PERMISSIONS]) {
       const phone = await connect(permissions as Permission[]);
       for (const method of methods) {
@@ -172,6 +172,7 @@ describe('设备与配对', () => {
     const phone = await connect(PERMISSIONS);
     await phone.request('settings.get');
     await desktop.request('device.list');
+    await desktop.request('remote.status');
     await desktop.request('pairing.start');
     host.remote.devices.add({ name: 'Pixel', platform: 'android', publicKey: PHONE_KEY });
     await desktop.until(
@@ -181,6 +182,10 @@ describe('设备与配对', () => {
     await delay(50);
     expect(phone.notifications('devices.changed')).toEqual([]);
     expect(phone.notifications('pairing.ended')).toEqual([]);
+    // 远程监听的状态变了（这里是关掉远程）：只有本机连接收到 remote.changed。
+    await desktop.request('settings.update', { settings: { remote: { ...ON, enabled: false } } });
+    await desktop.until(() => nonEmpty(desktop.notifications('remote.changed')), 'remote.changed');
+    expect(phone.notifications('remote.changed')).toEqual([]);
   });
 });
 

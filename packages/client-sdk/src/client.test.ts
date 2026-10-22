@@ -942,20 +942,31 @@ describe('设备与配对（0.107.0）', () => {
     host.last.notify('devices.changed', { devices: [] });
     host.last.notify('pairing.request', request);
     host.last.notify('pairing.ended', { pairingId, reason: 'denied' });
+    const status = {
+      listening: false,
+      port: 47_830,
+      interfaces: [],
+      advertising: false,
+      connections: 0,
+    };
+    host.last.notify('remote.changed', status);
     await vi.waitFor(() =>
       expect(changes).toEqual([
         { kind: 'devices', devices: [] },
         { kind: 'pairing_request', request },
         { kind: 'pairing_ended', ended: { pairingId, reason: 'denied' } },
+        { kind: 'listener', status },
       ]),
     );
     host.last.notify('pairing.ended', { pairingId, reason: 'later' });
+    host.last.notify('remote.changed', { listening: true });
     await tick();
-    expect(changes).toHaveLength(3);
+    expect(changes).toHaveLength(4);
     expect(warnings.join('\n')).toMatch(/malformed pairing.ended/);
+    expect(warnings.join('\n')).toMatch(/malformed remote.changed/);
     host.last.drop();
-    await vi.waitFor(() => expect(changes).toHaveLength(4));
-    expect(changes[3]).toBeUndefined();
+    await vi.waitFor(() => expect(changes).toHaveLength(5));
+    expect(changes[4]).toBeUndefined();
     stop();
   });
 });

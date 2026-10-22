@@ -323,6 +323,11 @@ export class TestRpcClient {
     });
   }
 
+  /** 包一条已经连上的连接（0.109.0：远程测试客户端的 Noise 通道，remote/test-client.ts）。 */
+  static wrap(ws: WebSocket): TestRpcClient {
+    return new TestRpcClient(ws);
+  }
+
   static connect(url: string): Promise<TestRpcClient> {
     const client = new TestRpcClient(new WebSocket(url));
     return new Promise((resolve, reject) => {
