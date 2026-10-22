@@ -439,7 +439,7 @@ export class McpOAuthService {
       const client = await this.#chooseClient(target, discovery, redirectUri, issuerBound, scope);
       const stored = target.stored;
       const requested = unique([
-        ...(discovery.challengeScopes ?? discovery.resourceScopes ?? oauth.scopes ?? []),
+        ...(discovery.challengeScopes ?? oauth.scopes ?? discovery.resourceScopes ?? []),
         ...scopes,
         ...(stored?.status === 'insufficient_scope'
           ? [...(stored.scopes ?? []), ...(stored.requiredScopes ?? [])]

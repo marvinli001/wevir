@@ -52,7 +52,7 @@ const RESERVED_AUTHORIZE: ReadonlySet<string> = new Set(OAUTH_RESERVED_AUTHORIZE
 const oauthCommon = {
   /** 预先注册的客户端 ID；没有时 Host 依次试 CIMD 与动态注册。插件清单里可以写 `${input:KEY}`。 */
   clientId: text.optional(),
-  /** 请求的 scope；授权服务器在 `WWW-Authenticate` 或受保护资源元数据里给了时用它们的。 */
+  /** 请求的 scope；服务器在 `WWW-Authenticate` 里给了时用它的，否则优先于受保护资源元数据的 `scopes_supported`。 */
   scopes: z.array(text).optional(),
   /** RFC 8707 的 `resource`；省略时用服务器地址。 */
   resource: httpUrl.optional(),

@@ -302,6 +302,16 @@ describe('授权码与回调', () => {
     expect(await status(s)).toMatchObject({ status: 'signed_in', scopes: ['read'] });
   });
 
+  it('挑战里没有 scope 时，配置的 scopes 优先于受保护资源元数据的 scopes_supported', async () => {
+    const s = await setup({ scopesSupported: ['read', 'write', 'admin'] });
+    const configured = await signIn(s, { oauth: { scopes: ['read'] } });
+    expect(configured.authUrl.searchParams.get('scope')).toBe('read');
+
+    const t = await setup({ scopesSupported: ['read', 'write', 'admin'] });
+    const advertised = await signIn(t);
+    expect(advertised.authUrl.searchParams.get('scope')).toBe('read write admin');
+  });
+
   it('state 不对的回调不算数，iss 不对的拒绝', async () => {
     const s = await setup({ issParam: true });
     await s.store.add('remote', { transport: 'http', url: s.fake.url });
