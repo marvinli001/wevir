@@ -1,4 +1,8 @@
+import { hostSupports } from '@wevir/client-sdk';
+import type { NotificationKindSettings } from '@wevir/protocol';
 import { Switch } from '@/components/switch';
+import { useHostSettings } from '@/data/host-settings';
+import { useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import {
@@ -17,10 +21,21 @@ const BADGE_LABEL: PlainMessageKey | undefined = IS_MAC
     : undefined;
 
 type Key = keyof NotificationSettings;
+type KindKey = keyof NotificationKindSettings;
 
-/** 设置 → 通知（U31）：方式（系统通知、应用内、提示音、角标）与事件（回合完成、审批、提问、出错），只存在本机。 */
+/**
+ * 设置 → 通知（U31）：方式（系统通知、应用内、提示音、角标）只存在本机；事件（回合完成、审批、提问、出错）0.106.0 起在 Host 有
+ * `notification_intents` 时读写 Host 设置 `notifications`，并多“自动化”一行，旧 Host 上只存在本机。
+ */
 export function NotificationSettingsPage() {
   const settings = useNotificationSettings();
+  const host = useHostSettings();
+  const { view } = useHostConnection();
+  const hostKinds =
+    host.supported &&
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'notification_intents');
+  const kinds = host.settings.notifications;
 
   const row = (key: Key, title: PlainMessageKey, disabled = false) => (
     <SettingsRow
@@ -38,6 +53,28 @@ export function NotificationSettingsPage() {
     />
   );
 
+  const kindRow = (key: KindKey, title: PlainMessageKey) =>
+    hostKinds ? (
+      <SettingsRow
+        key={key}
+        title={t(title)}
+        data-setting={`notify-${key}`}
+        control={
+          <Switch
+            checked={kinds?.[key] !== false}
+            label={t(title)}
+            onChange={(checked) =>
+              void host
+                .update({ notifications: { ...kinds, [key]: checked } })
+                .catch(() => undefined)
+            }
+          />
+        }
+      />
+    ) : key === 'automation' ? null : (
+      row(key, title)
+    );
+
   return (
     <>
       <SettingsSection title={t('settings.section.notifyChannels')}>
@@ -50,10 +87,11 @@ export function NotificationSettingsPage() {
       </SettingsSection>
       <SettingsSection title={t('settings.section.notifyEvents')}>
         <div className={LIST_CARD}>
-          {row('completed', 'settings.notify.completed')}
-          {row('approval', 'settings.notify.approval')}
-          {row('question', 'settings.notify.question')}
-          {row('failed', 'settings.notify.failed')}
+          {kindRow('completed', 'settings.notify.completed')}
+          {kindRow('approval', 'settings.notify.approval')}
+          {kindRow('question', 'settings.notify.question')}
+          {kindRow('failed', 'settings.notify.failed')}
+          {kindRow('automation', 'settings.notify.automation')}
         </div>
       </SettingsSection>
     </>

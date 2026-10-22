@@ -1067,6 +1067,7 @@ export const messages: Messages = {
   'settings.notify.approval': '승인 필요',
   'settings.notify.question': '질문',
   'settings.notify.failed': '오류',
+  'settings.notify.automation': '자동화',
   'settings.tab.archived': '보관됨',
   'settings.tab.web': '웹 검색',
   'settings.tab.personalization': '개인 설정',

@@ -20,6 +20,8 @@ import {
   type MethodParams,
   type MethodResult,
   MethodSchemas,
+  type NotificationIntent,
+  NotificationIntentSchema,
   type NotificationParams,
   NotificationSchemas,
   type Permission,
@@ -309,6 +311,9 @@ export class WevirClient {
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
   readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
+  readonly #notificationListeners = new Set<(intent: NotificationIntent) => void>();
+  /** 最近一次 `setPresence` 的值：重连后重报。 */
+  #presence: boolean | undefined;
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
   readonly #proposalListeners = new Set<(change: TuningProposalChange | undefined) => void>();
@@ -657,6 +662,42 @@ export class WevirClient {
   onInboxChanged(listener: (change: InboxChange | undefined) => void): () => void {
     this.#inboxListeners.add(listener);
     return () => this.#inboxListeners.delete(listener);
+  }
+
+  /**
+   * 收 Host 判定的通知意图（0.106.0，`notification.intent`，Host 功能 `notification_intents`）：第一个监听者加入时与每次（重）连上之后
+   * 调一次 `notification.subscribe`。断线期间的意图不补发。没有这项功能的 Host 上什么都不做。返回取消函数（最后一个取消后 Host 照样
+   * 发给这条连接，这里丢掉）。
+   */
+  watchNotifications(listener: (intent: NotificationIntent) => void): () => void {
+    const first = this.#notificationListeners.size === 0;
+    this.#notificationListeners.add(listener);
+    if (first && this.#connection !== undefined) this.#subscribeNotifications();
+    return () => this.#notificationListeners.delete(listener);
+  }
+
+  #subscribeNotifications(): void {
+    if (!this.supports('notification_intents') || !this.can('session.read')) return;
+    this.request('notification.subscribe').catch((error: unknown) =>
+      this.#warn('failed to subscribe to notifications', { error }),
+    );
+  }
+
+  /**
+   * 报告这个客户端背后有没有人在用它（0.106.0，`presence.update`）：值变了才发，（重）连上之后重报最近一次的值。没有
+   * `notification_intents` 的 Host 上只记下。
+   */
+  setPresence(active: boolean): void {
+    if (this.#presence === active) return;
+    this.#presence = active;
+    if (this.#connection !== undefined) this.#sendPresence(active);
+  }
+
+  #sendPresence(active: boolean): void {
+    if (!this.supports('notification_intents') || !this.can('session.read')) return;
+    this.request('presence.update', { active }).catch((error: unknown) =>
+      this.#warn('failed to update presence', { error }),
+    );
   }
 
   #inboxChanged(change: InboxChange | undefined): void {
@@ -1126,6 +1167,8 @@ export class WevirClient {
         if (this.supports('lsp_status')) this.#lspChanged(undefined);
         if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
+        if (this.#notificationListeners.size > 0) this.#subscribeNotifications();
+        if (this.#presence !== undefined) this.#sendPresence(this.#presence);
         return;
       }
       case 'reconnecting':
@@ -1440,6 +1483,21 @@ export class WevirClient {
         return;
       }
       this.#sessionsChanged(parsed.data);
+      return;
+    }
+    if (method === 'notification.intent') {
+      const parsed = NotificationIntentSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed notification.intent notification');
+        return;
+      }
+      for (const listener of [...this.#notificationListeners]) {
+        try {
+          listener(parsed.data);
+        } catch (error) {
+          this.#warn('a notification listener threw', { error });
+        }
+      }
       return;
     }
     if (method === 'inbox.changed') {

@@ -468,7 +468,7 @@ export function needsAttention(notify: AutomationNotify, run: AutomationRun): bo
 }
 
 /** 截到 `max` 个 UTF-16 code unit 以内，截了的末尾是“…”，不切开代理对。 */
-function cut(text: string, max: number): string {
+export function cut(text: string, max: number): string {
   if (text.length <= max) return text;
   let end = max - 1;
   const code = text.charCodeAt(end - 1);

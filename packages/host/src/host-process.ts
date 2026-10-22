@@ -58,8 +58,10 @@ import { McpRemoteProxy } from './mcp-oauth/proxy.js';
 import { type McpOAuthOptions, McpOAuthService } from './mcp-oauth/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
+import { NotificationService } from './notifications.js';
 import type { TestConnectionGrant } from './permissions.js';
 import { PluginRegistry } from './plugins.js';
+import { Presence } from './presence.js';
 import { PreviewService } from './preview/service.js';
 import { PreviewStore } from './preview/store.js';
 import { ProcessOutputService } from './process-output.js';
@@ -235,6 +237,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let sessionSearch: SessionSearch | undefined;
   let sessionList: SessionListFeed | undefined;
   let inbox: InboxService | undefined;
+  let notifications: NotificationService | undefined;
   let approvalRules: ApprovalRuleService | undefined;
   let guardrails: GuardrailService | undefined;
   try {
@@ -843,6 +846,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     inbox = inboxService;
     inboxService.start();
+    // 通知意图（0.106.0）：收件箱建好之后从它的新项、回合完成与自动化的等待判定，按 Host 设置的种类开关；Presence 记各连接的在场。
+    const notificationService = new NotificationService({
+      storage,
+      events: store,
+      inbox: inboxService,
+      automations: automationService,
+      settings: () => settings.get(),
+      onError: (error) => logger.warn('notification error', { error }),
+    });
+    notifications = notificationService;
+    notificationService.start();
+    const presence = new Presence();
     if (accounts?.hasSubscriptions === true) {
       // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
@@ -1119,6 +1134,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         prevent_sleep: true,
         inbox: true,
         approval_timeout: true,
+        notification_intents: true,
       },
       engineFeatures,
       plugins,
@@ -1127,6 +1143,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memory,
       sessionList: listFeed,
       inbox: inboxService,
+      notifications: notificationService,
+      presence,
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1200,6 +1218,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           search,
           sessionList: listFeed,
           inbox: inboxService,
+          notifications: notificationService,
           storage: db,
           runtimeFile,
           ...(options.web !== undefined && { web: options.web }),
@@ -1236,6 +1255,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     try {
       sessionSearch?.close();
       sessionList?.close();
+      notifications?.close();
       inbox?.close();
       events?.close();
       storage?.close();
@@ -1283,6 +1303,7 @@ interface ShutdownParts {
   search: SessionSearch;
   sessionList: SessionListFeed;
   inbox: InboxService;
+  notifications: NotificationService;
   storage: Storage;
   runtimeFile: RuntimeFile;
   web?: WebService;
@@ -1359,6 +1380,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   await step('flush_storage', () => {
     parts.search.close();
     parts.sessionList.close();
+    parts.notifications.close();
     parts.inbox.close();
     parts.events.close();
     parts.storage.close();

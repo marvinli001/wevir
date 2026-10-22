@@ -45,6 +45,7 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type { NotificationIntent } from './notifications.js';
 import type { PreviewCandidate, PreviewConfig } from './preview.js';
 import type { HostProcess } from './processes.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
@@ -1704,6 +1705,31 @@ export const inboxAutomation: InboxItem = {
   ref: { automationId: ids.automation, runId: ids.automationRun, status: 'completed' },
 };
 
+/** 通知意图（0.106.0）：会话里的审批与自动化运行等待处理。 */
+export const approvalIntent: NotificationIntent = {
+  id: `approval:${ids.approval}`,
+  kind: 'approval',
+  sessionId: ids.session,
+  workspaceId: ids.workspace,
+  title: '修登录页',
+  body: '/tmp/wevir-outside.txt',
+  createdAt: TS,
+  collapseKey: `session:${ids.session}`,
+};
+
+export const automationIntent: NotificationIntent = {
+  id: `automation:${ids.automationRun}:waiting`,
+  kind: 'automation',
+  sessionId: ids.session,
+  workspaceId: ids.workspace,
+  automationId: ids.automation,
+  automationStatus: 'waiting',
+  title: '每天看一眼 CI',
+  body: '',
+  createdAt: TS2,
+  collapseKey: `session:${ids.session}`,
+};
+
 /** 一组问题（0.10.0）：一个单选、一个多选。 */
 export const pendingQuestion: QuestionRequest = {
   id: ids.question,
@@ -3092,6 +3118,13 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', writingStyle: true } },
         // 0.102.0：运行时防止系统休眠。
         { settings: { sendWhileBusy: 'steer', preventSleep: true } },
+        // 0.106.0：哪几类事产生通知意图。
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            notifications: { completed: false, automation: true },
+          },
+        },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3101,6 +3134,7 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', ruleFiles: 'on' } },
         { settings: { sendWhileBusy: 'steer', agentInstructions: 'x'.repeat(16_001) } },
         { settings: { sendWhileBusy: 'steer', outputStyle: '' } },
+        { settings: { sendWhileBusy: 'steer', notifications: { completed: 'off' } } },
         {},
       ],
     },
@@ -3119,6 +3153,7 @@ export const methodSamples: MethodSamples = {
         { settings: { marketMirror: 'cnb' } },
         { settings: { marketMirror: 'auto' } },
         { settings: { preventSleep: true } },
+        { settings: { notifications: { approval: true, question: false } } },
         // 0.92.0：听写的转写方与润色
         { settings: { speechTranscriber: { kind: 'local' } } },
         {
@@ -6571,6 +6606,14 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'notification.subscribe': {
+    params: { valid: [{}], invalid: [null, 'all'] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'presence.update': {
+    params: { valid: [{ active: true }, { active: false }], invalid: [{}, { active: 'yes' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
   'inbox.dismiss': {
     params: {
       valid: [{ itemId: `turn_failed:${ids.turn}` }, { itemId: `automation:${ids.automationRun}` }],
@@ -7446,6 +7489,20 @@ export const notificationSamples: NotificationSamples = {
       { inboxVersion: 12, upserted: [] },
       { inboxVersion: 12, upserted: [{ ...inboxApproval, kind: 'note' }], removed: [] },
       { inboxVersion: 12, upserted: [], removed: ['approval'] },
+    ],
+  },
+  'notification.intent': {
+    valid: [
+      approvalIntent,
+      automationIntent,
+      { ...approvalIntent, id: `completed:${ids.turn}`, kind: 'completed', body: '', title: '' },
+    ],
+    invalid: [
+      {},
+      { ...approvalIntent, kind: 'note' },
+      { ...approvalIntent, id: 'approval' },
+      { ...approvalIntent, body: 'x'.repeat(301) },
+      { ...automationIntent, automationStatus: 'running' },
     ],
   },
   'sessions.changed': {

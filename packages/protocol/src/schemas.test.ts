@@ -214,7 +214,9 @@ import {
 import {
   acceptance as acceptanceSample,
   agentProcess,
+  approvalIntent,
   approvalRule,
+  automationIntent,
   boardTask,
   browserTab,
   checkDefinition,
@@ -3947,6 +3949,49 @@ const standaloneCases: Case[] = [
       { ...inboxTurnFailed, title: 'x'.repeat(201) },
       { ...inboxAutomation, ref: { automationId: ids.automation } },
     ],
+  },
+  {
+    name: 'NotificationKind',
+    schema: protocol.NotificationKindSchema,
+    valid: ['approval', 'question', 'completed', 'failed', 'automation'],
+    invalid: ['turn_failed', ''],
+  },
+  {
+    name: 'NotificationAutomationStatus',
+    schema: protocol.NotificationAutomationStatusSchema,
+    valid: ['waiting', 'failed', 'completed'],
+    invalid: ['running'],
+  },
+  {
+    name: 'NotificationIntent',
+    schema: protocol.NotificationIntentSchema,
+    valid: [
+      approvalIntent,
+      automationIntent,
+      // 自动化没建出会话：按自动化收起。
+      {
+        ...automationIntent,
+        id: `automation:${ids.automationRun}:failed`,
+        sessionId: undefined,
+        workspaceId: undefined,
+        automationStatus: 'failed',
+        collapseKey: `automation:${ids.automation}`,
+      },
+    ],
+    invalid: [
+      { ...approvalIntent, collapseKey: '' },
+      { ...approvalIntent, title: 'x'.repeat(201) },
+      { ...approvalIntent, createdAt: 'now' },
+    ],
+  },
+  {
+    name: 'NotificationKindSettings',
+    schema: protocol.NotificationKindSettingsSchema,
+    valid: [
+      {},
+      { completed: false, approval: true, question: true, failed: true, automation: false },
+    ],
+    invalid: [{ completed: 'off' }, null],
   },
   {
     name: 'SpeechRecordingId',

@@ -25,7 +25,9 @@ import type { EventStore } from './event-store.js';
 import type { HostMethods } from './host-methods.js';
 import type { InboxService } from './inbox.js';
 import type { MemoryChange } from './memory.js';
+import type { NotificationService } from './notifications.js';
 import type { TestConnectionGrant } from './permissions.js';
+import type { Presence } from './presence.js';
 import {
   type ConnectionHost,
   type ConnectionLimits,
@@ -71,6 +73,10 @@ export interface HostRpcServerOptions {
   sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接收 `inbox.changed`。 */
   inbox?: Pick<InboxService, 'watch'>;
+  /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接收 `notification.intent`。 */
+  notifications?: Pick<NotificationService, 'watch'>;
+  /** 在场（0.106.0）：各连接的 `presence.update`。 */
+  presence?: Pick<Presence, 'update' | 'remove'>;
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接经它收 `usage.changed`。 */
   usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接经它收 `automation.changed`。 */
@@ -190,6 +196,8 @@ export class HostRpcServer {
       ...(options.memory !== undefined && { memory: options.memory }),
       ...(options.sessionList !== undefined && { sessionList: options.sessionList }),
       ...(options.inbox !== undefined && { inbox: options.inbox }),
+      ...(options.notifications !== undefined && { notifications: options.notifications }),
+      ...(options.presence !== undefined && { presence: options.presence }),
       ...(options.usage !== undefined && { usage: options.usage }),
       ...(options.automations !== undefined && { automations: options.automations }),
       ...(options.processes !== undefined && { processes: options.processes }),

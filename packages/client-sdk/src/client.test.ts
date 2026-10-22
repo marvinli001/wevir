@@ -945,6 +945,75 @@ describe('收件箱（0.105.0）', () => {
   });
 });
 
+describe('通知意图与在场（0.106.0）', () => {
+  const intent = {
+    id: 'approval:apr_1',
+    kind: 'approval',
+    sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR',
+    title: '修登录页',
+    body: 'rm -rf dist',
+    createdAt: '2026-10-22T08:00:00.000Z',
+    collapseKey: 'session:ses_01JA2B3C4D5E6F7G8H9JKMNPQR',
+  };
+
+  it('watchNotifications：订阅一次，重连后再订；意图交给监听者，格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { notification_intents: true } },
+    }));
+    host.on('notification.subscribe', () => ({ result: {} }));
+    const { client, warnings } = await connect(host);
+    const received: unknown[] = [];
+    const stop = client.watchNotifications((item) => received.push(item));
+    const other = client.watchNotifications(() => {});
+    await vi.waitFor(() => expect(host.last.requests('notification.subscribe')).toHaveLength(1));
+    host.last.notify('notification.intent', intent);
+    await vi.waitFor(() => expect(received).toEqual([intent]));
+    host.last.notify('notification.intent', { ...intent, kind: 'note' });
+    await tick();
+    expect(received).toHaveLength(1);
+    expect(warnings).toContain('ignored a malformed notification.intent notification');
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(host.last.requests('notification.subscribe')).toHaveLength(1));
+    stop();
+    other();
+  });
+
+  it('setPresence：值变了才发，重连后重报；Host 没有功能时只记下', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { notification_intents: true } },
+    }));
+    host.on('presence.update', () => ({ result: {} }));
+    const { client } = await connect(host);
+    client.setPresence(true);
+    client.setPresence(true);
+    client.setPresence(false);
+    await vi.waitFor(() =>
+      expect(host.last.requests('presence.update').map((frame) => frame.params)).toEqual([
+        { active: true },
+        { active: false },
+      ]),
+    );
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(host.last.requests('presence.update').map((frame) => frame.params)).toEqual([
+        { active: false },
+      ]),
+    );
+
+    const old = new FakeHost();
+    const { client: legacy } = await connect(old);
+    legacy.setPresence(true);
+    legacy.watchNotifications(() => {});
+    await tick();
+    expect(old.last.requests('presence.update')).toEqual([]);
+    expect(old.last.requests('notification.subscribe')).toEqual([]);
+  });
+});
+
 describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

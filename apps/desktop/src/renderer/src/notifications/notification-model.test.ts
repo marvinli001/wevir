@@ -1,14 +1,21 @@
-import type { Session, WevirEvent } from '@wevir/protocol';
+import type { NotificationIntent, Session, WevirEvent } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   deliveryFor,
+  displayDelivery,
+  intentDisplayKind,
   isFresh,
   NOTIFICATION_MAX_AGE_MS,
   notificationKind,
   notificationTag,
   sessionIdFromTag,
 } from './notification-model';
-import { DEFAULT_NOTIFICATION_SETTINGS, parseNotificationSettings } from './notification-settings';
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  migrateNotificationKinds,
+  NOTIFICATION_SETTINGS_STORAGE_KEY,
+  parseNotificationSettings,
+} from './notification-settings';
 
 const session = { id: 'ses_1', workspaceId: 'ws_1', title: 'Fix login' } as unknown as Session;
 
@@ -77,6 +84,124 @@ describe('deliveryFor', () => {
     expect(deliveryFor('completed', { focused: false, viewing: false }, off).system).toBe(false);
     expect(deliveryFor('approval', { focused: false, viewing: false }, off).system).toBe(false);
     expect(deliveryFor('approval', { focused: true, viewing: false }, off).toast).toBe(false);
+  });
+});
+
+describe('host intents (0.106.0)', () => {
+  const intent = (overrides: Partial<NotificationIntent>): NotificationIntent => ({
+    id: 'approval:apr_1',
+    kind: 'approval',
+    sessionId: 'ses_1',
+    title: 'Fix login',
+    body: '',
+    createdAt: new Date().toISOString(),
+    collapseKey: 'session:ses_1',
+    ...overrides,
+  });
+
+  it('shows session intents under their own kind and automation runs by status', () => {
+    for (const kind of ['approval', 'question', 'completed', 'failed'] as const) {
+      expect(intentDisplayKind(intent({ kind }))).toBe(kind);
+    }
+    const run = (automationStatus: NotificationIntent['automationStatus']) =>
+      intentDisplayKind(intent({ kind: 'automation', automationStatus }));
+    expect(run('waiting')).toBe('approval');
+    expect(run('failed')).toBe('failed');
+    expect(run('completed')).toBe('completed');
+  });
+
+  it('presents a host intent exactly like the local decision did when the kind is on', () => {
+    const contexts = [
+      { focused: true, viewing: true },
+      { focused: true, viewing: false },
+      { focused: false, viewing: true },
+      { focused: false, viewing: false },
+    ];
+    for (const context of contexts) {
+      for (const channels of [
+        DEFAULT_NOTIFICATION_SETTINGS,
+        { ...DEFAULT_NOTIFICATION_SETTINGS, inApp: false, system: false },
+      ]) {
+        expect(displayDelivery(context, channels)).toEqual(
+          deliveryFor('approval', context, channels),
+        );
+      }
+    }
+  });
+
+  it('ignores the local kind switches: the host already applied its own', () => {
+    const off = { ...DEFAULT_NOTIFICATION_SETTINGS, completed: false };
+    expect(displayDelivery({ focused: false, viewing: false }, off)).toEqual({
+      toast: false,
+      system: true,
+    });
+  });
+});
+
+describe('migrateNotificationKinds', () => {
+  function memoryStorage(value?: unknown) {
+    return {
+      getItem: (key: string) =>
+        key === NOTIFICATION_SETTINGS_STORAGE_KEY && value !== undefined
+          ? JSON.stringify(value)
+          : null,
+    };
+  }
+
+  function fakeClient(notifications?: object) {
+    const calls: Array<[string, unknown]> = [];
+    const request = async (method: string, params: unknown) => {
+      calls.push([method, params]);
+      if (method === 'settings.get') {
+        return {
+          settings: {
+            sendWhileBusy: 'steer',
+            ...(notifications !== undefined && { notifications }),
+          },
+        };
+      }
+      return { settings: { sendWhileBusy: 'steer' } };
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: the fake only implements request.
+    return { calls, client: { request } as any };
+  }
+
+  it('copies switched-off kinds into the host settings once, automations on', async () => {
+    const { calls, client } = fakeClient();
+    const local = { ...DEFAULT_NOTIFICATION_SETTINGS, completed: false, sound: false };
+    await migrateNotificationKinds(memoryStorage(local), client);
+    expect(calls).toEqual([
+      ['settings.get', {}],
+      [
+        'settings.update',
+        {
+          settings: {
+            notifications: {
+              completed: false,
+              approval: true,
+              question: true,
+              failed: true,
+              automation: true,
+            },
+          },
+        },
+      ],
+    ]);
+  });
+
+  it('leaves the host alone when it already has kinds, or nothing local was changed', async () => {
+    const has = fakeClient({ approval: false });
+    await migrateNotificationKinds(
+      memoryStorage({ ...DEFAULT_NOTIFICATION_SETTINGS, failed: false }),
+      has.client,
+    );
+    expect(has.calls).toEqual([['settings.get', {}]]);
+
+    const untouched = fakeClient();
+    await migrateNotificationKinds(memoryStorage(DEFAULT_NOTIFICATION_SETTINGS), untouched.client);
+    await migrateNotificationKinds(memoryStorage(), untouched.client);
+    await migrateNotificationKinds({ getItem: () => '{not json' }, untouched.client);
+    expect(untouched.calls).toEqual([]);
   });
 });
 

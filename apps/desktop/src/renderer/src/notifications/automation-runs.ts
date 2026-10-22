@@ -2,7 +2,7 @@
 // `automation.list`（Host 只把 `automation.changed` 发给调用过 `automation.*` 的连接），记下每个自动化的标题与通知设置；
 // 一次运行有了会话就把会话放进列表（Host 开的会话本端还不知道）；状态变了按 automations-model.ts 的 `shouldNotify` 决定
 // 要不要提醒。发进已有会话（不是自动化开的，0.73.0）的运行也按自动化的设置提醒：运行进行中把那个会话记进 `quietSessions`，
-// 通知协调器这期间不按会话事件提醒它。
+// 通知协调器这期间不按会话事件提醒它。0.106.0 起只给没有 `notification_intents` 的旧 Host 用。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { Automation, AutomationNotify, AutomationRun, Session } from '@wevir/protocol';
@@ -30,11 +30,13 @@ export function useAutomationRuns(
   deliver: Deliver,
   /** 自动化的运行正在里面进行的已有会话：协调器不按它们的会话事件提醒。 */
   quietSessions: RefObject<Set<string>>,
+  /** false 时不判定（0.106.0 起 Host 有 `notification_intents` 时由 Host 发 `automation` 意图）。 */
+  enabled = true,
 ): void {
   const deliverRef = useRef(deliver);
   deliverRef.current = deliver;
   useEffect(() => {
-    if (client === undefined || store === undefined) return;
+    if (!enabled || client === undefined || store === undefined) return;
     if (!hostSupports(client.hello.features, 'automations')) return;
     let disposed = false;
     const known = new Map<string, { title: string; notify: AutomationNotify }>();
@@ -112,5 +114,5 @@ export function useAutomationRuns(
       off();
       quietSessions.current.clear();
     };
-  }, [client, store, sessions, quietSessions]);
+  }, [client, store, sessions, quietSessions, enabled]);
 }

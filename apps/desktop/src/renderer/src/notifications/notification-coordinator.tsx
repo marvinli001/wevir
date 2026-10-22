@@ -1,4 +1,5 @@
-import type { Session, WevirEvent } from '@wevir/protocol';
+import { hostSupports } from '@wevir/client-sdk';
+import type { NotificationIntent, Session, SessionId, WevirEvent } from '@wevir/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { Toast, type ToastTone } from '@/components/toast';
 import { Button } from '@/components/ui/button';
@@ -9,14 +10,22 @@ import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
 import { useAutomationRuns } from './automation-runs';
 import {
+  type Delivery,
   deliveryFor,
+  displayDelivery,
+  intentDisplayKind,
   isFresh,
   type NotificationKind,
   notificationKind,
   notificationTag,
   sessionIdFromTag,
 } from './notification-model';
-import { getNotificationSettings, useNotificationSettings } from './notification-settings';
+import {
+  getNotificationSettings,
+  migrateNotificationKinds,
+  useNotificationSettings,
+} from './notification-settings';
+import { usePresenceReporter } from './presence';
 
 /** 应用内提醒最多同时几条；再来的挤掉最早的。 */
 const MAX_TOASTS = 3;
@@ -66,16 +75,23 @@ function openSession(workspaceId: string, sessionId: string): void {
  * 会话的通知（U31，照 T3 Code 的 ThreadNotificationCoordinator）：列表里的会话要审批、提问、出错或回合完成时，窗口在后台
  * 发系统通知（经主进程，点击回到这个会话）并记角标；窗口在前台、看的是别的会话时在右下角提醒。打开会话时收回它的系统
  * 通知与提醒，窗口回到前台时收回全部系统通知、清掉角标。挂在 ToastViewport 里。
+ *
+ * 0.106.0 起 Host 有 `notification_intents` 时“要不要提醒”由 Host 判定，这里只消费 `notification.intent`（种类开关在 Host 设置），
+ * 并报告在场；旧 Host 上照旧从会话事件与自动化运行自己判定。
  */
 export function NotificationCoordinator() {
   const store = useWorkbenchStore();
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
+  const hostIntents =
+    view.status === 'connected' && hostSupports(view.hello.features, 'notification_intents');
   const data = useWorkbenchData();
   const settings = useNotificationSettings();
   const [toasts, setToasts] = useState<ShownToast[]>([]);
   /** 窗口在后台时发出、还没收回的系统通知（按会话）。 */
   const delivered = useRef(new Set<string>());
   const sessions = useRef(new Map<string, Session>());
+  /** 提醒过的会话所在的工作区：会话还不在左栏里（Host 开的自动化会话）时，点系统通知也能打开。 */
+  const workspaces = useRef(new Map<string, string>());
 
   if (data.status === 'ready') {
     sessions.current = new Map(
@@ -98,18 +114,22 @@ export function NotificationCoordinator() {
     }
   };
 
-  /** 发一条提醒：前台看别的会话时在右下角，后台时发系统通知（点击回到会话）。`title` 是提醒里写的会话或自动化名。 */
+  /**
+   * 发一条提醒：前台看别的会话时在右下角，后台时发系统通知（点击回到会话）。`title` 是提醒里写的会话或自动化名。`decided` 时种类
+   * 已由 Host 判过，不再看本机的种类开关。
+   */
   const deliver = (
     kind: NotificationKind,
     target: { sessionId: string; workspaceId: string; title: string },
     key: string,
+    decided = false,
   ) => {
     const current = getNotificationSettings();
-    const delivery = deliveryFor(
-      kind,
-      { focused: windowFocused(), viewing: currentSessionId() === target.sessionId },
-      current,
-    );
+    const context = { focused: windowFocused(), viewing: currentSessionId() === target.sessionId };
+    const delivery: Delivery = decided
+      ? displayDelivery(context, current)
+      : deliveryFor(kind, context, current);
+    workspaces.current.set(target.sessionId, target.workspaceId);
     if (delivery.toast) {
       setToasts((shown) => {
         const kept = shown.filter((toast) => toast.sessionId !== target.sessionId);
@@ -147,7 +167,7 @@ export function NotificationCoordinator() {
   // 下面的运行状态（0.66.0）。
   const quietSessions = useRef(new Set<string>());
   useEffect(() => {
-    if (!store) return;
+    if (!store || hostIntents) return;
     return store.onSessionEvent((event: WevirEvent, session: Session) => {
       if (session.automation !== undefined || quietSessions.current.has(session.id)) return;
       const kind = notificationKind(event, session);
@@ -162,7 +182,7 @@ export function NotificationCoordinator() {
         `${session.id}:${event.seq}`,
       );
     });
-  }, [store]);
+  }, [store, hostIntents]);
 
   // 自动化的运行 → 提醒（0.66.0）：运行开出的会话先放进列表；状态变成等待处理、失败或完成时按自动化的通知设置提醒。
   useAutomationRuns(
@@ -171,7 +191,45 @@ export function NotificationCoordinator() {
     sessions,
     (kind, target, key) => deliverRef.current(kind, target, key),
     quietSessions,
+    !hostIntents,
   );
+
+  // Host 的通知意图 → 提醒（0.106.0）。没有会话的（自动化没建出会话）不提醒，同以前；工作区不知道时读一次会话。连上时先把本机的
+  // 种类开关迁进 Host 设置。
+  useEffect(() => {
+    if (!client || !hostIntents) return;
+    void migrateNotificationKinds(window.localStorage, client).catch(() => undefined);
+    let disposed = false;
+    const workspaceOf = async (intent: NotificationIntent, sessionId: SessionId) => {
+      const known = intent.workspaceId ?? sessions.current.get(sessionId)?.workspaceId;
+      if (known !== undefined) return known;
+      try {
+        const { session } = await client.request('session.get', { sessionId });
+        return session.workspaceId;
+      } catch {
+        return undefined;
+      }
+    };
+    const stop = client.watchNotifications((intent) => {
+      const sessionId = intent.sessionId;
+      if (sessionId === undefined) return;
+      void workspaceOf(intent, sessionId).then((workspaceId) => {
+        if (disposed || workspaceId === undefined) return;
+        deliverRef.current(
+          intentDisplayKind(intent),
+          { sessionId, workspaceId, title: intent.title || t('session.untitled') },
+          intent.id,
+          true,
+        );
+      });
+    });
+    return () => {
+      disposed = true;
+      stop();
+    };
+  }, [client, hostIntents]);
+
+  usePresenceReporter(client);
 
   // 窗口回到前台：收回全部系统通知，清掉角标。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时注册。
@@ -202,8 +260,10 @@ export function NotificationCoordinator() {
     () =>
       window.wevir.onNotificationClick((tag) => {
         const sessionId = sessionIdFromTag(tag);
-        const session = sessionId ? sessions.current.get(sessionId) : undefined;
-        if (session) openSession(session.workspaceId, session.id);
+        if (!sessionId) return;
+        const workspaceId =
+          sessions.current.get(sessionId)?.workspaceId ?? workspaces.current.get(sessionId);
+        if (workspaceId) openSession(workspaceId, sessionId);
       }),
     [],
   );

@@ -1065,6 +1065,7 @@ export const messages: Messages = {
   'settings.notify.approval': '需要核准',
   'settings.notify.question': '提問',
   'settings.notify.failed': '發生錯誤',
+  'settings.notify.automation': '自動化',
   'settings.tab.archived': '已封存',
   'settings.tab.web': '網路搜尋',
   'settings.tab.personalization': '個人化',

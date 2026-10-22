@@ -1,8 +1,9 @@
 // 通知（U31）的判断，照 T3 Code 的 ThreadNotificationCoordinator（MIT，ec1313c）：会话需要处理（审批、提问、出错）或
 // 回合完成时提醒；窗口在前台且看的正是这个会话时不提醒；在前台看别的会话时在应用里提醒；窗口在后台时发系统通知，角标
-// 记下后台时收到的条数，窗口回到前台时清零。
+// 记下后台时收到的条数，窗口回到前台时清零。0.106.0 起 Host 有 `notification_intents` 时“要不要提醒”由 Host 判定（通知意图），
+// 这里的 `notificationKind` 与 `isFresh` 只给旧 Host 用；怎样提醒（`displayDelivery`）两边一样。
 
-import type { Session, WevirEvent } from '@wevir/protocol';
+import type { NotificationIntent, Session, WevirEvent } from '@wevir/protocol';
 import type { NotificationSettings } from './notification-settings';
 
 export type NotificationKind = 'approval' | 'question' | 'completed' | 'failed';
@@ -49,17 +50,33 @@ export interface Delivery {
 
 const NONE: Delivery = { toast: false, system: false };
 
-/** 怎样提醒：这一类关掉了、或正看着这个会话时都不提醒。 */
+/** 怎样提醒（旧 Host，本机判定种类）：这一类关掉了、或正看着这个会话时都不提醒。 */
 export function deliveryFor(
   kind: NotificationKind,
   context: NotificationContext,
   settings: NotificationSettings,
 ): Delivery {
   if (!settings[kind]) return NONE;
+  return displayDelivery(context, settings);
+}
+
+/** 怎样提醒（种类已由 Host 或 `deliveryFor` 判过）：正看着这个会话不提醒，前台看别的会话在应用里提醒，后台发系统通知。 */
+export function displayDelivery(
+  context: NotificationContext,
+  settings: Pick<NotificationSettings, 'inApp' | 'system'>,
+): Delivery {
   if (context.focused) {
     return context.viewing ? NONE : { toast: settings.inApp, system: false };
   }
   return { toast: false, system: settings.system };
+}
+
+/** Host 的意图在本机显示成哪一类（决定标题与语气）：自动化按运行的状态，等待处理当作需要批准。 */
+export function intentDisplayKind(intent: NotificationIntent): NotificationKind {
+  if (intent.kind !== 'automation') return intent.kind;
+  if (intent.automationStatus === 'failed') return 'failed';
+  if (intent.automationStatus === 'completed') return 'completed';
+  return 'approval';
 }
 
 /** 系统通知的 tag：同一个会话只留最新的一条，打开会话时收回。 */
