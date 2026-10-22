@@ -13,7 +13,8 @@
  *     `<平台>-<架构>` 一致），里面是 electron-builder 的产物与签过名的清单（`<清单>.sig`，update-signing.ts sign）。
  *     上传到每条线路的 `desktop/<平台>-<架构>/`（GitHub 线路是 tag `desktop-updates` 的 Release，见 githubAssetName）：
  *       1. 安装包与 blockmap 传到所有线路；全球线路最先传，经 CDN 逐个下载核对，与本地一致才往下走（waitForCdn），
- *          再等 CDN_SETTLE_MS 让其他地区的存储副本跟上，这段时间里传其余线路（uploadInstallers）；
+ *          再等 CDN_SETTLE_MS 让其他地区的存储副本跟上，这段时间里传其余线路（uploadInstallers）；S3 线路一次同时传
+ *          几个文件，每次尝试按文件大小限时，挂住就杀掉重传（uploadTimeoutMs）；
  *       2. 都成功后核对每条线路上同通道的现有清单，版本不比这次低就整个停下（只许更高的版本覆盖）；
  *       3. 逐条线路写清单与 `.sig`，全球线路随后清 CDN 缓存（Bunny 的 S3 接口不收 Cache-Control）并同样核对；
  *       4. 清理：开发版与正式版各留最新的 KEEP_VERSIONS 个版本，再加上清单正引用的；以前的固定名字安装包也删掉。
@@ -26,7 +27,7 @@
  *   node scripts/release.ts prune --dir <目录> [--only <线路>]
  *     只做 publish 的第 4 步，平台取 <目录> 下的子目录。
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
@@ -264,9 +265,20 @@ function mirrorTarget(mirror: Mirror, env: NodeJS.ProcessEnv): MirrorTarget {
   };
 }
 
-/** 单次 aws 调用的上限：2026-10-22 beta.384 的发布在 Bunny 上传一个 blockmap 时卡住，一直等到任务被取消（1 小时）。 */
-const AWS_CALL_TIMEOUT_MS = 15 * 60_000;
-const AWS_UPLOAD_ATTEMPTS = 3;
+/** 列表、删除等不传大文件的 aws 调用的上限。 */
+const AWS_CALL_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * 上传一个文件的单次尝试最多等多久：按最低 2 MiB/s 算再加 1 分钟。Bunny 的 S3 接口时不时把一次 PutObject 挂住
+ * 不回（2026-10-22 beta.387、beta.388 的发布里五个 200 多 MB 的安装包有两三个这样），正常时同样的文件 15–30 秒传完，
+ * 重传一次也是这么快；以前固定等 15 分钟才重试，两三次挂住就把 1 小时的任务时限用完了。
+ */
+export function uploadTimeoutMs(bytes: number): number {
+  return 60_000 + Math.ceil(bytes / (2 * 1024 * 1024)) * 1000;
+}
+const UPLOAD_ATTEMPTS = 4;
+/** 一条 S3 线路同时传几个文件（GitHub 线路一次一个）。单个连接从 runner 到 Bunny 新加坡只有十几 MB/s。 */
+const S3_UPLOAD_CONCURRENCY = 3;
 
 function aws(mirror: MirrorTarget, args: readonly string[]): string {
   return execFileSync('aws', args, {
@@ -276,6 +288,69 @@ function aws(mirror: MirrorTarget, args: readonly string[]): string {
     maxBuffer: 64 * 1024 * 1024,
     timeout: AWS_CALL_TIMEOUT_MS,
   });
+}
+
+/** 异步跑一个命令（上传时几条线路、几个文件同时传），超时就杀掉；失败时错误里带 stderr 的最后一行。 */
+function run(
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      { env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs },
+      (error, _stdout, stderr) => {
+        if (error === null) return resolve();
+        const reason = error.killed
+          ? `timed out after ${Math.round(timeoutMs / 1000)}s`
+          : stderr.trim().split('\n').at(-1) || error.message;
+        reject(new Error(reason));
+      },
+    );
+  });
+}
+
+/**
+ * 整个文件重传是幂等的（PutObject、`gh release upload --clobber`），挂住或失败就重来，最多 UPLOAD_ATTEMPTS 次。
+ * 每次的错误与用时都打出来，下次再慢能看出是哪条线路、哪种失败。
+ */
+async function withRetries(label: string, attempt: () => Promise<void>): Promise<void> {
+  const started = Date.now();
+  for (let n = 1; ; n++) {
+    try {
+      await attempt();
+      break;
+    } catch (error) {
+      if (n >= UPLOAD_ATTEMPTS) throw new Error(`${label}: ${String(error)}`);
+      console.log(`${label}: attempt ${n} failed (${String(error).split('\n')[0]}); retrying`);
+    }
+  }
+  console.log(`${label} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+}
+
+/** 对 `items` 逐个跑 `fn`，同时最多 `limit` 个；有一个失败就不再开始新的，等在跑的跑完后抛出第一个错误。 */
+export async function forEachLimit<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  let failure: { error: unknown } | undefined;
+  const worker = async () => {
+    while (failure === undefined && next < items.length) {
+      const item = items[next++] as T;
+      try {
+        await fn(item);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failure !== undefined) throw failure.error;
 }
 
 /** 清单与签名每次发布都改写，不许缓存；安装包与 blockmap 的名字带版本，发出去就不再变。 */
@@ -299,39 +374,44 @@ function contentType(name: string): string {
  * 会丢片或混进旧的分片（2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 正好少了一个 8 MiB 的分片，CDN 清缓存后回源
  * 仍是坏的）。R2 也照这样传。Bunny 的 S3 接口不收 Cache-Control，清单靠写完后清 CDN 缓存。
  */
-function upload(mirror: MirrorTarget, file: string, key: string): void {
-  // PutObject 整个重传是幂等的，卡住或失败就重来。
-  for (let attempt = 1; ; attempt++) {
-    try {
-      putObject(mirror, file, key);
-      break;
-    } catch (error) {
-      if (attempt >= AWS_UPLOAD_ATTEMPTS) throw error;
-      console.log(
-        `[${mirror.id}] ${key}: attempt ${attempt} failed (${String(error).split('\n')[0]}); retrying`,
-      );
-    }
-  }
-  console.log(`[${mirror.id}] ${key}`);
+function upload(mirror: MirrorTarget, file: string, key: string): Promise<void> {
+  const timeoutMs = uploadTimeoutMs(statSync(file).size);
+  return withRetries(`[${mirror.id}] ${key}`, () => putObject(mirror, file, key, timeoutMs));
 }
 
-function putObject(mirror: MirrorTarget, file: string, key: string): void {
+function putObject(
+  mirror: MirrorTarget,
+  file: string,
+  key: string,
+  timeoutMs: number,
+): Promise<void> {
   const name = key.slice(key.lastIndexOf('/') + 1);
-  aws(mirror, [
-    's3api',
-    'put-object',
-    '--bucket',
-    mirror.bucket,
-    '--key',
-    key,
-    '--body',
-    file,
-    '--content-type',
-    contentType(name),
-    ...(mirror.cacheControl ? ['--cache-control', cacheControlOf(name)] : []),
-    '--output',
-    'json',
-  ]);
+  // AWS CLI 自己的重试是静默的，会把一次挂住拖成很多次；这里只发一次请求，读超时 60 秒，重试由 withRetries 做并打出原因。
+  const env = { ...mirror.awsEnv, AWS_MAX_ATTEMPTS: '1' };
+  return run(
+    'aws',
+    [
+      '--cli-connect-timeout',
+      '30',
+      '--cli-read-timeout',
+      '60',
+      's3api',
+      'put-object',
+      '--bucket',
+      mirror.bucket,
+      '--key',
+      key,
+      '--body',
+      file,
+      '--content-type',
+      contentType(name),
+      ...(mirror.cacheControl ? ['--cache-control', cacheControlOf(name)] : []),
+      '--output',
+      'json',
+    ],
+    env,
+    timeoutMs,
+  );
 }
 
 /** 线路上现有的文件；没有时返回 undefined（404），别的错误照抛。 */
@@ -342,8 +422,11 @@ function download(mirror: MirrorTarget, key: string): string | undefined {
     {
       env: mirror.awsEnv,
       encoding: 'utf8',
+      timeout: AWS_CALL_TIMEOUT_MS,
     },
   );
+  if (result.error)
+    throw new Error(`[${mirror.id}] reading ${key} failed: ${result.error.message}`);
   if (result.status === 0) return result.stdout;
   if (/\b404\b|NoSuchKey|Not Found/i.test(result.stderr)) return undefined;
   throw new Error(`[${mirror.id}] reading ${key} failed: ${result.stderr.trim()}`);
@@ -372,7 +455,9 @@ interface Line {
   id: string;
   /** 文件的公网地址（客户端与 CDN 核对用）。 */
   url(dir: string, name: string): string;
-  upload(dir: string, name: string, file: string): void;
+  upload(dir: string, name: string, file: string): Promise<void>;
+  /** 安装包同时传几个（清单与签名总是一个一个按顺序写）。 */
+  concurrency: number;
   /** 现有文件的内容；没有时返回 undefined。 */
   read(dir: string, name: string): string | undefined;
   list(dir: string): string[];
@@ -385,6 +470,7 @@ function s3Line(mirror: MirrorTarget): Line {
     id: mirror.id,
     url: (dir, name) => `${mirror.publicUrl}/desktop/${dir}/${name}`,
     upload: (dir, name, file) => upload(mirror, file, key(dir, name)),
+    concurrency: S3_UPLOAD_CONCURRENCY,
     read: (dir, name) => download(mirror, key(dir, name)),
     list: (dir) => list(mirror, `desktop/${dir}/`),
     remove: (dir, name) => {
@@ -449,6 +535,7 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'inherit'],
       maxBuffer: 64 * 1024 * 1024,
+      timeout: AWS_CALL_TIMEOUT_MS,
     });
   let releaseId: number | undefined;
   let assets: GithubAsset[] | undefined;
@@ -460,8 +547,11 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
       {
         env,
         encoding: 'utf8',
+        timeout: AWS_CALL_TIMEOUT_MS,
       },
     );
+    if (found.error)
+      throw new Error(`[github] reading release ${GITHUB_TAG} failed: ${found.error.message}`);
     if (found.status === 0) {
       releaseId = Number(found.stdout.trim());
       return releaseId;
@@ -512,22 +602,30 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
     id: 'github',
     url: (dir, name) =>
       `https://github.com/${repo}/releases/download/${GITHUB_TAG}/${githubAssetName(dir, name)}`,
-    upload(dir, name, file) {
+    concurrency: 1,
+    async upload(dir, name, file) {
       const assetName = githubAssetName(dir, name);
       findRelease(true);
       // gh 用文件名做附件名：清单要换成带平台前缀的名字，先复制一份。
       const temp = assetName === name ? undefined : mkdtempSync(join(tmpdir(), 'wevir-release-'));
       const path = temp === undefined ? file : join(temp, assetName);
       if (temp !== undefined) copyFileSync(file, path);
+      const size = statSync(file).size;
       try {
-        gh(['release', 'upload', GITHUB_TAG, path, '--repo', repo, '--clobber']);
+        await withRetries(`[github] ${assetName}`, () =>
+          run(
+            'gh',
+            ['release', 'upload', GITHUB_TAG, path, '--repo', repo, '--clobber'],
+            env,
+            uploadTimeoutMs(size),
+          ),
+        );
       } finally {
         if (temp !== undefined) rmSync(temp, { recursive: true, force: true });
       }
       assets = undefined;
       // 核对 GitHub 收到的大小与 sha256（GitHub 给附件算 digest）。
       const uploaded = asset(dir, name);
-      const size = statSync(file).size;
       if (uploaded === undefined || uploaded.size !== size) {
         throw new Error(
           `[github] ${assetName}: uploaded ${uploaded?.size ?? 'nothing'}, expected ${size} bytes`,
@@ -539,7 +637,6 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
           `[github] ${assetName}: GitHub has ${uploaded.digest}, expected sha256:${sha256}`,
         );
       }
-      console.log(`[github] ${assetName}`);
     },
     read(dir, name) {
       const found = asset(dir, name);
@@ -575,6 +672,7 @@ async function purgeBunny(urls: readonly string[], apiKey: string, quiet = false
       {
         method: 'POST',
         headers: { AccessKey: apiKey },
+        signal: AbortSignal.timeout(60_000),
       },
     );
     if (!response.ok) throw new Error(`purging ${url} failed: HTTP ${response.status}`);
@@ -661,7 +759,8 @@ export async function waitForCdn(
 function bunnyCheck(apiKey: string): CdnCheck {
   return {
     async fetchDigest(url) {
-      const response = await fetch(url);
+      // 整个下载（含读完正文）的上限；超时与其他失败一样算这次没对上，在 CDN_CHECK_TIMEOUT_MS 之内重取。
+      const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
       if (!response.ok || response.body === null) {
         await response.body?.cancel();
         throw new Error(`HTTP ${response.status}`);
@@ -678,12 +777,13 @@ function bunnyCheck(apiKey: string): CdnCheck {
 /**
  * 第 1 步：安装包传到所有线路。全球线路排最前：传完、经 CDN 核对过（`global.verify`）就开始等其他地区的存储副本
  * （CDN_SETTLE_MS），这段等待与其余线路的上传同时进行，等满后清一次缓存（`global.purge`）才返回。等待从核对完算起，
- * 与以前先传完所有线路再干等一样长，只是不再白等。没有 `global`（不是全球线路或没有 Bunny 密钥）时依次上传。
+ * 与以前先传完所有线路再干等一样长，只是不再白等。其余线路之间同时传；没有 `global`（不是全球线路或没有 Bunny 密钥）时
+ * 所有线路一起传。全球线路核对失败时其余线路一个也不传。
  */
 export async function uploadInstallers<L extends { id: string }>(
   lines: readonly L[],
   steps: {
-    upload(line: L): void;
+    upload(line: L): Promise<void>;
     global?: { verify(): Promise<void>; purge(): Promise<void> };
     sleep(ms: number): Promise<void>;
     log(line: string): void;
@@ -692,14 +792,15 @@ export async function uploadInstallers<L extends { id: string }>(
   const globalLine = steps.global && lines.find((line) => line.id === 'global');
   let settled: Promise<void> | undefined;
   if (globalLine && steps.global) {
-    steps.upload(globalLine);
+    await steps.upload(globalLine);
     await steps.global.verify();
     steps.log(
       `[global] waiting ${CDN_SETTLE_MS / 1000}s for the other storage regions (the other lines upload meanwhile)`,
     );
     settled = steps.sleep(CDN_SETTLE_MS);
   }
-  for (const line of lines) if (line !== globalLine) steps.upload(line);
+  // 其余线路同时传（各自的 concurrency 决定一条线路里同时传几个）。
+  await Promise.all(lines.filter((line) => line !== globalLine).map((line) => steps.upload(line)));
   if (settled !== undefined && steps.global) {
     await settled;
     await steps.global.purge();
@@ -777,12 +878,13 @@ async function publish(options: {
   }
   let installers: { url: string; expected: Digest }[] = [];
   await uploadInstallers(mirrors, {
-    upload(mirror) {
-      for (const release of releases) {
-        for (const name of release.payload)
-          mirror.upload(release.dir, name, join(options.dir, release.dir, name));
-      }
-    },
+    upload: (mirror) =>
+      forEachLimit(
+        releases.flatMap((release) => release.payload.map((name) => ({ release, name }))),
+        mirror.concurrency,
+        ({ release, name }) =>
+          mirror.upload(release.dir, name, join(options.dir, release.dir, name)),
+      ),
     global:
       globalLine && bunnyKey
         ? {
@@ -813,7 +915,7 @@ async function publish(options: {
     const written: string[] = [];
     for (const release of releases) {
       for (const name of [release.manifest, `${release.manifest}.sig`]) {
-        mirror.upload(release.dir, name, join(options.dir, release.dir, name));
+        await mirror.upload(release.dir, name, join(options.dir, release.dir, name));
         written.push(mirror.url(release.dir, name));
       }
     }
