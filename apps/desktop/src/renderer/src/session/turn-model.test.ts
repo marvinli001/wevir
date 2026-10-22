@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { currentAction, groupWork, type WorkEntry } from './tool-model';
 import {
   blockSeqRange,
+  filesAfterAnswer,
   foldedParts,
   foldSegments,
   foldTurn,
@@ -422,6 +423,39 @@ describe('foldTurn', () => {
     const { messages } = s.project();
     expect(foldTurn(messages, true, false)).toMatchObject({ hasProcess: false, showHeader: false });
     expect(foldTurn(messages, false, false)).toMatchObject({ hasProcess: true, showHeader: true });
+  });
+
+  it('交给用户的文件（0.40.0）：回合结束后排到回答后面，收起时和回答同一段；进行中不挪', () => {
+    const s = session();
+    s.turn();
+    s.run(TURN, 'w1', { kind: 'shell', command: 'pandoc brief.md' });
+    s.add('file.shared', {
+      turnId: TURN,
+      files: [{ path: 'brief.md', name: 'brief.md', size: 14_200 }],
+    });
+    s.say(TURN, '写好了。');
+    const types = (messages: readonly ChatMessage[], turnActive: boolean) => {
+      const fold = foldTurn(messages, false, turnActive);
+      const assistant = messages.find((m) => m.role === 'assistant');
+      if (!assistant) return [];
+      return filesAfterAnswer(assistant.id, assistant.parts, fold).map((p) => p.type);
+    };
+    expect(types(s.project().messages, true)).toEqual(['tool', 'files', 'text']);
+
+    s.finish(TURN, 'completed');
+    const messages = s.project().messages;
+    expect(types(messages, false)).toEqual(['tool', 'text', 'files']);
+    const fold = foldTurn(messages, false, false);
+    const assistant = messages.find((m) => m.role === 'assistant');
+    expect(
+      assistant &&
+        foldSegments(assistant.id, filesAfterAnswer(assistant.id, assistant.parts, fold), fold).map(
+          (segment) => [segment.kept, segment.parts.map((p) => p.type)],
+        ),
+    ).toEqual([
+      [false, ['tool']],
+      [true, ['text', 'files']],
+    ]);
   });
 });
 
