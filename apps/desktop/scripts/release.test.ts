@@ -10,6 +10,7 @@ import {
   devBuildNumber,
   devVersion,
   filesToPrune,
+  forEachLimit,
   githubAssetName,
   githubDirListing,
   isLegacyAlias,
@@ -20,6 +21,7 @@ import {
   readManifest,
   stableVersionOfTag,
   uploadInstallers,
+  uploadTimeoutMs,
   versionOfFile,
   waitForCdn,
 } from './release.js';
@@ -245,7 +247,9 @@ describe('uploadInstallers', () => {
     const events: string[] = [];
     let wake: () => void = () => {};
     const steps = {
-      upload: (line: { id: string }) => events.push(`upload ${line.id}`),
+      upload: async (line: { id: string }) => {
+        events.push(`upload ${line.id}`);
+      },
       global: {
         async verify() {
           events.push('verify');
@@ -291,13 +295,51 @@ describe('uploadInstallers', () => {
     expect(events).toEqual(['upload global', 'verify']);
   });
 
-  it('不核对全球线路（没有 Bunny 密钥）或没有全球线路时依次上传、不等', async () => {
+  it('不核对全球线路（没有 Bunny 密钥）或没有全球线路时一起上传、不等', async () => {
     const { events, steps } = record();
     await uploadInstallers(lines, { ...steps, global: undefined });
     expect(events).toEqual(['upload global', 'upload second', 'upload github']);
     const second = record();
     await uploadInstallers([{ id: 'second' }], second.steps);
     expect(second.events).toEqual(['upload second']);
+  });
+});
+
+describe('上传', () => {
+  it('单次尝试按最低 2 MiB/s 限时，再加 1 分钟', () => {
+    expect(uploadTimeoutMs(0)).toBe(60_000);
+    // 2026-10-22 最大的安装包约 257 MB：正常 15–30 秒传完，挂住时约 3 分钟就重传，不再等 15 分钟。
+    expect(uploadTimeoutMs(256_873_842)).toBe(60_000 + 123_000);
+  });
+
+  it('同时最多跑 limit 个，全部跑完', async () => {
+    let running = 0;
+    let peak = 0;
+    const done: number[] = [];
+    await forEachLimit([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+      running++;
+      peak = Math.max(peak, running);
+      await new Promise((resolve) => setTimeout(resolve, 8 - n));
+      done.push(n);
+      running--;
+    });
+    expect(peak).toBe(3);
+    expect(done.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('有一个失败就不再开始新的，等在跑的跑完再抛出', async () => {
+    const started: number[] = [];
+    let finished = 0;
+    await expect(
+      forEachLimit([1, 2, 3, 4, 5], 2, async (n) => {
+        started.push(n);
+        if (n === 1) throw new Error('stuck');
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        finished++;
+      }),
+    ).rejects.toThrow('stuck');
+    expect(started).toEqual([1, 2]);
+    expect(finished).toBe(1);
   });
 });
 
