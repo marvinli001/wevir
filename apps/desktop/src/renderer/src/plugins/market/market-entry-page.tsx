@@ -1,11 +1,20 @@
 // 市场条目的详情页（plugin-market.md §9.2，`/plugins/market/:source/:entry`）：头部（图标、名称与徽章、发布者、“···”与主按钮）、
-// 示例、README、MCP 服务器与技能列表、信息表。主按钮是 install-button.tsx（0.99.0 起能装）；示例还只看不点。
+// 示例、README、MCP 服务器与技能列表、信息表。主按钮是 install-button.tsx（0.99.0 起能装）；装好后“···”里能卸载。示例还只看不点。
 
 import type { MarketEntry, MarketMirror } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, CloudOff, Ellipsis, ExternalLink, Link2, Server } from 'lucide-react';
+import {
+  ChevronRight,
+  CloudOff,
+  Ellipsis,
+  ExternalLink,
+  Link2,
+  Server,
+  Trash2,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Collapse } from '@/components/collapse';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
@@ -13,13 +22,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { commandLine } from '../plugins-model';
-import { MarketInstallButton } from './install-button';
+import { MarketInstallButton, useMarketInstallContext } from './install-button';
 import {
   decodeText,
   entryPublisher,
@@ -113,6 +123,8 @@ function EntryDetail({
   const publisher = entryPublisher(entry);
   const { connectors, skills } = entry.contents;
   const category = categories.find((item) => item.id === entry.category);
+  const { installed, uninstall, notify } = useMarketInstallContext();
+  const [confirming, setConfirming] = useState(false);
   return (
     <>
       <header className="mb-8 flex items-start gap-4">
@@ -160,11 +172,37 @@ function EntryDetail({
                   {t('plugins.market.viewUpstream')}
                 </DropdownMenuItem>
               )}
+              {installed.has(entry.id) && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setConfirming(true)}
+                    data-action="uninstall-plugin"
+                  >
+                    <Trash2 />
+                    {t('plugins.plugin.uninstall')}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           <MarketInstallButton entry={entry} variant="detail" />
         </div>
       </header>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('plugins.plugin.uninstall.title', { name: text.name })}
+        confirmLabel={t('plugins.plugin.uninstall')}
+        failure={(error) => t('plugins.plugin.uninstall.failed', { error })}
+        onConfirm={async () => {
+          await uninstall(entry.id);
+          notify({ tone: 'success', text: t('plugins.plugin.uninstalled', { name: text.name }) });
+        }}
+      >
+        <p>{t('plugins.plugin.uninstall.body')}</p>
+      </ConfirmDialog>
 
       {text.examples.length > 0 && (
         <section

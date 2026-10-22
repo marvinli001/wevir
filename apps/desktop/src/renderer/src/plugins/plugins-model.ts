@@ -73,6 +73,9 @@ export type ConnectorStateKey =
   | 'starting'
   | 'failed'
   | 'authRequired'
+  | 'signingIn'
+  | 'insufficientScope'
+  | 'signInFailed'
   | 'idle';
 
 export interface ConnectorState {
@@ -90,6 +93,9 @@ export const CONNECTOR_STATE_LABEL: Record<ConnectorStateKey, PlainMessageKey> =
   starting: 'plugins.connector.state.starting',
   failed: 'plugins.connector.state.failed',
   authRequired: 'plugins.connector.state.authRequired',
+  signingIn: 'plugins.connector.state.signingIn',
+  insufficientScope: 'plugins.connector.state.insufficientScope',
+  signInFailed: 'plugins.connector.state.signInFailed',
   idle: 'plugins.connector.state.idle',
 };
 
@@ -100,13 +106,16 @@ const STATES: Record<ConnectorStateKey, Omit<ConnectorState, 'key'>> = {
   starting: { tone: 'accent', pulse: true },
   failed: { tone: 'danger', pulse: false },
   authRequired: { tone: 'warning', pulse: false },
+  signingIn: { tone: 'accent', pulse: true },
+  insufficientScope: { tone: 'warning', pulse: false },
+  signInFailed: { tone: 'danger', pulse: false },
   idle: { tone: 'neutral', pulse: false },
 };
 
 /**
  * 连接器此刻的状态：连接器自己或所属插件关着是“已关闭”，缺必填输入项是“缺少输入项”，其余按引擎报的 `status`（Codex 的
  * McpServerConnectionStatus：notStarted、starting、connected、authenticationRequired、failed、cancelled、disabled）；引擎还
- * 没启动、没有状态时是“未启动”。
+ * 没启动、没有状态时是“未启动”。OAuth 连接器（0.97.0）没登录好时先看 `oauth.status`。
  */
 export function connectorState(connector: Connector, plugin?: Plugin): ConnectorState {
   return {
@@ -119,6 +128,16 @@ function connectorStateKey(connector: Connector, plugin?: Plugin): ConnectorStat
   if (!connector.enabled || plugin?.enabled === false) return 'disabled';
   if (connector.missingInputs !== undefined && connector.missingInputs.length > 0) {
     return 'missingInputs';
+  }
+  switch (connector.oauth?.status) {
+    case 'required':
+      return 'authRequired';
+    case 'signing_in':
+      return 'signingIn';
+    case 'insufficient_scope':
+      return 'insufficientScope';
+    case 'error':
+      return 'signInFailed';
   }
   switch (connector.status) {
     case 'connected':
@@ -135,6 +154,24 @@ function connectorStateKey(connector: Connector, plugin?: Plugin): ConnectorStat
     default:
       return 'idle';
   }
+}
+
+/** OAuth 连接器要（重新）登录：没登录、权限不够或上次登录失败。 */
+export function needsSignIn(connector: Connector): boolean {
+  const status = connector.oauth?.status;
+  return status === 'required' || status === 'insufficient_scope' || status === 'error';
+}
+
+/** 插件里第一个要登录或正在登录的连接器（按名字），市场详情页的主按钮用它。 */
+export function pluginSignIn(
+  plugin: Plugin,
+  list: Pick<PluginsList, 'connectors' | 'skills'>,
+): Connector | undefined {
+  if (!plugin.enabled) return undefined;
+  return pluginItems(plugin, list).connectors.find(
+    (connector) =>
+      connector.enabled && (needsSignIn(connector) || connector.oauth?.status === 'signing_in'),
+  );
 }
 
 /** 命令与参数的显示写法：带空白的参数加引号（只用于显示）。 */
