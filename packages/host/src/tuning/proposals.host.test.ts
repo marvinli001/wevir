@@ -1,5 +1,5 @@
-// 调优的建议（0.87.0）：startHost 组装出的真实 Host，echo 引擎的 `generateTitle` 按说明回回顾摘要或脚本里的建议。走一遍
-// “生成（先补回顾摘要）→ 改 → 采纳四种 → 新会话的版本记下建议”，再看过时、拒绝进入下一次输入、重新生成与失败的原因。
+// 调优的建议（0.87.0，0.107.0 起直接进入试用）：startHost 组装出的真实 Host，echo 引擎的 `generateTitle` 按说明回回顾摘要或脚本里的
+// 建议。走一遍“生成（先补回顾摘要）→ 写入并试用 → 新会话的版本记下建议 → 保留与撤销”，再看被改过的目标、护栏与失败的原因。
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -128,7 +128,7 @@ const RULE_DIFF = [
 ].join('\n');
 
 describe('调优的建议', () => {
-  it('生成（先补摘要、合计用量）→ 改 → 采纳四种 → 下一个会话的版本记下建议', async () => {
+  it('生成（先补摘要、合计用量）→ 直接写入并进入试用 → 下一个会话的版本记下建议 → 保留、撤销', async () => {
     const h = await boot();
     const { sessionId, events } = await h.newSession('fix ci');
     const turn = events().find((event) => event.type === 'turn.started');
@@ -153,10 +153,12 @@ describe('调优的建议', () => {
     expect(generated.reason).toBeUndefined();
     expect(generated.summarized).toBe(true);
     expect(generated.usage).toEqual({ inputTokens: 2400, outputTokens: 360 });
-    expect(generated.proposals.map((p: TuningProposal) => [p.kind, p.target, p.status])).toEqual([
-      ['rule', 'AGENTS.md', 'pending'],
-      ['skill', '.agents/skills/release-checklist/SKILL.md', 'pending'],
-      ['memory', 'build-first', 'pending'],
+    expect(
+      generated.proposals.map((p: TuningProposal) => [p.kind, p.target, p.status, p.origin]),
+    ).toEqual([
+      ['rule', 'AGENTS.md', 'trial', 'user'],
+      ['skill', '.agents/skills/release-checklist/SKILL.md', 'trial', 'user'],
+      ['memory', 'build-first', 'trial', 'user'],
     ]);
     const [rule, skill, memory] = generated.proposals as [
       TuningProposal,
@@ -167,7 +169,6 @@ describe('调优的建议', () => {
       expect.objectContaining({ id: turnRef, turn: 1, text: 'fix ci', ref: expect.anything() }),
     ]);
     expect(rule.change).toMatchObject({ before: AGENTS });
-    expect(rule.change.kind === 'rule' && rule.change.after).toContain('pnpm build');
     expect(rule.usage).toEqual({ inputTokens: 2400, outputTokens: 360 });
     expect(rule.providerId).toBe('deepseek-official');
     // 输入里有回顾、项目的 AGENTS.md 与允许的种类。
@@ -177,38 +178,12 @@ describe('调优的建议', () => {
     expect(input).toContain('<allowed>rule, skill, memory, guardrail</allowed>');
     expect(input).toContain('Fixed the build.');
 
-    // 改：文本换掉，标“改过”。
-    const edited = 'Run `pnpm build` first, always.';
-    const updated = await h.client.request('tuning.proposal.update', {
-      proposalId: memory.id,
-      after: edited,
-      description: 'Build first',
-    });
-    expect(updated.proposal).toMatchObject({
-      edited: true,
-      change: { after: edited, description: 'Build first' },
-    });
-    await expect(
-      h.client.request('tuning.proposal.update', {
-        proposalId: memory.id,
-        rule: { kind: 'protected_path', glob: 'x' },
-      }),
-    ).rejects.toMatchObject({ code: ErrorCode.INVALID_PARAMS });
-
-    // 采纳：写文件、启用技能、写记忆（来源是会话与建议）。
-    for (const p of [rule, skill, memory]) {
-      const { proposal: decided } = await h.client.request('tuning.proposal.decide', {
-        proposalId: p.id,
-        decision: 'accept',
-      });
-      expect(decided.status).toBe('accepted');
-    }
+    // 已经写入：文件、启用的技能、记忆（来源是会话与建议）。
     expect(readFileSync(join(h.repo, 'AGENTS.md'), 'utf8')).toBe(
       `${AGENTS}- Run \`pnpm build\` before \`pnpm test\`.\n`,
     );
-    expect(
-      readFileSync(join(h.repo, '.agents', 'skills', 'release-checklist', 'SKILL.md'), 'utf8'),
-    ).toContain('1. Tag.');
+    const skillPath = join(h.repo, '.agents', 'skills', 'release-checklist', 'SKILL.md');
+    expect(readFileSync(skillPath, 'utf8')).toContain('1. Tag.');
     const { skills } = await h.client.request('plugins.list', {});
     expect(skills.find((s: Skill) => s.name === 'release-checklist')?.enabled).toBe(true);
     const { note } = await h.client.request('memory.read', {
@@ -216,34 +191,80 @@ describe('调优的建议', () => {
       workspaceId: h.workspaceId,
       name: 'build-first',
     });
-    expect(note).toMatchObject({ content: edited, description: 'Build first', type: 'feedback' });
+    expect(note).toMatchObject({ type: 'feedback', content: 'The build must run before tests.' });
     expect(note.origin).toMatchObject({ by: 'user', sessionId, proposalId: memory.id });
-    // 同样的决定再来一次原样返回，相反的决定不行。
+    // 试用中的不能再改。
     await expect(
-      h.client.request('tuning.proposal.decide', { proposalId: rule.id, decision: 'reject' }),
+      h.client.request('tuning.proposal.update', { proposalId: memory.id, after: 'x' }),
     ).rejects.toMatchObject({ code: ErrorCode.INVALID_PARAMS });
-    expect(h.client.notifications('tuning.proposal.changed').length).toBeGreaterThan(0);
 
-    // 下一个会话开的版本记下三条建议；已处理的列表带版本与会话数。
-    await h.newSession();
+    // 总览：试用还没有起点，生成记进本月消耗。
+    let overview = await h.client.request('tuning.overview', { workspaceId: h.workspaceId });
+    expect(overview.auto).toEqual({ enabled: false, decided: false });
+    expect(overview.trial).toMatchObject({
+      proposalIds: [rule.id, skill.id, memory.id],
+      sessions: 0,
+    });
+    expect(overview.trial?.startVersion).toBeUndefined();
+    expect(overview.budget).toMatchObject({ usedTokens: 2760, autoTokens: 0, exhausted: false });
+    expect(overview.lastRun).toMatchObject({ origin: 'user', proposals: 3 });
+    expect(overview.totals).toEqual({ adopted: 3, kept: 0, reverted: 0 });
+
+    // 下一个会话开的版本记下三条建议，成为试用的起点。
+    await h.newSession('next');
     const { versions } = await h.client.request('tuning.versions', { workspaceId: h.workspaceId });
     expect(versions[0]?.cause?.proposalIds).toEqual([rule.id, skill.id, memory.id]);
-    expect(versions[1]?.cause).toBeUndefined();
+    overview = await h.client.request('tuning.overview', { workspaceId: h.workspaceId });
+    expect(overview.trial).toMatchObject({ sessions: 1, needed: 5 });
+    expect(overview.trial?.startVersion?.id).toBe(versions[0]?.id);
+    expect(overview.series.at(-1)).toMatchObject({ trial: true, metrics: { sessions: 1 } });
+
+    // 提前保留一条；撤销另两条：AGENTS.md 写回原文，原来没有的技能删掉并停用、记忆删掉。
+    const kept = await h.client.request('tuning.proposal.decide', {
+      proposalId: memory.id,
+      decision: 'accept',
+    });
+    expect(kept.proposal).toMatchObject({
+      status: 'accepted',
+      outcome: { decidedBy: 'user', result: 'kept', reason: 'manual' },
+    });
+    const reverted = await h.client.request('tuning.proposal.revert', { proposalId: rule.id });
+    expect(reverted.proposal).toMatchObject({
+      status: 'reverted',
+      outcome: { decidedBy: 'user', result: 'reverted' },
+    });
+    expect(readFileSync(join(h.repo, 'AGENTS.md'), 'utf8')).toBe(AGENTS);
+    expect(h.client.notifications('tuning.proposal.changed').length).toBeGreaterThan(0);
+    // 再撤销一次原样返回。
+    expect(
+      (await h.client.request('tuning.proposal.revert', { proposalId: rule.id })).proposal.status,
+    ).toBe('reverted');
+    await h.client.request('tuning.proposal.decide', { proposalId: skill.id, decision: 'reject' });
+    expect(() => readFileSync(skillPath, 'utf8')).toThrow();
+    // 保留了的记忆也能撤销：原来没有，删掉。
+    await h.client.request('tuning.proposal.revert', { proposalId: memory.id });
+    await expect(
+      h.client.request('memory.read', {
+        scope: 'project',
+        workspaceId: h.workspaceId,
+        name: 'build-first',
+      }),
+    ).rejects.toBeDefined();
+    overview = await h.client.request('tuning.overview', { workspaceId: h.workspaceId });
+    expect(overview.trial).toBeUndefined();
+    expect(overview.totals).toEqual({ adopted: 3, kept: 0, reverted: 3 });
     const decided = await h.client.request('tuning.proposal.list', {
       workspaceId: h.workspaceId,
       status: 'decided',
     });
-    expect(decided.proposals).toHaveLength(3);
-    for (const p of decided.proposals) {
-      expect(p.version?.id).toBe(versions[0]?.id);
-      expect(p.stats).toEqual({ sessions: 1 });
-    }
-    expect((await h.client.request('tuning.proposal.list', { status: 'open' })).proposals).toEqual(
-      [],
-    );
+    expect(decided.proposals.map((p: TuningProposal) => p.status)).toEqual([
+      'reverted',
+      'reverted',
+      'reverted',
+    ]);
   }, 60_000);
 
-  it('目标变了：已过时，不能改不能采纳；拒绝的进入下一次输入；重新生成换掉过时的；护栏采纳', async () => {
+  it('目标在采纳后被改过：撤销回 PROPOSAL_STALE、不动目标；护栏进入试用与撤销；全局总览', async () => {
     const h = await boot();
     const { sessionId } = await h.newSession('protect secrets');
     h.adapter.proposals = JSON.stringify({
@@ -258,24 +279,7 @@ describe('调优的建议', () => {
     });
     const first = await h.client.request('tuning.proposal.generate', { sessionId });
     const [rule, guardrail] = first.proposals as [TuningProposal, TuningProposal];
-    // 第二次不再补摘要。
-    expect(first.summarized).toBe(true);
-
-    writeFileSync(join(h.repo, 'AGENTS.md'), `${AGENTS}- Changed by hand.\n`);
-    await expect(
-      h.client.request('tuning.proposal.decide', { proposalId: rule.id, decision: 'accept' }),
-    ).rejects.toMatchObject({ code: ErrorCode.PROPOSAL_STALE });
-    const open = await h.client.request('tuning.proposal.list', { status: 'open' });
-    expect(open.proposals.find((p: TuningProposal) => p.id === rule.id)?.status).toBe('stale');
-    await expect(
-      h.client.request('tuning.proposal.update', { proposalId: rule.id, after: 'x' }),
-    ).rejects.toMatchObject({ code: ErrorCode.PROPOSAL_STALE });
-
-    // 护栏：采纳加进这个项目。
-    await h.client.request('tuning.proposal.decide', {
-      proposalId: guardrail.id,
-      decision: 'accept',
-    });
+    expect([rule.status, guardrail.status]).toEqual(['trial', 'trial']);
     const { guardrails } = await h.client.request('guardrail.list', {
       workspaceId: h.workspaceId,
     });
@@ -287,23 +291,25 @@ describe('调优的建议', () => {
       ],
     ]);
 
-    // 重新生成换掉过时的那条；上一条被拒绝的进入输入。
-    const old = await h.client.request('tuning.proposal.generate', { sessionId });
-    expect(old.summarized).toBeUndefined();
-    const toReject = old.proposals[0] as TuningProposal;
-    await h.client.request('tuning.proposal.decide', {
-      proposalId: toReject.id,
-      decision: 'reject',
-    });
-    h.adapter.proposals = '{"proposals": []}';
-    const again = await h.client.request('tuning.proposal.generate', {
-      sessionId,
-      replaces: rule.id,
-    });
-    expect(again).toMatchObject({ proposals: [], usage: { inputTokens: 1500, outputTokens: 300 } });
-    expect(h.adapter.requests.at(-1)?.input).toContain(`- rule AGENTS.md: ${toReject.title}`);
+    const changed = `${AGENTS}- Changed by hand.\n`;
+    writeFileSync(join(h.repo, 'AGENTS.md'), changed);
     await expect(
-      h.client.request('tuning.proposal.decide', { proposalId: rule.id, decision: 'reject' }),
+      h.client.request('tuning.proposal.revert', { proposalId: rule.id }),
+    ).rejects.toMatchObject({ code: ErrorCode.PROPOSAL_STALE });
+    expect(readFileSync(join(h.repo, 'AGENTS.md'), 'utf8')).toBe(changed);
+
+    await h.client.request('tuning.proposal.revert', { proposalId: guardrail.id });
+    expect(
+      (await h.client.request('guardrail.list', { workspaceId: h.workspaceId })).guardrails,
+    ).toEqual([]);
+
+    // 全局总览只有开关、预算与走势。
+    const global = await h.client.request('tuning.overview', {});
+    expect(global).not.toHaveProperty('trial');
+    expect(global).not.toHaveProperty('totals');
+    expect(global.budget.usedTokens).toBe(2760);
+    await expect(
+      h.client.request('tuning.proposal.revert', { proposalId: 'tpr_01JA2B3C4D5E6F7G8H9JKMNPQR' }),
     ).rejects.toMatchObject({ code: ErrorCode.PROPOSAL_NOT_FOUND });
   }, 60_000);
 

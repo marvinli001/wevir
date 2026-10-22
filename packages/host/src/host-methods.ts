@@ -76,8 +76,10 @@ import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import type { SpeechService } from './speech/service.js';
 import type { TerminalService } from './terminals.js';
+import type { AutoTuner } from './tuning/auto.js';
 import type { ProposalService } from './tuning/proposals.js';
 import type { TuningService } from './tuning/service.js';
+import type { TrialService } from './tuning/trials.js';
 import type { PricingStore } from './usage/pricing.js';
 import type { UsageService } from './usage/usage-service.js';
 import type { VerificationService } from './verification/service.js';
@@ -202,6 +204,10 @@ export interface HostMethodsOptions {
   tuning?: TuningService;
   /** 调优的建议（0.87.0，`tuning.proposal.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   proposals?: ProposalService;
+  /** 自动调优的试用与总览（0.107.0，`tuning.overview`）；省略时它回 `INVALID_PARAMS`（测试）。 */
+  trials?: TrialService;
+  /** 自动调优的后台生成（0.107.0）：会话关闭、归档前让它先生成。 */
+  autoTuner?: Pick<AutoTuner, 'beforeClose'>;
   /** 护栏（0.86.0，`guardrail.*` 与 `repoHook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   guardrails?: GuardrailService;
   /** 官方插件市场（0.91.0，`market.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
@@ -1141,6 +1147,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (record.parentSessionId !== undefined || record.side) {
         throw invalidParams(['sessionId'], 'only top-level sessions can be archived');
       }
+      if (archived) await options.autoTuner?.beforeClose(sessionId);
       const worktrees = await sessions.archive(sessionId, archived);
       const snapshot = events.snapshot(sessionId);
       if (!snapshot) throw sessionNotFound(sessionId);
@@ -1177,6 +1184,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     'session.close': async ({ sessionId }) => {
+      await options.autoTuner?.beforeClose(sessionId);
       await sessions.close(sessionId);
       return {};
     },
@@ -1675,11 +1683,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'tuning.proposal.update': (params) => proposals().update(params),
     'tuning.proposal.decide': (params) => proposals().decide(params),
     // 0.107.0：自动调优。
-    'tuning.proposal.revert': () => {
-      throw invalidParams([], 'this host has no automatic tuning');
-    },
-    'tuning.overview': () => {
-      throw invalidParams([], 'this host has no automatic tuning');
+    'tuning.proposal.revert': async ({ proposalId }) => ({
+      proposal: await proposals().revert(proposalId, 'user'),
+    }),
+    'tuning.overview': (params) => {
+      if (options.trials === undefined)
+        throw invalidParams([], 'this host has no automatic tuning');
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return options.trials.overview(params);
     },
   };
 }

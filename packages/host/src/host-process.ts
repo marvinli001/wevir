@@ -95,11 +95,14 @@ import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
 import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
+import { AutoTuner } from './tuning/auto.js';
 import { ProfileBlobStore } from './tuning/blobs.js';
+import { SessionMetrics } from './tuning/metrics.js';
 import { ProfileCollector } from './tuning/profile.js';
 import { ProposalService } from './tuning/proposals.js';
 import { loadProposalInstructions } from './tuning/proposals-input.js';
 import { TuningService } from './tuning/service.js';
+import { TrialService } from './tuning/trials.js';
 import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
 import { ChecksStore } from './verification/checks-store.js';
@@ -366,6 +369,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
     let opinions: SecondOpinionService | undefined;
+    // 自动调优（0.107.0）：建议服务建好之后才有。
+    let autoTuner: AutoTuner | undefined;
     let review: ReviewService | undefined;
     // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
     const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
@@ -453,6 +458,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     approvalRules = ruleService;
     // 调优的档案（0.85.0）：建会话、恢复与接力时记下用的档案版本；条目的文本存在 `<数据目录>/tuning/blobs`。
     const userHome = options.userHome ?? options.pluginUserHome ?? homedir();
+    // 自动调优的会话指标（0.107.0）：试用与总览共用，按会话缓存。
+    const tuningMetrics = new SessionMetrics({ storage, events: store });
     const tuning = new TuningService({
       storage,
       collector: new ProfileCollector({
@@ -538,6 +545,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           void processes?.removeSessions(sessionIds);
           terminals?.removeSessions(sessionIds);
           void verificationService?.removeSessions(sessionIds);
+          autoTuner?.forget(sessionIds);
+          tuningMetrics.forget(sessionIds);
         },
         dispose: () => appTools?.plugins?.close(),
       },
@@ -547,6 +556,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         appTools?.onTurnFinished(info);
         automations?.onTurnFinished(info);
         opinions?.onTurnFinished(info);
+        autoTuner?.onTurnFinished(info.sessionId);
         // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
         // （API Key 的 Provider）时 `turnEnded` 什么都不做。
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
@@ -779,17 +789,46 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               if (skill !== undefined && !skill.enabled)
                 await plugins.setSkillEnabled(skill.id, true);
             },
+            disableSkill: async (path) => {
+              const real = await realpath(path).catch(() => path);
+              const skill = (await plugins.skills()).find(
+                (item) => item.path === real || item.path === path,
+              );
+              if (skill?.enabled === true) await plugins.setSkillEnabled(skill.id, false);
+            },
             memory,
             ...(guardrails !== undefined && { guardrails }),
             userHome,
             onProfileChanged: (workspaceId) => tuning.changed(workspaceId),
             onWarning: (message, fields) => logger.warn(message, fields),
           });
-    if (proposals !== undefined) {
+    // 自动调优（0.107.0，tuning/trials.ts 与 tuning/auto.ts）：改动进入试用，按之后会话的指标保留或回退；开关开着时后台生成。
+    const trials =
+      proposals === undefined
+        ? undefined
+        : new TrialService({
+            storage,
+            metrics: tuningMetrics,
+            proposals,
+            settings: () => settings.get(),
+            onWarning: (message, fields) => logger.warn(message, fields),
+          });
+    if (proposals !== undefined && trials !== undefined) {
       tuning.setCauses({
         pending: (workspaceId) => proposals.pendingCause(workspaceId),
         recorded: (versionId, cause) => proposals.recordCause(versionId, cause),
       });
+      autoTuner = new AutoTuner({
+        storage,
+        settings: () => settings.get(),
+        trials,
+        generate: (sessionId) => proposals.generate({ sessionId }, { origin: 'auto' }),
+        isChats: (workspace) => chats.isChats(workspace),
+        onWarning: (message, fields) => logger.warn(message, fields),
+      });
+      void trials
+        .evaluateAll()
+        .catch((error: unknown) => logger.warn('tuning trial check failed', { error }));
     }
 
     // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
@@ -1040,6 +1079,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         tuning,
         ...(guardrails !== undefined && { guardrails }),
         ...(proposals !== undefined && { proposals }),
+        ...(trials !== undefined && { trials }),
+        ...(autoTuner !== undefined && { autoTuner }),
         market,
         speech,
         keepAwake,
@@ -1122,7 +1163,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(previews !== undefined && { dev_preview: true }),
         tuning: true,
         ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
-        ...(proposals !== undefined && { tuning_proposals: true }),
+        ...(proposals !== undefined && { tuning_proposals: true, tuning_auto: true }),
         plugin_market: true,
         market_files: true,
         market_install: true,
