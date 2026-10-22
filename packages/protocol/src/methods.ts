@@ -1305,9 +1305,26 @@ export const SessionListParamsSchema = z.object({
   archived: z.boolean().optional(),
 });
 
+/** 会话列表的版本（0.101.0，domain-model §3.46）：Host 里每批列表变化加一，Host 每次启动从新的起点开始。 */
+const SessionListVersionSchema = z.number().int().nonnegative();
+
 export const SessionListResultSchema = z.object({
   /** 按 `updatedAt` 从新到旧。 */
   sessions: z.array(SessionSchema),
+  /**
+   * 列表的版本（0.101.0，Host 功能 `session_list_push`）：之后这条连接收 `sessions.changed`，版本不等于上次加一就重读。旧 Host 没有。
+   */
+  listVersion: SessionListVersionSchema.optional(),
+});
+
+/**
+ * `sessions.changed`（0.101.0）：一批会话列表的变化。`upserted` 是这条连接列过的范围里变了的会话（整行，同 `session.list`），
+ * `removed` 是它见过、现在不在范围里的会话（删了、归档了、工作区移除了）；与它无关时两个都是空数组。
+ */
+export const SessionsChangedParamsSchema = z.object({
+  listVersion: SessionListVersionSchema,
+  upserted: z.array(SessionSchema),
+  removed: z.array(SessionIdSchema),
 });
 
 export const SessionIdParamsSchema = z.object({
@@ -2615,6 +2632,8 @@ export function isMethodName(method: string): method is MethodName {
 export const NotificationSchemas = {
   'plugins.changed': { params: z.object({}) },
   'events.event': { params: EventsEventParamsSchema },
+  /** 发给调用过 `session.list` 的连接（0.101.0）：会话列表的增量。 */
+  'sessions.changed': { params: SessionsChangedParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2665,6 +2684,7 @@ export const NOTIFICATION_NAMES = Object.keys(NotificationSchemas) as Notificati
 export const NOTIFICATION_PERMISSIONS = {
   'plugins.changed': 'host.manage',
   'events.event': 'session.read',
+  'sessions.changed': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',

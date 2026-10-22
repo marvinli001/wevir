@@ -28,6 +28,7 @@ import {
   ProcessChangedParamsSchema,
   ReadinessChangedParamsSchema,
   type SessionId,
+  SessionsChangedParamsSchema,
   SettingsUpdatedParamsSchema,
   SpeechChangedParamsSchema,
   TerminalChangedParamsSchema,
@@ -49,6 +50,8 @@ export type ProcessChange = NotificationParams<'process.changed'>;
 export type ReadinessChange = NotificationParams<'readiness.changed'>;
 /** `preview.changed` 的内容（0.84.0）。 */
 export type PreviewChange = NotificationParams<'preview.changed'>;
+/** `sessions.changed` 的内容（0.101.0）。 */
+export type SessionsChange = NotificationParams<'sessions.changed'>;
 /** `speech.changed` 的内容（0.92.0）。 */
 export type SpeechChange = NotificationParams<'speech.changed'>;
 /** `market.installProgress` 的内容（0.99.0）。 */
@@ -296,6 +299,7 @@ export class WevirClient {
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
   readonly #speechListeners = new Set<(change: SpeechChange | undefined) => void>();
+  readonly #sessionsListeners = new Set<(change: SessionsChange | undefined) => void>();
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
@@ -608,6 +612,25 @@ export class WevirClient {
   onSpeechChanged(listener: (change: SpeechChange | undefined) => void): () => void {
     this.#speechListeners.add(listener);
     return () => this.#speechListeners.delete(listener);
+  }
+
+  /**
+   * 会话列表变了（0.101.0，`sessions.changed`，Host 功能 `session_list_push`）：只有调过 `session.list` 的连接收得到，`listVersion` 不等于
+   * 上次（列表结果或上一条）加一时重读列表。重连上之后以 `undefined` 调一次（新连接还没读过列表，期间的变化没收到）。返回取消函数。
+   */
+  onSessionsChanged(listener: (change: SessionsChange | undefined) => void): () => void {
+    this.#sessionsListeners.add(listener);
+    return () => this.#sessionsListeners.delete(listener);
+  }
+
+  #sessionsChanged(change: SessionsChange | undefined): void {
+    for (const listener of [...this.#sessionsListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a sessions listener threw', { error });
+      }
+    }
   }
 
   #speechChanged(change: SpeechChange | undefined): void {
@@ -1048,6 +1071,7 @@ export class WevirClient {
         if (this.supports('workspace_readiness')) this.#readinessChanged(undefined);
         if (this.supports('dev_preview')) this.#previewChanged(undefined);
         if (this.supports('speech')) this.#speechChanged(undefined);
+        if (this.supports('session_list_push')) this.#sessionsChanged(undefined);
         if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
         if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
@@ -1359,6 +1383,15 @@ export class WevirClient {
           this.#warn('a market install listener threw', { error });
         }
       }
+      return;
+    }
+    if (method === 'sessions.changed') {
+      const parsed = SessionsChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed sessions.changed notification');
+        return;
+      }
+      this.#sessionsChanged(parsed.data);
       return;
     }
     if (method === 'speech.changed') {

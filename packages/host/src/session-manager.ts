@@ -2888,11 +2888,13 @@ export class SessionManager {
     this.#assertNotChild(runtime);
     if (!archived) {
       this.#storage.sessions.setArchived(sessionId, undefined);
+      this.#events.touch([sessionId]);
       return this.#serial(runtime, () => this.#restoreArchived(this.#record(runtime)));
     }
     await this.close(sessionId);
     if (this.#storage.sessions.get(sessionId)?.archivedAt === undefined) {
       this.#storage.sessions.setArchived(sessionId, new Date().toISOString());
+      this.#events.touch([sessionId]);
     }
     return this.#serial(runtime, async () => {
       const worktreesDir = this.#worktreesDir;

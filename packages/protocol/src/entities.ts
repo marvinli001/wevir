@@ -1933,6 +1933,12 @@ export const SessionSchema = z.object({
   goal: SessionGoalSchema.optional(),
   /** 这个会话当前的来源加载的规则文件（0.68.0，最近一次 `session.rules`）；Host 没记过时省略。 */
   rules: SessionRulesSchema.optional(),
+  /**
+   * 未决的审批数（0.101.0，Host 功能 `session_list_push`）：只出现在 `session.list` 的行与 `sessions.changed` 里，0 时省略。
+   */
+  pendingApprovalCount: z.number().int().positive().optional(),
+  /** 等回答的问题数（0.101.0），同 `pendingApprovalCount`。 */
+  pendingQuestionCount: z.number().int().positive().optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

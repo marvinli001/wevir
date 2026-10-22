@@ -89,6 +89,23 @@ export function mergeSessions(
 }
 
 /**
+ * 把一条 `sessions.changed`（0.101.0）用到列表上：`removed` 去掉，`upserted` 整行换上；手里的行 `lastSeq` 更大时（事件订阅已经更新过）
+ * 留着自己的。
+ */
+export function applySessionsChange(
+  live: ReadonlyMap<SessionId, Session>,
+  change: { readonly upserted: readonly Session[]; readonly removed: readonly SessionId[] },
+): Map<SessionId, Session> {
+  const next = new Map(live);
+  for (const id of change.removed) next.delete(id);
+  for (const session of change.upserted) {
+    const current = next.get(session.id);
+    if (current === undefined || current.lastSeq <= session.lastSeq) next.set(session.id, session);
+  }
+  return next;
+}
+
+/**
  * 会话行左侧的状态标记。`cancelling` 仍算运行中；运行中有问题等用户回答（0.10.0 的 `awaitingInput`）是等回答；只读会话与
  * 上一回合失败（idle 下有 lastError）算出错。
  */
