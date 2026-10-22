@@ -2,6 +2,7 @@ import { hostname } from 'node:os';
 import {
   pairRemoteHost,
   type RemotePairingResult,
+  type RemoteRoute,
   RemoteUnreachableError,
 } from '@wevir/client-sdk';
 import { generateKeyPair } from '@wevir/noise';
@@ -17,7 +18,12 @@ import type { Context } from '../context.js';
 import { CliError, EXIT, UsageError } from '../errors.js';
 import { formatTime, table } from '../format.js';
 import { joinList, t } from '../i18n/index.js';
-import { type CandidateRoute, candidateRoute, DISCOVERY_MS } from '../remote/connect.js';
+import {
+  type CandidateRoute,
+  candidateRoute,
+  cliRelayRoute,
+  DISCOVERY_MS,
+} from '../remote/connect.js';
 import { browseWevirHosts, type DiscoveredHost } from '../remote/mdns.js';
 import {
   encodeSecretKey,
@@ -67,13 +73,23 @@ interface PairingTarget {
   hostPublicKey: string;
   routeId: string;
   hostName?: string;
+  /** 直连的路。 */
   routes: CandidateRoute[];
+  /** 配对链接里的中继地址：直连的先手之后也经它试。 */
   relayUrl?: string;
 }
 
+function pairingRoutes(target: PairingTarget): RemoteRoute[] {
+  return [
+    ...target.routes,
+    ...(target.relayUrl !== undefined ? [cliRelayRoute(target.relayUrl, target.routeId)] : []),
+  ];
+}
+
 /**
- * `wevir remote pair <配对链接或短码>`：配对链接（桌面“添加设备”二维码的内容）自带 Host 公钥、路由 ID 与地址；短码要在局域网里
- * 用 mDNS 找到广播 `pk` 的电脑。握手之后等电脑上点“允许”，允许了把这台电脑记下。
+ * `wevir remote pair <配对链接或短码>`：配对链接（桌面“添加设备”二维码的内容）自带 Host 公钥、路由 ID、地址与（开了中继时的）
+ * 中继地址；短码要在局域网里用 mDNS 找到广播 `pk` 的电脑，经中继配对不了（没有路由 ID 与 Host 公钥）。握手之后等电脑上点“允许”，
+ * 允许了把这台电脑记下。
  */
 export async function remotePair(
   ctx: Context,
@@ -132,7 +148,7 @@ export async function remotePair(
         host: { hostPublicKey: candidate.hostPublicKey, routeId: candidate.routeId },
         device,
         secret,
-        routes: candidate.routes,
+        routes: pairingRoutes(candidate),
         ...(secret.kind === 'uri' && {
           discover: async (add, signal) => {
             await browse({
@@ -178,6 +194,7 @@ export async function remotePair(
   }
   const name = options.name ?? previous?.name ?? uniqueName(slugifyHostName(hostName), taken);
   const winner = (result.route as Partial<CandidateRoute>).candidate;
+  const relayUrl = result.host.relayUrl ?? target.relayUrl;
   const record: RemoteHostRecord = {
     version: 1,
     name,
@@ -190,7 +207,8 @@ export async function remotePair(
         ? result.host.candidates
         : target.routes.map((r) => r.candidate),
     ...(winner !== undefined && { lastAddress: { host: winner.host, port: winner.port } }),
-    ...(target.relayUrl !== undefined && { relayUrl: target.relayUrl }),
+    ...(relayUrl !== undefined && { relayUrl }),
+    lastRoute: result.route.kind,
     pairedAt: new Date().toISOString(),
     lastConnectedAt: new Date().toISOString(),
   };
@@ -242,6 +260,13 @@ function addressLabel(address: StoredCandidate | undefined): string {
   return `${address.host.includes(':') ? `[${address.host}]` : address.host}:${address.port}`;
 }
 
+/** 上次连上走的是直连还是中继；没记下时是 `-`。 */
+export function routeLabel(record: RemoteHostRecord): string {
+  if (record.lastRoute === 'relay') return t('remote.route.relay');
+  if (record.lastRoute === 'direct') return t('remote.route.direct');
+  return '-';
+}
+
 /** `wevir remote list [--json]`：配对过的电脑。`--json` 不含私钥。 */
 export async function remoteList(ctx: Context, options: { json?: boolean }): Promise<number> {
   const records = await listRemoteHosts(ctx.home);
@@ -265,6 +290,7 @@ export async function remoteList(ctx: Context, options: { json?: boolean }): Pro
         t('remote.col.name'),
         t('remote.col.host'),
         t('remote.col.address'),
+        t('remote.col.route'),
         t('remote.col.connected'),
         t('remote.col.paired'),
       ],
@@ -272,6 +298,7 @@ export async function remoteList(ctx: Context, options: { json?: boolean }): Pro
         r.name,
         r.hostName ?? '-',
         addressLabel(r.lastAddress ?? r.candidates[0]),
+        routeLabel(r),
         r.lastConnectedAt === undefined ? '-' : formatTime(r.lastConnectedAt),
         formatTime(r.pairedAt),
       ]),

@@ -6,8 +6,10 @@ import {
   HostUnavailableError,
   ProtocolError,
   RemoteHandshakeError,
+  type RemoteRelayFailure,
   RemoteUnreachableError,
   RequestTimeoutError,
+  relayCloseFailure,
   WevirRpcError,
 } from '@wevir/client-sdk';
 import { CloseCode, PROTOCOL_VERSION } from '@wevir/protocol';
@@ -48,6 +50,26 @@ export interface Described {
   hint?: string;
 }
 
+/** 经中继没走通（0.110.0）：中继说明的原因。 */
+function describeRelayFailure(failure: RemoteRelayFailure): Described {
+  switch (failure) {
+    case 'offline':
+      return { message: t('err.relayOffline'), hint: t('err.relayOffline.hint') };
+    case 'rate_limited':
+      return { message: t('err.relayRateLimited'), hint: t('err.relayRetryLater') };
+    case 'busy':
+      return { message: t('err.relayBusy'), hint: t('err.relayRetryLater') };
+    case 'host_unavailable':
+      return { message: t('err.relayHostUnavailable'), hint: t('err.relayRetryLater') };
+    case 'limit_exceeded':
+      return { message: t('err.relayLimit'), hint: t('err.relayRetryLater') };
+    case 'protocol_error':
+      return { message: t('err.relayProtocol'), hint: t('err.relayProtocol.hint') };
+    case 'host_rejected':
+      return { message: t('err.relayHostRejected'), hint: t('err.relayHostRejected.hint') };
+  }
+}
+
 /** 把任何错误翻译成当前语言的说明与下一步建议。 */
 export function describeError(error: unknown): Described {
   if (error instanceof CliError) return withHint(error.message, error.hint);
@@ -81,9 +103,12 @@ export function describeError(error: unknown): Described {
       case CloseCode.REMOTE_DISABLED:
         return { message: t('err.remoteDisabled'), hint: t('err.remoteDisabled.hint') };
     }
+    const relay = relayCloseFailure(error.closeCode);
+    if (relay !== undefined) return describeRelayFailure(relay);
     return { message: t('err.connectionLost'), hint: t('err.connectionLost.hint') };
   }
   if (error instanceof RemoteUnreachableError) {
+    if (error.relay !== undefined) return describeRelayFailure(error.relay);
     return {
       message:
         error.tried.length === 0

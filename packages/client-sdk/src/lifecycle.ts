@@ -111,10 +111,15 @@ export class ConnectionLifecycle<C> {
     return result.connection;
   }
 
-  /** 已连上的 `connection` 断开了。不是当前连接时忽略。 */
-  lost(connection: C, reason: ReconnectReason, error?: unknown): void {
+  /** 已连上的 `connection` 断开了。不是当前连接时忽略。`kind` 是这次断开的退避（默认普通）。 */
+  lost(
+    connection: C,
+    reason: ReconnectReason,
+    error?: unknown,
+    kind: 'normal' | 'auth' = 'normal',
+  ): void {
     if (this.#state.phase !== 'connected' || this.#state.connection !== connection) return;
-    this.#scheduleRetry('normal', reason, error);
+    this.#scheduleRetry(kind, reason, error);
   }
 
   reconnectNow(): void {

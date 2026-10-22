@@ -617,6 +617,8 @@ export class RemoteListener {
       clearInterval(touch);
       release?.();
       if (!this.#connections.delete(connection)) return;
+      // Host 退出时连接的关闭可能晚于存储关闭（经中继的连接常这样）：这时不再记最后在线时间。
+      if (this.#closed) return;
       if (devices.get(deviceId as DeviceId)?.status === 'active')
         devices.touch(deviceId as DeviceId);
       this.#changed();

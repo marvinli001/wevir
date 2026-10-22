@@ -22,10 +22,13 @@
     "@wevir/host": "workspace:*",
     "@wevir/noise": "workspace:*",
     "@wevir/protocol": "workspace:*",
-    "mute-stream": "3.0.0"
+    "mute-stream": "3.0.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/mute-stream": "0.0.4",
+    "@types/ws": "^8.18.2",
+    "@wevir/relay": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*"
   }
 }

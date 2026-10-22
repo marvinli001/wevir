@@ -34,6 +34,7 @@
   "devDependencies": {
     "@types/ws": "^8.18.2",
     "@wevir/host": "workspace:*",
+    "@wevir/relay": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
     "ws": "^8.22.0"
   }

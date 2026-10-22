@@ -13,6 +13,7 @@ import {
   parsePairingUri,
   type SessionId,
 } from '@wevir/protocol';
+import { RelayServer } from '@wevir/relay';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DiscoveredHost } from './remote/mdns.js';
@@ -32,6 +33,14 @@ interface Announcement {
   restrictedAddresses: readonly string[];
 }
 
+async function waitUntil(check: () => Promise<boolean>, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error('timed out');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 async function freePort(): Promise<number> {
   const { createServer } = await import('node:net');
   const server = createServer();
@@ -41,8 +50,11 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** “另一台电脑”：自己的数据目录与 Host，远程访问打开、在 127.0.0.1 上监听；`desktop` 是那台电脑上的桌面端。 */
-async function otherComputer() {
+/**
+ * “另一台电脑”：自己的数据目录与 Host，远程访问打开、在 127.0.0.1 上监听；`desktop` 是那台电脑上的桌面端。给了 `relayUrl` 时
+ * 不勾局域网、只开中继，等它在中继上注册好。
+ */
+async function otherComputer(options: { relayUrl?: string } = {}) {
   const home = join(tempDir(), 'other-computer');
   const announcements: (Announcement | undefined)[] = [];
   const host: RunningHost = await startHost({
@@ -67,6 +79,7 @@ async function otherComputer() {
       lookupMagicDnsName: async () => undefined,
       advertiser: { update: (a) => announcements.push(a), shutdown: async () => {} },
       pollMs: 50,
+      relay: { backoffMs: 50, maxBackoffMs: 200 },
     },
   });
   cleanups.push(() => host.shutdown());
@@ -77,9 +90,15 @@ async function otherComputer() {
   });
   cleanups.push(() => desktop.close());
   const port = await freePort();
+  const relayUrl = options.relayUrl;
   const listening = new Promise<void>((resolve) => {
     const stop = desktop.onRemoteDevicesChanged((change) => {
-      if (change?.kind === 'listener' && change.status.listening) {
+      if (change?.kind !== 'listener') return;
+      if (
+        relayUrl === undefined
+          ? change.status.listening
+          : change.status.relay?.state === 'connected'
+      ) {
         stop();
         resolve();
       }
@@ -91,8 +110,9 @@ async function otherComputer() {
       remote: {
         ...DEFAULT_REMOTE_SETTINGS,
         enabled: true,
-        interfaces: { lan: true, tailscale: false },
+        interfaces: { lan: relayUrl === undefined, tailscale: false },
         port,
+        ...(relayUrl !== undefined && { relay: { enabled: true, url: relayUrl } }),
       },
     },
   });
@@ -287,11 +307,61 @@ describe('wevir remote', () => {
     expect((await run(['remote', 'list'], { home: cliHome })).out).toContain('暂无配对过的电脑');
   }, 30_000);
 
-  it('短码时局域网里找不到电脑：说明原因并建议用配对链接', async () => {
+  it('经中继：配对链接里的中继地址配对、--remote 经中继连上并说明，list 标出经中继；那台电脑关掉中继后说明连不上', async () => {
+    const relay = new RelayServer();
+    const relayPort = await relay.listen(0, '127.0.0.1');
+    cleanups.push(() => relay.close());
+    const relayUrl = `ws://127.0.0.1:${relayPort}`;
+    const other = await otherComputer({ relayUrl });
+    const cliHome = join(tempDir(), 'laptop');
+    const { offer } = await pairByLink(other, cliHome);
+    expect(parsePairingUri(offer.uri)?.relayUrl).toBe(relayUrl);
+
+    const listed = JSON.parse((await run(['remote', 'list', '--json'], { home: cliHome })).out);
+    expect(listed).toMatchObject([{ name: 'office', relayUrl, lastRoute: 'relay' }]);
+    const table = await run(['remote', 'list'], { home: cliHome, lang: 'en' });
+    expect(table.out).toMatch(/Address\s+Route/);
+    expect(table.out).toContain('Via relay');
+    expect((await run(['remote', 'list'], { home: cliHome })).out).toContain('经中继');
+
+    const sessionId = await createSession(other.desktop);
+    const sessions = await run(['--remote', 'office', 'session', 'list'], { home: cliHome });
+    expect(sessions.code, sessions.err).toBe(0);
+    expect(sessions.out).toContain(sessionId);
+    expect(sessions.err).toContain('已通过中继连上 office');
+    const en = await run(['--remote', 'office', 'session', 'list'], { home: cliHome, lang: 'en' });
+    expect(en.err).toContain('Connected to office via the relay');
+
+    // 那台电脑关掉中继：中继上没有它了（404），说明直连与中继都连不上；记下的中继地址留着。
+    await other.desktop.request('settings.update', {
+      settings: {
+        remote: {
+          ...DEFAULT_REMOTE_SETTINGS,
+          enabled: true,
+          interfaces: { lan: false, tailscale: false },
+          port: other.port,
+          relay: { enabled: false, url: relayUrl },
+        },
+      },
+    });
+    await waitUntil(async () => relay.stats().routes === 0);
+    const offline = await run(['--remote', 'office', 'session', 'list'], { home: cliHome });
+    expect(offline.code).toBe(1);
+    expect(offline.err).toContain('直连与经中继都连不上那台电脑');
+    expect(offline.err).toContain('中继');
+    const after = JSON.parse((await run(['remote', 'list', '--json'], { home: cliHome })).out);
+    expect(after).toMatchObject([{ relayUrl }]);
+  }, 30_000);
+
+  it('短码时局域网里找不到电脑：说明原因，经中继要用二维码里的配对链接', async () => {
     const cliHome = join(tempDir(), 'laptop');
     const result = await run(['remote', 'pair', 'ABCD-EFGH'], { home: cliHome });
     expect(result.code).toBe(1);
     expect(result.err).toContain('局域网里没有找到');
+    expect(result.err).toContain('短码只能在同一网络里用');
+    expect(result.err).toContain('打开中继，用二维码里的配对链接配对');
+    const en = await run(['remote', 'pair', 'ABCD-EFGH'], { home: cliHome, lang: 'en' });
+    expect(en.err).toContain('pair with the link from the QR code, with the relay turned on there');
     const bad = await run(['remote', 'pair', 'hello'], { home: cliHome });
     expect(bad.code).toBe(2);
     expect(bad.err).toContain('既不是配对链接也不是短码');

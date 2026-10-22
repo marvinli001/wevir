@@ -98,8 +98,10 @@ import {
   isRpcError,
   ProtocolError,
   RemoteHandshakeError,
+  type RemoteRelayFailure,
   RemoteUnreachableError,
   RequestTimeoutError,
+  relayCloseFailure,
   WevirRpcError,
 } from './errors.js';
 import {
@@ -296,6 +298,25 @@ const ignore: CallHandlers = { onResult: () => {}, onError: () => {} };
 /** 关闭后不再重连的关闭码：远程设备被移除、配对被拒（host-api.md §8）。 */
 function isFinalCloseCode(code: number | undefined): boolean {
   return code === CloseCode.DEVICE_REVOKED || code === CloseCode.PAIRING_DENIED;
+}
+
+/**
+ * 远程连接哪条路都没走通时怎么重试（0.110.0）。中继说电脑不在（404）、限速（429）、超限（4103）或电脑拒绝（4105）时慢速重试，
+ * 立即重试只会更快撞上限制；中继满了（503）或电脑没及时接上（4100）照常退避；中继说客户端发了不合规的消息（4104）是客户端的 bug，
+ * 重试也一样，不再重连。
+ */
+function relayRetry(relay: RemoteRelayFailure | undefined): FailureClass {
+  switch (relay) {
+    case 'protocol_error':
+      return { retry: false };
+    case 'offline':
+    case 'rate_limited':
+    case 'limit_exceeded':
+    case 'host_rejected':
+      return { retry: 'auth', reason: 'host_unavailable' };
+    default:
+      return { retry: 'normal', reason: 'host_unavailable' };
+  }
 }
 
 /** 停在同一个 `seq` 上重新订阅的次数上限（见 `#resubscribe`）。 */
@@ -1177,11 +1198,12 @@ export class WevirClient {
       // 那台电脑不认这台设备了（已移除）或换了身份：重试只会累积握手失败、被那边限速，要重新配对。
       if (error.cause instanceof RemoteHandshakeError && error.cause.reason !== 'timeout')
         return { retry: false };
-      if (error.cause instanceof RemoteUnreachableError)
-        return { retry: 'normal', reason: 'host_unavailable' };
+      if (error.cause instanceof RemoteUnreachableError) return relayRetry(error.cause.relay);
       // 远程访问在那台电脑上被关掉了：等用户重新打开，慢速重试。
       if (error.closeCode === CloseCode.REMOTE_DISABLED)
         return { retry: 'auth', reason: 'connection_lost' };
+      const relay = relayCloseFailure(error.closeCode);
+      if (relay !== undefined) return relayRetry(relay);
     }
     if (error instanceof ConnectTimeoutError) return { retry: 'normal', reason: 'connect_timeout' };
     if (error instanceof HostUnavailableError)
@@ -1280,10 +1302,18 @@ export class WevirClient {
       this.#lifecycle.close(error);
       return;
     }
+    // 中继关掉的（0.110.0）：客户端不合规时不再重连，超限、电脑拒绝时慢速重试。
+    const relay = relayCloseFailure(error.closeCode);
+    const retry = relay === undefined ? undefined : relayRetry(relay);
+    if (retry?.retry === false) {
+      this.#lifecycle.close(error);
+      return;
+    }
     this.#lifecycle.lost(
       connection,
       loss.kind === 'heartbeat_timeout' ? 'heartbeat_timeout' : 'connection_lost',
       error,
+      retry?.retry === 'auth' ? 'auth' : 'normal',
     );
   }
 
