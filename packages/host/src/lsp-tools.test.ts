@@ -1,7 +1,7 @@
 // 代码智能（LSP 工具）：假语言服务器（test-fixtures/fake-lsp.mjs）上的工具结果与格式、位置参数、会话目录限制、诊断（指定文件与
 // 引擎改过的文件）、附在其他工具结果后的改动文件错误、崩溃次数上限、空闲关闭与退出回收；服务器的查找与项目根。
 
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SessionId } from '@wevir/protocol';
@@ -213,6 +213,31 @@ describe('LSP tools on a fake language server', () => {
     );
   });
 
+  it('checks the rest when one of the given paths is wrong', async () => {
+    const { call, write, cwd } = setup();
+    write('a.fake', 'this is an ERROR here\n');
+    expect(await call('lsp_diagnostics', { paths: ['nope.fake', 'a.fake', '../out.fake'] })).toBe(
+      [
+        'nope.fake: not checked: does not exist',
+        'a.fake: 1 error',
+        '  1:12 error fake(42): bad thing on line 1',
+        `${join(dirname(cwd), 'out.fake')}: not checked: does not exist`,
+        '1 error, 0 warnings in 1 file (fake-lsp); 2 files not checked.',
+      ].join('\n'),
+    );
+  });
+
+  it('reads the file again when a shell edit kept its size and modification time', async () => {
+    const { call, write, cwd } = setup();
+    const file = join(cwd, 'a.fake');
+    write('a.fake', 'def ok\nfine!\n');
+    utimesSync(file, 1_000_000, 1_000_000);
+    expect(await call('lsp_diagnostics', { paths: ['a.fake'] })).toContain('a.fake: no errors');
+    write('a.fake', 'def ok\nERROR\n');
+    utimesSync(file, 1_000_000, 1_000_000);
+    expect(await call('lsp_diagnostics', { paths: ['a.fake'] })).toContain('a.fake: 1 error');
+  });
+
   it('checks the files the engine changed and attaches their errors to the next LSP result', async () => {
     const { call, write, tools, cwd, notifications } = setup();
     write('a.fake', 'def alpha\n');
@@ -343,7 +368,9 @@ describe('language servers', () => {
     const cwd = tempDir();
     const env = { PATH: join(cwd, 'empty'), HOME: join(cwd, 'home') };
     expect(await TYPESCRIPT.resolve(cwd, env)).toEqual({
-      missing: expect.stringContaining(`No TypeScript found for ${cwd}.`),
+      missing: expect.stringContaining(
+        `No TypeScript found in node_modules of ${cwd} or its parent folders. The project root of a file is the nearest folder above it with a lockfile`,
+      ),
     });
 
     const ts = join(cwd, 'node_modules', 'typescript');

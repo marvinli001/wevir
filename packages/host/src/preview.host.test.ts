@@ -1,6 +1,7 @@
 // 开发服务器预览（0.84.0，Host 功能 `dev_preview`）：startHost 组装出的真实 Host（echo 引擎能挂应用级工具）。客户端经 WebSocket
 // 存运行配置、启动、等 `process.changed` 里的就绪、停止；不认 `dev_preview` 的连接看不到预览进程。Agent 那一侧按 MCP 调
-// `wevir_preview_list` 与带命令的 `wevir_preview_start`（保存后启动、等就绪）。POSIX 上跑。
+// `wevir_preview_list` 与带命令的 `wevir_preview_start`（保存后启动、等就绪；端口被另一项预览占着时说出是哪项、不留配置）、
+// `wevir_preview_delete`。POSIX 上跑。
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -190,6 +191,34 @@ describe.runIf(process.platform !== 'win32')('开发服务器预览经 Host API'
     expect(blocked).toMatchObject({ isError: true });
     expect(blocked.text).toContain('Pass name: web, api');
 
+    // 端口被这个会话起的另一项预览占着：说出是哪一项，这次的配置不留下。
+    const dup = await call('wevir_preview_start', {
+      name: 'api-dup',
+      command: `${node} server.cjs ${apiPort}`,
+      port: apiPort,
+      timeoutMs: 5_000,
+    });
+    expect(dup.isError).toBe(true);
+    expect(dup.text).toContain(
+      `Not started: port ${apiPort} is already in use by run configuration "api" (process `,
+    );
+    expect(dup.text).toContain('The configuration was not saved.');
+    expect(
+      (await client.request('preview.list', { sessionId })).configs.map(
+        (c: { name: string }) => c.name,
+      ),
+    ).toEqual(['web', 'api']);
+
+    // 删除：用户保存的不删；agent 保存的删掉，在跑的照跑。
+    const userOwned = await call('wevir_preview_delete', { name: 'web' });
+    expect(userOwned.isError).toBe(true);
+    expect(userOwned.text).toContain('"web" was saved by the user');
+    const deleted = await call('wevir_preview_delete', { name: 'api' });
+    expect(deleted.isError).toBe(false);
+    expect(deleted.text).toContain(
+      'Deleted run configuration "api". It is still running (ready at',
+    );
+
     // 停止走 process.stop。
     await client.request('process.stop', { processId: id });
     await client.until(
@@ -204,7 +233,7 @@ describe.runIf(process.platform !== 'win32')('开发服务器预览经 Host API'
       15_000,
     );
     expect(await client.request('preview.remove', { workspaceId, name: 'web' })).toMatchObject({
-      configs: [{ name: 'api' }],
+      configs: [],
     });
   });
 });

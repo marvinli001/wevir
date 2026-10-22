@@ -225,7 +225,7 @@ export class PluginAppTools {
       const parsed = PluginMethodSchemas['connector.add'].params.safeParse({ name, config });
       if (!parsed.success)
         throw new AppToolError(
-          'Invalid MCP server name or McpServerConfig. Use stdio command/args/env/cwd or http url/headers.',
+          `Invalid MCP server: ${connectorIssues(parsed.error.issues)}. Use transport "stdio" with command/args/env/cwd, or transport "http" with url/headers.`,
         );
       prepared.summary = { name: parsed.data.name, ...safeConnector(parsed.data.config) };
       prepared.run = async (signal) => {
@@ -513,4 +513,21 @@ function safeList(value: Record<string, unknown>, secrets: string[] = []): Recor
     result.connector = { ...connector, config: safeConnector(record(connector.config), secrets) };
   }
   return result;
+}
+
+/** `wevir_connector_add` 哪几项不对：字段路径（`config.` 去掉）与原因，缺的项写成 required。 */
+function connectorIssues(
+  issues: readonly { path: readonly PropertyKey[]; message: string; code?: string }[],
+): string {
+  return issues
+    .slice(0, 3)
+    .map((issue) => {
+      const path = issue.path
+        .filter((key) => key !== 'config')
+        .map(String)
+        .join('.');
+      const reason = /received undefined/.test(issue.message) ? 'is required' : issue.message;
+      return path === '' ? reason : `${path} ${reason}`;
+    })
+    .join('; ');
 }

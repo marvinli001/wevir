@@ -332,6 +332,10 @@ async function globalNativeTypeScript(env: NodeJS.ProcessEnv) {
   return exe === undefined ? undefined : { exe, version };
 }
 
+/** 项目根怎么定：装在子文件夹里的 TypeScript 要那个文件夹有锁文件才找得到。 */
+const TS_ROOT_NOTE =
+  "The project root of a file is the nearest folder above it with a lockfile (pnpm-lock.yaml, package-lock.json, yarn.lock, bun.lock), otherwise the session's folder.";
+
 const TS_INSTALL =
   'Install TypeScript in the project (npm i -D typescript; TypeScript 7 includes a language server), ' +
   'or for TypeScript 5/6 also install typescript-language-server (npm i -g typescript-language-server).';
@@ -383,7 +387,7 @@ export const TYPESCRIPT: ServerSpec = {
         };
       }
       return {
-        missing: `No TypeScript found for ${root}${version === undefined ? '' : ` (typescript ${version} has no language server binary for this platform)`}. ${TS_INSTALL}`,
+        missing: `No TypeScript found in node_modules of ${root} or its parent folders${version === undefined ? '' : ` (typescript ${version} has no language server binary for this platform)`}. ${TS_ROOT_NOTE} ${TS_INSTALL}`,
       };
     }
     const server = await findExecutable('typescript-language-server', env, [

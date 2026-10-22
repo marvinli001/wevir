@@ -62,7 +62,7 @@ const CATCH_UP_MAX_MS = 7 * 24 * 60 * 60_000;
 export interface AutomationSessions {
   create(
     params: MethodParams<'session.create'>,
-    options: { automation: SessionAutomation },
+    options: { automation: SessionAutomation; openedBy?: SessionId },
   ): Promise<Session>;
   rename(sessionId: SessionId, title: string): Promise<unknown>;
   send(
@@ -284,12 +284,14 @@ export class AutomationService {
   }
 
   list(): Automation[] {
+    this.#settleFinished();
     return [...this.#entries.values()]
       .map((entry) => this.#view(entry))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   get(automationId: string): { automation: Automation; runs: AutomationRun[] } {
+    this.#settleFinished();
     const entry = this.#entry(automationId);
     return { automation: this.#view(entry), runs: entry.runs.map((run) => ({ ...run })) };
   }
@@ -462,8 +464,11 @@ export class AutomationService {
     this.#emit({ automationId: id, deleted: true });
   }
 
-  /** 立即运行一次（`automation.run`）。 */
-  async runNow(automationId: string): Promise<AutomationRun> {
+  /**
+   * 立即运行一次（`automation.run`）。`openedBy`：会话里的 Agent 经 `wevir_automation_run` 运行的，这次新开的会话记为它开的
+   * （它能关闭、归档）。
+   */
+  async runNow(automationId: string, openedBy?: SessionId): Promise<AutomationRun> {
     const entry = this.#entry(automationId);
     if (this.#running(entry)) {
       throw invalid('automationId', 'a run of this automation is still in progress');
@@ -472,7 +477,7 @@ export class AutomationService {
     if (bound !== undefined && bound.state !== 'idle' && bound.state !== 'error') {
       throw invalid('automationId', `its session ${bound.id} is busy; try again when it is idle`);
     }
-    return this.#run(entry, 'manual');
+    return this.#run(entry, 'manual', openedBy);
   }
 
   /**
@@ -608,7 +613,11 @@ export class AutomationService {
     this.#emit({ automationId: entry.automation.id, run: { ...run } });
   }
 
-  async #run(entry: Entry, trigger: AutomationRunTrigger): Promise<AutomationRun> {
+  async #run(
+    entry: Entry,
+    trigger: AutomationRunTrigger,
+    openedBy?: SessionId,
+  ): Promise<AutomationRun> {
     const { automation } = entry;
     const now = this.#now();
     const run: AutomationRun = {
@@ -622,16 +631,21 @@ export class AutomationService {
     await this.#save(entry);
     this.#emit({ automationId: automation.id, run: { ...run } });
     if (automation.check === undefined) {
-      await this.#wake(entry, run);
+      await this.#wake(entry, run, openedBy);
     } else {
       // 检查脚本可能跑上几分钟：不挡住计时与 `automation.run` 的返回。
-      void this.#checkThenWake(entry, run, automation.check);
+      void this.#checkThenWake(entry, run, automation.check, openedBy);
     }
     return { ...run };
   }
 
   /** 跑检查脚本，按结论唤醒 Agent、记 `silent` 或 `failed`。 */
-  async #checkThenWake(entry: Entry, run: AutomationRun, check: AutomationCheck): Promise<void> {
+  async #checkThenWake(
+    entry: Entry,
+    run: AutomationRun,
+    check: AutomationCheck,
+    openedBy?: SessionId,
+  ): Promise<void> {
     const automationId = entry.automation.id;
     const abort = new AbortController();
     this.#checks.set(run.id, { automationId, abort });
@@ -680,7 +694,7 @@ export class AutomationService {
     run.status = 'running';
     void this.#save(entry);
     this.#emit({ automationId, run: { ...run } });
-    await this.#wake(entry, run);
+    await this.#wake(entry, run, openedBy);
   }
 
   /** 检查脚本判定不用唤醒：记 `silent`；上一条也是 `silent` 时并进它。 */
@@ -704,10 +718,10 @@ export class AutomationService {
   }
 
   /** 开会话（或用沿用的）、发出指令、盯住回合。 */
-  async #wake(entry: Entry, run: AutomationRun): Promise<void> {
+  async #wake(entry: Entry, run: AutomationRun, openedBy?: SessionId): Promise<void> {
     const { automation } = entry;
     try {
-      const sessionId = await this.#sessionFor(entry, run);
+      const sessionId = await this.#sessionFor(entry, run, openedBy);
       run.sessionId = sessionId;
       const origin = this.#options.storage.sessions.get(sessionId)?.origin;
       const existingSession = !(
@@ -737,7 +751,7 @@ export class AutomationService {
   }
 
   /** 这次运行发进哪个会话：沿用的会话还能用就用它，否则开一个新的。 */
-  async #sessionFor(entry: Entry, run: AutomationRun): Promise<SessionId> {
+  async #sessionFor(entry: Entry, run: AutomationRun, openedBy?: SessionId): Promise<SessionId> {
     const { automation } = entry;
     const bound = this.#boundSession(automation);
     if (bound !== undefined) return bound.id;
@@ -753,7 +767,10 @@ export class AutomationService {
           permissionMode: automation.permissionMode as PermissionMode,
         }),
       },
-      { automation: { automationId: automation.id, runId: run.id } },
+      {
+        automation: { automationId: automation.id, runId: run.id },
+        ...(openedBy !== undefined && { openedBy }),
+      },
     );
     await this.#options.sessions.rename(session.id, automation.title).catch(() => undefined);
     if (!automation.newSessionEachRun) automation.sessionId = session.id;
@@ -806,6 +823,34 @@ export class AutomationService {
       this.#setStatus(active, active.open.size > 0 ? 'waiting' : 'running');
     });
     active.unsubscribe = () => subscription.unsubscribe();
+    // 回合在交出消息、开始盯之前就结束了（很快的回合）：`onTurnFinished` 已经错过，照事件补上。
+    this.#settleFinished(active);
+  }
+
+  /**
+   * 进行中的运行里，回合其实已经结束的照事件结掉（`onTurnFinished` 错过时的兜底）；列出与查询之前也看一遍，免得会话已经空闲、
+   * 运行还显示 `running`。
+   */
+  #settleFinished(only?: ActiveRun): void {
+    for (const active of only === undefined ? [...this.#active.values()] : [only]) {
+      if (
+        this.#options.events.snapshot(active.sessionId)?.session.activeTurn?.turnId ===
+        active.turnId
+      )
+        continue;
+      const finished = this.#options.events
+        .readSince(active.sessionId, active.seq)
+        .find(
+          (event): event is Extract<WevirEvent, { type: 'turn.finished' }> =>
+            event.type === 'turn.finished' && event.payload.turnId === active.turnId,
+        );
+      if (finished === undefined) continue;
+      this.onTurnFinished({
+        sessionId: active.sessionId,
+        turnId: active.turnId,
+        outcome: finished.payload.outcome,
+      });
+    }
   }
 
   #setStatus(active: ActiveRun, status: 'running' | 'waiting'): void {

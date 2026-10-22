@@ -124,6 +124,10 @@ export class SecondOpinionService {
       throw refuse('a second-opinion session cannot ask for another second opinion');
     }
     if (record.archivedAt !== undefined) throw refuse('the session is archived');
+    // 先认 Provider，再看目录是不是 git 仓库：选错了来源时报的是来源。
+    if (this.#storage.providers.get(request.providerId) === undefined) {
+      throw new HostError('PROVIDER_NOT_FOUND', `provider ${request.providerId} not found`);
+    }
     const running = (origin.opinions ?? []).filter((item) => item.status === 'running').length;
     const starting = this.#starting.get(sessionId) ?? 0;
     if (running + starting >= SECOND_OPINION_RUNNING_MAX) {

@@ -1,6 +1,7 @@
 // 开发服务器预览的应用级工具（0.84.0，ADR-0013 决策 8）：`wevir_preview_list` 只读，`wevir_preview_start` 按名字启动（带 `command`
-// 时先保存这项配置），就绪后经浏览器提供方在这个会话的浏览器窗格里打开。启动会执行命令，按会话的权限模式走引擎的审批（同
-// `wevir_process_start`）；停止与读日志用已有的 `wevir_process_*`。
+// 时先保存这项配置，没起来时撤回这次保存），就绪后经浏览器提供方在这个会话的浏览器窗格里打开（已在跑的切到开着它的标签页）。启动
+// 会执行命令，按会话的权限模式走引擎的审批（同 `wevir_process_start`）；停止与读日志用已有的 `wevir_process_*`。
+// `wevir_preview_delete` 删 agent 保存的配置（用户保存的留给用户）。
 
 import type { PreviewConfig, SessionId, TurnId } from '@wevir/protocol';
 import { PreviewInputSchema } from '@wevir/protocol';
@@ -9,6 +10,7 @@ import {
   objectSchema,
   optionalInt,
   optionalString,
+  requiredString,
   WAIT_DEFAULT_MS,
   WAIT_MAX_MS,
 } from './app-tools.js';
@@ -149,6 +151,8 @@ export function previewTools({
         const lines: string[] = [];
         const list = await asTool(() => previews.list(sessionId));
         const record = list.root;
+        /** 这次保存前的配置：没起来时恢复（新加的删掉），不留下起不来的配置。 */
+        let undo: (() => Promise<unknown>) | undefined;
         if (command !== undefined) {
           const parsed = PreviewInputSchema.safeParse({
             name: name ?? 'dev',
@@ -164,9 +168,15 @@ export function previewTools({
               `Invalid ${issue?.path.join('.') || 'input'}: ${issue?.message ?? 'not valid'}.`,
             );
           }
-          name = parsed.data.name.trim();
+          const saved = parsed.data.name.trim();
+          name = saved;
           const workspaceId = previews.workspaceOf(sessionId);
+          const before = list.configs.find((config) => config.name === saved);
           await asTool(() => previews.save(workspaceId, parsed.data, { addedBy: 'agent' }));
+          undo = () =>
+            before === undefined
+              ? previews.remove(workspaceId, saved)
+              : previews.save(workspaceId, before, { addedBy: before.addedBy });
           lines.push(`Saved run configuration "${name}".`);
         } else if (name === undefined) {
           if (list.configs.length !== 1) {
@@ -179,14 +189,25 @@ export function previewTools({
           name = list.configs[0]?.name as string;
         }
         const turnId = turnOf?.(sessionId);
-        const started = await asTool(() =>
-          previews.start({
-            sessionId,
-            name: name as string,
-            startedBy: 'agent',
-            ...(turnId !== undefined && { turnId }),
-          }),
-        );
+        const notSaved = async (error: AppToolError): Promise<never> => {
+          if (undo === undefined) throw error;
+          await undo().catch(() => {});
+          throw new AppToolError(`${error.message} The configuration was not saved.`);
+        };
+        let started: Awaited<ReturnType<PreviewService['start']>>;
+        try {
+          started = await asTool(() =>
+            previews.start({
+              sessionId,
+              name: name as string,
+              startedBy: 'agent',
+              ...(turnId !== undefined && { turnId }),
+            }),
+          );
+        } catch (error) {
+          if (error instanceof AppToolError) return notSaved(error);
+          throw error;
+        }
         if (started.status === 'blocked') {
           const items = started.readiness
             .map(
@@ -194,15 +215,28 @@ export function previewTools({
                 `${item.name}${item.path !== '' ? ` (${item.path})` : ''}: ${item.reason ?? item.status}`,
             )
             .join('; ');
-          throw new AppToolError(
-            `Not started: the project environment is not ready — ${items}. Install what is missing (the user can ` +
-              'use the Dependencies card in Wevir; wevir_workspace_readiness shows the plan), then call again.',
+          return notSaved(
+            new AppToolError(
+              `Not started: the project environment is not ready — ${items}. Install what is missing (the user can ` +
+                'use the Dependencies card in Wevir; wevir_workspace_readiness shows the plan), then call again.',
+            ),
           );
         }
         if (started.status === 'port_in_use') {
-          throw new AppToolError(
-            `Not started: port ${started.port} is already in use by another process that Wevir did not start. If it ` +
-              `is this project's dev server, open ${started.url} with wevir_show; otherwise stop it or use another port.`,
+          const owner = started.owner;
+          return notSaved(
+            new AppToolError(
+              owner === undefined
+                ? `Not started: port ${started.port} is already in use by a process that is not a Wevir run ` +
+                    `configuration. If it is this project's dev server, open ${started.url} with wevir_show; ` +
+                    'otherwise stop it or use another port.'
+                : `Not started: port ${started.port} is already in use by run configuration ` +
+                    `"${owner.preview?.name ?? owner.name}" (${
+                      owner.sessionId === sessionId
+                        ? `process ${owner.id} of this session; stop it with wevir_process_kill or use another port`
+                        : 'started by another session; use another port'
+                    }).`,
+            ),
           );
         }
         const info =
@@ -215,6 +249,10 @@ export function previewTools({
         if (info.sessionId === sessionId) lines.push(`log: ${info.logPath}`);
         const url = info.preview?.url;
         if (info.status !== 'running') {
+          if (undo !== undefined && started.status === 'started') {
+            await undo().catch(() => {});
+            lines.push('It exited right away, so the configuration was not saved.');
+          }
           lines.push(
             'Last output:',
             processes.tail(info.sessionId, info.id, PROCESS_TAIL_LINES) || '(no output)',
@@ -230,22 +268,98 @@ export function previewTools({
             if (tail !== '') lines.push('Last output:', tail);
           }
         } else if (url !== undefined && args.open !== false && browser !== undefined) {
+          // 已在跑的：这个会话已有开着它的标签页时切过去，不再开一个。
+          const open =
+            started.status === 'reused'
+              ? await openTab(browser, sessionId, record, url, call.signal)
+              : undefined;
           const shown = await browser.execute({
             sessionId,
             cwd: record,
-            command: { command: 'show', args: { url } },
+            command: {
+              command: 'show',
+              args: open === undefined ? { url } : { browserId: open },
+            },
             signal: call.signal,
           });
           lines.push(
             shown.ok
               ? shown.result.command === 'show' && shown.result.shown
-                ? 'Opened it in the browser pane.'
-                : 'Opened it in a browser tab (the user is not viewing this session right now).'
+                ? `${open === undefined ? 'Opened it' : `Showed its open tab ${open}`} in the browser pane.`
+                : `${open === undefined ? 'Opened it in a browser tab' : `Its tab ${open} is open`} (the user is not viewing this session right now).`
               : `Could not open it in the browser: ${shown.error.message}`,
           );
         }
         return text(lines.join('\n'));
       },
     },
+    {
+      name: 'wevir_preview_delete',
+      title: 'Delete a run configuration',
+      description:
+        "Delete one of this project's run configurations that an agent saved (wevir_preview_list shows them); " +
+        'configurations the user saved are left to the user. A running copy keeps running: stop it with ' +
+        'wevir_process_kill.',
+      inputSchema: objectSchema({ name: { type: 'string', description: 'Configuration name.' } }, [
+        'name',
+      ]),
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+      async call(args, call) {
+        const name = requiredString(args, 'name').trim();
+        const list = await asTool(() => previews.list(call.sessionId));
+        const config = list.configs.find((item) => item.name === name);
+        if (config === undefined) {
+          throw new AppToolError(
+            list.configs.length === 0
+              ? `No run configuration named "${name}"; none are saved for this project.`
+              : `No run configuration named "${name}". Saved: ${list.configs.map((item) => item.name).join(', ')}.`,
+          );
+        }
+        if (config.addedBy !== 'agent') {
+          throw new AppToolError(
+            `"${name}" was saved by the user; only the user can delete it (in Wevir's run configurations).`,
+          );
+        }
+        await asTool(() => previews.remove(previews.workspaceOf(call.sessionId), name));
+        const running = previews.running(list.root, name);
+        return text(
+          `Deleted run configuration "${name}".${
+            running === undefined
+              ? ''
+              : ` It is still running (${describePreview(running, call.sessionId)}).`
+          }`,
+        );
+      },
+    },
   ];
+}
+
+/** 这个会话的标签页里开着这个地址（同一来源）的那个；没有时 undefined。 */
+async function openTab(
+  browser: BrowserBroker,
+  sessionId: SessionId,
+  cwd: string,
+  url: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const origin = originOf(url);
+  if (origin === undefined) return undefined;
+  const listed = await browser.execute({
+    sessionId,
+    cwd,
+    command: { command: 'list_tabs', args: {} },
+    signal,
+  });
+  if (!listed.ok || listed.result.command !== 'list_tabs') return undefined;
+  const tabs = listed.result.tabs.filter((tab) => originOf(tab.url) === origin);
+  return (tabs.find((tab) => tab.isActive) ?? tabs[0])?.browserId;
+}
+
+function originOf(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : undefined;
+  } catch {
+    return undefined;
+  }
 }

@@ -21,7 +21,7 @@ const START = Date.parse('2026-10-20T00:00:00.000Z');
 interface Harness {
   service: AutomationService;
   clock: { now: number };
-  created: { params: MethodParams<'session.create'>; automation: unknown }[];
+  created: { params: MethodParams<'session.create'>; automation: unknown; openedBy?: string }[];
   sent: { sessionId: string; text: string }[];
   changes: AutomationChanged[];
   sessions: Map<string, Session>;
@@ -144,7 +144,11 @@ async function harness(
       create: async (params, extra) => {
         count += 1;
         const id = `ses_${count}` as SessionId;
-        created.push({ params, automation: extra.automation });
+        created.push({
+          params,
+          automation: extra.automation,
+          ...(extra.openedBy !== undefined && { openedBy: extra.openedBy }),
+        });
         origins.set(id, { kind: 'automation', ...extra.automation });
         const session = { id, state: 'idle', title: '' } as Session;
         sessions.set(id, session);
@@ -337,6 +341,32 @@ describe('运行', () => {
     expect(h.service.get(id).runs[0]?.status).toBe('running');
     h.finishTurn('ses_1', 'trn_1', 'cancelled');
     expect(h.service.get(id).runs[0]?.status).toBe('cancelled');
+  });
+
+  it('会话里的 Agent 手动运行时，新开的会话记为它开的', async () => {
+    const h = await harness();
+    const { id } = await h.service.create(daily, { kind: 'user' });
+    await h.service.runNow(id, 'ses_agent' as SessionId);
+    expect(h.created[0]).toMatchObject({ openedBy: 'ses_agent' });
+  });
+
+  it('错过了 onTurnFinished 的回合：查询时照事件结掉，不再显示 running', async () => {
+    const h = await harness();
+    const { id } = await h.service.create(daily, { kind: 'user' });
+    await h.service.runNow(id);
+    expect(h.service.get(id).runs[0]?.status).toBe('running');
+    h.emit('ses_1', {
+      type: 'assistant.message',
+      payload: { turnId: 'trn_1', text: '做完了。' },
+    } as never);
+    h.emit('ses_1', {
+      type: 'turn.finished',
+      payload: { turnId: 'trn_1', outcome: 'completed', durationMs: 5 },
+    } as never);
+    expect(h.service.list()[0]?.lastRun).toMatchObject({
+      status: 'completed',
+      summary: '做完了。',
+    });
   });
 
   it('发不出去时记 failed', async () => {

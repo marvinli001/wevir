@@ -413,7 +413,7 @@ export function automationTools({ automations, callerOf }: AutomationToolsOption
       name: 'wevir_automation_run',
       title: 'Run an automation now',
       description:
-        'Start one run of an automation now, without changing its schedule (it also works when paused). The run happens in its own session; this returns as soon as it starts, so do not wait for it unless the user asked. Fails if the previous run is still going.',
+        'Start one run of an automation now, without changing its schedule (it also works when paused). The run happens in its own session; a session it opens for this run counts as opened by you (close or archive it with wevir_session_close / wevir_session_archive). This returns as soon as it starts, so do not wait for it unless the user asked. Fails if the previous run is still going.',
       inputSchema: objectSchema({ automationId: { type: 'string' } }, ['automationId']),
       annotations: {
         readOnlyHint: false,
@@ -424,7 +424,8 @@ export function automationTools({ automations, callerOf }: AutomationToolsOption
       call: async (args, { sessionId }) => {
         callerOf(sessionId);
         const automationId = requiredString(args, 'automationId');
-        const run = await host(() => automations.runNow(automationId));
+        // 这次新开的会话记为调用方开的：它能关闭、归档。
+        const run = await host(() => automations.runNow(automationId, sessionId));
         const { automation } = automations.get(automationId);
         return jsonResult(describeRun(run, automation.timezone));
       },
