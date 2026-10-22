@@ -987,8 +987,10 @@ export const AccountLogoutParamsSchema = AccountKindParamsSchema.extend({
 
 /**
  * `account.upstreams`（0.56.0，Host 功能 `subscription_upstreams`）：订阅来源后面能在应用内接的上游，常用的在前。引擎要起进程
- * 读，没装时报 `ENGINE_ERROR`。
+ * 读，没装时报 `ENGINE_ERROR`。0.104.0 起可带账号 ID（`connected` 是这个账号的），省略时是首个账号。
  */
+export const AccountUpstreamsParamsSchema = AccountKindParamsSchema.extend(AccountIdField);
+
 export const AccountUpstreamsResultSchema = z.object({
   upstreams: z.array(AccountUpstreamSchema),
 });
@@ -1959,7 +1961,7 @@ export const MethodSchemas = {
     permission: 'provider.write',
   },
   'account.upstreams': {
-    params: AccountKindParamsSchema,
+    params: AccountUpstreamsParamsSchema,
     result: AccountUpstreamsResultSchema,
     permission: 'provider.read',
   },

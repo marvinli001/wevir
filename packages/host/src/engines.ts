@@ -131,8 +131,8 @@ export function subscriptionEngines(
 
 /**
  * 添加的订阅账号（0.63.0）的引擎：同 `subscriptionEngines` 的那一种，凭据与会话放进账号自己的目录（`<数据目录>/accounts/<id>/`）。
- * 第一轮是 Claude、Cursor、Grok 与 Antigravity（ChatGPT 的在 cli.ts）；OpenCode 隔离起来就没了用户自己的配置与上游，WorkBuddy
- * 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没装的种类不能添加。
+ * 有 Claude、Cursor、Grok、Antigravity 与 OpenCode（ChatGPT 的在 cli.ts）；OpenCode 只分开数据目录，用户的配置与上游照旧共用。
+ * WorkBuddy 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没装的种类不能添加。
  */
 export function subscriptionAccountEngines(
   context: AdapterContext,
@@ -168,6 +168,13 @@ export function subscriptionAccountEngines(
         account: { grokHome: join(root, 'grok'), workDir: join(root, 'work') },
         ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
         ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+    opencode: (root) =>
+      new OpenCodeAdapter({
+        home: context.home,
+        logger: context.logger,
+        env,
+        account: { dataHome: join(root, 'opencode') },
       }),
     antigravity: (root) =>
       new AntigravityAdapter({

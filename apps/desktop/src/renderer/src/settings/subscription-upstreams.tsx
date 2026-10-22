@@ -1,10 +1,11 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import type { AccountKind, AccountState, AccountUpstream } from '@wevir/protocol';
+import type { AccountState, AccountUpstream } from '@wevir/protocol';
 import { Check, Copy, ExternalLink, LoaderCircle, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { accountRef } from '@/data/sources';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import {
@@ -27,13 +28,11 @@ type RunAccount = (
  */
 export function UpstreamList({
   client,
-  kind,
   account,
   busy,
   onRun,
 }: {
   client: WevirClient;
-  kind: AccountKind;
   account: AccountState;
   busy: string | undefined;
   onRun: RunAccount;
@@ -45,13 +44,15 @@ export function UpstreamList({
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState(false);
   const stamp = upstreamsStamp(account);
+  // 0.104.0：上游的接上与否按账号（添加的账号带 ID）。
+  const ref = accountRef(account);
 
   // 接上、断开、登录开始与结束都会改账号状态：状态变了就重新读。
   // biome-ignore lint/correctness/useExhaustiveDependencies: stamp 就是依赖的账号字段。
   useEffect(() => {
     let alive = true;
     client
-      .request('account.upstreams', { kind })
+      .request('account.upstreams', ref)
       .then((result) => {
         if (!alive) return;
         setUpstreams(result.upstreams);
@@ -61,14 +62,14 @@ export function UpstreamList({
     return () => {
       alive = false;
     };
-  }, [client, kind, stamp]);
+  }, [client, ref.kind, ref.id, stamp]);
 
   const prompt = loginPrompt(account.login);
   const login = async (upstream: AccountUpstream, option: string, apiKey?: string) => {
     const method = upstream.methods.find((candidate) => candidate.option === option);
     if (method === undefined) return;
     const next = await onRun(`connect:${upstream.id}`, () =>
-      client.request('account.login', connectParams(kind, upstream, method, apiKey)),
+      client.request('account.login', connectParams(ref, upstream, method, apiKey)),
     );
     if (next === undefined) return;
     setSecret('');
@@ -80,7 +81,7 @@ export function UpstreamList({
   };
   const disconnect = (upstream: AccountUpstream) =>
     onRun(`disconnect:${upstream.id}`, () =>
-      client.request('account.logout', { kind, upstream: upstream.id }),
+      client.request('account.logout', { ...ref, upstream: upstream.id }),
     );
 
   if (upstreams === undefined) {
@@ -127,7 +128,7 @@ export function UpstreamList({
           onCancel={() =>
             void onRun('cancel', () =>
               client.request('account.cancelLogin', {
-                kind,
+                ...ref,
                 ...(account.login !== undefined && { loginId: account.login.loginId }),
               }),
             )

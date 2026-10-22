@@ -48,6 +48,7 @@ import {
 } from '@wevir/runtime-adapter';
 import { OpenCodeAccounts } from './accounts.js';
 import { engineToolName, hiddenToolRules, listAppToolNames } from './app-tools.js';
+import { openCodeAccountEnv } from './executable.js';
 import { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 import { newMessageId } from './message-id.js';
 import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
@@ -98,6 +99,11 @@ export interface OpenCodeAdapterOptions {
   logger?: OpenCodeAdapterLogger;
   /** Host 进程的环境变量（交给 `opencode`）；省略时用 process.env。 */
   env?: NodeJS.ProcessEnv;
+  /**
+   * 添加的账号（0.63.0）：opencode 的数据目录（`XDG_DATA_HOME`）放这里，登录与会话跟别的账号分开，配置与上游照旧共用
+   * （`openCodeAccountEnv`）。下载来的 `opencode` 与服务器台账仍在 `<数据目录>/engines/opencode`。省略时是首个账号。
+   */
+  account?: { dataHome: string };
   /** 测试用：换掉 SDK、可执行文件的查找、版本探测与起服务器。 */
   sdk?: () => Promise<OpenCodeSdk>;
   findExecutable?: OpenCodeRuntimeOptions['findExecutable'];
@@ -339,9 +345,13 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   constructor(options: OpenCodeAdapterOptions) {
     this.#options = options;
     const logger = options.logger;
+    const env =
+      options.account === undefined
+        ? options.env
+        : openCodeAccountEnv(options.env ?? process.env, options.account.dataHome);
     this.#runtime = new OpenCodeRuntime({
       engineDir: openCodeEngineDir(options.home),
-      ...(options.env !== undefined && { env: options.env }),
+      ...(env !== undefined && { env }),
       ...(options.sdk !== undefined && { sdk: options.sdk }),
       ...(logger !== undefined && { warn: (message, fields) => logger.warn(message, fields) }),
       ...(options.findExecutable !== undefined && { findExecutable: options.findExecutable }),
@@ -352,7 +362,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     });
     this.accounts = new OpenCodeAccounts({
       runtime: this.#runtime,
-      ...(options.env !== undefined && { env: options.env }),
+      ...(env !== undefined && { env }),
     });
     this.#unsubscribeExit = this.#runtime.onServerExit((exit) => this.#onServerExit(exit));
   }

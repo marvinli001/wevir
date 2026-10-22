@@ -59,14 +59,18 @@ describe('connectMode', () => {
 
   it('connectParams：Key 去掉首尾空白，没有 Key 时不带这个字段', () => {
     const openai = upstream('openai', true);
-    expect(connectParams('opencode', openai, key, '  sk-1\n')).toEqual({
+    expect(connectParams({ kind: 'opencode' }, openai, key, '  sk-1\n')).toEqual({
       kind: 'opencode',
       method: 'browser',
       upstream: 'openai',
       option: 'default',
       apiKey: 'sk-1',
     });
-    expect(connectParams('opencode', openai, key)).not.toHaveProperty('apiKey');
+    expect(connectParams({ kind: 'opencode' }, openai, key)).not.toHaveProperty('apiKey');
+    expect(connectParams({ kind: 'opencode', id: 'opencode-ab12' }, openai, key)).toMatchObject({
+      kind: 'opencode',
+      id: 'opencode-ab12',
+    });
   });
 });
 

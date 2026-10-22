@@ -127,10 +127,41 @@ describe('订阅多账号（0.63.0）', () => {
     expect(byId.get('claude')).toMatchObject({ localLogin: true, multiAccount: true });
     expect(byId.get('cursor')).toMatchObject({ multiAccount: true });
     expect(byId.get('cursor')?.localLogin).toBeUndefined();
-    expect(byId.get('opencode')?.multiAccount).toBeUndefined();
+    expect(byId.get('opencode')).toMatchObject({ localLogin: true, multiAccount: true });
     expect(byId.get('workbuddy')?.multiAccount).toBeUndefined();
     expect(byId.get('devin')).toMatchObject({ localLogin: true });
     expect(byId.get('devin')?.multiAccount).toBeUndefined();
+  });
+
+  it('OpenCode 添加的账号（0.104.0）：上游按账号读、接、断，首个账号不受影响', async () => {
+    const { connect } = await start();
+    const { client } = await connect();
+    const { account } = (await client.request('account.add', { kind: 'opencode' })) as {
+      account: Account;
+    };
+    const ref = { kind: 'opencode', id: account.id };
+    const connected = async (params: { kind: string; id?: string }) =>
+      (
+        (await client.request('account.upstreams', params)) as {
+          upstreams: { id: string; connected: boolean }[];
+        }
+      ).upstreams.find((entry) => entry.id === 'anthropic')?.connected;
+    expect(await connected(ref)).toBe(false);
+
+    await client.request('account.login', {
+      ...ref,
+      method: 'browser',
+      upstream: 'anthropic',
+      apiKey: 'sk-ant-added-account',
+    });
+    expect(await connected(ref)).toBe(true);
+    expect(await connected({ kind: 'opencode' })).toBe(false);
+
+    await client.request('account.logout', { ...ref, upstream: 'anthropic' });
+    expect(await connected(ref)).toBe(false);
+
+    const mismatch = await client.call('account.upstreams', { kind: 'claude', id: account.id });
+    expect(mismatch.error).toMatchObject({ code: -32602 });
   });
 
   it('添加的账号未登录、在应用内登录；登录后有自己的 Provider，会话交给它自己的引擎', async () => {
@@ -222,7 +253,7 @@ describe('订阅多账号（0.63.0）', () => {
     expect(accounts.find((each) => each.id === 'grok')?.label).toBe('主号');
     expect(accounts.find((each) => each.id === added.id)?.label).toBeUndefined();
 
-    expect((await client.call('account.add', { kind: 'opencode' })).error).toMatchObject({
+    expect((await client.call('account.add', { kind: 'workbuddy' })).error).toMatchObject({
       code: -32602,
     });
     expect((await client.call('account.setLabel', { id: 'nope', label: 'x' })).error).toMatchObject(

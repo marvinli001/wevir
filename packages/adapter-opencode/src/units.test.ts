@@ -9,6 +9,7 @@ import {
   findOpenCode,
   OPENCODE_BIN_ENV,
   OPENCODE_LOGIN_COMMAND,
+  openCodeAccountEnv,
   openCodeLoginCommand,
   openCodeNpmPackage,
   openCodePackageNames,
@@ -32,6 +33,7 @@ import { isNotFound, OPENCODE_SDK_VERSION } from './sdk.js';
 import { parseDarwinPs, parseServerUrl } from './server.js';
 import { fakeProviderList } from './test-fixtures/fake-opencode.js';
 import { openCodeToolDisplay, patchPaths } from './tool-display.js';
+import { openCodeAuthPath } from './usage.js';
 
 /** opencode 的 Permission.evaluate：最后一条命中的生效，都不命中是 ask。 */
 function evaluate(rules: readonly PermissionRule[], permission: string, pattern: string): string {
@@ -112,6 +114,27 @@ describe('executable', () => {
     expect(compareVersions('1.18.34-beta', '1.18.34')).toBe(0);
     expect(unsupportedVersion('1.18.34')).toBeUndefined();
     expect(unsupportedVersion(undefined)).toMatch(/Unable to determine/);
+  });
+
+  it('添加的账号：只换数据目录（登录在里面），配置目录与别的上游 Key 不动，首个账号的 OpenCode 凭据不继承', () => {
+    const env = openCodeAccountEnv(
+      {
+        HOME: '/home/u',
+        XDG_CONFIG_HOME: '/home/u/.cfg',
+        XDG_DATA_HOME: '/home/u/.data',
+        OPENCODE_API_KEY: 'main',
+        OPENCODE_AUTH_CONTENT: '{}',
+        ANTHROPIC_API_KEY: 'shared',
+      },
+      '/wevir/accounts/opencode-ab12/opencode',
+    );
+    expect(env).toEqual({
+      HOME: '/home/u',
+      XDG_CONFIG_HOME: '/home/u/.cfg',
+      XDG_DATA_HOME: '/wevir/accounts/opencode-ab12/opencode',
+      ANTHROPIC_API_KEY: 'shared',
+    });
+    expect(openCodeAuthPath(env)).toBe('/wevir/accounts/opencode-ab12/opencode/opencode/auth.json');
   });
 });
 

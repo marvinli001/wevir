@@ -301,6 +301,20 @@ export function openCodeEnv(
   return env;
 }
 
+/** 首个账号的凭据来源：添加的账号（`openCodeAccountEnv`）不继承，只用它自己 auth.json 里登录的。 */
+const MAIN_ACCOUNT_KEYS = ['OPENCODE_AUTH_CONTENT', 'OPENCODE_API_KEY'] as const;
+
+/**
+ * 添加的 OpenCode 账号（0.63.0 的多账号）的环境：只把 `XDG_DATA_HOME` 换成账号自己的目录。opencode 的登录（auth.json）、会话库
+ * 与日志都在数据目录里，换了就互不相通；配置（`~/.config/opencode`，含用户接上的上游）、缓存与状态目录照旧共用。别的上游的
+ * 环境变量 Key 也照旧共用，它们属于配置。
+ */
+export function openCodeAccountEnv(parent: NodeJS.ProcessEnv, dataHome: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...parent, XDG_DATA_HOME: dataHome };
+  for (const key of MAIN_ACCOUNT_KEYS) delete env[key];
+  return env;
+}
+
 /**
  * 从 `opencode --version` 的输出里取版本号（T3 的 `classifyOpenCodeCliVersion`：1.x 打印 `1.18.32`，2.x 打印
  * `opencode v2.0.18`）。

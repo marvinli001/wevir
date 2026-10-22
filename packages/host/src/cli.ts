@@ -135,7 +135,13 @@ export interface AdapterContext {
 }
 
 /** echo 的假订阅里能添加账号的种类（0.63.0），同真实引擎的第一轮。 */
-const ECHO_ACCOUNT_KINDS: readonly AccountKind[] = ['claude', 'cursor', 'grok', 'antigravity'];
+const ECHO_ACCOUNT_KINDS: readonly AccountKind[] = [
+  'claude',
+  'cursor',
+  'grok',
+  'opencode',
+  'antigravity',
+];
 
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex 或 echo）。 */
 const GATEWAY_KINDS = [
