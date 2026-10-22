@@ -1,6 +1,7 @@
 // 不依赖 opencode 的小函数：可执行文件、版本、规则集、配置、模型、工具展示、消息 ID、服务器输出与台账的解析、提问与错误归类。
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   commonOpenCodeDirs,
@@ -134,7 +135,9 @@ describe('executable', () => {
       XDG_DATA_HOME: '/wevir/accounts/opencode-ab12/opencode',
       ANTHROPIC_API_KEY: 'shared',
     });
-    expect(openCodeAuthPath(env)).toBe('/wevir/accounts/opencode-ab12/opencode/opencode/auth.json');
+    expect(openCodeAuthPath(env)).toBe(
+      join('/wevir/accounts/opencode-ab12/opencode', 'opencode', 'auth.json'),
+    );
   });
 });
 
