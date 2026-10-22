@@ -205,8 +205,13 @@ export class HostUnavailableError extends WevirClientError {
  * - `limit_exceeded`（4103）：超过了中继的限制。
  * - `protocol_error`（4104）：中继认为这个客户端发了不合规的消息（客户端的 bug）。
  * - `host_rejected`（4105）：电脑拒绝了这条连接（没开配对窗口、限速）。
+ * - `unreachable`：中继本身连不上（地址不通、中继没在运行），没走到 WebSocket 升级。WHATWG 的 `WebSocket` 不给升级前的状态码，
+ *   那里中继的 404 等也落在这一类。
+ * - `certificate`：中继的 TLS 证书验不过（自签、过期、域名不符）。只有给得出 Node 错误码的 WebSocket 实现（`ws`）分得出来。
  */
 export type RemoteRelayFailure =
+  | 'unreachable'
+  | 'certificate'
   | 'offline'
   | 'rate_limited'
   | 'busy'

@@ -303,12 +303,13 @@ function isFinalCloseCode(code: number | undefined): boolean {
 /**
  * 远程连接哪条路都没走通时怎么重试（0.110.0）。中继说电脑不在（404）、限速（429）、超限（4103）或电脑拒绝（4105）时慢速重试，
  * 立即重试只会更快撞上限制；中继满了（503）或电脑没及时接上（4100）照常退避；中继说客户端发了不合规的消息（4104）是客户端的 bug，
- * 重试也一样，不再重连。
+ * 重试也一样，不再重连。中继的证书验不过（0.111.0）要用户去换证书，也慢速重试；中继本身连不上照常退避。
  */
 function relayRetry(relay: RemoteRelayFailure | undefined): FailureClass {
   switch (relay) {
     case 'protocol_error':
       return { retry: false };
+    case 'certificate':
     case 'offline':
     case 'rate_limited':
     case 'limit_exceeded':

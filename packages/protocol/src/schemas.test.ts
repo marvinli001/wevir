@@ -272,6 +272,8 @@ import {
   readinessReport,
   readOnlySession,
   remoteOffSample,
+  remoteRelayCertificateSample,
+  remoteRelayRejectedSample,
   remoteRelayRetrySample,
   remoteRelaySample,
   remoteStatusSample,
@@ -4125,12 +4127,12 @@ const standaloneCases: Case[] = [
         candidates: [{ kind: 'lan', host: '192.168.1.20', port: 47_830 }],
         later: 1,
       },
-      { protocolVersion: '0.110.0', candidates: [], relayUrl: 'wss://relay.wevir.si' },
+      { protocolVersion: '0.110.0', candidates: [], relayUrl: 'wss://relay.example.com' },
     ],
     invalid: [
       { candidates: [] },
       { protocolVersion: '0.109.0' },
-      { protocolVersion: '0.110.0', candidates: [], relayUrl: 'https://relay.wevir.si' },
+      { protocolVersion: '0.110.0', candidates: [], relayUrl: 'https://relay.example.com' },
     ],
   },
   {
@@ -4142,7 +4144,14 @@ const standaloneCases: Case[] = [
   {
     name: 'RemoteStatus',
     schema: protocol.RemoteStatusSchema,
-    valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
+    valid: [
+      remoteStatusSample,
+      remoteOffSample,
+      remoteRelaySample,
+      remoteRelayRetrySample,
+      remoteRelayRejectedSample,
+      remoteRelayCertificateSample,
+    ],
     invalid: [{ ...remoteStatusSample, advertising: undefined }],
   },
   // 0.110.0：中继。
@@ -4150,20 +4159,39 @@ const standaloneCases: Case[] = [
     name: 'RemoteRelayStatus',
     schema: protocol.RemoteRelayStatusSchema,
     valid: [
-      { state: 'connected', url: 'wss://relay.wevir.si', connections: 0 },
+      { state: 'connected', url: 'wss://relay.example.com', connections: 0 },
       {
         state: 'connecting',
         url: 'ws://192.168.1.2:8080',
         connections: 0,
         error: { reason: 'replaced', message: 'route registered elsewhere' },
       },
-    ],
-    invalid: [
-      { state: 'error', url: 'wss://relay.wevir.si', connections: 0 },
-      { state: 'connected', url: 'wss://relay.wevir.si', connections: -1 },
+      // 0.111.0：失败的细节。
       {
         state: 'connecting',
-        url: 'wss://relay.wevir.si',
+        url: 'wss://relay.example.com',
+        connections: 0,
+        error: { reason: 'rejected', message: 'registration failed', closeCode: 4101 },
+      },
+    ],
+    invalid: [
+      {
+        state: 'connecting',
+        url: 'wss://relay.example.com',
+        connections: 0,
+        error: { reason: 'unreachable', message: '', certificate: false },
+      },
+      {
+        state: 'connecting',
+        url: 'wss://relay.example.com',
+        connections: 0,
+        error: { reason: 'rejected', message: '', closeCode: 99 },
+      },
+      { state: 'error', url: 'wss://relay.example.com', connections: 0 },
+      { state: 'connected', url: 'wss://relay.example.com', connections: -1 },
+      {
+        state: 'connecting',
+        url: 'wss://relay.example.com',
         connections: 0,
         error: { reason: 'timeout', message: '' },
       },

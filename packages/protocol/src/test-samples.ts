@@ -200,14 +200,14 @@ export const remoteStatusSample: RemoteStatus = {
   connections: 1,
 };
 
-/** 中继（0.110.0）：只开了中继，连着官方实例，一台设备经中继连着。 */
+/** 中继（0.110.0）：只开了中继，连着自建的中继，一台设备经中继连着。 */
 export const remoteRelaySample: RemoteStatus = {
   listening: false,
   port: 47_830,
   interfaces: [],
   advertising: false,
   connections: 1,
-  relay: { state: 'connected', url: 'wss://relay.wevir.si', connections: 1 },
+  relay: { state: 'connected', url: 'wss://relay.example.com', connections: 1 },
 };
 
 /** 中继断了，正在退避重连。 */
@@ -219,6 +219,28 @@ export const remoteRelayRetrySample: RemoteStatus = {
     url: 'wss://relay.example.com/wevir',
     connections: 0,
     error: { reason: 'unreachable', message: 'connect ECONNREFUSED' },
+  },
+};
+
+/** 中继失败的细节（0.111.0）：那个地址回了 HTTP 404，不是中继。 */
+export const remoteRelayRejectedSample: RemoteStatus = {
+  ...remoteRelayRetrySample,
+  relay: {
+    state: 'connecting',
+    url: 'wss://relay.example.com/wevir',
+    connections: 0,
+    error: { reason: 'rejected', message: 'relay answered HTTP 404', httpStatus: 404 },
+  },
+};
+
+/** 中继的 TLS 证书验不过（0.111.0）。 */
+export const remoteRelayCertificateSample: RemoteStatus = {
+  ...remoteRelayRetrySample,
+  relay: {
+    state: 'connecting',
+    url: 'wss://relay.example.com',
+    connections: 0,
+    error: { reason: 'unreachable', message: 'self-signed certificate', certificate: true },
   },
 };
 
@@ -6883,12 +6905,28 @@ export const methodSamples: MethodSamples = {
   'remote.status': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
+      valid: [
+        remoteStatusSample,
+        remoteOffSample,
+        remoteRelaySample,
+        remoteRelayRetrySample,
+        remoteRelayRejectedSample,
+        remoteRelayCertificateSample,
+      ],
       invalid: [
         { ...remoteStatusSample, port: 0 },
         {
           ...remoteRelaySample,
-          relay: { state: 'off', url: 'wss://relay.wevir.si', connections: 0 },
+          relay: { state: 'off', url: 'wss://relay.example.com', connections: 0 },
+        },
+        {
+          ...remoteRelayRejectedSample,
+          relay: {
+            state: 'connecting',
+            url: 'wss://relay.example.com',
+            connections: 0,
+            error: { reason: 'rejected', message: 'x', httpStatus: 700 },
+          },
         },
         { ...remoteRelaySample, relay: { state: 'connected', url: 'https://x', connections: 0 } },
         { ...remoteStatusSample, interfaces: [{ name: 'en0', family: 'IPv4', kind: 'public' }] },
@@ -7904,7 +7942,14 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{ pairingId: ids.pairing, reason: 'timeout' }, { pairingId: ids.pairing }],
   },
   'remote.changed': {
-    valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
+    valid: [
+      remoteStatusSample,
+      remoteOffSample,
+      remoteRelaySample,
+      remoteRelayRetrySample,
+      remoteRelayRejectedSample,
+      remoteRelayCertificateSample,
+    ],
     invalid: [{ ...remoteStatusSample, connections: -1 }, { listening: true }],
   },
   'inbox.changed': {

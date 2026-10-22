@@ -27,9 +27,15 @@ import {
   PLATFORM_LABEL,
   parsePort,
   parseRelayUrl,
+  RELAY_URL_PLACEHOLDER,
+  type RelayStatusText,
   RISKY_DEVICE_PERMISSIONS,
+  relayOn,
+  relayStatusText,
   remoteOf,
   setLan,
+  setRelayEnabled,
+  setRelayUrl,
   toggleLanInterface,
   togglePermission,
   visibleDevices,
@@ -52,7 +58,7 @@ const RISK_BODY: Partial<Record<Permission, PlainMessageKey>> = {
 
 /**
  * 设置 → 设备（0.107.0，domain-model §3.49，desktop-layout.md）：远程访问的总开关、直连的网卡与端口（0.109.0，Host 功能
- * `remote_listener`；旧 Host 显示为不可用）、中继与自定义地址；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要
+ * `remote_listener`；旧 Host 显示为不可用）、中继与自建中继的地址（没填地址时开关不可用，0.111.0）；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要
  * 确认）、移除。远程访问默认关。网卡逐块列出名称与地址，让用户确认（`100.64/10` 也可能是别的 VPN）。
  */
 export function DevicesSettings() {
@@ -228,29 +234,24 @@ export function DevicesSettings() {
         <div className={LIST_CARD}>
           <SettingsRow
             title={t('settings.devices.relay')}
-            description={relayStatusText(status?.relay) ?? t('settings.devices.relayNote')}
+            description={
+              relayText(relayStatusText(status?.relay)) ?? t('settings.devices.relayNote')
+            }
             data-setting="remote-relay"
             data-relay-state={status?.relay?.state}
             control={
               <Switch
                 label={t('settings.devices.relay')}
-                checked={remote.relay.enabled}
-                disabled={saving}
-                onChange={(enabled) =>
-                  void saveRemote({ ...remote, relay: { ...remote.relay, enabled } })
-                }
+                checked={relayOn(remote)}
+                disabled={saving || remote.relay.url === undefined}
+                onChange={(enabled) => void saveRemote(setRelayEnabled(remote, enabled))}
               />
             }
           />
           <RelayUrlRow
             url={remote.relay.url}
             disabled={saving}
-            onSave={(url) =>
-              saveRemote({
-                ...remote,
-                relay: { enabled: remote.relay.enabled, ...(url !== undefined && { url }) },
-              })
-            }
+            onSave={(url) => saveRemote(setRelayUrl(remote, url))}
           />
         </div>
       </SettingsSection>
@@ -431,20 +432,9 @@ function PortRow({
   );
 }
 
-/** 中继开着时的连接状态（0.110.0 的 `remote.status.relay`）；关着或旧 Host 时 undefined。 */
-function relayStatusText(relay: RemoteStatus['relay']): string | undefined {
-  if (relay === undefined) return undefined;
-  if (relay.state === 'connected') return t('settings.devices.relayConnected');
-  switch (relay.error?.reason) {
-    case 'unreachable':
-      return t('settings.devices.relayUnreachable');
-    case 'rejected':
-      return t('settings.devices.relayRejected');
-    case 'replaced':
-      return t('settings.devices.relayReplaced');
-    default:
-      return t('settings.devices.relayConnecting');
-  }
+function relayText(text: RelayStatusText | undefined): string | undefined {
+  if (text === undefined) return undefined;
+  return 'code' in text ? t(text.key, { code: text.code }) : t(text.key);
 }
 
 function RelayUrlRow({
@@ -473,7 +463,7 @@ function RelayUrlRow({
           className="w-64"
           value={draft}
           disabled={disabled}
-          placeholder={t('settings.devices.relayDefault')}
+          placeholder={RELAY_URL_PLACEHOLDER}
           aria-label={t('settings.devices.relayUrl')}
           aria-invalid={parsed === undefined}
           spellCheck={false}

@@ -4,7 +4,6 @@ import {
   CloseCode,
   RELAY_ACCEPT_PARAM,
   RELAY_CONTROL_MAX_BYTES,
-  RELAY_DEFAULT_URL,
   RELAY_PATHS,
   RelayCloseCode,
   type RelayDevicePath,
@@ -13,6 +12,7 @@ import {
   RelayServerMessageSchema,
   type RemoteRelayStatus,
   type RemoteSettings,
+  relayConfigured,
   relayEndpoint,
   relayRegistrationMessage,
 } from '@wevir/protocol';
@@ -84,10 +84,8 @@ export class RelayClient {
   refresh(): void {
     if (this.#closed) return;
     const settings = this.#options.settings();
-    const url =
-      settings?.enabled === true && settings.relay.enabled
-        ? (settings.relay.url ?? RELAY_DEFAULT_URL)
-        : undefined;
+    // 开着中继却没填地址（0.110.0 存下的设置）等同于关：没有官方中继可连。
+    const url = settings?.enabled === true ? relayConfigured(settings) : undefined;
     if (url === this.#url) return;
     this.#stop();
     this.#url = url;
@@ -157,7 +155,7 @@ export class RelayClient {
       (error: unknown) => {
         if (generation !== this.#generation) return;
         this.#onError(error);
-        this.#failed(generation, 'unreachable', 'remote keys are unavailable');
+        this.#failed(generation, { reason: 'unreachable', message: 'remote keys are unavailable' });
       },
     );
   }
@@ -170,15 +168,12 @@ export class RelayClient {
         handshakeTimeout: RELAY_CONNECT_TIMEOUT_MS,
       });
     } catch (error) {
-      this.#failed(generation, 'unreachable', (error as Error).message);
+      this.#failed(generation, { reason: 'unreachable', message: (error as Error).message });
       return;
     }
     this.#control = ws;
     let registered = false;
-    let failure: { reason: 'unreachable' | 'rejected' | 'replaced'; message: string } = {
-      reason: 'unreachable',
-      message: 'relay closed the connection',
-    };
+    let failure: RelayFailure = { reason: 'unreachable', message: 'relay closed the connection' };
     let alive = true;
     ws.on('pong', () => {
       alive = true;
@@ -187,10 +182,21 @@ export class RelayClient {
       alive = true;
     });
     ws.on('error', (error) => {
-      failure = { reason: 'unreachable', message: error.message };
+      // `unexpected-response` 已经说明了原因时，随后的 error 不覆盖它。
+      if (failure.httpStatus !== undefined) return;
+      failure = {
+        reason: 'unreachable',
+        message: error.message,
+        ...(isCertificateError(error) && { certificate: true }),
+      };
     });
     ws.on('unexpected-response', (_req, res) => {
-      failure = { reason: 'rejected', message: `relay answered HTTP ${res.statusCode}` };
+      const status = res.statusCode ?? 0;
+      failure = {
+        reason: 'rejected',
+        message: `relay answered HTTP ${status}`,
+        ...(status >= 100 && status <= 599 && { httpStatus: status }),
+      };
       ws.terminate();
     });
     ws.on('message', (data, isBinary) => {
@@ -226,15 +232,24 @@ export class RelayClient {
       clearInterval(this.#ping);
       this.#ping = undefined;
       if (code === RelayCloseCode.ROUTE_REPLACED) {
-        failure = { reason: 'replaced', message: 'route registered from elsewhere' };
+        failure = {
+          reason: 'replaced',
+          message: 'route registered from elsewhere',
+          closeCode: code,
+        };
       } else if (
         code === RelayCloseCode.REGISTRATION_FAILED ||
-        code === RelayCloseCode.LIMIT_EXCEEDED
+        code === RelayCloseCode.LIMIT_EXCEEDED ||
+        code === RelayCloseCode.PROTOCOL_ERROR
       ) {
-        failure = { reason: 'rejected', message: String(reason) || `relay closed with ${code}` };
+        failure = {
+          reason: 'rejected',
+          message: String(reason) || `relay closed with ${code}`,
+          closeCode: code,
+        };
       }
       // 经这条控制连接接通了的数据连接各自走到断开；中继那头注册没了，新的设备连不上，直到重新注册。
-      this.#failed(generation, failure.reason, failure.message);
+      this.#failed(generation, failure);
     });
     clearInterval(this.#ping);
     this.#ping = setInterval(() => {
@@ -250,14 +265,10 @@ export class RelayClient {
   }
 
   /** 控制连接断了或没连上：记下原因，退避后重连。 */
-  #failed(
-    generation: number,
-    reason: 'unreachable' | 'rejected' | 'replaced',
-    message: string,
-  ): void {
+  #failed(generation: number, failure: RelayFailure): void {
     if (generation !== this.#generation || this.#closed) return;
     this.#state = 'connecting';
-    this.#error = { reason, message };
+    this.#error = failure;
     this.#options.onChange();
     const base = this.#options.backoffMs ?? RELAY_BACKOFF_MS;
     const max = this.#options.maxBackoffMs ?? RELAY_MAX_BACKOFF_MS;
@@ -306,6 +317,17 @@ export class RelayClient {
       if (!started) admission.cancel();
     });
   }
+}
+
+type RelayFailure = NonNullable<RemoteRelayStatus['error']>;
+
+/** Node 的 TLS 证书错误码（`CERT_HAS_EXPIRED`、`DEPTH_ZERO_SELF_SIGNED_CERT`、`ERR_TLS_CERT_ALTNAME_INVALID` 等）。 */
+const CERTIFICATE_ERROR_CODE = /CERT|SELF_SIGNED|UNABLE_TO_(?:VERIFY|GET_ISSUER)|ISSUER_CERT/;
+
+/** 连中继时 TLS 证书验不过：自签、过期、域名不符、缺中间证书。 */
+export function isCertificateError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' && CERTIFICATE_ERROR_CODE.test(code);
 }
 
 function parseServerMessage(data: RawData): RelayServerMessage | undefined {

@@ -379,6 +379,14 @@ describe('远程隧道经中继', () => {
     expect(await relayFailure(full.url, nobody)).toBe('busy');
   });
 
+  it('中继本身连不上（没在运行）：unreachable，而不只是直连连不上', async () => {
+    const nobody: RemoteHostKeys = {
+      hostPublicKey: bytesToBase64url(generateKeyPair().publicKey),
+      routeId: bytesToBase64url(generateKeyPair().publicKey),
+    };
+    expect(await relayFailure(`ws://127.0.0.1:${await freePort()}`, nobody)).toBe('unreachable');
+  });
+
   it('中继的关闭码：电脑没接上 4100、排队超限 4103、电脑发了文本 4104', async () => {
     const slow = await startRelay({ acceptTimeoutMs: 200 });
     const silent = await fakeRelayHost(slow.url);

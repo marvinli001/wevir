@@ -14,8 +14,8 @@ import {
   type PairingOffer,
   type PairingRequest,
   type PairingRequestId,
-  RELAY_DEFAULT_URL,
   type RemoteSettings,
+  relayConfigured,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
@@ -125,7 +125,8 @@ export class PairingService {
     const code = randomCode();
     const expiresAt = new Date(this.#now().getTime() + this.#windowMs).toISOString();
     const candidates = this.#candidates();
-    const relayUrl = settings.relay.enabled ? (settings.relay.url ?? RELAY_DEFAULT_URL) : undefined;
+    // 开着中继却没填地址等同于关（0.111.0）：链接里不带中继。
+    const relayUrl = relayConfigured(settings);
     const timer = setTimeout(() => {
       if (this.#window?.pairingId === pairingId) this.#end('expired');
     }, this.#windowMs);

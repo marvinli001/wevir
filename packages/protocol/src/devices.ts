@@ -14,11 +14,8 @@ import {
 
 // ── Host 设置 `remote` ─────────────────────────────────────────────
 
-/** 自建中继的地址：`wss://` 或 `ws://`。 */
+/** 自建中继的地址：`wss://` 或 `ws://`。Wevir 不提供官方中继（0.111.0 起没有默认地址）。 */
 export const RelayUrlSchema = z.url({ protocol: /^wss?$/ }).max(2048);
-
-/** 中继开着、没填 `remote.relay.url` 时用的官方实例（0.110.0）。 */
-export const RELAY_DEFAULT_URL = 'wss://relay.wevir.si';
 
 /** 远程监听省略 `port` 时用的端口（0.109.0）。 */
 export const REMOTE_DEFAULT_PORT = 47_830;
@@ -41,7 +38,8 @@ export type RemoteInterfaceRef = z.infer<typeof RemoteInterfaceRefSchema>;
  * - `interfaces`：直连监听哪几类网卡（局域网；Tailscale 的 `100.64.0.0/10` 与 `fd7a:115c:a1e0::/48`）。`lanInterfaces`（0.109.0）
  *   只监听这几块局域网网卡；省略时监听全部局域网网卡。Tailscale 按地址段认，没有网卡的勾选（macOS 上它的网卡名会变）。
  * - `port`（0.109.0）：直连监听的端口，省略时 `REMOTE_DEFAULT_PORT`。
- * - `relay`：不在同一网络时经中继转发同一套密文；`url` 省略时用官方实例 `RELAY_DEFAULT_URL`。
+ * - `relay`：不在同一网络时经用户自建的中继转发同一套密文。`enabled` 为真但没有 `url` 时等同于关（0.111.0；0.110.0 的设置可能
+ *   这样存着，读进来不报错）：Host 不连中继，配对链接与握手负载不带中继地址。用 `relayConfigured` 判断。
  * - `push`：经推送网关给手机发加密的提醒。
  */
 export const RemoteSettingsSchema = z.object({
@@ -56,6 +54,11 @@ export const RemoteSettingsSchema = z.object({
   push: z.object({ enabled: z.boolean() }),
 });
 export type RemoteSettings = z.infer<typeof RemoteSettingsSchema>;
+
+/** 中继真正打开时的地址：远程访问不看，`relay.enabled` 为真且填了 `url` 才有（0.111.0）。 */
+export function relayConfigured(settings: Pick<RemoteSettings, 'relay'>): string | undefined {
+  return settings.relay.enabled ? settings.relay.url : undefined;
+}
 
 export const DEFAULT_REMOTE_SETTINGS: RemoteSettings = Object.freeze({
   enabled: false,
@@ -141,7 +144,7 @@ export const PairingOfferSchema = z.object({
   routeId: PublicKeySchema,
   /** 远程监听还没开时是空的。 */
   candidates: z.array(PairingCandidateSchema),
-  /** 开了中继时有：填的地址，没填时是官方实例（0.110.0 起；之前只在填了地址时有）。 */
+  /** 开了中继且填了地址时有（0.111.0 起；0.110.0 没填地址时给的官方实例已经去掉）。 */
   relayUrl: RelayUrlSchema.optional(),
 });
 export type PairingOffer = z.infer<typeof PairingOfferSchema>;
@@ -284,7 +287,8 @@ export const RemoteListenerErrorSchema = z.object({
 /**
  * 中继的出站连接（0.110.0）。`connecting` 包括断线后退避等待的时候；上一次失败的原因在 `error`：中继连不上或注册前断开
  * （`unreachable`）、中继拒绝了注册（`rejected`，签名不对或中继满了）、同一路由 ID 在别处注册取代了这条（`replaced`，两台电脑用了
- * 同一份密钥）。
+ * 同一份密钥）。0.111.0 起 `error` 另有细节，旧客户端忽略：`certificate`（`unreachable` 里 TLS 证书验不过）、`httpStatus`（升级前
+ * 中继或那个地址回的 HTTP 状态码，`rejected`；404 等说明那里不是中继）、`closeCode`（中继的关闭码 `RelayCloseCode`，`rejected`）。
  */
 export const RemoteRelayStatusSchema = z.object({
   state: z.enum(['connecting', 'connected']),
@@ -292,7 +296,13 @@ export const RemoteRelayStatusSchema = z.object({
   /** 经中继、握手完成的远程连接数（也算在 `connections` 里）。 */
   connections: z.int().min(0),
   error: z
-    .object({ reason: z.enum(['unreachable', 'rejected', 'replaced']), message: z.string() })
+    .object({
+      reason: z.enum(['unreachable', 'rejected', 'replaced']),
+      message: z.string(),
+      certificate: z.literal(true).optional(),
+      httpStatus: z.int().min(100).max(599).optional(),
+      closeCode: z.int().min(1000).max(4999).optional(),
+    })
     .optional(),
 });
 export type RemoteRelayStatus = z.infer<typeof RemoteRelayStatusSchema>;

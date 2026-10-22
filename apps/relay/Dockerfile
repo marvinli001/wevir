@@ -2,6 +2,7 @@
 # wevir-relay 的镜像（apps/relay/README.md）。在仓库根目录构建：
 #   docker build -f apps/relay/Dockerfile -t wevir-relay .
 # 构建阶段只装中继与它依赖的工作区包（加上根目录的构建工具），产物是 dist/ 里的一个打包好的 ESM，运行阶段不装任何依赖。
+# 打进去的 ws 与 zod 的许可证文本由构建放在 dist/licenses/（tsdown.config.ts），随 dist/ 进镜像的 /app/licenses/。
 
 FROM node:24-alpine AS build
 WORKDIR /src
