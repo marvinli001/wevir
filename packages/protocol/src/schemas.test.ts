@@ -273,6 +273,7 @@ import {
   repoHook,
   reportedTask,
   retroSummary,
+  revertedProposal,
   reviewComment,
   ruleProposal,
   ruleResolution,
@@ -292,8 +293,11 @@ import {
   subagentSummary,
   suggestedTask,
   TS,
+  TS2,
   terminalSample,
   toolDisplay,
+  trialProposal,
+  tuningMetrics,
   ULID,
   userResolution,
   verificationRun,
@@ -4281,9 +4285,67 @@ const approvalRuleCases: Case[] = [
     invalid: [{ checks: { passed: 1, total: 1 } }],
   },
   {
+    name: 'TuningProposalOrigin',
+    schema: protocol.TuningProposalOriginSchema,
+    valid: ['user', 'auto', 'agent'],
+    invalid: ['cron'],
+  },
+  {
+    name: 'TuningMetrics',
+    schema: protocol.TuningMetricsSchema,
+    valid: [tuningMetrics, { sessions: 0, turns: 0, failedTurns: 0, guardrailHits: 0 }],
+    invalid: [{ sessions: 0, turns: 0, failedTurns: -1, guardrailHits: 0 }, { sessions: 1 }],
+  },
+  {
+    name: 'TuningTrialOutcome',
+    schema: protocol.TuningTrialOutcomeSchema,
+    valid: [
+      revertedProposal.outcome,
+      { decidedBy: 'agent', result: 'kept', reason: 'manual', decidedAt: TS2 },
+      // reason 是开放字符串。
+      { decidedBy: 'auto', result: 'kept', reason: 'later_reason', decidedAt: TS2 },
+    ],
+    invalid: [
+      { decidedBy: 'cron', result: 'kept', reason: 'manual', decidedAt: TS2 },
+      { decidedBy: 'auto', result: 'kept', reason: '', decidedAt: TS2 },
+    ],
+  },
+  {
+    name: 'TuningBudget',
+    schema: protocol.TuningBudgetSchema,
+    valid: [
+      { month: '2026-10', limitTokens: 200_000, usedTokens: 1, autoTokens: 0, exhausted: false },
+    ],
+    invalid: [
+      { month: '10/2026', limitTokens: 200_000, usedTokens: 1, autoTokens: 0, exhausted: false },
+    ],
+  },
+  {
+    name: 'TuningTrial',
+    schema: protocol.TuningTrialSchema,
+    valid: [
+      { proposalIds: [ids.tuningProposal], sessions: 0, needed: 5, startedAt: TS, deadline: TS2 },
+    ],
+    invalid: [
+      { proposalIds: [ids.tuningProposal], sessions: 0, needed: 0, startedAt: TS, deadline: TS2 },
+    ],
+  },
+  {
+    name: 'TuningSeriesPoint',
+    schema: protocol.TuningSeriesPointSchema,
+    valid: [{ version: profileVersionRef, createdAt: TS, metrics: tuningMetrics, trial: true }],
+    invalid: [{ version: profileVersionRef, createdAt: TS, metrics: tuningMetrics, trial: false }],
+  },
+  {
+    name: 'TuningRunSummary',
+    schema: protocol.TuningRunSummarySchema,
+    valid: [{ at: TS, origin: 'user', proposals: 0, reason: 'empty' }],
+    invalid: [{ at: TS, origin: 'agent', proposals: 0 }],
+  },
+  {
     name: 'TuningProposal',
     schema: protocol.TuningProposalSchema,
-    valid: [ruleProposal, memoryProposal, guardrailProposal],
+    valid: [ruleProposal, memoryProposal, guardrailProposal, trialProposal, revertedProposal],
     invalid: [
       { ...ruleProposal, title: '' },
       { ...ruleProposal, edited: false },

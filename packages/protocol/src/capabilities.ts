@@ -455,6 +455,12 @@ export const HOST_FEATURES = {
    * `notifications`。与引擎无关。
    */
   notificationIntents: 'notification_intents',
+  /**
+   * 自动调优（0.107.0，domain-model §3.49，ADR-0018）：设置 `autoTuning` / `autoTuningMonthlyTokens`、`tuning.overview`、
+   * `tuning.proposal.revert`、建议的 `trial` / `reverted` 状态与 `origin` / `outcome`；生成的建议直接进入试用，按之后会话的指标保留或
+   * 回退。有建议服务（`tuning_proposals`）时声明。
+   */
+  tuningAuto: 'tuning_auto',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -548,6 +554,7 @@ export const HostFeaturesSchema = z.looseObject({
   inbox: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
   notification_intents: z.boolean().optional(),
+  tuning_auto: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

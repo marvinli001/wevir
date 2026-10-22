@@ -1674,6 +1674,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
     'tuning.proposal.update': (params) => proposals().update(params),
     'tuning.proposal.decide': (params) => proposals().decide(params),
+    // 0.107.0：自动调优。
+    'tuning.proposal.revert': () => {
+      throw invalidParams([], 'this host has no automatic tuning');
+    },
+    'tuning.overview': () => {
+      throw invalidParams([], 'this host has no automatic tuning');
+    },
   };
 }
 

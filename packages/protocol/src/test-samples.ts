@@ -60,7 +60,7 @@ import type {
   ProfileVersionRef,
   ProfileVersionSummary,
 } from './tuning.js';
-import type { TuningProposal } from './tuning-proposals.js';
+import type { TuningMetrics, TuningProposal } from './tuning-proposals.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -1531,6 +1531,41 @@ export const guardrailProposal: TuningProposal = {
   status: 'rejected',
   decidedAt: TS2,
   usage: undefined,
+};
+
+/** 一组会话的指标（0.107.0）。 */
+export const tuningMetrics: TuningMetrics = {
+  sessions: 5,
+  turns: 23,
+  failedTurns: 1,
+  checks: { passed: 9, total: 11 },
+  guardrailHits: 2,
+  tokens: 412_000,
+};
+
+/** 后台生成、正在试用的规则改动（0.107.0）。 */
+export const trialProposal: TuningProposal = {
+  ...ruleProposal,
+  status: 'trial',
+  origin: 'auto',
+  version: profileVersionRef,
+  stats: { sessions: 3 },
+};
+
+/** 试用后回退的记忆改动（0.107.0）。 */
+export const revertedProposal: TuningProposal = {
+  ...memoryProposal,
+  edited: undefined,
+  status: 'reverted',
+  origin: 'agent',
+  outcome: {
+    decidedBy: 'auto',
+    result: 'reverted',
+    reason: 'worse',
+    baseline: tuningMetrics,
+    trial: { ...tuningMetrics, failedTurns: 6, checks: { passed: 4, total: 9 } },
+    decidedAt: TS2,
+  },
 };
 
 /** Host 按规则替用户允许（0.80.0）。 */
@@ -3125,6 +3160,11 @@ export const methodSamples: MethodSamples = {
             notifications: { completed: false, automation: true },
           },
         },
+        // 0.107.0：自动调优与每月上限。
+        {
+          settings: { sendWhileBusy: 'steer', autoTuning: true, autoTuningMonthlyTokens: 500_000 },
+        },
+        { settings: { sendWhileBusy: 'steer', autoTuning: false } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3135,6 +3175,7 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', agentInstructions: 'x'.repeat(16_001) } },
         { settings: { sendWhileBusy: 'steer', outputStyle: '' } },
         { settings: { sendWhileBusy: 'steer', notifications: { completed: 'off' } } },
+        { settings: { sendWhileBusy: 'steer', autoTuningMonthlyTokens: 5_000 } },
         {},
       ],
     },
@@ -3154,6 +3195,9 @@ export const methodSamples: MethodSamples = {
         { settings: { marketMirror: 'auto' } },
         { settings: { preventSleep: true } },
         { settings: { notifications: { approval: true, question: false } } },
+        // 0.107.0：引导里选了启用与上限。
+        { settings: { autoTuning: true, autoTuningMonthlyTokens: 1_000_000 } },
+        { settings: { autoTuning: false } },
         // 0.92.0：听写的转写方与润色
         { settings: { speechTranscriber: { kind: 'local' } } },
         {
@@ -3181,6 +3225,8 @@ export const methodSamples: MethodSamples = {
         { settings: { outputStyle: 1 } },
         { settings: { writingStyle: 'on' } },
         { settings: { marketMirror: 'npm' } },
+        { settings: { autoTuning: 'on' } },
+        { settings: { autoTuningMonthlyTokens: 20_000_000 } },
         {},
       ],
     },
@@ -6913,6 +6959,11 @@ export const methodSamples: MethodSamples = {
         },
         { proposals: [], usage: { inputTokens: 1800, outputTokens: 12 } },
         { proposals: [], reason: 'no_project' },
+        // 0.107.0：生成的改动直接进入试用。
+        {
+          proposals: [{ ...trialProposal, origin: 'user' }],
+          usage: { inputTokens: 900, outputTokens: 80 },
+        },
       ],
       invalid: [{ proposals: [ruleProposal, ruleProposal, ruleProposal, ruleProposal] }],
     },
@@ -6923,9 +6974,15 @@ export const methodSamples: MethodSamples = {
       invalid: [{ status: 'accepted' }],
     },
     result: {
-      valid: [{ proposals: [ruleProposal, memoryProposal, guardrailProposal] }, { proposals: [] }],
+      valid: [
+        { proposals: [ruleProposal, memoryProposal, guardrailProposal] },
+        { proposals: [] },
+        // 0.107.0：试用中与回退了的。
+        { proposals: [trialProposal, revertedProposal] },
+      ],
       invalid: [
         { proposals: [{ ...ruleProposal, status: 'superseded' }] },
+        { proposals: [{ ...trialProposal, origin: 'cron' }] },
         { proposals: [{ ...ruleProposal, change: { kind: 'rule', path: '/x' } }] },
         { proposals: [{ ...ruleProposal, evidence: Array(9).fill({ id: 'e1', text: '' }) }] },
       ],
@@ -6955,8 +7012,115 @@ export const methodSamples: MethodSamples = {
       invalid: [{ proposalId: ids.tuningProposal, decision: 'later' }],
     },
     result: {
-      valid: [{ proposal: memoryProposal }, { proposal: guardrailProposal }],
+      valid: [
+        { proposal: memoryProposal },
+        { proposal: guardrailProposal },
+        // 0.107.0：试用中的提前保留。
+        {
+          proposal: {
+            ...trialProposal,
+            status: 'accepted',
+            outcome: { decidedBy: 'user', result: 'kept', reason: 'manual', decidedAt: TS2 },
+          },
+        },
+      ],
       invalid: [{ proposal: { ...memoryProposal, stats: { sessions: -1 } } }],
+    },
+  },
+  'tuning.proposal.revert': {
+    params: { valid: [{ proposalId: ids.tuningProposal }], invalid: [{}, { proposalId: 'x' }] },
+    result: {
+      valid: [{ proposal: revertedProposal }],
+      invalid: [
+        {
+          proposal: {
+            ...revertedProposal,
+            outcome: { ...revertedProposal.outcome, result: 'undone' },
+          },
+        },
+      ],
+    },
+  },
+  'tuning.overview': {
+    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [
+        {
+          auto: { enabled: true, decided: true },
+          budget: {
+            month: '2026-10',
+            limitTokens: 200_000,
+            usedTokens: 38_000,
+            autoTokens: 31_000,
+            exhausted: false,
+          },
+          trial: {
+            proposalIds: [ids.tuningProposal],
+            startVersion: profileVersionRef,
+            sessions: 3,
+            needed: 5,
+            startedAt: TS,
+            deadline: '2026-10-26T08:00:00.000Z',
+          },
+          series: [
+            {
+              version: { ...profileVersionRef, seq: 6 },
+              createdAt: TS,
+              metrics: tuningMetrics,
+            },
+            {
+              version: profileVersionRef,
+              createdAt: TS2,
+              metrics: { sessions: 3, turns: 9, failedTurns: 0, guardrailHits: 0 },
+              trial: true,
+            },
+          ],
+          totals: { adopted: 7, kept: 5, reverted: 2 },
+          lastRun: {
+            at: TS2,
+            origin: 'auto',
+            proposals: 1,
+            usage: { inputTokens: 6200, outputTokens: 640 },
+          },
+        },
+        // 全局范围、还没在引导里选过。
+        {
+          auto: { enabled: false, decided: false },
+          budget: {
+            month: '2026-10',
+            limitTokens: 200_000,
+            usedTokens: 0,
+            autoTokens: 0,
+            exhausted: false,
+          },
+          series: [],
+        },
+      ],
+      invalid: [
+        {
+          auto: { enabled: true, decided: true },
+          budget: {
+            month: '2026/10',
+            limitTokens: 0,
+            usedTokens: 0,
+            autoTokens: 0,
+            exhausted: false,
+          },
+          series: [],
+        },
+        {
+          auto: { enabled: true, decided: true },
+          budget: {
+            month: '2026-10',
+            limitTokens: 0,
+            usedTokens: 0,
+            autoTokens: 0,
+            exhausted: false,
+          },
+          trial: { proposalIds: [], sessions: 0, needed: 5, startedAt: TS, deadline: TS2 },
+          series: [],
+        },
+      ],
     },
   },
   'speech.status': {

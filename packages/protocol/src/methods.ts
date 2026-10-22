@@ -267,6 +267,8 @@ import {
   TuningVersionsResultSchema,
 } from './tuning.js';
 import {
+  TuningOverviewParamsSchema,
+  TuningOverviewResultSchema,
   TuningProposalChangedParamsSchema,
   TuningProposalDecideParamsSchema,
   TuningProposalGenerateParamsSchema,
@@ -274,6 +276,7 @@ import {
   TuningProposalListParamsSchema,
   TuningProposalListResultSchema,
   TuningProposalResultSchema,
+  TuningProposalRevertParamsSchema,
   TuningProposalUpdateParamsSchema,
 } from './tuning-proposals.js';
 import {
@@ -2649,6 +2652,17 @@ export const MethodSchemas = {
     params: TuningProposalDecideParamsSchema,
     result: TuningProposalResultSchema,
     permission: 'host.manage',
+  },
+  /** 自动调优（0.107.0）：撤销写项目文件、记忆与护栏。 */
+  'tuning.proposal.revert': {
+    params: TuningProposalRevertParamsSchema,
+    result: TuningProposalResultSchema,
+    permission: 'host.manage',
+  },
+  'tuning.overview': {
+    params: TuningOverviewParamsSchema,
+    result: TuningOverviewResultSchema,
+    permission: 'session.read',
   },
 
   /** 听写（0.92.0）。 */
