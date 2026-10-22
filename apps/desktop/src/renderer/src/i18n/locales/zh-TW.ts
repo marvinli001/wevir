@@ -1313,6 +1313,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': '自動',
   'settings.market.mirror.autoResolved': '自動（{mirror}）',
   'settings.preventSleep': '執行時防止系統睡眠',
+  'settings.preventSleepNote': '闔上筆電螢幕時仍會睡眠',
   'settings.section.visual': '視覺風格',
   'settings.appearance.mode': '模式',
   'settings.appearance.custom': '自訂',

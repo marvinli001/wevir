@@ -1342,6 +1342,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': 'Automatique',
   'settings.market.mirror.autoResolved': 'Automatique ({mirror})',
   'settings.preventSleep': 'Empêcher la mise en veille pendant l’exécution',
+  'settings.preventSleepNote': 'La fermeture du capot met toujours l’ordinateur en veille',
   'settings.section.visual': 'Style visuel',
   'settings.appearance.mode': 'Mode',
   'settings.appearance.custom': 'Personnalisé',

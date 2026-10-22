@@ -48,6 +48,7 @@ import { createHostMethods, createProviderLock, syncProviders } from './host-met
 import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import { loadInsightInstructions } from './insight.js';
+import { KeepAwake } from './keep-awake.js';
 import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
 import { LspStatusService } from './lsp/service.js';
@@ -310,6 +311,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     await settings.load();
+    // 防休眠的判定（0.102.0，domain-model §3.45）：设置与会话事件进来，值变了经 `power.changed` 交给桌面主进程。
+    const keepAwake = new KeepAwake(settings.get());
+    settings.watch((current) => keepAwake.settingsChanged(current));
+    store.listenAll((event) => keepAwake.onEvent(event));
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
     const secrets = new FileSecretStore(home);
@@ -1008,6 +1013,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(proposals !== undefined && { proposals }),
         market,
         speech,
+        keepAwake,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -1094,6 +1100,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         mcp_oauth: true,
         permission_enforcement: true,
         session_list_push: true,
+        files_read: true,
+        prevent_sleep: true,
       },
       engineFeatures,
       plugins,
@@ -1107,6 +1115,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(previews !== undefined && { previews }),
       speech,
       market,
+      power: keepAwake,
       ...(guardrails !== undefined && { guardrails }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),

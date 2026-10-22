@@ -430,6 +430,12 @@ export const HOST_FEATURES = {
    * 与引擎无关。
    */
   sessionListPush: 'session_list_push',
+  /** 分块读文件（0.102.0，ADR-0017 §5）：`files.read`，远程客户端读文件用它，`GET /files/…` 只服务本机。与引擎无关。 */
+  filesRead: 'files_read',
+  /**
+   * 防休眠由 Host 判定（0.102.0，ADR-0017 §5）：设置 `preventSleep`、`power.get` 与 `power.changed` 通知。执行仍在桌面主进程。与引擎无关。
+   */
+  preventSleep: 'prevent_sleep',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -518,6 +524,8 @@ export const HostFeaturesSchema = z.looseObject({
   mcp_oauth: z.boolean().optional(),
   permission_enforcement: z.boolean().optional(),
   session_list_push: z.boolean().optional(),
+  files_read: z.boolean().optional(),
+  prevent_sleep: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

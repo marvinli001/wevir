@@ -23,6 +23,7 @@ import {
   NotificationSchemas,
   type Permission,
   PING_INTERVAL_MS,
+  PowerChangedParamsSchema,
   PROTOCOL_VERSION,
   PreviewChangedParamsSchema,
   ProcessChangedParamsSchema,
@@ -56,6 +57,8 @@ export type SessionsChange = NotificationParams<'sessions.changed'>;
 export type SpeechChange = NotificationParams<'speech.changed'>;
 /** `market.installProgress` 的内容（0.99.0）。 */
 export type MarketInstallProgress = NotificationParams<'market.installProgress'>;
+/** `power.changed` 的内容（0.102.0）。 */
+export type PowerChange = NotificationParams<'power.changed'>;
 /** `tuning.changed` 的内容（0.85.0）。 */
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
@@ -301,6 +304,7 @@ export class WevirClient {
   readonly #speechListeners = new Set<(change: SpeechChange | undefined) => void>();
   readonly #sessionsListeners = new Set<(change: SessionsChange | undefined) => void>();
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
+  readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
   readonly #proposalListeners = new Set<(change: TuningProposalChange | undefined) => void>();
@@ -629,6 +633,25 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a sessions listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 防休眠的判定变了（0.102.0，`power.changed`）。只有调过 `power.*` 的连接收得到。重连上之后以 `undefined` 调一次（期间的变化
+   * 没收到，重读 `power.get`）。返回取消函数。
+   */
+  onPowerChanged(listener: (change: PowerChange | undefined) => void): () => void {
+    this.#powerListeners.add(listener);
+    return () => this.#powerListeners.delete(listener);
+  }
+
+  #powerChanged(change: PowerChange | undefined): void {
+    for (const listener of [...this.#powerListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a power listener threw', { error });
       }
     }
   }
@@ -1072,6 +1095,7 @@ export class WevirClient {
         if (this.supports('dev_preview')) this.#previewChanged(undefined);
         if (this.supports('speech')) this.#speechChanged(undefined);
         if (this.supports('session_list_push')) this.#sessionsChanged(undefined);
+        if (this.supports('prevent_sleep')) this.#powerChanged(undefined);
         if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
         if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
@@ -1392,6 +1416,15 @@ export class WevirClient {
         return;
       }
       this.#sessionsChanged(parsed.data);
+      return;
+    }
+    if (method === 'power.changed') {
+      const parsed = PowerChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed power.changed notification');
+        return;
+      }
+      this.#powerChanged(parsed.data);
       return;
     }
     if (method === 'speech.changed') {

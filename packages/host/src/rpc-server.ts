@@ -82,6 +82,8 @@ export interface HostRpcServerOptions {
   speech?: ConnectionHost['speech'];
   /** 插件市场（0.99.0）：调过 `market.*` 的连接经它收 `market.installProgress`。 */
   market?: ConnectionHost['market'];
+  /** 防休眠（0.102.0）：调过 `power.*` 的连接经它收 `power.changed`。 */
+  power?: ConnectionHost['power'];
   /** 语言服务器（0.71.0）：调过 `lsp.*` 的连接经它收 `lsp.changed`。 */
   lsp?: ConnectionHost['lsp'];
   /** 调优的档案（0.85.0）：调过 `tuning.*` 的连接经它收 `tuning.changed`。 */
@@ -191,6 +193,7 @@ export class HostRpcServer {
       ...(options.previews !== undefined && { previews: options.previews }),
       ...(options.speech !== undefined && { speech: options.speech }),
       ...(options.market !== undefined && { market: options.market }),
+      ...(options.power !== undefined && { power: options.power }),
       ...(options.lsp !== undefined && { lsp: options.lsp }),
       ...(options.tuning !== undefined && { tuning: options.tuning }),
       ...(options.guardrails !== undefined && { guardrails: options.guardrails }),

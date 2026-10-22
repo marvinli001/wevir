@@ -1328,6 +1328,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': '自動',
   'settings.market.mirror.autoResolved': '自動（{mirror}）',
   'settings.preventSleep': '実行中はスリープしない',
+  'settings.preventSleepNote': 'ノートパソコンを閉じるとスリープします',
   'settings.section.visual': 'ビジュアルスタイル',
   'settings.appearance.mode': 'モード',
   'settings.appearance.custom': 'カスタム',

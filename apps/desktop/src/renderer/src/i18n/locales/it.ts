@@ -1341,6 +1341,8 @@ export const messages: Messages = {
   'settings.market.mirror.auto': 'Automatico',
   'settings.market.mirror.autoResolved': 'Automatico ({mirror})',
   'settings.preventSleep': 'Impedisci lo stop durante l’esecuzione',
+  'settings.preventSleepNote':
+    'Chiudendo il coperchio del portatile il sistema va comunque in stop',
   'settings.section.visual': 'Stile visivo',
   'settings.appearance.mode': 'Modalità',
   'settings.appearance.custom': 'Personalizzato',

@@ -36,8 +36,8 @@ const RAIL_CARD_META: Record<
 /**
  * 设置 → 常规（U7，原来的“对话”并进来）：界面语言（本机，language-picker.tsx），回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
  * domain-model §3.7，桌面与 CLI 共用；别的客户端改了，这里经 `settings.updated` 跟上）。U35 起还有发送消息的按键与外部编辑器
- * （文件预览的“打开方式”默认用它），都只存在本机。U36 起照 Codex 桌面端加了“运行时防止系统休眠”与“权限”一组（输入框的权限
- * 菜单里出现哪几种模式，请求批准一直在），也只存在本机。“会话侧栏”一组是不管有没有内容都占一张卡片的那几张，默认不显示，
+ * （文件预览的“打开方式”默认用它），都只存在本机。U36 起照 Codex 桌面端加了“运行时防止系统休眠”（0.102.0 起存在 Host 设置
+ * `preventSleep`，旧 Host 上只存在本机）与“权限”一组（输入框的权限菜单里出现哪几种模式，请求批准一直在），后者只存在本机。“会话侧栏”一组是不管有没有内容都占一张卡片的那几张，默认不显示，
  * 只存在本机。
  */
 export function GeneralSettings() {
@@ -64,7 +64,11 @@ export function GeneralSettings() {
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'rule_files');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const preventSleep = preventSleepPref.use();
+  // 0.102.0：Host 有 `prevent_sleep` 时开关存在 Host 设置，旧 Host 上仍只存在本机。
+  const preventSleepInHost =
+    supported && view.status === 'connected' && hostSupports(view.hello.features, 'prevent_sleep');
+  const localPreventSleep = preventSleepPref.use();
+  const preventSleep = preventSleepInHost ? settings.preventSleep === true : localPreventSleep;
   const permissionsSupported = usePermissionModes();
   const permissionPrefs = permissionModePrefs.use();
   const { railCards } = layoutPrefs.use();
@@ -204,12 +208,18 @@ export function GeneralSettings() {
           />
           <SettingsRow
             title={t('settings.preventSleep')}
+            description={t('settings.preventSleepNote')}
             data-setting="prevent-sleep"
             control={
               <Switch
                 label={t('settings.preventSleep')}
                 checked={preventSleep}
-                onChange={(next) => preventSleepPref.set(next)}
+                disabled={preventSleepInHost && saving}
+                onChange={(next) =>
+                  preventSleepInHost
+                    ? void save({ preventSleep: next })
+                    : preventSleepPref.set(next)
+                }
               />
             }
           />

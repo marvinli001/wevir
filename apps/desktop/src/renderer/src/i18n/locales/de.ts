@@ -1335,6 +1335,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': 'Automatisch',
   'settings.market.mirror.autoResolved': 'Automatisch ({mirror})',
   'settings.preventSleep': 'Ruhezustand während der Ausführung verhindern',
+  'settings.preventSleepNote': 'Beim Zuklappen des Laptops wird der Ruhezustand trotzdem aktiviert',
   'settings.section.visual': 'Darstellung',
   'settings.appearance.mode': 'Modus',
   'settings.appearance.custom': 'Benutzerdefiniert',

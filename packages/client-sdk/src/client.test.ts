@@ -904,6 +904,26 @@ describe('会话列表推送（0.101.0）', () => {
   });
 });
 
+describe('防休眠（0.102.0）', () => {
+  it('onPowerChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { prevent_sleep: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onPowerChanged((change) => changes.push(change));
+    host.last.notify('power.changed', { keepAwake: true });
+    await vi.waitFor(() => expect(changes).toEqual([{ keepAwake: true }]));
+    host.last.notify('power.changed', { keepAwake: 'yes' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed power.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+  });
+});
+
 describe('进程输出（0.69.0）', () => {
   it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

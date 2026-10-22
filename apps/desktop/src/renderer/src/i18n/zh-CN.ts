@@ -1326,6 +1326,7 @@ export const zhCN = {
   'settings.market.mirror.auto': '自动',
   'settings.market.mirror.autoResolved': '自动（{mirror}）',
   'settings.preventSleep': '运行时防止系统休眠',
+  'settings.preventSleepNote': '合上笔记本盖子时仍会休眠',
   'settings.section.visual': '视觉风格',
   'settings.appearance.mode': '模式',
   'settings.appearance.custom': '自定义',

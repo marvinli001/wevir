@@ -341,6 +341,16 @@ export const SettingsUpdateParamsSchema = z.object({
 /** `settings.updated` 通知：设置变了，带全部设置。发给调用过 `settings.*` 的连接。 */
 export const SettingsUpdatedParamsSchema = SettingsResultSchema;
 
+// ── power.*（0.102.0） ──────────────────────────────────────────────────
+
+/**
+ * Host 现在要不要挡住系统的空闲睡眠：设置 `preventSleep` 开着，且有回合在跑（运行中且没在等回答，或取消中）或有内部的保持请求
+ * （ADR-0017 §5，下一阶段的“有远程设备连着”）。桌面主进程按它执行，Host 自己不调用系统接口。
+ */
+export const PowerStateSchema = z.object({ keepAwake: z.boolean() });
+export type PowerState = z.infer<typeof PowerStateSchema>;
+export const PowerChangedParamsSchema = PowerStateSchema;
+
 // ── workspace.* ───────────────────────────────────────────────────────
 
 export const WorkspaceListResultSchema = z.object({
@@ -718,6 +728,51 @@ export const WorkspaceWriteFileResultSchema = z.object({
   /** 没写：文件在 `expectedMtimeMs` 之后变了。 */
   conflict: z.literal(true).optional(),
 });
+
+// ── files.read（0.102.0） ───────────────────────────────────────────────
+
+/** `files.read` 一次最多读的字节数（也是 `length` 的默认值）；base64 之后仍在连接的发送缓冲之内。 */
+export const FILES_READ_CHUNK_MAX_BYTES = 512 * 1024;
+/** `files.read` 读得了的最大文件。 */
+export const FILES_READ_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+/**
+ * 分块读一个文件的原始字节（ADR-0017 §5，远程客户端读文件用它）。目录同 `workspace.readFile`，另可只给 `sessionId`（读这个会话的
+ * `cwd`）；两个都给时会话要属于这个工作区。路径相对、realpath 之后仍要在目录里，要是普通文件。
+ */
+export const FilesReadParamsSchema = z
+  .object({
+    workspaceId: WorkspaceIdSchema.optional(),
+    sessionId: SessionIdSchema.optional(),
+    /** 相对路径，`/` 分隔。 */
+    path: z.string().min(1).max(1024),
+    /** 从第几个字节读，省略为 0。 */
+    offset: z.int().min(0).optional(),
+    /** 读多少字节，省略为 `FILES_READ_CHUNK_MAX_BYTES`。 */
+    length: z.int().min(1).max(FILES_READ_CHUNK_MAX_BYTES).optional(),
+  })
+  .refine((params) => params.workspaceId !== undefined || params.sessionId !== undefined, {
+    message: 'workspaceId or sessionId is required',
+    path: ['workspaceId'],
+  });
+export type FilesReadParams = z.infer<typeof FilesReadParamsSchema>;
+
+export const FilesReadResultSchema = z.object({
+  path: z.string().min(1),
+  /** 这一块的字节，base64。 */
+  data: z.string(),
+  /** 按扩展名，认不出的是 `application/octet-stream`。 */
+  mime: z.string().min(1),
+  /** 读时文件的字节数。 */
+  size: z.int().min(0),
+  /** 这一块的起点。 */
+  offset: z.int().min(0),
+  /** 这一块读到了文件末尾。 */
+  eof: z.boolean(),
+  /** 读时文件的修改时间（毫秒）；分块读的过程中变了说明文件被改过。 */
+  mtimeMs: z.number().min(0),
+});
+export type FilesReadResult = z.infer<typeof FilesReadResultSchema>;
 export type WorkspaceWriteFileResult = z.infer<typeof WorkspaceWriteFileResultSchema>;
 
 // ── provider.* ────────────────────────────────────────────────────────
@@ -1754,6 +1809,11 @@ export const MethodSchemas = {
     result: SettingsResultSchema,
     permission: 'host.manage',
   },
+  'power.get': {
+    params: EmptySchema,
+    result: PowerStateSchema,
+    permission: 'session.read',
+  },
 
   'workspace.list': {
     params: EmptySchema,
@@ -1834,6 +1894,11 @@ export const MethodSchemas = {
     params: WorkspaceWriteFileParamsSchema,
     result: WorkspaceWriteFileResultSchema,
     permission: 'workspace.write',
+  },
+  'files.read': {
+    params: FilesReadParamsSchema,
+    result: FilesReadResultSchema,
+    permission: 'workspace.read',
   },
 
   'provider.list': {
@@ -2660,6 +2725,8 @@ export const NotificationSchemas = {
   'speech.changed': { params: SpeechChangedParamsSchema },
   /** 发给调用过 `market.*` 的连接（0.99.0）：`market.install` 的进度。 */
   'market.installProgress': { params: MarketInstallProgressSchema },
+  /** 发给调用过 `power.*` 的连接（0.102.0）：`power.get` 的值变了。 */
+  'power.changed': { params: PowerChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */
@@ -2698,6 +2765,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'tuning.proposal.changed': 'session.read',
   'speech.changed': 'session.read',
   'market.installProgress': 'host.manage',
+  'power.changed': 'session.read',
   'terminal.output': 'session.read',
   'terminal.changed': 'session.read',
   'lsp.changed': 'workspace.read',

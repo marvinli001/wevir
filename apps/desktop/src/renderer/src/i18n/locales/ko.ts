@@ -1315,6 +1315,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': '자동',
   'settings.market.mirror.autoResolved': '자동({mirror})',
   'settings.preventSleep': '실행 중 절전 모드 방지',
+  'settings.preventSleepNote': '노트북 덮개를 닫으면 절전 모드로 전환됨',
   'settings.section.visual': '시각 스타일',
   'settings.appearance.mode': '모드',
   'settings.appearance.custom': '사용자 지정',
