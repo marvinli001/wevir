@@ -195,6 +195,29 @@ export function foldedParts(message: ChatMessage, fold: TurnFold): readonly Chat
   return message.parts.filter((part) => keptInFold(message.id, part, fold));
 }
 
+/**
+ * 交给用户的文件（0.40.0）排到回答后面（照 Codex）：回合结束后，同一条消息里在最后一段正文之前的文件卡片挪到这段正文
+ * 之后，彼此顺序不变。进行中的回合不挪（正文还在变，卡片会跳）；回答不在这条消息里时原样返回。
+ */
+export function filesAfterAnswer<T extends ChatPart>(
+  messageId: string,
+  parts: readonly T[],
+  fold: TurnFold,
+): readonly T[] {
+  if (!fold.finished) return parts;
+  const answer = parts.findIndex((part) => partId(messageId, part.key) === fold.finalKey);
+  if (answer < 0) return parts;
+  const before = parts.slice(0, answer);
+  const files = before.filter((part) => part.type === 'files');
+  if (files.length === 0) return parts;
+  return [
+    ...before.filter((part) => part.type !== 'files'),
+    parts[answer] as T,
+    ...files,
+    ...parts.slice(answer + 1),
+  ];
+}
+
 /** 助手消息的一段：收起时留下的部件（`kept`），或夹在它们之间的一串过程。`key` 取第一个部件的 key。 */
 export interface FoldSegment {
   key: string;

@@ -15,7 +15,13 @@ import { PartsView, PendingSteerMessage, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
-import { foldSegments, foldTurn, type TurnFold, turnHeaderText } from './turn-model';
+import {
+  filesAfterAnswer,
+  foldSegments,
+  foldTurn,
+  type TurnFold,
+  turnHeaderText,
+} from './turn-model';
 import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
 import { DiffStat, IssueFlags } from './work-group';
 
@@ -141,7 +147,11 @@ export const TurnView = memo(
               }
               if (message.role !== 'assistant') return null;
               const visible = visibleParts(message.parts, hasSubagents);
-              const parts = hideTodos ? visible.filter((part) => part.type !== 'todo') : visible;
+              const parts = filesAfterAnswer(
+                message.id,
+                hideTodos ? visible.filter((part) => part.type !== 'todo') : visible,
+                fold,
+              );
               if (parts.length === 0) return null;
               const view = (shown: typeof parts) => (
                 <PartsView
