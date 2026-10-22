@@ -379,8 +379,8 @@ describe('hook 命令行（经平台的 shell 跑）', () => {
       guardrailId: 'grd_shell',
       action: 'denied',
     });
-    // Windows 的 runner 上 PowerShell 冷启动要好几秒，超过默认的 5 s。
-  }, 30_000);
+    // Windows 的 runner 上 PowerShell 冷启动要好几秒（慢时超过 30 s），超过默认的 5 s。
+  }, 90_000);
 });
 
 describe('挂哪些 hook', () => {

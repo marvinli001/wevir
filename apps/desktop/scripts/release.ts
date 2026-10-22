@@ -264,12 +264,17 @@ function mirrorTarget(mirror: Mirror, env: NodeJS.ProcessEnv): MirrorTarget {
   };
 }
 
+/** 单次 aws 调用的上限：2026-10-22 beta.384 的发布在 Bunny 上传一个 blockmap 时卡住，一直等到任务被取消（1 小时）。 */
+const AWS_CALL_TIMEOUT_MS = 15 * 60_000;
+const AWS_UPLOAD_ATTEMPTS = 3;
+
 function aws(mirror: MirrorTarget, args: readonly string[]): string {
   return execFileSync('aws', args, {
     env: mirror.awsEnv,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'inherit'],
     maxBuffer: 64 * 1024 * 1024,
+    timeout: AWS_CALL_TIMEOUT_MS,
   });
 }
 
@@ -295,6 +300,22 @@ function contentType(name: string): string {
  * 仍是坏的）。R2 也照这样传。Bunny 的 S3 接口不收 Cache-Control，清单靠写完后清 CDN 缓存。
  */
 function upload(mirror: MirrorTarget, file: string, key: string): void {
+  // PutObject 整个重传是幂等的，卡住或失败就重来。
+  for (let attempt = 1; ; attempt++) {
+    try {
+      putObject(mirror, file, key);
+      break;
+    } catch (error) {
+      if (attempt >= AWS_UPLOAD_ATTEMPTS) throw error;
+      console.log(
+        `[${mirror.id}] ${key}: attempt ${attempt} failed (${String(error).split('\n')[0]}); retrying`,
+      );
+    }
+  }
+  console.log(`[${mirror.id}] ${key}`);
+}
+
+function putObject(mirror: MirrorTarget, file: string, key: string): void {
   const name = key.slice(key.lastIndexOf('/') + 1);
   aws(mirror, [
     's3api',
@@ -311,7 +332,6 @@ function upload(mirror: MirrorTarget, file: string, key: string): void {
     '--output',
     'json',
   ]);
-  console.log(`[${mirror.id}] ${key}`);
 }
 
 /** 线路上现有的文件；没有时返回 undefined（404），别的错误照抛。 */
