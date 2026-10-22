@@ -66,7 +66,7 @@ function RuleFileList({ rules, cwd }: { rules: SessionRules; cwd: string }) {
 function ProfileLine({ version, workspace }: { version: ProfileVersionRef; workspace: string }) {
   return (
     <Link
-      to={paths.tuning('profile', { workspace, version: version.id })}
+      to={paths.tuning({ workspace, version: version.id })}
       className="mt-1 flex h-6 min-w-0 items-center gap-2 rounded-md text-xs outline-none transition-colors duration-150 hover:text-foreground focus-visible:focus-ring"
       data-testid="rules-profile"
     >

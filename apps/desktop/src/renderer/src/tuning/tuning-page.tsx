@@ -1,6 +1,7 @@
-// 调优页（0.85.0，docs/architecture/desktop-layout.md §34，版式照插件页）：主窗格里的一列，顶上是范围选择与分段，下面是“档案”：
-// 当前版本一行（有待生效的改动时多一行与“对比”）、八层（展开看条目与打开、管理入口）、版本列表（展开看与前一版的变化和用它的
-// 会话）与两版对比。数据是 `tuning.*`（use-tuning.ts）。
+// 调优页（0.85.0，docs/architecture/desktop-layout.md §34，版式照插件页；0.107.0 改为自动调优）：主窗格里的一列。第一次进来
+// （设置里还没有 `autoTuning`）整页是引导；之后顶上是范围选择、“自动调优”开关与每月上限，项目范围下面是试用卡（进度、指标与走势）、
+// 版本时间线（展开看与前一版的变化和用它的会话），最后是默认折叠的“配置明细”：八层（展开看条目与打开、管理入口）与两版对比。全局
+// 范围只有配置明细与版本列表。数据是 `tuning.*`（use-tuning.ts）与 `tuning.overview`（use-overview.ts）。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type {
@@ -10,24 +11,34 @@ import type {
   ProfileVersionId,
   ProfileVersionSummary,
   SessionId,
+  TuningProposal,
 } from '@wevir/protocol';
-import { ExternalLink } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { cn } from 'cn';
+import { ChevronDown, ExternalLink } from 'lucide-react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useSearchParams } from 'react-router';
+import { Collapse } from '@/components/collapse';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select } from '@/components/ui/select';
+import { useHostSettings } from '@/data/host-settings';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { DetailSection, ExpandableRow } from '@/plugins/plugin-rows';
-import { paths, type TuningTab } from '@/routes/paths';
-import { EmptyList, LIST_CARD, NoticeBanner, Segmented } from '@/settings/settings-ui';
+import { paths } from '@/routes/paths';
+import { EmptyList, LIST_CARD, NoticeBanner } from '@/settings/settings-ui';
 import { canOpenExternally } from '../../../shared/open-path.js';
+import {
+  AutoControls,
+  TrialCard,
+  TuningOnboarding,
+  undoProposals,
+  VersionTimeline,
+} from './auto-section';
 import { GuardrailsLayerRow } from './guardrails-layer';
 import { ProfileDiffList } from './profile-diff';
-import { ProposalsTab } from './proposals-tab';
 import {
   changesSummary,
   itemDetail,
@@ -37,14 +48,13 @@ import {
   layerName,
   layerScopes,
   layerSummary,
-  pendingSummary,
   pickScope,
   scopeName,
   scopeWorkspaceId,
   shortHash,
   versionLabel,
-  visibleTuningTabs,
 } from './tuning-model';
+import { useOverview } from './use-overview';
 import { tuningScope, useTuning } from './use-tuning';
 
 /** 对比的两边：一个版本与另一个版本或当前配置。 */
@@ -53,16 +63,7 @@ interface Comparison {
   to: ProfileVersionId | 'current';
 }
 
-export function TuningPage({
-  tab,
-  client,
-  features,
-}: {
-  tab: TuningTab;
-  client: WevirClient;
-  features: HostFeatures;
-}) {
-  const navigate = useNavigate();
+export function TuningPage({ client, features }: { client: WevirClient; features: HostFeatures }) {
   const [params, setParams] = useSearchParams();
   const workbench = useWorkbenchData();
   const projects = useMemo(
@@ -86,7 +87,11 @@ export function TuningPage({
   useEffect(() => {
     if (requested !== null && requested === scope) tuningScope.set(scope);
   }, [requested, scope]);
-  const data = useTuning(client, scopeWorkspaceId(scope));
+  const workspaceId = scopeWorkspaceId(scope);
+  const data = useTuning(client, workspaceId);
+  const auto = hostSupports(features, 'tuning_auto');
+  const overview = useOverview(client, auto ? workspaceId : undefined);
+  const { update } = useHostSettings();
   const [expandedLayer, setExpandedLayer] = useState<string>();
   const requestedVersion = params.get('version') ?? undefined;
   const [expandedVersion, setExpandedVersion] = useState(requestedVersion);
@@ -106,25 +111,55 @@ export function TuningPage({
     setRevealVersion(undefined);
   }, [revealListed, revealVersion]);
   const [comparison, setComparison] = useState<Comparison>();
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [undoError, setUndoError] = useState<string>();
 
   const changeScope = (next: string) => {
     tuningScope.set(next);
     setExpandedLayer(undefined);
     setExpandedVersion(undefined);
     setComparison(undefined);
+    setUndoError(undefined);
     // 地址里的范围与版本只管第一次进来。
     if (params.has('workspace') || params.has('version')) setParams({}, { replace: true });
   };
 
-  const tabs = visibleTuningTabs(features);
   const current = data.data?.current;
   const versions = data.data?.versions ?? [];
+  const summary = overview.data?.overview;
+  // 第一次进来（设置里还没有 `autoTuning`）：整页是引导。
+  if (auto && summary !== undefined && !summary.auto.decided) {
+    return (
+      <div className="relative flex h-full min-h-0 flex-col" data-testid="tuning-page">
+        <ScrollArea className="min-h-0 flex-1">
+          <TuningOnboarding update={update} />
+        </ScrollArea>
+      </div>
+    );
+  }
+  // 项目范围有试用卡与时间线；全局范围（与没有自动调优的 Host）只有配置明细，默认展开，版本列表也在里面。
+  const timelineShown = auto && workspaceId !== undefined;
+  const undo = (proposals: TuningProposal[]) => {
+    setUndoError(undefined);
+    void undoProposals(client, proposals).then((error) => {
+      if (error !== undefined) setUndoError(error);
+    });
+  };
+  const loadError = data.error ?? overview.error;
+  const versionDetail = (version: ProfileVersionSummary) => (
+    <VersionDetail
+      client={client}
+      version={version}
+      previous={versions[versions.findIndex((v) => v.id === version.id) + 1]}
+    />
+  );
+  const toggleVersion = (id: string) => setExpandedVersion(expandedVersion === id ? undefined : id);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col" data-testid="tuning-page" data-tab={tab}>
+    <div className="relative flex h-full min-h-0 flex-col" data-testid="tuning-page">
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto w-full max-w-180 px-5 pt-6 pb-16 sm:px-10">
-          <div className="mb-5 flex items-center justify-between gap-3">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <Select
               aria-label={t('tuning.scope')}
               value={scope}
@@ -136,128 +171,214 @@ export function TuningPage({
                 ...projects.map((project) => ({ value: project.id, label: project.label })),
               ]}
             />
-            <Segmented<TuningTab>
-              label={t('tuning.tabs')}
-              value={tab}
-              onChange={(next) => navigate(paths.tuning(next), { replace: true })}
-              options={tabs.map((value) => ({ value, label: t(`tuning.tab.${value}`) }))}
-            />
+            {auto && summary !== undefined && (
+              <AutoControls
+                settings={{
+                  autoTuning: summary.auto.enabled,
+                  autoTuningMonthlyTokens: summary.budget.limitTokens,
+                }}
+                update={update}
+              />
+            )}
           </div>
-          {tab !== 'proposals' && data.error !== undefined && (
+          {loadError !== undefined && (
             <div className="mb-4">
               <NoticeBanner
                 notice={{
                   tone: 'error',
-                  text: t('tuning.loadFailed', { error: describe(data.error) }),
+                  text: t('tuning.loadFailed', { error: describe(loadError) }),
                 }}
               />
             </div>
           )}
-          {tab === 'proposals' ? (
-            <ProposalsTab client={client} workspaceId={scopeWorkspaceId(scope)} />
-          ) : current === undefined ? (
-            data.error === undefined && (
+          {undoError !== undefined && (
+            <div className="mb-4">
+              <NoticeBanner notice={{ tone: 'error', text: undoError }} />
+            </div>
+          )}
+          {current === undefined || (auto && summary === undefined) ? (
+            loadError === undefined && (
               <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
             )
           ) : (
             <>
-              <ul className={LIST_CARD} data-testid="tuning-profile">
-                <CurrentRow
-                  current={current}
-                  onCompare={() =>
-                    current.latest !== undefined &&
-                    setComparison({ from: current.latest.id, to: 'current' })
-                  }
-                />
-                {knownLayers(current.profile.layers).map((layer) =>
-                  layer.key === 'guardrails' && hostSupports(features, 'tuning_guardrails') ? (
-                    <GuardrailsLayerRow
-                      key={layer.key}
-                      client={client}
-                      layer={layer}
-                      workspaceId={scopeWorkspaceId(scope)}
-                      expanded={expandedLayer === layer.key}
-                      onToggle={() =>
-                        setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
-                      }
-                      onExpand={() => setExpandedLayer(layer.key)}
-                    />
+              {timelineShown && summary !== undefined && (
+                <>
+                  <TrialCard
+                    overview={summary}
+                    proposals={overview.data?.proposals ?? []}
+                    versions={versions}
+                    latestSeq={current.latest?.seq}
+                    onUndo={undo}
+                  />
+                  <h2 className="mb-2 text-sm font-medium">{t('tuning.versions')}</h2>
+                  {versions.length === 0 && (overview.data?.proposals ?? []).length === 0 ? (
+                    <EmptyList>{t('tuning.noVersions')}</EmptyList>
                   ) : (
-                    <LayerRow
-                      key={layer.key}
-                      layer={layer}
-                      expanded={expandedLayer === layer.key}
-                      onToggle={() =>
-                        setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
-                      }
+                    <VersionTimeline
+                      versions={versions}
+                      proposals={overview.data?.proposals ?? []}
+                      expanded={expandedVersion}
+                      onToggle={toggleVersion}
+                      detail={versionDetail}
+                      onUndo={undo}
                     />
-                  ),
-                )}
-              </ul>
-
-              <div className="mt-8 mb-2 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-medium">{t('tuning.versions')}</h2>
-                {versions.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    data-action="compare"
-                    onClick={() =>
-                      setComparison(
-                        comparison !== undefined
-                          ? undefined
-                          : {
-                              from: (versions[1] ?? versions[0])?.id as ProfileVersionId,
-                              to:
-                                versions[1] === undefined
-                                  ? 'current'
-                                  : (versions[0]?.id as ProfileVersionId),
-                            },
-                      )
-                    }
-                  >
-                    {t('tuning.compare')}
-                  </Button>
-                )}
-              </div>
-              {comparison !== undefined && (
-                <ComparePanel
-                  client={client}
-                  versions={versions}
-                  value={comparison}
-                  onChange={setComparison}
-                />
+                  )}
+                  <MoreVersions data={data} />
+                </>
               )}
-              {versions.length === 0 ? (
-                <EmptyList>{t('tuning.noVersions')}</EmptyList>
-              ) : (
-                <ul className={LIST_CARD} data-testid="tuning-versions">
-                  {versions.map((version, index) => (
-                    <VersionRow
-                      key={version.id}
-                      client={client}
-                      version={version}
-                      previous={versions[index + 1]}
-                      expanded={expandedVersion === version.id}
-                      onToggle={() =>
-                        setExpandedVersion(expandedVersion === version.id ? undefined : version.id)
-                      }
-                    />
-                  ))}
+              <ConfigDetails
+                open={!timelineShown || detailsOpen}
+                collapsible={timelineShown}
+                onToggle={() => setDetailsOpen(!detailsOpen)}
+                current={current}
+              >
+                <ul className={LIST_CARD} data-testid="tuning-profile">
+                  <CurrentRow current={current} />
+                  {knownLayers(current.profile.layers).map((layer) =>
+                    layer.key === 'guardrails' && hostSupports(features, 'tuning_guardrails') ? (
+                      <GuardrailsLayerRow
+                        key={layer.key}
+                        client={client}
+                        layer={layer}
+                        workspaceId={workspaceId}
+                        expanded={expandedLayer === layer.key}
+                        onToggle={() =>
+                          setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
+                        }
+                        onExpand={() => setExpandedLayer(layer.key)}
+                      />
+                    ) : (
+                      <LayerRow
+                        key={layer.key}
+                        layer={layer}
+                        expanded={expandedLayer === layer.key}
+                        onToggle={() =>
+                          setExpandedLayer(expandedLayer === layer.key ? undefined : layer.key)
+                        }
+                      />
+                    ),
+                  )}
                 </ul>
-              )}
-              {data.data?.nextCursor !== undefined && (
-                <div className="mt-2 flex justify-center">
-                  <Button variant="ghost" size="sm" onClick={data.more}>
-                    {t('sidebar.showMore')}
-                  </Button>
-                </div>
-              )}
+                {versions.length > 0 && (
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-action="compare"
+                      onClick={() =>
+                        setComparison(
+                          comparison !== undefined
+                            ? undefined
+                            : {
+                                from: (versions[0] as ProfileVersionSummary).id,
+                                to: 'current',
+                              },
+                        )
+                      }
+                    >
+                      {t('tuning.compare')}
+                    </Button>
+                  </div>
+                )}
+                {comparison !== undefined && (
+                  <ComparePanel
+                    client={client}
+                    versions={versions}
+                    value={comparison}
+                    onChange={setComparison}
+                  />
+                )}
+                {!timelineShown && (
+                  <>
+                    <h2 className="mt-6 mb-2 text-sm font-medium">{t('tuning.versions')}</h2>
+                    {versions.length === 0 ? (
+                      <EmptyList>{t('tuning.noVersions')}</EmptyList>
+                    ) : (
+                      <ul className={LIST_CARD} data-testid="tuning-versions">
+                        {versions.map((version) => (
+                          <VersionRow
+                            key={version.id}
+                            version={version}
+                            expanded={expandedVersion === version.id}
+                            onToggle={() => toggleVersion(version.id)}
+                          >
+                            {versionDetail(version)}
+                          </VersionRow>
+                        ))}
+                      </ul>
+                    )}
+                    <MoreVersions data={data} />
+                  </>
+                )}
+              </ConfigDetails>
             </>
           )}
         </div>
       </ScrollArea>
     </div>
+  );
+}
+
+function MoreVersions({ data }: { data: ReturnType<typeof useTuning> }) {
+  if (data.data?.nextCursor === undefined) return null;
+  return (
+    <div className="mt-2 flex justify-center">
+      <Button variant="ghost" size="sm" onClick={data.more}>
+        {t('sidebar.showMore')}
+      </Button>
+    </div>
+  );
+}
+
+/** 配置明细：项目范围默认折叠（标题行写层数与指纹），全局范围一直展开。 */
+function ConfigDetails({
+  open,
+  collapsible,
+  onToggle,
+  current,
+  children,
+}: {
+  open: boolean;
+  collapsible: boolean;
+  onToggle: () => void;
+  current: MethodResult<'tuning.get'>;
+  children: ReactNode;
+}) {
+  const fingerprint = current.latest?.fingerprint ?? current.profile.fingerprint;
+  const head = (
+    <>
+      <span className="font-medium text-foreground">{t('tuning.details')}</span>
+      <span>{t('tuning.layerCount', { count: knownLayers(current.profile.layers).length })}</span>
+      <span className="font-mono" title={fingerprint}>
+        {shortHash(fingerprint)}
+      </span>
+    </>
+  );
+  return (
+    <section className={collapsible ? 'mt-8' : undefined} data-testid="tuning-details">
+      {collapsible ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          data-action="toggle-details"
+          className="mb-2 flex w-full items-center gap-2 rounded-md text-left text-sm text-muted-foreground outline-none focus-visible:focus-ring"
+        >
+          {head}
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              'ml-auto size-3.5 transition-transform duration-150 ease-smooth',
+              open && 'rotate-180',
+            )}
+          />
+        </button>
+      ) : (
+        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">{head}</div>
+      )}
+      <Collapse open={open}>{children}</Collapse>
+    </section>
   );
 }
 
@@ -270,14 +391,8 @@ function formatTime(at: string): string {
   }).format(new Date(time));
 }
 
-/** 档案卡片的第一行：最新版本（或“暂无版本”）与当前指纹；当前配置与最新版本不同时下面一行“待生效”与“对比”。 */
-function CurrentRow({
-  current,
-  onCompare,
-}: {
-  current: MethodResult<'tuning.get'>;
-  onCompare: () => void;
-}) {
+/** 档案卡片的第一行：最新版本（或“暂无版本”）与当前指纹、会话数与时刻。 */
+function CurrentRow({ current }: { current: MethodResult<'tuning.get'> }) {
   const latest = current.latest;
   return (
     <li className="px-4 py-3" data-testid="tuning-current">
@@ -297,23 +412,6 @@ function CurrentRow({
           </span>
         )}
       </div>
-      {current.pending && (
-        <div className="mt-1.5 flex min-w-0 items-center gap-3" data-testid="tuning-pending">
-          <span className="truncate text-xs text-warning">
-            {t('tuning.pending')}
-            {current.pendingLayers.length > 0 && ` · ${pendingSummary(current.pendingLayers)}`}
-          </span>
-          <Button
-            variant="outline"
-            size="xs"
-            className="ml-auto"
-            onClick={onCompare}
-            data-action="compare-current"
-          >
-            {t('tuning.compare')}
-          </Button>
-        </div>
-      )}
     </li>
   );
 }
@@ -419,19 +517,17 @@ function LayerRow({
   );
 }
 
-/** 一个版本：序号、时间与变化摘要、会话数；展开是与前一版的变化与用它建的会话。 */
+/** 一个版本（全局范围的列表）：序号、时间与变化摘要、会话数；展开是与前一版的变化与用它建的会话。 */
 function VersionRow({
-  client,
   version,
-  previous,
   expanded,
   onToggle,
+  children,
 }: {
-  client: WevirClient;
   version: ProfileVersionSummary;
-  previous: ProfileVersionSummary | undefined;
   expanded: boolean;
   onToggle: () => void;
+  children: ReactNode;
 }) {
   const changes = changesSummary(version.changes);
   return (
@@ -447,16 +543,10 @@ function VersionRow({
           </span>
         </span>
       }
-      meta={[
-        formatTime(version.createdAt),
-        changes,
-        version.cause !== undefined ? t('tuning.version.fromProposals') : '',
-      ]
-        .filter((part) => part !== '')
-        .join(' · ')}
+      meta={[formatTime(version.createdAt), changes].filter((part) => part !== '').join(' · ')}
       summary={t('tuning.sessionCount', { count: version.sessions })}
     >
-      {expanded && <VersionDetail client={client} version={version} previous={previous} />}
+      {expanded && children}
     </ExpandableRow>
   );
 }
@@ -558,7 +648,7 @@ function ComparePanel({
   onChange: (value: Comparison) => void;
 }) {
   const [result, setResult] = useState<MethodResult<'tuning.diff'> | { error: string }>();
-  // 从顶上“待生效”那行打开时面板在页面下方，打开时滚到眼前。
+  // 打开时滚到眼前。
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     panel.current?.scrollIntoView({ block: 'start' });

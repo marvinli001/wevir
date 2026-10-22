@@ -1,5 +1,5 @@
-// 任务回顾里的“生成建议”（0.87.0）：只对项目里的会话、Host 有 `tuning_proposals` 时有。生成了就跳到调优页这个项目的建议分段；
-// 没生成时把原因交给回顾视图显示。
+// 任务回顾里的“生成建议”（0.87.0）：只对项目里的会话、Host 有 `tuning_proposals` 时有。生成了就跳到调优页这个项目（0.107.0 起
+// 改动直接进入试用，试用卡里能看到）；没生成时把原因交给回顾视图显示。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { Session, SessionId } from '@wevir/protocol';
@@ -48,7 +48,7 @@ export function useProposalGenerate(session: Session): {
       } else if (result.proposals.length === 0) {
         setMessage(generatedText(result));
       } else {
-        void navigate(paths.tuning('proposals', { workspace: session.workspaceId }));
+        void navigate(paths.tuning({ workspace: session.workspaceId }));
       }
     } catch (reason) {
       setMessage(t('tuning.proposals.failed', { reason: describe(reason) }));

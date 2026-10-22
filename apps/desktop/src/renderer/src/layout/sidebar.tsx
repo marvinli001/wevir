@@ -51,7 +51,6 @@ import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { searchOpen } from '@/search/search-model';
 import { tuningAvailability } from '@/tuning/tuning-model';
-import { useOpenProposalCount } from '@/tuning/use-proposals';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { usageAvailability } from '@/usage/usage-model';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
@@ -88,8 +87,6 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   const showPlugins = pluginsAvailability(client?.hello.features) === 'ready';
   // Host 有 `tuning` 功能才有“调优”入口（0.85.0），在“插件”下面。
   const showTuning = tuningAvailability(client?.hello.features) === 'ready';
-  // 待审的建议数（0.87.0），在“调优”右边。
-  const openProposals = useOpenProposalCount(showTuning ? client : undefined);
   // Host 有 `usage_stats` 功能才有“使用统计”入口（0.62.0），在设置上面。
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
@@ -152,18 +149,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
             data-testid="sidebar-tuning"
           >
             <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="flex-1">{t('sidebar.tuning')}</span>
-            {openProposals > 0 && (
-              <span
-                className="text-xs text-muted-foreground tabular-nums"
-                data-testid="sidebar-tuning-pending"
-              >
-                <span aria-hidden>{openProposals}</span>
-                <span className="sr-only">
-                  {t('sidebar.tuningPending', { count: openProposals })}
-                </span>
-              </span>
-            )}
+            {t('sidebar.tuning')}
           </NavLink>
         )}
       </div>
