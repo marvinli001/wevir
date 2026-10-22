@@ -98,6 +98,8 @@ export const messages: Messages = {
   'clientError.protocol': '協定錯誤',
   'clientError.feature_unavailable': '背景服務版本過舊，不支援此功能',
   'clientError.host_unavailable': '背景服務未執行',
+  'clientError.remote_unreachable': '連不上那台電腦',
+  'clientError.remote_handshake': '與那台電腦的握手未完成',
 
   'layout.expandSidebar': '顯示側邊欄',
   'layout.collapseSidebar': '隱藏側邊欄',

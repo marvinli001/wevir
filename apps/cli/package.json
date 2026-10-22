@@ -20,6 +20,7 @@
   "dependencies": {
     "@wevir/client-sdk": "workspace:*",
     "@wevir/host": "workspace:*",
+    "@wevir/noise": "workspace:*",
     "@wevir/protocol": "workspace:*",
     "mute-stream": "3.0.0"
   },

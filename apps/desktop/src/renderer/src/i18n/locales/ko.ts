@@ -100,6 +100,8 @@ export const messages: Messages = {
   'clientError.protocol': '프로토콜 오류',
   'clientError.feature_unavailable': '백그라운드 서비스 버전이 낮아 이 기능을 지원하지 않음',
   'clientError.host_unavailable': '백그라운드 서비스가 실행되고 있지 않음',
+  'clientError.remote_unreachable': '해당 컴퓨터에 연결할 수 없음',
+  'clientError.remote_handshake': '해당 컴퓨터와의 핸드셰이크 실패',
 
   'layout.expandSidebar': '사이드바 표시',
   'layout.collapseSidebar': '사이드바 숨기기',

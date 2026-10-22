@@ -20,9 +20,10 @@ import {
   joinMonthlyArgs,
 } from './commands/automation.js';
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
-import { inboxDismiss, inboxList } from './commands/inbox.js';
+import { inboxDismiss, inboxList, inboxRespond } from './commands/inbox.js';
 import { providerAdd, providerList, providerTest } from './commands/provider.js';
-import { sessionAttach, sessionList, sessionNew } from './commands/session.js';
+import { remoteForget, remoteList, remotePair } from './commands/remote.js';
+import { sessionAttach, sessionList, sessionNew, sessionSend } from './commands/session.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import { workspaceAdd, workspaceList } from './commands/workspace.js';
 import { type CliIO, type Context, createContext } from './context.js';
@@ -45,6 +46,8 @@ interface CommandDef {
   positionals: { min: number; max: number };
   /** 交给 parseArgs 之前改写参数（`--monthly 15 09:00` 这类两个词的值）。 */
   rewriteArgs?(args: readonly string[]): string[];
+  /** 能经 `--remote <名称>` 在配对过的电脑上跑（只用 JSON-RPC、不碰本机文件与进程的命令）。 */
+  remote?: boolean;
   run(ctx: Context, values: Values, positionals: string[]): Promise<number>;
 }
 
@@ -171,6 +174,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       usage: 'cmd.workspace.list.usage',
       options: {},
       positionals: { min: 0, max: 0 },
+      remote: true,
       run: (ctx) => workspaceList(ctx),
     },
   },
@@ -214,6 +218,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       usage: 'cmd.provider.list.usage',
       options: {},
       positionals: { min: 0, max: 0 },
+      remote: true,
       run: (ctx) => providerList(ctx),
     },
     test: {
@@ -308,6 +313,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
         detach: { type: 'boolean' },
       },
       positionals: { min: 0, max: Number.POSITIVE_INFINITY },
+      remote: true,
       run: (ctx, v, positionals) => {
         const workspace = str(v.workspace);
         if (workspace === undefined) {
@@ -330,6 +336,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.session.list.help',
       options: { workspace: { type: 'string', short: 'w' } },
       positionals: { min: 0, max: 0 },
+      remote: true,
       run: (ctx, v) => {
         const workspace = str(v.workspace);
         return sessionList(ctx, workspace === undefined ? {} : { workspace });
@@ -341,7 +348,17 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.session.attach.help',
       options: {},
       positionals: { min: 1, max: 1 },
+      remote: true,
       run: (ctx, _v, [id]) => sessionAttach(ctx, id as string),
+    },
+    send: {
+      summary: 'cmd.session.send.summary',
+      usage: 'cmd.session.send.usage',
+      help: 'cmd.session.send.help',
+      options: {},
+      positionals: { min: 2, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, _v, [id, ...words]) => sessionSend(ctx, id as string, words.join(' ')),
     },
   },
   automation: {
@@ -350,6 +367,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       usage: 'cmd.automation.list.usage',
       options: json,
       positionals: { min: 0, max: 0 },
+      remote: true,
       run: (ctx, v) => automationList(ctx, { json: v.json === true }),
     },
     show: {
@@ -358,6 +376,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.automation.show.help',
       options: json,
       positionals: { min: 1, max: 1 },
+      remote: true,
       run: (ctx, v, [id]) => automationShow(ctx, id as string, { json: v.json === true }),
     },
     create: {
@@ -410,6 +429,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.automation.run.help',
       options: json,
       positionals: { min: 1, max: 1 },
+      remote: true,
       run: (ctx, v, [id]) => automationRun(ctx, id as string, { json: v.json === true }),
     },
     'test-check': {
@@ -436,6 +456,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       usage: 'cmd.inbox.list.usage',
       options: json,
       positionals: { min: 0, max: 0 },
+      remote: true,
       run: (ctx, v) => inboxList(ctx, { json: v.json === true }),
     },
     dismiss: {
@@ -444,7 +465,49 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.inbox.dismiss.help',
       options: {},
       positionals: { min: 1, max: 1 },
+      remote: true,
       run: (ctx, _v, [id]) => inboxDismiss(ctx, id as string),
+    },
+    respond: {
+      summary: 'cmd.inbox.respond.summary',
+      usage: 'cmd.inbox.respond.usage',
+      help: 'cmd.inbox.respond.help',
+      options: {},
+      positionals: { min: 2, max: 2 },
+      remote: true,
+      run: (ctx, _v, [id, answer]) => inboxRespond(ctx, id as string, answer as string),
+    },
+  },
+  remote: {
+    pair: {
+      summary: 'cmd.remote.pair.summary',
+      usage: 'cmd.remote.pair.usage',
+      help: 'cmd.remote.pair.help',
+      options: { name: { type: 'string' }, 'device-name': { type: 'string' } },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [input]) => {
+        const name = str(v.name);
+        const deviceName = str(v['device-name']);
+        return remotePair(ctx, input as string, {
+          ...(name !== undefined && { name }),
+          ...(deviceName !== undefined && { deviceName }),
+        });
+      },
+    },
+    list: {
+      summary: 'cmd.remote.list.summary',
+      usage: 'cmd.remote.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      run: (ctx, v) => remoteList(ctx, { json: v.json === true }),
+    },
+    forget: {
+      summary: 'cmd.remote.forget.summary',
+      usage: 'cmd.remote.forget.usage',
+      help: 'cmd.remote.forget.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [name]) => remoteForget(ctx, name as string),
     },
   },
 };
@@ -460,6 +523,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   session: 'group.session',
   automation: 'group.automation',
   inbox: 'group.inbox',
+  remote: 'group.remote',
 };
 
 /** 总帮助里的一行：用法 + 概要。 */
@@ -520,6 +584,7 @@ function usageFromParseError(error: unknown, group: string, name: string): Usage
 
 interface Leading {
   home?: string;
+  remote?: string;
   help: boolean;
   version: boolean;
   rest: string[];
@@ -539,6 +604,12 @@ function parseLeading(argv: readonly string[]): Leading {
       result.home = value;
       i += 1;
     } else if (token.startsWith('--home=')) result.home = token.slice('--home='.length);
+    else if (token === '--remote') {
+      const value = argv[i + 1];
+      if (value === undefined) throw new UsageError(t('usage.remoteMissing'));
+      result.remote = value;
+      i += 1;
+    } else if (token.startsWith('--remote=')) result.remote = token.slice('--remote='.length);
     else if (token.startsWith('-'))
       throw new UsageError(t('usage.unknownOption', { option: token }));
     else break;
@@ -590,6 +661,7 @@ export async function runCli(io: CliIO): Promise<number> {
         options: {
           ...def.options,
           home: { type: 'string' },
+          remote: { type: 'string' },
           help: { type: 'boolean', short: 'h' },
         },
         allowPositionals: true,
@@ -622,8 +694,19 @@ export async function runCli(io: CliIO): Promise<number> {
       env: io.env,
       cwd: io.cwd,
     });
-    ctx = createContext(io, home);
-    return await def.run(ctx, values, positionals);
+    const remote = str(values.remote) ?? leading.remote;
+    if (remote !== undefined) {
+      if (remote === '') throw new UsageError(t('usage.remoteMissing'));
+      if (def.remote !== true) {
+        throw new UsageError(t('usage.notRemote', { command: `wevir ${group} ${name}` }));
+      }
+    }
+    ctx = createContext(io, home, remote);
+    try {
+      return await def.run(ctx, values, positionals);
+    } finally {
+      await ctx.settle();
+    }
   } catch (error) {
     if (ctx) ctx.printError(error);
     else createContext(io, '').printError(error);

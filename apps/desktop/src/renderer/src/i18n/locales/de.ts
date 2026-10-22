@@ -103,6 +103,8 @@ export const messages: Messages = {
   'clientError.protocol': 'Protokollfehler',
   'clientError.feature_unavailable': 'Hintergrunddienst veraltet, Funktion nicht unterstützt',
   'clientError.host_unavailable': 'Hintergrunddienst läuft nicht',
+  'clientError.remote_unreachable': 'Computer nicht erreichbar',
+  'clientError.remote_handshake': 'Handshake mit dem Computer fehlgeschlagen',
 
   'layout.expandSidebar': 'Seitenleiste einblenden',
   'layout.collapseSidebar': 'Seitenleiste ausblenden',

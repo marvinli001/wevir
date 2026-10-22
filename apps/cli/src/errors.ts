@@ -5,10 +5,12 @@ import {
   FeatureUnavailableError,
   HostUnavailableError,
   ProtocolError,
+  RemoteHandshakeError,
+  RemoteUnreachableError,
   RequestTimeoutError,
   WevirRpcError,
 } from '@wevir/client-sdk';
-import { PROTOCOL_VERSION } from '@wevir/protocol';
+import { CloseCode, PROTOCOL_VERSION } from '@wevir/protocol';
 import { engineErrorHint, engineErrorLabel, readOnlyLabel, stateLabel } from './format.js';
 import { joinList, t } from './i18n/index.js';
 
@@ -69,7 +71,41 @@ export function describeError(error: unknown): Described {
     };
   }
   if (error instanceof ConnectionLostError) {
+    // 远程连接（0.109.0）：传输层给的原因与远程的关闭码更能说明问题。
+    if (error.cause instanceof Error) return describeError(error.cause);
+    switch (error.closeCode) {
+      case CloseCode.DEVICE_REVOKED:
+        return { message: t('err.deviceRevoked'), hint: t('err.deviceRevoked.hint') };
+      case CloseCode.PAIRING_DENIED:
+        return { message: t('err.pairingDenied') };
+      case CloseCode.REMOTE_DISABLED:
+        return { message: t('err.remoteDisabled'), hint: t('err.remoteDisabled.hint') };
+    }
     return { message: t('err.connectionLost'), hint: t('err.connectionLost.hint') };
+  }
+  if (error instanceof RemoteUnreachableError) {
+    return {
+      message:
+        error.tried.length === 0
+          ? t('err.remoteNoAddress')
+          : t('err.remoteUnreachable', { addresses: joinList(error.tried) }),
+      hint: t('err.remoteUnreachable.hint'),
+    };
+  }
+  if (error instanceof RemoteHandshakeError) {
+    switch (error.reason) {
+      case 'rejected':
+        return { message: t('err.remoteRejected'), hint: t('err.remoteRejected.hint') };
+      case 'wrong_secret':
+        return { message: t('err.remoteWrongSecret'), hint: t('err.remoteWrongSecret.hint') };
+      case 'host_mismatch':
+        return { message: t('err.remoteHostMismatch'), hint: t('err.remoteHostMismatch.hint') };
+      case 'timeout':
+        return {
+          message: t('err.remoteTimeout', { address: error.route }),
+          hint: t('err.remoteTimeout.hint'),
+        };
+    }
   }
   if (error instanceof ClientClosedError) {
     return error.cause === undefined
@@ -108,6 +144,14 @@ export function describeError(error: unknown): Described {
 function describeRpcError(error: WevirRpcError): Described {
   if (error.is('UNAUTHORIZED')) {
     return { message: t('err.unauthorized'), hint: t('err.unauthorized.hint') };
+  }
+  if (error.is('DEVICE_FORBIDDEN')) {
+    return {
+      message: t('err.deviceForbidden', {
+        permissions: joinList(error.data?.missing ?? []),
+      }),
+      hint: t('err.deviceForbidden.hint'),
+    };
   }
   if (error.is('INCOMPATIBLE_PROTOCOL')) {
     const data = error.data;

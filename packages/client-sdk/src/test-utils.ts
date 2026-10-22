@@ -2,18 +2,20 @@
 // 不进 index，也不在浏览器入口的类型检查里。
 
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLogger, type RunningHost, startHost } from '@wevir/host';
 import {
   type ClientIdentity,
+  DEFAULT_REMOTE_SETTINGS,
   PERMISSIONS,
   PROTOCOL_VERSION,
   type SessionId,
 } from '@wevir/protocol';
 import { EchoAdapter, type EchoAdapterOptions } from '@wevir/runtime-adapter/echo';
 import { afterEach, beforeEach } from 'vitest';
-import type { HostHello } from './client.js';
+import type { HostHello, WevirClient } from './client.js';
 import type { Transport, TransportFactory, TransportHandlers } from './transport.js';
 
 export const identity: ClientIdentity = {
@@ -181,6 +183,83 @@ export function startEchoHost(home: string, echo: EchoAdapterOptions = {}): Prom
     engine: 'echo',
     logger: createLogger({ level: 'error', mirror: () => {} }),
   });
+}
+
+/** mDNS 广播的内容（远程监听测试里换掉 ciao，记下来）。 */
+export interface RecordedAnnouncement {
+  name: string;
+  port: number;
+  txt: Readonly<Record<string, string>>;
+  restrictedAddresses: readonly string[];
+}
+
+/**
+ * 同 `startEchoHost`，但远程监听把回环地址 127.0.0.1 当作局域网网卡（真实规则从不监听回环），mDNS 广播只记下来不发出，网卡
+ * 每 50 ms 看一次。远程访问默认关着，用 `enableRemote` 打开。
+ */
+export function startRemoteEchoHost(
+  home: string,
+  announcements: (RecordedAnnouncement | undefined)[] = [],
+  echo: EchoAdapterOptions = {},
+): Promise<RunningHost> {
+  return startHost({
+    home,
+    adapter: new EchoAdapter({ stepDelayMs: 1, ...echo }),
+    engine: 'echo',
+    logger: createLogger({ level: 'error', mirror: () => {} }),
+    remoteListener: {
+      networkInterfaces: () => ({
+        lo0: [
+          {
+            address: '127.0.0.1',
+            netmask: '255.0.0.0',
+            family: 'IPv4',
+            mac: '00:00:00:00:00:00',
+            internal: true,
+            cidr: '127.0.0.1/8',
+          },
+        ],
+      }),
+      classifyAddress: (address) => (address === '127.0.0.1' ? 'lan' : null),
+      lookupMagicDnsName: async () => undefined,
+      advertiser: { update: (a) => announcements.push(a), shutdown: async () => {} },
+      pollMs: 50,
+    },
+  });
+}
+
+/** 一个此刻没人用的本机端口。 */
+export async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+/** 经本机连接打开远程访问与局域网监听（端口 `port`），等它监听上。 */
+export async function enableRemote(client: WevirClient, port: number): Promise<void> {
+  const { settings } = await client.request('settings.get');
+  const listening = new Promise<void>((resolve) => {
+    const stop = client.onRemoteDevicesChanged((change) => {
+      if (change?.kind === 'listener' && change.status.listening) {
+        stop();
+        resolve();
+      }
+    });
+  });
+  await client.request('remote.status');
+  await client.request('settings.update', {
+    settings: {
+      remote: {
+        ...(settings.remote ?? DEFAULT_REMOTE_SETTINGS),
+        enabled: true,
+        interfaces: { lan: true, tailscale: false },
+        port,
+      },
+    },
+  });
+  await listening;
 }
 
 /** 在 `dir` 下建一个工作区目录，返回它的路径。 */

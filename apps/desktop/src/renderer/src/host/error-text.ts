@@ -118,6 +118,8 @@ const CLIENT_ERROR_TEXT: Record<Exclude<ClientErrorKind, 'rpc'>, PlainMessageKey
   protocol: 'clientError.protocol',
   feature_unavailable: 'clientError.feature_unavailable',
   host_unavailable: 'clientError.host_unavailable',
+  remote_unreachable: 'clientError.remote_unreachable',
+  remote_handshake: 'clientError.remote_handshake',
 };
 
 /**

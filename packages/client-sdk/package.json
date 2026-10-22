@@ -2,7 +2,7 @@
   "name": "@wevir/client-sdk",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir Host TypeScript client: connection, typed requests, event subscriptions with seq-based resume, heartbeat and reconnection. Runs in Node and the browser; the ./node entry reads run/host.json.",
+  "description": "Wevir Host TypeScript client: connection, typed requests, event subscriptions with seq-based resume, heartbeat and reconnection, and the Noise-encrypted tunnel to a Host on another computer. Runs in Node and the browser; the ./node entry reads run/host.json.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -28,6 +28,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@wevir/noise": "workspace:*",
     "@wevir/protocol": "workspace:*"
   },
   "devDependencies": {

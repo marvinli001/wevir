@@ -101,6 +101,8 @@ export const messages: Messages = {
   'clientError.protocol': 'Ошибка протокола',
   'clientError.feature_unavailable': 'Фоновая служба устарела и не поддерживает эту функцию',
   'clientError.host_unavailable': 'Фоновая служба не запущена',
+  'clientError.remote_unreachable': 'Компьютер недоступен',
+  'clientError.remote_handshake': 'Не удалось установить соединение с компьютером',
 
   'layout.expandSidebar': 'Показать боковую панель',
   'layout.collapseSidebar': 'Скрыть боковую панель',

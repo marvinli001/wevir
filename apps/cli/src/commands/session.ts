@@ -28,7 +28,7 @@ export async function sessionNew(
   const client = await connect(ctx);
   try {
     const { workspace, created } = await client.request('workspace.add', {
-      rootPath: resolve(ctx.io.cwd, options.workspace),
+      rootPath: workspacePath(ctx, options.workspace),
     });
     if (created) {
       ctx.print(
@@ -59,6 +59,16 @@ export async function sessionNew(
   } finally {
     client.close();
   }
+}
+
+/**
+ * 工作区路径：本机相对 cwd 解析；`--remote` 时是那台电脑上的路径，本机解析不了，必须是绝对路径（POSIX 的 `/…` 或 Windows 的
+ * `C:\\…`）。
+ */
+function workspacePath(ctx: Context, path: string): string {
+  if (ctx.remote === undefined) return resolve(ctx.io.cwd, path);
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return path;
+  throw new UsageError(t('session.remotePath', { path }), t('session.remotePath.hint'));
 }
 
 export function pickProvider(
@@ -94,9 +104,9 @@ export async function sessionList(ctx: Context, options: { workspace?: string })
     const { workspaces } = await client.request('workspace.list');
     let workspaceId: (typeof workspaces)[number]['id'] | undefined;
     if (options.workspace !== undefined) {
-      const path = resolve(ctx.io.cwd, options.workspace);
-      // Host 按 realpath 存工作区；目录不存在时按原样比较。
-      const real = await realpath(path).catch(() => path);
+      const path = workspacePath(ctx, options.workspace);
+      // Host 按 realpath 存工作区；目录不存在时按原样比较。远程电脑上的路径在本机解析不了，按原样比较。
+      const real = ctx.remote === undefined ? await realpath(path).catch(() => path) : path;
       const found = workspaces.find((w) => w.rootPath === real);
       if (!found) {
         throw new CliError(t('session.notWorkspace', { path }), t('session.notWorkspace.hint'));
@@ -146,6 +156,16 @@ export async function sessionAttach(ctx: Context, id: string): Promise<number> {
   } finally {
     client.close();
   }
+}
+
+/** `wevir session send <会话 ID> "<消息>"`：给会话发一条消息，不进入 attach。 */
+export async function sessionSend(ctx: Context, id: string, text: string): Promise<number> {
+  return withClient(ctx, async (client) => {
+    const sessionId = await resolveSessionId(client, id);
+    await client.request('session.send', { sessionId, content: [{ type: 'text', text }] });
+    ctx.print(ctx.styles.dim(t('session.sent', { id: sessionId })));
+    return EXIT.ok;
+  });
 }
 
 /** 完整的会话 ID 原样使用；否则按前缀（可省略 `ses_`）在会话列表里找唯一的一个。 */

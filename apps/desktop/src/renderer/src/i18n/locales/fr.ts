@@ -105,6 +105,8 @@ export const messages: Messages = {
   'clientError.feature_unavailable':
     'Service d’arrière-plan obsolète : fonctionnalité non prise en charge',
   'clientError.host_unavailable': 'Service d’arrière-plan non démarré',
+  'clientError.remote_unreachable': 'Ordinateur injoignable',
+  'clientError.remote_handshake': 'Échec de la négociation avec l’ordinateur',
 
   'layout.expandSidebar': 'Afficher la barre latérale',
   'layout.collapseSidebar': 'Masquer la barre latérale',

@@ -1,9 +1,10 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { InboxItem, InboxItemKind } from '@wevir/protocol';
+import { parseApprovalAnswer } from '../attach.js';
 import { type Context, withClient } from '../context.js';
-import { CliError, EXIT } from '../errors.js';
-import { formatTime, table, truncate } from '../format.js';
-import { t } from '../i18n/index.js';
+import { CliError, EXIT, UsageError } from '../errors.js';
+import { formatTime, optionLabel, table, truncate } from '../format.js';
+import { joinList, t } from '../i18n/index.js';
 
 export interface InboxOutputOptions {
   json?: boolean;
@@ -77,6 +78,38 @@ export async function inboxDismiss(ctx: Context, itemId: string): Promise<number
   return withInbox(ctx, async (client) => {
     await client.request('inbox.dismiss', { itemId });
     ctx.print(t('inbox.dismissed', { id: itemId }));
+    return EXIT.ok;
+  });
+}
+
+/**
+ * `wevir inbox respond <ID> <回答>`：回答一个等审批的项。回答是选项序号、选项 ID，或 y / n（第一个允许 / 拒绝的选项）。ID 可以
+ * 省略 `approval:`。提问在 attach 里回答。
+ */
+export async function inboxRespond(ctx: Context, itemId: string, answer: string): Promise<number> {
+  return withInbox(ctx, async (client) => {
+    const { items } = await client.request('inbox.list', {});
+    const item = items.find((i) => i.id === itemId || i.id === `approval:${itemId}`);
+    if (item === undefined) {
+      throw new CliError(t('inbox.notFound', { id: itemId }), t('inbox.notFound.hint'));
+    }
+    if (item.kind !== 'approval') {
+      throw new CliError(t('inbox.notApproval', { id: item.id }), t('inbox.notApproval.hint'));
+    }
+    const option = parseApprovalAnswer(item.ref.options, answer);
+    if (option === undefined) {
+      throw new UsageError(
+        t('inbox.badAnswer', { answer }),
+        t('inbox.badAnswer.hint', {
+          options: joinList(item.ref.options.map((o, i) => `${i + 1} ${optionLabel(o)}`)),
+        }),
+      );
+    }
+    await client.request('approval.respond', {
+      approvalId: item.ref.approvalId,
+      optionId: option.optionId,
+    });
+    ctx.print(t('inbox.responded', { id: item.id, option: optionLabel(option) }));
     return EXIT.ok;
   });
 }
