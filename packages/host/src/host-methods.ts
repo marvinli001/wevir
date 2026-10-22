@@ -994,8 +994,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }),
     }),
 
-    'account.upstreams': async ({ kind }) => ({
-      upstreams: await requireAccounts().upstreams(kind),
+    'account.upstreams': async ({ kind, id }) => ({
+      upstreams: await requireAccounts().upstreams({ kind, id }),
     }),
 
     'account.cancelLogin': async ({ kind, id, loginId }) => ({

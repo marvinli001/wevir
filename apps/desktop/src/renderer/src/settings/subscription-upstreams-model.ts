@@ -46,13 +46,13 @@ export function connectMode(upstream: AccountUpstream): ConnectMode {
 
 /** `account.login` 的参数（`method` 是协议必填的字段，OpenCode 按上游自己的方式定，不看它）。 */
 export function connectParams(
-  kind: AccountState['kind'],
+  ref: { kind: AccountState['kind']; id?: string },
   upstream: AccountUpstream,
   method: AccountUpstreamMethod,
   apiKey?: string,
 ) {
   return {
-    kind,
+    ...ref,
     method: 'browser' as const,
     upstream: upstream.id,
     option: method.option,

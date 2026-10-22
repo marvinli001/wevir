@@ -3932,7 +3932,10 @@ export const methodSamples: MethodSamples = {
     },
   },
   'account.upstreams': {
-    params: { valid: [{ kind: 'opencode' }], invalid: [{}, { kind: 'gemini' }] },
+    params: {
+      valid: [{ kind: 'opencode' }, { kind: 'opencode', id: 'opencode-ab12' }],
+      invalid: [{}, { kind: 'gemini' }, { kind: 'opencode', id: '' }],
+    },
     result: {
       valid: [
         { upstreams: [] },

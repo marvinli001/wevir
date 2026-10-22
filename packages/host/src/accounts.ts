@@ -275,12 +275,14 @@ export class HostAccounts {
     return this.#stamped(slot, () => slot.engine.login(slot.kind, method, options));
   }
 
-  /** 订阅来源后面能在应用内接的上游（`account.upstreams`，首个账号）。 */
-  upstreams(kind: AccountKind): Promise<AccountUpstream[]> {
+  /** 订阅来源后面能在应用内接的上游（`account.upstreams`；0.100.0 起按账号，`connected` 是这个账号的）。 */
+  upstreams(ref: AccountRef): Promise<AccountUpstream[]> {
+    const slot = this.#slot(ref);
     return this.#call(async () => {
-      const { accounts } = this.#options;
-      if (accounts.upstreams === undefined) throw new Error(`the ${kind} account has no upstreams`);
-      return accounts.upstreams(kind);
+      const { engine } = slot;
+      if (engine.upstreams === undefined)
+        throw new Error(`the ${slot.kind} account has no upstreams`);
+      return engine.upstreams(slot.kind);
     });
   }
 

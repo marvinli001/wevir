@@ -6,6 +6,7 @@ export {
   OPENCODE_BIN_ENV,
   OPENCODE_INSTALL_COMMAND,
   OPENCODE_LOGIN_COMMAND,
+  openCodeAccountEnv,
   openCodeLoginCommand,
   openCodeNpmPackage,
   openCodePackageNames,

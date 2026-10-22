@@ -546,7 +546,7 @@ function SubscriptionBody({
         />
       ) : upstreams ? (
         <>
-          <UpstreamList client={client} kind={kind} account={account} busy={busy} onRun={run} />
+          <UpstreamList client={client} account={account} busy={busy} onRun={run} />
           {phase.kind === 'signed_in' && (
             <SignedIn
               client={client}
