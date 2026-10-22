@@ -160,7 +160,10 @@ function firstMessage(events: readonly WevirEvent[]): string {
   return part?.type === 'text' ? part.text : '';
 }
 
-describe('session.secondOpinion', () => {
+// Windows 上一次 settle 最多等 60 秒，每个用例要等两三次，再加上开 worktree。
+describe('session.secondOpinion', {
+  timeout: process.platform === 'win32' ? 180_000 : 30_000,
+}, () => {
   it('在快照 worktree 里开意见会话，回合结束后记成原会话里的意见，不进原会话的回合', async () => {
     const h = setup();
     const originId = await h.origin();
