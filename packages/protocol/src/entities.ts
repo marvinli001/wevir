@@ -618,6 +618,11 @@ export const ApprovalResolutionReasonSchema = z.enum([
   'host_restarted',
   /** Host 按审批规则替用户允许（0.80.0）：带 `optionId` 与 `ruleIds`，没有 `decidedBy`。 */
   'rule',
+  /**
+   * 到了 `expiresAt` 没人回（0.105.0，Host 功能 `approval_timeout`）：状态是 `expired`，带 Host 替用户选的拒绝类 `optionId`；
+   * 没有拒绝类选项时没有 `optionId`，回合随之取消。
+   */
+  'timeout',
 ]);
 export type ApprovalResolutionReason = z.infer<typeof ApprovalResolutionReasonSchema>;
 
@@ -682,7 +687,7 @@ export type QuestionStatus = z.infer<typeof QuestionStatusSchema>;
  * 回答，Host 按每题的 `defaultOption` 回答（状态 `answered`，没有选项的题跳过）。
  */
 export const QuestionResolutionReasonSchema = z.enum([
-  ...ApprovalResolutionReasonSchema.exclude(['rule']).options,
+  ...ApprovalResolutionReasonSchema.exclude(['rule', 'timeout']).options,
   'timeout',
 ]);
 export type QuestionResolutionReason = z.infer<typeof QuestionResolutionReasonSchema>;
@@ -728,6 +733,11 @@ export const ApprovalRequestSchema = z.object({
   proposedRule: ProposedApprovalRuleSchema.optional(),
   status: ApprovalStatusSchema,
   createdAt: IsoTimeSchema,
+  /**
+   * 到这个时间还没人回，Host 按拒绝结掉（0.105.0，Host 功能 `approval_timeout`，`timeout`）。无人值守的会话、并且设置了
+   * `unattendedApprovalTimeoutMinutes` 时才有；省略表示一直等。
+   */
+  expiresAt: IsoTimeSchema.optional(),
   resolvedAt: IsoTimeSchema.optional(),
   resolution: ApprovalResolutionSchema.optional(),
 });
@@ -989,6 +999,9 @@ export type SpeechTranscriber = z.infer<typeof SpeechTranscriberSchema>;
 
 // ── Host 设置（0.8.0，R11） ──────────────────────────────────────────────
 
+/** `unattendedApprovalTimeoutMinutes` 的上限（一天）。 */
+export const UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES = 1440;
+
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
 export const HostSettingsSchema = z.object({
   /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的切换改的就是它）。 */
@@ -1051,6 +1064,15 @@ export const HostSettingsSchema = z.object({
    * （`power.get` / `power.changed`）。合上笔记本盖子时系统照样睡眠。省略按关着。
    */
   preventSleep: z.boolean().optional(),
+  /**
+   * 无人值守的会话里审批等多久就过期（0.105.0，Host 功能 `approval_timeout`，domain-model §5 第 10 条），分钟：自动化开的、引擎派出的
+   * 子会话、另一个会话里的 Agent 开的会话里新的审批带 `expiresAt`，到时 Host 按拒绝回复引擎。交互会话不受影响。省略或 0 是不过期。
+   */
+  unattendedApprovalTimeoutMinutes: z
+    .int()
+    .min(0)
+    .max(UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES)
+    .optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

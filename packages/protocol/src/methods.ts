@@ -141,6 +141,13 @@ import {
 } from './guardrails.js';
 import { ImportMethodSchemas } from './imports.js';
 import {
+  InboxChangedParamsSchema,
+  InboxDismissParamsSchema,
+  InboxDismissResultSchema,
+  InboxListParamsSchema,
+  InboxListResultSchema,
+} from './inbox.js';
+import {
   LspCancelInstallParamsSchema,
   LspCancelInstallResultSchema,
   LspChangedParamsSchema,
@@ -2509,6 +2516,17 @@ export const MethodSchemas = {
     result: ApprovalRespondResultSchema,
     permission: 'session.write',
   },
+  /** 收件箱（0.105.0）。 */
+  'inbox.list': {
+    params: InboxListParamsSchema,
+    result: InboxListResultSchema,
+    permission: 'session.read',
+  },
+  'inbox.dismiss': {
+    params: InboxDismissParamsSchema,
+    result: InboxDismissResultSchema,
+    permission: 'session.write',
+  },
   /** 审批规则（0.80.0）。 */
   'approvalRule.list': {
     params: ApprovalRuleListParamsSchema,
@@ -2701,6 +2719,8 @@ export const NotificationSchemas = {
   'events.event': { params: EventsEventParamsSchema },
   /** 发给调用过 `session.list` 的连接（0.101.0）：会话列表的增量。 */
   'sessions.changed': { params: SessionsChangedParamsSchema },
+  /** 发给调用过 `inbox.*` 的连接（0.105.0）：收件箱的增量。 */
+  'inbox.changed': { params: InboxChangedParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2754,6 +2774,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'plugins.changed': 'host.manage',
   'events.event': 'session.read',
   'sessions.changed': 'session.read',
+  'inbox.changed': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',

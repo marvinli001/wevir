@@ -88,6 +88,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': 'Operazione non disponibile nello stato attuale della sessione',
   'rpcError.SESSION_BUSY': 'Sessione occupata',
   'rpcError.ALREADY_DECIDED': 'Approvazione già gestita',
+  'rpcError.APPROVAL_EXPIRED': 'Approvazione scaduta',
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Conflitto di ID messaggio',
   'rpcError.RESOURCE_IN_USE': 'Ci sono ancora sessioni aperte',
   'rpcError.PENDING_NOT_EDITABLE': 'Il messaggio in attesa non è più modificabile',
@@ -909,6 +910,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Questo progetto',
   'approval.scope.global': 'Tutti i progetti',
   'approval.byRule': 'Consentito da regola',
+  'approval.ended.timeout': 'Approvazione scaduta: nessuna risposta',
 
   'question.label': 'Domande in attesa di risposta',
   'question.multi': 'Selezione multipla',

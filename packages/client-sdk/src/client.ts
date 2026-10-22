@@ -12,6 +12,7 @@ import {
   type HostFeature,
   HostHelloResultSchema,
   type HostSettings,
+  InboxChangedParamsSchema,
   LspChangedParamsSchema,
   MarketInstallProgressSchema,
   MemoryChangedParamsSchema,
@@ -59,6 +60,8 @@ export type SpeechChange = NotificationParams<'speech.changed'>;
 export type MarketInstallProgress = NotificationParams<'market.installProgress'>;
 /** `power.changed` 的内容（0.102.0）。 */
 export type PowerChange = NotificationParams<'power.changed'>;
+/** `inbox.changed` 的内容（0.105.0）。 */
+export type InboxChange = NotificationParams<'inbox.changed'>;
 /** `tuning.changed` 的内容（0.85.0）。 */
 export type TuningChange = NotificationParams<'tuning.changed'>;
 /** `guardrail.changed` 的内容（0.86.0）。 */
@@ -305,6 +308,7 @@ export class WevirClient {
   readonly #sessionsListeners = new Set<(change: SessionsChange | undefined) => void>();
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
+  readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
   readonly #guardrailListeners = new Set<(change: GuardrailChange | undefined) => void>();
   readonly #proposalListeners = new Set<(change: TuningProposalChange | undefined) => void>();
@@ -644,6 +648,25 @@ export class WevirClient {
   onPowerChanged(listener: (change: PowerChange | undefined) => void): () => void {
     this.#powerListeners.add(listener);
     return () => this.#powerListeners.delete(listener);
+  }
+
+  /**
+   * 收件箱变了（0.105.0，`inbox.changed`，Host 功能 `inbox`）：只有调过 `inbox.*` 的连接收得到，`inboxVersion` 不等于上次（列表结果或
+   * 上一条）加一时重读 `inbox.list`。重连上之后以 `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
+   */
+  onInboxChanged(listener: (change: InboxChange | undefined) => void): () => void {
+    this.#inboxListeners.add(listener);
+    return () => this.#inboxListeners.delete(listener);
+  }
+
+  #inboxChanged(change: InboxChange | undefined): void {
+    for (const listener of [...this.#inboxListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('an inbox listener threw', { error });
+      }
+    }
   }
 
   #powerChanged(change: PowerChange | undefined): void {
@@ -1096,6 +1119,7 @@ export class WevirClient {
         if (this.supports('speech')) this.#speechChanged(undefined);
         if (this.supports('session_list_push')) this.#sessionsChanged(undefined);
         if (this.supports('prevent_sleep')) this.#powerChanged(undefined);
+        if (this.supports('inbox')) this.#inboxChanged(undefined);
         if (this.supports('tuning')) this.#tuningChanged(undefined);
         if (this.supports('tuning_guardrails')) this.#guardrailsChanged(undefined);
         if (this.supports('tuning_proposals')) this.#proposalsChanged(undefined);
@@ -1416,6 +1440,15 @@ export class WevirClient {
         return;
       }
       this.#sessionsChanged(parsed.data);
+      return;
+    }
+    if (method === 'inbox.changed') {
+      const parsed = InboxChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed inbox.changed notification');
+        return;
+      }
+      this.#inboxChanged(parsed.data);
       return;
     }
     if (method === 'power.changed') {

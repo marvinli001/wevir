@@ -237,6 +237,10 @@ import {
   identity,
   ids,
   imagePart,
+  inboxApproval,
+  inboxAutomation,
+  inboxQuestion,
+  inboxTurnFailed,
   installRun,
   knownInsight,
   lspInstallSample,
@@ -1388,13 +1392,20 @@ const standaloneCases: Case[] = [
   {
     name: 'ApprovalResolutionReason',
     schema: ApprovalResolutionReasonSchema,
-    valid: ['host_restarted'],
-    invalid: ['timeout'],
+    valid: ['host_restarted', 'timeout'],
+    invalid: ['expired'],
   },
   {
     name: 'ApprovalResolution',
     schema: ApprovalResolutionSchema,
-    valid: [userResolution, { reason: 'engine_exited' }, ruleResolution],
+    valid: [
+      userResolution,
+      { reason: 'engine_exited' },
+      ruleResolution,
+      // 0.105.0：过期，Host 替用户选了拒绝。
+      { reason: 'timeout', optionId: 'reject-once' },
+      { reason: 'timeout' },
+    ],
     invalid: [{ optionId: 'allow-once' }, { ...ruleResolution, ruleIds: [ids.approval] }],
   },
   {
@@ -1410,9 +1421,12 @@ const standaloneCases: Case[] = [
       pendingApproval,
       { ...pendingApproval, detail: null },
       { ...pendingApproval, proposedRule: { prefixes: [['git', 'status'], ['head']] } },
+      // 0.105.0：无人值守的会话里带过期时间。
+      { ...pendingApproval, expiresAt: '2026-10-12T08:30:00.000Z' },
     ],
     invalid: [
       { ...pendingApproval, detail: undefined },
+      { ...pendingApproval, expiresAt: 'in 30 minutes' },
       { ...pendingApproval, proposedRule: { prefixes: [] } },
     ],
   },
@@ -2085,10 +2099,16 @@ const standaloneCases: Case[] = [
       { sendWhileBusy: 'steer' },
       { sendWhileBusy: 'queue', promptSuggestions: false },
       { sendWhileBusy: 'steer', autoMemory: false },
+      // 0.105.0：无人值守的审批 30 分钟过期；0 是不过期。
+      { sendWhileBusy: 'steer', unattendedApprovalTimeoutMinutes: 30 },
+      { sendWhileBusy: 'steer', unattendedApprovalTimeoutMinutes: 0 },
     ],
     invalid: [
       {},
       { sendWhileBusy: 'later' },
+      { sendWhileBusy: 'steer', unattendedApprovalTimeoutMinutes: -1 },
+      { sendWhileBusy: 'steer', unattendedApprovalTimeoutMinutes: 1441 },
+      { sendWhileBusy: 'steer', unattendedApprovalTimeoutMinutes: 2.5 },
       { sendWhileBusy: 'steer', promptSuggestions: 1 },
       { sendWhileBusy: 'steer', autoMemory: 'off' },
     ],
@@ -3896,6 +3916,37 @@ const standaloneCases: Case[] = [
       { ...writingStyleProfile, updatedBy: 'user', setupComplete: false },
     ],
     invalid: [{ ...writingStyleProfile, revision: '' }, { content: 'x' }],
+  },
+  {
+    name: 'InboxItemKind',
+    schema: protocol.InboxItemKindSchema,
+    valid: ['approval', 'question', 'turn_failed', 'automation'],
+    invalid: ['note', ''],
+  },
+  {
+    name: 'InboxItemId',
+    schema: protocol.InboxItemIdSchema,
+    valid: [`approval:${ids.approval}`, `automation:${ids.automationRun}`],
+    invalid: ['', 'approval', 'approval:', `approval:${'x'.repeat(130)}`],
+  },
+  {
+    name: 'InboxQuestion',
+    schema: protocol.InboxQuestionSchema,
+    valid: [{ id: 'scope', question: '做到哪一步？', options: [{ label: '全链路' }] }],
+    invalid: [
+      { id: '', question: '做到哪一步？', options: [] },
+      { id: 'scope', options: [] },
+    ],
+  },
+  {
+    name: 'InboxItem',
+    schema: protocol.InboxItemSchema,
+    valid: [inboxApproval, inboxQuestion, inboxTurnFailed, inboxAutomation],
+    invalid: [
+      { ...inboxQuestion, kind: 'approval' },
+      { ...inboxTurnFailed, title: 'x'.repeat(201) },
+      { ...inboxAutomation, ref: { automationId: ids.automation } },
+    ],
   },
   {
     name: 'SpeechRecordingId',

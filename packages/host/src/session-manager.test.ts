@@ -2826,6 +2826,118 @@ describe('SessionManager：向用户提问（0.10.0）', () => {
   });
 });
 
+describe('SessionManager：审批过期（0.105.0）', () => {
+  async function unattendedSession(h: Harness): Promise<SessionId> {
+    const parent = await create(h);
+    const { id } = await h.manager.create(
+      { workspaceId: 'ws_1', providerId: 'deepseek-official' },
+      { openedBy: parent },
+    );
+    return id;
+  }
+
+  it('无人值守的会话：到 expiresAt 没人回，按拒绝回复引擎，审批结为 expired（timeout），回合照常结束', async () => {
+    const h = setup({ manager: { approvalTimeoutMs: () => 30 } });
+    const id = await unattendedSession(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    expect(Date.parse(approval.expiresAt ?? '') - Date.parse(approval.createdAt)).toBe(30);
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'approval.resolved').map((e) => e.payload)).toEqual([
+      {
+        approvalId: approval.id,
+        status: 'expired',
+        resolution: { reason: 'timeout', optionId: 'reject-once' },
+      },
+    ]);
+    expect(ofType(h, id, 'tool.finished').at(-1)?.payload.status).toBe('failed');
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('completed');
+    expect(transitions(h, id)).toContain('awaiting_approval→running:approvals_settled');
+    await expect(
+      h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, desktop),
+    ).rejects.toMatchObject({
+      code: 'APPROVAL_EXPIRED',
+      data: { approvalId: approval.id, resolution: { reason: 'timeout' } },
+    });
+  });
+
+  it('交互会话的审批不带 expiresAt，一直等', async () => {
+    const h = setup({ manager: { approvalTimeoutMs: () => 20 } });
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    expect(approval.expiresAt).toBeUndefined();
+    await delay(60);
+    expect(snapshot(h, id).pendingApprovals).toHaveLength(1);
+    await h.manager.cancel(id);
+  });
+
+  it('设置是 0 时不过期；改设置只影响之后的审批', async () => {
+    let timeoutMs = 0;
+    const h = setup({ manager: { approvalTimeoutMs: () => timeoutMs } });
+    const id = await unattendedSession(h);
+    await send(h, id, 'please approve');
+    const first = await waitForApproval(h, id);
+    expect(first.expiresAt).toBeUndefined();
+    timeoutMs = 20;
+    await delay(50);
+    expect(snapshot(h, id).pendingApprovals).toHaveLength(1);
+    await h.manager.respondToApproval({ approvalId: first.id, optionId: 'allow-once' }, desktop);
+    await waitForState(h, id, 'idle');
+    await send(h, id, 'please approve');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'approval.resolved').map((e) => e.payload.status)).toEqual([
+      'approved',
+      'expired',
+    ]);
+  });
+
+  it('先回答了就不再过期；过了 expiresAt、计时器还没轮到时回复也按过期处理', async () => {
+    const h = setup({ manager: { approvalTimeoutMs: () => 60_000 } });
+    const id = await unattendedSession(h);
+    await send(h, id, 'please approve');
+    const first = await waitForApproval(h, id);
+    await h.manager.respondToApproval({ approvalId: first.id, optionId: 'allow-once' }, desktop);
+    await waitForState(h, id, 'idle');
+
+    await send(h, id, 'please approve');
+    const second = await waitForApproval(h, id);
+    const later = Date.now() + 120_000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+    try {
+      await expect(
+        h.manager.respondToApproval({ approvalId: second.id, optionId: 'allow-once' }, desktop),
+      ).rejects.toMatchObject({ code: 'APPROVAL_EXPIRED' });
+    } finally {
+      clock.mockRestore();
+    }
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'approval.resolved').map((e) => e.payload)).toEqual([
+      expect.objectContaining({ approvalId: first.id, status: 'approved' }),
+      {
+        approvalId: second.id,
+        status: 'expired',
+        resolution: { reason: 'timeout', optionId: 'reject-once' },
+      },
+    ]);
+  });
+
+  it('Host 重启：残留的审批仍结为 expired（host_restarted），回复回 ALREADY_DECIDED', async () => {
+    const first = setup({ manager: { approvalTimeoutMs: () => 60_000 } });
+    const id = await unattendedSession(first);
+    await send(first, id, 'please approve');
+    const approval = await waitForApproval(first, id);
+    const { h } = restart(first);
+    expect(h.storage.approvals.get(approval.id)).toMatchObject({
+      status: 'expired',
+      resolution: { reason: 'host_restarted' },
+    });
+    await expect(
+      h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, desktop),
+    ).rejects.toMatchObject({ code: 'ALREADY_DECIDED' });
+  });
+});
+
 /** 内容里第一段文本。 */
 function textOf(content: readonly UserContentPart[]): string {
   const part = content[0];

@@ -47,6 +47,7 @@ import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
 import { newId } from './ids.js';
+import type { InboxService } from './inbox.js';
 import type { MemoryChange } from './memory.js';
 import {
   type ConnectionGrant,
@@ -91,6 +92,8 @@ export interface ConnectionHost {
   readonly memory?: { watch(listener: (change: MemoryChange) => void): () => void };
   /** 会话列表推送（0.101.0）：`session.list` 的结果加上它的版本，之后这条连接用它收 `sessions.changed`。 */
   readonly sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
+  /** 收件箱（0.105.0）：调过 `inbox.*` 的连接用它收 `inbox.changed`。 */
+  readonly inbox?: Pick<InboxService, 'watch'>;
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接用它收 `usage.changed`。 */
   readonly usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接用它收 `automation.changed`。 */
@@ -221,6 +224,8 @@ export class RpcConnection {
   /** 调过 `session.list` 之后：它的参数并集与见过的会话，以及退订 `sessions.changed`。 */
   readonly #sessionListScope = new SessionListScope();
   #unwatchSessionList: (() => void) | undefined;
+  /** 调过 `inbox.*` 之后：退订 `inbox.changed`。 */
+  #unwatchInbox: (() => void) | undefined;
   /** 调过 `usage.*` 之后：退订 `usage.changed`。 */
   #unwatchUsage: (() => void) | undefined;
   /** 调过 `automation.*` 之后：退订 `automation.changed`。 */
@@ -593,6 +598,7 @@ export class RpcConnection {
             (result as MethodResult<'session.list'>).sessions,
           );
         }
+        if (method.startsWith('inbox.')) this.#watchInbox();
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
@@ -831,6 +837,16 @@ export class RpcConnection {
       }
       this.#notify('sessions.changed', change);
     });
+  }
+
+  /**
+   * 调过 `inbox.*` 的连接之后收 `inbox.changed`（0.105.0，domain-model §3.47），连接关闭即止。收件箱是全局的，每一批都原样发给每条
+   * 这样的连接，版本连续。
+   */
+  #watchInbox(): void {
+    if (this.#unwatchInbox !== undefined || this.#host.inbox === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchInbox = this.#host.inbox.watch((change) => this.#notify('inbox.changed', change));
   }
 
   /** 调过 `usage.*` 的连接之后收 `usage.changed`（0.62.0），连接关闭即止。 */
@@ -1151,6 +1167,8 @@ export class RpcConnection {
     this.#unwatchMemory = undefined;
     this.#unwatchSessionList?.();
     this.#unwatchSessionList = undefined;
+    this.#unwatchInbox?.();
+    this.#unwatchInbox = undefined;
     this.#unwatchUsage?.();
     this.#unwatchUsage = undefined;
     this.#unwatchAutomations?.();
@@ -1248,6 +1266,20 @@ export function adaptEventForClient(
     return {
       ...event,
       payload: { ...event.payload, resolution: { ...event.payload.resolution, reason: 'user' } },
+    };
+  }
+  // COMPAT(approvalTimeout): added in 0.105.0, remove gate after 2027-06-01
+  if (
+    event.type === 'approval.resolved' &&
+    event.payload.resolution.reason === 'timeout' &&
+    capabilities.approval_timeout !== true
+  ) {
+    return {
+      ...event,
+      payload: {
+        ...event.payload,
+        resolution: { ...event.payload.resolution, reason: 'host_restarted' },
+      },
     };
   }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01

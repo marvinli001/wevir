@@ -85,6 +85,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': 'Action impossible dans l’état actuel de la session',
   'rpcError.SESSION_BUSY': 'Session occupée',
   'rpcError.ALREADY_DECIDED': 'Approbation déjà traitée',
+  'rpcError.APPROVAL_EXPIRED': 'Approbation expirée',
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Conflit d’identifiant de message',
   'rpcError.RESOURCE_IN_USE': 'Des sessions sont encore ouvertes',
   'rpcError.PENDING_NOT_EDITABLE': 'Le message en attente n’est plus modifiable',
@@ -910,6 +911,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Ce projet',
   'approval.scope.global': 'Tous les projets',
   'approval.byRule': 'Autorisé par règle',
+  'approval.ended.timeout': 'Approbation expirée : aucune réponse',
 
   'question.label': 'Questions en attente',
   'question.multi': 'Choix multiple',

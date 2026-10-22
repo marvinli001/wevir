@@ -30,6 +30,7 @@ Environment:
   'group.web': 'Web search',
   'group.session': 'Sessions',
   'group.automation': 'Automations',
+  'group.inbox': 'Inbox',
 
   'usage.seeHelp': 'Run wevir --help',
   'usage.seeCommandHelp': 'Run wevir {command} --help',
@@ -124,6 +125,13 @@ Keys:
   Ctrl-C    Cancel the current run; press again to leave attach
   Ctrl-D    Leave attach; the session is kept
   /resume   Send held messages`,
+  'cmd.inbox.list.summary':
+    'List approvals, questions, failures and automations waiting across sessions',
+  'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
+  'cmd.inbox.dismiss.summary': 'Dismiss a failed turn or automation run',
+  'cmd.inbox.dismiss.usage': 'wevir inbox dismiss <ID>',
+  'cmd.inbox.dismiss.help':
+    'IDs come from wevir inbox; approvals and questions leave when answered and cannot be dismissed',
   'cmd.automation.list.summary': 'List automations',
   'cmd.automation.list.usage': 'wevir automation list [--json]',
   'cmd.automation.show.summary': 'Show an automation’s settings and recent runs',
@@ -244,6 +252,7 @@ Also:
   'err.busy': 'Session busy ({state}); message not sent',
   'err.busy.hint': 'Send it after this turn, or press Ctrl-C in attach to cancel the current run',
   'err.alreadyDecided': 'Approval already handled',
+  'err.approvalExpired': 'Approval expired',
   'err.messageConflict': 'Message ID already used for different content',
   'err.resourceInUse': 'In use by open sessions',
   'err.resourceInUseIds': 'In use by open sessions: {ids}',
@@ -310,6 +319,7 @@ Also:
   'approvalEnd.host_shutdown': 'Approval cancelled (Host shut down)',
   'approvalEnd.host_restarted': 'Approval expired (Host restarted)',
   'approvalEnd.rule': 'Allowed by rule',
+  'approvalEnd.timeout': 'Approval expired (nobody responded)',
   'providerTest.missing_key': 'no key',
   'providerTest.network': 'unreachable',
   'providerTest.timeout': 'timed out',
@@ -628,6 +638,19 @@ Options:
   'web.reason.invalid_response': 'unexpected response format',
   'identity.invalid': '{path} does not contain a valid ID',
 
+  'inbox.unsupported': 'Host {version} does not support the inbox',
+  'inbox.unsupported.hint': 'Upgrade the Wevir Host (protocol 0.105.0 required)',
+  'inbox.none': 'Nothing waiting',
+  'inbox.dismissed': 'Dismissed {id}',
+  'inbox.col.kind': 'Kind',
+  'inbox.col.title': 'Session',
+  'inbox.col.summary': 'Summary',
+  'inbox.col.time': 'Time',
+  'inbox.expiresAt': '{created} (expires {expires})',
+  'inbox.kind.approval': 'Approval',
+  'inbox.kind.question': 'Question',
+  'inbox.kind.turn_failed': 'Failed',
+  'inbox.kind.automation': 'Automation',
   'automation.unsupported': 'Host {version} does not support automations',
   'automation.unsupported.hint': 'Upgrade the Wevir Host (protocol 0.66.0 or later)',
   'automation.none': 'No automations',

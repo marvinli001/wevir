@@ -84,6 +84,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': 'セッションの現在の状態では実行できません',
   'rpcError.SESSION_BUSY': 'セッション処理中',
   'rpcError.ALREADY_DECIDED': '承認は処理済みです',
+  'rpcError.APPROVAL_EXPIRED': '承認は期限切れです',
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'メッセージ ID の競合',
   'rpcError.RESOURCE_IN_USE': '開いているセッションがあります',
   'rpcError.PENDING_NOT_EDITABLE': '送信待ちメッセージは編集できなくなりました',
@@ -901,6 +902,7 @@ export const messages: Messages = {
   'approval.scope.project': 'このプロジェクト',
   'approval.scope.global': 'すべてのプロジェクト',
   'approval.byRule': 'ルールで許可済み',
+  'approval.ended.timeout': '承認の期限切れ：応答なし',
 
   'question.label': '未回答の質問',
   'question.multi': '複数選択可',

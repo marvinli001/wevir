@@ -81,6 +81,7 @@ export const messages: Messages = {
   'rpcError.INVALID_STATE': '현재 세션 상태에서는 사용할 수 없음',
   'rpcError.SESSION_BUSY': '세션 사용 중',
   'rpcError.ALREADY_DECIDED': '이미 처리된 승인',
+  'rpcError.APPROVAL_EXPIRED': '승인 만료됨',
   'rpcError.CLIENT_MESSAGE_CONFLICT': '메시지 ID 충돌',
   'rpcError.RESOURCE_IN_USE': '열려 있는 세션이 있음',
   'rpcError.PENDING_NOT_EDITABLE': '대기 중인 메시지를 더 이상 편집할 수 없음',
@@ -895,6 +896,7 @@ export const messages: Messages = {
   'approval.scope.project': '이 프로젝트',
   'approval.scope.global': '모든 프로젝트',
   'approval.byRule': '규칙으로 허용됨',
+  'approval.ended.timeout': '승인 만료됨: 응답 없음',
 
   'question.label': '답변 대기 중인 질문',
   'question.multi': '복수 선택 가능',

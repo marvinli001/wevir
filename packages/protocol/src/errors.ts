@@ -62,6 +62,11 @@ export const ErrorCode = {
   HANDOFF_STALE: -32026,
   /** 仓库的 HEAD 或索引与读状态时不同（0.67.0，`git.stage` / `git.unstage` / `git.commit` 的 `expected`）：重新读状态再操作。 */
   GIT_STATE_CHANGED: -32027,
+  /**
+   * 审批到了 `expiresAt` 没人回，Host 已按拒绝结掉（0.105.0，`approval.respond`）。没声明能力位 `approval_timeout` 的连接收到的是
+   * `ALREADY_DECIDED`。
+   */
+  APPROVAL_EXPIRED: -32028,
 
   WORKSPACE_PATH_INVALID: -32040,
   ENGINE_ERROR: -32041,
@@ -132,6 +137,10 @@ export const ErrorDataSchemas = {
   }),
   CLIENT_MESSAGE_CONFLICT: z.object({
     clientMessageId: z.string(),
+  }),
+  APPROVAL_EXPIRED: z.object({
+    approvalId: ApprovalIdSchema,
+    resolution: ApprovalResolutionSchema,
   }),
   RESOURCE_IN_USE: z.object({
     /** 阻止操作的未关闭会话。 */

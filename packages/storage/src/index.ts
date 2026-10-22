@@ -21,6 +21,7 @@ export {
 } from './driver.js';
 export * from './environments.js';
 export * from './events.js';
+export * from './inbox.js';
 export * from './migrate.js';
 export * from './profile-versions.js';
 export * from './providers.js';

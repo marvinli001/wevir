@@ -92,6 +92,7 @@ export const zhCN = {
   'rpcError.INVALID_STATE': '会话当前状态不支持此操作',
   'rpcError.SESSION_BUSY': '会话正忙',
   'rpcError.ALREADY_DECIDED': '审批已处理',
+  'rpcError.APPROVAL_EXPIRED': '审批已过期',
   'rpcError.CLIENT_MESSAGE_CONFLICT': '消息 ID 冲突',
   'rpcError.RESOURCE_IN_USE': '仍有未关闭的会话',
   'rpcError.PENDING_NOT_EDITABLE': '待发消息已无法修改',
@@ -907,6 +908,7 @@ export const zhCN = {
   'approval.scope.project': '本项目',
   'approval.scope.global': '所有项目',
   'approval.byRule': '已按规则允许',
+  'approval.ended.timeout': '审批已过期：无人处理',
 
   'question.label': '待回答的问题',
   'question.multi': '可多选',

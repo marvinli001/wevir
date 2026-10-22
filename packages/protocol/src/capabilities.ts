@@ -42,6 +42,12 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(approvalRules): added in 0.80.0, remove gate after 2027-06-01
   /** 认得 `ApprovalResolutionReason` 的 `rule`；没有时 Host 把它降级成 `user`（没有 `decidedBy`）。 */
   approvalRules: 'approval_rules',
+  // COMPAT(approvalTimeout): added in 0.105.0, remove gate after 2027-06-01
+  /**
+   * 认得 `ApprovalResolutionReason` 的 `timeout` 与错误码 `APPROVAL_EXPIRED`；没有时 Host 把 `timeout` 降级成 `host_restarted`（状态照旧
+   * 是 `expired`），回复过期审批时回 `ALREADY_DECIDED`。
+   */
+  approvalTimeout: 'approval_timeout',
   // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
   /** 认得 `ProcessSource` 的 `preview`；没有时 Host 从 `process.list` 与 `process.changed` 里去掉预览进程。 */
   devPreview: 'dev_preview',
@@ -58,6 +64,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   user_images: z.boolean().optional(),
   question_timeout: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
+  approval_timeout: z.boolean().optional(),
   dev_preview: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
@@ -436,6 +443,13 @@ export const HOST_FEATURES = {
    * 防休眠由 Host 判定（0.102.0，ADR-0017 §5）：设置 `preventSleep`、`power.get` 与 `power.changed` 通知。执行仍在桌面主进程。与引擎无关。
    */
   preventSleep: 'prevent_sleep',
+  /** 收件箱（0.105.0，ADR-0017 §5，domain-model §3.47）：`inbox.list`、`inbox.dismiss` 与 `inbox.changed` 通知。与引擎无关。 */
+  inbox: 'inbox',
+  /**
+   * 无人值守会话的审批过期（0.105.0，domain-model §5 第 10 条）：设置 `unattendedApprovalTimeoutMinutes`、`ApprovalRequest.expiresAt`、
+   * `timeout` 结算与 `APPROVAL_EXPIRED`。与引擎无关。
+   */
+  approvalTimeout: 'approval_timeout',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -526,6 +540,8 @@ export const HostFeaturesSchema = z.looseObject({
   session_list_push: z.boolean().optional(),
   files_read: z.boolean().optional(),
   prevent_sleep: z.boolean().optional(),
+  inbox: z.boolean().optional(),
+  approval_timeout: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
