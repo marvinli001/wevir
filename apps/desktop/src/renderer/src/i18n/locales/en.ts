@@ -1324,6 +1324,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': 'Automatic',
   'settings.market.mirror.autoResolved': 'Automatic ({mirror})',
   'settings.preventSleep': 'Prevent sleep while running',
+  'settings.preventSleepNote': 'Closing the laptop lid still puts it to sleep',
   'settings.section.visual': 'Visual style',
   'settings.appearance.mode': 'Mode',
   'settings.appearance.custom': 'Custom',

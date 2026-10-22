@@ -1347,6 +1347,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': 'Автоматически',
   'settings.market.mirror.autoResolved': 'Автоматически ({mirror})',
   'settings.preventSleep': 'Не давать уходить в сон во время работы',
+  'settings.preventSleepNote': 'При закрытии крышки ноутбук всё равно уходит в сон',
   'settings.section.visual': 'Оформление',
   'settings.appearance.mode': 'Режим',
   'settings.appearance.custom': 'Своя',

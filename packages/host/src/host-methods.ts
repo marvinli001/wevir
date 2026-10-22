@@ -37,6 +37,7 @@ import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import type { ExternalImport } from './external-import/service.js';
 import { type FileUrls, isServablePath } from './file-urls.js';
+import { FileReadRejected, readFileChunk } from './files-read.js';
 import type { GitService } from './git/service.js';
 import {
   isSafeRelativePath,
@@ -49,6 +50,7 @@ import { readGitStatus } from './git-status.js';
 import type { GuardrailService } from './guardrails/service.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import type { KeepAwake } from './keep-awake.js';
 import type { LspStatusService } from './lsp/service.js';
 import type { MarketService } from './market/service.js';
 import type { McpOAuthService } from './mcp-oauth/service.js';
@@ -145,6 +147,8 @@ export interface HostMethodsOptions {
   images?: ImageStore;
   /** 文件预览的流式地址（0.32.0）；省略时 `workspace.fileUrl` 回 `unavailable: 'not_found'`（测试）。 */
   fileUrls?: FileUrls;
+  /** 防休眠的判定（0.102.0，`power.get`）；省略时 `power.get` 回 `keepAwake: false`（测试）。 */
+  keepAwake?: KeepAwake;
   /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
   web?: WebService;
   /** 不在项目里的会话（0.39.0）：认出“对话”工作区（`kind: 'chats'`）；与 SessionManager 用同一个。 */
@@ -276,6 +280,22 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     const session = storage.sessions.get(sessionId);
     if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
     return session.cwd;
+  };
+  /**
+   * 目录里的一个文件（`workspace.fileUrl` 与 `files.read` 共用的检查）：路径相对、`/` 分隔、没有空段、`.` 与 `..`，目录同
+   * `diffDirectory`，realpath 之后仍要在目录里、是普通文件（`statWorkspaceFile`）。路径不合规则回 `INVALID_PARAMS`，文件读不到时是
+   * undefined。
+   */
+  const resolveWorkspaceFile = async (
+    workspaceId: string,
+    sessionId: string | undefined,
+    path: string,
+  ): Promise<{ root: string; file: Awaited<ReturnType<typeof statWorkspaceFile>> }> => {
+    if (!isSafeRelativePath(path)) {
+      throw invalidParams(['path'], 'path must be a relative path inside the directory');
+    }
+    const root = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+    return { root, file: await statWorkspaceFile(root, path) };
   };
   // 写库成功之后才调用；引擎没能用上新配置时 Profile 仍已保存，报 ENGINE_ERROR 说明这一点。
   const applyProviders = async () => {
@@ -752,11 +772,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     // 0.32.0：文件预览的流式地址与编辑的写回。
     'workspace.fileUrl': async ({ workspaceId, sessionId, path }) => {
-      if (!isSafeRelativePath(path)) {
-        throw invalidParams(['path'], 'path must be a relative path inside the directory');
-      }
-      const root = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
-      const file = await statWorkspaceFile(root, path);
+      const { root, file } = await resolveWorkspaceFile(workspaceId, sessionId, path);
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       // 令牌下只读得到能预览的类型（file-urls.ts），其余的文件不发地址。
       if (!isServablePath(path)) return { path, unavailable: 'unsupported' };
@@ -773,6 +789,27 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         return await writeWorkspaceFile(root, path, text, expectedMtimeMs);
       } catch (error) {
         if (error instanceof WriteRejected) throw invalidParams(['path'], error.message);
+        throw error;
+      }
+    },
+
+    // 0.102.0：分块读文件（远程客户端用，`/files/` 只服务本机）。只给 sessionId 时工作区由会话定。
+    'files.read': async ({ workspaceId, sessionId, path, offset, length }) => {
+      let workspace: string | undefined = workspaceId;
+      if (workspace === undefined && sessionId !== undefined) {
+        const session = storage.sessions.get(sessionId);
+        if (!session) throw sessionNotFound(sessionId);
+        workspace = session.workspaceId;
+      }
+      if (workspace === undefined) {
+        throw invalidParams(['workspaceId'], 'workspaceId or sessionId is required');
+      }
+      const { file } = await resolveWorkspaceFile(workspace, sessionId, path);
+      if (!file) throw invalidParams(['path'], 'path is not an existing file inside the directory');
+      try {
+        return await readFileChunk(file.real, path, offset, length);
+      } catch (error) {
+        if (error instanceof FileReadRejected) throw invalidParams(['path'], error.message);
         throw error;
       }
     },
@@ -1172,6 +1209,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+    // 0.102.0：防休眠的判定在 Host，桌面主进程按它执行。
+    'power.get': () => ({ keepAwake: options.keepAwake?.keepAwake ?? false }),
 
     // 0.91.0：官方插件市场。
     'market.status': () => market().status(),

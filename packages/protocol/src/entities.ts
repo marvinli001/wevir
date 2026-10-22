@@ -1046,6 +1046,11 @@ export const HostSettingsSchema = z.object({
    * 列出，从下一次建会话、恢复或接力起不再交档案；档案留着，用户照样能用 `writingStyle.*` 看、改、删。省略按关着。
    */
   writingStyle: z.boolean().optional(),
+  /**
+   * 运行时防止系统休眠（0.102.0，Host 功能 `prevent_sleep`，domain-model §3.45）：开着时，有回合在跑就让桌面主进程挡住系统的空闲睡眠
+   * （`power.get` / `power.changed`）。合上笔记本盖子时系统照样睡眠。省略按关着。
+   */
+  preventSleep: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

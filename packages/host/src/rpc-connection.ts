@@ -114,6 +114,8 @@ export interface ConnectionHost {
   readonly market?: {
     watch(listener: (progress: NotificationParams<'market.installProgress'>) => void): () => void;
   };
+  /** 防休眠（0.102.0）：调过 `power.*` 的连接用它收 `power.changed`。 */
+  readonly power?: { watch(listener: (keepAwake: boolean) => void): () => void };
   /** 听写（0.92.0）：调过 `speech.*` 的连接用它收 `speech.changed`。 */
   readonly speech?: {
     watch(listener: (status: NotificationParams<'speech.changed'>['status']) => void): () => void;
@@ -224,6 +226,8 @@ export class RpcConnection {
   #unwatchSpeech: (() => void) | undefined;
   /** 调过 `market.*` 之后：退订 `market.installProgress`。 */
   #unwatchMarket: (() => void) | undefined;
+  /** 调过 `power.*` 之后：退订 `power.changed`。 */
+  #unwatchPower: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.changed`。 */
   #unwatchTuning: (() => void) | undefined;
   /** 调过 `tuning.*` 之后：退订 `tuning.proposal.changed`。 */
@@ -584,6 +588,7 @@ export class RpcConnection {
         if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('speech.')) this.#watchSpeech();
         if (method.startsWith('market.')) this.#watchMarket();
+        if (method.startsWith('power.')) this.#watchPower();
         if (method.startsWith('tuning.')) this.#watchTuning();
         if (method.startsWith('guardrail.') || method.startsWith('repoHook.')) {
           this.#watchGuardrails();
@@ -838,6 +843,15 @@ export class RpcConnection {
         return;
       }
       this.#notify('speech.changed', parsed.data);
+    });
+  }
+
+  /** 调过 `power.*` 的连接之后收 `power.changed`（0.102.0），连接关闭即止。 */
+  #watchPower(): void {
+    if (this.#unwatchPower !== undefined || this.#host.power === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchPower = this.#host.power.watch((keepAwake) => {
+      this.#notify('power.changed', { keepAwake });
     });
   }
 
@@ -1109,6 +1123,8 @@ export class RpcConnection {
     this.#unwatchSpeech = undefined;
     this.#unwatchMarket?.();
     this.#unwatchMarket = undefined;
+    this.#unwatchPower?.();
+    this.#unwatchPower = undefined;
     this.#unwatchTuning?.();
     this.#unwatchTuning = undefined;
     this.#unwatchProposals?.();

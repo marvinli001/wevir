@@ -68,6 +68,7 @@ async function boot(methods: Partial<HostMethods> = {}) {
   const grants = new Map<string, ConnectionGrant>();
   const settings = emitter<HostSettings>();
   const guardrails = emitter<NotificationParams<'guardrail.changed'>>();
+  const power = emitter<boolean>();
   const server = new HostRpcServer({
     token: TOKEN,
     hostId: HOST_ID,
@@ -85,6 +86,7 @@ async function boot(methods: Partial<HostMethods> = {}) {
     } as HostMethods,
     settings,
     guardrails,
+    power,
     testConnectionGrant: (client) => grants.get(client.clientId),
     onError,
   });
@@ -111,7 +113,7 @@ async function boot(methods: Partial<HostMethods> = {}) {
     expect(hello.error).toBeUndefined();
     return { client, hello: hello.result as { permissions: string[] } };
   };
-  return { connect, settings, guardrails };
+  return { connect, settings, guardrails, power };
 }
 
 function expectForbidden(
@@ -212,6 +214,19 @@ describe('参数级', () => {
   });
 });
 
+describe('files.read（0.102.0）', () => {
+  it('手机的默认权限（workspace.read）走到处理函数；没有 workspace.read 时 DEVICE_FORBIDDEN', async () => {
+    const { connect } = await boot();
+    const phone = (await connect(PHONE)).client;
+    const params = { workspaceId: `ws_${ULID}`, path: 'a.txt' };
+    expect((await phone.call('files.read', params)).error?.code).toBe(
+      ErrorCode.WORKSPACE_NOT_FOUND,
+    );
+    const writer = (await connect(['session.read', 'session.write'])).client;
+    expectForbidden(await writer.call('files.read', params), ['workspace.read'], 'files.read');
+  });
+});
+
 describe('通知', () => {
   it('没有读权限的连接收不到，即使调过登记它的方法', async () => {
     const { connect, settings, guardrails } = await boot({
@@ -243,6 +258,22 @@ describe('通知', () => {
     await reader.request('host.ping');
     expect(admin.notifications('settings.updated')).toEqual([]);
     expect(reader.notifications('guardrail.changed')).toEqual([]);
+  });
+
+  it('power.get 与 power.changed（0.102.0）：手机的默认权限可用；没有 session.read 的连接调不了、也收不到', async () => {
+    const { connect, power } = await boot();
+    const phone = (await connect(PHONE)).client;
+    const reader = (await connect(['workspace.read'])).client;
+    expect(await phone.request('power.get')).toEqual({ keepAwake: false });
+    expectForbidden(await reader.call('power.get'), ['session.read'], 'power.get');
+    power.emit(true);
+    await phone.until(
+      () => (phone.notifications('power.changed').length > 0 ? true : undefined),
+      'power.changed',
+    );
+    expect(phone.notifications('power.changed')).toEqual([{ keepAwake: true }]);
+    await reader.request('host.ping');
+    expect(reader.notifications('power.changed')).toEqual([]);
   });
 
   it('events.subscribe 要 session.read', async () => {

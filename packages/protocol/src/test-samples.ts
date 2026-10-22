@@ -3029,6 +3029,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', sessionInsights: true } },
         // 0.95.0：参考我的写作风格。
         { settings: { sendWhileBusy: 'steer', writingStyle: true } },
+        // 0.102.0：运行时防止系统休眠。
+        { settings: { sendWhileBusy: 'steer', preventSleep: true } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3055,6 +3057,7 @@ export const methodSamples: MethodSamples = {
         { settings: { writingStyle: true } },
         { settings: { marketMirror: 'cnb' } },
         { settings: { marketMirror: 'auto' } },
+        { settings: { preventSleep: true } },
         // 0.92.0：听写的转写方与润色
         { settings: { speechTranscriber: { kind: 'local' } } },
         {
@@ -3073,6 +3076,7 @@ export const methodSamples: MethodSamples = {
         { settings: { speechTranscriber: { kind: 'cloud' } } },
         { settings: { speechTranscriber: { kind: 'provider', providerId: 'groq' } } },
         { settings: { speechPolish: 'yes' } },
+        { settings: { preventSleep: 'on' } },
         { settings: { sendWhileBusy: 'later' } },
         { settings: { promptSuggestions: 0 } },
         { settings: { sessionRecap: 1 } },
@@ -3097,6 +3101,13 @@ export const methodSamples: MethodSamples = {
         },
       ],
       invalid: [{ settings: {} }],
+    },
+  },
+  'power.get': {
+    params: empty,
+    result: {
+      valid: [{ keepAwake: true }, { keepAwake: false }],
+      invalid: [{}, { keepAwake: 'yes' }],
     },
   },
   'market.status': {
@@ -3576,6 +3587,48 @@ export const methodSamples: MethodSamples = {
         { path: 'gone.md', conflict: true },
       ],
       invalid: [{ size: 1 }, { path: 'a', conflict: false }],
+    },
+  },
+  'files.read': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, path: 'notes.md' },
+        { sessionId: ids.session, path: 'build/app.zip', offset: 524_288, length: 524_288 },
+        { workspaceId: ids.workspace, sessionId: ids.session, path: 'a.png', offset: 0 },
+      ],
+      invalid: [
+        { path: 'notes.md' },
+        { workspaceId: ids.workspace, path: '' },
+        { workspaceId: ids.workspace, path: 'a', offset: -1 },
+        { workspaceId: ids.workspace, path: 'a', length: 0 },
+        { workspaceId: ids.workspace, path: 'a', length: 524_289 },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          path: 'notes.md',
+          data: 'IyBOb3Rlcwo=',
+          mime: 'text/markdown; charset=utf-8',
+          size: 8,
+          offset: 0,
+          eof: true,
+          mtimeMs: 1_760_000_000_123.456,
+        },
+        {
+          path: 'build/app.zip',
+          data: '',
+          mime: 'application/octet-stream',
+          size: 524_288,
+          offset: 524_288,
+          eof: true,
+          mtimeMs: 1_760_000_000_000,
+        },
+      ],
+      invalid: [
+        { path: 'a', data: '', mime: '', size: 0, offset: 0, eof: true, mtimeMs: 0 },
+        { path: 'a', data: '', mime: 'text/plain', size: 0, offset: 0, mtimeMs: 0 },
+      ],
     },
   },
   'provider.list': {
@@ -7324,6 +7377,10 @@ export const notificationSamples: NotificationSamples = {
       { entry: 'notes', phase: 'verify', receivedBytes: 0, totalBytes: 1 },
       { entry: 'notes', phase: 'download', receivedBytes: -1, totalBytes: 1 },
     ],
+  },
+  'power.changed': {
+    valid: [{ keepAwake: true }, { keepAwake: false }],
+    invalid: [{}, { keepAwake: 1 }],
   },
   'tuning.changed': {
     valid: [{}, { workspaceId: ids.workspace }],

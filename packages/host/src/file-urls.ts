@@ -249,6 +249,23 @@ const OFFICE_EXTENSIONS = new Set([
   '.pages',
 ]);
 
+/** `files.read` 另认的文本格式（不进 `CONTENT_TYPES`：那张表也决定 `/files/` 令牌下读得到哪些文件）。 */
+const TEXT_TYPES: Record<string, string> = {
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.json': 'application/json',
+  '.csv': 'text/csv; charset=utf-8',
+  '.xml': 'application/xml',
+  '.yaml': 'application/yaml',
+  '.yml': 'application/yaml',
+};
+
+/** 文件的 MIME 类型（`files.read`，0.102.0）：`/files/` 的类型表加几种文本格式，认不出的是 `application/octet-stream`。 */
+export function fileMimeType(path: string): string {
+  const extension = extname(path).toLowerCase();
+  return CONTENT_TYPES[extension] ?? TEXT_TYPES[extension] ?? 'application/octet-stream';
+}
+
 /** 响应头：类型按扩展名，HTML 与 SVG 带 CSP（T3 的 assetResponseHeaders，Wevir 都不缓存）。 */
 export function fileResponseHeaders(path: string): Record<string, string> {
   const extension = extname(path).toLowerCase();

@@ -29,6 +29,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'history.intro',
   'settings.memory.deleteBody',
   'settings.memory.editor.description',
+  // 配置事实：防休眠只挡空闲睡眠，合盖照样睡眠，不写会让人以为合盖也能继续跑。
+  'settings.preventSleepNote',
   'settings.appearance.importHint',
   'source.soon.body',
   // 确认框里的后果：删掉账号的凭据与用量，会话不能继续。

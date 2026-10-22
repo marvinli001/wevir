@@ -1343,6 +1343,7 @@ export const messages: Messages = {
   'settings.market.mirror.auto': 'Automático',
   'settings.market.mirror.autoResolved': 'Automático ({mirror})',
   'settings.preventSleep': 'Evitar la suspensión durante la ejecución',
+  'settings.preventSleepNote': 'Al cerrar la tapa del portátil, el equipo se suspende igualmente',
   'settings.section.visual': 'Estilo visual',
   'settings.appearance.mode': 'Modo',
   'settings.appearance.custom': 'Personalizado',

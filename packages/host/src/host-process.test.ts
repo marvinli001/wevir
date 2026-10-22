@@ -2,12 +2,23 @@
 // 启动与退出。进程级的行为（信号、stdin 归属管道、SIGKILL 后重启）见 cli.test.ts 与 scripts/gate-m2.ts。
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  truncateSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import {
   CloseCode,
   DESKTOP_RENDERER_ORIGINS,
+  ErrorCode,
+  FILES_READ_CHUNK_MAX_BYTES,
+  FILES_READ_FILE_MAX_BYTES,
   PROTOCOL_VERSION,
   type SessionId,
   type WevirEvent,
@@ -385,5 +396,157 @@ describe('文件预览（0.32.0）', () => {
     expect(written).toMatchObject({ path: 'notes.md', size: 4 });
     expect(written.conflict).toBeUndefined();
     expect(readFileSync(join(workspaceDir, 'notes.md'), 'utf8')).toBe('# b\n');
+  });
+});
+
+describe('文件读取（0.102.0）', () => {
+  it('files.read 分块读回 3 MiB 的文件，散列一致；越界、目录外、符号链接、大小上限都拒绝', async () => {
+    const { host } = await start();
+    const client = await connect(host);
+    const workspaceDir = join(tempDir(), 'read-ws');
+    const outside = join(tempDir(), 'outside');
+    mkdirSync(join(workspaceDir, 'sub'), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    const original = randomBytes(3 * 1024 * 1024 + 123);
+    writeFileSync(join(workspaceDir, 'sub', 'big.bin'), original);
+    writeFileSync(join(workspaceDir, 'notes.md'), '# Notes\n');
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    symlinkSync(join(outside, 'secret.txt'), join(workspaceDir, 'leak.txt'));
+    symlinkSync(join(workspaceDir, 'notes.md'), join(workspaceDir, 'alias.md'));
+    writeFileSync(join(workspaceDir, 'huge.bin'), '');
+    truncateSync(join(workspaceDir, 'huge.bin'), FILES_READ_FILE_MAX_BYTES + 1);
+    const { workspace } = await client.request('workspace.add', { rootPath: workspaceDir });
+    const workspaceId = workspace.id as string;
+
+    const chunks: Buffer[] = [];
+    let offset = 0;
+    for (;;) {
+      const chunk = await client.request('files.read', {
+        workspaceId,
+        path: 'sub/big.bin',
+        offset,
+      });
+      expect(chunk).toMatchObject({
+        path: 'sub/big.bin',
+        mime: 'application/octet-stream',
+        size: original.length,
+        offset,
+        mtimeMs: expect.any(Number),
+      });
+      const bytes = Buffer.from(chunk.data, 'base64');
+      expect(bytes.length).toBeLessThanOrEqual(FILES_READ_CHUNK_MAX_BYTES);
+      chunks.push(bytes);
+      offset += bytes.length;
+      if (chunk.eof) break;
+    }
+    expect(chunks.length).toBe(7);
+    const digest = (data: Buffer) => createHash('sha256').update(data).digest('hex');
+    expect(digest(Buffer.concat(chunks))).toBe(digest(original));
+
+    expect(
+      await client.request('files.read', { workspaceId, path: 'notes.md', offset: 2, length: 4 }),
+    ).toEqual({
+      path: 'notes.md',
+      data: Buffer.from('Note').toString('base64'),
+      mime: 'text/markdown; charset=utf-8',
+      size: 8,
+      offset: 2,
+      eof: false,
+      mtimeMs: expect.any(Number),
+    });
+    // 文件末尾：空块、eof。
+    expect(
+      await client.request('files.read', { workspaceId, path: 'notes.md', offset: 8 }),
+    ).toMatchObject({ data: '', size: 8, offset: 8, eof: true });
+    // 目录里的符号链接指到目录里，照常读。
+    expect((await client.request('files.read', { workspaceId, path: 'alias.md' })).data).toBe(
+      Buffer.from('# Notes\n').toString('base64'),
+    );
+
+    const rejected: Array<[Record<string, unknown>, RegExp]> = [
+      [{ path: 'notes.md', offset: 9 }, /past the end/],
+      [{ path: '../outside/secret.txt' }, /relative path/],
+      [{ path: '/etc/hosts' }, /relative path/],
+      [{ path: 'leak.txt' }, /not an existing file/],
+      [{ path: 'sub' }, /not an existing file/],
+      [{ path: 'missing.txt' }, /not an existing file/],
+      [{ path: 'huge.bin' }, /larger than/],
+      [{ path: 'notes.md', length: FILES_READ_CHUNK_MAX_BYTES + 1 }, /.*/],
+    ];
+    for (const [params, message] of rejected) {
+      const frame = await client.call('files.read', { workspaceId, ...params });
+      expect(frame.error?.code, JSON.stringify(params)).toBe(ErrorCode.INVALID_PARAMS);
+      expect(frame.error?.message, JSON.stringify(params)).toMatch(message);
+    }
+    expect((await client.call('files.read', { path: 'notes.md' })).error?.code).toBe(
+      ErrorCode.INVALID_PARAMS,
+    );
+  });
+
+  it('只给 sessionId 时读会话的目录；hello 声明 files_read 与 prevent_sleep', async () => {
+    const { host } = await start();
+    const client = await connect(host);
+    const hello = await TestRpcClient.connect(host.url);
+    clients.push(hello);
+    const features = (
+      (await hello.hello(runtimeInfo(host.home).token as string)).result as {
+        features: Record<string, boolean>;
+      }
+    ).features;
+    expect(features.files_read).toBe(true);
+    expect(features.prevent_sleep).toBe(true);
+    const sessionId = await createSession(client);
+    writeFileSync(join(tempDir(), 'workspace', 'a.txt'), 'hello');
+    expect(await client.request('files.read', { sessionId, path: 'a.txt' })).toMatchObject({
+      data: Buffer.from('hello').toString('base64'),
+      mime: 'text/plain; charset=utf-8',
+      eof: true,
+    });
+    const missing = await client.call('files.read', {
+      sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQZ',
+      path: 'a.txt',
+    });
+    expect(missing.error?.code).toBe(ErrorCode.SESSION_NOT_FOUND);
+  });
+});
+
+describe('防休眠（0.102.0）', () => {
+  it('preventSleep 开着时回合在跑才保持，等审批不算；值变了发 power.changed', async () => {
+    const { host } = await start();
+    const client = await connect(host);
+    const sessionId = await createSession(client);
+    expect(await client.request('power.get')).toEqual({ keepAwake: false });
+    const changes = () =>
+      client.notifications('power.changed').map((params) => params.keepAwake as boolean);
+
+    // 关着时回合照跑，不通知。
+    await client.request('session.send', { sessionId, content: [{ type: 'text', text: 'hi' }] });
+    const { subscriptionId } = await client.request('events.subscribe', { sessionId, sinceSeq: 0 });
+    await client.until(
+      () => client.events(subscriptionId).find((e) => e.type === 'turn.finished'),
+      'first turn finished',
+    );
+    expect(changes()).toEqual([]);
+
+    await client.request('settings.update', { settings: { preventSleep: true } });
+    expect(await client.request('power.get')).toEqual({ keepAwake: false });
+    await client.request('session.send', {
+      sessionId,
+      content: [{ type: 'text', text: 'please approve' }],
+    });
+    const requested = await client.until(
+      () => client.events(subscriptionId).find((e) => e.type === 'approval.requested'),
+      'approval.requested',
+    );
+    await client.until(() => (changes().length >= 2 ? true : undefined), 'awaiting approval');
+    expect(changes()).toEqual([true, false]);
+    if (requested.type !== 'approval.requested') throw new Error('unexpected event');
+    await client.request('approval.respond', {
+      approvalId: requested.payload.approval.id,
+      optionId: 'allow-once',
+    });
+    await client.until(() => (changes().length >= 4 ? true : undefined), 'turn finished');
+    expect(changes()).toEqual([true, false, true, false]);
+    expect(await client.request('power.get')).toEqual({ keepAwake: false });
   });
 });
