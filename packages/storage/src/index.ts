@@ -34,5 +34,6 @@ export * from './sessions.js';
 export * from './storage.js';
 export * from './transaction.js';
 export * from './tuning-proposals.js';
+export * from './tuning-runs.js';
 export * from './usage.js';
 export * from './workspaces.js';

@@ -302,6 +302,7 @@ export class ProposalService {
         payload: { change: built.change } satisfies StoredPayload,
         evidence,
         status: 'pending',
+        origin: 'user',
         usage: stored,
         createdAt,
       });

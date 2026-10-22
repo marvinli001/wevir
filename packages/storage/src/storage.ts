@@ -26,6 +26,7 @@ import {
   createTuningProposalRepository,
   type TuningProposalRepository,
 } from './tuning-proposals.js';
+import { createTuningRunRepository, type TuningRunRepository } from './tuning-runs.js';
 import { createUsageRepository, type UsageRepository } from './usage.js';
 import { createWorkspaceRepository, type WorkspaceRepository } from './workspaces.js';
 
@@ -60,6 +61,8 @@ export interface Storage {
   readonly profileVersions: ProfileVersionRepository;
   /** 调优的建议（0020_tuning_proposals）。 */
   readonly tuningProposals: TuningProposalRepository;
+  /** 调优的生成记录与试用指标用的查询（0023_tuning_auto）。 */
+  readonly tuningRuns: TuningRunRepository;
   /** 收件箱的收起记录与重建用的查询（0022_inbox_dismissals）。 */
   readonly inbox: InboxRepository;
   /** 会话全文搜索的派生索引（协议 0.77.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
@@ -99,6 +102,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       retros: createRetroRepository(db),
       profileVersions: createProfileVersionRepository(db),
       tuningProposals: createTuningProposalRepository(db),
+      tuningRuns: createTuningRunRepository(db),
       inbox: createInboxRepository(db),
       search: createSearchRepository(db),
       freeBytes: () => {
