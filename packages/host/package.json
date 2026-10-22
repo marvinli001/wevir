@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@mixmark-io/domino": "2.2.0",
+    "@noble/curves": "2.4.0",
     "@wevir/adapter-antigravity": "workspace:*",
     "@wevir/adapter-claude": "workspace:*",
     "@wevir/adapter-codex": "workspace:*",

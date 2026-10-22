@@ -3,6 +3,7 @@ export * from './automations.js';
 export * from './browser.js';
 export * from './capabilities.js';
 export * from './common.js';
+export * from './devices.js';
 export * from './entities.js';
 export * from './errors.js';
 export * from './events.js';

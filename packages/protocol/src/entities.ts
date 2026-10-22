@@ -23,6 +23,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { RemoteSettingsSchema } from './devices.js';
 import { GitObjectIdSchema } from './git.js';
 import { MarketMirrorPreferenceSchema } from './market.js';
 import { NotificationKindSettingsSchema } from './notifications.js';
@@ -1079,6 +1080,11 @@ export const HostSettingsSchema = z.object({
    * 按开。
    */
   notifications: NotificationKindSettingsSchema.optional(),
+  /**
+   * 远程访问（0.107.0，Host 功能 `remote_devices`，domain-model §3.49）：总开关、直连的网卡、中继与推送，全部默认关；省略按全关。
+   * `settings.update` 整个替换这一项。
+   */
+  remote: RemoteSettingsSchema.optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 

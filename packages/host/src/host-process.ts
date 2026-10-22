@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import {
   AUTOMATION_QUIET_MARKER,
@@ -9,6 +9,7 @@ import {
   type EngineFeatures,
   type HostId,
   HostIdSchema,
+  type HostSettings,
   PROTOCOL_VERSION,
   ProviderKindSchema,
   type ProviderTranscriptionModel,
@@ -69,6 +70,9 @@ import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { ReadinessService } from './readiness/service.js';
 import { loadRecapInstructions } from './recap.js';
+import { DeviceService } from './remote/devices.js';
+import { RemoteIdentity } from './remote/identity.js';
+import { PairingService } from './remote/pairing.js';
 import { RetroService } from './retro/service.js';
 import { loadRetroInstructions } from './retro/summary.js';
 import { loadReviewTemplate, ReviewService } from './review/service.js';
@@ -192,6 +196,8 @@ export interface RunningHost {
   shutdown(trigger?: ShutdownTrigger): Promise<void>;
   /** 强制退出前同步删除自己的 `host.json`，返回是否删除。 */
   releaseRuntimeFileSync(): boolean;
+  /** 远程设备与配对（0.107.0）：远程监听与测试经它们走配对握手。 */
+  readonly remote: { readonly devices: DeviceService; readonly pairing: PairingService };
 }
 
 /**
@@ -858,6 +864,26 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     notifications = notificationService;
     notificationService.start();
     const presence = new Presence();
+    // 远程设备与配对（0.107.0，domain-model §3.49）：密钥在第一次打开远程访问时生成；关掉远程访问时结束配对窗口。远程监听不在这里。
+    const remoteIdentity = new RemoteIdentity({ secrets });
+    const deviceService = new DeviceService({ storage, secrets });
+    const pairingService = new PairingService({
+      identity: remoteIdentity,
+      devices: deviceService,
+      settings: () => settings.get().remote,
+      hostName: hostname().replace(/\.local$/, ''),
+    });
+    const ensureRemoteKeys = (current: HostSettings): void => {
+      if (current.remote?.enabled !== true) {
+        pairingService.cancel();
+        return;
+      }
+      remoteIdentity.ensure().catch((error: unknown) => {
+        logger.error('failed to create the remote access keys', { error });
+      });
+    };
+    ensureRemoteKeys(settings.get());
+    settings.watch(ensureRemoteKeys);
     if (accounts?.hasSubscriptions === true) {
       // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
@@ -1044,6 +1070,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         speech,
         keepAwake,
         inbox: inboxService,
+        remote: { devices: deviceService, pairing: pairingService },
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -1135,6 +1162,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         inbox: true,
         approval_timeout: true,
         notification_intents: true,
+        remote_devices: true,
       },
       engineFeatures,
       plugins,
@@ -1145,6 +1173,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       inbox: inboxService,
       notifications: notificationService,
       presence,
+      remote: { devices: deviceService, pairing: pairingService },
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1192,7 +1221,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       hostId,
       url,
       runtimeFile,
+      remote: { devices: deviceService, pairing: pairingService },
       shutdown: (trigger = { kind: 'api' }) => {
+        pairingService.close();
         stopping ??= shutdownSequence({
           trigger,
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,

@@ -45,6 +45,7 @@ export const SETTINGS_TABS = [
   'general',
   'appearance',
   'notifications',
+  'devices',
   'shortcuts',
   'storage',
   'providers',

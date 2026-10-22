@@ -73,6 +73,8 @@ export interface HostRpcServerOptions {
   sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接收 `inbox.changed`。 */
   inbox?: Pick<InboxService, 'watch'>;
+  /** 远程设备与配对（0.107.0）：调过 `device.*` 或 `pairing.*` 的连接收设备与配对的通知。 */
+  remote?: ConnectionHost['remote'];
   /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接收 `notification.intent`。 */
   notifications?: Pick<NotificationService, 'watch'>;
   /** 在场（0.106.0）：各连接的 `presence.update`。 */
@@ -196,6 +198,7 @@ export class HostRpcServer {
       ...(options.memory !== undefined && { memory: options.memory }),
       ...(options.sessionList !== undefined && { sessionList: options.sessionList }),
       ...(options.inbox !== undefined && { inbox: options.inbox }),
+      ...(options.remote !== undefined && { remote: options.remote }),
       ...(options.notifications !== undefined && { notifications: options.notifications }),
       ...(options.presence !== undefined && { presence: options.presence }),
       ...(options.usage !== undefined && { usage: options.usage }),

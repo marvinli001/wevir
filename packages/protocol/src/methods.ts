@@ -53,6 +53,22 @@ import {
   WorkspaceIdSchema,
 } from './common.js';
 import {
+  DeviceListParamsSchema,
+  DeviceListResultSchema,
+  DeviceResultSchema,
+  DeviceRevokeParamsSchema,
+  DevicesChangedParamsSchema,
+  DeviceUpdateParamsSchema,
+  PairingCancelParamsSchema,
+  PairingCancelResultSchema,
+  PairingEndedParamsSchema,
+  PairingRequestParamsSchema,
+  PairingRespondParamsSchema,
+  PairingRespondResultSchema,
+  PairingStartParamsSchema,
+  PairingStartResultSchema,
+} from './devices.js';
+import {
   AccountKindSchema,
   AccountLabelSchema,
   AccountLoginMethodSchema,
@@ -2545,6 +2561,37 @@ export const MethodSchemas = {
     result: PresenceUpdateResultSchema,
     permission: 'session.read',
   },
+  /** 远程设备与配对（0.107.0）：只有本机连接能调，远程设备即使有 `host.manage` 也不行。 */
+  'device.list': {
+    params: DeviceListParamsSchema,
+    result: DeviceListResultSchema,
+    permission: 'host.manage',
+  },
+  'device.update': {
+    params: DeviceUpdateParamsSchema,
+    result: DeviceResultSchema,
+    permission: 'host.manage',
+  },
+  'device.revoke': {
+    params: DeviceRevokeParamsSchema,
+    result: DeviceResultSchema,
+    permission: 'host.manage',
+  },
+  'pairing.start': {
+    params: PairingStartParamsSchema,
+    result: PairingStartResultSchema,
+    permission: 'host.manage',
+  },
+  'pairing.cancel': {
+    params: PairingCancelParamsSchema,
+    result: PairingCancelResultSchema,
+    permission: 'host.manage',
+  },
+  'pairing.respond': {
+    params: PairingRespondParamsSchema,
+    result: PairingRespondResultSchema,
+    permission: 'host.manage',
+  },
   /** 审批规则（0.80.0）。 */
   'approvalRule.list': {
     params: ApprovalRuleListParamsSchema,
@@ -2741,6 +2788,12 @@ export const NotificationSchemas = {
   'inbox.changed': { params: InboxChangedParamsSchema },
   /** 发给调用过 `notification.subscribe` 的连接（0.106.0）：Host 判定要提醒的一件新事。 */
   'notification.intent': { params: NotificationIntentParamsSchema },
+  /** 发给调用过 `device.*` 或 `pairing.*` 的连接（0.107.0）：设备增、改、移除后的全部设备。 */
+  'devices.changed': { params: DevicesChangedParamsSchema },
+  /** 同上（0.107.0）：配对握手完成，等桌面允许或拒绝（`pairing.respond`）。 */
+  'pairing.request': { params: PairingRequestParamsSchema },
+  /** 同上（0.107.0）：配对窗口结束。 */
+  'pairing.ended': { params: PairingEndedParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2796,6 +2849,9 @@ export const NOTIFICATION_PERMISSIONS = {
   'sessions.changed': 'session.read',
   'inbox.changed': 'session.read',
   'notification.intent': 'session.read',
+  'devices.changed': 'host.manage',
+  'pairing.request': 'host.manage',
+  'pairing.ended': 'host.manage',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',
