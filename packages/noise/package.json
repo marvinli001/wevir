@@ -1,0 +1,30 @@
+{
+  "name": "@wevir/noise",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Noise Protocol handshakes for Wevir remote access (Noise_XXpsk2 and Noise_IK over 25519, ChaChaPoly, SHA256) with transport framing. No Node built-ins: runs in Node, browsers and Hermes.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
+  }
+}

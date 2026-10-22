@@ -628,9 +628,28 @@ Wevir 新增的文件：scripts/review_trigger_evals.py、agents/openai.yaml。�
 agents/{grader,comparator,analyzer}.md、scripts/{utils,__init__}.py、LICENSE.txt。
 
 
+
+15. Noise 测试向量（cacophony 与 snow）
+------------------------------------------------------------------------------------------------
+packages/noise/test-vectors/ 下的向量文件只给测试用，不进构建产物与安装包。每个 JSON 的 source 字段写有来源与筛选方式，
+向量本身原样复制、没有修改：
+
+  packages/noise/test-vectors/cacophony.json
+      <- https://github.com/haskell-cryptography/cacophony vectors/cacophony.txt
+         来源提交：8ee9d41e34a1a596cfa3ab12aa4069ff87dc1247
+         许可证：Unlicense（放入公有领域，不要求保留声明）
+  packages/noise/test-vectors/snow.json
+      <- https://github.com/mcginty/snow tests/vectors/snow.txt
+         来源提交：8ac60f51cfe3e010c84f0a454cc575ad9204fa12
+         许可证：Apache License 2.0 或 MIT，Wevir 选 MIT，全文见文末“MIT License”
+         版权：Copyright (c) 2021 Jake McGinty
+
+packages/noise/test-vectors/snow-generated.json 由 Wevir 自己的生成程序（同目录 snowgen/）调用 snow 0.10.0 生成，
+是 Wevir 的文件（MIT），不含 snow 的代码。
+
 MIT License
 ------------------------------------------------------------------------------------------------
-第 1–3 节、第 8–10 节、第 11 节的 Shiki、第 12 节与第 13 节的 ONNX Runtime 的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+第 1–3 节、第 8–10 节、第 11 节的 Shiki、第 12 节、第 13 节的 ONNX Runtime 与第 15 节的 snow 的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
 
 MIT License
 ------------------------------------------------------------------------------------------------

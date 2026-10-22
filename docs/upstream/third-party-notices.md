@@ -37,6 +37,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `mute-stream` | 3.0.0 | ISC | Copyright (c) Isaac Z. Schlueter and Contributors | `@wevir/cli`（T4.2，未提交，以提交时为准） |
 | `node-pty` | 1.1.0 | MIT | Copyright (c) 2012-2015, Christopher Jeffrey；Copyright (c) 2016, Daniel Imms；Copyright (c) 2018 - present Microsoft Corporation（三段都在包内 `LICENSE`） | `@wevir/host` 的可选依赖，用户终端（0.69.0）。安装包只带目标平台的预编译（`pty.node`，macOS 另有 `spawn-helper`；Windows 是 `conpty.node`、`conpty_console_list.node` 与 winpty 的 `pty.node`、`winpty.dll`、`winpty-agent.exe`，winpty 同为 MIT），不带源码与调试符号；它的依赖 `node-addon-api` 只有编译用的头文件，不进安装包 |
 | `@xterm/headless`、`@xterm/addon-serialize` | 6.0.0、0.14.0 | MIT | Copyright (c) 2017-2019, The xterm.js authors；Copyright (c) 2014-2016, SourceLair Private Company；Copyright (c) 2012-2013, Christopher Jeffrey（包内没有 `LICENSE`，用 xterm.js 仓库的许可证全文） | `@wevir/host`，用户终端重连时的屏幕快照 |
+| `@noble/curves`、`@noble/ciphers`、`@noble/hashes` | 2.4.0、2.4.0、2.4.0 | MIT | Copyright (c) 2022 Paul Miller (https://paulmillr.com) | `@wevir/noise`（远程访问的 Noise 握手；Host 用上它之后随 Host 的 bundle 进安装包） |
 
 ### 2.2 打进桌面端产物的库
 

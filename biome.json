@@ -302,6 +302,7 @@
     {
       "includes": [
         "packages/client-sdk/src/**",
+        "packages/noise/src/**",
         "!packages/client-sdk/src/node.ts",
         "!packages/client-sdk/src/**/*.test.ts",
         "!packages/client-sdk/src/test-utils.ts"
