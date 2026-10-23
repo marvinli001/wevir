@@ -460,6 +460,11 @@ export interface DesktopApi {
    * `.json`；用户取消时是 `cancelled`。
    */
   saveTextAs(name: string, text: string): Promise<'saved' | 'cancelled'>;
+  /**
+   * 把一张 PNG 另存为（0.122.0，模拟器窗格的截图）：弹出保存对话框（默认在“下载”里、用 `name`），写入 base64 的 `data`。只认
+   * `.png`；用户取消时是 `cancelled`。
+   */
+  saveImageAs(name: string, data: string): Promise<'saved' | 'cancelled'>;
   /** 自动更新的状态（ADR-0007 补记 4）。 */
   getUpdateState(): Promise<UpdateState>;
   /** 订阅自动更新状态的变化，返回取消订阅的函数。 */
@@ -512,6 +517,7 @@ export const IPC_CHANNELS = {
   openPath: 'wevir:open-path',
   saveFileAs: 'wevir:save-file-as',
   saveTextAs: 'wevir:save-text-as',
+  saveImageAs: 'wevir:save-image-as',
   getUpdateState: 'wevir:get-update-state',
   /** 主进程 → 渲染进程的推送。 */
   updateState: 'wevir:update-state',

@@ -45,6 +45,7 @@ import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths, seqParam } from '@/routes/paths';
+import { useSimulatorReveal } from '@/simulator/simulator-reveal';
 import { ApprovalDock } from './approval-card';
 import { useRegisterCompact } from './compact-action';
 import {
@@ -157,6 +158,8 @@ export function SessionView({
   useUiShow(session, variant === 'main' ? transcript?.uiShow : undefined, panes, titleOf);
   // agent 请显示网页（0.33.0，`wevir_show` 的 browser）：同样只在主会话里打开浏览器窗格。
   useBrowserReveal(session.id, variant === 'main' ? panes : undefined);
+  // agent attach 了模拟器（0.122.0，`simulator.show`）：同样只在主会话里打开模拟器窗格。
+  useSimulatorReveal(session.id, variant === 'main' ? panes : undefined);
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
   // 离开一阵再回到会话时的“回顾”（0.54.0）：只在主窗格的顶层会话里，Host 有功能、设置里没关。

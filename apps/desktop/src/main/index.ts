@@ -514,6 +514,28 @@ function run(): void {
       return 'saved';
     },
   );
+  // 模拟器窗格的截图（0.122.0）：渲染进程给文件名与 base64 的 PNG，目标由用户在保存对话框里选。
+  ipcMain.handle(
+    IPC_CHANNELS.saveImageAs,
+    async (event, name: unknown, data: unknown): Promise<'saved' | 'cancelled'> => {
+      assertSender(event);
+      if (typeof name !== 'string' || typeof data !== 'string' || data.length > MAX_IMAGE_BASE64) {
+        throw new Error('a file name and a base64 string of at most 64M characters are required');
+      }
+      const fileName = basename(name.replaceAll('\\', '/'));
+      if (!/\.png$/i.test(fileName)) throw new Error('only .png files can be saved');
+      const options = { defaultPath: join(app.getPath('downloads'), fileName) };
+      const result =
+        mainWindow && !mainWindow.isDestroyed()
+          ? await dialog.showSaveDialog(mainWindow, options)
+          : await dialog.showSaveDialog(options);
+      if (result.canceled || result.filePath === undefined || result.filePath === '') {
+        return 'cancelled';
+      }
+      await writeFile(result.filePath, Buffer.from(data, 'base64'));
+      return 'saved';
+    },
+  );
 
   // 自动更新（ADR-0007 补记 4）：开发构建里是 disabled，界面不显示入口。
   // Windows 的 NSIS 安装程序在应用退出之前就启动，一两秒后查安装目录里还在跑的进程（Host 也是 Wevir.exe，引擎在资源目录里），
@@ -976,6 +998,9 @@ function createWindow(): BrowserWindow {
   void window.loadURL(devServerUrl ?? APP_ENTRY_URL);
   return window;
 }
+
+/** saveImageAs 收的 base64 最长多少字符（约 48 MiB 的 PNG）。 */
+const MAX_IMAGE_BASE64 = 64 * 1024 * 1024;
 
 /** copyText 一次最多复制的字符数（UTF-16 code unit），挡住渲染进程塞来的超大字符串。 */
 const MAX_COPY_LENGTH = 8 * 1024 * 1024;

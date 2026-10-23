@@ -14,6 +14,7 @@ export const PANE_KINDS = [
   'session',
   'browser',
   'retro',
+  'simulator',
 ] as const;
 
 export type PaneKind = (typeof PANE_KINDS)[number];
@@ -79,6 +80,8 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
   browser: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: true },
   // 0.76.0：当前会话的任务回顾，由侧栏的“任务回顾”卡片打开。
   retro: { minWidth: 320, minHeight: 240, shape: 'tall', multiple: false, available: true },
+  // 0.122.0：iOS 模拟器（desktop-layout.md §44），Host 声明 `ios_simulator` 时才能开。
+  simulator: { minWidth: 360, minHeight: 360, shape: 'tall', multiple: false, available: true },
 };
 
 export function isPaneKind(value: unknown): value is PaneKind {
@@ -96,17 +99,26 @@ export function paneIdentity(kind: PaneKind, params: PaneParams | undefined): st
   return value === undefined ? undefined : `${kind}:${value}`;
 }
 
-/** 外壳与这条连接能用哪些窗格：浏览器窗格要外壳有内置浏览器；用户终端要 `terminal.write`。默认都能用。 */
+/**
+ * 外壳与这条连接能用哪些窗格：浏览器窗格要外壳有内置浏览器；用户终端要 `terminal.write`；模拟器要 Host 声明 `ios_simulator`。
+ * 默认都能用。
+ */
 export interface PaneAccess {
   browserPane: boolean;
   terminalWrite: boolean;
+  simulator: boolean;
 }
 
-export const FULL_PANE_ACCESS: PaneAccess = { browserPane: true, terminalWrite: true };
+export const FULL_PANE_ACCESS: PaneAccess = {
+  browserPane: true,
+  terminalWrite: true,
+  simulator: true,
+};
 
 export function paneKindUsable(kind: PaneKind, access: PaneAccess): boolean {
   if (kind === 'browser') return access.browserPane;
   if (kind === 'terminal') return access.terminalWrite;
+  if (kind === 'simulator') return access.simulator;
   return true;
 }
 

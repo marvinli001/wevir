@@ -60,6 +60,7 @@ describe('pane-kinds', () => {
       'terminal',
       'browser',
       'retro',
+      'simulator',
     ]);
     // 文件预览（U32）只由文件树、文件链接打开。
     expect(openableKinds(true)).not.toContain('file');
@@ -68,10 +69,15 @@ describe('pane-kinds', () => {
     expect(openableKinds(true)).not.toContain('session');
   });
 
-  it('外壳没有内置浏览器、连接没有 terminal.write 时不列这两种', () => {
-    const kinds = openableKinds(false, { browserPane: false, terminalWrite: false });
+  it('外壳没有内置浏览器、连接没有 terminal.write、Host 没有模拟器时不列这几种', () => {
+    const kinds = openableKinds(false, {
+      browserPane: false,
+      terminalWrite: false,
+      simulator: false,
+    });
     expect(kinds).not.toContain('browser');
     expect(kinds).not.toContain('terminal');
+    expect(kinds).not.toContain('simulator');
     expect(kinds).toContain('changes');
   });
 });

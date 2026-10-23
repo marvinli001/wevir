@@ -1,8 +1,10 @@
+import type { WevirClient } from '@wevir/client-sdk';
 import {
   IMAGE_MAX_PER_MESSAGE,
   type PendingDelivery,
   type SessionId,
   type SessionState,
+  type UserImageMimeType,
   type UserImagePart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
@@ -100,6 +102,35 @@ function updateImageDraft(
   if (next.length > 0) imageDrafts.set(draftKey, next);
   else imageDrafts.delete(draftKey);
   for (const listener of imageListeners.get(draftKey) ?? []) listener(next);
+}
+
+/**
+ * 从输入框以外放进一张图片（模拟器窗格的标注，0.122.0）：先显示缩略图，再传给 Host，不发送。一条消息的图片满了时抛出，传失败时
+ * 拿掉缩略图再抛出。
+ */
+export async function attachDraftImage(
+  draftKey: string,
+  client: WevirClient,
+  image: { dataUrl: string; mimeType: UserImageMimeType; name?: string },
+): Promise<void> {
+  if ((imageDrafts.get(draftKey)?.length ?? 0) >= IMAGE_MAX_PER_MESSAGE) {
+    throw new Error(t('composer.imageLimit', { count: IMAGE_MAX_PER_MESSAGE }));
+  }
+  const key = crypto.randomUUID();
+  const { dataUrl, mimeType, name } = image;
+  updateImageDraft(draftKey, (current) => [
+    ...current,
+    { key, dataUrl, ...(name !== undefined && { name }) },
+  ]);
+  try {
+    const part = await uploadImage(client, dataUrl, mimeType, name);
+    updateImageDraft(draftKey, (current) =>
+      current.map((entry) => (entry.key === key ? { ...entry, part } : entry)),
+    );
+  } catch (error) {
+    updateImageDraft(draftKey, (current) => current.filter((entry) => entry.key !== key));
+    throw error;
+  }
 }
 
 function rejectionText(rejected: { reason: ImageRejection; name: string }): string {

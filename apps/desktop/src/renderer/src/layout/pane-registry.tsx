@@ -11,6 +11,7 @@ import {
   type LucideIcon,
   MessagesSquare,
   ScrollText,
+  Smartphone,
   SquareTerminal,
 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense } from 'react';
@@ -56,6 +57,10 @@ const TerminalPane = lazy(() =>
 // “文件预览”同样带着 Pierre 与 Shiki（U32）；文件树不带，直接打进主包。
 const FilePane = lazy(() =>
   import('./panes/file-pane').then((module) => ({ default: module.FilePane })),
+);
+// “模拟器”带着解码与标注（0.122.0），第一次打开时才加载。
+const SimulatorPane = lazy(() =>
+  import('./panes/simulator-pane').then((module) => ({ default: module.SimulatorPane })),
 );
 
 /** 每种窗格的图标、名称与内容（desktop-layout.md §2.1）。以后的种类由各自的任务换掉占位。 */
@@ -134,6 +139,15 @@ const VIEWS: Record<PaneKind, PaneView> = {
     icon: ClipboardList,
     name: 'pane.kind.retro',
     render: (_, context) => <RetroPane context={context} />,
+  },
+  simulator: {
+    icon: Smartphone,
+    name: 'pane.kind.simulator',
+    render: (_, context) => (
+      <Suspense fallback={null}>
+        <SimulatorPane context={context} />
+      </Suspense>
+    ),
   },
 };
 

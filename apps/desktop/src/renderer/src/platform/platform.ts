@@ -161,6 +161,7 @@ export function unsupportedPlatformApi(overrides: Partial<DesktopApi> = {}): Des
     openPath: unsupported,
     saveFileAs: unsupported,
     saveTextAs: unsupported,
+    saveImageAs: unsupported,
     getUpdateState: unsupported,
     onUpdateState: noListener,
     checkForUpdates: resolved,

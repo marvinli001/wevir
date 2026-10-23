@@ -63,6 +63,8 @@ const KEY_LABELS: Record<string, [mac: string, other: string]> = {
   Tab: ['⇥', 'Tab'],
   ArrowRight: ['→', '→'],
   ArrowLeft: ['←', '←'],
+  Equal: ['+', '+'],
+  Minus: ['-', '-'],
 };
 
 /** 提示里显示的写法：macOS 是 ⌃⌥⇧⌘B，其他平台是 Ctrl+Alt+Shift+B。 */
