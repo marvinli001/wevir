@@ -4,7 +4,7 @@ The optional relay for Wevir remote access. A phone or a remote `wevir` CLI norm
 
 The relay only forwards bytes. Every frame between a device and the desktop is Noise ciphertext (`Noise_XXpsk2` for pairing, `Noise_IK` after that), end to end. The relay never has the keys, never decrypts, does not write frames to disk and does not log their contents. If a relay is compromised, the attacker learns metadata (see below) and can drop or delay connections, but cannot read or forge messages.
 
-Wevir does not run a relay for you. To use one, host it yourself (see [Running it](#running-it)) and enter its address in **Settings → Devices → Relay address** on the desktop. The relay switch stays unavailable until an address is filled in.
+In **Settings → Devices** the relay is off by default. You can pick the Wevir relay, which runs the same protocol on Cloudflare Workers (see [`apps/relay-worker`](../relay-worker)), or host this one yourself (see [Running it](#running-it)) and enter its address. The browser client can only reach a computer through a relay.
 
 ## What the relay sees
 

@@ -37,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Radio, RadioGroup } from '@/components/ui/radio-group';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import {
   formatCountdown,
   PLATFORM_LABEL,
@@ -294,7 +295,11 @@ function PairingLink({ uri }: { uri: string }) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void window.wevir.copyText(uri).then(() => setCopied(true))}
+          onClick={() =>
+            void platformApi()
+              .copyText(uri)
+              .then(() => setCopied(true))
+          }
           data-action="copy-pairing-link"
         >
           {copied ? <Check className="confirm-pop" /> : <Copy />}
