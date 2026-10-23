@@ -98,7 +98,13 @@ describe('设备与配对', () => {
       name: 'iPhone',
       platform: 'ios',
       publicKey: PHONE_KEY,
-      permissions: ['session.read', 'session.write', 'workspace.read'],
+      permissions: [
+        'session.read',
+        'session.write',
+        'workspace.read',
+        'workspace.write',
+        'provider.read',
+      ],
       status: 'active',
     });
     expect(await decision).toEqual(device);

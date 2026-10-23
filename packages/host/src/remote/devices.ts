@@ -1,9 +1,9 @@
 import {
-  DEFAULT_DEVICE_PERMISSIONS,
   DEVICE_ASSIGNABLE_PERMISSIONS,
   type Device,
   type DeviceId,
   type DevicePlatform,
+  defaultDevicePermissions,
   type Permission,
   type PushPlatform,
   PushPlatformSchema,
@@ -116,8 +116,8 @@ export class DeviceService {
   }
 
   /**
-   * 配对允许后写入。同一个公钥已有 active 的设备时是重新配对：更新名称与平台，保留 ID 与权限。新设备的权限是
-   * `DEFAULT_DEVICE_PERMISSIONS`。
+   * 配对允许后写入。同一个公钥已有 active 的设备时是重新配对：更新名称与平台，保留 ID 与权限。新设备的权限按平台取
+   * `defaultDevicePermissions`（手机多两项）。
    */
   add(identity: DeviceIdentity): Device {
     const at = this.#now().toISOString();
@@ -137,7 +137,7 @@ export class DeviceService {
         name: identity.name,
         platform: identity.platform,
         publicKey: identity.publicKey,
-        permissions: [...DEFAULT_DEVICE_PERMISSIONS],
+        permissions: [...defaultDevicePermissions(identity.platform)],
         createdAt: at,
         lastSeenAt: at,
         status: 'active',

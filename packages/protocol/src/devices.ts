@@ -161,12 +161,25 @@ export type DevicePlatform = z.infer<typeof DevicePlatformSchema>;
 export const DeviceStatusSchema = z.enum(['active', 'revoked']);
 export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
-/** 新配对的设备默认有的权限（ADR-0017 §4）。网页设备（0.117.0）也是这一组。 */
+/** 新配对的设备默认有的权限（ADR-0017 §4）。网页设备（0.117.0）与远程 CLI 是这一组，手机另见 `PHONE_DEVICE_PERMISSIONS`。 */
 export const DEFAULT_DEVICE_PERMISSIONS = [
   'session.read',
   'session.write',
   'workspace.read',
 ] as const satisfies readonly Permission[];
+
+/** 新配对的手机（`ios`、`android`）默认有的权限：另加 `workspace.write` 与 `provider.read`，配好就能建助理和新会话。 */
+export const PHONE_DEVICE_PERMISSIONS = [
+  ...DEFAULT_DEVICE_PERMISSIONS,
+  'workspace.write',
+  'provider.read',
+] as const satisfies readonly Permission[];
+
+export function defaultDevicePermissions(platform: DevicePlatform): readonly Permission[] {
+  return platform === 'ios' || platform === 'android'
+    ? PHONE_DEVICE_PERMISSIONS
+    : DEFAULT_DEVICE_PERMISSIONS;
+}
 
 /** 能给设备的权限：除 `host.manage` 外的全部。设备与配对的管理只在本机。 */
 export const DEVICE_ASSIGNABLE_PERMISSIONS = PERMISSIONS.filter(

@@ -16,7 +16,7 @@ export const PAGE_SIZE = 30;
 
 /** 一台电脑上的频道接口（`WevirClient` 的一部分）。Host 没有 `channels` 功能或这台设备不能读会话时没有。 */
 export interface ChannelClient {
-  /** 能在这台电脑上建助理（`workspace.write` 与 `provider.read`；手机默认没有）。 */
+  /** 能在这台电脑上建助理（`workspace.write` 与 `provider.read`；新配对的手机默认有，旧的配对与网页设备没有）。 */
   readonly canCreate: boolean;
   /** 能改这台电脑上的助理（`workspace.write`）。 */
   readonly canEdit: boolean;

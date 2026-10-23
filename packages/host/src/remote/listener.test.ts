@@ -8,9 +8,9 @@ import { join } from 'node:path';
 import {
   type ClientIdentity,
   CloseCode,
-  DEFAULT_DEVICE_PERMISSIONS,
   DEFAULT_REMOTE_SETTINGS,
   ErrorCode,
+  PHONE_DEVICE_PERMISSIONS,
   parsePairingUri,
   REMOTE_NATIVE_ORIGIN,
   REMOTE_PATHS,
@@ -227,7 +227,7 @@ describe('远程监听', () => {
     const again = await reconnect(device);
     const helloAgain = await again.client.hello('ignored', PHONE);
     expect(helloAgain.error).toBeUndefined();
-    expect(helloAgain.result.permissions).toEqual([...DEFAULT_DEVICE_PERMISSIONS]);
+    expect(helloAgain.result.permissions).toEqual([...PHONE_DEVICE_PERMISSIONS]);
     const { devices } = await desktop.request('device.list');
     expect(devices).toMatchObject([{ id: deviceId, name: 'Pixel', platform: 'android' }]);
   });

@@ -43,7 +43,7 @@ function code(error: unknown): string | undefined {
 }
 
 describe('DeviceService', () => {
-  it('配对允许后写入：默认权限，通知全部设备', () => {
+  it('配对允许后写入：默认权限（手机多 workspace.write 与 provider.read），通知全部设备', () => {
     const { devices, changes } = setup();
     const phone = devices.add({ name: 'iPhone', platform: 'ios', publicKey: KEY });
     expect(phone).toMatchObject({
@@ -51,7 +51,13 @@ describe('DeviceService', () => {
       name: 'iPhone',
       platform: 'ios',
       publicKey: KEY,
-      permissions: ['session.read', 'session.write', 'workspace.read'],
+      permissions: [
+        'session.read',
+        'session.write',
+        'workspace.read',
+        'workspace.write',
+        'provider.read',
+      ],
       createdAt: '2026-10-22T08:00:00.000Z',
       lastSeenAt: '2026-10-22T08:00:00.000Z',
       status: 'active',
@@ -141,12 +147,13 @@ function catchSync(run: () => unknown): unknown {
 describe('网页设备闲置自动移除（0.117.0）', () => {
   const DAY = 86_400_000;
 
-  it('默认权限同手机；超过天数没在线的网页设备被移除，手机不受影响', async () => {
+  it('网页设备只有基本的三项权限；超过天数没在线的网页设备被移除，手机不受影响', async () => {
     let days = 30;
     const { devices, tick, revoked } = setup({ webIdleDays: () => days });
     const web = devices.add({ name: 'Chrome', platform: 'web', publicKey: KEY });
     const phone = devices.add({ name: 'iPhone', platform: 'ios', publicKey: KEY2 });
-    expect(web.permissions).toEqual(phone.permissions);
+    expect(web.permissions).toEqual(['session.read', 'session.write', 'workspace.read']);
+    expect(phone.permissions).toContain('workspace.write');
     tick(30 * DAY - 1);
     expect(await devices.expireIdle()).toEqual([]);
     tick(1);
