@@ -8,8 +8,9 @@
   "workers_dev": false,
   "preview_urls": false,
   "send_metrics": false,
-  // 正式地址。wevir.si 这个区要先在 Cloudflare 上，自定义域名由 Cloudflare 建 DNS 记录与证书。
-  "routes": [{ "pattern": "relay.wevir.si", "custom_domain": true }],
+  // 自建时换成自己的域名（这个区要在 Cloudflare 上，自定义域名由 Cloudflare 建 DNS 记录与证书）。官方实例不用这份配置：
+  // wevir-web 把这份代码与网页部署在同一个 Worker（web.wevir.si）。
+  "routes": [{ "pattern": "relay.example.com", "custom_domain": true }],
   "durable_objects": {
     "bindings": [
       { "name": "ROUTES", "class_name": "Route" },

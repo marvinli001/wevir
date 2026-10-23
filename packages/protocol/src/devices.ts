@@ -20,9 +20,10 @@ export const RelayUrlSchema = z.url({ protocol: /^wss?$/ }).max(2048);
 
 /**
  * Wevir 官方中继的地址（0.117.0）：只在用户选了“官方”（`relay.mode: 'official'`）时用。**不是**没填地址时的默认值：开着中继、
- * 没选官方也没填地址仍等同于关（0.111.0 的规矩不变）。
+ * 没选官方也没填地址仍等同于关（0.111.0 的规矩不变）。与网页客户端是同一个 Cloudflare Worker：页面是静态文件，中继的路径
+ * （`/v1/*`、`/healthz`）才进 Worker 代码。
  */
-export const OFFICIAL_RELAY_URL = 'wss://relay.wevir.si';
+export const OFFICIAL_RELAY_URL = 'wss://web.wevir.si';
 
 /** 中继开着时连哪一个（0.117.0）：官方中继，或 `url` 里自建的。省略按 `custom`（0.116.0 及以前的设置）。 */
 export const RelayModeSchema = z.enum(['official', 'custom']);

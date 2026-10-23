@@ -57,9 +57,9 @@ pnpm exec wrangler secret put SOURCE_TAG_KEY   # any long random string
 pnpm run deploy
 ```
 
-The official instance is deployed by `.github/workflows/relay-worker.yml` on pushes to `master` that touch the relay, and on manual runs. It needs the repository secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` and `SOURCE_TAG_KEY`; the key is uploaded with each deploy through `wrangler deploy --secrets-file`.
+The official instance is `wss://web.wevir.si`: [wevir-web](https://github.com/marvinli001/wevir-web) deploys this Worker's code from the wevir commit it pins, in the same Worker as the browser client. The page is served as static assets and only the relay's paths (`/v1/*`, `/healthz`) run the Worker, so a single domain serves both.
 
-`wrangler.jsonc` serves the Worker on the custom domain `relay.wevir.si`; change `routes` to your own domain first. Cloudflare creates the DNS record and certificate. Then use `wss://<your domain>` as the relay address in Wevir.
+`wrangler.jsonc` serves the Worker on the custom domain `relay.example.com`; change `routes` to your own domain first. Cloudflare creates the DNS record and certificate. Then use `wss://<your domain>` as the relay address in Wevir.
 
 `build` bundles the Worker into `dist/index.js` (a dry run of the deploy). The bundle includes `@wevir/protocol` and `zod` (MIT); the license text is copied to `dist/licenses/`.
 
