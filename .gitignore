@@ -19,6 +19,9 @@ coverage/
 
 # 本地运行时数据
 .wevir-dev/
+# wrangler dev 的本地状态与 Worker 的本地密钥（apps/relay-worker）
+.wrangler/
+.dev.vars*
 # 一次性验证代码只在本机，不进仓库
 /spikes/
 

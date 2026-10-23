@@ -12,6 +12,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./conformance": {
+      "@wevir/source": "./src/conformance.ts"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
