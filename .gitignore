@@ -9,8 +9,9 @@ out/
 /apps/desktop/release/
 # 命令行包（apps/cli 的 pnpm package）
 /apps/cli/release/
-# 电脑操作的 macOS helper 的 SwiftPM 构建目录
+# 电脑操作与 iOS 模拟器的 macOS helper 的 SwiftPM 构建目录
 /apps/desktop/native/computer-use/.build/
+/apps/desktop/native/ios-simulator/.build/
 coverage/
 *.tsbuildinfo
 # 图标交付 ZIP 可从已跟踪的源文件与导出脚本重建。

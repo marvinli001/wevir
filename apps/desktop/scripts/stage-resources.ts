@@ -13,6 +13,9 @@
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
  *   resources/computer-use/wevir-computer-use        只有 macOS：电脑操作的 Swift helper（native/computer-use，按目标架构
  *                                                    swift build），随应用一起签名与公证
+ *   resources/ios-simulator/wevir-ios-simulator      只有 macOS：iOS 模拟器的 Swift helper（native/ios-simulator，同上），
+ *                                                    旁边是 sandbox 描述文件 wevir-ios-simulator.sb 与 idb 的
+ *                                                    LICENSE-facebook-idb.txt；桌面端拉起 Host 时设 WEVIR_IOS_SIMULATOR_BIN
  *   resources/host/dist/                             wevir-host 打成的 bundle（main.js 与按需加载的几个文件，bundleHost），
  *                                                    桌面端以 Electron 的 utilityProcess 运行它
  *   resources/host/migrations/                       @wevir/storage 的 SQL 迁移（bundle 按 `../migrations/` 找）
@@ -502,32 +505,58 @@ export function stagePrompts(dir: string): void {
   });
 }
 
-/** 电脑操作的 helper：只有 macOS 目标才有；`swift build --arch` 可以在 Apple Silicon 上编 x86_64。 */
-function stageComputerUse(dir: string, target: string): void {
-  rmSync(dir, { recursive: true, force: true });
+/**
+ * 按目标架构 `swift build -c release` 编 `native/<name>` 里的 Swift helper，返回产物路径；目标不是 macOS 时 undefined。
+ * `swift build --arch` 可以在 Apple Silicon 上编 x86_64。
+ */
+function buildSwiftHelper(name: string, product: string, target: string): string | undefined {
   const { os, cpu } = nodePlatform(target);
-  if (os !== 'darwin') return;
+  if (os !== 'darwin') return undefined;
   if (process.platform !== 'darwin') {
-    console.error('macOS 的电脑操作 helper 只能在 macOS 上编译');
+    console.error(`macOS 的 ${product} 只能在 macOS 上编译`);
     process.exit(1);
   }
   const arch = cpu === 'arm64' ? 'arm64' : 'x86_64';
-  const pkg = join(desktop, 'native', 'computer-use');
+  const pkg = join(desktop, 'native', name);
   run('swift', ['build', '-c', 'release', '--arch', arch, '--package-path', pkg]);
   const built = spawnSync(
     'swift',
     ['build', '-c', 'release', '--arch', arch, '--package-path', pkg, '--show-bin-path'],
     { encoding: 'utf8' },
   );
-  const binary = join(built.stdout.trim(), 'wevir-computer-use');
+  const binary = join(built.stdout.trim(), product);
   if (built.status !== 0 || !existsSync(binary)) {
     console.error(`没有找到编好的 helper：${binary}`);
     process.exit(1);
   }
+  console.log(`resources/${name}：${product}（${arch}）`);
+  return binary;
+}
+
+/** 电脑操作的 helper：只有 macOS 目标才有。 */
+function stageComputerUse(dir: string, target: string): void {
+  rmSync(dir, { recursive: true, force: true });
+  const binary = buildSwiftHelper('computer-use', 'wevir-computer-use', target);
+  if (binary === undefined) return;
   mkdirSync(dir, { recursive: true });
   copyFileSync(binary, join(dir, 'wevir-computer-use'));
   chmodSync(join(dir, 'wevir-computer-use'), 0o755);
-  console.log(`resources/computer-use：wevir-computer-use（${arch}）`);
+}
+
+/**
+ * iOS 模拟器的 helper：只有 macOS 目标才有。旁边放 Host 经 sandbox-exec 拉起它用的描述文件，与移植来源 facebook/idb 的
+ * MIT 许可证全文。
+ */
+function stageIosSimulator(dir: string, target: string): void {
+  rmSync(dir, { recursive: true, force: true });
+  const binary = buildSwiftHelper('ios-simulator', 'wevir-ios-simulator', target);
+  if (binary === undefined) return;
+  const pkg = join(desktop, 'native', 'ios-simulator');
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(binary, join(dir, 'wevir-ios-simulator'));
+  chmodSync(join(dir, 'wevir-ios-simulator'), 0o755);
+  copyFileSync(join(pkg, 'wevir-ios-simulator.sb'), join(dir, 'wevir-ios-simulator.sb'));
+  copyFileSync(join(pkg, 'LICENSE-facebook-idb.txt'), join(dir, 'LICENSE-facebook-idb.txt'));
 }
 
 /** 按目标平台准备 `dir`（资源目录的 `host/`）；命令行包也用它（apps/cli/scripts/package.ts）。`onModules` 见 `bundleHost`。 */
@@ -588,6 +617,7 @@ export async function stageResources(target: string): Promise<void> {
   stageCodex(join(resources, 'engines', 'codex'), target);
   stagePrompts(join(resources, 'prompts'));
   stageComputerUse(join(resources, 'computer-use'), target);
+  stageIosSimulator(join(resources, 'ios-simulator'), target);
   await stageHost(join(resources, 'host'), target);
   console.log(`资源目录已准备好（${target}）：${resources}`);
 }

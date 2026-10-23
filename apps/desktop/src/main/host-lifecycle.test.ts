@@ -34,6 +34,7 @@ import {
   nodeOverride,
   packagedHostEntry,
   resolveHostEntry,
+  resolveIosSimulatorBinary,
 } from './host-lifecycle.js';
 
 const identity: ClientIdentity = {
@@ -466,6 +467,36 @@ describe('hostEnvironment', () => {
       WEVIR_RESOURCES_DIR: '/other',
     });
     expect(hostEnvironment({ PATH: '/bin' })).toEqual({ PATH: '/bin' });
+  });
+
+  it('给了 iOS 模拟器 helper 时设 WEVIR_IOS_SIMULATOR_BIN；环境里已有时不覆盖', () => {
+    expect(hostEnvironment({ PATH: '/bin' }, undefined, '/App/sim')).toEqual({
+      PATH: '/bin',
+      WEVIR_IOS_SIMULATOR_BIN: '/App/sim',
+    });
+    expect(hostEnvironment({ WEVIR_IOS_SIMULATOR_BIN: '/dev/sim' }, undefined, '/App/sim')).toEqual(
+      {
+        WEVIR_IOS_SIMULATOR_BIN: '/dev/sim',
+      },
+    );
+  });
+});
+
+describe('resolveIosSimulatorBinary', () => {
+  it('打包后取资源目录的 ios-simulator/wevir-ios-simulator，不在时 undefined', () => {
+    const resources = mkdtempSync(join(tmpdir(), 'wevir-sim-'));
+    try {
+      const options = { packaged: true, resourcesPath: resources, platform: 'darwin' as const };
+      expect(resolveIosSimulatorBinary(options)).toBeUndefined();
+      mkdirSync(join(resources, 'ios-simulator'));
+      writeFileSync(join(resources, 'ios-simulator', 'wevir-ios-simulator'), '');
+      expect(resolveIosSimulatorBinary(options)).toBe(
+        join(resources, 'ios-simulator', 'wevir-ios-simulator'),
+      );
+      expect(resolveIosSimulatorBinary({ ...options, platform: 'linux' })).toBeUndefined();
+    } finally {
+      rmSync(resources, { recursive: true, force: true });
+    }
   });
 });
 

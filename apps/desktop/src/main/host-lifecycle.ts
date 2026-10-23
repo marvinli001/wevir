@@ -17,6 +17,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import {
   type HostEndpoint,
   type HostHello,
@@ -819,8 +820,15 @@ function describe(error: unknown): string {
  * `resourcesDir` 是安装包随附的运行时所在的目录（打包后的 `process.resourcesPath`，ADR-0007 决策 5），作为
  * `WEVIR_RESOURCES_DIR` 交给 Host，adapter-codex 先在这里找 codex-app-server；环境里已经有这个变量时不覆盖（测试与
  * 排查时用别的资源目录）。开发时不传，用开发缓存。
+ *
+ * `iosSimulatorBin` 是 iOS 模拟器的 helper（`resolveIosSimulatorBinary`），作为 `WEVIR_IOS_SIMULATOR_BIN` 交给 Host；
+ * 同样不覆盖环境里已有的值。
  */
-export function hostEnvironment(env: NodeJS.ProcessEnv, resourcesDir?: string): NodeJS.ProcessEnv {
+export function hostEnvironment(
+  env: NodeJS.ProcessEnv,
+  resourcesDir?: string,
+  iosSimulatorBin?: string,
+): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
     if (key.startsWith('ELECTRON_') || key === 'NODE_ENV_ELECTRON_VITE') continue;
@@ -829,11 +837,36 @@ export function hostEnvironment(env: NodeJS.ProcessEnv, resourcesDir?: string): 
   if (resourcesDir !== undefined && !result[RESOURCES_DIR_ENV]) {
     result[RESOURCES_DIR_ENV] = resourcesDir;
   }
+  if (iosSimulatorBin !== undefined && !result[IOS_SIMULATOR_BIN_ENV]) {
+    result[IOS_SIMULATOR_BIN_ENV] = iosSimulatorBin;
+  }
   return result;
 }
 
 /** 资源目录的环境变量，与 adapter-codex 的 `RESOURCES_DIR_ENV` 相同（桌面端不依赖引擎包）。 */
 export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
+
+/** iOS 模拟器 helper 的环境变量，Host 按它找 helper（找不到时不声明模拟器功能）。 */
+export const IOS_SIMULATOR_BIN_ENV = 'WEVIR_IOS_SIMULATOR_BIN';
+
+/**
+ * iOS 模拟器的 helper（apps/desktop/native/ios-simulator）：只有 macOS 有。打包后在资源目录的 `ios-simulator/`（旁边是
+ * Host 经 sandbox-exec 拉起它用的描述文件）；开发时是 `swift build -c release` 的产物（相对 out/main/），旁边没有描述文件，
+ * Host 不加沙箱地跑它。都没有时 undefined。
+ */
+export function resolveIosSimulatorBinary(options: {
+  packaged: boolean;
+  resourcesPath: string;
+  platform?: NodeJS.Platform;
+}): string | undefined {
+  if ((options.platform ?? process.platform) !== 'darwin') return undefined;
+  const binary = options.packaged
+    ? join(options.resourcesPath, 'ios-simulator', 'wevir-ios-simulator')
+    : fileURLToPath(
+        new URL('../../native/ios-simulator/.build/release/wevir-ios-simulator', import.meta.url),
+      );
+  return existsSync(binary) ? binary : undefined;
+}
 
 /**
  * `WEVIR_NODE` 指定了 Node 时返回它：桌面端改以它的子进程跑 Host（`nodeHostSpawner`），排查问题时用。否则 undefined，

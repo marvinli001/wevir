@@ -59,6 +59,7 @@ import {
   nodeOverride,
   packagedHostEntry,
   resolveHostEntry,
+  resolveIosSimulatorBinary,
 } from './host-lifecycle.js';
 import { loadDesktopIdentity } from './identity.js';
 import { allowMicrophoneCheck, allowMicrophoneRequest } from './media-permission.js';
@@ -216,7 +217,14 @@ function run(): void {
       spawner: node === undefined ? utilityHostSpawner() : nodeHostSpawner(node),
       hostEntry: app.isPackaged ? packagedHostEntry(process.resourcesPath) : resolveHostEntry(),
       // 打包后随附的 Host、codex-app-server 与提示词都在资源目录里（ADR-0007 决策 5）。
-      env: hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
+      env: hostEnvironment(
+        process.env,
+        app.isPackaged ? process.resourcesPath : undefined,
+        resolveIosSimulatorBinary({
+          packaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+        }),
+      ),
       log,
     });
     lifecycle.onStatus((status) => {

@@ -22,6 +22,7 @@ bash scripts/upstream-sync.sh
 | `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.163.0` | `83086188ae0614bd882818ff1aa23f3194962012` | 2026-10-15 | 2026-10-21 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
 | `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `ec1313c8f8333292506f05a355bb72d308a455d8` | 2026-10-15 | 2026-10-15 | **MIT**（见 §2.5） |
 | `opencode` | https://github.com/sst/opencode（现为 anomalyco/opencode） | tag `v1.19.3` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | 2026-10-16 | 2026-10-17 | **MIT**（见 §2.6） |
+| `idb`（facebook/idb） | https://github.com/facebook/idb | `main` | `14baeffc8f681380527c400a8184512b746ee918` | 2026-10-23 | 2026-10-24 | **MIT**（见 §2.7） |
 
 补充：
 
@@ -182,6 +183,14 @@ T0.5 复核（openwork-notes.md §7）确认以上结论成立，并补充三点
 
 结论与义务：代码智能（domain-model §3.15.5）改写了 v1.19.3 的 `packages/opencode/src/lsp/` 与 `src/tool/lsp.ts`（§4）。opencode 的 `dev` 分支后来去掉了这套实现（2026-10 的重构），所以锁定的是还带着它的最后一个 tag v1.19.3，不追 `dev`。按 MIT 在文件头保留版权与许可证，根目录 `NOTICE` 第 12 节列出文件。opencode 的 Effect 写法没有搬，Wevir 不引入 `effect`。
 
+### 2.7 idb：MIT
+
+| 原文 | 内容 |
+|---|---|
+| [`upstream/idb/LICENSE`](https://github.com/facebook/idb/blob/14baeffc8f681380527c400a8184512b746ee918/LICENSE) | 标准 MIT，`Copyright (c) Meta Platforms, Inc. and affiliates.` |
+
+结论与义务：iOS 模拟器的 helper（`apps/desktop/native/ios-simulator`）移植了 FBSimulatorControl 里取帧、HID（Indigo、DTUHID、Purple）、XPC、方向读取与 H.264 编码的部分，FBSimulatorAX 的翻译器委托，FBControlCore 的几个小工具，以及 idb 声明私有框架用的头文件与 TBD 桩（§4）。移植的是源码子集，不链接 idb 的静态库，不带 gRPC 与 companion。按 MIT 在文件头保留版权与许可证；`LICENSE-facebook-idb.txt` 放在 helper 的包里，并随安装包放在 helper 旁边（`resources/ios-simulator/`）；根目录 `NOTICE` 第 17 节列出文件。
+
 ## 3. 各仓库的参考重点
 
 与 SKELETON_PLAN §3 保持一致，以下路径在锁定提交下均已确认存在。
@@ -195,6 +204,8 @@ T0.5 复核（openwork-notes.md §7）确认以上结论成立，并补充三点
 - **T3 Code**（diff 右栏与回合快照，维护者 2026-10-15 定照搬）：`apps/web/src/components/DiffPanel.tsx`、`apps/web/src/components/diffs/`、`apps/web/src/components/DiffWorkerPoolProvider.tsx`、`apps/web/src/lib/diffRendering.ts`、`apps/server/src/vcs/GitVcsDriver.ts`（captureCheckpoint 等）、`apps/server/src/vcs/GitVcsDriverCore.ts`（未提交与本分支的 diff）、`apps/server/src/orchestration-v2/CheckpointService.ts`。订阅来源的设计另见 ADR-0005 补记 14。
 
 - **opencode**（代码智能，维护者 2026-10-17 定）：`packages/opencode/src/lsp/client.ts`（连接、文档同步、推送与拉取的诊断）、`lsp.ts`（按扩展名与项目根找服务器、起动中的复用）、`server.ts`（各语言服务器的查找与项目根）、`language.ts`、`diagnostic.ts`、`src/tool/lsp.ts` 与 `lsp.txt`（工具）；`packages/web/src/content/docs/lsp.mdx` 与 `tools.mdx`（文档）。
+
+- **idb**（iOS 模拟器，维护者 2026-10-24 定）：`FBSimulatorControl/Framebuffer/`（主屏的 IOSurface 与帧回调）、`FBSimulatorControl/HID/`（Indigo 与 dtuhidd 两种传输及按 CoreSimulator 版本的选择）、`FBSimulatorControl/XPC/`、`FBSimulatorControl/CoreDevice/SimulatorOrientationProtocol.swift`、`FBSimulatorVideo/Encoding/`、`FBSimulatorAX/Translation/`、`PrivateHeaders/`；对照了 `Tools/SimScope/`（键位表）与 `FBSimulatorServices/Commands/SimulatorPreferencesCommands.swift`（慢动画、键盘的做法）。
 
 ## 4. 移植登记表
 
@@ -352,6 +363,29 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `agents/{grader,comparator,analyzer}.md`、`scripts/{utils,__init__}.py`、`LICENSE.txt` | 同名文件 | 同上 | Apache-2.0 | 原样（只加文件头） |
 
 `scripts/review_trigger_evals.py` 与 `agents/openai.yaml` 是 Wevir 新增的；上游的 `generate_report.py` 只给 `run_loop.py` 出报告，没有移植。
+
+iOS 模拟器的 helper（2026-10-24）移植自 facebook/idb，MIT，`Copyright (c) Meta Platforms, Inc. and affiliates.`，文件都在 `apps/desktop/native/ios-simulator/` 下：
+
+| Wevir 文件 | 来源路径（facebook/idb） | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `Sources/WevirIOSSimulator/idb/XPC/XPCEncoder.swift` | `FBSimulatorControl/XPC/XPCEncoder.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 原样 |
+| `Sources/WevirIOSSimulator/idb/XPC/SimulatorXPCConnection.swift` | `FBSimulatorControl/XPC/SimulatorXPCConnection.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 去掉 public / package 与 FBControlCore 的 import（下同） |
+| `Sources/WevirIOSSimulator/idb/XPC/SimulatorXPCChannel.swift` | `FBSimulatorControl/XPC/SimulatorXPCChannel.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | FirstAnswer 改用锁加一个 continuation，不用 IDBConcurrency 的 AsyncEvent |
+| `Sources/WevirIOSSimulator/idb/HID/{DTUHIDModels,SimulatorDTUHIDConnection,SimulatorHIDButtonIdentity,SimulatorHIDTransportSelection,SimulatorIndigoHIDClient,SimulatorPurpleHID,SimulatorPurpleHIDTransport}.swift` | `FBSimulatorControl/HID/ 下的同名文件` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只去掉访问修饰与 import |
+| `Sources/WevirIOSSimulator/idb/HID/{SimulatorHIDTransport,SimulatorDigitizerHIDTransport,SimulatorIndigoHIDTransport,SimulatorHIDTypes,SimulatorHIDError}.swift` | `FBSimulatorControl/HID/ 下的同名文件` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 去掉多显示器（SimulatorHIDDisplay）路由，只打主屏；去掉方向的 vendorEvent；Indigo 传输加了按原始 ButtonEventSource 发按键 |
+| `Sources/WevirIOSSimulator/idb/HID/SimulatorIndigoHID.swift` | `FBSimulatorControl/HID/SimulatorIndigoHID.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 加了 button(source:direction:)（⌘K 的软键盘切换是按键源 0x3f0） |
+| `Sources/WevirIOSSimulator/idb/HID/SimulatorOrientationProtocol.swift` | `FBSimulatorControl/CoreDevice/SimulatorOrientationProtocol.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只留读方向的请求；方向名换成 helper 的 DeviceOrientation |
+| `Sources/WevirIOSSimulator/idb/Framebuffer/{Framebuffer,FramebufferSurface,SurfaceImageGenerator}.swift` | `FBSimulatorControl/Framebuffer/ 下的同名文件` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只留主屏；去掉统计、显示配置变化与结束事件；截图只按输出尺寸缩放 |
+| `Sources/WevirIOSSimulator/idb/Support/ObjCRuntimeClass.swift` | `FBSimulatorControl/Utility/ObjCRuntimeClass.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | FBControlCoreObjC 换成本包的 ObjCExceptionGuard |
+| `Sources/WevirIOSSimulator/idb/Support/{FBObjCExceptionGuard+Guarded,SymbolLoading}.swift、DispatchQueue+Perform.swift` | `FBControlCore/Utility/ 下的同名文件、FBControlCore/Async/DispatchQueue+Perform.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只去掉访问修饰与 import |
+| `Sources/WevirIOSSimulator/idb/Support/FBControlCoreShims.swift` | FBControlCore、FBSimulatorControl 里同名类型（日志、目标状态、Simulator、框架加载） | `14baeffc8f681380527c400a8184512b746ee918` | MIT | Wevir 写的最小替身，名字与签名照上游，好让移植文件保持原样；框架路径的规则（含 Xcode 27 的 SharedFrameworks）取自上游 |
+| `Sources/WevirIOSSimulator/idb/Video/H264Encoder.swift` | `FBSimulatorVideo/Encoding/{VideoToolboxEncoderSettings,VideoToolboxFramePusher,PixelBufferConverter}.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只留 H.264，三个类型合成一个，直接交出 CMSampleBuffer；加了按设备方向旋转 |
+| `Sources/WevirIOSSimulator/Accessibility.swift` | `FBSimulatorAX/Translation/{AXTranslationDispatcher,AXTranslationTransport}.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只取翻译器委托、CoreSimulator 传输与超时等待；元素经 AXPMacPlatformElement 读，树的序列化是 Wevir 写的 |
+| `Sources/WevirIOSSimulator/Input.swift` | `Tools/SimScope/SimScope/Keymap.swift` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 只取键位表（字符到 USB HID 用法） |
+| `Sources/ObjCExceptionGuard/{FBObjCExceptionGuard.m,include/FBObjCExceptionGuard.h}` | `FBControlCoreObjC/FBObjCExceptionGuard.m、include/FBObjCExceptionGuard.h` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 原样 |
+| `PrivateHeaders/{CoreSimulator,CoreSimDeviceIO,SimulatorApp,AccessibilityPlatformTranslation}/**` | `PrivateHeaders/ 下的同名目录` | `14baeffc8f681380527c400a8184512b746ee918` | MIT | 原样（私有框架的头文件、module.modulemap 与 TBD 桩）；没有带 SimulatorKit 的头文件 |
+
+`Devices.swift`、`Media.swift`、`Protocol.swift`、`Settings.swift` 与 `main.swift` 是 Wevir 写的，用上面的移植代码。
 
 ### 4.1 其他第三方来源的文件
 

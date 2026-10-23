@@ -8,3 +8,4 @@ paseo            https://github.com/getpaseo/paseo                main   dc7bc8d
 codex            https://github.com/openai/codex                  rust-v0.163.0 83086188ae0614bd882818ff1aa23f3194962012
 t3code           https://github.com/pingdotgg/t3code              main   ec1313c8f8333292506f05a355bb72d308a455d8
 opencode         https://github.com/sst/opencode                  v1.19.3 e3c4eb242585dcd77be1a867391b7c25fd47ce52
+idb              https://github.com/facebook/idb                  main   14baeffc8f681380527c400a8184512b746ee918

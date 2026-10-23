@@ -1,0 +1,72 @@
+;; wevir-ios-simulator 的 sandbox-exec 描述文件，放在 helper 旁边。Host 这样拉起 helper：
+;;
+;;   sandbox-exec -f <helper 目录>/wevir-ios-simulator.sb -D OUTPUT_DIR=<截图 / 录像的输出目录> -D HELPER=<helper 路径> <helper 路径>
+;;
+;; 两个参数都要是真实路径（不经符号链接，/private/var/… 而不是 /var/…），否则规则对不上。
+;;
+;; helper 里跑的是移植来的 idb 代码与 Apple 的私有框架（CoreSimulator、SimulatorKit、AccessibilityPlatformTranslation），
+;; 输入最终来自模型。这份描述文件默认全拒，只放行实测跑通全部命令所需的操作：
+;;   - 网络：全拒。helper 只经继承的 stdio / fd 3 管道与 Host 通信，经 XPC（mach）与 CoreSimulatorService 通信。
+;;   - 写文件：只许 CoreSimulator 的设备与日志目录、Host 给的输出目录、本用户的临时目录与 Metal 着色器缓存里 helper 自己那一格。
+;;   - 读文件内容：/Users 与 /Volumes 下全拒，再放回 CoreSimulator 目录、输出目录与 helper 本身。系统框架、dyld 缓存与
+;;     /Applications 里的 Xcode 在这之外，照常可读。文件元数据（stat）不拦：视频编码路径会 stat 它不打开的路径。
+;;   - 启动进程：helper 自己、/usr/bin（xcode-select）、/Applications 里各个 .app 的 Contents/Developer（simctl）与 /Library/Developer。
+;;     simctl 继承这份描述文件；它让 CoreSimulatorService 做的事（粘贴板、模拟器里的 defaults）在服务里执行，不受此限。
+;; 主目录、临时目录与缓存目录按路径形状匹配（Host 只给两个参数）：别的用户的同名目录由文件权限挡住。
+;; Xcode 装在 /Applications 之外（例如 ~/Applications）时 helper 读不到 SimulatorKit，起不来。
+;; mach-lookup、ipc-posix-shm、iokit-open 不按名字收窄：CoreSimulator、IOSurface、VideoToolbox 与辅助功能翻译用到的服务名
+;; 没有文档，猜错的白名单表现为挂起而不是报错。权限更高的操作（mach-priv-*、iokit-set-properties、给别的进程发信号）
+;; 仍由 (deny default) 拒绝。改动后要在真机设备上重跑完整冒烟，Xcode 或 macOS 升级后也要。
+
+(version 1)
+(deny default)
+
+(define (core-simulator-dirs)
+  (regex #"^/Users/[^/]+/Library/(Developer|Logs)/CoreSimulator(/|$)"))
+
+;; 进程
+(allow process-fork)
+(allow process-exec
+  (literal (param "HELPER"))
+  (subpath "/usr/bin")
+  (regex #"^/Applications/[^/]+\.app/Contents/Developer/")
+  (subpath "/Library/Developer"))
+;; simctl 是 bash 脚本。
+(allow process-exec-interpreter (literal "/bin/bash"))
+(allow signal (target self))
+(allow sysctl-read)
+
+;; Mach / IPC / IOKit（见文件头：只开操作，不收窄名字）
+(allow mach-lookup)
+(allow mach-register)
+(allow ipc-posix-shm)
+(allow iokit-open)
+(allow iokit-get-properties)
+
+;; 偏好只读这两个域（不能写）
+(allow user-preference-read
+  (preference-domain "kCFPreferencesAnyApplication")
+  (preference-domain "com.apple.CoreSimulator"))
+
+;; 读文件：先全放，再把用户数据所在的地方拒掉内容，再放回 helper 用得到的几处（后面的规则优先）
+(allow file-read*)
+(deny file-read-data file-read-xattr
+  (subpath "/Users")
+  (subpath "/Volumes"))
+(allow file-read-data file-read-xattr
+  (literal (param "HELPER"))
+  (core-simulator-dirs)
+  (subpath (param "OUTPUT_DIR")))
+
+;; 写文件
+(allow file-write*
+  (core-simulator-dirs)
+  (subpath (param "OUTPUT_DIR"))
+  ;; NSTemporaryDirectory()（DARWIN_USER_TEMP_DIR）：IOSurface、VideoToolbox 与 AVAssetWriter 的临时文件。
+  (regex #"^/private/var/folders/[^/]+/[^/]+/T(/|$)")
+  ;; Metal 的着色器缓存：DARWIN_USER_CACHE_DIR 里只许 helper 自己那一格（bundle id 来自嵌进可执行文件的 Info.plist）。
+  (regex #"^/private/var/folders/[^/]+/[^/]+/C/si\.wevir\.ios-simulator(/|$)"))
+(allow file-write-data (literal "/dev/null"))
+
+;; 网络：全拒（(deny default) 已经拒了，写出来是因为这是最不能退的一条）
+(deny network*)
