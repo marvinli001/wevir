@@ -366,6 +366,7 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `packages/adapter-claude/src/test-fixtures/sdk/**` | Claude Code 2.1.287（本机 `claude`，`claude-haiku-4-5`）经 Claude Agent SDK 0.3.286 交出的消息的录制（2026-10-15，`record-sdk.test.ts`） | Claude Code 与 Claude Agent SDK 是 Anthropic 的商业条款（`© Anthropic PBC`） | 录的是 `claude` 发给 SDK 的消息与模型的回答，不是源码。含 Claude Code 的内置工具名与几段固定措辞（工具结果、“[Subagent hand-back] …” 等）；不读用户的设置，本机路径、用户的插件与命令清单抹掉 |
 | `packages/adapter-opencode/src/test-fixtures/events/**` | opencode 1.18.34（`opencode-ai`，本机的 `opencode serve`，模型是 `test-fixtures/mock-model.ts` 的本机假服务）交出的事件流的录制（2026-10-15，`record-events.test.ts`） | MIT，`Copyright (c) 2025 opencode` | 录的是 opencode 服务器发给客户端的事件，不是源码；回答都是假模型的固定文字。含 opencode 的内置工具名、工具结果的几段固定措辞（拒绝审批时的 “The user rejected permission …”、task 的 `<task …>` 结果等）与它给子会话的权限规则；路径换成了占位符 |
 | `packages/adapter-grok/src/test-fixtures/acp/*.ndjson` | T3 Code（MIT，`ec1313c8`）录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返（`live-grok-recorder` 与 `live-grok-shape-probe`；T3 已把会话 ID、工作区、HOME 与 T3 的提示词换成占位符） | 文件以 MIT 随 T3 Code 发布；其中 Grok 的输出受 xAI 的条款约束 | adapter-grok 的样本回放与契约测试用（`../../packages/adapter-grok/src/test-fixtures/fake-grok.mjs`），产品代码不读 |
+| `apps/mobile/src/lib/bot-avatar-shapes.ts` | bot-avatars 0.1.2 包内 `dist/index.es.js` 的摘录（libraries.dev，<https://github.com/Jakubantalik/Libraries.dev>） | MIT，`Copyright (c) 2026 Jakub Antalik` | 手机端助理头像：只取桌面子会话头像用的六种形状（pebble、clover、drop、pill、circle、cloud）的路径与五官位置，原样照抄；画法在 `apps/mobile/src/lib/bot-avatar.ts` 按库的静止姿势重写，用 react-native-svg 画 |
 
 ### 4.2 字体
 

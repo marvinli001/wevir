@@ -258,6 +258,10 @@ apps/desktop/licenses/fonts/。许可证都是 SIL Open Font License 1.1，全�
     仓库：https://github.com/mrdoob/three.js
     版权：Copyright © 2010-2026 three.js authors
 
+手机端（apps/mobile）不打包 bot-avatars：助理头像的六种形状路径与五官位置从 bot-avatars 0.1.2 的
+dist/index.es.js 原样摘出，放在 apps/mobile/src/lib/bot-avatar-shapes.ts，由 react-native-svg 重画；光影与眼睛
+的画法按库的静止姿势在 apps/mobile/src/lib/bot-avatar.ts 里重写。
+
 Wevir 修改的部分：patches/metal-fx@2.0.11.patch（pnpm patch，安装时应用到 metal-fx 的 dist/index.es.js）
 改了共享 WebGL 状态的两个上下文丢失回调，只认自己那块画布，原因见 pnpm-workspace.yaml 与 ADR-0004 补记 9。
 
