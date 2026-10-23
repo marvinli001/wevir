@@ -3,6 +3,7 @@ import { Check, Folder, Plus } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isChats, projectsOf, recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
+import { useWorkspaceManagement } from '@/data/workspace-actions';
 import { EnvironmentPicker } from '@/environments/environment-picker';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
@@ -57,6 +58,8 @@ export function NewSessionHero({
   const current = selected && !isChats(selected.workspace) ? selected : undefined;
   const workspaces = projectsOf(all);
   const environments = useEnvironments().supported;
+  // 远程设备没有 `workspace.write`、或外壳选不了这台电脑上的文件夹时，没有“添加文件夹”。
+  const canCreate = useWorkspaceManagement().create;
   const card = useRef<HTMLElement>(null);
   const row =
     'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-base outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-ring';
@@ -96,20 +99,22 @@ export function NewSessionHero({
               );
             })}
           </ul>
-          {divider}
+          {(canCreate || environments) && divider}
         </>
       )}
-      <button
-        type="button"
-        onClick={() => openCreateProject()}
-        className={cn(row, 'text-muted-foreground hover:text-foreground')}
-      >
-        <Plus aria-hidden className="size-4 shrink-0" />
-        {t('home.addFolder')}
-      </button>
+      {canCreate && (
+        <button
+          type="button"
+          onClick={() => openCreateProject()}
+          className={cn(row, 'text-muted-foreground hover:text-foreground')}
+        >
+          <Plus aria-hidden className="size-4 shrink-0" />
+          {t('home.addFolder')}
+        </button>
+      )}
       {environments && (
         <>
-          {divider}
+          {canCreate && divider}
           <EnvironmentPicker
             current={current}
             onSelect={onSelect}

@@ -1021,6 +1021,7 @@ export const messages: Messages = {
   'home.noProject': 'フォルダなし',
   'home.workWithoutProject': 'フォルダなしで作業',
   'home.noProvider': 'モデルプロバイダー未設定',
+  'home.noProviderAccess': 'モデルプロバイダーへのアクセス権なし',
   'home.addProvider': 'モデルプロバイダーを追加',
   'welcome.steps': 'セットアップの手順',
   'welcome.step.provider': 'モデルプロバイダー',

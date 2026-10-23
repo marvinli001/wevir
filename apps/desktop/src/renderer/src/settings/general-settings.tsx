@@ -7,7 +7,7 @@ import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { preventSleepPref } from '@/data/prevent-sleep';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
-import { describe, useHostConnection } from '@/host/host-connection';
+import { describe, useCan, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { layoutPrefs, OPTIONAL_RAIL_CARDS, setRailCardEnabled } from '@/layout/layout-state';
 import { capabilities } from '@/platform/platform';
@@ -72,6 +72,8 @@ export function GeneralSettings() {
   const preventSleep = preventSleepInHost ? settings.preventSleep === true : localPreventSleep;
   const permissionsSupported = usePermissionModes();
   const permissionPrefs = permissionModePrefs.use();
+  // 完全访问要 `policy.write`：没有时这一行不出现（选择器里本来也不给）。
+  const policyWrite = useCan('policy.write');
   const { railCards } = layoutPrefs.use();
   const railOptions = OPTIONAL_RAIL_CARDS.filter(
     (id) =>
@@ -279,24 +281,26 @@ export function GeneralSettings() {
       {permissionsSupported && (
         <SettingsSection title={t('settings.section.permissions')}>
           <div className={LIST_CARD}>
-            {PERMISSION_MODES.map((mode) => (
-              <SettingsRow
-                key={mode}
-                title={t(PERMISSION_META[mode].label)}
-                data-setting={`permission-${mode}`}
-                control={
-                  <Switch
-                    label={t(PERMISSION_META[mode].label)}
-                    checked={mode === 'on_request' || permissionPrefs[mode]}
-                    disabled={mode === 'on_request'}
-                    onChange={(enabled) =>
-                      mode !== 'on_request' &&
-                      permissionModePrefs.set((current) => ({ ...current, [mode]: enabled }))
-                    }
-                  />
-                }
-              />
-            ))}
+            {PERMISSION_MODES.filter((mode) => mode !== 'full_access' || policyWrite).map(
+              (mode) => (
+                <SettingsRow
+                  key={mode}
+                  title={t(PERMISSION_META[mode].label)}
+                  data-setting={`permission-${mode}`}
+                  control={
+                    <Switch
+                      label={t(PERMISSION_META[mode].label)}
+                      checked={mode === 'on_request' || permissionPrefs[mode]}
+                      disabled={mode === 'on_request'}
+                      onChange={(enabled) =>
+                        mode !== 'on_request' &&
+                        permissionModePrefs.set((current) => ({ ...current, [mode]: enabled }))
+                      }
+                    />
+                  }
+                />
+              ),
+            )}
           </div>
         </SettingsSection>
       )}

@@ -1024,6 +1024,7 @@ export const zhCN = {
   'home.noProject': '无目录',
   'home.workWithoutProject': '不在目录中工作',
   'home.noProvider': '未配置模型服务',
+  'home.noProviderAccess': '无模型服务权限',
   'home.addProvider': '添加模型服务',
   'welcome.steps': '引导步骤',
   'welcome.step.provider': '模型服务',
