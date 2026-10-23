@@ -69,6 +69,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'settings.storage.browserWarning',
   // 确认框里的后果：运行记录一起删掉，会话留着。
   'automations.delete.body',
+  // 确认框里的后果：删助理连同时间线、任务、日程与记忆。
+  'assistants.delete.body',
   // 安全提醒：自动化无人值守，完全访问时命令与改动都不经批准。
   'automations.dialog.fullAccessWarning',
   // 安全提醒：安装脚本会在本机执行代码，确认安装前必须看到。

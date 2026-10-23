@@ -11,6 +11,7 @@ import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
 import { useAutomationRuns } from './automation-runs';
 import {
+  channelIdFromTag,
   type Delivery,
   deliveryFor,
   displayDelivery,
@@ -46,30 +47,39 @@ const TONES: Record<NotificationKind, ToastTone> = {
   failed: 'danger',
 };
 
-interface ShownToast {
+/** 提醒点开去哪：会话（`sessionId`、它的工作区）或助理（0.121.0，`id` 是助理的频道 ID）。 */
+interface Target {
+  /** 会话 ID 或助理的频道 ID：同一个只留一条提醒。 */
+  id: string;
+  path: string;
+  title: string;
+}
+
+interface ShownToast extends Target {
   key: string;
   kind: NotificationKind;
-  sessionId: string;
-  workspaceId: string;
-  title: string;
   open: boolean;
 }
 
-/** 主窗格正在显示的会话（会话页与它的子智能体详情）。 */
-function currentSessionId(): string | undefined {
+/** 主窗格正在显示的会话（会话页与它的子智能体详情）或助理。 */
+function currentTargetId(): string | undefined {
   for (const match of router.state.matches) {
-    const id = match.params.sessionId;
+    const id = match.params.sessionId ?? match.params.channelId;
     if (id) return id;
   }
   return undefined;
+}
+
+function sessionTarget(sessionId: string, workspaceId: string, title: string): Target {
+  return { id: sessionId, path: paths.session(workspaceId, sessionId), title };
 }
 
 function windowFocused(): boolean {
   return document.visibilityState === 'visible' && document.hasFocus();
 }
 
-function openSession(workspaceId: string, sessionId: string): void {
-  void router.navigate(paths.session(workspaceId, sessionId));
+function open(path: string): void {
+  void router.navigate(path);
 }
 
 /**
@@ -91,8 +101,8 @@ export function NotificationCoordinator() {
   /** 窗口在后台时发出、还没收回的系统通知（按会话）。 */
   const delivered = useRef(new Set<string>());
   const sessions = useRef(new Map<string, Session>());
-  /** 提醒过的会话所在的工作区：会话还不在左栏里（Host 开的自动化会话）时，点系统通知也能打开。 */
-  const workspaces = useRef(new Map<string, string>());
+  /** 提醒过的会话与助理去哪：会话还不在左栏里（Host 开的自动化会话）时，点系统通知也能打开。 */
+  const targets = useRef(new Map<string, string>());
 
   if (data.status === 'ready') {
     sessions.current = new Map(
@@ -107,13 +117,13 @@ export function NotificationCoordinator() {
       .catch(() => undefined);
   };
 
-  const dismissSession = (sessionId: string) => {
+  const dismissTarget = (id: string) => {
     setToasts((current) =>
-      current.map((toast) => (toast.sessionId === sessionId ? { ...toast, open: false } : toast)),
+      current.map((toast) => (toast.id === id ? { ...toast, open: false } : toast)),
     );
-    if (delivered.current.delete(sessionId)) {
+    if (delivered.current.delete(id)) {
       void platformApi()
-        .closeNotifications(notificationTag(sessionId))
+        .closeNotifications(notificationTag(id))
         .catch(() => undefined);
       updateBadge();
     }
@@ -123,21 +133,16 @@ export function NotificationCoordinator() {
    * 发一条提醒：前台看别的会话时在右下角，后台时发系统通知（点击回到会话）。`title` 是提醒里写的会话或自动化名。`decided` 时种类
    * 已由 Host 判过，不再看本机的种类开关。
    */
-  const deliver = (
-    kind: NotificationKind,
-    target: { sessionId: string; workspaceId: string; title: string },
-    key: string,
-    decided = false,
-  ) => {
+  const deliver = (kind: NotificationKind, target: Target, key: string, decided = false) => {
     const current = getNotificationSettings();
-    const context = { focused: windowFocused(), viewing: currentSessionId() === target.sessionId };
+    const context = { focused: windowFocused(), viewing: currentTargetId() === target.id };
     const delivery: Delivery = decided
       ? displayDelivery(context, current)
       : deliveryFor(kind, context, current);
-    workspaces.current.set(target.sessionId, target.workspaceId);
+    targets.current.set(target.id, target.path);
     if (delivery.toast) {
       setToasts((shown) => {
-        const kept = shown.filter((toast) => toast.sessionId !== target.sessionId);
+        const kept = shown.filter((toast) => toast.id !== target.id);
         const next: ShownToast = { key, kind, ...target, open: true };
         const open = kept.filter((toast) => toast.open);
         const overflow = new Set(
@@ -152,14 +157,14 @@ export function NotificationCoordinator() {
     if (delivery.system) {
       void platformApi()
         .notify({
-          tag: notificationTag(target.sessionId),
+          tag: notificationTag(target.id),
           title: t(TITLES[kind]),
           body: target.title,
           sound: current.sound,
         })
         .then((shown) => {
           if (!shown) return;
-          delivered.current.add(target.sessionId);
+          delivered.current.add(target.id);
           updateBadge();
         })
         .catch(() => undefined);
@@ -179,11 +184,7 @@ export function NotificationCoordinator() {
       if (!kind || !isFresh(event, Date.now())) return;
       deliverRef.current(
         kind,
-        {
-          sessionId: session.id,
-          workspaceId: session.workspaceId,
-          title: session.title || t('session.untitled'),
-        },
+        sessionTarget(session.id, session.workspaceId, session.title || t('session.untitled')),
         `${session.id}:${event.seq}`,
       );
     });
@@ -194,13 +195,18 @@ export function NotificationCoordinator() {
     client,
     store,
     sessions,
-    (kind, target, key) => deliverRef.current(kind, target, key),
+    (kind, target, key) =>
+      deliverRef.current(
+        kind,
+        sessionTarget(target.sessionId, target.workspaceId, target.title),
+        key,
+      ),
     quietSessions,
     !hostIntents,
   );
 
   // Host 的通知意图 → 提醒（0.106.0）。没有会话的（自动化没建出会话）不提醒，同以前；工作区不知道时读一次会话。连上时先把本机的
-  // 种类开关迁进 Host 设置。
+  // 种类开关迁进 Host 设置。助理的（0.121.0，带 `channelId`：它开口了，或它的会话里要审批、提问）点开助理页。
   useEffect(() => {
     if (!client || !hostIntents) return;
     void migrateNotificationKinds(window.localStorage, client).catch(() => undefined);
@@ -216,13 +222,23 @@ export function NotificationCoordinator() {
       }
     };
     const stop = client.watchNotifications((intent) => {
+      const title = intent.title || t('session.untitled');
+      if (intent.channelId !== undefined) {
+        deliverRef.current(
+          intentDisplayKind(intent),
+          { id: intent.channelId, path: paths.assistant(intent.channelId), title },
+          intent.id,
+          true,
+        );
+        return;
+      }
       const sessionId = intent.sessionId;
       if (sessionId === undefined) return;
       void workspaceOf(intent, sessionId).then((workspaceId) => {
         if (disposed || workspaceId === undefined) return;
         deliverRef.current(
           intentDisplayKind(intent),
-          { sessionId, workspaceId, title: intent.title || t('session.untitled') },
+          sessionTarget(sessionId, workspaceId, title),
           intent.id,
           true,
         );
@@ -251,26 +267,33 @@ export function NotificationCoordinator() {
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
-  // 打开会话：收回这个会话的通知与提醒。
+  // 打开会话或助理：收回它的通知与提醒。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时订阅路由。
   useEffect(
     () =>
       router.subscribe(() => {
-        const sessionId = currentSessionId();
-        if (sessionId) dismissSession(sessionId);
+        const id = currentTargetId();
+        if (id) dismissTarget(id);
       }),
     [],
   );
 
-  // 点击系统通知：主进程已把窗口带回前台，这里打开那个会话。
+  // 点击系统通知：主进程已把窗口带回前台，这里打开那个会话或助理。
   useEffect(
     () =>
       platformApi().onNotificationClick((tag) => {
+        const channelId = channelIdFromTag(tag);
+        if (channelId) {
+          open(paths.assistant(channelId));
+          return;
+        }
         const sessionId = sessionIdFromTag(tag);
         if (!sessionId) return;
-        const workspaceId =
-          sessions.current.get(sessionId)?.workspaceId ?? workspaces.current.get(sessionId);
-        if (workspaceId) openSession(workspaceId, sessionId);
+        const session = sessions.current.get(sessionId);
+        const path = session
+          ? paths.session(session.workspaceId, sessionId)
+          : targets.current.get(sessionId);
+        if (path) open(path);
       }),
     [],
   );
@@ -305,11 +328,7 @@ export function NotificationCoordinator() {
     >
       <p className="truncate text-xs text-muted-foreground">{toast.title}</p>
       <div className="pt-1.5">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => openSession(toast.workspaceId, toast.sessionId)}
-        >
+        <Button size="sm" variant="outline" onClick={() => open(toast.path)}>
           {t('notify.open')}
         </Button>
       </div>

@@ -27,6 +27,9 @@ export const ROUTE_PATTERNS = {
   /** 自动化（0.66.0）：列表与模板；`/automations/:automationId` 是一个自动化的详情。 */
   automations: '/automations',
   automation: '/automations/:automationId',
+  /** 助理（0.120.0）：聊天列表；`/assistants/:channelId` 是选中的那个。 */
+  assistants: '/assistants',
+  assistant: '/assistants/:channelId',
   /**
    * 调优（0.85.0，desktop-layout.md §34）：`?workspace=` 选范围（`global` 是全局），`?version=` 展开那个版本。0.108.0 起没有分段，
    * 旧的 `/tuning/:tab`（`/tuning/proposals` 等）转到 `/tuning`。
@@ -101,6 +104,8 @@ export const paths = {
   automations: (): string => ROUTE_PATTERNS.automations,
   automation: (automationId: string): string =>
     `${ROUTE_PATTERNS.automations}/${segment(automationId)}`,
+  assistants: (): string => ROUTE_PATTERNS.assistants,
+  assistant: (channelId: string): string => `${ROUTE_PATTERNS.assistants}/${segment(channelId)}`,
   /** `target` 选范围（工作区 ID 或 `global`）并展开一个版本（会话侧栏的规则卡片用）。 */
   tuning: (target: { workspace?: string; version?: string } = {}): string => {
     const base = ROUTE_PATTERNS.tuning;

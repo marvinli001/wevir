@@ -1,6 +1,7 @@
 import type { NotificationIntent, Session, WevirEvent } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  channelIdFromTag,
   deliveryFor,
   displayDelivery,
   intentDisplayKind,
@@ -210,6 +211,11 @@ describe('tags', () => {
     expect(sessionIdFromTag(notificationTag('abc'))).toBe('abc');
     expect(sessionIdFromTag('other')).toBeUndefined();
     expect(sessionIdFromTag('session:')).toBeUndefined();
+    // 助理（0.121.0）：按助理收起，点开去助理页。
+    expect(notificationTag('chn_1')).toBe('channel:chn_1');
+    expect(channelIdFromTag(notificationTag('chn_1'))).toBe('chn_1');
+    expect(sessionIdFromTag(notificationTag('chn_1'))).toBeUndefined();
+    expect(channelIdFromTag(notificationTag('abc'))).toBeUndefined();
   });
 });
 

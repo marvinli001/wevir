@@ -70,7 +70,11 @@ export function AutomationsPage({ client }: { client: WevirClient }) {
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState<Notice>();
   const onError = (text: string) => setNotice({ tone: 'error', text });
-  const automations = data.data;
+  // 发给助理的（0.121.0）在助理页的“日程与规矩”里，不进这里的列表。
+  const automations = useMemo(
+    () => data.data?.filter((item) => item.channelId === undefined),
+    [data.data],
+  );
   const groups = useMemo(
     () => groupAutomations((automations ?? []).filter((item) => matchesQuery(item, query))),
     [automations, query],

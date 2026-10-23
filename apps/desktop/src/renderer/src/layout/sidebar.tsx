@@ -3,6 +3,7 @@ import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   Blocks,
+  Bot,
   CalendarClock,
   ChartColumn,
   ChevronDown,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react';
 import { memo, type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
+import { assistantsAvailability } from '@/assistants/assistants-model';
 import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
@@ -77,7 +79,7 @@ const COMPLETED_SHOWN = 10;
 
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
- * 它们放进 `controls`）、“新建会话”“自动化”（0.66.0，Host 有 `automations` 功能才有）与“插件”（0.42.0，Host 有 `plugins` 功能才有）、“调优”（0.85.0，Host 有 `tuning` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
+ * 它们放进 `controls`）、“新建会话”“助理”（0.120.0，Host 有 `channels` 功能才有）“自动化”（0.66.0，Host 有 `automations` 功能才有）与“插件”（0.42.0，Host 有 `plugins` 功能才有）、“调优”（0.85.0，Host 有 `tuning` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
  * ADR-0007 补记 4）、“使用统计”（0.62.0，Host 有 `usage_stats` 功能才有）与设置入口。不显示与 Host 的连接状态：连上时什么都不
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
@@ -96,6 +98,8 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
   const showAutomations = automationsAvailability(client?.hello.features) === 'ready';
+  // Host 有 `channels` 功能才有“助理”入口（0.120.0），在“自动化”上面。
+  const showAssistants = assistantsAvailability(client?.hello.features) === 'ready';
   // Host 有 `session_search` 功能才有“搜索”入口（0.77.0），在“新建会话”下面。
   const showSearch = client !== undefined && hostSupports(client.hello.features, 'session_search');
   return (
@@ -126,6 +130,16 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
               {formatShortcut(SHORTCUTS.search)}
             </kbd>
           </button>
+        )}
+        {showAssistants && (
+          <NavLink
+            to={paths.assistants()}
+            className={({ isActive }) => cn(ROW, isActive && ROW_ACTIVE)}
+            data-testid="sidebar-assistants"
+          >
+            <Bot className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            {t('sidebar.assistants')}
+          </NavLink>
         )}
         {showAutomations && (
           <NavLink

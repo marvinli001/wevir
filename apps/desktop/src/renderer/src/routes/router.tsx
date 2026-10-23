@@ -9,6 +9,7 @@ import {
   useNavigate,
   useRouteError,
 } from 'react-router';
+import { AssistantDialog } from '@/assistants/assistant-dialog';
 import { AutomationDialog } from '@/automations/automation-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ import { searchOpen } from '@/search/search-model';
 import { DeleteSessionDialog } from '@/session/delete-session-dialog';
 import { RenameDialog } from '@/session/rename-dialog';
 import { SideSessionCloser } from '@/session/side-session';
+import { AssistantsRoute } from './assistants-route';
 import { AutomationsRoute } from './automations-route';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
@@ -66,6 +68,9 @@ export const router = createHashRouter([
           // 自动化（0.66.0）：同插件页，在工作台里。
           { path: ROUTE_PATTERNS.automations, Component: AutomationsRoute },
           { path: ROUTE_PATTERNS.automation, Component: AutomationsRoute },
+          // 助理（0.120.0）：同插件页，在工作台里。
+          { path: ROUTE_PATTERNS.assistants, Component: AssistantsRoute },
+          { path: ROUTE_PATTERNS.assistant, Component: AssistantsRoute },
           // 调优（0.85.0）：同插件页，在工作台里。
           { path: ROUTE_PATTERNS.tuning, Component: TuningRoute },
           { path: ROUTE_PATTERNS.tuningTab, Component: TuningRoute },
@@ -150,6 +155,7 @@ function AppRoot() {
       <RenameDialog />
       <DeleteSessionDialog />
       <AutomationDialog />
+      <AssistantDialog />
       <EditProjectDialog />
       <RemoveProjectDialog />
       <ArchiveProjectDialog />

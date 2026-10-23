@@ -81,11 +81,15 @@ export function intentDisplayKind(intent: NotificationIntent): NotificationKind 
   return 'approval';
 }
 
-/** 系统通知的 tag：同一个会话只留最新的一条，打开会话时收回。 */
-export function notificationTag(sessionId: string): string {
-  return `session:${sessionId}`;
+/** 系统通知的 tag：同一个会话（或助理，0.121.0）只留最新的一条，打开它时收回。 */
+export function notificationTag(id: string): string {
+  return id.startsWith('chn_') ? `channel:${id}` : `session:${id}`;
 }
 
 export function sessionIdFromTag(tag: string): string | undefined {
   return tag.startsWith('session:') ? tag.slice('session:'.length) || undefined : undefined;
+}
+
+export function channelIdFromTag(tag: string): string | undefined {
+  return tag.startsWith('channel:') ? tag.slice('channel:'.length) || undefined : undefined;
 }
