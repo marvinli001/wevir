@@ -1,0 +1,33 @@
+// Wevir 的中继（Cloudflare Workers + Durable Objects），见 README.md。部署：`pnpm --filter "@wevir/relay-worker..." build` 之后
+// `pnpm --filter @wevir/relay-worker run deploy`。
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "wevir-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "send_metrics": false,
+  // 正式地址。wevir.si 这个区要先在 Cloudflare 上，自定义域名由 Cloudflare 建 DNS 记录与证书。
+  "routes": [{ "pattern": "relay.wevir.si", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROUTES", "class_name": "Route" },
+      { "name": "CONTROLS", "class_name": "Control" },
+      { "name": "PIPES", "class_name": "Pipe" }
+    ]
+  },
+  // 用 SQLite 存储的 Durable Object：免费套餐只能用这一种。
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Route", "Control", "Pipe"] }],
+  // 每个来源地址每分钟 60 次 WebSocket 升级（与 apps/relay 的默认值相同）。namespace_id 是这个账号里随便取的、不与别的 Worker 重复的
+  // 正整数。
+  "ratelimits": [
+    { "name": "CONNECT_LIMITER", "namespace_id": "47830", "simple": { "limit": 60, "period": 60 } }
+  ],
+  "vars": {
+    "WEVIR_RELAY_LOG_LEVEL": "info",
+    "WEVIR_RELAY_MAX_CONNECTIONS_PER_ROUTE": "32"
+  },
+  // 日志只有路由 ID 哈希的前几位、连接起止与计数（README.md）。打开 Workers Logs 前先看免费套餐的条数上限。
+  "observability": { "enabled": false }
+}
