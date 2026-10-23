@@ -319,6 +319,11 @@ export interface SessionManagerOptions {
     /** P3：插件工具事件落库前固定安装内容并脱敏，审批沿用同一详情。 */
     prepareEvent?(sessionId: SessionId, event: AgentEvent): Promise<AgentEvent>;
     resolved?(sessionId: SessionId, toolCallId: string, approvedByUser: boolean): void;
+    /**
+     * 引擎为这个工具调用要批准时，Host 替用户答应、不问（只看参数就知道不用批准的调用，例如全是只读步骤的 browser_batch，
+     * browser-batch.ts）。回复引擎失败时照常结算。
+     */
+    autoAllow?(sessionId: SessionId, tool: { toolName: string; input?: unknown }): boolean;
     /** 删除会话：结束这一家会话的后台进程（processes.ts）。 */
     forget?(sessionIds: readonly SessionId[]): void;
     dispose?(): void;
@@ -4992,6 +4997,7 @@ export class SessionManager {
         return;
       }
       case 'approval.requested':
+        if (this.#autoAllowed(runtime, turn, event)) return;
         this.#approvalRequested(runtime, turn, event);
         return;
       case 'approval.cancelled':
@@ -5125,6 +5131,37 @@ export class SessionManager {
           if (!isHostError(error, 'ALREADY_DECIDED')) this.#onError(error);
         });
     }
+  }
+
+  /**
+   * 应用级工具只看参数就知道不用批准的调用（`appTools.autoAllow`）：不写审批，直接用只允许这一次的选项回复引擎。回复失败的
+   * 处理同 `#decide`（引擎侧已经结束的不算错）。取消已经开始、或没有只允许一次的选项时照常走审批。
+   */
+  #autoAllowed(runtime: SessionRuntime, turn: TurnRuntime, event: ApprovalRequestedEvent): boolean {
+    const tool = turn.tools.get(event.toolCallId);
+    if (tool === undefined || this.#snapshot(runtime).session.state === 'cancelling') return false;
+    const option = allowOnceOption(event.options);
+    if (option === undefined) return false;
+    let allowed = false;
+    try {
+      allowed = this.#appTools?.autoAllow?.(runtime.id, tool) === true;
+    } catch (error) {
+      this.#onError(error);
+    }
+    if (!allowed) return false;
+    runtime.holds += 1;
+    this.#adapter
+      .respondToApproval(runtime.engineSessionId, event.requestId, { optionId: option.optionId })
+      .catch((error: unknown) => {
+        if (
+          !isAdapterError(error, 'invalid_option') &&
+          !isAdapterError(error, 'approval_not_found')
+        ) {
+          this.#engineFailed(runtime, engineErrorInfo(error));
+        }
+      })
+      .finally(() => this.#release(runtime));
+    return true;
   }
 
   /**

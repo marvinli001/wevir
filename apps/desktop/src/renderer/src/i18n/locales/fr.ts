@@ -889,6 +889,8 @@ export const messages: Messages = {
   'approval.title.browserAct': 'Autoriser les actions sur une page du navigateur ?',
   'approval.title.browserClose': 'Autoriser la fermeture d’un onglet du navigateur ?',
   'approval.title.browserClaim': 'Autoriser la prise de contrôle d’un onglet du navigateur ?',
+  'approval.title.browserBatch': 'Autoriser ces actions dans le navigateur ?',
+  'approval.title.browserRun': 'Autoriser l’exécution de ce script dans le navigateur ?',
   'approval.permission': 'Autorisation requise : {permission}',
   'approval.permission.fullAccess': 'Accès complet',
   'approval.preview': 'Aperçu du contenu',

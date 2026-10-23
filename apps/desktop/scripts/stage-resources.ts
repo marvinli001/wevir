@@ -103,12 +103,15 @@ export const EXCLUDED_PACKAGES: readonly string[] = [
  *   Claude Agent SDK 的 peer；
  * - `sherpa-onnx-node`：原生模块（听写的本机识别，Host 的可选依赖）。它的 `addon.js` 按 `../sherpa-onnx-<平台>-<架构>/` 找原生包，
  *   deploy 按 `--os` / `--cpu` 只装目标平台的那一个（约 33 MB，含 onnxruntime）；没有这个平台的原生包时 Host 只有 Provider 的转写。
+ * - `@jitl/quickjs-wasmfile-release-sync`：browser_run 的 QuickJS 沙箱，按 `import.meta.url` 找包里的 `emscripten-module.wasm`
+ *   （约 0.5 MB）；Host 用 `import()` 加载它，`quickjs-emscripten-core` 打进 bundle。
  */
 export const ON_DISK_PACKAGES: readonly string[] = [
   'node-pty',
   '@anthropic-ai/claude-agent-sdk',
   'zod',
   'sherpa-onnx-node',
+  '@jitl/quickjs-wasmfile-release-sync',
 ];
 
 /** ws 在 try 里 require 的可选原生加速包，Host 不装，打包时留成外部依赖（运行时找不到，ws 照常用 JS 的实现）。 */

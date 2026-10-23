@@ -887,6 +887,8 @@ export const zhCN = {
   'approval.title.browserAct': '允许操作浏览器中的网页？',
   'approval.title.browserClose': '允许关闭浏览器标签页？',
   'approval.title.browserClaim': '允许接管浏览器标签页？',
+  'approval.title.browserBatch': '允许在浏览器中执行这组操作？',
+  'approval.title.browserRun': '允许在浏览器中运行这段脚本？',
   'approval.permission': '所需权限：{permission}',
   'approval.permission.fullAccess': '完全访问',
   'approval.preview': '内容预览',

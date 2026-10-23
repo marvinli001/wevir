@@ -647,9 +647,25 @@ packages/noise/test-vectors/ 下的向量文件只给测试用，不进构建产
 packages/noise/test-vectors/snow-generated.json 由 Wevir 自己的生成程序（同目录 snowgen/）调用 snow 0.10.0 生成，
 是 Wevir 的文件（MIT），不含 snow 的代码。
 
+
+16. 浏览器脚本的沙箱（QuickJS 与 quickjs-emscripten）
+------------------------------------------------------------------------------------------------
+Host 的 browser_run 在 QuickJS 的 WebAssembly 版本里运行 agent 写的脚本，用的是 npm 包 quickjs-emscripten-core、
+@jitl/quickjs-ffi-types 与 @jitl/quickjs-wasmfile-release-sync（版本 0.32.0），原样分发、没有修改；wasm 文件是
+QuickJS 编译成的二进制：
+
+    quickjs-emscripten：https://github.com/justjake/quickjs-emscripten
+    许可证：MIT，全文见文末“MIT License”
+    版权：quickjs-emscripten copyright (c) 2019-2024 Jake Teton-Landis
+
+    QuickJS：https://bellard.org/quickjs/
+    许可证：MIT，全文见文末“MIT License”
+    版权：Copyright (c) 2017-2021 Fabrice Bellard
+          Copyright (c) 2017-2021 Charlie Gordon
+
 MIT License
 ------------------------------------------------------------------------------------------------
-第 1–3 节、第 8–10 节、第 11 节的 Shiki、第 12 节、第 13 节的 ONNX Runtime 与第 15 节的 snow 的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+第 1–3 节、第 8–10 节、第 11 节的 Shiki、第 12 节、第 13 节的 ONNX Runtime、第 15 节的 snow 与第 16 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
 
 MIT License
 ------------------------------------------------------------------------------------------------

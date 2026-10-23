@@ -9,6 +9,8 @@
 // iframe 的占位节点在那个 frame 里再跑一遍脚本接上，引用全局编号、记下所在的 frame；browser_query 找到的元素也给引用（接着
 // 现有的编号）。
 // 选择下拉框时核对选项：没有这个值（也没有这段文字）的选项就报错、不动它，不再把选择清空。
+// 0.113.0：引用的编号在一个文档里只增不减（还在的元素沿用原来的引用），每次快照记下渲染出的行；`changes` 时和上一次同范围的
+// 快照比，只给变了的行（snapshot-diff.ts），比不了时给整个快照的第一段并说明原因。
 
 import {
   BROWSER_SNAPSHOT_DEFAULT_NODES,
@@ -17,6 +19,7 @@ import {
 } from '@wevir/protocol';
 import { ARIA_SNAPSHOT_SCRIPT_MARKER, ariaSnapshotScript } from './aria-snapshot-script.js';
 import type { TabFrame } from './frames.js';
+import { diffLines, renderChanges } from './snapshot-diff.js';
 
 export interface SnapshotPage {
   getURL(): string;
@@ -41,6 +44,7 @@ export interface BrowserAriaSnapshotStats {
   shownLines?: number;
   stoppedAt?: string;
   maxNodes?: number;
+  changes?: { added: number; removed: number; unchanged: number };
 }
 
 interface SnapshotNode {
@@ -72,6 +76,8 @@ interface RawAriaSnapshot {
   truncated: boolean;
   refsTruncated: boolean;
   stoppedAt: string;
+  /** 下一个新引用的编号（脚本沿用旧引用、给新元素编号之后）。 */
+  refNext?: number;
   stats: BrowserAriaSnapshotStats;
   error?: string;
   message?: string;
@@ -86,8 +92,10 @@ interface BrowserRefMetadata {
 
 interface BrowserRefState {
   refs: Map<string, BrowserRefMetadata>;
-  /** 下一个引用的编号。 */
+  /** 下一个新引用的编号；页面换文档（`clearBrowser`）之前只增不减。 */
   nextRef: number;
+  /** 上一次快照的范围与渲染出的行（增量快照拿它比）。 */
+  baseline?: { scope: string; lines: string[] };
 }
 
 /** 快照的参数（0.48.0）。 */
@@ -148,6 +156,8 @@ export type SnapshotInput = {
   offset?: number;
   /** 一段的字节预算，默认 `BROWSER_SNAPSHOT_PAGE_BYTES`。 */
   pageBytes?: number;
+  /** 只给和上一次同范围的快照比变了的行（0.113.0）；`offset` 大于 0 时不管它。 */
+  changes?: boolean;
   /** 列出子 frame：接跨域 frame、按引用找它所在的 frame 时用。 */
   frames?: () => Promise<TabFrame[]>;
 } & SnapshotScope;
@@ -215,12 +225,14 @@ export class BrowserSnapshotEngine {
       }
     }
 
+    const previous = this.statesByBrowserId.get(input.browserId);
+    let nextRef = previous?.nextRef ?? 1;
     const first = parseAriaSnapshot(
       await rootPage.executeJavaScript(
         ariaSnapshotScript({
           maxNodes,
           maxRefs: MAX_REFS,
-          refStart: 1,
+          refStart: nextRef,
           ...(input.selector !== undefined &&
             rootRef === undefined && { selector: input.selector }),
           ...(rootRef !== undefined && { rootRef }),
@@ -239,6 +251,7 @@ export class BrowserSnapshotEngine {
     }
 
     const refs: BrowserRefMetadata[] = first.refs.map((ref) => ({ ...ref, frame: rootFrame }));
+    nextRef = advanceRefs(nextRef, first);
     let nodeCount = first.stats.nodeCount;
     let iframeCount = first.stats.iframeCount ?? 0;
     let truncated = first.truncated;
@@ -263,7 +276,7 @@ export class BrowserSnapshotEngine {
           ariaSnapshotScript({
             maxNodes: maxNodes - nodeCount,
             maxRefs: Math.max(0, MAX_REFS - refs.length),
-            refStart: refs.length + 1,
+            refStart: nextRef,
             ...(input.viewportOnly === true && { viewportOnly: true }),
           }),
         ),
@@ -274,6 +287,7 @@ export class BrowserSnapshotEngine {
       if (!raw || raw.error) continue;
       node.children = raw.root.children ?? [];
       refs.push(...raw.refs.map((ref) => ({ ...ref, frame: frameId })));
+      nextRef = advanceRefs(nextRef, raw);
       nodeCount += raw.stats.nodeCount;
       iframeCount += raw.stats.iframeCount ?? 0;
       truncated ||= raw.truncated;
@@ -295,15 +309,32 @@ export class BrowserSnapshotEngine {
           ]
         : []),
     ];
-    const part = pageOfSnapshot(
-      lines,
-      input.offset ?? 0,
-      input.pageBytes ?? BROWSER_SNAPSHOT_PAGE_BYTES,
-      limitNotes,
-    );
+    const pageBytes = input.pageBytes ?? BROWSER_SNAPSHOT_PAGE_BYTES;
+    const scope = JSON.stringify([
+      input.selector ?? null,
+      input.ref ?? null,
+      rootFrame,
+      input.viewportOnly === true,
+      maxNodes,
+    ]);
+    const offset = input.offset ?? 0;
+    const texts = lines.map((line) => line.text);
+    let part: ReturnType<typeof pageOfSnapshot> | undefined;
+    let changes: BrowserAriaSnapshotStats['changes'];
+    if (input.changes === true && offset === 0) {
+      const compared = changedPart(previous?.baseline, scope, texts, pageBytes, limitNotes);
+      if ('snapshot' in compared) {
+        part = compared;
+        changes = compared.changes;
+      } else {
+        part = pageOfSnapshot(lines, 0, pageBytes, limitNotes, compared.note);
+      }
+    }
+    part ??= pageOfSnapshot(lines, offset, pageBytes, limitNotes);
     this.statesByBrowserId.set(input.browserId, {
       refs: new Map(refs.map((ref) => [ref.ref, ref])),
-      nextRef: refs.length + 1,
+      nextRef,
+      baseline: { scope, lines: texts },
     });
     return {
       format: 'aria-yaml',
@@ -320,6 +351,7 @@ export class BrowserSnapshotEngine {
         shownLines: part.shownLines,
         ...(stoppedAt && { stoppedAt }),
         maxNodes,
+        ...(changes && { changes }),
       },
     };
   }
@@ -476,6 +508,7 @@ function parseAriaSnapshot(value: unknown): RawAriaSnapshot {
     truncated: record.truncated === true,
     refsTruncated: record.refsTruncated === true,
     stoppedAt: typeof record.stoppedAt === 'string' ? record.stoppedAt : '',
+    ...(readNumber(record.refNext) !== null && { refNext: readNumber(record.refNext) as number }),
     stats: parseStats(record.stats),
   };
 }
@@ -489,6 +522,75 @@ function emptySnapshot(): RawAriaSnapshot {
     refsTruncated: false,
     stoppedAt: '',
     stats: { nodeCount: 0, refCount: 0, textLength: 0, iframeCount: 0, maxDepth: 0 },
+  };
+}
+
+/** 跑完一个 frame 的脚本之后下一个新引用的编号（不认识 `refNext` 的旧脚本按最大的引用号算）。 */
+function advanceRefs(nextRef: number, raw: RawAriaSnapshot): number {
+  const numbers = raw.refs.map((ref) => Number(ref.ref.replace(/^@e/, '')) || 0);
+  return Math.max(nextRef, raw.refNext ?? 0, ...numbers.map((value) => value + 1));
+}
+
+/** 和上一次快照比的结果最多占一段的多少（余下留给说明）。 */
+const CHANGES_SHARE = 0.9;
+
+/**
+ * 增量快照：和上一次同范围的快照逐行比。比不了（没有上一次、范围不同、变得太多、放不进一段）时返回原因，由调用方给整个
+ * 快照的第一段。
+ */
+function changedPart(
+  baseline: BrowserRefState['baseline'],
+  scope: string,
+  lines: string[],
+  pageBytes: number,
+  limitNotes: readonly string[],
+):
+  | {
+      snapshot: string;
+      truncated: boolean;
+      startLine: number;
+      shownLines: number;
+      changes: { added: number; removed: number; unchanged: number };
+    }
+  | { note: string } {
+  if (!baseline) {
+    return {
+      note: '# No earlier snapshot of this page to compare with (or the page loaded a new document); here is the full snapshot.',
+    };
+  }
+  if (baseline.scope !== scope) {
+    return {
+      note: '# The last snapshot of this tab covered a different part of the page; here is the full snapshot.',
+    };
+  }
+  const edits = diffLines(baseline.lines, lines);
+  const rendered = edits && renderChanges(edits, clampLine);
+  const changed = rendered ? rendered.added + rendered.removed : Number.POSITIVE_INFINITY;
+  const limitBytes = limitNotes.reduce((sum, note) => sum + bytesOf(note) + 1, 0);
+  if (
+    !rendered ||
+    (changed > 40 && changed > lines.length / 2) ||
+    bytesOf(rendered.text) + limitBytes > pageBytes * CHANGES_SHARE
+  ) {
+    return {
+      note: '# Too much of the page changed to list the changes; here is the full snapshot.',
+    };
+  }
+  const counts = {
+    added: rendered.added,
+    removed: rendered.removed,
+    unchanged: rendered.unchanged,
+  };
+  const header =
+    changed === 0
+      ? `# Nothing changed since the last snapshot (${lines.length} lines); its refs are still valid.`
+      : `# Changes since the last snapshot: ${rendered.added} line${rendered.added === 1 ? '' : 's'} added (+), ${rendered.removed} removed (-), ${rendered.unchanged} unchanged. Refs on unchanged and added lines are valid; a ref only on removed lines is gone.`;
+  return {
+    snapshot: [header, ...(changed === 0 ? [] : [rendered.text]), ...limitNotes].join('\n'),
+    truncated: limitNotes.length > 0,
+    startLine: 0,
+    shownLines: changed,
+    changes: counts,
   };
 }
 
@@ -659,6 +761,8 @@ export function pageOfSnapshot(
   pageBytes: number,
   /** 快照本身没取全时的说明（节点或引用到了上限），每段末尾都给。 */
   limitNotes: readonly string[] = [],
+  /** 放在最前面的一行说明（增量快照改给整个快照时说明原因）。 */
+  leadNote?: string,
 ): { snapshot: string; truncated: boolean; startLine: number; shownLines: number } {
   const pageTruncated = limitNotes.length > 0;
   const total = lines.length;
@@ -671,16 +775,18 @@ export function pageOfSnapshot(
       shownLines: 0,
     };
   }
-  const limitBytes = limitNotes.reduce((sum, note) => sum + bytesOf(note) + 1, 0);
+  const limitBytes =
+    limitNotes.reduce((sum, note) => sum + bytesOf(note) + 1, 0) +
+    (leadNote === undefined ? 0 : bytesOf(leadNote) + 1);
   const bodyBudget = Math.floor(pageBytes * PAGE_BODY_SHARE) - limitBytes;
-  const body: string[] = [];
+  const body: string[] = leadNote === undefined ? [] : [leadNote];
   let used = 0;
   let end = start;
   while (end < total) {
     const text = clampLine((lines[end] as SnapshotLine).text);
     const cost = bytesOf(text) + 1;
     // 至少给一行，免得一行比预算还长时原地打转。
-    if (body.length > 0 && used + cost > bodyBudget) break;
+    if (end > start && used + cost > bodyBudget) break;
     body.push(text);
     used += cost;
     end += 1;

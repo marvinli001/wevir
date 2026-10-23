@@ -879,6 +879,8 @@ export const messages: Messages = {
   'approval.title.browserAct': 'Allow acting on a page in the browser?',
   'approval.title.browserClose': 'Allow closing a browser tab?',
   'approval.title.browserClaim': 'Allow taking over a browser tab?',
+  'approval.title.browserBatch': 'Allow these browser actions?',
+  'approval.title.browserRun': 'Allow running this browser script?',
   'approval.permission': 'Required permission: {permission}',
   'approval.permission.fullAccess': 'Full access',
   'approval.preview': 'Preview',

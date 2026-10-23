@@ -518,6 +518,9 @@ importers:
       '@homebridge/ciao':
         specifier: 1.3.12
         version: 1.3.12(supports-color@7.2.0)
+      '@jitl/quickjs-wasmfile-release-sync':
+        specifier: 0.32.0
+        version: 0.32.0
       '@mixmark-io/domino':
         specifier: 2.2.0
         version: 2.2.0
@@ -566,6 +569,9 @@ importers:
       '@xterm/headless':
         specifier: 6.0.0
         version: 6.0.0
+      quickjs-emscripten-core:
+        specifier: 0.32.0
+        version: 0.32.0
       smol-toml:
         specifier: 1.9.1
         version: 1.9.1
@@ -1450,6 +1456,12 @@ packages:
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
+
+  '@jitl/quickjs-ffi-types@0.32.0':
+    resolution: {integrity: sha512-v9T+GQpmk43VDJ7d72sf0Nexhk+ArvtUihW27dy7lqAl0zBObFKtSBBIm5RBjwIhE8VwsPPm9PNuvPvNqLWUEg==}
+
+  '@jitl/quickjs-wasmfile-release-sync@0.32.0':
+    resolution: {integrity: sha512-BKNDI/TPBfGlLNGYpLrhcDGXmIk4xHm4MRAisOBnOzpXVn9HZWsfmMAc9WMBrAHjvvds6HOikKeaOBKdPdpVrg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -3766,6 +3778,9 @@ packages:
     resolution: {integrity: sha512-WuyALRjWPDGtt/wzJiadO5AXY+8hZ80hVpe6MyivgraREW751X3SbhRvG3eLKOYN+8VEvqLcf3wdnt44Z4S4SA==}
     engines: {node: '>=10'}
 
+  quickjs-emscripten-core@0.32.0:
+    resolution: {integrity: sha512-QFnPfjFey8EqknSrSxe1hZrf1/8z7/6s1QzGOmKo6++02r7QRRX7ZoyNaZh7JuVjWsVW87KnQrbZqnHkOAzUyg==}
+
   react-dom@19.3.0:
     resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
     peerDependencies:
@@ -5127,6 +5142,12 @@ snapshots:
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.3
+
+  '@jitl/quickjs-ffi-types@0.32.0': {}
+
+  '@jitl/quickjs-wasmfile-release-sync@0.32.0':
+    dependencies:
+      '@jitl/quickjs-ffi-types': 0.32.0
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -7338,6 +7359,10 @@ snapshots:
   quansync@1.0.0: {}
 
   quick-lru@5.1.1: {}
+
+  quickjs-emscripten-core@0.32.0:
+    dependencies:
+      '@jitl/quickjs-ffi-types': 0.32.0
 
   react-dom@19.3.0(react@19.3.0):
     dependencies:

@@ -84,7 +84,12 @@ export interface TabContents {
     dialogs: BrowserAutomationDialogEvent[];
     effects?: Pick<BrowserEffects, 'downloads' | 'fileChooser'>;
   }>;
-  sendDebugCommand?(command: string, params?: Record<string, unknown>): Promise<unknown>;
+  /** `sessionId`：跨进程 iframe 的 CDP 子会话（contents.ts 自动接上的）；不给时是主页面。 */
+  sendDebugCommand?(
+    command: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>;
   /** 子 frame（0.48.0）。 */
   listFrames?(): Promise<TabFrame[]>;
   getNetworkDetail?(id: string): BrowserNetworkDetail | undefined;
@@ -93,7 +98,7 @@ export interface TabContents {
   getDialogPolicy?(): Readonly<DialogPolicy>;
   setDialogPolicy?(policy: Readonly<DialogPolicy>): Promise<void>;
   /** 被拦下、还没交文件的选文件框；取走后清掉。 */
-  takeFileChooser?(): { backendNodeId: number; multiple: boolean } | undefined;
+  takeFileChooser?(): { backendNodeId: number; multiple: boolean; sessionId?: string } | undefined;
 }
 
 export interface TabImage {
@@ -613,6 +618,7 @@ async function executeSnapshot(
       ...(frame !== undefined && { frame }),
       ...(args.viewportOnly === true && { viewportOnly: true }),
       ...(args.maxNodes !== undefined && { maxNodes: args.maxNodes }),
+      ...(args.changes === true && { changes: true }),
     });
     if ('ok' in snapshot) {
       if (snapshot.reason === 'invalid_selector') {
@@ -2188,6 +2194,8 @@ async function executeUpload(
     const paths = files.map((file) => file.path);
     let setTo: { objectId: string } | { backendNodeId: number } | undefined;
     let multiple = true;
+    // 跨进程 iframe 里的选文件框：节点编号属于它的 CDP 子会话。
+    let chooserSession: string | undefined;
     if (args.ref !== undefined) {
       const located = await refPage(requestId, target, snapshotEngine, args.ref);
       if (!located.ok) return located.failure;
@@ -2231,6 +2239,7 @@ async function executeUpload(
         }
         setTo = { backendNodeId: chooser.backendNodeId };
         multiple = chooser.multiple;
+        chooserSession = chooser.sessionId;
       }
     } else {
       const chooser = target.contents.takeFileChooser?.();
@@ -2243,6 +2252,7 @@ async function executeUpload(
       }
       setTo = { backendNodeId: chooser.backendNodeId };
       multiple = chooser.multiple;
+      chooserSession = chooser.sessionId;
     }
     if (!multiple && paths.length > 1) {
       return fail(
@@ -2251,7 +2261,7 @@ async function executeUpload(
         `This file input takes one file; ${paths.length} were given.`,
       );
     }
-    await send('DOM.setFileInputFiles', { files: paths, ...setTo });
+    await send('DOM.setFileInputFiles', { files: paths, ...setTo }, chooserSession);
     return {
       requestId,
       ok: true,

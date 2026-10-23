@@ -888,6 +888,8 @@ export const messages: Messages = {
   'approval.title.browserAct': 'Consentire azioni su una pagina nel browser?',
   'approval.title.browserClose': 'Consentire la chiusura di una scheda del browser?',
   'approval.title.browserClaim': 'Consentire di prendere il controllo di una scheda del browser?',
+  'approval.title.browserBatch': 'Consentire queste azioni nel browser?',
+  'approval.title.browserRun': 'Consentire l’esecuzione di questo script nel browser?',
   'approval.permission': 'Autorizzazione richiesta: {permission}',
   'approval.permission.fullAccess': 'Accesso completo',
   'approval.preview': 'Anteprima contenuto',

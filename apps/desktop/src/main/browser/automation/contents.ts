@@ -13,6 +13,10 @@
 // 的策略回答（替身烤进新文档的脚本，改策略时换掉）；被拦下的选文件框记下它的元素，browser_upload 不带引用时把文件交给它。
 // 控制台记录改用 CDP（Runtime.consoleAPICalled、Runtime.exceptionThrown、Log.entryAdded，console-format.ts）：级别是页面调用的
 // 方法名、对象参数写出内容；Electron 的 console-message 只在没有调试器时用，另外补上跨进程 iframe 的消息（CDP 只连着主页面）。
+// 跨进程的 iframe（OOPIF）：用 `Target.setAutoAttach`（flatten）接上它们自己的 CDP 会话（嵌套的也接），在里面同样打开 Page、
+// Runtime、Log、Network，装 prompt 替身、拦选文件框；iframe 里的请求、控制台、对话框与选文件框都记进这个标签页。子会话在
+// 第一行脚本之前暂停（`waitForDebuggerOnStart`），准备好再放行，所以载入时的记录也不漏。有了子会话后不再用 Electron 的
+// console-message 补跨进程 iframe 的消息。
 
 import type {
   BrowserConsoleEntry as BrowserAutomationConsoleLogEntry,
@@ -57,10 +61,20 @@ const monitorsByContentsId = new Map<number, TabMonitor>();
 interface WebContentsDebugger {
   isAttached(): boolean;
   attach(protocolVersion?: string): void;
-  sendCommand(command: string, params?: Record<string, unknown>): Promise<unknown>;
+  sendCommand(
+    command: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown>;
   on?(
     event: 'message',
-    listener: (event: unknown, method: string, params?: Record<string, unknown>) => void,
+    listener: (
+      event: unknown,
+      method: string,
+      params?: Record<string, unknown>,
+      /** 子会话（OOPIF）的事件带它；主页面的是空串或没有。 */
+      sessionId?: string,
+    ) => void,
   ): void;
   on?(event: 'detach', listener: () => void): void;
 }
@@ -154,8 +168,8 @@ export function adaptWebContents(contents: BrowserAutomationWebContents): TabCon
     getNetworkLog: () => monitor.networkLog(),
     openDialog: () => monitor.openDialog,
     captureDialogs: (task) => monitor.capture(task),
-    sendDebugCommand: (command: string, params?: Record<string, unknown>) =>
-      monitor.sendDebugCommand(command, params),
+    sendDebugCommand: (command: string, params?: Record<string, unknown>, sessionId?: string) =>
+      monitor.sendDebugCommand(command, params, sessionId),
     listFrames: () => listFrames(contents),
     getNetworkDetail: (id) => monitor.networkDetail(id),
     getNetworkBody: (id, maxChars) => monitor.networkBody(id, maxChars),
@@ -301,6 +315,11 @@ interface NetworkRecord {
   requestId: string;
   /** CDP 的请求 ID（取响应体用；重定向的几跳共用一个）。 */
   cdpRequestId: string;
+  /**
+   * 响应体在哪个 CDP 会话里（跨进程 iframe 的子会话；主页面是 undefined）：最后报响应或载完的那个。iframe 的文档请求由父页面
+   * 发出、由 iframe 的会话报载完，所以记录跨会话按请求 ID 找。
+   */
+  bodySession?: string;
   loaderId: string;
   url: string;
   method: string;
@@ -335,8 +354,12 @@ class TabMonitor {
   #dialogs: BrowserAutomationDialogEvent[] = [];
   #downloads: NonNullable<BrowserEffects['downloads']> = [];
   #fileChooser: BrowserEffects['fileChooser'];
-  /** 被拦下、还没交文件的选文件框（browser_upload 不带引用时用）。 */
-  #chooser: { backendNodeId: number; multiple: boolean } | undefined;
+  /** 被拦下、还没交文件的选文件框（browser_upload 不带引用时用）；`sessionId` 是它所在的 CDP 子会话（跨进程 iframe）。 */
+  #chooser: { backendNodeId: number; multiple: boolean; sessionId?: string } | undefined;
+  /** 接上的跨进程 iframe：CDP 子会话 → 它的 prompt 替身脚本（换策略时换掉）。 */
+  readonly #children = new Map<string, { shimScriptId?: string }>();
+  /** 子会话接上了（`Target.setAutoAttach` 成功）：跨进程 iframe 的控制台走它们，不再用 Electron 的 console-message。 */
+  #autoAttached = false;
   #network: NetworkRecord[] = [];
   #networkTotal = 0;
   #networkSeq = 0;
@@ -353,8 +376,8 @@ class TabMonitor {
   start(): void {
     const cdpConsole = Boolean(this.contents.debugger.on);
     this.contents.on('console-message', (event) => {
-      // 有调试器时控制台走 CDP；它只连着主页面的进程，跨进程 iframe 的消息仍从这里来。
-      if (cdpConsole && !this.#fromOtherProcess(event.frame)) return;
+      // 有调试器时控制台走 CDP；接不上子会话时，跨进程 iframe 的消息仍从这里来。
+      if (cdpConsole && (this.#autoAttached || !this.#fromOtherProcess(event.frame))) return;
       this.#recordConsole(
         normalizeConsoleMessage({
           level: event.level,
@@ -365,11 +388,13 @@ class TabMonitor {
       );
     });
     if (this.contents.debugger.on) {
-      this.contents.debugger.on('message', (_event, method, params) =>
-        this.#onCdpEvent(method, params ?? {}),
+      this.contents.debugger.on('message', (_event, method, params, sessionId) =>
+        this.#onCdpEvent(method, params ?? {}, sessionId || undefined),
       );
       this.contents.debugger.on('detach', () => {
         this.#enabled = false;
+        this.#autoAttached = false;
+        this.#children.clear();
       });
     }
     void this.#enable();
@@ -421,6 +446,69 @@ class TabMonitor {
       expression: promptShimInstallScript(this.dialogPolicy),
       returnByValue: true,
     }).catch(() => {});
+    // 跨进程的 iframe：接上它们的 CDP 会话（已有的立即接上，之后建的随建随接）。
+    await this.#autoAttach(undefined)
+      .then(() => {
+        this.#autoAttached = true;
+      })
+      .catch(() => {});
+  }
+
+  /** 让一个会话（主页面，或一个子会话）自动接上它下面的跨进程 iframe。 */
+  #autoAttach(sessionId: string | undefined): Promise<unknown> {
+    return this.#send(
+      'Target.setAutoAttach',
+      { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
+      sessionId,
+    );
+  }
+
+  /**
+   * 接上一个子目标：iframe 打开与主页面一样的域、装替身、拦选文件框，再接它下面的；别的（worker 等）不管。最后总是放行，
+   * 免得它停在第一行脚本之前。
+   */
+  async #attachChild(params: Record<string, unknown>): Promise<void> {
+    const sessionId = typeof params.sessionId === 'string' ? params.sessionId : undefined;
+    if (sessionId === undefined) return;
+    const info = params.targetInfo as { type?: unknown } | undefined;
+    try {
+      if (info?.type !== 'iframe') return;
+      const child: { shimScriptId?: string } = {};
+      this.#children.set(sessionId, child);
+      const commands: Array<[string, Record<string, unknown>?]> = [
+        ['Page.enable'],
+        ['Page.setInterceptFileChooserDialog', { enabled: this.#interceptFileChooser }],
+        ['Runtime.enable'],
+        ['Log.enable'],
+        [
+          'Network.enable',
+          {
+            maxTotalBufferSize: NETWORK_BUFFER_BYTES,
+            maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
+          },
+        ],
+      ];
+      await Promise.all([
+        this.#send(
+          'Page.addScriptToEvaluateOnNewDocument',
+          { source: promptShimInstallScript(this.dialogPolicy) },
+          sessionId,
+        )
+          .then((added) => {
+            const identifier = (added as { identifier?: unknown } | undefined)?.identifier;
+            if (typeof identifier === 'string') child.shimScriptId = identifier;
+          })
+          .catch(() => {}),
+        ...commands.map(([command, commandParams]) =>
+          this.#send(command, commandParams, sessionId).catch(() => {}),
+        ),
+        this.#autoAttach(sessionId).catch(() => {}),
+      ]);
+    } finally {
+      if (params.waitingForDebugger === true) {
+        await this.#send('Runtime.runIfWaitingForDebugger', {}, sessionId).catch(() => {});
+      }
+    }
   }
 
   /** 把带着当前策略的替身登记成新文档脚本（换掉旧的）。 */
@@ -443,6 +531,28 @@ class TabMonitor {
     this.dialogPolicy = policy;
     if (!this.#enabled || this.contents.isDestroyed()) return;
     await this.#queue.run(() => this.#installShimScript());
+    // 跨进程 iframe 的新文档也换上新的替身。
+    await Promise.all(
+      [...this.#children].map(([sessionId, child]) =>
+        this.#queue.run(async () => {
+          const previous = child.shimScriptId;
+          child.shimScriptId = undefined;
+          if (previous !== undefined) {
+            await this.#send(
+              'Page.removeScriptToEvaluateOnNewDocument',
+              { identifier: previous },
+              sessionId,
+            ).catch(() => {});
+          }
+          const added = (await this.#send(
+            'Page.addScriptToEvaluateOnNewDocument',
+            { source: promptShimInstallScript(policy) },
+            sessionId,
+          ).catch(() => undefined)) as { identifier?: unknown } | undefined;
+          if (typeof added?.identifier === 'string') child.shimScriptId = added.identifier;
+        }),
+      ),
+    );
     const script = promptShimInstallScript(policy);
     await this.#queue
       .run(() => this.#send('Runtime.evaluate', { expression: script, returnByValue: true }))
@@ -457,7 +567,7 @@ class TabMonitor {
   }
 
   /** 被拦下、还没交文件的选文件框；取走后清掉。 */
-  takeFileChooser(): { backendNodeId: number; multiple: boolean } | undefined {
+  takeFileChooser(): { backendNodeId: number; multiple: boolean; sessionId?: string } | undefined {
     const chooser = this.#chooser;
     this.#chooser = undefined;
     // 交了文件就不再报“页面要选文件、没选”。
@@ -472,15 +582,21 @@ class TabMonitor {
     return downloads;
   }
 
-  /** 走这个标签页的 CDP 队列。 */
-  sendDebugCommand(command: string, params?: Record<string, unknown>): Promise<unknown> {
+  /** 走这个标签页的 CDP 队列；`sessionId` 是跨进程 iframe 的子会话。 */
+  sendDebugCommand(
+    command: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<unknown> {
     if (!this.#enabled) void this.#enable();
-    return this.#queue.run(() => this.#send(command, params));
+    return this.#queue.run(() => this.#send(command, params, sessionId));
   }
 
-  #send(command: string, params?: Record<string, unknown>): Promise<unknown> {
+  #send(command: string, params?: Record<string, unknown>, sessionId?: string): Promise<unknown> {
     if (!this.contents.debugger.isAttached()) this.contents.debugger.attach('1.3');
-    return this.contents.debugger.sendCommand(command, params ?? {});
+    return sessionId === undefined
+      ? this.contents.debugger.sendCommand(command, params ?? {})
+      : this.contents.debugger.sendCommand(command, params ?? {}, sessionId);
   }
 
   /**
@@ -515,6 +631,11 @@ class TabMonitor {
     this.#interceptFileChooser = enabled;
     if (this.#enabled) {
       void this.#send('Page.setInterceptFileChooserDialog', { enabled }).catch(() => {});
+      for (const sessionId of this.#children.keys()) {
+        void this.#send('Page.setInterceptFileChooserDialog', { enabled }, sessionId).catch(
+          () => {},
+        );
+      }
     }
   }
 
@@ -588,9 +709,11 @@ class TabMonitor {
       return { size: 0, unavailable: `the request failed (${record.failed})` };
     if (record.end === undefined) return { size: 0, unavailable: 'the response is still loading' };
     try {
-      const raw = (await this.sendDebugCommand('Network.getResponseBody', {
-        requestId: record.cdpRequestId,
-      })) as { body?: unknown; base64Encoded?: unknown };
+      const raw = (await this.sendDebugCommand(
+        'Network.getResponseBody',
+        { requestId: record.cdpRequestId },
+        record.bodySession,
+      )) as { body?: unknown; base64Encoded?: unknown };
       return responseBody(raw, record.mimeType, maxChars);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -675,8 +798,15 @@ class TabMonitor {
     }
   }
 
-  #onCdpEvent(method: string, params: Record<string, unknown>): void {
+  #onCdpEvent(method: string, params: Record<string, unknown>, sessionId?: string): void {
     switch (method) {
+      case 'Target.attachedToTarget':
+        // 不排进命令队列：iframe 停在第一行脚本之前，排在一个正等着它的命令后面会互相等。
+        void this.#attachChild(params).catch(() => {});
+        return;
+      case 'Target.detachedFromTarget':
+        if (typeof params.sessionId === 'string') this.#children.delete(params.sessionId);
+        return;
       case 'Runtime.consoleAPICalled':
         this.#recordConsole(consoleApiEntry(params));
         return;
@@ -694,9 +824,11 @@ class TabMonitor {
         setTimeout(() => {
           if (this.openDialog === undefined || this.contents.isDestroyed()) return;
           // 不排队：对话框挡着的正是队列里的命令。
-          this.#send('Page.handleJavaScriptDialog', {
-            accept: dialogAcceptValue(event.type),
-          }).catch(() => {});
+          this.#send(
+            'Page.handleJavaScriptDialog',
+            { accept: dialogAcceptValue(event.type) },
+            sessionId,
+          ).catch(() => {});
         }, DIALOG_FALLBACK_MS);
         return;
       }
@@ -706,14 +838,18 @@ class TabMonitor {
       case 'Page.fileChooserOpened':
         this.#fileChooser = { multiple: params.mode === 'selectMultiple' };
         if (typeof params.backendNodeId === 'number') {
+          // 节点编号属于报它的那个会话：跨进程 iframe 里的要在它的子会话里交文件。
           this.#chooser = {
             backendNodeId: params.backendNodeId,
             multiple: params.mode === 'selectMultiple',
+            ...(sessionId !== undefined && { sessionId }),
           };
         }
         return;
       case 'Page.frameNavigated': {
         const frame = params.frame as { id?: unknown; parentId?: unknown; loaderId?: unknown };
+        // 只看主页面的主框架：子会话的根 frame（跨进程 iframe）换文档不算换页面。
+        if (sessionId !== undefined) return;
         if (frame?.parentId !== undefined || typeof frame?.id !== 'string') return;
         // 新的主文档：只留这次载入的记录（主文档与重定向）。
         this.#network = this.#network.filter((record) => record.loaderId === frame.loaderId);
@@ -725,11 +861,12 @@ class TabMonitor {
         return;
       }
       case 'Network.requestWillBeSent':
-        this.#onRequest(params);
+        this.#onRequest(params, sessionId);
         return;
       case 'Network.responseReceived': {
         const record = this.#find(params.requestId);
         if (record) {
+          record.bodySession = sessionId;
           applyResponse(record, params.response);
           const extra = this.#takeExtra(record.cdpRequestId, 'response');
           if (extra) mergeHeaders(record, 'responseHeaders', extra);
@@ -763,6 +900,7 @@ class TabMonitor {
       case 'Network.loadingFinished': {
         const record = this.#find(params.requestId);
         if (!record) return;
+        record.bodySession = sessionId;
         record.end = numberOr(params.timestamp, record.start);
         if (typeof params.encodedDataLength === 'number') {
           record.transferSize = params.encodedDataLength;
@@ -781,7 +919,7 @@ class TabMonitor {
     }
   }
 
-  #onRequest(params: Record<string, unknown>): void {
+  #onRequest(params: Record<string, unknown>, sessionId?: string): void {
     const request = params.request as
       | {
           url?: unknown;
@@ -802,11 +940,17 @@ class TabMonitor {
       existing.redirected = true;
       existing.requestId = `${existing.requestId}:redirect`;
     }
+    // 跨进程 iframe 的文档请求：父页面与 iframe 的会话各报一次 requestWillBeSent，只记一条。
+    if (existing && !redirect) {
+      if (sessionId !== undefined) existing.bodySession = sessionId;
+      return;
+    }
     this.#networkSeq += 1;
     this.#network.push({
       id: String(this.#networkSeq),
       requestId: params.requestId,
       cdpRequestId: params.requestId,
+      ...(sessionId !== undefined && { bodySession: sessionId }),
       loaderId: typeof params.loaderId === 'string' ? params.loaderId : '',
       url: request.url,
       method: typeof request.method === 'string' ? request.method : 'GET',
