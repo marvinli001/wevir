@@ -3,9 +3,7 @@
   "frozenAt": "2026-10-23",
   "methods": {
     "plugins.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "connectors": [
@@ -51,16 +49,11 @@
               "id": "con_plugin",
               "name": "sample-plugin_api",
               "pluginId": "sample-plugin",
-              "missingInputs": [
-                "TOKEN"
-              ],
+              "missingInputs": ["TOKEN"],
               "config": {
                 "transport": "stdio",
                 "command": "node",
-                "args": [
-                  "${pluginDir}/server.mjs",
-                  "${input:REGION}"
-                ],
+                "args": ["${pluginDir}/server.mjs", "${input:REGION}"],
                 "env": {
                   "TOKEN": true
                 }
@@ -115,12 +108,8 @@
                   "value": "eu"
                 }
               ],
-              "connectors": [
-                "con_plugin"
-              ],
-              "skills": [
-                "skl_plugin"
-              ]
+              "connectors": ["con_plugin"],
+              "skills": ["skl_plugin"]
             }
           ]
         },
@@ -202,9 +191,7 @@
                 "auth": "oauth",
                 "oauth": {
                   "clientId": "wevir-client",
-                  "scopes": [
-                    "read"
-                  ],
+                  "scopes": ["read"],
                   "clientSecret": true
                 }
               },
@@ -212,9 +199,7 @@
               "oauth": {
                 "status": "signed_in",
                 "issuer": "https://mcp.linear.app",
-                "scopes": [
-                  "read"
-                ],
+                "scopes": ["read"],
                 "expiresAt": "2026-10-21T12:00:00.000Z"
               }
             },
@@ -274,9 +259,7 @@
           "config": {
             "transport": "stdio",
             "command": "npx",
-            "args": [
-              "db-mcp"
-            ]
+            "args": ["db-mcp"]
           },
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
         },
@@ -296,9 +279,7 @@
             "oauth": {
               "clientId": "Iv1.sample",
               "clientSecret": "input-only",
-              "scopes": [
-                "repo"
-              ],
+              "scopes": ["repo"],
               "callbackPort": 33418,
               "callbackUrl": "http://127.0.0.1:33418/callback",
               "resource": "https://api.githubcopilot.com/mcp/",
@@ -381,9 +362,7 @@
           "id": "con_test"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "connector.setEnabled": {
       "params": [
@@ -421,10 +400,7 @@
         {
           "name": "sample-plugin_api",
           "pluginId": "sample-plugin",
-          "scopes": [
-            "read",
-            "write"
-          ]
+          "scopes": ["read", "write"]
         }
       ],
       "result": [
@@ -440,9 +416,7 @@
           "loginId": "login_1"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "connector.logout": {
       "params": [
@@ -454,9 +428,7 @@
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "skill.install": {
       "params": [
@@ -502,9 +474,7 @@
           "id": "skl_test"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "skill.setEnabled": {
       "params": [
@@ -568,12 +538,8 @@
                 "value": "eu"
               }
             ],
-            "connectors": [
-              "con_plugin"
-            ],
-            "skills": [
-              "skl_plugin"
-            ]
+            "connectors": ["con_plugin"],
+            "skills": ["skl_plugin"]
           },
           "ignored": []
         },
@@ -605,17 +571,10 @@
                 "value": "eu"
               }
             ],
-            "connectors": [
-              "con_plugin"
-            ],
-            "skills": [
-              "skl_plugin"
-            ]
+            "connectors": ["con_plugin"],
+            "skills": ["skl_plugin"]
           },
-          "ignored": [
-            "hooks",
-            "commands"
-          ]
+          "ignored": ["hooks", "commands"]
         }
       ]
     },
@@ -625,9 +584,7 @@
           "id": "sample-plugin"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "plugin.setEnabled": {
       "params": [
@@ -665,12 +622,8 @@
                 "value": "eu"
               }
             ],
-            "connectors": [
-              "con_plugin"
-            ],
-            "skills": [
-              "skl_plugin"
-            ]
+            "connectors": ["con_plugin"],
+            "skills": ["skl_plugin"]
           }
         }
       ]
@@ -714,12 +667,8 @@
                 "value": "eu"
               }
             ],
-            "connectors": [
-              "con_plugin"
-            ],
-            "skills": [
-              "skl_plugin"
-            ]
+            "connectors": ["con_plugin"],
+            "skills": ["skl_plugin"]
           }
         }
       ]
@@ -742,11 +691,7 @@
           "protocolVersion": "0.1.0",
           "minProtocolVersion": "0.1.0",
           "features": {},
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -756,11 +701,7 @@
           "features": {
             "chatgpt_account": true
           },
-          "permissions": [
-            "host.manage",
-            "provider.read",
-            "provider.write"
-          ]
+          "permissions": ["host.manage", "provider.read", "provider.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -771,11 +712,7 @@
             "environments": true,
             "session_worktree": true
           },
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -791,27 +728,17 @@
               "steer": true,
               "configure": true,
               "fork": true,
-              "permissionModes": [
-                "on_request",
-                "auto_review",
-                "full_access"
-              ],
+              "permissionModes": ["on_request", "auto_review", "full_access"],
               "additionalRoots": true,
               "historyTool": true
             },
             "claude": {
               "engine": "claude",
               "configure": true,
-              "permissionModes": [
-                "on_request"
-              ]
+              "permissionModes": ["on_request"]
             }
           },
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -825,27 +752,18 @@
           "engineFeatures": {
             "deepseek-official": {
               "engine": "codex",
-              "commands": [
-                "compact",
-                "review"
-              ]
+              "commands": ["compact", "review"]
             },
             "claude": {
               "engine": "claude",
-              "commands": [
-                "compact"
-              ]
+              "commands": ["compact"]
             },
             "cursor": {
               "engine": "cursor",
               "commands": []
             }
           },
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -858,28 +776,19 @@
           "engineFeatures": {
             "deepseek-official": {
               "engine": "codex",
-              "commands": [
-                "compact",
-                "review"
-              ],
+              "commands": ["compact", "review"],
               "goals": true
             },
             "claude": {
               "engine": "claude",
-              "commands": [
-                "compact"
-              ]
+              "commands": ["compact"]
             },
             "cursor": {
               "engine": "cursor",
               "commands": []
             }
           },
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -892,17 +801,12 @@
           "engineFeatures": {
             "deepseek-official": {
               "engine": "codex",
-              "commands": [
-                "compact",
-                "review"
-              ],
+              "commands": ["compact", "review"],
               "planMode": true
             },
             "claude": {
               "engine": "claude",
-              "commands": [
-                "compact"
-              ],
+              "commands": ["compact"],
               "planMode": true
             },
             "cursor": {
@@ -910,11 +814,7 @@
               "commands": []
             }
           },
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -931,26 +831,17 @@
             "deepseek-official": {
               "engine": "codex",
               "fork": true,
-              "commands": [
-                "compact",
-                "review"
-              ],
+              "commands": ["compact", "review"],
               "branch": true,
               "rewind": true
             },
             "claude": {
               "engine": "claude",
               "fork": true,
-              "commands": [
-                "compact"
-              ]
+              "commands": ["compact"]
             }
           },
-          "permissions": [
-            "host.manage",
-            "session.read",
-            "session.write"
-          ]
+          "permissions": ["host.manage", "session.read", "session.write"]
         },
         {
           "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -980,34 +871,20 @@
           "features": {
             "permission_enforcement": true
           },
-          "permissions": [
-            "session.read",
-            "session.write",
-            "workspace.read"
-          ]
+          "permissions": ["session.read", "session.write", "workspace.read"]
         }
       ]
     },
     "host.ping": {
-      "params": [
-        {}
-      ],
-      "result": [
-        {}
-      ]
+      "params": [{}],
+      "result": [{}]
     },
     "host.shutdown": {
-      "params": [
-        {}
-      ],
-      "result": [
-        {}
-      ]
+      "params": [{}],
+      "result": [{}]
     },
     "settings.get": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "settings": {
@@ -1301,9 +1178,7 @@
       ]
     },
     "workspace.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "workspaces": [
@@ -1343,9 +1218,7 @@
               "displayName": "wevir",
               "createdAt": "2026-10-12T08:00:00.000Z",
               "updatedAt": "2026-10-12T08:00:00.000Z",
-              "extraFolders": [
-                "/Users/me/projects/wevir-docs"
-              ]
+              "extraFolders": ["/Users/me/projects/wevir-docs"]
             }
           ]
         }
@@ -1362,10 +1235,7 @@
         },
         {
           "rootPath": "/tmp/a",
-          "extraFolders": [
-            "/tmp/b",
-            "/tmp/c"
-          ]
+          "extraFolders": ["/tmp/b", "/tmp/c"]
         }
       ],
       "result": [
@@ -1387,9 +1257,7 @@
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "workspace.update": {
       "params": [
@@ -1399,9 +1267,7 @@
         },
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "extraFolders": [
-            "/tmp/b"
-          ]
+          "extraFolders": ["/tmp/b"]
         },
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -1410,9 +1276,7 @@
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "displayName": "A",
-          "extraFolders": [
-            "/tmp/b"
-          ]
+          "extraFolders": ["/tmp/b"]
         }
       ],
       "result": [
@@ -1438,9 +1302,7 @@
       ]
     },
     "environment.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "environments": []
@@ -1550,9 +1412,7 @@
           "environmentId": "env_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "workspace.git": {
       "params": [
@@ -1940,9 +1800,7 @@
       ]
     },
     "provider.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "providers": [
@@ -1977,10 +1835,7 @@
                   "contextWindow": 262144,
                   "maxTokens": 32768,
                   "supportsImages": true,
-                  "reasoningEfforts": [
-                    "off",
-                    "high"
-                  ]
+                  "reasoningEfforts": ["off", "high"]
                 }
               ],
               "defaultModelId": "qwen3:8b",
@@ -1997,13 +1852,7 @@
                   "id": "gpt-6.1-sol",
                   "displayName": "GPT-6.1-Sol",
                   "supportsImages": true,
-                  "reasoningEfforts": [
-                    "low",
-                    "medium",
-                    "high",
-                    "xhigh",
-                    "max"
-                  ]
+                  "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"]
                 }
               ],
               "defaultModelId": "gpt-6.1-sol",
@@ -2036,10 +1885,7 @@
                   "contextWindow": 262144,
                   "maxTokens": 32768,
                   "supportsImages": true,
-                  "reasoningEfforts": [
-                    "off",
-                    "high"
-                  ]
+                  "reasoningEfforts": ["off", "high"]
                 }
               ],
               "defaultModelId": "qwen3:8b",
@@ -2056,10 +1902,7 @@
                 {
                   "id": "claude-opus-5-5",
                   "displayName": "Claude Opus 5.5",
-                  "reasoningEfforts": [
-                    "low",
-                    "high"
-                  ]
+                  "reasoningEfforts": ["low", "high"]
                 }
               ],
               "defaultModelId": "claude-opus-5-5",
@@ -2189,10 +2032,7 @@
                 "contextWindow": 262144,
                 "maxTokens": 32768,
                 "supportsImages": true,
-                "reasoningEfforts": [
-                  "off",
-                  "high"
-                ]
+                "reasoningEfforts": ["off", "high"]
               }
             ],
             "defaultModelId": "qwen3:8b",
@@ -2224,10 +2064,7 @@
                 "contextWindow": 262144,
                 "maxTokens": 32768,
                 "supportsImages": true,
-                "reasoningEfforts": [
-                  "off",
-                  "high"
-                ]
+                "reasoningEfforts": ["off", "high"]
               }
             ],
             "defaultModelId": "qwen3:8b",
@@ -2250,9 +2087,7 @@
           "providerId": "local-ollama"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "provider.test": {
       "params": [
@@ -2327,11 +2162,7 @@
               "model": {
                 "id": "gpt-oss:20b",
                 "contextWindow": 4096,
-                "reasoningEfforts": [
-                  "low",
-                  "medium",
-                  "high"
-                ]
+                "reasoningEfforts": ["low", "medium", "high"]
               },
               "maxContextWindow": 131072,
               "contextSource": "running",
@@ -2362,10 +2193,7 @@
               {
                 "id": "claude-opus-5-5",
                 "displayName": "Claude Opus 5.5",
-                "reasoningEfforts": [
-                  "low",
-                  "high"
-                ]
+                "reasoningEfforts": ["low", "high"]
               }
             ],
             "defaultModelId": "claude-opus-5-5",
@@ -2378,9 +2206,7 @@
       ]
     },
     "account.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "accounts": [
@@ -2418,9 +2244,7 @@
               "kind": "antigravity",
               "status": "signed_out",
               "signIn": "in_app",
-              "loginMethods": [
-                "browser"
-              ],
+              "loginMethods": ["browser"],
               "installed": false,
               "canInstall": true,
               "installing": {
@@ -2462,9 +2286,7 @@
               "email": "me@example.com",
               "planLabel": "Pro",
               "signIn": "in_app",
-              "loginMethods": [
-                "browser"
-              ],
+              "loginMethods": ["browser"],
               "loginCommand": "\"/Users/me/.wevir/engines/devin/runtime/versions/3000.11.92/bin/devin\" auth login",
               "installed": true,
               "version": "3000.11.92",
@@ -2561,9 +2383,7 @@
             "status": "signed_in",
             "email": "me@example.com",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser"
-            ],
+            "loginMethods": ["browser"],
             "rateLimits": {
               "primary": {
                 "usedPercent": 12,
@@ -2609,9 +2429,7 @@
             "plan": "max",
             "planLabel": "Max 5x",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser"
-            ],
+            "loginMethods": ["browser"],
             "installed": true,
             "version": "2.1.140"
           }
@@ -2642,9 +2460,7 @@
             "email": "me@example.com",
             "planLabel": "Pro",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser"
-            ],
+            "loginMethods": ["browser"],
             "loginCommand": "\"/Users/me/.wevir/engines/devin/runtime/versions/3000.11.92/bin/devin\" auth login",
             "installed": true,
             "version": "3000.11.92",
@@ -2705,10 +2521,7 @@
             "plan": "opencode",
             "planLabel": "OpenCode",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser",
-              "device_code"
-            ],
+            "loginMethods": ["browser", "device_code"],
             "installed": true,
             "version": "1.19.3",
             "login": {
@@ -2725,9 +2538,7 @@
             "kind": "workbuddy",
             "status": "signed_out",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser"
-            ],
+            "loginMethods": ["browser"],
             "loginOptions": [
               {
                 "id": "internal",
@@ -2913,9 +2724,7 @@
             "kind": "antigravity",
             "status": "signed_out",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser"
-            ],
+            "loginMethods": ["browser"],
             "installed": false,
             "canInstall": true,
             "installing": {
@@ -2945,10 +2754,7 @@
             "multiAccount": true,
             "status": "signed_out",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser",
-              "device_code"
-            ]
+            "loginMethods": ["browser", "device_code"]
           }
         }
       ]
@@ -2959,9 +2765,7 @@
           "id": "claude-3f9a"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "account.setLabel": {
       "params": [
@@ -2990,9 +2794,7 @@
             "plan": "max",
             "planLabel": "Max 5x",
             "signIn": "in_app",
-            "loginMethods": [
-              "browser"
-            ],
+            "loginMethods": ["browser"],
             "installed": true,
             "version": "2.1.140"
           }
@@ -3061,10 +2863,7 @@
           "providerId": "deepseek-official",
           "toolPreset": {
             "id": "core",
-            "groups": [
-              "browser",
-              "lsp"
-            ]
+            "groups": ["browser", "lsp"]
           }
         }
       ],
@@ -3121,9 +2920,7 @@
             "lastSeq": 12,
             "toolPreset": {
               "id": "core",
-              "groups": [
-                "lsp"
-              ]
+              "groups": ["lsp"]
             }
           }
         }
@@ -3458,9 +3255,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -3669,9 +3464,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -3781,9 +3574,7 @@
                     "display": {
                       "kind": "write",
                       "summary": "/tmp/wevir-outside.txt",
-                      "paths": [
-                        "/tmp/wevir-outside.txt"
-                      ]
+                      "paths": ["/tmp/wevir-outside.txt"]
                     },
                     "input": {
                       "file_path": "/tmp/wevir-outside.txt",
@@ -3856,9 +3647,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -3924,9 +3713,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -4073,9 +3860,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -4172,9 +3957,7 @@
               "id": "t2",
               "subject": "汇总测试结果",
               "status": "pending",
-              "blockedBy": [
-                "t1"
-              ],
+              "blockedBy": ["t1"],
               "notes": [],
               "createdBy": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "createdAt": "2026-10-12T08:00:00.000Z",
@@ -4232,9 +4015,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -4360,9 +4141,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -4491,9 +4270,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -4693,9 +4470,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -4826,9 +4601,7 @@
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "providerId": "claude",
           "handoff": {
-            "constraints": [
-              "金额一律用整数分；测试只用 npm test，不改 test/ 目录。"
-            ],
+            "constraints": ["金额一律用整数分；测试只用 npm test，不改 test/ 目录。"],
             "notes": [
               {
                 "scope": "project",
@@ -4845,9 +4618,7 @@
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "providerId": "claude",
           "handoff": {
-            "constraints": [
-              "金额一律用整数分。"
-            ],
+            "constraints": ["金额一律用整数分。"],
             "notes": [
               {
                 "scope": "project",
@@ -5026,9 +4797,7 @@
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "providerId": "claude",
           "handoff": {
-            "constraints": [
-              "金额一律用整数分。"
-            ],
+            "constraints": ["金额一律用整数分。"],
             "notes": [
               {
                 "scope": "project",
@@ -5447,9 +5216,7 @@
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "session.close": {
       "params": [
@@ -5457,9 +5224,7 @@
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "session.resume": {
       "params": [
@@ -5790,18 +5555,11 @@
       ],
       "result": [
         {
-          "sessionIds": [
-            "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
-          ]
+          "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"]
         },
         {
-          "sessionIds": [
-            "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "ses_01JA2B3C4D5E6F7G8H9JKMNPR1"
-          ],
-          "keptBranches": [
-            "wevir/fix-login"
-          ],
+          "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR", "ses_01JA2B3C4D5E6F7G8H9JKMNPR1"],
+          "keptBranches": ["wevir/fix-login"],
           "engineDataKept": true
         }
       ]
@@ -6147,9 +5905,7 @@
       ]
     },
     "web.get": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "web": {
@@ -6693,25 +6449,13 @@
     "usage.summary": {
       "params": [
         {
-          "edges": [
-            1760918400000,
-            1761004800000
-          ]
+          "edges": [1760918400000, 1761004800000]
         },
         {
-          "edges": [
-            1760918400000,
-            1760922000000,
-            1760925600000
-          ],
+          "edges": [1760918400000, 1760922000000, 1760925600000],
           "filter": {
-            "sources": [
-              "claude",
-              "chatgpt"
-            ],
-            "providerIds": [
-              "prv_1"
-            ],
+            "sources": ["claude", "chatgpt"],
+            "providerIds": ["prv_1"],
             "models": []
           }
         }
@@ -6824,9 +6568,7 @@
             }
           ],
           "options": {
-            "sources": [
-              "claude"
-            ],
+            "sources": ["claude"],
             "providers": [
               {
                 "id": "prv_claude",
@@ -6834,9 +6576,7 @@
                 "source": "claude"
               }
             ],
-            "models": [
-              "claude-opus-5-5"
-            ]
+            "models": ["claude-opus-5-5"]
           },
           "pricing": {
             "source": "models.dev",
@@ -6857,9 +6597,7 @@
           "from": 0,
           "to": 1,
           "filter": {
-            "models": [
-              "gpt-5.5"
-            ]
+            "models": ["gpt-5.5"]
           },
           "offset": 50,
           "limit": 50
@@ -6889,7 +6627,7 @@
                 "reasoning": 0
               },
               "cost": {
-                "input": 1e-05,
+                "input": 1e-5,
                 "output": 0.0032,
                 "cacheRead": 0.0451,
                 "cacheWrite": 0.0056,
@@ -6971,10 +6709,7 @@
               "timeoutMs": 600000,
               "kind": "test",
               "trigger": "after_turn",
-              "paths": [
-                "src/",
-                "test/**/*.ts"
-              ],
+              "paths": ["src/", "test/**/*.ts"],
               "source": {
                 "kind": "package_script",
                 "file": "package.json",
@@ -7056,9 +6791,7 @@
             "timeoutMs": 120000,
             "kind": "test",
             "trigger": "after_turn",
-            "paths": [
-              "src/"
-            ],
+            "paths": ["src/"],
             "expectOutput": "Tests\\s+\\d+ passed",
             "source": {
               "kind": "package_script",
@@ -7078,10 +6811,7 @@
             "timeoutMs": 600000,
             "kind": "test",
             "trigger": "after_turn",
-            "paths": [
-              "src/",
-              "test/**/*.ts"
-            ],
+            "paths": ["src/", "test/**/*.ts"],
             "source": {
               "kind": "package_script",
               "file": "package.json",
@@ -7146,9 +6876,7 @@
         },
         {
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "checkIds": [
-            "chk_01JA2B3C4D5E6F7G8H9JKMNPQR"
-          ]
+          "checkIds": ["chk_01JA2B3C4D5E6F7G8H9JKMNPQR"]
         }
       ],
       "result": [
@@ -7272,9 +7000,7 @@
               "status": "stopped",
               "attempt": 2,
               "maxAttempts": 2,
-              "turnIds": [
-                "trn_01JA2B3C4D5E6F7G8H9JKMNPR1"
-              ],
+              "turnIds": ["trn_01JA2B3C4D5E6F7G8H9JKMNPR1"],
               "lastRoundId": "vrd_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "stopReason": "limit",
               "startedAt": "2026-10-12T08:00:00.000Z",
@@ -7325,9 +7051,7 @@
       ]
     },
     "automation.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "automations": []
@@ -7341,13 +7065,7 @@
               "schedule": {
                 "kind": "daily",
                 "time": "09:00",
-                "weekdays": [
-                  1,
-                  2,
-                  3,
-                  4,
-                  5
-                ]
+                "weekdays": [1, 2, 3, 4, 5]
               },
               "timezone": "Pacific/Auckland",
               "enabled": true,
@@ -7388,13 +7106,7 @@
               "schedule": {
                 "kind": "daily",
                 "time": "09:00",
-                "weekdays": [
-                  1,
-                  2,
-                  3,
-                  4,
-                  5
-                ]
+                "weekdays": [1, 2, 3, 4, 5]
               },
               "timezone": "Pacific/Auckland",
               "enabled": true,
@@ -7487,13 +7199,7 @@
             "schedule": {
               "kind": "daily",
               "time": "09:00",
-              "weekdays": [
-                1,
-                2,
-                3,
-                4,
-                5
-              ]
+              "weekdays": [1, 2, 3, 4, 5]
             },
             "timezone": "Pacific/Auckland",
             "enabled": true,
@@ -7533,13 +7239,7 @@
             "schedule": {
               "kind": "daily",
               "time": "09:00",
-              "weekdays": [
-                1,
-                2,
-                3,
-                4,
-                5
-              ]
+              "weekdays": [1, 2, 3, 4, 5]
             },
             "timezone": "Pacific/Auckland",
             "enabled": true,
@@ -7682,9 +7382,7 @@
           "schedule": {
             "kind": "daily",
             "time": "09:00",
-            "weekdays": [
-              1
-            ]
+            "weekdays": [1]
           },
           "providerId": "deepseek"
         },
@@ -7739,13 +7437,7 @@
             "schedule": {
               "kind": "daily",
               "time": "09:00",
-              "weekdays": [
-                1,
-                2,
-                3,
-                4,
-                5
-              ]
+              "weekdays": [1, 2, 3, 4, 5]
             },
             "timezone": "Pacific/Auckland",
             "enabled": true,
@@ -7826,13 +7518,7 @@
             "schedule": {
               "kind": "daily",
               "time": "09:00",
-              "weekdays": [
-                1,
-                2,
-                3,
-                4,
-                5
-              ]
+              "weekdays": [1, 2, 3, 4, 5]
             },
             "timezone": "Pacific/Auckland",
             "enabled": true,
@@ -7871,9 +7557,7 @@
           "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "automation.run": {
       "params": [
@@ -7909,9 +7593,7 @@
       ]
     },
     "tools.presets": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "presets": [
@@ -7931,22 +7613,13 @@
             },
             {
               "id": "core",
-              "groups": [
-                "sessions",
-                "catalog",
-                "tasks",
-                "memory",
-                "workbench"
-              ]
+              "groups": ["sessions", "catalog", "tasks", "memory", "workbench"]
             }
           ],
           "groups": [
             {
               "id": "sessions",
-              "tools": [
-                "wevir_session_list",
-                "wevir_session_read"
-              ]
+              "tools": ["wevir_session_list", "wevir_session_read"]
             },
             {
               "id": "browser",
@@ -7962,9 +7635,7 @@
           "questionId": "qst_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "answers": {
             "scope": {
-              "answers": [
-                "全链路"
-              ]
+              "answers": ["全链路"]
             }
           }
         },
@@ -8026,9 +7697,7 @@
               "clientKind": "desktop"
             },
             "reason": "user",
-            "ruleIds": [
-              "arl_01JA2B3C4D5E6F7G8H9JKMNPQR"
-            ]
+            "ruleIds": ["arl_01JA2B3C4D5E6F7G8H9JKMNPQR"]
           }
         }
       ]
@@ -8036,30 +7705,17 @@
     "browser.register": {
       "params": [
         {
-          "commands": [
-            "list_tabs",
-            "new_tab",
-            "snapshot",
-            "click"
-          ]
+          "commands": ["list_tabs", "new_tab", "snapshot", "click"]
         },
         {
-          "commands": [
-            "someday"
-          ]
+          "commands": ["someday"]
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "browser.unregister": {
-      "params": [
-        {}
-      ],
-      "result": [
-        {}
-      ]
+      "params": [{}],
+      "result": [{}]
     },
     "browser.respond": {
       "params": [
@@ -8560,9 +8216,7 @@
           "subscriptionId": "sub_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "process.list": {
       "params": [
@@ -8597,11 +8251,7 @@
               "signal": null,
               "startedAt": "2026-10-12T08:00:00.000Z",
               "bytes": 18204,
-              "stopSignals": [
-                "SIGINT",
-                "SIGTERM",
-                "SIGKILL"
-              ]
+              "stopSignals": ["SIGINT", "SIGTERM", "SIGKILL"]
             },
             {
               "id": "v1",
@@ -8648,11 +8298,7 @@
               "signal": null,
               "startedAt": "2026-10-12T08:00:00.000Z",
               "bytes": 512,
-              "stopSignals": [
-                "SIGINT",
-                "SIGTERM",
-                "SIGKILL"
-              ],
+              "stopSignals": ["SIGINT", "SIGTERM", "SIGKILL"],
               "preview": {
                 "name": "web",
                 "root": "/home/u/projects/demo",
@@ -8879,9 +8525,7 @@
           "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "terminal.input": {
       "params": [
@@ -8890,9 +8534,7 @@
           "data": "\u0003"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "terminal.resize": {
       "params": [
@@ -8902,9 +8544,7 @@
           "rows": 30
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "terminal.close": {
       "params": [
@@ -8912,9 +8552,7 @@
           "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "retro.get": {
       "params": [
@@ -8985,9 +8623,7 @@
                 "outcome": "completed",
                 "text": "把温度换算改成支持开尔文",
                 "kind": "user",
-                "files": [
-                  "src/convert.ts"
-                ],
+                "files": ["src/convert.ts"],
                 "commands": 2,
                 "diff": "available",
                 "fileCount": 1,
@@ -9004,9 +8640,7 @@
                 {
                   "id": "f:src/convert.ts",
                   "path": "src/convert.ts",
-                  "turnIds": [
-                    "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
-                  ],
+                  "turnIds": ["trn_01JA2B3C4D5E6F7G8H9JKMNPQR"],
                   "diff": "deleted"
                 }
               ],
@@ -9227,9 +8861,7 @@
                 "outcome": "completed",
                 "text": "把温度换算改成支持开尔文",
                 "kind": "user",
-                "files": [
-                  "src/convert.ts"
-                ],
+                "files": ["src/convert.ts"],
                 "commands": 2,
                 "diff": "available",
                 "fileCount": 1,
@@ -9246,9 +8878,7 @@
                 {
                   "id": "f:src/convert.ts",
                   "path": "src/convert.ts",
-                  "turnIds": [
-                    "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
-                  ],
+                  "turnIds": ["trn_01JA2B3C4D5E6F7G8H9JKMNPQR"],
                   "diff": "deleted"
                 }
               ],
@@ -9413,10 +9043,7 @@
               "points": [
                 {
                   "text": "开尔文换算已实现，测试通过的是旧版本。",
-                  "refs": [
-                    "e9.0",
-                    "v:vrn_01JA2B3C4D5E6F7G8H9JKMNPQR"
-                  ]
+                  "refs": ["e9.0", "v:vrn_01JA2B3C4D5E6F7G8H9JKMNPQR"]
                 },
                 {
                   "text": "负数处理可能还没做。",
@@ -9497,9 +9124,7 @@
                 "outcome": "completed",
                 "text": "把温度换算改成支持开尔文",
                 "kind": "user",
-                "files": [
-                  "src/convert.ts"
-                ],
+                "files": ["src/convert.ts"],
                 "commands": 2,
                 "diff": "available",
                 "fileCount": 1,
@@ -9516,9 +9141,7 @@
                 {
                   "id": "f:src/convert.ts",
                   "path": "src/convert.ts",
-                  "turnIds": [
-                    "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
-                  ],
+                  "turnIds": ["trn_01JA2B3C4D5E6F7G8H9JKMNPQR"],
                   "diff": "deleted"
                 }
               ],
@@ -9709,10 +9332,7 @@
             "points": [
               {
                 "text": "开尔文换算已实现，测试通过的是旧版本。",
-                "refs": [
-                  "e9.0",
-                  "v:vrn_01JA2B3C4D5E6F7G8H9JKMNPQR"
-                ]
+                "refs": ["e9.0", "v:vrn_01JA2B3C4D5E6F7G8H9JKMNPQR"]
               },
               {
                 "text": "负数处理可能还没做。",
@@ -9946,10 +9566,7 @@
     "review.remove": {
       "params": [
         {
-          "commentIds": [
-            "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1"
-          ]
+          "commentIds": ["rvc_01JA2B3C4D5E6F7G8H9JKMNPQR", "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1"]
         }
       ],
       "result": [
@@ -9966,17 +9583,12 @@
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "commentIds": [
-            "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR"
-          ],
+          "commentIds": ["rvc_01JA2B3C4D5E6F7G8H9JKMNPQR"],
           "targetSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
         },
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "commentIds": [
-            "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1"
-          ],
+          "commentIds": ["rvc_01JA2B3C4D5E6F7G8H9JKMNPQR", "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1"],
           "targetSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
           "delivery": "queue",
           "clientMessageId": "review-1"
@@ -10123,10 +9735,7 @@
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "paths": [
-            "src/convert.ts",
-            "docs/notes.md"
-          ],
+          "paths": ["src/convert.ts", "docs/notes.md"],
           "expected": {
             "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
             "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
@@ -10134,9 +9743,7 @@
         },
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "paths": [
-            "a.ts"
-          ],
+          "paths": ["a.ts"],
           "expected": {
             "head": null,
             "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
@@ -10214,9 +9821,7 @@
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "paths": [
-            "docs/notes.md"
-          ],
+          "paths": ["docs/notes.md"],
           "expected": {
             "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
             "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
@@ -10318,10 +9923,7 @@
             "parent": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
             "tree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
             "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
-            "hooks": [
-              "pre-commit",
-              "commit-msg"
-            ]
+            "hooks": ["pre-commit", "commit-msg"]
           },
           "status": {
             "repo": true,
@@ -10516,9 +10118,7 @@
             "projects": [
               {
                 "path": "",
-                "ecosystems": [
-                  "node"
-                ]
+                "ecosystems": ["node"]
               }
             ],
             "items": [
@@ -10588,9 +10188,7 @@
                 "writesLockfile": false,
                 "reason": "dependencies_outdated",
                 "scripts": {
-                  "project": [
-                    "postinstall"
-                  ],
+                  "project": ["postinstall"],
                   "dependencies": "restricted"
                 },
                 "credentials": [
@@ -10616,19 +10214,14 @@
                   "auth": "configured"
                 }
               ],
-              "proxy": [
-                "HTTPS_PROXY"
-              ],
+              "proxy": ["HTTPS_PROXY"],
               "agent": {
                 "engine": "codex",
                 "permissionMode": "on_request",
                 "network": "sandboxed",
                 "domains": "not_enforced"
               },
-              "advice": [
-                "install_by_user",
-                "domains_not_enforced"
-              ]
+              "advice": ["install_by_user", "domains_not_enforced"]
             },
             "install": {
               "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -10755,9 +10348,7 @@
           "credentials": []
         },
         {
-          "credentials": [
-            "NPM_TOKEN"
-          ]
+          "credentials": ["NPM_TOKEN"]
         }
       ]
     },
@@ -10789,13 +10380,7 @@
               "path": "/home/u/projects/demo/node_modules/@typescript/typescript-darwin-arm64/lib/tsc",
               "source": "project",
               "version": "7.0.2",
-              "capabilities": [
-                "definition",
-                "references",
-                "hover",
-                "rename",
-                "codeAction"
-              ],
+              "capabilities": ["definition", "references", "hover", "rename", "codeAction"],
               "startedAt": "2026-10-12T08:00:00.000Z",
               "lastDiagnosticsAt": "2026-10-12T08:00:05.250Z",
               "install": {
@@ -10865,13 +10450,7 @@
             "path": "/home/u/projects/demo/node_modules/@typescript/typescript-darwin-arm64/lib/tsc",
             "source": "project",
             "version": "7.0.2",
-            "capabilities": [
-              "definition",
-              "references",
-              "hover",
-              "rename",
-              "codeAction"
-            ],
+            "capabilities": ["definition", "references", "hover", "rename", "codeAction"],
             "startedAt": "2026-10-12T08:00:00.000Z",
             "lastDiagnosticsAt": "2026-10-12T08:00:05.250Z",
             "install": {
@@ -11137,10 +10716,7 @@
           "memories": [],
           "connectors": [],
           "skills": [],
-          "unsupported": [
-            "memory",
-            "connector"
-          ]
+          "unsupported": ["memory", "connector"]
         }
       ]
     },
@@ -11350,19 +10926,10 @@
         {
           "query": "登录 \"审批 流程\"",
           "scope": {
-            "workspaceIds": [
-              "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
-            ],
-            "sessionIds": [
-              "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
-            ],
-            "kinds": [
-              "user_message",
-              "command"
-            ],
-            "providerIds": [
-              "deepseek-official"
-            ],
+            "workspaceIds": ["ws_01JA2B3C4D5E6F7G8H9JKMNPQR"],
+            "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"],
+            "kinds": ["user_message", "command"],
+            "providerIds": ["deepseek-official"],
             "since": "2026-10-12T08:00:00.000Z",
             "until": "2026-10-12T08:00:05.250Z",
             "includeArchived": true
@@ -11439,9 +11006,7 @@
       ]
     },
     "search.status": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "state": "ready",
@@ -11458,9 +11023,7 @@
       ]
     },
     "search.rebuild": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "state": "indexing",
@@ -11514,10 +11077,7 @@
               "id": "arl_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "kind": "command_prefix",
-              "prefix": [
-                "git",
-                "status"
-              ],
+              "prefix": ["git", "status"],
               "source": "approval",
               "sourceSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "sourceApprovalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -11528,10 +11088,7 @@
             {
               "id": "arl_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "kind": "command_prefix",
-              "prefix": [
-                "git",
-                "status"
-              ],
+              "prefix": ["git", "status"],
               "source": "approval",
               "sourceSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "sourceApprovalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -11545,16 +11102,10 @@
     "approvalRule.add": {
       "params": [
         {
-          "prefix": [
-            "pnpm",
-            "test"
-          ]
+          "prefix": ["pnpm", "test"]
         },
         {
-          "prefix": [
-            "git",
-            "diff"
-          ],
+          "prefix": ["git", "diff"],
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
@@ -11564,10 +11115,7 @@
             "id": "arl_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "kind": "command_prefix",
-            "prefix": [
-              "git",
-              "status"
-            ],
+            "prefix": ["git", "status"],
             "source": "approval",
             "sourceSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "sourceApprovalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -11604,10 +11152,7 @@
         {
           "suggestions": [
             {
-              "prefix": [
-                "pnpm",
-                "test"
-              ],
+              "prefix": ["pnpm", "test"],
               "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "count": 3,
               "lastApprovedAt": "2026-10-12T08:05:00.000Z",
@@ -11754,11 +11299,7 @@
             "signal": null,
             "startedAt": "2026-10-12T08:00:00.000Z",
             "bytes": 512,
-            "stopSignals": [
-              "SIGINT",
-              "SIGTERM",
-              "SIGKILL"
-            ],
+            "stopSignals": ["SIGINT", "SIGTERM", "SIGKILL"],
             "preview": {
               "name": "web",
               "root": "/home/u/projects/demo",
@@ -11787,11 +11328,7 @@
             "signal": null,
             "startedAt": "2026-10-12T08:00:00.000Z",
             "bytes": 512,
-            "stopSignals": [
-              "SIGINT",
-              "SIGTERM",
-              "SIGKILL"
-            ],
+            "stopSignals": ["SIGINT", "SIGTERM", "SIGKILL"],
             "preview": {
               "name": "web",
               "root": "/home/u/projects/demo",
@@ -11879,10 +11416,7 @@
             ]
           },
           "pending": true,
-          "pendingLayers": [
-            "rules",
-            "memory"
-          ]
+          "pendingLayers": ["rules", "memory"]
         },
         {
           "profile": {
@@ -11954,9 +11488,7 @@
                 }
               ],
               "cause": {
-                "proposalIds": [
-                  "tpr_01JA2B3C4D5E6F7G8H9JKMNPQR"
-                ]
+                "proposalIds": ["tpr_01JA2B3C4D5E6F7G8H9JKMNPQR"]
               }
             }
           ]
@@ -12017,9 +11549,7 @@
             ],
             "wevirVersion": "0.1.0"
           },
-          "sessionIds": [
-            "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
-          ]
+          "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"]
         }
       ]
     },
@@ -12258,9 +11788,7 @@
           "guardrailId": "grd_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "guardrail.setEnabled": {
       "params": [
@@ -12317,9 +11845,7 @@
               "status": "unsupported"
             }
           ],
-          "warnings": [
-            ".codex/hooks.json: Unexpected token"
-          ]
+          "warnings": [".codex/hooks.json: Unexpected token"]
         },
         {
           "hooks": [],
@@ -12970,9 +12496,7 @@
       ]
     },
     "market.status": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "preference": "auto",
@@ -13025,10 +12549,7 @@
                   "zh-CN": "热门",
                   "en": "Popular"
                 },
-                "entries": [
-                  "notes",
-                  "tracker"
-                ]
+                "entries": ["notes", "tracker"]
               }
             ],
             "entries": [
@@ -13043,9 +12564,7 @@
                   "zh-CN": {
                     "name": "笔记",
                     "description": "让 agent 记笔记",
-                    "examples": [
-                      "把今天的会议要点记下来"
-                    ]
+                    "examples": ["把今天的会议要点记下来"]
                   }
                 },
                 "author": {
@@ -13054,25 +12573,19 @@
                 "license": "MIT",
                 "icon": "plugins/notes/icon.svg",
                 "category": "productivity",
-                "keywords": [
-                  "notes"
-                ],
+                "keywords": ["notes"],
                 "listedAt": "2026-10-21T08:00:00Z",
                 "verification": {
                   "level": "official",
                   "since": "2026-10"
                 },
-                "examples": [
-                  "Write down the key points of today's meeting"
-                ],
+                "examples": ["Write down the key points of today's meeting"],
                 "links": {
                   "privacy": "https://example.com/privacy",
                   "terms": "https://example.com/terms"
                 },
                 "requires": {
-                  "runtimes": [
-                    "node>=20"
-                  ]
+                  "runtimes": ["node>=20"]
                 },
                 "contents": {
                   "connectors": [
@@ -13080,10 +12593,7 @@
                       "name": "api",
                       "transport": "stdio",
                       "command": "npx",
-                      "args": [
-                        "-y",
-                        "@acme/notes-mcp@1.2.3"
-                      ]
+                      "args": ["-y", "@acme/notes-mcp@1.2.3"]
                     }
                   ],
                   "skills": [
@@ -13198,10 +12708,7 @@
                   "zh-CN": "热门",
                   "en": "Popular"
                 },
-                "entries": [
-                  "notes",
-                  "tracker"
-                ]
+                "entries": ["notes", "tracker"]
               }
             ],
             "entries": [
@@ -13216,9 +12723,7 @@
                   "zh-CN": {
                     "name": "笔记",
                     "description": "让 agent 记笔记",
-                    "examples": [
-                      "把今天的会议要点记下来"
-                    ]
+                    "examples": ["把今天的会议要点记下来"]
                   }
                 },
                 "author": {
@@ -13227,25 +12732,19 @@
                 "license": "MIT",
                 "icon": "plugins/notes/icon.svg",
                 "category": "productivity",
-                "keywords": [
-                  "notes"
-                ],
+                "keywords": ["notes"],
                 "listedAt": "2026-10-21T08:00:00Z",
                 "verification": {
                   "level": "official",
                   "since": "2026-10"
                 },
-                "examples": [
-                  "Write down the key points of today's meeting"
-                ],
+                "examples": ["Write down the key points of today's meeting"],
                 "links": {
                   "privacy": "https://example.com/privacy",
                   "terms": "https://example.com/terms"
                 },
                 "requires": {
-                  "runtimes": [
-                    "node>=20"
-                  ]
+                  "runtimes": ["node>=20"]
                 },
                 "contents": {
                   "connectors": [
@@ -13253,10 +12752,7 @@
                       "name": "api",
                       "transport": "stdio",
                       "command": "npx",
-                      "args": [
-                        "-y",
-                        "@acme/notes-mcp@1.2.3"
-                      ]
+                      "args": ["-y", "@acme/notes-mcp@1.2.3"]
                     }
                   ],
                   "skills": [
@@ -13365,9 +12861,7 @@
       ]
     },
     "speech.status": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "status": {
@@ -13424,9 +12918,7 @@
       ]
     },
     "speech.install": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "status": {
@@ -13440,9 +12932,7 @@
       ]
     },
     "speech.cancelInstall": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "status": {
@@ -13456,9 +12946,7 @@
       ]
     },
     "speech.uninstall": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "status": {
@@ -13472,9 +12960,7 @@
       ]
     },
     "speech.begin": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "recordingId": "rec_01JA2B3C4D5E6F7G"
@@ -13543,9 +13029,7 @@
           "recordingId": "rec_01JA2B3C4D5E6F7G"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "market.install": {
       "params": [
@@ -13589,12 +13073,8 @@
                 "value": "eu"
               }
             ],
-            "connectors": [
-              "con_plugin"
-            ],
-            "skills": [
-              "skl_plugin"
-            ]
+            "connectors": ["con_plugin"],
+            "skills": ["skl_plugin"]
           },
           "ignored": []
         }
@@ -13606,14 +13086,10 @@
           "entry": "notes"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "power.get": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "keepAwake": true
@@ -13658,9 +13134,7 @@
       ]
     },
     "inbox.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "items": [
@@ -13760,17 +13234,11 @@
           "itemId": "turn_failed:trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "notification.subscribe": {
-      "params": [
-        {}
-      ],
-      "result": [
-        {}
-      ]
+      "params": [{}],
+      "result": [{}]
     },
     "presence.update": {
       "params": [
@@ -13781,14 +13249,10 @@
           "active": false
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "device.list": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "devices": []
@@ -13800,11 +13264,7 @@
               "name": "iPhone",
               "platform": "ios",
               "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-              "permissions": [
-                "session.read",
-                "session.write",
-                "workspace.read"
-              ],
+              "permissions": ["session.read", "session.write", "workspace.read"],
               "createdAt": "2026-10-12T08:00:00.000Z",
               "lastSeenAt": "2026-10-12T08:00:05.250Z",
               "status": "active"
@@ -13814,11 +13274,7 @@
               "name": "iPhone",
               "platform": "ios",
               "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-              "permissions": [
-                "session.read",
-                "session.write",
-                "workspace.read"
-              ],
+              "permissions": ["session.read", "session.write", "workspace.read"],
               "createdAt": "2026-10-12T08:00:00.000Z",
               "lastSeenAt": "2026-10-12T08:00:05.250Z",
               "status": "revoked"
@@ -13832,11 +13288,7 @@
               "name": "iPhone",
               "platform": "ios",
               "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-              "permissions": [
-                "session.read",
-                "session.write",
-                "workspace.read"
-              ],
+              "permissions": ["session.read", "session.write", "workspace.read"],
               "createdAt": "2026-10-12T08:00:00.000Z",
               "lastSeenAt": "2026-10-12T08:00:05.250Z",
               "status": "active",
@@ -13857,10 +13309,7 @@
         },
         {
           "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "permissions": [
-            "session.read",
-            "terminal.write"
-          ]
+          "permissions": ["session.read", "terminal.write"]
         },
         {
           "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -13876,11 +13325,7 @@
             "name": "iPhone",
             "platform": "ios",
             "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-            "permissions": [
-              "session.read",
-              "session.write",
-              "workspace.read"
-            ],
+            "permissions": ["session.read", "session.write", "workspace.read"],
             "createdAt": "2026-10-12T08:00:00.000Z",
             "lastSeenAt": "2026-10-12T08:00:05.250Z",
             "status": "active"
@@ -13892,11 +13337,7 @@
             "name": "iPhone",
             "platform": "ios",
             "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-            "permissions": [
-              "session.read",
-              "session.write",
-              "workspace.read"
-            ],
+            "permissions": ["session.read", "session.write", "workspace.read"],
             "createdAt": "2026-10-12T08:00:00.000Z",
             "lastSeenAt": "2026-10-12T08:00:05.250Z",
             "status": "active",
@@ -13921,11 +13362,7 @@
             "name": "iPhone",
             "platform": "ios",
             "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-            "permissions": [
-              "session.read",
-              "session.write",
-              "workspace.read"
-            ],
+            "permissions": ["session.read", "session.write", "workspace.read"],
             "createdAt": "2026-10-12T08:00:00.000Z",
             "lastSeenAt": "2026-10-12T08:00:05.250Z",
             "status": "revoked"
@@ -13934,9 +13371,7 @@
       ]
     },
     "pairing.start": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "pairingId": "prg_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -13982,9 +13417,7 @@
           "pairingId": "prg_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
-      "result": [
-        {}
-      ]
+      "result": [{}]
     },
     "pairing.respond": {
       "params": [
@@ -14010,11 +13443,7 @@
             "name": "iPhone",
             "platform": "ios",
             "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-            "permissions": [
-              "session.read",
-              "session.write",
-              "workspace.read"
-            ],
+            "permissions": ["session.read", "session.write", "workspace.read"],
             "createdAt": "2026-10-12T08:00:00.000Z",
             "lastSeenAt": "2026-10-12T08:00:05.250Z",
             "status": "active"
@@ -14122,9 +13551,7 @@
             "exhausted": false
           },
           "trial": {
-            "proposalIds": [
-              "tpr_01JA2B3C4D5E6F7G8H9JKMNPQR"
-            ],
+            "proposalIds": ["tpr_01JA2B3C4D5E6F7G8H9JKMNPQR"],
             "startVersion": {
               "id": "pfv_01JA2B3C4D5E6F7G8H9JKMNPQR",
               "seq": 7,
@@ -14203,9 +13630,7 @@
       ]
     },
     "remote.status": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "listening": true,
@@ -14215,21 +13640,15 @@
               "name": "en0",
               "family": "IPv4",
               "kind": "lan",
-              "addresses": [
-                "192.168.1.20"
-              ],
+              "addresses": ["192.168.1.20"],
               "selected": true,
-              "listening": [
-                "192.168.1.20"
-              ]
+              "listening": ["192.168.1.20"]
             },
             {
               "name": "en1",
               "family": "IPv4",
               "kind": "lan",
-              "addresses": [
-                "192.168.1.21"
-              ],
+              "addresses": ["192.168.1.21"],
               "selected": false,
               "listening": []
             },
@@ -14237,13 +13656,9 @@
               "name": "utun4",
               "family": "IPv4",
               "kind": "tailscale",
-              "addresses": [
-                "100.101.102.103"
-              ],
+              "addresses": ["100.101.102.103"],
               "selected": true,
-              "listening": [
-                "100.101.102.103"
-              ]
+              "listening": ["100.101.102.103"]
             }
           ],
           "magicDnsName": "mac.tailnet-1234.ts.net",
@@ -14297,21 +13712,15 @@
               "name": "en0",
               "family": "IPv4",
               "kind": "lan",
-              "addresses": [
-                "192.168.1.20"
-              ],
+              "addresses": ["192.168.1.20"],
               "selected": true,
-              "listening": [
-                "192.168.1.20"
-              ]
+              "listening": ["192.168.1.20"]
             },
             {
               "name": "en1",
               "family": "IPv4",
               "kind": "lan",
-              "addresses": [
-                "192.168.1.21"
-              ],
+              "addresses": ["192.168.1.21"],
               "selected": false,
               "listening": []
             },
@@ -14319,13 +13728,9 @@
               "name": "utun4",
               "family": "IPv4",
               "kind": "tailscale",
-              "addresses": [
-                "100.101.102.103"
-              ],
+              "addresses": ["100.101.102.103"],
               "selected": true,
-              "listening": [
-                "100.101.102.103"
-              ]
+              "listening": ["100.101.102.103"]
             }
           ],
           "magicDnsName": "mac.tailnet-1234.ts.net",
@@ -14345,9 +13750,7 @@
       ]
     },
     "push.get": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "enabled": true,
@@ -14386,9 +13789,7 @@
       ]
     },
     "push.unregister": {
-      "params": [
-        {}
-      ],
+      "params": [{}],
       "result": [
         {
           "enabled": true,
@@ -14400,9 +13801,7 @@
     }
   },
   "notifications": {
-    "plugins.changed": [
-      {}
-    ],
+    "plugins.changed": [{}],
     "events.event": [
       {
         "subscriptionId": "sub_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -14475,9 +13874,7 @@
           "kind": "antigravity",
           "status": "signed_out",
           "signIn": "in_app",
-          "loginMethods": [
-            "browser"
-          ],
+          "loginMethods": ["browser"],
           "installed": false,
           "canInstall": true,
           "installing": {
@@ -14503,9 +13900,7 @@
           "email": "me@example.com",
           "planLabel": "Pro",
           "signIn": "in_app",
-          "loginMethods": [
-            "browser"
-          ],
+          "loginMethods": ["browser"],
           "loginCommand": "\"/Users/me/.wevir/engines/devin/runtime/versions/3000.11.92/bin/devin\" auth login",
           "installed": true,
           "version": "3000.11.92",
@@ -14517,9 +13912,7 @@
           "kind": "devin",
           "status": "signing_in",
           "signIn": "in_app",
-          "loginMethods": [
-            "browser"
-          ],
+          "loginMethods": ["browser"],
           "loginCommand": "devin auth login",
           "installed": true,
           "version": "3000.11.92",
@@ -14550,9 +13943,7 @@
         }
       }
     ],
-    "usage.changed": [
-      {}
-    ],
+    "usage.changed": [{}],
     "automation.changed": [
       {
         "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR"
@@ -14629,9 +14020,7 @@
           "args": {
             "browserId": "tab_m2k1_1",
             "ref": "@e4",
-            "modifiers": [
-              "Shift"
-            ]
+            "modifiers": ["Shift"]
           }
         }
       },
@@ -14698,9 +14087,7 @@
             "browserId": "tab_m2k1_1",
             "selector": "a",
             "frame": "1.0",
-            "attributes": [
-              "href"
-            ]
+            "attributes": ["href"]
           }
         }
       },
@@ -14739,9 +14126,7 @@
           "command": "upload",
           "args": {
             "browserId": "tab_m2k1_1",
-            "paths": [
-              "/Users/me/projects/wevir/a.txt"
-            ]
+            "paths": ["/Users/me/projects/wevir/a.txt"]
           }
         }
       },
@@ -14869,11 +14254,7 @@
           "signal": null,
           "startedAt": "2026-10-12T08:00:00.000Z",
           "bytes": 18204,
-          "stopSignals": [
-            "SIGINT",
-            "SIGTERM",
-            "SIGKILL"
-          ]
+          "stopSignals": ["SIGINT", "SIGTERM", "SIGKILL"]
         }
       },
       {
@@ -14900,11 +14281,7 @@
           "signal": null,
           "startedAt": "2026-10-12T08:00:00.000Z",
           "bytes": 512,
-          "stopSignals": [
-            "SIGINT",
-            "SIGTERM",
-            "SIGKILL"
-          ],
+          "stopSignals": ["SIGINT", "SIGTERM", "SIGKILL"],
           "preview": {
             "name": "web",
             "root": "/home/u/projects/demo",
@@ -14983,9 +14360,7 @@
           "projects": [
             {
               "path": "",
-              "ecosystems": [
-                "node"
-              ]
+              "ecosystems": ["node"]
             }
           ],
           "items": [
@@ -15055,9 +14430,7 @@
               "writesLockfile": false,
               "reason": "dependencies_outdated",
               "scripts": {
-                "project": [
-                  "postinstall"
-                ],
+                "project": ["postinstall"],
                 "dependencies": "restricted"
               },
               "credentials": [
@@ -15083,19 +14456,14 @@
                 "auth": "configured"
               }
             ],
-            "proxy": [
-              "HTTPS_PROXY"
-            ],
+            "proxy": ["HTTPS_PROXY"],
             "agent": {
               "engine": "codex",
               "permissionMode": "on_request",
               "network": "sandboxed",
               "domains": "not_enforced"
             },
-            "advice": [
-              "install_by_user",
-              "domains_not_enforced"
-            ]
+            "advice": ["install_by_user", "domains_not_enforced"]
           },
           "install": {
             "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -15221,9 +14589,7 @@
       {
         "listVersion": 8,
         "upserted": [],
-        "removed": [
-          "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
-        ]
+        "removed": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"]
       },
       {
         "listVersion": 9,
@@ -15272,9 +14638,7 @@
             }
           }
         ],
-        "removed": [
-          "question:qst_01JA2B3C4D5E6F7G8H9JKMNPQR"
-        ]
+        "removed": ["question:qst_01JA2B3C4D5E6F7G8H9JKMNPQR"]
       }
     ],
     "notification.intent": [
@@ -15319,11 +14683,7 @@
             "name": "iPhone",
             "platform": "ios",
             "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
-            "permissions": [
-              "session.read",
-              "session.write",
-              "workspace.read"
-            ],
+            "permissions": ["session.read", "session.write", "workspace.read"],
             "createdAt": "2026-10-12T08:00:00.000Z",
             "lastSeenAt": "2026-10-12T08:00:05.250Z",
             "status": "active"
@@ -15360,21 +14720,15 @@
             "name": "en0",
             "family": "IPv4",
             "kind": "lan",
-            "addresses": [
-              "192.168.1.20"
-            ],
+            "addresses": ["192.168.1.20"],
             "selected": true,
-            "listening": [
-              "192.168.1.20"
-            ]
+            "listening": ["192.168.1.20"]
           },
           {
             "name": "en1",
             "family": "IPv4",
             "kind": "lan",
-            "addresses": [
-              "192.168.1.21"
-            ],
+            "addresses": ["192.168.1.21"],
             "selected": false,
             "listening": []
           },
@@ -15382,13 +14736,9 @@
             "name": "utun4",
             "family": "IPv4",
             "kind": "tailscale",
-            "addresses": [
-              "100.101.102.103"
-            ],
+            "addresses": ["100.101.102.103"],
             "selected": true,
-            "listening": [
-              "100.101.102.103"
-            ]
+            "listening": ["100.101.102.103"]
           }
         ],
         "magicDnsName": "mac.tailnet-1234.ts.net",
@@ -15442,21 +14792,15 @@
             "name": "en0",
             "family": "IPv4",
             "kind": "lan",
-            "addresses": [
-              "192.168.1.20"
-            ],
+            "addresses": ["192.168.1.20"],
             "selected": true,
-            "listening": [
-              "192.168.1.20"
-            ]
+            "listening": ["192.168.1.20"]
           },
           {
             "name": "en1",
             "family": "IPv4",
             "kind": "lan",
-            "addresses": [
-              "192.168.1.21"
-            ],
+            "addresses": ["192.168.1.21"],
             "selected": false,
             "listening": []
           },
@@ -15464,13 +14808,9 @@
             "name": "utun4",
             "family": "IPv4",
             "kind": "tailscale",
-            "addresses": [
-              "100.101.102.103"
-            ],
+            "addresses": ["100.101.102.103"],
             "selected": true,
-            "listening": [
-              "100.101.102.103"
-            ]
+            "listening": ["100.101.102.103"]
           }
         ],
         "magicDnsName": "mac.tailnet-1234.ts.net",
@@ -15519,9 +14859,7 @@
         "permissionMode": "full_access",
         "engineVersion": "0.2.1-alpha.2",
         "environmentId": "env_01JA2B3C4D5E6F7G8H9JKMNPQR",
-        "extraRoots": [
-          "/Users/me/projects/wevir-api"
-        ],
+        "extraRoots": ["/Users/me/projects/wevir-api"],
         "worktrees": [
           {
             "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -15550,9 +14888,7 @@
         "permissionMode": "full_access",
         "engineVersion": "0.2.1-alpha.2",
         "environmentId": "env_01JA2B3C4D5E6F7G8H9JKMNPQR",
-        "extraRoots": [
-          "/Users/me/projects/wevir-api"
-        ],
+        "extraRoots": ["/Users/me/projects/wevir-api"],
         "worktrees": [
           {
             "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -15566,9 +14902,7 @@
         },
         "toolPreset": {
           "id": "core",
-          "groups": [
-            "browser"
-          ]
+          "groups": ["browser"]
         }
       }
     },
@@ -15807,9 +15141,7 @@
         "display": {
           "kind": "write",
           "summary": "/tmp/wevir-outside.txt",
-          "paths": [
-            "/tmp/wevir-outside.txt"
-          ]
+          "paths": ["/tmp/wevir-outside.txt"]
         },
         "input": {
           "file_path": "/tmp/wevir-outside.txt",
@@ -15897,9 +15229,7 @@
             "display": {
               "kind": "write",
               "summary": "/tmp/wevir-outside.txt",
-              "paths": [
-                "/tmp/wevir-outside.txt"
-              ]
+              "paths": ["/tmp/wevir-outside.txt"]
             },
             "input": {
               "file_path": "/tmp/wevir-outside.txt",
@@ -15999,15 +15329,10 @@
           "reason": "user",
           "answers": {
             "scope": {
-              "answers": [
-                "全链路"
-              ]
+              "answers": ["全链路"]
             },
             "targets": {
-              "answers": [
-                "macOS",
-                "Linux"
-              ]
+              "answers": ["macOS", "Linux"]
             }
           },
           "answeredBy": {
@@ -16146,9 +15471,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -16484,9 +15807,7 @@
         "display": {
           "kind": "write",
           "summary": "/tmp/wevir-outside.txt",
-          "paths": [
-            "/tmp/wevir-outside.txt"
-          ]
+          "paths": ["/tmp/wevir-outside.txt"]
         },
         "input": {
           "file_path": "/tmp/wevir-outside.txt",
@@ -16574,9 +15895,7 @@
             "display": {
               "kind": "write",
               "summary": "/tmp/wevir-outside.txt",
-              "paths": [
-                "/tmp/wevir-outside.txt"
-              ]
+              "paths": ["/tmp/wevir-outside.txt"]
             },
             "input": {
               "file_path": "/tmp/wevir-outside.txt",
@@ -16676,15 +15995,10 @@
           "reason": "user",
           "answers": {
             "scope": {
-              "answers": [
-                "全链路"
-              ]
+              "answers": ["全链路"]
             },
             "targets": {
-              "answers": [
-                "macOS",
-                "Linux"
-              ]
+              "answers": ["macOS", "Linux"]
             }
           },
           "answeredBy": {
@@ -16822,9 +16136,7 @@
                 "display": {
                   "kind": "write",
                   "summary": "/tmp/wevir-outside.txt",
-                  "paths": [
-                    "/tmp/wevir-outside.txt"
-                  ]
+                  "paths": ["/tmp/wevir-outside.txt"]
                 },
                 "input": {
                   "file_path": "/tmp/wevir-outside.txt",
@@ -17254,9 +16566,7 @@
             "id": "t2",
             "subject": "汇总测试结果",
             "status": "pending",
-            "blockedBy": [
-              "t1"
-            ],
+            "blockedBy": ["t1"],
             "notes": [],
             "createdBy": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "createdAt": "2026-10-12T08:00:00.000Z",
@@ -17403,9 +16713,7 @@
           "status": "stopped",
           "attempt": 2,
           "maxAttempts": 2,
-          "turnIds": [
-            "trn_01JA2B3C4D5E6F7G8H9JKMNPR1"
-          ],
+          "turnIds": ["trn_01JA2B3C4D5E6F7G8H9JKMNPR1"],
           "lastRoundId": "vrd_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "stopReason": "limit",
           "startedAt": "2026-10-12T08:00:00.000Z",
@@ -17576,14 +16884,10 @@
           "reason": "timeout",
           "answers": {
             "scope": {
-              "answers": [
-                "全链路"
-              ]
+              "answers": ["全链路"]
             },
             "targets": {
-              "answers": [
-                "macOS"
-              ]
+              "answers": ["macOS"]
             }
           }
         }
@@ -17773,9 +17077,7 @@
             "display": {
               "kind": "write",
               "summary": "/tmp/wevir-outside.txt",
-              "paths": [
-                "/tmp/wevir-outside.txt"
-              ]
+              "paths": ["/tmp/wevir-outside.txt"]
             },
             "input": {
               "file_path": "/tmp/wevir-outside.txt",
@@ -17789,12 +17091,7 @@
           "status": "pending",
           "createdAt": "2026-10-12T08:00:00.000Z",
           "proposedRule": {
-            "prefixes": [
-              [
-                "git",
-                "status"
-              ]
-            ]
+            "prefixes": [["git", "status"]]
           }
         }
       }
@@ -17811,9 +17108,7 @@
         "resolution": {
           "optionId": "allow-once",
           "reason": "rule",
-          "ruleIds": [
-            "arl_01JA2B3C4D5E6F7G8H9JKMNPQR"
-          ]
+          "ruleIds": ["arl_01JA2B3C4D5E6F7G8H9JKMNPQR"]
         }
       }
     },
@@ -17962,9 +17257,7 @@
             "display": {
               "kind": "write",
               "summary": "/tmp/wevir-outside.txt",
-              "paths": [
-                "/tmp/wevir-outside.txt"
-              ]
+              "paths": ["/tmp/wevir-outside.txt"]
             },
             "input": {
               "file_path": "/tmp/wevir-outside.txt",
@@ -18024,11 +17317,7 @@
           "data": {
             "issues": [
               {
-                "path": [
-                  "content",
-                  0,
-                  "text"
-                ],
+                "path": ["content", 0, "text"],
                 "message": "Invalid input"
               }
             ]
@@ -18130,9 +17419,7 @@
           "code": -32024,
           "message": "resource in use",
           "data": {
-            "sessionIds": [
-              "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
-            ]
+            "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"]
           }
         }
       }
@@ -18192,9 +17479,7 @@
           "code": -32024,
           "message": "resource in use",
           "data": {
-            "sessionIds": [
-              "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
-            ],
+            "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"],
             "worktrees": [
               {
                 "path": "/Users/me/Wevir/worktrees/ses_x/1-app",
@@ -18214,10 +17499,7 @@
           "code": -32026,
           "message": "handoff stale",
           "data": {
-            "reasons": [
-              "events",
-              "notes"
-            ]
+            "reasons": ["events", "notes"]
           }
         }
       }
@@ -18261,9 +17543,7 @@
           "code": -32005,
           "message": "forbidden",
           "data": {
-            "missing": [
-              "policy.write"
-            ]
+            "missing": ["policy.write"]
           }
         }
       }
