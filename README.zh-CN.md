@@ -26,13 +26,14 @@
 
 ## 简介
 
-**Wevir 是 Codex 式的 AI 编程 Agent 桌面工作台，不绑定某一家模型服务。** 用自己的 API Key、任意 OpenAI 兼容接口或已有的订阅，会话进行中也能换模型。
+**Wevir 是 Codex 式的 AI 编程 Agent 桌面工作台，不绑定某一家模型服务。** 用自己的 API Key、任意 OpenAI 兼容接口或已有的订阅（多数可加多个账号），会话进行中也能换模型。
 
 会话、审批、变更审阅、项目文件，以及 Agent 可以操作的浏览器，都在同一个开源桌面应用里。本地 Host 运行 Agent，数据留在你的电脑上；`wevir` 命令行连的是同一个 Host。
 
 ### 为什么用 Wevir
 
 - **按任务选模型，而不是按应用。** 开源的 Codex Agent 运行时在本机运行，Wevir 的网关把它的请求转换给 OpenAI、Anthropic、Google、DeepSeek 等十余家模型服务、本机 Ollama 与任意 OpenAI 兼容接口。回合之间换模型或换服务，不用离开当前会话。
+- **多个订阅，每个都能加多个账号。** 已经付费的 Codex（ChatGPT）、Claude Code、Grok、OpenCode、Antigravity、Cursor 订阅可以同时用，每种都能添加多个账号。每个账号有独立的登录与数据、自定的标签，侧栏里单独显示用量，会话用哪个账号由你选。
 - **改动落地前先审阅。** 沙箱外的命令要你批准；每个回合都有检查点；变更窗格按回合、分支或未提交查看差异，可以批注、暂存并提交。
 - **本地优先。** 会话、设置与 API Key 留在本机的数据目录。Key 由 Host 保管，不交给 Agent 进程。
 
@@ -55,6 +56,7 @@
 - **一套运行时接多家模型**：OpenAI、Anthropic、Google AI Studio、Google Vertex AI、Azure OpenAI / Microsoft Foundry、SpaceXAI（Grok API）、DeepSeek、阿里云百炼、Kimi、Z.ai / 智谱 GLM、小米 MiMo、MiniMax、阶跃星辰、腾讯云 TokenHub、Azure Claude、RedPill、Ollama（本机与云端），以及任意 OpenAI 兼容接口。网关把请求转换为 OpenAI Responses、Chat Completions 或 Anthropic Messages，推理与工具调用一并转换。
 - **密钥只在 Host**：API Key 存在 Host 的密钥存储里，不交给运行时进程。
 - **订阅**：用 ChatGPT 账号登录，或直接用已有的 Claude、OpenCode、Grok、Antigravity、WorkBuddy、Devin、Cursor 订阅。Wevir 用厂商自己的客户端或 SDK 与你现有的登录运行，可以在设置里下载客户端并发起登录。各来源的要求见[状态](#状态)。
+- **多账号**：ChatGPT、Claude、Grok、OpenCode、Antigravity、Cursor 都能添加多个账号。每个账号的凭据与会话放在各自的目录里，可以加“工作”“个人”之类的标签，用量分开统计。WorkBuddy 与 Devin 各只支持一个账号。
 - **会话中切换**：回合之间换模型与推理档位，或把会话交给另一个模型服务，并附上它没看到的那段历史的摘要。
 
 <br clear="right" />

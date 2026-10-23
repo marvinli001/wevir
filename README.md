@@ -26,13 +26,14 @@
 
 ## Overview
 
-**Wevir is a Codex-style desktop workspace for coding agents that isn't tied to one model provider.** Bring your own API keys, any OpenAI-compatible endpoint, or a subscription you already have, and switch models in the middle of a session.
+**Wevir is a Codex-style desktop workspace for coding agents that isn't tied to one model provider.** Bring your own API keys, any OpenAI-compatible endpoint, or the subscriptions you already have (most of them with several accounts), and switch models in the middle of a session.
 
 Sessions, approvals, change review, project files, and a browser the agent can drive live in one open-source desktop app. A local Host runs the agents and keeps their data on your machine; the `wevir` CLI talks to the same Host.
 
 ### Why Wevir
 
 - **Pick the model per task, not per app.** The open-source Codex agent runtime runs locally, and Wevir's gateway translates its requests for OpenAI, Anthropic, Google, DeepSeek, a dozen other providers, local Ollama, and any OpenAI-compatible endpoint. Change model or provider between turns without leaving the session.
+- **Several subscriptions, several accounts each.** Use the Codex (ChatGPT), Claude Code, Grok, OpenCode, Antigravity, and Cursor subscriptions you already pay for side by side, and add more than one account for each. Every account has its own sign-in and data, a label you choose, and its own usage in the sidebar, so you pick which account a session runs on.
 - **Review before anything lands.** Commands outside the sandbox wait for your approval, every turn is checkpointed, and the changes pane shows per-turn, branch, or uncommitted diffs that you can comment on, stage, and commit.
 - **Local-first.** Sessions, settings, and API keys stay in a local data directory. Keys are held by the Host and never passed to the agent process.
 
@@ -55,6 +56,7 @@ Sessions, approvals, change review, project files, and a browser the agent can d
 - **Most providers through one runtime**: OpenAI, Anthropic, Google AI Studio, Google Vertex AI, Azure OpenAI / Microsoft Foundry, SpaceXAI (Grok API), DeepSeek, Alibaba Cloud Model Studio, Kimi, Z.ai / Zhipu GLM, Xiaomi MiMo, MiniMax, StepFun, Tencent Cloud TokenHub, Azure Claude, RedPill, Ollama (local and cloud), and any OpenAI-compatible endpoint. The gateway converts requests to OpenAI Responses, Chat Completions, or Anthropic Messages, including reasoning and tool calls.
 - **Keys stay in the Host**: API keys are kept in the Host's secret store and never passed to the runtime process.
 - **Subscriptions**: Sign in with ChatGPT, or use a Claude, OpenCode, Grok, Antigravity, WorkBuddy, Devin, or Cursor subscription you already have. Wevir runs the vendor's own client or SDK with your existing sign-in, and can download the client and start its sign-in from Settings. See [Status](#status) for what each source needs.
+- **Multiple accounts**: Add several ChatGPT, Claude, Grok, OpenCode, Antigravity, or Cursor accounts. Each one keeps its credentials and sessions in its own directory, can carry a label such as Work or Personal, and reports its own usage. WorkBuddy and Devin take one account each.
 - **Switch mid-session**: Change model and reasoning effort between turns, or hand a session to another provider with a summary of what it missed.
 
 <br clear="right" />
