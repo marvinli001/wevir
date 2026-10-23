@@ -18,14 +18,76 @@ import {
   automationTestCheck,
   automationUpdate,
   joinMonthlyArgs,
+  parsePermission,
 } from './commands/automation.js';
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
 import { inboxDismiss, inboxList, inboxRespond } from './commands/inbox.js';
-import { providerAdd, providerList, providerTest } from './commands/provider.js';
+import {
+  type MemoryEditFlags,
+  memoryDelete,
+  memoryEdit,
+  memoryList,
+  memoryOptions,
+  memorySetEnabled,
+  memoryShow,
+} from './commands/memory.js';
+import {
+  mcpAdd,
+  pluginInstall,
+  pluginList,
+  pluginRemove,
+  pluginSetEnabled,
+} from './commands/plugin.js';
+import { processList, processOutput, processStop, usageSummary } from './commands/process.js';
+import {
+  providerAdd,
+  providerList,
+  providerModels,
+  providerRemove,
+  providerSetEnabled,
+  providerTest,
+} from './commands/provider.js';
 import { remoteForget, remoteList, remotePair } from './commands/remote.js';
+import { ruleAdd, ruleDelete, ruleList, ruleSuggest } from './commands/rule.js';
 import { sessionAttach, sessionList, sessionNew, sessionSend } from './commands/session.js';
+import {
+  sessionArchive,
+  sessionCancel,
+  sessionClose,
+  sessionCompact,
+  sessionConfig,
+  sessionDelete,
+  sessionFork,
+  sessionRename,
+  sessionShow,
+  sessionUndo,
+} from './commands/session-manage.js';
+import {
+  instructionsClear,
+  instructionsSet,
+  instructionsShow,
+  settingsList,
+  settingsSet,
+} from './commands/settings.js';
+import {
+  accountAdd,
+  accountInstall,
+  accountLabel,
+  accountList,
+  accountPath,
+  accountRemove,
+  accountShow,
+  accountUpstreams,
+  accountLogin as subscriptionLogin,
+  accountLogout as subscriptionLogout,
+} from './commands/subscription.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
-import { workspaceAdd, workspaceList } from './commands/workspace.js';
+import {
+  workspaceAdd,
+  workspaceList,
+  workspaceRemove,
+  workspaceRename,
+} from './commands/workspace.js';
 import { type CliIO, type Context, createContext } from './context.js';
 import { EXIT, UsageError } from './errors.js';
 import { padEnd } from './format.js';
@@ -123,6 +185,11 @@ function automationFlags(values: Values): AutomationFlags {
   return flags as AutomationFlags;
 }
 
+function ruleOptions(values: Values): { workspace?: string; json: boolean } {
+  const workspace = str(values.workspace);
+  return { ...(workspace !== undefined && { workspace }), json: values.json === true };
+}
+
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
   host: {
     start: {
@@ -172,10 +239,27 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     list: {
       summary: 'cmd.workspace.list.summary',
       usage: 'cmd.workspace.list.usage',
-      options: {},
+      options: json,
       positionals: { min: 0, max: 0 },
       remote: true,
-      run: (ctx) => workspaceList(ctx),
+      run: (ctx, v) => workspaceList(ctx, { json: v.json === true }),
+    },
+    rename: {
+      summary: 'cmd.workspace.rename.summary',
+      usage: 'cmd.workspace.rename.usage',
+      options: {},
+      positionals: { min: 2, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, _v, [path, ...words]) => workspaceRename(ctx, path as string, words.join(' ')),
+    },
+    remove: {
+      summary: 'cmd.workspace.remove.summary',
+      usage: 'cmd.workspace.remove.usage',
+      help: 'cmd.workspace.remove.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [path]) => workspaceRemove(ctx, path as string),
     },
   },
   provider: {
@@ -216,10 +300,41 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     list: {
       summary: 'cmd.provider.list.summary',
       usage: 'cmd.provider.list.usage',
-      options: {},
+      options: json,
       positionals: { min: 0, max: 0 },
       remote: true,
-      run: (ctx) => providerList(ctx),
+      run: (ctx, v) => providerList(ctx, { json: v.json === true }),
+    },
+    models: {
+      summary: 'cmd.provider.models.summary',
+      usage: 'cmd.provider.models.usage',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => providerModels(ctx, id as string, { json: v.json === true }),
+    },
+    enable: {
+      summary: 'cmd.provider.enable.summary',
+      usage: 'cmd.provider.enable.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => providerSetEnabled(ctx, id as string, true),
+    },
+    disable: {
+      summary: 'cmd.provider.disable.summary',
+      usage: 'cmd.provider.disable.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => providerSetEnabled(ctx, id as string, false),
+    },
+    remove: {
+      summary: 'cmd.provider.remove.summary',
+      usage: 'cmd.provider.remove.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [id]) => providerRemove(ctx, id as string),
     },
     test: {
       summary: 'cmd.provider.test.summary',
@@ -254,6 +369,113 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       options: {},
       positionals: { min: 0, max: 1 },
       run: (ctx, _v, [kind]) => accountLogout(ctx, parseAccountKind(kind)),
+    },
+  },
+  account: {
+    list: {
+      summary: 'cmd.account.list.summary',
+      usage: 'cmd.account.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => accountList(ctx, { json: v.json === true }),
+    },
+    status: {
+      summary: 'cmd.account.status.summary',
+      usage: 'cmd.account.status.usage',
+      help: 'cmd.account.status.help',
+      options: { refresh: { type: 'boolean' }, ...json },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [value]) =>
+        accountShow(ctx, value as string, { json: v.json === true, refresh: v.refresh === true }),
+    },
+    login: {
+      summary: 'cmd.account.login.summary',
+      usage: 'cmd.account.login.usage',
+      help: 'cmd.account.login.help',
+      options: {
+        browser: { type: 'boolean' },
+        'device-code': { type: 'boolean' },
+        option: { type: 'string' },
+        upstream: { type: 'string' },
+      },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [value]) => {
+        const option = str(v.option);
+        const upstream = str(v.upstream);
+        return subscriptionLogin(ctx, value as string, {
+          ...(v.browser === true && { browser: true }),
+          ...(v['device-code'] === true && { deviceCode: true }),
+          ...(option !== undefined && { option }),
+          ...(upstream !== undefined && { upstream }),
+        });
+      },
+    },
+    logout: {
+      summary: 'cmd.account.logout.summary',
+      usage: 'cmd.account.logout.usage',
+      help: 'cmd.account.logout.help',
+      options: { upstream: { type: 'string' } },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [value]) => {
+        const upstream = str(v.upstream);
+        return subscriptionLogout(ctx, value as string, {
+          ...(upstream !== undefined && { upstream }),
+        });
+      },
+    },
+    upstreams: {
+      summary: 'cmd.account.upstreams.summary',
+      usage: 'cmd.account.upstreams.usage',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [value]) => accountUpstreams(ctx, value as string, { json: v.json === true }),
+    },
+    install: {
+      summary: 'cmd.account.install.summary',
+      usage: 'cmd.account.install.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [value]) => accountInstall(ctx, value as string),
+    },
+    add: {
+      summary: 'cmd.account.add.summary',
+      usage: 'cmd.account.add.usage',
+      options: { label: { type: 'string' }, ...json },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [value]) => {
+        const label = str(v.label);
+        return accountAdd(ctx, value as string, {
+          ...(label !== undefined && { label }),
+          json: v.json === true,
+        });
+      },
+    },
+    remove: {
+      summary: 'cmd.account.remove.summary',
+      usage: 'cmd.account.remove.usage',
+      help: 'cmd.account.remove.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [value]) => accountRemove(ctx, value as string),
+    },
+    label: {
+      summary: 'cmd.account.label.summary',
+      usage: 'cmd.account.label.usage',
+      options: { clear: { type: 'boolean' } },
+      positionals: { min: 1, max: 2 },
+      run: (ctx, v, [value, label]) =>
+        accountLabel(ctx, value as string, label, { clear: v.clear === true }),
+    },
+    path: {
+      summary: 'cmd.account.path.summary',
+      usage: 'cmd.account.path.usage',
+      options: { clear: { type: 'boolean' } },
+      positionals: { min: 1, max: 2 },
+      run: (ctx, v, [value, path]) =>
+        accountPath(ctx, value as string, path, { clear: v.clear === true }),
     },
   },
   web: {
@@ -310,23 +532,30 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
         workspace: { type: 'string', short: 'w' },
         provider: { type: 'string' },
         model: { type: 'string' },
+        effort: { type: 'string' },
+        permission: { type: 'string' },
+        worktree: { type: 'boolean' },
         detach: { type: 'boolean' },
+        plan: { type: 'boolean' },
       },
       positionals: { min: 0, max: Number.POSITIVE_INFINITY },
       remote: true,
       run: (ctx, v, positionals) => {
         const workspace = str(v.workspace);
-        if (workspace === undefined) {
-          throw new UsageError(t('usage.missingWorkspace'), t('usage.missingWorkspace.hint'));
-        }
         const provider = str(v.provider);
         const model = str(v.model);
+        const effort = str(v.effort);
+        const permission = str(v.permission);
         const prompt = positionals.length > 0 ? positionals.join(' ') : undefined;
         return sessionNew(ctx, prompt, {
-          workspace,
+          ...(workspace !== undefined && { workspace }),
           ...(provider !== undefined && { provider }),
           ...(model !== undefined && { model }),
+          ...(effort !== undefined && { effort }),
+          ...(permission !== undefined && { permission: parsePermission(permission) }),
+          ...(v.worktree === true && { worktree: true }),
           ...(v.detach === true && { detach: true }),
+          ...(v.plan === true && { plan: true }),
         });
       },
     },
@@ -334,13 +563,29 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       summary: 'cmd.session.list.summary',
       usage: 'cmd.session.list.usage',
       help: 'cmd.session.list.help',
-      options: { workspace: { type: 'string', short: 'w' } },
+      options: {
+        workspace: { type: 'string', short: 'w' },
+        archived: { type: 'boolean' },
+        ...json,
+      },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => {
         const workspace = str(v.workspace);
-        return sessionList(ctx, workspace === undefined ? {} : { workspace });
+        return sessionList(ctx, {
+          ...(workspace !== undefined && { workspace }),
+          archived: v.archived === true,
+          json: v.json === true,
+        });
       },
+    },
+    show: {
+      summary: 'cmd.session.show.summary',
+      usage: 'cmd.session.show.usage',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => sessionShow(ctx, id as string, { json: v.json === true }),
     },
     attach: {
       summary: 'cmd.session.attach.summary',
@@ -355,10 +600,129 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       summary: 'cmd.session.send.summary',
       usage: 'cmd.session.send.usage',
       help: 'cmd.session.send.help',
+      options: { plan: { type: 'boolean' } },
+      positionals: { min: 2, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, v, [id, ...words]) =>
+        sessionSend(ctx, id as string, words.join(' '), { plan: v.plan === true }),
+    },
+    config: {
+      summary: 'cmd.session.config.summary',
+      usage: 'cmd.session.config.usage',
+      help: 'cmd.session.config.help',
+      options: {
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        effort: { type: 'string' },
+        'default-effort': { type: 'boolean' },
+        permission: { type: 'string' },
+        ...json,
+      },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => {
+        const flags: Record<string, string | boolean> = {};
+        for (const [option, key] of Object.entries({
+          provider: 'provider',
+          model: 'model',
+          effort: 'effort',
+          'default-effort': 'defaultEffort',
+          permission: 'permission',
+          json: 'json',
+        })) {
+          const value = v[option];
+          if (value !== undefined) flags[key] = value;
+        }
+        return sessionConfig(ctx, id as string, flags);
+      },
+    },
+    rename: {
+      summary: 'cmd.session.rename.summary',
+      usage: 'cmd.session.rename.usage',
       options: {},
       positionals: { min: 2, max: Number.POSITIVE_INFINITY },
       remote: true,
-      run: (ctx, _v, [id, ...words]) => sessionSend(ctx, id as string, words.join(' ')),
+      run: (ctx, _v, [id, ...words]) => sessionRename(ctx, id as string, words.join(' ')),
+    },
+    undo: {
+      summary: 'cmd.session.undo.summary',
+      usage: 'cmd.session.undo.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionUndo(ctx, id as string, false),
+    },
+    redo: {
+      summary: 'cmd.session.redo.summary',
+      usage: 'cmd.session.redo.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionUndo(ctx, id as string, true),
+    },
+    fork: {
+      summary: 'cmd.session.fork.summary',
+      usage: 'cmd.session.fork.usage',
+      help: 'cmd.session.fork.help',
+      options: { turn: { type: 'string' }, ...json },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => {
+        const turn = str(v.turn);
+        return sessionFork(ctx, id as string, {
+          ...(turn !== undefined && { turn }),
+          json: v.json === true,
+        });
+      },
+    },
+    compact: {
+      summary: 'cmd.session.compact.summary',
+      usage: 'cmd.session.compact.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionCompact(ctx, id as string),
+    },
+    cancel: {
+      summary: 'cmd.session.cancel.summary',
+      usage: 'cmd.session.cancel.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionCancel(ctx, id as string),
+    },
+    close: {
+      summary: 'cmd.session.close.summary',
+      usage: 'cmd.session.close.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionClose(ctx, id as string),
+    },
+    archive: {
+      summary: 'cmd.session.archive.summary',
+      usage: 'cmd.session.archive.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionArchive(ctx, id as string, true),
+    },
+    unarchive: {
+      summary: 'cmd.session.unarchive.summary',
+      usage: 'cmd.session.unarchive.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => sessionArchive(ctx, id as string, false),
+    },
+    delete: {
+      summary: 'cmd.session.delete.summary',
+      usage: 'cmd.session.delete.usage',
+      help: 'cmd.session.delete.help',
+      options: { force: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => sessionDelete(ctx, id as string, { force: v.force === true }),
     },
   },
   automation: {
@@ -472,10 +836,290 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       summary: 'cmd.inbox.respond.summary',
       usage: 'cmd.inbox.respond.usage',
       help: 'cmd.inbox.respond.help',
-      options: {},
+      options: { remember: { type: 'string' } },
       positionals: { min: 2, max: 2 },
       remote: true,
-      run: (ctx, _v, [id, answer]) => inboxRespond(ctx, id as string, answer as string),
+      run: (ctx, v, [id, answer]) => {
+        const remember = str(v.remember);
+        return inboxRespond(ctx, id as string, answer as string, {
+          ...(remember !== undefined && { remember }),
+        });
+      },
+    },
+  },
+  memory: {
+    list: {
+      summary: 'cmd.memory.list.summary',
+      usage: 'cmd.memory.list.usage',
+      help: 'cmd.memory.list.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => memoryList(ctx, memoryOptions(str(v.workspace), v.json === true)),
+    },
+    show: {
+      summary: 'cmd.memory.show.summary',
+      usage: 'cmd.memory.show.usage',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [name]) =>
+        memoryShow(ctx, name as string, memoryOptions(str(v.workspace), v.json === true)),
+    },
+    edit: {
+      summary: 'cmd.memory.edit.summary',
+      usage: 'cmd.memory.edit.usage',
+      help: 'cmd.memory.edit.help',
+      options: {
+        workspace: { type: 'string', short: 'w' },
+        description: { type: 'string' },
+        type: { type: 'string' },
+        content: { type: 'string' },
+        stdin: { type: 'boolean' },
+      },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [name]) => {
+        const flags: MemoryEditFlags = memoryOptions(str(v.workspace), false);
+        const description = str(v.description);
+        const type = str(v.type);
+        const content = str(v.content);
+        return memoryEdit(ctx, name as string, {
+          ...flags,
+          ...(description !== undefined && { description }),
+          ...(type !== undefined && { type }),
+          ...(content !== undefined && { content }),
+          ...(v.stdin === true && { stdin: true }),
+        });
+      },
+    },
+    enable: {
+      summary: 'cmd.memory.enable.summary',
+      usage: 'cmd.memory.enable.usage',
+      options: { workspace: { type: 'string', short: 'w' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [name]) =>
+        memorySetEnabled(ctx, name as string, true, memoryOptions(str(v.workspace), false)),
+    },
+    disable: {
+      summary: 'cmd.memory.disable.summary',
+      usage: 'cmd.memory.disable.usage',
+      options: { workspace: { type: 'string', short: 'w' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [name]) =>
+        memorySetEnabled(ctx, name as string, false, memoryOptions(str(v.workspace), false)),
+    },
+    delete: {
+      summary: 'cmd.memory.delete.summary',
+      usage: 'cmd.memory.delete.usage',
+      options: { workspace: { type: 'string', short: 'w' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [name]) =>
+        memoryDelete(ctx, name as string, memoryOptions(str(v.workspace), false)),
+    },
+  },
+  plugin: {
+    list: {
+      summary: 'cmd.plugin.list.summary',
+      usage: 'cmd.plugin.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => pluginList(ctx, { json: v.json === true }),
+    },
+    enable: {
+      summary: 'cmd.plugin.enable.summary',
+      usage: 'cmd.plugin.enable.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => pluginSetEnabled(ctx, id as string, true),
+    },
+    disable: {
+      summary: 'cmd.plugin.disable.summary',
+      usage: 'cmd.plugin.disable.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => pluginSetEnabled(ctx, id as string, false),
+    },
+    install: {
+      summary: 'cmd.plugin.install.summary',
+      usage: 'cmd.plugin.install.usage',
+      help: 'cmd.plugin.install.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [path]) => pluginInstall(ctx, path as string),
+    },
+    remove: {
+      summary: 'cmd.plugin.remove.summary',
+      usage: 'cmd.plugin.remove.usage',
+      help: 'cmd.plugin.remove.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => pluginRemove(ctx, id as string),
+    },
+  },
+  mcp: {
+    add: {
+      summary: 'cmd.mcp.add.summary',
+      usage: 'cmd.mcp.add.usage',
+      help: 'cmd.mcp.add.help',
+      options: {
+        url: { type: 'string' },
+        workspace: { type: 'string', short: 'w' },
+        disabled: { type: 'boolean' },
+      },
+      positionals: { min: 1, max: Number.POSITIVE_INFINITY },
+      run: (ctx, v, [name, ...command]) => {
+        const url = str(v.url);
+        const workspace = str(v.workspace);
+        return mcpAdd(ctx, name as string, command, {
+          ...(url !== undefined && { url }),
+          ...(workspace !== undefined && { workspace }),
+          ...(v.disabled === true && { disabled: true }),
+        });
+      },
+    },
+  },
+  settings: {
+    list: {
+      summary: 'cmd.settings.list.summary',
+      usage: 'cmd.settings.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => settingsList(ctx, { json: v.json === true }),
+    },
+    set: {
+      summary: 'cmd.settings.set.summary',
+      usage: 'cmd.settings.set.usage',
+      help: 'cmd.settings.set.help',
+      options: {},
+      positionals: { min: 2, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, _v, [key, ...words]) => settingsSet(ctx, key as string, words.join(' ')),
+    },
+  },
+  instructions: {
+    show: {
+      summary: 'cmd.instructions.show.summary',
+      usage: 'cmd.instructions.show.usage',
+      options: {},
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx) => instructionsShow(ctx),
+    },
+    set: {
+      summary: 'cmd.instructions.set.summary',
+      usage: 'cmd.instructions.set.usage',
+      help: 'cmd.instructions.set.help',
+      options: {},
+      positionals: { min: 1, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, _v, words) => instructionsSet(ctx, words),
+    },
+    clear: {
+      summary: 'cmd.instructions.clear.summary',
+      usage: 'cmd.instructions.clear.usage',
+      options: {},
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx) => instructionsClear(ctx),
+    },
+  },
+  process: {
+    list: {
+      summary: 'cmd.process.list.summary',
+      usage: 'cmd.process.list.usage',
+      options: {
+        workspace: { type: 'string', short: 'w' },
+        session: { type: 'string' },
+        ...json,
+      },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => {
+        const workspace = str(v.workspace);
+        const session = str(v.session);
+        return processList(ctx, {
+          ...(workspace !== undefined && { workspace }),
+          ...(session !== undefined && { session }),
+          json: v.json === true,
+        });
+      },
+    },
+    output: {
+      summary: 'cmd.process.output.summary',
+      usage: 'cmd.process.output.usage',
+      options: { all: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => processOutput(ctx, id as string, { all: v.all === true }),
+    },
+    stop: {
+      summary: 'cmd.process.stop.summary',
+      usage: 'cmd.process.stop.usage',
+      options: { signal: { type: 'string' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => {
+        const signal = str(v.signal);
+        return processStop(ctx, id as string, signal === undefined ? {} : { signal });
+      },
+    },
+  },
+  usage: {
+    summary: {
+      summary: 'cmd.usage.summary.summary',
+      usage: 'cmd.usage.summary.usage',
+      options: { days: { type: 'string' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => {
+        const days = str(v.days);
+        return usageSummary(ctx, { ...(days !== undefined && { days }), json: v.json === true });
+      },
+    },
+  },
+  rule: {
+    list: {
+      summary: 'cmd.rule.list.summary',
+      usage: 'cmd.rule.list.usage',
+      help: 'cmd.rule.list.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => ruleList(ctx, ruleOptions(v)),
+    },
+    add: {
+      summary: 'cmd.rule.add.summary',
+      usage: 'cmd.rule.add.usage',
+      help: 'cmd.rule.add.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 1, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, v, words) => ruleAdd(ctx, words, ruleOptions(v)),
+    },
+    delete: {
+      summary: 'cmd.rule.delete.summary',
+      usage: 'cmd.rule.delete.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => ruleDelete(ctx, id as string),
+    },
+    suggest: {
+      summary: 'cmd.rule.suggest.summary',
+      usage: 'cmd.rule.suggest.usage',
+      help: 'cmd.rule.suggest.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => ruleSuggest(ctx, ruleOptions(v)),
     },
   },
   remote: {
@@ -513,16 +1157,30 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
 };
 
 /** 只写组名（或组名后直接跟选项）时执行的命令：`wevir inbox` 即 `wevir inbox list`。 */
-const DEFAULT_COMMANDS: Record<string, string> = { inbox: 'list' };
+const DEFAULT_COMMANDS: Record<string, string> = {
+  inbox: 'list',
+  settings: 'list',
+  instructions: 'show',
+  usage: 'summary',
+};
 
 const GROUP_TITLES: Record<string, PlainMessageKey> = {
   host: 'group.host',
   workspace: 'group.workspace',
   provider: 'group.provider',
+  account: 'group.account',
   web: 'group.web',
   session: 'group.session',
   automation: 'group.automation',
   inbox: 'group.inbox',
+  memory: 'group.memory',
+  plugin: 'group.plugin',
+  mcp: 'group.mcp',
+  settings: 'group.settings',
+  instructions: 'group.instructions',
+  process: 'group.process',
+  usage: 'group.usage',
+  rule: 'group.rule',
   remote: 'group.remote',
 };
 

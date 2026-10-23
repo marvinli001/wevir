@@ -14,6 +14,7 @@
 | 渲染进程与主进程的产物 | Vite 打包的 `apps/desktop/out/` | 打进包里的 `devDependencies`（§2.2）与工作区包的源码 |
 | Host | `packages/host/dist` 与它的生产依赖 | `ws`、`zod` 等（§2.1） |
 | CLI（T4.2） | `apps/cli/dist` | `mute-stream`（§2.1） |
+| 命令行包（单独发布，`apps/cli/scripts/package.ts`） | `wevir-cli-<版本>-<平台>-<架构>.tar.gz` / `.zip`：Node 官方发布包里的 `node` 与 `LICENSE`（`lib/node/`）、CLI 与 Host 的 bundle、与桌面端资源目录相同的 `lib/host/`、`lib/engines/codex/`、`lib/prompts/` | Node.js（`lib/node/LICENSE`，含它捆绑的 OpenSSL、ICU 等）、打进两个 bundle 与 `lib/host/node_modules` 的 npm 包（打包时按实际打进去的模块生成 `THIRD_PARTY_LICENSES.txt`）、Codex（`lib/engines/codex/LICENSE`、`NOTICE`） |
 | Codex 引擎（R9） | 资源目录的 `engines/codex/`：`codex-app-server` 与 `codex-code-mode-host` 独立二进制，Linux 另有 `codex-resources/bwrap`（`pnpm --filter @wevir/desktop resources` 准备，ADR-0007 决策 5） | OpenAI Codex 与它静态链接的 Rust crate、bubblewrap（§2.5） |
 | 中继（`apps/relay`，自建用，不进桌面安装包） | `apps/relay/dist/` 与它做成的 Docker 镜像：一个打包好的 ESM，`@wevir/protocol`、`ws`、`zod` 都打进去，运行时不装依赖 | `ws`、`zod`（§2.1）；两者的 `LICENSE` 由构建拷到 `dist/licenses/`（镜像里是 `/app/licenses/`） |
 | 推送网关镜像 | `apps/push` 的 Docker 镜像：`dist/` 里打包好的网关 | `zod`（§2.1；镜像里附 `LICENSES/zod.txt`） |

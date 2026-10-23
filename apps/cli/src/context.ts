@@ -1,7 +1,9 @@
+import { realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { type ConnectionState, WevirClient, webSocketTransport } from '@wevir/client-sdk';
 import { readHostEndpoint } from '@wevir/client-sdk/node';
-import type { ClientIdentity } from '@wevir/protocol';
-import { CliError, describeError } from './errors.js';
+import type { ClientIdentity, HostFeature, Workspace } from '@wevir/protocol';
+import { CliError, describeError, UsageError } from './errors.js';
 import { t } from './i18n/index.js';
 import { loadCliIdentity } from './identity.js';
 import { connectRemoteHost, mdnsDiscovery } from './remote/connect.js';
@@ -110,6 +112,47 @@ async function connectRemote(
     ...(browse !== undefined && { discover: mdnsDiscovery(record.routeId, browse) }),
     track: ctx.track,
   });
+}
+
+/** Host 没有某项功能（版本旧）时给出明确的说明。 */
+export function requireFeature(
+  client: Pick<WevirClient, 'supports' | 'hello'>,
+  feature: HostFeature,
+): void {
+  if (!client.supports(feature)) {
+    throw new CliError(
+      t('host.unsupported', { version: client.hello.hostVersion, feature }),
+      t('host.unsupported.hint'),
+    );
+  }
+}
+
+/**
+ * 按路径找已登记的工作区：本机相对 cwd 解析，Host 按 realpath 存（目录不存在时按原样比较）；`--remote` 时是那台电脑上的路径，
+ * 必须是绝对路径，按原样比较。
+ */
+export async function findWorkspace(
+  ctx: Context,
+  workspaces: readonly Workspace[],
+  path: string,
+): Promise<Workspace> {
+  const resolved = workspacePath(ctx, path);
+  const real = ctx.remote === undefined ? await realpath(resolved).catch(() => resolved) : resolved;
+  const found = workspaces.find((w) => w.rootPath === real);
+  if (!found) {
+    throw new CliError(
+      t('session.notWorkspace', { path: resolved }),
+      t('session.notWorkspace.hint'),
+    );
+  }
+  return found;
+}
+
+/** 工作区路径：本机相对 cwd 解析；`--remote` 时必须是绝对路径（POSIX 的 `/…` 或 Windows 的 `C:\\…`）。 */
+export function workspacePath(ctx: Context, path: string): string {
+  if (ctx.remote === undefined) return resolve(ctx.io.cwd, path);
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return path;
+  throw new UsageError(t('session.remotePath', { path }), t('session.remotePath.hint'));
 }
 
 /** 连上 Host 执行 `fn`，结束后关闭连接。 */

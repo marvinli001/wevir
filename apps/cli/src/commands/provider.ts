@@ -1,4 +1,4 @@
-import { isRpcError } from '@wevir/client-sdk';
+import { isRpcError, type WevirClient } from '@wevir/client-sdk';
 import {
   type MethodParams,
   type ProviderApi,
@@ -6,7 +6,7 @@ import {
   type ProviderModel,
   type ProviderProfile,
 } from '@wevir/protocol';
-import { type Context, withClient } from '../context.js';
+import { type Context, requireFeature, withClient } from '../context.js';
 import { CliError, describeError, EXIT, UsageError } from '../errors.js';
 import { providerTestHint, providerTestLabel, table } from '../format.js';
 import { joinList, t } from '../i18n/index.js';
@@ -245,8 +245,15 @@ function parseContextWindow(text: string | undefined): number | undefined {
   return value;
 }
 
-export async function providerList(ctx: Context): Promise<number> {
+export async function providerList(
+  ctx: Context,
+  options: { json?: boolean } = {},
+): Promise<number> {
   const { providers } = await withClient(ctx, (client) => client.request('provider.list'));
+  if (options.json) {
+    ctx.print(JSON.stringify(providers, null, 2));
+    return EXIT.ok;
+  }
   if (providers.length === 0) {
     ctx.print(t('provider.none'));
     return EXIT.ok;
@@ -353,5 +360,92 @@ export async function providerTest(
     if (result.error) ctx.print(`  ${result.error.message}`);
     ctx.print(ctx.styles.dim(t('error.hint', { hint: providerTestHint(reason) })));
     return EXIT.failure;
+  });
+}
+
+async function findProvider(client: WevirClient, id: string): Promise<ProviderProfile> {
+  const { providers } = await client.request('provider.list');
+  const found = providers.find((p) => p.id === id);
+  if (!found) {
+    throw new CliError(t('session.noSuchProvider', { id }), t('session.noSuchProvider.hint'));
+  }
+  return found;
+}
+
+/** `wevir provider remove <ID>`：删掉 Provider 与它的 Key；用它的会话之后发不出消息。 */
+export async function providerRemove(ctx: Context, id: string): Promise<number> {
+  return withClient(ctx, async (client) => {
+    const provider = await findProvider(client, id);
+    await client.request('provider.remove', { providerId: provider.id });
+    ctx.print(t('provider.removed', { name: provider.displayName, id: provider.id }));
+    return EXIT.ok;
+  });
+}
+
+/** `wevir provider enable|disable <ID>`：停用的不出现在模型选择里，已有会话照常能用。 */
+export async function providerSetEnabled(
+  ctx: Context,
+  id: string,
+  enabled: boolean,
+): Promise<number> {
+  return withClient(ctx, async (client) => {
+    requireFeature(client, 'provider_enabled');
+    const { provider } = await client.request('provider.setEnabled', {
+      providerId: (await findProvider(client, id)).id,
+      enabled,
+    });
+    ctx.print(
+      t(enabled ? 'provider.turnedOn' : 'provider.turnedOff', { name: provider.displayName }),
+    );
+    return EXIT.ok;
+  });
+}
+
+/** `wevir provider models <ID> [--json]`：向服务端列出能用的模型（不改 Provider）。 */
+export async function providerModels(
+  ctx: Context,
+  id: string,
+  options: { json?: boolean },
+): Promise<number> {
+  return withClient(ctx, async (client) => {
+    const provider = await findProvider(client, id);
+    const result = await client.request(
+      'provider.discoverModels',
+      { providerId: provider.id },
+      { timeoutMs: 60_000 },
+    );
+    if (options.json) {
+      ctx.print(JSON.stringify(result, null, 2));
+      return EXIT.ok;
+    }
+    if (!result.ok) {
+      const reason = result.reason ?? 'unknown';
+      throw new CliError(
+        t('provider.modelsFailed', { reason: providerTestLabel(reason) }),
+        providerTestHint(reason),
+      );
+    }
+    if (result.models.length === 0) {
+      ctx.print(t('provider.noModels'));
+      return EXIT.ok;
+    }
+    const configured = new Set(provider.models.map((m) => m.id));
+    ctx.print(
+      table(
+        [t('provider.col.modelId'), t('provider.col.name'), t('provider.col.context'), ''],
+        result.models.map(({ model }) => [
+          model.id,
+          model.displayName ?? '-',
+          model.contextWindow === undefined ? '-' : String(model.contextWindow),
+          model.id === provider.defaultModelId
+            ? t('provider.model.default')
+            : configured.has(model.id)
+              ? t('provider.model.added')
+              : '',
+        ]),
+      ),
+    );
+    if (result.truncated) ctx.print(ctx.styles.dim(t('provider.modelsTruncated')));
+    return EXIT.ok;
   });
 }

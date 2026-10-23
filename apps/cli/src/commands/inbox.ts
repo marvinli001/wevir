@@ -1,5 +1,10 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import type { InboxItem, InboxItemKind } from '@wevir/protocol';
+import {
+  type ApprovalRuleScope,
+  ApprovalRuleScopeSchema,
+  type InboxItem,
+  type InboxItemKind,
+} from '@wevir/protocol';
 import { parseApprovalAnswer } from '../attach.js';
 import { type Context, withClient } from '../context.js';
 import { CliError, EXIT, UsageError } from '../errors.js';
@@ -82,11 +87,27 @@ export async function inboxDismiss(ctx: Context, itemId: string): Promise<number
   });
 }
 
+/** `--remember project|global`（0.80.0）：选的允许类选项同时加一条审批规则。 */
+function parseRuleScope(value: string | undefined): ApprovalRuleScope | undefined {
+  if (value === undefined) return undefined;
+  const parsed = ApprovalRuleScopeSchema.safeParse(value.trim().toLowerCase());
+  if (!parsed.success) {
+    throw new UsageError(t('inbox.badRemember', { value }), t('inbox.badRemember.hint'));
+  }
+  return parsed.data;
+}
+
 /**
  * `wevir inbox respond <ID> <回答>`：回答一个等审批的项。回答是选项序号、选项 ID，或 y / n（第一个允许 / 拒绝的选项）。ID 可以
  * 省略 `approval:`。提问在 attach 里回答。
  */
-export async function inboxRespond(ctx: Context, itemId: string, answer: string): Promise<number> {
+export async function inboxRespond(
+  ctx: Context,
+  itemId: string,
+  answer: string,
+  options: { remember?: string } = {},
+): Promise<number> {
+  const remember = parseRuleScope(options.remember);
   return withInbox(ctx, async (client) => {
     const { items } = await client.request('inbox.list', {});
     const item = items.find((i) => i.id === itemId || i.id === `approval:${itemId}`);
@@ -108,6 +129,7 @@ export async function inboxRespond(ctx: Context, itemId: string, answer: string)
     await client.request('approval.respond', {
       approvalId: item.ref.approvalId,
       optionId: option.optionId,
+      ...(remember !== undefined && { remember }),
     });
     ctx.print(t('inbox.responded', { id: item.id, option: optionLabel(option) }));
     return EXIT.ok;
