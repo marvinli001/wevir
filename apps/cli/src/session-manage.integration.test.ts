@@ -118,9 +118,10 @@ describe('会话管理', () => {
   });
 
   it('cancel：空闲时说明，运行中取消', async () => {
-    const { home, workspace } = await setup(30);
+    // `slow`：回合要在 cancel 到达时还在运行。
+    const { home, workspace } = await setup(20);
     const created = await run(
-      ['session', 'new', '-w', workspace, '--detach', 'a long answer that keeps going'],
+      ['session', 'new', '-w', workspace, '--detach', 'a slow answer that keeps going'],
       { home },
     );
     const id = /已创建会话 (ses_\w+)/.exec(created.out)?.[1] as string;
