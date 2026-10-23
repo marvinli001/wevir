@@ -1,5 +1,5 @@
 // 会话侧栏的“用量”卡片（desktop-layout.md §12）：会话的模型来自订阅时，显示那个订阅账号的用量窗口（5 小时、每周、每月）。
-// 数据是账号表（accounts-store.ts）里的 `rateLimits`：Host 定时重读已登录账号的用量（回合结束后、重置时间到了、每 5 分钟），
+// 数据是账号表（accounts-store.ts）里的 `rateLimits`：Host 定时重读已登录账号的用量（回合里与回合结束后每 30 秒、重置时间到了、每 2 分钟），
 // 经 account.updated 推过来，别处（其他设备、终端里的 CLI）用掉的额度也跟得上；这里不读、也没有刷新按钮。
 
 import { Settings } from 'lucide-react';

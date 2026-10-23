@@ -607,7 +607,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
         if (providerId !== undefined) accounts?.usage.turnEnded(providerId);
       },
-      onUsage: (context, event) => usageStats.record(context, event),
+      onUsage: (context, event) => {
+        usageStats.record(context, event);
+        // 回合还在跑：订阅账号的用量读得勤一些（usage-refresh.ts），长回合里也跟得上。
+        accounts?.usage.used(context.providerId);
+      },
       // 额度恢复后自动继续（0.119.0）：回合因用量上限失败时从账号最近的用量补重置时刻；账号 ID 就是 Provider ID。
       autoContinue: {
         account: (providerId) => accounts?.peek(providerId),

@@ -1,13 +1,13 @@
 // 全部账号（0.19.0，client-sdk 的 watchAccounts）：ChatGPT 与订阅来源的状态，设置页与模型选择共用一份。连上与重连时读全部，
 // 之后跟着 account.updated。某个账号刚变成已登录时 Host 会在后台建（或刷新）它的 Provider，所以这时重读工作台的列表。
-// 窗口回到前台时再读一次全部（至多每分钟一次）：Host 顺带在后台重读过期的用量，结果跟着 account.updated 到（usage-refresh.ts）。
+// 窗口回到前台时再读一次全部（至多每 15 秒一次）：Host 顺带在后台重读过期的用量，结果跟着 account.updated 到（usage-refresh.ts）。
 
 import { accountId, type WevirClient } from '@wevir/client-sdk';
 import type { AccountState } from '@wevir/protocol';
 import type { WorkbenchStore } from './workbench-store';
 
 /** 回到前台时至多多久读一次。 */
-const FOCUS_READ_MIN_MS = 60_000;
+const FOCUS_READ_MIN_MS = 15_000;
 
 export class AccountsStore {
   #accounts: AccountState[] | undefined;

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   nextReset,
   USAGE_ACTIVE_MS,
+  USAGE_ACTIVE_WINDOW_MS,
   USAGE_AFTER_TURN_MS,
   USAGE_IDLE_MS,
   USAGE_NUDGE_MIN_MS,
@@ -54,7 +55,7 @@ describe('UsageRefresher', () => {
     vi.useRealTimers();
   });
 
-  it('有客户端看着时每 5 分钟读一次已登录的账号；没登录的不读', async () => {
+  it('有客户端看着时每 2 分钟读一次已登录的账号；没登录的不读', async () => {
     const { refresher, calls, advance, push } = setup();
     push(signedIn('cursor', { primary: { usedPercent: 10 } }));
     push({ kind: 'grok', status: 'signed_out' });
@@ -68,7 +69,7 @@ describe('UsageRefresher', () => {
     refresher.dispose();
   });
 
-  it('没有客户端时不读；回合结束后照样读，之后一段时间每分钟一次', async () => {
+  it('没有客户端时不读；回合结束后照样读，之后一段时间每 30 秒一次', async () => {
     const { refresher, target, calls, advance, push } = setup();
     target.watching = false;
     push(signedIn('cursor', { primary: { usedPercent: 10 } }));
@@ -87,6 +88,26 @@ describe('UsageRefresher', () => {
     refresher.dispose();
   });
 
+  it('回合里报了请求的用量：不马上读，之后一段时间按勤的间隔读，没有客户端也读', async () => {
+    const { refresher, target, calls, advance, push } = setup();
+    target.watching = false;
+    push(signedIn('cursor', { primary: { usedPercent: 10 } }));
+    refresher.start();
+    refresher.used('cursor');
+    refresher.used('opencode');
+    expect(calls).toEqual([]);
+    await advance(USAGE_ACTIVE_MS);
+    expect(calls).toEqual(['cursor']);
+    await advance(USAGE_ACTIVE_MS);
+    expect(calls).toEqual(['cursor', 'cursor']);
+    // 过了“正在用”的一段时间、又没有客户端：不再读。
+    await advance(USAGE_ACTIVE_WINDOW_MS);
+    const count = calls.length;
+    await advance(USAGE_IDLE_MS * 2);
+    expect(calls.length).toBe(count);
+    refresher.dispose();
+  });
+
   it('重置时间过了一会儿就读', async () => {
     const { refresher, calls, advance, push, now } = setup();
     const resetsAt = new Date(now() + 2 * 60_000).toISOString();
@@ -100,7 +121,7 @@ describe('UsageRefresher', () => {
     refresher.dispose();
   });
 
-  it('客户端回到前台：离上次读超过 1 分钟才读；只催指定的种类', async () => {
+  it('客户端回到前台：离上次读超过 15 秒才读；只催指定的种类', async () => {
     const { refresher, calls, advance, push } = setup();
     push(signedIn('cursor', { primary: { usedPercent: 10 } }));
     push(signedIn('grok', { primary: { usedPercent: 10 } }));
