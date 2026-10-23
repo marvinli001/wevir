@@ -20,6 +20,7 @@ export {
   noblePrimitives,
   publicKeyFromSecretKey,
   randomBytes,
+  type StaticKey,
 } from './primitives.js';
 export {
   derivePushKey,

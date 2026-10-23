@@ -9,6 +9,7 @@ import {
   type KeyPair,
   type NoisePrimitives,
   noblePrimitives,
+  type StaticKey,
 } from './primitives.js';
 
 /** 配对：设备与 Host 互相认证静态公钥，PSK 由配对秘密派生，在第二条消息末尾混入。 */
@@ -23,7 +24,8 @@ export interface HandshakeOptions {
   readonly initiator: boolean;
   /** 双方必须一致（`remotePrologue` 拼出）。 */
   readonly prologue: Uint8Array;
-  readonly staticKeyPair: KeyPair;
+  /** 本方的静态密钥。`StaticKey` 的 DH 是异步的时候，握手只能用 `writeMessageAsync` / `readMessageAsync`。 */
+  readonly staticKeyPair: KeyPair | StaticKey;
   /**
    * 事先知道的对方静态公钥。`IK` 的发起方必填（Host 公钥）；`XXpsk2` 里是对方必须出示的公钥（二维码里的 Host 公钥），
    * 对方在握手里出示的与它不一致就以 `remote_key_rejected` 失败。
@@ -188,16 +190,26 @@ export interface InternalHandshakeOptions extends Omit<HandshakeOptions, 'protoc
   readonly ephemeralKeyPair?: KeyPair;
 }
 
+/** 一步 DH：本方的临时或静态私钥，与对方的公钥。 */
+interface DhRequest {
+  readonly local: 'e' | 's';
+  readonly remote: Uint8Array;
+}
+
+/** 一条消息的处理步骤：遇到 DH 时交出请求、拿回结果，这样同一份步骤既能同步跑，也能等异步的静态密钥 DH。 */
+type Steps<T> = Generator<DhRequest, T, Uint8Array>;
+
 /**
  * Noise 的 HandshakeState（rev 34）。双方轮流 `writeMessage` / `readMessage`，最后一条消息之后 `split()` 拿到传输用的两个
- * CipherState。任何一步失败后对象作废（`invalid_state`），调用方断开连接。
+ * CipherState。静态密钥的 DH 是异步的（`StaticKey`）时改用 `writeMessageAsync` / `readMessageAsync`，两者的结果相同。任何一步
+ * 失败后对象作废（`invalid_state`），调用方断开连接。
  */
 export class HandshakeState {
   readonly #primitives: NoisePrimitives;
   readonly #symmetric: SymmetricState;
   readonly #pattern: Pattern;
   readonly #initiator: boolean;
-  readonly #staticKeyPair: KeyPair;
+  readonly #staticKeyPair: KeyPair | StaticKey;
   readonly #expectedRemoteStatic: Uint8Array | undefined;
   readonly #acceptRemoteStatic: ((key: Uint8Array) => boolean) | undefined;
   readonly #psks: Uint8Array[];
@@ -209,6 +221,8 @@ export class HandshakeState {
   #failed = false;
   #transport: TransportCiphers | undefined;
   #split = false;
+  /** 异步的一步还没结束。 */
+  #busy = false;
 
   constructor(options: InternalHandshakeOptions) {
     this.#primitives = options.primitives ?? noblePrimitives;
@@ -267,72 +281,126 @@ export class HandshakeState {
   }
 
   writeMessage(payload: Uint8Array = EMPTY): Uint8Array {
-    this.#checkUsable();
-    if (!this.isMyTurn) throw new NoiseError('invalid_state', 'not this side’s turn to write');
-    return this.#guard(() => {
-      const parts: Uint8Array[] = [];
-      for (const token of this.#pattern.messages[this.#index] ?? []) {
-        if (token === 'e') {
-          const ephemeral = this.#fixedEphemeral ?? this.#primitives.generateKeyPair();
-          this.#ephemeral = checkKeyPair(ephemeral);
-          parts.push(ephemeral.publicKey);
-          this.#symmetric.mixHash(ephemeral.publicKey);
-          if (this.#pattern.psk) this.#symmetric.mixKey(ephemeral.publicKey);
-        } else if (token === 's') {
-          parts.push(this.#symmetric.encryptAndHash(this.#staticKeyPair.publicKey));
-        } else if (token === 'psk') {
-          this.#symmetric.mixKeyAndHash(this.#nextPsk());
-        } else {
-          this.#symmetric.mixKey(this.#dhToken(token));
-        }
-      }
-      parts.push(this.#symmetric.encryptAndHash(payload));
-      const message = concatBytes(...parts);
-      if (message.length > MAX_MESSAGE_LENGTH) {
-        throw new NoiseError('bad_message', `handshake message of ${message.length} bytes`);
-      }
-      this.#advance();
-      return message;
-    });
+    this.#checkWrite();
+    return this.#guard(() => this.#runSync(this.#writeSteps(payload)));
   }
 
   readMessage(message: Uint8Array): Uint8Array {
+    this.#checkRead();
+    return this.#guard(() => this.#runSync(this.#readSteps(message)));
+  }
+
+  /** 同 `writeMessage`，静态密钥的 DH 可以是异步的。结束之前不能开始下一步。 */
+  writeMessageAsync(payload: Uint8Array = EMPTY): Promise<Uint8Array> {
+    try {
+      this.#checkWrite();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#guardAsync(() => this.#runAsync(this.#writeSteps(payload)));
+  }
+
+  /** 同 `readMessage`，静态密钥的 DH 可以是异步的。结束之前不能开始下一步。 */
+  readMessageAsync(message: Uint8Array): Promise<Uint8Array> {
+    try {
+      this.#checkRead();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#guardAsync(() => this.#runAsync(this.#readSteps(message)));
+  }
+
+  #checkWrite(): void {
+    this.#checkUsable();
+    if (!this.isMyTurn) throw new NoiseError('invalid_state', 'not this side’s turn to write');
+  }
+
+  #checkRead(): void {
     this.#checkUsable();
     if (this.isComplete || this.isMyTurn)
       throw new NoiseError('invalid_state', 'not this side’s turn to read');
-    return this.#guard(() => {
-      if (message.length > MAX_MESSAGE_LENGTH) {
-        throw new NoiseError('bad_message', `handshake message of ${message.length} bytes`);
+  }
+
+  *#writeSteps(payload: Uint8Array): Steps<Uint8Array> {
+    const parts: Uint8Array[] = [];
+    for (const token of this.#pattern.messages[this.#index] ?? []) {
+      if (token === 'e') {
+        const ephemeral = this.#fixedEphemeral ?? this.#primitives.generateKeyPair();
+        this.#ephemeral = checkKeyPair(ephemeral);
+        parts.push(ephemeral.publicKey);
+        this.#symmetric.mixHash(ephemeral.publicKey);
+        if (this.#pattern.psk) this.#symmetric.mixKey(ephemeral.publicKey);
+      } else if (token === 's') {
+        parts.push(this.#symmetric.encryptAndHash(this.#staticKeyPair.publicKey));
+      } else if (token === 'psk') {
+        this.#symmetric.mixKeyAndHash(this.#nextPsk());
+      } else {
+        this.#symmetric.mixKey(yield this.#dhRequest(token));
       }
-      let offset = 0;
-      const take = (length: number): Uint8Array => {
-        if (message.length < offset + length)
-          throw new NoiseError('bad_message', 'handshake message too short');
-        const bytes = message.slice(offset, offset + length);
-        offset += length;
-        return bytes;
-      };
-      for (const token of this.#pattern.messages[this.#index] ?? []) {
-        if (token === 'e') {
-          const remoteEphemeral = take(DH_LENGTH);
-          this.#remoteEphemeral = remoteEphemeral;
-          this.#symmetric.mixHash(remoteEphemeral);
-          if (this.#pattern.psk) this.#symmetric.mixKey(remoteEphemeral);
-        } else if (token === 's') {
-          const length = this.#symmetric.cipher.hasKey ? DH_LENGTH + TAG_LENGTH : DH_LENGTH;
-          const remoteStatic = this.#symmetric.decryptAndHash(take(length));
-          this.#checkRemoteStatic(remoteStatic);
-          this.#remoteStatic = remoteStatic;
-        } else if (token === 'psk') {
-          this.#symmetric.mixKeyAndHash(this.#nextPsk());
-        } else {
-          this.#symmetric.mixKey(this.#dhToken(token));
-        }
+    }
+    parts.push(this.#symmetric.encryptAndHash(payload));
+    const message = concatBytes(...parts);
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      throw new NoiseError('bad_message', `handshake message of ${message.length} bytes`);
+    }
+    this.#advance();
+    return message;
+  }
+
+  *#readSteps(message: Uint8Array): Steps<Uint8Array> {
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      throw new NoiseError('bad_message', `handshake message of ${message.length} bytes`);
+    }
+    let offset = 0;
+    const take = (length: number): Uint8Array => {
+      if (message.length < offset + length)
+        throw new NoiseError('bad_message', 'handshake message too short');
+      const bytes = message.slice(offset, offset + length);
+      offset += length;
+      return bytes;
+    };
+    for (const token of this.#pattern.messages[this.#index] ?? []) {
+      if (token === 'e') {
+        const remoteEphemeral = take(DH_LENGTH);
+        this.#remoteEphemeral = remoteEphemeral;
+        this.#symmetric.mixHash(remoteEphemeral);
+        if (this.#pattern.psk) this.#symmetric.mixKey(remoteEphemeral);
+      } else if (token === 's') {
+        const length = this.#symmetric.cipher.hasKey ? DH_LENGTH + TAG_LENGTH : DH_LENGTH;
+        const remoteStatic = this.#symmetric.decryptAndHash(take(length));
+        this.#checkRemoteStatic(remoteStatic);
+        this.#remoteStatic = remoteStatic;
+      } else if (token === 'psk') {
+        this.#symmetric.mixKeyAndHash(this.#nextPsk());
+      } else {
+        this.#symmetric.mixKey(yield this.#dhRequest(token));
       }
-      const payload = this.#symmetric.decryptAndHash(message.slice(offset));
-      this.#advance();
-      return payload;
-    });
+    }
+    const payload = this.#symmetric.decryptAndHash(message.slice(offset));
+    this.#advance();
+    return payload;
+  }
+
+  #runSync<T>(steps: Steps<T>): T {
+    let next = steps.next();
+    while (!next.done) {
+      const shared = this.#dh(next.value);
+      if (shared instanceof Promise) {
+        shared.catch(() => {});
+        throw new NoiseError(
+          'invalid_state',
+          'static key DH is asynchronous: use writeMessageAsync / readMessageAsync',
+        );
+      }
+      next = steps.next(shared);
+    }
+    return next.value;
+  }
+
+  async #runAsync<T>(steps: Steps<T>): Promise<T> {
+    let next = steps.next();
+    while (!next.done) next = steps.next(await this.#dh(next.value));
+    return next.value;
   }
 
   /** 握手结束后取一次传输用的 CipherState。 */
@@ -347,6 +415,7 @@ export class HandshakeState {
 
   #checkUsable(): void {
     if (this.#failed) throw new NoiseError('invalid_state', 'handshake failed earlier');
+    if (this.#busy) throw new NoiseError('invalid_state', 'an asynchronous step is in progress');
   }
 
   #guard<T>(step: () => T): T {
@@ -355,6 +424,18 @@ export class HandshakeState {
     } catch (error) {
       this.#failed = true;
       throw error;
+    }
+  }
+
+  async #guardAsync<T>(step: () => Promise<T>): Promise<T> {
+    this.#busy = true;
+    try {
+      return await step();
+    } catch (error) {
+      this.#failed = true;
+      throw error;
+    } finally {
+      this.#busy = false;
     }
   }
 
@@ -377,39 +458,48 @@ export class HandshakeState {
   }
 
   // 发起方：es = DH(e, rs)，se = DH(s, re)；响应方反过来。
-  #dhToken(token: 'ee' | 'es' | 'se' | 'ss'): Uint8Array {
-    const local = (which: 'e' | 's') =>
-      required(which === 'e' ? this.#ephemeral : this.#staticKeyPair).secretKey;
+  #dhRequest(token: 'ee' | 'es' | 'se' | 'ss'): DhRequest {
     const remote = (which: 'e' | 's') =>
       required(which === 'e' ? this.#remoteEphemeral : this.#remoteStatic);
     switch (token) {
       case 'ee':
-        return this.#dh(local('e'), remote('e'));
+        return { local: 'e', remote: remote('e') };
       case 'ss':
-        return this.#dh(local('s'), remote('s'));
+        return { local: 's', remote: remote('s') };
       case 'es':
         return this.#initiator
-          ? this.#dh(local('e'), remote('s'))
-          : this.#dh(local('s'), remote('e'));
+          ? { local: 'e', remote: remote('s') }
+          : { local: 's', remote: remote('e') };
       case 'se':
         return this.#initiator
-          ? this.#dh(local('s'), remote('e'))
-          : this.#dh(local('e'), remote('s'));
+          ? { local: 's', remote: remote('e') }
+          : { local: 'e', remote: remote('s') };
     }
   }
 
-  #dh(secretKey: Uint8Array, publicKey: Uint8Array): Uint8Array {
-    let shared: Uint8Array;
+  /** 临时密钥的 DH 总是同步的；静态密钥是 `StaticKey` 时它的 DH 可能是异步的。 */
+  #dh(request: DhRequest): Uint8Array | Promise<Uint8Array> {
+    let shared: Uint8Array | Promise<Uint8Array>;
     try {
-      shared = this.#primitives.dh(secretKey, publicKey);
-    } catch {
+      if (request.local === 'e') {
+        shared = this.#primitives.dh(required(this.#ephemeral).secretKey, request.remote);
+      } else {
+        const local = this.#staticKeyPair;
+        shared =
+          'secretKey' in local
+            ? this.#primitives.dh(local.secretKey, request.remote)
+            : local.dh(request.remote);
+      }
+    } catch (error) {
+      if (error instanceof NoiseError && error.code === 'invalid_state') throw error;
       throw new NoiseError('invalid_key', 'X25519 rejected the public key');
     }
-    // 原语可以替换，这里不依赖它自己的检查：全零结果说明对方给的是全零 / 低阶点。
-    if (shared.length !== DH_LENGTH || shared.every((byte) => byte === 0)) {
-      throw new NoiseError('invalid_key', 'X25519 produced an all-zero shared secret');
+    if (shared instanceof Promise) {
+      return shared.then(checkShared, () => {
+        throw new NoiseError('invalid_key', 'X25519 rejected the public key');
+      });
     }
-    return shared;
+    return checkShared(shared);
   }
 
   #advance(): void {
@@ -431,9 +521,20 @@ function required<T>(value: T | undefined): T {
   return value;
 }
 
-function checkKeyPair(keyPair: KeyPair): KeyPair {
-  if (keyPair.publicKey.length !== DH_LENGTH || keyPair.secretKey.length !== DH_LENGTH) {
+function checkKeyPair<K extends KeyPair | StaticKey>(keyPair: K): K {
+  if (
+    keyPair.publicKey.length !== DH_LENGTH ||
+    ('secretKey' in keyPair && keyPair.secretKey.length !== DH_LENGTH)
+  ) {
     throw new NoiseError('invalid_key', 'X25519 key pair must be 32-byte keys');
   }
   return keyPair;
+}
+
+// 原语可以替换，这里不依赖它自己的检查：全零结果说明对方给的是全零 / 低阶点。
+function checkShared(shared: Uint8Array): Uint8Array {
+  if (shared.length !== DH_LENGTH || shared.every((byte) => byte === 0)) {
+    throw new NoiseError('invalid_key', 'X25519 produced an all-zero shared secret');
+  }
+  return shared;
 }
