@@ -26,3 +26,15 @@ export const THEME_BACKGROUND: Record<ResolvedTheme, string> = {
   light: '#fcfbfa',
   dark: '#101114',
 };
+
+/**
+ * 系统能不能给窗口加材质（半透明窗口）：macOS 都能（vibrancy）；Windows 要 11 22H2（内部版本 22621）起才有 Mica
+ * （Electron 的 setBackgroundMaterial）；Linux 没有。`systemVersion` 是 process.getSystemVersion()，Windows 上形如
+ * `10.0.22631`。主进程与 preload 共用。
+ */
+export function supportsWindowMaterial(platform: string, systemVersion: string): boolean {
+  if (platform === 'darwin') return true;
+  if (platform !== 'win32') return false;
+  const build = Number(systemVersion.split('.')[2]);
+  return Number.isInteger(build) && build >= 22621;
+}

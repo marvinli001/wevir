@@ -13,10 +13,14 @@ import {
   type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
+import { supportsWindowMaterial } from '../shared/theme.js';
 
 // 窗口标题栏的形态要在首帧前就能同步读到（顶栏的左边距），所以按平台给出初值（窗口创建时不在全屏），之后由
-// 主进程在进出全屏、页面加载完成时推送。沙箱里的 preload 也有 process.platform。
-let windowChrome: WindowChrome = { trafficLights: process.platform === 'darwin' };
+// 主进程在进出全屏、页面加载完成时推送。沙箱里的 preload 也有 process.platform 与 process.getSystemVersion()。
+let windowChrome: WindowChrome = {
+  trafficLights: process.platform === 'darwin',
+  material: supportsWindowMaterial(process.platform, process.getSystemVersion()),
+};
 const windowChromeListeners = new Set<(chrome: WindowChrome) => void>();
 ipcRenderer.on(IPC_CHANNELS.windowChrome, (_event: IpcRendererEvent, chrome: WindowChrome) => {
   windowChrome = chrome;

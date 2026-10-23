@@ -43,7 +43,7 @@ import {
   rendererOriginOf,
 } from '../shared/renderer-origin.js';
 import { isCleanableCategory, type StorageUsage } from '../shared/storage.js';
-import { isThemeMode } from '../shared/theme.js';
+import { isThemeMode, supportsWindowMaterial } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
 import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
 import { BROWSER_PARTITION } from './browser/browser-host.js';
@@ -357,11 +357,9 @@ function run(): void {
     const window = assertSender(event);
     const input = parseWindowAppearanceInput(value);
     if (!input) throw new Error('invalid window appearance');
-    const translucent = process.platform === 'darwin' && input.translucentSidebar;
-    if (translucent !== windowAppearance.translucentSidebar) {
-      window.setVibrancy(translucent ? 'sidebar' : null);
-    }
-    rememberWindowAppearance({ ...windowAppearance, ...input, translucentSidebar: translucent });
+    const translucent = MATERIAL_SUPPORTED && input.translucentWindow;
+    if (translucent !== windowMaterial()) applyWindowMaterial(window, translucent);
+    rememberWindowAppearance({ ...windowAppearance, ...input, translucentWindow: translucent });
     window.setBackgroundColor(windowBackground());
   });
   // 运行时防止系统休眠（设置 → 常规）：渲染进程在“有回合在跑且打开了这一项”变化时告诉这里。
@@ -818,7 +816,7 @@ function run(): void {
 }
 
 /**
- * 窗口的外观（window-appearance.ts）：主题模式、两种深浅色下的底色、半透明侧栏。app ready 时从上次记下的读回来，在创建窗口
+ * 窗口的外观（window-appearance.ts）：主题模式、两种深浅色下的底色、半透明窗口。app ready 时从上次记下的读回来，在创建窗口
  * 之前设好 themeSource；之后跟着渲染进程的 setThemeSource / setWindowAppearance 更新，停下 500 ms 后写回文件。
  */
 let windowAppearance: WindowAppearance = DEFAULT_WINDOW_APPEARANCE;
@@ -840,8 +838,8 @@ function rememberWindowAppearance(next: WindowAppearance): void {
  * 启动时用上次记下的，页面加载之前就是对的。
  */
 function windowBackground(): string {
-  // 半透明侧栏：窗口底色透明，露出 vibrancy 的材质（页面的内容区自己画不透明的底色）。
-  if (windowAppearance.translucentSidebar) return '#00000000';
+  // 半透明窗口：窗口底色透明，露出系统材质（页面里的内容卡片自己画画布色）。
+  if (windowMaterial()) return '#00000000';
   return windowAppearance.background[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 }
 
@@ -854,7 +852,26 @@ const TRAFFIC_LIGHT_POSITION = { x: 16, y: 15 };
 
 /** 红绿灯浮在页面上的时候：隐藏了系统标题栏，且不在全屏（全屏时系统把它们收进菜单栏）。 */
 function windowChrome(window: BrowserWindow): WindowChrome {
-  return { trafficLights: HIDDEN_TITLE_BAR && !window.isFullScreen() };
+  return {
+    trafficLights: HIDDEN_TITLE_BAR && !window.isFullScreen(),
+    material: MATERIAL_SUPPORTED,
+  };
+}
+
+/**
+ * 半透明窗口的系统材质（设置 → 外观，默认开）：macOS 用 vibrancy，跟随系统深浅色；Windows 11 22H2 起用 Mica，连系统标题栏
+ * 一起。其他系统没有材质，窗口照常不透明（shared/theme.ts 的 supportsWindowMaterial）。
+ */
+const MATERIAL_SUPPORTED = supportsWindowMaterial(process.platform, process.getSystemVersion());
+const MAC_VIBRANCY = 'under-window';
+
+function windowMaterial(): boolean {
+  return MATERIAL_SUPPORTED && windowAppearance.translucentWindow;
+}
+
+function applyWindowMaterial(window: BrowserWindow, on: boolean): void {
+  if (process.platform === 'darwin') window.setVibrancy(on ? MAC_VIBRANCY : null);
+  else if (process.platform === 'win32') window.setBackgroundMaterial(on ? 'mica' : 'none');
 }
 
 /** 左栏最窄 220 + 中栏最窄 560，再留出拖动与边框的余量；更窄（例如放大界面后）由渲染进程的折叠规则处理（layout-rules.ts）。 */
@@ -917,7 +934,10 @@ function createWindow(): BrowserWindow {
       trafficLightPosition: TRAFFIC_LIGHT_POSITION,
     }),
     backgroundColor: windowBackground(),
-    ...(windowAppearance.translucentSidebar && { vibrancy: 'sidebar' }),
+    ...(windowMaterial() &&
+      (process.platform === 'darwin'
+        ? { vibrancy: MAC_VIBRANCY }
+        : { backgroundMaterial: 'mica' as const })),
     show: false,
     webPreferences: {
       // 沙箱里的 preload 不能是 ESM，electron-vite 把它打成单个 CJS 文件（ADR-0004 §3）。

@@ -1397,7 +1397,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Размер шрифта кода',
   'settings.appearance.contentFont': 'Шрифт содержимого',
   'settings.appearance.codeFont': 'Шрифт кода',
-  'settings.appearance.translucentSidebar': 'Полупрозрачная боковая панель',
+  'settings.appearance.translucentWindow': 'Полупрозрачное окно',
   'settings.appearance.contrast': 'Контраст',
   'settings.language.auto': 'Автоопределение',
   'settings.language.search': 'Поиск языков',

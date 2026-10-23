@@ -130,6 +130,8 @@ export type InstallSourceInspection =
 export interface WindowChrome {
   /** 红绿灯此刻浮在页面左上角（macOS 且不在全屏）：左上角的顶栏要给它们让出位置。 */
   trafficLights: boolean;
+  /** 系统能给窗口加材质（macOS 的 vibrancy；Windows 11 22H2 起的 Mica，shared/theme.ts 的 supportsWindowMaterial）。 */
+  material: boolean;
 }
 
 /** 更新通道（ADR-0007 补记 2）：正式版只收正式版，开发版也收正式版。 */
@@ -356,7 +358,7 @@ export interface DesktopComputerApi {
 export interface WindowAppearanceInput {
   /** `#rrggbb`。 */
   background: Record<ResolvedTheme, string>;
-  translucentSidebar: boolean;
+  translucentWindow: boolean;
 }
 
 export interface DesktopApi {
@@ -400,8 +402,9 @@ export interface DesktopApi {
    */
   setThemeSource(mode: ThemeMode): Promise<void>;
   /**
-   * 窗口的底色与半透明侧栏（设置 → 外观）：底色是浅色、深色下的 --background（自定义的背景，没改时是默认值），窗口缩放露出
-   * 未绘制的区域时用它；半透明侧栏（macOS）给窗口加上 sidebar 材质（vibrancy）并把窗口底色设成透明，页面里只有侧栏是半透明的。
+   * 窗口的底色与半透明窗口（设置 → 外观）：底色是浅色、深色下的 --background（自定义的背景，没改时是默认值），窗口缩放露出
+   * 未绘制的区域时用它；半透明窗口给窗口加上系统材质（macOS 的 vibrancy、Windows 11 的 Mica）并把窗口底色设成透明，页面里
+   * 侧栏与顶栏这层“壳”透出材质，内容卡片仍是画布色。系统不支持材质时（WindowChrome.material）主进程忽略这一项。
    * 主进程记下来（连同 setThemeSource 的模式），下次启动时窗口一创建就用上，不闪默认的底色。
    */
   setWindowAppearance(appearance: WindowAppearanceInput): Promise<void>;

@@ -1378,7 +1378,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'コードの文字サイズ',
   'settings.appearance.contentFont': 'コンテンツのフォント',
   'settings.appearance.codeFont': 'コードのフォント',
-  'settings.appearance.translucentSidebar': '半透明のサイドバー',
+  'settings.appearance.translucentWindow': '半透明のウィンドウ',
   'settings.appearance.contrast': 'コントラスト',
   'settings.language.auto': '自動検出',
   'settings.language.search': '言語を検索',

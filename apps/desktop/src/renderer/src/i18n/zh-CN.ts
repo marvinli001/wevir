@@ -1377,7 +1377,7 @@ export const zhCN = {
   'settings.appearance.codeFontSize': '代码字号',
   'settings.appearance.contentFont': '内容字体',
   'settings.appearance.codeFont': '代码字体',
-  'settings.appearance.translucentSidebar': '半透明侧栏',
+  'settings.appearance.translucentWindow': '半透明窗口',
   'settings.appearance.contrast': '对比度',
   'settings.language.auto': '自动检测',
   'settings.language.search': '搜索语言',
