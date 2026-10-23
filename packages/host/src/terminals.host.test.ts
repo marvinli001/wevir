@@ -375,7 +375,8 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
       socket.pause();
       // 两个客户端都照 client-sdk 定时 ping（读不到回应也照样发得出去）：负载高的机器上收完 40 MB 可能比租期（45 s）久。
       const ping = setInterval(() => {
-        for (const client of [h.client, slow.client]) void client.request('host.ping').catch(() => {});
+        for (const client of [h.client, slow.client])
+          void client.request('host.ping').catch(() => {});
       }, 10_000);
       cleanups.push(() => clearInterval(ping));
       await h.client.request('terminal.input', {
