@@ -47,6 +47,7 @@ function tgz(entries: Buffer[]): Buffer {
 const json = (value: unknown) => Buffer.from(JSON.stringify(value));
 const integrity = (data: Buffer) => `sha512-${createHash('sha512').update(data).digest('base64')}`;
 const platformName = `@cursor/sdk-${process.platform}-${process.arch}`;
+const rgName = process.platform === 'win32' ? 'rg.exe' : 'rg';
 
 const SDK_ENTRY = `import { z } from 'zod';
 export const Agent = {};
@@ -79,7 +80,7 @@ const TARBALLS: Record<string, Buffer> = {
   ]),
   [platformName]: tgz([
     tarEntry('package/package.json', json({ name: platformName })),
-    tarEntry('package/bin/rg', Buffer.from('#!/bin/sh\n'), { mode: '0000755' }),
+    tarEntry(`package/bin/${rgName}`, Buffer.from('#!/bin/sh\n'), { mode: '0000755' }),
     tarEntry('package/vendor/tree-sitter/index.js', Buffer.from('')),
   ]),
 };
@@ -277,7 +278,7 @@ describe('CursorSdkInstaller', () => {
     expect(existsSync(join(root, 'node_modules', '@cursor', 'escape.txt'))).toBe(false);
     expect(existsSync(join(root, 'node_modules', 'escape.txt'))).toBe(false);
     expect(existsSync(join(root, 'node_modules', '@cursor', 'sdk', 'link'))).toBe(false);
-    const rg = join(root, 'node_modules', ...platformName.split('/'), 'bin', 'rg');
+    const rg = join(root, 'node_modules', ...platformName.split('/'), 'bin', rgName);
     if (process.platform !== 'win32') expect(statSync(rg).mode & 0o111).not.toBe(0);
     expect(readdirSync(join(directory, 'versions'))).toEqual([CURSOR_SDK_VERSION]);
     const total = PACKAGES.reduce((sum, entry) => sum + (TARBALLS[entry.name] as Buffer).length, 0);
@@ -298,7 +299,7 @@ describe('CursorSdkInstaller', () => {
     expect(await loaded.me('k1')).toEqual({ userEmail: 'fake@k1.flat' });
     expect(await loadCursorSdk(root)).toBe(loaded);
     const platformDir = join(root, 'node_modules', ...platformName.split('/'));
-    expect(process.env.CURSOR_RIPGREP_PATH).toBe(join(platformDir, 'bin', 'rg'));
+    expect(process.env.CURSOR_RIPGREP_PATH).toBe(join(platformDir, 'bin', rgName));
     expect(process.env.CURSOR_TREE_SITTER_VENDOR_DIR).toBe(join(platformDir, 'vendor'));
   });
 
