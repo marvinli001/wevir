@@ -1,6 +1,6 @@
 // 测试用的假 iOS 模拟器 helper（simulator/*.test.ts）：按 iOS 模拟器策划 §3 的线缆协议回答（stdin / stdout 一行一个 JSON），在 fd 3 上发
 // 帧（`u32 streamId | u8 kind | u64 ptsMicros | u32 length | bytes`，大端）。`stream_start` 立刻发配置与一个关键帧，之后的帧由测试用
-// `emit` 命令发；`stats` 回收到的命令计数。UDID 是 `OFF` 的设备回 `sim_not_booted`。`crash` 让进程以 1 退出；`FAKE_SIM_NO_READY=1`
+// `emit` 命令发；`stats` 回收到的命令计数。结果的形状同真实 helper（录像 ID 是 `rec_…` 字符串，`rotate` 带新 `screen`，`ax_tree` 是 `{root, count, truncated}`）。UDID 是 `OFF` 的设备回 `sim_not_booted`。`crash` 让进程以 1 退出；`FAKE_SIM_NO_READY=1`
 // 时不报 ready。
 
 import { writeFileSync, writeSync } from 'node:fs';
@@ -12,6 +12,11 @@ let nextStream = 1;
 let nextRecording = 1;
 let pts = 0n;
 const recordings = new Map();
+let orientation = 'portrait';
+const screen = () =>
+  orientation.startsWith('landscape')
+    ? { width: 874, height: 402, scale: 3 }
+    : { width: 402, height: 874, scale: 3 };
 
 /** 1×1 的透明 PNG。 */
 const PNG =
@@ -33,10 +38,7 @@ function frame(streamId, kind, payload) {
 }
 
 const handlers = {
-  describe_device: () => ({
-    screen: { width: 402, height: 874, scale: 3 },
-    orientation: 'portrait',
-  }),
+  describe_device: () => ({ screen: screen(), orientation }),
   stream_start: ({ udid }) => {
     const streamId = nextStream++;
     streams.set(streamId, udid);
@@ -64,13 +66,15 @@ const handlers = {
     return {};
   },
   stats: () => ({ counts, streams: [...streams.keys()] }),
+  /** 测试控制：helper 看到的语言环境。 */
+  locale: () => ({ LC_ALL: process.env.LC_ALL ?? null, LC_CTYPE: process.env.LC_CTYPE ?? null }),
   screenshot: ({ scale }) => ({
     base64: PNG,
     width: Math.round(402 * (scale ?? 1)),
     height: Math.round(874 * (scale ?? 1)),
   }),
   record_start: ({ path }) => {
-    const recordingId = nextRecording++;
+    const recordingId = `rec_${nextRecording++}`;
     recordings.set(recordingId, path);
     return { recordingId };
   },
@@ -80,21 +84,32 @@ const handlers = {
     return { path, durationMs: 1234 };
   },
   rotate: ({ udid, direction }) => {
-    const orientation = direction === 'left' ? 'landscapeLeft' : 'landscapeRight';
+    orientation = direction === 'left' ? 'landscapeLeft' : 'landscapeRight';
     send({ event: 'orientation', udid, orientation });
-    return { orientation };
+    return { orientation, screen: screen() };
   },
   ax_tree: ({ point }) => ({
-    elements: [
-      {
-        id: '@a1',
-        role: 'Button',
-        label: point ? 'At point' : 'Continue',
-        frame: { x: 10, y: 20, width: 100, height: 44 },
-      },
-    ],
+    root: {
+      id: '@a1',
+      role: 'Application',
+      label: 'Demo',
+      frame: { x: 0, y: 0, width: 402, height: 874 },
+      enabled: true,
+      children: [
+        {
+          id: '@a2',
+          role: 'Button',
+          label: point ? 'At point' : 'Continue',
+          identifier: 'continue',
+          frame: { x: 10.4, y: 20.6, width: 100, height: 44 },
+          enabled: true,
+        },
+      ],
+    },
+    count: 2,
+    truncated: false,
   }),
-  foreground_app: () => ({ bundleId: 'com.example.App', pid: 4242 }),
+  foreground_app: () => ({ pid: 4242, bundleId: 'com.example.App' }),
   crash: () => process.exit(1),
 };
 for (const name of [

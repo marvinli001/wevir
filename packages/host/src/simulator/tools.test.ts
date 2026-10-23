@@ -16,6 +16,7 @@ import { SimulatorService } from './service.js';
 import { Simctl } from './simctl.js';
 import { BOOTED, fakeHelperBin, fakeSimctl } from './test-helpers.js';
 import {
+  formatAxTree,
   resolveDevice,
   SIMULATOR_TOOLS,
   shellQuote,
@@ -154,6 +155,41 @@ describe('工具的形状', () => {
     expect(points[0]).toEqual({ x: 0, y: 100, dtMs: 0 });
     expect(points.at(-1)).toMatchObject({ x: 0, y: 0 });
     expect(points).toHaveLength(7);
+  });
+
+  it('无障碍树写成缩进的行：角色、名字、#标识、引用、取整的点坐标、值与状态；不认识的形状给 JSON', () => {
+    expect(
+      formatAxTree({
+        root: {
+          id: '@a1',
+          role: 'Application',
+          label: 'Demo',
+          frame: { x: 0, y: 0, width: 402, height: 874 },
+          children: [
+            {
+              id: '@a2',
+              role: 'TextField',
+              label: 'Name',
+              identifier: 'name',
+              value: 'Ada',
+              frame: { x: 10.4, y: 20.6, width: 100, height: 44 },
+              focused: true,
+            },
+            { id: '@a3', role: 'Button', label: 'Save', enabled: false },
+          ],
+        },
+        count: 3,
+        truncated: true,
+      }),
+    ).toBe(
+      [
+        'Application "Demo" @a1 (0,0 402×874)',
+        '  TextField "Name" #name @a2 (10,21 100×44) value="Ada" focused',
+        '  Button "Save" @a3 disabled',
+        '3 elements (truncated: describe_ui with x and y for one area). Frames are (x,y width×height) in points; tap the center.',
+      ].join('\n'),
+    );
+    expect(formatAxTree({ elements: [] })).toBe('{"elements":[]}');
   });
 
   it('shell 引号', () => {

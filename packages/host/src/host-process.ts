@@ -459,6 +459,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             simctl: new Simctl(options.iosSimulator.simctl),
           }),
           onWarning: (message, fields) => logger.warn(message, fields),
+          onLog: (line) => logger.debug('ios simulator helper', { line }),
         })
       : undefined;
     iosSimulators = simulators;

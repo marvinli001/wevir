@@ -18,6 +18,8 @@ export const HELPER_FRAME_HEADER_BYTES = 17;
 export const HELPER_FRAME_MAX_BYTES = 32 * 1024 * 1024;
 /** 等 `ready` 事件的上限。 */
 export const HELPER_READY_TIMEOUT_MS = 15_000;
+/** helper 意外退出时警告里带的 stderr 行数。 */
+export const HELPER_STDERR_TAIL_LINES = 20;
 /** 一个请求的默认上限。 */
 export const HELPER_REQUEST_TIMEOUT_MS = 20_000;
 
@@ -47,9 +49,16 @@ export interface SimulatorHelperOptions {
   outputDir: string;
   onFrame: (frame: HelperFrame) => void;
   onEvent: (event: HelperEvent) => void;
-  /** helper 退出了（不论原因）。`expected` 是 `stop()` 引起的。 */
-  onExit: (info: { code: number | null; signal: string | null; expected: boolean }) => void;
+  /** helper 退出了（不论原因）。`expected` 是 `stop()` 引起的；`stderr` 是最后几行日志。 */
+  onExit: (info: {
+    code: number | null;
+    signal: string | null;
+    expected: boolean;
+    stderr: string[];
+  }) => void;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+  /** helper 的 stderr，一行一次（它的日志，含每 5 秒的码率统计，不是警告）。 */
+  onLog?: (line: string) => void;
   /** 测试用：不用沙箱也不找描述文件。 */
   sandbox?: boolean;
   /** 默认 `HELPER_READY_TIMEOUT_MS`。 */
@@ -70,6 +79,7 @@ export class SimulatorHelper {
   #child: ChildProcess | undefined;
   #nextId = 1;
   #exited = false;
+  readonly #stderrTail: string[] = [];
   #stopping = false;
   #ready: HelperReady | undefined;
   #onReady: ((ready: HelperReady) => void) | undefined;
@@ -107,7 +117,10 @@ export class SimulatorHelper {
     stderr.setEncoding('utf8');
     stderr.on('data', (chunk: string) => {
       for (const line of chunk.split('\n')) {
-        if (line.trim() !== '') this.#options.onWarning?.('ios simulator helper', { line });
+        if (line.trim() === '') continue;
+        this.#stderrTail.push(line);
+        if (this.#stderrTail.length > HELPER_STDERR_TAIL_LINES) this.#stderrTail.shift();
+        this.#options.onLog?.(line);
       }
     });
     frames?.on('data', (chunk: Buffer) => this.#fd3(chunk));
@@ -295,6 +308,6 @@ export class SimulatorHelper {
       pending.reject(new SimulatorError('sim_helper_unavailable', 'the simulator helper exited'));
     }
     this.#pending.clear();
-    this.#options.onExit({ code, signal, expected: this.#stopping });
+    this.#options.onExit({ code, signal, expected: this.#stopping, stderr: [...this.#stderrTail] });
   }
 }

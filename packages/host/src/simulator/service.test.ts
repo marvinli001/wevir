@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDir } from '../test-utils.js';
 import { SimulatorError } from './errors.js';
 import { SimulatorService, type SimulatorServiceOptions } from './service.js';
-import { parseSimctlList, Simctl } from './simctl.js';
+import { parseSimctlList, Simctl, simctlEnv } from './simctl.js';
 import { BOOTED, FakeSocket, fakeHelperBin, fakeSimctl, SHUT, until } from './test-helpers.js';
 
 const posix = process.platform !== 'win32';
@@ -71,6 +71,19 @@ describe('simctl 的列表', () => {
         },
       ]);
     });
+  });
+});
+
+describe('simctl 的环境', () => {
+  it('语言环境不是 UTF-8 时补 LC_CTYPE=UTF-8、去掉 LC_ALL，pbcopy 才认非 ASCII', () => {
+    expect(simctlEnv({ PATH: '/bin' })).toEqual({ PATH: '/bin', LC_CTYPE: 'UTF-8' });
+    expect(simctlEnv({ LC_ALL: 'C', LANG: 'en_US.UTF-8' })).toEqual({
+      LANG: 'en_US.UTF-8',
+      LC_CTYPE: 'UTF-8',
+    });
+    const utf8 = { LANG: 'zh_CN.UTF-8' };
+    expect(simctlEnv(utf8)).toBe(utf8);
+    expect(simctlEnv({ LC_ALL: 'en_US.utf8' })).toEqual({ LC_ALL: 'en_US.utf8' });
   });
 });
 
@@ -206,7 +219,15 @@ describe.runIf(posix)('SimulatorService', () => {
   });
 
   it('helper 崩溃：在途请求以 sim_helper_unavailable 失败，有人看时重启 helper 并重新起流', async () => {
-    const { service, warnings } = setup();
+    const lines: string[] = [];
+    const exits: Array<Record<string, unknown> | undefined> = [];
+    const { service, warnings } = setup({
+      onLog: (line) => lines.push(line),
+      onWarning: (message, fields) => {
+        warnings.push(message);
+        if (message === 'ios simulator helper exited') exits.push(fields);
+      },
+    });
     const { socket } = await subscribe(service);
     await until(() => socket.sent.length >= 2);
     const crashed = await service.helperCommand('crash', {}).catch((error) => error);
@@ -219,6 +240,10 @@ describe.runIf(posix)('SimulatorService', () => {
     ]);
     expect(socket.closed).toBeUndefined();
     expect(warnings).toContain('ios simulator helper exited');
+    // stderr 是调试日志，不当警告；意外退出时警告带最后几行。
+    expect(warnings).not.toContain('ios simulator helper');
+    expect(lines).toContain('fake-ios-simulator: crash');
+    expect(exits[0]?.stderr).toEqual(expect.arrayContaining(['fake-ios-simulator: crash']));
   });
 
   it('流意外结束时有人看就重新起流', async () => {
@@ -228,6 +253,11 @@ describe.runIf(posix)('SimulatorService', () => {
     await service.helperCommand('end_stream', { streamId });
     await until(() => socket.sent.length >= 4, 5000);
     expect((await stats(service)).counts.stream_start).toBe(2);
+  });
+
+  it('helper 的环境是 UTF-8 的语言环境（它也调 simctl pbcopy）', async () => {
+    const { service } = setup({ env: { ...process.env, LC_ALL: 'C', LANG: '' } });
+    expect(await service.helperCommand('locale', {})).toEqual({ LC_ALL: null, LC_CTYPE: 'UTF-8' });
   });
 
   it('helper 不报 ready 时请求以 sim_helper_unavailable 失败', async () => {
@@ -263,7 +293,7 @@ describe.runIf(posix)('SimulatorService', () => {
     expect(existsSync(stopped.path)).toBe(true);
   });
 
-  it('旋转：结果带新方向，发 simulator.orientation 一次，屏幕尺寸重新读', async () => {
+  it('旋转：结果带新方向，发 simulator.orientation 一次、带转向后的点尺寸', async () => {
     const { service } = setup();
     const notices: unknown[] = [];
     service.watch((notice) => notices.push(notice));
@@ -275,11 +305,15 @@ describe.runIf(posix)('SimulatorService', () => {
     expect(notices).toEqual([
       {
         method: 'simulator.orientation',
-        params: { udid: BOOTED, orientation: 'landscapeRight' },
+        params: {
+          udid: BOOTED,
+          orientation: 'landscapeRight',
+          screen: { width: 874, height: 402, scale: 3 },
+        },
       },
     ]);
-    await service.describe(BOOTED);
-    expect((await stats(service)).counts.describe_device).toBe(2);
+    expect((await service.describe(BOOTED)).screen).toEqual({ width: 874, height: 402, scale: 3 });
+    expect((await stats(service)).counts.describe_device).toBeLessThanOrEqual(2);
   });
 
   it('attachedBy 与 simulator.changed、simulator.show；attach 没启动的设备先启动', async () => {
