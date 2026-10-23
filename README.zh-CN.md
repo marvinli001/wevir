@@ -107,7 +107,7 @@ Wevir 还在预览阶段。**支持**：包含在安装包里，有自动化测�
 | | Antigravity | 测试版 | Wevir 下载锁定的版本 |
 | | WorkBuddy | 测试版 | 需要 `codebuddy` 命令行 |
 | | Devin | 测试版 | 还没用真实账号验证 |
-| | Cursor | 测试版 | 只在源码构建里可用：Cursor SDK 不随安装包分发 |
+| | Cursor | 测试版 | 设置时 Wevir 从 npm 下载 Cursor SDK，不随安装包分发 |
 | 其他 | `wevir` 命令行 | 测试版 | 从源码运行，不在安装包里 |
 | | 电脑操作 | 测试版 | 仅 macOS，默认关闭 |
 | | 移动端 | 计划中 | |

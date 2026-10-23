@@ -549,24 +549,44 @@ function paxPath(data: Buffer): string | undefined {
 
 const MAX_HEADER_DATA = 1024 * 1024;
 
+/** tar 里的一个条目（`readTar`）。 */
+export interface TarEntry {
+  /** 条目的路径，原样（npm 包都在顶层目录 `package/` 下）。 */
+  name: string;
+  /** `file` 是普通文件，`directory` 是目录；链接、设备等一律是 `other`。 */
+  type: 'file' | 'directory' | 'other';
+  /** 头里的权限位。 */
+  mode: number;
+  size: number;
+}
+
+/** 收一个条目数据的地方：`write` 依次收到全部数据块，最后 `end`。 */
+export interface TarSink {
+  write(data: Buffer): Promise<void>;
+  end(): Promise<void>;
+}
+
 /**
- * 从（已解压的）tar 流里取出名为 `wanted` 的普通文件，数据块交给 `write`；其余条目一律跳过，所以不会写到别处。认 ustar 的
- * prefix、pax 的 `path` 与 GNU 的长名字。读完整个流才返回（校验和要覆盖所有字节）：流里有它返回 true，没有返回 false。
+ * 逐个读（已解压的）tar 流里的条目：每个条目问一次 `open`，它给出 `TarSink` 就把数据交给它，否则跳过。认 ustar 的 prefix、
+ * pax 的 `path` 与 GNU 的长名字。读完整个流才返回（校验和要覆盖所有字节）。
  */
-export async function extractTarEntry(
+export async function readTar(
   source: AsyncIterable<Uint8Array>,
-  wanted: string,
-  write: (data: Buffer) => Promise<void>,
-): Promise<boolean> {
+  open: (entry: TarEntry) => TarSink | undefined | Promise<TarSink | undefined>,
+): Promise<void> {
   let buffer: Buffer = Buffer.alloc(0);
   let remaining = 0;
   let padding = 0;
-  let mode: 'skip' | 'capture' | 'meta' = 'skip';
-  let meta: Buffer[] = [];
+  let sink: TarSink | undefined;
+  let meta: Buffer[] | undefined;
   let metaKind: 'x' | 'L' | undefined;
   let pendingName: string | undefined;
-  let done = false;
   let ended = false;
+  const finishMeta = () => {
+    const data = Buffer.concat(meta ?? []);
+    meta = undefined;
+    pendingName = metaKind === 'L' ? cString(data) : paxPath(data);
+  };
 
   for await (const chunk of source) {
     if (ended) continue;
@@ -576,18 +596,17 @@ export async function extractTarEntry(
         const take = Math.min(remaining, buffer.length);
         if (take === 0) break;
         const piece = buffer.subarray(0, take);
-        if (mode === 'capture') await write(Buffer.from(piece));
-        else if (mode === 'meta') meta.push(Buffer.from(piece));
+        if (sink !== undefined) await sink.write(Buffer.from(piece));
+        else if (meta !== undefined) meta.push(Buffer.from(piece));
         buffer = buffer.subarray(take);
         remaining -= take;
         if (remaining > 0) break;
-        if (mode === 'capture') done = true;
-        if (mode === 'meta') {
-          const data = Buffer.concat(meta);
-          meta = [];
-          pendingName = metaKind === 'L' ? cString(data) : paxPath(data);
+        if (sink !== undefined) {
+          const done = sink;
+          sink = undefined;
+          await done.end();
         }
-        mode = 'skip';
+        if (meta !== undefined) finishMeta();
         continue;
       }
       if (padding > 0) {
@@ -611,24 +630,45 @@ export async function extractTarEntry(
       remaining = size;
       if (type === 'x' || type === 'L') {
         if (size > MAX_HEADER_DATA) throw new Error('tar header data is too large');
-        mode = 'meta';
+        meta = [];
         metaKind = type;
+        if (size === 0) finishMeta();
         continue;
       }
-      if (type === 'g') {
-        mode = 'skip';
-        continue;
-      }
+      if (type === 'g') continue;
       const prefix = cString(header.subarray(345, 500));
       const own = cString(header.subarray(0, 100));
       const name = pendingName ?? (prefix === '' ? own : `${prefix}/${own}`);
       pendingName = undefined;
-      mode = !done && (type === '0' || type === '\0') && name === wanted ? 'capture' : 'skip';
-      if (mode === 'capture' && size === 0) {
-        done = true;
-        mode = 'skip';
+      sink = await open({
+        name,
+        type: type === '0' || type === '\0' ? 'file' : type === '5' ? 'directory' : 'other',
+        mode: octal(header.subarray(100, 108)),
+        size,
+      });
+      if (sink !== undefined && size === 0) {
+        const done = sink;
+        sink = undefined;
+        await done.end();
       }
     }
   }
-  return done;
+}
+
+/**
+ * 从（已解压的）tar 流里取出名为 `wanted` 的普通文件，数据块交给 `write`；其余条目一律跳过，所以不会写到别处。读完整个流
+ * 才返回：流里有它返回 true，没有返回 false。
+ */
+export async function extractTarEntry(
+  source: AsyncIterable<Uint8Array>,
+  wanted: string,
+  write: (data: Buffer) => Promise<void>,
+): Promise<boolean> {
+  let found = false;
+  await readTar(source, (entry) => {
+    if (found || entry.type !== 'file' || entry.name !== wanted) return undefined;
+    found = true;
+    return { write, end: async () => {} };
+  });
+  return found;
 }

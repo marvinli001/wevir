@@ -11,7 +11,10 @@ import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter, claudeSdkInstalled } from '@wevir/adapter-claude';
 import {
   CursorAdapter,
+  CursorSdkInstaller,
+  cursorSdkDirectory,
   cursorSdkInstalled,
+  cursorSdkInstallSupported,
   isCursorShellSpawnFailure,
 } from '@wevir/adapter-cursor';
 import { DevinAdapter } from '@wevir/adapter-devin';
@@ -26,19 +29,45 @@ import type { AccountEngineFactory, EngineRoute } from './engine-router.js';
 /** 要连同 SDK 一起装的引擎：这个 Host 里有没有它们的 SDK。 */
 export interface EngineSdks {
   claude: boolean;
-  cursor: boolean;
+  /**
+   * `package`：Host 自己解析得到 `@cursor/sdk`（开发环境经 pnpm 装上）；安装器：安装包里不带，用户选用时下载到数据目录
+   * （首个账号与添加的账号共用这一个）；`false`：SDK 没有本平台的构建，不挂 Cursor。
+   */
+  cursor: 'package' | CursorSdkInstaller | false;
+}
+
+/** 这个 Host 的 SDK：`subscriptionEngines` 与 `subscriptionAccountEngines` 要用同一份（cli.ts）。 */
+export function engineSdks(context: Pick<AdapterContext, 'home'>): EngineSdks {
+  return {
+    claude: claudeSdkInstalled(),
+    cursor: cursorSdkInstalled()
+      ? 'package'
+      : cursorSdkInstallSupported()
+        ? new CursorSdkInstaller({ directory: cursorSdkDirectory(context.home) })
+        : false,
+  };
+}
+
+/** Cursor 适配器要的 SDK 选项。 */
+function cursorSdkOption(sdks: EngineSdks): { sdkInstaller?: CursorSdkInstaller } {
+  return sdks.cursor instanceof CursorSdkInstaller ? { sdkInstaller: sdks.cursor } : {};
 }
 
 /**
- * 现在挂上的订阅引擎。`@cursor/sdk` 不随安装包分发（ADR-0007 补记 3；Claude Agent SDK 2026-10-17 起随安装包，补记 6），SDK
- * 没装时不挂那个引擎：Host 照常启动，桌面端的订阅来源里它显示为还不能用（没有这种账号）。开发环境里两个 SDK 都经 pnpm 装上。
+ * 现在挂上的订阅引擎。Claude Agent SDK 随安装包（ADR-0007 补记 6），没有时不挂 Claude。`@cursor/sdk` 不随安装包分发
+ * （补记 3），用户在设置里选用 Cursor 时下载（adapter-cursor 的 sdk-install.ts），所以 Cursor 照样挂上、账号报没安装；只有本平台
+ * 没有 SDK 的构建时不挂，桌面端的订阅来源里它显示为还不能用（没有这种账号）。开发环境里两个 SDK 都经 pnpm 装上。
  */
 export function subscriptionEngines(
   context: AdapterContext,
-  sdks: EngineSdks = { claude: claudeSdkInstalled(), cursor: cursorSdkInstalled() },
+  sdks: EngineSdks = engineSdks(context),
 ): EngineRoute[] {
   for (const [engine, installed] of Object.entries(sdks)) {
-    if (!installed) context.logger.info('engine sdk not installed; engine disabled', { engine });
+    if (installed === false) {
+      context.logger.info('engine sdk not installed; engine disabled', { engine });
+    } else if (installed instanceof CursorSdkInstaller) {
+      context.logger.info('engine sdk installs on demand', { engine });
+    }
   }
   const routes: EngineRoute[] = [
     {
@@ -59,6 +88,7 @@ export function subscriptionEngines(
         home: context.home,
         logger: context.logger,
         ...(context.env !== undefined && { env: context.env }),
+        ...cursorSdkOption(sdks),
       }),
       kinds: ['cursor'],
     },
@@ -125,18 +155,21 @@ export function subscriptionEngines(
     },
   ];
   return routes.filter(
-    (route) => (route.name !== 'claude' || sdks.claude) && (route.name !== 'cursor' || sdks.cursor),
+    (route) =>
+      (route.name !== 'claude' || sdks.claude) &&
+      (route.name !== 'cursor' || sdks.cursor !== false),
   );
 }
 
 /**
  * 添加的订阅账号（0.63.0）的引擎：同 `subscriptionEngines` 的那一种，凭据与会话放进账号自己的目录（`<数据目录>/accounts/<id>/`）。
  * 有 Claude、Cursor、Grok、Antigravity 与 OpenCode（ChatGPT 的在 cli.ts）；OpenCode 只分开数据目录，用户的配置与上游照旧共用。
- * WorkBuddy 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没装的种类不能添加。
+ * WorkBuddy 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没有的种类不能添加；
+ * Cursor 的 SDK 要下载时添加的账号与首个账号共用安装器，装好后一起能用。
  */
 export function subscriptionAccountEngines(
   context: AdapterContext,
-  sdks: EngineSdks = { claude: claudeSdkInstalled(), cursor: cursorSdkInstalled() },
+  sdks: EngineSdks = engineSdks(context),
 ): AccountEngineFactory {
   const env = context.env ?? process.env;
   const creators: Partial<Record<AccountKind, (root: string) => AgentRuntimeAdapter>> = {
@@ -150,7 +183,7 @@ export function subscriptionAccountEngines(
           ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
         }),
     }),
-    ...(sdks.cursor && {
+    ...(sdks.cursor !== false && {
       cursor: (root: string) =>
         new CursorAdapter({
           home: context.home,
@@ -158,6 +191,7 @@ export function subscriptionAccountEngines(
           // 环境里的 CURSOR_API_KEY 是首个账号的事：添加的账号用它自己登录铸的 Key。
           env: withoutKeys(env, ['CURSOR_API_KEY']),
           credentialsPath: join(root, 'cursor', 'auth.json'),
+          ...cursorSdkOption(sdks),
         }),
     }),
     grok: (root) =>
