@@ -6,6 +6,7 @@ import { currentLocale, t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import type { UpdateChannel, UpdateState } from '../../../shared/desktop-api.js';
+import { downloadPageUrl } from './update-model';
 import { UpdateProgress } from './update-progress';
 import { useUpdateState } from './update-store';
 
@@ -90,7 +91,14 @@ function UpdateAction({ state }: { state: UpdateState }) {
         </Button>
       ) : null;
     case 'available':
-      return (
+      return state.manual ? (
+        <Button
+          size="sm"
+          onClick={() => void platformApi().openExternal(downloadPageUrl(currentLocale()))}
+        >
+          {t('update.action.downloadPage')}
+        </Button>
+      ) : (
         <Button size="sm" onClick={() => void platformApi().downloadUpdate()}>
           {t('update.action.download')}
         </Button>

@@ -4,7 +4,7 @@
  *   node scripts/release-dir.ts --out <目录> [--target <三元组>] [--key <私钥.pem> | --key -]
  *
  * 读 `apps/desktop/release/` 里 electron-builder 写的更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` /
- * `beta.yml`），把清单、清单列出的文件与它们的 blockmap 复制到 `<目录>/desktop/<平台>-<架构>/`，给清单写 `<清单>.sig`，
+ * `beta.yml`，Linux 是 `latest-linux.yml`、arm64 是 `latest-linux-arm64.yml`，列着 AppImage 与 deb），把清单、清单列出的文件与它们的 blockmap 复制到 `<目录>/desktop/<平台>-<架构>/`，给清单写 `<清单>.sig`，
  * 最后用应用内置的公钥（src/main/updates/keys.ts）核对一遍：对不上就失败，不留下客户端验不过的发布目录。
  * `--key -` 从环境变量 WEVIR_UPDATE_SIGNING_KEY 读私钥（CI 的 secret）；默认 `~/.wevir-release/update-signing-key.pem`。
  *
@@ -63,7 +63,7 @@ function main(): void {
     values.key ?? join(homedir(), '.wevir-release', 'update-signing-key.pem'),
   );
   const manifests = ['latest', 'beta']
-    .map((name) => manifestFile(name, os))
+    .map((name) => manifestFile(name, os, cpu))
     .filter((name) => existsSync(join(source, name)));
   if (manifests.length === 0)
     throw new Error(`no update manifest in ${source}; run pnpm package first`);

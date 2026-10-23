@@ -102,7 +102,7 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | 桌面端 | macOS，Apple 芯片 | 支持 |
 | | macOS，Intel | 测试版 |
 | | Windows x64 | 测试版 |
-| | Linux | 暂无 |
+| | Linux x64 与 arm64（AppImage、deb） | 测试版 |
 | 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 |
 | | ChatGPT 账号登录 | 支持 |
 | 订阅 | Claude | 测试版 |
@@ -121,7 +121,7 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 - **仅预览版。** 所有发布版本均为开发版（`0.0.1-beta.N`），由 `master` 在 CI 通过后自动构建。更新频繁，版本间行为可能变化。
 - **更新通道。** 应用内更新使用开发通道；正式通道尚未发布版本。
 - **订阅来源。** 依赖厂商官方客户端或 SDK 与本机登录，受厂商条款约束，客户端变更可能导致失效。
-- **平台。** 无 Linux 与 Windows on Arm 安装包。
+- **平台。** 无 Windows on Arm 安装包。电脑操作只有 macOS 版。Linux 上只有 AppImage 在应用内更新，deb 版只提示新版本并给出下载页。
 
 问题反馈：[GitHub Issues](https://github.com/marvinli001/wevir/issues)。提问与建议：[GitHub Discussions](https://github.com/marvinli001/wevir/discussions)。
 

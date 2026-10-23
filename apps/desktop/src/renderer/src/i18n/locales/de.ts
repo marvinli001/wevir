@@ -1758,6 +1758,7 @@ export const messages: Messages = {
   'update.action.download': 'Laden',
   'update.action.restart': 'Neu starten zum Aktualisieren',
   'update.action.move': 'In „Programme“ verschieben',
+  'update.action.downloadPage': 'Downloadseite',
 
   'suggest.title':
     '{count, plural, one {# vorgeschlagene Aufgabe} other {# vorgeschlagene Aufgaben}}',

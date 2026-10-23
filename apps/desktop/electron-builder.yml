@@ -83,6 +83,52 @@ nsis:
   perMachine: false
   artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
 
+linux:
+  # AppImage 经 electron-updater 自动更新（替换 AppImage 文件本身）；deb 由系统的包管理装在 /opt/Wevir，应用里只提示有新版本
+  # 并给下载页（main/updates/electron-updates.ts）。两种都不签名。架构由命令行给（--x64 / --arm64）。
+  target:
+    - AppImage
+    - deb
+  # 命令名、图标名与 .desktop 文件名都是 wevir（默认取自 npm 包名）。
+  executableName: wevir
+  # 图标是 assets/icons/exports/linux/light/hicolor 的浅色一套（16–1024 px），装进 /usr/share/icons/hicolor/<尺寸>/apps/wevir.png：
+  # electron-builder 只认平铺的 <尺寸>x<尺寸>.png，scripts/package.ts 先复制成那样再用 -c.linux.icon 交进来。
+  category: Development
+  # deb 的 Description 与 .desktop 的 Comment（不写时取 package.json 的 description，那是给开发者看的）。
+  description: Open-source desktop workspace for AI coding agents
+  # package.json 的 desktopName（wevir.desktop）是 Electron 在 Wayland 上的 app_id；.desktop 文件名与 StartupWMClass 跟它一致，
+  # 任务栏才能把窗口认成这个应用（X11 上的 WM_CLASS 是 productName 的小写，同为 wevir）。
+  syncDesktopName: true
+  desktop:
+    entry:
+      Name: Wevir
+      GenericName: AI Agent Workbench
+      Keywords: AI;Agent;Codex;Claude;Terminal;
+      StartupNotify: 'true'
+  # scripts/package.ts 把这里的 ${arch} 换成固定的 x64 / arm64（electron-builder 按包格式会写成 x86_64、amd64、aarch64）。
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+
+deb:
+  maintainer: Wevir contributors <lizhuoyang0@gmail.com>
+  # electron-builder 的默认依赖（GTK 3、NSS、libsecret 等），再加 Chromium 要的 libgbm1、libasound2 与 libdrm2；不同发行版里
+  # libasound2 改名成了 libasound2t64，两个都认。
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
+    - libdrm2
+    - libasound2 | libasound2t64
+  # 托盘图标（StatusNotifierItem）在 GNOME 上要 AppIndicator 扩展，系统没有时 Electron 退回旧的托盘协议。
+  recommends:
+    - libappindicator3-1
+
 # 只为了让 electron-builder 写更新清单（`latest-mac.yml` / `latest.yml`，版本带 `-beta.N` 时是 `beta-*`）与 blockmap；
 # 不经它上传（scripts/package.ts 传 --publish never）。应用里检查更新用自己的 provider 与两条线路（ADR-0007 补记 4），
 # 不读这里的地址。上传到两条线路由 scripts/release-dir.ts 整理的发布目录来做。

@@ -2,7 +2,8 @@
 // 不依赖 Electron，单元测试直接跑；electron-updater 的 provider 与状态机在 mirror-provider.ts 与 updater.ts。
 //
 // 发布目录（Wevir 自己的两条线路）：`<线路>/desktop/<平台>-<架构>/`，里面是 electron-builder 写的更新清单
-// （`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`）、每份清单的签名 `<清单>.sig`，以及清单里
+// （`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，Linux 是 `latest-linux.yml`、arm64 是
+// `latest-linux-arm64.yml`）、每份清单的签名 `<清单>.sig`，以及清单里
 // 列出的安装包与 blockmap（相对路径）。GitHub 线路是一个 Release（tag `desktop-updates`）的附件，附件没有目录：清单与签名
 // 名字前加 `<平台>-<架构>-`，安装包与 blockmap 的名字本来就带平台与架构，照原名放，清单里的相对路径照样指得到。正式版只读 latest，开发版读 latest 与 beta、取版本高的：正式版发布后开发版用户
 // 也会收到它，切回正式版时不降级（electron-updater 的 allowDowngrade 关着）。
@@ -82,10 +83,11 @@ export function channelNames(channel: UpdateChannel): readonly string[] {
   return channel === 'dev' ? ['latest', 'beta'] : ['latest'];
 }
 
-/** electron-builder 的清单文件名。 */
-export function manifestFile(name: string, platform: NodeJS.Platform): string {
+/** electron-builder 的清单文件名：Linux 上 x64 以外的架构带后缀（`latest-linux-arm64.yml`）。 */
+export function manifestFile(name: string, platform: NodeJS.Platform, arch: string): string {
   if (platform === 'darwin') return `${name}-mac.yml`;
-  if (platform === 'linux') return `${name}-linux.yml`;
+  if (platform === 'linux')
+    return arch === 'x64' ? `${name}-linux.yml` : `${name}-linux-${arch}.yml`;
   return `${name}.yml`;
 }
 
@@ -205,7 +207,7 @@ export async function readMirror(options: {
   const baseUrl = feedUrl(options.mirror, options.platform, options.arch);
   const read = await Promise.all(
     channelNames(options.channel).map(async (name) => {
-      const file = manifestFile(name, options.platform);
+      const file = manifestFile(name, options.platform, options.arch);
       const url = manifestUrl(options.mirror, options.platform, options.arch, file);
       let text: Uint8Array;
       try {
@@ -371,7 +373,10 @@ export async function pickDownloadMirror(options: {
   return { chosen, bytesPerMs };
 }
 
-/** 清单里给当前平台下载的那个文件：macOS 是 zip（Squirrel.Mac 只认 zip），Windows 是安装程序。 */
+/**
+ * 清单里给当前平台下载的那个文件：macOS 是 zip（Squirrel.Mac 只认 zip），Windows 是安装程序，Linux 是 AppImage（清单里还有
+ * deb，应用里不下载它）。
+ */
 export function installerFile(info: ManifestInfo, platform: NodeJS.Platform): string {
   const files = info.files.map((file) => file.url);
   const pick =
@@ -379,7 +384,9 @@ export function installerFile(info: ManifestInfo, platform: NodeJS.Platform): st
       ? files.find((url) => url.endsWith('.zip'))
       : platform === 'win32'
         ? files.find((url) => url.endsWith('.exe'))
-        : files[0];
+        : platform === 'linux'
+          ? files.find((url) => url.endsWith('.AppImage'))
+          : files[0];
   if (pick === undefined) throw new Error(`update manifest has no installer for ${platform}`);
   return pick;
 }

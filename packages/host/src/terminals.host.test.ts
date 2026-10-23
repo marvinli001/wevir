@@ -99,6 +99,8 @@ async function boot(home: string, workspaceDir: string) {
 /** 一个客户端看一个终端：attach 的结果加上之后的 `terminal.output`，按位置接起来（不连续就报错）。 */
 function view(client: TestRpcClient, terminalId: string, attach: { data: string; next: number }) {
   let text = attach.data;
+  // 同样的输出按到达的段留着（与 text 共用字符串，不另占内存），untilContains 只查新到的段。
+  const pieces = [attach.data];
   let next = attach.next;
   let seen = 0;
   const pull = () => {
@@ -108,7 +110,9 @@ function view(client: TestRpcClient, terminalId: string, attach: { data: string;
     for (const output of outputs.slice(seen)) {
       if (output.offset + output.data.length <= next) continue;
       if (output.offset > next) throw new Error(`gap: ${output.offset} > ${next}`);
-      text += output.data.slice(next - output.offset);
+      const piece = output.data.slice(next - output.offset);
+      text += piece;
+      pieces.push(piece);
       next = output.offset + output.data.length;
     }
     seen = outputs.length;
@@ -131,6 +135,27 @@ function view(client: TestRpcClient, terminalId: string, attach: { data: string;
         label,
         timeoutMs,
       ),
+    /**
+     * 等输出里出现 `marker`。大输出时用它：`until` 每收到一帧都要把几十 MB 的 text 拼平再查，负载高时帧小而多，
+     * 拼接的开销按平方涨，比 Host 发得还慢。
+     */
+    untilContains: (marker: string, label: string, timeoutMs?: number) => {
+      let index = 0;
+      let carry = '';
+      return client.until(
+        () => {
+          pull();
+          for (; index < pieces.length; index++) {
+            const window = carry + pieces[index];
+            if (window.includes(marker)) return true;
+            carry = window.slice(-(marker.length - 1));
+          }
+          return undefined;
+        },
+        label,
+        timeoutMs,
+      );
+    },
   };
 }
 
@@ -164,7 +189,7 @@ async function changedUntil(
   );
 }
 
-// node-pty 装得上的平台（macOS、Windows；Linux 没有预编译）才跑。
+// node-pty 加载得了才跑：macOS、Windows 用包里的预编译，Linux 要先 bash scripts/build-node-pty.sh（CI 会编）。
 describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终端经 Host API', () => {
   it('开终端、输入、输出、关闭（各平台）', async () => {
     const { home, workspaceDir } = dirs();
@@ -348,6 +373,12 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
       // biome-ignore lint/suspicious/noExplicitAny: ws 的底层套接字。
       const socket = (slow.client.ws as any)._socket as { pause(): void; resume(): void };
       socket.pause();
+      // 两个客户端都照 client-sdk 定时 ping（读不到回应也照样发得出去）：负载高的机器上收完 40 MB 可能比租期（45 s）久。
+      const ping = setInterval(() => {
+        for (const client of [h.client, slow.client])
+          void client.request('host.ping').catch(() => {});
+      }, 10_000);
+      cleanups.push(() => clearInterval(ping));
       await h.client.request('terminal.input', {
         terminalId: terminal.id,
         data: 'head -c 40000000 /dev/zero | tr "\\000" "y" | fold -w 100; echo flow-$((5))-done\r',
@@ -359,8 +390,8 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
       expect(live.next - stalled).toBeLessThan(1_000_000);
       expect(live.text).not.toContain('flow-5-done');
       socket.resume();
-      await slowView.until((text) => text.includes('flow-5-done'), '慢的客户端收全', 90_000);
-      await live.until((text) => text.includes('flow-5-done'), '快的客户端收全', 30_000);
+      await slowView.untilContains('flow-5-done', '慢的客户端收全', 90_000);
+      await live.untilContains('flow-5-done', '快的客户端收全', 30_000);
       expect(slow.client.ws.readyState).toBe(slow.client.ws.OPEN);
       expect(slowView.text.match(/y/g)?.length ?? 0).toBeGreaterThanOrEqual(40_000_000);
     }, 150_000);
@@ -389,6 +420,8 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
         (t) => /^(vi|vim)$/.test(t.foreground),
         '前台是 vi',
       );
+      // 等 vi 切到备用屏再输入：慢的机器上 vi 还没进 raw 模式时，tty 会先把输入回显出来。
+      await live.until((text) => text.includes('\u001b[?1049h'), 'vi 进入备用屏');
       await input('iwevir in vi');
       await live.until((text) => text.includes('wevir in vi'), 'vi 里的输入');
       await new Promise((resolve) => setTimeout(resolve, 300));

@@ -135,11 +135,25 @@ protocol.registerSchemesAsPrivileged([
 // 所有渲染进程都进沙箱，包括将来新建的窗口。
 app.enableSandbox();
 
-if (app.requestSingleInstanceLock()) {
-  run();
-} else {
+void acquireInstanceLock().then((locked) => {
+  if (locked) run();
   // 同一数据目录已有桌面端在运行：交给它（second-instance），自己退出，不再拉起或附着 Host。
-  app.quit();
+  else app.quit();
+});
+
+/**
+ * 单实例锁。AppImage 装完更新时 electron-updater 换掉文件后立刻启动新版本（环境里带 APPIMAGE_SILENT_INSTALL=true），旧版本
+ * 这时还在退出（先停 Host）：新版本等它放开锁，最多 60 s，而不是把自己交给正在退出的旧版本后退出。
+ */
+async function acquireInstanceLock(): Promise<boolean> {
+  if (app.requestSingleInstanceLock()) return true;
+  if (process.platform !== 'linux' || process.env.APPIMAGE_SILENT_INSTALL !== 'true') return false;
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (app.requestSingleInstanceLock()) return true;
+  }
+  return false;
 }
 
 function run(): void {
@@ -677,16 +691,19 @@ function run(): void {
     contents.on('will-attach-webview', (event) => event.preventDefault());
   });
 
-  app.on('second-instance', showMainWindow);
+  // 退出前只停自己拉起的 Host（附着的不停），停完再真正退出。
+  let quitReady = false;
+  let quitting = false;
+  // 正在退出时不再把窗口叫出来：AppImage 更新后的新版本在等锁时会一直触发它（acquireInstanceLock）。
+  app.on('second-instance', () => {
+    if (!quitting) showMainWindow();
+  });
   // macOS：点程序坞图标（窗口关掉、藏在后台时）把窗口叫回来。
   app.on('activate', showMainWindow);
 
   // 窗口只在真正退出时才关（见 allowClose），所以走到这里就是在退出；自己拉起的 Host 随之停止。
   app.on('window-all-closed', () => app.quit());
 
-  // 退出前只停自己拉起的 Host（附着的不停），停完再真正退出。
-  let quitReady = false;
-  let quitting = false;
   app.on('before-quit', (event) => {
     allowClose = true;
     if (quitReady) return;

@@ -1767,6 +1767,7 @@ export const messages: Messages = {
   'update.action.download': 'Descargar',
   'update.action.restart': 'Reiniciar para actualizar',
   'update.action.move': 'Mover a Aplicaciones',
+  'update.action.downloadPage': 'Página de descarga',
 
   'suggest.title': '{count, plural, one {# tarea sugerida} other {# tareas sugeridas}}',
   'suggest.startedCount': '{count, plural, one {# iniciada} other {# iniciadas}}',

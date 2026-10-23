@@ -1742,6 +1742,7 @@ export const messages: Messages = {
   'update.action.download': 'Download',
   'update.action.restart': 'Restart to update',
   'update.action.move': 'Move to Applications',
+  'update.action.downloadPage': 'Download page',
 
   'suggest.title': '{count, plural, one {# suggested task} other {# suggested tasks}}',
   'suggest.startedCount': '{count} started',

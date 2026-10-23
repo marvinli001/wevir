@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SPEECH_MIRRORS, SPEECH_RELEASE_TAG } from '../../../packages/host/src/speech/install.ts';
+import { manifestFile as feedManifestFile } from '../src/main/updates/feed.js';
 import {
   CDN_RETRY_MS,
   CDN_SETTLE_MS,
@@ -89,6 +90,15 @@ describe('清单', () => {
   it('文件名与 feed.ts 一致', () => {
     expect(manifestFile('beta', 'darwin-arm64')).toBe('beta-mac.yml');
     expect(manifestFile('latest', 'win32-x64')).toBe('latest.yml');
+    for (const [dir, arch] of [
+      ['darwin-arm64', 'arm64'],
+      ['win32-x64', 'x64'],
+      ['linux-x64', 'x64'],
+      ['linux-arm64', 'arm64'],
+    ] as const) {
+      const platform = dir.split('-')[0] as NodeJS.Platform;
+      expect(manifestFile('beta', dir)).toBe(feedManifestFile('beta', platform, arch));
+    }
   });
 
   it('读出版本与列出的文件', () => {
@@ -378,12 +388,18 @@ describe('GitHub 线路的附件名', () => {
     expect(platformDirOfFile('Wevir-0.1.0-mac-arm64.zip')).toBe('darwin-arm64');
     expect(platformDirOfFile('Wevir-0.1.1-beta.3-mac-x64.dmg.blockmap')).toBe('darwin-x64');
     expect(platformDirOfFile('Wevir-0.1.1-beta.3-win-x64-setup.exe')).toBe('win32-x64');
+    expect(platformDirOfFile('Wevir-0.1.1-beta.3-linux-x64.AppImage')).toBe('linux-x64');
+    expect(platformDirOfFile('Wevir-0.1.1-beta.3-linux-arm64.deb')).toBe('linux-arm64');
     expect(platformDirOfFile('beta-mac.yml')).toBeUndefined();
   });
 
   it('清单与签名加平台前缀，安装包照原名；放错目录的安装包不收', () => {
     expect(githubAssetName('darwin-arm64', 'latest-mac.yml')).toBe('darwin-arm64-latest-mac.yml');
     expect(githubAssetName('win32-x64', 'beta.yml.sig')).toBe('win32-x64-beta.yml.sig');
+    expect(githubAssetName('linux-x64', 'beta-linux.yml')).toBe('linux-x64-beta-linux.yml');
+    expect(githubAssetName('linux-arm64', 'latest-linux-arm64.yml.sig')).toBe(
+      'linux-arm64-latest-linux-arm64.yml.sig',
+    );
     expect(githubAssetName('darwin-arm64', 'Wevir-0.1.0-mac-arm64.zip')).toBe(
       'Wevir-0.1.0-mac-arm64.zip',
     );
@@ -400,6 +416,10 @@ describe('GitHub 线路的附件名', () => {
       'Wevir-0.1.0-mac-arm64.zip.blockmap',
       'Wevir-0.1.0-mac-x64.zip',
       'Wevir-0.1.1-beta.2-win-x64-setup.exe',
+      'linux-x64-beta-linux.yml',
+      'linux-arm64-beta-linux-arm64.yml',
+      'Wevir-0.1.1-beta.2-linux-x64.AppImage',
+      'Wevir-0.1.1-beta.2-linux-arm64.deb',
     ];
     expect(githubDirListing(assets, 'darwin-arm64')).toEqual([
       'latest-mac.yml',
@@ -410,6 +430,14 @@ describe('GitHub 线路的附件名', () => {
     expect(githubDirListing(assets, 'win32-x64')).toEqual([
       'beta.yml',
       'Wevir-0.1.1-beta.2-win-x64-setup.exe',
+    ]);
+    expect(githubDirListing(assets, 'linux-x64')).toEqual([
+      'beta-linux.yml',
+      'Wevir-0.1.1-beta.2-linux-x64.AppImage',
+    ]);
+    expect(githubDirListing(assets, 'linux-arm64')).toEqual([
+      'beta-linux-arm64.yml',
+      'Wevir-0.1.1-beta.2-linux-arm64.deb',
     ]);
   });
 });

@@ -7,7 +7,8 @@
 // 与 310）。
 // 例：视口 1280、侧栏 300 → 停靠；视口 900、侧栏偏好 400 → 只停靠 340；视口 760 → 浮层。
 //
-// 设置页的左栏与这里的侧栏共用一个宽度偏好（settingsNavWidth），从对话进设置左栏的宽不变。
+// 设置页的左栏与这里的侧栏共用一个宽度偏好（settingsNavWidth），从对话进设置左栏的宽不变；视口 < 632 时设置页左栏也改成
+// 浮层（settingsNavDocks）。
 
 export const LAYOUT = {
   sidebarMin: 220,
@@ -17,8 +18,10 @@ export const LAYOUT = {
   legacySidebarDefault: 260,
   /** 侧栏能否停靠按主窗格的这个宽度算；窗格区停靠时主窗格可以更窄（arrange.ts 的 primaryMinWidth）。 */
   primaryComfortWidth: 560,
-  /** 设置页左栏最窄的宽：设置页的左栏不收起，视口窄到侧栏停靠不下时缩到这里为止。 */
+  /** 设置页左栏最窄的宽：视口窄到侧栏停靠不下时缩到这里为止。 */
   settingsNavMin: 192,
+  /** 设置页内容列最窄的宽：左栏缩到最窄也留不出它时（手机、窄的浏览器窗口），左栏改成浮层。 */
+  settingsContentMin: 440,
 } as const;
 
 export function clampSidebarWidth(width: number): number {
@@ -62,10 +65,15 @@ export function planSidebar(input: SidebarInput): SidebarPlan {
   return { sidebar: 'docked', sidebarWidth: Math.min(preferred, roomForSidebar), sidebarCanDock };
 }
 
-/** 设置页左栏的宽：侧栏停靠得下时与停靠的侧栏一样宽；更窄的视口里不收起，最窄 settingsNavMin。 */
+/** 设置页左栏的宽：侧栏停靠得下时与停靠的侧栏一样宽；更窄的视口里最窄 settingsNavMin。 */
 export function settingsNavWidth(viewportWidth: number, sidebarWidth: number): number {
   return Math.max(
     LAYOUT.settingsNavMin,
     Math.min(clampSidebarWidth(sidebarWidth), viewportWidth - LAYOUT.primaryComfortWidth),
   );
+}
+
+/** 设置页左栏能否停靠：左栏最窄时内容列还有 settingsContentMin；不能时左栏以浮层打开。 */
+export function settingsNavDocks(viewportWidth: number): boolean {
+  return viewportWidth >= LAYOUT.settingsNavMin + LAYOUT.settingsContentMin;
 }

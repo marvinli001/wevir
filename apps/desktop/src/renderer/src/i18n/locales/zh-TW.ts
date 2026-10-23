@@ -1720,6 +1720,7 @@ export const messages: Messages = {
   'update.action.download': '下載',
   'update.action.restart': '重新啟動以更新',
   'update.action.move': '移到「應用程式」',
+  'update.action.downloadPage': '下載頁面',
 
   'suggest.title': '{count} 個建議的工作',
   'suggest.startedCount': '{count} 已開始',

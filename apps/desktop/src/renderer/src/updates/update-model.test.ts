@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UpdatePhase, UpdateState } from '../../../shared/desktop-api.js';
-import { updateEntry } from './update-model';
+import { downloadPageUrl, updateEntry } from './update-model';
 
 const base = { currentVersion: '0.1.0', channel: 'stable' } as const;
 const state = (phase: UpdatePhase) => ({ ...base, ...phase }) as UpdateState;
@@ -33,6 +33,17 @@ describe('updateEntry', () => {
       kind: 'installing',
       version: '0.2.0',
     });
+  });
+
+  it('deb（manual）：入口带 manual，点了打开下载页；中文界面用中文页', () => {
+    expect(updateEntry(state({ phase: 'available', version: '0.2.0', manual: true }))).toEqual({
+      kind: 'available',
+      version: '0.2.0',
+      manual: true,
+    });
+    expect(downloadPageUrl('zh-CN')).toBe('https://wevir.si/download');
+    expect(downloadPageUrl('zh-TW')).toBe('https://wevir.si/download');
+    expect(downloadPageUrl('ja')).toBe('https://wevir.si/en/download');
   });
 
   it('下载或安装失败时显示“更新失败”', () => {

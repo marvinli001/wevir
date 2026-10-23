@@ -1738,6 +1738,7 @@ export const messages: Messages = {
   'update.action.download': 'ダウンロード',
   'update.action.restart': '再起動してアップデート',
   'update.action.move': '「アプリケーション」に移動',
+  'update.action.downloadPage': 'ダウンロードページ',
 
   'suggest.title': '提案されたタスク {count} 件',
   'suggest.startedCount': '{count} 件開始済み',

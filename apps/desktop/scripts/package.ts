@@ -11,17 +11,59 @@
  * electron-builder.yml。
  */
 import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { hostTarget, nodePlatform, run, stageResources } from './stage-resources.ts';
 
 const desktop = fileURLToPath(new URL('..', import.meta.url));
 
-/** 目标平台对应的 electron-builder 参数。 */
+/**
+ * 目标平台对应的 electron-builder 参数。Linux 的 `${arch}` 按包格式换名字（AppImage 是 x86_64 / aarch64，deb 是 amd64），这里
+ * 把安装包名里的架构固定成 Node 的写法（x64 / arm64），与发布目录 `linux-<架构>` 和 scripts/release.ts 认的名字一致。
+ */
 export function builderArgs(target: string): string[] {
   const { os, cpu } = nodePlatform(target);
-  const platform = os === 'darwin' ? '--mac' : os === 'win32' ? '--win' : '--linux';
-  return [platform, `--${cpu}`];
+  if (os === 'linux') {
+    return [
+      '--linux',
+      `--${cpu}`,
+      `-c.linux.artifactName=\${productName}-\${version}-linux-${cpu}.\${ext}`,
+    ];
+  }
+  return [os === 'darwin' ? '--mac' : '--win', `--${cpu}`];
+}
+
+/** Linux 的图标：hicolor 的浅色一套（文件名都是 wevir，与 electron-builder.yml 的 executableName 一致）。 */
+export const LINUX_HICOLOR = join(
+  desktop,
+  '..',
+  '..',
+  'assets',
+  'icons',
+  'exports',
+  'linux',
+  'light',
+  'hicolor',
+);
+
+/**
+ * electron-builder 的 Linux 图标要一个平铺的目录（`<尺寸>x<尺寸>.png`），不认 hicolor 的 `<尺寸>/apps/wevir.png` 层级：从
+ * `hicolor` 复制到 `dest`，返回复制了的尺寸。scalable 的 SVG 不带（electron-builder 只从目录里收 PNG）。
+ */
+export function stageLinuxIcons(hicolor: string, dest: string): string[] {
+  rmSync(dest, { recursive: true, force: true });
+  mkdirSync(dest, { recursive: true });
+  const sizes: string[] = [];
+  for (const entry of readdirSync(hicolor).sort()) {
+    const file = join(hicolor, entry, 'apps', 'wevir.png');
+    if (!/^\d+x\d+$/.test(entry) || !existsSync(file)) continue;
+    copyFileSync(file, join(dest, `${entry}.png`));
+    sizes.push(entry);
+  }
+  if (sizes.length === 0) throw new Error(`no hicolor PNG icons in ${hicolor}`);
+  return sizes;
 }
 
 /** 没有 Xcode 26 的 actool 时 macOS 安装包用的图标：浅色 ICNS，没有深色，启动后由 main/app-icon.ts 换程序坞图标。 */
@@ -52,8 +94,15 @@ async function main(): Promise<void> {
     allowPositionals: true,
   });
   const target = values.target ?? hostTarget();
-  const iconArgs = nodePlatform(target).os === 'darwin' ? macIconArgs(localActoolVersion()) : [];
-  if (iconArgs.length > 0) {
+  const { os } = nodePlatform(target);
+  const iconArgs = os === 'darwin' ? macIconArgs(localActoolVersion()) : [];
+  if (os === 'linux') {
+    // 放在产物目录下（gitignore），electron-builder 自己转换出的图标也在那里（.icon-set）。
+    const dir = join(desktop, 'release', '.linux-icons');
+    stageLinuxIcons(LINUX_HICOLOR, dir);
+    iconArgs.push(`-c.linux.icon=${dir}`);
+  }
+  if (os === 'darwin' && iconArgs.length > 0) {
     console.warn(
       '没有 Xcode 26 的 actool：macOS 安装包改用浅色 ICNS，图标不会在应用没启动时跟随系统的深色外观。',
     );
