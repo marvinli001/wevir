@@ -4,6 +4,7 @@
 import { cn } from 'cn';
 import { ArrowDownToLine, LoaderCircle, RotateCw } from 'lucide-react';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { type UpdateEntry, updateEntry } from './update-model';
 import { useUpdateState } from './update-store';
 
@@ -65,13 +66,13 @@ export function UpdateEntryButton({ className }: { className?: string }) {
 function onClick(entry: UpdateEntry): void {
   switch (entry.kind) {
     case 'available':
-      void window.wevir.downloadUpdate();
+      void platformApi().downloadUpdate();
       return;
     case 'restart':
-      void window.wevir.installUpdate();
+      void platformApi().installUpdate();
       return;
     case 'failed':
-      void window.wevir.checkForUpdates();
+      void platformApi().checkForUpdates();
       return;
     default:
       return;

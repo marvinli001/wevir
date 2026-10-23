@@ -4,8 +4,9 @@
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { Workspace } from '@wevir/protocol';
-import { useHostConnection } from '@/host/host-connection';
+import { useCan, useHostConnection } from '@/host/host-connection';
 import { createPersistedStore, createStore } from '@/lib/store';
+import { capabilities } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
 import { openSessions, removeClosingSessions } from '@/settings/remove';
@@ -13,10 +14,15 @@ import type { WorkspaceEntry } from './workbench-model';
 import type { WorkbenchStore } from './workbench-store';
 
 /** Host 能给项目改名（0.49.0）。 */
-export function useWorkspaceManagement(): { update: boolean } {
+export function useWorkspaceManagement(): { update: boolean; remove: boolean; create: boolean } {
   const { view } = useHostConnection();
+  const write = useCan('workspace.write');
   return {
-    update: view.status === 'connected' && hostSupports(view.hello.features, 'workspace_update'),
+    update:
+      write && view.status === 'connected' && hostSupports(view.hello.features, 'workspace_update'),
+    remove: write,
+    // 建项目要挑这台电脑上的文件夹：连着别的电脑上的 Host 时不建。
+    create: write && capabilities().localFiles,
   };
 }
 

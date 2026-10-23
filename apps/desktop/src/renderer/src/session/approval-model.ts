@@ -223,6 +223,9 @@ const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
   browser_back: 'approval.title.browserAct',
   browser_forward: 'approval.title.browserAct',
   browser_reload: 'approval.title.browserAct',
+  // 一次做多步：卡片里列出每一步、写出脚本全文（Host 换好了 display.summary）。
+  browser_batch: 'approval.title.browserBatch',
+  browser_run: 'approval.title.browserRun',
 };
 
 /**

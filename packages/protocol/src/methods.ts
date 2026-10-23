@@ -52,6 +52,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { ComputerRequestSchema, ComputerResponseSchema } from './computer.js';
 import {
   DeviceListParamsSchema,
   DeviceListResultSchema,
@@ -208,6 +209,13 @@ import {
   ProcessStopParamsSchema,
   ProcessStopResultSchema,
 } from './processes.js';
+import {
+  PushChangedParamsSchema,
+  PushGetParamsSchema,
+  PushRegisterParamsSchema,
+  PushStateResultSchema,
+  PushUnregisterParamsSchema,
+} from './push.js';
 import {
   ReadinessCancelParamsSchema,
   ReadinessCancelResultSchema,
@@ -1812,6 +1820,21 @@ export const BrowserRespondResultSchema = z.object({ accepted: z.boolean() });
 /** `browser.request` 通知的参数。 */
 export const BrowserRequestParamsSchema = BrowserRequestSchema;
 
+// ── computer.*（0.114.0，电脑操作） ──────────────────────────────────────
+
+/** 登记为电脑操作的提供方：`commands` 是它会的命令（`COMPUTER_COMMANDS`），认不出的名字 Host 忽略。 */
+export const ComputerRegisterParamsSchema = z.object({
+  commands: z.array(z.string().min(1).max(64)).min(1).max(64),
+});
+
+export const ComputerRespondParamsSchema = ComputerResponseSchema;
+
+/** `accepted: false`：请求已经超时、被取消，或不是交给这条连接的，回答被丢掉。 */
+export const ComputerRespondResultSchema = z.object({ accepted: z.boolean() });
+
+/** `computer.request` 通知的参数。 */
+export const ComputerRequestParamsSchema = ComputerRequestSchema;
+
 // ── 注册表 ────────────────────────────────────────────────────────────
 
 export interface MethodSpec {
@@ -2604,6 +2627,25 @@ export const MethodSchemas = {
     result: RemoteStatusResultSchema,
     permission: 'host.manage',
   },
+  /**
+   * 推送（0.112.0）：远程设备读、报、撤自己的推送令牌，只有远程设备能调（本机连接 `INVALID_REQUEST`）。调过之一的连接收
+   * `push.changed`。
+   */
+  'push.get': {
+    params: PushGetParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
+  'push.register': {
+    params: PushRegisterParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
+  'push.unregister': {
+    params: PushUnregisterParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
   /** 审批规则（0.80.0）。 */
   'approvalRule.list': {
     params: ApprovalRuleListParamsSchema,
@@ -2779,6 +2821,22 @@ export const MethodSchemas = {
     permission: 'host.manage',
   },
 
+  'computer.register': {
+    params: ComputerRegisterParamsSchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'computer.unregister': {
+    params: EmptySchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'computer.respond': {
+    params: ComputerRespondParamsSchema,
+    result: ComputerRespondResultSchema,
+    permission: 'host.manage',
+  },
+
   'events.subscribe': {
     params: EventsSubscribeParamsSchema,
     result: EventsSubscribeResultSchema,
@@ -2819,6 +2877,8 @@ export const NotificationSchemas = {
   'pairing.ended': { params: PairingEndedParamsSchema },
   /** 发给调用过 `remote.status` 的连接（0.109.0）：远程监听的状态变了。 */
   'remote.changed': { params: RemoteChangedParamsSchema },
+  /** 发给调用过 `push.*` 的远程设备连接（0.112.0）：这台设备的推送状态变了（开关、令牌失效）。 */
+  'push.changed': { params: PushChangedParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2855,6 +2915,8 @@ export const NotificationSchemas = {
   'lsp.changed': { params: LspChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
+  /** 发给用 `computer.register` 登记过的连接（0.114.0）：请它执行一个电脑操作命令，用 `computer.respond` 回答。 */
+  'computer.request': { params: ComputerRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;
 
 export type NotificationName = keyof typeof NotificationSchemas;
@@ -2878,6 +2940,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'pairing.request': 'host.manage',
   'pairing.ended': 'host.manage',
   'remote.changed': 'host.manage',
+  'push.changed': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',
@@ -2896,4 +2959,5 @@ export const NOTIFICATION_PERMISSIONS = {
   'terminal.changed': 'session.read',
   'lsp.changed': 'workspace.read',
   'browser.request': 'host.manage',
+  'computer.request': 'host.manage',
 } as const satisfies Record<NotificationName, Permission>;

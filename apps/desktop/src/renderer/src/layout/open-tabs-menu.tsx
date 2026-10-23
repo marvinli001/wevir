@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { t } from '@/i18n';
 import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { usePaneAccess } from './pane-access';
 import { usePanes } from './pane-controller';
 import { openableKinds } from './pane-kinds';
 import { paneIcon, paneKindName, paneTitle } from './pane-registry';
@@ -105,12 +106,13 @@ export function OpenTabsMenu({
 /** “打开窗格 ▸”：能打开的种类，新开的自成一个窗格（§3.1）。 */
 export function OpenPaneSubmenu() {
   const panes = usePanes();
+  const access = usePaneAccess();
   if (!panes) return null;
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>{t('layout.openPane')}</DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="w-44">
-        {openableKinds(import.meta.env.DEV).map((kind) => {
+        {openableKinds(import.meta.env.DEV, access).map((kind) => {
           const Icon = paneIcon(kind);
           return (
             <DropdownMenuItem key={kind} onClick={() => panes.open({ kind })}>

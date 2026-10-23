@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import type { WorkspaceEntry } from '@/data/workbench-model';
+import { useWorkspaceManagement } from '@/data/workspace-actions';
 import { t } from '@/i18n';
 import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
 import { openCreateProject } from './create-project';
@@ -39,6 +40,7 @@ export function ProjectMenuContent({
   /** 列出“不在目录中工作”（`useChatsSupported`）。 */
   chats?: boolean;
 } & Pick<ComponentProps<typeof DropdownMenuContent>, 'align' | 'side' | 'sideOffset'>) {
+  const { create } = useWorkspaceManagement();
   return (
     <DropdownMenuContent className="w-auto max-w-80 min-w-56" {...props}>
       <ScrollFade className="max-h-80 overflow-y-auto [--scroll-fade-size:16px]">
@@ -63,11 +65,13 @@ export function ProjectMenuContent({
           ))}
         </DropdownMenuRadioGroup>
       </ScrollFade>
-      {workspaces.length > 0 && <DropdownMenuSeparator />}
-      <DropdownMenuItem onClick={() => openCreateProject()} className={COMPACT_ITEM}>
-        <FolderPlus aria-hidden className={COMPACT_ICON} />
-        {t('home.createProject')}
-      </DropdownMenuItem>
+      {create && workspaces.length > 0 && <DropdownMenuSeparator />}
+      {create && (
+        <DropdownMenuItem onClick={() => openCreateProject()} className={COMPACT_ITEM}>
+          <FolderPlus aria-hidden className={COMPACT_ICON} />
+          {t('home.createProject')}
+        </DropdownMenuItem>
+      )}
       {chats && (
         <DropdownMenuRadioGroup value={currentId ?? ''} onValueChange={() => onSelect(null)}>
           <DropdownMenuRadioItem

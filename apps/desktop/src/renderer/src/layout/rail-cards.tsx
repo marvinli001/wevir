@@ -10,6 +10,7 @@ import { openChanges } from '@/changes/changes-store';
 import { useTranscript } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { workspaceLabel } from '@/projects/chats';
 import { useCompactAction } from '@/session/compact-action';
 import { isBusy } from '@/session/composer';
@@ -87,7 +88,11 @@ function PathRow({ name, path }: { name: string; path: string }) {
         type="button"
         title={copied ? t('environment.copied') : t('environment.copyPath')}
         aria-label={`${t('environment.copyPath')}：${path}`}
-        onClick={() => void window.wevir.copyText(path).then(() => setCopied(true))}
+        onClick={() =>
+          void platformApi()
+            .copyText(path)
+            .then(() => setCopied(true))
+        }
         className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
       >
         <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden>

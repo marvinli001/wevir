@@ -1,7 +1,7 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
-import { changed, json, optionalText, orNull, text, toJson } from './rows.js';
+import { changed, integer, json, optionalText, orNull, text, toJson } from './rows.js';
 
-/** `devices` 表的一行（0023_devices，协议 0.107.0 的 `device.*`）。 */
+/** `devices` 表的一行（0023_devices，协议 0.107.0 的 `device.*`；0025_device_push 加了推送的开关与计数）。 */
 export interface DeviceRecord {
   id: string;
   name: string;
@@ -14,6 +14,10 @@ export interface DeviceRecord {
   lastSeenAt: string;
   /** secrets.json 里推送令牌的条目。 */
   pushTokenRef?: string;
+  /** 这台设备的推送开关（0025）。 */
+  pushEnabled: boolean;
+  /** 加密推送用的计数，只增不减（0025）。 */
+  pushCounter: number;
   /** `active` / `revoked`。 */
   status: string;
 }
@@ -26,11 +30,14 @@ export interface DeviceRepository {
   findActive(publicKey: string): DeviceRecord | undefined;
   /** 全部设备，按配对先后。 */
   list(): DeviceRecord[];
-  /** 改名称、平台、权限、最近在线或推送令牌条目；没有这条时返回 false。 */
+  /** 改名称、平台、权限、最近在线、推送开关、计数或推送令牌条目；没有这条时返回 false。 */
   update(
     id: string,
     patch: Partial<
-      Pick<DeviceRecord, 'name' | 'platform' | 'permissions' | 'lastSeenAt'> & {
+      Pick<
+        DeviceRecord,
+        'name' | 'platform' | 'permissions' | 'lastSeenAt' | 'pushEnabled' | 'pushCounter'
+      > & {
         pushTokenRef: string | null;
       }
     >,
@@ -42,15 +49,17 @@ export interface DeviceRepository {
 export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
   const insert = db.prepare(`
     INSERT INTO devices (
-      id, name, platform, public_key, permissions, created_at, last_seen_at, push_token_ref, status
+      id, name, platform, public_key, permissions, created_at, last_seen_at, push_token_ref, status,
+      push_enabled, push_counter
     ) VALUES (
-      :id, :name, :platform, :publicKey, :permissions, :createdAt, :lastSeenAt, :pushTokenRef, :status
+      :id, :name, :platform, :publicKey, :permissions, :createdAt, :lastSeenAt, :pushTokenRef, :status,
+      :pushEnabled, :pushCounter
     )`);
   const get = db.prepare('SELECT * FROM devices WHERE id = ?');
   const findActive = db.prepare("SELECT * FROM devices WHERE public_key = ? AND status = 'active'");
   const list = db.prepare('SELECT * FROM devices ORDER BY created_at, rowid');
   const revoke = db.prepare(
-    "UPDATE devices SET status = 'revoked', push_token_ref = NULL WHERE id = ? AND status = 'active'",
+    "UPDATE devices SET status = 'revoked', push_token_ref = NULL, push_enabled = 0 WHERE id = ? AND status = 'active'",
   );
   const columns = {
     name: 'name',
@@ -58,6 +67,8 @@ export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
     permissions: 'permissions',
     lastSeenAt: 'last_seen_at',
     pushTokenRef: 'push_token_ref',
+    pushEnabled: 'push_enabled',
+    pushCounter: 'push_counter',
   } as const;
   return {
     insert(record) {
@@ -71,6 +82,8 @@ export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
         lastSeenAt: record.lastSeenAt,
         pushTokenRef: orNull(record.pushTokenRef),
         status: record.status,
+        pushEnabled: record.pushEnabled ? 1 : 0,
+        pushCounter: record.pushCounter,
       });
     },
     get: (id) => fromRow(get.get(id)),
@@ -78,12 +91,17 @@ export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
     list: () => list.all().map((row) => fromRow(row) as DeviceRecord),
     update(id, patch) {
       const sets: string[] = [];
-      const values: Record<string, string | null> = { id };
+      const values: Record<string, string | number | null> = { id };
       for (const [key, column] of Object.entries(columns) as [keyof typeof columns, string][]) {
         const value = patch[key];
         if (value === undefined) continue;
         sets.push(`${column} = :${key}`);
-        values[key] = key === 'permissions' ? toJson(value) : (value as string | null);
+        values[key] =
+          key === 'permissions'
+            ? toJson(value)
+            : typeof value === 'boolean'
+              ? Number(value)
+              : (value as string | number | null);
       }
       if (sets.length === 0) return get.get(id) !== undefined;
       return changed(
@@ -105,6 +123,8 @@ function fromRow(row: SqlRow | undefined): DeviceRecord | undefined {
     createdAt: text(row, 'created_at'),
     lastSeenAt: text(row, 'last_seen_at'),
     status: text(row, 'status'),
+    pushEnabled: integer(row, 'push_enabled') === 1,
+    pushCounter: integer(row, 'push_counter'),
   };
   const pushTokenRef = optionalText(row, 'push_token_ref');
   if (pushTokenRef !== undefined) record.pushTokenRef = pushTokenRef;

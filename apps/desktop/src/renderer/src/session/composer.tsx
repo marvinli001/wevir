@@ -37,6 +37,7 @@ import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import {
   type ComposerCommand,
@@ -590,7 +591,9 @@ export function Composer({
   /** “+”菜单的“文件和文件夹”：系统的选择框，选中的插入成 @ 提及（目录里的用相对路径）。 */
   const attachPaths = async () => {
     if (!fileScope) return;
-    const chosen = await window.wevir.selectPaths(fileScope.root).catch(() => []);
+    const chosen = await platformApi()
+      .selectPaths(fileScope.root)
+      .catch(() => []);
     if (chosen.length === 0) {
       textareaRef.current?.focus();
       return;

@@ -1,10 +1,10 @@
 import {
   DEFAULT_REMOTE_SETTINGS,
   type Device,
+  OFFICIAL_RELAY_URL,
   PAIRING_CODE_ALPHABET,
   type PairingId,
   parsePairingUri,
-  RELAY_DEFAULT_URL,
   type RemoteSettings,
 } from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -56,6 +56,62 @@ function setup(options: { settings?: RemoteSettings } = {}) {
   };
 }
 
+describe('网页配对（0.117.0）', () => {
+  const RELAY: RemoteSettings = { ...ON, relay: { enabled: true, url: 'wss://relay.example.com' } };
+
+  it('中继关着时拒绝，说明要选官方中继或自建地址', async () => {
+    for (const settings of [ON, { ...ON, relay: { enabled: true } }]) {
+      const { pairing } = setup({ settings });
+      await expect(pairing.start({ web: true })).rejects.toMatchObject({
+        code: 'INVALID_PARAMS',
+        message: expect.stringContaining('relay'),
+      });
+      expect(pairing.pairingId).toBeUndefined();
+    }
+  });
+
+  it('给出官方网页的 https 链接，参数与 wevir://pair 相同，一定带中继', async () => {
+    const { pairing } = setup({ settings: RELAY });
+    const offer = await pairing.start({ web: true });
+    expect(offer.web).toBe(true);
+    expect(offer.uri.startsWith('https://web.wevir.si/pair#v=1&')).toBe(true);
+    expect(parsePairingUri(offer.uri)).toMatchObject({
+      hostPublicKey: KEY,
+      routeId: ROUTE,
+      hostName: 'Mac',
+      relayUrl: 'wss://relay.example.com',
+    });
+    expect(offer.relayUrl).toBe('wss://relay.example.com');
+  });
+
+  it('网页地址按设置，可经官方中继', async () => {
+    const { pairing } = setup({
+      settings: {
+        ...ON,
+        relay: { enabled: true, mode: 'official' },
+        web: { url: 'https://example.com/wevir' },
+      },
+    });
+    const offer = await pairing.start({ web: true });
+    expect(offer.uri.startsWith('https://example.com/wevir/pair#')).toBe(true);
+    expect(parsePairingUri(offer.uri)?.relayUrl).toBe(OFFICIAL_RELAY_URL);
+  });
+
+  it('网页窗口不接受短码，二维码的秘密照常可用', async () => {
+    const { pairing } = setup({ settings: RELAY });
+    await pairing.start({ web: true });
+    expect(pairing.beginAttempt('code')).toBeUndefined();
+    expect(pairing.beginAttempt('secret')).toBeDefined();
+  });
+
+  it('普通窗口没有 web 标记', async () => {
+    const { pairing } = setup({ settings: RELAY });
+    const offer = await pairing.start();
+    expect(offer.web).toBeUndefined();
+    expect(offer.uri.startsWith('wevir://pair?')).toBe(true);
+  });
+});
+
 describe('配对窗口', () => {
   it('远程访问关着时不能开窗口', async () => {
     const { pairing } = setup({ settings: DEFAULT_REMOTE_SETTINGS });
@@ -84,11 +140,19 @@ describe('配对窗口', () => {
     expect(parsePairingUri(offer.uri)?.relayUrl).toBe('wss://relay.example.com');
   });
 
-  it('开了中继、没填地址时载荷带上官方实例', async () => {
+  it('开了中继、没填地址（0.110.0 存下的设置）等同于关：载荷不带中继', async () => {
     const { pairing } = setup({ settings: { ...ON, relay: { enabled: true } } });
     const offer = await pairing.start();
-    expect(offer.relayUrl).toBe(RELAY_DEFAULT_URL);
-    expect(parsePairingUri(offer.uri)?.relayUrl).toBe(RELAY_DEFAULT_URL);
+    expect(offer.relayUrl).toBeUndefined();
+    expect(offer.uri).not.toContain('relay=');
+    expect(parsePairingUri(offer.uri)?.relayUrl).toBeUndefined();
+  });
+
+  it('选了官方中继（0.117.0）时载荷带官方地址', async () => {
+    const { pairing } = setup({ settings: { ...ON, relay: { enabled: true, mode: 'official' } } });
+    const offer = await pairing.start();
+    expect(offer.relayUrl).toBe(OFFICIAL_RELAY_URL);
+    expect(parsePairingUri(offer.uri)?.relayUrl).toBe(OFFICIAL_RELAY_URL);
   });
 
   it('每个窗口的秘密与短码都不同', async () => {

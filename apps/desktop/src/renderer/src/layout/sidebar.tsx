@@ -38,12 +38,13 @@ import {
   sessionMarker,
   type WorkspaceEntry,
 } from '@/data/workbench-model';
-import { usePinnedWorkspaces } from '@/data/workspace-actions';
+import { usePinnedWorkspaces, useWorkspaceManagement } from '@/data/workspace-actions';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { platformSlots } from '@/platform/platform';
 import { pluginsAvailability } from '@/plugins/plugins-model';
 import { workspaceLabel } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
@@ -84,9 +85,13 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   const location = useLocation();
   // Host 有 `plugins` 功能才有“插件”入口（0.42.0）；断线重连期间 client 还在，入口不闪。
   const { client } = useHostConnection();
-  const showPlugins = pluginsAvailability(client?.hello.features) === 'ready';
+  // 插件的列表与管理都要 `host.manage`：远程设备没有时不显示入口。
+  const showPlugins =
+    pluginsAvailability(client?.hello.features) === 'ready' && (client?.can('host.manage') ?? true);
   // Host 有 `tuning` 功能才有“调优”入口（0.85.0），在“插件”下面。
-  const showTuning = tuningAvailability(client?.hello.features) === 'ready';
+  // 调优的决定与开关都要 `host.manage`：远程设备没有时不显示入口。
+  const showTuning =
+    tuningAvailability(client?.hello.features) === 'ready' && (client?.can('host.manage') ?? true);
   // Host 有 `usage_stats` 功能才有“使用统计”入口（0.62.0），在设置上面。
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
@@ -159,6 +164,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
 
       <div className="shrink-0 p-2">
         <UpdateEntryButton className="mb-0.5" />
+        {platformSlots().sidebarFooter?.()}
         {showUsage && (
           <NavLink
             to={paths.usage()}
@@ -189,6 +195,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
 function ProjectsSection() {
   const { projectsCollapsed, sidebarView } = layoutPrefs.use();
   const title = t(sidebarView === 'status' ? 'sidebar.sessions' : 'sidebar.projects');
+  const manage = useWorkspaceManagement();
   return (
     <>
       <div className="group/projects flex h-7 shrink-0 items-center justify-between pr-2 pl-2">
@@ -213,14 +220,16 @@ function ProjectsSection() {
         <div className="flex items-center gap-0.5">
           <ViewButton view="status" current={sidebarView} />
           <ViewButton view="project" current={sidebarView} />
-          <IconButton
-            label={t('sidebar.createProject')}
-            size="icon-xs"
-            className="text-muted-foreground"
-            onClick={() => openCreateProject()}
-          >
-            <Plus />
-          </IconButton>
+          {manage.create && (
+            <IconButton
+              label={t('sidebar.createProject')}
+              size="icon-xs"
+              className="text-muted-foreground"
+              onClick={() => openCreateProject()}
+            >
+              <Plus />
+            </IconButton>
+          )}
         </div>
       </div>
       <ScrollArea fade className="min-h-0 flex-1">

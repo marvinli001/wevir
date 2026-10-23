@@ -17,16 +17,16 @@ describe('personalization-model', () => {
     expect(customRows({ instructions: false, outputStyle: 'future', bytes: 1 })).toEqual([]);
   });
 
-  it('侧栏卡片：写作风格一行，不认识的值不列', () => {
+  it('侧栏卡片：写作风格开着时一行，有没有档案不分，不认识的值不列', () => {
     expect(customRows({ instructions: false, writingStyle: 'profile', bytes: 10 })).toEqual([
       {
         key: 'writing',
         label: 'settings.personalization.writingStyle',
-        value: 'settings.personalization.writingProfile.ready',
+        value: 'settings.personalization.writingStyle.on',
       },
     ]);
     expect(customRows({ instructions: false, writingStyle: 'setup', bytes: 10 })[0]?.value).toBe(
-      'settings.personalization.writingProfile.missing',
+      'settings.personalization.writingStyle.on',
     );
     expect(customRows({ instructions: false, writingStyle: 'future', bytes: 1 })).toEqual([]);
   });

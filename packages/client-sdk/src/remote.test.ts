@@ -8,6 +8,7 @@ import {
   bytesToBase64url,
   type RemoteLinkHandlers,
   type RemoteRoute,
+  relayRoute,
   remoteTransport,
 } from './remote.js';
 import type { TransportCloseInfo } from './transport.js';
@@ -74,6 +75,38 @@ describe('远程隧道的路', () => {
     expect(performance.now() - start).toBeLessThan(1_000);
     expect(info.cause).toBeInstanceOf(RemoteUnreachableError);
     expect((info.cause as RemoteUnreachableError).tried).toEqual(['a', 'b', 'relay']);
+    // 中继的路连 WebSocket 都没连上：中继本身连不上。
+    expect((info.cause as RemoteUnreachableError).relay).toBe('unreachable');
+  });
+
+  it('只有直连时不说中继；中继的 TLS 证书验不过时是 certificate', async () => {
+    const direct = await connectOnce([fakeRoute('direct', 'a', [], 5)], 10);
+    expect((direct.cause as RemoteUnreachableError).relay).toBeUndefined();
+
+    // `ws` 的 error 事件把 Node 的原始错误放在 `error` 上。
+    class CertificateWebSocket {
+      binaryType = 'blob';
+      readonly #listeners = new Map<string, ((event: unknown) => void)[]>();
+      constructor(readonly url: string) {
+        setTimeout(() => {
+          const error = Object.assign(new Error('self-signed certificate'), {
+            code: 'DEPTH_ZERO_SELF_SIGNED_CERT',
+          });
+          for (const listener of this.#listeners.get('error') ?? []) listener({ error });
+          for (const listener of this.#listeners.get('close') ?? []) listener({ code: 1006 });
+        }, 1);
+      }
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        this.#listeners.set(type, [...(this.#listeners.get(type) ?? []), listener]);
+      }
+      send() {}
+      close() {}
+    }
+    const info = await connectOnce(
+      [relayRoute(CertificateWebSocket, 'wss://relay.example.com', HOST.routeId)],
+      10,
+    );
+    expect((info.cause as RemoteUnreachableError).relay).toBe('certificate');
   });
 
   it('直连还挂着时，中继等到先手用完才开始', async () => {

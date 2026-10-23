@@ -136,6 +136,38 @@ describe('浏览器工具', () => {
     expect(APP_TOOLS_NO_APPROVAL).not.toContain('browser_click');
   });
 
+  it('browser_batch 与 browser_run 在工具列表里、要批准；经 MCP 跑一段脚本', async () => {
+    const { mcp, connect, call } = await setup();
+    const { tools } = await mcp('tools/list');
+    const compose = (
+      tools as Array<{ name: string; annotations: { readOnlyHint?: boolean } }>
+    ).filter((tool) => tool.name === 'browser_batch' || tool.name === 'browser_run');
+    expect(compose.map((tool) => tool.annotations.readOnlyHint)).toEqual([false, false]);
+    expect(APP_TOOLS_NO_APPROVAL).not.toContain('browser_batch');
+    expect(APP_TOOLS_NO_APPROVAL).not.toContain('browser_run');
+    const desktop = await fakeDesktop(connect, (request) =>
+      request.command.command === 'click'
+        ? {
+            ok: true,
+            result: { command: 'click', browserId: 'tab_1', ref: request.command.args.ref },
+          }
+        : request.command.command === 'list_tabs'
+          ? { ok: true, result: { command: 'list_tabs', tabs: [] } }
+          : undefined,
+    );
+    const result = await call('browser_run', {
+      browserId: 'tab_1',
+      script: "for (const ref of ['@e1', '@e2']) console.log(await tab.click(ref));",
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0]?.text).toContain('Console:\nClicked @e1.\nClicked @e2.');
+    expect(desktop.requests.map((request) => request.command.command)).toEqual([
+      'click',
+      'click',
+      'list_tabs',
+    ]);
+  });
+
   it('没有桌面端时工具明确返回不可用', async () => {
     const { call } = await setup();
     const result = await call('browser_list_tabs');

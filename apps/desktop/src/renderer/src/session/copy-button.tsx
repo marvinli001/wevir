@@ -2,6 +2,7 @@ import { Check, Copy } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 
 /** 复制一段文字（U36，消息的“复制”）：点了之后 1.5 s 内显示对勾。 */
 export function CopyButton({ text, className }: { text: string; className?: string }) {
@@ -16,7 +17,11 @@ export function CopyButton({ text, className }: { text: string; className?: stri
       label={copied ? t('message.copied') : t('message.copy')}
       size="icon-xs"
       className={className}
-      onClick={() => void window.wevir.copyText(text).then(() => setCopied(true))}
+      onClick={() =>
+        void platformApi()
+          .copyText(text)
+          .then(() => setCopied(true))
+      }
       data-action="copy-message"
     >
       {copied ? <Check className="confirm-pop" /> : <Copy />}

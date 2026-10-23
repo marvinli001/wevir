@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { isChats } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { capabilities, platformApi } from '@/platform/platform';
 import { sessionTabs } from '../browser/browser-store';
 import { type PaneController, usePanes } from './pane-controller';
 import {
@@ -58,8 +59,8 @@ const OPEN_WAIT_MS = 120_000;
 
 /** 在这个会话的浏览器窗格里打开：同源的标签页已开着时选中它，否则新开；然后显示浏览器窗格。 */
 async function openInBrowser(sessionId: SessionId, url: string, panes: PaneController | undefined) {
-  const browser = window.wevir?.browser;
-  if (!browser) return;
+  const browser = platformApi()?.browser;
+  if (!browser || !capabilities().browserPane) return;
   const { tabs } = sessionTabs(await browser.state(), sessionId);
   const existing = tabs.find((tab) => sameOrigin(tab.url, url));
   if (existing) await browser.select(existing.id);
@@ -349,7 +350,7 @@ function PreviewDetails({
           <p className={notice.kind === 'error' ? 'text-destructive' : 'text-warning'} role="alert">
             {notice.text}
           </p>
-          {notice.kind === 'port' && (
+          {notice.kind === 'port' && capabilities().browserPane && (
             <Button
               size="xs"
               variant="outline"
@@ -415,7 +416,7 @@ function ConfigRow({
           {config.name}
           {target && <span className="text-muted-foreground"> · {target}</span>}
         </span>
-        {state === 'ready' && (
+        {state === 'ready' && capabilities().browserPane && (
           <Button size="xs" variant="outline" onClick={onOpen} data-action="open-preview">
             {t('preview.open')}
           </Button>

@@ -38,7 +38,7 @@ import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environm
 import { OpenFileLink, OpenSessionFile, openFileLink } from '@/files/file-links';
 import type { FileScope } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
-import { describe, useHostConnection } from '@/host/host-connection';
+import { describe, useCan, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
 import { draftScopeKey } from '@/layout/pane-state';
@@ -907,7 +907,7 @@ export function SessionView({
             leading={<SessionPermissionPicker session={session} onError={setNotice} />}
             {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
             {...(pendingEnabled &&
-              hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
+              hostSettings.editable && { onBusyDeliveryChange: changeBusyDelivery })}
             onSend={send}
             onStop={stop}
             acceptImages={acceptImages && readOnly === undefined}
@@ -1090,6 +1090,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const acceptImages = useAcceptsImages(choice);
 
   const noProvider = providers !== undefined && providers.length === 0;
+  const providerRead = useCan('provider.read');
+  const providerWrite = useCan('provider.write');
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
   // “不在目录中工作”（0.39.0）回到首页去建对话。
   const selectProject = (id: string | null) => {
@@ -1174,15 +1176,19 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
               role="alert"
               className="mb-2 flex items-center gap-3 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
             >
-              <span className="min-w-0 flex-1">{t('session.noProvider')}</span>
-              <Button
-                size="sm"
-                variant="outline"
-                nativeButton={false}
-                render={<Link to={paths.settings('providers')} state={{ from: location }} />}
-              >
-                {t('session.goProviders')}
-              </Button>
+              <span className="min-w-0 flex-1">
+                {t(providerRead ? 'session.noProvider' : 'home.noProviderAccess')}
+              </span>
+              {providerWrite && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  nativeButton={false}
+                  render={<Link to={paths.settings('providers')} state={{ from: location }} />}
+                >
+                  {t('session.goProviders')}
+                </Button>
+              )}
             </div>
           )}
           <Composer

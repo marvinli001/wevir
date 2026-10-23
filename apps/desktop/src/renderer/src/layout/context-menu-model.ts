@@ -20,6 +20,8 @@ export interface SessionMenuAvailability {
   move?: boolean;
   /** 新建发进这个会话的自动化（0.73.0）。 */
   automate?: boolean;
+  /** 打开方式（外部编辑器、在访达中显示）：路径在这台电脑上时才有（platform/platform.ts 的 `localFiles`）。默认有。 */
+  openWith?: boolean;
   archive: boolean;
   delete: boolean;
 }
@@ -40,7 +42,7 @@ export function sessionMenuGroups(available: SessionMenuAvailability): SessionMe
       available.automate === true && 'automate',
     ],
     ['copy'],
-    ['openWith'],
+    [available.openWith !== false && 'openWith'],
     [available.archive && 'archive', available.delete && 'delete'],
   ]);
 }
@@ -51,14 +53,18 @@ export interface ProjectMenuAvailability {
   edit: boolean;
   /** Host 能归档，且项目里有会话。 */
   archiveSessions: boolean;
+  /** 在访达中显示：路径在这台电脑上时才有。默认有。 */
+  reveal?: boolean;
+  /** 移除项目（`workspace.write`）。默认有。 */
+  remove?: boolean;
 }
 
 /** 项目标题的菜单：置顶、编辑 | 在访达中显示 | 归档会话 | 移除项目。 */
 export function projectMenuGroups(available: ProjectMenuAvailability): ProjectMenuItem[][] {
   return present<ProjectMenuItem>([
     ['pin', available.edit && 'edit'],
-    ['reveal'],
+    [available.reveal !== false && 'reveal'],
     [available.archiveSessions && 'archiveSessions'],
-    ['remove'],
+    [available.remove !== false && 'remove'],
   ]);
 }

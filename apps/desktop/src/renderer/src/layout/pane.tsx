@@ -15,6 +15,7 @@ import {
 import { t } from '@/i18n';
 import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import type { DisplayPane } from './arrange';
+import { usePaneAccess } from './pane-access';
 import { usePanes } from './pane-controller';
 import { openableKinds, PANE_KIND_SPECS } from './pane-kinds';
 import { PaneContent, type PaneContext, paneIcon, paneKindName, paneTitle } from './pane-registry';
@@ -164,6 +165,7 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
 /** “＋”：选一个种类，加进这个窗格（截图 03）。 */
 function NewTabMenu({ groupId }: { groupId: string }) {
   const panes = usePanes();
+  const access = usePaneAccess();
   if (!panes) return null;
   return (
     <DropdownMenu>
@@ -175,7 +177,7 @@ function NewTabMenu({ groupId }: { groupId: string }) {
         }
       />
       <DropdownMenuContent className="w-44">
-        {openableKinds(import.meta.env.DEV).map((kind) => {
+        {openableKinds(import.meta.env.DEV, access).map((kind) => {
           const Icon = paneIcon(kind);
           return (
             <DropdownMenuItem key={kind} onClick={() => panes.open({ kind, into: groupId })}>

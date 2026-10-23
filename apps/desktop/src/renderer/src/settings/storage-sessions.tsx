@@ -17,6 +17,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { platformApi } from '@/platform/platform';
 import { workspaceLabel } from '@/projects/chats';
 import { formatFileSize } from '@/session/shared-files-model';
 import { EmptyList, LIST_CARD, type Notice, NoticeBanner, SettingsRow } from './settings-ui';
@@ -381,7 +382,11 @@ export function SessionStorageCard({
                   {!row.missing && (
                     <IconButton
                       label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
-                      onClick={() => void window.wevir.revealPath(row.path).catch(() => undefined)}
+                      onClick={() =>
+                        void platformApi()
+                          .revealPath(row.path)
+                          .catch(() => undefined)
+                      }
                     >
                       <FolderOpen />
                     </IconButton>

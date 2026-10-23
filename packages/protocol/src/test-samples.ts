@@ -49,6 +49,7 @@ import {
 import type { NotificationIntent } from './notifications.js';
 import type { PreviewCandidate, PreviewConfig } from './preview.js';
 import type { HostProcess } from './processes.js';
+import type { PushState } from './push.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
@@ -100,6 +101,8 @@ export const ids = {
   image: `img_${ULID}`,
   /** 浏览器请求（0.33.0）。 */
   browserRequest: `brq_${ULID}`,
+  /** 电脑操作的请求（0.114.0）。 */
+  computerRequest: `crq_${ULID}`,
   /** 回合后验证（0.65.0）。 */
   check: `chk_${ULID}`,
   check2: 'chk_01JA2B3C4D5E6F7G8H9JKMNPR2',
@@ -154,6 +157,27 @@ export const deviceSample: Device = {
   status: 'active',
 };
 
+/** 浏览器里的网页客户端（0.117.0）。 */
+export const webDeviceSample: Device = {
+  ...deviceSample,
+  name: 'Chrome',
+  platform: 'web',
+};
+
+/** 开了推送、令牌已绑定的一台手机（0.112.0）。 */
+export const devicePushSample: Device = {
+  ...deviceSample,
+  push: { enabled: true, registered: true },
+};
+
+/** 设备看到的自己的推送（0.112.0）：开着、令牌已绑定。 */
+export const pushStateSample: PushState = {
+  enabled: true,
+  registered: true,
+  gatewayUrl: 'https://push.wevir.si',
+  routeId: KEY_B,
+};
+
 /** 一个配对窗口（0.107.0）：远程监听还没开，没有候选地址。 */
 export const pairingOfferSample: PairingOffer = {
   pairingId: ids.pairing,
@@ -163,6 +187,14 @@ export const pairingOfferSample: PairingOffer = {
   hostPublicKey: KEY_A,
   routeId: KEY_B,
   candidates: [],
+};
+
+/** 网页配对的窗口（0.117.0）：https 链接，经官方中继。 */
+export const webPairingOfferSample: PairingOffer = {
+  ...pairingOfferSample,
+  uri: `https://web.wevir.si/pair#v=1&k=${KEY_A}&r=${KEY_B}&s=${KEY_A}&n=Mac&relay=wss%3A%2F%2Frelay.wevir.si`,
+  relayUrl: 'wss://relay.wevir.si',
+  web: true,
 };
 
 /** 远程监听（0.109.0）：局域网与 Tailscale 都在监听，一台设备连着。 */
@@ -200,14 +232,14 @@ export const remoteStatusSample: RemoteStatus = {
   connections: 1,
 };
 
-/** 中继（0.110.0）：只开了中继，连着官方实例，一台设备经中继连着。 */
+/** 中继（0.110.0）：只开了中继，连着自建的中继，一台设备经中继连着。 */
 export const remoteRelaySample: RemoteStatus = {
   listening: false,
   port: 47_830,
   interfaces: [],
   advertising: false,
   connections: 1,
-  relay: { state: 'connected', url: 'wss://relay.wevir.si', connections: 1 },
+  relay: { state: 'connected', url: 'wss://relay.example.com', connections: 1 },
 };
 
 /** 中继断了，正在退避重连。 */
@@ -219,6 +251,40 @@ export const remoteRelayRetrySample: RemoteStatus = {
     url: 'wss://relay.example.com/wevir',
     connections: 0,
     error: { reason: 'unreachable', message: 'connect ECONNREFUSED' },
+  },
+};
+
+/** 中继失败的细节（0.111.0）：那个地址回了 HTTP 404，不是中继。 */
+export const remoteRelayRejectedSample: RemoteStatus = {
+  ...remoteRelayRetrySample,
+  relay: {
+    state: 'connecting',
+    url: 'wss://relay.example.com/wevir',
+    connections: 0,
+    error: { reason: 'rejected', message: 'relay answered HTTP 404', httpStatus: 404 },
+  },
+};
+
+/** 中继的 TLS 证书验不过（0.111.0）。 */
+export const remoteRelayCertificateSample: RemoteStatus = {
+  ...remoteRelayRetrySample,
+  relay: {
+    state: 'connecting',
+    url: 'wss://relay.example.com',
+    connections: 0,
+    error: { reason: 'unreachable', message: 'self-signed certificate', certificate: true },
+  },
+};
+
+/** 推送（0.112.0）：直连监听着，推送开着，上一次网关连不上。 */
+export const remotePushSample: RemoteStatus = {
+  ...remoteStatusSample,
+  push: {
+    state: 'unavailable',
+    gatewayUrl: 'https://push.wevir.si',
+    devices: 1,
+    lastSentAt: TS,
+    error: { reason: 'unreachable', message: 'fetch failed' },
   },
 };
 
@@ -3250,6 +3316,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', sessionInsights: true } },
         // 0.95.0：参考我的写作风格。
         { settings: { sendWhileBusy: 'steer', writingStyle: true } },
+        // 0.114.0：电脑操作。
+        { settings: { sendWhileBusy: 'steer', computerUse: true } },
         // 0.102.0：运行时防止系统休眠。
         { settings: { sendWhileBusy: 'steer', preventSleep: true } },
         // 0.106.0：哪几类事产生通知意图。
@@ -3293,6 +3361,31 @@ export const methodSamples: MethodSamples = {
             },
           },
         },
+        // 0.117.0：中继的三态与网页设备。
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: true, mode: 'official', url: 'wss://relay.example.com' },
+              push: { enabled: false },
+              web: { url: 'https://example.com/wevir', idleDays: 0 },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: true, mode: 'custom', url: 'wss://relay.example.com' },
+              push: { enabled: false },
+              web: { idleDays: 30 },
+            },
+          },
+        },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3325,6 +3418,29 @@ export const methodSamples: MethodSamples = {
               interfaces: { lan: true, tailscale: false, lanInterfaces: [{ name: 'en0' }] },
               relay: { enabled: false },
               push: { enabled: false },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: true, mode: 'wevir' },
+              push: { enabled: false },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: false },
+              push: { enabled: false },
+              web: { url: 'http://example.com', idleDays: 3651 },
             },
           },
         },
@@ -6825,7 +6941,11 @@ export const methodSamples: MethodSamples = {
   'device.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [{ devices: [] }, { devices: [deviceSample, { ...deviceSample, status: 'revoked' }] }],
+      valid: [
+        { devices: [] },
+        { devices: [deviceSample, { ...deviceSample, status: 'revoked' }] },
+        { devices: [deviceSample, webDeviceSample] },
+      ],
       invalid: [{}, { devices: [{ ...deviceSample, publicKey: 'short' }] }],
     },
   },
@@ -6834,10 +6954,19 @@ export const methodSamples: MethodSamples = {
       valid: [
         { id: ids.device, name: 'Pixel' },
         { id: ids.device, permissions: ['session.read', 'terminal.write'] },
+        { id: ids.device, push: { enabled: false } },
       ],
-      invalid: [{}, { id: ids.device, name: '' }, { id: ids.device, name: 'x'.repeat(65) }],
+      invalid: [
+        {},
+        { id: ids.device, name: '' },
+        { id: ids.device, name: 'x'.repeat(65) },
+        { id: ids.device, push: {} },
+      ],
     },
-    result: { valid: [{ device: deviceSample }], invalid: [{}] },
+    result: {
+      valid: [{ device: deviceSample }, { device: devicePushSample }],
+      invalid: [{}, { device: { ...devicePushSample, push: { enabled: true } } }],
+    },
   },
   'device.revoke': {
     params: { valid: [{ id: ids.device }], invalid: [{}, { id: 'device' }] },
@@ -6847,7 +6976,7 @@ export const methodSamples: MethodSamples = {
     },
   },
   'pairing.start': {
-    params: { valid: [{}], invalid: [null] },
+    params: { valid: [{}, { web: true }, { web: false }], invalid: [null, { web: 'yes' }] },
     result: {
       valid: [
         pairingOfferSample,
@@ -6859,9 +6988,11 @@ export const methodSamples: MethodSamples = {
           ],
           relayUrl: 'wss://relay.example.com',
         },
+        webPairingOfferSample,
       ],
       invalid: [
         { ...pairingOfferSample, shortCode: '7KQ2M9XI' },
+        { ...webPairingOfferSample, web: false },
         { ...pairingOfferSample, relayUrl: 'https://relay.example.com' },
       ],
     },
@@ -6875,25 +7006,76 @@ export const methodSamples: MethodSamples = {
       valid: [
         { requestId: ids.pairingRequest, allow: true },
         { requestId: ids.pairingRequest, allow: false },
+        { requestId: ids.pairingRequest, allow: true, push: true },
       ],
-      invalid: [{ requestId: ids.pairingRequest }, { requestId: ids.pairing, allow: true }],
+      invalid: [
+        { requestId: ids.pairingRequest },
+        { requestId: ids.pairing, allow: true },
+        { requestId: ids.pairingRequest, allow: true, push: 'yes' },
+      ],
     },
-    result: { valid: [{}, { device: deviceSample }], invalid: [null] },
+    result: { valid: [{}, { device: deviceSample }, { device: webDeviceSample }], invalid: [null] },
   },
   'remote.status': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
+      valid: [
+        remoteStatusSample,
+        remoteOffSample,
+        remoteRelaySample,
+        remoteRelayRetrySample,
+        remoteRelayRejectedSample,
+        remoteRelayCertificateSample,
+        remotePushSample,
+      ],
       invalid: [
         { ...remoteStatusSample, port: 0 },
+        { ...remotePushSample, push: { state: 'down', gatewayUrl: 'https://x', devices: 0 } },
         {
           ...remoteRelaySample,
-          relay: { state: 'off', url: 'wss://relay.wevir.si', connections: 0 },
+          relay: { state: 'off', url: 'wss://relay.example.com', connections: 0 },
+        },
+        {
+          ...remoteRelayRejectedSample,
+          relay: {
+            state: 'connecting',
+            url: 'wss://relay.example.com',
+            connections: 0,
+            error: { reason: 'rejected', message: 'x', httpStatus: 700 },
+          },
         },
         { ...remoteRelaySample, relay: { state: 'connected', url: 'https://x', connections: 0 } },
         { ...remoteStatusSample, interfaces: [{ name: 'en0', family: 'IPv4', kind: 'public' }] },
         { ...remoteStatusSample, error: { reason: 'busy', message: 'x' } },
       ],
+    },
+  },
+  'push.get': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [pushStateSample, { ...pushStateSample, enabled: false, registered: false }],
+      invalid: [{ ...pushStateSample, gatewayUrl: 'wss://push.wevir.si' }, { enabled: true }],
+    },
+  },
+  'push.register': {
+    params: {
+      valid: [
+        { platform: 'apns', token: 'a'.repeat(64), code: 'AAAAAAAAAAAAAAAAAAAAAA' },
+        { platform: 'fcm', token: 'dQw4w9WgXcQ:APA91b-x_y', code: 'abc_DEF-0123456789abcd' },
+      ],
+      invalid: [
+        { platform: 'apns', token: 'a'.repeat(64) },
+        { platform: 'hms', token: 'a'.repeat(64), code: 'AAAAAAAAAAAAAAAAAAAAAA' },
+        { platform: 'apns', token: 'a b c d e f', code: 'AAAAAAAAAAAAAAAAAAAAAA' },
+      ],
+    },
+    result: { valid: [pushStateSample], invalid: [{}] },
+  },
+  'push.unregister': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ ...pushStateSample, registered: false }],
+      invalid: [{ ...pushStateSample, routeId: 'x' }],
     },
   },
   'inbox.dismiss': {
@@ -7458,6 +7640,30 @@ export const methodSamples: MethodSamples = {
   'browser.respond': {
     params: {
       valid: [
+        // 0.113.0：增量快照。
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'snapshot',
+            browserId: browserTab.browserId,
+            url: browserTab.url,
+            title: browserTab.title,
+            format: 'aria-yaml',
+            snapshot:
+              '# in: - form "Login"\n-   - textbox "Email" [ref=@e3]\n+   - textbox "Email" [value="a@b.c" ref=@e3]',
+            truncated: false,
+            stats: {
+              nodeCount: 40,
+              refCount: 6,
+              textLength: 90,
+              totalLines: 30,
+              startLine: 0,
+              shownLines: 30,
+              changes: { added: 1, removed: 1, unchanged: 29 },
+            },
+          },
+        },
         {
           requestId: ids.browserRequest,
           ok: true,
@@ -7844,6 +8050,59 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{ accepted: true }, { accepted: false }], invalid: [{}] },
   },
+  'computer.register': {
+    params: {
+      valid: [{ commands: ['request_access', 'screenshot', 'click'] }, { commands: ['someday'] }],
+      invalid: [{ commands: [] }, { commands: [''] }],
+    },
+    result: empty,
+  },
+  'computer.unregister': { params: empty, result: empty },
+  'computer.respond': {
+    params: {
+      valid: [
+        {
+          requestId: ids.computerRequest,
+          ok: true,
+          result: { content: [{ type: 'text', text: 'Clicked at (412, 88) in Notes.' }] },
+        },
+        {
+          requestId: ids.computerRequest,
+          ok: true,
+          result: {
+            content: [
+              { type: 'text', text: 'Screenshot of Notes, 1400x900.' },
+              { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+            ],
+          },
+        },
+        {
+          requestId: ids.computerRequest,
+          ok: false,
+          error: {
+            code: 'computer_tier_denied',
+            message: 'Terminal is approved for left clicks only.',
+          },
+        },
+        {
+          requestId: ids.computerRequest,
+          ok: false,
+          error: { code: 'computer_stopped', message: 'The user pressed Esc.' },
+          content: [{ type: 'text', text: '1. click: done' }],
+        },
+      ],
+      invalid: [
+        { requestId: ids.computerRequest, ok: true, result: { content: [] } },
+        { requestId: ids.computerRequest, ok: false, error: { code: '', message: 'x' } },
+        {
+          requestId: ids.computerRequest,
+          ok: true,
+          result: { content: [{ type: 'image', data: 'x', mimeType: 'image/gif' }] },
+        },
+      ],
+    },
+    result: { valid: [{ accepted: true }, { accepted: false }], invalid: [{}] },
+  },
   'events.subscribe': {
     params: {
       valid: [
@@ -7880,7 +8139,7 @@ export const notificationSamples: NotificationSamples = {
     ],
   },
   'devices.changed': {
-    valid: [{ devices: [] }, { devices: [deviceSample] }],
+    valid: [{ devices: [] }, { devices: [deviceSample] }, { devices: [webDeviceSample] }],
     invalid: [{}, { devices: [{ ...deviceSample, platform: 'watch' }] }],
   },
   'pairing.request': {
@@ -7890,6 +8149,13 @@ export const notificationSamples: NotificationSamples = {
         requestId: ids.pairingRequest,
         name: 'iPhone',
         platform: 'ios',
+        requestedAt: TS,
+      },
+      {
+        pairingId: ids.pairing,
+        requestId: ids.pairingRequest,
+        name: 'Chrome',
+        platform: 'web',
         requestedAt: TS,
       },
     ],
@@ -7904,8 +8170,20 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{ pairingId: ids.pairing, reason: 'timeout' }, { pairingId: ids.pairing }],
   },
   'remote.changed': {
-    valid: [remoteStatusSample, remoteOffSample, remoteRelaySample, remoteRelayRetrySample],
+    valid: [
+      remoteStatusSample,
+      remoteOffSample,
+      remoteRelaySample,
+      remoteRelayRetrySample,
+      remoteRelayRejectedSample,
+      remoteRelayCertificateSample,
+      remotePushSample,
+    ],
     invalid: [{ ...remoteStatusSample, connections: -1 }, { listening: true }],
+  },
+  'push.changed': {
+    valid: [pushStateSample, { ...pushStateSample, enabled: false, registered: false }],
+    invalid: [{ ...pushStateSample, enabled: 'yes' }],
   },
   'inbox.changed': {
     valid: [
@@ -8042,6 +8320,13 @@ export const notificationSamples: NotificationSamples = {
   },
   'browser.request': {
     valid: [
+      // 0.113.0
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'snapshot', args: { browserId: browserTab.browserId, changes: true } },
+      },
       {
         requestId: ids.browserRequest,
         sessionId: ids.session,
@@ -8258,6 +8543,60 @@ export const notificationSamples: NotificationSamples = {
       },
     ],
   },
+  'computer.request': {
+    valid: [
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: {
+          command: 'request_access',
+          args: { apps: ['com.apple.Notes', '备忘录'], reason: 'Write the meeting notes.' },
+        },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'screenshot', args: { app: 'com.apple.Notes' } },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'click', args: { x: 412, y: 88, modifiers: ['cmd'] } },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: {
+          command: 'batch',
+          args: {
+            actions: [
+              { command: 'click', args: { ref: '@a3' } },
+              { command: 'type', args: { text: 'Hello' } },
+              { command: 'wait', args: { seconds: 0.5 } },
+              { command: 'key', args: { keys: 'cmd+s' } },
+            ],
+          },
+        },
+      },
+    ],
+    invalid: [
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'request_access', args: { apps: [], reason: 'x' } },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'click', args: { ref: '@e1' } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        command: { command: 'list_apps', args: {} },
+      },
+    ],
+  },
 };
 
 // ── 错误 data ─────────────────────────────────────────────────────────
@@ -8338,5 +8677,9 @@ export const errorDataSamples: ErrorDataSamples = {
   MCP_OAUTH_FAILED: {
     valid: { reason: 'client_id_required' },
     invalid: { reason: '' },
+  },
+  PUSH_GATEWAY_ERROR: {
+    valid: { reason: 'bad_code' },
+    invalid: { reason: 'not_bound' },
   },
 };

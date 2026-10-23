@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { accountRef } from '@/data/sources';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import {
   connectMode,
   connectParams,
@@ -76,7 +77,7 @@ export function UpstreamList({
     setOpen(undefined);
     const started = loginPrompt(next.login);
     if (started !== undefined && started.kind !== 'waiting') {
-      void window.wevir.openExternal(started.url);
+      void platformApi().openExternal(started.url);
     }
   };
   const disconnect = (upstream: AccountUpstream) =>
@@ -320,7 +321,11 @@ function LoginPanel({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void window.wevir.copyText(prompt.code).then(() => setCopied(true))}
+            onClick={() =>
+              void platformApi()
+                .copyText(prompt.code)
+                .then(() => setCopied(true))
+            }
           >
             {copied ? <Check className="confirm-pop" /> : <Copy />}
             {t(copied ? 'source.copied' : 'source.copy')}
@@ -330,7 +335,7 @@ function LoginPanel({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void window.wevir.openExternal(prompt.url)}
+            onClick={() => void platformApi().openExternal(prompt.url)}
           >
             <ExternalLink />
             {prompt.kind === 'device_code'

@@ -1,0 +1,14 @@
+# 构建上下文是仓库根目录；只送进去 Dockerfile 用得到的文件。凭据文件（*.p8、服务账号 JSON）永远不在这里面。
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!tsconfig.base.json
+!patches
+!packages/protocol
+!apps/push
+**/node_modules
+**/dist
+**/*.p8
+**/secrets

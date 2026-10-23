@@ -1,3 +1,4 @@
+import type { Permission } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   Archive,
@@ -12,6 +13,7 @@ import {
   Keyboard,
   type LucideIcon,
   Mic,
+  MousePointerClick,
   Palette,
   Search,
   Settings2,
@@ -30,9 +32,11 @@ import { clampSidebarWidth, LAYOUT, settingsNavWidth } from '@/layout/layout-rul
 import { layoutPrefs, useViewportWidth } from '@/layout/layout-state';
 import { Splitter } from '@/layout/splitter';
 import { WindowControls } from '@/layout/window-controls';
+import { capabilities } from '@/platform/platform';
 import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ApprovalRuleSettings } from '@/settings/approval-rule-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
+import { ComputerSettings } from '@/settings/computer-settings';
 import { DevicesSettings } from '@/settings/devices-settings';
 import { DictationSettings } from '@/settings/dictation-settings';
 import { GeneralSettings } from '@/settings/general-settings';
@@ -41,6 +45,7 @@ import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { PersonalizationSettings } from '@/settings/personalization-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
+import { settingsTabVisible } from '@/settings/settings-access';
 import { LIST_CARD, SettingsSection } from '@/settings/settings-ui';
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
 import { StorageSettings } from '@/settings/storage-settings';
@@ -138,6 +143,15 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Globe,
     keywords: ['settings.web.enabled', 'settings.web.service'],
   },
+  computerUse: {
+    label: 'settings.tab.computerUse',
+    icon: MousePointerClick,
+    keywords: [
+      'settings.computerUse.enabled',
+      'settings.computerUse.screenRecording',
+      'settings.computerUse.accessibility',
+    ],
+  },
   dictation: {
     label: 'settings.tab.dictation',
     icon: Mic,
@@ -199,6 +213,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
       'providers',
       'personalization',
       'web',
+      'computerUse',
       'dictation',
       'memory',
       'approvalRules',
@@ -225,6 +240,7 @@ export function SettingsRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const from = (location.state as SettingsState | null)?.from;
+  const visible = useTabVisible();
   const [query, setQuery] = useState('');
   const viewportWidth = useViewportWidth();
   const preferredWidth = layoutPrefs.use().sidebarWidth;
@@ -296,7 +312,7 @@ export function SettingsRoute() {
       <main className="translucent-content flex min-w-0 flex-1 flex-col">
         {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动。 */}
         <div className="app-drag h-11 shrink-0" />
-        {isSettingsTab(tab) ? (
+        {isSettingsTab(tab) && visible(tab) ? (
           <ScrollArea className="min-h-0 flex-1">
             <div
               key={tab}
@@ -321,10 +337,19 @@ function matches(tab: SettingsTab, query: string): boolean {
   return [info.label, ...info.keywords].some((key) => t(key).toLowerCase().includes(needle));
 }
 
+/** 这个外壳与这条连接用得上的分页（settings/settings-access.ts）。 */
+function useTabVisible(): (tab: SettingsTab) => boolean {
+  const { view } = useHostConnection();
+  const can = (permission: Permission) =>
+    view.status !== 'connected' || view.hello.permissions.includes(permission);
+  return (tab) => settingsTabVisible(tab, capabilities(), can);
+}
+
 function TabList({ query, state }: { query: string; state: unknown }) {
+  const visible = useTabVisible();
   const groups = GROUPS.map((group) => ({
     ...group,
-    tabs: group.tabs.filter((tab) => matches(tab, query)),
+    tabs: group.tabs.filter((tab) => visible(tab) && matches(tab, query)),
   })).filter((group) => group.tabs.length > 0);
   if (groups.length === 0) {
     return <p className="px-4 py-2 text-sm text-muted-foreground">{t('settings.searchEmpty')}</p>;
@@ -385,6 +410,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <PersonalizationSettings />;
     case 'web':
       return <WebSettingsPage />;
+    case 'computerUse':
+      return <ComputerSettings />;
     case 'dictation':
       return <DictationSettings />;
     case 'memory':

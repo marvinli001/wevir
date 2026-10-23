@@ -9,7 +9,8 @@
 // `Cursor.auth.login` 给出浏览器网址，用户在浏览器里登录后 SDK 铸一把有期限的 API Key（90 天，Cursor 后台的 API Keys 里看得到、
 // 能吊销），存进 Wevir 的数据目录（credentials.ts）。环境变量 `CURSOR_API_KEY` 优先，这时不能在应用里登录或登出。账号的
 // 邮箱与模型来自 `Cursor.me` 与 `Cursor.models.list`，本计费周期的用量来自 `DashboardService/GetCurrentPeriodUsage`（与读账号
-// 同时读、同样缓存 5 分钟；读不到时留着上一次的）。
+// 同时读、同样缓存 5 分钟；读不到时留着上一次的）。安装包不带 SDK：有 `installer` 时 SDK 没装好的状态是 `installed: false`，
+// `account.install` 下载它（sdk-install.ts），装好后各账号重新读。
 
 import { randomUUID } from 'node:crypto';
 import type { SDKModel, SDKUser } from '@cursor/sdk';
@@ -25,6 +26,7 @@ import { CursorCredentialFile, MemoryCredentials } from './credentials.js';
 import { errorMessage, isAuthenticationFailure } from './errors.js';
 import { accountModels } from './models.js';
 import type { CursorSdk } from './sdk.js';
+import type { CursorSdkInstaller } from './sdk-install.js';
 import { DEFAULT_CURSOR_BACKEND_URL, readCursorUsage } from './usage.js';
 
 /** 一次登录最长等多久（T3 的 AUTH_TIMEOUT_MS）。 */
@@ -48,9 +50,17 @@ const BASE: AccountState = {
   loginMethods: ['browser'],
 };
 
+/** 账号用到的安装器接口（`CursorSdkInstaller` 满足它）。 */
+export type CursorSdkInstall = Pick<
+  CursorSdkInstaller,
+  'supported' | 'installing' | 'error' | 'active' | 'install' | 'onChange'
+>;
+
 export interface CursorAccountsOptions {
   /** 加载 SDK（测试换成假的）。 */
   sdk: () => Promise<CursorSdk>;
+  /** SDK 要下载时的安装器（安装包里，Host 的各个 Cursor 账号共用一个）；省略表示 SDK 随 Host（开发环境）。 */
+  installer?: CursorSdkInstall;
   /** 存铸出的 API Key 的文件。 */
   credentialsPath: string;
   /** `CURSOR_API_KEY` 等环境变量；省略时当作空。 */
@@ -89,11 +99,27 @@ export class CursorAccounts implements EngineAccounts {
   #stopping = false;
   #catalog: Catalog | undefined;
   #models: { apiKey: string; models: SDKModel[]; at: number } | undefined;
+  /** 下载装好的 SDK 的版本（有 `installer` 且装好时），报在状态的 `version` 里。 */
+  #sdkVersion: string | undefined;
+  readonly #unsubscribe: (() => void) | undefined;
   #disposed = false;
 
   constructor(options: CursorAccountsOptions) {
     this.#options = options;
     this.#store = new CursorCredentialFile(options.credentialsPath);
+    this.#unsubscribe = options.installer?.onChange((event) => {
+      switch (event.type) {
+        case 'progress':
+          if (this.#sdkVersion === undefined) this.#set(this.#notInstalled());
+          break;
+        case 'installed':
+          this.#sdkVersion = event.installation.version;
+          this.read(KIND, { refresh: true }).catch(() => this.#set({ ...BASE }));
+          break;
+        default:
+          if (this.#sdkVersion === undefined) this.#set(this.#notInstalled());
+      }
+    });
   }
 
   /** `CURSOR_API_KEY` 设了：它优先，应用里不能登录、登出（T3 的 usesApiKey）。 */
@@ -103,6 +129,7 @@ export class CursorAccounts implements EngineAccounts {
 
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
     this.#check(kind);
+    if (!(await this.#sdkReady())) return this.#set(this.#notInstalled());
     if (this.#flow !== undefined) return this.#state;
     const credential = await this.#credential();
     if (credential === undefined) {
@@ -292,8 +319,30 @@ export class CursorAccounts implements EngineAccounts {
     return this.#set({ ...BASE });
   }
 
+  /**
+   * 下载安装 SDK（`account.install`）：立即返回带 `installing` 的状态，进度与结果经 `onChange`；装好后重新读账号。已装好时只是
+   * 重新读，已在安装时返回当前状态。
+   */
+  async install(kind: AccountKind): Promise<AccountState> {
+    this.#check(kind);
+    const installer = this.#options.installer;
+    if (installer === undefined || !installer.supported) {
+      throw new AdapterError(
+        'invalid_input',
+        `Wevir cannot install the Cursor SDK on ${process.platform}-${process.arch}`,
+      );
+    }
+    if (installer.installing === undefined) {
+      if ((await installer.active()) !== undefined) return this.read(kind, { refresh: true });
+      // 失败与取消经 onChange 进状态的 lastError。
+      installer.install().catch(() => {});
+    }
+    return this.#set(this.#notInstalled());
+  }
+
   async models(kind: AccountKind): Promise<AccountModels> {
     this.#check(kind);
+    if (!(await this.#sdkReady())) return { models: [] };
     const apiKey = await this.readApiKey();
     if (apiKey === undefined) return { models: [] };
     return accountModels(await this.catalogModels(apiKey));
@@ -378,7 +427,31 @@ export class CursorAccounts implements EngineAccounts {
   dispose(): void {
     this.#disposed = true;
     this.#endFlow();
+    this.#unsubscribe?.();
     this.#listeners.clear();
+  }
+
+  /** SDK 能用吗：随 Host 的总是；要下载的装好了（顺带记下版本）才是。 */
+  async #sdkReady(): Promise<boolean> {
+    const installer = this.#options.installer;
+    if (installer === undefined) return true;
+    const installation = installer.installing === undefined ? await installer.active() : undefined;
+    this.#sdkVersion = installation?.version;
+    return installation !== undefined;
+  }
+
+  /** SDK 没装好时的状态：能不能装、安装进度、上一次安装失败的原因。 */
+  #notInstalled(): AccountState {
+    const installer = this.#options.installer;
+    const installing = installer?.installing;
+    const error = installer?.error;
+    return {
+      ...BASE,
+      installed: false,
+      ...(installer?.supported === true && { canInstall: true }),
+      ...(installing !== undefined && { installing }),
+      ...(installing === undefined && error !== undefined && { lastError: error }),
+    };
   }
 
   /** 登录完成：确认还是当前这次登录，存进文件，再用新 Key 读一次账号确认它能用（T3 的 verifying）。 */
@@ -420,7 +493,11 @@ export class CursorAccounts implements EngineAccounts {
     flow.controller.abort();
   }
 
-  #set(state: AccountState): AccountState {
+  #set(next: AccountState): AccountState {
+    const state =
+      this.#sdkVersion !== undefined && next.installed === undefined
+        ? { ...next, installed: true, version: this.#sdkVersion }
+        : next;
     const changed = JSON.stringify(state) !== JSON.stringify(this.#state);
     this.#state = state;
     if (changed && !this.#disposed) {

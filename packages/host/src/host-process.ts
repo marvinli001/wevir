@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   AUTOMATION_QUIET_MARKER,
   type ClientIdentity,
+  DEFAULT_REMOTE_SETTINGS,
   DESKTOP_RENDERER_ORIGINS,
   type EngineFeatures,
   type HostId,
@@ -13,8 +14,10 @@ import {
   PROTOCOL_VERSION,
   ProviderKindSchema,
   type ProviderTranscriptionModel,
+  PUSH_GATEWAY_URL,
   type SessionId,
   type WorkspaceId,
+  webDeviceIdleDays,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { guardrailChecker } from '@wevir/runtime-adapter/guardrail';
@@ -29,6 +32,8 @@ import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
+import { ComputerBroker } from './computer-broker.js';
+import { loadComputerGuide } from './computer-tools.js';
 import {
   type CustomPrompts,
   customInputs,
@@ -75,6 +80,7 @@ import { RemoteIdentity } from './remote/identity.js';
 import { RemoteListener, type RemoteListenerOptions } from './remote/listener.js';
 import { createCiaoAdvertiser } from './remote/mdns.js';
 import { PairingService } from './remote/pairing.js';
+import { HttpPushGateway, PushService, type PushServiceOptions } from './remote/push.js';
 import { RetroService } from './retro/service.js';
 import { loadRetroInstructions } from './retro/summary.js';
 import { loadReviewTemplate, ReviewService } from './review/service.js';
@@ -160,6 +166,13 @@ export interface StartHostOptions {
     | 'handshakeTimeoutMs'
     | 'relay'
   >;
+  /**
+   * 推送（0.112.0）：网关地址（省略时是官方的 `PUSH_GATEWAY_URL`；wevir-host 读 `WEVIR_PUSH_GATEWAY_URL`，给本机起的网关做开发测试），
+   * 测试另外换掉合并间隔、每小时上限与 fetch。
+   */
+  push?: { gatewayUrl?: string } & Pick<PushServiceOptions, 'coalesceMs' | 'maxPerHour'> & {
+      fetch?: typeof fetch;
+    };
   /** 远程 MCP 服务的 OAuth（0.97.0）：测试换掉 CIMD 地址、登录超时、时钟与 DNS 解析。 */
   mcpOAuth?: Pick<McpOAuthOptions, 'clientMetadataUrl' | 'loginTimeoutMs' | 'now' | 'lookup'>;
   /** 官方插件市场的镜像地址、公钥与 fetch（0.91.0）；省略用 wevir-marketplace 的三个镜像（测试换成本机服务）。 */
@@ -222,6 +235,7 @@ export interface RunningHost {
     readonly devices: DeviceService;
     readonly pairing: PairingService;
     readonly listener: RemoteListener;
+    readonly push: PushService;
   };
 }
 
@@ -565,10 +579,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         prepareEvent: (sessionId, event) => {
           // 代码智能：记下引擎改过的文件（不改事件）。
           appTools?.lsp?.observe(sessionId, event);
-          return appTools?.plugins?.prepareEvent(sessionId, event) ?? Promise.resolve(event);
+          // browser_batch / browser_run：消息流与审批卡片里列出每一步、写出脚本全文。
+          const shown = appTools?.prepareEvent(sessionId, event) ?? event;
+          return appTools?.plugins?.prepareEvent(sessionId, shown) ?? Promise.resolve(shown);
         },
         resolved: (sessionId, toolCallId, approved) =>
           appTools?.plugins?.resolved(sessionId, toolCallId, approved),
+        autoAllow: (sessionId, tool) => appTools?.autoAllow(sessionId, tool) ?? false,
         forget: (sessionIds) => {
           void processes?.removeSessions(sessionIds);
           terminals?.removeSessions(sessionIds);
@@ -927,8 +944,35 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const presence = new Presence();
     // 远程设备与配对（0.107.0，domain-model §3.49）：密钥在第一次打开远程访问时生成；关掉远程访问时结束配对窗口。
     const remoteIdentity = new RemoteIdentity({ secrets });
-    const deviceService = new DeviceService({ storage, secrets });
+    // 网页设备（0.117.0）闲置自动移除：天数取设置的 `remote.web.idleDays`。
+    const deviceService = new DeviceService({
+      storage,
+      secrets,
+      webIdleDays: () => webDeviceIdleDays(settings.get().remote ?? DEFAULT_REMOTE_SETTINGS),
+    });
+    const stopIdleExpiry = deviceService.startIdleExpiry((error) =>
+      logger.warn('failed to remove idle web devices', { error }),
+    );
+    settings.watch(() => void deviceService.expireIdle().catch(() => {}));
     const hostName = hostname().replace(/\.local$/, '');
+    // 推送（0.112.0，ADR-0017 §6）：电脑前没人时把通知意图加密后经推送网关发给开了推送的设备；只在设置里开了推送时连网关。
+    const pushService = new PushService({
+      settings: () => settings.get().remote,
+      devices: deviceService,
+      identity: remoteIdentity,
+      notifications: notificationService,
+      presence,
+      gateway: new HttpPushGateway({
+        url: options.push?.gatewayUrl ?? PUSH_GATEWAY_URL,
+        identity: remoteIdentity,
+        ...(options.push?.fetch !== undefined && { fetch: options.push.fetch }),
+      }),
+      hostName,
+      ...(options.push?.coalesceMs !== undefined && { coalesceMs: options.push.coalesceMs }),
+      ...(options.push?.maxPerHour !== undefined && { maxPerHour: options.push.maxPerHour }),
+      onError: (error) => logger.warn('push error', { error }),
+    });
+    settings.watch(() => pushService.refresh());
     // 直连的远程监听（0.109.0，ADR-0017 §1）：在勾选的网卡上监听，握手完成的连接交给 RPC 服务（下面建好之后才有）。
     let rpcServer: HostRpcServer | undefined;
     const remoteListener: RemoteListener = new RemoteListener({
@@ -946,6 +990,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       attach: (socket, origin) => rpcServer?.attach(socket, origin),
       hostName,
       keepAwake,
+      push: pushService,
       advertiser:
         options.remoteListener?.advertiser ??
         createCiaoAdvertiser((error) => {
@@ -989,6 +1034,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
+    // 电脑操作（0.114.0）：桌面端登记为提供方，computer_* 经它交给桌面端主进程的原生 helper；设置的 computerUse 打开时才列出。
+    const computers = adapter.appTools === true ? new ComputerBroker() : undefined;
+    let computerGuide: string | undefined;
+    if (computers !== undefined) {
+      try {
+        computerGuide = loadComputerGuide(options.promptsDir ?? defaultPromptsDir());
+      } catch (error) {
+        logger.warn(
+          'failed to load the computer use guide; computer_request_access returns no rules',
+          {
+            error,
+          },
+        );
+      }
+    }
     // 代码智能（lsp_* 工具）：语言服务器按需启动，空闲关闭，Host 退出时回收。
     // 0.71.0：`lsp.*` 看语言服务器的状态、重启、由用户发起安装。
     let lspStatus: LspStatusService | undefined;
@@ -1014,6 +1074,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         hostId,
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
+        ...(computers !== undefined && {
+          computer: {
+            broker: computers,
+            enabled: () => settings.get().computerUse === true,
+            ...(computerGuide !== undefined && { guide: computerGuide }),
+          },
+        }),
         ...(processes !== undefined && { processes }),
         ...(previews !== undefined && { previews }),
         readiness: readinessService,
@@ -1171,7 +1238,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         speech,
         keepAwake,
         inbox: inboxService,
-        remote: { devices: deviceService, pairing: pairingService, listener: remoteListener },
+        remote: {
+          devices: deviceService,
+          pairing: pairingService,
+          listener: remoteListener,
+          push: pushService,
+        },
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -1225,6 +1297,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { tool_presets: true }),
         ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),
         ...(browsers !== undefined && { browser_tools: true }),
+        ...(computers !== undefined && { computer_use: true }),
         ...(options.web !== undefined && { web_tools: true }),
         ...(adapter.planMode === true && { plan_mode: true }),
         ...(adapter.fork !== undefined && adapter.branches === true && { session_branches: true }),
@@ -1266,6 +1339,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         remote_devices: true,
         remote_listener: true,
         remote_relay: true,
+        remote_push: true,
+        remote_web: true,
       },
       engineFeatures,
       plugins,
@@ -1276,7 +1351,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       inbox: inboxService,
       notifications: notificationService,
       presence,
-      remote: { devices: deviceService, pairing: pairingService, listener: remoteListener },
+      remote: {
+        devices: deviceService,
+        pairing: pairingService,
+        listener: remoteListener,
+        push: pushService,
+      },
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1291,6 +1371,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       tuning,
       ...(proposals !== undefined && { proposals }),
       ...(browsers !== undefined && { browsers }),
+      ...(computers !== undefined && { computers }),
       ...(options.port !== undefined && { port: options.port }),
       ...(options.testConnectionGrant !== undefined && {
         testConnectionGrant: options.testConnectionGrant,
@@ -1332,9 +1413,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         devices: deviceService,
         pairing: pairingService,
         listener: remoteListener,
+        push: pushService,
       },
       shutdown: (trigger = { kind: 'api' }) => {
         pairingService.close();
+        pushService.close();
+        stopIdleExpiry();
         stopping ??= shutdownSequence({
           trigger,
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,

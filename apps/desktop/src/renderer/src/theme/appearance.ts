@@ -1,5 +1,6 @@
 import { IS_MAC } from '@/lib/shortcuts';
 import { createPersistedStore } from '@/lib/store';
+import { platformApi } from '@/platform/platform';
 import type { WindowAppearanceInput } from '../../../shared/desktop-api.js';
 import { APPEARANCE_STORAGE_KEY } from '../../../shared/theme.js';
 import {
@@ -56,7 +57,9 @@ function apply(): void {
   if (key !== sentToWindow) {
     sentToWindow = key;
     // 只影响窗口底下的底色与材质，失败时页面照常（CSS 里半透明的侧栏下面没有材质也只是浅一点）。
-    window.wevir?.setWindowAppearance(windowAppearance).catch(() => undefined);
+    platformApi()
+      ?.setWindowAppearance(windowAppearance)
+      .catch(() => undefined);
   }
 }
 

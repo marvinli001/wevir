@@ -39,6 +39,7 @@ import {
 } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
 import { NoticeBanner } from './settings-ui';
@@ -522,7 +523,7 @@ function SubscriptionBody({
       client.request('account.login', { ...ref, method: 'browser' }),
     );
     const url = next?.login?.authUrl;
-    if (url !== undefined) void window.wevir.openExternal(url);
+    if (url !== undefined) void platformApi().openExternal(url);
   };
 
   if (account === undefined || phase.kind === 'soon') {
@@ -601,7 +602,7 @@ function SubscriptionBody({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => void window.wevir.openExternal(account.login?.authUrl ?? '')}
+                  onClick={() => void platformApi().openExternal(account.login?.authUrl ?? '')}
                 >
                   <ExternalLink />
                   {t('source.signingIn.reopen')}
@@ -682,7 +683,11 @@ function CommandLine({ command }: { command: string }) {
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => void window.wevir.copyText(command).then(() => setCopied(true))}
+        onClick={() =>
+          void platformApi()
+            .copyText(command)
+            .then(() => setCopied(true))
+        }
         data-action="copy-command"
       >
         {copied ? <Check className="confirm-pop" /> : <Copy />}
@@ -723,7 +728,7 @@ function InstallStep({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => void window.wevir.openExternal(account.installUrl ?? '')}
+                onClick={() => void platformApi().openExternal(account.installUrl ?? '')}
                 data-action="download-git"
               >
                 <ExternalLink />
@@ -779,7 +784,7 @@ function InstallStep({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => void window.wevir.openExternal(account.installUrl ?? '')}
+                  onClick={() => void platformApi().openExternal(account.installUrl ?? '')}
                 >
                   <ExternalLink />
                   {t('source.install.docs')}
@@ -805,7 +810,8 @@ function InstallStep({
           {account.installCommand !== undefined && <CommandLine command={account.installCommand} />}
         </Step>
       )}
-      {!installing && client.supports('subscription_sources') && (
+      {/* Cursor 的 SDK 在 Host 进程里跑，没有可执行文件可指定。 */}
+      {!installing && kind !== 'cursor' && client.supports('subscription_sources') && (
         <div className="space-y-2">
           {editing ? (
             <form

@@ -11,6 +11,8 @@
  *   resources/engines/codex/codex-resources/bwrap    只有 Linux（LGPL-2.0-or-later）
  *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
+ *   resources/computer-use/wevir-computer-use        只有 macOS：电脑操作的 Swift helper（native/computer-use，按目标架构
+ *                                                    swift build），随应用一起签名与公证
  *   resources/host/dist/                             wevir-host 打成的 bundle（main.js 与按需加载的几个文件，bundleHost），
  *                                                    桌面端以 Electron 的 utilityProcess 运行它
  *   resources/host/migrations/                       @wevir/storage 的 SQL 迁移（bundle 按 `../migrations/` 找）
@@ -82,8 +84,9 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  * 不进安装包的依赖。它们与只被它们用到的依赖由 `pruneDependencies` 删掉：
  * - `vitest`：`@wevir/runtime-adapter` 的可选 peer（只有 `./contract` 的契约测试用），pnpm 从工作区根的开发依赖解析到它，
  *   deploy 便带上了它和 Vite 那一串；
- * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。没有它时 Host 不挂 Cursor
- *   引擎（host 的 engines.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的 JS，不带原生的 `claude`；
+ * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。用户选用 Cursor 时由 Host 从
+ *   npm registry 下载到数据目录（adapter-cursor 的 sdk-install.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的
+ *   JS，不带原生的 `claude`；
  * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）；
  * - `node-addon-api`：node-pty（用户终端）的依赖，只有编译原生模块用的 C++ 头文件，运行时不加载。
  */
@@ -103,12 +106,15 @@ export const EXCLUDED_PACKAGES: readonly string[] = [
  *   Claude Agent SDK 的 peer；
  * - `sherpa-onnx-node`：原生模块（听写的本机识别，Host 的可选依赖）。它的 `addon.js` 按 `../sherpa-onnx-<平台>-<架构>/` 找原生包，
  *   deploy 按 `--os` / `--cpu` 只装目标平台的那一个（约 33 MB，含 onnxruntime）；没有这个平台的原生包时 Host 只有 Provider 的转写。
+ * - `@jitl/quickjs-wasmfile-release-sync`：browser_run 的 QuickJS 沙箱，按 `import.meta.url` 找包里的 `emscripten-module.wasm`
+ *   （约 0.5 MB）；Host 用 `import()` 加载它，`quickjs-emscripten-core` 打进 bundle。
  */
 export const ON_DISK_PACKAGES: readonly string[] = [
   'node-pty',
   '@anthropic-ai/claude-agent-sdk',
   'zod',
   'sherpa-onnx-node',
+  '@jitl/quickjs-wasmfile-release-sync',
 ];
 
 /** ws 在 try 里 require 的可选原生加速包，Host 不装，打包时留成外部依赖（运行时找不到，ws 照常用 JS 的实现）。 */
@@ -472,6 +478,34 @@ function stagePrompts(dir: string): void {
   });
 }
 
+/** 电脑操作的 helper：只有 macOS 目标才有；`swift build --arch` 可以在 Apple Silicon 上编 x86_64。 */
+function stageComputerUse(dir: string, target: string): void {
+  rmSync(dir, { recursive: true, force: true });
+  const { os, cpu } = nodePlatform(target);
+  if (os !== 'darwin') return;
+  if (process.platform !== 'darwin') {
+    console.error('macOS 的电脑操作 helper 只能在 macOS 上编译');
+    process.exit(1);
+  }
+  const arch = cpu === 'arm64' ? 'arm64' : 'x86_64';
+  const pkg = join(desktop, 'native', 'computer-use');
+  run('swift', ['build', '-c', 'release', '--arch', arch, '--package-path', pkg]);
+  const built = spawnSync(
+    'swift',
+    ['build', '-c', 'release', '--arch', arch, '--package-path', pkg, '--show-bin-path'],
+    { encoding: 'utf8' },
+  );
+  const binary = join(built.stdout.trim(), 'wevir-computer-use');
+  if (built.status !== 0 || !existsSync(binary)) {
+    console.error(`没有找到编好的 helper：${binary}`);
+    process.exit(1);
+  }
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(binary, join(dir, 'wevir-computer-use'));
+  chmodSync(join(dir, 'wevir-computer-use'), 0o755);
+  console.log(`resources/computer-use：wevir-computer-use（${arch}）`);
+}
+
 async function stageHost(dir: string, target: string): Promise<void> {
   const entry = join(repo, 'packages', 'host', 'dist', 'main.js');
   if (!existsSync(entry)) {
@@ -521,6 +555,7 @@ export async function stageResources(target: string): Promise<void> {
   const resources = join(desktop, 'resources');
   stageCodex(join(resources, 'engines', 'codex'), target);
   stagePrompts(join(resources, 'prompts'));
+  stageComputerUse(join(resources, 'computer-use'), target);
   await stageHost(join(resources, 'host'), target);
   console.log(`资源目录已准备好（${target}）：${resources}`);
 }

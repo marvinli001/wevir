@@ -1,19 +1,33 @@
 import {
   DEFAULT_REMOTE_SETTINGS,
   type Device,
+  OFFICIAL_RELAY_URL,
   type PairingOffer,
   type RemoteInterface,
+  type RemoteStatus,
+  relayConfigured,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   formatCountdown,
+  idleDayOptions,
   interfaceLabel,
   type PairingDialogState,
   pairingDialogReducer,
   parsePort,
   parseRelayUrl,
+  parseWebClientUrl,
+  pushStatusKey,
+  RELAY_URL_PLACEHOLDER,
+  relayChoice,
+  relayForWeb,
+  relayStatusText,
   remoteOf,
   setLan,
+  setRelayChoice,
+  setRelayUrl,
+  setWebClientUrl,
+  setWebIdleDays,
   toggleLanInterface,
   togglePermission,
   visibleDevices,
@@ -80,12 +94,126 @@ describe('设备页', () => {
     expect(list.map((d) => d.id)).toEqual(['new', 'old']);
   });
 
-  it('中继地址：空是官方实例，只认 wss:// 与 ws://', () => {
+  it('中继地址：空是没填，只认 wss:// 与 ws://；占位符只是示例', () => {
+    expect(RELAY_URL_PLACEHOLDER).not.toContain('wevir');
+    expect(parseRelayUrl(RELAY_URL_PLACEHOLDER)).toEqual({ url: RELAY_URL_PLACEHOLDER });
     expect(parseRelayUrl('  ')).toEqual({});
     expect(parseRelayUrl(' wss://relay.example.com ')).toEqual({ url: 'wss://relay.example.com' });
     expect(parseRelayUrl('ws://10.0.0.2:8080')).toEqual({ url: 'ws://10.0.0.2:8080' });
     expect(parseRelayUrl('https://relay.example.com')).toBeUndefined();
     expect(parseRelayUrl('relay')).toBeUndefined();
+  });
+
+  it('中继三态（0.117.0）：关 / 官方 / 自建，自建的地址一直留着', () => {
+    const off = DEFAULT_REMOTE_SETTINGS;
+    expect(relayChoice(off)).toBe('off');
+    const official = setRelayChoice(off, 'official');
+    expect(official.relay).toEqual({ enabled: true, mode: 'official' });
+    expect(relayChoice(official)).toBe('official');
+    expect(relayConfigured(official)).toBe(OFFICIAL_RELAY_URL);
+    // 选自建、还没填地址：显示自建，Host 当作关。
+    const custom = setRelayChoice(official, 'custom');
+    expect(relayChoice(custom)).toBe('custom');
+    expect(relayConfigured(custom)).toBeUndefined();
+    const filled = setRelayUrl(custom, 'wss://relay.example.com');
+    expect(relayConfigured(filled)).toBe('wss://relay.example.com');
+    const backOff = setRelayChoice(filled, 'off');
+    expect(backOff.relay).toEqual({
+      enabled: false,
+      mode: 'custom',
+      url: 'wss://relay.example.com',
+    });
+    expect(relayConfigured(backOff)).toBeUndefined();
+    expect(relayConfigured(setRelayChoice(backOff, 'custom'))).toBe('wss://relay.example.com');
+    expect(relayConfigured(setRelayChoice(backOff, 'official'))).toBe(OFFICIAL_RELAY_URL);
+  });
+
+  it('旧设置：开着且填了地址显示自建；开着没填地址显示为关，填上地址后仍是关', () => {
+    const custom = {
+      ...DEFAULT_REMOTE_SETTINGS,
+      relay: { enabled: true, url: 'wss://r.example.com' },
+    };
+    expect(relayChoice(custom)).toBe('custom');
+    expect(setRelayUrl(custom, 'ws://10.0.0.2:8080').relay).toEqual({
+      enabled: true,
+      url: 'ws://10.0.0.2:8080',
+    });
+    const legacy = { ...DEFAULT_REMOTE_SETTINGS, relay: { enabled: true } };
+    expect(relayChoice(legacy)).toBe('off');
+    expect(setRelayUrl(legacy, 'wss://relay.example.com').relay).toEqual({
+      enabled: false,
+      url: 'wss://relay.example.com',
+    });
+  });
+
+  it('添加网页设备前选中继：官方直接可用，自建要合法的地址', () => {
+    const off = DEFAULT_REMOTE_SETTINGS;
+    expect(relayConfigured(relayForWeb(off, 'official', '') ?? off)).toBe(OFFICIAL_RELAY_URL);
+    expect(relayForWeb(off, 'custom', '')).toBeUndefined();
+    expect(relayForWeb(off, 'custom', 'https://x')).toBeUndefined();
+    const custom = relayForWeb(off, 'custom', ' wss://relay.example.com ');
+    expect(custom?.relay).toEqual({
+      enabled: true,
+      mode: 'custom',
+      url: 'wss://relay.example.com',
+    });
+  });
+
+  it('网页客户端地址与闲置移除', () => {
+    expect(parseWebClientUrl('')).toEqual({});
+    expect(parseWebClientUrl(' https://example.com/wevir/ ')).toEqual({
+      url: 'https://example.com/wevir',
+    });
+    expect(parseWebClientUrl('http://localhost:5173')).toEqual({ url: 'http://localhost:5173' });
+    expect(parseWebClientUrl('http://example.com')).toBeUndefined();
+    const withUrl = setWebClientUrl(DEFAULT_REMOTE_SETTINGS, 'https://example.com');
+    expect(withUrl.web).toEqual({ url: 'https://example.com' });
+    expect(setWebClientUrl(setWebIdleDays(withUrl, 7), undefined).web).toEqual({ idleDays: 7 });
+    expect(idleDayOptions(DEFAULT_REMOTE_SETTINGS)).toEqual([7, 30, 90, 365, 0]);
+    expect(idleDayOptions(setWebIdleDays(DEFAULT_REMOTE_SETTINGS, 14))).toEqual([
+      7, 30, 90, 365, 14, 0,
+    ]);
+  });
+
+  it('中继状态：分清地址连不上、证书不对、那里不是中继、被中继拒绝', () => {
+    const relay = (error?: NonNullable<RemoteStatus['relay']>['error']) => ({
+      state: 'connecting' as const,
+      url: 'wss://relay.example.com',
+      connections: 0,
+      ...(error !== undefined && { error }),
+    });
+    expect(relayStatusText(undefined)).toBeUndefined();
+    expect(relayStatusText({ ...relay(), state: 'connected' })).toEqual({
+      key: 'settings.devices.relayConnected',
+    });
+    expect(relayStatusText(relay())).toEqual({ key: 'settings.devices.relayConnecting' });
+    expect(relayStatusText(relay({ reason: 'unreachable', message: 'ECONNREFUSED' }))).toEqual({
+      key: 'settings.devices.relayUnreachable',
+    });
+    expect(
+      relayStatusText(relay({ reason: 'unreachable', message: 'x', certificate: true })),
+    ).toEqual({ key: 'settings.devices.relayCertificate' });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', httpStatus: 404 }))).toEqual({
+      key: 'settings.devices.relayNotRelay',
+    });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', httpStatus: 200 }))).toEqual({
+      key: 'settings.devices.relayNotRelay',
+    });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', httpStatus: 503 }))).toEqual({
+      key: 'settings.devices.relayRejectedCode',
+      code: 'HTTP 503',
+    });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', closeCode: 4101 }))).toEqual({
+      key: 'settings.devices.relayRejectedCode',
+      code: '4101',
+    });
+    // 0.110.0 的 Host 不给细节。
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x' }))).toEqual({
+      key: 'settings.devices.relayRejected',
+    });
+    expect(relayStatusText(relay({ reason: 'replaced', message: 'x', closeCode: 4102 }))).toEqual({
+      key: 'settings.devices.relayReplaced',
+    });
   });
 
   it('倒计时', () => {
@@ -208,5 +336,24 @@ describe('直连的网卡', () => {
     expect(parsePort('1024')).toEqual({ port: 1024 });
     for (const bad of ['80', '65536', '4.5', 'abc', '-1'])
       expect(parsePort(bad), bad).toBeUndefined();
+  });
+});
+
+describe('推送', () => {
+  const gatewayUrl = 'https://push.wevir.si';
+  it('网关状态：正常、还没发过与旧 Host 不加说明；不可用按原因', () => {
+    expect(pushStatusKey(undefined)).toBeUndefined();
+    expect(pushStatusKey({ state: 'idle', gatewayUrl, devices: 0 })).toBeUndefined();
+    expect(pushStatusKey({ state: 'ok', gatewayUrl, devices: 1 })).toBeUndefined();
+    const unavailable = (reason: 'unreachable' | 'rejected' | 'rate_limited') =>
+      pushStatusKey({
+        state: 'unavailable',
+        gatewayUrl,
+        devices: 1,
+        error: { reason, message: '' },
+      });
+    expect(unavailable('unreachable')).toBe('settings.devices.pushUnreachable');
+    expect(unavailable('rejected')).toBe('settings.devices.pushRejected');
+    expect(unavailable('rate_limited')).toBe('settings.devices.pushRateLimited');
   });
 });

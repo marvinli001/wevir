@@ -312,6 +312,11 @@ export const zh = {
   'err.pairingDenied': '那台电脑拒绝了配对',
   'err.remoteDisabled': '那台电脑关掉了远程访问',
   'err.remoteDisabled.hint': '在那台电脑的 设置 → 设备 里打开远程访问',
+  'err.relayUnreachable': '直连连不上那台电脑，中继地址也连不上',
+  'err.relayUnreachable.hint':
+    '在那台电脑的 设置 → 设备 里核对中继地址，并确认中继在运行；同一网络或 Tailscale 下检查那台电脑是否打开了远程访问',
+  'err.relayCertificate': '中继的 TLS 证书无效',
+  'err.relayCertificate.hint': '给中继换一张对它的域名有效的证书，例如 Let’s Encrypt 签发的',
   'err.relayOffline': '直连与经中继都连不上那台电脑',
   'err.relayOffline.hint': '确认那台电脑开着、联网，并在 设置 → 设备 里打开了远程访问与中继',
   'err.relayRateLimited': '中继正在限制来自这个网络的连接',
@@ -713,7 +718,8 @@ export const zh = {
   'remote.badLink': '配对链接无效或版本不受支持',
   'remote.badLink.hint': '在那台电脑上重新添加设备，复制完整的链接',
   'remote.badInput': '既不是配对链接也不是短码',
-  'remote.badInput.hint': '给出 wevir://pair?… 链接，或 8 位短码（如 ABCD-EFGH）',
+  'remote.badInput.hint':
+    '给出 wevir://pair?… 或 https://…/pair#… 链接，或 8 位短码（如 ABCD-EFGH）',
   'remote.searching': '正在局域网里查找电脑…',
   'remote.noneFound': '局域网里没有找到开着远程访问的 Wevir',
   'remote.noneFound.hint':

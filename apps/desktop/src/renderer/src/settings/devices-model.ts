@@ -11,12 +11,29 @@ import {
   type RemoteInterface,
   type RemoteInterfaceRef,
   type RemoteSettings,
+  type RemoteStatus,
+  WEB_DEVICE_IDLE_DAYS_DEFAULT,
+  WebClientUrlSchema,
+  webDeviceIdleDays,
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
 
 /** Host 设置里的 `remote`；省略时全关。 */
 export function remoteOf(settings: { remote?: RemoteSettings }): RemoteSettings {
   return settings.remote ?? DEFAULT_REMOTE_SETTINGS;
+}
+
+/** 推送网关的状态（0.112.0 的 `remote.status.push`）的说明；正常、还没发过或旧 Host 时 undefined。 */
+export function pushStatusKey(push: RemoteStatus['push']): PlainMessageKey | undefined {
+  if (push?.state !== 'unavailable') return undefined;
+  switch (push.error?.reason) {
+    case 'rejected':
+      return 'settings.devices.pushRejected';
+    case 'rate_limited':
+      return 'settings.devices.pushRateLimited';
+    default:
+      return 'settings.devices.pushUnreachable';
+  }
 }
 
 /** 设置 → 设备 页面上能给设备的权限，按这个顺序列出。 */
@@ -42,6 +59,7 @@ export const PLATFORM_LABEL: Record<Device['platform'], PlainMessageKey> = {
   windows: 'settings.devices.platform.windows',
   linux: 'settings.devices.platform.linux',
   other: 'settings.devices.platform.other',
+  web: 'settings.devices.platform.web',
 };
 
 /** 加上时要二次确认的权限：在电脑上执行命令、改审批规则与护栏、开完全访问。 */
@@ -69,11 +87,121 @@ export function visibleDevices(devices: readonly Device[]): Device[] {
     .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
 }
 
-/** 自定义中继地址：空串是用官方实例（省略 `url`），不合法时返回 undefined。 */
+// ── 中继（0.110.0；0.117.0 起三态：关 / Wevir 官方中继 / 自建地址）────────────
+
+/** 中继地址框的占位：只是示例。 */
+export const RELAY_URL_PLACEHOLDER = 'wss://relay.example.com';
+
+/** 中继地址框里的内容：空串是没填（省略 `url`），不合法时返回 undefined。 */
 export function parseRelayUrl(input: string): { url?: string } | undefined {
   const value = input.trim();
   if (value === '') return {};
   return RelayUrlSchema.safeParse(value).success ? { url: value } : undefined;
+}
+
+/** 中继下拉里的选项。 */
+export type RelayChoice = 'off' | 'official' | 'custom';
+
+/**
+ * 下拉显示的选项：关着是关；选了官方是官方；选了自建（`mode: 'custom'`）或旧设置开着且填了地址是自建，自建还没填地址时 Host 当作关、
+ * 这里仍显示自建与空的地址框；旧设置“开着、没填地址”（没有 `mode`）显示为关。
+ */
+export function relayChoice(remote: RemoteSettings): RelayChoice {
+  const { relay } = remote;
+  if (!relay.enabled) return 'off';
+  if (relay.mode === 'official') return 'official';
+  if (relay.mode === 'custom' || relay.url !== undefined) return 'custom';
+  return 'off';
+}
+
+/** 换中继的选项。自建的地址一直留着，换回自建时接着用。 */
+export function setRelayChoice(remote: RemoteSettings, choice: RelayChoice): RemoteSettings {
+  const { relay } = remote;
+  if (choice === 'off') return { ...remote, relay: { ...relay, enabled: false } };
+  return { ...remote, relay: { ...relay, enabled: true, mode: choice } };
+}
+
+/**
+ * 改自建中继的地址；选项不变（自建时清空地址等于暂时不连）。显示为关的（包括旧设置“开着、没填地址”）填上地址后仍是关，要用户
+ * 自己选自建。
+ */
+export function setRelayUrl(remote: RemoteSettings, url: string | undefined): RemoteSettings {
+  const { url: _previous, ...relay } = remote.relay;
+  const enabled = relayChoice(remote) !== 'off' && relay.enabled;
+  return { ...remote, relay: { ...relay, enabled, ...(url !== undefined && { url }) } };
+}
+
+// ── 网页设备（0.117.0）───────────────────────────────────────────────
+
+/** 网页客户端地址框的内容：空串是官方地址（省略 `web.url`），不合法时返回 undefined。末尾的 `/` 去掉。 */
+export function parseWebClientUrl(input: string): { url?: string } | undefined {
+  const value = input.trim().replace(/\/+$/, '');
+  if (value === '') return {};
+  return WebClientUrlSchema.safeParse(value).success ? { url: value } : undefined;
+}
+
+export function setWebClientUrl(remote: RemoteSettings, url: string | undefined): RemoteSettings {
+  const { url: _previous, ...web } = remote.web ?? {};
+  return { ...remote, web: { ...web, ...(url !== undefined && { url }) } };
+}
+
+/** 闲置自动移除的选项（天；0 是从不）。设置里存着别的天数（经 API 改的）时也列出来。 */
+export function idleDayOptions(remote: RemoteSettings): number[] {
+  const presets = [7, WEB_DEVICE_IDLE_DAYS_DEFAULT, 90, 365, 0];
+  const current = webDeviceIdleDays(remote);
+  return presets.includes(current) ? presets : [...presets.slice(0, -1), current, 0];
+}
+
+export function setWebIdleDays(remote: RemoteSettings, idleDays: number): RemoteSettings {
+  return { ...remote, web: { ...remote.web, idleDays } };
+}
+
+/**
+ * “添加网页设备”前的中继：网页只能经中继连，中继关着时先让用户选官方中继或填自建地址。`custom` 的地址不合法或没填时返回
+ * undefined（继续按钮不可用）。
+ */
+export function relayForWeb(
+  remote: RemoteSettings,
+  choice: Exclude<RelayChoice, 'off'>,
+  urlInput: string,
+): RemoteSettings | undefined {
+  if (choice === 'official') return setRelayChoice(remote, 'official');
+  const parsed = parseRelayUrl(urlInput);
+  if (parsed?.url === undefined) return undefined;
+  return setRelayChoice(setRelayUrl(remote, parsed.url), 'custom');
+}
+
+/** 中继一行的说明：连接状态与上次失败的原因（0.111.0 起分得清地址连不上、证书不对、那里不是中继、被中继拒绝）。 */
+export type RelayStatusText =
+  | { key: PlainMessageKey }
+  | { key: 'settings.devices.relayRejectedCode'; code: string };
+
+/** 中继开着时的连接状态（`remote.status.relay`）；关着或旧 Host 时 undefined。 */
+export function relayStatusText(relay: RemoteStatus['relay']): RelayStatusText | undefined {
+  if (relay === undefined) return undefined;
+  if (relay.state === 'connected') return { key: 'settings.devices.relayConnected' };
+  const error = relay.error;
+  switch (error?.reason) {
+    case 'unreachable':
+      return {
+        key: error.certificate
+          ? 'settings.devices.relayCertificate'
+          : 'settings.devices.relayUnreachable',
+      };
+    case 'rejected':
+      // 429 与 503 是中继在限速或满了；别的状态码说明那个地址上不是中继（路径不对、普通网站）。
+      if (error.httpStatus !== undefined && error.httpStatus !== 429 && error.httpStatus !== 503)
+        return { key: 'settings.devices.relayNotRelay' };
+      if (error.httpStatus !== undefined)
+        return { key: 'settings.devices.relayRejectedCode', code: `HTTP ${error.httpStatus}` };
+      if (error.closeCode !== undefined)
+        return { key: 'settings.devices.relayRejectedCode', code: String(error.closeCode) };
+      return { key: 'settings.devices.relayRejected' };
+    case 'replaced':
+      return { key: 'settings.devices.relayReplaced' };
+    default:
+      return { key: 'settings.devices.relayConnecting' };
+  }
 }
 
 // ── 直连的网卡（0.109.0）────────────────────────────────────────────

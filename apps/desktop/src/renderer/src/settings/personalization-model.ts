@@ -46,16 +46,13 @@ export function customRows(custom: SessionCustomInstructions): CustomRow[] {
       value: OUTPUT_STYLE_LABELS[style],
     });
   }
-  // 0.95.0：写作风格；不认识的值不列。
+  // 0.95.0：写作风格只列开着，有没有档案不列（设置里也只有开关）；不认识的值不列。
   const writing = custom.writingStyle;
   if (writing === 'profile' || writing === 'setup') {
     rows.push({
       key: 'writing',
       label: 'settings.personalization.writingStyle',
-      value:
-        writing === 'profile'
-          ? 'settings.personalization.writingProfile.ready'
-          : 'settings.personalization.writingProfile.missing',
+      value: 'settings.personalization.writingStyle.on',
     });
   }
   return rows;

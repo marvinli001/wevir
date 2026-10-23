@@ -8,6 +8,8 @@ import {
   type ClientCapabilities,
   type ClientIdentity,
   CloseCode,
+  type ComputerRequest,
+  type ComputerResponse,
   type Device,
   DevicesChangedParamsSchema,
   EventsSubscribeResultSchema,
@@ -151,6 +153,16 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 interface BrowserProviderEntry {
   readonly commands: readonly string[];
   readonly handle: BrowserRequestHandler;
+}
+
+/** 电脑操作的提供方（0.114.0）：执行 Host 交来的一个请求；回答不含 `requestId`，由客户端补上。 */
+export type ComputerRequestHandler = (
+  request: ComputerRequest,
+) => Promise<DistributiveOmit<ComputerResponse, 'requestId'>>;
+
+interface ComputerProviderEntry {
+  readonly commands: readonly string[];
+  readonly handle: ComputerRequestHandler;
 }
 
 /** `watchSettings` 的一个监听器。 */
@@ -303,12 +315,13 @@ function isFinalCloseCode(code: number | undefined): boolean {
 /**
  * 远程连接哪条路都没走通时怎么重试（0.110.0）。中继说电脑不在（404）、限速（429）、超限（4103）或电脑拒绝（4105）时慢速重试，
  * 立即重试只会更快撞上限制；中继满了（503）或电脑没及时接上（4100）照常退避；中继说客户端发了不合规的消息（4104）是客户端的 bug，
- * 重试也一样，不再重连。
+ * 重试也一样，不再重连。中继的证书验不过（0.111.0）要用户去换证书，也慢速重试；中继本身连不上照常退避。
  */
 function relayRetry(relay: RemoteRelayFailure | undefined): FailureClass {
   switch (relay) {
     case 'protocol_error':
       return { retry: false };
+    case 'certificate':
     case 'offline':
     case 'rate_limited':
     case 'limit_exceeded':
@@ -366,6 +379,8 @@ export class WevirClient {
   readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
+  /** `provideComputer` 登记的电脑操作提供方（0.114.0），一个客户端只有一个。 */
+  #computerProvider: ComputerProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
   #connection: Connection | undefined;
   #hello: HostHello | undefined;
@@ -1017,6 +1032,67 @@ export class WevirClient {
     );
   }
 
+  /**
+   * 把这个客户端登记为电脑操作的提供方（0.114.0，`computer.register`），做法同 `provideBrowser`：现在与每次（重）连上之后登记
+   * 一次（Host 没有 `computer_use` 时不登记），Host 发来的 `computer.request` 交给 `handle`，回答经 `computer.respond` 发回；
+   * `handle` 抛错时回 `computer_unknown_error`。返回注销的函数。
+   */
+  provideComputer(commands: readonly string[], handle: ComputerRequestHandler): () => void {
+    const entry: ComputerProviderEntry = { commands, handle };
+    this.#computerProvider = entry;
+    if (this.#connection !== undefined) this.#registerComputer(entry);
+    return () => {
+      if (this.#computerProvider !== entry) return;
+      this.#computerProvider = undefined;
+      if (this.#connection !== undefined && this.supports('computer_use')) {
+        this.request('computer.unregister').catch(() => {});
+      }
+    };
+  }
+
+  #registerComputer(entry: ComputerProviderEntry): void {
+    if (!this.supports('computer_use') || !this.#allowed('computer.register')) return;
+    this.request('computer.register', { commands: [...entry.commands] }).catch((error: unknown) =>
+      this.#warn('failed to register as a computer use provider', { error }),
+    );
+  }
+
+  #onComputerRequest(params: unknown): void {
+    const parsed = NotificationSchemas['computer.request'].params.safeParse(params);
+    if (!parsed.success) {
+      this.#warn('ignored a malformed computer.request notification');
+      return;
+    }
+    const request = parsed.data;
+    const entry = this.#computerProvider;
+    const respond = (response: DistributiveOmit<ComputerResponse, 'requestId'>) =>
+      this.request('computer.respond', {
+        requestId: request.requestId,
+        ...response,
+      } as ComputerResponse).catch((error: unknown) =>
+        this.#warn('failed to answer a computer use request', { error }),
+      );
+    if (entry === undefined) {
+      void respond({
+        ok: false,
+        error: {
+          code: 'computer_no_host',
+          message: 'This client no longer provides computer use.',
+        },
+      });
+      return;
+    }
+    entry.handle(request).then(respond, (error: unknown) =>
+      respond({
+        ok: false,
+        error: {
+          code: 'computer_unknown_error',
+          message: error instanceof Error && error.message !== '' ? error.message : String(error),
+        },
+      }),
+    );
+  }
+
   /** 这条连接能不能调 `method`（按注册表里它要的权限）。 */
   #allowed(method: MethodName): boolean {
     const permission = MethodSchemas[method].permission;
@@ -1257,6 +1333,7 @@ export class WevirClient {
         if (reread('lsp_status', 'lsp.status')) this.#lspChanged(undefined);
         if (reread('user_terminal', 'terminal.list')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
+        if (this.#computerProvider !== undefined) this.#registerComputer(this.#computerProvider);
         if (this.#notificationListeners.size > 0) this.#subscribeNotifications();
         if (this.#presence !== undefined) this.#sendPresence(this.#presence);
         return;
@@ -1720,6 +1797,10 @@ export class WevirClient {
     }
     if (method === 'browser.request') {
       this.#onBrowserRequest(params);
+      return;
+    }
+    if (method === 'computer.request') {
+      this.#onComputerRequest(params);
       return;
     }
     if (method !== 'events.event') {

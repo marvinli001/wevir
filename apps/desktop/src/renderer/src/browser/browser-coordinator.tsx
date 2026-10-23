@@ -5,6 +5,7 @@
 import { BROWSER_COMMANDS, type BrowserResponse } from '@wevir/protocol';
 import { useEffect } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { platformApi } from '@/platform/platform';
 import { router } from '@/routes/router';
 
 /** 主窗格正在显示的会话（会话页与它的子智能体详情）。 */
@@ -21,8 +22,8 @@ export function BrowserCoordinator() {
   const connected = view.status === 'connected';
 
   useEffect(() => {
-    if (!client || !window.wevir?.browser) return;
-    const browser = window.wevir.browser;
+    if (!client || !platformApi()?.browser) return;
+    const browser = platformApi().browser;
     // 重连后 client-sdk 自己重新登记；Host 没有这项功能时它不登记。
     return client.provideBrowser(BROWSER_COMMANDS, async (request) => {
       const { requestId: _requestId, ...response } = (await browser.execute(
@@ -33,8 +34,8 @@ export function BrowserCoordinator() {
   }, [client]);
 
   useEffect(() => {
-    if (!connected || !window.wevir?.browser) return;
-    const browser = window.wevir.browser;
+    if (!connected || !platformApi()?.browser) return;
+    const browser = platformApi().browser;
     let last: string | null | undefined;
     const sync = () => {
       const next = currentSessionId();

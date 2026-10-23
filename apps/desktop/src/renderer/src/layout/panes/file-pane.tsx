@@ -64,6 +64,7 @@ import {
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { capabilities, platformApi } from '@/platform/platform';
 import { renderDocumentHtml } from '@/session/markdown/markdown-document';
 import { type DocumentMarkdown, MarkdownView } from '@/session/markdown/markdown-view';
 import { useTheme } from '@/theme/theme';
@@ -162,7 +163,7 @@ function FilePreview({
   } else if (!streamed && result) {
     if (result.unavailable !== undefined) {
       body =
-        result.unavailable === 'binary' && external ? (
+        result.unavailable === 'binary' && external && capabilities().localFiles ? (
           <OfficeFallback absolute={absolute} />
         ) : (
           <Note icon={FileWarning}>{unavailableText(result.unavailable)}</Note>
@@ -250,8 +251,11 @@ function FilePreview({
           <RotateCw className={cn(loading && 'animate-spin')} />
         </IconButton>
         <CopyPath path={absolute} />
-        {external && isStreamedView(view) && <ExternalButtons absolute={absolute} />}
-        <OpenInMenu path={absolute} line={reveal?.line} />
+        {/* 系统应用、编辑器与访达只对这台电脑上的文件有用（platform/platform.ts 的 `localFiles`）。 */}
+        {capabilities().localFiles && external && isStreamedView(view) && (
+          <ExternalButtons absolute={absolute} />
+        )}
+        {capabilities().localFiles && <OpenInMenu path={absolute} line={reveal?.line} />}
       </div>
       <div className="relative min-h-0 flex-1">{body}</div>
     </div>
@@ -314,7 +318,7 @@ function OfficeFallback({ absolute }: { absolute: string }) {
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
       <FileWarning aria-hidden className="size-6 stroke-[1.5] text-muted-foreground" />
       <p className="max-w-64 text-sm text-muted-foreground">{t('files.noInlinePreview')}</p>
-      {canOpenExternally(absolute) && (
+      {capabilities().localFiles && canOpenExternally(absolute) && (
         <div className="flex gap-2">
           {IS_MAC && (
             <Button size="sm" variant="secondary" onClick={() => void quickLook(absolute)}>
@@ -333,12 +337,16 @@ function OfficeFallback({ absolute }: { absolute: string }) {
 }
 
 async function quickLook(path: string): Promise<void> {
-  const shown = await window.wevir.previewFile(path).catch(() => false);
+  const shown = await platformApi()
+    .previewFile(path)
+    .catch(() => false);
   if (!shown) await openDefault(path);
 }
 
 async function openDefault(path: string): Promise<void> {
-  await window.wevir.openPath(path).catch(() => undefined);
+  await platformApi()
+    .openPath(path)
+    .catch(() => undefined);
 }
 
 /** 系统预览（macOS 的 Quick Look）与默认应用。 */
@@ -505,7 +513,11 @@ function CopyPath({ path }: { path: string }) {
   return (
     <IconButton
       label={copied ? t('files.copied') : t('files.copyPath')}
-      onClick={() => void window.wevir.copyText(path).then(() => setCopied(true))}
+      onClick={() =>
+        void platformApi()
+          .copyText(path)
+          .then(() => setCopied(true))
+      }
     >
       {copied ? <Check /> : <Copy />}
     </IconButton>
@@ -517,7 +529,10 @@ function OpenInMenu({ path, line }: { path: string; line?: number }) {
   const editors = useEditors();
   const prefs = filePrefs.use();
   const preferred = preferredEditor(editors, prefs.editor);
-  const reveal = () => void window.wevir.revealPath(path).catch(() => undefined);
+  const reveal = () =>
+    void platformApi()
+      .revealPath(path)
+      .catch(() => undefined);
   const open = (id: string) => openInEditor(id, path, line);
   const revealLabel = IS_MAC ? t('files.revealFinder') : t('files.revealFolder');
   return (

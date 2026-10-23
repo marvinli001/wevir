@@ -96,11 +96,29 @@ export function paneIdentity(kind: PaneKind, params: PaneParams | undefined): st
   return value === undefined ? undefined : `${kind}:${value}`;
 }
 
+/** 外壳与这条连接能用哪些窗格：浏览器窗格要外壳有内置浏览器；用户终端要 `terminal.write`。默认都能用。 */
+export interface PaneAccess {
+  browserPane: boolean;
+  terminalWrite: boolean;
+}
+
+export const FULL_PANE_ACCESS: PaneAccess = { browserPane: true, terminalWrite: true };
+
+export function paneKindUsable(kind: PaneKind, access: PaneAccess): boolean {
+  if (kind === 'browser') return access.browserPane;
+  if (kind === 'terminal') return access.terminalWrite;
+  return true;
+}
+
 /**
- * “打开窗格”菜单里能打开的种类：正式构建只有已经实现的，开发模式下还有以后的种类的占位；只由功能打开的（支线）不在里面。
+ * “打开窗格”菜单里能打开的种类：正式构建只有已经实现的，开发模式下还有以后的种类的占位；只由功能打开的（支线）不在里面，外壳或
+ * 连接用不了的也不在。
  */
-export function openableKinds(dev: boolean): PaneKind[] {
+export function openableKinds(dev: boolean, access: PaneAccess = FULL_PANE_ACCESS): PaneKind[] {
   return PANE_KINDS.filter(
-    (kind) => !PANE_KIND_SPECS[kind].internal && (dev || PANE_KIND_SPECS[kind].available),
+    (kind) =>
+      !PANE_KIND_SPECS[kind].internal &&
+      (dev || PANE_KIND_SPECS[kind].available) &&
+      paneKindUsable(kind, access),
   );
 }

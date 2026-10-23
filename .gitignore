@@ -7,6 +7,8 @@ out/
 /apps/desktop/resources/
 # 安装包（apps/desktop 的 pnpm package，electron-builder 的输出目录）
 /apps/desktop/release/
+# 电脑操作的 macOS helper 的 SwiftPM 构建目录
+/apps/desktop/native/computer-use/.build/
 coverage/
 *.tsbuildinfo
 # 图标交付 ZIP 可从已跟踪的源文件与导出脚本重建。
@@ -17,6 +19,9 @@ coverage/
 
 # 本地运行时数据
 .wevir-dev/
+# wrangler dev 的本地状态与 Worker 的本地密钥（apps/relay-worker）
+.wrangler/
+.dev.vars*
 # 一次性验证代码只在本机，不进仓库
 /spikes/
 

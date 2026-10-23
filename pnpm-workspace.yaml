@@ -24,6 +24,9 @@ allowBuilds:
   # Windows 上再把 third_party 的 conpty.dll 复制过去。macOS 与 Windows 用包里的预编译（Node-API，Electron 与本机 Node 都能加载），
   # 不跑脚本；Linux 没有预编译，Host 不声明 user_terminal。
   node-pty@1.1.0: false
+  # 允许：wrangler（apps/relay-worker 的开发依赖）带的 workerd，本地跑 Worker 用。postinstall 与 esbuild 的同一套写法：核对平台可选包
+  # @cloudflare/workerd-<平台> 里的二进制，非 Windows 上用它替换 bin/workerd 的转发脚本；可选包缺失时才从 npm registry 下载同版本。
+  workerd@1.20261019.1: true
 
 # 不装的可选依赖。Claude Agent SDK 带各平台约 225 MB 的 Claude Code 原生二进制（@anthropic-ai/claude-agent-sdk-<平台>）；
 # Wevir 照 T3 Code 用用户自己装的 `claude`（适配器总是传 pathToClaudeCodeExecutable，AGENTS.md 规则 2，ADR-0005 补记 14），

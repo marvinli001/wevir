@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useCan } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 
@@ -62,18 +63,27 @@ export const permissionModePrefs = createPersistedStore<Record<OptionalPermissio
       : undefined,
 );
 
-/** 现在能选的模式（按菜单里的先后）。 */
+/**
+ * 现在能选的模式（按菜单里的先后）。完全访问要 `policy.write`（0.98.0）：远程设备没有时不能选。
+ */
 export function allowedPermissionModes(
   prefs = permissionModePrefs.get(),
+  policyWrite = true,
 ): readonly PermissionMode[] {
-  return MODES.filter((mode) => mode === 'on_request' || prefs[mode]);
+  return MODES.filter(
+    (mode) => mode === 'on_request' || (prefs[mode] && (mode !== 'full_access' || policyWrite)),
+  );
+}
+
+function useAllowedPermissionModes(): readonly PermissionMode[] {
+  return allowedPermissionModes(permissionModePrefs.use(), useCan('policy.write'));
 }
 
 export function usePermissionChoice() {
-  const prefs = permissionModePrefs.use();
+  const allowed = useAllowedPermissionModes();
   const last = lastMode.use();
-  // 上次选的模式在设置里关掉了：新会话回到请求批准。
-  const mode = allowedPermissionModes(prefs).includes(last) ? last : 'on_request';
+  // 上次选的模式在设置里关掉了（或这台设备不能用）：新会话回到请求批准。
+  const mode = allowed.includes(last) ? last : 'on_request';
   return { mode, choose: (next: PermissionMode) => lastMode.set(next) };
 }
 
@@ -95,7 +105,7 @@ export function PermissionPicker({
   onChange: (next: PermissionMode) => void;
 }) {
   const { icon: Icon, label } = PERMISSION_META[value];
-  const allowed = allowedPermissionModes(permissionModePrefs.use());
+  const allowed = useAllowedPermissionModes();
   const warning = value === 'full_access';
   const chipClass = cn(
     'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-colors duration-150',

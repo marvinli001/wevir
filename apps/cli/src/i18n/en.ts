@@ -320,6 +320,13 @@ Also:
   'err.pairingDenied': 'That computer denied the pairing',
   'err.remoteDisabled': 'Remote access is off on that computer',
   'err.remoteDisabled.hint': 'Turn on remote access under Settings → Devices on that computer',
+  'err.relayUnreachable':
+    'Cannot reach that computer directly, and its relay address is unreachable',
+  'err.relayUnreachable.hint':
+    'On that computer, check the relay address under Settings → Devices and that the relay is running. On the same network or Tailscale, check that remote access is on there',
+  'err.relayCertificate': 'The relay’s TLS certificate is not trusted',
+  'err.relayCertificate.hint':
+    'Give the relay a certificate that is valid for its domain, for example from Let’s Encrypt',
   'err.relayOffline': 'Cannot reach that computer directly or through the relay',
   'err.relayOffline.hint':
     'Check that the computer is on and online, with remote access and the relay turned on under Settings → Devices',
@@ -730,7 +737,8 @@ Options:
   'remote.badLink': 'Invalid pairing link, or an unsupported version',
   'remote.badLink.hint': 'Add the device again on that computer and copy the whole link',
   'remote.badInput': 'Neither a pairing link nor a short code',
-  'remote.badInput.hint': 'Give a wevir://pair?… link, or the 8-character code (e.g. ABCD-EFGH)',
+  'remote.badInput.hint':
+    'Give a wevir://pair?… or https://…/pair#… link, or the 8-character code (e.g. ABCD-EFGH)',
   'remote.searching': 'Looking for computers on the local network…',
   'remote.noneFound': 'No Wevir with remote access found on the local network',
   'remote.noneFound.hint':

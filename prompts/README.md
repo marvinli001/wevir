@@ -25,11 +25,11 @@
 | [`user-instructions.md`](user-instructions.md) | 用户说明的开头：交给引擎的“用户的说明”最前面那段，说明优先级与边界 | Host（0.78.0，`packages/host/src/custom-instructions.ts`）：去掉注释，后面接用户的说明与风格的正文 | 已接入，与引擎无关 |
 | [`writing-style/`](writing-style/) | 写作风格：`apply.md`（有档案时的用法）、`none.md`（设置开着但还没有档案）、`setup.md`（建档步骤） | Host（0.95.0，`packages/host/src/custom-instructions.ts` 与 `writing-style/tools.ts`）：设置里打开“参考我的写作风格”时把前两份之一接在用户说明的最后；`setup.md` 由 `wevir_writing_style_setup` 返回 | 已接入，与引擎无关 |
 | [`output-styles/`](output-styles/) | 输出风格：`concise`（简洁）、`explanatory`（讲解）、`learning`（边做边学）、`proactive`（主动）、`pragmatic`（务实）、`friendly`（友好） | Host（0.78.0）：用户在设置里选了哪种就接哪份的正文；开头 `---` 块里的 `reminder` 在每条新回合的消息末尾附上（只有简洁与主动有） | 已接入，与引擎无关 |
-| [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
-| [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
-| [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
+| [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具一节按 Host 的 `browser_*` 应用工具写 |
+| [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具一节按 Host 的 `browser_*` 应用工具写 |
+| [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作的技能说明：选工具的顺序、授权三档、截图与坐标、引用、Esc、链接与金融操作 | Host（0.114.0，`packages/host/src/computer-tools.ts`）：去掉注释与 YAML 头、展开引入，在会话第一次批准应用后接在 `computer_request_access` 的结果后面（每个会话一次）；读不到时工具照常可用，只是没有这份说明 | 已接入（macOS），与引擎无关 |
 | [`plugins/shared/browser-operation.md`](plugins/shared/browser-operation.md) | 两个浏览器插件共用的操作要领与安全规则 | 被引入 | 可用 |
-| [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则 | 被引入 | 可用 |
+| [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则（技能说明另有更严的规定时以更严的为准） | 被引入 | 可用 |
 | [`skills/skill-creator/`](skills/skill-creator/SKILL.md) | 内置 skill：创建、测试与改进 skills（移植自 anthropics/skills，Apache-2.0，见 `NOTICE` 第 14 节） | Host（0.96.0，`packages/host/src/plugins.ts`）：`prompts/skills/` 下每个文件夹是一个内置 skill，`plugins.list` 里 `source: wevir`、`builtin: true`，默认启用、可以关、不能删；和别的 skills 一样交给引擎（Codex）。文件原样给模型读，不走下面的模板语法；脚本由 agent 用 `python3 -B` 按路径运行，输出不写进这个目录 | 已接入（Codex 引擎） |
 
 ## 用在哪些模型上
@@ -178,6 +178,8 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 用户在设置 → 个性化里打开“参考我的写作风格”后（0.95.0，默认关），Host 在上面那一段的最后再接一块：有档案时是 `writing-style/apply.md` 加包在 `<writing_style_profile>` 里的档案，没有时是 `writing-style/none.md`；`session.rules` 的 `custom.writingStyle` 记下是 `profile` 还是 `setup`。它和说明一样对所有会话都给，走同一个通道。
 
 档案由 Agent 建：用户要求并同意后，Agent 调 `wevir_writing_style_setup` 取 `writing-style/setup.md` 的步骤，用 `wevir_writing_style_samples` 收集用户自己写的文字（`collect_chats` 取用户在 Wevir 里亲手发的消息，`add` 交用户指定的文件与已连接应用里用户发出的文字）、`analyze` 做文体统计，再用 `wevir_writing_style_save` 存档案。样本存在 Host 数据目录的 `writing-style/samples/`，建档结束、关掉设置、删档案或放了七天后删除。四个工具只读写 Host 数据目录，不用批准；设置关着时不列出。
+
+设置里只有这一个开关（照 Codex），不列档案、不显示建没建档；用户要看或改档案时找 Agent，由它用 `wevir_writing_style_read` / `wevir_writing_style_save` 处理。Host 的 `writingStyle.get/update/delete` 还在，桌面端不再调用。
 
 已经开着的会话不跟着变：新档案从下一次建会话、恢复或接力起生效。
 

@@ -26,6 +26,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
+import { capabilities, platformApi } from '@/platform/platform';
 import { DetailSection, ExpandableRow } from '@/plugins/plugin-rows';
 import { paths } from '@/routes/paths';
 import { EmptyList, LIST_CARD, NoticeBanner } from '@/settings/settings-ui';
@@ -489,7 +490,7 @@ function LayerRow({
                 <span className="w-16 shrink-0 font-mono text-muted-foreground" title={item.hash}>
                   {shortHash(item.hash)}
                 </span>
-                {path !== undefined ? (
+                {path !== undefined && capabilities().localFiles ? (
                   <Button
                     variant="ghost"
                     size="xs"
@@ -497,8 +498,8 @@ function LayerRow({
                     data-action="open"
                     onClick={() => {
                       const open = canOpenExternally(path)
-                        ? window.wevir.openPath(path)
-                        : window.wevir.revealPath(path);
+                        ? platformApi().openPath(path)
+                        : platformApi().revealPath(path);
                       void open.catch(() => undefined);
                     }}
                   >

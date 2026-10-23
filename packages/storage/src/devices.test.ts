@@ -14,12 +14,31 @@ function device(overrides: Partial<DeviceRecord> = {}): DeviceRecord {
     createdAt: T0,
     lastSeenAt: T0,
     status: 'active',
+    pushEnabled: false,
+    pushCounter: 0,
     ...overrides,
   };
 }
 
 describe('devices', () => {
   const { storage } = useTempStorage();
+
+  it('推送的开关与计数（0025）：改得了，移除时开关一并关掉', () => {
+    const db = storage();
+    db.devices.insert(device({ pushEnabled: true, pushTokenRef: 'device.dev_1.push' }));
+    expect(db.devices.get('dev_1')).toMatchObject({ pushEnabled: true, pushCounter: 0 });
+    expect(db.devices.update('dev_1', { pushCounter: 1_792_368_000_000, pushEnabled: false })).toBe(
+      true,
+    );
+    expect(db.devices.get('dev_1')).toMatchObject({
+      pushEnabled: false,
+      pushCounter: 1_792_368_000_000,
+    });
+    db.devices.update('dev_1', { pushEnabled: true });
+    db.devices.revoke('dev_1');
+    expect(db.devices.get('dev_1')).toMatchObject({ pushEnabled: false, status: 'revoked' });
+    expect(db.devices.get('dev_1')?.pushTokenRef).toBeUndefined();
+  });
 
   it('写入、读回、按公钥找 active 的', () => {
     const db = storage();

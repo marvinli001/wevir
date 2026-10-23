@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { formatFileSize } from '@/session/shared-files-model';
 import {
@@ -63,7 +64,7 @@ export function StorageSettings() {
     setLoading(true);
     setError(undefined);
     let stopped = false;
-    window.wevir
+    platformApi()
       .getStorageUsage()
       .then((next) => {
         if (!stopped) setUsage(next);
@@ -87,7 +88,7 @@ export function StorageSettings() {
 
   const clean = async (category: CleanableCategory) => {
     const before = usage?.total ?? 0;
-    const next = await window.wevir.cleanStorage([category]);
+    const next = await platformApi().cleanStorage([category]);
     setUsage(next);
     setNotice(t('settings.storage.cleaned', { size: size(Math.max(0, before - next.total)) }));
   };
@@ -179,7 +180,11 @@ export function StorageSettings() {
               <IconButton
                 size="icon-xs"
                 label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
-                onClick={() => void window.wevir.revealPath(usage.root).catch(() => undefined)}
+                onClick={() =>
+                  void platformApi()
+                    .revealPath(usage.root)
+                    .catch(() => undefined)
+                }
               >
                 <FolderOpen />
               </IconButton>

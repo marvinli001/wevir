@@ -50,9 +50,13 @@ export interface Described {
   hint?: string;
 }
 
-/** 经中继没走通（0.110.0）：中继说明的原因。 */
+/** 经中继没走通（0.110.0）：中继说明的原因，或中继本身连不上（0.111.0）。 */
 function describeRelayFailure(failure: RemoteRelayFailure): Described {
   switch (failure) {
+    case 'unreachable':
+      return { message: t('err.relayUnreachable'), hint: t('err.relayUnreachable.hint') };
+    case 'certificate':
+      return { message: t('err.relayCertificate'), hint: t('err.relayCertificate.hint') };
     case 'offline':
       return { message: t('err.relayOffline'), hint: t('err.relayOffline.hint') };
     case 'rate_limited':

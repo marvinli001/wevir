@@ -56,6 +56,7 @@ import {
   type CursorSdk,
   loadCursorSdk,
 } from './sdk.js';
+import type { CursorSdkInstaller } from './sdk-install.js';
 
 /** 等取消确认的时限（T3 的 interruptTurn 等 10 秒）。 */
 export const CANCEL_TIMEOUT_MS = 10_000;
@@ -78,6 +79,11 @@ export interface CursorAdapterOptions {
    * `engines/cursor/auth.json`。
    */
   credentialsPath?: string;
+  /**
+   * 安装包不带 SDK 时的安装器（sdk-install.ts，Host 的各个 Cursor 账号共用一个）：SDK 从它装好的目录加载，没装时账号报
+   * `installed: false`、`account.install` 经它下载。省略时用 Host 自己解析得到的 SDK（开发环境经 pnpm 装的）。
+   */
+  sdkInstaller?: CursorSdkInstaller;
   /** 测试用：换掉 SDK。 */
   sdk?: () => Promise<CursorSdk>;
   cancelTimeoutMs?: number;
@@ -226,10 +232,22 @@ export class CursorAdapter implements AgentRuntimeAdapter {
 
   constructor(options: CursorAdapterOptions) {
     this.#options = options;
-    this.#sdk = options.sdk ?? loadCursorSdk;
+    const installer = options.sdkInstaller;
+    this.#sdk =
+      options.sdk ??
+      (installer === undefined
+        ? () => loadCursorSdk()
+        : async () => {
+            const installation = await installer.active();
+            if (installation === undefined) {
+              throw new Error('the Cursor SDK is not installed; install it in Settings');
+            }
+            return loadCursorSdk(installation.root);
+          });
     const logger = options.logger;
     this.accounts = new CursorAccounts({
       sdk: () => this.#sdk(),
+      ...(installer !== undefined && { installer }),
       credentialsPath: options.credentialsPath ?? cursorCredentialsPath(options.home),
       ...(options.env !== undefined && { env: options.env }),
       ...(logger?.addSecret !== undefined && { addSecret: (value) => logger.addSecret?.(value) }),

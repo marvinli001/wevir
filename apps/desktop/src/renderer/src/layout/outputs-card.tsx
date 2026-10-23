@@ -8,6 +8,7 @@ import { useTranscript } from '@/data/workbench-data';
 import { useFilesSupported } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
 import { t } from '@/i18n';
+import { capabilities, platformApi } from '@/platform/platform';
 import { type OutputFile, type OutputKind, sessionOutputs } from './outputs-model';
 import { usePanes } from './pane-controller';
 import { type RailContext, registerRailCard } from './session-rail';
@@ -95,7 +96,11 @@ function useOutputsCard({ sessionId, session }: RailContext) {
     if (file.kind === 'deleted') return undefined;
     const relative = file.relative;
     if (relative !== undefined && filesSupported && panes) return () => openFile(panes, relative);
-    return () => void window.wevir.revealPath(file.path).catch(() => undefined);
+    if (!capabilities().localFiles) return undefined;
+    return () =>
+      void platformApi()
+        .revealPath(file.path)
+        .catch(() => undefined);
   };
   return {
     summary: t('rail.outputs.files', { count: files.length }),

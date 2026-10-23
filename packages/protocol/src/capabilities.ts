@@ -189,6 +189,11 @@ export const HOST_FEATURES = {
    */
   browserTools: 'browser_tools',
   /**
+   * 电脑操作（0.114.0，domain-model §3.15.8）：连接可以用 `computer.register` 登记为电脑操作的提供方、收 `computer.request` 通知、
+   * 用 `computer.respond` 回答；设置的 `computerUse` 打开时应用级工具里有 `computer_*` 工具。只在有应用级工具时声明。
+   */
+  computerUse: 'computer_use',
+  /**
    * Agent 的联网工具（0.34.0，docs/architecture/web-tools.md）：`web.get` / `web.update` / `web.test`，经网关的 Codex 会话有
    * `web_search` 与 `web_fetch`。Host 带着联网服务启动时声明（`wevir-host` 总是带）。
    */
@@ -473,9 +478,21 @@ export const HOST_FEATURES = {
   remoteListener: 'remote_listener',
   /**
    * 中继（0.110.0，ADR-0017 §1）：开了 `remote.relay` 时 Host 向中继发起出站连接并注册路由 ID，经中继来的连接走与直连相同的握手；
-   * `remote.status` 的 `relay`、握手负载的 `relayUrl`，配对窗口没填地址时给官方实例。与引擎无关。
+   * `remote.status` 的 `relay`、握手负载与配对窗口的 `relayUrl`。没有官方中继，只连用户填的地址（0.111.0 起没填地址等于关）。
+   * 与引擎无关。
    */
   remoteRelay: 'remote_relay',
+  /**
+   * 推送（0.112.0，ADR-0017 §6，host-api.md §1.3）：设备的 `push.get` / `push.register` / `push.unregister` 与 `push.changed`，设置
+   * `remote.push` 的两路开关，设备记录的 `push`、`device.update` 与 `pairing.respond` 的 `push`，`remote.status` 的 `push`。电脑前没人时
+   * 把通知意图加密后经推送网关发给开了推送的设备。与引擎无关。
+   */
+  remotePush: 'remote_push',
+  /**
+   * 网页设备（0.117.0，ADR-0017 补记 8）：中继的三态（`remote.relay.mode` 可选官方中继 `OFFICIAL_RELAY_URL`）、`pairing.start` 的
+   * `web`（经中继的 https 配对链接）、设备平台 `web`、设置 `remote.web`（网页地址与闲置自动移除）。与引擎无关。
+   */
+  remoteWeb: 'remote_web',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -513,6 +530,7 @@ export const HostFeaturesSchema = z.looseObject({
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
   browser_tools: z.boolean().optional(),
+  computer_use: z.boolean().optional(),
   web_tools: z.boolean().optional(),
   plan_mode: z.boolean().optional(),
   session_branches: z.boolean().optional(),
@@ -573,6 +591,8 @@ export const HostFeaturesSchema = z.looseObject({
   tuning_auto: z.boolean().optional(),
   remote_listener: z.boolean().optional(),
   remote_relay: z.boolean().optional(),
+  remote_push: z.boolean().optional(),
+  remote_web: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

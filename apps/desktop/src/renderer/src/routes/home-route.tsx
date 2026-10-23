@@ -5,9 +5,10 @@ import { useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
+import { useWorkspaceManagement } from '@/data/workspace-actions';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import type { FileScope } from '@/files/files-data';
-import { useHostConnection } from '@/host/host-connection';
+import { useCan, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
 import { useChatsSupported } from '@/projects/chats';
@@ -40,10 +41,13 @@ export function HomeRoute() {
   const last = useLastLocation();
   const welcomed = onboardingDone.use();
   const chats = useChatsSupported();
+  // 引导是配置模型服务：远程设备没有 `provider.write` 时不去。
+  const canSetUp = useCan('provider.write');
   if (data.status === 'loading') return <PendingPage />;
   if (data.status === 'error') return <PendingPage error={data.error} />;
   // 还没有 Provider、也没走过引导：先去分步引导（U6）。
-  if (data.providers.length === 0 && !welcomed) return <Navigate to={paths.welcome()} replace />;
+  if (data.providers.length === 0 && !welcomed && canSetUp)
+    return <Navigate to={paths.welcome()} replace />;
   return (
     <Home entry={homeWorkspace(data, last, chats)} workspaces={data.workspaces} chats={chats} />
   );
@@ -66,6 +70,7 @@ function Home({
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspace?.id);
   const worktree = useWorktreeChoice(workspace?.id);
+  const manage = useWorkspaceManagement();
   const { start, error, goals, ready } = useStartSession(
     workspace?.id,
     choice,
@@ -75,6 +80,9 @@ function Home({
     worktree.active,
   );
   const noProvider = providers !== undefined && providers.length === 0;
+  // 远程设备读不到 Provider 时说是权限，也不给“添加模型服务”。
+  const providerRead = useCan('provider.read');
+  const providerWrite = useCan('provider.write');
   // 计划模式（0.36.0）：按选的模型所在的引擎；第一条消息带上它。
   const plan = usePlanControl(HOME_DRAFT, providers ?? [], choice?.providerId);
   const planCommand = useMemo(
@@ -94,6 +102,7 @@ function Home({
       return started;
     };
     if (workspace || chats) return done(await start(text, undefined, images, mode));
+    if (!manage.create) return false;
     openCreateProject({
       onCreated: async (created) => {
         if (done(await start(text, created.id, images, mode))) setDraft(HOME_DRAFT, '');
@@ -149,13 +158,15 @@ function Home({
             state="idle"
             acceptImages={acceptImages}
             disabled={!ready && !noProvider}
-            {...(noProvider && { disabledReason: t('home.noProvider') })}
+            {...(noProvider && {
+              disabledReason: t(providerRead ? 'home.noProvider' : 'home.noProviderAccess'),
+            })}
             leading={
               <>
                 {permissions && (
                   <PermissionPicker value={permission.mode} onChange={permission.choose} />
                 )}
-                {noProvider && <AddProviderChip />}
+                {noProvider && providerWrite && <AddProviderChip />}
               </>
             }
             tray={

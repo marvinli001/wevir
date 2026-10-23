@@ -11,6 +11,13 @@ import type { AppToolResult } from './app-mcp.js';
 
 /** 文本超过这么多字节（UTF-8）就落盘：比 Codex 的 10 000 字节留出余量。 */
 export const TOOL_OUTPUT_INLINE_BYTES = 8000;
+/**
+ * 个别工具的结果要整份留在对话里，上限放到 Codex 的 10 000 字节：电脑操作第一次批准时附上的操作说明（约 9 KB）要模型
+ * 读全，落盘后模型多半只看开头。
+ */
+const TOOL_OUTPUT_INLINE_OVERRIDES: Readonly<Record<string, number>> = {
+  computer_request_access: 10_000,
+};
 /** 落盘后结果里留的开头与结尾（字节，按行截）。 */
 export const TOOL_OUTPUT_HEAD_BYTES = 2000;
 export const TOOL_OUTPUT_TAIL_BYTES = 1000;
@@ -88,7 +95,8 @@ export class ToolOutputStore {
   ): Promise<AppToolResult> {
     const texts = result.content.flatMap((part) => (part.type === 'text' ? [part.text] : []));
     const joined = texts.join('\n\n');
-    if (Buffer.byteLength(joined) <= TOOL_OUTPUT_INLINE_BYTES) return result;
+    const limit = TOOL_OUTPUT_INLINE_OVERRIDES[toolName] ?? TOOL_OUTPUT_INLINE_BYTES;
+    if (Buffer.byteLength(joined) <= limit) return result;
     const json = result.structuredContent !== undefined && texts.length === 1;
     const body = json ? `${JSON.stringify(result.structuredContent, null, 2)}\n` : joined;
     let file: SpilledFile;

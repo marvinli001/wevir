@@ -23,7 +23,12 @@ import { type RelayLimits, RelayServer } from '@wevir/relay';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { type ConnectionState, WevirClient } from './client.js';
-import { ConnectionLostError, type RemoteRelayFailure, RemoteUnreachableError } from './errors.js';
+import {
+  ConnectionLostError,
+  RemoteHandshakeError,
+  type RemoteRelayFailure,
+  RemoteUnreachableError,
+} from './errors.js';
 import { connectLocalHost } from './node.js';
 import {
   bytesToBase64url,
@@ -318,6 +323,31 @@ describe('远程隧道经中继', () => {
     await reading;
   }, 20_000);
 
+  it('设备离线时在电脑上被移除：回来后经中继的握手被拒，只试一次、不再重连', async () => {
+    const t = await setup();
+    const { host, device, relayUrl } = await pairViaRelay(t);
+    const states: ConnectionState[] = [];
+    const relay = relayRoute(TrackedWebSocket, relayUrl, host.routeId);
+    const routes: RemoteRoute[] = [relay];
+    await connectRemote(host, device, routes, { states });
+    // 断网：之后的重连只有一条连不上的路，收不到 4007。
+    routes[0] = directRoute(TrackedWebSocket, { host: '127.0.0.1', port: await freePort() });
+    for (const ws of sockets) ws.terminate();
+    await until(() => states.find((s) => s.status === 'reconnecting'), 'offline');
+    const { devices } = await t.desktop.request('device.list');
+    await t.desktop.request('device.revoke', {
+      id: (devices[0] as (typeof devices)[number]).id,
+    });
+    const before = sockets.length;
+    routes[0] = relay;
+    const closed = await until(() => states.find((s) => s.status === 'closed'), 'gave up', 5_000);
+    const error = (closed as { error?: unknown }).error as ConnectionLostError;
+    expect(error).toBeInstanceOf(ConnectionLostError);
+    expect(error.cause).toBeInstanceOf(RemoteHandshakeError);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(sockets.length - before).toBe(1);
+  });
+
   it('电脑关掉中继：连接断开，之后中继报 404（电脑不在），按慢速退避重试', async () => {
     const t = await setup();
     const { host, device, relayUrl } = await pairViaRelay(t);
@@ -377,6 +407,14 @@ describe('远程隧道经中继', () => {
     expect(await relayFailure(limited.url, nobody)).toBe('rate_limited');
     const full = await startRelay({ maxConnections: 0 });
     expect(await relayFailure(full.url, nobody)).toBe('busy');
+  });
+
+  it('中继本身连不上（没在运行）：unreachable，而不只是直连连不上', async () => {
+    const nobody: RemoteHostKeys = {
+      hostPublicKey: bytesToBase64url(generateKeyPair().publicKey),
+      routeId: bytesToBase64url(generateKeyPair().publicKey),
+    };
+    expect(await relayFailure(`ws://127.0.0.1:${await freePort()}`, nobody)).toBe('unreachable');
   });
 
   it('中继的关闭码：电脑没接上 4100、排队超限 4103、电脑发了文本 4104', async () => {

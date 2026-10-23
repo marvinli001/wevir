@@ -1213,6 +1213,23 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__lsp_workspace_symbols',
       'mcp__wevir__lsp_call_hierarchy',
       'mcp__wevir__lsp_diagnostics',
+      // 0.114.0：电脑操作，按应用授权就是批准。
+      'mcp__wevir__computer_request_access',
+      'mcp__wevir__computer_list_apps',
+      'mcp__wevir__computer_screenshot',
+      'mcp__wevir__computer_zoom',
+      'mcp__wevir__computer_ax_tree',
+      'mcp__wevir__computer_ax_find',
+      'mcp__wevir__computer_open_app',
+      'mcp__wevir__computer_click',
+      'mcp__wevir__computer_type',
+      'mcp__wevir__computer_key',
+      'mcp__wevir__computer_scroll',
+      'mcp__wevir__computer_drag',
+      'mcp__wevir__computer_set_value',
+      'mcp__wevir__computer_clipboard_read',
+      'mcp__wevir__computer_clipboard_write',
+      'mcp__wevir__computer_batch',
     ]);
   });
 });

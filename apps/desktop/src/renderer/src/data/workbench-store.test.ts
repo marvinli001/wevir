@@ -25,7 +25,10 @@ function session(id: `ses_${string}`, extra: Partial<Session> = {}): Session {
 }
 
 /** 列表请求按 `lists` 依次回答；订阅永远不来事件。 */
-function fakeClient(lists: Array<{ sessions: Session[]; listVersion?: number }>) {
+function fakeClient(
+  lists: Array<{ sessions: Session[]; listVersion?: number }>,
+  permissions: { providerRead?: boolean } = {},
+) {
   let push: ((change: SessionsChange | undefined) => void) | undefined;
   const closed = new Set<SessionId>();
   const subscribed: SessionId[] = [];
@@ -42,6 +45,8 @@ function fakeClient(lists: Array<{ sessions: Session[]; listVersion?: number }>)
   });
   const client = {
     request,
+    can: (permission: string) =>
+      permission !== 'provider.read' || permissions.providerRead !== false,
     onSessionsChanged: (listener: (change: SessionsChange | undefined) => void) => {
       push = listener;
       return () => {
@@ -84,6 +89,24 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('WorkbenchStore 与远程设备的权限', () => {
+  it('没有 provider.read 时不列 Provider，项目与会话照常读到', async () => {
+    const fake = fakeClient([{ sessions: [session('ses_a')], listVersion: 1 }], {
+      providerRead: false,
+    });
+    const store = new WorkbenchStore(fake.client);
+    await store.refresh();
+    expect(titles(store)).toEqual(['ses_a']);
+    const data = store.get();
+    expect(data.status === 'ready' && data.providers).toEqual([]);
+    expect(
+      (fake.client.request as unknown as { mock: { calls: string[][] } }).mock.calls.map(
+        ([method]) => method,
+      ),
+    ).not.toContain('provider.list');
+  });
 });
 
 describe('WorkbenchStore 与 sessions.changed（0.101.0）', () => {

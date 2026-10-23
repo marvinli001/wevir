@@ -19,6 +19,7 @@ import {
   PAIRING_PROTOCOL,
   RECONNECT_PROTOCOL,
   remotePrologue,
+  type StaticKey,
   sealFrame,
   type TransportCiphers,
 } from '@wevir/noise';
@@ -46,9 +47,13 @@ import type { Transport, TransportCloseInfo, TransportFactory } from './transpor
 
 export type RemotePath = (typeof REMOTE_PATHS)[keyof typeof REMOTE_PATHS];
 
-/** 管道关闭的信息；`httpStatus` 是 WebSocket 升级前被拒时的 HTTP 状态码（WebSocket 实现给得出时）。 */
+/**
+ * 管道关闭的信息；`httpStatus` 是 WebSocket 升级前被拒时的 HTTP 状态码，`certificate` 是升级前 TLS 证书验不过（都要 WebSocket
+ * 实现给得出时）。
+ */
 export interface RemoteLinkCloseInfo extends TransportCloseInfo {
   httpStatus?: number;
+  certificate?: boolean;
 }
 
 /** 一条到 Host 的二进制管道的回调。`onClose` 恰好调用一次，连不上也是一次。 */
@@ -164,6 +169,14 @@ export function relayRoute(
  * 升级前被拒时的 HTTP 状态码。WHATWG 的 `WebSocket` 不给；`ws` 包的错误是 `Unexpected server response: 429`，React Native 在
  * iOS / Android 上的错误文字里也带着状态码。
  */
+/** Node 的 TLS 证书错误码（`ws` 把原始错误放在 error 事件的 `error` 上）：`DEPTH_ZERO_SELF_SIGNED_CERT`、`CERT_HAS_EXPIRED` 等。 */
+const CERTIFICATE_ERROR_CODE = /CERT|SELF_SIGNED|UNABLE_TO_(?:VERIFY|GET_ISSUER)|ISSUER_CERT/;
+
+function certificateError(event: unknown): boolean {
+  const code = (event as { error?: { code?: unknown } } | undefined)?.error?.code;
+  return typeof code === 'string' && CERTIFICATE_ERROR_CODE.test(code);
+}
+
 function upgradeStatus(event: unknown): number | undefined {
   const e = event as { error?: { message?: unknown }; message?: unknown } | undefined;
   const text = [e?.error?.message, e?.message].find((m): m is string => typeof m === 'string');
@@ -180,6 +193,7 @@ export function openWebSocketLink(
   let closed = false;
   let opened = false;
   let httpStatus: number | undefined;
+  let certificate = false;
   let socket: BinaryWebSocketLike;
   try {
     socket = new WebSocketImpl(url);
@@ -205,11 +219,14 @@ export function openWebSocketLink(
       code: typeof event.code === 'number' ? event.code : 1006,
       reason: typeof event.reason === 'string' ? event.reason : '',
       ...(httpStatus !== undefined && { httpStatus }),
+      ...(certificate && { certificate }),
     });
   });
   // `ws` 在没有 error 监听器时会把错误当作未捕获异常抛出；后面总跟着一次 close。
   socket.addEventListener('error', (event: unknown) => {
-    if (!opened) httpStatus ??= upgradeStatus(event);
+    if (opened) return;
+    httpStatus ??= upgradeStatus(event);
+    certificate ||= certificateError(event);
   });
   return {
     // Noise 的输出都是新分配的 ArrayBuffer，不会是 SharedArrayBuffer。
@@ -238,15 +255,24 @@ type HandshakeSpec =
   | { kind: 'connect' }
   | { kind: 'pair'; secret: Uint8Array; name: string; platform: DevicePlatform };
 
+/**
+ * 设备的 Noise 静态密钥：密钥对，或只给出公钥与 DH 的 `StaticKey`（浏览器里不可导出的 WebCrypto X25519 密钥，DH 是异步的）。
+ */
+export type RemoteDeviceKey = KeyPair | StaticKey;
+
 interface TunnelKeys {
   readonly hostKey: Uint8Array;
   readonly routeId: string;
-  readonly device: KeyPair;
+  readonly device: RemoteDeviceKey;
 }
 
-/** 经中继的路关掉时，中继说明的原因（升级前的状态码或中继的关闭码）。直连的 404 等不算：那是 Host 自己的拒绝。 */
-function relayFailureOf(route: RemoteRoute, info: RemoteLinkCloseInfo | undefined) {
+/** 经中继的路关掉时，中继说明的原因（证书、升级前的状态码或中继的关闭码）。直连的 404 等不算：那是 Host 自己的拒绝。 */
+function relayFailureOf(
+  route: RemoteRoute,
+  info: RemoteLinkCloseInfo | undefined,
+): RemoteRelayFailure | undefined {
   if (route.kind !== 'relay' || info === undefined) return undefined;
+  if (info.certificate === true) return 'certificate';
   switch (info.httpStatus) {
     case 404:
       return 'offline';
@@ -279,6 +305,8 @@ class NoiseTunnel {
   readonly #link: RemoteLink;
   #phase: 'opening' | 'open' | 'handshake' | 'ready' | 'closed' = 'opening';
   #onHandshakeMessage: ((data: Uint8Array) => void) | undefined;
+  /** 握手的最后一步还在等异步的 DH：这期间到达的消息留到 `attach` 时补交。 */
+  #finishing = false;
   #onHandshakeClose: ((info: RemoteLinkCloseInfo) => void) | undefined;
   #handlers: { onMessage(text: string): void; onClose(info: TransportCloseInfo): void } | undefined;
   #reader: FrameReader | undefined;
@@ -354,32 +382,45 @@ class NoiseTunnel {
                 psk: derivePairingPsk(spec.secret, keys.hostKey),
               },
         );
-        this.#link.send(handshake.writeMessage());
       } catch (error) {
         fail(error instanceof Error ? error : new Error(String(error)));
         return;
       }
+      // 静态密钥的 DH 可以是异步的（`StaticKey`），所以握手的每一步都等；第一条消息发出前对方不会说话。
+      handshake.writeMessageAsync().then(
+        (message) => {
+          if (this.#phase === 'handshake') this.#link.send(message);
+        },
+        (error: unknown) => fail(error instanceof Error ? error : new Error(String(error))),
+      );
       // 第一条消息之后对方就断开：不认这台设备（IK），或配对窗口已经不在（XXpsk2）；经中继时也可能是中继说明了原因的关闭。
       this.#onHandshakeClose = (info) => fail(this.#closedBeforeHandshake(info));
-      this.#onHandshakeMessage = (data) => {
+      this.#onHandshakeMessage = async (data) => {
+        this.#onHandshakeMessage = undefined;
+        this.#finishing = true;
         let host: RemoteHostPayload;
         try {
           const payload = RemoteHostPayloadSchema.safeParse(
             JSON.parse(
-              new TextDecoder('utf-8', { fatal: true }).decode(handshake.readMessage(data)),
+              new TextDecoder('utf-8', { fatal: true }).decode(
+                await handshake.readMessageAsync(data),
+              ),
             ),
           );
           if (!payload.success) throw new Error('bad host payload');
           host = payload.data;
           if (spec.kind === 'pair') {
-            this.#link.send(
-              handshake.writeMessage(
-                encoder.encode(JSON.stringify({ name: spec.name, platform: spec.platform })),
-              ),
+            const message = await handshake.writeMessageAsync(
+              encoder.encode(JSON.stringify({ name: spec.name, platform: spec.platform })),
             );
+            if (this.#phase !== 'handshake') throw new Error('closed during the handshake');
+            this.#link.send(message);
           }
           this.#ciphers = handshake.split();
         } catch (error) {
+          this.#finishing = false;
+          this.#early.length = 0;
+          if (this.#phase !== 'handshake') return;
           // 配对时 PSK 在第二条消息里混入：解不开就是短码或配对链接不对。
           const wrongSecret =
             spec.kind === 'pair' && error instanceof NoiseError && error.code === 'decrypt_failed';
@@ -391,9 +432,13 @@ class NoiseTunnel {
           );
           return;
         }
+        if (this.#phase !== 'handshake') {
+          this.#finishing = false;
+          return;
+        }
         clearTimeout(timer);
-        this.#onHandshakeMessage = undefined;
         this.#onHandshakeClose = undefined;
+        this.#finishing = false;
         this.#phase = 'ready';
         this.#reader = new FrameReader(this.#ciphers.receive);
         this.host = host;
@@ -437,8 +482,10 @@ class NoiseTunnel {
   }
 
   #receive(data: Uint8Array): void {
-    if (this.#phase === 'handshake') this.#onHandshakeMessage?.(data);
-    else if (this.#phase === 'ready') {
+    if (this.#phase === 'handshake') {
+      if (this.#finishing) this.#early.push(data);
+      else this.#onHandshakeMessage?.(data);
+    } else if (this.#phase === 'ready') {
       if (this.#handlers === undefined) this.#early.push(data);
       else this.#deliver(data);
     } else if (this.#phase === 'open') {
@@ -587,12 +634,17 @@ function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
   });
 }
 
-/** 拿到一次 `opened` 的 reject 原因时，把它变成普通的失败（中继说明了原因时是 `RelayRouteError`）。 */
+/**
+ * 拿到一次 `opened` 的 reject 原因时，把它变成普通的失败（中继说明了原因时是 `RelayRouteError`）。经中继的路连 WebSocket 都没
+ * 连上、又说不出原因时是中继本身连不上（`unreachable`）：提示要说中继地址，而不只是直连的检查项。
+ */
 async function openedOrFail(tunnel: NoiseTunnel): Promise<void> {
   try {
     await tunnel.opened;
   } catch (info) {
-    const failure = relayFailureOf(tunnel.route, info as RemoteLinkCloseInfo);
+    const failure =
+      relayFailureOf(tunnel.route, info as RemoteLinkCloseInfo) ??
+      (tunnel.route.kind === 'relay' ? 'unreachable' : undefined);
     throw failure !== undefined
       ? new RelayRouteError(failure)
       : new Error(`could not reach ${tunnel.route.key}`);
@@ -604,7 +656,7 @@ async function openedOrFail(tunnel: NoiseTunnel): Promise<void> {
 export interface RemoteTransportOptions {
   host: RemoteHostKeys;
   /** 这台设备给这台电脑的 Noise 静态密钥（配对时生成）。 */
-  device: KeyPair;
+  device: RemoteDeviceKey;
   /** 每次连接尝试前调用：已知的路（上次成功的、Host 上次给的候选地址、`relayRoute`）。 */
   routes(): readonly RemoteRoute[] | Promise<readonly RemoteRoute[]>;
   /** 连接期间陆续找到的路（局域网 mDNS）。 */
@@ -683,7 +735,7 @@ export type RemotePairingSecret =
 export interface RemotePairingOptions {
   host: RemoteHostKeys;
   /** 这台设备给这台电脑新生成的 Noise 静态密钥。 */
-  device: KeyPair;
+  device: RemoteDeviceKey;
   secret: RemotePairingSecret;
   routes: readonly RemoteRoute[];
   discover?: RemoteDiscovery;
@@ -782,7 +834,7 @@ export async function pairRemoteHost(options: RemotePairingOptions): Promise<Rem
 
 // ── 工具 ────────────────────────────────────────────────────────────
 
-function tunnelKeys(host: RemoteHostKeys, device: KeyPair): TunnelKeys {
+function tunnelKeys(host: RemoteHostKeys, device: RemoteDeviceKey): TunnelKeys {
   return { hostKey: base64urlToBytes(host.hostPublicKey), routeId: host.routeId, device };
 }
 

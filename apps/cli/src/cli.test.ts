@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { HostUnavailableError, WevirRpcError } from '@wevir/client-sdk';
+import { HostUnavailableError, RemoteUnreachableError, WevirRpcError } from '@wevir/client-sdk';
 import { ErrorCode } from '@wevir/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { approvalPrompt, parseApprovalAnswer } from './attach.js';
@@ -169,6 +169,21 @@ describe('错误说明', () => {
       }),
     );
     expect(path.message).toBe('工作区目录不存在：/nope');
+  });
+
+  it('远程连不上时分清直连与中继：中继本身连不上、证书无效', () => {
+    const direct = describeError(new RemoteUnreachableError(['192.168.1.5:47830']));
+    expect(direct.message).toBe('连不上那台电脑（试过 192.168.1.5:47830）');
+    expect(direct.hint).not.toContain('中继');
+    const relay = describeError(
+      new RemoteUnreachableError(['192.168.1.5:47830', 'relay.example.com'], 'unreachable'),
+    );
+    expect(relay.message).toBe('直连连不上那台电脑，中继地址也连不上');
+    expect(relay.hint).toContain('中继地址');
+    const certificate = describeError(
+      new RemoteUnreachableError(['relay.example.com'], 'certificate'),
+    );
+    expect(certificate.message).toBe('中继的 TLS 证书无效');
   });
 });
 

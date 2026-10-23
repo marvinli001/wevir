@@ -20,6 +20,7 @@ import type { WebToolServer } from '@wevir/runtime-adapter/web-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
 import { EngineRouter } from './engine-router.js';
 import {
+  engineSdks,
   isIgnorableEngineRejection,
   subscriptionAccountEngines,
   subscriptionEngines,
@@ -226,9 +227,11 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         historyTool,
         appToolsBridge: appToolsBridge(homePath(context.home, 'mcpDir')),
       };
-      const subscriptions = subscriptionEngines(engineContext);
+      // 首个账号与添加的账号共用 SDK 的安装器（Cursor 的 SDK 要下载时）。
+      const sdks = engineSdks(engineContext);
+      const subscriptions = subscriptionEngines(engineContext, sdks);
       // 添加的账号（0.63.0）：ChatGPT 的是又一个 ChatGPT 进程（自己的 CODEX_HOME 与 Provider ID），其余见 engines.ts。
-      const accounts = subscriptionAccountEngines(engineContext);
+      const accounts = subscriptionAccountEngines(engineContext, sdks);
       return new EngineRouter(
         [{ name: 'codex', adapter: codex, kinds: GATEWAY_KINDS }, ...subscriptions],
         {
@@ -442,6 +445,11 @@ export async function runHostCli(
       promptsDir: resolvePromptsDir(proc.env),
       web,
       ...(options.port !== 0 && { port: options.port }),
+      // 0.112.0：开发测试时指向本机起的推送网关（apps/push）。
+      ...(proc.env.WEVIR_PUSH_GATEWAY_URL !== undefined &&
+        proc.env.WEVIR_PUSH_GATEWAY_URL !== '' && {
+          push: { gatewayUrl: proc.env.WEVIR_PUSH_GATEWAY_URL },
+        }),
       onShutdownRequest: (trigger) => beginShutdown(trigger, EXIT_CODE.ok),
     }).then(
       (running) => {
