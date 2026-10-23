@@ -97,24 +97,24 @@ Sessions, approvals, change review, project files, and an agent-driven built-in 
 
 Wevir is in preview. **Supported**: shipped in the builds and covered by automated tests. **Beta**: functional, with less test coverage, a third-party client dependency, or no real-account verification yet. **Planned**: not yet available.
 
-| Area | Item | Status | Notes |
-| --- | --- | --- | --- |
-| Desktop app | macOS, Apple silicon | Supported | Signed and notarized |
-| | macOS, Intel | Beta | Built and notarized; CI tests run on Apple silicon |
-| | Windows x64 | Beta | Tested in CI; no computer use |
-| | Linux | Not available | No published build |
-| Models | Codex runtime with API keys, OpenAI-compatible endpoints, or Ollama | Supported | |
-| | ChatGPT sign-in | Supported | Codex runtime's built-in sign-in |
-| Subscriptions | Claude | Beta | Bundled Claude Agent SDK; local Claude sign-in |
-| | OpenCode | Beta | Client downloadable from Wevir |
-| | Grok | Beta | Requires the `grok` CLI |
-| | Antigravity | Beta | Pinned version downloaded by Wevir |
-| | WorkBuddy | Beta | Requires the `codebuddy` CLI |
-| | Devin | Beta | Not yet verified against a real account |
-| | Cursor | Beta | Cursor SDK downloaded from npm at setup; not bundled |
-| Other | `wevir` CLI | Beta | Source checkout only; not packaged |
-| | Computer use | Beta | macOS only, off by default |
-| | Mobile app | Planned | |
+| Area | Item | Status |
+| --- | --- | --- |
+| Desktop app | macOS, Apple silicon | Supported |
+| | macOS, Intel | Beta |
+| | Windows x64 | Beta |
+| | Linux | Not available |
+| Models | Codex runtime with API keys, OpenAI-compatible endpoints, or Ollama | Supported |
+| | ChatGPT sign-in | Supported |
+| Subscriptions | Claude | Beta |
+| | OpenCode | Beta |
+| | Grok | Beta |
+| | Antigravity | Beta |
+| | WorkBuddy | Beta |
+| | Devin | Beta |
+| | Cursor | Beta |
+| Other | `wevir` CLI | Beta |
+| | Computer use | Beta |
+| | Mobile app | Planned |
 
 ## Known limitations
 
@@ -150,6 +150,13 @@ pnpm dev                      # start the desktop app
 ```
 
 CLI: run `pnpm build` once, then `pnpm --silent wevir --help`. Commands, repository layout, and contribution rules: [AGENTS.md](AGENTS.md).
+
+## Related repositories
+
+| Repository | Contents |
+| --- | --- |
+| [Wevir-Labs/wevir-marketplace](https://github.com/Wevir-Labs/wevir-marketplace) | Official plugin and skill marketplace |
+| [marvinli001/wevir-web](https://github.com/marvinli001/wevir-web) | Web client and official relay (web.wevir.si) |
 
 ## License
 

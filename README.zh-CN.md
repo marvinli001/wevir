@@ -97,24 +97,24 @@
 
 Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试覆盖。**测试版**：可用，但测试覆盖较少、依赖第三方客户端或未经真实账号验证。**计划中**：尚未提供。
 
-| 类别 | 项目 | 状态 | 备注 |
-| --- | --- | --- | --- |
-| 桌面端 | macOS，Apple 芯片 | 支持 | 已签名与公证 |
-| | macOS，Intel | 测试版 | 已构建与公证；CI 测试在 Apple 芯片上运行 |
-| | Windows x64 | 测试版 | CI 测试覆盖；不支持电脑操作 |
-| | Linux | 暂无 | 未发布安装包 |
-| 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 | |
-| | ChatGPT 账号登录 | 支持 | 使用 Codex 运行时内置登录 |
-| 订阅 | Claude | 测试版 | 内置 Claude Agent SDK；使用本机 Claude 登录 |
-| | OpenCode | 测试版 | 客户端可由 Wevir 下载 |
-| | Grok | 测试版 | 需安装 `grok` 命令行 |
-| | Antigravity | 测试版 | 由 Wevir 下载锁定版本 |
-| | WorkBuddy | 测试版 | 需安装 `codebuddy` 命令行 |
-| | Devin | 测试版 | 未经真实账号验证 |
-| | Cursor | 测试版 | 配置时从 npm 下载 Cursor SDK，不随安装包分发 |
-| 其他 | `wevir` 命令行 | 测试版 | 需从源码运行，不含于安装包 |
-| | 电脑操作 | 测试版 | 仅限 macOS，默认关闭 |
-| | 移动端 | 计划中 | |
+| 类别 | 项目 | 状态 |
+| --- | --- | --- |
+| 桌面端 | macOS，Apple 芯片 | 支持 |
+| | macOS，Intel | 测试版 |
+| | Windows x64 | 测试版 |
+| | Linux | 暂无 |
+| 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 |
+| | ChatGPT 账号登录 | 支持 |
+| 订阅 | Claude | 测试版 |
+| | OpenCode | 测试版 |
+| | Grok | 测试版 |
+| | Antigravity | 测试版 |
+| | WorkBuddy | 测试版 |
+| | Devin | 测试版 |
+| | Cursor | 测试版 |
+| 其他 | `wevir` 命令行 | 测试版 |
+| | 电脑操作 | 测试版 |
+| | 移动端 | 计划中 |
 
 ## 已知限制
 
@@ -150,6 +150,13 @@ pnpm dev                      # 启动桌面端
 ```
 
 命令行：先执行一次 `pnpm build`，再运行 `pnpm --silent wevir --help`。常用命令、目录结构与贡献规则见 [AGENTS.md](AGENTS.md)。
+
+## 相关仓库
+
+| 仓库 | 内容 |
+| --- | --- |
+| [Wevir-Labs/wevir-marketplace](https://github.com/Wevir-Labs/wevir-marketplace) | 官方插件与技能市场 |
+| [marvinli001/wevir-web](https://github.com/marvinli001/wevir-web) | 网页客户端与官方中继（web.wevir.si） |
 
 ## 许可证
 
