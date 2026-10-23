@@ -97,3 +97,15 @@ export class Questioner {
     }
   }
 }
+
+/** 读 stdin 到结束（`--stdin`、`-` 的参数），行之间用换行连起来；终端上以 Ctrl-D 结束。 */
+export async function readStdin(io: CliIO): Promise<string> {
+  const rl = createInterface({ input: io.stdin, terminal: false });
+  const lines: string[] = [];
+  try {
+    for await (const line of rl) lines.push(line);
+  } finally {
+    rl.close();
+  }
+  return lines.join('\n');
+}

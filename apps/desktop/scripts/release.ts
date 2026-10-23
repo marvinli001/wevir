@@ -27,6 +27,10 @@
  *   node scripts/release.ts prune --dir <目录> [--only <线路>]
  *     只做 publish 的第 4 步，平台取 <目录> 下的子目录。
  *
+ *   node scripts/release.ts cli --channel dev|stable --version <版本> --dir <目录> [--only <线路>]
+ *     发命令行包（apps/cli/scripts/package.ts 的产物，平铺在 <目录> 里）：写校验和文件，传到每条线路的 `cli/`（GitHub 线路是 tag
+ *     `cli` 的 Release），最后写安装脚本与通道文件 latest.txt / beta.txt，并清理旧版本。布局与顺序见 publishCli。
+ *
  *   node scripts/release.ts speech-models [--only <线路>]
  *     把听写的本机模型（packages/host/src/speech/install.ts 的 SENSE_VOICE_SMALL）从上游 sherpa-onnx 的 GitHub Release
  *     搬到三条线路：先下载并按写死的 sha256 核对，再传到 S3 线路的 `speech/<模型键>/<文件>` 与 GitHub 线路
@@ -46,6 +50,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -178,16 +183,17 @@ export function filesToPrune(
   names: readonly string[],
   referenced: ReadonlySet<string>,
   keep: number,
+  versionOf: (name: string) => string | undefined = versionOfFile,
 ): string[] {
   const versions = [
-    ...new Set(names.map(versionOfFile).filter((v): v is string => v !== undefined)),
+    ...new Set(names.map(versionOf).filter((v): v is string => v !== undefined)),
   ].sort((a, b) => compareVersions(b, a));
   const newest = (prerelease: boolean) =>
     versions.filter((v) => v.includes('-') === prerelease).slice(0, keep);
   const kept = new Set([...referenced, ...newest(true), ...newest(false)]);
   return names.filter((name) => {
     if (isLegacyAlias(name)) return true;
-    const version = versionOfFile(name);
+    const version = versionOf(name);
     return version !== undefined && !kept.has(version);
   });
 }
@@ -369,9 +375,12 @@ export async function forEachLimit<T>(
   if (failure !== undefined) throw failure.error;
 }
 
-/** 清单与签名每次发布都改写，不许缓存；安装包与 blockmap 的名字带版本，发出去就不再变。 */
+/**
+ * 清单与签名每次发布都改写，不许缓存，命令行包的通道文件与安装脚本（`CLI_MUTABLE_FILES`）也是；安装包、blockmap、命令行包与它的
+ * 校验和文件的名字带版本，发出去就不再变。
+ */
 export function cacheControlOf(name: string): string {
-  return name.endsWith('.yml') || name.endsWith('.sig')
+  return name.endsWith('.yml') || name.endsWith('.sig') || CLI_MUTABLE_FILES.includes(name)
     ? 'no-cache'
     : 'public, max-age=31536000, immutable';
 }
@@ -384,6 +393,9 @@ function contentType(name: string): string {
   if (name.endsWith('.exe')) return 'application/vnd.microsoft.portable-executable';
   if (name.endsWith('.deb')) return 'application/vnd.debian.binary-package';
   if (name.endsWith('.AppImage')) return 'application/vnd.appimage';
+  if (name.endsWith('.tar.gz')) return 'application/gzip';
+  // 通道文件、校验和与安装脚本按纯文本给，浏览器里能直接看。
+  if (/\.(?:txt|sh|ps1)$/.test(name)) return 'text/plain; charset=utf-8';
   return 'application/octet-stream';
 }
 
@@ -482,15 +494,20 @@ interface Line {
   remove(dir: string, name: string): void;
 }
 
-function s3Line(mirror: MirrorTarget): Line {
-  const key = (dir: string, name: string) => `desktop/${dir}/${name}`;
+/** 桶里的键：`<root>/<dir>/<name>`，`dir` 为空时（命令行包）是 `<root>/<name>`。 */
+function s3Key(root: string, dir: string, name: string): string {
+  return [root, dir, name].filter((part) => part !== '').join('/');
+}
+
+function s3Line(mirror: MirrorTarget, root = 'desktop'): Line {
+  const key = (dir: string, name: string) => s3Key(root, dir, name);
   return {
     id: mirror.id,
-    url: (dir, name) => `${mirror.publicUrl}/desktop/${dir}/${name}`,
+    url: (dir, name) => `${mirror.publicUrl}/${key(dir, name)}`,
     upload: (dir, name, file) => upload(mirror, file, key(dir, name)),
     concurrency: S3_UPLOAD_CONCURRENCY,
     read: (dir, name) => download(mirror, key(dir, name)),
-    list: (dir) => list(mirror, `desktop/${dir}/`),
+    list: (dir) => list(mirror, `${s3Key(root, dir, '')}/`),
     remove: (dir, name) => {
       aws(mirror, ['s3api', 'delete-object', '--bucket', mirror.bucket, '--key', key(dir, name)]);
       console.log(`[${mirror.id}] deleted ${key(dir, name)}`);
@@ -536,6 +553,24 @@ export function githubDirListing(assets: readonly string[], dir: string): string
   });
 }
 
+/** GitHub 线路用的 Release：tag、新建时的标题与说明，以及目录里的文件与附件名的对应。 */
+interface GithubRelease {
+  tag: string;
+  title: string;
+  notes: string;
+  assetName(dir: string, name: string): string;
+  dirListing(assets: readonly string[], dir: string): string[];
+}
+
+const DESKTOP_RELEASE: GithubRelease = {
+  tag: GITHUB_TAG,
+  title: 'Desktop update feed',
+  notes:
+    'Files for the in-app updater (manifests, installers and blockmaps of the newest builds). Download Wevir from the versioned releases or https://wevir.si.',
+  assetName: githubAssetName,
+  dirListing: githubDirListing,
+};
+
 interface GithubAsset {
   id: number;
   name: string;
@@ -544,7 +579,7 @@ interface GithubAsset {
   digest?: string | null;
 }
 
-function githubLine(env: NodeJS.ProcessEnv): Line {
+function githubLine(env: NodeJS.ProcessEnv, release: GithubRelease = DESKTOP_RELEASE): Line {
   if (!env.GH_TOKEN?.trim() && !env.GITHUB_TOKEN?.trim()) throw new Error('GH_TOKEN is not set');
   const repo = env.GITHUB_REPOSITORY?.trim() || GITHUB_REPO;
   const gh = (args: readonly string[]) =>
@@ -561,7 +596,7 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
     if (releaseId !== undefined) return releaseId;
     const found = spawnSync(
       'gh',
-      ['api', `repos/${repo}/releases/tags/${GITHUB_TAG}`, '--jq', '.id'],
+      ['api', `repos/${repo}/releases/tags/${release.tag}`, '--jq', '.id'],
       {
         env,
         encoding: 'utf8',
@@ -569,20 +604,20 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
       },
     );
     if (found.error)
-      throw new Error(`[github] reading release ${GITHUB_TAG} failed: ${found.error.message}`);
+      throw new Error(`[github] reading release ${release.tag} failed: ${found.error.message}`);
     if (found.status === 0) {
       releaseId = Number(found.stdout.trim());
       return releaseId;
     }
     if (!/\b404\b|Not Found/i.test(found.stderr)) {
-      throw new Error(`[github] reading release ${GITHUB_TAG} failed: ${found.stderr.trim()}`);
+      throw new Error(`[github] reading release ${release.tag} failed: ${found.stderr.trim()}`);
     }
     if (!create) return undefined;
     // 预发布、不标 Latest：仓库的 Releases 页上“最新版本”仍是正式版的 vX.Y.Z。
     gh([
       'release',
       'create',
-      GITHUB_TAG,
+      release.tag,
       '--repo',
       repo,
       '--target',
@@ -590,11 +625,11 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
       '--prerelease',
       '--latest=false',
       '--title',
-      'Desktop update feed',
+      release.title,
       '--notes',
-      'Files for the in-app updater (manifests, installers and blockmaps of the newest builds). Download Wevir from the versioned releases or https://wevir.si.',
+      release.notes,
     ]);
-    console.log(`[github] created release ${GITHUB_TAG}`);
+    console.log(`[github] created release ${release.tag}`);
     return findRelease(false);
   };
   const listAssets = (): GithubAsset[] => {
@@ -615,14 +650,14 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
     return assets;
   };
   const asset = (dir: string, name: string) =>
-    listAssets().find((a) => a.name === githubAssetName(dir, name));
+    listAssets().find((a) => a.name === release.assetName(dir, name));
   return {
     id: 'github',
     url: (dir, name) =>
-      `https://github.com/${repo}/releases/download/${GITHUB_TAG}/${githubAssetName(dir, name)}`,
+      `https://github.com/${repo}/releases/download/${release.tag}/${release.assetName(dir, name)}`,
     concurrency: 1,
     async upload(dir, name, file) {
-      const assetName = githubAssetName(dir, name);
+      const assetName = release.assetName(dir, name);
       findRelease(true);
       // gh 用文件名做附件名：清单要换成带平台前缀的名字，先复制一份。
       const temp = assetName === name ? undefined : mkdtempSync(join(tmpdir(), 'wevir-release-'));
@@ -633,7 +668,7 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
         await withRetries(`[github] ${assetName}`, () =>
           run(
             'gh',
-            ['release', 'upload', GITHUB_TAG, path, '--repo', repo, '--clobber'],
+            ['release', 'upload', release.tag, path, '--repo', repo, '--clobber'],
             env,
             uploadTimeoutMs(size),
           ),
@@ -667,13 +702,13 @@ function githubLine(env: NodeJS.ProcessEnv): Line {
       ]);
     },
     list: (dir) =>
-      githubDirListing(
+      release.dirListing(
         listAssets().map((a) => a.name),
         dir,
       ),
     remove(dir, name) {
-      const assetName = githubAssetName(dir, name);
-      gh(['release', 'delete-asset', GITHUB_TAG, assetName, '--repo', repo, '--yes']);
+      const assetName = release.assetName(dir, name);
+      gh(['release', 'delete-asset', release.tag, assetName, '--repo', repo, '--yes']);
       assets = undefined;
       console.log(`[github] deleted ${assetName}`);
     },
@@ -834,14 +869,20 @@ function platformDirs(dir: string): string[] {
   return dirs;
 }
 
-/** 要传的线路：全部，或 `--only` 指定的那一条。 */
-function selectLines(only: string | undefined): Line[] {
+/** 要传的线路：全部，或 `--only` 指定的那一条。默认是桌面端的发布目录，命令行包另给桶里的目录与 Release。 */
+function selectLines(
+  only: string | undefined,
+  target: { root: string; release: GithubRelease } = {
+    root: 'desktop',
+    release: DESKTOP_RELEASE,
+  },
+): Line[] {
   const wanted = (id: string) => only === undefined || id === only;
   const lines: Line[] = [
     ...MIRRORS.filter((mirror) => wanted(mirror.id)).map((mirror) =>
-      s3Line(mirrorTarget(mirror, process.env)),
+      s3Line(mirrorTarget(mirror, process.env), target.root),
     ),
-    ...(wanted('github') ? [githubLine(process.env)] : []),
+    ...(wanted('github') ? [githubLine(process.env, target.release)] : []),
   ];
   if (lines.length === 0) throw new Error(`unknown mirror ${only}; one of ${LINE_IDS.join(', ')}`);
   return lines;
@@ -966,6 +1007,206 @@ function prune(mirrors: readonly Line[], platformDirs: readonly string[]): void 
         if (text !== undefined) referenced.add(readManifest(text).version);
       }
       for (const name of filesToPrune(names, referenced, KEEP_VERSIONS)) mirror.remove(dir, name);
+    }
+  }
+}
+
+// ---------- 命令行包 ----------
+
+/**
+ * 命令行包（apps/cli/scripts/package.ts）在线路上的位置：S3 线路的 `cli/`，GitHub 线路是 tag `cli` 的 Release（滚动的预发布，同
+ * desktop-updates）；都是平铺的，没有平台目录。apps/cli/scripts/install.sh 与 install.ps1 的 LINES 按这个布局读：
+ *   wevir-cli-<版本>-<平台>-<架构>.tar.gz / .zip   名字带版本，发出去就不再变
+ *   wevir-cli-<版本>-checksums.txt               这个版本所有包的 sha256（`sha256sum` 的格式），安装脚本据此核对
+ *   latest.txt / beta.txt                         正式版 / 开发版通道的最新版本号，最后写，只许更高的版本覆盖
+ *   install.sh / install.ps1                      安装脚本，随每次发布更新
+ */
+export const CLI_ROOT = 'cli';
+export const CLI_GITHUB_TAG = 'cli';
+/** 每次发布都改写的文件（不许缓存）。 */
+export const CLI_MUTABLE_FILES: readonly string[] = [
+  'latest.txt',
+  'beta.txt',
+  'install.sh',
+  'install.ps1',
+];
+
+const CLI_RELEASE: GithubRelease = {
+  tag: CLI_GITHUB_TAG,
+  title: 'Command-line downloads',
+  notes:
+    'The Wevir command-line client with its own Node, for Linux, macOS and Windows: curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh. Packages of the newest builds, their checksums and the channel files the install scripts read.',
+  assetName: (_dir, name) => name,
+  dirListing: (assets) => [...assets],
+};
+
+/** 通道的版本文件：正式版 latest.txt，开发版 beta.txt。 */
+export function cliChannelFile(channel: Channel): string {
+  return channel === 'stable' ? 'latest.txt' : 'beta.txt';
+}
+
+/** 命令行包与它的校验和文件名里的版本；别的文件返回 undefined。 */
+export function versionOfCliFile(name: string): string | undefined {
+  return /^wevir-cli-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-(?:checksums\.txt|(?:linux|darwin|win32)-[0-9a-z]+\.(?:tar\.gz|zip))$/.exec(
+    name,
+  )?.[1];
+}
+
+/** 这个版本的校验和文件名。 */
+export function cliChecksumsFile(version: string): string {
+  return `wevir-cli-${version}-checksums.txt`;
+}
+
+/** `sha256sum` 格式的校验和文件：`<hex>  <文件名>`，按文件名排序。 */
+export function checksumsText(files: readonly { name: string; sha256: string }[]): string {
+  return [...files]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((file) => `${file.sha256}  ${file.name}\n`)
+    .join('');
+}
+
+/** 一个目录（package.ts 的产物）里这个版本的命令行包；一个都没有、或混着别的版本时报错。 */
+export function cliPackages(names: readonly string[], version: string): string[] {
+  const packages = names.filter(
+    (name) => versionOfCliFile(name) !== undefined && !name.endsWith('-checksums.txt'),
+  );
+  const other = packages.filter((name) => versionOfCliFile(name) !== version);
+  if (other.length > 0) throw new Error(`not version ${version}: ${other.join(', ')}`);
+  if (packages.length === 0) throw new Error(`no command-line packages for ${version}`);
+  return packages.sort();
+}
+
+function sha256Of(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/**
+ * 发命令行包：`<目录>` 里是各平台的 `wevir-cli-<版本>-*`。写这个版本的校验和文件，连同 apps/cli/scripts/ 的安装脚本放进去，然后
+ * 照桌面端的顺序：包与校验和先传到所有线路（全球线路经 CDN 核对，见 uploadInstallers），都成功后核对通道文件只许更高的版本覆盖，
+ * 再写安装脚本与通道文件。正式版同时把开发版的通道推到不低于它的版本（开发版用户也装得到正式版）。最后清理旧版本（各通道留
+ * KEEP_VERSIONS 个，再加通道文件正指着的）。
+ */
+async function publishCli(options: {
+  channel: Channel;
+  version: string;
+  dir: string;
+  only?: string;
+}): Promise<void> {
+  const { channel, version, dir } = options;
+  const packages = cliPackages(readdirSync(dir), version);
+  const checksums = cliChecksumsFile(version);
+  writeFileSync(
+    join(dir, checksums),
+    checksumsText(packages.map((name) => ({ name, sha256: sha256Of(join(dir, name)) }))),
+  );
+  const scripts = fileURLToPath(new URL('../../cli/scripts/', import.meta.url));
+  for (const name of ['install.sh', 'install.ps1'])
+    copyFileSync(join(scripts, name), join(dir, name));
+  const payload = [...packages, checksums];
+  const lines = selectLines(options.only, { root: CLI_ROOT, release: CLI_RELEASE });
+
+  // 要写的通道文件与版本：开发版只写 beta.txt；正式版写 latest.txt，beta.txt 低于它时也写。
+  const pointers = (line: Line): string[] => {
+    const files = [cliChannelFile(channel)];
+    if (channel === 'stable') {
+      const beta = line.read('', cliChannelFile('dev'))?.trim();
+      if (beta === undefined || compareVersions(beta, version) < 0)
+        files.push(cliChannelFile('dev'));
+    }
+    return files;
+  };
+  const checkNewer = (): void => {
+    for (const line of lines) {
+      const current = line.read('', cliChannelFile(channel))?.trim();
+      if (current !== undefined && current !== '' && compareVersions(current, version) >= 0) {
+        throw new Error(
+          `[${line.id}] ${CLI_ROOT}/${cliChannelFile(channel)} is already ${current}; not overwriting it with ${version}`,
+        );
+      }
+    }
+  };
+  checkNewer();
+
+  const bunnyKey = process.env.BUNNY_API_KEY?.trim();
+  const globalLine = lines.find((line) => line.id === 'global');
+  if (globalLine && !bunnyKey) {
+    console.warn('[global] BUNNY_API_KEY is not set: packages are not checked through the CDN');
+  }
+  const publicFiles = (line: Line, names: readonly string[]) =>
+    Promise.all(
+      names.map(async (name) => ({
+        url: line.url('', name),
+        expected: await fileDigest(join(dir, name)),
+      })),
+    );
+  let uploaded: { url: string; expected: Digest }[] = [];
+  await uploadInstallers(lines, {
+    upload: (line) =>
+      forEachLimit(payload, line.concurrency, (name) => line.upload('', name, join(dir, name))),
+    global:
+      globalLine && bunnyKey
+        ? {
+            async verify() {
+              uploaded = await publicFiles(globalLine, payload);
+              await waitForCdn(uploaded, bunnyCheck(bunnyKey));
+            },
+            purge: () =>
+              purgeBunny(
+                uploaded.map((file) => file.url),
+                bunnyKey,
+              ),
+          }
+        : undefined,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    log: (line) => console.log(line),
+  });
+
+  checkNewer();
+  const temp = mkdtempSync(join(tmpdir(), 'wevir-cli-release-'));
+  try {
+    for (const line of lines) {
+      const written: string[] = [];
+      for (const name of ['install.sh', 'install.ps1']) {
+        await line.upload('', name, join(dir, name));
+        written.push(name);
+      }
+      for (const name of pointers(line)) {
+        const file = join(temp, name);
+        writeFileSync(file, `${version}\n`);
+        await line.upload('', name, file);
+        written.push(name);
+      }
+      if (line.id === 'global' && bunnyKey) {
+        const urls = written.map((name) => line.url('', name));
+        await purgeBunny(urls, bunnyKey);
+        await waitForCdn(
+          await Promise.all(
+            written.map(async (name) => ({
+              url: line.url('', name),
+              // 通道文件写在临时目录里，安装脚本在 <目录> 里。
+              expected: await fileDigest(join(name.endsWith('.txt') ? temp : dir, name)),
+            })),
+          ),
+          bunnyCheck(bunnyKey),
+        );
+      }
+    }
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+
+  pruneCli(lines);
+}
+
+function pruneCli(lines: readonly Line[]): void {
+  for (const line of lines) {
+    const referenced = new Set<string>();
+    for (const channel of ['stable', 'dev'] as const) {
+      const version = line.read('', cliChannelFile(channel))?.trim();
+      if (version) referenced.add(version);
+    }
+    for (const name of filesToPrune(line.list(''), referenced, KEEP_VERSIONS, versionOfCliFile)) {
+      line.remove('', name);
     }
   }
 }
@@ -1250,13 +1491,32 @@ async function main(): Promise<void> {
     prune(selectLines(values.only), platformDirs(values.dir));
     return;
   }
+  if (command === 'cli') {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        channel: { type: 'string' },
+        version: { type: 'string' },
+        dir: { type: 'string' },
+        only: { type: 'string' },
+      },
+    });
+    const { channel, version, dir, only } = values;
+    if ((channel !== 'stable' && channel !== 'dev') || version === undefined || dir === undefined) {
+      throw new Error(
+        'usage: release.ts cli --channel dev|stable --version <version> --dir <dir> [--only <mirror>]',
+      );
+    }
+    await publishCli({ channel, version, dir, only });
+    return;
+  }
   if (command === 'speech-models') {
     const { values } = parseArgs({ args: rest, options: { only: { type: 'string' } } });
     await publishSpeechModels(values.only);
     return;
   }
   console.error(
-    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | speech-models [--only <mirror>]',
+    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | cli --channel dev|stable --version <v> --dir <dir> | speech-models [--only <mirror>]',
   );
   process.exit(2);
 }

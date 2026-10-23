@@ -22,7 +22,7 @@ export const zh = {
   'cli.mainUsage': 'wevir <命令> [选项]',
   'cli.globalHelp': `全局选项：
   --home <目录>    数据目录，与 Host 共用；默认 macOS ~/Library/Application Support/Wevir、
-                   Windows %APPDATA%\\Wevir
+                   Windows %APPDATA%\\Wevir、Linux $XDG_DATA_HOME/wevir（~/.local/share/wevir）
   --remote <名称>  在配对过的电脑上执行（wevir remote pair）；只用于会话、收件箱与列表类命令
   -h, --help       显示帮助
   -v, --version    显示版本
@@ -72,7 +72,7 @@ export const zh = {
   'cmd.workspace.add.help': `选项：
   --name <名称>   显示名称，默认为目录名`,
   'cmd.workspace.list.summary': '列出工作区',
-  'cmd.workspace.list.usage': 'wevir workspace list',
+  'cmd.workspace.list.usage': 'wevir workspace list [--json]',
   'cmd.provider.add.summary': '添加或更新 Provider',
   'cmd.provider.add.usage': 'wevir provider add [选项]',
   'cmd.provider.add.help': `API Key 不接受命令行参数：在终端中隐藏输入，或经 stdin 传入一行
@@ -91,7 +91,7 @@ export const zh = {
   wevir provider add --kind deepseek-official
   wevir provider add --kind openai-compatible --id kimi --base-url https://api.moonshot.cn/v1 --model kimi-k2.6`,
   'cmd.provider.list.summary': '列出 Provider',
-  'cmd.provider.list.usage': 'wevir provider list',
+  'cmd.provider.list.usage': 'wevir provider list [--json]',
   'cmd.provider.test.summary': '测试 Provider 连接',
   'cmd.provider.test.usage': 'wevir provider test [<ID>] [--model <模型 ID>]',
   'cmd.provider.test.help': `发送一次真实的最小请求；仅有一个 Provider 时可省略 ID
@@ -109,44 +109,58 @@ export const zh = {
   'cmd.provider.logout.help':
     '删除本机 ChatGPT 凭据并尝试吊销令牌；Provider chatgpt 及其会话保留，重新登录后可继续',
   'cmd.session.new.summary': '新建会话并发送提示',
-  'cmd.session.new.usage': 'wevir session new -w <路径> [选项] "<提示>"',
+  'cmd.session.new.usage': 'wevir session new [-w <路径>] [选项] "<提示>"',
   'cmd.session.new.help': `目录未登记时自动登记为工作区；发送后进入 attach
 
 选项：
-  -w, --workspace <路径>   工作区目录（必填）
+  -w, --workspace <路径>   工作区目录；省略时建在“对话”里，不在项目中
   --provider <ID>          Provider；仅有一个时可省略
   --model <模型 ID>        模型，默认为 Provider 的默认模型
+  --effort <档位>          推理档位
+  --permission <模式>      on_request（默认）、auto_review 或 full_access
+  --worktree               为该会话新开一个 git worktree
+  --plan                   提示在计划模式里发送
   --detach                 发送后不进入 attach`,
   'cmd.session.list.summary': '列出会话',
-  'cmd.session.list.usage': 'wevir session list [-w <路径>]',
+  'cmd.session.list.usage': 'wevir session list [-w <路径>] [--archived] [--json]',
   'cmd.session.list.help': `选项：
-  -w, --workspace <路径>   仅列出该工作区的会话`,
+  -w, --workspace <路径>   仅列出该工作区的会话
+  --archived               列出已归档的会话`,
   'cmd.session.attach.summary': '连接会话：实时输出、审批与继续对话',
   'cmd.session.attach.usage': 'wevir session attach <会话 ID>',
   'cmd.session.attach.help': `会话 ID 可用唯一前缀
 
 按键：
-  Enter     发送消息、回答审批；回合进行中按设置插话或排队
+  Enter     发送消息、回答审批与提问；回合进行中按设置插话或排队
   Tab       回合进行中以另一种方式发送（插话 / 排队）
   Ctrl-C    取消当前运行；再按一次退出 attach
   Ctrl-D    退出 attach，会话保留
-  /resume   发送暂停的消息`,
+
+审批：序号、y / n；有提议的规则时 a 总是允许（本项目）、g 总是允许（所有项目）
+提问：序号（多选用逗号分隔）或文字，回车跳过
+命令：/help 列出 /plan、/undo、/model 等；以 // 开头按原文发送`,
   'cmd.session.send.summary': '给会话发一条消息',
-  'cmd.session.send.usage': 'wevir session send <会话 ID> "<消息>"',
-  'cmd.session.send.help': '会话 ID 可用唯一前缀；发送后不进入 attach',
+  'cmd.session.send.usage': 'wevir session send <会话 ID> "<消息>" [--plan]',
+  'cmd.session.send.help': `会话 ID 可用唯一前缀；发送后不进入 attach
+
+选项：
+  --plan   在计划模式里发送`,
   'cmd.inbox.list.summary': '列出所有会话里等处理的审批、提问、失败与自动化',
   'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
   'cmd.inbox.dismiss.summary': '收起一个失败的回合或自动化运行',
   'cmd.inbox.dismiss.usage': 'wevir inbox dismiss <ID>',
   'cmd.inbox.dismiss.help': 'ID 取自 wevir inbox；审批与提问回答后自己离开，不能收起',
   'cmd.inbox.respond.summary': '回答一个审批',
-  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <回答>',
+  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <回答> [--remember project|global]',
   'cmd.inbox.respond.help': `ID 取自 wevir inbox，可省略 approval:
 
 回答：
   <序号>      第几个选项
   <选项 ID>   选项的 ID
-  y / n       第一个允许 / 拒绝的选项`,
+  y / n       第一个允许 / 拒绝的选项
+
+选项：
+  --remember project|global   同时加审批规则（总是允许），只用于命令审批`,
   'cmd.remote.pair.summary': '与另一台电脑上的 Wevir 配对',
   'cmd.remote.pair.usage': 'wevir remote pair <配对链接或短码> [选项]',
   'cmd.remote.pair.help': `配对链接是那台电脑 设置 → 设备 → 添加设备 里二维码的内容（wevir://pair?…）；短码要求两台电脑在同一局域网
@@ -412,7 +426,7 @@ export const zh = {
   'render.sessionError': '会话出错；发送消息时将尝试恢复',
   'render.sessionErrorWhy': '会话出错：{why}；发送消息时将尝试恢复',
   'render.sessionClosed': '会话已关闭',
-  'render.question': '? Agent 提问（需在桌面端回答）',
+  'render.question': '? Agent 提问',
   'render.questionWithHeader': '{header}：{question}',
   'render.questionCancelled': '提问已取消',
   'render.answerSkipped': '（跳过）',
@@ -610,7 +624,7 @@ export const zh = {
 
   // commands/account.ts
   'account.unknownKind': '未知账号类型：{kind}',
-  'account.unknownKind.hint': '仅支持 chatgpt',
+  'account.unknownKind.hint': '仅支持 chatgpt；其他来源用 wevir account login',
   'account.alreadySignedIn': '已登录 ChatGPT：{account}',
   'account.alreadySignedIn.hint': '切换账号需先运行 wevir provider logout',
   'account.noDeviceCode': 'Host 未返回设备码',
@@ -870,6 +884,479 @@ export const zh = {
   'weekday.4': '周四',
   'weekday.5': '周五',
   'weekday.6': '周六',
+
+  // attach 的提问、斜杠命令与总是允许
+  'render.configured': '（设置：{config}）',
+  'render.goal': '目标（{status}）：{objective}',
+  'render.goalCleared': '目标已清除',
+  'render.undone': '已撤销回合：{files}',
+  'render.redone': '已重做回合：{files}',
+  'render.rewound': '（回合已撤回）',
+  'render.alwaysAllow': '总是允许：{prefix} 开头的命令（a 本项目 / g 所有项目）',
+  'render.ruleAdded': '（已加规则）',
+  'goalStatus.active': '进行中',
+  'goalStatus.paused': '已暂停',
+  'goalStatus.blocked': '受阻',
+  'goalStatus.usage_limited': '用量受限',
+  'goalStatus.budget_limited': '预算用完',
+  'goalStatus.complete': '已完成',
+  'files.unchanged': '文件无变化',
+  'files.restored': '还原 {count} 个文件',
+  'files.unavailable': '文件未能还原',
+  'files.unavailableWhy': '文件未能还原（{reason}）',
+  'attach.alwaysProject': 'a 总是允许·本项目',
+  'attach.alwaysGlobal': 'g 总是允许·所有项目',
+  'attach.answerHintAlways': '输入 1–{count}、y 允许、n 拒绝，或 a / g 总是允许',
+  'attach.questionPrompt': '回答 {index}/{total} [{hint}] › ',
+  'attach.questionPick': '1–{count}',
+  'attach.questionPick.multi': '1–{count} 可多选',
+  'attach.questionText': '文字',
+  'attach.questionSkip': '回车跳过',
+  'attach.questionHint': '输入 1–{count} 或回答文字，回车跳过',
+  'attach.questionHintMulti': '输入 1–{count}，多个用逗号分隔；回车跳过',
+  'attach.unknownCommand': '未知命令：{command}',
+  'attach.unknownCommand.hint': '/help 查看命令；以 // 开头按原文发送',
+  'attach.renamed': '已改名：{title}',
+  'attach.forked': '已分支到新会话 {id}；连接：wevir session attach {id}',
+  'attach.config': '模型 {model} · 推理 {effort} · {permission}',
+  'attach.effortDefault': '默认',
+  'attach.noGoal': '暂无目标',
+  'slash.plan.usage': '/plan <消息>',
+  'slash.plan': '在计划模式里发送',
+  'slash.undo.usage': '/undo',
+  'slash.undo': '撤销上一个回合，还原文件',
+  'slash.redo.usage': '/redo',
+  'slash.redo': '重做撤销的回合',
+  'slash.model.usage': '/model [模型 | Provider/模型]',
+  'slash.model': '查看或切换模型；带 Provider 时接力到别的来源',
+  'slash.effort.usage': '/effort [档位 | default]',
+  'slash.effort': '推理档位',
+  'slash.permission.usage': '/permission [on_request | auto_review | full_access]',
+  'slash.permission': '权限模式',
+  'slash.compact.usage': '/compact',
+  'slash.compact': '压缩上下文',
+  'slash.goal.usage': '/goal [目标 | pause | resume | clear]',
+  'slash.goal': '会话目标',
+  'slash.rename.usage': '/rename <标题>',
+  'slash.rename': '改会话标题',
+  'slash.fork.usage': '/fork',
+  'slash.fork': '从最近完成的回合分支到新会话',
+  'slash.resume.usage': '/resume',
+  'slash.resume': '继续发送暂停的待发消息',
+  'slash.exit.usage': '/exit',
+  'slash.exit': '退出 attach，会话照常运行',
+
+  // 审批规则
+  'host.unsupported': 'Host {version} 不支持此功能（{feature}）',
+  'host.unsupported.hint': '升级 Wevir Host',
+  'group.rule': '审批规则',
+  'cmd.rule.list.summary': '列出审批规则',
+  'cmd.rule.list.usage': 'wevir rule list [-w <路径>] [--json]',
+  'cmd.rule.list.help': `选项：
+  -w, --workspace <路径>   仅列出对该项目有效的规则（全局与该项目）`,
+  'cmd.rule.add.summary': '添加规则：以后这些词开头的命令自动允许',
+  'cmd.rule.add.usage': 'wevir rule add <命令前缀…> [-w <路径>]',
+  'cmd.rule.add.help': `示例：wevir rule add git status
+
+选项：
+  -w, --workspace <路径>   只对该项目有效；省略时对所有项目有效
+
+规则只回答引擎发出的命令审批，不改变权限模式与沙箱`,
+  'cmd.rule.delete.summary': '删除规则',
+  'cmd.rule.delete.usage': 'wevir rule delete <ID>',
+  'cmd.rule.suggest.summary': '从审批历史建议规则',
+  'cmd.rule.suggest.usage': 'wevir rule suggest [-w <路径>] [--json]',
+  'cmd.rule.suggest.help': '多次手动允许过的命令前缀，按次数排序；用 wevir rule add 添加',
+  'rule.global': '所有项目',
+  'rule.none': '暂无审批规则',
+  'rule.noSuggestions': '暂无建议',
+  'rule.col.prefix': '命令前缀',
+  'rule.col.scope': '范围',
+  'rule.col.uses': '自动允许',
+  'rule.col.lastUsed': '最近使用',
+  'rule.col.project': '项目',
+  'rule.col.approved': '手动允许',
+  'rule.col.example': '最近的命令',
+  'rule.added': '已添加规则：{prefix}（{scope}，{id}）',
+  'rule.deleted': '已删除规则：{id}',
+  'rule.notFound': '规则不存在：{id}',
+  'inbox.badRemember': '--remember 只能是 project 或 global：{value}',
+  'inbox.badRemember.hint': 'project 只对该会话的项目有效，global 对所有项目有效',
+  'slash.help.usage': '/help',
+  'slash.help': '列出命令',
+
+  // 会话管理
+  'cmd.session.show.summary': '会话详情：设置、目标、待处理与任务清单',
+  'cmd.session.show.usage': 'wevir session show <会话 ID> [--json]',
+  'cmd.session.config.summary': '查看或更改会话的模型、推理档位与权限模式',
+  'cmd.session.config.usage': 'wevir session config <会话 ID> [选项]',
+  'cmd.session.config.help': `从下一个回合起生效；不带选项时显示现在的设置
+
+选项：
+  --model <模型 ID>        换模型
+  --effort <档位>          推理档位
+  --default-effort         用模型的默认档位
+  --permission <模式>      on_request、auto_review 或 full_access
+  --provider <ID>          接力到别的来源（模型省略时用它的默认模型）
+  --json                   输出改后的会话`,
+  'cmd.session.rename.summary': '改会话标题',
+  'cmd.session.rename.usage': 'wevir session rename <会话 ID> <标题>',
+  'cmd.session.undo.summary': '撤销最后一个回合，还原文件',
+  'cmd.session.undo.usage': 'wevir session undo <会话 ID>',
+  'cmd.session.redo.summary': '重做刚撤销的回合',
+  'cmd.session.redo.usage': 'wevir session redo <会话 ID>',
+  'cmd.session.fork.summary': '分支到新会话',
+  'cmd.session.fork.usage': 'wevir session fork <会话 ID> [--turn <回合 ID>] [--json]',
+  'cmd.session.fork.help': '新会话带着到该回合为止的历史；省略 --turn 时到最近完成的回合',
+  'cmd.session.compact.summary': '压缩会话的上下文',
+  'cmd.session.compact.usage': 'wevir session compact <会话 ID>',
+  'cmd.session.cancel.summary': '取消会话当前的运行',
+  'cmd.session.cancel.usage': 'wevir session cancel <会话 ID>',
+  'cmd.session.close.summary': '关闭会话的引擎；下次发送时恢复',
+  'cmd.session.close.usage': 'wevir session close <会话 ID>',
+  'cmd.session.archive.summary': '归档会话',
+  'cmd.session.archive.usage': 'wevir session archive <会话 ID>',
+  'cmd.session.unarchive.summary': '取消归档',
+  'cmd.session.unarchive.usage': 'wevir session unarchive <会话 ID>',
+  'cmd.session.delete.summary': '永久删除已归档的会话',
+  'cmd.session.delete.usage': 'wevir session delete <会话 ID> [--force]',
+  'cmd.session.delete.help': `连同子会话、支线、文件与 Host 开的 worktree 一起删除，不可恢复
+
+选项：
+  --force   worktree 有未提交的改动时仍删除`,
+  'session.noneArchived': '暂无已归档的会话',
+  'session.worktreeNeedsWorkspace': '--worktree 需要 -w <路径>',
+  'session.goalText': '{objective}（{status}）',
+  'session.pendingApprovals': '{count} 个审批',
+  'session.pendingQuestions': '{count} 个提问',
+  'session.field.state': '状态',
+  'session.field.workspace': '工作区',
+  'session.field.cwd': '目录',
+  'session.field.model': '模型',
+  'session.field.effort': '推理档位',
+  'session.field.permission': '权限',
+  'session.field.mode': '协作模式',
+  'session.field.goal': '目标',
+  'session.field.pending': '待处理',
+  'session.field.parent': '父会话',
+  'session.field.created': '创建于',
+  'session.field.updated': '更新于',
+  'session.field.archived': '归档于',
+  'session.field.events': '事件数',
+  'session.planMode': '计划模式',
+  'session.todos': '任务清单',
+  'session.archived': '已归档：{id}',
+  'session.unarchived': '已取消归档：{id}',
+  'session.deleted': '已删除 {count} 个会话',
+  'session.keptBranch': '保留未合并的分支：{branch}',
+  'session.engineDataKept': '部分引擎数据未删除',
+  'session.undone': '已撤销回合 {turn}：{files}',
+  'session.redone': '已重做回合 {turn}：{files}',
+  'session.effortConflict': '--effort 与 --default-effort 只能选一个',
+  'session.notRunning': '会话没有在运行：{id}',
+  'session.cancelRequested': '已请求取消：{id}',
+  'session.closed': '已关闭：{id}',
+  'session.compacting': '正在压缩上下文（回合 {turn}）',
+  'worktree.archived': 'worktree 已存档并删除目录：{branch}',
+  'worktree.kept': 'worktree 目录保留：{path}',
+  'worktree.missing': 'worktree 目录不存在：{path}',
+  'worktree.restored': 'worktree 已恢复：{path}',
+  'worktree.failed': 'worktree 未能恢复：{branch}',
+
+  // 订阅账号
+  'group.account': '订阅账号',
+  'cmd.account.list.summary': '列出订阅账号与状态',
+  'cmd.account.list.usage': 'wevir account list [--json]',
+  'cmd.account.status.summary': '查看账号的状态、用量与登录方式',
+  'cmd.account.status.usage': 'wevir account status <来源|ID> [--refresh] [--json]',
+  'cmd.account.status.help': `来源：chatgpt、claude、cursor、opencode、grok、antigravity、workbuddy、devin；ID 取自 wevir account list
+
+选项：
+  --refresh   重新检测（在终端里登录或安装之后）`,
+  'cmd.account.login.summary': '登录订阅账号',
+  'cmd.account.login.usage': 'wevir account login <来源|ID> [选项]',
+  'cmd.account.login.help': `应用内登录时打印网址或设备码，等到完成（Ctrl-C 取消）；需在终端里登录的打印登录命令
+
+选项：
+  --device-code       用设备码（可在任意设备上完成，默认优先）
+  --browser           用浏览器授权（回调在 Host 所在的电脑上）
+  --option <ID>       登录方式（如 WorkBuddy 的国内 / 国际站）
+  --upstream <ID>     接一家上游（OpenCode，见 wevir account upstreams）；API Key 从 stdin 读取`,
+  'cmd.account.logout.summary': '登出订阅账号',
+  'cmd.account.logout.usage': 'wevir account logout <来源|ID> [--upstream <ID>]',
+  'cmd.account.logout.help': `用本机终端登录的来源（Claude、Grok 的首个账号）登出后终端也登出
+
+选项：
+  --upstream <ID>   只断开这一家上游`,
+  'cmd.account.upstreams.summary': '列出能接的上游（OpenCode）',
+  'cmd.account.upstreams.usage': 'wevir account upstreams <来源|ID> [--json]',
+  'cmd.account.install.summary': '下载安装来源的引擎',
+  'cmd.account.install.usage': 'wevir account install <来源>',
+  'cmd.account.add.summary': '添加一个账号（与已有账号互不相通）',
+  'cmd.account.add.usage': 'wevir account add <来源> [--label <标签>] [--json]',
+  'cmd.account.remove.summary': '删除添加的账号',
+  'cmd.account.remove.usage': 'wevir account remove <ID>',
+  'cmd.account.remove.help':
+    '登出、关闭使用它的会话，并删除它的 Provider、用量记录与数据目录；首个账号不能删除',
+  'cmd.account.label.summary': '设置或清除账号标签',
+  'cmd.account.label.usage': 'wevir account label <来源|ID> <标签> | --clear',
+  'cmd.account.path.summary': '指定或清除引擎的可执行文件',
+  'cmd.account.path.usage': 'wevir account path <来源> <路径> | --clear',
+  'subscription.unknown': '未知来源或账号：{value}',
+  'subscription.unknown.hint': '来源：{kinds}；账号 ID 见 wevir account list',
+  'subscription.none': '暂无订阅账号',
+  'subscription.installing': '安装中',
+  'subscription.notInstalled': '未安装',
+  'subscription.signedIn': '已登录',
+  'subscription.signingIn': '登录中',
+  'subscription.signedOut': '未登录',
+  'subscription.col.source': '来源',
+  'subscription.col.status': '状态',
+  'subscription.col.account': '账号',
+  'subscription.col.version': '版本',
+  'subscription.col.name': '名称',
+  'subscription.col.methods': '接入方式',
+  'subscription.connected': '已接入',
+  'subscription.statusLine': '{name}：{status}',
+  'subscription.executable': '可执行文件：{path}',
+  'subscription.installWith': '安装：wevir account install {kind}',
+  'subscription.installCommand': '自行安装：{command}',
+  'subscription.installUrl': '安装说明：{url}',
+  'subscription.installElsewhere': '按来源的官方说明安装后运行 wevir account status --refresh',
+  'subscription.loginCommand': '在终端里登录：{command}',
+  'subscription.loginWith': '登录：wevir account login {id}',
+  'subscription.progress': '下载中 {percent}%（{done} / {total} MB）',
+  'subscription.progressBytes': '下载中 {done} MB',
+  'subscription.methodConflict': '--browser 与 --device-code 只能选一个',
+  'subscription.needsInstall': '{name} 未安装',
+  'subscription.alreadySignedIn': '已登录 {name}：{account}',
+  'subscription.alreadySignedIn.hint': '切换账号需先运行 wevir account logout {id}',
+  'subscription.runInTerminal': '{name} 在终端里登录，运行：',
+  'subscription.thenRefresh': '登录后运行 wevir account status {id} --refresh',
+  'subscription.methodUnsupported': '{name} 不支持登录方式 {method}',
+  'subscription.methodUnsupported.hint': '可用：{methods}',
+  'subscription.badOption': '未知登录方式：{option}',
+  'subscription.badOption.hint': '可用：{options}',
+  'subscription.noUpstream': '未知上游：{upstream}',
+  'subscription.noUpstream.hint': '运行 wevir account upstreams {id} 查看',
+  'subscription.askKey': '{name} 的 API Key（不回显）：',
+  'subscription.keyMissing': '未输入 API Key',
+  'subscription.upstreamConnected': '✓ 已接入 {name}',
+  'subscription.upstreamDisconnected': '已断开上游 {upstream}',
+  'subscription.deviceStep1': '1. 在浏览器中打开 {url} 并登录',
+  'subscription.openUrl': '在浏览器中打开：{url}',
+  'subscription.callbackNote': '授权完成后回到 Host 所在的电脑；浏览器需在这台电脑上',
+  'subscription.signedInAs': '✓ 已登录 {name}：{account}',
+  'subscription.loggedOut': '已登出 {name}',
+  'subscription.localLogout': '使用本机终端的登录，终端也已登出',
+  'subscription.installFailed': '安装失败：{error}',
+  'subscription.installed': '✓ 已安装 {name} {version}',
+  'subscription.added': '已添加账号 {name}（{id}）；登录：wevir account login {id}',
+  'subscription.firstAccount': '首个账号不能删除；用 wevir account logout 登出',
+  'subscription.removed': '已删除账号 {id}',
+  'subscription.labelUsage': '给出标签或 --clear 之一',
+  'subscription.labelled': '已更新：{name}',
+  'subscription.pathUsage': '给出路径或 --clear 之一',
+
+  // 记忆、插件、设置与说明
+  'cmd.workspace.rename.summary': '改工作区名称',
+  'cmd.workspace.rename.usage': 'wevir workspace rename <路径> <名称>',
+  'cmd.workspace.remove.summary': '移除工作区',
+  'cmd.workspace.remove.usage': 'wevir workspace remove <路径>',
+  'cmd.workspace.remove.help': '不再列出该工作区与它的会话；目录与文件保留',
+  'workspace.removed': '已移除工作区：{name}',
+  'workspace.renamed': '已改名：{name}',
+  'cmd.provider.models.summary': '向服务端列出可用的模型',
+  'cmd.provider.models.usage': 'wevir provider models <ID> [--json]',
+  'cmd.provider.enable.summary': '启用 Provider',
+  'cmd.provider.enable.usage': 'wevir provider enable <ID>',
+  'cmd.provider.disable.summary': '停用 Provider：不出现在模型选择里，已有会话照常可用',
+  'cmd.provider.disable.usage': 'wevir provider disable <ID>',
+  'cmd.provider.remove.summary': '删除 Provider 与它的 Key',
+  'cmd.provider.remove.usage': 'wevir provider remove <ID>',
+  'provider.removed': '已删除 Provider：{name}（{id}）',
+  'provider.turnedOn': '已启用：{name}',
+  'provider.turnedOff': '已停用：{name}',
+  'provider.modelsFailed': '列出模型失败：{reason}',
+  'provider.noModels': '暂无模型',
+  'provider.col.modelId': '模型',
+  'provider.col.context': '上下文',
+  'provider.model.default': '默认',
+  'provider.model.added': '已添加',
+  'provider.modelsTruncated': '列表已截断',
+  'group.memory': '记忆',
+  'cmd.memory.list.summary': '列出记忆笔记',
+  'cmd.memory.list.usage': 'wevir memory list [-w <路径>] [--json]',
+  'cmd.memory.list.help': `省略 -w 时只列全局笔记；-w 时另加该项目的笔记
+
+笔记由 Agent 新建，可在这里查看、修改、停用与删除`,
+  'cmd.memory.show.summary': '查看一条笔记',
+  'cmd.memory.show.usage': 'wevir memory show <名称> [-w <路径>] [--json]',
+  'cmd.memory.edit.summary': '修改一条笔记',
+  'cmd.memory.edit.usage': 'wevir memory edit <名称> [-w <路径>] [选项]',
+  'cmd.memory.edit.help': `选项：
+  -w, --workspace <路径>   项目的笔记；省略时为全局笔记
+  --description <说明>     一行说明
+  --type <种类>            user、feedback、project 或 reference
+  --content <正文>         正文
+  --stdin                  正文从 stdin 读到结束`,
+  'cmd.memory.enable.summary': '启用笔记',
+  'cmd.memory.enable.usage': 'wevir memory enable <名称> [-w <路径>]',
+  'cmd.memory.disable.summary': '停用笔记：Agent 不再看到',
+  'cmd.memory.disable.usage': 'wevir memory disable <名称> [-w <路径>]',
+  'cmd.memory.delete.summary': '删除笔记',
+  'cmd.memory.delete.usage': 'wevir memory delete <名称> [-w <路径>]',
+  'memory.scope.global': '全局',
+  'memory.scope.project': '项目',
+  'memory.type.user': '用户',
+  'memory.type.feedback': '反馈',
+  'memory.type.project': '项目',
+  'memory.type.reference': '参考',
+  'memory.enabled': '启用',
+  'memory.disabled': '停用',
+  'memory.none': '暂无记忆笔记',
+  'memory.col.name': '名称',
+  'memory.col.scope': '范围',
+  'memory.col.type': '种类',
+  'memory.col.state': '状态',
+  'memory.col.description': '说明',
+  'memory.col.updated': '更新于',
+  'memory.unreadable': '无法读取的笔记：{name}（{scope}）',
+  'memory.updated': '更新于 {time}',
+  'memory.contentConflict': '--content 与 --stdin 只能选一个',
+  'memory.badType': '未知种类：{type}',
+  'memory.badType.hint': '可用 {types}',
+  'memory.nothingToEdit': '没有要修改的内容',
+  'memory.conflict': '笔记已在别处修改：{name}',
+  'memory.conflict.hint': '重新运行 wevir memory show 查看后再改',
+  'memory.saved': '已保存：{name}',
+  'memory.turnedOn': '已启用：{name}',
+  'memory.turnedOff': '已停用：{name}',
+  'memory.deleted': '已删除：{name}',
+  'group.plugin': '插件、Skills 与连接器',
+  'cmd.plugin.list.summary': '列出插件、Skills 与连接器',
+  'cmd.plugin.list.usage': 'wevir plugin list [--json]',
+  'cmd.plugin.enable.summary': '启用插件、Skill 或连接器',
+  'cmd.plugin.enable.usage': 'wevir plugin enable <ID>',
+  'cmd.plugin.disable.summary': '停用插件、Skill 或连接器',
+  'cmd.plugin.disable.usage': 'wevir plugin disable <ID>',
+  'cmd.plugin.install.summary': '从本机目录安装插件或 Skill',
+  'cmd.plugin.install.usage': 'wevir plugin install <路径>',
+  'cmd.plugin.install.help':
+    '目录里有 wevir-plugin.json（或 Claude / Codex 的插件清单）时装成插件，只有 SKILL.md 时装成 Skill',
+  'cmd.plugin.remove.summary': '删除插件、Skill 或连接器',
+  'cmd.plugin.remove.usage': 'wevir plugin remove <ID>',
+  'cmd.plugin.remove.help': '插件连同它带的 Skills 与连接器一起删除',
+  'plugin.notFound': '没有这个插件、Skill 或连接器：{id}',
+  'plugin.notFound.hint': '运行 wevir plugin list 查看 ID',
+  'plugin.enabled': '启用',
+  'plugin.disabled': '停用',
+  'plugin.none': '暂无插件、Skills 与连接器',
+  'plugin.section.plugins': '插件',
+  'plugin.section.skills': 'Skills',
+  'plugin.section.connectors': '连接器',
+  'plugin.col.name': '名称',
+  'plugin.col.version': '版本',
+  'plugin.col.state': '状态',
+  'plugin.col.contents': '内容',
+  'plugin.col.source': '来源',
+  'plugin.col.description': '说明',
+  'plugin.col.transport': '方式',
+  'plugin.col.tools': '工具',
+  'plugin.contents': '{skills} 个 Skill、{connectors} 个连接器',
+  'plugin.source.wevir': 'Wevir',
+  'plugin.source.user': '用户',
+  'plugin.source.project': '项目',
+  'plugin.turnedOn': '已启用：{name}',
+  'plugin.turnedOff': '已停用：{name}',
+  'plugin.removed': '已删除：{name}',
+  'plugin.installedSkill': '已安装 Skill：{name}',
+  'plugin.installed': '已安装插件：{name} {version}（{id}）',
+  'plugin.ignored': '已忽略：{item}',
+  'plugin.missingInputs': '{count} 项必填设置未填；在桌面端设置中填写',
+  'group.mcp': 'MCP 服务器',
+  'cmd.mcp.add.summary': '添加连接器（MCP 服务器）',
+  'cmd.mcp.add.usage': 'wevir mcp add <名称> (--url <地址> | -- <命令> [参数…])',
+  'cmd.mcp.add.help': `示例：
+  wevir mcp add docs --url https://example.com/mcp
+  wevir mcp add files -- npx -y @modelcontextprotocol/server-filesystem ~/notes
+
+选项：
+  -w, --workspace <路径>   只给该项目；省略时为全局
+  --disabled               添加后先不启用
+
+查看、启用、停用与删除用 wevir plugin`,
+  'mcp.needOne': '给出 --url 或 -- 之后的命令之一',
+  'mcp.added': '已添加连接器：{name}（{id}）',
+  'group.settings': '设置',
+  'cmd.settings.list.summary': '列出 Host 的设置',
+  'cmd.settings.list.usage': 'wevir settings [list] [--json]',
+  'cmd.settings.set.summary': '修改一项设置',
+  'cmd.settings.set.usage': 'wevir settings set <键> <值>',
+  'cmd.settings.set.help': `键见 wevir settings；开关写 on / off，对象写 JSON
+
+示例：
+  wevir settings set sendWhileBusy queue
+  wevir settings set autoMemory off
+  wevir settings set outputStyle concise`,
+  'settings.col.key': '键',
+  'settings.col.value': '值',
+  'settings.unknownKey': '未知设置：{key}',
+  'settings.unknownKey.hint': '可用：{keys}',
+  'settings.badValue': '{key} 不接受该值：{value}',
+  'settings.badValue.hint': '运行 wevir settings --json 查看当前值的写法',
+  'settings.saved': '已保存：{key} = {value}',
+  'group.instructions': '给 Agent 的说明',
+  'cmd.instructions.show.summary': '查看给所有会话的长期说明',
+  'cmd.instructions.show.usage': 'wevir instructions [show]',
+  'cmd.instructions.set.summary': '设置给 Agent 的说明',
+  'cmd.instructions.set.usage': 'wevir instructions set "<说明>" | -',
+  'cmd.instructions.set.help': '- 表示从 stdin 读到结束；从下一次建会话、恢复或接力起生效',
+  'cmd.instructions.clear.summary': '清除给 Agent 的说明',
+  'cmd.instructions.clear.usage': 'wevir instructions clear',
+  'instructions.none': '暂无说明',
+  'instructions.empty': '说明为空',
+  'instructions.empty.hint': '清除用 wevir instructions clear',
+  'instructions.notSaved': 'Host 未保存说明',
+  'instructions.saved': '已保存说明（{count} 字）',
+  'instructions.cleared': '已清除说明',
+  'plugin.source.builtin': '内置',
+
+  // 后台进程与用量
+  'group.process': '后台进程',
+  'cmd.process.list.summary': '列出 Agent 在后台起的命令、检查与开发服务器',
+  'cmd.process.list.usage': 'wevir process list [-w <路径> | --session <会话 ID>] [--json]',
+  'cmd.process.output.summary': '查看进程输出',
+  'cmd.process.output.usage': 'wevir process output <ID> [--all]',
+  'cmd.process.stop.summary': '停止进程',
+  'cmd.process.stop.usage': 'wevir process stop <ID> [--signal SIGINT|SIGTERM|SIGKILL]',
+  'process.running': '运行中',
+  'process.failed': '启动失败',
+  'process.signalled': '已停止（{signal}）',
+  'process.exited': '已退出（{code}）',
+  'process.none': '暂无进程',
+  'process.col.name': '名称',
+  'process.col.status': '状态',
+  'process.col.started': '启动于',
+  'process.col.command': '命令',
+  'process.earlierOmitted': '（仅显示最后一页；--all 显示全部）',
+  'process.badSignal': '未知信号：{signal}',
+  'process.badSignal.hint': '可用 {signals}',
+  'process.stopped': '{id}：{status}',
+  'group.usage': '用量',
+  'cmd.usage.summary.summary': '最近几天的请求数、token 与估算成本',
+  'cmd.usage.summary.usage': 'wevir usage [--days <天数>] [--json]',
+  'stats.badDays': '--days 应为 1–366 的整数：{days}',
+  'stats.title': '最近 {days} 天',
+  'stats.none': '暂无请求',
+  'stats.totals':
+    '{requests} 次请求 · 输入 {input} · 输出 {output} · 缓存读取 {cache} · 成本 {cost} · 平均耗时 {duration}',
+  'stats.col.requests': '请求',
+  'stats.col.tokens': 'Token',
+  'stats.col.cost': '成本',
+  'stats.col.model': '模型',
+  'stats.noPricing': '价格表尚未取得，成本未估算',
+  'stats.unpriced': '{count} 次请求的模型不在价格表中，未计入成本',
 } as const;
 
 export type MessageKey = keyof typeof zh;

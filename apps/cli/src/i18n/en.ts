@@ -17,7 +17,7 @@ export const en: Messages = {
   'cli.mainUsage': 'wevir <command> [options]',
   'cli.globalHelp': `Global options:
   --home <dir>     Data directory, shared with the Host. Default: macOS ~/Library/Application Support/Wevir,
-                   Windows %APPDATA%\\Wevir
+                   Windows %APPDATA%\\Wevir, Linux $XDG_DATA_HOME/wevir (~/.local/share/wevir)
   --remote <name>  Run on a paired computer (wevir remote pair); session, inbox and list commands only
   -h, --help       Show help
   -v, --version    Show the version
@@ -67,7 +67,7 @@ Environment:
   'cmd.workspace.add.help': `Options:
   --name <name>   Display name, defaults to the folder name`,
   'cmd.workspace.list.summary': 'List workspaces',
-  'cmd.workspace.list.usage': 'wevir workspace list',
+  'cmd.workspace.list.usage': 'wevir workspace list [--json]',
   'cmd.provider.add.summary': 'Add or update a provider',
   'cmd.provider.add.usage': 'wevir provider add [options]',
   'cmd.provider.add.help': `The API key is never a command-line argument: enter it hidden in the terminal, or pipe one line on stdin
@@ -87,7 +87,7 @@ Examples:
   wevir provider add --kind deepseek-official
   wevir provider add --kind openai-compatible --id kimi --base-url https://api.moonshot.cn/v1 --model kimi-k2.6`,
   'cmd.provider.list.summary': 'List providers',
-  'cmd.provider.list.usage': 'wevir provider list',
+  'cmd.provider.list.usage': 'wevir provider list [--json]',
   'cmd.provider.test.summary': "Test a provider's connection",
   'cmd.provider.test.usage': 'wevir provider test [<ID>] [--model <model ID>]',
   'cmd.provider.test.help': `Sends one minimal real request; the ID can be omitted when there is only one provider
@@ -107,31 +107,42 @@ Adds the provider chatgpt`,
   'cmd.provider.logout.help':
     'Deletes the local ChatGPT credentials and tries to revoke the tokens; the chatgpt provider and its sessions are kept and continue after signing in again',
   'cmd.session.new.summary': 'Create a session and send a prompt',
-  'cmd.session.new.usage': 'wevir session new -w <path> [options] "<prompt>"',
+  'cmd.session.new.usage': 'wevir session new [-w <path>] [options] "<prompt>"',
   'cmd.session.new.help': `Registers the folder as a workspace if needed; attaches after sending
 
 Options:
-  -w, --workspace <path>   Workspace folder (required)
+  -w, --workspace <path>   Workspace folder; omitted, the session is a chat outside any project
   --provider <ID>          Provider; optional when there is only one
   --model <model ID>       Model, defaults to the provider's default model
+  --effort <level>         Reasoning level
+  --permission <mode>      on_request (default), auto_review or full_access
+  --worktree               Open a new git worktree for this session
+  --plan                   Send the prompt in plan mode
   --detach                 Do not attach after sending`,
   'cmd.session.list.summary': 'List sessions',
-  'cmd.session.list.usage': 'wevir session list [-w <path>]',
+  'cmd.session.list.usage': 'wevir session list [-w <path>] [--archived] [--json]',
   'cmd.session.list.help': `Options:
-  -w, --workspace <path>   Only sessions in this workspace`,
+  -w, --workspace <path>   Only sessions in this workspace
+  --archived               List archived sessions`,
   'cmd.session.attach.summary': 'Attach to a session: live output, approvals and follow-ups',
   'cmd.session.attach.usage': 'wevir session attach <session ID>',
   'cmd.session.attach.help': `A unique prefix of the session ID is enough
 
 Keys:
-  Enter     Send a message, answer an approval; during a turn, steer or queue per settings
+  Enter     Send a message, answer an approval or question; during a turn, steer or queue per settings
   Tab       During a turn, send the other way (steer / queue)
   Ctrl-C    Cancel the current run; press again to leave attach
   Ctrl-D    Leave attach; the session is kept
-  /resume   Send held messages`,
+
+Approvals: a number, y / n; with a proposed rule, a always allows (this project), g always allows (all projects)
+Questions: a number (commas for several) or text; Enter skips
+Commands: /help lists /plan, /undo, /model and more; start with // to send the text as is`,
   'cmd.session.send.summary': 'Send a message to a session',
-  'cmd.session.send.usage': 'wevir session send <session ID> "<message>"',
-  'cmd.session.send.help': 'A unique prefix of the session ID is enough; does not attach',
+  'cmd.session.send.usage': 'wevir session send <session ID> "<message>" [--plan]',
+  'cmd.session.send.help': `A unique prefix of the session ID is enough; does not attach
+
+Options:
+  --plan   Send in plan mode`,
   'cmd.inbox.list.summary':
     'List approvals, questions, failures and automations waiting across sessions',
   'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
@@ -140,13 +151,16 @@ Keys:
   'cmd.inbox.dismiss.help':
     'IDs come from wevir inbox; approvals and questions leave when answered and cannot be dismissed',
   'cmd.inbox.respond.summary': 'Answer an approval',
-  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <answer>',
-  'cmd.inbox.respond.help': `ID from wevir inbox; the approval: prefix is optional
+  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <answer> [--remember project|global]',
+  'cmd.inbox.respond.help': `The ID comes from wevir inbox; approval: may be omitted
 
 Answers:
-  <number>      The option at that position
-  <option ID>   The option's ID
-  y / n         The first allow / reject option`,
+  <number>     The option's position
+  <option ID>  The option's ID
+  y / n        The first allow / reject option
+
+Options:
+  --remember project|global   Also add an approval rule (always allow); command approvals only`,
   'cmd.remote.pair.summary': 'Pair with Wevir on another computer',
   'cmd.remote.pair.usage': 'wevir remote pair <pairing link or code> [options]',
   'cmd.remote.pair.help': `The pairing link is the QR code content under Settings → Devices → Add device on that computer (wevir://pair?…); a short code needs both computers on the same local network
@@ -426,7 +440,7 @@ Also:
   'render.sessionError': 'Session error; sending a message tries to recover it',
   'render.sessionErrorWhy': 'Session error: {why}; sending a message tries to recover it',
   'render.sessionClosed': 'Session closed',
-  'render.question': '? Agent question (answer in the desktop app)',
+  'render.question': '? Agent question',
   'render.questionWithHeader': '{header}: {question}',
   'render.questionCancelled': 'Question cancelled',
   'render.answerSkipped': '(skipped)',
@@ -628,7 +642,7 @@ Also:
   'provider.testFailedHttp': '✗ Test failed ({reason}, HTTP {status})',
 
   'account.unknownKind': 'Unknown account type: {kind}',
-  'account.unknownKind.hint': 'Only chatgpt is supported',
+  'account.unknownKind.hint': 'Only chatgpt; for other sources use wevir account login',
   'account.alreadySignedIn': 'Already signed in to ChatGPT: {account}',
   'account.alreadySignedIn.hint': 'To switch accounts, run wevir provider logout first',
   'account.noDeviceCode': 'No device code from the Host',
@@ -890,4 +904,491 @@ Options:
   'weekday.4': 'Thu',
   'weekday.5': 'Fri',
   'weekday.6': 'Sat',
+
+  // attach 的提问、斜杠命令与总是允许
+  'render.configured': '(Settings: {config})',
+  'render.goal': 'Goal ({status}): {objective}',
+  'render.goalCleared': 'Goal cleared',
+  'render.undone': 'Turn undone: {files}',
+  'render.redone': 'Turn redone: {files}',
+  'render.rewound': '(Turn rewound)',
+  'render.alwaysAllow':
+    'Always allow commands starting with {prefix} (a this project / g all projects)',
+  'render.ruleAdded': ' (rule added)',
+  'goalStatus.active': 'active',
+  'goalStatus.paused': 'paused',
+  'goalStatus.blocked': 'blocked',
+  'goalStatus.usage_limited': 'usage limited',
+  'goalStatus.budget_limited': 'budget used up',
+  'goalStatus.complete': 'complete',
+  'files.unchanged': 'no file changes',
+  'files.restored': '{count, plural, one {# file restored} other {# files restored}}',
+  'files.unavailable': 'files not restored',
+  'files.unavailableWhy': 'files not restored ({reason})',
+  'attach.alwaysProject': 'a always allow · this project',
+  'attach.alwaysGlobal': 'g always allow · all projects',
+  'attach.answerHintAlways': 'Enter 1–{count}, y to allow, n to reject, or a / g to always allow',
+  'attach.questionPrompt': 'Answer {index}/{total} [{hint}] › ',
+  'attach.questionPick': '1–{count}',
+  'attach.questionPick.multi': '1–{count}, several allowed',
+  'attach.questionText': 'text',
+  'attach.questionSkip': 'Enter to skip',
+  'attach.questionHint': 'Enter 1–{count} or an answer, or press Enter to skip',
+  'attach.questionHintMulti': 'Enter 1–{count}, separate several with commas; press Enter to skip',
+  'attach.unknownCommand': 'Unknown command: {command}',
+  'attach.unknownCommand.hint': '/help lists commands; start with // to send the text as is',
+  'attach.renamed': 'Renamed: {title}',
+  'attach.forked': 'Branched to new session {id}; connect: wevir session attach {id}',
+  'attach.config': 'Model {model} · reasoning {effort} · {permission}',
+  'attach.effortDefault': 'default',
+  'attach.noGoal': 'No goal',
+  'slash.plan.usage': '/plan <message>',
+  'slash.plan': 'Send in plan mode',
+  'slash.undo.usage': '/undo',
+  'slash.undo': 'Undo the last turn and restore files',
+  'slash.redo.usage': '/redo',
+  'slash.redo': 'Redo the undone turn',
+  'slash.model.usage': '/model [model | provider/model]',
+  'slash.model': 'Show or switch the model; a provider hands off to another source',
+  'slash.effort.usage': '/effort [level | default]',
+  'slash.effort': 'Reasoning level',
+  'slash.permission.usage': '/permission [on_request | auto_review | full_access]',
+  'slash.permission': 'Permission mode',
+  'slash.compact.usage': '/compact',
+  'slash.compact': 'Compact the context',
+  'slash.goal.usage': '/goal [objective | pause | resume | clear]',
+  'slash.goal': 'Session goal',
+  'slash.rename.usage': '/rename <title>',
+  'slash.rename': 'Rename the session',
+  'slash.fork.usage': '/fork',
+  'slash.fork': 'Branch to a new session from the last finished turn',
+  'slash.resume.usage': '/resume',
+  'slash.resume': 'Resume held queued messages',
+  'slash.exit.usage': '/exit',
+  'slash.exit': 'Leave attach; the session keeps running',
+
+  // 审批规则
+  'host.unsupported': 'Host {version} does not support this feature ({feature})',
+  'host.unsupported.hint': 'Upgrade the Wevir Host',
+  'group.rule': 'Approval rules',
+  'cmd.rule.list.summary': 'List approval rules',
+  'cmd.rule.list.usage': 'wevir rule list [-w <path>] [--json]',
+  'cmd.rule.list.help': `Options:
+  -w, --workspace <path>   Only rules that apply to this project (global and project)`,
+  'cmd.rule.add.summary':
+    'Add a rule: commands starting with these words are allowed automatically',
+  'cmd.rule.add.usage': 'wevir rule add <command prefix…> [-w <path>]',
+  'cmd.rule.add.help': `Example: wevir rule add git status
+
+Options:
+  -w, --workspace <path>   Only for this project; all projects when omitted
+
+Rules only answer command approvals the engine asks for; permission mode and sandbox are unchanged`,
+  'cmd.rule.delete.summary': 'Delete a rule',
+  'cmd.rule.delete.usage': 'wevir rule delete <ID>',
+  'cmd.rule.suggest.summary': 'Suggest rules from approval history',
+  'cmd.rule.suggest.usage': 'wevir rule suggest [-w <path>] [--json]',
+  'cmd.rule.suggest.help':
+    'Command prefixes approved by hand several times, most first; add one with wevir rule add',
+  'rule.global': 'All projects',
+  'rule.none': 'No approval rules',
+  'rule.noSuggestions': 'No suggestions',
+  'rule.col.prefix': 'Command prefix',
+  'rule.col.scope': 'Scope',
+  'rule.col.uses': 'Auto-allowed',
+  'rule.col.lastUsed': 'Last used',
+  'rule.col.project': 'Project',
+  'rule.col.approved': 'Approved by hand',
+  'rule.col.example': 'Latest command',
+  'rule.added': 'Rule added: {prefix} ({scope}, {id})',
+  'rule.deleted': 'Rule deleted: {id}',
+  'rule.notFound': 'No such rule: {id}',
+  'inbox.badRemember': '--remember must be project or global: {value}',
+  'inbox.badRemember.hint': "project applies to the session's project, global to all projects",
+  'slash.help.usage': '/help',
+  'slash.help': 'List commands',
+
+  // 会话管理
+  'cmd.session.show.summary': 'Session details: settings, goal, pending items and to-dos',
+  'cmd.session.show.usage': 'wevir session show <session ID> [--json]',
+  'cmd.session.config.summary':
+    "Show or change a session's model, reasoning level and permission mode",
+  'cmd.session.config.usage': 'wevir session config <session ID> [options]',
+  'cmd.session.config.help': `Takes effect from the next turn; without options, shows the current settings
+
+Options:
+  --model <model ID>       Switch the model
+  --effort <level>         Reasoning level
+  --default-effort         Use the model's default level
+  --permission <mode>      on_request, auto_review or full_access
+  --provider <ID>          Hand off to another source (its default model unless --model)
+  --json                   Print the updated session`,
+  'cmd.session.rename.summary': 'Rename a session',
+  'cmd.session.rename.usage': 'wevir session rename <session ID> <title>',
+  'cmd.session.undo.summary': 'Undo the last turn and restore files',
+  'cmd.session.undo.usage': 'wevir session undo <session ID>',
+  'cmd.session.redo.summary': 'Redo the undone turn',
+  'cmd.session.redo.usage': 'wevir session redo <session ID>',
+  'cmd.session.fork.summary': 'Branch to a new session',
+  'cmd.session.fork.usage': 'wevir session fork <session ID> [--turn <turn ID>] [--json]',
+  'cmd.session.fork.help':
+    'The new session carries the history up to that turn; the last finished turn when --turn is omitted',
+  'cmd.session.compact.summary': "Compact a session's context",
+  'cmd.session.compact.usage': 'wevir session compact <session ID>',
+  'cmd.session.cancel.summary': "Cancel a session's current run",
+  'cmd.session.cancel.usage': 'wevir session cancel <session ID>',
+  'cmd.session.close.summary': "Close a session's engine; it resumes on the next send",
+  'cmd.session.close.usage': 'wevir session close <session ID>',
+  'cmd.session.archive.summary': 'Archive a session',
+  'cmd.session.archive.usage': 'wevir session archive <session ID>',
+  'cmd.session.unarchive.summary': 'Unarchive a session',
+  'cmd.session.unarchive.usage': 'wevir session unarchive <session ID>',
+  'cmd.session.delete.summary': 'Permanently delete an archived session',
+  'cmd.session.delete.usage': 'wevir session delete <session ID> [--force]',
+  'cmd.session.delete.help': `Deletes its sub-sessions, side sessions, files and Host-created worktrees too; cannot be undone
+
+Options:
+  --force   Delete even when a worktree has uncommitted changes`,
+  'session.noneArchived': 'No archived sessions',
+  'session.worktreeNeedsWorkspace': '--worktree needs -w <path>',
+  'session.goalText': '{objective} ({status})',
+  'session.pendingApprovals': '{count, plural, one {# approval} other {# approvals}}',
+  'session.pendingQuestions': '{count, plural, one {# question} other {# questions}}',
+  'session.field.state': 'State',
+  'session.field.workspace': 'Workspace',
+  'session.field.cwd': 'Folder',
+  'session.field.model': 'Model',
+  'session.field.effort': 'Reasoning',
+  'session.field.permission': 'Permission',
+  'session.field.mode': 'Mode',
+  'session.field.goal': 'Goal',
+  'session.field.pending': 'Pending',
+  'session.field.parent': 'Parent',
+  'session.field.created': 'Created',
+  'session.field.updated': 'Updated',
+  'session.field.archived': 'Archived',
+  'session.field.events': 'Events',
+  'session.planMode': 'Plan mode',
+  'session.todos': 'To-dos',
+  'session.archived': 'Archived: {id}',
+  'session.unarchived': 'Unarchived: {id}',
+  'session.deleted': '{count, plural, one {Deleted # session} other {Deleted # sessions}}',
+  'session.keptBranch': 'Unmerged branch kept: {branch}',
+  'session.engineDataKept': 'Some engine data was not deleted',
+  'session.undone': 'Undid turn {turn}: {files}',
+  'session.redone': 'Redid turn {turn}: {files}',
+  'session.effortConflict': 'Use either --effort or --default-effort',
+  'session.notRunning': 'The session is not running: {id}',
+  'session.cancelRequested': 'Cancel requested: {id}',
+  'session.closed': 'Closed: {id}',
+  'session.compacting': 'Compacting the context (turn {turn})',
+  'worktree.archived': 'Worktree saved and its folder removed: {branch}',
+  'worktree.kept': 'Worktree folder kept: {path}',
+  'worktree.missing': 'Worktree folder missing: {path}',
+  'worktree.restored': 'Worktree restored: {path}',
+  'worktree.failed': 'Worktree not restored: {branch}',
+
+  // 订阅账号
+  'group.account': 'Subscription accounts',
+  'cmd.account.list.summary': 'List subscription accounts and their status',
+  'cmd.account.list.usage': 'wevir account list [--json]',
+  'cmd.account.status.summary': "Show an account's status, usage and how to sign in",
+  'cmd.account.status.usage': 'wevir account status <source|ID> [--refresh] [--json]',
+  'cmd.account.status.help': `Sources: chatgpt, claude, cursor, opencode, grok, antigravity, workbuddy, devin; IDs come from wevir account list
+
+Options:
+  --refresh   Check again (after signing in or installing in a terminal)`,
+  'cmd.account.login.summary': 'Sign in to a subscription account',
+  'cmd.account.login.usage': 'wevir account login <source|ID> [options]',
+  'cmd.account.login.help': `In-app sign-in prints a URL or a device code and waits (Ctrl-C cancels); terminal sign-in prints the command to run
+
+Options:
+  --device-code       Use a device code (works on any device; preferred)
+  --browser           Use browser authorization (the callback lands on the Host's computer)
+  --option <ID>       Sign-in option (such as WorkBuddy's China / international site)
+  --upstream <ID>     Connect an upstream (OpenCode, see wevir account upstreams); the API key is read from stdin`,
+  'cmd.account.logout.summary': 'Sign out of a subscription account',
+  'cmd.account.logout.usage': 'wevir account logout <source|ID> [--upstream <ID>]',
+  'cmd.account.logout.help': `For sources that use the terminal's sign-in (the first Claude or Grok account), the terminal is signed out too
+
+Options:
+  --upstream <ID>   Only disconnect this upstream`,
+  'cmd.account.upstreams.summary': 'List connectable upstreams (OpenCode)',
+  'cmd.account.upstreams.usage': 'wevir account upstreams <source|ID> [--json]',
+  'cmd.account.install.summary': "Download and install a source's engine",
+  'cmd.account.install.usage': 'wevir account install <source>',
+  'cmd.account.add.summary': 'Add an account (separate from existing ones)',
+  'cmd.account.add.usage': 'wevir account add <source> [--label <label>] [--json]',
+  'cmd.account.remove.summary': 'Remove an added account',
+  'cmd.account.remove.usage': 'wevir account remove <ID>',
+  'cmd.account.remove.help':
+    'Signs out, closes its sessions and deletes its provider, usage records and data folder; the first account cannot be removed',
+  'cmd.account.label.summary': "Set or clear an account's label",
+  'cmd.account.label.usage': 'wevir account label <source|ID> <label> | --clear',
+  'cmd.account.path.summary': "Set or clear the engine's executable",
+  'cmd.account.path.usage': 'wevir account path <source> <path> | --clear',
+  'subscription.unknown': 'Unknown source or account: {value}',
+  'subscription.unknown.hint': 'Sources: {kinds}; account IDs are in wevir account list',
+  'subscription.none': 'No subscription accounts',
+  'subscription.installing': 'Installing',
+  'subscription.notInstalled': 'Not installed',
+  'subscription.signedIn': 'Signed in',
+  'subscription.signingIn': 'Signing in',
+  'subscription.signedOut': 'Signed out',
+  'subscription.col.source': 'Source',
+  'subscription.col.status': 'Status',
+  'subscription.col.account': 'Account',
+  'subscription.col.version': 'Version',
+  'subscription.col.name': 'Name',
+  'subscription.col.methods': 'Methods',
+  'subscription.connected': 'Connected',
+  'subscription.statusLine': '{name}: {status}',
+  'subscription.executable': 'Executable: {path}',
+  'subscription.installWith': 'Install: wevir account install {kind}',
+  'subscription.installCommand': 'Install yourself: {command}',
+  'subscription.installUrl': 'Install guide: {url}',
+  'subscription.installElsewhere':
+    "Install it per the source's instructions, then run wevir account status --refresh",
+  'subscription.loginCommand': 'Sign in from a terminal: {command}',
+  'subscription.loginWith': 'Sign in: wevir account login {id}',
+  'subscription.progress': 'Downloading {percent}% ({done} / {total} MB)',
+  'subscription.progressBytes': 'Downloading {done} MB',
+  'subscription.methodConflict': 'Use either --browser or --device-code',
+  'subscription.needsInstall': '{name} is not installed',
+  'subscription.alreadySignedIn': 'Already signed in to {name}: {account}',
+  'subscription.alreadySignedIn.hint': 'To switch accounts, run wevir account logout {id} first',
+  'subscription.runInTerminal': '{name} signs in from a terminal; run:',
+  'subscription.thenRefresh': 'Then run wevir account status {id} --refresh',
+  'subscription.methodUnsupported': '{name} does not support sign-in by {method}',
+  'subscription.methodUnsupported.hint': 'Available: {methods}',
+  'subscription.badOption': 'Unknown sign-in option: {option}',
+  'subscription.badOption.hint': 'Available: {options}',
+  'subscription.noUpstream': 'Unknown upstream: {upstream}',
+  'subscription.noUpstream.hint': 'Run wevir account upstreams {id} to see them',
+  'subscription.askKey': '{name} API key (hidden): ',
+  'subscription.keyMissing': 'No API key entered',
+  'subscription.upstreamConnected': '✓ Connected {name}',
+  'subscription.upstreamDisconnected': 'Disconnected upstream {upstream}',
+  'subscription.deviceStep1': '1. Open {url} in a browser and sign in',
+  'subscription.openUrl': 'Open in a browser: {url}',
+  'subscription.callbackNote':
+    "Authorization returns to the Host's computer; use a browser on that computer",
+  'subscription.signedInAs': '✓ Signed in to {name}: {account}',
+  'subscription.loggedOut': 'Signed out of {name}',
+  'subscription.localLogout': "This used the terminal's sign-in; the terminal is signed out too",
+  'subscription.installFailed': 'Install failed: {error}',
+  'subscription.installed': '✓ Installed {name} {version}',
+  'subscription.added': 'Added account {name} ({id}); sign in: wevir account login {id}',
+  'subscription.firstAccount':
+    'The first account cannot be removed; sign out with wevir account logout',
+  'subscription.removed': 'Removed account {id}',
+  'subscription.labelUsage': 'Give a label or --clear',
+  'subscription.labelled': 'Updated: {name}',
+  'subscription.pathUsage': 'Give a path or --clear',
+
+  // 记忆、插件、设置与说明
+  'cmd.workspace.rename.summary': 'Rename a workspace',
+  'cmd.workspace.rename.usage': 'wevir workspace rename <path> <name>',
+  'cmd.workspace.remove.summary': 'Remove a workspace',
+  'cmd.workspace.remove.usage': 'wevir workspace remove <path>',
+  'cmd.workspace.remove.help': 'Its sessions are no longer listed; the folder and files are kept',
+  'workspace.removed': 'Workspace removed: {name}',
+  'workspace.renamed': 'Renamed: {name}',
+  'cmd.provider.models.summary': 'List the models the service offers',
+  'cmd.provider.models.usage': 'wevir provider models <ID> [--json]',
+  'cmd.provider.enable.summary': 'Enable a provider',
+  'cmd.provider.enable.usage': 'wevir provider enable <ID>',
+  'cmd.provider.disable.summary':
+    'Disable a provider: hidden from model choice; existing sessions keep working',
+  'cmd.provider.disable.usage': 'wevir provider disable <ID>',
+  'cmd.provider.remove.summary': 'Delete a provider and its key',
+  'cmd.provider.remove.usage': 'wevir provider remove <ID>',
+  'provider.removed': 'Provider deleted: {name} ({id})',
+  'provider.turnedOn': 'Enabled: {name}',
+  'provider.turnedOff': 'Disabled: {name}',
+  'provider.modelsFailed': 'Listing models failed: {reason}',
+  'provider.noModels': 'No models',
+  'provider.col.modelId': 'Model',
+  'provider.col.context': 'Context',
+  'provider.model.default': 'default',
+  'provider.model.added': 'added',
+  'provider.modelsTruncated': 'List truncated',
+  'group.memory': 'Memory',
+  'cmd.memory.list.summary': 'List memory notes',
+  'cmd.memory.list.usage': 'wevir memory list [-w <path>] [--json]',
+  'cmd.memory.list.help': `Without -w, only global notes; with -w, this project's notes too
+
+The agent creates notes; view, edit, disable or delete them here`,
+  'cmd.memory.show.summary': 'Show a note',
+  'cmd.memory.show.usage': 'wevir memory show <name> [-w <path>] [--json]',
+  'cmd.memory.edit.summary': 'Edit a note',
+  'cmd.memory.edit.usage': 'wevir memory edit <name> [-w <path>] [options]',
+  'cmd.memory.edit.help': `Options:
+  -w, --workspace <path>   A project note; global when omitted
+  --description <text>     One-line description
+  --type <type>            user, feedback, project or reference
+  --content <text>         Body
+  --stdin                  Read the body from stdin until it ends`,
+  'cmd.memory.enable.summary': 'Enable a note',
+  'cmd.memory.enable.usage': 'wevir memory enable <name> [-w <path>]',
+  'cmd.memory.disable.summary': 'Disable a note: the agent no longer sees it',
+  'cmd.memory.disable.usage': 'wevir memory disable <name> [-w <path>]',
+  'cmd.memory.delete.summary': 'Delete a note',
+  'cmd.memory.delete.usage': 'wevir memory delete <name> [-w <path>]',
+  'memory.scope.global': 'Global',
+  'memory.scope.project': 'Project',
+  'memory.type.user': 'user',
+  'memory.type.feedback': 'feedback',
+  'memory.type.project': 'project',
+  'memory.type.reference': 'reference',
+  'memory.enabled': 'On',
+  'memory.disabled': 'Off',
+  'memory.none': 'No memory notes',
+  'memory.col.name': 'Name',
+  'memory.col.scope': 'Scope',
+  'memory.col.type': 'Type',
+  'memory.col.state': 'State',
+  'memory.col.description': 'Description',
+  'memory.col.updated': 'Updated',
+  'memory.unreadable': 'Unreadable note: {name} ({scope})',
+  'memory.updated': 'Updated {time}',
+  'memory.contentConflict': 'Use either --content or --stdin',
+  'memory.badType': 'Unknown type: {type}',
+  'memory.badType.hint': 'Use {types}',
+  'memory.nothingToEdit': 'Nothing to change',
+  'memory.conflict': 'The note changed elsewhere: {name}',
+  'memory.conflict.hint': 'Run wevir memory show to see it, then edit again',
+  'memory.saved': 'Saved: {name}',
+  'memory.turnedOn': 'Enabled: {name}',
+  'memory.turnedOff': 'Disabled: {name}',
+  'memory.deleted': 'Deleted: {name}',
+  'group.plugin': 'Plugins, skills and connectors',
+  'cmd.plugin.list.summary': 'List plugins, skills and connectors',
+  'cmd.plugin.list.usage': 'wevir plugin list [--json]',
+  'cmd.plugin.enable.summary': 'Enable a plugin, skill or connector',
+  'cmd.plugin.enable.usage': 'wevir plugin enable <ID>',
+  'cmd.plugin.disable.summary': 'Disable a plugin, skill or connector',
+  'cmd.plugin.disable.usage': 'wevir plugin disable <ID>',
+  'cmd.plugin.install.summary': 'Install a plugin or skill from a local folder',
+  'cmd.plugin.install.usage': 'wevir plugin install <path>',
+  'cmd.plugin.install.help':
+    'A folder with wevir-plugin.json (or a Claude / Codex plugin manifest) installs as a plugin; one with only SKILL.md as a skill',
+  'cmd.plugin.remove.summary': 'Delete a plugin, skill or connector',
+  'cmd.plugin.remove.usage': 'wevir plugin remove <ID>',
+  'cmd.plugin.remove.help': 'A plugin is deleted with its skills and connectors',
+  'plugin.notFound': 'No plugin, skill or connector: {id}',
+  'plugin.notFound.hint': 'Run wevir plugin list to see the IDs',
+  'plugin.enabled': 'On',
+  'plugin.disabled': 'Off',
+  'plugin.none': 'No plugins, skills or connectors',
+  'plugin.section.plugins': 'Plugins',
+  'plugin.section.skills': 'Skills',
+  'plugin.section.connectors': 'Connectors',
+  'plugin.col.name': 'Name',
+  'plugin.col.version': 'Version',
+  'plugin.col.state': 'State',
+  'plugin.col.contents': 'Contents',
+  'plugin.col.source': 'Source',
+  'plugin.col.description': 'Description',
+  'plugin.col.transport': 'Transport',
+  'plugin.col.tools': 'Tools',
+  'plugin.contents': '{skills} skills, {connectors} connectors',
+  'plugin.source.wevir': 'Wevir',
+  'plugin.source.user': 'user',
+  'plugin.source.project': 'project',
+  'plugin.turnedOn': 'Enabled: {name}',
+  'plugin.turnedOff': 'Disabled: {name}',
+  'plugin.removed': 'Deleted: {name}',
+  'plugin.installedSkill': 'Skill installed: {name}',
+  'plugin.installed': 'Plugin installed: {name} {version} ({id})',
+  'plugin.ignored': 'Ignored: {item}',
+  'plugin.missingInputs':
+    "{count, plural, one {# required setting is} other {# required settings are}} not filled in; fill them in the desktop app's settings",
+  'group.mcp': 'MCP servers',
+  'cmd.mcp.add.summary': 'Add a connector (MCP server)',
+  'cmd.mcp.add.usage': 'wevir mcp add <name> (--url <URL> | -- <command> [args…])',
+  'cmd.mcp.add.help': `Examples:
+  wevir mcp add docs --url https://example.com/mcp
+  wevir mcp add files -- npx -y @modelcontextprotocol/server-filesystem ~/notes
+
+Options:
+  -w, --workspace <path>   Only for this project; global when omitted
+  --disabled               Add without enabling
+
+List, enable, disable and delete with wevir plugin`,
+  'mcp.needOne': 'Give --url or a command after --',
+  'mcp.added': 'Connector added: {name} ({id})',
+  'group.settings': 'Settings',
+  'cmd.settings.list.summary': "List the Host's settings",
+  'cmd.settings.list.usage': 'wevir settings [list] [--json]',
+  'cmd.settings.set.summary': 'Change a setting',
+  'cmd.settings.set.usage': 'wevir settings set <key> <value>',
+  'cmd.settings.set.help': `Keys are listed by wevir settings; switches take on / off, objects take JSON
+
+Examples:
+  wevir settings set sendWhileBusy queue
+  wevir settings set autoMemory off
+  wevir settings set outputStyle concise`,
+  'settings.col.key': 'Key',
+  'settings.col.value': 'Value',
+  'settings.unknownKey': 'Unknown setting: {key}',
+  'settings.unknownKey.hint': 'Available: {keys}',
+  'settings.badValue': '{key} does not accept: {value}',
+  'settings.badValue.hint': 'Run wevir settings --json to see how current values are written',
+  'settings.saved': 'Saved: {key} = {value}',
+  'group.instructions': 'Agent instructions',
+  'cmd.instructions.show.summary': 'Show the standing instructions for all sessions',
+  'cmd.instructions.show.usage': 'wevir instructions [show]',
+  'cmd.instructions.set.summary': 'Set the agent instructions',
+  'cmd.instructions.set.usage': 'wevir instructions set "<instructions>" | -',
+  'cmd.instructions.set.help':
+    '- reads from stdin until it ends; takes effect from the next new, resumed or handed-off session',
+  'cmd.instructions.clear.summary': 'Clear the agent instructions',
+  'cmd.instructions.clear.usage': 'wevir instructions clear',
+  'instructions.none': 'No instructions',
+  'instructions.empty': 'The instructions are empty',
+  'instructions.empty.hint': 'To clear them, run wevir instructions clear',
+  'instructions.notSaved': 'The Host did not save the instructions',
+  'instructions.saved':
+    '{count, plural, one {Instructions saved (# character)} other {Instructions saved (# characters)}}',
+  'instructions.cleared': 'Instructions cleared',
+  'plugin.source.builtin': 'built-in',
+
+  // 后台进程与用量
+  'group.process': 'Background processes',
+  'cmd.process.list.summary':
+    'List commands, checks and dev servers the agent runs in the background',
+  'cmd.process.list.usage': 'wevir process list [-w <path> | --session <session ID>] [--json]',
+  'cmd.process.output.summary': "Show a process's output",
+  'cmd.process.output.usage': 'wevir process output <ID> [--all]',
+  'cmd.process.stop.summary': 'Stop a process',
+  'cmd.process.stop.usage': 'wevir process stop <ID> [--signal SIGINT|SIGTERM|SIGKILL]',
+  'process.running': 'Running',
+  'process.failed': 'Failed to start',
+  'process.signalled': 'Stopped ({signal})',
+  'process.exited': 'Exited ({code})',
+  'process.none': 'No processes',
+  'process.col.name': 'Name',
+  'process.col.status': 'Status',
+  'process.col.started': 'Started',
+  'process.col.command': 'Command',
+  'process.earlierOmitted': '(last page only; --all shows everything)',
+  'process.badSignal': 'Unknown signal: {signal}',
+  'process.badSignal.hint': 'Use {signals}',
+  'process.stopped': '{id}: {status}',
+  'group.usage': 'Usage',
+  'cmd.usage.summary.summary': 'Requests, tokens and estimated cost over recent days',
+  'cmd.usage.summary.usage': 'wevir usage [--days <days>] [--json]',
+  'stats.badDays': '--days must be a whole number from 1 to 366: {days}',
+  'stats.title': '{days, plural, one {Last day} other {Last # days}}',
+  'stats.none': 'No requests',
+  'stats.totals':
+    '{requests} requests · input {input} · output {output} · cache reads {cache} · cost {cost} · average duration {duration}',
+  'stats.col.requests': 'Requests',
+  'stats.col.tokens': 'Tokens',
+  'stats.col.cost': 'Cost',
+  'stats.col.model': 'Model',
+  'stats.noPricing': 'Prices not fetched yet; costs not estimated',
+  'stats.unpriced':
+    '{count, plural, one {# request uses a model} other {# requests use models}} missing from the price list; not counted in the cost',
 };

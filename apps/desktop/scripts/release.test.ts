@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SPEECH_MIRRORS, SPEECH_RELEASE_TAG } from '../../../packages/host/src/speech/install.ts';
 import { manifestFile as feedManifestFile } from '../src/main/updates/feed.js';
@@ -5,8 +6,14 @@ import {
   CDN_RETRY_MS,
   CDN_SETTLE_MS,
   type CdnCheck,
+  CLI_GITHUB_TAG,
+  CLI_ROOT,
   cacheControlOf,
   checkPlatformDir,
+  checksumsText,
+  cliChannelFile,
+  cliChecksumsFile,
+  cliPackages,
   compareVersions,
   type Digest,
   devBuildNumber,
@@ -24,6 +31,7 @@ import {
   stableVersionOfTag,
   uploadInstallers,
   uploadTimeoutMs,
+  versionOfCliFile,
   versionOfFile,
   waitForCdn,
 } from './release.js';
@@ -431,5 +439,84 @@ describe('GitHub 线路的附件名', () => {
       'beta-linux-arm64.yml',
       'Wevir-0.1.1-beta.2-linux-arm64.deb',
     ]);
+  });
+});
+
+describe('命令行包', () => {
+  it('认出命令行包与校验和文件的版本', () => {
+    expect(versionOfCliFile('wevir-cli-0.2.1-beta.4-linux-x64.tar.gz')).toBe('0.2.1-beta.4');
+    expect(versionOfCliFile('wevir-cli-0.2.0-win32-x64.zip')).toBe('0.2.0');
+    expect(versionOfCliFile('wevir-cli-0.2.0-checksums.txt')).toBe('0.2.0');
+    expect(versionOfCliFile(cliChecksumsFile('1.0.0-beta.1'))).toBe('1.0.0-beta.1');
+    for (const name of [
+      'beta.txt',
+      'install.sh',
+      'Wevir-0.2.0-mac-arm64.zip',
+      'wevir-cli-x.tar.gz',
+    ]) {
+      expect(versionOfCliFile(name)).toBeUndefined();
+    }
+  });
+
+  it('只收同一个版本的包，校验和按 sha256sum 的格式写', () => {
+    const names = [
+      'wevir-cli-0.2.0-linux-x64.tar.gz',
+      'wevir-cli-0.2.0-darwin-arm64.tar.gz',
+      'wevir-cli-0.2.0-win32-x64.zip',
+      'wevir-cli-0.2.0-checksums.txt',
+      'install.sh',
+    ];
+    expect(cliPackages(names, '0.2.0')).toEqual([
+      'wevir-cli-0.2.0-darwin-arm64.tar.gz',
+      'wevir-cli-0.2.0-linux-x64.tar.gz',
+      'wevir-cli-0.2.0-win32-x64.zip',
+    ]);
+    expect(() => cliPackages(names, '0.2.1')).toThrow(/not version 0\.2\.1/);
+    expect(() => cliPackages(['install.sh'], '0.2.0')).toThrow(/no command-line packages/);
+    expect(
+      checksumsText([
+        { name: 'b.tar.gz', sha256: 'bb' },
+        { name: 'a.zip', sha256: 'aa' },
+      ]),
+    ).toBe('aa  a.zip\nbb  b.tar.gz\n');
+  });
+
+  it('通道文件与安装脚本不缓存，带版本的文件长期缓存；清理按通道各留几个版本', () => {
+    expect(cliChannelFile('stable')).toBe('latest.txt');
+    expect(cliChannelFile('dev')).toBe('beta.txt');
+    for (const name of ['latest.txt', 'beta.txt', 'install.sh', 'install.ps1']) {
+      expect(cacheControlOf(name)).toBe('no-cache');
+    }
+    expect(cacheControlOf('wevir-cli-0.2.0-checksums.txt')).toBe(
+      'public, max-age=31536000, immutable',
+    );
+    const names = [
+      '0.1.1-beta.1',
+      '0.1.1-beta.2',
+      '0.1.1-beta.3',
+      '0.1.0',
+      '0.0.9',
+      '0.0.8',
+    ].flatMap((version) => [`wevir-cli-${version}-linux-x64.tar.gz`, cliChecksumsFile(version)]);
+    expect(
+      filesToPrune(
+        [...names, 'beta.txt', 'install.sh'],
+        new Set(['0.1.1-beta.1']),
+        2,
+        versionOfCliFile,
+      ),
+    ).toEqual(['wevir-cli-0.0.8-linux-x64.tar.gz', cliChecksumsFile('0.0.8')]);
+  });
+
+  it('安装脚本读的线路与发布的线路一致', () => {
+    const lines = [
+      ...MIRRORS.filter((m) => m.id === 'r2').map((m) => `${m.publicUrl}/${CLI_ROOT}`),
+      `https://github.com/marvinli001/wevir/releases/download/${CLI_GITHUB_TAG}`,
+      ...MIRRORS.filter((m) => m.id === 'global').map((m) => `${m.publicUrl}/${CLI_ROOT}`),
+    ];
+    const sh = readFileSync(new URL('../../cli/scripts/install.sh', import.meta.url), 'utf8');
+    expect(/^LINES="([^"]+)"$/m.exec(sh)?.[1]?.split(' ')).toEqual(lines);
+    const ps1 = readFileSync(new URL('../../cli/scripts/install.ps1', import.meta.url), 'utf8');
+    expect([...ps1.matchAll(/^ {4}'(https:[^']+)',?$/gm)].map((m) => m[1])).toEqual(lines);
   });
 });

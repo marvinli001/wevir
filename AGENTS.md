@@ -67,7 +67,7 @@ wevir/
 └─ vitest.config.ts     根测试配置，每个包是一个 project
 ```
 
-`.gitignore` 里的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`apps/desktop/resources/` 与 `apps/desktop/release/`（打包产物）。
+`.gitignore` 里的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`apps/desktop/resources/`、`apps/desktop/release/` 与 `apps/cli/release/`（打包产物）。
 
 ## 常用命令
 
@@ -90,10 +90,11 @@ wevir/
 | `pnpm --filter @wevir/desktop resources` | 准备随安装包分发的运行时（要先 `pnpm build`），放进 `apps/desktop/resources/` |
 | `pnpm --filter @wevir/mobile ios` / `android` | 生成原生工程并编译、安装手机端的开发构建（要 Xcode / Android SDK）；之后 `pnpm --filter @wevir/mobile start` 起 Metro |
 | `pnpm --filter @wevir/desktop package` | 打安装包（要先 `pnpm build`），`--target <三元组>` 打别的平台，产物在 `apps/desktop/release/` |
+| `pnpm --filter @wevir/cli package` | 打自带 Node 的命令行包（要先 `pnpm --filter "@wevir/host..." build`）：`--target <三元组>` 打别的平台，`--version` 写进 `wevir --version`，产物 `wevir-cli-<版本>-<平台>-<架构>.tar.gz`（Windows `.zip`）在 `apps/cli/release/`；安装脚本是 `apps/cli/scripts/install.sh` 与 `install.ps1` |
 | `pnpm vitest run --project adapter-<名字>` | 单个适配器的测试；真实引擎或真实模型的测试默认跳过并打印原因，要按各适配器测试文件头的说明设置环境变量（如 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`，或 `WEVIR_TEST_CLAUDE=1`、`WEVIR_TEST_GROK=1`、`WEVIR_TEST_OPENCODE=1`、`WEVIR_TEST_WORKBUDDY=1`、`WEVIR_TEST_DEVIN=1`；订阅类的会用掉额度） |
 | `bash scripts/upstream-sync.sh` | 按 `docs/upstream/upstream.lock` 把上游参考仓库浅克隆到 `upstream/`；`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀 |
 
-国内网络：npm 镜像用 npmmirror，Electron 二进制用 `ELECTRON_MIRROR`，上游与 Codex 下载用 `WEVIR_GITHUB_MIRROR`。
+国内网络：npm 镜像用 npmmirror，Electron 二进制用 `ELECTRON_MIRROR`，上游与 Codex 下载用 `WEVIR_GITHUB_MIRROR`，命令行包里的 Node 用 `WEVIR_NODE_MIRROR`（替换 `https://nodejs.org/dist`）。
 
 ## 写代码的约定
 

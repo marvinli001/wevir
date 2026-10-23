@@ -1,24 +1,23 @@
 // 添加电脑：扫二维码（expo-camera）、粘贴配对链接（模拟器没有相机）或手输短码（局域网 mDNS）。握手之后等电脑上点“允许”，
-// 允许了就记下这台电脑并打开它的详情。
+// 允许了就记下这台电脑并打开它的详情。页面是系统的模态卡片，iOS 左上角一枚玻璃关闭按钮。
 
 import { DEVICE_NAME_MAX_LENGTH } from '@wevir/protocol';
 import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import * as Clipboard from 'expo-clipboard';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { Button, Card } from '../components/ui';
+import { Button, Group, Icon, Segmented } from '../components/ui';
 import { t } from '../i18n';
 import {
   classifyPairingFailure,
@@ -29,7 +28,7 @@ import {
 } from '../lib/pairing';
 import { pairingFailureText } from '../lib/status-text';
 import { defaultDeviceName, pairingEnvironment, useRegistry } from '../state/registry';
-import { RADIUS, TEXT, useTheme } from '../theme';
+import { RADIUS, SPACE, TEXT, useTheme } from '../theme';
 
 type Method = 'scan' | 'link' | 'code';
 
@@ -95,54 +94,56 @@ export default function AddComputerScreen() {
     setStage(undefined);
   };
 
-  const inputStyle = [
-    styles.input,
-    { backgroundColor: theme.card, borderColor: theme.borderStrong, color: theme.foreground },
-  ];
+  const inputStyle = [styles.input, { backgroundColor: theme.card, color: theme.foreground }];
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <View style={[styles.segments, { backgroundColor: theme.muted }]}>
-          {(['scan', 'link', 'code'] as const).map((m) => (
-            <Pressable
-              key={m}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: method === m }}
-              disabled={busy}
-              onPress={() => {
-                setMethod(m);
-                setError(undefined);
-              }}
-              style={[
-                styles.segment,
-                method === m && { backgroundColor: theme.dark ? theme.borderStrong : theme.card },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  { color: method === m ? theme.foreground : theme.mutedForeground },
-                ]}
-              >
-                {t(`add.method.${m}`)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text style={[styles.label, { color: theme.mutedForeground }]}>{t('add.deviceName')}</Text>
-        <TextInput
-          value={deviceName}
-          onChangeText={setDeviceName}
-          maxLength={DEVICE_NAME_MAX_LENGTH}
-          editable={!busy}
-          autoCorrect={false}
-          style={inputStyle}
+      {Platform.OS === 'ios' && (
+        <Stack.Toolbar placement="left">
+          <Stack.Toolbar.Button
+            icon="xmark"
+            accessibilityLabel={t('add.cancel')}
+            onPress={() => router.back()}
+          />
+        </Stack.Toolbar>
+      )}
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Segmented
+          options={(['scan', 'link', 'code'] as const).map((m) => ({
+            value: m,
+            label: t(`add.method.${m}`),
+          }))}
+          value={method}
+          disabled={busy}
+          onChange={(m) => {
+            setMethod(m);
+            setError(undefined);
+          }}
         />
+
+        <Group style={styles.nameGroup}>
+          <View style={styles.nameRow}>
+            <Text style={[styles.nameLabel, { color: theme.foreground }]}>
+              {t('add.deviceName')}
+            </Text>
+            <TextInput
+              value={deviceName}
+              onChangeText={setDeviceName}
+              maxLength={DEVICE_NAME_MAX_LENGTH}
+              editable={!busy}
+              autoCorrect={false}
+              selectionColor={theme.foreground}
+              style={[styles.nameInput, { color: theme.mutedForeground }]}
+            />
+          </View>
+        </Group>
 
         {method === 'scan' && <Scanner active={!busy} onScan={(text) => void start(text)} />}
 
@@ -156,6 +157,7 @@ export default function AddComputerScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               multiline
+              selectionColor={theme.foreground}
               style={[inputStyle, styles.linkInput]}
             />
             <View style={styles.buttons}>
@@ -163,6 +165,7 @@ export default function AddComputerScreen() {
                 <Button
                   kind="secondary"
                   title={t('add.paste')}
+                  icon={{ ios: 'doc.on.clipboard', android: 'content_paste' }}
                   disabled={busy}
                   onPress={async () => setLink((await Clipboard.getStringAsync()).trim())}
                 />
@@ -192,6 +195,7 @@ export default function AddComputerScreen() {
               // 短码只有字母与数字：用 ASCII 键盘，中文、日文输入法不会先出候选。
               keyboardType={Platform.OS === 'ios' ? 'ascii-capable' : 'visible-password'}
               maxLength={9}
+              selectionColor={theme.foreground}
               style={[inputStyle, styles.codeInput]}
             />
             <View style={styles.buttons}>
@@ -207,17 +211,24 @@ export default function AddComputerScreen() {
         )}
 
         {error !== undefined && (
-          <Text style={[styles.error, { color: theme.destructive }]}>{error}</Text>
+          <View style={[styles.error, { backgroundColor: `${theme.destructive}14` }]}>
+            <Icon
+              name={{ ios: 'exclamationmark.circle.fill', android: 'error' }}
+              size={17}
+              color={theme.destructive}
+            />
+            <Text style={[styles.errorText, { color: theme.destructive }]}>{error}</Text>
+          </View>
         )}
 
         {stage !== undefined && (
-          <Card style={styles.progress}>
+          <Group style={styles.progress}>
             <ActivityIndicator color={theme.mutedForeground} />
             <Text style={[styles.progressText, { color: theme.foreground }]}>
               {stageText(stage, name)}
             </Text>
             <Button kind="secondary" title={t('add.cancel')} onPress={cancel} />
-          </Card>
+          </Group>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -235,7 +246,7 @@ function stageText(stage: PairingStage, device: string): string {
   }
 }
 
-/** 扫二维码：只认 QR，扫到一次就交出去，配对期间不再触发。 */
+/** 扫二维码：只认 QR，扫到一次就交出去，配对期间不再触发。取景框四角画细线框。 */
 function Scanner({ active, onScan }: { active: boolean; onScan: (text: string) => void }) {
   const theme = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
@@ -244,13 +255,13 @@ function Scanner({ active, onScan }: { active: boolean; onScan: (text: string) =
     return <View style={[styles.camera, { backgroundColor: theme.muted }]} />;
   if (!permission.granted) {
     return (
-      <View
-        style={[
-          styles.camera,
-          styles.cameraBlocked,
-          { backgroundColor: theme.card, borderColor: theme.border },
-        ]}
-      >
+      <View style={[styles.camera, styles.cameraBlocked, { backgroundColor: theme.card }]}>
+        <Icon
+          name={{ ios: 'camera.viewfinder', android: 'photo_camera' }}
+          size={40}
+          color={theme.mutedForeground}
+          weight="light"
+        />
         <Text style={[styles.progressText, { color: theme.mutedForeground }]}>
           {t('add.camera.permission')}
         </Text>
@@ -265,7 +276,7 @@ function Scanner({ active, onScan }: { active: boolean; onScan: (text: string) =
     );
   }
   return (
-    <View style={[styles.camera, { backgroundColor: theme.muted }]}>
+    <View style={[styles.camera, { backgroundColor: '#000' }]}>
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"
@@ -280,64 +291,90 @@ function Scanner({ active, onScan }: { active: boolean; onScan: (text: string) =
             : undefined
         }
       />
+      <View style={styles.reticle} pointerEvents="none">
+        {(['tl', 'tr', 'bl', 'br'] as const).map((corner) => (
+          <View key={corner} style={[styles.corner, styles[corner]]} />
+        ))}
+      </View>
     </View>
   );
 }
 
+const CORNER = 28;
+
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 48 },
-  segments: { flexDirection: 'row', borderRadius: RADIUS.control + 2, padding: 2 },
-  segment: {
-    flex: 1,
-    height: 32,
+  content: { padding: SPACE.page, paddingBottom: 48 },
+  nameGroup: { marginTop: 20 },
+  nameRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: RADIUS.control,
+    minHeight: 54,
+    paddingHorizontal: SPACE.page,
+    gap: 12,
   },
-  segmentText: { fontSize: TEXT.small, fontWeight: '600' },
+  nameLabel: { fontSize: TEXT.body, fontWeight: '500' },
+  nameInput: { flex: 1, fontSize: TEXT.body, textAlign: 'right', paddingVertical: 12 },
   label: {
-    fontSize: TEXT.caption,
+    fontSize: TEXT.small,
     fontWeight: '600',
-    marginTop: 20,
-    marginBottom: 6,
-    marginHorizontal: 2,
+    marginTop: 24,
+    marginBottom: 8,
+    marginHorizontal: 6,
   },
   input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: RADIUS.control,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: RADIUS.control + 4,
+    borderCurve: 'continuous',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: TEXT.body,
   },
   linkInput: {
-    minHeight: 96,
+    minHeight: 112,
     textAlignVertical: 'top',
     fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
     fontSize: TEXT.small,
+    lineHeight: 20,
   },
   codeInput: {
-    fontSize: 22,
-    letterSpacing: 4,
+    fontSize: 28,
+    fontWeight: '600',
+    letterSpacing: 6,
     textAlign: 'center',
+    paddingVertical: 18,
     fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
   },
-  buttons: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  buttons: { flexDirection: 'row', gap: 10, marginTop: 16 },
   flex: { flex: 1 },
   camera: {
     marginTop: 20,
     width: '100%',
     aspectRatio: 1,
-    borderRadius: RADIUS.card,
+    borderRadius: RADIUS.card + 6,
+    borderCurve: 'continuous',
     overflow: 'hidden',
   },
-  cameraBlocked: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-    padding: 24,
-    borderWidth: StyleSheet.hairlineWidth,
+  cameraBlocked: { alignItems: 'center', justifyContent: 'center', gap: 16, padding: 28 },
+  reticle: { position: 'absolute', top: '18%', bottom: '18%', left: '18%', right: '18%' },
+  corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: '#ffffff' },
+  tl: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 12 },
+  tr: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 12 },
+  bl: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 12 },
+  br: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: 12,
   },
-  error: { marginTop: 16, fontSize: TEXT.small, lineHeight: 19 },
-  progress: { marginTop: 20, padding: 20, gap: 14, alignItems: 'stretch' },
-  progressText: { fontSize: TEXT.body, textAlign: 'center', lineHeight: 21 },
+  error: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    padding: 14,
+    borderRadius: RADIUS.control + 4,
+    borderCurve: 'continuous',
+  },
+  errorText: { flex: 1, fontSize: TEXT.small, lineHeight: 20 },
+  progress: { marginTop: 20, padding: 22, gap: 16, alignItems: 'stretch' },
+  progressText: { fontSize: TEXT.body, textAlign: 'center', lineHeight: 22 },
 });

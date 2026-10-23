@@ -7,6 +7,8 @@ out/
 /apps/desktop/resources/
 # 安装包（apps/desktop 的 pnpm package，electron-builder 的输出目录）
 /apps/desktop/release/
+# 命令行包（apps/cli 的 pnpm package）
+/apps/cli/release/
 # 电脑操作的 macOS helper 的 SwiftPM 构建目录
 /apps/desktop/native/computer-use/.build/
 coverage/
