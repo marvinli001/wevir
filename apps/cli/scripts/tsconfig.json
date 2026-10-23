@@ -1,0 +1,10 @@
+{
+  // 打包脚本由 node 直接运行（类型擦除），互相导入时写 .ts 后缀，同 apps/desktop 的 scripts/。
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["."]
+}

@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { reportActionFailure, reportActionSuccess } from '@/data/action-notices';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { chatsOf, projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
@@ -43,6 +44,13 @@ import { usePlugins } from './use-plugins';
 export type MarketView =
   | { kind: 'group'; groupId: string }
   | { kind: 'entry'; source: string; entry: string };
+
+/** 各处操作的结果（装好、删掉、复制链接、失败…）弹进窗口右下角的通知区，到点自己消失，不占页面。 */
+function notify(notice: Notice | undefined): void {
+  if (notice === undefined) return;
+  if (notice.tone === 'error' || notice.tone === 'warning') reportActionFailure(notice.text);
+  else reportActionSuccess(notice.text);
+}
 
 export function PluginsPage({
   tab,
@@ -74,7 +82,6 @@ export function PluginsPage({
       (entry) => ({ id: entry.workspace.id, label: workspaceLabel(entry.workspace) }),
     );
   }, [workbench]);
-  const [notice, setNotice] = useState<Notice>();
   // 每个分段各自展开的一行。
   const [expanded, setExpanded] = useState<Partial<Record<PluginsTab, string>>>({});
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
@@ -84,16 +91,15 @@ export function PluginsPage({
   const requests = useRef(0);
   const state = data.state;
 
-  // 换分段时收起上一个分段的结果通知，并记下分段（左栏的入口下次沿用它）。
+  // 记下分段（左栏的入口下次沿用它）。
   useEffect(() => {
-    setNotice(undefined);
     rememberPluginsTab(tab);
   }, [tab]);
 
   const run = useCallback<PluginsContextValue['run']>((id, task, failure) => {
     setBusy((current) => new Set(current).add(id));
     task()
-      .catch((reason: unknown) => setNotice({ tone: 'error', text: failure(describe(reason)) }))
+      .catch((reason: unknown) => reportActionFailure(failure(describe(reason))))
       .finally(() =>
         setBusy((current) => {
           const next = new Set(current);
@@ -113,7 +119,7 @@ export function PluginsPage({
             data,
             busy,
             run,
-            notify: setNotice,
+            notify,
             openPlugin: (pluginId) => {
               setExpanded((current) => ({ ...current, plugins: pluginId }));
               navigate(paths.plugins('plugins'), { replace: true });
@@ -143,10 +149,7 @@ export function PluginsPage({
   const marketInstall = useMemo<MarketInstallContextValue>(() => {
     const signIn = (connector: Connector) =>
       void signInConnector(client, connector).catch((reason: unknown) =>
-        setNotice({
-          tone: 'error',
-          text: t('plugins.connector.signIn.failed', { error: describe(reason) }),
-        }),
+        reportActionFailure(t('plugins.connector.signIn.failed', { error: describe(reason) })),
       );
     return {
       source: marketSource,
@@ -164,12 +167,11 @@ export function PluginsPage({
           () => {},
         ),
       uninstall: (pluginId) => removePlugin(client, data, { id: pluginId }),
-      notify: setNotice,
+      notify,
     };
   }, [client, marketSource, installed, signIns, data]);
 
   const openAdd = (init: Omit<AddRequest, 'id'> = {}) => {
-    setNotice(undefined);
     setAdd({ id: ++requests.current, ...init });
   };
 
@@ -226,11 +228,6 @@ export function PluginsPage({
       <ScrollArea className="min-h-0 flex-1">
         <MarketInstallContext value={marketInstall}>
           <div className="mx-auto w-full max-w-240 px-5 pt-6 pb-16 sm:px-10">
-            {notice && market !== undefined && (
-              <div className="mb-4" data-testid="plugins-notice">
-                <NoticeBanner notice={notice} />
-              </div>
-            )}
             {market?.kind === 'group' && (
               <MarketGroupPage data={marketData} source={marketSource} groupId={market.groupId} />
             )}
@@ -240,7 +237,7 @@ export function PluginsPage({
                 source={marketSource}
                 sourceId={market.source}
                 entryId={market.entry}
-                onCopied={() => setNotice({ tone: 'success', text: t('plugins.market.copied') })}
+                onCopied={() => reportActionSuccess(t('plugins.market.copied'))}
               />
             )}
             {market === undefined && (
@@ -297,11 +294,6 @@ export function PluginsPage({
                     options={tabs.map((value) => ({ value, label: t(`plugins.tab.${value}`) }))}
                   />
                 </div>
-                {notice && (
-                  <div className="mb-4" data-testid="plugins-notice">
-                    <NoticeBanner notice={notice} />
-                  </div>
-                )}
                 {tab === 'market' && (
                   <MarketHome data={marketData} source={marketSource} query={query} />
                 )}

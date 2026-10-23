@@ -22,7 +22,7 @@ export const zh = {
   'cli.mainUsage': 'wevir <命令> [选项]',
   'cli.globalHelp': `全局选项：
   --home <目录>    数据目录，与 Host 共用；默认 macOS ~/Library/Application Support/Wevir、
-                   Windows %APPDATA%\\Wevir
+                   Windows %APPDATA%\\Wevir、Linux $XDG_DATA_HOME/wevir（~/.local/share/wevir）
   --remote <名称>  在配对过的电脑上执行（wevir remote pair）；只用于会话、收件箱与列表类命令
   -h, --help       显示帮助
   -v, --version    显示版本

@@ -137,6 +137,28 @@ Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Quest
 | <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://wevir.si/en/download/#platforms) |
 | <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [Download EXE](https://wevir.si/en/download/#platforms) |
 
+### Command line
+
+The `wevir` CLI also ships on its own, with Node bundled, for Linux (x64 and arm64, glibc 2.28+, servers without a desktop included), macOS, and Windows x64. It uses the same data directory as the desktop app and attaches to a Host that is already running.
+
+```bash
+curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://dl.edgeweir.com/cli/install.ps1 | iex
+```
+
+The script checks the package's sha256, installs to `~/.local/share/wevir-cli` with a `wevir` link in `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\wevir-cli`, added to the user `PATH`), and installs the beta channel until a stable release exists; run it again to update. Then:
+
+```bash
+wevir host start
+wevir provider add --kind deepseek-official
+wevir session new -w ~/my-project "Summarize this repository"
+```
+
 ## Run from source
 
 Requirements: Node.js **24.22.1+** (Node 24 LTS) and pnpm **12.6.0**.
