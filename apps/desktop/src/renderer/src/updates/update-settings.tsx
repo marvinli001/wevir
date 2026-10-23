@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { currentLocale, t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import type { UpdateChannel, UpdateState } from '../../../shared/desktop-api.js';
 import { UpdateProgress } from './update-progress';
@@ -38,7 +39,7 @@ export function AppUpdateSettings() {
               label={t('settings.about.channel')}
               value={state.channel}
               disabled={disabled}
-              onChange={(channel) => void window.wevir.setUpdateChannel(channel)}
+              onChange={(channel) => void platformApi().setUpdateChannel(channel)}
               options={[
                 { value: 'stable', label: t('settings.about.channel.stable') },
                 { value: 'dev', label: t('settings.about.channel.dev') },
@@ -84,19 +85,19 @@ function UpdateAction({ state }: { state: UpdateState }) {
   switch (state.phase) {
     case 'disabled':
       return state.reason === 'location' ? (
-        <Button variant="outline" size="sm" onClick={() => void window.wevir.moveToApplications()}>
+        <Button variant="outline" size="sm" onClick={() => void platformApi().moveToApplications()}>
           {t('update.action.move')}
         </Button>
       ) : null;
     case 'available':
       return (
-        <Button size="sm" onClick={() => void window.wevir.downloadUpdate()}>
+        <Button size="sm" onClick={() => void platformApi().downloadUpdate()}>
           {t('update.action.download')}
         </Button>
       );
     case 'downloaded':
       return (
-        <Button size="sm" onClick={() => void window.wevir.installUpdate()}>
+        <Button size="sm" onClick={() => void platformApi().installUpdate()}>
           {t('update.action.restart')}
         </Button>
       );
@@ -111,7 +112,7 @@ function UpdateAction({ state }: { state: UpdateState }) {
           size="sm"
           disabled={state.phase === 'checking'}
           data-testid="update-check"
-          onClick={() => void window.wevir.checkForUpdates()}
+          onClick={() => void platformApi().checkForUpdates()}
         >
           {t('update.action.check')}
         </Button>

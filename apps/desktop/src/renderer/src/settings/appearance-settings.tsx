@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import {
   appearanceStore,
   TRANSLUCENT_SIDEBAR_SUPPORTED,
@@ -99,7 +100,7 @@ export function AppearanceSettings() {
 
   const copyTheme = async () => {
     try {
-      await window.wevir.copyText(exportTheme(appearance));
+      await platformApi().copyText(exportTheme(appearance));
       setNotice({ tone: 'success', text: t('settings.appearance.themeCopied') });
     } catch (reason) {
       setNotice({ tone: 'error', text: describe(reason) });

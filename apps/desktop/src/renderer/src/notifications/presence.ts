@@ -3,6 +3,7 @@
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { useEffect } from 'react';
+import { platformApi } from '@/platform/platform';
 
 /** 多久没有键鼠操作算离开。 */
 export const PRESENCE_IDLE_MS = 5 * 60_000;
@@ -55,7 +56,7 @@ export function usePresenceReporter(client: WevirClient | undefined): void {
       lastInputAt = Date.now();
       if (!active) update();
     };
-    const stopLock = window.wevir?.onScreenLock?.((value) => {
+    const stopLock = platformApi()?.onScreenLock?.((value) => {
       locked = value;
       update();
     });

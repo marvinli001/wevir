@@ -9,6 +9,7 @@
 // themeSource 本来就是 'system'）；加了 useTheme；U1 起启动时去掉首帧前脚本给 <html> 涂的底色。
 
 import { useSyncExternalStore } from 'react';
+import { platformApi } from '@/platform/platform';
 import {
   isThemeMode,
   type ResolvedTheme,
@@ -50,7 +51,9 @@ function apply(mode: ThemeMode): void {
 
 function syncNativeTheme(mode: ThemeMode): void {
   // 只影响窗口外观（标题栏、原生控件、窗口底色），失败不影响页面主题。
-  window.wevir?.setThemeSource(mode).catch(() => undefined);
+  platformApi()
+    ?.setThemeSource(mode)
+    .catch(() => undefined);
 }
 
 function ensureSystemSubscription(): void {

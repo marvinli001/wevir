@@ -19,6 +19,7 @@ import { WorkbenchLayout } from '@/layout/workbench-layout';
 import { useHistoryNav, useTrackHistory } from '@/lib/history-nav';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { WelcomeRoute } from '@/onboarding/welcome-route';
+import { platformApi } from '@/platform/platform';
 import { ArchiveProjectDialog } from '@/projects/archive-project-dialog';
 import { CreateProjectDialog } from '@/projects/create-project';
 import { EditProjectDialog } from '@/projects/edit-project-dialog';
@@ -129,7 +130,7 @@ function AppRoot() {
     };
     window.addEventListener('keydown', onKeyDown);
     // macOS 应用菜单的设置…与检查更新…（main/app-menu.ts）：已在设置里时只换分页，保留返回的去处。
-    const offOpenSettings = window.wevir?.onOpenSettings((tab) => {
+    const offOpenSettings = platformApi()?.onOpenSettings((tab) => {
       if (location.pathname.startsWith(ROUTE_PATTERNS.settings)) {
         navigate(paths.settings(tab), { replace: true, state: location.state });
       } else {

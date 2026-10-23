@@ -907,7 +907,7 @@ export function SessionView({
             leading={<SessionPermissionPicker session={session} onError={setNotice} />}
             {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
             {...(pendingEnabled &&
-              hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
+              hostSettings.editable && { onBusyDeliveryChange: changeBusyDelivery })}
             onSend={send}
             onStop={stop}
             acceptImages={acceptImages && readOnly === undefined}

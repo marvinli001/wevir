@@ -63,6 +63,7 @@ export function NotificationSettingsPage() {
           <Switch
             checked={kinds?.[key] !== false}
             label={t(title)}
+            disabled={!host.editable}
             onChange={(checked) =>
               void host
                 .update({ notifications: { ...kinds, [key]: checked } })

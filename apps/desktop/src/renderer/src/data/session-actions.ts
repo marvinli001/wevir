@@ -14,6 +14,7 @@ import { openAutomationDialog } from '@/automations/automation-dialog';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createPersistedStore, createStore } from '@/lib/store';
+import { capabilities, platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
 import { engineFeaturesOf } from '@/session/handoff-model';
@@ -286,7 +287,8 @@ export interface SessionActions {
   toggleUnread(): void;
   copyId(): void;
   copyCwd(): void;
-  reveal(): void;
+  /** 在访达中显示工作目录；路径不在这台电脑上（platform/platform.ts 的 `localFiles`）时没有。 */
+  reveal?: () => void;
 }
 
 /** 把动作绑到一个会话上；失败的动作报到窗口右下角的通知（action-notices.ts），不再只写控制台。 */
@@ -328,7 +330,10 @@ export function useSessionActions(session: Session): SessionActions {
   const guard = (failure: ActionFailure, task: () => Promise<unknown>) => () => {
     task().catch((error: unknown) => reportActionFailure(t(failure, { error: describe(error) })));
   };
-  const copy = (text: string) => () => void window.wevir.copyText(text).catch(() => undefined);
+  const copy = (text: string) => () =>
+    void platformApi()
+      .copyText(text)
+      .catch(() => undefined);
 
   return {
     pinned,
@@ -361,6 +366,11 @@ export function useSessionActions(session: Session): SessionActions {
     ...(manage.remove && manage.archive && { remove: () => requestDelete(session) }),
     copyId: copy(session.id),
     copyCwd: copy(session.cwd),
-    reveal: () => void window.wevir.revealPath(session.cwd).catch(() => undefined),
+    ...(capabilities().localFiles && {
+      reveal: () =>
+        void platformApi()
+          .revealPath(session.cwd)
+          .catch(() => undefined),
+    }),
   };
 }

@@ -3,6 +3,7 @@ import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState
 import { OpenFileLink } from '@/files/file-links';
 import { useReducedMotion } from '@/fx/motion';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { highlightCodeBlocks, whenNearViewport } from './highlight';
 import {
   createStreamingMarkdownRenderer,
@@ -197,23 +198,25 @@ export const MarkdownView = memo(function MarkdownView({
       if (copy && root.contains(copy)) {
         event.preventDefault();
         const code = copy.closest('[data-code-block]')?.querySelector('code')?.textContent ?? '';
-        void window.wevir.copyText(code).then(() => {
-          copy.textContent = t('markdown.copied');
-          window.clearTimeout(timers.get(copy));
-          timers.set(
-            copy,
-            window.setTimeout(() => {
-              copy.textContent = t('markdown.copyCode');
-            }, COPIED_RESET_MS),
-          );
-        });
+        void platformApi()
+          .copyText(code)
+          .then(() => {
+            copy.textContent = t('markdown.copied');
+            window.clearTimeout(timers.get(copy));
+            timers.set(
+              copy,
+              window.setTimeout(() => {
+                copy.textContent = t('markdown.copyCode');
+              }, COPIED_RESET_MS),
+            );
+          });
         return;
       }
       const link = event.target.closest<HTMLAnchorElement>('a[data-external-link]');
       if (link && root.contains(link)) {
         // 渲染进程不导航：交给主进程用系统浏览器打开（只接受 http、https、mailto）。
         event.preventDefault();
-        void window.wevir.openExternal(link.href);
+        void platformApi().openExternal(link.href);
         return;
       }
       const fileLink = event.target.closest<HTMLAnchorElement>('a[data-file-link]');

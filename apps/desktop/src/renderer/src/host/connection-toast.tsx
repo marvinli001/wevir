@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Toast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { useHostConnection } from './host-connection';
 import { type ConnectionNotice, connectionNotice } from './host-status';
 
@@ -104,7 +105,9 @@ function CopyLogPath({ path }: { path: string }) {
       variant="ghost"
       className="text-muted-foreground"
       onClick={() => {
-        void window.wevir.copyText(path).then(() => setCopied(true));
+        void platformApi()
+          .copyText(path)
+          .then(() => setCopied(true));
       }}
     >
       <Copy />

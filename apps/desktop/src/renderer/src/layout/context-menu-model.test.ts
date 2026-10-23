@@ -56,4 +56,24 @@ describe('projectMenuGroups', () => {
       ['remove'],
     ]);
   });
+
+  it('路径不在这台电脑上时没有“在访达中显示”，没有 workspace.write 时没有“移除项目”', () => {
+    expect(
+      projectMenuGroups({ edit: false, archiveSessions: true, reveal: false, remove: false }),
+    ).toEqual([['pin'], ['archiveSessions']]);
+  });
+});
+
+describe('会话菜单的“打开方式”', () => {
+  it('路径不在这台电脑上时整组省掉', () => {
+    expect(
+      sessionMenuGroups({
+        rename: true,
+        branch: false,
+        archive: true,
+        delete: true,
+        openWith: false,
+      }).flat(),
+    ).not.toContain('openWith');
+  });
 });

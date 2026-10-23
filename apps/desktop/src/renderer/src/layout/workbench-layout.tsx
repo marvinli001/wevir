@@ -59,6 +59,8 @@ import './lsp-card';
 import './outputs-card';
 import './task-board-card';
 import './retro-card';
+import { usePaneAccess } from './pane-access';
+import { paneKindUsable } from './pane-kinds';
 import { PANE_LAUNCHERS, PaneLaunchers, showPaneKind } from './pane-launchers';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
@@ -739,12 +741,13 @@ function useShortcuts(
   panes: PaneController | undefined,
   setOpenTabsOpen: (open: boolean) => void,
 ) {
-  const latest = useRef({ sidebarPlan, panes });
-  latest.current = { sidebarPlan, panes };
+  const access = usePaneAccess();
+  const latest = useRef({ sidebarPlan, panes, access });
+  latest.current = { sidebarPlan, panes, access };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.defaultPrevented) return;
-      const { sidebarPlan, panes } = latest.current;
+      const { sidebarPlan, panes, access } = latest.current;
       const run = (action: () => void) => {
         event.preventDefault();
         action();
@@ -756,6 +759,7 @@ function useShortcuts(
       const group = panes.scope.groups.find((candidate) => candidate.id === current);
       if (matchesShortcut(event, SHORTCUTS.toggleAux)) return run(panes.toggleAux);
       for (const { kind, shortcut } of PANE_LAUNCHERS) {
+        if (!paneKindUsable(kind, access)) continue;
         if (matchesShortcut(event, shortcut)) return run(() => showPaneKind(panes, kind));
       }
       if (matchesShortcut(event, SHORTCUTS.openTabs)) {

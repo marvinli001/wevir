@@ -1,3 +1,4 @@
+import { platformApi } from '@/platform/platform';
 import type { WindowChrome } from '../../../shared/desktop-api.js';
 
 /**
@@ -8,6 +9,6 @@ import type { WindowChrome } from '../../../shared/desktop-api.js';
 export function bootstrapWindowChrome(): void {
   const apply = ({ trafficLights }: WindowChrome) =>
     document.documentElement.toggleAttribute('data-traffic-lights', trafficLights);
-  apply(window.wevir.getWindowChrome());
-  window.wevir.onWindowChrome(apply);
+  apply(platformApi().getWindowChrome());
+  platformApi().onWindowChrome(apply);
 }

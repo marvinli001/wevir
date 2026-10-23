@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
+import { useWorkspaceManagement } from '@/data/workspace-actions';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import type { FileScope } from '@/files/files-data';
 import { useHostConnection } from '@/host/host-connection';
@@ -66,6 +67,7 @@ function Home({
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspace?.id);
   const worktree = useWorktreeChoice(workspace?.id);
+  const manage = useWorkspaceManagement();
   const { start, error, goals, ready } = useStartSession(
     workspace?.id,
     choice,
@@ -94,6 +96,7 @@ function Home({
       return started;
     };
     if (workspace || chats) return done(await start(text, undefined, images, mode));
+    if (!manage.create) return false;
     openCreateProject({
       onCreated: async (created) => {
         if (done(await start(text, created.id, images, mode))) setDraft(HOME_DRAFT, '');

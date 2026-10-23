@@ -67,6 +67,13 @@ describe('pane-kinds', () => {
     // 支线窗格（U23.1）只由 /btw 打开。
     expect(openableKinds(true)).not.toContain('session');
   });
+
+  it('外壳没有内置浏览器、连接没有 terminal.write 时不列这两种', () => {
+    const kinds = openableKinds(false, { browserPane: false, terminalWrite: false });
+    expect(kinds).not.toContain('browser');
+    expect(kinds).not.toContain('terminal');
+    expect(kinds).toContain('changes');
+  });
 });
 
 describe('openPane', () => {

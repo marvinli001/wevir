@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import type { ComputerAccessPreparation, ComputerAnswer } from '../../../shared/desktop-api';
 import { AccessDialog } from './access-dialog';
 
@@ -25,8 +26,8 @@ export function ComputerCoordinator() {
   queueRef.current = setQueue;
 
   useEffect(() => {
-    if (!client || !window.wevir?.computer) return;
-    const computer = window.wevir.computer;
+    if (!client || !platformApi()?.computer) return;
+    const computer = platformApi().computer;
     const ask = (preparation: ComputerAccessPreparation) =>
       new Promise<string[]>((resolve) =>
         queueRef.current((current) => [...current, { preparation, resolve }]),
@@ -53,7 +54,7 @@ export function ComputerCoordinator() {
   }, [client]);
 
   useEffect(() => {
-    const computer = window.wevir?.computer;
+    const computer = platformApi()?.computer;
     if (!computer) return;
     void computer.setOverlayLabel(t('computer.overlay')).catch(() => undefined);
     if (!client) return;
@@ -76,9 +77,9 @@ export function ComputerCoordinator() {
           .join(',')
       : undefined;
   useEffect(() => {
-    if (active === undefined || !window.wevir?.computer) return;
-    void window.wevir.computer
-      .setActiveSessions(active === '' ? [] : active.split(','))
+    if (active === undefined || !platformApi()?.computer) return;
+    void platformApi()
+      .computer.setActiveSessions(active === '' ? [] : active.split(','))
       .catch(() => undefined);
   }, [active]);
 

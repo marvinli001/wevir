@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { resolvedTheme, subscribeTheme } from '@/theme/theme';
 import { usePanes } from '../pane-controller';
 import { onPanesClosed } from '../pane-events';
@@ -113,7 +114,10 @@ function TerminalView({
       // OSC 8 的链接：只开 http(s)，经主进程用系统浏览器打开。
       linkHandler: {
         activate: (_event, uri) => {
-          if (/^https?:\/\//i.test(uri)) void window.wevir.openExternal(uri).catch(() => undefined);
+          if (/^https?:\/\//i.test(uri))
+            void platformApi()
+              .openExternal(uri)
+              .catch(() => undefined);
         },
       },
     });
