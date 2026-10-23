@@ -12,6 +12,7 @@ import {
   pairingDialogReducer,
   parsePort,
   parseRelayUrl,
+  pushStatusKey,
   remoteOf,
   setLan,
   toggleLanInterface,
@@ -208,5 +209,24 @@ describe('直连的网卡', () => {
     expect(parsePort('1024')).toEqual({ port: 1024 });
     for (const bad of ['80', '65536', '4.5', 'abc', '-1'])
       expect(parsePort(bad), bad).toBeUndefined();
+  });
+});
+
+describe('推送', () => {
+  const gatewayUrl = 'https://push.wevir.si';
+  it('网关状态：正常、还没发过与旧 Host 不加说明；不可用按原因', () => {
+    expect(pushStatusKey(undefined)).toBeUndefined();
+    expect(pushStatusKey({ state: 'idle', gatewayUrl, devices: 0 })).toBeUndefined();
+    expect(pushStatusKey({ state: 'ok', gatewayUrl, devices: 1 })).toBeUndefined();
+    const unavailable = (reason: 'unreachable' | 'rejected' | 'rate_limited') =>
+      pushStatusKey({
+        state: 'unavailable',
+        gatewayUrl,
+        devices: 1,
+        error: { reason, message: '' },
+      });
+    expect(unavailable('unreachable')).toBe('settings.devices.pushUnreachable');
+    expect(unavailable('rejected')).toBe('settings.devices.pushRejected');
+    expect(unavailable('rate_limited')).toBe('settings.devices.pushRateLimited');
   });
 });

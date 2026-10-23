@@ -11,6 +11,7 @@ import {
   PairingIdSchema,
   PairingRequestIdSchema,
 } from './common.js';
+import { DevicePushSchema, RemotePushSettingsSchema, RemotePushStatusSchema } from './push.js';
 
 // ── Host 设置 `remote` ─────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ export type RemoteInterfaceRef = z.infer<typeof RemoteInterfaceRefSchema>;
  *   只监听这几块局域网网卡；省略时监听全部局域网网卡。Tailscale 按地址段认，没有网卡的勾选（macOS 上它的网卡名会变）。
  * - `port`（0.109.0）：直连监听的端口，省略时 `REMOTE_DEFAULT_PORT`。
  * - `relay`：不在同一网络时经中继转发同一套密文；`url` 省略时用官方实例 `RELAY_DEFAULT_URL`。
- * - `push`：经推送网关给手机发加密的提醒。
+ * - `push`：经推送网关给手机发加密的提醒；两路开关（0.112.0）与设备级的开关见 push.ts。
  */
 export const RemoteSettingsSchema = z.object({
   enabled: z.boolean(),
@@ -53,7 +54,7 @@ export const RemoteSettingsSchema = z.object({
   }),
   port: z.int().min(REMOTE_PORT_MIN).max(65_535).optional(),
   relay: z.object({ enabled: z.boolean(), url: RelayUrlSchema.optional() }),
-  push: z.object({ enabled: z.boolean() }),
+  push: RemotePushSettingsSchema,
 });
 export type RemoteSettings = z.infer<typeof RemoteSettingsSchema>;
 
@@ -104,6 +105,8 @@ export const DeviceSchema = z.object({
   /** 最近一次握手成功或连接还在的时刻；刚配对时等于 `createdAt`。 */
   lastSeenAt: IsoTimeSchema,
   status: DeviceStatusSchema,
+  /** 推送（0.112.0）。旧 Host 没有。 */
+  push: DevicePushSchema.optional(),
 });
 export type Device = z.infer<typeof DeviceSchema>;
 
@@ -176,6 +179,8 @@ export const DeviceUpdateParamsSchema = z.object({
   name: DeviceNameSchema.optional(),
   /** 整组替换。只能取 `DEVICE_ASSIGNABLE_PERMISSIONS` 里的。 */
   permissions: PermissionsSchema.optional(),
+  /** 这台设备的推送开关（0.112.0）。关掉时删掉它的令牌并向网关解绑。 */
+  push: z.object({ enabled: z.boolean() }).optional(),
 });
 export const DeviceResultSchema = z.object({ device: DeviceSchema });
 
@@ -193,6 +198,8 @@ export const PairingCancelResultSchema = z.object({});
 export const PairingRespondParamsSchema = z.object({
   requestId: PairingRequestIdSchema,
   allow: z.boolean(),
+  /** 配对时问一次的推送（0.112.0）：允许时为真则打开这台设备的推送，总开关关着时一并打开。省略按关。 */
+  push: z.boolean().optional(),
 });
 export const PairingRespondResultSchema = z.object({
   /** 允许时写入（或重新配对时更新）的设备。 */
@@ -313,6 +320,8 @@ export const RemoteStatusSchema = z.object({
   error: RemoteListenerErrorSchema.optional(),
   /** 远程访问与中继都开着时有（0.110.0）。 */
   relay: RemoteRelayStatusSchema.optional(),
+  /** 远程访问与推送都开着时有（0.112.0）。 */
+  push: RemotePushStatusSchema.optional(),
 });
 export type RemoteStatus = z.infer<typeof RemoteStatusSchema>;
 

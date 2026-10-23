@@ -23,6 +23,7 @@ import {
   type RelayDevicePath,
   RemoteDevicePayloadSchema,
   type RemoteHostPayload,
+  type RemotePushStatus,
   type RemoteSettings,
   type RemoteStatus,
 } from '@wevir/protocol';
@@ -99,6 +100,8 @@ export interface RemoteListenerOptions {
   handshakeTimeoutMs?: number;
   /** 只给测试：中继的重连退避与心跳间隔。 */
   relay?: Pick<RelayClientOptions, 'backoffMs' | 'maxBackoffMs' | 'pingMs'>;
+  /** 推送（0.112.0）：网关的状态放进 `status().push`，变了时发 `remote.changed`。 */
+  push?: { status(): RemotePushStatus | undefined; watchStatus(listener: () => void): () => void };
   onError?: (error: unknown) => void;
 }
 
@@ -164,6 +167,8 @@ export class RemoteListener {
         this.#dropDevice(deviceId, 'PERMISSIONS_CHANGED'),
       ),
     );
+    if (options.push !== undefined)
+      this.#unsubscribe.push(options.push.watchStatus(() => this.#changed()));
   }
 
   /** 按当前设置与网卡开、关监听。设置变了时调用；之后远程开着期间自己轮询网卡。 */
@@ -212,6 +217,7 @@ export class RemoteListener {
     );
     const settings = this.#options.settings();
     const magicDnsName = this.#magicDns?.name;
+    const push = this.#options.push?.status();
     const relay = this.#relay.status(
       [...this.#connections].filter((connection) => connection.entry === undefined).length,
     );
@@ -224,6 +230,7 @@ export class RemoteListener {
       connections: this.#connections.size,
       ...(this.#error !== undefined && { error: this.#error }),
       ...(relay !== undefined && { relay }),
+      ...(push !== undefined && { push }),
     };
   }
 

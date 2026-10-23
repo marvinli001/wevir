@@ -1,0 +1,2 @@
+# Credentials for compose.yaml. Never commit them.
+secrets/

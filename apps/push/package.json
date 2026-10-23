@@ -1,0 +1,35 @@
+{
+  "name": "@wevir/push",
+  "version": "0.0.0",
+  "private": true,
+  "description": "wevir-push: the push gateway for the Wevir phone app. Holds the APNs and FCM credentials and forwards end-to-end encrypted payloads from a desktop to the phones bound to it; it only sees push tokens, platforms and ciphertext.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@wevir/source": "./src/testing.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "wevir-push": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@wevir/protocol": "workspace:*"
+  }
+}

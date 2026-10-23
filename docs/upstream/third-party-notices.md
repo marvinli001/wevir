@@ -15,6 +15,7 @@
 | Host | `packages/host/dist` 与它的生产依赖 | `ws`、`zod` 等（§2.1） |
 | CLI（T4.2） | `apps/cli/dist` | `mute-stream`（§2.1） |
 | Codex 引擎（R9） | 资源目录的 `engines/codex/`：`codex-app-server` 与 `codex-code-mode-host` 独立二进制，Linux 另有 `codex-resources/bwrap`（`pnpm --filter @wevir/desktop resources` 准备，ADR-0007 决策 5） | OpenAI Codex 与它静态链接的 Rust crate、bubblewrap（§2.5） |
+| 推送网关镜像 | `apps/push` 的 Docker 镜像：`dist/` 里打包好的网关 | `zod`（§2.1；镜像里附 `LICENSES/zod.txt`） |
 
 不分发、不进声明的：构建与测试工具（TypeScript、Biome、Vitest、Vite、electron-vite、tsdown、`@tailwindcss/vite` 等）。其中 `lightningcss`（MPL-2.0，Tailwind 构建时用）、`caniuse-lite`（CC-BY-4.0）、`source-map-js`（BSD-3-Clause）只在构建时运行，产物里没有它们的代码。`electron` 这个 npm 包的依赖（`@electron/get` 等）只负责下载二进制，也不进安装包。
 

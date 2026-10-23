@@ -19,7 +19,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
-import { isOutputStyle } from '@wevir/protocol';
+import { DEFAULT_REMOTE_SETTINGS, isOutputStyle } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type {
   EnvironmentRecord,
@@ -70,6 +70,7 @@ import type { ReadinessService } from './readiness/service.js';
 import type { DeviceService } from './remote/devices.js';
 import type { RemoteListener } from './remote/listener.js';
 import type { PairingService } from './remote/pairing.js';
+import type { PushService } from './remote/push.js';
 import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
@@ -112,7 +113,7 @@ export type MethodHandler<M extends MethodName> = (
 
 /**
  * 由 RPC 连接自己处理的方法：握手、心跳、退出、订阅、浏览器提供方（0.33.0）、终端的 attach（0.69.0）、通知意图的订阅与在场（0.106.0），
- * 登记的都是这条连接。
+ * 登记的都是这条连接；远程设备的推送（0.112.0）要知道是哪台设备。
  */
 export type ConnectionMethodName =
   | 'host.hello'
@@ -126,7 +127,10 @@ export type ConnectionMethodName =
   | 'terminal.attach'
   | 'terminal.detach'
   | 'notification.subscribe'
-  | 'presence.update';
+  | 'presence.update'
+  | 'push.get'
+  | 'push.register'
+  | 'push.unregister';
 
 /** 其余方法的实现表，RPC 层按方法注册表校验参数后分发到这里（host-api.md §3）。 */
 export type HostMethodName = Exclude<MethodName, ConnectionMethodName>;
@@ -165,10 +169,12 @@ export interface HostMethodsOptions {
   inbox?: Pick<InboxService, 'list' | 'dismiss' | 'version'>;
   /** 远程设备与配对（0.107.0，`device.*`、`pairing.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   remote?: {
-    devices: Pick<DeviceService, 'list' | 'update' | 'revoke'>;
+    devices: Pick<DeviceService, 'list' | 'get' | 'update' | 'revoke'>;
     pairing: Pick<PairingService, 'start' | 'cancel' | 'respond'>;
     /** 远程监听（0.109.0，`remote.status`）；省略时 `remote.status` 回 `INVALID_PARAMS`。 */
     listener?: Pick<RemoteListener, 'status'>;
+    /** 推送（0.112.0，`device.update` 与 `pairing.respond` 的 `push`）；省略时这两个参数回 `INVALID_PARAMS`。 */
+    push?: Pick<PushService, 'setDeviceEnabled'>;
   };
   /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
   web?: WebService;
@@ -1634,16 +1640,38 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     // 0.107.0：远程设备与配对。只有本机连接能调（rpc-connection.ts）。
     'device.list': () => ({ devices: remoteService().devices.list() }),
-    'device.update': (params) => ({ device: remoteService().devices.update(params) }),
+    'device.update': async ({ push, ...params }) => {
+      const remote = remoteService();
+      const device = remote.devices.update(params);
+      if (push === undefined) return { device };
+      if (remote.push === undefined) throw invalidParams(['push'], 'this host has no push service');
+      await remote.push.setDeviceEnabled(device.id, push.enabled);
+      return { device: remote.devices.get(device.id) ?? device };
+    },
     'device.revoke': async ({ id }) => ({ device: await remoteService().devices.revoke(id) }),
     'pairing.start': () => remoteService().pairing.start(),
     'pairing.cancel': ({ pairingId }) => {
       remoteService().pairing.cancel(pairingId);
       return {};
     },
-    'pairing.respond': ({ requestId, allow }) => {
-      const device = remoteService().pairing.respond(requestId, allow);
-      return device !== undefined ? { device } : {};
+    'pairing.respond': async ({ requestId, allow, push }) => {
+      const remote = remoteService();
+      if (push === true && remote.push === undefined) {
+        throw invalidParams(['push'], 'this host has no push service');
+      }
+      const device = remote.pairing.respond(requestId, allow);
+      if (device === undefined) return {};
+      // 0.112.0：配对时问一次推送。答“开”时打开这台设备的推送，总开关关着时一并打开。
+      if (push === true && remote.push !== undefined) {
+        await remote.push.setDeviceEnabled(device.id, true);
+        const current = settings.get().remote ?? DEFAULT_REMOTE_SETTINGS;
+        if (current.push.enabled !== true) {
+          await settings.update({
+            remote: { ...current, push: { ...current.push, enabled: true } },
+          });
+        }
+      }
+      return { device: remote.devices.get(device.id) ?? device };
     },
     // 0.109.0：远程监听的状态。
     'remote.status': () => {

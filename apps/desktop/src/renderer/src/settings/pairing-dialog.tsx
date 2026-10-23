@@ -21,6 +21,7 @@ import {
 import { Fragment, useEffect, useReducer, useRef, useState } from 'react';
 import { QrCode } from '@/components/qr-code';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -43,13 +44,21 @@ const ENDED_TEXT: Record<Exclude<PairingEndReason, 'paired'>, PlainMessageKey> =
 /**
  * “添加手机”弹窗（0.107.0）：打开时 `pairing.start`，显示二维码、短码与倒计时；手机握手完成后显示设备名与平台，用户允许或拒绝
  * （`pairing.respond`）。窗口到期、握手失败、被拒绝时停在结果上，可以重新生成；配对成功后关闭并把设备交给 `onClose`。
- * 关掉弹窗时结束这个窗口（`pairing.cancel`）。
+ * 关掉弹窗时结束这个窗口（`pairing.cancel`）。Host 支持推送（0.112.0）时请求里带一项“推送通知”（默认勾上），允许时随
+ * `pairing.respond` 交出；之后在设备页按设备改。
  */
-export function PairingDialog({ onClose }: { onClose: (paired?: Device) => void }) {
+export function PairingDialog({
+  askPush = false,
+  onClose,
+}: {
+  askPush?: boolean;
+  onClose: (paired?: Device) => void;
+}) {
   const { client } = useHostConnection();
   const [state, dispatch] = useReducer(pairingDialogReducer, { phase: 'starting' });
   const [responding, setResponding] = useState(false);
   const [respondError, setRespondError] = useState<string>();
+  const [push, setPush] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const pairingId = state.phase === 'open' ? state.offer.pairingId : undefined;
   const pairingIdRef = useRef(pairingId);
@@ -111,6 +120,7 @@ export function PairingDialog({ onClose }: { onClose: (paired?: Device) => void 
       const result = await client.request('pairing.respond', {
         requestId: state.request.requestId,
         allow,
+        ...(askPush && allow && { push }),
       });
       paired.current = result.device;
     } catch (reason) {
@@ -150,6 +160,17 @@ export function PairingDialog({ onClose }: { onClose: (paired?: Device) => void 
                   {t(PLATFORM_LABEL[state.request.platform])}
                 </div>
               </div>
+              {askPush && (
+                <label className="flex items-center gap-2 text-sm" data-pairing-push>
+                  <Checkbox
+                    size="sm"
+                    checked={push}
+                    disabled={responding}
+                    onCheckedChange={(checked) => setPush(checked)}
+                  />
+                  {t('settings.pairing.push')}
+                </label>
+              )}
               {respondError && (
                 <p role="alert" className="text-sm text-destructive">
                   {respondError}

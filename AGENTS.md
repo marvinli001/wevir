@@ -36,6 +36,7 @@ wevir/
 ├─ apps/
 │  ├─ cli/              wevir 命令行客户端
 │  ├─ desktop/          Electron 桌面端（electron-vite）
+│  ├─ push/             推送网关（只收推送令牌与加密载荷，转给 APNs / FCM；Dockerfile 与环境变量说明）
 │  └─ relay/            远程访问的中继（默认关的兜底，只转发 Noise 密文；Dockerfile 与自建说明）
 ├─ assets/icons/        品牌图标的源文件与导出
 ├─ packages/

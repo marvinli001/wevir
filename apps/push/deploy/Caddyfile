@@ -1,0 +1,7 @@
+# TLS for the push gateway: Caddy gets the certificate for {$PUSH_DOMAIN} and forwards requests to the
+# gateway container. Caddy appends the client address to X-Forwarded-For, which the gateway reads with
+# WEVIR_PUSH_TRUST_PROXY=1. Access logs stay off: request URLs carry nothing sensitive, but the gateway
+# logs what it needs without addresses.
+{$PUSH_DOMAIN} {
+	reverse_proxy push:8080
+}

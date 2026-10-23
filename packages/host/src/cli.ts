@@ -442,6 +442,11 @@ export async function runHostCli(
       promptsDir: resolvePromptsDir(proc.env),
       web,
       ...(options.port !== 0 && { port: options.port }),
+      // 0.112.0：开发测试时指向本机起的推送网关（apps/push）。
+      ...(proc.env.WEVIR_PUSH_GATEWAY_URL !== undefined &&
+        proc.env.WEVIR_PUSH_GATEWAY_URL !== '' && {
+          push: { gatewayUrl: proc.env.WEVIR_PUSH_GATEWAY_URL },
+        }),
       onShutdownRequest: (trigger) => beginShutdown(trigger, EXIT_CODE.ok),
     }).then(
       (running) => {
