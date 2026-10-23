@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { PendingPage } from '@/routes/route-states';
 import { OllamaModels } from '@/settings/ollama-models';
@@ -513,7 +514,7 @@ function ProviderFields({
             entry.keyURL && (
               <button
                 type="button"
-                onClick={() => entry.keyURL && void window.wevir.openExternal(entry.keyURL)}
+                onClick={() => entry.keyURL && void platformApi().openExternal(entry.keyURL)}
                 className="inline-flex items-center gap-1 rounded-sm text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
               >
                 {t('welcome.getKey')}

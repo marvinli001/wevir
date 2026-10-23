@@ -1026,6 +1026,7 @@ export const messages: Messages = {
   'home.noProject': 'Kein Ordner',
   'home.workWithoutProject': 'Ohne Ordner arbeiten',
   'home.noProvider': 'Kein Modellanbieter konfiguriert',
+  'home.noProviderAccess': 'Kein Zugriff auf Modellanbieter',
   'home.addProvider': 'Modellanbieter hinzufügen',
   'welcome.steps': 'Einrichtungsschritte',
   'welcome.step.provider': 'Modellanbieter',

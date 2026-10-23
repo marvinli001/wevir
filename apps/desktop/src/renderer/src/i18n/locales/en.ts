@@ -1018,6 +1018,7 @@ export const messages: Messages = {
   'home.noProject': 'No folder',
   'home.workWithoutProject': 'Work without a folder',
   'home.noProvider': 'No model provider configured',
+  'home.noProviderAccess': 'No access to model providers',
   'home.addProvider': 'Add model provider',
   'welcome.steps': 'Setup steps',
   'welcome.step.provider': 'Model provider',

@@ -11,6 +11,7 @@ import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
 import { ConnectorSignIn } from './connector-sign-in';
 import {
@@ -141,7 +142,9 @@ function PluginDetail({ plugin }: { plugin: Plugin }) {
         <button
           type="button"
           onClick={() =>
-            void window.wevir.openExternal(plugin.homepage ?? '').catch(() => undefined)
+            void platformApi()
+              .openExternal(plugin.homepage ?? '')
+              .catch(() => undefined)
           }
           className="block max-w-full truncate rounded-sm text-left text-sm text-muted-foreground underline underline-offset-3 outline-none hover:text-foreground focus-visible:focus-ring"
           data-action="open-homepage"

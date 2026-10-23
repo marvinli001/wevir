@@ -1029,6 +1029,7 @@ export const messages: Messages = {
   'home.noProject': 'Nessuna cartella',
   'home.workWithoutProject': 'Lavora senza cartella',
   'home.noProvider': 'Nessun fornitore di modelli configurato',
+  'home.noProviderAccess': 'Nessun accesso ai fornitori di modelli',
   'home.addProvider': 'Aggiungi fornitore di modelli',
   'welcome.steps': 'Passaggi di configurazione',
   'welcome.step.provider': 'Fornitore di modelli',

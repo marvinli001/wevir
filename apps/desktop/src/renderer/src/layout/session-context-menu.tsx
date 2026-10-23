@@ -46,6 +46,7 @@ export function SessionContextMenuItems({
     branch: actions.branch !== undefined,
     move: actions.move !== undefined,
     automate: actions.automate !== undefined,
+    openWith: actions.reveal !== undefined,
     archive: actions.archive !== undefined,
     delete: actions.remove !== undefined,
   });
@@ -104,7 +105,7 @@ export function SessionContextMenuItems({
         </ContextMenuSubContent>
       </ContextMenuSub>
     ),
-    openWith: () => <OpenWithSub cwd={cwd} reveal={actions.reveal} />,
+    openWith: () => actions.reveal && <OpenWithSub cwd={cwd} reveal={actions.reveal} />,
     archive: () => (
       <MenuItem id="archive" icon={<ArchiveIcon />} onClick={actions.archive}>
         {t('session.archive')}

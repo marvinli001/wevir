@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { Beam } from '@/fx/beam';
-import { describe } from '@/host/host-connection';
+import { describe, useCan } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import {
@@ -215,7 +215,12 @@ function ApprovalCard({
 }) {
   const presentation = presentApproval(approval, scope);
   const layout = useMemo(() => approvalLayout(approval.options), [approval.options]);
-  const always = useMemo(() => alwaysAllow(approval), [approval]);
+  // “总是允许”加的是审批规则，要 `policy.write`（0.98.0）：远程设备没有时不显示。
+  const policyWrite = useCan('policy.write');
+  const always = useMemo(
+    () => (policyWrite ? alwaysAllow(approval) : undefined),
+    [approval, policyWrite],
+  );
   const titleId = `approval-${approval.id}`;
   const cardRef = useRef<HTMLElement>(null);
   const respond = useRef(onRespond);

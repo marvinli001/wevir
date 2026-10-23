@@ -1013,6 +1013,7 @@ export const messages: Messages = {
   'home.noProject': '폴더 없음',
   'home.workWithoutProject': '폴더 없이 작업',
   'home.noProvider': '구성된 모델 제공자 없음',
+  'home.noProviderAccess': '모델 제공자 접근 권한 없음',
   'home.addProvider': '모델 제공자 추가',
   'welcome.steps': '설정 단계',
   'welcome.step.provider': '모델 제공자',

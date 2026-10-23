@@ -1011,6 +1011,7 @@ export const messages: Messages = {
   'home.noProject': '無目錄',
   'home.workWithoutProject': '不在目錄中工作',
   'home.noProvider': '未設定模型服務',
+  'home.noProviderAccess': '無模型服務權限',
   'home.addProvider': '新增模型服務',
   'welcome.steps': '導覽步驟',
   'welcome.step.provider': '模型服務',

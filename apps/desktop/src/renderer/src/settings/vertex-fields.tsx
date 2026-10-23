@@ -3,6 +3,7 @@ import { useId, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { modelRow, type ProviderForm, serviceAccountEmail } from './provider-form';
 import { VERTEX_PRESETS } from './provider-presets';
 
@@ -27,7 +28,7 @@ export function VertexFields({
           <button
             type="button"
             className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
-            onClick={() => void window.wevir.openExternal(docsURL)}
+            onClick={() => void platformApi().openExternal(docsURL)}
           >
             {t('provider.form.docs')}
             <ExternalLink className="size-3.5" aria-hidden />

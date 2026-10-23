@@ -41,16 +41,18 @@ export function WorkspaceSettings() {
       <SettingsSection
         title={t('settings.section.projects')}
         action={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => openCreateProject({ onCreated: () => {} })}
-            disabled={!client}
-            data-action="add-workspace"
-          >
-            <FolderPlus data-icon="inline-start" />
-            {t('project.create.title')}
-          </Button>
+          manage.create && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openCreateProject({ onCreated: () => {} })}
+              disabled={!client}
+              data-action="add-workspace"
+            >
+              <FolderPlus data-icon="inline-start" />
+              {t('project.create.title')}
+            </Button>
+          )
         }
       >
         <div className="space-y-3">
@@ -65,6 +67,7 @@ export function WorkspaceSettings() {
                   entry={entry}
                   disabled={!client}
                   canEdit={manage.update}
+                  canRemove={manage.remove}
                 />
               ))}
             </ul>
@@ -80,10 +83,12 @@ function WorkspaceRow({
   entry,
   disabled,
   canEdit,
+  canRemove,
 }: {
   entry: WorkspaceEntry;
   disabled: boolean;
   canEdit: boolean;
+  canRemove: boolean;
 }) {
   const { workspace, sessions } = entry;
   return (
@@ -124,14 +129,16 @@ function WorkspaceRow({
             <Pencil />
           </IconButton>
         )}
-        <IconButton
-          label={t('workspace.remove')}
-          disabled={disabled}
-          onClick={() => requestRemoveProject(entry)}
-          data-action="remove-workspace"
-        >
-          <Trash2 />
-        </IconButton>
+        {canRemove && (
+          <IconButton
+            label={t('workspace.remove')}
+            disabled={disabled}
+            onClick={() => requestRemoveProject(entry)}
+            data-action="remove-workspace"
+          >
+            <Trash2 />
+          </IconButton>
+        )}
       </div>
     </li>
   );

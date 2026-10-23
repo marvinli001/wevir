@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
+import { platformApi } from '@/platform/platform';
 
 /** 主文件夹加其他源文件夹最多几个。 */
 export const SOURCE_FOLDERS_MAX = WORKSPACE_EXTRA_FOLDERS_MAX + 1;
@@ -21,7 +22,7 @@ export function useMultipleSourceFolders(): boolean {
 /** 用系统的文件夹选择器挑一个；取消时 `null`，打不开选择器时抛出给出原因的错误文案。 */
 export async function chooseSourceFolder(): Promise<string | null> {
   try {
-    return await window.wevir.selectFolder();
+    return await platformApi().selectFolder();
   } catch (reason) {
     throw new Error(t('project.selectFailed', { error: describe(reason) }));
   }

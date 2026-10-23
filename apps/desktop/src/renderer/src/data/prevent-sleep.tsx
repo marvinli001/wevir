@@ -2,6 +2,7 @@ import { hostSupports } from '@wevir/client-sdk';
 import { useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
 import { createPersistedStore } from '@/lib/store';
+import { platformApi } from '@/platform/platform';
 import {
   hasRunningTurn,
   migratePreventSleep,
@@ -61,7 +62,9 @@ export function PreventSleepCoordinator() {
       data.status === 'ready' &&
       hasRunningTurn(data.workspaces.flatMap((entry) => entry.sessions));
   useEffect(() => {
-    window.wevir?.setPreventSleep(active).catch(() => undefined);
+    platformApi()
+      ?.setPreventSleep(active)
+      .catch(() => undefined);
   }, [active]);
   return null;
 }

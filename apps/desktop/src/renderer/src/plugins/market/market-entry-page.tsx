@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { currentLocale, t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { commandLine } from '../plugins-model';
@@ -158,7 +159,7 @@ function EntryDetail({
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem
                 onClick={() =>
-                  void window.wevir.copyText(entryWebUrl(mirror, entry)).then(onCopied)
+                  void platformApi().copyText(entryWebUrl(mirror, entry)).then(onCopied)
                 }
               >
                 <Link2 />
@@ -166,7 +167,7 @@ function EntryDetail({
               </DropdownMenuItem>
               {entry.upstream && (
                 <DropdownMenuItem
-                  onClick={() => void window.wevir.openExternal(entry.upstream?.url ?? '')}
+                  onClick={() => void platformApi().openExternal(entry.upstream?.url ?? '')}
                 >
                   <ExternalLink />
                   {t('plugins.market.viewUpstream')}
@@ -348,7 +349,7 @@ function ExternalLinkText({ url, children }: { url: string; children: ReactNode 
   return (
     <button
       type="button"
-      onClick={() => void window.wevir.openExternal(url)}
+      onClick={() => void platformApi().openExternal(url)}
       className="inline-flex max-w-full items-center gap-1 rounded-sm text-left underline decoration-border underline-offset-2 outline-none transition-colors duration-150 hover:decoration-foreground focus-visible:focus-ring"
     >
       <span className="min-w-0 truncate">{children}</span>

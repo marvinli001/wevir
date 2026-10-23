@@ -4,7 +4,7 @@
 
 import { join } from 'node:path';
 import type { RunningHost } from '@wevir/host';
-import { generateKeyPair, type KeyPair } from '@wevir/noise';
+import { generateKeyPair } from '@wevir/noise';
 import {
   CloseCode,
   DEFAULT_DEVICE_PERMISSIONS,
@@ -25,6 +25,7 @@ import {
   pairRemoteHost,
   REMOTE_ENDPOINT,
   type RemoteConnectedInfo,
+  type RemoteDeviceKey,
   type RemoteHostKeys,
   type RemoteRoute,
   remoteTransport,
@@ -93,7 +94,7 @@ async function setup(echo: EchoAdapterOptions = {}) {
 
 type Setup = Awaited<ReturnType<typeof setup>>;
 
-async function pairByUri(t: Setup, device: KeyPair = generateKeyPair()) {
+async function pairByUri(t: Setup, device: RemoteDeviceKey = generateKeyPair()) {
   const offer: PairingOffer = await t.desktop.request('pairing.start');
   const payload = parsePairingUri(offer.uri);
   if (payload === null) throw new Error('bad pairing uri');
@@ -115,7 +116,7 @@ async function pairByUri(t: Setup, device: KeyPair = generateKeyPair()) {
 async function connectRemote(
   t: Setup,
   host: RemoteHostKeys,
-  device: KeyPair,
+  device: RemoteDeviceKey,
   options: { routes?: RemoteRoute[]; sent?: SentFrame[]; states?: ConnectionState[] } = {},
 ) {
   const connected: RemoteConnectedInfo[] = [];
@@ -192,6 +193,32 @@ describe('远程隧道', () => {
     });
     const { devices } = await t.desktop.request('device.list');
     expect(devices).toMatchObject([{ name: 'Laptop', platform: 'macos', status: 'active' }]);
+  });
+
+  it('不可导出的 WebCrypto X25519 密钥（DH 是异步的）配对与 IK 重连', async () => {
+    const t = await setup();
+    const pair = (await crypto.subtle.generateKey({ name: 'X25519' }, false, [
+      'deriveBits',
+    ])) as CryptoKeyPair;
+    const device: RemoteDeviceKey = {
+      publicKey: new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)),
+      dh: async (publicKey) => {
+        const remote = await crypto.subtle.importKey(
+          'raw',
+          publicKey as Uint8Array<ArrayBuffer>,
+          { name: 'X25519' },
+          false,
+          [],
+        );
+        return new Uint8Array(
+          await crypto.subtle.deriveBits({ name: 'X25519', public: remote }, pair.privateKey, 256),
+        );
+      },
+    };
+    const { host, result } = await pairByUri(t, device);
+    expect(result.hello.permissions).toEqual([...DEFAULT_DEVICE_PERMISSIONS]);
+    const { client } = await connectRemote(t, host, device);
+    await expect(client.request('session.list', {})).resolves.toMatchObject({ sessions: [] });
   });
 
   it('短码配对只靠 mDNS 广播的 rid 与 pk；错码报 wrong_secret 且窗口结束', async () => {

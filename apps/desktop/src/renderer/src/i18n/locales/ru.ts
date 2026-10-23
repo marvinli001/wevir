@@ -1041,6 +1041,7 @@ export const messages: Messages = {
   'home.noProject': 'Без папки',
   'home.workWithoutProject': 'Работать без папки',
   'home.noProvider': 'Поставщик моделей не настроен',
+  'home.noProviderAccess': 'Нет доступа к поставщикам моделей',
   'home.addProvider': 'Добавить поставщика моделей',
   'welcome.steps': 'Шаги настройки',
   'welcome.step.provider': 'Поставщик моделей',

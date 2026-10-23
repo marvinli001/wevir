@@ -19,6 +19,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { chatsOf, projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { capabilities, platformApi } from '@/platform/platform';
 import { workspaceLabel } from '@/projects/chats';
 import { type PluginsTab, paths } from '@/routes/paths';
 import { type Notice, NoticeBanner, Segmented } from '@/settings/settings-ui';
@@ -173,7 +174,9 @@ export function PluginsPage({
   };
 
   // 拖放：拖进文件夹、.zip 或 SKILL.md 等于点“添加”选了它，只认一项；对话框开着时不再接。
-  const acceptsDrop = context !== undefined && add === null && connector === null;
+  // 拖放与“从文件添加”要这台电脑上的路径（platform/platform.ts 的 `localFiles`）。
+  const acceptsDrop =
+    capabilities().localFiles && context !== undefined && add === null && connector === null;
   const onDragOver = (event: DragEvent) => {
     if (!acceptsDrop || !Array.from(event.dataTransfer.types).includes('Files')) return;
     event.preventDefault();
@@ -188,7 +191,7 @@ export function PluginsPage({
     if (!acceptsDrop || !Array.from(event.dataTransfer.types).includes('Files')) return;
     event.preventDefault();
     const paths = Array.from(event.dataTransfer.files)
-      .map((file) => window.wevir.getPathForFile(file))
+      .map((file) => platformApi().getPathForFile(file))
       .filter((path) => path !== '');
     if (paths.length === 0) return;
     if (paths.length > 1) openAdd({ error: t('plugins.add.multiple') });
@@ -258,10 +261,12 @@ export function PluginsPage({
                         }
                       />
                       <DropdownMenuContent align="end" className="w-52">
-                        <DropdownMenuItem onClick={() => openAdd()} data-action="add-file">
-                          <FileUp />
-                          {t('plugins.add.fromFile')}
-                        </DropdownMenuItem>
+                        {capabilities().localFiles && (
+                          <DropdownMenuItem onClick={() => openAdd()} data-action="add-file">
+                            <FileUp />
+                            {t('plugins.add.fromFile')}
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                           onClick={() => setConnector({ kind: 'add' })}
                           data-action="add-connector"

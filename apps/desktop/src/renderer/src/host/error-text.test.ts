@@ -16,6 +16,17 @@ function rpc(code: number, message: string, data?: unknown): WevirRpcError {
   return new WevirRpcError('session.send', { code, message, ...(data !== undefined && { data }) });
 }
 
+describe('DEVICE_FORBIDDEN', () => {
+  it('带上缺的权限', () => {
+    expect(
+      describeError(
+        rpc(ErrorCode.DEVICE_FORBIDDEN, 'forbidden', { missing: ['host.manage', 'policy.write'] }),
+      ),
+    ).toBe('权限不足：host.manage, policy.write');
+    expect(describeError(rpc(ErrorCode.DEVICE_FORBIDDEN, 'forbidden'))).toBe('权限不足');
+  });
+});
+
 describe('hostFailureText', () => {
   it('按原因码说成话，原文跟在后面', () => {
     expect(hostFailureText({ code: 'crashed', exit: { signal: 'SIGKILL' } })).toBe(

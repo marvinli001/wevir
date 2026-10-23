@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { capabilities, platformApi } from '@/platform/platform';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { IMPORT_APP_LABEL } from '@/settings/import-model';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
@@ -127,22 +128,31 @@ function SkillDetail({ skill }: { skill: Skill }) {
   return (
     <>
       <p className="text-sm break-words text-soft-foreground">{skill.description}</p>
-      <DetailSection title="SKILL.md">
-        <SkillPreview path={skill.path} />
-      </DetailSection>
+      {/* SKILL.md 由外壳从这台电脑上读（platform/platform.ts 的 `localFiles`）。 */}
+      {capabilities().localFiles && (
+        <DetailSection title="SKILL.md">
+          <SkillPreview path={skill.path} />
+        </DetailSection>
+      )}
       <DetailSection title={t('plugins.skill.path')}>
         <MonoBlock>{skill.path}</MonoBlock>
       </DetailSection>
       <DetailActions>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void window.wevir.revealPath(skill.path).catch(() => undefined)}
-          data-action="reveal-skill"
-        >
-          <FolderOpen data-icon="inline-start" />
-          {t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
-        </Button>
+        {capabilities().localFiles && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              void platformApi()
+                .revealPath(skill.path)
+                .catch(() => undefined)
+            }
+            data-action="reveal-skill"
+          >
+            <FolderOpen data-icon="inline-start" />
+            {t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
+          </Button>
+        )}
         {removable && (
           <Button
             variant="destructive"
@@ -191,7 +201,7 @@ function SkillPreview({ path }: { path: string }) {
   useEffect(() => {
     let stopped = false;
     setState({ status: 'loading' });
-    window.wevir
+    platformApi()
       .readSkillFile(path)
       .then((text) => !stopped && setState({ status: 'ready', body: skillBody(text) }))
       .catch(

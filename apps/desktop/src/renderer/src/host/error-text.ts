@@ -133,6 +133,10 @@ export function describeError(error: unknown): string {
       const category = error.data?.category ?? 'unknown';
       return withDetail(t(`engineError.category.${category}`), error.message);
     }
+    // 远程设备越权（0.98.0）：带上缺的权限名，界面上本该已经隐藏了这项操作。
+    if (isRpcError(error, 'DEVICE_FORBIDDEN')) {
+      return withDetail(t('rpcError.DEVICE_FORBIDDEN'), error.data?.missing.join(', '));
+    }
     const name = error.codeName;
     if (name === undefined || name === 'ENGINE_ERROR') return error.message;
     const text = t(RPC_ERROR_TEXT[name]);

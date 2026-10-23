@@ -3,6 +3,7 @@
 
 import type { PaneController } from '@/layout/pane-controller';
 import { createPersistedStore, createStore } from '@/lib/store';
+import { platformApi } from '@/platform/platform';
 import type { EditorInfo } from '../../../shared/desktop-api.js';
 
 export interface FileReveal {
@@ -68,7 +69,7 @@ export function useEditors(): readonly EditorInfo[] | undefined {
   const list = editors.use();
   if (list === undefined && !loadingEditors) {
     loadingEditors = true;
-    void window.wevir
+    void platformApi()
       .listEditors()
       .then((found) => editors.set(found))
       .catch(() => editors.set([]));
@@ -79,7 +80,9 @@ export function useEditors(): readonly EditorInfo[] | undefined {
 /** 用外部编辑器打开文件或文件夹，并记下它作为首选；文件窗格的“打开方式”与侧栏菜单共用。 */
 export function openInEditor(editorId: string, path: string, line?: number): void {
   filePrefs.set((current) => ({ ...current, editor: editorId }));
-  void window.wevir.openInEditor(editorId, path, line).catch(() => undefined);
+  void platformApi()
+    .openInEditor(editorId, path, line)
+    .catch(() => undefined);
 }
 
 /** 首选的编辑器：上次用的，没有就是表里的第一个。 */

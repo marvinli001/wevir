@@ -33,6 +33,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { isPickable, pickerOrder, sourceOf, sourceTitle } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { openFiles } from '@/files/files-store';
+import { useCan } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import type { PaneController } from '@/layout/pane-controller';
 import { paths } from '@/routes/paths';
@@ -129,6 +130,7 @@ function effortCommand(
 function permissionCommand(
   mode: PermissionMode,
   onChange: (next: PermissionMode) => void,
+  policyWrite: boolean,
 ): ComposerCommand {
   return {
     name: 'permissions',
@@ -138,7 +140,8 @@ function permissionCommand(
     plus: true,
     items: () =>
       PERMISSION_MODES.filter(
-        (candidate) => candidate === mode || allowedPermissionModes().includes(candidate),
+        (candidate) =>
+          candidate === mode || allowedPermissionModes(undefined, policyWrite).includes(candidate),
       ).map((candidate) => {
         const { icon: Icon, label } = PERMISSION_META[candidate];
         return {
@@ -308,6 +311,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     goalEnabled,
     plan,
   } = options;
+  const policyWrite = useCan('policy.write');
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
     if (plan) commands.push(...planCommands(plan));
@@ -316,7 +320,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
       const effort = effortCommand(providers, model, onModelChange);
       if (effort) commands.push(effort);
     }
-    if (permission) commands.push(permissionCommand(permission.mode, permission.onChange));
+    if (permission)
+      commands.push(permissionCommand(permission.mode, permission.onChange, policyWrite));
     commands.push(
       simple('new', t('command.new'), SquarePen, () => navigate(paths.draft(workspaceId))),
     );
@@ -365,6 +370,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     );
     return commands;
   }, [
+    policyWrite,
     plan,
     onRename,
     onArchive,
@@ -422,6 +428,7 @@ export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[
     goalEnabled,
     plan,
   } = options;
+  const policyWrite = useCan('policy.write');
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
     if (plan) commands.push(...planCommands(plan));
@@ -430,7 +437,8 @@ export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[
       const effort = effortCommand(providers, model, onModelChange);
       if (effort) commands.push(effort);
     }
-    if (permission) commands.push(permissionCommand(permission.mode, permission.onChange));
+    if (permission)
+      commands.push(permissionCommand(permission.mode, permission.onChange, policyWrite));
     if (filesEnabled && panes) {
       commands.push(simple('files', t('command.files'), FolderTree, () => openFiles(panes)));
     }
@@ -442,6 +450,7 @@ export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[
     }
     return commands;
   }, [
+    policyWrite,
     providers,
     model,
     onModelChange,

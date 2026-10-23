@@ -1,10 +1,5 @@
-import {
-  type ConnectionState,
-  type HostHello,
-  WevirClient,
-  webSocketTransport,
-} from '@wevir/client-sdk';
-import type { ClientIdentity } from '@wevir/protocol';
+import { type ConnectionState, type HostHello, WevirClient } from '@wevir/client-sdk';
+import type { ClientIdentity, Permission } from '@wevir/protocol';
 import {
   createContext,
   type ReactNode,
@@ -14,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { type HostConnectionSource, hostConnectionSource } from '@/platform/platform';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
 import { describeError } from './error-text';
 
@@ -50,13 +46,20 @@ interface ConnectionFields {
 }
 
 /**
- * 连接 Host 并跟踪连接状态（T5.1），T5.2 起经 context 交给整个界面。端点每次连接尝试前向主进程要
- * （`window.wevir.getHostConnection()`），令牌只在这次调用的返回值与 client-sdk 的内存里。
+ * 连接 Host 并跟踪连接状态（T5.1），T5.2 起经 context 交给整个界面。连接来自外壳（platform/platform.ts）：桌面端每次连接尝试前
+ * 向主进程要端点（`window.wevir.getHostConnection()`），令牌只在这次调用的返回值与 client-sdk 的内存里；别的外壳给出自己的传输
+ * （浏览器客户端经中继的远程传输）。`source` 只给测试与外壳覆盖用。
  *
  * T5.5：断线后 client-sdk 按退避自动重连、按 seq 续订；主进程推来的 Host 进程状态回到 `running`（拥有的 Host 被
  * 重新拉起、附着的 Host 回来了）时立即重连，第一次就没连上或连接已关闭的，这时重新连接。
  */
-export function HostConnectionProvider({ children }: { children: ReactNode }) {
+export function HostConnectionProvider({
+  children,
+  source,
+}: {
+  children: ReactNode;
+  source?: HostConnectionSource;
+}) {
   const [fields, setFields] = useState<ConnectionFields>({
     view: { status: 'connecting' },
     client: undefined,
@@ -65,6 +68,7 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
   });
   const retryRef = useRef<() => void>(() => {});
 
+  const connectionSource = source ?? hostConnectionSource();
   useEffect(() => {
     let disposed = false;
     let client: WevirClient | undefined;
@@ -79,13 +83,10 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
       connecting = true;
       update({ view: { status: 'connecting' } });
       try {
-        const { identity } = await window.wevir.getHostConnection();
+        const { identity, endpoint, transport } = await connectionSource.open();
         const connected = await WevirClient.connect({
-          endpoint: async () => {
-            const { url, token } = await window.wevir.getHostConnection();
-            return { url, token };
-          },
-          transport: webSocketTransport(WebSocket),
+          endpoint,
+          transport,
           identity,
           onStateChange: (state) => {
             // 被替换掉的旧客户端（关闭后重新连接）不再更新界面。
@@ -120,9 +121,9 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
       update({ hostStatus: status });
       if (status.phase === 'running') reconnect();
     };
-    const unsubscribe = window.wevir.onHostStatus(onHostStatus);
-    void window.wevir
-      .getHostStatus()
+    const unsubscribe = connectionSource.onHostStatus?.(onHostStatus) ?? (() => {});
+    void connectionSource
+      .getHostStatus?.()
       .then((status) => {
         // 推送可能先到：只在还没收到推送时采用。
         if (!disposed && hostStatus === undefined) {
@@ -133,7 +134,7 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
 
     retryRef.current = () => {
-      if (hostStatus?.phase === 'failed') void window.wevir.retryHost();
+      if (hostStatus?.phase === 'failed') void connectionSource.retryHost?.();
       else reconnect();
     };
 
@@ -143,7 +144,7 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
       unsubscribe();
       client?.close();
     };
-  }, []);
+  }, [connectionSource]);
 
   const connection = useMemo<HostConnection>(
     () => ({ ...fields, retry: () => retryRef.current() }),
@@ -156,6 +157,15 @@ export function useHostConnection(): HostConnection {
   const connection = useContext(HostConnectionContext);
   if (!connection) throw new Error('useHostConnection 必须在 HostConnectionProvider 之内使用');
   return connection;
+}
+
+/**
+ * 这条连接有没有这项权限（`host.hello` 的 `permissions`）：远程设备只有部分权限，界面据此隐藏做不了的操作，权限由 Host 判断。本机
+ * 连接总是全部权限；还没连上时按有算，不让界面闪一下。
+ */
+export function useCan(permission: Permission): boolean {
+  const { view } = useHostConnection();
+  return view.status !== 'connected' || view.hello.permissions.includes(permission);
 }
 
 function toView(state: ConnectionState): HostConnectionView {

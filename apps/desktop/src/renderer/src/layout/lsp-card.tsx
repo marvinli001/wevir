@@ -29,6 +29,7 @@ import { Radio, RadioGroup } from '@/components/ui/radio-group';
 import { isChats } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { formatMessageTime } from '@/session/format';
 import {
   defaultPlan,
@@ -543,7 +544,9 @@ function InstallPlans({ server, target }: { server: LspServerStatus; target: Tar
               label={copied === item.id ? t('lsp.copied') : t('lsp.copy')}
               size="icon-xs"
               onClick={() =>
-                void window.wevir.copyText(item.command).then(() => setCopied(item.id))
+                void platformApi()
+                  .copyText(item.command)
+                  .then(() => setCopied(item.id))
               }
             >
               <Copy />

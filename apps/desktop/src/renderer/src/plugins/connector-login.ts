@@ -3,6 +3,7 @@
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { Connector } from '@wevir/protocol';
+import { platformApi } from '@/platform/platform';
 
 const logins = new Map<string, string>();
 
@@ -23,7 +24,7 @@ export async function signInConnector(client: WevirClient, connector: Connector)
     ...(scopes !== undefined && scopes.length > 0 && { scopes }),
   });
   logins.set(connector.id, loginId);
-  await window.wevir.openExternal(authUrl);
+  await platformApi().openExternal(authUrl);
 }
 
 /** 这个窗口发起的、还能取消的登录。 */

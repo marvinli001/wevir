@@ -339,3 +339,95 @@ describe('randomness', () => {
     expectNoiseError(() => randomBytes(32), 'no_random');
   });
 });
+
+describe('static key with an asynchronous DH', () => {
+  // 私钥不在 JS 里的情形（浏览器里不可导出的 WebCrypto 密钥）：只给出公钥与异步 DH。
+  const asyncKey = (pair: { publicKey: Uint8Array; secretKey: Uint8Array }) => ({
+    publicKey: pair.publicKey,
+    dh: async (publicKey: Uint8Array) => noblePrimitives.dh(pair.secretKey, publicKey),
+  });
+
+  async function runAsync(initiator: HandshakeState, responder: HandshakeState): Promise<void> {
+    let [writer, reader] = [initiator, responder];
+    while (!initiator.isComplete || !responder.isComplete) {
+      await reader.readMessageAsync(await writer.writeMessageAsync());
+      [writer, reader] = [reader, writer];
+    }
+  }
+
+  it.each([
+    ['IK', RECONNECT_PROTOCOL],
+    ['XXpsk2', PAIRING_PROTOCOL],
+  ] as const)('completes %s with the same transport keys', async (_name, protocol) => {
+    const peers = newPeers();
+    const psk = derivePairingPsk(utf8('K7Q2M9XF'), peers.host.publicKey);
+    const device = createHandshake({
+      protocol,
+      initiator: true,
+      prologue: PROLOGUE,
+      staticKeyPair: asyncKey(peers.device),
+      remoteStaticKey: peers.host.publicKey,
+      ...(protocol === PAIRING_PROTOCOL && { psk }),
+    });
+    const host = createHandshake({
+      protocol,
+      initiator: false,
+      prologue: PROLOGUE,
+      staticKeyPair: peers.host,
+      ...(protocol === PAIRING_PROTOCOL && { psk }),
+    });
+    await runAsync(device, host);
+    expect(toHex(host.remoteStaticKey as Uint8Array)).toBe(toHex(peers.device.publicKey));
+    const { device: d, host: h } = transportPair(device, host);
+    expect(
+      fromUtf8(
+        h.receive.decryptWithAd(
+          new Uint8Array(0),
+          d.send.encryptWithAd(new Uint8Array(0), utf8('hi')),
+        ),
+      ),
+    ).toBe('hi');
+  });
+
+  it('refuses the synchronous calls when the static DH is a promise', async () => {
+    const peers = newPeers();
+    const device = createHandshake({
+      protocol: RECONNECT_PROTOCOL,
+      initiator: true,
+      prologue: PROLOGUE,
+      staticKeyPair: asyncKey(peers.device),
+      remoteStaticKey: peers.host.publicKey,
+    });
+    expectNoiseError(() => device.writeMessage(), 'invalid_state');
+  });
+
+  it('fails the handshake when the asynchronous DH rejects', async () => {
+    const peers = newPeers();
+    const device = createHandshake({
+      protocol: RECONNECT_PROTOCOL,
+      initiator: true,
+      prologue: PROLOGUE,
+      staticKeyPair: {
+        publicKey: peers.device.publicKey,
+        dh: () => Promise.reject(new Error('x')),
+      },
+      remoteStaticKey: peers.host.publicKey,
+    });
+    await expect(device.writeMessageAsync()).rejects.toMatchObject({ code: 'invalid_key' });
+    await expect(device.writeMessageAsync()).rejects.toMatchObject({ code: 'invalid_state' });
+  });
+
+  it('rejects a second step while one is in progress', async () => {
+    const peers = newPeers();
+    const device = createHandshake({
+      protocol: RECONNECT_PROTOCOL,
+      initiator: true,
+      prologue: PROLOGUE,
+      staticKeyPair: asyncKey(peers.device),
+      remoteStaticKey: peers.host.publicKey,
+    });
+    const first = device.writeMessageAsync();
+    await expect(device.writeMessageAsync()).rejects.toMatchObject({ code: 'invalid_state' });
+    await first;
+  });
+});

@@ -3,6 +3,7 @@
 
 import { createContext } from 'react';
 import type { PaneController } from '@/layout/pane-controller';
+import { capabilities, platformApi } from '@/platform/platform';
 import { parseFileHref, toRelativePath } from './file-path';
 import { openFile, openFiles } from './files-store';
 
@@ -22,8 +23,13 @@ export function openFileLink(panes: PaneController | undefined, cwd: string, hre
   if (!target) return;
   const relative = toRelativePath(target.path, cwd);
   if (relative === undefined) {
-    if (target.path.startsWith('/') || /^[a-z]:[\\/]/i.test(target.path)) {
-      void window.wevir.revealPath(target.path).catch(() => undefined);
+    if (
+      capabilities().localFiles &&
+      (target.path.startsWith('/') || /^[a-z]:[\\/]/i.test(target.path))
+    ) {
+      void platformApi()
+        .revealPath(target.path)
+        .catch(() => undefined);
     }
     return;
   }

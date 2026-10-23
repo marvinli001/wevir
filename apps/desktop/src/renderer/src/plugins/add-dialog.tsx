@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import type { InstallSourceKind } from '../../../shared/desktop-api.js';
 import {
   inputValues,
@@ -76,7 +77,7 @@ function AddDialogBody({
   const choose = async (kind: InstallSourceKind) => {
     setError(undefined);
     try {
-      const path = await window.wevir.selectInstallSource(kind);
+      const path = await platformApi().selectInstallSource(kind);
       if (path !== null) void begin(path);
     } catch (reason) {
       setError(t('plugins.add.inspectFailed', { error: describe(reason) }));
@@ -88,7 +89,7 @@ function AddDialogBody({
     setStep({ name: 'working', path });
     setError(undefined);
     try {
-      const inspection = await window.wevir.inspectInstallSource(path);
+      const inspection = await platformApi().inspectInstallSource(path);
       const plan = planAdd(inspection, [...plugins.values()], packages);
       switch (plan.action) {
         case 'error':

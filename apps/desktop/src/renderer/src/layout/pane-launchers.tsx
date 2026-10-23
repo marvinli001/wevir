@@ -4,8 +4,9 @@ import { cn } from 'cn';
 import { IconButton } from '@/components/icon-button';
 import { useHostConnection } from '@/host/host-connection';
 import { formatShortcut, SHORTCUTS, type Shortcut } from '@/lib/shortcuts';
+import { usePaneAccess } from './pane-access';
 import type { PaneController } from './pane-controller';
-import type { PaneKind } from './pane-kinds';
+import { type PaneKind, paneKindUsable } from './pane-kinds';
 import { paneIcon, paneKindName } from './pane-registry';
 import { findKindTab } from './pane-state';
 
@@ -26,8 +27,10 @@ export function showPaneKind(panes: PaneController, kind: LauncherKind): void {
 
 export function PaneLaunchers({ panes }: { panes: PaneController }) {
   const { client } = useHostConnection();
+  const access = usePaneAccess();
   return PANE_LAUNCHERS.filter(
-    ({ kind }) => kind !== 'terminal' || client?.supports('user_terminal'),
+    ({ kind }) =>
+      paneKindUsable(kind, access) && (kind !== 'terminal' || client?.supports('user_terminal')),
   ).map(({ kind, shortcut }) => {
     const Icon = paneIcon(kind);
     // 按下的样子：这种窗格正显示着（窗格区看得见、是某个窗格当前的标签）。
