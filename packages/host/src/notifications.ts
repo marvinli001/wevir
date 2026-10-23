@@ -173,7 +173,8 @@ export class NotificationService {
     if (!this.#fresh(at) || !this.#enabled('completed')) return;
     if (!this.#attended(event.sessionId, event.ts)) return;
     const facts = this.#sessionFacts(event.sessionId);
-    if (facts === undefined) return;
+    // 频道里的会话（0.120.0）回合结束不提醒：结果在频道的时间线上。
+    if (facts === undefined || facts.session.channel !== undefined) return;
     this.#emit({
       id,
       kind: 'completed',

@@ -30,6 +30,8 @@ import { ApprovalRuleService } from './approval-rules/service.js';
 import { automationRunMessage } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
+import { AssistantFolders } from './channels/assistants.js';
+import { ChannelService } from './channels/service.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { ComputerBroker } from './computer-broker.js';
@@ -103,7 +105,7 @@ import {
   polishInput,
 } from './speech/polish.js';
 import { SpeechService } from './speech/service.js';
-import { boardEventRecorder, TaskBoardStore } from './task-board.js';
+import { boardEventRecorder, boardEventTasks, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
 import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
@@ -270,6 +272,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let events: EventStore | undefined;
   let sessions: SessionManager | undefined;
   let automations: AutomationService | undefined;
+  let channels: ChannelService | undefined;
   let rpc: HostRpcServer | undefined;
   let backgroundProcesses: ProcessManager | undefined;
   let userTerminals: TerminalService | undefined;
@@ -448,6 +451,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
     await chats.load();
+    // 助理的隐藏工作区（0.120.0）。
+    const assistants = new AssistantFolders({ dir: homePath(home, 'assistantsDir') });
+    await assistants.load();
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
@@ -471,12 +477,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
     // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
     // 改动写进根会话的事件流（0.52.0 的 tasks.board_updated），桌面端据此显示清单。
+    // 频道的清单（0.120.0）根是频道 ID，改动交给频道服务推给订阅者。
+    const recordBoard = boardEventRecorder(store, (message, fields) =>
+      logger.warn(message, fields),
+    );
     const taskBoards = new TaskBoardStore({
       dir: homePath(home, 'tasksDir'),
-      onChange: boardEventRecorder(store, (message, fields) => logger.warn(message, fields)),
+      onChange: (root, tasks) => {
+        if (root.startsWith('chn_')) channels?.tasksChanged(root);
+        else recordBoard(root, tasks);
+      },
     });
     void taskBoards
-      .sweep((sessionId) => sessionsDb.sessions.get(sessionId) !== undefined)
+      .sweep(
+        (root) =>
+          sessionsDb.sessions.get(root) !== undefined ||
+          (root.startsWith('chn_') && sessionsDb.channels.get(root)?.deletedAt === undefined),
+      )
       .catch((error: unknown) => logger.warn('task board sweep failed', { error }));
     // 用量统计（0.62.0）：每次模型请求记进用量表；成本按 models.dev 的价格表算，价格表每天刷新。
     let usage: UsageService | undefined;
@@ -600,6 +617,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
         automations?.onTurnFinished(info);
+        channels?.onTurnFinished(info);
         opinions?.onTurnFinished(info);
         autoTuner?.onTurnFinished(info.sessionId);
         // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
@@ -684,6 +702,29 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const automationService = automations;
+    // 频道与助理（0.120.0，channels/service.ts）：时间线在库里，协调者与线程是 SessionManager 的会话。
+    let browserBroker: BrowserBroker | undefined;
+    const channelService = new ChannelService({
+      storage,
+      events: store,
+      sessions: manager,
+      assistants,
+      identity: { deviceId: hostId, clientId: 'wevir-channels', clientKind: 'desktop' },
+      tasks: {
+        list: async (root) => boardEventTasks(await taskBoards.list(root)),
+        update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
+      },
+      inventory: () => ({
+        connectors: plugins
+          .connectors()
+          .filter((connector) => connector.enabled)
+          .map((connector) => connector.name),
+        browser: browserBroker?.available === true,
+      }),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    channels = channelService;
+    channelService.start();
     const recovery = manager.recover();
     if (
       recovery.expiredApprovals > 0 ||
@@ -1043,6 +1084,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
+    browserBroker = browsers;
     // 电脑操作（0.114.0）：桌面端登记为提供方，computer_* 经它交给桌面端主进程的原生 helper；设置的 computerUse 打开时才列出。
     const computers = adapter.appTools === true ? new ComputerBroker() : undefined;
     let computerGuide: string | undefined;
@@ -1117,6 +1159,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         roles,
         tasks: taskBoards,
         automations: automationService,
+        channels: channelService,
         ...(secondOpinions !== undefined && { opinions: secondOpinions }),
         retro,
         search,
@@ -1224,6 +1267,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         usage: { service: usageStats, pricing },
         ...(verification !== undefined && { verification }),
         automations: automationService,
+        channels: channelService,
+        assistants,
         ...(review !== undefined && { review }),
         ...(secondOpinions !== undefined && { opinions: secondOpinions }),
         retro,
@@ -1351,6 +1396,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         remote_relay: true,
         remote_push: true,
         remote_web: true,
+        channels: true,
       },
       engineFeatures,
       plugins,
@@ -1359,6 +1405,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memory,
       sessionList: listFeed,
       inbox: inboxService,
+      channels: channelService,
       notifications: notificationService,
       presence,
       remote: {
@@ -1450,6 +1497,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           adapter,
           accounts,
           automations: automationService,
+          channels: channelService,
           checkpoints,
           events: store,
           search,
@@ -1485,6 +1533,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await userTerminals?.dispose().catch(() => {});
     accounts?.dispose();
     automations?.dispose();
+    channels?.dispose();
     await turnCheckpoints?.dispose();
     await sessions?.dispose().catch(() => {});
     await adapter.dispose().catch(() => {});
@@ -1537,6 +1586,7 @@ interface ShutdownParts {
   accounts: HostAccounts | undefined;
   /** 自动化（0.66.0）：先停计时，回合取消后等运行记录写完。 */
   automations: AutomationService;
+  channels: ChannelService;
   checkpoints: TurnCheckpoints;
   events: EventStore;
   search: SessionSearch;
@@ -1609,6 +1659,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 自动化的运行记录（随回合取消记下的 cancelled）写完再关，不超过预算。
   await beforeDeadline(parts.automations.flush(), deadline);
   parts.automations.dispose();
+  parts.channels.dispose();
   // 回合结束后的快照不再等：没打完的回合，diff 对着工作树（live）。进行中的 git 停下后等它退出（不超过预算）。
   await beforeDeadline(parts.checkpoints.dispose(), deadline);
   // 超时的话引擎进程留给适配器自己回收（ACP 引擎读到 stdin EOF 即退出）。

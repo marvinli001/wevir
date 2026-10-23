@@ -93,6 +93,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': '변환 실패',
   'rpcError.MCP_OAUTH_FAILED': '로그인 실패',
   'rpcError.PUSH_GATEWAY_ERROR': '푸시 등록 실패',
+  'rpcError.CHANNEL_NOT_FOUND': '어시스턴트 없음',
 
   'clientError.request_timeout': '요청 시간 초과',
   'clientError.connect_timeout': '연결 시간 초과',

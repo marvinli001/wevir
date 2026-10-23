@@ -100,6 +100,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': 'Trascrizione non riuscita',
   'rpcError.MCP_OAUTH_FAILED': 'Accesso non riuscito',
   'rpcError.PUSH_GATEWAY_ERROR': 'Registrazione push non riuscita',
+  'rpcError.CHANNEL_NOT_FOUND': 'Assistente non trovato',
 
   'clientError.request_timeout': 'Richiesta scaduta',
   'clientError.connect_timeout': 'Connessione scaduta',

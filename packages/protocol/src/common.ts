@@ -60,6 +60,9 @@ export const DeviceIdSchema = z.templateLiteral(['dev_', IdBodySchema]);
 export const PairingIdSchema = z.templateLiteral(['prg_', IdBodySchema]);
 /** 配对窗口里一台设备发来的请求（0.107.0）。 */
 export const PairingRequestIdSchema = z.templateLiteral(['prq_', IdBodySchema]);
+/** 频道与它时间线上的帖子（0.120.0，ADR-0020）。 */
+export const ChannelIdSchema = z.templateLiteral(['chn_', IdBodySchema]);
+export const ChannelPostIdSchema = z.templateLiteral(['cpo_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -88,6 +91,8 @@ export type TuningProposalId = z.infer<typeof TuningProposalIdSchema>;
 export type DeviceId = z.infer<typeof DeviceIdSchema>;
 export type PairingId = z.infer<typeof PairingIdSchema>;
 export type PairingRequestId = z.infer<typeof PairingRequestIdSchema>;
+export type ChannelId = z.infer<typeof ChannelIdSchema>;
+export type ChannelPostId = z.infer<typeof ChannelPostIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;

@@ -96,6 +96,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': '文字起こしに失敗しました',
   'rpcError.MCP_OAUTH_FAILED': 'サインインに失敗しました',
   'rpcError.PUSH_GATEWAY_ERROR': 'プッシュ登録に失敗しました',
+  'rpcError.CHANNEL_NOT_FOUND': 'アシスタントが見つかりません',
 
   'clientError.request_timeout': 'リクエストがタイムアウトしました',
   'clientError.connect_timeout': '接続がタイムアウトしました',

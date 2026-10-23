@@ -38,6 +38,8 @@ export interface TaskToolsOptions {
   ownerCheck: (root: SessionId, owner: string) => SessionId;
   /** 认领的会话现在的标题与状态，给清单加上下文；会话不在了时 `undefined`。 */
   describeOwner?: (sessionId: SessionId) => { title: string; state: string } | undefined;
+  /** 只有用户能标完成的清单（助理的，0.120.0）：Agent 标 `completed` 时拒绝。 */
+  userCompletes?: (root: SessionId) => boolean;
 }
 
 export function taskTools({
@@ -45,6 +47,7 @@ export function taskTools({
   rootOf,
   ownerCheck,
   describeOwner,
+  userCompletes,
 }: TaskToolsOptions): AppTool[] {
   const guard = async <T>(run: () => Promise<T>): Promise<T> => {
     try {
@@ -232,6 +235,11 @@ export function taskTools({
         const status = optionalString(args, 'status');
         if (status !== undefined && !(TASK_STATUSES as readonly string[]).includes(status)) {
           throw new AppToolError(`status must be one of ${TASK_STATUSES.join(', ')}.`);
+        }
+        if (status === 'completed' && userCompletes?.(root) === true) {
+          throw new AppToolError(
+            'Only the user marks tasks on this list completed. Add a note saying it is done and tell the user.',
+          );
         }
         const owner = ownerOf(args, sessionId, root, true);
         const patch: TaskPatch = {};

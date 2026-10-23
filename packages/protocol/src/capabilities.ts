@@ -502,6 +502,12 @@ export const HOST_FEATURES = {
    * `web`（经中继的 https 配对链接）、设备平台 `web`、设置 `remote.web`（网页地址与闲置自动移除）。与引擎无关。
    */
   remoteWeb: 'remote_web',
+  /**
+   * 频道与助理（0.120.0，ADR-0020，domain-model §3.53）：`channel.*`、`channels.changed` / `channel.posted` / `channel.updated`、
+   * `Session.channel`、`Workspace.kind: 'assistant'`。频道里的会话不进不带 `channelId` 的会话列表。与引擎无关；协调者的
+   * `wevir_channel_*` 工具要引擎能挂 Wevir 工具。
+   */
+  channels: 'channels',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -603,6 +609,7 @@ export const HostFeaturesSchema = z.looseObject({
   remote_relay: z.boolean().optional(),
   remote_push: z.boolean().optional(),
   remote_web: z.boolean().optional(),
+  channels: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

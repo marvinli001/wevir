@@ -95,6 +95,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': 'Transcription failed',
   'rpcError.MCP_OAUTH_FAILED': 'Sign-in failed',
   'rpcError.PUSH_GATEWAY_ERROR': 'Push registration failed',
+  'rpcError.CHANNEL_NOT_FOUND': 'Assistant not found',
 
   'clientError.request_timeout': 'Request timed out',
   'clientError.connect_timeout': 'Connection timed out',

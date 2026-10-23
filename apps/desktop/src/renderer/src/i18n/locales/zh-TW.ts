@@ -91,6 +91,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': '轉寫失敗',
   'rpcError.MCP_OAUTH_FAILED': '登入失敗',
   'rpcError.PUSH_GATEWAY_ERROR': '推播註冊失敗',
+  'rpcError.CHANNEL_NOT_FOUND': '助理不存在',
 
   'clientError.request_timeout': '請求逾時',
   'clientError.connect_timeout': '連線逾時',

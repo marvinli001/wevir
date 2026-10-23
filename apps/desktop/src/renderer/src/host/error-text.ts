@@ -98,6 +98,7 @@ const RPC_ERROR_TEXT: Record<Exclude<ErrorCodeName, 'ENGINE_ERROR'>, PlainMessag
   SPEECH_FAILED: 'rpcError.SPEECH_FAILED',
   MCP_OAUTH_FAILED: 'rpcError.MCP_OAUTH_FAILED',
   PUSH_GATEWAY_ERROR: 'rpcError.PUSH_GATEWAY_ERROR',
+  CHANNEL_NOT_FOUND: 'rpcError.CHANNEL_NOT_FOUND',
 };
 
 const RPC_DETAIL: ReadonlySet<ErrorCodeName> = new Set([
