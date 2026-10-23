@@ -3,8 +3,8 @@ import { RELAY_PATHS, RelayCloseCode, relayEndpoint, relayRegistrationMessage } 
 
 describe('relayEndpoint', () => {
   it('路径接在中继地址的路径之后，查询参数保留并追加', () => {
-    expect(relayEndpoint('wss://relay.wevir.si', RELAY_PATHS.host)).toBe(
-      'wss://relay.wevir.si/v1/host',
+    expect(relayEndpoint('wss://relay.example.com', RELAY_PATHS.host)).toBe(
+      'wss://relay.example.com/v1/host',
     );
     expect(relayEndpoint('wss://example.com/relay/', '/v1/connect', { route: 'abc' })).toBe(
       'wss://example.com/relay/v1/connect?route=abc',

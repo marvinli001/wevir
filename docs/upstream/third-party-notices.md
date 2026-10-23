@@ -15,6 +15,7 @@
 | Host | `packages/host/dist` 与它的生产依赖 | `ws`、`zod` 等（§2.1） |
 | CLI（T4.2） | `apps/cli/dist` | `mute-stream`（§2.1） |
 | Codex 引擎（R9） | 资源目录的 `engines/codex/`：`codex-app-server` 与 `codex-code-mode-host` 独立二进制，Linux 另有 `codex-resources/bwrap`（`pnpm --filter @wevir/desktop resources` 准备，ADR-0007 决策 5） | OpenAI Codex 与它静态链接的 Rust crate、bubblewrap（§2.5） |
+| 中继（`apps/relay`，自建用，不进桌面安装包） | `apps/relay/dist/` 与它做成的 Docker 镜像：一个打包好的 ESM，`@wevir/protocol`、`ws`、`zod` 都打进去，运行时不装依赖 | `ws`、`zod`（§2.1）；两者的 `LICENSE` 由构建拷到 `dist/licenses/`（镜像里是 `/app/licenses/`） |
 
 不分发、不进声明的：构建与测试工具（TypeScript、Biome、Vitest、Vite、electron-vite、tsdown、`@tailwindcss/vite` 等）。其中 `lightningcss`（MPL-2.0，Tailwind 构建时用）、`caniuse-lite`（CC-BY-4.0）、`source-map-js`（BSD-3-Clause）只在构建时运行，产物里没有它们的代码。`electron` 这个 npm 包的依赖（`@electron/get` 等）只负责下载二进制，也不进安装包。
 
@@ -26,8 +27,8 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 | 包 | 版本 | 许可证 | 版权 | 使用方 |
 |---|---|---|---|---|
-| `zod` | 4.6.5 | MIT | Copyright (c) 2025 Colin McDonnell | `@wevir/protocol` |
-| `ws` | 8.22.0 | MIT | Copyright (c) 2011 Einar Otto Stangvik；Copyright (c) 2013 Arnout Kazemier and contributors | `@wevir/host` |
+| `zod` | 4.6.5 | MIT | Copyright (c) 2025 Colin McDonnell | `@wevir/protocol`；打进 `wevir-relay` 的 bundle |
+| `ws` | 8.22.0 | MIT | Copyright (c) 2011 Einar Otto Stangvik；Copyright (c) 2013 Arnout Kazemier and contributors | `@wevir/host`；打进 `wevir-relay` 的 bundle |
 | `yaml` | 2.9.1 | ISC | Copyright Eemeli Aro | `@wevir/host`，P1 的 SKILL.md YAML 解析 |
 | `yauzl` | 3.4.0 | MIT | Copyright (c) 2014 Josh Wolfe | `@wevir/host`，P1 的本地 ZIP 安装；adapter-antigravity 也使用同一版本 |
 | `smol-toml` | 1.9.1 | BSD-3-Clause | Copyright (c) Squirrel Chat et al. | `@wevir/host`，从 Codex 导入时读 `config.toml` 的 MCP 服务器 |
@@ -129,6 +130,10 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 - [ ] 不使用 OpenWork、Paseo、DeepSeek 的名称与 logo，说明来源的署名除外（UPSTREAM.md §2.2、§2.3）。
 - [ ] 如果随安装包带 Node.js，加上它的 `LICENSE`。
 - [ ] 字体（§2.5）：OFL 要求每份副本带版权声明与许可证全文。`apps/desktop/licenses/fonts/` 放进安装包，或由第三方声明文件收进各字体的版权行与一次 OFL 全文；不单独出售字体文件（OFL 第 1 条）。
+
+### 3.1a 中继镜像（`wevir-relay`）
+
+- [x] 打进 bundle 的 `ws`、`zod`（MIT）的许可证全文随 `dist/` 分发：`apps/relay/tsdown.config.ts` 的 `copy` 拷到 `dist/licenses/ws.txt`、`zod.txt`，Docker 镜像里在 `/app/licenses/`。加了别的打进 bundle 的依赖时一起加。
 
 ### 3.2 Codex
 

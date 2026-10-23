@@ -46,9 +46,13 @@ import type { Transport, TransportCloseInfo, TransportFactory } from './transpor
 
 export type RemotePath = (typeof REMOTE_PATHS)[keyof typeof REMOTE_PATHS];
 
-/** 管道关闭的信息；`httpStatus` 是 WebSocket 升级前被拒时的 HTTP 状态码（WebSocket 实现给得出时）。 */
+/**
+ * 管道关闭的信息；`httpStatus` 是 WebSocket 升级前被拒时的 HTTP 状态码，`certificate` 是升级前 TLS 证书验不过（都要 WebSocket
+ * 实现给得出时）。
+ */
 export interface RemoteLinkCloseInfo extends TransportCloseInfo {
   httpStatus?: number;
+  certificate?: boolean;
 }
 
 /** 一条到 Host 的二进制管道的回调。`onClose` 恰好调用一次，连不上也是一次。 */
@@ -164,6 +168,14 @@ export function relayRoute(
  * 升级前被拒时的 HTTP 状态码。WHATWG 的 `WebSocket` 不给；`ws` 包的错误是 `Unexpected server response: 429`，React Native 在
  * iOS / Android 上的错误文字里也带着状态码。
  */
+/** Node 的 TLS 证书错误码（`ws` 把原始错误放在 error 事件的 `error` 上）：`DEPTH_ZERO_SELF_SIGNED_CERT`、`CERT_HAS_EXPIRED` 等。 */
+const CERTIFICATE_ERROR_CODE = /CERT|SELF_SIGNED|UNABLE_TO_(?:VERIFY|GET_ISSUER)|ISSUER_CERT/;
+
+function certificateError(event: unknown): boolean {
+  const code = (event as { error?: { code?: unknown } } | undefined)?.error?.code;
+  return typeof code === 'string' && CERTIFICATE_ERROR_CODE.test(code);
+}
+
 function upgradeStatus(event: unknown): number | undefined {
   const e = event as { error?: { message?: unknown }; message?: unknown } | undefined;
   const text = [e?.error?.message, e?.message].find((m): m is string => typeof m === 'string');
@@ -180,6 +192,7 @@ export function openWebSocketLink(
   let closed = false;
   let opened = false;
   let httpStatus: number | undefined;
+  let certificate = false;
   let socket: BinaryWebSocketLike;
   try {
     socket = new WebSocketImpl(url);
@@ -205,11 +218,14 @@ export function openWebSocketLink(
       code: typeof event.code === 'number' ? event.code : 1006,
       reason: typeof event.reason === 'string' ? event.reason : '',
       ...(httpStatus !== undefined && { httpStatus }),
+      ...(certificate && { certificate }),
     });
   });
   // `ws` 在没有 error 监听器时会把错误当作未捕获异常抛出；后面总跟着一次 close。
   socket.addEventListener('error', (event: unknown) => {
-    if (!opened) httpStatus ??= upgradeStatus(event);
+    if (opened) return;
+    httpStatus ??= upgradeStatus(event);
+    certificate ||= certificateError(event);
   });
   return {
     // Noise 的输出都是新分配的 ArrayBuffer，不会是 SharedArrayBuffer。
@@ -244,9 +260,13 @@ interface TunnelKeys {
   readonly device: KeyPair;
 }
 
-/** 经中继的路关掉时，中继说明的原因（升级前的状态码或中继的关闭码）。直连的 404 等不算：那是 Host 自己的拒绝。 */
-function relayFailureOf(route: RemoteRoute, info: RemoteLinkCloseInfo | undefined) {
+/** 经中继的路关掉时，中继说明的原因（证书、升级前的状态码或中继的关闭码）。直连的 404 等不算：那是 Host 自己的拒绝。 */
+function relayFailureOf(
+  route: RemoteRoute,
+  info: RemoteLinkCloseInfo | undefined,
+): RemoteRelayFailure | undefined {
   if (route.kind !== 'relay' || info === undefined) return undefined;
+  if (info.certificate === true) return 'certificate';
   switch (info.httpStatus) {
     case 404:
       return 'offline';
@@ -587,12 +607,17 @@ function raceRoutes(options: RaceOptions): Promise<NoiseTunnel> {
   });
 }
 
-/** 拿到一次 `opened` 的 reject 原因时，把它变成普通的失败（中继说明了原因时是 `RelayRouteError`）。 */
+/**
+ * 拿到一次 `opened` 的 reject 原因时，把它变成普通的失败（中继说明了原因时是 `RelayRouteError`）。经中继的路连 WebSocket 都没
+ * 连上、又说不出原因时是中继本身连不上（`unreachable`）：提示要说中继地址，而不只是直连的检查项。
+ */
 async function openedOrFail(tunnel: NoiseTunnel): Promise<void> {
   try {
     await tunnel.opened;
   } catch (info) {
-    const failure = relayFailureOf(tunnel.route, info as RemoteLinkCloseInfo);
+    const failure =
+      relayFailureOf(tunnel.route, info as RemoteLinkCloseInfo) ??
+      (tunnel.route.kind === 'relay' ? 'unreachable' : undefined);
     throw failure !== undefined
       ? new RelayRouteError(failure)
       : new Error(`could not reach ${tunnel.route.key}`);

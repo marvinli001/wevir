@@ -4,7 +4,7 @@ The optional relay for Wevir remote access. A phone or a remote `wevir` CLI norm
 
 The relay only forwards bytes. Every frame between a device and the desktop is Noise ciphertext (`Noise_XXpsk2` for pairing, `Noise_IK` after that), end to end. The relay never has the keys, never decrypts, does not write frames to disk and does not log their contents. If a relay is compromised, the attacker learns metadata (see below) and can drop or delay connections, but cannot read or forge messages.
 
-There is an official instance at `wss://relay.wevir.si`. You can run your own and put its address in **Settings → Devices → Relay address**.
+Wevir does not run a relay for you. To use one, host it yourself (see [Running it](#running-it)) and enter its address in **Settings → Devices → Relay address** on the desktop. The relay switch stays unavailable until an address is filled in.
 
 ## What the relay sees
 
@@ -52,7 +52,7 @@ pnpm --filter "@wevir/relay..." build
 node apps/relay/dist/main.js
 ```
 
-`dist/` is self-contained (dependencies are bundled), so you can copy it to a server and run `node main.js` there.
+`dist/` is self-contained (dependencies are bundled), so you can copy it to a server and run `node main.js` there. The license texts of the bundled dependencies (`ws`, `zod`) are in `dist/licenses/`; the Docker image has them in `/app/licenses/`.
 
 ## Configuration
 

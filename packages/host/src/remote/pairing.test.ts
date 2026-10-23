@@ -4,7 +4,6 @@ import {
   PAIRING_CODE_ALPHABET,
   type PairingId,
   parsePairingUri,
-  RELAY_DEFAULT_URL,
   type RemoteSettings,
 } from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -84,11 +83,12 @@ describe('配对窗口', () => {
     expect(parsePairingUri(offer.uri)?.relayUrl).toBe('wss://relay.example.com');
   });
 
-  it('开了中继、没填地址时载荷带上官方实例', async () => {
+  it('开了中继、没填地址（0.110.0 存下的设置）等同于关：载荷不带中继', async () => {
     const { pairing } = setup({ settings: { ...ON, relay: { enabled: true } } });
     const offer = await pairing.start();
-    expect(offer.relayUrl).toBe(RELAY_DEFAULT_URL);
-    expect(parsePairingUri(offer.uri)?.relayUrl).toBe(RELAY_DEFAULT_URL);
+    expect(offer.relayUrl).toBeUndefined();
+    expect(offer.uri).not.toContain('relay=');
+    expect(parsePairingUri(offer.uri)?.relayUrl).toBeUndefined();
   });
 
   it('每个窗口的秘密与短码都不同', async () => {

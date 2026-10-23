@@ -320,6 +320,13 @@ Also:
   'err.pairingDenied': 'That computer denied the pairing',
   'err.remoteDisabled': 'Remote access is off on that computer',
   'err.remoteDisabled.hint': 'Turn on remote access under Settings → Devices on that computer',
+  'err.relayUnreachable':
+    'Cannot reach that computer directly, and its relay address is unreachable',
+  'err.relayUnreachable.hint':
+    'On that computer, check the relay address under Settings → Devices and that the relay is running. On the same network or Tailscale, check that remote access is on there',
+  'err.relayCertificate': 'The relay’s TLS certificate is not trusted',
+  'err.relayCertificate.hint':
+    'Give the relay a certificate that is valid for its domain, for example from Let’s Encrypt',
   'err.relayOffline': 'Cannot reach that computer directly or through the relay',
   'err.relayOffline.hint':
     'Check that the computer is on and online, with remote access and the relay turned on under Settings → Devices',

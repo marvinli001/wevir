@@ -11,6 +11,8 @@ import {
   type RemoteInterface,
   type RemoteInterfaceRef,
   type RemoteSettings,
+  type RemoteStatus,
+  relayConfigured,
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
 
@@ -69,11 +71,69 @@ export function visibleDevices(devices: readonly Device[]): Device[] {
     .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
 }
 
-/** 自定义中继地址：空串是用官方实例（省略 `url`），不合法时返回 undefined。 */
+// ── 中继（0.110.0；0.111.0 起必须填自建的地址）──────────────────────────
+
+/** 中继地址框的占位：只是示例，没有官方中继。 */
+export const RELAY_URL_PLACEHOLDER = 'wss://relay.example.com';
+
+/** 中继地址框里的内容：空串是没填（省略 `url`），不合法时返回 undefined。 */
 export function parseRelayUrl(input: string): { url?: string } | undefined {
   const value = input.trim();
   if (value === '') return {};
   return RelayUrlSchema.safeParse(value).success ? { url: value } : undefined;
+}
+
+/** 中继开关显示为开：开着且填了地址。旧设置“开着、没填地址”Host 当作关，这里也显示为关。 */
+export function relayOn(remote: RemoteSettings): boolean {
+  return relayConfigured(remote) !== undefined;
+}
+
+/** 打开或关掉中继；没填地址时打不开（开关不可用）。 */
+export function setRelayEnabled(remote: RemoteSettings, enabled: boolean): RemoteSettings {
+  if (enabled && remote.relay.url === undefined) return remote;
+  return { ...remote, relay: { ...remote.relay, enabled } };
+}
+
+/**
+ * 改中继地址。清空地址时中继随之关掉；开着的换了地址仍开着；关着的（包括旧设置“开着、没填地址”）填上地址后仍是关，要用户自己
+ * 打开。
+ */
+export function setRelayUrl(remote: RemoteSettings, url: string | undefined): RemoteSettings {
+  const enabled = url !== undefined && relayOn(remote);
+  return { ...remote, relay: { enabled, ...(url !== undefined && { url }) } };
+}
+
+/** 中继一行的说明：连接状态与上次失败的原因（0.111.0 起分得清地址连不上、证书不对、那里不是中继、被中继拒绝）。 */
+export type RelayStatusText =
+  | { key: PlainMessageKey }
+  | { key: 'settings.devices.relayRejectedCode'; code: string };
+
+/** 中继开着时的连接状态（`remote.status.relay`）；关着或旧 Host 时 undefined。 */
+export function relayStatusText(relay: RemoteStatus['relay']): RelayStatusText | undefined {
+  if (relay === undefined) return undefined;
+  if (relay.state === 'connected') return { key: 'settings.devices.relayConnected' };
+  const error = relay.error;
+  switch (error?.reason) {
+    case 'unreachable':
+      return {
+        key: error.certificate
+          ? 'settings.devices.relayCertificate'
+          : 'settings.devices.relayUnreachable',
+      };
+    case 'rejected':
+      // 429 与 503 是中继在限速或满了；别的状态码说明那个地址上不是中继（路径不对、普通网站）。
+      if (error.httpStatus !== undefined && error.httpStatus !== 429 && error.httpStatus !== 503)
+        return { key: 'settings.devices.relayNotRelay' };
+      if (error.httpStatus !== undefined)
+        return { key: 'settings.devices.relayRejectedCode', code: `HTTP ${error.httpStatus}` };
+      if (error.closeCode !== undefined)
+        return { key: 'settings.devices.relayRejectedCode', code: String(error.closeCode) };
+      return { key: 'settings.devices.relayRejected' };
+    case 'replaced':
+      return { key: 'settings.devices.relayReplaced' };
+    default:
+      return { key: 'settings.devices.relayConnecting' };
+  }
 }
 
 // ── 直连的网卡（0.109.0）────────────────────────────────────────────

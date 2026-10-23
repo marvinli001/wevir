@@ -3,6 +3,7 @@ import {
   type Device,
   type PairingOffer,
   type RemoteInterface,
+  type RemoteStatus,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
@@ -12,8 +13,13 @@ import {
   pairingDialogReducer,
   parsePort,
   parseRelayUrl,
+  RELAY_URL_PLACEHOLDER,
+  relayOn,
+  relayStatusText,
   remoteOf,
   setLan,
+  setRelayEnabled,
+  setRelayUrl,
   toggleLanInterface,
   togglePermission,
   visibleDevices,
@@ -80,12 +86,88 @@ describe('设备页', () => {
     expect(list.map((d) => d.id)).toEqual(['new', 'old']);
   });
 
-  it('中继地址：空是官方实例，只认 wss:// 与 ws://', () => {
+  it('中继地址：空是没填，只认 wss:// 与 ws://；占位符只是示例', () => {
+    expect(RELAY_URL_PLACEHOLDER).not.toContain('wevir');
+    expect(parseRelayUrl(RELAY_URL_PLACEHOLDER)).toEqual({ url: RELAY_URL_PLACEHOLDER });
     expect(parseRelayUrl('  ')).toEqual({});
     expect(parseRelayUrl(' wss://relay.example.com ')).toEqual({ url: 'wss://relay.example.com' });
     expect(parseRelayUrl('ws://10.0.0.2:8080')).toEqual({ url: 'ws://10.0.0.2:8080' });
     expect(parseRelayUrl('https://relay.example.com')).toBeUndefined();
     expect(parseRelayUrl('relay')).toBeUndefined();
+  });
+
+  it('中继开关：没填地址打不开；旧设置“开着、没填地址”显示为关', () => {
+    const off = DEFAULT_REMOTE_SETTINGS;
+    expect(relayOn(off)).toBe(false);
+    expect(setRelayEnabled(off, true)).toBe(off);
+    const legacy = { ...off, enabled: true, relay: { enabled: true } };
+    expect(relayOn(legacy)).toBe(false);
+    const withUrl = setRelayUrl(off, 'wss://relay.example.com');
+    expect(withUrl.relay).toEqual({ enabled: false, url: 'wss://relay.example.com' });
+    const on = setRelayEnabled(withUrl, true);
+    expect(relayOn(on)).toBe(true);
+    expect(setRelayEnabled(on, false).relay).toEqual({
+      enabled: false,
+      url: 'wss://relay.example.com',
+    });
+  });
+
+  it('中继地址：开着时换地址仍开着，清空地址就关掉，旧设置填上地址后仍是关', () => {
+    const on = {
+      ...DEFAULT_REMOTE_SETTINGS,
+      relay: { enabled: true, url: 'wss://relay.example.com' },
+    };
+    expect(setRelayUrl(on, 'ws://10.0.0.2:8080').relay).toEqual({
+      enabled: true,
+      url: 'ws://10.0.0.2:8080',
+    });
+    expect(setRelayUrl(on, undefined).relay).toEqual({ enabled: false });
+    const legacy = { ...DEFAULT_REMOTE_SETTINGS, relay: { enabled: true } };
+    expect(setRelayUrl(legacy, 'wss://relay.example.com').relay).toEqual({
+      enabled: false,
+      url: 'wss://relay.example.com',
+    });
+  });
+
+  it('中继状态：分清地址连不上、证书不对、那里不是中继、被中继拒绝', () => {
+    const relay = (error?: NonNullable<RemoteStatus['relay']>['error']) => ({
+      state: 'connecting' as const,
+      url: 'wss://relay.example.com',
+      connections: 0,
+      ...(error !== undefined && { error }),
+    });
+    expect(relayStatusText(undefined)).toBeUndefined();
+    expect(relayStatusText({ ...relay(), state: 'connected' })).toEqual({
+      key: 'settings.devices.relayConnected',
+    });
+    expect(relayStatusText(relay())).toEqual({ key: 'settings.devices.relayConnecting' });
+    expect(relayStatusText(relay({ reason: 'unreachable', message: 'ECONNREFUSED' }))).toEqual({
+      key: 'settings.devices.relayUnreachable',
+    });
+    expect(
+      relayStatusText(relay({ reason: 'unreachable', message: 'x', certificate: true })),
+    ).toEqual({ key: 'settings.devices.relayCertificate' });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', httpStatus: 404 }))).toEqual({
+      key: 'settings.devices.relayNotRelay',
+    });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', httpStatus: 200 }))).toEqual({
+      key: 'settings.devices.relayNotRelay',
+    });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', httpStatus: 503 }))).toEqual({
+      key: 'settings.devices.relayRejectedCode',
+      code: 'HTTP 503',
+    });
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x', closeCode: 4101 }))).toEqual({
+      key: 'settings.devices.relayRejectedCode',
+      code: '4101',
+    });
+    // 0.110.0 的 Host 不给细节。
+    expect(relayStatusText(relay({ reason: 'rejected', message: 'x' }))).toEqual({
+      key: 'settings.devices.relayRejected',
+    });
+    expect(relayStatusText(relay({ reason: 'replaced', message: 'x', closeCode: 4102 }))).toEqual({
+      key: 'settings.devices.relayReplaced',
+    });
   });
 
   it('倒计时', () => {

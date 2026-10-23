@@ -13307,13 +13307,13 @@
         },
         {
           "pairingId": "prg_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "uri": "wevir://pair?v=1&k=q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE&r=Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg&s=q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE&n=Mac&relay=wss%3A%2F%2Frelay.wevir.si",
+          "uri": "wevir://pair?v=1&k=q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE&r=Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg&s=q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE&n=Mac&relay=wss%3A%2F%2Frelay.example.com",
           "shortCode": "7KQ2M9XD",
           "expiresAt": "2026-10-12T08:00:05.250Z",
           "hostPublicKey": "q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE",
           "routeId": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
           "candidates": [],
-          "relayUrl": "wss://relay.wevir.si"
+          "relayUrl": "wss://relay.example.com"
         }
       ]
     },
@@ -13586,7 +13586,7 @@
           "connections": 1,
           "relay": {
             "state": "connected",
-            "url": "wss://relay.wevir.si",
+            "url": "wss://relay.example.com",
             "connections": 1
           }
         },
@@ -14561,7 +14561,7 @@
         "connections": 1,
         "relay": {
           "state": "connected",
-          "url": "wss://relay.wevir.si",
+          "url": "wss://relay.example.com",
           "connections": 1
         }
       },
