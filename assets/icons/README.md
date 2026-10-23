@@ -59,7 +59,7 @@
 
 ## 重建与检查
 
-在 Wevir 仓库根目录执行（Node ≥24.15、pnpm 12.6）：
+在 Wevir 仓库根目录执行（Node ≥24.22.1、pnpm 12.6）：
 
 ```bash
 pnpm install

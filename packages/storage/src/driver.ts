@@ -1,7 +1,7 @@
 // node:sqlite 的唯一适配点（ADR-0003 决策 1）：整个仓库只有这个模块加载 node:sqlite，其他模块只用
 // 这里声明的 SqliteDatabase / SqliteStatement。将来换驱动（如 better-sqlite3）只改这一个文件。
 //
-// 兼容范围：engines 下限 Node 24.15（node:sqlite 进入 RC）到 Node 26。只用 24.15 已有的 API；更新的 API
+// 兼容范围：Node 24.15（node:sqlite 进入 RC）到 Node 26，engines 下限另因安全修复提到 24.22.1。只用 24.15 已有的 API；更新的 API
 // 先判断是否存在。
 // - 类名：Node 26.11 起叫 Database，DatabaseSync 成为弃用别名（DEP0210）。先取 Database。
 // - 用 process.getBuiltinModule 在第一次打开数据库时才加载模块，而不是在文件顶部 import：只 import

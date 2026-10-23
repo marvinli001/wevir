@@ -139,7 +139,7 @@ Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Quest
 
 ## Run from source
 
-Requirements: Node.js **24.15+** (Node 24 LTS) and pnpm **12.6.0**.
+Requirements: Node.js **24.22.1+** (Node 24 LTS) and pnpm **12.6.0**.
 
 ```bash
 git clone https://github.com/marvinli001/wevir.git

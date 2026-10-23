@@ -139,7 +139,7 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 
 ## 从源码运行
 
-要求：Node.js **24.15+**（Node 24 LTS）、pnpm **12.6.0**。
+要求：Node.js **24.22.1+**（Node 24 LTS）、pnpm **12.6.0**。
 
 ```bash
 git clone https://github.com/marvinli001/wevir.git

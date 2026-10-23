@@ -41,7 +41,7 @@ payload.set(
 payload.set(
   'README.md',
   Buffer.from(
-    '# Wevir 图标资源包\n\n使用与目录说明见 assets/icons/README.md。\n\n安装 Node ≥ 24.15 与 pnpm 12.6 后执行 pnpm install、pnpm icons:build、pnpm icons:check。\n本包包含矢量源文件、位图、平台容器和可重复导出的脚本；不包含 Wevir 应用代码。\n',
+    '# Wevir 图标资源包\n\n使用与目录说明见 assets/icons/README.md。\n\n安装 Node ≥ 24.22.1 与 pnpm 12.6 后执行 pnpm install、pnpm icons:build、pnpm icons:check。\n本包包含矢量源文件、位图、平台容器和可重复导出的脚本；不包含 Wevir 应用代码。\n',
   ),
 );
 payload.set('LICENSE', await fs.readFile(path.join(repo, 'LICENSE')));
