@@ -12,6 +12,7 @@ import {
   type ClientIdentity,
   CloseCode,
   DEFAULT_REMOTE_SETTINGS,
+  type Device,
   parsePairingUri,
   RELAY_PATHS,
   REMOTE_PATHS,
@@ -233,6 +234,7 @@ async function setup(options: { lan?: boolean } = {}) {
   };
   return {
     host,
+    token,
     desktop,
     relay: first,
     target,
@@ -530,6 +532,95 @@ describe('经中继', () => {
     expect(desktop.notifications('remote.changed').some((s) => s.relay !== undefined)).toBe(false);
     expect(relay.relay.stats()).toMatchObject({ routes: 0, connections: 0 });
     expect(sniffer.captured.toRelay).toHaveLength(0);
+  });
+
+  it('网页配对（0.117.0）：中继关着时拒绝；开着时给 https 链接，经中继配对成平台 web、默认权限，旧客户端看到 other', async () => {
+    const { host, token, desktop, setRemote, enable, reconnect } = await setup();
+    await setRemote({ enabled: true, interfaces: { lan: false, tailscale: false } });
+    const refused = await desktop.call('pairing.start', { web: true });
+    expect(refused.error).toMatchObject({ code: -32602 });
+    expect(JSON.stringify(refused.error)).toContain('relay');
+
+    await enable();
+    const offer = await desktop.request('pairing.start', { web: true });
+    expect(offer.web).toBe(true);
+    expect(offer.uri.startsWith('https://web.wevir.si/pair#')).toBe(true);
+    const payload = parsePairingUri(offer.uri);
+    if (payload?.relayUrl === undefined) throw new Error('no relay in the web link');
+    const keys = await host.remote.identity.ensure();
+    // 网页窗口不接受短码：握手到不了第二条消息。
+    await expect(
+      pairRemote({
+        base: payload.relayUrl,
+        route: payload.routeId,
+        host: keys,
+        secret: new TextEncoder().encode(offer.shortCode),
+        code: true,
+        device: newTestDevice(),
+        platform: 'web',
+      }),
+    ).rejects.toThrow();
+    expect(host.remote.pairing.pairingId).toBe(offer.pairingId);
+
+    const device = newTestDevice();
+    const before = desktop.notifications('pairing.request').length;
+    const remote = await pairRemote({
+      base: payload.relayUrl,
+      route: payload.routeId,
+      host: { hostPublicKey: payload.hostPublicKey, routeId: payload.routeId },
+      secret: new Uint8Array(Buffer.from(payload.secret, 'base64url')),
+      device,
+      name: 'Chrome',
+      platform: 'web',
+    });
+    cleanups.push(() => remote.ws.terminate());
+    const hello = remote.client.hello('ignored', {
+      deviceId: 'browser',
+      clientId: 'web',
+      clientKind: 'mobile',
+    });
+    const request = await desktop.until(
+      () => desktop.notifications('pairing.request')[before],
+      'pairing.request',
+    );
+    expect(request.platform).toBe('web');
+    const { device: record } = await desktop.request('pairing.respond', {
+      requestId: request.requestId,
+      allow: true,
+    });
+    expect(record).toMatchObject({
+      platform: 'web',
+      permissions: ['session.read', 'session.write', 'workspace.read'],
+    });
+    expect((await hello).error).toBeUndefined();
+    remote.ws.terminate();
+    // 重连照常经中继。
+    const again = await reconnect(device);
+    expect(
+      (
+        await again.client.hello('ignored', {
+          deviceId: 'browser',
+          clientId: 'web',
+          clientKind: 'mobile',
+        })
+      ).error,
+    ).toBeUndefined();
+
+    // 0.116.0 的桌面不认识 web，看到的是 other。
+    const old = await TestRpcClient.connect(host.url);
+    cleanups.push(() => old.ws.terminate());
+    const oldHello = await old.call('host.hello', {
+      token,
+      protocolVersion: '0.116.0',
+      ...DESKTOP,
+      capabilities: {},
+    });
+    expect(oldHello.error).toBeUndefined();
+    const platformOf = async (client: TestRpcClient) =>
+      ((await client.request('device.list')).devices as Device[]).find((d) => d.id === record?.id)
+        ?.platform;
+    expect(await platformOf(old)).toBe('other');
+    expect(await platformOf(desktop)).toBe('web');
   });
 
   it('中继地址连不上时是 unreachable；那里不是中继时是 rejected 并带 HTTP 状态码', async () => {

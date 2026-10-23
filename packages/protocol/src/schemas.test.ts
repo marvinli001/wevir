@@ -4081,6 +4081,19 @@ const standaloneCases: Case[] = [
     valid: ['wss://relay.example.com', 'ws://192.168.1.2:8080/relay'],
     invalid: ['https://relay.example.com', 'relay.example.com', ''],
   },
+  // 0.117.0：中继的三态与网页客户端地址。
+  {
+    name: 'RelayMode',
+    schema: protocol.RelayModeSchema,
+    valid: ['official', 'custom'],
+    invalid: ['off', 'wevir', ''],
+  },
+  {
+    name: 'WebClientUrl',
+    schema: protocol.WebClientUrlSchema,
+    valid: ['https://web.wevir.si', 'https://example.com/wevir', 'http://localhost:5173'],
+    invalid: ['http://web.wevir.si', 'https://example.com/?x=1', 'wss://web.wevir.si', ''],
+  },
   {
     name: 'RemoteSettings',
     schema: protocol.RemoteSettingsSchema,
@@ -4113,7 +4126,7 @@ const standaloneCases: Case[] = [
   {
     name: 'DevicePlatform',
     schema: protocol.DevicePlatformSchema,
-    valid: ['ios', 'android', 'macos', 'windows', 'linux', 'other'],
+    valid: ['ios', 'android', 'macos', 'windows', 'linux', 'other', 'web'],
     invalid: ['iPadOS', ''],
   },
   {
@@ -4227,7 +4240,7 @@ const standaloneCases: Case[] = [
     name: 'RemoteDevicePayload',
     schema: protocol.RemoteDevicePayloadSchema,
     valid: [{ name: 'iPhone', platform: 'ios' }],
-    invalid: [{ name: '', platform: 'ios' }, { name: 'iPhone' }, { name: 'x', platform: 'web' }],
+    invalid: [{ name: '', platform: 'ios' }, { name: 'iPhone' }, { name: 'x', platform: 'watch' }],
   },
   {
     name: 'RemoteStatus',

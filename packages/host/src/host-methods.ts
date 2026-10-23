@@ -1652,7 +1652,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return { device: remote.devices.get(device.id) ?? device };
     },
     'device.revoke': async ({ id }) => ({ device: await remoteService().devices.revoke(id) }),
-    'pairing.start': () => remoteService().pairing.start(),
+    'pairing.start': ({ web }) => remoteService().pairing.start({ ...(web === true && { web }) }),
     'pairing.cancel': ({ pairingId }) => {
       remoteService().pairing.cancel(pairingId);
       return {};

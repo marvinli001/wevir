@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   AUTOMATION_QUIET_MARKER,
   type ClientIdentity,
+  DEFAULT_REMOTE_SETTINGS,
   DESKTOP_RENDERER_ORIGINS,
   type EngineFeatures,
   type HostId,
@@ -16,6 +17,7 @@ import {
   PUSH_GATEWAY_URL,
   type SessionId,
   type WorkspaceId,
+  webDeviceIdleDays,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { guardrailChecker } from '@wevir/runtime-adapter/guardrail';
@@ -942,7 +944,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const presence = new Presence();
     // 远程设备与配对（0.107.0，domain-model §3.49）：密钥在第一次打开远程访问时生成；关掉远程访问时结束配对窗口。
     const remoteIdentity = new RemoteIdentity({ secrets });
-    const deviceService = new DeviceService({ storage, secrets });
+    // 网页设备（0.117.0）闲置自动移除：天数取设置的 `remote.web.idleDays`。
+    const deviceService = new DeviceService({
+      storage,
+      secrets,
+      webIdleDays: () => webDeviceIdleDays(settings.get().remote ?? DEFAULT_REMOTE_SETTINGS),
+    });
+    const stopIdleExpiry = deviceService.startIdleExpiry((error) =>
+      logger.warn('failed to remove idle web devices', { error }),
+    );
+    settings.watch(() => void deviceService.expireIdle().catch(() => {}));
     const hostName = hostname().replace(/\.local$/, '');
     // 推送（0.112.0，ADR-0017 §6）：电脑前没人时把通知意图加密后经推送网关发给开了推送的设备；只在设置里开了推送时连网关。
     const pushService = new PushService({
@@ -1329,6 +1340,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         remote_listener: true,
         remote_relay: true,
         remote_push: true,
+        remote_web: true,
       },
       engineFeatures,
       plugins,
@@ -1406,6 +1418,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       shutdown: (trigger = { kind: 'api' }) => {
         pairingService.close();
         pushService.close();
+        stopIdleExpiry();
         stopping ??= shutdownSequence({
           trigger,
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,

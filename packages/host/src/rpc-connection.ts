@@ -7,7 +7,9 @@ import {
   CloseCode,
   type CloseCodeName,
   compareProtocolVersions,
+  type Device,
   type DeviceId,
+  type DevicePlatform,
   type EngineFeatures,
   ErrorCode,
   type ErrorCodeName,
@@ -995,11 +997,13 @@ export class RpcConnection {
     const remote = this.#host.remote;
     if (this.#unwatchRemote !== undefined || remote === undefined) return;
     if (this.#phase !== 'ready') return;
+    const version = this.#protocolVersion;
     const unwatchDevices = remote.devices.watch((devices) =>
-      this.#notify('devices.changed', { devices }),
+      this.#notify('devices.changed', { devices: devices.map((d) => deviceForClient(d, version)) }),
     );
     const unwatchPairing = remote.pairing.watch((event) => {
-      if (event.type === 'request') this.#notify('pairing.request', event.request);
+      if (event.type === 'request')
+        this.#notify('pairing.request', deviceForClient(event.request, version));
       else this.#notify('pairing.ended', event.ended);
     });
     const unwatchListener = remote.listener?.watch((status) =>
@@ -1522,7 +1526,31 @@ export function adaptResultForClient(
       return { ...answered, resolution: { ...answered.resolution, reason: 'user' } };
     }
   }
+  // COMPAT(webDevicePlatform): added in 0.117.0, remove gate after 2027-06-01
+  if (compareProtocolVersions(protocolVersion, WEB_DEVICE_SINCE) < 0) {
+    if (method === 'device.list') {
+      const listed = value as MethodResult<'device.list'>;
+      return { devices: listed.devices.map((d) => deviceForClient(d, protocolVersion)) };
+    }
+    if (method === 'device.update' || method === 'device.revoke' || method === 'pairing.respond') {
+      const result = value as { device?: Device };
+      if (result.device !== undefined)
+        return { ...result, device: deviceForClient(result.device, protocolVersion) };
+    }
+  }
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
+}
+
+/** 设备平台 `web` 进协议的版本：更早的客户端的枚举里没有它，给它们看 `other`。 */
+const WEB_DEVICE_SINCE = '0.117.0';
+
+function deviceForClient<T extends { platform: DevicePlatform }>(
+  value: T,
+  protocolVersion: string,
+): T {
+  return value.platform === 'web' && compareProtocolVersions(protocolVersion, WEB_DEVICE_SINCE) < 0
+    ? { ...value, platform: 'other' }
+    : value;
 }
 
 function adaptKindsAndTitles(
