@@ -48,6 +48,7 @@ import { applyAppIcon, windowIcon } from './app-icon.js';
 import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
 import { BROWSER_PARTITION } from './browser/browser-host.js';
 import { registerBrowserIpc } from './browser/browser-ipc.js';
+import { registerComputerIpc } from './computer/computer-ipc.js';
 import { Editors, isLineNumber } from './editors.js';
 import {
   failureOf,
@@ -643,6 +644,12 @@ function run(): void {
     assertSender,
     log,
   });
+  // 电脑操作（0.112.0，computer/）：原生 helper 由这里拉起，屏幕录制与辅助功能的权限归在 Wevir.app 上。
+  const computer = registerComputerIpc({
+    getWindow: () => mainWindow,
+    assertSender,
+    log,
+  });
 
   // 所有 webContents（含将来的）一律：新窗口拒绝，外部链接交给系统浏览器；只允许同 origin 的导航
   // （开发服务器的整页刷新）；不允许挂 <webview>（Electron 安全清单第 12、13 条）。内置浏览器的标签页有自己的规则
@@ -769,6 +776,8 @@ function run(): void {
     // 内置浏览器的后台标签页停在一个不显示的窗口里：主窗口关掉时一起关，否则 window-all-closed 不会触发。
     mainWindow.on('closed', () => {
       browser.destroy();
+      // 电脑操作的提示条也是窗口；helper 跟着退出。
+      computer.dispose();
       tray?.destroy();
       tray = undefined;
     });

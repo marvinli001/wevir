@@ -12,6 +12,7 @@ import {
   Keyboard,
   type LucideIcon,
   Mic,
+  MousePointerClick,
   Palette,
   Search,
   Settings2,
@@ -33,6 +34,7 @@ import { WindowControls } from '@/layout/window-controls';
 import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ApprovalRuleSettings } from '@/settings/approval-rule-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
+import { ComputerSettings } from '@/settings/computer-settings';
 import { DevicesSettings } from '@/settings/devices-settings';
 import { DictationSettings } from '@/settings/dictation-settings';
 import { GeneralSettings } from '@/settings/general-settings';
@@ -138,6 +140,15 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Globe,
     keywords: ['settings.web.enabled', 'settings.web.service'],
   },
+  computerUse: {
+    label: 'settings.tab.computerUse',
+    icon: MousePointerClick,
+    keywords: [
+      'settings.computerUse.enabled',
+      'settings.computerUse.screenRecording',
+      'settings.computerUse.accessibility',
+    ],
+  },
   dictation: {
     label: 'settings.tab.dictation',
     icon: Mic,
@@ -199,6 +210,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
       'providers',
       'personalization',
       'web',
+      'computerUse',
       'dictation',
       'memory',
       'approvalRules',
@@ -385,6 +397,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <PersonalizationSettings />;
     case 'web':
       return <WebSettingsPage />;
+    case 'computerUse':
+      return <ComputerSettings />;
     case 'dictation':
       return <DictationSettings />;
     case 'memory':

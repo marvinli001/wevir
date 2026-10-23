@@ -1067,6 +1067,11 @@ export const HostSettingsSchema = z.object({
    */
   writingStyle: z.boolean().optional(),
   /**
+   * 电脑操作（0.112.0，Host 功能 `computer_use`，domain-model §3.15.8）：打开后应用级工具里列出 `computer_*`，agent 经用户逐个应用
+   * 批准后读屏并操作桌面应用。省略按关着。
+   */
+  computerUse: z.boolean().optional(),
+  /**
    * 运行时防止系统休眠（0.102.0，Host 功能 `prevent_sleep`，domain-model §3.45）：开着时，有回合在跑就让桌面主进程挡住系统的空闲睡眠
    * （`power.get` / `power.changed`）。合上笔记本盖子时系统照样睡眠。省略按关着。
    */

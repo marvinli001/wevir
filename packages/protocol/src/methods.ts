@@ -52,6 +52,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { ComputerRequestSchema, ComputerResponseSchema } from './computer.js';
 import {
   DeviceListParamsSchema,
   DeviceListResultSchema,
@@ -1812,6 +1813,21 @@ export const BrowserRespondResultSchema = z.object({ accepted: z.boolean() });
 /** `browser.request` 通知的参数。 */
 export const BrowserRequestParamsSchema = BrowserRequestSchema;
 
+// ── computer.*（0.112.0，电脑操作） ──────────────────────────────────────
+
+/** 登记为电脑操作的提供方：`commands` 是它会的命令（`COMPUTER_COMMANDS`），认不出的名字 Host 忽略。 */
+export const ComputerRegisterParamsSchema = z.object({
+  commands: z.array(z.string().min(1).max(64)).min(1).max(64),
+});
+
+export const ComputerRespondParamsSchema = ComputerResponseSchema;
+
+/** `accepted: false`：请求已经超时、被取消，或不是交给这条连接的，回答被丢掉。 */
+export const ComputerRespondResultSchema = z.object({ accepted: z.boolean() });
+
+/** `computer.request` 通知的参数。 */
+export const ComputerRequestParamsSchema = ComputerRequestSchema;
+
 // ── 注册表 ────────────────────────────────────────────────────────────
 
 export interface MethodSpec {
@@ -2779,6 +2795,22 @@ export const MethodSchemas = {
     permission: 'host.manage',
   },
 
+  'computer.register': {
+    params: ComputerRegisterParamsSchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'computer.unregister': {
+    params: EmptySchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'computer.respond': {
+    params: ComputerRespondParamsSchema,
+    result: ComputerRespondResultSchema,
+    permission: 'host.manage',
+  },
+
   'events.subscribe': {
     params: EventsSubscribeParamsSchema,
     result: EventsSubscribeResultSchema,
@@ -2855,6 +2887,8 @@ export const NotificationSchemas = {
   'lsp.changed': { params: LspChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
+  /** 发给用 `computer.register` 登记过的连接（0.112.0）：请它执行一个电脑操作命令，用 `computer.respond` 回答。 */
+  'computer.request': { params: ComputerRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;
 
 export type NotificationName = keyof typeof NotificationSchemas;
@@ -2896,4 +2930,5 @@ export const NOTIFICATION_PERMISSIONS = {
   'terminal.changed': 'session.read',
   'lsp.changed': 'workspace.read',
   'browser.request': 'host.manage',
+  'computer.request': 'host.manage',
 } as const satisfies Record<NotificationName, Permission>;

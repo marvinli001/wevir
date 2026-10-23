@@ -51,6 +51,7 @@ export const SETTINGS_TABS = [
   'providers',
   'personalization',
   'web',
+  'computerUse',
   'dictation',
   'memory',
   'approvalRules',

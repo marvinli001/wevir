@@ -29,6 +29,8 @@ import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
+import { ComputerBroker } from './computer-broker.js';
+import { loadComputerGuide } from './computer-tools.js';
 import {
   type CustomPrompts,
   customInputs,
@@ -989,6 +991,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
+    // 电脑操作（0.112.0）：桌面端登记为提供方，computer_* 经它交给桌面端主进程的原生 helper；设置的 computerUse 打开时才列出。
+    const computers = adapter.appTools === true ? new ComputerBroker() : undefined;
+    let computerGuide: string | undefined;
+    if (computers !== undefined) {
+      try {
+        computerGuide = loadComputerGuide(options.promptsDir ?? defaultPromptsDir());
+      } catch (error) {
+        logger.warn(
+          'failed to load the computer use guide; computer_request_access returns no rules',
+          {
+            error,
+          },
+        );
+      }
+    }
     // 代码智能（lsp_* 工具）：语言服务器按需启动，空闲关闭，Host 退出时回收。
     // 0.71.0：`lsp.*` 看语言服务器的状态、重启、由用户发起安装。
     let lspStatus: LspStatusService | undefined;
@@ -1014,6 +1031,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         hostId,
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
+        ...(computers !== undefined && {
+          computer: {
+            broker: computers,
+            enabled: () => settings.get().computerUse === true,
+            ...(computerGuide !== undefined && { guide: computerGuide }),
+          },
+        }),
         ...(processes !== undefined && { processes }),
         ...(previews !== undefined && { previews }),
         readiness: readinessService,
@@ -1225,6 +1249,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { tool_presets: true }),
         ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),
         ...(browsers !== undefined && { browser_tools: true }),
+        ...(computers !== undefined && { computer_use: true }),
         ...(options.web !== undefined && { web_tools: true }),
         ...(adapter.planMode === true && { plan_mode: true }),
         ...(adapter.fork !== undefined && adapter.branches === true && { session_branches: true }),
@@ -1291,6 +1316,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       tuning,
       ...(proposals !== undefined && { proposals }),
       ...(browsers !== undefined && { browsers }),
+      ...(computers !== undefined && { computers }),
       ...(options.port !== undefined && { port: options.port }),
       ...(options.testConnectionGrant !== undefined && {
         testConnectionGrant: options.testConnectionGrant,

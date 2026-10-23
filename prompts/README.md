@@ -27,9 +27,9 @@
 | [`output-styles/`](output-styles/) | 输出风格：`concise`（简洁）、`explanatory`（讲解）、`learning`（边做边学）、`proactive`（主动）、`pragmatic`（务实）、`friendly`（友好） | Host（0.78.0）：用户在设置里选了哪种就接哪份的正文；开头 `---` 块里的 `reminder` 在每条新回合的消息末尾附上（只有简洁与主动有） | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
-| [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
+| [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作的技能说明：选工具的顺序、授权三档、截图与坐标、引用、Esc、链接与金融操作 | Host（0.112.0，`packages/host/src/computer-tools.ts`）：去掉注释与 YAML 头、展开引入，在会话第一次批准应用后接在 `computer_request_access` 的结果后面（每个会话一次）；读不到时工具照常可用，只是没有这份说明 | 已接入（macOS），与引擎无关 |
 | [`plugins/shared/browser-operation.md`](plugins/shared/browser-operation.md) | 两个浏览器插件共用的操作要领与安全规则 | 被引入 | 可用 |
-| [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则 | 被引入 | 可用 |
+| [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则（技能说明另有更严的规定时以更严的为准） | 被引入 | 可用 |
 | [`skills/skill-creator/`](skills/skill-creator/SKILL.md) | 内置 skill：创建、测试与改进 skills（移植自 anthropics/skills，Apache-2.0，见 `NOTICE` 第 14 节） | Host（0.96.0，`packages/host/src/plugins.ts`）：`prompts/skills/` 下每个文件夹是一个内置 skill，`plugins.list` 里 `source: wevir`、`builtin: true`，默认启用、可以关、不能删；和别的 skills 一样交给引擎（Codex）。文件原样给模型读，不走下面的模板语法；脚本由 agent 用 `python3 -B` 按路径运行，输出不写进这个目录 | 已接入（Codex 引擎） |
 
 ## 用在哪些模型上

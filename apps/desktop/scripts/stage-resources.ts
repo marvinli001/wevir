@@ -11,6 +11,8 @@
  *   resources/engines/codex/codex-resources/bwrap    只有 Linux（LGPL-2.0-or-later）
  *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
+ *   resources/computer-use/wevir-computer-use        只有 macOS：电脑操作的 Swift helper（native/computer-use，按目标架构
+ *                                                    swift build），随应用一起签名与公证
  *   resources/host/dist/                             wevir-host 打成的 bundle（main.js 与按需加载的几个文件，bundleHost），
  *                                                    桌面端以 Electron 的 utilityProcess 运行它
  *   resources/host/migrations/                       @wevir/storage 的 SQL 迁移（bundle 按 `../migrations/` 找）
@@ -472,6 +474,34 @@ function stagePrompts(dir: string): void {
   });
 }
 
+/** 电脑操作的 helper：只有 macOS 目标才有；`swift build --arch` 可以在 Apple Silicon 上编 x86_64。 */
+function stageComputerUse(dir: string, target: string): void {
+  rmSync(dir, { recursive: true, force: true });
+  const { os, cpu } = nodePlatform(target);
+  if (os !== 'darwin') return;
+  if (process.platform !== 'darwin') {
+    console.error('macOS 的电脑操作 helper 只能在 macOS 上编译');
+    process.exit(1);
+  }
+  const arch = cpu === 'arm64' ? 'arm64' : 'x86_64';
+  const pkg = join(desktop, 'native', 'computer-use');
+  run('swift', ['build', '-c', 'release', '--arch', arch, '--package-path', pkg]);
+  const built = spawnSync(
+    'swift',
+    ['build', '-c', 'release', '--arch', arch, '--package-path', pkg, '--show-bin-path'],
+    { encoding: 'utf8' },
+  );
+  const binary = join(built.stdout.trim(), 'wevir-computer-use');
+  if (built.status !== 0 || !existsSync(binary)) {
+    console.error(`没有找到编好的 helper：${binary}`);
+    process.exit(1);
+  }
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(binary, join(dir, 'wevir-computer-use'));
+  chmodSync(join(dir, 'wevir-computer-use'), 0o755);
+  console.log(`resources/computer-use：wevir-computer-use（${arch}）`);
+}
+
 async function stageHost(dir: string, target: string): Promise<void> {
   const entry = join(repo, 'packages', 'host', 'dist', 'main.js');
   if (!existsSync(entry)) {
@@ -521,6 +551,7 @@ export async function stageResources(target: string): Promise<void> {
   const resources = join(desktop, 'resources');
   stageCodex(join(resources, 'engines', 'codex'), target);
   stagePrompts(join(resources, 'prompts'));
+  stageComputerUse(join(resources, 'computer-use'), target);
   await stageHost(join(resources, 'host'), target);
   console.log(`资源目录已准备好（${target}）：${resources}`);
 }

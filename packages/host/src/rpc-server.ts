@@ -21,6 +21,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import { WebSocketServer } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
+import type { ComputerBroker } from './computer-broker.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethods } from './host-methods.js';
 import type { InboxService } from './inbox.js';
@@ -109,6 +110,8 @@ export interface HostRpcServerOptions {
   terminals?: ConnectionHost['terminals'];
   /** 内置浏览器（0.33.0）：连接用 `browser.register` 登记为浏览器提供方。 */
   browsers?: BrowserBroker;
+  /** 电脑操作（0.112.0）：连接用 `computer.register` 登记为电脑操作的提供方。 */
+  computers?: ComputerBroker;
   /** 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作；不给时连接都是本机身份、全部权限。 */
   testConnectionGrant?: TestConnectionGrant;
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
@@ -217,6 +220,7 @@ export class HostRpcServer {
       ...(options.proposals !== undefined && { proposals: options.proposals }),
       ...(options.terminals !== undefined && { terminals: options.terminals }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
+      ...(options.computers !== undefined && { computers: options.computers }),
       ...(options.testConnectionGrant !== undefined && {
         testConnectionGrant: options.testConnectionGrant,
       }),

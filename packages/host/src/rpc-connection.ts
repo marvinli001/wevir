@@ -44,6 +44,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import type { RawData } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
+import type { ComputerBroker } from './computer-broker.js';
 import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
@@ -159,6 +160,8 @@ export interface ConnectionHost {
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
+  /** 电脑操作（0.112.0）：`computer.register` 把连接登记到这里。省略时登记不生效，回答一律不收。 */
+  readonly computers?: ComputerBroker;
   /** 只给测试（permissions.ts）：hello 后让某条连接以受限的身份与权限工作。生产路径不给，连接都是 `LOCAL_GRANT`。 */
   readonly testConnectionGrant?: TestConnectionGrant;
   readonly limits: ConnectionLimits;
@@ -304,6 +307,8 @@ export class RpcConnection {
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
   readonly #browserProviderId = newId('conn');
+  /** `computer.register` 之后：注销这条连接的电脑操作提供方。 */
+  #unregisterComputer: (() => void) | undefined;
   /** 所有订阅排队的字节数之和。 */
   #queuedBytes = 0;
   #lastActivity = performance.now();
@@ -599,6 +604,40 @@ export class RpcConnection {
           },
         });
         this.#respond(id, method, {});
+        return;
+      }
+      case 'computer.register': {
+        const { commands } = params as MethodParams<'computer.register'>;
+        this.#unregisterComputer?.();
+        this.#unregisterComputer = this.#host.computers?.register({
+          id: this.#browserProviderId,
+          commands,
+          send: (request) => {
+            const parsed = NotificationSchemas['computer.request'].params.safeParse(request);
+            if (!parsed.success) {
+              this.#host.onError(
+                new Error(`computer.request does not match its schema: ${parsed.error}`),
+              );
+              return false;
+            }
+            return this.#notify('computer.request', parsed.data);
+          },
+        });
+        this.#respond(id, method, {});
+        return;
+      }
+      case 'computer.unregister':
+        this.#unregisterComputer?.();
+        this.#unregisterComputer = undefined;
+        this.#respond(id, method, {});
+        return;
+      case 'computer.respond': {
+        const accepted =
+          this.#host.computers?.respond(
+            this.#browserProviderId,
+            params as MethodParams<'computer.respond'>,
+          ) ?? false;
+        this.#respond(id, method, { accepted });
         return;
       }
       case 'terminal.attach': {
@@ -1309,6 +1348,8 @@ export class RpcConnection {
     this.#terminalAttachments.clear();
     this.#unregisterBrowser?.();
     this.#unregisterBrowser = undefined;
+    this.#unregisterComputer?.();
+    this.#unregisterComputer = undefined;
   }
 }
 

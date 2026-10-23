@@ -1,7 +1,14 @@
 // preload 经 contextBridge 交给渲染进程的接口（`window.wevir`），以及它背后的 IPC 通道。只有类型和
 // 通道名，渲染进程、preload、主进程共用；不 import Node 或 Electron 的东西。
 
-import type { BrowserRequest, BrowserResponse, ClientIdentity } from '@wevir/protocol';
+import type {
+  BrowserRequest,
+  BrowserResponse,
+  ClientIdentity,
+  ComputerAccessTier,
+  ComputerRequest,
+  ComputerResponse,
+} from '@wevir/protocol';
 import type { CleanableCategory, StorageUsage } from './storage.js';
 import type { ResolvedTheme, ThemeMode } from './theme.js';
 
@@ -274,6 +281,74 @@ export interface DesktopBrowserApi {
   setController(tabId: string, controller: BrowserController): Promise<void>;
 }
 
+/** 电脑操作（0.112.0）的状态：平台与系统权限。 */
+export interface ComputerStatus {
+  supported: boolean;
+  /** 不支持的原因：`platform`（不是 macOS）、`macos`（低于 14）、`helper`（这个构建没有 helper）。 */
+  reason?: 'platform' | 'macos' | 'helper';
+  screenRecording?: boolean;
+  accessibility?: boolean;
+  macos?: string;
+}
+
+/** 授权框里的一个应用。档位由主进程按应用的种类定。 */
+export interface ComputerAccessCandidate {
+  query: string;
+  bundleId: string;
+  name: string;
+  path: string;
+  tier: ComputerAccessTier;
+  /** 这个会话已经批准过。 */
+  granted: boolean;
+}
+
+export interface ComputerAccessPreparation {
+  accessId: string;
+  sessionId: string;
+  reason: string;
+  candidates: ComputerAccessCandidate[];
+  /** 找不到的名字。 */
+  notFound: string[];
+  /** 不能授权的（Wevir 自己）。 */
+  refused: string[];
+}
+
+/** `prepareAccess` 不能弹框时的原因（不支持、缺系统权限）。 */
+export interface ComputerAccessFailure {
+  error: { code: string; message: string };
+}
+
+/** 去掉 `requestId` 的回答。 */
+export type ComputerAnswer = ComputerResponse extends infer R
+  ? R extends unknown
+    ? Omit<R, 'requestId'>
+    : never
+  : never;
+
+export interface DesktopComputerApi {
+  /** 执行 Host 交来的一个请求（`request_access` 除外）。 */
+  execute(request: ComputerRequest): Promise<ComputerAnswer>;
+  /** 授权框要的数据；不能弹框时给原因。 */
+  prepareAccess(
+    sessionId: string,
+    apps: string[],
+    reason: string,
+  ): Promise<ComputerAccessPreparation | ComputerAccessFailure>;
+  /** 用户批准了这些应用（只认授权框里有的）；返回给模型的回答。 */
+  grant(accessId: string, bundleIds: string[]): Promise<ComputerAnswer>;
+  status(): Promise<ComputerStatus>;
+  /** 请系统弹出权限请求并打开系统设置里对应的那一页。 */
+  requestPermission(kind: 'screen_recording' | 'accessibility'): Promise<ComputerStatus>;
+  /** 回合在跑的会话：不在里面的不再算在操作，提示条随之收起。 */
+  setActiveSessions(sessionIds: string[]): Promise<void>;
+  /** 提示条的文字（按界面语言）。 */
+  setOverlayLabel(label: string): Promise<void>;
+  /** 应用的图标（data URL）；拿不到时 null。 */
+  appIcon(path: string): Promise<string | null>;
+  /** 用户按 Esc 停下了这些会话。 */
+  onStopped(listener: (sessionIds: string[]) => void): () => void;
+}
+
 /** 渲染进程告诉主进程的窗口外观（setWindowAppearance）。 */
 export interface WindowAppearanceInput {
   /** `#rrggbb`。 */
@@ -395,6 +470,8 @@ export interface DesktopApi {
   moveToApplications(): Promise<void>;
   /** 内置浏览器（0.33.0）。 */
   browser: DesktopBrowserApi;
+  /** 电脑操作（0.112.0）。 */
+  computer: DesktopComputerApi;
 }
 
 export const IPC_CHANNELS = {
@@ -458,6 +535,16 @@ export const IPC_CHANNELS = {
   browserNavigate: 'wevir:browser-navigate',
   browserHistory: 'wevir:browser-history',
   browserSetController: 'wevir:browser-set-controller',
+  computerExecute: 'wevir:computer-execute',
+  computerPrepareAccess: 'wevir:computer-prepare-access',
+  computerGrant: 'wevir:computer-grant',
+  computerStatus: 'wevir:computer-status',
+  computerRequestPermission: 'wevir:computer-request-permission',
+  computerSetActiveSessions: 'wevir:computer-set-active-sessions',
+  computerSetOverlayLabel: 'wevir:computer-set-overlay-label',
+  computerAppIcon: 'wevir:computer-app-icon',
+  /** 主进程 → 渲染进程的推送。 */
+  computerStopped: 'wevir:computer-stopped',
 } as const;
 
 /** `DesktopNotification` 各字段的长度上限，主进程按它校验。 */

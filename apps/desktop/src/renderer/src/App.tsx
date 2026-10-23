@@ -4,6 +4,7 @@ import { BrowserCoordinator } from '@/browser/browser-coordinator';
 import { ActionToasts } from '@/components/action-toasts';
 import { ToastViewport } from '@/components/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { ComputerCoordinator } from '@/computer/computer-coordinator';
 import { PreventSleepCoordinator } from '@/data/prevent-sleep';
 import { WorkbenchDataProvider } from '@/data/workbench-data';
 import { ConnectionToast } from '@/host/connection-toast';
@@ -24,6 +25,8 @@ export function App() {
             <RouterProvider router={router} />
             {/* 内置浏览器（0.33.0）：登记为浏览器提供方，转交 agent 的浏览器命令。 */}
             <BrowserCoordinator />
+            {/* 电脑操作（0.112.0）：登记为提供方，弹授权框，Esc 停下时取消回合。 */}
+            <ComputerCoordinator />
             <PreventSleepCoordinator />
             {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
             <ToastViewport>
