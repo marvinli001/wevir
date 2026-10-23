@@ -588,7 +588,10 @@ export class ComputerService {
       const app = this.#grantedApp(state, args.app);
       const entry = apps.find((candidate) => candidate.bundleId === app.bundleId);
       const windows = (entry?.windows as Record<string, unknown>[] | undefined) ?? [];
-      const first = windows[0];
+      // 最前面的“像样的”窗口：自动更正的气泡、工具提示这类小窗口也在第 0 层，排在主窗口前面。
+      const first =
+        windows.find((window) => Number(window.width) >= 120 && Number(window.height) >= 120) ??
+        windows[0];
       if (first === undefined) {
         throw new HelperError(
           'computer_window_not_found',

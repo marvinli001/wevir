@@ -14,7 +14,11 @@ const APPS = [
     pid: 11,
     name: 'Notes',
     bundleId: 'com.apple.Notes',
-    windows: [{ windowId: 501, title: 'Notes', x: 100, y: 50, width: 800, height: 600 }],
+    windows: [
+      // 自动更正的气泡：在第 0 层、排在主窗口前面，截“这个应用”时不该选它。
+      { windowId: 502, x: 300, y: 300, width: 63, height: 22 },
+      { windowId: 501, title: 'Notes', x: 100, y: 50, width: 800, height: 600 },
+    ],
   },
   { pid: 12, name: 'Terminal', bundleId: 'com.apple.Terminal', windows: [] },
 ];

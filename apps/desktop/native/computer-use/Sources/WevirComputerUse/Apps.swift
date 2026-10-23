@@ -319,17 +319,36 @@ enum Gate {
     }
   }
 
-  /// 点、滚、拖落到的应用：这个点上最前面的窗口的应用。菜单栏算最前面的应用；程序坞与桌面算访达。
+  /// 点、滚、拖落到的应用。先用辅助功能问这个点上是哪个应用的元素（和鼠标事件的命中一致）：窗口列表里有铺满全屏、
+  /// 看不见也不接鼠标的系统窗口（程序坞的、截屏界面的），按列表找会算错。问不到时再看普通窗口（第 0 层）。
+  /// 菜单栏与状态栏算最前面的应用；程序坞与桌面算访达。
   static func target(at point: CGPoint, ignore: Set<CGWindowID>) -> AppInfo? {
-    guard let window = Apps.window(at: point, ignore: ignore) else {
-      return finder()
+    var element: AXUIElement?
+    var hitPid: pid_t = 0
+    if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element)
+      == .success, let element, AXUIElementGetPid(element, &hitPid) == .success
+    {
+      return resolve(pid: hitPid)
     }
-    if let app = Apps.info(pid: window.pid), let id = app.bundleId {
-      if id == "com.apple.dock" { return finder() ?? app }
-      return app
+    let normal = Apps.windows().first { window in
+      window.layer == 0 && !ignore.contains(window.windowId) && window.alpha > 0 && window.bounds.contains(point)
     }
-    // 菜单栏这类系统窗口（Window Server 的）：算最前面的应用。
-    return Apps.frontmost()
+    guard let normal else {
+      // 第 0 层没有窗口：菜单栏一带算最前面的应用，其余是桌面。
+      let menuBar = Apps.windows().contains { $0.layer > 0 && $0.ownerName == "Window Server" && $0.bounds.contains(point) }
+      return menuBar ? Apps.frontmost() : finder()
+    }
+    return resolve(pid: normal.pid)
+  }
+
+  private static func resolve(pid: pid_t) -> AppInfo? {
+    guard let app = Apps.info(pid: pid), let id = app.bundleId else { return Apps.frontmost() }
+    if id == "com.apple.dock" { return finder() ?? app }
+    let regular = onMain {
+      NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular
+    }
+    // 状态栏图标、控制中心这类不是普通应用的进程：算最前面的应用（同菜单栏）。
+    return regular ? app : Apps.frontmost()
   }
 
   private static func finder() -> AppInfo? {
