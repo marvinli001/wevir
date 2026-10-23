@@ -15,20 +15,49 @@
 
 <p align="center"><a href="./README.md">English</a> · 简体中文 · <a href="#downloads">下载</a></p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/hero-dark.webp" />
+    <img src="./assets/readme/hero-light.webp" width="900" alt="Wevir 的一个会话：Agent 读了文件、改了两个文件并跑了测试，正在等待批准提交；右侧变更窗格显示差异" />
+  </picture>
+</p>
+
 ---
 
 ## 简介
 
-Wevir 是开源、本地优先的 AI 编程 Agent 工作台。Agent 会话、审批、代码审阅、项目文件，以及 Agent 可以操作的内置浏览器，都在同一个桌面应用里；背后是本地 Host，`wevir` 命令行与桌面端共用它。
+**Wevir 是 Codex 式的 AI 编程 Agent 桌面工作台，不绑定某一家模型服务。** 用自己的 API Key、任意 OpenAI 兼容接口或已有的订阅，会话进行中也能换模型。
+
+会话、审批、变更审阅、项目文件，以及 Agent 可以操作的浏览器，都在同一个开源桌面应用里。本地 Host 运行 Agent，数据留在你的电脑上；`wevir` 命令行连的是同一个 Host。
+
+### 为什么用 Wevir
+
+- **按任务选模型，而不是按应用。** 开源的 Codex Agent 运行时在本机运行，Wevir 的网关把它的请求转换给 OpenAI、Anthropic、Google、DeepSeek 等十余家模型服务、本机 Ollama 与任意 OpenAI 兼容接口。回合之间换模型或换服务，不用离开当前会话。
+- **改动落地前先审阅。** 沙箱外的命令要你批准；每个回合都有检查点；变更窗格按回合、分支或未提交查看差异，可以批注、暂存并提交。
+- **本地优先。** 会话、设置与 API Key 留在本机的数据目录。Key 由 Host 保管，不交给 Agent 进程。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/diff-dark.webp" />
+    <img src="./assets/readme/diff-light.webp" width="900" alt="变更窗格的左右对照视图，显示一段 TypeScript 差异" />
+  </picture>
+</p>
 
 ## 能力
 
 ### 模型与账号
 
-- **一套运行时接多家模型**：OpenAI、Anthropic、Google AI Studio、Google Vertex AI、Azure OpenAI / Microsoft Foundry、SpaceXAI（Grok API）、DeepSeek、阿里云百炼、Kimi、Z.ai / 智谱 GLM、小米 MiMo、RedPill、Ollama（本机与云端），以及任意 OpenAI 兼容接口。网关把请求转换为 OpenAI Responses、Chat Completions 或 Anthropic Messages，推理与工具调用一并转换。
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/providers-dark.webp" />
+  <img src="./assets/readme/providers-light.webp" width="400" align="right" alt="设置里可以添加的模型服务列表" />
+</picture>
+
+- **一套运行时接多家模型**：OpenAI、Anthropic、Google AI Studio、Google Vertex AI、Azure OpenAI / Microsoft Foundry、SpaceXAI（Grok API）、DeepSeek、阿里云百炼、Kimi、Z.ai / 智谱 GLM、小米 MiMo、MiniMax、阶跃星辰、腾讯云 TokenHub、Azure Claude、RedPill、Ollama（本机与云端），以及任意 OpenAI 兼容接口。网关把请求转换为 OpenAI Responses、Chat Completions 或 Anthropic Messages，推理与工具调用一并转换。
 - **密钥只在 Host**：API Key 存在 Host 的密钥存储里，不交给运行时进程。
-- **订阅**：用 ChatGPT 账号登录，或直接用已有的 Claude、Cursor、OpenCode、Grok、Antigravity、WorkBuddy、Devin 订阅。Wevir 可以在设置里下载厂商的官方客户端并完成登录，走的是厂商自己的登录流程。
+- **订阅**：用 ChatGPT 账号登录，或直接用已有的 Claude、OpenCode、Grok、Antigravity、WorkBuddy、Devin、Cursor 订阅。Wevir 用厂商自己的客户端或 SDK 与你现有的登录运行，可以在设置里下载客户端并发起登录。各来源的要求见[状态](#状态)。
 - **会话中切换**：回合之间换模型与推理档位，或把会话交给另一个模型服务，并附上它没看到的那段历史的摘要。
+
+<br clear="right" />
 
 ### 会话
 
@@ -57,6 +86,39 @@ Wevir 是开源、本地优先的 AI 编程 Agent 工作台。Agent 会话、审
 - **一个 Host，多个客户端**：桌面端与命令行共用会话、事件记录与审批；断线后重连，从断开处继续。
 - **本地存储**：会话与设置留在本机的数据目录（SQLite 与普通文件）。
 - **十种界面语言**：英语、简体中文、繁体中文、法语、德语、意大利语、西班牙语、日语、韩语、俄语。
+
+## 状态
+
+Wevir 还在预览阶段。**支持**：包含在安装包里，有自动化测试覆盖。**测试版**：能用，但测试覆盖较少、依赖第三方客户端，或还没用真实账号验证过。**计划中**：还不能用。
+
+| 方面 | 项目 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| 桌面端 | macOS，Apple 芯片 | 支持 | 已签名并公证 |
+| | macOS，Intel | 测试版 | 已构建并公证；CI 测试跑在 Apple 芯片上 |
+| | Windows x64 | 测试版 | CI 有测试；没有电脑操作 |
+| | Linux | 暂无 | 不发布安装包 |
+| 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 | |
+| | ChatGPT 账号登录 | 支持 | 走 Codex 运行时自己的登录 |
+| 订阅 | Claude | 测试版 | 随包带 Claude Agent SDK；用本机的 Claude 登录 |
+| | OpenCode | 测试版 | Wevir 可以下载客户端 |
+| | Grok | 测试版 | 需要 `grok` 命令行 |
+| | Antigravity | 测试版 | Wevir 下载锁定的版本 |
+| | WorkBuddy | 测试版 | 需要 `codebuddy` 命令行 |
+| | Devin | 测试版 | 还没用真实账号验证 |
+| | Cursor | 测试版 | 只在源码构建里可用：Cursor SDK 不随安装包分发 |
+| 其他 | `wevir` 命令行 | 测试版 | 从源码运行，不在安装包里 |
+| | 电脑操作 | 测试版 | 仅 macOS，默认关闭 |
+| | 移动端 | 计划中 | |
+
+## 已知限制
+
+- **只有预览版。** 发布的都是开发版（`0.0.1-beta.N`），`master` 上 CI 通过后自动打包。更新频繁，版本之间行为可能变化。
+- **更新通道。** 应用内更新走开发通道，正式通道还没有发布过版本。
+- **订阅来源受厂商约束。** 它们用各家自己的客户端或 SDK 与你现有的登录运行，受各家条款约束，客户端变化时可能失效。
+- **平台。** 没有 Linux 与 Windows on Arm 安装包；电脑操作只支持 macOS。
+- **命令行。** `wevir` 命令行不在安装包里，要从源码运行。
+
+发现问题或缺口，请到 [GitHub Issues](https://github.com/marvinli001/wevir/issues) 反馈。
 
 <a id="downloads"></a>
 

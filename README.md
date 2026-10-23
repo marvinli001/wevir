@@ -15,20 +15,49 @@
 
 <p align="center">English · <a href="./README.zh-CN.md">简体中文</a> · <a href="#downloads">Downloads</a></p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/hero-dark.webp" />
+    <img src="./assets/readme/hero-light.webp" width="900" alt="A Wevir session: the agent has read files, edited two files and run the tests, and is waiting for approval to commit; the changes pane shows the diff" />
+  </picture>
+</p>
+
 ---
 
 ## Overview
 
-Wevir is an open-source, local-first workspace for AI coding agents. Agent sessions, approvals, code review, files, and a browser the agent can drive all live in one desktop app, backed by a local Host that the `wevir` CLI shares.
+**Wevir is a Codex-style desktop workspace for coding agents that isn't tied to one model provider.** Bring your own API keys, any OpenAI-compatible endpoint, or a subscription you already have, and switch models in the middle of a session.
+
+Sessions, approvals, change review, project files, and a browser the agent can drive live in one open-source desktop app. A local Host runs the agents and keeps their data on your machine; the `wevir` CLI talks to the same Host.
+
+### Why Wevir
+
+- **Pick the model per task, not per app.** The open-source Codex agent runtime runs locally, and Wevir's gateway translates its requests for OpenAI, Anthropic, Google, DeepSeek, a dozen other providers, local Ollama, and any OpenAI-compatible endpoint. Change model or provider between turns without leaving the session.
+- **Review before anything lands.** Commands outside the sandbox wait for your approval, every turn is checkpointed, and the changes pane shows per-turn, branch, or uncommitted diffs that you can comment on, stage, and commit.
+- **Local-first.** Sessions, settings, and API keys stay in a local data directory. Keys are held by the Host and never passed to the agent process.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/diff-dark.webp" />
+    <img src="./assets/readme/diff-light.webp" width="900" alt="The changes pane in split view, showing a TypeScript diff" />
+  </picture>
+</p>
 
 ## Features
 
 ### Models and accounts
 
-- **Most providers through one runtime**: OpenAI, Anthropic, Google AI Studio, Google Vertex AI, Azure OpenAI / Microsoft Foundry, SpaceXAI (Grok API), DeepSeek, Alibaba Cloud Model Studio, Kimi, Z.ai / Zhipu GLM, Xiaomi MiMo, RedPill, Ollama (local and cloud), and any OpenAI-compatible endpoint. The gateway converts requests to OpenAI Responses, Chat Completions, or Anthropic Messages, including reasoning and tool calls.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/readme/providers-dark.webp" />
+  <img src="./assets/readme/providers-light.webp" width="400" align="right" alt="The list of model providers you can add in Settings" />
+</picture>
+
+- **Most providers through one runtime**: OpenAI, Anthropic, Google AI Studio, Google Vertex AI, Azure OpenAI / Microsoft Foundry, SpaceXAI (Grok API), DeepSeek, Alibaba Cloud Model Studio, Kimi, Z.ai / Zhipu GLM, Xiaomi MiMo, MiniMax, StepFun, Tencent Cloud TokenHub, Azure Claude, RedPill, Ollama (local and cloud), and any OpenAI-compatible endpoint. The gateway converts requests to OpenAI Responses, Chat Completions, or Anthropic Messages, including reasoning and tool calls.
 - **Keys stay in the Host**: API keys are kept in the Host's secret store and never passed to the runtime process.
-- **Subscriptions**: Sign in with ChatGPT, or use a Claude, Cursor, OpenCode, Grok, Antigravity, WorkBuddy, or Devin subscription you already have. Wevir can download the vendor's official client and sign you in from Settings, using the vendor's own sign-in flow.
+- **Subscriptions**: Sign in with ChatGPT, or use a Claude, OpenCode, Grok, Antigravity, WorkBuddy, Devin, or Cursor subscription you already have. Wevir runs the vendor's own client or SDK with your existing sign-in, and can download the client and start its sign-in from Settings. See [Status](#status) for what each source needs.
 - **Switch mid-session**: Change model and reasoning effort between turns, or hand a session to another provider with a summary of what it missed.
+
+<br clear="right" />
 
 ### Sessions
 
@@ -57,6 +86,39 @@ Wevir is an open-source, local-first workspace for AI coding agents. Agent sessi
 - **One Host, many clients**: The desktop app and CLI share sessions, the event log, and approvals; clients reconnect and resume where they left off.
 - **Local storage**: Sessions and settings stay in a local data directory (SQLite and plain files).
 - **Ten languages**: English, Simplified and Traditional Chinese, French, German, Italian, Spanish, Japanese, Korean, and Russian.
+
+## Status
+
+Wevir is in preview. **Supported** means it is in the builds and covered by automated tests. **Beta** means it works but has less coverage, relies on a third-party client, or has not been checked against a real account. **Planned** means it is not available yet.
+
+| Area | Item | Status | Notes |
+| --- | --- | --- | --- |
+| Desktop app | macOS, Apple silicon | Supported | Signed and notarized |
+| | macOS, Intel | Beta | Built and notarized; CI tests run on Apple silicon |
+| | Windows x64 | Beta | Tested in CI; no computer use |
+| | Linux | Not available | No build is published |
+| Models | Codex runtime with API keys, OpenAI-compatible endpoints, or Ollama | Supported | |
+| | ChatGPT sign-in | Supported | Uses the Codex runtime's own sign-in |
+| Subscriptions | Claude | Beta | Claude Agent SDK is bundled; uses your local Claude sign-in |
+| | OpenCode | Beta | Wevir can download the client |
+| | Grok | Beta | Needs the `grok` CLI |
+| | Antigravity | Beta | Wevir downloads a pinned version |
+| | WorkBuddy | Beta | Needs the `codebuddy` CLI |
+| | Devin | Beta | Not yet checked against a real account |
+| | Cursor | Beta | Source builds only: the Cursor SDK is not redistributed |
+| Other | `wevir` CLI | Beta | Run from a source checkout; not packaged |
+| | Computer use | Beta | macOS only, off by default |
+| | Mobile app | Planned | |
+
+## Known limitations
+
+- **Preview builds only.** Every published build is a development build (`0.0.1-beta.N`) cut automatically from `master` after CI passes. Expect frequent updates and behaviour changes between builds.
+- **Update channel.** In-app updates follow the development channel. The stable channel has no releases yet.
+- **Subscription sources depend on their vendors.** They run each vendor's own client or SDK with your existing sign-in, so they are subject to that vendor's terms and can break when the client changes.
+- **Platforms.** No Linux or Windows on Arm build. Computer use is macOS only.
+- **CLI.** The `wevir` CLI is not in the installers; run it from a source checkout.
+
+Found a bug or a gap? Open an issue on [GitHub Issues](https://github.com/marvinli001/wevir/issues).
 
 <a id="downloads"></a>
 
