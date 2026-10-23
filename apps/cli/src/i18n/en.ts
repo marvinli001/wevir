@@ -642,7 +642,7 @@ Also:
   'provider.testFailedHttp': '✗ Test failed ({reason}, HTTP {status})',
 
   'account.unknownKind': 'Unknown account type: {kind}',
-  'account.unknownKind.hint': 'Only chatgpt is supported',
+  'account.unknownKind.hint': 'Only chatgpt; for other sources use wevir account login',
   'account.alreadySignedIn': 'Already signed in to ChatGPT: {account}',
   'account.alreadySignedIn.hint': 'To switch accounts, run wevir provider logout first',
   'account.noDeviceCode': 'No device code from the Host',
@@ -1087,4 +1087,102 @@ Options:
   'worktree.missing': 'Worktree folder missing: {path}',
   'worktree.restored': 'Worktree restored: {path}',
   'worktree.failed': 'Worktree not restored: {branch}',
+
+  // 订阅账号
+  'group.account': 'Subscription accounts',
+  'cmd.account.list.summary': 'List subscription accounts and their status',
+  'cmd.account.list.usage': 'wevir account list [--json]',
+  'cmd.account.status.summary': "Show an account's status, usage and how to sign in",
+  'cmd.account.status.usage': 'wevir account status <source|ID> [--refresh] [--json]',
+  'cmd.account.status.help': `Sources: chatgpt, claude, cursor, opencode, grok, antigravity, workbuddy, devin; IDs come from wevir account list
+
+Options:
+  --refresh   Check again (after signing in or installing in a terminal)`,
+  'cmd.account.login.summary': 'Sign in to a subscription account',
+  'cmd.account.login.usage': 'wevir account login <source|ID> [options]',
+  'cmd.account.login.help': `In-app sign-in prints a URL or a device code and waits (Ctrl-C cancels); terminal sign-in prints the command to run
+
+Options:
+  --device-code       Use a device code (works on any device; preferred)
+  --browser           Use browser authorization (the callback lands on the Host's computer)
+  --option <ID>       Sign-in option (such as WorkBuddy's China / international site)
+  --upstream <ID>     Connect an upstream (OpenCode, see wevir account upstreams); the API key is read from stdin`,
+  'cmd.account.logout.summary': 'Sign out of a subscription account',
+  'cmd.account.logout.usage': 'wevir account logout <source|ID> [--upstream <ID>]',
+  'cmd.account.logout.help': `For sources that use the terminal's sign-in (the first Claude or Grok account), the terminal is signed out too
+
+Options:
+  --upstream <ID>   Only disconnect this upstream`,
+  'cmd.account.upstreams.summary': 'List connectable upstreams (OpenCode)',
+  'cmd.account.upstreams.usage': 'wevir account upstreams <source|ID> [--json]',
+  'cmd.account.install.summary': "Download and install a source's engine",
+  'cmd.account.install.usage': 'wevir account install <source>',
+  'cmd.account.add.summary': 'Add an account (separate from existing ones)',
+  'cmd.account.add.usage': 'wevir account add <source> [--label <label>] [--json]',
+  'cmd.account.remove.summary': 'Remove an added account',
+  'cmd.account.remove.usage': 'wevir account remove <ID>',
+  'cmd.account.remove.help':
+    'Signs out, closes its sessions and deletes its provider, usage records and data folder; the first account cannot be removed',
+  'cmd.account.label.summary': "Set or clear an account's label",
+  'cmd.account.label.usage': 'wevir account label <source|ID> <label> | --clear',
+  'cmd.account.path.summary': "Set or clear the engine's executable",
+  'cmd.account.path.usage': 'wevir account path <source> <path> | --clear',
+  'subscription.unknown': 'Unknown source or account: {value}',
+  'subscription.unknown.hint': 'Sources: {kinds}; account IDs are in wevir account list',
+  'subscription.none': 'No subscription accounts',
+  'subscription.installing': 'Installing',
+  'subscription.notInstalled': 'Not installed',
+  'subscription.signedIn': 'Signed in',
+  'subscription.signingIn': 'Signing in',
+  'subscription.signedOut': 'Signed out',
+  'subscription.col.source': 'Source',
+  'subscription.col.status': 'Status',
+  'subscription.col.account': 'Account',
+  'subscription.col.version': 'Version',
+  'subscription.col.name': 'Name',
+  'subscription.col.methods': 'Methods',
+  'subscription.connected': 'Connected',
+  'subscription.statusLine': '{name}: {status}',
+  'subscription.executable': 'Executable: {path}',
+  'subscription.installWith': 'Install: wevir account install {kind}',
+  'subscription.installCommand': 'Install yourself: {command}',
+  'subscription.installUrl': 'Install guide: {url}',
+  'subscription.installElsewhere':
+    "Install it per the source's instructions, then run wevir account status --refresh",
+  'subscription.loginCommand': 'Sign in from a terminal: {command}',
+  'subscription.loginWith': 'Sign in: wevir account login {id}',
+  'subscription.progress': 'Downloading {percent}% ({done} / {total} MB)',
+  'subscription.progressBytes': 'Downloading {done} MB',
+  'subscription.methodConflict': 'Use either --browser or --device-code',
+  'subscription.needsInstall': '{name} is not installed',
+  'subscription.alreadySignedIn': 'Already signed in to {name}: {account}',
+  'subscription.alreadySignedIn.hint': 'To switch accounts, run wevir account logout {id} first',
+  'subscription.runInTerminal': '{name} signs in from a terminal; run:',
+  'subscription.thenRefresh': 'Then run wevir account status {id} --refresh',
+  'subscription.methodUnsupported': '{name} does not support sign-in by {method}',
+  'subscription.methodUnsupported.hint': 'Available: {methods}',
+  'subscription.badOption': 'Unknown sign-in option: {option}',
+  'subscription.badOption.hint': 'Available: {options}',
+  'subscription.noUpstream': 'Unknown upstream: {upstream}',
+  'subscription.noUpstream.hint': 'Run wevir account upstreams {id} to see them',
+  'subscription.askKey': '{name} API key (hidden): ',
+  'subscription.keyMissing': 'No API key entered',
+  'subscription.upstreamConnected': '✓ Connected {name}',
+  'subscription.upstreamDisconnected': 'Disconnected upstream {upstream}',
+  'subscription.deviceStep1': '1. Open {url} in a browser and sign in',
+  'subscription.openUrl': 'Open in a browser: {url}',
+  'subscription.callbackNote':
+    "Authorization returns to the Host's computer; use a browser on that computer",
+  'subscription.signedInAs': '✓ Signed in to {name}: {account}',
+  'subscription.loggedOut': 'Signed out of {name}',
+  'subscription.localLogout': "This used the terminal's sign-in; the terminal is signed out too",
+  'subscription.installFailed': 'Install failed: {error}',
+  'subscription.installed': '✓ Installed {name} {version}',
+  'subscription.added': 'Added account {name} ({id}); sign in: wevir account login {id}',
+  'subscription.firstAccount':
+    'The first account cannot be removed; sign out with wevir account logout',
+  'subscription.removed': 'Removed account {id}',
+  'subscription.labelUsage': 'Give a label or --clear',
+  'subscription.labelled': 'Updated: {name}',
+  'subscription.pathUsage': 'Give a path or --clear',
 };

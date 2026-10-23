@@ -38,6 +38,18 @@ import {
   sessionShow,
   sessionUndo,
 } from './commands/session-manage.js';
+import {
+  accountAdd,
+  accountInstall,
+  accountLabel,
+  accountList,
+  accountPath,
+  accountRemove,
+  accountShow,
+  accountUpstreams,
+  accountLogin as subscriptionLogin,
+  accountLogout as subscriptionLogout,
+} from './commands/subscription.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import { workspaceAdd, workspaceList } from './commands/workspace.js';
 import { type CliIO, type Context, createContext } from './context.js';
@@ -273,6 +285,113 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       options: {},
       positionals: { min: 0, max: 1 },
       run: (ctx, _v, [kind]) => accountLogout(ctx, parseAccountKind(kind)),
+    },
+  },
+  account: {
+    list: {
+      summary: 'cmd.account.list.summary',
+      usage: 'cmd.account.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => accountList(ctx, { json: v.json === true }),
+    },
+    status: {
+      summary: 'cmd.account.status.summary',
+      usage: 'cmd.account.status.usage',
+      help: 'cmd.account.status.help',
+      options: { refresh: { type: 'boolean' }, ...json },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [value]) =>
+        accountShow(ctx, value as string, { json: v.json === true, refresh: v.refresh === true }),
+    },
+    login: {
+      summary: 'cmd.account.login.summary',
+      usage: 'cmd.account.login.usage',
+      help: 'cmd.account.login.help',
+      options: {
+        browser: { type: 'boolean' },
+        'device-code': { type: 'boolean' },
+        option: { type: 'string' },
+        upstream: { type: 'string' },
+      },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [value]) => {
+        const option = str(v.option);
+        const upstream = str(v.upstream);
+        return subscriptionLogin(ctx, value as string, {
+          ...(v.browser === true && { browser: true }),
+          ...(v['device-code'] === true && { deviceCode: true }),
+          ...(option !== undefined && { option }),
+          ...(upstream !== undefined && { upstream }),
+        });
+      },
+    },
+    logout: {
+      summary: 'cmd.account.logout.summary',
+      usage: 'cmd.account.logout.usage',
+      help: 'cmd.account.logout.help',
+      options: { upstream: { type: 'string' } },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [value]) => {
+        const upstream = str(v.upstream);
+        return subscriptionLogout(ctx, value as string, {
+          ...(upstream !== undefined && { upstream }),
+        });
+      },
+    },
+    upstreams: {
+      summary: 'cmd.account.upstreams.summary',
+      usage: 'cmd.account.upstreams.usage',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [value]) => accountUpstreams(ctx, value as string, { json: v.json === true }),
+    },
+    install: {
+      summary: 'cmd.account.install.summary',
+      usage: 'cmd.account.install.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [value]) => accountInstall(ctx, value as string),
+    },
+    add: {
+      summary: 'cmd.account.add.summary',
+      usage: 'cmd.account.add.usage',
+      options: { label: { type: 'string' }, ...json },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [value]) => {
+        const label = str(v.label);
+        return accountAdd(ctx, value as string, {
+          ...(label !== undefined && { label }),
+          json: v.json === true,
+        });
+      },
+    },
+    remove: {
+      summary: 'cmd.account.remove.summary',
+      usage: 'cmd.account.remove.usage',
+      help: 'cmd.account.remove.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [value]) => accountRemove(ctx, value as string),
+    },
+    label: {
+      summary: 'cmd.account.label.summary',
+      usage: 'cmd.account.label.usage',
+      options: { clear: { type: 'boolean' } },
+      positionals: { min: 1, max: 2 },
+      run: (ctx, v, [value, label]) =>
+        accountLabel(ctx, value as string, label, { clear: v.clear === true }),
+    },
+    path: {
+      summary: 'cmd.account.path.summary',
+      usage: 'cmd.account.path.usage',
+      options: { clear: { type: 'boolean' } },
+      positionals: { min: 1, max: 2 },
+      run: (ctx, v, [value, path]) =>
+        accountPath(ctx, value as string, path, { clear: v.clear === true }),
     },
   },
   web: {
@@ -722,6 +841,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   host: 'group.host',
   workspace: 'group.workspace',
   provider: 'group.provider',
+  account: 'group.account',
   web: 'group.web',
   session: 'group.session',
   automation: 'group.automation',

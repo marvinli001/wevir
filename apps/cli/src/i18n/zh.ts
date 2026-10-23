@@ -624,7 +624,7 @@ export const zh = {
 
   // commands/account.ts
   'account.unknownKind': '未知账号类型：{kind}',
-  'account.unknownKind.hint': '仅支持 chatgpt',
+  'account.unknownKind.hint': '仅支持 chatgpt；其他来源用 wevir account login',
   'account.alreadySignedIn': '已登录 ChatGPT：{account}',
   'account.alreadySignedIn.hint': '切换账号需先运行 wevir provider logout',
   'account.noDeviceCode': 'Host 未返回设备码',
@@ -1062,6 +1062,101 @@ export const zh = {
   'worktree.missing': 'worktree 目录不存在：{path}',
   'worktree.restored': 'worktree 已恢复：{path}',
   'worktree.failed': 'worktree 未能恢复：{branch}',
+
+  // 订阅账号
+  'group.account': '订阅账号',
+  'cmd.account.list.summary': '列出订阅账号与状态',
+  'cmd.account.list.usage': 'wevir account list [--json]',
+  'cmd.account.status.summary': '查看账号的状态、用量与登录方式',
+  'cmd.account.status.usage': 'wevir account status <来源|ID> [--refresh] [--json]',
+  'cmd.account.status.help': `来源：chatgpt、claude、cursor、opencode、grok、antigravity、workbuddy、devin；ID 取自 wevir account list
+
+选项：
+  --refresh   重新检测（在终端里登录或安装之后）`,
+  'cmd.account.login.summary': '登录订阅账号',
+  'cmd.account.login.usage': 'wevir account login <来源|ID> [选项]',
+  'cmd.account.login.help': `应用内登录时打印网址或设备码，等到完成（Ctrl-C 取消）；需在终端里登录的打印登录命令
+
+选项：
+  --device-code       用设备码（可在任意设备上完成，默认优先）
+  --browser           用浏览器授权（回调在 Host 所在的电脑上）
+  --option <ID>       登录方式（如 WorkBuddy 的国内 / 国际站）
+  --upstream <ID>     接一家上游（OpenCode，见 wevir account upstreams）；API Key 从 stdin 读取`,
+  'cmd.account.logout.summary': '登出订阅账号',
+  'cmd.account.logout.usage': 'wevir account logout <来源|ID> [--upstream <ID>]',
+  'cmd.account.logout.help': `用本机终端登录的来源（Claude、Grok 的首个账号）登出后终端也登出
+
+选项：
+  --upstream <ID>   只断开这一家上游`,
+  'cmd.account.upstreams.summary': '列出能接的上游（OpenCode）',
+  'cmd.account.upstreams.usage': 'wevir account upstreams <来源|ID> [--json]',
+  'cmd.account.install.summary': '下载安装来源的引擎',
+  'cmd.account.install.usage': 'wevir account install <来源>',
+  'cmd.account.add.summary': '添加一个账号（与已有账号互不相通）',
+  'cmd.account.add.usage': 'wevir account add <来源> [--label <标签>] [--json]',
+  'cmd.account.remove.summary': '删除添加的账号',
+  'cmd.account.remove.usage': 'wevir account remove <ID>',
+  'cmd.account.remove.help':
+    '登出、关闭使用它的会话，并删除它的 Provider、用量记录与数据目录；首个账号不能删除',
+  'cmd.account.label.summary': '设置或清除账号标签',
+  'cmd.account.label.usage': 'wevir account label <来源|ID> <标签> | --clear',
+  'cmd.account.path.summary': '指定或清除引擎的可执行文件',
+  'cmd.account.path.usage': 'wevir account path <来源> <路径> | --clear',
+  'subscription.unknown': '未知来源或账号：{value}',
+  'subscription.unknown.hint': '来源：{kinds}；账号 ID 见 wevir account list',
+  'subscription.none': '暂无订阅账号',
+  'subscription.installing': '安装中',
+  'subscription.notInstalled': '未安装',
+  'subscription.signedIn': '已登录',
+  'subscription.signingIn': '登录中',
+  'subscription.signedOut': '未登录',
+  'subscription.col.source': '来源',
+  'subscription.col.status': '状态',
+  'subscription.col.account': '账号',
+  'subscription.col.version': '版本',
+  'subscription.col.name': '名称',
+  'subscription.col.methods': '接入方式',
+  'subscription.connected': '已接入',
+  'subscription.statusLine': '{name}：{status}',
+  'subscription.executable': '可执行文件：{path}',
+  'subscription.installWith': '安装：wevir account install {kind}',
+  'subscription.installCommand': '自行安装：{command}',
+  'subscription.installUrl': '安装说明：{url}',
+  'subscription.installElsewhere': '按来源的官方说明安装后运行 wevir account status --refresh',
+  'subscription.loginCommand': '在终端里登录：{command}',
+  'subscription.loginWith': '登录：wevir account login {id}',
+  'subscription.progress': '下载中 {percent}%（{done} / {total} MB）',
+  'subscription.progressBytes': '下载中 {done} MB',
+  'subscription.methodConflict': '--browser 与 --device-code 只能选一个',
+  'subscription.needsInstall': '{name} 未安装',
+  'subscription.alreadySignedIn': '已登录 {name}：{account}',
+  'subscription.alreadySignedIn.hint': '切换账号需先运行 wevir account logout {id}',
+  'subscription.runInTerminal': '{name} 在终端里登录，运行：',
+  'subscription.thenRefresh': '登录后运行 wevir account status {id} --refresh',
+  'subscription.methodUnsupported': '{name} 不支持登录方式 {method}',
+  'subscription.methodUnsupported.hint': '可用：{methods}',
+  'subscription.badOption': '未知登录方式：{option}',
+  'subscription.badOption.hint': '可用：{options}',
+  'subscription.noUpstream': '未知上游：{upstream}',
+  'subscription.noUpstream.hint': '运行 wevir account upstreams {id} 查看',
+  'subscription.askKey': '{name} 的 API Key（不回显）：',
+  'subscription.keyMissing': '未输入 API Key',
+  'subscription.upstreamConnected': '✓ 已接入 {name}',
+  'subscription.upstreamDisconnected': '已断开上游 {upstream}',
+  'subscription.deviceStep1': '1. 在浏览器中打开 {url} 并登录',
+  'subscription.openUrl': '在浏览器中打开：{url}',
+  'subscription.callbackNote': '授权完成后回到 Host 所在的电脑；浏览器需在这台电脑上',
+  'subscription.signedInAs': '✓ 已登录 {name}：{account}',
+  'subscription.loggedOut': '已登出 {name}',
+  'subscription.localLogout': '使用本机终端的登录，终端也已登出',
+  'subscription.installFailed': '安装失败：{error}',
+  'subscription.installed': '✓ 已安装 {name} {version}',
+  'subscription.added': '已添加账号 {name}（{id}）；登录：wevir account login {id}',
+  'subscription.firstAccount': '首个账号不能删除；用 wevir account logout 登出',
+  'subscription.removed': '已删除账号 {id}',
+  'subscription.labelUsage': '给出标签或 --clear 之一',
+  'subscription.labelled': '已更新：{name}',
+  'subscription.pathUsage': '给出路径或 --clear 之一',
 } as const;
 
 export type MessageKey = keyof typeof zh;
