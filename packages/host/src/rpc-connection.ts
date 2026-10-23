@@ -70,6 +70,8 @@ import type { DeviceService } from './remote/devices.js';
 import type { PairingService } from './remote/pairing.js';
 import type { PushService } from './remote/push.js';
 import { type SessionListFeed, SessionListScope } from './session-list.js';
+import { toHostError } from './simulator/errors.js';
+import type { SimulatorService } from './simulator/service.js';
 import type { TerminalService } from './terminals.js';
 
 /** 一条连接的时限与容量。默认值见 `HostRpcServer`。 */
@@ -171,6 +173,14 @@ export interface ConnectionHost {
   };
   /** 用户的交互终端（0.69.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
+  /**
+   * iOS 模拟器（0.122.0）：`simulator.attach` / `detach` 以这条连接为主人，连接关闭时撤掉；调过 `simulator.*` 的连接收
+   * `simulator.changed` / `simulator.orientation`，协商到 0.122.0 的连接都收 `simulator.show`。
+   */
+  readonly simulators?: Pick<
+    SimulatorService,
+    'attach' | 'detach' | 'detachOwner' | 'watch' | 'watchShow'
+  >;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
   /** 电脑操作（0.114.0）：`computer.register` 把连接登记到这里。省略时登记不生效，回答一律不收。 */
@@ -207,6 +217,8 @@ interface ZodIssueLike {
 const SESSION_LIST_PUSH_SINCE = '0.101.0';
 /** 通知意图的 `channel` 种类（助理的帖子）从这个版本起。 */
 const CHANNEL_INTENTS_SINCE = '0.121.0';
+/** `simulator.show` 从这个版本起。 */
+const SIMULATOR_SINCE = '0.122.0';
 
 /** 给旧客户端的提示（host-api.md §3.2 未知方法）。 */
 const UPGRADE_HINT = '请升级 Wevir Host';
@@ -324,6 +336,10 @@ export class RpcConnection {
   #unwatchTerminals: (() => void) | undefined;
   /** `terminal.attach` 过的终端：不再收它的输出。 */
   readonly #terminalAttachments = new Map<string, () => void>();
+  /** 调过 `simulator.*` 之后：退订 `simulator.changed` / `simulator.orientation`。 */
+  #unwatchSimulators: (() => void) | undefined;
+  /** hello 之后（0.122.0 起）：退订 `simulator.show`。 */
+  #unwatchSimulatorShow: (() => void) | undefined;
   /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
@@ -499,6 +515,11 @@ export class RpcConnection {
       }),
       permissions: [...this.#grant.permissions],
     });
+    if (compareProtocolVersions(this.#protocolVersion, SIMULATOR_SINCE) >= 0) {
+      this.#unwatchSimulatorShow = this.#host.simulators?.watchShow((show) =>
+        this.#notify('simulator.show', show),
+      );
+    }
   }
 
   #rejectVersion(id: JsonRpcId, version: string): void {
@@ -701,6 +722,28 @@ export class RpcConnection {
         this.#watchTerminals();
         return;
       }
+      case 'simulator.attach': {
+        const simulators = this.#simulatorService();
+        const attach = params as MethodParams<'simulator.attach'>;
+        if (attach.sessionId !== undefined)
+          assertSessionVisible(this.#host.storage, attach.sessionId);
+        let result: MethodResult<'simulator.attach'>;
+        try {
+          result = await simulators.attach(attach, this.#browserProviderId);
+        } catch (error) {
+          throw toHostError(error);
+        }
+        this.#respond(id, method, result);
+        this.#watchSimulators();
+        return;
+      }
+      case 'simulator.detach': {
+        const { udid } = params as MethodParams<'simulator.detach'>;
+        this.#simulatorService().detach(udid, this.#browserProviderId);
+        this.#respond(id, method, {});
+        this.#watchSimulators();
+        return;
+      }
       case 'terminal.detach': {
         const { terminalId } = params as MethodParams<'terminal.detach'>;
         this.#terminalService();
@@ -773,6 +816,7 @@ export class RpcConnection {
           this.#watchGuardrails();
         }
         if (method.startsWith('terminal.')) this.#watchTerminals();
+        if (method.startsWith('simulator.')) this.#watchSimulators();
       }
     }
   }
@@ -1325,6 +1369,31 @@ export class RpcConnection {
     return this.#host.terminals;
   }
 
+  #simulatorService(): NonNullable<ConnectionHost['simulators']> {
+    if (this.#host.simulators === undefined) {
+      throw new HostError('INVALID_PARAMS', 'this host has no iOS simulator support', {
+        issues: [{ path: [], message: 'this host has no iOS simulator support' }],
+      });
+    }
+    return this.#host.simulators;
+  }
+
+  /** 调过 `simulator.*` 的连接之后收 `simulator.changed` 与 `simulator.orientation`（0.122.0），连接关闭即止。 */
+  #watchSimulators(): void {
+    if (this.#unwatchSimulators !== undefined || this.#host.simulators === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchSimulators = this.#host.simulators.watch((notice) => {
+      const parsed = NotificationSchemas[notice.method].params.safeParse(notice.params);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`${notice.method} does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#notify(notice.method, parsed.data as never);
+    });
+  }
+
   /** 调过 `terminal.*` 的连接之后收 `terminal.changed`（0.69.0），连接关闭即止。 */
   #watchTerminals(): void {
     if (this.#unwatchTerminals !== undefined || this.#host.terminals === undefined) return;
@@ -1497,6 +1566,11 @@ export class RpcConnection {
     this.#unregisterBrowser = undefined;
     this.#unregisterComputer?.();
     this.#unregisterComputer = undefined;
+    this.#unwatchSimulators?.();
+    this.#unwatchSimulators = undefined;
+    this.#unwatchSimulatorShow?.();
+    this.#unwatchSimulatorShow = undefined;
+    this.#host.simulators?.detachOwner(this.#browserProviderId);
   }
 }
 

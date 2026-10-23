@@ -17,6 +17,7 @@ import {
   type HostId,
   type HostSettings,
   SEND_BUFFER_LIMIT_BYTES,
+  SIMULATOR_STREAM_PATH,
 } from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
 import { WebSocketServer } from 'ws';
@@ -39,6 +40,7 @@ import {
   tokenDigest,
 } from './rpc-connection.js';
 import type { SessionListFeed } from './session-list.js';
+import type { SimulatorService } from './simulator/service.js';
 
 /** Host 只监听 loopback（ADR-0002 §1）。 */
 export const RPC_LISTEN_HOST = '127.0.0.1';
@@ -115,6 +117,11 @@ export interface HostRpcServerOptions {
   browsers?: BrowserBroker;
   /** 电脑操作（0.114.0）：连接用 `computer.register` 登记为电脑操作的提供方。 */
   computers?: ComputerBroker;
+  /** iOS 模拟器（0.122.0）：`simulator.attach` / `detach` 与通知，`GET /simulator/stream?token=…` 的画面。 */
+  simulators?: Pick<
+    SimulatorService,
+    'attach' | 'detach' | 'detachOwner' | 'watch' | 'watchShow' | 'acceptStream'
+  >;
   /** 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作；不给时连接都是本机身份、全部权限。 */
   testConnectionGrant?: TestConnectionGrant;
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
@@ -225,6 +232,7 @@ export class HostRpcServer {
       ...(options.terminals !== undefined && { terminals: options.terminals }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
       ...(options.computers !== undefined && { computers: options.computers }),
+      ...(options.simulators !== undefined && { simulators: options.simulators }),
       ...(options.testConnectionGrant !== undefined && {
         testConnectionGrant: options.testConnectionGrant,
       }),
@@ -367,6 +375,10 @@ export class HostRpcServer {
       rejectUpgrade(socket, 403);
       return;
     }
+    if (requestPath(req.url) === SIMULATOR_STREAM_PATH) {
+      this.#upgradeSimulatorStream(req, socket, head);
+      return;
+    }
     this.#wss.handleUpgrade(req, socket, head, (ws) => {
       if (this.#shuttingDown) {
         ws.terminate();
@@ -378,12 +390,40 @@ export class HostRpcServer {
     });
   }
 
+  /**
+   * iOS 模拟器的画面（0.122.0）：令牌来自 `simulator.attach`，只连一次、只对那台设备；没有或无效时 403。连上之后只发二进制帧，
+   * 不收任何消息（收到的忽略）。
+   */
+  #upgradeSimulatorStream(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    const token = new URL(req.url ?? '/', 'http://localhost').searchParams.get('token') ?? '';
+    const accept = token === '' ? undefined : this.#options.simulators?.acceptStream(token);
+    if (accept === undefined) {
+      rejectUpgrade(socket, 403);
+      return;
+    }
+    this.#wss.handleUpgrade(req, socket, head, (ws) => {
+      if (this.#shuttingDown) {
+        ws.terminate();
+        return;
+      }
+      ws.on('error', () => {});
+      accept(ws);
+    });
+  }
+
   /** 只允许 `127.0.0.1:<port>` 与 `localhost:<port>`（主机名不分大小写）；缺失也拒绝。 */
   #isAllowedHost(host: string | undefined): boolean {
     if (host === undefined) return false;
     const value = host.toLowerCase();
     return value === `${RPC_LISTEN_HOST}:${this.#port}` || value === `localhost:${this.#port}`;
   }
+}
+
+/** 请求行里的路径（去掉查询串）。 */
+function requestPath(url: string | undefined): string {
+  const path = url ?? '/';
+  const query = path.indexOf('?');
+  return query < 0 ? path : path.slice(0, query);
 }
 
 /** 在升级前拒绝：写一个最小的 HTTP 响应并关闭套接字。 */

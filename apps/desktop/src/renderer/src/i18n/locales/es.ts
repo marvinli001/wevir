@@ -101,6 +101,7 @@ export const messages: Messages = {
   'rpcError.MCP_OAUTH_FAILED': 'Error al iniciar sesión',
   'rpcError.PUSH_GATEWAY_ERROR': 'Error al registrar push',
   'rpcError.CHANNEL_NOT_FOUND': 'Asistente no encontrado',
+  'rpcError.SIMULATOR_FAILED': 'Error del simulador',
 
   'clientError.request_timeout': 'Tiempo de espera de la solicitud agotado',
   'clientError.connect_timeout': 'Tiempo de espera de la conexión agotado',

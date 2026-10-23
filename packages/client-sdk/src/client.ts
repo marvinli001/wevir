@@ -50,6 +50,9 @@ import {
   type SessionId,
   SessionsChangedParamsSchema,
   SettingsUpdatedParamsSchema,
+  SimulatorChangedParamsSchema,
+  SimulatorOrientationParamsSchema,
+  SimulatorShowParamsSchema,
   SpeechChangedParamsSchema,
   type SubscriptionId,
   TerminalChangedParamsSchema,
@@ -116,6 +119,10 @@ export type TuningChange = NotificationParams<'tuning.changed'>;
 export type GuardrailChange = NotificationParams<'guardrail.changed'>;
 /** `tuning.proposal.changed` 的内容（0.87.0）。 */
 export type TuningProposalChange = NotificationParams<'tuning.proposal.changed'>;
+/** `simulator.changed`、`simulator.orientation` 与 `simulator.show` 的内容（0.122.0）。 */
+export type SimulatorChange = NotificationParams<'simulator.changed'>;
+export type SimulatorOrientationChange = NotificationParams<'simulator.orientation'>;
+export type SimulatorShow = NotificationParams<'simulator.show'>;
 /** `terminal.changed` 与 `terminal.output` 的内容（0.69.0）。 */
 export type TerminalChange = NotificationParams<'terminal.changed'>;
 export type TerminalOutput = NotificationParams<'terminal.output'>;
@@ -410,6 +417,9 @@ export class WevirClient {
   readonly #lspListeners = new Set<(change: LspChange | undefined) => void>();
   readonly #terminalListeners = new Set<(change: TerminalChange | undefined) => void>();
   readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
+  readonly #simulatorListeners = new Set<(change: SimulatorChange | undefined) => void>();
+  readonly #simulatorOrientationListeners = new Set<(change: SimulatorOrientationChange) => void>();
+  readonly #simulatorShowListeners = new Set<(show: SimulatorShow) => void>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
   /** `provideComputer` 登记的电脑操作提供方（0.114.0），一个客户端只有一个。 */
@@ -1024,6 +1034,37 @@ export class WevirClient {
     return () => this.#terminalListeners.delete(listener);
   }
 
+  /**
+   * iOS 模拟器的设备列表变了（0.122.0，`simulator.changed`）：只有调过 `simulator.*` 的连接收得到。重连上之后以 `undefined` 调一次
+   * （期间的变化没收到，重读 `simulator.list`；画面流要重新 `simulator.attach`）。返回取消函数。
+   */
+  onSimulatorsChanged(listener: (change: SimulatorChange | undefined) => void): () => void {
+    this.#simulatorListeners.add(listener);
+    return () => this.#simulatorListeners.delete(listener);
+  }
+
+  /** 模拟器转了方向（0.122.0，`simulator.orientation`）：只有调过 `simulator.*` 的连接收得到。返回取消函数。 */
+  onSimulatorOrientation(listener: (change: SimulatorOrientationChange) => void): () => void {
+    this.#simulatorOrientationListeners.add(listener);
+    return () => this.#simulatorOrientationListeners.delete(listener);
+  }
+
+  /** agent 在某个会话里 attach 了模拟器（0.122.0，`simulator.show`），界面在那个会话旁打开模拟器窗格。返回取消函数。 */
+  onSimulatorShow(listener: (show: SimulatorShow) => void): () => void {
+    this.#simulatorShowListeners.add(listener);
+    return () => this.#simulatorShowListeners.delete(listener);
+  }
+
+  #simulatorsChanged(change: SimulatorChange | undefined): void {
+    for (const listener of [...this.#simulatorListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a simulator listener threw', { error });
+      }
+    }
+  }
+
   /** 用户终端的输出（0.69.0，`terminal.output`）：这条连接 `terminal.attach` 过的终端。返回取消函数。 */
   onTerminalOutput(listener: (output: TerminalOutput) => void): () => void {
     this.#terminalOutputListeners.add(listener);
@@ -1479,6 +1520,7 @@ export class WevirClient {
         if (reread('tuning_proposals', 'tuning.proposal.list')) this.#proposalsChanged(undefined);
         if (reread('lsp_status', 'lsp.status')) this.#lspChanged(undefined);
         if (reread('user_terminal', 'terminal.list')) this.#terminalsChanged(undefined);
+        if (reread('ios_simulator', 'simulator.list')) this.#simulatorsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         if (this.#computerProvider !== undefined) this.#registerComputer(this.#computerProvider);
         if (this.#notificationListeners.size > 0) this.#subscribeNotifications();
@@ -1942,6 +1984,36 @@ export class WevirClient {
           listener(parsed.data);
         } catch (error) {
           this.#warn('a terminal output listener threw', { error });
+        }
+      }
+      return;
+    }
+    if (method === 'simulator.changed') {
+      const parsed = SimulatorChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed simulator.changed notification');
+        return;
+      }
+      this.#simulatorsChanged(parsed.data);
+      return;
+    }
+    if (method === 'simulator.orientation' || method === 'simulator.show') {
+      const orientation = method === 'simulator.orientation';
+      const parsed = (
+        orientation ? SimulatorOrientationParamsSchema : SimulatorShowParamsSchema
+      ).safeParse(params);
+      if (!parsed.success) {
+        this.#warn(`ignored a malformed ${method} notification`);
+        return;
+      }
+      const listeners = orientation
+        ? this.#simulatorOrientationListeners
+        : this.#simulatorShowListeners;
+      for (const listener of [...listeners] as Array<(value: unknown) => void>) {
+        try {
+          listener(parsed.data);
+        } catch (error) {
+          this.#warn(`a ${method} listener threw`, { error });
         }
       }
       return;

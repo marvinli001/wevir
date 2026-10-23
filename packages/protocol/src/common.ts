@@ -63,6 +63,8 @@ export const PairingRequestIdSchema = z.templateLiteral(['prq_', IdBodySchema]);
 /** 频道与它时间线上的帖子（0.120.0，ADR-0020）。 */
 export const ChannelIdSchema = z.templateLiteral(['chn_', IdBodySchema]);
 export const ChannelPostIdSchema = z.templateLiteral(['cpo_', IdBodySchema]);
+/** iOS 模拟器的录像（0.122.0）。 */
+export const SimulatorRecordingIdSchema = z.templateLiteral(['rec_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -93,6 +95,7 @@ export type PairingId = z.infer<typeof PairingIdSchema>;
 export type PairingRequestId = z.infer<typeof PairingRequestIdSchema>;
 export type ChannelId = z.infer<typeof ChannelIdSchema>;
 export type ChannelPostId = z.infer<typeof ChannelPostIdSchema>;
+export type SimulatorRecordingId = z.infer<typeof SimulatorRecordingIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;

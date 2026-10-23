@@ -54,6 +54,7 @@ import type { PushState } from './push.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
+import type { SimulatorDevice } from './simulator.js';
 import type { SpeechLocalStatus } from './speech.js';
 import type { Terminal } from './terminals.js';
 import type {
@@ -882,6 +883,33 @@ export const checkProcess: HostProcess = {
   bytes: 1840,
   stoppedBy: 'user',
   stopSignals: [],
+};
+
+/** iOS 模拟器（0.122.0）：已启动、在一个会话里 attach 过的 iPhone。 */
+export const simulatorDeviceSample: SimulatorDevice = {
+  udid: '8A4F2C1E-3B5D-4E6F-9A7B-1C2D3E4F5A6B',
+  name: 'iPhone 17 Pro',
+  platform: 'ios',
+  runtime: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+  osVersion: '26.5',
+  family: 'iphone',
+  deviceTypeId: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro',
+  state: 'booted',
+  available: true,
+  attachedBy: [ids.session],
+};
+
+/** iOS 模拟器（0.122.0）：关着的 iPad，运行时已不可用。 */
+export const simulatorShutdownSample: SimulatorDevice = {
+  udid: '1B2C3D4E-5F60-4718-8293-A4B5C6D7E8F9',
+  name: 'iPad Air 13-inch (M3)',
+  platform: 'ios',
+  runtime: 'com.apple.CoreSimulator.SimRuntime.iOS-18-0',
+  osVersion: '',
+  family: 'ipad',
+  state: 'shutdown',
+  available: false,
+  attachedBy: [],
 };
 
 /** 用户的交互终端（0.69.0）：在跑，前台是 vim。 */
@@ -3463,6 +3491,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', writingStyle: true } },
         // 0.114.0：电脑操作。
         { settings: { sendWhileBusy: 'steer', computerUse: true } },
+        // 0.122.0：iOS 模拟器。
+        { settings: { sendWhileBusy: 'steer', iosSimulator: false } },
         // 0.102.0：运行时防止系统休眠。
         { settings: { sendWhileBusy: 'steer', preventSleep: true } },
         // 0.106.0：哪几类事产生通知意图。
@@ -6742,6 +6772,191 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ terminalId: terminalSample.id }], invalid: [{ terminalId: 'p3' }] },
     result: { valid: [{}], invalid: [null] },
   },
+  'simulator.list': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        { devices: [], deviceTypes: [], runtimes: [] },
+        {
+          devices: [simulatorDeviceSample, simulatorShutdownSample],
+          deviceTypes: [
+            {
+              id: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro',
+              name: 'iPhone 17 Pro',
+              family: 'iphone',
+            },
+          ],
+          runtimes: [
+            {
+              id: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+              name: 'iOS 26.5',
+              platform: 'ios',
+              version: '26.5',
+              available: true,
+            },
+          ],
+        },
+      ],
+      invalid: [
+        { devices: [{ ...simulatorDeviceSample, state: 'paused' }], deviceTypes: [], runtimes: [] },
+      ],
+    },
+  },
+  'simulator.boot': {
+    params: { valid: [{ udid: simulatorDeviceSample.udid }], invalid: [{}, { udid: '' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'simulator.shutdown': {
+    params: { valid: [{ udid: simulatorDeviceSample.udid }], invalid: [{ udid: 'a b' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'simulator.create': {
+    params: {
+      valid: [
+        {
+          name: 'iPhone 17 Pro (2)',
+          deviceTypeId: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro',
+          runtimeId: 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+        },
+      ],
+      invalid: [{ name: '', deviceTypeId: 'x', runtimeId: 'y' }],
+    },
+    result: {
+      valid: [{ device: { ...simulatorDeviceSample, state: 'shutdown', attachedBy: [] } }],
+      invalid: [{}],
+    },
+  },
+  'simulator.attach': {
+    params: {
+      valid: [
+        { udid: simulatorDeviceSample.udid },
+        { udid: simulatorDeviceSample.udid, sessionId: ids.session },
+      ],
+      invalid: [{ udid: simulatorDeviceSample.udid, sessionId: 'p3' }],
+    },
+    result: {
+      valid: [
+        {
+          streamUrl: 'ws://127.0.0.1:52100/simulator/stream?token=c2ltdG9rZW4',
+          token: 'c2ltdG9rZW4',
+          screen: { width: 402, height: 874, scale: 3 },
+          orientation: 'portrait',
+        },
+      ],
+      invalid: [
+        {
+          streamUrl: 'ws://127.0.0.1:52100/simulator/stream?token=x',
+          token: 'x',
+          screen: { width: 0, height: 874, scale: 3 },
+          orientation: 'portrait',
+        },
+      ],
+    },
+  },
+  'simulator.detach': {
+    params: { valid: [{ udid: simulatorDeviceSample.udid }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'simulator.input': {
+    params: {
+      valid: [
+        { udid: simulatorDeviceSample.udid, input: { type: 'tap', x: 201, y: 437 } },
+        { udid: simulatorDeviceSample.udid, input: { type: 'tap', x: 201, y: 437, duration: 1 } },
+        {
+          udid: simulatorDeviceSample.udid,
+          input: {
+            type: 'touch',
+            points: [
+              { x: 200, y: 700, dtMs: 0 },
+              { x: 200, y: 200, dtMs: 300 },
+            ],
+          },
+        },
+        {
+          udid: simulatorDeviceSample.udid,
+          input: { type: 'touch', points2: [{ x1: 150, y1: 400, x2: 250, y2: 400, dtMs: 0 }] },
+        },
+        {
+          udid: simulatorDeviceSample.udid,
+          input: { type: 'touch_raw', phase: 'down', x: 10, y: 20, finger: 1 },
+        },
+        { udid: simulatorDeviceSample.udid, input: { type: 'text', text: 'héllo 世界' } },
+        { udid: simulatorDeviceSample.udid, input: { type: 'key', key: 'return', count: 2 } },
+        { udid: simulatorDeviceSample.udid, input: { type: 'button', name: 'HOME' } },
+        { udid: simulatorDeviceSample.udid, input: { type: 'rotate', direction: 'right' } },
+      ],
+      invalid: [
+        { udid: simulatorDeviceSample.udid, input: { type: 'swipe' } },
+        { udid: simulatorDeviceSample.udid, input: { type: 'key', key: 'f13' } },
+        { udid: simulatorDeviceSample.udid, input: { type: 'text', text: '' } },
+      ],
+    },
+    result: {
+      valid: [{}, { orientation: 'landscapeRight' }],
+      invalid: [{ orientation: 'sideways' }],
+    },
+  },
+  'simulator.screenshot': {
+    params: {
+      valid: [
+        { udid: simulatorDeviceSample.udid },
+        {
+          udid: simulatorDeviceSample.udid,
+          format: 'jpeg',
+          quality: 0.8,
+          scale: 3,
+          path: '/Users/u/Desktop/shot.jpg',
+        },
+      ],
+      invalid: [{ udid: simulatorDeviceSample.udid, format: 'gif' }],
+    },
+    result: {
+      valid: [
+        { data: 'iVBORw0KGgo=', mimeType: 'image/png', width: 402, height: 874 },
+        { path: '/Users/u/Desktop/shot.jpg', mimeType: 'image/jpeg', width: 1206, height: 2622 },
+      ],
+      invalid: [{ data: 'x', mimeType: 'image/gif', width: 1, height: 1 }],
+    },
+  },
+  'simulator.record.start': {
+    params: { valid: [{ udid: simulatorDeviceSample.udid }], invalid: [{}] },
+    result: { valid: [{ recordingId: `rec_${ULID}` }], invalid: [{ recordingId: 'r1' }] },
+  },
+  'simulator.record.stop': {
+    params: { valid: [{ recordingId: `rec_${ULID}` }], invalid: [{ recordingId: ids.session }] },
+    result: {
+      valid: [{ path: '/tmp/wevir-sim/rec_1.mp4', durationMs: 4200 }],
+      invalid: [{ path: '/tmp/x.mp4', durationMs: -1 }],
+    },
+  },
+  'simulator.configure': {
+    params: {
+      valid: [
+        { udid: simulatorDeviceSample.udid },
+        {
+          udid: simulatorDeviceSample.udid,
+          appearance: 'dark',
+          statusBar: 'clean',
+          slowAnimations: false,
+          hardwareKeyboard: true,
+          softwareKeyboard: 'show',
+        },
+      ],
+      invalid: [{ udid: simulatorDeviceSample.udid, appearance: 'sepia' }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'simulator.clipboard.get': {
+    params: { valid: [{ udid: simulatorDeviceSample.udid }], invalid: [{}] },
+    result: { valid: [{ text: '' }, { text: 'copied' }], invalid: [{}] },
+  },
+  'simulator.clipboard.set': {
+    params: {
+      valid: [{ udid: simulatorDeviceSample.udid, text: 'paste me' }],
+      invalid: [{ udid: simulatorDeviceSample.udid }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
   'lsp.status': {
     params: {
       valid: [
@@ -8745,6 +8960,25 @@ export const notificationSamples: NotificationSamples = {
     valid: [{}, { serverId: 'typescript', root: '/home/u/projects/demo' }],
     invalid: [{ serverId: '' }],
   },
+  'simulator.changed': {
+    valid: [{ devices: [] }, { devices: [simulatorDeviceSample, simulatorShutdownSample] }],
+    invalid: [{}],
+  },
+  'simulator.show': {
+    valid: [{ udid: simulatorDeviceSample.udid, sessionId: ids.session }],
+    invalid: [{ udid: simulatorDeviceSample.udid }],
+  },
+  'simulator.orientation': {
+    valid: [
+      { udid: simulatorDeviceSample.udid, orientation: 'landscapeLeft' },
+      {
+        udid: simulatorDeviceSample.udid,
+        orientation: 'landscapeLeft',
+        screen: { width: 874, height: 402, scale: 3 },
+      },
+    ],
+    invalid: [{ udid: simulatorDeviceSample.udid, orientation: 'up' }],
+  },
   'terminal.changed': {
     valid: [{ terminal: terminalSample }, { removed: { id: terminalSample.id } }],
     invalid: [{}, { removed: {} }],
@@ -9129,5 +9363,9 @@ export const errorDataSamples: ErrorDataSamples = {
   PUSH_GATEWAY_ERROR: {
     valid: { reason: 'bad_code' },
     invalid: { reason: 'not_bound' },
+  },
+  SIMULATOR_FAILED: {
+    valid: { code: 'sim_not_booted' },
+    invalid: { code: '' },
   },
 };

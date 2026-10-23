@@ -96,6 +96,8 @@ import { SessionListFeed } from './session-list.js';
 import { SessionManager, type SessionManagerOptions } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
+import { SimulatorService } from './simulator/service.js';
+import { Simctl, type SimctlRunner } from './simulator/simctl.js';
 import { SpeechModelInstaller } from './speech/install.js';
 import { LocalTranscriber, loadSherpa } from './speech/local.js';
 import {
@@ -189,6 +191,11 @@ export interface StartHostOptions {
    * `userHome`。
    */
   importEnv?: Readonly<Record<string, string | undefined>>;
+  /**
+   * iOS 模拟器（0.122.0）：`bin` 是 helper，省略取环境变量 `WEVIR_IOS_SIMULATOR_BIN`；不在 macOS、没给或不能执行时 Host 不声明
+   * `ios_simulator`。`sandbox` 与 `simctl` 只给测试（不经 sandbox-exec 起 helper、换掉 `xcrun simctl`）。
+   */
+  iosSimulator?: { bin?: string; sandbox?: boolean; simctl?: SimctlRunner };
   /** 数据目录（绝对路径），见 `resolveHome`。 */
   home: string;
   /** 引擎适配器，由 Host 独占，退出时 `dispose`。 */
@@ -277,6 +284,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let rpc: HostRpcServer | undefined;
   let backgroundProcesses: ProcessManager | undefined;
   let userTerminals: TerminalService | undefined;
+  let iosSimulators: SimulatorService | undefined;
   let verificationService: VerificationService | undefined;
   let readiness: ReadinessService | undefined;
   let devPreviews: PreviewService | undefined;
@@ -436,6 +444,25 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           })
         : undefined;
     userTerminals = terminals;
+    // iOS 模拟器（0.122.0，simulator/）：macOS 上找得到 helper 时才有，helper 用到时才起。
+    const simulatorBin = options.iosSimulator?.bin ?? process.env.WEVIR_IOS_SIMULATOR_BIN;
+    let rpcBase: string | undefined;
+    const simulators = (await SimulatorService.available(simulatorBin))
+      ? new SimulatorService({
+          bin: simulatorBin as string,
+          dir: homePath(home, 'simulatorDir'),
+          streamBase: () => rpcBase,
+          ...(options.iosSimulator?.sandbox !== undefined && {
+            sandbox: options.iosSimulator.sandbox,
+          }),
+          ...(options.iosSimulator?.simctl !== undefined && {
+            simctl: new Simctl(options.iosSimulator.simctl),
+          }),
+          onWarning: (message, fields) => logger.warn(message, fields),
+        })
+      : undefined;
+    iosSimulators = simulators;
+    await simulators?.init();
     // 进程输出（0.69.0，process-output.ts）：客户端看 Agent 的后台进程与检查的进程。
     const processOutput = new ProcessOutputService({ storage });
     const processes =
@@ -607,6 +634,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         forget: (sessionIds) => {
           void processes?.removeSessions(sessionIds);
           terminals?.removeSessions(sessionIds);
+          simulators?.removeSessions(sessionIds);
           void verificationService?.removeSessions(sessionIds);
           autoTuner?.forget(sessionIds);
           tuningMetrics.forget(sessionIds);
@@ -1154,6 +1182,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             ...(computerGuide !== undefined && { guide: computerGuide }),
           },
         }),
+        ...(simulators !== undefined && {
+          simulator: {
+            service: simulators,
+            enabled: () => settings.get().iosSimulator !== false,
+          },
+        }),
         ...(processes !== undefined && { processes }),
         ...(previews !== undefined && { previews }),
         readiness: readinessService,
@@ -1299,6 +1333,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(previews !== undefined && { previews }),
         readiness: readinessService,
         ...(terminals !== undefined && { terminals }),
+        ...(simulators !== undefined && { simulators }),
         ...(lspStatus !== undefined && { lsp: lspStatus }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
@@ -1390,6 +1425,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_retro: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
+        ...(simulators !== undefined && { ios_simulator: true }),
         workspace_readiness: true,
         ...(lspStatus !== undefined && { lsp_status: true }),
         external_import: true,
@@ -1452,6 +1488,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(proposals !== undefined && { proposals }),
       ...(browsers !== undefined && { browsers }),
       ...(computers !== undefined && { computers }),
+      ...(simulators !== undefined && { simulators }),
       ...(options.port !== undefined && { port: options.port }),
       ...(options.testConnectionGrant !== undefined && {
         testConnectionGrant: options.testConnectionGrant,
@@ -1466,6 +1503,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     rpc = server;
     rpcServer = server;
     const url = await server.listen();
+    rpcBase = `ws://127.0.0.1:${server.port}`;
     remoteListener.refresh();
     settings.watch(() => remoteListener.refresh());
     mcp?.setPort(server.port);
@@ -1512,6 +1550,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           previews,
           speech,
           terminals,
+          simulators,
           verification,
           readiness: readinessService,
           lsp,
@@ -1554,6 +1593,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     dictation?.dispose();
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
+    await iosSimulators?.dispose().catch(() => {});
     accounts?.dispose();
     automations?.dispose();
     channels?.dispose();
@@ -1596,6 +1636,8 @@ interface ShutdownParts {
   speech: SpeechService;
   /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
   terminals: TerminalService | undefined;
+  /** iOS 模拟器（0.122.0）：结束 helper、断开画面、清掉输出目录。 */
+  simulators: SimulatorService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
   verification: VerificationService | undefined;
   /** 项目环境就绪（0.70.0）：还在跑的安装要停掉。 */
@@ -1664,6 +1706,9 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 用户终端：SIGHUP，宽限后 SIGKILL。
   if (parts.terminals !== undefined) {
     await step('stop_terminals', () => parts.terminals?.dispose(), true);
+  }
+  if (parts.simulators !== undefined) {
+    await step('stop_simulators', () => parts.simulators?.dispose(), true);
   }
   // 自动化不再开始新的运行；进行中的随回合取消记为 cancelled。
   parts.automations.stop();

@@ -40,6 +40,30 @@ describe('权限表', () => {
     expect(NOTIFICATION_PERMISSIONS['terminal.output']).toBe('session.read');
   });
 
+  it('模拟器：看要 session.read，操作要 workspace.write', () => {
+    for (const method of [
+      'simulator.list',
+      'simulator.attach',
+      'simulator.detach',
+      'simulator.screenshot',
+      'simulator.clipboard.get',
+    ] as const) {
+      expect(MethodSchemas[method].permission, method).toBe('session.read');
+    }
+    for (const method of [
+      'simulator.boot',
+      'simulator.shutdown',
+      'simulator.create',
+      'simulator.input',
+      'simulator.record.start',
+      'simulator.record.stop',
+      'simulator.configure',
+      'simulator.clipboard.set',
+    ] as const) {
+      expect(MethodSchemas[method].permission, method).toBe('workspace.write');
+    }
+  });
+
   it('审批规则、护栏与仓库 hooks 的写方法要 policy.write', () => {
     for (const method of [
       'approvalRule.add',

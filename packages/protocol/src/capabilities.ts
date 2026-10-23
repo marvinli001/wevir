@@ -513,6 +513,12 @@ export const HOST_FEATURES = {
    * 收件箱项的 `channelId`。
    */
   channel_schedules: 'channel_schedules',
+  /**
+   * iOS 模拟器（0.122.0，domain-model §3.15.9）：`simulator.*` 方法、`simulator.changed` / `simulator.show` / `simulator.orientation`
+   * 通知与 RPC 端口上的 `/simulator/stream`；设置的 `iosSimulator` 开着（默认）且有应用级工具时还有 `simulator_control` 与
+   * `simulator_build`。Host 在 macOS 上、找得到 helper（`WEVIR_IOS_SIMULATOR_BIN`）时声明。
+   */
+  iosSimulator: 'ios_simulator',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -616,6 +622,7 @@ export const HostFeaturesSchema = z.looseObject({
   remote_web: z.boolean().optional(),
   channels: z.boolean().optional(),
   channel_schedules: z.boolean().optional(),
+  ios_simulator: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -8,5 +8,6 @@ export { type BackoffOptions, DEFAULT_BACKOFF, type ReconnectReason } from './li
 export * from './projection.js';
 export * from './remote.js';
 export * from './session-state.js';
+export * from './simulator-stream.js';
 export type { EventSubscription, SubscribeOptions, SubscriptionItem } from './subscription.js';
 export * from './transport.js';

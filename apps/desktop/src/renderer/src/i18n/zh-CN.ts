@@ -105,6 +105,7 @@ export const zhCN = {
   'rpcError.MCP_OAUTH_FAILED': '登录失败',
   'rpcError.PUSH_GATEWAY_ERROR': '推送注册失败',
   'rpcError.CHANNEL_NOT_FOUND': '助理不存在',
+  'rpcError.SIMULATOR_FAILED': '模拟器操作失败',
 
   'clientError.request_timeout': '请求超时',
   'clientError.connect_timeout': '连接超时',

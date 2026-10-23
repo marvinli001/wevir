@@ -62,6 +62,8 @@ const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['browser_', 'browser'],
   // 电脑操作（0.114.0）同属界面操作，归在浏览器一组。
   ['computer_', 'browser'],
+  // iOS 模拟器（0.122.0）也是界面操作。
+  ['simulator_', 'browser'],
 ];
 
 /** 应用级工具所在的组；认不出的名字（新加了工具却没归组）是 `undefined`，只有 `full` 里有它。 */

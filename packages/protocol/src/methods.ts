@@ -258,6 +258,31 @@ import {
   SearchQueryResultSchema,
 } from './search.js';
 import {
+  SimulatorAttachParamsSchema,
+  SimulatorAttachResultSchema,
+  SimulatorChangedParamsSchema,
+  SimulatorClipboardGetResultSchema,
+  SimulatorClipboardSetParamsSchema,
+  SimulatorConfigureParamsSchema,
+  SimulatorCreateParamsSchema,
+  SimulatorCreateResultSchema,
+  SimulatorDetachParamsSchema,
+  SimulatorEmptyResultSchema,
+  SimulatorInputParamsSchema,
+  SimulatorInputResultSchema,
+  SimulatorListParamsSchema,
+  SimulatorListResultSchema,
+  SimulatorOrientationParamsSchema,
+  SimulatorRecordStartParamsSchema,
+  SimulatorRecordStartResultSchema,
+  SimulatorRecordStopParamsSchema,
+  SimulatorRecordStopResultSchema,
+  SimulatorScreenshotParamsSchema,
+  SimulatorScreenshotResultSchema,
+  SimulatorShowParamsSchema,
+  SimulatorUdidParamsSchema,
+} from './simulator.js';
+import {
   SpeechAppendParamsSchema,
   SpeechAppendResultSchema,
   SpeechBeginParamsSchema,
@@ -2520,6 +2545,71 @@ export const MethodSchemas = {
     result: TerminalCloseResultSchema,
     permission: 'terminal.write',
   },
+  'simulator.list': {
+    params: SimulatorListParamsSchema,
+    result: SimulatorListResultSchema,
+    permission: 'session.read',
+  },
+  'simulator.boot': {
+    params: SimulatorUdidParamsSchema,
+    result: SimulatorEmptyResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.shutdown': {
+    params: SimulatorUdidParamsSchema,
+    result: SimulatorEmptyResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.create': {
+    params: SimulatorCreateParamsSchema,
+    result: SimulatorCreateResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.attach': {
+    params: SimulatorAttachParamsSchema,
+    result: SimulatorAttachResultSchema,
+    permission: 'session.read',
+  },
+  'simulator.detach': {
+    params: SimulatorDetachParamsSchema,
+    result: SimulatorEmptyResultSchema,
+    permission: 'session.read',
+  },
+  'simulator.input': {
+    params: SimulatorInputParamsSchema,
+    result: SimulatorInputResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.screenshot': {
+    params: SimulatorScreenshotParamsSchema,
+    result: SimulatorScreenshotResultSchema,
+    permission: 'session.read',
+  },
+  'simulator.record.start': {
+    params: SimulatorRecordStartParamsSchema,
+    result: SimulatorRecordStartResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.record.stop': {
+    params: SimulatorRecordStopParamsSchema,
+    result: SimulatorRecordStopResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.configure': {
+    params: SimulatorConfigureParamsSchema,
+    result: SimulatorEmptyResultSchema,
+    permission: 'workspace.write',
+  },
+  'simulator.clipboard.get': {
+    params: SimulatorUdidParamsSchema,
+    result: SimulatorClipboardGetResultSchema,
+    permission: 'session.read',
+  },
+  'simulator.clipboard.set': {
+    params: SimulatorClipboardSetParamsSchema,
+    result: SimulatorEmptyResultSchema,
+    permission: 'workspace.write',
+  },
   'lsp.status': {
     params: LspStatusParamsSchema,
     result: LspStatusResultSchema,
@@ -2941,6 +3031,12 @@ export const NotificationSchemas = {
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */
   'terminal.changed': { params: TerminalChangedParamsSchema },
+  /** 发给调用过 `simulator.*` 的连接（0.122.0）。 */
+  'simulator.changed': { params: SimulatorChangedParamsSchema },
+  /** 发给协商到 0.122.0 及以上的连接（0.122.0）：agent 在会话里 attach 了模拟器。 */
+  'simulator.show': { params: SimulatorShowParamsSchema },
+  /** 发给调用过 `simulator.*` 的连接（0.122.0）。 */
+  'simulator.orientation': { params: SimulatorOrientationParamsSchema },
   /** 发给调用过 `lsp.*` 的连接（0.71.0）。 */
   'lsp.changed': { params: LspChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
@@ -2990,6 +3086,9 @@ export const NOTIFICATION_PERMISSIONS = {
   'power.changed': 'session.read',
   'terminal.output': 'session.read',
   'terminal.changed': 'session.read',
+  'simulator.changed': 'session.read',
+  'simulator.show': 'session.read',
+  'simulator.orientation': 'session.read',
   'lsp.changed': 'workspace.read',
   'browser.request': 'host.manage',
   'computer.request': 'host.manage',
