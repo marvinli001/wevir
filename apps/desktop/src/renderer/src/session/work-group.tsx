@@ -18,7 +18,6 @@ import {
 import {
   createContext,
   Fragment,
-  type RefObject,
   useContext,
   useEffect,
   useId,
@@ -154,8 +153,7 @@ export function WorkGroup({
     for (const entry of shown) listed.current.add(entry.key);
   });
   const clipped = live !== undefined && shown.length > LIVE_ROWS;
-  const list = useRef<HTMLUListElement>(null);
-  useTailClip(list, clipped);
+  const list = useTailClip(clipped);
   const previewKey = live ? livePreviewKey(shown) : undefined;
   return (
     <div className="my-1.5" data-work-group={live ? 'live' : 'done'}>
@@ -225,25 +223,38 @@ export function WorkGroup({
 
 /**
  * 进行中列表只露出最后 LIVE_ROWS 行：高度取这几行的实际高度（有展开的预览时连预览一起，§56），行与预览的高度变化（展开
- * 收起的过渡）随时跟上；量不到时（没有布局）用 className 里的 max-h-48（每行 24 px）。
+ * 收起的过渡）、新列进来的行随时跟上；量不到时（没有布局）用 className 里的 max-h-48（每行 24 px）。只在开始或结束裁切、
+ * 列表重新挂上时装卸：每次渲染都先清掉高度再量，量的那一下按 max-h-48 排版，有预览时消息流一下子矮下去，贴底的滚动位置被
+ * 钳到上面，再长回来也回不到底部。返回给列表的 ref。
  */
-function useTailClip(ref: RefObject<HTMLUListElement | null>, clipped: boolean) {
+function useTailClip(clipped: boolean): (list: HTMLUListElement | null) => void {
+  const [list, setList] = useState<HTMLUListElement | null>(null);
   useLayoutEffect(() => {
-    const list = ref.current;
     if (!list || !clipped || typeof ResizeObserver === 'undefined') return;
     const fit = () => {
       const rows = [...list.children].slice(-LIVE_ROWS) as HTMLElement[];
       const height = rows.reduce((sum, row) => sum + row.offsetHeight, 0);
       list.style.maxHeight = height > 0 ? `${height}px` : '';
     };
+    const resize = new ResizeObserver(fit);
+    const observeRows = () => {
+      resize.disconnect();
+      for (const row of list.children) resize.observe(row);
+    };
+    const mutation = new MutationObserver(() => {
+      observeRows();
+      fit();
+    });
+    observeRows();
+    mutation.observe(list, { childList: true });
     fit();
-    const observer = new ResizeObserver(fit);
-    for (const row of list.children) observer.observe(row);
     return () => {
-      observer.disconnect();
+      resize.disconnect();
+      mutation.disconnect();
       list.style.maxHeight = '';
     };
-  });
+  }, [list, clipped]);
+  return setList;
 }
 
 /** 摘要：说明文字色，只涉及一个文件时文件名用正文色（照 Claude Code 的“created style-nonce.ts”）。 */
