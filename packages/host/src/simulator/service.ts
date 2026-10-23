@@ -28,7 +28,7 @@ import {
 import { newId } from '../ids.js';
 import { SimulatorError } from './errors.js';
 import { type HelperEvent, type HelperFrame, SimulatorHelper } from './helper.js';
-import { Simctl, type SimctlList } from './simctl.js';
+import { Simctl, type SimctlList, simctlEnv } from './simctl.js';
 
 /** 没有订阅者、agent 也不用之后多久停流。 */
 export const SIMULATOR_STREAM_IDLE_MS = 30_000;
@@ -908,8 +908,9 @@ export class SimulatorService {
           bin: this.#options.bin,
           outputDir: this.#outputDir,
           ...(this.#options.sandbox !== undefined && { sandbox: this.#options.sandbox }),
+          // helper 自己也调 simctl pbcopy（打不出的文字走粘贴板），同样要 UTF-8 的语言环境。
           env: {
-            ...(this.#options.env ?? process.env),
+            ...simctlEnv(this.#options.env ?? process.env),
             WEVIR_IOS_SIMULATOR_OUTPUT_DIR: this.#outputDir,
           },
           onFrame: (frame) => this.#frame(frame),

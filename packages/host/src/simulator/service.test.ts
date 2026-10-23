@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDir } from '../test-utils.js';
 import { SimulatorError } from './errors.js';
 import { SimulatorService, type SimulatorServiceOptions } from './service.js';
-import { parseSimctlList, Simctl } from './simctl.js';
+import { parseSimctlList, Simctl, simctlEnv } from './simctl.js';
 import { BOOTED, FakeSocket, fakeHelperBin, fakeSimctl, SHUT, until } from './test-helpers.js';
 
 const posix = process.platform !== 'win32';
@@ -71,6 +71,19 @@ describe('simctl 的列表', () => {
         },
       ]);
     });
+  });
+});
+
+describe('simctl 的环境', () => {
+  it('语言环境不是 UTF-8 时补 LC_CTYPE=UTF-8、去掉 LC_ALL，pbcopy 才认非 ASCII', () => {
+    expect(simctlEnv({ PATH: '/bin' })).toEqual({ PATH: '/bin', LC_CTYPE: 'UTF-8' });
+    expect(simctlEnv({ LC_ALL: 'C', LANG: 'en_US.UTF-8' })).toEqual({
+      LANG: 'en_US.UTF-8',
+      LC_CTYPE: 'UTF-8',
+    });
+    const utf8 = { LANG: 'zh_CN.UTF-8' };
+    expect(simctlEnv(utf8)).toBe(utf8);
+    expect(simctlEnv({ LC_ALL: 'en_US.utf8' })).toEqual({ LC_ALL: 'en_US.utf8' });
   });
 });
 
@@ -240,6 +253,11 @@ describe.runIf(posix)('SimulatorService', () => {
     await service.helperCommand('end_stream', { streamId });
     await until(() => socket.sent.length >= 4, 5000);
     expect((await stats(service)).counts.stream_start).toBe(2);
+  });
+
+  it('helper 的环境是 UTF-8 的语言环境（它也调 simctl pbcopy）', async () => {
+    const { service } = setup({ env: { ...process.env, LC_ALL: 'C', LANG: '' } });
+    expect(await service.helperCommand('locale', {})).toEqual({ LC_ALL: null, LC_CTYPE: 'UTF-8' });
   });
 
   it('helper 不报 ready 时请求以 sim_helper_unavailable 失败', async () => {

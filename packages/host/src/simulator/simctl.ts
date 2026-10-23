@@ -27,6 +27,18 @@ export type SimctlRunner = (
   options?: SimctlRunOptions,
 ) => Promise<{ stdout: string; stderr: string }>;
 
+/**
+ * simctl 的环境：语言环境不是 UTF-8 时（从 Finder 或 launchd 启动的应用常常没有 `LANG`），`pbcopy` 遇到非 ASCII 文字就失败
+ * （NSCocoaErrorDomain 261），所以那时去掉非 UTF-8 的 `LC_ALL`、补 `LC_CTYPE=UTF-8`。
+ */
+export function simctlEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const ctype = base.LC_ALL || base.LC_CTYPE || base.LANG || '';
+  if (/utf-?8/i.test(ctype)) return base;
+  const env: NodeJS.ProcessEnv = { ...base, LC_CTYPE: 'UTF-8' };
+  delete env.LC_ALL;
+  return env;
+}
+
 export const runSimctl: SimctlRunner = (args, options = {}) =>
   new Promise((resolve, reject) => {
     const child = execFile(
@@ -35,7 +47,7 @@ export const runSimctl: SimctlRunner = (args, options = {}) =>
       {
         timeout: options.timeoutMs ?? SIMCTL_TIMEOUT_MS,
         maxBuffer: 64 * 1024 * 1024,
-        env: { ...process.env, ...options.env },
+        env: { ...simctlEnv(process.env), ...options.env },
       },
       (error, stdout, stderr) => {
         if (error === null) {

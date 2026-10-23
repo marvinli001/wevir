@@ -66,6 +66,8 @@ const handlers = {
     return {};
   },
   stats: () => ({ counts, streams: [...streams.keys()] }),
+  /** 测试控制：helper 看到的语言环境。 */
+  locale: () => ({ LC_ALL: process.env.LC_ALL ?? null, LC_CTYPE: process.env.LC_CTYPE ?? null }),
   screenshot: ({ scale }) => ({
     base64: PNG,
     width: Math.round(402 * (scale ?? 1)),
