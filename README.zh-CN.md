@@ -13,7 +13,7 @@
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
 </p>
 
-<p align="center"><a href="./README.md">English</a> · 简体中文 · <a href="#downloads">下载</a></p>
+<p align="center"><a href="./README.md">English</a> · 简体中文 · <a href="#downloads">下载</a> · <a href="https://github.com/marvinli001/wevir/discussions">讨论区</a></p>
 
 <p align="center">
   <picture>
@@ -124,7 +124,7 @@ Wevir 还在预览阶段。**支持**：包含在安装包里，有自动化测�
 - **平台。** 没有 Linux 与 Windows on Arm 安装包；电脑操作只支持 macOS。
 - **命令行。** `wevir` 命令行不在安装包里，要从源码运行。
 
-发现问题或缺口，请到 [GitHub Issues](https://github.com/marvinli001/wevir/issues) 反馈。
+发现 bug 请到 [GitHub Issues](https://github.com/marvinli001/wevir/issues) 反馈；提问、建议和想分享的用法请到 [GitHub Discussions](https://github.com/marvinli001/wevir/discussions)。
 
 <a id="downloads"></a>
 

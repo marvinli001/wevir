@@ -13,7 +13,7 @@
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
 </p>
 
-<p align="center">English · <a href="./README.zh-CN.md">简体中文</a> · <a href="#downloads">Downloads</a></p>
+<p align="center">English · <a href="./README.zh-CN.md">简体中文</a> · <a href="#downloads">Downloads</a> · <a href="https://github.com/marvinli001/wevir/discussions">Discussions</a></p>
 
 <p align="center">
   <picture>
@@ -124,7 +124,7 @@ Wevir is in preview. **Supported** means it is in the builds and covered by auto
 - **Platforms.** No Linux or Windows on Arm build. Computer use is macOS only.
 - **CLI.** The `wevir` CLI is not in the installers; run it from a source checkout.
 
-Found a bug or a gap? Open an issue on [GitHub Issues](https://github.com/marvinli001/wevir/issues).
+Found a bug? Open an issue on [GitHub Issues](https://github.com/marvinli001/wevir/issues). Questions, ideas, and setups you want to share go to [GitHub Discussions](https://github.com/marvinli001/wevir/discussions).
 
 <a id="downloads"></a>
 
