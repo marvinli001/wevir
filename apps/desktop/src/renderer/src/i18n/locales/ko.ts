@@ -1367,7 +1367,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': '코드 글자 크기',
   'settings.appearance.contentFont': '콘텐츠 글꼴',
   'settings.appearance.codeFont': '코드 글꼴',
-  'settings.appearance.translucentSidebar': '반투명 사이드바',
+  'settings.appearance.translucentWindow': '반투명 창',
   'settings.appearance.contrast': '대비',
   'settings.language.auto': '자동 감지',
   'settings.language.search': '언어 검색',

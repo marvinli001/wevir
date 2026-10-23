@@ -128,7 +128,7 @@ describe('外观', () => {
         codeFontSize: 3,
         contrast: 120,
         light: { background: '#FCFBFA', foreground: '#123456' },
-        translucentSidebar: 'yes',
+        translucentSidebar: true,
       }),
     ).toEqual({
       ...DEFAULT_APPEARANCE,
@@ -137,6 +137,9 @@ describe('外观', () => {
       contrast: 100,
       light: { foreground: '#123456' },
     });
+    // 半透明窗口只有明确存了 false 才关。
+    expect(parseAppearance({ translucentWindow: false }).translucentWindow).toBe(false);
+    expect(parseAppearance({ translucentWindow: 'no' }).translucentWindow).toBe(true);
   });
 
   it('十六进制颜色的输入', () => {

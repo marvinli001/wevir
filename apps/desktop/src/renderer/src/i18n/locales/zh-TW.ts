@@ -1365,7 +1365,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': '程式碼字級',
   'settings.appearance.contentFont': '內容字型',
   'settings.appearance.codeFont': '程式碼字型',
-  'settings.appearance.translucentSidebar': '半透明側邊欄',
+  'settings.appearance.translucentWindow': '半透明視窗',
   'settings.appearance.contrast': '對比度',
   'settings.language.auto': '自動偵測',
   'settings.language.search': '搜尋語言',

@@ -272,12 +272,12 @@ export function SettingsRoute() {
   );
 
   return (
-    <div className="relative flex h-full" data-translucent-root>
+    <div className="app-shell relative flex h-full" data-translucent-root>
       {docked ? (
         <>
           <nav
             aria-label={t('settings.title')}
-            className="translucent-sidebar flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+            className="flex shrink-0 flex-col text-sidebar-foreground"
             style={{ width: navWidth }}
           >
             {nav(<WindowControls onBack={onBack} />)}
@@ -295,7 +295,7 @@ export function SettingsRoute() {
             onResizeEnd={(delta) => commitWidth(dragStart.current + delta)}
             onResizeCancel={() => setDragWidth(undefined)}
             onReset={() => commitWidth(LAYOUT.sidebarDefault)}
-            className="absolute inset-y-0 z-20 -ml-1"
+            className="absolute inset-y-0 z-20"
             style={{ left: navWidth }}
           />
         </>
@@ -324,7 +324,7 @@ export function SettingsRoute() {
           </SheetContent>
         </Sheet>
       )}
-      <main className="translucent-content flex min-w-0 flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col">
         {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动；左栏是浮层时这里放打开它的按钮。 */}
         {docked ? (
           <div className="app-drag h-11 shrink-0" />
@@ -340,19 +340,22 @@ export function SettingsRoute() {
             />
           </div>
         )}
-        {isSettingsTab(tab) && visible(tab) ? (
-          <ScrollArea className="min-h-0 flex-1">
-            <div
-              key={tab}
-              className="mx-auto w-full max-w-180 px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10"
-            >
-              <h2 className="mb-7 text-2xl font-semibold tracking-tight">{t(TABS[tab].label)}</h2>
-              <SettingsTabContent tab={tab} />
-            </div>
-          </ScrollArea>
-        ) : (
-          <NotFound message={t('notFound.settingsTab', { tab: tab ?? '' })} />
-        )}
+        {/* 内容是浮在壳上的卡片，同工作台的主窗格（index.css 的 surface-card）。 */}
+        <div className="surface-card mr-2 mb-2 ml-2 flex min-h-0 flex-1 flex-col overflow-hidden">
+          {isSettingsTab(tab) && visible(tab) ? (
+            <ScrollArea className="min-h-0 flex-1">
+              <div
+                key={tab}
+                className="mx-auto w-full max-w-180 px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10"
+              >
+                <h2 className="mb-7 text-2xl font-semibold tracking-tight">{t(TABS[tab].label)}</h2>
+                <SettingsTabContent tab={tab} />
+              </div>
+            </ScrollArea>
+          ) : (
+            <NotFound message={t('notFound.settingsTab', { tab: tab ?? '' })} />
+          )}
+        </div>
       </main>
     </div>
   );

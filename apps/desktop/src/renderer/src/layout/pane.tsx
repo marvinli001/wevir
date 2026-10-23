@@ -54,7 +54,7 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
       tabIndex={-1}
       onPointerDownCapture={() => panes.focus(pane.id)}
       onKeyDown={onKeyDown}
-      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-background outline-none focus-visible:focus-field"
+      className="surface-card flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden outline-none focus-visible:focus-field"
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions: 双击窗格头最大化只是鼠标的便捷操作，键盘有最大化按钮与快捷键。 */}
       <header

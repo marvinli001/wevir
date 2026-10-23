@@ -1393,7 +1393,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Tamaño de fuente del código',
   'settings.appearance.contentFont': 'Fuente del contenido',
   'settings.appearance.codeFont': 'Fuente del código',
-  'settings.appearance.translucentSidebar': 'Barra lateral translúcida',
+  'settings.appearance.translucentWindow': 'Ventana translúcida',
   'settings.appearance.contrast': 'Contraste',
   'settings.language.auto': 'Detección automática',
   'settings.language.search': 'Buscar idiomas',

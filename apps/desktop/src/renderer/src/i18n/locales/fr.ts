@@ -1392,7 +1392,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Taille de police du code',
   'settings.appearance.contentFont': 'Police du contenu',
   'settings.appearance.codeFont': 'Police du code',
-  'settings.appearance.translucentSidebar': 'Barre latérale translucide',
+  'settings.appearance.translucentWindow': 'Fenêtre translucide',
   'settings.appearance.contrast': 'Contraste',
   'settings.language.auto': 'Détection automatique',
   'settings.language.search': 'Rechercher une langue',

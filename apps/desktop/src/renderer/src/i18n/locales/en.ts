@@ -1376,7 +1376,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Code font size',
   'settings.appearance.contentFont': 'Content font',
   'settings.appearance.codeFont': 'Code font',
-  'settings.appearance.translucentSidebar': 'Translucent sidebar',
+  'settings.appearance.translucentWindow': 'Translucent window',
   'settings.appearance.contrast': 'Contrast',
   'settings.language.auto': 'Auto-detect',
   'settings.language.search': 'Search languages',

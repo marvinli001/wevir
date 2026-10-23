@@ -77,8 +77,11 @@ export interface Appearance {
   uiFontSize: number;
   /** 消息里代码的字号（px），差异视图小 1 px。 */
   codeFontSize: number;
-  /** macOS 的半透明侧栏（窗口的 vibrancy）；其他平台不显示这一项。 */
-  translucentSidebar: boolean;
+  /**
+   * 半透明窗口（默认开）：侧栏与顶栏这层壳透出系统材质（macOS 的 vibrancy、Windows 11 的 Mica），系统没有材质时不显示这一项。
+   * 旧版的 translucentSidebar（默认关）不再读，升级后按默认值。
+   */
+  translucentWindow: boolean;
   /** 0–100：分隔线与次要文字离正文色多近，50 是 tokens.css 的原样。 */
   contrast: number;
 }
@@ -96,7 +99,7 @@ export const DEFAULT_APPEARANCE: Appearance = Object.freeze({
   codeFont: 'default',
   uiFontSize: UI_FONT_SIZE.default,
   codeFontSize: CODE_FONT_SIZE.default,
-  translucentSidebar: false,
+  translucentWindow: true,
   contrast: DEFAULT_CONTRAST,
 }) as Appearance;
 
@@ -268,7 +271,7 @@ export function parseAppearance(raw: unknown): Appearance {
     codeFont: oneOf(CODE_FONTS, record.codeFont, DEFAULT_APPEARANCE.codeFont),
     uiFontSize: clampInt(record.uiFontSize, UI_FONT_SIZE),
     codeFontSize: clampInt(record.codeFontSize, CODE_FONT_SIZE),
-    translucentSidebar: record.translucentSidebar === true,
+    translucentWindow: record.translucentWindow !== false,
     contrast: clampInt(record.contrast, { min: 0, max: 100, default: DEFAULT_CONTRAST }),
   };
 }

@@ -1,6 +1,6 @@
 // 窗口的外观（记在桌面端的 userData 里，window-appearance.json）：主题模式、浅色与深色下的窗口底色（设置 → 外观里自定义的
-// 背景，没改时是 THEME_BACKGROUND）与半透明侧栏。渲染进程改了就告诉主进程（setThemeSource / setWindowAppearance），下次启动
-// 在创建窗口之前读回来：窗口一出现就是对的底色、材质与深浅色，不用等页面加载完再换，启动时不闪默认的底色。
+// 背景，没改时是 THEME_BACKGROUND）与半透明窗口（默认开；旧版只记了默认关的 translucentSidebar，不再读）。渲染进程改了就
+// 告诉主进程（setThemeSource / setWindowAppearance），下次启动在创建窗口之前读回来：窗口一出现就是对的底色、材质与深浅色，不用等页面加载完再换，启动时不闪默认的底色。
 
 import { readFileSync } from 'node:fs';
 import { rename, writeFile } from 'node:fs/promises';
@@ -22,12 +22,12 @@ export const WINDOW_APPEARANCE_FILE = 'window-appearance.json';
 export const DEFAULT_WINDOW_APPEARANCE: WindowAppearance = Object.freeze({
   themeMode: 'system',
   background: Object.freeze({ ...THEME_BACKGROUND }),
-  translucentSidebar: false,
+  translucentWindow: true,
 }) as WindowAppearance;
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
-/** 渲染进程送来的底色与半透明侧栏；格式不对时是 undefined。 */
+/** 渲染进程送来的底色与半透明窗口；格式不对时是 undefined。 */
 export function parseWindowAppearanceInput(raw: unknown): WindowAppearanceInput | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const value = raw as Record<string, unknown>;
@@ -39,10 +39,10 @@ export function parseWindowAppearanceInput(raw: unknown): WindowAppearanceInput 
   };
   const light = pick('light');
   const dark = pick('dark');
-  if (light === undefined || dark === undefined || typeof value.translucentSidebar !== 'boolean') {
+  if (light === undefined || dark === undefined || typeof value.translucentWindow !== 'boolean') {
     return undefined;
   }
-  return { background: { light, dark }, translucentSidebar: value.translucentSidebar };
+  return { background: { light, dark }, translucentWindow: value.translucentWindow };
 }
 
 /** 读回文件内容；坏掉的项用默认值。 */
@@ -53,7 +53,7 @@ export function parseWindowAppearance(raw: unknown): WindowAppearance {
   return {
     themeMode: isThemeMode(value.themeMode) ? value.themeMode : 'system',
     background: input?.background ?? DEFAULT_WINDOW_APPEARANCE.background,
-    translucentSidebar: input?.translucentSidebar ?? false,
+    translucentWindow: input?.translucentWindow ?? DEFAULT_WINDOW_APPEARANCE.translucentWindow,
   };
 }
 

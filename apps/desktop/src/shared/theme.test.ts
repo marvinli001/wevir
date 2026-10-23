@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   APPEARANCE_STORAGE_KEY,
   isThemeMode,
+  supportsWindowMaterial,
   THEME_BACKGROUND,
   THEME_STORAGE_KEY,
 } from './theme.js';
@@ -104,5 +105,17 @@ describe('首帧前脚本 theme-init.js', () => {
     expect(
       runThemeInit({ stored: { [APPEARANCE_STORAGE_KEY]: '{bad' }, systemDark: true }).background,
     ).toBe(THEME_BACKGROUND.dark);
+  });
+});
+
+describe('窗口材质', () => {
+  it('macOS 都有；Windows 从 11 22H2（内部版本 22621）起；Linux 没有', () => {
+    expect(supportsWindowMaterial('darwin', '15.6.0')).toBe(true);
+    expect(supportsWindowMaterial('win32', '10.0.22631')).toBe(true);
+    expect(supportsWindowMaterial('win32', '10.0.22621')).toBe(true);
+    expect(supportsWindowMaterial('win32', '10.0.22000')).toBe(false);
+    expect(supportsWindowMaterial('win32', '10.0.19045')).toBe(false);
+    expect(supportsWindowMaterial('win32', '')).toBe(false);
+    expect(supportsWindowMaterial('linux', '6.8.0')).toBe(false);
   });
 });
