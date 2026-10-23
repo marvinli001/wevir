@@ -397,9 +397,13 @@ export function checkBundleImports(
 /**
  * 把 deploy 出来的 Host（`<dir>/dist/main.js` 与 `<dir>/node_modules`）打成 `<dir>/dist/` 下的一个 bundle：工作区包与第三方依赖
  * 都打进去，`import()` 的模块拆成按需加载的文件（LSP 协议、domino 与 turndown、OpenCode SDK），`ON_DISK_PACKAGES` 与
- * `EXCLUDED_PACKAGES` 留成外部依赖。不压缩、不出 source map：日志里的堆栈要能读。返回输出的文件名。
+ * `EXCLUDED_PACKAGES` 留成外部依赖。不压缩、不出 source map：日志里的堆栈要能读。返回输出的文件名；`onModules` 收到打进
+ * bundle 的模块路径（命令行包据此写第三方声明，apps/cli/scripts/package.ts）。
  */
-export async function bundleHost(dir: string): Promise<string[]> {
+export async function bundleHost(
+  dir: string,
+  onModules?: (ids: readonly string[]) => void,
+): Promise<string[]> {
   const external = [...ON_DISK_PACKAGES, ...EXCLUDED_PACKAGES, ...WS_OPTIONAL_NATIVE];
   const out = join(dir, '.bundle');
   rmSync(out, { recursive: true, force: true });
@@ -418,6 +422,7 @@ export async function bundleHost(dir: string): Promise<string[]> {
     });
     const chunks = output.filter((item): item is OutputChunk => item.type === 'chunk');
     checkBundleImports(chunks, external);
+    onModules?.(chunks.flatMap((chunk) => chunk.moduleIds));
     rmSync(join(dir, 'dist'), { recursive: true, force: true });
     renameSync(out, join(dir, 'dist'));
     return chunks.map((chunk) => chunk.fileName);
@@ -460,7 +465,7 @@ export function run(command: string, args: readonly string[], cwd: string = repo
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-function stageCodex(dir: string, target: string): void {
+export function stageCodex(dir: string, target: string): void {
   // 换了目标平台时不留上一个平台的文件（例如 Linux 的 bwrap）。
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -470,7 +475,7 @@ function stageCodex(dir: string, target: string): void {
   }
 }
 
-function stagePrompts(dir: string): void {
+export function stagePrompts(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
   cpSync(join(repo, 'prompts'), dir, {
     recursive: true,
@@ -506,7 +511,12 @@ function stageComputerUse(dir: string, target: string): void {
   console.log(`resources/computer-use：wevir-computer-use（${arch}）`);
 }
 
-async function stageHost(dir: string, target: string): Promise<void> {
+/** 按目标平台准备 `dir`（资源目录的 `host/`）；命令行包也用它（apps/cli/scripts/package.ts）。`onModules` 见 `bundleHost`。 */
+export async function stageHost(
+  dir: string,
+  target: string,
+  onModules?: (ids: readonly string[]) => void,
+): Promise<void> {
   const entry = join(repo, 'packages', 'host', 'dist', 'main.js');
   if (!existsSync(entry)) {
     console.error(`没有 ${entry}：先在仓库根目录运行 pnpm build`);
@@ -529,7 +539,7 @@ async function stageHost(dir: string, target: string): Promise<void> {
   ]);
   for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml'])
     rmSync(join(dir, file), { force: true });
-  const chunks = await bundleHost(dir);
+  const chunks = await bundleHost(dir, onModules);
   // storage 的 migrate.ts 按自己所在目录的 `../migrations/` 找迁移；打进 bundle 后那是 dist/ 的上一级。
   cpSync(join(dir, 'node_modules', '@wevir', 'storage', 'migrations'), join(dir, 'migrations'), {
     recursive: true,

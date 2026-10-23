@@ -17,7 +17,7 @@ export const en: Messages = {
   'cli.mainUsage': 'wevir <command> [options]',
   'cli.globalHelp': `Global options:
   --home <dir>     Data directory, shared with the Host. Default: macOS ~/Library/Application Support/Wevir,
-                   Windows %APPDATA%\\Wevir
+                   Windows %APPDATA%\\Wevir, Linux $XDG_DATA_HOME/wevir (~/.local/share/wevir)
   --remote <name>  Run on a paired computer (wevir remote pair); session, inbox and list commands only
   -h, --help       Show help
   -v, --version    Show the version

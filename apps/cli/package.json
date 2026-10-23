@@ -14,8 +14,9 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc -p scripts",
+    "test": "vitest run",
+    "package": "node scripts/package.ts"
   },
   "dependencies": {
     "@wevir/client-sdk": "workspace:*",
@@ -29,6 +30,7 @@
     "@types/mute-stream": "0.0.4",
     "@types/ws": "^8.18.2",
     "@wevir/relay": "workspace:*",
-    "@wevir/runtime-adapter": "workspace:*"
+    "@wevir/runtime-adapter": "workspace:*",
+    "rolldown": "1.2.13"
   }
 }

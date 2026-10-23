@@ -4,6 +4,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 import {
   ClientClosedError,
   ConnectionLostError,
@@ -78,8 +79,27 @@ async function probe(ctx: Context, connectMs = 3000): Promise<Probe> {
   }
 }
 
-/** `wevir-host` 可执行入口：`@wevir/host` 的 `bin['wevir-host']`。 */
-export function resolveHostEntry(from: string | URL = import.meta.url): string {
+/** 资源目录的环境变量（与 adapter-codex 的 `RESOURCES_DIR_ENV` 相同）：Host 在它下面找 codex-app-server 与提示词。 */
+export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
+
+/**
+ * 自带 Node 的命令行包（apps/cli/scripts/package.ts）里的资源目录：CLI 的 bundle 在 `lib/cli/`，Host 的 bundle、
+ * codex-app-server 与提示词在 `lib/` 下，布局与桌面端的资源目录相同。不在这样的包里（开发时）返回 undefined。
+ */
+export function bundledResourcesDir(from: string | URL = import.meta.url): string | undefined {
+  const dir = dirname(dirname(fileURLToPath(from)));
+  return existsSync(join(dir, 'host', 'dist', 'main.js')) ? dir : undefined;
+}
+
+/**
+ * `wevir-host` 可执行入口：命令行包里是资源目录的 `host/dist/main.js`（`resourcesDir`），开发时是 `@wevir/host` 的
+ * `bin['wevir-host']`（指向 `dist/`，要先 `pnpm build`）。
+ */
+export function resolveHostEntry(
+  resourcesDir: string | undefined = bundledResourcesDir(),
+  from: string | URL = import.meta.url,
+): string {
+  if (resourcesDir !== undefined) return join(resourcesDir, 'host', 'dist', 'main.js');
   const require = createRequire(from);
   const manifestPath = require.resolve('@wevir/host/package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { bin?: unknown };
@@ -139,7 +159,8 @@ export async function hostStart(ctx: Context, options: HostStartOptions): Promis
  * 桌面之后附着到它，退出时也不会停止它。stdout / stderr 追加到 `logs/host-stdio.log`。
  */
 async function spawnDetached(ctx: Context, options: HostStartOptions): Promise<ChildProcess> {
-  const entry = resolveHostEntry();
+  const resourcesDir = bundledResourcesDir();
+  const entry = resolveHostEntry(resourcesDir);
   const logsDir = join(ctx.home, HOME_LAYOUT.logsDir);
   await mkdir(logsDir, { recursive: true, mode: 0o700 });
   const out = openSync(join(logsDir, HOST_STDIO_LOG), 'a', 0o600);
@@ -148,9 +169,14 @@ async function spawnDetached(ctx: Context, options: HostStartOptions): Promise<C
   if (options.logLevel) args.push('--log-level', options.logLevel);
   try {
     // 用运行 CLI 的同一个 Node；spawn 不继承 execArgv。cwd 放在数据目录，不占用用户当前所在的目录。
+    // 命令行包里把资源目录交给 Host；环境里已经有时不覆盖（与桌面端相同，排查时用别的资源目录）。
+    const env =
+      resourcesDir !== undefined && !ctx.io.env[RESOURCES_DIR_ENV]
+        ? { ...ctx.io.env, [RESOURCES_DIR_ENV]: resourcesDir }
+        : ctx.io.env;
     const child = spawn(process.execPath, args, {
       cwd: ctx.home,
-      env: ctx.io.env,
+      env,
       detached: true,
       stdio: ['ignore', out, out],
       windowsHide: true,
