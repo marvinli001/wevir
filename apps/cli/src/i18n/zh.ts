@@ -126,27 +126,36 @@ export const zh = {
   'cmd.session.attach.help': `会话 ID 可用唯一前缀
 
 按键：
-  Enter     发送消息、回答审批；回合进行中按设置插话或排队
+  Enter     发送消息、回答审批与提问；回合进行中按设置插话或排队
   Tab       回合进行中以另一种方式发送（插话 / 排队）
   Ctrl-C    取消当前运行；再按一次退出 attach
   Ctrl-D    退出 attach，会话保留
-  /resume   发送暂停的消息`,
+
+审批：序号、y / n；有提议的规则时 a 总是允许（本项目）、g 总是允许（所有项目）
+提问：序号（多选用逗号分隔）或文字，回车跳过
+命令：/help 列出 /plan、/undo、/model 等；以 // 开头按原文发送`,
   'cmd.session.send.summary': '给会话发一条消息',
-  'cmd.session.send.usage': 'wevir session send <会话 ID> "<消息>"',
-  'cmd.session.send.help': '会话 ID 可用唯一前缀；发送后不进入 attach',
+  'cmd.session.send.usage': 'wevir session send <会话 ID> "<消息>" [--plan]',
+  'cmd.session.send.help': `会话 ID 可用唯一前缀；发送后不进入 attach
+
+选项：
+  --plan   在计划模式里发送`,
   'cmd.inbox.list.summary': '列出所有会话里等处理的审批、提问、失败与自动化',
   'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
   'cmd.inbox.dismiss.summary': '收起一个失败的回合或自动化运行',
   'cmd.inbox.dismiss.usage': 'wevir inbox dismiss <ID>',
   'cmd.inbox.dismiss.help': 'ID 取自 wevir inbox；审批与提问回答后自己离开，不能收起',
   'cmd.inbox.respond.summary': '回答一个审批',
-  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <回答>',
+  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <回答> [--remember project|global]',
   'cmd.inbox.respond.help': `ID 取自 wevir inbox，可省略 approval:
 
 回答：
   <序号>      第几个选项
   <选项 ID>   选项的 ID
-  y / n       第一个允许 / 拒绝的选项`,
+  y / n       第一个允许 / 拒绝的选项
+
+选项：
+  --remember project|global   同时加审批规则（总是允许），只用于命令审批`,
   'cmd.remote.pair.summary': '与另一台电脑上的 Wevir 配对',
   'cmd.remote.pair.usage': 'wevir remote pair <配对链接或短码> [选项]',
   'cmd.remote.pair.help': `配对链接是那台电脑 设置 → 设备 → 添加设备 里二维码的内容（wevir://pair?…）；短码要求两台电脑在同一局域网
@@ -412,7 +421,7 @@ export const zh = {
   'render.sessionError': '会话出错；发送消息时将尝试恢复',
   'render.sessionErrorWhy': '会话出错：{why}；发送消息时将尝试恢复',
   'render.sessionClosed': '会话已关闭',
-  'render.question': '? Agent 提问（需在桌面端回答）',
+  'render.question': '? Agent 提问',
   'render.questionWithHeader': '{header}：{question}',
   'render.questionCancelled': '提问已取消',
   'render.answerSkipped': '（跳过）',
@@ -870,6 +879,106 @@ export const zh = {
   'weekday.4': '周四',
   'weekday.5': '周五',
   'weekday.6': '周六',
+
+  // attach 的提问、斜杠命令与总是允许
+  'render.configured': '（设置：{config}）',
+  'render.goal': '目标（{status}）：{objective}',
+  'render.goalCleared': '目标已清除',
+  'render.undone': '已撤销回合：{files}',
+  'render.redone': '已重做回合：{files}',
+  'render.rewound': '（回合已撤回）',
+  'render.alwaysAllow': '总是允许：{prefix} 开头的命令（a 本项目 / g 所有项目）',
+  'render.ruleAdded': '（已加规则）',
+  'goalStatus.active': '进行中',
+  'goalStatus.paused': '已暂停',
+  'goalStatus.blocked': '受阻',
+  'goalStatus.usage_limited': '用量受限',
+  'goalStatus.budget_limited': '预算用完',
+  'goalStatus.complete': '已完成',
+  'files.unchanged': '文件无变化',
+  'files.restored': '还原 {count} 个文件',
+  'files.unavailable': '文件未能还原',
+  'files.unavailableWhy': '文件未能还原（{reason}）',
+  'attach.alwaysProject': 'a 总是允许·本项目',
+  'attach.alwaysGlobal': 'g 总是允许·所有项目',
+  'attach.answerHintAlways': '输入 1–{count}、y 允许、n 拒绝，或 a / g 总是允许',
+  'attach.questionPrompt': '回答 {index}/{total} [{hint}] › ',
+  'attach.questionPick': '1–{count}',
+  'attach.questionPick.multi': '1–{count} 可多选',
+  'attach.questionText': '文字',
+  'attach.questionSkip': '回车跳过',
+  'attach.questionHint': '输入 1–{count} 或回答文字，回车跳过',
+  'attach.questionHintMulti': '输入 1–{count}，多个用逗号分隔；回车跳过',
+  'attach.unknownCommand': '未知命令：{command}',
+  'attach.unknownCommand.hint': '/help 查看命令；以 // 开头按原文发送',
+  'attach.renamed': '已改名：{title}',
+  'attach.forked': '已分支到新会话 {id}；连接：wevir session attach {id}',
+  'attach.config': '模型 {model} · 推理 {effort} · {permission}',
+  'attach.effortDefault': '默认',
+  'attach.noGoal': '暂无目标',
+  'slash.plan.usage': '/plan <消息>',
+  'slash.plan': '在计划模式里发送',
+  'slash.undo.usage': '/undo',
+  'slash.undo': '撤销上一个回合，还原文件',
+  'slash.redo.usage': '/redo',
+  'slash.redo': '重做撤销的回合',
+  'slash.model.usage': '/model [模型 | Provider/模型]',
+  'slash.model': '查看或切换模型；带 Provider 时接力到别的来源',
+  'slash.effort.usage': '/effort [档位 | default]',
+  'slash.effort': '推理档位',
+  'slash.permission.usage': '/permission [on_request | auto_review | full_access]',
+  'slash.permission': '权限模式',
+  'slash.compact.usage': '/compact',
+  'slash.compact': '压缩上下文',
+  'slash.goal.usage': '/goal [目标 | pause | resume | clear]',
+  'slash.goal': '会话目标',
+  'slash.rename.usage': '/rename <标题>',
+  'slash.rename': '改会话标题',
+  'slash.fork.usage': '/fork',
+  'slash.fork': '从最近完成的回合分支到新会话',
+  'slash.resume.usage': '/resume',
+  'slash.resume': '继续发送暂停的待发消息',
+  'slash.exit.usage': '/exit',
+  'slash.exit': '退出 attach，会话照常运行',
+
+  // 审批规则
+  'host.unsupported': 'Host {version} 不支持此功能（{feature}）',
+  'host.unsupported.hint': '升级 Wevir Host',
+  'group.rule': '审批规则',
+  'cmd.rule.list.summary': '列出审批规则',
+  'cmd.rule.list.usage': 'wevir rule list [-w <路径>] [--json]',
+  'cmd.rule.list.help': `选项：
+  -w, --workspace <路径>   仅列出对该项目有效的规则（全局与该项目）`,
+  'cmd.rule.add.summary': '添加规则：以后这些词开头的命令自动允许',
+  'cmd.rule.add.usage': 'wevir rule add <命令前缀…> [-w <路径>]',
+  'cmd.rule.add.help': `示例：wevir rule add git status
+
+选项：
+  -w, --workspace <路径>   只对该项目有效；省略时对所有项目有效
+
+规则只回答引擎发出的命令审批，不改变权限模式与沙箱`,
+  'cmd.rule.delete.summary': '删除规则',
+  'cmd.rule.delete.usage': 'wevir rule delete <ID>',
+  'cmd.rule.suggest.summary': '从审批历史建议规则',
+  'cmd.rule.suggest.usage': 'wevir rule suggest [-w <路径>] [--json]',
+  'cmd.rule.suggest.help': '多次手动允许过的命令前缀，按次数排序；用 wevir rule add 添加',
+  'rule.global': '所有项目',
+  'rule.none': '暂无审批规则',
+  'rule.noSuggestions': '暂无建议',
+  'rule.col.prefix': '命令前缀',
+  'rule.col.scope': '范围',
+  'rule.col.uses': '自动允许',
+  'rule.col.lastUsed': '最近使用',
+  'rule.col.project': '项目',
+  'rule.col.approved': '手动允许',
+  'rule.col.example': '最近的命令',
+  'rule.added': '已添加规则：{prefix}（{scope}，{id}）',
+  'rule.deleted': '已删除规则：{id}',
+  'rule.notFound': '规则不存在：{id}',
+  'inbox.badRemember': '--remember 只能是 project 或 global：{value}',
+  'inbox.badRemember.hint': 'project 只对该会话的项目有效，global 对所有项目有效',
+  'slash.help.usage': '/help',
+  'slash.help': '列出命令',
 } as const;
 
 export type MessageKey = keyof typeof zh;

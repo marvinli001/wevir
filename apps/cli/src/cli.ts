@@ -23,6 +23,7 @@ import { hostStart, hostStatus, hostStop } from './commands/host.js';
 import { inboxDismiss, inboxList, inboxRespond } from './commands/inbox.js';
 import { providerAdd, providerList, providerTest } from './commands/provider.js';
 import { remoteForget, remoteList, remotePair } from './commands/remote.js';
+import { ruleAdd, ruleDelete, ruleList, ruleSuggest } from './commands/rule.js';
 import { sessionAttach, sessionList, sessionNew, sessionSend } from './commands/session.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import { workspaceAdd, workspaceList } from './commands/workspace.js';
@@ -121,6 +122,11 @@ function automationFlags(values: Values): AutomationFlags {
     if (value !== undefined) flags[key] = value;
   }
   return flags as AutomationFlags;
+}
+
+function ruleOptions(values: Values): { workspace?: string; json: boolean } {
+  const workspace = str(values.workspace);
+  return { ...(workspace !== undefined && { workspace }), json: values.json === true };
 }
 
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
@@ -311,6 +317,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
         provider: { type: 'string' },
         model: { type: 'string' },
         detach: { type: 'boolean' },
+        plan: { type: 'boolean' },
       },
       positionals: { min: 0, max: Number.POSITIVE_INFINITY },
       remote: true,
@@ -327,6 +334,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
           ...(provider !== undefined && { provider }),
           ...(model !== undefined && { model }),
           ...(v.detach === true && { detach: true }),
+          ...(v.plan === true && { plan: true }),
         });
       },
     },
@@ -355,10 +363,11 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       summary: 'cmd.session.send.summary',
       usage: 'cmd.session.send.usage',
       help: 'cmd.session.send.help',
-      options: {},
+      options: { plan: { type: 'boolean' } },
       positionals: { min: 2, max: Number.POSITIVE_INFINITY },
       remote: true,
-      run: (ctx, _v, [id, ...words]) => sessionSend(ctx, id as string, words.join(' ')),
+      run: (ctx, v, [id, ...words]) =>
+        sessionSend(ctx, id as string, words.join(' '), { plan: v.plan === true }),
     },
   },
   automation: {
@@ -472,10 +481,52 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       summary: 'cmd.inbox.respond.summary',
       usage: 'cmd.inbox.respond.usage',
       help: 'cmd.inbox.respond.help',
-      options: {},
+      options: { remember: { type: 'string' } },
       positionals: { min: 2, max: 2 },
       remote: true,
-      run: (ctx, _v, [id, answer]) => inboxRespond(ctx, id as string, answer as string),
+      run: (ctx, v, [id, answer]) => {
+        const remember = str(v.remember);
+        return inboxRespond(ctx, id as string, answer as string, {
+          ...(remember !== undefined && { remember }),
+        });
+      },
+    },
+  },
+  rule: {
+    list: {
+      summary: 'cmd.rule.list.summary',
+      usage: 'cmd.rule.list.usage',
+      help: 'cmd.rule.list.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => ruleList(ctx, ruleOptions(v)),
+    },
+    add: {
+      summary: 'cmd.rule.add.summary',
+      usage: 'cmd.rule.add.usage',
+      help: 'cmd.rule.add.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 1, max: Number.POSITIVE_INFINITY },
+      remote: true,
+      run: (ctx, v, words) => ruleAdd(ctx, words, ruleOptions(v)),
+    },
+    delete: {
+      summary: 'cmd.rule.delete.summary',
+      usage: 'cmd.rule.delete.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => ruleDelete(ctx, id as string),
+    },
+    suggest: {
+      summary: 'cmd.rule.suggest.summary',
+      usage: 'cmd.rule.suggest.usage',
+      help: 'cmd.rule.suggest.help',
+      options: { workspace: { type: 'string', short: 'w' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => ruleSuggest(ctx, ruleOptions(v)),
     },
   },
   remote: {
@@ -523,6 +574,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   session: 'group.session',
   automation: 'group.automation',
   inbox: 'group.inbox',
+  rule: 'group.rule',
   remote: 'group.remote',
 };
 

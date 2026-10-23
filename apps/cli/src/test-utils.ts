@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import { createLogger, type RunningHost, startHost } from '@wevir/host';
+import type { AgentEvent } from '@wevir/runtime-adapter';
 import { EchoAdapter, type EchoAdapterOptions } from '@wevir/runtime-adapter/echo';
 import { afterEach, beforeEach } from 'vitest';
 import { runCli } from './cli.js';
@@ -29,13 +30,45 @@ export function useTempDir(): () => string {
 }
 
 /** 进程内的 Host（EchoAdapter），与 `wevir host start --adapter echo` 写同样的 `run/host.json`。 */
-export function startEchoHost(home: string, echo: EchoAdapterOptions = {}): Promise<RunningHost> {
+export function startEchoHost(
+  home: string,
+  echo: EchoAdapterOptions = {},
+  Adapter: new (options: EchoAdapterOptions) => EchoAdapter = EchoAdapter,
+): Promise<RunningHost> {
   return startHost({
     home,
-    adapter: new EchoAdapter({ stepDelayMs: 1, ...echo }),
+    adapter: new Adapter({ stepDelayMs: 1, ...echo }),
     engine: 'echo',
     logger: createLogger({ level: 'error', mirror: () => {} }),
   });
+}
+
+/**
+ * echo 的 `approve` 换成一条命令审批：`approve: <命令>` 里冒号之后是命令（模拟 Codex 等引擎的命令审批，Host 据此提议审批规则）。
+ * 与 Host 的 session-manager.test.ts 里的同名类相同。
+ */
+export class ShellEchoAdapter extends EchoAdapter {
+  override subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
+    const source = super.subscribe(engineSessionId);
+    return {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of source) {
+          if (event.type === 'tool.started' && event.toolName === 'echo_write') {
+            const content = String((event.input as { content?: string }).content ?? '');
+            const command = content.slice(content.indexOf(':') + 1).trim();
+            yield {
+              ...event,
+              toolName: 'exec_command',
+              display: { kind: 'shell', summary: command, command },
+              input: { command },
+            };
+          } else {
+            yield event;
+          }
+        }
+      },
+    };
+  }
 }
 
 export interface FakeRun {

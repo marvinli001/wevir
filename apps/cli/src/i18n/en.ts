@@ -124,14 +124,20 @@ Options:
   'cmd.session.attach.help': `A unique prefix of the session ID is enough
 
 Keys:
-  Enter     Send a message, answer an approval; during a turn, steer or queue per settings
+  Enter     Send a message, answer an approval or question; during a turn, steer or queue per settings
   Tab       During a turn, send the other way (steer / queue)
   Ctrl-C    Cancel the current run; press again to leave attach
   Ctrl-D    Leave attach; the session is kept
-  /resume   Send held messages`,
+
+Approvals: a number, y / n; with a proposed rule, a always allows (this project), g always allows (all projects)
+Questions: a number (commas for several) or text; Enter skips
+Commands: /help lists /plan, /undo, /model and more; start with // to send the text as is`,
   'cmd.session.send.summary': 'Send a message to a session',
-  'cmd.session.send.usage': 'wevir session send <session ID> "<message>"',
-  'cmd.session.send.help': 'A unique prefix of the session ID is enough; does not attach',
+  'cmd.session.send.usage': 'wevir session send <session ID> "<message>" [--plan]',
+  'cmd.session.send.help': `A unique prefix of the session ID is enough; does not attach
+
+Options:
+  --plan   Send in plan mode`,
   'cmd.inbox.list.summary':
     'List approvals, questions, failures and automations waiting across sessions',
   'cmd.inbox.list.usage': 'wevir inbox [list] [--json]',
@@ -140,13 +146,16 @@ Keys:
   'cmd.inbox.dismiss.help':
     'IDs come from wevir inbox; approvals and questions leave when answered and cannot be dismissed',
   'cmd.inbox.respond.summary': 'Answer an approval',
-  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <answer>',
-  'cmd.inbox.respond.help': `ID from wevir inbox; the approval: prefix is optional
+  'cmd.inbox.respond.usage': 'wevir inbox respond <ID> <answer> [--remember project|global]',
+  'cmd.inbox.respond.help': `The ID comes from wevir inbox; approval: may be omitted
 
 Answers:
-  <number>      The option at that position
-  <option ID>   The option's ID
-  y / n         The first allow / reject option`,
+  <number>     The option's position
+  <option ID>  The option's ID
+  y / n        The first allow / reject option
+
+Options:
+  --remember project|global   Also add an approval rule (always allow); command approvals only`,
   'cmd.remote.pair.summary': 'Pair with Wevir on another computer',
   'cmd.remote.pair.usage': 'wevir remote pair <pairing link or code> [options]',
   'cmd.remote.pair.help': `The pairing link is the QR code content under Settings → Devices → Add device on that computer (wevir://pair?…); a short code needs both computers on the same local network
@@ -426,7 +435,7 @@ Also:
   'render.sessionError': 'Session error; sending a message tries to recover it',
   'render.sessionErrorWhy': 'Session error: {why}; sending a message tries to recover it',
   'render.sessionClosed': 'Session closed',
-  'render.question': '? Agent question (answer in the desktop app)',
+  'render.question': '? Agent question',
   'render.questionWithHeader': '{header}: {question}',
   'render.questionCancelled': 'Question cancelled',
   'render.answerSkipped': '(skipped)',
@@ -890,4 +899,107 @@ Options:
   'weekday.4': 'Thu',
   'weekday.5': 'Fri',
   'weekday.6': 'Sat',
+
+  // attach 的提问、斜杠命令与总是允许
+  'render.configured': '(Settings: {config})',
+  'render.goal': 'Goal ({status}): {objective}',
+  'render.goalCleared': 'Goal cleared',
+  'render.undone': 'Turn undone: {files}',
+  'render.redone': 'Turn redone: {files}',
+  'render.rewound': '(Turn rewound)',
+  'render.alwaysAllow':
+    'Always allow commands starting with {prefix} (a this project / g all projects)',
+  'render.ruleAdded': ' (rule added)',
+  'goalStatus.active': 'active',
+  'goalStatus.paused': 'paused',
+  'goalStatus.blocked': 'blocked',
+  'goalStatus.usage_limited': 'usage limited',
+  'goalStatus.budget_limited': 'budget used up',
+  'goalStatus.complete': 'complete',
+  'files.unchanged': 'no file changes',
+  'files.restored': '{count, plural, one {# file restored} other {# files restored}}',
+  'files.unavailable': 'files not restored',
+  'files.unavailableWhy': 'files not restored ({reason})',
+  'attach.alwaysProject': 'a always allow · this project',
+  'attach.alwaysGlobal': 'g always allow · all projects',
+  'attach.answerHintAlways': 'Enter 1–{count}, y to allow, n to reject, or a / g to always allow',
+  'attach.questionPrompt': 'Answer {index}/{total} [{hint}] › ',
+  'attach.questionPick': '1–{count}',
+  'attach.questionPick.multi': '1–{count}, several allowed',
+  'attach.questionText': 'text',
+  'attach.questionSkip': 'Enter to skip',
+  'attach.questionHint': 'Enter 1–{count} or an answer, or press Enter to skip',
+  'attach.questionHintMulti': 'Enter 1–{count}, separate several with commas; press Enter to skip',
+  'attach.unknownCommand': 'Unknown command: {command}',
+  'attach.unknownCommand.hint': '/help lists commands; start with // to send the text as is',
+  'attach.renamed': 'Renamed: {title}',
+  'attach.forked': 'Branched to new session {id}; connect: wevir session attach {id}',
+  'attach.config': 'Model {model} · reasoning {effort} · {permission}',
+  'attach.effortDefault': 'default',
+  'attach.noGoal': 'No goal',
+  'slash.plan.usage': '/plan <message>',
+  'slash.plan': 'Send in plan mode',
+  'slash.undo.usage': '/undo',
+  'slash.undo': 'Undo the last turn and restore files',
+  'slash.redo.usage': '/redo',
+  'slash.redo': 'Redo the undone turn',
+  'slash.model.usage': '/model [model | provider/model]',
+  'slash.model': 'Show or switch the model; a provider hands off to another source',
+  'slash.effort.usage': '/effort [level | default]',
+  'slash.effort': 'Reasoning level',
+  'slash.permission.usage': '/permission [on_request | auto_review | full_access]',
+  'slash.permission': 'Permission mode',
+  'slash.compact.usage': '/compact',
+  'slash.compact': 'Compact the context',
+  'slash.goal.usage': '/goal [objective | pause | resume | clear]',
+  'slash.goal': 'Session goal',
+  'slash.rename.usage': '/rename <title>',
+  'slash.rename': 'Rename the session',
+  'slash.fork.usage': '/fork',
+  'slash.fork': 'Branch to a new session from the last finished turn',
+  'slash.resume.usage': '/resume',
+  'slash.resume': 'Resume held queued messages',
+  'slash.exit.usage': '/exit',
+  'slash.exit': 'Leave attach; the session keeps running',
+
+  // 审批规则
+  'host.unsupported': 'Host {version} does not support this feature ({feature})',
+  'host.unsupported.hint': 'Upgrade the Wevir Host',
+  'group.rule': 'Approval rules',
+  'cmd.rule.list.summary': 'List approval rules',
+  'cmd.rule.list.usage': 'wevir rule list [-w <path>] [--json]',
+  'cmd.rule.list.help': `Options:
+  -w, --workspace <path>   Only rules that apply to this project (global and project)`,
+  'cmd.rule.add.summary':
+    'Add a rule: commands starting with these words are allowed automatically',
+  'cmd.rule.add.usage': 'wevir rule add <command prefix…> [-w <path>]',
+  'cmd.rule.add.help': `Example: wevir rule add git status
+
+Options:
+  -w, --workspace <path>   Only for this project; all projects when omitted
+
+Rules only answer command approvals the engine asks for; permission mode and sandbox are unchanged`,
+  'cmd.rule.delete.summary': 'Delete a rule',
+  'cmd.rule.delete.usage': 'wevir rule delete <ID>',
+  'cmd.rule.suggest.summary': 'Suggest rules from approval history',
+  'cmd.rule.suggest.usage': 'wevir rule suggest [-w <path>] [--json]',
+  'cmd.rule.suggest.help':
+    'Command prefixes approved by hand several times, most first; add one with wevir rule add',
+  'rule.global': 'All projects',
+  'rule.none': 'No approval rules',
+  'rule.noSuggestions': 'No suggestions',
+  'rule.col.prefix': 'Command prefix',
+  'rule.col.scope': 'Scope',
+  'rule.col.uses': 'Auto-allowed',
+  'rule.col.lastUsed': 'Last used',
+  'rule.col.project': 'Project',
+  'rule.col.approved': 'Approved by hand',
+  'rule.col.example': 'Latest command',
+  'rule.added': 'Rule added: {prefix} ({scope}, {id})',
+  'rule.deleted': 'Rule deleted: {id}',
+  'rule.notFound': 'No such rule: {id}',
+  'inbox.badRemember': '--remember must be project or global: {value}',
+  'inbox.badRemember.hint': "project applies to the session's project, global to all projects",
+  'slash.help.usage': '/help',
+  'slash.help': 'List commands',
 };
