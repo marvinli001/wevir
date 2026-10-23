@@ -235,8 +235,19 @@ jobs:
       - name: Build
         run: pnpm --filter "@wevir/host..." build
 
+      # 同 build 作业：用户终端的 node-pty 在 Linux 上没有预编译，在 Debian 11 的容器里编，stageHost 放进包里。
+      - name: 编 node-pty（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo node:24-bullseye \
+            bash -c 'bash scripts/build-node-pty.sh && chown -R '"$(id -u):$(id -g)"' .wevir-dev node_modules/.pnpm/node-pty@*'
+
       - name: 打包
         run: pnpm --filter @wevir/cli package --target ${{ matrix.target }} --version ${{ needs.plan.outputs.version }}
+
+      - name: 核对用户终端（Linux）
+        if: runner.os == 'Linux'
+        run: tar -tzf apps/cli/release/wevir-cli-*-${{ matrix.dir }}.tar.gz | grep 'prebuilds/linux-[^/]*/pty\.node$'
 
       - name: 解开试运行
         if: matrix.smoke
