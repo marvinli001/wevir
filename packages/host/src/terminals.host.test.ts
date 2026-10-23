@@ -348,6 +348,9 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
       // biome-ignore lint/suspicious/noExplicitAny: ws 的底层套接字。
       const socket = (slow.client.ws as any)._socket as { pause(): void; resume(): void };
       socket.pause();
+      // 照 client-sdk 定时 ping（读不到回应也照样发得出去）：慢的机器上收完 40 MB 要比租期（45 s）久。
+      const ping = setInterval(() => void slow.client.request('host.ping').catch(() => {}), 10_000);
+      cleanups.push(() => clearInterval(ping));
       await h.client.request('terminal.input', {
         terminalId: terminal.id,
         data: 'head -c 40000000 /dev/zero | tr "\\000" "y" | fold -w 100; echo flow-$((5))-done\r',
@@ -389,6 +392,8 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
         (t) => /^(vi|vim)$/.test(t.foreground),
         '前台是 vi',
       );
+      // 等 vi 切到备用屏再输入：慢的机器上 vi 还没进 raw 模式时，tty 会先把输入回显出来。
+      await live.until((text) => text.includes('\u001b[?1049h'), 'vi 进入备用屏');
       await input('iwevir in vi');
       await live.until((text) => text.includes('wevir in vi'), 'vi 里的输入');
       await new Promise((resolve) => setTimeout(resolve, 300));

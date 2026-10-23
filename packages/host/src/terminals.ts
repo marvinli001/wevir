@@ -6,10 +6,10 @@
 // - 输入输出只在内存里：不写事件库、数据库、大输出目录，日志里不带它们。终端关闭或 Host 退出就没了。
 // - 流控：一小段时间（16 ms）的输出合成一条通知；attach 的连接里有一条发送积压过多、或模拟器解析跟不上时暂停读 PTY
 //   （程序随之在写终端时阻塞），消化后恢复。不丢输出。
-// - 结束：POSIX 上先 SIGHUP 给 shell（shell 转给它的作业），宽限后 SIGKILL 这个终端会话里还在的进程；Windows 上 node-pty 结束
-//   控制台里的进程树。Host 退出、会话删除、项目移除时一并结束。
+// - 结束：POSIX 上先 SIGHUP 给 shell（bash、zsh 转给它的作业；dash 等不转，shell 一退出就把 SIGHUP 发给这个终端会话里剩下的
+//   进程），宽限后 SIGKILL 会话里还在的进程；Windows 上 node-pty 结束控制台里的进程树。Host 退出、会话删除、项目移除时一并结束。
 
-import { execFile } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -590,7 +590,10 @@ export class TerminalService {
     managed.pty.resume();
   }
 
-  /** 有输入输出之后过一会儿查一次前台进程名（node-pty 的 `process`：POSIX 上是终端前台进程组的进程）。 */
+  /**
+   * 有输入输出之后过一会儿查一次前台进程名（node-pty 的 `process`：POSIX 上是终端前台进程组的进程）。Linux 上它是
+   * `/proc/<pid>/cmdline` 的第一项，按路径启动的程序（登录 shell 是 `/bin/bash -l`）带着路径，只留文件名，与 macOS 一致。
+   */
   #pollForeground(managed: Managed): void {
     if (managed.foregroundTimer !== undefined || managed.pty === undefined) return;
     managed.foregroundTimer = setTimeout(() => {
@@ -598,7 +601,7 @@ export class TerminalService {
       if (managed.info.status !== 'running' || managed.pty === undefined) return;
       let name: string | undefined;
       try {
-        name = managed.pty.process.slice(0, 200) || undefined;
+        name = foregroundName(managed.pty.process);
       } catch {
         name = undefined;
       }
@@ -613,7 +616,8 @@ export class TerminalService {
     if (managed.info.status === 'exited') return;
     clearTimeout(managed.foregroundTimer);
     managed.foregroundTimer = undefined;
-    clearTimeout(managed.killTimer);
+    // 正在结束时不停 SIGKILL 的计时器：shell 先退了，它的后台作业可能还在（见 #end）。
+    if (!managed.closing) clearTimeout(managed.killTimer);
     clearInterval(managed.pauseTimer);
     managed.pauseTimer = undefined;
     managed.paused = false;
@@ -628,8 +632,13 @@ export class TerminalService {
     managed.info.exitCode = name === undefined ? exitCode : null;
     delete managed.info.foreground;
     managed.markExited();
-    if (managed.closing) this.#forget(managed);
-    else this.#changed(managed);
+    if (managed.closing) {
+      // dash 等 shell 收到 SIGHUP 时不转给后台作业（Debian、Ubuntu 的 /bin/sh），它们留在这个会话里：照 bash 的做法补发。
+      killSession(managed.info.pid, this.#platform, 'SIGHUP');
+      this.#forget(managed);
+    } else {
+      this.#changed(managed);
+    }
   }
 
   /** 结束一个终端，退出时忘掉。 */
@@ -653,8 +662,9 @@ export class TerminalService {
       } catch {}
     }
     managed.killTimer = setTimeout(() => {
+      // shell 已经退出时也要做：会话里还在的后台作业（忽略了 SIGHUP 的）一并结束。
+      killSession(pty.pid, this.#platform, 'SIGKILL');
       if (managed.info.status !== 'running') return;
-      killSession(pty.pid, this.#platform);
       try {
         pty.kill(this.#platform === 'win32' ? undefined : 'SIGKILL');
       } catch {}
@@ -666,7 +676,7 @@ export class TerminalService {
     if (!this.#terminals.delete(managed.info.id)) return;
     clearTimeout(managed.flushTimer);
     clearTimeout(managed.foregroundTimer);
-    clearTimeout(managed.killTimer);
+    // killTimer 不停：结束时 shell 先退出、会话里还有后台作业时，宽限后要 SIGKILL 它们（#end）。
     clearInterval(managed.pauseTimer);
     for (const disposable of managed.disposables) {
       try {
@@ -680,20 +690,37 @@ export class TerminalService {
   }
 }
 
-/** shell 的进程组以外的作业：SIGKILL 这个终端会话（shell 是会话首进程，会话 ID 就是它的 PID）里的所有进程。 */
-function killSession(sid: number, platform: NodeJS.Platform): void {
-  if (platform === 'win32') return;
-  execFile('pgrep', ['-s', String(sid)], (error, stdout) => {
-    if (error) return;
-    for (const line of stdout.split('\n')) {
-      const pid = Number(line.trim());
-      if (Number.isInteger(pid) && pid > 0) {
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {}
-      }
+/** 前台进程名：去掉路径（Linux 的 node-pty 给的是 argv[0]），最多 200 个字符，空的当没有。 */
+export function foregroundName(raw: string): string | undefined {
+  const name = raw.slice(raw.lastIndexOf('/') + 1).slice(0, 200);
+  return name === '' ? undefined : name;
+}
+
+/**
+ * shell 的进程组以外的作业：给这个终端会话（shell 是会话首进程，会话 ID 就是它的 PID，shell 退出后也不变）里的所有进程发信号。
+ * 同步查（`pgrep -s`）：Host 退出时 shell 一退出就要发出去，不能等到进程结束之后。
+ */
+function killSession(
+  sid: number | undefined,
+  platform: NodeJS.Platform,
+  signal: NodeJS.Signals,
+): void {
+  if (platform === 'win32' || sid === undefined || sid <= 0) return;
+  let stdout: string;
+  try {
+    stdout = execFileSync('pgrep', ['-s', String(sid)], { encoding: 'utf8', timeout: 2000 });
+  } catch {
+    // 没有匹配的进程时 pgrep 以 1 退出；没装 pgrep 时也一样跳过。
+    return;
+  }
+  for (const line of stdout.split('\n')) {
+    const pid = Number(line.trim());
+    if (Number.isInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid, signal);
+      } catch {}
     }
-  });
+  }
 }
 
 /**
