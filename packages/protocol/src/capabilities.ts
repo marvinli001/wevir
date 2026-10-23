@@ -167,6 +167,11 @@ export const HOST_FEATURES = {
    */
   sessionGoals: 'session_goals',
   /**
+   * 额度恢复后自动继续（0.119.0）：`session.setAutoContinue`、`session.auto_continue` 事件、`Session.autoContinue` 与
+   * `MessageFrom.usageLimit`。与引擎无关；回合因用量上限失败时 `engine.error` 带 `usageLimit`（引擎能认出时）。
+   */
+  usageAutoContinue: 'usage_auto_continue',
+  /**
    * 接力（0.25.0，domain-model §3.14）：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与
    * `host.hello` 的 `engineFeatures`。已有会话能换到别的来源的模型。与引擎无关。
    */
@@ -529,6 +534,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_compact: z.boolean().optional(),
   session_review: z.boolean().optional(),
   session_goals: z.boolean().optional(),
+  usage_auto_continue: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),

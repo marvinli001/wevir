@@ -30,6 +30,7 @@ import type {
   TokenUsageBreakdown,
   TokenUsageNotification,
   ToolItem,
+  TurnError,
   TurnNotification,
   TurnPlanStepStatus,
   TurnPlanUpdatedNotification,
@@ -836,13 +837,35 @@ export class CodexEventMapper {
   }
 
   /**
-   * `error` 通知原样保留为 engine.raw。`willRetry: true` 的不是回合失败（Codex 自己也只在状态栏短暂显示），只是
-   * 结束已经流出的增量；`willRetry: false` 的随后有 `turn/completed`（failed），回合失败以它为准。
+   * `error` 通知原样保留为 engine.raw。`willRetry: true` 的不是回合失败，是 Codex 在重发请求（0.119.0 起报 `turn.retrying`，
+   * 界面显示“正在重新连接 2/5”）：结束已经流出的增量。`willRetry: false` 的随后有 `turn/completed`（failed），回合失败以它为准。
    */
   #error(params: Partial<ErrorNotification>, method: string): AgentEvent[] {
     const events: AgentEvent[] = [this.raw(method, params)];
-    if (params.willRetry === true) events.push(...this.#abandonOpenStreams());
+    if (params.willRetry === true) {
+      events.push(...this.#abandonOpenStreams(), this.#retrying(params.error));
+    }
     return events;
+  }
+
+  /**
+   * 重试的进度（codex-rs core/src/responses_retry.rs）：`message` 是 `Reconnecting... 2/5`，或等网络恢复时不计次数的
+   * `Reconnecting... waiting for network`；断开的原因在 `additionalDetails`。认不出次数时只报原因。
+   */
+  #retrying(error: Partial<TurnError> | undefined): AgentEvent {
+    const message = typeof error?.message === 'string' ? error.message : '';
+    const counted = /^Reconnecting\.\.\. (\d+)\/(\d+)/.exec(message);
+    const details = typeof error?.additionalDetails === 'string' ? error.additionalDetails : '';
+    const reason = details !== '' ? details : message.startsWith('Reconnecting...') ? '' : message;
+    return {
+      type: 'turn.retrying',
+      engineSessionId: this.engineSessionId,
+      ...(counted !== null && {
+        attempt: Number(counted[1]),
+        maxAttempts: Number(counted[2]),
+      }),
+      ...(reason !== '' && { reason }),
+    };
   }
 
   #turnCompleted(params: TurnNotification): AgentEvent[] {
@@ -870,6 +893,8 @@ export class CodexEventMapper {
             (error?.message ?? 'Codex 报告回合失败') +
             (details !== null && details !== undefined && details !== '' ? `\n${details}` : ''),
           ...(httpStatus !== undefined && { code: httpStatus }),
+          // 额度恢复的时刻 Codex 只写在原文里（本地化的时间），Host 从账号的用量补。
+          ...(error?.codexErrorInfo === 'usageLimitExceeded' && { usageLimit: {} }),
         };
         break;
       }

@@ -5,6 +5,7 @@ import type {
   ClientIdentity,
   SessionId,
   SessionState,
+  TurnId,
   UserContentPart,
   UserQuestion,
   WevirEvent,
@@ -199,6 +200,11 @@ async function waitForApproval(h: Harness, sessionId: SessionId): Promise<Approv
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function turnOf(result: { turnId?: TurnId }): TurnId {
+  if (result.turnId === undefined) throw new Error('no turn started');
+  return result.turnId;
 }
 
 function never(): Promise<never> {
@@ -2453,6 +2459,94 @@ describe('SessionManager：其他', () => {
       t.from.map((from) => `${from}→${t.to}:${t.reason}`),
     );
     expect(expected.filter((t) => !seenTransitions.has(t))).toEqual([]);
+  });
+});
+
+describe('SessionManager：重连进度与额度恢复后自动继续（0.119.0）', () => {
+  it('引擎重试请求：turn.retrying 带次数与原因，回合照常完成', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'reconnect please');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'turn.retrying').map((e) => e.payload)).toEqual(
+      [1, 2, 3].map((attempt) => ({
+        turnId: expect.stringMatching(/^trn_/),
+        attempt,
+        maxAttempts: 5,
+        reason: expect.stringContaining('stream disconnected'),
+      })),
+    );
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('completed');
+  });
+
+  it('用量上限：engine.error 带 usageLimit；打开后到点替用户发继续消息，引擎看到原文', async () => {
+    // 时钟拨到重置之后，重置后不再等：一打开就到点。
+    const h = setup({
+      manager: { autoContinue: { now: () => Date.now() + 120_000, delayMs: 0 } },
+    });
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    await waitForState(h, id, 'idle');
+    const [error] = ofType(h, id, 'engine.error');
+    expect(error?.payload).toMatchObject({
+      category: 'provider',
+      turnId,
+      fatal: false,
+      usageLimit: { resetsAt: expect.any(String), windowMinutes: 300 },
+    });
+    const { session } = await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
+    expect(session.autoContinue).toEqual({ turnId, resumeAt: expect.any(String) });
+    await vi.waitFor(() => expect(ofType(h, id, 'turn.finished')).toHaveLength(2), {
+      timeout: 2000,
+      interval: 5,
+    });
+    const resumed = ofType(h, id, 'user.message')[1]?.payload;
+    expect(resumed?.from).toEqual({ sessionId: id, kind: 'report', usageLimit: { turnId } });
+    expect(resumed?.content).toEqual(
+      text(
+        'I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.',
+      ),
+    );
+    // 不包信封：echo 原样回出这句。
+    expect(ofType(h, id, 'assistant.message').at(-1)?.payload.text).toBe(
+      'Echo: I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.',
+    );
+    expect(snapshot(h, id).session.autoContinue).toBeUndefined();
+  });
+
+  it('关掉、发了新消息都作废；没碰到上限的回合、过了一天才重置的打不开', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    await waitForState(h, id, 'idle');
+    await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
+    const off = await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: false });
+    expect(off.session.autoContinue).toBeUndefined();
+    expect(ofType(h, id, 'session.auto_continue').map((e) => e.payload.resumeAt === null)).toEqual([
+      false,
+      true,
+    ]);
+
+    await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
+    const next = turnOf(await send(h, id, 'hello'));
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).session.autoContinue).toBeUndefined();
+    await expect(
+      h.manager.setAutoContinue({ sessionId: id, turnId: next, enabled: true }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(
+      h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+
+    const far = setup({
+      manager: { autoContinue: { now: () => Date.now() - 2 * 24 * 60 * 60 * 1000 } },
+    });
+    const farId = await create(far);
+    const limited = turnOf(await send(far, farId, 'hitlimit'));
+    await waitForState(far, farId, 'idle');
+    await expect(
+      far.manager.setAutoContinue({ sessionId: farId, turnId: limited, enabled: true }),
+    ).rejects.toThrow(/more than a day away/);
   });
 });
 

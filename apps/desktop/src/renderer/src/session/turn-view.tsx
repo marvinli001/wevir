@@ -98,6 +98,8 @@ export const TurnView = memo(
     const liveTail =
       live !== undefined &&
       (tail?.kind === 'work' ||
+        // 正在重新连接（0.119.0）：那一行就是当前动作。
+        (tail?.kind === 'part' && tail.part.type === 'retry') ||
         (live === 'running' &&
           tail?.kind === 'part' &&
           tail.part.type === 'compaction' &&

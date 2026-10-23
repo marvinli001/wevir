@@ -467,8 +467,13 @@ describe('映射的边界情况', () => {
       willRetry: true,
       error: { message: 'stream disconnected', codexErrorInfo: 'other', additionalDetails: null },
     });
-    expect(types(events)).toEqual(['engine.raw', 'assistant.stream_ended']);
+    expect(types(events)).toEqual(['engine.raw', 'assistant.stream_ended', 'turn.retrying']);
     expect(events[1]).toMatchObject({ attemptId: 'm1', outcome: 'abandoned' });
+    expect(events[2]).toEqual({
+      type: 'turn.retrying',
+      engineSessionId: id,
+      reason: 'stream disconnected',
+    });
     // 之后同一 item 的增量与提交都不再发事件；回合正常结束时没有补发。
     expect(
       mapper.map('item/agentMessage/delta', { threadId: id, turnId, itemId: 'm1', delta: 'x' }),
@@ -481,6 +486,67 @@ describe('映射的边界情况', () => {
         }),
       ),
     ).toEqual(['turn.settled']);
+  });
+
+  it('重试的进度：Reconnecting... 2/5 认出次数，原因取 additionalDetails；等网络时不计次数', () => {
+    const mapper = new CodexEventMapper(id);
+    const retry = (message: string, additionalDetails: string | null) =>
+      mapper
+        .map('error', {
+          threadId: id,
+          turnId,
+          willRetry: true,
+          error: {
+            message,
+            codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } },
+            additionalDetails,
+          },
+        })
+        .filter((event) => event.type === 'turn.retrying');
+    expect(
+      retry(
+        'Reconnecting... 2/5',
+        'stream disconnected before completion: websocket closed by server before response.completed',
+      ),
+    ).toEqual([
+      {
+        type: 'turn.retrying',
+        engineSessionId: id,
+        attempt: 2,
+        maxAttempts: 5,
+        reason:
+          'stream disconnected before completion: websocket closed by server before response.completed',
+      },
+    ]);
+    expect(retry('Reconnecting... waiting for network', null)).toEqual([
+      { type: 'turn.retrying', engineSessionId: id },
+    ]);
+  });
+
+  it('用量上限（usageLimitExceeded）：turn.failed 带空的 usageLimit，其他失败不带', () => {
+    const fail = (codexErrorInfo: unknown) =>
+      new CodexEventMapper(id).map('turn/completed', {
+        threadId: id,
+        turn: {
+          id: turnId,
+          status: 'failed',
+          error: {
+            message: "You've hit your usage limit. Try again at 3:45 PM.",
+            codexErrorInfo,
+            additionalDetails: null,
+          },
+        },
+      });
+    expect(fail('usageLimitExceeded')).toEqual([
+      {
+        type: 'turn.failed',
+        engineSessionId: id,
+        category: 'provider',
+        message: "You've hit your usage limit. Try again at 3:45 PM.",
+        usageLimit: {},
+      },
+    ]);
+    expect(fail('rateLimitExceeded')[0]).not.toHaveProperty('usageLimit');
   });
 
   it('中断时只有空白的增量以 abandoned 结束，不补发消息', () => {

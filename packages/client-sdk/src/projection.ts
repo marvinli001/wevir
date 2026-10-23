@@ -44,6 +44,7 @@ import type {
   ReviewFinding,
   SecondOpinion,
   SessionAcceptance,
+  SessionAutoContinue,
   SessionGoal,
   SessionId,
   SessionInsight,
@@ -67,6 +68,7 @@ import type {
   TurnTrigger,
   UiShowTarget,
   Usage,
+  UsageLimit,
   UserContentPart,
   UserImagePart,
   VerificationRun,
@@ -198,7 +200,31 @@ export type ChatPart =
     }
   /** 引擎向用户提的一组问题（0.10.0），在提问时所在的位置；结束后原位换成带结局的。 */
   | { type: 'question'; key: string; question: QuestionRequest }
-  | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
+  /**
+   * 引擎的错误（`engine.error`）。0.119.0：回合因订阅的用量上限失败时带 `turnId` 与 `usageLimit`，界面画成额度卡片；Host 替用户发了继续
+   * 消息之后（`from.usageLimit` 指向这个回合）带 `resumedAt`。
+   */
+  | {
+      type: 'error';
+      key: string;
+      category: EngineErrorCategory;
+      message: string;
+      fatal: boolean;
+      turnId?: TurnId;
+      usageLimit?: UsageLimit;
+      resumedAt?: IsoTime;
+    }
+  /**
+   * 引擎在重试模型请求（0.119.0，`turn.retrying`）：同一条消息里接连的几次合成一个部件（`key` 是第一次的 `t:<seq>`），只留最近一次的
+   * 次数与原因。它是消息的最后一个部件、回合还在进行时就是“正在重新连接”。
+   */
+  | {
+      type: 'retry';
+      key: string;
+      attempt?: number;
+      maxAttempts?: number;
+      reason?: string;
+    }
   /** 适配器不认识的引擎消息（`engine.raw`），只在 `includeRaw` 时投影。 */
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown }
   | { type: 'notice'; key: string; notice: SessionNotice }
@@ -372,6 +398,8 @@ export interface Transcript {
   uiShow: { seq: number; ts: IsoTime; target: UiShowTarget } | undefined;
   /** 0.35.0：会话的目标（最近一次 `session.goal_changed`），清除或没有时 undefined。 */
   goal: SessionGoal | undefined;
+  /** 0.119.0：额度恢复后自动继续（最近一次 `session.auto_continue`）；关掉、发出或有了新的回合时 undefined。规则同 `Session.autoContinue`。 */
+  autoContinue: SessionAutoContinue | undefined;
   /** 0.36.0：最近一条用户消息（`user.message`）的协作模式；还没有消息时是 `default`。规则同 Host 快照的 `collaborationMode`。 */
   collaborationMode: CollaborationMode;
   /**
@@ -514,6 +542,7 @@ export class TranscriptProjection {
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
   #goal: SessionGoal | undefined;
+  #autoContinue: SessionAutoContinue | undefined;
   #taskBoard: readonly BoardTask[] = [];
   #promptSuggestion: PromptSuggestion | undefined;
   #acceptance: SessionAcceptance | undefined;
@@ -573,6 +602,7 @@ export class TranscriptProjection {
     this.#lastError = undefined;
     this.#usage = undefined;
     this.#goal = undefined;
+    this.#autoContinue = undefined;
     this.#taskBoard = [];
     this.#promptSuggestion = undefined;
     this.#acceptance = undefined;
@@ -632,6 +662,14 @@ export class TranscriptProjection {
         return;
       case 'session.goal_changed':
         this.#goal = event.payload.goal ?? undefined;
+        return;
+      case 'session.auto_continue': {
+        const { turnId, resumeAt } = event.payload;
+        this.#autoContinue = resumeAt === null ? undefined : { turnId, resumeAt };
+        return;
+      }
+      case 'turn.retrying':
+        this.#retrying(event);
         return;
       case 'tasks.board_updated':
         this.#taskBoard = event.payload.tasks;
@@ -723,6 +761,8 @@ export class TranscriptProjection {
         this.#activeTurnId = event.payload.turnId;
         this.#commandTurnId =
           event.payload.command === undefined ? undefined : event.payload.turnId;
+        // 新的回合让排着的自动继续作废（或就是它开的，0.119.0）。
+        this.#autoContinue = undefined;
         // 新的回合开始，撤销的回合不能再重做了（它们一直隐藏）。
         if (this.#redo.length > 0) this.#redo = [];
         return;
@@ -921,6 +961,7 @@ export class TranscriptProjection {
       insights: [...this.#insights.values()],
       uiShow: this.#uiShow,
       goal: this.#goal,
+      autoContinue: this.#autoContinue,
       collaborationMode: this.#collaborationMode,
       latestPlan: this.#latestPlan,
       redoTurnIds: this.#redo,
@@ -959,6 +1000,8 @@ export class TranscriptProjection {
       event.payload;
     const turn = this.#turn(turnId);
     if (turn.user) return;
+    if (from?.usageLimit !== undefined)
+      this.#autoContinued(from.usageLimit.turnId, event.ts, event.seq);
     const planning = collaborationMode === 'plan';
     this.#collaborationMode = planning ? 'plan' : 'default';
     this.#latestPlan = undefined;
@@ -1603,7 +1646,7 @@ export class TranscriptProjection {
   // ── 错误与调试 ───────────────────────────────────────────────────────
 
   #engineError(event: WevirEventOf<'engine.error'>): void {
-    const { category, message, turnId, fatal } = event.payload;
+    const { category, message, turnId, fatal, usageLimit } = event.payload;
     this.#lastError = { category, message };
     this.#target(turnId, event.seq).parts.push({
       type: 'error',
@@ -1611,7 +1654,40 @@ export class TranscriptProjection {
       category,
       message,
       fatal,
+      ...(usageLimit !== undefined && turnId !== undefined && { turnId, usageLimit }),
     });
+  }
+
+  /** 引擎重试请求（0.119.0）：消息的最后一个部件已经是重试时原位换成这一次的。 */
+  #retrying(event: WevirEventOf<'turn.retrying'>): void {
+    const { turnId, attempt, maxAttempts, reason } = event.payload;
+    const target = this.#target(turnId, event.seq);
+    const last = target.parts.at(-1);
+    const part: ChatPartOf<'retry'> = {
+      type: 'retry',
+      key: last?.type === 'retry' ? last.key : `t:${event.seq}`,
+      ...(attempt !== undefined && { attempt }),
+      ...(maxAttempts !== undefined && { maxAttempts }),
+      ...(reason !== undefined && { reason }),
+    };
+    if (last?.type === 'retry') target.parts[target.parts.length - 1] = part;
+    else target.parts.push(part);
+  }
+
+  /** Host 替用户发了继续消息（0.119.0）：那个回合的额度卡片记下发出的时刻。 */
+  #autoContinued(failedTurnId: TurnId, at: IsoTime, seq: number): void {
+    for (let index = this.#messages.length - 1; index >= 0; index--) {
+      const message = this.#messages[index];
+      if (message === undefined || message.turnId !== failedTurnId) continue;
+      const found = message.parts.findIndex(
+        (part) => part.type === 'error' && part.usageLimit !== undefined,
+      );
+      const part = message.parts[found];
+      if (part?.type !== 'error') continue;
+      this.#touch(message, seq);
+      message.parts[found] = { ...part, resumedAt: at };
+      return;
+    }
   }
 
   #raw(event: WevirEventOf<'engine.raw'>): void {

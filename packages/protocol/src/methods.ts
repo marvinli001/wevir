@@ -1316,6 +1316,17 @@ export const SessionGoalResultSchema = z.object({ goal: SessionGoalSchema });
 /** `session.clearGoal`（0.35.0）的结果：`cleared` 为 `false` 表示本来就没有目标。 */
 export const SessionClearGoalResultSchema = z.object({ cleared: z.boolean() });
 
+/**
+ * 额度恢复后自动继续（0.119.0，Host 功能 `usage_auto_continue`）：`turnId` 是会话最后一个回合，因用量上限失败、知道额度恢复的时刻且
+ * 在 `AUTO_CONTINUE_MAX_WAIT_MS` 之内（每周额度的上限不能开）。打开后 Host 在恢复之后替用户发一条继续的消息，关掉就不发。会话不空闲、
+ * 回合不对或不符合条件时 `INVALID_STATE`。结果是改后的会话（`autoContinue`）。
+ */
+export const SessionSetAutoContinueParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  turnId: TurnIdSchema,
+  enabled: z.boolean(),
+});
+
 /** `session.compact`（0.24.0）与 `session.review` 的结果：开始的回合与它的 `turn.started` 的 `seq`。 */
 export const SessionCommandResultSchema = z.object({
   turnId: TurnIdSchema,
@@ -2163,6 +2174,11 @@ export const MethodSchemas = {
   'session.clearGoal': {
     params: SessionIdParamsSchema,
     result: SessionClearGoalResultSchema,
+    permission: 'session.write',
+  },
+  'session.setAutoContinue': {
+    params: SessionSetAutoContinueParamsSchema,
+    result: SessionResultSchema,
     permission: 'session.write',
   },
   'session.rename': {

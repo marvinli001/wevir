@@ -215,6 +215,13 @@ export class HostAccounts {
     return () => this.#observers.delete(listener);
   }
 
+  /** 账号最近一次的状态（读到的或引擎报的），不去读；没有这个账号或还没读过时 undefined。回合因用量上限失败时据此补重置时刻。 */
+  peek(id: string): AccountState | undefined {
+    const slot = this.#slots.get(id);
+    const raw = this.#last.get(id);
+    return slot === undefined || raw === undefined ? undefined : this.#stamp(slot, raw);
+  }
+
   async read(ref: AccountRef, options?: { refresh?: boolean }): Promise<AccountState> {
     const slot = this.#slot(ref);
     const raw = await this.#call(() => slot.engine.read(slot.kind, options));

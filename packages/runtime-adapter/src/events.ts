@@ -276,6 +276,24 @@ export interface TurnFailedEvent {
   message: string;
   /** 引擎的错误码（dsh：JSON-RPC 错误码，如 -32603）。 */
   code?: number;
+  /**
+   * 回合因订阅账号的用量上限失败（0.119.0，Codex 的 `usageLimitExceeded`、Claude 被拒的 `rate_limit_event`）。引擎报了额度恢复的
+   * 时刻与窗口长度时带上；都没报时是空对象，Host 从账号的用量里补。
+   */
+  usageLimit?: { resetsAt?: string; windowMinutes?: number };
+}
+
+/**
+ * 引擎在重试回合里的模型请求（0.119.0）：连接或流断开、服务暂时不可用，引擎等一会儿重发（Codex 的 `error` 带 `willRetry`，Claude
+ * 的 `api_retry`）。回合继续；之前已经流出、没提交的增量适配器另报 `abandoned`。`attempt` / `maxAttempts` 是第几次与最多几次，
+ * 引擎不计次数时省略；`reason` 是断开原因的原文。
+ */
+export interface TurnRetryingEvent {
+  type: 'turn.retrying';
+  engineSessionId: string;
+  attempt?: number;
+  maxAttempts?: number;
+  reason?: string;
 }
 
 /**
@@ -461,6 +479,7 @@ export type AgentEvent =
   | ContextCompactedEvent
   | TurnSettledEvent
   | TurnFailedEvent
+  | TurnRetryingEvent
   | EngineExitedEvent
   | EngineRawEvent
   | TurnStartedEvent

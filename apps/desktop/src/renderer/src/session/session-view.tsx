@@ -455,12 +455,53 @@ export function SessionView({
     rewindEnabled && sessionState === 'idle' && transcript !== undefined
       ? lastTurnId(transcript)
       : undefined;
+  // 额度恢复后自动继续（0.119.0）：用量上限的卡片上勾选，Host 到时替用户发继续消息。
+  const autoContinueEnabled =
+    messageActionsEnabled && hostSupports(view.hello.features, 'usage_auto_continue');
+  const setAutoContinue = useCallback(
+    async (turnId: TurnId, enabled: boolean) => {
+      if (!client) return;
+      setNotice(undefined);
+      try {
+        const { session: updated } = await client.request('session.setAutoContinue', {
+          sessionId: session.id,
+          turnId,
+          enabled,
+        });
+        store?.upsertSession(updated);
+      } catch (error) {
+        setNotice(t('usageLimit.failed', { error: describe(error) }));
+      }
+    },
+    [client, session.id, store],
+  );
+  const autoContinueTurnId =
+    autoContinueEnabled && sessionState === 'idle' && transcript !== undefined
+      ? lastTurnId(transcript)
+      : undefined;
+  const autoContinueArmed = transcript?.autoContinue;
   const messageActions = useMemo<MessageActions>(
     () => ({
       ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
       ...(editTurnId !== undefined && { editTurnId, submitEdit }),
+      ...(autoContinueEnabled && {
+        autoContinue: {
+          ...(autoContinueTurnId !== undefined && { lastTurnId: autoContinueTurnId }),
+          ...(autoContinueArmed !== undefined && { armed: autoContinueArmed }),
+          set: setAutoContinue,
+        },
+      }),
     }),
-    [branchEnabled, branchFrom, editTurnId, submitEdit],
+    [
+      branchEnabled,
+      branchFrom,
+      editTurnId,
+      submitEdit,
+      autoContinueEnabled,
+      autoContinueTurnId,
+      autoContinueArmed,
+      setAutoContinue,
+    ],
   );
 
   const composerPlan = useMemo<ComposerPlan | undefined>(

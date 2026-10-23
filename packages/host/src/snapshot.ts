@@ -21,6 +21,7 @@ import type {
   SecondOpinion,
   Session,
   SessionAcceptance,
+  SessionAutoContinue,
   SessionEngine,
   SessionGoal,
   SessionId,
@@ -41,6 +42,7 @@ import type {
   TurnId,
   TurnOutcome,
   Usage,
+  UsageLimit,
   VerificationRun,
   VerificationRunId,
   WevirEvent,
@@ -105,6 +107,10 @@ export interface SessionProjection {
   readonly usage?: Usage;
   /** 会话的目标（0.35.0）：最近一次 `session.goal_changed`，清除时没有。 */
   readonly goal?: SessionGoal;
+  /** 额度恢复后自动继续（0.119.0）：最近一次 `session.auto_continue`，关掉或有了新的回合时没有。 */
+  readonly autoContinue?: SessionAutoContinue;
+  /** 最近一个回合因用量上限失败（0.119.0，`engine.error` 的 `usageLimit`）；有了新的回合时没有。 */
+  readonly usageLimited?: { readonly turnId: TurnId; readonly limit: UsageLimit };
   /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
   readonly taskBoard?: readonly BoardTask[];
   /** 输入建议（0.53.0）：最近一次 `suggestion.updated`，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件出现后没有。 */
@@ -315,6 +321,11 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     case 'session.goal_changed':
       next.goal = event.payload.goal ?? undefined;
       break;
+    case 'session.auto_continue': {
+      const { turnId, resumeAt } = event.payload;
+      next.autoContinue = resumeAt === null ? undefined : { turnId, resumeAt };
+      break;
+    }
     case 'session.handoff': {
       const { from, to, resumed } = event.payload;
       const engines = [
@@ -408,6 +419,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       if (clientMessageId !== undefined) activeTurn.clientMessageId = clientMessageId;
       next.activeTurn = activeTurn;
       next.commandTurnId = event.payload.command === undefined ? undefined : turnId;
+      // 新的回合开始：自动继续作废（或就是它开的），上一个回合的用量上限也过去了。
+      next.autoContinue = undefined;
+      next.usageLimited = undefined;
       if (projection.subagent !== undefined) {
         const { endedAt: _ended, ...rest } = projection.subagent;
         next.subagent = { ...rest, status: 'running' };
@@ -521,6 +535,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'engine.error':
       next.lastError = { category: event.payload.category, message: event.payload.message };
+      if (event.payload.usageLimit !== undefined && event.payload.turnId !== undefined) {
+        next.usageLimited = { turnId: event.payload.turnId, limit: event.payload.usageLimit };
+      }
       break;
   }
   return next;
@@ -847,6 +864,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.subagent) session.subagent = projection.subagent;
   if (projection.engines !== undefined) session.engines = sessionEngines(projection);
   if (projection.goal) session.goal = projection.goal;
+  if (projection.autoContinue) session.autoContinue = { ...projection.autoContinue };
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],

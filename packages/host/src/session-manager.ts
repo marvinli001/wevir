@@ -3,6 +3,7 @@ import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  type AccountState,
   type ApprovalDetail,
   type ApprovalId,
   type ApprovalOption,
@@ -68,6 +69,7 @@ import {
   type TurnId,
   type TurnOutcome,
   type UiShowTarget,
+  type UsageLimit,
   type UserContentPart,
   type UserImagePart,
   type UserQuestion,
@@ -111,6 +113,12 @@ import {
   type WorkspaceRecord,
 } from '@wevir/storage';
 import { type ApprovalRuleService, approvalCommand } from './approval-rules/service.js';
+import {
+  AUTO_CONTINUE_PROMPT,
+  AutoContinueTimers,
+  completeUsageLimit,
+  resumeAtFor,
+} from './auto-continue.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { type CustomPlan, styledSession } from './custom-instructions.js';
@@ -373,6 +381,17 @@ export interface SessionManagerOptions {
    * 时重取，随 `session.rules` 的 `profileVersion` 写下。取不到时不记，不让建会话失败。没给时都不记。
    */
   profile?: { ensure(workspaceId: string): Promise<ProfileVersionRef | undefined> };
+  /**
+   * 额度恢复后自动继续（0.119.0，auto-continue.ts）：`account` 给出账号最近的状态（账号 ID 就是 Provider ID；回合因用量上限失败而
+   * 引擎没报重置时刻时从这里补），`identity` 是 Host 替用户发继续消息的身份。没给时不补，继续消息用 `wevir-auto-continue` 身份。
+   */
+  autoContinue?: {
+    account?: (providerId: string) => AccountState | undefined;
+    identity?: ClientIdentity;
+    /** 测试用：时钟与重置之后再等多久（默认 `AUTO_CONTINUE_DELAY_MS`）。 */
+    now?: () => number;
+    delayMs?: number;
+  };
 }
 
 /** `session.send` 之外的发送参数（0.30.0）。 */
@@ -436,6 +455,8 @@ interface TurnRuntime {
    * 自动修复的回合（0.65.0，ADR-0008）：不能插话；用户这时发来消息，Host 停下这个回合，消息在停止后照常发出。
    */
   readonly repair?: true;
+  /** 额度恢复后 Host 替用户发的继续消息开的回合（0.119.0，`from.usageLimit`）：又碰到上限时自动重新排上。 */
+  readonly autoContinued?: true;
   /**
    * 这个回合里的自动压缩（`#checkAutoCompaction`）：`pending` 是刚压缩完、还没看到之后的第一次用量；`fruitless` 是连续几次
    * 自动压缩之后的第一次用量仍不低于压缩线。
@@ -747,6 +768,9 @@ export class SessionManager {
   /** 到时按拒绝结掉的审批（0.105.0，`expiresAt`）：计时器与到期时刻，审批结算时清掉。同样只在内存里。 */
   readonly #approvalTimers = new Map<ApprovalId, ReturnType<typeof setTimeout>>();
   readonly #approvalDeadlines = new Map<ApprovalId, number>();
+  /** 额度恢复后自动继续（0.119.0）：每个排上的会话一个按墙上时钟的计时器，只在内存里，Host 启动时按快照重新排。 */
+  readonly #autoContinueTimers: AutoContinueTimers;
+  readonly #autoContinue: SessionManagerOptions['autoContinue'];
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
   /**
@@ -798,6 +822,11 @@ export class SessionManager {
     this.#projectConnectors = options.projectConnectors;
     this.#guardrails = options.guardrails;
     this.#onTurnFinished = options.onTurnFinished;
+    this.#autoContinue = options.autoContinue;
+    this.#autoContinueTimers = new AutoContinueTimers(
+      (sessionId) => this.#autoContinueDue(sessionId),
+      options.autoContinue?.now,
+    );
     this.#reviewFindings = options.reviewFindings;
     this.#onUsage = options.onUsage;
     this.#approvalRules = options.approvalRules;
@@ -978,6 +1007,11 @@ export class SessionManager {
         ]);
         this.#mirror(sessionId, record.parentSessionId as SessionId);
         continue;
+      }
+      // 额度恢复后自动继续（0.119.0）：计时器只在内存里，按快照重新排；早已过了时刻的随即发出。
+      const autoContinue = snapshot.session.autoContinue;
+      if (autoContinue !== undefined && !active) {
+        this.#autoContinueTimers.set(sessionId, autoContinue.resumeAt);
       }
       // 等待中的待发消息（含回合刚完成、下一条还没来得及发出的）一律暂停，等用户继续（domain-model §4.6）。
       const holds = settlePendings(snapshot, () => 'held');
@@ -1908,6 +1942,7 @@ export class SessionManager {
       finished: deferred(),
       addedWhileCancelling: new Set(),
       ...(from?.repair !== undefined && { repair: true as const }),
+      ...(from?.usageLimit !== undefined && { autoContinued: true as const }),
     };
 
     // 回合前的快照（0.20.0）：打完再交给引擎，免得快照里混进这个回合的改动。不会抛错。
@@ -4083,6 +4118,7 @@ export class SessionManager {
     for (const timer of this.#approvalTimers.values()) clearTimeout(timer);
     this.#approvalTimers.clear();
     this.#approvalDeadlines.clear();
+    this.#autoContinueTimers.dispose();
     this.#appTools?.dispose?.();
     this.#recaps.clear();
     for (const abort of this.#insightRuns.values()) abort.abort();
@@ -4966,6 +5002,21 @@ export class SessionManager {
         ]);
         return;
       }
+      case 'turn.retrying':
+        // 引擎在重发模型请求（0.119.0）：只是进度，回合照常进行。
+        this.#write(runtime, [
+          {
+            type: 'turn.retrying',
+            source: 'engine',
+            payload: {
+              turnId,
+              ...(positiveInt(event.attempt) && { attempt: event.attempt }),
+              ...(positiveInt(event.maxAttempts) && { maxAttempts: event.maxAttempts }),
+              ...(event.reason !== undefined && event.reason !== '' && { reason: event.reason }),
+            },
+          },
+        ]);
+        return;
       case 'context.compacting':
       case 'context.compacted':
         this.#write(runtime, [
@@ -5050,6 +5101,12 @@ export class SessionManager {
           category: event.category,
           message: event.message,
           ...(event.code !== undefined && { code: event.code }),
+          ...(event.usageLimit !== undefined && {
+            usageLimit: completeUsageLimit(
+              event.usageLimit,
+              this.#autoContinue?.account?.(this.#snapshot(runtime).session.providerId),
+            ),
+          }),
         });
         return;
     }
@@ -5848,7 +5905,7 @@ export class SessionManager {
     turn: TurnRuntime,
     outcome: TurnOutcome,
     engineStopReason?: string,
-    error?: EngineErrorInfo & { code?: number },
+    error?: EngineErrorInfo & { code?: number; usageLimit?: UsageLimit },
   ): void {
     const snapshot = this.#snapshot(runtime);
     let state = snapshot.session.state;
@@ -5886,11 +5943,128 @@ export class SessionManager {
           : 'held',
       ),
     );
+    // 自动继续的回合又碰到上限（0.119.0，重置时刻估早了、或另一个窗口也用完了）：知道下一次重置、还在一天之内时接着等。已经
+    // 过去的重置时刻不再排，免得每 30 秒发一次。
+    const resetsAt = error?.usageLimit?.resetsAt;
+    const now = this.#now();
+    const resumeAt =
+      turn.autoContinued === true &&
+      finalOutcome === 'failed' &&
+      resetsAt !== undefined &&
+      Date.parse(resetsAt) > now
+        ? resumeAtFor(resetsAt, now, this.#autoContinue?.delayMs)
+        : undefined;
+    if (resumeAt !== undefined) {
+      inputs.push(autoContinueEvent(turn.turnId, resumeAt));
+    }
     this.#write(runtime, inputs);
     // 还有等待中的排队消息：随后发出第一条，排在命令队列里。
     if (this.#snapshot(runtime).pendingMessages?.some((pending) => pending.status === 'waiting')) {
       void this.#scheduleDispatch(runtime);
     }
+  }
+
+  // ── 额度恢复后自动继续（0.119.0）──────────────────────────────────────
+
+  /**
+   * `session.setAutoContinue`：打开时会话要空闲，`turnId` 是最后一个回合、因用量上限失败、知道额度恢复的时刻且在一天之内（引擎没报
+   * 时刻的再从账号的用量里找一次）；否则 `INVALID_STATE`。关掉总是可以（没开着时什么都不写）。
+   */
+  async setAutoContinue(
+    params: MethodParams<'session.setAutoContinue'>,
+  ): Promise<MethodResult<'session.setAutoContinue'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const { session } = this.#snapshot(runtime);
+      if (!params.enabled) {
+        if (session.autoContinue?.turnId === params.turnId) {
+          this.#write(runtime, [autoContinueEvent(params.turnId, null)]);
+        }
+        return { session: this.#snapshot(runtime).session };
+      }
+      const limited = this.#events.usageLimited(runtime.id);
+      if (limited?.turnId !== params.turnId) {
+        throw new HostError(
+          'INVALID_STATE',
+          `turn ${params.turnId} is not the last turn of the session or did not hit a usage limit`,
+          { state: session.state },
+        );
+      }
+      if (session.state !== 'idle' || session.readOnly !== undefined) {
+        throw new HostError('INVALID_STATE', `session ${runtime.id} is ${session.state}`, {
+          state: session.state,
+          ...(session.readOnly !== undefined && { readOnly: session.readOnly }),
+        });
+      }
+      const limit = completeUsageLimit(
+        limited.limit,
+        this.#autoContinue?.account?.(session.providerId),
+      );
+      const resumeAt = resumeAtFor(limit.resetsAt, this.#now(), this.#autoContinue?.delayMs);
+      if (resumeAt === undefined) {
+        throw new HostError(
+          'INVALID_STATE',
+          limit.resetsAt === undefined
+            ? 'the usage limit has no known reset time'
+            : `the usage limit resets at ${limit.resetsAt}, more than a day away`,
+          { state: session.state },
+        );
+      }
+      this.#write(runtime, [autoContinueEvent(params.turnId, resumeAt)]);
+      return { session: this.#snapshot(runtime).session };
+    });
+  }
+
+  /**
+   * 到了发继续消息的时刻：仍排着同一个回合、会话空闲、没有待审批 / 待回答 / 待发消息时，以 `from.usageLimit` 替用户发
+   * `AUTO_CONTINUE_PROMPT`（引擎看到的就是这句，不包信封）。不能发（有人在用、出错、只读）时关掉，不再等。
+   */
+  #autoContinueDue(sessionId: SessionId): void {
+    if (this.#shuttingDown || this.#disposed) return;
+    let runtime: SessionRuntime;
+    try {
+      runtime = this.#runtime(sessionId);
+    } catch {
+      return;
+    }
+    this.#serial(runtime, async () => {
+      if (this.#shuttingDown || this.#disposed) return;
+      const snapshot = this.#snapshot(runtime);
+      const pending = snapshot.session.autoContinue;
+      if (pending === undefined) return;
+      const { session } = snapshot;
+      const blocked =
+        session.state !== 'idle' ||
+        session.readOnly !== undefined ||
+        (snapshot.pendingMessages ?? []).length > 0 ||
+        snapshot.pendingApprovals.length > 0 ||
+        (snapshot.pendingQuestions?.length ?? 0) > 0;
+      if (blocked) {
+        this.#write(runtime, [autoContinueEvent(pending.turnId, null)]);
+        return;
+      }
+      try {
+        if (!runtime.attachment) await this.#autoResume(runtime);
+        assertSendable(this.#snapshot(runtime));
+        await this.#startTurn(runtime, {
+          content: [{ type: 'text', text: AUTO_CONTINUE_PROMPT }],
+          sentBy: this.#autoContinue?.identity ?? AUTO_CONTINUE_IDENTITY,
+          from: { sessionId: runtime.id, kind: 'report', usageLimit: { turnId: pending.turnId } },
+        });
+      } catch (error) {
+        if (this.#snapshot(runtime).session.autoContinue !== undefined) {
+          this.#write(runtime, [autoContinueEvent(pending.turnId, null)]);
+        }
+        if (!isHostError(error)) throw error;
+        this.#onWarning('auto-continue could not start a turn', { sessionId, error });
+      }
+    }).catch(this.#onError);
+  }
+
+  #now(): number {
+    return this.#autoContinue?.now?.() ?? Date.now();
   }
 
   /**
@@ -5947,6 +6121,13 @@ export class SessionManager {
     const events = this.#events.appendMany(runtime.id, inputs, options);
     for (const event of events) {
       if (PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type)) this.#voidSuggestion(runtime);
+      // 额度恢复后自动继续（0.119.0）：排上、关掉；任何新的回合都让它作废。
+      if (event.type === 'session.auto_continue') {
+        if (event.payload.resumeAt === null) this.#autoContinueTimers.clear(runtime.id);
+        else this.#autoContinueTimers.set(runtime.id, event.payload.resumeAt);
+      } else if (event.type === 'turn.started') {
+        this.#autoContinueTimers.clear(runtime.id);
+      }
       if (event.type === 'turn.finished') {
         const turn = runtime.turn;
         if (turn?.turnId === event.payload.turnId) {
@@ -6202,6 +6383,21 @@ function checkAnswers(
   if (issues.length > 0) throw new HostError('INVALID_PARAMS', 'invalid answers', { issues });
   for (const item of question.questions) result[item.id] ??= [];
   return result;
+}
+
+/** Host 替用户发继续消息时的身份（没给 `autoContinue.identity` 时）。 */
+const AUTO_CONTINUE_IDENTITY: ClientIdentity = {
+  deviceId: 'wevir-host',
+  clientId: 'wevir-auto-continue',
+  clientKind: 'desktop',
+};
+
+function autoContinueEvent(turnId: TurnId, resumeAt: string | null): AppendInput {
+  return { type: 'session.auto_continue', source: 'host', payload: { turnId, resumeAt } };
+}
+
+function positiveInt(value: number | undefined): value is number {
+  return value !== undefined && Number.isInteger(value) && value >= 1;
 }
 
 function engineError(

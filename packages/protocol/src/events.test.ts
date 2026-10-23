@@ -120,6 +120,10 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.origin;
     case 'guardrail.blocked':
       return event.payload.action;
+    case 'session.auto_continue':
+      return event.payload.resumeAt ?? '';
+    case 'turn.retrying':
+      return event.payload.reason ?? '';
     default: {
       const unhandled: never = event;
       return unhandled;

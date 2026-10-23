@@ -1254,6 +1254,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'session.updateGoal': ({ sessionId, status }) => sessions.updateGoal(sessionId, status),
 
     'session.clearGoal': ({ sessionId }) => sessions.clearGoal(sessionId),
+    'session.setAutoContinue': (params) => sessions.setAutoContinue(params),
 
     'pending.update': async (params) => ({ pending: await sessions.updatePending(params) }),
 

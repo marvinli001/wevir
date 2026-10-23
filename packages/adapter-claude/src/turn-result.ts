@@ -7,8 +7,8 @@
 // 回合结果（SDK 的 `result` 消息）→ 回合的终结事件（claude-event-mapping.md §5.6）。SDK 把 API 层的失败（401、429、529…）也
 // 报成 `subtype: "success"` 加 `is_error`，`terminal_reason` 比外层的成功标记更可信。
 
-import type { TurnFailedEvent } from '@wevir/runtime-adapter';
-import type { SDKResultMessage } from './sdk.js';
+import type { TurnFailedEvent, TurnRetryingEvent } from '@wevir/runtime-adapter';
+import type { SDKAPIRetryMessage, SDKRateLimitInfo, SDKResultMessage } from './sdk.js';
 
 /** 给人看的第一条错误（T3：`[ede_diagnostic]` 是 CLI 内部的遥测，不当错误显示）。 */
 export function resultUserFacingError(result: SDKResultMessage): string | undefined {
@@ -65,14 +65,66 @@ export function isAbortedResult(result: SDKResultMessage): boolean {
   return text.includes('interrupt') || text.includes('cancel');
 }
 
+/** 用量窗口的长度（分钟）：5 小时与按周的几种（总量、Opus、Sonnet）；按量的 `overage` 没有固定长度。 */
+const LIMIT_WINDOW_MINUTES: Partial<
+  Record<NonNullable<SDKRateLimitInfo['rateLimitType']>, number>
+> = {
+  five_hour: 5 * 60,
+  seven_day: 7 * 24 * 60,
+  seven_day_opus: 7 * 24 * 60,
+  seven_day_sonnet: 7 * 24 * 60,
+  seven_day_overage_included: 7 * 24 * 60,
+};
+
+/**
+ * 被拒的 `rate_limit_event`（0.119.0）→ 回合失败时的 `usageLimit`：账号的套餐用量到了上限，`resetsAt` 是秒级时间戳。没被拒
+ * （`allowed` / `allowed_warning`）时 undefined。
+ */
+export function rejectedUsageLimit(
+  info: SDKRateLimitInfo,
+): NonNullable<TurnFailedEvent['usageLimit']> | undefined {
+  if (info.status !== 'rejected') return undefined;
+  const minutes =
+    info.rateLimitType === undefined ? undefined : LIMIT_WINDOW_MINUTES[info.rateLimitType];
+  const resetsAt =
+    typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt)
+      ? new Date(info.resetsAt * 1000).toISOString()
+      : undefined;
+  return {
+    ...(resetsAt !== undefined && { resetsAt }),
+    ...(minutes !== undefined && { windowMinutes: minutes }),
+  };
+}
+
+/**
+ * `api_retry`（0.119.0）→ `turn.retrying`：第几次、最多几次，原因是错误种类与 HTTP 状态码（SDK 不给原文）。没收到响应头时
+ * `max_retries` 是这种原因单独的上限。
+ */
+export function retryingOf(
+  message: Pick<SDKAPIRetryMessage, 'attempt' | 'max_retries' | 'error' | 'error_status'>,
+): Omit<TurnRetryingEvent, 'engineSessionId'> {
+  const valid = (value: number) => Number.isInteger(value) && value >= 1;
+  return {
+    type: 'turn.retrying',
+    ...(valid(message.attempt) && { attempt: message.attempt }),
+    ...(valid(message.max_retries) && { maxAttempts: message.max_retries }),
+    reason:
+      message.error_status === null
+        ? message.error
+        : `${message.error} (HTTP ${message.error_status})`,
+  };
+}
+
 /**
  * 失败的回合 → `turn.failed` 的字段；正常完成时 undefined。`authFailed`：回合里的助手消息报过 `authentication_failed`
- * （没登录或登录过期），归为 `missing_credentials`。
+ * （没登录或登录过期），归为 `missing_credentials`。`usageLimit`：回合里被拒的 `rate_limit_event`（0.119.0）；结果的
+ * `terminal_reason` 是 `blocking_limit` 时也算用量上限。
  */
 export function resultFailure(
   result: SDKResultMessage,
   authFailed: boolean,
-): Pick<TurnFailedEvent, 'category' | 'message' | 'code'> | undefined {
+  usageLimit?: NonNullable<TurnFailedEvent['usageLimit']>,
+): Pick<TurnFailedEvent, 'category' | 'message' | 'code' | 'usageLimit'> | undefined {
   const status = result.subtype === 'success' ? result.api_error_status : undefined;
   const listed = resultUserFacingError(result);
   if (result.subtype !== 'success') {
@@ -96,9 +148,11 @@ export function resultFailure(
         : result.terminal_reason === 'api_error' || result.terminal_reason === 'blocking_limit'
           ? 'provider'
           : 'unknown';
+  const limited = usageLimit ?? (result.terminal_reason === 'blocking_limit' ? {} : undefined);
   return {
     category,
     message: listed ?? structured ?? (result.result || 'Claude reported an error.'),
     ...(typeof status === 'number' && { code: status }),
+    ...(limited !== undefined && category !== 'missing_credentials' && { usageLimit: limited }),
   };
 }

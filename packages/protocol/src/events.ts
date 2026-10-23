@@ -61,6 +61,7 @@ import {
   TurnTriggerSchema,
   UiShowTargetSchema,
   UsageBreakdownSchema,
+  UsageLimitSchema,
   UserContentPartSchema,
   UserImagePartSchema,
 } from './entities.js';
@@ -161,6 +162,15 @@ export const EventPayloadSchemas = {
     goal: SessionGoalSchema.nullable(),
   }),
   /**
+   * 额度恢复后自动继续变了（0.119.0，`session.setAutoContinue`，Host 功能 `usage_auto_continue`）：用户在因用量上限失败的回合
+   * `turnId` 上打开（`resumeAt` 是 Host 发出继续消息的时刻）或关掉（`null`）。Host 自己也会写：自动继续的回合又碰到上限时重新排上，
+   * 到时会话不能继续（有人在用、出错）时关掉。会话开始任何新的回合时作废，不另写事件。
+   */
+  'session.auto_continue': z.object({
+    turnId: TurnIdSchema,
+    resumeAt: IsoTimeSchema.nullable(),
+  }),
+  /**
    * 会话的模型、推理档位或权限模式改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有
    * `reasoningEffort` 表示用模型的默认档位；没有 `permissionMode`（0.11.0 之前的 Host）表示 `on_request`。
    */
@@ -253,6 +263,17 @@ export const EventPayloadSchemas = {
     command: TurnCommandSchema.optional(),
     /** 回合怎么开始的（0.35.0）：`goal` 为会话目标工作；引擎自己开的目标回合没有 `user.message`。 */
     trigger: TurnTriggerSchema.optional(),
+  }),
+  /**
+   * 引擎在重试这个回合的模型请求（0.119.0）：连接或流断开、服务暂时不可用，引擎等一会儿重发（Codex 的
+   * `Reconnecting... 2/5`、Claude 的 `api_retry`）。只是进度：回合仍在进行，重试用完后照常以失败结束。`attempt` 是第几次重试、
+   * `maxAttempts` 是最多几次（引擎在等网络恢复、不计次数时都省略）；`reason` 是引擎给的断开原因原文。
+   */
+  'turn.retrying': z.object({
+    turnId: TurnIdSchema,
+    attempt: z.int().min(1).optional(),
+    maxAttempts: z.int().min(1).optional(),
+    reason: z.string().optional(),
   }),
   'turn.finished': z.object({
     turnId: TurnIdSchema,
@@ -426,6 +447,8 @@ export const EventPayloadSchemas = {
     turnId: TurnIdSchema.optional(),
     /** true：会话因此进入 `error`。 */
     fatal: z.boolean(),
+    /** 回合因订阅账号的用量上限失败（0.119.0）；其他失败省略。 */
+    usageLimit: UsageLimitSchema.optional(),
   }),
   'engine.raw': z.object({
     /**
@@ -610,6 +633,7 @@ export const SessionResumedEventSchema = eventSchema('session.resumed');
 export const SessionReadOnlyEventSchema = eventSchema('session.read_only');
 export const SessionTitleChangedEventSchema = eventSchema('session.title_changed');
 export const SessionGoalChangedEventSchema = eventSchema('session.goal_changed');
+export const SessionAutoContinueEventSchema = eventSchema('session.auto_continue');
 export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionHandoffEventSchema = eventSchema('session.handoff');
 export const SessionMovedEventSchema = eventSchema('session.moved');
@@ -617,6 +641,7 @@ export const SessionRulesEventSchema = eventSchema('session.rules');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
 export const TurnStartedEventSchema = eventSchema('turn.started');
+export const TurnRetryingEventSchema = eventSchema('turn.retrying');
 export const TurnFinishedEventSchema = eventSchema('turn.finished');
 export const TurnRewoundEventSchema = eventSchema('turn.rewound');
 export const TurnUndoneEventSchema = eventSchema('turn.undone');
@@ -668,6 +693,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionReadOnlyEventSchema,
   SessionTitleChangedEventSchema,
   SessionGoalChangedEventSchema,
+  SessionAutoContinueEventSchema,
   SessionConfiguredEventSchema,
   SessionHandoffEventSchema,
   SessionMovedEventSchema,
@@ -675,6 +701,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionStateChangedEventSchema,
   UserMessageEventSchema,
   TurnStartedEventSchema,
+  TurnRetryingEventSchema,
   TurnFinishedEventSchema,
   TurnRewoundEventSchema,
   TurnUndoneEventSchema,

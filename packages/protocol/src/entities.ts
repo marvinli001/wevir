@@ -413,6 +413,32 @@ export const EngineErrorInfoSchema = z.object({
 });
 export type EngineErrorInfo = z.infer<typeof EngineErrorInfoSchema>;
 
+/**
+ * 回合因订阅账号的用量上限失败（0.119.0，`engine.error` 的 `usageLimit`）。`resetsAt` 是额度恢复的时刻：引擎报的，或 Host 从账号的
+ * 用量里取的（用完的窗口里最晚重置的那个）；`windowMinutes` 是用完的窗口的长度（300 是 5 小时，10080 是一周）。不知道时省略。
+ */
+export const UsageLimitSchema = z.object({
+  resetsAt: IsoTimeSchema.optional(),
+  windowMinutes: z.int().min(1).optional(),
+});
+export type UsageLimit = z.infer<typeof UsageLimitSchema>;
+
+/**
+ * 额度恢复后自动继续最多等多久（0.119.0，`session.setAutoContinue`）：额度在这之后才恢复（每周的额度等）时不能开。同 Claude Code
+ * 不替用户等超过一天的重置。
+ */
+export const AUTO_CONTINUE_MAX_WAIT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 会话的自动继续（0.119.0，Host 功能 `usage_auto_continue`）：`turnId` 是因用量上限失败的回合，Host 在 `resumeAt` 替用户发一条
+ * 继续的消息（`from.usageLimit`）。会话开始任何新的回合时作废。
+ */
+export const SessionAutoContinueSchema = z.object({
+  turnId: TurnIdSchema,
+  resumeAt: IsoTimeSchema,
+});
+export type SessionAutoContinue = z.infer<typeof SessionAutoContinueSchema>;
+
 // ── 工具展示、输出、待办 ────────────────────────────────────────────────
 
 export const ToolDisplayKindSchema = z.enum([
@@ -930,6 +956,11 @@ export const MessageFromSchema = z.object({
       note: z.string().min(1).max(SECOND_OPINION_NOTE_MAX_LENGTH).optional(),
     })
     .optional(),
+  /**
+   * 额度恢复后自动继续（0.119.0）：Host 替用户发的继续消息，`turnId` 是因用量上限失败的回合。`kind` 是 `report`、`sessionId` 是这个
+   * 会话自己（旧客户端照回报显示）；新客户端不显示这条消息。
+   */
+  usageLimit: z.object({ turnId: TurnIdSchema }).optional(),
 });
 export type MessageFrom = z.infer<typeof MessageFromSchema>;
 
@@ -1997,6 +2028,8 @@ export const SessionSchema = z.object({
   archivedAt: IsoTimeSchema.optional(),
   /** 会话的目标（0.35.0，`session.goal_changed`）；没有或已清除时省略。 */
   goal: SessionGoalSchema.optional(),
+  /** 额度恢复后自动继续（0.119.0，最近一次 `session.auto_continue`）；没开、已关、已发出或有了新的回合时省略。 */
+  autoContinue: SessionAutoContinueSchema.optional(),
   /** 这个会话当前的来源加载的规则文件（0.68.0，最近一次 `session.rules`）；Host 没记过时省略。 */
   rules: SessionRulesSchema.optional(),
   /**

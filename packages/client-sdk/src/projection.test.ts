@@ -2019,3 +2019,92 @@ describe('你应该知道（0.79.0）', () => {
     expect(projection.snapshot().insights).toEqual([]);
   });
 });
+
+describe('重连进度与额度卡片（0.119.0）', () => {
+  it('接连的 turn.retrying 合成一个部件，只留最近一次；中间有了输出就另起一个', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.retrying', { turnId: TURN, attempt: 1, maxAttempts: 5, reason: 'disconnected' });
+    add('turn.retrying', { turnId: TURN, attempt: 2, maxAttempts: 5, reason: 'disconnected' });
+    expect(assistantParts(list)).toEqual([
+      { type: 'retry', key: 't:5', attempt: 2, maxAttempts: 5, reason: 'disconnected' },
+    ]);
+    add('assistant.message', { turnId: TURN, messageId: 'm1', text: '好', replaces: [] });
+    add('turn.retrying', { turnId: TURN });
+    expect(assistantParts(list).map((part) => [part.type, part.key])).toEqual([
+      ['retry', 't:5'],
+      ['text', expect.any(String)],
+      ['retry', 't:8'],
+    ]);
+  });
+
+  it('用量上限的错误带 turnId 与 usageLimit；自动继续排上、发出之后卡片记下时刻，继续消息仍在消息里', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('engine.error', {
+      category: 'provider',
+      message: "You've hit your usage limit.",
+      turnId: TURN,
+      fatal: false,
+      usageLimit: { resetsAt: '2026-10-13T13:00:00.000Z', windowMinutes: 300 },
+    });
+    add('turn.finished', { turnId: TURN, outcome: 'failed', durationMs: 10 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    add('session.auto_continue', { turnId: TURN, resumeAt: '2026-10-13T13:00:30.000Z' });
+    let transcript = projectTranscript(list);
+    expect(transcript.autoContinue).toEqual({ turnId: TURN, resumeAt: '2026-10-13T13:00:30.000Z' });
+    expect(assistantParts(list)).toEqual([
+      {
+        type: 'error',
+        key: 'e:5',
+        category: 'provider',
+        message: "You've hit your usage limit.",
+        fatal: false,
+        turnId: TURN,
+        usageLimit: { resetsAt: '2026-10-13T13:00:00.000Z', windowMinutes: 300 },
+      },
+    ]);
+
+    const resumed = add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: 'I hit my usage limit…' }],
+      sentBy: identity,
+      from: { sessionId: SES, kind: 'report', usageLimit: { turnId: TURN } },
+    });
+    add('turn.started', { turnId: TURN2 });
+    transcript = projectTranscript(list);
+    expect(transcript.autoContinue).toBeUndefined();
+    expect(
+      transcript.messages.find((m) => m.role === 'assistant' && m.turnId === TURN)?.parts[0],
+    ).toMatchObject({ type: 'error', resumedAt: resumed.ts });
+    expect(transcript.messages.find((m) => m.role === 'user' && m.turnId === TURN2)).toMatchObject({
+      role: 'user',
+      from: { usageLimit: { turnId: TURN } },
+    });
+  });
+
+  it('会话：auto_continue 打开、关掉，新的回合开始时去掉', () => {
+    const base = { id: SES, lastSeq: 0 } as Session;
+    const event = <T extends WevirEventType>(seq: number, type: T, payload: WevirEventPayload<T>) =>
+      ({
+        seq,
+        sessionId: SES,
+        ts: '2026-10-13T08:00:00.000Z',
+        type,
+        source: 'host',
+        payload,
+      }) as WevirEventOf<T>;
+    const on = applySessionEvent(
+      base,
+      event(1, 'session.auto_continue', { turnId: TURN, resumeAt: '2026-10-13T13:00:30.000Z' }),
+    );
+    expect(on.autoContinue).toEqual({ turnId: TURN, resumeAt: '2026-10-13T13:00:30.000Z' });
+    expect(
+      applySessionEvent(on, event(2, 'session.auto_continue', { turnId: TURN, resumeAt: null }))
+        .autoContinue,
+    ).toBeUndefined();
+    expect(applySessionEvent(on, event(2, 'turn.started', { turnId: TURN2 })).autoContinue).toBe(
+      undefined,
+    );
+  });
+});

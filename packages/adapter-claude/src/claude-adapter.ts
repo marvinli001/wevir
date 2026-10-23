@@ -85,7 +85,7 @@ import {
   todoWriteItems,
 } from './todos.js';
 import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
-import { isAbortedResult, resultFailure } from './turn-result.js';
+import { isAbortedResult, rejectedUsageLimit, resultFailure, retryingOf } from './turn-result.js';
 import { type ClaudeRequest, claudeUsageRecord, mergeClaudeUsage } from './usage-record.js';
 
 /** `cancel` 等回合结算的时限；超过就关掉进程（照样算取消成功，进程没了回合必然已停）。 */
@@ -258,6 +258,8 @@ interface Turn {
   /** 用户选了“拒绝并停止”：回合随后的中断按取消结算。 */
   stoppedByUser: boolean;
   authFailed: boolean;
+  /** 回合里被拒的 `rate_limit_event`（0.119.0）：账号的用量到了上限，回合失败时报 `usageLimit`。 */
+  usageLimit?: NonNullable<TurnFailedEvent['usageLimit']>;
   steers: Array<{ steerId: string; uuid: string; folded: boolean; dropped?: boolean }>;
   /** 插话还没进回合时到的结果：等插话那一轮结束（或插话被 Claude 丢掉）再结算。 */
   deferredResult?: SDKResultMessage;
@@ -1574,9 +1576,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         this.#flushRequest(session);
         this.#result(session, message);
         return;
-      case 'rate_limit_event':
+      case 'rate_limit_event': {
         this.accounts.applyRateLimit(message.rate_limit_info);
+        const limit = rejectedUsageLimit(message.rate_limit_info);
+        if (limit !== undefined && session.turn !== undefined) session.turn.usageLimit = limit;
         return;
+      }
       case 'system':
         if (message.subtype === 'init') {
           if (message.permissionMode !== live.applied.mode) {
@@ -1621,15 +1626,20 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           this.#compacted(session, message);
           return;
         }
-        if (message.subtype === 'api_retry') this.#flushRequest(session);
-        if (message.subtype === 'api_retry' && session.stream !== undefined) {
-          session.hub.emit({
-            type: 'assistant.stream_ended',
-            engineSessionId: session.id,
-            attemptId: session.stream.attemptId,
-            outcome: 'abandoned',
-          });
-          session.stream = undefined;
+        if (message.subtype === 'api_retry') {
+          this.#flushRequest(session);
+          if (session.stream !== undefined) {
+            session.hub.emit({
+              type: 'assistant.stream_ended',
+              engineSessionId: session.id,
+              attemptId: session.stream.attemptId,
+              outcome: 'abandoned',
+            });
+            session.stream = undefined;
+          }
+          if (session.turn !== undefined) {
+            session.hub.emit({ engineSessionId: session.id, ...retryingOf(message) });
+          }
           return;
         }
         break;
@@ -2123,7 +2133,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       });
       return;
     }
-    const failure = resultFailure(message, turn.authFailed);
+    const failure = resultFailure(message, turn.authFailed, turn.usageLimit);
     if (failure !== undefined) {
       this.#settle(session, turn, { type: 'turn.failed', ...failure });
       return;

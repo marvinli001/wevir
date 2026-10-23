@@ -46,6 +46,13 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       if (event.payload.goal === null) delete next.goal;
       else next.goal = event.payload.goal;
       break;
+    case 'session.auto_continue': {
+      // 0.119.0：额度恢复后自动继续；关掉时去掉，新的回合开始时也去掉（见 `turn.started`）。
+      const { turnId, resumeAt } = event.payload;
+      if (resumeAt === null) delete next.autoContinue;
+      else next.autoContinue = { turnId, resumeAt };
+      break;
+    }
     case 'question.requested':
       next.awaitingInput = true;
       break;
@@ -114,6 +121,7 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       break;
     case 'turn.started':
       next.activeTurn = { turnId: event.payload.turnId, startedAt: event.ts };
+      delete next.autoContinue;
       if (session.subagent !== undefined) {
         const { endedAt: _ended, ...rest } = session.subagent;
         next.subagent = { ...rest, status: 'running' };

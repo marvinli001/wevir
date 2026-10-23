@@ -2115,6 +2115,10 @@ export const eventPayloads: PayloadSamples = {
     valid: { goal: sessionGoal },
     invalid: { goal: { ...sessionGoal, status: 'running' } },
   },
+  'session.auto_continue': {
+    valid: { turnId: ids.turn, resumeAt: TS2 },
+    invalid: { turnId: ids.turn },
+  },
   'session.title_changed': {
     valid: { title: '整理本周周报', source: 'first_prompt' },
     invalid: { title: '整理本周周报', source: 'engine' },
@@ -2142,6 +2146,16 @@ export const eventPayloads: PayloadSamples = {
   'turn.started': {
     valid: { turnId: ids.turn, trigger: 'goal' },
     invalid: { turnId: ids.turn, trigger: 'plan' },
+  },
+  'turn.retrying': {
+    valid: {
+      turnId: ids.turn,
+      attempt: 2,
+      maxAttempts: 5,
+      reason:
+        'stream disconnected before completion: websocket closed by server before response.completed',
+    },
+    invalid: { turnId: ids.turn, attempt: 0 },
   },
   'turn.finished': {
     valid: {
@@ -5143,6 +5157,31 @@ export const methodSamples: MethodSamples = {
   'session.clearGoal': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
     result: { valid: [{ cleared: true }, { cleared: false }], invalid: [{}] },
+  },
+  'session.setAutoContinue': {
+    params: {
+      valid: [
+        { sessionId: ids.session, turnId: ids.turn, enabled: true },
+        { sessionId: ids.session, turnId: ids.turn, enabled: false },
+      ],
+      invalid: [
+        { sessionId: ids.session, enabled: true },
+        { sessionId: ids.session, turnId: ids.turn },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          session: {
+            ...session,
+            state: 'idle',
+            activeTurn: undefined,
+            autoContinue: { turnId: ids.turn, resumeAt: TS2 },
+          },
+        },
+      ],
+      invalid: [{ session: { ...session, autoContinue: { turnId: ids.turn } } }],
+    },
   },
   'session.compact': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}, { sessionId: ids.turn }] },

@@ -90,6 +90,15 @@ export function echoImage(): Buffer {
   ]);
 }
 
+/** `hitlimit` 关键词：模拟的用量上限在多久之后重置（0.119.0）。 */
+export const ECHO_LIMIT_RESET_MS = 60_000;
+
+/** `reconnect` 关键词：重连几次、最多几次、断开的原因（照 Codex 的原文）。 */
+const ECHO_RETRIES = 3;
+const ECHO_MAX_RETRIES = 5;
+const ECHO_RETRY_REASON =
+  'stream disconnected before completion: websocket closed by server before response.completed';
+
 /** `plan` 关键词的清单（U20）。 */
 export const ECHO_PLAN = ['Read the relevant files', 'Make the change', 'Run the tests and report'];
 
@@ -210,6 +219,8 @@ interface ReplyBlock {
  * | `ask` | 向用户提两个问题（0.10.0：一个单选可填其他、一个多选），等 `respondToQuestion` 后在回复末尾写出回答 |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
+ * | `hitlimit` | 回合因订阅的 5 小时用量上限失败（`turn.failed` 带 `usageLimit`，`ECHO_LIMIT_RESET_MS` 后重置，0.119.0） |
+ * | `reconnect` | 回复前像 Codex 那样重连三次（`turn.retrying` 1/5 到 3/5，带断开原因，0.119.0） |
  * | `slow` | 回复的每个分片前多等九步，回合持续得久一些，测试插话与排队用（R11） |
  * | `compact` | 回复前像引擎自己压缩一次上下文（`context.compacting` → `context.compacted`，`auto`，0.24.0） |
  * | `plan` | 回合里带一份三步的清单（`todo.updated`，像 Codex 的计划）：开始时第一步进行中，工具与审批之后第二步、回复前第三步，回复完全部完成（U20） |
@@ -770,6 +781,32 @@ export class EchoAdapter implements AgentRuntimeAdapter {
           code: -32603,
         });
         return;
+      }
+      if (/hitlimit/i.test(text)) {
+        emit({
+          type: 'turn.failed',
+          engineSessionId,
+          category: 'provider',
+          message: "You've hit your usage limit. echo simulated the 5-hour limit.",
+          usageLimit: {
+            resetsAt: new Date(Date.now() + ECHO_LIMIT_RESET_MS).toISOString(),
+            windowMinutes: 300,
+          },
+        });
+        return;
+      }
+      if (/reconnect/i.test(text)) {
+        for (let attempt = 1; attempt <= ECHO_RETRIES; attempt += 1) {
+          emit({
+            type: 'turn.retrying',
+            engineSessionId,
+            attempt,
+            maxAttempts: ECHO_MAX_RETRIES,
+            reason: ECHO_RETRY_REASON,
+          });
+          // 每次重连等一会儿（默认步长下 0.6 秒），界面上看得到“正在重新连接”。
+          await this.#step(signal, Math.max(this.#stepDelayMs, 1) * 300 * slowSteps);
+        }
       }
 
       const subagent = session.parentId === undefined && /subagent/i.test(text);

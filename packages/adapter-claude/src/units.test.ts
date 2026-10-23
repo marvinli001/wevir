@@ -26,7 +26,7 @@ import type { SDKResultMessage } from './sdk.js';
 import { recordedMessages } from './test-fixtures/fake-sdk.js';
 import { applyTaskTool, askUserQuestions, todoWriteItems } from './todos.js';
 import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
-import { isAbortedResult, resultFailure } from './turn-result.js';
+import { isAbortedResult, rejectedUsageLimit, resultFailure, retryingOf } from './turn-result.js';
 
 describe('找 claude', () => {
   const files = (list: string[]) => (path: string) => list.includes(path);
@@ -419,6 +419,52 @@ describe('回合结果（录音里的真实结果）', () => {
         false,
       ),
     ).toMatchObject({ category: 'unknown', message: 'Reached max turns' });
+  });
+
+  it('用量上限：被拒的 rate_limit_event 给出重置时刻与窗口，回合失败带 usageLimit；blocking_limit 也算', () => {
+    const limit = rejectedUsageLimit({
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      resetsAt: 1_792_000_000,
+      utilization: 1,
+    });
+    expect(limit).toEqual({ resetsAt: '2026-10-14T17:46:40.000Z', windowMinutes: 300 });
+    expect(rejectedUsageLimit({ status: 'allowed_warning', rateLimitType: 'five_hour' })).toBe(
+      undefined,
+    );
+    expect(rejectedUsageLimit({ status: 'rejected', rateLimitType: 'overage' })).toEqual({});
+    const base = resultOf('plain');
+    const limited = {
+      ...base,
+      is_error: true,
+      api_error_status: 429,
+      result: "You've hit your limit · resets 3pm",
+    } as SDKResultMessage;
+    expect(resultFailure(limited, false, limit)).toMatchObject({
+      category: 'provider',
+      usageLimit: limit,
+    });
+    expect(resultFailure(limited, false)).not.toHaveProperty('usageLimit');
+    expect(
+      resultFailure(
+        { ...base, is_error: true, terminal_reason: 'blocking_limit' } as SDKResultMessage,
+        false,
+      ),
+    ).toMatchObject({ category: 'provider', usageLimit: {} });
+  });
+
+  it('api_retry → turn.retrying：次数与原因（错误种类加状态码）', () => {
+    expect(
+      retryingOf({ attempt: 2, max_retries: 10, error: 'overloaded', error_status: 529 }),
+    ).toEqual({
+      type: 'turn.retrying',
+      attempt: 2,
+      maxAttempts: 10,
+      reason: 'overloaded (HTTP 529)',
+    });
+    expect(
+      retryingOf({ attempt: 1, max_retries: 0, error: 'server_error', error_status: null }),
+    ).toEqual({ type: 'turn.retrying', attempt: 1, reason: 'server_error' });
   });
 });
 

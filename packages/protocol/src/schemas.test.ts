@@ -124,6 +124,7 @@ import {
   RuleFileScopeSchema,
   SeqCursorSchema,
   SeqSchema,
+  SessionAutoContinueSchema,
   SessionCommandSchema,
   SessionCustomInstructionsSchema,
   SessionEngineSchema,
@@ -181,6 +182,7 @@ import {
   UsageFilterSchema,
   UsageGroupSchema,
   UsageItemSchema,
+  UsageLimitSchema,
   UsageModelAggregateSchema,
   UsagePriceSchema,
   UsagePricingSchema,
@@ -2633,6 +2635,21 @@ const standaloneCases: Case[] = [
     schema: GoalStatusSchema,
     valid: ['budget_limited', 'usage_limited'],
     invalid: ['budgetLimited', 'done'],
+  },
+  {
+    name: 'UsageLimit',
+    schema: UsageLimitSchema,
+    valid: [{}, { resetsAt: '2026-10-15T13:00:00.000Z', windowMinutes: 300 }],
+    invalid: [{ resetsAt: 'tomorrow' }, { windowMinutes: 0 }],
+  },
+  {
+    name: 'SessionAutoContinue',
+    schema: SessionAutoContinueSchema,
+    valid: [{ turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR', resumeAt: '2026-10-15T13:00:30.000Z' }],
+    invalid: [
+      { turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+      { resumeAt: '2026-10-15T13:00:30.000Z' },
+    ],
   },
   {
     name: 'SessionGoal',

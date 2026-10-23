@@ -16,6 +16,8 @@ import {
   type SessionSnapshot,
   type SuggestedTask,
   type TaskId,
+  type TurnId,
+  type UsageLimit,
   type WevirEvent,
   type WevirEventOf,
   type WevirEventPayload,
@@ -311,6 +313,13 @@ export class EventStore {
     const record = this.#storage.sessions.get(sessionId);
     if (!record) return undefined;
     return toSnapshot(record, this.#projection(sessionId));
+  }
+
+  /** 会话最近一个回合因用量上限失败（0.119.0）：回合与 `usageLimit`；之后有了新的回合、或会话不存在时为 `undefined`。 */
+  usageLimited(sessionId: SessionId): { turnId: TurnId; limit: UsageLimit } | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    const limited = this.#projection(sessionId).usageLimited;
+    return limited === undefined ? undefined : structuredClone(limited);
   }
 
   /** 一条待发消息（R11），含已到终态的；会话或消息不存在时为 `undefined`。 */

@@ -48,6 +48,7 @@ import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
 import { groupWork, isImageTool } from './tool-model';
+import { RetryRow, UsageLimitCard } from './usage-limit-card';
 import { WorkGroup } from './work-group';
 
 // 消息流里的一条消息（T5.3；U2 起由回合 turn-view.tsx 组织：助手消息里连续的思考与工具调用合成工作组，子智能体标记
@@ -64,6 +65,8 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.from?.process !== undefined) return <ProcessReport message={message} />;
   if (message.from?.repair !== undefined) return <RepairReport message={message} />;
   if (message.from?.opinion !== undefined) return <OpinionQuote message={message} />;
+  // 额度恢复后 Host 替用户发的继续消息（0.119.0）不显示：额度卡片上写着已自动继续。
+  if (message.from?.usageLimit !== undefined) return null;
   if (message.from?.kind === 'report') return <SessionReport message={message} />;
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
@@ -447,6 +450,15 @@ export function PartsView({
           case 'subagents':
             return <SubagentRow key={item.key} parts={item.parts} />;
           default:
+            if (item.part.type === 'retry') {
+              return (
+                <RetryRow
+                  key={item.part.key}
+                  part={item.part}
+                  active={tail && live !== undefined}
+                />
+              );
+            }
             return item.part.type === 'tool' && isImageTool(item.part) ? (
               <GeneratedImage key={item.part.key} part={item.part} turnActive={turnActive} />
             ) : (
@@ -507,6 +519,7 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
     case 'tool':
     case 'raw':
     case 'subagent':
+    case 'retry':
       return null;
   }
 });
@@ -615,6 +628,7 @@ function TodoList({ part }: { part: ChatPartOf<'todo'> }) {
 }
 
 function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
+  if (part.usageLimit !== undefined) return <UsageLimitCard part={part} />;
   const phala = part.category === 'provider' ? phalaErrorPresentation(part) : undefined;
   return (
     <div

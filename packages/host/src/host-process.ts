@@ -608,6 +608,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         if (providerId !== undefined) accounts?.usage.turnEnded(providerId);
       },
       onUsage: (context, event) => usageStats.record(context, event),
+      // 额度恢复后自动继续（0.119.0）：回合因用量上限失败时从账号最近的用量补重置时刻；账号 ID 就是 Provider ID。
+      autoContinue: {
+        account: (providerId) => accounts?.peek(providerId),
+        identity: { deviceId: hostId, clientId: 'wevir-auto-continue', clientKind: 'desktop' },
+      },
       // 审查发现（0.83.0）存成批注；没有批注功能时只记文字。
       reviewFindings: (sessionId, input) =>
         review === undefined
@@ -1289,6 +1294,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.compact !== undefined && { session_compact: true }),
         ...(adapter.review !== undefined && { session_review: true }),
         ...(adapter.startGoal !== undefined && { session_goals: true }),
+        usage_auto_continue: true,
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),

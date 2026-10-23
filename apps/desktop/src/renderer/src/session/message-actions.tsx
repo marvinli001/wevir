@@ -2,7 +2,7 @@
 // （撤回最后一个回合，改过的消息照常发出）。会话视图按 Host 与会话当前引擎的能力提供，子智能体详情与支线窗格里没有。
 
 import type { UserChatMessage } from '@wevir/client-sdk';
-import type { TurnId } from '@wevir/protocol';
+import type { SessionAutoContinue, TurnId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Pencil, Split } from 'lucide-react';
 import {
@@ -25,6 +25,15 @@ export interface MessageActions {
   editTurnId?: TurnId;
   /** 撤回那个回合、发出改过的消息；成功时 `true`（失败的提示由会话视图显示）。 */
   submitEdit?: (message: UserChatMessage, text: string) => Promise<boolean>;
+  /**
+   * 额度恢复后自动继续（0.119.0，Host 功能 `usage_auto_continue`）：`lastTurnId` 是会话空闲时的最后一个回合（只有它的额度卡片能勾），
+   * `armed` 是排着的自动继续，`set` 打开或关掉（失败的提示由会话视图显示）。Host 不支持、会话不可写时没有。
+   */
+  autoContinue?: {
+    lastTurnId?: TurnId;
+    armed?: SessionAutoContinue;
+    set(turnId: TurnId, enabled: boolean): Promise<void>;
+  };
 }
 
 const NO_ACTIONS: MessageActions = {};
