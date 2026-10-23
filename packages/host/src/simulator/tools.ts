@@ -224,7 +224,7 @@ function controlTool(
               device.udid,
               x !== undefined && y !== undefined ? { x, y } : undefined,
             );
-            return text(JSON.stringify(tree));
+            return text(formatAxTree(tree));
           }
           case 'logs':
             return await logs(service, device, args);
@@ -771,6 +771,52 @@ function names(devices: readonly SimulatorDevice[]): string {
 }
 
 /** 单引号包起来给 shell。 */
+/**
+ * helper 的无障碍树（`{root, count, truncated}`）写成一行一个元素、按层缩进：角色、名字、`#标识`、引用、点坐标与尺寸、值与状态，
+ * 比 JSON 省一大半 token。形状不认识时原样给 JSON。
+ */
+export function formatAxTree(tree: Record<string, unknown>): string {
+  const root = tree.root;
+  if (root === null || typeof root !== 'object') return JSON.stringify(tree);
+  const lines: string[] = [];
+  const walk = (node: Record<string, unknown>, depth: number) => {
+    const parts = [typeof node.role === 'string' ? node.role : 'Element'];
+    if (typeof node.label === 'string' && node.label !== '') parts.push(JSON.stringify(node.label));
+    if (typeof node.identifier === 'string' && node.identifier !== '') {
+      parts.push(`#${node.identifier}`);
+    }
+    if (typeof node.id === 'string') parts.push(node.id);
+    const frame = node.frame as Record<string, unknown> | undefined;
+    if (
+      typeof frame?.x === 'number' &&
+      typeof frame.y === 'number' &&
+      typeof frame.width === 'number' &&
+      typeof frame.height === 'number'
+    ) {
+      const r = Math.round;
+      parts.push(`(${r(frame.x)},${r(frame.y)} ${r(frame.width)}×${r(frame.height)})`);
+    }
+    if (node.value !== undefined && node.value !== null && node.value !== '') {
+      parts.push(`value=${JSON.stringify(node.value)}`);
+    }
+    if (node.enabled === false) parts.push('disabled');
+    if (node.focused === true) parts.push('focused');
+    lines.push(`${'  '.repeat(depth)}${parts.join(' ')}`);
+    const children = Array.isArray(node.children) ? node.children : [];
+    for (const child of children) {
+      if (child !== null && typeof child === 'object')
+        walk(child as Record<string, unknown>, depth + 1);
+    }
+  };
+  walk(root as Record<string, unknown>, 0);
+  const count = typeof tree.count === 'number' ? tree.count : lines.length;
+  lines.push(
+    `${count} elements${tree.truncated === true ? ' (truncated: describe_ui with x and y for one area)' : ''}. ` +
+      'Frames are (x,y width×height) in points; tap the center.',
+  );
+  return lines.join('\n');
+}
+
 export function shellQuote(value: string): string {
   return /^[A-Za-z0-9_./:=,@%+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }

@@ -23,6 +23,7 @@ import {
   SimulatorOrientationSchema,
   type SimulatorRecordingId,
   type SimulatorScreen,
+  SimulatorScreenSchema,
 } from '@wevir/protocol';
 import { newId } from '../ids.js';
 import { SimulatorError } from './errors.js';
@@ -67,6 +68,8 @@ export interface SimulatorServiceOptions {
   /** 默认 true；测试关掉。 */
   sandbox?: boolean;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+  /** helper 的 stderr（调试日志）。 */
+  onLog?: (line: string) => void;
   streamIdleMs?: number;
   helperIdleMs?: number;
   backlogBytes?: number;
@@ -368,7 +371,11 @@ export class SimulatorService {
         this.#described.delete(udid);
         const orientation = SimulatorOrientationSchema.safeParse(result.orientation);
         if (!orientation.success) return {};
-        this.#orientationChanged(udid, orientation.data);
+        const screen = SimulatorScreenSchema.safeParse(result.screen);
+        if (screen.success) {
+          this.#described.set(udid, { screen: screen.data, orientation: orientation.data });
+        }
+        this.#orientationChanged(udid, orientation.data, screen.success ? screen.data : undefined);
         return { orientation: orientation.data };
       }
       default:
@@ -769,8 +776,15 @@ export class SimulatorService {
       const udid = String(event.udid ?? '');
       const parsed = SimulatorOrientationSchema.safeParse(event.orientation);
       if (udid === '' || !parsed.success) return;
-      this.#described.delete(udid);
-      this.#orientationChanged(udid, parsed.data);
+      if (this.#orientations.get(udid) === parsed.data) return;
+      // 先记下方向（`rotate` 的回答随后到时不再重发），再带上转向后的点尺寸发通知；读不到尺寸时只发方向。
+      this.#orientations.set(udid, parsed.data);
+      if (this.#described.get(udid)?.orientation !== parsed.data) this.#described.delete(udid);
+      const orientation = parsed.data;
+      this.describe(udid).then(
+        (described) => this.#notifyOrientation(udid, orientation, described.screen),
+        () => this.#notifyOrientation(udid, orientation),
+      );
       return;
     }
     if (event.event === 'stream_ended') {
@@ -801,10 +815,25 @@ export class SimulatorService {
     }
   }
 
-  #orientationChanged(udid: string, orientation: SimulatorOrientation): void {
+  #orientationChanged(
+    udid: string,
+    orientation: SimulatorOrientation,
+    screen?: SimulatorScreen,
+  ): void {
     if (this.#orientations.get(udid) === orientation) return;
     this.#orientations.set(udid, orientation);
-    this.#notify({ method: 'simulator.orientation', params: { udid, orientation } });
+    this.#notifyOrientation(udid, orientation, screen);
+  }
+
+  #notifyOrientation(
+    udid: string,
+    orientation: SimulatorOrientation,
+    screen?: SimulatorScreen,
+  ): void {
+    this.#notify({
+      method: 'simulator.orientation',
+      params: { udid, orientation, ...(screen !== undefined && { screen }) },
+    });
   }
 
   #scheduleIdle(hub: Hub): void {
@@ -887,6 +916,7 @@ export class SimulatorService {
           onEvent: (event) => this.#event(event),
           onExit: (info) => this.#helperExited(helper, info),
           ...(this.#options.onWarning !== undefined && { onWarning: this.#options.onWarning }),
+          ...(this.#options.onLog !== undefined && { onLog: this.#options.onLog }),
         });
         this.#launching = helper;
         await helper.start().finally(() => {
@@ -907,7 +937,7 @@ export class SimulatorService {
 
   #helperExited(
     helper: SimulatorHelper,
-    info: { code: number | null; signal: string | null; expected: boolean },
+    info: { code: number | null; signal: string | null; expected: boolean; stderr: string[] },
   ): void {
     if (this.#helper === helper) this.#helper = undefined;
     this.#early.clear();
@@ -920,6 +950,7 @@ export class SimulatorService {
     this.#options.onWarning?.('ios simulator helper exited', {
       code: info.code,
       signal: info.signal,
+      stderr: info.stderr,
     });
     const now = Date.now();
     this.#crashes = [...this.#crashes.filter((at) => now - at < 60_000), now];
