@@ -16,6 +16,13 @@ export { bootstrapRenderer } from './bootstrap.js';
 export { BrandMark } from './components/brand-mark.js';
 export { StatusDot, type StatusTone } from './components/status-dot.js';
 export { Button } from './components/ui/button.js';
+export {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './components/ui/dialog.js';
 export { describeError } from './host/error-text.js';
 export { useHostConnection } from './host/host-connection.js';
 export { currentLocale } from './i18n/index.js';
@@ -30,3 +37,4 @@ export {
   type PlatformSlots,
   unsupportedPlatformApi,
 } from './platform/platform.js';
+export { Segmented } from './settings/settings-ui.js';
