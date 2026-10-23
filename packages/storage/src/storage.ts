@@ -6,6 +6,7 @@ import {
 } from './accounts.js';
 import { type ApprovalRuleRepository, createApprovalRuleRepository } from './approval-rules.js';
 import { type ApprovalRepository, createApprovalRepository } from './approvals.js';
+import { type ChannelRepository, createChannelRepository } from './channels.js';
 import { createDeviceRepository, type DeviceRepository } from './devices.js';
 import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
@@ -68,6 +69,8 @@ export interface Storage {
   readonly inbox: InboxRepository;
   /** 配对过的远程设备（0023_devices）。 */
   readonly devices: DeviceRepository;
+  /** 频道与助理：频道、帖子、线程、读过到哪与预算（0026_channels）。 */
+  readonly channels: ChannelRepository;
   /** 会话全文搜索的派生索引（协议 0.77.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
   readonly search: SearchRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
@@ -108,6 +111,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       tuningRuns: createTuningRunRepository(db),
       inbox: createInboxRepository(db),
       devices: createDeviceRepository(db),
+      channels: createChannelRepository(db),
       search: createSearchRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };

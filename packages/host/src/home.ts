@@ -27,6 +27,8 @@ export const HOME_LAYOUT = {
   webFile: 'web.json',
   /** 不在项目里的会话（0.39.0，chats.ts）：“对话”工作区，每个会话一个 `<会话 ID>/` 文件夹（0700）。 */
   chatsDir: 'chats',
+  /** 助理的隐藏工作区（0.120.0，channels/assistants.ts）：每个助理一个 `<频道 ID>/` 文件夹（0700）。 */
+  assistantsDir: 'assistants',
   /**
    * 应用级工具太长的结果与后台进程的日志（tool-output.ts、processes.ts），每个会话一个 `<会话 ID>/`（0700），七天后删；验证记录的完整
    * 输出（0.65.0）在 `<会话 ID>/verification/` 里。

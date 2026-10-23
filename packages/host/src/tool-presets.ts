@@ -51,6 +51,7 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
 const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['wevir_session_', 'sessions'],
   ['wevir_automation_', 'sessions'],
+  ['wevir_channel_', 'sessions'],
   ['wevir_task_', 'tasks'],
   ['wevir_memory_', 'memory'],
   ['wevir_writing_style_', 'memory'],

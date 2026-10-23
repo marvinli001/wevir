@@ -213,6 +213,7 @@ import {
   WorktreeArchiveReasonSchema,
   WorktreeModeSchema,
 } from './index.js';
+import * as samples from './test-samples.js';
 import {
   acceptance as acceptanceSample,
   agentProcess,
@@ -329,6 +330,156 @@ interface Case {
 }
 
 const standaloneCases: Case[] = [
+  {
+    name: 'ChannelId',
+    schema: protocol.ChannelIdSchema,
+    valid: ['chn_01JA2B3C4D5E6F7G8H9JKMNPQR'],
+    invalid: ['chn_', 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR'],
+  },
+  {
+    name: 'ChannelPostId',
+    schema: protocol.ChannelPostIdSchema,
+    valid: ['cpo_01JA2B3C4D5E6F7G8H9JKMNPQR'],
+    invalid: ['cpo-1'],
+  },
+  {
+    name: 'SessionChannel',
+    schema: protocol.SessionChannelSchema,
+    valid: [
+      { channelId: samples.ids.channel, role: 'coordinator' },
+      { channelId: samples.ids.channel, role: 'thread' },
+    ],
+    invalid: [{ channelId: samples.ids.channel, role: 'member' }, { role: 'thread' }],
+  },
+  {
+    name: 'AssistantAvatar',
+    schema: protocol.AssistantAvatarSchema,
+    valid: [
+      { type: 'pebble', color: 0, seed: 0 },
+      { type: 'cloud', color: 5, seed: 1 },
+    ],
+    invalid: [
+      { type: 'pebble', color: 6, seed: 0 },
+      { type: 'cat', color: 0, seed: 0.5 },
+    ],
+  },
+  {
+    name: 'AssistantRuleTier',
+    schema: protocol.AssistantRuleTierSchema,
+    valid: ['do', 'tell', 'ask', 'hand_off'],
+    invalid: ['never'],
+  },
+  {
+    name: 'AssistantRuleCategory',
+    schema: protocol.AssistantRuleCategorySchema,
+    valid: [...protocol.ASSISTANT_RULE_CATEGORIES],
+    invalid: ['transfers'],
+  },
+  {
+    name: 'AssistantRules',
+    schema: protocol.AssistantRulesSchema,
+    valid: [{}, { ...protocol.DEFAULT_ASSISTANT_RULES }, { calendar: 'do' }],
+    invalid: [{ messages: 'never' }, { '': 'do' }],
+  },
+  {
+    name: 'Assistant',
+    schema: protocol.AssistantSchema,
+    valid: [samples.channelSample.assistant],
+    invalid: [{ ...samples.channelSample.assistant, folders: Array(8).fill('/x') }],
+  },
+  {
+    name: 'ChannelKind',
+    schema: protocol.ChannelKindSchema,
+    valid: ['project', 'assistant'],
+    invalid: ['team'],
+  },
+  {
+    name: 'ChannelMode',
+    schema: protocol.ChannelModeSchema,
+    valid: ['route', 'act'],
+    invalid: [''],
+  },
+  {
+    name: 'ChannelCoordinator',
+    schema: protocol.ChannelCoordinatorSchema,
+    valid: [
+      samples.channelSample.coordinator,
+      { providerId: 'openai', mode: 'route', generation: 1 },
+    ],
+    invalid: [{ providerId: 'openai', mode: 'act', generation: 0 }],
+  },
+  {
+    name: 'ChannelBudget',
+    schema: protocol.ChannelBudgetSchema,
+    valid: [protocol.DEFAULT_ASSISTANT_BUDGET],
+    invalid: [{ dailyWakes: 1, dailyTokens: 10 }],
+  },
+  {
+    name: 'ChannelUsage',
+    schema: protocol.ChannelUsageSchema,
+    valid: [{ day: '2026-10-12', wakes: 0, tokens: 0 }],
+    invalid: [{ day: '12/10', wakes: 0, tokens: 0 }],
+  },
+  {
+    name: 'ChannelState',
+    schema: protocol.ChannelStateSchema,
+    valid: ['idle', 'working', 'waiting', 'paused'],
+    invalid: ['busy'],
+  },
+  {
+    name: 'ChannelLastPost',
+    schema: protocol.ChannelLastPostSchema,
+    valid: [samples.channelSample.lastPost],
+    invalid: [{ seq: 0, author: 'user', preview: '', at: samples.TS }],
+  },
+  {
+    name: 'Channel',
+    schema: protocol.ChannelSchema,
+    valid: [samples.channelSample],
+    invalid: [{ ...samples.channelSample, lastPostSeq: -1 }],
+  },
+  {
+    name: 'ChannelPostAuthor',
+    schema: protocol.ChannelPostAuthorSchema,
+    valid: [{ kind: 'user' }, { kind: 'host' }, samples.channelCoordinatorPost.author],
+    invalid: [{ kind: 'coordinator' }],
+  },
+  {
+    name: 'ChannelNeed',
+    schema: protocol.ChannelNeedSchema,
+    valid: [{ kind: 'login', label: 'GitHub', ready: false, detail: '内置浏览器' }],
+    invalid: [{ kind: 'login', label: '', ready: false }],
+  },
+  {
+    name: 'ChannelBriefItem',
+    schema: protocol.ChannelBriefItemSchema,
+    valid: [{ title: '回复房东' }, { title: '整理发票', sessionId: samples.ids.session }],
+    invalid: [{ title: '' }],
+  },
+  {
+    name: 'ChannelCard',
+    schema: protocol.ChannelCardSchema,
+    valid: [{ kind: 'notice', reason: 'resumed' }, samples.channelCoordinatorPost.card],
+    invalid: [{ kind: 'notice', reason: 'tired' }],
+  },
+  {
+    name: 'ChannelPost',
+    schema: protocol.ChannelPostSchema,
+    valid: [samples.channelUserPost, samples.channelCoordinatorPost],
+    invalid: [{ ...samples.channelUserPost, seq: 0 }],
+  },
+  {
+    name: 'ChannelThreadStatus',
+    schema: protocol.ChannelThreadStatusSchema,
+    valid: ['resolved', 'waiting', 'working', 'failed', 'replied', 'idle'],
+    invalid: ['done'],
+  },
+  {
+    name: 'ChannelThread',
+    schema: protocol.ChannelThreadSchema,
+    valid: [samples.channelThread],
+    invalid: [{ ...samples.channelThread, replyCount: -1 }],
+  },
   {
     name: 'AutomationId',
     schema: protocol.AutomationIdSchema,

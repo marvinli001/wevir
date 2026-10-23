@@ -94,6 +94,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': 'Сбой распознавания',
   'rpcError.MCP_OAUTH_FAILED': 'Не удалось войти',
   'rpcError.PUSH_GATEWAY_ERROR': 'Не удалось зарегистрировать push',
+  'rpcError.CHANNEL_NOT_FOUND': 'Ассистент не найден',
 
   'clientError.request_timeout': 'Время ожидания запроса истекло',
   'clientError.connect_timeout': 'Время ожидания подключения истекло',

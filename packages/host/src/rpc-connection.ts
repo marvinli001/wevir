@@ -48,6 +48,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import type { RawData } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
+import type { ChannelService } from './channels/service.js';
 import type { ComputerBroker } from './computer-broker.js';
 import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
@@ -106,6 +107,11 @@ export interface ConnectionHost {
   readonly sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接用它收 `inbox.changed`。 */
   readonly inbox?: Pick<InboxService, 'watch'>;
+  /**
+   * 频道（0.120.0）：调过 `channel.list` 的连接收 `channels.changed`；`channel.subscribe` 登记在这条连接上，收 `channel.posted` 与
+   * `channel.updated`。
+   */
+  readonly channels?: Pick<ChannelService, 'watch' | 'subscribe' | 'posts'>;
   /** 远程设备与配对（0.107.0）：调过 `device.*` 或 `pairing.*` 的连接用它收 `devices.changed`、`pairing.request`、`pairing.ended`。 */
   readonly remote?: {
     readonly devices: Pick<DeviceService, 'watch'>;
@@ -278,6 +284,10 @@ export class RpcConnection {
   #unwatchSessionList: (() => void) | undefined;
   /** 调过 `inbox.*` 之后：退订 `inbox.changed`。 */
   #unwatchInbox: (() => void) | undefined;
+  /** 调过 `channel.list` 之后：退订 `channels.changed`。 */
+  #unwatchChannels: (() => void) | undefined;
+  /** `channel.subscribe` 的订阅：订阅 ID → 退订。 */
+  readonly #channelSubscriptions = new Map<string, () => void>();
   /** 调过 `device.*` 或 `pairing.*` 之后：退订设备与配对的通知。 */
   #unwatchRemote: (() => void) | undefined;
   /** `notification.subscribe` 之后：退订 `notification.intent`。 */
@@ -586,6 +596,16 @@ export class RpcConnection {
         this.#respond(id, method, {});
         return;
       }
+      case 'channel.subscribe':
+        this.#subscribeChannel(id, params as MethodParams<'channel.subscribe'>);
+        return;
+      case 'channel.unsubscribe': {
+        const { subscriptionId } = params as MethodParams<'channel.unsubscribe'>;
+        this.#channelSubscriptions.get(subscriptionId)?.();
+        this.#channelSubscriptions.delete(subscriptionId);
+        this.#respond(id, method, {});
+        return;
+      }
       case 'notification.subscribe':
         if (this.#respond(id, method, {})) this.#watchNotifications();
         return;
@@ -727,6 +747,7 @@ export class RpcConnection {
           );
         }
         if (method.startsWith('inbox.')) this.#watchInbox();
+        if (sent && method === 'channel.list') this.#watchChannels();
         if (/^(device|pairing|remote)\./.test(method)) this.#watchRemote();
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
@@ -1056,6 +1077,67 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `channel.list` 的连接之后收 `channels.changed`（0.120.0），连接关闭即止。 */
+  #watchChannels(): void {
+    if (this.#unwatchChannels !== undefined || this.#host.channels === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchChannels = this.#host.channels.watch((change) => {
+      this.#notifyChecked('channels.changed', change);
+    });
+  }
+
+  /**
+   * `channel.subscribe`（0.120.0）：登记、发出响应、补发 `afterSeq` 之后的帖子，三步在同一个同步段里，中间插不进新帖；之后的新帖与变化
+   * 照常推送。
+   */
+  #subscribeChannel(id: JsonRpcId, params: MethodParams<'channel.subscribe'>): void {
+    const channels = this.#host.channels;
+    if (channels === undefined)
+      throw new HostError('INVALID_PARAMS', 'this host has no channels', { issues: [] });
+    const subscriptionId = newId('sub');
+    const { lastSeq, unsubscribe } = channels.subscribe(params.channelId, undefined, (message) => {
+      if (message.kind === 'posted') {
+        this.#notifyChecked('channel.posted', { subscriptionId, post: message.post });
+      } else {
+        this.#notifyChecked('channel.updated', { subscriptionId, ...message.update });
+      }
+    });
+    this.#channelSubscriptions.set(subscriptionId, unsubscribe);
+    if (!this.#respond(id, 'channel.subscribe', { subscriptionId, lastSeq })) {
+      unsubscribe();
+      this.#channelSubscriptions.delete(subscriptionId);
+      return;
+    }
+    if (params.afterSeq === undefined) return;
+    let cursor = params.afterSeq;
+    while (cursor < lastSeq) {
+      const { posts } = channels.posts({
+        channelId: params.channelId,
+        afterSeq: cursor,
+        limit: 200,
+      });
+      if (posts.length === 0) break;
+      for (const post of posts) {
+        if (post.seq > lastSeq) return;
+        cursor = post.seq;
+        this.#notifyChecked('channel.posted', { subscriptionId, post });
+      }
+    }
+  }
+
+  /** 按通知的 schema 校验后发出；不合 schema 时交给 `onError`，不发。 */
+  #notifyChecked<N extends 'channels.changed' | 'channel.posted' | 'channel.updated'>(
+    name: N,
+    params: NotificationParams<N>,
+  ): void {
+    const parsed = NotificationSchemas[name].params.safeParse(params);
+    if (!parsed.success) {
+      this.#host.onError(new Error(`${name} does not match its schema: ${parsed.error}`));
+      return;
+    }
+    this.#notify(name, parsed.data as NotificationParams<N>);
+  }
+
   /** 调过 `automation.*` 的连接之后收 `automation.changed`（0.66.0），连接关闭即止。 */
   #watchAutomations(): void {
     if (this.#unwatchAutomations !== undefined || this.#host.automations === undefined) return;
@@ -1367,6 +1449,10 @@ export class RpcConnection {
     this.#unwatchSessionList = undefined;
     this.#unwatchInbox?.();
     this.#unwatchInbox = undefined;
+    this.#unwatchChannels?.();
+    this.#unwatchChannels = undefined;
+    for (const unsubscribe of this.#channelSubscriptions.values()) unsubscribe();
+    this.#channelSubscriptions.clear();
     this.#unwatchRemote?.();
     this.#unwatchRemote = undefined;
     this.#unwatchNotifications?.();

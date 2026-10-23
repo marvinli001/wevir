@@ -347,7 +347,7 @@ export class TaskBoardStore {
     const names = await readdir(this.#dir).catch(() => [] as string[]);
     let removed = 0;
     for (const name of names) {
-      const match = /^(ses_[A-Za-z0-9]+)\.json$/.exec(name);
+      const match = /^((?:ses|chn)_[A-Za-z0-9]+)\.json$/.exec(name);
       if (match === null || exists(match[1] as string)) continue;
       await rm(join(this.#dir, name), { force: true }).catch(() => undefined);
       removed += 1;
@@ -356,7 +356,9 @@ export class TaskBoardStore {
   }
 
   #file(root: SessionId): string {
-    if (!/^ses_[A-Za-z0-9]+$/.test(root)) throw new TaskBoardError('invalid', 'bad session id');
+    // 根是会话，或频道（0.120.0：频道里的会话共用频道的清单）。
+    if (!/^(?:ses|chn)_[A-Za-z0-9]+$/.test(root))
+      throw new TaskBoardError('invalid', 'bad session id');
     return join(this.#dir, `${root}.json`);
   }
 

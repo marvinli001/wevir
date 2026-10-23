@@ -5,6 +5,7 @@ import {
   ApprovalRuleIdSchema,
   AutomationIdSchema,
   AutomationRunIdSchema,
+  ChannelIdSchema,
   ClientIdentitySchema,
   EnvironmentIdSchema,
   ImageIdSchema,
@@ -37,9 +38,10 @@ import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
 
 /**
  * 工作区的种类（0.39.0，domain-model §3.1）：`chats` 是 Host 自己的“对话”工作区，放不在项目里的会话，每个会话在它下面有自己的
- * 文件夹（`<数据目录>/chats/<会话 ID>`）。省略表示用户添加的项目。
+ * 文件夹（`<数据目录>/chats/<会话 ID>`）。`assistant`（0.120.0）是一个助理的隐藏工作区 `<数据目录>/assistants/<频道 ID>`，不出现在
+ * `workspace.list` 里。省略表示用户添加的项目。
  */
-export const WorkspaceKindSchema = z.enum(['chats']);
+export const WorkspaceKindSchema = z.enum(['chats', 'assistant']);
 export type WorkspaceKind = z.infer<typeof WorkspaceKindSchema>;
 
 /** 项目除 `rootPath` 外最多几个源文件夹（0.64.0）：加上主文件夹共 8 个，同环境的文件夹上限。 */
@@ -961,6 +963,11 @@ export const MessageFromSchema = z.object({
    * 会话自己（旧客户端照回报显示）；新客户端不显示这条消息。
    */
   usageLimit: z.object({ turnId: TurnIdSchema }).optional(),
+  /**
+   * 频道（0.120.0，ADR-0020）：`wake` 是 Host 交给协调者的唤醒信封（`kind` 是 `report`、`sessionId` 是协调者自己）；`relay` 是协调者
+   * 转给线程的用户帖子（`kind` 是 `message`、`sessionId` 是协调者）。旧客户端照会话间消息显示。
+   */
+  channel: z.object({ channelId: ChannelIdSchema, kind: z.enum(['wake', 'relay']) }).optional(),
 });
 export type MessageFrom = z.infer<typeof MessageFromSchema>;
 
@@ -1845,6 +1852,16 @@ export const SessionAutomationSchema = z.object({
 });
 export type SessionAutomation = z.infer<typeof SessionAutomationSchema>;
 
+/**
+ * 频道里的会话（0.120.0，ADR-0020）：`coordinator` 是频道常驻的协调者（各班），`thread` 是频道开出的线程。两者都不出现在不带
+ * `channelId` 的 `session.list` 与 `sessions.changed` 里。
+ */
+export const SessionChannelSchema = z.object({
+  channelId: ChannelIdSchema,
+  role: z.enum(['coordinator', 'thread']),
+});
+export type SessionChannel = z.infer<typeof SessionChannelSchema>;
+
 /** 会话是怎么来的（0.16.0）：现在只有“从一项建议开出来”。 */
 export const SessionOriginSchema = z.object({
   kind: z.literal('suggested_task'),
@@ -2009,6 +2026,8 @@ export const SessionSchema = z.object({
   automation: SessionAutomationSchema.optional(),
   /** 工具预设（0.61.0，Host 功能 `tool_presets`）；省略表示没选，等同 `full`。子会话不带，沿用父会话的。 */
   toolPreset: ToolPresetSchema.optional(),
+  /** 频道里的会话（0.120.0，Host 功能 `channels`）。 */
+  channel: SessionChannelSchema.optional(),
   /** 支线会话（0.17.0，domain-model §3.12）。 */
   ...SessionSideFields,
   createdAt: IsoTimeSchema,

@@ -57,6 +57,13 @@ import {
 } from './browser-batch.js';
 import type { BrowserBroker } from './browser-broker.js';
 import { browserToolResult, browserTools, callerCwd, httpUrl } from './browser-tools.js';
+import type { ChannelService } from './channels/service.js';
+import {
+  CHANNEL_THREAD_INSTRUCTIONS,
+  channelCoordinatorInstructions,
+  channelToolAllowed,
+  channelTools,
+} from './channels/tools.js';
 import { COMPUTER_TOOLS, type ComputerToolsOptions, computerTools } from './computer-tools.js';
 import { isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
@@ -215,6 +222,8 @@ export interface AppToolsOptions {
   tasks?: TaskBoardStore;
   /** 自动化（0.66.0）：有它时加上 `wevir_automation*`，自动化开的会话的说明里多一段运行须知。 */
   automations?: AutomationService;
+  /** 频道与助理（0.120.0）：有它时加上 `wevir_channel_*`（只有频道里的会话看得到），助理的任务清单只有用户能标完成。 */
+  channels?: ChannelService;
   /** 任务回顾（0.76.0）：有它时加上 `wevir_session_retro`。 */
   retro?: RetroService;
   /** 会话全文搜索（0.77.0）：有它时加上 `wevir_session_search`，只搜调用方所在的项目。 */
@@ -282,6 +291,9 @@ export class AppTools {
             tasks: options.tasks,
             rootOf: (sessionId) => this.#boardRoot(sessionId),
             ownerCheck: (root, owner) => this.#boardMember(root, owner),
+            ...(options.channels !== undefined && {
+              userCompletes: (root: SessionId) => options.channels?.isAssistantRoot(root) === true,
+            }),
             describeOwner: (sessionId) => {
               const session = options.events.snapshot(sessionId)?.session;
               return session === undefined
@@ -361,6 +373,7 @@ export class AppTools {
             }),
           ]),
       ...(options.computer === undefined ? [] : computerTools(options.computer)),
+      ...(options.channels === undefined ? [] : channelTools({ channels: options.channels })),
       ...(options.automations === undefined
         ? []
         : automationTools({
@@ -1781,8 +1794,10 @@ export class AppTools {
    * 调用方的会话（或工作区）不在了时拒绝。
    */
   #boardRoot(sessionId: SessionId): SessionId {
-    this.#callerRecord(sessionId);
+    const caller = this.#callerRecord(sessionId);
     const { storage } = this.#options;
+    // 频道里的会话（协调者与线程）共用频道的清单，根是频道 ID。
+    if (caller.origin?.kind === 'channel') return caller.origin.channelId as unknown as SessionId;
     const seen = new Set<string>();
     let current: string = sessionId;
     while (!seen.has(current)) {
@@ -1873,11 +1888,26 @@ export class AppTools {
               !(computerOff && (COMPUTER_TOOLS as readonly string[]).includes(tool.name)),
           )
         : tools;
+    // 调用方不明时不限（同角色与预设）；频道工具只给频道里的会话（channels/tools.ts）。
     if (sessionId === undefined) return allowed;
-    return toolsAllowed(allowed, {
+    const channelRole = this.#channelRole(sessionId);
+    const inChannel = allowed.some((tool) => !channelToolAllowed(tool.name, channelRole))
+      ? allowed.filter((tool) => channelToolAllowed(tool.name, channelRole))
+      : allowed;
+    return toolsAllowed(inChannel, {
       role: await this.#roleOf(sessionId),
       preset: this.#options.sessions.toolPresetOf(sessionId),
     });
+  }
+
+  /** 会话在频道里的角色（正在建的会话看它将要写进去的 origin）；不在频道里时 `undefined`。 */
+  #channelRole(sessionId: SessionId): 'coordinator' | 'thread' | undefined {
+    if (this.#options.channels === undefined) return undefined;
+    const origin = (
+      this.#options.storage.sessions.get(sessionId) ?? this.#options.sessions.creating(sessionId)
+    )?.origin;
+    if (origin?.kind !== 'channel') return undefined;
+    return origin.channelRole === 'thread' ? 'thread' : 'coordinator';
   }
 
   /**
@@ -1941,9 +1971,17 @@ export class AppTools {
       origin?.kind === 'automation' && sessionId !== undefined
         ? this.#options.automations?.automationOfSession(sessionId)
         : undefined;
-    return automation === undefined
-      ? base
-      : `${base}\n${automationRunInstructions(automation, AUTOMATION_QUIET_MARKER)}`;
+    if (automation !== undefined) {
+      return `${base}\n${automationRunInstructions(automation, AUTOMATION_QUIET_MARKER)}`;
+    }
+    // 频道里的会话（0.120.0）：协调者与线程各加一段。
+    const channelRole = sessionId === undefined ? undefined : this.#channelRole(sessionId);
+    if (channelRole === 'thread') return `${base}\n${CHANNEL_THREAD_INSTRUCTIONS}`;
+    if (channelRole === 'coordinator' && sessionId !== undefined) {
+      const kind = this.#options.channels?.channelOf(sessionId)?.channel.kind ?? 'assistant';
+      return `${base}\n${channelCoordinatorInstructions(kind)}`;
+    }
+    return base;
   }
 
   #describe(session: Session, callerId: SessionId): Record<string, unknown> {

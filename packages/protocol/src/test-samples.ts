@@ -4,6 +4,7 @@
 import type { ApprovalRule } from './approval-rules.js';
 import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
+import type { Channel, ChannelPost, ChannelThread } from './channels.js';
 import type { ClientIdentity } from './common.js';
 import type { Device, PairingOffer, RemoteStatus } from './devices.js';
 import type {
@@ -136,6 +137,11 @@ export const ids = {
   device: `dev_${ULID}`,
   pairing: `prg_${ULID}`,
   pairingRequest: `prq_${ULID}`,
+  /** 频道与帖子（0.120.0）。 */
+  channel: `chn_${ULID}`,
+  channelPost: `cpo_${ULID}`,
+  channelPost2: 'cpo_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  coordinator: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR7',
 } as const;
 
 /** 32 字节的 base64url（0.107.0）：公钥与配对秘密的样本。 */
@@ -2935,6 +2941,110 @@ export const marketIndex: WevirMarketIndex = {
       files: [{ path: 'wevir-plugin.json', size: 300, sha256: 'f'.repeat(64) }],
       digest: '0'.repeat(64),
     },
+  ],
+};
+
+/** 一个助理（0.120.0）。 */
+export const channelSample: Channel = {
+  id: ids.channel,
+  kind: 'assistant',
+  workspaceId: ids.workspace,
+  title: '收件箱',
+  assistant: {
+    description: '每天整理邮件，挑出要回的',
+    avatar: { type: 'clover', color: 2, seed: 0.42 },
+    rules: { messages: 'ask', local_files: 'tell' },
+    folders: [],
+  },
+  coordinator: {
+    providerId: 'openai',
+    modelId: 'gpt-5.5-mini',
+    mode: 'act',
+    sessionId: ids.coordinator,
+    generation: 1,
+  },
+  budget: { dailyWakes: 20, dailyTokens: 200_000 },
+  usage: { day: '2026-10-12', wakes: 3, tokens: 41_200 },
+  state: 'waiting',
+  pendingCount: 1,
+  lastPostSeq: 4,
+  lastPost: { seq: 4, author: 'coordinator', preview: '两封要回，草稿已备好。', at: TS2 },
+  unreadCount: 2,
+  createdAt: TS,
+  updatedAt: TS2,
+};
+
+export const channelUserPost: ChannelPost = {
+  id: ids.channelPost,
+  channelId: ids.channel,
+  seq: 3,
+  author: { kind: 'user' },
+  content: [{ type: 'text', text: '今天有什么要回的？' }],
+  clientPostId: 'cp-1',
+  createdAt: TS,
+};
+
+export const channelCoordinatorPost: ChannelPost = {
+  id: ids.channelPost2,
+  channelId: ids.channel,
+  seq: 4,
+  author: { kind: 'coordinator', sessionId: ids.coordinator, generation: 1 },
+  content: [{ type: 'text', text: '两封要回，草稿已备好。' }],
+  replyTo: ids.channelPost,
+  card: {
+    kind: 'needs',
+    items: [
+      { kind: 'connector', label: 'Gmail', ready: false },
+      { kind: 'folder', label: '~/Documents', ready: true },
+    ],
+  },
+  createdAt: TS2,
+};
+
+export const channelThread: ChannelThread = {
+  sessionId: ids.session,
+  channelId: ids.channel,
+  rootPostId: ids.channelPost,
+  title: '回复房东',
+  status: 'working',
+  doing: '起草回信',
+  replyCount: 1,
+  lastReply: { at: TS2, firstLine: '草稿在附件里。' },
+  openedBy: 'coordinator',
+  createdAt: TS,
+};
+
+const channelPostSamples: { valid: ChannelPost[]; invalid: unknown[] } = {
+  valid: [
+    channelUserPost,
+    channelCoordinatorPost,
+    {
+      ...channelCoordinatorPost,
+      card: { kind: 'suggestion', text: '每周五整理一次订阅邮件？', status: 'open' },
+    },
+    {
+      ...channelCoordinatorPost,
+      author: { kind: 'host' },
+      card: {
+        kind: 'brief',
+        day: '2026-10-12',
+        todo: [{ title: '回复房东' }],
+        done: [{ title: '整理发票', sessionId: ids.session }],
+        decisions: [],
+      },
+    },
+    {
+      ...channelCoordinatorPost,
+      author: { kind: 'host' },
+      card: { kind: 'notice', reason: 'budget' },
+    },
+    { ...channelUserPost, routedTo: [ids.session] },
+  ],
+  invalid: [
+    { ...channelUserPost, seq: 0 },
+    { ...channelUserPost, content: [] },
+    { ...channelCoordinatorPost, card: { kind: 'needs', items: [] } },
+    { ...channelUserPost, author: { kind: 'robot' } },
   ],
 };
 
@@ -6979,6 +7089,234 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'channel.list': {
+    params: { valid: [{}, { kind: 'assistant' }], invalid: [{ kind: 'team' }] },
+    result: {
+      valid: [
+        { channels: [channelSample], listVersion: 7 },
+        { channels: [], listVersion: 0 },
+        {
+          channels: [
+            {
+              ...channelSample,
+              state: 'paused',
+              pausedAt: TS2,
+              pauseReason: 'budget',
+              pendingCount: undefined,
+            },
+          ],
+          listVersion: 8,
+        },
+      ],
+      invalid: [
+        { channels: [] },
+        { channels: [{ ...channelSample, state: 'busy' }], listVersion: 1 },
+        {
+          channels: [
+            {
+              ...channelSample,
+              assistant: { ...channelSample.assistant, avatar: { type: 'cat', color: 0, seed: 0 } },
+            },
+          ],
+          listVersion: 1,
+        },
+      ],
+    },
+  },
+  'channel.get': {
+    params: { valid: [{ channelId: ids.channel }], invalid: [{}, { channelId: ids.session }] },
+    result: {
+      valid: [
+        {
+          channel: channelSample,
+          threads: [channelThread],
+          approvals: [{ ...pendingApproval, sessionId: ids.coordinator }],
+          tasks: [boardTask],
+        },
+        { channel: channelSample, threads: [], approvals: [], tasks: [] },
+      ],
+      invalid: [
+        { channel: channelSample },
+        { channel: channelSample, threads: [{}], approvals: [], tasks: [] },
+      ],
+    },
+  },
+  'channel.create': {
+    params: {
+      valid: [
+        {
+          kind: 'assistant',
+          name: '收件箱',
+          description: '每天整理邮件',
+          coordinator: { providerId: 'openai' },
+        },
+        {
+          kind: 'assistant',
+          name: 'Research',
+          description: '',
+          avatar: { type: 'cloud', color: 5, seed: 1 },
+          coordinator: { providerId: 'openai', modelId: 'gpt-5.5-mini', reasoningEffort: 'low' },
+          folders: ['/Users/me/notes'],
+          rules: { messages: 'ask' },
+          budget: { dailyWakes: 10, dailyTokens: 100_000 },
+        },
+      ],
+      invalid: [
+        { kind: 'project', name: 'x', description: '', coordinator: { providerId: 'openai' } },
+        { kind: 'assistant', name: '', description: '', coordinator: { providerId: 'openai' } },
+        { kind: 'assistant', name: 'x', description: '', coordinator: {} },
+        {
+          kind: 'assistant',
+          name: 'x',
+          description: '',
+          coordinator: { providerId: 'openai' },
+          rules: { messages: 'never' },
+        },
+      ],
+    },
+    result: { valid: [{ channel: channelSample }], invalid: [{}] },
+  },
+  'channel.update': {
+    params: {
+      valid: [
+        { channelId: ids.channel },
+        { channelId: ids.channel, name: '邮件', paused: true },
+        {
+          channelId: ids.channel,
+          coordinator: { modelId: null },
+          rules: { purchases: 'hand_off' },
+        },
+      ],
+      invalid: [
+        { name: 'x' },
+        { channelId: ids.channel, budget: { dailyWakes: 0, dailyTokens: 1000 } },
+      ],
+    },
+    result: { valid: [{ channel: channelSample }], invalid: [{}] },
+  },
+  'channel.delete': {
+    params: { valid: [{ channelId: ids.channel }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'channel.posts': {
+    params: {
+      valid: [
+        { channelId: ids.channel },
+        { channelId: ids.channel, beforeSeq: 40, limit: 50 },
+        { channelId: ids.channel, afterSeq: 0 },
+      ],
+      invalid: [
+        { channelId: ids.channel, limit: 201 },
+        { channelId: ids.channel, beforeSeq: 0 },
+      ],
+    },
+    result: {
+      valid: [
+        { posts: [channelUserPost, channelCoordinatorPost], lastSeq: 4 },
+        { posts: [], lastSeq: 0 },
+      ],
+      invalid: [{ posts: [] }, { posts: channelPostSamples.invalid, lastSeq: 4 }],
+    },
+  },
+  'channel.subscribe': {
+    params: {
+      valid: [{ channelId: ids.channel }, { channelId: ids.channel, afterSeq: 3 }],
+      invalid: [{}, { channelId: ids.channel, afterSeq: -1 }],
+    },
+    result: {
+      valid: [{ subscriptionId: ids.subscription, lastSeq: 4 }],
+      invalid: [{ lastSeq: 4 }],
+    },
+  },
+  'channel.unsubscribe': {
+    params: { valid: [{ subscriptionId: ids.subscription }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'channel.post': {
+    params: {
+      valid: [
+        { channelId: ids.channel, content: [{ type: 'text', text: '在吗' }] },
+        {
+          channelId: ids.channel,
+          content: [{ type: 'image', imageId: ids.image, mimeType: 'image/png', size: 2048 }],
+          clientPostId: 'cp-2',
+        },
+      ],
+      invalid: [
+        { channelId: ids.channel, content: [] },
+        { content: [{ type: 'text', text: 'x' }] },
+      ],
+    },
+    result: { valid: [{ post: channelUserPost }], invalid: [{}] },
+  },
+  'channel.markRead': {
+    params: { valid: [{ channelId: ids.channel, seq: 4 }], invalid: [{ channelId: ids.channel }] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'channel.startThread': {
+    params: {
+      valid: [
+        { channelId: ids.channel, rootPostId: ids.channelPost },
+        { channelId: ids.channel, rootPostId: ids.channelPost, title: '回复房东' },
+      ],
+      invalid: [{ channelId: ids.channel }, { channelId: ids.channel, rootPostId: ids.session }],
+    },
+    result: {
+      valid: [{ thread: channelThread }],
+      invalid: [{ thread: { ...channelThread, status: 'busy' } }],
+    },
+  },
+  'channel.resolveThread': {
+    params: {
+      valid: [{ channelId: ids.channel, sessionId: ids.session, resolved: true }],
+      invalid: [{ channelId: ids.channel, sessionId: ids.session }],
+    },
+    result: {
+      valid: [
+        { thread: { ...channelThread, status: 'resolved', resolvedAt: TS2, resolvedBy: 'user' } },
+      ],
+      invalid: [{}],
+    },
+  },
+  'channel.respondSuggestion': {
+    params: {
+      valid: [{ channelId: ids.channel, postId: ids.channelPost2, accept: true }],
+      invalid: [{ channelId: ids.channel, postId: ids.channelPost2 }],
+    },
+    result: { valid: [{ post: channelUserPost }], invalid: [{}] },
+  },
+  'channel.updateTask': {
+    params: {
+      valid: [{ channelId: ids.channel, taskId: '1', status: 'completed' }],
+      invalid: [{ channelId: ids.channel, taskId: '1', status: 'done' }],
+    },
+    result: { valid: [{ tasks: [boardTask] }, { tasks: [] }], invalid: [{}] },
+  },
+  'channel.wake': {
+    params: { valid: [{ channelId: ids.channel }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'channel.rotate': {
+    params: { valid: [{ channelId: ids.channel }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          channel: {
+            ...channelSample,
+            coordinator: { ...channelSample.coordinator, generation: 2 },
+          },
+        },
+      ],
+      invalid: [
+        {
+          channel: {
+            ...channelSample,
+            coordinator: { ...channelSample.coordinator, generation: 0 },
+          },
+        },
+      ],
+    },
+  },
   'notification.subscribe': {
     params: { valid: [{}], invalid: [null, 'all'] },
     result: { valid: [{}], invalid: [null] },
@@ -8233,6 +8571,33 @@ export const notificationSamples: NotificationSamples = {
   'push.changed': {
     valid: [pushStateSample, { ...pushStateSample, enabled: false, registered: false }],
     invalid: [{ ...pushStateSample, enabled: 'yes' }],
+  },
+  'channels.changed': {
+    valid: [
+      { listVersion: 8, upserted: [channelSample], removed: [] },
+      { listVersion: 9, upserted: [], removed: [ids.channel] },
+    ],
+    invalid: [
+      { listVersion: 8, upserted: [] },
+      { listVersion: 8, upserted: [], removed: [ids.session] },
+    ],
+  },
+  'channel.posted': {
+    valid: channelPostSamples.valid.map((post) => ({ subscriptionId: ids.subscription, post })),
+    invalid: channelPostSamples.invalid.map((post) => ({ subscriptionId: ids.subscription, post })),
+  },
+  'channel.updated': {
+    valid: [
+      { subscriptionId: ids.subscription, channel: channelSample },
+      {
+        subscriptionId: ids.subscription,
+        posts: [{ ...channelUserPost, routedTo: [ids.session] }],
+        threads: [channelThread],
+        approvals: [],
+        tasks: [boardTask],
+      },
+    ],
+    invalid: [{ channel: channelSample }, { subscriptionId: ids.subscription, threads: [{}] }],
   },
   'inbox.changed': {
     valid: [

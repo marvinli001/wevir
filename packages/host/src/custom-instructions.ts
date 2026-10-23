@@ -161,5 +161,7 @@ export function styledSession(record: Pick<SessionRecord, 'origin' | 'parentSess
   if (record.parentSessionId !== undefined) return false;
   const origin = record.origin;
   if (origin === undefined) return true;
+  // 频道的协调者与线程（0.120.0）直接对用户说话。
+  if (origin.kind === 'channel') return true;
   return (origin.kind === 'suggested_task' || origin.kind === 'fork') && origin.role === undefined;
 }

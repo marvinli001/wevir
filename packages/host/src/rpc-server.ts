@@ -21,6 +21,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import { WebSocketServer } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
+import type { ChannelService } from './channels/service.js';
 import type { ComputerBroker } from './computer-broker.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethods } from './host-methods.js';
@@ -76,6 +77,8 @@ export interface HostRpcServerOptions {
   sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接收 `inbox.changed`。 */
   inbox?: Pick<InboxService, 'watch'>;
+  /** 频道（0.120.0）：`channels.changed`、`channel.subscribe`。 */
+  channels?: Pick<ChannelService, 'watch' | 'subscribe' | 'posts'>;
   /** 远程设备与配对（0.107.0）：调过 `device.*` 或 `pairing.*` 的连接收设备与配对的通知。 */
   remote?: ConnectionHost['remote'];
   /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接收 `notification.intent`。 */
@@ -203,6 +206,7 @@ export class HostRpcServer {
       ...(options.memory !== undefined && { memory: options.memory }),
       ...(options.sessionList !== undefined && { sessionList: options.sessionList }),
       ...(options.inbox !== undefined && { inbox: options.inbox }),
+      ...(options.channels !== undefined && { channels: options.channels }),
       ...(options.remote !== undefined && { remote: options.remote }),
       ...(options.notifications !== undefined && { notifications: options.notifications }),
       ...(options.presence !== undefined && { presence: options.presence }),
