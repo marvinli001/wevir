@@ -113,6 +113,8 @@ export class FakeChannels {
 
   readonly client: ChannelClient = {
     canCreate: false,
+    canEdit: false,
+    canReadProviders: false,
     request: ((method: string, params: Params) =>
       this.#handle(method, params)) as ChannelClient['request'],
     onChannelsChanged: (listener) => {
@@ -125,8 +127,10 @@ export class FakeChannels {
     },
   };
 
-  constructor(options: { canCreate?: boolean } = {}) {
-    if (options.canCreate === true) this.client = { ...this.client, canCreate: true };
+  constructor(options: { canCreate?: boolean; canEdit?: boolean } = {}) {
+    if (options.canCreate === true)
+      this.client = { ...this.client, canCreate: true, canEdit: true, canReadProviders: true };
+    else if (options.canEdit === true) this.client = { ...this.client, canEdit: true };
   }
 
   get listenerCount(): number {
@@ -203,6 +207,32 @@ export class FakeChannels {
       }
       case 'provider.list':
         return { providers: [{ id: 'prov_off', enabled: false }, { id: 'prov_on' }] };
+      case 'channel.update': {
+        const current = find();
+        const updated: Channel = {
+          ...current,
+          ...(params.name !== undefined && { title: params.name as string }),
+          ...(current.assistant !== undefined && {
+            assistant: {
+              ...current.assistant,
+              ...(params.description !== undefined && {
+                description: params.description as string,
+              }),
+              ...(params.folders !== undefined && { folders: params.folders as string[] }),
+            },
+          }),
+        };
+        this.channels = this.channels.map((c) => (c.id === channelId ? updated : c));
+        return { channel: updated };
+      }
+      case 'workspace.list':
+        return {
+          workspaces: [
+            { rootPath: '/Users/me/web', extraFolders: ['/Users/me/api'] },
+            { rootPath: '/Users/me/hidden', kind: 'assistant' },
+            { rootPath: '/Users/me/api' },
+          ],
+        };
       default:
         return {};
     }

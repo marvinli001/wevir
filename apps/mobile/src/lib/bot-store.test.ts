@@ -179,4 +179,33 @@ describe('BotStore', () => {
       coordinator: { providerId: 'prov_on' as Channel['coordinator']['providerId'] },
     });
   });
+
+  it('改助理：权限、模型服务与项目文件夹，改完更新列表', async () => {
+    const readOnly = setup();
+    await vi.waitFor(() => expect(readOnly.store.list).toHaveLength(2));
+    expect(readOnly.store.access(KEY)).toEqual({
+      online: true,
+      canEdit: false,
+      canReadProviders: false,
+    });
+    expect(readOnly.store.onlineCount()).toBe(1);
+
+    const { host, store } = setup({ canCreate: true });
+    await vi.waitFor(() => expect(store.list).toHaveLength(2));
+    expect(store.access(KEY)).toEqual({ online: true, canEdit: true, canReadProviders: true });
+    await store.update(KEY, { name: '大管家', folders: ['/Users/me/web'] });
+    expect(host.calls('channel.update')[0]).toEqual({
+      channelId: CHANNEL_A,
+      name: '大管家',
+      folders: ['/Users/me/web'],
+    });
+    expect(store.bot(KEY)?.name).toBe('大管家');
+    expect(store.channel(KEY)?.assistant?.folders).toEqual(['/Users/me/web']);
+    expect((await store.providers(KEY)).map((p) => p.id)).toEqual(['prov_on']);
+    expect(await store.projectFolders(KEY)).toEqual(['/Users/me/api', '/Users/me/web']);
+
+    store.setHosts([{ computer: 'mac', computerName: 'MacBook', client: undefined }]);
+    expect(store.access(KEY).online).toBe(false);
+    await expect(store.update(KEY, { name: 'x' })).rejects.toThrow('computer offline');
+  });
 });

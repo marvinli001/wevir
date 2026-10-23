@@ -24,6 +24,7 @@ import {
   type PairingEnvironment,
 } from './pairing';
 import { type ComputerRecord, knownCandidates, type StoredCandidate } from './records';
+import type { SessionClient } from './session-watch';
 
 /** mDNS 找回换了地址的电脑等多久：与直连的先手相同，找到就立刻加入（同 CLI）。 */
 export const CONNECT_DISCOVERY_MS = 1_500;
@@ -181,14 +182,31 @@ function wrapClient(client: WevirClient): LinkClient {
           get canCreate() {
             return client.can('workspace.write') && client.can('provider.read');
           },
+          get canEdit() {
+            return client.can('workspace.write');
+          },
+          get canReadProviders() {
+            return client.can('provider.read');
+          },
           request: (method, ...args) => client.request(method, ...args),
           onChannelsChanged: (listener) => client.onChannelsChanged(listener),
           watchChannel: (channelId, handlers, options) =>
             client.watchChannel(channelId, handlers, options),
         }
       : undefined;
+  const sessions: SessionClient | undefined = client.can('session.read')
+    ? {
+        get canWrite() {
+          return client.can('session.write');
+        },
+        request: (method, ...args) => client.request(method, ...args),
+        subscribe: (sessionId, options) => client.subscribe(sessionId, options),
+      }
+    : undefined;
   return {
     ...(channels !== undefined && { channels }),
+    ...(sessions !== undefined && { sessions }),
+    watchNotifications: (listener) => client.watchNotifications(listener),
     onStateChange: (listener) => client.onStateChange(listener),
     onSessionsChanged: (listener) => client.onSessionsChanged(listener),
     listSessions: async () => {

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { approval, at, CHANNEL_A, channel, post, thread } from './bot-test-utils';
-import { approvalView, botFromChannel, postViews, sortBots, timelineViews } from './bots';
+import {
+  approvalView,
+  botFromChannel,
+  botPatch,
+  folderParts,
+  postViews,
+  sortBots,
+  timelineViews,
+} from './bots';
 
 describe('bots', () => {
   it('频道换成列表行', () => {
@@ -177,5 +185,42 @@ describe('bots', () => {
       '图片',
     );
     expect(views.map((v) => v.card.kind)).toEqual(['text', 'approval', 'text']);
+  });
+
+  it('编辑：只带变了的字段，换模型时清掉推理强度', () => {
+    const current = channel(CHANNEL_A, {
+      coordinator: { providerId: 'prov_1' as never, modelId: 'a', mode: 'act', generation: 1 },
+    });
+    const same = {
+      name: '小管家',
+      description: '邮件与日程',
+      avatar: { type: 'cloud' as const, color: 2, seed: 0.4 },
+      folders: [],
+    };
+    expect(botPatch(current, same)).toBeUndefined();
+    expect(
+      botPatch(current, { ...same, name: ' ', model: { providerId: 'prov_1', modelId: 'a' } }),
+    ).toBe(undefined);
+    expect(
+      botPatch(current, {
+        ...same,
+        name: '大管家 ',
+        avatar: { type: 'drop', color: 1, seed: 0.2 },
+        folders: ['/Users/me/web'],
+        model: { providerId: 'prov_1', modelId: 'b' },
+      }),
+    ).toEqual({
+      name: '大管家',
+      avatar: { type: 'drop', color: 1, seed: 0.2 },
+      folders: ['/Users/me/web'],
+      coordinator: { providerId: 'prov_1', modelId: 'b', reasoningEffort: null },
+    });
+  });
+
+  it('文件夹的名字与上一级目录', () => {
+    expect(folderParts('/Users/me/code/web/')).toEqual({ name: 'web', parent: '~/code' });
+    expect(folderParts('/srv/data')).toEqual({ name: 'data', parent: '/srv' });
+    expect(folderParts('/data')).toEqual({ name: 'data', parent: '' });
+    expect(folderParts('C:\\work\\api')).toEqual({ name: 'api', parent: 'C:\\work' });
   });
 });

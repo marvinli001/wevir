@@ -16,7 +16,7 @@ import {
   RemoteUnreachableError,
   WevirRpcError,
 } from '@wevir/client-sdk';
-import { CloseCode, type Session } from '@wevir/protocol';
+import { CloseCode, type NotificationIntent, type Session } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
 import {
   type ComputerRecord,
@@ -24,6 +24,7 @@ import {
   type RouteKind,
   recordAfterConnect,
 } from './records';
+import type { SessionClient } from './session-watch';
 import {
   applySessionsChange,
   type SessionList,
@@ -105,6 +106,10 @@ export interface LinkClient {
   listSessions(): Promise<SessionList>;
   /** 助理的频道接口；Host 没有 `channels` 功能时没有。 */
   readonly channels?: ChannelClient;
+  /** 按 ID 看一个会话（线程会话不在 `session.list` 里）；没有 `session.read` 时没有。 */
+  readonly sessions?: SessionClient;
+  /** Host 判定的通知意图（`notification.intent`）；Host 没有这项功能时什么都不收。 */
+  watchNotifications?(listener: (intent: NotificationIntent) => void): () => void;
   close(): void;
 }
 
@@ -171,6 +176,21 @@ export class ComputerLink {
   /** 连着时这台电脑的频道接口。 */
   get channels(): ChannelClient | undefined {
     return this.#client?.channels;
+  }
+
+  /** 现在的连接；换了连接就是另一个对象（重连、回到前台）。 */
+  get connection(): object | undefined {
+    return this.#client;
+  }
+
+  /** 连着时按 ID 看会话的接口。 */
+  get sessions(): SessionClient | undefined {
+    return this.#client?.sessions;
+  }
+
+  /** 连着时收这台电脑的通知意图；没连着时返回的取消函数什么都不做。 */
+  watchNotifications(listener: (intent: NotificationIntent) => void): () => void {
+    return this.#client?.watchNotifications?.(listener) ?? (() => {});
   }
 
   subscribe(listener: () => void): () => void {

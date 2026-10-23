@@ -71,6 +71,7 @@ export const router = createHashRouter([
           // 助理（0.120.0）：同插件页，在工作台里。
           { path: ROUTE_PATTERNS.assistants, Component: AssistantsRoute },
           { path: ROUTE_PATTERNS.assistant, Component: AssistantsRoute },
+          { path: ROUTE_PATTERNS.assistantThread, Component: AssistantsRoute },
           // 调优（0.85.0）：同插件页，在工作台里。
           { path: ROUTE_PATTERNS.tuning, Component: TuningRoute },
           { path: ROUTE_PATTERNS.tuningTab, Component: TuningRoute },

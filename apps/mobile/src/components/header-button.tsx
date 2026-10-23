@@ -12,17 +12,25 @@ export function HeaderButton({
   md,
   label,
   onPress,
+  disabled = false,
 }: {
   sf: SFSymbol;
   md: AndroidSymbol;
   label: string;
   onPress: () => void;
+  /** 灰掉、按不下去（原因由页面另行说明）。 */
+  disabled?: boolean;
 }) {
   const theme = useTheme();
   if (Platform.OS === 'ios') {
     return (
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button icon={sf} accessibilityLabel={label} onPress={onPress} />
+        <Stack.Toolbar.Button
+          icon={sf}
+          accessibilityLabel={label}
+          onPress={onPress}
+          disabled={disabled}
+        />
       </Stack.Toolbar>
     );
   }
@@ -33,12 +41,18 @@ export function HeaderButton({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={label}
+            accessibilityState={{ disabled }}
+            disabled={disabled}
             onPress={onPress}
             hitSlop={8}
             android_ripple={{ color: theme.muted, borderless: true, radius: 22 }}
             style={styles.button}
           >
-            <Icon name={{ android: md }} size={24} color={theme.foreground} />
+            <Icon
+              name={{ android: md }}
+              size={24}
+              color={disabled ? theme.mutedForeground : theme.foreground}
+            />
           </Pressable>
         ),
       }}

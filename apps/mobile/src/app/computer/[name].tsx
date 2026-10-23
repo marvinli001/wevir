@@ -92,6 +92,12 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
                     session={session}
                     now={now}
                     last={index === sessionList.length - 1}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/session/[key]',
+                        params: { key: `${record.name}/${session.id}` },
+                      })
+                    }
                   />
                 ))}
               </Group>

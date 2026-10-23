@@ -8,7 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { BotStore, type Timeline } from '../lib/bot-store';
+import { type BotAccess, BotStore, type Timeline } from '../lib/bot-store';
 import type { Bot } from '../lib/bots';
 import { displayName } from '../lib/records';
 import { useRegistry } from './registry';
@@ -63,6 +63,25 @@ export function useTimeline(key: string): Timeline {
     (listener) => store.subscribe(listener),
     () => store.timeline(key),
   );
+}
+
+/** 在线、能看助理的电脑数。 */
+export function useOnlineBotHosts(): number {
+  const store = useBotStore();
+  return useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => store.onlineCount(),
+  );
+}
+
+/** 这台设备在助理所在电脑上能做的事。 */
+export function useBotAccess(key: string): BotAccess {
+  const store = useBotStore();
+  const json = useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => JSON.stringify(store.access(key)),
+  );
+  return JSON.parse(json) as BotAccess;
 }
 
 /** 能建助理的电脑（这台设备在那台电脑上有建助理的权限）。 */

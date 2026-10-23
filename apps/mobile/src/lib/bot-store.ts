@@ -8,7 +8,7 @@ import type {
   ChannelWatchHandlers,
   WevirClient,
 } from '@wevir/client-sdk';
-import type { Channel, ChannelPost } from '@wevir/protocol';
+import type { Channel, ChannelPost, MethodParams, ProviderProfile } from '@wevir/protocol';
 import type { Avatar } from './bot-avatar';
 import { type Bot, botFromChannel, botKey, sortBots, type TimelineParts } from './bots';
 
@@ -18,6 +18,10 @@ export const PAGE_SIZE = 30;
 export interface ChannelClient {
   /** 能在这台电脑上建助理（`workspace.write` 与 `provider.read`；手机默认没有）。 */
   readonly canCreate: boolean;
+  /** 能改这台电脑上的助理（`workspace.write`）。 */
+  readonly canEdit: boolean;
+  /** 能读这台电脑的模型服务（`provider.read`），改助理的模型要用。 */
+  readonly canReadProviders: boolean;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
   watchChannel(
@@ -40,6 +44,16 @@ export interface NewBot {
   description: string;
   avatar: Avatar;
 }
+
+/** 这台设备在助理所在电脑上能做的事。 */
+export interface BotAccess {
+  online: boolean;
+  canEdit: boolean;
+  canReadProviders: boolean;
+}
+
+/** 改助理时交给 `channel.update` 的字段。 */
+export type BotPatch = Omit<MethodParams<'channel.update'>, 'channelId'>;
 
 export interface Timeline extends TimelineParts {
   loading: boolean;
@@ -94,6 +108,26 @@ export class BotStore {
 
   timeline(key: string): Timeline {
     return this.timelines.get(key) ?? EMPTY;
+  }
+
+  /** 助理的频道（编辑页读它现在的模型与文件夹）。 */
+  channel(key: string): Channel | undefined {
+    const target = this.target(key);
+    return target?.state.channels.get(target.channelId);
+  }
+
+  access(key: string): BotAccess {
+    const client = this.target(key)?.state.client;
+    return {
+      online: client !== undefined,
+      canEdit: client?.canEdit === true,
+      canReadProviders: client?.canReadProviders === true,
+    };
+  }
+
+  /** 在线、能看助理的电脑数（有它们而没有 `creators()` 时，“新建”是因为权限不够而不能用）。 */
+  onlineCount(): number {
+    return [...this.hosts.values()].filter((h) => h.client !== undefined).length;
   }
 
   /** 能建助理的电脑。 */
@@ -288,6 +322,31 @@ export class BotStore {
     state.channels.set(channel.id, channel);
     this.rebuild();
     return botFromChannel(state.computer, state.computerName, channel);
+  }
+
+  /** 改助理：名字、职责、头像、模型、可访问的文件夹。 */
+  async update(key: string, patch: BotPatch): Promise<void> {
+    const { state, channelId, client } = this.connected(key);
+    const { channel } = await client.request('channel.update', { channelId, ...patch });
+    state.channels.set(channel.id, channel);
+    this.rebuild();
+  }
+
+  /** 助理所在电脑上能选的模型服务（启用的）。 */
+  async providers(key: string): Promise<ProviderProfile[]> {
+    const { client } = this.connected(key);
+    const { providers } = await client.request('provider.list', {});
+    return providers.filter((p) => p.enabled !== false);
+  }
+
+  /** 助理所在电脑上的项目文件夹（主文件夹与其他源文件夹），给“添加文件夹”挑。 */
+  async projectFolders(key: string): Promise<string[]> {
+    const { client } = this.connected(key);
+    const { workspaces } = await client.request('workspace.list', {});
+    const folders = workspaces
+      .filter((w) => w.kind === undefined)
+      .flatMap((w) => [w.rootPath, ...(w.extraFolders ?? [])]);
+    return [...new Set(folders)].sort((a, b) => a.localeCompare(b));
   }
 
   private attach(state: HostState, client: ChannelClient): void {

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyListChange,
   applyUpdate,
+  assistantPatch,
   assistantsAvailability,
   groupTasks,
   mergePosts,
@@ -210,5 +211,60 @@ describe('任务分组', () => {
     ]);
     expect(open.map((item) => item.id)).toEqual(['c', 'a']);
     expect(done.map((item) => item.id)).toEqual(['b', 'd']);
+  });
+});
+
+describe('assistantPatch', () => {
+  const base = channel();
+  const same = {
+    name: 'Mail desk',
+    job: 'Sort my inbox.',
+    avatar: { type: 'pebble' as const, color: 0, seed: 0.5 },
+    folders: [],
+  };
+
+  it('没变时不发', () => {
+    expect(assistantPatch(base, same)).toBeUndefined();
+    expect(assistantPatch(base, { ...same, name: '  Mail desk ', job: ' Sort my inbox. ' })).toBe(
+      undefined,
+    );
+  });
+
+  it('只带变了的字段，空名字不改名', () => {
+    expect(
+      assistantPatch(base, {
+        ...same,
+        name: ' ',
+        job: 'Watch the calendar.',
+        avatar: { type: 'drop', color: 3, seed: 0.1 },
+        folders: ['/Users/me/Notes'],
+      }),
+    ).toEqual({
+      description: 'Watch the calendar.',
+      avatar: { type: 'drop', color: 3, seed: 0.1 },
+      folders: ['/Users/me/Notes'],
+    });
+    expect(assistantPatch(base, { ...same, name: 'Inbox' })).toEqual({ name: 'Inbox' });
+  });
+
+  it('换模型时三项一起给，没有的推理强度清掉', () => {
+    const current = channel({
+      coordinator: {
+        providerId: 'mock' as never,
+        modelId: 'a',
+        reasoningEffort: 'high',
+        mode: 'act',
+        generation: 1,
+      },
+    });
+    expect(
+      assistantPatch(current, {
+        ...same,
+        model: { providerId: 'mock', modelId: 'a', reasoningEffort: 'high' },
+      }),
+    ).toBeUndefined();
+    expect(
+      assistantPatch(current, { ...same, model: { providerId: 'mock', modelId: 'b' } }),
+    ).toEqual({ coordinator: { providerId: 'mock', modelId: 'b', reasoningEffort: null } });
   });
 });

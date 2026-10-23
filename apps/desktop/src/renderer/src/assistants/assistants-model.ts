@@ -13,9 +13,66 @@ import {
   type ChannelPost,
   type ChannelThread,
   type HostFeatures,
+  type MethodParams,
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
 import { formatJson } from '@/session/format';
+
+// ---- 编辑 ----
+
+/** 编辑框里的值；`model` 只在用户换过模型时有。 */
+export interface AssistantEdit {
+  name: string;
+  job: string;
+  avatar: AssistantAvatar;
+  folders: readonly string[];
+  model?: { providerId: string; modelId: string; reasoningEffort?: string };
+}
+
+/**
+ * 编辑助理时发给 `channel.update` 的改动：只带变了的字段；名字为空时不改名。模型换了时三项一起给（没有的推理强度用 `null` 清掉）。
+ * 什么都没变时返回 undefined。
+ */
+export function assistantPatch(
+  channel: Channel,
+  edit: AssistantEdit,
+): Omit<MethodParams<'channel.update'>, 'channelId'> | undefined {
+  const assistant = channel.assistant;
+  const name = edit.name.trim();
+  const job = edit.job.trim();
+  const patch: Omit<MethodParams<'channel.update'>, 'channelId'> = {};
+  if (name !== '' && name !== channel.title) patch.name = name;
+  if (assistant !== undefined) {
+    if (job !== assistant.description) patch.description = job;
+    const avatar = assistant.avatar;
+    if (
+      avatar.type !== edit.avatar.type ||
+      avatar.color !== edit.avatar.color ||
+      avatar.seed !== edit.avatar.seed
+    )
+      patch.avatar = edit.avatar;
+    if (
+      edit.folders.length !== assistant.folders.length ||
+      edit.folders.some((folder, index) => folder !== assistant.folders[index])
+    )
+      patch.folders = [...edit.folders];
+  }
+  const model = edit.model;
+  const coordinator = channel.coordinator;
+  if (
+    model !== undefined &&
+    (model.providerId !== coordinator.providerId ||
+      model.modelId !== coordinator.modelId ||
+      model.reasoningEffort !== coordinator.reasoningEffort)
+  ) {
+    patch.coordinator = {
+      providerId: model.providerId,
+      modelId: model.modelId,
+      reasoningEffort: model.reasoningEffort ?? null,
+    };
+  }
+  return Object.keys(patch).length === 0 ? undefined : patch;
+}
 
 // ---- 功能门控 ----
 

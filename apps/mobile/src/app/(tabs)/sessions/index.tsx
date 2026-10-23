@@ -83,6 +83,12 @@ function ComputerSessions({
               session={session}
               now={now}
               last={index === list.length - 1}
+              onPress={() =>
+                router.push({
+                  pathname: '/session/[key]',
+                  params: { key: `${record.name}/${session.id}` },
+                })
+              }
             />
           ))}
         </Group>

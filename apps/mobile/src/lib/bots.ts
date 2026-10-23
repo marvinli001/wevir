@@ -285,3 +285,68 @@ export function timelineViews(timeline: TimelineParts, imageLabel: string): BotP
   out.push(...loose);
   return out;
 }
+
+/** 编辑页里的值；`model` 只在换过模型时有。 */
+export interface BotEdit {
+  name: string;
+  description: string;
+  avatar: Avatar;
+  folders: readonly string[];
+  model?: { providerId: string; modelId: string };
+}
+
+/** 改助理时交给 `channel.update` 的字段：只带变了的，空名字不改名；什么都没变时 undefined。换模型时清掉原来的推理强度。 */
+export function botPatch(
+  channel: Channel,
+  edit: BotEdit,
+):
+  | {
+      name?: string;
+      description?: string;
+      avatar?: Avatar;
+      folders?: string[];
+      coordinator?: { providerId: string; modelId: string; reasoningEffort: null };
+    }
+  | undefined {
+  const patch: NonNullable<ReturnType<typeof botPatch>> = {};
+  const name = edit.name.trim();
+  if (name !== '' && name !== channel.title) patch.name = name;
+  const assistant = channel.assistant;
+  if (assistant !== undefined) {
+    const description = edit.description.trim();
+    if (description !== assistant.description) patch.description = description;
+    const current = assistant.avatar;
+    if (
+      current.type !== edit.avatar.type ||
+      current.color !== edit.avatar.color ||
+      current.seed !== edit.avatar.seed
+    )
+      patch.avatar = edit.avatar;
+    if (
+      edit.folders.length !== assistant.folders.length ||
+      edit.folders.some((folder, index) => folder !== assistant.folders[index])
+    )
+      patch.folders = [...edit.folders];
+  }
+  const model = edit.model;
+  if (
+    model !== undefined &&
+    (model.providerId !== channel.coordinator.providerId ||
+      model.modelId !== channel.coordinator.modelId)
+  )
+    patch.coordinator = {
+      providerId: model.providerId,
+      modelId: model.modelId,
+      reasoningEffort: null,
+    };
+  return Object.keys(patch).length === 0 ? undefined : patch;
+}
+
+/** 文件夹的最后一段与上一级目录（家目录写成 `~`）。 */
+export function folderParts(path: string): { name: string; parent: string } {
+  const trimmed = path.replace(/[\\/]+$/, '');
+  const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+  const name = cut < 0 ? trimmed : trimmed.slice(cut + 1);
+  const parent = cut <= 0 ? '' : trimmed.slice(0, cut);
+  return { name: name || path, parent: parent.replace(/^\/(Users|home)\/[^/]+(?=\/|$)/, '~') };
+}

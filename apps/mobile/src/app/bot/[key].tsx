@@ -19,11 +19,11 @@ import { BotAvatar } from '../../components/bot-avatar';
 import { PostView } from '../../components/bot-cards';
 import { botPose, botStateColor } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
+import { HeaderButton } from '../../components/header-button';
 import { locale, t } from '../../i18n';
 import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
 import { useBot, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
-import { useComputer } from '../../state/registry';
 import { SPACE, TEXT, useTheme } from '../../theme';
 
 /** 隔了这么久的两条之间插一行时间。 */
@@ -82,7 +82,6 @@ function BotChat({ bot }: { bot: Bot }) {
   const navigation = useNavigation();
   const store = useBotStore();
   const timeline = useTimeline(bot.key);
-  const computer = useComputer(bot.computer);
   const now = useMinuteClock();
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<Item>>(null);
@@ -166,12 +165,13 @@ function BotChat({ bot }: { bot: Bot }) {
     store.wake(bot.key).catch((error: unknown) => console.warn('[wevir] wake failed', error));
   }, [store, bot.key]);
 
-  // 线程是电脑上的一个会话；手机还没有会话页，先打开那台电脑。
-  const openThread = useCallback(() => {
-    if (computer !== undefined) {
-      router.push({ pathname: '/computer/[name]', params: { name: bot.computer } });
-    }
-  }, [computer, router, bot.computer]);
+  // 线程是那台电脑上的一个会话。
+  const openThread = useCallback(
+    (sessionId: string) => {
+      router.push({ pathname: '/session/[key]', params: { key: `${bot.computer}/${sessionId}` } });
+    },
+    [router, bot.computer],
+  );
 
   const send = useCallback(
     async (text: string) => {
@@ -193,6 +193,12 @@ function BotChat({ bot }: { bot: Bot }) {
   return (
     <>
       <Stack.Screen options={{ title: bot.name }} />
+      <HeaderButton
+        sf="slider.horizontal.3"
+        md="tune"
+        label={t('editBot.title')}
+        onPress={() => router.push({ pathname: '/edit-bot', params: { key: bot.key } })}
+      />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

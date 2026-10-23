@@ -34,6 +34,10 @@ describe('路由', () => {
     expect(paths.settings()).toBe('/settings/general');
     expect(paths.usage()).toBe('/usage');
     expect(matchPath(ROUTE_PATTERNS.usage, paths.usage())).not.toBeNull();
+    expect(
+      matchPath(ROUTE_PATTERNS.assistantThread, paths.assistantThread('chn_1', 'ses_1'))?.params,
+    ).toEqual({ channelId: 'chn_1', sessionId: 'ses_1' });
+    expect(paths.assistantThread('chn_1', 'ses_1', true)).toBe('/assistants/chn_1?thread=ses_1');
   });
 
   it('ID 里的特殊字符被编码，路由器匹配后还原（手改 URL 也不会串到别的路由）', () => {

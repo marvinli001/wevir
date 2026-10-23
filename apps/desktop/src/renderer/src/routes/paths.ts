@@ -30,6 +30,8 @@ export const ROUTE_PATTERNS = {
   /** 助理（0.120.0）：聊天列表；`/assistants/:channelId` 是选中的那个。 */
   assistants: '/assistants',
   assistant: '/assistants/:channelId',
+  /** 助理开出的线程会话占满右边（线程在助理的隐藏工作区里，不走会话路由）；`?thread=` 是在时间线旁边的窗格里打开。 */
+  assistantThread: '/assistants/:channelId/thread/:sessionId',
   /**
    * 调优（0.85.0，desktop-layout.md §34）：`?workspace=` 选范围（`global` 是全局），`?version=` 展开那个版本。0.108.0 起没有分段，
    * 旧的 `/tuning/:tab`（`/tuning/proposals` 等）转到 `/tuning`。
@@ -106,6 +108,11 @@ export const paths = {
     `${ROUTE_PATTERNS.automations}/${segment(automationId)}`,
   assistants: (): string => ROUTE_PATTERNS.assistants,
   assistant: (channelId: string): string => `${ROUTE_PATTERNS.assistants}/${segment(channelId)}`,
+  /** 线程会话：`pane` 时在时间线旁边的窗格里，否则占满右边。 */
+  assistantThread: (channelId: string, sessionId: string, pane = false): string =>
+    pane
+      ? `${ROUTE_PATTERNS.assistants}/${segment(channelId)}?thread=${encodeURIComponent(sessionId)}`
+      : `${ROUTE_PATTERNS.assistants}/${segment(channelId)}/thread/${segment(sessionId)}`,
   /** `target` 选范围（工作区 ID 或 `global`）并展开一个版本（会话侧栏的规则卡片用）。 */
   tuning: (target: { workspace?: string; version?: string } = {}): string => {
     const base = ROUTE_PATTERNS.tuning;

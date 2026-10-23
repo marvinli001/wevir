@@ -2,11 +2,11 @@
 // 名字、职责、暂停与删除），四个页签（对话、任务、日程与规矩、记忆）。照 Grok、Muse、Duet 一类个人助理：每个助理一条时间线。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type { Channel, ChannelId } from '@wevir/protocol';
+import type { Channel, ChannelId, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Bot, Ellipsis, Pause, Play, Plus, Trash2 } from 'lucide-react';
+import { Bot, Ellipsis, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router';
+import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
@@ -23,8 +23,9 @@ import { paths } from '@/routes/paths';
 import { formatMessageTime } from '@/session/format';
 import { Segmented } from '@/settings/settings-ui';
 import { AssistantAvatar } from './assistant-avatar';
-import { openAssistantDialog } from './assistant-dialog';
+import { editAssistant, openAssistantDialog } from './assistant-dialog';
 import { MemoryPanel, SchedulePanel, TasksPanel } from './assistant-panels';
+import { ThreadPage, ThreadPane } from './assistant-thread';
 import { AssistantTimeline } from './assistant-timeline';
 import { ROW_STATE_LABEL, rowState, schedulesSupported } from './assistants-model';
 import { useAssistantList, useAssistantView } from './use-assistants';
@@ -37,9 +38,12 @@ const ERROR_MS = 6000;
 export function AssistantsPage({
   client,
   channelId,
+  threadId,
 }: {
   client: WevirClient;
   channelId?: ChannelId;
+  /** 占满右边的线程会话。 */
+  threadId?: SessionId;
 }) {
   const list = useAssistantList(client);
   const channels = list.channels;
@@ -66,7 +70,9 @@ export function AssistantsPage({
         </nav>
       </aside>
       <main className="flex min-w-0 flex-1 flex-col">
-        {channelId !== undefined ? (
+        {channelId !== undefined && threadId !== undefined ? (
+          <ThreadPage key={threadId} client={client} channelId={channelId} sessionId={threadId} />
+        ) : channelId !== undefined ? (
           <AssistantPane key={channelId} client={client} channelId={channelId} />
         ) : channels === undefined ? null : (
           <EmptyState
@@ -150,6 +156,18 @@ function AssistantPane({ client, channelId }: { client: WevirClient; channelId: 
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
   const navigate = useNavigate();
+  // 时间线旁边的线程窗格（`?thread=`）。
+  const [search, setSearch] = useSearchParams();
+  const threadId = (search.get('thread') ?? undefined) as SessionId | undefined;
+  const closeThread = () =>
+    setSearch(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('thread');
+        return next;
+      },
+      { replace: true },
+    );
   useEffect(() => {
     if (error === undefined) return;
     const timer = window.setTimeout(() => setError(undefined), ERROR_MS);
@@ -225,6 +243,10 @@ function AssistantPane({ client, channelId }: { client: WevirClient; channelId: 
             }
           />
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => editAssistant(channel)} data-action="edit">
+              <Pencil />
+              {t('assistants.edit')}
+            </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
               onClick={() => setConfirming(true)}
@@ -241,33 +263,57 @@ function AssistantPane({ client, channelId }: { client: WevirClient; channelId: 
           {error}
         </p>
       )}
-      {tab === 'conversation' ? (
-        <AssistantTimeline
-          client={client}
-          view={view}
-          loadingOlder={state.loadingOlder}
-          onLoadOlder={state.loadOlder}
-          onPosted={state.addPost}
-          onError={setError}
-        />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-180 px-5 py-6">
-            {tab === 'tasks' && (
-              <TasksPanel client={client} channel={channel} tasks={view.tasks} onError={setError} />
-            )}
-            {tab === 'schedule' && (
-              <SchedulePanel
-                client={client}
-                channel={channel}
-                schedules={schedulesSupported(client.hello.features)}
-                onError={setError}
-              />
-            )}
-            {tab === 'memory' && <MemoryPanel client={client} channel={channel} />}
-          </div>
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {tab === 'conversation' ? (
+            <AssistantTimeline
+              client={client}
+              view={view}
+              loadingOlder={state.loadingOlder}
+              onLoadOlder={state.loadOlder}
+              onPosted={state.addPost}
+              onOpenThread={(thread) =>
+                navigate(paths.assistantThread(channelId, thread.sessionId, true), {
+                  replace: threadId !== undefined,
+                })
+              }
+              onError={setError}
+            />
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-180 px-5 py-6">
+                {tab === 'tasks' && (
+                  <TasksPanel
+                    client={client}
+                    channel={channel}
+                    tasks={view.tasks}
+                    onError={setError}
+                  />
+                )}
+                {tab === 'schedule' && (
+                  <SchedulePanel
+                    client={client}
+                    channel={channel}
+                    schedules={schedulesSupported(client.hello.features)}
+                    onError={setError}
+                  />
+                )}
+                {tab === 'memory' && <MemoryPanel client={client} channel={channel} />}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+        {threadId !== undefined && (
+          <ThreadPane
+            key={threadId}
+            client={client}
+            channelId={channelId}
+            sessionId={threadId}
+            thread={view.threads.find((thread) => thread.sessionId === threadId)}
+            onClose={closeThread}
+          />
+        )}
+      </div>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}

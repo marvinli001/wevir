@@ -37,7 +37,17 @@ function folderName(cwd: string): string {
   return parts[parts.length - 1] ?? cwd;
 }
 
-export function SessionRow({ session, now, last }: { session: Session; now: Date; last: boolean }) {
+export function SessionRow({
+  session,
+  now,
+  last,
+  onPress,
+}: {
+  session: Session;
+  now: Date;
+  last: boolean;
+  onPress?: () => void;
+}) {
   const theme = useTheme();
   const pending = pendingCount(session);
   const mark = markOf(session, pending);
@@ -48,6 +58,7 @@ export function SessionRow({ session, now, last }: { session: Session; now: Date
   return (
     <Row
       last={last}
+      {...(onPress !== undefined && { onPress })}
       leading={
         <View style={styles.mark}>
           {mark === 'running' ? (

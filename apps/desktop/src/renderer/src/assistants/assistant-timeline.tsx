@@ -53,6 +53,7 @@ export function AssistantTimeline({
   loadingOlder,
   onLoadOlder,
   onPosted,
+  onOpenThread,
   onError,
 }: {
   client: WevirClient;
@@ -60,6 +61,8 @@ export function AssistantTimeline({
   loadingOlder: boolean;
   onLoadOlder: () => void;
   onPosted: (post: ChannelPost) => void;
+  /** 点线程卡片：在时间线旁边的窗格里打开那个会话。 */
+  onOpenThread: (thread: ChannelThread) => void;
   onError: (text: string) => void;
 }) {
   const { channel, posts } = view;
@@ -142,6 +145,7 @@ export function AssistantTimeline({
                 )
               }
               onRetry={() => run(client.request('channel.wake', { channelId: channel.id }))}
+              onOpenThread={onOpenThread}
               onResolve={(thread, resolved) =>
                 run(
                   client.request('channel.resolveThread', {
@@ -184,6 +188,7 @@ function PostRow({
   threads,
   onRespond,
   onRetry,
+  onOpenThread,
   onResolve,
 }: {
   post: ChannelPost;
@@ -191,6 +196,7 @@ function PostRow({
   threads: ChannelThread[];
   onRespond: (accept: boolean) => void;
   onRetry: () => void;
+  onOpenThread: (thread: ChannelThread) => void;
   onResolve: (thread: ChannelThread, resolved: boolean) => void;
 }) {
   const text = postText(post);
@@ -221,7 +227,12 @@ function PostRow({
             : time}
         </span>
         {threads.map((thread) => (
-          <ThreadCard key={thread.sessionId} thread={thread} onResolve={onResolve} />
+          <ThreadCard
+            key={thread.sessionId}
+            thread={thread}
+            onOpen={onOpenThread}
+            onResolve={onResolve}
+          />
         ))}
       </div>
     );
@@ -252,7 +263,12 @@ function PostRow({
         )}
         <span className="text-xs text-muted-foreground">{time}</span>
         {threads.map((thread) => (
-          <ThreadCard key={thread.sessionId} thread={thread} onResolve={onResolve} />
+          <ThreadCard
+            key={thread.sessionId}
+            thread={thread}
+            onOpen={onOpenThread}
+            onResolve={onResolve}
+          />
         ))}
       </div>
     </div>
@@ -413,9 +429,11 @@ function SuggestionCard({
 
 function ThreadCard({
   thread,
+  onOpen,
   onResolve,
 }: {
   thread: ChannelThread;
+  onOpen: (thread: ChannelThread) => void;
   onResolve: (thread: ChannelThread, resolved: boolean) => void;
 }) {
   const resolved = thread.status === 'resolved';
@@ -429,27 +447,34 @@ function ThreadCard({
       data-card="thread"
       data-thread-status={thread.status}
     >
-      {thread.status === 'working' ? (
-        <LoaderCircle aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-running" />
-      ) : (
-        <GitBranch
-          aria-hidden
-          className={cn(
-            'mt-0.5 size-4 shrink-0',
-            thread.status === 'waiting' ? 'text-warning' : 'text-muted-foreground',
-          )}
-        />
-      )}
-      <div className="min-w-0 flex-1">
-        <p className={cn('truncate text-sm font-medium', resolved && 'text-muted-foreground')}>
-          {thread.title}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {[t(THREAD_STATUS_LABEL[thread.status]), line]
-            .filter((part) => part !== undefined && part !== '')
-            .join(' · ')}
-        </p>
-      </div>
+      <button
+        type="button"
+        className="-m-1 flex min-w-0 flex-1 items-start gap-2.5 rounded-md p-1 text-left outline-none hover:bg-muted focus-visible:focus-ring"
+        onClick={() => onOpen(thread)}
+        data-action="open-thread"
+      >
+        {thread.status === 'working' ? (
+          <LoaderCircle aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-running" />
+        ) : (
+          <GitBranch
+            aria-hidden
+            className={cn(
+              'mt-0.5 size-4 shrink-0',
+              thread.status === 'waiting' ? 'text-warning' : 'text-muted-foreground',
+            )}
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className={cn('truncate text-sm font-medium', resolved && 'text-muted-foreground')}>
+            {thread.title}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {[t(THREAD_STATUS_LABEL[thread.status]), line]
+              .filter((part) => part !== undefined && part !== '')
+              .join(' · ')}
+          </p>
+        </div>
+      </button>
       <Button
         variant="ghost"
         size="xs"
