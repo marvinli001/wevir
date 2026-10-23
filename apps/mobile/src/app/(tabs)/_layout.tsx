@@ -1,4 +1,4 @@
-// 底部标签页：会话、电脑。用系统原生的标签栏：iOS 26 是浮起的 Liquid Glass 标签栏（向下滚时收起），Android 是 Material 3 的
+// 底部标签页：助理、会话、电脑。用系统原生的标签栏：iOS 26 是浮起的 Liquid Glass 标签栏（向下滚时收起），Android 是 Material 3 的
 // 底部导航，同一份声明。选中色取墨色，与“静器”一致。
 
 import { NativeTabs } from 'expo-router/native-tabs';
@@ -20,7 +20,11 @@ export default function TabsLayout() {
         selected: { color: theme.foreground },
       }}
     >
-      <NativeTabs.Trigger name="(home)">
+      <NativeTabs.Trigger name="(bots)">
+        <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
+        <NativeTabs.Trigger.Label>{t('bots.title')}</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="sessions">
         <NativeTabs.Trigger.Icon
           sf={{
             default: 'bubble.left.and.text.bubble.right',

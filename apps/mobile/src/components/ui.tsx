@@ -123,6 +123,7 @@ export function Row({
   onPress,
   last = false,
   chevron = onPress !== undefined,
+  inset,
 }: {
   icon?: IconName;
   leading?: ReactNode;
@@ -132,10 +133,12 @@ export function Row({
   onPress?: () => void;
   last?: boolean;
   chevron?: boolean;
+  /** 分隔线的左缩进；前置内容不是图标块或状态标记时给。 */
+  inset?: number;
 }) {
   const theme = useTheme();
   // 分隔线从文字起点开始：图标块 32、状态标记 22，加上左边距与间距。
-  const inset = icon !== undefined ? 62 : leading !== undefined ? 52 : SPACE.page;
+  const left = inset ?? (icon !== undefined ? 62 : leading !== undefined ? 52 : SPACE.page);
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
@@ -172,7 +175,7 @@ export function Row({
           color={theme.borderStrong}
         />
       )}
-      {!last && <View style={[styles.separator, { backgroundColor: theme.border, left: inset }]} />}
+      {!last && <View style={[styles.separator, { backgroundColor: theme.border, left }]} />}
     </Pressable>
   );
 }

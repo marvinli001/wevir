@@ -1,4 +1,5 @@
-// 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表。底下是两个标签页（会话、电脑），电脑详情与添加电脑压在标签页之上。
+// 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表与助理。底下是三个标签页（助理、会话、电脑），助理对话、电脑详情、
+// 添加电脑与新建助理压在标签页之上。
 
 import { getLocales } from 'expo-localization';
 import { Stack } from 'expo-router';
@@ -8,6 +9,7 @@ import { useEffect } from 'react';
 import { stackOptions } from '../components/stack';
 import { pickLocale, setLocale, t } from '../i18n';
 import { runNoiseSelfTest } from '../lib/selftest';
+import { BotsProvider } from '../state/bots';
 import { RegistryProvider } from '../state/registry';
 import { useTheme } from '../theme';
 
@@ -33,15 +35,27 @@ export default function RootLayout() {
   }, [theme.background]);
   return (
     <RegistryProvider>
-      <StatusBar style={theme.dark ? 'light' : 'dark'} />
-      <Stack screenOptions={stackOptions(theme)}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="add" options={{ title: t('add.title'), presentation: 'modal' }} />
-        <Stack.Screen
-          name="computer/[name]"
-          options={{ title: '', headerLargeTitleEnabled: true }}
-        />
-      </Stack>
+      <BotsProvider>
+        <StatusBar style={theme.dark ? 'light' : 'dark'} />
+        <Stack screenOptions={stackOptions(theme)}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="add" options={{ title: t('add.title'), presentation: 'modal' }} />
+          <Stack.Screen
+            name="computer/[name]"
+            options={{ title: '', headerLargeTitleEnabled: true }}
+          />
+          <Stack.Screen name="bot/[key]" options={{ title: '', headerLargeTitleEnabled: true }} />
+          <Stack.Screen
+            name="new-bot"
+            options={{
+              title: t('bots.new'),
+              presentation: 'formSheet',
+              sheetAllowedDetents: [0.62, 1],
+              sheetGrabberVisible: true,
+            }}
+          />
+        </Stack>
+      </BotsProvider>
     </RegistryProvider>
   );
 }

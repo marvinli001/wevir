@@ -1,4 +1,4 @@
-// 会话页（首页）：所有配对电脑的会话按电脑分组，每组标题是电脑名与连接状态，点标题进电脑详情。只读：标题、状态、项目、待处理数。
+// 会话页：所有配对电脑的会话按电脑分组，每组标题是电脑名与连接状态，点标题进电脑详情。只读：标题、状态、项目、待处理数。
 
 import { Stack, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
