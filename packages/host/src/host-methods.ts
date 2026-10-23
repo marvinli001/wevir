@@ -80,6 +80,8 @@ import { listRow } from './session-list.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
+import { toHostError } from './simulator/errors.js';
+import type { SimulatorService } from './simulator/service.js';
 import type { SpeechService } from './speech/service.js';
 import type { TerminalService } from './terminals.js';
 import type { AutoTuner } from './tuning/auto.js';
@@ -133,6 +135,8 @@ export type ConnectionMethodName =
   | 'computer.respond'
   | 'terminal.attach'
   | 'terminal.detach'
+  | 'simulator.attach'
+  | 'simulator.detach'
   | 'notification.subscribe'
   | 'presence.update'
   | 'push.get'
@@ -221,6 +225,8 @@ export interface HostMethodsOptions {
   previews?: PreviewService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
   terminals?: TerminalService;
+  /** iOS 模拟器（0.122.0，`simulator.*`）；不在 macOS 或没有 helper 时省略，这些方法回 `INVALID_PARAMS`。 */
+  simulators?: SimulatorService;
   /** 从其他应用导入（0.74.0，`import.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   externalImport?: ExternalImport;
   /** 会话全文搜索（0.77.0，`search.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
@@ -463,6 +469,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const terminals = (): TerminalService => {
     if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
     return options.terminals;
+  };
+  /** iOS 模拟器的方法：模拟器的失败换成 `SIMULATOR_FAILED`。 */
+  const simulator = async <T>(run: (service: SimulatorService) => Promise<T>): Promise<T> => {
+    if (options.simulators === undefined) {
+      throw invalidParams([], 'this host has no iOS simulator support');
+    }
+    try {
+      return await run(options.simulators);
+    } catch (error) {
+      throw toHostError(error);
+    }
   };
   const readiness = (): ReadinessService => {
     if (options.readiness === undefined)
@@ -1610,6 +1627,37 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       terminals().close(params);
       return {};
     },
+    'simulator.list': () => simulator((service) => service.list()),
+    'simulator.boot': ({ udid }) =>
+      simulator(async (service) => {
+        await service.boot(udid);
+        return {};
+      }),
+    'simulator.shutdown': ({ udid }) =>
+      simulator(async (service) => {
+        await service.shutdown(udid);
+        return {};
+      }),
+    'simulator.create': (params) =>
+      simulator(async (service) => ({ device: await service.create(params) })),
+    'simulator.input': ({ udid, input }) => simulator((service) => service.input(udid, input)),
+    'simulator.screenshot': (params) => simulator((service) => service.screenshot(params)),
+    'simulator.record.start': ({ udid }) =>
+      simulator(async (service) => ({ recordingId: await service.recordStart(udid) })),
+    'simulator.record.stop': ({ recordingId }) =>
+      simulator((service) => service.recordStop(recordingId)),
+    'simulator.configure': (params) =>
+      simulator(async (service) => {
+        await service.configure(params);
+        return {};
+      }),
+    'simulator.clipboard.get': ({ udid }) =>
+      simulator(async (service) => ({ text: await service.simctl.pasteboardGet(udid) })),
+    'simulator.clipboard.set': ({ udid, text }) =>
+      simulator(async (service) => {
+        await service.simctl.pasteboardSet(udid, text);
+        return {};
+      }),
     'channel.list': ({ kind }) => ({
       channels: channels().list(kind),
       listVersion: channels().listVersion,

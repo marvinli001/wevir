@@ -263,7 +263,7 @@ export function WorkbenchLayout() {
   return (
     <PaneControllerProvider value={panes}>
       <div
-        className="layout-transition relative flex h-full overflow-hidden"
+        className="app-shell layout-transition relative flex h-full overflow-hidden"
         data-translucent-root
         data-layout-sidebar={sidebarPlan.sidebar}
         data-resizing={sidebarDrag !== undefined || undefined}
@@ -277,13 +277,10 @@ export function WorkbenchLayout() {
           aria-hidden={!docked}
           inert={!docked}
           aria-label={t('sidebar.label')}
-          className="translucent-sidebar relative shrink-0 overflow-hidden bg-sidebar text-sidebar-foreground"
+          className="relative shrink-0 overflow-hidden text-sidebar-foreground"
           style={{ width: 'var(--sidebar-shown)' }}
         >
-          <div
-            className="flex h-full flex-col border-r border-sidebar-border"
-            style={{ width: sidebarPlan.sidebarWidth }}
-          >
+          <div className="flex h-full flex-col" style={{ width: sidebarPlan.sidebarWidth }}>
             <Sidebar />
           </div>
         </aside>
@@ -318,8 +315,8 @@ export function WorkbenchLayout() {
             }
             onResizeCancel={() => setSidebarDrag(undefined)}
             onReset={() => commitSidebarWidth(LAYOUT.sidebarDefault)}
-            className="absolute inset-y-0 z-20 -ml-1"
-            // 跟着露出的宽走：吸附折叠时分隔条随侧栏的边一起滑走。
+            className="absolute inset-y-0 z-20"
+            // 跟着露出的宽走，正好落在侧栏与内容卡片之间的空隙里：吸附折叠时分隔条随侧栏的边一起滑走。
             style={{ left: 'var(--sidebar-shown)' }}
           />
         )}
@@ -342,13 +339,10 @@ export function WorkbenchLayout() {
           </SheetContent>
         </Sheet>
 
-        <div className="translucent-content flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* 顶栏画在壳上，下面的内容卡片自己有边，不再画分隔线。 */}
           <header
-            className={cn(
-              'app-drag flex h-11 shrink-0 items-center gap-2 pr-3',
-              // 首页（U4，方向稿 A）没有标题，顶栏只是拖动区，不画分隔线。
-              location.pathname !== paths.home() && 'border-b border-border',
-            )}
+            className="app-drag flex h-11 shrink-0 items-center gap-2 pr-3"
             // 窗口按钮在窗口左上角不动：侧栏露出得越少，顶栏越要让出它们的位置。
             style={{
               paddingLeft:
@@ -396,12 +390,14 @@ export function WorkbenchLayout() {
             )}
           </header>
 
-          <div ref={contentRef} className="relative flex min-h-0 flex-1">
+          {/* 内容区：主窗格是浮在壳上的卡片（index.css 的 surface-card），停靠的窗格区在它右边、各自也是卡片；左边与侧栏、
+              下边与右边与窗口边缘都隔着 PANE_LAYOUT.gap。 */}
+          <div ref={contentRef} className="relative flex min-h-0 flex-1 pl-2">
             {/* 主窗格与盖在它右边的会话侧栏（§12）：`主窗格 | 侧栏 | 窗格区`，侧栏跟着主窗格的右边走，开关窗格区、拖分隔条时
                 一起移动。最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。 */}
             <div
               className={cn(
-                'relative flex min-h-0 min-w-0 flex-1',
+                'surface-card relative mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden',
                 plan.mode === 'maximized' && 'invisible absolute inset-0',
               )}
             >
@@ -448,8 +444,11 @@ export function WorkbenchLayout() {
                 data-resizing={draftSizes !== undefined || auxCollapsing || undefined}
                 data-snapping={auxSnapping || undefined}
                 inert={!auxDocked}
+                // 收起时留一条 gap 宽的空隙，主窗格卡片的右边不贴着窗口。
                 style={{
-                  width: auxShownWidth ? SPLITTER_WIDTH + plan.auxWidth + PANE_LAYOUT.gap : 0,
+                  width: auxShownWidth
+                    ? SPLITTER_WIDTH + plan.auxWidth + PANE_LAYOUT.gap
+                    : PANE_LAYOUT.gap,
                 }}
                 onTransitionEnd={(event) => {
                   if (event.target === event.currentTarget && !auxDocked) retainedAux.clear();
@@ -494,7 +493,7 @@ export function WorkbenchLayout() {
                       onReset={() => commitScope((current) => resetAuxRatio(current, plan.columns))}
                     />
                     <div
-                      className="flex shrink-0 py-2 pr-2"
+                      className="flex shrink-0 pr-2 pb-2"
                       style={{ width: retainedAux.plan.auxWidth + PANE_LAYOUT.gap }}
                     >
                       {tree(retainedAux.plan.tree)}
@@ -504,7 +503,7 @@ export function WorkbenchLayout() {
               </div>
             )}
             {plan.mode === 'maximized' && plan.tree && (
-              <div className="flex min-w-0 flex-1 p-2">{tree(plan.tree)}</div>
+              <div className="flex min-w-0 flex-1 pr-2 pb-2">{tree(plan.tree)}</div>
             )}
           </div>
         </div>

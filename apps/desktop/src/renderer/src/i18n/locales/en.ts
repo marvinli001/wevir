@@ -96,6 +96,7 @@ export const messages: Messages = {
   'rpcError.MCP_OAUTH_FAILED': 'Sign-in failed',
   'rpcError.PUSH_GATEWAY_ERROR': 'Push registration failed',
   'rpcError.CHANNEL_NOT_FOUND': 'Assistant not found',
+  'rpcError.SIMULATOR_FAILED': 'Simulator operation failed',
 
   'clientError.request_timeout': 'Request timed out',
   'clientError.connect_timeout': 'Connection timed out',
@@ -1375,7 +1376,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Code font size',
   'settings.appearance.contentFont': 'Content font',
   'settings.appearance.codeFont': 'Code font',
-  'settings.appearance.translucentSidebar': 'Translucent sidebar',
+  'settings.appearance.translucentWindow': 'Translucent window',
   'settings.appearance.contrast': 'Contrast',
   'settings.language.auto': 'Auto-detect',
   'settings.language.search': 'Search languages',

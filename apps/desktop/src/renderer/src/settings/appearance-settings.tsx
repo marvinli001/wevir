@@ -21,7 +21,7 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
 import {
   appearanceStore,
-  TRANSLUCENT_SIDEBAR_SUPPORTED,
+  translucentWindowSupported,
   updateAppearance,
   useAppearance,
 } from '@/theme/appearance';
@@ -318,15 +318,15 @@ export function AppearanceSettings() {
                   />
                 }
               />
-              {TRANSLUCENT_SIDEBAR_SUPPORTED && (
+              {translucentWindowSupported() && (
                 <SettingsRow
-                  title={t('settings.appearance.translucentSidebar')}
-                  data-setting="translucent-sidebar"
+                  title={t('settings.appearance.translucentWindow')}
+                  data-setting="translucent-window"
                   control={
                     <Switch
-                      label={t('settings.appearance.translucentSidebar')}
-                      checked={appearance.translucentSidebar}
-                      onChange={(translucentSidebar) => updateAppearance({ translucentSidebar })}
+                      label={t('settings.appearance.translucentWindow')}
+                      checked={appearance.translucentWindow}
+                      onChange={(translucentWindow) => updateAppearance({ translucentWindow })}
                     />
                   }
                 />

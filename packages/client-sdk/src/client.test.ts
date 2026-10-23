@@ -1333,6 +1333,33 @@ describe('用户终端（0.69.0）', () => {
     stopOutput();
     stopChanges();
   });
+
+  it('iOS 模拟器的通知：changed 重连后以 undefined 通知，orientation 与 show 带上内容；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { ios_simulator: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const orientations: unknown[] = [];
+    const shows: unknown[] = [];
+    const stops = [
+      client.onSimulatorsChanged((change) => changes.push(change)),
+      client.onSimulatorOrientation((change) => orientations.push(change)),
+      client.onSimulatorShow((show) => shows.push(show)),
+    ];
+    const udid = '8A4F2C1E-3B5D-4E6F-9A7B-1C2D3E4F5A6B';
+    host.last.notify('simulator.orientation', { udid, orientation: 'landscapeLeft' });
+    host.last.notify('simulator.show', { udid });
+    host.last.notify('simulator.show', { udid, sessionId: SES });
+    host.last.notify('simulator.changed', { devices: [] });
+    await vi.waitFor(() => expect(changes).toEqual([{ devices: [] }]));
+    expect(orientations).toEqual([{ udid, orientation: 'landscapeLeft' }]);
+    expect(shows).toEqual([{ udid, sessionId: SES }]);
+    expect(warnings.join('\n')).toMatch(/malformed simulator.show/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    for (const stop of stops) stop();
+  });
 });
 
 describe('浏览器提供方（0.33.0）', () => {

@@ -92,6 +92,7 @@ export const messages: Messages = {
   'rpcError.MCP_OAUTH_FAILED': '登入失敗',
   'rpcError.PUSH_GATEWAY_ERROR': '推播註冊失敗',
   'rpcError.CHANNEL_NOT_FOUND': '助理不存在',
+  'rpcError.SIMULATOR_FAILED': '模擬器操作失敗',
 
   'clientError.request_timeout': '請求逾時',
   'clientError.connect_timeout': '連線逾時',
@@ -1364,7 +1365,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': '程式碼字級',
   'settings.appearance.contentFont': '內容字型',
   'settings.appearance.codeFont': '程式碼字型',
-  'settings.appearance.translucentSidebar': '半透明側邊欄',
+  'settings.appearance.translucentWindow': '半透明視窗',
   'settings.appearance.contrast': '對比度',
   'settings.language.auto': '自動偵測',
   'settings.language.search': '搜尋語言',

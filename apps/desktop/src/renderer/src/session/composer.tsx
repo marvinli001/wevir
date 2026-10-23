@@ -800,6 +800,7 @@ export function Composer({
         className="relative block w-full"
       >
         <div
+          data-composer-box
           className={cn(
             'rounded-3xl border border-border bg-card shadow-xs transition-colors',
             // 首页的焦点只用光束表示（方向稿），会话里的输入框聚焦时描边加深一档。

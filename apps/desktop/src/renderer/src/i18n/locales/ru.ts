@@ -95,6 +95,7 @@ export const messages: Messages = {
   'rpcError.MCP_OAUTH_FAILED': 'Не удалось войти',
   'rpcError.PUSH_GATEWAY_ERROR': 'Не удалось зарегистрировать push',
   'rpcError.CHANNEL_NOT_FOUND': 'Ассистент не найден',
+  'rpcError.SIMULATOR_FAILED': 'Ошибка симулятора',
 
   'clientError.request_timeout': 'Время ожидания запроса истекло',
   'clientError.connect_timeout': 'Время ожидания подключения истекло',
@@ -1397,7 +1398,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Размер шрифта кода',
   'settings.appearance.contentFont': 'Шрифт содержимого',
   'settings.appearance.codeFont': 'Шрифт кода',
-  'settings.appearance.translucentSidebar': 'Полупрозрачная боковая панель',
+  'settings.appearance.translucentWindow': 'Полупрозрачное окно',
   'settings.appearance.contrast': 'Контраст',
   'settings.language.auto': 'Автоопределение',
   'settings.language.search': 'Поиск языков',

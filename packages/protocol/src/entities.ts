@@ -1115,6 +1115,11 @@ export const HostSettingsSchema = z.object({
    */
   computerUse: z.boolean().optional(),
   /**
+   * iOS 模拟器（0.122.0，Host 功能 `ios_simulator`）：关掉后应用级工具里不再列出 `simulator_control` 与 `simulator_build`，调用回
+   * `sim_disabled`。窗格的 `simulator.*` 不受影响。省略按开着。
+   */
+  iosSimulator: z.boolean().optional(),
+  /**
    * 运行时防止系统休眠（0.102.0，Host 功能 `prevent_sleep`，domain-model §3.45）：开着时，有回合在跑就让桌面主进程挡住系统的空闲睡眠
    * （`power.get` / `power.changed`）。合上笔记本盖子时系统照样睡眠。省略按关着。
    */

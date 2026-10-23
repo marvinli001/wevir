@@ -1,4 +1,3 @@
-import { IS_MAC } from '@/lib/shortcuts';
 import { createPersistedStore } from '@/lib/store';
 import { platformApi } from '@/platform/platform';
 import type { WindowAppearanceInput } from '../../../shared/desktop-api.js';
@@ -27,8 +26,10 @@ export function updateAppearance(patch: Partial<Appearance>): void {
   appearanceStore.set((current) => ({ ...current, ...patch }));
 }
 
-/** 半透明侧栏只有 macOS 有（窗口的 vibrancy）。 */
-export const TRANSLUCENT_SIDEBAR_SUPPORTED = IS_MAC;
+/** 系统能给窗口加材质时才有半透明窗口（macOS；Windows 11 22H2 起）。 */
+export function translucentWindowSupported(): boolean {
+  return platformApi()?.getWindowChrome().material ?? false;
+}
 
 let applied = new Set<string>();
 let sentToWindow: string | undefined;
@@ -43,20 +44,20 @@ function apply(): void {
   for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
   applied = new Set(Object.keys(vars));
 
-  const translucentSidebar = TRANSLUCENT_SIDEBAR_SUPPORTED && appearance.translucentSidebar;
-  root.toggleAttribute('data-translucent-sidebar', translucentSidebar);
+  const translucentWindow = translucentWindowSupported() && appearance.translucentWindow;
+  root.toggleAttribute('data-translucent-window', translucentWindow);
   // 窗口的底色与材质交给主进程，它也记下来，下次启动时窗口一出现就是这个底色（main/window-appearance.ts）。
   const windowAppearance: WindowAppearanceInput = {
     background: {
       light: appearance.light.background ?? DEFAULT_COLORS.light.background,
       dark: appearance.dark.background ?? DEFAULT_COLORS.dark.background,
     },
-    translucentSidebar,
+    translucentWindow,
   };
   const key = JSON.stringify(windowAppearance);
   if (key !== sentToWindow) {
     sentToWindow = key;
-    // 只影响窗口底下的底色与材质，失败时页面照常（CSS 里半透明的侧栏下面没有材质也只是浅一点）。
+    // 只影响窗口底下的底色与材质，失败时页面照常（CSS 里半透明的壳下面没有材质也只是浅一点）。
     platformApi()
       ?.setWindowAppearance(windowAppearance)
       .catch(() => undefined);

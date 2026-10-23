@@ -97,6 +97,7 @@ export const messages: Messages = {
   'rpcError.MCP_OAUTH_FAILED': 'Anmeldung fehlgeschlagen',
   'rpcError.PUSH_GATEWAY_ERROR': 'Push-Registrierung fehlgeschlagen',
   'rpcError.CHANNEL_NOT_FOUND': 'Assistent nicht gefunden',
+  'rpcError.SIMULATOR_FAILED': 'Simulator-Aktion fehlgeschlagen',
 
   'clientError.request_timeout': 'Zeitüberschreitung der Anfrage',
   'clientError.connect_timeout': 'Zeitüberschreitung der Verbindung',
@@ -1385,7 +1386,7 @@ export const messages: Messages = {
   'settings.appearance.codeFontSize': 'Schriftgröße für Code',
   'settings.appearance.contentFont': 'Schrift für Inhalte',
   'settings.appearance.codeFont': 'Schrift für Code',
-  'settings.appearance.translucentSidebar': 'Transparente Seitenleiste',
+  'settings.appearance.translucentWindow': 'Transparentes Fenster',
   'settings.appearance.contrast': 'Kontrast',
   'settings.language.auto': 'Automatisch erkennen',
   'settings.language.search': 'Sprachen suchen',

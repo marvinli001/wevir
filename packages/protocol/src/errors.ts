@@ -100,6 +100,12 @@ export const ErrorCode = {
 
   /** 没有这个频道（0.120.0，`channel.*`），或它已删除。 */
   CHANNEL_NOT_FOUND: -32080,
+
+  /**
+   * iOS 模拟器的操作失败（0.122.0，`simulator.*`）：设备不在或没启动、helper 起不来、simctl 出错等，`data.code` 是 `SIMULATOR_ERROR_CODES`
+   * 之一（开放字符串）。
+   */
+  SIMULATOR_FAILED: -32090,
 } as const;
 
 export type ErrorCodeName = keyof typeof ErrorCode;
@@ -187,6 +193,7 @@ export const ErrorDataSchemas = {
   PUSH_GATEWAY_ERROR: z.object({
     reason: z.enum(['bad_code', 'rate_limited', 'rejected', 'unreachable']),
   }),
+  SIMULATOR_FAILED: z.object({ code: z.string().min(1) }),
 } as const satisfies Partial<Record<ErrorCodeName, z.ZodType>>;
 
 export type ErrorData<N extends keyof typeof ErrorDataSchemas> = z.infer<

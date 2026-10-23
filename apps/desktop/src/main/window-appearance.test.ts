@@ -24,25 +24,25 @@ function tempDir(): string {
 }
 
 describe('窗口外观', () => {
-  it('默认是跟随系统、tokens.css 的底色、不透明的侧栏', () => {
+  it('默认是跟随系统、tokens.css 的底色、半透明窗口', () => {
     expect(DEFAULT_WINDOW_APPEARANCE).toEqual({
       themeMode: 'system',
       background: THEME_BACKGROUND,
-      translucentSidebar: false,
+      translucentWindow: true,
     });
   });
 
-  it('渲染进程送来的值要两种底色都是 #rrggbb、半透明侧栏是布尔值', () => {
+  it('渲染进程送来的值要两种底色都是 #rrggbb、半透明窗口是布尔值', () => {
     expect(
       parseWindowAppearanceInput({
         background: { light: '#FDF6E3', dark: '#002b36' },
-        translucentSidebar: true,
+        translucentWindow: true,
       }),
-    ).toEqual({ background: { light: '#fdf6e3', dark: '#002b36' }, translucentSidebar: true });
+    ).toEqual({ background: { light: '#fdf6e3', dark: '#002b36' }, translucentWindow: true });
     expect(
       parseWindowAppearanceInput({
         background: { light: 'red', dark: '#000000' },
-        translucentSidebar: false,
+        translucentWindow: false,
       }),
     ).toBeUndefined();
     expect(
@@ -57,11 +57,19 @@ describe('窗口外观', () => {
     writeFileSync(join(dir, WINDOW_APPEARANCE_FILE), '{not json');
     expect(loadWindowAppearance(dir)).toEqual(DEFAULT_WINDOW_APPEARANCE);
     expect(parseWindowAppearance({ themeMode: 'sepia' })).toEqual(DEFAULT_WINDOW_APPEARANCE);
+    // 旧版只记了半透明侧栏（默认关）：不再读它，半透明窗口取默认的开。
+    expect(
+      parseWindowAppearance({
+        themeMode: 'system',
+        background: THEME_BACKGROUND,
+        translucentSidebar: false,
+      }),
+    ).toEqual(DEFAULT_WINDOW_APPEARANCE);
 
     const value = {
       themeMode: 'dark' as const,
       background: { light: '#fdf6e3', dark: '#002b36' },
-      translucentSidebar: true,
+      translucentWindow: true,
     };
     await saveWindowAppearance(dir, value);
     expect(loadWindowAppearance(dir)).toEqual(value);

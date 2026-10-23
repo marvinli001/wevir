@@ -1238,6 +1238,8 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__computer_clipboard_read',
       'mcp__wevir__computer_clipboard_write',
       'mcp__wevir__computer_batch',
+      // 0.122.0：iOS 模拟器（装 .app 时 Host 自己问）。
+      'mcp__wevir__simulator_control',
     ]);
   });
 });

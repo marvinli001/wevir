@@ -135,18 +135,59 @@
   app-region: no-drag;
 }
 
-/* 半透明侧栏（设置 → 外观，macOS）：主进程给窗口加上 sidebar 材质、窗口底色透明（theme/appearance.ts）；页面只让侧栏
- * 半透明，内容区仍是不透明的画布色。只在挂着支持它的布局（data-translucent-root：工作台、设置页）时生效，欢迎页等照常。 */
-:root[data-translucent-sidebar]:has([data-translucent-root]) body {
+/* 壳与卡片（视觉打磨，参照 MonoCode 的 inset 布局）：工作台与设置页的根节点（data-translucent-root）是一层“壳”，侧栏与顶栏
+ * 直接画在壳上；内容区与停靠的窗格是浮在壳上的圆角卡片（surface-card），只靠发丝边与很淡的阴影分层，卡片之间、卡片与窗口
+ * 边缘之间留 PANE_LAYOUT.gap（8px）。壳在没有材质时是不透明的侧栏色。
+ *
+ * 壳上的悬停、按下底色用正文色的低透明度（不是实色的 --accent），在透明的壳上不像贴上去的色块；浮层在 portal 里，不受影响。 */
+.app-shell {
+  --accent: color-mix(in oklab, var(--foreground) 5.5%, transparent);
+  background-color: var(--sidebar);
+}
+
+@utility surface-card {
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius-card);
+  background-color: var(--background);
+  box-shadow: var(--card-lift);
+}
+
+/* 半透明窗口（设置 → 外观，默认开；macOS 的 vibrancy、Windows 11 的 Mica）：主进程把窗口底色设成透明、加上系统材质
+ * （theme/appearance.ts），页面底色透明，壳只盖一层半透明的侧栏色，露出材质；浅色的卡片仍是不透明的画布色，深色的卡片
+ * 留一点透明。只在挂着壳的页面（工作台、设置页）生效，欢迎页等照常不透明。 */
+:root[data-translucent-window]:has([data-translucent-root]) body {
   background-color: transparent;
 }
 
-:root[data-translucent-sidebar] [data-translucent-root] .translucent-sidebar {
-  background-color: color-mix(in oklab, var(--sidebar) 55%, transparent);
+:root[data-translucent-window] .app-shell {
+  background-color: color-mix(in oklab, var(--sidebar) 58%, transparent);
 }
 
-:root[data-translucent-sidebar] [data-translucent-root] .translucent-content {
-  background-color: var(--background);
+:root[data-translucent-window][data-theme="dark"] .app-shell {
+  background-color: color-mix(in oklab, var(--sidebar) 46%, transparent);
+}
+
+:root[data-translucent-window][data-theme="dark"] .app-shell .surface-card {
+  background-color: color-mix(in oklab, var(--background) 90%, transparent);
+}
+
+/* 磨砂的浮层：菜单、弹出框、提示与命令面板透出下面的内容，不是一块实色的纸。不放进 @layer，盖过原语里的 bg-popover。 */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="context-menu-content"],
+[data-slot="popover-content"],
+[data-slot="select-content"] {
+  background-color: color-mix(in oklab, var(--popover) 84%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+}
+
+/* 消息输入框（session/composer.tsx）：浅色是实色的表面加 --elevation 的两层软影；深色改成磨砂，透出后面滚过的消息，
+ * 不是一块死黑的板。 */
+:root[data-theme="dark"] [data-composer-box] {
+  background-color: color-mix(in oklab, var(--card) 76%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
 }
 
 /* Base UI 的 ScrollArea 靠这个类隐藏原生滚动条。它原本以内联 <style> 插入，被 CSP 拦下，所以 App.tsx 用

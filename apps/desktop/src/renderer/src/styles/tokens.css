@@ -70,6 +70,9 @@
   --elevation: 0 1px 2px rgba(26, 26, 23, 0.05), 0 10px 30px -16px rgba(26, 26, 23, 0.18);
   /* 凹下去的小块（inset-well，§62）。 */
   --inset-well: inset 0 1px 2px rgba(26, 26, 23, 0.06);
+  /* 浮在壳上的卡片（index.css 的 surface-card：内容区、停靠的窗格）：墨色的发丝边，加一层贴地的软影，不像 --elevation 那样浮起。 */
+  --card-edge: color-mix(in oklab, var(--ivory-9) 9%, transparent);
+  --card-lift: 0 1px 2px rgba(26, 26, 23, 0.04), 0 2px 12px -6px rgba(26, 26, 23, 0.08);
 
   color-scheme: light;
 }
@@ -128,6 +131,9 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4),
     0 12px 32px -16px rgba(0, 0, 0, 0.6);
   --inset-well: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  /* 深色的卡片边是亮的发丝线，顶边再多一道高光，在深色的壳上也分得出层次。 */
+  --card-edge: color-mix(in oklab, var(--graphite-10) 8%, transparent);
+  --card-lift: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 1px 3px rgba(0, 0, 0, 0.35);
 
   color-scheme: dark;
 }
