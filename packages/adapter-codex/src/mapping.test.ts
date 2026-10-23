@@ -563,6 +563,95 @@ describe('映射的边界情况', () => {
     expect(events[1]).not.toHaveProperty('output');
   });
 
+  it('imageGeneration（0.116.0）：展示类型 image，输入里不带图片数据，完成时图片放进 tool.finished.images', () => {
+    const mapper = new CodexEventMapper(id);
+    const started = mapper.map('item/started', {
+      threadId: id,
+      turnId,
+      item: {
+        type: 'imageGeneration',
+        id: 'ig1',
+        status: 'in_progress',
+        revisedPrompt: null,
+        result: '',
+        failure: null,
+      },
+    });
+    expect(started).toEqual([
+      {
+        type: 'tool.started',
+        engineSessionId: id,
+        toolCallId: 'ig1',
+        toolName: 'imageGeneration',
+        display: { kind: 'image' },
+        input: {
+          type: 'imageGeneration',
+          id: 'ig1',
+          status: 'in_progress',
+          revisedPrompt: null,
+          failure: null,
+        },
+      },
+    ]);
+    const completed = mapper.map('item/completed', {
+      threadId: id,
+      turnId,
+      item: {
+        type: 'imageGeneration',
+        id: 'ig1',
+        status: 'completed',
+        revisedPrompt: ' A red fox in snow ',
+        result: 'iVBORw0KGgo=',
+        failure: null,
+        savedPath: '/codex/generated_images/t/ig1.png',
+      },
+    });
+    expect(completed).toEqual([
+      {
+        type: 'tool.updated',
+        engineSessionId: id,
+        toolCallId: 'ig1',
+        display: { kind: 'image', summary: 'A red fox in snow' },
+      },
+      {
+        type: 'tool.finished',
+        engineSessionId: id,
+        toolCallId: 'ig1',
+        status: 'completed',
+        images: [{ data: 'iVBORw0KGgo=' }],
+      },
+    ]);
+  });
+
+  it('imageGeneration 失败：没有图片；额度用完时输出写明何时恢复', () => {
+    const mapper = new CodexEventMapper(id);
+    const item = {
+      type: 'imageGeneration',
+      id: 'ig2',
+      status: 'failed',
+      revisedPrompt: 'a fox',
+      result: '',
+      failure: { type: 'usageLimitExceeded', limitId: 'image_gen', resetsAt: 1_800_000_000 },
+    };
+    const events = mapper.map('item/completed', { threadId: id, turnId, item });
+    expect(types(events)).toEqual(['tool.started', 'tool.finished']);
+    expect(events[0]).not.toHaveProperty('input.result');
+    expect(events[1]).toEqual({
+      type: 'tool.finished',
+      engineSessionId: id,
+      toolCallId: 'ig2',
+      status: 'failed',
+      output: 'Image generation usage limit reached, resets at 2027-01-15T08:00:00.000Z',
+    });
+    const plain = new CodexEventMapper(id).map('item/completed', {
+      threadId: id,
+      turnId,
+      item: { ...item, id: 'ig3', failure: null },
+    });
+    expect(plain[1]).not.toHaveProperty('output');
+    expect(plain[1]).not.toHaveProperty('images');
+  });
+
   it('字段不合预期的通知整条保留为 engine.raw', () => {
     const mapper = new CodexEventMapper(id);
     const bad = { threadId: id, turnId, item: { type: 'fileChange', id: 'f', changes: 'oops' } };

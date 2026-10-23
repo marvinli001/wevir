@@ -95,12 +95,12 @@ export function readImage(client: WevirClient, part: UserImagePart): Promise<str
   return remember(part.imageId, load());
 }
 
-/** 一张消息里的图片：读回来之前是 undefined。 */
-function useImageData(part: UserImagePart): { src?: string; failed: boolean } {
+/** 一张消息里的图片：读回来之前（与还没有图片时）是 undefined。 */
+export function useImageData(part: UserImagePart | undefined): { src?: string; failed: boolean } {
   const { client } = useHostConnection();
   const [state, setState] = useState<{ src?: string; failed: boolean }>({ failed: false });
   useEffect(() => {
-    if (!client) return;
+    if (!client || part === undefined) return;
     let live = true;
     setState({ failed: false });
     readImage(client, part).then(

@@ -1,4 +1,4 @@
-import type { ToolDisplay } from '@wevir/runtime-adapter';
+import type { AgentToolImage, ToolDisplay } from '@wevir/runtime-adapter';
 import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL, WEB_TOOL_SERVER } from '@wevir/runtime-adapter/web-tool';
 import type {
   CollabAgentToolCallItem,
@@ -23,6 +23,7 @@ export const TOOL_ITEM_TYPES = Object.freeze([
   'collabAgentToolCall',
   'webSearch',
   'imageView',
+  'imageGeneration',
 ] as const);
 
 /** 是映射成工具调用的 item，并且映射要读的字段都在（不在的整条保留为 engine.raw）。 */
@@ -57,6 +58,8 @@ export function isToolItem(item: unknown): item is ToolItem {
       return str('query');
     case 'imageView':
       return str('path');
+    case 'imageGeneration':
+      return str('status') && str('result');
     default:
       return false;
   }
@@ -101,7 +104,28 @@ export function toolDisplay(item: ToolItem): ToolDisplay {
       return { kind: 'search', summary: item.query, query: item.query };
     case 'imageView':
       return { kind: 'read', summary: item.path, paths: [item.path] };
+    case 'imageGeneration': {
+      const prompt = item.revisedPrompt?.trim();
+      return prompt ? { kind: 'image', summary: prompt } : { kind: 'image' };
+    }
   }
+}
+
+/**
+ * `tool.started.input`：item 原样，只是生成的图片不放进去（`imageGeneration.result` 是整张 PNG 的 base64，图片另走
+ * `tool.finished.images`）。
+ */
+export function toolInput(item: ToolItem): unknown {
+  if (item.type !== 'imageGeneration') return item;
+  const { result: _result, ...rest } = item;
+  return rest;
+}
+
+/** 生成的图片（`tool.finished.images`）：完成且有数据时一张，交给 Host 存。 */
+export function toolImages(item: ToolItem): AgentToolImage[] | undefined {
+  if (item.type !== 'imageGeneration' || item.status !== 'completed') return undefined;
+  const data = item.result.trim();
+  return data === '' ? undefined : [{ data }];
 }
 
 /**
@@ -200,6 +224,13 @@ export function toolOutput(item: ToolItem, streamed: string): string | undefined
         : JSON.stringify(item.agentsStates);
     case 'webSearch':
     case 'imageView':
+      return undefined;
+    case 'imageGeneration':
+      if (item.failure?.type === 'usageLimitExceeded') {
+        return item.failure.resetsAt === null
+          ? 'Image generation usage limit reached'
+          : `Image generation usage limit reached, resets at ${new Date(item.failure.resetsAt * 1000).toISOString()}`;
+      }
       return undefined;
   }
 }

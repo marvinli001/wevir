@@ -62,12 +62,14 @@ import {
   type SubagentSummary,
   type SuggestedTask,
   type TaskId,
+  TOOL_IMAGES_MAX,
   type ToolDisplay,
   type TurnCommand,
   type TurnId,
   type TurnOutcome,
   type UiShowTarget,
   type UserContentPart,
+  type UserImagePart,
   type UserQuestion,
   type WevirEvent,
   type WevirEventType,
@@ -77,6 +79,7 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  type AgentToolImage,
   type ApprovalCancelledEvent,
   type ApprovalRequestedEvent,
   type AppToolsEndpoint,
@@ -4774,6 +4777,31 @@ export class SessionManager {
   }
 
   /** 把一个引擎事件写成 WevirEvent（domain-model §6、§9）。 */
+  /**
+   * 工具产出的图片（0.116.0）存进图片目录，换成引用；没有图片目录、存不下或认不出的跳过（记一条警告），最多
+   * `TOOL_IMAGES_MAX` 张。
+   */
+  #toolImages(
+    runtime: SessionRuntime,
+    images: readonly AgentToolImage[] | undefined,
+  ): UserImagePart[] {
+    if (images === undefined || images.length === 0) return [];
+    const saved: UserImagePart[] = [];
+    for (const image of images.slice(0, TOOL_IMAGES_MAX)) {
+      try {
+        const part = this.#images?.saveToolImage(image.data);
+        if (part !== undefined) saved.push(part);
+        else this.#onWarning('tool image skipped', { sessionId: runtime.id });
+      } catch (error) {
+        this.#onWarning('failed to save a tool image', {
+          sessionId: runtime.id,
+          error: errorText(error),
+        });
+      }
+    }
+    return saved;
+  }
+
   #handle(runtime: SessionRuntime, event: AgentEvent): void {
     const sessionId = runtime.id;
     switch (event.type) {
@@ -4920,6 +4948,7 @@ export class SessionManager {
         // 取消期间的 failed 记为 cancelled，原文保留（domain-model §6.4）。
         const cancelling = this.#snapshot(runtime).session.state === 'cancelling';
         turn.openTools.delete(event.toolCallId);
+        const images = this.#toolImages(runtime, event.images);
         this.#write(runtime, [
           {
             type: 'tool.finished',
@@ -4931,6 +4960,7 @@ export class SessionManager {
               ...(event.output !== undefined && {
                 output: { text: event.output, truncated: false },
               }),
+              ...(images.length > 0 && { images }),
             },
           },
         ]);

@@ -48,6 +48,8 @@ import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
  * - `features.goals = true`：会话目标（0.35.0，补记 20，codex-event-mapping.md §6.13）：模型拿到 get_goal / create_goal /
  *   update_goal，目标进行中、thread 空闲时 Codex 自己开回合接着做（要 CODEX_HOME 下的 state DB 与不是临时的 thread；生成
  *   标题的临时 thread 另外关掉它，支线是临时的 thread，本来就没有）。默认就是开，写出来防默认值变化；
+ * - `features.image_generation = true`：生图（0.116.0，image_gen 扩展的 `image_gen.imagegen`，codex-event-mapping.md §6.18）。
+ *   Codex 只在 Provider 是 OpenAI 自己的（ChatGPT 登录）时给模型这个工具，经网关的 Provider 拿不到。默认就是开，写出来防默认值变化；
  * - `features.memories = false`、`approvals_reviewer = "user"`：两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI
  *   模型名）；
  * - `tools.update_plan.enabled = true`：计划默认关；
@@ -74,6 +76,7 @@ export const HARDENING_TABLES: readonly string[] = [
   'plugins = false',
   'apps = false',
   'goals = true',
+  'image_generation = true',
   'memories = false',
   'instant_interrupt = false',
   'default_mode_request_user_input = true',

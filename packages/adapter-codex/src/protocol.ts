@@ -560,6 +560,25 @@ export interface ImageViewItem {
   path: string;
 }
 
+/**
+ * ThreadItem `imageGeneration`（ImageGenerationItem.ts，rust-v0.163.0 的 image_gen 扩展）：模型调 `image_gen.imagegen`，
+ * Codex 经当前 Provider 的 Images API 生成或编辑图片。开始时 `in_progress`、`result` 为空；完成时 `result` 是 PNG 的
+ * base64，`savedPath` 是 Codex 存下的文件（`$CODEX_HOME/generated_images/<thread>/<call>.png`），存不下时没有。
+ */
+export interface ImageGenerationItem {
+  type: 'imageGeneration';
+  id: string;
+  /** `in_progress`、`completed`、`failed`。 */
+  status: string;
+  /** 完成或失败时是模型给的提示词。 */
+  revisedPrompt: string | null;
+  result: string;
+  transparentBackground?: boolean;
+  /** 额度用完时才有（目前只有这一种）。 */
+  failure: { type: 'usageLimitExceeded'; limitId: string; resetsAt: number | null } | null;
+  savedPath?: string;
+}
+
 /** 映射成工具调用的 item（mapping.ts）。 */
 export type ToolItem =
   | CommandExecutionItem
@@ -568,7 +587,8 @@ export type ToolItem =
   | DynamicToolCallItem
   | CollabAgentToolCallItem
   | WebSearchToolItem
-  | ImageViewItem;
+  | ImageViewItem
+  | ImageGenerationItem;
 
 /** 其余 item（userMessage、plan、contextCompaction 等）只看 `type` 与 `id`。 */
 export interface OtherItem {

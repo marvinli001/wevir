@@ -33,6 +33,7 @@ import { lineCount } from './composer-pastes';
 import { CopyButton } from './copy-button';
 import { FindingsCard } from './findings-card';
 import { formatMessageTime } from './format';
+import { GeneratedImage } from './generated-image';
 import { GuardrailPart } from './guardrail-part';
 import { HandoffDetailDialog } from './handoff-detail';
 import { type HandoffNoticeOf, modelLabel } from './handoff-model';
@@ -46,7 +47,7 @@ import { PlanCard } from './plan-card';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
-import { groupWork } from './tool-model';
+import { groupWork, isImageTool } from './tool-model';
 import { WorkGroup } from './work-group';
 
 // 消息流里的一条消息（T5.3；U2 起由回合 turn-view.tsx 组织：助手消息里连续的思考与工具调用合成工作组，子智能体标记
@@ -446,7 +447,11 @@ export function PartsView({
           case 'subagents':
             return <SubagentRow key={item.key} parts={item.parts} />;
           default:
-            return <PartView key={item.part.key} part={item.part} />;
+            return item.part.type === 'tool' && isImageTool(item.part) ? (
+              <GeneratedImage key={item.part.key} part={item.part} turnActive={turnActive} />
+            ) : (
+              <PartView key={item.part.key} part={item.part} />
+            );
         }
       })}
     </>
@@ -497,7 +502,7 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <FindingsCard part={part} />;
     case 'guardrail':
       return <GuardrailPart part={part} />;
-    // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
+    // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行；生成图片的工具由 PartsView 画成 GeneratedImage。
     case 'reasoning':
     case 'tool':
     case 'raw':

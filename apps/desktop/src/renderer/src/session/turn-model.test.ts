@@ -11,6 +11,7 @@ import type {
 import { describe, expect, it } from 'vitest';
 import { currentAction, groupWork, type WorkEntry } from './tool-model';
 import {
+  alwaysShown,
   blockSeqRange,
   filesAfterAnswer,
   foldedParts,
@@ -162,6 +163,23 @@ describe('lastTurnId（0.38.0）', () => {
     expect(lastTurnId(s.project())).toBe(TURN2);
     s.add('turn.rewound', { turnId: TURN2 });
     expect(lastTurnId(s.project())).toBe(TURN);
+  });
+});
+
+describe('alwaysShown', () => {
+  it('生成的图片（0.116.0）收起的回合里也在，别的工具不在', () => {
+    const tool = (kind: 'image' | 'shell') => ({
+      type: 'tool' as const,
+      key: `t:${kind}`,
+      toolCallId: kind,
+      toolName: kind,
+      display: { kind },
+      status: 'completed' as const,
+      input: {},
+      startedAt: '2026-10-23T00:00:00.000Z',
+    });
+    expect(alwaysShown(tool('image'))).toBe(true);
+    expect(alwaysShown(tool('shell'))).toBe(false);
   });
 });
 

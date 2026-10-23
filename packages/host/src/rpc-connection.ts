@@ -39,6 +39,7 @@ import {
   type SessionId,
   SUBSCRIPTION_KINDS,
   type SubscriptionId,
+  type ToolDisplay,
   type UserContentPart,
   type WevirEvent,
 } from '@wevir/protocol';
@@ -1484,6 +1485,21 @@ export function adaptEventForClient(
       },
     };
   }
+  // COMPAT(toolDisplayImage): added in 0.116.0, remove gate after 2027-06-01
+  if (capabilities.tool_display_image !== true) {
+    if (event.type === 'tool.started' && event.payload.display.kind === 'image') {
+      return {
+        ...event,
+        payload: { ...event.payload, display: unknownDisplay(event.payload.display) },
+      };
+    }
+    if (event.type === 'tool.updated' && event.payload.display?.kind === 'image') {
+      return {
+        ...event,
+        payload: { ...event.payload, display: unknownDisplay(event.payload.display) },
+      };
+    }
+  }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (
     event.type === 'session.title_changed' &&
@@ -1493,6 +1509,11 @@ export function adaptEventForClient(
     return { ...event, payload: { ...event.payload, source: 'first_prompt' } };
   }
   return event;
+}
+
+/** 展示类型降级成 `unknown`，其余字段不变。 */
+function unknownDisplay(display: ToolDisplay): ToolDisplay {
+  return { ...display, kind: 'unknown' };
 }
 
 /**

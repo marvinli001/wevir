@@ -1063,7 +1063,7 @@ const standaloneCases: Case[] = [
   {
     name: 'ToolDisplayKind',
     schema: ToolDisplayKindSchema,
-    valid: ['sub_agent'],
+    valid: ['sub_agent', 'image'],
     invalid: ['subagent'],
   },
   {

@@ -40,6 +40,8 @@ import {
   fileChangeDisplay,
   isToolItem,
   toolDisplay,
+  toolImages,
+  toolInput,
   toolName,
   toolOutput,
 } from './tool-display.js';
@@ -465,7 +467,7 @@ export class CodexEventMapper {
         toolCallId: item.id,
         toolName: toolName(item),
         display,
-        input: item,
+        input: toolInput(item),
       },
     ];
   }
@@ -524,6 +526,7 @@ export class CodexEventMapper {
       });
     }
     const output = toolOutput(item, state.output);
+    const images = toolImages(item);
     events.push({
       type: 'tool.finished',
       engineSessionId: this.engineSessionId,
@@ -532,6 +535,7 @@ export class CodexEventMapper {
       // （ADR-0005 决策 6.2）。
       status: item.status === 'completed' ? 'completed' : 'failed',
       ...(output !== undefined && { output }),
+      ...(images !== undefined && { images }),
     });
     // 建议的后续任务（0.16.0，§6.8）：Wevir 自己的 MCP 工具调用完成了，参数就是建议。
     if (

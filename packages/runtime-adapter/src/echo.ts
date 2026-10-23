@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { crc32, deflateSync } from 'node:zlib';
 import type { AgentRuntimeAdapter, CancelOptions } from './adapter.js';
 import { AdapterError } from './errors.js';
 import { EventHub } from './event-hub.js';
@@ -51,6 +52,44 @@ export interface EchoExitInfo {
 }
 
 /** Echo 的审批选项，取 dsh 的值（T0.3 §5.2）。 */
+/** `imagine` 关键词“生成”图片用几步的时长（带 `slow` 时再乘十）。 */
+const ECHO_IMAGE_STEPS = 600;
+/** `imagine` 关键词生成的图片边长（px）。 */
+export const ECHO_IMAGE_SIZE = 512;
+
+/** `imagine` 关键词生成的图片：一张对角渐变的 PNG（RGB，不压缩滤波）。 */
+export function echoImage(): Buffer {
+  const size = ECHO_IMAGE_SIZE;
+  const raw = Buffer.alloc((size * 3 + 1) * size);
+  for (let y = 0; y < size; y++) {
+    const row = y * (size * 3 + 1);
+    for (let x = 0; x < size; x++) {
+      const t = (x + y) / (2 * (size - 1));
+      raw[row + 1 + x * 3] = Math.round(40 + 200 * t);
+      raw[row + 2 + x * 3] = Math.round(70 + 90 * (1 - t));
+      raw[row + 3 + x * 3] = Math.round(160 + 80 * Math.sin(Math.PI * t));
+    }
+  }
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 /** `plan` 关键词的清单（U20）。 */
 export const ECHO_PLAN = ['Read the relevant files', 'Make the change', 'Run the tests and report'];
 
@@ -773,6 +812,35 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         });
       }
 
+      // 生成图片（0.116.0）：像 Codex 的 imageGeneration，开始时没有图，“生成”一会儿后带一张 PNG 结束。
+      if (!subagent && /\bimagine\b/i.test(text)) {
+        const toolCallId = this.#nextId('call_echo');
+        emit({
+          type: 'tool.started',
+          engineSessionId,
+          toolCallId,
+          toolName: 'imageGeneration',
+          display: { kind: 'image' },
+          input: { prompt: text },
+        });
+        openTools.set(toolCallId, 'Error: tool call aborted');
+        await this.#step(signal, this.#stepDelayMs * ECHO_IMAGE_STEPS * slowSteps);
+        openTools.delete(toolCallId);
+        emit({
+          type: 'tool.updated',
+          engineSessionId,
+          toolCallId,
+          display: { kind: 'image', summary: text },
+        });
+        emit({
+          type: 'tool.finished',
+          engineSessionId,
+          toolCallId,
+          status: 'completed',
+          images: [{ data: echoImage().toString('base64') }],
+        });
+      }
+
       if (!subagent && /approve/i.test(text)) {
         const toolCallId = this.#nextId('call_echo');
         const path = '/outside-workspace/echo.txt';
@@ -1213,7 +1281,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   }
 
   /** 等一步；回合被打断时以 TurnAbort reject，并清掉计时器。 */
-  #step(signal: AbortSignal): Promise<void> {
+  #step(signal: AbortSignal, delayMs = this.#stepDelayMs): Promise<void> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) {
         reject(signal.reason);
@@ -1228,7 +1296,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         this.#timers.delete(timer);
         signal.removeEventListener('abort', onAbort);
         resolve();
-      }, this.#stepDelayMs);
+      }, delayMs);
       this.#timers.add(timer);
       signal.addEventListener('abort', onAbort, { once: true });
     });

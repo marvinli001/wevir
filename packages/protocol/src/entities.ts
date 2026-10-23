@@ -424,6 +424,8 @@ export const ToolDisplayKindSchema = z.enum([
   'fetch',
   'plan',
   'sub_agent',
+  /** 生成或编辑图片（0.116.0，Codex 的 `imageGeneration`）。客户端没有 `tool_display_image` 时 Host 降级成 `unknown`。 */
+  'image',
   'unknown',
 ]);
 export type ToolDisplayKind = z.infer<typeof ToolDisplayKindSchema>;
@@ -441,6 +443,9 @@ export const ToolDisplaySchema = z.object({
   mcpServer: z.string().optional(),
 });
 export type ToolDisplay = z.infer<typeof ToolDisplaySchema>;
+
+/** 一次工具调用最多带几张图片（0.116.0，`tool.finished` 的 `images`）。 */
+export const TOOL_IMAGES_MAX = 16;
 
 /** 截断规则见 host-api.md「工具输出截断上限」。 */
 export const ToolOutputSchema = z.object({
