@@ -1,0 +1,8 @@
+body:
+  - type: textarea
+    id: showcase
+    attributes:
+      label: What did you build or set up?
+      description: A project, a workflow, a model or subscription setup, plugins or skills. Screenshots help.
+    validations:
+      required: true

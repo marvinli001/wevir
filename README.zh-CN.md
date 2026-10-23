@@ -13,7 +13,7 @@
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
 </p>
 
-<p align="center"><a href="./README.md">English</a> · 简体中文 · <a href="#downloads">下载</a></p>
+<p align="center"><a href="./README.md">English</a> · 简体中文 · <a href="#downloads">下载</a> · <a href="https://github.com/marvinli001/wevir/discussions">讨论区</a></p>
 
 <p align="center">
   <picture>
@@ -29,6 +29,10 @@
 **Wevir 是 Codex 式的 AI 编程 Agent 桌面工作台，不绑定某一家模型服务。** 用自己的 API Key、任意 OpenAI 兼容接口或已有的订阅（多数可加多个账号），会话进行中也能换模型。
 
 会话、审批、变更审阅、项目文件，以及 Agent 可以操作的浏览器，都在同一个开源桌面应用里。本地 Host 运行 Agent，数据留在你的电脑上；`wevir` 命令行连的是同一个 Host。
+
+<p align="center">
+  <img src="./assets/readme/wevir-demo.webp" width="900" alt="演示：Agent 给一个小缓存加上 TTL，会话中途从 OpenAI 模型换到 DeepSeek、再换到本机 Ollama 模型；模型选择器列出 Codex、Claude、Cursor、OpenCode、Grok 与 Antigravity 订阅，其中 Codex 与 Claude 各有两个账号" />
+</p>
 
 ### 为什么用 Wevir
 
@@ -120,7 +124,7 @@ Wevir 还在预览阶段。**支持**：包含在安装包里，有自动化测�
 - **平台。** 没有 Linux 与 Windows on Arm 安装包；电脑操作只支持 macOS。
 - **命令行。** `wevir` 命令行不在安装包里，要从源码运行。
 
-发现问题或缺口，请到 [GitHub Issues](https://github.com/marvinli001/wevir/issues) 反馈。
+发现 bug 请到 [GitHub Issues](https://github.com/marvinli001/wevir/issues) 反馈；提问、建议和想分享的用法请到 [GitHub Discussions](https://github.com/marvinli001/wevir/discussions)。
 
 <a id="downloads"></a>
 

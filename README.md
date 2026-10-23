@@ -13,7 +13,7 @@
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
 </p>
 
-<p align="center">English · <a href="./README.zh-CN.md">简体中文</a> · <a href="#downloads">Downloads</a></p>
+<p align="center">English · <a href="./README.zh-CN.md">简体中文</a> · <a href="#downloads">Downloads</a> · <a href="https://github.com/marvinli001/wevir/discussions">Discussions</a></p>
 
 <p align="center">
   <picture>
@@ -29,6 +29,10 @@
 **Wevir is a Codex-style desktop workspace for coding agents that isn't tied to one model provider.** Bring your own API keys, any OpenAI-compatible endpoint, or the subscriptions you already have (most of them with several accounts), and switch models in the middle of a session.
 
 Sessions, approvals, change review, project files, and a browser the agent can drive live in one open-source desktop app. A local Host runs the agents and keeps their data on your machine; the `wevir` CLI talks to the same Host.
+
+<p align="center">
+  <img src="./assets/readme/wevir-demo.webp" width="900" alt="Demo: the agent adds a TTL to a small cache while the session switches from an OpenAI model to DeepSeek and then to a local Ollama model, and the picker lists Codex, Claude, Cursor, OpenCode, Grok, and Antigravity subscriptions with two accounts each for Codex and Claude" />
+</p>
 
 ### Why Wevir
 
@@ -120,7 +124,7 @@ Wevir is in preview. **Supported** means it is in the builds and covered by auto
 - **Platforms.** No Linux or Windows on Arm build. Computer use is macOS only.
 - **CLI.** The `wevir` CLI is not in the installers; run it from a source checkout.
 
-Found a bug or a gap? Open an issue on [GitHub Issues](https://github.com/marvinli001/wevir/issues).
+Found a bug? Open an issue on [GitHub Issues](https://github.com/marvinli001/wevir/issues). Questions, ideas, and setups you want to share go to [GitHub Discussions](https://github.com/marvinli001/wevir/discussions).
 
 <a id="downloads"></a>
 
