@@ -148,7 +148,7 @@ function replaceStats(before: string, after: string): LineStats {
 // ── 工作组 ──────────────────────────────────────────────────────────
 
 /**
- * 生成图片的工具（0.116.0，展示类型 `image`）：不进工作组，在消息流里单独画成一张图（generated-image.tsx），收起的回合里也在。
+ * 生成图片的工具（0.118.0，展示类型 `image`）：不进工作组，在消息流里单独画成一张图（generated-image.tsx），收起的回合里也在。
  */
 export function isImageTool(part: ChatPart): boolean {
   return part.type === 'tool' && part.display.kind === 'image';

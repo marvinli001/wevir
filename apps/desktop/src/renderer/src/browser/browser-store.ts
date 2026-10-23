@@ -5,6 +5,7 @@ import type { SessionId } from '@wevir/protocol';
 import { useEffect } from 'react';
 import type { PaneController } from '@/layout/pane-controller';
 import { createStore } from '@/lib/store';
+import { capabilities, platformApi } from '@/platform/platform';
 import {
   activeBrowserTabIdForSession,
   browserTabsForSession,
@@ -23,13 +24,21 @@ let subscribed = false;
 
 /** 第一次用到时订阅主进程的推送，并读一次当前状态。 */
 function ensureSubscribed(): void {
-  if (subscribed || typeof window === 'undefined' || !window.wevir?.browser) return;
+  if (
+    subscribed ||
+    typeof window === 'undefined' ||
+    !capabilities().browserPane ||
+    !platformApi()?.browser
+  )
+    return;
   subscribed = true;
-  window.wevir.browser.onState((state) => store.set(state));
-  void window.wevir.browser.state().then(
-    (state) => store.set(state),
-    () => {},
-  );
+  platformApi().browser.onState((state) => store.set(state));
+  void platformApi()
+    .browser.state()
+    .then(
+      (state) => store.set(state),
+      () => {},
+    );
 }
 
 export function useBrowserState(): BrowserStatePayload {
@@ -61,8 +70,8 @@ export function tabLabel(tab: BrowserTabState, untitled: string): string {
 /** 主会话视图用：agent 请显示这个会话的标签页时打开浏览器窗格（标签页由主进程选好）。 */
 export function useBrowserReveal(sessionId: SessionId, panes: PaneController | undefined): void {
   useEffect(() => {
-    if (!panes || !window.wevir?.browser) return;
-    return window.wevir.browser.onReveal((reveal) => {
+    if (!panes || !capabilities().browserPane || !platformApi()?.browser) return;
+    return platformApi().browser.onReveal((reveal) => {
       if (reveal.sessionId === sessionId) panes.open({ kind: 'browser' });
     });
   }, [sessionId, panes]);

@@ -11,9 +11,11 @@ import { ConnectionToast } from '@/host/connection-toast';
 import { HostConnectionProvider } from '@/host/host-connection';
 import { SplashGate } from '@/layout/splash';
 import { NotificationCoordinator } from '@/notifications/notification-coordinator';
+import { capabilities } from '@/platform/platform';
 import { router } from '@/routes/router';
 
 export function App() {
+  const platform = capabilities();
   return (
     // CSP 不放行内联 <style>（src/shared/csp.ts）：Base UI 不再自己插样式标签，它需要的规则在 index.css。
     <CSPProvider disableStyleElements>
@@ -23,11 +25,11 @@ export function App() {
           <SplashGate />
           <TooltipProvider delay={500}>
             <RouterProvider router={router} />
-            {/* 内置浏览器（0.33.0）：登记为浏览器提供方，转交 agent 的浏览器命令。 */}
-            <BrowserCoordinator />
+            {/* 内置浏览器（0.33.0）：登记为浏览器提供方，转交 agent 的浏览器命令。外壳没有的功能不登记（platform/platform.ts）。 */}
+            {platform.browserPane && <BrowserCoordinator />}
             {/* 电脑操作（0.114.0）：登记为提供方，弹授权框，Esc 停下时取消回合。 */}
-            <ComputerCoordinator />
-            <PreventSleepCoordinator />
+            {platform.computerUse && <ComputerCoordinator />}
+            {platform.preventSleep && <PreventSleepCoordinator />}
             {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
             <ToastViewport>
               <ConnectionToast />

@@ -26,6 +26,7 @@ import {
   type XlsxWorkbook,
 } from '@/files/workbook';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 
 /** 窗格顶上的一行提示（截断、只显示文字等）。 */
 export function SurfaceNotice({ children }: { children: ReactNode }) {
@@ -87,7 +88,9 @@ export function DocumentFrame({ src, title, pdf }: { src: string; title: string;
       ) {
         return;
       }
-      void window.wevir.openExternal(request.url).catch(() => undefined);
+      void platformApi()
+        .openExternal(request.url)
+        .catch(() => undefined);
       frame.contentWindow?.postMessage(openLinkResult(request.id), '*');
     };
     window.addEventListener('message', openLink);

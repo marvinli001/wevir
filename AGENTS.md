@@ -37,7 +37,8 @@ wevir/
 │  ├─ cli/              wevir 命令行客户端
 │  ├─ desktop/          Electron 桌面端（electron-vite）
 │  ├─ push/             推送网关（只收推送令牌与加密载荷，转给 APNs / FCM；Dockerfile 与环境变量说明）
-│  └─ relay/            远程访问的中继（默认关的兜底，只转发 Noise 密文；Dockerfile 与自建说明）
+│  ├─ relay/            远程访问的中继（默认关的兜底，只转发 Noise 密文；Dockerfile 与自建说明；共用的协议测试 conformance.ts）
+│  └─ relay-worker/     同一中继的 Cloudflare Workers + Durable Objects 实现（线路协议相同，wrangler 配置与部署说明）
 ├─ assets/icons/        品牌图标的源文件与导出
 ├─ packages/
 │  ├─ protocol/         Host API 协议：zod schema、方法与事件注册表、错误码

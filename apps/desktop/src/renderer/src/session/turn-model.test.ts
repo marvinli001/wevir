@@ -167,7 +167,7 @@ describe('lastTurnId（0.38.0）', () => {
 });
 
 describe('alwaysShown', () => {
-  it('生成的图片（0.116.0）收起的回合里也在，别的工具不在', () => {
+  it('生成的图片（0.118.0）收起的回合里也在，别的工具不在', () => {
     const tool = (kind: 'image' | 'shell') => ({
       type: 'tool' as const,
       key: `t:${kind}`,

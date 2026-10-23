@@ -107,7 +107,8 @@ export async function remotePair(
   const browse = ctx.io.browseMdns ?? browseWevirHosts;
   let targets: PairingTarget[];
   let secret: { kind: 'uri'; secret: string } | { kind: 'code'; code: string };
-  if (trimmed.startsWith(PAIRING_URI_PREFIX)) {
+  // 网页配对链接（`https://…/pair#…`，0.117.0）也认：参数相同，经里面的中继配对。
+  if (trimmed.startsWith(PAIRING_URI_PREFIX) || /^https?:\/\//i.test(trimmed)) {
     const payload = parsePairingUri(trimmed);
     if (payload === null) {
       throw new CliError(t('remote.badLink'), t('remote.badLink.hint'));

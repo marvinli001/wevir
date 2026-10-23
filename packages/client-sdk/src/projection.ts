@@ -174,7 +174,7 @@ export type ChatPart =
       status: ToolPartStatus;
       input: unknown;
       output?: ToolOutput;
-      /** 工具产出的图片（0.116.0，`tool.finished.images`），字节经 `image.read` 读。 */
+      /** 工具产出的图片（0.118.0，`tool.finished.images`），字节经 `image.read` 读。 */
       images?: readonly UserImagePart[];
       approval?: ToolPartApproval;
       startedAt: IsoTime;

@@ -7,9 +7,10 @@ import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { preventSleepPref } from '@/data/prevent-sleep';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
-import { describe, useHostConnection } from '@/host/host-connection';
+import { describe, useCan, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { layoutPrefs, OPTIONAL_RAIL_CARDS, setRailCardEnabled } from '@/layout/layout-state';
+import { capabilities } from '@/platform/platform';
 import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
 import {
   PERMISSION_META,
@@ -41,7 +42,7 @@ const RAIL_CARD_META: Record<
  * 只存在本机。
  */
 export function GeneralSettings() {
-  const { supported, settings, update } = useHostSettings();
+  const { supported, editable, settings, update } = useHostSettings();
   const { view } = useHostConnection();
   // 输入建议（0.53.0）：Host 声明了 `prompt_suggestions` 才有这一行。
   const suggestionsSupported =
@@ -71,6 +72,8 @@ export function GeneralSettings() {
   const preventSleep = preventSleepInHost ? settings.preventSleep === true : localPreventSleep;
   const permissionsSupported = usePermissionModes();
   const permissionPrefs = permissionModePrefs.use();
+  // 完全访问要 `policy.write`：没有时这一行不出现（选择器里本来也不给）。
+  const policyWrite = useCan('policy.write');
   const { railCards } = layoutPrefs.use();
   const railOptions = OPTIONAL_RAIL_CARDS.filter(
     (id) =>
@@ -89,8 +92,10 @@ export function GeneralSettings() {
     }
   };
 
+  // 没有 `host.manage` 的远程设备：Host 设置只读。
+  const busy = saving || !editable;
   const choose = (delivery: PendingDelivery) => {
-    if (delivery === settings.sendWhileBusy || saving) return;
+    if (delivery === settings.sendWhileBusy || busy) return;
     void save({ sendWhileBusy: delivery });
   };
 
@@ -116,7 +121,7 @@ export function GeneralSettings() {
               <Segmented
                 label={t('settings.chat.sendWhileBusy')}
                 value={settings.sendWhileBusy}
-                disabled={!supported || saving}
+                disabled={!supported || busy}
                 onChange={(delivery) => void choose(delivery)}
                 options={[
                   {
@@ -141,7 +146,7 @@ export function GeneralSettings() {
                 <Switch
                   label={t('settings.chat.suggestions')}
                   checked={suggestionsEnabled(settings)}
-                  disabled={!supported || saving}
+                  disabled={!supported || busy}
                   onChange={(promptSuggestions) => void save({ promptSuggestions })}
                 />
               }
@@ -155,7 +160,7 @@ export function GeneralSettings() {
                 <Switch
                   checked={settings.sessionRecap !== false}
                   label={t('settings.chat.recap')}
-                  disabled={saving}
+                  disabled={busy}
                   onChange={(sessionRecap) => void save({ sessionRecap })}
                 />
               }
@@ -169,7 +174,7 @@ export function GeneralSettings() {
                 <Switch
                   checked={settings.sessionInsights === true}
                   label={t('settings.chat.insights')}
-                  disabled={saving}
+                  disabled={busy}
                   onChange={(sessionInsights) => void save({ sessionInsights })}
                 />
               }
@@ -183,7 +188,7 @@ export function GeneralSettings() {
                 <Switch
                   checked={settings.ruleFiles !== false}
                   label={t('settings.chat.ruleFiles')}
-                  disabled={saving}
+                  disabled={busy}
                   onChange={(ruleFiles) => void save({ ruleFiles })}
                 />
               }
@@ -206,23 +211,25 @@ export function GeneralSettings() {
               />
             }
           />
-          <SettingsRow
-            title={t('settings.preventSleep')}
-            description={t('settings.preventSleepNote')}
-            data-setting="prevent-sleep"
-            control={
-              <Switch
-                label={t('settings.preventSleep')}
-                checked={preventSleep}
-                disabled={preventSleepInHost && saving}
-                onChange={(next) =>
-                  preventSleepInHost
-                    ? void save({ preventSleep: next })
-                    : preventSleepPref.set(next)
-                }
-              />
-            }
-          />
+          {capabilities().preventSleep && (
+            <SettingsRow
+              title={t('settings.preventSleep')}
+              description={t('settings.preventSleepNote')}
+              data-setting="prevent-sleep"
+              control={
+                <Switch
+                  label={t('settings.preventSleep')}
+                  checked={preventSleep}
+                  disabled={preventSleepInHost && busy}
+                  onChange={(next) =>
+                    preventSleepInHost
+                      ? void save({ preventSleep: next })
+                      : preventSleepPref.set(next)
+                  }
+                />
+              }
+            />
+          )}
           {editors !== undefined && editors.length > 0 && (
             <SettingsRow
               title={t('settings.editor')}
@@ -245,7 +252,7 @@ export function GeneralSettings() {
           <div className={LIST_CARD}>
             <MarketMirrorRow
               settings={settings}
-              disabled={saving}
+              disabled={busy}
               save={(patch) => void save(patch)}
             />
           </div>
@@ -274,24 +281,26 @@ export function GeneralSettings() {
       {permissionsSupported && (
         <SettingsSection title={t('settings.section.permissions')}>
           <div className={LIST_CARD}>
-            {PERMISSION_MODES.map((mode) => (
-              <SettingsRow
-                key={mode}
-                title={t(PERMISSION_META[mode].label)}
-                data-setting={`permission-${mode}`}
-                control={
-                  <Switch
-                    label={t(PERMISSION_META[mode].label)}
-                    checked={mode === 'on_request' || permissionPrefs[mode]}
-                    disabled={mode === 'on_request'}
-                    onChange={(enabled) =>
-                      mode !== 'on_request' &&
-                      permissionModePrefs.set((current) => ({ ...current, [mode]: enabled }))
-                    }
-                  />
-                }
-              />
-            ))}
+            {PERMISSION_MODES.filter((mode) => mode !== 'full_access' || policyWrite).map(
+              (mode) => (
+                <SettingsRow
+                  key={mode}
+                  title={t(PERMISSION_META[mode].label)}
+                  data-setting={`permission-${mode}`}
+                  control={
+                    <Switch
+                      label={t(PERMISSION_META[mode].label)}
+                      checked={mode === 'on_request' || permissionPrefs[mode]}
+                      disabled={mode === 'on_request'}
+                      onChange={(enabled) =>
+                        mode !== 'on_request' &&
+                        permissionModePrefs.set((current) => ({ ...current, [mode]: enabled }))
+                      }
+                    />
+                  }
+                />
+              ),
+            )}
           </div>
         </SettingsSection>
       )}

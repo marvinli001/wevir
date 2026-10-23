@@ -6,7 +6,7 @@ import { useReducedMotion } from './motion';
 // 单独的 chunk）。显现完换成普通的 <img>，不留 WebGL 实例；同一张图（`revealKey`）在本进程里只显现一次（分段渲染把回合挪
 // 出去再挪回来、切走会话再回来都不重播）。减弱动效时直接显示图片。
 //
-// 0.116.0 起消息流里生成的图片用它（session/generated-image.tsx）：还没有 `src` 时只跑着色器表示“生成中”，图片到了在同一个
+// 0.118.0 起消息流里生成的图片用它（session/generated-image.tsx）：还没有 `src` 时只跑着色器表示“生成中”，图片到了在同一个
 // 实例上显现。开发期的动效样张（fx/fx-gallery.tsx）也用它。
 
 const ImageRevealEffect = lazy(() => import('./image-reveal-effect'));

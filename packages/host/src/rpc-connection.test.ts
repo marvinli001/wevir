@@ -191,7 +191,7 @@ describe('question_timeout', () => {
   });
 });
 
-// 0.116.0：展示类型 `image` 只发给声明了 `tool_display_image` 的连接，其余连接看到 `unknown`。
+// 0.118.0：展示类型 `image` 只发给声明了 `tool_display_image` 的连接，其余连接看到 `unknown`。
 describe('tool_display_image', () => {
   const started: WevirEventOf<'tool.started'> = {
     seq: 9,

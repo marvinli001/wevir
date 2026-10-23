@@ -9,7 +9,7 @@ import { type ToolPart, toolLifecycle } from './tool-model';
 const FRESH_MS = 15_000;
 
 /**
- * Agent 生成的图片（0.116.0，展示类型 `image` 的工具）：在消息流里单独一块，不进工作组。生成中是 img-fx 的着色器，图片到了
+ * Agent 生成的图片（0.118.0，展示类型 `image` 的工具）：在消息流里单独一块，不进工作组。生成中是 img-fx 的着色器，图片到了
  * 在同一个实例上显现（第一张与等待时是同一个元素）；点开看大图。打开会话时早就生成好的直接显示。失败、被停止时一行说明。
  */
 export function GeneratedImage({ part, turnActive }: { part: ToolPart; turnActive: boolean }) {

@@ -812,7 +812,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         });
       }
 
-      // 生成图片（0.116.0）：像 Codex 的 imageGeneration，开始时没有图，“生成”一会儿后带一张 PNG 结束。
+      // 生成图片（0.118.0）：像 Codex 的 imageGeneration，开始时没有图，“生成”一会儿后带一张 PNG 结束。
       if (!subagent && /\bimagine\b/i.test(text)) {
         const toolCallId = this.#nextId('call_echo');
         emit({

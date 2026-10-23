@@ -6,8 +6,11 @@ import {
   type RemoteInterface,
   type RemoteSettings,
   type RemoteStatus,
+  relayConfigured,
+  WEB_CLIENT_DEFAULT_URL,
+  webDeviceIdleDays,
 } from '@wevir/protocol';
-import { Smartphone, Trash2 } from 'lucide-react';
+import { Globe, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
@@ -16,32 +19,38 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { formatRelativeTime } from '@/session/subagent-model';
 import {
   DEVICE_PERMISSION_ORDER,
+  idleDayOptions,
   interfaceLabel,
   PERMISSION_LABEL,
   PLATFORM_LABEL,
   parsePort,
   parseRelayUrl,
+  parseWebClientUrl,
   pushStatusKey,
   RELAY_URL_PLACEHOLDER,
+  type RelayChoice,
   type RelayStatusText,
   RISKY_DEVICE_PERMISSIONS,
-  relayOn,
+  relayChoice,
   relayStatusText,
   remoteOf,
   setLan,
-  setRelayEnabled,
+  setRelayChoice,
   setRelayUrl,
+  setWebClientUrl,
+  setWebIdleDays,
   toggleLanInterface,
   togglePermission,
   visibleDevices,
 } from './devices-model';
-import { PairingDialog } from './pairing-dialog';
+import { PairingDialog, WebRelayDialog } from './pairing-dialog';
 import {
   EmptyList,
   LIST_CARD,
@@ -61,7 +70,9 @@ const RISK_BODY: Partial<Record<Permission, PlainMessageKey>> = {
  * 设置 → 设备（0.107.0，domain-model §3.49，desktop-layout.md）：远程访问的总开关、直连的网卡与端口（0.109.0，Host 功能
  * `remote_listener`；旧 Host 显示为不可用）、中继与自建中继的地址（没填地址时开关不可用，0.111.0）；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要
  * 确认）、移除。远程访问默认关。网卡逐块列出名称与地址，让用户确认（`100.64/10` 也可能是别的 VPN）。推送（0.112.0，Host 功能
- * `remote_push`）：总开关与“需要处理”“完成”两路、网关状态，每台设备一个开关；配对时在请求里问一次。
+ * `remote_push`）：总开关与“需要处理”“完成”两路、网关状态，每台设备一个开关；配对时在请求里问一次。网页设备（0.117.0，Host 功能
+ * `remote_web`）：中继改成关 / Wevir 官方中继 / 自建地址的下拉；“添加网页设备”在中继关着时先让用户选中继，再显示 https 配对链接；
+ * 网页客户端的地址（自建网页时改）与闲置自动移除的天数。
  */
 export function DevicesSettings() {
   const { client, view } = useHostConnection();
@@ -73,11 +84,13 @@ export function DevicesSettings() {
   const remote = remoteOf(settings);
   const listenerSupported = supported && hostSupports(view.hello.features, 'remote_listener');
   const pushSupported = supported && hostSupports(view.hello.features, 'remote_push');
+  const webSupported = supported && hostSupports(view.hello.features, 'remote_web');
   const [devices, setDevices] = useState<Device[]>();
   const [status, setStatus] = useState<RemoteStatus>();
   const [notice, setNotice] = useState<Notice>();
   const [saving, setSaving] = useState(false);
-  const [pairing, setPairing] = useState(false);
+  /** 开着的配对弹窗：手机，或网页设备（中继关着时先选中继）。 */
+  const [pairing, setPairing] = useState<'phone' | 'web' | 'relay'>();
   const [removing, setRemoving] = useState<Device>();
   const [granting, setGranting] = useState<{ device: Device; permission: Permission }>();
 
@@ -254,19 +267,39 @@ export function DevicesSettings() {
             data-setting="remote-relay"
             data-relay-state={status?.relay?.state}
             control={
-              <Switch
-                label={t('settings.devices.relay')}
-                checked={relayOn(remote)}
-                disabled={saving || remote.relay.url === undefined}
-                onChange={(enabled) => void saveRemote(setRelayEnabled(remote, enabled))}
-              />
+              webSupported ? (
+                <Select<RelayChoice>
+                  className="w-44"
+                  aria-label={t('settings.devices.relay')}
+                  value={relayChoice(remote)}
+                  disabled={saving}
+                  onValueChange={(choice) => void saveRemote(setRelayChoice(remote, choice))}
+                  options={[
+                    { value: 'off', label: t('settings.devices.relayOff') },
+                    { value: 'official', label: t('settings.devices.relayOfficial') },
+                    { value: 'custom', label: t('settings.devices.relayCustom') },
+                  ]}
+                />
+              ) : (
+                // 旧 Host（没有 `remote_web`）不认识官方中继：只有开关与自建地址。
+                <Switch
+                  label={t('settings.devices.relay')}
+                  checked={relayChoice(remote) === 'custom' && remote.relay.url !== undefined}
+                  disabled={saving || remote.relay.url === undefined}
+                  onChange={(enabled) =>
+                    void saveRemote(setRelayChoice(remote, enabled ? 'custom' : 'off'))
+                  }
+                />
+              )
             }
           />
-          <RelayUrlRow
-            url={remote.relay.url}
-            disabled={saving}
-            onSave={(url) => saveRemote(setRelayUrl(remote, url))}
-          />
+          {(!webSupported || relayChoice(remote) === 'custom') && (
+            <RelayUrlRow
+              url={remote.relay.url}
+              disabled={saving}
+              onSave={(url) => saveRemote(setRelayUrl(remote, url))}
+            />
+          )}
         </div>
       </SettingsSection>
 
@@ -316,20 +349,66 @@ export function DevicesSettings() {
         </SettingsSection>
       )}
 
+      {webSupported && (
+        <SettingsSection title={t('settings.devices.web')} data-devices-web>
+          <div className={LIST_CARD}>
+            <WebUrlRow
+              url={remote.web?.url}
+              disabled={saving}
+              onSave={(url) => saveRemote(setWebClientUrl(remote, url))}
+            />
+            <SettingsRow
+              title={t('settings.devices.idle')}
+              data-setting="remote-web-idle"
+              control={
+                <Select
+                  className="w-32"
+                  aria-label={t('settings.devices.idle')}
+                  value={String(webDeviceIdleDays(remote))}
+                  disabled={saving}
+                  onValueChange={(value) => void saveRemote(setWebIdleDays(remote, Number(value)))}
+                  options={idleDayOptions(remote).map((days) => ({
+                    value: String(days),
+                    label:
+                      days === 0
+                        ? t('settings.devices.idleNever')
+                        : t('settings.devices.idleDays', { count: days }),
+                  }))}
+                />
+              }
+            />
+          </div>
+        </SettingsSection>
+      )}
+
       <SettingsSection
         title={t('settings.devices.list')}
         data-devices-list
         action={
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!remote.enabled}
-            onClick={() => setPairing(true)}
-            data-action="add-device"
-          >
-            <Smartphone />
-            {t('settings.devices.add')}
-          </Button>
+          <div className="flex items-center gap-2">
+            {webSupported && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!remote.enabled}
+                onClick={() => setPairing(relayConfigured(remote) === undefined ? 'relay' : 'web')}
+                data-action="add-web-device"
+              >
+                <Globe />
+                {t('settings.devices.addWeb')}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!remote.enabled}
+              onClick={() => setPairing('phone')}
+              data-action="add-device"
+            >
+              <Smartphone />
+              {t('settings.devices.add')}
+            </Button>
+          </div>
         }
       >
         {listed === undefined ? (
@@ -352,11 +431,22 @@ export function DevicesSettings() {
         )}
       </SettingsSection>
 
-      {pairing && (
+      {pairing === 'relay' && (
+        <WebRelayDialog
+          remote={remote}
+          onCancel={() => setPairing(undefined)}
+          onContinue={async (next) => {
+            await update({ remote: next });
+            setPairing('web');
+          }}
+        />
+      )}
+      {(pairing === 'phone' || pairing === 'web') && (
         <PairingDialog
-          askPush={pushSupported}
+          web={pairing === 'web'}
+          askPush={pushSupported && pairing === 'phone'}
           onClose={(paired) => {
-            setPairing(false);
+            setPairing(undefined);
             if (paired) {
               setNotice({
                 tone: 'success',
@@ -539,6 +629,45 @@ function RelayUrlRow({
   );
 }
 
+function WebUrlRow({
+  url,
+  disabled,
+  onSave,
+}: {
+  url: string | undefined;
+  disabled: boolean;
+  onSave: (url: string | undefined) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(url ?? '');
+  useEffect(() => setDraft(url ?? ''), [url]);
+  const parsed = parseWebClientUrl(draft);
+  const commit = () => {
+    if (parsed === undefined || parsed.url === url) return;
+    void onSave(parsed.url);
+  };
+  return (
+    <SettingsRow
+      title={t('settings.devices.webUrl')}
+      description={parsed === undefined ? t('settings.devices.webUrlInvalid') : undefined}
+      data-setting="remote-web-url"
+      control={
+        <Input
+          className="w-64"
+          value={draft}
+          disabled={disabled}
+          placeholder={WEB_CLIENT_DEFAULT_URL}
+          aria-label={t('settings.devices.webUrl')}
+          aria-invalid={parsed === undefined}
+          spellCheck={false}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => event.key === 'Enter' && commit()}
+        />
+      }
+    />
+  );
+}
+
 function DeviceRow({
   device,
   pushSupported,
@@ -567,7 +696,8 @@ function DeviceRow({
           )}
         </div>
       </div>
-      {pushSupported && device.push !== undefined && (
+      {/* 网页设备收不到推送（浏览器没有 APNs / FCM 令牌）。 */}
+      {pushSupported && device.push !== undefined && device.platform !== 'web' && (
         <Switch
           label={t('settings.devices.devicePush', { name: device.name })}
           checked={device.push.enabled}

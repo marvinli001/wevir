@@ -22,20 +22,21 @@ import { sessionTabs, tabLabel, useBrowserState } from '@/browser/browser-store'
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import type { BrowserBounds, BrowserTabState } from '../../../../shared/desktop-api.js';
 import type { PaneContext } from '../pane-registry';
 import { Note } from './files-pane';
 
 export function BrowserPane({ context }: { context: PaneContext }) {
   const { sessionId } = context;
-  if (sessionId === undefined || !window.wevir?.browser) {
+  if (sessionId === undefined || !platformApi()?.browser) {
     return <Note icon={Globe}>{t('browser.noSession')}</Note>;
   }
   return <SessionBrowser sessionId={sessionId} />;
 }
 
 function SessionBrowser({ sessionId }: { sessionId: string }) {
-  const browser = window.wevir.browser;
+  const browser = platformApi().browser;
   const state = useBrowserState();
   const { tabs, active } = sessionTabs(state, sessionId);
   const [error, setError] = useState<string>();
@@ -154,7 +155,7 @@ function Toolbar({
   run: (action: Promise<unknown>) => void;
   error: string | undefined;
 }) {
-  const browser = window.wevir.browser;
+  const browser = platformApi().browser;
   const shownUrl = tab && tab.url !== 'about:blank' ? tab.url : '';
   const [draft, setDraft] = useState(shownUrl);
   const [editing, setEditing] = useState(false);
@@ -275,7 +276,11 @@ function Toolbar({
         <IconButton
           label={t('browser.openExternal')}
           size="icon-xs"
-          onClick={() => void window.wevir.openExternal(shownUrl).catch(() => {})}
+          onClick={() =>
+            void platformApi()
+              .openExternal(shownUrl)
+              .catch(() => {})
+          }
         >
           <ExternalLink />
         </IconButton>
@@ -323,7 +328,7 @@ function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState 
   const ref = useRef<HTMLDivElement>(null);
   const tabId = tab?.id;
   useEffect(() => {
-    const browser = window.wevir.browser;
+    const browser = platformApi().browser;
     let frame = 0;
     let settleUntil = 0;
     let last: string | undefined;

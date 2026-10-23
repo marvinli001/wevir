@@ -10,6 +10,7 @@ import { memo, useEffect, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { MarkdownView } from './markdown/markdown-view';
 import {
   collapsedPlanPreview,
@@ -67,7 +68,9 @@ export const PlanCard = memo(function PlanCard({ part }: { part: ChatPartOf<'pla
               className="text-muted-foreground"
               data-action="copy-plan"
               onClick={() =>
-                void window.wevir.copyText(planFileContents(text)).then(() => setCopied(true))
+                void platformApi()
+                  .copyText(planFileContents(text))
+                  .then(() => setCopied(true))
               }
             >
               {copied ? <Check /> : <Copy />}

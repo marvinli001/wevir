@@ -28,6 +28,7 @@ import {
   type WorktreeChoice,
 } from '@/environments/environments';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { useChatsSupported } from '@/projects/chats';
 import { ProjectMenuContent, StartTruncated } from '@/projects/project-menu';
 import { paths } from '@/routes/paths';
@@ -192,7 +193,10 @@ function EnvironmentSettings({ rootPath }: { rootPath: string | undefined }) {
   }, [copied]);
 
   const copy = () => {
-    if (rootPath) void window.wevir.copyText(rootPath).then(() => setCopied(true));
+    if (rootPath)
+      void platformApi()
+        .copyText(rootPath)
+        .then(() => setCopied(true));
   };
 
   return (

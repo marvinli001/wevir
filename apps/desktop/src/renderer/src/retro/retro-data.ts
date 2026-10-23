@@ -10,6 +10,7 @@ import { useTranscript } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
+import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { setDraft } from '@/session/composer';
 import { type DraftOrigin, newSessionDraftKey } from '@/session/draft-origin';
@@ -117,7 +118,9 @@ export function useRetroOpen(session: Session): {
           openChanges(panes, session.id as SessionId, target.scope, target.path);
           return;
         case 'commit':
-          void window.wevir.copyText(target.sha).then(() => setCopied(target.sha));
+          void platformApi()
+            .copyText(target.sha)
+            .then(() => setCopied(target.sha));
           return;
         case 'session': {
           const other = sessions.get(target.sessionId);
@@ -172,7 +175,7 @@ export function useRetroActions(session: Session, onChanged: () => void) {
                 redactions: redactions ?? 0,
               })
             : retroJson(retro, redactions);
-        const saved = await window.wevir.saveTextAs(retroFileName(session.id, format), text);
+        const saved = await platformApi().saveTextAs(retroFileName(session.id, format), text);
         if (saved === 'saved') setNotice(t('retro.export.redacted', { count: redactions ?? 0 }));
       }),
     [run, redacted, session.id],

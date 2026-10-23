@@ -19,6 +19,7 @@ import {
   PAIRING_PROTOCOL,
   RECONNECT_PROTOCOL,
   remotePrologue,
+  type StaticKey,
   sealFrame,
   type TransportCiphers,
 } from '@wevir/noise';
@@ -254,10 +255,15 @@ type HandshakeSpec =
   | { kind: 'connect' }
   | { kind: 'pair'; secret: Uint8Array; name: string; platform: DevicePlatform };
 
+/**
+ * 设备的 Noise 静态密钥：密钥对，或只给出公钥与 DH 的 `StaticKey`（浏览器里不可导出的 WebCrypto X25519 密钥，DH 是异步的）。
+ */
+export type RemoteDeviceKey = KeyPair | StaticKey;
+
 interface TunnelKeys {
   readonly hostKey: Uint8Array;
   readonly routeId: string;
-  readonly device: KeyPair;
+  readonly device: RemoteDeviceKey;
 }
 
 /** 经中继的路关掉时，中继说明的原因（证书、升级前的状态码或中继的关闭码）。直连的 404 等不算：那是 Host 自己的拒绝。 */
@@ -299,6 +305,8 @@ class NoiseTunnel {
   readonly #link: RemoteLink;
   #phase: 'opening' | 'open' | 'handshake' | 'ready' | 'closed' = 'opening';
   #onHandshakeMessage: ((data: Uint8Array) => void) | undefined;
+  /** 握手的最后一步还在等异步的 DH：这期间到达的消息留到 `attach` 时补交。 */
+  #finishing = false;
   #onHandshakeClose: ((info: RemoteLinkCloseInfo) => void) | undefined;
   #handlers: { onMessage(text: string): void; onClose(info: TransportCloseInfo): void } | undefined;
   #reader: FrameReader | undefined;
@@ -374,32 +382,45 @@ class NoiseTunnel {
                 psk: derivePairingPsk(spec.secret, keys.hostKey),
               },
         );
-        this.#link.send(handshake.writeMessage());
       } catch (error) {
         fail(error instanceof Error ? error : new Error(String(error)));
         return;
       }
+      // 静态密钥的 DH 可以是异步的（`StaticKey`），所以握手的每一步都等；第一条消息发出前对方不会说话。
+      handshake.writeMessageAsync().then(
+        (message) => {
+          if (this.#phase === 'handshake') this.#link.send(message);
+        },
+        (error: unknown) => fail(error instanceof Error ? error : new Error(String(error))),
+      );
       // 第一条消息之后对方就断开：不认这台设备（IK），或配对窗口已经不在（XXpsk2）；经中继时也可能是中继说明了原因的关闭。
       this.#onHandshakeClose = (info) => fail(this.#closedBeforeHandshake(info));
-      this.#onHandshakeMessage = (data) => {
+      this.#onHandshakeMessage = async (data) => {
+        this.#onHandshakeMessage = undefined;
+        this.#finishing = true;
         let host: RemoteHostPayload;
         try {
           const payload = RemoteHostPayloadSchema.safeParse(
             JSON.parse(
-              new TextDecoder('utf-8', { fatal: true }).decode(handshake.readMessage(data)),
+              new TextDecoder('utf-8', { fatal: true }).decode(
+                await handshake.readMessageAsync(data),
+              ),
             ),
           );
           if (!payload.success) throw new Error('bad host payload');
           host = payload.data;
           if (spec.kind === 'pair') {
-            this.#link.send(
-              handshake.writeMessage(
-                encoder.encode(JSON.stringify({ name: spec.name, platform: spec.platform })),
-              ),
+            const message = await handshake.writeMessageAsync(
+              encoder.encode(JSON.stringify({ name: spec.name, platform: spec.platform })),
             );
+            if (this.#phase !== 'handshake') throw new Error('closed during the handshake');
+            this.#link.send(message);
           }
           this.#ciphers = handshake.split();
         } catch (error) {
+          this.#finishing = false;
+          this.#early.length = 0;
+          if (this.#phase !== 'handshake') return;
           // 配对时 PSK 在第二条消息里混入：解不开就是短码或配对链接不对。
           const wrongSecret =
             spec.kind === 'pair' && error instanceof NoiseError && error.code === 'decrypt_failed';
@@ -411,9 +432,13 @@ class NoiseTunnel {
           );
           return;
         }
+        if (this.#phase !== 'handshake') {
+          this.#finishing = false;
+          return;
+        }
         clearTimeout(timer);
-        this.#onHandshakeMessage = undefined;
         this.#onHandshakeClose = undefined;
+        this.#finishing = false;
         this.#phase = 'ready';
         this.#reader = new FrameReader(this.#ciphers.receive);
         this.host = host;
@@ -457,8 +482,10 @@ class NoiseTunnel {
   }
 
   #receive(data: Uint8Array): void {
-    if (this.#phase === 'handshake') this.#onHandshakeMessage?.(data);
-    else if (this.#phase === 'ready') {
+    if (this.#phase === 'handshake') {
+      if (this.#finishing) this.#early.push(data);
+      else this.#onHandshakeMessage?.(data);
+    } else if (this.#phase === 'ready') {
       if (this.#handlers === undefined) this.#early.push(data);
       else this.#deliver(data);
     } else if (this.#phase === 'open') {
@@ -629,7 +656,7 @@ async function openedOrFail(tunnel: NoiseTunnel): Promise<void> {
 export interface RemoteTransportOptions {
   host: RemoteHostKeys;
   /** 这台设备给这台电脑的 Noise 静态密钥（配对时生成）。 */
-  device: KeyPair;
+  device: RemoteDeviceKey;
   /** 每次连接尝试前调用：已知的路（上次成功的、Host 上次给的候选地址、`relayRoute`）。 */
   routes(): readonly RemoteRoute[] | Promise<readonly RemoteRoute[]>;
   /** 连接期间陆续找到的路（局域网 mDNS）。 */
@@ -708,7 +735,7 @@ export type RemotePairingSecret =
 export interface RemotePairingOptions {
   host: RemoteHostKeys;
   /** 这台设备给这台电脑新生成的 Noise 静态密钥。 */
-  device: KeyPair;
+  device: RemoteDeviceKey;
   secret: RemotePairingSecret;
   routes: readonly RemoteRoute[];
   discover?: RemoteDiscovery;
@@ -807,7 +834,7 @@ export async function pairRemoteHost(options: RemotePairingOptions): Promise<Rem
 
 // ── 工具 ────────────────────────────────────────────────────────────
 
-function tunnelKeys(host: RemoteHostKeys, device: KeyPair): TunnelKeys {
+function tunnelKeys(host: RemoteHostKeys, device: RemoteDeviceKey): TunnelKeys {
   return { hostKey: base64urlToBytes(host.hostPublicKey), routeId: host.routeId, device };
 }
 

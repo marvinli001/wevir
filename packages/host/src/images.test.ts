@@ -350,7 +350,7 @@ describe('带图片的消息', () => {
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
-  it('生成的图片（0.116.0）：tool.finished 带 Host 存下的图片，image.read 读得回', async () => {
+  it('生成的图片（0.118.0）：tool.finished 带 Host 存下的图片，image.read 读得回', async () => {
     const env = setup();
     const session = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
     const sessionId = session.id as SessionId;

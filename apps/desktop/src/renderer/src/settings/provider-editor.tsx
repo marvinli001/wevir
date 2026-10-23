@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
+import { platformApi } from '@/platform/platform';
 import { OllamaModels } from './ollama-models';
 import {
   ASSUMED_CONTEXT_WINDOW,
@@ -161,7 +162,7 @@ export function ProviderEditor({
             <button
               type="button"
               className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
-              onClick={() => void window.wevir.openExternal(form.preset?.docsURL ?? '')}
+              onClick={() => void platformApi().openExternal(form.preset?.docsURL ?? '')}
             >
               {t('provider.form.docs')}
               <ExternalLink className="size-3.5" aria-hidden />

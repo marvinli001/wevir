@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
 import { useAutomationRuns } from './automation-runs';
@@ -101,7 +102,9 @@ export function NotificationCoordinator() {
 
   const updateBadge = () => {
     const count = getNotificationSettings().badge ? delivered.current.size : 0;
-    void window.wevir.setBadgeCount(count).catch(() => undefined);
+    void platformApi()
+      .setBadgeCount(count)
+      .catch(() => undefined);
   };
 
   const dismissSession = (sessionId: string) => {
@@ -109,7 +112,9 @@ export function NotificationCoordinator() {
       current.map((toast) => (toast.sessionId === sessionId ? { ...toast, open: false } : toast)),
     );
     if (delivered.current.delete(sessionId)) {
-      void window.wevir.closeNotifications(notificationTag(sessionId)).catch(() => undefined);
+      void platformApi()
+        .closeNotifications(notificationTag(sessionId))
+        .catch(() => undefined);
       updateBadge();
     }
   };
@@ -145,7 +150,7 @@ export function NotificationCoordinator() {
       });
     }
     if (delivery.system) {
-      void window.wevir
+      void platformApi()
         .notify({
           tag: notificationTag(target.sessionId),
           title: t(TITLES[kind]),
@@ -237,7 +242,9 @@ export function NotificationCoordinator() {
     const onFocus = () => {
       if (delivered.current.size === 0) return;
       delivered.current.clear();
-      void window.wevir.closeNotifications().catch(() => undefined);
+      void platformApi()
+        .closeNotifications()
+        .catch(() => undefined);
       updateBadge();
     };
     window.addEventListener('focus', onFocus);
@@ -258,7 +265,7 @@ export function NotificationCoordinator() {
   // 点击系统通知：主进程已把窗口带回前台，这里打开那个会话。
   useEffect(
     () =>
-      window.wevir.onNotificationClick((tag) => {
+      platformApi().onNotificationClick((tag) => {
         const sessionId = sessionIdFromTag(tag);
         if (!sessionId) return;
         const workspaceId =

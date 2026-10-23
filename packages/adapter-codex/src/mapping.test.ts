@@ -563,7 +563,7 @@ describe('映射的边界情况', () => {
     expect(events[1]).not.toHaveProperty('output');
   });
 
-  it('imageGeneration（0.116.0）：展示类型 image，输入里不带图片数据，完成时图片放进 tool.finished.images', () => {
+  it('imageGeneration（0.118.0）：展示类型 image，输入里不带图片数据，完成时图片放进 tool.finished.images', () => {
     const mapper = new CodexEventMapper(id);
     const started = mapper.map('item/started', {
       threadId: id,

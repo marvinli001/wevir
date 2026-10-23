@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { t } from '@/i18n';
+import { capabilities } from '@/platform/platform';
 import type { ComposerCommand } from './composer-commands';
 
 export function ComposerPlusMenu({
@@ -77,7 +78,8 @@ export function ComposerPlusMenu({
               {t('composer.attachImages')}
             </DropdownMenuItem>
           )}
-          {canMention && (
+          {/* 系统的文件选择框只能选这台电脑上的文件（platform/platform.ts 的 `localFiles`）。 */}
+          {canMention && capabilities().localFiles && (
             <DropdownMenuItem onClick={onAttach} data-action="attach-files">
               <Paperclip />
               {t('composer.attachFiles')}

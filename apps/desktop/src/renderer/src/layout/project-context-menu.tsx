@@ -13,6 +13,7 @@ import {
 } from '@/data/workspace-actions';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { capabilities, platformApi } from '@/platform/platform';
 import { type ProjectMenuItem, projectMenuGroups } from './context-menu-model';
 import { MenuItem } from './session-context-menu';
 
@@ -34,6 +35,8 @@ export function ProjectContextMenuItems({
   const groups = projectMenuGroups({
     edit: manage.update,
     archiveSessions: sessionManage.archive && sessions.length > 0,
+    reveal: capabilities().localFiles,
+    remove: manage.remove,
   });
   const items: Record<ProjectMenuItem, () => ReactNode> = {
     pin: () => (
@@ -54,7 +57,11 @@ export function ProjectContextMenuItems({
       <MenuItem
         id="reveal-project"
         icon={<FolderOpen />}
-        onClick={() => void window.wevir.revealPath(workspace.rootPath).catch(() => undefined)}
+        onClick={() =>
+          void platformApi()
+            .revealPath(workspace.rootPath)
+            .catch(() => undefined)
+        }
       >
         {t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
       </MenuItem>

@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import type { ComputerAccessPreparation } from '../../../shared/desktop-api';
 
 const TIER_LABEL = {
@@ -40,8 +41,8 @@ export function AccessDialog({
     let stopped = false;
     for (const candidate of preparation.candidates) {
       if (candidate.path === '') continue;
-      void window.wevir?.computer
-        .appIcon(candidate.path)
+      void platformApi()
+        ?.computer.appIcon(candidate.path)
         .then((icon) => {
           if (!stopped && icon) setIcons((current) => ({ ...current, [candidate.bundleId]: icon }));
         })

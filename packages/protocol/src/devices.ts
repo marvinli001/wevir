@@ -15,8 +15,35 @@ import { DevicePushSchema, RemotePushSettingsSchema, RemotePushStatusSchema } fr
 
 // ── Host 设置 `remote` ─────────────────────────────────────────────
 
-/** 自建中继的地址：`wss://` 或 `ws://`。Wevir 不提供官方中继（0.111.0 起没有默认地址）。 */
+/** 中继的地址：`wss://` 或 `ws://`。 */
 export const RelayUrlSchema = z.url({ protocol: /^wss?$/ }).max(2048);
+
+/**
+ * Wevir 官方中继的地址（0.117.0）：只在用户选了“官方”（`relay.mode: 'official'`）时用。**不是**没填地址时的默认值：开着中继、
+ * 没选官方也没填地址仍等同于关（0.111.0 的规矩不变）。
+ */
+export const OFFICIAL_RELAY_URL = 'wss://relay.wevir.si';
+
+/** 中继开着时连哪一个（0.117.0）：官方中继，或 `url` 里自建的。省略按 `custom`（0.116.0 及以前的设置）。 */
+export const RelayModeSchema = z.enum(['official', 'custom']);
+export type RelayModeSetting = z.infer<typeof RelayModeSchema>;
+
+/** 网页客户端的官方地址（0.117.0）：网页配对链接的默认前缀。自建网页的人在 `remote.web.url` 里改。 */
+export const WEB_CLIENT_DEFAULT_URL = 'https://web.wevir.si';
+
+/** 网页客户端的地址：`https://`，或回环地址上的 `http://`（本机开发）；不带查询与 `#`。 */
+export const WebClientUrlSchema = z
+  .url({ protocol: /^https?$/ })
+  .max(2048)
+  .refine((value) => !/[?#]/.test(value), 'address must not have a query or fragment')
+  .refine(
+    (value) => !value.startsWith('http:') || isLoopbackHost(authorityHost(value.slice(7))),
+    'http:// is only allowed for loopback addresses',
+  );
+
+/** 网页设备闲置多少天后自动移除（0.117.0）的默认值与上限；0 是从不。 */
+export const WEB_DEVICE_IDLE_DAYS_DEFAULT = 30;
+export const WEB_DEVICE_IDLE_DAYS_MAX = 3650;
 
 /** 远程监听省略 `port` 时用的端口（0.109.0）。 */
 export const REMOTE_DEFAULT_PORT = 47_830;
@@ -39,8 +66,11 @@ export type RemoteInterfaceRef = z.infer<typeof RemoteInterfaceRefSchema>;
  * - `interfaces`：直连监听哪几类网卡（局域网；Tailscale 的 `100.64.0.0/10` 与 `fd7a:115c:a1e0::/48`）。`lanInterfaces`（0.109.0）
  *   只监听这几块局域网网卡；省略时监听全部局域网网卡。Tailscale 按地址段认，没有网卡的勾选（macOS 上它的网卡名会变）。
  * - `port`（0.109.0）：直连监听的端口，省略时 `REMOTE_DEFAULT_PORT`。
- * - `relay`：不在同一网络时经用户自建的中继转发同一套密文。`enabled` 为真但没有 `url` 时等同于关（0.111.0；0.110.0 的设置可能
- *   这样存着，读进来不报错）：Host 不连中继，配对链接与握手负载不带中继地址。用 `relayConfigured` 判断。
+ * - `relay`：不在同一网络时经中继转发同一套密文。三态（0.117.0，用 `relayMode` 读）：`enabled` 为假是关；`mode: 'official'` 是
+ *   官方中继 `OFFICIAL_RELAY_URL`；否则是 `url` 里自建的中继。`enabled` 为真但既没选官方也没有 `url` 时等同于关（0.111.0；0.110.0
+ *   的设置可能这样存着，读进来不报错）：Host 不连中继，配对链接与握手负载不带中继地址。地址用 `relayConfigured` 取。
+ * - `web`（0.117.0）：网页客户端。`url` 是配对链接的前缀（省略时 `WEB_CLIENT_DEFAULT_URL`）；`idleDays` 是网页设备多少天没连过就
+ *   自动移除（省略时 `WEB_DEVICE_IDLE_DAYS_DEFAULT`，0 是从不）。
  * - `push`：经推送网关给手机发加密的提醒；两路开关（0.112.0）与设备级的开关见 push.ts。
  */
 export const RemoteSettingsSchema = z.object({
@@ -51,14 +81,51 @@ export const RemoteSettingsSchema = z.object({
     lanInterfaces: z.array(RemoteInterfaceRefSchema).max(64).optional(),
   }),
   port: z.int().min(REMOTE_PORT_MIN).max(65_535).optional(),
-  relay: z.object({ enabled: z.boolean(), url: RelayUrlSchema.optional() }),
+  relay: z.object({
+    enabled: z.boolean(),
+    url: RelayUrlSchema.optional(),
+    mode: RelayModeSchema.optional(),
+  }),
   push: RemotePushSettingsSchema,
+  web: z
+    .object({
+      url: WebClientUrlSchema.optional(),
+      idleDays: z.int().min(0).max(WEB_DEVICE_IDLE_DAYS_MAX).optional(),
+    })
+    .optional(),
 });
 export type RemoteSettings = z.infer<typeof RemoteSettingsSchema>;
 
-/** 中继真正打开时的地址：远程访问不看，`relay.enabled` 为真且填了 `url` 才有（0.111.0）。 */
+/** 中继的三态（0.117.0）：关、官方、自建。开着但既没选官方也没填地址的旧设置是关。远程访问的总开关不看。 */
+export type RelayMode = 'off' | RelayModeSetting;
+
+export function relayMode(settings: Pick<RemoteSettings, 'relay'>): RelayMode {
+  const { relay } = settings;
+  if (!relay.enabled) return 'off';
+  if (relay.mode === 'official') return 'official';
+  return relay.url !== undefined ? 'custom' : 'off';
+}
+
+/** 中继真正打开时的地址：官方时是 `OFFICIAL_RELAY_URL`，自建时是 `url`，关着时 undefined（0.111.0；0.117.0 加了官方）。 */
 export function relayConfigured(settings: Pick<RemoteSettings, 'relay'>): string | undefined {
-  return settings.relay.enabled ? settings.relay.url : undefined;
+  switch (relayMode(settings)) {
+    case 'official':
+      return OFFICIAL_RELAY_URL;
+    case 'custom':
+      return settings.relay.url;
+    default:
+      return undefined;
+  }
+}
+
+/** 网页客户端的地址（0.117.0）：设置里的 `web.url`，省略时官方地址。 */
+export function webClientUrl(settings: Pick<RemoteSettings, 'web'>): string {
+  return settings.web?.url ?? WEB_CLIENT_DEFAULT_URL;
+}
+
+/** 网页设备闲置多少天后自动移除（0.117.0）；0 是从不。 */
+export function webDeviceIdleDays(settings: Pick<RemoteSettings, 'web'>): number {
+  return settings.web?.idleDays ?? WEB_DEVICE_IDLE_DAYS_DEFAULT;
 }
 
 export const DEFAULT_REMOTE_SETTINGS: RemoteSettings = Object.freeze({
@@ -76,7 +143,16 @@ export const PublicKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 export const DEVICE_NAME_MAX_LENGTH = 64;
 export const DeviceNameSchema = z.string().min(1).max(DEVICE_NAME_MAX_LENGTH);
 
-export const DEVICE_PLATFORMS = ['ios', 'android', 'macos', 'windows', 'linux', 'other'] as const;
+/** `web`（0.117.0）：浏览器里的网页客户端，只经中继连；旧客户端看到的是 `other`。 */
+export const DEVICE_PLATFORMS = [
+  'ios',
+  'android',
+  'macos',
+  'windows',
+  'linux',
+  'other',
+  'web',
+] as const;
 export const DevicePlatformSchema = z.enum(DEVICE_PLATFORMS);
 export type DevicePlatform = z.infer<typeof DevicePlatformSchema>;
 
@@ -84,7 +160,7 @@ export type DevicePlatform = z.infer<typeof DevicePlatformSchema>;
 export const DeviceStatusSchema = z.enum(['active', 'revoked']);
 export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
 
-/** 新配对的设备默认有的权限（ADR-0017 §4）。 */
+/** 新配对的设备默认有的权限（ADR-0017 §4）。网页设备（0.117.0）也是这一组。 */
 export const DEFAULT_DEVICE_PERMISSIONS = [
   'session.read',
   'session.write',
@@ -137,7 +213,10 @@ export type PairingCandidate = z.infer<typeof PairingCandidateSchema>;
 /** `pairing.start` 的结果：桌面显示二维码（`uri`）、短码与倒计时。 */
 export const PairingOfferSchema = z.object({
   pairingId: PairingIdSchema,
-  /** 二维码的内容，格式见 `formatPairingUri`。含配对秘密，只显示、不记录。 */
+  /**
+   * 二维码的内容，格式见 `formatPairingUri`；网页配对（`web`，0.117.0）时是 `formatWebPairingUrl` 的 https 链接。含配对秘密，
+   * 只显示、不记录。
+   */
   uri: z.string(),
   shortCode: PairingCodeSchema,
   expiresAt: IsoTimeSchema,
@@ -147,8 +226,10 @@ export const PairingOfferSchema = z.object({
   routeId: PublicKeySchema,
   /** 远程监听还没开时是空的。 */
   candidates: z.array(PairingCandidateSchema),
-  /** 开了中继且填了地址时有（0.111.0 起；0.110.0 没填地址时给的官方实例已经去掉）。 */
+  /** 中继开着时有（0.111.0 起；0.117.0 起也可以是用户选的官方中继）。 */
   relayUrl: RelayUrlSchema.optional(),
+  /** 网页配对的窗口（0.117.0）：`uri` 是 https 链接，一定有 `relayUrl`；短码在这个窗口里不能用，桌面不显示它。 */
+  web: z.literal(true).optional(),
 });
 export type PairingOffer = z.infer<typeof PairingOfferSchema>;
 
@@ -189,7 +270,10 @@ export const DeviceResultSchema = z.object({ device: DeviceSchema });
 
 export const DeviceRevokeParamsSchema = z.object({ id: DeviceIdSchema });
 
-export const PairingStartParamsSchema = z.object({});
+export const PairingStartParamsSchema = z.object({
+  /** 给网页客户端配对（0.117.0）：结果的 `uri` 是 https 链接。中继关着时 `INVALID_PARAMS`（网页只能经中继连）。 */
+  web: z.boolean().optional(),
+});
 export const PairingStartResultSchema = PairingOfferSchema;
 
 export const PairingCancelParamsSchema = z.object({
@@ -343,8 +427,10 @@ export const RemoteChangedParamsSchema = RemoteStatusSchema;
 
 export const PAIRING_URI_PREFIX = 'wevir://pair?';
 export const PAIRING_URI_VERSION = 1;
+/** 网页配对链接（0.117.0）在网页客户端地址之后的路径；参数放在 `#` 后面，不发给托管网页的服务器。 */
+export const WEB_PAIRING_PATH = '/pair';
 
-/** 二维码里的内容（`wevir://pair?v=1&…`）。 */
+/** 二维码里的内容（`wevir://pair?v=1&…`，或网页的 `https://…/pair#v=1&…`）。 */
 export interface PairingPayload {
   hostPublicKey: string;
   routeId: string;
@@ -361,6 +447,22 @@ export interface PairingPayload {
  * 密钥与秘密是 base64url；`a` 可以重复，IPv6 地址写在方括号里。参数按这个顺序写，读的一方忽略不认识的参数。
  */
 export function formatPairingUri(payload: PairingPayload): string {
+  return `${PAIRING_URI_PREFIX}${formatPairingParams(payload)}`;
+}
+
+/**
+ * 网页配对链接（0.117.0）：`<网页客户端地址>/pair#<与 wevir://pair? 相同的参数>`。网页只能经中继连，载荷没有 `relayUrl` 时抛错。
+ * `baseUrl` 省略时是官方网页 `WEB_CLIENT_DEFAULT_URL`，末尾的 `/` 去掉。
+ */
+export function formatWebPairingUrl(
+  payload: PairingPayload,
+  baseUrl: string = WEB_CLIENT_DEFAULT_URL,
+): string {
+  if (payload.relayUrl === undefined) throw new Error('a web pairing link needs a relay address');
+  return `${baseUrl.replace(/\/+$/, '')}${WEB_PAIRING_PATH}#${formatPairingParams(payload)}`;
+}
+
+function formatPairingParams(payload: PairingPayload): string {
   const params = new URLSearchParams();
   params.append('v', String(PAIRING_URI_VERSION));
   params.append('k', payload.hostPublicKey);
@@ -373,16 +475,33 @@ export function formatPairingUri(payload: PairingPayload): string {
     params.append('a', `${host.includes(':') ? `[${host}]` : host}:${port}`);
   }
   if (payload.relayUrl !== undefined) params.append('relay', payload.relayUrl);
-  return `${PAIRING_URI_PREFIX}${params.toString()}`;
+  return params.toString();
 }
 
 const SECRET_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${Math.ceil((PAIRING_SECRET_BYTES * 4) / 3)}}$`);
 const CANDIDATE_PATTERN = /^(?:\[([0-9A-Fa-f:.]+)\]|([^:[\]]+)):(\d{1,5})$/;
+/** 网页配对链接：scheme、主机（含端口）、路径、可有可无的查询、`#` 后的参数。不用 `URL`：React Native 的 `URL` 不全。 */
+const WEB_PAIRING_PATTERN = /^(https?):\/\/([^/?#]+)(\/[^?#]*)?(?:\?[^#]*)?#(.+)$/i;
 
-/** 读二维码载荷；不是这个格式、版本不认识或缺必需的参数时返回 null。 */
+/**
+ * 读二维码载荷：`wevir://pair?…`，或网页配对链接 `https://<任意网页地址>/pair#…`（0.117.0，回环地址上也可以是 `http://`）。
+ * 不是这两种格式、版本不认识、缺必需的参数，或网页链接没有中继地址时返回 null。
+ */
 export function parsePairingUri(uri: string): PairingPayload | null {
-  if (!uri.startsWith(PAIRING_URI_PREFIX)) return null;
-  const params = new URLSearchParams(uri.slice(PAIRING_URI_PREFIX.length));
+  if (uri.startsWith(PAIRING_URI_PREFIX)) {
+    return parsePairingParams(uri.slice(PAIRING_URI_PREFIX.length));
+  }
+  const web = WEB_PAIRING_PATTERN.exec(uri);
+  if (!web) return null;
+  const [, scheme, authority, path = ''] = web as unknown as [string, string, string, string?];
+  if (scheme.toLowerCase() === 'http' && !isLoopbackHost(authorityHost(authority))) return null;
+  if (!path.replace(/\/+$/, '').endsWith(WEB_PAIRING_PATH)) return null;
+  const payload = parsePairingParams(web[4] as string);
+  return payload?.relayUrl !== undefined ? payload : null;
+}
+
+function parsePairingParams(query: string): PairingPayload | null {
+  const params = new URLSearchParams(query);
   if (params.get('v') !== String(PAIRING_URI_VERSION)) return null;
   const hostPublicKey = params.get('k');
   const routeId = params.get('r');
@@ -413,6 +532,22 @@ export function parsePairingUri(uri: string): PairingPayload | null {
     payload.relayUrl = relayUrl;
   }
   return payload;
+}
+
+/** URL 的“主机[:端口]”部分里的主机名（去掉用户信息与端口，IPv6 去掉方括号），小写。 */
+function authorityHost(authority: string): string {
+  const host = authority.slice(authority.lastIndexOf('@') + 1).replace(/[/?#].*$/, '');
+  const bracketed = /^\[([^\]]+)\]/.exec(host);
+  return (bracketed ? (bracketed[1] as string) : host.replace(/:\d*$/, '')).toLowerCase();
+}
+
+function isLoopbackHost(host: string): boolean {
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host === '::1' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+  );
 }
 
 /**

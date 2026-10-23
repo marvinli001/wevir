@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   type Device,
   formatPairingUri,
+  formatWebPairingUrl,
   PAIRING_CODE_ALPHABET,
   PAIRING_CODE_LENGTH,
   PAIRING_HANDSHAKE_TIMEOUT_MS,
@@ -16,6 +17,7 @@ import {
   type PairingRequestId,
   type RemoteSettings,
   relayConfigured,
+  webClientUrl,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
@@ -57,6 +59,8 @@ interface PairingWindow {
   readonly code: string;
   readonly keys: RemoteKeys;
   readonly timer: ReturnType<typeof setTimeout>;
+  /** 网页配对的窗口（0.117.0）：短码不能用。 */
+  readonly web: boolean;
   attempt: AttemptState | undefined;
 }
 
@@ -65,6 +69,9 @@ interface PairingWindow {
  * （新开的取代旧的）。窗口里有一个 ≥ 128 位的配对秘密（放进二维码）与一个 8 位短码（手输），**整个窗口只给一次握手**：远程监听收到
  * 第一条配对消息就用掉它，之后的握手一律拒绝；握手失败、第三条消息 10 s 内没来、到期，窗口都结束并告诉桌面。握手完成后设备只是在
  * 等待，桌面 `pairing.respond` 允许了才写入设备。
+ *
+ * 网页配对（0.117.0，`start({ web: true })`）：二维码是 `<网页地址>/pair#…` 的 https 链接，必须开着中继（网页只能经中继连），
+ * 窗口里的短码不能用（网页没有 mDNS，桌面也不显示它）。
  *
  * 握手本身在远程监听里；它经 `beginAttempt` → `requestApproval` / `failAttempt` 与这里交互。
  */
@@ -110,15 +117,18 @@ export class PairingService {
     return this.#window?.pairingId;
   }
 
-  /** 开一个窗口（`pairing.start`），取代已有的。远程访问关着时 `INVALID_PARAMS`。 */
-  async start(): Promise<PairingOffer> {
-    this.#requireEnabled();
+  /**
+   * 开一个窗口（`pairing.start`），取代已有的。远程访问关着时 `INVALID_PARAMS`；网页配对（`web`）时中继关着也是 `INVALID_PARAMS`。
+   */
+  async start(options: { web?: boolean } = {}): Promise<PairingOffer> {
+    const web = options.web === true;
+    this.#requireEnabled(web);
     const generation = ++this.#generation;
     const keys = await this.#identity.ensure();
     if (generation !== this.#generation) {
       throw new HostError('PAIRING_NOT_FOUND', 'pairing was cancelled');
     }
-    const settings = this.#requireEnabled();
+    const settings = this.#requireEnabled(web);
     if (this.#window) this.#end('replaced');
     const pairingId = newId('prg');
     const secret = new Uint8Array(randomBytes(PAIRING_SECRET_BYTES));
@@ -131,23 +141,25 @@ export class PairingService {
       if (this.#window?.pairingId === pairingId) this.#end('expired');
     }, this.#windowMs);
     timer.unref?.();
-    this.#window = { pairingId, secret, code, keys, timer, attempt: undefined };
+    this.#window = { pairingId, secret, code, keys, timer, web, attempt: undefined };
+    const payload = {
+      hostPublicKey: keys.hostPublicKey,
+      routeId: keys.routeId,
+      secret: base64url(secret),
+      ...(this.#hostName !== undefined && { hostName: this.#hostName }),
+      candidates: candidates.map(({ host, port }) => ({ host, port })),
+      ...(relayUrl !== undefined && { relayUrl }),
+    };
     return {
       pairingId,
-      uri: formatPairingUri({
-        hostPublicKey: keys.hostPublicKey,
-        routeId: keys.routeId,
-        secret: base64url(secret),
-        ...(this.#hostName !== undefined && { hostName: this.#hostName }),
-        candidates: candidates.map(({ host, port }) => ({ host, port })),
-        ...(relayUrl !== undefined && { relayUrl }),
-      }),
+      uri: web ? formatWebPairingUrl(payload, webClientUrl(settings)) : formatPairingUri(payload),
       shortCode: code,
       expiresAt,
       hostPublicKey: keys.hostPublicKey,
       routeId: keys.routeId,
       candidates,
       ...(relayUrl !== undefined && { relayUrl }),
+      ...(web && { web: true as const }),
     };
   }
 
@@ -176,11 +188,12 @@ export class PairingService {
 
   /**
    * 远程监听收到第一条配对消息：用掉这个窗口唯一的一次握手，返回派生 PSK 用的秘密。没有窗口或已经用掉时返回 undefined（断开）。
-   * 之后 `handshakeTimeoutMs` 内要 `requestApproval`，否则窗口以 `failed` 结束。
+   * 之后 `handshakeTimeoutMs` 内要 `requestApproval`，否则窗口以 `failed` 结束。网页配对的窗口不接受短码（不用掉这次握手）。
    */
   beginAttempt(kind: PairingSecretKind): PairingAttempt | undefined {
     const window = this.#window;
     if (!window || window.attempt) return undefined;
+    if (window.web && kind === 'code') return undefined;
     const attempt: PairingAttempt = {
       pairingId: window.pairingId,
       secret: kind === 'secret' ? window.secret : new TextEncoder().encode(window.code),
@@ -240,12 +253,16 @@ export class PairingService {
     this.cancel();
   }
 
-  #requireEnabled(): RemoteSettings {
+  #requireEnabled(web: boolean): RemoteSettings {
     const settings = this.#settings();
     if (settings?.enabled !== true) {
       throw new HostError('INVALID_PARAMS', 'remote access is off', {
         issues: [{ path: [], message: 'remote access is off' }],
       });
+    }
+    if (web && relayConfigured(settings) === undefined) {
+      const message = 'web pairing needs a relay: choose the Wevir relay or a custom relay address';
+      throw new HostError('INVALID_PARAMS', message, { issues: [{ path: ['web'], message }] });
     }
     return settings;
   }

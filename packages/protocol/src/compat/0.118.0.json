@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "0.116.0",
+  "protocolVersion": "0.118.0",
   "frozenAt": "2026-10-23",
   "methods": {
     "plugins.list": {
@@ -1030,6 +1030,53 @@
               }
             }
           }
+        },
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "remote": {
+              "enabled": true,
+              "interfaces": {
+                "lan": false,
+                "tailscale": false
+              },
+              "relay": {
+                "enabled": true,
+                "mode": "official",
+                "url": "wss://relay.example.com"
+              },
+              "push": {
+                "enabled": false
+              },
+              "web": {
+                "url": "https://example.com/wevir",
+                "idleDays": 0
+              }
+            }
+          }
+        },
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "remote": {
+              "enabled": true,
+              "interfaces": {
+                "lan": false,
+                "tailscale": false
+              },
+              "relay": {
+                "enabled": true,
+                "mode": "custom",
+                "url": "wss://relay.example.com"
+              },
+              "push": {
+                "enabled": false
+              },
+              "web": {
+                "idleDays": 30
+              }
+            }
+          }
         }
       ]
     },
@@ -1155,6 +1202,24 @@
         {
           "settings": {
             "computerUse": true
+          }
+        },
+        {
+          "settings": {
+            "remote": {
+              "enabled": true,
+              "interfaces": {
+                "lan": false,
+                "tailscale": false
+              },
+              "relay": {
+                "enabled": true,
+                "mode": "official"
+              },
+              "push": {
+                "enabled": false
+              }
+            }
           }
         }
       ],
@@ -6643,7 +6708,7 @@
                 "reasoning": 0
               },
               "cost": {
-                "input": 0.00001,
+                "input": 1e-5,
                 "output": 0.0032,
                 "cacheRead": 0.0451,
                 "cacheWrite": 0.0056,
@@ -13314,6 +13379,30 @@
               }
             }
           ]
+        },
+        {
+          "devices": [
+            {
+              "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "name": "iPhone",
+              "platform": "ios",
+              "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
+              "permissions": ["session.read", "session.write", "workspace.read"],
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "lastSeenAt": "2026-10-12T08:00:05.250Z",
+              "status": "active"
+            },
+            {
+              "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "name": "Chrome",
+              "platform": "web",
+              "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
+              "permissions": ["session.read", "session.write", "workspace.read"],
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "lastSeenAt": "2026-10-12T08:00:05.250Z",
+              "status": "active"
+            }
+          ]
         }
       ]
     },
@@ -13387,7 +13476,12 @@
       ]
     },
     "pairing.start": {
-      "params": [{}],
+      "params": [
+        {},
+        {
+          "web": true
+        }
+      ],
       "result": [
         {
           "pairingId": "prg_01JA2B3C4D5E6F7G8H9JKMNPQR",
@@ -13423,6 +13517,17 @@
           "routeId": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
           "candidates": [],
           "relayUrl": "wss://relay.wevir.si"
+        },
+        {
+          "pairingId": "prg_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "uri": "https://web.wevir.si/pair#v=1&k=q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE&r=Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg&s=q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE&n=Mac&relay=wss%3A%2F%2Frelay.wevir.si",
+          "shortCode": "7KQ2M9XD",
+          "expiresAt": "2026-10-12T08:00:05.250Z",
+          "hostPublicKey": "q0XrYwM1Xk1vH2C6uWqG5yQyq9b0mW0n8Sx3cG1fYQE",
+          "routeId": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
+          "candidates": [],
+          "relayUrl": "wss://relay.wevir.si",
+          "web": true
         }
       ]
     },
@@ -13458,6 +13563,18 @@
             "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "name": "iPhone",
             "platform": "ios",
+            "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
+            "permissions": ["session.read", "session.write", "workspace.read"],
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "lastSeenAt": "2026-10-12T08:00:05.250Z",
+            "status": "active"
+          }
+        },
+        {
+          "device": {
+            "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "name": "Chrome",
+            "platform": "web",
             "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
             "permissions": ["session.read", "session.write", "workspace.read"],
             "createdAt": "2026-10-12T08:00:00.000Z",
@@ -14769,6 +14886,20 @@
             "status": "active"
           }
         ]
+      },
+      {
+        "devices": [
+          {
+            "id": "dev_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "name": "Chrome",
+            "platform": "web",
+            "publicKey": "Zm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg",
+            "permissions": ["session.read", "session.write", "workspace.read"],
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "lastSeenAt": "2026-10-12T08:00:05.250Z",
+            "status": "active"
+          }
+        ]
       }
     ],
     "pairing.request": [
@@ -14777,6 +14908,13 @@
         "requestId": "prq_01JA2B3C4D5E6F7G8H9JKMNPQR",
         "name": "iPhone",
         "platform": "ios",
+        "requestedAt": "2026-10-12T08:00:00.000Z"
+      },
+      {
+        "pairingId": "prg_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "requestId": "prq_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "name": "Chrome",
+        "platform": "web",
         "requestedAt": "2026-10-12T08:00:00.000Z"
       }
     ],

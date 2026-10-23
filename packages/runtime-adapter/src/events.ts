@@ -114,7 +114,7 @@ export interface ToolFinishedEvent {
   toolCallId: string;
   status: 'completed' | 'failed';
   output?: string;
-  /** 工具产出的图片（0.116.0，展示类型 `image`）。Host 认格式、存进图片目录，事件里换成图片的引用。 */
+  /** 工具产出的图片（0.118.0，展示类型 `image`）。Host 认格式、存进图片目录，事件里换成图片的引用。 */
   images?: AgentToolImage[];
 }
 

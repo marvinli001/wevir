@@ -89,7 +89,7 @@ export class ImageStore {
   }
 
   /**
-   * 工具产出的图片（0.116.0，`tool.finished.images`）：认格式、读像素，直接写进 `images/`（事件引用它，不经过 `staged/`）。
+   * 工具产出的图片（0.118.0，`tool.finished.images`）：认格式、读像素，直接写进 `images/`（事件引用它，不经过 `staged/`）。
    * 同步写：Host 按顺序处理引擎事件，图片要在 `tool.finished` 写进事件之前就在。不是 base64、不是四种格式之一，或比
    * `TOOL_IMAGE_MAX_BYTES` 大时 `undefined`。
    */

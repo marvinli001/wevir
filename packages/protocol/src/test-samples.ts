@@ -157,6 +157,13 @@ export const deviceSample: Device = {
   status: 'active',
 };
 
+/** 浏览器里的网页客户端（0.117.0）。 */
+export const webDeviceSample: Device = {
+  ...deviceSample,
+  name: 'Chrome',
+  platform: 'web',
+};
+
 /** 开了推送、令牌已绑定的一台手机（0.112.0）。 */
 export const devicePushSample: Device = {
   ...deviceSample,
@@ -180,6 +187,14 @@ export const pairingOfferSample: PairingOffer = {
   hostPublicKey: KEY_A,
   routeId: KEY_B,
   candidates: [],
+};
+
+/** 网页配对的窗口（0.117.0）：https 链接，经官方中继。 */
+export const webPairingOfferSample: PairingOffer = {
+  ...pairingOfferSample,
+  uri: `https://web.wevir.si/pair#v=1&k=${KEY_A}&r=${KEY_B}&s=${KEY_A}&n=Mac&relay=wss%3A%2F%2Frelay.wevir.si`,
+  relayUrl: 'wss://relay.wevir.si',
+  web: true,
 };
 
 /** 远程监听（0.109.0）：局域网与 Tailscale 都在监听，一台设备连着。 */
@@ -3356,6 +3371,31 @@ export const methodSamples: MethodSamples = {
             },
           },
         },
+        // 0.117.0：中继的三态与网页设备。
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: true, mode: 'official', url: 'wss://relay.example.com' },
+              push: { enabled: false },
+              web: { url: 'https://example.com/wevir', idleDays: 0 },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: true, mode: 'custom', url: 'wss://relay.example.com' },
+              push: { enabled: false },
+              web: { idleDays: 30 },
+            },
+          },
+        },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3388,6 +3428,29 @@ export const methodSamples: MethodSamples = {
               interfaces: { lan: true, tailscale: false, lanInterfaces: [{ name: 'en0' }] },
               relay: { enabled: false },
               push: { enabled: false },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: true, mode: 'wevir' },
+              push: { enabled: false },
+            },
+          },
+        },
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            remote: {
+              enabled: true,
+              interfaces: { lan: false, tailscale: false },
+              relay: { enabled: false },
+              push: { enabled: false },
+              web: { url: 'http://example.com', idleDays: 3651 },
             },
           },
         },
@@ -6888,7 +6951,11 @@ export const methodSamples: MethodSamples = {
   'device.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [{ devices: [] }, { devices: [deviceSample, { ...deviceSample, status: 'revoked' }] }],
+      valid: [
+        { devices: [] },
+        { devices: [deviceSample, { ...deviceSample, status: 'revoked' }] },
+        { devices: [deviceSample, webDeviceSample] },
+      ],
       invalid: [{}, { devices: [{ ...deviceSample, publicKey: 'short' }] }],
     },
   },
@@ -6919,7 +6986,7 @@ export const methodSamples: MethodSamples = {
     },
   },
   'pairing.start': {
-    params: { valid: [{}], invalid: [null] },
+    params: { valid: [{}, { web: true }, { web: false }], invalid: [null, { web: 'yes' }] },
     result: {
       valid: [
         pairingOfferSample,
@@ -6931,9 +6998,11 @@ export const methodSamples: MethodSamples = {
           ],
           relayUrl: 'wss://relay.example.com',
         },
+        webPairingOfferSample,
       ],
       invalid: [
         { ...pairingOfferSample, shortCode: '7KQ2M9XI' },
+        { ...webPairingOfferSample, web: false },
         { ...pairingOfferSample, relayUrl: 'https://relay.example.com' },
       ],
     },
@@ -6955,7 +7024,7 @@ export const methodSamples: MethodSamples = {
         { requestId: ids.pairingRequest, allow: true, push: 'yes' },
       ],
     },
-    result: { valid: [{}, { device: deviceSample }], invalid: [null] },
+    result: { valid: [{}, { device: deviceSample }, { device: webDeviceSample }], invalid: [null] },
   },
   'remote.status': {
     params: { valid: [{}], invalid: [null] },
@@ -8080,7 +8149,7 @@ export const notificationSamples: NotificationSamples = {
     ],
   },
   'devices.changed': {
-    valid: [{ devices: [] }, { devices: [deviceSample] }],
+    valid: [{ devices: [] }, { devices: [deviceSample] }, { devices: [webDeviceSample] }],
     invalid: [{}, { devices: [{ ...deviceSample, platform: 'watch' }] }],
   },
   'pairing.request': {
@@ -8090,6 +8159,13 @@ export const notificationSamples: NotificationSamples = {
         requestId: ids.pairingRequest,
         name: 'iPhone',
         platform: 'ios',
+        requestedAt: TS,
+      },
+      {
+        pairingId: ids.pairing,
+        requestId: ids.pairingRequest,
+        name: 'Chrome',
+        platform: 'web',
         requestedAt: TS,
       },
     ],

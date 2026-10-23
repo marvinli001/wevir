@@ -175,7 +175,7 @@ describe('groupWork', () => {
   });
 });
 
-describe('groupWork：生成的图片（0.116.0）', () => {
+describe('groupWork：生成的图片（0.118.0）', () => {
   it('生成图片的工具不进工作组，单独一项，前后的工具各成一组', () => {
     const items = groupWork([tool('1', 'read'), tool('2', 'image'), tool('3', 'shell')]);
     expect(

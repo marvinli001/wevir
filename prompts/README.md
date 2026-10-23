@@ -179,6 +179,8 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 
 档案由 Agent 建：用户要求并同意后，Agent 调 `wevir_writing_style_setup` 取 `writing-style/setup.md` 的步骤，用 `wevir_writing_style_samples` 收集用户自己写的文字（`collect_chats` 取用户在 Wevir 里亲手发的消息，`add` 交用户指定的文件与已连接应用里用户发出的文字）、`analyze` 做文体统计，再用 `wevir_writing_style_save` 存档案。样本存在 Host 数据目录的 `writing-style/samples/`，建档结束、关掉设置、删档案或放了七天后删除。四个工具只读写 Host 数据目录，不用批准；设置关着时不列出。
 
+设置里只有这一个开关（照 Codex），不列档案、不显示建没建档；用户要看或改档案时找 Agent，由它用 `wevir_writing_style_read` / `wevir_writing_style_save` 处理。Host 的 `writingStyle.get/update/delete` 还在，桌面端不再调用。
+
 已经开着的会话不跟着变：新档案从下一次建会话、恢复或接力起生效。
 
 ## 自动修复

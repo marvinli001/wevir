@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useHostSettings } from '@/data/host-settings';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import type { ComputerStatus } from '../../../shared/desktop-api';
 import { LIST_CARD, type Notice, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
 
@@ -27,8 +28,8 @@ export function ComputerSettings() {
   const [notice, setNotice] = useState<Notice>();
 
   const read = useCallback(() => {
-    window.wevir?.computer
-      .status()
+    platformApi()
+      ?.computer.status()
       .then(setStatus)
       .catch((reason: unknown) => setNotice({ tone: 'error', text: describe(reason) }));
   }, []);
@@ -63,8 +64,8 @@ export function ComputerSettings() {
   };
 
   const ask = (kind: 'screen_recording' | 'accessibility') => {
-    window.wevir?.computer
-      .requestPermission(kind)
+    platformApi()
+      ?.computer.requestPermission(kind)
       .then(setStatus)
       .catch((reason: unknown) => setNotice({ tone: 'error', text: describe(reason) }));
   };

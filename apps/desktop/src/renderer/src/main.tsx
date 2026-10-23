@@ -4,20 +4,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { APP_MENU_LABEL_KEYS, type AppMenuLabels } from '../../shared/desktop-api.js';
 import { App } from './App.js';
-import { initI18n, t } from './i18n/index.js';
-import { bootstrapWindowChrome } from './layout/window-chrome.js';
-import { bootstrapAppearance } from './theme/appearance.js';
-import { bootstrapTheme } from './theme/theme.js';
+import { bootstrapRenderer } from './bootstrap.js';
+import { t } from './i18n/index.js';
 import './index.css';
-
-bootstrapTheme();
-bootstrapAppearance();
-bootstrapWindowChrome();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html 里缺少 #root');
-// 界面语言的目录在第一次渲染之前加载好，t() 始终是同步的。
-void initI18n().then(() => {
+void bootstrapRenderer().then(() => {
   // 菜单栏 / 通知区域图标的菜单按界面语言（main/tray.ts）。
   window.wevir
     ?.setTrayLabels({ open: t('tray.open'), quit: t('tray.quit') })

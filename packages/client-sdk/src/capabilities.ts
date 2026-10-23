@@ -27,7 +27,7 @@ import type {
  * - `approval_rules`（0.80.0）：`ApprovalResolutionReason` 的 `rule`。桌面端与 CLI 写“已按规则允许”。
  * - `approval_timeout`（0.105.0）：`ApprovalResolutionReason` 的 `timeout` 与错误码 `APPROVAL_EXPIRED`。桌面端与 CLI 写“审批已过期”。
  * - `dev_preview`（0.84.0）：`ProcessSource` 的 `preview`。桌面端的进程窗格与“预览”卡片按它显示；CLI 不列进程。
- * - `tool_display_image`（0.116.0）：`ToolDisplayKind` 的 `image`。消息投影把 `tool.finished` 的 `images` 放进工具段，桌面端把这种
+ * - `tool_display_image`（0.118.0）：`ToolDisplayKind` 的 `image`。消息投影把 `tool.finished` 的 `images` 放进工具段，桌面端把这种
  *   工具画成消息流里的一张图（生成时 img-fx 的动画，生成后显现），CLI 照普通工具写一行。
  */
 export const DEFAULT_CLIENT_CAPABILITIES = {

@@ -369,7 +369,7 @@ describe('TranscriptProjection：工具与审批', () => {
     });
   });
 
-  it('生成的图片（0.116.0）：tool.finished 的 images 放进工具段', () => {
+  it('生成的图片（0.118.0）：tool.finished 的 images 放进工具段', () => {
     const { list, add, turn } = events();
     turn();
     add('tool.started', {

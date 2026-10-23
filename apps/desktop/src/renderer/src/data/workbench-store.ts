@@ -111,7 +111,10 @@ export class WorkbenchStore {
       const [{ workspaces }, { sessions, listVersion }, { providers }] = await Promise.all([
         this.#client.request('workspace.list'),
         this.#client.request('session.list'),
-        this.#client.request('provider.list'),
+        // 远程设备可能没有 `provider.read`：不列 Provider，其余照常。
+        this.#client.can('provider.read')
+          ? this.#client.request('provider.list')
+          : Promise.resolve({ providers: [] }),
       ]);
       if (this.#disposed) return;
       recordBaselines(sessions);

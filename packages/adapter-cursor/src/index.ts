@@ -2,6 +2,7 @@ export {
   API_KEY_NAME,
   CursorAccounts,
   type CursorAccountsOptions,
+  type CursorSdkInstall,
   LOGIN_TIMEOUT_MS,
 } from './accounts.js';
 export { cursorCredentialsPath, cursorEngineDir } from './credentials.js';
@@ -26,3 +27,14 @@ export {
   cursorSdkInstalled,
   loadCursorSdk,
 } from './sdk.js';
+export {
+  CURSOR_SDK_PACKAGES,
+  type CursorSdkInstallation,
+  type CursorSdkInstallEvent,
+  CursorSdkInstaller,
+  type CursorSdkInstallerOptions,
+  type CursorSdkPackage,
+  cursorSdkDirectory,
+  cursorSdkInstallSupported,
+  cursorSdkPackages,
+} from './sdk-install.js';

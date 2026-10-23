@@ -9,7 +9,7 @@ import { useFxTheme } from './motion';
 const HOLD_MS = 60 * 60 * 1000;
 
 /**
- * 没有 `src` 时只跑着色器（“生成中”，0.116.0 生成图片的等待）；有了 `src` 再让着色器跑一小会儿然后显现。同一个实例从等待
+ * 没有 `src` 时只跑着色器（“生成中”，0.118.0 生成图片的等待）；有了 `src` 再让着色器跑一小会儿然后显现。同一个实例从等待
  * 接着显现，着色器不重来。
  */
 export default function ImageRevealEffect({

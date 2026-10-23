@@ -11,6 +11,15 @@ export interface KeyPair {
 }
 
 /**
+ * 只给出公钥与 DH 的静态密钥：私钥不在 JS 里，例如浏览器里不可导出的 WebCrypto X25519 `CryptoKey`。`dh` 可以是异步的，这时
+ * 握手要用 `writeMessageAsync` / `readMessageAsync`。对方公钥是全零 / 低阶点时应当抛错；状态机另外检查结果是否全零。
+ */
+export interface StaticKey {
+  readonly publicKey: Uint8Array;
+  dh(publicKey: Uint8Array): Uint8Array | Promise<Uint8Array>;
+}
+
+/**
  * Noise 的原语：DH 是 25519，密码是 ChaChaPoly，哈希是 SHA-256。默认用 noble 的纯 JS 实现；手机端要加速时在自己的包里
  * 换一个实现（例如 AEAD 与哈希走原生），同一份状态机不动。
  */

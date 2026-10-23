@@ -8,6 +8,7 @@ import { OpenSessionFile } from '@/files/file-links';
 import { currentLocale, t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
 import { IS_MAC } from '@/lib/shortcuts';
+import { capabilities, platformApi } from '@/platform/platform';
 import { canOpenExternally } from '../../../shared/open-path.js';
 import { fileTypeLabel, formatFileSize, sharedFilePath } from './shared-files-model';
 import { WorkspaceRoot } from './work-group';
@@ -38,7 +39,9 @@ export function SharedFilesCard({ part }: { part: ChatPartOf<'files'> }) {
 function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string }) {
   const openInPane = useContext(OpenSessionFile);
   const [state, setState] = useState<{ kind: 'saved' } | { kind: 'error'; message: string }>();
-  const external = canOpenExternally(absolute);
+  // 系统应用、另存为与访达只对这台电脑上的文件有用（platform/platform.ts 的 `localFiles`）。
+  const local = capabilities().localFiles;
+  const external = local && canOpenExternally(absolute);
   const Icon = fileIcon(file.name);
   const type = fileTypeLabel(file.name);
 
@@ -61,12 +64,12 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
   };
   const open = () => {
     if (openInPane) openInPane(file.path);
-    else if (external) run(() => window.wevir.openPath(absolute));
-    else run(() => window.wevir.revealPath(absolute));
+    else if (external) run(() => platformApi().openPath(absolute));
+    else if (local) run(() => platformApi().revealPath(absolute));
   };
   const saveAs = () =>
     run(async () => {
-      if ((await window.wevir.saveFileAs(absolute, file.name)) === 'saved') {
+      if ((await platformApi().saveFileAs(absolute, file.name)) === 'saved') {
         setState({ kind: 'saved' });
       }
     });
@@ -101,34 +104,38 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
           label={t('files.openDefault')}
           size="icon-xs"
           className="text-muted-foreground"
-          onClick={() => run(() => window.wevir.openPath(absolute))}
+          onClick={() => run(() => platformApi().openPath(absolute))}
           data-action="open-shared-file"
         >
           <ExternalLink />
         </IconButton>
       )}
-      <IconButton
-        label={t('sharedFile.saveAs')}
-        size="icon-xs"
-        className="text-muted-foreground"
-        onClick={saveAs}
-        data-action="save-shared-file"
-      >
-        {state?.kind === 'saved' ? (
-          <Check aria-label={t('sharedFile.saved')} className="confirm-pop text-success" />
-        ) : (
-          <Download />
-        )}
-      </IconButton>
-      <IconButton
-        label={IS_MAC ? t('files.revealFinder') : t('files.revealFolder')}
-        size="icon-xs"
-        className="text-muted-foreground"
-        onClick={() => run(() => window.wevir.revealPath(absolute))}
-        data-action="reveal-shared-file"
-      >
-        <FolderOpen />
-      </IconButton>
+      {local && (
+        <IconButton
+          label={t('sharedFile.saveAs')}
+          size="icon-xs"
+          className="text-muted-foreground"
+          onClick={saveAs}
+          data-action="save-shared-file"
+        >
+          {state?.kind === 'saved' ? (
+            <Check aria-label={t('sharedFile.saved')} className="confirm-pop text-success" />
+          ) : (
+            <Download />
+          )}
+        </IconButton>
+      )}
+      {local && (
+        <IconButton
+          label={IS_MAC ? t('files.revealFinder') : t('files.revealFolder')}
+          size="icon-xs"
+          className="text-muted-foreground"
+          onClick={() => run(() => platformApi().revealPath(absolute))}
+          data-action="reveal-shared-file"
+        >
+          <FolderOpen />
+        </IconButton>
+      )}
     </li>
   );
 }

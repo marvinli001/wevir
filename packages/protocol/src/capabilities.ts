@@ -51,7 +51,7 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
   /** 认得 `ProcessSource` 的 `preview`；没有时 Host 从 `process.list` 与 `process.changed` 里去掉预览进程。 */
   devPreview: 'dev_preview',
-  // COMPAT(toolDisplayImage): added in 0.116.0, remove gate after 2027-06-01
+  // COMPAT(toolDisplayImage): added in 0.118.0, remove gate after 2027-06-01
   /** 认得 `ToolDisplayKind` 的 `image`；没有时 Host 把它降级成 `unknown`（`tool.finished` 的 `images` 照发，旧客户端忽略）。 */
   toolDisplayImage: 'tool_display_image',
 } as const;
@@ -492,6 +492,11 @@ export const HOST_FEATURES = {
    * 把通知意图加密后经推送网关发给开了推送的设备。与引擎无关。
    */
   remotePush: 'remote_push',
+  /**
+   * 网页设备（0.117.0，ADR-0017 补记 8）：中继的三态（`remote.relay.mode` 可选官方中继 `OFFICIAL_RELAY_URL`）、`pairing.start` 的
+   * `web`（经中继的 https 配对链接）、设备平台 `web`、设置 `remote.web`（网页地址与闲置自动移除）。与引擎无关。
+   */
+  remoteWeb: 'remote_web',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -591,6 +596,7 @@ export const HostFeaturesSchema = z.looseObject({
   remote_listener: z.boolean().optional(),
   remote_relay: z.boolean().optional(),
   remote_push: z.boolean().optional(),
+  remote_web: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

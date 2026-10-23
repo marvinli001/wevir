@@ -11,6 +11,7 @@ import { accountRef } from '@/data/sources';
 import { useAccounts, useAccountsStore, useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { platformApi } from '@/platform/platform';
 import {
   type AccountPhase,
   accountPhase,
@@ -90,7 +91,7 @@ export function ChatgptAccountSection({
     const authUrl = next?.login?.authUrl;
     if (method === 'browser' && next?.login !== undefined && authUrl !== undefined) {
       opened.current.add(next.login.loginId);
-      void window.wevir.openExternal(authUrl);
+      void platformApi().openExternal(authUrl);
     }
   };
   const cancel = (loginId: string) =>
@@ -221,7 +222,7 @@ function BrowserProgress({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => void window.wevir.openExternal(phase.authUrl ?? '')}
+          onClick={() => void platformApi().openExternal(phase.authUrl ?? '')}
           data-action="open-login-page"
         >
           <ExternalLink />
@@ -260,7 +261,7 @@ function DeviceCodeProgress({
             <button
               type="button"
               className="font-mono text-primary underline-offset-4 hover:underline"
-              onClick={() => void window.wevir.openExternal(phase.verificationUrl ?? '')}
+              onClick={() => void platformApi().openExternal(phase.verificationUrl ?? '')}
               data-action="open-verification"
             >
               {phase.verificationUrl}
@@ -281,7 +282,9 @@ function DeviceCodeProgress({
                 variant="ghost"
                 size="sm"
                 onClick={() =>
-                  void window.wevir.copyText(phase.userCode ?? '').then(() => setCopied(true))
+                  void platformApi()
+                    .copyText(phase.userCode ?? '')
+                    .then(() => setCopied(true))
                 }
               >
                 <Copy />

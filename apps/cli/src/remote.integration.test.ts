@@ -355,6 +355,29 @@ describe('wevir remote', () => {
     expect(after).toMatchObject([{ relayUrl }]);
   }, 30_000);
 
+  it('网页配对链接（0.117.0）也能配对，经里面的中继', async () => {
+    const relay = new RelayServer();
+    const relayPort = await relay.listen(0, '127.0.0.1');
+    cleanups.push(() => relay.close());
+    const relayUrl = `ws://127.0.0.1:${relayPort}`;
+    const other = await otherComputer({ relayUrl });
+    const cliHome = join(tempDir(), 'laptop');
+    const offer = await other.desktop.request('pairing.start', { web: true });
+    expect(offer.uri.startsWith('https://web.wevir.si/pair#')).toBe(true);
+    const allowed = other.respond(true);
+    const paired = await run(['remote', 'pair', offer.uri, '--name', 'web-link'], {
+      home: cliHome,
+    });
+    expect(paired.code, paired.err).toBe(0);
+    expect(await allowed).toBeDefined();
+    const listed = JSON.parse((await run(['remote', 'list', '--json'], { home: cliHome })).out);
+    expect(listed).toMatchObject([{ name: 'web-link', relayUrl }]);
+    const broken = await run(['remote', 'pair', 'https://web.wevir.si/pair#v=1'], {
+      home: cliHome,
+    });
+    expect(broken.code).toBe(1);
+  }, 30_000);
+
   it('短码时局域网里找不到电脑：说明原因，经中继要用二维码里的配对链接', async () => {
     const cliHome = join(tempDir(), 'laptop');
     const result = await run(['remote', 'pair', 'ABCD-EFGH'], { home: cliHome });
