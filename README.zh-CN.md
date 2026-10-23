@@ -30,6 +30,10 @@
 
 会话、审批、变更审阅、项目文件，以及 Agent 可以操作的浏览器，都在同一个开源桌面应用里。本地 Host 运行 Agent，数据留在你的电脑上；`wevir` 命令行连的是同一个 Host。
 
+<p align="center">
+  <img src="./assets/readme/wevir-demo.webp" width="900" alt="演示：Agent 给一个小缓存加上 TTL，会话中途从 OpenAI 模型换到 DeepSeek、再换到本机 Ollama 模型；模型选择器列出 Codex、Claude、Cursor、OpenCode、Grok 与 Antigravity 订阅，其中 Codex 与 Claude 各有两个账号" />
+</p>
+
 ### 为什么用 Wevir
 
 - **按任务选模型，而不是按应用。** 开源的 Codex Agent 运行时在本机运行，Wevir 的网关把它的请求转换给 OpenAI、Anthropic、Google、DeepSeek 等十余家模型服务、本机 Ollama 与任意 OpenAI 兼容接口。回合之间换模型或换服务，不用离开当前会话。

@@ -30,6 +30,10 @@
 
 Sessions, approvals, change review, project files, and a browser the agent can drive live in one open-source desktop app. A local Host runs the agents and keeps their data on your machine; the `wevir` CLI talks to the same Host.
 
+<p align="center">
+  <img src="./assets/readme/wevir-demo.webp" width="900" alt="Demo: the agent adds a TTL to a small cache while the session switches from an OpenAI model to DeepSeek and then to a local Ollama model, and the picker lists Codex, Claude, Cursor, OpenCode, Grok, and Antigravity subscriptions with two accounts each for Codex and Claude" />
+</p>
+
 ### Why Wevir
 
 - **Pick the model per task, not per app.** The open-source Codex agent runtime runs locally, and Wevir's gateway translates its requests for OpenAI, Anthropic, Google, DeepSeek, a dozen other providers, local Ollama, and any OpenAI-compatible endpoint. Change model or provider between turns without leaving the session.
