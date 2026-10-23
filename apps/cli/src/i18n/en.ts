@@ -107,18 +107,23 @@ Adds the provider chatgpt`,
   'cmd.provider.logout.help':
     'Deletes the local ChatGPT credentials and tries to revoke the tokens; the chatgpt provider and its sessions are kept and continue after signing in again',
   'cmd.session.new.summary': 'Create a session and send a prompt',
-  'cmd.session.new.usage': 'wevir session new -w <path> [options] "<prompt>"',
+  'cmd.session.new.usage': 'wevir session new [-w <path>] [options] "<prompt>"',
   'cmd.session.new.help': `Registers the folder as a workspace if needed; attaches after sending
 
 Options:
-  -w, --workspace <path>   Workspace folder (required)
+  -w, --workspace <path>   Workspace folder; omitted, the session is a chat outside any project
   --provider <ID>          Provider; optional when there is only one
   --model <model ID>       Model, defaults to the provider's default model
+  --effort <level>         Reasoning level
+  --permission <mode>      on_request (default), auto_review or full_access
+  --worktree               Open a new git worktree for this session
+  --plan                   Send the prompt in plan mode
   --detach                 Do not attach after sending`,
   'cmd.session.list.summary': 'List sessions',
-  'cmd.session.list.usage': 'wevir session list [-w <path>]',
+  'cmd.session.list.usage': 'wevir session list [-w <path>] [--archived] [--json]',
   'cmd.session.list.help': `Options:
-  -w, --workspace <path>   Only sessions in this workspace`,
+  -w, --workspace <path>   Only sessions in this workspace
+  --archived               List archived sessions`,
   'cmd.session.attach.summary': 'Attach to a session: live output, approvals and follow-ups',
   'cmd.session.attach.usage': 'wevir session attach <session ID>',
   'cmd.session.attach.help': `A unique prefix of the session ID is enough
@@ -1002,4 +1007,84 @@ Rules only answer command approvals the engine asks for; permission mode and san
   'inbox.badRemember.hint': "project applies to the session's project, global to all projects",
   'slash.help.usage': '/help',
   'slash.help': 'List commands',
+
+  // 会话管理
+  'cmd.session.show.summary': 'Session details: settings, goal, pending items and to-dos',
+  'cmd.session.show.usage': 'wevir session show <session ID> [--json]',
+  'cmd.session.config.summary':
+    "Show or change a session's model, reasoning level and permission mode",
+  'cmd.session.config.usage': 'wevir session config <session ID> [options]',
+  'cmd.session.config.help': `Takes effect from the next turn; without options, shows the current settings
+
+Options:
+  --model <model ID>       Switch the model
+  --effort <level>         Reasoning level
+  --default-effort         Use the model's default level
+  --permission <mode>      on_request, auto_review or full_access
+  --provider <ID>          Hand off to another source (its default model unless --model)
+  --json                   Print the updated session`,
+  'cmd.session.rename.summary': 'Rename a session',
+  'cmd.session.rename.usage': 'wevir session rename <session ID> <title>',
+  'cmd.session.undo.summary': 'Undo the last turn and restore files',
+  'cmd.session.undo.usage': 'wevir session undo <session ID>',
+  'cmd.session.redo.summary': 'Redo the undone turn',
+  'cmd.session.redo.usage': 'wevir session redo <session ID>',
+  'cmd.session.fork.summary': 'Branch to a new session',
+  'cmd.session.fork.usage': 'wevir session fork <session ID> [--turn <turn ID>] [--json]',
+  'cmd.session.fork.help':
+    'The new session carries the history up to that turn; the last finished turn when --turn is omitted',
+  'cmd.session.compact.summary': "Compact a session's context",
+  'cmd.session.compact.usage': 'wevir session compact <session ID>',
+  'cmd.session.cancel.summary': "Cancel a session's current run",
+  'cmd.session.cancel.usage': 'wevir session cancel <session ID>',
+  'cmd.session.close.summary': "Close a session's engine; it resumes on the next send",
+  'cmd.session.close.usage': 'wevir session close <session ID>',
+  'cmd.session.archive.summary': 'Archive a session',
+  'cmd.session.archive.usage': 'wevir session archive <session ID>',
+  'cmd.session.unarchive.summary': 'Unarchive a session',
+  'cmd.session.unarchive.usage': 'wevir session unarchive <session ID>',
+  'cmd.session.delete.summary': 'Permanently delete an archived session',
+  'cmd.session.delete.usage': 'wevir session delete <session ID> [--force]',
+  'cmd.session.delete.help': `Deletes its sub-sessions, side sessions, files and Host-created worktrees too; cannot be undone
+
+Options:
+  --force   Delete even when a worktree has uncommitted changes`,
+  'session.noneArchived': 'No archived sessions',
+  'session.worktreeNeedsWorkspace': '--worktree needs -w <path>',
+  'session.goalText': '{objective} ({status})',
+  'session.pendingApprovals': '{count, plural, one {# approval} other {# approvals}}',
+  'session.pendingQuestions': '{count, plural, one {# question} other {# questions}}',
+  'session.field.state': 'State',
+  'session.field.workspace': 'Workspace',
+  'session.field.cwd': 'Folder',
+  'session.field.model': 'Model',
+  'session.field.effort': 'Reasoning',
+  'session.field.permission': 'Permission',
+  'session.field.mode': 'Mode',
+  'session.field.goal': 'Goal',
+  'session.field.pending': 'Pending',
+  'session.field.parent': 'Parent',
+  'session.field.created': 'Created',
+  'session.field.updated': 'Updated',
+  'session.field.archived': 'Archived',
+  'session.field.events': 'Events',
+  'session.planMode': 'Plan mode',
+  'session.todos': 'To-dos',
+  'session.archived': 'Archived: {id}',
+  'session.unarchived': 'Unarchived: {id}',
+  'session.deleted': '{count, plural, one {Deleted # session} other {Deleted # sessions}}',
+  'session.keptBranch': 'Unmerged branch kept: {branch}',
+  'session.engineDataKept': 'Some engine data was not deleted',
+  'session.undone': 'Undid turn {turn}: {files}',
+  'session.redone': 'Redid turn {turn}: {files}',
+  'session.effortConflict': 'Use either --effort or --default-effort',
+  'session.notRunning': 'The session is not running: {id}',
+  'session.cancelRequested': 'Cancel requested: {id}',
+  'session.closed': 'Closed: {id}',
+  'session.compacting': 'Compacting the context (turn {turn})',
+  'worktree.archived': 'Worktree saved and its folder removed: {branch}',
+  'worktree.kept': 'Worktree folder kept: {path}',
+  'worktree.missing': 'Worktree folder missing: {path}',
+  'worktree.restored': 'Worktree restored: {path}',
+  'worktree.failed': 'Worktree not restored: {branch}',
 };

@@ -109,18 +109,23 @@ export const zh = {
   'cmd.provider.logout.help':
     '删除本机 ChatGPT 凭据并尝试吊销令牌；Provider chatgpt 及其会话保留，重新登录后可继续',
   'cmd.session.new.summary': '新建会话并发送提示',
-  'cmd.session.new.usage': 'wevir session new -w <路径> [选项] "<提示>"',
+  'cmd.session.new.usage': 'wevir session new [-w <路径>] [选项] "<提示>"',
   'cmd.session.new.help': `目录未登记时自动登记为工作区；发送后进入 attach
 
 选项：
-  -w, --workspace <路径>   工作区目录（必填）
+  -w, --workspace <路径>   工作区目录；省略时建在“对话”里，不在项目中
   --provider <ID>          Provider；仅有一个时可省略
   --model <模型 ID>        模型，默认为 Provider 的默认模型
+  --effort <档位>          推理档位
+  --permission <模式>      on_request（默认）、auto_review 或 full_access
+  --worktree               为该会话新开一个 git worktree
+  --plan                   提示在计划模式里发送
   --detach                 发送后不进入 attach`,
   'cmd.session.list.summary': '列出会话',
-  'cmd.session.list.usage': 'wevir session list [-w <路径>]',
+  'cmd.session.list.usage': 'wevir session list [-w <路径>] [--archived] [--json]',
   'cmd.session.list.help': `选项：
-  -w, --workspace <路径>   仅列出该工作区的会话`,
+  -w, --workspace <路径>   仅列出该工作区的会话
+  --archived               列出已归档的会话`,
   'cmd.session.attach.summary': '连接会话：实时输出、审批与继续对话',
   'cmd.session.attach.usage': 'wevir session attach <会话 ID>',
   'cmd.session.attach.help': `会话 ID 可用唯一前缀
@@ -979,6 +984,84 @@ export const zh = {
   'inbox.badRemember.hint': 'project 只对该会话的项目有效，global 对所有项目有效',
   'slash.help.usage': '/help',
   'slash.help': '列出命令',
+
+  // 会话管理
+  'cmd.session.show.summary': '会话详情：设置、目标、待处理与任务清单',
+  'cmd.session.show.usage': 'wevir session show <会话 ID> [--json]',
+  'cmd.session.config.summary': '查看或更改会话的模型、推理档位与权限模式',
+  'cmd.session.config.usage': 'wevir session config <会话 ID> [选项]',
+  'cmd.session.config.help': `从下一个回合起生效；不带选项时显示现在的设置
+
+选项：
+  --model <模型 ID>        换模型
+  --effort <档位>          推理档位
+  --default-effort         用模型的默认档位
+  --permission <模式>      on_request、auto_review 或 full_access
+  --provider <ID>          接力到别的来源（模型省略时用它的默认模型）
+  --json                   输出改后的会话`,
+  'cmd.session.rename.summary': '改会话标题',
+  'cmd.session.rename.usage': 'wevir session rename <会话 ID> <标题>',
+  'cmd.session.undo.summary': '撤销最后一个回合，还原文件',
+  'cmd.session.undo.usage': 'wevir session undo <会话 ID>',
+  'cmd.session.redo.summary': '重做刚撤销的回合',
+  'cmd.session.redo.usage': 'wevir session redo <会话 ID>',
+  'cmd.session.fork.summary': '分支到新会话',
+  'cmd.session.fork.usage': 'wevir session fork <会话 ID> [--turn <回合 ID>] [--json]',
+  'cmd.session.fork.help': '新会话带着到该回合为止的历史；省略 --turn 时到最近完成的回合',
+  'cmd.session.compact.summary': '压缩会话的上下文',
+  'cmd.session.compact.usage': 'wevir session compact <会话 ID>',
+  'cmd.session.cancel.summary': '取消会话当前的运行',
+  'cmd.session.cancel.usage': 'wevir session cancel <会话 ID>',
+  'cmd.session.close.summary': '关闭会话的引擎；下次发送时恢复',
+  'cmd.session.close.usage': 'wevir session close <会话 ID>',
+  'cmd.session.archive.summary': '归档会话',
+  'cmd.session.archive.usage': 'wevir session archive <会话 ID>',
+  'cmd.session.unarchive.summary': '取消归档',
+  'cmd.session.unarchive.usage': 'wevir session unarchive <会话 ID>',
+  'cmd.session.delete.summary': '永久删除已归档的会话',
+  'cmd.session.delete.usage': 'wevir session delete <会话 ID> [--force]',
+  'cmd.session.delete.help': `连同子会话、支线、文件与 Host 开的 worktree 一起删除，不可恢复
+
+选项：
+  --force   worktree 有未提交的改动时仍删除`,
+  'session.noneArchived': '暂无已归档的会话',
+  'session.worktreeNeedsWorkspace': '--worktree 需要 -w <路径>',
+  'session.goalText': '{objective}（{status}）',
+  'session.pendingApprovals': '{count} 个审批',
+  'session.pendingQuestions': '{count} 个提问',
+  'session.field.state': '状态',
+  'session.field.workspace': '工作区',
+  'session.field.cwd': '目录',
+  'session.field.model': '模型',
+  'session.field.effort': '推理档位',
+  'session.field.permission': '权限',
+  'session.field.mode': '协作模式',
+  'session.field.goal': '目标',
+  'session.field.pending': '待处理',
+  'session.field.parent': '父会话',
+  'session.field.created': '创建于',
+  'session.field.updated': '更新于',
+  'session.field.archived': '归档于',
+  'session.field.events': '事件数',
+  'session.planMode': '计划模式',
+  'session.todos': '任务清单',
+  'session.archived': '已归档：{id}',
+  'session.unarchived': '已取消归档：{id}',
+  'session.deleted': '已删除 {count} 个会话',
+  'session.keptBranch': '保留未合并的分支：{branch}',
+  'session.engineDataKept': '部分引擎数据未删除',
+  'session.undone': '已撤销回合 {turn}：{files}',
+  'session.redone': '已重做回合 {turn}：{files}',
+  'session.effortConflict': '--effort 与 --default-effort 只能选一个',
+  'session.notRunning': '会话没有在运行：{id}',
+  'session.cancelRequested': '已请求取消：{id}',
+  'session.closed': '已关闭：{id}',
+  'session.compacting': '正在压缩上下文（回合 {turn}）',
+  'worktree.archived': 'worktree 已存档并删除目录：{branch}',
+  'worktree.kept': 'worktree 目录保留：{path}',
+  'worktree.missing': 'worktree 目录不存在：{path}',
+  'worktree.restored': 'worktree 已恢复：{path}',
+  'worktree.failed': 'worktree 未能恢复：{branch}',
 } as const;
 
 export type MessageKey = keyof typeof zh;

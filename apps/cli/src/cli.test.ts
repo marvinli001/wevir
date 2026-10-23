@@ -29,7 +29,9 @@ describe('命令行解析', () => {
       'wevir provider add',
       'wevir provider list',
       'wevir provider test',
-      'wevir session new -w <路径>',
+      'wevir session new [-w <路径>]',
+      'wevir session show <会话 ID>',
+      'wevir rule list',
       'wevir session list',
       'wevir session attach <会话 ID>',
     ]) {
@@ -47,7 +49,8 @@ describe('命令行解析', () => {
     const cases: Array<[string[], string]> = [
       [['bogus'], '未知命令：bogus'],
       [['host', 'restart'], '未知命令：wevir host restart'],
-      [['session', 'new', 'hi'], '缺少 -w <路径>'],
+      [['session', 'new', '--worktree=x'], '选项 --worktree 缺少值或不接受值'],
+      [['session', 'config', '--json'], '缺少参数'],
       [['session', 'attach'], '缺少参数'],
       [['workspace', 'list', 'extra'], '多余参数：extra'],
       [['provider', 'add', '--api-key', 'sk-xxx'], '未知选项：--api-key'],
