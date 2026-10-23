@@ -51,6 +51,9 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
   /** 认得 `ProcessSource` 的 `preview`；没有时 Host 从 `process.list` 与 `process.changed` 里去掉预览进程。 */
   devPreview: 'dev_preview',
+  // COMPAT(toolDisplayImage): added in 0.118.0, remove gate after 2027-06-01
+  /** 认得 `ToolDisplayKind` 的 `image`；没有时 Host 把它降级成 `unknown`（`tool.finished` 的 `images` 照发，旧客户端忽略）。 */
+  toolDisplayImage: 'tool_display_image',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -66,6 +69,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   approval_rules: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
   dev_preview: z.boolean().optional(),
+  tool_display_image: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 

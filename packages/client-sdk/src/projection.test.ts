@@ -369,6 +369,33 @@ describe('TranscriptProjection：工具与审批', () => {
     });
   });
 
+  it('生成的图片（0.118.0）：tool.finished 的 images 放进工具段', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('tool.started', {
+      turnId: TURN,
+      toolCallId: 'ig1',
+      toolName: 'imageGeneration',
+      display: { kind: 'image' },
+    });
+    expect(assistantParts(list)[0]).not.toHaveProperty('images');
+    const image = {
+      type: 'image' as const,
+      imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR' as const,
+      mimeType: 'image/png' as const,
+      size: 2048,
+      width: 1024,
+      height: 1024,
+    };
+    add('tool.finished', { turnId: TURN, toolCallId: 'ig1', status: 'completed', images: [image] });
+    expect(assistantParts(list)[0]).toMatchObject({
+      type: 'tool',
+      status: 'completed',
+      display: { kind: 'image' },
+      images: [image],
+    });
+  });
+
   it('回合结束时仍未收尾的工具显示为 unknown', () => {
     const { list, add, turn } = events();
     turn();

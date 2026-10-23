@@ -174,6 +174,8 @@ export type ChatPart =
       status: ToolPartStatus;
       input: unknown;
       output?: ToolOutput;
+      /** 工具产出的图片（0.118.0，`tool.finished.images`），字节经 `image.read` 读。 */
+      images?: readonly UserImagePart[];
       approval?: ToolPartApproval;
       startedAt: IsoTime;
       finishedAt?: IsoTime;
@@ -1353,12 +1355,13 @@ export class TranscriptProjection {
   }
 
   #toolFinished(event: WevirEventOf<'tool.finished'>): void {
-    const { turnId, toolCallId, status, output } = event.payload;
+    const { turnId, toolCallId, status, output, images } = event.payload;
     this.#activity(turnId, event.ts);
     this.#updateTool(toolCallId, event.seq, (part) => ({
       ...part,
       status,
       ...(output && { output }),
+      ...(images && { images }),
       finishedAt: event.ts,
     }));
   }

@@ -4,6 +4,7 @@ import {
   currentAction,
   editStats,
   groupWork,
+  isImageTool,
   isLiveEntry,
   isWebSearch,
   outputSummary,
@@ -171,6 +172,20 @@ describe('groupWork', () => {
       ['w:r2', ['r2']],
       'answer',
     ]);
+  });
+});
+
+describe('groupWork：生成的图片（0.118.0）', () => {
+  it('生成图片的工具不进工作组，单独一项，前后的工具各成一组', () => {
+    const items = groupWork([tool('1', 'read'), tool('2', 'image'), tool('3', 'shell')]);
+    expect(
+      items.map((item) =>
+        item.kind === 'work' ? item.entries.map((entry) => entry.key) : item.kind,
+      ),
+    ).toEqual([['t:1'], 'part', ['t:3']]);
+    expect(items[1]).toMatchObject({ kind: 'part', part: { key: 't:2' } });
+    expect(isImageTool(tool('4', 'image'))).toBe(true);
+    expect(isImageTool(tool('5', 'unknown'))).toBe(false);
   });
 });
 

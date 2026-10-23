@@ -7,6 +7,7 @@ import {
   FilePen,
   FileText,
   Globe,
+  Image as ImageIcon,
   Lightbulb,
   ListTodo,
   type LucideIcon,
@@ -61,6 +62,7 @@ const KIND_ICONS: Record<ToolDisplayKind, LucideIcon> = {
   fetch: Globe,
   plan: ListTodo,
   sub_agent: Bot,
+  image: ImageIcon,
   unknown: Wrench,
 };
 

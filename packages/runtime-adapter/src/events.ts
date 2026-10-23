@@ -114,6 +114,13 @@ export interface ToolFinishedEvent {
   toolCallId: string;
   status: 'completed' | 'failed';
   output?: string;
+  /** 工具产出的图片（0.118.0，展示类型 `image`）。Host 认格式、存进图片目录，事件里换成图片的引用。 */
+  images?: AgentToolImage[];
+}
+
+/** 工具产出的一张图片：base64 的字节（PNG、JPEG、GIF 或 WebP，以文件头为准）。 */
+export interface AgentToolImage {
+  data: string;
 }
 
 /** 待办列表（完整列表），从引擎的待办工具输入解析（dsh：`todo_write` 的 `rawInput.todos`）。 */

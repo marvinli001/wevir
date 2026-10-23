@@ -357,6 +357,8 @@ export type ToolDisplayKind =
   | 'fetch'
   | 'plan'
   | 'sub_agent'
+  /** 生成或编辑图片（0.118.0）。 */
+  | 'image'
   | 'unknown';
 
 /**

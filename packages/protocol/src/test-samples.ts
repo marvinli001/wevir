@@ -2224,6 +2224,16 @@ export const eventPayloads: PayloadSamples = {
       toolCallId: 'call_mv4pwxip_2',
       status: 'completed',
       output: { text: 'ok', truncated: true, originalLength: 70000 },
+      images: [
+        {
+          type: 'image',
+          imageId: ids.image,
+          mimeType: 'image/png',
+          size: 1843200,
+          width: 1024,
+          height: 1024,
+        },
+      ],
     },
     invalid: { turnId: ids.turn, toolCallId: 'call_mv4pwxip_2', status: 'in_progress' },
   },

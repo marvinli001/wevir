@@ -8,13 +8,17 @@ import { useFxTheme } from './motion';
 /** 显现结束后图片在 img-fx 里停留的时长：足够长，image-reveal.tsx 在进入 visible 时就换成普通的 <img>。 */
 const HOLD_MS = 60 * 60 * 1000;
 
+/**
+ * 没有 `src` 时只跑着色器（“生成中”，0.118.0 生成图片的等待）；有了 `src` 再让着色器跑一小会儿然后显现。同一个实例从等待
+ * 接着显现，着色器不重来。
+ */
 export default function ImageRevealEffect({
   src,
   radius,
   className,
   onRevealed,
 }: {
-  src: string;
+  src: string | undefined;
   radius: number;
   className?: string;
   onRevealed: () => void;
@@ -25,16 +29,17 @@ export default function ImageRevealEffect({
   done.current = onRevealed;
 
   useEffect(() => {
+    if (src === undefined) return;
     // 先让着色器跑一小会儿（“生成中”），再显现。
     const timer = window.setTimeout(() => ref.current?.triggerReveal({ hold: 'manual' }), 360);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [src]);
 
   return (
     <ImageGeneration
       ref={ref}
       preset="sweep-gradient"
-      images={[src]}
+      images={src === undefined ? [] : [src]}
       theme={theme}
       borderRadius={radius}
       revealHoldMs={HOLD_MS}

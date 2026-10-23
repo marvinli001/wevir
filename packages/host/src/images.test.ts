@@ -9,7 +9,7 @@ import {
   type UserContentPart,
   type UserImagePart,
 } from '@wevir/protocol';
-import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { ECHO_IMAGE_SIZE, EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventStore } from './event-store.js';
@@ -158,6 +158,24 @@ describe('ImageStore', () => {
     await expect(
       images.keep([{ type: 'image', imageId: missing, mimeType: 'image/png', size: 1 }]),
     ).rejects.toMatchObject({ code: 'IMAGE_NOT_FOUND' });
+  });
+
+  it('工具产出的图片直接写进 images/；认不出的、不是 base64 的不存', async () => {
+    const { dir, images } = store();
+    const part = images.saveToolImage(png(1024, 768, 2000).toString('base64'));
+    expect(part).toMatchObject({
+      type: 'image',
+      mimeType: 'image/png',
+      size: 2000,
+      width: 1024,
+      height: 768,
+    });
+    if (part === undefined) throw new Error('expected an image');
+    expect(readdirSync(dir).sort()).toEqual([`${part.imageId}.json`, `${part.imageId}.png`].sort());
+    expect((await images.read({ imageId: part.imageId })).size).toBe(2000);
+    expect(images.saveToolImage('not base64!')).toBeUndefined();
+    expect(images.saveToolImage(Buffer.from('plain text').toString('base64'))).toBeUndefined();
+    expect(images.saveToolImage('')).toBeUndefined();
   });
 
   it('image.read 分段读，offset 越界回 INVALID_PARAMS', async () => {
@@ -330,6 +348,37 @@ describe('带图片的消息', () => {
         context,
       ),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
+  it('生成的图片（0.118.0）：tool.finished 带 Host 存下的图片，image.read 读得回', async () => {
+    const env = setup();
+    const session = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = session.id as SessionId;
+    await env.methods['session.send'](
+      { sessionId, content: [{ type: 'text', text: 'imagine a fox' }] },
+      context,
+    );
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('idle'));
+    const all = env.events.readSince(sessionId, 0, 1000);
+    const started = all.find((event) => event.type === 'tool.started');
+    expect(started?.payload).toMatchObject({
+      toolName: 'imageGeneration',
+      display: { kind: 'image' },
+    });
+    const finished = all.find((event) => event.type === 'tool.finished');
+    if (finished?.type !== 'tool.finished') throw new Error('expected tool.finished');
+    expect(finished.payload.status).toBe('completed');
+    const [image] = finished.payload.images ?? [];
+    expect(image).toMatchObject({
+      mimeType: 'image/png',
+      width: ECHO_IMAGE_SIZE,
+      height: ECHO_IMAGE_SIZE,
+    });
+    if (image === undefined) throw new Error('expected an image');
+    const read = await env.methods['image.read']({ imageId: image.imageId }, context);
+    expect(Buffer.from(read.data, 'base64').subarray(0, 4).toString('latin1')).toBe('\x89PNG');
+    // 会话的占用把它算进去（删会话时一起删）。
+    expect(env.storage.events.imageRefs().get(image.imageId)).toEqual(new Set([sessionId]));
   });
 
   it('排队的消息改内容时可以换图片', async () => {

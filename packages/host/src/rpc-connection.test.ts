@@ -191,6 +191,46 @@ describe('question_timeout', () => {
   });
 });
 
+// 0.118.0：展示类型 `image` 只发给声明了 `tool_display_image` 的连接，其余连接看到 `unknown`。
+describe('tool_display_image', () => {
+  const started: WevirEventOf<'tool.started'> = {
+    seq: 9,
+    sessionId: SES,
+    ts: T0,
+    type: 'tool.started',
+    source: 'engine',
+    payload: {
+      turnId: 'trn_1' as never,
+      toolCallId: 'ig1',
+      toolName: 'imageGeneration',
+      display: { kind: 'image' },
+    },
+  };
+  const updated: WevirEventOf<'tool.updated'> = {
+    ...started,
+    seq: 10,
+    type: 'tool.updated',
+    payload: {
+      turnId: 'trn_1' as never,
+      toolCallId: 'ig1',
+      display: { kind: 'image', summary: 'a fox' },
+    },
+  };
+
+  it('tool.started 与 tool.updated 降级成 unknown，其余字段不变', () => {
+    expect(adaptEventForClient(started, {})).toEqual({
+      ...started,
+      payload: { ...started.payload, display: { kind: 'unknown' } },
+    });
+    expect(adaptEventForClient(updated, {})).toEqual({
+      ...updated,
+      payload: { ...updated.payload, display: { kind: 'unknown', summary: 'a fox' } },
+    });
+    expect(adaptEventForClient(started, { tool_display_image: true })).toBe(started);
+    expect(adaptEventForClient(updated, { tool_display_image: true })).toBe(updated);
+  });
+});
+
 // 0.80.0：按审批规则自动允许的 `rule` 只发给声明了 `approval_rules` 的连接，其余连接看到 `user`（没有 `decidedBy`）。
 describe('approval_rules', () => {
   const resolution = { reason: 'rule' as const, optionId: 'accept', ruleIds: ['arl_1' as never] };

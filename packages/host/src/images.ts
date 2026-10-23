@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
@@ -25,6 +26,9 @@ const EXTENSIONS: Record<UserImageMimeType, string> = {
   'image/gif': 'gif',
   'image/webp': 'webp',
 };
+
+/** 工具产出的一张图片最大多少字节（gpt-image 的 4K PNG 也在这以内）。 */
+export const TOOL_IMAGE_MAX_BYTES = 64 * 1024 * 1024;
 
 /** 上传了没发出去的图片留多久。 */
 export const STAGED_IMAGE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -81,6 +85,30 @@ export class ImageStore {
       mode: 0o600,
     });
     void this.sweep().catch(() => {});
+    return part;
+  }
+
+  /**
+   * 工具产出的图片（0.118.0，`tool.finished.images`）：认格式、读像素，直接写进 `images/`（事件引用它，不经过 `staged/`）。
+   * 同步写：Host 按顺序处理引擎事件，图片要在 `tool.finished` 写进事件之前就在。不是 base64、不是四种格式之一，或比
+   * `TOOL_IMAGE_MAX_BYTES` 大时 `undefined`。
+   */
+  saveToolImage(data: string): UserImagePart | undefined {
+    if (data.length % 4 !== 0 || !BASE64.test(data)) return undefined;
+    const bytes = Buffer.from(data, 'base64');
+    if (bytes.length === 0 || bytes.length > TOOL_IMAGE_MAX_BYTES) return undefined;
+    const header = sniffImage(bytes);
+    if (header === undefined) return undefined;
+    const part: UserImagePart = {
+      type: 'image',
+      imageId: newId('img'),
+      mimeType: header.mimeType,
+      size: bytes.length,
+      ...(header.width !== undefined && { width: header.width, height: header.height }),
+    };
+    mkdirSync(this.#dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(this.#dir, fileName(part)), bytes, { mode: 0o600 });
+    writeFileSync(join(this.#dir, `${part.imageId}.json`), JSON.stringify(part), { mode: 0o600 });
     return part;
   }
 

@@ -147,6 +147,13 @@ function replaceStats(before: string, after: string): LineStats {
 
 // ── 工作组 ──────────────────────────────────────────────────────────
 
+/**
+ * 生成图片的工具（0.118.0，展示类型 `image`）：不进工作组，在消息流里单独画成一张图（generated-image.tsx），收起的回合里也在。
+ */
+export function isImageTool(part: ChatPart): boolean {
+  return part.type === 'tool' && part.display.kind === 'image';
+}
+
 /** 工作组里的一条：一次思考、一次工具调用，或（只在开发模式投影的）未识别的引擎消息。 */
 export type WorkEntry = ToolPart | ReasoningPart | RawPart;
 
@@ -159,8 +166,8 @@ export type StreamItem =
   | { kind: 'part'; part: ChatPart };
 
 /**
- * 把一条助手消息的部件分成工作组、子智能体行与其余部件。连续的思考与工具调用（全部种类）合成一组，子智能体的标记
- * 连成一行；正文、错误、待办断开（模型的正文总是断开一组，同 OpenWork）。开发模式的调试信息（`raw`）不断开：在工作组
+ * 把一条助手消息的部件分成工作组、子智能体行与其余部件。连续的思考与工具调用（生成图片的除外）合成一组，子智能体的标记
+ * 连成一行；正文、错误、待办与生成的图片断开（模型的正文总是断开一组，同 OpenWork）。开发模式的调试信息（`raw`）不断开：在工作组
  * 里是一条，夹在子智能体标记之间的挪到那一行后面。回合边界由调用方保证：每条助手消息只属于一个回合，插话把回合分成
  * 几条消息，也就断开了。
  */
@@ -183,6 +190,10 @@ export function groupWork(parts: readonly ChatPart[]): StreamItem[] {
   for (const part of parts) {
     if (part.type === 'raw' && agents) {
       deferred.push(part);
+    } else if (isImageTool(part)) {
+      flush();
+      if (work) flush();
+      items.push({ kind: 'part', part });
     } else if (part.type === 'tool' || part.type === 'reasoning' || part.type === 'raw') {
       if (agents) flush();
       work ??= [];
@@ -252,7 +263,8 @@ type FileKind = 'read' | 'edit' | 'create';
 const ISSUE_KINDS: readonly IssueKind[] = ['failed', 'denied', 'unknown'];
 
 function countedKind(kind: ToolDisplayKind): CountedKind {
-  return kind === 'write' ? 'edit' : kind;
+  // 生成图片的工具不进工作组（isImageTool），这里只为类型完整。
+  return kind === 'write' ? 'edit' : kind === 'image' ? 'unknown' : kind;
 }
 
 export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): WorkTally {
@@ -492,7 +504,8 @@ export function isWebSearch(part: Pick<ToolPart, 'toolName' | 'display'>): boole
  * 一行的动词：Codex 的补丁里全是新建的文件时是“创建”（§56，照 Codex 的“文件已创建”；摘要同样分出新建，见 changedPaths），
  * 其余同展示类型。
  */
-function lineVerbKind(part: ToolPart): ToolDisplayKind | 'create' {
+function lineVerbKind(part: ToolPart): Exclude<ToolDisplayKind, 'image'> | 'create' {
+  if (part.display.kind === 'image') return 'unknown';
   if (
     part.display.kind !== 'write' ||
     !isRecord(part.input) ||

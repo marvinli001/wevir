@@ -7,7 +7,13 @@ import type { SessionState, TurnId, TurnOutcome } from '@wevir/protocol';
 import { t } from '@/i18n';
 import { formatDuration } from './format';
 import { visibleParts } from './subagent-model';
-import { editStats, type IssueKind, type LineStats, toolLifecycle } from './tool-model';
+import {
+  editStats,
+  type IssueKind,
+  isImageTool,
+  type LineStats,
+  toolLifecycle,
+} from './tool-model';
 
 /** 消息流的一块：一个回合的全部消息（用户消息、助手消息、插话），或一条不属于回合的系统消息。 */
 export type TranscriptBlock =
@@ -104,10 +110,11 @@ export interface TurnFold {
 
 /**
  * 插话（R11）、错误部件、建议的任务（U23：卡片与回报）、上下文压缩（0.24.0）、计划（0.36.0）、交给用户的文件（0.40.0）、第二意见（0.75.0）、
- * 审查发现（0.83.0）与护栏拦截（0.86.0）始终显示，收起的回合里也在。
+ * 审查发现（0.83.0）、护栏拦截（0.86.0）与生成的图片（0.118.0）始终显示，收起的回合里也在。
  */
 export function alwaysShown(part: ChatPart): boolean {
   return (
+    isImageTool(part) ||
     part.type === 'error' ||
     part.type === 'plan' ||
     part.type === 'tasks' ||
