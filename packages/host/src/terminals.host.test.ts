@@ -99,6 +99,8 @@ async function boot(home: string, workspaceDir: string) {
 /** 一个客户端看一个终端：attach 的结果加上之后的 `terminal.output`，按位置接起来（不连续就报错）。 */
 function view(client: TestRpcClient, terminalId: string, attach: { data: string; next: number }) {
   let text = attach.data;
+  // 同样的输出按到达的段留着（与 text 共用字符串，不另占内存），untilContains 只查新到的段。
+  const pieces = [attach.data];
   let next = attach.next;
   let seen = 0;
   const pull = () => {
@@ -108,7 +110,9 @@ function view(client: TestRpcClient, terminalId: string, attach: { data: string;
     for (const output of outputs.slice(seen)) {
       if (output.offset + output.data.length <= next) continue;
       if (output.offset > next) throw new Error(`gap: ${output.offset} > ${next}`);
-      text += output.data.slice(next - output.offset);
+      const piece = output.data.slice(next - output.offset);
+      text += piece;
+      pieces.push(piece);
       next = output.offset + output.data.length;
     }
     seen = outputs.length;
@@ -131,6 +135,27 @@ function view(client: TestRpcClient, terminalId: string, attach: { data: string;
         label,
         timeoutMs,
       ),
+    /**
+     * 等输出里出现 `marker`。大输出时用它：`until` 每收到一帧都要把几十 MB 的 text 拼平再查，负载高时帧小而多，
+     * 拼接的开销按平方涨，比 Host 发得还慢。
+     */
+    untilContains: (marker: string, label: string, timeoutMs?: number) => {
+      let index = 0;
+      let carry = '';
+      return client.until(
+        () => {
+          pull();
+          for (; index < pieces.length; index++) {
+            const window = carry + pieces[index];
+            if (window.includes(marker)) return true;
+            carry = window.slice(-(marker.length - 1));
+          }
+          return undefined;
+        },
+        label,
+        timeoutMs,
+      );
+    },
   };
 }
 
@@ -348,8 +373,10 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
       // biome-ignore lint/suspicious/noExplicitAny: ws 的底层套接字。
       const socket = (slow.client.ws as any)._socket as { pause(): void; resume(): void };
       socket.pause();
-      // 照 client-sdk 定时 ping（读不到回应也照样发得出去）：慢的机器上收完 40 MB 要比租期（45 s）久。
-      const ping = setInterval(() => void slow.client.request('host.ping').catch(() => {}), 10_000);
+      // 两个客户端都照 client-sdk 定时 ping（读不到回应也照样发得出去）：负载高的机器上收完 40 MB 可能比租期（45 s）久。
+      const ping = setInterval(() => {
+        for (const client of [h.client, slow.client]) void client.request('host.ping').catch(() => {});
+      }, 10_000);
       cleanups.push(() => clearInterval(ping));
       await h.client.request('terminal.input', {
         terminalId: terminal.id,
@@ -362,8 +389,8 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
       expect(live.next - stalled).toBeLessThan(1_000_000);
       expect(live.text).not.toContain('flow-5-done');
       socket.resume();
-      await slowView.until((text) => text.includes('flow-5-done'), '慢的客户端收全', 90_000);
-      await live.until((text) => text.includes('flow-5-done'), '快的客户端收全', 30_000);
+      await slowView.untilContains('flow-5-done', '慢的客户端收全', 90_000);
+      await live.untilContains('flow-5-done', '快的客户端收全', 30_000);
       expect(slow.client.ws.readyState).toBe(slow.client.ws.OPEN);
       expect(slowView.text.match(/y/g)?.length ?? 0).toBeGreaterThanOrEqual(40_000_000);
     }, 150_000);
