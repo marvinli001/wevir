@@ -235,6 +235,12 @@ export const REMOTE_PATHS = {
   connect: '/v1/connect',
 } as const;
 
+/**
+ * 原生应用的 WebSocket 升级带的 `Origin`。React Native 的 WebSocket（iOS 与 Android）总会带 `Origin`，去不掉只能换值；网页发出的
+ * `Origin` 只会是 `http(s)://…` 或 `null`，冒充不了这个值。远程监听只放行不带 `Origin` 的与带这个值的升级。
+ */
+export const REMOTE_NATIVE_ORIGIN = 'wevir-app://native';
+
 /** 从 WebSocket 升级到握手完成（配对时到第三条消息）的时限。 */
 export const REMOTE_HANDSHAKE_TIMEOUT_MS = 10_000;
 

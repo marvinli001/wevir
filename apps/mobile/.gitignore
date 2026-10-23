@@ -1,0 +1,6 @@
+# Expo 的 CNG：ios/、android/ 由 `expo prebuild` 从 app.config.ts 生成，不进仓库。
+/ios/
+/android/
+.expo/
+expo-env.d.ts
+web-build/

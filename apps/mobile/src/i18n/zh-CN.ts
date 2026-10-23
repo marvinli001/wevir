@@ -1,0 +1,86 @@
+// 手机端文案的源语言。改一条要同时改 locales/ 里的九种语言（与桌面同一组）；`i18n.test.ts` 核对键与占位符。
+// 照仓库的界面文案规矩：名词短语，书面语，只留错误的原因与处理、确认框里的后果。
+
+export const zhCN = {
+  'computers.title': '电脑',
+  'computers.empty': '没有配对的电脑',
+  'computers.add': '添加电脑',
+
+  'status.paused': '未连接',
+  'status.connecting': '正在连接',
+  'status.online': '在线',
+  'status.offline': '离线',
+  'status.offlineSince': '离线 · {time}',
+  'status.removed': '已移除',
+  'status.remoteDisabled': '远程访问已关闭',
+  'status.hostMismatch': '身份不符',
+  'route.direct': '直连',
+  'route.relay': '经中继',
+
+  'add.title': '添加电脑',
+  'add.method.scan': '扫码',
+  'add.method.link': '链接',
+  'add.method.code': '短码',
+  'add.link': '配对链接',
+  'add.paste': '粘贴',
+  'add.code': '短码',
+  'add.deviceName': '设备名称',
+  'add.pair': '配对',
+  'add.cancel': '取消',
+  'add.camera.permission': '扫码需要相机权限',
+  'add.camera.allow': '允许使用相机',
+  'add.camera.settings': '打开设置',
+
+  'pair.searching': '正在查找电脑',
+  'pair.connecting': '正在连接',
+  'pair.awaiting': '在 {host} 上允许“{device}”',
+  'pair.thatComputer': '电脑',
+  'pair.error.invalidLink': '配对链接无效或版本不受支持',
+  'pair.error.invalidInput': '不是配对链接或 8 位短码',
+  'pair.error.noneFound':
+    '同一网络里没有找到开着远程访问的 Wevir。短码只能在同一网络配对，不在同一网络时扫二维码。',
+  'pair.error.denied': '电脑没有允许配对',
+  'pair.error.wrongSecret': '短码或配对链接不对，或已用过',
+  'pair.error.hostMismatch': '对方不是二维码里的那台电脑',
+  'pair.error.windowClosed': '配对已过期或已用过，在电脑上重新添加设备',
+  'pair.error.unreachable': '连不上电脑。确认电脑开着远程访问，且在同一网络或 Tailscale 里。',
+  'pair.error.relay': '直连与经中继都连不上电脑',
+  'pair.error.timeout': '等待允许超时',
+  'pair.error.failed': '配对失败',
+
+  'computer.sessions': '会话',
+  'computer.noSessions': '没有会话',
+  'computer.loading': '正在读取',
+  'computer.sessionsFailed': '会话列表读取失败',
+  'computer.forbidden': '本设备没有读取会话的权限，只能在电脑上调整',
+  'computer.pending': '{count} 项待处理',
+  'computer.retry': '重试',
+  'computer.removed': '本设备已在这台电脑上移除，重新配对后才能连接',
+  'computer.remoteDisabled': '这台电脑关了远程访问，在电脑的 设置 → 设备 中打开',
+  'computer.hostMismatch': '对方不是配对时的那台电脑。电脑重装过 Wevir 时重新配对。',
+  'computer.unreachable': '连不上。确认电脑开着、没有睡眠，且在同一网络或 Tailscale 里。',
+  'computer.relay': '直连与经中继都连不上',
+  'computer.pairAgain': '重新配对',
+  'computer.forget': '退出这台电脑',
+  'computer.forget.title': '退出这台电脑？',
+  'computer.forget.consequence':
+    '删除本机的记录与密钥。电脑上的设备记录保留，可在电脑的 设置 → 设备 中移除。',
+  'computer.forget.confirm': '退出',
+
+  'session.untitled': '未命名会话',
+  'session.state.idle': '空闲',
+  'session.state.running': '运行中',
+  'session.state.awaiting_approval': '待审批',
+  'session.state.cancelling': '正在取消',
+  'session.state.error': '出错',
+  'session.state.closed': '已关闭',
+  'session.awaitingInput': '待回答',
+
+  'time.justNow': '刚刚',
+  'time.minutes': '{n} 分钟前',
+  'time.hours': '{n} 小时前',
+  'time.days': '{n} 天前',
+} as const;
+
+export type MessageKey = keyof typeof zhCN;
+export type Messages = Record<MessageKey, string>;

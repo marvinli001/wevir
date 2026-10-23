@@ -1,0 +1,4 @@
+{
+  "NSCameraUsageDescription": "Scansionare il codice QR di abbinamento mostrato sul computer.",
+  "NSLocalNetworkUsageDescription": "Trovare i computer con Wevir nella rete locale e connettersi direttamente."
+}

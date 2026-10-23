@@ -19,6 +19,7 @@ import {
   PROTOCOL_VERSION,
   REMOTE_DEFAULT_PORT,
   REMOTE_HANDSHAKE_TIMEOUT_MS,
+  REMOTE_NATIVE_ORIGIN,
   REMOTE_PATHS,
   type RelayDevicePath,
   RemoteDevicePayloadSchema,
@@ -108,7 +109,8 @@ export interface RemoteListenerOptions {
  * - **只在勾选的地址上监听**：远程开着时，对每个选中的局域网 / Tailscale 地址各 `listen(port, address)` 一次（IPv4 与 IPv6 分开），
  *   从不监听 `0.0.0.0` / `::`、回环、链路本地或公网地址，不做 UPnP。每 `pollMs` 看一次网卡：新地址补开，消失或取消勾选的关掉
  *   （连在上面的连接一起断开）；地址暂时不在（`EADDRNOTAVAIL`）下一轮重试。
- * - **只说 Noise**：只接受 WebSocket 升级，普通 HTTP 一律 404；带 `Origin` 头的升级（浏览器里的网页）一律 403。路径区分配对
+ * - **只说 Noise**：只接受 WebSocket 升级，普通 HTTP 一律 404；带网页 `Origin` 头的升级（浏览器里的网页）一律 403，
+ *   只放行原生应用的固定值 `REMOTE_NATIVE_ORIGIN`（React Native 的 WebSocket 去不掉 `Origin`）。路径区分配对
  *   （`XXpsk2`，只在配对窗口里）与重连（`IK`，只认 active 的设备公钥）。握手完成前任何字节都不交给 JSON-RPC；握手失败直接断开，
  *   不回任何内容。按来源地址限速。
  * - **接进分发**：握手完成的连接交给与本机连接相同的 `RpcConnection`，身份是那台设备，权限在 hello 时从设备记录取。设备被移除
@@ -426,8 +428,9 @@ export class RemoteListener {
       socket.destroy();
       return;
     }
-    // 原生客户端不发 Origin；浏览器总会发。局域网里的网页不能来连。
-    if (req.headers.origin !== undefined || req.headers['sec-websocket-origin'] !== undefined) {
+    // 浏览器总会发 Origin，局域网里的网页不能来连。原生客户端不发，或（React Native 去不掉 Origin）发原生应用的固定值。
+    const origin = req.headers.origin ?? req.headers['sec-websocket-origin'];
+    if (origin !== undefined && origin !== REMOTE_NATIVE_ORIGIN) {
       rejectUpgrade(socket, 403);
       return;
     }

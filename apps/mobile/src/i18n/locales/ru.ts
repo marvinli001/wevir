@@ -1,0 +1,88 @@
+import type { Messages } from '../zh-CN';
+
+export const ru: Messages = {
+  'computers.title': 'Компьютеры',
+  'computers.empty': 'Нет сопряжённых компьютеров',
+  'computers.add': 'Добавить компьютер',
+
+  'status.paused': 'Не подключено',
+  'status.connecting': 'Подключение',
+  'status.online': 'В сети',
+  'status.offline': 'Не в сети',
+  'status.offlineSince': 'Не в сети · {time}',
+  'status.removed': 'Удалено',
+  'status.remoteDisabled': 'Удалённый доступ выключен',
+  'status.hostMismatch': 'Другая личность',
+  'route.direct': 'Напрямую',
+  'route.relay': 'Через ретранслятор',
+
+  'add.title': 'Добавить компьютер',
+  'add.method.scan': 'Сканировать',
+  'add.method.link': 'Ссылка',
+  'add.method.code': 'Код',
+  'add.link': 'Ссылка для сопряжения',
+  'add.paste': 'Вставить',
+  'add.code': 'Код сопряжения',
+  'add.deviceName': 'Имя устройства',
+  'add.pair': 'Сопрячь',
+  'add.cancel': 'Отмена',
+  'add.camera.permission': 'Для сканирования нужен доступ к камере',
+  'add.camera.allow': 'Разрешить камеру',
+  'add.camera.settings': 'Открыть настройки',
+
+  'pair.searching': 'Поиск компьютеров',
+  'pair.connecting': 'Подключение',
+  'pair.awaiting': 'Разрешите «{device}» на {host}',
+  'pair.thatComputer': 'компьютере',
+  'pair.error.invalidLink': 'Недействительная ссылка или неподдерживаемая версия',
+  'pair.error.invalidInput': 'Не ссылка для сопряжения и не 8-символьный код',
+  'pair.error.noneFound':
+    'В этой сети нет Wevir с включённым удалённым доступом. Код работает только в той же сети; иначе отсканируйте QR-код.',
+  'pair.error.denied': 'Компьютер не разрешил сопряжение',
+  'pair.error.wrongSecret': 'Неверный или уже использованный код или ссылка',
+  'pair.error.hostMismatch': 'Это не компьютер из QR-кода',
+  'pair.error.windowClosed':
+    'Сопряжение истекло или уже использовано. Добавьте устройство на компьютере заново.',
+  'pair.error.unreachable':
+    'Компьютер недоступен. Проверьте, что удалённый доступ включён и компьютер в той же сети или в Tailscale.',
+  'pair.error.relay': 'Компьютер недоступен ни напрямую, ни через ретранслятор',
+  'pair.error.timeout': 'Время ожидания разрешения истекло',
+  'pair.error.failed': 'Сопряжение не удалось',
+
+  'computer.sessions': 'Сеансы',
+  'computer.noSessions': 'Нет сеансов',
+  'computer.loading': 'Загрузка',
+  'computer.sessionsFailed': 'Не удалось загрузить сеансы',
+  'computer.forbidden': 'Этому устройству запрещено читать сеансы. Измените права на компьютере.',
+  'computer.pending': 'Ожидают: {count}',
+  'computer.retry': 'Повторить',
+  'computer.removed':
+    'Это устройство удалено на этом компьютере. Для подключения выполните сопряжение заново.',
+  'computer.remoteDisabled':
+    'На этом компьютере выключен удалённый доступ. Включите его в Настройки → Устройства на компьютере.',
+  'computer.hostMismatch':
+    'Это не сопряжённый компьютер. Если Wevir переустановлен, выполните сопряжение заново.',
+  'computer.unreachable':
+    'Нет подключения. Проверьте, что компьютер включён, не спит и находится в той же сети или в Tailscale.',
+  'computer.relay': 'Недоступно ни напрямую, ни через ретранслятор',
+  'computer.pairAgain': 'Сопрячь заново',
+  'computer.forget': 'Забыть компьютер',
+  'computer.forget.title': 'Забыть этот компьютер?',
+  'computer.forget.consequence':
+    'Удаляет запись и ключ на этом телефоне. На компьютере устройство остаётся в списке; удалите его там в Настройки → Устройства.',
+  'computer.forget.confirm': 'Забыть',
+
+  'session.untitled': 'Сеанс без названия',
+  'session.state.idle': 'Простаивает',
+  'session.state.running': 'Выполняется',
+  'session.state.awaiting_approval': 'Ждёт одобрения',
+  'session.state.cancelling': 'Отмена',
+  'session.state.error': 'Ошибка',
+  'session.state.closed': 'Закрыт',
+  'session.awaitingInput': 'Ждёт ответа',
+
+  'time.justNow': 'только что',
+  'time.minutes': '{n} мин назад',
+  'time.hours': '{n} ч назад',
+  'time.days': '{n} д назад',
+};

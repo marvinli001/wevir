@@ -12,6 +12,7 @@ import {
   DEFAULT_REMOTE_SETTINGS,
   ErrorCode,
   parsePairingUri,
+  REMOTE_NATIVE_ORIGIN,
   REMOTE_PATHS,
   type RemoteSettings,
   type SessionId,
@@ -337,7 +338,7 @@ describe('远程监听', () => {
     expect((await again.client.call('host.ping')).error).toBeUndefined();
   });
 
-  it('端口上只有 Noise：普通 HTTP 404、带 Origin 的升级 403、未知路径 404、乱码与文本消息直接断开且不回任何内容', async () => {
+  it('端口上只有 Noise：普通 HTTP 404、带网页 Origin 的升级 403、原生应用的 Origin 放行、未知路径 404、乱码与文本消息直接断开且不回任何内容', async () => {
     const { enable, port, base } = await setup();
     await enable();
     const response = await fetch(`http://127.0.0.1:${port}/`);
@@ -345,6 +346,14 @@ describe('远程监听', () => {
     await expect(
       openRemoteSocket(base, REMOTE_PATHS.connect, { origin: 'http://192.168.1.5' }),
     ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      openRemoteSocket(base, REMOTE_PATHS.connect, { origin: 'null' }),
+    ).rejects.toMatchObject({ status: 403 });
+    // 原生应用的固定 Origin 放行到握手（不是 403 / 404）。
+    const native = await openRemoteSocket(base, REMOTE_PATHS.connect, {
+      origin: REMOTE_NATIVE_ORIGIN,
+    });
+    native.close();
     await expect(openRemoteSocket(base, '/files/x')).rejects.toMatchObject({ status: 404 });
     for (const payload of [Buffer.alloc(96, 1), 'hello']) {
       const ws = await openRemoteSocket(base, REMOTE_PATHS.connect);

@@ -1,0 +1,87 @@
+import type { Messages } from '../zh-CN';
+
+export const en: Messages = {
+  'computers.title': 'Computers',
+  'computers.empty': 'No paired computers',
+  'computers.add': 'Add Computer',
+
+  'status.paused': 'Not connected',
+  'status.connecting': 'Connecting',
+  'status.online': 'Online',
+  'status.offline': 'Offline',
+  'status.offlineSince': 'Offline · {time}',
+  'status.removed': 'Removed',
+  'status.remoteDisabled': 'Remote access off',
+  'status.hostMismatch': 'Identity mismatch',
+  'route.direct': 'Direct',
+  'route.relay': 'Via relay',
+
+  'add.title': 'Add Computer',
+  'add.method.scan': 'Scan',
+  'add.method.link': 'Link',
+  'add.method.code': 'Code',
+  'add.link': 'Pairing link',
+  'add.paste': 'Paste',
+  'add.code': 'Pairing code',
+  'add.deviceName': 'Device name',
+  'add.pair': 'Pair',
+  'add.cancel': 'Cancel',
+  'add.camera.permission': 'Scanning needs camera access',
+  'add.camera.allow': 'Allow Camera',
+  'add.camera.settings': 'Open Settings',
+
+  'pair.searching': 'Looking for computers',
+  'pair.connecting': 'Connecting',
+  'pair.awaiting': 'Allow “{device}” on {host}',
+  'pair.thatComputer': 'the computer',
+  'pair.error.invalidLink': 'Invalid pairing link or unsupported version',
+  'pair.error.invalidInput': 'Not a pairing link or an 8-character code',
+  'pair.error.noneFound':
+    'No Wevir with remote access was found on this network. Codes only pair on the same network; scan the QR code otherwise.',
+  'pair.error.denied': 'The computer did not allow pairing',
+  'pair.error.wrongSecret': 'Wrong or already used code or pairing link',
+  'pair.error.hostMismatch': 'This is not the computer in the QR code',
+  'pair.error.windowClosed':
+    'Pairing expired or was already used. Add the device again on the computer.',
+  'pair.error.unreachable':
+    'Cannot reach the computer. Check that remote access is on and that it is on the same network or Tailscale.',
+  'pair.error.relay': 'Cannot reach the computer directly or via relay',
+  'pair.error.timeout': 'Timed out waiting for approval',
+  'pair.error.failed': 'Pairing failed',
+
+  'computer.sessions': 'Sessions',
+  'computer.noSessions': 'No sessions',
+  'computer.loading': 'Loading',
+  'computer.sessionsFailed': 'Could not load sessions',
+  'computer.forbidden': 'This device cannot read sessions. Change its permissions on the computer.',
+  'computer.pending': '{count} pending',
+  'computer.retry': 'Retry',
+  'computer.removed': 'This device was removed on this computer. Pair again to connect.',
+  'computer.remoteDisabled':
+    'Remote access is off on this computer. Turn it on in Settings → Devices on the computer.',
+  'computer.hostMismatch':
+    'This is not the computer that was paired. Pair again if Wevir was reinstalled.',
+  'computer.unreachable':
+    'Cannot connect. Check that the computer is on, awake, and on the same network or Tailscale.',
+  'computer.relay': 'Cannot connect directly or via relay',
+  'computer.pairAgain': 'Pair Again',
+  'computer.forget': 'Forget This Computer',
+  'computer.forget.title': 'Forget this computer?',
+  'computer.forget.consequence':
+    'Deletes the record and key on this phone. The device stays listed on the computer; remove it in Settings → Devices there.',
+  'computer.forget.confirm': 'Forget',
+
+  'session.untitled': 'Untitled session',
+  'session.state.idle': 'Idle',
+  'session.state.running': 'Running',
+  'session.state.awaiting_approval': 'Needs approval',
+  'session.state.cancelling': 'Cancelling',
+  'session.state.error': 'Error',
+  'session.state.closed': 'Closed',
+  'session.awaitingInput': 'Needs answer',
+
+  'time.justNow': 'just now',
+  'time.minutes': '{n} min ago',
+  'time.hours': '{n} h ago',
+  'time.days': '{n} d ago',
+};

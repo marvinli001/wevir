@@ -1,0 +1,4 @@
+{
+  "NSCameraUsageDescription": "Отсканировать QR-код сопряжения на экране компьютера.",
+  "NSLocalNetworkUsageDescription": "Находить компьютеры с Wevir в локальной сети и подключаться к ним напрямую."
+}

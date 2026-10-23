@@ -1,0 +1,4 @@
+{
+  "NSCameraUsageDescription": "Scanner le code QR d’association affiché sur l’ordinateur.",
+  "NSLocalNetworkUsageDescription": "Trouver les ordinateurs exécutant Wevir sur le réseau local et s’y connecter directement."
+}

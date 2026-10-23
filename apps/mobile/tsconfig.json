@@ -1,0 +1,17 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    // 工作区包直接用源码（同 tsconfig.base.json 的说明）；"react-native" 是 Expo 的默认条件。
+    "customConditions": ["@wevir/source", "react-native"],
+    "allowJs": false,
+    "types": []
+  },
+  "include": ["index.ts", "app.config.ts", "src", "plugins", "vitest.config.mts"]
+}

@@ -36,6 +36,7 @@ wevir/
 ├─ apps/
 │  ├─ cli/              wevir 命令行客户端
 │  ├─ desktop/          Electron 桌面端（electron-vite）
+│  ├─ mobile/           手机端（Expo 开发构建 + expo-router）：配对电脑、看会话
 │  └─ relay/            远程访问的中继（默认关的兜底，只转发 Noise 密文；Dockerfile 与自建说明）
 ├─ assets/icons/        品牌图标的源文件与导出
 ├─ packages/
@@ -85,6 +86,7 @@ wevir/
 | `pnpm --filter @wevir/protocol test` | 只跑单个包 |
 | `bash scripts/fetch-codex.sh` | 下载锁定版本的 `codex-app-server` 到 `.wevir-dev/bin/` 并校验 sha256（`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀）；adapter-codex 的集成测试与 `--adapter codex` 要用，也可用 `WEVIR_CODEX_BIN` 指定别处的二进制 |
 | `pnpm --filter @wevir/desktop resources` | 准备随安装包分发的运行时（要先 `pnpm build`），放进 `apps/desktop/resources/` |
+| `pnpm --filter @wevir/mobile ios` / `android` | 生成原生工程并编译、安装手机端的开发构建（要 Xcode / Android SDK）；之后 `pnpm --filter @wevir/mobile start` 起 Metro |
 | `pnpm --filter @wevir/desktop package` | 打安装包（要先 `pnpm build`），`--target <三元组>` 打别的平台，产物在 `apps/desktop/release/` |
 | `pnpm vitest run --project adapter-<名字>` | 单个适配器的测试；真实引擎或真实模型的测试默认跳过并打印原因，要按各适配器测试文件头的说明设置环境变量（如 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`，或 `WEVIR_TEST_CLAUDE=1`、`WEVIR_TEST_GROK=1`、`WEVIR_TEST_OPENCODE=1`、`WEVIR_TEST_WORKBUDDY=1`、`WEVIR_TEST_DEVIN=1`；订阅类的会用掉额度） |
 | `bash scripts/upstream-sync.sh` | 按 `docs/upstream/upstream.lock` 把上游参考仓库浅克隆到 `upstream/`；`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀 |
@@ -93,7 +95,7 @@ wevir/
 
 ## 写代码的约定
 
-- 全仓库 ESM（`"type": "module"`），TypeScript strict。模块解析用 `NodeNext`，所以相对导入要写 `.js` 后缀：`import { x } from './x.js'`（`apps/desktop/scripts/` 里由 node 直接运行的脚本互相导入时写 `.ts`，那里的 tsconfig 开了 `allowImportingTsExtensions`）。只走打包器的包可以在自己的 tsconfig 里改用 `bundler`。
+- 全仓库 ESM（`"type": "module"`），TypeScript strict。模块解析用 `NodeNext`，所以相对导入要写 `.js` 后缀：`import { x } from './x.js'`（`apps/desktop/scripts/` 里由 node 直接运行的脚本互相导入时写 `.ts`，那里的 tsconfig 开了 `allowImportingTsExtensions`）。只走打包器的包可以在自己的 tsconfig 里改用 `bundler`。`apps/mobile` 由 Metro 打包，不设 `"type"`、导入不写后缀，工作区包从源码解析（`metro.config.js`）。
 - 测试文件与源码放在一起，命名 `*.test.ts`，从 `vitest` 显式 import `describe` / `it` / `expect`。
 - 新建一个库包时照 `packages/protocol` 抄：
   - `package.json`：`"type": "module"`；`exports` 的每个子路径第一个条件写 `"@wevir/source": "./src/<入口>.ts"`，其后是指向 `dist/` 的 `types` / `default`；脚本 `build`（tsdown）、`typecheck`（`tsc --noEmit`）、`test`（`vitest run`）。

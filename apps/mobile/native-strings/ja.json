@@ -1,0 +1,4 @@
+{
+  "NSCameraUsageDescription": "コンピュータに表示されたペアリング用 QR コードをスキャンします。",
+  "NSLocalNetworkUsageDescription": "ローカルネットワーク上で Wevir を実行しているコンピュータを探して直接接続します。"
+}

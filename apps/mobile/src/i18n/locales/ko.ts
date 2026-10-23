@@ -1,0 +1,86 @@
+import type { Messages } from '../zh-CN';
+
+export const ko: Messages = {
+  'computers.title': '컴퓨터',
+  'computers.empty': '페어링된 컴퓨터 없음',
+  'computers.add': '컴퓨터 추가',
+
+  'status.paused': '연결 안 됨',
+  'status.connecting': '연결 중',
+  'status.online': '온라인',
+  'status.offline': '오프라인',
+  'status.offlineSince': '오프라인 · {time}',
+  'status.removed': '제거됨',
+  'status.remoteDisabled': '원격 액세스 꺼짐',
+  'status.hostMismatch': '신원 불일치',
+  'route.direct': '직접 연결',
+  'route.relay': '릴레이 경유',
+
+  'add.title': '컴퓨터 추가',
+  'add.method.scan': '스캔',
+  'add.method.link': '링크',
+  'add.method.code': '코드',
+  'add.link': '페어링 링크',
+  'add.paste': '붙여넣기',
+  'add.code': '페어링 코드',
+  'add.deviceName': '기기 이름',
+  'add.pair': '페어링',
+  'add.cancel': '취소',
+  'add.camera.permission': '스캔하려면 카메라 권한 필요',
+  'add.camera.allow': '카메라 허용',
+  'add.camera.settings': '설정 열기',
+
+  'pair.searching': '컴퓨터 찾는 중',
+  'pair.connecting': '연결 중',
+  'pair.awaiting': '{host}에서 “{device}” 허용',
+  'pair.thatComputer': '컴퓨터',
+  'pair.error.invalidLink': '페어링 링크가 잘못되었거나 지원하지 않는 버전',
+  'pair.error.invalidInput': '페어링 링크나 8자리 코드가 아님',
+  'pair.error.noneFound':
+    '이 네트워크에서 원격 액세스가 켜진 Wevir를 찾지 못함. 코드는 같은 네트워크에서만 페어링되며, 다른 네트워크에서는 QR 코드를 스캔해야 함.',
+  'pair.error.denied': '컴퓨터가 페어링을 허용하지 않음',
+  'pair.error.wrongSecret': '코드나 페어링 링크가 틀렸거나 이미 사용됨',
+  'pair.error.hostMismatch': 'QR 코드의 컴퓨터가 아님',
+  'pair.error.windowClosed':
+    '페어링이 만료되었거나 이미 사용됨. 컴퓨터에서 기기를 다시 추가해야 함.',
+  'pair.error.unreachable':
+    '컴퓨터에 연결할 수 없음. 원격 액세스가 켜져 있고 같은 네트워크나 Tailscale에 있는지 확인해야 함.',
+  'pair.error.relay': '직접 연결과 릴레이 모두 컴퓨터에 연결할 수 없음',
+  'pair.error.timeout': '허용 대기 시간 초과',
+  'pair.error.failed': '페어링 실패',
+
+  'computer.sessions': '세션',
+  'computer.noSessions': '세션 없음',
+  'computer.loading': '불러오는 중',
+  'computer.sessionsFailed': '세션 목록을 불러오지 못함',
+  'computer.forbidden': '이 기기에는 세션 읽기 권한이 없음. 컴퓨터에서 변경해야 함.',
+  'computer.pending': '{count}개 처리 대기',
+  'computer.retry': '다시 시도',
+  'computer.removed': '이 컴퓨터에서 이 기기가 제거됨. 연결하려면 다시 페어링해야 함.',
+  'computer.remoteDisabled':
+    '이 컴퓨터의 원격 액세스가 꺼져 있음. 컴퓨터의 설정 → 기기에서 켜야 함.',
+  'computer.hostMismatch': '페어링한 컴퓨터가 아님. Wevir를 다시 설치했다면 다시 페어링해야 함.',
+  'computer.unreachable':
+    '연결할 수 없음. 컴퓨터가 켜져 있고 잠자기 상태가 아니며 같은 네트워크나 Tailscale에 있는지 확인해야 함.',
+  'computer.relay': '직접 연결과 릴레이 모두 연결할 수 없음',
+  'computer.pairAgain': '다시 페어링',
+  'computer.forget': '이 컴퓨터 삭제',
+  'computer.forget.title': '이 컴퓨터를 삭제할까요?',
+  'computer.forget.consequence':
+    '이 휴대폰의 기록과 키를 삭제함. 컴퓨터의 기기 기록은 남으며, 컴퓨터의 설정 → 기기에서 제거할 수 있음.',
+  'computer.forget.confirm': '삭제',
+
+  'session.untitled': '제목 없는 세션',
+  'session.state.idle': '대기',
+  'session.state.running': '실행 중',
+  'session.state.awaiting_approval': '승인 대기',
+  'session.state.cancelling': '취소 중',
+  'session.state.error': '오류',
+  'session.state.closed': '닫힘',
+  'session.awaitingInput': '답변 대기',
+
+  'time.justNow': '방금',
+  'time.minutes': '{n}분 전',
+  'time.hours': '{n}시간 전',
+  'time.days': '{n}일 전',
+};

@@ -1,0 +1,4 @@
+{
+  "NSCameraUsageDescription": "Scan the pairing QR code shown on your computer.",
+  "NSLocalNetworkUsageDescription": "Find and connect directly to computers running Wevir on your local network."
+}

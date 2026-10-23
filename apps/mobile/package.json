@@ -1,0 +1,43 @@
+{
+  "name": "@wevir/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir phone app (Expo, React Native): pairs with Wevir on your computers over the Noise-encrypted remote tunnel and shows their sessions. All work runs on the computer.",
+  "license": "MIT",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/client-sdk": "workspace:*",
+    "@wevir/noise": "workspace:*",
+    "@wevir/protocol": "workspace:*",
+    "expo": "58.0.17",
+    "expo-camera": "58.0.12",
+    "expo-clipboard": "58.0.4",
+    "expo-constants": "58.0.13",
+    "expo-crypto": "58.0.7",
+    "expo-dev-client": "58.0.14",
+    "expo-device": "58.0.5",
+    "expo-file-system": "58.0.10",
+    "expo-linking": "58.0.14",
+    "expo-localization": "58.0.5",
+    "expo-router": "58.0.25",
+    "expo-secure-store": "58.0.2",
+    "expo-status-bar": "58.0.4",
+    "expo-system-ui": "58.0.6",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-safe-area-context": "5.10.1",
+    "react-native-screens": "4.30.0",
+    "react-native-zeroconf": "0.17.6"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  }
+}
