@@ -17,7 +17,8 @@
  *                                                    桌面端以 Electron 的 utilityProcess 运行它
  *   resources/host/migrations/                       @wevir/storage 的 SQL 迁移（bundle 按 `../migrations/` 找）
  *   resources/host/node_modules/                     只有 ON_DISK_PACKAGES 与它们的依赖：pnpm deploy 的 hoisted 布局（没有
- *                                                    符号链接），不含运行时用不到的文件（pruneUnusedFiles）
+ *                                                    符号链接），不含运行时用不到的文件（pruneUnusedFiles）；Linux 的
+ *                                                    node-pty 预编译取自 LINUX_PTY_PREBUILDS（trimNodePty）
  *
  * `--target` 默认是本机平台；打别的平台的安装包时给出那个平台的三元组（fetch-codex.sh 的列表），Host 的平台可选依赖
  * 也按它装。`WEVIR_GITHUB_MIRROR` 同 fetch-codex.sh。
@@ -128,15 +129,33 @@ const WS_OPTIONAL_NATIVE: readonly string[] = ['bufferutil', 'utf-8-validate'];
 export const REVIEWED_INSTALL_SCRIPTS: readonly string[] = ['node-pty'];
 
 /**
+ * Linux 的 node-pty 预编译：npm 包里没有，由 scripts/build-node-pty.sh 编成 `<目录>/linux-<架构>/pty.node`（release.yml 在
+ * glibc 较旧的容器里编，CI 在 runner 上编）。`WEVIR_NODE_PTY_PREBUILDS` 可换别的目录。
+ */
+export const LINUX_PTY_PREBUILDS =
+  process.env.WEVIR_NODE_PTY_PREBUILDS ?? join(repo, '.wevir-dev', 'node-pty');
+
+/**
  * 只留 node-pty 在目标平台要的文件：`lib/`、`package.json`、`LICENSE` 与 `prebuilds/<平台>-<架构>/`（去掉调试符号 `.pdb` 与只有
  * `useConptyDll` 才用的 `conpty/`）。Windows 10 1903（内部版本 18309）之前没有系统的 ConPTY，node-pty 改用 winpty，所以 winpty 的文件留着。
- * macOS 的 `spawn-helper` 在 npm 包里没有执行位，这里补上（之后由签名一并签名）。没有这个平台的预编译（Linux）时整个去掉：Host 不声明
- * `user_terminal`。返回留下的目录，去掉时返回 undefined。
+ * macOS 的 `spawn-helper` 在 npm 包里没有执行位，这里补上（之后由签名一并签名）。Linux 的 `pty.node` 从 `linuxPrebuilds` 复制进
+ * `prebuilds/linux-<架构>/`（node-pty 的 loadNativeModule 在那里找，Linux 不要 spawn-helper）。没有这个平台的预编译时整个去掉：Host
+ * 不声明 `user_terminal`。返回留下的目录，去掉时返回 undefined。
  */
-export function trimNodePty(root: string, os: NodeJS.Platform, cpu: string): string | undefined {
+export function trimNodePty(
+  root: string,
+  os: NodeJS.Platform,
+  cpu: string,
+  linuxPrebuilds: string = LINUX_PTY_PREBUILDS,
+): string | undefined {
   const dir = join(root, 'node_modules', 'node-pty');
   if (!existsSync(dir)) return undefined;
   const platform = `${os}-${cpu}`;
+  const built = join(linuxPrebuilds, platform, 'pty.node');
+  if (os === 'linux' && !existsSync(join(dir, 'prebuilds', platform)) && existsSync(built)) {
+    mkdirSync(join(dir, 'prebuilds', platform), { recursive: true });
+    copyFileSync(built, join(dir, 'prebuilds', platform, 'pty.node'));
+  }
   if (!existsSync(join(dir, 'prebuilds', platform))) {
     rmSync(dir, { recursive: true, force: true });
     return undefined;
@@ -428,8 +447,8 @@ export async function bundleHost(dir: string): Promise<string[]> {
 
 /**
  * bundle 之后 `<dir>/package.json` 只声明 `ON_DISK_PACKAGES`（版本取 deploy 装上的），`pruneDependencies` 据此只留它们与它们的依赖；
- * `"type": "module"` 让 Node 把 `dist/` 里的 `.js` 当 ES 模块。没装上的（Linux 上没有 node-pty 的预编译时照样装上，由
- * `trimNodePty` 去掉）跳过。
+ * `"type": "module"` 让 Node 把 `dist/` 里的 `.js` 当 ES 模块。没装上的跳过（node-pty 总会装上，没有目标平台的预编译时由
+ * `trimNodePty` 去掉）。
  */
 export function writeBundleManifest(dir: string): void {
   const dependencies: Record<string, string> = {};
@@ -545,7 +564,10 @@ async function stageHost(dir: string, target: string): Promise<void> {
   );
   console.log(
     pty === undefined
-      ? `resources/host：${os}-${cpu} 没有 node-pty 的预编译，已去掉，这个平台没有用户终端`
+      ? `resources/host：${os}-${cpu} 没有 node-pty 的预编译，已去掉，这个平台没有用户终端` +
+          (os === 'linux'
+            ? `（先在 Linux 上 bash scripts/build-node-pty.sh，见 ${LINUX_PTY_PREBUILDS}）`
+            : '')
       : `resources/host：node-pty 只留 ${os}-${cpu}`,
   );
 }

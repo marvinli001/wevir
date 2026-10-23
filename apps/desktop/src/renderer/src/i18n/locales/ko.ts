@@ -1725,6 +1725,7 @@ export const messages: Messages = {
   'update.action.download': '다운로드',
   'update.action.restart': '다시 시작하여 업데이트',
   'update.action.move': '응용 프로그램으로 이동',
+  'update.action.downloadPage': '다운로드 페이지',
 
   'suggest.title': '제안된 작업 {count}개',
   'suggest.startedCount': '{count}개 시작됨',

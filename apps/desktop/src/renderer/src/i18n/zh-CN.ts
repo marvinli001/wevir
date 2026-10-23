@@ -1731,6 +1731,7 @@ export const zhCN = {
   'update.action.download': '下载',
   'update.action.restart': '重启以更新',
   'update.action.move': '移到“应用程序”',
+  'update.action.downloadPage': '下载页面',
 
   'suggest.title': '{count} 个建议的任务',
   'suggest.startedCount': '{count} 已开始',

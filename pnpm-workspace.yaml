@@ -22,7 +22,7 @@ allowBuilds:
   electron-winstaller@5.4.0: false
   # 拒绝：用户终端（Host 的可选依赖）。install 只核对 prebuilds/<平台> 在不在、不在就 node-gyp 现编；postinstall 清 build/Release，
   # Windows 上再把 third_party 的 conpty.dll 复制过去。macOS 与 Windows 用包里的预编译（Node-API，Electron 与本机 Node 都能加载），
-  # 不跑脚本；Linux 没有预编译，Host 不声明 user_terminal。
+  # 不跑脚本；Linux 没有预编译，由 scripts/build-node-pty.sh 显式编（CI 与发布流水线），没编时 Host 不声明 user_terminal。
   node-pty@1.1.0: false
   # 允许：wrangler（apps/relay-worker 的开发依赖）带的 workerd，本地跑 Worker 用。postinstall 与 esbuild 的同一套写法：核对平台可选包
   # @cloudflare/workerd-<平台> 里的二进制，非 Windows 上用它替换 bin/workerd 的转发脚本；可选包缺失时才从 npm registry 下载同版本。

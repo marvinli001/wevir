@@ -197,7 +197,10 @@ export type UpdatePhase =
   | { phase: 'checking' }
   /** 没有更新。 */
   | { phase: 'latest' }
-  | { phase: 'available'; version: string }
+  /**
+   * `manual`：应用换不了自己的文件（Linux 的 deb，由系统的包管理装在 /opt），不在应用里下载，界面给官网的下载页。
+   */
+  | { phase: 'available'; version: string; manual?: true }
   | { phase: 'downloading'; version: string; percent: number; bytesPerSecond: number }
   | { phase: 'downloaded'; version: string }
   | { phase: 'installing'; version: string }

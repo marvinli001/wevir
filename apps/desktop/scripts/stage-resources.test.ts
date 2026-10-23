@@ -13,7 +13,14 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { actoolVersion, builderArgs, MAC_FALLBACK_ICON, macIconArgs } from './package.js';
+import {
+  actoolVersion,
+  builderArgs,
+  LINUX_HICOLOR,
+  MAC_FALLBACK_ICON,
+  macIconArgs,
+  stageLinuxIcons,
+} from './package.js';
 import {
   bundleHost,
   checkBundleImports,
@@ -56,7 +63,26 @@ describe('hostTarget', () => {
   it('electron-builder 的平台与架构参数', () => {
     expect(builderArgs('aarch64-apple-darwin')).toEqual(['--mac', '--arm64']);
     expect(builderArgs('x86_64-pc-windows-msvc')).toEqual(['--win', '--x64']);
-    expect(builderArgs('x86_64-unknown-linux-musl')).toEqual(['--linux', '--x64']);
+    expect(builderArgs('x86_64-unknown-linux-musl')).toEqual([
+      '--linux',
+      '--x64',
+      `-c.linux.artifactName=\${productName}-\${version}-linux-x64.\${ext}`,
+    ]);
+    expect(builderArgs('aarch64-unknown-linux-musl')).toContain(
+      `-c.linux.artifactName=\${productName}-\${version}-linux-arm64.\${ext}`,
+    );
+  });
+
+  it('Linux 图标：hicolor 的各个尺寸平铺成 electron-builder 认的 <尺寸>x<尺寸>.png', () => {
+    const dest = mkdtempSync(join(tmpdir(), 'wevir-linux-icons-'));
+    try {
+      const sizes = stageLinuxIcons(LINUX_HICOLOR, dest);
+      expect(sizes).toContain('16x16');
+      expect(sizes).toContain('512x512');
+      expect(readdirSync(dest).sort()).toEqual(sizes.map((size) => `${size}.png`).sort());
+    } finally {
+      rmSync(dest, { recursive: true, force: true });
+    }
   });
 
   it('macOS 图标：actool 26 起用 Icon Composer 工程，否则改用浅色 ICNS', () => {
@@ -389,7 +415,33 @@ describe('trimNodePty', () => {
     }
   });
 
-  it('Windows：去掉调试符号与用不到的 conpty.dll，winpty 留给旧版 Windows；Linux 没有预编译时整个去掉', () => {
+  it('Linux：从 build-node-pty.sh 的输出目录复制 pty.node；没有时整个去掉', () => {
+    const dir = nodePty();
+    const built = mkdtempSync(join(tmpdir(), 'wevir-pty-built-'));
+    try {
+      mkdirSync(join(built, 'linux-arm64'));
+      writeFileSync(join(built, 'linux-arm64', 'pty.node'), 'arm64');
+      expect(trimNodePty(root, 'linux', 'arm64', built)).toBe(
+        join(dir, 'prebuilds', 'linux-arm64'),
+      );
+      expect(listing(dir)).toEqual([
+        'LICENSE',
+        'lib/index.js',
+        'package.json',
+        'prebuilds/linux-arm64/pty.node',
+      ]);
+      expect(readFileSync(join(dir, 'prebuilds/linux-arm64/pty.node'), 'utf8')).toBe('arm64');
+      // 只有另一个架构的：这个架构没有用户终端。
+      rmSync(root, { recursive: true, force: true });
+      nodePty();
+      expect(trimNodePty(root, 'linux', 'x64', built)).toBeUndefined();
+      expect(existsSync(join(root, 'node_modules', 'node-pty'))).toBe(false);
+    } finally {
+      rmSync(built, { recursive: true, force: true });
+    }
+  });
+
+  it('Windows：去掉调试符号与用不到的 conpty.dll，winpty 留给旧版 Windows', () => {
     const dir = nodePty();
     trimNodePty(root, 'win32', 'x64');
     expect(listing(join(dir, 'prebuilds'))).toEqual([
@@ -399,9 +451,5 @@ describe('trimNodePty', () => {
       'win32-x64/winpty-agent.exe',
       'win32-x64/winpty.dll',
     ]);
-    rmSync(root, { recursive: true, force: true });
-    nodePty();
-    expect(trimNodePty(root, 'linux', 'x64')).toBeUndefined();
-    expect(existsSync(join(root, 'node_modules', 'node-pty'))).toBe(false);
   });
 });

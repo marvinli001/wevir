@@ -164,7 +164,7 @@ async function changedUntil(
   );
 }
 
-// node-pty 装得上的平台（macOS、Windows；Linux 没有预编译）才跑。
+// node-pty 加载得了才跑：macOS、Windows 用包里的预编译，Linux 要先 bash scripts/build-node-pty.sh（CI 会编）。
 describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终端经 Host API', () => {
   it('开终端、输入、输出、关闭（各平台）', async () => {
     const { home, workspaceDir } = dirs();

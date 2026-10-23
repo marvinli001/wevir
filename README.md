@@ -102,7 +102,7 @@ Wevir is in preview. **Supported**: shipped in the builds and covered by automat
 | Desktop app | macOS, Apple silicon | Supported |
 | | macOS, Intel | Beta |
 | | Windows x64 | Beta |
-| | Linux | Not available |
+| | Linux x64 and arm64 (AppImage, deb) | Beta |
 | Models | Codex runtime with API keys, OpenAI-compatible endpoints, or Ollama | Supported |
 | | ChatGPT sign-in | Supported |
 | Subscriptions | Claude | Beta |
@@ -121,7 +121,7 @@ Wevir is in preview. **Supported**: shipped in the builds and covered by automat
 - **Preview builds only.** Every published build is a development build (`0.0.1-beta.N`), cut automatically from `master` after CI passes. Frequent updates; behavior may change between builds.
 - **Update channel.** In-app updates follow the development channel; the stable channel has no releases yet.
 - **Subscription sources.** They depend on each vendor's client or SDK and your existing sign-in, are subject to vendor terms, and may break when the client changes.
-- **Platforms.** No Linux or Windows on Arm build.
+- **Platforms.** No Windows on Arm build. Computer use is macOS only. On Linux only the AppImage updates in place; the deb build shows new versions with a link to the download page.
 
 Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Questions and ideas: [GitHub Discussions](https://github.com/marvinli001/wevir/discussions).
 
