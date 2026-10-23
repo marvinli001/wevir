@@ -68,6 +68,22 @@ export function statusNotice(status: LinkStatus): MessageKey | undefined {
   }
 }
 
+/** 会话列表为空时那一行字；离线、没读过时没有。 */
+export function sessionsPlaceholder(snapshot: LinkSnapshot): MessageKey | undefined {
+  switch (snapshot.sessions.kind) {
+    case 'loading':
+      return 'computer.loading';
+    case 'forbidden':
+      return 'computer.forbidden';
+    case 'failed':
+      return 'computer.sessionsFailed';
+    case 'ready':
+      return 'computer.noSessions';
+    case 'none':
+      return snapshot.status.kind === 'online' ? 'computer.loading' : undefined;
+  }
+}
+
 export function pairingFailureText(failure: PairingFailure): string {
   switch (failure.kind) {
     case 'none_found':

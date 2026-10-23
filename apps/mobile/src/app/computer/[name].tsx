@@ -1,23 +1,22 @@
-// 一台电脑：连接状态、实时的会话列表（`session.list` + `sessions.changed`，只读：标题、状态、待处理数）与“退出这台电脑”。
+// 一台电脑：大标题是电脑名，下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
+// `sessions.changed`，只读），最后是“退出这台电脑”。
 
-import type { Session } from '@wevir/protocol';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
-import { Button, Card, SectionTitle, StatusText } from '../../components/ui';
-import { type MessageKey, t, timeAgo } from '../../i18n';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SessionRow } from '../../components/session-row';
+import { Button, Group, Icon, Row, SectionTitle, StatusText } from '../../components/ui';
+import { t } from '../../i18n';
 import type { LinkSnapshot } from '../../lib/computer-link';
 import { displayName } from '../../lib/records';
-import { pendingCount } from '../../lib/sessions';
-import { statusLine, statusNotice } from '../../lib/status-text';
+import { sessionsPlaceholder, statusLine, statusNotice } from '../../lib/status-text';
+import { useMinuteClock } from '../../state/clock';
 import { useComputer, useRegistry } from '../../state/registry';
-import { RADIUS, TEXT, useTheme } from '../../theme';
+import { RADIUS, SPACE, TEXT, useTheme } from '../../theme';
 
 export default function ComputerScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const snapshot = useComputer(name);
-  const theme = useTheme();
-  if (snapshot === undefined)
-    return <View style={{ flex: 1, backgroundColor: theme.background }} />;
+  if (snapshot === undefined) return null;
   return <ComputerDetail snapshot={snapshot} />;
 }
 
@@ -25,10 +24,11 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
   const theme = useTheme();
   const router = useRouter();
   const registry = useRegistry();
+  const now = useMinuteClock();
   const { record, status, sessions } = snapshot;
-  const now = new Date();
   const notice = statusNotice(status);
   const sessionList = sessions.kind === 'ready' ? sessions.sessions : [];
+  const placeholder = sessionList.length === 0 ? sessionsPlaceholder(snapshot) : undefined;
 
   const forget = () => {
     Alert.alert(t('computer.forget.title'), t('computer.forget.consequence'), [
@@ -44,176 +44,99 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
     ]);
   };
 
-  const header = (
-    <View>
-      <Card style={styles.statusCard}>
-        <StatusText line={statusLine(snapshot, now)} />
-        {notice !== undefined && (
-          <Text style={[styles.notice, { color: theme.softForeground }]}>{t(notice)}</Text>
-        )}
-        {status.kind === 'removed' && (
-          <Button title={t('computer.pairAgain')} onPress={() => router.push('/add')} />
-        )}
-        {status.kind === 'offline' && status.reason !== 'host_mismatch' && (
-          <Button
-            kind="secondary"
-            title={t('computer.retry')}
-            onPress={() => registry.link(record.name)?.retryNow()}
-          />
-        )}
-      </Card>
-      {status.kind !== 'removed' && <SectionTitle>{t('computer.sessions')}</SectionTitle>}
-      {sessionsPlaceholder(sessions.kind, status.kind) !== undefined && (
-        <Text style={[styles.placeholder, { color: theme.mutedForeground }]}>
-          {t(sessionsPlaceholder(sessions.kind, status.kind) as MessageKey)}
-        </Text>
-      )}
-    </View>
-  );
-
   return (
     <>
       <Stack.Screen options={{ title: displayName(record) }} />
-      <FlatList
-        contentInsetAdjustmentBehavior="automatic"
-        style={{ backgroundColor: theme.background }}
-        contentContainerStyle={styles.content}
-        data={sessionList}
-        keyExtractor={(s) => s.id}
-        ListHeaderComponent={header}
-        ItemSeparatorComponent={() => (
-          <View
-            style={[
-              styles.separatorRow,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <View style={[styles.separator, { backgroundColor: theme.border }]} />
+      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
+        <Group style={styles.statusCard}>
+          <View style={styles.statusHead}>
+            <View style={[styles.hero, { backgroundColor: theme.muted }]}>
+              <Icon
+                name={{ ios: 'laptopcomputer', android: 'laptop_mac' }}
+                size={26}
+                color={theme.foreground}
+              />
+            </View>
+            <View style={styles.statusText}>
+              <StatusText line={statusLine(snapshot, now)} size={TEXT.body} />
+            </View>
           </View>
+          {notice !== undefined && (
+            <Text style={[styles.notice, { color: theme.softForeground }]}>{t(notice)}</Text>
+          )}
+          {status.kind === 'removed' && (
+            <Button
+              title={t('computer.pairAgain')}
+              icon={{ ios: 'qrcode.viewfinder', android: 'qr_code_scanner' }}
+              onPress={() => router.push('/add')}
+            />
+          )}
+          {status.kind === 'offline' && status.reason !== 'host_mismatch' && (
+            <Button
+              kind="secondary"
+              title={t('computer.retry')}
+              icon={{ ios: 'arrow.clockwise', android: 'refresh' }}
+              onPress={() => registry.link(record.name)?.retryNow()}
+            />
+          )}
+        </Group>
+
+        {status.kind !== 'removed' && (
+          <>
+            <SectionTitle>{t('computer.sessions')}</SectionTitle>
+            {sessionList.length > 0 ? (
+              <Group>
+                {sessionList.map((session, index) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    now={now}
+                    last={index === sessionList.length - 1}
+                  />
+                ))}
+              </Group>
+            ) : (
+              placeholder !== undefined && (
+                <Text style={[styles.placeholder, { color: theme.mutedForeground }]}>
+                  {t(placeholder)}
+                </Text>
+              )
+            )}
+          </>
         )}
-        renderItem={({ item, index }) => (
-          <SessionRow
-            session={item}
-            now={now}
-            first={index === 0}
-            last={index === sessionList.length - 1}
+
+        <Group style={styles.forget}>
+          <Row
+            last
+            chevron={false}
+            title={
+              <Text style={[styles.forgetText, { color: theme.destructive }]}>
+                {t('computer.forget')}
+              </Text>
+            }
+            onPress={forget}
           />
-        )}
-        ListFooterComponent={
-          <View style={styles.footer}>
-            <Button kind="destructive" title={t('computer.forget')} onPress={forget} />
-          </View>
-        }
-      />
+        </Group>
+      </ScrollView>
     </>
   );
 }
 
-function sessionsPlaceholder(
-  sessions: LinkSnapshot['sessions']['kind'],
-  status: LinkSnapshot['status']['kind'],
-): MessageKey | undefined {
-  if (status === 'removed') return undefined;
-  switch (sessions) {
-    case 'loading':
-      return 'computer.loading';
-    case 'forbidden':
-      return 'computer.forbidden';
-    case 'failed':
-      return 'computer.sessionsFailed';
-    case 'ready':
-      return undefined;
-    case 'none':
-      return status === 'online' ? 'computer.loading' : undefined;
-  }
-}
-
-function SessionRow({
-  session,
-  now,
-  first,
-  last,
-}: {
-  session: Session;
-  now: Date;
-  first: boolean;
-  last: boolean;
-}) {
-  const theme = useTheme();
-  const pending = pendingCount(session);
-  const state = session.awaitingInput
-    ? t('session.awaitingInput')
-    : t(`session.state.${session.state}`);
-  const stateColor =
-    pending > 0 || session.state === 'awaiting_approval' || session.awaitingInput
-      ? theme.warning
-      : session.state === 'running'
-        ? theme.running
-        : session.state === 'error'
-          ? theme.destructive
-          : theme.mutedForeground;
-  return (
-    <View
-      style={[
-        styles.session,
-        { backgroundColor: theme.card, borderColor: theme.border },
-        first && styles.sessionFirst,
-        last && styles.sessionLast,
-      ]}
-    >
-      <View style={styles.sessionText}>
-        <Text style={[styles.sessionTitle, { color: theme.foreground }]} numberOfLines={1}>
-          {session.title.trim() || t('session.untitled')}
-        </Text>
-        <Text style={[styles.sessionMeta, { color: theme.mutedForeground }]} numberOfLines={1}>
-          <Text style={{ color: stateColor }}>{state}</Text>
-          {` · ${timeAgo(session.updatedAt, now)}`}
-        </Text>
-      </View>
-      {pending > 0 && (
-        <View style={[styles.badge, { backgroundColor: theme.muted }]}>
-          <Text style={[styles.badgeText, { color: theme.warning }]}>
-            {t('computer.pending', { count: pending })}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 48 },
-  statusCard: { padding: 16, gap: 12 },
-  notice: { fontSize: TEXT.small, lineHeight: 19 },
-  placeholder: { fontSize: TEXT.small, marginHorizontal: 4, marginBottom: 8 },
-  separatorRow: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
-  },
-  separator: { height: StyleSheet.hairlineWidth, marginLeft: 16 },
-  session: {
-    flexDirection: 'row',
+  content: { paddingHorizontal: SPACE.page, paddingTop: 8, paddingBottom: 64 },
+  statusCard: { padding: 18, gap: 16 },
+  statusHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  hero: {
+    width: 52,
+    height: 52,
+    borderRadius: RADIUS.control,
+    borderCurve: 'continuous',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 10,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
   },
-  sessionFirst: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopLeftRadius: RADIUS.card,
-    borderTopRightRadius: RADIUS.card,
-  },
-  sessionLast: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomLeftRadius: RADIUS.card,
-    borderBottomRightRadius: RADIUS.card,
-  },
-  sessionText: { flex: 1, gap: 3 },
-  sessionTitle: { fontSize: TEXT.body, fontWeight: '500' },
-  sessionMeta: { fontSize: TEXT.caption },
-  badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeText: { fontSize: TEXT.caption, fontWeight: '600' },
-  footer: { marginTop: 32 },
+  statusText: { flex: 1, gap: 4 },
+  notice: { fontSize: TEXT.small, lineHeight: 20 },
+  placeholder: { fontSize: TEXT.small, marginHorizontal: 6 },
+  forget: { marginTop: SPACE.section },
+  forgetText: { fontSize: TEXT.body, fontWeight: '500', textAlign: 'center' },
 });

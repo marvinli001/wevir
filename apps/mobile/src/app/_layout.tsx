@@ -1,10 +1,11 @@
-// 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表，用系统的导航栈。
+// 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表。底下是两个标签页（会话、电脑），电脑详情与添加电脑压在标签页之上。
 
 import { getLocales } from 'expo-localization';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
+import { stackOptions } from '../components/stack';
 import { pickLocale, setLocale, t } from '../i18n';
 import { runNoiseSelfTest } from '../lib/selftest';
 import { RegistryProvider } from '../state/registry';
@@ -33,18 +34,13 @@ export default function RootLayout() {
   return (
     <RegistryProvider>
       <StatusBar style={theme.dark ? 'light' : 'dark'} />
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: theme.background },
-          headerTintColor: theme.foreground,
-          headerTitleStyle: { color: theme.foreground },
-          headerShadowVisible: false,
-          contentStyle: { backgroundColor: theme.background },
-        }}
-      >
-        <Stack.Screen name="index" options={{ title: t('computers.title') }} />
+      <Stack screenOptions={stackOptions(theme)}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add" options={{ title: t('add.title'), presentation: 'modal' }} />
-        <Stack.Screen name="computer/[name]" options={{ title: '' }} />
+        <Stack.Screen
+          name="computer/[name]"
+          options={{ title: '', headerLargeTitleEnabled: true }}
+        />
       </Stack>
     </RegistryProvider>
   );

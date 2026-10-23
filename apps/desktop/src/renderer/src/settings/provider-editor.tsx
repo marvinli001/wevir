@@ -380,11 +380,12 @@ export function ModelsField({
   return (
     <fieldset className="space-y-1.5">
       <legend className="mb-1.5 text-sm font-medium">{t('provider.form.models')}</legend>
+      {/* 顶对齐：上下文长度下面的提示让行变高，居中会把两个输入框错开；单选、勾选和删除按钮放进与输入框同高的格子。 */}
       <RadioGroup
         value={String(form.defaultIndex)}
         onValueChange={(value) => onChange({ defaultIndex: Number(value) })}
         aria-label={t('provider.form.defaultModel')}
-        className="grid grid-cols-[auto_1fr_10rem_auto_auto] items-center gap-x-2 gap-y-1.5"
+        className="grid grid-cols-[auto_1fr_10rem_auto_auto] items-start gap-x-2 gap-y-1.5"
       >
         <span className="text-xs text-muted-foreground">{t('provider.form.default')}</span>
         <span className="text-xs text-muted-foreground">{t('provider.form.modelId')}</span>
@@ -396,11 +397,9 @@ export function ModelsField({
           const contextError = errors[`models.${index}.contextWindow`];
           return (
             <div key={row.key} className="contents" data-model-row={index}>
-              <Radio
-                value={String(index)}
-                className="mx-auto"
-                aria-label={t('provider.form.defaultModel')}
-              />
+              <div className="flex h-8 items-center justify-center">
+                <Radio value={String(index)} aria-label={t('provider.form.defaultModel')} />
+              </div>
               <div>
                 <Input
                   className="font-mono"
@@ -434,20 +433,23 @@ export function ModelsField({
                   )
                 )}
               </div>
-              <Checkbox
-                className="mx-auto"
-                checked={row.images}
-                onCheckedChange={(images) => setRow(index, { images })}
-                aria-label={t('provider.form.images')}
-                data-model-images={index}
-              />
-              <IconButton
-                label={t('provider.form.removeModel', { id: row.id })}
-                disabled={form.models.length <= 1}
-                onClick={() => removeRow(index)}
-              >
-                <X />
-              </IconButton>
+              <div className="flex h-8 items-center justify-center">
+                <Checkbox
+                  checked={row.images}
+                  onCheckedChange={(images) => setRow(index, { images })}
+                  aria-label={t('provider.form.images')}
+                  data-model-images={index}
+                />
+              </div>
+              <div className="flex h-8 items-center">
+                <IconButton
+                  label={t('provider.form.removeModel', { id: row.id })}
+                  disabled={form.models.length <= 1}
+                  onClick={() => removeRow(index)}
+                >
+                  <X />
+                </IconButton>
+              </div>
             </div>
           );
         })}
