@@ -189,6 +189,11 @@ export const HOST_FEATURES = {
    */
   browserTools: 'browser_tools',
   /**
+   * 电脑操作（0.114.0，domain-model §3.15.8）：连接可以用 `computer.register` 登记为电脑操作的提供方、收 `computer.request` 通知、
+   * 用 `computer.respond` 回答；设置的 `computerUse` 打开时应用级工具里有 `computer_*` 工具。只在有应用级工具时声明。
+   */
+  computerUse: 'computer_use',
+  /**
    * Agent 的联网工具（0.34.0，docs/architecture/web-tools.md）：`web.get` / `web.update` / `web.test`，经网关的 Codex 会话有
    * `web_search` 与 `web_fetch`。Host 带着联网服务启动时声明（`wevir-host` 总是带）。
    */
@@ -520,6 +525,7 @@ export const HostFeaturesSchema = z.looseObject({
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
   browser_tools: z.boolean().optional(),
+  computer_use: z.boolean().optional(),
   web_tools: z.boolean().optional(),
   plan_mode: z.boolean().optional(),
   session_branches: z.boolean().optional(),

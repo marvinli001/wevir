@@ -133,6 +133,26 @@ const api: DesktopApi = {
     setController: (tabId, controller) =>
       ipcRenderer.invoke(IPC_CHANNELS.browserSetController, tabId, controller),
   },
+  computer: {
+    execute: (request) => ipcRenderer.invoke(IPC_CHANNELS.computerExecute, request),
+    prepareAccess: (sessionId, apps, reason) =>
+      ipcRenderer.invoke(IPC_CHANNELS.computerPrepareAccess, sessionId, apps, reason),
+    grant: (accessId, bundleIds) =>
+      ipcRenderer.invoke(IPC_CHANNELS.computerGrant, accessId, bundleIds),
+    status: () => ipcRenderer.invoke(IPC_CHANNELS.computerStatus),
+    requestPermission: (kind) => ipcRenderer.invoke(IPC_CHANNELS.computerRequestPermission, kind),
+    setActiveSessions: (sessionIds) =>
+      ipcRenderer.invoke(IPC_CHANNELS.computerSetActiveSessions, sessionIds),
+    setOverlayLabel: (label) => ipcRenderer.invoke(IPC_CHANNELS.computerSetOverlayLabel, label),
+    appIcon: (path) => ipcRenderer.invoke(IPC_CHANNELS.computerAppIcon, path),
+    onStopped: (listener) => {
+      const handler = (_event: IpcRendererEvent, sessionIds: string[]) => listener(sessionIds);
+      ipcRenderer.on(IPC_CHANNELS.computerStopped, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.computerStopped, handler);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('wevir', api);

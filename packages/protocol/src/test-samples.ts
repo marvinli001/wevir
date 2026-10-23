@@ -101,6 +101,8 @@ export const ids = {
   image: `img_${ULID}`,
   /** 浏览器请求（0.33.0）。 */
   browserRequest: `brq_${ULID}`,
+  /** 电脑操作的请求（0.114.0）。 */
+  computerRequest: `crq_${ULID}`,
   /** 回合后验证（0.65.0）。 */
   check: `chk_${ULID}`,
   check2: 'chk_01JA2B3C4D5E6F7G8H9JKMNPR2',
@@ -3299,6 +3301,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', sessionInsights: true } },
         // 0.95.0：参考我的写作风格。
         { settings: { sendWhileBusy: 'steer', writingStyle: true } },
+        // 0.114.0：电脑操作。
+        { settings: { sendWhileBusy: 'steer', computerUse: true } },
         // 0.102.0：运行时防止系统休眠。
         { settings: { sendWhileBusy: 'steer', preventSleep: true } },
         // 0.106.0：哪几类事产生通知意图。
@@ -7977,6 +7981,59 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{ accepted: true }, { accepted: false }], invalid: [{}] },
   },
+  'computer.register': {
+    params: {
+      valid: [{ commands: ['request_access', 'screenshot', 'click'] }, { commands: ['someday'] }],
+      invalid: [{ commands: [] }, { commands: [''] }],
+    },
+    result: empty,
+  },
+  'computer.unregister': { params: empty, result: empty },
+  'computer.respond': {
+    params: {
+      valid: [
+        {
+          requestId: ids.computerRequest,
+          ok: true,
+          result: { content: [{ type: 'text', text: 'Clicked at (412, 88) in Notes.' }] },
+        },
+        {
+          requestId: ids.computerRequest,
+          ok: true,
+          result: {
+            content: [
+              { type: 'text', text: 'Screenshot of Notes, 1400x900.' },
+              { type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' },
+            ],
+          },
+        },
+        {
+          requestId: ids.computerRequest,
+          ok: false,
+          error: {
+            code: 'computer_tier_denied',
+            message: 'Terminal is approved for left clicks only.',
+          },
+        },
+        {
+          requestId: ids.computerRequest,
+          ok: false,
+          error: { code: 'computer_stopped', message: 'The user pressed Esc.' },
+          content: [{ type: 'text', text: '1. click: done' }],
+        },
+      ],
+      invalid: [
+        { requestId: ids.computerRequest, ok: true, result: { content: [] } },
+        { requestId: ids.computerRequest, ok: false, error: { code: '', message: 'x' } },
+        {
+          requestId: ids.computerRequest,
+          ok: true,
+          result: { content: [{ type: 'image', data: 'x', mimeType: 'image/gif' }] },
+        },
+      ],
+    },
+    result: { valid: [{ accepted: true }, { accepted: false }], invalid: [{}] },
+  },
   'events.subscribe': {
     params: {
       valid: [
@@ -8407,6 +8464,60 @@ export const notificationSamples: NotificationSamples = {
           command: 'evaluate',
           args: { browserId: browserTab.browserId, function: '() => 1', timeoutMs: 60000 },
         },
+      },
+    ],
+  },
+  'computer.request': {
+    valid: [
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: {
+          command: 'request_access',
+          args: { apps: ['com.apple.Notes', '备忘录'], reason: 'Write the meeting notes.' },
+        },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'screenshot', args: { app: 'com.apple.Notes' } },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'click', args: { x: 412, y: 88, modifiers: ['cmd'] } },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: {
+          command: 'batch',
+          args: {
+            actions: [
+              { command: 'click', args: { ref: '@a3' } },
+              { command: 'type', args: { text: 'Hello' } },
+              { command: 'wait', args: { seconds: 0.5 } },
+              { command: 'key', args: { keys: 'cmd+s' } },
+            ],
+          },
+        },
+      },
+    ],
+    invalid: [
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'request_access', args: { apps: [], reason: 'x' } },
+      },
+      {
+        requestId: ids.computerRequest,
+        sessionId: ids.session,
+        command: { command: 'click', args: { ref: '@e1' } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        command: { command: 'list_apps', args: {} },
       },
     ],
   },

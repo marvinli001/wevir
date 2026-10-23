@@ -2839,6 +2839,92 @@ const standaloneCases: Case[] = [
       { command: 'download', args: { browserId: browserTab.browserId, timeoutMs: 600000 } },
     ],
   },
+  // 0.114.0：电脑操作。
+  {
+    name: 'ComputerAccessTier',
+    schema: protocol.ComputerAccessTierSchema,
+    valid: ['read', 'click', 'full'],
+    invalid: ['write'],
+  },
+  {
+    name: 'ComputerRequestId',
+    schema: protocol.ComputerRequestIdSchema,
+    valid: ['crq_01JA2B3C4D5E6F7G'],
+    invalid: ['brq_01JA2B3C4D5E6F7G', 'crq_'],
+  },
+  {
+    name: 'ComputerRef',
+    schema: protocol.ComputerRefSchema,
+    valid: ['@a1', '@a1203'],
+    invalid: ['@e1', 'a1', '@a'],
+  },
+  {
+    name: 'ComputerMouseButton',
+    schema: protocol.ComputerMouseButtonSchema,
+    valid: ['left', 'right'],
+    invalid: ['primary'],
+  },
+  {
+    name: 'ComputerModifier',
+    schema: protocol.ComputerModifierSchema,
+    valid: ['cmd', 'shift'],
+    invalid: ['Meta'],
+  },
+  {
+    name: 'ComputerAction',
+    schema: protocol.ComputerActionSchema,
+    valid: [
+      { command: 'wait', args: { seconds: 1 } },
+      { command: 'click', args: { x: 10, y: 20, clickCount: 2 } },
+      { command: 'zoom', args: { x: 0, y: 0, width: 200, height: 100 } },
+    ],
+    invalid: [
+      { command: 'batch', args: { actions: [] } },
+      { command: 'request_access', args: { apps: ['Notes'], reason: 'x' } },
+      { command: 'wait', args: { seconds: 60 } },
+    ],
+  },
+  {
+    name: 'ComputerCommand',
+    schema: protocol.ComputerCommandSchema,
+    valid: [
+      { command: 'list_apps', args: {} },
+      { command: 'ax_tree', args: { app: 'com.apple.Notes', maxNodes: 300 } },
+      { command: 'ax_find', args: { app: 'Notes', text: 'New Note', role: 'button' } },
+      { command: 'set_value', args: { ref: '@a4', value: 'hello' } },
+      { command: 'clipboard_write', args: { text: 'x' } },
+    ],
+    invalid: [
+      { command: 'type', args: { text: '' } },
+      { command: 'key', args: { keys: 'cmd+s', repeat: 100 } },
+      { command: 'drag', args: { fromX: 1, fromY: 2 } },
+      { command: 'batch', args: { actions: [{ command: 'list_apps', args: {} }] } },
+    ],
+  },
+  {
+    name: 'ComputerContent',
+    schema: protocol.ComputerContentSchema,
+    valid: [
+      { type: 'text', text: '' },
+      { type: 'image', data: 'AAAA', mimeType: 'image/jpeg' },
+    ],
+    invalid: [{ type: 'image', data: '', mimeType: 'image/png' }, { type: 'audio' }],
+  },
+  {
+    name: 'ComputerResult',
+    schema: protocol.ComputerResultSchema,
+    valid: [{ content: [{ type: 'text', text: 'ok' }] }],
+    invalid: [{ content: [] }, {}],
+  },
+  {
+    name: 'ComputerError',
+    schema: protocol.ComputerErrorSchema,
+    valid: [
+      { code: 'computer_not_granted', message: 'Notes is not approved.' },
+      { code: 'later', message: 'x' },
+    ],
+    invalid: [{ code: '', message: 'x' }, { code: 'x' }],
+  },
   {
     name: 'BrowserFrame',
     schema: protocol.BrowserFrameSchema,

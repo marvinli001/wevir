@@ -131,7 +131,7 @@ export const APP_TOOLS_SERVER = 'wevir';
  * 不用批准的应用级工具（0.30.0）：只读的，加上只请界面显示的 `wevir_show` 与（0.40.0）交文件卡片的 `wevir_share_file`、（0.83.0）报审查发现的 `wevir_report_findings`；0.33.0 起还有只读的浏览器工具（列标签页、快照、
  * 截图、等待、日志，0.48.0 起还有查元素与网络记录，Host 的 `BROWSER_READ_ONLY_TOOLS`）。其余（新开会话、给别的会话发消息、停别的会话、在网页上点击填写与跳转）
  * 按会话的权限模式走引擎自己的审批。P3 的 wevir_plugins_list 也只读；三个插件写工具由 Host 核对用户批准，不在这张表里。0.47.0 起
- * 还有后台进程的列出、读输出与等待（起进程、写 stdin、发信号按权限模式）；0.95.0 起写作风格的 `wevir_writing_style_*` 同记忆工具，只读写 Host 数据目录，不用批准；0.108.0 起调优的 `wevir_tuning_*` 也不用批准（改项目的 `AGENTS.md`、技能、记忆与护栏，但改动进入试用、可以撤销；写的两个不标 `readOnlyHint`）；代码智能的 `lsp_*` 只读（Host 的 `LSP_TOOLS`，会按需启动项目的语言服务器）。0.66.0 起列出自动化的 `wevir_automations` 只读（建、改、删、运行按权限模式）。0.82.0 起只在消息流里画分隔线的 `wevir_mark_chapter` 也不用批准。 0.84.0 起列出运行配置的 `wevir_preview_list` 只读（启动按权限模式）。0.89.0 起浏览器的收尾 `browser_finalize_tabs` 也不用批准（只关 agent 自己开的标签页；接管用户标签页的 `browser_claim_tab` 按权限模式）。2026-10-22（第四轮冒烟，维护者定）起只动 agent 自己创建的东西的也不用批准：停自己起的后台进程（`wevir_process_kill`，用户起的预览与检查进程拒绝）、关闭与归档自己开的会话（`wevir_session_close` / `wevir_session_archive`）、关自己开的标签页（`browser_close_tab`）；它们标 `destructiveHint: false, openWorldHint: false`，不标 `readOnlyHint`（角色的 `readonly` 不含它们）。
+ * 还有后台进程的列出、读输出与等待（起进程、写 stdin、发信号按权限模式）；0.95.0 起写作风格的 `wevir_writing_style_*` 同记忆工具，只读写 Host 数据目录，不用批准；0.108.0 起调优的 `wevir_tuning_*` 也不用批准（改项目的 `AGENTS.md`、技能、记忆与护栏，但改动进入试用、可以撤销；写的两个不标 `readOnlyHint`）；代码智能的 `lsp_*` 只读（Host 的 `LSP_TOOLS`，会按需启动项目的语言服务器）。0.66.0 起列出自动化的 `wevir_automations` 只读（建、改、删、运行按权限模式）。0.82.0 起只在消息流里画分隔线的 `wevir_mark_chapter` 也不用批准。 0.84.0 起列出运行配置的 `wevir_preview_list` 只读（启动按权限模式）。0.89.0 起浏览器的收尾 `browser_finalize_tabs` 也不用批准（只关 agent 自己开的标签页；接管用户标签页的 `browser_claim_tab` 按权限模式）。2026-10-22（第四轮冒烟，维护者定）起只动 agent 自己创建的东西的也不用批准：停自己起的后台进程（`wevir_process_kill`，用户起的预览与检查进程拒绝）、关闭与归档自己开的会话（`wevir_session_close` / `wevir_session_archive`）、关自己开的标签页（`browser_close_tab`）；它们标 `destructiveHint: false, openWorldHint: false`，不标 `readOnlyHint`（角色的 `readonly` 不含它们）。0.114.0 起电脑操作的 `computer_*` 全部不用批准：用户在 `computer_request_access` 的授权框里逐个应用批准就是这组工具的批准，之后每个动作按应用的档位核对（Host 的 `COMPUTER_TOOLS`）。
  * 引擎要按名字放行时用它（Claude 的 `allowedTools`）；Codex 看工具的 annotations。
  */
 export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
@@ -185,6 +185,22 @@ export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
   'lsp_workspace_symbols',
   'lsp_call_hierarchy',
   'lsp_diagnostics',
+  'computer_request_access',
+  'computer_list_apps',
+  'computer_screenshot',
+  'computer_zoom',
+  'computer_ax_tree',
+  'computer_ax_find',
+  'computer_open_app',
+  'computer_click',
+  'computer_type',
+  'computer_key',
+  'computer_scroll',
+  'computer_drag',
+  'computer_set_value',
+  'computer_clipboard_read',
+  'computer_clipboard_write',
+  'computer_batch',
 ]);
 
 /** `createSession` / `resumeSession` 的结果。 */

@@ -28,6 +28,13 @@ describe('ToolOutputStore.spill', () => {
     expect(existsSync(store.dir)).toBe(false);
   });
 
+  it('电脑操作的授权结果（附着操作说明）上限放到 10 000 字节', async () => {
+    const store = new ToolOutputStore(join(tempDir(), 'tool-output'));
+    const result = { content: [{ type: 'text' as const, text: 'x'.repeat(9_500) }] };
+    expect(await store.spill(SESSION, 'computer_request_access', result)).toBe(result);
+    expect(await store.spill(SESSION, 'computer_screenshot', result)).not.toBe(result);
+  });
+
   it('超过上限的文本整份写进会话目录，结果只留开头、结尾与路径；图片保留', async () => {
     const store = new ToolOutputStore(join(tempDir(), 'tool-output'));
     const text = lines(3000);

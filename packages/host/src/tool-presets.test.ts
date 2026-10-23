@@ -239,6 +239,7 @@ describe('按预设裁剪说明', () => {
     const core = toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, CORE);
     for (const gone of [
       '- browser_*',
+      '- computer_*',
       '- lsp_*',
       '- wevir_process_*',
       '- wevir_preview_list',
@@ -263,7 +264,7 @@ describe('按预设裁剪说明', () => {
       expect(core).toContain(kept);
     }
     const kept = new Set(core.split('\n'));
-    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(6);
+    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(7);
     expect(Buffer.byteLength(APP_TOOLS_INSTRUCTIONS) - Buffer.byteLength(core)).toBeGreaterThan(
       2000,
     );
