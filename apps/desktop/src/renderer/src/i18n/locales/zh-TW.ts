@@ -872,6 +872,8 @@ export const messages: Messages = {
   'approval.title.browserAct': '允許操作瀏覽器中的網頁？',
   'approval.title.browserClose': '允許關閉瀏覽器分頁？',
   'approval.title.browserClaim': '允許接管瀏覽器分頁？',
+  'approval.title.browserBatch': '允許在瀏覽器中執行這組操作？',
+  'approval.title.browserRun': '允許在瀏覽器中執行這段指令碼？',
   'approval.permission': '所需權限：{permission}',
   'approval.permission.fullAccess': '完整存取',
   'approval.preview': '內容預覽',

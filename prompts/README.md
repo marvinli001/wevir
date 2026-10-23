@@ -25,8 +25,8 @@
 | [`user-instructions.md`](user-instructions.md) | 用户说明的开头：交给引擎的“用户的说明”最前面那段，说明优先级与边界 | Host（0.78.0，`packages/host/src/custom-instructions.ts`）：去掉注释，后面接用户的说明与风格的正文 | 已接入，与引擎无关 |
 | [`writing-style/`](writing-style/) | 写作风格：`apply.md`（有档案时的用法）、`none.md`（设置开着但还没有档案）、`setup.md`（建档步骤） | Host（0.95.0，`packages/host/src/custom-instructions.ts` 与 `writing-style/tools.ts`）：设置里打开“参考我的写作风格”时把前两份之一接在用户说明的最后；`setup.md` 由 `wevir_writing_style_setup` 返回 | 已接入，与引擎无关 |
 | [`output-styles/`](output-styles/) | 输出风格：`concise`（简洁）、`explanatory`（讲解）、`learning`（边做边学）、`proactive`（主动）、`pragmatic`（务实）、`friendly`（友好） | Host（0.78.0）：用户在设置里选了哪种就接哪份的正文；开头 `---` 块里的 `reminder` 在每条新回合的消息末尾附上（只有简洁与主动有） | 已接入，与引擎无关 |
-| [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
-| [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
+| [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具一节按 Host 的 `browser_*` 应用工具写 |
+| [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具一节按 Host 的 `browser_*` 应用工具写 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
 | [`plugins/shared/browser-operation.md`](plugins/shared/browser-operation.md) | 两个浏览器插件共用的操作要领与安全规则 | 被引入 | 可用 |
 | [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则 | 被引入 | 可用 |

@@ -15,6 +15,7 @@
 // `mode: 'install'` 只装运行时、不走页面。
 // 禁用的元素标 `disabled`；`draggable="true"` 的元素与带 ondrop / ondragover 属性的放置区也给引用（标 `draggable`、`droppable`）；
 // label 里的文字算名字时略过 textarea 与下拉框自己的内容（textarea 的初始文字不再混进名字，也不再列成它的子节点）。
+// 0.111.0：上一次快照里已有引用的元素沿用原来的引用，新元素从 `refStart` 起编号（返回 `refNext`），两次快照才能逐行比较。
 
 export const ARIA_SNAPSHOT_SCRIPT_MARKER = '__WEVIR_ARIA_SNAPSHOT__';
 
@@ -24,7 +25,7 @@ export interface AriaSnapshotOptions {
   mode?: 'snapshot' | 'install';
   maxNodes?: number;
   maxRefs?: number;
-  /** 第一个引用的编号（跨域 frame 接着主页面编）。 */
+  /** 新元素的第一个引用编号（跨域 frame 接着主页面编）；上一次快照里已有引用的元素沿用原来的引用。 */
   refStart?: number;
   selector?: string;
   /** 从这个元素开始（上一次快照里的引用，按指纹核对）。 */
@@ -466,12 +467,22 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
   let nodeCount = 0;
   let visits = 0;
   let refCount = 0;
+  let newRefs = 0;
   let iframeCount = 0;
   let maxDepth = 0;
   let truncated = false;
   let refsTruncated = false;
   let stoppedAt = '';
   let textBudget = MAX_TEXT_LENGTH;
+  // 上一次的引用：元素还在就沿用（换掉运行时之前记下）。
+  const kept = new Map();
+  const previousRuntime = window.__WEVIR_BROWSER_AUTOMATION__;
+  if (previousRuntime && previousRuntime.version === RUNTIME_VERSION && previousRuntime.refs) {
+    for (const [ref, element] of previousRuntime.refs) {
+      if (element && element.isConnected && !kept.has(element)) kept.set(element, ref);
+    }
+  }
+  const keptRefs = new Set(kept.values());
   const runtime = ensureRuntime(true);
 
   // 写进快照的节点数到了上限就停下，记下停在哪个元素。
@@ -576,7 +587,14 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
     if (role && frameId !== null) snapshotNode.attributes.push('frame=' + frameId);
     snapshotNode.children = children;
     if (role && isActionable(domNode, role) && refCount < MAX_REFS) {
-      const ref = '@e' + (REF_START + refCount);
+      let ref = kept.get(domNode);
+      if (!ref || runtime.refs.has(ref)) {
+        // 新编号避开沿用的引用（主进程的编号重置过而页面没换时，两者可能重叠）。
+        do {
+          ref = '@e' + (REF_START + newRefs);
+          newRefs += 1;
+        } while (keptRefs.has(ref) || runtime.refs.has(ref));
+      }
       const fingerprint = fingerprintFor(domNode, role, name);
       refCount += 1;
       runtime.refs.set(ref, domNode);
@@ -617,6 +635,7 @@ const ARIA_SNAPSHOT_FUNCTION = String.raw`function (options) {
     refsTruncated,
     stoppedAt,
     framePath: framePathOf(window),
+    refNext: REF_START + newRefs,
     stats: { nodeCount, refCount, textLength: 0, iframeCount, maxDepth }
   });
 }`;

@@ -10,6 +10,7 @@
 // 文件限会话文件夹），另加 query、network、dialogs、download；快照、等待、执行与查询能指定 frame，快照能限定范围与节点数。
 // 0.89.0 加 finalize_tabs（回合结束前收尾：留下交付物与交还用户的，其余 agent 开的关掉）与 claim_tab（接管会话里用户的标签页），
 // 标签页多了 `origin` 与 `disposition`（照 Codex Chrome 控制的 `tabs.finalize` / `claimTab`）。
+// 0.111.0：快照可以只回和上一次比变了什么（`changes`，统计在 `stats.changes`）。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：浏览器在桌面端的主进程里，Host 是另一个进程。桌面端用 `browser.register` 把
 // 自己的连接登记为浏览器提供方，Host 经 `browser.request` 通知把会话里的 agent 调的浏览器工具交给它，提供方用
@@ -133,13 +134,15 @@ export const BrowserCommandSchema = z.discriminatedUnion('command', [
   /**
    * `offset`（0.46.0）：从快照的第几行（从 0 起）开始给，页面长、一次给不完时分段读。0.48.0：`selector` / `ref` 只取这个元素
    * 及其里面（两者最多给一个），`frame` 只取这个 frame，`viewportOnly` 只取视口里的元素，`maxNodes` 是节点上限
-   * （默认 `BROWSER_SNAPSHOT_DEFAULT_NODES`）。
+   * （默认 `BROWSER_SNAPSHOT_DEFAULT_NODES`）。0.111.0：`changes` 只回和这个标签页上一次同范围的快照比变了的行（增量）；没有可比的
+   * 快照、页面换了文档或变得太多时照常给整个快照（第一段），开头用 `#` 注释说明。
    */
   z.object({
     command: z.literal('snapshot'),
     args: z.object({
       ...tab,
       offset: z.int().min(0).max(1_000_000).optional(),
+      changes: z.boolean().optional(),
       selector: selector.optional(),
       ref: BrowserRefSchema.optional(),
       frame: BrowserFrameSchema.optional(),
@@ -348,6 +351,13 @@ export const BrowserSnapshotStatsSchema = z.object({
   stoppedAt: z.string().optional(),
   /** 这次的节点上限（0.48.0）。 */
   maxNodes: z.int().min(0).optional(),
+  /**
+   * 增量快照（0.111.0）：`snapshot` 里只有变了的行（`+` 新增、`-` 去掉），这里是新增、去掉与没变的行数。要了 `changes` 但给的是
+   * 整个快照时没有这一项。
+   */
+  changes: z
+    .object({ added: z.int().min(0), removed: z.int().min(0), unchanged: z.int().min(0) })
+    .optional(),
 });
 
 export const BrowserConsoleEntrySchema = z.object({

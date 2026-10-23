@@ -874,6 +874,8 @@ export const messages: Messages = {
   'approval.title.browserAct': '브라우저의 페이지를 조작하는 것을 허용할까요?',
   'approval.title.browserClose': '브라우저 탭을 닫는 것을 허용할까요?',
   'approval.title.browserClaim': '브라우저 탭을 넘겨받도록 허용할까요?',
+  'approval.title.browserBatch': '브라우저에서 이 작업들을 실행하도록 허용할까요?',
+  'approval.title.browserRun': '브라우저에서 이 스크립트를 실행하도록 허용할까요?',
   'approval.permission': '필요한 권한: {permission}',
   'approval.permission.fullAccess': '전체 액세스',
   'approval.preview': '내용 미리 보기',

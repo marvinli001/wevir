@@ -878,6 +878,8 @@ export const messages: Messages = {
   'approval.title.browserAct': 'ブラウザのページを操作することを許可しますか？',
   'approval.title.browserClose': 'ブラウザのタブを閉じることを許可しますか？',
   'approval.title.browserClaim': 'ブラウザのタブを引き継ぐことを許可しますか？',
+  'approval.title.browserBatch': 'ブラウザでこれらの操作を実行することを許可しますか？',
+  'approval.title.browserRun': 'ブラウザでこのスクリプトを実行することを許可しますか？',
   'approval.permission': '必要な権限: {permission}',
   'approval.permission.fullAccess': 'フルアクセス',
   'approval.preview': '内容のプレビュー',

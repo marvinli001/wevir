@@ -627,6 +627,49 @@ describe('SessionManager：审批', () => {
   });
 });
 
+describe('SessionManager：应用级工具替用户答应审批（autoAllow）', () => {
+  it('autoAllow 认的调用：不写审批，引擎按允许继续；不认或出错时照常问', async () => {
+    const seen: Array<{ toolName: string; input?: unknown }> = [];
+    const h = setup({
+      manager: {
+        appTools: {
+          grant: () => undefined,
+          autoAllow: (_sessionId, tool) => {
+            seen.push(tool);
+            return tool.toolName === 'echo_write';
+          },
+        },
+      },
+    });
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'approval.requested')).toEqual([]);
+    expect(ofType(h, id, 'tool.finished').map((event) => event.payload.status)).toContain(
+      'completed',
+    );
+    expect(seen[0]?.toolName).toBe('echo_write');
+    expect(seen[0]?.input).toBeDefined();
+
+    const throwing = setup({
+      manager: {
+        appTools: {
+          grant: () => undefined,
+          autoAllow: () => {
+            throw new Error('boom');
+          },
+        },
+      },
+    });
+    const other = await create(throwing);
+    await send(throwing, other, 'please approve');
+    const approval = await waitForApproval(throwing, other);
+    expect(approval.toolCallId).toBeDefined();
+    throwing.errors.splice(0);
+    await throwing.manager.cancel(other);
+  });
+});
+
 /** echo 的 `approve` 换成一条命令审批：`approve: <命令>` 里冒号之后是命令（模拟 Codex 等引擎的命令审批）。 */
 class ShellEchoAdapter extends EchoAdapter {
   override subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {

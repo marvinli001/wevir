@@ -901,6 +901,8 @@ export const messages: Messages = {
   'approval.title.browserAct': 'Разрешить действия на странице в браузере?',
   'approval.title.browserClose': 'Разрешить закрыть вкладку браузера?',
   'approval.title.browserClaim': 'Разрешить взять управление вкладкой браузера?',
+  'approval.title.browserBatch': 'Разрешить эти действия в браузере?',
+  'approval.title.browserRun': 'Разрешить запуск этого скрипта в браузере?',
   'approval.permission': 'Требуемое разрешение: {permission}',
   'approval.permission.fullAccess': 'Полный доступ',
   'approval.preview': 'Предпросмотр',

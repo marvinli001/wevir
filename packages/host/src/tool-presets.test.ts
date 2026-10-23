@@ -79,9 +79,9 @@ const CORE: ToolPreset = { id: 'core' };
 const FULL: ToolPreset = { id: 'full' };
 
 describe('工具分组', () => {
-  it('Host 的每个应用级工具都属于一个组；core 留 22 个，另 4 组是浏览器 27、LSP 7、进程 6、插件 4', () => {
+  it('Host 的每个应用级工具都属于一个组；core 留 22 个，另 4 组是浏览器 29、LSP 7、进程 6、插件 4', () => {
     const tools = allTools().tools;
-    expect(tools).toHaveLength(66);
+    expect(tools).toHaveLength(68);
     expect(tools.filter((tool) => toolGroupOf(tool.name) === undefined)).toEqual([]);
     const contents = toolGroupContents(tools);
     expect(Object.fromEntries(contents.map((group) => [group.id, group.tools.length]))).toEqual({
@@ -90,7 +90,7 @@ describe('工具分组', () => {
       tasks: 3,
       memory: 4,
       workbench: 4,
-      browser: 27,
+      browser: 29,
       lsp: 7,
       processes: 6,
       plugins: 4,

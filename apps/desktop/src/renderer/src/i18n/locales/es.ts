@@ -889,6 +889,8 @@ export const messages: Messages = {
   'approval.title.browserAct': '¿Permitir actuar sobre una página en el navegador?',
   'approval.title.browserClose': '¿Permitir cerrar una pestaña del navegador?',
   'approval.title.browserClaim': '¿Permitir tomar el control de una pestaña del navegador?',
+  'approval.title.browserBatch': '¿Permitir estas acciones en el navegador?',
+  'approval.title.browserRun': '¿Permitir ejecutar este script en el navegador?',
   'approval.permission': 'Permiso requerido: {permission}',
   'approval.permission.fullAccess': 'Acceso total',
   'approval.preview': 'Vista previa del contenido',

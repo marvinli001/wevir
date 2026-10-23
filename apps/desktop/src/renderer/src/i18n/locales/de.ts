@@ -883,6 +883,8 @@ export const messages: Messages = {
   'approval.title.browserAct': 'Bedienen einer Seite im Browser erlauben?',
   'approval.title.browserClose': 'Schließen eines Browser-Tabs erlauben?',
   'approval.title.browserClaim': 'Übernahme eines Browser-Tabs erlauben?',
+  'approval.title.browserBatch': 'Diese Aktionen im Browser erlauben?',
+  'approval.title.browserRun': 'Ausführen dieses Browser-Skripts erlauben?',
   'approval.permission': 'Erforderliche Berechtigung: {permission}',
   'approval.permission.fullAccess': 'Vollzugriff',
   'approval.preview': 'Vorschau',

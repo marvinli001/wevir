@@ -565,10 +565,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         prepareEvent: (sessionId, event) => {
           // 代码智能：记下引擎改过的文件（不改事件）。
           appTools?.lsp?.observe(sessionId, event);
-          return appTools?.plugins?.prepareEvent(sessionId, event) ?? Promise.resolve(event);
+          // browser_batch / browser_run：消息流与审批卡片里列出每一步、写出脚本全文。
+          const shown = appTools?.prepareEvent(sessionId, event) ?? event;
+          return appTools?.plugins?.prepareEvent(sessionId, shown) ?? Promise.resolve(shown);
         },
         resolved: (sessionId, toolCallId, approved) =>
           appTools?.plugins?.resolved(sessionId, toolCallId, approved),
+        autoAllow: (sessionId, tool) => appTools?.autoAllow(sessionId, tool) ?? false,
         forget: (sessionIds) => {
           void processes?.removeSessions(sessionIds);
           terminals?.removeSessions(sessionIds);

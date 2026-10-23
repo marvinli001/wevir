@@ -7458,6 +7458,30 @@ export const methodSamples: MethodSamples = {
   'browser.respond': {
     params: {
       valid: [
+        // 0.111.0：增量快照。
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'snapshot',
+            browserId: browserTab.browserId,
+            url: browserTab.url,
+            title: browserTab.title,
+            format: 'aria-yaml',
+            snapshot:
+              '# in: - form "Login"\n-   - textbox "Email" [ref=@e3]\n+   - textbox "Email" [value="a@b.c" ref=@e3]',
+            truncated: false,
+            stats: {
+              nodeCount: 40,
+              refCount: 6,
+              textLength: 90,
+              totalLines: 30,
+              startLine: 0,
+              shownLines: 30,
+              changes: { added: 1, removed: 1, unchanged: 29 },
+            },
+          },
+        },
         {
           requestId: ids.browserRequest,
           ok: true,
@@ -8042,6 +8066,13 @@ export const notificationSamples: NotificationSamples = {
   },
   'browser.request': {
     valid: [
+      // 0.111.0
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'snapshot', args: { browserId: browserTab.browserId, changes: true } },
+      },
       {
         requestId: ids.browserRequest,
         sessionId: ids.session,
