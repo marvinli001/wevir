@@ -6,7 +6,7 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'r
 import { t, timeAgo } from '../i18n';
 import type { ArtifactKind, BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
-import { Button, Icon, type IconName } from './ui';
+import { Button, Chevron, Icon, type IconName } from './ui';
 
 type Decide = (decision: Exclude<Decision, 'pending'>) => Promise<void>;
 
@@ -301,12 +301,7 @@ function ThreadCard({
           </Text>
         )}
       </View>
-      <Icon
-        name={{ ios: 'chevron.right', android: 'chevron_right' }}
-        size={13}
-        weight="semibold"
-        color={theme.borderStrong}
-      />
+      <Chevron color={theme.borderStrong} />
     </Pressable>
   );
 }

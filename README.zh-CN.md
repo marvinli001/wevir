@@ -137,6 +137,28 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://wevir.si/download/#platforms) |
 | <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://wevir.si/download/#platforms) |
 
+### 命令行
+
+`wevir` 命令行也单独发布，自带 Node，支持 Linux（x64 与 arm64，glibc 2.28 起，包括没有桌面的服务器）、macOS 与 Windows x64。它与桌面端共用数据目录，已有 Host 在运行时直接连上它。
+
+```bash
+curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh
+```
+
+Windows（PowerShell）：
+
+```powershell
+irm https://dl.edgeweir.com/cli/install.ps1 | iex
+```
+
+脚本核对安装包的 sha256，装到 `~/.local/share/wevir-cli`，并在 `~/.local/bin` 放 `wevir` 链接（Windows 装到 `%LOCALAPPDATA%\Programs\wevir-cli` 并加入用户 `PATH`）；还没有正式版时装开发版。再运行一次即更新。之后：
+
+```bash
+wevir host start
+wevir provider add --kind deepseek-official
+wevir session new -w ~/my-project "概括这个仓库"
+```
+
 ## 从源码运行
 
 要求：Node.js **24.22.1+**（Node 24 LTS）、pnpm **12.6.0**。

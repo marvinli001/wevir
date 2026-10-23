@@ -49,6 +49,22 @@ export function Icon({
   );
 }
 
+/**
+ * 行尾与分组标题的箭头。Material Symbols 的字形在字框里留白比 SF Symbols 多（`chevron_right` 只占字框一半高），Android 上放大
+ * 到同样的视觉尺寸，再用负边距收回多出的留白，让箭头仍贴着行的右边距。
+ */
+export function Chevron({ color }: { color: string }) {
+  return (
+    <Icon
+      name={{ ios: 'chevron.right', android: 'chevron_right' }}
+      size={Platform.OS === 'android' ? 24 : 13}
+      weight="semibold"
+      color={color}
+      style={Platform.OS === 'android' ? styles.chevronAndroid : undefined}
+    />
+  );
+}
+
 export function toneColor(theme: Theme, tone: StatusTone): string {
   switch (tone) {
     case 'online':
@@ -167,14 +183,7 @@ export function Row({
         {subtitle}
       </View>
       {trailing}
-      {chevron && (
-        <Icon
-          name={{ ios: 'chevron.right', android: 'chevron_right' }}
-          size={13}
-          weight="semibold"
-          color={theme.borderStrong}
-        />
-      )}
+      {chevron && <Chevron color={theme.borderStrong} />}
       {!last && <View style={[styles.separator, { backgroundColor: theme.border, left }]} />}
     </Pressable>
   );
@@ -442,6 +451,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rowText: { flex: 1, gap: 3 },
+  chevronAndroid: { marginHorizontal: -7 },
   rowTitle: { fontSize: TEXT.body, fontWeight: '600', letterSpacing: -0.2 },
   separator: {
     position: 'absolute',

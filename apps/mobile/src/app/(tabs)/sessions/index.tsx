@@ -3,7 +3,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SessionRow } from '../../../components/session-row';
-import { EmptyState, Group, Icon, SectionTitle, StatusText } from '../../../components/ui';
+import { Chevron, EmptyState, Group, SectionTitle, StatusText } from '../../../components/ui';
 import { t } from '../../../i18n';
 import type { LinkSnapshot } from '../../../lib/computer-link';
 import { displayName } from '../../../lib/records';
@@ -66,16 +66,7 @@ function ComputerSessions({
         onPress={() => router.push({ pathname: '/computer/[name]', params: { name: record.name } })}
         style={({ pressed }) => ({ opacity: pressed ? 0.55 : 1 })}
       >
-        <SectionTitle
-          trailing={
-            <Icon
-              name={{ ios: 'chevron.right', android: 'chevron_right' }}
-              size={13}
-              weight="semibold"
-              color={theme.mutedForeground}
-            />
-          }
-        >
+        <SectionTitle trailing={<Chevron color={theme.mutedForeground} />}>
           <View style={styles.heading}>
             <Text style={[styles.computer, { color: theme.foreground }]} numberOfLines={1}>
               {displayName(record)}

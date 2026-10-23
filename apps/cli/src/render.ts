@@ -12,12 +12,15 @@ import type {
   WevirEventOf,
 } from '@wevir/protocol';
 import {
+  alwaysAllow,
   approvalEndLabel,
   clientLabel,
   engineErrorHint,
   engineErrorLabel,
+  filesRestoreLabel,
   formatDuration,
   optionLabel,
+  permissionLabel,
   readOnlyLabel,
   stateReasonLabel,
   subagentEndLabel,
@@ -45,6 +48,8 @@ export interface RendererOptions {
   isEchoed?: (clientMessageId: string) => boolean;
   /** 这条审批是不是本终端处理的。 */
   decidedHere?: (approvalId: ApprovalId) => boolean;
+  /** 这条连接能加审批规则（`policy.write`）：有提议的审批显示“总是允许”。 */
+  canRemember?: boolean;
 }
 
 interface Block {
@@ -116,7 +121,6 @@ export class EventRenderer {
     switch (event.type) {
       case 'session.created':
       case 'session.title_changed':
-      case 'session.configured':
       case 'turn.started':
       case 'tool.updated':
       case 'usage.updated':
@@ -129,6 +133,44 @@ export class EventRenderer {
         );
         return;
       }
+      case 'session.configured': {
+        // 0.9.0：只在实时时说一声（回放时开头已显示会话现在的模型）。
+        if (!this.#live) return;
+        const { modelId, reasoningEffort, permissionMode } = event.payload;
+        const parts = [modelId, reasoningEffort, permissionLabel(permissionMode ?? 'on_request')];
+        this.#sink.line(
+          this.#s.dim(t('render.configured', { config: parts.filter(Boolean).join(' · ') })),
+        );
+        return;
+      }
+      case 'session.goal_changed': {
+        if (!this.#live) return;
+        const { goal } = event.payload;
+        this.#sink.line(
+          this.#s.dim(
+            goal === null
+              ? t('render.goalCleared')
+              : t('render.goal', {
+                  status: t(`goalStatus.${goal.status}`),
+                  objective: goal.objective,
+                }),
+          ),
+        );
+        return;
+      }
+      case 'turn.undone':
+        this.#sink.line(
+          this.#s.dim(`↶ ${t('render.undone', { files: filesRestoreLabel(event.payload.files) })}`),
+        );
+        return;
+      case 'turn.redone':
+        this.#sink.line(
+          this.#s.dim(`↷ ${t('render.redone', { files: filesRestoreLabel(event.payload.files) })}`),
+        );
+        return;
+      case 'turn.rewound':
+        this.#sink.line(this.#s.dim(t('render.rewound')));
+        return;
       case 'session.handoff':
         // 0.25.0：换到了别的来源（接力）；交给新模型的摘要不显示。
         this.#sink.line(
@@ -221,7 +263,7 @@ export class EventRenderer {
         this.#approvalResolved(event);
         return;
       case 'question.requested': {
-        // 0.10.0：命令行只显示问题，回答在桌面端（见 TODO.md）。
+        // 0.10.0：问题在这里列出，attach 的输入框逐题回答。
         const { questions } = event.payload.question;
         this.#sink.line(this.#s.yellow(t('render.question')));
         for (const item of questions) {
@@ -464,6 +506,8 @@ export class EventRenderer {
       .map((option, i) => `${i + 1}) ${optionLabel(option)}`)
       .join('  ');
     this.#sink.line(`  ${t('render.options', { options })}`);
+    const always = this.#options.canRemember ? alwaysAllow(approval) : undefined;
+    if (always) this.#sink.line(`  ${t('render.alwaysAllow', { prefix: always.prefix })}`);
   }
 
   #approvalResolved(event: WevirEventOf<'approval.resolved'>): void {
@@ -480,14 +524,16 @@ export class EventRenderer {
     const option = approval?.options.find((o) => o.optionId === resolution.optionId);
     const decision = option ? optionLabel(option) : (resolution.optionId ?? status);
     const paint = status === 'approved' ? this.#s.green : this.#s.yellow;
+    const ruled = (resolution.ruleIds?.length ?? 0) > 0 ? this.#s.dim(t('render.ruleAdded')) : '';
     if (this.#live && this.#options.decidedHere?.(approvalId)) {
-      this.#sink.line(paint(t('render.decidedHere', { decision })));
+      this.#sink.line(paint(t('render.decidedHere', { decision })) + ruled);
     } else if (resolution.decidedBy) {
       this.#sink.line(
-        paint(t('render.decidedBy', { client: clientLabel(resolution.decidedBy), decision })),
+        paint(t('render.decidedBy', { client: clientLabel(resolution.decidedBy), decision })) +
+          ruled,
       );
     } else {
-      this.#sink.line(paint(t('render.decided', { decision })));
+      this.#sink.line(paint(t('render.decided', { decision })) + ruled);
     }
   }
 
