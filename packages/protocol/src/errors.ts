@@ -20,7 +20,7 @@ import { ProtocolVersionSchema } from './version.js';
  * JSON-RPC `error.code` 表（host-api.md「错误码」）。客户端按数值判断，`message` 只给人看。
  * 前五个是 JSON-RPC 2.0 标准码；Wevir 自己的错误在规范留给实现方的 -32000…-32099 内分段：
  * -32000…-32009 连接与握手，-32010…-32019 对象不存在，-32020…-32039 状态与冲突，
- * -32040…-32059 环境与引擎，-32060…-32069 是调优（0.85.0 档案、0.86.0 护栏、0.87.0 建议），-32070 起是远程访问（0.107.0）。
+ * -32040…-32059 环境与引擎，-32060…-32069 是调优（0.85.0 档案、0.86.0 护栏、0.87.0 建议），-32070 起是远程访问（0.107.0；0.112.0 起含推送）。
  * 只增不减，已分配的数值不复用。
  */
 export const ErrorCode = {
@@ -92,6 +92,11 @@ export const ErrorCode = {
   DEVICE_NOT_FOUND: -32070,
   /** 没有这个配对窗口或请求，或它已经结束（0.107.0，`pairing.respond`）。 */
   PAIRING_NOT_FOUND: -32071,
+  /**
+   * 推送网关拒绝或连不上（0.112.0，`push.register`）：`data.reason` 是 `bad_code`（验证码不对或过期，重新向网关要一个）、
+   * `rate_limited`、`rejected`（网关拒绝，例如没有这个平台）或 `unreachable`。
+   */
+  PUSH_GATEWAY_ERROR: -32072,
 } as const;
 
 export type ErrorCodeName = keyof typeof ErrorCode;
@@ -176,6 +181,9 @@ export const ErrorDataSchemas = {
   ENGINE_ERROR: EngineErrorInfoSchema,
   SPEECH_FAILED: SpeechFailedDataSchema,
   MCP_OAUTH_FAILED: z.object({ reason: McpOAuthErrorReasonSchema }),
+  PUSH_GATEWAY_ERROR: z.object({
+    reason: z.enum(['bad_code', 'rate_limited', 'rejected', 'unreachable']),
+  }),
 } as const satisfies Partial<Record<ErrorCodeName, z.ZodType>>;
 
 export type ErrorData<N extends keyof typeof ErrorDataSchemas> = z.infer<

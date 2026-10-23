@@ -13,6 +13,7 @@ import {
   PROTOCOL_VERSION,
   ProviderKindSchema,
   type ProviderTranscriptionModel,
+  PUSH_GATEWAY_URL,
   type SessionId,
   type WorkspaceId,
 } from '@wevir/protocol';
@@ -75,6 +76,7 @@ import { RemoteIdentity } from './remote/identity.js';
 import { RemoteListener, type RemoteListenerOptions } from './remote/listener.js';
 import { createCiaoAdvertiser } from './remote/mdns.js';
 import { PairingService } from './remote/pairing.js';
+import { HttpPushGateway, PushService, type PushServiceOptions } from './remote/push.js';
 import { RetroService } from './retro/service.js';
 import { loadRetroInstructions } from './retro/summary.js';
 import { loadReviewTemplate, ReviewService } from './review/service.js';
@@ -160,6 +162,13 @@ export interface StartHostOptions {
     | 'handshakeTimeoutMs'
     | 'relay'
   >;
+  /**
+   * 推送（0.112.0）：网关地址（省略时是官方的 `PUSH_GATEWAY_URL`；wevir-host 读 `WEVIR_PUSH_GATEWAY_URL`，给本机起的网关做开发测试），
+   * 测试另外换掉合并间隔、每小时上限与 fetch。
+   */
+  push?: { gatewayUrl?: string } & Pick<PushServiceOptions, 'coalesceMs' | 'maxPerHour'> & {
+      fetch?: typeof fetch;
+    };
   /** 远程 MCP 服务的 OAuth（0.97.0）：测试换掉 CIMD 地址、登录超时、时钟与 DNS 解析。 */
   mcpOAuth?: Pick<McpOAuthOptions, 'clientMetadataUrl' | 'loginTimeoutMs' | 'now' | 'lookup'>;
   /** 官方插件市场的镜像地址、公钥与 fetch（0.91.0）；省略用 wevir-marketplace 的三个镜像（测试换成本机服务）。 */
@@ -222,6 +231,7 @@ export interface RunningHost {
     readonly devices: DeviceService;
     readonly pairing: PairingService;
     readonly listener: RemoteListener;
+    readonly push: PushService;
   };
 }
 
@@ -929,6 +939,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const remoteIdentity = new RemoteIdentity({ secrets });
     const deviceService = new DeviceService({ storage, secrets });
     const hostName = hostname().replace(/\.local$/, '');
+    // 推送（0.112.0，ADR-0017 §6）：电脑前没人时把通知意图加密后经推送网关发给开了推送的设备；只在设置里开了推送时连网关。
+    const pushService = new PushService({
+      settings: () => settings.get().remote,
+      devices: deviceService,
+      identity: remoteIdentity,
+      notifications: notificationService,
+      presence,
+      gateway: new HttpPushGateway({
+        url: options.push?.gatewayUrl ?? PUSH_GATEWAY_URL,
+        identity: remoteIdentity,
+        ...(options.push?.fetch !== undefined && { fetch: options.push.fetch }),
+      }),
+      hostName,
+      ...(options.push?.coalesceMs !== undefined && { coalesceMs: options.push.coalesceMs }),
+      ...(options.push?.maxPerHour !== undefined && { maxPerHour: options.push.maxPerHour }),
+      onError: (error) => logger.warn('push error', { error }),
+    });
+    settings.watch(() => pushService.refresh());
     // 直连的远程监听（0.109.0，ADR-0017 §1）：在勾选的网卡上监听，握手完成的连接交给 RPC 服务（下面建好之后才有）。
     let rpcServer: HostRpcServer | undefined;
     const remoteListener: RemoteListener = new RemoteListener({
@@ -946,6 +974,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       attach: (socket, origin) => rpcServer?.attach(socket, origin),
       hostName,
       keepAwake,
+      push: pushService,
       advertiser:
         options.remoteListener?.advertiser ??
         createCiaoAdvertiser((error) => {
@@ -1171,7 +1200,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         speech,
         keepAwake,
         inbox: inboxService,
-        remote: { devices: deviceService, pairing: pairingService, listener: remoteListener },
+        remote: {
+          devices: deviceService,
+          pairing: pairingService,
+          listener: remoteListener,
+          push: pushService,
+        },
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -1266,6 +1300,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         remote_devices: true,
         remote_listener: true,
         remote_relay: true,
+        remote_push: true,
       },
       engineFeatures,
       plugins,
@@ -1276,7 +1311,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       inbox: inboxService,
       notifications: notificationService,
       presence,
-      remote: { devices: deviceService, pairing: pairingService, listener: remoteListener },
+      remote: {
+        devices: deviceService,
+        pairing: pairingService,
+        listener: remoteListener,
+        push: pushService,
+      },
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
@@ -1332,9 +1372,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         devices: deviceService,
         pairing: pairingService,
         listener: remoteListener,
+        push: pushService,
       },
       shutdown: (trigger = { kind: 'api' }) => {
         pairingService.close();
+        pushService.close();
         stopping ??= shutdownSequence({
           trigger,
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,

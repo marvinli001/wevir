@@ -27,6 +27,7 @@ import {
   PLATFORM_LABEL,
   parsePort,
   parseRelayUrl,
+  pushStatusKey,
   RELAY_URL_PLACEHOLDER,
   type RelayStatusText,
   RISKY_DEVICE_PERMISSIONS,
@@ -59,7 +60,8 @@ const RISK_BODY: Partial<Record<Permission, PlainMessageKey>> = {
 /**
  * 设置 → 设备（0.107.0，domain-model §3.49，desktop-layout.md）：远程访问的总开关、直连的网卡与端口（0.109.0，Host 功能
  * `remote_listener`；旧 Host 显示为不可用）、中继与自建中继的地址（没填地址时开关不可用，0.111.0）；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要
- * 确认）、移除。远程访问默认关。网卡逐块列出名称与地址，让用户确认（`100.64/10` 也可能是别的 VPN）。
+ * 确认）、移除。远程访问默认关。网卡逐块列出名称与地址，让用户确认（`100.64/10` 也可能是别的 VPN）。推送（0.112.0，Host 功能
+ * `remote_push`）：总开关与“需要处理”“完成”两路、网关状态，每台设备一个开关；配对时在请求里问一次。
  */
 export function DevicesSettings() {
   const { client, view } = useHostConnection();
@@ -70,6 +72,7 @@ export function DevicesSettings() {
     hostSupports(view.hello.features, 'remote_devices');
   const remote = remoteOf(settings);
   const listenerSupported = supported && hostSupports(view.hello.features, 'remote_listener');
+  const pushSupported = supported && hostSupports(view.hello.features, 'remote_push');
   const [devices, setDevices] = useState<Device[]>();
   const [status, setStatus] = useState<RemoteStatus>();
   const [notice, setNotice] = useState<Notice>();
@@ -130,6 +133,16 @@ export function DevicesSettings() {
     }
   };
 
+  const setPush = async (device: Device, enabled: boolean) => {
+    if (!client) return;
+    setNotice(undefined);
+    try {
+      await client.request('device.update', { id: device.id, push: { enabled } });
+    } catch (reason) {
+      fail(reason);
+    }
+  };
+
   const toggle = (device: Device, permission: Permission, granted: boolean) => {
     if (granted && RISKY_DEVICE_PERMISSIONS.has(permission)) {
       setGranting({ device, permission });
@@ -139,6 +152,7 @@ export function DevicesSettings() {
   };
 
   const listed = devices && visibleDevices(devices);
+  const pushStatus = remote.push.enabled ? pushStatusKey(status?.push) : undefined;
 
   return (
     <>
@@ -256,6 +270,52 @@ export function DevicesSettings() {
         </div>
       </SettingsSection>
 
+      {pushSupported && (
+        <SettingsSection title={t('settings.devices.push')} data-devices-push>
+          <div className={LIST_CARD}>
+            <SettingsRow
+              title={t('settings.devices.push')}
+              description={pushStatus && t(pushStatus)}
+              data-setting="remote-push"
+              data-push-state={status?.push?.state}
+              control={
+                <Switch
+                  label={t('settings.devices.push')}
+                  checked={remote.push.enabled}
+                  disabled={saving}
+                  onChange={(enabled) =>
+                    void saveRemote({ ...remote, push: { ...remote.push, enabled } })
+                  }
+                />
+              }
+            />
+            {remote.push.enabled &&
+              (
+                [
+                  ['needsAction', 'settings.devices.pushNeedsAction'],
+                  ['completion', 'settings.devices.pushCompletion'],
+                ] as const
+              ).map(([key, label]) => (
+                <SettingsRow
+                  key={key}
+                  title={t(label)}
+                  data-setting={`remote-push-${key}`}
+                  control={
+                    <Switch
+                      label={t(label)}
+                      checked={remote.push[key] !== false}
+                      disabled={saving}
+                      onChange={(enabled) =>
+                        void saveRemote({ ...remote, push: { ...remote.push, [key]: enabled } })
+                      }
+                    />
+                  }
+                />
+              ))}
+          </div>
+        </SettingsSection>
+      )}
+
       <SettingsSection
         title={t('settings.devices.list')}
         data-devices-list
@@ -282,6 +342,8 @@ export function DevicesSettings() {
               <DeviceRow
                 key={device.id}
                 device={device}
+                pushSupported={pushSupported}
+                onPush={(enabled) => void setPush(device, enabled)}
                 onToggle={(permission, granted) => toggle(device, permission, granted)}
                 onRemove={() => setRemoving(device)}
               />
@@ -292,6 +354,7 @@ export function DevicesSettings() {
 
       {pairing && (
         <PairingDialog
+          askPush={pushSupported}
           onClose={(paired) => {
             setPairing(false);
             if (paired) {
@@ -478,10 +541,14 @@ function RelayUrlRow({
 
 function DeviceRow({
   device,
+  pushSupported,
+  onPush,
   onToggle,
   onRemove,
 }: {
   device: Device;
+  pushSupported: boolean;
+  onPush: (enabled: boolean) => void;
   onToggle: (permission: Permission, granted: boolean) => void;
   onRemove: () => void;
 }) {
@@ -495,8 +562,19 @@ function DeviceRow({
           {t('settings.devices.lastSeen', {
             time: formatRelativeTime(device.lastSeenAt, Date.now()),
           })}
+          {device.push?.enabled && !device.push.registered && (
+            <> · {t('settings.devices.pushUnregistered')}</>
+          )}
         </div>
       </div>
+      {pushSupported && device.push !== undefined && (
+        <Switch
+          label={t('settings.devices.devicePush', { name: device.name })}
+          checked={device.push.enabled}
+          onChange={onPush}
+          data-action="device-push"
+        />
+      )}
       <Popover>
         <PopoverTrigger
           render={<Button size="sm" variant="ghost" data-action="device-permissions" />}

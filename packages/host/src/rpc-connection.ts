@@ -7,6 +7,7 @@ import {
   CloseCode,
   type CloseCodeName,
   compareProtocolVersions,
+  type DeviceId,
   type EngineFeatures,
   ErrorCode,
   type ErrorCodeName,
@@ -62,6 +63,7 @@ import {
 import type { Presence } from './presence.js';
 import type { DeviceService } from './remote/devices.js';
 import type { PairingService } from './remote/pairing.js';
+import type { PushService } from './remote/push.js';
 import { type SessionListFeed, SessionListScope } from './session-list.js';
 import type { TerminalService } from './terminals.js';
 
@@ -106,6 +108,8 @@ export interface ConnectionHost {
     readonly pairing: Pick<PairingService, 'watch'>;
     /** 远程监听（0.109.0）：同样的连接收 `remote.changed`。 */
     readonly listener?: { watch(listener: (status: RemoteStatus) => void): () => void };
+    /** 推送（0.112.0）：远程设备的 `push.*`，调过的连接收 `push.changed`。 */
+    readonly push?: Pick<PushService, 'stateFor' | 'register' | 'unregister' | 'onDeviceChange'>;
   };
   /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接用它收 `notification.intent`。 */
   readonly notifications?: Pick<NotificationService, 'watch'>;
@@ -272,6 +276,8 @@ export class RpcConnection {
   #unwatchRemote: (() => void) | undefined;
   /** `notification.subscribe` 之后：退订 `notification.intent`。 */
   #unwatchNotifications: (() => void) | undefined;
+  /** 远程设备调过 `push.*` 之后：退订 `push.changed`。 */
+  #unwatchPush: (() => void) | undefined;
   /** 调过 `usage.*` 之后：退订 `usage.changed`。 */
   #unwatchUsage: (() => void) | undefined;
   /** 调过 `automation.*` 之后：退订 `automation.changed`。 */
@@ -579,6 +585,19 @@ export class RpcConnection {
         const { active } = params as MethodParams<'presence.update'>;
         this.#host.presence?.update(this, active, this.#grant.principal.kind === 'local');
         this.#respond(id, method, {});
+        return;
+      }
+      case 'push.get':
+      case 'push.register':
+      case 'push.unregister': {
+        const { push, deviceId } = this.#pushTarget();
+        const state =
+          method === 'push.register'
+            ? await push.register(deviceId, params as MethodParams<'push.register'>)
+            : method === 'push.unregister'
+              ? await push.unregister(deviceId)
+              : await push.stateFor(deviceId);
+        if (this.#respond(id, method, state)) this.#watchPush(deviceId);
         return;
       }
       case 'browser.register': {
@@ -954,6 +973,36 @@ export class RpcConnection {
     };
   }
 
+  /** `push.*` 的对象：只有远程设备的连接有（本机连接 `INVALID_REQUEST`）。 */
+  #pushTarget(): {
+    push: NonNullable<NonNullable<ConnectionHost['remote']>['push']>;
+    deviceId: DeviceId;
+  } {
+    const principal = this.#grant.principal;
+    if (principal.kind !== 'device') {
+      throw new HostError('INVALID_REQUEST', 'push.* is only for remote devices');
+    }
+    const push = this.#host.remote?.push;
+    if (push === undefined) throw new HostError('INVALID_REQUEST', 'this host has no push service');
+    return { push, deviceId: principal.deviceId as DeviceId };
+  }
+
+  /**
+   * 远程设备调过 `push.*` 之后收 `push.changed`（0.112.0，domain-model §3.52）：只有这台设备自己的推送状态变了才发，连接关闭即止。
+   */
+  #watchPush(deviceId: DeviceId): void {
+    const push = this.#host.remote?.push;
+    if (this.#unwatchPush !== undefined || push === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchPush = push.onDeviceChange((changed) => {
+      if (changed !== deviceId) return;
+      push.stateFor(deviceId).then(
+        (state) => this.#notify('push.changed', state),
+        (error: unknown) => this.#host.onError(error),
+      );
+    });
+  }
+
   /** 调过 `usage.*` 的连接之后收 `usage.changed`（0.62.0），连接关闭即止。 */
   #watchUsage(): void {
     if (this.#unwatchUsage !== undefined || this.#host.usage === undefined) return;
@@ -1278,6 +1327,8 @@ export class RpcConnection {
     this.#unwatchRemote = undefined;
     this.#unwatchNotifications?.();
     this.#unwatchNotifications = undefined;
+    this.#unwatchPush?.();
+    this.#unwatchPush = undefined;
     this.#host.presence?.remove(this);
     this.#unwatchUsage?.();
     this.#unwatchUsage = undefined;

@@ -477,6 +477,12 @@ export const HOST_FEATURES = {
    * 与引擎无关。
    */
   remoteRelay: 'remote_relay',
+  /**
+   * 推送（0.112.0，ADR-0017 §6，host-api.md §1.3）：设备的 `push.get` / `push.register` / `push.unregister` 与 `push.changed`，设置
+   * `remote.push` 的两路开关，设备记录的 `push`、`device.update` 与 `pairing.respond` 的 `push`，`remote.status` 的 `push`。电脑前没人时
+   * 把通知意图加密后经推送网关发给开了推送的设备。与引擎无关。
+   */
+  remotePush: 'remote_push',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -574,6 +580,7 @@ export const HostFeaturesSchema = z.looseObject({
   tuning_auto: z.boolean().optional(),
   remote_listener: z.boolean().optional(),
   remote_relay: z.boolean().optional(),
+  remote_push: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

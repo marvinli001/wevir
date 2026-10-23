@@ -209,6 +209,13 @@ import {
   ProcessStopResultSchema,
 } from './processes.js';
 import {
+  PushChangedParamsSchema,
+  PushGetParamsSchema,
+  PushRegisterParamsSchema,
+  PushStateResultSchema,
+  PushUnregisterParamsSchema,
+} from './push.js';
+import {
   ReadinessCancelParamsSchema,
   ReadinessCancelResultSchema,
   ReadinessChangedParamsSchema,
@@ -2604,6 +2611,25 @@ export const MethodSchemas = {
     result: RemoteStatusResultSchema,
     permission: 'host.manage',
   },
+  /**
+   * 推送（0.112.0）：远程设备读、报、撤自己的推送令牌，只有远程设备能调（本机连接 `INVALID_REQUEST`）。调过之一的连接收
+   * `push.changed`。
+   */
+  'push.get': {
+    params: PushGetParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
+  'push.register': {
+    params: PushRegisterParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
+  'push.unregister': {
+    params: PushUnregisterParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
   /** 审批规则（0.80.0）。 */
   'approvalRule.list': {
     params: ApprovalRuleListParamsSchema,
@@ -2819,6 +2845,8 @@ export const NotificationSchemas = {
   'pairing.ended': { params: PairingEndedParamsSchema },
   /** 发给调用过 `remote.status` 的连接（0.109.0）：远程监听的状态变了。 */
   'remote.changed': { params: RemoteChangedParamsSchema },
+  /** 发给调用过 `push.*` 的远程设备连接（0.112.0）：这台设备的推送状态变了（开关、令牌失效）。 */
+  'push.changed': { params: PushChangedParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
@@ -2878,6 +2906,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'pairing.request': 'host.manage',
   'pairing.ended': 'host.manage',
   'remote.changed': 'host.manage',
+  'push.changed': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
   'memory.changed': 'session.read',

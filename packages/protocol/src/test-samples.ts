@@ -49,6 +49,7 @@ import {
 import type { NotificationIntent } from './notifications.js';
 import type { PreviewCandidate, PreviewConfig } from './preview.js';
 import type { HostProcess } from './processes.js';
+import type { PushState } from './push.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
@@ -154,6 +155,20 @@ export const deviceSample: Device = {
   status: 'active',
 };
 
+/** 开了推送、令牌已绑定的一台手机（0.112.0）。 */
+export const devicePushSample: Device = {
+  ...deviceSample,
+  push: { enabled: true, registered: true },
+};
+
+/** 设备看到的自己的推送（0.112.0）：开着、令牌已绑定。 */
+export const pushStateSample: PushState = {
+  enabled: true,
+  registered: true,
+  gatewayUrl: 'https://push.wevir.si',
+  routeId: KEY_B,
+};
+
 /** 一个配对窗口（0.107.0）：远程监听还没开，没有候选地址。 */
 export const pairingOfferSample: PairingOffer = {
   pairingId: ids.pairing,
@@ -241,6 +256,18 @@ export const remoteRelayCertificateSample: RemoteStatus = {
     url: 'wss://relay.example.com',
     connections: 0,
     error: { reason: 'unreachable', message: 'self-signed certificate', certificate: true },
+  },
+};
+
+/** 推送（0.112.0）：直连监听着，推送开着，上一次网关连不上。 */
+export const remotePushSample: RemoteStatus = {
+  ...remoteStatusSample,
+  push: {
+    state: 'unavailable',
+    gatewayUrl: 'https://push.wevir.si',
+    devices: 1,
+    lastSentAt: TS,
+    error: { reason: 'unreachable', message: 'fetch failed' },
   },
 };
 
@@ -6856,10 +6883,19 @@ export const methodSamples: MethodSamples = {
       valid: [
         { id: ids.device, name: 'Pixel' },
         { id: ids.device, permissions: ['session.read', 'terminal.write'] },
+        { id: ids.device, push: { enabled: false } },
       ],
-      invalid: [{}, { id: ids.device, name: '' }, { id: ids.device, name: 'x'.repeat(65) }],
+      invalid: [
+        {},
+        { id: ids.device, name: '' },
+        { id: ids.device, name: 'x'.repeat(65) },
+        { id: ids.device, push: {} },
+      ],
     },
-    result: { valid: [{ device: deviceSample }], invalid: [{}] },
+    result: {
+      valid: [{ device: deviceSample }, { device: devicePushSample }],
+      invalid: [{}, { device: { ...devicePushSample, push: { enabled: true } } }],
+    },
   },
   'device.revoke': {
     params: { valid: [{ id: ids.device }], invalid: [{}, { id: 'device' }] },
@@ -6897,8 +6933,13 @@ export const methodSamples: MethodSamples = {
       valid: [
         { requestId: ids.pairingRequest, allow: true },
         { requestId: ids.pairingRequest, allow: false },
+        { requestId: ids.pairingRequest, allow: true, push: true },
       ],
-      invalid: [{ requestId: ids.pairingRequest }, { requestId: ids.pairing, allow: true }],
+      invalid: [
+        { requestId: ids.pairingRequest },
+        { requestId: ids.pairing, allow: true },
+        { requestId: ids.pairingRequest, allow: true, push: 'yes' },
+      ],
     },
     result: { valid: [{}, { device: deviceSample }], invalid: [null] },
   },
@@ -6912,9 +6953,11 @@ export const methodSamples: MethodSamples = {
         remoteRelayRetrySample,
         remoteRelayRejectedSample,
         remoteRelayCertificateSample,
+        remotePushSample,
       ],
       invalid: [
         { ...remoteStatusSample, port: 0 },
+        { ...remotePushSample, push: { state: 'down', gatewayUrl: 'https://x', devices: 0 } },
         {
           ...remoteRelaySample,
           relay: { state: 'off', url: 'wss://relay.example.com', connections: 0 },
@@ -6932,6 +6975,34 @@ export const methodSamples: MethodSamples = {
         { ...remoteStatusSample, interfaces: [{ name: 'en0', family: 'IPv4', kind: 'public' }] },
         { ...remoteStatusSample, error: { reason: 'busy', message: 'x' } },
       ],
+    },
+  },
+  'push.get': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [pushStateSample, { ...pushStateSample, enabled: false, registered: false }],
+      invalid: [{ ...pushStateSample, gatewayUrl: 'wss://push.wevir.si' }, { enabled: true }],
+    },
+  },
+  'push.register': {
+    params: {
+      valid: [
+        { platform: 'apns', token: 'a'.repeat(64), code: 'AAAAAAAAAAAAAAAAAAAAAA' },
+        { platform: 'fcm', token: 'dQw4w9WgXcQ:APA91b-x_y', code: 'abc_DEF-0123456789abcd' },
+      ],
+      invalid: [
+        { platform: 'apns', token: 'a'.repeat(64) },
+        { platform: 'hms', token: 'a'.repeat(64), code: 'AAAAAAAAAAAAAAAAAAAAAA' },
+        { platform: 'apns', token: 'a b c d e f', code: 'AAAAAAAAAAAAAAAAAAAAAA' },
+      ],
+    },
+    result: { valid: [pushStateSample], invalid: [{}] },
+  },
+  'push.unregister': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ ...pushStateSample, registered: false }],
+      invalid: [{ ...pushStateSample, routeId: 'x' }],
     },
   },
   'inbox.dismiss': {
@@ -7949,8 +8020,13 @@ export const notificationSamples: NotificationSamples = {
       remoteRelayRetrySample,
       remoteRelayRejectedSample,
       remoteRelayCertificateSample,
+      remotePushSample,
     ],
     invalid: [{ ...remoteStatusSample, connections: -1 }, { listening: true }],
+  },
+  'push.changed': {
+    valid: [pushStateSample, { ...pushStateSample, enabled: false, registered: false }],
+    invalid: [{ ...pushStateSample, enabled: 'yes' }],
   },
   'inbox.changed': {
     valid: [
@@ -8383,5 +8459,9 @@ export const errorDataSamples: ErrorDataSamples = {
   MCP_OAUTH_FAILED: {
     valid: { reason: 'client_id_required' },
     invalid: { reason: '' },
+  },
+  PUSH_GATEWAY_ERROR: {
+    valid: { reason: 'bad_code' },
+    invalid: { reason: 'not_bound' },
   },
 };

@@ -21,6 +21,19 @@ export function remoteOf(settings: { remote?: RemoteSettings }): RemoteSettings 
   return settings.remote ?? DEFAULT_REMOTE_SETTINGS;
 }
 
+/** 推送网关的状态（0.112.0 的 `remote.status.push`）的说明；正常、还没发过或旧 Host 时 undefined。 */
+export function pushStatusKey(push: RemoteStatus['push']): PlainMessageKey | undefined {
+  if (push?.state !== 'unavailable') return undefined;
+  switch (push.error?.reason) {
+    case 'rejected':
+      return 'settings.devices.pushRejected';
+    case 'rate_limited':
+      return 'settings.devices.pushRateLimited';
+    default:
+      return 'settings.devices.pushUnreachable';
+  }
+}
+
 /** 设置 → 设备 页面上能给设备的权限，按这个顺序列出。 */
 export const DEVICE_PERMISSION_ORDER: readonly Permission[] = DEVICE_ASSIGNABLE_PERMISSIONS;
 
