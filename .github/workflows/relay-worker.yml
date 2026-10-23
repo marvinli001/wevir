@@ -1,0 +1,90 @@
+# Wevir 官方中继（apps/relay-worker，Cloudflare Workers + Durable Objects）的部署，地址 relay.wevir.si。
+#
+# master 上改了中继、它打包进去的协议包或共享的协议测试时，先在 Linux 上跑中继的协议测试与类型检查，再 `wrangler deploy`；
+# 也可以手动运行。仓库 secret：CLOUDFLARE_API_TOKEN（Workers 编辑权限，含 wevir.si 区）、CLOUDFLARE_ACCOUNT_ID、
+# SOURCE_TAG_KEY（来源标记的 HMAC 密钥，任意长随机串；随每次部署经 --secrets-file 上传，不进日志）。没有令牌时只跑检查。
+
+name: Relay
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/relay-worker/**
+      - apps/relay/src/conformance.ts
+      - packages/protocol/src/**
+      - pnpm-lock.yaml
+      - .github/workflows/relay-worker.yml
+  workflow_dispatch:
+
+concurrency:
+  # 部署不互相取消：后一次排在前一次之后。
+  group: relay-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # 版本取 package.json 的 packageManager。
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 打包要协议包的 dist；中继的协议测试同时起 Node 版中继，也要它构建好。
+      - name: 构建
+        run: pnpm --filter "@wevir/relay-worker..." --filter "@wevir/relay..." build
+
+      - name: 类型检查
+        run: pnpm --filter @wevir/relay-worker typecheck
+
+      - name: 协议测试
+        run: pnpm vitest run --project relay-worker --project relay
+
+      - name: 部署
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SOURCE_TAG_KEY: ${{ secrets.SOURCE_TAG_KEY }}
+        working-directory: apps/relay-worker
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN is not set; nothing deployed."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$SOURCE_TAG_KEY" ]; then
+            echo "::error::SOURCE_TAG_KEY is not set"
+            exit 1
+          fi
+          secrets="$RUNNER_TEMP/relay-secrets.json"
+          umask 077
+          node -e 'process.stdout.write(JSON.stringify({ SOURCE_TAG_KEY: process.env.SOURCE_TAG_KEY }))' > "$secrets"
+          pnpm exec wrangler deploy --secrets-file "$secrets"
+          rm -f "$secrets"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+
+      # 新的自定义域名要等 Cloudflare 签好证书，最多等一分钟。
+      - name: 健康检查
+        if: steps.deploy.outputs.deployed == 'true'
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS https://relay.wevir.si/healthz; then exit 0; fi
+            sleep 6
+          done
+          exit 1
