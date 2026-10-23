@@ -718,7 +718,8 @@ export const zh = {
   'remote.badLink': '配对链接无效或版本不受支持',
   'remote.badLink.hint': '在那台电脑上重新添加设备，复制完整的链接',
   'remote.badInput': '既不是配对链接也不是短码',
-  'remote.badInput.hint': '给出 wevir://pair?… 链接，或 8 位短码（如 ABCD-EFGH）',
+  'remote.badInput.hint':
+    '给出 wevir://pair?… 或 https://…/pair#… 链接，或 8 位短码（如 ABCD-EFGH）',
   'remote.searching': '正在局域网里查找电脑…',
   'remote.noneFound': '局域网里没有找到开着远程访问的 Wevir',
   'remote.noneFound.hint':

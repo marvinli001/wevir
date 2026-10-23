@@ -737,7 +737,8 @@ Options:
   'remote.badLink': 'Invalid pairing link, or an unsupported version',
   'remote.badLink.hint': 'Add the device again on that computer and copy the whole link',
   'remote.badInput': 'Neither a pairing link nor a short code',
-  'remote.badInput.hint': 'Give a wevir://pair?… link, or the 8-character code (e.g. ABCD-EFGH)',
+  'remote.badInput.hint':
+    'Give a wevir://pair?… or https://…/pair#… link, or the 8-character code (e.g. ABCD-EFGH)',
   'remote.searching': 'Looking for computers on the local network…',
   'remote.noneFound': 'No Wevir with remote access found on the local network',
   'remote.noneFound.hint':
