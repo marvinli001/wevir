@@ -22,13 +22,19 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import { type Location, NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
-import { clampSidebarWidth, LAYOUT, settingsNavWidth } from '@/layout/layout-rules';
+import {
+  clampSidebarWidth,
+  LAYOUT,
+  settingsNavDocks,
+  settingsNavWidth,
+} from '@/layout/layout-rules';
 import { layoutPrefs, useViewportWidth } from '@/layout/layout-state';
 import { Splitter } from '@/layout/splitter';
 import { WindowControls } from '@/layout/window-controls';
@@ -234,6 +240,7 @@ interface SettingsState {
  * 页面列表；右边一列最宽 720px，页面标题下面是一组组卡片（settings/settings-ui.tsx）。
  *
  * 左栏与工作台的侧栏共用宽度偏好（layout-rules.ts 的 settingsNavWidth）：从对话进设置左栏不变宽窄，在这里拖也改那边。
+ * 视口窄到左栏停靠不下（settingsNavDocks：手机、窄的浏览器窗口）时左栏改成浮层，内容区顶上放打开它的按钮。
  */
 export function SettingsRoute() {
   const { tab } = useParams();
@@ -253,70 +260,91 @@ export function SettingsRoute() {
     layoutPrefs.set((current) => ({ ...current, sidebarWidth: clampSidebarWidth(width) }));
   };
 
+  const docked = settingsNavDocks(viewportWidth);
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const overlayToggleRef = useRef<HTMLButtonElement>(null);
+  // 浮层里点了一页就收起。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在换页时触发。
+  useEffect(() => setOverlayOpen(false), [tab]);
+  const onBack = () => navigate(from ?? paths.home());
+  const nav = (controls: ReactNode) => (
+    <SettingsNav controls={controls} query={query} onQuery={setQuery} state={location.state} />
+  );
+
   return (
     <div className="relative flex h-full" data-translucent-root>
-      <nav
-        aria-label={t('settings.title')}
-        className="translucent-sidebar flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
-        style={{ width: navWidth }}
-      >
-        <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
-          <WindowControls onBack={() => navigate(from ?? paths.home())} />
-        </div>
-        <h1 className="px-4 pt-1 pb-3 text-xl font-semibold tracking-tight">
-          {t('settings.title')}
-        </h1>
-        <div className="px-2.5 pb-2">
-          <label className="flex h-8 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:focus-ring">
-            <Search aria-hidden className="size-3.5 shrink-0" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-              placeholder={t('settings.search')}
-              aria-label={t('settings.search')}
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-            />
-            {query && (
-              <button
-                type="button"
-                aria-label={t('settings.searchClear')}
-                onClick={() => setQuery('')}
-                className="-mr-1 flex size-5 items-center justify-center rounded-full outline-none hover:text-foreground focus-visible:focus-ring"
-              >
-                <X className="size-3" />
-              </button>
-            )}
-          </label>
-        </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <TabList query={query} state={location.state} />
-        </ScrollArea>
-      </nav>
-      <Splitter
-        orientation="vertical"
-        label={t('layout.resizeSidebar')}
-        valueNow={navWidth}
-        valueMin={LAYOUT.sidebarMin}
-        valueMax={LAYOUT.sidebarMax}
-        onResizeStart={() => {
-          dragStart.current = navWidth;
-        }}
-        onResize={(delta) => setDragWidth(clampSidebarWidth(dragStart.current + delta))}
-        onResizeEnd={(delta) => commitWidth(dragStart.current + delta)}
-        onResizeCancel={() => setDragWidth(undefined)}
-        onReset={() => commitWidth(LAYOUT.sidebarDefault)}
-        className="absolute inset-y-0 z-20 -ml-1"
-        style={{ left: navWidth }}
-      />
+      {docked ? (
+        <>
+          <nav
+            aria-label={t('settings.title')}
+            className="translucent-sidebar flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+            style={{ width: navWidth }}
+          >
+            {nav(<WindowControls onBack={onBack} />)}
+          </nav>
+          <Splitter
+            orientation="vertical"
+            label={t('layout.resizeSidebar')}
+            valueNow={navWidth}
+            valueMin={LAYOUT.sidebarMin}
+            valueMax={LAYOUT.sidebarMax}
+            onResizeStart={() => {
+              dragStart.current = navWidth;
+            }}
+            onResize={(delta) => setDragWidth(clampSidebarWidth(dragStart.current + delta))}
+            onResizeEnd={(delta) => commitWidth(dragStart.current + delta)}
+            onResizeCancel={() => setDragWidth(undefined)}
+            onReset={() => commitWidth(LAYOUT.sidebarDefault)}
+            className="absolute inset-y-0 z-20 -ml-1"
+            style={{ left: navWidth }}
+          />
+        </>
+      ) : (
+        <Sheet open={overlayOpen} onOpenChange={setOverlayOpen}>
+          <SheetContent
+            side="left"
+            showCloseButton={false}
+            finalFocus={overlayToggleRef}
+            className="gap-0 bg-sidebar text-sidebar-foreground data-[side=left]:w-(--overlay-width)"
+            style={
+              {
+                '--overlay-width': `${Math.min(preferredWidth, viewportWidth - 48)}px`,
+              } as CSSProperties
+            }
+          >
+            <SheetTitle className="sr-only">{t('settings.title')}</SheetTitle>
+            <nav aria-label={t('settings.title')} className="flex min-h-0 flex-1 flex-col">
+              {nav(
+                <WindowControls
+                  onBack={onBack}
+                  sidebar={{ open: true, onToggle: () => setOverlayOpen(false) }}
+                />,
+              )}
+            </nav>
+          </SheetContent>
+        </Sheet>
+      )}
       <main className="translucent-content flex min-w-0 flex-1 flex-col">
-        {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动。 */}
-        <div className="app-drag h-11 shrink-0" />
+        {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动；左栏是浮层时这里放打开它的按钮。 */}
+        {docked ? (
+          <div className="app-drag h-11 shrink-0" />
+        ) : (
+          <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
+            <WindowControls
+              onBack={onBack}
+              sidebar={{
+                open: overlayOpen,
+                onToggle: () => setOverlayOpen((open) => !open),
+                ref: overlayToggleRef,
+              }}
+            />
+          </div>
+        )}
         {isSettingsTab(tab) && visible(tab) ? (
           <ScrollArea className="min-h-0 flex-1">
             <div
               key={tab}
-              className="mx-auto w-full max-w-180 px-5 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10"
+              className="mx-auto w-full max-w-180 px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10"
             >
               <h2 className="mb-7 text-2xl font-semibold tracking-tight">{t(TABS[tab].label)}</h2>
               <SettingsTabContent tab={tab} />
@@ -327,6 +355,54 @@ export function SettingsRoute() {
         )}
       </main>
     </div>
+  );
+}
+
+/** 设置的左栏：窗口按钮、“设置”标题、搜索框、分组的页面列表。停靠时与浮层里是同一份。 */
+function SettingsNav({
+  controls,
+  query,
+  onQuery,
+  state,
+}: {
+  controls: ReactNode;
+  query: string;
+  onQuery: (query: string) => void;
+  state: unknown;
+}) {
+  return (
+    <>
+      <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
+        {controls}
+      </div>
+      <h1 className="px-4 pt-1 pb-3 text-xl font-semibold tracking-tight">{t('settings.title')}</h1>
+      <div className="px-2.5 pb-2">
+        <label className="flex h-8 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:focus-ring">
+          <Search aria-hidden className="size-3.5 shrink-0" />
+          <input
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={(event) => event.key === 'Escape' && onQuery('')}
+            placeholder={t('settings.search')}
+            aria-label={t('settings.search')}
+            className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          {query && (
+            <button
+              type="button"
+              aria-label={t('settings.searchClear')}
+              onClick={() => onQuery('')}
+              className="-mr-1 flex size-5 items-center justify-center rounded-full outline-none hover:text-foreground focus-visible:focus-ring"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+        </label>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <TabList query={query} state={state} />
+      </ScrollArea>
+    </>
   );
 }
 

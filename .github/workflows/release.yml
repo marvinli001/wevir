@@ -105,6 +105,8 @@ jobs:
           - { os: macos-latest, target: aarch64-apple-darwin, dir: darwin-arm64 }
           - { os: macos-latest, target: x86_64-apple-darwin, dir: darwin-x64 }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, dir: win32-x64 }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, dir: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, dir: linux-arm64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -155,6 +157,23 @@ jobs:
         if: runner.os == 'Windows'
         run: pnpm --filter @wevir/desktop package --target ${{ matrix.target }} --app-version ${{ needs.plan.outputs.version }}
 
+      # 用户终端的 node-pty 在 Linux 上没有预编译：在 Debian 11（glibc 2.31）的容器里编，比 runner 的 Ubuntu 旧，安装包在
+      # 旧发行版上也能加载；stage-resources.ts 从 .wevir-dev/node-pty/ 放进资源目录。容器里是 root，编完把文件交还给 runner 的用户。
+      - name: 编 node-pty（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo node:24-bullseye \
+            bash -c 'bash scripts/build-node-pty.sh && chown -R '"$(id -u):$(id -g)"' .wevir-dev node_modules/.pnpm/node-pty@*'
+
+      # AppImage 与 deb（electron-builder.yml 的 linux 段），不签名。打 deb 的 fpm 与打 AppImage 的工具由 electron-builder 按架构
+      # 下载。最后核对用户终端的 pty.node 进了安装包（没有时 ls 失败，这一步失败）。
+      - name: 打包（Linux，不签名）
+        if: runner.os == 'Linux'
+        run: |
+          pnpm --filter @wevir/desktop package --target ${{ matrix.target }} --app-version ${{ needs.plan.outputs.version }}
+          pty=$(ls apps/desktop/release/linux-*unpacked/resources/host/node_modules/node-pty/prebuilds/linux-*/pty.node)
+          echo "用户终端：$pty"
+
       - name: 检查签名与公证
         if: runner.os == 'macOS'
         working-directory: apps/desktop/release
@@ -174,6 +193,8 @@ jobs:
             apps/desktop/release/Wevir-*.dmg
             apps/desktop/release/Wevir-*.zip
             apps/desktop/release/Wevir-*.exe
+            apps/desktop/release/Wevir-*.AppImage
+            apps/desktop/release/Wevir-*.deb
             apps/desktop/release/Wevir-*.blockmap
             apps/desktop/release/latest*.yml
             apps/desktop/release/beta*.yml
@@ -214,8 +235,19 @@ jobs:
       - name: Build
         run: pnpm --filter "@wevir/host..." build
 
+      # 同 build 作业：用户终端的 node-pty 在 Linux 上没有预编译，在 Debian 11 的容器里编，stageHost 放进包里。
+      - name: 编 node-pty（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo node:24-bullseye \
+            bash -c 'bash scripts/build-node-pty.sh && chown -R '"$(id -u):$(id -g)"' .wevir-dev node_modules/.pnpm/node-pty@*'
+
       - name: 打包
         run: pnpm --filter @wevir/cli package --target ${{ matrix.target }} --version ${{ needs.plan.outputs.version }}
+
+      - name: 核对用户终端（Linux）
+        if: runner.os == 'Linux'
+        run: tar -tzf apps/cli/release/wevir-cli-*-${{ matrix.dir }}.tar.gz | grep 'prebuilds/linux-[^/]*/pty\.node$'
 
       - name: 解开试运行
         if: matrix.smoke
@@ -363,7 +395,8 @@ jobs:
           cli=(cli-release/wevir-cli-*)
           gh release create "v${{ needs.plan.outputs.version }}" --repo "$GITHUB_REPOSITORY" \
             --verify-tag --title "Wevir ${{ needs.plan.outputs.version }}" --generate-notes \
-            release/release-*/Wevir-*.dmg release/release-*/Wevir-*.exe "${cli[@]}"
+            release/release-*/Wevir-*.dmg release/release-*/Wevir-*.exe \
+            release/release-*/Wevir-*.AppImage release/release-*/Wevir-*.deb "${cli[@]}"
 
       # 最后清理旧版本（每个平台开发版、正式版各留最新 2 个，再加清单引用的），放在官网重建之后，不拖慢新版本上线。
       - name: 清理旧版本

@@ -6,7 +6,8 @@
 //
 // 用外部编辑器打开文件（U32，文件窗格的“打开方式”）：照 T3 Code 的 editor.ts 与 externalLauncher.ts（MIT，ec1313c）列一张
 // 常见编辑器的表，找本机装了哪些。macOS 先找 /Applications 与 ~/Applications 里的应用包，有它自带的命令行就用它（能跳到
-// 行），没有就 `open -a`；其他平台在 PATH 里找命令。启动时不经 shell，去掉 Electron 自己的环境变量，不等它退出。
+// 行），没有就 `open -a`；其他平台在 PATH 里找命令（Linux 另找 snap、~/.local/bin 与 JetBrains Toolbox 的目录）。启动时不经
+// shell，去掉 Electron 自己的环境变量，不等它退出。
 
 import { spawn } from 'node:child_process';
 import { access, constants, stat } from 'node:fs/promises';
@@ -34,6 +35,8 @@ interface EditorSpec extends EditorInfo {
   bundledCli?: string;
   /** 其他平台（以及 macOS 上找不到应用包时）在 PATH 里找的命令。 */
   command?: string;
+  /** Linux 发行版的包里另一个名字（找不到 `command` 时再找）。 */
+  linuxCommands?: string[];
   args: LineArgs;
 }
 
@@ -90,6 +93,8 @@ const EDITORS: readonly EditorSpec[] = [
     apps: ['Zed.app'],
     bundledCli: 'Contents/MacOS/cli',
     command: 'zed',
+    // Arch、Fedora 等发行版的包与 Flathub 把命令装成 zeditor。
+    linuxCommands: ['zeditor'],
     args: colon,
   },
   {
@@ -143,6 +148,15 @@ async function findInPath(command: string, env: NodeJS.ProcessEnv): Promise<stri
   const dirs = (env.PATH ?? '').split(delimiter).filter((dir) => dir !== '');
   // 从访达启动时 PATH 很短：补上常见的命令行目录。
   if (process.platform === 'darwin') dirs.push('/usr/local/bin', '/opt/homebrew/bin');
+  // 从桌面环境启动时 PATH 里常常没有 snap 与用户自己装的命令（Zed 的安装脚本放 ~/.local/bin，JetBrains Toolbox 放自己的目录）。
+  if (process.platform === 'linux') {
+    dirs.push(
+      '/usr/local/bin',
+      '/snap/bin',
+      join(homedir(), '.local', 'bin'),
+      join(homedir(), '.local', 'share', 'JetBrains', 'Toolbox', 'scripts'),
+    );
+  }
   // Windows 只认 .exe：.cmd 要经 cmd.exe，路径里的特殊字符会被它当成命令。
   const names = process.platform === 'win32' ? [`${command}.exe`] : [command];
   for (const dir of dirs) {
@@ -169,8 +183,12 @@ async function resolveLauncher(
       }
     }
   }
-  if (spec.command) {
-    const command = await findInPath(spec.command, env);
+  const names = [
+    ...(spec.command ? [spec.command] : []),
+    ...(process.platform === 'linux' ? (spec.linuxCommands ?? []) : []),
+  ];
+  for (const name of names) {
+    const command = await findInPath(name, env);
     if (command) return { kind: 'path', command };
   }
   return undefined;

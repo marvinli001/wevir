@@ -1102,6 +1102,7 @@ export const zhCN = {
   'settings.notify.question': '提问',
   'settings.notify.failed': '出错',
   'settings.notify.automation': '自动化',
+  'settings.notify.channel': '助理',
   'settings.tab.archived': '已归档',
   'settings.tab.web': '联网搜索',
   'settings.tab.personalization': '个性化',
@@ -1732,6 +1733,7 @@ export const zhCN = {
   'update.action.download': '下载',
   'update.action.restart': '重启以更新',
   'update.action.move': '移到“应用程序”',
+  'update.action.downloadPage': '下载页面',
 
   'suggest.title': '{count} 个建议的任务',
   'suggest.startedCount': '{count} 已开始',

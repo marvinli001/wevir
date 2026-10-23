@@ -2590,6 +2590,17 @@ const automationCheckedSample: Automation = {
   lastRun: { ...automationRunSample, unchanged: true },
 };
 
+/** 发给助理的晨间简报（0.121.0）。 */
+export const automationBriefSample: Automation = {
+  ...automationSample,
+  title: 'Morning brief',
+  prompt: 'Say in two or three lines what matters today.',
+  schedule: { kind: 'daily', time: '08:00' },
+  channelId: ids.channel,
+  brief: true,
+  notify: 'never',
+};
+
 const connector = {
   id: 'con_test',
   name: 'sample',
@@ -6828,7 +6839,11 @@ export const methodSamples: MethodSamples = {
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [{ automations: [] }, { automations: [automationSample, automationCheckedSample] }],
+      valid: [
+        { automations: [] },
+        { automations: [automationSample, automationCheckedSample] },
+        { automations: [automationBriefSample] },
+      ],
       invalid: [{}, { automations: [{ ...automationSample, runCount: -1 }] }],
     },
   },
@@ -6877,6 +6892,13 @@ export const methodSamples: MethodSamples = {
           prompt: 'y',
           schedule: { kind: 'monthly', time: '23:59', day: 31 },
           providerId: 'deepseek',
+        },
+        {
+          title: 'Morning brief',
+          prompt: 'Say in two or three lines what matters today.',
+          schedule: { kind: 'daily', time: '08:00' },
+          channelId: ids.channel,
+          brief: true,
         },
         {
           title: 'CI 状态',
@@ -6961,6 +6983,7 @@ export const methodSamples: MethodSamples = {
           notify: 'never',
         },
         { automationId: ids.automation, sessionId: null, check: null },
+        { automationId: ids.automation, brief: false },
         {
           automationId: ids.automation,
           sessionId: ids.session,
@@ -7077,6 +7100,7 @@ export const methodSamples: MethodSamples = {
           inboxVersion: 1792368000000,
         },
         { items: [], inboxVersion: 0 },
+        { items: [{ ...inboxApproval, channelId: ids.channel }], inboxVersion: 2 },
       ],
       invalid: [
         { items: [] },
@@ -8616,6 +8640,16 @@ export const notificationSamples: NotificationSamples = {
       approvalIntent,
       automationIntent,
       { ...approvalIntent, id: `completed:${ids.turn}`, kind: 'completed', body: '', title: '' },
+      {
+        id: `channel:${ids.channelPost}`,
+        kind: 'channel',
+        channelId: ids.channel,
+        workspaceId: ids.workspace,
+        title: 'Mail desk',
+        body: 'Two new emails from the school.',
+        createdAt: TS2,
+        collapseKey: `channel:${ids.channel}`,
+      },
     ],
     invalid: [
       {},

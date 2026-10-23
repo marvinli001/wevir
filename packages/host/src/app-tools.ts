@@ -391,6 +391,7 @@ export class AppTools {
                   reasoningEffort: session.reasoningEffort,
                 }),
                 permissionMode: session.permissionMode ?? DEFAULT_PERMISSION_MODE,
+                ...(record.origin?.kind === 'channel' && { channelId: record.origin.channelId }),
               };
             },
           })),

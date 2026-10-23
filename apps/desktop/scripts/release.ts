@@ -9,7 +9,7 @@
  *     提交正好是 tag 时 skip=true（那是正式版的事）。
  *
  *   node scripts/release.ts publish --channel dev|stable --version <版本> --dir <目录> [--only <线路>] [--skip-prune]
- *     <目录> 下每个子目录是一个平台（`darwin-arm64`、`darwin-x64`、`win32-x64`，与 src/main/updates/feed.ts 的
+ *     <目录> 下每个子目录是一个平台（`darwin-arm64`、`darwin-x64`、`win32-x64`、`linux-x64`、`linux-arm64`，与 src/main/updates/feed.ts 的
  *     `<平台>-<架构>` 一致），里面是 electron-builder 的产物与签过名的清单（`<清单>.sig`，update-signing.ts sign）。
  *     上传到每条线路的 `desktop/<平台>-<架构>/`（GitHub 线路是 tag `desktop-updates` 的 Release，见 githubAssetName）：
  *       1. 安装包与 blockmap 传到所有线路；全球线路最先传，经 CDN 逐个下载核对，与本地一致才往下走（waitForCdn），
@@ -144,10 +144,11 @@ export function channelName(channel: Channel): 'latest' | 'beta' {
   return channel === 'stable' ? 'latest' : 'beta';
 }
 
-/** 平台目录（`darwin-arm64`）里这个通道的清单文件名。 */
+/** 平台目录（`darwin-arm64`）里这个通道的清单文件名（与 feed.ts 的 manifestFile 相同：Linux 的 arm64 带架构后缀）。 */
 export function manifestFile(name: string, platformDir: string): string {
   if (platformDir.startsWith('darwin-')) return `${name}-mac.yml`;
-  if (platformDir.startsWith('linux-')) return `${name}-linux.yml`;
+  if (platformDir === 'linux-x64') return `${name}-linux.yml`;
+  if (platformDir.startsWith('linux-')) return `${name}-${platformDir}.yml`;
   return `${name}.yml`;
 }
 
@@ -225,7 +226,7 @@ export function checkPlatformDir(
     if (!names.includes(file))
       throw new Error(`${platformDir}: ${file} listed in ${manifest} is missing`);
   }
-  // 安装包（dmg、zip、exe）与它们的 blockmap，文件名里都带版本。
+  // 安装包（dmg、zip、exe、AppImage、deb）与它们的 blockmap，文件名里都带版本。
   const payload = names.filter((name) => versionOfFile(name) === version);
   return { dir: platformDir, manifest, payload };
 }
@@ -390,6 +391,8 @@ function contentType(name: string): string {
   if (name.endsWith('.dmg')) return 'application/x-apple-diskimage';
   if (name.endsWith('.zip')) return 'application/zip';
   if (name.endsWith('.exe')) return 'application/vnd.microsoft.portable-executable';
+  if (name.endsWith('.deb')) return 'application/vnd.debian.binary-package';
+  if (name.endsWith('.AppImage')) return 'application/vnd.appimage';
   if (name.endsWith('.tar.gz')) return 'application/gzip';
   // 通道文件、校验和与安装脚本按纯文本给，浏览器里能直接看。
   if (/\.(?:txt|sh|ps1)$/.test(name)) return 'text/plain; charset=utf-8';
@@ -518,7 +521,7 @@ function s3Line(mirror: MirrorTarget, root = 'desktop'): Line {
 export const GITHUB_TAG = 'desktop-updates';
 const GITHUB_REPO = 'marvinli001/wevir';
 
-const MANIFEST_NAME = /^(?:latest|beta)(?:-mac|-linux)?\.yml(?:\.sig)?$/;
+const MANIFEST_NAME = /^(?:latest|beta)(?:-mac|-linux(?:-arm64)?)?\.yml(?:\.sig)?$/;
 
 /** 安装包与 blockmap 的名字里的平台目录：`Wevir-0.1.0-mac-arm64.zip` → `darwin-arm64`，`…-win-x64-setup.exe` → `win32-x64`。 */
 export function platformDirOfFile(name: string): string | undefined {
@@ -1221,7 +1224,13 @@ export interface ReleasePlan {
 }
 
 /** 开发版发布的平台目录（release.yml 的 build 矩阵）。plan 读它们在各线路上的公开清单。 */
-export const PUBLISHED_DIRS = ['darwin-arm64', 'darwin-x64', 'win32-x64'] as const;
+export const PUBLISHED_DIRS = [
+  'darwin-arm64',
+  'darwin-x64',
+  'win32-x64',
+  'linux-x64',
+  'linux-arm64',
+] as const;
 
 /** 各线路公开地址上开发版清单的版本。取不到（没有、网络出错）的跳过，发布时的覆盖检查仍会兜底。 */
 async function publishedDevVersions(): Promise<string[]> {

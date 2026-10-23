@@ -1099,6 +1099,7 @@ export const messages: Messages = {
   'settings.notify.question': '質問',
   'settings.notify.failed': 'エラー',
   'settings.notify.automation': '自動化',
+  'settings.notify.channel': 'アシスタント',
   'settings.tab.archived': 'アーカイブ済み',
   'settings.tab.web': 'Web 検索',
   'settings.tab.personalization': 'パーソナライズ',
@@ -1737,6 +1738,7 @@ export const messages: Messages = {
   'update.action.download': 'ダウンロード',
   'update.action.restart': '再起動してアップデート',
   'update.action.move': '「アプリケーション」に移動',
+  'update.action.downloadPage': 'ダウンロードページ',
 
   'suggest.title': '提案されたタスク {count} 件',
   'suggest.startedCount': '{count} 件開始済み',

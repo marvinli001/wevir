@@ -46,6 +46,8 @@ export interface AutomationCaller {
   modelId: string;
   reasoningEffort?: string;
   permissionMode: PermissionMode;
+  /** 调用方是助理里的会话（0.121.0）：建的自动化发给这个助理，到点时唤醒它。 */
+  channelId?: string;
 }
 
 export interface AutomationToolsOptions {
@@ -355,11 +357,14 @@ export function automationTools({ automations, callerOf }: AutomationToolsOption
                 permissionMode: requested ?? caller.permissionMode,
                 ...(notify !== undefined && { notify }),
                 ...(check != null && { check }),
+                ...(caller.channelId !== undefined && {
+                  channelId: caller.channelId as Automation['channelId'] & string,
+                }),
               },
               { kind: 'agent', sessionId },
             ),
           );
-          if (runIn === 'this_session') {
+          if (runIn === 'this_session' && caller.channelId === undefined) {
             saved = await host(() => automations.bindSession(saved.id, sessionId));
           }
         } else {

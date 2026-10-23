@@ -1108,6 +1108,7 @@ export const messages: Messages = {
   'settings.notify.question': 'Questions',
   'settings.notify.failed': 'Erreurs',
   'settings.notify.automation': 'Automatisations',
+  'settings.notify.channel': 'Assistants',
   'settings.tab.archived': 'Archivées',
   'settings.tab.web': 'Recherche web',
   'settings.tab.personalization': 'Personnalisation',
@@ -1768,6 +1769,7 @@ export const messages: Messages = {
   'update.action.download': 'Télécharger',
   'update.action.restart': 'Redémarrer pour mettre à jour',
   'update.action.move': 'Déplacer dans Applications',
+  'update.action.downloadPage': 'Page de téléchargement',
 
   'suggest.title': '{count, plural, one {# tâche suggérée} other {# tâches suggérées}}',
   'suggest.startedCount': '{count, plural, one {# lancée} other {# lancées}}',

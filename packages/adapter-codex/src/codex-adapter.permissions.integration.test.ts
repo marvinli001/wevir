@@ -170,11 +170,11 @@ describe.skipIf(binary === undefined)(
       const denied = await run(plain.adapter, plain.id, plain.events, '[extra:without]');
       expect(denied.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
       // 沙箱拦下了：命令输出是权限错误（macOS 上是 Operation not permitted，Windows 上 PowerShell 报 Access to the path
-      // … is denied），文件没写出来。
+      // … is denied，Linux 的 bwrap 把工作区外只读挂载，是 Read-only file system），文件没写出来。
       const outputs = JSON.stringify(
         mock.requests.at(-1)?.body.input.filter((item) => item.type === 'function_call_output'),
       );
-      expect(outputs).toMatch(/Operation not permitted|is denied/);
+      expect(outputs).toMatch(/Operation not permitted|is denied|Read-only file system/);
       expect(existsSync(join(extra.dir, 'without'))).toBe(false);
 
       const { adapter, id, events } = await open('on_request', [extra.dir]);

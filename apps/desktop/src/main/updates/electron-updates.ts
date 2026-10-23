@@ -22,6 +22,13 @@ export function isReadOnlyLocation(platform: NodeJS.Platform, execPath: string):
   return execPath.includes('/AppTranslocation/') || execPath.startsWith('/Volumes/');
 }
 
+/**
+ * Linux 上不是 AppImage（deb 由系统的包管理装在 /opt，没有 APPIMAGE 环境变量）：应用换不了自己的文件，只提示新版本。
+ */
+export function isManualInstall(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): boolean {
+  return platform === 'linux' && (env.APPIMAGE === undefined || env.APPIMAGE === '');
+}
+
 function isChannel(value: unknown): value is UpdateChannel {
   return value === 'stable' || value === 'dev';
 }
@@ -59,6 +66,7 @@ export function createUpdateController(
     fetcher,
     packaged: app.isPackaged,
     readOnlyLocation: isReadOnlyLocation(process.platform, process.execPath),
+    manualInstall: isManualInstall(process.platform, process.env),
     readPrefs,
     writePrefs,
     log,

@@ -1091,6 +1091,7 @@ export const messages: Messages = {
   'settings.notify.question': '질문',
   'settings.notify.failed': '오류',
   'settings.notify.automation': '자동화',
+  'settings.notify.channel': '어시스턴트',
   'settings.tab.archived': '보관됨',
   'settings.tab.web': '웹 검색',
   'settings.tab.personalization': '개인 설정',
@@ -1726,6 +1727,7 @@ export const messages: Messages = {
   'update.action.download': '다운로드',
   'update.action.restart': '다시 시작하여 업데이트',
   'update.action.move': '응용 프로그램으로 이동',
+  'update.action.downloadPage': '다운로드 페이지',
 
   'suggest.title': '제안된 작업 {count}개',
   'suggest.startedCount': '{count}개 시작됨',

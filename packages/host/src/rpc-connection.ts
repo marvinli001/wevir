@@ -205,6 +205,8 @@ interface ZodIssueLike {
 
 /** `sessions.changed` 从这个协议版本起有（0.101.0）。 */
 const SESSION_LIST_PUSH_SINCE = '0.101.0';
+/** 通知意图的 `channel` 种类（助理的帖子）从这个版本起。 */
+const CHANNEL_INTENTS_SINCE = '0.121.0';
 
 /** 给旧客户端的提示（host-api.md §3.2 未知方法）。 */
 const UPGRADE_HINT = '请升级 Wevir Host';
@@ -1006,9 +1008,12 @@ export class RpcConnection {
   #watchNotifications(): void {
     if (this.#unwatchNotifications !== undefined || this.#host.notifications === undefined) return;
     if (this.#phase !== 'ready') return;
-    this.#unwatchNotifications = this.#host.notifications.watch((intent) =>
-      this.#notify('notification.intent', intent),
-    );
+    // 0.121.0 之前的客户端不认 `channel` 种类的意图。
+    const channelKind = compareProtocolVersions(this.#protocolVersion, CHANNEL_INTENTS_SINCE) >= 0;
+    this.#unwatchNotifications = this.#host.notifications.watch((intent) => {
+      if (intent.kind === 'channel' && !channelKind) return;
+      this.#notify('notification.intent', intent);
+    });
   }
 
   /**

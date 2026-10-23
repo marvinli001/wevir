@@ -504,10 +504,15 @@ export const HOST_FEATURES = {
   remoteWeb: 'remote_web',
   /**
    * 频道与助理（0.120.0，ADR-0020，domain-model §3.53）：`channel.*`、`channels.changed` / `channel.posted` / `channel.updated`、
-   * `Session.channel`、`Workspace.kind: 'assistant'`。频道里的会话不进不带 `channelId` 的会话列表。与引擎无关；协调者的
-   * `wevir_channel_*` 工具要引擎能挂 Wevir 工具。
+   * `Session.channel`、`Workspace.kind: 'assistant'`。频道里的会话不进会话列表。与引擎无关；协调者的 `wevir_channel_*` 工具要
+   * 引擎能挂 Wevir 工具。
    */
   channels: 'channels',
+  /**
+   * 助理的日程（0.121.0）：`Automation.channelId` / `brief`、建助理时的晨间简报、`brief` 卡片的内容，通知种类 `channel`、意图与
+   * 收件箱项的 `channelId`。
+   */
+  channel_schedules: 'channel_schedules',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -610,6 +615,7 @@ export const HostFeaturesSchema = z.looseObject({
   remote_push: z.boolean().optional(),
   remote_web: z.boolean().optional(),
   channels: z.boolean().optional(),
+  channel_schedules: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

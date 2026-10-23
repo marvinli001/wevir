@@ -81,7 +81,7 @@ export function SettingsSection({
   );
 }
 
-/** 卡片里的一行：左边名称与说明，右边控件（Codex 设置的行）。 */
+/** 卡片里的一行：左边名称与说明，右边控件（Codex 设置的行）。行太窄放不下控件时，控件折到名称下面。 */
 export function SettingsRow({
   title,
   description,
@@ -95,12 +95,17 @@ export function SettingsRow({
   className?: string;
 } & Omit<ComponentProps<'div'>, 'title'>) {
   return (
-    <div className={cn('flex min-h-14 items-center gap-6 px-4 py-3', className)} {...rest}>
-      <div className="min-w-0 flex-1">
+    <div
+      className={cn('flex min-h-14 flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3', className)}
+      {...rest}
+    >
+      <div className="min-w-0 flex-1 basis-36">
         <div className="text-sm font-medium">{title}</div>
         {description && <div className="mt-0.5 text-xs text-muted-foreground">{description}</div>}
       </div>
-      {control !== undefined && <div className="flex shrink-0 items-center gap-2">{control}</div>}
+      {control !== undefined && (
+        <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{control}</div>
+      )}
     </div>
   );
 }

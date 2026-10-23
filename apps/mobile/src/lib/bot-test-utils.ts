@@ -1,6 +1,6 @@
 // 助理测试用的频道、帖子与假的频道接口（一台电脑上的 Host，内存里）。
 
-import type { ChannelPosted, ChannelsChange, ChannelUpdate } from '@wevir/client-sdk';
+import type { ChannelsChange, ChannelUpdate, ChannelWatchHandlers } from '@wevir/client-sdk';
 import type { ApprovalRequest, Channel, ChannelPost, ChannelThread } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
 
@@ -104,12 +104,12 @@ export class FakeChannels {
   approvals: ApprovalRequest[] = [];
   listVersion = 1;
   requests: Array<{ method: string; params: Params }> = [];
-  /** `channel.subscribe` 返回之前先发出的补发帖子（模拟补发先于结果的登记到达）。 */
-  replay = true;
-  #subs = 0;
+  /** 正在看的频道（`watchChannel`）：频道 ID → 回调与起点。 */
+  readonly watches = new Map<
+    string,
+    { handlers: ChannelWatchHandlers; afterSeq: number | undefined }
+  >();
   readonly #changed = new Set<(change: ChannelsChange | undefined) => void>();
-  readonly #posted = new Set<(posted: ChannelPosted) => void>();
-  readonly #updated = new Set<(update: ChannelUpdate) => void>();
 
   readonly client: ChannelClient = {
     canCreate: false,
@@ -119,13 +119,9 @@ export class FakeChannels {
       this.#changed.add(listener);
       return () => this.#changed.delete(listener);
     },
-    onChannelPosted: (listener) => {
-      this.#posted.add(listener);
-      return () => this.#posted.delete(listener);
-    },
-    onChannelUpdated: (listener) => {
-      this.#updated.add(listener);
-      return () => this.#updated.delete(listener);
+    watchChannel: (channelId, handlers, options) => {
+      this.watches.set(channelId, { handlers, afterSeq: options?.afterSeq });
+      return () => this.watches.delete(channelId);
     },
   };
 
@@ -134,7 +130,7 @@ export class FakeChannels {
   }
 
   get listenerCount(): number {
-    return this.#changed.size + this.#posted.size + this.#updated.size;
+    return this.#changed.size + this.watches.size;
   }
 
   calls(method: string): Params[] {
@@ -145,18 +141,12 @@ export class FakeChannels {
     for (const listener of [...this.#changed]) listener(change);
   }
 
-  posted(subscriptionId: string, item: ChannelPost): void {
-    for (const listener of [...this.#posted])
-      listener({ subscriptionId: subscriptionId as ChannelPosted['subscriptionId'], post: item });
+  posted(item: ChannelPost): void {
+    this.watches.get(item.channelId)?.handlers.onPost(item);
   }
 
-  updated(update: Omit<ChannelUpdate, 'subscriptionId'>, subscriptionId = this.lastSub()): void {
-    for (const listener of [...this.#updated])
-      listener({ ...update, subscriptionId: subscriptionId as ChannelUpdate['subscriptionId'] });
-  }
-
-  lastSub(): string {
-    return `sub_01JA2B3C4D5E6F7G8H9JK${String(this.#subs).padStart(5, '0')}`;
+  updated(channelId: string, update: ChannelUpdate): void {
+    this.watches.get(channelId)?.handlers.onUpdate?.(update);
   }
 
   add(item: ChannelPost): void {
@@ -180,18 +170,6 @@ export class FakeChannels {
         const limit = params.limit as number;
         const list = posts.filter((p) => before === undefined || p.seq < before);
         return { posts: list.slice(-limit), lastSeq: posts.at(-1)?.seq ?? 0 };
-      }
-      case 'channel.subscribe': {
-        this.#subs += 1;
-        const subscriptionId = this.lastSub();
-        const after = params.afterSeq as number | undefined;
-        if (this.replay && after !== undefined) {
-          const missed = posts.filter((p) => p.seq > after);
-          queueMicrotask(() => {
-            for (const item of missed) this.posted(subscriptionId, item);
-          });
-        }
-        return { subscriptionId, lastSeq: posts.at(-1)?.seq ?? 0 };
       }
       case 'channel.post': {
         const item = post(channelId as Channel['id'], (posts.at(-1)?.seq ?? 0) + 1, {

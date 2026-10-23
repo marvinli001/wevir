@@ -1,15 +1,18 @@
 // 助理列表与各助理时间线的内存状态：界面从这里读、经这里写。背后是各台电脑的连接（`ChannelClient`，Host 0.120.0 的 `channel.*`）：
-// 每台连上就读 `channel.list` 并跟着 `channels.changed` 改；打开一个助理时订阅它（`channel.subscribe`），取最新一页帖子与线程、审批，
-// 之后收 `channel.posted` / `channel.updated`。连接断了助理留在列表里，重连上之后重读列表、按最后一条的 seq 重订打开过的。
+// 每台连上就读 `channel.list` 并跟着 `channels.changed` 改；打开一个助理时取最新一页帖子，从最后一条起 `watchChannel`，再取线程与
+// 审批。连接断了助理留在列表里；同一连接重连上之后 client-sdk 自己从最后一条接着补，这里重读列表与打开过的助理的线程、审批。
 
-import type { ChannelPosted, ChannelsChange, ChannelUpdate, WevirClient } from '@wevir/client-sdk';
+import type {
+  ChannelsChange,
+  ChannelUpdate,
+  ChannelWatchHandlers,
+  WevirClient,
+} from '@wevir/client-sdk';
 import type { Channel, ChannelPost } from '@wevir/protocol';
 import type { Avatar } from './bot-avatar';
 import { type Bot, botFromChannel, botKey, sortBots, type TimelineParts } from './bots';
 
 export const PAGE_SIZE = 30;
-/** 订阅结果回来之前先到的推送最多留几条。 */
-const EARLY_MAX = 500;
 
 /** 一台电脑上的频道接口（`WevirClient` 的一部分）。Host 没有 `channels` 功能或这台设备不能读会话时没有。 */
 export interface ChannelClient {
@@ -17,8 +20,11 @@ export interface ChannelClient {
   readonly canCreate: boolean;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
-  onChannelPosted(listener: (posted: ChannelPosted) => void): () => void;
-  onChannelUpdated(listener: (update: ChannelUpdate) => void): () => void;
+  watchChannel(
+    channelId: Channel['id'],
+    handlers: ChannelWatchHandlers,
+    options?: { afterSeq?: number },
+  ): () => void;
 }
 
 /** 一台配对过的电脑；离线时没有 `client`。 */
@@ -57,9 +63,8 @@ interface HostState {
   channels: Map<string, Channel>;
   listVersion: number | undefined;
   stops: Array<() => void>;
-  /** subscriptionId → 频道 ID。 */
-  subs: Map<string, string>;
-  early: Array<ChannelPosted | ChannelUpdate>;
+  /** 频道 ID → 取消 `watchChannel`。 */
+  watches: Map<string, () => void>;
   /** 换连接时加一，旧连接的结果据此作废。 */
   generation: number;
 }
@@ -130,8 +135,7 @@ export class BotStore {
           channels: new Map(),
           listVersion: undefined,
           stops: [],
-          subs: new Map(),
-          early: [],
+          watches: new Map(),
           generation: 0,
         };
         this.hosts.set(host.computer, state);
@@ -289,41 +293,33 @@ export class BotStore {
   private attach(state: HostState, client: ChannelClient): void {
     state.client = client;
     const generation = ++state.generation;
-    const current = () => state.generation === generation;
     state.stops = [
       client.onChannelsChanged((change) => {
-        if (!current()) return;
+        if (state.generation !== generation) return;
         if (change === undefined) this.reconnected(state);
         else this.listChanged(state, change);
       }),
-      client.onChannelPosted((posted) => {
-        if (current()) this.routed(state, posted);
-      }),
-      client.onChannelUpdated((update) => {
-        if (current()) this.routed(state, update);
-      }),
     ];
-    this.reconnected(state);
-  }
-
-  private detach(state: HostState): void {
-    state.generation += 1;
-    for (const stop of state.stops.splice(0)) stop();
-    state.client = undefined;
-    state.subs.clear();
-    state.early = [];
-    state.listVersion = undefined;
-  }
-
-  /** 新连接（或同一连接重连上）：订阅都没了，重读列表，重订打开过的。 */
-  private reconnected(state: HostState): void {
-    state.subs.clear();
-    state.early = [];
     void this.readList(state);
     for (const key of this.opened) {
       const target = this.target(key);
       if (target?.state === state) void this.follow(state, target.channelId);
     }
+  }
+
+  private detach(state: HostState): void {
+    state.generation += 1;
+    for (const stop of state.stops.splice(0)) stop();
+    for (const stop of state.watches.values()) stop();
+    state.watches.clear();
+    state.client = undefined;
+    state.listVersion = undefined;
+  }
+
+  /** 同一连接重连上：期间的列表变化与线程、审批的变化没收到，重读（帖子 client-sdk 自己补）。 */
+  private reconnected(state: HostState): void {
+    void this.readList(state);
+    for (const channelId of state.watches.keys()) void this.readView(state, channelId);
   }
 
   private async readList(state: HostState): Promise<void> {
@@ -354,44 +350,39 @@ export class BotStore {
     this.rebuild();
   }
 
-  /** 订阅一个频道并补齐时间线：第一次取最新一页，之后按最后一条的 seq 补发。 */
+  /** 开始看一个频道：没有帖子时先取最新一页，再从最后一条起 `watchChannel`，然后取线程与审批。 */
   private async follow(state: HostState, channelId: string): Promise<void> {
     const { client, generation } = state;
-    if (client === undefined) return;
+    if (client === undefined || state.watches.has(channelId)) return;
     const key = botKey(state.computer, channelId);
-    const afterSeq = this.timeline(key).posts.at(-1)?.seq;
     const id = channelId as Channel['id'];
     try {
-      const sub = await client.request('channel.subscribe', {
-        channelId: id,
-        ...(afterSeq !== undefined && { afterSeq }),
-      });
-      if (state.generation !== generation) return;
-      state.subs.set(sub.subscriptionId, channelId);
-      const early = state.early.filter((m) => m.subscriptionId === sub.subscriptionId);
-      state.early = state.early.filter((m) => m.subscriptionId !== sub.subscriptionId);
-      for (const message of early) this.routed(state, message);
-      const [page, view] = await Promise.all([
-        afterSeq === undefined
-          ? client.request('channel.posts', { channelId: id, limit: PAGE_SIZE })
-          : undefined,
-        client.request('channel.get', { channelId: id }),
-      ]);
-      if (state.generation !== generation) return;
-      state.channels.set(channelId, view.channel);
-      const current = this.timeline(key);
-      this.timelines.set(key, {
-        ...current,
-        posts: page !== undefined ? merge(page.posts, current.posts) : current.posts,
-        hasMore:
-          page !== undefined
-            ? hasEarlier(page.posts, page.posts.length < PAGE_SIZE)
-            : current.hasMore,
-        threads: view.threads,
-        approvals: view.approvals,
-        loading: false,
-      });
-      this.rebuild();
+      let afterSeq = this.timeline(key).posts.at(-1)?.seq;
+      if (afterSeq === undefined) {
+        const page = await client.request('channel.posts', { channelId: id, limit: PAGE_SIZE });
+        if (state.generation !== generation) return;
+        const current = this.timeline(key);
+        this.setTimeline(key, {
+          ...current,
+          posts: merge(page.posts, current.posts),
+          hasMore: hasEarlier(page.posts, page.posts.length < PAGE_SIZE),
+        });
+        afterSeq = page.posts.at(-1)?.seq ?? page.lastSeq;
+      }
+      if (state.watches.has(channelId)) return;
+      state.watches.set(
+        channelId,
+        client.watchChannel(
+          id,
+          {
+            onPost: (post) => this.addPosts(key, [post]),
+            onUpdate: (update) => this.updated(state, channelId, update),
+            onError: (error) => console.warn('[wevir] assistant timeline', error),
+          },
+          { afterSeq },
+        ),
+      );
+      await this.readView(state, channelId);
     } catch (error) {
       if (state.generation !== generation) return;
       console.warn('[wevir] could not open assistant', error);
@@ -399,27 +390,33 @@ export class BotStore {
     }
   }
 
-  private routed(state: HostState, message: ChannelPosted | ChannelUpdate): void {
-    const channelId = state.subs.get(message.subscriptionId);
-    if (channelId === undefined) {
-      // 订阅的补发紧跟在结果后面，可能先于 `await` 之后的登记到。
-      state.early.push(message);
-      if (state.early.length > EARLY_MAX) state.early.shift();
-      return;
-    }
+  /** 线程与审批（`channel.get`）。 */
+  private async readView(state: HostState, channelId: string): Promise<void> {
+    const { client, generation } = state;
+    if (client === undefined) return;
+    const view = await client.request('channel.get', { channelId: channelId as Channel['id'] });
+    if (state.generation !== generation) return;
+    state.channels.set(channelId, view.channel);
     const key = botKey(state.computer, channelId);
-    if ('post' in message) {
-      this.addPosts(key, [message.post]);
-      return;
-    }
-    if (message.channel !== undefined) state.channels.set(channelId, message.channel);
+    this.timelines.set(key, {
+      ...this.timeline(key),
+      threads: view.threads,
+      approvals: view.approvals,
+      loading: false,
+    });
+    this.rebuild();
+  }
+
+  private updated(state: HostState, channelId: string, update: ChannelUpdate): void {
+    if (update.channel !== undefined) state.channels.set(channelId, update.channel);
+    const key = botKey(state.computer, channelId);
     const timeline = this.timelines.get(key);
     if (timeline !== undefined) {
       this.timelines.set(key, {
         ...timeline,
-        ...(message.posts !== undefined && { posts: merge(timeline.posts, message.posts) }),
-        ...(message.threads !== undefined && { threads: message.threads }),
-        ...(message.approvals !== undefined && { approvals: message.approvals }),
+        ...(update.posts !== undefined && { posts: merge(timeline.posts, update.posts) }),
+        ...(update.threads !== undefined && { threads: update.threads }),
+        ...(update.approvals !== undefined && { approvals: update.approvals }),
       });
     }
     this.rebuild();

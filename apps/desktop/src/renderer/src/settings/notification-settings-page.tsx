@@ -35,6 +35,9 @@ export function NotificationSettingsPage() {
     host.supported &&
     view.status === 'connected' &&
     hostSupports(view.hello.features, 'notification_intents');
+  // 助理开口的提醒（0.121.0）。
+  const assistants =
+    view.status === 'connected' && hostSupports(view.hello.features, 'channel_schedules');
   const kinds = host.settings.notifications;
 
   const row = (key: Key, title: PlainMessageKey, disabled = false) => (
@@ -72,7 +75,7 @@ export function NotificationSettingsPage() {
           />
         }
       />
-    ) : key === 'automation' ? null : (
+    ) : key === 'automation' || key === 'channel' ? null : (
       row(key, title)
     );
 
@@ -93,6 +96,7 @@ export function NotificationSettingsPage() {
           {kindRow('question', 'settings.notify.question')}
           {kindRow('failed', 'settings.notify.failed')}
           {kindRow('automation', 'settings.notify.automation')}
+          {assistants && kindRow('channel', 'settings.notify.channel')}
         </div>
       </SettingsSection>
     </>

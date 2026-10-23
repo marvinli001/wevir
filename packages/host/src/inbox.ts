@@ -9,6 +9,7 @@ import {
   type Automation,
   type AutomationNotify,
   type AutomationRun,
+  type ChannelId,
   INBOX_ATTENTION_MAX_AGE_DAYS,
   INBOX_SUMMARY_MAX_LENGTH,
   INBOX_TITLE_MAX_LENGTH,
@@ -326,11 +327,17 @@ export class InboxService {
       return [];
     }
     const { session } = snapshot;
+    // 助理的会话（0.121.0）：带上助理，标题用助理的名字。
+    const channel =
+      session.channel === undefined
+        ? undefined
+        : this.#storage.channels.get(session.channel.channelId);
     const base = {
       sessionId,
       workspaceId: session.workspaceId,
       ...parentOf(session),
-      title: this.#title(session.title),
+      ...(channel !== undefined && { channelId: channel.id as ChannelId }),
+      title: this.#title(channel?.title ?? session.title),
     };
     const items: InboxItem[] = [];
     for (const approval of snapshot.pendingApprovals)
@@ -431,7 +438,10 @@ export class InboxService {
   }
 }
 
-type ItemBase = Pick<InboxItem, 'sessionId' | 'workspaceId' | 'parentSessionId' | 'title'>;
+type ItemBase = Pick<
+  InboxItem,
+  'sessionId' | 'workspaceId' | 'parentSessionId' | 'channelId' | 'title'
+>;
 
 /** 子会话的父会话；支线是分出它的会话。 */
 function parentOf(session: Session): { parentSessionId?: SessionId } {
@@ -441,7 +451,7 @@ function parentOf(session: Session): { parentSessionId?: SessionId } {
 }
 
 /** 审批的一行说明：命令、路径、URL、查询词，都没有时是工具名。 */
-function approvalSummary(approval: ApprovalRequest): string {
+export function approvalSummary(approval: ApprovalRequest): string {
   const detail = approval.detail;
   if (detail === null) return '';
   const { display } = detail;

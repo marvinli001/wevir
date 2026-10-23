@@ -76,6 +76,7 @@ function controller(options: {
   timing?: Pick<UpdateControllerOptions, 'firstCheckMs' | 'staleAfterMs' | 'now'>;
   mirrors?: UpdateControllerOptions['mirrors'];
   prepareInstall?: UpdateControllerOptions['prepareInstall'];
+  manualInstall?: boolean;
 }) {
   let prefs: UpdatePrefs = options.prefs ?? {};
   const states: UpdateState[] = [];
@@ -96,6 +97,7 @@ function controller(options: {
     log: () => {},
     ...options.timing,
     ...(options.prepareInstall !== undefined && { prepareInstall: options.prepareInstall }),
+    ...(options.manualInstall !== undefined && { manualInstall: options.manualInstall }),
   });
   ctl.onState((state) => states.push(state));
   return { ctl, states, prefs: () => prefs };
@@ -183,6 +185,21 @@ describe('UpdateController', () => {
       expect(order).toEqual(['prepare']);
       expect(updater.installed).toEqual([[true, true]]);
     }
+  });
+
+  it('只提示不下载（Linux 的 deb）：available 带 manual，不测速、不下载、退出时不安装', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    const server = serve('0.2.0');
+    const { ctl } = controller({ updater, fetcher: server.fetcher, manualInstall: true });
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    await ctl.check();
+    expect(ctl.state).toMatchObject({ phase: 'available', version: '0.2.0', manual: true });
+    expect(server.requests.some((request) => request.range !== undefined)).toBe(false);
+    await ctl.download();
+    await ctl.install();
+    expect(ctl.state.phase).toBe('available');
+    expect(updater.downloads).toEqual([]);
+    expect(updater.installed).toEqual([]);
   });
 
   it('已是最新：latest', async () => {

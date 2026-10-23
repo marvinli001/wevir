@@ -183,8 +183,8 @@ function wrapClient(client: WevirClient): LinkClient {
           },
           request: (method, ...args) => client.request(method, ...args),
           onChannelsChanged: (listener) => client.onChannelsChanged(listener),
-          onChannelPosted: (listener) => client.onChannelPosted(listener),
-          onChannelUpdated: (listener) => client.onChannelUpdated(listener),
+          watchChannel: (channelId, handlers, options) =>
+            client.watchChannel(channelId, handlers, options),
         }
       : undefined;
   return {

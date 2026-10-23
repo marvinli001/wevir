@@ -6,6 +6,7 @@ import {
   ApprovalIdSchema,
   AutomationIdSchema,
   AutomationRunIdSchema,
+  ChannelIdSchema,
   IsoTimeSchema,
   QuestionIdSchema,
   SessionIdSchema,
@@ -51,6 +52,8 @@ const InboxItemFields = {
   workspaceId: WorkspaceIdSchema.optional(),
   /** 子会话的父会话；支线是分出它的会话。 */
   parentSessionId: SessionIdSchema.optional(),
+  /** 会话在助理里（0.121.0）：点开去助理页；标题是助理的名字。 */
+  channelId: ChannelIdSchema.optional(),
   /** 会话标题（自动化项是自动化的标题）。 */
   title: z.string().max(INBOX_TITLE_MAX_LENGTH),
   /** 一句说明：审批是工具的一行摘要，提问是第一个问题，失败回合是会话的 `lastError`，自动化是运行的错误或回答开头。不含密钥。 */

@@ -3,7 +3,13 @@
 // entities.ts 的 Host 设置引用这里的种类开关，所以这里只引用 common.ts。
 
 import { z } from 'zod';
-import { AutomationIdSchema, IsoTimeSchema, SessionIdSchema, WorkspaceIdSchema } from './common.js';
+import {
+  AutomationIdSchema,
+  ChannelIdSchema,
+  IsoTimeSchema,
+  SessionIdSchema,
+  WorkspaceIdSchema,
+} from './common.js';
 
 /** 意图的 `title` 最多多少字符（按 UTF-16 code unit），同收件箱的 `INBOX_TITLE_MAX_LENGTH`。 */
 export const NOTIFICATION_TITLE_MAX_LENGTH = 200;
@@ -18,6 +24,8 @@ export const NOTIFICATION_KINDS = [
   'completed',
   'failed',
   'automation',
+  /** 0.121.0：助理在时间线上说了话（`NOTHING_TO_REPORT` 的不算），或 Host 贴了预算用完、回合失败的说明。 */
+  'channel',
 ] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;
@@ -42,6 +50,8 @@ export const NotificationIntentSchema = z.object({
   /** 只在 `automation`。 */
   automationId: AutomationIdSchema.optional(),
   automationStatus: NotificationAutomationStatusSchema.optional(),
+  /** `channel`（0.121.0）：哪个助理；审批与提问出在助理的会话里时也带。 */
+  channelId: ChannelIdSchema.optional(),
   /** 会话标题（自动化是自动化的标题）；会话没标题时是空串。 */
   title: z.string().max(NOTIFICATION_TITLE_MAX_LENGTH),
   /** 一句说明，同收件箱的 `summary`（打码、截断）；回合完成是空串。不含密钥。 */
@@ -59,6 +69,7 @@ export const NotificationKindSettingsSchema = z.object({
   question: z.boolean().optional(),
   failed: z.boolean().optional(),
   automation: z.boolean().optional(),
+  channel: z.boolean().optional(),
 });
 export type NotificationKindSettings = z.infer<typeof NotificationKindSettingsSchema>;
 

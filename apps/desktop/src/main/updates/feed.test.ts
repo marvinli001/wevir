@@ -47,9 +47,10 @@ describe('线路与清单的位置', () => {
     expect(manifestUrl(GLOBAL, 'darwin', 'arm64', 'beta-mac.yml')).toBe(
       'https://download.example/desktop/darwin-arm64/beta-mac.yml',
     );
-    expect(manifestFile('latest', 'darwin')).toBe('latest-mac.yml');
-    expect(manifestFile('beta', 'win32')).toBe('beta.yml');
-    expect(manifestFile('latest', 'linux')).toBe('latest-linux.yml');
+    expect(manifestFile('latest', 'darwin', 'arm64')).toBe('latest-mac.yml');
+    expect(manifestFile('beta', 'win32', 'x64')).toBe('beta.yml');
+    expect(manifestFile('latest', 'linux', 'x64')).toBe('latest-linux.yml');
+    expect(manifestFile('beta', 'linux', 'arm64')).toBe('beta-linux-arm64.yml');
     expect(channelNames('stable')).toEqual(['latest']);
     expect(channelNames('dev')).toEqual(['latest', 'beta']);
   });
@@ -108,12 +109,17 @@ describe('verifyManifest / parseManifest', () => {
     expect(() => parseManifest('version: banana\nfiles: []')).toThrow('version');
   });
 
-  it('installerFile：macOS 取 zip，Windows 取 exe', () => {
+  it('installerFile：macOS 取 zip，Windows 取 exe，Linux 取 AppImage', () => {
     const info = parseManifest(
       'version: 0.2.0\nfiles:\n  - url: a.zip\n    sha512: A\n  - url: a.dmg\n    sha512: B\n  - url: a.exe\n    sha512: C\n',
     );
     expect(installerFile(info, 'darwin')).toBe('a.zip');
     expect(installerFile(info, 'win32')).toBe('a.exe');
+    const linux = parseManifest(
+      'version: 0.2.0\nfiles:\n  - url: a.deb\n    sha512: A\n  - url: a.AppImage\n    sha512: B\n',
+    );
+    expect(installerFile(linux, 'linux')).toBe('a.AppImage');
+    expect(() => installerFile(info, 'linux')).toThrow('no installer');
   });
 });
 

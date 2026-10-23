@@ -4,6 +4,7 @@ import {
   LAYOUT,
   planSidebar,
   type SidebarInput,
+  settingsNavDocks,
   settingsNavWidth,
 } from './layout-rules';
 
@@ -72,5 +73,13 @@ describe('settingsNavWidth', () => {
   it('侧栏停靠不下时不收起，最窄 192', () => {
     expect(settingsNavWidth(760, 300)).toBe(200);
     expect(settingsNavWidth(600, 300)).toBe(LAYOUT.settingsNavMin);
+  });
+});
+
+describe('settingsNavDocks', () => {
+  it('左栏最窄时内容列留得出 440 才停靠', () => {
+    expect(settingsNavDocks(632)).toBe(true);
+    expect(settingsNavDocks(631)).toBe(false);
+    expect(settingsNavDocks(390)).toBe(false);
   });
 });

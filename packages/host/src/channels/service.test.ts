@@ -2,7 +2,7 @@
 
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import type { HostId } from '@wevir/protocol';
+import type { HostId, NotificationIntent } from '@wevir/protocol';
 import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
@@ -15,10 +15,13 @@ import {
 } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppTools } from '../app-tools.js';
+import { AutomationService } from '../automations/service.js';
 import { EventStore } from '../event-store.js';
 import { createHostMethods } from '../host-methods.js';
+import { InboxService } from '../inbox.js';
+import { NotificationService } from '../notifications.js';
 import { SessionManager } from '../session-manager.js';
 import { boardEventTasks, TaskBoardStore } from '../task-board.js';
 import { identity, useStorages, useTempDir } from '../test-utils.js';
@@ -26,6 +29,8 @@ import { AssistantFolders } from './assistants.js';
 import {
   ChannelService,
   type ChannelSubscriptionMessage,
+  MORNING_BRIEF_TIME,
+  morningBriefAutomation,
   postOfAnswer,
   ROTATE_WAKES,
 } from './service.js';
@@ -34,6 +39,11 @@ import { CHANNEL_TOOLS, channelToolAllowed } from './tools.js';
 const tempDir = useTempDir();
 const storages = useStorages();
 const context = { client: identity, capabilities: {} };
+/** 用例结束时停下服务，免得回合在存储关闭后还在写。 */
+const cleanups: Array<() => unknown> = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
 const phone: ClientIdentity = { deviceId: 'phone-1', clientId: 'app-1', clientKind: 'mobile' };
 
 async function setup(options: { budget?: { dailyWakes: number; dailyTokens: number } } = {}) {
@@ -49,6 +59,7 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
     onChange: (root) => channels?.tasksChanged(root),
   });
   let channels: ChannelService | undefined;
+  let automations: AutomationService | undefined;
   const sessions = new SessionManager({
     storage,
     events,
@@ -68,8 +79,49 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
       update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
     },
     wakeDelayMs: 0,
+    schedules: {
+      created: async (channel) => {
+        await automations?.create(morningBriefAutomation(channel.id), { kind: 'user' });
+      },
+      deleted: async (channelId) => {
+        await automations?.deleteForChannel(channelId);
+      },
+    },
   });
   channels.start();
+  const service0 = channels;
+  automations = new AutomationService({
+    dir: join(dataDir, 'automations'),
+    storage,
+    events,
+    sessions,
+    identity: { deviceId: 'host', clientId: 'wevir-automations', clientKind: 'desktop' },
+    channels: {
+      target: (channelId) => service0.scheduleTarget(channelId),
+      wake: (channelId, schedule) => service0.wakeForSchedule(channelId, schedule),
+    },
+  });
+  await automations.load();
+  const inbox = new InboxService({ storage, events });
+  inbox.start();
+  const notifications = new NotificationService({
+    storage,
+    events,
+    inbox,
+    channels,
+    settings: () => ({ sendWhileBusy: 'steer' }),
+  });
+  notifications.start();
+  const intents: NotificationIntent[] = [];
+  notifications.watch((intent) => intents.push(intent));
+  const stopAutomations = automations;
+  cleanups.push(
+    () => sessions.dispose(),
+    () => stopAutomations.dispose(),
+    () => service0.dispose(),
+    () => inbox.close(),
+    () => notifications.close(),
+  );
   const methods = createHostMethods({
     storage,
     events,
@@ -77,6 +129,7 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
     secrets: new FileSecretStore(dataDir),
     channels,
     assistants,
+    automations,
   });
   storage.providers.insert({
     id: 'mock',
@@ -147,6 +200,9 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
     coordinatorPosts,
     tools,
     call,
+    automations,
+    intents,
+    inbox,
   };
 }
 
@@ -448,6 +504,128 @@ describe('频道的应用级工具', () => {
       context,
     );
     expect(tasks.map((task) => task.status)).toEqual(['completed']);
+  });
+});
+
+describe('日程与晨间简报', () => {
+  it('建助理时建好每天的晨间简报；运行时贴一条带简报卡片的回答；删助理一起删', async () => {
+    const h = await setup();
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    const [first] = await h.coordinatorPosts(bot.id, 1);
+    const coordinator = (
+      first?.author.kind === 'coordinator' ? first.author.sessionId : ''
+    ) as SessionId;
+    const schedules = h.automations.forChannel(bot.id);
+    expect(schedules).toEqual([
+      expect.objectContaining({
+        title: 'Morning brief',
+        schedule: { kind: 'daily', time: MORNING_BRIEF_TIME },
+        channelId: bot.id,
+        brief: true,
+        notify: 'never',
+        workspaceId: bot.workspaceId,
+        providerId: 'mock',
+        newSessionEachRun: false,
+      }),
+    ]);
+    // 简报要列的：一项待办、一条没回应的建议。
+    await h.call(coordinator, 'wevir_task_create', { subject: 'Reply to Ana' });
+    await h.call(coordinator, 'wevir_channel_suggest', { text: 'Archive last week’s newsletters' });
+
+    const briefRun = await h.automations.runNow(schedules[0]?.id ?? '');
+    expect(briefRun.status).toBe('completed');
+    const brief = await vi.waitFor(
+      () => {
+        const post = h.posts(bot.id).find((candidate) => candidate.card?.kind === 'brief');
+        expect(post).toBeDefined();
+        return post;
+      },
+      { timeout: 5000 },
+    );
+    expect(brief?.author.kind).toBe('coordinator');
+    expect(brief?.card).toMatchObject({
+      kind: 'brief',
+      todo: [{ title: 'Reply to Ana' }],
+      done: [],
+      decisions: [{ title: 'Archive last week’s newsletters' }],
+    });
+    const text = brief?.content[0]?.type === 'text' ? brief.content[0].text : '';
+    expect(text).toContain('<schedule title="Morning brief" brief="true">');
+    expect(text).toContain('<todo>\n- Reply to Ana\n</todo>');
+    expect(h.automations.get(schedules[0]?.id ?? '').runs[0]?.status).toBe('completed');
+
+    // 助理开口时的提醒：带助理、按助理收起。
+    expect(h.intents.filter((intent) => intent.kind === 'channel').at(-1)).toMatchObject({
+      kind: 'channel',
+      channelId: bot.id,
+      title: 'Mail desk',
+      collapseKey: `channel:${bot.id}`,
+    });
+
+    const created = await h.automations.create(
+      {
+        title: 'Friday wrap-up',
+        prompt: 'Sum up the week.',
+        schedule: { kind: 'daily', time: '17:00', weekdays: [5] },
+        channelId: bot.id,
+      },
+      { kind: 'user' },
+    );
+    expect(created).toMatchObject({ channelId: bot.id, notify: 'never' });
+    await expect(
+      h.automations.create(
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'manual' },
+          providerId: 'mock',
+          workspaceId: bot.workspaceId,
+          brief: true,
+        },
+        { kind: 'user' },
+      ),
+    ).rejects.toThrow(/brief needs channelId/);
+
+    await h.methods['channel.delete']({ channelId: bot.id }, context);
+    await vi.waitFor(() => expect(h.automations.forChannel(bot.id)).toEqual([]));
+  });
+
+  it('协调者等批准：助理是 waiting，审批进 channel.get，收件箱与提醒带上助理', async () => {
+    const h = await setup();
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    await h.coordinatorPosts(bot.id, 1);
+    h.service.post(
+      { channelId: bot.id, content: [{ type: 'text', text: 'approve this send' }] },
+      identity,
+    );
+    await vi.waitFor(
+      async () => {
+        const view = await h.methods['channel.get']({ channelId: bot.id }, context);
+        expect(view.channel.state).toBe('waiting');
+        expect(view.channel.pendingCount).toBe(1);
+        expect(view.approvals).toHaveLength(1);
+      },
+      { timeout: 5000 },
+    );
+    await vi.waitFor(() => {
+      expect(h.inbox.list()).toEqual([
+        expect.objectContaining({ kind: 'approval', channelId: bot.id, title: 'Mail desk' }),
+      ]);
+      expect(h.intents.find((intent) => intent.kind === 'approval')).toMatchObject({
+        channelId: bot.id,
+        title: 'Mail desk',
+      });
+    });
+  });
+
+  it('提醒只给助理开口的帖子：用户发的不算', async () => {
+    const h = await setup();
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    await h.coordinatorPosts(bot.id, 1);
+    const before = h.intents.length;
+    h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'Hello' }] }, identity);
+    await h.coordinatorPosts(bot.id, 2);
+    expect(h.intents.slice(before).map((intent) => intent.kind)).toEqual(['channel']);
   });
 });
 

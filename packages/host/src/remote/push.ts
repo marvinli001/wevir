@@ -164,6 +164,9 @@ export function pushCategory(intent: NotificationIntent): PushCategory {
       return 'completion';
     case 'automation':
       return intent.automationStatus === 'completed' ? 'completion' : 'action';
+    // 助理在时间线上说话（0.121.0）：同回合完成；预算用完、回合失败的说明也归这一路。
+    case 'channel':
+      return 'completion';
   }
 }
 
@@ -476,6 +479,7 @@ export class PushService {
       ...(intent.sessionId !== undefined && { sessionId: intent.sessionId }),
       ...(intent.workspaceId !== undefined && { workspaceId: intent.workspaceId }),
       ...(intent.automationId !== undefined && { automationId: intent.automationId }),
+      ...(intent.channelId !== undefined && { channelId: intent.channelId }),
       createdAt: intent.createdAt,
     };
     const now = this.#now();

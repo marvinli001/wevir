@@ -1,11 +1,11 @@
 // 侧栏左下角的更新入口（ADR-0007 补记 4，照 Codex 桌面端）：发现新版本时出现，点击开始下载，下载时整行是一条进度条，
-// 下载完填满变成墨色底的“重启以更新”，等用户点。没有新版本时不占位置。
+// 下载完填满变成墨色底的“重启以更新”，等用户点。没有新版本时不占位置。Linux 的 deb 不在应用里下载，点了打开官网的下载页。
 
 import { cn } from 'cn';
 import { ArrowDownToLine, LoaderCircle, RotateCw } from 'lucide-react';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
-import { type UpdateEntry, updateEntry } from './update-model';
+import { downloadPageUrl, type UpdateEntry, updateEntry } from './update-model';
 import { useUpdateState } from './update-store';
 
 export function UpdateEntryButton({ className }: { className?: string }) {
@@ -45,7 +45,9 @@ export function UpdateEntryButton({ className }: { className?: string }) {
         <EntryIcon entry={entry} />
         <span className="min-w-0 flex-1 truncate text-left">{label(entry)}</span>
         {entry.kind === 'available' && (
-          <span className="shrink-0 text-xs text-muted-foreground">{t('update.entry.update')}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {t(entry.manual ? 'update.action.downloadPage' : 'update.entry.update')}
+          </span>
         )}
         {entry.kind === 'downloading' && (
           <span
@@ -66,7 +68,8 @@ export function UpdateEntryButton({ className }: { className?: string }) {
 function onClick(entry: UpdateEntry): void {
   switch (entry.kind) {
     case 'available':
-      void platformApi().downloadUpdate();
+      if (entry.manual) void platformApi().openExternal(downloadPageUrl(currentLocale()));
+      else void platformApi().downloadUpdate();
       return;
     case 'restart':
       void platformApi().installUpdate();

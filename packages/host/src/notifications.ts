@@ -9,8 +9,11 @@ import {
   type Automation,
   type AutomationNotify,
   type AutomationRun,
+  type Channel,
+  type ChannelPost,
   type HostSettings,
   type InboxItem,
+  NOTIFICATION_BODY_MAX_LENGTH,
   NOTIFICATION_MAX_AGE_MS,
   NOTIFICATION_TITLE_MAX_LENGTH,
   type NotificationIntent,
@@ -23,6 +26,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import type { EventStore } from './event-store.js';
 import { cut, type InboxService } from './inbox.js';
+import { redactSecrets } from './secret-patterns.js';
 
 /** 通知意图要的自动化：全部自动化（含最近一次运行）与它们的变化。 */
 export interface NotificationAutomations {
@@ -30,11 +34,17 @@ export interface NotificationAutomations {
   watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
 }
 
+/** 助理的新帖（0.121.0，ChannelService 的 `watchPosts`）。 */
+export interface NotificationChannels {
+  watchPosts(listener: (channel: Channel, post: ChannelPost) => void): () => void;
+}
+
 export interface NotificationServiceOptions {
   storage: Storage;
   events: Pick<EventStore, 'listenAll' | 'snapshot'>;
   inbox: Pick<InboxService, 'watch'>;
   automations?: NotificationAutomations;
+  channels?: NotificationChannels;
   /** 当前的 Host 设置（读 `notifications` 种类开关）。 */
   settings: () => HostSettings;
   /** 只给测试。 */
@@ -57,6 +67,7 @@ export class NotificationService {
   readonly #events: Pick<EventStore, 'listenAll' | 'snapshot'>;
   readonly #inbox: Pick<InboxService, 'watch'>;
   readonly #automations: NotificationAutomations | undefined;
+  readonly #channels: NotificationChannels | undefined;
   readonly #settings: () => HostSettings;
   readonly #now: () => number;
   readonly #onError: (error: unknown) => void;
@@ -73,6 +84,7 @@ export class NotificationService {
     this.#events = options.events;
     this.#inbox = options.inbox;
     this.#automations = options.automations;
+    this.#channels = options.channels;
     this.#settings = options.settings;
     this.#now = options.now ?? Date.now;
     this.#onError =
@@ -90,6 +102,13 @@ export class NotificationService {
         this.#guard(() => this.#onCompleted(event));
       }),
     );
+    if (this.#channels !== undefined) {
+      this.#unlisten.push(
+        this.#channels.watchPosts((channel, post) =>
+          this.#guard(() => this.#onPost(channel, post)),
+        ),
+      );
+    }
     if (this.#automations !== undefined) {
       const automations = this.#automations;
       this.#unlisten.push(
@@ -100,6 +119,38 @@ export class NotificationService {
         }),
       );
     }
+  }
+
+  /**
+   * 助理在时间线上说了话（0.121.0）：协调者的帖子（`NOTHING_TO_REPORT` 的本来就不写），与 Host 贴的预算用完、回合失败的说明。
+   * 用户自己发的、恢复的说明不提醒。
+   */
+  #onPost(channel: Channel, post: ChannelPost): void {
+    const author = post.author.kind;
+    const notice = post.card?.kind === 'notice' ? post.card.reason : undefined;
+    if (author === 'user' || (author === 'host' && notice !== 'budget' && notice !== 'failed'))
+      return;
+    const id = `channel:${post.id}`;
+    if (this.#seen.has(id)) return;
+    this.#prune();
+    const at = Date.parse(post.createdAt);
+    this.#seen.set(id, at);
+    if (!this.#fresh(at) || !this.#enabled('channel')) return;
+    const text = post.content
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    this.#emit({
+      id,
+      kind: 'channel',
+      channelId: channel.id,
+      workspaceId: channel.workspaceId,
+      title: cut(channel.title, NOTIFICATION_TITLE_MAX_LENGTH),
+      body: cut(redactSecrets(text).text, NOTIFICATION_BODY_MAX_LENGTH),
+      createdAt: post.createdAt,
+      collapseKey: `channel:${channel.id}`,
+    });
   }
 
   /** 收此后的每条意图，返回取消函数。`listener` 同步调用，不要在里面做慢的事。 */
@@ -156,6 +207,7 @@ export class NotificationService {
         kind,
         sessionId: item.sessionId,
         ...(item.workspaceId !== undefined && { workspaceId: item.workspaceId }),
+        ...(item.channelId !== undefined && { channelId: item.channelId }),
         title: item.title,
         body: item.summary,
         createdAt: item.createdAt,

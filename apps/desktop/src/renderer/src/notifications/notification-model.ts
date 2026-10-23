@@ -71,8 +71,10 @@ export function displayDelivery(
   return { toast: false, system: settings.system };
 }
 
-/** Host 的意图在本机显示成哪一类（决定标题与语气）：自动化按运行的状态，等待处理当作需要批准。 */
+/** Host 的意图在本机显示成哪一类（决定标题与语气）：自动化按运行的状态，等待处理当作需要批准；助理的帖子当作完成。 */
 export function intentDisplayKind(intent: NotificationIntent): NotificationKind {
+  // 助理开口（0.121.0）当作完成。
+  if (intent.kind === 'channel') return 'completed';
   if (intent.kind !== 'automation') return intent.kind;
   if (intent.automationStatus === 'failed') return 'failed';
   if (intent.automationStatus === 'completed') return 'completed';

@@ -4,7 +4,13 @@
 // push.ts。devices.ts 引用这里的类型，所以这里只引用 common.ts 与 notifications.ts。
 
 import { z } from 'zod';
-import { AutomationIdSchema, IsoTimeSchema, SessionIdSchema, WorkspaceIdSchema } from './common.js';
+import {
+  AutomationIdSchema,
+  ChannelIdSchema,
+  IsoTimeSchema,
+  SessionIdSchema,
+  WorkspaceIdSchema,
+} from './common.js';
 import { NOTIFICATION_TITLE_MAX_LENGTH, NotificationKindSchema } from './notifications.js';
 
 /** 官方推送网关的地址。域名由维护者部署时定，换了改这一个常量。 */
@@ -117,6 +123,8 @@ export const PushMessageSchema = z.looseObject({
   sessionId: SessionIdSchema.optional(),
   workspaceId: WorkspaceIdSchema.optional(),
   automationId: AutomationIdSchema.optional(),
+  /** 0.121.0：助理的提醒点开去助理页。 */
+  channelId: ChannelIdSchema.optional(),
   createdAt: IsoTimeSchema,
 });
 export type PushMessage = z.infer<typeof PushMessageSchema>;

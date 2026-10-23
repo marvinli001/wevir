@@ -1089,6 +1089,7 @@ export const messages: Messages = {
   'settings.notify.question': '提問',
   'settings.notify.failed': '發生錯誤',
   'settings.notify.automation': '自動化',
+  'settings.notify.channel': '助理',
   'settings.tab.archived': '已封存',
   'settings.tab.web': '網路搜尋',
   'settings.tab.personalization': '個人化',
@@ -1719,6 +1720,7 @@ export const messages: Messages = {
   'update.action.download': '下載',
   'update.action.restart': '重新啟動以更新',
   'update.action.move': '移到「應用程式」',
+  'update.action.downloadPage': '下載頁面',
 
   'suggest.title': '{count} 個建議的工作',
   'suggest.startedCount': '{count} 已開始',

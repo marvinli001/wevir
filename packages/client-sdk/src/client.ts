@@ -5,6 +5,8 @@ import {
   AutomationChangedParamsSchema,
   type BrowserRequest,
   type BrowserResponse,
+  type ChannelId,
+  type ChannelPost,
   ChannelPostedParamsSchema,
   ChannelsChangedParamsSchema,
   ChannelUpdatedParamsSchema,
@@ -49,6 +51,7 @@ import {
   SessionsChangedParamsSchema,
   SettingsUpdatedParamsSchema,
   SpeechChangedParamsSchema,
+  type SubscriptionId,
   TerminalChangedParamsSchema,
   TerminalOutputParamsSchema,
   TuningChangedParamsSchema,
@@ -68,6 +71,29 @@ export type ProcessChange = NotificationParams<'process.changed'>;
 export type ReadinessChange = NotificationParams<'readiness.changed'>;
 /** `preview.changed` 的内容（0.84.0）。 */
 export type PreviewChange = NotificationParams<'preview.changed'>;
+/** `channels.changed` 的内容（0.120.0）。 */
+export type ChannelsChange = NotificationParams<'channels.changed'>;
+/** `channel.updated` 的内容（0.120.0），不带订阅 ID。 */
+export type ChannelUpdate = Omit<NotificationParams<'channel.updated'>, 'subscriptionId'>;
+
+/** `watchChannel` 的回调。 */
+export interface ChannelWatchHandlers {
+  /** 新帖（含订阅时与重连后补发的），按 `seq` 递增；同一条不会给两次。 */
+  onPost(post: ChannelPost): void;
+  /** 频道行、改了的帖子、线程、审批或任务清单变了。 */
+  onUpdate?(update: ChannelUpdate): void;
+  onError?(error: unknown): void;
+}
+
+interface ChannelWatcher {
+  channelId: ChannelId;
+  handlers: ChannelWatchHandlers;
+  /** 收到的最后一条帖子；重连后从这里接着补。 */
+  lastSeq: number;
+  subscriptionId?: SubscriptionId;
+  stopped: boolean;
+}
+
 /** `sessions.changed` 的内容（0.101.0）。 */
 export type SessionsChange = NotificationParams<'sessions.changed'>;
 /** `speech.changed` 的内容（0.92.0）。 */
@@ -78,12 +104,6 @@ export type MarketInstallProgress = NotificationParams<'market.installProgress'>
 export type PowerChange = NotificationParams<'power.changed'>;
 /** `inbox.changed` 的内容（0.105.0）。 */
 export type InboxChange = NotificationParams<'inbox.changed'>;
-/** `channels.changed` 的内容（0.120.0）。 */
-export type ChannelsChange = NotificationParams<'channels.changed'>;
-/** `channel.posted` 的内容（0.120.0）。 */
-export type ChannelPosted = NotificationParams<'channel.posted'>;
-/** `channel.updated` 的内容（0.120.0）。 */
-export type ChannelUpdate = NotificationParams<'channel.updated'>;
 /** 设备与配对的变化（0.107.0）：`devices.changed`、`pairing.request`、`pairing.ended`，以及远程监听的 `remote.changed`（0.109.0）。 */
 export type RemoteDevicesChange =
   | { kind: 'devices'; devices: Device[] }
@@ -373,12 +393,13 @@ export class WevirClient {
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
   readonly #speechListeners = new Set<(change: SpeechChange | undefined) => void>();
   readonly #sessionsListeners = new Set<(change: SessionsChange | undefined) => void>();
+  readonly #channelsListeners = new Set<(change: ChannelsChange | undefined) => void>();
+  readonly #channelWatchers = new Set<ChannelWatcher>();
+  /** 订阅的响应还没处理完就到了的帖子与变化（同一批帧里）：订阅 ID → 消息，响应处理时交出。 */
+  readonly #earlyChannelMessages = new Map<string, Array<{ method: string; params: unknown }>>();
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
   readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
-  readonly #channelsListeners = new Set<(change: ChannelsChange | undefined) => void>();
-  readonly #channelPostedListeners = new Set<(posted: ChannelPosted) => void>();
-  readonly #channelUpdatedListeners = new Set<(update: ChannelUpdate) => void>();
   readonly #remoteDevicesListeners = new Set<(change: RemoteDevicesChange | undefined) => void>();
   readonly #notificationListeners = new Set<(intent: NotificationIntent) => void>();
   /** 最近一次 `setPresence` 的值：重连后重报。 */
@@ -720,6 +741,117 @@ export class WevirClient {
   }
 
   /**
+   * 助理的列表变了（0.120.0，`channels.changed`，Host 功能 `channels`）：只有调过 `channel.list` 的连接收得到，`listVersion` 不等于上次
+   * 加一时重读。重连上之后以 `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
+   */
+  onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void {
+    this.#channelsListeners.add(listener);
+    return () => this.#channelsListeners.delete(listener);
+  }
+
+  #channelsChanged(change: ChannelsChange | undefined): void {
+    for (const listener of [...this.#channelsListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a channels listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 看一个助理的时间线（0.120.0，`channel.subscribe`）：先补发 `afterSeq` 之后的帖子，之后收新帖与变化；断线重连后从收到的最后一条
+   * 接着补。没有 `channels` 功能的 Host 上什么都不做。返回取消函数（同时退订）。
+   */
+  watchChannel(
+    channelId: ChannelId,
+    handlers: ChannelWatchHandlers,
+    options: { afterSeq?: number } = {},
+  ): () => void {
+    const watcher: ChannelWatcher = {
+      channelId,
+      handlers,
+      lastSeq: options.afterSeq ?? 0,
+      stopped: false,
+    };
+    this.#channelWatchers.add(watcher);
+    if (this.#connection !== undefined) this.#subscribeChannel(watcher);
+    return () => {
+      watcher.stopped = true;
+      this.#channelWatchers.delete(watcher);
+      const subscriptionId = watcher.subscriptionId;
+      delete watcher.subscriptionId;
+      if (subscriptionId !== undefined && this.#connection !== undefined) {
+        this.request('channel.unsubscribe', { subscriptionId }).catch(() => undefined);
+      }
+    };
+  }
+
+  #subscribeChannel(watcher: ChannelWatcher): void {
+    if (!this.supports('channels') || !this.can('session.read')) return;
+    delete watcher.subscriptionId;
+    this.request('channel.subscribe', {
+      channelId: watcher.channelId,
+      afterSeq: watcher.lastSeq,
+    }).then(
+      ({ subscriptionId }) => {
+        if (watcher.stopped) {
+          this.request('channel.unsubscribe', { subscriptionId }).catch(() => undefined);
+          return;
+        }
+        watcher.subscriptionId = subscriptionId;
+        const early = this.#earlyChannelMessages.get(subscriptionId) ?? [];
+        this.#earlyChannelMessages.delete(subscriptionId);
+        for (const message of early) this.#onChannelMessage(message.method, message.params);
+      },
+      (error: unknown) => {
+        if (watcher.stopped) return;
+        try {
+          watcher.handlers.onError?.(error);
+        } catch (thrown) {
+          this.#warn('a channel error handler threw', { error: thrown });
+        }
+      },
+    );
+  }
+
+  /** `channel.posted` / `channel.updated`：交给订阅了的那个 watcher；订阅的响应还没处理完时先存着。 */
+  #onChannelMessage(method: string, params: unknown): void {
+    const posted = method === 'channel.posted';
+    const parsed = posted
+      ? ChannelPostedParamsSchema.safeParse(params)
+      : ChannelUpdatedParamsSchema.safeParse(params);
+    if (!parsed.success) {
+      this.#warn(`ignored a malformed ${method} notification`);
+      return;
+    }
+    const { subscriptionId } = parsed.data;
+    const watcher = [...this.#channelWatchers].find(
+      (item) => item.subscriptionId === subscriptionId,
+    );
+    if (watcher === undefined) {
+      const early = this.#earlyChannelMessages.get(subscriptionId) ?? [];
+      if (early.length < 500) early.push({ method, params });
+      this.#earlyChannelMessages.set(subscriptionId, early);
+      return;
+    }
+    try {
+      if (posted) {
+        const { post } = parsed.data as NotificationParams<'channel.posted'>;
+        if (post.seq <= watcher.lastSeq) return;
+        watcher.lastSeq = post.seq;
+        watcher.handlers.onPost(post);
+      } else {
+        const { subscriptionId: _id, ...update } =
+          parsed.data as NotificationParams<'channel.updated'>;
+        watcher.handlers.onUpdate?.(update);
+      }
+    } catch (error) {
+      this.#warn('a channel watcher threw', { error });
+    }
+  }
+
+  /**
    * 防休眠的判定变了（0.102.0，`power.changed`）。只有调过 `power.*` 的连接收得到。重连上之后以 `undefined` 调一次（期间的变化
    * 没收到，重读 `power.get`）。返回取消函数。
    */
@@ -735,28 +867,6 @@ export class WevirClient {
   onInboxChanged(listener: (change: InboxChange | undefined) => void): () => void {
     this.#inboxListeners.add(listener);
     return () => this.#inboxListeners.delete(listener);
-  }
-
-  /**
-   * 频道列表变了（0.120.0，`channels.changed`，Host 功能 `channels`）：只有调过 `channel.list` 的连接收得到，`listVersion` 不等于上次
-   * 加一时重读列表。重连上之后以 `undefined` 调一次：期间的变化没收到，`channel.subscribe` 的订阅也随旧连接没了，要重读并重订。
-   * 返回取消函数。
-   */
-  onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void {
-    this.#channelsListeners.add(listener);
-    return () => this.#channelsListeners.delete(listener);
-  }
-
-  /** 订阅的频道有了新帖（0.120.0，`channel.posted`，按 `subscriptionId` 认是哪个订阅）。返回取消函数。 */
-  onChannelPosted(listener: (posted: ChannelPosted) => void): () => void {
-    this.#channelPostedListeners.add(listener);
-    return () => this.#channelPostedListeners.delete(listener);
-  }
-
-  /** 订阅的频道里线程、审批、任务或帖子的卡片变了（0.120.0，`channel.updated`）。返回取消函数。 */
-  onChannelUpdated(listener: (update: ChannelUpdate) => void): () => void {
-    this.#channelUpdatedListeners.add(listener);
-    return () => this.#channelUpdatedListeners.delete(listener);
   }
 
   /**
@@ -812,16 +922,6 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a remote devices listener threw', { error });
-      }
-    }
-  }
-
-  #emitTo<T>(listeners: Set<(value: T) => void>, value: T, what: string): void {
-    for (const listener of [...listeners]) {
-      try {
-        listener(value);
-      } catch (error) {
-        this.#warn(`a ${what} listener threw`, { error });
       }
     }
   }
@@ -1368,10 +1468,11 @@ export class WevirClient {
         if (reread('dev_preview', 'preview.list')) this.#previewChanged(undefined);
         if (reread('speech', 'speech.status')) this.#speechChanged(undefined);
         if (reread('session_list_push', 'session.list')) this.#sessionsChanged(undefined);
+        if (reread('channels', 'channel.list')) this.#channelsChanged(undefined);
+        this.#earlyChannelMessages.clear();
+        for (const watcher of this.#channelWatchers) this.#subscribeChannel(watcher);
         if (reread('prevent_sleep', 'power.get')) this.#powerChanged(undefined);
         if (reread('inbox', 'inbox.list')) this.#inboxChanged(undefined);
-        if (reread('channels', 'channel.list'))
-          this.#emitTo(this.#channelsListeners, undefined, 'channels');
         if (reread('remote_devices', 'device.list')) this.#remoteDevicesChanged(undefined);
         if (reread('tuning', 'tuning.get')) this.#tuningChanged(undefined);
         if (reread('tuning_guardrails', 'guardrail.list')) this.#guardrailsChanged(undefined);
@@ -1703,6 +1804,19 @@ export class WevirClient {
       }
       return;
     }
+    if (method === 'channels.changed') {
+      const parsed = ChannelsChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed channels.changed notification');
+        return;
+      }
+      this.#channelsChanged(parsed.data);
+      return;
+    }
+    if (method === 'channel.posted' || method === 'channel.updated') {
+      this.#onChannelMessage(method, params);
+      return;
+    }
     if (method === 'sessions.changed') {
       const parsed = SessionsChangedParamsSchema.safeParse(params);
       if (!parsed.success) {
@@ -1725,33 +1839,6 @@ export class WevirClient {
           this.#warn('a notification listener threw', { error });
         }
       }
-      return;
-    }
-    if (method === 'channels.changed') {
-      const parsed = ChannelsChangedParamsSchema.safeParse(params);
-      if (!parsed.success) {
-        this.#warn('ignored a malformed channels.changed notification');
-        return;
-      }
-      this.#emitTo(this.#channelsListeners, parsed.data, 'channels');
-      return;
-    }
-    if (method === 'channel.posted') {
-      const parsed = ChannelPostedParamsSchema.safeParse(params);
-      if (!parsed.success) {
-        this.#warn('ignored a malformed channel.posted notification');
-        return;
-      }
-      this.#emitTo(this.#channelPostedListeners, parsed.data, 'channel posted');
-      return;
-    }
-    if (method === 'channel.updated') {
-      const parsed = ChannelUpdatedParamsSchema.safeParse(params);
-      if (!parsed.success) {
-        this.#warn('ignored a malformed channel.updated notification');
-        return;
-      }
-      this.#emitTo(this.#channelUpdatedListeners, parsed.data, 'channel updated');
       return;
     }
     if (method === 'inbox.changed') {

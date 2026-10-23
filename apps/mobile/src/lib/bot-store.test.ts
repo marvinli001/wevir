@@ -56,10 +56,10 @@ describe('BotStore', () => {
     expect(store.list).toHaveLength(0);
   });
 
-  it('打开时订阅并取最新一页，往上翻取更早的', async () => {
+  it('打开时取最新一页并从最后一条起看，往上翻取更早的', async () => {
     const { host, store } = setup({ posts: 45 });
     await store.open(KEY);
-    expect(host.calls('channel.subscribe')).toEqual([{ channelId: CHANNEL_A }]);
+    expect(host.watches.get(CHANNEL_A)?.afterSeq).toBe(45);
     let timeline = store.timeline(KEY);
     expect(timeline.loading).toBe(false);
     expect(timeline.posts.map((p) => p.seq)).toEqual(
@@ -75,12 +75,11 @@ describe('BotStore', () => {
   it('新帖、帖子与线程、审批的更新跟着订阅改', async () => {
     const { host, store } = setup({ posts: 3 });
     await store.open(KEY);
-    const sub = host.lastSub();
-    host.posted(sub, post(CHANNEL_A, 4));
-    host.posted(sub, post(CHANNEL_A, 4));
+    host.posted(post(CHANNEL_A, 4));
+    host.posted(post(CHANNEL_A, 4));
     expect(store.timeline(KEY).posts.map((p) => p.seq)).toEqual([1, 2, 3, 4]);
     const root = post(CHANNEL_A, 2, { routedTo: [thread(post(CHANNEL_A, 2).id).sessionId] });
-    host.updated({
+    host.updated(CHANNEL_A, {
       posts: [root],
       threads: [thread(root.id)],
       approvals: [approval()],
@@ -93,7 +92,7 @@ describe('BotStore', () => {
     expect(store.bot(KEY)?.state).toBe('working');
   });
 
-  it('列表变化：版本接上就改，接不上重读；重连后重读并按最后一条的 seq 重订', async () => {
+  it('列表变化：版本接上就改，接不上重读；重连后重读列表与线程、审批', async () => {
     const { host, store } = setup({ posts: 3 });
     await store.open(KEY);
     host.changed({
@@ -105,11 +104,10 @@ describe('BotStore', () => {
     const lists = host.calls('channel.list').length;
     host.changed({ listVersion: 9, upserted: [], removed: [CHANNEL_B] });
     await vi.waitFor(() => expect(host.calls('channel.list')).toHaveLength(lists + 1));
-    host.add(post(CHANNEL_A, 4));
-    host.add(post(CHANNEL_A, 5));
+    host.approvals = [approval()];
     host.changed(undefined);
-    await vi.waitFor(() => expect(store.timeline(KEY).posts).toHaveLength(5));
-    expect(host.calls('channel.subscribe').at(-1)).toEqual({ channelId: CHANNEL_A, afterSeq: 3 });
+    await vi.waitFor(() => expect(store.timeline(KEY).approvals).toHaveLength(1));
+    expect(host.calls('channel.list')).toHaveLength(lists + 2);
   });
 
   it('发帖、采纳提议、批准审批', async () => {
@@ -132,7 +130,7 @@ describe('BotStore', () => {
     expect(host.calls('approval.respond')).toEqual([
       { approvalId: approval().id, optionId: 'once' },
     ]);
-    host.updated({ approvals: [] });
+    host.updated(CHANNEL_A, { approvals: [] });
     expect(store.timeline(KEY).decided).toEqual([{ request: approval(), decision: 'approved' }]);
   });
 

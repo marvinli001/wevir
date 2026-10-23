@@ -75,6 +75,11 @@ export interface UpdateControllerOptions {
   packaged: boolean;
   /** macOS 上应用在只读或临时的位置运行（被系统转移、从 dmg 直接打开）：更新关闭，可以移到“应用程序”。 */
   readOnlyLocation: boolean;
+  /**
+   * 只检查、不下载与安装（Linux 的 deb）：发现新版本时状态带 `manual`，界面给下载页，`download` 与 `install` 什么都不做，也不为
+   * 下载测速。
+   */
+  manualInstall?: boolean;
   readPrefs(): UpdatePrefs;
   writePrefs(prefs: UpdatePrefs): void;
   log: UpdateLog;
@@ -128,7 +133,7 @@ export class UpdateController implements FeedSource {
     const { updater } = options;
     updater.autoDownload = false;
     // 下载好了但用户没点“重启以更新”就退出应用时，退出时安装（Codex 桌面端也是这样）。
-    updater.autoInstallOnAppQuit = true;
+    updater.autoInstallOnAppQuit = options.manualInstall !== true;
     updater.allowDowngrade = false;
     updater.logger = {
       info: (message) => options.log('info', `updater: ${String(message)}`),
@@ -137,7 +142,11 @@ export class UpdateController implements FeedSource {
     };
     updater.setFeedURL({ provider: 'custom', updateProvider: MirrorProvider, feed: this });
     updater.on('update-available', (info) =>
-      this.#set({ phase: 'available', version: info.version }),
+      this.#set({
+        phase: 'available',
+        version: info.version,
+        ...(options.manualInstall === true && { manual: true as const }),
+      }),
     );
     updater.on('update-not-available', () => this.#set({ phase: 'latest' }));
     updater.on('download-progress', (progress) => {
@@ -208,7 +217,7 @@ export class UpdateController implements FeedSource {
 
   /** 下载已发现的版本（只在 `available` 时）。下载失败后先重新检查，再下载。 */
   async download(): Promise<void> {
-    if (this.#state.phase !== 'available') return;
+    if (this.#state.phase !== 'available' || this.#state.manual === true) return;
     const { version } = this.#state;
     this.#set({ phase: 'downloading', version, percent: 0, bytesPerSecond: 0 });
     try {
@@ -233,7 +242,8 @@ export class UpdateController implements FeedSource {
       }
     }
     try {
-      // macOS 的 Squirrel 在应用退出后替换并重新打开；Windows 静默运行 NSIS 安装程序，装完重新打开。
+      // macOS 的 Squirrel 在应用退出后替换并重新打开；Windows 静默运行 NSIS 安装程序，装完重新打开；Linux 换掉 AppImage 文件，
+      // 马上启动新版本（它等这个进程放开单实例锁，index.ts 的 acquireInstanceLock）。
       this.#options.updater.quitAndInstall(true, true);
     } catch (error) {
       this.#set({ phase: 'error', code: 'install', detail: (error as Error).message });
@@ -282,7 +292,10 @@ export class UpdateController implements FeedSource {
         }),
     });
     let chosen = first;
-    if (compare(first.info.version, this.#options.currentVersion) > 0) {
+    if (
+      compare(first.info.version, this.#options.currentVersion) > 0 &&
+      this.#options.manualInstall !== true
+    ) {
       // 有新版本：等其他线路的结果，在给出同一版本的线路之间测速。
       const others = await rest;
       const same = [first, ...others.filter((other) => other.info.version === first.info.version)];

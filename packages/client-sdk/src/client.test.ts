@@ -951,6 +951,81 @@ describe('会话列表推送（0.101.0）', () => {
   });
 });
 
+describe('助理（0.120.0）', () => {
+  const CHN = 'chn_01JA2B3C4D5E6F7G8H9JKMNPQR';
+  const post = (seq: number) => ({
+    id: `cpo_0${seq}JA2B3C4D5E6F7G8H9JKMNPQR`,
+    channelId: CHN,
+    seq,
+    author: { kind: 'host' },
+    content: [{ type: 'text', text: `post ${seq}` }],
+    createdAt: '2026-10-23T08:00:00.000Z',
+  });
+
+  it('watchChannel：响应前到的补发帖子不丢，重连后从最后一条接着补，取消时退订', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { channels: true } } }));
+    let next = 1;
+    host.on('channel.subscribe', (params, socket) => {
+      const subscriptionId = `sub_${next++}`;
+      const frame = socket.sent.at(-1);
+      setTimeout(() => {
+        // 同一批帧：响应后紧跟补发，客户端还没处理完响应。
+        socket.reply(frame?.id ?? 0, { result: { subscriptionId, lastSeq: 3 } });
+        for (let seq = (params.afterSeq ?? 0) + 1; seq <= 3; seq++) {
+          socket.notify('channel.posted', { subscriptionId, post: post(seq) });
+        }
+      }, 0);
+      return 'no-reply';
+    });
+    host.on('channel.unsubscribe', () => ({ result: {} }));
+    const { client } = await connect(host);
+    const seen: number[] = [];
+    const updates: unknown[] = [];
+    const stop = client.watchChannel(CHN as never, {
+      onPost: (item) => seen.push(item.seq),
+      onUpdate: (update) => updates.push(update),
+    });
+    await vi.waitFor(() => expect(seen).toEqual([1, 2, 3]));
+    expect(host.last.requests('channel.subscribe')[0]?.params).toEqual({
+      channelId: CHN,
+      afterSeq: 0,
+    });
+    host.last.notify('channel.updated', { subscriptionId: 'sub_1', threads: [] });
+    await vi.waitFor(() => expect(updates).toEqual([{ threads: [] }]));
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(host.last.requests('channel.subscribe')[0]?.params).toEqual({
+        channelId: CHN,
+        afterSeq: 3,
+      }),
+    );
+    await tick();
+    expect(seen).toEqual([1, 2, 3]);
+    stop();
+    await vi.waitFor(() =>
+      expect(host.last.requests('channel.unsubscribe')[0]?.params).toEqual({
+        subscriptionId: 'sub_2',
+      }),
+    );
+  });
+
+  it('onChannelsChanged：带上通知的内容，重连后以 undefined 通知', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { channels: true } } }));
+    const { client } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onChannelsChanged((change) => changes.push(change));
+    const change = { listVersion: 2, upserted: [], removed: [CHN] };
+    host.last.notify('channels.changed', change);
+    await vi.waitFor(() => expect(changes).toEqual([change]));
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toEqual([change, undefined]));
+    stop();
+  });
+});
+
 describe('防休眠（0.102.0）', () => {
   it('onPowerChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();
@@ -1036,48 +1111,6 @@ describe('收件箱（0.105.0）', () => {
     await vi.waitFor(() => expect(changes).toHaveLength(2));
     expect(changes[1]).toBeUndefined();
     stop();
-  });
-});
-
-describe('频道（0.120.0）', () => {
-  it('列表变化、新帖与更新交给各自的监听者，重连后列表以 undefined 通知；格式不对的忽略', async () => {
-    const host = new FakeHost();
-    host.on('host.hello', () => ({ result: { ...HELLO, features: { channels: true } } }));
-    const { client, warnings } = await connect(host);
-    const changes: unknown[] = [];
-    const posted: unknown[] = [];
-    const updates: unknown[] = [];
-    const stops = [
-      client.onChannelsChanged((change) => changes.push(change)),
-      client.onChannelPosted((item) => posted.push(item)),
-      client.onChannelUpdated((item) => updates.push(item)),
-    ];
-    const channelId = 'chn_01JA2B3C4D5E6F7G8H9JKMNPQR';
-    const subscriptionId = 'sub_01JA2B3C4D5E6F7G8H9JKMNPQR';
-    const post = {
-      id: 'cpo_01JA2B3C4D5E6F7G8H9JKMNPQR',
-      channelId,
-      seq: 3,
-      author: { kind: 'user' },
-      content: [{ type: 'text', text: '早' }],
-      createdAt: '2026-10-22T08:00:00.000Z',
-    };
-    const change = { listVersion: 4, upserted: [], removed: [channelId] };
-    host.last.notify('channels.changed', change);
-    host.last.notify('channel.posted', { subscriptionId, post });
-    host.last.notify('channel.updated', { subscriptionId, posts: [post] });
-    await vi.waitFor(() => expect(updates).toHaveLength(1));
-    expect(changes).toEqual([change]);
-    expect(posted).toEqual([{ subscriptionId, post }]);
-    expect(updates).toEqual([{ subscriptionId, posts: [post] }]);
-    host.last.notify('channel.posted', { subscriptionId });
-    await tick();
-    expect(posted).toHaveLength(1);
-    expect(warnings.join('\n')).toMatch(/malformed channel.posted/);
-    host.last.drop();
-    await vi.waitFor(() => expect(changes).toHaveLength(2));
-    expect(changes[1]).toBeUndefined();
-    for (const stop of stops) stop();
   });
 });
 
