@@ -84,8 +84,9 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  * 不进安装包的依赖。它们与只被它们用到的依赖由 `pruneDependencies` 删掉：
  * - `vitest`：`@wevir/runtime-adapter` 的可选 peer（只有 `./contract` 的契约测试用），pnpm 从工作区根的开发依赖解析到它，
  *   deploy 便带上了它和 Vite 那一串；
- * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。没有它时 Host 不挂 Cursor
- *   引擎（host 的 engines.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的 JS，不带原生的 `claude`；
+ * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。用户选用 Cursor 时由 Host 从
+ *   npm registry 下载到数据目录（adapter-cursor 的 sdk-install.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的
+ *   JS，不带原生的 `claude`；
  * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）；
  * - `node-addon-api`：node-pty（用户终端）的依赖，只有编译原生模块用的 C++ 头文件，运行时不加载。
  */

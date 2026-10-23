@@ -805,7 +805,8 @@ function InstallStep({
           {account.installCommand !== undefined && <CommandLine command={account.installCommand} />}
         </Step>
       )}
-      {!installing && client.supports('subscription_sources') && (
+      {/* Cursor 的 SDK 在 Host 进程里跑，没有可执行文件可指定。 */}
+      {!installing && kind !== 'cursor' && client.supports('subscription_sources') && (
         <div className="space-y-2">
           {editing ? (
             <form

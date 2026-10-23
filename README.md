@@ -107,7 +107,7 @@ Wevir is in preview. **Supported** means it is in the builds and covered by auto
 | | Antigravity | Beta | Wevir downloads a pinned version |
 | | WorkBuddy | Beta | Needs the `codebuddy` CLI |
 | | Devin | Beta | Not yet checked against a real account |
-| | Cursor | Beta | Source builds only: the Cursor SDK is not redistributed |
+| | Cursor | Beta | Wevir downloads the Cursor SDK from npm when you set it up; not bundled |
 | Other | `wevir` CLI | Beta | Run from a source checkout; not packaged |
 | | Computer use | Beta | macOS only, off by default |
 | | Mobile app | Planned | |

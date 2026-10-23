@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountState } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CursorAccounts, type CursorAccountsOptions } from './accounts.js';
+import { CursorAccounts, type CursorAccountsOptions, type CursorSdkInstall } from './accounts.js';
 import { CursorCredentialFile, cursorCredentialsPath } from './credentials.js';
+import type { CursorSdkInstallation, CursorSdkInstallEvent } from './sdk-install.js';
 import { FakeCursorSdk, sdkError } from './test-fixtures/fake-sdk.js';
 
 const dirs: string[] = [];
@@ -218,5 +219,132 @@ describe('CursorAccounts', () => {
     await vi.waitFor(() => expect(states.at(-1)?.lastError).toBeDefined());
     expect(states.at(-1)?.status).toBe('signed_out');
     await vi.waitFor(() => expect(existsSync(path)).toBe(false));
+  });
+});
+
+/** 假的 SDK 安装器：测试决定什么时候报进度、装好或失败。 */
+class FakeInstaller implements CursorSdkInstall {
+  supported = true;
+  installing: { completedBytes: number; totalBytes?: number } | undefined;
+  error: string | undefined;
+  installation: CursorSdkInstallation | undefined;
+  installs = 0;
+  readonly #listeners = new Set<(event: CursorSdkInstallEvent) => void>();
+
+  async active() {
+    return this.installation;
+  }
+
+  install(): Promise<CursorSdkInstallation> {
+    this.installs += 1;
+    this.error = undefined;
+    this.installing = { completedBytes: 0 };
+    this.emit({ type: 'progress', completedBytes: 0 });
+    return new Promise(() => {});
+  }
+
+  onChange(listener: (event: CursorSdkInstallEvent) => void) {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  progress(completedBytes: number, totalBytes: number) {
+    this.installing = { completedBytes, totalBytes };
+    this.emit({ type: 'progress', completedBytes, totalBytes });
+  }
+
+  finish() {
+    this.installing = undefined;
+    this.installation = { root: '/sdk/versions/1.0.35', version: '1.0.35' };
+    this.emit({ type: 'installed', installation: this.installation });
+  }
+
+  fail(message: string) {
+    this.installing = undefined;
+    this.error = message;
+    this.emit({ type: 'failed', message });
+  }
+
+  emit(event: CursorSdkInstallEvent) {
+    for (const listener of this.#listeners) listener(event);
+  }
+}
+
+describe('CursorAccounts：安装包里按需下载 SDK', () => {
+  const NOT_INSTALLED: AccountState = { ...SIGNED_OUT, installed: false, canInstall: true };
+
+  it('SDK 没装：未安装、能装，不加载 SDK、没有模型；本平台没有构建时不能装', async () => {
+    const installer = new FakeInstaller();
+    const { accounts, sdk } = setup({ installer });
+    expect(await accounts.read('cursor', { refresh: true })).toEqual(NOT_INSTALLED);
+    expect(await accounts.models('cursor')).toEqual({ models: [] });
+    expect(sdk.meCalls).toBe(0);
+    installer.supported = false;
+    expect(await accounts.read('cursor')).toEqual({ ...SIGNED_OUT, installed: false });
+    await expect(accounts.install('cursor')).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('install：立即返回安装中，进度经 onChange；装好后重新读账号，状态带 SDK 版本', async () => {
+    const installer = new FakeInstaller();
+    const { accounts, states } = setup({ installer });
+    expect(await accounts.install('cursor')).toEqual({
+      ...NOT_INSTALLED,
+      installing: { completedBytes: 0 },
+    });
+    // 进行中再点一次不重新开始。
+    await accounts.install('cursor');
+    expect(installer.installs).toBe(1);
+    installer.progress(512, 1024);
+    expect(states.at(-1)).toEqual({
+      ...NOT_INSTALLED,
+      installing: { completedBytes: 512, totalBytes: 1024 },
+    });
+    installer.finish();
+    await vi.waitFor(() =>
+      expect(states.at(-1)).toEqual({ ...SIGNED_OUT, installed: true, version: '1.0.35' }),
+    );
+    // 已装好：install 只是重新读。
+    expect(await accounts.install('cursor')).toEqual({
+      ...SIGNED_OUT,
+      installed: true,
+      version: '1.0.35',
+    });
+    expect(installer.installs).toBe(1);
+  });
+
+  it('安装失败：未安装带原因，可以再装', async () => {
+    const installer = new FakeInstaller();
+    const { accounts, states } = setup({ installer });
+    await accounts.install('cursor');
+    installer.fail('Could not download @cursor/sdk@1.0.35 (registry.npmjs.org: 503).');
+    expect(states.at(-1)).toEqual({
+      ...NOT_INSTALLED,
+      lastError: 'Could not download @cursor/sdk@1.0.35 (registry.npmjs.org: 503).',
+    });
+    expect(await accounts.install('cursor')).toEqual({
+      ...NOT_INSTALLED,
+      installing: { completedBytes: 0 },
+    });
+  });
+
+  it('多账号共用一个安装器：任一账号装好，每个账号都重新读，各用各的 Key', async () => {
+    const installer = new FakeInstaller();
+    const first = setup({ installer });
+    const second = setup({ installer });
+    await new CursorCredentialFile(second.path).save({
+      version: 1,
+      backendUrl: 'x',
+      apiKey: 'second_key',
+      createdAtMs: 0,
+    });
+    expect(await second.accounts.read('cursor')).toEqual(NOT_INSTALLED);
+    await first.accounts.install('cursor');
+    expect(second.states.at(-1)).toMatchObject({ installing: { completedBytes: 0 } });
+    installer.finish();
+    await vi.waitFor(() => expect(second.states.at(-1)?.status).toBe('signed_in'));
+    expect(second.states.at(-1)).toMatchObject({ installed: true, version: '1.0.35' });
+    expect(first.states.at(-1)).toEqual({ ...SIGNED_OUT, installed: true, version: '1.0.35' });
+    expect(await second.accounts.requireApiKey()).toBe('second_key');
+    expect(await first.accounts.readApiKey()).toBeUndefined();
   });
 });
