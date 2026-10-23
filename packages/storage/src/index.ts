@@ -8,6 +8,7 @@
 export * from './accounts.js';
 export * from './approval-rules.js';
 export * from './approvals.js';
+export * from './channels.js';
 export * from './devices.js';
 export {
   BUSY_TIMEOUT_MS,

@@ -342,6 +342,8 @@ export class InboxService {
       session.parentSessionId === undefined &&
       session.side !== true &&
       session.automation === undefined &&
+      // 协调者的失败回合由频道的 `notice: failed` 帖子代表（0.120.0）。
+      session.channel?.role !== 'coordinator' &&
       record.archivedAt === undefined;
     if (failed !== undefined && attended) {
       items.push({

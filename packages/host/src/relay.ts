@@ -10,7 +10,13 @@ import type { MessageFrom, UserContentPart } from '@wevir/protocol';
 
 /** 这条消息要不要包、包成什么：返回信封的属性，不包时 `undefined`。 */
 function relayAttributes(from: MessageFrom): Record<string, string> | undefined {
-  if (from.repair !== undefined || from.opinion !== undefined || from.usageLimit !== undefined) {
+  // 频道的唤醒与转交（0.120.0）自带信封（channels/envelope.ts）。
+  if (
+    from.repair !== undefined ||
+    from.opinion !== undefined ||
+    from.usageLimit !== undefined ||
+    from.channel !== undefined
+  ) {
     return undefined;
   }
   if (from.process !== undefined) {

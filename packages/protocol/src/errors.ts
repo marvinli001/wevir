@@ -20,7 +20,7 @@ import { ProtocolVersionSchema } from './version.js';
  * JSON-RPC `error.code` 表（host-api.md「错误码」）。客户端按数值判断，`message` 只给人看。
  * 前五个是 JSON-RPC 2.0 标准码；Wevir 自己的错误在规范留给实现方的 -32000…-32099 内分段：
  * -32000…-32009 连接与握手，-32010…-32019 对象不存在，-32020…-32039 状态与冲突，
- * -32040…-32059 环境与引擎，-32060…-32069 是调优（0.85.0 档案、0.86.0 护栏、0.87.0 建议），-32070 起是远程访问（0.107.0；0.112.0 起含推送）。
+ * -32040…-32059 环境与引擎，-32060…-32069 是调优（0.85.0 档案、0.86.0 护栏、0.87.0 建议），-32070 起是远程访问（0.107.0；0.112.0 起含推送），-32080 起是频道（0.120.0）。
  * 只增不减，已分配的数值不复用。
  */
 export const ErrorCode = {
@@ -97,6 +97,9 @@ export const ErrorCode = {
    * `rate_limited`、`rejected`（网关拒绝，例如没有这个平台）或 `unreachable`。
    */
   PUSH_GATEWAY_ERROR: -32072,
+
+  /** 没有这个频道（0.120.0，`channel.*`），或它已删除。 */
+  CHANNEL_NOT_FOUND: -32080,
 } as const;
 
 export type ErrorCodeName = keyof typeof ErrorCode;

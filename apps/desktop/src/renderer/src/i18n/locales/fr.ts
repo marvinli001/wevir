@@ -97,6 +97,7 @@ export const messages: Messages = {
   'rpcError.SPEECH_FAILED': 'Échec de la transcription',
   'rpcError.MCP_OAUTH_FAILED': 'Échec de la connexion',
   'rpcError.PUSH_GATEWAY_ERROR': 'Échec de l’enregistrement push',
+  'rpcError.CHANNEL_NOT_FOUND': 'Assistant introuvable',
 
   'clientError.request_timeout': 'Délai de la requête dépassé',
   'clientError.connect_timeout': 'Délai de connexion dépassé',

@@ -46,6 +46,7 @@ import {
   SESSION_RECAP_MIN_AWAY_MS,
   type Session,
   type SessionAutomation,
+  type SessionChannel,
   type SessionGoal,
   type SessionId,
   type SessionMove,
@@ -1093,6 +1094,8 @@ export class SessionManager {
       automation?: SessionAutomation;
       /** 第二意见的会话（0.75.0）：记进 `origin`，`Session.opinionOf` 由它来；目录是按 `snapshot` 新开的 worktree。 */
       opinion?: OpinionSessionOptions;
+      /** 频道的协调者或线程（0.120.0）：记进 `origin`，`Session.channel` 由它来。 */
+      channel?: SessionChannel;
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
@@ -1126,6 +1129,7 @@ export class SessionManager {
         toolPreset,
         options.automation,
         options.opinion,
+        options.channel,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -1197,6 +1201,7 @@ export class SessionManager {
     toolPreset: ToolPreset | undefined,
     automation?: SessionAutomation,
     opinion?: OpinionSessionOptions,
+    channel?: SessionChannel,
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
@@ -1225,9 +1230,11 @@ export class SessionManager {
           }
         : automation !== undefined
           ? { kind: 'automation', ...automation }
-          : openedBy === undefined
-            ? undefined
-            : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
+          : channel !== undefined
+            ? { kind: 'channel', channelId: channel.channelId, channelRole: channel.role }
+            : openedBy === undefined
+              ? undefined
+              : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     this.#creating.set(sessionId, {
       workspaceId: workspace.id,
@@ -4223,7 +4230,8 @@ export class SessionManager {
       if (
         record.side ||
         record.origin?.kind === 'agent' ||
-        record.origin?.kind === 'second_opinion'
+        record.origin?.kind === 'second_opinion' ||
+        record.origin?.kind === 'channel'
       ) {
         return;
       }
@@ -4313,7 +4321,8 @@ export class SessionManager {
       if (
         record.side ||
         record.origin?.kind === 'agent' ||
-        record.origin?.kind === 'second_opinion'
+        record.origin?.kind === 'second_opinion' ||
+        record.origin?.kind === 'channel'
       ) {
         return;
       }

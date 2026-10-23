@@ -31,6 +31,8 @@ import type {
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
 import type { ApprovalRuleService } from './approval-rules/service.js';
 import type { AutomationService } from './automations/service.js';
+import type { AssistantFolders } from './channels/assistants.js';
+import type { ChannelService } from './channels/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError, isHostError } from './errors.js';
@@ -121,6 +123,8 @@ export type ConnectionMethodName =
   | 'host.shutdown'
   | 'events.subscribe'
   | 'events.unsubscribe'
+  | 'channel.subscribe'
+  | 'channel.unsubscribe'
   | 'browser.register'
   | 'browser.unregister'
   | 'browser.respond'
@@ -195,6 +199,10 @@ export interface HostMethodsOptions {
   verification?: VerificationService;
   /** 自动化（0.66.0，`automation.*`）；省略时 `automation.*` 回 `INVALID_PARAMS`（测试）。 */
   automations?: AutomationService;
+  /** 频道与助理（0.120.0，`channel.*`）；省略时 `channel.*` 回 `INVALID_PARAMS`（测试）。 */
+  channels?: ChannelService;
+  /** 助理的隐藏工作区（0.120.0）：不进 `workspace.list`、不能作为项目添加。 */
+  assistants?: AssistantFolders;
   /** 行级批注（0.67.0，`review.*`）；省略时 `review.*` 回 `INVALID_PARAMS`（测试）。 */
   review?: ReviewService;
   /** 第二意见（0.75.0，`session.secondOpinion` / `session.quoteOpinion`）；省略时这两个方法回 `INVALID_PARAMS`（测试）。 */
@@ -354,6 +362,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     rootPath: record.rootPath,
     displayName: record.displayName,
     ...(options.chats?.isChats(record) === true && { kind: 'chats' as const }),
+    ...(options.assistants?.isAssistant(record) === true && { kind: 'assistant' as const }),
     ...(record.extraFolders !== undefined &&
       record.extraFolders.length > 0 && { extraFolders: record.extraFolders }),
     createdAt: record.createdAt,
@@ -463,6 +472,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const automations = (): AutomationService => {
     if (options.automations === undefined) throw invalidParams([], 'this host has no automations');
     return options.automations;
+  };
+  const channels = (): ChannelService => {
+    if (options.channels === undefined) throw invalidParams([], 'this host has no channels');
+    return options.channels;
   };
   const importer = (): ExternalImport => {
     if (options.externalImport === undefined) throw invalidParams([], 'this host cannot import');
@@ -631,12 +644,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'plugin.setInputs': async ({ id, values }) => ({
       plugin: await plugins().setPluginInputs(id, values),
     }),
-    'workspace.list': () => ({ workspaces: storage.workspaces.list().map(toWorkspace) }),
+    // 助理的隐藏工作区（0.120.0）不列。
+    'workspace.list': () => ({
+      workspaces: storage.workspaces
+        .list()
+        .filter((record) => options.assistants?.isAssistant(record) !== true)
+        .map(toWorkspace),
+    }),
 
     'workspace.add': async ({ rootPath, displayName, extraFolders }) => {
       const real = await resolveWorkspacePath(rootPath);
       if (options.chats?.owns(real) === true) {
         throw invalidParams(['rootPath'], 'this folder holds Wevir chats');
+      }
+      if (options.assistants?.owns(real) === true) {
+        throw invalidParams(['rootPath'], 'this folder holds Wevir assistants');
       }
       const extra =
         extraFolders === undefined
@@ -1139,7 +1161,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         ...(archived === true && { archived: 'only' as const }),
       });
       return {
+        // 频道的协调者与线程（0.120.0）在频道里看，不进会话列表。
         sessions: records.flatMap((record) => {
+          if (record.origin?.kind === 'channel') return [];
           const snapshot = events.snapshot(record.id as SessionId);
           return snapshot ? [listRow(snapshot, record.archivedAt)] : [];
         }),
@@ -1586,6 +1610,44 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       terminals().close(params);
       return {};
     },
+    'channel.list': ({ kind }) => ({
+      channels: channels().list(kind),
+      listVersion: channels().listVersion,
+    }),
+    'channel.get': ({ channelId }) => channels().get(channelId),
+    'channel.create': async (params) => ({ channel: await channels().create(params) }),
+    'channel.update': async (params) => ({ channel: await channels().update(params) }),
+    'channel.delete': async ({ channelId }) => {
+      await channels().delete(channelId);
+      return {};
+    },
+    'channel.posts': (params) => channels().posts(params),
+    'channel.post': (params, { client }) => ({ post: channels().post(params, client) }),
+    'channel.markRead': ({ channelId, seq }, { client }) => {
+      channels().markRead(channelId, seq, client);
+      return {};
+    },
+    'channel.startThread': async ({ channelId, rootPostId, title }) => ({
+      thread: await channels().startThread({
+        channelId,
+        rootPostId,
+        ...(title !== undefined && { title }),
+        openedBy: 'user',
+      }),
+    }),
+    'channel.resolveThread': ({ channelId, sessionId, resolved }) => ({
+      thread: channels().resolveThread({ channelId, sessionId, resolved, by: 'user' }),
+    }),
+    'channel.respondSuggestion': (params, { client }) => ({
+      post: channels().respondSuggestion(params, client),
+    }),
+    'channel.updateTask': async (params) => ({ tasks: await channels().updateTask(params) }),
+    'channel.wake': ({ channelId }) => {
+      channels().wake(channelId);
+      return {};
+    },
+    'channel.rotate': async ({ channelId }) => ({ channel: await channels().rotate(channelId) }),
+
     'automation.list': async () => ({ automations: automations().list() }),
     'automation.get': async ({ automationId }) => automations().get(automationId),
     'automation.create': async (params) => ({

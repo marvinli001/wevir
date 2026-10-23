@@ -199,6 +199,8 @@ export class SessionListScope {
 
   /** 同 storage 的 `sessions.list`：工作区、父会话（不给时只要顶层）、归档与否都要对上。 */
   #matches(row: Session): boolean {
+    // 频道的协调者与线程（0.120.0）不进会话列表。
+    if (row.channel !== undefined) return false;
     for (const filter of this.#filters.values()) {
       if (filter.workspaceId !== undefined && row.workspaceId !== filter.workspaceId) continue;
       if (row.parentSessionId !== filter.parentSessionId) continue;

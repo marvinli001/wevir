@@ -34,6 +34,12 @@ import {
   PermissionsSchema,
 } from './capabilities.js';
 import {
+  ChannelMethodSchemas,
+  ChannelPostedParamsSchema,
+  ChannelsChangedParamsSchema,
+  ChannelUpdatedParamsSchema,
+} from './channels.js';
+import {
   ApprovalIdSchema,
   ClientKindSchema,
   ClientTokenSchema,
@@ -1864,6 +1870,8 @@ export const MethodSchemas = {
   ...ImportMethodSchemas,
   ...MarketMethodSchemas,
   ...WritingStyleMethodSchemas,
+  /** 频道与助理（0.120.0）。 */
+  ...ChannelMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,
@@ -2883,6 +2891,12 @@ export const NotificationSchemas = {
   'sessions.changed': { params: SessionsChangedParamsSchema },
   /** 发给调用过 `inbox.*` 的连接（0.105.0）：收件箱的增量。 */
   'inbox.changed': { params: InboxChangedParamsSchema },
+  /** 发给调用过 `channel.list` 的连接（0.120.0）：频道列表的增量。 */
+  'channels.changed': { params: ChannelsChangedParamsSchema },
+  /** 发给 `channel.subscribe` 过这个频道的连接（0.120.0）：新帖。 */
+  'channel.posted': { params: ChannelPostedParamsSchema },
+  /** 同上（0.120.0）：频道、线程、审批、任务或旧帖子变了。 */
+  'channel.updated': { params: ChannelUpdatedParamsSchema },
   /** 发给调用过 `notification.subscribe` 的连接（0.106.0）：Host 判定要提醒的一件新事。 */
   'notification.intent': { params: NotificationIntentParamsSchema },
   /** 发给调用过 `device.*` 或 `pairing.*` 的连接（0.107.0）：设备增、改、移除后的全部设备。 */
@@ -2951,6 +2965,9 @@ export const NOTIFICATION_PERMISSIONS = {
   'events.event': 'session.read',
   'sessions.changed': 'session.read',
   'inbox.changed': 'session.read',
+  'channels.changed': 'session.read',
+  'channel.posted': 'session.read',
+  'channel.updated': 'session.read',
   'notification.intent': 'session.read',
   'devices.changed': 'host.manage',
   'pairing.request': 'host.manage',

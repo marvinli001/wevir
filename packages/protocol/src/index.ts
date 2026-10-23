@@ -2,6 +2,7 @@ export * from './approval-rules.js';
 export * from './automations.js';
 export * from './browser.js';
 export * from './capabilities.js';
+export * from './channels.js';
 export * from './common.js';
 export * from './computer.js';
 export * from './devices.js';

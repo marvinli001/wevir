@@ -5,6 +5,7 @@ import type {
   AutomationId,
   AutomationRunId,
   BoardTask,
+  ChannelId,
   EngineErrorInfo,
   EnvironmentId,
   InsightId,
@@ -844,6 +845,11 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     session.automation = {
       automationId: record.origin.automationId as AutomationId,
       runId: record.origin.runId as AutomationRunId,
+    };
+  } else if (record.origin?.kind === 'channel') {
+    session.channel = {
+      channelId: record.origin.channelId as ChannelId,
+      role: record.origin.channelRole === 'thread' ? 'thread' : 'coordinator',
     };
   } else if (record.origin?.kind === 'second_opinion') {
     session.opinionOf = {
