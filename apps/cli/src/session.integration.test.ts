@@ -229,12 +229,14 @@ describe('会话', () => {
   });
 
   it('运行中 Tab 排队；Ctrl-C 取消后排队的暂停，/resume 继续发送；再按 Ctrl-C 退出 attach', async () => {
-    const { home, workspace } = await setup({ stepDelayMs: 40 });
+    // `slow` 让每个分片多等九步：Tab 与 Ctrl-C 要在第一个回合还在流式输出时到达。只靠 40 ms 一步时，看到开头之后只剩不到半秒，
+    // 机器忙（内存吃紧、换页）时回合先结束，排队的消息照常发出，等不到“已暂停”。
+    const { home, workspace } = await setup({ stepDelayMs: 20 });
     const a = fake(
-      ['session', 'new', '-w', workspace, 'a long answer that keeps streaming for a while'],
+      ['session', 'new', '-w', workspace, 'a slow answer that keeps streaming for a while'],
       { home, tty: true },
     );
-    let at = await a.waitFor('Echo: a lo');
+    let at = await a.waitFor('Echo: a sl');
     a.stdin.write('later please\t');
     at = await a.waitFor('› later please（排队）', at);
     at = await a.waitFor('⋯ 已排队：本回合结束后发送 · later please', at);

@@ -71,6 +71,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ['expo-secure-store', { faceIDPermission: false }],
     'expo-localization',
     './plugins/with-android-cleartext.js',
+    './plugins/with-android-theme.js',
   ],
   experiments: {
     typedRoutes: false,

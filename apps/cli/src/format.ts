@@ -1,8 +1,11 @@
 import type {
   ApprovalOption,
+  ApprovalRequest,
   ApprovalResolutionReason,
   ClientIdentity,
   EngineErrorCategory,
+  FilesRestore,
+  PermissionMode,
   ProviderTestFailure,
   SessionReadOnlyReason,
   SessionState,
@@ -12,7 +15,7 @@ import type {
   TurnOutcome,
 } from '@wevir/protocol';
 
-import { type PlainMessageKey, t } from './i18n/index.js';
+import { joinList, type PlainMessageKey, t } from './i18n/index.js';
 
 // 协议里的值的说法（经 i18n 的目录）与表格、时间的格式化。
 
@@ -72,6 +75,38 @@ export function optionLabel(option: Pick<ApprovalOption, 'kind' | 'label'>): str
     default:
       return option.label || option.kind;
   }
+}
+
+/**
+ * “总是允许”（0.80.0）：Host 提议了规则、审批有允许类选项时，回答这个选项并带 `remember`。与桌面端的 `alwaysAllow` 相同。
+ */
+export function alwaysAllow(
+  approval: Pick<ApprovalRequest, 'proposedRule' | 'options'>,
+): { option: ApprovalOption; prefix: string } | undefined {
+  const option = approval.options.find((candidate) => candidate.category === 'allow');
+  const prefixes = approval.proposedRule?.prefixes;
+  if (option === undefined || prefixes === undefined) return undefined;
+  return { option, prefix: joinList(prefixes.map(prefixText)) };
+}
+
+/** 显示用的命令前缀：`git status`，含空白或引号的词加单引号（与 Host 的 `formatPrefix` 一致）。 */
+export function prefixText(prefix: readonly string[]): string {
+  return prefix
+    .map((token) =>
+      /^[A-Za-z0-9._:@%+=,/-]+$/.test(token) ? token : `'${token.replaceAll("'", "'\\''")}'`,
+    )
+    .join(' ');
+}
+
+export const permissionLabel = (mode: PermissionMode): string => t(`permission.${mode}`);
+
+/** 撤销、重做后文件怎么样了（0.51.0）。 */
+export function filesRestoreLabel(files: FilesRestore | undefined): string {
+  if (files === undefined || files.status === 'unchanged') return t('files.unchanged');
+  if (files.status === 'restored') return t('files.restored', { count: files.fileCount ?? 0 });
+  return files.reason === undefined
+    ? t('files.unavailable')
+    : t('files.unavailableWhy', { reason: files.reason });
 }
 
 /** 审批的决定者：`<clientKind>/<deviceId>`。 */
