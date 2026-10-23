@@ -1,151 +1,184 @@
-import { describe, expect, it } from 'vitest';
-import { type BotEvent, type BotSource, BotStore } from './bot-store';
-import { type Bot, type BotPost, botKey, postPreview, sortBots } from './bots';
+import type { Channel } from '@wevir/protocol';
+import { describe, expect, it, vi } from 'vitest';
+import { BotStore, PAGE_SIZE } from './bot-store';
+import {
+  approval,
+  at,
+  CHANNEL_A,
+  CHANNEL_B,
+  channel,
+  FakeChannels,
+  post,
+  thread,
+} from './bot-test-utils';
+import { botKey } from './bots';
 
-function bot(id: string, patch: Partial<Bot> = {}): Bot {
-  return {
-    key: botKey('mac', id),
-    id,
-    computer: 'mac',
-    computerName: 'Mac',
-    name: id,
-    description: '',
-    avatar: { type: 'pebble', color: 0, seed: 0 },
-    state: 'idle',
-    unreadCount: 0,
-    createdAt: '2026-10-20T00:00:00Z',
-    ...patch,
-  };
+const KEY = botKey('mac', CHANNEL_A);
+
+function setup(options: { posts?: number; canCreate?: boolean } = {}) {
+  const host = new FakeChannels({ canCreate: options.canCreate });
+  host.channels = [
+    channel(CHANNEL_A, { unreadCount: 2, lastPostSeq: options.posts ?? 0 }),
+    channel(CHANNEL_B, { lastPost: { seq: 1, author: 'host', preview: '早', at: at(90) } }),
+  ];
+  for (let seq = 1; seq <= (options.posts ?? 0); seq++) host.add(post(CHANNEL_A, seq));
+  const store = new BotStore();
+  store.setHosts([{ computer: 'mac', computerName: 'MacBook', client: host.client }]);
+  return { host, store };
 }
 
-function text(seq: number, value = `#${seq}`): BotPost {
-  return {
-    id: `cpo_${seq}`,
-    seq,
-    author: 'bot',
-    createdAt: new Date(Date.UTC(2026, 9, 23, 0, seq)).toISOString(),
-    card: { kind: 'text', text: value },
-  };
-}
-
-/** 一个助理、45 条旧消息的假来源。 */
-function fakeSource() {
-  const posts = Array.from({ length: 45 }, (_, i) => text(i + 1));
-  const listeners = new Set<(event: BotEvent) => void>();
-  const read: string[] = [];
-  const source: BotSource = {
-    list: async () => [bot('a', { unreadCount: 3 }), bot('b')],
-    posts: async (_key, beforeSeq, limit) => {
-      const list = posts.filter((p) => beforeSeq === undefined || p.seq < beforeSeq);
-      return { posts: list.slice(-limit), hasMore: list.length > limit };
-    },
-    post: async (_key, value) => {
-      const post = { ...text(posts.length + 1, value), author: 'user' as const };
-      posts.push(post);
-      return post;
-    },
-    decide: async (_key, postId, decision) => {
-      const post = posts.find((p) => p.id === postId) as BotPost;
-      return { ...post, card: { kind: 'suggestion', text: 'x', decision } };
-    },
-    markRead: async (key) => {
-      read.push(key);
-    },
-    create: async (input) => bot('new', { name: input.name, avatar: input.avatar }),
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-  const emit = (event: BotEvent) => {
-    for (const l of listeners) l(event);
-  };
-  return { source, emit, read };
-}
-
-describe('bot store', () => {
-  it('opens the newest page, loads older pages and marks the bot read', async () => {
-    const { source, read } = fakeSource();
-    const store = new BotStore(source);
-    await store.start();
-    const key = botKey('mac', 'a');
-    await store.open(key);
-    expect(store.timeline(key).posts.map((p) => p.seq)).toEqual(
-      Array.from({ length: 20 }, (_, i) => i + 26),
-    );
-    expect(store.timeline(key).hasMore).toBe(true);
-    expect(store.bot(key)?.unreadCount).toBe(0);
-    expect(read).toEqual([key]);
-
-    await store.loadOlder(key);
-    expect(store.timeline(key).posts[0]?.seq).toBe(6);
-    await store.loadOlder(key);
-    expect(store.timeline(key).posts).toHaveLength(45);
-    expect(store.timeline(key).hasMore).toBe(false);
-  });
-
-  it('appends sent and pushed posts once, and updates the list preview', async () => {
-    const { source, emit } = fakeSource();
-    const store = new BotStore(source);
-    await store.start();
-    const key = botKey('mac', 'b');
-    await store.open(key);
-    await store.send(key, '  hello  ');
-    // 订阅又推来同一条。
-    emit({ kind: 'post', key, post: store.timeline(key).posts.at(-1) as BotPost });
-    const posts = store.timeline(key).posts;
-    expect(posts.filter((p) => p.seq === 46)).toHaveLength(1);
-    expect(store.bot(key)?.lastPost?.text).toBe('hello');
-    // 有动静的排到前面。
-    expect(store.list[0]?.key).toBe(key);
-    await store.send(key, '   ');
-    expect(store.timeline(key).posts).toHaveLength(posts.length);
-  });
-
-  it('replaces a decided card in place', async () => {
-    const { source } = fakeSource();
-    const store = new BotStore(source);
-    await store.start();
-    const key = botKey('mac', 'a');
-    await store.open(key);
-    await store.decide(key, 'cpo_40', 'approved');
-    const card = store.timeline(key).posts.find((p) => p.id === 'cpo_40')?.card;
-    expect(card).toEqual({ kind: 'suggestion', text: 'x', decision: 'approved' });
-  });
-
-  it('sorts bots waiting on the user first, then by last activity', () => {
-    const at = (iso: string) => ({ text: '', at: iso });
-    const sorted = sortBots([
-      bot('old', { lastPost: at('2026-10-20T00:00:00Z') }),
-      bot('new', { lastPost: at('2026-10-23T00:00:00Z') }),
-      bot('waiting', { state: 'waiting', lastPost: at('2026-10-01T00:00:00Z') }),
+describe('BotStore', () => {
+  it('每台在线的电脑读自己的助理，合并成一个按最后动静排的列表', async () => {
+    const { store } = setup();
+    const other = new FakeChannels();
+    other.channels = [channel(CHANNEL_A, { title: '代码巡检', state: 'waiting' })];
+    store.setHosts([
+      { computer: 'mac', computerName: 'MacBook', client: setup().host.client },
+      { computer: 'studio', computerName: 'Mac Studio', client: other.client },
+      { computer: 'off', computerName: 'Offline', client: undefined },
     ]);
-    expect(sorted.map((b) => b.id)).toEqual(['waiting', 'new', 'old']);
+    await vi.waitFor(() => expect(store.list).toHaveLength(3));
+    expect(store.list.map((b) => [b.computerName, b.name])).toEqual([
+      ['Mac Studio', '代码巡检'],
+      ['MacBook', '读书笔记'],
+      ['MacBook', '小管家'],
+    ]);
+    expect(store.loaded).toBe(true);
   });
 
-  it('previews every card kind as one line', () => {
-    expect(postPreview({ kind: 'text', text: 'a\n b' })).toBe('a b');
-    expect(postPreview({ kind: 'brief', todo: [], done: ['done'], decide: ['decide'] })).toBe(
-      'decide',
+  it('离线后助理留在列表里，电脑被移除时一起去掉', async () => {
+    const { host, store } = setup();
+    await vi.waitFor(() => expect(store.list).toHaveLength(2));
+    store.setHosts([{ computer: 'mac', computerName: 'MacBook', client: undefined }]);
+    expect(store.list).toHaveLength(2);
+    expect(host.listenerCount).toBe(0);
+    store.setHosts([]);
+    expect(store.list).toHaveLength(0);
+  });
+
+  it('打开时订阅并取最新一页，往上翻取更早的', async () => {
+    const { host, store } = setup({ posts: 45 });
+    await store.open(KEY);
+    expect(host.calls('channel.subscribe')).toEqual([{ channelId: CHANNEL_A }]);
+    let timeline = store.timeline(KEY);
+    expect(timeline.loading).toBe(false);
+    expect(timeline.posts.map((p) => p.seq)).toEqual(
+      Array.from({ length: PAGE_SIZE }, (_, i) => 45 - PAGE_SIZE + 1 + i),
     );
-    expect(
-      postPreview({
-        kind: 'approval',
-        action: 'email',
-        target: 'x',
-        subject: 'Re: date',
-        text: 'body',
-        decision: 'pending',
+    expect(timeline.hasMore).toBe(true);
+    await store.loadOlder(KEY);
+    timeline = store.timeline(KEY);
+    expect(timeline.posts).toHaveLength(45);
+    expect(timeline.hasMore).toBe(false);
+  });
+
+  it('新帖、帖子与线程、审批的更新跟着订阅改', async () => {
+    const { host, store } = setup({ posts: 3 });
+    await store.open(KEY);
+    const sub = host.lastSub();
+    host.posted(sub, post(CHANNEL_A, 4));
+    host.posted(sub, post(CHANNEL_A, 4));
+    expect(store.timeline(KEY).posts.map((p) => p.seq)).toEqual([1, 2, 3, 4]);
+    const root = post(CHANNEL_A, 2, { routedTo: [thread(post(CHANNEL_A, 2).id).sessionId] });
+    host.updated({
+      posts: [root],
+      threads: [thread(root.id)],
+      approvals: [approval()],
+      channel: channel(CHANNEL_A, { state: 'working' }),
+    });
+    const timeline = store.timeline(KEY);
+    expect(timeline.posts[1]?.routedTo).toHaveLength(1);
+    expect(timeline.threads).toHaveLength(1);
+    expect(timeline.approvals).toHaveLength(1);
+    expect(store.bot(KEY)?.state).toBe('working');
+  });
+
+  it('列表变化：版本接上就改，接不上重读；重连后重读并按最后一条的 seq 重订', async () => {
+    const { host, store } = setup({ posts: 3 });
+    await store.open(KEY);
+    host.changed({
+      listVersion: 2,
+      upserted: [channel(CHANNEL_B, { title: '旅行' })],
+      removed: [],
+    });
+    expect(store.list.map((b) => b.name)).toContain('旅行');
+    const lists = host.calls('channel.list').length;
+    host.changed({ listVersion: 9, upserted: [], removed: [CHANNEL_B] });
+    await vi.waitFor(() => expect(host.calls('channel.list')).toHaveLength(lists + 1));
+    host.add(post(CHANNEL_A, 4));
+    host.add(post(CHANNEL_A, 5));
+    host.changed(undefined);
+    await vi.waitFor(() => expect(store.timeline(KEY).posts).toHaveLength(5));
+    expect(host.calls('channel.subscribe').at(-1)).toEqual({ channelId: CHANNEL_A, afterSeq: 3 });
+  });
+
+  it('发帖、采纳提议、批准审批', async () => {
+    const { host, store } = setup({ posts: 1 });
+    const suggestion = post(CHANNEL_A, 2, {
+      card: { kind: 'suggestion', text: '周五前回复', status: 'open' },
+    });
+    host.add(suggestion);
+    host.approvals = [approval()];
+    await store.open(KEY);
+    await store.send(KEY, '  好的  ');
+    expect(host.calls('channel.post')[0]).toMatchObject({
+      channelId: CHANNEL_A,
+      content: [{ type: 'text', text: '好的' }],
+    });
+    expect(store.timeline(KEY).posts.at(-1)?.author).toEqual({ kind: 'user' });
+    await store.respondSuggestion(KEY, suggestion.id, true);
+    expect(store.timeline(KEY).posts[1]?.card).toMatchObject({ status: 'accepted' });
+    await store.respondApproval(KEY, approval().id, 'approved');
+    expect(host.calls('approval.respond')).toEqual([
+      { approvalId: approval().id, optionId: 'once' },
+    ]);
+    host.updated({ approvals: [] });
+    expect(store.timeline(KEY).decided).toEqual([{ request: approval(), decision: 'approved' }]);
+  });
+
+  it('已读：只在有更新的 seq 时发，并清掉未读数', async () => {
+    const { host, store } = setup({ posts: 3 });
+    await store.open(KEY);
+    await store.markRead(KEY);
+    await store.markRead(KEY);
+    expect(host.calls('channel.markRead')).toEqual([{ channelId: CHANNEL_A, seq: 3 }]);
+    expect(store.bot(KEY)?.unreadCount).toBe(0);
+  });
+
+  it('建助理：要有权限，协调者沿用已有助理的 Provider，没有时用第一个启用的', async () => {
+    const denied = setup();
+    await vi.waitFor(() => expect(denied.store.list).toHaveLength(2));
+    expect(denied.store.creators()).toEqual([]);
+    await expect(
+      denied.store.create({
+        computer: 'mac',
+        name: 'x',
+        description: '',
+        avatar: { type: 'pebble', color: 0, seed: 0 },
       }),
-    ).toBe('Re: date');
-    expect(
-      postPreview({
-        kind: 'thread',
-        sessionId: 's',
-        title: 'Fix CI',
-        project: 'p',
-        status: 'working',
-      }),
-    ).toBe('Fix CI');
+    ).rejects.toThrow();
+
+    const { host, store } = setup({ canCreate: true });
+    await vi.waitFor(() => expect(store.list).toHaveLength(2));
+    expect(store.creators()).toEqual([{ computer: 'mac', name: 'MacBook' }]);
+    const avatar = { type: 'drop' as const, color: 1, seed: 0.5 };
+    const bot = await store.create({ computer: 'mac', name: '旅行', description: '行程', avatar });
+    expect(host.calls('channel.create')[0]).toEqual({
+      kind: 'assistant',
+      name: '旅行',
+      description: '行程',
+      avatar,
+      coordinator: { providerId: 'prov_1' },
+    });
+    expect(store.bot(bot.key)?.name).toBe('旅行');
+
+    const empty = new FakeChannels({ canCreate: true });
+    const fresh = new BotStore();
+    fresh.setHosts([{ computer: 'mac', computerName: 'MacBook', client: empty.client }]);
+    await vi.waitFor(() => expect(empty.calls('channel.list')).toHaveLength(1));
+    await fresh.create({ computer: 'mac', name: 'n', description: '', avatar });
+    expect(empty.calls('channel.create')[0]).toMatchObject({
+      coordinator: { providerId: 'prov_on' as Channel['coordinator']['providerId'] },
+    });
   });
 });

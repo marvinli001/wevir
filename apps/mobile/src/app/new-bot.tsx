@@ -9,7 +9,7 @@ import { BotAvatar } from '../components/bot-avatar';
 import { Button, Group, Icon, Segmented } from '../components/ui';
 import { t } from '../i18n';
 import { randomAvatar } from '../lib/bot-avatar';
-import { useBotComputers, useBotStore } from '../state/bots';
+import { useBotCreators, useBotStore } from '../state/bots';
 import { SPACE, TEXT, useTheme } from '../theme';
 
 const NAME_MAX = 40;
@@ -19,7 +19,7 @@ export default function NewBotScreen() {
   const theme = useTheme();
   const router = useRouter();
   const store = useBotStore();
-  const computers = useBotComputers();
+  const computers = useBotCreators();
   const [avatar, setAvatar] = useState(() => randomAvatar());
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');

@@ -5,6 +5,9 @@ import {
   AutomationChangedParamsSchema,
   type BrowserRequest,
   type BrowserResponse,
+  ChannelPostedParamsSchema,
+  ChannelsChangedParamsSchema,
+  ChannelUpdatedParamsSchema,
   type ClientCapabilities,
   type ClientIdentity,
   CloseCode,
@@ -75,6 +78,12 @@ export type MarketInstallProgress = NotificationParams<'market.installProgress'>
 export type PowerChange = NotificationParams<'power.changed'>;
 /** `inbox.changed` 的内容（0.105.0）。 */
 export type InboxChange = NotificationParams<'inbox.changed'>;
+/** `channels.changed` 的内容（0.120.0）。 */
+export type ChannelsChange = NotificationParams<'channels.changed'>;
+/** `channel.posted` 的内容（0.120.0）。 */
+export type ChannelPosted = NotificationParams<'channel.posted'>;
+/** `channel.updated` 的内容（0.120.0）。 */
+export type ChannelUpdate = NotificationParams<'channel.updated'>;
 /** 设备与配对的变化（0.107.0）：`devices.changed`、`pairing.request`、`pairing.ended`，以及远程监听的 `remote.changed`（0.109.0）。 */
 export type RemoteDevicesChange =
   | { kind: 'devices'; devices: Device[] }
@@ -367,6 +376,9 @@ export class WevirClient {
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
   readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
+  readonly #channelsListeners = new Set<(change: ChannelsChange | undefined) => void>();
+  readonly #channelPostedListeners = new Set<(posted: ChannelPosted) => void>();
+  readonly #channelUpdatedListeners = new Set<(update: ChannelUpdate) => void>();
   readonly #remoteDevicesListeners = new Set<(change: RemoteDevicesChange | undefined) => void>();
   readonly #notificationListeners = new Set<(intent: NotificationIntent) => void>();
   /** 最近一次 `setPresence` 的值：重连后重报。 */
@@ -726,6 +738,28 @@ export class WevirClient {
   }
 
   /**
+   * 频道列表变了（0.120.0，`channels.changed`，Host 功能 `channels`）：只有调过 `channel.list` 的连接收得到，`listVersion` 不等于上次
+   * 加一时重读列表。重连上之后以 `undefined` 调一次：期间的变化没收到，`channel.subscribe` 的订阅也随旧连接没了，要重读并重订。
+   * 返回取消函数。
+   */
+  onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void {
+    this.#channelsListeners.add(listener);
+    return () => this.#channelsListeners.delete(listener);
+  }
+
+  /** 订阅的频道有了新帖（0.120.0，`channel.posted`，按 `subscriptionId` 认是哪个订阅）。返回取消函数。 */
+  onChannelPosted(listener: (posted: ChannelPosted) => void): () => void {
+    this.#channelPostedListeners.add(listener);
+    return () => this.#channelPostedListeners.delete(listener);
+  }
+
+  /** 订阅的频道里线程、审批、任务或帖子的卡片变了（0.120.0，`channel.updated`）。返回取消函数。 */
+  onChannelUpdated(listener: (update: ChannelUpdate) => void): () => void {
+    this.#channelUpdatedListeners.add(listener);
+    return () => this.#channelUpdatedListeners.delete(listener);
+  }
+
+  /**
    * 设备与配对变了（0.107.0，`devices.changed`、`pairing.request`、`pairing.ended`，Host 功能 `remote_devices`；0.109.0 起还有远程监听的
    * `remote.changed`，Host 功能 `remote_listener`）：只有调过 `device.*`、`pairing.*` 或 `remote.*` 的本机连接收得到。重连上之后以
    * `undefined` 调一次（期间的变化没收到：重读 `device.list` 与 `remote.status`，期间的配对请求也可能错过）。
@@ -778,6 +812,16 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a remote devices listener threw', { error });
+      }
+    }
+  }
+
+  #emitTo<T>(listeners: Set<(value: T) => void>, value: T, what: string): void {
+    for (const listener of [...listeners]) {
+      try {
+        listener(value);
+      } catch (error) {
+        this.#warn(`a ${what} listener threw`, { error });
       }
     }
   }
@@ -1326,6 +1370,8 @@ export class WevirClient {
         if (reread('session_list_push', 'session.list')) this.#sessionsChanged(undefined);
         if (reread('prevent_sleep', 'power.get')) this.#powerChanged(undefined);
         if (reread('inbox', 'inbox.list')) this.#inboxChanged(undefined);
+        if (reread('channels', 'channel.list'))
+          this.#emitTo(this.#channelsListeners, undefined, 'channels');
         if (reread('remote_devices', 'device.list')) this.#remoteDevicesChanged(undefined);
         if (reread('tuning', 'tuning.get')) this.#tuningChanged(undefined);
         if (reread('tuning_guardrails', 'guardrail.list')) this.#guardrailsChanged(undefined);
@@ -1679,6 +1725,33 @@ export class WevirClient {
           this.#warn('a notification listener threw', { error });
         }
       }
+      return;
+    }
+    if (method === 'channels.changed') {
+      const parsed = ChannelsChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed channels.changed notification');
+        return;
+      }
+      this.#emitTo(this.#channelsListeners, parsed.data, 'channels');
+      return;
+    }
+    if (method === 'channel.posted') {
+      const parsed = ChannelPostedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed channel.posted notification');
+        return;
+      }
+      this.#emitTo(this.#channelPostedListeners, parsed.data, 'channel posted');
+      return;
+    }
+    if (method === 'channel.updated') {
+      const parsed = ChannelUpdatedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed channel.updated notification');
+        return;
+      }
+      this.#emitTo(this.#channelUpdatedListeners, parsed.data, 'channel updated');
       return;
     }
     if (method === 'inbox.changed') {

@@ -1,4 +1,4 @@
-// 全 App 共用的助理数据：一个 `BotStore`，背后是样例数据（电脑上的助理接口合入后换成各台电脑的连接）。
+// 全 App 共用的助理数据：一个 `BotStore`，跟着配对的电脑与它们的连接走（每台在线、有频道接口的电脑读自己的助理）。
 
 import {
   createContext,
@@ -10,16 +10,30 @@ import {
 } from 'react';
 import { BotStore, type Timeline } from '../lib/bot-store';
 import type { Bot } from '../lib/bots';
-import { createFixtureSource } from './bot-fixtures';
+import { displayName } from '../lib/records';
+import { useRegistry } from './registry';
 
 const BotsContext = createContext<BotStore | undefined>(undefined);
 
 export function BotsProvider({ children }: { children: ReactNode }) {
-  const [store] = useState(() => new BotStore(createFixtureSource()));
+  const registry = useRegistry();
+  const [store] = useState(() => new BotStore());
   useEffect(() => {
-    store.start().catch((error: unknown) => console.warn('[wevir] could not list bots', error));
-    return () => store.stop();
-  }, [store]);
+    const sync = () =>
+      store.setHosts(
+        registry.snapshots.map(({ record }) => ({
+          computer: record.name,
+          computerName: displayName(record),
+          client: registry.link(record.name)?.channels,
+        })),
+      );
+    sync();
+    const stop = registry.subscribe(sync);
+    return () => {
+      stop();
+      store.setHosts([]);
+    };
+  }, [registry, store]);
   return <BotsContext.Provider value={store}>{children}</BotsContext.Provider>;
 }
 
@@ -51,10 +65,12 @@ export function useTimeline(key: string): Timeline {
   );
 }
 
-/** 新建时可选的电脑：有助理的电脑，按显示名去重。 */
-export function useBotComputers(): { computer: string; name: string }[] {
-  const { bots } = useBots();
-  const seen = new Map<string, string>();
-  for (const bot of bots) if (!seen.has(bot.computer)) seen.set(bot.computer, bot.computerName);
-  return [...seen].map(([computer, name]) => ({ computer, name }));
+/** 能建助理的电脑（这台设备在那台电脑上有建助理的权限）。 */
+export function useBotCreators(): { computer: string; name: string }[] {
+  const store = useBotStore();
+  const key = useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => JSON.stringify(store.creators()),
+  );
+  return JSON.parse(key) as { computer: string; name: string }[];
 }

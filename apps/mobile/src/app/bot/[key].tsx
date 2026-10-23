@@ -2,7 +2,7 @@
 // 往上翻到顶再下拉加载更早的。底部是输入栏，键盘弹起时跟着上移。工作中时末尾有一枚在跳的头像。
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Keyboard,
@@ -20,7 +20,7 @@ import { PostView } from '../../components/bot-cards';
 import { botPose, botStateColor } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
 import { locale, t } from '../../i18n';
-import type { Bot, BotPost, Decision } from '../../lib/bots';
+import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
 import { useBot, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
 import { useComputer } from '../../state/registry';
@@ -49,7 +49,7 @@ function items(posts: readonly BotPost[]): Item[] {
   for (const post of posts) {
     const at = Date.parse(post.createdAt);
     if (at - previous >= GAP_MS)
-      out.push({ kind: 'time', key: `t${post.seq}`, at: post.createdAt });
+      out.push({ kind: 'time', key: `t:${post.id}`, at: post.createdAt });
     previous = at;
     out.push({ kind: 'post', key: post.id, post });
   }
@@ -148,10 +148,23 @@ function BotChat({ bot }: { bot: Bot }) {
   }, [store, bot.key]);
 
   const decide = useCallback(
-    (post: BotPost, decision: Exclude<Decision, 'pending'>) =>
-      store.decide(bot.key, post.id, decision),
+    async (post: BotPost, decision: Exclude<Decision, 'pending'>) => {
+      if (post.card.kind === 'approval') {
+        await store.respondApproval(bot.key, post.id, decision);
+      } else if (post.card.kind === 'suggestion') {
+        await store.respondSuggestion(
+          bot.key,
+          post.id.replace(/:card$/, ''),
+          decision === 'approved',
+        );
+      }
+    },
     [store, bot.key],
   );
+
+  const retry = useCallback(() => {
+    store.wake(bot.key).catch((error: unknown) => console.warn('[wevir] wake failed', error));
+  }, [store, bot.key]);
 
   // 线程是电脑上的一个会话；手机还没有会话页，先打开那台电脑。
   const openThread = useCallback(() => {
@@ -173,7 +186,7 @@ function BotChat({ bot }: { bot: Bot }) {
     pinned.current = bottom - e.contentOffset.y < 120;
   };
 
-  const data = items(timeline.posts);
+  const data = useMemo(() => items(timelineViews(timeline, t('bot.image'))), [timeline]);
   const stateColor = botStateColor(theme, bot.state);
   const bottom = keyboard ? 8 : Math.max(insets.bottom, 8);
 
@@ -264,6 +277,7 @@ function BotChat({ bot }: { bot: Bot }) {
                     now={now}
                     onDecide={decide}
                     onOpenThread={openThread}
+                    onRetry={retry}
                   />
                 </View>
               )

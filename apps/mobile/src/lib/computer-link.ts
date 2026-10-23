@@ -17,6 +17,7 @@ import {
   WevirRpcError,
 } from '@wevir/client-sdk';
 import { CloseCode, type Session } from '@wevir/protocol';
+import type { ChannelClient } from './bot-store';
 import {
   type ComputerRecord,
   type ConnectedInfo,
@@ -102,6 +103,8 @@ export interface LinkClient {
   onStateChange(listener: (state: ConnectionState) => void): () => void;
   onSessionsChanged(listener: (change: SessionsChangeLike | undefined) => void): () => void;
   listSessions(): Promise<SessionList>;
+  /** 助理的频道接口；Host 没有 `channels` 功能时没有。 */
+  readonly channels?: ChannelClient;
   close(): void;
 }
 
@@ -163,6 +166,11 @@ export class ComputerLink {
 
   get snapshot(): LinkSnapshot {
     return this.#snapshot;
+  }
+
+  /** 连着时这台电脑的频道接口。 */
+  get channels(): ChannelClient | undefined {
+    return this.#client?.channels;
   }
 
   subscribe(listener: () => void): () => void {

@@ -70,3 +70,18 @@ export function timeAgo(iso: string, now: Date): string {
   if (hours < 24) return t('time.hours', { n: hours });
   return t('time.days', { n: Math.floor(hours / 24) });
 }
+
+/** 文件大小：按 1024 进位，保留一位小数。 */
+export function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const number = new Intl.NumberFormat(currentLocale, {
+    maximumFractionDigits: unit === 0 ? 0 : 1,
+  }).format(value);
+  return `${number} ${units[unit]}`;
+}

@@ -15,6 +15,7 @@ import {
 } from '@wevir/client-sdk';
 import type { KeyPair } from '@wevir/noise';
 import { type ClientIdentity, type DevicePlatform, REMOTE_NATIVE_ORIGIN } from '@wevir/protocol';
+import type { ChannelClient } from './bot-store';
 import type { LinkClient, LinkEnvironment } from './computer-link';
 import {
   type BrowseOptions,
@@ -173,7 +174,21 @@ export function remoteConnect(
 }
 
 function wrapClient(client: WevirClient): LinkClient {
+  const channels: ChannelClient | undefined =
+    client.supports('channels') && client.can('session.read')
+      ? {
+          // 权限可能在重连时变（电脑上改了这台设备的权限）。
+          get canCreate() {
+            return client.can('workspace.write') && client.can('provider.read');
+          },
+          request: (method, ...args) => client.request(method, ...args),
+          onChannelsChanged: (listener) => client.onChannelsChanged(listener),
+          onChannelPosted: (listener) => client.onChannelPosted(listener),
+          onChannelUpdated: (listener) => client.onChannelUpdated(listener),
+        }
+      : undefined;
   return {
+    ...(channels !== undefined && { channels }),
     onStateChange: (listener) => client.onStateChange(listener),
     onSessionsChanged: (listener) => client.onSessionsChanged(listener),
     listSessions: async () => {

@@ -19,6 +19,8 @@ export function Composer({
   const theme = useTheme();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  // 高度跟着内容：多行发出后清空时 iOS 的多行输入框不会自己缩回去。
+  const [height, setHeight] = useState(INPUT_MIN);
   const empty = text.trim() === '';
 
   const send = () => {
@@ -44,7 +46,14 @@ export function Composer({
         placeholderTextColor={theme.mutedForeground}
         editable={!disabled}
         multiline
-        style={[styles.input, { color: theme.foreground }]}
+        onContentSizeChange={(e) => setHeight(e.nativeEvent.contentSize.height)}
+        style={[
+          styles.input,
+          {
+            color: theme.foreground,
+            height: Math.min(INPUT_MAX, Math.max(INPUT_MIN, Math.ceil(height))),
+          },
+        ]}
         selectionColor={theme.foreground}
         submitBehavior="newline"
       />
@@ -105,6 +114,9 @@ export function Composer({
   );
 }
 
+const INPUT_MIN = 38;
+const INPUT_MAX = 132;
+
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
@@ -121,7 +133,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: TEXT.body,
     lineHeight: 21,
-    maxHeight: 132,
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 8,

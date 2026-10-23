@@ -1039,6 +1039,48 @@ describe('收件箱（0.105.0）', () => {
   });
 });
 
+describe('频道（0.120.0）', () => {
+  it('列表变化、新帖与更新交给各自的监听者，重连后列表以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { channels: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const posted: unknown[] = [];
+    const updates: unknown[] = [];
+    const stops = [
+      client.onChannelsChanged((change) => changes.push(change)),
+      client.onChannelPosted((item) => posted.push(item)),
+      client.onChannelUpdated((item) => updates.push(item)),
+    ];
+    const channelId = 'chn_01JA2B3C4D5E6F7G8H9JKMNPQR';
+    const subscriptionId = 'sub_01JA2B3C4D5E6F7G8H9JKMNPQR';
+    const post = {
+      id: 'cpo_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      channelId,
+      seq: 3,
+      author: { kind: 'user' },
+      content: [{ type: 'text', text: '早' }],
+      createdAt: '2026-10-22T08:00:00.000Z',
+    };
+    const change = { listVersion: 4, upserted: [], removed: [channelId] };
+    host.last.notify('channels.changed', change);
+    host.last.notify('channel.posted', { subscriptionId, post });
+    host.last.notify('channel.updated', { subscriptionId, posts: [post] });
+    await vi.waitFor(() => expect(updates).toHaveLength(1));
+    expect(changes).toEqual([change]);
+    expect(posted).toEqual([{ subscriptionId, post }]);
+    expect(updates).toEqual([{ subscriptionId, posts: [post] }]);
+    host.last.notify('channel.posted', { subscriptionId });
+    await tick();
+    expect(posted).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed channel.posted/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    for (const stop of stops) stop();
+  });
+});
+
 describe('通知意图与在场（0.106.0）', () => {
   const intent = {
     id: 'approval:apr_1',

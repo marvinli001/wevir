@@ -1,10 +1,10 @@
 // 助理时间线上的一条：用户的话是右侧的气泡，助理的回答是不带气泡的正文，Host 的说明是居中的小字；卡片是实底的圆角卡：
-// “开始前需要”、晨间简报、审批（原样展示将要发出的内容，批准 / 拒绝）、线程（它开出的编码会话与实时状态）、产物、提议（采纳 / 忽略）。
+// “开始前需要”、晨间简报、审批（原样展示将要发出的内容，批准 / 拒绝）、线程（它开出的会话与实时状态）、交给用户的文件、提议（采纳 / 忽略）。
 
 import { type ReactNode, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { t, timeAgo } from '../i18n';
-import type { ArtifactKind, BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { formatBytes, t, timeAgo } from '../i18n';
+import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
 import { Button, Chevron, Icon, type IconName } from './ui';
 
@@ -15,11 +15,13 @@ export function PostView({
   now,
   onDecide,
   onOpenThread,
+  onRetry,
 }: {
   post: BotPost;
   now: Date;
   onDecide: (post: BotPost, decision: Exclude<Decision, 'pending'>) => Promise<void>;
   onOpenThread: (sessionId: string) => void;
+  onRetry: () => void;
 }) {
   const { card } = post;
   const decide: Decide = (decision) => onDecide(post, decision);
@@ -32,12 +34,14 @@ export function PostView({
       return <ApprovalCard card={card} at={timeAgo(post.createdAt, now)} onDecide={decide} />;
     case 'thread':
       return <ThreadCard card={card} onPress={() => onOpenThread(card.sessionId)} />;
-    case 'artifact':
-      return <ArtifactCard card={card} />;
+    case 'file':
+      return <FileCard card={card} />;
     case 'suggestion':
       return <SuggestionCard card={card} onDecide={decide} />;
     case 'needs':
       return <NeedsCard card={card} />;
+    case 'notice':
+      return <Notice reason={card.reason} onRetry={onRetry} />;
   }
 }
 
@@ -58,6 +62,36 @@ function TextPost({ author, text }: { author: BotPost['author']; text: string })
   return (
     <Text style={[styles.body, styles.reply, { color: theme.foreground }]} selectable>
       {text}
+    </Text>
+  );
+}
+
+/** Host 的说明：预算用完、恢复、出错（出错时附重试）。 */
+function Notice({
+  reason,
+  onRetry,
+}: {
+  reason: Extract<BotCard, { kind: 'notice' }>['reason'];
+  onRetry: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Text
+      style={[
+        styles.host,
+        { color: reason === 'failed' ? theme.destructive : theme.mutedForeground },
+      ]}
+    >
+      {t(`bot.notice.${reason}`)}
+      {reason === 'failed' && (
+        <Text
+          style={[styles.retry, { color: theme.foreground }]}
+          onPress={onRetry}
+          suppressHighlighting
+        >
+          {`  ${t('bot.retry')}`}
+        </Text>
+      )}
     </Text>
   );
 }
@@ -124,12 +158,6 @@ function BriefCard({ card, at }: { card: Extract<BotCard, { kind: 'brief' }>; at
   );
 }
 
-const ACTION_ICONS: Record<Extract<BotCard, { kind: 'approval' }>['action'], IconName> = {
-  email: { ios: 'envelope', android: 'mail' },
-  message: { ios: 'bubble.left', android: 'chat_bubble' },
-  post: { ios: 'megaphone', android: 'campaign' },
-};
-
 function ApprovalCard({
   card,
   at,
@@ -143,17 +171,19 @@ function ApprovalCard({
   const pending = card.decision === 'pending';
   return (
     <Card
-      icon={ACTION_ICONS[card.action]}
-      label={`${t('bot.approval')} · ${t(`bot.approval.${card.action}`)}`}
+      icon={{ ios: 'hand.raised', android: 'front_hand' }}
+      label={card.tool !== '' ? `${t('bot.approval')} · ${card.tool}` : t('bot.approval')}
       at={at}
       tone={pending ? theme.warning : undefined}
     >
-      <View style={styles.fields}>
-        <Field label={t('bot.approval.to')} value={card.target} />
-        {card.subject !== undefined && (
-          <Field label={t('bot.approval.subject')} value={card.subject} />
-        )}
-      </View>
+      {(card.target !== undefined || card.subject !== undefined) && (
+        <View style={styles.fields}>
+          {card.target !== undefined && <Field label={t('bot.approval.to')} value={card.target} />}
+          {card.subject !== undefined && (
+            <Field label={t('bot.approval.subject')} value={card.subject} />
+          )}
+        </View>
+      )}
       <View style={[styles.quote, { backgroundColor: theme.muted }]}>
         <Text style={[styles.quoteText, { color: theme.foreground }]} selectable>
           {card.text}
@@ -291,9 +321,8 @@ function ThreadCard({
         <Text style={[styles.threadTitle, { color: theme.foreground }]} numberOfLines={1}>
           {card.title}
         </Text>
-        <Text style={[styles.threadMeta, { color: theme.mutedForeground }]} numberOfLines={1}>
-          {card.project}
-          <Text style={{ color }}>{` · ${t(`bot.thread.${card.status}`)}`}</Text>
+        <Text style={[styles.threadMeta, { color }]} numberOfLines={1}>
+          {t(`bot.thread.${card.status}`)}
         </Text>
         {card.line !== undefined && (
           <Text style={[styles.threadLine, { color: theme.softForeground }]} numberOfLines={1}>
@@ -306,49 +335,34 @@ function ThreadCard({
   );
 }
 
-const ARTIFACT_ICONS: Record<ArtifactKind, IconName> = {
-  file: { ios: 'doc.text', android: 'description' },
-  pr: { ios: 'arrow.triangle.pull', android: 'merge' },
-  preview: { ios: 'eye', android: 'visibility' },
-  link: { ios: 'link', android: 'link' },
-};
-
-function ArtifactCard({ card }: { card: Extract<BotCard, { kind: 'artifact' }> }) {
+/** 助理交给用户的文件：在电脑上，手机只列名字与大小。 */
+function FileCard({ card }: { card: Extract<BotCard, { kind: 'file' }> }) {
   const theme = useTheme();
-  const url = card.url;
   return (
-    <Pressable
-      accessibilityRole={url !== undefined ? 'link' : undefined}
-      disabled={url === undefined}
-      onPress={() => url !== undefined && void Linking.openURL(url).catch(() => {})}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.card,
         styles.threadCard,
         { backgroundColor: theme.card, borderColor: theme.dark ? theme.border : 'transparent' },
         !theme.dark && styles.cardShadow,
-        pressed && { opacity: 0.7 },
       ]}
     >
       <View style={[styles.tile, { backgroundColor: theme.muted }]}>
-        <Icon name={ARTIFACT_ICONS[card.artifact]} size={17} color={theme.foreground} />
+        <Icon
+          name={{ ios: 'doc.text', android: 'description' }}
+          size={17}
+          color={theme.foreground}
+        />
       </View>
       <View style={styles.threadText}>
         <Text style={[styles.threadTitle, { color: theme.foreground }]} numberOfLines={1}>
-          {card.title}
+          {card.name}
         </Text>
         <Text style={[styles.threadMeta, { color: theme.mutedForeground }]} numberOfLines={1}>
-          {`${t(`bot.artifact.${card.artifact}`)} · ${card.detail}`}
+          {`${t('bot.file')} · ${formatBytes(card.size)}`}
         </Text>
       </View>
-      {url !== undefined && (
-        <Icon
-          name={{ ios: 'arrow.up.right', android: 'open_in_new' }}
-          size={13}
-          weight="semibold"
-          color={theme.borderStrong}
-        />
-      )}
-    </Pressable>
+    </View>
   );
 }
 
@@ -425,6 +439,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   host: { fontSize: TEXT.caption, textAlign: 'center', alignSelf: 'center' },
+  retry: { fontWeight: '600' },
   card: {
     borderRadius: 20,
     borderCurve: 'continuous',
