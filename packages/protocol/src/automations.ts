@@ -7,11 +7,15 @@
 // 0.73.0：可以指定一个已有会话（`sessionId`），到点时往它里面发一条消息接着聊；可以带检查脚本（`check`），Host 先跑脚本，
 // 按退出码或输出有没有变决定这次唤不唤醒 Agent，不唤醒就不开回合、不耗 token；通知加 `changes`（结果与上次相同不提醒）；
 // 连着失败 `AUTOMATION_MAX_CONSECUTIVE_FAILURES` 次自动停用。
+//
+// 0.121.0：可以发给助理（`channelId`）：到点时唤醒助理的协调者（`<schedule>` 进唤醒信封），回答写在助理的时间线上，不开会话；
+// `brief` 的回答带晨间简报卡片（今天的待办、昨晚完成的、等用户决定的，由 Host 组装）。建助理时 Host 给它建一个每天 08:00 的简报。
 
 import { z } from 'zod';
 import {
   AutomationIdSchema,
   AutomationRunIdSchema,
+  ChannelIdSchema,
   IsoTimeSchema,
   ProviderIdSchema,
   SessionIdSchema,
@@ -212,6 +216,13 @@ export const AutomationSchema = z.object({
    * 另开一个并换成它。
    */
   sessionId: SessionIdSchema.optional(),
+  /**
+   * 发给哪个助理（0.121.0）：到点时唤醒它的协调者，不开会话；`workspaceId`、`providerId`、`modelId` 是助理的，`sessionId` 与
+   * `newSessionEachRun` 不用。运行在唤醒交出时就记 `completed`，结果看助理的时间线。助理删除时一起删。
+   */
+  channelId: ChannelIdSchema.optional(),
+  /** 晨间简报（0.121.0，只在有 `channelId` 时）：协调者这次的回答带 `brief` 卡片，没有要说的也发。 */
+  brief: z.literal(true).optional(),
   createdBy: AutomationCreatorSchema,
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
@@ -266,6 +277,13 @@ export const AutomationCreateParamsSchema = z.object({
   notify: AutomationNotifySchema.optional(),
   sessionId: SessionIdSchema.optional(),
   check: AutomationCheckSchema.optional(),
+  /**
+   * 0.121.0：发给这个助理（见 `Automation.channelId`）；`workspaceId`、`providerId`、`modelId`、`reasoningEffort`、`sessionId`、
+   * `newSessionEachRun` 给了也不用，`notify` 省略为 `never`（提醒由助理的帖子代表）。助理不在时 `CHANNEL_NOT_FOUND`。
+   */
+  channelId: ChannelIdSchema.optional(),
+  /** 晨间简报（只在有 `channelId` 时，否则 `INVALID_PARAMS`）。 */
+  brief: z.boolean().optional(),
 });
 export const AutomationResultSchema = z.object({ automation: AutomationSchema });
 
@@ -291,6 +309,8 @@ export const AutomationUpdateParamsSchema = z.object({
   notify: AutomationNotifySchema.optional(),
   sessionId: SessionIdSchema.nullable().optional(),
   check: AutomationCheckSchema.nullable().optional(),
+  /** 0.121.0：只对发给助理的自动化。 */
+  brief: z.boolean().optional(),
 });
 
 /** `automation.delete`：删除自动化与它的运行记录；运行开出的会话留着。进行中的运行不取消。 */

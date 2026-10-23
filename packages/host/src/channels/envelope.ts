@@ -91,6 +91,29 @@ export interface WakeInput {
   digest?: string;
   /** 自上一次唤醒以来用户改了的设置（身份、规矩、文件夹）。 */
   changed?: string;
+  /** 晨间简报（0.121.0）：Host 组装的卡片内容，协调者的回答接在卡片上面。 */
+  brief?: {
+    todo: readonly BriefLine[];
+    done: readonly BriefLine[];
+    decisions: readonly BriefLine[];
+  };
+}
+
+type BriefLine = { title: string };
+
+function briefBlock(brief: NonNullable<WakeInput['brief']>): string {
+  const list = (name: string, items: readonly BriefLine[]) =>
+    items.length === 0
+      ? `<${name}/>`
+      : `<${name}>\n${items.map((item) => `- ${escapeText(item.title)}`).join('\n')}\n</${name}>`;
+  return [
+    '<brief>',
+    'Wevir shows these lists as a card under your answer. Write two or three lines on what matters today; do not repeat the lists.',
+    list('todo', brief.todo),
+    list('done_last_24h', brief.done),
+    list('waiting_on_user', brief.decisions),
+    '</brief>',
+  ].join('\n');
 }
 
 /** 唤醒信封（ADR-0020 §6）：只带新事件，图片随后附上。 */
@@ -113,6 +136,7 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
       `<schedule title="${attr(schedule.title)}"${schedule.brief === true ? ' brief="true"' : ''}>${escapeText(schedule.prompt)}</schedule>`,
     );
   }
+  if (input.brief !== undefined) parts.push(briefBlock(input.brief));
   for (const post of input.posts) parts.push(postBlock(post));
   parts.push(threadsBlock(input.threads));
   if (input.digest !== undefined && input.digest !== '') parts.push(input.digest);

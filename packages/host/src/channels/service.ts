@@ -59,6 +59,7 @@ import type {
 } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
+import { approvalSummary } from '../inbox.js';
 import { redactSecrets } from '../secret-patterns.js';
 import type { AssistantFolders } from './assistants.js';
 import {
@@ -71,6 +72,24 @@ import {
   type WakeReason,
   wakeEnvelope,
 } from './envelope.js';
+
+/** 建助理时给它的晨间简报（0.121.0）：每天这个时刻（本机时区）。 */
+export const MORNING_BRIEF_TIME = '08:00';
+
+/** 晨间简报交给协调者的指令；卡片上的三张清单由 Host 组装（`<brief>`）。 */
+export const MORNING_BRIEF_PROMPT =
+  'Morning brief. Say in two or three lines what matters today for your job: anything due, anything new since yesterday, and what you need from the user.';
+
+/** 建助理时 Host 替它建的晨间简报自动化。 */
+export function morningBriefAutomation(channelId: ChannelId): MethodParams<'automation.create'> {
+  return {
+    title: 'Morning brief',
+    prompt: MORNING_BRIEF_PROMPT,
+    schedule: { kind: 'daily', time: MORNING_BRIEF_TIME },
+    channelId,
+    brief: true,
+  };
+}
 
 /** 用户连着发帖时等多久再唤醒（ADR-0020 §9）。 */
 export const WAKE_DELAY_MS = 3000;
@@ -135,6 +154,11 @@ export interface ChannelServiceOptions {
   /** 预算的自然日按哪个时区；省略是本机时区。 */
   timezone?: string;
   random?: () => number;
+  /** 助理的日程（0.121.0，自动化）：建好后建晨间简报，删了一起删。 */
+  schedules?: {
+    created(channel: Channel): Promise<void>;
+    deleted(channelId: ChannelId): Promise<void>;
+  };
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -165,7 +189,8 @@ interface ActiveWake {
   replyTo?: ChannelPostId;
   tokensBefore: number;
   extraPosts: number;
-  brief?: true;
+  /** 晨间简报：协调者这回合的回答带这张卡片（唤醒时组装）。 */
+  brief?: Extract<ChannelCard, { kind: 'brief' }>;
 }
 
 /** 订阅者收到的。 */
@@ -248,6 +273,7 @@ export class ChannelService {
     { channelId: ChannelId; role: SessionChannel['role'] }
   >();
   readonly #listListeners = new Set<(change: ChannelsChanged) => void>();
+  readonly #postListeners = new Set<(channel: Channel, post: ChannelPost) => void>();
   readonly #subscribers = new Map<
     ChannelId,
     Set<{ listener: (message: ChannelSubscriptionMessage) => void; seen: Map<string, string> }>
@@ -307,6 +333,31 @@ export class ChannelService {
   watch(listener: (change: ChannelsChanged) => void): () => void {
     this.#listListeners.add(listener);
     return () => this.#listListeners.delete(listener);
+  }
+
+  /** 所有频道的新帖（通知意图用，0.121.0）。 */
+  watchPosts(listener: (channel: Channel, post: ChannelPost) => void): () => void {
+    this.#postListeners.add(listener);
+    return () => this.#postListeners.delete(listener);
+  }
+
+  /** 发给助理的自动化要的：助理的工作区与协调者的模型；助理不在时 `CHANNEL_NOT_FOUND`。 */
+  scheduleTarget(channelId: string): {
+    workspaceId: Channel['workspaceId'];
+    providerId: string;
+    modelId?: string;
+    reasoningEffort?: string;
+  } {
+    const record = this.#record(channelId);
+    const coordinator = record.coordinator as StoredCoordinator;
+    return {
+      workspaceId: record.workspaceId as Channel['workspaceId'],
+      providerId: coordinator.providerId,
+      ...(coordinator.modelId !== undefined && { modelId: coordinator.modelId }),
+      ...(coordinator.reasoningEffort !== undefined && {
+        reasoningEffort: coordinator.reasoningEffort,
+      }),
+    };
   }
 
   /** 订阅一个频道（`channel.subscribe`）：先补发 `afterSeq` 之后的帖子。 */
@@ -451,7 +502,14 @@ export class ChannelService {
     this.#touch(record.id as ChannelId);
     // 第一步（照 Grok）：按职责看要用的连接器、文件夹与浏览器登录，缺的列成“我需要什么”。
     this.#queueWake(record.id as ChannelId, 'setup', { setup: true, immediate: true });
-    return this.#channel(record);
+    const channel = this.#channel(record);
+    await this.#options.schedules?.created(channel).catch((error: unknown) =>
+      this.#options.onWarning?.('assistant schedule not created', {
+        channelId: id,
+        error: errorMessage(error),
+      }),
+    );
+    return channel;
   }
 
   /** 头像：从形状 × 颜色里随机抽一个。 */
@@ -545,6 +603,12 @@ export class ChannelService {
     }
     this.#rowPrints.delete(id);
     this.#emitList({ upserted: [], removed: [id] });
+    await this.#options.schedules?.deleted(id).catch((error: unknown) =>
+      this.#options.onWarning?.('assistant schedules not removed', {
+        channelId: id,
+        error: errorMessage(error),
+      }),
+    );
   }
 
   // ── 时间线 ────────────────────────────────────────────────────────────
@@ -996,6 +1060,10 @@ export class ChannelService {
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
       ...(pending.changed === true && !fresh && { changed: identityBlock(channel) }),
     };
+    const brief = pending.schedules.some((schedule) => schedule.brief === true)
+      ? await this.#briefCard(record)
+      : undefined;
+    if (brief !== undefined) input.brief = brief;
     const content = wakeEnvelope(input);
     if (fresh) {
       const first = content[0];
@@ -1027,9 +1095,7 @@ export class ChannelService {
         ...(lastUserPost !== undefined && { replyTo: lastUserPost.id }),
         tokensBefore,
         extraPosts: 0,
-        ...(pending.schedules.some((schedule) => schedule.brief === true) && {
-          brief: true as const,
-        }),
+        ...(brief !== undefined && { brief }),
       });
       this.#storage.channels.addUsage(channelId, day, { wakes: 1 });
       this.#storage.channels.update(channelId, {
@@ -1145,18 +1211,65 @@ export class ChannelService {
     }
     if (outcome !== 'completed') return;
     const { text, quiet } = postOfAnswer(answer ?? '');
-    if (active.brief !== true && (quiet || (text === '' && files.length === 0))) return;
+    if (active.brief === undefined && (quiet || (text === '' && files.length === 0))) return;
     this.#append(record, {
       author: { kind: 'coordinator', sessionId: active.sessionId, generation: active.generation },
       content: [{ type: 'text', text: clip(text, CHANNEL_POST_TEXT_MAX_LENGTH) }],
       ...(active.replyTo !== undefined && { replyTo: active.replyTo }),
       ...(files.length > 0 && { files }),
-      ...(active.brief === true && { card: this.briefCard?.(record.id as ChannelId) }),
+      ...(active.brief !== undefined && { card: active.brief }),
     });
   }
 
-  /** 晨间简报卡片的内容（C3）：今天的待办、昨晚完成的、等用户决定的。由 Host 组装，留给定时唤醒用。 */
-  briefCard: ((channelId: ChannelId) => ChannelCard | undefined) | undefined;
+  /**
+   * 晨间简报卡片（0.121.0）：今天的待办（清单里没完成的）、过去 24 小时完成的（任务与解决的线程）、等用户决定的（待处理的审批、
+   * 等用户的线程、没回应的建议）。每类至多 20 条。
+   */
+  async #briefCard(record: ChannelRecord): Promise<Extract<ChannelCard, { kind: 'brief' }>> {
+    const channelId = record.id as ChannelId;
+    const since = this.#now() - 24 * 60 * 60_000;
+    const recent = (at: string | undefined) => at !== undefined && Date.parse(at) >= since;
+    const tasks = await this.#tasksOf(channelId);
+    const threads = this.#threads(record);
+    const item = (title: string, sessionId?: SessionId) => ({
+      title: clip(title.trim() || '…', 200),
+      ...(sessionId !== undefined && { sessionId }),
+    });
+    const todo = tasks
+      .filter((task) => task.status === 'pending' || task.status === 'in_progress')
+      .map((task) => item(task.subject, task.owner));
+    const done = [
+      ...tasks
+        .filter((task) => task.status === 'completed' && recent(task.updatedAt))
+        .map((task) => item(task.subject, task.owner)),
+      ...threads
+        .filter((thread) => thread.status === 'resolved' && recent(thread.resolvedAt))
+        .map((thread) => item(thread.title, thread.sessionId)),
+    ];
+    const suggestions = this.#storage.channels
+      .posts(channelId, { limit: 50 })
+      .map((row) => row.card as ChannelCard | undefined)
+      .filter(
+        (card): card is Extract<ChannelCard, { kind: 'suggestion' }> =>
+          card?.kind === 'suggestion' && card.status === 'open',
+      );
+    const decisions = [
+      ...this.#approvals(record).map((approval) =>
+        item(approvalSummary(approval), approval.sessionId),
+      ),
+      ...threads
+        .filter((thread) => thread.status === 'waiting')
+        .map((thread) => item(thread.title, thread.sessionId)),
+      ...suggestions.map((card) => item(card.text)),
+    ];
+    return {
+      kind: 'brief',
+      day: this.#day(),
+      todo: todo.slice(0, 20),
+      done: done.slice(0, 20),
+      decisions: decisions.slice(0, 20),
+    };
+  }
 
   // ── 内部：帖子 ────────────────────────────────────────────────────────
 
@@ -1192,6 +1305,16 @@ export class ChannelService {
         }
       }
       this.#touch(record.id as ChannelId);
+      if (this.#postListeners.size > 0) {
+        const channel = this.#channel(record);
+        for (const listener of this.#postListeners) {
+          try {
+            listener(channel, post);
+          } catch (error) {
+            this.#options.onWarning?.('channel post listener failed', { error });
+          }
+        }
+      }
     }
     return { post, created };
   }
@@ -1264,11 +1387,16 @@ export class ChannelService {
     };
   }
 
-  #approvals(record: ChannelRecord): ApprovalRequest[] {
-    const sessionId = (record.coordinator as StoredCoordinator).sessionId;
-    return sessionId === undefined
-      ? []
-      : [...(this.#options.events.snapshot(sessionId)?.pendingApprovals ?? [])];
+  /** 协调者与没解决的线程待处理的审批。 */
+  #approvals(record: ChannelRecord, threads = this.#threads(record)): ApprovalRequest[] {
+    const coordinator = (record.coordinator as StoredCoordinator).sessionId;
+    const sessions = [
+      ...(coordinator === undefined ? [] : [coordinator]),
+      ...threads.filter((thread) => thread.status !== 'resolved').map((thread) => thread.sessionId),
+    ];
+    return sessions.flatMap((sessionId) => [
+      ...(this.#options.events.snapshot(sessionId)?.pendingApprovals ?? []),
+    ]);
   }
 
   async #tasksOf(channelId: ChannelId): Promise<BoardTask[]> {

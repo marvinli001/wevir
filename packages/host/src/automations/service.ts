@@ -78,6 +78,18 @@ export interface AutomationEvents {
   readSince(sessionId: SessionId, sinceSeq: number): WevirEvent[];
 }
 
+/** 发给助理的自动化（0.121.0）要的：助理的项目与模型、唤醒它（channels/service.ts）。 */
+export interface AutomationChannels {
+  /** 助理的工作区与协调者的模型；助理不在时抛 `CHANNEL_NOT_FOUND`。 */
+  target(channelId: string): {
+    workspaceId: Automation['workspaceId'] & string;
+    providerId: Automation['providerId'];
+    modelId?: string;
+    reasoningEffort?: string;
+  };
+  wake(channelId: string, schedule: { title: string; prompt: string; brief?: boolean }): void;
+}
+
 export interface AutomationServiceOptions {
   dir: string;
   storage: Pick<Storage, 'workspaces' | 'providers' | 'sessions'>;
@@ -99,6 +111,8 @@ export interface AutomationServiceOptions {
     automation: Automation,
     context: { existingSession: boolean; check?: AutomationCheckResult },
   ) => string;
+  /** 助理（0.121.0）：有它时自动化可以发给助理（`channelId`）。 */
+  channels?: AutomationChannels;
   now?: () => number;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
@@ -317,17 +331,23 @@ export class AutomationService {
   async create(params: CreateParams, createdBy: AutomationCreator): Promise<Automation> {
     const now = this.#now();
     const timezone = params.timezone ?? localTimezone();
+    if (params.brief !== undefined && params.channelId === undefined) {
+      throw invalid('brief', 'brief needs channelId');
+    }
+    const channelId = params.channelId;
     const target =
-      params.sessionId !== undefined
-        ? this.#targetOf(params.sessionId)
-        : {
-            ...(params.workspaceId !== undefined && { workspaceId: params.workspaceId }),
-            providerId: params.providerId,
-            ...(params.modelId !== undefined && { modelId: params.modelId }),
-            ...(params.reasoningEffort !== undefined && {
-              reasoningEffort: params.reasoningEffort,
-            }),
-          };
+      channelId !== undefined
+        ? this.#channelTarget(channelId)
+        : params.sessionId !== undefined
+          ? this.#targetOf(params.sessionId)
+          : {
+              ...(params.workspaceId !== undefined && { workspaceId: params.workspaceId }),
+              providerId: params.providerId,
+              ...(params.modelId !== undefined && { modelId: params.modelId }),
+              ...(params.reasoningEffort !== undefined && {
+                reasoningEffort: params.reasoningEffort,
+              }),
+            };
     if (target.providerId === undefined) {
       throw invalid('providerId', 'providerId is required unless sessionId is given');
     }
@@ -346,10 +366,15 @@ export class AutomationService {
       ...(target.reasoningEffort !== undefined && { reasoningEffort: target.reasoningEffort }),
       permissionMode: params.permissionMode ?? 'on_request',
       newSessionEachRun:
-        params.sessionId === undefined ? (params.newSessionEachRun ?? true) : false,
-      notify: params.notify ?? 'important',
+        channelId === undefined && params.sessionId === undefined
+          ? (params.newSessionEachRun ?? true)
+          : false,
+      notify: params.notify ?? (channelId === undefined ? 'important' : 'never'),
       ...(params.check !== undefined && { check: normalizeCheck(params.check) }),
-      ...(params.sessionId !== undefined && { sessionId: params.sessionId }),
+      ...(channelId === undefined &&
+        params.sessionId !== undefined && { sessionId: params.sessionId }),
+      ...(channelId !== undefined && { channelId }),
+      ...(channelId !== undefined && params.brief === true && { brief: true as const }),
       createdBy,
       createdAt: iso(now),
       updatedAt: iso(now),
@@ -399,6 +424,11 @@ export class AutomationService {
     }
     if (params.permissionMode !== undefined) next.permissionMode = params.permissionMode;
     if (params.newSessionEachRun !== undefined) next.newSessionEachRun = params.newSessionEachRun;
+    if (params.brief !== undefined) {
+      if (current.channelId === undefined) throw invalid('brief', 'brief needs channelId');
+      if (params.brief) next.brief = true;
+      else delete next.brief;
+    }
     if (params.notify !== undefined) next.notify = params.notify;
     let resetBaseline = false;
     if (params.check !== undefined) {
@@ -421,6 +451,18 @@ export class AutomationService {
       if (target.reasoningEffort === undefined) delete next.reasoningEffort;
       else next.reasoningEffort = target.reasoningEffort;
       next.sessionId = params.sessionId;
+      next.newSessionEachRun = false;
+    }
+    if (current.channelId !== undefined) {
+      // 发给助理的：项目与模型总是助理现在的，不开会话。
+      const target = this.#channelTarget(current.channelId);
+      next.workspaceId = target.workspaceId;
+      next.providerId = target.providerId;
+      if (target.modelId === undefined) delete next.modelId;
+      else next.modelId = target.modelId;
+      if (target.reasoningEffort === undefined) delete next.reasoningEffort;
+      else next.reasoningEffort = target.reasoningEffort;
+      delete next.sessionId;
       next.newSessionEachRun = false;
     }
     this.#checkTarget(next);
@@ -462,6 +504,19 @@ export class AutomationService {
     }
     await this.#queue(id, () => rm(this.#file(id), { force: true }));
     this.#emit({ automationId: id, deleted: true });
+  }
+
+  /** 助理删了（0.121.0）：一起删发给它的自动化。 */
+  async deleteForChannel(channelId: string): Promise<void> {
+    const ids = [...this.#entries.values()]
+      .filter((entry) => entry.automation.channelId === channelId)
+      .map((entry) => entry.automation.id);
+    for (const id of ids) await this.delete(id);
+  }
+
+  /** 发给这个助理的自动化（新建的在前）。 */
+  forChannel(channelId: string): Automation[] {
+    return this.list().filter((automation) => automation.channelId === channelId);
   }
 
   /**
@@ -720,6 +775,10 @@ export class AutomationService {
   /** 开会话（或用沿用的）、发出指令、盯住回合。 */
   async #wake(entry: Entry, run: AutomationRun, openedBy?: SessionId): Promise<void> {
     const { automation } = entry;
+    if (automation.channelId !== undefined) {
+      this.#wakeChannel(entry, run, automation.channelId);
+      return;
+    }
     try {
       const sessionId = await this.#sessionFor(entry, run, openedBy);
       run.sessionId = sessionId;
@@ -748,6 +807,34 @@ export class AutomationService {
     } catch (error) {
       this.#finish(automation.id, run.id, 'failed', { error: errorMessage(error) });
     }
+  }
+
+  /** 发给助理的：把指令（与检查脚本的输出）交给助理的下一次唤醒，交出即完成；结果在助理的时间线上。 */
+  #wakeChannel(entry: Entry, run: AutomationRun, channelId: string): void {
+    const { automation } = entry;
+    const channels = this.#options.channels;
+    try {
+      if (channels === undefined) throw new Error('This Host has no assistants.');
+      const output =
+        run.check === undefined
+          ? ''
+          : `\n<check_output exit_code="${run.check.exitCode ?? 'none'}">\n${run.check.output.replace(/<\/check_output>/gi, '</check_output_>')}\n</check_output>`;
+      channels.wake(channelId, {
+        title: automation.title,
+        prompt: `${automation.prompt}${output}`,
+        ...(automation.brief === true && { brief: true }),
+      });
+      this.#finish(automation.id, run.id, 'completed', {});
+    } catch (error) {
+      this.#finish(automation.id, run.id, 'failed', { error: errorMessage(error) });
+    }
+  }
+
+  /** 发给助理时的项目与模型。 */
+  #channelTarget(channelId: string): ReturnType<AutomationChannels['target']> {
+    const channels = this.#options.channels;
+    if (channels === undefined) throw invalid('channelId', 'this host has no assistants');
+    return channels.target(channelId);
   }
 
   /** 这次运行发进哪个会话：沿用的会话还能用就用它，否则开一个新的。 */

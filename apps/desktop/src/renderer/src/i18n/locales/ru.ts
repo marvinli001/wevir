@@ -1119,6 +1119,7 @@ export const messages: Messages = {
   'settings.notify.question': 'Вопросы',
   'settings.notify.failed': 'Ошибки',
   'settings.notify.automation': 'Автоматизации',
+  'settings.notify.channel': 'Ассистенты',
   'settings.tab.archived': 'Архив',
   'settings.tab.web': 'Веб-поиск',
   'settings.tab.personalization': 'Персонализация',

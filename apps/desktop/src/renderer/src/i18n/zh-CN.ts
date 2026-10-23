@@ -1102,6 +1102,7 @@ export const zhCN = {
   'settings.notify.question': '提问',
   'settings.notify.failed': '出错',
   'settings.notify.automation': '自动化',
+  'settings.notify.channel': '助理',
   'settings.tab.archived': '已归档',
   'settings.tab.web': '联网搜索',
   'settings.tab.personalization': '个性化',

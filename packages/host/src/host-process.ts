@@ -31,7 +31,7 @@ import { automationRunMessage } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { AssistantFolders } from './channels/assistants.js';
-import { ChannelService } from './channels/service.js';
+import { ChannelService, morningBriefAutomation } from './channels/service.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { ComputerBroker } from './computer-broker.js';
@@ -46,6 +46,7 @@ import {
 } from './custom-instructions.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
+import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
 import { FileUrls } from './file-urls.js';
@@ -699,6 +700,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       message: (automation, context) =>
         automationRunMessage(automation, { ...context, marker: AUTOMATION_QUIET_MARKER }),
+      // 发给助理的自动化（0.121.0）：到点时唤醒助理的协调者。
+      channels: {
+        target: (channelId) => {
+          if (channels === undefined)
+            throw new HostError('CHANNEL_NOT_FOUND', `channel ${channelId} not found`);
+          return channels.scheduleTarget(channelId);
+        },
+        wake: (channelId, schedule) => {
+          if (channels === undefined)
+            throw new HostError('CHANNEL_NOT_FOUND', `channel ${channelId} not found`);
+          channels.wakeForSchedule(channelId, schedule);
+        },
+      },
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const automationService = automations;
@@ -710,6 +724,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       sessions: manager,
       assistants,
       identity: { deviceId: hostId, clientId: 'wevir-channels', clientKind: 'desktop' },
+      // 建助理时给它一个每天 08:00 的晨间简报（0.121.0），删助理时一起删。
+      schedules: {
+        created: async (channel) => {
+          await automationService.create(morningBriefAutomation(channel.id), { kind: 'user' });
+        },
+        deleted: (channelId) => automationService.deleteForChannel(channelId),
+      },
       tasks: {
         list: async (root) => boardEventTasks(await taskBoards.list(root)),
         update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
@@ -986,6 +1007,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       events: store,
       inbox: inboxService,
       automations: automationService,
+      channels: channelService,
       settings: () => settings.get(),
       onError: (error) => logger.warn('notification error', { error }),
     });
@@ -1397,6 +1419,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         remote_push: true,
         remote_web: true,
         channels: true,
+        channel_schedules: true,
       },
       engineFeatures,
       plugins,

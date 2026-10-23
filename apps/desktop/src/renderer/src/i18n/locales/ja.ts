@@ -1099,6 +1099,7 @@ export const messages: Messages = {
   'settings.notify.question': '質問',
   'settings.notify.failed': 'エラー',
   'settings.notify.automation': '自動化',
+  'settings.notify.channel': 'アシスタント',
   'settings.tab.archived': 'アーカイブ済み',
   'settings.tab.web': 'Web 検索',
   'settings.tab.personalization': 'パーソナライズ',

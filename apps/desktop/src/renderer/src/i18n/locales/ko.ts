@@ -1091,6 +1091,7 @@ export const messages: Messages = {
   'settings.notify.question': '질문',
   'settings.notify.failed': '오류',
   'settings.notify.automation': '자동화',
+  'settings.notify.channel': '어시스턴트',
   'settings.tab.archived': '보관됨',
   'settings.tab.web': '웹 검색',
   'settings.tab.personalization': '개인 설정',
