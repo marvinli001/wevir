@@ -18,7 +18,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
   icon: `${ICONS}/exports/ios/light/AppIcon-1024.png`,
-  backgroundColor: '#fcfbfa',
+  backgroundColor: '#f7f6f3',
   ios: {
     bundleIdentifier: 'si.wevir.mobile',
     supportsTablet: false,

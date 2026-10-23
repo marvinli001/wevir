@@ -1,5 +1,6 @@
 // 手机端的颜色与尺寸：取桌面“静器”的语义变量（design/desktop-tokens.md §2–§3，apps/desktop 的 tokens.css），浅色与深色同一组名字。
-// 静器没有彩色强调色：主按钮与选中是墨色，彩色只表示状态。
+// 静器没有彩色强调色：主按钮与选中是墨色，彩色只表示状态。页面底色比桌面深一档，让白色分组卡片浮出来；形状照 iOS 26：
+// 胶囊按钮、大圆角分组、同心圆角。
 
 import { useColorScheme } from 'react-native';
 
@@ -23,9 +24,9 @@ export interface Theme {
 
 export const LIGHT: Theme = {
   dark: false,
-  background: '#fcfbfa',
+  background: '#f7f6f3',
   card: '#ffffff',
-  muted: '#f2f1ee',
+  muted: '#efeee9',
   border: '#e6e4e0',
   borderStrong: '#d3d1cc',
   foreground: '#1a1a17',
@@ -41,9 +42,9 @@ export const LIGHT: Theme = {
 
 export const DARK: Theme = {
   dark: true,
-  background: '#101114',
+  background: '#0c0d10',
   card: '#17181c',
-  muted: '#1d1e23',
+  muted: '#212227',
   border: '#26282d',
   borderStrong: '#36383e',
   foreground: '#eeede8',
@@ -57,9 +58,13 @@ export const DARK: Theme = {
   destructive: '#ee8f84',
 };
 
-export const RADIUS = { card: 12, control: 8 } as const;
+/** 分组卡片 24、行内图标块 10、输入框 14、胶囊按钮取高度的一半。 */
+export const RADIUS = { card: 24, tile: 10, control: 14, capsule: 999 } as const;
 
-export const TEXT = { body: 15, small: 13, caption: 12, title: 17 } as const;
+export const TEXT = { largeTitle: 34, title: 17, body: 16, small: 14, caption: 12 } as const;
+
+/** 页面左右留白与分组之间的间距。 */
+export const SPACE = { page: 16, section: 28 } as const;
 
 export function useTheme(): Theme {
   return useColorScheme() === 'dark' ? DARK : LIGHT;
