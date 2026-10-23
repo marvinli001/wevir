@@ -38,6 +38,7 @@ import {
   pluginRemove,
   pluginSetEnabled,
 } from './commands/plugin.js';
+import { processList, processOutput, processStop, usageSummary } from './commands/process.js';
 import {
   providerAdd,
   providerList,
@@ -1030,6 +1031,60 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       run: (ctx) => instructionsClear(ctx),
     },
   },
+  process: {
+    list: {
+      summary: 'cmd.process.list.summary',
+      usage: 'cmd.process.list.usage',
+      options: {
+        workspace: { type: 'string', short: 'w' },
+        session: { type: 'string' },
+        ...json,
+      },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => {
+        const workspace = str(v.workspace);
+        const session = str(v.session);
+        return processList(ctx, {
+          ...(workspace !== undefined && { workspace }),
+          ...(session !== undefined && { session }),
+          json: v.json === true,
+        });
+      },
+    },
+    output: {
+      summary: 'cmd.process.output.summary',
+      usage: 'cmd.process.output.usage',
+      options: { all: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => processOutput(ctx, id as string, { all: v.all === true }),
+    },
+    stop: {
+      summary: 'cmd.process.stop.summary',
+      usage: 'cmd.process.stop.usage',
+      options: { signal: { type: 'string' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, [id]) => {
+        const signal = str(v.signal);
+        return processStop(ctx, id as string, signal === undefined ? {} : { signal });
+      },
+    },
+  },
+  usage: {
+    summary: {
+      summary: 'cmd.usage.summary.summary',
+      usage: 'cmd.usage.summary.usage',
+      options: { days: { type: 'string' }, ...json },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => {
+        const days = str(v.days);
+        return usageSummary(ctx, { ...(days !== undefined && { days }), json: v.json === true });
+      },
+    },
+  },
   rule: {
     list: {
       summary: 'cmd.rule.list.summary',
@@ -1106,6 +1161,7 @@ const DEFAULT_COMMANDS: Record<string, string> = {
   inbox: 'list',
   settings: 'list',
   instructions: 'show',
+  usage: 'summary',
 };
 
 const GROUP_TITLES: Record<string, PlainMessageKey> = {
@@ -1122,6 +1178,8 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   mcp: 'group.mcp',
   settings: 'group.settings',
   instructions: 'group.instructions',
+  process: 'group.process',
+  usage: 'group.usage',
   rule: 'group.rule',
   remote: 'group.remote',
 };
