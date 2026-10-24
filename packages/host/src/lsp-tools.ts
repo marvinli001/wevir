@@ -53,7 +53,7 @@ const DIAGNOSTICS_PER_FILE = 50;
 /** 一次诊断最多几个文件。 */
 const DIAGNOSTICS_MAX_FILES = 50;
 /** 引用、符号等的默认与最多条数。 */
-const REFERENCES_DEFAULT = 200;
+const REFERENCES_DEFAULT = 50;
 const REFERENCES_MAX = 2000;
 const SYMBOLS_DEFAULT = 50;
 const SYMBOLS_MAX = 500;
@@ -273,7 +273,12 @@ export class LspTools {
         {
           ...POSITION_PROPERTIES,
           includeDeclaration: { type: 'boolean', description: 'Default true.' },
-          limit: { type: 'integer', minimum: 1, maximum: REFERENCES_MAX },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: REFERENCES_MAX,
+            description: `Default ${REFERENCES_DEFAULT}.`,
+          },
         },
         ['path', 'line'],
       ),

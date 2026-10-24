@@ -148,6 +148,22 @@ describe('LSP tools on a fake language server', () => {
     expect(withoutDeclaration).toContain('1 references to alpha');
   });
 
+  it('lists 50 references by default and says how many more there are', async () => {
+    const { call, write } = setup();
+    write('src/many.fake', `def delta\n${'use delta\n'.repeat(60)}`);
+    const references = await call('lsp_references', { path: 'src/many.fake', line: 1, column: 5 });
+    expect(references).toMatch(/^61 references to delta/);
+    expect(references.split('\n').filter((line) => line.startsWith('src/'))).toHaveLength(50);
+    expect(references).toMatch(/\n… 11 more \(raise limit, up to 2000\)\.$/);
+    const all = await call('lsp_references', {
+      path: 'src/many.fake',
+      line: 1,
+      column: 5,
+      limit: 100,
+    });
+    expect(all).not.toContain('more (raise limit');
+  });
+
   it('answers hover, document and workspace symbols and incoming calls', async () => {
     const { call, write } = setup();
     write('a.fake', 'def gamma\ngamma\n');
