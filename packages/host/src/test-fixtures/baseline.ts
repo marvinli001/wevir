@@ -461,8 +461,115 @@ async function listen(
   };
 }
 
-/** 只回一句话的 Chat Completions 上游（量网关转换出的 Chat 请求）。 */
-export function startChatRecorder(): Promise<Recorder> {
+// ── 假模型的任务（三种上游协议共用） ──────────────────────────────────
+
+/** 假模型看到的一个请求：最后一条用户消息、那之后的工具结果、请求里的工具全名（命名空间里的写成 `<命名空间>__<名字>`）。 */
+export interface FakeAgentView {
+  prompt: string;
+  outputs: string[];
+  tools: string[];
+}
+
+/** 假模型的一步：回一句话，或者按全名调一个工具。 */
+export type FakeAgentStep = { text: string } | { call: string; args: Record<string, unknown> };
+
+/** 假模型的工具搜索样本：查 Provider 与模型（`wevir_models`，在按需那层）。 */
+export const FAKE_SEARCH_PROMPT = '[fake-search] Which providers and models can a new session use?';
+const SEARCH_TARGET = 'mcp__wevir_more__wevir_models';
+const FIX_C0 =
+  "node -e \"const fs=require('fs');const f='src/invoice.js';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace('let i = 1','let i = 0'))\"";
+
+/**
+ * 假模型做的两个任务，不认得的回“ok”：
+ * - C0（`C0_PROMPT`）：用 `exec_command` 改 bug、跑 `npm test` 与 `npm run lint`，按两条命令的输出如实报告；
+ * - 工具搜索（`FAKE_SEARCH_PROMPT`）：有 `tool_search` 时先搜再经 `call_tool` 调搜到的 `wevir_models`，没有时直接调。
+ */
+export function fakeAgent(view: FakeAgentView): FakeAgentStep {
+  const { prompt, outputs, tools } = view;
+  if (tools.length === 0) return { text: 'ok' };
+  if (prompt.includes(C0_PROMPT)) {
+    const commands = [FIX_C0, 'npm test', 'npm run lint'];
+    const next = commands[outputs.length];
+    if (next !== undefined) return { call: 'exec_command', args: { cmd: next } };
+    const tests = /\bfail 0\b/.test(outputs[1] ?? '') ? '通过' : '失败';
+    const lint = /ENOTFOUND|exit code [1-9]|Process exited with code [1-9]/i.test(outputs[2] ?? '')
+      ? '失败：连不上 lint 服务'
+      : '通过';
+    return { text: `已把循环改成从 0 开始。\nnpm test ${tests}。\nnpm run lint ${lint}。` };
+  }
+  if (prompt.includes('[fake-search]')) {
+    if (!tools.includes('tool_search')) {
+      return outputs.length === 0 ? { call: SEARCH_TARGET, args: {} } : { text: 'listed' };
+    }
+    if (outputs.length === 0) {
+      return { call: 'tool_search', args: { query: 'providers models', limit: 5 } };
+    }
+    if (outputs.length === 1) {
+      if (!(outputs[0] ?? '').includes(SEARCH_TARGET)) return { text: 'not found' };
+      return { call: 'call_tool', args: { name: SEARCH_TARGET, arguments: {} } };
+    }
+    return { text: 'listed' };
+  }
+  return { text: 'ok' };
+}
+
+const partsText = (content: unknown): string =>
+  typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+          .map((part: { type?: string; text?: unknown }) =>
+            part?.type === 'text' && typeof part.text === 'string' ? part.text : '',
+          )
+          .join('\n')
+      : '';
+
+/** Chat Completions 请求 → 假模型看到的样子。 */
+export function chatAgentView(body: Record<string, unknown>): FakeAgentView {
+  const messages = (body.messages as Array<Record<string, unknown>> | undefined) ?? [];
+  const last = messages.findLastIndex(
+    (message) => message.role === 'user' && partsText(message.content).trim() !== '',
+  );
+  return {
+    prompt: last < 0 ? '' : partsText(messages[last]?.content),
+    outputs: messages
+      .slice(last + 1)
+      .filter((message) => message.role === 'tool')
+      .map((message) => partsText(message.content)),
+    tools: chatCatalog(body).names,
+  };
+}
+
+/** Anthropic Messages 请求 → 假模型看到的样子（工具结果在 user 消息的 `tool_result` 块里）。 */
+export function messagesAgentView(body: Record<string, unknown>): FakeAgentView {
+  const messages = (body.messages as Array<{ role?: string; content?: unknown }> | undefined) ?? [];
+  const blocks = (content: unknown): Array<Record<string, unknown>> =>
+    typeof content === 'string'
+      ? [{ type: 'text', text: content }]
+      : Array.isArray(content)
+        ? content
+        : [];
+  const last = messages.findLastIndex(
+    (message) => message.role === 'user' && partsText(blocks(message.content)).trim() !== '',
+  );
+  return {
+    prompt: last < 0 ? '' : partsText(blocks(messages[last]?.content)),
+    outputs: messages.slice(last + 1).flatMap((message) =>
+      message.role !== 'user'
+        ? []
+        : blocks(message.content)
+            .filter((block) => block.type === 'tool_result')
+            .map((block) => partsText(blocks(block.content))),
+    ),
+    tools: messagesCatalog(body).names,
+  };
+}
+
+/** Chat Completions 上游：按 `agent` 回话或调工具（不给时只回“ok”），量网关转换出的 Chat 请求。 */
+export function startChatRecorder(
+  agent?: (view: FakeAgentView) => FakeAgentStep,
+): Promise<Recorder> {
+  let calls = 0;
   return listen((request, res) => {
     const chunk = (delta: unknown, finish: string | null) =>
       `data: ${JSON.stringify({
@@ -472,9 +579,31 @@ export function startChatRecorder(): Promise<Recorder> {
         model: request.body.model,
         choices: [{ index: 0, delta, finish_reason: finish }],
       })}\n\n`;
+    const step = agent?.(chatAgentView(request.body)) ?? { text: 'ok' };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
-    res.write(chunk({ role: 'assistant', content: 'ok' }, null));
-    res.write(chunk({}, 'stop'));
+    if ('call' in step) {
+      calls += 1;
+      res.write(
+        chunk(
+          {
+            role: 'assistant',
+            tool_calls: [
+              {
+                index: 0,
+                id: `call_baseline_${calls}`,
+                type: 'function',
+                function: { name: step.call, arguments: JSON.stringify(step.args) },
+              },
+            ],
+          },
+          null,
+        ),
+      );
+      res.write(chunk({}, 'tool_calls'));
+    } else {
+      res.write(chunk({ role: 'assistant', content: step.text }, null));
+      res.write(chunk({}, 'stop'));
+    }
     res.write(
       `data: ${JSON.stringify({
         id: 'chatcmpl_baseline',
@@ -489,11 +618,15 @@ export function startChatRecorder(): Promise<Recorder> {
   }, '/v1');
 }
 
-/** 只回一句话的 Anthropic Messages 上游。 */
-export function startMessagesRecorder(): Promise<Recorder> {
+/** Anthropic Messages 上游：按 `agent` 回话或调工具（不给时只回“ok”）。 */
+export function startMessagesRecorder(
+  agent?: (view: FakeAgentView) => FakeAgentStep,
+): Promise<Recorder> {
+  let calls = 0;
   return listen((request, res) => {
     const send = (event: Record<string, unknown>) =>
       res.write(`event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`);
+    const step = agent?.(messagesAgentView(request.body)) ?? { text: 'ok' };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     send({
       type: 'message_start',
@@ -507,12 +640,35 @@ export function startMessagesRecorder(): Promise<Recorder> {
         usage: { input_tokens: 1, output_tokens: 1 },
       },
     });
-    send({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-    send({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } });
+    if ('call' in step) {
+      calls += 1;
+      send({
+        type: 'content_block_start',
+        index: 0,
+        content_block: {
+          type: 'tool_use',
+          id: `toolu_baseline_${calls}`,
+          name: step.call,
+          input: {},
+        },
+      });
+      send({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'input_json_delta', partial_json: JSON.stringify(step.args) },
+      });
+    } else {
+      send({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+      send({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: step.text },
+      });
+    }
     send({ type: 'content_block_stop', index: 0 });
     send({
       type: 'message_delta',
-      delta: { stop_reason: 'end_turn' },
+      delta: { stop_reason: 'call' in step ? 'tool_use' : 'end_turn' },
       usage: { output_tokens: 1 },
     });
     send({ type: 'message_stop' });

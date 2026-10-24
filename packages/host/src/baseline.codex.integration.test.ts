@@ -44,6 +44,9 @@ import {
   chatCatalog,
   checkC0,
   checkHandoffResult,
+  FAKE_SEARCH_PROMPT,
+  type FakeAgentStep,
+  fakeAgent,
   HANDOFF_CONSTRAINTS,
   HANDOFF_TAIL_MARKER,
   HANDOFF_TASK,
@@ -435,6 +438,23 @@ function findTool(view: MockView, name: string): Pick<MockToolCall, 'name' | 'na
   throw new Error(`mock: 请求里没有工具 ${name}`);
 }
 
+/** 假模型的任务（fakeAgent）在 Responses 上的回复：工具全名还原成命名空间与名字。 */
+function responsesStep(view: MockView, step: FakeAgentStep) {
+  if ('text' in step) return { text: [step.text] };
+  for (const tool of view.body.tools ?? []) {
+    if (tool.type !== 'namespace' || !step.call.startsWith(`${tool.name}__`)) continue;
+    const name = step.call.slice(String(tool.name).length + 2);
+    if ((tool.tools as Array<{ name?: string }>).some((inner) => inner.name === name)) {
+      return {
+        toolCalls: [
+          { kind: 'function' as const, namespace: tool.name as string, name, args: step.args },
+        ],
+      };
+    }
+  }
+  return { toolCalls: [{ kind: 'function' as const, name: step.call, args: step.args }] };
+}
+
 const call = (view: MockView, name: string, args: Json): MockToolCall => ({
   kind: 'function',
   ...findTool(view, name),
@@ -446,6 +466,10 @@ const script: MockScript = (view) => {
   if (JSON.stringify(view.body).includes(TITLE_PROMPT)) return defaultMockScript(view);
   const prompt = view.lastUserText;
   const done = view.toolOutputs.length > 0;
+  if (prompt.includes(C0_PROMPT) || prompt.includes('[fake-search]')) {
+    const tools = responsesCatalog(view.body as unknown as Json).names;
+    return responsesStep(view, fakeAgent({ prompt, outputs: view.toolOutputs, tools }));
+  }
   const role = /\[spawn-role:([a-z]+)\]/.exec(prompt)?.[1];
   if (role !== undefined && !prompt.includes('[role-probe')) {
     if (done) return { text: ['opened'] };
@@ -646,6 +670,106 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
         section('mock', 'catalogByPreset', { ...byPreset, coreCalls });
       } finally {
         await host.close();
+        await Promise.all([mock.close(), chat.close(), messages.close()]);
+      }
+    });
+
+    it('假模型任务：C0 与工具搜索在三种上游协议上都走通，搜索开与关的 Agent 请求数', {
+      timeout: 600_000,
+    }, async () => {
+      const mock = await startMockModel(script);
+      const chat = await startChatRecorder(fakeAgent);
+      const messages = await startMessagesRecorder(fakeAgent);
+      // 关掉搜索的 Provider 用另一个模型 ID：Codex 的模型目录按 ID 去重。
+      const off = (provider: Json): Json => ({
+        ...provider,
+        id: `${provider.id}-off`,
+        models: [{ id: `${provider.defaultModelId}-off`, contextWindow: 128_000 }],
+        defaultModelId: `${provider.defaultModelId}-off`,
+        compat: { toolSearch: 'off' },
+      });
+      const upstreams = [
+        { provider: mockProvider('mock', mock.baseURL), recorder: mock },
+        {
+          provider: compatible('chat', 'openai-completions', chat.baseURL, 'baseline-chat'),
+          recorder: chat,
+        },
+        {
+          provider: compatible(
+            'messages',
+            'anthropic-messages',
+            messages.baseURL,
+            'baseline-messages',
+          ),
+          recorder: messages,
+        },
+      ];
+      const host = await boot(upstreams.flatMap(({ provider }) => [provider, off(provider)]));
+      const roots: string[] = [];
+      try {
+        const { client } = host;
+        const fresh = async () => {
+          const root = mkdirTemp();
+          roots.push(root);
+          const dir = join(root, 'invoice-tools');
+          writeProject(dir, PROJECT_A);
+          const workspace = (await client.request('workspace.add', { rootPath: dir })).workspace;
+          return { id: workspace.id as string, dir: workspace.rootPath as string };
+        };
+        const run = async (
+          providerId: string,
+          recorder: { requests: { body: unknown }[] },
+          prompt: string,
+        ) => {
+          const project = await fresh();
+          const before = recorder.requests.length;
+          const session = await newSession(client, project.id, providerId, 'full_access');
+          const turn = await runTurn(client, session, prompt, 120_000);
+          const agent = agentRequests(recorder.requests.slice(before));
+          return { project, turn, agentRequests: agent.length };
+        };
+        const results: Json = {};
+        for (const { provider, recorder } of upstreams) {
+          const api = String(provider.api);
+          const byMode: Json = {};
+          for (const [mode, providerId] of [
+            ['search', String(provider.id)],
+            ['off', `${provider.id}-off`],
+          ] as const) {
+            const c0 = await run(providerId, recorder, C0_PROMPT);
+            const check = checkC0(c0.project.dir);
+            expect(check.success, `${api} ${mode} C0`).toBe(true);
+            expect(reportsLintFailure(c0.turn.finalText), `${api} ${mode} 报告 lint`).toBe(true);
+            const search = await run(providerId, recorder, FAKE_SEARCH_PROMPT);
+            expect(search.turn.finalText, `${api} ${mode} 搜索`).toBe('listed');
+            const called = search.turn.tools.map((tool) => tool.name);
+            expect(called, `${api} ${mode} 调到 wevir_models`).toContain(
+              'mcp__wevir_more__wevir_models',
+            );
+            byMode[mode] = {
+              c0: {
+                outcome: c0.turn.outcome,
+                agentRequests: c0.agentRequests,
+                success: check.success,
+                commands: c0.turn.commands.length,
+              },
+              search: { agentRequests: search.agentRequests, tools: called },
+            };
+          }
+          const extra = (key: 'c0' | 'search') =>
+            (byMode.search as Record<typeof key, { agentRequests: number }>)[key].agentRequests -
+            (byMode.off as Record<typeof key, { agentRequests: number }>)[key].agentRequests;
+          expect(extra('c0'), `${api} C0 多出的请求`).toBeLessThanOrEqual(1);
+          expect(extra('search'), `${api} 搜索多出的请求`).toBeLessThanOrEqual(1);
+          results[api] = {
+            ...byMode,
+            extraAgentRequests: { c0: extra('c0'), search: extra('search') },
+          };
+        }
+        section('mock', 'fakeTasks', results);
+      } finally {
+        await host.close();
+        for (const root of roots) removeTempDir(root);
         await Promise.all([mock.close(), chat.close(), messages.close()]);
       }
     });
