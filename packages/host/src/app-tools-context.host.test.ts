@@ -155,6 +155,19 @@ describe('应用级工具的会话上下文', () => {
     expect(core.every((name) => CORE_TIER_TOOLS.includes(name))).toBe(true);
     expect(more.some((name) => CORE_TIER_TOOLS.includes(name))).toBe(false);
     expect([...core, ...more].sort()).toEqual([...all].sort());
+    // 不分层的列表（Claude）里常驻的工具带 alwaysLoad，别的不带；分层的列表都不带。
+    const listing = async (tier?: AppToolTier) =>
+      (await h.mcp(session, 'tools/list', {}, tier)).tools as Array<{
+        name: string;
+        _meta?: Record<string, unknown>;
+      }>;
+    const alwaysLoaded = (await listing())
+      .filter((tool) => tool._meta?.['anthropic/alwaysLoad'] === true)
+      .map((tool) => tool.name);
+    expect(alwaysLoaded.sort()).toEqual([...core].sort());
+    for (const tier of ['core', 'more'] as const) {
+      expect((await listing(tier)).some((tool) => tool._meta !== undefined)).toBe(false);
+    }
     const refused = await h.mcp(
       session,
       'tools/call',

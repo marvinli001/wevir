@@ -1268,6 +1268,19 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__simulator_control',
     ]);
   });
+
+  it('Claude Code 的工具搜索照常：环境不设 ENABLE_TOOL_SEARCH，wevir 服务不整体 alwaysLoad（常驻的工具由 Host 逐个标）', async () => {
+    const { adapter, sdk } = harness();
+    const appTools = { url: 'http://127.0.0.1:4100/mcp', token: 'session-token' };
+    const { engineSessionId } = await adapter.createSession({ ...CONFIG, appTools });
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    const options = sessionQueries(sdk)[0]?.options;
+    expect(options?.env).toBeDefined();
+    expect(options?.env).not.toHaveProperty('ENABLE_TOOL_SEARCH');
+    expect(options?.mcpServers?.wevir).not.toHaveProperty('alwaysLoad');
+  });
 });
 
 describe('添加的账号（0.63.0）', () => {
