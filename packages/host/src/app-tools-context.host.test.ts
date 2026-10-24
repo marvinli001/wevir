@@ -6,7 +6,11 @@ import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId } from '@wevir/protocol';
 import {
+  APP_TOOLS_CALL,
+  APP_TOOLS_CALL_READONLY,
+  APP_TOOLS_SEARCH,
   type AppToolsEndpoint,
+  type AppToolsView,
   type AppToolTier,
   appToolsTierUrl,
   type EngineSession,
@@ -70,16 +74,21 @@ async function boot() {
     models: [],
     defaultModelId: 'deepseek-chat',
   });
-  const create = async () =>
-    (await client.request('session.create', { workspaceId, providerId: 'deepseek-official' }))
-      .session as { id: SessionId; engine: { sessionId: string } };
+  const create = async (extra: Record<string, unknown> = {}) =>
+    (
+      await client.request('session.create', {
+        workspaceId,
+        providerId: 'deepseek-official',
+        ...extra,
+      })
+    ).session as { id: SessionId; engine: { sessionId: string } };
   const configOf = (session: { engine: { sessionId: string } }) =>
     adapter.configs.get(session.engine.sessionId) as SessionConfig;
   const mcp = async (
     session: { engine: { sessionId: string } },
     method: string,
     params: unknown = {},
-    tier?: AppToolTier,
+    tier?: AppToolsView,
   ) => {
     const endpoint = configOf(session).appTools as AppToolsEndpoint;
     const url = tier === undefined ? endpoint.url : appToolsTierUrl(endpoint.url, tier);
@@ -186,5 +195,75 @@ describe('应用级工具的会话上下文', () => {
       h.mcp(session, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} }, tier);
     expect((await init('more')).instructions).toBe(MORE_TOOLS_INSTRUCTIONS);
     expect((await init('core')).instructions).toBe((await init()).instructions);
+  });
+
+  it('dispatch 列法（OpenCode）：常驻那层加上搜索与两个分发工具；分发照常按会话过滤，只读分发拒绝会改东西的工具', async () => {
+    const h = await boot();
+    const session = await h.create();
+    const names = async (tier?: AppToolsView, target = session) =>
+      ((await h.mcp(target, 'tools/list', {}, tier)).tools as Array<{ name: string }>).map(
+        (tool) => tool.name,
+      );
+    const core = await names('core');
+    expect((await names('dispatch')).sort()).toEqual(
+      [...core, APP_TOOLS_SEARCH, APP_TOOLS_CALL_READONLY, APP_TOOLS_CALL].sort(),
+    );
+    // 别的列法里没有它们。
+    for (const tier of [undefined, 'core', 'more'] as const) {
+      expect(await names(tier)).not.toContain(APP_TOOLS_CALL);
+    }
+    const call = async (name: string, args: unknown, target = session) =>
+      (await h.mcp(target, 'tools/call', { name, arguments: args }, 'dispatch')) as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+    const found = await call(APP_TOOLS_SEARCH, { query: 'providers models' });
+    const lines = found.content[0]?.text.split('\n') ?? [];
+    expect(lines[0]).toContain(APP_TOOLS_CALL_READONLY);
+    const entries = lines
+      .slice(1)
+      .map((line) => JSON.parse(line) as { name: string; readOnly?: boolean });
+    expect(entries.find((entry) => entry.name === 'wevir_models')).toMatchObject({
+      readOnly: true,
+    });
+    // 只搜按需那层，按名字排序。
+    expect(entries.every((entry) => !CORE_TIER_TOOLS.includes(entry.name))).toBe(true);
+    expect(entries.map((entry) => entry.name)).toEqual(entries.map((entry) => entry.name).sort());
+    expect((await call(APP_TOOLS_SEARCH, { query: 'zzqx' })).content[0]?.text).toContain(
+      'No matching tools',
+    );
+
+    const models = await call(APP_TOOLS_CALL_READONLY, { name: 'wevir_models', arguments: {} });
+    expect(models.isError).toBeUndefined();
+    expect(models.content[0]?.text).toContain('deepseek-official');
+    const writable = (await names('more')).find(
+      (name) => name === 'wevir_session_close' || name === 'wevir_session_archive',
+    ) as string;
+    expect(writable).toBeDefined();
+    const refused = await call(APP_TOOLS_CALL_READONLY, { name: writable, arguments: {} });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]?.text).toBe(
+      `${writable} can change things: call it with ${APP_TOOLS_CALL}.`,
+    );
+    // 按需那层的工具不能在 dispatch 列法里直接调。
+    expect((await call('wevir_models', {})).content[0]?.text).toBe(
+      'wevir_models is not available to this session.',
+    );
+
+    // 会话看不到的工具（core 预设去掉的组）搜不到，经分发也调不了。
+    const limited = await h.create({ toolPreset: { id: 'core' } });
+    const visibleToLimited = new Set(await names(undefined, limited));
+    const target = (await names('more')).find((name) => !visibleToLimited.has(name));
+    expect(target, 'core 预设去掉的工具').toBeDefined();
+    const missing = await call(APP_TOOLS_CALL, { name: target, arguments: {} }, limited);
+    expect(missing.content[0]?.text).toBe(
+      `${target} is not available to this session. Find tools with ${APP_TOOLS_SEARCH}.`,
+    );
+    const searched = await call(
+      APP_TOOLS_SEARCH,
+      { query: String(target).replace(/_/g, ' ') },
+      limited,
+    );
+    expect(searched.content[0]?.text).not.toContain(`"name":"${target}"`);
   });
 });

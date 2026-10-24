@@ -7,11 +7,12 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
+import { APP_TOOLS_NO_APPROVAL, APP_TOOLS_SEARCH } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   appToolsPluginEntry,
+  engineToolCall,
   engineToolName,
   PLUGIN_DIRECTORY,
   writeAppToolsPlugin,
@@ -38,7 +39,12 @@ function tempDir(): string {
   return dir;
 }
 
-const TOOLS = [
+const TOOLS: Array<{
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}> = [
   {
     name: 'wevir_session_list',
     title: 'List Wevir sessions',
@@ -161,12 +167,16 @@ describe('插件文件', () => {
     expect(writeAppToolsPlugin(engineDir, 'file:///elsewhere/zod/index.js')).not.toBe(url);
   });
 
-  it('配置里的那一项：地址、引擎令牌与不经审批的工具', () => {
+  it('配置里的那一项：dispatch 列法的地址、引擎令牌与不经审批的工具（加上工具搜索）', () => {
     expect(
       appToolsPluginEntry('file:///p.mjs', { url: 'http://127.0.0.1:1/mcp', token: 't' }),
     ).toEqual([
       'file:///p.mjs',
-      { url: 'http://127.0.0.1:1/mcp', token: 't', noApproval: [...APP_TOOLS_NO_APPROVAL] },
+      {
+        url: 'http://127.0.0.1:1/mcp?tier=dispatch',
+        token: 't',
+        noApproval: [...APP_TOOLS_NO_APPROVAL, APP_TOOLS_SEARCH],
+      },
     ]);
   });
 
@@ -261,6 +271,43 @@ describe('插件', () => {
     expect(host.received).toHaveLength(calls);
   });
 
+  it('分发工具按目标工具问：模式是目标名，不用批准的目标不问', async () => {
+    const host = await fakeHost();
+    // 假端点只列 TOOLS：分发工具是这里补的定义。
+    const dispatch = { description: 'Call a Wevir tool.', inputSchema: { type: 'object' } };
+    TOOLS.push({ name: 'wevir_call', title: 'Call', ...dispatch });
+    try {
+      const plugin = await loadPlugin({
+        url: host.url,
+        token: 'engine-token',
+        noApproval: ['browser_snapshot'],
+      });
+      const writable = context('ses_a');
+      const args = { name: 'browser_click', arguments: { ref: '@e3' } };
+      await plugin.tool?.wevir_call?.execute(args, writable.value);
+      expect(writable.asked).toEqual([
+        {
+          permission: 'wevir_call',
+          patterns: ['browser_click'],
+          always: ['browser_click'],
+          metadata: args,
+        },
+      ]);
+      const readOnly = context('ses_a');
+      await plugin.tool?.wevir_call?.execute(
+        { name: 'browser_snapshot', arguments: {} },
+        readOnly.value,
+      );
+      expect(readOnly.asked).toEqual([]);
+      expect(host.received.at(-1)?.body.params).toEqual({
+        name: 'wevir_call',
+        arguments: { name: 'browser_snapshot', arguments: {} },
+      });
+    } finally {
+      TOOLS.pop();
+    }
+  });
+
   it('工具报错时抛出原因；Host 认不出的会话、列不出工具', async () => {
     const host = await fakeHost(() => ({
       content: [{ type: 'text', text: 'Sessions you open cannot get broader permissions.' }],
@@ -295,9 +342,9 @@ describe('适配器', () => {
     expect(asked.at(-1)).toEqual(['opencode']);
     const plugin = h.fake.startOptions.at(-1)?.appToolsPlugin;
     expect(plugin?.[1]).toEqual({
-      url: 'http://127.0.0.1:1/mcp',
+      url: 'http://127.0.0.1:1/mcp?tier=dispatch',
       token: 'engine-token',
-      noApproval: [...APP_TOOLS_NO_APPROVAL],
+      noApproval: [...APP_TOOLS_NO_APPROVAL, APP_TOOLS_SEARCH],
     });
     const file = fileURLToPath(plugin?.[0] ?? '');
     expect(file.startsWith(join(openCodeEngineDir(h.home), PLUGIN_DIRECTORY))).toBe(true);
@@ -402,5 +449,52 @@ describe('工具名', () => {
       { type: 'tool.started', toolName: 'mcp__wevir__wevir_session_list' },
     ]);
     expect(mapper.toolName('call_1')).toBe('mcp__wevir__wevir_session_list');
+  });
+
+  it('经分发工具的调用报成目标工具与它的参数：消息流与审批都是', () => {
+    const args = { name: 'browser_click', arguments: { ref: '@e3' } };
+    expect(engineToolCall('wevir_call', args)).toEqual({
+      toolName: 'mcp__wevir__browser_click',
+      input: { ref: '@e3' },
+    });
+    expect(engineToolCall('mcp__wevir__wevir_call_readonly', { name: 'lsp_hover' })).toEqual({
+      toolName: 'mcp__wevir__lsp_hover',
+      input: {},
+    });
+    expect(engineToolCall('wevir_call', {})).toEqual({
+      toolName: 'mcp__wevir__wevir_call',
+      input: {},
+    });
+    expect(engineToolCall('bash', { command: 'ls' })).toEqual({
+      toolName: 'bash',
+      input: { command: 'ls' },
+    });
+
+    const mapper = new OpenCodeTurnMapper('ses_1');
+    const part = (status: 'pending' | 'running', input: Record<string, unknown>) => ({
+      id: 'prt_1',
+      sessionID: 'ses_1',
+      messageID: 'msg_1',
+      type: 'tool' as const,
+      callID: 'call_1',
+      tool: 'wevir_call',
+      state: { status, input, raw: '', time: { start: 1 } },
+    });
+    // pending 还没有参数时不报；有了参数报成目标工具。
+    expect(mapper.part(part('pending', {}) as never)).toEqual([]);
+    expect(mapper.part(part('running', args) as never)).toMatchObject([
+      { type: 'tool.started', toolName: 'mcp__wevir__browser_click', input: { ref: '@e3' } },
+    ]);
+    expect(mapper.toolName('call_1')).toBe('mcp__wevir__browser_click');
+
+    // 审批先到（工具还在 pending）：ensureTool 拿到的是分发工具的名字与参数，照样报成目标工具。
+    const early = new OpenCodeTurnMapper('ses_1');
+    early.part(part('pending', {}) as never);
+    expect(
+      early.ensureTool('call_1', early.toolName('call_1') ?? 'mcp__wevir__wevir_call', args),
+    ).toMatchObject([
+      { type: 'tool.started', toolName: 'mcp__wevir__browser_click', input: { ref: '@e3' } },
+    ]);
+    expect(early.toolName('call_1')).toBe('mcp__wevir__browser_click');
   });
 });

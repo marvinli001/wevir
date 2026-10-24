@@ -5,13 +5,17 @@
 // Copyright (c) 2025-present Mohamed Boudra
 // 由 Wevir 修改：成了一段生成出来的源码；工具定义与调用走 Host 的 `wevir` MCP 端点（JSON-RPC 的 tools/list、tools/call，带引擎
 // 令牌与引擎会话 ID 的请求头），不另开桥；只读的工具与 wevir_show 不经 `context.ask`；工具报错（`isError`）时抛错；列不出工具时
-// 不挂工具、不让插件加载失败；去掉 shell.env 与按父会话找上下文（Wevir 的子会话有自己的记录）；zod 按绝对地址 import Wevir 装的
+// 不挂工具、不让插件加载失败；分发工具（wevir_call_readonly / wevir_call）按目标工具问权限；去掉 shell.env 与按父会话找上下文（Wevir 的子会话有自己的记录）；zod 按绝对地址 import Wevir 装的
 // 那份；请求带上 opencode 的中止信号。
 //
 // OpenCode 的应用级工具插件（opencode-event-mapping.md §4.4）。要不要问用户交给 opencode 自己的权限系统（`context.ask`，权限名是
 // 工具名）：on_request 的规则集里 `*` 是 ask，完全访问是 allow。
 
-import { APP_TOOLS_ENGINE_SESSION_HEADER } from '@wevir/runtime-adapter';
+import {
+  APP_TOOLS_CALL,
+  APP_TOOLS_CALL_READONLY,
+  APP_TOOLS_ENGINE_SESSION_HEADER,
+} from '@wevir/runtime-adapter';
 
 /**
  * 插件源码。opencode 1.x 的插件工具参数要是 zod 的 shape（1.14.49 起也接受 JSON Schema，但会把每个参数都当成必填），所以把 Host
@@ -25,6 +29,7 @@ export function appToolsPluginSource(zodUrl: string): string {
 import { z } from ${JSON.stringify(zodUrl)};
 
 const SESSION_HEADER = ${JSON.stringify(APP_TOOLS_ENGINE_SESSION_HEADER)};
+const DISPATCH = new Set(${JSON.stringify([APP_TOOLS_CALL_READONLY, APP_TOOLS_CALL])});
 
 export default async function wevirAppTools(_input, options) {
   const url = options?.url;
@@ -67,9 +72,12 @@ export default async function wevirAppTools(_input, options) {
       description: typeof definition.description === 'string' ? definition.description : name,
       args: objectShape(definition.inputSchema),
       async execute(args, context) {
-        if (!noApproval.has(name)) {
+        // 分发工具按目标工具问：模式是目标的名字，“总是允许”只放行那一个工具；不用批准的目标照样不问。
+        const target = DISPATCH.has(name) && typeof args?.name === 'string' ? args.name : undefined;
+        if (!noApproval.has(target ?? name)) {
           // opencode 把插件工具的权限交给插件自己：照它问 MCP 工具的方式问，权限名就是工具名。
-          await context.ask({ permission: name, patterns: ['*'], always: ['*'], metadata: args ?? {} });
+          const patterns = [target ?? '*'];
+          await context.ask({ permission: name, patterns, always: patterns, metadata: args ?? {} });
         }
         const result = await rpc('tools/call', { name, arguments: args ?? {} }, context.sessionID, context.abort);
         const text = resultText(result);

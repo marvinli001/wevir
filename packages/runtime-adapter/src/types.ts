@@ -142,8 +142,21 @@ export const APP_TOOLS_MORE_SERVER = 'wevir_more';
 /** 应用级工具的层：`core` 常驻，`more` 按需。 */
 export type AppToolTier = 'core' | 'more';
 
-/** 只列一层工具的端点地址（`?tier=core` / `?tier=more`，令牌不变）。 */
-export function appToolsTierUrl(url: string, tier: AppToolTier): string {
+/**
+ * 端点的一种列法：一层（`core` / `more`），或 `dispatch`（没有自带工具搜索的引擎，OpenCode）——常驻那层加上
+ * `wevir_tool_search` 与两个分发工具，按需那层的工具不列，搜到后经分发工具调用。
+ */
+export type AppToolsView = AppToolTier | 'dispatch';
+
+/** 按需的工具在 `dispatch` 列法里怎么找：按关键词搜，回名字、描述与参数。 */
+export const APP_TOOLS_SEARCH = 'wevir_tool_search';
+/** 经分发调用只读的工具（`readOnlyHint`，不用批准）；目标工具不是只读的，Host 回错。 */
+export const APP_TOOLS_CALL_READONLY = 'wevir_call_readonly';
+/** 经分发调用会改东西的工具，按引擎的审批策略问用户。 */
+export const APP_TOOLS_CALL = 'wevir_call';
+
+/** 只列一层工具（或换一种列法）的端点地址（`?tier=core` / `?tier=more` / `?tier=dispatch`，令牌不变）。 */
+export function appToolsTierUrl(url: string, tier: AppToolsView): string {
   return `${url}${url.includes('?') ? '&' : '?'}tier=${tier}`;
 }
 

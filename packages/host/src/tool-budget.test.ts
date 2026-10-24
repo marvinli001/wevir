@@ -21,6 +21,7 @@ import { BUILTIN_ROLES, RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
 import { TaskBoardStore } from './task-board.js';
 import { useStorages, useTempDir } from './test-utils.js';
+import { dispatchTools } from './tool-dispatch.js';
 import { ToolOutputStore } from './tool-output.js';
 import {
   CORE_TIER_TOOLS,
@@ -49,6 +50,8 @@ const BUDGETS: Record<string, { tools: number; instructions: number }> = {
 
 /** 常驻层（`toolTier` 为 core 的工具）的 MCP 原形字节：工具搜索打开时首个请求里只有它们。2026-10-25 实测 20,023。 */
 const RESIDENT_MAX_BYTES = 21_000;
+/** 没有自带工具搜索的引擎（OpenCode）登记的：常驻层加上搜索与两个分发工具（2026-10-25 实测 20 个、21,810 字节）。 */
+const DISPATCH_MAX_BYTES = 23_000;
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -177,6 +180,18 @@ describe('工具面体积预算', () => {
     expect(bytes, `resident ${bytes} B; largest: ${largest.join(', ')}`).toBeLessThanOrEqual(
       RESIDENT_MAX_BYTES,
     );
+  });
+
+  it(`dispatch 列法（常驻层与搜索、分发工具）不超过 ${DISPATCH_MAX_BYTES} 字节`, async () => {
+    const [plain] = await scenarios();
+    const resident = (plain?.tools ?? []).filter((tool) => toolTier(tool.name) === 'core');
+    const unused = () => Promise.reject(new Error('not called'));
+    const listed = [
+      ...resident,
+      ...dispatchTools({ searchable: unused, resolve: unused, run: unused }),
+    ];
+    const bytes = listed.reduce((sum, tool) => sum + listedBytes(tool), 0);
+    expect(bytes).toBeLessThanOrEqual(DISPATCH_MAX_BYTES);
   });
 
   it('每个工具都归得到层', async () => {

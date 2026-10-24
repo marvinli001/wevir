@@ -11,9 +11,13 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+  APP_TOOLS_CALL,
+  APP_TOOLS_CALL_READONLY,
   APP_TOOLS_NO_APPROVAL,
+  APP_TOOLS_SEARCH,
   APP_TOOLS_SERVER,
   type AppToolsEndpoint,
+  appToolsTierUrl,
 } from '@wevir/runtime-adapter';
 import { appToolsPluginSource } from './app-tools-plugin.js';
 import type { PermissionRuleset } from './sdk.js';
@@ -72,15 +76,18 @@ export function writeAppToolsPlugin(engineDir: string, zodUrl: string = zodModul
   return pathToFileURL(file).href;
 }
 
-/** 配置 `plugin` 里的那一项。 */
+/**
+ * 配置 `plugin` 里的那一项。插件读端点的 `dispatch` 列法：只登记常驻的工具与搜索、分发工具（opencode 没有自带的工具搜索），按需的
+ * 工具搜到后经分发工具调用。
+ */
 export function appToolsPluginEntry(
   pluginUrl: string,
   endpoint: AppToolsEndpoint,
 ): OpenCodePluginEntry {
   const options: AppToolsPluginOptions = {
-    url: endpoint.url,
+    url: appToolsTierUrl(endpoint.url, 'dispatch'),
     token: endpoint.token,
-    noApproval: APP_TOOLS_NO_APPROVAL,
+    noApproval: [...APP_TOOLS_NO_APPROVAL, APP_TOOLS_SEARCH],
   };
   return [pluginUrl, { ...options }];
 }
@@ -103,15 +110,38 @@ export function engineToolName(tool: string): string {
   return tool.startsWith(APP_TOOL_PREFIX) ? `mcp__${APP_TOOLS_SERVER}__${tool}` : tool;
 }
 
+const DISPATCH_TOOLS: ReadonlySet<string> = new Set([APP_TOOLS_CALL_READONLY, APP_TOOLS_CALL]);
+
+/**
+ * 经分发工具（`wevir_call_readonly` / `wevir_call`）的调用报成对目标工具的调用（`mcp__wevir__<目标>` 与目标的参数）：消息流、
+ * 审批卡片与 Host 的显示都认目标工具。别的调用照 `engineToolName`。
+ */
+export function engineToolCall(tool: string, input: unknown): { toolName: string; input: unknown } {
+  const args =
+    input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  // 插件的工具名（`wevir_call`）与报给 Host 的（`mcp__wevir__wevir_call`）都认。
+  const base = tool.startsWith(`mcp__${APP_TOOLS_SERVER}__`)
+    ? tool.slice(`mcp__${APP_TOOLS_SERVER}__`.length)
+    : tool;
+  if (!DISPATCH_TOOLS.has(base) || typeof args.name !== 'string' || args.name === '') {
+    return { toolName: engineToolName(tool), input };
+  }
+  const target = args.arguments;
+  return {
+    toolName: `mcp__${APP_TOOLS_SERVER}__${args.name}`,
+    input: target !== null && typeof target === 'object' ? target : {},
+  };
+}
+
 /** 列应用级工具最多等多久：Host 在同一台机器上，列不出来就当这次不藏（调用仍由 Host 按会话拒绝）。 */
 export const APP_TOOLS_LIST_TIMEOUT_MS = 5000;
 
 /**
- * Host 的 `tools/list`：这个令牌看得到的应用级工具名。会话自己的令牌按那个会话过滤（角色、工具预设、记忆开关）；引擎令牌不带会话
+ * Host 的 `tools/list`（插件读的 `dispatch` 列法）：这个令牌看得到的应用级工具名。会话自己的令牌按那个会话过滤（角色、工具预设、记忆开关）；引擎令牌不带会话
  * 头时是插件在服务器上挂的全部。
  */
 export async function listAppToolNames(endpoint: AppToolsEndpoint): Promise<string[]> {
-  const response = await fetch(endpoint.url, {
+  const response = await fetch(appToolsTierUrl(endpoint.url, 'dispatch'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

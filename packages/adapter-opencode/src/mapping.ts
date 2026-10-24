@@ -17,7 +17,7 @@
 // - step-finish 与 assistant 消息带 token 用量，消息完成时报 `usage.updated` 与这次调用的 `usage.recorded`（0.62.0）。
 
 import type { AgentEvent, TodoItem, UsageRecordedEvent } from '@wevir/runtime-adapter';
-import { engineToolName } from './app-tools.js';
+import { engineToolCall } from './app-tools.js';
 import type { Message, Part } from './sdk.js';
 import { openCodeToolDisplay } from './tool-display.js';
 
@@ -54,7 +54,8 @@ interface CallTiming {
 }
 
 interface ToolState {
-  readonly toolName: string;
+  /** 分发工具的调用有了参数之后换成目标工具。 */
+  toolName: string;
   started: boolean;
   finished: boolean;
   inputJson: string;
@@ -266,14 +267,17 @@ export class OpenCodeTurnMapper {
   ensureTool(callID: string, toolName: string, input: unknown): AgentEvent[] {
     const existing = this.#tools.get(callID);
     if (existing?.started === true) return [];
+    // 分发工具的审批（参数里有目标）：报成目标工具。
+    const call = engineToolCall(toolName, input);
     const state: ToolState = existing ?? {
-      toolName,
+      toolName: call.toolName,
       started: false,
       finished: false,
       inputJson: '',
       output: undefined,
       todosJson: undefined,
     };
+    state.toolName = call.toolName;
     this.#tools.set(callID, state);
     state.started = true;
     state.inputJson = stableJson(input);
@@ -283,8 +287,8 @@ export class OpenCodeTurnMapper {
         engineSessionId: this.#engineSessionId,
         toolCallId: callID,
         toolName: state.toolName,
-        display: openCodeToolDisplay(state.toolName, input),
-        ...(!isEmptyInput(input) && { input }),
+        display: openCodeToolDisplay(state.toolName, call.input),
+        ...(!isEmptyInput(call.input) && { input: call.input }),
       },
     ];
   }
@@ -404,8 +408,8 @@ export class OpenCodeTurnMapper {
     let state = this.#tools.get(part.callID);
     if (state === undefined) {
       state = {
-        // 应用级工具报成 `mcp__wevir__…`（app-tools.ts）。
-        toolName: engineToolName(part.tool),
+        // 应用级工具报成 `mcp__wevir__…`（app-tools.ts）；分发工具等有了参数再换成目标工具。
+        toolName: engineToolCall(part.tool, undefined).toolName,
         started: false,
         finished: false,
         inputJson: '',
@@ -416,29 +420,35 @@ export class OpenCodeTurnMapper {
     }
     if (state.finished) return [];
     const events: AgentEvent[] = [];
-    const input = part.state.input;
-    const inputJson = stableJson(input);
+    const raw = part.state.input;
+    const inputJson = stableJson(raw);
     const status = part.state.status;
+    // 经分发工具的调用报成目标工具与它的参数（app-tools.ts 的 `engineToolCall`）。
+    const call = engineToolCall(part.tool, raw);
+    const dispatched = call.input !== raw;
+    const input = call.input;
+    const display = () => openCodeToolDisplay(dispatched ? call.toolName : part.tool, input);
     if (!state.started) {
       // pending 而且还没有输入时先不报：opencode 接着会发带输入的 running（要审批时由 ensureTool 提前报）。
-      if (status === 'pending' && isEmptyInput(input)) return [];
+      if (status === 'pending' && isEmptyInput(raw)) return [];
       state.started = true;
       state.inputJson = inputJson;
+      state.toolName = call.toolName;
       events.push({
         type: 'tool.started',
         engineSessionId: this.#engineSessionId,
         toolCallId: part.callID,
         toolName: state.toolName,
-        display: openCodeToolDisplay(part.tool, input),
+        display: display(),
         ...(!isEmptyInput(input) && { input }),
       });
-    } else if (inputJson !== state.inputJson && !isEmptyInput(input)) {
+    } else if (inputJson !== state.inputJson && !isEmptyInput(raw)) {
       state.inputJson = inputJson;
       events.push({
         type: 'tool.updated',
         engineSessionId: this.#engineSessionId,
         toolCallId: part.callID,
-        display: openCodeToolDisplay(part.tool, input),
+        display: display(),
         input,
       });
     }

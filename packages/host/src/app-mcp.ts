@@ -13,8 +13,10 @@ import type { SessionId } from '@wevir/protocol';
 import {
   APP_TOOLS_ENGINE_SESSION_HEADER,
   type AppToolsEndpoint,
+  type AppToolsView,
   type AppToolTier,
 } from '@wevir/runtime-adapter';
+import { dispatchTools } from './tool-dispatch.js';
 
 /** 端点路径。 */
 export const APP_MCP_PATH = '/mcp';
@@ -91,7 +93,7 @@ export interface AppMcpServerOptions {
   /**
    * 分层（地址带 `?tier=core` / `?tier=more`，Codex 把应用级工具拆成常驻与按需两个服务）：工具属于哪一层，认不出的当作按需。
    * 带层的请求只列、只调这一层的工具；不带层的照旧全部，常驻那层的带 `_meta["anthropic/alwaysLoad"]`（Claude Code 打开工具搜索时
-   * 照样直接给模型）。不给时不认层。
+   * 照样直接给模型）。`?tier=dispatch`（没有自带工具搜索的引擎）列常驻那层与 tool-dispatch.ts 的搜索和分发工具。不给时不认层。
    */
   tierOf?: (name: string) => AppToolTier | undefined;
   /** `?tier=more` 那个服务的说明（`initialize`）；工具说明与记忆索引只在常驻的那个服务上。 */
@@ -117,6 +119,8 @@ const digest = (token: string) => createHash('sha256').update(token).digest('hex
  */
 export class AppMcpServer {
   readonly #tools: ReadonlyMap<string, AppTool>;
+  /** `dispatch` 列法里加的搜索与分发工具（给了 `tierOf` 时才有）。 */
+  readonly #dispatch: ReadonlyMap<string, AppTool>;
   readonly #options: AppMcpServerOptions;
   readonly #tokens = new Map<SessionId, string>();
   readonly #sessions = new Map<string, SessionId>();
@@ -131,6 +135,19 @@ export class AppMcpServer {
   constructor(options: AppMcpServerOptions) {
     this.#options = options;
     this.#tools = new Map(options.tools.map((tool) => [tool.name, tool]));
+    this.#dispatch = new Map(
+      options.tierOf === undefined
+        ? []
+        : dispatchTools({
+            searchable: (sessionId) => this.#visible(sessionId, [...this.#tools.values()], 'more'),
+            resolve: async (sessionId, name) => {
+              const tool = this.#tools.get(name);
+              if (tool === undefined) return undefined;
+              return (await this.#visible(sessionId, [tool])).length === 0 ? undefined : tool;
+            },
+            run: (tool, args, call) => this.#run(tool, args, call.sessionId, call.signal),
+          }).map((tool) => [tool.name, tool]),
+    );
   }
 
   /** RPC 服务开始监听后调用：端点在同一个端口上。 */
@@ -233,8 +250,9 @@ export class AppMcpServer {
       }
     }
     const requested = new URL(req.url ?? '', 'http://localhost').searchParams.get('tier');
-    const tier: AppToolTier | undefined =
-      this.#options.tierOf === undefined || (requested !== 'core' && requested !== 'more')
+    const tier: AppToolsView | undefined =
+      this.#options.tierOf === undefined ||
+      (requested !== 'core' && requested !== 'more' && requested !== 'dispatch')
         ? undefined
         : requested;
     let body: unknown;
@@ -272,13 +290,16 @@ export class AppMcpServer {
     json(res, 200, Array.isArray(body) ? replies : replies[0]);
   }
 
-  /** `filterTools` 之后留下的工具（带层时只留这一层的）；过滤本身出错时不放行（拒绝比越权安全）。 */
+  /**
+   * `filterTools` 之后留下的工具（带层时只留这一层的，`dispatch` 列法只留常驻那层）；过滤本身出错时不放行（拒绝比越权安全）。
+   */
   async #visible(
     sessionId: SessionId | undefined,
     tools: readonly AppTool[],
-    tier?: AppToolTier,
+    view?: AppToolsView,
   ): Promise<readonly AppTool[]> {
     const tierOf = this.#options.tierOf;
+    const tier: AppToolTier | undefined = view === 'dispatch' ? 'core' : view;
     const layered =
       tier === undefined || tierOf === undefined
         ? tools
@@ -293,11 +314,30 @@ export class AppMcpServer {
     }
   }
 
+  /** 调一个工具：出错转成结果（意外的错误报给 `onError`），`spill` 时大输出落盘。 */
+  async #run(
+    tool: AppTool,
+    args: Record<string, unknown>,
+    sessionId: SessionId,
+    signal: AbortSignal,
+    spill = true,
+  ): Promise<AppToolResult> {
+    let result: AppToolResult;
+    try {
+      result = await tool.call(args, { sessionId, signal });
+    } catch (error) {
+      if (!(error instanceof AppToolError)) this.#options.onError?.(error);
+      result = errorResult(error);
+    }
+    const spillOver = this.#options.spill;
+    return !spill || spillOver === undefined ? result : spillOver(sessionId, tool.name, result);
+  }
+
   /** 一条 JSON-RPC 消息；通知与客户端的回复返回 `undefined`。 */
   async #message(
     message: JsonRpcMessage,
     sessionId: SessionId | undefined,
-    tier: AppToolTier | undefined,
+    tier: AppToolsView | undefined,
     signal: AbortSignal,
   ): Promise<unknown> {
     if (message === null || typeof message !== 'object' || typeof message.method !== 'string') {
@@ -337,7 +377,10 @@ export class AppMcpServer {
         return rpcResult(id, {});
       case 'tools/list':
         return rpcResult(id, {
-          tools: (await this.#visible(sessionId, [...this.#tools.values()], tier)).map((tool) => ({
+          tools: [
+            ...(await this.#visible(sessionId, [...this.#tools.values()], tier)),
+            ...(tier === 'dispatch' ? this.#dispatch.values() : []),
+          ].map((tool) => ({
             name: tool.name,
             title: tool.title,
             description: tool.description,
@@ -349,12 +392,19 @@ export class AppMcpServer {
           })),
         });
       case 'tools/call': {
-        const tool = typeof params.name === 'string' ? this.#tools.get(params.name) : undefined;
+        const name = typeof params.name === 'string' ? params.name : undefined;
+        // 搜索与分发工具自己按会话过滤目标、目标的结果已经落过盘。
+        const dispatcher =
+          tier === 'dispatch' && name !== undefined ? this.#dispatch.get(name) : undefined;
+        const tool = dispatcher ?? (name === undefined ? undefined : this.#tools.get(name));
         if (!tool) return rpcError(id, -32602, `unknown tool: ${String(params.name)}`);
         if (sessionId === undefined) {
           return rpcError(id, -32602, `${APP_TOOLS_ENGINE_SESSION_HEADER} is required`);
         }
-        if ((await this.#visible(sessionId, [tool], tier)).length === 0) {
+        if (
+          dispatcher === undefined &&
+          (await this.#visible(sessionId, [tool], tier)).length === 0
+        ) {
           return rpcResult(
             id,
             errorResult(new AppToolError(`${tool.name} is not available to this session.`)),
@@ -364,17 +414,9 @@ export class AppMcpServer {
           params.arguments !== null && typeof params.arguments === 'object'
             ? (params.arguments as Record<string, unknown>)
             : {};
-        let result: AppToolResult;
-        try {
-          result = await tool.call(args, { sessionId, signal });
-        } catch (error) {
-          if (!(error instanceof AppToolError)) this.#options.onError?.(error);
-          result = errorResult(error);
-        }
-        const spill = this.#options.spill;
         return rpcResult(
           id,
-          spill === undefined ? result : await spill(sessionId, tool.name, result),
+          await this.#run(tool, args, sessionId, signal, dispatcher === undefined),
         );
       }
       default:
