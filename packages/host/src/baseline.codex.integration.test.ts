@@ -28,7 +28,6 @@ import {
   type MockToolCall,
   type MockView,
   startMockModel,
-  viewOf,
 } from '@wevir/adapter-codex/testing';
 import { PROTOCOL_VERSION, type WevirEvent } from '@wevir/protocol';
 import { historyToolServer } from '@wevir/runtime-adapter/history-tool';
@@ -500,7 +499,19 @@ const script: MockScript = (view) => {
   return { text: ['ok'] };
 };
 
-const lastUser = (body: unknown) => viewOf(body as MockRequestBody, 0).lastUserText;
+/**
+ * 最后一条用户消息的原文，包括 `<` 开头的。Agent 开的会话收到的第一条消息包在 `<relayed_message>` 里，mock 的
+ * `lastUserText` 会跳过它，角色探针要靠这个认。
+ */
+const lastUserRaw = (body: unknown): string => {
+  const input = (body as MockRequestBody).input ?? [];
+  const item = input.findLast((entry) => entry.type === 'message' && entry.role === 'user');
+  const content = item?.content;
+  if (typeof content === 'string') return content;
+  return Array.isArray(content)
+    ? content.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('\n')
+    : '';
+};
 
 // ── 测量 ──────────────────────────────────────────────────────────────
 
@@ -541,7 +552,9 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
           await runTurn(client, parent, `[spawn-role:${role}]`, 60_000);
           const request = await client.until(
             () =>
-              mock.requests.find((entry) => lastUser(entry.body).includes(`[role-probe:${role}]`)),
+              mock.requests.find((entry) =>
+                lastUserRaw(entry.body).includes(`[role-probe:${role}]`),
+              ),
             `${role} 会话的请求`,
             60_000,
           );
