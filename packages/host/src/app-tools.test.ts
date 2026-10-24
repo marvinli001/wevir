@@ -2218,7 +2218,11 @@ describe('对话里安装插件（P3）', () => {
         const operation = h.call(id, 'wevir_plugin_install', args);
         expect((await pending(h, id)).detail?.display.summary).toContain(`"source": "${format}"`);
         await decide(h, id, true);
-        expect(await operation).toMatchObject({ plugin: { source: format, enabled: true } });
+        const installed = await operation;
+        expect(installed).toMatchObject({ plugin: { source: format, enabled: true } });
+        // 图标是 base64 的 data URL，不交给模型。
+        expect(installed.plugin).not.toHaveProperty('iconUrl');
+        expect(JSON.stringify(await h.call(id, 'wevir_plugins_list'))).not.toContain(';base64,');
         const before = readFileSync(join(h.plugins?.dir as string, 'registry.json'), 'utf8');
         const repeated = h.call(id, 'wevir_plugin_install', args);
         await decide(h, id, true);

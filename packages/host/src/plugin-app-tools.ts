@@ -501,8 +501,11 @@ function safeConnector(
   return result;
 }
 
+/** 交给模型的插件清单：连接器抹掉密钥；插件图标（base64 的 data URL，可达几十 KB）模型用不到，去掉。 */
 function safeList(value: Record<string, unknown>, secrets: string[] = []): Record<string, unknown> {
   const result = structuredClone(value);
+  if (Array.isArray(result.plugins)) result.plugins = result.plugins.map(withoutIcon);
+  if (result.plugin) result.plugin = withoutIcon(result.plugin);
   if (Array.isArray(result.connectors))
     result.connectors = result.connectors.map((item) => ({
       ...item,
@@ -513,6 +516,11 @@ function safeList(value: Record<string, unknown>, secrets: string[] = []): Recor
     result.connector = { ...connector, config: safeConnector(record(connector.config), secrets) };
   }
   return result;
+}
+
+function withoutIcon(plugin: unknown): Record<string, unknown> {
+  const { iconUrl: _icon, ...rest } = record(plugin);
+  return rest;
 }
 
 /** `wevir_connector_add` 哪几项不对：字段路径（`config.` 去掉）与原因，缺的项写成 required。 */
