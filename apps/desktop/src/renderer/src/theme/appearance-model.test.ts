@@ -64,7 +64,7 @@ describe('外观', () => {
     expect(vars['--primary']).toBe(DEFAULT_COLORS.dark.foreground);
   });
 
-  it('对比度只改分隔线与次要文字；强调色只改主色；字号与字体各自一个变量', () => {
+  it('对比度只改分隔线与次要文字；强调色只改主色与高光；字号与字体各自一个变量', () => {
     const vars = appearanceVariables(
       {
         ...DEFAULT_APPEARANCE,
@@ -85,6 +85,8 @@ describe('外观', () => {
         '--soft-foreground',
         '--primary',
         '--primary-foreground',
+        '--highlight',
+        '--user-bubble',
         '--font-scale',
         '--text-code',
         '--font-code',

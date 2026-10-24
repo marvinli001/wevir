@@ -171,15 +171,153 @@
   background-color: color-mix(in oklab, var(--background) 90%, transparent);
 }
 
-/* 磨砂的浮层：菜单、弹出框、提示与命令面板透出下面的内容，不是一块实色的纸。不放进 @layer，盖过原语里的 bg-popover。 */
+/* 磨砂的浮层：菜单、弹出框、选择框与对话框透出下面的内容，不是一块实色的纸。不放进 @layer，盖过原语里的 bg-popover。 */
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="context-menu-content"],
 [data-slot="popover-content"],
-[data-slot="select-content"] {
+[data-slot="select-content"],
+[data-slot="dialog-content"] {
   background-color: color-mix(in oklab, var(--popover) 84%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(1.5);
   backdrop-filter: blur(24px) saturate(1.5);
+}
+
+/* 选中文字：高光色的淡底（tokens.css 的 --highlight），字保持原色；深色底上淡底要浓一些才看得出。 */
+::selection {
+  background-color: color-mix(in oklab, var(--highlight) 22%, transparent);
+}
+
+:root[data-theme="dark"] ::selection {
+  background-color: color-mix(in oklab, var(--highlight) 36%, transparent);
+}
+
+/* 项目背景（projects/backdrop.tsx）：铺在内容卡片的上半部分，往下渐隐，到输入框一带已经看不见（MonoCode 的 Haze 的遮罩）。
+ * 预设是几团柔和的光晕（--backdrop，编辑项目对话框的色板也用它），亮暗共用、深色更浓一点；自定义图片铺满后整体压淡。 */
+.project-backdrop {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 62%;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0 18%,
+    rgb(0 0 0 / 61%) 32%,
+    rgb(0 0 0 / 32%) 47%,
+    rgb(0 0 0 / 11%) 62%,
+    transparent 76%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0 18%,
+    rgb(0 0 0 / 61%) 32%,
+    rgb(0 0 0 / 32%) 47%,
+    rgb(0 0 0 / 11%) 62%,
+    transparent 76%
+  );
+  background: var(--backdrop, none);
+  opacity: 0.7;
+}
+
+:root[data-theme="dark"] .project-backdrop {
+  opacity: 0.9;
+}
+
+.project-backdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.4;
+}
+
+:root[data-theme="dark"] .project-backdrop img {
+  opacity: 0.32;
+}
+
+[data-backdrop="dawn"] {
+  --backdrop:
+    radial-gradient(60% 90% at 18% 0%, rgb(242 178 58 / 0.32), transparent 70%),
+    radial-gradient(50% 80% at 72% 0%, rgb(239 108 58 / 0.2), transparent 70%),
+    radial-gradient(40% 60% at 95% 10%, rgb(224 69 123 / 0.12), transparent 70%);
+}
+
+[data-backdrop="mist"] {
+  --backdrop:
+    radial-gradient(60% 90% at 22% 0%, rgb(59 130 246 / 0.24), transparent 70%),
+    radial-gradient(55% 80% at 80% 0%, rgb(141 180 220 / 0.3), transparent 70%);
+}
+
+[data-backdrop="sage"] {
+  --backdrop:
+    radial-gradient(60% 90% at 15% 0%, rgb(47 163 107 / 0.24), transparent 70%),
+    radial-gradient(50% 80% at 78% 5%, rgb(134 197 151 / 0.26), transparent 70%);
+}
+
+[data-backdrop="dusk"] {
+  --backdrop:
+    radial-gradient(60% 90% at 20% 0%, rgb(124 92 246 / 0.26), transparent 70%),
+    radial-gradient(50% 80% at 82% 0%, rgb(224 69 123 / 0.18), transparent 70%);
+}
+
+[data-backdrop="ember"] {
+  --backdrop:
+    radial-gradient(55% 90% at 25% 0%, rgb(162 59 48 / 0.26), transparent 70%),
+    radial-gradient(50% 80% at 80% 0%, rgb(242 178 58 / 0.2), transparent 70%);
+}
+
+/* 编辑项目里背景的色板（projects/backdrop-picker.tsx）：同一层光晕叠两遍，小方块里也看得出颜色。 */
+.backdrop-swatch {
+  background: var(--backdrop), var(--backdrop), var(--card);
+}
+
+/* 收起侧栏的窥视（layout/sidebar-peek.tsx）：浮动的磨砂卡片，离窗口左、上、下各 8 px，从左边滑出；背后的内容轻微变暗。
+ * 只是视觉上的遮罩，不接鼠标：指针一离开卡片它就收回。 */
+.sidebar-peek {
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  overflow: hidden;
+  border: 1px solid var(--card-edge);
+  border-radius: var(--radius-card);
+  background-color: color-mix(in oklab, var(--sidebar) 86%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow:
+    0 2px 6px rgb(26 26 23 / 0.08),
+    0 16px 40px -8px rgb(26 26 23 / 0.22);
+  transform: translateX(calc(-100% - 1rem));
+  opacity: 0;
+  transition:
+    transform var(--spring-snap-duration) var(--spring-snap),
+    opacity 200ms ease-out;
+}
+
+.sidebar-peek[data-open] {
+  transform: none;
+  opacity: 1;
+}
+
+:root[data-theme="dark"] .sidebar-peek {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 2px 6px rgb(0 0 0 / 0.3),
+    0 16px 40px -8px rgb(0 0 0 / 0.5);
+}
+
+.sidebar-peek-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  pointer-events: none;
+  background-color: var(--overlay);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
+.sidebar-peek-backdrop[data-open] {
+  opacity: 0.45;
 }
 
 /* 消息输入框（session/composer.tsx）：浅色是实色的表面加 --elevation 的两层软影；深色改成磨砂，透出后面滚过的消息，
@@ -188,6 +326,20 @@
   background-color: color-mix(in oklab, var(--card) 76%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   backdrop-filter: blur(24px) saturate(1.4);
+}
+
+/* 原生滚动条（overflow-auto 的容器）：macOS 是系统的浮动滚动条，自己会隐藏，不管；Windows、Linux 上默认是粗的常驻滚动条，
+ * 改成细条，平时透明，指针在容器上时才显出正文色 22% 的滑块（同 ScrollArea，components/ui/scroll-area.tsx）。data-platform 由
+ * layout/window-chrome.ts 在首帧前设上。写在 base 层，单独写了 scrollbar-* 的地方（消息流的 transcript-scroll 等）照旧。 */
+@layer base {
+  :root:not([data-platform="mac"]) * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  :root:not([data-platform="mac"]) *:hover {
+    scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+  }
 }
 
 /* Base UI 的 ScrollArea 靠这个类隐藏原生滚动条。它原本以内联 <style> 插入，被 CSP 拦下，所以 App.tsx 用

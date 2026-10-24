@@ -8,6 +8,9 @@ import { useWorkbenchStore } from '@/data/workbench-data';
 import { editRequest, updateWorkspace } from '@/data/workspace-actions';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { projectBackdrops, setProjectBackdrop } from './backdrop';
+import { type ProjectBackdrop, sameBackdrop } from './backdrop-model';
+import { BackdropPicker } from './backdrop-picker';
 import {
   chooseSourceFolder,
   SOURCE_FOLDERS_MAX,
@@ -16,7 +19,8 @@ import {
 } from './source-folders';
 
 /**
- * 编辑项目（`workspace.update`）：名称（0.49.0）与源文件夹（0.64.0，版式同创建项目）。主文件夹是 `rootPath`，不能改也不能移除；
+ * 编辑项目（`workspace.update`）：名称（0.49.0）与源文件夹（0.64.0，版式同创建项目）；背景（projects/backdrop-model.ts）只存
+ * 在本机，不经 Host，保存时先写下。主文件夹是 `rootPath`，不能改也不能移除；
  * 其余的可以加减，Host 没有 `workspace_folders` 时只列主文件夹。侧栏项目的右键菜单与设置 → 项目经 `requestEditProject` 打开；
  * 回车保存，空白的名称不能保存，失败时框不关、在框里显示原因。挂在路由根上。
  */
@@ -28,6 +32,7 @@ export function EditProjectDialog() {
   const nameId = useId();
   const [name, setName] = useState('');
   const [extra, setExtra] = useState<readonly string[]>([]);
+  const [backdrop, setBackdrop] = useState<ProjectBackdrop>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   // 关掉时 `request` 先清空，框里的内容留到退场动画播完。
@@ -38,6 +43,7 @@ export function EditProjectDialog() {
     setShown(request);
     setName(request.displayName);
     setExtra(request.extraFolders ?? []);
+    setBackdrop(projectBackdrops.get()[request.id]);
     setError(undefined);
     setBusy(false);
   }, [request]);
@@ -60,6 +66,9 @@ export function EditProjectDialog() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!request || !client || trimmed === '' || busy) return;
+    if (!sameBackdrop(backdrop, projectBackdrops.get()[request.id])) {
+      setProjectBackdrop(request.id, backdrop);
+    }
     const renamed = trimmed !== request.displayName;
     const before = request.extraFolders ?? [];
     const refoldered =
@@ -118,6 +127,18 @@ export function EditProjectDialog() {
                 onRemove={(index) =>
                   setExtra((current) => current.filter((_, i) => i !== index - 1))
                 }
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-soft-foreground">{t('project.backdrop')}</p>
+              <BackdropPicker
+                value={backdrop}
+                onChange={(next) => {
+                  setBackdrop(next);
+                  setError(undefined);
+                }}
+                onError={setError}
               />
             </div>
 

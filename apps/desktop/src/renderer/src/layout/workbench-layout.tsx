@@ -16,6 +16,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { resolveRoute, type WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { ProjectBackdropLayer } from '@/projects/backdrop';
 import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
 import { paths, ROUTE_PATTERNS } from '@/routes/paths';
@@ -47,6 +48,7 @@ import {
 import { prunePaneScopes, updateScope, useScopePanes } from './pane-store';
 import { RoleLabel } from './role-label';
 import { Sidebar } from './sidebar';
+import { SidebarPeek } from './sidebar-peek';
 import { Splitter } from './splitter';
 import './rail-cards';
 import './instructions-card';
@@ -401,6 +403,7 @@ export function WorkbenchLayout() {
                 plan.mode === 'maximized' && 'invisible absolute inset-0',
               )}
             >
+              <ProjectBackdropLayer workspaceId={workspaceId} />
               <main
                 data-pane-id={PRIMARY}
                 tabIndex={-1}
@@ -563,6 +566,9 @@ export function WorkbenchLayout() {
             </SheetContent>
           </Sheet>
         )}
+
+        {/* 侧栏收起（或停靠不下）时，指针贴左边缘滑出的磨砂侧栏。 */}
+        {sidebarPlan.sidebar === 'hidden' && <SidebarPeek width={sidebarPlan.sidebarWidth} />}
 
         {/* 放在最后：盖在侧栏与顶栏的拖动区上面，按钮才点得到（拖动区按文档顺序计算）。 */}
         <WindowControls

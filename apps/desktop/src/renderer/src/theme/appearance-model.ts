@@ -295,7 +295,7 @@ function mix(from: string, to: string, percent: number): string {
  * - 改了背景或前景：各层表面由两者混出来，层次同 tokens.css——浅色的侧栏、次表面往前景色偏，卡片往白偏；深色的侧栏往黑偏，
  *   卡片、次表面往前景色偏。
  * - 改了颜色或对比度：分隔线与次要文字按对比度在背景与前景之间取（50 时约等于 tokens.css 的比例）；次要文字最低也有 4.5:1。
- * - 强调色：主按钮、开关、选中项（--primary）。
+ * - 强调色：主按钮、开关、选中项（--primary），选中文字的底与用户消息气泡的着色（--highlight、--user-bubble）。
  */
 export function appearanceVariables(
   appearance: Appearance,
@@ -353,6 +353,9 @@ export function appearanceVariables(
     const { color, text } = ACCENT_COLORS[appearance.accent][theme];
     vars['--primary'] = color;
     vars['--primary-foreground'] = text;
+    vars['--highlight'] = color;
+    vars['--user-bubble'] =
+      `color-mix(in oklab, ${color} ${theme === 'light' ? 12 : 18}%, var(--muted))`;
   } else if (customColors) {
     vars['--primary'] = fg;
     vars['--primary-foreground'] = bg;

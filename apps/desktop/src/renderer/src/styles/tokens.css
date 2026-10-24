@@ -151,6 +151,11 @@
   /* 焦点细线（§63）：运行色与强分隔线各半，外面再配一圈 2 px 的 ring/12 淡光；用法见 theme.css 的 focus-field / focus-ring。 */
   --ring-soft: color-mix(in oklab, var(--running) 50%, var(--border-strong));
 
+  /* 高光色：选中文字的底（index.css 的 ::selection）与用户消息气泡的着色。默认是运行色（墨色的选区看着像灰块）；设置 → 外观
+   * 选了强调色时换成强调色，气泡也随它着一点色（theme/appearance-model.ts）。 */
+  --highlight: var(--running);
+  --user-bubble: var(--muted);
+
   /* 选中（§63）：很淡的墨色底加一圈 1 px 的细边，不用整块底色。用法 `bg-selected ring-1 ring-selected-border ring-inset`。 */
   --selected: color-mix(in oklab, var(--foreground) 3.5%, transparent);
   --selected-border: color-mix(in oklab, var(--foreground) 14%, transparent);
