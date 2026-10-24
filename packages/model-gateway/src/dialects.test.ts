@@ -482,3 +482,64 @@ describe('strip-null-reasoning-encrypted-content（录制回放）', () => {
     }
   });
 });
+
+describe('flatten-mcp-instructions（摊平 namespace 的上游）', () => {
+  const NOTES = '# Instructions from MCP servers\n\n## mcp__wevir\n先读记忆索引。';
+  const withMcp = (description = '先读记忆索引。'): ResponsesRequest => ({
+    model: 'm',
+    input: 'ping',
+    instructions: '原指令',
+    tools: [
+      {
+        type: 'namespace',
+        name: 'mcp__wevir',
+        description,
+        tools: [{ type: 'function', name: 'memory_list', parameters: { type: 'object' } }],
+      },
+      {
+        type: 'namespace',
+        name: 'multi_agent_v1',
+        description: '子智能体。',
+        tools: [{ type: 'function', name: 'spawn_agent', parameters: { type: 'object' } }],
+      },
+    ],
+  });
+
+  it('xAI 等默认摊平的上游：说明接到 instructions 后面，命名空间与描述随摊平去掉', () => {
+    const body = withMcp();
+    const original = structuredClone(body);
+    const result = applyDialects(xai(), body);
+    expect(result.body.instructions).toBe(`原指令\n\n${NOTES}`);
+    expect(result.body.tools?.map((tool) => tool.name)).toEqual([
+      'mcp__wevir__memory_list',
+      'multi_agent_v1__spawn_agent',
+    ]);
+    expect(result.applied).toEqual([
+      'flatten-mcp-instructions',
+      'flatten-custom-tools',
+      'flatten-namespace-tools',
+    ]);
+    expect(body).toEqual(original);
+  });
+
+  it('显式支持 namespace 或没有 MCP 说明时不改', () => {
+    const body = withMcp();
+    expect(applyDialects(provider(), body).body).toEqual(body);
+    expect(applyDialects(xai({ supportsNamespaceTools: true }), body).body).toEqual(body);
+    const plain = withMcp('Tools in the mcp__wevir namespace.');
+    expect(applyDialects(xai(), plain).body.instructions).toBe('原指令');
+  });
+
+  it('DeepSeek 显式摊平时说明只出现一次；Azure 补的占位描述不进 instructions', () => {
+    const deepseek = applyDialects(
+      provider({ supportsNamespaceTools: false }, 'https://api.deepseek.com/v1'),
+      withMcp(),
+    );
+    expect(deepseek.body.instructions).toBe(`原指令\n\n${NOTES}`);
+    const azure = applyDialects(
+      provider({ supportsNamespaceTools: false }, 'https://r.openai.azure.com/openai/v1'),
+      withMcp(''),
+    );
+    expect(azure.body.instructions).toBe('原指令');
+  });
+});

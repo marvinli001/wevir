@@ -7,8 +7,6 @@ import {
   isDeepSeekHost,
   isKimiHost,
   isMinimaxHost,
-  isStepfunHost,
-  isTencentHost,
   isXaiHost,
 } from './providers.js';
 import {
@@ -137,6 +135,17 @@ export const minimaxReasoning: DialectFix = {
   },
 };
 
+/** MCP 命名空间的说明接到 `instructions` 后面，并从这些命名空间上去掉；没有说明时原样返回。 */
+function moveMcpNotes(body: ResponsesRequest): ResponsesRequest {
+  if (!body.tools?.some((tool) => mcpNamespaceNote(tool) !== undefined)) return body;
+  const tools = body.tools.map((tool) => {
+    if (mcpNamespaceNote(tool) === undefined) return tool;
+    const { description: _moved, ...rest } = tool;
+    return rest as ResponsesTool;
+  });
+  return { ...withMcpNotes(body), tools };
+}
+
 /**
  * DeepSeek 的 Responses 把命名空间的描述在其中每个工具上各算一遍（2026-10-19 实测 deepseek-flash：约 385 token 的描述，10 个
  * 工具多算 3,840 token，20 个多算 7,680）。Codex 把 MCP 服务的说明写在它的命名空间描述里，Wevir 的应用级工具一个命名空间
@@ -151,15 +160,7 @@ export const deepseekNamespaceDescription: DialectFix = {
     (provider.kind === 'openai-compatible' &&
       provider.api === 'openai-responses' &&
       isDeepSeekHost(provider.baseURL ?? '')),
-  apply(body) {
-    if (!body.tools?.some((tool) => mcpNamespaceNote(tool) !== undefined)) return { body };
-    const tools = body.tools.map((tool) => {
-      if (mcpNamespaceNote(tool) === undefined) return tool;
-      const { description: _moved, ...rest } = tool;
-      return rest as ResponsesTool;
-    });
-    return { body: { ...withMcpNotes(body), tools } };
-  },
+  apply: (body) => ({ body: moveMcpNotes(body) }),
 };
 
 /** 只收 auto 的上游：required / 具名改 auto，none 只去掉 tool_choice、保留 tools。 */
@@ -177,26 +178,15 @@ export const autoOnlyToolChoice: DialectFix = {
   },
 };
 
-/** TokenHub 摊平 namespace 前保留 MCP 使用说明；显式支持 namespace 时不改（§3.13）。 */
-export const tokenhubMcpInstructions: DialectFix = {
-  id: 'tokenhub-mcp-instructions',
-  applies: (provider) =>
-    provider.kind === 'openai-compatible' &&
-    provider.api === 'openai-responses' &&
-    isTencentHost(provider.baseURL ?? '') &&
-    effectiveCompat(provider).supportsNamespaceTools === false,
-  apply: (body) => ({ body: withMcpNotes(body) }),
-};
-
-/** StepFun 保守摊平 namespace 前保留 MCP 使用说明，显式支持 namespace 时不改（§3.14）。 */
-export const stepfunMcpInstructions: DialectFix = {
-  id: 'stepfun-mcp-instructions',
-  applies: (provider) =>
-    provider.kind === 'openai-compatible' &&
-    provider.api === 'openai-responses' &&
-    isStepfunHost(provider.baseURL ?? '') &&
-    effectiveCompat(provider).supportsNamespaceTools === false,
-  apply: (body) => ({ body: withMcpNotes(body) }),
+/**
+ * 摊平 namespace 的上游（生效的 supportsNamespaceTools 为 false）：命名空间连同描述会被摊掉，而 Codex 把 MCP 服务的说明
+ * 写在这个描述里（Wevir 的应用级工具说明与记忆索引就在其中）。摊平前把说明接到 `instructions` 后面（同 Chat / Messages
+ * 转换），并去掉这些命名空间的描述：排在 Azure 补描述与 DeepSeek 搬描述之前，说明只出现一次。显式支持 namespace 时不改。
+ */
+export const flattenMcpInstructions: DialectFix = {
+  id: 'flatten-mcp-instructions',
+  applies: (provider) => effectiveCompat(provider).supportsNamespaceTools === false,
+  apply: (body) => ({ body: moveMcpNotes(body) }),
 };
 
 const azureResponses = (provider: GatewayProvider): boolean =>
@@ -401,13 +391,12 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   stripNullReasoningContent,
   stripNullReasoningEncryptedContent,
   xaiReasoningEffort,
+  flattenMcpInstructions,
   azureNamespaceDescription,
   azureEncryptedReasoning,
   kimiDataImagesOnly,
   minimaxReasoning,
   deepseekNamespaceDescription,
-  tokenhubMcpInstructions,
-  stepfunMcpInstructions,
   autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,

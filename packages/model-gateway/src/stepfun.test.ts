@@ -201,6 +201,6 @@ describe('StepFun Responses 的录制请求', () => {
     expect(applyDialects(provider(), body).body).toEqual(result.body);
     const native = applyDialects(provider({ compat: { supportsNamespaceTools: true } }), body);
     expect(native.body).toEqual(body);
-    expect(native.applied).not.toContain('stepfun-mcp-instructions');
+    expect(native.applied).not.toContain('flatten-mcp-instructions');
   });
 });

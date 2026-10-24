@@ -161,7 +161,7 @@ describe('TokenHub 按量 Responses', () => {
       '原有指令\n\n# Instructions from MCP servers\n\n## mcp__work_tools\n读取工作区前先读取记忆索引。',
     );
     expect(result.body.tools).toMatchObject([{ type: 'function', name: 'mcp__work_tools__read' }]);
-    expect(result.applied).toContain('tokenhub-mcp-instructions');
+    expect(result.applied).toContain('flatten-mcp-instructions');
     expect(
       applyDialects({ ...tokenhub, compat: { supportsNamespaceTools: true } }, body).body,
     ).toEqual(body);
