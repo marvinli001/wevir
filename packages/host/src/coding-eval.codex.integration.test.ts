@@ -335,6 +335,8 @@ function mockConfig(baseURL: string, api = 'openai-responses'): EvalConfig {
       displayName: 'mock',
       api,
       baseURL,
+      // 这里不测工具搜索：假模型按名字直接调按需的工具（搜索见 tool-search.codex.integration.test.ts）。
+      compat: { toolSearch: 'off' },
       models: [{ id: 'wevir-mock', contextWindow: 128_000 }],
       defaultModelId: 'wevir-mock',
       apiKey: 'coding-eval-not-a-secret',

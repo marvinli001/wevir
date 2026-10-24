@@ -182,6 +182,8 @@ describe.skipIf(!binaryAvailable())(
         displayName: 'Wevir Mock',
         api: 'openai-responses',
         baseURL: model.baseURL,
+        // 这里不测工具搜索：假模型按名字直接调按需的工具（搜索见 tool-search.codex.integration.test.ts）。
+        compat: { toolSearch: 'off' },
         models: [{ id: MOCK_MODEL, contextWindow: 128_000 }],
         defaultModelId: MOCK_MODEL,
         apiKey: 'wevir-mock-key-not-a-secret',

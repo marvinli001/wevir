@@ -125,7 +125,13 @@ describe.skipIf(binary === undefined)(
 
     it('只挂在带它的会话上，调用经审批', async () => {
       const { home, workspace } = dirs.make('project-connectors');
-      const adapter: CodexAdapter = newAdapter({ home, providers: [mockProvider(mock)] });
+      const adapter: CodexAdapter = newAdapter({
+        home,
+        providers: [
+          // 项目连接器的工具在工具搜索打开时延迟；这里不测搜索，假模型按名字直接调。
+          mockProvider(mock, { compat: { toolSearch: 'off' } }),
+        ],
+      });
       try {
         const base = { cwd: workspace, providerId: 'mock', modelId: MOCK_MODEL };
         const a = await adapter.createSession({
