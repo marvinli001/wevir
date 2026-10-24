@@ -151,8 +151,9 @@ describe('请求', () => {
   it('只有历史里的搜索、这次没有 tool_search 工具时也翻历史，不加 call_tool', () => {
     const { tools: _drop, ...rest } = body();
     const translated = dispatchToolSearch({ ...rest, tools: [CORE_NAMESPACE] });
-    expect(translated?.body.tools?.map((tool) => tool.name)).toEqual(['mcp__wevir']);
-    expect((translated?.body.input as Array<{ type: string }>)[1]?.type).toBe('function_call');
+    if (translated === undefined) throw new Error('expected a translation');
+    expect(translated.body.tools?.map((tool) => tool.name)).toEqual(['mcp__wevir']);
+    expect((translated.body.input as Array<{ type: string }>)[1]?.type).toBe('function_call');
   });
 });
 
