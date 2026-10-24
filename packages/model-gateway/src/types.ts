@@ -132,6 +132,11 @@ export interface GatewayCompat extends ProviderCompatConfig {
    * `claude-` 开头用 `adaptive`，其余用 `enabled`（model-gateway.md §5.4）。
    */
   thinkingFormat?: string;
+  /**
+   * Codex 的工具搜索（`tool_search`）：`native` 原样透传（OpenAI 官方 Responses 默认）；`dispatch` 翻译成普通函数、搜到的工具经
+   * `call_tool` 分发（其余默认，tool-search.ts）；`off` 时 Codex 不开工具搜索（模型目录不写 `supports_search_tool`）。
+   */
+  toolSearch?: 'native' | 'dispatch' | 'off';
 }
 
 /** 网关接收的 Provider：Host 组装的 `ProviderConfig`（含 Key），compat 可以带网关自己的开关。 */

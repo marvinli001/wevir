@@ -75,6 +75,8 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
     api: 'openai-responses',
     compat: { supportsCustomTools: false, toolChoice: 'auto_only' },
   },
+  // OpenAI 官方 Responses 认 Codex 的 `tool_search`，原样透传。
+  { matches: isOpenAIOfficial, api: 'openai-responses', compat: { toolSearch: 'native' } },
 ];
 
 /** 每个字段按 Provider 声明 > 地址默认 > 全局默认取值，undefined 视为没写。 */
@@ -93,6 +95,23 @@ export function effectiveCompat(provider: GatewayProvider): GatewayCompat {
       declared?.supportsNamespaceTools ?? defaults?.supportsNamespaceTools ?? true,
     toolChoice: declared?.toolChoice ?? defaults?.toolChoice ?? 'any',
   };
+}
+
+/**
+ * Codex 的工具搜索在这个 Provider 上怎么走（compat `toolSearch`）：声明 > 地址默认（OpenAI 官方 Responses 是 `native`）>
+ * `dispatch`（网关翻译，tool-search.ts）。`off` 时 Codex 的模型目录不打开工具搜索。
+ */
+export function toolSearchMode(provider: GatewayProvider): 'native' | 'dispatch' | 'off' {
+  const official = provider.kind === 'deepseek-official';
+  const api = official ? 'openai-responses' : provider.api;
+  const baseURL = official ? DEEPSEEK_RESPONSES_BASE_URL : (provider.baseURL ?? '');
+  const defaults = PROVIDER_COMPAT_DEFAULTS.find(
+    (entry) =>
+      entry.compat.toolSearch !== undefined &&
+      (entry.api === undefined || entry.api === api) &&
+      entry.matches(baseURL),
+  )?.compat;
+  return provider.compat?.toolSearch ?? defaults?.toolSearch ?? 'dispatch';
 }
 
 /**

@@ -19,6 +19,7 @@ export { PROVIDER_TEST_TIMEOUT_MS, testProvider } from './provider-test.js';
 export {
   DEEPSEEK_RESPONSES_BASE_URL,
   MESSAGES_THINKING_FORMATS,
+  toolSearchMode,
   validateProvider,
 } from './providers.js';
 export { type SseMessage, SseParser } from './sse.js';

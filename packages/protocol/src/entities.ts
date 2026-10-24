@@ -175,6 +175,12 @@ export const ProviderCompatSchema = z.object({
    * `anthropic-messages` 的当前 Claude 支持 inline（user 之后追加 system），旧模型按 user；merge 并进顶层 system。
    */
   systemMessageMode: z.enum(['inline', 'merge', 'user']).optional(),
+  /**
+   * Codex 的工具搜索（0.123.0，`supports_search_tool`）：打开时 Codex 首个请求只带常驻的工具与一个 `tool_search`，按需的工具
+   * 搜到才加载。`native` 原样发给认它的上游（OpenAI 官方 Responses 地址默认）；`dispatch` 由网关把它翻译成普通函数，搜到的
+   * 工具经一个分发函数调用（其余地址默认）；`off` 关掉，工具全部直接列出。dsh 忽略。
+   */
+  toolSearch: z.enum(['native', 'dispatch', 'off']).optional(),
 });
 export type ProviderCompat = z.infer<typeof ProviderCompatSchema>;
 

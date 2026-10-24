@@ -11,8 +11,9 @@ import {
   toMessagesRequest,
 } from './messages/request.js';
 import { MessagesStreamTranslator } from './messages/response.js';
-import { routeOf } from './providers.js';
+import { routeOf, toolSearchMode } from './providers.js';
 import { SseParser, sseEvent } from './sse.js';
+import { dispatchToolSearch } from './tool-search.js';
 import { isObject } from './tools.js';
 import type {
   GatewayProvider,
@@ -53,11 +54,16 @@ export const STRIPPED_BODY_FIELDS = ['client_metadata'] as const;
 
 export function prepareUpstream(
   provider: GatewayProvider,
-  body: ResponsesRequest,
+  request: ResponsesRequest,
   options: PrepareOptions = {},
 ): Prepared {
+  let body = request;
   const route = routeOf(provider, options.deepseekBaseURL, body.model);
   if (route.mode === 'unsupported') return { ok: false, status: 400, message: route.message };
+  // Codex 的工具搜索：上游不认 `tool_search` 时先翻译成普通函数（三种协议共用），响应最后再还原。
+  const search = toolSearchMode(provider) === 'native' ? undefined : dispatchToolSearch(body);
+  if (search !== undefined) body = search.body;
+  const searchRewrite = search?.rewrite;
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     accept: 'text/event-stream',
@@ -93,7 +99,11 @@ export function prepareUpstream(
       messages,
       contentType: () => 'text/event-stream',
       translate: (response, signal) =>
-        toResponsesEvents(response, new MessagesStreamTranslator(messages.names, origin), signal),
+        toResponsesEvents(
+          response,
+          rewriting(new MessagesStreamTranslator(messages.names, origin), searchRewrite),
+          signal,
+        ),
     };
   }
   if (provider.kind !== 'google-vertex' && provider.apiKey)
@@ -111,10 +121,13 @@ export function prepareUpstream(
       translate: (response, signal) =>
         toResponsesEvents(
           response,
-          new ChatStreamTranslator(chat.names, {
-            thinking: chat.thinking,
-            ...(chat.signatures !== undefined && { signatures: chat.signatures }),
-          }),
+          rewriting(
+            new ChatStreamTranslator(chat.names, {
+              thinking: chat.thinking,
+              ...(chat.signatures !== undefined && { signatures: chat.signatures }),
+            }),
+            searchRewrite,
+          ),
           signal,
         ),
     };
@@ -122,7 +135,13 @@ export function prepareUpstream(
   const stripped: ResponsesRequest = { ...body };
   for (const field of STRIPPED_BODY_FIELDS) delete stripped[field];
   const dialect = applyDialects(provider, stripped);
-  const rewrite = dialect.rewrite;
+  // 方言先还原（命名空间、custom 工具），工具搜索的还原在最外层。
+  const rewrite =
+    searchRewrite === undefined
+      ? dialect.rewrite
+      : dialect.rewrite === undefined
+        ? searchRewrite
+        : (event: ResponsesEvent) => searchRewrite((dialect.rewrite as EventRewrite)(event));
   return {
     ok: true,
     mode: 'responses',
@@ -169,6 +188,28 @@ async function* rewriteEvents(
     for (const message of parser.push(chunk)) yield encode(message.data);
   }
   for (const message of parser.end()) yield encode(message.data);
+}
+
+/** 转换器吐出的每条 Responses 事件再经 `rewrite`（工具搜索的还原）；没有时原样返回转换器。 */
+function rewriting(
+  translator: StreamTranslator,
+  rewrite: ((event: ResponsesEvent) => ResponsesEvent) | undefined,
+): StreamTranslator {
+  if (rewrite === undefined) return translator;
+  const map = (events: ResponsesEvent[]) => events.map(rewrite);
+  return {
+    get done() {
+      return translator.done;
+    },
+    get ended() {
+      return translator.ended;
+    },
+    start: () => map(translator.start()),
+    data: (data) => map(translator.data(data)),
+    whole: (whole) => map(translator.whole(whole)),
+    finish: () => map(translator.finish()),
+    fail: (error) => map(translator.fail(error)),
+  };
 }
 
 /** Chat 与 Messages 两个转换器共同的样子：逐条吃上游的 SSE data，吐出 Responses 事件。 */
