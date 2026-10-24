@@ -10,7 +10,7 @@ import type {
   UsageBreakdown,
   UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
-import { APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
+import { APP_TOOLS_MORE_SERVER, APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
 import { parseGuardrailMarkers } from '@wevir/runtime-adapter/guardrail';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
 import type {
@@ -59,11 +59,12 @@ import { classifyTurnError } from './turn-error.js';
 /** engine.raw 的 `protocol`。 */
 export const ENGINE_RAW_PROTOCOL = 'codex-app-server';
 
-/** Wevir 自己的本机 MCP 服务：建议任务、读历史、应用级工具。 */
+/** Wevir 自己的本机 MCP 服务：建议任务、读历史、应用级工具（常驻与按需两个）。 */
 const WEVIR_MCP_SERVERS: readonly string[] = [
   SUGGEST_TASKS_SERVER,
   HISTORY_TOOL_SERVER,
   APP_TOOLS_SERVER,
+  APP_TOOLS_MORE_SERVER,
 ];
 
 /** 映射成 Wevir 事件的通知（其余一律 engine.raw，除了 `IGNORED_NOTIFICATIONS`）。 */

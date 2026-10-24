@@ -131,6 +131,9 @@ describe('审批标题按会话的边界', () => {
       display: { kind: 'unknown', summary: toolName },
     });
     expect(title(mcp('mcp__wevir__browser_new_tab'), codex)).toBe('允许在浏览器中打开网页？');
+    // Codex 把按需加载的应用级工具挂在 wevir_more 上，标题一样。
+    expect(title(mcp('mcp__wevir_more__browser_new_tab'), codex)).toBe('允许在浏览器中打开网页？');
+    expect(title(mcp('mcp__wevir_more__wevir_plugin_install'), codex)).toBe('允许安装此插件？');
     expect(title(mcp('mcp__wevir__browser_navigate'), codex)).toBe('允许在浏览器中打开网页？');
     expect(title(mcp('mcp__wevir__browser_click'), claude)).toBe('允许操作浏览器中的网页？');
     expect(title(mcp('mcp__wevir__browser_fill'), codex)).toBe('允许操作浏览器中的网页？');

@@ -134,6 +134,32 @@ export const APP_TOOLS_ENGINE_SESSION_HEADER = 'x-wevir-engine-session';
 export const APP_TOOLS_SERVER = 'wevir';
 
 /**
+ * 按需加载的应用级工具（Codex）：同一个端点、同一个令牌拆成两个服务，`wevir` 只列常驻的核心工具，`wevir_more` 列其余的
+ * （`mcp__wevir_more__browser_click` 这样），模型打开工具搜索时延迟加载。别的引擎仍是一个 `wevir`。
+ */
+export const APP_TOOLS_MORE_SERVER = 'wevir_more';
+
+/** 应用级工具的层：`core` 常驻，`more` 按需。 */
+export type AppToolTier = 'core' | 'more';
+
+/** 只列一层工具的端点地址（`?tier=core` / `?tier=more`，令牌不变）。 */
+export function appToolsTierUrl(url: string, tier: AppToolTier): string {
+  return `${url}${url.includes('?') ? '&' : '?'}tier=${tier}`;
+}
+
+/** 应用级工具调用的工具名（`mcp__wevir__x` 或 `mcp__wevir_more__x`）去掉服务前缀；别的服务的工具原样返回。 */
+export function appToolBaseName(toolName: string): string {
+  return toolName.replace(/^mcp__wevir(?:_more)?__/, '');
+}
+
+/** 应用级工具调用来自哪个服务（显示用）：`mcp__wevir_more__` 开头的是 `wevir_more`，其余当作 `wevir`。 */
+export function appToolServerOf(toolName: string): string {
+  return toolName.startsWith(`mcp__${APP_TOOLS_MORE_SERVER}__`)
+    ? APP_TOOLS_MORE_SERVER
+    : APP_TOOLS_SERVER;
+}
+
+/**
  * 不用批准的应用级工具（0.30.0）：只读的，加上只请界面显示的 `wevir_show` 与（0.40.0）交文件卡片的 `wevir_share_file`、（0.83.0）报审查发现的 `wevir_report_findings`；0.33.0 起还有只读的浏览器工具（列标签页、快照、
  * 截图、等待、日志，0.48.0 起还有查元素与网络记录，Host 的 `BROWSER_READ_ONLY_TOOLS`）。其余（新开会话、给别的会话发消息、停别的会话、在网页上点击填写与跳转）
  * 按会话的权限模式走引擎自己的审批。P3 的 wevir_plugins_list 也只读；三个插件写工具由 Host 核对用户批准，不在这张表里。0.47.0 起

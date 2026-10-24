@@ -9,6 +9,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { PermissionMode } from '@wevir/protocol';
+import { appToolBaseName } from '@wevir/runtime-adapter';
 import { parse as parseYaml } from 'yaml';
 
 /** 角色名：小写字母、数字、连字符，文件名也用它。 */
@@ -23,7 +24,6 @@ export const ROLES_MAX = 100;
 export const ROLE_READONLY_TOOLS = 'readonly';
 
 const PERMISSION_MODES: readonly PermissionMode[] = ['on_request', 'auto_review', 'full_access'];
-const TOOL_PREFIX = 'mcp__wevir__';
 
 export type RoleSource = 'builtin' | 'user' | 'project';
 
@@ -289,7 +289,8 @@ export function parseRole(
 }
 
 function matches(pattern: string, tool: { name: string; readOnly: boolean }): boolean {
-  const wanted = pattern.startsWith(TOOL_PREFIX) ? pattern.slice(TOOL_PREFIX.length) : pattern;
+  // 也认带服务前缀的写法（`mcp__wevir__x`、Codex 的 `mcp__wevir_more__x`）。
+  const wanted = appToolBaseName(pattern);
   if (wanted === ROLE_READONLY_TOOLS) return tool.readOnly;
   if (wanted.endsWith('*')) return tool.name.startsWith(wanted.slice(0, -1));
   return tool.name === wanted;

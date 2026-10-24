@@ -137,6 +137,7 @@ export function suggestTasksToml(server: SuggestTasksServer): string[] {
     'env = { ELECTRON_RUN_AS_NODE = "1" }',
     'default_tools_approval_mode = "approve"',
     `enabled_tools = [${tomlString(SUGGEST_TASKS_TOOL)}]`,
+    'omit_tools_from = ["deferred"]',
     'startup_timeout_sec = 10',
   ];
 }

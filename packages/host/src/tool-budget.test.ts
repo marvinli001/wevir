@@ -22,7 +22,13 @@ import { SessionManager } from './session-manager.js';
 import { TaskBoardStore } from './task-board.js';
 import { useStorages, useTempDir } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
-import { listedToolInstructions, type ToolPreset, toolsAllowed } from './tool-presets.js';
+import {
+  CORE_TIER_TOOLS,
+  listedToolInstructions,
+  type ToolPreset,
+  toolsAllowed,
+  toolTier,
+} from './tool-presets.js';
 
 /** 说明正文的上限（字符）：Claude Code 只取 MCP 服务说明的前 4,096 个字符，记忆索引另算。 */
 const INSTRUCTIONS_MAX_CHARS = 4000;
@@ -40,6 +46,9 @@ const BUDGETS: Record<string, { tools: number; instructions: number }> = {
   reviewer: { tools: 40_000, instructions: 3_500 },
   worker: { tools: 91_200, instructions: 3_600 },
 };
+
+/** 常驻层（`toolTier` 为 core 的工具）的 MCP 原形字节：工具搜索打开时首个请求里只有它们。2026-10-25 实测 20,023。 */
+const RESIDENT_MAX_BYTES = 21_000;
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -154,5 +163,27 @@ describe('工具面体积预算', () => {
       );
     }
     expect(over, over.join('\n\n')).toEqual([]);
+  });
+
+  it(`常驻层（核心工具）不超过 ${RESIDENT_MAX_BYTES} 字节`, async () => {
+    const [plain] = await scenarios();
+    const resident = (plain?.tools ?? []).filter((tool) => toolTier(tool.name) === 'core');
+    expect(resident.map((tool) => tool.name).sort()).toEqual([...CORE_TIER_TOOLS].sort());
+    const bytes = resident.reduce((sum, tool) => sum + listedBytes(tool), 0);
+    const largest = [...resident]
+      .sort((a, b) => listedBytes(b) - listedBytes(a))
+      .slice(0, 10)
+      .map((tool) => `${tool.name} ${listedBytes(tool)} B`);
+    expect(bytes, `resident ${bytes} B; largest: ${largest.join(', ')}`).toBeLessThanOrEqual(
+      RESIDENT_MAX_BYTES,
+    );
+  });
+
+  it('每个工具都归得到层', async () => {
+    const [plain] = await scenarios();
+    const app = productTools();
+    const untiered = app.tools.filter((tool) => toolTier(tool.name) === undefined);
+    expect(untiered.map((tool) => tool.name)).toEqual([]);
+    expect(plain?.tools.length).toBeGreaterThan(CORE_TIER_TOOLS.length);
   });
 });

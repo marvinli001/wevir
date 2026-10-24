@@ -10,7 +10,11 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { SessionId } from '@wevir/protocol';
-import { APP_TOOLS_ENGINE_SESSION_HEADER, type AppToolsEndpoint } from '@wevir/runtime-adapter';
+import {
+  APP_TOOLS_ENGINE_SESSION_HEADER,
+  type AppToolsEndpoint,
+  type AppToolTier,
+} from '@wevir/runtime-adapter';
 
 /** 端点路径。 */
 export const APP_MCP_PATH = '/mcp';
@@ -84,6 +88,13 @@ export interface AppMcpServerOptions {
    * 大输出落盘（tool-output.ts）：每个工具结果交回引擎之前经过它，太长的换成摘要与文件路径。不给时原样返回。
    */
   spill?: (sessionId: SessionId, toolName: string, result: AppToolResult) => Promise<AppToolResult>;
+  /**
+   * 分层（地址带 `?tier=core` / `?tier=more`，Codex 把应用级工具拆成常驻与按需两个服务）：工具属于哪一层，认不出的当作按需。
+   * 带层的请求只列、只调这一层的工具；不带层的照旧全部。不给时不认层。
+   */
+  tierOf?: (name: string) => AppToolTier | undefined;
+  /** `?tier=more` 那个服务的说明（`initialize`）；工具说明与记忆索引只在常驻的那个服务上。 */
+  moreInstructions?: string;
 }
 
 type JsonRpcId = string | number;
@@ -217,6 +228,11 @@ export class AppMcpServer {
         if (sessionId === undefined) return plain(res, 404);
       }
     }
+    const requested = new URL(req.url ?? '', 'http://localhost').searchParams.get('tier');
+    const tier: AppToolTier | undefined =
+      this.#options.tierOf === undefined || (requested !== 'core' && requested !== 'more')
+        ? undefined
+        : requested;
     let body: unknown;
     try {
       body = JSON.parse(await readBody(req));
@@ -233,7 +249,12 @@ export class AppMcpServer {
     this.#inflight.add(controller);
     try {
       for (const message of messages) {
-        const reply = await this.#message(message as JsonRpcMessage, sessionId, controller.signal);
+        const reply = await this.#message(
+          message as JsonRpcMessage,
+          sessionId,
+          tier,
+          controller.signal,
+        );
         if (reply !== undefined) replies.push(reply);
       }
     } finally {
@@ -247,15 +268,21 @@ export class AppMcpServer {
     json(res, 200, Array.isArray(body) ? replies : replies[0]);
   }
 
-  /** `filterTools` 之后留下的工具；过滤本身出错时不放行（拒绝比越权安全）。 */
+  /** `filterTools` 之后留下的工具（带层时只留这一层的）；过滤本身出错时不放行（拒绝比越权安全）。 */
   async #visible(
     sessionId: SessionId | undefined,
     tools: readonly AppTool[],
+    tier?: AppToolTier,
   ): Promise<readonly AppTool[]> {
+    const tierOf = this.#options.tierOf;
+    const layered =
+      tier === undefined || tierOf === undefined
+        ? tools
+        : tools.filter((tool) => (tierOf(tool.name) ?? 'more') === tier);
     const filter = this.#options.filterTools;
-    if (filter === undefined) return tools;
+    if (filter === undefined) return layered;
     try {
-      return await filter(sessionId, tools);
+      return await filter(sessionId, layered);
     } catch (error) {
       this.#options.onError?.(error);
       return [];
@@ -266,6 +293,7 @@ export class AppMcpServer {
   async #message(
     message: JsonRpcMessage,
     sessionId: SessionId | undefined,
+    tier: AppToolTier | undefined,
     signal: AbortSignal,
   ): Promise<unknown> {
     if (message === null || typeof message !== 'object' || typeof message.method !== 'string') {
@@ -284,7 +312,8 @@ export class AppMcpServer {
         )
           ? requested
           : APP_MCP_PROTOCOL_VERSIONS[0];
-        const configured = this.#options.instructions;
+        const configured =
+          tier === 'more' ? this.#options.moreInstructions : this.#options.instructions;
         let instructions: string | undefined;
         try {
           instructions =
@@ -304,7 +333,7 @@ export class AppMcpServer {
         return rpcResult(id, {});
       case 'tools/list':
         return rpcResult(id, {
-          tools: (await this.#visible(sessionId, [...this.#tools.values()])).map((tool) => ({
+          tools: (await this.#visible(sessionId, [...this.#tools.values()], tier)).map((tool) => ({
             name: tool.name,
             title: tool.title,
             description: tool.description,
@@ -318,7 +347,7 @@ export class AppMcpServer {
         if (sessionId === undefined) {
           return rpcError(id, -32602, `${APP_TOOLS_ENGINE_SESSION_HEADER} is required`);
         }
-        if ((await this.#visible(sessionId, [tool])).length === 0) {
+        if ((await this.#visible(sessionId, [tool], tier)).length === 0) {
           return rpcResult(
             id,
             errorResult(new AppToolError(`${tool.name} is not available to this session.`)),

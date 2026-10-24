@@ -25,7 +25,7 @@ import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
-import { AppTools, engineSessionResolver } from './app-tools.js';
+import { AppTools, engineSessionResolver, MORE_TOOLS_INSTRUCTIONS } from './app-tools.js';
 import { ApprovalRuleService } from './approval-rules/service.js';
 import { automationRunMessage } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
@@ -112,6 +112,7 @@ import { boardEventRecorder, boardEventTasks, TaskBoardStore } from './task-boar
 import { loadTerminalModules, TerminalService } from './terminals.js';
 import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
+import { toolTier } from './tool-presets.js';
 import { AutoTuner } from './tuning/auto.js';
 import { ProfileBlobStore } from './tuning/blobs.js';
 import { SessionMetrics } from './tuning/metrics.js';
@@ -1255,6 +1256,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         }),
         onError: (error) => logger.error('app tools error', { error }),
         engineSession: engineSessionResolver(storage, options.engine),
+        tierOf: toolTier,
+        moreInstructions: MORE_TOOLS_INSTRUCTIONS,
         spill: (sessionId, toolName, result) => toolOutput.spill(sessionId, toolName, result),
       });
     }

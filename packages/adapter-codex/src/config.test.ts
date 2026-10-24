@@ -1,6 +1,7 @@
 import type { ProviderConfig } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
 import {
+  appToolsConfig,
   autoCompactLimit,
   catalogEntry,
   chatgptEndpointEnv,
@@ -351,6 +352,7 @@ describe('联网工具（0.34.0）', () => {
         'env_vars = ["WEVIR_WEB_TOKEN"]',
         'default_tools_approval_mode = "approve"',
         'enabled_tools = ["web_search", "web_fetch"]',
+        'omit_tools_from = ["deferred"]',
         'startup_timeout_sec = 10',
         'tool_timeout_sec = 60',
         '',
@@ -397,6 +399,29 @@ describe('联网工具（0.34.0）', () => {
     });
     expect(chatgptThreadConfig(undefined, { enabled: true, search: false })).toEqual({
       web_search: 'cached',
+    });
+  });
+});
+
+describe('应用级工具的两个服务', () => {
+  it('wevir 只列常驻层且不延迟，wevir_more 列按需层；同一个令牌', () => {
+    const config = appToolsConfig({ url: 'http://127.0.0.1:4567/mcp', token: 'tok' });
+    expect(config).toEqual({
+      'mcp_servers.wevir': {
+        url: 'http://127.0.0.1:4567/mcp?tier=core',
+        http_headers: { Authorization: 'Bearer tok' },
+        startup_timeout_sec: 10,
+        tool_timeout_sec: 660,
+        default_tools_approval_mode: 'auto',
+        omit_tools_from: ['deferred'],
+      },
+      'mcp_servers.wevir_more': {
+        url: 'http://127.0.0.1:4567/mcp?tier=more',
+        http_headers: { Authorization: 'Bearer tok' },
+        startup_timeout_sec: 10,
+        tool_timeout_sec: 660,
+        default_tools_approval_mode: 'auto',
+      },
     });
   });
 });

@@ -36,7 +36,7 @@ function binaryAvailable(): boolean {
   }
 }
 
-/** Wevir 的工具：命名空间 `mcp__wevir` 里的，或顶层名字里带它的。 */
+/** Wevir 的工具：命名空间 `mcp__wevir` 或 `mcp__wevir_more` 里的，或顶层名字里带它的。 */
 function wevirTool(tools: MockRequestBody['tools'], name: string) {
   for (const tool of tools ?? []) {
     if (tool.type === 'namespace') {
@@ -257,9 +257,9 @@ describe.skipIf(!binaryAvailable())(
       expect((answer?.payload as { text: string } | undefined)?.text).toContain('Clicked @e2.');
       const tools = events.flatMap((e) => (e.type === 'tool.started' ? [e.payload.toolName] : []));
       expect(tools).toEqual([
-        'mcp__wevir__browser_new_tab',
-        'mcp__wevir__browser_snapshot',
-        'mcp__wevir__browser_click',
+        'mcp__wevir_more__browser_new_tab',
+        'mcp__wevir_more__browser_snapshot',
+        'mcp__wevir_more__browser_click',
       ]);
     });
 
@@ -277,7 +277,7 @@ describe.skipIf(!binaryAvailable())(
           ? 'reject'
           : 'allow';
       });
-      expect(asked).toEqual(['mcp__wevir__browser_new_tab', 'mcp__wevir__browser_click']);
+      expect(asked).toEqual(['mcp__wevir_more__browser_new_tab', 'mcp__wevir_more__browser_click']);
       expect(requests.map((request) => request.command.command)).toEqual(['new_tab', 'snapshot']);
     });
   },

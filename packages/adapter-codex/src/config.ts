@@ -1,7 +1,10 @@
 import { chmodSync, writeFileSync } from 'node:fs';
 import {
+  APP_TOOLS_MORE_SERVER,
   APP_TOOLS_SERVER,
   type AppToolsEndpoint,
+  type AppToolTier,
+  appToolsTierUrl,
   type ProviderConfig,
   type ProviderModelConfig,
 } from '@wevir/runtime-adapter';
@@ -454,19 +457,30 @@ export function threadConfig(
 export const APP_TOOLS_TOOL_TIMEOUT_SEC = 660;
 
 /**
+ * 工具搜索打开时（模型的 `supports_search_tool`）Codex 把 MCP 工具一律延迟；常驻的服务写上它，工具照常直接列出。
+ */
+export const NEVER_DEFERRED = ['deferred'] as const;
+
+/**
  * 应用级工具（0.30.0，codex-event-mapping.md §6.11）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖里的
- * `mcp_servers.wevir`。Streamable HTTP，令牌放 `http_headers`（Codex 不接受行内的 `bearer_token`，环境变量又是整个进程共用）。
- * 批准方式 `auto`：只读的工具（`readOnlyHint`）直接调，其余按会话的审批策略问用户（完全访问时不问）。
+ * `mcp_servers.wevir` 与 `mcp_servers.wevir_more`：同一个端点与令牌按层拆开，`wevir` 只列常驻的核心工具（不延迟），
+ * `wevir_more` 列其余的，工具搜索打开时延迟加载。Streamable HTTP，令牌放 `http_headers`（Codex 不接受行内的 `bearer_token`，
+ * 环境变量又是整个进程共用）。批准方式 `auto`：只读的工具（`readOnlyHint`）直接调，其余按会话的审批策略问用户（完全访问时不问）。
  */
 export function appToolsConfig(endpoint: AppToolsEndpoint): Record<string, unknown> {
+  const server = (tier: AppToolTier) => ({
+    url: appToolsTierUrl(endpoint.url, tier),
+    http_headers: { Authorization: `Bearer ${endpoint.token}` },
+    startup_timeout_sec: 10,
+    tool_timeout_sec: APP_TOOLS_TOOL_TIMEOUT_SEC,
+    default_tools_approval_mode: 'auto',
+  });
   return {
     [`mcp_servers.${APP_TOOLS_SERVER}`]: {
-      url: endpoint.url,
-      http_headers: { Authorization: `Bearer ${endpoint.token}` },
-      startup_timeout_sec: 10,
-      tool_timeout_sec: APP_TOOLS_TOOL_TIMEOUT_SEC,
-      default_tools_approval_mode: 'auto',
+      ...server('core'),
+      omit_tools_from: [...NEVER_DEFERRED],
     },
+    [`mcp_servers.${APP_TOOLS_MORE_SERVER}`]: server('more'),
   };
 }
 
@@ -484,6 +498,7 @@ export function historyToolToml(server: HistoryToolServer): string[] {
     'env = { ELECTRON_RUN_AS_NODE = "1" }',
     'default_tools_approval_mode = "approve"',
     `enabled_tools = [${tomlString(HISTORY_TOOL_NAME)}]`,
+    'omit_tools_from = ["deferred"]',
     'startup_timeout_sec = 10',
   ];
 }
@@ -512,6 +527,7 @@ export function webToolToml(
     `env_vars = [${tomlString(WEB_TOOL_TOKEN_ENV)}]`,
     'default_tools_approval_mode = "approve"',
     `enabled_tools = [${tools.map(tomlString).join(', ')}]`,
+    'omit_tools_from = ["deferred"]',
     'startup_timeout_sec = 10',
     'tool_timeout_sec = 60',
     ...tools.flatMap((tool) => [

@@ -12,6 +12,7 @@ import {
   type ToolPreset,
   type ToolPresetInfo,
 } from '@wevir/protocol';
+import type { AppToolTier } from '@wevir/runtime-adapter';
 import type { AppTool } from './app-mcp.js';
 import { type RoleDefinition, roleAllowsTool } from './roles.js';
 
@@ -141,6 +142,40 @@ export function listedToolInstructions(base: string, listed: Iterable<string>): 
 export function instructionLineTools(line: string): string[] | undefined {
   const head = /^- ([a-z][a-z_]*\*?(?: \/ [a-z][a-z_]*\*?)*):/.exec(line)?.[1];
   return head?.split(' / ');
+}
+
+/**
+ * 常驻的核心工具：模型在还不知道要用它时就需要的（会话连续性、多会话协作、记忆、交付），以及不给就会被 shell 绕过去的后台进程。
+ * 其余按需：支持工具搜索的引擎延迟加载它们（Codex 的 `tool_search`、Claude 的 ToolSearch），首个请求里只有核心工具。分层不是
+ * 权限：角色、预设与设置去掉的工具照样不列、不能调。
+ */
+export const CORE_TIER_TOOLS: readonly string[] = [
+  'wevir_session_list',
+  'wevir_session_read',
+  'wevir_session_search',
+  'wevir_session_retro',
+  'wevir_session_create',
+  'wevir_session_send',
+  'wevir_session_wait',
+  'wevir_tasks',
+  'wevir_task_create',
+  'wevir_task_update',
+  'wevir_memory_list',
+  'wevir_memory_read',
+  'wevir_memory_save',
+  'wevir_show',
+  'wevir_share_file',
+  'wevir_process_start',
+  'wevir_process_output',
+];
+
+/**
+ * 应用级工具的层：核心名单里的常驻；频道工具也常驻（只列给频道里的会话，它们的说明靠这些工具）。归得到组的其余工具按需；认不
+ * 出组的（新加了工具却没归组）是 `undefined`，当作按需。
+ */
+export function toolTier(name: string): AppToolTier | undefined {
+  if (CORE_TIER_TOOLS.includes(name) || name.startsWith('wevir_channel_')) return 'core';
+  return toolGroupOf(name) === undefined ? undefined : 'more';
 }
 
 /** 每个组在这个 Host 上实际有哪些工具（没有浏览器、LSP 等时对应的组是空的）。 */

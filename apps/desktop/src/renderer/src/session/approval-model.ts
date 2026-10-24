@@ -233,8 +233,10 @@ const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
  * 单说；命令按引擎，请求带着 `sandboxPermissions` 的也是越过沙箱。
  */
 function titleKey(detail: ApprovalDetail, scope: ApprovalScope | undefined): PlainMessageKey {
-  const appTool = APP_TOOL_TITLES[detail.toolName.replace(/^mcp__wevir__/, '')];
-  if (appTool !== undefined && detail.toolName.startsWith('mcp__wevir__')) return appTool;
+  // Codex 把按需加载的应用级工具挂在 `wevir_more` 上。
+  const appToolName = /^mcp__wevir(?:_more)?__(.+)$/.exec(detail.toolName)?.[1];
+  const appTool = appToolName === undefined ? undefined : APP_TOOL_TITLES[appToolName];
+  if (appTool !== undefined) return appTool;
   const { kind, paths } = detail.display;
   const outside =
     scope && paths?.length ? paths.some((path) => !within(path, scope.roots)) : undefined;

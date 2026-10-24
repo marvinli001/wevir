@@ -10,7 +10,12 @@ import {
   type SessionId,
   type TurnId,
 } from '@wevir/protocol';
-import type { AgentEvent } from '@wevir/runtime-adapter';
+import {
+  type AgentEvent,
+  APP_TOOLS_SERVER,
+  appToolBaseName,
+  appToolServerOf,
+} from '@wevir/runtime-adapter';
 import type { Storage } from '@wevir/storage';
 import { type AppTool, AppToolError, type AppToolResult, jsonResult } from './app-mcp.js';
 import type { EventStore } from './event-store.js';
@@ -34,6 +39,8 @@ interface Prepared {
   turnId: TurnId;
   toolCallId: string;
   name: Mutation;
+  /** 引擎调用它用的服务（`wevir`，Codex 上是 `wevir_more`）：Host 自己请批准时卡片上的工具名照它写。 */
+  server: string;
   fingerprint: string;
   controller: AbortController;
   ready: Promise<void>;
@@ -119,6 +126,10 @@ export class PluginAppTools {
     const key = `${sessionId}:${event.toolCallId}`;
     let prepared = this.#prepared.get(key);
     const name = event.type === 'tool.started' ? mutationName(event.toolName) : prepared?.name;
+    const server =
+      event.type === 'tool.started'
+        ? appToolServerOf(event.toolName)
+        : (prepared?.server ?? APP_TOOLS_SERVER);
     if (!name) return event;
     if (event.input !== undefined) {
       const input = record(event.input);
@@ -130,7 +141,7 @@ export class PluginAppTools {
             ? input.args
             : input,
       );
-      prepared = this.#ensure(sessionId, event.toolCallId, name, args);
+      prepared = this.#ensure(sessionId, event.toolCallId, name, args, server);
     }
     if (!prepared) return event;
     await prepared.ready;
@@ -138,7 +149,7 @@ export class PluginAppTools {
       ...event,
       display: {
         kind: 'unknown',
-        mcpServer: 'wevir',
+        mcpServer: server,
         summary: JSON.stringify(prepared.summary, null, 2),
       },
       ...(event.input !== undefined && { input: prepared.summary }),
@@ -185,6 +196,7 @@ export class PluginAppTools {
     toolCallId: string,
     name: Mutation,
     args: Record<string, unknown>,
+    server: string = APP_TOOLS_SERVER,
   ): Prepared {
     const key = `${sessionId}:${toolCallId}`;
     const hash = fingerprint(name, args);
@@ -201,6 +213,7 @@ export class PluginAppTools {
       turnId,
       toolCallId,
       name,
+      server,
       fingerprint: hash,
       controller: new AbortController(),
       ready: Promise.resolve(),
@@ -325,10 +338,10 @@ export class PluginAppTools {
           sessionId,
           prepared.toolCallId,
           {
-            toolName: `mcp__wevir__${name}`,
+            toolName: `mcp__${prepared.server}__${name}`,
             display: {
               kind: 'unknown',
-              mcpServer: 'wevir',
+              mcpServer: prepared.server,
               summary: JSON.stringify(prepared.summary, null, 2),
             },
             input: prepared.summary,
@@ -369,7 +382,7 @@ export class PluginAppTools {
 }
 
 function mutationName(name: string): Mutation | undefined {
-  const bare = name.replace(/^mcp__wevir__/, '');
+  const bare = appToolBaseName(name);
   return MUTATIONS.find((candidate) => candidate === bare);
 }
 

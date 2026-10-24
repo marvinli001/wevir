@@ -5,12 +5,20 @@
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId } from '@wevir/protocol';
-import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
+import {
+  type AppToolsEndpoint,
+  type AppToolTier,
+  appToolsTierUrl,
+  type EngineSession,
+  type SessionConfig,
+} from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MORE_TOOLS_INSTRUCTIONS } from './app-tools.js';
 import { startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
+import { CORE_TIER_TOOLS } from './tool-presets.js';
 
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -71,9 +79,11 @@ async function boot() {
     session: { engine: { sessionId: string } },
     method: string,
     params: unknown = {},
+    tier?: AppToolTier,
   ) => {
     const endpoint = configOf(session).appTools as AppToolsEndpoint;
-    const response = await fetch(endpoint.url, {
+    const url = tier === undefined ? endpoint.url : appToolsTierUrl(endpoint.url, tier);
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -129,5 +139,39 @@ describe('应用级工具的会话上下文', () => {
     const session = await h.create();
     expect(h.configOf(session)).not.toHaveProperty('appToolsContext');
     expect(h.configOf(session).appTools).toBeDefined();
+  });
+
+  it('分层的端点（Codex 的 wevir 与 wevir_more）：各列一层，调用不跨层，按需那层有自己的短说明', async () => {
+    const h = await boot();
+    const session = await h.create();
+    const names = async (tier?: AppToolTier) =>
+      ((await h.mcp(session, 'tools/list', {}, tier)).tools as Array<{ name: string }>).map(
+        (tool) => tool.name,
+      );
+    const all = await names();
+    const core = await names('core');
+    const more = await names('more');
+    expect(core.length).toBeGreaterThan(5);
+    expect(core.every((name) => CORE_TIER_TOOLS.includes(name))).toBe(true);
+    expect(more.some((name) => CORE_TIER_TOOLS.includes(name))).toBe(false);
+    expect([...core, ...more].sort()).toEqual([...all].sort());
+    const refused = await h.mcp(
+      session,
+      'tools/call',
+      { name: 'wevir_session_list', arguments: {} },
+      'more',
+    );
+    expect(refused.content[0].text).toBe('wevir_session_list is not available to this session.');
+    const listed = await h.mcp(
+      session,
+      'tools/call',
+      { name: 'wevir_session_list', arguments: {} },
+      'core',
+    );
+    expect(listed.isError).toBeUndefined();
+    const init = (tier?: AppToolTier) =>
+      h.mcp(session, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} }, tier);
+    expect((await init('more')).instructions).toBe(MORE_TOOLS_INSTRUCTIONS);
+    expect((await init('core')).instructions).toBe((await init()).instructions);
   });
 });

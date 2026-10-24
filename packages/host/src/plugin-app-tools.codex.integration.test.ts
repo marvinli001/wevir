@@ -137,7 +137,7 @@ describe.skipIf(!binary || process.platform === 'win32')(
           );
           if (request.type !== 'approval.requested') throw new Error('Missing approval');
           const approval = request.payload.approval;
-          expect(approval.detail?.toolName).toBe('mcp__wevir__wevir_skill_install');
+          expect(approval.detail?.toolName).toBe('mcp__wevir_more__wevir_skill_install');
           expect(approval.detail?.display.summary).toContain('conversation-skill');
           expect(approval.detail?.display.summary).toContain(
             'A skill created inside this conversation',

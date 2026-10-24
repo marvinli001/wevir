@@ -10,6 +10,7 @@
 // 引擎的审批。审批卡片里列出每一步、写出脚本全文（`browserComposeDisplay`）。
 
 import type { SessionId } from '@wevir/protocol';
+import { appToolBaseName } from '@wevir/runtime-adapter';
 import type { Storage } from '@wevir/storage';
 import type { AppTool, AppToolResult } from './app-mcp.js';
 import { objectSchema, optionalInt, optionalString } from './app-tools.js';
@@ -145,7 +146,7 @@ export function browserComposeTools(options: BrowserComposeOptions): AppTool[] {
   ];
 }
 
-/** 一步：工具名（认得 `click` 与 `mcp__wevir__browser_click` 的写法）与参数。 */
+/** 一步：工具名（认得 `click`、`mcp__wevir__browser_click` 与 `mcp__wevir_more__browser_click` 的写法）与参数。 */
 interface BatchAction {
   name: string;
   input: Record<string, unknown>;
@@ -153,7 +154,7 @@ interface BatchAction {
 
 /** 把模型写的工具名规整成 `browser_click`。 */
 export function normalizeBrowserToolName(name: string): string {
-  const bare = name.trim().replace(/^mcp__wevir__/, '');
+  const bare = appToolBaseName(name.trim());
   return bare.startsWith('browser_') ? bare : `browser_${bare}`;
 }
 
@@ -221,7 +222,7 @@ export function appToolArgs(input: unknown): unknown {
  * undefined。
  */
 export function browserComposeDisplay(toolName: string, input: unknown): string | undefined {
-  const name = toolName.replace(/^mcp__wevir__/, '');
+  const name = appToolBaseName(toolName);
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return undefined;
   const args = input as Record<string, unknown>;
   if (name === 'browser_run') {

@@ -12,6 +12,7 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  APP_TOOLS_MORE_SERVER,
   APP_TOOLS_SERVER,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
@@ -2232,6 +2233,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       typeof params.threadId !== 'string' ||
       typeof params.serverName !== 'string' ||
       (params.serverName !== APP_TOOLS_SERVER &&
+        params.serverName !== APP_TOOLS_MORE_SERVER &&
         !this.#plugins.hasConnector(params.serverName) &&
         !this.#threadConnector(params.threadId, params.serverName)) ||
       meta?.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND

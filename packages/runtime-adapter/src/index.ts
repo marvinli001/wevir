@@ -7,6 +7,10 @@ export { accountRateLimits, clampPercent, isoTime } from './rate-limits.js';
 export type * from './types.js';
 export {
   APP_TOOLS_ENGINE_SESSION_HEADER,
+  APP_TOOLS_MORE_SERVER,
   APP_TOOLS_NO_APPROVAL,
   APP_TOOLS_SERVER,
+  appToolBaseName,
+  appToolServerOf,
+  appToolsTierUrl,
 } from './types.js';
