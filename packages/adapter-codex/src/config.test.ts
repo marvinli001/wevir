@@ -153,11 +153,25 @@ describe('模型目录', () => {
       input_modalities: ['text'],
       visibility: 'list',
       priority: 1,
+      supports_search_tool: true,
     });
     // 没填上下文大小的按默认值写，Codex 才会自动压缩（codex-event-mapping §3）。
     expect(catalog.models[1]).toMatchObject({ context_window: DEFAULT_CONTEXT_WINDOW });
     expect(catalog.models[2]).toMatchObject({ input_modalities: ['text', 'image'], priority: 3 });
     expect(renderModelCatalog([], render)).toBeUndefined();
+  });
+
+  it('工具搜索按 Provider 的 compat toolSearch：默认打开，off 时关', () => {
+    const off = { ...deepseek, compat: { toolSearch: 'off' as const } };
+    const catalog = JSON.parse(renderModelCatalog([off, openaiNamed], render) ?? '') as {
+      models: Array<Record<string, unknown>>;
+    };
+    expect(catalog.models.map((m) => [m.slug, m.supports_search_tool])).toEqual([
+      ['deepseek-flash', false],
+      ['deepseek-v4-pro', false],
+      ['gpt-x', true],
+    ]);
+    expect(catalogEntry({ id: 'm' }, 'base', 1)).toMatchObject({ supports_search_tool: false });
   });
 
   it('必填字段都在（codex-notes §3.3）', () => {

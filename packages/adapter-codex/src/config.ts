@@ -1,4 +1,5 @@
 import { chmodSync, writeFileSync } from 'node:fs';
+import { toolSearchMode } from '@wevir/model-gateway';
 import {
   APP_TOOLS_MORE_SERVER,
   APP_TOOLS_SERVER,
@@ -175,12 +176,15 @@ export function autoCompactLimit(model: ProviderModelConfig): number {
  * upstream/codex/codex-rs/protocol/src/openai_models.rs 的 `ModelInfo`，codex-notes §3.3）。没写的字段与 Codex 给
  * 未知模型的默认元数据一致（models-manager/src/model_info.rs `model_info_from_slug`），区别是：声明
  * `apply_patch_tool_type: "freeform"`（否则没有 apply_patch 工具）、总是带上下文大小（没填用 `DEFAULT_CONTEXT_WINDOW`）
- * 与推理档位、`base_instructions` 用 Wevir 的 base.md、列出（`visibility: "list"`）。
+ * 与推理档位、`base_instructions` 用 Wevir 的 base.md、列出（`visibility: "list"`）。`searchTool` 打开 Codex 的工具搜索
+ * （`supports_search_tool`）：首个请求只带常驻的工具与 `tool_search`，按需的应用级工具（`wevir_more`）与 Codex 自己的子智能体
+ * 工具搜到才加载；网关替不认它的上游翻译（compat `toolSearch`）。
  */
 export function catalogEntry(
   model: ProviderModelConfig,
   baseInstructions: string,
   priority: number,
+  searchTool = false,
 ): Record<string, unknown> {
   const efforts = (model.reasoningEfforts ?? []).map(toCodexEffort);
   return {
@@ -206,6 +210,7 @@ export function catalogEntry(
     include_apps_usage_instructions: false,
     input_modalities: model.supportsImages === true ? ['text', 'image'] : ['text'],
     context_window: contextWindowOf(model),
+    supports_search_tool: searchTool,
   };
 }
 
@@ -221,7 +226,8 @@ export function basePromptVars(
 }
 
 /**
- * 由全部 Provider 生成模型目录：每个模型一条，按 slug 去重（Codex 按 slug 精确查找，同名模型以先出现的 Provider 为准；
+ * 由全部 Provider 生成模型目录：每个模型一条，按 slug 去重（Codex 按 slug 精确查找，同名模型以先出现的 Provider 为准，
+ * 工具搜索也按那个 Provider 的 compat `toolSearch`；
  * 会话自己的上下文大小与基础提示词由 `thread/start` 覆盖，见 `threadConfig`）。没有模型时返回 undefined：Codex 拒绝
  * 空目录（`model_catalog_json path … must contain at least one model`）。
  */
@@ -235,7 +241,14 @@ export function renderModelCatalog(
     for (const model of provider.models) {
       if (seen.has(model.id)) continue;
       seen.add(model.id);
-      models.push(catalogEntry(model, render(basePromptVars(provider, model)), models.length + 1));
+      models.push(
+        catalogEntry(
+          model,
+          render(basePromptVars(provider, model)),
+          models.length + 1,
+          toolSearchMode(provider) !== 'off',
+        ),
+      );
     }
   }
   return models.length === 0 ? undefined : `${JSON.stringify({ models }, null, 2)}\n`;
