@@ -18,7 +18,8 @@ import { useStorages, useTempDir } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
 import {
   CORE_TOOL_GROUPS,
-  instructionLineGroup,
+  instructionLineTools,
+  listedToolInstructions,
   normalizeToolPreset,
   OPTIONAL_TOOL_GROUPS,
   presetAllowsTool,
@@ -27,7 +28,6 @@ import {
   toolGroupContents,
   toolGroupOf,
   toolPresetGroups,
-  toolPresetInstructions,
   toolsAllowed,
 } from './tool-presets.js';
 
@@ -222,61 +222,80 @@ describe('与角色取交集', () => {
   });
 });
 
-describe('按预设裁剪说明', () => {
-  it('full 与没有预设时逐字节不变', () => {
-    expect(toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, FULL)).toBe(APP_TOOLS_INSTRUCTIONS);
-    expect(toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, undefined)).toBe(APP_TOOLS_INSTRUCTIONS);
-  });
-
-  it('说明里每一条讲工具的行都归得到组', () => {
+describe('按列出的工具裁剪说明', () => {
+  it('说明里每一条讲工具的行都认得出它讲的工具，且都归得到组', () => {
     const lines = APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => /^- [a-z]/.test(line));
     expect(lines.length).toBeGreaterThan(10);
-    for (const line of lines) expect(instructionLineGroup(line), line).toBeDefined();
-    expect(instructionLineGroup('- Results too long for a tool result')).toBeUndefined();
+    for (const line of lines) {
+      const tools = instructionLineTools(line);
+      expect(tools, line).toBeDefined();
+      for (const tool of tools ?? [])
+        expect(toolGroupOf(tool.replace(/\*$/, '')), tool).toBeDefined();
+    }
+    expect(instructionLineTools('- Results over about 8 KB are saved to a file')).toBeUndefined();
+    expect(instructionLineTools('- wevir_tasks / wevir_task_create: a list')).toEqual([
+      'wevir_tasks',
+      'wevir_task_create',
+    ]);
+  });
+
+  it('全部工具都列出时逐字节不变', () => {
+    const names = allTools().tools.map((tool) => tool.name);
+    const everything = [
+      ...names,
+      'computer_click',
+      'simulator_control',
+      'wevir_tuning_status',
+      'wevir_preview_start',
+      'wevir_workspace_readiness',
+      'wevir_automations',
+    ];
+    expect(listedToolInstructions(APP_TOOLS_INSTRUCTIONS, everything)).toBe(APP_TOOLS_INSTRUCTIONS);
   });
 
   it('core 去掉浏览器、LSP、进程、插件那几行，别的行原样；另加的组留下它那一行', () => {
-    const core = toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, CORE);
+    const tools = allTools().tools;
+    const listed = (preset: ToolPreset) =>
+      listedToolInstructions(
+        APP_TOOLS_INSTRUCTIONS,
+        toolsAllowed(tools, { preset }).map((tool) => tool.name),
+      );
+    const core = listed(CORE);
     for (const gone of [
       '- browser_*',
       '- computer_*',
+      '- simulator_*',
       '- lsp_*',
       '- wevir_process_*',
-      '- wevir_preview_list',
+      '- wevir_preview_*',
       '- wevir_workspace_readiness',
       '- wevir_plugins_list',
+      '- wevir_tuning_*',
     ]) {
       expect(core).not.toContain(gone);
     }
     for (const kept of [
       '- wevir_session_list',
+      '- wevir_session_create',
       '- wevir_memory_*',
       '- wevir_tasks',
       '- wevir_models',
-      '- wevir_roles',
       '- wevir_show',
-      '- wevir_share_file',
-      '- wevir_mark_chapter',
-      '- wevir_report_findings',
-      '- Results too long',
+      '- Results over about 8 KB',
       'Sessions you open or message cannot get broader permissions',
     ]) {
       expect(core).toContain(kept);
     }
-    const kept = new Set(core.split('\n'));
-    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(8);
-    expect(Buffer.byteLength(APP_TOOLS_INSTRUCTIONS) - Buffer.byteLength(core)).toBeGreaterThan(
-      2000,
-    );
-    const withLsp = toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, { id: 'core', groups: ['lsp'] });
+    const withLsp = listed({ id: 'core', groups: ['lsp'] });
     expect(withLsp).toContain('- lsp_*');
     expect(withLsp).not.toContain('- browser_*');
-    expect(
-      toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, {
-        id: 'core',
-        groups: [...OPTIONAL_TOOL_GROUPS],
-      }),
-    ).toBe(APP_TOOLS_INSTRUCTIONS);
+  });
+
+  it('一行讲的工具有一个列出就留下', () => {
+    const line = '- wevir_session_send / wevir_session_wait: follow up';
+    expect(listedToolInstructions(line, ['wevir_session_wait'])).toBe(line);
+    expect(listedToolInstructions(line, ['wevir_session_list'])).toBe('');
+    expect(listedToolInstructions('- lsp_*: code', ['lsp_hover'])).toBe('- lsp_*: code');
   });
 });
 

@@ -64,7 +64,10 @@ export class PluginAppTools {
         name: 'wevir_plugins_list',
         title: 'List Wevir plugins',
         description:
-          'List global plugins, MCP servers and skills, including enabled state. Never returns secrets. ' +
+          'List global plugins, MCP servers and skills, including enabled state. Never returns secrets. To install ' +
+          "one, first write or download its files into this session's folder, then use wevir_plugin_install " +
+          '(Wevir, Claude or Codex package), wevir_skill_install (skill folder, SKILL.md or ZIP) or ' +
+          'wevir_connector_add (MCP configuration). ' +
           AVAILABILITY,
         inputSchema: { type: 'object', properties: {}, additionalProperties: false },
         annotations: {

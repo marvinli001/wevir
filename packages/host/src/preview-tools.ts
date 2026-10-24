@@ -301,7 +301,7 @@ export function previewTools({
       description:
         "Delete one of this project's run configurations that an agent saved (wevir_preview_list shows them); " +
         'configurations the user saved are left to the user. A running copy keeps running: stop it with ' +
-        'wevir_process_kill.',
+        'wevir_process_kill. Delete configurations you saved for a one-off test.',
       inputSchema: objectSchema({ name: { type: 'string', description: 'Configuration name.' } }, [
         'name',
       ]),

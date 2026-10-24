@@ -37,7 +37,7 @@ import { SessionSearch } from './session-search.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
-import type { ToolPreset } from './tool-presets.js';
+import { listedToolInstructions, type ToolPreset } from './tool-presets.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -1720,7 +1720,7 @@ describe('工具预设', () => {
       expect(text).not.toContain(gone);
     }
     expect(text).toContain('- wevir_tasks');
-    expect(text).toContain('- wevir_memory_*');
+    expect(text).toContain('- wevir_session_create');
     expect(await instructionsOf(h, withPlugins)).toContain('- wevir_plugins_list');
     // 存的是规范写法。
     expect(h.storage.sessions.get(core)?.toolPreset).toEqual({ id: 'core' });
@@ -1740,11 +1740,15 @@ describe('工具预设', () => {
       JSON.stringify((await h.rpc(sessionId, 'tools/list')).body.result);
     expect(await raw(full)).toBe(await raw(plain));
     expect(JSON.parse(await raw(plain)).tools).toHaveLength(h.tools.tools.length);
-    expect(await instructionsOf(h, plain)).toBe(APP_TOOLS_INSTRUCTIONS);
-    expect(await instructionsOf(h, full)).toBe(APP_TOOLS_INSTRUCTIONS);
+    const everything = listedToolInstructions(
+      APP_TOOLS_INSTRUCTIONS,
+      h.tools.tools.map((tool) => tool.name),
+    );
+    expect(await instructionsOf(h, plain)).toBe(everything);
+    expect(await instructionsOf(h, full)).toBe(everything);
     // 调用方不明（引擎令牌不带会话头）时照旧：全部列出，说明不变。
     expect(await h.tools.filterTools(undefined, h.tools.tools)).toBe(h.tools.tools);
-    expect(h.tools.instructions(undefined)).toBe(APP_TOOLS_INSTRUCTIONS);
+    expect(await h.tools.instructions(undefined)).toBe(everything);
   });
 
   it('引擎在会话写进存储之前就取说明、列工具，也按预设', async () => {
@@ -1864,7 +1868,12 @@ describe('工具预设', () => {
       'wevir_connector_add',
     ]);
     expect(await tools.filterTools(plain, all)).toEqual(all);
-    expect(tools.instructions(plain)).toBe(APP_TOOLS_INSTRUCTIONS);
+    expect(await tools.instructions(plain)).toBe(
+      listedToolInstructions(
+        APP_TOOLS_INSTRUCTIONS,
+        tools.tools.map((tool) => tool.name),
+      ),
+    );
   });
 });
 

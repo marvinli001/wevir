@@ -62,7 +62,8 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
         'it exits, you stop it with wevir_process_kill, or the session is deleted or Wevir quits. Runs in your login ' +
         "shell (no terminal), in this session's folder or a folder inside it. stdout and stderr go to a log file " +
         '(path in the result) that you can read with wevir_process_output or rg / tail. When it exits on its own ' +
-        'Wevir tells you with a message (notifyOnExit, default true), so you can end your turn instead of polling. ' +
+        'Wevir tells you with a message (notifyOnExit, default true), so you can end your turn instead of polling ' +
+        '(this also covers CI: run a command that waits for the result, such as gh pr checks <number> --watch). ' +
         'notifyOn messages you whenever output lines match a regular expression (for example "error|FAIL|ready", or ' +
         '"." for every line), which starts a turn if you are idle: use it to watch CI, logs or long tests without ' +
         `polling. Matches are batched (lines within ${PROCESS_NOTIFY_BATCH_MS / 1000} s of each other go in one message, ` +

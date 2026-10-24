@@ -452,7 +452,7 @@ describe('频道的应用级工具', () => {
         .map((tool) => tool.name)
         .filter((name) => name.startsWith('wevir_channel_'));
     expect(await names(coordinator)).toEqual([...CHANNEL_TOOLS]);
-    expect(h.tools.instructions(coordinator)).toContain('coordinator of a Wevir assistant');
+    expect(await h.tools.instructions(coordinator)).toContain('coordinator of a Wevir assistant');
 
     const needs = await h.call(coordinator, 'wevir_channel_needs', {
       items: [
@@ -486,7 +486,7 @@ describe('频道的应用级工具', () => {
       'wevir_channel_timeline',
       'wevir_channel_resolve',
     ]);
-    expect(h.tools.instructions(thread)).toContain('thread of a Wevir channel');
+    expect(await h.tools.instructions(thread)).toContain('thread of a Wevir channel');
     const denied = await h.call(thread, 'wevir_channel_post', { text: 'Hi' });
     expect(denied.isError).toBe(true);
 

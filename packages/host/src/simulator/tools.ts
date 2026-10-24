@@ -113,7 +113,8 @@ function controlTool(
       'open_url (url, also deep links), rotate (direction), describe_ui (accessibility tree with labels ' +
       'and frames; x and y for one point), logs (recent device log, seconds, bundle_id). ' +
       'device is a name or UDID; without it the device you attached, else the first booted one. ' +
-      'Coordinates are device points from the top-left, the same units as the screenshot.',
+      'Coordinates are device points from the top-left, the same units as the screenshot; prefer describe_ui ' +
+      'labels and frames over guessing positions. Check the result with a screenshot before you report it works.',
     inputSchema: objectSchema(
       {
         action: { type: 'string', enum: [...SIMULATOR_ACTIONS] },

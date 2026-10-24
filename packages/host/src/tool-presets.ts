@@ -113,25 +113,34 @@ export function toolsAllowed<T extends Pick<AppTool, 'name' | 'annotations'>>(
 }
 
 /**
- * 按预设裁剪给模型的说明（app-tools.ts 的 `APP_TOOLS_INSTRUCTIONS`）：去掉讲预设里没有的组的那几行（以 `- <工具名>` 开头、能归到组的
- * 行）。别的行原样留下；`full` 与没有预设时原样返回。
+ * 按这个会话实际列出的工具裁剪给模型的说明（app-tools.ts 的 `APP_TOOLS_INSTRUCTIONS`）：讲工具的行只在它讲的工具至少有一个列出时
+ * 留下，所以预设、角色、频道与 Host 设置去掉的工具（电脑操作关着时的 `computer_*`）不再出现在说明里。别的行原样留下。
  */
-export function toolPresetInstructions(base: string, preset: ToolPreset | undefined): string {
-  const groups = toolPresetGroups(preset);
-  if (groups === undefined) return base;
+export function listedToolInstructions(base: string, listed: Iterable<string>): string {
+  const names = [...listed];
   return base
     .split('\n')
     .filter((line) => {
-      const group = instructionLineGroup(line);
-      return group === undefined || groups.has(group);
+      const tools = instructionLineTools(line);
+      return (
+        tools === undefined ||
+        tools.some((tool) =>
+          tool.endsWith('*')
+            ? names.some((name) => name.startsWith(tool.slice(0, -1)))
+            : names.includes(tool),
+        )
+      );
     })
     .join('\n');
 }
 
-/** 说明里这一行讲的是哪个组的工具（`- wevir_process_*: …`、`- lsp_*: …`）；不是讲工具的行是 `undefined`。 */
-export function instructionLineGroup(line: string): ToolGroup | undefined {
-  const token = /^- ([a-z][a-z_]*)\*?[\s:/]/.exec(line)?.[1];
-  return token === undefined ? undefined : toolGroupOf(token);
+/**
+ * 说明里这一行讲的工具：`- wevir_session_send / wevir_session_wait: …`、`- lsp_*: …` 冒号前用 “ / ” 分开的名字（`*` 结尾的是前缀）；
+ * 不是讲工具的行是 `undefined`。
+ */
+export function instructionLineTools(line: string): string[] | undefined {
+  const head = /^- ([a-z][a-z_]*\*?(?: \/ [a-z][a-z_]*\*?)*):/.exec(line)?.[1];
+  return head?.split(' / ');
 }
 
 /** 每个组在这个 Host 上实际有哪些工具（没有浏览器、LSP 等时对应的组是空的）。 */

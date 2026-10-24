@@ -281,8 +281,8 @@ export function memoryTools({
  * 正在建的会话）。
  */
 export function instructionsWithMemory(options: {
-  /** 工具说明；给函数时按调用方生成（工具预设去掉的组不讲）。 */
-  base: string | ((sessionId: SessionId | undefined) => string);
+  /** 工具说明；给函数时按调用方生成（这个会话列不出的工具不讲）。 */
+  base: string | ((sessionId: SessionId | undefined) => string | Promise<string>);
   memory: MemoryStore;
   workspaceOf: (sessionId: SessionId) => string | undefined;
   /** Host 设置的 `autoMemory`；返回 false 时不加索引。省略当作开着。 */
@@ -290,7 +290,7 @@ export function instructionsWithMemory(options: {
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }): (sessionId: SessionId | undefined) => Promise<string> {
   return async (sessionId) => {
-    const base = typeof options.base === 'string' ? options.base : options.base(sessionId);
+    const base = typeof options.base === 'string' ? options.base : await options.base(sessionId);
     // 关着时连工具说明里讲记忆工具的那一行也去掉：工具不列出，说明不该再提它们。
     if (options.enabled?.() === false) {
       return base

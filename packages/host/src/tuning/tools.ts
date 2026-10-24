@@ -159,7 +159,9 @@ export function tuningTools(options: TuningToolsOptions): AppTool[] {
       'skill (kind skill, the SKILL.md text), a project memory note (kind memory) or a guardrail (kind guardrail, a hard ' +
       'rule enforced on Codex sessions). The change is written right away and goes into a trial: after the next sessions ' +
       'Wevir keeps it or reverts it by their verification results and failed turns, and the user can undo it. Sessions ' +
-      'already running, including this one, do not reread it. Prefer this over editing those files directly.',
+      'already running, including this one, do not reread it. Prefer this over editing those files directly. ' +
+      'Propose one when the user corrects a recurring problem, you find a fixed way this project works, or a hard ' +
+      'rule is needed.',
     inputSchema: objectSchema(
       {
         kind: { type: 'string', enum: ['rule', 'skill', 'memory', 'guardrail'] },

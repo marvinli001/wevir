@@ -12,6 +12,7 @@ import { APP_TOOLS_INSTRUCTIONS } from './app-tools.js';
 import { startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
+import { listedToolInstructions } from './tool-presets.js';
 
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -200,8 +201,9 @@ describe('工具预设经 Host API', () => {
       JSON.stringify(await h.mcp(sessionId, 'tools/list'));
     expect(await raw(full.id)).toBe(await raw(plain.id));
     expect(await h.names(plain.id)).toHaveLength(79);
-    expect(await h.instructions(plain.id)).toBe(APP_TOOLS_INSTRUCTIONS);
-    expect(await h.instructions(full.id)).toBe(APP_TOOLS_INSTRUCTIONS);
+    const everything = listedToolInstructions(APP_TOOLS_INSTRUCTIONS, await h.names(plain.id));
+    expect(await h.instructions(plain.id)).toBe(everything);
+    expect(await h.instructions(full.id)).toBe(everything);
 
     // 认不出的预设或组：INVALID_PARAMS，不建会话。
     const bad = await h.client.call('session.create', {
