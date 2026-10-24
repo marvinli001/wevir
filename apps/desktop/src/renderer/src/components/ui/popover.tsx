@@ -5,6 +5,8 @@
 // 退场 110 ms ease-smooth，不回弹。
 // 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
 // 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
+// 发芽一轮（desktop-tokens.md §71）起弹层从触发点长出来：沿 Base UI 的 --transform-origin 从 90%（原来 95%）放大，同时从 4 px 的
+// 模糊变清（tw-animate 的 blur-in-xs），入场仍是 reveal 弹簧；退场缩回 90% 并糊回 4 px（blur-out-xs），110 ms。
 
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { cn } from 'cn';
@@ -39,7 +41,7 @@ function PopoverContent({
         <PopoverPrimitive.Popup
           data-slot="popover-content"
           className={cn(
-            'z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-xl bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            'z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-xl bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-90 blur-in-xs data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-90 blur-out-xs',
             className,
           )}
           {...props}

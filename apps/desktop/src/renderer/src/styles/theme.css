@@ -307,6 +307,83 @@
   }
 }
 
+/* 跳跃（§71）：会话行的状态变化。--motion-elapsed 是变化发生到挂载之间的负时长（layout/session-marks.tsx 的 motionElapsed），
+ * 行重新挂载时接着播。在 utilities 层里，减少动效时由 index.css 的全局规则停下。 */
+
+/* 待审批的标签、出错的状态点出现时跳一下：从 40% 大小、低 5 px 处弹起，bounce 弹簧过冲到约 112%、高出 1 px 再落定。 */
+@utility status-jump {
+  animation: status-jump var(--spring-bounce-duration) var(--spring-bounce) both;
+  animation-delay: var(--motion-elapsed, 0ms);
+}
+
+@keyframes status-jump {
+  from {
+    scale: 0.4;
+    translate: 0 5px;
+  }
+}
+
+/* 运行中的 orb 出现：从 60% 大小淡入，reveal 弹簧。 */
+@utility status-enter {
+  animation: status-enter var(--spring-reveal-duration) var(--spring-reveal) both;
+  animation-delay: var(--motion-elapsed, 0ms);
+}
+
+@keyframes status-enter {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+/* 跑完的勾：整体从一半大小弹出（bounce 弹簧），圆圈 360 ms 画一圈，300 ms 起勾 240 ms 画出，停到 1.7 s 起淡出，合计 2 s
+ * （与 layout/session-motion.ts 的 DONE_MARK_MS 一致）。路径写 pathLength="1"。 */
+@utility done-mark {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation:
+    confirm-pop var(--spring-bounce-duration) var(--spring-bounce) both,
+    done-mark-fade 2000ms linear both;
+  animation-delay: var(--motion-elapsed, 0ms);
+}
+
+@utility done-mark-ring {
+  stroke-dasharray: 1;
+  animation: check-stroke 360ms var(--ease-smooth) both;
+  animation-delay: var(--motion-elapsed, 0ms);
+}
+
+@utility done-mark-check {
+  stroke-dasharray: 1;
+  animation: check-stroke 240ms var(--ease-fall) both;
+  animation-delay: calc(var(--motion-elapsed, 0ms) + 300ms);
+}
+
+@keyframes done-mark-fade {
+  0%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 标题逐字显出：每个字从 4 px 模糊淡入，320 ms ease-smooth；错开的延迟由 GlyphReveal 写在行内。 */
+@utility glyph-in {
+  animation: glyph-in 320ms var(--ease-smooth) both;
+}
+
+@keyframes glyph-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
 /* 凹下去的小块（Provider 图标的底、订阅来源的地址框，§62）：一道向内的浅阴影，颜色随主题。 */
 @utility inset-well {
   box-shadow: var(--inset-well);

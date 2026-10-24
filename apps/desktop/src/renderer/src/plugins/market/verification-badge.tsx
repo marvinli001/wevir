@@ -1,5 +1,6 @@
 // 插件市场的认证徽章（plugin-market.md §9.3）：波浪边圆章里一个勾，verified 蓝、official 金（设计令牌 --verified / --official，
 // tokens.test.ts 核对对比度）；悬停或键盘聚焦弹出卡片，照 X 的认证说明列出审核、发布者、认证时间、上游与备注。
+// 卡片的出现与消失同 components/ui/popover.tsx（从触发点长出、带 4 px 模糊，§71）。
 
 import { PreviewCard } from '@base-ui/react/preview-card';
 import type { MarketUpstream, MarketVerification } from '@wevir/protocol';
@@ -99,7 +100,7 @@ export function VerificationBadge({
       <PreviewCard.Portal>
         <PreviewCard.Positioner side="bottom" align="start" sideOffset={6} className="isolate z-50">
           <PreviewCard.Popup
-            className="z-50 w-72 origin-(--transform-origin) rounded-xl bg-popover p-3.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-110 data-closed:ease-smooth"
+            className="z-50 w-72 origin-(--transform-origin) rounded-xl bg-popover p-3.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-90 blur-in-xs data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-90 blur-out-xs data-closed:duration-110 data-closed:ease-smooth"
             data-testid="verification-card"
           >
             <VerificationCard verification={verification} upstream={upstream} />

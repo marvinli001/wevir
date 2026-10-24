@@ -65,6 +65,8 @@ import { usePaneAccess } from './pane-access';
 import { paneKindUsable } from './pane-kinds';
 import { PANE_LAUNCHERS, PaneLaunchers, showPaneKind } from './pane-launchers';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
+import { GlyphReveal } from './session-marks';
+import { sessionMotion } from './session-motion';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';
 
@@ -353,7 +355,11 @@ export function WorkbenchLayout() {
           >
             <div className="flex min-w-0 flex-1 items-baseline gap-2">
               <h1 className="truncate text-sm font-medium" data-testid="header-title">
-                {header.title}
+                {header.session ? (
+                  <GlyphReveal text={header.title} at={sessionMotion(header.session).titleAt} />
+                ) : (
+                  header.title
+                )}
               </h1>
               {header.subtitle && (
                 <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">

@@ -61,6 +61,8 @@ import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-dra
 import { ProjectContextMenuItems } from './project-context-menu';
 import { RoleLabel } from './role-label';
 import { SessionContextMenuItems } from './session-context-menu';
+import { DoneMark, GlyphReveal, motionElapsed } from './session-marks';
+import { sessionMotion } from './session-motion';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是同样的淡底加一圈 1 px 的选中细边（U5，§63 起不再是整块表面色）。 */
 const ROW =
@@ -640,7 +642,8 @@ function sameRow(a: SessionRowProps, b: SessionRowProps): boolean {
 
 /**
  * 会话行：标题与项目名对齐（左边一格是状态：运行中是这个回合的 thinking orb，待审批时 orb 停住；出错是状态点），右侧
- * “待审批”标签或未读点。orb 与消息流里的是同一种（fx/orb-state.ts 按会话与回合 ID 定）。
+ * “待审批”标签或未读点。orb 与消息流里的是同一种（fx/orb-state.ts 按会话与回合 ID 定）。状态变化有动效（§71）：orb 出现时
+ * 弹出来，待审批标签与出错的状态点跳一下，回合跑完左边画一个圈勾再淡出，标题换成生成的标题时逐字显出。
  */
 const SessionRow = memo(function SessionRow({
   workspaceId,
@@ -651,6 +654,9 @@ const SessionRow = memo(function SessionRow({
   const marker = sessionMarker(session);
   const markerInfo = marker && MARKERS[marker];
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
+  // 状态与标题的变化动效（§71）：只在这次运行里变了才有时刻。
+  const motion = sessionMotion(session);
+  const jumpAt = motion.markerAt;
   // 目标进行中（0.35.0，照 T3 Code 的侧栏）：回合之间也标着，agent 还会接着做。
   const goal = session.goal?.status === 'active';
   // 在跑的会话不按未读加粗：失焦时右边是灰色呼吸点，跑完了（没在看）才加粗并换成未读点。
@@ -693,14 +699,36 @@ const SessionRow = memo(function SessionRow({
                   marker === 'awaiting_approval' ||
                   marker === 'awaiting_input') &&
                 markerInfo ? (
-                  <span role="img" aria-label={markerInfo.label} className="flex">
+                  <span
+                    role="img"
+                    aria-label={markerInfo.label}
+                    className={cn(
+                      'flex',
+                      jumpAt !== undefined &&
+                        marker === 'running' &&
+                        motion.markerFrom === undefined &&
+                        'status-enter',
+                    )}
+                    style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
+                  >
                     <Orb
                       state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
                       paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
                     />
                   </span>
+                ) : markerInfo ? (
+                  <span
+                    className="flex"
+                    style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
+                  >
+                    <StatusDot
+                      tone={markerInfo.tone}
+                      label={markerInfo.label}
+                      className={cn(jumpAt !== undefined && 'status-jump')}
+                    />
+                  </span>
                 ) : (
-                  markerInfo && <StatusDot tone={markerInfo.tone} label={markerInfo.label} />
+                  motion.doneAt !== undefined && <DoneMark at={motion.doneAt} />
                 )}
               </span>
               <span
@@ -709,7 +737,7 @@ const SessionRow = memo(function SessionRow({
                   settledUnread && 'font-semibold text-foreground',
                 )}
               >
-                {session.title || t('session.untitled')}
+                <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
               </span>
               {session.openedBy?.role !== undefined && (
                 <RoleLabel
@@ -720,7 +748,13 @@ const SessionRow = memo(function SessionRow({
               {/* 悬停时让出位置给置顶与归档（U34）。 */}
               <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
                 {badge ? (
-                  <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+                  <span
+                    className={cn(
+                      'shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning',
+                      jumpAt !== undefined && 'status-jump',
+                    )}
+                    style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
+                  >
                     {markerInfo?.label}
                   </span>
                 ) : goal ? (
