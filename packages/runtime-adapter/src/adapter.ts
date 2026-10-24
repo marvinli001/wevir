@@ -273,6 +273,13 @@ export interface AgentRuntimeAdapter {
   hookDialect?(providerId: string): 'codex' | undefined;
 
   /**
+   * 应用级工具的会话上下文（记忆索引、自动化与频道会话的须知）交给引擎的系统说明，不放进 MCP 服务的 `instructions`：按 Provider
+   * 问，回答 true 的引擎收 `SessionConfig.appToolsContext`，它的 MCP 说明只剩工具说明。给只取 MCP 说明开头一段的引擎用（Claude
+   * Code 只取前 4,096 个字符）。不实现时照旧都在 MCP 说明里。
+   */
+  appToolsContextInPrompt?(providerId: string): boolean;
+
+  /**
    * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次
    * 请求起看得到；回合进行中也可以调用。不实现时 Host 只写事件（Codex：`thread/inject_items`）。
    * 错误：`session_not_found`、`session_closed`（会话没挂着）、`disposed`。

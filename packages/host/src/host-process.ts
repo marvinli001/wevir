@@ -66,7 +66,7 @@ import { MarketService, type MarketServiceOptions } from './market/service.js';
 import { McpRemoteProxy } from './mcp-oauth/proxy.js';
 import { type McpOAuthOptions, McpOAuthService } from './mcp-oauth/service.js';
 import { MemoryStore } from './memory.js';
-import { instructionsWithMemory } from './memory-tools.js';
+import { instructionsWithMemory, sessionMemoryIndex } from './memory-tools.js';
 import { NotificationService } from './notifications.js';
 import type { TestConnectionGrant } from './permissions.js';
 import { PluginRegistry } from './plugins.js';
@@ -422,6 +422,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 与 Host 设置，下面建好之后再接上。
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
+    /** 应用级工具的会话上下文（记忆索引与会话须知），给把它放进系统说明的引擎（Claude）。 */
+    let appToolsContext: ((sessionId: SessionId) => Promise<string | undefined>) | undefined;
     let opinions: SecondOpinionService | undefined;
     // 自动调优（0.108.0）：建议服务建好之后才有。
     let autoTuner: AutoTuner | undefined;
@@ -622,6 +624,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       guardrails,
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
+        context: async (sessionId) => appToolsContext?.(sessionId),
         prepareEvent: (sessionId, event) => {
           // 代码智能：记下引擎改过的文件（不改事件）。
           appTools?.lsp?.observe(sessionId, event);
@@ -1223,16 +1226,32 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
+      const memoryIndexOptions = {
+        memory,
+        workspaceOf: (sessionId: SessionId) => manager.workspaceOf(sessionId),
+        enabled: () => settings.get().autoMemory !== false,
+        onWarning: (message: string, fields?: Record<string, unknown>) =>
+          logger.warn(message, fields),
+      };
+      const memoryIndex = sessionMemoryIndex(memoryIndexOptions);
+      appToolsContext = async (sessionId) => {
+        const parts = [tools.sessionBrief(sessionId)?.trim(), await memoryIndex(sessionId)].filter(
+          (part): part is string => part !== undefined && part !== '',
+        );
+        return parts.length === 0 ? undefined : parts.join('\n\n');
+      };
       appMcp = new AppMcpServer({
         tools: appTools.tools,
         filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
         version: HOST_VERSION,
         instructions: instructionsWithMemory({
-          base: (sessionId) => tools.instructions(sessionId),
-          memory,
-          workspaceOf: (sessionId) => manager.workspaceOf(sessionId),
-          enabled: () => settings.get().autoMemory !== false,
-          onWarning: (message, fields) => logger.warn(message, fields),
+          // Claude 这类只取 MCP 说明开头一段的引擎：MCP 说明只有工具说明，会话须知与记忆索引在系统说明里（appToolsContext）。
+          base: (sessionId) =>
+            sessionId !== undefined && manager.appToolsContextInPrompt(sessionId)
+              ? tools.toolInstructions(sessionId)
+              : tools.instructions(sessionId),
+          inPrompt: (sessionId) => manager.appToolsContextInPrompt(sessionId),
+          ...memoryIndexOptions,
         }),
         onError: (error) => logger.error('app tools error', { error }),
         engineSession: engineSessionResolver(storage, options.engine),

@@ -334,6 +334,18 @@ type Session = RootSession | ChildSession;
  * 会话的 MCP 服务：读历史的工具（stdio，0.25.0）与应用级工具（HTTP，0.30.0）。`allowedTools` 里是不用批准的工具，其余的 MCP
  * 工具经 `canUseTool` 问用户（完全访问时直接放行）。
  */
+/** 预设系统提示词，后面接 Host 补的规则文件与应用级工具的会话上下文。 */
+function systemPrompt(
+  config: Pick<SessionConfig, 'ruleInstructions' | 'appToolsContext'>,
+): Options['systemPrompt'] {
+  const append = [config.ruleInstructions, config.appToolsContext]
+    .filter((part) => part !== undefined && part !== '')
+    .join('\n\n');
+  return append === ''
+    ? { type: 'preset', preset: 'claude_code' }
+    : { type: 'preset', preset: 'claude_code', append };
+}
+
 function mcpOptions(
   historyTool: HistoryToolServer | undefined,
   appTools: AppToolsEndpoint | undefined,
@@ -491,6 +503,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
    * `allowedTools`，其余经 `canUseTool` 走审批。
    */
   readonly appTools = true;
+
+  /**
+   * Claude Code 只取 MCP 服务说明的前 4,096 个字符：应用级工具的会话上下文（记忆索引、自动化与频道须知）改由 Host 经
+   * `SessionConfig.appToolsContext` 给，接在系统提示词后面，MCP 说明只剩工具说明。
+   */
+  appToolsContextInPrompt(): boolean {
+    return true;
+  }
 
   /**
    * 0.68.0：Claude Code 读哪些规则文件（`claudeRuleFiles`，按装着的 claude 的版本）。还找不到 claude 或没登录时按老版本答（不当
@@ -1132,11 +1152,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       // T3：要思考的摘要（新模型默认不显示思考内容）。
       thinking: { type: 'adaptive', display: 'summarized' },
       settings: { showThinkingSummaries: true },
-      // 规则文件（0.68.0）：Claude Code 自己不读的（AGENTS.md 等）由 Host 补，接在预设系统提示词的后面。
-      systemPrompt:
-        session.config.ruleInstructions === undefined
-          ? { type: 'preset', preset: 'claude_code' }
-          : { type: 'preset', preset: 'claude_code', append: session.config.ruleInstructions },
+      // 规则文件（0.68.0）：Claude Code 自己不读的（AGENTS.md 等）由 Host 补，接在预设系统提示词的后面；应用级工具的会话上下文
+      // （记忆索引等）再接在它后面。
+      systemPrompt: systemPrompt(session.config),
       ...(session.persisted ? { resume: session.id } : { sessionId: session.id }),
       ...(session.side && { persistSession: false }),
       ...(process.platform !== 'win32' && { spawnClaudeCodeProcess: spawnProcessGroup }),

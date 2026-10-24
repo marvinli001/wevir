@@ -336,6 +336,11 @@ export interface SessionManagerOptions {
      * browser-batch.ts）。回复引擎失败时照常结算。
      */
     autoAllow?(sessionId: SessionId, tool: { toolName: string; input?: unknown }): boolean;
+    /**
+     * 会话上下文（记忆索引、自动化与频道须知），给 `appToolsContextInPrompt` 的引擎放进系统说明（`SessionConfig.appToolsContext`）。
+     * 没有时返回 `undefined`。
+     */
+    context?(sessionId: SessionId): Promise<string | undefined>;
     /** 删除会话：结束这一家会话的后台进程（processes.ts）。 */
     forget?(sessionIds: readonly SessionId[]): void;
     dispose?(): void;
@@ -752,6 +757,11 @@ export class SessionManager {
   readonly #customInstructions: SessionManagerOptions['customInstructions'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
+  /**
+   * 应用级工具的会话上下文交给引擎系统说明的会话（适配器的 `appToolsContextInPrompt`）：它们的 MCP 说明只剩工具说明。建立与恢复
+   * 引擎会话时按 Provider 记下。
+   */
+  readonly #contextInPrompt = new Set<SessionId>();
   readonly #approvalRules: SessionManagerOptions['approvalRules'];
   readonly #profile: SessionManagerOptions['profile'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
@@ -835,11 +845,11 @@ export class SessionManager {
   }
 
   /** 引擎会话的配置：存下的配置加上这个会话的应用级工具（适配器能挂时）。 */
-  #engineConfig(
+  async #engineConfig(
     sessionId: SessionId,
     config: SessionConfig,
     rules?: RulePlan | undefined,
-  ): SessionConfig {
+  ): Promise<SessionConfig> {
     // 规则文件（0.68.0）：进引擎说明的那种随配置交过去，每次建立或恢复都按当时的文件。
     const withRules =
       rules?.text !== undefined && rules.rules.channel === 'instructions'
@@ -865,7 +875,23 @@ export class SessionManager {
         : { ...withConnectors, hooks: guardrails.hooks, disabledHooks: guardrails.disabledHooks };
     if (this.#adapter.appTools !== true) return withGuardrails;
     const appTools = this.#appTools?.grant(sessionId);
-    return appTools === undefined ? withGuardrails : { ...withGuardrails, appTools };
+    if (appTools === undefined) return withGuardrails;
+    if (this.#adapter.appToolsContextInPrompt?.(config.providerId) !== true) {
+      this.#contextInPrompt.delete(sessionId);
+      return { ...withGuardrails, appTools };
+    }
+    this.#contextInPrompt.add(sessionId);
+    const context = await this.#appTools?.context?.(sessionId);
+    return {
+      ...withGuardrails,
+      appTools,
+      ...(context !== undefined && { appToolsContext: context }),
+    };
+  }
+
+  /** 这个会话的应用级工具上下文在引擎的系统说明里（`appToolsContextInPrompt`），MCP 说明不再带它。 */
+  appToolsContextInPrompt(sessionId: SessionId): boolean {
+    return this.#contextInPrompt.has(sessionId);
   }
 
   /**
@@ -1252,7 +1278,7 @@ export class SessionManager {
     const profileVersion = await profile;
     try {
       engineSession = await this.#adapter.createSession(
-        this.#engineConfig(sessionId, config, rules),
+        await this.#engineConfig(sessionId, config, rules),
       );
     } catch (error) {
       this.#creating.delete(sessionId);
@@ -2526,7 +2552,7 @@ export class SessionManager {
         try {
           engine = await this.#adapter.resumeSession(
             previous.engineSessionId,
-            this.#engineConfig(runtime.id, config, rules),
+            await this.#engineConfig(runtime.id, config, rules),
           );
         } catch (error) {
           this.#unresumable.add(previous.engineSessionId);
@@ -2550,7 +2576,9 @@ export class SessionManager {
       const resumed = engine !== undefined;
       if (engine === undefined) {
         try {
-          engine = await this.#adapter.createSession(this.#engineConfig(runtime.id, config, rules));
+          engine = await this.#adapter.createSession(
+            await this.#engineConfig(runtime.id, config, rules),
+          );
         } catch (error) {
           if (isAdapterError(error, 'invalid_input')) throw invalid('providerId', errorText(error));
           const info = engineErrorInfo(error);
@@ -2911,6 +2939,7 @@ export class SessionManager {
           onWarning: this.#onWarning,
           detach: (ids) => {
             this.#forget(ids);
+            for (const id of ids) this.#contextInPrompt.delete(id);
             this.#appTools?.forget?.(ids);
           },
         },
@@ -3086,9 +3115,9 @@ export class SessionManager {
         engine = relocate
           ? await this.#adapter.resumeSession(
               runtime.engineSessionId,
-              this.#engineConfig(runtime.id, config, rules),
+              await this.#engineConfig(runtime.id, config, rules),
             )
-          : await this.#adapter.createSession(this.#engineConfig(runtime.id, config, rules));
+          : await this.#adapter.createSession(await this.#engineConfig(runtime.id, config, rules));
       } catch (error) {
         await prepared.rollback();
         const info = engineErrorInfo(error, 'session_unavailable');
@@ -3436,7 +3465,7 @@ export class SessionManager {
       try {
         engine = await this.#adapter.resumeSession(
           runtime.engineSessionId,
-          this.#engineConfig(runtime.id, sessionConfig(record), rules),
+          await this.#engineConfig(runtime.id, sessionConfig(record), rules),
         );
         if (!runtime.attachment) this.#attach(runtime);
       } catch (error) {
@@ -3534,7 +3563,7 @@ export class SessionManager {
       try {
         engineSession = await fork(
           source.engineSessionId,
-          this.#engineConfig(sessionId, config, rules),
+          await this.#engineConfig(sessionId, config, rules),
           side ? { kind: 'side' } : { kind: 'branch', dropTurns: turns.length - 1 - index },
         );
       } catch (error) {
@@ -4622,7 +4651,7 @@ export class SessionManager {
     try {
       engine = await this.#adapter.resumeSession(
         runtime.engineSessionId,
-        this.#engineConfig(runtime.id, sessionConfig(record), rules),
+        await this.#engineConfig(runtime.id, sessionConfig(record), rules),
       );
       this.#attach(runtime);
     } catch (error) {

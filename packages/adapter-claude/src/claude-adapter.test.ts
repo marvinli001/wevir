@@ -168,6 +168,32 @@ describe('一问一答（录音 plain）', () => {
     });
   });
 
+  it('应用级工具的会话上下文（记忆索引等）接在规则文件后面，不进 MCP 说明', async () => {
+    const { adapter, sdk } = harness();
+    expect(adapter.appToolsContextInPrompt()).toBe(true);
+    const both = await adapter.createSession({
+      ...CONFIG,
+      ruleInstructions: '# Rules\nUse tabs.',
+      appToolsContext: 'Saved memory:\n- [global] tabs (feedback)',
+    });
+    const only = await adapter.createSession({ ...CONFIG, appToolsContext: 'Saved memory: x' });
+    for (const id of [both.engineSessionId, only.engineSessionId]) {
+      const log = collect(adapter, id);
+      await adapter.send(id, text('hi'));
+      await log.until(isTurnTerminal);
+    }
+    expect(sessionQueries(sdk)[0]?.options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: '# Rules\nUse tabs.\n\nSaved memory:\n- [global] tabs (feedback)',
+    });
+    expect(sessionQueries(sdk)[1]?.options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: 'Saved memory: x',
+    });
+  });
+
   it('规则文件（0.68.0）：Host 补的接在预设系统提示词后面；不补时只有预设；读哪些按 claude 的版本', async () => {
     const { adapter, sdk } = harness();
     const plain = await adapter.createSession(CONFIG);

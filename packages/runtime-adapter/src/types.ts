@@ -48,6 +48,12 @@ export interface SessionConfig {
    */
   appTools?: AppToolsEndpoint;
   /**
+   * 应用级工具的会话上下文：记忆索引与自动化、频道会话的须知。只有 `appToolsContextInPrompt` 回答 true 且挂了 `appTools` 的会话会
+   * 收到；适配器把它接在引擎的系统说明后面（Claude 的 `systemPrompt.append`）。建立、恢复与分支时 Host 按当时的记忆重新给，会话内
+   * 不变。
+   */
+  appToolsContext?: string;
+  /**
    * Host 补给的规则文件（0.68.0，domain-model §3.27）：引擎自己不读的 AGENTS.md / CLAUDE.md / GEMINI.md / Cursor 规则，已排好、带
    * 来源路径的一段正文。只有 `ruleFiles(providerId).instructions` 为 true 的适配器会收到；适配器把它放进引擎每次请求都带的系统或
    * 开发者说明（Codex 的 `developerInstructions`、Claude 的 `systemPrompt.append`、OpenCode 每条消息的 `system`），恢复会话时

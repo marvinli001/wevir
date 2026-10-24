@@ -274,21 +274,46 @@ export function memoryTools({
   ];
 }
 
-/**
- * `AppMcpServer` 的 `instructions`：工具说明加上这个会话能看到的记忆索引（全局和它所在项目里启用的）。调用方不明、没有记忆
- * 或自动记忆关着时只有工具说明；记忆读不了只记一条警告，不影响引擎连上工具。会话所在的项目经 `workspaceOf` 问：引擎在会话写进
- * 存储之前就会来取说明（Codex 起 thread 时连 MCP），只查存储会认不出项目、漏掉项目的笔记（SessionManager 的 `workspaceOf` 也认
- * 正在建的会话）。
- */
-export function instructionsWithMemory(options: {
-  /** 工具说明；给函数时按调用方生成（这个会话列不出的工具不讲）。 */
-  base: string | ((sessionId: SessionId | undefined) => string | Promise<string>);
+interface MemoryIndexOptions {
   memory: MemoryStore;
   workspaceOf: (sessionId: SessionId) => string | undefined;
   /** Host 设置的 `autoMemory`；返回 false 时不加索引。省略当作开着。 */
   enabled?: () => boolean;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
-}): (sessionId: SessionId | undefined) => Promise<string> {
+}
+
+/**
+ * 这个会话能看到的记忆索引（全局和它所在项目里启用的）；调用方不明时只有全局的。没有记忆、自动记忆关着或读不了（只记一条警告）时
+ * 是 `undefined`。会话所在的项目经 `workspaceOf` 问：引擎在会话写进存储之前就会来取说明（Codex 起 thread 时连 MCP），只查存储会
+ * 认不出项目、漏掉项目的笔记（SessionManager 的 `workspaceOf` 也认正在建的会话）。
+ */
+export function sessionMemoryIndex(
+  options: MemoryIndexOptions,
+): (sessionId: SessionId | undefined) => Promise<string | undefined> {
+  return async (sessionId) => {
+    if (options.enabled?.() === false) return undefined;
+    try {
+      const workspaceId = sessionId === undefined ? undefined : options.workspaceOf(sessionId);
+      return await options.memory.indexText(workspaceId);
+    } catch (error) {
+      options.onWarning?.('failed to read saved memory for the tool instructions', { error });
+      return undefined;
+    }
+  };
+}
+
+/**
+ * `AppMcpServer` 的 `instructions`：工具说明加上记忆索引（`sessionMemoryIndex`）。自动记忆关着时连讲记忆工具的那一行也去掉；
+ * `inPrompt` 回答 true 的会话（记忆索引在引擎的系统说明里，`SessionConfig.appToolsContext`）不接索引。
+ */
+export function instructionsWithMemory(
+  options: MemoryIndexOptions & {
+    /** 工具说明；给函数时按调用方生成（这个会话列不出的工具不讲）。 */
+    base: string | ((sessionId: SessionId | undefined) => string | Promise<string>);
+    inPrompt?: (sessionId: SessionId) => boolean;
+  },
+): (sessionId: SessionId | undefined) => Promise<string> {
+  const indexOf = sessionMemoryIndex(options);
   return async (sessionId) => {
     const base = typeof options.base === 'string' ? options.base : await options.base(sessionId);
     // 关着时连工具说明里讲记忆工具的那一行也去掉：工具不列出，说明不该再提它们。
@@ -298,13 +323,8 @@ export function instructionsWithMemory(options: {
         .filter((line) => !line.startsWith('- wevir_memory_'))
         .join('\n');
     }
-    try {
-      const workspaceId = sessionId === undefined ? undefined : options.workspaceOf(sessionId);
-      const index = await options.memory.indexText(workspaceId);
-      return index === undefined ? base : `${base}\n\n${index}`;
-    } catch (error) {
-      options.onWarning?.('failed to read saved memory for the tool instructions', { error });
-      return base;
-    }
+    if (sessionId !== undefined && options.inPrompt?.(sessionId) === true) return base;
+    const index = await indexOf(sessionId);
+    return index === undefined ? base : `${base}\n\n${index}`;
   };
 }
