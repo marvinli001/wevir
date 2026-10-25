@@ -474,18 +474,18 @@ describe('预设模板（providers.md §7）', () => {
     expect(created).toMatchObject({
       api: 'openai-responses',
       baseURL: 'https://api.moonshot.cn/v1',
-      defaultModelId: 'kimi-k3',
+      defaultModelId: 'kimi-k3.1-pro',
       compat: { toolChoice: 'auto_only' },
     });
-    expect(created.models).toEqual([
-      {
-        id: 'kimi-k3',
+    expect(created.models).toEqual(
+      ['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3'].map((id) => ({
+        id,
         contextWindow: 1048576,
         maxTokens: 1048576,
         supportsImages: true,
         reasoningEfforts: ['low', 'high', 'max'],
-      },
-    ]);
+      })),
+    );
     expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.com/v1' })).toHaveProperty(
       'compat',
       { toolChoice: 'auto_only' },
@@ -1132,16 +1132,16 @@ describe('TokenHub 按量模板', () => {
           maxTokens: 128000,
           reasoningEfforts: ['low', 'high', 'max'],
         },
-        {
-          id: 'kimi-k3',
+        ...['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3'].map((id) => ({
+          id,
           contextWindow: 1000000,
           maxTokens: 1048576,
           supportsImages: true,
           reasoningEfforts: ['low', 'high', 'max'],
-        },
+        })),
       ],
     });
-    expect(created.models).toHaveLength(5);
+    expect(created.models).toHaveLength(7);
     const saved = profile({ ...created, hasSecret: true } as Partial<EditableProvider>);
     expect(toUpsertParams(editForm(saved))).toMatchObject({
       models: created.models,

@@ -249,23 +249,21 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://help.aliyun.com/zh/model-studio/codex',
   },
   {
-    // 官方 Responses 当前只支持 K3（2026-10-17 核对，providers.md §7.3）。
+    // 官方 Responses 当前只支持 K3.1 Pro（含高速版）与 K3，三者参数约束一致（2026-10-25 核对，providers.md §7.3）。
     id: 'kimi',
     name: 'provider.preset.kimi',
     note: 'provider.preset.kimi.note',
     api: 'openai-responses',
     baseURL: 'https://api.moonshot.cn/v1',
     compat: { toolChoice: 'auto_only' },
-    models: [
-      {
-        id: 'kimi-k3',
-        contextWindow: 1048576,
-        maxTokens: 1048576,
-        supportsImages: true,
-        reasoningEfforts: ['low', 'high', 'max'],
-      },
-    ],
-    defaultModelId: 'kimi-k3',
+    models: ['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3'].map((id) => ({
+      id,
+      contextWindow: 1048576,
+      maxTokens: 1048576,
+      supportsImages: true,
+      reasoningEfforts: ['low', 'high', 'max'],
+    })),
+    defaultModelId: 'kimi-k3.1-pro',
     docsURL: 'https://platform.kimi.com/docs/guide/codex-kimi.md',
   },
   {
@@ -335,7 +333,7 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://platform.minimax.cn/docs/api-reference/responses-create',
   },
   {
-    // TokenHub 广州按量 Responses；namespace 待实测，保守摊平（providers.md §7.16）。
+    // TokenHub 广州按量 Responses；namespace 待实测，保守摊平。K3.1 Pro 两款 2026-10-25 起上架（providers.md §7.16）。
     id: 'tencent',
     name: 'provider.catalog.tencent',
     note: 'provider.preset.tencent.note',
@@ -367,13 +365,13 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
         maxTokens: 128000,
         reasoningEfforts: ['low', 'high', 'max'],
       },
-      {
-        id: 'kimi-k3',
+      ...['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed', 'kimi-k3'].map((id) => ({
+        id,
         contextWindow: 1000000,
         maxTokens: 1048576,
         supportsImages: true,
-        reasoningEfforts: ['low', 'high', 'max'],
-      },
+        reasoningEfforts: ['low', 'high', 'max'] satisfies ProviderModel['reasoningEfforts'],
+      })),
     ],
     defaultModelId: 'hy3',
     docsURL: 'https://intl.cloud.tencent.com/zh/document/product/1300/82454',

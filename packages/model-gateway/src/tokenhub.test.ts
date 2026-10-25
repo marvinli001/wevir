@@ -89,8 +89,8 @@ describe('TokenHub 按量 Responses', () => {
   });
 
   it.each(
-    ['hy3', 'hy4-preview', 'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'].flatMap((model) =>
-      CODEX_SAMPLES.map((name) => ({ model, name })),
+    ['hy3', 'hy4-preview', 'deepseek-v4-pro', 'glm-5.3', 'kimi-k3.1-pro', 'kimi-k3'].flatMap(
+      (model) => CODEX_SAMPLES.map((name) => ({ model, name })),
     ),
   )('$model / $name 摊平工具与历史，保留完整推理与缓存字段', ({ model, name }) => {
     const body: ResponsesRequest = {

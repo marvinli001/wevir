@@ -154,12 +154,14 @@ describe('思考格式的请求（同一份录制工具结果）', () => {
     expect(translated('tencent', 'none', 'glm-5.3').thinking).toEqual({ type: 'enabled' });
   });
 
-  it('Kimi K3 只发 effort，K2.7-code 不发关闭参数，K2.6 开思考并保留历史', () => {
+  it('Kimi K3 / K3.1 只发 effort，K2.7-code 不发关闭参数，K2.6 开思考并保留历史', () => {
     for (const format of ['deepseek', 'openai', 'qwen']) {
-      const k3 = translated(format, 'none', 'kimi-k3');
-      expect(k3.reasoning_effort).toBe('low');
-      for (const key of ['thinking', 'thinking_budget', 'enable_thinking'])
-        expect(k3).not.toHaveProperty(key);
+      for (const model of ['kimi-k3', 'kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed']) {
+        const k3 = translated(format, 'none', model);
+        expect(k3.reasoning_effort).toBe('low');
+        for (const key of ['thinking', 'thinking_budget', 'enable_thinking'])
+          expect(k3).not.toHaveProperty(key);
+      }
       const code = translated(format, 'none', 'kimi-k2.7-code-highspeed');
       expect(code).not.toHaveProperty('thinking');
       expect(code).not.toHaveProperty('reasoning_effort');
