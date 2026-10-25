@@ -546,14 +546,20 @@ export interface UserMessageItem {
   content: Array<{ type: string; text?: string; [key: string]: unknown }>;
 }
 
-/** ThreadItem `webSearch`（WebSearchItem.ts）。 */
+/**
+ * ThreadItem `webSearch`（WebSearchItem.ts）。没有 `status`：开始时 `query` 是空串、`action` 与 `results` 为 null，
+ * 完成时 `query` 才有内容（搜索词，打开网页时是网址）。
+ */
 export interface WebSearchToolItem {
   type: 'webSearch';
   id: string;
   query: string;
+  /** `search` / `openPage` / `findInPage` / `other`（v2/WebSearchAction.ts）。 */
+  action?: { type: string; [key: string]: unknown } | null;
+  results?: unknown[] | null;
 }
 
-/** ThreadItem `imageView` */
+/** ThreadItem `imageView`（没有 `status`）。 */
 export interface ImageViewItem {
   type: 'imageView';
   id: string;

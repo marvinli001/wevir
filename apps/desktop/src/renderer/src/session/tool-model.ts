@@ -517,6 +517,27 @@ function lineVerbKind(part: ToolPart): Exclude<ToolDisplayKind, 'image'> | 'crea
   return changed.create.length > 0 && changed.edit.length === 0 ? 'create' : 'write';
 }
 
+/**
+ * Host 给 browser_batch / browser_run 换上的显示是每一步的列表（`browserId: …`、`1. browser_type {…}`）或脚本全文
+ * （browser-batch.ts 的 `browserComposeDisplay`），审批卡片整段用；一行标题只写工具名，列表放进悬停提示。不是这两个工具、
+ * 摘要也只有一行时返回 undefined。
+ */
+function stepListSummary(part: ToolPart): string | undefined {
+  const { summary } = part.display;
+  if (part.display.kind !== 'unknown' || summary === undefined || summary.trim() === '') {
+    return undefined;
+  }
+  return summary.includes('\n') || /(?:^|__)browser_(?:batch|run)$/.test(part.toolName)
+    ? summary
+    : undefined;
+}
+
+/** 工具名的一行写法：`mcp__wevir_more__browser_batch` → `wevir_more/browser_batch`（与 Codex 给的摘要同形），其余原样。 */
+function toolLabel(toolName: string): string {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  return mcp?.[1] === undefined ? toolName : `${mcp[1]}/${mcp[2]}`;
+}
+
 /** 命令跑了这么久才在行尾写用时。 */
 const SHELL_DURATION_WORTH_MENTIONING_MS = 2000;
 
@@ -528,9 +549,12 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
   const lifecycle = toolLifecycle(part, turnActive);
   const verbKind = lineVerbKind(part);
   const verb = t(`work.verb.${verbKind}`);
+  const steps = stepListSummary(part);
   const summary =
     part.display.kind === 'unknown'
-      ? (part.display.summary ?? part.toolName)
+      ? steps === undefined
+        ? (part.display.summary ?? part.toolName)
+        : toolLabel(part.toolName)
       : part.display.kind === 'plan'
         ? undefined
         : toolSummary(part);
@@ -544,7 +568,7 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
       : summary;
   const targetTitle = paths?.length
     ? paths.map((path) => relativeToRoot(path, root)).join('\n')
-    : undefined;
+    : steps;
   const ms =
     kind === 'shell' && (lifecycle === 'completed' || lifecycle === 'failed')
       ? between(part.startedAt, part.finishedAt)

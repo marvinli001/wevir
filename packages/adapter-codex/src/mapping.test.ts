@@ -922,6 +922,46 @@ describe('映射的边界情况', () => {
     ]);
   });
 
+  it('webSearch、imageView 没有 status 字段：完成记为 completed，开始时的空查询补上后更新展示', () => {
+    const mapper = new CodexEventMapper(id);
+    // 真实会话的形状：item/started 的 query 为空、action 与 results 为 null，item/completed 才带搜索词或网址。
+    const started = { type: 'webSearch', id: 'exec-1', query: '', action: null, results: null };
+    const opened = {
+      type: 'webSearch',
+      id: 'exec-1',
+      query: 'https://docs.sendflare.com/',
+      action: { type: 'openPage', url: 'https://docs.sendflare.com/' },
+      results: null,
+    };
+    const startedEvents = mapper.map('item/started', { threadId: id, turnId, item: started });
+    expect(types(startedEvents)).toEqual(['tool.started']);
+    const done = mapper.map('item/completed', { threadId: id, turnId, item: opened });
+    expect(types(done)).toEqual(['tool.updated', 'tool.finished']);
+    expect(of(done, 'tool.updated')[0]?.display).toMatchObject({
+      kind: 'search',
+      summary: 'https://docs.sendflare.com/',
+    });
+    expect(of(done, 'tool.finished')[0]).toMatchObject({ status: 'completed' });
+    expect(of(done, 'tool.finished')[0]).not.toHaveProperty('output');
+
+    const image = { type: 'imageView', id: 'img-1', path: '/tmp/a.png' };
+    mapper.map('item/started', { threadId: id, turnId, item: image });
+    expect(
+      of(mapper.map('item/completed', { threadId: id, turnId, item: image }), 'tool.finished'),
+    ).toMatchObject([{ status: 'completed' }]);
+
+    // 回合被打断时仍在跑的搜索照旧记为失败。
+    const running = { type: 'webSearch', id: 'exec-2', query: '', action: null, results: null };
+    mapper.map('item/started', { threadId: id, turnId, item: running });
+    const interrupted = mapper.map('turn/completed', {
+      threadId: id,
+      turn: { id: turnId, status: 'interrupted' },
+    });
+    expect(of(interrupted, 'tool.finished')).toMatchObject([
+      { toolCallId: 'exec-2', status: 'failed' },
+    ]);
+  });
+
   it('turn.failed 的说明带上 additionalDetails', () => {
     const mapper = new CodexEventMapper(id);
     const [event] = mapper.map('turn/completed', {

@@ -45,6 +45,7 @@ import {
   toolInput,
   toolName,
   toolOutput,
+  toolStatus,
 } from './tool-display.js';
 import { classifyTurnError } from './turn-error.js';
 
@@ -534,8 +535,8 @@ export class CodexEventMapper {
       engineSessionId: this.engineSessionId,
       toolCallId: item.id,
       // declined（被拒绝）、interrupted 都记为 failed：tool.finished 只有两种状态，拒绝的语义由审批事件承担
-      // （ADR-0005 决策 6.2）。
-      status: item.status === 'completed' ? 'completed' : 'failed',
+      // （ADR-0005 决策 6.2）；webSearch / imageView 没有状态字段，见 toolStatus。
+      status: toolStatus(item),
       ...(output !== undefined && { output }),
       ...(images !== undefined && { images }),
     });

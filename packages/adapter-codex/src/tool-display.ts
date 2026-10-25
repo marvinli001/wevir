@@ -82,6 +82,17 @@ export function toolName(item: ToolItem): string {
   }
 }
 
+/**
+ * `tool.finished.status`：`completed` → completed，`failed` / `declined` / `interrupted` → failed（declined 先映射为
+ * failed，拒绝的语义由审批事件承担，ADR-0005 决策 6.2）。`webSearch`、`imageView` 的 item 没有 `status` 字段
+ * （WebSearchItem.ts、ThreadItem 的 imageView），收到 `item/completed` 就是做完了；按“没写 completed 就是失败”判会把
+ * 每次网页搜索与看图都记成失败。
+ */
+export function toolStatus(item: ToolItem): 'completed' | 'failed' {
+  if (item.type === 'webSearch' || item.type === 'imageView') return 'completed';
+  return item.status === 'completed' ? 'completed' : 'failed';
+}
+
 export function toolDisplay(item: ToolItem): ToolDisplay {
   switch (item.type) {
     case 'commandExecution':

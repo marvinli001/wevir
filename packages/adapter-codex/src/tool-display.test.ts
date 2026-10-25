@@ -8,6 +8,7 @@ import {
   toolDisplay,
   toolName,
   toolOutput,
+  toolStatus,
 } from './tool-display.js';
 
 describe('displayCommand', () => {
@@ -135,6 +136,27 @@ describe('工具名与其他 item', () => {
       summary: '/a.png',
       paths: ['/a.png'],
     });
+  });
+
+  it('toolStatus：webSearch、imageView 没有 status 字段，完成就是 completed；其余按 status', () => {
+    expect(
+      toolStatus({ type: 'webSearch', id: '1', query: 'q', action: null, results: null }),
+    ).toBe('completed');
+    expect(toolStatus({ type: 'imageView', id: '2', path: '/a.png' })).toBe('completed');
+    const mcp = (status: 'completed' | 'failed' | 'declined' | 'interrupted'): ToolItem => ({
+      type: 'mcpToolCall',
+      id: '3',
+      server: 'fs',
+      tool: 'read',
+      status,
+      arguments: {},
+      result: null,
+      error: null,
+    });
+    expect(toolStatus(mcp('completed'))).toBe('completed');
+    for (const status of ['failed', 'declined', 'interrupted'] as const) {
+      expect(toolStatus(mcp(status))).toBe('failed');
+    }
   });
 
   it('isToolItem 检查映射要读的字段', () => {

@@ -377,6 +377,36 @@ describe('逐条的一行', () => {
       label: '已调用',
       target: 'mcp__x__y',
     });
+    // Host 给批量浏览器调用换上的步骤列表不当标题：标题是工具名，列表在悬停提示里。
+    const steps =
+      'browserId: tab_1\n1. browser_type {"ref":"@e21","text":"a"}\n2. browser_snapshot {"changes":true}';
+    const batch = (toolName: string, summary: string) =>
+      toolLine(
+        tool('b', 'unknown', {
+          toolName,
+          display: { kind: 'unknown', summary, mcpServer: 'wevir_more' },
+        }),
+        true,
+      );
+    expect(batch('mcp__wevir_more__browser_batch', steps)).toEqual({
+      label: '已调用',
+      target: 'wevir_more/browser_batch',
+      targetTitle: steps,
+      tone: 'done',
+    });
+    // 只有一步、没有 browserId 时摘要只有一行，照样按工具名；其他工具的单行摘要不动。
+    expect(batch('mcp__wevir__browser_batch', '1. browser_click {"ref":"@e1"}')).toMatchObject({
+      target: 'wevir/browser_batch',
+      targetTitle: '1. browser_click {"ref":"@e1"}',
+    });
+    expect(batch('mcp__wevir__browser_run', 'tab = tab_1\nawait tab.snapshot()')).toMatchObject({
+      target: 'wevir/browser_run',
+    });
+    expect(batch('mcp__wevir_more__browser_click', 'wevir_more/browser_click')).toEqual({
+      label: '已调用',
+      target: 'wevir_more/browser_click',
+      tone: 'done',
+    });
     expect(toolLine(tool('a', 'plan', { input: { todos: 'x' } }), true)).toEqual({
       label: '已更新计划',
       tone: 'done',
