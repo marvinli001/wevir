@@ -667,13 +667,15 @@ describe('预设模板（providers.md §7）', () => {
       compat: preset.compat,
     });
   });
-  it('每个模板填 Key 并替换资源与部署占位后都是合法的 provider.upsert 参数', () => {
+  it('每个模板填 Key 并替换资源、地域与部署占位后都是合法的 provider.upsert 参数', () => {
     for (const preset of OPENAI_PRESETS) {
       const initial = newOpenAIForm(preset, []);
       const form = {
         ...initial,
         apiKey: 'sk-test',
-        baseURL: initial.baseURL.replace('<resource>', 'my-resource'),
+        baseURL: initial.baseURL
+          .replace('<resource>', 'my-resource')
+          .replace('<region>', 'us-east-1'),
         models: (initial.models.length > 0
           ? initial.models
           : [modelRow({ id: 'discovered-model', contextWindow: 65536 })]

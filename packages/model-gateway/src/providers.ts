@@ -61,6 +61,33 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   },
   { matches: isZaiHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
   {
+    matches: isOpenRouterHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
+    matches: isVercelGatewayHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
+    matches: isGroqHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false },
+  },
+  { matches: isFireworksHost, api: 'openai-responses', compat: { supportsCustomTools: false } },
+  {
+    matches: isArkHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
+    matches: isBedrockMantleHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  { matches: isBedrockMantleHost, api: 'anthropic-messages', compat: { toolChoice: 'auto_only' } },
+  {
     matches: isPhalaHost,
     api: 'openai-responses',
     compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
@@ -332,6 +359,54 @@ export function isPhalaHost(baseURL: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 主机名与路径都对上才算（地址默认只认已核对的端点，不为相似域名或其他路径补值）。 */
+function hostAndPath(baseURL: string, host: RegExp, path: RegExp): boolean {
+  try {
+    const url = new URL(baseURL);
+    return (
+      ['https:', 'http:'].includes(url.protocol) &&
+      host.test(url.hostname) &&
+      path.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** OpenRouter 的 Responses（无状态，model-gateway.md §3.16）。 */
+export function isOpenRouterHost(baseURL: string): boolean {
+  return hostAndPath(baseURL, /^openrouter\.ai$/, /^\/api\/v1\/*$/);
+}
+
+/** Vercel AI Gateway：通用 /v1 与 Codex 专用 /codex/v1（§3.17）。 */
+export function isVercelGatewayHost(baseURL: string): boolean {
+  return hostAndPath(baseURL, /^ai-gateway\.vercel\.sh$/, /^\/(?:codex\/)?v1\/*$/);
+}
+
+/** Groq 的 OpenAI 兼容端点（§3.18）。 */
+export function isGroqHost(baseURL: string): boolean {
+  return hostAndPath(baseURL, /^api\.groq\.com$/, /^\/openai\/v1\/*$/);
+}
+
+/** Fireworks 的推理端点（§3.19）。 */
+export function isFireworksHost(baseURL: string): boolean {
+  return hostAndPath(baseURL, /^api\.fireworks\.ai$/, /^\/inference\/v1\/*$/);
+}
+
+/** 火山方舟按量 API（/api/v3）；编程套餐的 /api/coding 路径不补默认（§3.20）。 */
+export function isArkHost(baseURL: string): boolean {
+  return hostAndPath(baseURL, /^ark\.[a-z0-9-]+\.volces\.com$/, /^\/api\/v3\/*$/);
+}
+
+/** Bedrock Mantle 各地域的 OpenAI 与 Anthropic 路径（§3.21）；bedrock-runtime 与 IAM 签名不在此列。 */
+export function isBedrockMantleHost(baseURL: string): boolean {
+  return hostAndPath(
+    baseURL,
+    /^bedrock-mantle\.[a-z0-9-]+\.api\.aws$/,
+    /^\/(?:openai\/v1|v1|anthropic(?:\/v1)?)\/*$/,
+  );
 }
 
 /** Z.ai / 智谱的标准 API 地址；只认已核对的路径，不为套餐域名或路径补值（model-gateway.md §3.9）。 */

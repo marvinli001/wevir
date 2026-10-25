@@ -48,6 +48,11 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'provider.preset.tencent.note',
   // 国内按量与国际站的地址 / Key 须区分，按服务接入要求显示地域和大陆直连事实。
   'provider.preset.stepfun.note',
+  // Bedrock 的 Key 按地域签发，模板模型只在少数地域可用，填 <region> 前必须知道。
+  'provider.preset.bedrock.note',
+  'provider.preset.bedrockClaude.note',
+  // 火山方舟只有北京地域，国际站 BytePlus 的地址与 Key 不通用。
+  'provider.preset.volcengine.note',
   // 402 的开通后付费操作是连接失败时的必要修复建议。
   'provider.tokenhub.activation.hint',
   'provider.preset.zai.note',

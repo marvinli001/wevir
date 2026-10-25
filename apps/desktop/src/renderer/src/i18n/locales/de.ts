@@ -1641,6 +1641,17 @@ export const messages: Messages = {
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',
+  'provider.catalog.openrouter': 'OpenRouter',
+  'provider.catalog.vercel': 'Vercel AI Gateway',
+  'provider.catalog.groq': 'Groq',
+  'provider.catalog.fireworks': 'Fireworks AI',
+  'provider.catalog.bedrock': 'Amazon Bedrock OpenAI',
+  'provider.catalog.bedrockClaude': 'Amazon Bedrock Claude',
+  'provider.catalog.volcengine': 'Volcengine Ark',
+  'provider.preset.bedrock.note': 'Region: us-east-1; Astra auch us-west-2',
+  'provider.preset.bedrockClaude.note': 'Region: us-east-1 oder ap-southeast-4',
+  'provider.preset.volcengine.note':
+    'Peking, nutzungsbasiert; BytePlus international mit eigener URL und eigenem Schlüssel',
   'provider.phala.phala_no_route.title': 'Keine RedPill-Route erfüllt die Bedingungen',
   'provider.phala.phala_no_route.hint': 'Modell und Routing-Bedingungen prüfen',
   'provider.phala.phala_attestation_unavailable.title':

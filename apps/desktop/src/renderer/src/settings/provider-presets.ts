@@ -502,6 +502,233 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://docs.redpill.ai/guides/integrations/coding-tools/codex-cli',
   },
   {
+    // 公开 /api/v1/models（2026-10-25）：四款均声明 tools / tool_choice，力度取各自 supported_efforts；Responses 无状态，
+    // 历史里的 assistant 消息须带 id / status（网关补齐）。schema 列有 custom / namespace，但转发到各家上游未经验证，保守摊平。
+    id: 'openrouter',
+    name: 'provider.catalog.openrouter',
+    api: 'openai-responses',
+    baseURL: 'https://openrouter.ai/api/v1',
+    models: [
+      {
+        id: 'openai/gpt-6.1-sol',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'anthropic/claude-opus-5.5',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'google/gemini-4-argon',
+        contextWindow: 1048576,
+        maxTokens: 943718,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'moonshotai/kimi-k3.1-pro',
+        contextWindow: 1048576,
+        maxTokens: 943718,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'high', 'max'],
+      },
+    ],
+    defaultModelId: 'openai/gpt-6.1-sol',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    docsURL: 'https://openrouter.ai/docs/cookbook/coding-agents/codex-cli',
+  },
+  {
+    // 公开 /v1/models（2026-10-25）：四款均标 tool-use，力度取 reasoning_options；Codex 指南默认 GPT-6 Astra。
+    // 文档只写 function 工具，custom / namespace 未说明，保守摊平。
+    id: 'vercel',
+    name: 'provider.catalog.vercel',
+    api: 'openai-responses',
+    baseURL: 'https://ai-gateway.vercel.sh/v1',
+    models: [
+      {
+        id: 'openai/gpt-6-astra',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'anthropic/claude-opus-5.5',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'google/gemini-4-argon',
+        contextWindow: 1000000,
+        maxTokens: 1000000,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'moonshotai/kimi-k3.1-pro',
+        contextWindow: 1048576,
+        maxTokens: 1048576,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'high', 'max'],
+      },
+    ],
+    defaultModelId: 'openai/gpt-6-astra',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    docsURL: 'https://vercel.com/docs/ai-gateway/coding-agents/openai-codex',
+  },
+  {
+    // Responses beta（2026-10-25 核对）：只收 function 工具，不支持 include / prompt_cache_key（网关去掉）；
+    // tool_choice 文档列 none / auto / required / 具名，原样透传。
+    id: 'groq',
+    name: 'provider.catalog.groq',
+    api: 'openai-responses',
+    baseURL: 'https://api.groq.com/openai/v1',
+    models: [
+      {
+        id: 'openai/gpt-oss-120b',
+        contextWindow: 131072,
+        maxTokens: 65536,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'openai/gpt-oss-20b',
+        contextWindow: 131072,
+        maxTokens: 65536,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'qwen/qwen3.8-27b',
+        contextWindow: 131072,
+        maxTokens: 16384,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'medium', 'high'],
+      },
+    ],
+    defaultModelId: 'openai/gpt-oss-120b',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'any' },
+    docsURL: 'https://console.groq.com/docs/responses-api',
+  },
+  {
+    // Responses 指南（2026-10-25 核对）明确接收 Codex 的 namespace 并在服务端摊平；custom 未说明，include 只认 logprobs
+    // （网关去掉其余值）。最大输出未公布，不填 maxTokens；Kimi 力度按官方映射只列有区别的档位。
+    id: 'fireworks',
+    name: 'provider.catalog.fireworks',
+    api: 'openai-responses',
+    baseURL: 'https://api.fireworks.ai/inference/v1',
+    models: [
+      {
+        id: 'accounts/fireworks/models/kimi-k3',
+        contextWindow: 1040000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'high', 'max'],
+      },
+      { id: 'accounts/fireworks/models/glm-5p3', contextWindow: 1040000 },
+    ],
+    defaultModelId: 'accounts/fireworks/models/kimi-k3',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: true, toolChoice: 'any' },
+    docsURL: 'https://docs.fireworks.ai/nexus/harnesses/codex',
+  },
+  {
+    // Bedrock Mantle 的 OpenAI 路径（2026-10-25 核对）：长期 API Key 按地域签发，GPT 系列走 /openai/v1；
+    // 工具文档只示例 function，保守摊平。只支持 API Key，不走 IAM / SigV4。
+    id: 'bedrock',
+    name: 'provider.catalog.bedrock',
+    note: 'provider.preset.bedrock.note',
+    api: 'openai-responses',
+    baseURL: 'https://bedrock-mantle.<region>.api.aws/openai/v1',
+    models: [
+      {
+        id: 'openai.gpt-6.1-sol',
+        contextWindow: 1000000,
+        maxTokens: 131072,
+        supportsImages: true,
+      },
+      {
+        id: 'openai.gpt-6-astra',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+      },
+      {
+        id: 'openai.gpt-6-luna',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: ['off', ...FIVE_EFFORTS],
+      },
+    ],
+    defaultModelId: 'openai.gpt-6.1-sol',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    docsURL: 'https://docs.aws.amazon.com/bedrock/latest/userguide/inference-responses-api.html',
+  },
+  {
+    // Mantle 的 Messages（2026-10-25 核对）：Opus 5.5 在 us-east-1 / ap-southeast-4 可用，tool_choice 只认 auto / none。
+    id: 'bedrock-claude',
+    name: 'provider.catalog.bedrockClaude',
+    note: 'provider.preset.bedrockClaude.note',
+    api: 'anthropic-messages',
+    baseURL: 'https://bedrock-mantle.<region>.api.aws/anthropic/v1',
+    compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline', toolChoice: 'auto_only' },
+    models: [
+      {
+        id: 'anthropic.claude-opus-5-5',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+    ],
+    defaultModelId: 'anthropic.claude-opus-5-5',
+    docsURL: 'https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.html',
+  },
+  {
+    // 火山方舟北京按量 Responses（2026-10-25 核对）：模型 ID 直接可用，无需建接入点；只列 function 等托管工具，
+    // tool_choice 仅写明 Seed 2.0 系列，保守摊平并只发 auto。窗口与输出按“1024k / 256k”保守登记。
+    id: 'volcengine',
+    name: 'provider.catalog.volcengine',
+    note: 'provider.preset.volcengine.note',
+    api: 'openai-responses',
+    baseURL: 'https://ark.cn-beijing.volces.com/api/v3',
+    models: [
+      {
+        id: 'doubao-seed-2-1-pro-260915',
+        contextWindow: 1024000,
+        maxTokens: 256000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'medium', 'high'],
+      },
+      {
+        id: 'deepseek-v4-pro-ga-260813',
+        contextWindow: 1024000,
+        maxTokens: 384000,
+        reasoningEfforts: ['off', 'low', 'high'],
+      },
+      {
+        id: 'kimi-k3-1-pro-261024',
+        contextWindow: 1024000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'high', 'max'],
+      },
+      {
+        id: 'glm-5-2-260617',
+        contextWindow: 1024000,
+        maxTokens: 128000,
+        reasoningEfforts: ['high', 'max'],
+      },
+    ],
+    defaultModelId: 'doubao-seed-2-1-pro-260915',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    docsURL: 'https://www.volcengine.com/docs/82379/1585135',
+  },
+  {
     id: 'ollama-cloud',
     name: 'provider.preset.ollamaCloud',
     api: 'openai-responses',

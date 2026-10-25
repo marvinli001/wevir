@@ -271,6 +271,9 @@ describe('价格表的辅助函数', () => {
     expect(providerForUrl('https://api.z.ai/api/coding/paas/v4/', table)).toBe('zai-coding-plan');
     expect(providerForUrl('https://api.z.ai/api/paas/v4', table)).toBe('zai');
     expect(providerForUrl('https://api.openai.com/v1', table)).toBe('openai');
+    expect(providerForUrl('https://ai-gateway.vercel.sh/v1', table)).toBe('vercel');
+    expect(providerForUrl('https://api.fireworks.ai/inference/v1', table)).toBe('fireworks-ai');
+    expect(providerForUrl('https://ark.cn-beijing.volces.com/api/v3', table)).toBe('volcengine');
     expect(providerForUrl('http://localhost:8080/v1', table)).toBeUndefined();
     expect(providerForUrl('not a url', table)).toBeUndefined();
   });

@@ -379,6 +379,9 @@ const KNOWN_HOSTS: Record<string, string> = {
   'api.mistral.ai': 'mistral',
   'api.groq.com': 'groq',
   'openrouter.ai': 'openrouter',
+  'ai-gateway.vercel.sh': 'vercel',
+  'api.fireworks.ai': 'fireworks-ai',
+  'ark.cn-beijing.volces.com': 'volcengine',
   'api.moonshot.ai': 'moonshotai',
   'api.moonshot.cn': 'moonshotai-cn',
 };

@@ -5,8 +5,11 @@ import {
   effectiveCompat,
   isAzureHost,
   isDeepSeekHost,
+  isFireworksHost,
+  isGroqHost,
   isKimiHost,
   isMinimaxHost,
+  isOpenRouterHost,
   isXaiHost,
 } from './providers.js';
 import {
@@ -254,6 +257,62 @@ export const kimiDataImagesOnly: DialectFix = {
   },
 };
 
+const responsesAt =
+  (matches: (baseURL: string) => boolean) =>
+  (provider: GatewayProvider): boolean =>
+    provider.kind === 'openai-compatible' &&
+    provider.api === 'openai-responses' &&
+    matches(provider.baseURL ?? '');
+
+/**
+ * OpenRouter 要求历史里的 assistant 消息带 `id` 与 `status`（Responses 基本用法文档）；Codex 回放的 assistant 消息不带
+ * status，缺 id 时也补一个，服务无状态，不会按它查记录（§3.16）。
+ */
+export const openrouterAssistantMessageState: DialectFix = {
+  id: 'openrouter-assistant-message-state',
+  applies: responsesAt(isOpenRouterHost),
+  apply(body) {
+    if (!Array.isArray(body.input)) return { body };
+    const input = body.input.map((item, index) => {
+      if (item.type !== 'message' || item.role !== 'assistant') return item;
+      if (typeof item.id === 'string' && typeof item.status === 'string') return item;
+      return {
+        ...item,
+        id: typeof item.id === 'string' ? item.id : `msg_wevir_${index}`,
+        status: typeof item.status === 'string' ? item.status : 'completed',
+      };
+    });
+    return input.some((item, index) => item !== body.input[index])
+      ? { body: { ...body, input } }
+      : { body };
+  },
+};
+
+/** Groq Responses 文档把 `include` 与 `prompt_cache_key` 列为不支持，去掉；`store: false` 仍可用（§3.18）。 */
+export const groqUnsupportedFields: DialectFix = {
+  id: 'groq-unsupported-fields',
+  applies: responsesAt(isGroqHost),
+  apply(body) {
+    if (!('include' in body) && !('prompt_cache_key' in body)) return { body };
+    const { include: _include, prompt_cache_key: _cacheKey, ...rest } = body;
+    return { body: rest as ResponsesRequest };
+  },
+};
+
+/** Fireworks 的 `include` 只认 `message.output_text.logprobs`，其余值（Codex 的加密推理）去掉（§3.19）。 */
+export const fireworksInclude: DialectFix = {
+  id: 'fireworks-include',
+  applies: responsesAt(isFireworksHost),
+  apply(body) {
+    if (!Array.isArray(body.include)) return { body };
+    const include = body.include.filter((value) => value === 'message.output_text.logprobs');
+    if (include.length === body.include.length) return { body };
+    if (include.length > 0) return { body: { ...body, include } };
+    const { include: _drop, ...rest } = body;
+    return { body: rest as ResponsesRequest };
+  },
+};
+
 /**
  * Provider 不支持自定义工具时，把 custom 工具（apply_patch）按 Chat 转换的办法摊平成只有 `input` 参数的函数，历史里的
  * custom_tool_call / _output 也换成函数调用；响应里同名的 function_call 再还原成 custom_tool_call。namespace 不动，
@@ -396,6 +455,9 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   azureEncryptedReasoning,
   kimiDataImagesOnly,
   minimaxReasoning,
+  openrouterAssistantMessageState,
+  groqUnsupportedFields,
+  fireworksInclude,
   deepseekNamespaceDescription,
   autoOnlyToolChoice,
   flattenCustomTools,
