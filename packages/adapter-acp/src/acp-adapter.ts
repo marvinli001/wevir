@@ -30,7 +30,7 @@ import {
   acpAppToolsServer,
   writeAppToolsBridgeScript,
 } from '@wevir/runtime-adapter/app-tools-bridge';
-import { isAcpSessionNotification, sessionConfigInfo } from './acp-mapping.js';
+import { isAcpSessionNotification, routeModelOption, sessionConfigInfo } from './acp-mapping.js';
 import { type AcpExit, type AcpProcess, settledWithin } from './acp-process.js';
 import type { AcpEngine } from './engine.js';
 import {
@@ -979,6 +979,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       }
     };
     const value = route.encode(config.providerId, config.modelId);
+    const modelOption = routeModelOption(configOptions, route);
     const effort = config.reasoningEffort;
     const effortOption = route.reasoningEffortOption;
     if (route.modelMethod === 'set_model') {
@@ -988,7 +989,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         effort !== undefined &&
         effortOption !== undefined &&
         currentOption(configOptions, effortOption) !== effort;
-      const current = currentOption(configOptions, route.modelOption);
+      const current = currentOption(configOptions, modelOption);
       const target = value ?? current;
       if ((value === undefined || value === current) && !effortChanged) return configOptions;
       // 只换推理强度又不知道当前模型：没法发 set_model，用引擎的默认档位。
@@ -1018,14 +1019,14 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           `${name} 选不上模型 ${config.modelId}：${typeof rejected === 'string' ? rejected : JSON.stringify(rejected)}`,
         );
       }
-      configOptions = withCurrentOption(configOptions, route.modelOption, target);
+      configOptions = withCurrentOption(configOptions, modelOption, target);
       if (effort !== undefined && effortOption !== undefined) {
         configOptions = withCurrentOption(configOptions, effortOption, effort);
       }
       return configOptions;
     }
-    if (value !== undefined && currentOption(configOptions, route.modelOption) !== value) {
-      await set(route.modelOption, value, ` ${config.providerId} 的模型 ${config.modelId}`);
+    if (value !== undefined && currentOption(configOptions, modelOption) !== value) {
+      await set(modelOption, value, ` ${config.providerId} 的模型 ${config.modelId}`);
     }
     if (
       effort !== undefined &&

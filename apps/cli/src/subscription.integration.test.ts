@@ -1,5 +1,5 @@
 // `wevir account`：订阅账号对着进程内的 Host，引擎是带假订阅账号（EchoAccounts，开发用，不碰真实凭据、不联网）的 EchoAdapter。
-// 默认情形：claude、grok 已登录（终端登录），cursor 未登录（应用内），workbuddy 未登录（终端登录），opencode、antigravity、devin 未安装
+// 默认情形：claude、grok 已登录（终端登录），cursor 未登录（应用内），workbuddy 未登录（终端登录），opencode、antigravity、devin 未安装，copilot 未登录（应用内）
 // 但 Wevir 能下载。
 
 import { join } from 'node:path';

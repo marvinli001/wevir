@@ -10,7 +10,7 @@ const home = mkdtempSync(join(tmpdir(), 'wevir-engines-'));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 describe('subscriptionEngines', () => {
-  it('开发环境装了两个 SDK：七种订阅引擎都挂上', () => {
+  it('开发环境装了两个 SDK：八种订阅引擎都挂上', () => {
     const lines: string[] = [];
     const routes = subscriptionEngines({
       home,
@@ -25,6 +25,7 @@ describe('subscriptionEngines', () => {
       'antigravity',
       'workbuddy',
       'devin',
+      'copilot',
     ]);
     expect(lines.join('\n')).not.toContain('engine sdk not installed');
   });
@@ -41,6 +42,7 @@ describe('subscriptionEngines', () => {
       'antigravity',
       'workbuddy',
       'devin',
+      'copilot',
     ]);
     expect(lines.filter((line) => line.includes('engine sdk not installed'))).toHaveLength(2);
   });
@@ -77,7 +79,7 @@ describe('subscriptionEngines', () => {
 });
 
 describe('subscriptionAccountEngines（0.63.0）', () => {
-  it('能添加账号的是 Claude、Cursor、Grok、OpenCode、Antigravity；SDK 没有的不能；建出的引擎只有这一种账号，构造时不起进程', async () => {
+  it('能添加账号的是 Claude、Cursor、Grok、OpenCode、Antigravity、Copilot；SDK 没有的不能；建出的引擎只有这一种账号，构造时不起进程', async () => {
     const context = { home, logger: createLogger({ mirror: () => {} }), env: {} };
     expect(subscriptionAccountEngines(context).kinds).toEqual([
       'claude',
@@ -85,11 +87,13 @@ describe('subscriptionAccountEngines（0.63.0）', () => {
       'grok',
       'opencode',
       'antigravity',
+      'copilot',
     ]);
     expect(subscriptionAccountEngines(context, { claude: false, cursor: false }).kinds).toEqual([
       'grok',
       'opencode',
       'antigravity',
+      'copilot',
     ]);
     const factory = subscriptionAccountEngines(context);
     for (const kind of factory.kinds) {

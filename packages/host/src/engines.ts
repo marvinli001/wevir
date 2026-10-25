@@ -9,6 +9,7 @@
 import { join } from 'node:path';
 import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter, claudeSdkInstalled } from '@wevir/adapter-claude';
+import { CopilotAdapter } from '@wevir/adapter-copilot';
 import {
   CursorAdapter,
   CursorSdkInstaller,
@@ -153,6 +154,19 @@ export function subscriptionEngines(
       }),
       kinds: ['devin'],
     },
+    // GitHub Copilot（copilot-event-mapping.md）：用户自己装的或 Wevir 下载的 `copilot --acp` 与 Copilot 自己存的登录（系统钥匙串），
+    // 复用通用 ACP 与 MCP 桥；完全访问由 Wevir 批准它的权限请求，恢复用 session/load。
+    {
+      name: 'copilot',
+      adapter: new CopilotAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+        ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+      kinds: ['copilot'],
+    },
   ];
   return routes.filter(
     (route) =>
@@ -163,7 +177,9 @@ export function subscriptionEngines(
 
 /**
  * 添加的订阅账号（0.63.0）的引擎：同 `subscriptionEngines` 的那一种，凭据与会话放进账号自己的目录（`<数据目录>/accounts/<id>/`）。
- * 有 Claude、Cursor、Grok、Antigravity 与 OpenCode（ChatGPT 的在 cli.ts）；OpenCode 只分开数据目录，用户的配置与上游照旧共用。
+ * 有 Claude、Cursor、Grok、Antigravity、OpenCode 与 GitHub Copilot（ChatGPT 的在 cli.ts）；OpenCode 只分开数据目录，用户的配置与上游
+ * 照旧共用；Copilot 换掉 `COPILOT_HOME`（它在里面记用哪个 GitHub 账号，令牌在系统钥匙串里按账号存），并给一个空的 GitHub CLI 配置
+ * 目录，不退回首个账号的 `gh` 登录。
  * WorkBuddy 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没有的种类不能添加；
  * Cursor 的 SDK 要下载时添加的账号与首个账号共用安装器，装好后一起能用。
  */
@@ -216,6 +232,19 @@ export function subscriptionAccountEngines(
         logger: context.logger,
         env,
         accountRoot: join(root, 'antigravity'),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+    copilot: (root) =>
+      new CopilotAdapter({
+        home: context.home,
+        logger: context.logger,
+        env,
+        account: {
+          copilotHome: join(root, 'copilot'),
+          ghConfigDir: join(root, 'gh'),
+          workDir: join(root, 'work'),
+        },
+        ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
         ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
       }),
   };

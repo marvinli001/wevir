@@ -59,8 +59,8 @@
 
 - **统一运行时**：OpenAI、Anthropic、Google AI Studio、Google Vertex AI、Azure OpenAI / Microsoft Foundry、SpaceXAI（Grok API）、DeepSeek、阿里云百炼、Kimi、Z.ai / 智谱 GLM、小米 MiMo、MiniMax、阶跃星辰、腾讯云 TokenHub、Azure Claude、RedPill、Ollama（本机与云端），以及任意 OpenAI 兼容接口。网关将请求转换为 OpenAI Responses、Chat Completions 或 Anthropic Messages，含推理与工具调用。
 - **密钥隔离**：API Key 存于 Host 密钥存储，不下发至运行时进程。
-- **订阅**：支持 ChatGPT 账号登录，以及 Claude、OpenCode、Grok、Antigravity、WorkBuddy、Devin、Cursor 订阅。Wevir 调用厂商官方客户端或 SDK，使用本机已有登录；客户端下载与登录均可在设置中完成。各来源要求见[状态](#状态)。
-- **多账号**：ChatGPT、Claude、Grok、OpenCode、Antigravity、Cursor 支持多账号。凭据与会话按账号隔离存储，支持“工作”“个人”等标签，用量分别统计。WorkBuddy 与 Devin 限单账号。
+- **订阅**：支持 ChatGPT 账号登录，以及 Claude、OpenCode、Grok、Antigravity、WorkBuddy、Devin、Cursor、GitHub Copilot 订阅。Wevir 调用厂商官方客户端或 SDK，使用本机已有登录；客户端下载与登录均可在设置中完成。各来源要求见[状态](#状态)。
+- **多账号**：ChatGPT、Claude、Grok、OpenCode、Antigravity、Cursor、GitHub Copilot 支持多账号。凭据与会话按账号隔离存储，支持“工作”“个人”等标签，用量分别统计。WorkBuddy 与 Devin 限单账号。
 - **会话中切换**：回合之间切换模型与推理档位，或将会话移交其他服务商，并附带缺失历史的摘要。
 
 <br clear="right" />
@@ -112,6 +112,7 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | | WorkBuddy | 测试版 |
 | | Devin | 测试版 |
 | | Cursor | 测试版 |
+| | GitHub Copilot | 测试版 |
 | 其他 | `wevir` 命令行 | 测试版 |
 | | 电脑操作 | 测试版 |
 | | 移动端 | 计划中 |

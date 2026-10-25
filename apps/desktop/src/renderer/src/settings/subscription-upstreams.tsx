@@ -284,8 +284,8 @@ function UpstreamRow({
   );
 }
 
-/** 进行中的登录：浏览器授权（重新打开）或设备码（码、打开页面），都可以取消。 */
-function LoginPanel({
+/** 进行中的登录：浏览器授权（重新打开）或设备码（码、打开页面），都可以取消。来源本身的设备码登录也用它。 */
+export function LoginPanel({
   prompt,
   busy,
   onCancel,

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
+import { CopilotAdapter } from '@wevir/adapter-copilot';
 import { CursorAdapter } from '@wevir/adapter-cursor';
 import { DevinAdapter } from '@wevir/adapter-devin';
 import { GrokAdapter } from '@wevir/adapter-grok';
@@ -175,6 +176,7 @@ describe('runHostCli', () => {
         ['antigravity', ['antigravity']],
         ['workbuddy', ['workbuddy']],
         ['devin', ['devin']],
+        ['copilot', ['copilot']],
       ]);
       expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
       expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
@@ -194,6 +196,10 @@ describe('runHostCli', () => {
       expect((router.routes[7]?.adapter as DevinAdapter | undefined)?.process.state).toBe(
         'stopped',
       );
+      expect(router.routes[8]?.adapter).toBeInstanceOf(CopilotAdapter);
+      expect((router.routes[8]?.adapter as CopilotAdapter | undefined)?.process.state).toBe(
+        'stopped',
+      );
       const codex = router.routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
@@ -208,6 +214,7 @@ describe('runHostCli', () => {
         'antigravity',
         'workbuddy',
         'devin',
+        'copilot',
       ]);
       expect(existsSync(home)).toBe(false);
     } finally {

@@ -1885,6 +1885,7 @@ function unref<T extends ReturnType<typeof setTimeout>>(timer: T): T {
 const LATER_SUBSCRIPTION_KINDS: Readonly<Record<string, string>> = {
   workbuddy: '0.55.0',
   devin: '0.88.0',
+  copilot: '0.125.0',
 };
 
 function subscriptionKindSupported(

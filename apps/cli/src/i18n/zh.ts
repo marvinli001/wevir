@@ -1069,7 +1069,7 @@ export const zh = {
   'cmd.account.list.usage': 'wevir account list [--json]',
   'cmd.account.status.summary': '查看账号的状态、用量与登录方式',
   'cmd.account.status.usage': 'wevir account status <来源|ID> [--refresh] [--json]',
-  'cmd.account.status.help': `来源：chatgpt、claude、cursor、opencode、grok、antigravity、workbuddy、devin；ID 取自 wevir account list
+  'cmd.account.status.help': `来源：chatgpt、claude、cursor、opencode、grok、antigravity、workbuddy、devin、copilot；ID 取自 wevir account list
 
 选项：
   --refresh   重新检测（在终端里登录或安装之后）`,

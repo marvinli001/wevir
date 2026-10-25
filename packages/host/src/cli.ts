@@ -142,6 +142,7 @@ const ECHO_ACCOUNT_KINDS: readonly AccountKind[] = [
   'grok',
   'opencode',
   'antigravity',
+  'copilot',
 ];
 
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex 或 echo）。 */

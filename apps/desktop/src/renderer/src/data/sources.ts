@@ -38,6 +38,7 @@ export const SOURCES: Readonly<Record<AccountKind, SourceInfo>> = {
     logo: 'antigravity',
   },
   devin: { kind: 'devin', name: 'source.devin', logo: 'devin' },
+  copilot: { kind: 'copilot', name: 'source.copilot', logo: 'copilot' },
 };
 
 /**
@@ -52,6 +53,22 @@ export function tileFillers(count: number): { slot: number; base: boolean; sm: b
     base: index < base,
     sm: index < sm,
   }));
+}
+
+/** 设置里的格子一页放几种来源；来源比这多时分页，每页末尾多一格翻页（“更多”，最后一页是“返回”）。 */
+export const SOURCE_PAGE_SIZE = 8;
+
+/** 来源按页分开：不超过一页时只有一页（没有翻页格）。 */
+export function sourcePages(
+  kinds: readonly AccountKind[],
+  size: number = SOURCE_PAGE_SIZE,
+): AccountKind[][] {
+  if (kinds.length <= size) return [[...kinds]];
+  const pages: AccountKind[][] = [];
+  for (let start = 0; start < kinds.length; start += size) {
+    pages.push(kinds.slice(start, start + size));
+  }
+  return pages;
 }
 
 export function isSourceKind(kind: string): kind is AccountKind {

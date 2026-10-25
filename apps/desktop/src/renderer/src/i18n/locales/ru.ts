@@ -1492,6 +1492,11 @@ export const messages: Messages = {
   'source.antigravity': 'Antigravity',
   'source.workbuddy': 'WorkBuddy',
   'source.devin': 'Devin',
+  'source.copilot': 'GitHub Copilot',
+  'source.more': 'Ещё',
+  'source.back': 'Назад',
+  'source.page.count':
+    '{count, plural, one {# источник} few {# источника} many {# источников} other {# источника}}',
   'source.status.soon': 'Скоро',
   'source.status.missing': 'Не установлен',
   'source.status.requiresGit': 'Нужен Git',

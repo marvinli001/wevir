@@ -59,8 +59,8 @@ Sessions, approvals, change review, project files, and an agent-driven built-in 
 
 - **One runtime, many providers**: OpenAI, Anthropic, Google AI Studio, Google Vertex AI, Azure OpenAI / Microsoft Foundry, SpaceXAI (Grok API), DeepSeek, Alibaba Cloud Model Studio, Kimi, Z.ai / Zhipu GLM, Xiaomi MiMo, MiniMax, StepFun, Tencent Cloud TokenHub, Azure Claude, RedPill, Ollama (local and cloud), and any OpenAI-compatible endpoint. The gateway converts requests to OpenAI Responses, Chat Completions, or Anthropic Messages, including reasoning and tool calls.
 - **Key isolation**: API keys live in the Host's secret store and are never passed to the runtime process.
-- **Subscriptions**: ChatGPT sign-in, plus Claude, OpenCode, Grok, Antigravity, WorkBuddy, Devin, and Cursor subscriptions. Wevir runs the vendor's own client or SDK with your existing sign-in; client download and sign-in are available in Settings. Requirements per source: [Status](#status).
-- **Multiple accounts**: ChatGPT, Claude, Grok, OpenCode, Antigravity, and Cursor support multiple accounts, with per-account credential and session directories, labels such as Work or Personal, and separate usage. WorkBuddy and Devin are limited to one account.
+- **Subscriptions**: ChatGPT sign-in, plus Claude, OpenCode, Grok, Antigravity, WorkBuddy, Devin, Cursor, and GitHub Copilot subscriptions. Wevir runs the vendor's own client or SDK with your existing sign-in; client download and sign-in are available in Settings. Requirements per source: [Status](#status).
+- **Multiple accounts**: ChatGPT, Claude, Grok, OpenCode, Antigravity, Cursor, and GitHub Copilot support multiple accounts, with per-account credential and session directories, labels such as Work or Personal, and separate usage. WorkBuddy and Devin are limited to one account.
 - **Mid-session switching**: Change model and reasoning effort between turns, or hand a session to another provider with a summary of the history it lacks.
 
 <br clear="right" />
@@ -112,6 +112,7 @@ Wevir is in preview. **Supported**: shipped in the builds and covered by automat
 | | WorkBuddy | Beta |
 | | Devin | Beta |
 | | Cursor | Beta |
+| | GitHub Copilot | Beta |
 | Other | `wevir` CLI | Beta |
 | | Computer use | Beta |
 | | Mobile app | Planned |

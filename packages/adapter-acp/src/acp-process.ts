@@ -142,7 +142,7 @@ export interface AcpPreparedLaunch {
 
 export interface AcpProcessOptions {
   /** 引擎描述：名字进错误与告警，`initialize` 的 `_meta` 与扩展方法的名单也取自这里。 */
-  engine: Pick<AcpEngine, 'name' | 'initializeMeta' | 'extensions'>;
+  engine: Pick<AcpEngine, 'name' | 'initializeMeta' | 'clientCapabilitiesMeta' | 'extensions'>;
   launcher: AcpLauncher;
   /**
    * ACP `session/update` 通知的原始参数，按引擎写出的顺序同步调用，不得抛错。在 ACP SDK 之前截下、不经它的
@@ -421,11 +421,14 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       const timeoutMs = this.#options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS;
       const clientInfo: Implementation = this.#options.clientInfo ?? DEFAULT_CLIENT_INFO;
       const initializeMeta = this.#options.engine.initializeMeta;
+      const capabilitiesMeta = this.#options.engine.clientCapabilitiesMeta;
       const initialize = launch.connection.agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         // 不声明 fs 与 terminal：Host 不替引擎读写文件或执行命令，工具一律在引擎自己的沙箱里执行
         // （ADR-0001 §1）。
-        clientCapabilities: {},
+        clientCapabilities: {
+          ...(capabilitiesMeta !== undefined && { _meta: { ...capabilitiesMeta } }),
+        },
         clientInfo,
         ...(initializeMeta !== undefined && { _meta: { ...initializeMeta } }),
       });

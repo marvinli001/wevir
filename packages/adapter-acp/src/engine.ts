@@ -42,6 +42,8 @@ export interface AcpEngine {
   readonly messageChunks?: 'committed' | 'streamed';
   /** `initialize` 请求的 `_meta`（Grok：`clientType: extension`，自动模式拦下的操作才会问客户端）。 */
   readonly initializeMeta?: Readonly<Record<string, unknown>>;
+  /** `initialize` 的 `clientCapabilities._meta`（Copilot：订阅哪些原始会话事件，用来读额度）。 */
+  readonly clientCapabilitiesMeta?: Readonly<Record<string, unknown>>;
   /**
    * 引擎自己的 ACP 扩展方法（方法名以 `_` 开头，acp-event-mapping.md §1.7）。`notifications` 与 `session/update` 一样在
    * SDK 之前按序截下，交给适配器的 `extNotification`；`requests` 登记给 SDK，交给适配器的 `extRequest`。没列出的扩展
@@ -105,6 +107,11 @@ export interface AcpRouteCodec {
   readonly modelMethod?: 'config_option' | 'set_model';
   /** 选模型的 config option（dsh：`model`）。 */
   readonly modelOption: string;
+  /**
+   * 可选：按 ACP 的选项类别找模型选项（Copilot：`model`），`configOptions` 里有这一类的 select 时用它的 ID，没有时用
+   * `modelOption`。
+   */
+  readonly modelCategory?: string;
   /** 选推理强度的 config option（dsh：`reasoning_effort`）；没有就不设、不读。 */
   readonly reasoningEffortOption?: string;
   /**

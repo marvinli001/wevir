@@ -9,6 +9,7 @@ import cursor from '@/assets/provider-logos/cursor.svg';
 import deepseek from '@/assets/provider-logos/deepseek-color.svg';
 import devin from '@/assets/provider-logos/devin-color.svg';
 import gemini from '@/assets/provider-logos/gemini-color.svg';
+import copilot from '@/assets/provider-logos/githubcopilot.svg';
 import grok from '@/assets/provider-logos/grok.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
 import kimiLight from '@/assets/provider-logos/kimi-color-light.svg';
@@ -61,6 +62,7 @@ const LOGOS = {
   grok: { src: grok, mono: true },
   antigravity: { src: antigravity, mono: false },
   devin: { src: devin, mono: false },
+  copilot: { src: copilot, mono: true },
 } satisfies Record<string, LogoEntry>;
 
 export type ProviderLogoId = keyof typeof LOGOS;

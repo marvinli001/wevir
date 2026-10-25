@@ -228,6 +228,7 @@ describe('EngineRouter', () => {
       'antigravity',
       'workbuddy',
       'devin',
+      'copilot',
     ]);
     const seen: string[] = [];
     router.accounts?.onChange((state) => seen.push(`${state.kind}:${state.status}`));

@@ -10,6 +10,7 @@ import {
   pickerOrder,
   SOURCE_KINDS,
   sourceOf,
+  sourcePages,
   sourcePhase,
   sourceTitle,
   tileFillers,
@@ -129,6 +130,25 @@ describe('订阅来源', () => {
       kind: 'signed_out',
       signIn: 'command',
     });
+  });
+});
+
+describe('来源分页', () => {
+  it('一页 8 种，超出时分页；不超过一页时只有一页', () => {
+    expect(sourcePages(SOURCE_KINDS.slice(0, 8))).toEqual([SOURCE_KINDS.slice(0, 8)]);
+    const pages = sourcePages(SOURCE_KINDS);
+    expect(pages[0]).toEqual([
+      'chatgpt',
+      'claude',
+      'cursor',
+      'opencode',
+      'grok',
+      'antigravity',
+      'workbuddy',
+      'devin',
+    ]);
+    expect(pages[1]).toEqual(['copilot']);
+    expect(sourcePages(['claude', 'cursor', 'grok'], 2)).toEqual([['claude', 'cursor'], ['grok']]);
   });
 });
 

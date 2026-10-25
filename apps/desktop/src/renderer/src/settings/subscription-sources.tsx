@@ -13,7 +13,7 @@ import {
   Plus,
   RotateCw,
 } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Collapse } from '@/components/collapse';
 import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
@@ -24,9 +24,11 @@ import {
   accountRef,
   accountsOfKind,
   SOURCE_KINDS,
+  SOURCE_PAGE_SIZE,
   SOURCES,
   type SourceInfo,
   type SourcePhase,
+  sourcePages,
   sourcePhase,
   sourceTitle,
   tileFillers,
@@ -37,6 +39,7 @@ import {
   useWorkbenchData,
   useWorkbenchStore,
 } from '@/data/workbench-data';
+import { useReducedMotion } from '@/fx/motion';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
@@ -49,7 +52,8 @@ import {
   RemoveAccountButton,
   RemoveAccountDialog,
 } from './subscription-accounts';
-import { UpstreamList } from './subscription-upstreams';
+import { LoginPanel, UpstreamList } from './subscription-upstreams';
+import { loginPrompt } from './subscription-upstreams-model';
 
 /**
  * 设置 → 模型服务的“订阅”（0.19.0，照 T3 Code 的 Bring your own sub，desktop-tokens.md §32）：各种订阅排成一张三列的格子卡（最后一行补空格），
@@ -83,14 +87,46 @@ export function SubscriptionSources({
   };
   const providerOf = (id: string) => providers.find((provider) => provider.id === id);
 
+  // 来源多于一页时分页：每页末尾一格翻页，翻页时这一页的格子缩回、下一页的错开着长出来；格子数不变，卡片不跳高。
+  const pages = sourcePages(SOURCE_KINDS);
+  const paged = pages.length > 1;
+  const [page, setPage] = useState(0);
+  const [leaving, setLeaving] = useState(false);
+  const [entering, setEntering] = useState(false);
+  const reduced = useReducedMotion();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const current = pages[Math.min(page, pages.length - 1)] ?? [];
+  const nextPage = (page + 1) % pages.length;
+  const turnPage = () => {
+    if (leaving) return;
+    setSelected(undefined);
+    const swap = () => {
+      setPage(nextPage);
+      setLeaving(false);
+      setEntering(true);
+    };
+    if (reduced) {
+      swap();
+      return;
+    }
+    setLeaving(true);
+    timer.current = setTimeout(swap, PAGE_EXIT_MS);
+  };
+  const cells = paged ? SOURCE_PAGE_SIZE + 1 : SOURCE_KINDS.length;
+  const motion = (index: number) => cellMotion(leaving, entering && !reduced, index);
+
   return (
     <div
       className="overflow-hidden rounded-xl border border-border bg-card"
       data-section="subscriptions"
     >
-      {/* 格子之间的细线：网格底是分隔线色，格子之间留 1px 缝。 */}
-      <ul className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3">
-        {SOURCE_KINDS.map((kind) => (
+      {/* 格子之间的细线：网格底是分隔线色，格子之间留 1px 缝。行一样高，空页的格子也撑住高度。 */}
+      <ul
+        className="grid auto-rows-fr grid-cols-2 gap-px bg-border sm:grid-cols-3"
+        data-source-page={paged ? page + 1 : undefined}
+      >
+        {current.map((kind, index) => (
           <SourceTile
             key={kind}
             source={SOURCES[kind]}
@@ -98,10 +134,35 @@ export function SubscriptionSources({
             count={accountsOf(kind).length}
             provider={providerOf(kind)}
             selected={selected === kind}
-            onSelect={() => setSelected((current) => (current === kind ? undefined : kind))}
+            onSelect={() => setSelected((value) => (value === kind ? undefined : kind))}
+            motion={motion(index)}
           />
         ))}
-        {tileFillers(SOURCE_KINDS.length).map((filler) => (
+        {paged && (
+          <>
+            {Array.from(
+              { length: SOURCE_PAGE_SIZE - current.length },
+              (_, offset) => current.length + offset + 1,
+            ).map((slot) => (
+              <li key={`blank-${slot}`} aria-hidden className="bg-card" />
+            ))}
+            <PageTile
+              key="page"
+              kinds={pages[nextPage] ?? []}
+              back={nextPage === 0}
+              signedIn={(pages[nextPage] ?? []).some(
+                (kind) =>
+                  sourcePhase(tileAccount(accountsOf(kind))).kind === 'signed_in' &&
+                  providerOf(kind)?.enabled !== false,
+              )}
+              disabled={leaving}
+              onTurn={turnPage}
+              motion={motion(current.length)}
+              stamp={page}
+            />
+          </>
+        )}
+        {tileFillers(cells).map((filler) => (
           <li
             key={filler.slot}
             aria-hidden
@@ -122,11 +183,113 @@ export function SubscriptionSources({
             accounts={accountsOf(shown)}
             account={accountOf(shown)}
             providerOf={providerOf}
-            onSelect={(id) => setChosen((current) => ({ ...current, [shown]: id }))}
+            onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
           />
         )}
       </Collapse>
     </div>
+  );
+}
+
+/** 翻页时旧格子缩回的时长，与 cellMotion 的退场一致。 */
+const PAGE_EXIT_MS = 110;
+/** 新格子错开长出的间隔。 */
+const PAGE_STAGGER_MS = 30;
+
+/**
+ * 翻页的动效（照弹层的发芽）：退场缩回 90% 并糊到 4 px，110 ms ease-smooth；入场从 90% 与 4 px 的模糊长出来，reveal 弹簧，按
+ * 位置错开。减弱动效时不错开，全局规则也会停下动画。
+ */
+interface CellMotion {
+  className?: string;
+  style?: CSSProperties;
+}
+
+function cellMotion(leaving: boolean, entering: boolean, index: number): CellMotion {
+  if (leaving) {
+    return {
+      className:
+        'animate-out fade-out-0 zoom-out-90 blur-out-xs duration-110 ease-smooth fill-mode-forwards',
+    };
+  }
+  if (!entering) return {};
+  return {
+    className:
+      'animate-in fade-in-0 zoom-in-90 blur-in-xs duration-(--spring-reveal-duration) ease-spring-reveal fill-mode-both',
+    style: { animationDelay: `${index * PAGE_STAGGER_MS}ms` },
+  };
+}
+
+/**
+ * 翻页的一格：叠着下一页来源的标志，写“更多”（最后一页写“返回”）与下一页有几种来源；下一页有已登录的来源时右上角一个点，
+ * 第二页登录了也看得出来。
+ */
+function PageTile({
+  kinds,
+  back,
+  signedIn,
+  disabled,
+  onTurn,
+  motion,
+  stamp,
+}: {
+  kinds: readonly AccountKind[];
+  back: boolean;
+  signedIn: boolean;
+  disabled: boolean;
+  onTurn: () => void;
+  motion: CellMotion;
+  /** 当前页；换页时内容重新挂载，入场动画才会再播。 */
+  stamp: number;
+}) {
+  const shown = kinds.slice(0, 3);
+  return (
+    <li className="relative bg-card">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onTurn}
+        data-action={back ? 'sources-back' : 'sources-more'}
+        className="group/tile h-full w-full text-left outline-none transition-colors duration-150 focus-visible:bg-accent/60 enabled:hover:bg-accent/40"
+      >
+        <span
+          key={stamp}
+          className={cn('flex h-full flex-col gap-3 px-4 pt-4 pb-3.5', motion.className)}
+          style={motion.style}
+        >
+          <span className="flex items-start justify-between gap-2">
+            <span className="flex items-center">
+              {shown.map((kind, index) => (
+                <LogoWell
+                  key={kind}
+                  logo={SOURCES[kind].logo}
+                  fallback={t(SOURCES[kind].name)}
+                  className={cn(
+                    'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
+                    index > 0 && '-ml-3',
+                  )}
+                />
+              ))}
+            </span>
+            {signedIn && (
+              <StatusDot
+                tone="success"
+                label={t('source.status.signedIn')}
+                className="mt-1 size-2"
+              />
+            )}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">
+              {t(back ? 'source.back' : 'source.more')}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              {t('source.page.count', { count: kinds.length })}
+            </span>
+          </span>
+        </span>
+      </button>
+    </li>
   );
 }
 
@@ -175,6 +338,7 @@ function SourceTile({
   provider,
   selected,
   onSelect,
+  motion,
 }: {
   source: SourceInfo;
   /** 还没读到账号时 undefined。 */
@@ -184,6 +348,8 @@ function SourceTile({
   provider: ProviderProfile | undefined;
   selected: boolean;
   onSelect: () => void;
+  /** 翻页的动效：画在格子的内容上，格子的底色与分隔线不动。 */
+  motion: CellMotion;
 }) {
   const soon = phase?.kind === 'soon';
   const name = t(source.name);
@@ -197,40 +363,45 @@ function SourceTile({
         data-source={source.kind}
         data-phase={phase?.kind ?? 'loading'}
         className={cn(
-          'group/tile flex h-full w-full flex-col gap-3 px-4 pt-4 pb-3.5 text-left outline-none transition-colors duration-150',
+          'group/tile h-full w-full text-left outline-none transition-colors duration-150',
           'focus-visible:bg-accent/60 enabled:hover:bg-accent/40',
           selected &&
             'bg-selected ring-1 ring-selected-border ring-inset enabled:hover:bg-selected',
           soon && 'cursor-default',
         )}
       >
-        <span className="flex items-start justify-between gap-2">
-          <LogoWell
-            logo={source.logo}
-            fallback={name}
-            className={cn(
-              'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
-              soon && 'opacity-45 grayscale',
-            )}
-          />
-          <TileMark phase={phase} disabled={provider?.enabled === false} />
-        </span>
-        <span className="min-w-0">
-          <span
-            className={cn('block truncate text-sm font-medium', soon && 'text-muted-foreground')}
-          >
-            {name}
+        <span
+          className={cn('flex h-full flex-col gap-3 px-4 pt-4 pb-3.5', motion.className)}
+          style={motion.style}
+        >
+          <span className="flex items-start justify-between gap-2">
+            <LogoWell
+              logo={source.logo}
+              fallback={name}
+              className={cn(
+                'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
+                soon && 'opacity-45 grayscale',
+              )}
+            />
+            <TileMark phase={phase} disabled={provider?.enabled === false} />
           </span>
-          <span className="mt-0.5 block truncate text-xs text-muted-foreground" data-status>
-            {phase === undefined
-              ? t('common.loading')
-              : count > 1
-                ? t('source.status.accounts', { count })
-                : phaseText(phase, source)}
-            {count <= 1 &&
-              provider?.enabled === false &&
-              phase?.kind === 'signed_in' &&
-              ` · ${t('source.disabled')}`}
+          <span className="min-w-0">
+            <span
+              className={cn('block truncate text-sm font-medium', soon && 'text-muted-foreground')}
+            >
+              {name}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground" data-status>
+              {phase === undefined
+                ? t('common.loading')
+                : count > 1
+                  ? t('source.status.accounts', { count })
+                  : phaseText(phase, source)}
+              {count <= 1 &&
+                provider?.enabled === false &&
+                phase?.kind === 'signed_in' &&
+                ` · ${t('source.disabled')}`}
+            </span>
           </span>
         </span>
       </button>
@@ -518,13 +689,21 @@ function SubscriptionBody({
     kind === 'opencode' &&
     account?.signIn === 'in_app' &&
     client.supports('subscription_upstreams');
+  // 应用内登录按账号给的方式（GitHub Copilot 是设备码，0.125.0）；设备码由用户复制后自己打开页面，引擎的 CLI 也可能已经打开。
+  const method = account?.loginMethods?.[0] ?? 'browser';
   const login = async () => {
-    const next = await run('login', () =>
-      client.request('account.login', { ...ref, method: 'browser' }),
-    );
+    const next = await run('login', () => client.request('account.login', { ...ref, method }));
     const url = next?.login?.authUrl;
     if (url !== undefined) void platformApi().openExternal(url);
   };
+  const cancelLogin = () =>
+    run('cancel', () =>
+      client.request('account.cancelLogin', {
+        ...ref,
+        ...(account?.login !== undefined && { loginId: account.login.loginId }),
+      }),
+    );
+  const prompt = loginPrompt(account?.login);
 
   if (account === undefined || phase.kind === 'soon') {
     return <p className="text-sm text-muted-foreground">{t('source.soon.body')}</p>;
@@ -593,6 +772,8 @@ function SubscriptionBody({
             </Button>
           }
         />
+      ) : phase.kind === 'signing_in' && prompt?.kind === 'device_code' ? (
+        <LoginPanel prompt={prompt} busy={busy !== undefined} onCancel={() => void cancelLogin()} />
       ) : phase.kind === 'signing_in' ? (
         <Step
           title={t('source.signingIn.title')}
@@ -612,14 +793,7 @@ function SubscriptionBody({
                 variant="outline"
                 size="sm"
                 disabled={busy !== undefined}
-                onClick={() =>
-                  void run('cancel', () =>
-                    client.request('account.cancelLogin', {
-                      ...ref,
-                      ...(account.login !== undefined && { loginId: account.login.loginId }),
-                    }),
-                  )
-                }
+                onClick={() => void cancelLogin()}
               >
                 {t('source.cancel')}
               </Button>

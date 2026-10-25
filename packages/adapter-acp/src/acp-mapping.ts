@@ -208,13 +208,24 @@ export function sessionConfigInfo(
       : undefined;
   };
   const info: { modelId?: string; reasoningEffort?: string } = {};
-  const model = current(route.modelOption);
+  const model = current(routeModelOption(configOptions, route));
   const modelId = model === undefined ? undefined : route.decodeModel(model);
   if (modelId !== undefined) info.modelId = modelId;
   const effort =
     route.reasoningEffortOption === undefined ? undefined : current(route.reasoningEffortOption);
   if (effort !== undefined) info.reasoningEffort = effort;
   return info;
+}
+
+/** 模型选项的 ID：引擎描述给了 `modelCategory` 且 `configOptions` 里有这一类的选项时是它的 ID，否则是 `modelOption`。 */
+export function routeModelOption(configOptions: unknown, route: AcpRouteCodec): string {
+  if (route.modelCategory !== undefined && Array.isArray(configOptions)) {
+    const option = configOptions.find(
+      (o) => isRecord(o) && o.category === route.modelCategory && typeof o.id === 'string',
+    );
+    if (isRecord(option)) return option.id as string;
+  }
+  return route.modelOption;
 }
 
 /** 整条通知原样保留。 */

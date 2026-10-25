@@ -24,6 +24,7 @@ export const ECHO_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = [
   'antigravity',
   'workbuddy',
   'devin',
+  'copilot',
 ];
 
 const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>> = {
@@ -34,6 +35,7 @@ const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>>
   antigravity: 'installable',
   workbuddy: 'signed_out',
   devin: 'installable',
+  copilot: 'signed_out',
 };
 
 /** 每种订阅的登录方式与安装说明，照各自 CLI 的真实做法（T3 Code 的调研）。 */
@@ -71,6 +73,12 @@ const PROFILES: Readonly<
     loginMethods: ['browser'],
     loginCommand: 'devin auth login',
     installCommand: 'curl -fsSL https://cli.devin.ai/install.sh | bash',
+  },
+  copilot: {
+    signIn: 'in_app',
+    loginMethods: ['device_code'],
+    loginCommand: 'copilot login',
+    installCommand: 'curl -fsSL https://gh.io/copilot-install | bash',
   },
 };
 
@@ -120,6 +128,14 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
     ],
     defaultModelId: 'adaptive',
   },
+  copilot: {
+    models: [
+      { id: 'auto', displayName: 'Auto' },
+      { id: 'claude-sonnet-4.5', displayName: 'Claude Sonnet 4.5' },
+      { id: 'gpt-5.2', displayName: 'GPT-5.2' },
+    ],
+    defaultModelId: 'auto',
+  },
   antigravity: {
     models: [
       { id: 'gemini-pro', displayName: 'Gemini Pro' },
@@ -167,15 +183,24 @@ const PLANS: Readonly<Partial<Record<SubscriptionKind, { plan: string; planLabel
 };
 
 /**
- * 已登录时报的用量（会话侧栏的“用量”卡片、设置里订阅详情的用量条）：只有 Claude 报，照它的 5 小时与 7 天两个窗口；重置时间
- * 从现在算起，5 小时窗口约 4.5 小时后、每周窗口 4 天后。
+ * 已登录时报的用量（会话侧栏的“用量”卡片、设置里订阅详情的用量条）：Claude 照它的 5 小时与 7 天两个窗口，重置时间从现在算起，
+ * 5 小时窗口约 4.5 小时后、每周窗口 4 天后；Copilot 是按月的高级请求，12 天后重置。
  */
 function echoRateLimits(
   kind: SubscriptionKind,
   now = Date.now(),
 ): Pick<AccountState, 'rateLimits'> {
-  if (kind !== 'claude') return {};
   const at = (ms: number) => new Date(now + ms).toISOString();
+  if (kind === 'copilot') {
+    const premium = {
+      usedPercent: 24,
+      period: 'monthly' as const,
+      scope: 'Premium requests',
+      resetsAt: at(12 * 24 * 3_600_000),
+    };
+    return { rateLimits: { primary: premium, windows: [premium] } };
+  }
+  if (kind !== 'claude') return {};
   return {
     rateLimits: {
       primary: { usedPercent: 37, windowMinutes: 300, resetsAt: at((4 * 60 + 29.5) * 60_000) },
@@ -235,7 +260,11 @@ export class EchoAccounts implements EngineAccounts {
       const { kind } = options.added;
       this.kinds = [kind];
       const { loginCommand: _command, ...state } = initialState(kind, 'signed_out');
-      this.#states.set(kind, { ...state, signIn: 'in_app', loginMethods: ['browser'] });
+      this.#states.set(kind, {
+        ...state,
+        signIn: 'in_app',
+        loginMethods: kind === 'copilot' ? ['device_code'] : ['browser'],
+      });
       return;
     }
     this.kinds = ECHO_SUBSCRIPTION_KINDS;
@@ -273,7 +302,9 @@ export class EchoAccounts implements EngineAccounts {
       login: {
         loginId,
         method,
-        authUrl: `https://example.com/echo-login/${kind}`,
+        ...(method === 'device_code'
+          ? { verificationUrl: 'https://example.com/echo-login/device', userCode: 'ECHO-1234' }
+          : { authUrl: `https://example.com/echo-login/${kind}` }),
         startedAt: new Date().toISOString(),
       },
     });

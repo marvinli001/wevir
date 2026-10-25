@@ -72,7 +72,7 @@ async function providersOf(client: TestRpcClient, ids: string[]) {
 }
 
 describe('订阅来源（0.19.0）', () => {
-  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出七种', async () => {
+  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出八种', async () => {
     const { connect } = await start();
     const { client, hello } = await connect();
     expect(hello.features).toMatchObject({ subscription_sources: true, provider_enabled: true });
@@ -87,6 +87,7 @@ describe('订阅来源（0.19.0）', () => {
       'antigravity',
       'workbuddy',
       'devin',
+      'copilot',
     ]);
     expect(accounts[0]).toMatchObject({
       kind: 'claude',
@@ -99,6 +100,11 @@ describe('订阅来源（0.19.0）', () => {
     expect(accounts[2]).toMatchObject({ kind: 'opencode', installed: false });
     expect(accounts[4]).toMatchObject({ kind: 'antigravity', installed: false, canInstall: true });
     expect(accounts[6]).toMatchObject({ kind: 'devin', signIn: 'in_app', canInstall: true });
+    expect(accounts[7]).toMatchObject({
+      kind: 'copilot',
+      signIn: 'in_app',
+      loginMethods: ['device_code'],
+    });
   });
 
   it('已登录的种类由 Host 建 Provider（ID 与种类相同，Claude 叫 Claude），会话交给订阅引擎', async () => {
@@ -221,6 +227,23 @@ describe('订阅来源（0.19.0）', () => {
       ).toBe(true),
     );
     expect(old.notifications('account.updated')).toEqual([]);
+  });
+
+  it('Copilot 沿用订阅能力位，0.125.0 之前即使声明它也不收到新枚举值', async () => {
+    const { connect } = await start('copilot=signed_in');
+    const full = (await connect()).client;
+    await providersOf(full, ['copilot']);
+    const old = (await connect(FULL, '0.124.0')).client;
+    expect(
+      (await old.request('provider.list')).providers.some(
+        (p: { kind: string }) => p.kind === 'copilot',
+      ),
+    ).toBe(false);
+    expect(
+      (await old.request('account.list')).accounts.some(
+        (a: { kind: string }) => a.kind === 'copilot',
+      ),
+    ).toBe(false);
   });
 
   it('应用内登录：signing_in 带 authUrl，完成后 account.updated 是 signed_in，并建出 Provider', async () => {

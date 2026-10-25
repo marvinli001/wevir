@@ -559,6 +559,15 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/adapter-copilot:
+    dependencies:
+      '@wevir/adapter-acp':
+        specifier: workspace:*
+        version: link:../adapter-acp
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/adapter-cursor:
     dependencies:
       '@cursor/sdk':
@@ -655,6 +664,9 @@ importers:
       '@wevir/adapter-codex':
         specifier: workspace:*
         version: link:../adapter-codex
+      '@wevir/adapter-copilot':
+        specifier: workspace:*
+        version: link:../adapter-copilot
       '@wevir/adapter-cursor':
         specifier: workspace:*
         version: link:../adapter-cursor

@@ -1244,6 +1244,55 @@ export const devinProvider: ProviderProfile = {
   updatedAt: TS,
 };
 
+/** GitHub Copilot（0.125.0）：设备码登录的 Copilot CLI，用户自己装的；额度是每月的高级请求。 */
+export const copilotAccount: AccountState = {
+  kind: 'copilot',
+  status: 'signed_in',
+  email: 'octocat',
+  signIn: 'in_app',
+  loginMethods: ['device_code'],
+  loginCommand: 'copilot login',
+  installed: true,
+  version: '1.0.103',
+  executablePath: '/opt/homebrew/bin/copilot',
+  rateLimits: {
+    primary: { usedPercent: 12.5, period: 'monthly', scope: 'Premium requests', resetsAt: TS },
+    windows: [{ usedPercent: 12.5, period: 'monthly', scope: 'Premium requests', resetsAt: TS }],
+  },
+};
+/** 0.125.0：Copilot 登录中（`copilot login --device-code` 给出的网址与码）。 */
+export const copilotSigningIn: AccountState = {
+  kind: 'copilot',
+  id: 'copilot-7c1e',
+  status: 'signing_in',
+  signIn: 'in_app',
+  loginMethods: ['device_code'],
+  loginCommand: 'COPILOT_HOME="/Users/me/.wevir/accounts/copilot-7c1e/copilot" copilot login',
+  installed: true,
+  version: '1.0.103',
+  multiAccount: true,
+  login: {
+    loginId: 'login-copilot',
+    method: 'device_code',
+    verificationUrl: 'https://github.com/login/device',
+    userCode: 'WDJB-MJHT',
+    startedAt: TS,
+  },
+};
+export const copilotProvider: ProviderProfile = {
+  id: 'copilot',
+  kind: 'copilot',
+  displayName: 'GitHub Copilot',
+  models: [
+    { id: 'auto', displayName: 'Auto' },
+    { id: 'claude-sonnet-4.5', displayName: 'Claude Sonnet 4.5' },
+  ],
+  defaultModelId: 'auto',
+  hasSecret: false,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
 export const antigravityInstalling: AccountState = {
   kind: 'antigravity',
   status: 'signed_out',
@@ -4235,6 +4284,7 @@ export const methodSamples: MethodSamples = {
           providers: [{ ...compatibleProvider, enabled: true }, claudeProvider, workbuddyProvider],
         },
         { providers: [devinProvider] },
+        { providers: [copilotProvider] },
       ],
       invalid: [
         { providers: [{ ...compatibleProvider, hasSecret: undefined }] },
@@ -4431,6 +4481,7 @@ export const methodSamples: MethodSamples = {
       valid: [
         { accounts: [signedInAccount, claudeAccount, antigravityInstalling, workbuddyAccount] },
         { accounts: [devinAccount] },
+        { accounts: [copilotAccount, copilotSigningIn] },
         {
           accounts: [
             {
@@ -4461,6 +4512,7 @@ export const methodSamples: MethodSamples = {
         { kind: 'grok' },
         { kind: 'workbuddy', refresh: true },
         { kind: 'devin', refresh: true },
+        { kind: 'copilot', refresh: true },
         // 0.63.0：按账号 ID 读添加的账号。
         { kind: 'claude', id: 'claude-3f9a', refresh: true },
       ],
@@ -8895,6 +8947,8 @@ export const notificationSamples: NotificationSamples = {
       { account: workbuddyAccount },
       { account: devinAccount },
       { account: devinSigningIn },
+      { account: copilotAccount },
+      { account: copilotSigningIn },
     ],
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },

@@ -7,7 +7,7 @@ Wevir 是本地优先、开源、多模型的 AI Agent 工作台：以 OpenAI Co
 ## 仓库规则
 
 1. **一次改动只做一件事。** 不顺手做别的；发现文档与代码不符，先改文档再改代码。
-2. **引擎在适配器后面。** 每个引擎的 npm 包只能由它的适配器包 import 和声明：`@openai/codex*` 只在 `packages/adapter-codex`（它目前不依赖任何 npm 包，运行官方发布的 `codex-app-server` 独立二进制），`@anthropic-ai/claude-agent-sdk` 与 `@anthropic-ai/claude-code` 只在 `packages/adapter-claude`，`@cursor/sdk*` 只在 `packages/adapter-cursor`，`@opencode-ai/*` 与 `@opencode/*` 只在 `packages/adapter-opencode`。Grok Build 的 CLI（`@xai-official/grok`）由用户自己装，谁都不声明，`packages/adapter-grok` 只启动它。WorkBuddy 经 `packages/adapter-workbuddy` 启动用户自己装的 `codebuddy --acp`，不声明或分发 `@tencent-ai/codebuddy-code` / `@tencent-ai/agent-sdk`。Devin 经 `packages/adapter-devin` 启动 `devin acp`（用户自己装的，或设置里按官方清单下载的独立程序），它不是 npm 包，适配器只依赖 `@wevir/adapter-acp`。Antigravity 的运行体不是 npm 包，`packages/adapter-antigravity` 只依赖 `@wevir/adapter-acp` 与解 ZIP 的 `yauzl`。`pnpm lint` 用两道检查强制：
+2. **引擎在适配器后面。** 每个引擎的 npm 包只能由它的适配器包 import 和声明：`@openai/codex*` 只在 `packages/adapter-codex`（它目前不依赖任何 npm 包，运行官方发布的 `codex-app-server` 独立二进制），`@anthropic-ai/claude-agent-sdk` 与 `@anthropic-ai/claude-code` 只在 `packages/adapter-claude`，`@cursor/sdk*` 只在 `packages/adapter-cursor`，`@opencode-ai/*` 与 `@opencode/*` 只在 `packages/adapter-opencode`。Grok Build 的 CLI（`@xai-official/grok`）由用户自己装，谁都不声明，`packages/adapter-grok` 只启动它。WorkBuddy 经 `packages/adapter-workbuddy` 启动用户自己装的 `codebuddy --acp`，不声明或分发 `@tencent-ai/codebuddy-code` / `@tencent-ai/agent-sdk`。Devin 经 `packages/adapter-devin` 启动 `devin acp`（用户自己装的，或设置里按官方清单下载的独立程序），它不是 npm 包，适配器只依赖 `@wevir/adapter-acp`。GitHub Copilot 经 `packages/adapter-copilot` 启动 `copilot --acp`（用户自己装的，或设置里按官方发布的校验和下载的独立程序），谁都不声明 `@github/copilot`，适配器只依赖 `@wevir/adapter-acp`。Antigravity 的运行体不是 npm 包，`packages/adapter-antigravity` 只依赖 `@wevir/adapter-acp` 与解 ZIP 的 `yauzl`。`pnpm lint` 用两道检查强制：
    - Biome `noRestrictedImports`（`biome.json`）：拦截静态 import、`import type`、`export … from`、动态 `import()`、子路径。
    - `scripts/check-engine-boundary.mjs`：检查根目录和各工作区包的依赖声明（含 `npm:` 别名）。pnpm 的 node_modules 是隔离的，没声明的包解析不到，所以 `require()`、`createRequire()` 这类 lint 看不见的写法在运行时也会失败。例外是 `NODE_PATH`：pnpm 默认让 `node_modules/.bin` 的命令 shim 把私有提升目录 `node_modules/.pnpm/node_modules` 写进 `NODE_PATH`，经 shim 启动的 Vitest 及其子进程里这类写法能解析到，测试通过、生产失败。仓库在 `pnpm-workspace.yaml` 设了 `extendNodePath: false` 关掉它；这个设置只在创建 shim 时生效，之前装过依赖的 checkout 要 `pnpm install --force` 一次；`pnpm lint` 会检查已生成的 shim，发现导出 `NODE_PATH` 就失败。因此不要开启 `node-linker=hoisted`、`shamefully-hoist`、`enableGlobalVirtualStore`、`preferSymlinkedExecutables`，不要用 `public-hoist-pattern` 提升引擎包，也不要去掉 `extendNodePath: false`。
 3. **`upstream/` 只读。** 那里是上游仓库的参考克隆，不修改、不提交。移植上游代码时，在文件头写明来源仓库、路径、提交 SHA 和许可证，并登记到 `docs/upstream/UPSTREAM.md`。OpenWork 的 `ee/` 目录禁止参考和移植。
@@ -57,7 +57,8 @@ wevir/
 │  ├─ adapter-grok/     Grok Build 适配器
 │  ├─ adapter-antigravity/ Antigravity 适配器
 │  ├─ adapter-workbuddy/   WorkBuddy 适配器
-│  └─ adapter-devin/       Devin 适配器
+│  ├─ adapter-devin/       Devin 适配器
+│  └─ adapter-copilot/     GitHub Copilot 适配器
 ├─ patches/             pnpm 的依赖补丁（`pnpm-workspace.yaml` 的 `patchedDependencies`）
 ├─ prompts/             Wevir 自己的提示词，随安装包分发
 ├─ scripts/             仓库脚本（引擎边界检查、上游同步、Codex 下载等）
@@ -91,7 +92,7 @@ wevir/
 | `pnpm --filter @wevir/mobile ios` / `android` | 生成原生工程并编译、安装手机端的开发构建（要 Xcode / Android SDK）；之后 `pnpm --filter @wevir/mobile start` 起 Metro |
 | `pnpm --filter @wevir/desktop package` | 打安装包（要先 `pnpm build`），`--target <三元组>` 打别的平台，产物在 `apps/desktop/release/` |
 | `pnpm --filter @wevir/cli package` | 打自带 Node 的命令行包（要先 `pnpm --filter "@wevir/host..." build`）：`--target <三元组>` 打别的平台，`--version` 写进 `wevir --version`，产物 `wevir-cli-<版本>-<平台>-<架构>.tar.gz`（Windows `.zip`）在 `apps/cli/release/`；安装脚本是 `apps/cli/scripts/install.sh` 与 `install.ps1` |
-| `pnpm vitest run --project adapter-<名字>` | 单个适配器的测试；真实引擎或真实模型的测试默认跳过并打印原因，要按各适配器测试文件头的说明设置环境变量（如 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`，或 `WEVIR_TEST_CLAUDE=1`、`WEVIR_TEST_GROK=1`、`WEVIR_TEST_OPENCODE=1`、`WEVIR_TEST_WORKBUDDY=1`、`WEVIR_TEST_DEVIN=1`；订阅类的会用掉额度） |
+| `pnpm vitest run --project adapter-<名字>` | 单个适配器的测试；真实引擎或真实模型的测试默认跳过并打印原因，要按各适配器测试文件头的说明设置环境变量（如 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`，或 `WEVIR_TEST_CLAUDE=1`、`WEVIR_TEST_GROK=1`、`WEVIR_TEST_OPENCODE=1`、`WEVIR_TEST_WORKBUDDY=1`、`WEVIR_TEST_DEVIN=1`、`WEVIR_TEST_COPILOT=1`；订阅类的会用掉额度） |
 | `bash scripts/upstream-sync.sh` | 按 `docs/upstream/upstream.lock` 把上游参考仓库浅克隆到 `upstream/`；`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀 |
 
 国内网络：npm 镜像用 npmmirror，Electron 二进制用 `ELECTRON_MIRROR`，上游与 Codex 下载用 `WEVIR_GITHUB_MIRROR`，命令行包里的 Node 用 `WEVIR_NODE_MIRROR`（替换 `https://nodejs.org/dist`）。

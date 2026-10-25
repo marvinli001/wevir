@@ -38,6 +38,7 @@
     "@wevir/adapter-antigravity": "workspace:*",
     "@wevir/adapter-claude": "workspace:*",
     "@wevir/adapter-codex": "workspace:*",
+    "@wevir/adapter-copilot": "workspace:*",
     "@wevir/adapter-cursor": "workspace:*",
     "@wevir/adapter-devin": "workspace:*",
     "@wevir/adapter-grok": "workspace:*",
