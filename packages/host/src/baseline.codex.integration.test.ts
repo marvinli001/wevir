@@ -87,6 +87,14 @@ const REAL_PRESETS = (process.env.WEVIR_BASELINE_PRESETS ?? 'full')
   .split(',')
   .map((name) => name.trim())
   .filter((name): name is BaselinePresetName => name in BASELINE_TOOL_PRESETS);
+/**
+ * 真实模型的 C0 在 Codex 工具搜索开（`on`，产品默认）与关（`off`，Provider 的 compat `toolSearch: 'off'`）下各跑一遍（逗号分隔，
+ * 默认只有 on）。
+ */
+const REAL_TOOL_SEARCH = (process.env.WEVIR_BASELINE_TOOL_SEARCH ?? 'on')
+  .split(',')
+  .map((mode) => mode.trim())
+  .filter((mode): mode is 'on' | 'off' => mode === 'on' || mode === 'off');
 
 let binary: string | undefined;
 try {
@@ -139,6 +147,8 @@ function section(path: 'mock' | 'real', key: string, value: unknown): void {
 
 /** 真实模型每次运行（一个 Host）最多发多少个模型请求，超过就停掉回合：防止压缩循环一类的失控烧掉额度。 */
 const REAL_REQUEST_CAP = Math.max(1, Number(process.env.WEVIR_BASELINE_REQUEST_CAP ?? 30) || 30);
+/** C0 所有运行加起来最多发多少个模型请求（含标题等辅助请求）；到了就停掉进行中的回合、不再开新的运行。不设时不限。 */
+const REAL_TOTAL_CAP = Number(process.env.WEVIR_BASELINE_TOTAL_CAP) || Number.POSITIVE_INFINITY;
 
 // ── Host ──────────────────────────────────────────────────────────────
 
@@ -871,15 +881,69 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
     });
 
     describe.skipIf(REAL_KEY === undefined)(`真实模型：deepseek-official/${DEEPSEEK_MODEL}`, () => {
-      it(`C0：修 bug 并如实报告检查结果 ×${REPEAT}（工具预设：${REAL_PRESETS.join('、')}）`, {
-        timeout: REPEAT * REAL_PRESETS.length * 600_000,
+      it(`C0：修 bug 并如实报告检查结果 ×${REPEAT}（工具预设：${REAL_PRESETS.join('、')}；工具搜索：${REAL_TOOL_SEARCH.join('、')}）`, {
+        timeout: REPEAT * REAL_PRESETS.length * REAL_TOOL_SEARCH.length * 600_000,
       }, async () => {
         const byPreset: Json = {};
-        for (const preset of REAL_PRESETS) {
-          const runs: Json[] = [];
-          for (let run = 0; run < REPEAT; run++) {
+        // 只跑工具搜索开时键是预设名，同以前的报告；开关都跑时是 `<预设>/search-on` 这样。
+        const combos = REAL_PRESETS.flatMap((preset) =>
+          REAL_TOOL_SEARCH.map((search) => ({
+            preset,
+            search,
+            key:
+              REAL_TOOL_SEARCH.length === 1 && search === 'on'
+                ? preset
+                : `${preset}/search-${search}`,
+          })),
+        );
+        // 交错跑（第 1 轮每种组合各一次，再第 2 轮……），时段对各组公平；所有运行的请求加起来超过 REAL_TOTAL_CAP 就不再开新的。
+        const runsOf = new Map<string, Json[]>(combos.map(({ key }) => [key, []]));
+        let totalRequests = 0;
+        /** 确认用的一句话：两组首个 Agent 请求的 tools 字节。 */
+        const probe: Record<string, number> = {};
+        const summarizeRuns = () => {
+          for (const [key, runs] of runsOf) {
+            byPreset[key] = {
+              runs,
+              successRate: `${runs.filter((run) => (run.check as { success: boolean }).success).length}/${runs.length}`,
+            };
+          }
+          section('real', 'c0', { prompt: C0_PROMPT, probe, byPreset, totalRequests });
+        };
+        // 开关都跑时先各发一句话确认两组首个请求的工具确实不同（搜索开的少），请求算进总数。
+        if (REAL_TOOL_SEARCH.length === 2) {
+          for (const search of REAL_TOOL_SEARCH) {
             const proxy = await startForwardingRecorder(DEEPSEEK);
-            const host = await boot([deepseek()], { deepseekBaseURL: proxy.baseURL });
+            const host = await boot(
+              [deepseek(search === 'off' ? { toolSearch: 'off' } : undefined)],
+              { deepseekBaseURL: proxy.baseURL },
+            );
+            try {
+              const session = await newSession(host.client, host.a.id, 'deepseek-official');
+              await runTurn(host.client, session, '只回复 ok。', 120_000);
+              const first = agentRequests(proxy.requests)[0];
+              probe[search] = first === undefined ? 0 : responsesCatalog(first.body).toolBytes;
+            } finally {
+              await host.close();
+              await proxy.close();
+              totalRequests += proxy.requests.length;
+            }
+          }
+          section('real', 'c0', { prompt: C0_PROMPT, probe, totalRequests });
+          expect(probe.on, '搜索开的首个请求').toBeGreaterThan(0);
+          expect(probe.on, '搜索开比关的工具少').toBeLessThan(probe.off ?? 0);
+        }
+        for (let run = 0; run < REPEAT; run++) {
+          for (const { preset, search, key } of combos) {
+            if (totalRequests >= REAL_TOTAL_CAP) break;
+            const runs = runsOf.get(key) as Json[];
+            const proxy = await startForwardingRecorder(DEEPSEEK);
+            const host = await boot(
+              [deepseek(search === 'off' ? { toolSearch: 'off' } : undefined)],
+              {
+                deepseekBaseURL: proxy.baseURL,
+              },
+            );
             try {
               const { client, a, home } = host;
               seedProjectNote(home, a.id, STALE_NOTE);
@@ -897,7 +961,9 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
                 session,
                 C0_PROMPT,
                 540_000,
-                () => proxy.requests.length > REAL_REQUEST_CAP,
+                () =>
+                  proxy.requests.length > REAL_REQUEST_CAP ||
+                  totalRequests + proxy.requests.length > REAL_TOTAL_CAP,
               );
               const check = checkC0(a.dir);
               const agent = agentRequests(proxy.requests);
@@ -918,19 +984,15 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
                 reportsLintFailure: reportsLintFailure(turn.finalText),
                 finalText: turn.finalText.slice(0, 800),
               });
-              byPreset[preset] = { partial: true, runs };
-              section('real', 'c0', { prompt: C0_PROMPT, byPreset });
             } finally {
               await host.close();
               await proxy.close();
+              totalRequests += proxy.requests.length;
+              summarizeRuns();
             }
           }
-          byPreset[preset] = {
-            runs,
-            successRate: `${runs.filter((run) => (run.check as { success: boolean }).success).length}/${runs.length}`,
-          };
-          section('real', 'c0', { prompt: C0_PROMPT, byPreset });
         }
+        summarizeRuns();
       });
 
       it(`记忆：保存纠正、新会话再用、B 项目不串 ×${REPEAT}`, {
@@ -1093,10 +1155,11 @@ function compatible(id: string, api: string, baseURL: string, model: string): Js
   };
 }
 
-function deepseek(): Json {
+function deepseek(compat?: Json): Json {
   return {
     id: 'deepseek-official',
     kind: 'deepseek-official',
+    ...(compat !== undefined && { compat }),
     displayName: 'DeepSeek',
     models: [
       {
