@@ -23,9 +23,18 @@ export interface LayoutPrefs {
 }
 
 /**
- * 会话侧栏里要在设置中打开才显示的卡片（按侧栏里的顺序）：不管有没有内容都会占一张卡片的那几张。其余卡片有内容才出现。
+ * 会话侧栏里要在设置中打开才显示的卡片（按侧栏里的顺序）：不管有没有内容都会占一张卡片的那几张，以及用户想自己决定要不要看的几张。其余卡片有内容才出现。
  */
-export const OPTIONAL_RAIL_CARDS = ['readiness', 'verification', 'lsp', 'retro'] as const;
+export const OPTIONAL_RAIL_CARDS = [
+  'instructions',
+  'rules',
+  'readiness',
+  'verification',
+  'preview',
+  'lsp',
+  'task-board',
+  'retro',
+] as const;
 
 const DEFAULT_PREFS: LayoutPrefs = {
   sidebarWidth: LAYOUT.sidebarDefault,

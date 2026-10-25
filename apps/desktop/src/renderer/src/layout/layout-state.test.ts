@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLayoutPrefs } from './layout-state';
+import { OPTIONAL_RAIL_CARDS, parseLayoutPrefs } from './layout-state';
 
 describe('parseLayoutPrefs', () => {
   it('读 v1 的格式；没有会话侧栏的字段时开着、只展开“环境”', () => {
@@ -50,6 +50,9 @@ describe('parseLayoutPrefs', () => {
 
   it('可选卡片默认都不显示，记住设置里打开的', () => {
     expect(parseLayoutPrefs({})).toMatchObject({ railCards: [] });
+    expect(OPTIONAL_RAIL_CARDS).toEqual(
+      expect.arrayContaining(['instructions', 'rules', 'preview', 'task-board']),
+    );
     expect(parseLayoutPrefs({ railCards: ['retro', 2, 'lsp'] })).toMatchObject({
       railCards: ['retro', 'lsp'],
     });

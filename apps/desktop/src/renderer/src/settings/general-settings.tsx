@@ -28,9 +28,13 @@ const RAIL_CARD_META: Record<
   (typeof OPTIONAL_RAIL_CARDS)[number],
   { label: PlainMessageKey; feature: Parameters<typeof hostSupports>[1] }
 > = {
+  instructions: { label: 'rail.instructions', feature: 'agent_instructions' },
+  rules: { label: 'rail.rules', feature: 'rule_files' },
   readiness: { label: 'rail.readiness', feature: 'workspace_readiness' },
   verification: { label: 'rail.checks', feature: 'verification' },
+  preview: { label: 'rail.preview', feature: 'dev_preview' },
   lsp: { label: 'rail.lsp', feature: 'lsp_status' },
+  'task-board': { label: 'rail.taskBoard', feature: 'task_board' },
   retro: { label: 'rail.retro', feature: 'session_retro' },
 };
 
@@ -38,7 +42,7 @@ const RAIL_CARD_META: Record<
  * 设置 → 常规（U7，原来的“对话”并进来）：界面语言（本机，language-picker.tsx），回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
  * domain-model §3.7，桌面与 CLI 共用；别的客户端改了，这里经 `settings.updated` 跟上）。U35 起还有发送消息的按键与外部编辑器
  * （文件预览的“打开方式”默认用它），都只存在本机。U36 起照 Codex 桌面端加了“运行时防止系统休眠”（0.102.0 起存在 Host 设置
- * `preventSleep`，旧 Host 上只存在本机）与“权限”一组（输入框的权限菜单里出现哪几种模式，请求批准一直在），后者只存在本机。“会话侧栏”一组是不管有没有内容都占一张卡片的那几张，默认不显示，
+ * `preventSleep`，旧 Host 上只存在本机）与“权限”一组（输入框的权限菜单里出现哪几种模式，请求批准一直在），后者只存在本机。“会话侧栏”一组是可选的卡片（不管有没有内容都占一张的，与用户自己决定看不看的），默认不显示，
  * 只存在本机。
  */
 export function GeneralSettings() {
