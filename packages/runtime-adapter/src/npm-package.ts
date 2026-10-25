@@ -37,6 +37,9 @@ const METADATA_TIMEOUT_MS = 15_000;
 /** 多久收不到数据算下载卡住。 */
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
 const VALIDATION_TIMEOUT_MS = 60_000;
+/** Windows 上刚写好的程序可能还被杀毒软件扫描着，启动会以 EBUSY 等失败：多等一会儿再试。 */
+const VALIDATION_BUSY_ATTEMPTS = 10;
+const VALIDATION_BUSY_DELAY_MS = 1_000;
 const PROGRESS_INTERVAL_MS = 250;
 const FREE_SPACE_MARGIN = 256 * 1024 * 1024;
 const ACTIVE_FILE = 'active.json';
@@ -96,6 +99,10 @@ export interface NpmPackageInstallerOptions {
   fetch?: typeof fetch;
   idleTimeoutMs?: number;
   progressIntervalMs?: number;
+  /** 默认 `process.platform`；只有 win32 会对校验时的文件占用重试。 */
+  platform?: NodeJS.Platform;
+  /** 校验遇到文件占用时的重试间隔（毫秒），测试里调小。 */
+  validationRetryDelayMs?: number;
 }
 
 interface Resolved {
@@ -123,6 +130,18 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** 启动程序时 Windows 报的“文件正被占用”类错误（杀毒扫描、句柄还没放开）：`spawn EBUSY`、`EPERM`、`EACCES`、`ETXTBSY`。 */
+function isBusyError(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current instanceof Error && depth < 4; depth += 1) {
+    const code = (current as NodeJS.ErrnoException).code;
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' || code === 'ETXTBSY')
+      return true;
+    if (/\b(?:EBUSY|EPERM|EACCES|ETXTBSY)\b/u.test(current.message)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 function reasonOf(error: unknown): string {
@@ -414,7 +433,12 @@ export class NpmPackageInstaller {
       const output: Writable = spec.decode === 'brotli' ? zlib.createBrotliDecompress() : sink;
       if (output !== sink) output.pipe(sink);
       const written = new Promise<void>((resolve, reject) => {
-        sink.once('finish', resolve);
+        // 等 `close`（文件句柄真正放开）而不是 `finish`：Windows 上句柄还开着时，马上启动这个程序会 EBUSY。
+        sink.once('close', () =>
+          sink.writableFinished
+            ? resolve()
+            : reject(new Error('The file was closed before it was written.')),
+        );
         sink.once('error', reject);
         output.once('error', reject);
       });
@@ -472,16 +496,26 @@ export class NpmPackageInstaller {
   async #validate(executable: ManagedExecutable, signal: AbortSignal): Promise<void> {
     const validate = this.#options.validate;
     if (validate === undefined) return;
-    const timeout = AbortSignal.timeout(VALIDATION_TIMEOUT_MS);
-    try {
-      await validate(executable.path, executable.version, AbortSignal.any([signal, timeout]));
-    } catch (error) {
-      if (signal.aborted) throw signal.reason;
-      throw new NpmInstallError(
-        'verify',
-        `The downloaded ${this.spec.fileName.replace(/\.exe$/u, '')} ${executable.version} did not run: ${reasonOf(error)}`,
-        { cause: error },
-      );
+    const retryBusy = (this.#options.platform ?? process.platform) === 'win32';
+    const delay = this.#options.validationRetryDelayMs ?? VALIDATION_BUSY_DELAY_MS;
+    for (let attempt = 1; ; attempt += 1) {
+      const timeout = AbortSignal.timeout(VALIDATION_TIMEOUT_MS);
+      try {
+        await validate(executable.path, executable.version, AbortSignal.any([signal, timeout]));
+        return;
+      } catch (error) {
+        if (signal.aborted) throw signal.reason;
+        if (retryBusy && attempt < VALIDATION_BUSY_ATTEMPTS && isBusyError(error)) {
+          await sleep(delay, signal);
+          if (signal.aborted) throw signal.reason;
+          continue;
+        }
+        throw new NpmInstallError(
+          'verify',
+          `The downloaded ${this.spec.fileName.replace(/\.exe$/u, '')} ${executable.version} did not run: ${reasonOf(error)}`,
+          { cause: error },
+        );
+      }
     }
   }
 
@@ -513,6 +547,19 @@ export class NpmPackageInstaller {
       }
     }
   }
+}
+
+/** 等一会儿；`signal` 中止时提前醒来（调用方随后检查 `signal.aborted`）。 */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
 }
 
 function writeChunk(target: Writable, data: Buffer): Promise<void> {

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import zlib from 'node:zlib';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   extractTarEntry,
   NpmInstallCancelled,
@@ -14,6 +14,26 @@ import {
   NpmPackageInstaller,
   npmRegistries,
 } from './npm-package.js';
+
+// 让落盘文件的 `close` 晚一点到，复现 Windows 上句柄还没放开、马上启动程序会 EBUSY 的时序。
+const slowClose = vi.hoisted(() => ({ ms: 0, streams: [] as { closed: boolean }[] }));
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    createWriteStream: (...args: Parameters<typeof actual.createWriteStream>) => {
+      const stream = actual.createWriteStream(...args);
+      if (slowClose.ms > 0) {
+        slowClose.streams.push(stream);
+        const destroy = stream._destroy.bind(stream);
+        stream._destroy = (error, callback) => {
+          setTimeout(() => destroy(error, callback), slowClose.ms);
+        };
+      }
+      return stream;
+    },
+  };
+});
 
 // 引擎运行体的安装：假 registry（本机 HTTP）给元数据与 tgz，tgz 里只有一个程序文件，和真实的平台包一样。
 
@@ -130,6 +150,8 @@ afterEach(() => {
   metadataStatus = 200;
   tarballHang = false;
   tarballStatus = 200;
+  slowClose.ms = 0;
+  slowClose.streams.length = 0;
   hits.length = 0;
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -214,6 +236,120 @@ describe('NpmPackageInstaller', () => {
     });
     expect(await target.active()).toBeUndefined();
     expect(readdirSync(join(target.directory, 'versions'))).toEqual([]);
+  });
+
+  it('程序文件的句柄放开后才启动核对', async () => {
+    publish();
+    slowClose.ms = 100;
+    const closed: boolean[] = [];
+    const target = installer({
+      validate: async () => {
+        closed.push(...slowClose.streams.map((stream) => stream.closed));
+      },
+    });
+    await target.install(() => {});
+    expect(closed).toEqual([true]);
+  });
+
+  describe('Windows 上核对遇到文件占用', () => {
+    const busy = (code: string) => Object.assign(new Error(`spawn ${code}`), { code });
+
+    it.each(['EBUSY', 'EPERM', 'EACCES'])('%s：等一会儿再试，通过就装好', async (code) => {
+      publish();
+      let calls = 0;
+      const target = installer({
+        platform: 'win32',
+        validationRetryDelayMs: 1,
+        validate: async () => {
+          calls += 1;
+          if (calls < 3) throw busy(code);
+        },
+      });
+      const result = await target.install(() => {});
+      expect(calls).toBe(3);
+      expect((await target.active())?.version).toBe(result.version);
+    });
+
+    it('错误只在消息里带占用的码（被包了一层）也算', async () => {
+      publish();
+      let calls = 0;
+      const target = installer({
+        platform: 'win32',
+        validationRetryDelayMs: 1,
+        validate: async () => {
+          calls += 1;
+          if (calls < 2) throw new Error('`claude --version` failed: spawn EBUSY');
+        },
+      });
+      await target.install(() => {});
+      expect(calls).toBe(2);
+    });
+
+    it('一直占用：试满次数后报错，带原因，不启用', async () => {
+      publish();
+      let calls = 0;
+      const target = installer({
+        platform: 'win32',
+        validationRetryDelayMs: 1,
+        validate: async () => {
+          calls += 1;
+          throw busy('EBUSY');
+        },
+      });
+      await expect(target.install(() => {})).rejects.toMatchObject({
+        operation: 'verify',
+        message: expect.stringContaining('did not run: spawn EBUSY'),
+      });
+      expect(calls).toBe(10);
+      expect(await target.active()).toBeUndefined();
+      expect(readdirSync(join(target.directory, 'versions'))).toEqual([]);
+    });
+
+    it('别的错误不重试', async () => {
+      publish();
+      let calls = 0;
+      const target = installer({
+        platform: 'win32',
+        validationRetryDelayMs: 1,
+        validate: async () => {
+          calls += 1;
+          throw new Error('exec format error');
+        },
+      });
+      await expect(target.install(() => {})).rejects.toMatchObject({ operation: 'verify' });
+      expect(calls).toBe(1);
+    });
+
+    it('其他平台不重试', async () => {
+      publish();
+      let calls = 0;
+      const target = installer({
+        platform: 'darwin',
+        validationRetryDelayMs: 1,
+        validate: async () => {
+          calls += 1;
+          throw busy('EBUSY');
+        },
+      });
+      await expect(target.install(() => {})).rejects.toMatchObject({ operation: 'verify' });
+      expect(calls).toBe(1);
+    });
+
+    it('等待重试时取消：立即抛 NpmInstallCancelled', async () => {
+      publish();
+      let target: NpmPackageInstaller | undefined;
+      target = installer({
+        platform: 'win32',
+        validationRetryDelayMs: 60_000,
+        validate: async () => {
+          setTimeout(() => target?.cancel(), 20);
+          throw busy('EBUSY');
+        },
+      });
+      await expect(target.install(() => {})).rejects.toBeInstanceOf(NpmInstallCancelled);
+      expect(target.installing).toBe(false);
+      expect(readdirSync(join(target.directory, 'versions'))).toEqual([]);
+    });
   });
 
   it('新版本启用后删掉旧版本；已经是最新的只核对，不再下载', async () => {
