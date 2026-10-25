@@ -956,6 +956,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
                 params.vertex !== undefined && { vertex: params.vertex }),
               ...(params.compat !== undefined && { compat: params.compat }),
             }),
+            // DeepSeek 官方只认 compat 的 `toolSearch`（Codex 的工具搜索开或关，网关的 `toolSearchMode`）；别的开关是给
+            // 自己填地址的 Provider 的，照旧丢掉。
+            ...(params.kind === 'deepseek-official' &&
+              params.compat?.toolSearch !== undefined && {
+                compat: { toolSearch: params.compat.toolSearch },
+              }),
           },
           undefined,
         );
@@ -994,6 +1000,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         if (params.kind !== 'deepseek-official') {
           record.api = params.api;
           if (params.compat !== undefined) record.compat = params.compat;
+        } else if (params.compat?.toolSearch !== undefined) {
+          record.compat = { toolSearch: params.compat.toolSearch };
         }
         // 转写模型（0.92.0）：省略时保留已存的（旧客户端不知道这个字段）；空数组清空。
         if (params.kind === 'openai-compatible') {

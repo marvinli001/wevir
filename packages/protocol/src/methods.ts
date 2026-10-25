@@ -874,6 +874,8 @@ export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
     id: z.literal('deepseek-official'),
     kind: z.literal('deepseek-official'),
     baseURL: HttpUrlSchema.optional(),
+    /** 只有 Codex 的工具搜索开关（0.124.0，`toolSearch`）；别的 compat 开关给自己填地址的 Provider，这里没有。 */
+    compat: ProviderCompatSchema.pick({ toolSearch: true }).optional(),
     models: z.array(ProviderModelSchema),
   }),
   z.object({

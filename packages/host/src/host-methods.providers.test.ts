@@ -334,6 +334,37 @@ describe('Provider 桥接（Host 侧）', () => {
     expect(bridge.applied).toHaveLength(3);
   });
 
+  it('DeepSeek 官方只保留 compat 的 toolSearch：存储、交给引擎、列表里都是它；别的开关丢掉', async () => {
+    const bridge = fakeBridge();
+    const { methods, storage } = setup(bridge);
+    const params = {
+      id: 'deepseek-official',
+      kind: 'deepseek-official',
+      displayName: 'DeepSeek',
+      models: [],
+      defaultModelId: 'deepseek-flash',
+      // 协议的 schema 已经去掉别的字段；这里直接调方法，确认 Host 自己也只取 toolSearch。
+      compat: { toolSearch: 'off', toolChoice: 'auto_only' },
+    } as unknown as MethodParams<'provider.upsert'>;
+    expect(MethodSchemas['provider.upsert'].params.parse(params)).toMatchObject({
+      compat: { toolSearch: 'off' },
+    });
+    expect(MethodSchemas['provider.upsert'].params.parse(params)).not.toHaveProperty(
+      'compat.toolChoice',
+    );
+    const result = await methods['provider.upsert'](params, context);
+    expect(result.provider.compat).toEqual({ toolSearch: 'off' });
+    expect(storage.providers.get('deepseek-official')?.compat).toEqual({ toolSearch: 'off' });
+    expect(bridge.applied.at(-1)?.[0]?.compat).toEqual({ toolSearch: 'off' });
+    expect((await methods['provider.list']({}, context)).providers[0]?.compat).toEqual({
+      toolSearch: 'off',
+    });
+    // 不带 compat 再存一次：整体替换，开关清掉。
+    const { compat: _compat, ...plain } = params as unknown as Record<string, unknown>;
+    await methods['provider.upsert'](plain as typeof params, context);
+    expect(storage.providers.get('deepseek-official')?.compat).toBeUndefined();
+  });
+
   it('删除 Provider 时一并删除它的用量记录', async () => {
     const { methods, storage } = setup();
     await methods['provider.upsert'](qwen, context);
