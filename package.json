@@ -20,7 +20,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "gate:m2": "pnpm --filter \"@wevir/host...\" build && node scripts/gate-m2.ts",
-    "icons:build": "node scripts/icons/export.mjs && node scripts/icons/preview.mjs && biome format --write assets/icons",
+    "icons:build": "node scripts/icons/export.mjs && node scripts/icons/social.mjs && node scripts/icons/preview.mjs && biome format --write assets/icons",
+    "icons:social": "node scripts/icons/social.mjs && biome format --write assets/icons",
     "icons:check": "node scripts/icons/verify.mjs",
     "icons:pack": "node scripts/icons/pack.mjs"
   },

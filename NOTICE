@@ -218,8 +218,8 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
 版权：Copyright 2022 The Mona Sans Project Authors (https://github.com/github/mona-sans),
       with Reserved Font Name "Mona"
 
-字体与许可证全文位于 assets/icons/source/fonts/。Wevir 的字标与组合标识使用该字体的轮廓，
-轮廓数据位于 assets/icons/source/wordmark-paths.json；派生 SVG 带来源注释。没有修改或重命名字体。
+字体与许可证全文位于 assets/icons/source/fonts/。Wevir 的字标、组合标识与社交横幅文案使用该字体的轮廓，
+轮廓数据位于 assets/icons/source/wordmark-paths.json 与 social-copy-paths.json；派生 SVG 带来源注释。没有修改或重命名字体。
 Wevir 主标及八个功能图标为自有设计。
 许可证全文见文末“SIL Open Font License 1.1”。
 

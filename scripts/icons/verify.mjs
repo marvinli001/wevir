@@ -9,6 +9,12 @@ import sharp from 'sharp';
 
 const root = fileURLToPath(new URL('../../assets/icons/', import.meta.url));
 const manifest = JSON.parse(await fs.readFile(path.join(root, 'manifest.json'), 'utf8'));
+try {
+  const social = JSON.parse(await fs.readFile(path.join(root, 'social-manifest.json'), 'utf8'));
+  manifest.rasters.push(...social.rasters);
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
 const failures = [];
 async function check(name, fn) {
   try {
@@ -28,6 +34,8 @@ for (const entry of manifest.rasters)
       'export source must contain editable vector geometry, not raster images or font-dependent text',
     );
     const buffer = await fs.readFile(path.join(root, entry.path));
+    if (entry.maxBytes)
+      assert(buffer.length < entry.maxBytes, 'upload exceeds platform file budget');
     const meta = await sharp(buffer).metadata();
     assert.equal(meta.width, entry.width);
     assert.equal(meta.height, entry.height);
@@ -266,5 +274,5 @@ if (failures.length) {
   process.exitCode = 1;
 } else
   console.log(
-    `Verified ${manifest.rasters.length} SVG/PNG pairs, ICNS/ICO containers, menu templates, iOS slots, grayscale tinted assets, Android safe zones and the Icon Composer document${actool ? ' (compiled with actool)' : ' (actool not available, compile skipped)'}.`,
+    `Verified ${manifest.rasters.length} SVG/raster pairs, ICNS/ICO containers, menu templates, iOS slots, grayscale tinted assets, Android safe zones and the Icon Composer document${actool ? ' (compiled with actool)' : ' (actool not available, compile skipped)'}.`,
   );

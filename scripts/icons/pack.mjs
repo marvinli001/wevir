@@ -7,6 +7,8 @@ import { deflateRawSync } from 'node:zlib';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const assets = path.join(repo, 'assets/icons');
+const socialOnly = process.argv.includes('--social');
+const filename = socialOnly ? 'wevir-social-v1.zip' : 'wevir-icons-v1.zip';
 const table = Array.from({ length: 256 }, (_, n) => {
   let c = n;
   for (let bit = 0; bit < 8; bit++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
@@ -35,7 +37,7 @@ const pkg = JSON.parse(await fs.readFile(path.join(repo, 'package.json'), 'utf8'
 payload.set(
   'package.json',
   Buffer.from(
-    `${JSON.stringify({ name: 'wevir-icons', version: '1.0.0', private: true, type: 'module', packageManager: pkg.packageManager, engines: pkg.engines, scripts: { 'icons:build': pkg.scripts['icons:build'], 'icons:check': pkg.scripts['icons:check'], 'icons:pack': pkg.scripts['icons:pack'] }, devDependencies: { sharp: pkg.devDependencies.sharp, '@biomejs/biome': pkg.devDependencies['@biomejs/biome'] } }, null, 2)}\n`,
+    `${JSON.stringify({ name: 'wevir-icons', version: '1.0.0', private: true, type: 'module', packageManager: pkg.packageManager, engines: pkg.engines, scripts: { 'icons:build': pkg.scripts['icons:build'], 'icons:social': pkg.scripts['icons:social'], 'icons:check': pkg.scripts['icons:check'], 'icons:pack': pkg.scripts['icons:pack'] }, devDependencies: { sharp: pkg.devDependencies.sharp, '@biomejs/biome': pkg.devDependencies['@biomejs/biome'] } }, null, 2)}\n`,
   ),
 );
 payload.set(
@@ -47,6 +49,35 @@ payload.set(
 payload.set('LICENSE', await fs.readFile(path.join(repo, 'LICENSE')));
 payload.set('biome.json', await fs.readFile(path.join(repo, 'biome.json')));
 payload.set('.gitignore', Buffer.from('node_modules/\n/assets/icons/release/\n'));
+if (socialOnly) {
+  const sources = new Set([
+    'LICENSE',
+    'assets/icons/SOCIAL.md',
+    'assets/icons/social-manifest.json',
+    'assets/icons/source/mark.svg',
+    'assets/icons/source/palette.json',
+    'assets/icons/source/wordmark-paths.json',
+    'assets/icons/source/social-copy-paths.json',
+  ]);
+  for (const name of payload.keys()) {
+    if (
+      !sources.has(name) &&
+      ![
+        'assets/icons/exports/social/',
+        'assets/icons/svg/social/',
+        'assets/icons/preview/social/',
+        'assets/icons/source/fonts/',
+      ].some((prefix) => name.startsWith(prefix))
+    )
+      payload.delete(name);
+  }
+  payload.set(
+    'README.md',
+    Buffer.from(
+      '# Wevir · Stripe / X 品牌资源\n\n使用说明见 assets/icons/SOCIAL.md。\n主版为 light（金色主标 / 灰调象牙白），dark 是铂金深色备选。\nPNG/JPG 可直接上传，SVG 为已转曲的矢量源文件。\n',
+    ),
+  );
+}
 const locals = [];
 const central = [];
 let offset = 0;
@@ -95,11 +126,9 @@ end.writeUInt32LE(directory.length, 12);
 end.writeUInt32LE(offset, 16);
 const zip = Buffer.concat([...locals, directory, end]);
 await fs.mkdir(path.join(assets, 'release'), { recursive: true });
-await fs.writeFile(path.join(assets, 'release/wevir-icons-v1.zip'), zip);
+await fs.writeFile(path.join(assets, 'release', filename), zip);
 await fs.writeFile(
-  path.join(assets, 'release/SHA256SUMS'),
-  `${createHash('sha256').update(zip).digest('hex')}  wevir-icons-v1.zip\n`,
+  path.join(assets, 'release', socialOnly ? `${filename}.sha256` : 'SHA256SUMS'),
+  `${createHash('sha256').update(zip).digest('hex')}  ${filename}\n`,
 );
-console.log(
-  `Packed ${payload.size} files (${zip.length} bytes): assets/icons/release/wevir-icons-v1.zip`,
-);
+console.log(`Packed ${payload.size} files (${zip.length} bytes): assets/icons/release/${filename}`);

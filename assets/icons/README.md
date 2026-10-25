@@ -4,6 +4,8 @@
 
 [完整预览](preview/index.html) · [总览 PNG](preview/overview.png) · [导出清单与 SHA-256](manifest.json)
 
+Stripe 公司头像、X 官号头像与横幅见 [社交品牌资源](SOCIAL.md) 和 [专用预览](preview/social/index.html)。运行 `pnpm icons:social` 可单独重建，`pnpm icons:pack --social` 生成只含社交资源的 ZIP；`icons:build` 也会同步导出它们。
+
 ## 文件与规格
 
 | 路径（相对于本目录） | 交付 |

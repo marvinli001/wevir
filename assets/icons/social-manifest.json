@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "date": "2026-10-25",
+  "identity": "Existing Wevir Open Host mark and outlined wordmark",
+  "avatarSafeRadiusRatio": 0.45,
+  "bannerCriticalBounds": [
+    {
+      "name": "mark",
+      "x": 400,
+      "y": 130,
+      "width": 158,
+      "height": 158
+    },
+    {
+      "name": "wordmark",
+      "x": 590,
+      "y": 138,
+      "width": 503.87999999999994,
+      "height": 145.92000000000002
+    },
+    {
+      "name": "tagline",
+      "x": 590,
+      "y": 313,
+      "width": 430.49999999999994,
+      "height": 28.380000000000003
+    },
+    {
+      "name": "domain",
+      "x": 590,
+      "y": 366,
+      "width": 88.76400000000001,
+      "height": 19.994000000000003
+    }
+  ],
+  "sources": {
+    "stripe": "https://docs.stripe.com/receipts#image-requirements",
+    "xDimensions": "https://help.x.com/en/managing-your-account/how-to-customize-your-profile",
+    "xCrop": "https://help.x.com/en/managing-your-account/common-issues-when-uploading-profile-photo"
+  },
+  "rasters": [
+    {
+      "path": "exports/social/stripe/light/company-avatar-512.png",
+      "source": "svg/social/stripe/light/company-avatar-512.svg",
+      "width": 512,
+      "height": 512,
+      "bytes": 41292,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 500000,
+      "sha256": "2cc4a957deffa99983ced867178922ebdc769c65e106eedc48fa47f9ec165a6e"
+    },
+    {
+      "path": "exports/social/stripe/light/company-avatar-1024.png",
+      "source": "svg/social/stripe/light/company-avatar-1024.svg",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 199373,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 500000,
+      "sha256": "9b6c7ffa0c598075cf56af291a305b1245e1daf61674b107cbe490a131f19098"
+    },
+    {
+      "path": "exports/social/x/light/avatar-400.png",
+      "source": "svg/social/x/light/avatar-400.svg",
+      "width": 400,
+      "height": 400,
+      "bytes": 29595,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "cc852a4fa5d9a20938a4574fd57452873e861b12486412b8489e006524e8a53b"
+    },
+    {
+      "path": "exports/social/x/light/avatar-1024.png",
+      "source": "svg/social/x/light/avatar-1024.svg",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 199373,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "9b6c7ffa0c598075cf56af291a305b1245e1daf61674b107cbe490a131f19098"
+    },
+    {
+      "path": "exports/social/x/light/header-1500x500.png",
+      "source": "svg/social/x/light/header-1500x500.svg",
+      "width": 1500,
+      "height": 500,
+      "bytes": 54344,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "5c1c96356de3214bef3a48928e4403beaec0142a59eddd3cd87a70baad42cffe"
+    },
+    {
+      "path": "exports/social/x/light/header-1500x500.jpg",
+      "source": "svg/social/x/light/header-1500x500.svg",
+      "width": 1500,
+      "height": 500,
+      "bytes": 42567,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "046bc6ce331302b4c437d4e3f8a2727db2a786aa32c757db236c45fea6d79c97"
+    },
+    {
+      "path": "exports/social/x/light/header-3000x1000.png",
+      "source": "svg/social/x/light/header-3000x1000.svg",
+      "width": 3000,
+      "height": 1000,
+      "bytes": 161612,
+      "alpha": false,
+      "opaque": true,
+      "sha256": "e6b2fca22c5e77c4cdc68dc461bb0d787f7f2f8c331c49eb3d420e182bac2ec6"
+    },
+    {
+      "path": "exports/social/stripe/dark/company-avatar-512.png",
+      "source": "svg/social/stripe/dark/company-avatar-512.svg",
+      "width": 512,
+      "height": 512,
+      "bytes": 34730,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 500000,
+      "sha256": "421a434dda3db62d50defc4546605af347e0df3a2b37f9faafc015b124d31e27"
+    },
+    {
+      "path": "exports/social/stripe/dark/company-avatar-1024.png",
+      "source": "svg/social/stripe/dark/company-avatar-1024.svg",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 142217,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 500000,
+      "sha256": "488f44fee7c54a02854c8e05ac70e220294f2f3b03c04fedf37b2bbf032db65a"
+    },
+    {
+      "path": "exports/social/x/dark/avatar-400.png",
+      "source": "svg/social/x/dark/avatar-400.svg",
+      "width": 400,
+      "height": 400,
+      "bytes": 24262,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "5207266a0955760f5953f46e40900aa613efe28a4a4454ca375c134495cf6bcd"
+    },
+    {
+      "path": "exports/social/x/dark/avatar-1024.png",
+      "source": "svg/social/x/dark/avatar-1024.svg",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 142217,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "488f44fee7c54a02854c8e05ac70e220294f2f3b03c04fedf37b2bbf032db65a"
+    },
+    {
+      "path": "exports/social/x/dark/header-1500x500.png",
+      "source": "svg/social/x/dark/header-1500x500.svg",
+      "width": 1500,
+      "height": 500,
+      "bytes": 52615,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "9678df50419f588a2862535bf0d0f8eabfac997205ead7210d2e38d62cfc5a32"
+    },
+    {
+      "path": "exports/social/x/dark/header-1500x500.jpg",
+      "source": "svg/social/x/dark/header-1500x500.svg",
+      "width": 1500,
+      "height": 500,
+      "bytes": 41525,
+      "alpha": false,
+      "opaque": true,
+      "maxBytes": 1900000,
+      "sha256": "46617819e272f25776a6e284db429d6330c22f30e0f8777c90e3650e4d670083"
+    },
+    {
+      "path": "exports/social/x/dark/header-3000x1000.png",
+      "source": "svg/social/x/dark/header-3000x1000.svg",
+      "width": 3000,
+      "height": 1000,
+      "bytes": 153580,
+      "alpha": false,
+      "opaque": true,
+      "sha256": "c6f09f529885b9d3b860b977720952a37a66eee0a42ea4af7d79587fba82839e"
+    }
+  ]
+}
