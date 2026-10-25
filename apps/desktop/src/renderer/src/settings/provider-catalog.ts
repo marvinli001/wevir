@@ -95,6 +95,55 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://z.ai/manage-apikey/apikey-list',
   },
   {
+    id: 'bedrock',
+    name: 'provider.catalog.bedrock',
+    logo: 'bedrock',
+    group: 'global',
+    source: preset('bedrock'),
+    // 长期 API Key 只在签发它的地域有效（2026-10-25 核对）。
+    keyURL: 'https://console.aws.amazon.com/bedrock/home#/api-keys/long-term/create',
+  },
+  {
+    id: 'bedrock-claude',
+    name: 'provider.catalog.bedrockClaude',
+    logo: 'bedrock',
+    group: 'global',
+    source: preset('bedrock-claude'),
+    keyURL: 'https://console.aws.amazon.com/bedrock/home#/api-keys/long-term/create',
+  },
+  {
+    id: 'openrouter',
+    name: 'provider.catalog.openrouter',
+    logo: 'openrouter',
+    group: 'global',
+    source: preset('openrouter'),
+    keyURL: 'https://openrouter.ai/keys',
+  },
+  {
+    id: 'vercel',
+    name: 'provider.catalog.vercel',
+    logo: 'vercel',
+    group: 'global',
+    source: preset('vercel'),
+    keyURL: 'https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys',
+  },
+  {
+    id: 'groq',
+    name: 'provider.catalog.groq',
+    logo: 'groq',
+    group: 'global',
+    source: preset('groq'),
+    keyURL: 'https://console.groq.com/keys',
+  },
+  {
+    id: 'fireworks',
+    name: 'provider.catalog.fireworks',
+    logo: 'fireworks',
+    group: 'global',
+    source: preset('fireworks'),
+    keyURL: 'https://app.fireworks.ai/settings/users/api-keys',
+  },
+  {
     id: 'deepseek',
     name: 'provider.catalog.deepseek',
     logo: 'deepseek',
@@ -168,6 +217,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://platform.stepfun.com/interface-key',
   },
   {
+    id: 'volcengine',
+    name: 'provider.catalog.volcengine',
+    logo: 'volcengine',
+    group: 'cn',
+    source: preset('volcengine'),
+    keyURL: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+  },
+  {
     id: 'ollama-cloud',
     name: 'provider.catalog.ollamaCloud',
     logo: 'ollama',
@@ -226,6 +283,12 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.)(minimax\.cn|minimaxi\.com|minimax\.io)$/, 'minimax'],
   [/(^|\.)(tencentcloudmaas\.com|tencentmaas\.com|tencentcloudmaas\.tech)$/, 'tencent'],
   [/(^|\.)stepfun\.(com|ai)$/, 'stepfun'],
+  [/^bedrock-mantle\.[a-z0-9-]+\.api\.aws$/, 'bedrock'],
+  [/^openrouter\.ai$/, 'openrouter'],
+  [/^ai-gateway\.vercel\.sh$/, 'vercel'],
+  [/^api\.groq\.com$/, 'groq'],
+  [/^api\.fireworks\.ai$/, 'fireworks'],
+  [/^ark\.[a-z0-9-]+\.volces\.com$/, 'volcengine'],
 ];
 
 /** 已有 Provider 的标志：DeepSeek 官方与 ChatGPT 按种类，其余按地址的主机名，本机 11434 端口当作 Ollama。 */

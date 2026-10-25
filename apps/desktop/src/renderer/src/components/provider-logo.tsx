@@ -2,25 +2,31 @@ import { cn } from 'cn';
 import anthropic from '@/assets/provider-logos/anthropic.svg';
 import antigravity from '@/assets/provider-logos/antigravity-color.svg';
 import azure from '@/assets/provider-logos/azure-color.svg';
+import bedrock from '@/assets/provider-logos/bedrock-color.svg';
 import claude from '@/assets/provider-logos/claude-color.svg';
 import codebuddy from '@/assets/provider-logos/codebuddy-color.svg';
 import codex from '@/assets/provider-logos/codex-color.svg';
 import cursor from '@/assets/provider-logos/cursor.svg';
 import deepseek from '@/assets/provider-logos/deepseek-color.svg';
 import devin from '@/assets/provider-logos/devin-color.svg';
+import fireworks from '@/assets/provider-logos/fireworks.svg';
 import gemini from '@/assets/provider-logos/gemini-color.svg';
 import copilot from '@/assets/provider-logos/githubcopilot.svg';
 import grok from '@/assets/provider-logos/grok.svg';
+import groq from '@/assets/provider-logos/groq.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
 import kimiLight from '@/assets/provider-logos/kimi-color-light.svg';
 import minimax from '@/assets/provider-logos/minimax-color.svg';
 import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
 import opencode from '@/assets/provider-logos/opencode.svg';
+import openrouter from '@/assets/provider-logos/openrouter.svg';
 import qwen from '@/assets/provider-logos/qwen-color.svg';
 import stepfun from '@/assets/provider-logos/stepfun-color.svg';
 import tencent from '@/assets/provider-logos/tencentcloud-color.svg';
+import vercel from '@/assets/provider-logos/vercel.svg';
 import vertex from '@/assets/provider-logos/vertexai-color.svg';
+import volcengine from '@/assets/provider-logos/volcengine-color.svg';
 import xai from '@/assets/provider-logos/xai.svg';
 import mimo from '@/assets/provider-logos/xiaomimimo.svg';
 import zai from '@/assets/provider-logos/zai.svg';
@@ -42,6 +48,7 @@ const LOGOS = {
   gemini: { src: gemini, mono: false },
   vertex: { src: vertex, mono: false },
   azure: { src: azure, mono: false },
+  bedrock: { src: bedrock, mono: false },
   deepseek: { src: deepseek, mono: false },
   qwen: { src: qwen, mono: false },
   kimi: { src: kimi, mono: false, light: kimiLight },
@@ -53,6 +60,11 @@ const LOGOS = {
   zai: { src: zai, mono: true },
   xai: { src: xai, mono: true },
   ollama: { src: ollama, mono: true },
+  openrouter: { src: openrouter, mono: true },
+  vercel: { src: vercel, mono: true },
+  groq: { src: groq, mono: true },
+  fireworks: { src: fireworks, mono: true },
+  volcengine: { src: volcengine, mono: false },
   // 订阅来源的软件标志（0.19.0）：模型选择与设置里用它区分“来自哪个订阅”与 API。
   codex: { src: codex, mono: false },
   codebuddy: { src: codebuddy, mono: false },

@@ -107,15 +107,21 @@ const CACHE_CONTROL = { type: 'ephemeral' } as const;
 
 /** 只认已核对的当前四款模型（可带日期后缀），不推测新型号的关闭思考与 forced choice 规则。 */
 function currentClaude(model: string): 'opus' | 'sonnet' | 'haiku' | 'fable' | undefined {
-  const match = /^claude-(opus|sonnet|haiku)-5-5(?:$|-)/i.exec(model);
+  const bare = bareClaude(model);
+  const match = /^claude-(opus|sonnet|haiku)-5-5(?:$|-)/i.exec(bare);
   if (match !== null) return match[1]?.toLowerCase() as 'opus' | 'sonnet' | 'haiku';
-  if (/^claude-fable-5-1(?:$|-)/i.test(model)) return 'fable';
+  if (/^claude-fable-5-1(?:$|-)/i.test(bare)) return 'fable';
   return undefined;
+}
+
+/** Bedrock 的模型 ID 带 `anthropic.` 前缀（Mantle 的 `anthropic.claude-opus-5-5`）；判断型号前去掉。 */
+function bareClaude(model: string): string {
+  return model.replace(/^anthropic\./i, '');
 }
 
 /** Claude 4.7 起拒收采样参数；非 Claude 模型与旧版本不改。 */
 function fixedSampling(model: string): boolean {
-  const version = /^claude-[a-z]+-(\d+)(?:-(\d{1,2})(?=$|-))?(?:$|-)/i.exec(model);
+  const version = /^claude-[a-z]+-(\d+)(?:-(\d{1,2})(?=$|-))?(?:$|-)/i.exec(bareClaude(model));
   const major = Number(version?.[1] ?? 0);
   const minor = Number(version?.[2] ?? 0);
   return major > 4 || (major === 4 && minor >= 7);
@@ -230,7 +236,8 @@ function thinkingParams(
     effort = 'low';
   }
   const output_config = { effort: effort === 'minimal' ? 'low' : effort };
-  const format = thinkingFormat ?? (/^claude-/i.test(body.model) ? 'adaptive' : 'enabled');
+  const format =
+    thinkingFormat ?? (/^claude-/i.test(bareClaude(body.model)) ? 'adaptive' : 'enabled');
   if (format === 'adaptive') {
     const summary = reasoning.summary;
     const display =

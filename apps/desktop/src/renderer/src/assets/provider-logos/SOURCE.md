@@ -8,6 +8,7 @@
 | `anthropic.svg` | Anthropic | `e833fdfa7e7187a86a05b870925067556a506dcd4239089aed73e1e58c9366a3` |
 | `gemini-color.svg` | Google AI Studio | `8ab0a9bafec11f7e69bcb9fc4ffd8f1bc927d1ddcbbb6ff36dee5ae8b5a9d602` |
 | `azure-color.svg` | Azure OpenAI / Azure Claude | `abc639d094593943c1b201270f4903c74d02d2e26acf26abf592a29c222c5181` |
+| `bedrock-color.svg` | Amazon Bedrock | `a149a5678ce2b5d821759aabca7b815867027a8231a76723b3673580e8177a60` |
 | `vertexai-color.svg` | Google Vertex AI | `40f8bb6f7aca8d80ce2b0bd0d976e8e3ddeada3719758d262ea20075c11ad764` |
 | `deepseek-color.svg` | DeepSeek | `deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439` |
 | `qwen-color.svg` | 通义千问 | `77f5768c66d08ce1d3d14e73373975c1bc0454be88c81523ddd0ffd7e2974029` |
@@ -21,6 +22,11 @@
 | `xiaomimimo.svg` | 小米 MiMo | `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71` |
 | `xai.svg` | SpaceXAI（原 xAI；保留旧标志） | `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451` |
 | `ollama.svg` | Ollama | `3a268218fb2e6e81fa31df70f70b51331625047794db81db21d35359428fae7a` |
+| `openrouter.svg` | OpenRouter | `ae671cc83de9bd45db97a47ed5e38a4e1bd9f93a12be495ba4b4f8b284026bca` |
+| `vercel.svg` | Vercel AI Gateway | `4874d52d8b2ce7c309cbd10c424fee123b2c9483e76d76ad0dca41794483eb24` |
+| `groq.svg` | Groq | `078d5cf6e7a54905040c15ddacf5ea33c13042fe7739e820cedc2096e4406651` |
+| `fireworks.svg` | Fireworks AI | `9991ab2a8331096d3f408e07a5f2e1cb54c369143dd9fc7a97f6458478b33fe3` |
+| `volcengine-color.svg` | 火山方舟 | `84f9e2cd1da7e73dc6c9a0f2521745d39cae96c008752cdb1baf57a8c94393a1` |
 | `codex-color.svg` | 订阅来源 Codex（ChatGPT 订阅） | `4a2f43ce46b5b6e3722c95088f88d26ef91e6a8c2e598e70642a1c54367386e4` |
 | `claude-color.svg` | 订阅来源 Claude Agent | `a3101f3047a119aa11825ad9369510f0c472428c8c52d420e31bc62db44a8364` |
 | `cursor.svg` | 订阅来源 Cursor | `0cb51bddf264ae108926fd554c063ef40fc1aac3c5c921ddb39ad184e4e5d0ef` |
