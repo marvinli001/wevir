@@ -12,6 +12,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { SessionId } from '@wevir/protocol';
 import {
   APP_TOOLS_ENGINE_SESSION_HEADER,
+  APP_TOOLS_MORE_SERVER,
+  APP_TOOLS_SERVER,
   type AppToolsEndpoint,
   type AppToolsView,
   type AppToolTier,
@@ -41,6 +43,8 @@ export interface AppToolCall {
   sessionId: SessionId;
   /** 客户端断开（引擎取消了这次调用）时触发。 */
   signal: AbortSignal;
+  /** 这次调用走的服务名（引擎侧的 `mcp__<server>__`）：`?tier=more` 是 `wevir_more`，其余是 `wevir`；经搜索与分发工具转来的不给。 */
+  server?: string;
 }
 
 export interface AppTool {
@@ -321,10 +325,15 @@ export class AppMcpServer {
     sessionId: SessionId,
     signal: AbortSignal,
     spill = true,
+    server?: string,
   ): Promise<AppToolResult> {
     let result: AppToolResult;
     try {
-      result = await tool.call(args, { sessionId, signal });
+      result = await tool.call(args, {
+        sessionId,
+        signal,
+        ...(server !== undefined && { server }),
+      });
     } catch (error) {
       if (!(error instanceof AppToolError)) this.#options.onError?.(error);
       result = errorResult(error);
@@ -416,7 +425,14 @@ export class AppMcpServer {
             : {};
         return rpcResult(
           id,
-          await this.#run(tool, args, sessionId, signal, dispatcher === undefined),
+          await this.#run(
+            tool,
+            args,
+            sessionId,
+            signal,
+            dispatcher === undefined,
+            tier === 'more' ? APP_TOOLS_MORE_SERVER : APP_TOOLS_SERVER,
+          ),
         );
       }
       default:

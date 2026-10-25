@@ -114,7 +114,7 @@ export class PluginAppTools {
             idempotentHint: false,
             openWorldHint: true,
           },
-          call: (args, call) => this.#call(name, args, call.sessionId, call.signal),
+          call: (args, call) => this.#call(name, args, call.sessionId, call.signal, call.server),
         }),
       ),
     ];
@@ -315,6 +315,7 @@ export class PluginAppTools {
     args: Record<string, unknown>,
     sessionId: SessionId,
     signal: AbortSignal,
+    server?: string,
   ): Promise<AppToolResult> {
     this.#caller(sessionId);
     // 只复用本次调用的批准，不能拿同一参数的旧批准重复安装。
@@ -322,7 +323,7 @@ export class PluginAppTools {
     const prepared =
       [...this.#prepared.values()].find(
         (item) => item.sessionId === sessionId && item.fingerprint === hash && !item.consumed,
-      ) ?? this.#ensure(sessionId, `app-${randomUUID()}`, name, args);
+      ) ?? this.#ensure(sessionId, `app-${randomUUID()}`, name, args, server);
     prepared.consumed = true;
     const combined = AbortSignal.any([signal, prepared.controller.signal]);
     try {
