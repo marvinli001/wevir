@@ -707,9 +707,31 @@ apps/desktop/native/ios-simulator 移植的文件（左边是 Wevir 文件，右
 许可证全文见文末“MIT License”。
 
 
+18. Arc UI（桌面端的复制图标、通知叠放、共享高亮与数字滚动）
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/kuratlielia/arc-library（https://uiarc.dev，只用免费的 MIT 部分）
+来源提交：fff39c044c6e3b86006e3a6acc9a32a821a80d99
+许可证：MIT
+版权：Copyright (c) 2026 Elia Kuratli
+
+apps/desktop/src/renderer/src 改写的文件（左边是 Wevir 文件，右边是 Arc 的来源路径）。Arc 的组件用 motion 与 CSS
+modules，Wevir 改用 CSS 过渡与自己的令牌重写，修改说明在各文件头：
+
+  components/copy-glyph.tsx
+      <- registry/components/copy-button/copy-button.tsx、use-copy-feedback.ts
+  components/toast.tsx（叠放的布局）
+      <- registry/components/toast-stack/toast-stack.tsx
+  components/glide.tsx
+      <- registry/components/floating-button-group/floating-button-group.tsx、registry/components/tabs/tabs.tsx
+  components/rolling-number.tsx
+      <- registry/components/slot-text/slot-text.tsx
+
+许可证全文见文末“MIT License”。
+
+
 MIT License
 ------------------------------------------------------------------------------------------------
-第 1–3 节、第 8–10 节、第 11 节的 Shiki、第 12 节、第 13 节的 ONNX Runtime、第 15 节的 snow、第 16 节与第 17 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+第 1–3 节、第 8–10 节、第 11 节的 Shiki、第 12 节、第 13 节的 ONNX Runtime、第 15 节的 snow、第 16–18 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
 
 MIT License
 ------------------------------------------------------------------------------------------------

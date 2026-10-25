@@ -9,6 +9,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
+import { RollingNumber } from '@/components/rolling-number';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, type SelectOption } from '@/components/ui/select';
@@ -411,7 +412,7 @@ function Stat({
     <div className="min-w-0">
       <div className="truncate text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 truncate text-base font-medium tabular-nums" title={title ?? value}>
-        {value}
+        <RollingNumber value={value} />
       </div>
       {children}
     </div>
@@ -450,7 +451,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
               className="text-3xl font-semibold tracking-tight tabular-nums"
               data-testid="usage-total"
             >
-              {formatInteger(total, locale)}
+              <RollingNumber value={formatInteger(total, locale)} />
             </span>
             {approx !== undefined && (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground tabular-nums">
@@ -463,7 +464,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
           <div>
             <div className="text-sm text-muted-foreground">{t('usage.requests')}</div>
             <div className="mt-1 text-xl font-semibold tabular-nums">
-              {formatInteger(totals.requests, locale)}
+              <RollingNumber value={formatInteger(totals.requests, locale)} />
             </div>
           </div>
           <div>
@@ -472,9 +473,11 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
               className="mt-1 flex items-baseline gap-1.5 text-xl font-semibold tabular-nums"
               title={costTitle}
             >
-              {totals.requests > 0 && totals.unpriced === totals.requests
-                ? '—'
-                : formatCost(totals.cost, locale)}
+              {totals.requests > 0 && totals.unpriced === totals.requests ? (
+                '—'
+              ) : (
+                <RollingNumber value={formatCost(totals.cost, locale)} />
+              )}
               {totals.unpriced > 0 && (
                 <CircleAlert className="size-3.5 self-center text-muted-foreground" aria-hidden />
               )}

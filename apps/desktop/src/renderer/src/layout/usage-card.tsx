@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router';
 import { AccountBadge } from '@/components/account-badge';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
+import { RollingNumber } from '@/components/rolling-number';
 import { SOURCES } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { t } from '@/i18n';
@@ -32,7 +33,7 @@ function useUsageCard({ session, providers, visible }: RailContext) {
   return {
     summary: (
       <>
-        <span className="tabular-nums">{peak.percent}%</span>
+        <RollingNumber value={`${peak.percent}%`} />
         <ContextBar usage={peak} className="w-8" />
       </>
     ),
@@ -47,9 +48,10 @@ function useUsageCard({ session, providers, visible }: RailContext) {
               <li key={index}>
                 <div className="flex items-baseline justify-between gap-2">
                   <span>{windowName(window)}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {t('account.chatgpt.usage.used', { percent: bar.percent })}
-                  </span>
+                  <RollingNumber
+                    className="text-xs text-muted-foreground"
+                    value={t('account.chatgpt.usage.used', { percent: bar.percent })}
+                  />
                 </div>
                 <ContextBar usage={bar} className="mt-2" />
                 {resets !== undefined && (

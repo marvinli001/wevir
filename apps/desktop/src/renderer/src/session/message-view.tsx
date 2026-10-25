@@ -22,6 +22,7 @@ import {
 import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { GoalIcon } from '@/components/command-icons';
+import { GlideGroup } from '@/components/glide';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
@@ -121,13 +122,13 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
       )}
       {/* 悬停时消息下方靠右出现时间、“复制”（U36）与最后一条消息的“编辑”（0.38.0），照 Codex 桌面端。 */}
       {texts.length > 0 && (
-        <div className="mt-1 flex h-6 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
+        <GlideGroup className="mt-1 flex h-6 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
           <MessageTime ts={message.ts} />
           <CopyButton text={text} className="text-muted-foreground" />
           {editable && (
             <EditButton onClick={() => setEditing(true)} className="text-muted-foreground" />
           )}
-        </div>
+        </GlideGroup>
       )}
     </div>
   );
@@ -150,10 +151,10 @@ export function PendingSteerMessage({ message }: { message: PendingMessage }) {
         <MessageImages images={images} className={text !== '' ? 'mb-1.5' : undefined} />
       )}
       {text !== '' && <UserBubble text={text} />}
-      <div className="mt-1 flex h-6 items-center gap-0.5">
+      <GlideGroup className="mt-1 flex h-6 items-center gap-0.5">
         {text !== '' && <CopyButton text={text} className="text-muted-foreground" />}
         <span className="px-1 text-xs text-muted-foreground">{t('pending.steerLocked')}</span>
-      </div>
+      </GlideGroup>
     </div>
   );
 }

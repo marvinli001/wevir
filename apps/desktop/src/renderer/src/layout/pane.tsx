@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import { Columns2, Ellipsis, Maximize2, Minimize2, Plus, Rows2, X } from 'lucide-react';
-import type { KeyboardEvent, MouseEvent } from 'react';
+import { type KeyboardEvent, type MouseEvent, useRef } from 'react';
+import { useSelectionIndicator } from '@/components/glide';
 import { IconButton } from '@/components/icon-button';
 import {
   DropdownMenu,
@@ -100,9 +101,16 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
   );
 }
 
-/** 标签条：每个标签有图标、名称和关闭按钮；被并在一起的窗格之间画一条竖线。 */
+/**
+ * 标签条：每个标签有图标、名称和关闭按钮；被并在一起的窗格之间画一条竖线。选中的底色是一块单独的指示，换标签时滑过去
+ * （components/glide.tsx）。
+ */
 function TabStrip({ pane }: { pane: DisplayPane }) {
   const panes = usePanes();
+  const strip = useRef<HTMLDivElement>(null);
+  // 标签增减、分段变了，选中项的位置也会变。
+  const layoutKey = `${pane.activeTabId} ${pane.tabs.map((tab) => tab.id).join()} ${pane.segmentStarts.join()}`;
+  const indicator = useSelectionIndicator(strip, layoutKey);
   if (!panes) return null;
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tab: PaneTab) => {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
@@ -111,9 +119,15 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
   };
   return (
     <div
+      ref={strip}
       role="tablist"
-      className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
+      className="relative isolate flex min-w-0 shrink items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
     >
+      <span
+        ref={indicator}
+        aria-hidden
+        className="glide-mark rounded-lg bg-selected opacity-0 ring-1 ring-selected-border ring-inset data-shown:opacity-100"
+      />
       {pane.tabs.map((tab, index) => {
         const Icon = paneIcon(tab.kind);
         const selected = tab.id === pane.activeTabId;
@@ -124,11 +138,10 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
               <span aria-hidden className="mx-1 h-4 w-px bg-border" />
             )}
             <div
+              data-indicator-target
               className={cn(
-                'group/tab flex h-7 items-center rounded-lg transition-[background-color,box-shadow] duration-150 ease-smooth',
-                selected
-                  ? 'bg-selected ring-1 ring-selected-border ring-inset text-foreground'
-                  : 'hover:bg-accent/60',
+                'group/tab flex h-7 items-center rounded-lg transition-colors duration-150 ease-smooth',
+                selected ? 'text-foreground' : 'hover:bg-accent/60',
               )}
             >
               <button

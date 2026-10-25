@@ -1,5 +1,6 @@
-import { Copy, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { CopyGlyph, CopyLabel, useCopied } from '@/components/copy-glyph';
 import { Toast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
@@ -93,25 +94,22 @@ export function ConnectionToast() {
 }
 
 function CopyLogPath({ path }: { path: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
+  const [copied, markCopied] = useCopied();
   return (
     <Button
       size="sm"
       variant="ghost"
       className="text-muted-foreground"
       onClick={() => {
-        void platformApi()
-          .copyText(path)
-          .then(() => setCopied(true));
+        void platformApi().copyText(path).then(markCopied);
       }}
     >
-      <Copy />
-      {t(copied ? 'connection.logPathCopied' : 'connection.copyLogPath')}
+      <CopyGlyph copied={copied} />
+      <CopyLabel
+        copied={copied}
+        idle={t('connection.copyLogPath')}
+        done={t('connection.logPathCopied')}
+      />
     </Button>
   );
 }

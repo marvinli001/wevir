@@ -17,6 +17,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { GlideGroup } from '@/components/glide';
 import { t } from '@/i18n';
 import { quotableText, type Rect, toolbarPlacement } from './selection-model';
 
@@ -286,17 +287,19 @@ export function SelectionToolbar({
       // 0, 0 过渡过来，跟随滚动时也慢半拍。位置只能跳变，所以关掉过渡，入场只用 animate-in。
       className="fixed top-0 left-0 z-40 flex items-center gap-0.5 rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 transition-none animate-in fade-in-0 zoom-in-95 duration-150 ease-smooth"
     >
-      <ToolbarButton action="quote-add" onClick={() => run(onAdd)}>
-        {t('selection.addToChat')}
-      </ToolbarButton>
-      {onSide && (
-        <>
-          <span aria-hidden className="h-4 w-px bg-border" />
-          <ToolbarButton action="quote-side" onClick={() => run(onSide)}>
-            {t('command.btw')}
-          </ToolbarButton>
-        </>
-      )}
+      <GlideGroup className="flex items-center gap-0.5">
+        <ToolbarButton action="quote-add" onClick={() => run(onAdd)}>
+          {t('selection.addToChat')}
+        </ToolbarButton>
+        {onSide && (
+          <>
+            <span aria-hidden className="h-4 w-px bg-border" />
+            <ToolbarButton action="quote-side" onClick={() => run(onSide)}>
+              {t('command.btw')}
+            </ToolbarButton>
+          </>
+        )}
+      </GlideGroup>
     </div>,
     document.body,
   );

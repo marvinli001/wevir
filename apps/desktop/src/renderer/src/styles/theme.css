@@ -258,6 +258,48 @@
   }
 }
 
+/* 共享高亮与选中指示（components/glide.tsx，照 Arc 的 floating-button-group 与 tabs）：位置与尺寸来自 --mark-*，平移与
+ * 宽高走 snap 弹簧（过阻尼，不回弹），不透明度 150 ms；data-instant 时只过渡不透明度（第一次出现时跳到位）。 */
+@utility glide-mark {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  pointer-events: none;
+  width: var(--mark-w);
+  height: var(--mark-h);
+  translate: var(--mark-x) var(--mark-y);
+  transition-property: translate, width, height, opacity;
+  transition-duration:
+    var(--spring-snap-duration), var(--spring-snap-duration), var(--spring-snap-duration), 150ms;
+  transition-timing-function:
+    var(--spring-snap), var(--spring-snap), var(--spring-snap), var(--ease-smooth);
+
+  &[data-instant] {
+    transition-property: opacity;
+    transition-duration: 150ms;
+    transition-timing-function: var(--ease-smooth);
+  }
+}
+
+/* 共用高亮的按钮组：组里按钮自己的悬停与焦点底色关掉，由 glide-mark 那一块代替。 */
+@utility glide-group {
+  & button:hover,
+  & button:focus-visible {
+    background-color: transparent;
+  }
+}
+
+/* 数字滚轮（components/rolling-number.tsx）：0–9 竖排一列，用生成内容写，不进 textContent / innerText。 */
+@utility digit-reel {
+  display: block;
+
+  &::before {
+    content: "0\A 1\A 2\A 3\A 4\A 5\A 6\A 7\A 8\A 9";
+    white-space: pre;
+  }
+}
+
 /* 确认反馈（复制成功的勾等）：从一半大小弹出（bounce 弹簧），同时从左往右画出来（180 ms ease-fall）。在 utilities 层里，
  * 减少动效时由 index.css 的全局规则停下。 */
 @utility confirm-pop {

@@ -1,9 +1,10 @@
 import { accountId as idOf, type WevirClient } from '@wevir/client-sdk';
 import type { AccountRateLimitWindow, AccountState, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Copy, ExternalLink, LoaderCircle, LogIn, LogOut } from 'lucide-react';
+import { ExternalLink, LoaderCircle, LogIn, LogOut } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { CopyGlyph, CopyLabel, useCopied } from '@/components/copy-glyph';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -251,7 +252,7 @@ function DeviceCodeProgress({
   busy: boolean;
   onCancel: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, markCopied] = useCopied();
   return (
     <div className="space-y-3 rounded-md bg-muted px-3 py-3 text-sm" role="status">
       <ol className="list-decimal space-y-2 pl-5">
@@ -284,11 +285,15 @@ function DeviceCodeProgress({
                 onClick={() =>
                   void platformApi()
                     .copyText(phase.userCode ?? '')
-                    .then(() => setCopied(true))
+                    .then(markCopied)
                 }
               >
-                <Copy />
-                {copied ? t('account.chatgpt.device.copied') : t('account.chatgpt.device.copy')}
+                <CopyGlyph copied={copied} />
+                <CopyLabel
+                  copied={copied}
+                  idle={t('account.chatgpt.device.copy')}
+                  done={t('account.chatgpt.device.copied')}
+                />
               </Button>
             )}
           </div>

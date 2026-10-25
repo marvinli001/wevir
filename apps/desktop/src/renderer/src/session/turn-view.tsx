@@ -5,6 +5,7 @@ import { ChevronRight, CircleAlert, CircleCheck, CircleX, LoaderCircle } from 'l
 import { Fragment, memo, useContext, useEffect, useId, useRef } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { Collapse } from '@/components/collapse';
+import { GlideGroup } from '@/components/glide';
 import { t } from '@/i18n';
 import { CopyButton } from './copy-button';
 import { Elapsed } from './elapsed';
@@ -240,7 +241,7 @@ export const TurnView = memo(
           {fold.finished && (answer !== '' || branch !== undefined) && (
             // 回答下面的“复制”（U36）与“分支到新会话”（0.38.0）：最后一个回合的一直显示，别的悬停时出现。占一行高度：消息流的
             // 每一块有 `content-visibility: auto`（绘制裁在块里），叠到块外面的按钮既看不见也点不着。
-            <div
+            <GlideGroup
               className={cn(
                 'mt-1 flex h-6 items-center gap-0.5',
                 !lastTurn &&
@@ -255,7 +256,7 @@ export const TurnView = memo(
                 turnId={turnId}
                 className={cn('text-muted-foreground', answer === '' && '-ml-1')}
               />
-            </div>
+            </GlideGroup>
           )}
         </div>
       </TurnOrb>

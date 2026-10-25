@@ -5,8 +5,9 @@
 
 import type { ChatPartOf } from '@wevir/client-sdk';
 import { cn } from 'cn';
-import { Check, Copy, Download, ListChecks } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { Download, ListChecks } from 'lucide-react';
+import { memo, useState } from 'react';
+import { CopyGlyph, useCopied } from '@/components/copy-glyph';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
@@ -26,12 +27,7 @@ export const PlanCard = memo(function PlanCard({ part }: { part: ChatPartOf<'pla
   const text = part.text.trimStart();
   const streaming = part.state === 'streaming';
   const [expanded, setExpanded] = useState(streaming);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
+  const [copied, markCopied] = useCopied();
   const title = proposedPlanTitle(text);
   const collapsible = !streaming && planCollapsible(text);
   const collapsed = collapsible && !expanded;
@@ -67,13 +63,9 @@ export const PlanCard = memo(function PlanCard({ part }: { part: ChatPartOf<'pla
               size="icon-xs"
               className="text-muted-foreground"
               data-action="copy-plan"
-              onClick={() =>
-                void platformApi()
-                  .copyText(planFileContents(text))
-                  .then(() => setCopied(true))
-              }
+              onClick={() => void platformApi().copyText(planFileContents(text)).then(markCopied)}
             >
-              {copied ? <Check /> : <Copy />}
+              <CopyGlyph copied={copied} />
             </IconButton>
             <IconButton
               label={t('plan.download')}

@@ -10,10 +10,8 @@ import {
 import { cn } from 'cn';
 import {
   Ban,
-  Check,
   CircleSlash,
   CircleX,
-  Copy,
   Globe,
   Laptop,
   LoaderCircle,
@@ -23,6 +21,7 @@ import {
   TimerOff,
 } from 'lucide-react';
 import { Fragment, useEffect, useReducer, useRef, useState } from 'react';
+import { CopyGlyph, CopyLabel, useCopied } from '@/components/copy-glyph';
 import { QrCode } from '@/components/qr-code';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -278,12 +277,7 @@ function OfferView({ offer, now }: { offer: PairingOffer; now: number }) {
 
 /** 网页配对链接（0.117.0）：一行截断显示，复制整条。含配对秘密，只在这里显示。 */
 function PairingLink({ uri }: { uri: string }) {
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
+  const [copied, markCopied] = useCopied();
   return (
     // 定宽：链接很长，不定宽时它的内容宽度会把弹窗撑开。
     <div className="flex w-72 max-w-full flex-col gap-2">
@@ -295,15 +289,15 @@ function PairingLink({ uri }: { uri: string }) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() =>
-            void platformApi()
-              .copyText(uri)
-              .then(() => setCopied(true))
-          }
+          onClick={() => void platformApi().copyText(uri).then(markCopied)}
           data-action="copy-pairing-link"
         >
-          {copied ? <Check className="confirm-pop" /> : <Copy />}
-          {t(copied ? 'settings.pairing.copied' : 'settings.pairing.copy')}
+          <CopyGlyph copied={copied} />
+          <CopyLabel
+            copied={copied}
+            idle={t('settings.pairing.copy')}
+            done={t('settings.pairing.copied')}
+          />
         </Button>
       </div>
     </div>
