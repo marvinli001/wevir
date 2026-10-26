@@ -18,6 +18,7 @@ import { ChevronDown, ExternalLink } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { Collapse } from '@/components/collapse';
+import { PageSpinner } from '@/components/spinner';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select } from '@/components/ui/select';
@@ -198,9 +199,7 @@ export function TuningPage({ client, features }: { client: WevirClient; features
             </div>
           )}
           {current === undefined || (auto && summary === undefined) ? (
-            loadError === undefined && (
-              <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-            )
+            loadError === undefined && <PageSpinner />
           ) : (
             <>
               {timelineShown && summary !== undefined && (

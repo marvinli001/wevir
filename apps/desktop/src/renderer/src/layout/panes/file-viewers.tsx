@@ -14,6 +14,7 @@
 import { cn } from 'cn';
 import { RotateCw, TriangleAlert } from 'lucide-react';
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Spinner } from '@/components/spinner';
 import { Button } from '@/components/ui/button';
 import { parseDelimitedPreview } from '@/files/delimited-preview';
 import type { OfficeKind } from '@/files/file-preview';
@@ -721,8 +722,8 @@ function sectionTitle(section: OfficeSection): string {
 
 function Loading() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      {t('common.loading')}
+    <div className="flex h-full items-center justify-center">
+      <Spinner />
     </div>
   );
 }

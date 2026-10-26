@@ -510,6 +510,8 @@ interface SessionRuntime {
   readonly questionRequests: Map<QuestionId, string>;
   /** 正在为这个回合生成输入建议（0.53.0）；用户有了新消息、回合重新开始或回合被撤回时中止并清掉。 */
   suggestion?: { readonly turnId: TurnId; readonly abort: AbortController };
+  /** 第一次生成标题没成（超时、引擎失败、解析不出来）时的首条消息：下一个回合正常结束后再试一次。 */
+  titleRetry?: readonly UserContentPart[];
 }
 
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
@@ -4178,9 +4180,13 @@ export class SessionManager {
   /**
    * 用会话的模型生成标题（prompts/README.md「会话标题」）：适配器发一次不带工具的请求，Host 解析并整理输出。成功、
    * 且这时标题仍是首条消息截断的那个（用户没有改过名）才写 `session.title_changed`（`generated`，带检索摘要）；
-   * 失败或超时只记告警，保留截断的标题。不排进会话的命令队列，也不影响状态机。
+   * 失败或超时记告警、保留截断的标题，下一个回合正常结束后再试一次（`retry` 为真时不再试）。不排进会话的命令队列，也不影响状态机。
    */
-  #generateTitle(runtime: SessionRuntime, content: readonly UserContentPart[]): void {
+  #generateTitle(
+    runtime: SessionRuntime,
+    content: readonly UserContentPart[],
+    retry = false,
+  ): void {
     const instructions = this.#titleInstructions;
     const generate = this.#adapter.generateTitle?.bind(this.#adapter);
     if (instructions === undefined || generate === undefined) return;
@@ -4203,6 +4209,7 @@ export class SessionManager {
         if (this.#disposed || abort.signal.aborted) return;
         const generated = parseGeneratedTitle(output);
         if (generated === undefined) {
+          if (!retry) runtime.titleRetry = content;
           this.#onWarning('生成的会话标题无法解析，保留截断的标题', {
             sessionId: runtime.id,
             output: output.slice(0, 500),
@@ -4226,6 +4233,8 @@ export class SessionManager {
       })
       .catch((error: unknown) => {
         if (this.#disposed) return;
+        // 模型一时慢或满载（超时、回合失败）时等回合结束再试一次；引擎不支持的不再试。
+        if (!retry && !isAdapterError(error, 'invalid_input')) runtime.titleRetry = content;
         this.#onWarning('生成会话标题失败，保留截断的标题', {
           sessionId: runtime.id,
           error: abort.signal.aborted ? `${TITLE_TIMEOUT_MS} ms 内没有结果` : errorText(error),
@@ -6207,6 +6216,13 @@ export class SessionManager {
         if (event.payload.outcome === 'completed') {
           const { turnId } = event.payload;
           queueMicrotask(() => this.#suggest(runtime, turnId));
+          const titleRetry = runtime.titleRetry;
+          if (titleRetry !== undefined) {
+            runtime.titleRetry = undefined;
+            if (this.#snapshot(runtime).session.titleSource === 'first_prompt') {
+              queueMicrotask(() => this.#generateTitle(runtime, titleRetry, true));
+            }
+          }
         }
         if (event.payload.outcome === 'completed' || event.payload.outcome === 'failed') {
           const { turnId } = event.payload;

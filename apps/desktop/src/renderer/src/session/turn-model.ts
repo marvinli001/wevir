@@ -50,6 +50,19 @@ export function isReportOnly(block: TranscriptBlock): boolean {
 }
 
 /**
+ * 接着前面 agent 内容的回合：开头没有用户自己写的消息，而是 Host 替别人发的回报（子会话的回报、后台进程的通知、额度恢复后
+ * 的继续等），或者干脆没有用户消息（引擎自己开的）。它和上一个回合是同一段 agent 的输出，上方不按回合之间的间距隔开。
+ */
+export function continuesAgent(block: TranscriptBlock): boolean {
+  if (block.kind !== 'turn') return false;
+  const first = block.messages[0];
+  if (first === undefined) return false;
+  if (first.role !== 'user') return first.role === 'assistant';
+  // 用户引用的第二意见也标成回报，但它是用户自己发的。
+  return first.from?.kind === 'report' && first.from.opinion === undefined;
+}
+
+/**
  * 某个事件在消息流里的位置（任务回顾跳到出处，0.76.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
  * 自己的消息，例如审批、检查）。都没有时 -1。
  */

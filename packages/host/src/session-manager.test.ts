@@ -1550,21 +1550,57 @@ describe('SessionManager：会话标题（R3）', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('输出解析不了或请求失败：保留截断的标题，记一条告警', async () => {
+  it('输出解析不了或请求失败：保留截断的标题，记告警', async () => {
     const { h, warnings } = withTitles(async () => '我觉得标题应该是……');
     const id = await create(h);
     await send(h, id, 'hello');
-    await vi.waitFor(() => expect(warnings).toHaveLength(1));
+    await vi.waitFor(() => expect(warnings).not.toHaveLength(0));
     expect(warnings[0]).toContain('无法解析');
     expect(snapshot(h, id).session).toMatchObject({ title: 'hello', titleSource: 'first_prompt' });
 
     const failing = withTitles(() => Promise.reject(new AdapterError('engine_unavailable', '502')));
     const id2 = await create(failing.h);
     await send(failing.h, id2, 'hello');
-    await vi.waitFor(() => expect(failing.warnings).toHaveLength(1));
+    await vi.waitFor(() => expect(failing.warnings).not.toHaveLength(0));
     expect(failing.warnings[0]).toContain('生成会话标题失败');
     await waitForState(failing.h, id2, 'idle');
     expect(snapshot(failing.h, id2).session.titleSource).toBe('first_prompt');
+  });
+
+  it('第一次请求失败：之后的回合正常结束时再试一次，只试一次；引擎不支持的不再试', async () => {
+    let attempts = 0;
+    const { h, calls } = withTitles(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new AdapterError('engine_unavailable', '60000 ms 内没有结果');
+      return TITLE;
+    });
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await waitForState(h, id, 'idle');
+    // 失败可能晚于第一个回合结束：那就由下一个回合补上。
+    await send(h, id, 'again');
+    await waitForState(h, id, 'idle');
+    await vi.waitFor(() => expect(snapshot(h, id).session.titleSource).toBe('generated'));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.input).toBe('<user_prompt>\nhello\n</user_prompt>');
+    await send(h, id, 'third');
+    await waitForState(h, id, 'idle');
+    expect(calls).toHaveLength(2);
+
+    const unsupported = withTitles(() =>
+      Promise.reject(
+        new AdapterError('invalid_input', 'the x engine does not support generateTitle'),
+      ),
+    );
+    const id2 = await create(unsupported.h);
+    await send(unsupported.h, id2, 'hello');
+    await vi.waitFor(() => expect(unsupported.warnings).toHaveLength(1));
+    await waitForState(unsupported.h, id2, 'idle');
+    await send(unsupported.h, id2, 'again');
+    await waitForState(unsupported.h, id2, 'idle');
+    await delay(20);
+    expect(unsupported.calls).toHaveLength(1);
   });
 
   it('等结果期间标题已经不是截断的那个（用户改过名）：不覆盖', async () => {

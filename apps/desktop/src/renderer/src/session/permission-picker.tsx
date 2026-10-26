@@ -107,14 +107,15 @@ export function PermissionPicker({
   const { icon: Icon, label } = PERMISSION_META[value];
   const allowed = useAllowedPermissionModes();
   const warning = value === 'full_access';
+  // 输入框窄于 30rem（子会话窗格、窄窗口）时只留图标，模式名在 aria-label 与菜单里。
   const chipClass = cn(
-    'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-colors duration-150',
+    'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-colors duration-150 @max-[30rem]/composer:w-7 @max-[30rem]/composer:justify-center @max-[30rem]/composer:px-0',
     warning ? 'text-warning' : 'text-soft-foreground',
   );
   const chip = (
     <>
       <Icon aria-hidden className="size-3.5 shrink-0" />
-      <span className="truncate">{t(label)}</span>
+      <span className="truncate @max-[30rem]/composer:sr-only">{t(label)}</span>
     </>
   );
   if (readOnly) {

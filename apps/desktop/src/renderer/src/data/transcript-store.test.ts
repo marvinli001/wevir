@@ -1,7 +1,7 @@
-import type { WevirClient } from '@wevir/client-sdk';
-import type { SessionId } from '@wevir/protocol';
+import type { SubscriptionItem, WevirClient } from '@wevir/client-sdk';
+import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TranscriptCache } from './transcript-store';
+import { TranscriptCache, TranscriptStore } from './transcript-store';
 
 const id = (n: number) => `ses_${n}` as SessionId;
 
@@ -15,6 +15,37 @@ function fakeClient() {
     }),
   } as unknown as WevirClient;
   return { client, closed };
+}
+
+/** 由测试逐项推送的订阅。 */
+function feedClient() {
+  const items: SubscriptionItem[] = [];
+  let wake: (() => void) | undefined;
+  const push = (item: SubscriptionItem) => {
+    items.push(item);
+    wake?.();
+  };
+  const next = async (): Promise<IteratorResult<SubscriptionItem>> => {
+    while (items.length === 0) await new Promise<void>((resolve) => (wake = resolve));
+    return { done: false, value: items.shift() as SubscriptionItem };
+  };
+  const client = {
+    subscribe: () => ({ close: () => {}, [Symbol.asyncIterator]: () => ({ next }) }),
+  } as unknown as WevirClient;
+  let seq = 0;
+  const stateChanged = (to: 'running' | 'idle') =>
+    push({
+      type: 'event',
+      event: {
+        seq: ++seq,
+        sessionId: id(1),
+        ts: new Date(Date.UTC(2026, 9, 27, 8, 0, 0, seq)).toISOString(),
+        type: 'session.state_changed',
+        source: 'host',
+        payload: { from: to === 'running' ? 'idle' : 'running', to, reason: 'turn_started' },
+      } as WevirEvent,
+    });
+  return { client, push, stateChanged };
 }
 
 beforeEach(() => {
@@ -74,5 +105,47 @@ describe('TranscriptCache', () => {
     cache.get(id(2));
     expect(cache.get(id(1))).toBe(first);
     cache.dispose();
+  });
+});
+
+describe('TranscriptStore', () => {
+  it('回放追平之前不交出回放到一半的消息流', async () => {
+    const { client, push, stateChanged } = feedClient();
+    const store = new TranscriptStore(client, id(1));
+    const listener = vi.fn();
+    store.subscribe(listener);
+    stateChanged('running');
+    stateChanged('idle');
+    await vi.runOnlyPendingTimersAsync();
+    // 回放中的回合看起来还在进行，交出去就会先展开再收起。
+    expect(store.get()).toMatchObject({ caughtUp: false, transcript: { lastSeq: 0 } });
+    push({ type: 'caught_up', seq: 2 });
+    await vi.runOnlyPendingTimersAsync();
+    expect(store.get()).toMatchObject({
+      caughtUp: true,
+      transcript: { lastSeq: 2, state: 'idle' },
+    });
+    // 追平之后的实时事件照常按帧交出。
+    stateChanged('running');
+    await vi.runOnlyPendingTimersAsync();
+    expect(store.get().transcript).toMatchObject({ lastSeq: 3, state: 'running' });
+    expect(listener).toHaveBeenCalledTimes(2);
+    store.dispose();
+  });
+
+  it('没人看时到的事件，读的时候就是最新的', async () => {
+    const { client, push, stateChanged } = feedClient();
+    const store = new TranscriptStore(client, id(1));
+    const unsubscribe = store.subscribe(() => {});
+    stateChanged('running');
+    push({ type: 'caught_up', seq: 1 });
+    await vi.runOnlyPendingTimersAsync();
+    unsubscribe();
+    stateChanged('idle');
+    await vi.advanceTimersByTimeAsync(0);
+    // 切回来的第一帧不等下一次冲刷。
+    expect(store.get().transcript).toMatchObject({ lastSeq: 2, state: 'idle' });
+    expect(store.get()).toBe(store.get());
+    store.dispose();
   });
 });

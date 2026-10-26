@@ -17,6 +17,7 @@ import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
+import { PageSpinner } from '@/components/spinner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -71,9 +72,7 @@ export function MarketEntryPage({
       <div className="mb-4">
         <BackButton label={t('plugins.title')} fallback={paths.plugins('market')} />
       </div>
-      {state.status === 'loading' && (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-      )}
+      {state.status === 'loading' && <PageSpinner />}
       {state.status === 'error' && (
         <EmptyState
           icon={<CloudOff />}
@@ -372,7 +371,7 @@ function Readme({
 }) {
   const file = useMarketFile(source, commit, entry.id, entryReadmePath(entry));
   if (file.status === 'loading') {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>;
+    return <PageSpinner />;
   }
   if (file.status === 'ready') {
     return (

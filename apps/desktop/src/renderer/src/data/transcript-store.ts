@@ -1,6 +1,7 @@
 // 一个会话的消息投影（T5.3）：从 seq 0 订阅、按 seq 交给 client-sdk 的 TranscriptProjection，攒到下一帧再
-// 取一次快照通知界面（openwork-notes §3.1：可见会话按帧冲刷增量）。没有人在看的投影只应用事件、不取快照。
-// 最近看过的几个会话保留订阅，切回来不用从头回放；界面上正显示的不会被换掉。
+// 取一次快照通知界面（openwork-notes §3.1：可见会话按帧冲刷增量）。没有人在看的投影只应用事件、不取快照，切回来读的
+// 时候再取。回放追平之前不交出快照：回放到一半的回合还没有 turn.finished，会按进行中的样子展开、跟着滚，追平后
+// 又收起来；打开会话时界面一开始就是完整的消息流。最近看过的几个会话保留订阅，切回来不用从头回放；界面上正显示的不会被换掉。
 
 import {
   type EventSubscription,
@@ -46,7 +47,11 @@ export class TranscriptStore {
     void this.#consume();
   }
 
-  get = (): TranscriptState => this.#state;
+  get = (): TranscriptState => {
+    // 没人看时事件没有冲刷：读的时候补上，切回来的第一帧就是最新的，不先画一帧旧的。
+    if (this.#listeners.size === 0) this.#refresh();
+    return this.#state;
+  };
 
   /** 有组件订阅着（界面上正显示它）。 */
   get watched(): boolean {
@@ -73,7 +78,11 @@ export class TranscriptStore {
       for await (const item of this.#subscription) {
         if (item.type === 'event') this.#projection.apply(item.event);
         else if (item.type === 'caught_up') this.#caughtUp = true;
-        else this.#projection.reset();
+        else {
+          // 从头重新回放，同样等追平。
+          this.#projection.reset();
+          this.#caughtUp = false;
+        }
         if (this.#listeners.size > 0) this.#batch.request();
       }
     } catch (error) {
@@ -83,21 +92,26 @@ export class TranscriptStore {
   }
 
   #flush(): void {
-    const transcript = this.#projection.snapshot();
+    if (this.#refresh()) for (const listener of this.#listeners) listener();
+  }
+
+  /** 按投影更新 `#state`，有变化时返回 true。追平之前消息流停在上一次交出的样子（新订阅是空的）。 */
+  #refresh(): boolean {
     const state = this.#state;
+    const transcript = this.#caughtUp ? this.#projection.snapshot() : state.transcript;
     if (
       transcript === state.transcript &&
       this.#caughtUp === state.caughtUp &&
       this.#error === state.error
     ) {
-      return;
+      return false;
     }
     this.#state = {
       transcript,
       caughtUp: this.#caughtUp,
       ...(this.#error !== undefined && { error: this.#error }),
     };
-    for (const listener of this.#listeners) listener();
+    return true;
   }
 }
 
