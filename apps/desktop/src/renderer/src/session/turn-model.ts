@@ -39,6 +39,17 @@ export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] 
 }
 
 /**
+ * 只含任务回报的系统消息：回报在回合结束后才到（`task.reported`），自成一块；它属于前面的内容，上方不按回合之间的间距隔开。
+ */
+export function isReportOnly(block: TranscriptBlock): boolean {
+  return (
+    block.kind === 'message' &&
+    block.message.parts.length > 0 &&
+    block.message.parts.every((part) => part.type === 'task_report')
+  );
+}
+
+/**
  * 某个事件在消息流里的位置（任务回顾跳到出处，0.76.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
  * 自己的消息，例如审批、检查）。都没有时 -1。
  */

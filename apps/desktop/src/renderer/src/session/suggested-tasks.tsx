@@ -175,7 +175,8 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
     </>
   );
   return (
-    <div className="my-2 flex" data-task-report={outcome}>
+    // 回合结束后才到的回报自成一块（间距由消息流定），不再加自己的上下边距。
+    <div className="my-2 flex in-data-[message-role=system]:my-0" data-task-report={outcome}>
       {parent && task.sessionId ? (
         <Link
           to={paths.session(parent.workspaceId, task.sessionId)}

@@ -19,6 +19,7 @@ import {
   foldTurn,
   groupTurns,
   isActiveTurn,
+  isReportOnly,
   lastTurnId,
   messageIndexForSeq,
   turnHeaderText,
@@ -146,6 +147,39 @@ describe('groupTurns / turnStart', () => {
     expect(turnStart(messages, 2)).toBe(0);
     expect(turnStart(messages, 4)).toBe(4);
     expect(turnStart(messages, 6)).toBe(5);
+  });
+
+  it('isReportOnly：回合结束后才到的任务回报自成一块，别的系统消息与回合不算', () => {
+    const TASK = 'tsk_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
+    const CHILD = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQS' as const;
+    const s = session();
+    s.turn();
+    s.run(TURN, 'k1', { kind: 'unknown', summary: 'wevir_tasks/suggest_tasks' });
+    s.add('tasks.suggested', {
+      toolCallId: 'k1',
+      turnId: TURN,
+      tasks: [
+        {
+          id: TASK,
+          title: '补测试',
+          prompt: '补测试',
+          toolCallId: 'k1',
+          turnId: TURN,
+          status: 'suggested',
+        },
+      ],
+    });
+    s.add('task.started', { taskId: TASK, sessionId: CHILD });
+    s.say(TURN, '建议了一项后续任务。');
+    s.finish(TURN, 'completed');
+    s.add('task.reported', { taskId: TASK, sessionId: CHILD, outcome: 'completed' });
+    s.add('session.read_only', { reason: 'engine_session_not_found', message: 'x' });
+    const blocks = groupTurns(s.project().messages);
+    expect(blocks.map((block) => [block.kind, isReportOnly(block)])).toEqual([
+      ['turn', false],
+      ['message', true],
+      ['message', false],
+    ]);
   });
 });
 

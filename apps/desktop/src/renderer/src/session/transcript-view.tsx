@@ -25,6 +25,7 @@ import {
   blockSeqRange,
   groupTurns,
   isActiveTurn,
+  isReportOnly,
   messageIndexForSeq,
   turnStart,
 } from './turn-model';
@@ -227,7 +228,11 @@ export function TranscriptView({
                 return (
                   <div
                     key={block.key}
-                    className={cn('transcript-item pt-6 first:pt-0', fresh && 'block-enter')}
+                    className={cn(
+                      'transcript-item first:pt-0',
+                      isReportOnly(block) ? 'pt-2' : 'pt-6',
+                      fresh && 'block-enter',
+                    )}
                     data-message-id={block.key}
                     data-seq-first={seqFirst}
                     data-seq-last={seqLast}
