@@ -646,6 +646,7 @@ export const messages: Messages = {
   'session.marker.awaitingApproval': '待核准',
   'session.marker.awaitingInput': '待回答',
   'session.marker.error': '發生錯誤',
+  'session.marker.idle': '閒置',
   'session.marker.goal': '目標',
   'session.marker.unread': '未讀',
   'session.role': '角色 {role}',

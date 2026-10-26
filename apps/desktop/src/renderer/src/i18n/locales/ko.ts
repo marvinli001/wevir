@@ -648,6 +648,7 @@ export const messages: Messages = {
   'session.marker.awaitingApproval': '승인 대기',
   'session.marker.awaitingInput': '답변 대기',
   'session.marker.error': '오류',
+  'session.marker.idle': '대기 중',
   'session.marker.goal': '목표',
   'session.marker.unread': '읽지 않음',
   'session.role': '역할 {role}',

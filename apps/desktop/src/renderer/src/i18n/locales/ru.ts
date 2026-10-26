@@ -659,6 +659,7 @@ export const messages: Messages = {
   'session.marker.awaitingApproval': 'Ждёт подтверждения',
   'session.marker.awaitingInput': 'Ждёт ответа',
   'session.marker.error': 'Ошибка',
+  'session.marker.idle': 'Простаивает',
   'session.marker.goal': 'Цель',
   'session.marker.unread': 'Не прочитано',
   'session.role': 'Роль {role}',

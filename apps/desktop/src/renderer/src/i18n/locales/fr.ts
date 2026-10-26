@@ -658,6 +658,7 @@ export const messages: Messages = {
   'session.marker.awaitingApproval': 'Approbation requise',
   'session.marker.awaitingInput': 'Réponse requise',
   'session.marker.error': 'Erreur',
+  'session.marker.idle': 'Inactive',
   'session.marker.goal': 'Objectif',
   'session.marker.unread': 'Non lu',
   'session.role': 'Rôle {role}',

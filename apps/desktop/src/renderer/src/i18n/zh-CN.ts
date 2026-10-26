@@ -660,6 +660,7 @@ export const zhCN = {
   'session.marker.awaitingApproval': '待审批',
   'session.marker.awaitingInput': '待回答',
   'session.marker.error': '出错',
+  'session.marker.idle': '空闲',
   'session.marker.goal': '目标',
   'session.marker.unread': '未读',
   'session.role': '角色 {role}',
