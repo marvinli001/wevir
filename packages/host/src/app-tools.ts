@@ -937,14 +937,18 @@ export class AppTools {
       name: 'wevir_session_create',
       title: 'Open a Wevir session',
       description:
-        'Open a new top-level Wevir session in this project and send it a first message. It runs on its own, shows up ' +
-        "in the user's sidebar and does not share your conversation, so put everything it needs in message. Provider, " +
+        'Open a new Wevir session in this project and send it a first message. It runs on its own, is listed under ' +
+        "your session in the user's sidebar and does not share your conversation, so put everything it needs in message. Provider, " +
         'model, reasoning level and permission mode default to yours (see wevir_models); the permission mode cannot be ' +
         'broader than yours. worktree=true gives it its own git worktree. reportBack (default true) sends its answer ' +
         'back to you as a message when the turn ends; end your turn instead of polling. Reports and other Wevir ' +
         'messages are queued while you are working and arrive after your current turn ends; when you need a result ' +
-        'within this turn, use wevir_session_wait. Only open sessions when the user asked for separate or parallel ' +
-        'work; prefer your own built-in subagent tools for quick helper work inside this task. role (see wevir_roles) starts it from a preset role: the role ' +
+        'within this turn, use wevir_session_wait. Decide yourself when a piece of the work deserves its own session: ' +
+        'it can run independently of what you do next, takes more than a handful of steps, and ends in a result of its ' +
+        'own (a change, a branch, a report), so splitting it off lets the pieces run in parallel or keeps your context ' +
+        'small. Keep quick work here: a question, a read, a search, one edit, or helper work whose result you need in ' +
+        'this turn (use your own built-in subagent tools for that). Two sessions must not edit the same files; give ' +
+        'each worktree=true when their edits may overlap. role (see wevir_roles) starts it from a preset role: the role ' +
         'supplies the model, a permission ceiling, a task brief and the Wevir tools it may use; providerId, modelId and ' +
         'reasoningEffort given here override the role. Close or archive sessions you opened when their work is done ' +
         '(wevir_session_close, wevir_session_archive); you cannot delete sessions, and the user keeps the archive. ' +
