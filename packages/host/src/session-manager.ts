@@ -956,10 +956,7 @@ export class SessionManager {
       engine,
     );
     // 档案版本（0.85.0）：随这份规则记下。
-    const version = await profile?.();
-    return version === undefined
-      ? plan
-      : { ...plan, rules: { ...plan.rules, profileVersion: version } };
+    return withProfileVersion(plan, await profile?.());
   }
 
   /** 这个工作区现在的档案版本（0.85.0）；没有档案服务或取不到时 `undefined`（告警）。 */
@@ -1294,21 +1291,22 @@ export class SessionManager {
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
       ...(toolPreset !== undefined && { toolPreset }),
     });
-    // 档案版本（0.85.0）：不论引擎读不读规则文件都记进会话。
+    // 档案版本（0.85.0）：不论引擎读不读规则文件都记进会话。引擎用不到它，和建引擎会话同时取，建好之后再记进规则。
     const profile = this.#profileVersion(workspace.id);
-    const rules = await this.#rulePlan(
+    let rules = await this.#rulePlan(
       config.cwd,
       provider.id,
       customTarget({ origin: recordOrigin }),
-      () => profile,
     );
-    const profileVersion = await profile;
     this.#startup?.mark(sessionId, 'rules');
+    let profileVersion: ProfileVersionRef | undefined;
     try {
       engineSession = await this.#adapter.createSession(
         await this.#engineConfig(sessionId, config, rules),
       );
       this.#startup?.mark(sessionId, 'engine');
+      profileVersion = await profile;
+      rules = withProfileVersion(rules, profileVersion);
     } catch (error) {
       this.#startup?.drop(sessionId);
       this.#creating.delete(sessionId);
@@ -6747,6 +6745,15 @@ function invalidOption(approvalId: ApprovalId, optionId: string): HostError<'INV
 }
 
 /** 工作区目录必须还在（domain-model §3.1：目录被移动或删除后建会话会失败）。 */
+/** 规则记下档案版本（0.85.0）；没有规则或没有版本时原样返回。 */
+function withProfileVersion<P extends RulePlan | undefined>(
+  plan: P,
+  version: ProfileVersionRef | undefined,
+): P {
+  if (plan === undefined || version === undefined) return plan;
+  return { ...plan, rules: { ...plan.rules, profileVersion: version } };
+}
+
 async function assertDirectory(path: string): Promise<void> {
   let reason: 'not_found' | 'not_directory' | 'not_accessible' | undefined;
   try {
