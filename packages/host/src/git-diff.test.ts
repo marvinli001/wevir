@@ -16,12 +16,14 @@ import { describe, expect, it } from 'vitest';
 import {
   chunkPath,
   DIFF_FILE_MAX_LENGTH,
+  gitBinary,
   isSafeRelativePath,
   parseNameStatus,
   parseNumstat,
   readBranch,
   readDiffFile,
   readUncommitted,
+  runGit,
   splitPatch,
   splitRawNumstat,
   UNTRACKED_MAX_FILES,
@@ -389,5 +391,17 @@ describe('解析', () => {
     ]);
     expect(chunks.join('')).toBe(patch);
     expect(chunks[0]).toContain('-diff --git a/fake b/fake');
+  });
+});
+
+describe('gitBinary', () => {
+  it('macOS 上不经 /usr/bin/git 的转发，起的仍是可用的 git', async () => {
+    const binary = await gitBinary();
+    expect(await gitBinary()).toBe(binary);
+    if (process.platform !== 'darwin') expect(binary).toBe('git');
+    else expect(binary).not.toBe('/usr/bin/git');
+    expect(binary === 'git' || binary.startsWith('/')).toBe(true);
+    const { stdout } = await runGit(process.cwd(), ['--version']);
+    expect(stdout.toString('utf8')).toMatch(/^git version /);
   });
 });
