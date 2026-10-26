@@ -833,7 +833,8 @@ export function Composer({
         <div
           data-composer-box
           className={cn(
-            'rounded-3xl border border-border bg-card shadow-xs transition-colors',
+            // 容器名 composer：底栏按输入框自己的宽度收紧（子会话窗格、窄窗口），见权限芯片与插话/排队切换。
+            '@container/composer rounded-3xl border border-border bg-card shadow-xs transition-colors',
             // 首页的焦点只用光束表示（方向稿），会话里的输入框聚焦时描边加深一档。
             !home && 'focus-within:border-input',
             disabled && 'opacity-70',
