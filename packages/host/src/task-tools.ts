@@ -8,6 +8,7 @@ import { type AppTool, AppToolError, jsonResult } from './app-mcp.js';
 import { objectSchema, optionalString, requiredString } from './app-tools.js';
 import {
   type BoardTask,
+  normalizeTaskId,
   TASK_DESCRIPTION_MAX,
   TASK_NOTE_MAX,
   TASK_STATUSES,
@@ -63,7 +64,7 @@ export function taskTools({
     if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
       throw new AppToolError(`${key} must be a list of task ids.`);
     }
-    return value as string[];
+    return (value as string[]).map(normalizeTaskId);
   };
   /** `me` 是自己，`none` 放掉，其余是会话 ID（要在同一棵树里）。 */
   const ownerOf = (
@@ -122,14 +123,18 @@ export function taskTools({
       inputSchema: objectSchema({
         status: { type: 'string', enum: ['open', 'all', ...TASK_STATUSES] },
         owner: { type: 'string' },
-        id: { type: 'string' },
+        id: {
+          type: 'string',
+          description: 'A task id as returned by wevir_task_create, like "t1".',
+        },
       }),
       annotations: ANNOTATIONS,
       call: async (args, { sessionId }) => {
         const root = rootOf(sessionId);
         const all = await guard(() => tasks.list(root));
-        const id = optionalString(args, 'id');
-        if (id !== undefined) {
+        const rawId = optionalString(args, 'id');
+        if (rawId !== undefined) {
+          const id = normalizeTaskId(rawId);
           const task = all.find((candidate) => candidate.id === id);
           if (task === undefined) throw new AppToolError(`No task ${id} on this board.`);
           return jsonResult({ board: root, task: view(task, all, sessionId, true) });
@@ -212,7 +217,10 @@ export function taskTools({
         'what it waits for is open. Mark your task completed as soon as it is done. delete=true removes it.',
       inputSchema: objectSchema(
         {
-          id: { type: 'string' },
+          id: {
+            type: 'string',
+            description: 'A task id as returned by wevir_task_create, like "t1".',
+          },
           status: { type: 'string', enum: [...TASK_STATUSES] },
           owner: { type: 'string' },
           subject: { type: 'string', maxLength: TASK_SUBJECT_MAX },
@@ -227,7 +235,7 @@ export function taskTools({
       annotations: WRITE_ANNOTATIONS,
       call: async (args, { sessionId }) => {
         const root = rootOf(sessionId);
-        const id = requiredString(args, 'id');
+        const id = normalizeTaskId(requiredString(args, 'id'));
         if (args.delete === true) {
           const removed = await guard(() => tasks.remove(root, id, sessionId));
           return jsonResult({ board: root, deleted: removed.id });

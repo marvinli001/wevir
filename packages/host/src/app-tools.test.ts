@@ -1282,6 +1282,34 @@ describe('共享任务清单', () => {
     });
   });
 
+  it('任务 ID 写成 1、#1、T1 都当作 t1（模型常漏掉前缀），存进去的依赖仍是规范写法', async () => {
+    const h = await setup();
+    const lead = await h.create();
+    await h.call(lead, 'wevir_task_create', { subject: 'a' });
+    await h.call(lead, 'wevir_task_create', { subject: 'b', blockedBy: ['1'] });
+    expect((await h.call(lead, 'wevir_tasks', { id: '#2' })).task).toMatchObject({
+      id: 't2',
+      blockedBy: ['t1'],
+      waitingFor: ['t1'],
+    });
+    expect(
+      (await h.call(lead, 'wevir_task_update', { id: '1', status: 'in_progress' })).task,
+    ).toMatchObject({ id: 't1', status: 'in_progress' });
+    expect(
+      (await h.call(lead, 'wevir_task_update', { id: 'T1', status: 'completed' })).task,
+    ).toMatchObject({ id: 't1', status: 'completed' });
+    expect(
+      (await h.call(lead, 'wevir_task_update', { id: '2', removeBlockedBy: ['T1'] })).task,
+    ).not.toHaveProperty('blockedBy');
+    // 不是编号的照常报找不到，列出现有的 ID。
+    expect((await h.call(lead, 'wevir_task_update', { id: 'x1', note: 'x' })).error).toMatch(
+      /No task x1 on this board; tasks: t1, t2/,
+    );
+    expect((await h.call(lead, 'wevir_task_update', { id: '9', note: 'x' })).error).toMatch(
+      /No task t9/,
+    );
+  });
+
   it('参数与规则：自己依赖自己、成环、不存在的任务、树外的认领、空改动、删除', async () => {
     const h = await setup();
     const lead = await h.create();

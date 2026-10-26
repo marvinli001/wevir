@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   boardEventRecorder,
   boardEventTasks,
+  normalizeTaskId,
   TASK_EVENT_NOTES,
   TASK_NOTE_MAX,
   TASK_NOTES_MAX,
@@ -195,5 +196,15 @@ describe('TaskBoardStore', () => {
       },
     ]);
     expect(warnings).toEqual(['failed to record task board update']);
+  });
+});
+
+describe('normalizeTaskId', () => {
+  it('编号写成 1、#1、T1、t1 都得 t1，别的原样', () => {
+    for (const raw of ['1', '#1', 'T1', 't1', ' t1 ', '#t1'])
+      expect(normalizeTaskId(raw)).toBe('t1');
+    expect(normalizeTaskId('12')).toBe('t12');
+    for (const raw of ['', 'x1', 't', 't1a', '1.5', 'task-1'])
+      expect(normalizeTaskId(raw)).toBe(raw);
   });
 });

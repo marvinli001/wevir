@@ -106,6 +106,12 @@ function subjectOf(text: string): string {
   return subject;
 }
 
+/** 清单里的 ID 是 `t<序号>`；模型常写成 `1`、`#1` 或 `T1`，这些都当作 `t1`，别的原样（照常报找不到）。 */
+export function normalizeTaskId(raw: string): string {
+  const id = raw.trim().replace(/^#/, '');
+  return /^t?\d+$/i.test(id) ? `t${id.replace(/^t/i, '')}` : id;
+}
+
 function find(tasks: readonly BoardTask[], id: string): BoardTask {
   const task = tasks.find((candidate) => candidate.id === id);
   if (task === undefined) {
