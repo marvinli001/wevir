@@ -13,6 +13,7 @@ import { currentAction, groupWork, type WorkEntry } from './tool-model';
 import {
   alwaysShown,
   blockSeqRange,
+  continuesAgent,
   filesAfterAnswer,
   foldedParts,
   foldSegments,
@@ -180,6 +181,39 @@ describe('groupTurns / turnStart', () => {
       ['message', true],
       ['message', false],
     ]);
+  });
+});
+
+describe('continuesAgent', () => {
+  it('开头是回报或额度恢复后的继续的回合接着上一个回合；用户自己发的与引用的第二意见不算', () => {
+    const s = session();
+    s.turn();
+    s.say(TURN, '已开出子会话。');
+    s.finish(TURN, 'completed');
+    s.add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: '子会话做完了' }],
+      sentBy: self,
+      from: { sessionId: SES, kind: 'report' },
+    });
+    s.add('turn.started', { turnId: TURN2 });
+    s.say(TURN2, '收到回报。');
+    const blocks = groupTurns(s.project().messages);
+    expect(blocks.map(continuesAgent)).toEqual([false, true]);
+
+    const opinion = session();
+    opinion.add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: '看看这条意见' }],
+      sentBy: self,
+      from: {
+        sessionId: SES,
+        kind: 'report',
+        opinion: { opinionId: 'opn_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+      },
+    });
+    opinion.add('turn.started', { turnId: TURN });
+    expect(groupTurns(opinion.project().messages).map(continuesAgent)).toEqual([false]);
   });
 });
 
