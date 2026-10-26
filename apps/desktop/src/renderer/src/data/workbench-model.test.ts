@@ -182,6 +182,46 @@ describe('groupByStatus', () => {
     expect(ids(groups.completed)).toEqual(['ses_done', 'ses_done2']);
     expect(groups.needsYou[0]?.workspace.id).toBe('ws_b');
   });
+
+  it('线程按里面最紧急的会话归组、按里面最近的活动排序；置顶的不出现，它开出的会话单独成行', () => {
+    const opened = (by: `ses_${string}`) => ({ openedBy: { sessionId: by } });
+    const groups = groupByStatus(
+      groupSessions(
+        [workspace('ws_a')],
+        [
+          session('ses_parent', 'ws_a', { updatedAt: at(10) }),
+          session('ses_child_run', 'ws_a', {
+            state: 'running',
+            updatedAt: at(0.5),
+            ...opened('ses_parent'),
+          }),
+          session('ses_child_ask', 'ws_a', {
+            state: 'awaiting_approval',
+            updatedAt: at(0.1),
+            ...opened('ses_parent'),
+          }),
+          session('ses_lead', 'ws_a', { updatedAt: at(9) }),
+          session('ses_lead_child', 'ws_a', {
+            state: 'running',
+            updatedAt: at(0.2),
+            ...opened('ses_lead'),
+          }),
+          session('ses_pinned', 'ws_a', { updatedAt: at(1) }),
+          session('ses_pinned_child', 'ws_a', { updatedAt: at(2), ...opened('ses_pinned') }),
+          session('ses_stale', 'ws_a', { updatedAt: at(20) }),
+          session('ses_stale_child', 'ws_a', { updatedAt: at(30), ...opened('ses_stale') }),
+        ],
+      ),
+      Date.parse(NOW),
+      undefined,
+      (s) => s.id === 'ses_pinned',
+    );
+    expect(groups.needsYou.map((row) => [row.session.id, row.children.map((c) => c.id)])).toEqual([
+      ['ses_parent', ['ses_child_ask', 'ses_child_run']],
+    ]);
+    expect(ids(groups.running)).toEqual(['ses_lead']);
+    expect(ids(groups.completed)).toEqual(['ses_pinned_child']);
+  });
 });
 
 describe('resolveRoute', () => {

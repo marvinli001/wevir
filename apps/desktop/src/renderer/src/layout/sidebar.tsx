@@ -29,6 +29,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/component
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
 import { usePinnedSessions, useSessionActions } from '@/data/session-actions';
+import { type SessionThread, threadSessions } from '@/data/session-threads';
 import { useWorkbenchData } from '@/data/workbench-data';
 import {
   chatsOf,
@@ -74,7 +75,6 @@ import { RoleLabel } from './role-label';
 import { SessionContextMenuItems } from './session-context-menu';
 import { DoneMark, GlyphReveal, motionElapsed } from './session-marks';
 import { sessionMotion } from './session-motion';
-import { type SessionThread, threadSessions } from './session-threads';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是同样的淡底加一圈 1 px 的选中细边（U5，§63 起不再是整块表面色）。 */
 const ROW =
@@ -303,6 +303,7 @@ function StatusTree() {
   const seen = useSeenSessions();
   const pinned = usePinnedSessions();
   const { sessionId } = useParams();
+  const { collapsedThreads } = layoutPrefs.use();
 
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
@@ -312,13 +313,12 @@ function StatusTree() {
       </p>
     );
   }
-  const groups = groupByStatus(data.workspaces, Date.now());
   // 置顶的会话（U34，本机）单独一组排在最前，不再出现在别的组里。
+  const groups = groupByStatus(data.workspaces, Date.now(), undefined, (session) =>
+    pinned.includes(session.id),
+  );
   const pinnedRows = pinnedOf(data.workspaces, pinned);
-  const isPinned = (row: StatusRow) => pinned.includes(row.session.id);
-  const needsYou = groups.needsYou.filter((row) => !isPinned(row));
-  const running = groups.running.filter((row) => !isPinned(row));
-  const completed = groups.completed.filter((row) => !isPinned(row));
+  const { needsYou, running, completed } = groups;
   if (pinnedRows.length + needsYou.length + running.length + completed.length === 0) {
     return (
       <p className="px-2 py-1 text-sm text-muted-foreground">
@@ -326,7 +326,7 @@ function StatusTree() {
       </p>
     );
   }
-  const rowContent = ({ session, workspace }: StatusRow) => (
+  const rowContent = ({ session, workspace }: Pick<StatusRow, 'session' | 'workspace'>) => (
     <SessionRow
       workspaceId={workspace.id}
       session={session}
@@ -334,7 +334,16 @@ function StatusTree() {
       project={projectLabel(workspace, session)}
     />
   );
-  const row = (entry: StatusRow) => <li key={entry.session.id}>{rowContent(entry)}</li>;
+  const row = (entry: StatusRow) => (
+    <ThreadItem
+      key={entry.session.id}
+      workspaceId={entry.workspace.id}
+      thread={entry}
+      open={threadOpen(entry, collapsedThreads, sessionId)}
+      isUnread={(session) => isUnread(seen, session)}
+      project={(session) => projectLabel(entry.workspace, session)}
+    />
+  );
   return (
     <div className="space-y-2 pt-1" data-testid="sidebar-status">
       <PinnedGroup rows={pinnedRows} render={rowContent} />
@@ -353,7 +362,7 @@ function StatusTree() {
           <MoreList
             items={completed}
             limit={COMPLETED_SHOWN}
-            activeIndex={completed.findIndex((entry) => entry.session.id === sessionId)}
+            activeIndex={completed.findIndex((entry) => inThread(entry, sessionId))}
             render={row}
           />
         </StatusGroup>
@@ -497,9 +506,12 @@ function projectLabel(
 }
 
 /** 置顶的会话，按置顶的先后（后置顶的在前）；不在列表里的（归档、移除）跳过。 */
-function pinnedOf(workspaces: readonly WorkspaceEntry[], pinned: readonly string[]): StatusRow[] {
+function pinnedOf(
+  workspaces: readonly WorkspaceEntry[],
+  pinned: readonly string[],
+): Array<Pick<StatusRow, 'session' | 'workspace'>> {
   if (pinned.length === 0) return [];
-  const byId = new Map<string, StatusRow>();
+  const byId = new Map<string, Pick<StatusRow, 'session' | 'workspace'>>();
   for (const entry of workspaces) {
     for (const session of entry.sessions) {
       byId.set(session.id, { session, workspace: entry.workspace });
@@ -607,24 +619,40 @@ function ThreadList({
     <MoreList
       items={threads}
       limit={SESSIONS_SHOWN}
-      activeIndex={threads.findIndex(
-        (thread) =>
-          thread.session.id === activeId || thread.children.some((child) => child.id === activeId),
-      )}
+      activeIndex={threads.findIndex((thread) => inThread(thread, activeId))}
       render={(thread) => (
         <ThreadItem
           key={thread.session.id}
           workspaceId={workspaceId}
           thread={thread}
-          // 当前会话在收起的线程里时照样展开，免得当前项被收起来。
-          open={
-            !collapsedThreads.includes(thread.session.id) ||
-            thread.children.some((child) => child.id === activeId)
-          }
+          open={threadOpen(thread, collapsedThreads, activeId)}
           isUnread={isUnread}
         />
       )}
     />
+  );
+}
+
+function inThread(thread: SessionThread, sessionId: string | undefined): boolean {
+  return thread.session.id === sessionId || thread.children.some((child) => child.id === sessionId);
+}
+
+/**
+ * 线程展开着没有：用户没收起它就展开。收起了也照样展开的两种：当前会话是其中一个子会话（免得当前项被收起来）；有子会话
+ * 等审批、等回答或出错（收起的线程里不藏需要用户处理的会话）。
+ */
+function threadOpen(
+  thread: SessionThread,
+  collapsedThreads: readonly string[],
+  activeId: string | undefined,
+): boolean {
+  return (
+    !collapsedThreads.includes(thread.session.id) ||
+    inThread(thread, activeId) ||
+    thread.children.some((child) => {
+      const marker = sessionMarker(child);
+      return marker !== undefined && marker !== 'running';
+    })
   );
 }
 
@@ -643,20 +671,33 @@ function ThreadItem({
   thread,
   open,
   isUnread,
+  project,
 }: {
   workspaceId: string;
   thread: SessionThread;
   open: boolean;
   isUnread: (session: Session) => boolean;
+  /** 按状态分组时行右边写的项目名（`SessionRow` 的 `project`）。 */
+  project?: (session: Session) => SessionRowProps['project'];
 }) {
   const { session, children } = thread;
   const count = children.length;
+  const label = (row: Session) => {
+    const value = project?.(row);
+    return value === undefined ? {} : { project: value };
+  };
+  // 收起时那一行写上有几个在跑；有没看过的（跑完了的）右边带未读点。需要用户处理的子会话不会收起（threadOpen）。
+  const runningCount = children.filter((child) => sessionMarker(child) === 'running').length;
+  const unreadChild = children.some(
+    (child) => isUnread(child) && sessionMarker(child) !== 'running',
+  );
   return (
     <li data-thread={count > 0 ? session.id : undefined}>
       <SessionRow
         workspaceId={workspaceId}
         session={session}
         unread={isUnread(session)}
+        {...label(session)}
         {...(count > 0 && { thread: { count, open } })}
       />
       {count > 0 && (
@@ -667,7 +708,12 @@ function ThreadItem({
                 key={child.id}
                 className={cn(BRANCH, index === count - 1 ? BRANCH_LAST : BRANCH_MID)}
               >
-                <SessionRow workspaceId={workspaceId} session={child} unread={isUnread(child)} />
+                <SessionRow
+                  workspaceId={workspaceId}
+                  session={child}
+                  unread={isUnread(child)}
+                  {...label(child)}
+                />
               </li>
             ))}
           </ul>
@@ -684,7 +730,13 @@ function ThreadItem({
           >
             {/* 和会话行的状态格一样宽，文字与子会话的标题对齐。 */}
             <span aria-hidden className="w-4 shrink-0" />
-            {t('sidebar.threadCount', { count })}
+            <span className="min-w-0 flex-1 truncate text-left">
+              {t('sidebar.threadCount', { count })}
+              {runningCount > 0 && ` · ${t('sidebar.threadRunning', { count: runningCount })}`}
+            </span>
+            {unreadChild && (
+              <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
+            )}
           </button>
         </div>
       )}

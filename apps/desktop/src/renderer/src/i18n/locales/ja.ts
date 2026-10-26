@@ -609,6 +609,7 @@ export const messages: Messages = {
   'sidebar.showMore': 'さらに表示',
   'sidebar.showLess': '折りたたむ',
   'sidebar.threadCount': 'ネストされたセッション {count} 件',
+  'sidebar.threadRunning': '{count} 件実行中',
   'sidebar.threadExpand': 'ネストされたセッションを展開',
   'sidebar.threadCollapse': 'ネストされたセッションを折りたたむ',
   'sidebar.loadFailed': 'プロジェクトの読み込みに失敗しました: {error}',

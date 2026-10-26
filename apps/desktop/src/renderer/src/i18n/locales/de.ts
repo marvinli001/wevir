@@ -612,6 +612,7 @@ export const messages: Messages = {
   'sidebar.showLess': 'Weniger anzeigen',
   'sidebar.threadCount':
     '{count, plural, one {# verschachtelte Sitzung} other {# verschachtelte Sitzungen}}',
+  'sidebar.threadRunning': '{count} laufend',
   'sidebar.threadExpand': 'Verschachtelte Sitzungen einblenden',
   'sidebar.threadCollapse': 'Verschachtelte Sitzungen ausblenden',
   'sidebar.loadFailed': 'Projekte konnten nicht geladen werden: {error}',

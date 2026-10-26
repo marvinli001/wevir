@@ -2,6 +2,8 @@
 
 import type { ProviderProfile, Session, SessionId, Workspace } from '@wevir/protocol';
 
+import { threadSessions } from './session-threads';
+
 export interface WorkspaceEntry {
   workspace: Workspace;
   /** 属于这个工作区的会话，按最近活动从新到旧：回合进行中的按回合开始的时刻，其余按 `updatedAt`（最后一个事件的时刻）。 */
@@ -131,10 +133,15 @@ export function sessionMarker(session: Session): SessionMarker | undefined {
   }
 }
 
-/** 按状态分组（U19，desktop-layout.md §13）里的一行：会话与它所在的工作区。 */
+/**
+ * 按状态分组（U19，desktop-layout.md §13）里的一行：会话与它所在的工作区。agent 开出的会话归在开出它的会话下面
+ * （session-threads.ts），整个线程算一行。
+ */
 export interface StatusRow {
   session: Session;
   workspace: Workspace;
+  /** 归在它下面的会话，按最近活动从新到旧。 */
+  children: Session[];
 }
 
 export interface StatusGroups {
@@ -148,27 +155,47 @@ export interface StatusGroups {
 /** “已完成”只列最近这么多天有活动的会话。 */
 export const COMPLETED_DAYS = 7;
 
+const GROUP_RANK = { completed: 0, running: 1, needsYou: 2 } as const;
+
 /**
- * 左栏按状态的三组（U19，D5–D7）：关闭了的会话不在任何一组；组内按最近活动从新到旧（与 `groupSessions` 同一个顺序）。
+ * 左栏按状态的三组（U19，D5–D7）：关闭了的会话与 `skip` 的（置顶的）不在任何一组；组内按最近活动从新到旧（与
+ * `groupSessions` 同一个顺序）。线程按里面最紧急的那个会话归组（需要你 > 进行中 > 已完成），排序按里面最近的活动，
+ * 免得等用户处理的子会话藏在已完成的父会话下面。
  */
 export function groupByStatus(
   workspaces: readonly WorkspaceEntry[],
   now: number,
   completedDays = COMPLETED_DAYS,
+  skip: (session: Session) => boolean = () => false,
 ): StatusGroups {
   const since = now - completedDays * 24 * 60 * 60 * 1000;
-  const rows = workspaces
-    .flatMap(({ workspace, sessions }) => sessions.map((session) => ({ session, workspace })))
-    .sort((a, b) => byRecentActivity(a.session, b.session));
-  const groups: StatusGroups = { needsYou: [], running: [], completed: [] };
-  for (const row of rows) {
-    const { session } = row;
-    if (session.state === 'closed') continue;
+  const groupOf = (session: Session): keyof StatusGroups | undefined => {
     const marker = sessionMarker(session);
-    if (marker === 'running') groups.running.push(row);
-    else if (marker !== undefined) groups.needsYou.push(row);
-    else if (Date.parse(session.updatedAt) >= since) groups.completed.push(row);
+    if (marker === 'running') return 'running';
+    if (marker !== undefined) return 'needsYou';
+    return Date.parse(session.updatedAt) >= since ? 'completed' : undefined;
+  };
+  const ranked: Array<{ row: StatusRow; group: keyof StatusGroups; latest: Session }> = [];
+  for (const { workspace, sessions } of workspaces) {
+    const listed = sessions
+      .filter((session) => session.state !== 'closed' && !skip(session))
+      .sort(byRecentActivity);
+    for (const { session, children } of threadSessions(listed)) {
+      let group: keyof StatusGroups | undefined;
+      let latest = session;
+      for (const member of [session, ...children]) {
+        const own = groupOf(member);
+        if (own !== undefined && (group === undefined || GROUP_RANK[own] > GROUP_RANK[group]))
+          group = own;
+        if (byRecentActivity(member, latest) < 0) latest = member;
+      }
+      if (group !== undefined)
+        ranked.push({ row: { session, workspace, children }, group, latest });
+    }
   }
+  const groups: StatusGroups = { needsYou: [], running: [], completed: [] };
+  ranked.sort((a, b) => byRecentActivity(a.latest, b.latest));
+  for (const { row, group } of ranked) groups[group].push(row);
   return groups;
 }
 

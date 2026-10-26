@@ -608,6 +608,7 @@ export const messages: Messages = {
   'sidebar.showMore': 'Show more',
   'sidebar.showLess': 'Show less',
   'sidebar.threadCount': '{count, plural, one {# nested session} other {# nested sessions}}',
+  'sidebar.threadRunning': '{count} running',
   'sidebar.threadExpand': 'Expand nested sessions',
   'sidebar.threadCollapse': 'Collapse nested sessions',
   'sidebar.loadFailed': 'Failed to load projects: {error}',
