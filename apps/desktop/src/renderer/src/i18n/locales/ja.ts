@@ -1780,6 +1780,8 @@ export const messages: Messages = {
   'project.addFailed': '作成に失敗しました: {error}',
   'project.empty': 'プロジェクトなし',
   'project.edit': '編集',
+  'project.moveUp': '上へ移動',
+  'project.moveDown': '下へ移動',
   'project.edit.title': 'プロジェクトを編集',
   'project.edit.save': '保存',
   'project.edit.failed': '保存に失敗しました: {error}',

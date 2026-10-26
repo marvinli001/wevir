@@ -1775,6 +1775,8 @@ export const zhCN = {
   'project.addFailed': '创建失败：{error}',
   'project.empty': '暂无项目',
   'project.edit': '编辑',
+  'project.moveUp': '上移',
+  'project.moveDown': '下移',
   'project.edit.title': '编辑项目',
   'project.edit.save': '保存',
   'project.edit.failed': '保存失败：{error}',

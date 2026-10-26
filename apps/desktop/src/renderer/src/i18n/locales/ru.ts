@@ -1814,6 +1814,8 @@ export const messages: Messages = {
   'project.addFailed': 'Не удалось создать: {error}',
   'project.empty': 'Нет проектов',
   'project.edit': 'Изменить',
+  'project.moveUp': 'Переместить вверх',
+  'project.moveDown': 'Переместить вниз',
   'project.edit.title': 'Изменить проект',
   'project.edit.save': 'Сохранить',
   'project.edit.failed': 'Не удалось сохранить: {error}',

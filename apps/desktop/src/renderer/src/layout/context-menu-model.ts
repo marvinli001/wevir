@@ -47,7 +47,14 @@ export function sessionMenuGroups(available: SessionMenuAvailability): SessionMe
   ]);
 }
 
-export type ProjectMenuItem = 'pin' | 'edit' | 'reveal' | 'archiveSessions' | 'remove';
+export type ProjectMenuItem =
+  | 'pin'
+  | 'edit'
+  | 'moveUp'
+  | 'moveDown'
+  | 'reveal'
+  | 'archiveSessions'
+  | 'remove';
 
 export interface ProjectMenuAvailability {
   edit: boolean;
@@ -57,12 +64,16 @@ export interface ProjectMenuAvailability {
   reveal?: boolean;
   /** 移除项目（`workspace.write`）。默认有。 */
   remove?: boolean;
+  /** 上移、下移：在它那一段（置顶的或没置顶的）里不是第一个、最后一个时才有。默认没有。 */
+  moveUp?: boolean;
+  moveDown?: boolean;
 }
 
-/** 项目标题的菜单：置顶、编辑 | 在访达中显示 | 归档会话 | 移除项目。 */
+/** 项目标题的菜单：置顶、编辑 | 上移、下移 | 在访达中显示 | 归档会话 | 移除项目。 */
 export function projectMenuGroups(available: ProjectMenuAvailability): ProjectMenuItem[][] {
   return present<ProjectMenuItem>([
     ['pin', available.edit && 'edit'],
+    [available.moveUp === true && 'moveUp', available.moveDown === true && 'moveDown'],
     [available.reveal !== false && 'reveal'],
     [available.archiveSessions && 'archiveSessions'],
     [available.remove !== false && 'remove'],

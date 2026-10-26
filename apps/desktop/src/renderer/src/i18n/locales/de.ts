@@ -1800,6 +1800,8 @@ export const messages: Messages = {
   'project.addFailed': 'Erstellen fehlgeschlagen: {error}',
   'project.empty': 'Keine Projekte',
   'project.edit': 'Bearbeiten',
+  'project.moveUp': 'Nach oben',
+  'project.moveDown': 'Nach unten',
   'project.edit.title': 'Projekt bearbeiten',
   'project.edit.save': 'Speichern',
   'project.edit.failed': 'Speichern fehlgeschlagen: {error}',

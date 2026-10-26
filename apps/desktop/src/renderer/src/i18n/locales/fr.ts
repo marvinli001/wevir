@@ -1810,6 +1810,8 @@ export const messages: Messages = {
   'project.addFailed': 'Échec de la création : {error}',
   'project.empty': 'Aucun projet',
   'project.edit': 'Modifier',
+  'project.moveUp': 'Monter',
+  'project.moveDown': 'Descendre',
   'project.edit.title': 'Modifier le projet',
   'project.edit.save': 'Enregistrer',
   'project.edit.failed': 'Échec de l’enregistrement : {error}',

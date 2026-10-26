@@ -1,5 +1,5 @@
 // 项目的动作（0.49.0 起右键菜单）：改名与改源文件夹（0.64.0）经 Host 的 `workspace.update`，移除经 `workspace.remove`（只注销、不删磁盘文件），归档会话
-// 是对项目里每个会话的 `session.archive`，置顶只记在本机。侧栏的项目菜单与设置 → 项目共用这里；改名、移除与归档的确认框由
+// 是对项目里每个会话的 `session.archive`，置顶与手动排的顺序只记在本机。侧栏的项目菜单与设置 → 项目共用这里；改名、移除与归档的确认框由
 // `requestEditProject`、`requestRemoveProject`、`requestArchiveProject` 打开（projects/ 下的对话框挂在根上）。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
@@ -50,6 +50,36 @@ function unpinWorkspace(workspaceId: string): void {
   pinnedWorkspaces.set((current) =>
     current.includes(workspaceId) ? current.filter((id) => id !== workspaceId) : current,
   );
+  projectOrder.set((current) =>
+    current.includes(workspaceId) ? current.filter((id) => id !== workspaceId) : current,
+  );
+}
+
+// ── 手动排序（本机） ─────────────────────────────────────────────────
+
+/**
+ * 左栏项目的顺序（拖动或上移、下移排过以后才有）。不在里面的项目按 Host 的顺序（添加的先后）排在后面，所以新添加的项目
+ * 在最下面。置顶的项目仍按置顶的顺序排在前面。
+ */
+export const projectOrder = createPersistedStore<readonly string[]>(
+  'wevir.project-order.v1',
+  [],
+  (raw) =>
+    Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : undefined,
+);
+
+export const useProjectOrder = projectOrder.use;
+
+/** 记下左栏排好的顺序 `next`（置顶的在前）：置顶的顺序跟着改；不在 `next` 里的（还没加载的）留在后面，不丢。 */
+export function reorderProjects(next: readonly string[]): void {
+  projectOrder.set((current) => [...next, ...current.filter((id) => !next.includes(id))]);
+  pinnedWorkspaces.set((current) => {
+    const reordered = [
+      ...next.filter((id) => current.includes(id)),
+      ...current.filter((id) => !next.includes(id)),
+    ];
+    return reordered.every((id, i) => id === current[i]) ? current : reordered;
+  });
 }
 
 // ── 改名 ─────────────────────────────────────────────────────────

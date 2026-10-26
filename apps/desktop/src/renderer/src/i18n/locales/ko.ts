@@ -1769,6 +1769,8 @@ export const messages: Messages = {
   'project.addFailed': '만들기 실패: {error}',
   'project.empty': '프로젝트 없음',
   'project.edit': '편집',
+  'project.moveUp': '위로 이동',
+  'project.moveDown': '아래로 이동',
   'project.edit.title': '프로젝트 편집',
   'project.edit.save': '저장',
   'project.edit.failed': '저장 실패: {error}',

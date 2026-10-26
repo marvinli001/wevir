@@ -100,17 +100,17 @@
   transition-timing-function: var(--spring-snap);
 }
 
-/* 左栏拖动置顶时（layout/pin-drag.tsx）：全窗口是抓手光标、不选中文字，行上悬停出现的置顶与归档不出现。 */
-:root[data-pin-dragging],
-:root[data-pin-dragging] * {
+/* 左栏拖动置顶或给项目排序时（layout/pin-drag.tsx、layout/project-drag.tsx）：全窗口是抓手光标、不选中文字，行上悬停出现的置顶与归档不出现。 */
+:root[data-sidebar-dragging],
+:root[data-sidebar-dragging] * {
   cursor: grabbing;
   user-select: none;
 }
-:root[data-pin-dragging] [data-row-actions] {
+:root[data-sidebar-dragging] [data-row-actions] {
   visibility: hidden;
 }
 /* 拖动中经过的行不出悬停底色；滚轮仍落在列表上，照常滚动。 */
-:root[data-pin-dragging] nav li {
+:root[data-sidebar-dragging] nav li {
   pointer-events: none;
 }
 

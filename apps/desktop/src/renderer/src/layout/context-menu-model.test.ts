@@ -62,6 +62,19 @@ describe('projectMenuGroups', () => {
       projectMenuGroups({ edit: false, archiveSessions: true, reveal: false, remove: false }),
     ).toEqual([['pin'], ['archiveSessions']]);
   });
+
+  it('上移、下移在编辑与在访达中显示之间，只有能挪时才有', () => {
+    expect(projectMenuGroups({ edit: true, archiveSessions: true, moveUp: true })).toEqual([
+      ['pin', 'edit'],
+      ['moveUp'],
+      ['reveal'],
+      ['archiveSessions'],
+      ['remove'],
+    ]);
+    expect(
+      projectMenuGroups({ edit: true, archiveSessions: true, moveUp: true, moveDown: true })[1],
+    ).toEqual(['moveUp', 'moveDown']);
+  });
 });
 
 describe('会话菜单的“打开方式”', () => {

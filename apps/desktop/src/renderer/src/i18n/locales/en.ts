@@ -1784,6 +1784,8 @@ export const messages: Messages = {
   'project.addFailed': 'Create failed: {error}',
   'project.empty': 'No projects',
   'project.edit': 'Edit',
+  'project.moveUp': 'Move up',
+  'project.moveDown': 'Move down',
   'project.edit.title': 'Edit project',
   'project.edit.save': 'Save',
   'project.edit.failed': 'Failed to save: {error}',

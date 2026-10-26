@@ -32,15 +32,19 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import {
   chatsOf,
   groupByStatus,
+  inOrder,
   isChats,
-  pinnedFirst,
   projectsOf,
   type SessionMarker,
   type StatusRow,
   sessionMarker,
   type WorkspaceEntry,
 } from '@/data/workbench-model';
-import { usePinnedWorkspaces, useWorkspaceManagement } from '@/data/workspace-actions';
+import {
+  usePinnedWorkspaces,
+  useProjectOrder,
+  useWorkspaceManagement,
+} from '@/data/workspace-actions';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
@@ -59,6 +63,12 @@ import { usageAvailability } from '@/usage/usage-model';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
 import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
 import { ProjectContextMenuItems } from './project-context-menu';
+import {
+  beginProjectDrag,
+  ProjectDragGhost,
+  ProjectDropLine,
+  useProjectDragId,
+} from './project-drag';
 import { RoleLabel } from './role-label';
 import { SessionContextMenuItems } from './session-context-menu';
 import { DoneMark, GlyphReveal, motionElapsed } from './session-marks';
@@ -177,6 +187,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
 
       <ProjectsSection />
       <PinDragGhost />
+      <ProjectDragGhost />
 
       <div className="shrink-0 p-2">
         <UpdateEntryButton className="mb-0.5" />
@@ -370,6 +381,7 @@ function ProjectTree() {
   const seen = useSeenSessions();
   const pinned = usePinnedSessions();
   const pinnedProjects = usePinnedWorkspaces();
+  const projectOrder = useProjectOrder();
 
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
@@ -379,8 +391,9 @@ function ProjectTree() {
       </p>
     );
   }
-  // 置顶的项目（本机）排在前面。
-  const projects = pinnedFirst(projectsOf(data.workspaces), pinnedProjects);
+  // 按手动排的顺序（本机，拖动或上移、下移），置顶的项目（本机）再排在前面。
+  const projects = inOrder(inOrder(projectsOf(data.workspaces), projectOrder), pinnedProjects);
+  const listed = projects.map((entry) => entry.workspace.id);
   // 不在项目里的会话（0.39.0）：项目下面单独一组“对话”。
   const chats = chatsOf(data.workspaces);
   const chatSessions = chats?.sessions ?? [];
@@ -403,16 +416,18 @@ function ProjectTree() {
           )}
         />
       </div>
-      <ul className="space-y-px">
+      <ul className="relative space-y-px" data-project-list="">
         {projects.map((entry) => (
           <ProjectItem
             key={entry.workspace.id}
             entry={entry}
+            listed={listed}
             expanded={!collapsedWorkspaces.includes(entry.workspace.id)}
             pinned={pinnedProjects.includes(entry.workspace.id)}
             isUnread={(session) => isUnread(seen, session)}
           />
         ))}
+        <ProjectDropLine />
       </ul>
       {chats && chatSessions.length > 0 && (
         <ChatsGroup
@@ -500,11 +515,14 @@ function pinnedOf(workspaces: readonly WorkspaceEntry[], pinned: readonly string
 
 function ProjectItem({
   entry,
+  listed,
   expanded,
   pinned,
   isUnread,
 }: {
   entry: WorkspaceEntry;
+  /** 左栏现在的项目顺序，菜单的上移、下移用。 */
+  listed: readonly string[];
   expanded: boolean;
   pinned: boolean;
   isUnread: (session: Session) => boolean;
@@ -514,9 +532,10 @@ function ProjectItem({
   const navigate = useNavigate();
   const listId = `project-sessions-${workspace.id}`;
   const FolderIcon = expanded ? FolderOpen : Folder;
+  const dragging = useProjectDragId() === workspace.id;
 
   return (
-    <li>
+    <li data-project-row={workspace.id} className={cn(dragging && 'opacity-40')}>
       <ContextMenu>
         <ContextMenuTrigger
           render={<div className="group/project relative" data-project-id={workspace.id} />}
@@ -528,6 +547,9 @@ function ProjectItem({
             aria-controls={listId}
             title={workspace.rootPath}
             onClick={() => toggleWorkspace(workspace.id)}
+            onPointerDown={(event) =>
+              beginProjectDrag(event, { id: workspace.id, title: workspace.displayName })
+            }
           >
             <FolderIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-left">{workspace.displayName}</span>
@@ -552,7 +574,7 @@ function ProjectItem({
           </IconButton>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ProjectContextMenuItems entry={entry} pinned={pinned} />
+          <ProjectContextMenuItems entry={entry} pinned={pinned} listed={listed} />
         </ContextMenuContent>
       </ContextMenu>
       <Collapse open={expanded && sessions.length > 0} id={listId}>

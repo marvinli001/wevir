@@ -1762,6 +1762,8 @@ export const messages: Messages = {
   'project.addFailed': '建立失敗：{error}',
   'project.empty': '尚無專案',
   'project.edit': '編輯',
+  'project.moveUp': '上移',
+  'project.moveDown': '下移',
   'project.edit.title': '編輯專案',
   'project.edit.save': '儲存',
   'project.edit.failed': '儲存失敗：{error}',

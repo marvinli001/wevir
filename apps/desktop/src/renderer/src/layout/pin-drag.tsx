@@ -52,8 +52,19 @@ const AUTO_SCROLL_EDGE_PX = 40;
 /** 自动滚动每帧最多这么多像素。 */
 const AUTO_SCROLL_MAX_PX = 14;
 
+/** 拖到列表上下沿附近时这一帧滚多少（向上为负）；不在沿上时 0。项目拖动（project-drag.tsx）也用。 */
+export function edgeScrollStep(pointerY: number, rect: { top: number; bottom: number }): number {
+  const above = rect.top + AUTO_SCROLL_EDGE_PX - pointerY;
+  const below = pointerY - (rect.bottom - AUTO_SCROLL_EDGE_PX);
+  return above > 0
+    ? -Math.min(AUTO_SCROLL_MAX_PX, Math.ceil(above / 3))
+    : below > 0
+      ? Math.min(AUTO_SCROLL_MAX_PX, Math.ceil(below / 3))
+      : 0;
+}
+
 /** 松开后吞掉紧跟着的那一次点击，免得拖完还打开了会话。 */
-function swallowNextClick(): void {
+export function swallowNextClick(): void {
   const swallow = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -114,15 +125,7 @@ export function beginPinDrag(
   const autoScroll = () => {
     frame = requestAnimationFrame(autoScroll);
     if (!viewport) return;
-    const rect = viewport.getBoundingClientRect();
-    const above = rect.top + AUTO_SCROLL_EDGE_PX - pointer.y;
-    const below = pointer.y - (rect.bottom - AUTO_SCROLL_EDGE_PX);
-    const step =
-      above > 0
-        ? -Math.min(AUTO_SCROLL_MAX_PX, Math.ceil(above / 3))
-        : below > 0
-          ? Math.min(AUTO_SCROLL_MAX_PX, Math.ceil(below / 3))
-          : 0;
+    const step = edgeScrollStep(pointer.y, viewport.getBoundingClientRect());
     if (step === 0) return;
     const before = viewport.scrollTop;
     viewport.scrollTop = before + step;
@@ -144,7 +147,7 @@ export function beginPinDrag(
       over: false,
       index: 0,
     });
-    document.documentElement.dataset.pinDragging = '';
+    document.documentElement.dataset.sidebarDragging = '';
     window.getSelection()?.removeAllRanges();
     frame = requestAnimationFrame(autoScroll);
     hitTest();
@@ -152,7 +155,7 @@ export function beginPinDrag(
 
   const stopDragging = () => {
     cancelAnimationFrame(frame);
-    delete document.documentElement.dataset.pinDragging;
+    delete document.documentElement.dataset.sidebarDragging;
     pinDrag.set(undefined);
   };
 

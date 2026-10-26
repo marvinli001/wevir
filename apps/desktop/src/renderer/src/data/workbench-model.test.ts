@@ -4,8 +4,8 @@ import {
   chatsOf,
   groupByStatus,
   groupSessions,
+  inOrder,
   mergeSessions,
-  pinnedFirst,
   projectsOf,
   recentWorkspaces,
   resolveRoute,
@@ -233,28 +233,29 @@ describe('resolveRoute', () => {
   });
 });
 
-describe('pinnedFirst', () => {
+describe('inOrder', () => {
   const entries: WorkspaceEntry[] = ['ws_a', 'ws_b', 'ws_c', 'ws_d'].map((id) => ({
     workspace: workspace(id as `ws_${string}`),
     sessions: [],
   }));
   const ids = (list: WorkspaceEntry[]) => list.map((entry) => entry.workspace.id);
 
-  it('没有置顶时顺序不变，且不是同一个数组', () => {
-    expect(ids(pinnedFirst(entries, []))).toEqual(['ws_a', 'ws_b', 'ws_c', 'ws_d']);
-    expect(pinnedFirst(entries, [])).not.toBe(entries);
+  it('没有排过时顺序不变，且不是同一个数组', () => {
+    expect(ids(inOrder(entries, []))).toEqual(['ws_a', 'ws_b', 'ws_c', 'ws_d']);
+    expect(inOrder(entries, [])).not.toBe(entries);
   });
 
-  it('置顶的排在前面、按置顶的先后，其余保持原来的顺序', () => {
-    expect(ids(pinnedFirst(entries, ['ws_c', 'ws_b']))).toEqual(['ws_c', 'ws_b', 'ws_a', 'ws_d']);
+  it('列出的排在前面、按列出的先后，其余保持原来的顺序', () => {
+    expect(ids(inOrder(entries, ['ws_c', 'ws_b']))).toEqual(['ws_c', 'ws_b', 'ws_a', 'ws_d']);
   });
 
-  it('置顶了但已经不在列表里的项目忽略', () => {
-    expect(ids(pinnedFirst(entries, ['ws_gone', 'ws_d']))).toEqual([
-      'ws_d',
-      'ws_a',
-      'ws_b',
-      'ws_c',
-    ]);
+  it('列出了但已经不在列表里的项目忽略', () => {
+    expect(ids(inOrder(entries, ['ws_gone', 'ws_d']))).toEqual(['ws_d', 'ws_a', 'ws_b', 'ws_c']);
+  });
+
+  it('先按手动的顺序、再把置顶的提前：新添加的项目在最后', () => {
+    const withNew = [...entries, { workspace: workspace('ws_new'), sessions: [] }];
+    const ordered = inOrder(withNew, ['ws_d', 'ws_c', 'ws_b', 'ws_a']);
+    expect(ids(inOrder(ordered, ['ws_b']))).toEqual(['ws_b', 'ws_d', 'ws_c', 'ws_a', 'ws_new']);
   });
 });
