@@ -682,6 +682,8 @@ function ThreadItem({
             onClick={() => toggleThread(session.id)}
             className={cn(ROW, 'h-7 text-sm text-muted-foreground hover:text-foreground')}
           >
+            {/* 和会话行的状态格一样宽，文字与子会话的标题对齐。 */}
+            <span aria-hidden className="w-4 shrink-0" />
             {t('sidebar.threadCount', { count })}
           </button>
         </div>
