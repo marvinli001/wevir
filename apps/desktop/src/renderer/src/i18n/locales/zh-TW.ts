@@ -603,6 +603,7 @@ export const messages: Messages = {
   'sidebar.showMore': '顯示更多',
   'sidebar.showLess': '收合',
   'sidebar.threadCount': '{count} 個子工作階段',
+  'sidebar.threadRunning': '{count} 個執行中',
   'sidebar.threadExpand': '展開子工作階段',
   'sidebar.threadCollapse': '收合子工作階段',
   'sidebar.loadFailed': '讀取專案失敗：{error}',
