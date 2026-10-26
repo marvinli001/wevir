@@ -10,6 +10,7 @@ describe('parseLayoutPrefs', () => {
       sidebarCollapsed: true,
       collapsedWorkspaces: ['w1'],
       projectsCollapsed: false,
+      collapsedThreads: [],
       sidebarView: 'status',
       railShown: true,
       railOpen: ['environment'],
@@ -23,6 +24,7 @@ describe('parseLayoutPrefs', () => {
       sidebarCollapsed: false,
       collapsedWorkspaces: [],
       projectsCollapsed: false,
+      collapsedThreads: [],
       sidebarView: 'status',
       railShown: true,
       railOpen: ['environment'],
@@ -35,6 +37,12 @@ describe('parseLayoutPrefs', () => {
     expect(parseLayoutPrefs({ sidebarWidth: 260 }, true)?.sidebarWidth).toBe(300);
     expect(parseLayoutPrefs({ sidebarWidth: 280 }, true)?.sidebarWidth).toBe(280);
     expect(parseLayoutPrefs({ sidebarWidth: 260 })?.sidebarWidth).toBe(260);
+  });
+
+  it('记住收起的子会话线程', () => {
+    expect(parseLayoutPrefs({ collapsedThreads: ['ses_a', 3] })?.collapsedThreads).toEqual([
+      'ses_a',
+    ]);
   });
 
   it('记住按项目分组', () => {

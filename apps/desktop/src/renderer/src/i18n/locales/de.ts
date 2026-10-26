@@ -610,6 +610,10 @@ export const messages: Messages = {
   'sidebar.noProjects': 'Keine Projekte',
   'sidebar.showMore': 'Mehr anzeigen',
   'sidebar.showLess': 'Weniger anzeigen',
+  'sidebar.threadCount':
+    '{count, plural, one {# verschachtelte Sitzung} other {# verschachtelte Sitzungen}}',
+  'sidebar.threadExpand': 'Verschachtelte Sitzungen einblenden',
+  'sidebar.threadCollapse': 'Verschachtelte Sitzungen ausblenden',
   'sidebar.loadFailed': 'Projekte konnten nicht geladen werden: {error}',
   'sidebar.settings': 'Einstellungen',
 

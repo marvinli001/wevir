@@ -604,6 +604,9 @@ export const messages: Messages = {
   'sidebar.noProjects': '프로젝트 없음',
   'sidebar.showMore': '더 보기',
   'sidebar.showLess': '접기',
+  'sidebar.threadCount': '중첩된 세션 {count}개',
+  'sidebar.threadExpand': '중첩된 세션 펼치기',
+  'sidebar.threadCollapse': '중첩된 세션 접기',
   'sidebar.loadFailed': '프로젝트 읽기 실패: {error}',
   'sidebar.settings': '설정',
 

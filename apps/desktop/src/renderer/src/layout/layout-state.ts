@@ -12,6 +12,8 @@ export interface LayoutPrefs {
   collapsedWorkspaces: readonly string[];
   /** 侧栏的整个“项目”一节收起了（U5）。 */
   projectsCollapsed: boolean;
+  /** 按项目分组时收起了子会话的线程（session-threads.ts，以最上面那个会话的 ID 记）。默认全部展开。 */
+  collapsedThreads: readonly string[];
   /** 左栏的会话按状态还是按项目分组（U19，desktop-layout.md §13），默认按状态。 */
   sidebarView: 'status' | 'project';
   /** 地方够时会话侧栏开着（U18，desktop-layout.md §12），默认开；地方紧时默认收起，见 rail-model.ts 的 railRoom。 */
@@ -41,6 +43,7 @@ const DEFAULT_PREFS: LayoutPrefs = {
   sidebarCollapsed: false,
   collapsedWorkspaces: [],
   projectsCollapsed: false,
+  collapsedThreads: [],
   sidebarView: 'status',
   railShown: true,
   railOpen: ['environment'],
@@ -65,6 +68,9 @@ export function parseLayoutPrefs(raw: unknown, legacy = false): LayoutPrefs | un
       ? value.collapsedWorkspaces.filter((id): id is string => typeof id === 'string')
       : [],
     projectsCollapsed: value.projectsCollapsed === true,
+    collapsedThreads: Array.isArray(value.collapsedThreads)
+      ? value.collapsedThreads.filter((id): id is string => typeof id === 'string')
+      : [],
     sidebarView: value.sidebarView === 'project' ? 'project' : 'status',
     railShown: value.railShown !== false,
     railOpen: Array.isArray(value.railOpen)
@@ -130,6 +136,16 @@ export function toggleWorkspace(workspaceId: string): void {
     collapsedWorkspaces: prefs.collapsedWorkspaces.includes(workspaceId)
       ? prefs.collapsedWorkspaces.filter((id) => id !== workspaceId)
       : [...prefs.collapsedWorkspaces, workspaceId],
+  }));
+}
+
+/** 展开或收起侧栏里一个会话的子会话。 */
+export function toggleThread(sessionId: string): void {
+  layoutPrefs.set((prefs) => ({
+    ...prefs,
+    collapsedThreads: prefs.collapsedThreads.includes(sessionId)
+      ? prefs.collapsedThreads.filter((id) => id !== sessionId)
+      : [...prefs.collapsedThreads, sessionId],
   }));
 }
 

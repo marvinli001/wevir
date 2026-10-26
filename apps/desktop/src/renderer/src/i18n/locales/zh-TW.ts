@@ -602,6 +602,9 @@ export const messages: Messages = {
   'sidebar.noProjects': '尚無專案',
   'sidebar.showMore': '顯示更多',
   'sidebar.showLess': '收合',
+  'sidebar.threadCount': '{count} 個子工作階段',
+  'sidebar.threadExpand': '展開子工作階段',
+  'sidebar.threadCollapse': '收合子工作階段',
   'sidebar.loadFailed': '讀取專案失敗：{error}',
   'sidebar.settings': '設定',
 

@@ -616,6 +616,9 @@ export const zhCN = {
   'sidebar.noProjects': '暂无项目',
   'sidebar.showMore': '显示更多',
   'sidebar.showLess': '收起',
+  'sidebar.threadCount': '{count} 个子会话',
+  'sidebar.threadExpand': '展开子会话',
+  'sidebar.threadCollapse': '收起子会话',
   'sidebar.loadFailed': '读取项目失败：{error}',
   'sidebar.settings': '设置',
 

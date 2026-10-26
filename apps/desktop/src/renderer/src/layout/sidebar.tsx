@@ -7,6 +7,7 @@ import {
   CalendarClock,
   ChartColumn,
   ChevronDown,
+  ChevronRight,
   Folder,
   FolderOpen,
   Plus,
@@ -16,7 +17,7 @@ import {
   SlidersHorizontal,
   SquarePen,
 } from 'lucide-react';
-import { memo, type ReactNode, useState } from 'react';
+import { type KeyboardEvent, memo, type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { assistantsAvailability } from '@/assistants/assistants-model';
 import { automationsAvailability } from '@/automations/automations-model';
@@ -60,7 +61,7 @@ import { searchOpen } from '@/search/search-model';
 import { tuningAvailability } from '@/tuning/tuning-model';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { usageAvailability } from '@/usage/usage-model';
-import { layoutPrefs, toggleWorkspace } from './layout-state';
+import { layoutPrefs, toggleThread, toggleWorkspace } from './layout-state';
 import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
 import { ProjectContextMenuItems } from './project-context-menu';
 import {
@@ -73,6 +74,7 @@ import { RoleLabel } from './role-label';
 import { SessionContextMenuItems } from './session-context-menu';
 import { DoneMark, GlyphReveal, motionElapsed } from './session-marks';
 import { sessionMotion } from './session-motion';
+import { type SessionThread, threadSessions } from './session-threads';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是同样的淡底加一圈 1 px 的选中细边（U5，§63 起不再是整块表面色）。 */
 const ROW =
@@ -474,15 +476,11 @@ function ChatsGroup({
           <SquarePen />
         </IconButton>
       </div>
-      <MoreList
-        items={sessions}
-        limit={SESSIONS_SHOWN}
-        activeIndex={sessions.findIndex((session) => session.id === sessionId)}
-        render={(session) => (
-          <li key={session.id}>
-            <SessionRow workspaceId={workspaceId} session={session} unread={isUnread(session)} />
-          </li>
-        )}
+      <ThreadList
+        workspaceId={workspaceId}
+        sessions={sessions}
+        activeId={sessionId}
+        isUnread={isUnread}
       />
     </section>
   );
@@ -578,17 +576,116 @@ function ProjectItem({
         </ContextMenuContent>
       </ContextMenu>
       <Collapse open={expanded && sessions.length > 0} id={listId}>
-        <MoreList
-          items={sessions}
-          limit={SESSIONS_SHOWN}
-          activeIndex={sessions.findIndex((session) => session.id === sessionId)}
-          render={(session) => (
-            <li key={session.id}>
-              <SessionRow workspaceId={workspace.id} session={session} unread={isUnread(session)} />
-            </li>
-          )}
+        <ThreadList
+          workspaceId={workspace.id}
+          sessions={sessions}
+          activeId={sessionId}
+          isUnread={isUnread}
         />
       </Collapse>
+    </li>
+  );
+}
+
+/**
+ * 一个项目（或“对话”）的会话列表：agent 开出的会话归在开出它的会话下面（session-threads.ts），“显示更多”按线程数。
+ */
+function ThreadList({
+  workspaceId,
+  sessions,
+  activeId,
+  isUnread,
+}: {
+  workspaceId: string;
+  sessions: readonly Session[];
+  activeId: string | undefined;
+  isUnread: (session: Session) => boolean;
+}) {
+  const { collapsedThreads } = layoutPrefs.use();
+  const threads = threadSessions(sessions);
+  return (
+    <MoreList
+      items={threads}
+      limit={SESSIONS_SHOWN}
+      activeIndex={threads.findIndex(
+        (thread) =>
+          thread.session.id === activeId || thread.children.some((child) => child.id === activeId),
+      )}
+      render={(thread) => (
+        <ThreadItem
+          key={thread.session.id}
+          workspaceId={workspaceId}
+          thread={thread}
+          // 当前会话在收起的线程里时照样展开，免得当前项被收起来。
+          open={
+            !collapsedThreads.includes(thread.session.id) ||
+            thread.children.some((child) => child.id === activeId)
+          }
+          isUnread={isUnread}
+        />
+      )}
+    />
+  );
+}
+
+/** 子会话前面那条线：竖线连到下一个，最后一个拐个弯收住（照 Claude Code 桌面端）。 */
+const BRANCH =
+  'relative pl-5 before:pointer-events-none before:absolute before:-top-px before:left-4 before:border-l before:border-border';
+const BRANCH_MID = 'before:bottom-0';
+const BRANCH_LAST = 'before:h-[17px] before:w-2 before:rounded-bl-md before:border-b';
+
+/**
+ * 一个线程：开出别的会话的会话下面列着它开出的会话；收起时只留一行“N 个子会话”，点它展开。标题后面的箭头展开、收起，
+ * 焦点在行上时左右方向键也行。
+ */
+function ThreadItem({
+  workspaceId,
+  thread,
+  open,
+  isUnread,
+}: {
+  workspaceId: string;
+  thread: SessionThread;
+  open: boolean;
+  isUnread: (session: Session) => boolean;
+}) {
+  const { session, children } = thread;
+  const count = children.length;
+  return (
+    <li data-thread={count > 0 ? session.id : undefined}>
+      <SessionRow
+        workspaceId={workspaceId}
+        session={session}
+        unread={isUnread(session)}
+        {...(count > 0 && { thread: { count, open } })}
+      />
+      {count > 0 && (
+        <Collapse open={open}>
+          <ul className="space-y-px pt-px">
+            {children.map((child, index) => (
+              <li
+                key={child.id}
+                className={cn(BRANCH, index === count - 1 ? BRANCH_LAST : BRANCH_MID)}
+              >
+                <SessionRow workspaceId={workspaceId} session={child} unread={isUnread(child)} />
+              </li>
+            ))}
+          </ul>
+        </Collapse>
+      )}
+      {count > 0 && !open && (
+        <div className={cn(BRANCH, BRANCH_LAST, 'pt-px')}>
+          <button
+            type="button"
+            aria-expanded={false}
+            data-thread-summary={session.id}
+            onClick={() => toggleThread(session.id)}
+            className={cn(ROW, 'h-7 text-sm text-muted-foreground hover:text-foreground')}
+          >
+            {t('sidebar.threadCount', { count })}
+          </button>
+        </div>
+      )}
     </li>
   );
 }
@@ -646,6 +743,8 @@ interface SessionRowProps {
   unread: boolean;
   /** 按状态分组时（U19）行右边写项目名，悬停提示是“项目名 · 路径”。 */
   project?: { displayName: string; rootPath: string };
+  /** 它开出的会话归在它下面（session-threads.ts）：几个、展开着没有。标题后面有展开、收起的箭头。 */
+  thread?: { count: number; open: boolean };
 }
 
 /**
@@ -658,7 +757,9 @@ function sameRow(a: SessionRowProps, b: SessionRowProps): boolean {
     a.session === b.session &&
     a.unread === b.unread &&
     a.project?.displayName === b.project?.displayName &&
-    a.project?.rootPath === b.project?.rootPath
+    a.project?.rootPath === b.project?.rootPath &&
+    a.thread?.count === b.thread?.count &&
+    a.thread?.open === b.thread?.open
   );
 }
 
@@ -672,6 +773,7 @@ const SessionRow = memo(function SessionRow({
   session,
   unread,
   project,
+  thread,
 }: SessionRowProps) {
   const marker = sessionMarker(session);
   const markerInfo = marker && MARKERS[marker];
@@ -706,6 +808,15 @@ const SessionRow = memo(function SessionRow({
           to={paths.session(workspaceId, session.id)}
           title={project && `${project.displayName} · ${project.rootPath}`}
           draggable={false}
+          {...(thread && {
+            'aria-expanded': thread.open,
+            onKeyDown: (event: KeyboardEvent) => {
+              if (event.key === (thread.open ? 'ArrowLeft' : 'ArrowRight')) {
+                event.preventDefault();
+                toggleThread(session.id);
+              }
+            },
+          })}
           className={({ isActive }) =>
             cn(
               ROW,
@@ -755,12 +866,35 @@ const SessionRow = memo(function SessionRow({
               </span>
               <span
                 className={cn(
-                  'min-w-0 flex-1 truncate',
+                  'min-w-0 truncate',
+                  // 有子会话时箭头紧跟在标题后面，空出来的地方放在箭头之后。
+                  !thread && 'flex-1',
                   settledUnread && 'font-semibold text-foreground',
                 )}
               >
                 <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
               </span>
+              {thread && (
+                // 箭头在链接里面：点它只展开、收起，不打开会话；键盘用左右方向键（上面的 onKeyDown）。
+                <span
+                  aria-hidden
+                  data-thread-toggle={session.id}
+                  title={t(thread.open ? 'sidebar.threadCollapse' : 'sidebar.threadExpand')}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleThread(session.id);
+                  }}
+                  className="-ml-1 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground"
+                >
+                  {thread.open ? (
+                    <ChevronDown className="size-3.5" />
+                  ) : (
+                    <ChevronRight className="size-3.5" />
+                  )}
+                </span>
+              )}
+              {thread && <span className="flex-1" />}
               {session.openedBy?.role !== undefined && (
                 <RoleLabel
                   role={session.openedBy.role}

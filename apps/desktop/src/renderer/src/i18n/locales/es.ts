@@ -614,6 +614,9 @@ export const messages: Messages = {
   'sidebar.noProjects': 'Sin proyectos',
   'sidebar.showMore': 'Mostrar más',
   'sidebar.showLess': 'Mostrar menos',
+  'sidebar.threadCount': '{count, plural, one {# sesión anidada} other {# sesiones anidadas}}',
+  'sidebar.threadExpand': 'Mostrar sesiones anidadas',
+  'sidebar.threadCollapse': 'Ocultar sesiones anidadas',
   'sidebar.loadFailed': 'Error al leer los proyectos: {error}',
   'sidebar.settings': 'Configuración',
 

@@ -613,6 +613,9 @@ export const messages: Messages = {
   'sidebar.noProjects': 'Nessun progetto',
   'sidebar.showMore': 'Mostra altro',
   'sidebar.showLess': 'Mostra meno',
+  'sidebar.threadCount': '{count, plural, one {# sessione annidata} other {# sessioni annidate}}',
+  'sidebar.threadExpand': 'Mostra sessioni annidate',
+  'sidebar.threadCollapse': 'Nascondi sessioni annidate',
   'sidebar.loadFailed': 'Lettura dei progetti non riuscita: {error}',
   'sidebar.settings': 'Impostazioni',
 
