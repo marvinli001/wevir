@@ -94,6 +94,7 @@ import {
   type CodexFlavor,
   type CodexPaths,
   checkCodexVersion,
+  codexPathDir,
   codexPaths,
   prepareCodexHome,
   resolveCodexBinary,
@@ -441,6 +442,7 @@ class Launcher implements CodexLauncher {
         : { server: webServer, endpoint: webEndpoint };
     const baseEnv = {
       codexHome: this.paths.codexHome,
+      packagePathDir: codexPathDir(binary),
       parent,
       rustLog: this.#options.rustLog,
       extra: {

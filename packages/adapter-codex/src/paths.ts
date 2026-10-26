@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -14,11 +14,14 @@ export const CODEX_BIN_ENV = 'WEVIR_CODEX_BIN';
 
 /**
  * 应用资源目录的环境变量（ADR-0007 决策 5）：安装包随附的运行时所在的目录，桌面端拉起 Host 时设置（打包后是
- * Electron 的 `process.resourcesPath`）。codex-app-server 在它的 `engines/codex/` 下。
+ * Electron 的 `process.resourcesPath`）。Codex 运行时包在它的 `engines/codex/` 下。
  */
 export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
 
-/** 资源目录里放 codex-app-server（以及 Linux 的 `codex-resources/bwrap`、LICENSE、NOTICE）的子目录。 */
+/**
+ * 资源目录里的 Codex 运行时包（上游的包布局：`bin/` 放 codex-app-server 与 codex-code-mode-host，`codex-path/` 放 rg，
+ * Linux 的 `codex-resources/bwrap`，`codex-package.json`，另有 LICENSE、NOTICE）。
+ */
 export function resourcesCodexDir(resourcesDir: string): string {
   return join(resourcesDir, 'engines', 'codex');
 }
@@ -32,25 +35,50 @@ export function codexBinaryName(platform: NodeJS.Platform = process.platform): s
 }
 
 /**
- * 开发缓存目录：仓库根的 `.wevir-dev/bin/`（gitignore），`scripts/fetch-codex.sh` 下载到这里。`src/` 与 `dist/`
- * 都在包目录下一层，所以同一个相对路径对两者都成立。安装包里的位置是资源目录（`RESOURCES_DIR_ENV`）。
+ * Codex 运行时包里 codex-app-server 的位置。Codex 凭可执行文件在 `bin/` 下、上一级有 `codex-package.json` 认出包，才会把
+ * `codex-path/`（rg）放到模型所跑命令的 PATH 最前面，并在 `codex-resources/` 找 Linux 的 bwrap。
  */
-export function devBinDir(): string {
-  return fileURLToPath(new URL('../../../.wevir-dev/bin/', import.meta.url));
+export function codexPackageBinary(
+  packageDir: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return join(packageDir, 'bin', codexBinaryName(platform));
+}
+
+/**
+ * 二进制所在运行时包里放 rg 的 `codex-path/`；二进制不在包布局里（`WEVIR_CODEX_BIN` 指向别处）或没有这个目录时是 undefined。
+ * 判断与上游 `install-context` 一致：在 `bin/` 下，且上一级有 `codex-package.json`。
+ */
+export function codexPathDir(binary: string): string | undefined {
+  const binDir = dirname(binary);
+  const packageDir = dirname(binDir);
+  if (basename(binDir) !== 'bin' || !existsSync(join(packageDir, 'codex-package.json'))) {
+    return undefined;
+  }
+  const dir = join(packageDir, 'codex-path');
+  return existsSync(dir) ? dir : undefined;
+}
+
+/**
+ * 开发缓存里的 Codex 运行时包：仓库根的 `.wevir-dev/codex/`（gitignore），`scripts/fetch-codex.sh` 下载到这里。`src/` 与
+ * `dist/` 都在包目录下一层，所以同一个相对路径对两者都成立。安装包里的位置是资源目录（`RESOURCES_DIR_ENV`）。
+ */
+export function devCodexDir(): string {
+  return fileURLToPath(new URL('../../../.wevir-dev/codex/', import.meta.url));
 }
 
 export interface ResolveCodexBinaryOptions {
   /** 默认 `process.env`。 */
   env?: NodeJS.ProcessEnv;
-  /** 默认 `devBinDir()`。 */
+  /** 开发缓存里的运行时包，默认 `devCodexDir()`。 */
   devDir?: string;
   platform?: NodeJS.Platform;
 }
 
 /**
- * 找 codex-app-server：`WEVIR_CODEX_BIN`（必须是存在的绝对路径）→ 应用资源目录（`WEVIR_RESOURCES_DIR` 的
- * `engines/codex/`，安装包随附的那份）→ 开发缓存。不查 PATH，也不碰用户自己装的 Codex。找不到时报错并给出下载命令。
- * 版本在启动前另行核对（`checkCodexVersion`）。
+ * 找 codex-app-server：`WEVIR_CODEX_BIN`（必须是存在的绝对路径，不在包布局里时没有随包的 rg）→ 应用资源目录
+ * （`WEVIR_RESOURCES_DIR` 的 `engines/codex/bin/`，安装包随附的那份）→ 开发缓存（`.wevir-dev/codex/bin/`）。不查 PATH，
+ * 也不碰用户自己装的 Codex。找不到时报错并给出下载命令。版本在启动前另行核对（`checkCodexVersion`）。
  */
 export function resolveCodexBinary(options: ResolveCodexBinaryOptions = {}): string {
   const env = options.env ?? process.env;
@@ -60,16 +88,15 @@ export function resolveCodexBinary(options: ResolveCodexBinaryOptions = {}): str
     if (!existsSync(fromEnv)) throw new Error(`${CODEX_BIN_ENV} 指向的文件不存在：${fromEnv}`);
     return fromEnv;
   }
-  const name = codexBinaryName(options.platform);
   const candidates: string[] = [];
   const resourcesDir = env[RESOURCES_DIR_ENV];
   if (resourcesDir !== undefined && resourcesDir !== '') {
     if (!isAbsolute(resourcesDir)) {
       throw new Error(`${RESOURCES_DIR_ENV} 必须是绝对路径：${resourcesDir}`);
     }
-    candidates.push(join(resourcesCodexDir(resourcesDir), name));
+    candidates.push(codexPackageBinary(resourcesCodexDir(resourcesDir), options.platform));
   }
-  candidates.push(join(options.devDir ?? devBinDir(), name));
+  candidates.push(codexPackageBinary(options.devDir ?? devCodexDir(), options.platform));
   const found = candidates.find((candidate) => existsSync(candidate));
   if (found === undefined) {
     throw new Error(

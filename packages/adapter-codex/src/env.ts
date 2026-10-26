@@ -72,6 +72,11 @@ export interface CodexEnvOptions {
    * `[shell_environment_policy] exclude = ["WEVIR_*"]` 让模型跑的命令看不到它。
    */
   gatewayToken?: string;
+  /**
+   * 运行时包的 `codex-path/`（`codexPathDir`）。Codex 只在 Unix 上自己把它放到模型所跑命令的 PATH 前面，Windows 上不会，
+   * 所以这里在 win32 上把它放进 app-server 的 PATH 最前面（模型的命令继承 app-server 的环境）；别的平台不动。
+   */
+  packagePathDir?: string;
   /** 继承来源，默认 `process.env`。 */
   parent?: NodeJS.ProcessEnv;
   /** 默认 `process.platform`。Windows 上环境变量名不分大小写。 */
@@ -88,6 +93,8 @@ export interface CodexEnvOptions {
  * - `WEVIR_GATEWAY_TOKEN`：仅在给了令牌时；
  * - `RUST_LOG`：默认 `warn`；
  * - `NO_COLOR=1`：stderr 只用于诊断，不要控制字符。
+ *
+ * Windows 上另把 `packagePathDir` 放到 PATH 最前面。
  */
 export function buildCodexEnv(options: CodexEnvOptions): NodeJS.ProcessEnv {
   const parent = options.parent ?? process.env;
@@ -105,5 +112,9 @@ export function buildCodexEnv(options: CodexEnvOptions): NodeJS.ProcessEnv {
     NO_COLOR: '1',
   };
   if (options.gatewayToken !== undefined) fixed[GATEWAY_TOKEN_ENV] = options.gatewayToken;
+  if (options.packagePathDir !== undefined && caseInsensitive) {
+    const name = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'Path';
+    env[name] = [options.packagePathDir, env[name]].filter(Boolean).join(';');
+  }
   return Object.assign(env, options.extra, fixed);
 }

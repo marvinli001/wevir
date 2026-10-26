@@ -87,7 +87,7 @@ wevir/
 | `pnpm typecheck` | 各包 `tsc --noEmit` |
 | `pnpm test` | 从根目录运行全部 Vitest project |
 | `pnpm --filter @wevir/protocol test` | 只跑单个包 |
-| `bash scripts/fetch-codex.sh` | 下载锁定版本的 `codex-app-server` 到 `.wevir-dev/bin/` 并校验 sha256（`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀）；adapter-codex 的集成测试与 `--adapter codex` 要用，也可用 `WEVIR_CODEX_BIN` 指定别处的二进制 |
+| `bash scripts/fetch-codex.sh` | 下载锁定版本的 `codex-app-server` 与 ripgrep 到 `.wevir-dev/codex/`（上游的包布局，`bin/` 里是二进制，`codex-path/` 里是 rg）并校验 sha256（`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀）；adapter-codex 的集成测试与 `--adapter codex` 要用，也可用 `WEVIR_CODEX_BIN` 指定别处的二进制（不在包布局里就没有随包的 rg） |
 | `pnpm --filter @wevir/desktop resources` | 准备随安装包分发的运行时（要先 `pnpm build`），放进 `apps/desktop/resources/` |
 | `pnpm --filter @wevir/mobile ios` / `android` | 生成原生工程并编译、安装手机端的开发构建（要 Xcode / Android SDK）；之后 `pnpm --filter @wevir/mobile start` 起 Metro |
 | `pnpm --filter @wevir/desktop package` | 打安装包（要先 `pnpm build`），`--target <三元组>` 打别的平台，产物在 `apps/desktop/release/` |

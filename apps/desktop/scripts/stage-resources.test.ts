@@ -60,6 +60,22 @@ describe('hostTarget', () => {
     expect(() => nodePlatform('riscv64-unknown-linux-gnu')).toThrow('不认识');
   });
 
+  it('fetch-codex.sh 给每个目标钉了 rg 的 sha256，ripgrep 的许可证随包', () => {
+    const script = readFileSync(
+      new URL('../../../scripts/fetch-codex.sh', import.meta.url),
+      'utf8',
+    );
+    // 6 个目标各有一个 64 位十六进制的 rg_sha，且互不相同。
+    const shas = [...script.matchAll(/^\s+rg_sha="([0-9a-f]{64})"/gm)].map((m) => m[1]);
+    expect(shas).toHaveLength(6);
+    expect(new Set(shas).size).toBe(6);
+    expect(script).toMatch(/^rg_version="\d+\.\d+\.\d+"$/m);
+    for (const file of ['LICENSE-MIT', 'UNLICENSE']) {
+      const license = new URL(`../licenses/ripgrep/${file}`, import.meta.url);
+      expect(readFileSync(license, 'utf8').length).toBeGreaterThan(500);
+    }
+  });
+
   it('electron-builder 的平台与架构参数', () => {
     expect(builderArgs('aarch64-apple-darwin')).toEqual(['--mac', '--arm64']);
     expect(builderArgs('x86_64-pc-windows-msvc')).toEqual(['--win', '--x64']);

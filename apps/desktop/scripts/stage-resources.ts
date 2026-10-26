@@ -6,10 +6,14 @@
  * 运行时是 `process.resourcesPath`）；桌面端拉起 Host 时把这个目录交给它（`WEVIR_RESOURCES_DIR`），adapter-codex 先在
  * 这里找 codex-app-server 与提示词。
  *
- *   resources/engines/codex/codex-app-server[.exe]   锁定版本，scripts/fetch-codex.sh 按 sha256 校验
- *   resources/engines/codex/codex-code-mode-host[.exe]  同上；code mode 的 exec 在它里面跑，codex-app-server 在旁边找它
- *   resources/engines/codex/codex-resources/bwrap    只有 Linux（LGPL-2.0-or-later）
- *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
+ *   resources/engines/codex/                         Codex 运行时包，上游的包布局（scripts/fetch-codex.sh 按 sha256 校验）：
+ *     bin/codex-app-server[.exe]                     锁定版本
+ *     bin/codex-code-mode-host[.exe]                 同上；code mode 的 exec 在它里面跑，codex-app-server 在 bin/ 找它
+ *     codex-path/rg[.exe]                            ripgrep；Codex 把 codex-path/ 放到模型所跑命令的 PATH 最前面
+ *     codex-resources/bwrap                          只有 Linux（LGPL-2.0-or-later）
+ *     codex-package.json                             包元数据，Codex 凭它和 bin/ 认出包布局
+ *     LICENSE、NOTICE                                Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
+ *     ripgrep/LICENSE-MIT、UNLICENSE                 ripgrep 的双许可（licenses/ripgrep/）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
  *   resources/computer-use/wevir-computer-use        只有 macOS：电脑操作的 Swift helper（native/computer-use，按目标架构
  *                                                    swift build），随应用一起签名与公证
@@ -494,6 +498,10 @@ export function stageCodex(dir: string, target: string): void {
   run('bash', [join(repo, 'scripts', 'fetch-codex.sh'), '--target', target, '--out', dir]);
   for (const file of ['LICENSE', 'NOTICE']) {
     copyFileSync(join(desktop, 'licenses', 'codex', file), join(dir, file));
+  }
+  mkdirSync(join(dir, 'ripgrep'), { recursive: true });
+  for (const file of ['LICENSE-MIT', 'UNLICENSE']) {
+    copyFileSync(join(desktop, 'licenses', 'ripgrep', file), join(dir, 'ripgrep', file));
   }
 }
 

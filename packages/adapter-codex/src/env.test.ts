@@ -64,4 +64,24 @@ describe('buildCodexEnv', () => {
     });
     expect(env).not.toHaveProperty('OpenAI_Api_Key');
   });
+
+  it('Windows 上把运行时包的 codex-path/ 放到 PATH 最前面（Codex 只在 Unix 上自己做），别的平台不动', () => {
+    const win = buildCodexEnv({
+      codexHome: 'C:\\c',
+      packagePathDir: 'C:\\app\\engines\\codex\\codex-path',
+      parent: { Path: 'C:\\Windows' },
+      platform: 'win32',
+    });
+    expect(win.Path).toBe('C:\\app\\engines\\codex\\codex-path;C:\\Windows');
+    // 父进程没有 PATH 时只有它自己，不带多余的分号。
+    expect(
+      buildCodexEnv({ codexHome: 'C:\\c', packagePathDir: 'C:\\p', parent: {}, platform: 'win32' })
+        .Path,
+    ).toBe('C:\\p');
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(buildCodexEnv({ codexHome: '/c', packagePathDir: '/p', parent, platform }).PATH).toBe(
+        '/usr/bin',
+      );
+    }
+  });
 });

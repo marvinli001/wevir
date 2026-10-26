@@ -13,7 +13,7 @@
  *                                 stagePrompts 准备；`wevir host start` 用包里的 Node 拉起 lib/host，并把 lib/ 作为 WEVIR_RESOURCES_DIR
  *                                 交给它（apps/cli/src/commands/host.ts 的 bundledResourcesDir）
  *   LICENSE、NOTICE               仓库根目录的
- *   THIRD_PARTY_LICENSES.txt      打进两个 bundle 与 lib/host/node_modules 里的 npm 包的许可证（Codex 的在 lib/engines/codex/，
+ *   THIRD_PARTY_LICENSES.txt      打进两个 bundle 与 lib/host/node_modules 里的 npm 包的许可证（Codex 与 ripgrep 的在 lib/engines/codex/，
  *                                 Node 的在 lib/node/）
  *
  * 没有 macOS 的电脑操作 helper（它要随应用签名，系统权限也是按应用给的）：命令行包里的 Host 不提供电脑操作。
@@ -331,6 +331,7 @@ export class ThirdPartyLicenses {
       '',
       'npm packages bundled into lib/cli/ and lib/host/dist/, and the packages kept in lib/host/node_modules/.',
       'Node.js: lib/node/LICENSE. OpenAI Codex: lib/engines/codex/LICENSE and NOTICE.',
+      'ripgrep (lib/engines/codex/codex-path/rg): lib/engines/codex/ripgrep/LICENSE-MIT and UNLICENSE.',
     ];
     for (const entry of entries) {
       parts.push('', rule, `${entry.name} ${entry.version} (${entry.license})`, rule);

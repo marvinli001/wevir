@@ -15,7 +15,7 @@
 | Host | `packages/host/dist` 与它的生产依赖 | `ws`、`zod` 等（§2.1） |
 | CLI（T4.2） | `apps/cli/dist` | `mute-stream`（§2.1） |
 | 命令行包（单独发布，`apps/cli/scripts/package.ts`） | `wevir-cli-<版本>-<平台>-<架构>.tar.gz` / `.zip`：Node 官方发布包里的 `node` 与 `LICENSE`（`lib/node/`）、CLI 与 Host 的 bundle、与桌面端资源目录相同的 `lib/host/`、`lib/engines/codex/`、`lib/prompts/` | Node.js（`lib/node/LICENSE`，含它捆绑的 OpenSSL、ICU 等）、打进两个 bundle 与 `lib/host/node_modules` 的 npm 包（打包时按实际打进去的模块生成 `THIRD_PARTY_LICENSES.txt`）、Codex（`lib/engines/codex/LICENSE`、`NOTICE`） |
-| Codex 引擎（R9） | 资源目录的 `engines/codex/`：`codex-app-server` 与 `codex-code-mode-host` 独立二进制，Linux 另有 `codex-resources/bwrap`（`pnpm --filter @wevir/desktop resources` 准备，ADR-0007 决策 5） | OpenAI Codex 与它静态链接的 Rust crate、bubblewrap（§2.5） |
+| Codex 引擎（R9） | 资源目录的 `engines/codex/`：`bin/` 里是 `codex-app-server` 与 `codex-code-mode-host` 独立二进制，`codex-path/rg` 是 ripgrep，Linux 另有 `codex-resources/bwrap`（上游 Codex 的包布局，`pnpm --filter @wevir/desktop resources` 准备，ADR-0007 决策 5） | OpenAI Codex 与它静态链接的 Rust crate、ripgrep、bubblewrap（§2.4） |
 | iOS 模拟器 helper（只有 macOS） | 资源目录的 `ios-simulator/`：`wevir-ios-simulator`（Swift，移植自 facebook/idb）、它的 sandbox 描述文件 | idb（MIT，`ios-simulator/LICENSE-facebook-idb.txt`，根目录 `NOTICE` §17）；运行时加载的是本机 Xcode 的私有框架，不随安装包 |
 | 中继（`apps/relay`，自建用，不进桌面安装包） | `apps/relay/dist/` 与它做成的 Docker 镜像：一个打包好的 ESM，`@wevir/protocol`、`ws`、`zod` 都打进去，运行时不装依赖 | `ws`、`zod`（§2.1）；两者的 `LICENSE` 由构建拷到 `dist/licenses/`（镜像里是 `/app/licenses/`） |
 | 推送网关镜像 | `apps/push` 的 Docker 镜像：`dist/` 里打包好的网关 | `zod`（§2.1；镜像里附 `LICENSES/zod.txt`） |
@@ -103,6 +103,8 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 - `LICENSE`：Apache License 2.0 全文。
 - `NOTICE`：`OpenAI Codex`、`Copyright 2025 OpenAI`，以及派生自 Ratatui 的代码（MIT，`Copyright (c) 2016-2022 Florian Dehau`、`Copyright (c) 2023-2025 The Ratatui Developers`）。没有核实 `codex-app-server` 里是否链接了这部分代码，整份照附。
 
+随包还有 ripgrep（`codex-path/rg`，`15.2.0`，BurntSushi/ripgrep 的发布二进制）：MIT 与 Unlicense 双许可，`Copyright (c) 2015 Andrew Gallant`。两份许可证全文在 `apps/desktop/licenses/ripgrep/`（`LICENSE-MIT`、`UNLICENSE`），准备资源目录时复制到包里的 `ripgrep/`；命令行包的 `THIRD_PARTY_LICENSES.txt` 开头也指到这里。
+
 Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁定提交的 `codex-rs/vendor/bubblewrap/`（https://github.com/openai/codex/tree/83086188ae0614bd882818ff1aa23f3194962012/codex-rs/vendor/bubblewrap ）。
 
 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证还没有核对，打包前做（UPSTREAM.md §2.4）。
@@ -142,6 +144,7 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 ### 3.2 Codex
 
 - [ ] 资源目录的 `engines/codex/` 里有 `LICENSE` 与 `NOTICE`（`pnpm resources` 复制，打包时随 `extraResources` 进安装包），“开源许可”页列出 Codex 并能看到这两份文件。
+- [ ] 资源目录的 `engines/codex/ripgrep/` 里有 `LICENSE-MIT` 与 `UNLICENSE`，“开源许可”页列出 ripgrep。
 - [ ] 第三方声明收录 `codex-rs/Cargo.lock` 里静态链接进 `codex-app-server` 的 crate（按实际打进去的平台）。
 - [ ] Linux 包：`codex-resources/bwrap` 在声明里写明 LGPL-2.0-or-later 与源码位置（§2.4），随附 LGPL-2.0 全文；ADR-0005 未决事项 4 决定 Linux 不带它时，这一条不适用。
 - [ ] 不使用 OpenAI 或 Codex 的名称与商标，说明来源的署名除外（Apache-2.0 第 6 条）。

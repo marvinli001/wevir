@@ -7,6 +7,8 @@ import {
   CODEX_VERSION,
   checkCodexVersion,
   codexBinaryName,
+  codexPackageBinary,
+  codexPathDir,
   codexPaths,
   parseCodexVersion,
   prepareCodexHome,
@@ -32,11 +34,18 @@ describe('resolveCodexBinary', () => {
   });
 
   it('其次是开发缓存；找不到时给出下载命令', () => {
+    // 二进制在运行时包的 bin/ 下（上游的包布局），平铺在包根目录的旧布局不算。
     writeFileSync(join(dir, codexBinaryName('linux')), '');
+    expect(() => resolveCodexBinary({ env: {}, devDir: dir, platform: 'linux' })).toThrow(
+      'bash scripts/fetch-codex.sh',
+    );
+    mkdirSync(join(dir, 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'bin', codexBinaryName('linux')), '');
     expect(resolveCodexBinary({ env: {}, devDir: dir, platform: 'linux' })).toBe(
-      join(dir, 'codex-app-server'),
+      join(dir, 'bin', 'codex-app-server'),
     );
     expect(codexBinaryName('win32')).toBe('codex-app-server.exe');
+    expect(codexPackageBinary('/pkg', 'win32')).toBe(join('/pkg', 'bin', 'codex-app-server.exe'));
     expect(() =>
       resolveCodexBinary({ env: {}, devDir: join(dir, 'empty'), platform: 'linux' }),
     ).toThrow('bash scripts/fetch-codex.sh');
@@ -44,8 +53,8 @@ describe('resolveCodexBinary', () => {
 
   it('应用资源目录（安装包随附的）排在开发缓存之前，WEVIR_CODEX_BIN 之后', () => {
     const resources = join(dir, 'resources');
-    const bundled = join(resourcesCodexDir(resources), 'codex-app-server');
-    mkdirSync(resourcesCodexDir(resources), { recursive: true });
+    const bundled = join(resourcesCodexDir(resources), 'bin', 'codex-app-server');
+    mkdirSync(join(resourcesCodexDir(resources), 'bin'), { recursive: true });
     writeFileSync(bundled, '');
     const env = { [RESOURCES_DIR_ENV]: resources };
     expect(resolveCodexBinary({ env, devDir: dir, platform: 'linux' })).toBe(bundled);
@@ -65,7 +74,7 @@ describe('resolveCodexBinary', () => {
         devDir: dir,
         platform: 'linux',
       }),
-    ).toBe(join(dir, 'codex-app-server'));
+    ).toBe(join(dir, 'bin', 'codex-app-server'));
     expect(() =>
       resolveCodexBinary({
         env: { [RESOURCES_DIR_ENV]: 'relative' },
@@ -73,6 +82,22 @@ describe('resolveCodexBinary', () => {
         platform: 'linux',
       }),
     ).toThrow('绝对路径');
+  });
+});
+
+describe('codexPathDir', () => {
+  it('只有二进制在包布局里（bin/ 下、上一级有 codex-package.json、有 codex-path/）才有', () => {
+    const pkg = join(dir, 'pkg');
+    const binary = join(pkg, 'bin', 'codex-app-server');
+    mkdirSync(join(pkg, 'bin'), { recursive: true });
+    writeFileSync(binary, '');
+    // 平铺或缺元数据：Codex 认不出包，也就没有这个目录。
+    expect(codexPathDir(binary)).toBeUndefined();
+    writeFileSync(join(pkg, 'codex-package.json'), '{}');
+    expect(codexPathDir(binary)).toBeUndefined();
+    mkdirSync(join(pkg, 'codex-path'));
+    expect(codexPathDir(binary)).toBe(join(pkg, 'codex-path'));
+    expect(codexPathDir(join(pkg, 'codex-app-server'))).toBeUndefined();
   });
 });
 
