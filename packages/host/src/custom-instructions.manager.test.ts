@@ -51,7 +51,12 @@ describe('用户的说明与输出风格（SessionManager）', () => {
     await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
   });
 
-  function setup(initial: Partial<HostSettings>, writingStyle?: WritingStyleStore) {
+  /** `ownGuidance`：两个引擎都像 Claude Code 那样自带写代码的做法（适配器的 `codingGuidance`）。 */
+  function setup(
+    initial: Partial<HostSettings>,
+    writingStyle?: WritingStyleStore,
+    ownGuidance = false,
+  ) {
     let settings: HostSettings = { sendWhileBusy: 'steer', ...initial };
     const root = join(realpathSync(tempDir()), `c${managers.length}`);
     const workspaceDir = join(root, 'ws');
@@ -82,8 +87,20 @@ describe('用户的说明与输出风格（SessionManager）', () => {
         updatedAt: T0,
       });
     }
-    const codex = new RulesEcho({ user: [], project: [], imports: false, instructions: true });
-    const acp = new RulesEcho({ user: [], project: [], imports: false, instructions: false });
+    const codex = new RulesEcho({
+      user: [],
+      project: [],
+      imports: false,
+      instructions: true,
+      codingGuidance: ownGuidance,
+    });
+    const acp = new RulesEcho({
+      user: [],
+      project: [],
+      imports: false,
+      instructions: false,
+      codingGuidance: ownGuidance,
+    });
     const router = new EngineRouter([
       { name: 'echo', adapter: codex, kinds: ['openai-compatible'] },
       { name: 'echo-grok', adapter: acp, kinds: ['grok'] },
@@ -101,11 +118,11 @@ describe('用户的说明与输出风格（SessionManager）', () => {
       engineFeatures: router.engineFeatures(),
       ruleFiles: { discover: async () => [] },
       customInstructions: {
-        plan: async ({ styled }) => {
+        plan: async ({ styled, codingDiscipline }) => {
           const profile = settings.writingStyle === true ? await writingStyle?.get() : undefined;
           const writing = writingStyleInput(settings, profile?.content);
           return planCustom(prompts, {
-            ...customInputs(settings, styled),
+            ...customInputs(settings, styled, codingDiscipline),
             ...(writing !== undefined && { writingStyle: writing }),
           });
         },
@@ -202,7 +219,58 @@ describe('用户的说明与输出风格（SessionManager）', () => {
     env.set({ writingStyle: false });
     const third = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
     expect(env.codex.configs[2]?.ruleInstructions ?? '').not.toContain('writing_style');
-    expect(third.rules?.custom).toBeUndefined();
+    // 只剩编码纪律。
+    expect(third.rules?.custom).toEqual({
+      instructions: false,
+      bytes: Buffer.byteLength(prompts.codingDiscipline),
+    });
+  });
+
+  it('编码纪律：没有自带写代码做法的引擎都交，没有别的说明也记 custom；随消息补的引擎第一条消息带一次', async () => {
+    const env = setup({});
+    const session = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    expect(env.codex.configs[0]?.ruleInstructions).toBe(prompts.codingDiscipline);
+    expect(session.rules).toMatchObject({
+      providerId: 'mock',
+      files: [],
+      channel: 'instructions',
+      bytes: Buffer.byteLength(prompts.codingDiscipline),
+      custom: { instructions: false, bytes: Buffer.byteLength(prompts.codingDiscipline) },
+    });
+
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'grok' });
+    const sessionId = id as SessionId;
+    expect(env.acp.configs[0]?.ruleInstructions).toBeUndefined();
+    expect(await turn(env, sessionId, 'first')).toContain(prompts.codingDiscipline);
+    expect(await turn(env, sessionId, 'second')).not.toContain(prompts.codingDiscipline);
+  });
+
+  it('编码纪律：引擎自带写代码的做法（Claude Code）时不交，用户的说明照交', async () => {
+    const bare = setup({}, undefined, true);
+    const none = await bare.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    expect(bare.codex.configs[0]?.ruleInstructions).toBeUndefined();
+    expect(none.rules?.custom).toBeUndefined();
+
+    const env = setup({ agentInstructions: '回答用中文。' }, undefined, true);
+    const session = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const instructions = env.codex.configs[0]?.ruleInstructions ?? '';
+    expect(instructions).toContain('<user_instructions>\n回答用中文。\n</user_instructions>');
+    expect(instructions).not.toContain(prompts.codingDiscipline);
+    expect(session.rules?.custom).toEqual({
+      instructions: true,
+      bytes: Buffer.byteLength(instructions),
+    });
+  });
+
+  it('编码纪律：已经开着的会话恢复时照样带，说明在它后面', async () => {
+    const env = setup({ agentInstructions: '回答用中文。' });
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await env.manager.close(sessionId);
+    await env.manager.resume(sessionId);
+    const resumed = env.codex.configs.at(-1)?.ruleInstructions ?? '';
+    expect(resumed.startsWith(prompts.codingDiscipline)).toBe(true);
+    expect(resumed.indexOf('<user_instructions>')).toBeGreaterThan(prompts.codingDiscipline.length);
   });
 
   it('writingStyle.*：用户看、改、删；关掉设置时删样本、留档案', async () => {

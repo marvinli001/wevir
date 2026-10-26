@@ -310,10 +310,11 @@ export interface SessionManagerOptions {
   };
   /**
    * 用户的说明与输出风格（0.78.0，custom-instructions.ts）：按会话是不是用户直接对话的算出要交的那一段，与补给的规则文件一起交给
-   * 引擎（要有 `ruleFiles`）；`reminder` 给出风格的每回合提醒。没给时不交。
+   * 引擎（要有 `ruleFiles`）；`reminder` 给出风格的每回合提醒。没给时不交。引擎没有自带写代码的做法时，这一段还带 Wevir 的编码
+   * 纪律（`CustomPlanTarget.codingDiscipline`）。
    */
   customInstructions?: {
-    plan(target: CustomTarget): CustomPlan | undefined | Promise<CustomPlan | undefined>;
+    plan(target: CustomPlanTarget): CustomPlan | undefined | Promise<CustomPlan | undefined>;
     reminder(outputStyle: string | undefined): string | undefined;
   };
   /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
@@ -422,6 +423,14 @@ export type CreatingSession = Pick<SessionRecord, 'workspaceId' | 'origin' | 'to
 /** 算用户说明的会话（0.78.0）：是不是用户直接对话的会话（给不给风格）。 */
 export interface CustomTarget {
   styled: boolean;
+}
+
+/**
+ * `customInstructions.plan` 的参数：会话加上承载这个来源的引擎。`codingDiscipline`：引擎没有自带写代码的做法（适配器的
+ * `EngineRuleFiles.codingGuidance`），要补 Wevir 的编码纪律（prompts/coding-discipline.md）。
+ */
+export interface CustomPlanTarget extends CustomTarget {
+  codingDiscipline: boolean;
 }
 
 function customTarget(record: Pick<SessionRecord, 'origin' | 'parentSessionId'>): CustomTarget {
@@ -915,10 +924,13 @@ export class SessionManager {
       this.#onWarning('failed to read rule files', { cwd, providerId, error: errorText(error) });
       return undefined;
     }
-    // 用户的说明（0.78.0）：找规则文件出错时照样交。
+    // 用户的说明（0.78.0）与编码纪律：找规则文件出错时照样交。
     let custom: CustomPlan | undefined;
     try {
-      custom = await this.#customInstructions?.plan(target);
+      custom = await this.#customInstructions?.plan({
+        ...target,
+        codingDiscipline: engine.codingGuidance !== true,
+      });
     } catch (error) {
       this.#onWarning('failed to compose custom instructions', { error: errorText(error) });
     }

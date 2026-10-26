@@ -26,6 +26,20 @@ describe('loadCustomPrompts', () => {
     expect(reminders.map(([name]) => name)).toEqual(['concise', 'proactive']);
   });
 
+  it('编码纪律：去掉注释，开头先说谁盖得过它；篇幅有上限', () => {
+    const text = prompts.codingDiscipline;
+    expect(text).not.toContain('<!--');
+    expect(text).not.toContain('SPDX');
+    expect(text.startsWith('# ')).toBe(true);
+    // 项目说明文件与用户的说明盖得过它，这一句不能丢。
+    expect(text).toContain('AGENTS.md');
+    // 它要管的两个惯性：回读验证文件、为不会发生的事写防御。
+    expect(text).toContain('sha256');
+    expect(text).toContain('try/catch');
+    // 每多一条都在稀释前面的：大约一千个汉字以内。
+    expect(Buffer.byteLength(text)).toBeLessThan(4096);
+  });
+
   it('开头的 --- 块只认 reminder 一行；残留 {{ 报错', () => {
     expect(
       parsePrompt('---\nname: x\nreminder: 先说结果。\n---\n<!-- c -->\n# 正文\n', 'a.md'),
@@ -48,6 +62,14 @@ describe('customInputs', () => {
     expect(
       customInputs({ agentInstructions: '回答用中文。', outputStyle: 'learning' }, false),
     ).toEqual({ instructions: '回答用中文。' });
+  });
+
+  it('引擎没有自带写代码的做法时带上编码纪律，不看设置，也不看是不是直接对话', () => {
+    expect(customInputs({}, true, true)).toEqual({ codingDiscipline: true });
+    expect(customInputs({ outputStyle: 'learning' }, false, true)).toEqual({
+      codingDiscipline: true,
+    });
+    expect(customInputs({}, true, false)).toEqual({});
   });
 });
 
@@ -74,6 +96,48 @@ describe('planCustom', () => {
       bytes: expect.any(Number),
     });
     expect(planCustom(prompts, {})).toBeUndefined();
+  });
+
+  it('只有编码纪律：正文就是它，不带“用户的说明”的开头，custom 里没有别的项', () => {
+    const plan = planCustom(prompts, { codingDiscipline: true });
+    expect(plan?.text).toBe(prompts.codingDiscipline);
+    expect(plan?.text).not.toContain(prompts.header);
+    expect(plan?.custom).toEqual({
+      instructions: false,
+      bytes: Buffer.byteLength(prompts.codingDiscipline),
+    });
+  });
+
+  it('编码纪律排在最前面，用户的开头说明、说明、风格、写作风格在它后面，bytes 是整段', () => {
+    const plan = planCustom(prompts, {
+      codingDiscipline: true,
+      instructions: '回答用中文。',
+      outputStyle: 'concise',
+      writingStyle: {},
+    });
+    const text = plan?.text ?? '';
+    expect(text.startsWith(prompts.codingDiscipline)).toBe(true);
+    const order = [
+      prompts.codingDiscipline,
+      prompts.header,
+      '<user_instructions>',
+      '# 输出风格：简洁',
+      prompts.writingStyle.none,
+    ].map((part) => text.indexOf(part));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(plan?.custom).toEqual({
+      instructions: true,
+      outputStyle: 'concise',
+      writingStyle: 'setup',
+      bytes: Buffer.byteLength(text),
+    });
+  });
+
+  it('没有编码纪律时和以前一样：不带它', () => {
+    const plan = planCustom(prompts, { instructions: '回答用中文。' });
+    expect(plan?.text).not.toContain(prompts.codingDiscipline);
+    expect(plan?.text.startsWith(prompts.header)).toBe(true);
   });
 
   it('每回合提醒包成 system-reminder；没有提醒的风格与没选风格时 undefined', () => {

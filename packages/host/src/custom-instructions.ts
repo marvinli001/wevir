@@ -12,6 +12,10 @@
 //
 // 写作风格（0.95.0，domain-model §3.43）：设置开着时接在最后。有档案时是 prompts/writing-style/apply.md 加包在
 // `<writing_style_profile>` 里的档案，没有时是 none.md（用户要时再建档）。和说明一样对所有会话都给：替用户起草的也可能是子会话。
+//
+// 编码纪律（domain-model §3.34）：prompts/coding-discipline.md，Wevir 自带的写代码做法，放在最前面、在用户的开头说明之外（它是
+// 默认做法，不是用户写的，项目说明文件与用户的说明都盖得过它）。对所有会话都给，不看设置；引擎自己带着这套做法时不给（适配器的
+// `EngineRuleFiles.codingGuidance`，Claude Code）。只有它时 `custom` 是 `{ instructions: false, bytes }`，桌面端没有行可列。
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,19 +36,22 @@ export interface StylePrompt {
 
 export interface CustomPrompts {
   header: string;
+  /** 编码纪律：prompts/coding-discipline.md 的正文。 */
+  codingDiscipline: string;
   outputStyles: ReadonlyMap<string, StylePrompt>;
   /** 写作风格（0.95.0）：有档案时的用法、没有档案时的提示、建档步骤（工具返回）。 */
   writingStyle: { apply: string; none: string; setup: string };
 }
 
 /**
- * 读 prompts/user-instructions.md、output-styles/ 下 Host 认识的那几份与 writing-style/ 的三份。按 prompts/README.md 的模板语法删掉 HTML 注释；开头的
+ * 读 prompts/user-instructions.md、coding-discipline.md、output-styles/ 下 Host 认识的那几份与 writing-style/ 的三份。按 prompts/README.md 的模板语法删掉 HTML 注释；开头的
  * `---` 块里只认 `reminder: …` 一行。缺文件或残留 `{{` 就报错。
  */
 export function loadCustomPrompts(dir: string = defaultPromptsDir()): CustomPrompts {
   const read = (path: string) => parsePrompt(readFileSync(join(dir, path), 'utf8'), path);
   return {
     header: read('user-instructions.md').body,
+    codingDiscipline: read('coding-discipline.md').body,
     outputStyles: new Map(
       OUTPUT_STYLES.map((name) => [name, read(join('output-styles', `${name}.md`))]),
     ),
@@ -80,15 +87,18 @@ export interface CustomInputs {
   outputStyle?: string;
   /** 设置开着时有；`profile` 是档案正文，还没有档案时省略。 */
   writingStyle?: { profile?: string };
+  /** 引擎没有自带写代码的做法，要补 Wevir 的编码纪律。 */
+  codingDiscipline?: true;
 }
 
 /**
  * 按设置算出这个会话的输入。`styled` 为 false（不是用户直接对话的会话）时不带风格。不认识的风格（旧设置文件里手改的）当作
- * `default`。
+ * `default`。`codingDiscipline`：引擎没有自带写代码的做法，不看设置，直接带上编码纪律。
  */
 export function customInputs(
   settings: Pick<HostSettings, 'agentInstructions' | 'outputStyle'>,
   styled: boolean,
+  codingDiscipline = false,
 ): CustomInputs {
   const inputs: CustomInputs = {};
   const instructions = settings.agentInstructions;
@@ -97,6 +107,7 @@ export function customInputs(
   if (styled && style !== undefined && style !== 'default' && isOutputStyle(style)) {
     inputs.outputStyle = style;
   }
+  if (codingDiscipline) inputs.codingDiscipline = true;
   return inputs;
 }
 
@@ -131,8 +142,13 @@ export function planCustom(prompts: CustomPrompts, inputs: CustomInputs): Custom
         : `${prompts.writingStyle.apply}\n\n<writing_style_profile>\n${writing.profile.trim()}\n</writing_style_profile>`,
     );
   }
-  if (blocks.length === 0) return undefined;
-  const text = [prompts.header, ...blocks].join('\n\n');
+  const discipline = inputs.codingDiscipline === true;
+  if (blocks.length === 0 && !discipline) return undefined;
+  // 编码纪律在最前面、不在“用户的说明”开头之下：它不是用户写的，项目说明文件与用户的说明都盖得过它。
+  const text = [
+    ...(discipline ? [prompts.codingDiscipline] : []),
+    ...(blocks.length > 0 ? [prompts.header, ...blocks] : []),
+  ].join('\n\n');
   return {
     custom: {
       instructions: inputs.instructions !== undefined,

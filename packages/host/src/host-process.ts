@@ -1856,19 +1856,22 @@ export function hostEngineFeatures(
   return Object.fromEntries(ProviderKindSchema.options.map((kind) => [kind, features]));
 }
 
-/** SessionManager 的 `customInstructions`（0.78.0）：按当时的 Host 设置算；写作风格（0.95.0）开着时读档案。 */
+/**
+ * SessionManager 的 `customInstructions`（0.78.0）：按当时的 Host 设置算；写作风格（0.95.0）开着时读档案；引擎没有自带写代码的
+ * 做法时带上编码纪律。
+ */
 function customInstructionsOf(
   prompts: CustomPrompts,
   settings: HostSettingsStore,
   writingStyle: WritingStyleStore,
 ): NonNullable<SessionManagerOptions['customInstructions']> {
   return {
-    plan: async ({ styled }) => {
+    plan: async ({ styled, codingDiscipline }) => {
       const current = settings.get();
       const profile = current.writingStyle === true ? await writingStyle.get() : undefined;
       const writing = writingStyleInput(current, profile?.content);
       return planCustom(prompts, {
-        ...customInputs(current, styled),
+        ...customInputs(current, styled, codingDiscipline),
         ...(writing !== undefined && { writingStyle: writing }),
       });
     },

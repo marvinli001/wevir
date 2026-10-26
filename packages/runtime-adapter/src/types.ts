@@ -109,6 +109,11 @@ export interface EngineRuleFiles {
   projectFallback?: readonly RuleFileKind[];
   imports: boolean;
   instructions: boolean;
+  /**
+   * 引擎自己已经带着写代码的做法（Claude Code）：true 时 Host 不再补 Wevir 的编码纪律（prompts/coding-discipline.md），其余引擎
+   * 都补。省略当作 false。
+   */
+  codingGuidance?: boolean;
 }
 
 /** Host 里的 `wevir` MCP 服务（0.30.0）。 */

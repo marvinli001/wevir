@@ -157,7 +157,8 @@ export const CLAUDE_AGENTS_MD_FALLBACK_VERSION = '2.1.277';
 /**
  * Claude Code 读哪些规则文件（0.68.0，domain-model §3.27）：用户的 `~/.claude/CLAUDE.md`（添加的账号链回它）、项目里一路上的
  * CLAUDE.md / .claude/CLAUDE.md / CLAUDE.local.md 与它们 `@` 引入的文件；`CLAUDE_AGENTS_MD_FALLBACK_VERSION` 起项目没有
- * CLAUDE.md 时也读 AGENTS.md。补给的接在 `systemPrompt.append`。版本不知道时按老的算：宁可多补一份，不让规则丢掉。
+ * CLAUDE.md 时也读 AGENTS.md。补给的接在 `systemPrompt.append`。版本不知道时按老的算：宁可多补一份，不让规则丢掉。Claude Code 自带
+ * 写代码的做法（`codingGuidance`），Host 不再补 Wevir 的编码纪律。
  */
 export function claudeRuleFiles(version: string | undefined): EngineRuleFiles {
   const fallback =
@@ -168,6 +169,7 @@ export function claudeRuleFiles(version: string | undefined): EngineRuleFiles {
     ...(fallback && { projectFallback: ['agents'] }),
     imports: true,
     instructions: true,
+    codingGuidance: true,
   };
 }
 

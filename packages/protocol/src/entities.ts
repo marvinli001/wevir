@@ -1493,7 +1493,8 @@ export type RuleDeliveryChannel = z.infer<typeof RuleDeliveryChannelSchema>;
 
 /**
  * Host 交给这个会话的用户说明（0.78.0，domain-model §3.34）：有没有“给 Agent 的说明”（去掉首尾空白后不空），以及生效的输出风格
- * （`default` 时省略）。正文与补给的规则文件放在一起，走同一个 `channel`。
+ * （`default` 时省略）。正文与补给的规则文件放在一起，走同一个 `channel`。引擎没有自带写代码做法时，Host 还在最前面放 Wevir 的
+ * 编码纪律（prompts/coding-discipline.md），它不单列一项：只有它时 `instructions` 为 false、没有别的项，`bytes` 是它的字节数。
  */
 export const SessionCustomInstructionsSchema = z.object({
   instructions: z.boolean(),
@@ -1503,7 +1504,7 @@ export const SessionCustomInstructionsSchema = z.object({
    * 关着时省略。
    */
   writingStyle: z.string().min(1).optional(),
-  /** 这一段正文（说明、风格与写作风格）的 UTF-8 字节数。 */
+  /** 这一段正文（编码纪律、说明、风格与写作风格）的 UTF-8 字节数。 */
   bytes: z.int().min(1),
 });
 export type SessionCustomInstructions = z.infer<typeof SessionCustomInstructionsSchema>;
@@ -1518,7 +1519,7 @@ export const SessionRulesSchema = z.object({
   /** 补给的正文（规则文件加上 `custom`）的 UTF-8 字节数；规则文件的预算。没有补给时省略。 */
   bytes: z.int().min(1).optional(),
   budgetBytes: z.int().min(1).optional(),
-  /** 用户的说明与输出风格（0.78.0）；都没有时省略。 */
+  /** 用户的说明、输出风格、写作风格与 Wevir 的编码纪律（0.78.0）；一样都没交时省略。 */
   custom: SessionCustomInstructionsSchema.optional(),
   /** 写这份规则时会话所在范围的档案版本（0.85.0，Host 功能 `tuning`）；Host 没记档案时省略。 */
   profileVersion: ProfileVersionRefSchema.optional(),

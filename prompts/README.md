@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格、写作风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、你应该知道、任务回顾摘要、自动修复、用户说明的开头与输出风格、编码纪律、写作风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`writing-style/` 从 0.95.0 起由 Host 加载（同一个文件），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位；0.96.0 起 `skills/` 下是随 Wevir 分发的内置 skills。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`session-insight.md` 从 0.79.0 起由 Host 加载（`packages/host/src/insight.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`tuning-proposals.md` 从 0.87.0 起由 Host 加载（`packages/host/src/tuning/proposals-input.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`writing-style/` 从 0.95.0 起由 Host 加载（同一个文件），`coding-discipline.md` 从 2026-10-26 起由 Host 加载（同一个文件，不改协议），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位；0.96.0 起 `skills/` 下是随 Wevir 分发的内置 skills。
 
 ## 文件
 
@@ -23,6 +23,7 @@
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见，0.83.0 起也包括用户选了要处理的审查发现 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
 | [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
 | [`user-instructions.md`](user-instructions.md) | 用户说明的开头：交给引擎的“用户的说明”最前面那段，说明优先级与边界 | Host（0.78.0，`packages/host/src/custom-instructions.ts`）：去掉注释，后面接用户的说明与风格的正文 | 已接入，与引擎无关 |
+| [`coding-discipline.md`](coding-discipline.md) | 编码纪律：Wevir 自带的写代码做法（只做任务要的、不为不会发生的事写防御、成功就不回读验证、注释默认不写） | Host（`packages/host/src/custom-instructions.ts`）：去掉注释，放在“用户的说明”那一段的最前面，不看设置、对所有会话都给；引擎自带这套做法时不给（适配器的 `EngineRuleFiles.codingGuidance`，目前只有 Claude） | 已接入，除 Claude 外所有声明了 `ruleFiles` 的引擎 |
 | [`writing-style/`](writing-style/) | 写作风格：`apply.md`（有档案时的用法）、`none.md`（设置开着但还没有档案）、`setup.md`（建档步骤） | Host（0.95.0，`packages/host/src/custom-instructions.ts` 与 `writing-style/tools.ts`）：设置里打开“参考我的写作风格”时把前两份之一接在用户说明的最后；`setup.md` 由 `wevir_writing_style_setup` 返回 | 已接入，与引擎无关 |
 | [`output-styles/`](output-styles/) | 输出风格：`concise`（简洁）、`explanatory`（讲解）、`learning`（边做边学）、`proactive`（主动）、`pragmatic`（务实）、`friendly`（友好） | Host（0.78.0）：用户在设置里选了哪种就接哪份的正文；开头 `---` 块里的 `reminder` 在每条新回合的消息末尾附上（只有简洁与主动有） | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具一节按 Host 的 `browser_*` 应用工具写 |
@@ -41,6 +42,7 @@
 - **`verification-repair.md`**：与引擎无关，不单独调模型，是修复回合里交给会话自己的模型的一条消息。
 - **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
 - **`user-instructions.md` 与 `output-styles/`**：与引擎无关，用在所有引擎上（下面「用户说明与输出风格」）。
+- **`coding-discipline.md`**：与引擎无关，用在除 Claude Code 以外所有声明了规则文件的引擎上，包括 Codex 上 ChatGPT 登录的 OpenAI 模型（它们的提示词 Wevir 不替换，这一段是追加）（下面「编码纪律」）。
 
 ## Codex 一回合里模型看到的说明
 
@@ -182,6 +184,20 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 设置里只有这一个开关（照 Codex），不列档案、不显示建没建档；用户要看或改档案时找 Agent，由它用 `wevir_writing_style_read` / `wevir_writing_style_save` 处理。Host 的 `writingStyle.get/update/delete` 还在，桌面端不再调用。
 
 已经开着的会话不跟着变：新档案从下一次建会话、恢复或接力起生效。
+
+## 编码纪律
+
+`coding-discipline.md` 是 Wevir 自带的写代码做法：只做任务要的事、代码量跟问题相称、先用仓库里现成的、不为不会发生的事写防御（校验放在系统边界）、写文件成功后不再用 `cat` 或哈希回读、验证的分量跟风险相称、注释默认不写。目的是让各家模型的惯性（多写兜底、多写验证脚本、在改动里夹带重构）都往“够用、贴着现有代码”收，而不只靠 Claude 模型自己练出来的习惯。结构参考网上流传的 Claude Code 提示词里讲写代码做法的那一节，措辞是自己的。
+
+它和用户说明走同一条路：Host 在建会话、恢复、接力与分支时算出来，接在补给的规则文件后面，Codex 进 `developerInstructions`，OpenCode 进每条消息的 `system`，Cursor、Grok、Antigravity、WorkBuddy 随下一条消息。和用户的说明不同的有三点：
+
+- **在“用户的说明”开头之外、放在最前面。** 它不是用户写的，项目说明文件（AGENTS.md 等）、用户的说明和用户在对话里的要求都盖得过它，文件开头一句话就是这么写的。
+- **不看设置、对所有会话都给**，包括子会话、带预设角色的、第二意见与自动化开的会话（它们同样会写代码）。目前没有关它的开关。
+- **引擎自带时不给。** 适配器在 `ruleFiles()` 的回答里写 `codingGuidance: true`，Host 就不补；现在只有 Claude（`claudeRuleFiles`）。别的引擎不用声明。
+
+`session.rules` 的 `custom` 不单列一项：只有它时是 `{ instructions: false, bytes }`，桌面端的“个性化”卡片因此没有行可列、不显示；`bytes` 与 `rules.bytes` 包含它。已经开着的会话不跟着变，下一次恢复或接力时带上。
+
+改它时：每多一条都在稀释前面的，篇幅留在大约一千个汉字以内（测试守着 4 KiB 的上限）；不要写 Wevir 的工具名、引擎专有的做法或只对某一类模型成立的话，它会交给除 Claude Code 以外的所有引擎；真实模型上它是否降低了改动行数与验证步骤，要用基线评测对比（没有它与有它各跑一遍），还没测。
 
 ## 自动修复
 

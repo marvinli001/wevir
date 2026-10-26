@@ -216,13 +216,20 @@ describe('一问一答（录音 plain）', () => {
       append: '# Rules\nUse tabs.',
     });
     // 录音里的 claude 是 2.1.287：项目没有 CLAUDE.md 时它读 AGENTS.md。
-    expect(await adapter.ruleFiles()).toMatchObject({ projectFallback: ['agents'], imports: true });
+    expect(await adapter.ruleFiles()).toMatchObject({
+      projectFallback: ['agents'],
+      imports: true,
+      codingGuidance: true,
+    });
     expect(claudeRuleFiles('2.1.226').projectFallback).toBeUndefined();
+    // Claude Code 自带写代码的做法，Host 不补 Wevir 的编码纪律（按版本都一样）。
+    expect(claudeRuleFiles('2.1.226').codingGuidance).toBe(true);
     expect(claudeRuleFiles(undefined)).toEqual({
       user: ['claude'],
       project: ['claude'],
       imports: true,
       instructions: true,
+      codingGuidance: true,
     });
   });
 
