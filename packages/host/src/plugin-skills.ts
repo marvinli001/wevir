@@ -6,6 +6,7 @@ import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { Skill } from '@wevir/protocol';
 import { parse } from 'yaml';
+import { createLimiter } from './limiter.js';
 
 export const MAX_SKILL_DEPTH = 6;
 export const MAX_SKILL_DIRS = 2000;
@@ -107,14 +108,31 @@ export async function readSkill(
   return parseSkill(await readFile(path, 'utf8'), basename(dirname(path)));
 }
 
+/** 同时读的 SKILL.md 最多这么多（所有目录合计）。 */
+const readLimit = createLimiter(32);
+
+/**
+ * `root` 下的 skill（有 SKILL.md 的目录，按目录名的顺序深度优先）。目录按顺序一个个走（上限与去重不受读文件的快慢影响），找到的
+ * SKILL.md 边走边读、同时读，结果仍按找到的顺序。`strict` 时第一个出错的（按这个顺序）抛出，否则跳过读不了的。
+ */
 export async function scanSkills(
   root: string,
   source: Skill['source'],
   strict = false,
 ): Promise<Skill[]> {
-  const found: Skill[] = [];
+  const found: Array<Promise<{ skill: Skill } | { error: unknown }>> = [];
   const seen = new Set<string>();
   let count = 0;
+  const read = async (canonical: string): Promise<{ skill: Skill } | { error: unknown }> => {
+    try {
+      const path = await realpath(join(canonical, 'SKILL.md'));
+      return {
+        skill: { id: path, ...(await readSkill(path)), path, source, enabled: source === 'wevir' },
+      };
+    } catch (error) {
+      return { error };
+    }
+  };
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > MAX_SKILL_DEPTH || count++ >= MAX_SKILL_DIRS) return;
     let canonical: string;
@@ -132,18 +150,7 @@ export async function scanSkills(
         (entry) => entry.name === 'SKILL.md' && (entry.isFile() || entry.isSymbolicLink()),
       )
     ) {
-      try {
-        const path = await realpath(join(canonical, 'SKILL.md'));
-        found.push({
-          id: path,
-          ...(await readSkill(path)),
-          path,
-          source,
-          enabled: source === 'wevir',
-        });
-      } catch (error) {
-        if (strict) throw error;
-      }
+      found.push(readLimit(() => read(canonical)));
       return;
     }
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -155,6 +162,18 @@ export async function scanSkills(
       }
     }
   };
-  await walk(root, 0);
-  return found;
+  // 走目录出错（只有 strict 会抛到这里）时，在它之前找到的 skill 读不了的先报。
+  let walkError: { error: unknown } | undefined;
+  try {
+    await walk(root, 0);
+  } catch (error) {
+    walkError = { error };
+  }
+  const skills: Skill[] = [];
+  for (const result of await Promise.all(found)) {
+    if ('skill' in result) skills.push(result.skill);
+    else if (strict) throw result.error;
+  }
+  if (walkError !== undefined) throw walkError.error;
+  return skills;
 }
