@@ -1,5 +1,6 @@
 import { TriangleAlert } from 'lucide-react';
 import { EmptyState } from '@/components/empty-state';
+import { PageSpinner } from '@/components/spinner';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { CenterPage } from './center-page';
@@ -21,7 +22,7 @@ export function PendingPage({ error }: { error?: string }) {
   }
   return (
     <CenterPage>
-      <p className="py-16 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
+      <PageSpinner />
     </CenterPage>
   );
 }

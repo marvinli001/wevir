@@ -1,8 +1,8 @@
 import { cn } from 'cn';
 import { CircleAlert, CircleCheck, Info } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
+import { PageSpinner } from '@/components/spinner';
 import type { WorkbenchData } from '@/data/workbench-model';
-import { t } from '@/i18n';
 
 export interface Notice {
   tone: 'success' | 'error' | 'warning' | 'info';
@@ -39,7 +39,7 @@ export function SettingsLoading({ data }: { data: Exclude<WorkbenchData, { statu
   return data.status === 'error' ? (
     <NoticeBanner notice={{ tone: 'error', text: data.error }} />
   ) : (
-    <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+    <PageSpinner className="py-8" />
   );
 }
 

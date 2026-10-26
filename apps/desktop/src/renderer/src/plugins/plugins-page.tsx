@@ -7,6 +7,7 @@ import type { Connector, HostFeatures } from '@wevir/protocol';
 import { ChevronDown, FileUp, Import, Server } from 'lucide-react';
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
+import { PageSpinner } from '@/components/spinner';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -297,9 +298,7 @@ export function PluginsPage({
                 {tab === 'market' && (
                   <MarketHome data={marketData} source={marketSource} query={query} />
                 )}
-                {tab !== 'market' && state.status === 'loading' && (
-                  <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-                )}
+                {tab !== 'market' && state.status === 'loading' && <PageSpinner />}
                 {tab !== 'market' && state.status === 'error' && (
                   <NoticeBanner
                     notice={{
