@@ -856,6 +856,16 @@ export function SessionView({
                   onReady={onReady}
                   compact={variant === 'pane'}
                   {...(quote && { quote })}
+                  footer={
+                    <ApprovalDock
+                      transcript={transcript}
+                      session={session}
+                      client={client}
+                      self={identity}
+                      subagentHref={subagentHref}
+                      recap={<TurnRecap transcript={transcript} />}
+                    />
+                  }
                 />
               </MessageActionsContext>
             </OpenSessionFile>
@@ -874,7 +884,7 @@ export function SessionView({
             variant === 'pane' ? 'px-4 pb-4' : 'px-6 pb-5',
           )}
         >
-          {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
+          {/* 输入框上方的清单（U20）、提问、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
           <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
             {/* 最后一个回合的下一步卡片（0.128.0）已经在消息流底部说了同一段回顾，不再重复。 */}
             {sessionRecap && !(transcript && lastTurnShowsWrapUp(transcript)) && (
@@ -892,16 +902,6 @@ export function SessionView({
               <QuestionDock
                 transcript={transcript}
                 client={client}
-                recap={<TurnRecap transcript={transcript} />}
-              />
-            )}
-            {transcript && (
-              <ApprovalDock
-                transcript={transcript}
-                session={session}
-                client={client}
-                self={identity}
-                subagentHref={subagentHref}
                 recap={<TurnRecap transcript={transcript} />}
               />
             )}

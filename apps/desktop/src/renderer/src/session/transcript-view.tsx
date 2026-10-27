@@ -1,7 +1,7 @@
 import type { Transcript, TranscriptChapter } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Hint } from '@/components/hint';
 import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
@@ -59,6 +59,7 @@ export function TranscriptView({
   onReady,
   compact = false,
   quote,
+  footer,
 }: {
   sessionId: string;
   transcript: Transcript;
@@ -70,6 +71,8 @@ export function TranscriptView({
   compact?: boolean;
   /** 选中消息里的文字时工具条的操作（只读的会话没有）。 */
   quote?: QuoteActions;
+  /** 画在消息流末尾、随消息一起滚动的内容（待审批的卡片，照 Claude Code 放在消息里）。 */
+  footer?: ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -265,6 +268,7 @@ export function TranscriptView({
               })}
             </WorkspaceRoot>
           </FoldScopeProvider>
+          {footer && <div className="pt-4 empty:hidden">{footer}</div>}
         </div>
       </section>
       {quote && (

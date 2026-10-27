@@ -2,7 +2,7 @@
 // 移植自 different-ai/openwork apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx
 // 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
 // Copyright (c) 2026-present Different AI, Inc.
-// 修改：改写（T5.3，OpenWork 候选 #9）。保留“输入框上方的内联面板、不用模态框”“一次只显示第一个”“可折叠的
+// 修改：改写（T5.3，OpenWork 候选 #9）。保留“内联面板、不用模态框”（会话里画在消息流末尾，照 Claude Code）“一次只显示第一个”“可折叠的
 // 完整参数”。按钮不再是固定的 reject / once / always，而是按审批请求携带的选项渲染（approval-model.ts）；
 // 内容取同一 toolCallId 的 rawInput（Host 放在 ApprovalRequest.detail：目标、所需权限、理由、写文件的内容
 // 预览）；标出“还有 N 个待审批”；另一端先处理时按 approval.resolved 收起并提示由谁处理。R5：父会话里也显示子会话的
@@ -58,7 +58,7 @@ interface Notice {
 }
 
 /**
- * 输入框上方的审批区：一次显示一个未决审批；它被结算后，不是本窗口做的决定就提示一句（“已由本机的 CLI
+ * 审批区（会话里在消息流末尾，任务窗格里在底部）：一次显示一个未决审批；它被结算后，不是本窗口做的决定就提示一句（“已由本机的 CLI
  * 处理：允许一次”“审批已取消（回合被取消）”）。会话自己的与子会话的审批排在一起，按请求的先后（R5）；子会话的
  * 审批另一端处理后不提示（父会话的事件流里只有摘要，没有结算的详情）。
  */
