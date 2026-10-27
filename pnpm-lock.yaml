@@ -750,6 +750,9 @@ importers:
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter
+      undici:
+        specifier: 7.30.0
+        version: 7.30.0
 
   packages/noise:
     dependencies:
@@ -12662,8 +12665,7 @@ snapshots:
 
   undici@7.29.1: {}
 
-  undici@7.30.0:
-    optional: true
+  undici@7.30.0: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
