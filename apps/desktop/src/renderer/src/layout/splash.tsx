@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 
-/** 至少显示多久（从页面开始加载算），流光刚好扫过一遍；数据来得更快也不会一闪而过。 */
-const MIN_VISIBLE_MS = 900;
+/** 至少显示多久（从页面开始加载算）：数据来得很快时也不会一闪而过，又不让已经画好的工作台多等。 */
+const MIN_VISIBLE_MS = 400;
 /** 最多等多久：Host 迟迟连不上（重新启动中、在等外部 Host）时也撤掉，交给工作台与连接通知说明情况。 */
 const MAX_VISIBLE_MS = 8000;
 /** 淡出的时长，同 public/splash.css 的 transition。 */
