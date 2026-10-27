@@ -3,7 +3,8 @@
 
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { formatBytes, t, timeAgo } from '../i18n';
+import { formatBytes, type MessageKey, t, timeAgo } from '../i18n';
+import { ApprovalNotVerifiedError } from '../lib/approval-gate';
 import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
 import { Markdown } from './markdown';
@@ -232,6 +233,7 @@ function Decisions({
 }) {
   const theme = useTheme();
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<MessageKey>();
   if (decision !== 'pending') {
     const yes = decision === 'approved';
     return (
@@ -253,18 +255,36 @@ function Decisions({
   }
   const press = (value: Exclude<Decision, 'pending'>) => {
     setBusy(true);
+    setFailed(undefined);
     onDecide(value)
-      .catch((error: unknown) => console.warn('[wevir] decision failed', error))
+      .catch((error: unknown) => {
+        // 高风险审批没通过本人验证（取消，或手机没设锁屏）也要说出来，不然点了没反应。
+        if (error instanceof ApprovalNotVerifiedError) setFailed('lock.notVerified');
+        else {
+          setFailed('inbox.failed');
+          console.warn('[wevir] decision failed', error);
+        }
+      })
       .finally(() => setBusy(false));
   };
   return (
-    <View style={styles.actions}>
-      <View style={styles.action}>
-        <Button kind="secondary" title={reject} disabled={busy} onPress={() => press('rejected')} />
+    <View style={styles.decide}>
+      <View style={styles.actions}>
+        <View style={styles.action}>
+          <Button
+            kind="secondary"
+            title={reject}
+            disabled={busy}
+            onPress={() => press('rejected')}
+          />
+        </View>
+        <View style={styles.action}>
+          <Button title={accept} disabled={busy} onPress={() => press('approved')} />
+        </View>
       </View>
-      <View style={styles.action}>
-        <Button title={accept} disabled={busy} onPress={() => press('approved')} />
-      </View>
+      {failed !== undefined && (
+        <Text style={[styles.failed, { color: theme.destructive }]}>{t(failed)}</Text>
+      )}
     </View>
   );
 }
@@ -465,7 +485,9 @@ const styles = StyleSheet.create({
   fieldValue: { flex: 1, fontSize: TEXT.small, fontWeight: '500' },
   quote: { borderRadius: RADIUS.control, borderCurve: 'continuous', padding: 12 },
   quoteText: { fontSize: 15, lineHeight: 21 },
+  decide: { gap: 8 },
   actions: { flexDirection: 'row', gap: 10 },
+  failed: { fontSize: TEXT.small },
   action: { flex: 1 },
   result: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   resultText: { fontSize: TEXT.small, fontWeight: '600' },
