@@ -53,10 +53,10 @@ import { reportBody } from './session-link-model';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { formatRelativeTime } from './subagent-model';
-import { useNow } from './use-now';
 import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
 import { groupWork, isImageTool } from './tool-model';
 import { RetryRow, UsageLimitCard } from './usage-limit-card';
+import { useNow } from './use-now';
 import { WorkGroup } from './work-group';
 
 // 消息流里的一条消息（T5.3；U2 起由回合 turn-view.tsx 组织：助手消息里连续的思考与工具调用合成工作组，子智能体标记
