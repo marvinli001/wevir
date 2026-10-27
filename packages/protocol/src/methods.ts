@@ -1831,6 +1831,12 @@ export const EventsSubscribeParamsSchema = z.object({
   sessionId: SessionIdSchema,
   /** 补发 `seq > sinceSeq` 的事件；0 = 从头开始。 */
   sinceSeq: SeqCursorSchema,
+  /**
+   * 补发时去掉已被之后的事件取代的内容（0.127.0）：`tool.updated` 后面同一工具还有带 `output` 的更新或结束时不带 `output`，
+   * `assistant.delta` 那一块后面被 `assistant.message` / `assistant.thought` 替换时 `text` 为空串。事件与 `seq` 照发，只看补发
+   * 范围里的事件，实时事件不变；按 `seq` 依次投影，最后的结果与不去掉时相同。旧 Host 忽略它、照常补发。
+   */
+  elideSuperseded: z.boolean().optional(),
 });
 
 export const EventsSubscribeResultSchema = z.object({

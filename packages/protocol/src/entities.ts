@@ -182,6 +182,11 @@ export const ProviderCompatSchema = z.object({
    * 工具经一个分发函数调用（其余地址默认）；`off` 关掉，工具全部直接列出。dsh 忽略。
    */
   toolSearch: z.enum(['native', 'dispatch', 'off']).optional(),
+  /**
+   * 网关发给上游的请求体压缩（0.126.0）：`gzip` 时较大的请求体带 `Content-Encoding: gzip` 发出，上游以 400 / 413 / 415 拒绝时去掉
+   * 压缩重发并记住这个 Provider 不收；省略时不压缩。没有哪家的文档说收压缩的请求体，所以默认不开。dsh 忽略。
+   */
+  requestCompression: z.enum(['gzip']).optional(),
 });
 export type ProviderCompat = z.infer<typeof ProviderCompatSchema>;
 

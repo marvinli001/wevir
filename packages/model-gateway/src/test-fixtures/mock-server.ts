@@ -2,6 +2,7 @@
 
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { gunzipSync } from 'node:zlib';
 
 export interface RecordedRequest<B> {
   path: string;
@@ -41,12 +42,16 @@ export async function startMockServer<B>(
 ): Promise<MockServer<B>> {
   const requests: RecordedRequest<B>[] = [];
   const server = createServer((req, res) => {
-    let raw = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk: string) => {
-      raw += chunk;
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
     });
     req.on('end', () => {
+      // 网关开了 compat.requestCompression 时请求体是 gzip 的（headers 里记着 content-encoding）。
+      const bytes = Buffer.concat(chunks);
+      const raw = (req.headers['content-encoding'] === 'gzip' ? gunzipSync(bytes) : bytes).toString(
+        'utf8',
+      );
       if (req.method !== 'POST' || !req.url?.endsWith(path)) {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: `mock: 不支持 ${req.method} ${req.url}` } }));

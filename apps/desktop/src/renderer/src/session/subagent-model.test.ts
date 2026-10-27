@@ -2,7 +2,7 @@ import type { ChatPart } from '@wevir/client-sdk';
 import type { ApprovalRequest, SessionId, SubagentSummary } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
-  elapsedText,
+  clearMark,
   formatRelativeTime,
   groupSubagents,
   markerText,
@@ -11,6 +11,7 @@ import {
   statusLabel,
   subagentTitle,
   visibleParts,
+  withoutCleared,
 } from './subagent-model';
 import type { ToolPart } from './tool-model';
 
@@ -114,11 +115,19 @@ describe('“子智能体”窗格', () => {
     expect(formatRelativeTime('not a time', now)).toBe('刚刚');
   });
 
-  it('用时：结束的按起止时刻，运行中的算到现在', () => {
-    expect(elapsedText(child(0, { status: 'completed', endedAt: at(194) }), T0 + 999_000)).toBe(
-      '用时 3 分 14 秒',
-    );
-    expect(elapsedText(child(0), T0 + 12_000)).toBe('运行中 · 已用 12 秒');
+  it('清除已完成：只藏清除时已结束的，运行中的与之后结束的照常列出', () => {
+    const before = [
+      child(1, { status: 'completed', endedAt: at(30) }),
+      child(2, { status: 'failed', endedAt: at(50) }),
+      child(3),
+    ];
+    const mark = clearMark(before);
+    expect(mark).toBe(at(50));
+    expect(withoutCleared(before, mark).map((item) => item.title)).toEqual(['Task 3']);
+    const after = [...before.slice(0, 2), child(3, { status: 'completed', endedAt: at(80) })];
+    expect(withoutCleared(after, mark).map((item) => item.title)).toEqual(['Task 3']);
+    expect(withoutCleared(before, undefined)).toBe(before);
+    expect(clearMark([child(4)])).toBeUndefined();
   });
 });
 

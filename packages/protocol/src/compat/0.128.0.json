@@ -2144,6 +2144,23 @@
           "compat": {
             "toolSearch": "off"
           }
+        },
+        {
+          "id": "compat-search",
+          "kind": "openai-compatible",
+          "displayName": "Compat",
+          "api": "openai-completions",
+          "baseURL": "http://127.0.0.1:8080/v1",
+          "compat": {
+            "requestCompression": "gzip"
+          },
+          "models": [
+            {
+              "id": "m"
+            }
+          ],
+          "defaultModelId": "m",
+          "apiKey": null
         }
       ],
       "result": [
@@ -8447,6 +8464,11 @@
         {
           "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "sinceSeq": 12
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sinceSeq": 0,
+          "elideSuperseded": true
         }
       ],
       "result": [

@@ -8819,8 +8819,13 @@ export const methodSamples: MethodSamples = {
       valid: [
         { sessionId: ids.session, sinceSeq: 0 },
         { sessionId: ids.session, sinceSeq: 12 },
+        { sessionId: ids.session, sinceSeq: 0, elideSuperseded: true },
       ],
-      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, sinceSeq: 1.5 }],
+      invalid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, sinceSeq: 1.5 },
+        { sessionId: ids.session, sinceSeq: 0, elideSuperseded: 'yes' },
+      ],
     },
     result: {
       valid: [{ subscriptionId: ids.subscription, replayedThroughSeq: 12 }],

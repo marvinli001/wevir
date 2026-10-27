@@ -26,7 +26,6 @@ import { PlaceholderPane } from './panes/placeholder-pane';
 import { ProcessesPane } from './panes/processes-pane';
 import { RetroPane } from './panes/retro-pane';
 import { SessionPane } from './panes/session-pane';
-import { SubagentsPane } from './panes/subagents-pane';
 import { TasksPane } from './panes/tasks-pane';
 
 /** 窗格内容拿得到的东西：当前路由所在的工作区与会话，以及路由里的子智能体（R5，desktop-layout.md §5.2）。 */
@@ -70,10 +69,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
     name: 'pane.kind.overview',
     render: (_, context) => <OverviewPane entry={context.entry} />,
   },
+  // 并进了“后台任务”：种类留着读回旧的本机状态，内容同“后台任务”。
   subagents: {
     icon: Bot,
     name: 'pane.kind.subagents',
-    render: (_, context) => <SubagentsPane context={context} />,
+    render: (_, context) => <TasksPane context={context} />,
   },
   changes: {
     icon: GitCompare,

@@ -5,7 +5,12 @@ import {
   WevirEventSchema,
 } from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type AppendInput, EventStore, SessionNotFoundError } from './event-store.js';
+import {
+  type AppendInput,
+  EventStore,
+  elideSuperseded,
+  SessionNotFoundError,
+} from './event-store.js';
 import { EventRejectedError } from './snapshot.js';
 import {
   createStore,
@@ -13,6 +18,7 @@ import {
   ev,
   SES,
   SES2,
+  STREAM,
   seedSession,
   T0,
   TURN,
@@ -566,5 +572,69 @@ describe('EventStore.subscribe', () => {
     store.append(SES, ev.usage(1));
     store.append(SES2, ev.usage(1));
     expect(received).toEqual([SES2]);
+  });
+});
+
+describe('EventStore.supersededSince 与 elideSuperseded（0.127.0）', () => {
+  const dataDir = useTempDir();
+  const { open } = useStorages();
+
+  const toolUpdated = (toolCallId: string, text?: string): AppendInput => ({
+    type: 'tool.updated',
+    source: 'engine',
+    payload: {
+      turnId: TURN,
+      toolCallId,
+      display: { kind: 'shell', command: 'ls' },
+      ...(text === undefined ? {} : { output: { text, truncated: false } }),
+    },
+  });
+  const message = (blockIndexes: number[]): AppendInput => ({
+    type: 'assistant.message',
+    source: 'engine',
+    payload: {
+      turnId: TURN,
+      messageId: 'msg_1',
+      text: '完整的回答',
+      replaces: blockIndexes.map((blockIndex) => ({ streamId: STREAM, blockIndex })),
+    },
+  });
+
+  it('后面同一工具还有输出的中间输出、被已提交消息替换的增量算已取代；只看给定的范围', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage);
+    store.appendMany(SES, [ev.user(), ev.turnStarted(), ev.toolStarted('a'), ev.toolStarted('b')]);
+    store.appendMany(SES, [
+      toolUpdated('a', '1'), // 6：后面还有 a 的输出
+      toolUpdated('a'), // 7：没有输出，不算
+      toolUpdated('b', 'x'), // 8：b 后面没有带输出的事件
+      toolUpdated('a', '12'), // 9：后面 a 结束时带输出
+      ev.toolFinished('b', 'completed'), // 10：不带输出，不取代 8
+      ev.toolFinished('a', 'completed', '123'), // 11
+    ]);
+    store.appendDelta(SES, delta('第一块', 0)); // 12：被 14 替换
+    store.appendDelta(SES, delta('第二块', 1)); // 13：没被替换
+    store.append(SES, message([0])); // 14
+    expect(store.readSince(SES, 11).map((e) => e.type)).toEqual([
+      'assistant.delta',
+      'assistant.delta',
+      'assistant.message',
+    ]);
+    expect([...store.supersededSince(SES, 0, 14)].sort((a, b) => a - b)).toEqual([6, 9, 12]);
+    // 取代它们的事件在范围之外时不算。
+    expect([...store.supersededSince(SES, 0, 13)].sort((a, b) => a - b)).toEqual([6, 9]);
+    expect([...store.supersededSince(SES, 6, 14)].sort((a, b) => a - b)).toEqual([9, 12]);
+    expect(store.supersededSince(SES2, 0, 14).size).toBe(0);
+
+    const [updated, , , , , , deltaEvent] = store.readSince(SES, 5, 7);
+    const elidedTool = elideSuperseded(updated as WevirEvent);
+    expect(elidedTool).toEqual({
+      ...updated,
+      payload: { turnId: TURN, toolCallId: 'a', display: { kind: 'shell', command: 'ls' } },
+    });
+    expect(WevirEventSchema.parse(elidedTool)).toEqual(elidedTool);
+    const elidedDelta = elideSuperseded(deltaEvent as WevirEvent);
+    expect(elidedDelta).toMatchObject({ seq: 12, payload: { text: '', blockIndex: 0 } });
+    expect(WevirEventSchema.parse(elidedDelta)).toEqual(elidedDelta);
   });
 });
