@@ -23,8 +23,8 @@ const dirs = new TempDirs();
 const adapters: CodexAdapter[] = [];
 let mock: MockModel;
 
-/** 模型跑的命令：打印两个变量，sh 与 PowerShell 都认。 */
-const PRINT_ENV = `"${process.execPath}" -e "process.stdout.write('[' + (process.env.STRIPE_SECRET_KEY ?? 'unset') + '|' + (process.env.API_BASE ?? 'unset') + ']')"`;
+/** 模型跑的命令：打印两个变量。PowerShell 里带引号的路径要用调用符 `&` 才算命令，sh 不认它。 */
+const PRINT_ENV = `${process.platform === 'win32' ? '& ' : ''}"${process.execPath}" -e "process.stdout.write('[' + (process.env.STRIPE_SECRET_KEY ?? 'unset') + '|' + (process.env.API_BASE ?? 'unset') + ']')"`;
 
 function script(view: MockView) {
   return view.toolOutputs.length === 0
