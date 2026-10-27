@@ -109,14 +109,13 @@ describe('进度与收起', () => {
     });
   });
 
-  it('回合结束（做没做完都算）或在等用户时收起', () => {
+  it('回合结束（做没做完都算）时收起', () => {
     const done = { turnId: T1, items: items('completed', 'completed'), finishedWell: false };
     const partial = { turnId: T1, items: items('completed', 'pending'), finishedWell: false };
-    expect(todoCollapsedByDefault({ ...done, active: false }, false)).toBe(true);
-    expect(todoCollapsedByDefault({ ...done, active: true }, false)).toBe(false);
-    expect(todoCollapsedByDefault({ ...partial, active: false }, false)).toBe(true);
-    expect(todoCollapsedByDefault({ ...partial, active: true }, false)).toBe(false);
-    expect(todoCollapsedByDefault({ ...partial, active: true }, true)).toBe(true);
+    expect(todoCollapsedByDefault({ ...done, active: false })).toBe(true);
+    expect(todoCollapsedByDefault({ ...done, active: true })).toBe(false);
+    expect(todoCollapsedByDefault({ ...partial, active: false })).toBe(true);
+    expect(todoCollapsedByDefault({ ...partial, active: true })).toBe(false);
   });
 
   it('回合自己做完收了尾：没标完的项显示成做完，进度也算做完；真正标完的不变', () => {

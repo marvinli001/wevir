@@ -82,11 +82,11 @@ export function todoProgress(items: readonly TodoItem[], settled = false): TodoP
 }
 
 /**
- * 清单卡片默认收起：回合结束（没标完的也收起：模型常忘了最后再更新一次，回合已经不在做了），或会话在等用户（审批、提问）
- * 时。用户点过的照用户的。
+ * 清单卡片默认收起：回合结束（没标完的也收起：模型常忘了最后再更新一次，回合已经不在做了）。用户点过的照用户的。等用户
+ * （审批、提问）时整张不显示（TodoDock）。
  */
-export function todoCollapsedByDefault(todos: TurnTodos, waiting: boolean): boolean {
-  return waiting || !todos.active;
+export function todoCollapsedByDefault(todos: TurnTodos): boolean {
+  return !todos.active;
 }
 
 /**

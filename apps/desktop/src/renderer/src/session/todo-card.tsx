@@ -21,24 +21,17 @@ import {
  */
 export function TodoDock({ transcript }: { transcript: Transcript }) {
   const todos = latestTodos(transcript);
-  if (!todos) return null;
-  const waiting = transcript.pendingApprovals.length > 0 || transcript.pendingQuestions.length > 0;
+  // 等审批、等回答时不显示：那张卡片上方已经有本回合的进度（TurnRecap），两张叠着只是重复。
+  if (!todos || transcript.pendingApprovals.length > 0 || transcript.pendingQuestions.length > 0)
+    return null;
   const running = transcript.subagents.filter((summary) => summary.status === 'running').length;
   // 换回合时重建：用户点开或收起过的只对这一个回合有效。
-  return <TodoCard key={todos.turnId} todos={todos} waiting={waiting} running={running} />;
+  return <TodoCard key={todos.turnId} todos={todos} running={running} />;
 }
 
-function TodoCard({
-  todos,
-  waiting,
-  running,
-}: {
-  todos: TurnTodos;
-  waiting: boolean;
-  running: number;
-}) {
+function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
   const [choice, setChoice] = useState<boolean>();
-  const open = choice ?? !todoCollapsedByDefault(todos, waiting);
+  const open = choice ?? !todoCollapsedByDefault(todos);
   const { done, total } = todoProgress(todos.items, todos.finishedWell);
   return (
     <section
