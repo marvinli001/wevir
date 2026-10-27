@@ -2,6 +2,7 @@
 // 等回答的提问（在手机上作答）与还没送达的消息（可取消）。底部是输入栏：发消息、附照片；回合进行中发出的按“插话 / 排队”送达
 // （默认取电脑上“回合进行中按回车”的设置），空着时是停止。右上角的菜单：查看改动、改名、归档。打开时停在最新一条。
 
+import { ClientClosedError } from '@wevir/client-sdk';
 import type {
   ApprovalId,
   PendingDelivery,
@@ -179,6 +180,27 @@ export default function SessionScreen() {
     [actions, attachments, busy, delivery],
   );
 
+  // Android 的系统相册与相机是另一个 Activity：选照片时 App 进了后台、连接断开，回来后换成新连接。
+  // 上传用最新的连接；旧连接已经关了就等新连接上来（最多 15 秒）再传一次。
+  const latest = useRef(actions);
+  latest.current = actions;
+  const upload = async (...args: Parameters<SessionActions['uploadImage']>) => {
+    const first = latest.current;
+    if (first !== undefined) {
+      try {
+        return await first.uploadImage(...args);
+      } catch (e) {
+        if (!(e instanceof ClientClosedError)) throw e;
+      }
+    }
+    for (let waited = 0; waited < 15_000; waited += 250) {
+      const next = latest.current;
+      if (next !== undefined && next !== first) return next.uploadImage(...args);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new ClientClosedError();
+  };
+
   const attach = async (source: PhotoSource) => {
     if (actions === undefined) return;
     setError(undefined);
@@ -192,7 +214,7 @@ export default function SessionScreen() {
     for (const photo of photos) {
       const key = `${photo.uri}:${Date.now()}`;
       setAttachments((current) => [...current, { key, uri: photo.uri, uploading: true }]);
-      actions.uploadImage(photo.mimeType, photo.data).then(
+      upload(photo.mimeType, photo.data).then(
         (image) =>
           setAttachments((current) =>
             current.map((a) => (a.key === key ? { ...a, uploading: false, image } : a)),
