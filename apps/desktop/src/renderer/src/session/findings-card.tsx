@@ -5,6 +5,7 @@ import { ScanSearch, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { openChanges } from '@/changes/changes-store';
 import { useReviewSupported } from '@/changes/review-data';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { openFile } from '@/files/files-store';
@@ -136,12 +137,11 @@ export function FindingsCard({ part }: { part: ChatPartOf<'findings'> }) {
         ))}
       </ul>
       {error !== undefined && (
-        <p
-          className="truncate border-t border-border px-3 py-1.5 text-xs text-destructive"
-          title={error}
-        >
-          {error}
-        </p>
+        <Hint label={error} whenClipped>
+          <p className="truncate border-t border-border px-3 py-1.5 text-xs text-destructive">
+            {error}
+          </p>
+        </Hint>
       )}
     </section>
   );
@@ -200,18 +200,21 @@ function FindingItem({
           {finding.title}
         </button>
         {row.location !== '' && (
-          <button
-            type="button"
-            disabled={row.path === undefined}
-            onClick={onJump}
-            title={row.location}
-            className="block max-w-full truncate rounded-sm font-mono text-xs text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:focus-ring disabled:hover:text-muted-foreground"
-          >
-            {row.location}
-            {state === 'outdated' && (
-              <span className="ml-1.5 font-sans text-warning">{t('comments.state.outdated')}</span>
-            )}
-          </button>
+          <Hint label={row.location} whenClipped>
+            <button
+              type="button"
+              disabled={row.path === undefined}
+              onClick={onJump}
+              className="block max-w-full truncate rounded-sm font-mono text-xs text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:focus-ring disabled:hover:text-muted-foreground"
+            >
+              {row.location}
+              {state === 'outdated' && (
+                <span className="ml-1.5 font-sans text-warning">
+                  {t('comments.state.outdated')}
+                </span>
+              )}
+            </button>
+          </Hint>
         )}
         {finding.body !== '' &&
           (expanded ? (

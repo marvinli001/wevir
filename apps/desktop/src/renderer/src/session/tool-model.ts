@@ -145,6 +145,51 @@ function replaceStats(before: string, after: string): LineStats {
   return { added: b.length - head - tail, removed: a.length - head - tail };
 }
 
+// ── 会话工具 ────────────────────────────────────────────────────────
+
+/**
+ * Wevir 的会话工具（`mcp__wevir__wevir_session_*`）在摘要与逐条里的种类（照 Claude Code 桌面端 2026-10-27：“给另一个会话
+ * 发了消息”）：发消息、开会话、查看会话（读、等、看进度、读回顾）。列出与搜索会话、停止、关闭、归档仍按普通工具。
+ */
+export type SessionToolKind = 'session_send' | 'session_create' | 'session_read';
+
+const SESSION_TOOLS: Readonly<Record<string, SessionToolKind>> = {
+  send: 'session_send',
+  create: 'session_create',
+  read: 'session_read',
+  wait: 'session_read',
+  progress: 'session_read',
+  retro: 'session_read',
+};
+
+export function sessionToolKind(part: Pick<ToolPart, 'toolName'>): SessionToolKind | undefined {
+  const name = /^(?:mcp__wevir(?:_more)?__)?wevir_session_([a-z_]+)$/.exec(part.toolName)?.[1];
+  return name === undefined ? undefined : SESSION_TOOLS[name];
+}
+
+/**
+ * 会话工具指向的会话：输入里的 `sessionId`；开会话时是结果里的 `sessionId`，标题取输入里的 `title`（会话列表里找不到时
+ * 显示它）。
+ */
+export function sessionToolTarget(
+  part: Pick<ToolPart, 'input' | 'output'>,
+): { sessionId: string; title?: string } | undefined {
+  const input = isRecord(part.input) ? part.input : {};
+  const title =
+    typeof input.title === 'string' && input.title.trim() ? input.title.trim() : undefined;
+  let sessionId = typeof input.sessionId === 'string' ? input.sessionId : undefined;
+  if (sessionId === undefined && part.output?.text) {
+    try {
+      const result: unknown = JSON.parse(part.output.text);
+      if (isRecord(result) && typeof result.sessionId === 'string') sessionId = result.sessionId;
+    } catch {
+      // 不是 JSON（出错的结果）：没有目标。
+    }
+  }
+  if (sessionId === undefined || !/^ses_[0-9A-Za-z]+$/.test(sessionId)) return undefined;
+  return { sessionId, ...(title !== undefined && { title }) };
+}
+
 // ── 工作组 ──────────────────────────────────────────────────────────
 
 /**
@@ -237,6 +282,9 @@ const COUNTED_KINDS = [
   'fetch',
   'plan',
   'sub_agent',
+  'session_send',
+  'session_create',
+  'session_read',
   'unknown',
 ] as const;
 type CountedKind = (typeof COUNTED_KINDS)[number];
@@ -248,6 +296,8 @@ export interface WorkTally {
   counts: Record<CountedKind, number>;
   /** 读取、修改与新建涉及的路径（U16）：只涉及一个文件时摘要写出文件名。 */
   files: Record<FileKind, string[]>;
+  /** 会话工具指向的会话（按会话计数）：只涉及一个会话时摘要写出它的标题。 */
+  sessions: Record<SessionToolKind, Array<{ sessionId: string; title?: string }>>;
   /** 成功的修改的增删行数；没有成功的修改时为 undefined。 */
   lines?: LineStats;
   /** 不能被折叠吞掉的调用。 */
@@ -261,8 +311,16 @@ export type IssueKind = 'failed' | 'denied' | 'unknown';
 /** 摘要里按文件计数、只有一个时写出文件名的三种。 */
 type FileKind = 'read' | 'edit' | 'create';
 const ISSUE_KINDS: readonly IssueKind[] = ['failed', 'denied', 'unknown'];
+const SESSION_KINDS: readonly SessionToolKind[] = [
+  'session_send',
+  'session_create',
+  'session_read',
+];
 
-function countedKind(kind: ToolDisplayKind): CountedKind {
+function countedKind(part: ToolPart): CountedKind {
+  const session = sessionToolKind(part);
+  if (session !== undefined) return session;
+  const kind = part.display.kind;
   // 生成图片的工具不进工作组（isImageTool），这里只为类型完整。
   return kind === 'write' ? 'edit' : kind === 'image' ? 'unknown' : kind;
 }
@@ -276,6 +334,11 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
     edit: new Set(),
     create: new Set(),
   };
+  const sessions: Record<SessionToolKind, Map<string, { sessionId: string; title?: string }>> = {
+    session_send: new Map(),
+    session_create: new Map(),
+    session_read: new Map(),
+  };
   let lines: LineStats | undefined;
   let debug = 0;
   for (const entry of entries) {
@@ -287,7 +350,7 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
       thinkingMs = (thinkingMs ?? 0) + (thoughtDuration(entry) ?? 0);
       continue;
     }
-    const kind = countedKind(entry.display.kind);
+    const kind = countedKind(entry);
     const lifecycle = toolLifecycle(entry, turnActive);
     if (lifecycle === 'failed' || lifecycle === 'denied' || lifecycle === 'unknown') {
       issues[lifecycle] += 1;
@@ -299,6 +362,12 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
       for (const path of changed.create) paths.create.add(path);
     } else if (kind === 'read' && entry.display.paths?.length) {
       for (const path of entry.display.paths) paths.read.add(path);
+    } else if (
+      (kind === 'session_send' || kind === 'session_create' || kind === 'session_read') &&
+      sessionToolTarget(entry) !== undefined
+    ) {
+      const target = sessionToolTarget(entry);
+      if (target) sessions[kind].set(target.sessionId, target);
     } else {
       counts[kind] += 1;
     }
@@ -316,20 +385,30 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
   counts.read += paths.read.size;
   counts.edit += paths.edit.size;
   counts.create += paths.create.size;
+  for (const kind of SESSION_KINDS) counts[kind] += sessions[kind].size;
   return {
     ...(thinkingMs !== undefined && { thinkingMs }),
     counts,
     files: { read: [...paths.read], edit: [...paths.edit], create: [...paths.create] },
+    sessions: {
+      session_send: [...sessions.session_send.values()],
+      session_create: [...sessions.session_create.values()],
+      session_read: [...sessions.session_read.values()],
+    },
     ...(lines && { lines }),
     issues,
     debug,
   };
 }
 
-/** 摘要的一段：说明文字色的 `text`，只涉及一个文件时后面跟着正文色的文件名（U16，照 Claude Code）。 */
+/**
+ * 摘要的一段：说明文字色的 `text`，只涉及一个文件时后面跟着正文色的文件名（U16，照 Claude Code），只涉及一个会话时是那个会话
+ * （界面按会话列表写出标题，找不到时用 `title`）。
+ */
 export interface SummaryPart {
   text: string;
   file?: string;
+  session?: { sessionId: string; title?: string };
   /** 文件名后面还有的文字（日文、韩文等动词在后的语言）。 */
   after?: string;
 }
@@ -349,6 +428,21 @@ export function workSummaryParts(tally: WorkTally): SummaryPart[] {
   for (const kind of COUNTED_KINDS) {
     const count = tally.counts[kind];
     if (count === 0) continue;
+    const session =
+      kind === 'session_send' || kind === 'session_create' || kind === 'session_read'
+        ? tally.sessions[kind]
+        : [];
+    if (count === 1 && session.length === 1 && session[0] !== undefined) {
+      const [before = '', after = ''] = t(`work.did.${kind as SessionToolKind}`, {
+        session: '\u0000',
+      }).split('\u0000');
+      parts.push({
+        text: before.trimEnd(),
+        session: session[0],
+        ...(after.trim() && { after: after.trimStart() }),
+      });
+      continue;
+    }
     const only = kind === 'read' || kind === 'edit' || kind === 'create' ? tally.files[kind] : [];
     if (count === 1 && only.length === 1 && only[0] !== undefined) {
       // 文件名在句子里的位置随语言变（“读取了 a.ts”“a.ts を読み取り”），按 {file} 切开，前后两段是说明文字色。
@@ -386,7 +480,7 @@ export function workSummaryParts(tally: WorkTally): SummaryPart[] {
 export function workSummary(tally: WorkTally): string {
   return workSummaryParts(tally)
     .map((part) =>
-      [part.text, part.file, part.after]
+      [part.text, part.file ?? part.session?.title ?? part.session?.sessionId, part.after]
         .filter((text) => text !== undefined && text !== '')
         .join(' '),
     )
@@ -434,6 +528,8 @@ export interface WorkLineView {
   targetTitle?: string;
   /** 跑得久的命令的用时（照 Codex 的“在 10s 内运行”），排在行尾。 */
   duration?: string;
+  /** 会话工具指向的会话：目标画成会话胶囊（`target` 是找不到会话时的文字）。 */
+  session?: { sessionId: string; title?: string };
   tone: 'done' | 'running' | 'awaiting' | 'failed' | 'muted' | 'unknown';
 }
 
@@ -504,7 +600,11 @@ export function isWebSearch(part: Pick<ToolPart, 'toolName' | 'display'>): boole
  * 一行的动词：Codex 的补丁里全是新建的文件时是“创建”（§56，照 Codex 的“文件已创建”；摘要同样分出新建，见 changedPaths），
  * 其余同展示类型。
  */
-function lineVerbKind(part: ToolPart): Exclude<ToolDisplayKind, 'image'> | 'create' {
+function lineVerbKind(
+  part: ToolPart,
+): Exclude<ToolDisplayKind, 'image'> | 'create' | SessionToolKind {
+  const session = sessionToolKind(part);
+  if (session !== undefined) return session;
   if (part.display.kind === 'image') return 'unknown';
   if (
     part.display.kind !== 'write' ||
@@ -549,6 +649,21 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
   const lifecycle = toolLifecycle(part, turnActive);
   const verbKind = lineVerbKind(part);
   const verb = t(`work.verb.${verbKind}`);
+  const label =
+    lifecycle === 'running'
+      ? t(`work.running.${verbKind}`)
+      : lifecycle === 'completed'
+        ? t(`work.done.${verbKind}`)
+        : t(`work.line.${lifecycle}`, { verb });
+  const session = sessionToolKind(part) === undefined ? undefined : sessionToolTarget(part);
+  if (session !== undefined) {
+    return {
+      label,
+      target: session.title ?? session.sessionId,
+      session,
+      tone: LINE_TONES[lifecycle],
+    };
+  }
   const steps = stepListSummary(part);
   const summary =
     part.display.kind === 'unknown'
@@ -574,12 +689,7 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
       ? between(part.startedAt, part.finishedAt)
       : undefined;
   return {
-    label:
-      lifecycle === 'running'
-        ? t(`work.running.${verbKind}`)
-        : lifecycle === 'completed'
-          ? t(`work.done.${verbKind}`)
-          : t(`work.line.${lifecycle}`, { verb }),
+    label,
     ...(target && { target }),
     ...(targetTitle !== undefined && targetTitle !== target && { targetTitle }),
     ...(ms !== undefined &&

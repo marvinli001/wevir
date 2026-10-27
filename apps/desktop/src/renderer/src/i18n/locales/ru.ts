@@ -641,6 +641,7 @@ export const messages: Messages = {
   'message.copied': 'Скопировано',
   'message.expand': 'Показать полностью',
   'message.collapse': 'Свернуть',
+  'message.showMore': 'Показать больше',
   'message.branch': 'Ответвить в новый сеанс',
   'message.branchFailed': 'Не удалось ответвить: {error}',
   'message.edit': 'Изменить',
@@ -654,6 +655,7 @@ export const messages: Messages = {
   'session.marker.awaitingInput': 'Ждёт ответа',
   'session.marker.awaitingDecision': 'Ждёт решения',
   'session.marker.error': 'Ошибка',
+  'session.marker.idle': 'Простаивает',
   'session.marker.goal': 'Цель',
   'session.marker.unread': 'Не прочитано',
   'session.role': 'Роль {role}',
@@ -831,6 +833,8 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Задача от родительского агента',
   'transcript.fromSession': 'От «{title}»',
   'transcript.reportFrom': 'Отчёт от «{title}»',
+  'transcript.relayed.message': 'Сообщение из другого сеанса',
+  'transcript.relayed.from': 'От:',
   'transcript.processExited': 'Фоновый процесс «{name}» завершён (код {code})',
   'transcript.processStopped': 'Фоновый процесс «{name}» остановлен сигналом {signal}',
   'transcript.processMatched': 'Совпадение в выводе «{name}»',
@@ -877,6 +881,9 @@ export const messages: Messages = {
   'work.did.read': 'Прочитан {file}',
   'work.did.edit': 'Изменён {file}',
   'work.did.create': 'Создан {file}',
+  'work.did.session_send': 'Сообщение сеансу {session}',
+  'work.did.session_create': 'Открыт {session}',
+  'work.did.session_read': 'Просмотрен {session}',
   'work.count.shell':
     '{count, plural, one {Выполнена # команда} few {Выполнено # команды} many {Выполнено # команд} other {Выполнено # команды}}',
   'work.count.fetch':
@@ -884,6 +891,12 @@ export const messages: Messages = {
   'work.count.plan': 'План обновлён',
   'work.count.sub_agent':
     '{count, plural, one {# вызов субагента} few {# вызова субагента} many {# вызовов субагента} other {# вызова субагента}}',
+  'work.count.session_send':
+    '{count, plural, one {Сообщение # сеансу} few {Сообщение # сеансам} many {Сообщение # сеансам} other {Сообщение # сеансам}}',
+  'work.count.session_create':
+    '{count, plural, one {Открыт # сеанс} few {Открыто # сеанса} many {Открыто # сеансов} other {Открыто # сеанса}}',
+  'work.count.session_read':
+    '{count, plural, one {Просмотрен # сеанс} few {Просмотрено # сеанса} many {Просмотрено # сеансов} other {Просмотрено # сеанса}}',
   'work.count.unknown':
     '{count, plural, one {Вызван # инструмент} few {Вызвано # инструмента} many {Вызвано # инструментов} other {Вызвано # инструмента}}',
   'work.count.raw':
@@ -900,6 +913,9 @@ export const messages: Messages = {
   'work.verb.fetch': 'загрузка',
   'work.verb.plan': 'обновление плана',
   'work.verb.sub_agent': 'вызов субагента',
+  'work.verb.session_send': 'Отправить сообщение',
+  'work.verb.session_create': 'Открыть сеанс',
+  'work.verb.session_read': 'Просмотреть сеанс',
   'work.verb.unknown': 'вызов',
   'work.running.read': 'Идёт чтение',
   'work.running.search': 'Идёт поиск',
@@ -910,6 +926,9 @@ export const messages: Messages = {
   'work.running.fetch': 'Идёт загрузка',
   'work.running.plan': 'Идёт обновление плана',
   'work.running.sub_agent': 'Идёт вызов субагента',
+  'work.running.session_send': 'Отправка сообщения',
+  'work.running.session_create': 'Открытие сеанса',
+  'work.running.session_read': 'Просмотр сеанса',
   'work.running.unknown': 'Идёт вызов',
   'work.done.read': 'Готово: чтение',
   'work.done.search': 'Готово: поиск',
@@ -920,6 +939,9 @@ export const messages: Messages = {
   'work.done.fetch': 'Готово: загрузка',
   'work.done.plan': 'Готово: обновление плана',
   'work.done.sub_agent': 'Готово: вызов субагента',
+  'work.done.session_send': 'Сообщение отправлено',
+  'work.done.session_create': 'Сеанс открыт',
+  'work.done.session_read': 'Сеанс просмотрен',
   'work.done.unknown': 'Готово: вызов',
   'work.line.awaiting_approval': 'Ожидает подтверждения: {verb}',
   'work.line.failed': 'Ошибка: {verb}',

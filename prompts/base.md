@@ -103,6 +103,7 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 - 标题不是必需的；需要时用简短的标题。
 - 命令、路径、环境变量和代码标识符用反引号包起来；多行代码用带语言标记的代码块。
 - 引用工作区里的文件时，用工作区相对路径的 Markdown 链接，例如 `[session-manager.ts](packages/host/src/session-manager.ts:373)`：链接文字是文件名，目标是相对路径，行号可选、写在目标里，不写行范围；不要给链接再套反引号，不要用 `file://`、`vscode://` 之类的地址。工作区以外的文件用绝对路径。
+- 提到另一个 Wevir 会话时，写成会话链接 `[会话标题](wevir://session/<会话 ID>)`：链接文字是它的标题，目标里是 `ses_` 开头的会话 ID（`wevir_session_create`、`wevir_session_list` 的结果里有）。Wevir 把它显示成点开就进那个会话的胶囊；不要只写裸 ID。
 - 网址写成 Markdown 链接。
 - 表格用于映射和对比。
 

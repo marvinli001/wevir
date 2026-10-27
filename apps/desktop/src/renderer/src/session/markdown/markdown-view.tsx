@@ -4,6 +4,7 @@ import { OpenFileLink } from '@/files/file-links';
 import { useReducedMotion } from '@/fx/motion';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
+import { MarkdownSessionLinks } from '../session-link';
 import { highlightCodeBlocks, whenNearViewport } from './highlight';
 import {
   createStreamingMarkdownRenderer,
@@ -233,18 +234,22 @@ export const MarkdownView = memo(function MarkdownView({
   }, []);
 
   return (
-    <div
-      ref={rootRef}
-      className={cn('markdown', className)}
-      data-streaming={live || undefined}
-      data-quotable={quotable ? '' : undefined}
-    >
-      {blocks.map((block, index) => (
-        // 块的身份就是它在文档里的位置：流式时只有末尾的块会换对象。
-        // biome-ignore lint/suspicious/noArrayIndexKey: 见上。
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: HTML 由 marked 生成并经 DOMPurify 清洗。
-        <div key={index} className="contents" dangerouslySetInnerHTML={block} />
-      ))}
-    </div>
+    <>
+      <div
+        ref={rootRef}
+        className={cn('markdown', className)}
+        data-streaming={live || undefined}
+        data-quotable={quotable ? '' : undefined}
+      >
+        {blocks.map((block, index) => (
+          // 块的身份就是它在文档里的位置：流式时只有末尾的块会换对象。
+          // biome-ignore lint/suspicious/noArrayIndexKey: 见上。
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: HTML 由 marked 生成并经 DOMPurify 清洗。
+          <div key={index} className="contents" dangerouslySetInnerHTML={block} />
+        ))}
+      </div>
+      {/* 放在根元素外面：根元素的子元素与 blocks 一一对应（新字淡入按位置找块）。 */}
+      <MarkdownSessionLinks root={rootRef} version={blocks} />
+    </>
   );
 });

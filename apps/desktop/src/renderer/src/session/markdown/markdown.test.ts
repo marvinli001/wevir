@@ -108,6 +108,15 @@ describe('辅助函数', () => {
     expect(renderMarkdownHtml('[x](javascript:alert(1))')).not.toContain('<a');
   });
 
+  it('会话链接（wevir://session/<id> 或 #<id>）渲染成胶囊，别的锚点只留文字', () => {
+    expect(renderMarkdownHtml('[修复登录](wevir://session/ses_ab12)')).toContain(
+      '<a href="#" class="session-pill" data-session-link="ses_ab12">修复登录</a>',
+    );
+    expect(renderMarkdownHtml('[修复登录](#ses_ab12)')).toContain('data-session-link="ses_ab12"');
+    expect(renderMarkdownHtml('[x](#section)')).not.toContain('<a');
+    expect(renderMarkdownHtml('[x](wevir://session/ses_a"b)')).not.toContain('data-session-link');
+  });
+
   it('codeLanguage 取信息串的第一个词并过滤怪字符', () => {
     expect(codeLanguage('TypeScript title="a"')).toBe('typescript');
     expect(codeLanguage('c++')).toBe('c++');

@@ -2,6 +2,7 @@ import type { Transcript, TranscriptChapter } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Hint } from '@/components/hint';
 import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { turnOrb } from '@/fx/orb-state';
@@ -280,16 +281,17 @@ export function TranscriptView({
       )}
       {showJump && (
         <div className="rail-clear pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-          <button
-            type="button"
-            aria-label={t('transcript.jumpToLatest')}
-            title={t('transcript.jumpToLatest')}
-            onClick={() => jumpToLatest('smooth')}
-            data-action="jump-to-latest"
-            className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:focus-field"
-          >
-            <ArrowDown aria-hidden className="size-4" />
-          </button>
+          <Hint label={t('transcript.jumpToLatest')}>
+            <button
+              type="button"
+              aria-label={t('transcript.jumpToLatest')}
+              onClick={() => jumpToLatest('smooth')}
+              data-action="jump-to-latest"
+              className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:focus-field"
+            >
+              <ArrowDown aria-hidden className="size-4" />
+            </button>
+          </Hint>
         </div>
       )}
     </div>

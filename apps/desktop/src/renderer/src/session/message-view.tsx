@@ -5,30 +5,33 @@ import type {
   UserChatMessage,
   UserTextSegment,
 } from '@wevir/client-sdk';
-import type { MessageFrom, PendingMessage, TurnCommand } from '@wevir/protocol';
+import type { PendingMessage, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ArrowLeftRight,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   ClipboardList,
   FoldVertical,
   Info,
+  MessagesSquare,
   Reply,
   ScanSearch,
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import { memo, useLayoutEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { GoalIcon } from '@/components/command-icons';
 import { GlideGroup } from '@/components/glide';
+import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
-import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import { lineCount } from './composer-pastes';
 import { CopyButton } from './copy-button';
@@ -45,11 +48,15 @@ import { EditButton, UserMessageEditor, useMessageActions } from './message-acti
 import { OpinionCard, OpinionQuote } from './opinion-card';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
+import { SessionLink, useSessionEntry } from './session-link';
+import { reportBody } from './session-link-model';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
-import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
+import { formatRelativeTime } from './subagent-model';
+import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
 import { groupWork, isImageTool } from './tool-model';
 import { RetryRow, UsageLimitCard } from './usage-limit-card';
+import { useNow } from './use-now';
 import { WorkGroup } from './work-group';
 
 // 消息流里的一条消息（T5.3；U2 起由回合 turn-view.tsx 组织：助手消息里连续的思考与工具调用合成工作组，子智能体标记
@@ -68,7 +75,9 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.from?.opinion !== undefined) return <OpinionQuote message={message} />;
   // 额度恢复后 Host 替用户发的继续消息（0.119.0）不显示：额度卡片上写着已自动继续。
   if (message.from?.usageLimit !== undefined) return null;
-  if (message.from?.kind === 'report') return <SessionReport message={message} />;
+  if (message.from?.kind === 'report' || message.from?.kind === 'message') {
+    return <RelayedMessage message={message} />;
+  }
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
@@ -104,7 +113,6 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
           {t('transcript.fromParentAgent')}
         </span>
       )}
-      {message.from?.kind === 'message' && <FromSession from={message.from} />}
       {message.trigger === 'goal' && (
         <span className="mt-1 text-xs text-muted-foreground" data-goal>
           {t('command.goal')}
@@ -251,84 +259,159 @@ function PastedBlock({ text }: { text: string }) {
   );
 }
 
+/** 完整的日期与时刻（时间的悬停提示）。 */
+function fullTime(ts: string): string {
+  return new Intl.DateTimeFormat(currentLocale(), { dateStyle: 'full', timeStyle: 'short' }).format(
+    new Date(ts),
+  );
+}
+
 /** 消息的时间（0.38.0）：悬停时出现在操作行里，提示里是完整的日期与时刻。 */
 function MessageTime({ ts }: { ts: string }) {
   const label = formatMessageTime(ts, currentLocale());
   if (label === '') return null;
-  const full = new Intl.DateTimeFormat(currentLocale(), {
-    dateStyle: 'full',
-    timeStyle: 'short',
-  }).format(new Date(ts));
   return (
-    <time dateTime={ts} title={full} className="mr-1 text-xs text-muted-foreground tabular-nums">
-      {label}
-    </time>
-  );
-}
-
-/** 别的会话里的 agent 发来的消息（0.30.0）：气泡下方注明来自哪个会话，点它打开那个会话。 */
-function FromSession({ from }: { from: MessageFrom }) {
-  const sessions = useSessions();
-  const source = sessions.get(from.sessionId);
-  const label = t('transcript.fromSession', {
-    title: source?.title || t('session.untitled'),
-  });
-  return (
-    <span className="mt-1 text-xs text-muted-foreground" data-from-session={from.sessionId}>
-      {source ? (
-        <Link
-          to={paths.session(source.workspaceId, source.id)}
-          className="rounded-sm outline-none hover:text-foreground focus-visible:focus-ring"
-        >
-          {label}
-        </Link>
-      ) : (
-        label
-      )}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={<time dateTime={ts} className="mr-1 text-xs text-muted-foreground tabular-nums" />}
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent>{fullTime(ts)}</TooltipContent>
+    </Tooltip>
   );
 }
 
 /**
- * 别的会话回报的结果（0.30.0）：Host 发给模型的回报正文不显示成用户气泡，同建议任务的回报标记一行“〈会话〉的回报”，悬停看
- * 全文，点它打开那个会话。
+ * 回答的相对时间（照 Claude Code 桌面端 2026-10-27 回答下面那一行最后的“刚刚”）：每分钟更新，悬停提示是完整的日期与时刻。
  */
-function SessionReport({ message }: { message: UserChatMessage }) {
-  const sessions = useSessions();
-  const sessionId = message.from?.sessionId;
-  const source = sessionId === undefined ? undefined : sessions.get(sessionId);
-  const text = message.parts
-    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-    .join('\n');
-  const className =
-    'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground outline-none';
-  const content = (
-    <>
-      <Reply aria-hidden className="size-4 shrink-0" />
-      <span className="truncate">
-        {t('transcript.reportFrom', { title: source?.title || t('session.untitled') })}
-      </span>
-    </>
-  );
+export function RelativeTime({ ts, className }: { ts: string; className?: string }) {
+  const now = useNow(60_000);
+  if (Number.isNaN(Date.parse(ts))) return null;
   return (
-    <div className="my-2 flex" data-message-role="user" data-session-report={sessionId}>
-      {source ? (
-        <Link
-          to={paths.session(source.workspaceId, source.id)}
-          title={text}
-          className={cn(
-            className,
-            'hover:border-border-strong hover:text-foreground focus-visible:focus-field',
-          )}
-        >
-          {content}
-        </Link>
-      ) : (
-        <span className={className} title={text}>
-          {content}
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <time
+            dateTime={ts}
+            className={cn('px-1 text-xs text-muted-foreground tabular-nums', className)}
+            data-answer-time=""
+          />
+        }
+      >
+        {formatRelativeTime(ts, now)}
+      </TooltipTrigger>
+      <TooltipContent>{fullTime(ts)}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * 别的会话发来的消息与回报（0.30.0；照 Claude Code 桌面端 2026-10-27 改成左侧卡片）：头部“来自另一个会话的消息”或“〈会话〉的回报”，
+ * 点它收起；下面一行“来自：〈会话胶囊〉”，再下面是 Markdown 正文，超过约 8 行时收起，“显示更多”展开。不是用户写的，不画成右侧气泡。
+ */
+function RelayedMessage({ message }: { message: UserChatMessage }) {
+  const [open, setOpen] = useState(true);
+  const id = useId();
+  const from = message.from;
+  const source = useSessionEntry(from?.sessionId)?.session;
+  if (from === undefined) return null;
+  const report = from.kind === 'report';
+  const raw = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+  // 回报的正文是 Host 发给模型的英文外壳，只显示那个会话的回答。
+  const text = report ? reportBody(raw) : raw;
+  const Icon = report ? Reply : MessagesSquare;
+  return (
+    <div
+      className="my-2 max-w-[85%] rounded-xl border border-border bg-card"
+      data-message-role="user"
+      data-relayed={from.kind}
+      {...(report
+        ? { 'data-session-report': from.sessionId }
+        : { 'data-from-session': from.sessionId })}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen(!open)}
+        className="flex h-9 w-full min-w-0 items-center gap-1.5 rounded-xl px-3 text-left text-sm text-soft-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+      >
+        <Icon aria-hidden className="size-4 shrink-0" />
+        <span className="min-w-0 truncate">
+          {report
+            ? t('transcript.reportFrom', { title: source?.title || t('session.untitled') })
+            : t('transcript.relayed.message')}
         </span>
-      )}
+        <ChevronDown
+          aria-hidden
+          className={cn('size-3.5 shrink-0 opacity-75 transition-transform', !open && '-rotate-90')}
+        />
+      </button>
+      <Collapse open={open} id={id}>
+        <div className="px-3 pb-2.5">
+          <p className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+            <span className="shrink-0">{t('transcript.relayed.from')}</span>
+            <SessionLink sessionId={from.sessionId} className="min-w-0 truncate" />
+          </p>
+          {text.trim() !== '' && <FoldedMarkdown text={text} />}
+          {message.steered && (
+            <p className="mt-1 text-xs text-muted-foreground" data-steered>
+              {t('transcript.steered')}
+            </p>
+          )}
+        </div>
+      </Collapse>
     </div>
+  );
+}
+
+/** 卡片正文收起的高度：约 8 行。 */
+const RELAYED_FOLD_PX = 176;
+/** 只多出这么一点的不收。 */
+const RELAYED_FOLD_SLACK_PX = 48;
+
+/** 卡片里的 Markdown 正文：很长时收起，底部渐隐，下面“显示更多 / 收起”。 */
+function FoldedMarkdown({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+  const [expanded, setExpanded] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setHeight(element.scrollHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const foldable = height !== undefined && height > RELAYED_FOLD_PX + RELAYED_FOLD_SLACK_PX;
+  const folded = foldable && !expanded;
+  return (
+    <>
+      <div
+        ref={ref}
+        className={cn(
+          'mt-1.5 text-sm',
+          foldable && 'overflow-hidden transition-[max-height] duration-300 ease-expand',
+          folded && '[mask-image:linear-gradient(to_bottom,black_calc(100%-3rem),transparent)]',
+        )}
+        style={foldable ? { maxHeight: folded ? RELAYED_FOLD_PX : height } : undefined}
+        data-relayed-body={foldable ? (folded ? 'folded' : 'expanded') : undefined}
+      >
+        <MarkdownView text={text} streaming={false} smooth={false} quotable />
+      </div>
+      {foldable && (
+        <button
+          type="button"
+          aria-expanded={!folded}
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 rounded-md text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+        >
+          {t(folded ? 'message.showMore' : 'message.collapse')}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -343,15 +426,14 @@ function RepairReport({ message }: { message: UserChatMessage }) {
     .join('\n');
   return (
     <div className="my-2 flex" data-message-role="user" data-repair-report={repair.repairId}>
-      <span
-        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
-        title={text}
-      >
-        <Wrench aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">
-          {t('transcript.repair', { attempt: repair.attempt, max: repair.maxAttempts })}
+      <Hint label={text}>
+        <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground">
+          <Wrench aria-hidden className="size-4 shrink-0" />
+          <span className="truncate">
+            {t('transcript.repair', { attempt: repair.attempt, max: repair.maxAttempts })}
+          </span>
         </span>
-      </span>
+      </Hint>
     </div>
   );
 }
@@ -369,13 +451,12 @@ function ProcessReport({ message }: { message: UserChatMessage }) {
   const label = processNoticeLabel(process);
   return (
     <div className="my-2 flex" data-message-role="user" data-process-report={process.id}>
-      <span
-        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
-        title={text}
-      >
-        <SquareTerminal aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">{label}</span>
-      </span>
+      <Hint label={text}>
+        <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground">
+          <SquareTerminal aria-hidden className="size-4 shrink-0" />
+          <span className="truncate">{label}</span>
+        </span>
+      </Hint>
     </div>
   );
 }
@@ -592,14 +673,14 @@ function CompactionPart({ part }: { part: ChatPartOf<'compaction'> }) {
  */
 function ChapterDivider({ part }: { part: ChatPartOf<'chapter'> }) {
   return (
-    <div
-      className="mt-6 mb-3 flex scroll-mt-4 items-center gap-3"
-      data-chapter-anchor={part.key}
-      title={part.summary}
-    >
-      <h3 className="min-w-0 shrink truncate text-sm font-medium text-foreground">{part.title}</h3>
-      <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
-    </div>
+    <Hint label={part.summary}>
+      <div className="mt-6 mb-3 flex scroll-mt-4 items-center gap-3" data-chapter-anchor={part.key}>
+        <h3 className="min-w-0 shrink truncate text-sm font-medium text-foreground">
+          {part.title}
+        </h3>
+        <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
+      </div>
+    </Hint>
   );
 }
 
@@ -687,28 +768,29 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const label = modelLabel(providers, notice.providerId, notice.modelId, accounts);
   return (
     <div className="my-3 flex justify-center">
-      <button
-        type="button"
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        title={t('handoff.detail.open')}
-        onClick={() => setOpen(true)}
-        data-testid="handoff-notice"
-        data-provider={notice.providerId}
-        data-delivery={notice.delivery.status}
-      >
-        {provider ? (
-          <ProviderLogo
-            logo={source?.logo ?? providerLogo(provider)}
-            fallback={label}
-            className="size-3.5"
-          />
-        ) : (
-          <ArrowLeftRight aria-hidden className="size-3.5" />
-        )}
-        {notice.fromProviderId === notice.providerId
-          ? t('notice.handoffSameSource')
-          : t('notice.handoff', { model: label })}
-      </button>
+      <Hint label={t('handoff.detail.open')}>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={() => setOpen(true)}
+          data-testid="handoff-notice"
+          data-provider={notice.providerId}
+          data-delivery={notice.delivery.status}
+        >
+          {provider ? (
+            <ProviderLogo
+              logo={source?.logo ?? providerLogo(provider)}
+              fallback={label}
+              className="size-3.5"
+            />
+          ) : (
+            <ArrowLeftRight aria-hidden className="size-3.5" />
+          )}
+          {notice.fromProviderId === notice.providerId
+            ? t('notice.handoffSameSource')
+            : t('notice.handoff', { model: label })}
+        </button>
+      </Hint>
       <HandoffDetailDialog
         notice={notice}
         target={label}
