@@ -636,7 +636,8 @@ function inThread(thread: SessionThread, sessionId: string | undefined): boolean
 
 /**
  * 线程展开着没有：用户没收起它就展开。收起了也照样展开的两种：当前会话是其中一个子会话（免得当前项被收起来）；有子会话
- * 等审批、等回答或出错（收起的线程里不藏需要用户处理的会话）。
+ * 等审批、等回答或出错（收起的线程里不藏需要用户处理的会话）。当前会话是父会话本身时照常收起（照 Claude Code 桌面端），
+ * 父会话那一行还在。
  */
 function threadOpen(
   thread: SessionThread,
@@ -645,7 +646,7 @@ function threadOpen(
 ): boolean {
   return (
     !collapsedThreads.includes(thread.session.id) ||
-    inThread(thread, activeId) ||
+    thread.children.some((child) => child.id === activeId) ||
     thread.children.some((child) => {
       const marker = sessionMarker(child);
       return marker !== undefined && marker !== 'running';
