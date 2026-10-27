@@ -5,6 +5,7 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { HostProcess, SessionId, WorkspaceId } from '@wevir/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useHostConnection } from '@/host/host-connection';
 import {
   appendPage,
   bufferFromPage,
@@ -23,8 +24,9 @@ const matches = (process: HostProcess, filter: ProcessFilter) =>
   process.workspaceId === filter.workspaceId &&
   (filter.sessionId === undefined || process.source.sessionId === filter.sessionId);
 
+/** `client` 为 undefined（没连上、Host 没有 `process_output`、调用方现在不读）时列表是 undefined。 */
 export function useProcessList(
-  client: WevirClient,
+  client: WevirClient | undefined,
   filter: ProcessFilter,
 ): { processes: HostProcess[] | undefined; error: unknown } {
   const [processes, setProcesses] = useState<HostProcess[]>();
@@ -35,6 +37,8 @@ export function useProcessList(
 
   // 换项目或会话时重新列。
   useEffect(() => {
+    setProcesses(undefined);
+    if (!client) return;
     let seq = 0;
     let alive = true;
     const reload = () => {
@@ -50,7 +54,6 @@ export function useProcessList(
         },
       );
     };
-    setProcesses(undefined);
     reload();
     const off = client.onProcessesChanged((change) => {
       if (change === undefined) {
@@ -81,6 +84,27 @@ export function useProcessList(
   }, [client, workspaceId, sessionId]);
 
   return { processes, error };
+}
+
+const NO_PROCESSES: readonly HostProcess[] = [];
+
+/**
+ * 会话的后台进程（“后台任务”窗格与会话侧栏卡片，desktop-layout.md §15）；Host 没有 `process_output` 或 `active` 为 false 时是空的，
+ * 不去 Host 读。
+ */
+export function useSessionProcesses(
+  workspaceId: string,
+  sessionId: string,
+  active = true,
+): readonly HostProcess[] {
+  const { client } = useHostConnection();
+  const usable = active && client?.supports('process_output') ? client : undefined;
+  return (
+    useProcessList(usable, {
+      workspaceId: workspaceId as WorkspaceId,
+      sessionId: sessionId as SessionId,
+    }).processes ?? NO_PROCESSES
+  );
 }
 
 export interface ProcessOutput {

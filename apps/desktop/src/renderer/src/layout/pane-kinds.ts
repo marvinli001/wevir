@@ -65,7 +65,15 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
   tasks: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: true },
   plan: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: false },
   // 0.69.0：Host 起的后台进程（Agent 的与检查的）的输出与停止，不是终端。
-  processes: { minWidth: 320, minHeight: 200, shape: 'tall', multiple: false, available: true },
+  // 2026-10-27 并进了“后台任务”（tasks）：种类留着读回旧的本机状态，不再出现在“打开窗格”里。
+  processes: {
+    minWidth: 320,
+    minHeight: 200,
+    shape: 'tall',
+    multiple: false,
+    available: false,
+    internal: true,
+  },
   // 0.69.0：用户的交互终端（ADR-0010），Host 上的 PTY；按终端 ID 多开，“打开窗格”每次开一个新的。
   terminal: {
     minWidth: 360,

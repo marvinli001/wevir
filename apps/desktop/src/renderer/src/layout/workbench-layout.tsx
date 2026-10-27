@@ -62,7 +62,7 @@ import './outputs-card';
 import './task-board-card';
 import './retro-card';
 import { usePaneAccess } from './pane-access';
-import { paneKindUsable } from './pane-kinds';
+import { type PaneKind, paneKindUsable } from './pane-kinds';
 import { PANE_LAUNCHERS, PaneLaunchers, showPaneKind } from './pane-launchers';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { GlyphReveal } from './session-marks';
@@ -676,9 +676,12 @@ function toggleSidebar(plan: SidebarPlan): void {
   }
 }
 
+/** 显示“后台任务”的种类：它自己，和并进它的“子智能体”“后台进程”（旧的本机状态里还有）。 */
+const TASK_PANE_KINDS: readonly PaneKind[] = ['tasks', 'subagents', 'processes'];
+
 /**
  * 子智能体详情的路由（R5，desktop-layout.md §5.2）：URL 带 `agent/:childId` 时保证“后台任务”标签打开（窗格区收起、
- * 在浮层里或被别的窗格最大化盖住时也显示出来；旧的本机状态里还有“子智能体”标签时用它）；还在这个地址时它被关掉，就回到
+ * 在浮层里或被别的窗格最大化盖住时也显示出来；旧的本机状态里还有“子智能体”或“后台进程”标签时用它）；还在这个地址时它被关掉，就回到
  * 父会话的地址。
  */
 function useSubagentRoute(
@@ -694,16 +697,16 @@ function useSubagentRoute(
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在进入详情（换子会话或会话）时打开一次。
   useEffect(() => {
     if (childId === undefined || !ready) return;
-    const legacy = latest.current?.scope.groups.some((group) =>
-      group.tabs.some((tab) => tab.kind === 'subagents'),
-    );
-    latest.current?.open({ kind: legacy ? 'subagents' : 'tasks' });
+    const legacy = latest.current?.scope.groups
+      .flatMap((group) => group.tabs)
+      .find((tab) => TASK_PANE_KINDS.includes(tab.kind))?.kind;
+    latest.current?.open({ kind: legacy ?? 'tasks' });
   }, [childId, sessionId, ready]);
 
   const scopeKey = panes?.scopeKey;
   const hasTab =
     panes?.scope.groups.some((group) =>
-      group.tabs.some((tab) => tab.kind === 'tasks' || tab.kind === 'subagents'),
+      group.tabs.some((tab) => TASK_PANE_KINDS.includes(tab.kind)),
     ) ?? false;
   const previous = useRef<{ scopeKey?: string; hasTab: boolean }>({ hasTab: false });
   useEffect(() => {
