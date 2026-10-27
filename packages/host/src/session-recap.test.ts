@@ -125,6 +125,52 @@ describe('session.recap', () => {
     return seen;
   }
 
+  /** 给最后一个回合补一条回合收尾（0.128.0）。 */
+  function wrapUp(env: Env, id: SessionId, recapText: string): void {
+    const started = env.events
+      .readSince(id, 0)
+      .filter((event) => event.type === 'turn.started')
+      .at(-1);
+    if (started?.type !== 'turn.started') throw new Error('no turn');
+    const { turnId } = started.payload;
+    env.events.append(id, {
+      type: 'turn.wrap_up',
+      source: 'host',
+      payload: {
+        turnId,
+        recap: recapText,
+        ask: '要提交吗？',
+        actions: [{ label: '提交', message: '提交。' }],
+      },
+    });
+  }
+
+  it('最后一个回合收了尾：直接用它的回顾，不调模型；新的回合清掉它', async () => {
+    const env = setup({ generate: async () => RECAP_OUTPUT });
+    const id = await newSession(env);
+    const seen = await awayAfterTurns(env, id);
+    wrapUp(env, id, '登录页的测试补齐了，全部通过。还没提交。');
+    const result = await recap(env, id, seen);
+    expect(result.recap?.text).toBe('登录页的测试补齐了，全部通过。还没提交。');
+    expect(env.calls).toHaveLength(0);
+
+    await turn(env, id, '再跑一遍');
+    expect(env.events.snapshot(id)?.session.wrapUp).toBeUndefined();
+    expect((await recap(env, id, seen)).recap?.text).toBe(
+      '在补登录页的测试，两个用例已写好。请先跑一遍确认通过。',
+    );
+    expect(env.calls).toHaveLength(1);
+  });
+
+  it('引擎不能生成摘要时，收了尾的回合仍有回顾', async () => {
+    const plain = setup();
+    const other = await newSession(plain);
+    const otherSeen = await awayAfterTurns(plain, other);
+    expect(await recap(plain, other, otherSeen)).toEqual({ reason: 'unsupported' });
+    wrapUp(plain, other, '做完了。');
+    expect((await recap(plain, other, otherSeen)).recap?.text).toBe('做完了。');
+  });
+
   it('离开期间有新的助手输出：用会话的模型生成摘要，输入是最近的消息与回合状态', async () => {
     const env = setup({ generate: async () => RECAP_OUTPUT });
     const id = await newSession(env);

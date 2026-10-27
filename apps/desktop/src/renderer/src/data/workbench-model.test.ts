@@ -104,6 +104,41 @@ describe('sessionMarker', () => {
   });
 });
 
+describe('等决定（0.128.0）', () => {
+  const wrapUp = { turnId: 'trn_1', recap: '还没提交。', ask: '要提交吗？' } as const;
+
+  it('空闲时 agent 收尾说做不下去是等决定，归“需要你”；只问不卡、出错与运行中照旧', () => {
+    const blocked = session('ses_blocked', 'ws_a', {
+      wrapUp: { ...wrapUp, blocked: true },
+      updatedAt: NOW,
+    });
+    expect(sessionMarker(blocked)).toBe('awaiting_decision');
+    expect(sessionMarker(session('ses_1', 'ws_a', { wrapUp }))).toBeUndefined();
+    expect(
+      sessionMarker(
+        session('ses_1', 'ws_a', {
+          wrapUp: { ...wrapUp, blocked: true },
+          lastError: { category: 'unknown', message: 'x' },
+        }),
+      ),
+    ).toBe('error');
+    expect(
+      sessionMarker(
+        session('ses_1', 'ws_a', { state: 'running', wrapUp: { ...wrapUp, blocked: true } }),
+      ),
+    ).toBe('running');
+    const groups = groupByStatus(
+      groupSessions(
+        [workspace('ws_a')],
+        [blocked, session('ses_done', 'ws_a', { updatedAt: NOW })],
+      ),
+      Date.parse(NOW),
+    );
+    expect(groups.needsYou.map((row) => row.session.id)).toEqual(['ses_blocked']);
+    expect(groups.completed.map((row) => row.session.id)).toEqual(['ses_done']);
+  });
+});
+
 describe('最近活动的顺序', () => {
   it('回合进行中按回合开始的时刻排，流式输出的事件不让它们互换位置', () => {
     const turn = (turnId: `trn_${string}`, startedAt: string) => ({ turnId, startedAt });

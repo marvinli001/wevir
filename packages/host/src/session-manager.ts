@@ -77,6 +77,7 @@ import {
   type WevirEvent,
   type WevirEventType,
   type WorkspaceId,
+  type WrapUpAction,
 } from '@wevir/protocol';
 import {
   type AgentEvent,
@@ -3383,6 +3384,24 @@ export class SessionManager {
   }
 
   /**
+   * 应用级工具的 `wevir_wrap_up`（0.128.0）：在进行中的回合上写 `turn.wrap_up`，同一回合再调就再写一条（后一条为准）。没有进行中的
+   * 回合时不写，返回 `false`。
+   */
+  wrapUp(
+    sessionId: SessionId,
+    wrapUp: { recap: string; ask?: string; actions?: WrapUpAction[]; blocked?: true },
+  ): boolean {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const turnId = runtime.turn?.turnId;
+    if (turnId === undefined) return false;
+    this.#write(runtime, [
+      { type: 'turn.wrap_up', source: 'host', payload: { turnId, ...wrapUp } },
+    ]);
+    return true;
+  }
+
+  /**
    * 应用级工具的 `wevir_report_findings`（0.83.0）：发现存成批注（针对未提交的改动），在会话的流里写 `review.findings`，消息流在
    * 当时的位置出现发现卡片。返回事件里的发现。
    */
@@ -4510,9 +4529,6 @@ export class SessionManager {
     const runtime = this.#runtime(params.sessionId);
     const skip = (reason: string): MethodResult<'session.recap'> => ({ reason });
     if (this.#recapEnabled?.() === false) return skip('disabled');
-    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
-    const instructions = this.#recapInstructions;
-    if (generate === undefined || instructions === undefined) return skip('unsupported');
     if (params.awayMs < SESSION_RECAP_MIN_AWAY_MS) return skip('too_short');
     if (runtime.parentId !== undefined || this.#record(runtime).side) return skip('sub_session');
     const { session } = this.#snapshot(runtime);
@@ -4520,11 +4536,24 @@ export class SessionManager {
     if (session.state === 'awaiting_approval' || session.awaitingInput === true) {
       return skip('waiting');
     }
-    if (session.state === 'closed' || runtime.attachment === undefined) return skip('detached');
     const analysis = analyzeSession(this.#events.readSince(runtime.id, 0));
     if (analysis.turns < RECAP_MIN_TURNS) return skip('few_turns');
     const marker = analysis.marker;
     if (marker === undefined || marker <= params.seenSeq) return skip('no_activity');
+    // 0.128.0：最后一个回合 agent 自己收了尾（`turn.wrap_up`，新回合与用户消息会清掉它），直接用它的回顾，不调模型。
+    if (session.wrapUp !== undefined) {
+      return {
+        recap: {
+          text: session.wrapUp.recap,
+          generatedAt: new Date().toISOString(),
+          throughSeq: marker,
+        },
+      };
+    }
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    const instructions = this.#recapInstructions;
+    if (generate === undefined || instructions === undefined) return skip('unsupported');
+    if (session.state === 'closed' || runtime.attachment === undefined) return skip('detached');
     const cached = this.#recaps.get(runtime.id, marker);
     if (cached !== undefined) return { recap: cached };
     const pending =

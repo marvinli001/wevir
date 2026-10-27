@@ -22,6 +22,7 @@ import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { assistantsAvailability } from '@/assistants/assistants-model';
 import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { ArchiveIcon, PinIcon } from '@/components/session-icons';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
@@ -790,6 +791,7 @@ const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string }> = {
   running: { tone: 'accent', label: t('session.marker.running') },
   awaiting_approval: { tone: 'warning', label: t('session.marker.awaitingApproval') },
   awaiting_input: { tone: 'warning', label: t('session.marker.awaitingInput') },
+  awaiting_decision: { tone: 'warning', label: t('session.marker.awaitingDecision') },
   error: { tone: 'danger', label: t('session.marker.error') },
 };
 
@@ -947,14 +949,20 @@ const SessionRow = memo(function SessionRow({
                   !thread && 'flex-1',
                 )}
               >
-                <span
-                  className={cn(
-                    'min-w-0 truncate',
-                    settledUnread && 'font-semibold text-foreground',
-                  )}
-                >
-                  <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
-                </span>
+                {/* 标题被截断时悬停看全名。 */}
+                <Hint label={session.title || t('session.untitled')} whenClipped>
+                  <span
+                    className={cn(
+                      'min-w-0 truncate',
+                      settledUnread && 'font-semibold text-foreground',
+                    )}
+                  >
+                    <GlyphReveal
+                      text={session.title || t('session.untitled')}
+                      at={motion.titleAt}
+                    />
+                  </span>
+                </Hint>
                 {live && <SessionActivityLine session={session} />}
               </span>
               {thread && (

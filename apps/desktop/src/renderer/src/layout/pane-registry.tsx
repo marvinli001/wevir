@@ -23,7 +23,6 @@ import { BrowserPane } from './panes/browser-pane';
 import { FilesPane } from './panes/files-pane';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
-import { ProcessesPane } from './panes/processes-pane';
 import { RetroPane } from './panes/retro-pane';
 import { SessionPane } from './panes/session-pane';
 import { TasksPane } from './panes/tasks-pane';
@@ -105,10 +104,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
     render: (_, context) => <TasksPane context={context} />,
   },
   plan: { icon: ListChecks, name: 'pane.kind.plan', render: placeholder('plan') },
+  // 并进了“后台任务”：种类留着读回旧的本机状态，内容同“后台任务”。
   processes: {
     icon: ScrollText,
     name: 'pane.kind.processes',
-    render: (_, context) => <ProcessesPane context={context} />,
+    render: (_, context) => <TasksPane context={context} />,
   },
   // 用户的交互终端（0.69.0）：参数是终端 ID 与标签名（程序设的标题或 shell 名）。
   terminal: {

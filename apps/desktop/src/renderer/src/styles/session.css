@@ -20,6 +20,31 @@
     animation: seq-reveal 1600ms var(--ease-smooth) both;
   }
 
+  /* 会话链接（照 Claude Code 桌面端 2026-10-27）：行内胶囊，运行色的浅底与文字，没有下划线；只加左右内边距，行高不撑开段落，
+   * 折行时每段各自带圆角。会话不在列表里（data-session-missing）时是普通文字。 */
+  .session-pill,
+  .markdown a.session-pill {
+    border-radius: var(--radius-md);
+    padding-inline: 0.375rem;
+    background: color-mix(in oklab, var(--running) 10%, transparent);
+    color: var(--running);
+    text-decoration: none;
+    box-decoration-break: clone;
+    transition: background-color 150ms var(--ease-smooth);
+  }
+
+  .session-pill:hover,
+  .markdown a.session-pill:hover {
+    background: color-mix(in oklab, var(--running) 18%, transparent);
+  }
+
+  .markdown a.session-pill[data-session-missing] {
+    padding-inline: 0;
+    background: none;
+    color: inherit;
+    cursor: text;
+  }
+
   /* 进行中的文字（U2：工作组的当前动作、“正在思考”）：一道亮光从右往左扫过，同方向稿的 .shimmer。 */
   .shimmer {
     background: linear-gradient(

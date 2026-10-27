@@ -2,6 +2,7 @@ import type { EngineErrorInfo, SessionReadOnly, SessionState } from '@wevir/prot
 import { cn } from 'cn';
 import { CircleAlert, History, Lock, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
+import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -68,16 +69,20 @@ export function RecoveryPanel({
         {readOnly ? (
           <>
             <p className="text-foreground">{t(`readOnly.${readOnly.reason}`)}</p>
-            <p className="line-clamp-3 font-mono text-xs break-all" title={readOnly.message}>
-              {t('recovery.engineMessage', { message: readOnly.message })}
-            </p>
+            <Hint label={readOnly.message} whenClipped>
+              <p className="line-clamp-3 font-mono text-xs break-all">
+                {t('recovery.engineMessage', { message: readOnly.message })}
+              </p>
+            </Hint>
           </>
         ) : (
           lastError && (
             <>
-              <p className="line-clamp-3 break-words text-foreground" title={lastError.message}>
-                {t(`engineError.category.${lastError.category}`)}：{lastError.message}
-              </p>
+              <Hint label={lastError.message} whenClipped>
+                <p className="line-clamp-3 break-words text-foreground">
+                  {t(`engineError.category.${lastError.category}`)}：{lastError.message}
+                </p>
+              </Hint>
               <p>{t(`engineError.hint.${lastError.category}`)}</p>
             </>
           )

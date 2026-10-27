@@ -2,7 +2,6 @@ import type { ChatPart } from '@wevir/client-sdk';
 import type { ApprovalRequest, SessionId, SubagentSummary } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
-  clearMark,
   formatRelativeTime,
   groupSubagents,
   markerText,
@@ -11,7 +10,6 @@ import {
   statusLabel,
   subagentTitle,
   visibleParts,
-  withoutCleared,
 } from './subagent-model';
 import type { ToolPart } from './tool-model';
 
@@ -114,21 +112,6 @@ describe('“子智能体”窗格', () => {
     expect(formatRelativeTime(at(0), T0 + 49 * 3_600_000)).toBe('2 天前');
     expect(formatRelativeTime('not a time', now)).toBe('刚刚');
   });
-
-  it('清除已完成：只藏清除时已结束的，运行中的与之后结束的照常列出', () => {
-    const before = [
-      child(1, { status: 'completed', endedAt: at(30) }),
-      child(2, { status: 'failed', endedAt: at(50) }),
-      child(3),
-    ];
-    const mark = clearMark(before);
-    expect(mark).toBe(at(50));
-    expect(withoutCleared(before, mark).map((item) => item.title)).toEqual(['Task 3']);
-    const after = [...before.slice(0, 2), child(3, { status: 'completed', endedAt: at(80) })];
-    expect(withoutCleared(after, mark).map((item) => item.title)).toEqual(['Task 3']);
-    expect(withoutCleared(before, undefined)).toBe(before);
-    expect(clearMark([child(4)])).toBeUndefined();
-  });
 });
 
 describe('父会话的消息流', () => {
@@ -161,6 +144,19 @@ describe('父会话的消息流', () => {
     });
     const divider: ChatPart = { type: 'chapter', key: 'h:9', seq: 9, title: '实现' };
     expect(visibleParts([mark, divider, failed, text], false)).toEqual([divider, failed, text]);
+  });
+
+  it('成功的回合收尾（0.128.0）藏起来，失败的照常显示', () => {
+    const wrap = tool('call_wrap', {
+      toolName: 'mcp__wevir__wevir_wrap_up',
+      display: { kind: 'unknown' },
+    });
+    const failed = tool('call_wrap_2', {
+      toolName: 'mcp__wevir__wevir_wrap_up',
+      display: { kind: 'unknown' },
+      status: 'failed',
+    });
+    expect(visibleParts([wrap, text, failed], false)).toEqual([text, failed]);
   });
 
   it('没有子会话的会话（dsh）照常显示子 agent 的工具卡片', () => {

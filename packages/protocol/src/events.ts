@@ -64,6 +64,10 @@ import {
   UsageLimitSchema,
   UserContentPartSchema,
   UserImagePartSchema,
+  WRAP_UP_ACTIONS_MAX,
+  WRAP_UP_ASK_MAX_LENGTH,
+  WRAP_UP_RECAP_MAX_LENGTH,
+  WrapUpActionSchema,
 } from './entities.js';
 import { GuardrailBlockedSchema } from './guardrails.js';
 import {
@@ -550,6 +554,25 @@ export const EventPayloadSchemas = {
     turnId: TurnIdSchema.optional(),
   }),
   /**
+   * 回合收尾（0.128.0，`wevir_wrap_up`，domain-model §3.15.10）：Agent 在回合结束前说现在的情况（`recap`），需要用户决定时带一个问题
+   * （`ask`）与至多两个按钮（`actions`，第一个是推荐）。消息流在这个回合最后一条回答下面画下一步卡片（只在有 `ask` 时）；同一回合
+   * 再写一条替换上一条。`blocked` 表示不等答复做不下去。不开回合、不进引擎上下文；`Session.wrapUp` 跟着它。
+   */
+  'turn.wrap_up': z.object({
+    turnId: TurnIdSchema,
+    recap: z
+      .string()
+      .min(1)
+      .max(WRAP_UP_RECAP_MAX_LENGTH * 2),
+    ask: z
+      .string()
+      .min(1)
+      .max(WRAP_UP_ASK_MAX_LENGTH * 2)
+      .optional(),
+    actions: z.array(WrapUpActionSchema).min(1).max(WRAP_UP_ACTIONS_MAX).optional(),
+    blocked: z.literal(true).optional(),
+  }),
+  /**
    * 一条验证记录变了（0.65.0，ADR-0008）：检查排队、开始、结束，每次带完整记录，替换同一 `id` 的上一份。与回合分开：`turnId` 只说明
    * 它验证的是哪个回合之后的代码。
    */
@@ -678,6 +701,7 @@ export const UserSteeredEventSchema = eventSchema('user.steered');
 export const UiShowEventSchema = eventSchema('ui.show');
 export const FileSharedEventSchema = eventSchema('file.shared');
 export const ChapterMarkedEventSchema = eventSchema('chapter.marked');
+export const TurnWrapUpEventSchema = eventSchema('turn.wrap_up');
 export const GuardrailBlockedEventSchema = eventSchema('guardrail.blocked');
 export const VerificationUpdatedEventSchema = eventSchema('verification.updated');
 export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
@@ -738,6 +762,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   UiShowEventSchema,
   FileSharedEventSchema,
   ChapterMarkedEventSchema,
+  TurnWrapUpEventSchema,
   VerificationUpdatedEventSchema,
   AcceptanceChangedEventSchema,
   RepairUpdatedEventSchema,

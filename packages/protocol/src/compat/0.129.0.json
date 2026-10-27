@@ -14255,6 +14255,33 @@
               "resumeAt": "2026-10-12T08:05:00.000Z"
             }
           }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "修复登录",
+            "titleSource": "user",
+            "state": "idle",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12,
+            "wrapUp": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "recap": "测试全部通过。",
+              "ask": "要提交吗？",
+              "blocked": true
+            }
+          }
         }
       ]
     },
@@ -19533,6 +19560,29 @@
             "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
           }
         }
+      }
+    },
+    {
+      "seq": 109,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "turn.wrap_up",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "recap": "换算函数支持开尔文，测试全部通过。还没提交。",
+        "ask": "要提交吗？",
+        "actions": [
+          {
+            "label": "提交",
+            "message": "提交这次改动。"
+          },
+          {
+            "label": "先不",
+            "message": "先不提交，我自己看一遍。"
+          }
+        ],
+        "blocked": true
       }
     }
   ],

@@ -214,6 +214,18 @@ describe('continuesAgent', () => {
     });
     opinion.add('turn.started', { turnId: TURN });
     expect(groupTurns(opinion.project().messages).map(continuesAgent)).toEqual([false]);
+    const message = session();
+    message.turn();
+    message.say(TURN, '好。');
+    message.finish(TURN, 'completed');
+    message.add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: '帮我看看测试' }],
+      sentBy: self,
+      from: { sessionId: SES, kind: 'message' },
+    });
+    message.add('turn.started', { turnId: TURN2 });
+    expect(groupTurns(message.project().messages).map(continuesAgent)).toEqual([false, true]);
   });
 });
 

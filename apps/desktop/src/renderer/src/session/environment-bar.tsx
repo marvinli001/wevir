@@ -13,6 +13,7 @@ import {
 import { type ReactNode, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { COMPACT_DETAIL, COMPACT_ICON, COMPACT_ITEM } from '@/components/compact-menu';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import {
   DropdownMenu,
@@ -67,16 +68,17 @@ export function EnvironmentBar({
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger
-          data-testid="environment-project"
-          title={workspace?.rootPath}
-          className={cn(ITEM, TRIGGER, 'max-w-60')}
-        >
-          <Folder aria-hidden />
-          <span className={cn('truncate', !workspace && !chats && 'text-muted-foreground')}>
-            {workspace?.displayName ?? t(chats ? 'home.noProject' : 'home.chooseProject')}
-          </span>
-        </DropdownMenuTrigger>
+        <Hint label={workspace?.rootPath}>
+          <DropdownMenuTrigger
+            data-testid="environment-project"
+            className={cn(ITEM, TRIGGER, 'max-w-60')}
+          >
+            <Folder aria-hidden />
+            <span className={cn('truncate', !workspace && !chats && 'text-muted-foreground')}>
+              {workspace?.displayName ?? t(chats ? 'home.noProject' : 'home.chooseProject')}
+            </span>
+          </DropdownMenuTrigger>
+        </Hint>
         <ProjectMenuContent
           currentId={workspace?.id}
           workspaces={projectsOf(workspaces)}
@@ -87,14 +89,12 @@ export function EnvironmentBar({
         />
       </DropdownMenu>
       {environment && (
-        <span
-          className={ITEM}
-          data-testid="environment-name"
-          title={environmentSummary(environment)}
-        >
-          <Layers aria-hidden />
-          <span className="truncate">{environment.name}</span>
-        </span>
+        <Hint label={environmentSummary(environment)}>
+          <span className={ITEM} data-testid="environment-name">
+            <Layers aria-hidden />
+            <span className="truncate">{environment.name}</span>
+          </span>
+        </Hint>
       )}
       {worktree.supported ? (
         <LocationMenu choice={worktree} />
@@ -289,17 +289,18 @@ function Row({
   const className = 'flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-sm';
   if (!onClick) return <div className={className}>{content}</div>;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={cn(
-        className,
-        'outline-none transition-colors duration-150 enabled:hover:bg-muted focus-visible:focus-ring disabled:opacity-60',
-      )}
-    >
-      {content}
-    </button>
+    <Hint label={title}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          className,
+          'outline-none transition-colors duration-150 enabled:hover:bg-muted focus-visible:focus-ring disabled:opacity-60',
+        )}
+      >
+        {content}
+      </button>
+    </Hint>
   );
 }

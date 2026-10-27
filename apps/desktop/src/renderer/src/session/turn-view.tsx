@@ -12,7 +12,7 @@ import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
 import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
 import { BranchButton, useMessageActions } from './message-actions';
-import { PartsView, PendingSteerMessage, UserMessage } from './message-view';
+import { PartsView, PendingSteerMessage, RelativeTime, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
@@ -25,6 +25,8 @@ import {
 } from './turn-model';
 import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
 import { DiffStat, IssueFlags } from './work-group';
+import { WrapUpCard } from './wrap-up-card';
+import { turnWrapUp } from './wrap-up-model';
 
 const NO_STEERS: readonly PendingMessage[] = [];
 
@@ -118,6 +120,13 @@ export const TurnView = memo(
             .join('\n\n')
             .trim()
         : '';
+    // 回合末的下一步卡片（0.128.0）：agent 收尾时带了问题与按钮，画在回答与操作行下面。
+    const wrapUp = turnWrapUp(messages);
+    // 回答的时刻：回合开始加用时（插话分出的每条助手消息都带回合的开始与用时）。
+    const answeredAt =
+      fold.finished && last?.role === 'assistant' && last.startedAt && last.finished
+        ? new Date(Date.parse(last.startedAt) + last.finished.durationMs).toISOString()
+        : undefined;
     return (
       <TurnOrb value={orb}>
         <div data-turn={turnId} data-turn-folded={folded || undefined} className="group/turn">
@@ -256,8 +265,10 @@ export const TurnView = memo(
                 turnId={turnId}
                 className={cn('text-muted-foreground', answer === '' && '-ml-1')}
               />
+              {answeredAt !== undefined && <RelativeTime ts={answeredAt} />}
             </GlideGroup>
           )}
+          {fold.finished && wrapUp !== undefined && <WrapUpCard turnId={turnId} wrapUp={wrapUp} />}
         </div>
       </TurnOrb>
     );

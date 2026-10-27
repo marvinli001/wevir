@@ -112,9 +112,14 @@ export function applySessionsChange(
 
 /**
  * 会话行左侧的状态标记。`cancelling` 仍算运行中；运行中有问题等用户回答（0.10.0 的 `awaitingInput`）是等回答；只读会话与
- * 上一回合失败（idle 下有 lastError）算出错。
+ * 上一回合失败（idle 下有 lastError）算出错；空闲时 agent 收尾说不等答复做不下去（0.128.0 的 `wrapUp.blocked`）是等决定。
  */
-export type SessionMarker = 'running' | 'awaiting_approval' | 'awaiting_input' | 'error';
+export type SessionMarker =
+  | 'running'
+  | 'awaiting_approval'
+  | 'awaiting_input'
+  | 'awaiting_decision'
+  | 'error';
 
 export function sessionMarker(session: Session): SessionMarker | undefined {
   switch (session.state) {
@@ -127,7 +132,8 @@ export function sessionMarker(session: Session): SessionMarker | undefined {
     case 'error':
       return 'error';
     case 'idle':
-      return session.lastError || session.readOnly ? 'error' : undefined;
+      if (session.lastError || session.readOnly) return 'error';
+      return session.wrapUp?.blocked ? 'awaiting_decision' : undefined;
     case 'closed':
       return session.readOnly ? 'error' : undefined;
   }
@@ -145,7 +151,7 @@ export interface StatusRow {
 }
 
 export interface StatusGroups {
-  /** 等审批、等回答、出错。 */
+  /** 等审批、等回答、等决定、出错。 */
   needsYou: StatusRow[];
   running: StatusRow[];
   /** 空闲、最近 `completedDays` 天有活动的。 */

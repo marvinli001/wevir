@@ -48,10 +48,16 @@ const BUDGETS: Record<string, { tools: number; instructions: number }> = {
   worker: { tools: 91_200, instructions: 3_600 },
 };
 
-/** 常驻层（`toolTier` 为 core 的工具）的 MCP 原形字节：工具搜索打开时首个请求里只有它们。2026-10-25 实测 20,023。 */
-const RESIDENT_MAX_BYTES = 21_000;
-/** 没有自带工具搜索的引擎（OpenCode）登记的：常驻层加上搜索与两个分发工具（2026-10-25 实测 20 个、21,810 字节）。 */
-const DISPATCH_MAX_BYTES = 23_000;
+/**
+ * 常驻层（`toolTier` 为 core 的工具）的 MCP 原形字节：工具搜索打开时首个请求里只有它们。2026-10-25 实测 20,023；2026-10-27
+ * 回合收尾的 `wevir_wrap_up`（0.128.0，每个干活的回合都要调，不能按需加载）进常驻层，多 1,259，预算从 21,000 提到 22,000。
+ */
+const RESIDENT_MAX_BYTES = 22_000;
+/**
+ * 没有自带工具搜索的引擎（OpenCode）登记的：常驻层加上搜索与两个分发工具（2026-10-25 实测 20 个、21,810 字节；2026-10-27 加
+ * `wevir_wrap_up` 后 23,627，预算从 23,000 提到 24,000）。
+ */
+const DISPATCH_MAX_BYTES = 24_000;
 
 const tempDir = useTempDir();
 const storages = useStorages();

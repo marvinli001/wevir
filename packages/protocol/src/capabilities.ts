@@ -520,6 +520,11 @@ export const HOST_FEATURES = {
    */
   iosSimulator: 'ios_simulator',
   /**
+   * 回合末的下一步卡片（0.128.0，domain-model §3.15.10）：应用级工具里有 `wevir_wrap_up`，会话的流里有 `turn.wrap_up` 事件，`Session`
+   * 有 `wrapUp`。有应用级工具时声明（同 `app_tools`）。
+   */
+  turnWrapUp: 'turn_wrap_up',
+  /**
    * 预先启动引擎（0.129.0）：`provider.prewarm`。新会话页选中某个 Provider 时客户端调用，承载它的引擎有冷启动（ACP 运行体）时
    * Host 先把进程拉起来，第一条消息不再等它。Host 有能预先启动的引擎时声明。
    */
@@ -628,6 +633,7 @@ export const HostFeaturesSchema = z.looseObject({
   channels: z.boolean().optional(),
   channel_schedules: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
+  turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;

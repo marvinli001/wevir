@@ -34,6 +34,14 @@ export interface MessageActions {
     armed?: SessionAutoContinue;
     set(turnId: TurnId, enabled: boolean): Promise<void>;
   };
+  /**
+   * 回合末的下一步卡片（0.128.0）：`lastTurnId` 是会话空闲时的最后一个回合（只有它的卡片能点），`send` 以用户身份发出按钮的消息，
+   * 成功时 `true`（失败的提示由会话视图显示）。会话不可写时没有。
+   */
+  wrapUp?: {
+    lastTurnId?: TurnId;
+    send(message: string): Promise<boolean>;
+  };
 }
 
 const NO_ACTIONS: MessageActions = {};

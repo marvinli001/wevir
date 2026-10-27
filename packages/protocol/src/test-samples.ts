@@ -2508,6 +2508,28 @@ export const eventPayloads: PayloadSamples = {
     valid: { title: '实现', summary: '按计划改协议、Host 与桌面端', turnId: ids.turn },
     invalid: { title: '' },
   },
+  'turn.wrap_up': {
+    valid: {
+      turnId: ids.turn,
+      recap: '换算函数支持开尔文，测试全部通过。还没提交。',
+      ask: '要提交吗？',
+      actions: [
+        { label: '提交', message: '提交这次改动。' },
+        { label: '先不', message: '先不提交，我自己看一遍。' },
+      ],
+      blocked: true,
+    },
+    invalid: {
+      turnId: ids.turn,
+      recap: '已完成。',
+      ask: '选哪个？',
+      actions: [
+        { label: 'A', message: 'a' },
+        { label: 'B', message: 'b' },
+        { label: 'C', message: 'c' },
+      ],
+    },
+  },
   'verification.updated': {
     valid: { run: verificationRun },
     invalid: { run: { ...verificationRun, status: 'green' } },
@@ -5389,8 +5411,19 @@ export const methodSamples: MethodSamples = {
             autoContinue: { turnId: ids.turn, resumeAt: TS2 },
           },
         },
+        {
+          session: {
+            ...session,
+            state: 'idle',
+            activeTurn: undefined,
+            wrapUp: { turnId: ids.turn, recap: '测试全部通过。', ask: '要提交吗？', blocked: true },
+          },
+        },
       ],
-      invalid: [{ session: { ...session, autoContinue: { turnId: ids.turn } } }],
+      invalid: [
+        { session: { ...session, autoContinue: { turnId: ids.turn } } },
+        { session: { ...session, wrapUp: { turnId: ids.turn, recap: '', blocked: false } } },
+      ],
     },
   },
   'session.compact': {

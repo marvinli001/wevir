@@ -40,6 +40,7 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
   wevir_show: 'workbench',
   wevir_share_file: 'workbench',
   wevir_mark_chapter: 'workbench',
+  wevir_wrap_up: 'workbench',
   wevir_report_findings: 'workbench',
   wevir_plugins_list: 'plugins',
   wevir_plugin_install: 'plugins',
@@ -165,6 +166,7 @@ export const CORE_TIER_TOOLS: readonly string[] = [
   'wevir_memory_save',
   'wevir_show',
   'wevir_share_file',
+  'wevir_wrap_up',
   'wevir_process_start',
   'wevir_process_output',
 ];

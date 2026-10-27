@@ -75,6 +75,7 @@ import type {
   VerificationRunId,
   WevirEvent,
   WevirEventOf,
+  WrapUpAction,
 } from '@wevir/protocol';
 import {
   PROMPT_SUGGESTION_VOIDING_EVENTS,
@@ -353,6 +354,20 @@ export interface AssistantChatMessage extends MessageBase {
   startedAt?: IsoTime;
   /** 回合结束后有。 */
   finished?: { outcome: TurnOutcome; durationMs: number };
+  /**
+   * 0.128.0：回合收尾（`turn.wrap_up`，同一回合后一条为准），挂在写它时这个回合当前的助手消息上；之后有插话时去掉（同
+   * `Session.wrapUp`）。界面在这条消息的回答下面画下一步卡片（有 `ask` 时）。
+   */
+  wrapUp?: TranscriptWrapUp;
+}
+
+/** `AssistantChatMessage.wrapUp`（0.128.0）：`turn.wrap_up` 的内容与它的 `seq`。 */
+export interface TranscriptWrapUp {
+  seq: number;
+  recap: string;
+  ask?: string;
+  actions?: readonly WrapUpAction[];
+  blocked?: true;
 }
 
 /** 不属于回合的提示与错误（如引擎在空闲时退出、resume 失败）。 */
@@ -486,6 +501,7 @@ interface MutableMessage {
   ts?: IsoTime;
   startedAt?: IsoTime;
   finished?: { outcome: TurnOutcome; durationMs: number };
+  wrapUp?: TranscriptWrapUp;
   /** 上一次快照里的对象；改动后清空。 */
   snapshot: ChatMessage | undefined;
 }
@@ -890,6 +906,13 @@ export class TranscriptProjection {
           files: event.payload.files,
         });
         return;
+      case 'turn.wrap_up': {
+        const { turnId, ...wrapUp } = event.payload;
+        const message = this.#assistant(turnId, event.seq);
+        this.#dropWrapUp(turnId);
+        message.wrapUp = { seq: event.seq, ...wrapUp };
+        return;
+      }
       case 'chapter.marked': {
         const { title, summary } = event.payload;
         this.#target(event.payload.turnId, event.seq).parts.push({
@@ -989,6 +1012,16 @@ export class TranscriptProjection {
     return message;
   }
 
+  /** 去掉回合里各条助手消息上的回合收尾（0.128.0）：又来了一条，或用户插了话。 */
+  #dropWrapUp(turnId: TurnId): void {
+    for (const segment of this.#turn(turnId).segments) {
+      if (segment.wrapUp === undefined) continue;
+      segment.wrapUp = undefined;
+      segment.snapshot = undefined;
+      this.#dirty = true;
+    }
+  }
+
   #touch(message: MutableMessage, seq: number): MutableMessage {
     message.snapshot = undefined;
     message.lastSeq = seq;
@@ -1028,6 +1061,7 @@ export class TranscriptProjection {
   #steered(event: WevirEventOf<'user.steered'>): void {
     const { turnId, pendingId, content, sentBy, clientMessageId, from } = event.payload;
     const turn = this.#turn(turnId);
+    this.#dropWrapUp(turnId);
     this.#push({
       role: 'user',
       id: `${turnId}:steer:${pendingId}`,
@@ -1785,6 +1819,7 @@ function freeze(message: MutableMessage): ChatMessage {
         turnId: message.turnId as TurnId,
         ...(message.startedAt && { startedAt: message.startedAt }),
         ...(message.finished && { finished: message.finished }),
+        ...(message.wrapUp && { wrapUp: message.wrapUp }),
       };
     case 'system':
       return { ...base, role: 'system' };

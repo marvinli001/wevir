@@ -453,6 +453,46 @@ export const SessionAutoContinueSchema = z.object({
 });
 export type SessionAutoContinue = z.infer<typeof SessionAutoContinueSchema>;
 
+/** 回合末的下一步卡片（0.128.0，`turn.wrap_up`）的上限，按码点；schema 按 UTF-16 计长，放宽到两倍。 */
+export const WRAP_UP_RECAP_MAX_LENGTH = 400;
+export const WRAP_UP_ASK_MAX_LENGTH = 120;
+export const WRAP_UP_ACTIONS_MAX = 2;
+export const WRAP_UP_LABEL_MAX_LENGTH = 24;
+export const WRAP_UP_MESSAGE_MAX_LENGTH = 500;
+
+/** 下一步卡片上的一个按钮（0.128.0）：`label` 是按钮字，点了以用户身份发出 `message`。第一个是 agent 的推荐。 */
+export const WrapUpActionSchema = z.object({
+  label: z
+    .string()
+    .min(1)
+    .max(WRAP_UP_LABEL_MAX_LENGTH * 2),
+  message: z
+    .string()
+    .min(1)
+    .max(WRAP_UP_MESSAGE_MAX_LENGTH * 2),
+});
+export type WrapUpAction = z.infer<typeof WrapUpActionSchema>;
+
+/**
+ * 会话最近一次回合收尾（0.128.0，Host 功能 `turn_wrap_up`，最近一次 `turn.wrap_up`）：`recap` 两三句说现在的情况，`ask` 是等用户
+ * 做的一个决定，`blocked` 表示不等答复做不下去（侧栏放进“需要你”）。不带按钮，按钮只在事件里。会话开始新的回合、用户发了消息、
+ * 这个回合被撤销或撤回时作废。
+ */
+export const SessionWrapUpSchema = z.object({
+  turnId: TurnIdSchema,
+  recap: z
+    .string()
+    .min(1)
+    .max(WRAP_UP_RECAP_MAX_LENGTH * 2),
+  ask: z
+    .string()
+    .min(1)
+    .max(WRAP_UP_ASK_MAX_LENGTH * 2)
+    .optional(),
+  blocked: z.literal(true).optional(),
+});
+export type SessionWrapUp = z.infer<typeof SessionWrapUpSchema>;
+
 // ── 工具展示、输出、待办 ────────────────────────────────────────────────
 
 export const ToolDisplayKindSchema = z.enum([
@@ -2067,6 +2107,8 @@ export const SessionSchema = z.object({
   goal: SessionGoalSchema.optional(),
   /** 额度恢复后自动继续（0.119.0，最近一次 `session.auto_continue`）；没开、已关、已发出或有了新的回合时省略。 */
   autoContinue: SessionAutoContinueSchema.optional(),
+  /** 最近一次回合收尾（0.128.0，`turn.wrap_up`）；新的回合开始、用户发了消息、那个回合被撤销或撤回时省略。 */
+  wrapUp: SessionWrapUpSchema.optional(),
   /** 这个会话当前的来源加载的规则文件（0.68.0，最近一次 `session.rules`）；Host 没记过时省略。 */
   rules: SessionRulesSchema.optional(),
   /**

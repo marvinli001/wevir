@@ -91,31 +91,6 @@ export function groupSubagents(subagents: readonly SubagentSummary[]): SubagentG
   };
 }
 
-/**
- * “后台任务”的“清除已完成”（desktop-layout.md §15）：记下当时已结束的里最晚的结束时刻（Host 的时钟），之后列表只留运行中的
- * 与在那之后结束的。只是不显示，记录还在；又被父 agent 叫醒、再结束的重新出现。没有已结束的时返回 undefined。
- */
-export function clearMark(subagents: readonly SubagentSummary[]): string | undefined {
-  let mark: string | undefined;
-  for (const summary of subagents) {
-    if (summary.status === 'running') continue;
-    const at = lastActivity(summary);
-    if (mark === undefined || at > mark) mark = at;
-  }
-  return mark;
-}
-
-export function withoutCleared(
-  subagents: readonly SubagentSummary[],
-  mark: string | undefined,
-): readonly SubagentSummary[] {
-  if (mark === undefined) return subagents;
-  const kept = subagents.filter(
-    (summary) => summary.status === 'running' || lastActivity(summary) > mark,
-  );
-  return kept.length === subagents.length ? subagents : kept;
-}
-
 /** 相对时间（截图 03 的“1 小时前”）：不到一分钟是“刚刚”，再往后是分钟、小时、天。 */
 export function formatRelativeTime(iso: string, now: number): string {
   const ms = now - Date.parse(iso);
@@ -129,12 +104,15 @@ export function formatRelativeTime(iso: string, now: number): string {
 
 // ── 父会话的消息流 ──────────────────────────────────────────────────
 
-/** 标章节的工具调用（0.82.0）：成功的不画，紧跟着的分隔线就是它的结果。 */
+/**
+ * 标章节（0.82.0）与回合收尾（0.128.0）的工具调用：成功的不画，分隔线与回答下面的下一步卡片就是它们的结果（只有回顾的收尾
+ * 没有卡片，回顾给离开后摘要与提醒用）。
+ */
 function isChapterCall(part: ChatPart): boolean {
   return (
     part.type === 'tool' &&
     part.status === 'completed' &&
-    part.toolName.endsWith('wevir_mark_chapter')
+    (part.toolName.endsWith('wevir_mark_chapter') || part.toolName.endsWith('wevir_wrap_up'))
   );
 }
 
@@ -143,7 +121,7 @@ function isChapterCall(part: ChatPart): boolean {
  * 已完成”两行取代了它们。规则不认引擎的工具名：
  * - 派出了某个子会话的那次调用（`subagent` 部件的 `parentToolCallId`）总是藏起来；
  * - 会话有子会话时，其余的 `sub_agent` 调用也藏起来，失败的除外（失败的调用没有对应的子会话，卡片是唯一的线索）。
- * 没有子会话的会话（dsh 等引擎的子 agent 只是一次工具调用）照常显示卡片。另外成功标了章节的调用（0.82.0）也藏起来。
+ * 没有子会话的会话（dsh 等引擎的子 agent 只是一次工具调用）照常显示卡片。另外成功标了章节的调用（0.82.0）与成功的回合收尾（0.128.0）也藏起来。
  */
 export function visibleParts(
   parts: readonly ChatPart[],

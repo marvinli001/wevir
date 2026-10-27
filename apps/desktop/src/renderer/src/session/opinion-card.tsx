@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, MessagesSquare } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { sourceOf } from '@/data/sources';
@@ -103,9 +104,9 @@ export function OpinionCard({ part }: { part: ChatPartOf<'opinion'> }) {
       {(opinion.status === 'ready' || reviewer !== undefined || error !== undefined) && (
         <footer className="flex min-h-10 items-center gap-2 border-t border-border px-3 py-1.5">
           {error !== undefined && (
-            <p className="min-w-0 flex-1 truncate text-xs text-destructive" title={error}>
-              {error}
-            </p>
+            <Hint label={error} whenClipped>
+              <p className="min-w-0 flex-1 truncate text-xs text-destructive">{error}</p>
+            </Hint>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {origin && reviewer && (
@@ -204,15 +205,14 @@ export function OpinionQuote({ message }: { message: UserChatMessage }) {
           {quoted.note}
         </div>
       )}
-      <span
-        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
-        title={text}
-      >
-        <MessagesSquare aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">
-          {reviewer ? t('transcript.opinionQuote', { model: label }) : t('opinion.title')}
+      <Hint label={text}>
+        <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground">
+          <MessagesSquare aria-hidden className="size-4 shrink-0" />
+          <span className="truncate">
+            {reviewer ? t('transcript.opinionQuote', { model: label }) : t('opinion.title')}
+          </span>
         </span>
-      </span>
+      </Hint>
     </div>
   );
 }

@@ -4093,6 +4093,29 @@ const standaloneCases: Case[] = [
     invalid: [{ ...sessionRetro.turns[0], kind: 'agent' }],
   },
   {
+    name: 'WrapUpAction',
+    schema: protocol.WrapUpActionSchema,
+    valid: [{ label: '提交', message: '提交这次改动。' }],
+    invalid: [{ label: '', message: '提交' }, { label: '提交' }],
+  },
+  {
+    name: 'SessionWrapUp',
+    schema: protocol.SessionWrapUpSchema,
+    valid: [
+      { turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR', recap: '测试全部通过。' },
+      {
+        turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        recap: '还没提交。',
+        ask: '要提交吗？',
+        blocked: true,
+      },
+    ],
+    invalid: [
+      { turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR', recap: '' },
+      { turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR', recap: '好了。', blocked: false },
+    ],
+  },
+  {
     name: 'RetroChapter',
     schema: protocol.RetroChapterSchema,
     valid: sessionRetro.chapters ?? [],

@@ -106,6 +106,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.files[0]?.name ?? '';
     case 'chapter.marked':
       return event.payload.title;
+    case 'turn.wrap_up':
+      return event.payload.ask ?? event.payload.recap;
     case 'verification.updated':
       return event.payload.run.status;
     case 'acceptance.changed':

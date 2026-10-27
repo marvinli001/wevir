@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import { Check, Folder, Plus } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useRef } from 'react';
+import { Hint } from '@/components/hint';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isChats, projectsOf, recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceManagement } from '@/data/workspace-actions';
@@ -78,23 +79,24 @@ export function NewSessionHero({
               const isCurrent = workspace.id === current?.workspace.id;
               return (
                 <li key={workspace.id}>
-                  <button
-                    type="button"
-                    aria-current={isCurrent || undefined}
-                    title={workspace.rootPath}
-                    onClick={() => onSelect(workspace.id)}
-                    className={row}
-                  >
-                    <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="shrink-0">{workspace.displayName}</span>
-                    <span
-                      dir="rtl"
-                      className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground"
+                  <Hint label={workspace.rootPath}>
+                    <button
+                      type="button"
+                      aria-current={isCurrent || undefined}
+                      onClick={() => onSelect(workspace.id)}
+                      className={row}
                     >
-                      <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
-                    </span>
-                    {isCurrent && <Check aria-hidden className="size-4 shrink-0" />}
-                  </button>
+                      <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="shrink-0">{workspace.displayName}</span>
+                      <span
+                        dir="rtl"
+                        className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground"
+                      >
+                        <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
+                      </span>
+                      {isCurrent && <Check aria-hidden className="size-4 shrink-0" />}
+                    </button>
+                  </Hint>
                 </li>
               );
             })}

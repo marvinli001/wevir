@@ -6,6 +6,7 @@ import { cn } from 'cn';
 import { ChevronRight, ShieldAlert } from 'lucide-react';
 import { useId } from 'react';
 import { Collapse } from '@/components/collapse';
+import { Hint } from '@/components/hint';
 import { type PlainMessageKey, t } from '@/i18n';
 import { guardrailKindName } from '@/tuning/guardrails-model';
 import { useFold } from './fold-state';
@@ -48,9 +49,11 @@ export function GuardrailPart({ part }: { part: ChatPartOf<'guardrail'> }) {
         <span className={cn('shrink-0', ACTION_TONES[blocked.action])}>{action}</span>
         <span className="shrink-0">{guardrailKindName(blocked.kind)}</span>
         {target !== undefined && (
-          <code className="min-w-0 truncate font-mono text-xs text-soft-foreground" title={target}>
-            {target}
-          </code>
+          <Hint label={target} whenClipped>
+            <code className="min-w-0 truncate font-mono text-xs text-soft-foreground">
+              {target}
+            </code>
+          </Hint>
         )}
         {attempt !== undefined && <span className="shrink-0 text-xs tabular-nums">{attempt}</span>}
         {hasDetail && (
