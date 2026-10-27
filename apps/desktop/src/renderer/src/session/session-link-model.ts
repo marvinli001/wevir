@@ -29,7 +29,7 @@ export function findSession(data: WorkbenchData, id: string | undefined): Sessio
   return undefined;
 }
 
-/** 悬停卡片第一行的状态：运行中、待审批、待回答、出错，其余是空闲。 */
+/** 悬停卡片第一行的状态：运行中、待审批、待回答、待决定、出错，其余是空闲。 */
 export function sessionStatus(session: Session): { tone: StatusTone; label: string } {
   switch (sessionMarker(session)) {
     case 'running':
@@ -38,6 +38,8 @@ export function sessionStatus(session: Session): { tone: StatusTone; label: stri
       return { tone: 'warning', label: t('session.marker.awaitingApproval') };
     case 'awaiting_input':
       return { tone: 'warning', label: t('session.marker.awaitingInput') };
+    case 'awaiting_decision':
+      return { tone: 'warning', label: t('session.marker.awaitingDecision') };
     case 'error':
       return { tone: 'danger', label: t('session.marker.error') };
     case undefined:
