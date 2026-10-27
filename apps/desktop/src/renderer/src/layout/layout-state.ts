@@ -167,12 +167,16 @@ function subscribeResize(listener: () => void): () => void {
   return () => window.removeEventListener('resize', listener);
 }
 
+// 量根元素而不是 window.innerWidth / innerHeight：手机浏览器里有东西横向溢出时页面会缩小去装下它，innerWidth 跟着变大
+// （375 宽的屏幕上量到过 900 多），侧栏就停靠下来、把主窗格挤到几十像素；根元素的 clientWidth 仍是屏幕本来的宽，双指缩放
+// 也不变。桌面端根元素不滚动，两者相同。
+
 /** 视口宽度（CSS px）。界面缩放时也会变。 */
 export function useViewportWidth(): number {
-  return useSyncExternalStore(subscribeResize, () => window.innerWidth);
+  return useSyncExternalStore(subscribeResize, () => document.documentElement.clientWidth);
 }
 
 /** 视口高度（CSS px），浮层的高。 */
 export function useViewportHeight(): number {
-  return useSyncExternalStore(subscribeResize, () => window.innerHeight);
+  return useSyncExternalStore(subscribeResize, () => document.documentElement.clientHeight);
 }
