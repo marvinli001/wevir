@@ -343,6 +343,53 @@ describe('工作组的摘要：文件名与思考（U16）', () => {
   });
 });
 
+describe('会话工具（照 Claude Code 2026-10-27）', () => {
+  const session = (id: string, name: string, input: unknown, output?: string) =>
+    tool(id, 'unknown', {
+      toolName: `mcp__wevir__wevir_session_${name}`,
+      input,
+      ...(output !== undefined && { output: { text: output } }),
+    });
+
+  it('发消息、开会话、查看会话各自计数，按会话去重；列出会话仍算普通工具', () => {
+    const tally = tallyWork(
+      [
+        session('1', 'send', { sessionId: 'ses_a', message: 'x' }),
+        session('2', 'send', { sessionId: 'ses_b', message: 'y' }),
+        session('3', 'send', { sessionId: 'ses_a', message: 'z' }),
+        session('4', 'wait', { sessionId: 'ses_a' }),
+        session('5', 'progress', { sessionId: 'ses_b' }),
+        session('6', 'list', {}),
+      ],
+      false,
+    );
+    expect(workSummary(tally)).toBe('给 2 个会话发了消息，查看了 2 个会话，调用了 1 个工具');
+  });
+
+  it('只涉及一个会话时写出它（开会话的 ID 在结果里，标题在输入里）', () => {
+    const tally = tallyWork(
+      [
+        session(
+          '1',
+          'create',
+          { message: 'x', title: '修复登录' },
+          JSON.stringify({ sessionId: 'ses_new', title: '' }),
+        ),
+      ],
+      false,
+    );
+    const [part] = workSummaryParts(tally);
+    expect(part).toEqual({ text: '开了', session: { sessionId: 'ses_new', title: '修复登录' } });
+    expect(workSummary(tally)).toBe('开了 修复登录');
+  });
+
+  it('逐条：“已发消息”加会话；找不到目标时同普通工具', () => {
+    const line = toolLine(session('1', 'send', { sessionId: 'ses_a', message: 'x' }), false);
+    expect(line).toMatchObject({ label: '已发消息', session: { sessionId: 'ses_a' } });
+    expect(toolLine(session('2', 'send', {}), false).session).toBeUndefined();
+  });
+});
+
 describe('逐条的一行', () => {
   it('按状态写成“已运行 / 正在运行 / 等待审批：运行 / 运行失败 / 运行被拒绝 / 已取消运行 / 运行状态未知”', () => {
     const shell = (extra: Partial<ToolPart>) =>

@@ -82,19 +82,23 @@ export function SessionPreview({
   );
 }
 
-/** 会话胶囊：`children` 省略时写会话标题。会话不在列表里时退成普通文字。 */
+/**
+ * 会话胶囊：`children` 省略时写会话标题。会话不在列表里时退成普通文字（`fallback`，省略时同 `children` 或“未命名会话”）。
+ */
 export function SessionLink({
   sessionId,
   children,
+  fallback,
   className,
 }: {
   sessionId: SessionId;
   children?: ReactNode;
+  fallback?: ReactNode;
   className?: string;
 }) {
   const entry = useSessionEntry(sessionId);
   const label = children ?? (entry?.session.title || t('session.untitled'));
-  if (!entry) return <span className={className}>{label}</span>;
+  if (!entry) return <span className={className}>{fallback ?? label}</span>;
   return (
     <SessionPreview
       entry={entry}

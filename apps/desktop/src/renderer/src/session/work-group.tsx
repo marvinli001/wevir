@@ -1,9 +1,10 @@
-import type { ToolDisplayKind } from '@wevir/protocol';
+import type { SessionId, ToolDisplayKind } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   Bot,
   Bug,
   ChevronRight,
+  Eye,
   FilePen,
   FileText,
   Globe,
@@ -11,7 +12,9 @@ import {
   Lightbulb,
   ListTodo,
   type LucideIcon,
+  MessageSquarePlus,
   Search,
+  Send,
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
@@ -33,6 +36,7 @@ import { useFold } from './fold-state';
 import { formatJson } from './format';
 import { AWAITING_PILL, LiveIndicator, type LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
+import { SessionLink, useSessionEntry } from './session-link';
 import { ToolDetails } from './tool-details';
 import {
   currentAction,
@@ -43,6 +47,8 @@ import {
   type LineStats,
   outputSummary,
   rawLine,
+  type SessionToolKind,
+  sessionToolKind,
   tallyWork,
   thoughtLine,
   toolLine,
@@ -63,6 +69,12 @@ const KIND_ICONS: Record<ToolDisplayKind, LucideIcon> = {
   sub_agent: Bot,
   image: ImageIcon,
   unknown: Wrench,
+};
+
+const SESSION_ICONS: Record<SessionToolKind, LucideIcon> = {
+  session_send: Send,
+  session_create: MessageSquarePlus,
+  session_read: Eye,
 };
 
 const LINE_TONES: Record<WorkLineView['tone'], string> = {
@@ -275,8 +287,25 @@ function SummaryText({ tally }: { tally: ReturnType<typeof tallyWork> }) {
               {part.after && ` ${part.after}`}
             </>
           )}
+          {part.session && (
+            <>
+              {part.text && ' '}
+              <SummarySession {...part.session} />
+              {part.after && ` ${part.after}`}
+            </>
+          )}
         </Fragment>
       ))}
+    </span>
+  );
+}
+
+/** 摘要里的会话：在按钮里，不是链接，写会话列表里的标题（找不到时用工具输入里的标题）。 */
+function SummarySession({ sessionId, title }: { sessionId: string; title?: string }) {
+  const session = useSessionEntry(sessionId as SessionId)?.session;
+  return (
+    <span className="text-foreground" data-summary-session={sessionId}>
+      {session?.title || title || t('session.untitled')}
     </span>
   );
 }
@@ -314,7 +343,8 @@ function WorkLine({
         ? Bug
         : isWebSearch(entry)
           ? Globe
-          : KIND_ICONS[entry.display.kind];
+          : (SESSION_ICONS[sessionToolKind(entry) as SessionToolKind] ??
+            KIND_ICONS[entry.display.kind]);
   const stats = entry.type === 'tool' && view.tone === 'done' ? editStats(entry) : undefined;
   const hasDetail = entry.type !== 'reasoning' || entry.text.trim() !== '';
   // 失败与被拒绝的那条醒目标出：标签用失败色，下面带结果的第一行。
@@ -322,37 +352,48 @@ function WorkLine({
     entry.type === 'tool' && view.tone === 'failed' ? outputSummary(entry) : undefined;
   return (
     <li data-work-line={view.tone} className={cn('shrink-0', entering && 'rise-in')}>
-      <button
-        type="button"
-        aria-expanded={hasDetail ? open : undefined}
-        aria-controls={hasDetail ? id : undefined}
-        disabled={!hasDetail}
-        onClick={() => setOpen(!open)}
-        className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
-      >
-        <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
-        <span className={cn('shrink-0', LINE_TONES[view.tone])}>{view.label}</span>
-        {view.target && (
-          <code
-            className="min-w-0 truncate font-mono text-xs text-soft-foreground"
-            title={view.targetTitle}
-          >
-            {view.target}
-          </code>
-        )}
-        {stats && <DiffStat stats={stats} />}
-        {view.duration && (
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-            {view.duration}
-          </span>
-        )}
-        {hasDetail && (
-          <ChevronRight
-            aria-hidden
-            className={cn('size-3 shrink-0 opacity-70 transition-transform', open && 'rotate-90')}
-          />
-        )}
-      </button>
+      {view.session ? (
+        <SessionWorkLine
+          view={view}
+          icon={Icon}
+          open={open}
+          hasDetail={hasDetail}
+          detailId={id}
+          onToggle={() => setOpen(!open)}
+        />
+      ) : (
+        <button
+          type="button"
+          aria-expanded={hasDetail ? open : undefined}
+          aria-controls={hasDetail ? id : undefined}
+          disabled={!hasDetail}
+          onClick={() => setOpen(!open)}
+          className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
+        >
+          <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
+          <span className={cn('shrink-0', LINE_TONES[view.tone])}>{view.label}</span>
+          {view.target && (
+            <code
+              className="min-w-0 truncate font-mono text-xs text-soft-foreground"
+              title={view.targetTitle}
+            >
+              {view.target}
+            </code>
+          )}
+          {stats && <DiffStat stats={stats} />}
+          {view.duration && (
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {view.duration}
+            </span>
+          )}
+          {hasDetail && (
+            <ChevronRight
+              aria-hidden
+              className={cn('size-3 shrink-0 opacity-70 transition-transform', open && 'rotate-90')}
+            />
+          )}
+        </button>
+      )}
       {problem && !open && (
         <p className="ml-5.5 truncate font-mono text-xs text-destructive">{problem}</p>
       )}
@@ -376,5 +417,62 @@ function WorkLine({
         </div>
       </Collapse>
     </li>
+  );
+}
+
+/**
+ * 会话工具的一行（照 Claude Code 的“已发消息 〈会话〉 ▸”）：目标是会话胶囊，能悬停看卡片、点开会话，所以放在展开按钮外面；
+ * 后面的箭头是同一个展开按钮的一部分（读屏只读前面那个）。
+ */
+function SessionWorkLine({
+  view,
+  icon: Icon,
+  open,
+  hasDetail,
+  detailId,
+  onToggle,
+}: {
+  view: WorkLineView;
+  icon: LucideIcon;
+  open: boolean;
+  hasDetail: boolean;
+  detailId: string;
+  onToggle: () => void;
+}) {
+  const session = view.session;
+  return (
+    <div className="flex min-h-6 min-w-0 items-center gap-2 text-sm text-muted-foreground">
+      <button
+        type="button"
+        aria-expanded={hasDetail ? open : undefined}
+        aria-controls={hasDetail ? detailId : undefined}
+        disabled={!hasDetail}
+        onClick={onToggle}
+        className="flex shrink-0 items-center gap-2 rounded-lg text-left outline-none enabled:hover:text-foreground focus-visible:focus-ring"
+      >
+        <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
+        <span className={LINE_TONES[view.tone]}>{view.label}</span>
+      </button>
+      {session && (
+        <SessionLink
+          sessionId={session.sessionId as SessionId}
+          fallback={view.target}
+          className="min-w-0 truncate text-xs"
+        />
+      )}
+      {hasDetail && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          onClick={onToggle}
+          className="flex size-4 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground"
+        >
+          <ChevronRight
+            className={cn('size-3 opacity-70 transition-transform', open && 'rotate-90')}
+          />
+        </button>
+      )}
+    </div>
   );
 }

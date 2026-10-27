@@ -5,22 +5,24 @@ import type {
   UserChatMessage,
   UserTextSegment,
 } from '@wevir/client-sdk';
-import type { MessageFrom, PendingMessage, TurnCommand } from '@wevir/protocol';
+import type { PendingMessage, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ArrowLeftRight,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   ClipboardList,
   FoldVertical,
   Info,
+  MessagesSquare,
   Reply,
   ScanSearch,
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import { memo, useLayoutEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { GoalIcon } from '@/components/command-icons';
 import { GlideGroup } from '@/components/glide';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -28,7 +30,6 @@ import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
-import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import { lineCount } from './composer-pastes';
 import { CopyButton } from './copy-button';
@@ -45,9 +46,10 @@ import { EditButton, UserMessageEditor, useMessageActions } from './message-acti
 import { OpinionCard, OpinionQuote } from './opinion-card';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
+import { SessionLink, useSessionEntry } from './session-link';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
-import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
+import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
 import { groupWork, isImageTool } from './tool-model';
 import { RetryRow, UsageLimitCard } from './usage-limit-card';
 import { WorkGroup } from './work-group';
@@ -68,7 +70,9 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.from?.opinion !== undefined) return <OpinionQuote message={message} />;
   // 额度恢复后 Host 替用户发的继续消息（0.119.0）不显示：额度卡片上写着已自动继续。
   if (message.from?.usageLimit !== undefined) return null;
-  if (message.from?.kind === 'report') return <SessionReport message={message} />;
+  if (message.from?.kind === 'report' || message.from?.kind === 'message') {
+    return <RelayedMessage message={message} />;
+  }
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
@@ -104,7 +108,6 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
           {t('transcript.fromParentAgent')}
         </span>
       )}
-      {message.from?.kind === 'message' && <FromSession from={message.from} />}
       {message.trigger === 'goal' && (
         <span className="mt-1 text-xs text-muted-foreground" data-goal>
           {t('command.goal')}
@@ -266,69 +269,112 @@ function MessageTime({ ts }: { ts: string }) {
   );
 }
 
-/** 别的会话里的 agent 发来的消息（0.30.0）：气泡下方注明来自哪个会话，点它打开那个会话。 */
-function FromSession({ from }: { from: MessageFrom }) {
-  const sessions = useSessions();
-  const source = sessions.get(from.sessionId);
-  const label = t('transcript.fromSession', {
-    title: source?.title || t('session.untitled'),
-  });
-  return (
-    <span className="mt-1 text-xs text-muted-foreground" data-from-session={from.sessionId}>
-      {source ? (
-        <Link
-          to={paths.session(source.workspaceId, source.id)}
-          className="rounded-sm outline-none hover:text-foreground focus-visible:focus-ring"
-        >
-          {label}
-        </Link>
-      ) : (
-        label
-      )}
-    </span>
-  );
-}
-
 /**
- * 别的会话回报的结果（0.30.0）：Host 发给模型的回报正文不显示成用户气泡，同建议任务的回报标记一行“〈会话〉的回报”，悬停看
- * 全文，点它打开那个会话。
+ * 别的会话发来的消息与回报（0.30.0；照 Claude Code 桌面端 2026-10-27 改成左侧卡片）：头部“来自另一个会话的消息”或“〈会话〉的回报”，
+ * 点它收起；下面一行“来自：〈会话胶囊〉”，再下面是 Markdown 正文，超过约 8 行时收起，“显示更多”展开。不是用户写的，不画成右侧气泡。
  */
-function SessionReport({ message }: { message: UserChatMessage }) {
-  const sessions = useSessions();
-  const sessionId = message.from?.sessionId;
-  const source = sessionId === undefined ? undefined : sessions.get(sessionId);
+function RelayedMessage({ message }: { message: UserChatMessage }) {
+  const [open, setOpen] = useState(true);
+  const id = useId();
+  const from = message.from;
+  const source = useSessionEntry(from?.sessionId)?.session;
+  if (from === undefined) return null;
+  const report = from.kind === 'report';
   const text = message.parts
     .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join('\n');
-  const className =
-    'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground outline-none';
-  const content = (
-    <>
-      <Reply aria-hidden className="size-4 shrink-0" />
-      <span className="truncate">
-        {t('transcript.reportFrom', { title: source?.title || t('session.untitled') })}
-      </span>
-    </>
-  );
+  const Icon = report ? Reply : MessagesSquare;
   return (
-    <div className="my-2 flex" data-message-role="user" data-session-report={sessionId}>
-      {source ? (
-        <Link
-          to={paths.session(source.workspaceId, source.id)}
-          title={text}
-          className={cn(
-            className,
-            'hover:border-border-strong hover:text-foreground focus-visible:focus-field',
-          )}
-        >
-          {content}
-        </Link>
-      ) : (
-        <span className={className} title={text}>
-          {content}
+    <div
+      className="my-2 max-w-[85%] rounded-xl border border-border bg-card"
+      data-message-role="user"
+      data-relayed={from.kind}
+      {...(report
+        ? { 'data-session-report': from.sessionId }
+        : { 'data-from-session': from.sessionId })}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen(!open)}
+        className="flex h-9 w-full min-w-0 items-center gap-1.5 rounded-xl px-3 text-left text-sm text-soft-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+      >
+        <Icon aria-hidden className="size-4 shrink-0" />
+        <span className="min-w-0 truncate">
+          {report
+            ? t('transcript.reportFrom', { title: source?.title || t('session.untitled') })
+            : t('transcript.relayed.message')}
         </span>
-      )}
+        <ChevronDown
+          aria-hidden
+          className={cn('size-3.5 shrink-0 opacity-75 transition-transform', !open && '-rotate-90')}
+        />
+      </button>
+      <Collapse open={open} id={id}>
+        <div className="px-3 pb-2.5">
+          <p className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+            <span className="shrink-0">{t('transcript.relayed.from')}</span>
+            <SessionLink sessionId={from.sessionId} className="min-w-0 truncate" />
+          </p>
+          {text.trim() !== '' && <FoldedMarkdown text={text} />}
+          {message.steered && (
+            <p className="mt-1 text-xs text-muted-foreground" data-steered>
+              {t('transcript.steered')}
+            </p>
+          )}
+        </div>
+      </Collapse>
     </div>
+  );
+}
+
+/** 卡片正文收起的高度：约 8 行。 */
+const RELAYED_FOLD_PX = 176;
+/** 只多出这么一点的不收。 */
+const RELAYED_FOLD_SLACK_PX = 48;
+
+/** 卡片里的 Markdown 正文：很长时收起，底部渐隐，下面“显示更多 / 收起”。 */
+function FoldedMarkdown({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+  const [expanded, setExpanded] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setHeight(element.scrollHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const foldable = height !== undefined && height > RELAYED_FOLD_PX + RELAYED_FOLD_SLACK_PX;
+  const folded = foldable && !expanded;
+  return (
+    <>
+      <div
+        ref={ref}
+        className={cn(
+          'mt-1.5 text-sm',
+          foldable && 'overflow-hidden transition-[max-height] duration-300 ease-expand',
+          folded && '[mask-image:linear-gradient(to_bottom,black_calc(100%-3rem),transparent)]',
+        )}
+        style={foldable ? { maxHeight: folded ? RELAYED_FOLD_PX : height } : undefined}
+        data-relayed-body={foldable ? (folded ? 'folded' : 'expanded') : undefined}
+      >
+        <MarkdownView text={text} streaming={false} smooth={false} quotable />
+      </div>
+      {foldable && (
+        <button
+          type="button"
+          aria-expanded={!folded}
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 rounded-md text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+        >
+          {t(folded ? 'message.showMore' : 'message.collapse')}
+        </button>
+      )}
+    </>
   );
 }
 
