@@ -8,7 +8,7 @@ import {
   type UserImagePart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowUp, ChevronDown, Folder, ListChecks, Square, X } from 'lucide-react';
+import { ChevronDown, Folder, ListChecks, X } from 'lucide-react';
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -34,13 +34,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { toRelativePath } from '@/files/file-path';
 import { type FileScope, useFileSearch, useFilesSupported } from '@/files/files-data';
 import { Beam } from '@/fx/beam';
-import { MetalCircle } from '@/fx/metal';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
+import { type ComposerAction, ComposerButton } from './composer-button';
 import {
   type ComposerCommand,
   type ComposerCommandItem,
@@ -59,7 +59,7 @@ import {
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
 import { isLargePaste, registerPaste } from './composer-pastes';
 import { ComposerPlusMenu } from './composer-plus-menu';
-import { composerPrefs, sendKeyLabel } from './composer-prefs';
+import { composerPrefs } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
 import { DictationBar, DictationButton } from './dictation-button';
@@ -991,8 +991,8 @@ export function Composer({
             {dictationBar ? (
               <ComposerButton
                 action="send"
-                flowing={dictation.phase !== 'transcribing'}
-                disabled={disabled || dictation.phase === 'transcribing'}
+                loading={dictation.phase === 'transcribing'}
+                disabled={disabled}
                 onClick={() => {
                   sendAfterDictation.current = true;
                   dictation.stop();
@@ -1006,9 +1006,9 @@ export function Composer({
             ) : (
               <ComposerButton
                 action={action}
-                // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。
-                flowing={action === 'stop' ? !disabled : canSend}
-                disabled={action === 'stop' ? disabled : !canSend}
+                // 发出之后、Host 接住之前（新会话要先启动引擎）：加载圈。
+                loading={sending && action !== 'stop'}
+                disabled={action === 'stop' ? disabled : !canSend && !sending}
                 onClick={() => (action === 'stop' ? onStop() : void send())}
               />
             )}
@@ -1038,16 +1038,6 @@ export function Composer({
     </div>
   );
 }
-
-type ComposerAction = 'send' | 'refine' | 'stop' | PendingDelivery;
-
-const ACTION_LABELS = {
-  send: 'session.send',
-  refine: 'plan.refine',
-  stop: 'session.stop',
-  steer: 'session.sendSteer',
-  queue: 'session.sendQueue',
-} as const;
 
 /** 底栏的“计划”芯片（0.36.0）：计划模式开着时显示，点它退出（Shift+Tab 同）。 */
 function PlanChip({ disabled, onExit }: { disabled: boolean; onExit: () => void }) {
@@ -1122,56 +1112,6 @@ function ImplementButton({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-    </span>
-  );
-}
-
-/**
- * 圆形的金属按钮（metal-fx 的 circle、gold）。metal-fx 把按钮的背景清成透明、内圈是它自己的底色并设好对比色，图标的颜色
- * 继承它，所以按钮不设颜色。库会抹掉子元素的 outline 与阴影（normalizeHostStyles），焦点环由外层的 focus-within 画。
- */
-function ComposerButton({
-  action,
-  flowing,
-  disabled,
-  onClick,
-}: {
-  action: ComposerAction;
-  flowing: boolean;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  const label = t(ACTION_LABELS[action]);
-  return (
-    <span className="shrink-0 rounded-full transition-transform duration-150 ease-smooth has-focus-visible:focus-ring has-[button:active:not(:disabled)]:scale-95">
-      <MetalCircle strength={action === 'stop' ? 0.55 : 1} flowing={flowing}>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={label}
-                disabled={disabled}
-                data-composer-action={action}
-                onClick={onClick}
-                className="flex size-8 items-center justify-center rounded-full outline-none disabled:opacity-40"
-              />
-            }
-          >
-            {action === 'stop' ? (
-              <Square aria-hidden className="size-3 fill-current" />
-            ) : (
-              <ArrowUp aria-hidden className="size-4" strokeWidth={2.25} />
-            )}
-          </TooltipTrigger>
-          <TooltipContent>
-            {label}
-            <kbd className="ml-1.5 font-sans opacity-70">
-              {action === 'stop' ? 'Esc' : sendKeyLabel(composerPrefs.get().sendShortcut)}
-            </kbd>
-          </TooltipContent>
-        </Tooltip>
-      </MetalCircle>
     </span>
   );
 }

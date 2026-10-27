@@ -28,7 +28,7 @@ function useGoldPreset(enabled: boolean): void {
 }
 
 /**
- * 圆形的金属框（输入框的发送 / 停止按钮）。`children` 是单个按钮元素，尺寸由它自己定。`flowing` 为 false 时金属停在
+ * 圆形的金属框（以前输入框的发送 / 停止按钮，现在只在效果陈列页）。`children` 是单个按钮元素，尺寸由它自己定。`flowing` 为 false 时金属停在
  * 当前帧（静器的“静”，也省电：一个流动的金属框在 Electron 里要 GPU 进程约 11%、渲染进程约 7% 的 CPU），指针移上去时照样
  * 流动。
  */

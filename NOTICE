@@ -707,7 +707,7 @@ apps/desktop/native/ios-simulator 移植的文件（左边是 Wevir 文件，右
 许可证全文见文末“MIT License”。
 
 
-18. Arc UI（桌面端的复制图标、通知叠放、共享高亮、数字滚动与加载圈）
+18. Arc UI（桌面端的复制图标、通知叠放、共享高亮、数字滚动、加载圈与输入框的主按钮）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/kuratlielia/arc-library（https://uiarc.dev，只用免费的 MIT 部分）
 来源提交：fff39c044c6e3b86006e3a6acc9a32a821a80d99
@@ -727,6 +727,8 @@ modules，Wevir 改用 CSS 过渡与自己的令牌重写，修改说明在各�
       <- registry/components/slot-text/slot-text.tsx
   components/spinner.tsx
       <- registry/components/button/button.tsx、button.module.css（加载圈）
+  session/composer-button.tsx
+      <- registry/components/button/button.tsx、button.module.css（primary 变体、按压、图标换场与加载）
 
 许可证全文见文末“MIT License”。
 
