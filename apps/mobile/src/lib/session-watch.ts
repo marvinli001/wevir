@@ -54,7 +54,8 @@ export class SessionWatch {
       const { session } = await this.#client.request('session.get', { sessionId: this.#sessionId });
       if (this.#stopped) return;
       this.#set({ session });
-      const subscription = this.#client.subscribe(this.#sessionId);
+      // 只投影最后的样子：经中继时字节就是等待时间，工具的中间输出与被替换的增量不回放（0.127.0）。
+      const subscription = this.#client.subscribe(this.#sessionId, { elideSuperseded: true });
       this.#subscription = subscription;
       for await (const item of subscription) {
         if (this.#stopped) break;

@@ -296,6 +296,32 @@ export class EventStore {
   }
 
   /**
+   * `(sinceSeq, throughSeq]` 里内容已被之后的事件取代的 `seq`（0.127.0，`events.subscribe` 的 `elideSuperseded`，host-api.md §4）：
+   * 同一 `toolCallId` 后面还有带 `output` 的 `tool.updated` / `tool.finished` 的、带 `output` 的 `tool.updated`；后面有
+   * `assistant.message` / `assistant.thought` 在 `replaces` 里列出它那一块的 `assistant.delta`。只看这个范围里的事件。
+   */
+  supersededSince(sessionId: SessionId, sinceSeq: number, throughSeq: number): Set<number> {
+    const rows = this.#storage.events.replayIndex(sessionId, sinceSeq, throughSeq);
+    const superseded = new Set<number>();
+    const laterOutput = new Set<string>();
+    const replacedLater = new Set<string>();
+    for (let index = rows.length - 1; index >= 0; index--) {
+      const { seq, type, key, hasOutput } = rows[index] as (typeof rows)[number];
+      if (key === null) continue;
+      if (type === 'tool.updated' || type === 'tool.finished') {
+        if (!hasOutput) continue;
+        if (type === 'tool.updated' && laterOutput.has(key)) superseded.add(seq);
+        laterOutput.add(key);
+      } else if (type === 'assistant.delta') {
+        if (replacedLater.has(key)) superseded.add(seq);
+      } else {
+        for (const ref of parseReplaces(key)) replacedLater.add(ref);
+      }
+    }
+    return superseded;
+  }
+
+  /**
    * 订阅一个会话之后写入的事件。返回订阅时库里的 `lastSeq`：`listener` 恰好收到 `seq > lastSeq`
    * 的每一条事件，按 `seq` 升序、同步回调；`(sinceSeq, lastSeq]` 由调用方用 `readSince` 补发，
    * 两者衔接不丢不重（host-api.md §4）。
@@ -508,6 +534,31 @@ export class EventStore {
 }
 
 /** 截断大字段并按 schema 校验 payload（剥掉 schema 之外的字段）。 */
+/** `replaces` 的 JSON 文本 → `<streamId>:<blockIndex>`。 */
+function parseReplaces(json: string): string[] {
+  const refs = JSON.parse(json) as unknown;
+  if (!Array.isArray(refs)) return [];
+  return refs.flatMap((ref: { streamId?: unknown; blockIndex?: unknown }) =>
+    typeof ref?.streamId === 'string' && typeof ref.blockIndex === 'number'
+      ? [`${ref.streamId}:${ref.blockIndex}`]
+      : [],
+  );
+}
+
+/**
+ * 补发时去掉已被取代的内容（`supersededSince` 选出的事件）：`tool.updated` 去掉 `output`，`assistant.delta` 的 `text` 换成空串。
+ * 事件本身、`seq` 与 `ts` 都还在，投影里部件的位置与思考的起止时刻不变，最后的样子与不去掉时相同。
+ */
+export function elideSuperseded(event: WevirEvent): WevirEvent {
+  if (event.type === 'tool.updated') {
+    const { output: _output, ...payload } = event.payload;
+    return { ...event, payload };
+  }
+  if (event.type === 'assistant.delta')
+    return { ...event, payload: { ...event.payload, text: '' } };
+  return event;
+}
+
 function prepare(input: AppendInput): AppendInput {
   if (!isKnownEventType(input.type)) {
     throw new EventRejectedError(`未知的事件类型 ${String(input.type)}`);
