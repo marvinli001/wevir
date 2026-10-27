@@ -142,6 +142,9 @@ export const SHUTDOWN_TIMEOUT_MS = 10_000;
  */
 export const SHUTDOWN_BUDGET_MS = 7000;
 
+/** 启动后过多久把启动对账读进来的投影写成检查点（不占发布 `host.json` 之前的时间，也避开客户端刚连上时的请求）。 */
+const CHECKPOINT_DELAY_MS = 5000;
+
 /** 谁触发了退出，记进日志。 */
 export type ShutdownTrigger =
   | { kind: 'rpc'; client: ClientIdentity }
@@ -1579,6 +1582,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await runtimeFile.publish(url, token);
     startup.mark('publish');
     startup.done();
+    // 启动对账把每个会话都读进来了：从检查点之后（或从头）重放过的写成检查点，下次启动接着重放。
+    const checkpointTimer = setTimeout(() => {
+      const startedAt = performance.now();
+      try {
+        const sessions = store.saveCheckpoints();
+        const ms = Math.round((performance.now() - startedAt) * 10) / 10;
+        if (sessions > 0) logger.debug('saved projection checkpoints', { sessions, ms });
+      } catch (error) {
+        logger.warn('saving projection checkpoints failed', { error });
+      }
+    }, CHECKPOINT_DELAY_MS);
+    checkpointTimer.unref();
 
     let stopping: Promise<void> | undefined;
     const host: RunningHost = {
@@ -1597,6 +1612,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         pairingService.close();
         pushService.close();
         stopIdleExpiry();
+        clearTimeout(checkpointTimer);
         stopping ??= shutdownSequence({
           trigger,
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,

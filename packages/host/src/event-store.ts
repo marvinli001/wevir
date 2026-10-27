@@ -1,3 +1,4 @@
+import { deserialize, serialize } from 'node:v8';
 import {
   EventPayloadSchemas,
   type EventSource,
@@ -31,6 +32,7 @@ import {
   EventRejectedError,
   INITIAL_PROJECTION,
   type ProjectedEngine,
+  projectionCode,
   type SessionProjection,
   toCachePatch,
   toSnapshot,
@@ -39,6 +41,9 @@ import { truncateJson, truncateToolOutput } from './truncate.js';
 
 /** 助手文本与计划增量的合并窗口（Paseo 取 60 ms，ADR-0002 §3）。 */
 export const DELTA_WINDOW_MS = 60;
+
+/** 写入时投影比它的检查点多出这么多条事件就顺带更新检查点（Host 被强行结束时，下次启动每个会话最多重放这么多条）。 */
+export const CHECKPOINT_INTERVAL = 500;
 
 /** 待写入的事件：信封里由事件库决定的 `seq`、`sessionId`、`ts` 之外的部分。 */
 export type EventInput = {
@@ -81,6 +86,10 @@ export interface EventStoreOptions {
    * 默认打到 stderr。
    */
   onError?: (error: unknown) => void;
+  /** 投影代码的标识，默认 `projectionCode()`；`null` 不用检查点（测试用）。 */
+  checkpointCode?: string | null;
+  /** 默认 `CHECKPOINT_INTERVAL`。 */
+  checkpointInterval?: number;
 }
 
 export class SessionNotFoundError extends Error {
@@ -110,6 +119,8 @@ interface DeltaBuffer {
  *   `plan.delta`。写其他事件前先写掉缓冲的增量，保证顺序。
  * - **大字段入库前截断**（host-api.md §11），回放与实时推送是同一份数据。
  * - **快照由事件推导**（`snapshot`），并在内存里随写入增量推进；Host 重启后从事件重放得到同样的结果。
+ * - **投影有检查点**（`storage.projections`）：第一次用到一个会话时从它的检查点接着重放，没有、过期（投影代码换了）或读不出来
+ *   就从头重放。写入时比检查点多出 `checkpointInterval` 条事件就在同一事务里更新它，`saveCheckpoints` 与 `close` 补上其余的。
  *
  * 所有方法都是同步的：Host 只有一个数据库连接，同步执行本身就把同一进程里的写入串行化了。
  */
@@ -121,6 +132,10 @@ export class EventStore {
   readonly #projections = new Map<SessionId, SessionProjection>();
   readonly #buffers = new Map<SessionId, DeltaBuffer>();
   readonly #touchListeners = new Set<(sessionIds: readonly SessionId[]) => void>();
+  readonly #checkpointCode: string | undefined;
+  readonly #checkpointInterval: number;
+  /** 各会话库里的检查点到哪个 `seq`（没有、过期时为 0）；第一次读入会话时记下。 */
+  readonly #checkpointSeq = new Map<SessionId, number>();
   #closed = false;
 
   constructor(options: EventStoreOptions) {
@@ -129,6 +144,11 @@ export class EventStore {
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] event store:', error));
     this.#bus = new EventBus({ onError: this.#onError });
+    this.#checkpointCode =
+      options.checkpointCode === undefined
+        ? projectionCode()
+        : (options.checkpointCode ?? undefined);
+    this.#checkpointInterval = options.checkpointInterval ?? CHECKPOINT_INTERVAL;
   }
 
   /**
@@ -260,6 +280,7 @@ export class EventStore {
       if (buffer?.timer) clearTimeout(buffer.timer);
       this.#buffers.delete(sessionId);
       this.#projections.delete(sessionId);
+      this.#checkpointSeq.delete(sessionId);
     }
     this.touch(sessionIds);
   }
@@ -279,7 +300,32 @@ export class EventStore {
       if (buffer.timer) clearTimeout(buffer.timer);
     }
     this.#buffers.clear();
+    try {
+      this.saveCheckpoints();
+    } catch (error) {
+      this.#onError(error);
+    }
     this.#closed = true;
+  }
+
+  /**
+   * 把内存里比检查点新的投影写成检查点，一个事务；返回写了几个。Host 启动后过一会儿调一次（启动对账把每个会话都读进来了），下次启动
+   * 就不必从头重放；`close` 也调。
+   */
+  saveCheckpoints(): number {
+    this.#assertOpen();
+    if (this.#checkpointCode === undefined) return 0;
+    const due = [...this.#projections].filter(
+      ([sessionId, projection]) => projection.lastSeq > (this.#checkpointSeq.get(sessionId) ?? 0),
+    );
+    if (due.length === 0) return 0;
+    this.#storage.transaction(() => {
+      for (const [sessionId, projection] of due) this.#putCheckpoint(sessionId, projection);
+    });
+    for (const [sessionId, projection] of due) {
+      this.#checkpointSeq.set(sessionId, projection.lastSeq);
+    }
+    return due.length;
   }
 
   /**
@@ -442,7 +488,7 @@ export class EventStore {
     ];
     const ts = new Date().toISOString();
 
-    const { events, projection } = this.#storage.transaction(() => {
+    const { events, projection, checkpoint } = this.#storage.transaction(() => {
       let projection = this.#catchUp(sessionId);
       const events: WevirEvent[] = [];
       for (const input of all) {
@@ -454,11 +500,16 @@ export class EventStore {
         events.push(event);
       }
       this.#storage.sessions.update(sessionId, toCachePatch(projection));
+      const checkpoint =
+        this.#checkpointCode !== undefined &&
+        projection.lastSeq - (this.#checkpointSeq.get(sessionId) ?? 0) >= this.#checkpointInterval;
+      if (checkpoint) this.#putCheckpoint(sessionId, projection);
       inTransaction?.(events.slice(deltas.length));
-      return { events, projection };
+      return { events, projection, checkpoint };
     });
 
     this.#projections.set(sessionId, projection);
+    if (checkpoint) this.#checkpointSeq.set(sessionId, projection.lastSeq);
     if (buffer && deltas.length > 0) {
       buffer.parts = [];
       buffer.lastFlushAt = Date.now();
@@ -505,21 +556,49 @@ export class EventStore {
     }
   }
 
-  /** 取缓存的投影并读入库里比它新的事件；缓存不存在时从头重放。只读，可在事务内外调用。 */
+  /** 取缓存的投影并读入库里比它新的事件；缓存不存在时从检查点（没有就从头）重放。只读，可在事务内外调用。 */
   #catchUp(sessionId: SessionId): SessionProjection {
     const cached = this.#projections.get(sessionId);
     const lastSeq = this.#storage.events.lastSeq(sessionId);
     if (cached?.lastSeq === lastSeq) return cached;
     if (!cached && !this.#storage.sessions.get(sessionId))
       throw new SessionNotFoundError(sessionId);
-    // 缓存比库还新只可能是库被换掉了，从头重放。
-    let projection = cached && cached.lastSeq < lastSeq ? cached : INITIAL_PROJECTION;
+    // 缓存比库还新只可能是库被换掉了，重新读入。
+    let projection =
+      cached && cached.lastSeq < lastSeq ? cached : this.#checkpoint(sessionId, lastSeq);
     for (const record of this.#storage.events.iterate(sessionId, {
       afterSeq: projection.lastSeq,
     })) {
       projection = applyEvent(projection, fromRecord(record));
     }
     return projection;
+  }
+
+  /** 库里可以接着重放的检查点（`seq` 不超过 `lastSeq`、投影代码相同、读得出来）；没有时是初始状态。记下检查点到哪儿。 */
+  #checkpoint(sessionId: SessionId, lastSeq: number): SessionProjection {
+    if (this.#checkpointCode === undefined) return INITIAL_PROJECTION;
+    const stored = this.#storage.projections.get(sessionId);
+    const usable =
+      stored !== undefined && stored.code === this.#checkpointCode && stored.seq <= lastSeq;
+    this.#checkpointSeq.set(sessionId, usable ? stored.seq : 0);
+    if (!usable) return INITIAL_PROJECTION;
+    try {
+      const projection = deserialize(stored.data) as SessionProjection;
+      if (projection.lastSeq === stored.seq) return projection;
+    } catch {
+      // 读不出来：从头重放，下次写入时换掉它。
+    }
+    this.#checkpointSeq.set(sessionId, 0);
+    return INITIAL_PROJECTION;
+  }
+
+  #putCheckpoint(sessionId: SessionId, projection: SessionProjection): void {
+    const code = this.#checkpointCode as string;
+    this.#storage.projections.put(sessionId, {
+      seq: projection.lastSeq,
+      code,
+      data: serialize(projection),
+    });
   }
 
   #projection(sessionId: SessionId): SessionProjection {

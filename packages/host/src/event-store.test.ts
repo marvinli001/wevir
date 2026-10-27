@@ -11,7 +11,7 @@ import {
   elideSuperseded,
   SessionNotFoundError,
 } from './event-store.js';
-import { EventRejectedError } from './snapshot.js';
+import { EventRejectedError, projectionCode } from './snapshot.js';
 import {
   createStore,
   delta,
@@ -636,5 +636,120 @@ describe('EventStore.supersededSince 与 elideSuperseded（0.127.0）', () => {
     const elidedDelta = elideSuperseded(deltaEvent as WevirEvent);
     expect(elidedDelta).toMatchObject({ seq: 12, payload: { text: '', blockIndex: 0 } });
     expect(WevirEventSchema.parse(elidedDelta)).toEqual(elidedDelta);
+  });
+});
+
+describe('EventStore 投影检查点', () => {
+  const dataDir = useTempDir();
+  const { open } = useStorages();
+
+  /** 一段带审批、工具、增量与待办的历史，停在等审批。 */
+  function history(store: EventStore): void {
+    store.appendMany(SES, [
+      ev.user(TURN, 'msg-1'),
+      ev.turnStarted(),
+      ev.title('检查点'),
+      ev.state('idle', 'running', 'turn_started'),
+    ]);
+    store.appendDelta(SES, delta('好的，'));
+    store.append(SES, ev.toolStarted('call_1', { command: 'ls' }));
+    store.append(SES, ev.todo([{ content: '写测试', status: 'in_progress' }]));
+    for (let i = 0; i < 5; i++) store.append(SES, ev.usage(i));
+    store.appendMany(SES, [
+      ev.approvalRequested('apr_1'),
+      ev.state('running', 'awaiting_approval', 'approval_requested'),
+    ]);
+  }
+
+  it('close 写检查点；重开后从它接着重放，快照与从头重放的一样', () => {
+    const dir = dataDir();
+    const storage = open(dir);
+    const store = createStore(storage, { checkpointCode: 'code-a' });
+    history(store);
+    store.close();
+    const lastSeq = storage.events.lastSeq(SES);
+    expect(storage.projections.get(SES)).toMatchObject({ seq: lastSeq, code: 'code-a' });
+    storage.close();
+
+    const reopened = open(dir);
+    const resumed = new EventStore({ storage: reopened, checkpointCode: 'code-a' });
+    resumed.append(SES, ev.usage(42));
+    const replayed = new EventStore({ storage: reopened, checkpointCode: null });
+    expect(resumed.snapshot(SES)).toEqual(replayed.snapshot(SES));
+    expect(resumed.snapshot(SES)?.session).toMatchObject({
+      state: 'awaiting_approval',
+      title: '检查点',
+      lastSeq: lastSeq + 1,
+    });
+    expect(resumed.snapshot(SES)?.pendingApprovals.map((a) => a.id)).toEqual(['apr_1']);
+  });
+
+  it('检查点之后的事件照常重放：检查点只是起点', () => {
+    const dir = dataDir();
+    const storage = open(dir);
+    const early = createStore(storage, { checkpointCode: 'code-a' });
+    early.append(SES, ev.title('旧标题'));
+    early.close();
+    const later = new EventStore({ storage, checkpointCode: null });
+    history(later);
+    later.close();
+    expect(storage.projections.get(SES)?.seq).toBe(2);
+
+    const resumed = new EventStore({ storage, checkpointCode: 'code-a' });
+    const replayed = new EventStore({ storage, checkpointCode: null });
+    expect(resumed.snapshot(SES)).toEqual(replayed.snapshot(SES));
+    expect(resumed.snapshot(SES)?.session.title).toBe('检查点');
+  });
+
+  it('投影代码不同、检查点读不出来或比库新时从头重放', () => {
+    const dir = dataDir();
+    const storage = open(dir);
+    const store = createStore(storage, { checkpointCode: 'code-a' });
+    history(store);
+    store.close();
+    const expected = new EventStore({ storage, checkpointCode: null }).snapshot(SES);
+    const lastSeq = storage.events.lastSeq(SES);
+
+    expect(new EventStore({ storage, checkpointCode: 'code-b' }).snapshot(SES)).toEqual(expected);
+    storage.projections.put(SES, { seq: lastSeq, code: 'code-a', data: new Uint8Array([1, 2]) });
+    expect(new EventStore({ storage, checkpointCode: 'code-a' }).snapshot(SES)).toEqual(expected);
+    const stale = new EventStore({ storage, checkpointCode: 'code-a' });
+    storage.projections.put(SES, {
+      seq: lastSeq + 5,
+      code: 'code-a',
+      data: new Uint8Array(storage.projections.get(SES)?.data ?? []),
+    });
+    expect(stale.snapshot(SES)).toEqual(expected);
+
+    // 用不上的检查点在下次 saveCheckpoints 时换掉。
+    expect(stale.saveCheckpoints()).toBe(1);
+    expect(storage.projections.get(SES)).toMatchObject({ seq: lastSeq, code: 'code-a' });
+  });
+
+  it('写入时比检查点多出 checkpointInterval 条就在同一事务里更新它', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage, { checkpointCode: 'code-a', checkpointInterval: 4 });
+    store.appendMany(SES, [ev.usage(1), ev.usage(2)]);
+    expect(storage.projections.get(SES)).toBeUndefined();
+    store.append(SES, ev.usage(3));
+    expect(storage.projections.get(SES)?.seq).toBe(4);
+    store.appendMany(SES, [ev.usage(4), ev.usage(5), ev.usage(6)]);
+    expect(storage.projections.get(SES)?.seq).toBe(4);
+    store.append(SES, ev.usage(7));
+    expect(storage.projections.get(SES)?.seq).toBe(8);
+    expect(store.saveCheckpoints()).toBe(0);
+  });
+
+  it('默认的投影代码标识是协议版本加上代码文件的哈希', () => {
+    expect(projectionCode()).toMatch(/^\d+\.\d+\.\d+:[0-9a-f]{64}$/);
+  });
+
+  it('checkpointCode 为 null 时不读也不写检查点', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage, { checkpointCode: null, checkpointInterval: 1 });
+    history(store);
+    expect(store.saveCheckpoints()).toBe(0);
+    store.close();
+    expect(storage.projections.get(SES)).toBeUndefined();
   });
 });

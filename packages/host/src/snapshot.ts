@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   ActiveTurn,
@@ -50,7 +53,11 @@ import type {
   WevirEvent,
   WorkspaceId,
 } from '@wevir/protocol';
-import { PROMPT_SUGGESTION_VOIDING_EVENTS, VERIFICATION_RUNS_KEPT } from '@wevir/protocol';
+import {
+  PROMPT_SUGGESTION_VOIDING_EVENTS,
+  PROTOCOL_VERSION,
+  VERIFICATION_RUNS_KEPT,
+} from '@wevir/protocol';
 import type { SessionCachePatch, SessionRecord } from '@wevir/storage';
 
 // 会话快照：由事件序列推导出的产品状态（domain-model §3.3、§4；ADR-0002 §3）。`applyEvent` 是纯函数，
@@ -165,6 +172,24 @@ export interface ProjectedEngine {
   readonly modelId: string;
   readonly engineSessionId: string;
   readonly seenSeq: number;
+}
+
+let projectionCodeId: string | null | undefined;
+
+/**
+ * 投影代码的标识（投影检查点用，见 `EventStore`）：协议版本加上这个模块所在文件的 SHA-256。构建出的 Host 里那个文件是打进这段代码的
+ * chunk，`applyEvent` 或同一个 chunk 里的别的代码一变它就不同，旧检查点作废，从头重放一次。读不到文件时是 `undefined`：不用检查点。
+ */
+export function projectionCode(): string | undefined {
+  if (projectionCodeId === undefined) {
+    try {
+      const file = readFileSync(fileURLToPath(import.meta.url));
+      projectionCodeId = `${PROTOCOL_VERSION}:${createHash('sha256').update(file).digest('hex')}`;
+    } catch {
+      projectionCodeId = null;
+    }
+  }
+  return projectionCodeId ?? undefined;
 }
 
 /** 未结束（等回答）的问题，按提出的先后。 */

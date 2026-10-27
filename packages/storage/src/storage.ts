@@ -17,6 +17,7 @@ import {
   createProfileVersionRepository,
   type ProfileVersionRepository,
 } from './profile-versions.js';
+import { createProjectionRepository, type ProjectionRepository } from './projections.js';
 import { createProviderProfileRepository, type ProviderProfileRepository } from './providers.js';
 import { createRetroRepository, type RetroRepository } from './retros.js';
 import { createReviewCommentRepository, type ReviewCommentRepository } from './review-comments.js';
@@ -47,6 +48,8 @@ export interface Storage {
   readonly providers: ProviderProfileRepository;
   readonly sessions: SessionRepository;
   readonly events: EventRepository;
+  /** 会话投影的检查点：派生数据，不走迁移，打开库时建表（projections.ts）。 */
+  readonly projections: ProjectionRepository;
   readonly approvals: ApprovalRepository;
   /** 可持久的审批规则（0017_approval_rules）。 */
   readonly approvalRules: ApprovalRuleRepository;
@@ -99,6 +102,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       providers: createProviderProfileRepository(db),
       sessions: createSessionRepository(db),
       events: createEventRepository(db),
+      projections: createProjectionRepository(db),
       approvals: createApprovalRepository(db),
       approvalRules: createApprovalRuleRepository(db),
       sendReceipts: createSendReceiptRepository(db),
