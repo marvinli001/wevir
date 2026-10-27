@@ -189,6 +189,7 @@ import {
 import { deleteSessionData, measureUsage, worktreeRoots } from './session-delete.js';
 import { MoveError, type PreparedMove, prepareToLocal, prepareToWorktree } from './session-move.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
+import { type StartupSummary, type StartupTiming, StartupTimings } from './startup-timing.js';
 import {
   type LinkPreview,
   opaqueLinks,
@@ -271,6 +272,8 @@ export interface SessionManagerOptions {
   insight?: { instructions: string; enabled: () => boolean; now?: () => number };
   /** 不影响状态的告警（生成标题失败等）。默认打到 stderr。 */
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+  /** 新会话拿到第一个 token 时交出各阶段的耗时与最近的 p50 / p90（startup-timing.ts）。没给时不记。 */
+  onStartupTiming?: (timing: StartupTiming, summary: StartupSummary) => void;
   /**
    * 环境会话新开的 worktree 放在这里（0.15.0，`<数据目录>/worktrees`，每个会话一个子目录）。没给时环境里要新开 worktree 的
    * 文件夹建不了会话（`INVALID_PARAMS`）。
@@ -745,6 +748,7 @@ export class SessionManager {
   readonly #approvalTimeoutMs: () => number;
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
+  readonly #startup: StartupTimings | undefined;
   readonly #titleInstructions: string | undefined;
   readonly #lookupLink: SessionManagerOptions['lookupLink'];
   readonly #suggestion: SessionManagerOptions['suggestion'];
@@ -824,6 +828,9 @@ export class SessionManager {
     this.#onWarning =
       options.onWarning ??
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
+    const onStartupTiming = options.onStartupTiming;
+    this.#startup =
+      onStartupTiming === undefined ? undefined : new StartupTimings({ onDone: onStartupTiming });
     this.#titleInstructions = options.titleInstructions;
     this.#lookupLink = options.lookupLink;
     this.#suggestion = options.suggestion;
@@ -950,10 +957,7 @@ export class SessionManager {
       engine,
     );
     // 档案版本（0.85.0）：随这份规则记下。
-    const version = await profile?.();
-    return version === undefined
-      ? plan
-      : { ...plan, rules: { ...plan.rules, profileVersion: version } };
+    return withProfileVersion(plan, await profile?.());
   }
 
   /** 这个工作区现在的档案版本（0.85.0）；没有档案服务或取不到时 `undefined`（告警）。 */
@@ -1140,6 +1144,7 @@ export class SessionManager {
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
+    const startedAt = this.#startup?.now();
     const provider = this.#storage.providers.get(params.providerId);
     if (!provider) {
       throw new HostError('PROVIDER_NOT_FOUND', `provider ${params.providerId} not found`);
@@ -1171,6 +1176,7 @@ export class SessionManager {
         options.automation,
         options.opinion,
         options.channel,
+        startedAt,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -1243,6 +1249,8 @@ export class SessionManager {
     automation?: SessionAutomation,
     opinion?: OpinionSessionOptions,
     channel?: SessionChannel,
+    /** `session.create` 到达的时刻（startup-timing.ts）。 */
+    startedAt?: number,
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
@@ -1252,6 +1260,8 @@ export class SessionManager {
       : opinion !== undefined
         ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
         : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
+    if (startedAt !== undefined) this.#startup?.begin(sessionId, startedAt);
+    this.#startup?.mark(sessionId, 'prepared');
     const config: SessionConfig = {
       cwd: prepared.cwd,
       providerId: provider.id,
@@ -1282,20 +1292,24 @@ export class SessionManager {
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
       ...(toolPreset !== undefined && { toolPreset }),
     });
-    // 档案版本（0.85.0）：不论引擎读不读规则文件都记进会话。
+    // 档案版本（0.85.0）：不论引擎读不读规则文件都记进会话。引擎用不到它，和建引擎会话同时取，建好之后再记进规则。
     const profile = this.#profileVersion(workspace.id);
-    const rules = await this.#rulePlan(
+    let rules = await this.#rulePlan(
       config.cwd,
       provider.id,
       customTarget({ origin: recordOrigin }),
-      () => profile,
     );
-    const profileVersion = await profile;
+    this.#startup?.mark(sessionId, 'rules');
+    let profileVersion: ProfileVersionRef | undefined;
     try {
       engineSession = await this.#adapter.createSession(
         await this.#engineConfig(sessionId, config, rules),
       );
+      this.#startup?.mark(sessionId, 'engine');
+      profileVersion = await profile;
+      rules = withProfileVersion(rules, profileVersion);
     } catch (error) {
+      this.#startup?.drop(sessionId);
       this.#creating.delete(sessionId);
       await prepared.undo();
       const info = engineErrorInfo(error);
@@ -1359,6 +1373,7 @@ export class SessionManager {
       if (rulesInput !== undefined) this.#events.append(sessionId, rulesInput);
     } catch (error) {
       // 会话没建成，尽力回收引擎会话与 worktree。
+      this.#startup?.drop(sessionId);
       await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
       await prepared.undo();
       throw error;
@@ -1379,6 +1394,7 @@ export class SessionManager {
     } catch (error) {
       this.#engineFailed(runtime, engineErrorInfo(error));
     }
+    this.#startup?.mark(sessionId, 'created');
     return this.#snapshot(runtime).session;
   }
 
@@ -1568,6 +1584,7 @@ export class SessionManager {
   ): Promise<MethodResult<'session.send'>> {
     const { from } = options;
     this.#assertOpen();
+    this.#startup?.mark(params.sessionId, 'send');
     const runtime = this.#runtime(params.sessionId);
     const { clientMessageId } = params;
     // 计划模式的消息（0.36.0）连同模式一起算指纹；默认模式的照旧只算内容，旧回执照样对得上。
@@ -1916,6 +1933,7 @@ export class SessionManager {
     const { content, sentBy, clientMessageId, fingerprint, pending, goal, collaborationMode } =
       input;
     const from = input.from ?? pending?.from;
+    this.#startup?.mark(runtime.id, 'send');
     if (!runtime.attachment) {
       await this.#autoResume(runtime);
       // 等待期间引擎可能已经报了退出。
@@ -2036,6 +2054,7 @@ export class SessionManager {
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
       return { turnId, seq: message.seq };
     }
+    this.#startup?.mark(runtime.id, 'handed');
     if (receipt !== undefined) {
       this.#storage.sendReceipts.setStatus(runtime.id, receipt, 'confirmed', isoNow());
     }
@@ -4998,6 +5017,7 @@ export class SessionManager {
     const { turnId } = turn;
     switch (event.type) {
       case 'assistant.delta':
+        this.#startup?.mark(sessionId, 'firstDelta');
         this.#events.appendDelta(sessionId, {
           turnId,
           streamId: streamOf(turn, event.attemptId),
@@ -5017,6 +5037,7 @@ export class SessionManager {
         return;
       case 'assistant.message':
       case 'assistant.thought':
+        this.#startup?.mark(sessionId, 'firstDelta');
         this.#write(runtime, [
           {
             type: event.type,
@@ -6217,6 +6238,8 @@ export class SessionManager {
         this.#autoContinueTimers.clear(runtime.id);
       }
       if (event.type === 'turn.finished') {
+        // 回合没有回答就结束（出错、取消）：这个会话不计。
+        this.#startup?.drop(runtime.id);
         const turn = runtime.turn;
         if (turn?.turnId === event.payload.turnId) {
           runtime.turn = undefined;
@@ -6751,6 +6774,15 @@ function invalidOption(approvalId: ApprovalId, optionId: string): HostError<'INV
 }
 
 /** 工作区目录必须还在（domain-model §3.1：目录被移动或删除后建会话会失败）。 */
+/** 规则记下档案版本（0.85.0）；没有规则或没有版本时原样返回。 */
+function withProfileVersion<P extends RulePlan | undefined>(
+  plan: P,
+  version: ProfileVersionRef | undefined,
+): P {
+  if (plan === undefined || version === undefined) return plan;
+  return { ...plan, rules: { ...plan.rules, profileVersion: version } };
+}
+
 async function assertDirectory(path: string): Promise<void> {
   let reason: 'not_found' | 'not_directory' | 'not_accessible' | undefined;
   try {

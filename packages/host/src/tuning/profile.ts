@@ -22,6 +22,7 @@ import {
   type RepoHook,
   type Skill,
 } from '@wevir/protocol';
+import { createLimiter } from '../limiter.js';
 import type { MemoryNote, MemorySummary } from '../memory.js';
 import type { RoleDefinition } from '../roles.js';
 import type { FoundRuleFile } from '../rule-files.js';
@@ -30,6 +31,9 @@ import type { FoundRuleFile } from '../rule-files.js';
 export const PROFILE_TEXT_MAX_BYTES = 1024 * 1024;
 /** 一个技能目录至多看多少个文件。 */
 const SKILL_FILES_MAX = 500;
+/** 同时走的 skill 目录与同时读的文件最多这么多（打开的文件句柄有上限）。 */
+const skillLimit = createLimiter(8);
+const fileLimit = createLimiter(32);
 /** 技能目录里不看的子目录。 */
 const SKILL_SKIP_DIRS = new Set(['node_modules', '.git']);
 
@@ -327,36 +331,44 @@ export class ProfileCollector {
     if (list === undefined) return [];
     const roots =
       scope.rootPath === undefined ? [] : [scope.rootPath, ...(scope.extraFolders ?? [])];
-    const items: ProfileItem[] = [];
-    for (const skill of await list()) {
-      const project = skill.source === 'project';
-      if (project && !roots.some((root) => ownsSkill(root, skill.path))) continue;
-      const dir = dirname(skill.path);
-      const entries: [string, string][] = [];
-      let text: string | undefined;
-      let skillHash: string | undefined;
-      for (const path of await listFiles(dir, SKILL_FILES_MAX, SKILL_SKIP_DIRS)) {
-        const file = await files.read(path, known);
-        if (file === undefined) continue;
-        entries.push([relative(dir, path).split(sep).join('/'), file.hash]);
-        if (path === skill.path) {
-          text = file.text;
-          skillHash = file.hash;
-        }
-      }
-      entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-      const hasText = skillHash !== undefined && keep(skillHash, text);
-      items.push({
-        id: skill.path,
-        label: skill.name,
-        scope: project ? 'project' : 'global',
-        hash: sha256(JSON.stringify(entries)),
-        // 散列是整个目录的；文本是 SKILL.md，按它自己的散列存。
-        ...(hasText && skillHash !== undefined && { text: true, textHash: skillHash }),
-        path: dir,
-      });
-    }
-    return items;
+    // 各个 skill、各个文件同时读，条目按列表的顺序。
+    const items = await Promise.all(
+      (await list()).map((skill) =>
+        skillLimit(async (): Promise<ProfileItem | undefined> => {
+          const project = skill.source === 'project';
+          if (project && !roots.some((root) => ownsSkill(root, skill.path))) return undefined;
+          const dir = dirname(skill.path);
+          const entries: [string, string][] = [];
+          let text: string | undefined;
+          let skillHash: string | undefined;
+          const paths = await listFiles(dir, SKILL_FILES_MAX, SKILL_SKIP_DIRS);
+          const read = await Promise.all(
+            paths.map((path) => fileLimit(() => files.read(path, known))),
+          );
+          paths.forEach((path, index) => {
+            const file = read[index];
+            if (file === undefined) return;
+            entries.push([relative(dir, path).split(sep).join('/'), file.hash]);
+            if (path === skill.path) {
+              text = file.text;
+              skillHash = file.hash;
+            }
+          });
+          entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+          const hasText = skillHash !== undefined && keep(skillHash, text);
+          return {
+            id: skill.path,
+            label: skill.name,
+            scope: project ? 'project' : 'global',
+            hash: sha256(JSON.stringify(entries)),
+            // 散列是整个目录的；文本是 SKILL.md，按它自己的散列存。
+            ...(hasText && skillHash !== undefined && { text: true, textHash: skillHash }),
+            path: dir,
+          };
+        }),
+      ),
+    );
+    return items.filter((item) => item !== undefined);
   }
 
   /** 角色：内置、`<数据目录>/roles` 与项目 `.wevir/roles`，同名的后者盖前者；散列与文本是生效的定义。 */

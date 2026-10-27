@@ -87,6 +87,8 @@ export class TurnCheckpoints {
   readonly #slow = new Set<string>();
   /** 清理过别的会话留下的 ref 的仓库（git 公共目录）。 */
   readonly #swept = new Set<string>();
+  /** 会话目录（realpath）对应的 git 公共目录。 */
+  readonly #commonDirs = new Map<string, string>();
   readonly #aborts = new Set<AbortController>();
   #disposed = false;
 
@@ -344,8 +346,8 @@ export class TurnCheckpoints {
       const repo = await repoInfo(cwd);
       if (!repo) return;
       const signal = controller.signal;
-      await this.#sweep(repo, signal);
-      const skip = await captureBlocker(repo, signal);
+      // 清理别的会话留下的 ref 与检查能不能打快照互不相干，同时跑。
+      const [, skip] = await Promise.all([this.#sweep(repo, signal), captureBlocker(repo, signal)]);
       if (skip !== undefined) {
         this.#options.onWarning?.('checkpoint skipped', { sessionId, turnId, stage, reason: skip });
         return;
@@ -386,17 +388,22 @@ export class TurnCheckpoints {
 
   /** 每个仓库第一次打快照时，删掉已关闭、已不在库里的会话留下的 ref（关闭时目录已不在、Host 中途退出时会留下）。 */
   async #sweep(repo: RepoInfo, signal: AbortSignal): Promise<void> {
-    const common = (
-      await runGit(
-        repo.cwd,
-        [...repo.config, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-        {
-          signal,
-        },
-      )
-    ).stdout
-      .toString('utf8')
-      .trim();
+    // 目录对应的公共目录不会变，问过一次就记下，之后的快照不再多起一次 git。
+    let common = this.#commonDirs.get(repo.cwd);
+    if (common === undefined) {
+      common = (
+        await runGit(
+          repo.cwd,
+          [...repo.config, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+          {
+            signal,
+          },
+        )
+      ).stdout
+        .toString('utf8')
+        .trim();
+      this.#commonDirs.set(repo.cwd, common);
+    }
     if (this.#swept.has(common)) return;
     this.#swept.add(common);
     const refs = await listRefs(repo, `${CHECKPOINT_REF_PREFIX}/`);
@@ -415,20 +422,18 @@ export async function captureBlocker(
   repo: RepoInfo,
   signal: AbortSignal,
 ): Promise<string | undefined> {
-  const sparse = await runGit(
-    repo.cwd,
-    [...repo.config, 'config', '--bool', 'core.sparseCheckout'],
-    {
+  const [sparse, listed] = await Promise.all([
+    runGit(repo.cwd, [...repo.config, 'config', '--bool', 'core.sparseCheckout'], {
       okCodes: [0, 1],
       signal,
-    },
-  );
+    }),
+    runGit(
+      repo.cwd,
+      [...repo.config, 'ls-files', '--others', '--exclude-standard', '-z', '--', '.'],
+      { signal },
+    ),
+  ]);
   if (sparse.stdout.toString('utf8').trim() === 'true') return 'sparse_checkout';
-  const listed = await runGit(
-    repo.cwd,
-    [...repo.config, 'ls-files', '--others', '--exclude-standard', '-z', '--', '.'],
-    { signal },
-  );
   const paths = listed.stdout
     .toString('utf8')
     .split('\0')

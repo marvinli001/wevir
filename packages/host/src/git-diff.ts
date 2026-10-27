@@ -11,10 +11,11 @@
 // 改动的 diff（host-api.md §3.1 的 `workspace.diff` / `workspace.diffFile`）：给桌面端的“变更”窗格读未提交、本分支与
 // 回合快照之间的 diff，以及展开未修改的行时一个文件两侧的全文。每次现跑 git，不缓存；同一目录同一段的并发读取共用一次。
 
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { accessSync, constants } from 'node:fs';
 import { copyFile, mkdtemp, readFile, realpath, rm, stat, utimes } from 'node:fs/promises';
 import { devNull, tmpdir } from 'node:os';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   type DiffFile,
   WORKSPACE_DIFF_MAX_FILES,
@@ -76,13 +77,22 @@ export function runGit(
   args: readonly string[],
   options: GitRunOptions = {},
 ): Promise<GitRunResult> {
+  return gitBinary().then((binary) => spawnGit(binary, cwd, args, options));
+}
+
+function spawnGit(
+  binary: string,
+  cwd: string,
+  args: readonly string[],
+  options: GitRunOptions,
+): Promise<GitRunResult> {
   const maxBytes = options.maxBytes ?? LIST_MAX_BYTES;
   return new Promise((done, fail) => {
     if (options.signal?.aborted) {
       fail(new GitError('git aborted'));
       return;
     }
-    const child = spawn('git', args, {
+    const child = spawn(binary, args, {
       cwd,
       env: { ...gitEnv(), ...options.env },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -143,6 +153,50 @@ export function runGit(
     });
     child.stdin.end(options.stdin ?? '');
   });
+}
+
+let resolvedGit: Promise<string> | undefined;
+
+/**
+ * 起哪个 git。macOS 上 PATH 里的 git 是 `/usr/bin/git` 时，它是 xcrun 的转发程序，每次都要先找开发者目录再起真正的 git（这台机器上
+ * 一次约 10 ms，直接起约 4 ms）；问一次 `xcrun --find git`，之后直接起它找到的那个。别的平台、PATH 里是别的 git、或问不到时就用
+ * `git`。只问一次：之后换了 Xcode（`xcode-select`）要重启 Host 才跟上。
+ */
+export function gitBinary(): Promise<string> {
+  resolvedGit ??=
+    process.platform === 'darwin' && pathGit(gitEnv().PATH) === '/usr/bin/git'
+      ? new Promise((done) => {
+          execFile(
+            '/usr/bin/xcrun',
+            ['--find', 'git'],
+            { env: gitEnv(), timeout: GIT_TIMEOUT_MS },
+            (error, stdout) => {
+              const found = error ? '' : stdout.trim();
+              done(isAbsolute(found) && executable(found) ? found : 'git');
+            },
+          );
+        })
+      : Promise.resolve('git');
+  return resolvedGit;
+}
+
+/** PATH 里第一个可执行的 `git`。 */
+function pathGit(path: string | undefined): string | undefined {
+  for (const dir of (path ?? '').split(delimiter)) {
+    if (dir === '') continue;
+    const candidate = join(dir, 'git');
+    if (executable(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function executable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** 命令名：跳过 `-c 键=值` 与别的全局选项。 */
