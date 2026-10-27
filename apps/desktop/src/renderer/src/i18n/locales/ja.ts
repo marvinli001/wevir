@@ -1854,6 +1854,16 @@ export const messages: Messages = {
   'update.action.restart': '再起動してアップデート',
   'update.action.move': '「アプリケーション」に移動',
   'update.action.downloadPage': 'ダウンロードページ',
+  'update.entry.waiting': '完了後に再起動',
+  'update.confirm.sessionsTitle': 'セッションが実行中',
+  'update.confirm.processesTitle': 'バックグラウンドコマンドが実行中',
+  'update.confirm.sessions': '{count} 件のセッションが実行中です。再起動すると中断されます。',
+  'update.confirm.processes':
+    '{count} 件のセッションでバックグラウンドコマンドが実行中です。待機しても再起動時に停止します。',
+  'update.confirm.restart': 'このまま再起動',
+  'update.confirm.wait': '完了後に再起動',
+  'update.confirm.keepWaiting': '待機を続ける',
+  'update.confirm.stopWaiting': '待機をやめる',
 
   'suggest.title': '提案されたタスク {count} 件',
   'suggest.startedCount': '{count} 件開始済み',

@@ -1887,6 +1887,17 @@ export const messages: Messages = {
   'update.action.restart': 'Reiniciar para actualizar',
   'update.action.move': 'Mover a Aplicaciones',
   'update.action.downloadPage': 'Página de descarga',
+  'update.entry.waiting': 'Reiniciar al terminar',
+  'update.confirm.sessionsTitle': 'Sesiones en curso',
+  'update.confirm.processesTitle': 'Comandos en segundo plano activos',
+  'update.confirm.sessions':
+    '{count, plural, one {# sesión está} other {# sesiones están}} en curso. Reiniciar ahora las interrumpirá.',
+  'update.confirm.processes':
+    'Hay comandos en segundo plano en {count, plural, one {# sesión} other {# sesiones}}. El reinicio los detendrá, aunque esperes.',
+  'update.confirm.restart': 'Reiniciar de todos modos',
+  'update.confirm.wait': 'Reiniciar al terminar',
+  'update.confirm.keepWaiting': 'Seguir esperando',
+  'update.confirm.stopWaiting': 'Dejar de esperar',
 
   'suggest.title': '{count, plural, one {# tarea sugerida} other {# tareas sugeridas}}',
   'suggest.startedCount': '{count, plural, one {# iniciada} other {# iniciadas}}',

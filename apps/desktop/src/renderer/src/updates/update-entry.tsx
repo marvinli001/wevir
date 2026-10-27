@@ -5,11 +5,13 @@ import { cn } from 'cn';
 import { ArrowDownToLine, LoaderCircle, RotateCw } from 'lucide-react';
 import { currentLocale, t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
+import { requestRestart, useRestartWaiting } from './restart-confirm';
 import { downloadPageUrl, type UpdateEntry, updateEntry } from './update-model';
 import { useUpdateState } from './update-store';
 
 export function UpdateEntryButton({ className }: { className?: string }) {
   const entry = updateEntry(useUpdateState());
+  const waiting = useRestartWaiting();
   if (entry === undefined) return null;
   const filled = entry.kind === 'restart' || entry.kind === 'installing';
   return (
@@ -43,7 +45,9 @@ export function UpdateEntryButton({ className }: { className?: string }) {
       </span>
       <span className="relative flex min-w-0 flex-1 items-center gap-2">
         <EntryIcon entry={entry} />
-        <span className="min-w-0 flex-1 truncate text-left">{label(entry)}</span>
+        <span className="min-w-0 flex-1 truncate text-left">
+          {entry.kind === 'restart' && waiting ? t('update.entry.waiting') : label(entry)}
+        </span>
         {entry.kind === 'available' && (
           <span className="shrink-0 text-xs text-muted-foreground">
             {t(entry.manual ? 'update.action.downloadPage' : 'update.entry.update')}
@@ -72,7 +76,7 @@ function onClick(entry: UpdateEntry): void {
       else void platformApi().downloadUpdate();
       return;
     case 'restart':
-      void platformApi().installUpdate();
+      requestRestart();
       return;
     case 'failed':
       void platformApi().checkForUpdates();

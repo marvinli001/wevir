@@ -6,6 +6,7 @@ import { currentLocale, t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import type { UpdateChannel, UpdateState } from '../../../shared/desktop-api.js';
+import { requestRestart } from './restart-confirm';
 import { downloadPageUrl } from './update-model';
 import { UpdateProgress } from './update-progress';
 import { useUpdateState } from './update-store';
@@ -105,7 +106,7 @@ function UpdateAction({ state }: { state: UpdateState }) {
       );
     case 'downloaded':
       return (
-        <Button size="sm" onClick={() => void platformApi().installUpdate()}>
+        <Button size="sm" onClick={requestRestart}>
           {t('update.action.restart')}
         </Button>
       );

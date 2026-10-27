@@ -1891,6 +1891,17 @@ export const messages: Messages = {
   'update.action.restart': 'Перезапустить для обновления',
   'update.action.move': 'Переместить в «Программы»',
   'update.action.downloadPage': 'Страница загрузки',
+  'update.entry.waiting': 'Перезапустить после завершения',
+  'update.confirm.sessionsTitle': 'Сеансы ещё выполняются',
+  'update.confirm.processesTitle': 'Выполняются фоновые команды',
+  'update.confirm.sessions':
+    'Выполняется {count, plural, one {# сеанс} few {# сеанса} other {# сеансов}}. Перезапуск прервёт работу.',
+  'update.confirm.processes':
+    'Фоновые команды выполняются в {count, plural, one {# сеансе} other {# сеансах}}. Перезапуск остановит их, даже после ожидания.',
+  'update.confirm.restart': 'Всё равно перезапустить',
+  'update.confirm.wait': 'Перезапустить после завершения',
+  'update.confirm.keepWaiting': 'Продолжить ожидание',
+  'update.confirm.stopWaiting': 'Не ждать',
 
   'suggest.title':
     '{count, plural, one {# предложенная задача} few {# предложенные задачи} many {# предложенных задач} other {# предложенной задачи}}',

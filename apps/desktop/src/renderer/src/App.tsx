@@ -13,6 +13,7 @@ import { SplashGate } from '@/layout/splash';
 import { NotificationCoordinator } from '@/notifications/notification-coordinator';
 import { capabilities } from '@/platform/platform';
 import { router } from '@/routes/router';
+import { RestartConfirm } from '@/updates/restart-confirm';
 
 export function App() {
   const platform = capabilities();
@@ -30,6 +31,8 @@ export function App() {
             {/* 电脑操作（0.114.0）：登记为提供方，弹授权框，Esc 停下时取消回合。 */}
             {platform.computerUse && <ComputerCoordinator />}
             {platform.preventSleep && <PreventSleepCoordinator />}
+            {/* “重启以更新”前，有会话在进行或后台命令在跑时先确认。 */}
+            {platform.updates && <RestartConfirm />}
             {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
             <ToastViewport>
               <ConnectionToast />

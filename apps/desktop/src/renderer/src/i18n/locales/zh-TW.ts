@@ -1836,6 +1836,16 @@ export const messages: Messages = {
   'update.action.restart': '重新啟動以更新',
   'update.action.move': '移到「應用程式」',
   'update.action.downloadPage': '下載頁面',
+  'update.entry.waiting': '完成後重新啟動',
+  'update.confirm.sessionsTitle': '工作階段仍在進行',
+  'update.confirm.processesTitle': '背景指令仍在執行',
+  'update.confirm.sessions': '{count} 個工作階段正在進行，重新啟動會中斷',
+  'update.confirm.processes':
+    '{count} 個工作階段有背景指令在執行，重新啟動時一併停止，等待也不例外',
+  'update.confirm.restart': '仍然重新啟動',
+  'update.confirm.wait': '等待完成後重新啟動',
+  'update.confirm.keepWaiting': '繼續等待',
+  'update.confirm.stopWaiting': '取消等待',
 
   'suggest.title': '{count} 個建議的工作',
   'suggest.startedCount': '{count} 已開始',

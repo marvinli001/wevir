@@ -1888,6 +1888,17 @@ export const messages: Messages = {
   'update.action.restart': 'Redémarrer pour mettre à jour',
   'update.action.move': 'Déplacer dans Applications',
   'update.action.downloadPage': 'Page de téléchargement',
+  'update.entry.waiting': 'Redémarrer à la fin',
+  'update.confirm.sessionsTitle': 'Sessions en cours',
+  'update.confirm.processesTitle': 'Commandes en arrière-plan actives',
+  'update.confirm.sessions':
+    '{count, plural, one {# session est} other {# sessions sont}} en cours. Redémarrer maintenant les interrompra.',
+  'update.confirm.processes':
+    'Des commandes en arrière-plan tournent dans {count, plural, one {# session} other {# sessions}}. Le redémarrage les arrêtera, même après attente.',
+  'update.confirm.restart': 'Redémarrer quand même',
+  'update.confirm.wait': 'Redémarrer à la fin',
+  'update.confirm.keepWaiting': 'Continuer d’attendre',
+  'update.confirm.stopWaiting': 'Ne plus attendre',
 
   'suggest.title': '{count, plural, one {# tâche suggérée} other {# tâches suggérées}}',
   'suggest.startedCount': '{count, plural, one {# lancée} other {# lancées}}',

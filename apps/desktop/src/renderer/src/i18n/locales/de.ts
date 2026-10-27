@@ -1879,6 +1879,17 @@ export const messages: Messages = {
   'update.action.restart': 'Neu starten zum Aktualisieren',
   'update.action.move': 'In „Programme“ verschieben',
   'update.action.downloadPage': 'Downloadseite',
+  'update.entry.waiting': 'Nach Abschluss neu starten',
+  'update.confirm.sessionsTitle': 'Sitzungen laufen noch',
+  'update.confirm.processesTitle': 'Hintergrundbefehle laufen',
+  'update.confirm.sessions':
+    '{count, plural, one {# Sitzung läuft} other {# Sitzungen laufen}} noch. Ein Neustart unterbricht sie.',
+  'update.confirm.processes':
+    'In {count, plural, one {# Sitzung laufen} other {# Sitzungen laufen}} Hintergrundbefehle. Der Neustart beendet sie, auch nach dem Warten.',
+  'update.confirm.restart': 'Trotzdem neu starten',
+  'update.confirm.wait': 'Nach Abschluss neu starten',
+  'update.confirm.keepWaiting': 'Weiter warten',
+  'update.confirm.stopWaiting': 'Warten abbrechen',
 
   'suggest.title':
     '{count, plural, one {# vorgeschlagene Aufgabe} other {# vorgeschlagene Aufgaben}}',

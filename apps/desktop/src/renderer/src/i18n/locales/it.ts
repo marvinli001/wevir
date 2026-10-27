@@ -1885,6 +1885,17 @@ export const messages: Messages = {
   'update.action.restart': 'Riavvia per aggiornare',
   'update.action.move': 'Sposta in Applicazioni',
   'update.action.downloadPage': 'Pagina di download',
+  'update.entry.waiting': 'Riavvia al termine',
+  'update.confirm.sessionsTitle': 'Sessioni in corso',
+  'update.confirm.processesTitle': 'Comandi in background attivi',
+  'update.confirm.sessions':
+    '{count, plural, one {# sessione è} other {# sessioni sono}} in corso. Riavviare ora le interromperà.',
+  'update.confirm.processes':
+    'Ci sono comandi in background in {count, plural, one {# sessione} other {# sessioni}}. Il riavvio li fermerà, anche dopo l’attesa.',
+  'update.confirm.restart': 'Riavvia comunque',
+  'update.confirm.wait': 'Riavvia al termine',
+  'update.confirm.keepWaiting': 'Continua ad attendere',
+  'update.confirm.stopWaiting': 'Smetti di attendere',
 
   'suggest.title': '{count, plural, one {# attività suggerita} other {# attività suggerite}}',
   'suggest.startedCount': '{count, plural, one {# avviata} other {# avviate}}',
