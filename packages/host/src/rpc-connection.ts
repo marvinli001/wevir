@@ -51,7 +51,7 @@ import type { BrowserBroker } from './browser-broker.js';
 import type { ChannelService } from './channels/service.js';
 import type { ComputerBroker } from './computer-broker.js';
 import { HostError, isHostError } from './errors.js';
-import type { EventStore } from './event-store.js';
+import { type EventStore, elideSuperseded } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
 import { newId } from './ids.js';
 import type { InboxService } from './inbox.js';
@@ -863,7 +863,7 @@ export class RpcConnection {
    * 事件，每个 `seq` 在这个订阅上恰好出现一次。
    */
   #subscribe(id: JsonRpcId, params: MethodParams<'events.subscribe'>): void {
-    const { sessionId, sinceSeq } = params;
+    const { sessionId, sinceSeq, elideSuperseded } = params;
     assertSessionVisible(this.#host.storage, sessionId);
     const subscription: Subscription = {
       id: newId('sub'),
@@ -888,17 +888,29 @@ export class RpcConnection {
     }
     // 补发也算在途：优雅退出时等它读完库再关闭数据库（`settle()`）。
     this.#track(
-      this.#replay(subscription, sinceSeq, lastSeq).catch((error: unknown) => {
-        // 补发失败（读库出错）时客户端会一直等不到事件；断开让它重连后重新订阅。
-        this.#host.onError(error);
-        this.terminate();
-      }),
+      this.#replay(subscription, sinceSeq, lastSeq, elideSuperseded === true).catch(
+        (error: unknown) => {
+          // 补发失败（读库出错）时客户端会一直等不到事件；断开让它重连后重新订阅。
+          this.#host.onError(error);
+          this.terminate();
+        },
+      ),
     );
   }
 
-  async #replay(subscription: Subscription, sinceSeq: number, through: number): Promise<void> {
+  async #replay(
+    subscription: Subscription,
+    sinceSeq: number,
+    through: number,
+    elide: boolean,
+  ): Promise<void> {
     // `events.subscribe` 已经要了同一项权限；补发前再看一次，事件都经 `#mayNotify` 把关。
     if (!this.#mayNotify('events.event')) return;
+    // 0.127.0：客户端要了就去掉补发范围里已被取代的内容（工具的中间输出、被已提交消息替换的增量），事件与 seq 照发。
+    const superseded =
+      elide && sinceSeq < through
+        ? this.#host.events.supersededSince(subscription.sessionId, sinceSeq, through)
+        : undefined;
     // 补发按批读库，并按发送缓冲限速：缓冲到上限的四分之一就等它写出，补发本身不会撑爆缓冲。
     const highWater = this.#limits.sendBufferLimitBytes / 4;
     let cursor = sinceSeq;
@@ -912,7 +924,10 @@ export class RpcConnection {
       for (const event of batch) {
         if (event.seq > through) break;
         cursor = event.seq;
-        const text = this.#eventFrame(subscription, event);
+        const text = this.#eventFrame(
+          subscription,
+          superseded?.has(event.seq) ? elideSuperseded(event) : event,
+        );
         const sent =
           this.#ws.bufferedAmount + text.length >= highWater
             ? await this.#sendAndFlush(text)

@@ -1,6 +1,6 @@
 import { cn } from 'cn';
 import { Columns2, Ellipsis, Maximize2, Minimize2, Plus, Rows2, X } from 'lucide-react';
-import { type KeyboardEvent, type MouseEvent, useRef } from 'react';
+import { type KeyboardEvent, type MouseEvent, useMemo, useRef, useState } from 'react';
 import { useSelectionIndicator } from '@/components/glide';
 import { IconButton } from '@/components/icon-button';
 import {
@@ -18,16 +18,24 @@ import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import type { DisplayPane } from './arrange';
 import { usePaneAccess } from './pane-access';
 import { usePanes } from './pane-controller';
+import { PaneHeaderProvider } from './pane-header';
 import { openableKinds, PANE_KIND_SPECS } from './pane-kinds';
 import { PaneContent, type PaneContext, paneIcon, paneKindName, paneTitle } from './pane-registry';
 import type { PaneTab } from './pane-state';
 
 /**
  * 窗格（desktop-layout.md §3.6）：圆角卡片，窗格头左边是标题或标签条，右边是更多、最大化、关闭；双击窗格头的
- * 空白处最大化或还原。被折叠在一起的几个窗格显示成一个，标签条按原来的窗格分段。
+ * 空白处最大化或还原。被折叠在一起的几个窗格显示成一个，标签条按原来的窗格分段。内容可以换掉标题、在“更多”左边加按钮
+ * （pane-header.tsx）。
  */
 export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContext }) {
   const panes = usePanes();
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
+  const slots = useMemo(
+    () => ({ title: titleSlot, actions: actionsSlot }),
+    [titleSlot, actionsSlot],
+  );
   if (!panes) return null;
   const active = pane.tabs.find((tab) => tab.id === pane.activeTabId) ?? pane.tabs[0];
   if (!active) return null;
@@ -68,13 +76,17 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
         {showTabs ? (
           <TabStrip pane={pane} />
         ) : (
-          <h2 className="flex min-w-0 items-center gap-1.5 px-1.5 font-medium">
-            <ActiveIcon className="size-4 shrink-0" aria-hidden />
-            <span className="truncate">{title}</span>
-          </h2>
+          <>
+            <h2 className="flex min-w-0 items-center gap-1.5 px-1.5 font-medium [header:has([data-pane-title]>*)_&]:hidden">
+              <ActiveIcon className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{title}</span>
+            </h2>
+            <div ref={setTitleSlot} data-pane-title className="flex min-w-0 items-center" />
+          </>
         )}
         {showTabs && <NewTabMenu groupId={pane.id} />}
         <div className="min-w-2 flex-1 self-stretch" />
+        <div ref={setActionsSlot} className="flex shrink-0 items-center gap-0.5 empty:hidden" />
         <MoreMenu pane={pane} active={active} />
         <IconButton
           label={t(maximized ? 'pane.restore' : 'pane.maximize')}
@@ -95,7 +107,9 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
         </IconButton>
       </header>
       <div role="tabpanel" aria-label={title} className="min-h-0 flex-1 overflow-hidden">
-        <PaneContent key={active.id} tab={active} context={context} />
+        <PaneHeaderProvider value={slots}>
+          <PaneContent key={active.id} tab={active} context={context} />
+        </PaneHeaderProvider>
       </div>
     </section>
   );

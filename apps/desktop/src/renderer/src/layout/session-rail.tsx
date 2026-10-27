@@ -1,6 +1,6 @@
 import type { ProviderProfile, Session, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, SquareMenu } from 'lucide-react';
+import { SquareMenu } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
@@ -143,16 +143,20 @@ function RailCardView({
         type="button"
         aria-expanded={open}
         onClick={() => toggleRailCard(id)}
-        className="flex h-10 w-full items-center gap-1 rounded-xl px-3 text-left text-sm outline-none focus-visible:focus-ring"
+        className="flex h-10 w-full items-center gap-1.5 rounded-xl px-3 text-left text-sm outline-none focus-visible:focus-ring"
       >
         <span className="shrink-0 font-medium">{title}</span>
-        <ChevronRight
+        {/* 实心小三角（照 Claude Code 的侧栏卡片）：展开朝下，收起朝右。 */}
+        <svg
           aria-hidden
+          viewBox="0 0 8 8"
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-smooth',
-            open && 'rotate-90',
+            'size-2 shrink-0 text-muted-foreground transition-transform duration-200 ease-smooth',
+            !open && '-rotate-90',
           )}
-        />
+        >
+          <path d="M0.75 2.25h6.5L4 6.25z" fill="currentColor" />
+        </svg>
         <span className="min-w-2 flex-1" />
         {!open && content.summary && (
           <span className="flex min-w-0 items-center gap-2 truncate text-xs text-muted-foreground">

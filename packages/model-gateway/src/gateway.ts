@@ -7,8 +7,17 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import {
+  brotliDecompressSync,
+  constants,
+  gunzipSync,
+  gzip,
+  inflateSync,
+  zstdDecompressSync,
+} from 'node:zlib';
 import type { ProviderTestResult } from '@wevir/runtime-adapter';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { gatewayError, normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { type ProviderTestOptions, testProvider } from './provider-test.js';
 import { isObject } from './tools.js';
@@ -49,6 +58,22 @@ export interface ModelGateway {
 /** 请求体上限（解压前后都按它）：长对话带图片也在这个量级以内。 */
 export const MAX_REQUEST_BYTES = 64 * 1024 * 1024;
 
+/**
+ * 开了 `compat.requestCompression` 时，请求体到这么大才压缩：小请求省下的上传时间抵不上压缩本身（model-gateway.md §2「上游连接与请求体压缩」）。
+ */
+export const COMPRESS_MIN_BYTES = 32 * 1024;
+
+/** 压缩的请求被这些状态码拒绝时，去掉压缩重发一次。 */
+const COMPRESSION_REJECTED = new Set([400, 413, 415]);
+
+/**
+ * 到上游的连接空闲多久之后关掉。上游不发 `Keep-Alive: timeout` 时 Node 自带的 fetch 4 s 就关，工具跑得久一点，下一个请求就要重新
+ * 握手；比常见负载均衡的空闲超时（60 s）短，免得复用对方刚关掉的连接（model-gateway.md §2「上游连接与请求体压缩」）。
+ */
+export const UPSTREAM_KEEP_ALIVE_MS = 30_000;
+
+const gzipAsync = promisify(gzip);
+
 /** 上游错误正文最多读这么多字节。 */
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
 
@@ -62,6 +87,23 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
   let providers = new Map<string, GatewayProvider>();
   const inflight = new Set<AbortController>();
   let closing = false;
+  // 注入了 fetch（测试）时不用自己的连接池。
+  const dispatcher =
+    options.fetch === undefined
+      ? new Agent({
+          keepAliveTimeout: UPSTREAM_KEEP_ALIVE_MS,
+          keepAliveMaxTimeout: UPSTREAM_KEEP_ALIVE_MS,
+        })
+      : undefined;
+  const post: (url: string, init: RequestInit) => Promise<Response> =
+    options.fetch ??
+    ((url, init) =>
+      undiciFetch(url, {
+        ...(init as Parameters<typeof undiciFetch>[1]),
+        dispatcher,
+      }) as unknown as Promise<Response>);
+  // 每个 Provider（连同地址）收不收压缩的请求体：成功过一次是 accepted，压缩被拒、不压缩成功是 rejected。
+  const compression = new Map<string, 'accepted' | 'rejected'>();
 
   const server = createServer((req, res) => {
     res.on('error', () => {});
@@ -158,15 +200,42 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       }
       const redact = (value: string) =>
         upstreamKey ? value.replaceAll(upstreamKey, '***') : value;
-      let upstream: Response;
-      try {
-        upstream = await (options.fetch ?? fetch)(prepared.url, {
+      const json = JSON.stringify(prepared.payload);
+      const compressionKey = `${providerId}\n${prepared.url}`;
+      const compress =
+        provider.compat?.requestCompression === 'gzip' &&
+        compression.get(compressionKey) !== 'rejected' &&
+        Buffer.byteLength(json) >= COMPRESS_MIN_BYTES;
+      const request = (body: string | Uint8Array<ArrayBuffer>, gzipped: boolean) =>
+        post(prepared.url, {
           method: 'POST',
-          headers: prepared.headers,
-          body: JSON.stringify(prepared.payload),
+          headers: gzipped ? { ...prepared.headers, 'content-encoding': 'gzip' } : prepared.headers,
+          body,
           signal: abort.signal,
           redirect: 'error',
         });
+      let upstream: Response;
+      let encoding: Record<string, unknown> = {};
+      try {
+        if (!compress) upstream = await request(json, false);
+        else {
+          // 在线程池里压缩，不占 Host 的事件循环；级别 1：比默认级别快一倍多，体积只大一成左右。
+          const gzipped = await gzipAsync(json, { level: constants.Z_BEST_SPEED });
+          upstream = await request(new Uint8Array(gzipped), true);
+          encoding = { encoding: 'gzip' };
+          if (upstream.ok) compression.set(compressionKey, 'accepted');
+          else if (
+            COMPRESSION_REJECTED.has(upstream.status) &&
+            compression.get(compressionKey) !== 'accepted'
+          ) {
+            // 可能是不收压缩的请求体：不压缩重发一次。重发成功才记住它不收，两次都失败说明错误与压缩无关。
+            const rejected = upstream.status;
+            await upstream.body?.cancel().catch(() => {});
+            upstream = await request(json, false);
+            encoding = { encoding: 'identity', gzipRejected: rejected };
+            if (upstream.ok) compression.set(compressionKey, 'rejected');
+          }
+        }
       } catch (error) {
         if (abort.signal.aborted) return log('client_closed', {});
         // 连不上上游：5xx 让 Codex 按自己的策略重试。
@@ -194,7 +263,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
             phalaRoutingError(normalized, upstream.status, provider.baseURL ?? '') ?? normalized,
           ),
         );
-        return log('upstream_error', { upstreamStatus });
+        return log('upstream_error', { upstreamStatus, ...encoding });
       }
       res.writeHead(200, {
         'content-type': prepared.contentType(upstream.headers.get('content-type')),
@@ -209,7 +278,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       }
       if (res.destroyed) return log('client_closed', { upstreamStatus });
       res.end();
-      log('completed', { upstreamStatus });
+      log('completed', { upstreamStatus, ...encoding });
     } catch (error) {
       if (abort.signal.aborted)
         return log('client_closed', {
@@ -254,6 +323,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       for (const abort of inflight) abort.abort();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      await dispatcher?.destroy();
     },
   };
 }

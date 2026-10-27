@@ -677,6 +677,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
+      // 新会话到第一个 token 的本地耗时（startup-timing.ts）：每个会话一行，带最近的 p50 / p90。
+      onStartupTiming: (timing, summary) =>
+        logger.info('session startup', {
+          sessionId: timing.sessionId,
+          ms: timing.stages,
+          count: summary.count,
+          p50: summary.p50,
+          p90: summary.p90,
+        }),
       // 无人值守会话里审批的超时（0.105.0）：每次记下审批时按当时的设置。
       approvalTimeoutMs: () => (settings.get().unattendedApprovalTimeoutMinutes ?? 0) * 60_000,
       ...(titleInstructions !== undefined && { titleInstructions }),

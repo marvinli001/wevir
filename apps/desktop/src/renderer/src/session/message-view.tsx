@@ -53,7 +53,7 @@ import { reportBody } from './session-link-model';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { formatRelativeTime } from './subagent-model';
-import { useNow } from './subagent-view';
+import { useNow } from './use-now';
 import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
 import { groupWork, isImageTool } from './tool-model';
 import { RetryRow, UsageLimitCard } from './usage-limit-card';

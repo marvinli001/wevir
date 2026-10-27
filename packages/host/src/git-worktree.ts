@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
-import { runGit, safeConfig } from './git-diff.js';
+import { gitBinary, runGit, safeConfig } from './git-diff.js';
 
 const TIMEOUT_MS = 30_000;
 
@@ -22,10 +22,11 @@ export interface CreatedWorktree {
 
 export class WorktreeError extends Error {}
 
-function git(cwd: string, args: string[], emptyHooks: string): Promise<string> {
+async function git(cwd: string, args: string[], emptyHooks: string): Promise<string> {
+  const binary = await gitBinary();
   return new Promise((resolve, reject) => {
     execFile(
-      'git',
+      binary,
       ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${emptyHooks}`, ...args],
       {
         cwd,

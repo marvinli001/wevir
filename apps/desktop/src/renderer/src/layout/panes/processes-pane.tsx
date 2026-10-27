@@ -18,7 +18,7 @@ import { useTranscript } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { formatDuration } from '@/session/format';
-import { useNow } from '@/session/subagent-view';
+import { useNow } from '@/session/use-now';
 import type { PaneContext } from '../pane-registry';
 import {
   droppedBefore,

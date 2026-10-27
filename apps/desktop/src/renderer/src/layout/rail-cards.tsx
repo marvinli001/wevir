@@ -1,5 +1,5 @@
 // 会话侧栏的“环境”“上下文”“变更”三张卡片（U18，desktop-layout.md §12；截图 10–12）。“后台任务”在
-// panes/subagents-pane.tsx，与“子智能体”窗格同一份数据。
+// panes/tasks-pane.tsx，与“后台任务”窗格同一份数据。
 
 import type { GitFileChange } from '@wevir/protocol';
 import { cn } from 'cn';

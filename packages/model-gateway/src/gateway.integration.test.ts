@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type GatewayLogger, startModelGateway } from './gateway.js';
+import { COMPRESS_MIN_BYTES, type GatewayLogger, startModelGateway } from './gateway.js';
 import {
   CODEX_METADATA_HEADERS,
   codexProblems,
@@ -308,6 +308,103 @@ describe('Responses 透传', () => {
       body: '{}',
     });
     expect(bad.status).toBe(415);
+  });
+});
+
+describe('请求体压缩（compat.requestCompression）', () => {
+  /** 超过 COMPRESS_MIN_BYTES 的请求：在最后一条用户输入后面补一大段文本。 */
+  function largeRequest(): ResponsesRequest {
+    const body = codexRequest('1-first-turn').body;
+    return {
+      ...body,
+      input: [
+        ...(body.input as ResponsesItem[]),
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'x'.repeat(COMPRESS_MIN_BYTES) }],
+        },
+      ],
+    };
+  }
+
+  it('没开：不压缩；开了：大请求带 Content-Encoding: gzip，小请求不压缩，上游收到的请求体相同', async () => {
+    const mock = await responsesUpstream(() => ({ text: ['ok'] }));
+    const { gw, lines } = await gateway();
+    gw.setProviders([
+      responsesProvider(mock.baseURL),
+      responsesProvider(mock.baseURL, { id: 'gz', compat: { requestCompression: 'gzip' } }),
+    ]);
+    const large = largeRequest();
+    for (const [id, body] of [
+      ['resp', large],
+      ['gz', large],
+      ['gz', codexRequest('1-first-turn').body],
+    ] as const) {
+      const res = await postResponses(gw.baseURL(id), gw.token, body);
+      expect(res.status).toBe(200);
+      await res.text();
+    }
+    expect(mock.requests.map((r) => r.headers['content-encoding'])).toEqual([
+      undefined,
+      'gzip',
+      undefined,
+    ]);
+    expect(mock.requests[1]?.body).toEqual(mock.requests[0]?.body);
+    await until(() => requestLogs(lines).length === 3);
+    expect(requestLogs(lines).map((l) => l.fields?.encoding)).toEqual([
+      undefined,
+      'gzip',
+      undefined,
+    ]);
+  });
+
+  it('上游拒绝压缩（415）：不压缩重发一次，之后这个 Provider 不再压缩', async () => {
+    const mock = await responsesUpstream((view) =>
+      view.index === 0 ? { httpError: { status: 415 } } : { text: ['ok'] },
+    );
+    const { gw, lines } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL, { compat: { requestCompression: 'gzip' } })]);
+    for (let i = 0; i < 2; i++) {
+      const res = await postResponses(gw.baseURL('resp'), gw.token, largeRequest());
+      expect(res.status).toBe(200);
+      expect(codexProblems(await readEvents(res))).toEqual([]);
+    }
+    expect(mock.requests.map((r) => r.headers['content-encoding'])).toEqual([
+      'gzip',
+      undefined,
+      undefined,
+    ]);
+    await until(() => requestLogs(lines).length === 2);
+    expect(requestLogs(lines)[0]?.fields).toMatchObject({
+      outcome: 'completed',
+      encoding: 'identity',
+      gzipRejected: 415,
+    });
+  });
+
+  it('压缩与不压缩都是 400：错误原样转回，不记成不收压缩；收过压缩之后的 400 不重发', async () => {
+    const mock = await responsesUpstream((view) =>
+      view.index < 2 || view.index === 3
+        ? { httpError: { status: 400, message: 'bad request' } }
+        : { text: ['ok'] },
+    );
+    const { gw } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL, { compat: { requestCompression: 'gzip' } })]);
+    const statuses: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await postResponses(gw.baseURL('resp'), gw.token, largeRequest());
+      statuses.push(res.status);
+      await res.text();
+    }
+    expect(statuses).toEqual([400, 200, 400]);
+    // 第一次：压缩 400、不压缩 400；第二次仍压缩且成功；第三次压缩 400，已知收压缩，不重发。
+    expect(mock.requests.map((r) => r.headers['content-encoding'])).toEqual([
+      'gzip',
+      undefined,
+      'gzip',
+      'gzip',
+    ]);
   });
 });
 

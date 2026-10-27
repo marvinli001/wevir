@@ -25,6 +25,7 @@ import { parseGoalCommand } from './goal-command';
 import { engineFeaturesOf } from './handoff-model';
 import { type ModelChoice, modelsOf } from './model-picker';
 import { setPlanMode } from './plan-mode';
+import { alongside } from './start-session-model';
 
 export async function sendText(
   client: WevirClient,
@@ -194,17 +195,21 @@ export function useStartSession(
         return false;
       }
       store?.upsertSession(session);
-      // 第一个对话：“对话”工作区刚建，列表里还没有它，跳过去之前先重读。
-      if (!workspaceId) await store?.refresh();
       try {
-        if (goal?.type === 'set') {
-          await client.request('session.setGoal', {
-            sessionId: session.id,
-            objective: goal.objective,
-          });
-        } else {
-          await sendText(client, session.id, text, undefined, images, collaborationMode);
-        }
+        // 第一个对话：“对话”工作区刚建，列表里还没有它，跳过去之前先重读；和第一条消息同时进行，不让消息等它。
+        await alongside(
+          async () => {
+            if (goal?.type === 'set') {
+              await client.request('session.setGoal', {
+                sessionId: session.id,
+                objective: goal.objective,
+              });
+            } else {
+              await sendText(client, session.id, text, undefined, images, collaborationMode);
+            }
+          },
+          workspaceId || !store ? undefined : () => store.refresh(),
+        );
       } catch (reason) {
         setError(sendError(reason));
         return false;

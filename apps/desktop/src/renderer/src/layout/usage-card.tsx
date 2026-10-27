@@ -12,7 +12,7 @@ import { SOURCES } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
-import { useNow } from '@/session/subagent-view';
+import { useNow } from '@/session/use-now';
 import { windowName } from '@/settings/chatgpt-account-model';
 import { ContextBar } from './context-bar';
 import { type RailContext, registerRailCard } from './session-rail';

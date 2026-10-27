@@ -7,7 +7,7 @@ import {
   WORKSPACE_GIT_MAX_FILES,
   type WorkspaceGitResult,
 } from '@wevir/protocol';
-import { safeConfig, splitRawNumstat } from './git-diff.js';
+import { gitBinary, safeConfig, splitRawNumstat } from './git-diff.js';
 
 /** 每条 git 命令的时限；超时按“不是仓库”处理。 */
 const TIMEOUT_MS = 5_000;
@@ -77,15 +77,16 @@ async function read(root: string): Promise<WorkspaceGitResult> {
 }
 
 /** 跑一条 git 命令，成功时是 stdout，失败（退出码非 0、没有 git、超时）时是 undefined。 */
-function run(
+async function run(
   cwd: string,
   config: readonly string[],
   args: string[],
   maxBuffer = MAX_BUFFER,
 ): Promise<string | undefined> {
+  const binary = await gitBinary();
   return new Promise((resolve) => {
     execFile(
-      'git',
+      binary,
       [...config, ...args],
       {
         cwd,

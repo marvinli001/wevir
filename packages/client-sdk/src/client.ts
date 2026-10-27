@@ -1355,6 +1355,7 @@ export class WevirClient {
       onClose: (closed) => this.#unsubscribe(closed),
       onWarning: (message, detail) => this.#warn(message, detail),
     });
+    feed.elideSuperseded = options.elideSuperseded === true;
     if (this.#closedError) {
       feed.fail(this.#closedError);
       return feed;
@@ -1630,7 +1631,11 @@ export class WevirClient {
       !feed.ended && feed.generation === generation && this.#connection === connection;
     connection.channel.call(
       'events.subscribe',
-      { sessionId: feed.sessionId, sinceSeq: feed.lastSeq },
+      {
+        sessionId: feed.sessionId,
+        sinceSeq: feed.lastSeq,
+        ...(feed.elideSuperseded && { elideSuperseded: true }),
+      },
       this.#timeouts.requestMs,
       {
         onResult: (raw) => {

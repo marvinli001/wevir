@@ -53,6 +53,22 @@ describe('Codex skill metadata and discovery', () => {
     }
   });
 
+  it('同时读的 SKILL.md 仍按目录顺序给出，strict 时按这个顺序报第一个读不了的', async () => {
+    const root = join(temp(), 'many');
+    const names = Array.from({ length: 60 }, (_, index) => `s${String(index).padStart(2, '0')}`);
+    for (const name of [...names].reverse()) skill(join(root, name < 's30' ? 'a' : 'b'), name);
+    expect((await scanSkills(root, 'user')).map((item) => item.name)).toEqual(names);
+    // 后面的那个先坏、坏法不同：strict 报的是排在前面的 s12。
+    writeFileSync(join(root, 'b', 's41', 'SKILL.md'), '---\nname: x\n---');
+    writeFileSync(join(root, 'a', 's12', 'SKILL.md'), 'bad');
+    expect((await scanSkills(root, 'user')).map((item) => item.name)).toEqual(
+      names.filter((name) => name !== 's12' && name !== 's41'),
+    );
+    await expect(scanSkills(root, 'user', true)).rejects.toThrow(
+      'SKILL.md requires YAML frontmatter',
+    );
+  });
+
   it('YAML、标量修复、折行与 short-description，长度按 Unicode 字符计', () => {
     expect(
       parseSkill(

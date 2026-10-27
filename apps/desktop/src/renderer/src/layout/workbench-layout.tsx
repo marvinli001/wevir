@@ -677,8 +677,9 @@ function toggleSidebar(plan: SidebarPlan): void {
 }
 
 /**
- * 子智能体详情的路由（R5，desktop-layout.md §5.2）：URL 带 `agent/:childId` 时保证“子智能体”标签打开（窗格区收起、
- * 在浮层里或被别的窗格最大化盖住时也显示出来）；还在这个地址时它被关掉，就回到父会话的地址。
+ * 子智能体详情的路由（R5，desktop-layout.md §5.2）：URL 带 `agent/:childId` 时保证“后台任务”标签打开（窗格区收起、
+ * 在浮层里或被别的窗格最大化盖住时也显示出来；旧的本机状态里还有“子智能体”标签时用它）；还在这个地址时它被关掉，就回到
+ * 父会话的地址。
  */
 function useSubagentRoute(
   panes: PaneController | undefined,
@@ -692,13 +693,18 @@ function useSubagentRoute(
   const ready = panes !== undefined;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在进入详情（换子会话或会话）时打开一次。
   useEffect(() => {
-    if (childId !== undefined && ready) latest.current?.open({ kind: 'subagents' });
+    if (childId === undefined || !ready) return;
+    const legacy = latest.current?.scope.groups.some((group) =>
+      group.tabs.some((tab) => tab.kind === 'subagents'),
+    );
+    latest.current?.open({ kind: legacy ? 'subagents' : 'tasks' });
   }, [childId, sessionId, ready]);
 
   const scopeKey = panes?.scopeKey;
   const hasTab =
-    panes?.scope.groups.some((group) => group.tabs.some((tab) => tab.kind === 'subagents')) ??
-    false;
+    panes?.scope.groups.some((group) =>
+      group.tabs.some((tab) => tab.kind === 'tasks' || tab.kind === 'subagents'),
+    ) ?? false;
   const previous = useRef<{ scopeKey?: string; hasTab: boolean }>({ hasTab: false });
   useEffect(() => {
     const before = previous.current;

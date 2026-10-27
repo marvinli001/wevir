@@ -308,20 +308,6 @@ export class PluginRegistry {
         { ...skill },
       ]),
     );
-    // 内置的让给同名的已装 skill（升级前用户自己装过同名的），外部的同名项照旧列出、默认关着。
-    if (this.#builtinRoot !== undefined) {
-      const names = new Set([...items.values()].map((skill) => skill.name));
-      for (const skill of await scanSkills(this.#builtinRoot, 'wevir')) {
-        if (names.has(skill.name) || items.has(skill.path)) continue;
-        names.add(skill.name);
-        items.set(skill.path, {
-          ...skill,
-          id: `builtin_${skill.name}`,
-          enabled: state.builtin?.[skill.name] !== false,
-          builtin: true,
-        });
-      }
-    }
     const roots = new Map<string, Skill['source']>([
       [join(this.#userHome, '.agents', 'skills'), 'user'],
     ]);
@@ -339,8 +325,27 @@ export class PluginRegistry {
         dir = parent;
       }
     }
-    for (const [root, source] of roots) {
-      for (const skill of await scanSkills(root, source)) {
+    // 各个目录同时扫，结果按原来的先后合并。
+    const [builtin, ...scanned] = await Promise.all([
+      this.#builtinRoot === undefined ? [] : scanSkills(this.#builtinRoot, 'wevir'),
+      ...[...roots].map(([root, source]) => scanSkills(root, source)),
+    ]);
+    // 内置的让给同名的已装 skill（升级前用户自己装过同名的），外部的同名项照旧列出、默认关着。
+    if (this.#builtinRoot !== undefined) {
+      const names = new Set([...items.values()].map((skill) => skill.name));
+      for (const skill of builtin ?? []) {
+        if (names.has(skill.name) || items.has(skill.path)) continue;
+        names.add(skill.name);
+        items.set(skill.path, {
+          ...skill,
+          id: `builtin_${skill.name}`,
+          enabled: state.builtin?.[skill.name] !== false,
+          builtin: true,
+        });
+      }
+    }
+    for (const skills of scanned) {
+      for (const skill of skills) {
         if (!items.has(skill.path))
           items.set(skill.path, {
             ...skill,
