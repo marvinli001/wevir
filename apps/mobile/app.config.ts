@@ -69,6 +69,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     ['expo-secure-store', { faceIDPermission: false }],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: en.NSPhotoLibraryUsageDescription,
+        cameraPermission: en.NSCameraUsageDescription,
+        microphonePermission: false,
+      },
+    ],
     // 本地缓存整库加密（src/lib/cache-store.ts）：编进 SQLCipher。
     ['expo-sqlite', { useSQLCipher: true }],
     // App 锁与高风险审批的本人验证（src/state/lock.tsx）。

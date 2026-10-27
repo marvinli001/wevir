@@ -1,5 +1,6 @@
 {
-  "NSCameraUsageDescription": "Отсканировать QR-код сопряжения на экране компьютера.",
+  "NSCameraUsageDescription": "Сканировать QR-код сопряжения на экране компьютера и снимать фото для сообщений.",
   "NSLocalNetworkUsageDescription": "Находить компьютеры с Wevir в локальной сети и подключаться к ним напрямую.",
-  "NSFaceIDUsageDescription": "Разблокировка Wevir и подтверждение одобрений с высоким риском."
+  "NSFaceIDUsageDescription": "Разблокировка Wevir и подтверждение одобрений с высоким риском.",
+  "NSPhotoLibraryUsageDescription": "Выбирать фото для сообщений."
 }

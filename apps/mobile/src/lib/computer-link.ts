@@ -21,13 +21,13 @@ import type { ChannelClient } from './bot-store';
 import type { CacheProvider, SessionCache } from './cache';
 import type { ChangesClient } from './changes';
 import type { InboxClient } from './inbox-store';
+import type { NewSessionClient } from './new-session';
 import {
   type ComputerRecord,
   type ConnectedInfo,
   type RouteKind,
   recordAfterConnect,
 } from './records';
-import type { SessionClient } from './session-watch';
 import {
   applySessionsChange,
   type SessionList,
@@ -111,7 +111,7 @@ export interface LinkClient {
   /** 助理的频道接口；Host 没有 `channels` 功能时没有。 */
   readonly channels?: ChannelClient;
   /** 按 ID 看一个会话（线程会话不在 `session.list` 里）；没有 `session.read` 时没有。 */
-  readonly sessions?: SessionClient;
+  readonly sessions?: NewSessionClient;
   /** 收件箱（0.105.0）；Host 没有 `inbox` 功能或没有 `session.read` 时没有。 */
   readonly inbox?: InboxClient;
   /** 读变更与文件（`workspace.diff`、`files.read`）。 */
@@ -213,7 +213,7 @@ export class ComputerLink {
   }
 
   /** 连着时按 ID 看会话的接口。 */
-  get sessions(): SessionClient | undefined {
+  get sessions(): NewSessionClient | undefined {
     return this.#client?.sessions;
   }
 

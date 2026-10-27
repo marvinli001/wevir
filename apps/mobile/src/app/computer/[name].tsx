@@ -1,8 +1,8 @@
 // 一台电脑：大标题是电脑名，下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
-// `sessions.changed`，只读），最后是“退出这台电脑”。
+// `sessions.changed`，标题旁新建会话），最后是“退出这台电脑”。
 
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SessionRow } from '../../components/session-row';
 import { Button, Group, Icon, Row, SectionTitle, StatusText } from '../../components/ui';
 import { t } from '../../i18n';
@@ -83,7 +83,30 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
 
         {status.kind !== 'removed' && (
           <>
-            <SectionTitle>{t('computer.sessions')}</SectionTitle>
+            <SectionTitle
+              trailing={
+                status.kind === 'online' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('newSession.title')}
+                    hitSlop={10}
+                    onPress={() =>
+                      router.push({ pathname: '/new-session', params: { computer: record.name } })
+                    }
+                    style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+                    testID="computer-new-session"
+                  >
+                    <Icon
+                      name={{ ios: 'square.and.pencil', android: 'edit_square' }}
+                      size={20}
+                      color={theme.foreground}
+                    />
+                  </Pressable>
+                ) : undefined
+              }
+            >
+              {t('computer.sessions')}
+            </SectionTitle>
             {sessionList.length > 0 ? (
               <Group>
                 {sessionList.map((session, index) => (

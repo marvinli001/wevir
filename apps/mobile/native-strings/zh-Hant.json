@@ -1,5 +1,6 @@
 {
-  "NSCameraUsageDescription": "掃描電腦上顯示的配對 QR 碼。",
+  "NSCameraUsageDescription": "掃描電腦上顯示的配對 QR 碼，拍照附到訊息裡。",
   "NSLocalNetworkUsageDescription": "在區域網路裡尋找並直連執行 Wevir 的電腦。",
-  "NSFaceIDUsageDescription": "解鎖 Wevir 與確認高風險的核准。"
+  "NSFaceIDUsageDescription": "解鎖 Wevir 與確認高風險的核准。",
+  "NSPhotoLibraryUsageDescription": "選擇照片附到訊息裡。"
 }

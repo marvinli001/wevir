@@ -1,5 +1,5 @@
 // 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表、收件箱与助理、App 开着时的提醒条与 App 锁。底下是四个标签页（助理、
-// 收件箱、会话、电脑），助理对话、会话、电脑详情、添加电脑、新建与编辑助理压在标签页之上。
+// 收件箱、会话、电脑），助理对话、会话、改动与文件、电脑详情、添加电脑、新建会话、新建与编辑助理压在标签页之上。
 
 import { getLocales } from 'expo-localization';
 import { Stack } from 'expo-router';
@@ -31,6 +31,10 @@ if (__DEV__) {
 
 declare const HermesInternal: unknown;
 
+// 同一台电脑、助理或会话在栈里只留一份：点开提醒时它已经开着，就退回到那一页，不再叠一份。
+const byName = (_: string, params: Record<string, unknown>) => String(params.name);
+const byKey = (_: string, params: Record<string, unknown>) => String(params.key);
+
 export default function RootLayout() {
   const theme = useTheme();
   useEffect(() => {
@@ -52,14 +56,26 @@ export default function RootLayout() {
                 <Stack.Screen
                   name="computer/[name]"
                   options={{ title: '', headerLargeTitleEnabled: true }}
+                  dangerouslySingular={byName}
                 />
                 <Stack.Screen
                   name="bot/[key]"
                   options={{ title: '', headerLargeTitleEnabled: true }}
+                  dangerouslySingular={byKey}
                 />
                 <Stack.Screen
                   name="session/[key]"
                   options={{ title: '', headerLargeTitleEnabled: true }}
+                  dangerouslySingular={byKey}
+                />
+                <Stack.Screen
+                  name="new-session"
+                  options={{
+                    title: t('newSession.title'),
+                    presentation: 'formSheet',
+                    sheetAllowedDetents: [0.9, 1],
+                    sheetGrabberVisible: true,
+                  }}
                 />
                 <Stack.Screen
                   name="new-bot"
