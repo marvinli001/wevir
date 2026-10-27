@@ -840,6 +840,11 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': '無法算繪，顯示原始碼',
   'markdown.mermaidInvalid': '圖無法算繪，顯示原始碼',
 
+  'agentStatus.label': '代理狀態',
+  'agentStatus.writing': '正在回覆',
+  'agentStatus.steps': '{count} 步',
+  'agentStatus.opened': '開出的工作階段',
+
   'work.thinking': '正在思考',
   'work.awaiting': '等待核准',
   'work.awaitingInput': '等待回答',

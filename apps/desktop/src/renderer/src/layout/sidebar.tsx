@@ -29,8 +29,9 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/component
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
 import { usePinnedSessions, useSessionActions } from '@/data/session-actions';
+
 import { type SessionThread, threadSessions } from '@/data/session-threads';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useSessionActivity, useWorkbenchData } from '@/data/workbench-data';
 import {
   chatsOf,
   groupByStatus,
@@ -59,6 +60,7 @@ import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { searchOpen } from '@/search/search-model';
+import { ActivityText, RunClock } from '@/session/agent-status';
 import { tuningAvailability } from '@/tuning/tuning-model';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { usageAvailability } from '@/usage/usage-model';
@@ -818,6 +820,23 @@ function sameRow(a: SessionRowProps, b: SessionRowProps): boolean {
 }
 
 /**
+ * 运行中的会话行的第二行（代理状态）：当前动作与计时，小一号的说明文字色。还没收到这个回合的事件时（打开应用时已经在跑）写“运行中”。
+ */
+function SessionActivityLine({ session }: { session: Session }) {
+  const activity = useSessionActivity(session.id);
+  return (
+    <span className="flex min-w-0 items-center gap-2 text-xs leading-4 text-muted-foreground animate-in fade-in duration-200 ease-smooth">
+      {activity ? (
+        <ActivityText activity={activity} className="flex-1" />
+      ) : (
+        <span className="flex-1 truncate">{t('session.marker.running')}</span>
+      )}
+      <RunClock since={session.activeTurn?.startedAt} className="shrink-0" />
+    </span>
+  );
+}
+
+/**
  * 会话行：标题与项目名对齐（左边一格是状态：运行中是这个回合的 thinking orb，待审批时 orb 停住；出错是状态点），右侧
  * “待审批”标签或未读点。orb 与消息流里的是同一种（fx/orb-state.ts 按会话与回合 ID 定）。状态变化有动效（§71）：orb 出现时
  * 弹出来，待审批标签与出错的状态点跳一下，回合跑完左边画一个圈勾再淡出，标题换成生成的标题时逐字显出。
@@ -839,6 +858,7 @@ const SessionRow = memo(function SessionRow({
   const goal = session.goal?.status === 'active';
   // 在跑的会话不按未读加粗：失焦时右边是灰色呼吸点，跑完了（没在看）才加粗并换成未读点。
   const working = marker === 'running';
+  const live = working || marker === 'awaiting_approval' || marker === 'awaiting_input';
   const settledUnread = unread && !working;
   // 右键菜单与悬停的按钮用同一套动作（data/session-actions.ts）。
   const actions = useSessionActions(session);
@@ -875,6 +895,8 @@ const SessionRow = memo(function SessionRow({
             cn(
               ROW,
               'text-soft-foreground select-none group-focus-within/session:pr-14 group-hover/session:pr-14',
+              // 运行中多一行当前动作（代理状态）：行跟着变高。
+              live && 'h-auto min-h-8 py-1',
               isActive && ROW_ACTIVE,
             )
           }
@@ -920,13 +942,20 @@ const SessionRow = memo(function SessionRow({
               </span>
               <span
                 className={cn(
-                  'min-w-0 truncate',
+                  'flex min-w-0 flex-col',
                   // 有子会话时箭头紧跟在标题后面，空出来的地方放在箭头之后。
                   !thread && 'flex-1',
-                  settledUnread && 'font-semibold text-foreground',
                 )}
               >
-                <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
+                <span
+                  className={cn(
+                    'min-w-0 truncate',
+                    settledUnread && 'font-semibold text-foreground',
+                  )}
+                >
+                  <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
+                </span>
+                {live && <SessionActivityLine session={session} />}
               </span>
               {thread && (
                 // 箭头在链接里面：点它只展开、收起，不打开会话；键盘用左右方向键（上面的 onKeyDown）。

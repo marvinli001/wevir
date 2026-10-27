@@ -46,6 +46,7 @@ import { movePaneScope } from '@/layout/pane-store';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths, seqParam } from '@/routes/paths';
 import { useSimulatorReveal } from '@/simulator/simulator-reveal';
+import { AgentStatusCard, OpenedSessionsStatus } from './agent-status';
 import { ApprovalDock } from './approval-card';
 import { useRegisterCompact } from './compact-action';
 import {
@@ -929,6 +930,8 @@ export function SessionView({
             {undoAvailable && redoCount > 0 && (
               <UndoBanner count={redoCount} disabled={!client} onRedo={() => void redoTurn()} />
             )}
+            <OpenedSessionsStatus sessionId={session.id} />
+            {transcript && <AgentStatusCard session={session} transcript={transcript} />}
           </div>
           <Composer
             key={session.id}

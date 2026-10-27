@@ -846,6 +846,11 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': '描画できないため、ソースを表示',
   'markdown.mermaidInvalid': '図を描画できないため、ソースを表示',
 
+  'agentStatus.label': 'エージェントの状態',
+  'agentStatus.writing': '応答中',
+  'agentStatus.steps': '{count} ステップ',
+  'agentStatus.opened': '開いたセッション',
+
   'work.thinking': '思考中',
   'work.awaiting': '承認待ち',
   'work.awaitingInput': '回答待ち',

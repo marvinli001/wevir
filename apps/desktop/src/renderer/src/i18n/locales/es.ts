@@ -854,6 +854,11 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': 'Renderizado no disponible; se muestra el código',
   'markdown.mermaidInvalid': 'No se pudo renderizar el diagrama; se muestra el código',
 
+  'agentStatus.label': 'Estado del agente',
+  'agentStatus.writing': 'Respondiendo',
+  'agentStatus.steps': '{count, plural, one {# paso} other {# pasos}}',
+  'agentStatus.opened': 'Sesiones abiertas',
+
   'work.thinking': 'Pensando',
   'work.awaiting': 'Esperando aprobación',
   'work.awaitingInput': 'Esperando respuesta',

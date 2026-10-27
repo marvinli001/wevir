@@ -2,6 +2,7 @@ import type { AccountState, ProviderProfile, SessionId } from '@wevir/protocol';
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -10,6 +11,7 @@ import {
 } from 'react';
 import { useHostConnection } from '@/host/host-connection';
 import { AccountsStore } from './accounts-store';
+import { type SessionActivity, SessionActivityTracker } from './session-activity';
 import { TranscriptCache, type TranscriptState } from './transcript-store';
 import type { WorkbenchData } from './workbench-model';
 import { LIST_FALLBACK_REFRESH_MS, LIST_REFRESH_MS, WorkbenchStore } from './workbench-store';
@@ -18,6 +20,7 @@ interface Stores {
   workbench: WorkbenchStore;
   transcripts: TranscriptCache;
   accounts: AccountsStore;
+  activity: SessionActivityTracker;
 }
 
 const StoresContext = createContext<Stores | undefined>(undefined);
@@ -39,10 +42,13 @@ export function WorkbenchDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!client) return;
     const workbench = new WorkbenchStore(client);
+    const activity = new SessionActivityTracker();
+    workbench.onSessionEvent((event, session) => activity.apply(event, session));
     const created = {
       workbench,
       transcripts: new TranscriptCache(client),
       accounts: new AccountsStore(client, workbench),
+      activity,
     };
     setStores(created);
     return () => {
@@ -117,4 +123,16 @@ export function useTranscript(sessionId: SessionId | undefined): TranscriptState
     [cache, sessionId],
   );
   return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? NO_TRANSCRIPT);
+}
+
+const NO_ACTIVITY = () => () => {};
+
+/** 会话进行中的回合的当前动作（session-activity.ts）；没在跑、或还没收到这个回合的事件时 undefined。只随这个会话的动作变化重渲染。 */
+export function useSessionActivity(id: SessionId): SessionActivity | undefined {
+  const tracker = useContext(StoresContext)?.activity;
+  const subscribe = useCallback(
+    (listener: () => void) => tracker?.subscribe(id, listener) ?? NO_ACTIVITY(),
+    [tracker, id],
+  );
+  return useSyncExternalStore(subscribe, () => tracker?.get(id));
 }
