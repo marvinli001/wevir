@@ -7,6 +7,7 @@ import {
   modelCandidates,
   PRICING_MAX_AGE_MS,
   PricingStore,
+  peakFactor,
   providerForUrl,
 } from './pricing.js';
 
@@ -199,6 +200,26 @@ describe('PricingStore', () => {
     });
   });
 
+  it('DeepSeek 官方按北京时间的高峰时段计两倍；不给时刻时按表上的价', async () => {
+    const { store } = await loaded();
+    const hints = { source: 'deepseek-official' };
+    // 2026-10-27 是周二：北京时间 10:00 是高峰，13:00 是午间空闲。
+    const peak = Date.UTC(2026, 9, 27, 2);
+    const lunch = Date.UTC(2026, 9, 27, 5);
+    expect(store.lookup('deepseek-chat', hints, 1, peak)?.price).toEqual({
+      input: 0.56,
+      output: 0.84,
+      cacheRead: 0.056,
+    });
+    expect(store.lookup('deepseek-chat', hints, 1, lunch)?.price).toEqual({
+      input: 0.28,
+      output: 0.42,
+      cacheRead: 0.028,
+    });
+    expect(store.lookup('deepseek-chat', hints, 1)?.price.input).toBe(0.28);
+    expect(store.lookup('gpt-5.5', { source: 'chatgpt' }, 1, peak)?.price.input).toBe(2);
+  });
+
   it('不到一天不刷新；过了一天带 ETag 再取，304 只更新时间', async () => {
     let now = T0;
     const fetch = vi.fn(async (_url: unknown, init?: RequestInit) =>
@@ -244,6 +265,19 @@ describe('PricingStore', () => {
 });
 
 describe('价格表的辅助函数', () => {
+  it('peakFactor：北京时间工作日 9–12 点、14–18 点；周末与其他时段是 1', () => {
+    const at = (day: number, hour: number, minute = 0) => Date.UTC(2026, 9, day, hour - 8, minute);
+    // 2026-10-26 周一 … 2026-10-31 周六。
+    expect(peakFactor('deepseek', at(26, 9))).toBe(2);
+    expect(peakFactor('deepseek', at(26, 8, 59))).toBe(1);
+    expect(peakFactor('deepseek', at(26, 11, 59))).toBe(2);
+    expect(peakFactor('deepseek', at(26, 12))).toBe(1);
+    expect(peakFactor('deepseek', at(30, 17, 59))).toBe(2);
+    expect(peakFactor('deepseek', at(30, 18))).toBe(1);
+    expect(peakFactor('deepseek', at(31, 10))).toBe(1);
+    expect(peakFactor('openai', at(26, 10))).toBe(1);
+  });
+
   it('modelCandidates：从精确到宽松', () => {
     expect(modelCandidates('anthropic/claude-haiku-4-5-20251001')).toEqual([
       'anthropic/claude-haiku-4-5-20251001',

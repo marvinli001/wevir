@@ -1,5 +1,10 @@
 import { type ModelGateway, SseParser } from '@wevir/model-gateway';
-import { AdapterError, type ProviderModelConfig, type TitleRequest } from '@wevir/runtime-adapter';
+import {
+  AdapterError,
+  type ProviderModelConfig,
+  type TitleRequest,
+  type TitleUsage,
+} from '@wevir/runtime-adapter';
 import { toCodexEffort } from './config.js';
 import { isRecord } from './mapping.js';
 
@@ -90,14 +95,8 @@ async function readResponsesText(
       text += event.delta;
     } else if (event.type === 'response.completed' && isRecord(event.response)) {
       completed = outputText(event.response.output);
-      const usage = event.response.usage;
-      if (onUsage !== undefined && isRecord(usage)) {
-        const input = usage.input_tokens;
-        const output = usage.output_tokens;
-        if (typeof input === 'number' && typeof output === 'number') {
-          onUsage({ inputTokens: input, outputTokens: output });
-        }
-      }
+      const usage = responsesUsage(event.response);
+      if (onUsage !== undefined && usage !== undefined) onUsage(usage);
     } else if (event.type === 'response.failed' || event.type === 'error') {
       throw new AdapterError('engine_unavailable', `生成标题失败：${data.slice(0, 500)}`);
     }
@@ -110,6 +109,30 @@ async function readResponsesText(
   }
   for (const message of parser.end()) handle(message.data);
   return completed !== undefined && completed !== '' ? completed : text;
+}
+
+/** `response.completed` 里的 `usage`：`input_tokens` 含缓存的读写，`output_tokens` 含推理。 */
+export function responsesUsage(response: Record<string, unknown>): TitleUsage | undefined {
+  const usage = response.usage;
+  if (!isRecord(usage)) return undefined;
+  const input = usage.input_tokens;
+  const output = usage.output_tokens;
+  if (typeof input !== 'number' || typeof output !== 'number') return undefined;
+  const details = isRecord(usage.input_tokens_details) ? usage.input_tokens_details : {};
+  const cached = details.cached_tokens;
+  // 网关把 Messages 的缓存写入放在 `cache_write_tokens`（Codex 认的字段）。
+  const written = details.cache_write_tokens;
+  const reasoning = isRecord(usage.output_tokens_details)
+    ? usage.output_tokens_details.reasoning_tokens
+    : undefined;
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    ...(typeof cached === 'number' && cached > 0 && { cacheReadTokens: cached }),
+    ...(typeof written === 'number' && written > 0 && { cacheWriteTokens: written }),
+    ...(typeof reasoning === 'number' && reasoning > 0 && { reasoningTokens: reasoning }),
+    ...(typeof response.model === 'string' && response.model !== '' && { model: response.model }),
+  };
 }
 
 /** `response.output` 里 message 项的 output_text 拼起来。 */
@@ -152,8 +175,14 @@ export class TitleCollector {
   #text = '';
   #settle!: { resolve: (text: string) => void; reject: (error: unknown) => void };
   readonly done: Promise<string>;
+  readonly #onUsage: TitleRequest['onUsage'];
+  readonly #model: string | undefined;
+  #total: number | undefined;
 
-  constructor() {
+  /** `onUsage` 收到这个临时 thread 每个请求的用量；`model` 是请求用的模型。 */
+  constructor(onUsage?: TitleRequest['onUsage'], model?: string) {
+    this.#onUsage = onUsage;
+    this.#model = model;
     this.done = new Promise<string>((resolve, reject) => {
       this.#settle = { resolve, reject };
     });
@@ -163,6 +192,10 @@ export class TitleCollector {
 
   onNotification(method: string, params: unknown): void {
     if (!isRecord(params)) return;
+    if (method === 'thread/tokenUsage/updated') {
+      this.#tokenUsage(params);
+      return;
+    }
     if (method === 'item/completed') {
       const item = params.item;
       if (isRecord(item) && item.type === 'agentMessage' && typeof item.text === 'string') {
@@ -187,6 +220,32 @@ export class TitleCollector {
 
   fail(error: unknown): void {
     this.#settle.reject(error);
+  }
+
+  /** 临时 thread 每个请求的 `last`（同 mapping.ts 的 `#recordUsage`：累计没变的是重报，不算）。 */
+  #tokenUsage(params: Record<string, unknown>): void {
+    const usage = params.tokenUsage;
+    if (this.#onUsage === undefined || !isRecord(usage)) return;
+    const { total, last } = usage;
+    if (!isRecord(total) || typeof total.totalTokens !== 'number' || !isRecord(last)) return;
+    if (total.totalTokens === this.#total) return;
+    this.#total = total.totalTokens;
+    const count = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+    const input = count(last.inputTokens);
+    const output = count(last.outputTokens);
+    if (input + output === 0) return;
+    const cacheRead = Math.min(count(last.cachedInputTokens), input);
+    const cacheWrite = Math.min(count(last.cacheWriteInputTokens), input - cacheRead);
+    const reasoning = Math.min(count(last.reasoningOutputTokens), output);
+    this.#onUsage({
+      inputTokens: input,
+      outputTokens: output,
+      ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+      ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+      ...(reasoning > 0 && { reasoningTokens: reasoning }),
+      ...(this.#model !== undefined && { model: this.#model }),
+    });
   }
 }
 

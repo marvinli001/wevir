@@ -378,9 +378,23 @@ export interface TitleRequest {
   /** Host 不再需要结果时（超时、会话被改名）中止。 */
   signal?: AbortSignal;
   /**
-   * 这次请求的 token 用量（0.76.0，任务回顾的模型摘要要显示消耗）：拿得到时适配器调一次，拿不到不调。只是报给 Host 看，不进用量统计。
+   * 这次请求的 token 用量（0.76.0，任务回顾的模型摘要要显示消耗）：拿得到时适配器每个模型请求调一次，拿不到不调。Host 也把它
+   * 记进用量统计（标题、输入建议、摘要同样按会话的模型计费）。
    */
-  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: TitleUsage) => void;
+}
+
+/** `generateTitle` 一次模型请求的用量。`inputTokens` 含缓存的读写（OpenAI 口径），`reasoningTokens` 含在 `outputTokens` 里。 */
+export interface TitleUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** 实际回答的模型；不报时 Host 用会话的模型。 */
+  model?: string;
+  /** 来源后面实际接的上游（OpenCode 的 `providerID`）。 */
+  upstream?: string;
 }
 
 /** 引擎给的一个审批选项，全部字段原样。 */

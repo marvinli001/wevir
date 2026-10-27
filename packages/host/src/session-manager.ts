@@ -101,6 +101,7 @@ import {
   type SessionLostReason,
   type SubagentStartedEvent,
   type SubagentUpdatedEvent,
+  type TitleRequest,
   type TurnStartedEvent,
   type TurnSteeredEvent,
   type UsageRecordedEvent,
@@ -4238,6 +4239,38 @@ export class SessionManager {
   }
 
   /**
+   * 单次生成（标题、输入建议、离开后摘要、你应该知道、回顾摘要）每个模型请求的用量：同会话里的请求一样记进用量统计，它们也按
+   * 会话的模型计费。`also` 是调用方自己要的那份（回顾摘要显示消耗）。
+   */
+  #sideUsage(
+    runtime: SessionRuntime,
+    also?: TitleRequest['onUsage'],
+  ): NonNullable<TitleRequest['onUsage']> {
+    return (usage) => {
+      also?.(usage);
+      if (this.#onUsage === undefined) return;
+      const cacheRead = Math.min(usage.cacheReadTokens ?? 0, usage.inputTokens);
+      const cacheWrite = Math.min(usage.cacheWriteTokens ?? 0, usage.inputTokens - cacheRead);
+      const { providerId, modelId } = this.#snapshot(runtime).session;
+      this.#onUsage(
+        { sessionId: runtime.id, providerId, modelId },
+        {
+          type: 'usage.recorded',
+          engineSessionId: runtime.engineSessionId,
+          requestId: newId('req'),
+          ...(usage.model !== undefined && { model: usage.model }),
+          ...(usage.upstream !== undefined && { upstream: usage.upstream }),
+          inputTokens: usage.inputTokens - cacheRead - cacheWrite,
+          outputTokens: usage.outputTokens,
+          ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+          ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+          ...(usage.reasoningTokens !== undefined && { reasoningTokens: usage.reasoningTokens }),
+        },
+      );
+    };
+  }
+
+  /**
    * 用会话的模型生成标题（prompts/README.md「会话标题」）：适配器发一次不带工具的请求，Host 解析并整理输出。成功、
    * 且这时标题仍是首条消息截断的那个（用户没有改过名）才写 `session.title_changed`（`generated`，带检索摘要）；
    * 失败或超时记告警、保留截断的标题，下一个回合正常结束后再试一次（`retry` 为真时不再试）。不排进会话的命令队列，也不影响状态机。
@@ -4263,6 +4296,7 @@ export class SessionManager {
           input: titleInput(prompt, links),
           outputSchema: { ...TITLE_OUTPUT_SCHEMA },
           signal: abort.signal,
+          onUsage: this.#sideUsage(runtime),
         }),
       )
       .then((output) => {
@@ -4391,6 +4425,7 @@ export class SessionManager {
       input,
       outputSchema: { ...SUGGESTION_OUTPUT_SCHEMA },
       signal: abort.signal,
+      onUsage: this.#sideUsage(runtime),
     })
       .then((output) => {
         if (this.#disposed || abort.signal.aborted || runtime.suggestion !== mine) return;
@@ -4477,6 +4512,7 @@ export class SessionManager {
       input,
       outputSchema: { ...INSIGHT_OUTPUT_SCHEMA },
       signal: abort.signal,
+      onUsage: this.#sideUsage(runtime),
     })
       .then((output) => {
         if (this.#disposed || abort.signal.aborted) return;
@@ -4606,6 +4642,7 @@ export class SessionManager {
         input,
         outputSchema: { ...RECAP_OUTPUT_SCHEMA },
         signal: abort.signal,
+        onUsage: this.#sideUsage(runtime),
       });
       if (this.#disposed || abort.signal.aborted) return undefined;
       const text = parseRecap(output);
@@ -4685,7 +4722,7 @@ export class SessionManager {
         input: request.input,
         outputSchema: { ...request.outputSchema },
         signal: abort.signal,
-        ...(request.onUsage !== undefined && { onUsage: request.onUsage }),
+        onUsage: this.#sideUsage(runtime, request.onUsage),
       });
       if (this.#disposed || abort.signal.aborted) return { reason: 'failed' };
       return { text, providerId: record.providerId, modelId: record.modelId };

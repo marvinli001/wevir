@@ -12,7 +12,13 @@ import type {
   WevirEventOf,
   WevirEventType,
 } from '@wevir/protocol';
-import { AdapterError, type AgentEvent, EventHub } from '@wevir/runtime-adapter';
+import {
+  AdapterError,
+  type AgentEvent,
+  EventHub,
+  type TitleRequest,
+  type UsageRecordedEvent,
+} from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import type { Storage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -1548,6 +1554,44 @@ describe('SessionManager：会话标题（R3）', () => {
     await waitForState(h, id, 'idle');
     expect(calls).toHaveLength(1);
     expect(warnings).toEqual([]);
+  });
+
+  it('生成标题的请求用量也交给 onUsage：输入减去缓存，ID 每次不同', async () => {
+    const onUsage = vi.fn();
+    const h = setup({ manager: { titleInstructions: '起标题', onUsage } });
+    Object.assign(h.adapter, {
+      generateTitle: async (_id: string, request: TitleRequest) => {
+        request.onUsage?.({
+          inputTokens: 1200,
+          outputTokens: 40,
+          cacheReadTokens: 1000,
+          reasoningTokens: 10,
+          model: 'deepseek-chat-0927',
+        });
+        return TITLE;
+      },
+    });
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await vi.waitFor(() => expect(snapshot(h, id).session.titleSource).toBe('generated'));
+    const side = onUsage.mock.calls.filter(
+      ([, event]) => (event as UsageRecordedEvent).model === 'deepseek-chat-0927',
+    );
+    expect(side).toEqual([
+      [
+        { sessionId: id, providerId: 'deepseek-official', modelId: 'deepseek-chat' },
+        {
+          type: 'usage.recorded',
+          engineSessionId: snapshot(h, id).session.engine.sessionId,
+          requestId: expect.stringMatching(/^req_/),
+          model: 'deepseek-chat-0927',
+          inputTokens: 200,
+          outputTokens: 40,
+          cacheReadTokens: 1000,
+          reasoningTokens: 10,
+        },
+      ],
+    ]);
   });
 
   it('输出解析不了或请求失败：保留截断的标题，记告警', async () => {

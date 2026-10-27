@@ -135,9 +135,14 @@ export class PricingStore {
   /**
    * 找一个模型的单价。先找会话来源对应的那家（Claude → anthropic、ChatGPT → openai、OpenCode → 它的上游、自填的 Provider →
    * 按地址认），再找模型名对应的厂商，最后任意一家有这个模型的。单价全是 0 的（订阅里的免费价）只在找不到别的时才用。
-   * `promptTokens` 是这次请求的输入（含缓存），用来选高档价。
+   * `promptTokens` 是这次请求的输入（含缓存），用来选高档价；`at` 是请求的时刻，按时段计价的服务商（`peakFactor`）用它。
    */
-  lookup(model: string, hints: PriceHints, promptTokens: number): PriceMatch | undefined {
+  lookup(
+    model: string,
+    hints: PriceHints,
+    promptTokens: number,
+    at?: number,
+  ): PriceMatch | undefined {
     const key = `${model}\u0000${hints.source}\u0000${hints.baseURL ?? ''}\u0000${hints.upstream ?? ''}`;
     let base = this.#cache.get(key);
     if (base === undefined) {
@@ -147,7 +152,9 @@ export class PricingStore {
     if (base === null) return undefined;
     const entry = this.#table?.providers[base.provider]?.models[base.key];
     if (entry === undefined) return undefined;
-    return { provider: base.provider, price: tierFor(entry, promptTokens) };
+    const price = tierFor(entry, promptTokens);
+    const factor = at === undefined ? 1 : peakFactor(base.provider, at);
+    return { provider: base.provider, price: factor === 1 ? price : scaled(price, factor) };
   }
 
   #refreshIfStale(): void {
@@ -298,6 +305,31 @@ function tierFor(entry: ModelPrice, promptTokens: number): UsagePrice {
     output,
     ...(cacheRead !== undefined && { cacheRead }),
     ...(cacheWrite !== undefined && { cacheWrite }),
+  };
+}
+
+/** 北京时间（UTC+8，没有夏令时）。 */
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * 按时段计价：DeepSeek 官方在北京时间周一至周五 9:00–12:00、14:00–18:00 是高峰，单价是空闲时段的两倍；models.dev 记的是空闲
+ * 时段的价（按汇率折成美元）。法定节假日也算空闲，这里认不出，照工作日算。其余服务商不分时段。
+ */
+export function peakFactor(provider: string, at: number): number {
+  if (provider !== 'deepseek') return 1;
+  const beijing = new Date(at + BEIJING_OFFSET_MS);
+  const day = beijing.getUTCDay();
+  const hour = beijing.getUTCHours();
+  const weekday = day >= 1 && day <= 5;
+  return weekday && ((hour >= 9 && hour < 12) || (hour >= 14 && hour < 18)) ? 2 : 1;
+}
+
+function scaled(price: UsagePrice, factor: number): UsagePrice {
+  return {
+    input: price.input * factor,
+    output: price.output * factor,
+    ...(price.cacheRead !== undefined && { cacheRead: price.cacheRead * factor }),
+    ...(price.cacheWrite !== undefined && { cacheWrite: price.cacheWrite * factor }),
   };
 }
 

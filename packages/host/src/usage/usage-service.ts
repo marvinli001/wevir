@@ -232,6 +232,7 @@ export class UsageService {
         ...(row.upstream !== undefined && { upstream: row.upstream }),
       },
       row.inputTokens + row.cacheReadTokens + row.cacheWriteTokens,
+      row.at,
     );
     if (match === undefined) return undefined;
     return {

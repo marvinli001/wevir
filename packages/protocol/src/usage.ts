@@ -56,7 +56,7 @@ export const UsageRecordSchema = z.object({
   tokens: UsageTokensSchema,
   /** 价格表里找不到这个模型时省略。 */
   cost: UsageCostSchema.optional(),
-  /** 算成本用的单价（超过 20 万输入 token 时是高档价）。 */
+  /** 算成本用的单价（超过 20 万输入 token 时是高档价；DeepSeek 官方在北京时间工作日高峰时段是两倍）。 */
   price: UsagePriceSchema.optional(),
   /** 按哪家的价格算的（models.dev 的服务商 ID，如 `anthropic`）。 */
   priceSource: z.string().optional(),

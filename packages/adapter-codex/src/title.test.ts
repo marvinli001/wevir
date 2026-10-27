@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lowestEffort, TitleCollector } from './title.js';
+import { lowestEffort, responsesUsage, TitleCollector } from './title.js';
 
 describe('lowestEffort', () => {
   it('取模型支持的最低一档，off 换成 Codex 的 none；不推理的模型没有', () => {
@@ -26,5 +26,50 @@ describe('TitleCollector', () => {
       turn: { status: 'failed', error: { message: 'boom' } },
     });
     await expect(collector.done).rejects.toMatchObject({ code: 'engine_unavailable' });
+  });
+});
+
+describe('标题请求的用量', () => {
+  it('responsesUsage：输入含缓存的读写，带推理与模型', () => {
+    expect(
+      responsesUsage({
+        model: 'deepseek-flash',
+        usage: {
+          input_tokens: 1200,
+          output_tokens: 40,
+          input_tokens_details: { cached_tokens: 1000, cache_write_tokens: 100 },
+          output_tokens_details: { reasoning_tokens: 10 },
+        },
+      }),
+    ).toEqual({
+      inputTokens: 1200,
+      outputTokens: 40,
+      cacheReadTokens: 1000,
+      cacheWriteTokens: 100,
+      reasoningTokens: 10,
+      model: 'deepseek-flash',
+    });
+    expect(responsesUsage({ usage: { input_tokens: 5 } })).toBeUndefined();
+  });
+
+  it('TitleCollector：临时 thread 的每个请求报一次，累计没变的重报不算', () => {
+    const reported: unknown[] = [];
+    const collector = new TitleCollector((usage) => reported.push(usage), 'gpt-6.1-sol');
+    const update = (total: number) =>
+      collector.onNotification('thread/tokenUsage/updated', {
+        threadId: 't',
+        turnId: 'u',
+        tokenUsage: {
+          total: { totalTokens: total },
+          last: { inputTokens: 300, cachedInputTokens: 200, outputTokens: 20, totalTokens: 320 },
+        },
+      });
+    update(320);
+    update(320);
+    update(640);
+    expect(reported).toEqual([
+      { inputTokens: 300, outputTokens: 20, cacheReadTokens: 200, model: 'gpt-6.1-sol' },
+      { inputTokens: 300, outputTokens: 20, cacheReadTokens: 200, model: 'gpt-6.1-sol' },
+    ]);
   });
 });

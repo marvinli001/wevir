@@ -13,7 +13,7 @@
 import type { TitleRequest } from '@wevir/runtime-adapter';
 import type { ParsedModelId } from './models.js';
 import { TITLE_PERMISSION_RULES } from './permissions.js';
-import { errorMessage, type OpenCodeClient, type Part } from './sdk.js';
+import { errorMessage, type Message, type OpenCodeClient, type Part } from './sdk.js';
 
 /** 临时会话的标题（给了标题 opencode 就不再为它生成一个，省一次模型请求）。 */
 export const TITLE_SESSION_TITLE = 'Wevir title';
@@ -80,6 +80,7 @@ export async function generateTitleText(run: TitleRun): Promise<string> {
       signal,
     );
     const info = result.info;
+    if (info.role === 'assistant') reportUsage(info, request.onUsage);
     const structured = info.role === 'assistant' ? info.structured : undefined;
     if (structured !== undefined && structured !== null) return JSON.stringify(structured);
     const text = textResponse(result.parts);
@@ -103,4 +104,33 @@ export async function generateTitleText(run: TitleRun): Promise<string> {
       });
     });
   }
+}
+
+/**
+ * 标题请求的用量：opencode 的 `tokens.input` 已经减掉缓存的读写、`output` 减掉了推理（mapping.ts 的 `#record`），报给 Host 的
+ * 输入含缓存、输出含推理。
+ */
+function reportUsage(
+  info: Extract<Message, { role: 'assistant' }>,
+  onUsage: TitleRequest['onUsage'],
+): void {
+  if (onUsage === undefined) return;
+  const count = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+  const tokens = info.tokens;
+  const cacheRead = count(tokens.cache?.read);
+  const cacheWrite = count(tokens.cache?.write);
+  const reasoning = count(tokens.reasoning);
+  const input = count(tokens.input) + cacheRead + cacheWrite;
+  const output = count(tokens.output) + reasoning;
+  if (input + output === 0) return;
+  onUsage({
+    inputTokens: input,
+    outputTokens: output,
+    ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+    ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+    ...(reasoning > 0 && { reasoningTokens: reasoning }),
+    ...(info.modelID !== '' && { model: info.modelID }),
+    ...(info.providerID !== '' && { upstream: info.providerID }),
+  });
 }

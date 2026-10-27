@@ -1608,7 +1608,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         throw engineError(error, 'thread/start（生成标题）');
       }
       const threadId = started.thread.id;
-      const collector = new TitleCollector();
+      const collector = new TitleCollector(request.onUsage, session.model.id);
       this.#titleThreads.set(threadId, collector);
       const abort = () => collector.fail(new AdapterError('engine_unavailable', '生成标题已取消'));
       request.signal?.addEventListener('abort', abort, { once: true });

@@ -961,6 +961,27 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       });
       for await (const message of iterate(q)) {
         if (message.type !== 'result') continue;
+        // 这次生成的用量（结果的 `usage` 是这次 query 的合计，按一次报）。
+        if (request.onUsage !== undefined) {
+          const usage = claudeUsageRecord(engineSessionId, {
+            id: message.uuid,
+            usage: { ...(message.usage as unknown as Record<string, unknown>) },
+          });
+          const cacheRead = usage.cacheReadTokens ?? 0;
+          const cacheWrite = usage.cacheWriteTokens ?? 0;
+          if (usage.inputTokens + cacheRead + cacheWrite + usage.outputTokens > 0) {
+            request.onUsage({
+              inputTokens: usage.inputTokens + cacheRead + cacheWrite,
+              outputTokens: usage.outputTokens,
+              ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+              ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+              ...(usage.reasoningTokens !== undefined && {
+                reasoningTokens: usage.reasoningTokens,
+              }),
+              model: claudeApiModelId(model),
+            });
+          }
+        }
         const failure = resultFailure(message, false);
         if (failure !== undefined) throw new Error(failure.message);
         if (message.subtype === 'success') {
