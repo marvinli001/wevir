@@ -26,6 +26,7 @@ import { Collapse } from '@/components/collapse';
 import { GoalIcon } from '@/components/command-icons';
 import { GlideGroup } from '@/components/glide';
 import { ProviderLogo } from '@/components/provider-logo';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
@@ -49,6 +50,8 @@ import { PlanCard } from './plan-card';
 import { SessionLink, useSessionEntry } from './session-link';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
+import { formatRelativeTime } from './subagent-model';
+import { useNow } from './subagent-view';
 import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
 import { groupWork, isImageTool } from './tool-model';
 import { RetryRow, UsageLimitCard } from './usage-limit-card';
@@ -254,18 +257,50 @@ function PastedBlock({ text }: { text: string }) {
   );
 }
 
+/** 完整的日期与时刻（时间的悬停提示）。 */
+function fullTime(ts: string): string {
+  return new Intl.DateTimeFormat(currentLocale(), { dateStyle: 'full', timeStyle: 'short' }).format(
+    new Date(ts),
+  );
+}
+
 /** 消息的时间（0.38.0）：悬停时出现在操作行里，提示里是完整的日期与时刻。 */
 function MessageTime({ ts }: { ts: string }) {
   const label = formatMessageTime(ts, currentLocale());
   if (label === '') return null;
-  const full = new Intl.DateTimeFormat(currentLocale(), {
-    dateStyle: 'full',
-    timeStyle: 'short',
-  }).format(new Date(ts));
   return (
-    <time dateTime={ts} title={full} className="mr-1 text-xs text-muted-foreground tabular-nums">
-      {label}
-    </time>
+    <Tooltip>
+      <TooltipTrigger
+        render={<time dateTime={ts} className="mr-1 text-xs text-muted-foreground tabular-nums" />}
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent>{fullTime(ts)}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * 回答的相对时间（照 Claude Code 桌面端 2026-10-27 回答下面那一行最后的“刚刚”）：每分钟更新，悬停提示是完整的日期与时刻。
+ */
+export function RelativeTime({ ts, className }: { ts: string; className?: string }) {
+  const now = useNow(60_000);
+  if (Number.isNaN(Date.parse(ts))) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <time
+            dateTime={ts}
+            className={cn('px-1 text-xs text-muted-foreground tabular-nums', className)}
+            data-answer-time=""
+          />
+        }
+      >
+        {formatRelativeTime(ts, now)}
+      </TooltipTrigger>
+      <TooltipContent>{fullTime(ts)}</TooltipContent>
+    </Tooltip>
   );
 }
 
