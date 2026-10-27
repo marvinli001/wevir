@@ -1,6 +1,5 @@
 import { useParams } from 'react-router';
-import { useWorkbenchData } from '@/data/workbench-data';
-import { resolveRoute } from '@/data/workbench-model';
+import { useRouteTarget } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { DraftView, SessionView } from '@/session/session-view';
 import { NotFound } from './not-found';
@@ -12,7 +11,8 @@ import { PendingPage } from './route-states';
  */
 export function SessionRoute() {
   const { workspaceId = '', sessionId } = useParams();
-  const target = resolveRoute(useWorkbenchData(), workspaceId, sessionId);
+  // 只随这个工作区里的会话变化重渲染（别的会话流式输出、换状态时不重渲染整个会话页）。
+  const target = useRouteTarget(workspaceId, sessionId) ?? { kind: 'loading' };
   switch (target.kind) {
     case 'loading':
       return <PendingPage />;

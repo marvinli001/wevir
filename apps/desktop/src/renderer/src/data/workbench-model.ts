@@ -63,6 +63,40 @@ export function groupSessions(
 }
 
 /**
+ * 重新分组的结果里，工作区与会话都没换的条目换回上一次的对象（会话按引用比，顺序也要相同），按工作区挑数据的组件据此不重渲染。
+ */
+export function shareEntries(
+  previous: readonly WorkspaceEntry[] | undefined,
+  next: WorkspaceEntry[],
+): WorkspaceEntry[] {
+  if (previous === undefined) return next;
+  const byId = new Map(previous.map((entry) => [entry.workspace.id, entry]));
+  return next.map((entry) => {
+    const old = byId.get(entry.workspace.id);
+    return old !== undefined &&
+      old.workspace === entry.workspace &&
+      old.sessions.length === entry.sessions.length &&
+      old.sessions.every((session, index) => session === entry.sessions[index])
+      ? old
+      : entry;
+  });
+}
+
+/**
+ * 一条事件是不是只推进了会话的 `lastSeq` 与 `updatedAt`（流式增量、工具进展）：别的字段都还是原来的值，排序用的时刻也没变。
+ * 与 Host 推 `sessions.changed` 时的行指纹（session-list.ts）同一个口径。
+ */
+export function onlyProgressed(before: Session, after: Session): boolean {
+  if (activityAt(before) !== activityAt(after)) return false;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)] as Array<keyof Session>);
+  for (const key of keys) {
+    if (key === 'lastSeq' || key === 'updatedAt') continue;
+    if (before[key] !== after[key]) return false;
+  }
+  return true;
+}
+
+/**
  * 排序用的“最近活动”：回合进行中时是这个回合开始的时刻，不是最后一个事件的时刻——否则几个会话同时流式输出时，每来一个
  * 事件它们就互换位置，左栏的行来回跳（U19 发现）。回合结束后回到 `updatedAt`。
  */

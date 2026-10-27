@@ -18,6 +18,7 @@ import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { useSession } from '@/data/workbench-data';
 import { describe as describeError } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { imagesOf, messageContent } from './composer-images';
@@ -29,7 +30,6 @@ import {
   pendingImageCount,
   pendingText,
 } from './pending-model';
-import { useSessions } from './suggested-tasks';
 
 /**
  * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束；有进行中的回合时画在消息流里，见 `steerInline`）、排队
@@ -218,10 +218,10 @@ function PendingGroup({
 
 /** 别的会话或后台进程发来的、还没交给模型的消息：一行说明（同消息流里的回报标记），悬停看全文。 */
 function PendingNotice({ message, actions }: { message: PendingMessage; actions: ReactNode }) {
-  const sessions = useSessions();
   const from = message.from;
+  const sender = useSession(from?.sessionId);
   if (from === undefined) return null;
-  const title = sessions.get(from.sessionId)?.title || t('session.untitled');
+  const title = sender?.title || t('session.untitled');
   const Icon =
     from.process !== undefined ? SquareTerminal : from.kind === 'report' ? Reply : MessageSquare;
   return (

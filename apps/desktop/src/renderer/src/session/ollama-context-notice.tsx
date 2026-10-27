@@ -1,6 +1,6 @@
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import { useEffect, useState } from 'react';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useWorkbenchProviders } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
 import { everyWhileVisible } from '@/lib/visible-interval';
@@ -17,9 +17,7 @@ export function OllamaContextNotice({
   modelId: string;
   running: boolean;
 }) {
-  const data = useWorkbenchData();
-  const provider =
-    data.status === 'ready' ? data.providers.find((item) => item.id === providerId) : undefined;
+  const provider = useWorkbenchProviders()?.find((item) => item.id === providerId);
   const baseURL = provider?.baseURL ?? '';
   const endpoint = provider?.kind === 'openai-compatible' ? ollamaEndpoint(baseURL) : undefined;
   const localOllama =

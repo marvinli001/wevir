@@ -12,8 +12,8 @@ import {
 import { Outlet, useLocation, useMatch, useNavigate, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { useWorkbenchData } from '@/data/workbench-data';
-import { resolveRoute, type WorkspaceEntry } from '@/data/workbench-model';
+import { useRouteTarget, useWorkbenchStore } from '@/data/workbench-data';
+import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { ProjectBackdropLayer } from '@/projects/backdrop';
@@ -745,14 +745,21 @@ function useElementSize() {
 
 /** 会话列表读成功后清掉不在了的会话与工作区的窗格状态（§5.1）。 */
 function usePrunePanes() {
-  const data = useWorkbenchData();
+  const store = useWorkbenchStore();
+  // 直接订阅列表，不让整个布局随列表重渲染。
   useEffect(() => {
-    if (data.status !== 'ready') return;
-    prunePaneScopes(
-      new Set(data.workspaces.flatMap((entry) => entry.sessions.map((session) => session.id))),
-      new Set(data.workspaces.map((entry) => entry.workspace.id)),
-    );
-  }, [data]);
+    if (!store) return;
+    const prune = () => {
+      const data = store.get();
+      if (data.status !== 'ready') return;
+      prunePaneScopes(
+        new Set(data.workspaces.flatMap((entry) => entry.sessions.map((session) => session.id))),
+        new Set(data.workspaces.map((entry) => entry.workspace.id)),
+      );
+    };
+    prune();
+    return store.subscribe(prune);
+  }, [store]);
 }
 
 /** 全局快捷键（§3.10）。输入法合成期间、已经被别处处理过的按键不响应。 */
@@ -852,13 +859,12 @@ interface Header {
 
 /** 顶栏标题：会话标题 · 工作区名；草稿页是“新会话”；插件页是“插件”，调优页是“调优”；首页、设置、未找到等页面不显示标题。 */
 function useHeader(workspaceId: string | undefined, sessionId: string | undefined): Header {
-  const data = useWorkbenchData();
+  const target = useRouteTarget(workspaceId, sessionId);
   const onPlugins = useMatch(`${ROUTE_PATTERNS.plugins}/*`) !== null;
   const onTuning = useMatch(`${ROUTE_PATTERNS.tuning}/*`) !== null;
   if (onPlugins) return { title: t('plugins.title'), panes: false };
   if (onTuning) return { title: t('tuning.title'), panes: false };
-  if (workspaceId === undefined) return { title: '', panes: false };
-  const target = resolveRoute(data, workspaceId, sessionId);
+  if (target === undefined) return { title: '', panes: false };
   switch (target.kind) {
     case 'session':
       return {

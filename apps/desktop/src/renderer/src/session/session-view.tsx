@@ -32,7 +32,13 @@ import { reportActionFailure } from '@/data/action-notices';
 import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { archiveSession, requestRename, useSessionManagement } from '@/data/session-actions';
-import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import {
+  useSessionTitleOf,
+  useTranscript,
+  useWorkbenchData,
+  useWorkbenchProviders,
+  useWorkbenchStore,
+} from '@/data/workbench-data';
 import { isChats, type WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import { OpenFileLink, OpenSessionFile, openFileLink } from '@/files/file-links';
@@ -91,7 +97,6 @@ import {
   usePermissionModes,
   useStartSession,
 } from './start-session';
-import { useSessions } from './suggested-tasks';
 import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
@@ -154,8 +159,7 @@ export function SessionView({
 
   const transcript = state?.transcript;
   // 会话里的 agent 请界面显示的东西（0.30.0，`wevir_show`）：只在主会话里打开窗格。
-  const sessionsById = useSessions();
-  const titleOf = useCallback((id: SessionId) => sessionsById.get(id)?.title, [sessionsById]);
+  const titleOf = useSessionTitleOf();
   useUiShow(session, variant === 'main' ? transcript?.uiShow : undefined, panes, titleOf);
   // agent 请显示网页（0.33.0，`wevir_show` 的 browser）：同样只在主会话里打开浏览器窗格。
   useBrowserReveal(session.id, variant === 'main' ? panes : undefined);
@@ -192,8 +196,7 @@ export function SessionView({
   const acceptImages = useAcceptsImages(session);
 
   // 当前的引擎能做什么（0.25.0）：接力到别的来源后跟着变；旧 Host 没有时只看 Host 的功能。
-  const workbench = useWorkbenchData();
-  const providers = workbench.status === 'ready' ? workbench.providers : NO_PROVIDERS;
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const engine =
     view.status === 'connected'
       ? engineFeaturesOf(view.hello.engineFeatures, providers, session.providerId)
@@ -1010,8 +1013,7 @@ function SessionModelPicker({
   onError: (message: string) => void;
 }) {
   const { client, view } = useHostConnection();
-  const data = useWorkbenchData();
-  const providers = data.status === 'ready' ? data.providers : [];
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'session_configure');
   const switchable = useHandoffTargets(session);
@@ -1082,17 +1084,13 @@ function SessionPermissionPicker({
   onError: (message: string) => void;
 }) {
   const { client, view } = useHostConnection();
-  const data = useWorkbenchData();
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const supported = usePermissionModes();
   if (!supported) return null;
   // 当前的引擎支持的模式（0.25.0）：接力到别的来源后跟着变。
   const engine =
     view.status === 'connected'
-      ? engineFeaturesOf(
-          view.hello.engineFeatures,
-          data.status === 'ready' ? data.providers : NO_PROVIDERS,
-          session.providerId,
-        )
+      ? engineFeaturesOf(view.hello.engineFeatures, providers, session.providerId)
       : undefined;
   const configure = async (permissionMode: PermissionMode) => {
     if (!client) return;

@@ -6,10 +6,12 @@ import {
   groupSessions,
   inOrder,
   mergeSessions,
+  onlyProgressed,
   projectsOf,
   recentWorkspaces,
   resolveRoute,
   sessionMarker,
+  shareEntries,
   type WorkbenchData,
   type WorkspaceEntry,
 } from './workbench-model';
@@ -54,6 +56,43 @@ describe('groupSessions', () => {
       ['ws_a', ['ses_0', 'ses_2', 'ses_1']],
       ['ws_b', []],
     ]);
+  });
+});
+
+describe('shareEntries', () => {
+  it('工作区与会话都没换的条目沿用上一次的对象，换了的用新的', () => {
+    const workspaces = [workspace('ws_a'), workspace('ws_b')];
+    const a = session('ses_a', 'ws_a');
+    const b = session('ses_b', 'ws_b');
+    const previous = groupSessions(workspaces, [a, b]);
+    const b2 = { ...b, state: 'running' as const };
+    const next = shareEntries(previous, groupSessions(workspaces, [a, b2]));
+    expect(next[0]).toBe(previous[0]);
+    expect(next[1]).not.toBe(previous[1]);
+    expect(next[1]?.sessions).toEqual([b2]);
+    // 会话被移走、顺序变了也算换了。
+    const a2 = session('ses_a2', 'ws_a', { updatedAt: '2026-10-13T00:00:05.000Z' });
+    expect(shareEntries(previous, groupSessions(workspaces, [a, a2, b]))[0]).not.toBe(previous[0]);
+  });
+});
+
+describe('onlyProgressed', () => {
+  const at = '2026-10-13T00:00:05.000Z';
+  it('回合进行中只推进 lastSeq 与 updatedAt 算只推进', () => {
+    const running = session('ses_a', 'ws_a', {
+      state: 'running',
+      activeTurn: { turnId: 'trn_1', startedAt: NOW },
+    });
+    expect(onlyProgressed(running, { ...running, lastSeq: 9, updatedAt: at })).toBe(true);
+  });
+
+  it('别的字段变了、或没有回合时 updatedAt 变了（影响排序）都不算', () => {
+    const idle = session('ses_a', 'ws_a');
+    expect(onlyProgressed(idle, { ...idle, lastSeq: 2, updatedAt: at })).toBe(false);
+    expect(onlyProgressed(idle, { ...idle, lastSeq: 2, title: 'x' })).toBe(false);
+    expect(onlyProgressed(idle, { ...idle, lastSeq: 2, awaitingInput: true })).toBe(false);
+    const { titleSource: _source, ...rest } = idle;
+    expect(onlyProgressed(idle, { ...rest, lastSeq: 2 } as Session)).toBe(false);
   });
 });
 

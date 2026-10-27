@@ -1,5 +1,5 @@
 import type { ChatPartOf, UserChatMessage } from '@wevir/client-sdk';
-import type { SecondOpinion, SessionId } from '@wevir/protocol';
+import type { ProviderProfile, SecondOpinion, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight, MessagesSquare } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
@@ -8,7 +8,7 @@ import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { sourceOf } from '@/data/sources';
-import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { describe, useHostConnection } from '@/host/host-connection';
@@ -24,11 +24,12 @@ import { useSessions } from './suggested-tasks';
 const OPINION_FOLD_PX = 240;
 const OPINION_FOLD_SLACK_PX = 96;
 
+const NO_PROVIDERS: readonly ProviderProfile[] = [];
+
 /** 意见的来源：标志与“来源 · 模型”。 */
 function useOpinionSource(opinion: Pick<SecondOpinion, 'providerId' | 'modelId'>) {
-  const data = useWorkbenchData();
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const accounts = useAccounts();
-  const providers = data.status === 'ready' ? data.providers : [];
   const provider = providers.find((candidate) => candidate.id === opinion.providerId);
   const label = modelLabel(providers, opinion.providerId, opinion.modelId, accounts);
   const logo = provider ? (sourceOf(provider)?.logo ?? providerLogo(provider)) : undefined;

@@ -29,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useSession, useWorkbenchProviders } from '@/data/workbench-data';
 import { Beam } from '@/fx/beam';
 import { describe, useCan } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -174,17 +174,14 @@ function useApprovalScope(
   transcript: Transcript,
   session: Session | undefined,
 ): ApprovalScope | undefined {
-  const data = useWorkbenchData();
   const ownerId = transcript.parent?.sessionId ?? transcript.sessionId;
-  return useMemo(() => {
-    if (data.status !== 'ready') return undefined;
-    const owner =
-      session ??
-      data.workspaces
-        .flatMap((entry) => entry.sessions)
-        .find((candidate) => candidate.id === ownerId);
-    return owner && approvalScope(owner, data.providers);
-  }, [data, session, ownerId]);
+  const listed = useSession(session === undefined ? ownerId : undefined);
+  const providers = useWorkbenchProviders();
+  const owner = session ?? listed;
+  return useMemo(
+    () => (owner && providers ? approvalScope(owner, providers) : undefined),
+    [owner, providers],
+  );
 }
 
 /**

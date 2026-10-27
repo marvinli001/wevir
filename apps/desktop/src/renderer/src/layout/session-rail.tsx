@@ -4,7 +4,7 @@ import { SquareMenu } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useWorkbenchProviders } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceGit, type WorkspaceGitState } from '@/data/workspace-git';
 import { t } from '@/i18n';
@@ -53,6 +53,8 @@ export function registerRailCard(card: RailCard): void {
   cards.sort((a, b) => a.order - b.order);
 }
 
+const NO_PROVIDERS: readonly ProviderProfile[] = [];
+
 /**
  * 侧栏的内容：竖排的卡片，多了在这一列里滚动。`visible` 为 false（收起着、浮层关着）时仍渲染（开合有宽度过渡），但不读
  * git 状态。`floating`（停靠时，盖在主窗格的消息流上）：只有卡片接鼠标，这一列不画滚动条，免得与消息流贴着窗口右边的
@@ -71,7 +73,7 @@ export function SessionRail({
   visible: boolean;
   floating?: boolean;
 }) {
-  const data = useWorkbenchData();
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const { railOpen, railCards } = layoutPrefs.use();
   // 回合结束（离开 running）时重读一次，改动多半刚发生。
   // 环境会话新开了 worktree 时读它（0.15.0），否则读工作区目录。
@@ -84,7 +86,7 @@ export function SessionRail({
     sessionId,
     session,
     entry,
-    providers: data.status === 'ready' ? data.providers : [],
+    providers,
     git,
     visible,
   };

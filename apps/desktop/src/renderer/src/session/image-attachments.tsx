@@ -8,7 +8,7 @@ import { cn } from 'cn';
 import { LoaderCircle, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useWorkbenchProviders } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { base64Of, modelAcceptsImages } from './composer-images';
@@ -37,13 +37,10 @@ export function useAcceptsImages(
   choice: { providerId: string; modelId: string } | undefined,
 ): boolean {
   const { view } = useHostConnection();
-  const data = useWorkbenchData();
+  const providers = useWorkbenchProviders();
   if (choice === undefined || view.status !== 'connected') return false;
   if (!hostSupports(view.hello.features, 'user_images')) return false;
-  const provider =
-    data.status === 'ready'
-      ? data.providers.find((candidate) => candidate.id === choice.providerId)
-      : undefined;
+  const provider = providers?.find((candidate) => candidate.id === choice.providerId);
   return modelAcceptsImages(provider, choice.modelId);
 }
 

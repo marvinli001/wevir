@@ -5,7 +5,7 @@ import type {
   UserChatMessage,
   UserTextSegment,
 } from '@wevir/client-sdk';
-import type { PendingMessage, TurnCommand } from '@wevir/protocol';
+import type { PendingMessage, ProviderProfile, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ArrowLeftRight,
@@ -29,7 +29,7 @@ import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { sourceOf } from '@/data/sources';
-import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
@@ -762,15 +762,16 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   );
 }
 
+const NO_PROVIDERS: readonly ProviderProfile[] = [];
+
 /**
  * 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。换目录（0.81.0）时同一来源新开的引擎
  * 会话写“已转到新的引擎会话”。
  */
 function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
-  const data = useWorkbenchData();
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const accounts = useAccounts();
   const [open, setOpen] = useState(false);
-  const providers = data.status === 'ready' ? data.providers : [];
   const provider = providers.find((candidate) => candidate.id === notice.providerId);
   const source = provider && sourceOf(provider);
   const label = modelLabel(providers, notice.providerId, notice.modelId, accounts);

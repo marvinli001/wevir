@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useSession, useSessionsById, useWorkbenchStore } from '@/data/workbench-data';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { describe, useHostConnection } from '@/host/host-connection';
@@ -165,7 +165,7 @@ function TaskStatus({
  * 会话。
  */
 export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) {
-  const parent = useSessions().get(useTranscriptSessionId() as SessionId);
+  const parent = useSession(useTranscriptSessionId() as SessionId);
   const { task } = part;
   const outcome: TurnOutcome = task.outcome ?? 'completed';
   const ok = outcome === 'completed';
@@ -209,16 +209,9 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
   );
 }
 
-/** 列表里的全部会话，按 ID。 */
+/** 列表里的全部会话，按 ID；列表变了才换。只查一个会话时用 `useSession`。 */
 export function useSessions(): ReadonlyMap<SessionId, Session> {
-  const data = useWorkbenchData();
-  const map = new Map<SessionId, Session>();
-  if (data.status === 'ready') {
-    for (const entry of data.workspaces) {
-      for (const session of entry.sessions) map.set(session.id, session);
-    }
-  }
-  return map;
+  return useSessionsById();
 }
 
 /**

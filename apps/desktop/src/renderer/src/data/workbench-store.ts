@@ -2,7 +2,8 @@
 // provider.list，再给每个会话订阅一条
 // 从它当前 lastSeq 开始的事件流，按事件跟上状态、标题与最近活动（client-sdk 的 applySessionEvent），所以另一个
 // 客户端发起的回合、审批也会立即显示。别的客户端建、删、改名、归档的会话：Host 有 `session_list_push`（0.101.0）时经
-// `sessions.changed` 到达，版本不连续就重读；没有时靠定时与窗口获得焦点时重读列表发现。事件按帧合并后再通知界面。
+// `sessions.changed` 到达，版本不连续就重读；没有时靠定时与窗口获得焦点时重读列表发现。事件按帧合并后再通知界面；只推进了
+// `lastSeq` / `updatedAt` 的事件（流式增量、工具进展）不立即通知，安静一阵后补一次，流式回答时左栏、顶栏与会话页不跟着每帧重渲染。
 
 import {
   applySessionEvent,
@@ -19,6 +20,8 @@ import {
   applySessionsChange,
   groupSessions,
   mergeSessions,
+  onlyProgressed,
+  shareEntries,
   type WorkbenchData,
 } from './workbench-model';
 
@@ -27,6 +30,9 @@ export const LIST_REFRESH_MS = 10_000;
 
 /** Host 推送会话列表的变化（`session_list_push`）时，定时重读只是兜底。 */
 export const LIST_FALLBACK_REFRESH_MS = 60_000;
+
+/** 只推进了 `lastSeq` / `updatedAt` 的事件，安静这么久后才通知界面（回合进行中排序不看 `updatedAt`，晚一点不影响左栏）。 */
+export const QUIET_PUBLISH_MS = 1000;
 
 /** 列表里的会话收到一条事件（U31 的通知）：`session` 是应用这条事件之后的会话。 */
 export type SessionEventListener = (event: WevirEvent, session: Session) => void;
@@ -43,6 +49,7 @@ export class WorkbenchStore {
   readonly #listeners = new Set<() => void>();
   readonly #eventListeners = new Set<SessionEventListener>();
   readonly #batch = frameBatcher(() => this.#flush());
+  #quietTimer: ReturnType<typeof setTimeout> | undefined;
   #refreshing: Promise<void> | undefined;
   #rerun: Promise<void> | undefined;
   /** 最近一次列表结果或推送的版本；旧 Host 没有。 */
@@ -100,6 +107,7 @@ export class WorkbenchStore {
     this.#disposed = true;
     this.#unlistenSessions();
     this.#batch.cancel();
+    clearTimeout(this.#quietTimer);
     for (const subscription of this.#subscriptions.values()) subscription.close();
     this.#subscriptions.clear();
     this.#listeners.clear();
@@ -190,6 +198,7 @@ export class WorkbenchStore {
 
   #flush(): void {
     let changed = false;
+    let progressed = false;
     for (const event of this.#pending.splice(0)) {
       const session = this.#sessions.get(event.sessionId);
       if (!session) continue;
@@ -203,16 +212,28 @@ export class WorkbenchStore {
       }
       if (next === session) continue;
       this.#sessions.set(session.id, next);
-      changed = true;
+      if (onlyProgressed(session, next)) progressed = true;
+      else changed = true;
     }
     if (changed) this.#publish();
+    else if (progressed) {
+      clearTimeout(this.#quietTimer);
+      this.#quietTimer = setTimeout(() => this.#publish(), QUIET_PUBLISH_MS);
+    }
   }
 
   #publish(): void {
+    clearTimeout(this.#quietTimer);
+    this.#quietTimer = undefined;
     if (this.#workspaces) {
+      // 没变的工作区沿用上一次的条目，只订阅一个工作区的组件不跟着别处的变化重渲染。
+      const previous = this.#data.status === 'ready' ? this.#data.workspaces : undefined;
       this.#data = {
         status: 'ready',
-        workspaces: groupSessions(this.#workspaces, this.#sessions.values()),
+        workspaces: shareEntries(
+          previous,
+          groupSessions(this.#workspaces, this.#sessions.values()),
+        ),
         providers: this.#providers,
       };
     } else if (this.#error !== undefined) {

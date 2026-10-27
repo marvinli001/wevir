@@ -8,6 +8,7 @@ import { useReviewSupported } from '@/changes/review-data';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { useSession } from '@/data/workbench-data';
 import { openFile } from '@/files/files-store';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -15,7 +16,6 @@ import { usePanes } from '@/layout/pane-controller';
 import { type FindingRow, findingRows, fixable } from './findings-model';
 import { useTranscriptSessionId } from './fold-state';
 import { MarkdownView } from './markdown/markdown-view';
-import { useSessions } from './suggested-tasks';
 
 /**
  * 审查发现（0.83.0，`review.findings`，desktop-tokens §67）：报出时所在的位置一张卡片。标题行是“审查发现 · N”，不止一条可修时
@@ -25,7 +25,7 @@ import { useSessions } from './suggested-tasks';
  */
 export function FindingsCard({ part }: { part: ChatPartOf<'findings'> }) {
   const sessionId = useTranscriptSessionId() as SessionId;
-  const session = useSessions().get(sessionId);
+  const session = useSession(sessionId);
   const panes = usePanes();
   const { client } = useHostConnection();
   const supported = useReviewSupported();

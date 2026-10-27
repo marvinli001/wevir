@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { StatusDot } from '@/components/status-dot';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useWorkbenchSelector, useWorkbenchStore } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { findSession, type SessionEntry, sessionPlace, sessionStatus } from './session-link-model';
@@ -30,7 +30,10 @@ const CARD =
 
 /** 工作台里的一个会话（订阅工作台，会话的状态与标题变了跟着变）。 */
 export function useSessionEntry(id: SessionId | undefined): SessionEntry | undefined {
-  return findSession(useWorkbenchData(), id);
+  return useWorkbenchSelector(
+    (data) => findSession(data, id),
+    (a, b) => a?.session === b?.session && a?.workspace === b?.workspace,
+  );
 }
 
 /** 卡片的内容：状态胶囊、项目、相对时间；下一行标题。 */
