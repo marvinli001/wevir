@@ -158,12 +158,12 @@ describe('“对话”工作区', () => {
     await expect(
       h.methods['workspace.add']({ rootPath: session.cwd }, context),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
-    expect(() =>
+    await expect(
       h.methods['environment.create'](
         { name: 'x', folders: [{ workspaceId: session.workspaceId, worktree: 'none' }] },
         context,
       ),
-    ).toThrow(expect.objectContaining({ code: 'INVALID_PARAMS' }));
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
   it('文件只能按会话读', async () => {

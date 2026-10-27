@@ -3,7 +3,13 @@
 // worktree（0.18.0，`session.create` 的 `worktree`），选没选同样记在本机（`wevir.new-worktree.v1`）。
 
 import { hostSupports } from '@wevir/client-sdk';
-import type { Environment, EnvironmentFolder, EnvironmentId, WorkspaceId } from '@wevir/protocol';
+import type {
+  Environment,
+  EnvironmentFolder,
+  EnvironmentId,
+  EnvironmentVariableInput,
+  WorkspaceId,
+} from '@wevir/protocol';
 import { useCallback, useEffect } from 'react';
 import { useWorkspaceGit } from '@/data/workspace-git';
 import { useHostConnection } from '@/host/host-connection';
@@ -24,10 +30,22 @@ const choiceStore = createPersistedStore<EnvironmentId | null>(
 export interface EnvironmentsState {
   /** Host 声明了 `environments`；没有时界面上不出现“选择环境”。 */
   supported: boolean;
+  /** Host 声明了 `environment_variables`（0.130.0）；没有时对话框里不出现“环境变量”。 */
+  variablesSupported: boolean;
   /** 还没读到时是空的。 */
   environments: readonly Environment[];
-  create(name: string, folders: EnvironmentFolder[]): Promise<Environment>;
-  update(id: EnvironmentId, name: string, folders: EnvironmentFolder[]): Promise<Environment>;
+  /** `variables` 省略：不改（新建时就是没有）。 */
+  create(
+    name: string,
+    folders: EnvironmentFolder[],
+    variables?: EnvironmentVariableInput[],
+  ): Promise<Environment>;
+  update(
+    id: EnvironmentId,
+    name: string,
+    folders: EnvironmentFolder[],
+    variables?: EnvironmentVariableInput[],
+  ): Promise<Environment>;
   remove(id: EnvironmentId): Promise<void>;
 }
 
@@ -35,6 +53,8 @@ export function useEnvironments(): EnvironmentsState {
   const { client, view } = useHostConnection();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'environments');
+  const variablesSupported =
+    supported && hostSupports(view.hello.features, 'environment_variables');
   const environments = listStore.use() ?? [];
 
   useEffect(() => {
@@ -52,21 +72,31 @@ export function useEnvironments(): EnvironmentsState {
   }, [client, supported]);
 
   const create = useCallback(
-    async (name: string, folders: EnvironmentFolder[]) => {
+    async (name: string, folders: EnvironmentFolder[], variables?: EnvironmentVariableInput[]) => {
       if (!client) throw new Error('not connected');
-      const { environment } = await client.request('environment.create', { name, folders });
+      const { environment } = await client.request('environment.create', {
+        name,
+        folders,
+        ...(variables !== undefined && { variables }),
+      });
       listStore.set((current) => [...(current ?? []), environment]);
       return environment;
     },
     [client],
   );
   const update = useCallback(
-    async (environmentId: EnvironmentId, name: string, folders: EnvironmentFolder[]) => {
+    async (
+      environmentId: EnvironmentId,
+      name: string,
+      folders: EnvironmentFolder[],
+      variables?: EnvironmentVariableInput[],
+    ) => {
       if (!client) throw new Error('not connected');
       const { environment } = await client.request('environment.update', {
         environmentId,
         name,
         folders,
+        ...(variables !== undefined && { variables }),
       });
       listStore.set((current) =>
         (current ?? []).map((item) => (item.id === environment.id ? environment : item)),
@@ -84,7 +114,7 @@ export function useEnvironments(): EnvironmentsState {
     },
     [client],
   );
-  return { supported, environments, create, update, remove };
+  return { supported, variablesSupported, environments, create, update, remove };
 }
 
 /** 选中一个环境（null：不用环境）。 */

@@ -86,10 +86,13 @@ import {
   AccountUpstreamSchema,
   ApprovalResolutionSchema,
   CollaborationModeSchema,
+  ENVIRONMENT_VARIABLE_VALUE_MAX,
+  ENVIRONMENT_VARIABLES_MAX,
   EngineErrorInfoSchema,
   EngineFeaturesSchema,
   EnvironmentFolderSchema,
   EnvironmentSchema,
+  EnvironmentVariableNameSchema,
   FilesRestoreSchema,
   GOAL_OBJECTIVE_MAX_CHARS,
   HandoffBindingSchema,
@@ -484,9 +487,29 @@ export const EnvironmentListResultSchema = z.object({
   environments: z.array(EnvironmentSchema),
 });
 
+/**
+ * 写进环境的一个变量（0.130.0）。`value` 省略：沿用已存的同名变量的值（只用于 `environment.update`，客户端没改的那几行只回名字，
+ * 值不必经过客户端）；没有同名变量时回 `INVALID_PARAMS`。
+ */
+export const EnvironmentVariableInputSchema = z.object({
+  name: EnvironmentVariableNameSchema,
+  value: z
+    .string()
+    .max(ENVIRONMENT_VARIABLE_VALUE_MAX)
+    .refine((value) => !value.includes('\0'), 'value must not contain NUL')
+    .optional(),
+});
+export type EnvironmentVariableInput = z.infer<typeof EnvironmentVariableInputSchema>;
+
+const EnvironmentVariableInputsSchema = z
+  .array(EnvironmentVariableInputSchema)
+  .max(ENVIRONMENT_VARIABLES_MAX);
+
 export const EnvironmentCreateParamsSchema = z.object({
   name: z.string().min(1).max(60),
   folders: z.array(EnvironmentFolderSchema).min(1).max(8),
+  /** 环境变量（0.130.0，Host 功能 `environment_variables`）；省略表示没有。 */
+  variables: EnvironmentVariableInputsSchema.optional(),
 });
 
 export const EnvironmentUpdateParamsSchema = z.object({
@@ -495,6 +518,8 @@ export const EnvironmentUpdateParamsSchema = z.object({
   name: z.string().min(1).max(60).optional(),
   /** 省略：不改。 */
   folders: z.array(EnvironmentFolderSchema).min(1).max(8).optional(),
+  /** 整组替换（0.130.0）；省略：不改，`[]`：清空。 */
+  variables: EnvironmentVariableInputsSchema.optional(),
 });
 
 export const EnvironmentResultSchema = z.object({

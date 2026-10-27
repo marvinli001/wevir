@@ -1041,6 +1041,15 @@ export const environment: Environment = {
   updatedAt: TS,
 };
 
+/** 带环境变量的环境（0.130.0）。 */
+export const environmentWithVariables: Environment = {
+  ...environment,
+  variables: [
+    { name: 'STRIPE_SECRET_KEY', preview: 'sk_test_51...gGGa' },
+    { name: 'NODE_ENV', preview: '••••••••' },
+  ],
+};
+
 /** 建议的后续任务（0.16.0）。 */
 export const suggestedTask: SuggestedTask = {
   id: ids.task,
@@ -3934,15 +3943,30 @@ export const methodSamples: MethodSamples = {
   'environment.list': {
     params: empty,
     result: {
-      valid: [{ environments: [] }, { environments: [environment] }],
-      invalid: [{ environments: [{ ...environment, folders: [] }] }],
+      valid: [
+        { environments: [] },
+        { environments: [environment] },
+        { environments: [environmentWithVariables] },
+      ],
+      invalid: [
+        { environments: [{ ...environment, folders: [] }] },
+        { environments: [{ ...environment, variables: [{ name: '1X', preview: '' }] }] },
+      ],
     },
   },
   'environment.create': {
     params: {
-      valid: [{ name: '前后端一起改', folders: environment.folders }],
+      valid: [
+        { name: '前后端一起改', folders: environment.folders },
+        {
+          name: '前后端一起改',
+          folders: environment.folders,
+          variables: [{ name: 'STRIPE_SECRET_KEY', value: 'sk_test_51abc' }],
+        },
+      ],
       invalid: [
         { name: '', folders: environment.folders },
+        { name: 'x', folders: environment.folders, variables: [{ name: 'A-B', value: '1' }] },
         { name: 'x', folders: [{ workspaceId: ids.workspace, worktree: 'reuse' }] },
       ],
     },
@@ -3953,10 +3977,19 @@ export const methodSamples: MethodSamples = {
       valid: [
         { environmentId: ids.environment },
         { environmentId: ids.environment, name: '新名字' },
+        { environmentId: ids.environment, variables: [] },
+        {
+          environmentId: ids.environment,
+          variables: [{ name: 'STRIPE_SECRET_KEY' }, { name: 'NODE_ENV', value: 'test' }],
+        },
       ],
-      invalid: [{ environmentId: ids.workspace }, { environmentId: ids.environment, folders: [] }],
+      invalid: [
+        { environmentId: ids.workspace },
+        { environmentId: ids.environment, folders: [] },
+        { environmentId: ids.environment, variables: [{ name: 'A', value: 'x\u0000y' }] },
+      ],
     },
-    result: { valid: [{ environment }], invalid: [{}] },
+    result: { valid: [{ environment }, { environment: environmentWithVariables }], invalid: [{}] },
   },
   'environment.remove': {
     params: { valid: [{ environmentId: ids.environment }], invalid: [{}] },

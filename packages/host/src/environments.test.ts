@@ -1,5 +1,5 @@
 // 环境（0.15.0，U22.1，domain-model §3.10）：environment.* 方法与按环境建会话（真实的 git worktree）；不用环境、单独新开 worktree
-// 的会话（0.18.0）。
+// 的会话（0.18.0）；环境变量（0.130.0）。
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -8,6 +8,7 @@ import type { WorkspaceId } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { describe, expect, it, vi } from 'vitest';
+import { readVariables, variablesRef } from './environment-variables.js';
 import { EventStore } from './event-store.js';
 import { createHostMethods } from './host-methods.js';
 import { SessionManager } from './session-manager.js';
@@ -42,19 +43,17 @@ function setup(
   const storage = storages.open(dataDir);
   const events = new EventStore({ storage, deltaWindowMs: 5 });
   const worktreesDir = join(dataDir, 'worktrees');
+  const secrets = new FileSecretStore(dataDir);
   const sessions = new SessionManager({
     storage,
     events,
     adapter,
     worktreesDir,
     ...(projectConnectors !== undefined && { projectConnectors }),
+    environmentVariables: async (environmentId) =>
+      Object.fromEntries(await readVariables(secrets, environmentId)),
   });
-  const methods = createHostMethods({
-    storage,
-    events,
-    sessions,
-    secrets: new FileSecretStore(dataDir),
-  });
+  const methods = createHostMethods({ storage, events, sessions, secrets });
   storage.providers.insert({
     id: 'mock',
     kind: 'openai-compatible',
@@ -79,7 +78,7 @@ function setup(
     const rootPath = options.sub ? join(dir, 'sub') : dir;
     return (await methods['workspace.add']({ rootPath }, context)).workspace;
   };
-  return { methods, storage, sessions, worktreesDir, project };
+  return { methods, storage, sessions, secrets, worktreesDir, project };
 }
 
 describe('environment.*', () => {
@@ -106,7 +105,7 @@ describe('environment.*', () => {
     );
     expect(updated.environment).toMatchObject({ name: '改名', folders: environment.folders });
 
-    expect(() =>
+    await expect(
       h.methods['environment.create'](
         {
           name: 'x',
@@ -117,8 +116,8 @@ describe('environment.*', () => {
         },
         context,
       ),
-    ).toThrow(expect.objectContaining({ code: 'INVALID_PARAMS' }));
-    expect(() =>
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
       h.methods['environment.create'](
         {
           name: 'x',
@@ -126,15 +125,122 @@ describe('environment.*', () => {
         },
         context,
       ),
-    ).toThrow(expect.objectContaining({ code: 'WORKSPACE_NOT_FOUND' }));
-    expect(() =>
+    ).rejects.toMatchObject({ code: 'WORKSPACE_NOT_FOUND' });
+    await expect(
       h.methods['environment.create']({ name: '   ', folders: environment.folders }, context),
-    ).toThrow(expect.objectContaining({ code: 'INVALID_PARAMS' }));
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
 
-    expect(h.methods['environment.remove']({ environmentId: environment.id }, context)).toEqual({});
-    expect(() =>
+    expect(
+      await h.methods['environment.remove']({ environmentId: environment.id }, context),
+    ).toEqual({});
+    await expect(
       h.methods['environment.remove']({ environmentId: environment.id }, context),
-    ).toThrow(expect.objectContaining({ code: 'ENVIRONMENT_NOT_FOUND' }));
+    ).rejects.toMatchObject({ code: 'ENVIRONMENT_NOT_FOUND' });
+  });
+});
+
+describe('环境变量（0.130.0）', () => {
+  it('值只进密钥存储，线缆上是打码的样子；没给值的沿用旧值，[] 清空，删环境时一起删', async () => {
+    const h = setup();
+    const a = await h.project('a');
+    const long = 'sk_test_51abcdefghijklmnopqrstuvwxyzgGGa';
+    const { environment } = await h.methods['environment.create'](
+      {
+        name: 'env',
+        folders: [{ workspaceId: a.id, worktree: 'none' }],
+        variables: [
+          { name: 'STRIPE_SECRET_KEY', value: long },
+          { name: 'NODE_ENV', value: 'test' },
+          { name: 'EMPTY', value: '' },
+        ],
+      },
+      context,
+    );
+    expect(environment.variables).toEqual([
+      { name: 'STRIPE_SECRET_KEY', preview: 'sk_test_51...gGGa' },
+      { name: 'NODE_ENV', preview: '••••••••' },
+      { name: 'EMPTY', preview: '' },
+    ]);
+    expect(JSON.stringify(h.storage.environments.get(environment.id))).not.toContain(long);
+    expect((await h.methods['environment.list']({}, context)).environments).toEqual([environment]);
+
+    // 改名不动变量；只回名字的那行沿用旧值，顺序按请求。
+    const renamed = await h.methods['environment.update'](
+      { environmentId: environment.id, name: 'x' },
+      context,
+    );
+    expect(renamed.environment.variables).toEqual(environment.variables);
+    await h.methods['environment.update'](
+      {
+        environmentId: environment.id,
+        variables: [{ name: 'NODE_ENV', value: 'production' }, { name: 'STRIPE_SECRET_KEY' }],
+      },
+      context,
+    );
+    expect(await readVariables(h.secrets, environment.id)).toEqual([
+      ['NODE_ENV', 'production'],
+      ['STRIPE_SECRET_KEY', long],
+    ]);
+
+    for (const variables of [
+      [{ name: 'NEW_ONE' }],
+      [
+        { name: 'A', value: '1' },
+        { name: 'A', value: '2' },
+      ],
+      [{ name: 'WEVIR_TOKEN', value: 'x' }],
+    ]) {
+      await expect(
+        h.methods['environment.update']({ environmentId: environment.id, variables }, context),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    }
+
+    const cleared = await h.methods['environment.update'](
+      { environmentId: environment.id, variables: [] },
+      context,
+    );
+    expect(cleared.environment).not.toHaveProperty('variables');
+    expect(await h.secrets.get(variablesRef(environment.id))).toBeUndefined();
+
+    await h.methods['environment.update'](
+      { environmentId: environment.id, variables: [{ name: 'A', value: '1' }] },
+      context,
+    );
+    await h.methods['environment.remove']({ environmentId: environment.id }, context);
+    expect(await h.secrets.get(variablesRef(environment.id))).toBeUndefined();
+  });
+
+  it('建立、恢复与分出环境的会话时交给引擎，恢复时按当时存的值；不用环境的会话不带', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const create = vi.spyOn(adapter, 'createSession');
+    const resume = vi.spyOn(adapter, 'resumeSession');
+    const h = setup(adapter);
+    const a = await h.project('a');
+    const { environment } = await h.methods['environment.create'](
+      {
+        name: 'env',
+        folders: [{ workspaceId: a.id, worktree: 'none' }],
+        variables: [{ name: 'API_BASE', value: 'http://localhost:3000' }],
+      },
+      context,
+    );
+    const { session } = await h.methods['session.create'](
+      { workspaceId: a.id, providerId: 'mock', environmentId: environment.id },
+      context,
+    );
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      env: { API_BASE: 'http://localhost:3000' },
+    });
+    await h.methods['session.create']({ workspaceId: a.id, providerId: 'mock' }, context);
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('env');
+
+    await h.methods['environment.update'](
+      { environmentId: environment.id, variables: [{ name: 'API_BASE', value: 'http://x' }] },
+      context,
+    );
+    await h.methods['session.close']({ sessionId: session.id }, context);
+    await h.methods['session.resume']({ sessionId: session.id }, context);
+    expect(resume.mock.calls.at(-1)?.[1]).toMatchObject({ env: { API_BASE: 'http://x' } });
   });
 });
 

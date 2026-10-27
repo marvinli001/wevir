@@ -356,6 +356,11 @@ export interface SessionManagerOptions {
    */
   projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
   /**
+   * 环境的变量（0.130.0，environment-variables.ts）：建立、恢复与分出环境的会话时按会话的 `environmentId` 现读，随 `SessionConfig.env`
+   * 交给适配器。没给时不交。
+   */
+  environmentVariables?: (environmentId: string) => Promise<Record<string, string>>;
+  /**
    * 护栏（0.86.0，guardrails/service.ts）：建立或恢复引擎会话时，hook 方言是 `codex` 的来源按会话所在的工作区与目录挂上 hooks；
    * 引擎报的拦截写成 `guardrail.blocked` 并记命中。没给时不挂。
    */
@@ -422,7 +427,10 @@ export interface RecoveryReport {
 }
 
 /** 正在建、还没写进存储的会话（`SessionManager.creating`）：以后会写进它的记录的这几项。 */
-export type CreatingSession = Pick<SessionRecord, 'workspaceId' | 'origin' | 'toolPreset'>;
+export type CreatingSession = Pick<
+  SessionRecord,
+  'workspaceId' | 'origin' | 'toolPreset' | 'environmentId'
+>;
 
 /** 算用户说明的会话（0.78.0）：是不是用户直接对话的会话（给不给风格）。 */
 export interface CustomTarget {
@@ -781,6 +789,7 @@ export class SessionManager {
   readonly #approvalRules: SessionManagerOptions['approvalRules'];
   readonly #profile: SessionManagerOptions['profile'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
+  readonly #environmentVariables: SessionManagerOptions['environmentVariables'];
   readonly #guardrails: SessionManagerOptions['guardrails'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
@@ -850,6 +859,7 @@ export class SessionManager {
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#projectConnectors = options.projectConnectors;
+    this.#environmentVariables = options.environmentVariables;
     this.#guardrails = options.guardrails;
     this.#onTurnFinished = options.onTurnFinished;
     this.#autoContinue = options.autoContinue;
@@ -882,6 +892,16 @@ export class SessionManager {
       connectors === undefined || connectors.length === 0
         ? withRules
         : { ...withRules, connectors };
+    // 环境变量（0.130.0）：按会话的环境，每次建立或恢复都按当时存的值。
+    const environmentId =
+      this.#storage.sessions.get(sessionId)?.environmentId ??
+      this.#creating.get(sessionId)?.environmentId;
+    const env =
+      environmentId === undefined ? undefined : await this.#environmentVariables?.(environmentId);
+    const withEnv =
+      env === undefined || Object.keys(env).length === 0
+        ? withConnectors
+        : { ...withConnectors, env };
     // 护栏（0.86.0）：只有认 Codex hooks 的来源挂；别的引擎不受影响。
     const guardrails =
       this.#guardrails !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
@@ -890,8 +910,8 @@ export class SessionManager {
     const withGuardrails =
       guardrails === undefined ||
       (guardrails.hooks.length === 0 && guardrails.disabledHooks.length === 0)
-        ? withConnectors
-        : { ...withConnectors, hooks: guardrails.hooks, disabledHooks: guardrails.disabledHooks };
+        ? withEnv
+        : { ...withEnv, hooks: guardrails.hooks, disabledHooks: guardrails.disabledHooks };
     if (this.#adapter.appTools !== true) return withGuardrails;
     const appTools = this.#appTools?.grant(sessionId);
     if (appTools === undefined) return withGuardrails;
@@ -1291,6 +1311,7 @@ export class SessionManager {
       workspaceId: workspace.id,
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
       ...(toolPreset !== undefined && { toolPreset }),
+      ...(prepared.environmentId !== undefined && { environmentId: prepared.environmentId }),
     });
     // 档案版本（0.85.0）：不论引擎读不读规则文件都记进会话。引擎用不到它，和建引擎会话同时取，建好之后再记进规则。
     const profile = this.#profileVersion(workspace.id);
@@ -3603,6 +3624,7 @@ export class SessionManager {
         workspaceId: record.workspaceId,
         ...(origin !== undefined && { origin }),
         ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset }),
+        ...(record.environmentId !== undefined && { environmentId: record.environmentId }),
       });
       const profile = this.#profileVersion(record.workspaceId);
       const rules = await this.#rulePlan(

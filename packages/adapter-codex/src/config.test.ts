@@ -13,6 +13,7 @@ import {
   renderChatgptConfigToml,
   renderConfigToml,
   renderModelCatalog,
+  sessionEnvConfig,
   threadConfig,
   toCodexEffort,
   tomlString,
@@ -191,6 +192,22 @@ describe('模型目录', () => {
     ]) {
       expect(entry).toHaveProperty(key);
     }
+  });
+});
+
+describe('sessionEnvConfig（0.130.0）', () => {
+  it('环境的变量放进 shell_environment_policy.set，值登记打码（太短的不登记）；没有变量时不覆盖', () => {
+    const secrets: string[] = [];
+    expect(
+      sessionEnvConfig({ STRIPE_SECRET_KEY: 'sk_test_51abc', NODE_ENV: 'test' }, (value) =>
+        secrets.push(value),
+      ),
+    ).toEqual({
+      'shell_environment_policy.set': { STRIPE_SECRET_KEY: 'sk_test_51abc', NODE_ENV: 'test' },
+    });
+    expect(secrets).toEqual(['sk_test_51abc']);
+    expect(sessionEnvConfig(undefined)).toEqual({});
+    expect(sessionEnvConfig({})).toEqual({});
   });
 });
 

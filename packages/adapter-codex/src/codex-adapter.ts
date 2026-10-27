@@ -75,6 +75,7 @@ import {
   renderChatgptConfigToml,
   renderConfigToml,
   renderModelCatalog,
+  sessionEnvConfig,
   threadConfig,
   toCodexEffort,
   webToolThreadConfig,
@@ -749,6 +750,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.connectors,
           config.hooks,
           config.disabledHooks,
+          config.env,
         ),
         ...threadDeveloperInstructions(config),
       };
@@ -806,6 +808,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.connectors,
           config.hooks,
           config.disabledHooks,
+          config.env,
         ),
         ...threadDeveloperInstructions(config),
         excludeTurns: true,
@@ -1220,6 +1223,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.connectors,
           config.hooks,
           config.disabledHooks,
+          config.env,
         ),
         ephemeral: side,
         excludeTurns: true,
@@ -2509,6 +2513,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     connectors: SessionConfig['connectors'],
     hooks: SessionConfig['hooks'],
     disabledHooks: SessionConfig['disabledHooks'],
+    env: SessionConfig['env'],
   ): Omit<ThreadStartParams, 'cwd'> {
     // 项目的连接器（0.74.0）只挂在这个 thread 上（`mcp_servers.<名字>` 的覆盖），全局的在 config.toml 里。
     const projectTools =
@@ -2520,6 +2525,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       ...(appTools === undefined ? {} : appToolsConfig(appTools)),
       // 护栏（codex-event-mapping.md §6.17）：Host 给的 hooks 连同信任散列挂在这个 thread 的 SessionFlags 层。
       ...hooksThreadConfig(hooks ?? [], disabledHooks),
+      // 环境的变量（0.130.0）：只给这个 thread 里模型跑的命令。
+      ...sessionEnvConfig(env, (value) => this.#logger.addSecret?.(value)),
     };
     if (this.#chatgpt) {
       // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。

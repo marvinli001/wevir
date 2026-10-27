@@ -466,6 +466,21 @@ export function threadConfig(
   };
 }
 
+/**
+ * 环境的变量（0.130.0，codex-event-mapping.md §6.19）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖里的
+ * `shell_environment_policy.set`，只合进这个 thread 的设置（`exclude` 等照旧），app-server 进程自己的环境不变。Codex 在默认排除
+ * （*KEY* / *SECRET* / *TOKEN*）与 `exclude` 之后才加 `set` 的变量（codex-rs `protocol/src/shell_environment.rs` 的 `populate_env`），
+ * 名字带 KEY 的变量也交得到模型跑的命令。值经 `onSecret` 登记进日志的打码名单（太短的不登记）。
+ */
+export function sessionEnvConfig(
+  env: Readonly<Record<string, string>> | undefined,
+  onSecret?: (value: string) => void,
+): Record<string, unknown> {
+  if (env === undefined || Object.keys(env).length === 0) return {};
+  for (const value of Object.values(env)) if (value.length >= 8) onSecret?.(value);
+  return { 'shell_environment_policy.set': { ...env } };
+}
+
 /** 应用级工具一次调用的上限（秒）：`wevir_session_wait` 最长等 10 分钟，再留一点余量。 */
 export const APP_TOOLS_TOOL_TIMEOUT_SEC = 660;
 

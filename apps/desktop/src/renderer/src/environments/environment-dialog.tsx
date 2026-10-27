@@ -1,10 +1,11 @@
 import type { Environment, EnvironmentFolder, WorkspaceId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowUp, Folder, Layers } from 'lucide-react';
+import { ArrowLeft, ArrowUp, ChevronRight, Folder, Layers } from 'lucide-react';
 import { type FormEvent, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
@@ -12,6 +13,7 @@ import { t } from '@/i18n';
 import { abbreviateHome } from '@/layout/rail-model';
 import { createStore } from '@/lib/store';
 import { chooseEnvironment, useEnvironments } from './environments';
+import { formatVariables, parseVariables, type VariablesParseError } from './variables-text';
 
 /** 新建（undefined）或编辑（给了环境）；null 是关着。 */
 const editing = createStore<{ environment?: Environment } | null>(null);
@@ -22,7 +24,7 @@ export function openEnvironmentDialog(environment?: Environment): void {
 
 /**
  * 新建或编辑环境（U22.1，desktop-layout.md §16）：名称、从项目里勾选文件夹（第一个是主文件夹，可上移）、每个文件夹的“新开
- * worktree”、删除。路由根上挂一个（routes/router.tsx 的 AppRoot）。
+ * worktree”、环境变量（0.130.0，点开换成编辑框）、删除。路由根上挂一个（routes/router.tsx 的 AppRoot）。
  */
 export function EnvironmentDialog() {
   const current = editing.use();
@@ -47,12 +49,21 @@ function EnvironmentForm({
   onDone: () => void;
 }) {
   const data = useWorkbenchData();
-  const { create, update, remove } = useEnvironments();
+  const { variablesSupported, create, update, remove } = useEnvironments();
   const nameId = useId();
   const [name, setName] = useState(environment?.name ?? '');
   const [folders, setFolders] = useState<EnvironmentFolder[]>(environment?.folders ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [view, setView] = useState<'main' | 'variables'>('main');
+  // 环境变量的文本：没动过时是 undefined，保存时不发 `variables`（Host 原样保留）。
+  const [variablesText, setVariablesText] = useState<string>();
+  const [variablesError, setVariablesError] = useState<string>();
+  const parsed = parseVariables(
+    variablesText ?? formatVariables(environment?.variables),
+    environment?.variables,
+  );
+  const variableCount = parsed.ok ? parsed.variables.length : (environment?.variables?.length ?? 0);
   const workspaces =
     data.status === 'ready' ? projectsOf(data.workspaces).map((entry) => entry.workspace) : [];
 
@@ -97,20 +108,85 @@ function EnvironmentForm({
     event.preventDefault();
     const trimmed = name.trim();
     if (busy || trimmed === '' || folders.length === 0) return;
+    if (!parsed.ok) {
+      setVariablesError(variablesErrorText(parsed.error));
+      setView('variables');
+      return;
+    }
+    const variables =
+      variablesSupported && variablesText !== undefined ? parsed.variables : undefined;
     void run(async () => {
       if (environment) {
-        await update(environment.id, trimmed, folders);
+        await update(environment.id, trimmed, folders, variables);
       } else {
-        const created = await create(trimmed, folders);
+        const created = await create(trimmed, folders, variables);
         chooseEnvironment(created.id);
       }
     });
+  };
+  const finishVariables = () => {
+    if (!parsed.ok) {
+      setVariablesError(variablesErrorText(parsed.error));
+      return;
+    }
+    setVariablesError(undefined);
+    setView('main');
   };
   // 已勾选的按顺序在前，其余按项目列表的顺序。
   const ordered = [
     ...folders.flatMap((folder) => workspaces.filter((w) => w.id === folder.workspaceId)),
     ...workspaces.filter((workspace) => indexOf(workspace.id) < 0),
   ];
+
+  if (view === 'variables') {
+    return (
+      <DialogContent className="gap-4 p-5 sm:max-w-120" data-testid="environment-dialog">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            aria-label={t('env.variables.back')}
+            onClick={finishVariables}
+            className="-ml-1.5 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ArrowLeft aria-hidden className="size-4" />
+          </button>
+          <DialogTitle className="text-lg font-semibold">{t('env.variables')}</DialogTitle>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Textarea
+            value={variablesText ?? formatVariables(environment?.variables)}
+            onChange={(event) => {
+              setVariablesText(event.target.value);
+              setVariablesError(undefined);
+            }}
+            aria-label={t('env.variables')}
+            aria-invalid={variablesError !== undefined}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            autoFocus
+            className="field-sizing-fixed h-48 resize-none font-mono text-sm md:text-sm"
+            data-testid="environment-variables"
+          />
+          <p className="text-xs text-muted-foreground">{t('env.variables.format')}</p>
+        </div>
+        {variablesError && (
+          <p
+            role="alert"
+            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {variablesError}
+          </p>
+        )}
+        <div className="flex justify-end">
+          <Button type="button" onClick={finishVariables}>
+            {t('env.variables.done')}
+          </Button>
+        </div>
+      </DialogContent>
+    );
+  }
 
   return (
     <DialogContent className="gap-5 p-5 sm:max-w-120" data-testid="environment-dialog">
@@ -196,6 +272,24 @@ function EnvironmentForm({
             })}
           </ul>
         </div>
+        {variablesSupported && (
+          <button
+            type="button"
+            onClick={() => setView('variables')}
+            className="flex min-h-12 items-center gap-2.5 rounded-xl border border-border px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-ring"
+            data-testid="environment-variables-row"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm">{t('env.variables')}</span>
+              {variableCount > 0 && (
+                <span className="block text-xs text-muted-foreground">
+                  {t('env.variables.count', { count: variableCount })}
+                </span>
+              )}
+            </span>
+            <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        )}
         {error && (
           <p
             role="alert"
@@ -227,4 +321,15 @@ function EnvironmentForm({
       </form>
     </DialogContent>
   );
+}
+
+function variablesErrorText(error: VariablesParseError): string {
+  switch (error.kind) {
+    case 'line':
+      return t('env.variables.invalidLine', { line: error.line });
+    case 'duplicate':
+      return t('env.variables.duplicate', { name: error.name });
+    case 'reserved':
+      return t('env.variables.reserved', { name: error.name });
+  }
 }

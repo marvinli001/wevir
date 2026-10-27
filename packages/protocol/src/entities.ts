@@ -1616,13 +1616,35 @@ export const EnvironmentFolderSchema = z.object({
 });
 export type EnvironmentFolder = z.infer<typeof EnvironmentFolderSchema>;
 
-/** 保存的一组会话设置：在哪儿跑、用哪几个文件夹（第一个是主文件夹）、每个文件夹要不要新开 worktree。 */
+/** 环境变量名（0.130.0）：字母或下划线开头，只有字母、数字、下划线。 */
+export const EnvironmentVariableNameSchema = z
+  .string()
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+
+/** 一个环境变量最多有多少个、值最长多少字（0.130.0）。 */
+export const ENVIRONMENT_VARIABLES_MAX = 100;
+export const ENVIRONMENT_VARIABLE_VALUE_MAX = 32_768;
+
+/**
+ * 环境里的一个变量（0.130.0，domain-model §3.10）：值只在 Host 的密钥存储里，线缆上只有打码后的 `preview`（长的留开头与结尾，
+ * 短的整段换成圆点）。
+ */
+export const EnvironmentVariableSchema = z.object({
+  name: EnvironmentVariableNameSchema,
+  preview: z.string().max(64),
+});
+export type EnvironmentVariable = z.infer<typeof EnvironmentVariableSchema>;
+
+/** 保存的一组会话设置：在哪儿跑、用哪几个文件夹（第一个是主文件夹）、每个文件夹要不要新开 worktree、给会话的环境变量。 */
 export const EnvironmentSchema = z.object({
   id: EnvironmentIdSchema,
   name: z.string().min(1).max(60),
   /** 现在只有本机；SSH 与云端以后加。 */
   location: z.object({ kind: z.literal('local') }),
   folders: z.array(EnvironmentFolderSchema).min(1).max(8),
+  /** 交给这个环境的会话的环境变量（0.130.0），按填写的顺序；省略表示没有。 */
+  variables: z.array(EnvironmentVariableSchema).max(ENVIRONMENT_VARIABLES_MAX).optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });

@@ -1137,7 +1137,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     const input = new PushQueue<SDKUserMessage>();
     const options: Options = {
       pathToClaudeCodeExecutable: installation.executablePath,
-      env: claudeEnv(this.#env, installation.executablePath),
+      // 环境的变量（0.130.0）并进这个会话的 `claude` 进程，模型跑的命令继承它。
+      env: { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env },
       cwd: session.config.cwd,
       ...(session.config.additionalRoots !== undefined &&
         session.config.additionalRoots.length > 0 && {

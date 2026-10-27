@@ -529,6 +529,12 @@ export const HOST_FEATURES = {
    * Host 先把进程拉起来，第一条消息不再等它。Host 有能预先启动的引擎时声明。
    */
   enginePrewarm: 'engine_prewarm',
+  /**
+   * 环境变量（0.130.0）：`Environment.variables` 与 `environment.create` / `environment.update` 的 `variables`。Host 在建立、恢复与分出
+   * 环境的会话时交给引擎；能按会话设变量的引擎（Codex 交给模型跑的命令，Claude 交给 `claude` 进程）才用，共用一个进程的引擎
+   * （ACP、OpenCode）不用。与引擎无关地声明。
+   */
+  environmentVariables: 'environment_variables',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -635,6 +641,7 @@ export const HostFeaturesSchema = z.looseObject({
   ios_simulator: z.boolean().optional(),
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),
+  environment_variables: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

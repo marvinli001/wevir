@@ -35,6 +35,13 @@ import type { AssistantFolders } from './channels/assistants.js';
 import type { ChannelService } from './channels/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
+import {
+  readVariables,
+  resolveVariables,
+  toVariables,
+  type VariableEntries,
+  writeVariables,
+} from './environment-variables.js';
 import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import type { ExternalImport } from './external-import/service.js';
@@ -758,11 +765,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.15.0（U22.1，domain-model §3.10）：保存的环境。
-    'environment.list': () => ({
-      environments: storage.environments.list().map(toEnvironment),
+    'environment.list': async () => ({
+      environments: await Promise.all(
+        storage.environments
+          .list()
+          .map(async (record) => toEnvironment(record, await readVariables(secrets, record.id))),
+      ),
     }),
 
-    'environment.create': ({ name, folders }) => {
+    // 0.130.0：环境变量的值进 SecretStore，先写它再写数据库行；数据库写失败时撤回。
+    'environment.create': async ({ name, folders, variables }) => {
       const now = isoNow();
       const record: EnvironmentRecord = {
         id: newId('env'),
@@ -772,11 +784,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         createdAt: now,
         updatedAt: now,
       };
-      storage.environments.insert(record);
-      return { environment: toEnvironment(record) };
+      const entries = resolveVariables(variables ?? [], []);
+      await writeVariables(secrets, record.id, entries);
+      try {
+        storage.environments.insert(record);
+      } catch (error) {
+        await writeVariables(secrets, record.id, []).catch(() => {});
+        throw error;
+      }
+      return { environment: toEnvironment(record, entries) };
     },
 
-    'environment.update': ({ environmentId, name, folders }) => {
+    'environment.update': async ({ environmentId, name, folders, variables }) => {
       const current = storage.environments.get(environmentId);
       if (!current) {
         throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${environmentId} not found`);
@@ -789,14 +808,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         }),
         updatedAt: isoNow(),
       };
+      const stored = await readVariables(secrets, environmentId);
+      const entries = variables === undefined ? stored : resolveVariables(variables, stored);
+      if (variables !== undefined) await writeVariables(secrets, environmentId, entries);
       storage.environments.update(record);
-      return { environment: toEnvironment(record) };
+      return { environment: toEnvironment(record, entries) };
     },
 
-    'environment.remove': ({ environmentId }) => {
+    'environment.remove': async ({ environmentId }) => {
       if (!storage.environments.remove(environmentId)) {
         throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${environmentId} not found`);
       }
+      await writeVariables(secrets, environmentId, []);
       return {};
     },
 
@@ -2056,7 +2079,7 @@ function checkEnvironmentFolders(
   return folders.map((folder) => ({ workspaceId: folder.workspaceId, worktree: folder.worktree }));
 }
 
-function toEnvironment(record: EnvironmentRecord): Environment {
+function toEnvironment(record: EnvironmentRecord, variables: VariableEntries): Environment {
   return {
     id: record.id as EnvironmentId,
     name: record.name,
@@ -2065,6 +2088,7 @@ function toEnvironment(record: EnvironmentRecord): Environment {
       workspaceId: folder.workspaceId as WorkspaceId,
       worktree: folder.worktree === 'new' ? 'new' : 'none',
     })),
+    ...(variables.length > 0 && { variables: toVariables(variables) }),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };

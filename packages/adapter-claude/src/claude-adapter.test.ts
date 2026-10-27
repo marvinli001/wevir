@@ -194,6 +194,20 @@ describe('一问一答（录音 plain）', () => {
     });
   });
 
+  it('环境的变量（0.130.0）并进 claude 进程的环境，不覆盖时照旧', async () => {
+    const { adapter, sdk } = harness();
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      env: { STRIPE_SECRET_KEY: 'sk_test_x', NODE_ENV: 'test' },
+    });
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('hi'));
+    await log.until(isTurnTerminal);
+    const env = sessionQueries(sdk)[0]?.options.env;
+    expect(env).toMatchObject({ STRIPE_SECRET_KEY: 'sk_test_x', NODE_ENV: 'test' });
+    expect(env?.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
+  });
+
   it('规则文件（0.68.0）：Host 补的接在预设系统提示词后面；不补时只有预设；读哪些按 claude 的版本', async () => {
     const { adapter, sdk } = harness();
     const plain = await adapter.createSession(CONFIG);

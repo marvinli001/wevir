@@ -76,6 +76,12 @@ export interface SessionConfig {
    * Codex 本来也不执行没有信任记录的，这是第二道）。用户启用的仓库 hook 由 Host 改写成 `hooks` 里的一项，原处的仍停用。
    */
   disabledHooks?: string[];
+  /**
+   * 环境的变量（0.130.0，domain-model §3.10）：Host 按会话的环境给，恢复与分出会话时按当时存的值重新给。能按会话设变量的适配器
+   * 才用（Codex：`shell_environment_policy.set`，交给模型跑的命令；Claude：并进 `claude` 进程的环境），共用一个引擎进程的忽略。
+   * 值是密钥，不得写进日志或事件。
+   */
+  env?: Record<string, string>;
 }
 
 /**

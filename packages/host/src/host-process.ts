@@ -46,6 +46,7 @@ import {
 } from './custom-instructions.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
+import { readVariables } from './environment-variables.js';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
@@ -659,6 +660,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       // 只给某个项目的连接器（0.74.0）：按会话所在的工作区交给引擎。
       projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
+      // 环境变量（0.130.0）：建立、恢复与分出环境的会话时现读。
+      // 值登记进日志的打码名单（太短的不登记，否则日志里的普通字符也会被换掉）。
+      environmentVariables: async (environmentId) => {
+        const entries = await readVariables(secrets, environmentId);
+        for (const [, value] of entries) if (value.length >= 8) logger.addSecret(value);
+        return Object.fromEntries(entries);
+      },
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
         automations?.onTurnFinished(info);
@@ -1437,6 +1445,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         handoff_preview: true,
         subagent_cancel: true,
         environments: true,
+        environment_variables: true,
         session_worktree: true,
         provider_enabled: true,
         chat_sessions: true,
