@@ -1,7 +1,13 @@
 // WevirClient 对着可编程的假 Host（test-utils.ts 的 FakeHost）：握手、类型化的请求与错误、三种超时、
 // 心跳、重连与订阅的边界情况。对着真实 Host 的验收在 client.integration.test.ts。
 
-import { CLIENT_CAPABILITIES, ErrorCode, PROTOCOL_VERSION, RelayCloseCode } from '@wevir/protocol';
+import {
+  CLIENT_CAPABILITIES,
+  ErrorCode,
+  PROTOCOL_VERSION,
+  RelayCloseCode,
+  type SessionId,
+} from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CLIENT_CAPABILITIES } from './capabilities.js';
 import { type ConnectionState, WevirClient, type WevirClientOptions } from './client.js';
@@ -529,6 +535,32 @@ describe('订阅', () => {
     for (const seq of [3, 4, 5])
       host.last.notify('events.event', { subscriptionId: 'sub_2', event: event(seq) });
     expect(seqs(await take(subscription, 3))).toEqual([3, 4, 5]);
+  });
+
+  it('elideSuperseded（0.127.0）：首次订阅与断线后的续订都带上；不要求时不带', async () => {
+    const OTHER = 'ses_01JA2B3C4D5E6F7G8H9JKMNPR0' as SessionId;
+    const host = new FakeHost();
+    subscribeHandler(host, () => 2);
+    const { client } = await connect(host);
+    const subscription = client.subscribe(SES, { elideSuperseded: true });
+    client.subscribe(OTHER);
+    await vi.waitFor(() => expect(host.last.requests('events.subscribe')).toHaveLength(2));
+    expect(host.last.requests('events.subscribe').map((r) => r.params)).toEqual([
+      { sessionId: SES, sinceSeq: 0, elideSuperseded: true },
+      { sessionId: OTHER, sinceSeq: 0 },
+    ]);
+    await tick();
+    for (const seq of [1, 2])
+      host.last.notify('events.event', { subscriptionId: 'sub_1', event: event(seq) });
+    await take(subscription, 3);
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(host.last.requests('events.subscribe')).toHaveLength(2));
+    expect(host.last.requests('events.subscribe')[0]?.params).toEqual({
+      sessionId: SES,
+      sinceSeq: 2,
+      elideSuperseded: true,
+    });
   });
 
   it('本地 lastSeq 比 Host 新：产出 reset，从 0 重新订阅', async () => {

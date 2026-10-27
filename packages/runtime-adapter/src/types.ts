@@ -486,6 +486,7 @@ export interface ProviderCompatConfig {
   geminiToolSchema?: boolean;
   systemMessageMode?: 'inline' | 'merge' | 'user';
   toolSearch?: 'native' | 'dispatch' | 'off';
+  requestCompression?: 'gzip';
 }
 
 /** 与 @wevir/protocol 的 `ProviderModel` 同形。 */

@@ -25,6 +25,11 @@ export type SubscriptionItem =
 export interface SubscribeOptions {
   /** 已经应用过的最大 `seq`；补发 `seq > sinceSeq` 的事件。默认 0（从头回放）。 */
   sinceSeq?: number;
+  /**
+   * 补发时让 Host 去掉已被取代的内容（0.127.0，`events.subscribe` 的 `elideSuperseded`）：只关心投影最后样子的订阅者用，回放的
+   * 字节少得多；要看工具中间输出的不用。断线重连后的每次续订都带上。
+   */
+  elideSuperseded?: boolean;
 }
 
 /**
@@ -68,6 +73,8 @@ export class SessionFeed implements EventSubscription {
   /** 上一次因缺口重新订阅时的 `lastSeq`，与停在它上面连续重新订阅的次数。 */
   resyncSeq = -1;
   resyncCount = 0;
+  /** 每次（续）订阅都带 `elideSuperseded`（`SubscribeOptions`）。 */
+  elideSuperseded = false;
   readonly #hooks: FeedHooks;
   #lastSeq: number;
   /** 当前服务端订阅的 `replayedThroughSeq`。 */

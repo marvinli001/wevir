@@ -23,6 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@wevir/runtime-adapter": "workspace:*"
+    "@wevir/runtime-adapter": "workspace:*",
+    "undici": "7.30.0"
   }
 }

@@ -14,6 +14,7 @@ import {
   PERMISSIONS,
   PROTOCOL_VERSION,
   type SessionId,
+  type TurnId,
   type WevirEvent,
 } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -847,6 +848,64 @@ describe('events.subscribe', () => {
     await client.waitForEvent(middle.subscriptionId, (e) => e.seq === 6);
     expect(client.events(middle.subscriptionId).map((e) => e.seq)).toEqual([4, 5, 6]);
     expect(client.events(caughtUp.subscriptionId).map((e) => e.seq)).toEqual([6]);
+  });
+
+  it('elideSuperseded（0.127.0）：补发里被取代的工具输出去掉、seq 照样连续；实时事件与不要求时都原样', async () => {
+    const h = await startHost();
+    const client = await readyClient(h);
+    const sessionId = await createSession(h, client);
+    const turnId = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' as TurnId;
+    const output = (text: string) => ({ text, truncated: false });
+    h.events.appendMany(sessionId, [
+      {
+        type: 'tool.started',
+        source: 'engine',
+        payload: {
+          turnId,
+          toolCallId: 'a',
+          toolName: 'bash',
+          display: { kind: 'shell', command: 'ls' },
+        },
+      },
+      {
+        type: 'tool.updated',
+        source: 'engine',
+        payload: { turnId, toolCallId: 'a', output: output('1') },
+      },
+      {
+        type: 'tool.updated',
+        source: 'engine',
+        payload: { turnId, toolCallId: 'a', output: output('12') },
+      },
+    ]);
+    const through = h.storage.events.lastSeq(sessionId);
+
+    const elided = await client.call('events.subscribe', {
+      sessionId,
+      sinceSeq: 0,
+      elideSuperseded: true,
+    });
+    const plain = await subscribe(client, sessionId);
+    const { subscriptionId } = elided.result;
+    await client.waitForEvent(subscriptionId, (e) => e.seq === through);
+    await client.waitForEvent(plain.subscriptionId, (e) => e.seq === through);
+    expect(client.events(subscriptionId).map((e) => e.seq)).toEqual(range(1, through));
+    const outputs = (id: string) =>
+      client
+        .events(id)
+        .filter((e) => e.type === 'tool.updated')
+        .map((e) => (e.payload as { output?: { text: string } }).output?.text);
+    expect(outputs(subscriptionId)).toEqual([undefined, '12']);
+    expect(outputs(plain.subscriptionId)).toEqual(['1', '12']);
+
+    // 实时事件不看后面会不会被取代。
+    h.events.append(sessionId, {
+      type: 'tool.updated',
+      source: 'engine',
+      payload: { turnId, toolCallId: 'a', output: output('123') },
+    });
+    await client.waitForEvent(subscriptionId, (e) => e.seq === through + 1);
+    expect(outputs(subscriptionId)).toEqual([undefined, '12', '123']);
   });
 
   it('同一连接可订阅多个会话、对同一会话多次订阅，通知带各自的 subscriptionId', async () => {

@@ -43,7 +43,8 @@ export class TranscriptStore {
     this.sessionId = sessionId;
     this.#onIdle = onIdle;
     this.#state = { transcript: this.#projection.snapshot(), caughtUp: false };
-    this.#subscription = client.subscribe(sessionId);
+    // 只投影最后的样子：工具的中间输出与被替换的增量不用回放（0.127.0），长会话打开时少读几成字节。
+    this.#subscription = client.subscribe(sessionId, { elideSuperseded: true });
     void this.#consume();
   }
 
