@@ -300,7 +300,7 @@ function ViewButton({
   );
 }
 
-/** 按状态的三组（U19）：待处理、进行中、最近 7 天的已完成；组内按最近活动，右边写项目名。 */
+/** 按状态的三组（U19）：待处理、进行中、最近 7 天的已完成；组内按最近活动，行右边不写项目名。 */
 function StatusTree() {
   const data = useWorkbenchData();
   const seen = useSeenSessions();
@@ -334,7 +334,6 @@ function StatusTree() {
       workspaceId={workspace.id}
       session={session}
       unread={isUnread(seen, session)}
-      project={projectLabel(workspace, session)}
     />
   );
   const row = (entry: StatusRow) => (
@@ -344,7 +343,6 @@ function StatusTree() {
       thread={entry}
       open={threadOpen(entry, collapsedThreads, sessionId)}
       isUnread={(session) => isUnread(seen, session)}
-      project={(session) => projectLabel(entry.workspace, session)}
     />
   );
   return (
@@ -677,21 +675,14 @@ function ThreadItem({
   thread,
   open,
   isUnread,
-  project,
 }: {
   workspaceId: string;
   thread: SessionThread;
   open: boolean;
   isUnread: (session: Session) => boolean;
-  /** 按状态分组时行右边写的项目名（`SessionRow` 的 `project`）。 */
-  project?: (session: Session) => SessionRowProps['project'];
 }) {
   const { session, children } = thread;
   const count = children.length;
-  const label = (row: Session) => {
-    const value = project?.(row);
-    return value === undefined ? {} : { project: value };
-  };
   // 收起时那一行写上有几个在跑；有没看过的（跑完了的）右边带未读点。需要用户处理的子会话不会收起（threadOpen）。
   const runningCount = children.filter((child) => sessionMarker(child) === 'running').length;
   const unreadChild = children.some(
@@ -703,7 +694,6 @@ function ThreadItem({
         workspaceId={workspaceId}
         session={session}
         unread={isUnread(session)}
-        {...label(session)}
         {...(count > 0 && { thread: { count, open } })}
       />
       {count > 0 && (
@@ -719,7 +709,6 @@ function ThreadItem({
                   session={child}
                   unread={isUnread(child)}
                   branch
-                  {...label(child)}
                 />
               </li>
             ))}
@@ -801,7 +790,7 @@ interface SessionRowProps {
   workspaceId: string;
   session: Session;
   unread: boolean;
-  /** 按状态分组时（U19）行右边写项目名，悬停提示是“项目名 · 路径”。 */
+  /** 按项目分组时置顶组的行右边写项目名，悬停提示是“项目名 · 路径”。 */
   project?: { displayName: string; rootPath: string };
   /** 它开出的会话归在它下面（session-threads.ts）：几个、展开着没有。标题后面有展开、收起的箭头。 */
   thread?: { count: number; open: boolean };
