@@ -39,6 +39,7 @@ import { QuestionCard } from '../../components/question-card';
 import { RenameDialog, useActionSheet } from '../../components/sheets';
 import { Icon } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
+import { keyboardOverlap } from '../../lib/keyboard';
 import {
   PHOTOS_PER_MESSAGE,
   PhotoPermissionError,
@@ -100,7 +101,7 @@ export default function SessionScreen() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<MessageKey>();
   const [renaming, setRenaming] = useState(false);
-  const [keyboard, setKeyboard] = useState(false);
+  const [keyboard, setKeyboard] = useState(0);
   const [composerHeight, setComposerHeight] = useState(64);
   const [sheet, showSheet] = useActionSheet();
 
@@ -127,11 +128,11 @@ export default function SessionScreen() {
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setKeyboard(true),
+      (e) => setKeyboard(keyboardOverlap(e)),
     );
     const hide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboard(false),
+      () => setKeyboard(0),
     );
     return () => {
       show.remove();
@@ -258,7 +259,7 @@ export default function SessionScreen() {
     ]);
   };
 
-  const bottom = keyboard ? 8 : Math.max(insets.bottom, 8);
+  const bottom = keyboard > 0 ? 8 : Math.max(insets.bottom, 8);
 
   return (
     <>
@@ -274,7 +275,8 @@ export default function SessionScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.flex}>
+        {/* Android 全面屏（edge-to-edge）下窗口不随键盘缩小，KeyboardAvoidingView 也算不准：按键盘高度自己让开。 */}
+        <View style={[styles.flex, Platform.OS === 'android' && { marginBottom: keyboard }]}>
           <SessionList
             items={items}
             meta={meta}

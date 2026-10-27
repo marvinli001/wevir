@@ -22,6 +22,7 @@ import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
 import { locale, t } from '../../i18n';
 import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
+import { keyboardOverlap } from '../../lib/keyboard';
 import { useBot, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
 import { SPACE, TEXT, useTheme } from '../../theme';
@@ -86,7 +87,7 @@ function BotChat({ bot }: { bot: Bot }) {
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<Item>>(null);
   const [composerHeight, setComposerHeight] = useState(64);
-  const [keyboard, setKeyboard] = useState(false);
+  const [keyboard, setKeyboard] = useState(0);
   // 停在底部时新内容到了跟着滚到底；用户往上翻开就不跟了，回到底部再跟。
   const pinned = useRef(true);
   const settled = useRef(false);
@@ -118,14 +119,14 @@ function BotChat({ bot }: { bot: Bot }) {
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        setKeyboard(true);
+      (e) => {
+        setKeyboard(keyboardOverlap(e));
         requestAnimationFrame(() => follow(true));
       },
     );
     const hide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboard(false),
+      () => setKeyboard(0),
     );
     return () => {
       show.remove();
@@ -188,7 +189,7 @@ function BotChat({ bot }: { bot: Bot }) {
 
   const data = useMemo(() => items(timelineViews(timeline, t('bot.image'))), [timeline]);
   const stateColor = botStateColor(theme, bot.state);
-  const bottom = keyboard ? 8 : Math.max(insets.bottom, 8);
+  const bottom = keyboard > 0 ? 8 : Math.max(insets.bottom, 8);
 
   return (
     <>
@@ -203,7 +204,8 @@ function BotChat({ bot }: { bot: Bot }) {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.flex}>
+        {/* Android 全面屏（edge-to-edge）下窗口不随键盘缩小，KeyboardAvoidingView 也算不准：按键盘高度自己让开。 */}
+        <View style={[styles.flex, Platform.OS === 'android' && { marginBottom: keyboard }]}>
           <FlatList
             ref={list}
             data={data}
