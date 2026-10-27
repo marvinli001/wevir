@@ -1118,6 +1118,11 @@ export const ProviderSetEnabledParamsSchema = z.object({
   enabled: z.boolean(),
 });
 
+/** `provider.prewarm`（0.129.0，Host 功能 `engine_prewarm`）：预先启动承载这个 Provider 的引擎。 */
+export const ProviderPrewarmParamsSchema = z.object({
+  providerId: ProviderIdSchema,
+});
+
 export const ProviderResultSchema = z.object({
   provider: ProviderProfileSchema,
 });
@@ -2046,6 +2051,14 @@ export const MethodSchemas = {
     permission: 'provider.write',
   },
 
+  /**
+   * 预先启动承载这个 Provider 的引擎进程（0.129.0）。引擎已就绪、没有冷启动或启动失败都返回空结果：失败留到建会话时再报。
+   */
+  'provider.prewarm': {
+    params: ProviderPrewarmParamsSchema,
+    result: EmptySchema,
+    permission: 'session.write',
+  },
   'account.list': {
     params: EmptySchema,
     result: AccountListResultSchema,

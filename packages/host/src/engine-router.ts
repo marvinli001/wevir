@@ -98,6 +98,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly clearGoal?: AgentRuntimeAdapter['clearGoal'];
   readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
   readonly ruleFiles?: AgentRuntimeAdapter['ruleFiles'];
+  readonly prewarm?: AgentRuntimeAdapter['prewarm'];
   readonly hookDialect?: AgentRuntimeAdapter['hookDialect'];
   readonly appToolsContextInPrompt?: AgentRuntimeAdapter['appToolsContextInPrompt'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
@@ -201,6 +202,10 @@ export class EngineRouter implements AgentRuntimeAdapter {
       // 问承载这个 Provider 的引擎；不认识的 Provider 当作不收。
       this.acceptsImages = (config) =>
         this.#routeOf(config.providerId)?.adapter.acceptsImages?.(config) === true;
+    }
+    if (adapters.some((adapter) => adapter.prewarm !== undefined)) {
+      // 0.129.0：只启动承载这个 Provider 的引擎（添加的账号是各自的实例）；不认识的 Provider 不启动。
+      this.prewarm = async (providerId) => this.#routeOf(providerId)?.adapter.prewarm?.(providerId);
     }
     if (adapters.some((adapter) => adapter.ruleFiles !== undefined)) {
       // 0.68.0：问承载这个 Provider 的引擎读哪些规则文件；不认识的 Provider 没有。

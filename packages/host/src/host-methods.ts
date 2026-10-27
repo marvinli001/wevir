@@ -263,7 +263,7 @@ export function createProviderLock(): ProviderLock {
 
 export type ProviderBridge = Pick<
   AgentRuntimeAdapter,
-  'validateProvider' | 'configureProviders' | 'testProvider' | 'googleVertex'
+  'validateProvider' | 'configureProviders' | 'testProvider' | 'googleVertex' | 'prewarm'
 >;
 
 /**
@@ -1090,6 +1090,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return discoverOllamaModels({ baseURL: baseURL ?? '', apiKey, modelId });
     },
 
+    // 0.129.0：失败（没装、没登录、启动不了）不报给客户端，建会话时照常报。停用的 Provider 不启动。
+    'provider.prewarm': async ({ providerId }) => {
+      const provider = storage.providers.get(providerId);
+      if (provider !== undefined && provider.enabled !== false && bridge?.prewarm !== undefined) {
+        await bridge.prewarm(providerId).catch(() => {});
+      }
+      return {};
+    },
     'provider.setEnabled': ({ providerId, enabled }) =>
       serialProvider(async () => {
         const provider = storage.providers.get(providerId);

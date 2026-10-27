@@ -70,6 +70,13 @@ export interface AgentRuntimeAdapter {
   reloadPlugins?(): Promise<void>;
   listConnectorStatus?(): Promise<import('./plugins.js').EngineConnectorStatus[]>;
   /**
+   * 预先启动承载这个 Provider 的引擎进程（0.129.0，`provider.prewarm`）：新会话页选中它时 Host 调用，第一条消息就不必等引擎冷启动
+   * （ACP 运行体：拉起进程、`initialize`、需要时认证）。已就绪时直接返回；不建引擎会话、不发事件。不实现表示引擎没有值得预先
+   * 启动的冷启动（Codex 随 Host 启动）。失败照常抛出，Host 吞掉，留到建会话时再报。
+   */
+  prewarm?(providerId: string): Promise<void>;
+
+  /**
    * 新建引擎会话（dsh：ACP `session/new`）。不发事件。
    * 错误：`invalid_input`、`engine_unavailable`、`disposed`。
    */

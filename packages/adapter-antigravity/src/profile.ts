@@ -184,7 +184,11 @@ export async function prepareAntigravityProfile(
     tempDirectory: path.resolve(options.tempDirectory),
     browserCommand,
   };
-  await verifyBrowserHelper(helperExecutable, antigravityEnvironment(profile, options.baseEnv));
+  // 每次启动都要多起一个进程（Electron 以 Node 运行约 50–100 ms）：同一个可执行文件验过一次就够了。
+  if (!verifiedHelpers.has(helperExecutable)) {
+    await verifyBrowserHelper(helperExecutable, antigravityEnvironment(profile, options.baseEnv));
+    verifiedHelpers.add(helperExecutable);
+  }
   for (const directory of [geminiHome, acpDirectory, profile.tempDirectory]) {
     await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
     if (platform !== 'win32') await fsp.chmod(directory, 0o700);
@@ -202,6 +206,9 @@ export async function prepareAntigravityProfile(
   );
   return profile;
 }
+
+/** 验过的 BROWSER 钩子（可执行文件路径），整个 Host 进程内有效。 */
+const verifiedHelpers = new Set<string>();
 
 /** 钩子必须只往 stderr 写一行带标记的网址并以 0 退出，否则运行体可能去开系统浏览器。 */
 async function verifyBrowserHelper(executable: string, env: NodeJS.ProcessEnv): Promise<void> {

@@ -85,6 +85,30 @@ describe('EngineRouter', () => {
     });
   });
 
+  it('预先启动（0.129.0）：只转给承载这个 Provider 的引擎；没有引擎实现时不出现', async () => {
+    expect(setup().router.prewarm).toBeUndefined();
+    const warmed: string[] = [];
+    const engine = new Recording({ stepDelayMs: 0 });
+    const warm = Object.assign(engine, {
+      prewarm: async (providerId: string) => {
+        warmed.push(providerId);
+      },
+    });
+    const router = new EngineRouter([
+      { name: 'echo', adapter: new Recording({ stepDelayMs: 0 }), kinds: ['openai-compatible'] },
+      { name: 'antigravity', adapter: warm, kinds: ['antigravity'] },
+    ]);
+    routers.push(router);
+    await router.configureProviders([
+      provider('local', 'openai-compatible'),
+      provider('antigravity', 'antigravity'),
+    ]);
+    await router.prewarm?.('local');
+    await router.prewarm?.('nope');
+    await router.prewarm?.('antigravity');
+    expect(warmed).toEqual(['antigravity']);
+  });
+
   it('子会话跟着派出它的引擎', async () => {
     const { claude, router } = setup();
     await router.configureProviders([provider('claude', 'claude')]);

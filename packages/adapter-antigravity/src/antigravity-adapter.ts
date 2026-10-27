@@ -173,6 +173,20 @@ export class AntigravityAdapter extends AcpAdapter {
     return this.#signInAware(() => super.createSession(config));
   }
 
+  /**
+   * 预先启动运行体（0.129.0，`provider.prewarm`）：运行体是一个约 270 MB 的 Python 包，冷启动到 `initialize` 要 1.3–1.7 s，再加
+   * `authenticate`。新会话页选中 Antigravity 时先拉起来，第一条消息只等 `session/new`。已在运行时直接返回。
+   */
+  async prewarm(): Promise<void> {
+    this.assertUsable();
+    try {
+      await this.process.start();
+    } catch (error) {
+      if (isAdapterError(error, 'missing_credentials')) this.accounts.markSignInRequired();
+      throw error;
+    }
+  }
+
   override async resumeSession(
     engineSessionId: string,
     config: SessionConfig,

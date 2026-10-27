@@ -95,6 +95,23 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
     expect((await adapter.accounts.read('antigravity')).status).toBe('signed_out');
   });
 
+  it('预先启动：拉起运行体并完成认证，之后建会话用同一个进程；没登录时报 missing_credentials、账号改为未登录', async () => {
+    const signedOut = await create();
+    await expect(signedOut.prewarm()).rejects.toMatchObject({ code: 'missing_credentials' });
+    expect((await signedOut.accounts.read('antigravity')).status).toBe('signed_out');
+    await signedOut.dispose();
+
+    writeFakeToken(home);
+    const adapter = await create();
+    await Promise.all([adapter.prewarm(), adapter.prewarm()]);
+    expect(adapter.process.state).toBe('ready');
+    const pid = adapter.process.pid;
+    expect(pid).toBeDefined();
+    await adapter.prewarm();
+    await adapter.createSession(config());
+    expect(adapter.process.pid).toBe(pid);
+  });
+
   it('建会话时按权限模式设 Antigravity 的会话模式，会话中换模型与模式从下一个回合起生效', async () => {
     writeFakeToken(home);
     const adapter = await create();

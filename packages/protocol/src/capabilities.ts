@@ -519,6 +519,11 @@ export const HOST_FEATURES = {
    * `simulator_build`。Host 在 macOS 上、找得到 helper（`WEVIR_IOS_SIMULATOR_BIN`）时声明。
    */
   iosSimulator: 'ios_simulator',
+  /**
+   * 预先启动引擎（0.129.0）：`provider.prewarm`。新会话页选中某个 Provider 时客户端调用，承载它的引擎有冷启动（ACP 运行体）时
+   * Host 先把进程拉起来，第一条消息不再等它。Host 有能预先启动的引擎时声明。
+   */
+  enginePrewarm: 'engine_prewarm',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -623,6 +628,7 @@ export const HostFeaturesSchema = z.looseObject({
   channels: z.boolean().optional(),
   channel_schedules: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
+  engine_prewarm: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

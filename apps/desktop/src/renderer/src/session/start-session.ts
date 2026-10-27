@@ -11,7 +11,7 @@ import type {
   UserImagePart,
   WorkspaceId,
 } from '@wevir/protocol';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { isPickable, pickerOrder } from '@/data/sources';
 import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
@@ -157,6 +157,15 @@ export function useStartSession(
       view.hello.features,
       engineFeaturesOf(view.hello.engineFeatures, data.providers, choice.providerId),
     );
+
+  // 0.129.0：选中的来源有冷启动的引擎（Antigravity 等 ACP 运行体）时先让 Host 拉起来，第一条消息只等建会话。
+  const prewarm =
+    view.status === 'connected' && hostSupports(view.hello.features, 'engine_prewarm');
+  const providerId = choice?.providerId;
+  useEffect(() => {
+    if (!client || !prewarm || providerId === undefined) return;
+    client.request('provider.prewarm', { providerId }).catch(() => {});
+  }, [client, prewarm, providerId]);
 
   const start = useCallback(
     /**

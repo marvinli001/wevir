@@ -23,13 +23,18 @@ afterEach(async () => {
 
 const FULL = { provider_kind_chatgpt: true, subscription_kinds: true };
 
-async function start(scenarios = '1', home = join(tempDir(), 'home')) {
+async function start(
+  scenarios = '1',
+  home = join(tempDir(), 'home'),
+  prewarm?: (providerId: string) => Promise<void>,
+) {
   const logger = createLogger({ mirror: () => {} });
   const adapter = createAdapter('echo', {
     home,
     logger,
     env: { WEVIR_ECHO_SUBSCRIPTIONS: scenarios },
   });
+  if (prewarm !== undefined) Object.assign(adapter, { prewarm });
   const host = await startHost({ adapter, engine: 'echo', home, logger });
   running.push(host);
   const token = (
@@ -302,6 +307,25 @@ describe('订阅来源（0.19.0）', () => {
     expect(progress.length).toBeGreaterThan(1);
     const notInstallable = await client.call('account.install', { kind: 'claude' });
     expect(notInstallable.error).toMatchObject({ code: -32041 });
+  });
+
+  it('provider.prewarm（0.129.0）：交给引擎；停用的、不存在的不启动；引擎失败也回空结果', async () => {
+    const warmed: string[] = [];
+    const { connect } = await start(undefined, undefined, async (providerId) => {
+      warmed.push(providerId);
+      throw new Error('cannot start');
+    });
+    const { client, hello } = await connect();
+    expect(hello.features.engine_prewarm).toBe(true);
+    await providersOf(client, ['claude']);
+    expect(await client.request('provider.prewarm', { providerId: 'claude' })).toEqual({});
+    expect(await client.request('provider.prewarm', { providerId: 'nope' })).toEqual({});
+    await client.request('provider.setEnabled', { providerId: 'claude', enabled: false });
+    await client.request('provider.prewarm', { providerId: 'claude' });
+    expect(warmed).toEqual(['claude']);
+
+    const plain = await start();
+    expect((await plain.connect()).hello.features.engine_prewarm).toBeUndefined();
   });
 
   it('provider.setEnabled：停用写 enabled: false，模型刷新与编辑都保留它；启用去掉这个字段', async () => {

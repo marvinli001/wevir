@@ -4475,6 +4475,13 @@ export const methodSamples: MethodSamples = {
       invalid: [{ provider: { ...claudeProvider, kind: 'gemini' } }, {}],
     },
   },
+  'provider.prewarm': {
+    params: {
+      valid: [{ providerId: 'antigravity' }],
+      invalid: [{}, { providerId: 'Antigravity' }],
+    },
+    result: empty,
+  },
   'account.list': {
     params: empty,
     result: {
