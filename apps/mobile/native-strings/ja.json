@@ -1,6 +1,8 @@
 {
-  "NSCameraUsageDescription": "コンピュータに表示されたペアリング用 QR コードをスキャンします。",
+  "NSCameraUsageDescription": "コンピュータに表示されたペアリング用 QR コードをスキャンし、メッセージに添付する写真を撮ります。",
   "NSLocalNetworkUsageDescription": "ローカルネットワーク上で Wevir を実行しているコンピュータを探して直接接続します。",
+  "NSFaceIDUsageDescription": "Wevir のロック解除と、高リスクな承認の確認に使用します。",
+  "NSPhotoLibraryUsageDescription": "メッセージに添付する写真を選びます。",
   "ios": {
     "Localizable.strings": {
       "WEVIR_PUSH_TITLE": "Wevir",

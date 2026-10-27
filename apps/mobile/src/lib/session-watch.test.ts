@@ -8,8 +8,10 @@ import type {
   WevirEventPayload,
   WevirEventType,
 } from '@wevir/protocol';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApprovalNotVerifiedError, setApprovalGate } from './approval-gate';
 import { approval } from './bot-test-utils';
+import type { SessionCache } from './cache';
 import { sessionItems } from './session-items';
 import { type SessionClient, type SessionView, SessionWatch } from './session-watch';
 
@@ -159,5 +161,105 @@ describe('SessionWatch', () => {
     await second.start();
     second.stop();
     expect(subscription.closed).toBe(true);
+  });
+});
+
+/** 内存里的缓存（真机是加密的 SQLite，cache.ts）。 */
+function memoryCache(): SessionCache & {
+  conversations: Map<string, { session: Session; events: readonly WevirEvent[] }>;
+} {
+  const conversations = new Map<string, { session: Session; events: readonly WevirEvent[] }>();
+  return {
+    conversations,
+    loadSessions: async () => undefined,
+    saveSessions: async () => {},
+    loadConversation: async (id) => {
+      const saved = conversations.get(id);
+      return saved === undefined
+        ? undefined
+        : {
+            session: saved.session,
+            events: [...saved.events],
+            savedAt: '2026-10-27T08:00:00.000Z',
+            truncated: false,
+          };
+    },
+    saveConversation: async (id, conversation) => {
+      conversations.set(id, conversation);
+    },
+  };
+}
+
+describe('SessionWatch 的本地缓存', () => {
+  let offGate: (() => void) | undefined;
+  afterEach(() => offGate?.());
+
+  it('回放完存进缓存；离线时从缓存显示，不带待批准，也不能作答', async () => {
+    const list = events();
+    const cache = memoryCache();
+    const { sessions } = client([
+      ...list.map((event) => ({ type: 'event' as const, event })),
+      { type: 'caught_up', seq: list.length },
+    ]);
+    const online = new SessionWatch(sessions, SES, () => {}, cache);
+    await online.start();
+    online.stop();
+    expect(cache.conversations.get(SES)?.events).toHaveLength(list.length);
+
+    const views: SessionView[] = [];
+    const offline = new SessionWatch(undefined, SES, (view) => views.push(view), cache);
+    await offline.start();
+    expect(offline.view).toMatchObject({
+      offline: true,
+      caughtUp: true,
+      cachedAt: '2026-10-27T08:00:00.000Z',
+    });
+    const items = sessionItems(offline.view.transcript as never, '图片');
+    expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool']);
+    await offline.respond((approval() as ApprovalRequest).id, 'approved');
+  });
+
+  it('有缓存时先显示缓存，连上回放完再换成最新的', async () => {
+    const list = events();
+    const cache = memoryCache();
+    cache.conversations.set(SES, {
+      session: { id: SES, title: '旧标题' } as Session,
+      events: list.slice(0, 4),
+    });
+    const { sessions } = client([
+      ...list.map((event) => ({ type: 'event' as const, event })),
+      { type: 'caught_up', seq: list.length },
+    ]);
+    const views: SessionView[] = [];
+    const watch = new SessionWatch(sessions, SES, (view) => views.push({ ...view }), cache);
+    await watch.start();
+    expect(views[0]).toMatchObject({ cachedAt: '2026-10-27T08:00:00.000Z', caughtUp: true });
+    // 回放期间不出半截的投影：只有缓存那一版与回放完的一版带消息流。
+    const withTranscript = views.filter((v) => v.transcript !== undefined);
+    expect(withTranscript.map((v) => v.cachedAt !== undefined)).toEqual([true, true, false]);
+    expect(watch.view.cachedAt).toBeUndefined();
+    expect(watch.view.transcript?.pendingApprovals).toHaveLength(1);
+    watch.stop();
+  });
+
+  it('高风险的批准先验证本人', async () => {
+    const list = events();
+    const last = list.at(-1) as WevirEvent & { payload: { approval: ApprovalRequest } };
+    last.payload.approval = {
+      ...last.payload.approval,
+      risk: { level: 'high', reasons: ['destructive_command'] },
+    };
+    const { sessions, requests } = client([
+      ...list.map((event) => ({ type: 'event' as const, event })),
+      { type: 'caught_up', seq: list.length },
+    ]);
+    const watch = new SessionWatch(sessions, SES, () => {});
+    await watch.start();
+    const id = last.payload.approval.id;
+    await expect(watch.respond(id, 'approved')).rejects.toBeInstanceOf(ApprovalNotVerifiedError);
+    offGate = setApprovalGate(async () => true);
+    await watch.respond(id, 'approved');
+    await watch.respond(id, 'rejected');
+    expect(requests.filter((r) => r.method === 'approval.respond')).toHaveLength(2);
   });
 });

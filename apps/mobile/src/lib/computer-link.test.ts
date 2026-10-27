@@ -5,8 +5,9 @@ import {
   RemoteUnreachableError,
   WevirRpcError,
 } from '@wevir/client-sdk';
-import { CloseCode } from '@wevir/protocol';
+import { CloseCode, type Session } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
+import type { CacheProvider, SessionCache } from './cache';
 import {
   ComputerLink,
   DeviceKeyMissingError,
@@ -14,6 +15,7 @@ import {
   type LinkClient,
   type LinkConnectHooks,
   type LinkEnvironment,
+  SESSIONS_CACHE_DELAY_MS,
 } from './computer-link';
 import type { ComputerRecord } from './records';
 import type { SessionList, SessionsChangeLike } from './sessions';
@@ -60,6 +62,7 @@ class FakeEnv implements LinkEnvironment {
   clients: FakeClient[] = [];
   connects = 0;
   time = new Date('2026-10-23T12:00:00.000Z');
+  cache?: CacheProvider;
 
   async connect(hooks: LinkConnectHooks): Promise<LinkClient> {
     this.connects += 1;
@@ -271,5 +274,66 @@ describe('ComputerLink', () => {
       },
     ]);
     expect(link.snapshot.sessions).toEqual({ kind: 'forbidden' });
+  });
+});
+
+describe('ComputerLink 的本地缓存', () => {
+  function cacheProvider(initial?: Session[]) {
+    const saved: Session[][] = [];
+    const cache: SessionCache = {
+      loadSessions: async () =>
+        initial === undefined
+          ? undefined
+          : { sessions: initial, savedAt: '2026-10-23T09:00:00.000Z' },
+      saveSessions: async (sessions) => {
+        saved.push([...sessions]);
+      },
+      loadConversation: async () => undefined,
+      saveConversation: async () => {},
+    };
+    const provider: CacheProvider = { open: () => cache, forget: async () => {} };
+    return { provider, saved };
+  }
+
+  it('连不上时显示上次存下的会话列表，标出缓存时刻', async () => {
+    const a = session('ses_a', '2026-10-23T08:00:00.000Z');
+    const { provider } = cacheProvider([a]);
+    const env = new FakeEnv();
+    env.cache = provider;
+    env.outcomes = [{ error: new RemoteUnreachableError([]) }];
+    const link = new ComputerLink(record(), env);
+    link.resume();
+    await flush();
+    expect(link.snapshot.status.kind).toBe('offline');
+    expect(link.snapshot.sessions).toEqual({
+      kind: 'ready',
+      sessions: [a],
+      cachedAt: '2026-10-23T09:00:00.000Z',
+    });
+  });
+
+  it('读到列表后换掉缓存，合并一会儿再存', async () => {
+    const old = session('ses_old', '2026-10-23T08:00:00.000Z');
+    const fresh = session('ses_new', '2026-10-23T11:00:00.000Z');
+    const { provider, saved } = cacheProvider([old]);
+    const env = new FakeEnv();
+    env.cache = provider;
+    env.outcomes = [
+      {
+        client: (hooks) => {
+          const client = new FakeClient(hooks);
+          client.lists = [{ sessions: [fresh], listVersion: 1 }];
+          return client;
+        },
+      },
+    ];
+    const link = new ComputerLink(record(), env);
+    link.resume();
+    await flush();
+    expect(link.snapshot.sessions).toEqual({ kind: 'ready', sessions: [fresh] });
+    expect(saved).toEqual([]);
+    const timer = env.timers.find((t) => t.ms === SESSIONS_CACHE_DELAY_MS && !t.cleared);
+    timer?.callback();
+    expect(saved).toEqual([[fresh]]);
   });
 });

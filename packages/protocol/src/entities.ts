@@ -808,6 +808,23 @@ export const QuestionRequestSchema = z.object({
 });
 export type QuestionRequest = z.infer<typeof QuestionRequestSchema>;
 
+/**
+ * 高风险审批的原因（0.131.0，Host 功能 `approval_risk`），开放字符串，客户端不认识的照样当高风险：
+ * - `destructive_command`：命令里有删改文件、进程或发往别处的程序（`rm`、`mv`、`kill`、`curl`、`ssh`…）或改写历史、推送的 git 子命令；
+ * - `privileged_command`：`sudo`、`su`、`doas`；
+ * - `unparsed_command`：命令里有展开、重定向、子 shell 之类 Host 拆不开的写法，看不出它会做什么；
+ * - `outside_sandbox`：要求在沙箱外执行（Codex 的 `sandbox_permissions: require_escalated`）。
+ */
+export const ApprovalRiskReasonSchema = z.string().min(1);
+export type ApprovalRiskReason = z.infer<typeof ApprovalRiskReasonSchema>;
+
+/** Host 判定的风险（0.131.0）：有它就是高风险，手机要先验证本人（Face ID / 指纹）再作答。省略表示普通。 */
+export const ApprovalRiskSchema = z.object({
+  level: z.literal('high'),
+  reasons: z.array(ApprovalRiskReasonSchema).min(1),
+});
+export type ApprovalRisk = z.infer<typeof ApprovalRiskSchema>;
+
 export const ApprovalRequestSchema = z.object({
   id: ApprovalIdSchema,
   sessionId: SessionIdSchema,
@@ -825,6 +842,8 @@ export const ApprovalRequestSchema = z.object({
    * `unattendedApprovalTimeoutMinutes` 时才有；省略表示一直等。
    */
   expiresAt: IsoTimeSchema.optional(),
+  /** Host 判定的风险（0.131.0，Host 功能 `approval_risk`）；省略表示普通。 */
+  risk: ApprovalRiskSchema.optional(),
   resolvedAt: IsoTimeSchema.optional(),
   resolution: ApprovalResolutionSchema.optional(),
 });

@@ -1,7 +1,9 @@
-// 会话页：所有配对电脑的会话按电脑分组，每组标题是电脑名与连接状态，点标题进电脑详情。只读：标题、状态、项目、待处理数。
+// 会话页：所有配对电脑的会话按电脑分组，每组标题是电脑名与连接状态，点标题进电脑详情。行里是标题、状态、项目、待处理数；右上角
+// 新建会话。
 
 import { Stack, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { HeaderButton } from '../../../components/header-button';
 import { SessionRow } from '../../../components/session-row';
 import { Chevron, EmptyState, Group, SectionTitle, StatusText } from '../../../components/ui';
 import { t } from '../../../i18n';
@@ -19,6 +21,14 @@ export default function SessionsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: t('computer.sessions') }} />
+      {computers.some((c) => c.status.kind === 'online') && (
+        <HeaderButton
+          sf="square.and.pencil"
+          md="edit_square"
+          label={t('newSession.title')}
+          onPress={() => router.push('/new-session')}
+        />
+      )}
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
         {computers.length > 0
           ? computers.map((snapshot, index) => (

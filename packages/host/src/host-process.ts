@@ -1446,6 +1446,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         subagent_cancel: true,
         environments: true,
         environment_variables: true,
+        approval_risk: true,
         session_worktree: true,
         provider_enabled: true,
         chat_sessions: true,

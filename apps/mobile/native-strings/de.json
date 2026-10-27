@@ -1,6 +1,8 @@
 {
-  "NSCameraUsageDescription": "Den auf dem Computer angezeigten Kopplungs-QR-Code scannen.",
+  "NSCameraUsageDescription": "Den auf dem Computer angezeigten Kopplungs-QR-Code scannen und Fotos für Nachrichten aufnehmen.",
   "NSLocalNetworkUsageDescription": "Computer mit Wevir im lokalen Netzwerk finden und direkt verbinden.",
+  "NSFaceIDUsageDescription": "Wevir entsperren und risikoreiche Freigaben bestätigen.",
+  "NSPhotoLibraryUsageDescription": "Fotos für Nachrichten auswählen.",
   "ios": {
     "Localizable.strings": {
       "WEVIR_PUSH_TITLE": "Wevir",

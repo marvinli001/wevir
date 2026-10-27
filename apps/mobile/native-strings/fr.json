@@ -1,6 +1,8 @@
 {
-  "NSCameraUsageDescription": "Scanner le code QR d’association affiché sur l’ordinateur.",
+  "NSCameraUsageDescription": "Scanner le code QR d’association affiché sur l’ordinateur et prendre des photos à joindre aux messages.",
   "NSLocalNetworkUsageDescription": "Trouver les ordinateurs exécutant Wevir sur le réseau local et s’y connecter directement.",
+  "NSFaceIDUsageDescription": "Déverrouiller Wevir et confirmer les approbations à risque élevé.",
+  "NSPhotoLibraryUsageDescription": "Choisir des photos à joindre aux messages.",
   "ios": {
     "Localizable.strings": {
       "WEVIR_PUSH_TITLE": "Wevir",

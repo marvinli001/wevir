@@ -373,7 +373,12 @@ export class InboxService {
       summary: this.#summary(approvalSummary(approval)),
       createdAt: approval.createdAt,
       ...(approval.expiresAt !== undefined && { expiresAt: approval.expiresAt }),
-      ref: { approvalId: approval.id, turnId: approval.turnId, options: approval.options },
+      ref: {
+        approvalId: approval.id,
+        turnId: approval.turnId,
+        options: approval.options,
+        ...(approval.risk !== undefined && { risk: approval.risk }),
+      },
     };
   }
 

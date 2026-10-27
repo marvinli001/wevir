@@ -1,6 +1,8 @@
 {
-  "NSCameraUsageDescription": "Escanear el código QR de vinculación que muestra el ordenador.",
+  "NSCameraUsageDescription": "Escanear el código QR de vinculación que muestra el ordenador y hacer fotos para adjuntarlas a mensajes.",
   "NSLocalNetworkUsageDescription": "Buscar ordenadores con Wevir en la red local y conectarse directamente.",
+  "NSFaceIDUsageDescription": "Desbloquear Wevir y confirmar aprobaciones de alto riesgo.",
+  "NSPhotoLibraryUsageDescription": "Elegir fotos para adjuntarlas a mensajes.",
   "ios": {
     "Localizable.strings": {
       "WEVIR_PUSH_TITLE": "Wevir",

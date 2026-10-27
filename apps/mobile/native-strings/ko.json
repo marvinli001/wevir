@@ -1,6 +1,8 @@
 {
-  "NSCameraUsageDescription": "컴퓨터에 표시된 페어링 QR 코드를 스캔합니다.",
+  "NSCameraUsageDescription": "컴퓨터에 표시된 페어링 QR 코드를 스캔하고 메시지에 첨부할 사진을 찍습니다.",
   "NSLocalNetworkUsageDescription": "로컬 네트워크에서 Wevir를 실행 중인 컴퓨터를 찾아 직접 연결합니다.",
+  "NSFaceIDUsageDescription": "Wevir 잠금 해제와 고위험 승인 확인에 사용합니다.",
+  "NSPhotoLibraryUsageDescription": "메시지에 첨부할 사진을 선택합니다.",
   "ios": {
     "Localizable.strings": {
       "WEVIR_PUSH_TITLE": "Wevir",

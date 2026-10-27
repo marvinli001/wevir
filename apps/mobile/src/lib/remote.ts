@@ -16,7 +16,10 @@ import {
 import type { KeyPair } from '@wevir/noise';
 import { type ClientIdentity, type DevicePlatform, REMOTE_NATIVE_ORIGIN } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
+import type { ChangesClient } from './changes';
 import type { LinkClient, LinkEnvironment } from './computer-link';
+import type { InboxClient } from './inbox-store';
+import type { NewSessionClient } from './new-session';
 import {
   type BrowseOptions,
   type DiscoveredHost,
@@ -25,7 +28,6 @@ import {
 } from './pairing';
 import type { PushLinkClient } from './push';
 import { type ComputerRecord, knownCandidates, type StoredCandidate } from './records';
-import type { SessionClient } from './session-watch';
 
 /** mDNS 找回换了地址的电脑等多久：与直连的先手相同，找到就立刻加入（同 CLI）。 */
 export const CONNECT_DISCOVERY_MS = 1_500;
@@ -155,6 +157,7 @@ export function remoteConnect(
   return async (hooks) => {
     const record = hooks.record();
     const device = await deviceKey(record);
+    const identity = await deps.identity();
     const client = await WevirClient.connect({
       endpoint: REMOTE_ENDPOINT,
       transport: remoteTransport({
@@ -167,15 +170,15 @@ export function remoteConnect(
           hooks.onConnected({ route: route.kind, ...(address !== undefined && { address }), host });
         },
       }),
-      identity: await deps.identity(),
+      identity,
       timeouts: { connectMs: CONNECT_TIMEOUT_MS },
       onStateChange: hooks.onStateChange,
     });
-    return wrapClient(client);
+    return wrapClient(client, identity);
   };
 }
 
-function wrapClient(client: WevirClient): LinkClient {
+function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
   const channels: ChannelClient | undefined =
     client.supports('channels') && client.can('session.read')
       ? {
@@ -195,11 +198,15 @@ function wrapClient(client: WevirClient): LinkClient {
             client.watchChannel(channelId, handlers, options),
         }
       : undefined;
-  const sessions: SessionClient | undefined = client.can('session.read')
+  const sessions: NewSessionClient | undefined = client.can('session.read')
     ? {
         get canWrite() {
           return client.can('session.write');
         },
+        get canReadProviders() {
+          return client.can('provider.read');
+        },
+        supports: (feature) => client.supports(feature),
         request: (method, ...args) => client.request(method, ...args),
         subscribe: (sessionId, options) => client.subscribe(sessionId, options),
       }
@@ -213,10 +220,36 @@ function wrapClient(client: WevirClient): LinkClient {
           onChanged: (listener) => client.onPushChanged(listener),
         }
       : undefined;
+  const inbox: InboxClient | undefined =
+    client.supports('inbox') && client.can('session.read')
+      ? {
+          get canWrite() {
+            return client.can('session.write');
+          },
+          identity,
+          listInbox: () => client.request('inbox.list', {}),
+          onInboxChanged: (listener) => client.onInboxChanged(listener),
+          request: (method, ...args) => client.request(method, ...args),
+        }
+      : undefined;
+  const changes: ChangesClient = {
+    get canRead() {
+      return client.can('workspace.read');
+    },
+    get supportsDiff() {
+      return client.supports('workspace_diff');
+    },
+    get supportsFiles() {
+      return client.supports('files_read');
+    },
+    request: (method, ...args) => client.request(method, ...args),
+  };
   return {
+    changes,
     ...(channels !== undefined && { channels }),
     ...(sessions !== undefined && { sessions }),
     ...(push !== undefined && { push }),
+    ...(inbox !== undefined && { inbox }),
     watchNotifications: (listener) => client.watchNotifications(listener),
     onStateChange: (listener) => client.onStateChange(listener),
     onSessionsChanged: (listener) => client.onSessionsChanged(listener),

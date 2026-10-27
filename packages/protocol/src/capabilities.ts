@@ -535,6 +535,11 @@ export const HOST_FEATURES = {
    * （ACP、OpenCode）不用。与引擎无关地声明。
    */
   environmentVariables: 'environment_variables',
+  /**
+   * 审批的风险（0.131.0）：`ApprovalRequest.risk` 与收件箱审批项的 `ref.risk`，`ALREADY_DECIDED` / `APPROVAL_EXPIRED` 的
+   * `resolvedAt`。Host 按命令与沙箱请求判定，手机据此在作答前要求验证本人。与引擎无关地声明。
+   */
+  approvalRisk: 'approval_risk',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -642,6 +647,7 @@ export const HostFeaturesSchema = z.looseObject({
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),
   environment_variables: z.boolean().optional(),
+  approval_risk: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

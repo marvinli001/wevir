@@ -1,16 +1,18 @@
-// 电脑页：配对过的电脑，每台显示在线 / 离线（上次在线时间）与直连 / 经中继，底部是推送的锁屏设置；导航栏右边的玻璃按钮添加电脑。
+// 电脑页：配对过的电脑，每台显示在线 / 离线（上次在线时间）与直连 / 经中继；导航栏右边的玻璃按钮添加电脑。下面是“安全”一组：
+// 可选的 App 锁（state/lock.tsx），再下面是推送的锁屏设置。
 
 import { Stack, useRouter } from 'expo-router';
-import { ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text } from 'react-native';
 import { HeaderButton } from '../../../components/header-button';
 import { PushSettingsSection } from '../../../components/push-section';
-import { EmptyState, Group, Row, StatusText } from '../../../components/ui';
+import { EmptyState, Group, Row, SectionTitle, StatusText } from '../../../components/ui';
 import { t } from '../../../i18n';
 import { displayName } from '../../../lib/records';
 import { statusLine } from '../../../lib/status-text';
 import { useMinuteClock } from '../../../state/clock';
+import { useLock } from '../../../state/lock';
 import { useComputers } from '../../../state/registry';
-import { SPACE } from '../../../theme';
+import { SPACE, TEXT, useTheme } from '../../../theme';
 
 export default function ComputersScreen() {
   const router = useRouter();
@@ -41,7 +43,6 @@ export default function ComputersScreen() {
                 />
               ))}
             </Group>
-            <PushSettingsSection />
           </>
         ) : (
           loaded && (
@@ -56,11 +57,50 @@ export default function ComputersScreen() {
             />
           )
         )}
+        <Security />
+        {computers.length > 0 && <PushSettingsSection />}
       </ScrollView>
+    </>
+  );
+}
+
+function Security() {
+  const theme = useTheme();
+  const lock = useLock();
+  const unavailable = lock.available === 'none';
+  const icon =
+    lock.available === 'fingerprint'
+      ? ({ ios: 'touchid', android: 'fingerprint' } as const)
+      : ({ ios: 'faceid', android: 'fingerprint' } as const);
+  return (
+    <>
+      <SectionTitle>{t('lock.section')}</SectionTitle>
+      <Group>
+        <Row
+          icon={icon}
+          title={t('lock.title')}
+          subtitle={
+            unavailable && !lock.enabled ? (
+              <Text style={[styles.note, { color: theme.mutedForeground }]}>
+                {t('lock.unavailable')}
+              </Text>
+            ) : undefined
+          }
+          trailing={
+            <Switch
+              value={lock.enabled}
+              disabled={!lock.ready || (unavailable && !lock.enabled)}
+              onValueChange={(next) => void lock.setEnabled(next)}
+            />
+          }
+          last
+        />
+      </Group>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   content: { padding: SPACE.page, paddingBottom: 120 },
+  note: { fontSize: TEXT.small },
 });

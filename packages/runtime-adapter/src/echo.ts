@@ -134,6 +134,9 @@ export const ECHO_SUGGESTIONS: ReadonlyArray<{ title: string; prompt: string; re
   },
 ];
 
+/** `risky` 要审批的命令：删文件，Host 判为高风险（0.131.0）。 */
+export const ECHO_RISKY_COMMAND = 'rm -rf build';
+
 export const ECHO_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'allow-once', label: 'Allow once', kind: 'allow_once' },
   { optionId: 'reject-once', label: 'Reject', kind: 'reject_once' },
@@ -216,6 +219,7 @@ interface ReplyBlock {
  * |---|---|
  * | `tool` | 回复前模拟一次工具调用（`echo`，不需要审批） |
  * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败，回合照常结束 |
+ * | `risky` | 同 `approve`，但审批的是一条删文件的命令（`echo_shell`，`rm -rf build`），Host 判为高风险（0.131.0） |
  * | `ask` | 向用户提两个问题（0.10.0：一个单选可填其他、一个多选），等 `respondToQuestion` 后在回复末尾写出回答 |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
@@ -878,18 +882,35 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         });
       }
 
-      if (!subagent && /approve/i.test(text)) {
+      const risky = /\brisky\b/i.test(text);
+      if (!subagent && (risky || /approve/i.test(text))) {
         const toolCallId = this.#nextId('call_echo');
         const path = '/outside-workspace/echo.txt';
-        emit({
-          type: 'tool.started',
-          engineSessionId,
-          toolCallId,
-          toolName: 'echo_write',
-          display: { kind: 'write', summary: path, paths: [path] },
-          input: { file_path: path, content: text },
-        });
-        openTools.set(toolCallId, 'Error: approval for echo_write was cancelled');
+        const toolName = risky ? 'echo_shell' : 'echo_write';
+        emit(
+          risky
+            ? {
+                type: 'tool.started',
+                engineSessionId,
+                toolCallId,
+                toolName,
+                display: {
+                  kind: 'shell',
+                  summary: ECHO_RISKY_COMMAND,
+                  command: ECHO_RISKY_COMMAND,
+                },
+                input: { command: ECHO_RISKY_COMMAND },
+              }
+            : {
+                type: 'tool.started',
+                engineSessionId,
+                toolCallId,
+                toolName,
+                display: { kind: 'write', summary: path, paths: [path] },
+                input: { file_path: path, content: text },
+              },
+        );
+        openTools.set(toolCallId, `Error: approval for ${toolName} was cancelled`);
         // 只有 on_request 问用户；auto_review 当作审查通过，full_access 不问。
         let allowed = true;
         if ((session.config.permissionMode ?? 'on_request') === 'on_request') {
@@ -907,14 +928,14 @@ export class EchoAdapter implements AgentRuntimeAdapter {
                 engineSessionId,
                 toolCallId,
                 status: 'completed',
-                output: `Wrote ${path}`,
+                output: risky ? `Ran ${ECHO_RISKY_COMMAND}` : `Wrote ${path}`,
               }
             : {
                 type: 'tool.finished',
                 engineSessionId,
                 toolCallId,
                 status: 'failed',
-                output: 'Error: the user rejected echo_write',
+                output: `Error: the user rejected ${toolName}`,
               },
         );
       }

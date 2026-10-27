@@ -1,7 +1,8 @@
-// 会话页要画的行：用户的话、助手的回答、工具一行、错误，以及待批准的审批（画法同助理的审批卡）。思考、子会话之类桌面专有的部件
-// 不画。纯逻辑。
+// 会话页要画的行：用户的话、助手的回答、工具一行、错误，末尾是待批准的审批（画法同助理的审批卡）、等回答的问题与排队中的
+// 消息。思考、子会话之类桌面专有的部件不画。纯逻辑。
 
 import type { ChatMessage, Transcript } from '@wevir/client-sdk';
+import type { PendingDelivery, PendingMessage, QuestionRequest } from '@wevir/protocol';
 import { approvalView, type BotPost } from './bots';
 
 export type ToolState = 'running' | 'done' | 'failed';
@@ -13,8 +14,10 @@ export type SessionItem =
   | { kind: 'error'; key: string; text: string }
   /** 待批准的审批：`post` 是助理审批卡的形状，`approvalId` 用来回应。 */
   | { kind: 'approval'; key: string; approvalId: string; post: BotPost }
-  /** 等用户回答的问题：手机上只提示到电脑上回答。 */
-  | { kind: 'question'; key: string; text: string };
+  /** 等用户回答的问题。 */
+  | { kind: 'question'; key: string; request: QuestionRequest }
+  /** 回合进行中发出、还没送达的消息（插话等着插进去、排队等这个回合结束）。 */
+  | { kind: 'pending'; key: string; pendingId: string; text: string; delivery: PendingDelivery };
 
 function toolState(status: string): ToolState {
   if (status === 'running' || status === 'awaiting_approval') return 'running';
@@ -22,16 +25,31 @@ function toolState(status: string): ToolState {
   return 'done';
 }
 
+/** 用户消息的文字，图片写成 `[图片]`。 */
+function userText(parts: readonly { type: string; text?: string }[], imageLabel: string): string {
+  return parts
+    .map((part) =>
+      part.type === 'text' ? (part.text ?? '') : part.type === 'image' ? `[${imageLabel}]` : '',
+    )
+    .filter((part) => part !== '')
+    .join('\n\n')
+    .trim();
+}
+
+function pendingItem(message: PendingMessage, imageLabel: string): SessionItem {
+  return {
+    kind: 'pending',
+    key: `pending:${message.id}`,
+    pendingId: message.id,
+    text: userText(message.content, imageLabel),
+    delivery: message.delivery,
+  };
+}
+
 function messageItems(message: ChatMessage, imageLabel: string): SessionItem[] {
   const out: SessionItem[] = [];
   if (message.role === 'user') {
-    const text = message.parts
-      .map((part) =>
-        part.type === 'text' ? part.text : part.type === 'image' ? `[${imageLabel}]` : '',
-      )
-      .filter((part) => part !== '')
-      .join('\n\n')
-      .trim();
+    const text = userText(message.parts, imageLabel);
     if (text !== '') out.push({ kind: 'user', key: message.id, text });
     return out;
   }
@@ -65,7 +83,7 @@ function messageItems(message: ChatMessage, imageLabel: string): SessionItem[] {
   return out;
 }
 
-/** 消息流，末尾是待批准的审批与等回答的问题。 */
+/** 消息流，末尾是待批准的审批、等回答的问题与还没送达的消息。 */
 export function sessionItems(transcript: Transcript, imageLabel: string): SessionItem[] {
   const out = transcript.messages.flatMap((message) => messageItems(message, imageLabel));
   for (const request of transcript.pendingApprovals) {
@@ -77,11 +95,11 @@ export function sessionItems(transcript: Transcript, imageLabel: string): Sessio
     });
   }
   for (const question of transcript.pendingQuestions) {
-    out.push({
-      kind: 'question',
-      key: `question:${question.id}`,
-      text: question.questions.map((q) => q.question).join('\n'),
-    });
+    out.push({ kind: 'question', key: `question:${question.id}`, request: question });
+  }
+  for (const message of transcript.pendingMessages) {
+    if (message.status === 'waiting' || message.status === 'held')
+      out.push(pendingItem(message, imageLabel));
   }
   return out;
 }

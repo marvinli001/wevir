@@ -1950,6 +1950,16 @@ export const inboxApproval: InboxItem = {
   ref: { approvalId: ids.approval, turnId: ids.turn, options: pendingApproval.options },
 };
 
+/** 收件箱里的高风险审批（0.131.0）：删文件的命令。 */
+export const inboxRiskyApproval: InboxItem = {
+  ...inboxApproval,
+  summary: 'rm -rf build',
+  ref: {
+    ...inboxApproval.ref,
+    risk: { level: 'high', reasons: ['destructive_command', 'outside_sandbox'] },
+  },
+};
+
 /** 收件箱里的问题（0.105.0）：子会话的，标出父会话。 */
 export const inboxQuestion: InboxItem = {
   id: `question:${ids.question}`,
@@ -7441,9 +7451,28 @@ export const methodSamples: MethodSamples = {
         },
         { items: [], inboxVersion: 0 },
         { items: [{ ...inboxApproval, channelId: ids.channel }], inboxVersion: 2 },
+        { items: [inboxRiskyApproval], inboxVersion: 3 },
       ],
       invalid: [
         { items: [] },
+        {
+          items: [
+            {
+              ...inboxApproval,
+              ref: { ...inboxApproval.ref, risk: { level: 'low', reasons: ['x'] } },
+            },
+          ],
+          inboxVersion: 1,
+        },
+        {
+          items: [
+            {
+              ...inboxApproval,
+              ref: { ...inboxApproval.ref, risk: { level: 'high', reasons: [] } },
+            },
+          ],
+          inboxVersion: 1,
+        },
         { items: [{ ...inboxApproval, summary: 'x'.repeat(301) }], inboxVersion: 1 },
         { items: [{ ...inboxApproval, ref: { turnId: ids.turn } }], inboxVersion: 1 },
         {
@@ -9449,11 +9478,17 @@ export const errorDataSamples: ErrorDataSamples = {
       approvalId: ids.approval,
       status: 'cancelled',
       resolution: { reason: 'turn_cancelled' },
+      // 0.131.0：结算的时刻。
+      resolvedAt: TS2,
     },
     invalid: { approvalId: ids.approval, status: 'cancelled', resolution: { reason: 'later' } },
   },
   APPROVAL_EXPIRED: {
-    valid: { approvalId: ids.approval, resolution: { reason: 'timeout', optionId: 'reject-once' } },
+    valid: {
+      approvalId: ids.approval,
+      resolution: { reason: 'timeout', optionId: 'reject-once' },
+      resolvedAt: TS2,
+    },
     invalid: { approvalId: ids.approval },
   },
   CLIENT_MESSAGE_CONFLICT: { valid: { clientMessageId: 'msg-1' }, invalid: { clientMessageId: 1 } },
