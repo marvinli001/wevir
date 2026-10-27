@@ -2,10 +2,11 @@
 // 末尾是待批准的审批（批准 / 拒绝）与要到电脑上回答的问题。打开时停在最新一条。
 
 import type { ApprovalId, SessionId } from '@wevir/protocol';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { PostView } from '../../components/bot-cards';
+import { HeaderButton } from '../../components/header-button';
 import { Icon } from '../../components/ui';
 import { t } from '../../i18n';
 import { displayName } from '../../lib/records';
@@ -20,6 +21,7 @@ export default function SessionScreen() {
   const slash = key.indexOf('/');
   const computer = key.slice(0, slash);
   const sessionId = key.slice(slash + 1) as SessionId;
+  const router = useRouter();
   const registry = useRegistry();
   const snapshot = useComputer(computer);
   const theme = useTheme();
@@ -55,6 +57,12 @@ export default function SessionScreen() {
   return (
     <>
       <Stack.Screen options={{ title }} />
+      <HeaderButton
+        sf="plus.forwardslash.minus"
+        md="difference"
+        label={t('changes.title')}
+        onPress={() => router.push({ pathname: '/changes/[key]', params: { key } })}
+      />
       <SessionList
         items={items}
         meta={meta}

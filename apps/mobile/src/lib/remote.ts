@@ -16,6 +16,7 @@ import {
 import type { KeyPair } from '@wevir/noise';
 import { type ClientIdentity, type DevicePlatform, REMOTE_NATIVE_ORIGIN } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
+import type { ChangesClient } from './changes';
 import type { LinkClient, LinkEnvironment } from './computer-link';
 import {
   type BrowseOptions,
@@ -203,7 +204,20 @@ function wrapClient(client: WevirClient): LinkClient {
         subscribe: (sessionId, options) => client.subscribe(sessionId, options),
       }
     : undefined;
+  const changes: ChangesClient = {
+    get canRead() {
+      return client.can('workspace.read');
+    },
+    get supportsDiff() {
+      return client.supports('workspace_diff');
+    },
+    get supportsFiles() {
+      return client.supports('files_read');
+    },
+    request: (method, ...args) => client.request(method, ...args),
+  };
   return {
+    changes,
     ...(channels !== undefined && { channels }),
     ...(sessions !== undefined && { sessions }),
     watchNotifications: (listener) => client.watchNotifications(listener),
