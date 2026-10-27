@@ -21,8 +21,10 @@ import {
   DEEPSEEK_OFFICIAL_PRESET,
   FORM_APIS,
   type FormApi,
+  OPENAI_PRESETS,
   type OpenAIPreset,
   RESERVED_PROVIDER_IDS,
+  VERTEX_PRESETS,
 } from './provider-presets';
 
 export interface ModelRow {
@@ -360,9 +362,14 @@ export function toUpsertParams(
       row.contextWindow.trim() === '' ? undefined : parseContextWindow(row.contextWindow);
     // 没勾选时，原模型标过的写 false，没标过的照旧不写。
     const supportsImages = row.images ? true : marked !== undefined ? false : undefined;
+    // 手动加的行与模板更新前存的模型没有档位，表单也不编辑：按同地址模板的同名模型补，已有值不覆盖。
+    const known = rest.reasoningEfforts === undefined ? presetModel(form, id) : undefined;
     return {
       ...rest,
       id,
+      ...(known?.reasoningEfforts && { reasoningEfforts: known.reasoningEfforts }),
+      ...(rest.maxTokens === undefined &&
+        known?.maxTokens !== undefined && { maxTokens: known.maxTokens }),
       ...(contextWindow !== undefined && { contextWindow }),
       ...(supportsImages !== undefined && { supportsImages }),
     };
@@ -398,6 +405,31 @@ export function toUpsertParams(
       (id) => form.savedTranscriptionModels?.find((model) => model.id === id) ?? { id },
     ),
   };
+}
+
+/** 同地址模板里的同名模型；模板地址的尖括号占位匹配任意一段。Vertex 的地址由网关生成，按协议找。 */
+function presetModel(form: ProviderForm, id: string): ProviderModel | undefined {
+  const presets =
+    form.kind === 'google-vertex'
+      ? VERTEX_PRESETS.filter((preset) => preset.api === form.api)
+      : [DEEPSEEK_OFFICIAL_PRESET, ...OPENAI_PRESETS].filter((preset) =>
+          sameAddress(preset.baseURL, form.baseURL),
+        );
+  for (const preset of presets) {
+    const model = preset.models.find((m) => m.id === id);
+    if (model) return model;
+  }
+  return undefined;
+}
+
+function sameAddress(template: string, value: string): boolean {
+  const normalize = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase();
+  if (template === '' || value.trim() === '') return false;
+  const pattern = normalize(template)
+    .split(/<[^<>]+>/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[^/.]+');
+  return new RegExp(`^${pattern}$`).test(normalize(value));
 }
 
 /** 只显示账号邮箱；输入与错误中都不回显 JSON 或私钥。 */
