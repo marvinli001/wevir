@@ -1770,11 +1770,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       } catch (error) {
         // COMPAT(approvalTimeout): added in 0.105.0, remove gate after 2027-06-01
         if (capabilities.approval_timeout !== true && isHostError(error, 'APPROVAL_EXPIRED')) {
-          const { approvalId, resolution } = error.data;
+          const { approvalId, resolution, resolvedAt } = error.data;
           throw new HostError('ALREADY_DECIDED', 'approval already decided', {
             approvalId,
             status: 'expired',
             resolution: { ...resolution, reason: 'host_restarted' },
+            ...(resolvedAt !== undefined && { resolvedAt }),
           });
         }
         throw error;

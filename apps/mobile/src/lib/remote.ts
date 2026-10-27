@@ -17,6 +17,7 @@ import type { KeyPair } from '@wevir/noise';
 import { type ClientIdentity, type DevicePlatform, REMOTE_NATIVE_ORIGIN } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
 import type { LinkClient, LinkEnvironment } from './computer-link';
+import type { InboxClient } from './inbox-store';
 import {
   type BrowseOptions,
   type DiscoveredHost,
@@ -154,6 +155,7 @@ export function remoteConnect(
   return async (hooks) => {
     const record = hooks.record();
     const device = await deviceKey(record);
+    const identity = await deps.identity();
     const client = await WevirClient.connect({
       endpoint: REMOTE_ENDPOINT,
       transport: remoteTransport({
@@ -166,15 +168,15 @@ export function remoteConnect(
           hooks.onConnected({ route: route.kind, ...(address !== undefined && { address }), host });
         },
       }),
-      identity: await deps.identity(),
+      identity,
       timeouts: { connectMs: CONNECT_TIMEOUT_MS },
       onStateChange: hooks.onStateChange,
     });
-    return wrapClient(client);
+    return wrapClient(client, identity);
   };
 }
 
-function wrapClient(client: WevirClient): LinkClient {
+function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
   const channels: ChannelClient | undefined =
     client.supports('channels') && client.can('session.read')
       ? {
@@ -203,9 +205,22 @@ function wrapClient(client: WevirClient): LinkClient {
         subscribe: (sessionId, options) => client.subscribe(sessionId, options),
       }
     : undefined;
+  const inbox: InboxClient | undefined =
+    client.supports('inbox') && client.can('session.read')
+      ? {
+          get canWrite() {
+            return client.can('session.write');
+          },
+          identity,
+          listInbox: () => client.request('inbox.list', {}),
+          onInboxChanged: (listener) => client.onInboxChanged(listener),
+          request: (method, ...args) => client.request(method, ...args),
+        }
+      : undefined;
   return {
     ...(channels !== undefined && { channels }),
     ...(sessions !== undefined && { sessions }),
+    ...(inbox !== undefined && { inbox }),
     watchNotifications: (listener) => client.watchNotifications(listener),
     onStateChange: (listener) => client.onStateChange(listener),
     onSessionsChanged: (listener) => client.onSessionsChanged(listener),

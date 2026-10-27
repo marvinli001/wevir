@@ -185,6 +185,37 @@ describe('inbox.*', () => {
     expect(changes(writer)).toEqual([]);
   });
 
+  it('高风险审批带 risk（0.131.0）；重复作答回 ALREADY_DECIDED，带结算者与时刻', async () => {
+    const { connect, createSession } = await boot();
+    const desktop = await connect();
+    const phone = await connect();
+    await phone.request('inbox.list');
+    const id = await createSession(desktop);
+    await send(desktop, id, 'risky');
+    const added = await waitFor(phone, 'approval', (c) =>
+      c.upserted.some((item) => item.kind === 'approval'),
+    );
+    const item = added.upserted[0] as Extract<InboxItem, { kind: 'approval' }>;
+    expect(item).toMatchObject({
+      summary: 'rm -rf build',
+      ref: { risk: { level: 'high', reasons: ['destructive_command'] } },
+    });
+    const snapshot = await desktop.request('session.get', { sessionId: id });
+    expect(snapshot.pendingApprovals[0]?.risk).toEqual(item.ref.risk);
+
+    const params = { approvalId: item.ref.approvalId, optionId: 'allow-once' };
+    await desktop.request('approval.respond', params);
+    const late = await phone.call('approval.respond', params);
+    expect(late.error).toMatchObject({
+      code: ErrorCode.ALREADY_DECIDED,
+      data: {
+        status: 'approved',
+        resolution: { reason: 'user', decidedBy: { clientKind: 'desktop', clientId: 'client-1' } },
+        resolvedAt: expect.any(String),
+      },
+    });
+  });
+
   it('审批与提问不能收起；不在收件箱的项收起时什么都不做', async () => {
     const { connect } = await boot();
     const client = await connect();

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { PostView } from '../../components/bot-cards';
 import { Icon } from '../../components/ui';
-import { t } from '../../i18n';
+import { t, timeAgo } from '../../i18n';
 import { displayName } from '../../lib/records';
 import { type SessionItem, sessionItems, type ToolState } from '../../lib/session-items';
 import { type SessionView, SessionWatch } from '../../lib/session-watch';
@@ -23,21 +23,23 @@ export default function SessionScreen() {
   const registry = useRegistry();
   const snapshot = useComputer(computer);
   const theme = useTheme();
-  // 连接换了（重连、回到前台）时重新取：`sessions` 跟着连接换对象。
-  const client = snapshot !== undefined ? registry.link(computer)?.sessions : undefined;
+  const now = useMinuteClock();
+  // 连接换了（重连、回到前台）时重新取：`sessions` 跟着连接换对象。没连着时只看本地缓存。
+  const link = snapshot !== undefined ? registry.link(computer) : undefined;
+  const client = link?.sessions;
+  const cache = link?.cache;
   const [view, setView] = useState<SessionView>({ caughtUp: false });
   const watch = useRef<SessionWatch | undefined>(undefined);
 
   useEffect(() => {
-    if (client === undefined) return;
-    const current = new SessionWatch(client, sessionId, setView);
+    const current = new SessionWatch(client, sessionId, setView, cache);
     watch.current = current;
     void current.start();
     return () => {
       current.stop();
       if (watch.current === current) watch.current = undefined;
     };
-  }, [client, sessionId]);
+  }, [client, cache, sessionId]);
 
   const items = useMemo(
     () => (view.transcript !== undefined ? sessionItems(view.transcript, t('bot.image')) : []),
@@ -47,7 +49,8 @@ export default function SessionScreen() {
   const title = view.transcript?.title || view.session?.title || t('session.untitled');
   const meta = [
     snapshot !== undefined ? displayName(snapshot.record) : undefined,
-    state !== undefined ? t(`session.state.${state}`) : undefined,
+    view.offline === true ? offlineText(snapshot?.status.kind, view.cachedAt, now) : undefined,
+    view.offline !== true && state !== undefined ? t(`session.state.${state}`) : undefined,
   ]
     .filter((part) => part !== undefined)
     .join(' · ');
@@ -59,7 +62,7 @@ export default function SessionScreen() {
         items={items}
         meta={meta}
         loading={!view.caughtUp && view.error === undefined}
-        failed={view.error !== undefined || (snapshot !== undefined && client === undefined)}
+        failed={view.error !== undefined || view.offline === true}
         theme={theme}
         onDecide={async (approvalId, decision) => {
           await watch.current?.respond(approvalId as ApprovalId, decision);
@@ -67,6 +70,14 @@ export default function SessionScreen() {
       />
     </>
   );
+}
+
+/** 没连着时那一段：正在连接，或离线（有缓存时带缓存的时刻）。 */
+function offlineText(status: string | undefined, cachedAt: string | undefined, now: Date): string {
+  if (status === 'connecting') return t('status.connecting');
+  return cachedAt !== undefined
+    ? t('offline.cached', { time: timeAgo(cachedAt, now) })
+    : t('offline.label');
 }
 
 function SessionList({

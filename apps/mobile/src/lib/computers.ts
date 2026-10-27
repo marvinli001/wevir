@@ -78,7 +78,7 @@ export class ComputerRegistry {
     this.#changed();
   }
 
-  /** 退出这台电脑：断开，删记录与私钥。那台电脑上的设备记录不受影响。 */
+  /** 退出这台电脑：断开，删记录、私钥与本地缓存。那台电脑上的设备记录不受影响。 */
   async forget(name: string): Promise<void> {
     const link = this.#links.get(name);
     if (link === undefined) return;
@@ -87,6 +87,7 @@ export class ComputerRegistry {
     this.#changed();
     await this.#storage.remove(name);
     await this.#storage.deleteKey(routeId);
+    await this.#env.cache?.forget({ routeId });
   }
 
   #attach(record: ComputerRecord): void {

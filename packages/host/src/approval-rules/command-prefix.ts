@@ -145,7 +145,8 @@ function split(script: string, unwrap: boolean): string[][] | null {
   return commands;
 }
 
-function basename(program: string): string {
+/** 程序名：去掉路径（`/bin/rm` → `rm`）。 */
+export function basename(program: string): string {
   const parts = program.split(/[\\/]/);
   return parts[parts.length - 1] ?? program;
 }
@@ -250,7 +251,7 @@ function isBanned(prefix: readonly string[]): boolean {
 }
 
 /** 前缀之后可以接任意程序的命令：不提议任何以它们开头的前缀。 */
-const RUNS_OTHER_PROGRAMS = new Set([
+export const RUNS_OTHER_PROGRAMS = new Set([
   'sudo',
   'su',
   'doas',
@@ -303,7 +304,7 @@ const RUNS_OTHER_PROGRAMS = new Set([
  * 删改文件、进程或发往别处的命令：参数决定它做什么，前缀之后多接一个参数就可能是另一回事（`rm build` 之后接 `-rf ~`），
  * 不提议。
  */
-const DESTRUCTIVE = new Set([
+export const DESTRUCTIVE = new Set([
   'rm',
   'rmdir',
   'unlink',

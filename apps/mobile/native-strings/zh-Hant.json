@@ -1,4 +1,5 @@
 {
   "NSCameraUsageDescription": "掃描電腦上顯示的配對 QR 碼。",
-  "NSLocalNetworkUsageDescription": "在區域網路裡尋找並直連執行 Wevir 的電腦。"
+  "NSLocalNetworkUsageDescription": "在區域網路裡尋找並直連執行 Wevir 的電腦。",
+  "NSFaceIDUsageDescription": "解鎖 Wevir 與確認高風險的核准。"
 }

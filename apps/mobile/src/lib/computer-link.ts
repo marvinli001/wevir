@@ -18,6 +18,8 @@ import {
 } from '@wevir/client-sdk';
 import { CloseCode, type NotificationIntent, type Session } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
+import type { CacheProvider, SessionCache } from './cache';
+import type { InboxClient } from './inbox-store';
 import {
   type ComputerRecord,
   type ConnectedInfo,
@@ -54,7 +56,8 @@ export type LinkStatus =
 export type SessionsState =
   | { kind: 'none' }
   | { kind: 'loading' }
-  | { kind: 'ready'; sessions: readonly Session[] }
+  /** `cachedAt`：还没连上，列表来自本地缓存（存下的时刻）。 */
+  | { kind: 'ready'; sessions: readonly Session[]; cachedAt?: string }
   /** 这台设备没有 `session.read`。 */
   | { kind: 'forbidden' }
   | { kind: 'failed' };
@@ -108,6 +111,8 @@ export interface LinkClient {
   readonly channels?: ChannelClient;
   /** 按 ID 看一个会话（线程会话不在 `session.list` 里）；没有 `session.read` 时没有。 */
   readonly sessions?: SessionClient;
+  /** 收件箱（0.105.0）；Host 没有 `inbox` 功能或没有 `session.read` 时没有。 */
+  readonly inbox?: InboxClient;
   /** Host 判定的通知意图（`notification.intent`）；Host 没有这项功能时什么都不收。 */
   watchNotifications?(listener: (intent: NotificationIntent) => void): () => void;
   close(): void;
@@ -128,7 +133,12 @@ export interface LinkEnvironment {
   now(): Date;
   setTimer(callback: () => void, ms: number): unknown;
   clearTimer(handle: unknown): void;
+  /** 本地缓存（会话列表与看过的对话）；没有时不缓存。 */
+  cache?: CacheProvider;
 }
+
+/** 会话列表变了之后多久写一次缓存（合并连续的变化）。 */
+export const SESSIONS_CACHE_DELAY_MS = 1_000;
 
 /** 自己发起的重试（第一次就没连上，或 `WevirClient` 不再重连之后）的间隔。 */
 export const LINK_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000] as const;
@@ -158,6 +168,8 @@ export class ComputerLink {
   /** 正在读的列表请求；读完时若有更新的请求就再读一次。 */
   #reading: Promise<void> | undefined;
   #rereadQueued = false;
+  readonly #cache: SessionCache | undefined;
+  #cacheTimer: unknown;
 
   constructor(record: ComputerRecord, env: LinkEnvironment) {
     this.#env = env;
@@ -167,6 +179,20 @@ export class ComputerLink {
       sessions: { kind: 'none' },
       lastOnlineAt: record.lastConnectedAt,
     };
+    this.#cache = record.removedAt === undefined ? env.cache?.open(record) : undefined;
+    // 还没读到列表时先显示上次存下的（离线也能看）。
+    void this.#cache?.loadSessions().then((cached) => {
+      if (cached === undefined || this.#snapshot.sessions.kind === 'ready') return;
+      if (this.#snapshot.status.kind === 'removed') return;
+      this.#update({
+        sessions: { kind: 'ready', sessions: cached.sessions, cachedAt: cached.savedAt },
+      });
+    });
+  }
+
+  /** 这台电脑的本地缓存；没有缓存或已移除时没有。 */
+  get cache(): SessionCache | undefined {
+    return this.#cache;
   }
 
   get snapshot(): LinkSnapshot {
@@ -186,6 +212,11 @@ export class ComputerLink {
   /** 连着时按 ID 看会话的接口。 */
   get sessions(): SessionClient | undefined {
     return this.#client?.sessions;
+  }
+
+  /** 连着时的收件箱接口。 */
+  get inbox(): InboxClient | undefined {
+    return this.#client?.inbox;
   }
 
   /** 连着时收这台电脑的通知意图；没连着时返回的取消函数什么都不做。 */
@@ -227,6 +258,7 @@ export class ComputerLink {
   dispose(): void {
     this.#active = false;
     this.#stop();
+    this.#flushSessionsCache();
     this.#listeners.clear();
   }
 
@@ -274,6 +306,7 @@ export class ComputerLink {
     for (const dispose of this.#disposers.splice(0)) dispose();
     const client = this.#client;
     this.#client = undefined;
+    this.#flushSessionsCache();
     this.#list = undefined;
     if (this.#snapshot.status.kind === 'online')
       this.#update({ lastOnlineAt: this.#env.now().toISOString() });
@@ -382,6 +415,24 @@ export class ComputerLink {
     }
     this.#list = next;
     this.#update({ sessions: { kind: 'ready', sessions: next.sessions } });
+    this.#scheduleSessionsCache();
+  }
+
+  #scheduleSessionsCache(): void {
+    if (this.#cache === undefined || this.#cacheTimer !== undefined) return;
+    this.#cacheTimer = this.#env.setTimer(() => {
+      this.#cacheTimer = undefined;
+      this.#flushSessionsCache();
+    }, SESSIONS_CACHE_DELAY_MS);
+  }
+
+  #flushSessionsCache(): void {
+    if (this.#cacheTimer !== undefined) {
+      this.#env.clearTimer(this.#cacheTimer);
+      this.#cacheTimer = undefined;
+    }
+    const sessions = this.#list?.sessions;
+    if (sessions !== undefined) void this.#cache?.saveSessions(sessions);
   }
 
   #readSessions(generation: number): void {
@@ -399,6 +450,7 @@ export class ComputerLink {
           if (generation !== this.#generation) return;
           this.#list = { sessions: sortSessions(list.sessions), listVersion: list.listVersion };
           this.#update({ sessions: { kind: 'ready', sessions: this.#list.sessions } });
+          this.#scheduleSessionsCache();
         },
         (error: unknown) => {
           if (generation !== this.#generation) return;

@@ -13,7 +13,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
-import { ApprovalOptionSchema, UserQuestionOptionSchema } from './entities.js';
+import { ApprovalOptionSchema, ApprovalRiskSchema, UserQuestionOptionSchema } from './entities.js';
 
 /** 项的 `title` 最多多少字符（按 UTF-16 code unit）。 */
 export const INBOX_TITLE_MAX_LENGTH = 200;
@@ -72,6 +72,8 @@ export const InboxItemSchema = z.discriminatedUnion('kind', [
       approvalId: ApprovalIdSchema,
       turnId: TurnIdSchema,
       options: z.array(ApprovalOptionSchema).min(1),
+      /** 审批的 `risk`（0.131.0）：有它就是高风险。 */
+      risk: ApprovalRiskSchema.optional(),
     }),
   }),
   z.object({

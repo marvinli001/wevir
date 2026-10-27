@@ -115,6 +115,7 @@ import {
   type Storage,
   type WorkspaceRecord,
 } from '@wevir/storage';
+import { approvalRisk } from './approval-rules/risk.js';
 import { type ApprovalRuleService, approvalCommand } from './approval-rules/service.js';
 import {
   AUTO_CONTINUE_PROMPT,
@@ -5360,6 +5361,9 @@ export class SessionManager {
     const timeoutMs = unattended(session) ? this.#approvalTimeoutMs() : 0;
     const expires = timeoutMs > 0 && state !== 'cancelling' && rule?.matched === undefined;
     if (expires) approval.expiresAt = new Date(now + timeoutMs).toISOString();
+    // 高风险的审批（0.131.0）：手机作答前要验证本人。
+    const risk = approvalRisk(approval.detail);
+    if (risk !== undefined) approval.risk = risk;
     const inputs: AppendInput[] = [{ type: 'approval.requested', source, payload: { approval } }];
     if (state === 'running') {
       inputs.push(stateChanged('running', 'awaiting_approval', 'approval_requested'));
@@ -6722,6 +6726,7 @@ function settled(approval: ApprovalRecord): HostError<'ALREADY_DECIDED' | 'APPRO
     return new HostError('APPROVAL_EXPIRED', 'approval expired', {
       approvalId: approval.id as ApprovalId,
       resolution: approval.resolution as ApprovalResolution,
+      ...(approval.resolvedAt !== undefined && { resolvedAt: approval.resolvedAt }),
     });
   }
   return alreadyDecided(approval);
@@ -6732,6 +6737,7 @@ function alreadyDecided(approval: ApprovalRecord): HostError<'ALREADY_DECIDED'> 
     approvalId: approval.id as ApprovalId,
     status: approval.status as ResolvedApprovalStatus,
     resolution: approval.resolution as ApprovalResolution,
+    ...(approval.resolvedAt !== undefined && { resolvedAt: approval.resolvedAt }),
   });
 }
 

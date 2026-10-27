@@ -1032,7 +1032,7 @@ describe('events.subscribe', () => {
     expect(late.error).toEqual({
       code: ErrorCode.ALREADY_DECIDED,
       message: 'approval already decided',
-      data: { approvalId, status: 'approved', resolution },
+      data: { approvalId, status: 'approved', resolution, resolvedAt: expect.any(String) },
     });
     await a.waitForEvent(subA.subscriptionId, (e) => e.type === 'turn.finished');
   });

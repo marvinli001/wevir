@@ -19,6 +19,8 @@ import {
   ApprovalRequestSchema,
   ApprovalResolutionReasonSchema,
   ApprovalResolutionSchema,
+  ApprovalRiskReasonSchema,
+  ApprovalRiskSchema,
   ApprovalStatusSchema,
   BoardTaskNoteSchema,
   BoardTaskSchema,
@@ -1848,6 +1850,18 @@ const standaloneCases: Case[] = [
     schema: EnvironmentFolderSchema,
     valid: [{ workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', worktree: 'none' }],
     invalid: [{ workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', worktree: 'reuse' }],
+  },
+  {
+    name: 'ApprovalRiskReason',
+    schema: ApprovalRiskReasonSchema,
+    valid: ['destructive_command', 'later_reason'],
+    invalid: ['', 1],
+  },
+  {
+    name: 'ApprovalRisk',
+    schema: ApprovalRiskSchema,
+    valid: [{ level: 'high', reasons: ['unparsed_command'] }],
+    invalid: [{ level: 'low', reasons: ['x'] }, { level: 'high', reasons: [] }, { level: 'high' }],
   },
   {
     name: 'EnvironmentVariableName',

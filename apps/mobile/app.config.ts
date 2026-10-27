@@ -69,6 +69,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     ['expo-secure-store', { faceIDPermission: false }],
+    // 本地缓存整库加密（src/lib/cache-store.ts）：编进 SQLCipher。
+    ['expo-sqlite', { useSQLCipher: true }],
+    // App 锁与高风险审批的本人验证（src/state/lock.tsx）。
+    ['expo-local-authentication', { faceIDPermission: en.NSFaceIDUsageDescription }],
     'expo-localization',
     './plugins/with-android-cleartext.js',
     './plugins/with-android-theme.js',

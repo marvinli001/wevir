@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { PermissionsSchema } from './capabilities.js';
-import { ApprovalIdSchema, PendingMessageIdSchema, SessionIdSchema } from './common.js';
+import {
+  ApprovalIdSchema,
+  IsoTimeSchema,
+  PendingMessageIdSchema,
+  SessionIdSchema,
+} from './common.js';
 import {
   ActiveTurnSchema,
   ApprovalResolutionSchema,
@@ -154,6 +159,8 @@ export const ErrorDataSchemas = {
     approvalId: ApprovalIdSchema,
     status: ResolvedApprovalStatusSchema,
     resolution: ApprovalResolutionSchema,
+    /** 结算的时刻（0.131.0），界面写“何时在别处处理的”。 */
+    resolvedAt: IsoTimeSchema.optional(),
   }),
   CLIENT_MESSAGE_CONFLICT: z.object({
     clientMessageId: z.string(),
@@ -161,6 +168,8 @@ export const ErrorDataSchemas = {
   APPROVAL_EXPIRED: z.object({
     approvalId: ApprovalIdSchema,
     resolution: ApprovalResolutionSchema,
+    /** 过期结算的时刻（0.131.0）。 */
+    resolvedAt: IsoTimeSchema.optional(),
   }),
   RESOURCE_IN_USE: z.object({
     /** 阻止操作的未关闭会话。 */

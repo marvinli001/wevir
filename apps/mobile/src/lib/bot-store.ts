@@ -9,6 +9,7 @@ import type {
   WevirClient,
 } from '@wevir/client-sdk';
 import type { Channel, ChannelPost, MethodParams, ProviderProfile } from '@wevir/protocol';
+import { verifyApproval } from './approval-gate';
 import type { Avatar } from './bot-avatar';
 import { type Bot, botFromChannel, botKey, sortBots, type TimelineParts } from './bots';
 
@@ -280,6 +281,7 @@ export class BotStore {
     const options = request.options.filter((o) => o.category === category);
     const option = options.find((o) => o.kind.endsWith('_once')) ?? options[0];
     if (option === undefined) throw new Error(`no ${category} option`);
+    await verifyApproval(request, category);
     await client.request('approval.respond', {
       approvalId: request.id,
       optionId: option.optionId,

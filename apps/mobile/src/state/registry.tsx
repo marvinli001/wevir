@@ -12,6 +12,8 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { AppState, Platform } from 'react-native';
+import { cacheProvider } from '../lib/cache';
+import { deleteComputerCache, openComputerCache } from '../lib/cache-store';
 import type { LinkSnapshot } from '../lib/computer-link';
 import { ComputerRegistry } from '../lib/computers';
 import { browseWevirHosts } from '../lib/mdns';
@@ -34,6 +36,11 @@ const remoteDeps: RemoteDeps = {
 
 function createRegistry(): ComputerRegistry {
   return new ComputerRegistry(fileStorage, {
+    cache: cacheProvider({
+      open: openComputerCache,
+      remove: deleteComputerCache,
+      warn: (message, error) => console.warn(`[wevir] ${message}`, error),
+    }),
     connect: remoteConnect(remoteDeps, loadDeviceKey),
     now: () => new Date(),
     setTimer: (callback, ms) => setTimeout(callback, ms),
