@@ -1428,6 +1428,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),
         ...(mcp !== undefined && { transcript_chapters: true }),
+        ...(mcp !== undefined && { turn_wrap_up: true }),
         ...(mcp !== undefined && { task_board: true }),
         ...(mcp !== undefined && { tool_presets: true }),
         ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),

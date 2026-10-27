@@ -154,6 +154,19 @@ describe('父会话的消息流', () => {
     expect(visibleParts([mark, divider, failed, text], false)).toEqual([divider, failed, text]);
   });
 
+  it('成功的回合收尾（0.128.0）藏起来，失败的照常显示', () => {
+    const wrap = tool('call_wrap', {
+      toolName: 'mcp__wevir__wevir_wrap_up',
+      display: { kind: 'unknown' },
+    });
+    const failed = tool('call_wrap_2', {
+      toolName: 'mcp__wevir__wevir_wrap_up',
+      display: { kind: 'unknown' },
+      status: 'failed',
+    });
+    expect(visibleParts([wrap, text, failed], false)).toEqual([text, failed]);
+  });
+
   it('没有子会话的会话（dsh）照常显示子 agent 的工具卡片', () => {
     const parts = [tool('call_dsh_subagent', { toolName: 'subagent' }), text];
     expect(visibleParts(parts, false)).toBe(parts);

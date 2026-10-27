@@ -25,6 +25,8 @@ import {
 } from './turn-model';
 import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
 import { DiffStat, IssueFlags } from './work-group';
+import { WrapUpCard } from './wrap-up-card';
+import { turnWrapUp } from './wrap-up-model';
 
 const NO_STEERS: readonly PendingMessage[] = [];
 
@@ -118,6 +120,8 @@ export const TurnView = memo(
             .join('\n\n')
             .trim()
         : '';
+    // 回合末的下一步卡片（0.128.0）：agent 收尾时带了问题与按钮，画在回答与操作行下面。
+    const wrapUp = turnWrapUp(messages);
     return (
       <TurnOrb value={orb}>
         <div data-turn={turnId} data-turn-folded={folded || undefined} className="group/turn">
@@ -258,6 +262,7 @@ export const TurnView = memo(
               />
             </GlideGroup>
           )}
+          {fold.finished && wrapUp !== undefined && <WrapUpCard turnId={turnId} wrapUp={wrapUp} />}
         </div>
       </TurnOrb>
     );

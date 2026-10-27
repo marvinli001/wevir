@@ -658,6 +658,7 @@ export const messages: Messages = {
   'session.marker.running': 'Выполняется',
   'session.marker.awaitingApproval': 'Ждёт подтверждения',
   'session.marker.awaitingInput': 'Ждёт ответа',
+  'session.marker.awaitingDecision': 'Ждёт решения',
   'session.marker.error': 'Ошибка',
   'session.marker.goal': 'Цель',
   'session.marker.unread': 'Не прочитано',
@@ -719,6 +720,7 @@ export const messages: Messages = {
   'review.baseBranch': 'Относительно базовой ветки',
   'review.branch': 'Относительно {branch}',
   'recap.title': 'Итоги',
+  'wrapUp.title': 'Следующий шаг',
   'undo.banner':
     '{count, plural, one {Отменён # ход} few {Отменено # хода} many {Отменено # ходов} other {Отменено # хода}}',
   'undo.failed': 'Не удалось отменить: {error}',

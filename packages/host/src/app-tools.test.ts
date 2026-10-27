@@ -321,6 +321,7 @@ describe('应用级工具的端点', () => {
       'wevir_show',
       'wevir_share_file',
       'wevir_mark_chapter',
+      'wevir_wrap_up',
       'wevir_report_findings',
     ]);
     expect(tools.find((tool) => tool.name === 'wevir_session_create')?.annotations).toMatchObject({
@@ -394,7 +395,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(19);
+    expect(list.body.result.tools).toHaveLength(20);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -1107,6 +1108,64 @@ describe('应用级工具', () => {
     ]);
   });
 
+  it('wevir_wrap_up：回合里写成 turn.wrap_up，再调一次替换；Session.wrapUp 跟着它，新消息清掉；不合规矩的拒绝', async () => {
+    const h = await setup(20);
+    const a = await h.create();
+    expect(await h.call(a, 'wevir_wrap_up', { recap: '做完了。' })).toHaveProperty('error');
+
+    await h.send(a, 'slow please');
+    expect(await h.call(a, 'wevir_wrap_up', { recap: ' 测试\n全部通过。 ' })).toEqual({
+      recorded: true,
+      card: false,
+    });
+    const actions = [
+      { label: '提交', message: '提交这次改动。' },
+      { label: '先不', message: '先不提交。' },
+    ];
+    expect(
+      await h.call(a, 'wevir_wrap_up', {
+        recap: '测试全部通过，还没提交。',
+        ask: '要提交吗？',
+        actions,
+        blocked: true,
+      }),
+    ).toEqual({ recorded: true, card: true });
+    for (const args of [
+      {},
+      { recap: '   ' },
+      { recap: 'x'.repeat(401) },
+      { recap: '好了。', actions },
+      { recap: '好了。', blocked: true },
+      { recap: '好了。', ask: '要提交吗？' },
+      {
+        recap: '好了。',
+        ask: '要提交吗？',
+        actions: [...actions, { label: '再看', message: '再看看。' }],
+      },
+      { recap: '好了。', ask: '要提交吗？', actions: [actions[0], actions[0]] },
+      { recap: '好了。', ask: '要提交吗？', actions: [{ label: 'x'.repeat(25), message: 'x' }] },
+      { recap: '好了。', ask: 'y'.repeat(121), actions },
+    ]) {
+      expect(await h.call(a, 'wevir_wrap_up', args), JSON.stringify(args)).toHaveProperty('error');
+    }
+    const wrapUps = h.all(a).filter((e) => e.type === 'turn.wrap_up');
+    const turnId = wrapUps[0]?.type === 'turn.wrap_up' ? wrapUps[0].payload.turnId : undefined;
+    expect(wrapUps.map((e) => e.type === 'turn.wrap_up' && e.payload)).toEqual([
+      { turnId, recap: '测试 全部通过。' },
+      { turnId, recap: '测试全部通过，还没提交。', ask: '要提交吗？', actions, blocked: true },
+    ]);
+    await h.settle(a);
+    expect(h.events.snapshot(a)?.session.wrapUp).toEqual({
+      turnId,
+      recap: '测试全部通过，还没提交。',
+      ask: '要提交吗？',
+      blocked: true,
+    });
+    await h.send(a, '提交这次改动。');
+    expect(h.events.snapshot(a)?.session.wrapUp).toBeUndefined();
+    await h.settle(a);
+  });
+
   it('wevir_report_findings：写成 review.findings（origin tool）；没有批注功能时只有文字；缺字段、越界的拒绝', async () => {
     const h = await setup();
     const a = await h.create();
@@ -1708,6 +1767,7 @@ describe('工具预设', () => {
     'wevir_show',
     'wevir_share_file',
     'wevir_mark_chapter',
+    'wevir_wrap_up',
     'wevir_report_findings',
   ];
   const visible = async (h: Setup, sessionId: SessionId) => {

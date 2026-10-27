@@ -519,6 +519,11 @@ export const HOST_FEATURES = {
    * `simulator_build`。Host 在 macOS 上、找得到 helper（`WEVIR_IOS_SIMULATOR_BIN`）时声明。
    */
   iosSimulator: 'ios_simulator',
+  /**
+   * 回合末的下一步卡片（0.128.0，domain-model §3.15.10）：应用级工具里有 `wevir_wrap_up`，会话的流里有 `turn.wrap_up` 事件，`Session`
+   * 有 `wrapUp`。有应用级工具时声明（同 `app_tools`）。
+   */
+  turnWrapUp: 'turn_wrap_up',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -623,6 +628,7 @@ export const HostFeaturesSchema = z.looseObject({
   channels: z.boolean().optional(),
   channel_schedules: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
+  turn_wrap_up: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

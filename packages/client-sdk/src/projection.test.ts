@@ -1819,6 +1819,110 @@ describe('章节（0.82.0）', () => {
   });
 });
 
+describe('回合收尾（0.128.0）', () => {
+  it('turn.wrap_up 挂在回合当前的助手消息上，后一条替换前一条；插话去掉；撤销的回合不在', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.message', { turnId: TURN, messageId: 'msg_1', text: '改好了。', replaces: [] });
+    add('turn.wrap_up', { turnId: TURN, recap: '改好了。' });
+    const actions = [{ label: '提交', message: '提交。' }];
+    const second = add('turn.wrap_up', {
+      turnId: TURN,
+      recap: '改好了，还没提交。',
+      ask: '要提交吗？',
+      actions,
+      blocked: true,
+    });
+    add('assistant.message', {
+      turnId: TURN,
+      messageId: 'msg_2',
+      text: '测试通过。',
+      replaces: [],
+    });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const answers = projection.snapshot().messages.filter((m) => m.role === 'assistant');
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.role === 'assistant' && answers[0].wrapUp).toEqual({
+      seq: second.seq,
+      recap: '改好了，还没提交。',
+      ask: '要提交吗？',
+      actions,
+      blocked: true,
+    });
+
+    projection.apply(add('turn.undone', { turnId: TURN }));
+    expect(projection.snapshot().messages.some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('会话：wrapUp 跟着 turn.wrap_up（不带按钮），用户消息、新回合、插话、撤销或撤回那个回合时去掉', () => {
+    const base = { id: SES, lastSeq: 0 } as Session;
+    const event = <T extends WevirEventType>(seq: number, type: T, payload: WevirEventPayload<T>) =>
+      ({
+        seq,
+        sessionId: SES,
+        ts: '2026-10-13T08:00:00.000Z',
+        type,
+        source: 'host',
+        payload,
+      }) as WevirEventOf<T>;
+    const on = applySessionEvent(
+      base,
+      event(1, 'turn.wrap_up', {
+        turnId: TURN,
+        recap: '还没提交。',
+        ask: '要提交吗？',
+        actions: [{ label: '提交', message: '提交。' }],
+        blocked: true,
+      }),
+    );
+    expect(on.wrapUp).toEqual({
+      turnId: TURN,
+      recap: '还没提交。',
+      ask: '要提交吗？',
+      blocked: true,
+    });
+    const cleared = [
+      event(2, 'user.message', {
+        turnId: TURN2,
+        content: [{ type: 'text', text: '提交。' }],
+        sentBy: identity,
+      }),
+      event(2, 'turn.started', { turnId: TURN2 }),
+      event(2, 'turn.undone', { turnId: TURN }),
+      event(2, 'turn.rewound', { turnId: TURN }),
+      event(2, 'user.steered', {
+        turnId: TURN,
+        pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        content: [{ type: 'text', text: '等等' }],
+        sentBy: identity,
+      }),
+    ];
+    for (const next of cleared) {
+      expect(applySessionEvent(on, next).wrapUp, next.type).toBeUndefined();
+    }
+    expect(applySessionEvent(on, event(2, 'turn.undone', { turnId: TURN2 })).wrapUp).toBe(
+      on.wrapUp,
+    );
+  });
+
+  it('插话之后去掉这个回合的收尾', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.wrap_up', { turnId: TURN, recap: '做到一半。' });
+    add('user.steered', {
+      turnId: TURN,
+      pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      content: [{ type: 'text', text: '先停一下' }],
+      sentBy: identity,
+    });
+    const messages = projectTranscript(list).messages;
+    expect(messages.filter((m) => m.role === 'assistant' && m.wrapUp !== undefined)).toEqual([]);
+  });
+});
+
 describe('审查发现（0.83.0）', () => {
   it('review.findings 是回合里当时位置的 findings 部件，带来源与总体说明', () => {
     const { list, add, turn } = events();

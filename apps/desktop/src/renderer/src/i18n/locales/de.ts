@@ -655,6 +655,7 @@ export const messages: Messages = {
   'session.marker.running': 'Läuft',
   'session.marker.awaitingApproval': 'Freigabe ausstehend',
   'session.marker.awaitingInput': 'Antwort ausstehend',
+  'session.marker.awaitingDecision': 'Entscheidung ausstehend',
   'session.marker.error': 'Fehler',
   'session.marker.goal': 'Ziel',
   'session.marker.unread': 'Ungelesen',
@@ -715,6 +716,7 @@ export const messages: Messages = {
   'review.baseBranch': 'Gegen Basis-Branch',
   'review.branch': 'Gegen {branch}',
   'recap.title': 'Rückblick',
+  'wrapUp.title': 'Nächster Schritt',
   'undo.banner':
     '{count, plural, one {# Runde rückgängig gemacht} other {# Runden rückgängig gemacht}}',
   'undo.failed': 'Rückgängig fehlgeschlagen: {error}',

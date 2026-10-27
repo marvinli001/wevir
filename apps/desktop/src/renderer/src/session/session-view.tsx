@@ -100,6 +100,7 @@ import { useUiShow } from './ui-show';
 import { UndoBanner } from './undo-banner';
 import { filesNotice, promptOfTurn } from './undo-model';
 import { useDraftCommands, useSessionCommands } from './use-composer-commands';
+import { lastTurnShowsWrapUp } from './wrap-up-model';
 
 /**
  * 一个会话：消息流、审批区、输入框与状态指示（T5.3）。消息流来自从 seq 0 开始的订阅（transcript-store.ts），
@@ -483,6 +484,12 @@ export function SessionView({
       ? lastTurnId(transcript)
       : undefined;
   const autoContinueArmed = transcript?.autoContinue;
+  // 回合末的下一步卡片（0.128.0）：按钮发出 agent 写好的消息，同输入框发出的一样。
+  const wrapUpTurnId =
+    messageActionsEnabled && sessionState === 'idle' && transcript !== undefined
+      ? lastTurnId(transcript)
+      : undefined;
+  const sendWrapUp = useCallback((message: string) => send(message), [send]);
   const messageActions = useMemo<MessageActions>(
     () => ({
       ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
@@ -494,8 +501,17 @@ export function SessionView({
           set: setAutoContinue,
         },
       }),
+      ...(messageActionsEnabled && {
+        wrapUp: {
+          ...(wrapUpTurnId !== undefined && { lastTurnId: wrapUpTurnId }),
+          send: sendWrapUp,
+        },
+      }),
     }),
     [
+      messageActionsEnabled,
+      wrapUpTurnId,
+      sendWrapUp,
       branchEnabled,
       branchFrom,
       editTurnId,
@@ -857,7 +873,8 @@ export function SessionView({
         >
           {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
           <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
-            {sessionRecap && (
+            {/* 最后一个回合的下一步卡片（0.128.0）已经在消息流底部说了同一段回顾，不再重复。 */}
+            {sessionRecap && !(transcript && lastTurnShowsWrapUp(transcript)) && (
               <RecapCard text={sessionRecap.text} onDismiss={sessionRecap.dismiss} />
             )}
             {insight && <InsightCard key={insight.id} sessionId={session.id} insight={insight} />}

@@ -227,13 +227,17 @@ export class NotificationService {
     const facts = this.#sessionFacts(event.sessionId);
     // 频道里的会话（0.120.0）回合结束不提醒：结果在频道的时间线上。
     if (facts === undefined || facts.session.channel !== undefined) return;
+    // 0.128.0：回合收尾了（`turn.wrap_up`）时正文是等用户做的决定，没有就是回顾的第一句。
+    const wrapUp =
+      facts.session.wrapUp?.turnId === event.payload.turnId ? facts.session.wrapUp : undefined;
+    const body = wrapUp === undefined ? '' : (wrapUp.ask ?? firstSentence(wrapUp.recap));
     this.#emit({
       id,
       kind: 'completed',
       sessionId: event.sessionId,
       workspaceId: facts.session.workspaceId,
       title: cut(facts.session.title, NOTIFICATION_TITLE_MAX_LENGTH),
-      body: '',
+      body: cut(redactSecrets(body).text, NOTIFICATION_BODY_MAX_LENGTH),
       createdAt: event.ts,
       collapseKey: collapseKey(event.sessionId),
     });
@@ -336,4 +340,10 @@ function shouldNotifyWaiting(notify: AutomationNotify): boolean {
 
 function isRunActive(run: AutomationRun): boolean {
   return run.status === 'running' || run.status === 'waiting' || run.status === 'checking';
+}
+
+/** 一段话的第一句（到第一个句末标点为止，含标点）；没有句末标点时是整段。 */
+export function firstSentence(text: string): string {
+  const match = /^.*?[。！？!?]|^.*?\.(?=\s|$)/su.exec(text.trim());
+  return (match?.[0] ?? text).trim();
 }

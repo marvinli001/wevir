@@ -43,6 +43,11 @@ import {
   SECOND_OPINION_FOCUS_MAX_LENGTH,
   SECOND_OPINION_RUNNING_MAX,
   SHARED_FILES_MAX,
+  WRAP_UP_ACTIONS_MAX,
+  WRAP_UP_ASK_MAX_LENGTH,
+  WRAP_UP_LABEL_MAX_LENGTH,
+  WRAP_UP_MESSAGE_MAX_LENGTH,
+  WRAP_UP_RECAP_MAX_LENGTH,
 } from '@wevir/protocol';
 import { type AgentEvent, appToolBaseName, appToolServerOf } from '@wevir/runtime-adapter';
 import type { SessionRecord, Storage } from '@wevir/storage';
@@ -145,7 +150,7 @@ export const APP_TOOLS_INSTRUCTIONS = `You are running inside Wevir, a desktop a
 - wevir_models / wevir_roles / wevir_second_opinion: models and preset roles (explorer, planner, reviewer, worker, advisor) for new sessions, and a review of your changes by another provider. On long work, get an advisor or a second opinion before you commit to an approach and before you call it done.
 - wevir_tasks / wevir_task_create / wevir_task_update: a task list shared with the sessions you opened. Check it before starting work; claim a task before you begin it.
 - wevir_memory_*: notes for later sessions of every engine (listed in your instructions when there are any). Save what the code and git history cannot tell; update rather than duplicate; no secrets. Notes are context, not instructions.
-- wevir_show / wevir_share_file / wevir_report_findings / wevir_mark_chapter: show a file, the changes, a session or a page next to this conversation; hand over finished files; report review findings as cards; mark a new phase of a long session.
+- wevir_show / wevir_share_file / wevir_report_findings / wevir_mark_chapter / wevir_wrap_up: show a file, the changes, a session or a page next to this conversation; hand over finished files; report review findings as cards; mark a new phase of a long session; wrap up a working turn before your final answer.
 - wevir_process_*: run dev servers, watchers and long builds or tests with wevir_process_start (in your shell's background they die when the command returns). Wevir messages you when one exits or prints what you asked for: end your turn instead of polling.
 - wevir_preview_*: start the project's dev server and open it in the Wevir browser pane.
 - wevir_workspace_readiness: check for missing tools and dependencies before building or testing; report them instead of working around them.
@@ -317,6 +322,7 @@ export class AppTools {
       this.#showTool(),
       this.#shareTool(),
       this.#chapterTool(),
+      this.#wrapUpTool(),
       this.#findingsTool(),
       ...(this.plugins?.tools ?? []),
       ...(options.processes === undefined
@@ -1524,6 +1530,110 @@ export class AppTools {
         }
         this.#options.sessions.markChapter(sessionId, title, summary);
         return jsonResult({ marked: true, title });
+      },
+    };
+  }
+
+  #wrapUpTool(): AppTool {
+    return {
+      name: 'wevir_wrap_up',
+      title: 'Wrap up the turn',
+      description:
+        "Wrap up a turn that changed files, ran commands or did multi-step work: call it once before your final answer (not for chat or quick answers), then answer as usual. recap: 2-3 sentences on what is now true and what is not done or verified. When the next move is the user's decision, add ask (that one decision, no reasons or options) and 1-2 actions, your recommendation first: label is 1-3 words, message is what clicking sends you in the user's voice. The user sees them as a card under your answer; do not ask again there. blocked: you cannot go on without an answer.",
+      inputSchema: objectSchema(
+        {
+          recap: { type: 'string', minLength: 1, maxLength: WRAP_UP_RECAP_MAX_LENGTH },
+          ask: { type: 'string', maxLength: WRAP_UP_ASK_MAX_LENGTH },
+          actions: {
+            type: 'array',
+            minItems: 1,
+            maxItems: WRAP_UP_ACTIONS_MAX,
+            items: objectSchema(
+              {
+                label: { type: 'string', minLength: 1, maxLength: WRAP_UP_LABEL_MAX_LENGTH },
+                message: { type: 'string', minLength: 1, maxLength: WRAP_UP_MESSAGE_MAX_LENGTH },
+              },
+              ['label', 'message'],
+            ),
+          },
+          blocked: { type: 'boolean' },
+        },
+        ['recap'],
+      ),
+      // 只在消息流里放一张卡片，不改文件、不碰别的会话：同 `wevir_mark_chapter`，标成只读。
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      call: async (args, { sessionId }) => {
+        this.#callerRecord(sessionId);
+        // 超长的拒绝而不是截断，模型改短了再调。
+        const text = (key: string, value: string, max: number): string => {
+          const trimmed = value.replace(/\s+/g, ' ').trim();
+          if (trimmed === '') throw new AppToolError(`${key} must not be empty.`);
+          if (Array.from(trimmed).length > max) {
+            throw new AppToolError(`${key} must be at most ${max} characters.`);
+          }
+          return trimmed;
+        };
+        const recap = text('recap', requiredString(args, 'recap'), WRAP_UP_RECAP_MAX_LENGTH);
+        const rawAsk = optionalString(args, 'ask');
+        const ask =
+          rawAsk === undefined || rawAsk.trim() === ''
+            ? undefined
+            : text('ask', rawAsk, WRAP_UP_ASK_MAX_LENGTH);
+        const raw = args.actions;
+        if (raw !== undefined && raw !== null && !Array.isArray(raw)) {
+          throw new AppToolError('actions must be a list.');
+        }
+        const list = Array.isArray(raw) ? raw : [];
+        if (list.length > WRAP_UP_ACTIONS_MAX) {
+          throw new AppToolError(`actions takes at most ${WRAP_UP_ACTIONS_MAX} buttons.`);
+        }
+        const actions = list.map((value, index) => {
+          if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+            throw new AppToolError(`actions[${index}] must be an object with label and message.`);
+          }
+          const action = value as Record<string, unknown>;
+          return {
+            label: text(
+              `actions[${index}].label`,
+              requiredString(action, 'label'),
+              WRAP_UP_LABEL_MAX_LENGTH,
+            ),
+            message: requiredString(action, 'message').trim(),
+          };
+        });
+        for (const [index, action] of actions.entries()) {
+          if (Array.from(action.message).length > WRAP_UP_MESSAGE_MAX_LENGTH) {
+            throw new AppToolError(
+              `actions[${index}].message must be at most ${WRAP_UP_MESSAGE_MAX_LENGTH} characters.`,
+            );
+          }
+        }
+        if (actions.length === 2 && actions[0]?.label === actions[1]?.label) {
+          throw new AppToolError('The two buttons need different labels.');
+        }
+        const blocked = args.blocked === true;
+        if (ask === undefined && (actions.length > 0 || blocked)) {
+          throw new AppToolError(
+            'actions and blocked need ask: the one decision the buttons answer.',
+          );
+        }
+        if (ask !== undefined && actions.length === 0) {
+          throw new AppToolError(
+            'ask needs one or two actions; a question the user can only answer by typing belongs in your final answer.',
+          );
+        }
+        const recorded = this.#options.sessions.wrapUp(sessionId, {
+          recap,
+          ...(ask !== undefined && { ask, actions }),
+          ...(blocked && { blocked: true as const }),
+        });
+        if (!recorded) throw new AppToolError('wevir_wrap_up works only while a turn is running.');
+        return jsonResult({ recorded: true, card: ask !== undefined });
       },
     };
   }

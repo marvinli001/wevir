@@ -31,6 +31,7 @@ import type {
   SessionRules,
   SessionSnapshot,
   SessionState,
+  SessionWrapUp,
   StateChangeReason,
   SubagentInfo,
   SubagentStatus,
@@ -110,6 +111,8 @@ export interface SessionProjection {
   readonly goal?: SessionGoal;
   /** 额度恢复后自动继续（0.119.0）：最近一次 `session.auto_continue`，关掉或有了新的回合时没有。 */
   readonly autoContinue?: SessionAutoContinue;
+  /** 回合收尾（0.128.0）：最近一次 `turn.wrap_up`；用户发了消息、新的回合开始、那个回合被撤销或撤回时没有。 */
+  readonly wrapUp?: SessionWrapUp;
   /** 最近一个回合因用量上限失败（0.119.0，`engine.error` 的 `usageLimit`）；有了新的回合时没有。 */
   readonly usageLimited?: { readonly turnId: TurnId; readonly limit: UsageLimit };
   /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
@@ -403,11 +406,29 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       }
       break;
     }
+    case 'turn.wrap_up': {
+      const { turnId, recap, ask, blocked } = event.payload;
+      next.wrapUp = {
+        turnId,
+        recap,
+        ...(ask !== undefined && { ask }),
+        ...(blocked === true && { blocked }),
+      };
+      break;
+    }
+    case 'turn.rewound':
+    case 'turn.undone':
+      if (projection.wrapUp?.turnId === event.payload.turnId) next.wrapUp = undefined;
+      break;
+    case 'user.steered':
+      next.wrapUp = undefined;
+      break;
     case 'user.message': {
       const { turnId, clientMessageId, collaborationMode } = event.payload;
       next.lastUserMessage =
         clientMessageId === undefined ? { turnId } : { turnId, clientMessageId };
       next.collaborationMode = collaborationMode === 'plan' ? 'plan' : undefined;
+      next.wrapUp = undefined;
       break;
     }
     case 'turn.started': {
@@ -423,6 +444,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       // 新的回合开始：自动继续作废（或就是它开的），上一个回合的用量上限也过去了。
       next.autoContinue = undefined;
       next.usageLimited = undefined;
+      next.wrapUp = undefined;
       if (projection.subagent !== undefined) {
         const { endedAt: _ended, ...rest } = projection.subagent;
         next.subagent = { ...rest, status: 'running' };
@@ -871,6 +893,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.engines !== undefined) session.engines = sessionEngines(projection);
   if (projection.goal) session.goal = projection.goal;
   if (projection.autoContinue) session.autoContinue = { ...projection.autoContinue };
+  if (projection.wrapUp) session.wrapUp = { ...projection.wrapUp };
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],

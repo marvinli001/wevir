@@ -788,6 +788,7 @@ const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string }> = {
   running: { tone: 'accent', label: t('session.marker.running') },
   awaiting_approval: { tone: 'warning', label: t('session.marker.awaitingApproval') },
   awaiting_input: { tone: 'warning', label: t('session.marker.awaitingInput') },
+  awaiting_decision: { tone: 'warning', label: t('session.marker.awaitingDecision') },
   error: { tone: 'danger', label: t('session.marker.error') },
 };
 

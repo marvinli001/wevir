@@ -15,7 +15,7 @@ import type { Storage } from '@wevir/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventStore } from './event-store.js';
 import { INBOX_WINDOW_MS, InboxService } from './inbox.js';
-import { NotificationService } from './notifications.js';
+import { firstSentence, NotificationService } from './notifications.js';
 import {
   approval,
   createStore,
@@ -252,6 +252,41 @@ describe('NotificationService', () => {
     expect(flush()).toMatchObject([
       { id: `completed:${TURN2}`, kind: 'completed', body: '', sessionId: SES },
     ]);
+  });
+
+  it('回合收了尾（0.128.0）：完成的正文是要用户做的决定，没有就是回顾的第一句', () => {
+    const { events, flush } = setup();
+    startTurn(events);
+    events.append(SES, {
+      type: 'turn.wrap_up',
+      source: 'host',
+      payload: { turnId: TURN, recap: '测试全部通过。还没提交。' },
+    });
+    finishTurn(events, 'completed');
+    expect(flush()).toMatchObject([{ kind: 'completed', body: '测试全部通过。' }]);
+
+    startTurn(events, SES, TURN2);
+    events.append(SES, {
+      type: 'turn.wrap_up',
+      source: 'host',
+      payload: {
+        turnId: TURN2,
+        recap: 'Tests pass. Not committed yet.',
+        ask: '要提交吗？',
+        actions: [{ label: '提交', message: '提交。' }],
+        blocked: true,
+      },
+    });
+    finishTurn(events, 'completed', SES, TURN2);
+    expect(flush()).toMatchObject([{ kind: 'completed', body: '要提交吗？' }]);
+  });
+
+  it('firstSentence 取到第一个句末标点', () => {
+    expect(firstSentence('Tests pass. Not committed.')).toBe('Tests pass.');
+    expect(firstSentence('版本 0.128.0 已发布，测试通过。还差文档。')).toBe(
+      '版本 0.128.0 已发布，测试通过。',
+    );
+    expect(firstSentence('没有句号')).toBe('没有句号');
   });
 
   it('关掉的种类不产生意图，其余照旧', () => {

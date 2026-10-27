@@ -53,6 +53,24 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       else next.autoContinue = { turnId, resumeAt };
       break;
     }
+    case 'turn.wrap_up': {
+      // 0.128.0：回合收尾；用户发了消息、新的回合开始、那个回合被撤销或撤回时去掉。
+      const { turnId, recap, ask, blocked } = event.payload;
+      next.wrapUp = {
+        turnId,
+        recap,
+        ...(ask !== undefined && { ask }),
+        ...(blocked === true && { blocked }),
+      };
+      break;
+    }
+    case 'turn.rewound':
+    case 'turn.undone':
+      if (session.wrapUp?.turnId === event.payload.turnId) delete next.wrapUp;
+      break;
+    case 'user.steered':
+      delete next.wrapUp;
+      break;
     case 'question.requested':
       next.awaitingInput = true;
       break;
@@ -118,10 +136,12 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       // 0.36.0：会话的协作模式是最近一条消息的。
       if (event.payload.collaborationMode === 'plan') next.collaborationMode = 'plan';
       else delete next.collaborationMode;
+      delete next.wrapUp;
       break;
     case 'turn.started':
       next.activeTurn = { turnId: event.payload.turnId, startedAt: event.ts };
       delete next.autoContinue;
+      delete next.wrapUp;
       if (session.subagent !== undefined) {
         const { endedAt: _ended, ...rest } = session.subagent;
         next.subagent = { ...rest, status: 'running' };
