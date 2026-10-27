@@ -15,6 +15,7 @@ import type {
 import { SESSION_TITLE_MAX_LENGTH } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,6 +23,8 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   StyleSheet,
@@ -372,62 +375,88 @@ function SessionList({
 }) {
   const now = useMinuteClock();
   const list = useRef<FlatList<SessionItem>>(null);
-  const pinned = useRef(true);
-  const height = useRef(0);
+  const headerHeight = useHeaderHeight();
+  // 只认用户拖动：程序滚动在 iOS 上也会触发 onMomentumScrollEnd，读到的偏移可能已经过时。
+  const follow = useRef(true);
+  const dragging = useRef(false);
+  const viewport = useRef(0);
+  const lastKey = useRef<string | undefined>(undefined);
+  const last = items.at(-1);
+  // 刚发出的消息总要看见，即使之前翻到了上面。
+  if (last?.key !== lastKey.current) {
+    lastKey.current = last?.key;
+    if (last?.kind === 'user' || last?.kind === 'pending') follow.current = true;
+  }
+  const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!dragging.current) return;
+    const n = e.nativeEvent;
+    follow.current = n.contentSize.height - n.contentOffset.y - n.layoutMeasurement.height < 120;
+  };
   return (
-    <FlatList
-      ref={list}
-      data={items}
-      keyExtractor={(item) => item.key}
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive"
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
-      initialNumToRender={60}
-      onScroll={(e) => {
-        const n = e.nativeEvent;
-        // 不满一屏也算停在末尾（大标题的内边距让偏移是负的）。
-        pinned.current =
-          n.contentSize.height <= n.layoutMeasurement.height ||
-          n.contentSize.height - n.contentOffset.y - n.layoutMeasurement.height < 120;
-      }}
-      scrollEventThrottle={100}
+    <View
+      style={styles.flex}
       onLayout={(e) => {
-        height.current = e.nativeEvent.layout.height;
+        viewport.current = e.nativeEvent.layout.height;
       }}
-      // 内容不满一屏时不滚：scrollToEnd 不算大标题占的顶部内边距，会把开头推到导航栏下面。
-      onContentSizeChange={(_, contentHeight) => {
-        if (pinned.current && contentHeight > height.current)
-          list.current?.scrollToEnd({ animated: false });
-      }}
-      ListHeaderComponent={
-        <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
-          {meta}
-        </Text>
-      }
-      ListEmptyComponent={
-        loading ? (
-          <ActivityIndicator style={styles.empty} color={theme.mutedForeground} />
-        ) : (
-          <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>
-            {failed ? t('thread.unavailable') : t('thread.empty')}
+    >
+      <FlatList
+        ref={list}
+        data={items}
+        keyExtractor={(item) => item.key}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
+        initialNumToRender={60}
+        onScrollBeginDrag={() => {
+          dragging.current = true;
+        }}
+        onScrollEndDrag={(e) => {
+          settle(e);
+          if ((e.nativeEvent.velocity?.y ?? 0) === 0) dragging.current = false;
+        }}
+        onMomentumScrollEnd={(e) => {
+          settle(e);
+          dragging.current = false;
+        }}
+        // 自己算偏移：FlatList 的 scrollToEnd 按单元格估算，不算底部给输入框留的内边距。
+        // 列表铺到导航栏下面，内容加导航栏高度超出一屏才滚，否则会把开头推到导航栏下。
+        onContentSizeChange={(_, contentHeight) => {
+          if (follow.current && contentHeight + headerHeight > viewport.current)
+            list.current?.scrollToOffset({
+              offset: contentHeight - viewport.current,
+              animated: false,
+            });
+        }}
+        ListHeaderComponent={
+          <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
+            {meta}
           </Text>
-        )
-      }
-      renderItem={({ item }) => (
-        <View style={styles.item}>
-          <Item
-            item={item}
-            now={now}
-            theme={theme}
-            canWrite={canWrite}
-            onDecide={onDecide}
-            onAnswer={onAnswer}
-            onCancelPending={onCancelPending}
-          />
-        </View>
-      )}
-    />
+        }
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator style={styles.empty} color={theme.mutedForeground} />
+          ) : (
+            <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>
+              {failed ? t('thread.unavailable') : t('thread.empty')}
+            </Text>
+          )
+        }
+        renderItem={({ item }) => (
+          <View style={styles.item}>
+            <Item
+              item={item}
+              now={now}
+              theme={theme}
+              canWrite={canWrite}
+              onDecide={onDecide}
+              onAnswer={onAnswer}
+              onCancelPending={onCancelPending}
+            />
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
