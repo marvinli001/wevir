@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { Fragment, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { Hint } from '@/components/hint';
 import { t } from '@/i18n';
 import type { FilePreview, PreviewLine } from './file-preview-model';
 import { relativeToRoot } from './tool-model';
@@ -44,12 +45,11 @@ export function FilePreviewBlock({ preview, root }: { preview: FilePreview; root
       data-file-preview
     >
       {path && (
-        <h4
-          className="truncate border-b border-border px-3 py-1 font-mono text-xs text-muted-foreground"
-          title={path}
-        >
-          {path}
-        </h4>
+        <Hint label={path} whenClipped>
+          <h4 className="truncate border-b border-border px-3 py-1 font-mono text-xs text-muted-foreground">
+            {path}
+          </h4>
+        </Hint>
       )}
       <div
         ref={ref}

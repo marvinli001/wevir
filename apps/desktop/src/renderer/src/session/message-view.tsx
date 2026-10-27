@@ -25,6 +25,7 @@ import { memo, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Collapse } from '@/components/collapse';
 import { GoalIcon } from '@/components/command-icons';
 import { GlideGroup } from '@/components/glide';
+import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { sourceOf } from '@/data/sources';
@@ -424,15 +425,14 @@ function RepairReport({ message }: { message: UserChatMessage }) {
     .join('\n');
   return (
     <div className="my-2 flex" data-message-role="user" data-repair-report={repair.repairId}>
-      <span
-        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
-        title={text}
-      >
-        <Wrench aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">
-          {t('transcript.repair', { attempt: repair.attempt, max: repair.maxAttempts })}
+      <Hint label={text}>
+        <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground">
+          <Wrench aria-hidden className="size-4 shrink-0" />
+          <span className="truncate">
+            {t('transcript.repair', { attempt: repair.attempt, max: repair.maxAttempts })}
+          </span>
         </span>
-      </span>
+      </Hint>
     </div>
   );
 }
@@ -450,13 +450,12 @@ function ProcessReport({ message }: { message: UserChatMessage }) {
   const label = processNoticeLabel(process);
   return (
     <div className="my-2 flex" data-message-role="user" data-process-report={process.id}>
-      <span
-        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
-        title={text}
-      >
-        <SquareTerminal aria-hidden className="size-4 shrink-0" />
-        <span className="truncate">{label}</span>
-      </span>
+      <Hint label={text}>
+        <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground">
+          <SquareTerminal aria-hidden className="size-4 shrink-0" />
+          <span className="truncate">{label}</span>
+        </span>
+      </Hint>
     </div>
   );
 }
@@ -673,14 +672,14 @@ function CompactionPart({ part }: { part: ChatPartOf<'compaction'> }) {
  */
 function ChapterDivider({ part }: { part: ChatPartOf<'chapter'> }) {
   return (
-    <div
-      className="mt-6 mb-3 flex scroll-mt-4 items-center gap-3"
-      data-chapter-anchor={part.key}
-      title={part.summary}
-    >
-      <h3 className="min-w-0 shrink truncate text-sm font-medium text-foreground">{part.title}</h3>
-      <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
-    </div>
+    <Hint label={part.summary}>
+      <div className="mt-6 mb-3 flex scroll-mt-4 items-center gap-3" data-chapter-anchor={part.key}>
+        <h3 className="min-w-0 shrink truncate text-sm font-medium text-foreground">
+          {part.title}
+        </h3>
+        <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
+      </div>
+    </Hint>
   );
 }
 
@@ -768,28 +767,29 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const label = modelLabel(providers, notice.providerId, notice.modelId, accounts);
   return (
     <div className="my-3 flex justify-center">
-      <button
-        type="button"
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        title={t('handoff.detail.open')}
-        onClick={() => setOpen(true)}
-        data-testid="handoff-notice"
-        data-provider={notice.providerId}
-        data-delivery={notice.delivery.status}
-      >
-        {provider ? (
-          <ProviderLogo
-            logo={source?.logo ?? providerLogo(provider)}
-            fallback={label}
-            className="size-3.5"
-          />
-        ) : (
-          <ArrowLeftRight aria-hidden className="size-3.5" />
-        )}
-        {notice.fromProviderId === notice.providerId
-          ? t('notice.handoffSameSource')
-          : t('notice.handoff', { model: label })}
-      </button>
+      <Hint label={t('handoff.detail.open')}>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={() => setOpen(true)}
+          data-testid="handoff-notice"
+          data-provider={notice.providerId}
+          data-delivery={notice.delivery.status}
+        >
+          {provider ? (
+            <ProviderLogo
+              logo={source?.logo ?? providerLogo(provider)}
+              fallback={label}
+              className="size-3.5"
+            />
+          ) : (
+            <ArrowLeftRight aria-hidden className="size-3.5" />
+          )}
+          {notice.fromProviderId === notice.providerId
+            ? t('notice.handoffSameSource')
+            : t('notice.handoff', { model: label })}
+        </button>
+      </Hint>
       <HandoffDetailDialog
         notice={notice}
         target={label}

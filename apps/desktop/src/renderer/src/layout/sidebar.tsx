@@ -22,6 +22,7 @@ import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { assistantsAvailability } from '@/assistants/assistants-model';
 import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { ArchiveIcon, PinIcon } from '@/components/session-icons';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
@@ -918,16 +919,19 @@ const SessionRow = memo(function SessionRow({
                   motion.doneAt !== undefined && <DoneMark at={motion.doneAt} />
                 )}
               </span>
-              <span
-                className={cn(
-                  'min-w-0 truncate',
-                  // 有子会话时箭头紧跟在标题后面，空出来的地方放在箭头之后。
-                  !thread && 'flex-1',
-                  settledUnread && 'font-semibold text-foreground',
-                )}
-              >
-                <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
-              </span>
+              {/* 标题被截断时悬停看全名。 */}
+              <Hint label={session.title || t('session.untitled')} whenClipped>
+                <span
+                  className={cn(
+                    'min-w-0 truncate',
+                    // 有子会话时箭头紧跟在标题后面，空出来的地方放在箭头之后。
+                    !thread && 'flex-1',
+                    settledUnread && 'font-semibold text-foreground',
+                  )}
+                >
+                  <GlyphReveal text={session.title || t('session.untitled')} at={motion.titleAt} />
+                </span>
+              </Hint>
               {thread && (
                 // 箭头在链接里面：点它只展开、收起，不打开会话；键盘用左右方向键（上面的 onKeyDown）。
                 <span

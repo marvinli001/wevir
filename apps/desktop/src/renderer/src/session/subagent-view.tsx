@@ -2,6 +2,7 @@ import type { SubagentSummary } from '@wevir/protocol';
 import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { useTranscript } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
@@ -55,9 +56,9 @@ export function SubagentView({
           size={20}
           className="shrink-0"
         />
-        <h3 className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>
-          {title}
-        </h3>
+        <Hint label={title} whenClipped>
+          <h3 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h3>
+        </Hint>
         <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">
           {modelLine(summary)}
         </span>

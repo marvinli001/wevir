@@ -14,6 +14,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useState } from 'react';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -148,9 +149,11 @@ export function PendingArea({
           {groups.steer.map((message) =>
             item(
               message,
-              <span className="text-muted-foreground" title={t('pending.steerLocked')}>
-                <Lock className="size-3.5" aria-label={t('pending.steerLocked')} />
-              </span>,
+              <Hint label={t('pending.steerLocked')}>
+                <span className="text-muted-foreground">
+                  <Lock className="size-3.5" aria-label={t('pending.steerLocked')} />
+                </span>
+              </Hint>,
             ),
           )}
         </PendingGroup>
@@ -222,18 +225,19 @@ function PendingNotice({ message, actions }: { message: PendingMessage; actions:
   const Icon =
     from.process !== undefined ? SquareTerminal : from.kind === 'report' ? Reply : MessageSquare;
   return (
-    <li
-      className="group flex items-center gap-2 rounded-lg bg-background/70 px-2.5 py-1 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
-      data-pending-id={message.id}
-      data-pending-notice={from.process !== undefined ? 'process' : from.kind}
-      title={pendingText(message)}
-    >
-      <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate text-sm text-soft-foreground">
-        {noticeLabel(from, title)}
-      </span>
-      <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
-    </li>
+    <Hint label={pendingText(message)}>
+      <li
+        className="group flex items-center gap-2 rounded-lg bg-background/70 px-2.5 py-1 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
+        data-pending-id={message.id}
+        data-pending-notice={from.process !== undefined ? 'process' : from.kind}
+      >
+        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-sm text-soft-foreground">
+          {noticeLabel(from, title)}
+        </span>
+        <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
+      </li>
+    </Hint>
   );
 }
 
@@ -255,9 +259,9 @@ function PendingRow({ message, actions }: { message: PendingMessage; actions: Re
           </p>
         )}
         {note && (
-          <p className="mt-0.5 text-xs text-warning" title={message.fallback?.message}>
-            {note}
-          </p>
+          <Hint label={message.fallback?.message}>
+            <p className="mt-0.5 text-xs text-warning">{note}</p>
+          </Hint>
         )}
       </div>
       <div className={cn('flex shrink-0 items-center gap-0.5')}>{actions}</div>

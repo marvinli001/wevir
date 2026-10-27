@@ -3,6 +3,7 @@ import type { SharedFile } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, Download, ExternalLink, FolderOpen } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { OpenSessionFile } from '@/files/file-links';
 import { currentLocale, t } from '@/i18n';
@@ -76,29 +77,30 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
 
   return (
     <li className="group/file flex min-h-12 items-center gap-1 pr-2" data-shared-file={file.path}>
-      <button
-        type="button"
-        onClick={open}
-        title={file.path}
-        className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-2 pl-3 text-left outline-none transition-colors duration-150 hover:bg-muted/60 focus-visible:bg-muted"
-      >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-          <Icon aria-hidden className="size-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm text-foreground">{file.name}</span>
-          <span
-            className={cn(
-              'block truncate text-xs tabular-nums',
-              state?.kind === 'error' ? 'text-destructive' : 'text-muted-foreground',
-            )}
-          >
-            {state?.kind === 'error'
-              ? state.message
-              : [formatFileSize(file.size, currentLocale()), type].filter(Boolean).join(' · ')}
+      <Hint label={file.path}>
+        <button
+          type="button"
+          onClick={open}
+          className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-2 pl-3 text-left outline-none transition-colors duration-150 hover:bg-muted/60 focus-visible:bg-muted"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <Icon aria-hidden className="size-4" />
           </span>
-        </span>
-      </button>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm text-foreground">{file.name}</span>
+            <span
+              className={cn(
+                'block truncate text-xs tabular-nums',
+                state?.kind === 'error' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {state?.kind === 'error'
+                ? state.message
+                : [formatFileSize(file.size, currentLocale()), type].filter(Boolean).join(' · ')}
+            </span>
+          </span>
+        </button>
+      </Hint>
       {external && (
         <IconButton
           label={t('files.openDefault')}

@@ -29,6 +29,7 @@ import {
   useState,
 } from 'react';
 import { Collapse } from '@/components/collapse';
+import { Hint } from '@/components/hint';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
 import { livePreviewKey } from './file-preview-model';
@@ -373,12 +374,11 @@ function WorkLine({
           <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
           <span className={cn('shrink-0', LINE_TONES[view.tone])}>{view.label}</span>
           {view.target && (
-            <code
-              className="min-w-0 truncate font-mono text-xs text-soft-foreground"
-              title={view.targetTitle}
-            >
-              {view.target}
-            </code>
+            <Hint label={view.targetTitle} whenClipped>
+              <code className="min-w-0 truncate font-mono text-xs text-soft-foreground">
+                {view.target}
+              </code>
+            </Hint>
           )}
           {stats && <DiffStat stats={stats} />}
           {view.duration && (

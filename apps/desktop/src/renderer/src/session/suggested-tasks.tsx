@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, CircleCheck, CircleX } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { Orb } from '@/fx/orb';
@@ -77,12 +78,16 @@ function TaskRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-foreground">{task.title}</p>
         {(error ?? task.reason) && (
-          <p
-            className={cn('truncate text-xs', error ? 'text-destructive' : 'text-muted-foreground')}
-            title={error ?? task.reason}
-          >
-            {error ?? task.reason}
-          </p>
+          <Hint label={error ?? task.reason} whenClipped>
+            <p
+              className={cn(
+                'truncate text-xs',
+                error ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {error ?? task.reason}
+            </p>
+          </Hint>
         )}
       </div>
       {task.status === 'suggested' ? (
@@ -185,17 +190,18 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
     // 回合结束后才到的回报自成一块（间距由消息流定），不再加自己的上下边距。
     <div className="my-2 flex in-data-[message-role=system]:my-0" data-task-report={outcome}>
       {parent && task.sessionId ? (
-        <Link
-          to={paths.session(parent.workspaceId, task.sessionId)}
-          title={part.summary}
-          className={cn(
-            className,
-            'hover:border-border-strong focus-visible:focus-field',
-            ok && 'hover:text-foreground',
-          )}
-        >
-          {content}
-        </Link>
+        <Hint label={part.summary}>
+          <Link
+            to={paths.session(parent.workspaceId, task.sessionId)}
+            className={cn(
+              className,
+              'hover:border-border-strong focus-visible:focus-field',
+              ok && 'hover:text-foreground',
+            )}
+          >
+            {content}
+          </Link>
+        </Hint>
       ) : (
         <span className={className}>{content}</span>
       )}

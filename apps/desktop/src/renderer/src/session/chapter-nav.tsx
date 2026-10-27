@@ -5,6 +5,7 @@ import type { TranscriptChapter } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ListTree } from 'lucide-react';
 import { type RefObject, useEffect, useState } from 'react';
+import { Hint } from '@/components/hint';
 import { ScrollFade } from '@/components/scroll-fade';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { t } from '@/i18n';
@@ -35,16 +36,17 @@ export function ChapterNav({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
-          <button
-            type="button"
-            aria-label={label}
-            title={label}
-            data-action="chapter-nav"
-            className="pointer-events-auto flex h-7 max-w-56 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs text-soft-foreground shadow-sm outline-none pressable [--press-scale:0.97] hover:bg-muted hover:text-foreground focus-visible:focus-field data-popup-open:bg-muted data-popup-open:text-foreground"
-          >
-            <ListTree aria-hidden className="size-3.5 shrink-0" />
-            <span className="min-w-0 truncate">{title ?? label}</span>
-          </button>
+          <Hint label={label}>
+            <button
+              type="button"
+              aria-label={label}
+              data-action="chapter-nav"
+              className="pointer-events-auto flex h-7 max-w-56 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs text-soft-foreground shadow-sm outline-none pressable [--press-scale:0.97] hover:bg-muted hover:text-foreground focus-visible:focus-field data-popup-open:bg-muted data-popup-open:text-foreground"
+            >
+              <ListTree aria-hidden className="size-3.5 shrink-0" />
+              <span className="min-w-0 truncate">{title ?? label}</span>
+            </button>
+          </Hint>
         }
       />
       <PopoverContent align="end" className="w-72 gap-0 overflow-hidden p-0" data-chapter-nav>

@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, CircleCheck, CircleDashed, CircleDot, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Collapse } from '@/components/collapse';
+import { Hint } from '@/components/hint';
 import { t } from '@/i18n';
 import {
   latestTodos,
@@ -158,12 +159,13 @@ export function TurnRecap({ transcript }: { transcript: Transcript }) {
       .join(t('recap.separator'));
   }
   return (
-    <p
-      title={text}
-      data-testid="turn-recap"
-      className="truncate border-b border-border px-4 py-2 text-xs text-muted-foreground"
-    >
-      {text}
-    </p>
+    <Hint label={text} whenClipped>
+      <p
+        data-testid="turn-recap"
+        className="truncate border-b border-border px-4 py-2 text-xs text-muted-foreground"
+      >
+        {text}
+      </p>
+    </Hint>
   );
 }
