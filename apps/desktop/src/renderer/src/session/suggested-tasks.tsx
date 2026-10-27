@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, CircleCheck, CircleX } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { Orb } from '@/fx/orb';
@@ -12,6 +13,7 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { useTranscriptSessionId } from './fold-state';
+import { SessionPreview, useSessionEntry } from './session-link';
 import { sendText, usePermissionModes } from './start-session';
 
 /**
@@ -76,12 +78,16 @@ function TaskRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-foreground">{task.title}</p>
         {(error ?? task.reason) && (
-          <p
-            className={cn('truncate text-xs', error ? 'text-destructive' : 'text-muted-foreground')}
-            title={error ?? task.reason}
-          >
-            {error ?? task.reason}
-          </p>
+          <Hint label={error ?? task.reason} whenClipped>
+            <p
+              className={cn(
+                'truncate text-xs',
+                error ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {error ?? task.reason}
+            </p>
+          </Hint>
         )}
       </div>
       {task.status === 'suggested' ? (
@@ -110,6 +116,7 @@ function TaskStatus({
   child: Session | undefined;
   workspaceId: string | undefined;
 }) {
+  const entry = useSessionEntry(task.sessionId);
   const outcome = task.status === 'reported' ? task.outcome : undefined;
   const failed = outcome === 'failed' || outcome === 'interrupted';
   const content =
@@ -137,14 +144,19 @@ function TaskStatus({
     failed ? 'text-destructive' : 'text-muted-foreground hover:text-foreground',
   );
   if (!workspaceId || !task.sessionId) return <span className={className}>{content}</span>;
-  return (
+  const link = (
     <Link
       to={paths.session(workspaceId, task.sessionId)}
-      title={t('suggest.open')}
+      aria-label={`${t('suggest.open')} · ${task.title}`}
       className={className}
-    >
+    />
+  );
+  // 悬停看那个会话的状态、项目与标题（同消息里的会话胶囊）。
+  if (!entry) return <Link {...link.props}>{content}</Link>;
+  return (
+    <SessionPreview entry={entry} trigger={link}>
       {content}
-    </Link>
+    </SessionPreview>
   );
 }
 
@@ -178,17 +190,18 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
     // 回合结束后才到的回报自成一块（间距由消息流定），不再加自己的上下边距。
     <div className="my-2 flex in-data-[message-role=system]:my-0" data-task-report={outcome}>
       {parent && task.sessionId ? (
-        <Link
-          to={paths.session(parent.workspaceId, task.sessionId)}
-          title={part.summary}
-          className={cn(
-            className,
-            'hover:border-border-strong focus-visible:focus-field',
-            ok && 'hover:text-foreground',
-          )}
-        >
-          {content}
-        </Link>
+        <Hint label={part.summary}>
+          <Link
+            to={paths.session(parent.workspaceId, task.sessionId)}
+            className={cn(
+              className,
+              'hover:border-border-strong focus-visible:focus-field',
+              ok && 'hover:text-foreground',
+            )}
+          >
+            {content}
+          </Link>
+        </Hint>
       ) : (
         <span className={className}>{content}</span>
       )}

@@ -1,5 +1,6 @@
 import type { UserImagePart } from '@wevir/protocol';
 import { useState } from 'react';
+import { Hint } from '@/components/hint';
 import { ImageReveal, revealWidth } from '@/fx/image-reveal';
 import { t } from '@/i18n';
 import { ImagePreview, useImageData } from './image-attachments';
@@ -67,24 +68,25 @@ function GeneratedImageView({
   }
   return (
     <>
-      <button
-        type="button"
-        disabled={src === undefined}
-        onClick={() => setOpen(true)}
-        aria-label={t('image.preview')}
-        title={image === undefined ? undefined : alt}
-        {...(image !== undefined && { 'data-image-id': image.imageId })}
-        style={{ width: revealWidth(size) }}
-        className="block max-w-full cursor-zoom-in rounded-lg outline-none focus-visible:focus-field disabled:cursor-default"
-      >
-        <ImageReveal
-          src={src}
-          alt={image === undefined ? t('image.generating') : alt}
-          size={size}
-          revealKey={src === undefined ? undefined : image?.imageId}
-          animate={animate}
-        />
-      </button>
+      <Hint label={image === undefined ? undefined : alt}>
+        <button
+          type="button"
+          disabled={src === undefined}
+          onClick={() => setOpen(true)}
+          aria-label={t('image.preview')}
+          {...(image !== undefined && { 'data-image-id': image.imageId })}
+          style={{ width: revealWidth(size) }}
+          className="block max-w-full cursor-zoom-in rounded-lg outline-none focus-visible:focus-field disabled:cursor-default"
+        >
+          <ImageReveal
+            src={src}
+            alt={image === undefined ? t('image.generating') : alt}
+            size={size}
+            revealKey={src === undefined ? undefined : image?.imageId}
+            animate={animate}
+          />
+        </button>
+      </Hint>
       <ImagePreview src={open ? src : undefined} name={alt} onClose={() => setOpen(false)} />
     </>
   );

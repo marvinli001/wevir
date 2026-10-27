@@ -107,6 +107,12 @@ export class CodexPlugins {
   #names = new Set<string>();
   #roots = '';
   #enabledNames = new Set<string>();
+  /**
+   * 上次应用成功时的配置与列过 skill 的目录。Codex 报 `skills/changed`、进程换代时清掉。见 `#sync`。
+   */
+  #listed: { config: string; cwds: Set<string> } | undefined;
+  /** 收到过几次 `skills/changed`：列的时候收到的，这次列的结果不记。 */
+  #skillsChanges = 0;
 
   constructor(
     process: CodexProcess,
@@ -119,6 +125,10 @@ export class CodexPlugins {
   }
 
   notification(method: string): void {
+    if (method === 'skills/changed') {
+      this.#listed = undefined;
+      this.#skillsChanges += 1;
+    }
     if (method === 'skills/changed' || method === 'mcpServer/startupStatus/updated')
       this.source?.changed();
   }
@@ -141,8 +151,10 @@ export class CodexPlugins {
       this.#names.clear();
       this.#enabledNames.clear();
       this.#roots = '';
+      this.#listed = undefined;
     }
     const config = await this.source.read(cwd);
+    const configKey = JSON.stringify(config);
     const extraRoots = [
       ...new Set([
         config.skillsRoot,
@@ -154,12 +166,24 @@ export class CodexPlugins {
       await this.#process.request('skills/extraRoots/set', { extraRoots });
       this.#roots = rootsKey;
     }
-    const cwds = [
-      ...new Set([
-        ...(cwd === undefined ? [] : [cwd]),
-        ...this.#threads().map((thread) => thread.cwd),
-      ]),
-    ];
+    const open = new Set(this.#threads().map((thread) => thread.cwd));
+    const cwds = [...new Set([...(cwd === undefined ? [] : [cwd]), ...open])];
+    // 不再列一遍 skill（Codex 那边 forceReload 要重读全部 SKILL.md）：配置没变、上次列过这些目录、之后 Codex 没报
+    // skills/changed，而且这些目录都开着 thread。Codex 只盯着开着的 thread 的 skill 目录，没开 thread 的目录里新加的 skill
+    // 不会通知，要重列，免得没登记的外部 skill 在新 thread 里按默认开着。
+    const listed = this.#listed;
+    if (
+      listed !== undefined &&
+      listed.config === configKey &&
+      cwds.every((dir) => open.has(dir) && listed.cwds.has(dir))
+    ) {
+      return;
+    }
+    const changes = this.#skillsChanges;
+    const remember = () => {
+      if (changes === this.#skillsChanges)
+        this.#listed = { config: configKey, cwds: new Set(cwds) };
+    };
     const listing = await this.#process.request<SkillsList>('skills/list', {
       cwds,
       forceReload: true,
@@ -172,7 +196,10 @@ export class CodexPlugins {
       rules: [...rules].sort(([a], [b]) => a.localeCompare(b)),
     };
     const fingerprint = JSON.stringify(effective);
-    if (fingerprint === this.#applied) return;
+    if (fingerprint === this.#applied) {
+      remember();
+      return;
+    }
     const names = new Set(config.connectors.map((item) => item.name));
     const edits: Array<{ keyPath: string; value: unknown; mergeStrategy: 'replace' }> = [
       { keyPath: 'skills.include_instructions', value: true, mergeStrategy: 'replace' },
@@ -204,6 +231,7 @@ export class CodexPlugins {
       config.connectors.filter((item) => item.enabled).map((item) => item.name),
     );
     this.#applied = fingerprint;
+    remember();
   }
 
   async status(): Promise<EngineConnectorStatus[]> {

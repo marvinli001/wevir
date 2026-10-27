@@ -3,6 +3,7 @@
 
 import type { SessionGoal } from '@wevir/protocol';
 import { GoalIcon } from '@/components/command-icons';
+import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
 import { presentGoal } from './goal-model';
@@ -51,12 +52,11 @@ export function GoalBanner({
           </Button>
         </span>
       </div>
-      <p
-        className="mt-0.5 line-clamp-2 text-sm break-words whitespace-pre-wrap"
-        title={goal.objective}
-      >
-        {goal.objective}
-      </p>
+      <Hint label={goal.objective} whenClipped>
+        <p className="mt-0.5 line-clamp-2 text-sm break-words whitespace-pre-wrap">
+          {goal.objective}
+        </p>
+      </Hint>
     </section>
   );
 }

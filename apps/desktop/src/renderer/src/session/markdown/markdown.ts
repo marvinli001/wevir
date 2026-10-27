@@ -15,6 +15,7 @@ import DOMPurify from 'dompurify';
 import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
+import { sessionHrefId } from '@/session/session-link-model';
 import { repairStreamingMarkdown } from './stream-safe';
 
 export function escapeHtml(value: string): string {
@@ -84,6 +85,11 @@ export const renderer: RendererObject<string, string> = {
     if (external) {
       return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
     }
+    // 会话链接（`wevir://session/<id>` 或 `#<id>`）：胶囊，悬停与点击由 session-link.tsx 的 MarkdownSessionLinks 处理。
+    const sessionId = sessionHrefId(href);
+    if (sessionId) {
+      return `<a href="#" class="session-pill" data-session-link="${sessionId}"${titleAttr}>${inner}</a>`;
+    }
     // 文件链接（U32，Codex 写 `[a.ts](/绝对路径/a.ts:12)`）：点开时由 markdown-view.tsx 交给文件窗格。
     if (parseFileHref(href)) {
       return `<a href="#" data-file-link="${escapeHtml(href)}"${titleAttr}>${inner}</a>`;
@@ -111,6 +117,7 @@ export const SANITIZE_ATTR = [
   'data-code-copy',
   'data-external-link',
   'data-file-link',
+  'data-session-link',
 ];
 
 function sanitize(html: string): string {
