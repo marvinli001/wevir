@@ -5,7 +5,6 @@
 import type { ChatPart, Transcript } from '@wevir/client-sdk';
 import type { ApprovalRequest, SubagentStatus, SubagentSummary } from '@wevir/protocol';
 import { t } from '@/i18n';
-import { formatDuration } from './format';
 
 export type EndedStatus = Exclude<SubagentStatus, 'running'>;
 
@@ -92,6 +91,31 @@ export function groupSubagents(subagents: readonly SubagentSummary[]): SubagentG
   };
 }
 
+/**
+ * “后台任务”的“清除已完成”（desktop-layout.md §15）：记下当时已结束的里最晚的结束时刻（Host 的时钟），之后列表只留运行中的
+ * 与在那之后结束的。只是不显示，记录还在；又被父 agent 叫醒、再结束的重新出现。没有已结束的时返回 undefined。
+ */
+export function clearMark(subagents: readonly SubagentSummary[]): string | undefined {
+  let mark: string | undefined;
+  for (const summary of subagents) {
+    if (summary.status === 'running') continue;
+    const at = lastActivity(summary);
+    if (mark === undefined || at > mark) mark = at;
+  }
+  return mark;
+}
+
+export function withoutCleared(
+  subagents: readonly SubagentSummary[],
+  mark: string | undefined,
+): readonly SubagentSummary[] {
+  if (mark === undefined) return subagents;
+  const kept = subagents.filter(
+    (summary) => summary.status === 'running' || lastActivity(summary) > mark,
+  );
+  return kept.length === subagents.length ? subagents : kept;
+}
+
 /** 相对时间（截图 03 的“1 小时前”）：不到一分钟是“刚刚”，再往后是分钟、小时、天。 */
 export function formatRelativeTime(iso: string, now: number): string {
   const ms = now - Date.parse(iso);
@@ -101,15 +125,6 @@ export function formatRelativeTime(iso: string, now: number): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return t('time.hoursAgo', { n: hours });
   return t('time.daysAgo', { n: Math.floor(hours / 24) });
-}
-
-/** 详情顶部的“用时 3 分 14 秒”；运行中的从派出算到现在。 */
-export function elapsedText(summary: SubagentSummary, now: number): string {
-  const end = summary.status === 'running' ? now : Date.parse(summary.endedAt ?? '') || now;
-  const duration = formatDuration(end - Date.parse(summary.startedAt));
-  return summary.status === 'running'
-    ? t('subagent.detail.running', { duration })
-    : t('subagent.detail.elapsed', { duration });
 }
 
 // ── 父会话的消息流 ──────────────────────────────────────────────────

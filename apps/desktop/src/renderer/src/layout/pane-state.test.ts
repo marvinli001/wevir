@@ -52,7 +52,6 @@ describe('pane-kinds', () => {
 
   it('正式构建只能打开已经实现的种类，开发模式下还有占位', () => {
     expect(openableKinds(false)).toEqual([
-      'subagents',
       'changes',
       'files',
       'tasks',
@@ -67,6 +66,8 @@ describe('pane-kinds', () => {
     expect(openableKinds(true)).toContain('plan');
     // 支线窗格（U23.1）只由 /btw 打开。
     expect(openableKinds(true)).not.toContain('session');
+    // “子智能体”并进了“后台任务”，只为读回旧的本机状态。
+    expect(openableKinds(true)).not.toContain('subagents');
   });
 
   it('外壳没有内置浏览器、连接没有 terminal.write、Host 没有模拟器时不列这几种', () => {
