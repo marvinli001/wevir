@@ -38,7 +38,7 @@ import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
-import { platformApi } from '@/platform/platform';
+import { capabilities, platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { type ComposerAction, ComposerButton } from './composer-button';
 import {
@@ -55,6 +55,7 @@ import {
   dragHasFiles,
   type ImageRejection,
   pickImages,
+  splitFiles,
 } from './composer-images';
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
 import { isLargePaste, registerPaste } from './composer-pastes';
@@ -200,6 +201,7 @@ export function insertQuote(draftKey: string, selected: string): void {
  *
  * 0.28.0 起照 Codex 桌面端、Claude Code 桌面端与 T3 Code 带图片（`acceptImages` 时）：粘贴、拖进输入框或从“+”菜单的
  * “图片”选，立即传给 Host，缩略图排在文字上方（右上角移除，点开看大图）；传完之前不能发送，只有图片也能发。
+ * 不是图片的文件（或模型不收图片时的任何文件）粘贴、拖进来都插入成 @ 提及，没选目录时用绝对路径。
  *
  * 0.36.0 起有计划模式（`plan`，见 `ComposerPlan`）。
  *
@@ -365,6 +367,24 @@ export function Composer({
     }
   };
 
+  /**
+   * 粘贴或拖进来的文件：图片照旧上传，其余的插入成 @ 提及（目录里的用相对路径）。取不到路径的（连着别的电脑上的 Host、剪贴板里
+   * 只有图像数据）当图片处理，不能发时提示格式不支持。
+   */
+  const addFiles = (files: readonly File[], named: boolean) => {
+    const { images: picked, others } = splitFiles(files, imagesEnabled);
+    const resolved = others.map((file) => ({
+      file,
+      path: localFiles ? platformApi().getPathForFile(file) : '',
+    }));
+    if (picked.length > 0) addImages(picked, named);
+    const unresolved = resolved.find((entry) => entry.path === '');
+    if (unresolved) setImageError(t('composer.imageUnsupported', { name: unresolved.file.name }));
+    else if (picked.length === 0) setImageError(undefined);
+    const paths = resolved.flatMap((entry) => (entry.path === '' ? [] : [entry.path]));
+    if (paths.length > 0) insertPaths(paths);
+  };
+
   const removeImage = (key: string) => {
     updateImages((current) => current.filter((image) => image.key !== key));
     setImageError(undefined);
@@ -377,10 +397,10 @@ export function Composer({
    */
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files);
-    if (imagesEnabled && files.length > 0) {
+    if (files.length > 0 && (imagesEnabled || localFiles)) {
       event.preventDefault();
       // 截图粘贴进来的文件都叫 image.png，不带名字。
-      addImages(files, false);
+      addFiles(files, false);
       return;
     }
     const pasted = event.clipboardData.getData('text/plain');
@@ -392,7 +412,8 @@ export function Composer({
   };
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!imagesEnabled || !dragHasFiles(Array.from(event.dataTransfer.types))) return;
+    if (!(imagesEnabled || localFiles) || !dragHasFiles(Array.from(event.dataTransfer.types)))
+      return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     setDragging(true);
@@ -406,9 +427,9 @@ export function Composer({
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     setDragging(false);
-    if (!imagesEnabled || event.dataTransfer.files.length === 0) return;
+    if (!(imagesEnabled || localFiles) || event.dataTransfer.files.length === 0) return;
     event.preventDefault();
-    addImages(Array.from(event.dataTransfer.files), true);
+    addFiles(Array.from(event.dataTransfer.files), true);
     textareaRef.current?.focus();
   };
 
@@ -425,6 +446,8 @@ export function Composer({
   const [active, setActive] = useState(0);
   const filesSupported = useFilesSupported();
   const canMention = fileScope !== undefined && filesSupported;
+  /** 路径指这台电脑上的文件（外壳的 `localFiles`）：没选目录也能用选择框与拖放带文件。 */
+  const localFiles = capabilities().localFiles && !disabled;
   const slash =
     commands && commands.length > 0 ? slashMenuState(text, cursor, commands) : undefined;
   const mention = !slash && canMention ? detectMentionTrigger(text, cursor) : null;
@@ -619,20 +642,24 @@ export function Composer({
     }
   };
 
-  /** “+”菜单的“文件和文件夹”：系统的选择框，选中的插入成 @ 提及（目录里的用相对路径）。 */
+  /** 插入成 @ 提及：目录里的用相对路径，目录外的（或没选目录）用绝对路径。 */
+  const insertPaths = (paths: readonly string[]) => {
+    const mentions = paths.map((path) =>
+      mentionText((fileScope && toRelativePath(path, fileScope.root)) ?? path),
+    );
+    insertAtCursor(`${mentions.join(' ')} `);
+  };
+
+  /** “+”菜单的“文件和文件夹”：系统的选择框，选中的插入成 @ 提及。 */
   const attachPaths = async () => {
-    if (!fileScope) return;
     const chosen = await platformApi()
-      .selectPaths(fileScope.root)
+      .selectPaths(fileScope?.root)
       .catch(() => []);
     if (chosen.length === 0) {
       textareaRef.current?.focus();
       return;
     }
-    const mentions = chosen.map((path) =>
-      mentionText(toRelativePath(path, fileScope.root) ?? path),
-    );
-    insertAtCursor(`${mentions.join(' ')} `);
+    insertPaths(chosen);
   };
 
   /** 菜单开着时的按键：返回 true 表示已处理。 */
@@ -951,11 +978,12 @@ export function Composer({
             ) : (
               <>
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
-                  {(canMention || imagesEnabled || (commands?.length ?? 0) > 0) && (
+                  {(canMention || localFiles || imagesEnabled || (commands?.length ?? 0) > 0) && (
                     <ComposerPlusMenu
                       commands={commands ?? []}
                       disabled={disabled}
                       canMention={canMention}
+                      canAttachFiles={localFiles}
                       canAttachImages={imagesEnabled}
                       onAttachImages={() => imageInputRef.current?.click()}
                       canCommand={(commands?.length ?? 0) > 0 && text.trim() === ''}

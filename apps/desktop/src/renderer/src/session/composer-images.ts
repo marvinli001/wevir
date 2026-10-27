@@ -72,6 +72,22 @@ export function pickImages<F extends { name: string; type: string; size: number 
   return rejected === undefined ? { accepted } : { accepted, rejected };
 }
 
+/**
+ * 粘贴或拖进来的文件分两路：能发图片（`imagesEnabled`）时认得格式的走图片，其余的（.pem、.pdf、文件夹……）插入成 @ 提及。
+ */
+export function splitFiles<F extends { name: string; type: string }>(
+  files: readonly F[],
+  imagesEnabled: boolean,
+): { images: F[]; others: F[] } {
+  const images: F[] = [];
+  const others: F[] = [];
+  for (const file of files) {
+    if (imagesEnabled && imageMimeType(file) !== undefined) images.push(file);
+    else others.push(file);
+  }
+  return { images, others };
+}
+
 /** 拖进来的东西里有没有文件（拖动过程中读不到文件本身，只看类型）。 */
 export function dragHasFiles(types: readonly string[]): boolean {
   return types.includes('Files');

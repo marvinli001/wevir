@@ -17,13 +17,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { t } from '@/i18n';
-import { capabilities } from '@/platform/platform';
 import type { ComposerCommand } from './composer-commands';
 
 export function ComposerPlusMenu({
   commands,
   disabled,
   canMention,
+  canAttachFiles,
   canAttachImages,
   canCommand,
   onAttach,
@@ -37,6 +37,8 @@ export function ComposerPlusMenu({
   disabled: boolean;
   /** 有文件可提及（Host 支持、知道目录）。 */
   canMention: boolean;
+  /** 能用系统的选择框带文件（路径在这台电脑上，没选目录也行）。 */
+  canAttachFiles: boolean;
   /** 能带图片（0.28.0）。 */
   canAttachImages: boolean;
   /** 输入框为空，可以打开斜杠命令。 */
@@ -78,8 +80,7 @@ export function ComposerPlusMenu({
               {t('composer.attachImages')}
             </DropdownMenuItem>
           )}
-          {/* 系统的文件选择框只能选这台电脑上的文件（platform/platform.ts 的 `localFiles`）。 */}
-          {canMention && capabilities().localFiles && (
+          {canAttachFiles && (
             <DropdownMenuItem onClick={onAttach} data-action="attach-files">
               <Paperclip />
               {t('composer.attachFiles')}

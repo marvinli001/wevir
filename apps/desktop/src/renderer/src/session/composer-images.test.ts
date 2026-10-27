@@ -8,6 +8,7 @@ import {
   messageContent,
   modelAcceptsImages,
   pickImages,
+  splitFiles,
 } from './composer-images';
 
 const file = (name: string, type: string, size = 100) => ({ name, type, size });
@@ -63,6 +64,24 @@ describe('pickImages', () => {
     expect(pickImages([file('a.png', 'image/png')], 0)).toEqual({
       accepted: [{ file: file('a.png', 'image/png'), mimeType: 'image/png' }],
     });
+  });
+});
+
+describe('splitFiles', () => {
+  const files = [
+    file('shot.png', 'image/png'),
+    file('key.pem', ''),
+    file('notes.pdf', 'application/pdf'),
+  ];
+
+  it('能发图片时认得的图片走上传，其余的插入成提及', () => {
+    const { images, others } = splitFiles(files, true);
+    expect(images.map((f) => f.name)).toEqual(['shot.png']);
+    expect(others.map((f) => f.name)).toEqual(['key.pem', 'notes.pdf']);
+  });
+
+  it('不能发图片时全部插入成提及', () => {
+    expect(splitFiles(files, false)).toEqual({ images: [], others: files });
   });
 });
 
