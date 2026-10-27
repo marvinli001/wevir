@@ -348,7 +348,7 @@ describe('会话工具（照 Claude Code 2026-10-27）', () => {
     tool(id, 'unknown', {
       toolName: `mcp__wevir__wevir_session_${name}`,
       input,
-      ...(output !== undefined && { output: { text: output } }),
+      ...(output !== undefined && { output: { text: output, truncated: false } }),
     });
 
   it('发消息、开会话、查看会话各自计数，按会话去重；列出会话仍算普通工具', () => {
