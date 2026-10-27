@@ -1,7 +1,7 @@
 // iOS 模拟器（0.122.0）的 Host 一侧：真的拉起假 helper（test-fixtures/fake-ios-simulator.mjs），simctl 换成假的。覆盖请求与回答、
 // fd 3 帧的解析与转发、新订阅者先收配置与关键帧、积压丢帧、关键帧组超限、helper 崩溃与重启、停流、截图与录像。
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDir } from '../test-utils.js';
@@ -88,6 +88,17 @@ describe('simctl 的环境', () => {
 });
 
 describe.runIf(posix)('SimulatorService', () => {
+  it('启动时清空上次的输出：新目录立即可用，旧的在后台删掉', async () => {
+    const { service, dir } = setup();
+    const output = join(dir, 'simulator', 'output');
+    mkdirSync(output, { recursive: true });
+    writeFileSync(join(output, 'old.mp4'), 'x');
+    mkdirSync(join(dir, 'simulator', 'output.stale-left'), { recursive: true });
+    await service.init();
+    expect(readdirSync(output)).toEqual([]);
+    await until(() => readdirSync(join(dir, 'simulator')).every((name) => !name.includes('stale')));
+  });
+
   it('available：只在 macOS 上、helper 可执行时', async () => {
     const bin = fakeHelperBin(tempDir());
     expect(await SimulatorService.available(bin, 'darwin')).toBe(true);
