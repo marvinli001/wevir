@@ -15,16 +15,11 @@ import {
 import { AppState } from 'react-native';
 import type { ComputerLink } from '../lib/computer-link';
 import { notificationTarget } from '../lib/notifications';
-import {
-  type PushComputer,
-  type PushRegistrar,
-  type PushStatus,
-  readPushTarget,
-  targetIntent,
-} from '../lib/push';
+import { type PushComputer, type PushRegistrar, type PushStatus, targetIntent } from '../lib/push';
 import {
   ensureAndroidChannels,
   ensureIosCategory,
+  pushTargetOf,
   registerPushTask,
   setForegroundSuppression,
   setVerifyCodeSink,
@@ -45,7 +40,7 @@ let isOnline: (computer: string) => boolean = () => false;
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const target = readPushTarget(notification.request.content.data);
+    const target = await pushTargetOf(notification.request).catch(() => undefined);
     const show = target === undefined || !isOnline(target.computer);
     return {
       shouldShowBanner: show,
@@ -160,10 +155,17 @@ export function PushProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (lastResponse === undefined || lastResponse === null) return;
     if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
-    const target = readPushTarget(lastResponse.notification.request.content.data);
-    if (target === undefined) return;
-    Notifications.clearLastNotificationResponse();
-    router.push(notificationTarget(target.computer, targetIntent(target)));
+    let stopped = false;
+    void pushTargetOf(lastResponse.notification.request)
+      .catch(() => undefined)
+      .then((target) => {
+        if (stopped || target === undefined) return;
+        Notifications.clearLastNotificationResponse();
+        router.push(notificationTarget(target.computer, targetIntent(target)));
+      });
+    return () => {
+      stopped = true;
+    };
   }, [lastResponse, router]);
 
   const setHideOnLockScreen = useCallback((value: boolean) => setHide(value), []);

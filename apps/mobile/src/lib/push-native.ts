@@ -19,9 +19,11 @@ import {
   type DeviceToken,
   openPush,
   PUSH_TARGET_KEY,
+  type PushTarget,
   parsePushData,
   pushContent,
   pushTarget,
+  readPushTarget,
   replayGuards,
   type TokenUnavailable,
 } from './push';
@@ -177,6 +179,28 @@ TaskManager.defineTask<Notifications.NotificationTaskPayload>(
 );
 
 /** 登记后台任务（App 每次启动调一次；没装原生模块的环境里静默失败）。 */
+/**
+ * 一条系统通知要去的会话或助理：先看通知服务扩展写进去的 `wevirTarget`；没有时（扩展没跑成：超时、出错，或模拟器上的
+ * `simctl push`，系统就显示原样的“需要处理”）用钥匙串里的推送密钥在 App 里再解一次原始载荷。只为找去处，不查也不记重放。
+ */
+export async function pushTargetOf(
+  request: Notifications.NotificationRequest,
+): Promise<PushTarget | undefined> {
+  const trigger = request.trigger as { payload?: unknown } | null;
+  for (const raw of [request.content.data, trigger?.payload]) {
+    const target = readPushTarget(raw);
+    if (target !== undefined) return target;
+  }
+  for (const raw of [request.content.data, trigger?.payload]) {
+    const parsed = parsePushData(raw);
+    if (parsed?.kind !== 'push') continue;
+    const keys = await loadPushKeys(await readSharedState());
+    const opened = openPush(parsed.payload, keys, replayGuards({}).guard);
+    return opened.kind === 'ok' ? pushTarget(opened.computer, opened.message) : undefined;
+  }
+  return undefined;
+}
+
 export function registerPushTask(): void {
   Notifications.registerTaskAsync(PUSH_TASK).catch((cause: unknown) =>
     console.warn('[wevir] could not register the push task', cause),
