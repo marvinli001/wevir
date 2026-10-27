@@ -1,5 +1,8 @@
 // 本地缓存的表结构与读写：用 Node 自带的 SQLite（同一套 SQL），加密只在真机的 SQLCipher 上（cache-store.ts）。
 
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { describe, expect, it, vi } from 'vitest';
@@ -56,7 +59,7 @@ const SES = 'ses_1' as SessionId;
 
 describe('ComputerCache', () => {
   it('存取会话列表与对话；重开同一个库仍在', async () => {
-    const file = `${process.env.TMPDIR ?? '/tmp'}/wevir-cache-${process.pid}-${Date.now()}.db`;
+    const file = join(tmpdir(), `wevir-cache-${process.pid}-${Date.now()}.db`);
     let now = new Date('2026-10-27T08:00:00.000Z');
     const first = await ComputerCache.open(nodeDb(file), () => now);
     expect(await first.loadSessions()).toBeUndefined();
@@ -76,7 +79,6 @@ describe('ComputerCache', () => {
     expect(loaded).toMatchObject({ savedAt: '2026-10-27T08:01:00.000Z', truncated: false });
     expect(loaded?.events).toHaveLength(6);
     await second.close();
-    const { rmSync } = await import('node:fs');
     rmSync(file, { force: true });
   });
 
