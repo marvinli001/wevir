@@ -330,11 +330,7 @@ function StatusTree() {
     );
   }
   const rowContent = ({ session, workspace }: Pick<StatusRow, 'session' | 'workspace'>) => (
-    <SessionRow
-      workspaceId={workspace.id}
-      session={session}
-      unread={isUnread(seen, session)}
-    />
+    <SessionRow workspaceId={workspace.id} session={session} unread={isUnread(seen, session)} />
   );
   const row = (entry: StatusRow) => (
     <ThreadItem
