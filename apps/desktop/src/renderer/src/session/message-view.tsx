@@ -36,6 +36,7 @@ import { providerLogo } from '@/settings/provider-catalog';
 import { lineCount } from './composer-pastes';
 import { CopyButton } from './copy-button';
 import { FindingsCard } from './findings-card';
+import { useTranscriptSessionId } from './fold-state';
 import { formatMessageTime } from './format';
 import { GeneratedImage } from './generated-image';
 import { GuardrailPart } from './guardrail-part';
@@ -315,8 +316,11 @@ function RelayedMessage({ message }: { message: UserChatMessage }) {
   const id = useId();
   const from = message.from;
   const source = useSessionEntry(from?.sessionId)?.session;
+  const own = useTranscriptSessionId();
   if (from === undefined) return null;
   const report = from.kind === 'report';
+  // 几个子会话的回报合成一条时 `from` 指向这个会话自己（Host 的 `#tryWake`）：头部写“子会话的回报”。
+  const merged = report && from.sessionId === own && from.channel === undefined;
   const raw = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
   // 回报的正文是 Host 发给模型的英文外壳，只显示那个会话的回答。
   const text = report ? reportBody(raw) : raw;
@@ -339,9 +343,11 @@ function RelayedMessage({ message }: { message: UserChatMessage }) {
       >
         <Icon aria-hidden className="size-4 shrink-0" />
         <span className="min-w-0 truncate">
-          {report
-            ? t('transcript.reportFrom', { title: source?.title || t('session.untitled') })
-            : t('transcript.relayed.message')}
+          {merged
+            ? t('transcript.reportsMerged')
+            : report
+              ? t('transcript.reportFrom', { title: source?.title || t('session.untitled') })
+              : t('transcript.relayed.message')}
         </span>
         <ChevronDown
           aria-hidden
@@ -350,10 +356,12 @@ function RelayedMessage({ message }: { message: UserChatMessage }) {
       </button>
       <Collapse open={open} id={id}>
         <div className="px-3 pb-2.5">
-          <p className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
-            <span className="shrink-0">{t('transcript.relayed.from')}</span>
-            <SessionLink sessionId={from.sessionId} className="min-w-0 truncate" />
-          </p>
+          {!merged && (
+            <p className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+              <span className="shrink-0">{t('transcript.relayed.from')}</span>
+              <SessionLink sessionId={from.sessionId} className="min-w-0 truncate" />
+            </p>
+          )}
           {text.trim() !== '' && <FoldedMarkdown text={text} />}
           {message.steered && (
             <p className="mt-1 text-xs text-muted-foreground" data-steered>

@@ -825,6 +825,7 @@ export const zhCN = {
   'transcript.fromParentAgent': '来自父智能体的任务',
   'transcript.fromSession': '来自“{title}”',
   'transcript.reportFrom': '“{title}”的回报',
+  'transcript.reportsMerged': '子会话的回报',
   'transcript.relayed.message': '来自另一个会话的消息',
   'transcript.relayed.from': '来自：',
   'transcript.processExited': '后台进程“{name}”已退出（退出码 {code}）',

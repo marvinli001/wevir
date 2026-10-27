@@ -827,6 +827,7 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Задача от родительского агента',
   'transcript.fromSession': 'От «{title}»',
   'transcript.reportFrom': 'Отчёт от «{title}»',
+  'transcript.reportsMerged': 'Отчёты вложенных сессий',
   'transcript.relayed.message': 'Сообщение из другого сеанса',
   'transcript.relayed.from': 'От:',
   'transcript.processExited': 'Фоновый процесс «{name}» завершён (код {code})',

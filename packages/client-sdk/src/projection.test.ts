@@ -1361,6 +1361,29 @@ describe('建议的后续任务（0.16.0）', () => {
     projection.reset();
     expect(projection.snapshot().suggestedTasks).toEqual([]);
   });
+
+  it('任务会话的回报消息到了：先前的 task_report 部件让给它，只装着它的系统消息整条去掉', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('tasks.suggested', { toolCallId: 'call_suggest_1', turnId: TURN, tasks: [A] });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    add('task.started', { taskId: A.id, sessionId: CHILD });
+    add('task.reported', { taskId: A.id, sessionId: CHILD, outcome: 'completed' });
+    expect(projectTranscript(list).messages.at(-1)?.parts[0]?.type).toBe('task_report');
+    add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: 'Session report' }],
+      sentBy: identity,
+      from: { sessionId: CHILD, kind: 'report' },
+    });
+    const messages = projectTranscript(list).messages;
+    expect(messages.flatMap((m) => m.parts).some((p) => p.type === 'task_report')).toBe(false);
+    expect(messages.at(-1)).toMatchObject({
+      role: 'user',
+      from: { sessionId: CHILD, kind: 'report' },
+    });
+  });
 });
 
 describe('命令回合与上下文压缩（0.24.0）', () => {

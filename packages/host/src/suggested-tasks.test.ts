@@ -90,7 +90,7 @@ describe('建议的后续任务', () => {
     expect(h.errors).toEqual([]);
   });
 
-  it('开成会话：origin 记在新会话上，提出建议的会话写 task.started；第一个回合结束时回报并补说明，之后不再回报', async () => {
+  it('开成会话：origin 记在新会话上，提出建议的会话写 task.started；第一个回合结束时写 task.reported，之后不再写（回报笔记由应用级工具交）', async () => {
     const h = setup();
     const inject = vi.spyOn(h.adapter, 'injectNote');
     const parent = await h.create();
@@ -125,27 +125,19 @@ describe('建议的后续任务', () => {
       outcome: 'completed',
       summary: `Echo: ${task.prompt}`,
     });
-    expect(inject).toHaveBeenCalledTimes(1);
-    expect(inject.mock.calls[0]?.[1]).toContain(`"${task.title}"`);
-
-    // 提出建议的会话下一个回合，模型（echo）看得到这条说明。
-    await h.send(parent, 'hello');
-    await h.settle(parent);
-    const answer = h.all(parent).findLast((e) => e.type === 'assistant.message');
-    expect(answer?.type === 'assistant.message' && answer.payload.text).toContain(
-      `Notes: The user started the follow-up task you suggested, "${task.title}"`,
-    );
+    // 交给提出建议的会话的笔记与续上它在 AppTools（app-tools.test.ts），SessionManager 自己不补说明。
+    expect(inject).not.toHaveBeenCalled();
 
     // 第二个回合不再回报。
     await h.settle(child);
     await h.send(child, 'again');
     await h.settle(child);
     expect(h.all(parent).filter((e) => e.type === 'task.reported')).toHaveLength(1);
-    expect(inject).toHaveBeenCalledTimes(1);
+    expect(inject).not.toHaveBeenCalled();
     expect(h.errors).toEqual([]);
   });
 
-  it('回合失败也回报；提出建议的会话关着时只写事件，不补说明', async () => {
+  it('回合失败也写 task.reported；提出建议的会话关着时也写', async () => {
     const h = setup();
     const inject = vi.spyOn(h.adapter, 'injectNote');
     const parent = await h.create();

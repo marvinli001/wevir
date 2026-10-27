@@ -823,6 +823,7 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Aufgabe vom übergeordneten Agenten',
   'transcript.fromSession': 'Von „{title}“',
   'transcript.reportFrom': 'Bericht von „{title}“',
+  'transcript.reportsMerged': 'Berichte verschachtelter Sitzungen',
   'transcript.relayed.message': 'Nachricht aus einer anderen Sitzung',
   'transcript.relayed.from': 'Von:',
   'transcript.processExited': 'Hintergrundprozess „{name}“ beendet (Code {code})',

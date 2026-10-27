@@ -813,6 +813,7 @@ export const messages: Messages = {
   'transcript.fromParentAgent': '상위 에이전트의 작업',
   'transcript.fromSession': '“{title}”에서 보냄',
   'transcript.reportFrom': '“{title}”의 보고',
+  'transcript.reportsMerged': '중첩된 세션의 보고',
   'transcript.relayed.message': '다른 세션에서 온 메시지',
   'transcript.relayed.from': '보낸 곳:',
   'transcript.processExited': '백그라운드 프로세스 “{name}” 종료(종료 코드 {code})',

@@ -811,6 +811,7 @@ export const messages: Messages = {
   'transcript.fromParentAgent': '來自上層代理的工作',
   'transcript.fromSession': '來自「{title}」',
   'transcript.reportFrom': '「{title}」的回報',
+  'transcript.reportsMerged': '子工作階段的回報',
   'transcript.relayed.message': '來自另一個工作階段的訊息',
   'transcript.relayed.from': '來自：',
   'transcript.processExited': '背景程序「{name}」已結束（結束代碼 {code}）',

@@ -825,6 +825,7 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Tarea del agente principal',
   'transcript.fromSession': 'De «{title}»',
   'transcript.reportFrom': 'Informe de «{title}»',
+  'transcript.reportsMerged': 'Informes de sesiones anidadas',
   'transcript.relayed.message': 'Mensaje de otra sesión',
   'transcript.relayed.from': 'De:',
   'transcript.processExited': 'Proceso en segundo plano «{name}» finalizado (código {code})',

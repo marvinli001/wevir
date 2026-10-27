@@ -122,8 +122,10 @@ const LIST_PROGRESS_MAX = 20;
 const SUBAGENTS_MAX = 20;
 /** 一个回合里最多告诉请求方几次“对方卡在等用户上”。 */
 const BLOCKED_NOTICES_MAX = 5;
-/** 记着多少条还在请求方队列里的回报（够 `wevir_session_wait` 撤回最近的）。 */
-const QUEUED_REPORTS_MAX = 200;
+/** 回报笔记里最后回答的长度上限（按码点）：只给开头，全文让 agent 用 `wevir_session_read` 去读。 */
+export const NOTE_ANSWER_MAX_CHARS = 400;
+/** 父会话连续被回报续上多少次（中间没有用户的消息）之后，笔记压到用户下一次发言再带上（防环）。 */
+export const AUTO_WAKE_MAX = 5;
 
 const ACTIVE = new Set(['running', 'awaiting_approval', 'cancelling']);
 /**
@@ -254,11 +256,12 @@ export class AppTools {
   readonly #waiters = new Map<SessionId, Map<SessionId, number>>();
   /** 已经由 `wevir_session_wait` 交给请求方的回合（`<会话>:<回合>`），不再回报。 */
   readonly #delivered = new Set<string>();
-  /**
-   * 排进了请求方队列的回报（`<会话>:<回合>` → 请求方与待发消息）：回合在请求方调 `wevir_session_wait` 之前就结束、请求方又
-   * 正忙时，回报先排了队；之后等到同一个回合的结果，就把排队的回报撤回。
-   */
-  readonly #queuedReports = new Map<string, { target: SessionId; pendingId: PendingMessageId }>();
+  /** 攒着、还没交给父会话的回报笔记：父会话 → 笔记，按到达的先后（`#tryWake` 一次交出去）。 */
+  readonly #notes = new Map<SessionId, ReportNote[]>();
+  /** 父会话连续被回报续上的次数，与续上那一刻它的 `lastSeq`（之后有用户的消息就从零算起）。 */
+  readonly #wakes = new Map<SessionId, { count: number; seq: number }>();
+  /** 父会话用 reportBack 交给别的会话、还没结束的回合：父会话 → 对方会话。 */
+  readonly #outstanding = new Map<SessionId, Set<SessionId>>();
   /**
    * 请求方的 `wevir_session_wait` 刚因为对方在等用户而返回：`目标\0请求方` → 当时的时刻。接着到的“对方在等用户”回报就不再发
    * （请求方已经从 wait 得知）。
@@ -466,7 +469,8 @@ export class AppTools {
     // （没人接住，Host 会崩）：例如 Host 正在退出、存储已经关了。
     setImmediate(() => {
       try {
-        this.#report(info);
+        this.#noteTurn(info);
+        this.#wakeAround(info.sessionId);
       } catch (error) {
         this.#options.onWarning?.('应用级工具的回报没能发给请求方', {
           sessionId: info.sessionId,
@@ -491,50 +495,165 @@ export class AppTools {
     return from.sessionId as SessionId;
   }
 
-  #report(info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }): void {
+  /**
+   * 回报（照 Claude Code 的子会话回报）：子会话的一个回合结束，给父会话记一条短笔记（标题、ID、结局、最后回答的开头），不单独开
+   * 回合。父会话要回报的回合（`reportBack` 的消息开始的，或建议开出的会话的第一个回合）的笔记攒着，等父会话空闲、它的子会话都不在
+   * 跑时合成一条消息续上它一次（`#tryWake`）；用户在子会话里自己做的回合不叫醒父会话，能补进父会话的上下文就补，补不进去等下一次
+   * 续上一起带上。请求方已经用 `wevir_session_wait` 拿到的回合不记。
+   */
+  #noteTurn(info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }): void {
+    for (const targets of this.#outstanding.values()) targets.delete(info.sessionId);
     const key = `${info.sessionId}:${info.turnId}`;
     if (this.#delivered.delete(key)) return;
     const events = this.#options.events.readSince(info.sessionId, 0);
-    const target = this.#requesterOf(info.sessionId, info.turnId, events);
-    if (target === undefined) return;
-    if (this.#waiters.get(info.sessionId)?.has(target)) return;
+    const route = this.#reportRoute(info.sessionId, info.turnId, events);
+    if (route === undefined) return;
+    const { parent, wake } = route;
+    if (this.#waiters.get(info.sessionId)?.has(parent)) return;
+    if (this.#options.storage.sessions.get(parent)?.archivedAt !== undefined) return;
     const session = this.#options.events.snapshot(info.sessionId)?.session;
     const answer = lastAnswer(events, info.turnId);
     const error = info.outcome === 'failed' ? turnError(events, info.turnId) : undefined;
-    const text = reportText(info.sessionId, session?.title ?? '', info.outcome, answer, error);
-    const reportFrom: MessageFrom = { sessionId: info.sessionId, kind: 'report' };
+    const text = reportText(
+      info.sessionId,
+      session?.title ?? '',
+      info.outcome,
+      answer === undefined ? undefined : clipText(answer, NOTE_ANSWER_MAX_CHARS),
+      error,
+      wake,
+    );
+    const note: ReportNote = { key, child: info.sessionId, text, wake };
+    if (wake) {
+      this.#addNote(parent, note);
+      return;
+    }
+    void this.#options.sessions
+      .injectNote(parent, `${text}\n\n${READ_MORE}`)
+      .then((injected) => {
+        if (!injected) this.#addNote(parent, note);
+      })
+      .catch(() => this.#addNote(parent, note));
+  }
+
+  /**
+   * 这个回合的笔记交给谁、要不要叫醒它：父会话要回报的消息开始的回合叫醒那个会话；建议开出的会话的第一个回合叫醒提出建议的会话；
+   * 之后在这些会话里（用户自己）做的回合，以及 agent 开出、要了回报的会话里别的回合，只记给开出它的会话。别的回合不记。
+   */
+  #reportRoute(
+    sessionId: SessionId,
+    turnId: TurnId,
+    events: readonly WevirEvent[],
+  ): { parent: SessionId; wake: boolean } | undefined {
+    const requester = this.#requesterOf(sessionId, turnId, events);
+    if (requester !== undefined) return { parent: requester, wake: true };
+    const origin = this.#options.storage.sessions.get(sessionId)?.origin;
+    const first = events.find(
+      (event): event is Extract<WevirEvent, { type: 'user.message' }> =>
+        event.type === 'user.message',
+    );
+    if (origin?.kind === 'suggested_task') {
+      return { parent: origin.sessionId as SessionId, wake: first?.payload.turnId === turnId };
+    }
+    const opener = first?.payload.from;
+    if (
+      origin?.kind === 'agent' &&
+      opener?.kind === 'message' &&
+      opener.reportBack === true &&
+      opener.sessionId === origin.sessionId
+    ) {
+      return { parent: origin.sessionId as SessionId, wake: false };
+    }
+    return undefined;
+  }
+
+  #addNote(parent: SessionId, note: ReportNote): void {
+    const notes = this.#notes.get(parent) ?? [];
+    notes.push(note);
+    this.#notes.set(parent, notes);
+    this.#tryWake(parent);
+  }
+
+  /** 一个会话的回合结束：它自己（作为父会话）与开出它、等它回报的会话都看看能不能续上了。 */
+  #wakeAround(sessionId: SessionId): void {
+    this.#tryWake(sessionId);
+    for (const parent of this.#notes.keys()) {
+      if (parent !== sessionId) this.#tryWake(parent);
+    }
+  }
+
+  /** 和父会话有关的会话：它开出的（agent 开的、建议开的，没归档的），以及它用 reportBack 交出去、还没结束的。 */
+  #linked(parent: SessionId): Session[] {
+    const ids = new Set<SessionId>(this.#outstanding.get(parent) ?? []);
+    for (const record of this.#options.storage.sessions.list()) {
+      const origin = record.origin;
+      if (
+        (origin?.kind === 'agent' || origin?.kind === 'suggested_task') &&
+        origin.sessionId === parent
+      ) {
+        ids.add(record.id as SessionId);
+      }
+    }
+    return [...ids].flatMap((id) => {
+      const session = this.#options.events.snapshot(id)?.session;
+      return session === undefined ? [] : [session];
+    });
+  }
+
+  /**
+   * 把攒着的笔记合成一条消息续上父会话：要有该叫醒的笔记，父会话空闲（不在跑、不只读、没有排着的消息），它的子会话都不在跑
+   * （等用户的不算在跑），而且没有连续续上 `AUTO_WAKE_MAX` 次（中间有用户的消息就重新算）。消息末尾附上有关会话的状态。
+   */
+  #tryWake(parent: SessionId): void {
+    const notes = this.#notes.get(parent);
+    if (notes === undefined || !notes.some((note) => note.wake)) return;
+    const snapshot = this.#options.events.snapshot(parent);
+    if (
+      snapshot === undefined ||
+      this.#options.storage.sessions.get(parent)?.archivedAt !== undefined
+    ) {
+      this.#notes.delete(parent);
+      return;
+    }
+    const { session } = snapshot;
+    if ((session.state !== 'idle' && session.state !== 'closed') || session.readOnly !== undefined)
+      return;
+    if (snapshot.pendingMessages?.some((pending) => pending.status === 'waiting')) return;
+    const linked = this.#linked(parent);
+    if (linked.some(isWorking)) return;
+    const wakes = this.#wakes.get(parent);
+    const count = wakes === undefined || this.#userSpokeSince(parent, wakes.seq) ? 0 : wakes.count;
+    if (count >= AUTO_WAKE_MAX) return;
+    this.#notes.delete(parent);
+    this.#wakes.set(parent, { count: count + 1, seq: session.lastSeq });
+    const children = [...new Set(notes.map((note) => note.child))];
+    // 只有一个会话的回报时 `from` 指向它（界面显示“某某的回报”）；几个会话的合在一起时指向父会话自己。
+    const from: MessageFrom = {
+      sessionId: children.length === 1 ? (children[0] as SessionId) : parent,
+      kind: 'report',
+    };
     this.#options.sessions
       .send(
         {
-          sessionId: target,
-          content: [{ type: 'text', text }],
-          // 一律排队，不跟 `sendWhileBusy`：交给引擎的插话撤不回，请求方随后 `wevir_session_wait` 到同一个结果时
-          // 就会收到两次（回合里被插进来，或没插进去、回合结束后又开一个回合）。
+          sessionId: parent,
+          content: [{ type: 'text', text: combinedReport(notes, linked) }],
           delivery: 'queue',
         },
         this.#identity,
-        { from: reportFrom },
+        { from },
       )
-      .then((sent) => {
-        if (sent.pendingId === undefined) return;
-        // 发送期间请求方已经等到了这个结果：直接撤回。
-        if (this.#delivered.delete(key)) {
-          this.#retract(target, sent.pendingId);
-          return;
-        }
-        this.#queuedReports.set(key, { target, pendingId: sent.pendingId });
-        if (this.#queuedReports.size > QUEUED_REPORTS_MAX) {
-          const oldest = this.#queuedReports.keys().next().value;
-          if (oldest !== undefined) this.#queuedReports.delete(oldest);
-        }
-      })
       .catch((error: unknown) =>
         this.#options.onWarning?.('应用级工具的回报没能发给请求方', {
-          sessionId: info.sessionId,
-          target,
+          sessionId: parent,
           error: error instanceof Error ? error.message : String(error),
         }),
       );
+  }
+
+  /** 父会话在 `seq` 之后有没有用户自己发的消息（不是别的会话或 Host 替人发的）。 */
+  #userSpokeSince(parent: SessionId, seq: number): boolean {
+    return this.#options.events
+      .readSince(parent, seq)
+      .some((event) => event.type === 'user.message' && event.payload.from === undefined);
   }
 
   // ── 工具 ───────────────────────────────────────────────────────────
@@ -1075,6 +1194,7 @@ export class AppTools {
         );
         if (reportBack && sent.turnId !== undefined) {
           this.#watchBlocked(session.id, sent.turnId, sessionId);
+          this.#expect(sessionId, session.id);
         }
         const created = this.#session(session.id);
         return jsonResult({
@@ -1190,6 +1310,7 @@ export class AppTools {
         );
         if (reportBack && sent.turnId !== undefined) {
           this.#watchBlocked(target.id, sent.turnId, sessionId);
+          this.#expect(sessionId, target.id);
         }
         return jsonResult({
           sessionId: target.id,
@@ -2292,14 +2413,21 @@ export class AppTools {
    * 回合撤不回）。
    */
   #consumed(key: string, caller: SessionId): void {
-    const queued = this.#queuedReports.get(key);
-    if (queued === undefined) {
+    const notes = this.#notes.get(caller);
+    const index = notes?.findIndex((note) => note.key === key) ?? -1;
+    if (notes === undefined || index === -1) {
       this.#delivered.add(key);
       return;
     }
-    this.#queuedReports.delete(key);
-    if (queued.target !== caller) return;
-    this.#retract(caller, queued.pendingId);
+    notes.splice(index, 1);
+    if (notes.length === 0) this.#notes.delete(caller);
+  }
+
+  /** 父会话用 reportBack 把一个回合交给了对方：对方这个回合结束之前，父会话不被别的回报续上。 */
+  #expect(parent: SessionId, target: SessionId): void {
+    const targets = this.#outstanding.get(parent) ?? new Set<SessionId>();
+    targets.add(target);
+    this.#outstanding.set(parent, targets);
   }
 
   /** 撤回还在对方队列里等着的回报；已经发出去的（开了回合）撤不回。 */
@@ -2390,17 +2518,69 @@ export class AppTools {
 }
 
 /** 回报的正文（作为别的会话发来的消息交给请求方）。 */
+const READ_MORE = 'Read a whole conversation with wevir_session_read if you need more.';
+
+/** 回报笔记里的一条：哪个会话、谁做的回合、结局与错误、最后回答（开头）。 */
 export function reportText(
   sessionId: SessionId,
   title: string,
   outcome: TurnOutcome,
   answer: string | undefined,
   error?: string,
+  requested = true,
 ): string {
-  const head = `Session ${sessionId}${title === '' ? '' : ` "${title}"`} finished a turn you asked for (${outcome}).`;
+  const who = requested ? 'you asked for' : 'the user ran there';
+  const head = `Session ${sessionId}${title === '' ? '' : ` "${title}"`} finished a turn ${who} (${outcome}).`;
   const reason = error === undefined ? '' : `\nError: ${error}`;
   const body = answer === undefined ? 'It gave no final answer.' : `Its final answer:\n\n${answer}`;
-  return `${head}${reason}\n${body}\n\nRead the whole conversation with wevir_session_read if you need more.`;
+  return `${head}${reason}\n${body}`;
+}
+
+/** 攒下的笔记合成的一条消息：各条笔记，读全文的提示，再是有关会话的状态与“等用户的只有用户能答”。 */
+export function combinedReport(
+  notes: readonly Pick<ReportNote, 'text'>[],
+  linked: readonly Pick<Session, 'id' | 'title' | 'state' | 'awaitingInput'>[],
+): string {
+  const parts = [notes.map((note) => note.text).join('\n\n---\n\n'), READ_MORE];
+  if (linked.length > 0) {
+    const states = linked.map(
+      (session) =>
+        `${session.title === '' ? '' : `"${session.title}" = `}${session.id} (${linkedState(session)})`,
+    );
+    parts.push(`Linked sessions: ${states.join(', ')}.`);
+    if (linked.some((session) => linkedState(session) === 'waiting for the user')) {
+      parts.push(
+        'A session waiting for the user continues only after the user responds there; you cannot approve, answer ' +
+          'or do that step for it.',
+      );
+    }
+  }
+  return parts.join('\n\n');
+}
+
+function linkedState(session: Pick<Session, 'state' | 'awaitingInput'>): string {
+  if (session.state === 'awaiting_approval' || session.awaitingInput === true)
+    return 'waiting for the user';
+  if (session.state === 'running' || session.state === 'cancelling') return 'running';
+  if (session.state === 'error') return 'error';
+  return 'idle';
+}
+
+/** 在跑：等用户批准或回答的不算（它在等人，不会自己结束）。 */
+function isWorking(session: Pick<Session, 'state' | 'awaitingInput'>): boolean {
+  return (
+    (session.state === 'running' && session.awaitingInput !== true) ||
+    session.state === 'cancelling'
+  );
+}
+
+interface ReportNote {
+  /** `<会话>:<回合>`。 */
+  key: string;
+  child: SessionId;
+  text: string;
+  /** 父会话要回报的回合：攒到能续上时叫醒父会话；否则只跟着下一次续上带过去。 */
+  wake: boolean;
 }
 
 /** 用角色开的会话的第一条消息：先是角色的说明，再是开它的会话交代的任务。 */

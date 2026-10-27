@@ -24,6 +24,8 @@ import { AppMcpServer } from './app-mcp.js';
 import {
   APP_TOOLS_INSTRUCTIONS,
   AppTools,
+  AUTO_WAKE_MAX,
+  combinedReport,
   engineSessionResolver,
   reportText,
 } from './app-tools.js';
@@ -623,63 +625,128 @@ describe('应用级工具', () => {
     ).toBe(false);
   });
 
-  it('回报已经排进请求方的队列、之后又被等到时，撤回排队的回报', async () => {
+  it.each(['queue', 'steer'] as const)(
+    '请求方正忙时回报先攒着、不排进它的队列（Host 设置 %s）；之后被等到就不再送达',
+    async (busy) => {
+      const h = await setup(20, false, false, busy);
+      const parent = await h.create();
+      await h.send(parent, 'slow please');
+      const created = await h.call(parent, 'wevir_session_create', { message: 'hi' });
+      const child = created.sessionId as SessionId;
+      await h.settle(child);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const queued = h
+        .all(parent)
+        .flatMap((e) => (e.type === 'pending.added' ? [e.payload.pending] : []))
+        .filter((p) => p.from?.kind === 'report');
+      expect(queued).toEqual([]);
+      const waited = await h.call(parent, 'wevir_session_wait', { sessionId: child });
+      expect(waited).toMatchObject({ timedOut: false, lastTurn: { outcome: 'completed' } });
+      await h.settle(parent);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(
+        h.all(parent).some((e) => e.type === 'user.message' && e.payload.from?.kind === 'report'),
+      ).toBe(false);
+    },
+  );
+
+  const reports = (h: Awaited<ReturnType<typeof setup>>, id: SessionId) =>
+    h
+      .all(id)
+      .flatMap((e) =>
+        e.type === 'user.message' && e.payload.from?.kind === 'report' ? [e.payload] : [],
+      );
+  const textOf = (payload: { content: ReadonlyArray<{ type: string; text?: string }> }) =>
+    payload.content.map((part) => part.text ?? '').join('');
+
+  it('几个子会话在请求方忙时做完：请求方空闲后合成一条回报只续上一次，带有关会话的状态', async () => {
     const h = await setup(20);
     const parent = await h.create();
-    // 请求方正忙：回报只能排队（sendWhileBusy 是 queue）。
     await h.send(parent, 'slow please');
-    const created = await h.call(parent, 'wevir_session_create', { message: 'hi' });
-    const child = created.sessionId as SessionId;
-    await h.settle(child);
-    const queued = () =>
-      h
-        .all(parent)
-        .flatMap((e) =>
-          e.type === 'pending.added' || e.type === 'pending.updated' ? [e.payload.pending] : [],
-        )
-        .filter((p) => p.from?.kind === 'report');
-    await vi.waitFor(() => expect(queued().length).toBeGreaterThan(0));
-    const waited = await h.call(parent, 'wevir_session_wait', { sessionId: child });
-    expect(waited).toMatchObject({ timedOut: false, lastTurn: { outcome: 'completed' } });
-    expect(queued().at(-1)?.status).toBe('cancelled');
+    const one = (await h.call(parent, 'wevir_session_create', { message: 'one', title: 'One' }))
+      .sessionId as SessionId;
+    const two = (await h.call(parent, 'wevir_session_create', { message: 'two', title: 'Two' }))
+      .sessionId as SessionId;
+    await h.settle(one);
+    await h.settle(two);
+    await h.settle(parent);
+    await vi.waitFor(() => expect(reports(h, parent)).toHaveLength(1));
+    const [report] = reports(h, parent);
+    expect(report?.from).toEqual({ sessionId: parent, kind: 'report' });
+    const text = textOf(report as never);
+    expect(text).toContain(`Session ${one} "One" finished a turn you asked for (completed).`);
+    expect(text).toContain(`Session ${two} "Two"`);
+    expect(text).toContain(`Linked sessions: `);
+    expect(text).toContain(`"One" = ${one} (idle)`);
     await h.settle(parent);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(
-      h.all(parent).some((e) => e.type === 'user.message' && e.payload.from?.kind === 'report'),
-    ).toBe(false);
+    expect(reports(h, parent)).toHaveLength(1);
+  }, 30_000);
+
+  it('请求方空闲但还有子会话在跑：等最后一个也做完再续上一次', async () => {
+    const h = await setup(20);
+    const parent = await h.create();
+    const slow = (await h.call(parent, 'wevir_session_create', { message: 'slow please' }))
+      .sessionId as SessionId;
+    const fast = (await h.call(parent, 'wevir_session_create', { message: 'hi' }))
+      .sessionId as SessionId;
+    await h.settle(fast);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(h.state(slow)).toBe('running');
+    expect(reports(h, parent)).toEqual([]);
+    await h.settle(slow);
+    await vi.waitFor(() => expect(reports(h, parent)).toHaveLength(1));
+    const text = textOf(reports(h, parent)[0] as never);
+    expect(text).toContain(`Session ${fast}`);
+    expect(text).toContain(`Session ${slow}`);
+  }, 30_000);
+
+  it('用户在子会话里自己做的回合不叫醒请求方，笔记补进它的上下文、下一个回合看得到', async () => {
+    const h = await setup();
+    const parent = await h.create();
+    const child = (await h.call(parent, 'wevir_session_create', { message: 'hi', title: 'Kid' }))
+      .sessionId as SessionId;
+    await h.settle(child);
+    await vi.waitFor(() => expect(reports(h, parent)).toHaveLength(1));
+    await h.settle(parent);
+    await h.send(child, 'more from the user');
+    await h.settle(child);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(reports(h, parent)).toHaveLength(1);
+    await h.send(parent, 'what happened');
+    await h.settle(parent);
+    const reply = h
+      .all(parent)
+      .filter((e) => e.type === 'assistant.message')
+      .at(-1);
+    expect(reply?.type === 'assistant.message' && reply.payload.text).toContain(
+      `Session ${child} "Kid" finished a turn the user ran there`,
+    );
   });
 
-  it('Host 设置为插话时，回报也排队（排队的才撤得回），等到后不再送达', async () => {
-    const h = await setup(20, false, false, 'steer');
+  it(`连续 ${AUTO_WAKE_MAX} 次被回报续上、中间没有用户的消息：之后的回报压到用户下一次发言`, async () => {
+    const h = await setup();
     const parent = await h.create();
-    // 请求方正忙：Host 默认的 sendWhileBusy 是 steer，但交给引擎的插话撤不回，回报不能走它。
-    await h.send(parent, 'slow please');
-    const created = await h.call(parent, 'wevir_session_create', { message: 'hi' });
-    const child = created.sessionId as SessionId;
+    const child = (await h.call(parent, 'wevir_session_create', { message: 'hi' }))
+      .sessionId as SessionId;
     await h.settle(child);
-    const reports = () =>
-      h
-        .all(parent)
-        .flatMap((e) =>
-          e.type === 'pending.added' || e.type === 'pending.updated' ? [e.payload.pending] : [],
-        )
-        .filter((p) => p.from?.kind === 'report');
-    await vi.waitFor(() => expect(reports().length).toBeGreaterThan(0));
-    expect(reports().at(-1)).toMatchObject({ delivery: 'queue', status: 'waiting' });
-    const waited = await h.call(parent, 'wevir_session_wait', { sessionId: child });
-    expect(waited).toMatchObject({ timedOut: false, lastTurn: { outcome: 'completed' } });
-    expect(reports().at(-1)?.status).toBe('cancelled');
+    await vi.waitFor(() => expect(reports(h, parent)).toHaveLength(1));
     await h.settle(parent);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    const delivered = h
-      .all(parent)
-      .filter(
-        (e) =>
-          (e.type === 'user.message' && e.payload.from?.kind === 'report') ||
-          (e.type === 'user.steered' && e.payload.pendingId === reports().at(-1)?.id),
-      );
-    expect(delivered).toEqual([]);
-  });
+    for (let round = 2; round <= AUTO_WAKE_MAX + 1; round += 1) {
+      await h.call(parent, 'wevir_session_send', {
+        sessionId: child,
+        message: 'again',
+        reportBack: true,
+      });
+      await h.settle(child);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      await h.settle(parent);
+    }
+    expect(reports(h, parent)).toHaveLength(AUTO_WAKE_MAX);
+    await h.send(parent, 'I am back');
+    await h.settle(parent);
+    await vi.waitFor(() => expect(reports(h, parent)).toHaveLength(AUTO_WAKE_MAX + 1));
+  }, 30_000);
 
   it('进度：进行中给现在在做什么、清单与已用时间，空闲的给上一个回合的结果；列表和等待超时也带', async () => {
     const h = await setup(4);
@@ -2165,10 +2232,31 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
 });
 
 describe('reportText', () => {
-  it('没有回答时也说明', () => {
+  it('没有回答时也说明；用户自己做的回合换个说法', () => {
     expect(reportText('ses_1' as SessionId, '', 'failed', undefined)).toContain(
       'It gave no final answer.',
     );
+    expect(reportText('ses_1' as SessionId, 'T', 'completed', 'ok', undefined, false)).toContain(
+      'finished a turn the user ran there (completed)',
+    );
+  });
+
+  it('合成的回报：笔记之间隔开，读全文的提示，有关会话的状态；有会话等用户时说明只有用户能答', () => {
+    const text = combinedReport(
+      [{ text: 'A' }, { text: 'B' }],
+      [
+        { id: 'ses_a' as SessionId, title: 'Alpha', state: 'idle' },
+        { id: 'ses_b' as SessionId, title: '', state: 'awaiting_approval' },
+        { id: 'ses_c' as SessionId, title: 'Gamma', state: 'running', awaitingInput: true },
+      ],
+    );
+    expect(text).toContain('A\n\n---\n\nB');
+    expect(text).toContain('wevir_session_read');
+    expect(text).toContain(
+      'Linked sessions: "Alpha" = ses_a (idle), ses_b (waiting for the user), "Gamma" = ses_c (waiting for the user).',
+    );
+    expect(text).toContain('you cannot approve, answer or do that step for it');
+    expect(combinedReport([{ text: 'A' }], [])).not.toContain('Linked sessions');
   });
 });
 

@@ -817,6 +817,7 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Task from parent agent',
   'transcript.fromSession': 'From “{title}”',
   'transcript.reportFrom': 'Report from “{title}”',
+  'transcript.reportsMerged': 'Reports from nested sessions',
   'transcript.relayed.message': 'Message from another session',
   'transcript.relayed.from': 'From:',
   'transcript.processExited': 'Background process “{name}” exited (code {code})',

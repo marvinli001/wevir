@@ -5900,20 +5900,22 @@ export class SessionManager {
           ...(summary !== undefined && { summary }),
         },
       });
-      const parent = this.#runtimes.get(parentId);
-      if (parent?.attachment && !parent.attachment.detached && this.#adapter.injectNote) {
-        this.#adapter
-          .injectNote(parent.engineSessionId, taskReportNote(task, runtime.id, outcome, summary))
-          .catch((error) =>
-            this.#onWarning('任务会话的结果没能补进提出建议的会话', {
-              sessionId: parentId,
-              error: errorText(error),
-            }),
-          );
-      }
+      // 交给提出建议的会话的回报笔记与续上它，和别的子会话一起走应用级工具的回报（AppTools 的 `#noteTurn`）。
     } catch (error) {
       this.#onError(error);
     }
+  }
+
+  /**
+   * 往会话的引擎上下文里补一段说明，不开回合（回报笔记，AppTools）：引擎会话挂着、适配器支持 `injectNote` 时补进去并返回 true，
+   * 否则 false（调用方另想办法带过去）。
+   */
+  async injectNote(sessionId: SessionId, text: string): Promise<boolean> {
+    const runtime = this.#runtimes.get(sessionId);
+    if (!runtime?.attachment || runtime.attachment.detached || !this.#adapter.injectNote)
+      return false;
+    await this.#adapter.injectNote(runtime.engineSessionId, text);
+    return true;
   }
 
   /** 一个回合最后一段回答的前 `TASK_SUMMARY_MAX_LENGTH` 字；没有回答时 `undefined`。 */
@@ -6702,21 +6704,6 @@ function suggestedTasks(
       },
     ];
   });
-}
-
-/** 补进提出建议的会话的说明（`injectNote`）：模型下一次请求时看得到任务的结果。 */
-export function taskReportNote(
-  task: Pick<SuggestedTask, 'title'>,
-  sessionId: SessionId,
-  outcome: TurnOutcome,
-  summary: string | undefined,
-): string {
-  const lines = [
-    `The user started the follow-up task you suggested, "${task.title}", as a separate session (${sessionId}). Its first turn ended: ${outcome}.`,
-  ];
-  lines.push(summary === undefined ? 'It gave no final answer.' : `Its final answer:\n${summary}`);
-  lines.push('This is for your information; do not redo that task here unless the user asks.');
-  return lines.join('\n\n');
 }
 
 /** 撤销 / 重做的说明里引用用户消息的字数上限。 */

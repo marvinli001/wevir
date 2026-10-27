@@ -573,6 +573,11 @@ export class TranscriptProjection {
   #uiShow: Transcript['uiShow'];
   /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
   #taskParts = new Map<string, MutableMessage>();
+  /**
+   * 任务会话还没回报给这个会话的 `task_report` 部件：任务会话 → 部件所在的消息与 key。那个会话的回报消息（`from.kind`
+   * `report`）随后到达时，部件让给回报消息，免得同一份回报画两遍。
+   */
+  #taskReportParts = new Map<string, { message: MutableMessage; key: string }>();
   /** 第二意见（0.75.0），按发起的先后；意见 → 它的部件所在的消息。 */
   #opinions = new Map<OpinionId, SecondOpinion>();
   #opinionParts = new Map<OpinionId, MutableMessage>();
@@ -629,6 +634,7 @@ export class TranscriptProjection {
     this.#parent = undefined;
     this.#tasks.clear();
     this.#taskParts.clear();
+    this.#taskReportParts.clear();
     this.#opinions.clear();
     this.#opinionParts.clear();
     this.#insights.clear();
@@ -1028,11 +1034,25 @@ export class TranscriptProjection {
     return message;
   }
 
+  /** 任务会话的回报消息到了：去掉它先前留下的 `task_report` 部件（回报消息里已经有同一份结果）。 */
+  #dropTaskReport(sessionId: string, seq: number): void {
+    const entry = this.#taskReportParts.get(sessionId);
+    if (entry === undefined) return;
+    this.#taskReportParts.delete(sessionId);
+    this.#touch(entry.message, seq);
+    entry.message.parts = entry.message.parts.filter((part) => part.key !== entry.key);
+    // 回合结束后才到、只装着这一个部件的系统消息整条去掉，不留一块空的。
+    if (entry.message.role === 'system' && entry.message.parts.length === 0) {
+      this.#messages = this.#messages.filter((message) => message !== entry.message);
+    }
+  }
+
   #userMessage(event: WevirEventOf<'user.message'>): void {
     const { turnId, content, sentBy, clientMessageId, pendingId, from, collaborationMode } =
       event.payload;
     const turn = this.#turn(turnId);
     if (turn.user) return;
+    if (from?.kind === 'report') this.#dropTaskReport(from.sessionId, event.seq);
     if (from?.usageLimit !== undefined)
       this.#autoContinued(from.usageLimit.turnId, event.ts, event.seq);
     const planning = collaborationMode === 'plan';
@@ -1261,6 +1281,9 @@ export class TranscriptProjection {
     }
     for (const [key, message] of this.#taskParts) {
       if (removed.has(message)) this.#taskParts.delete(key);
+    }
+    for (const [sessionId, entry] of this.#taskReportParts) {
+      if (removed.has(entry.message)) this.#taskReportParts.delete(sessionId);
     }
     for (const [sessionId, messages] of this.#subagentParts) {
       this.#subagentParts.set(
@@ -1649,12 +1672,17 @@ export class TranscriptProjection {
       );
     }
     if (event.type === 'task.reported') {
-      this.#target(this.#activeTurnId, event.seq).parts.push({
+      const target = this.#target(this.#activeTurnId, event.seq);
+      const key = `kr:${task.id}`;
+      target.parts.push({
         type: 'task_report',
-        key: `kr:${task.id}`,
+        key,
         task,
         ...(event.payload.summary !== undefined && { summary: event.payload.summary }),
       });
+      if (task.sessionId !== undefined) {
+        this.#taskReportParts.set(task.sessionId, { message: target, key });
+      }
     }
   }
 
