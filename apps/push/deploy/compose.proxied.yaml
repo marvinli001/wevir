@@ -1,0 +1,30 @@
+# wevir-push behind a TLS proxy you already run (a hosting platform's edge, Traefik, nginx): Compose builds the
+# image from this repository and the proxy forwards HTTPS for the gateway's domain to port 8080. The proxy must
+# append the client address to X-Forwarded-For (WEVIR_PUSH_TRUST_PROXY=1), and port 8080 must not be reachable
+# from the internet directly, or clients could set that header themselves.
+# Credentials come from environment variables set on the platform, never from this file: leave all of a service's
+# variables empty to run without it (APNs, FCM).
+services:
+  push:
+    build:
+      context: ../../..
+      dockerfile: apps/push/Dockerfile
+    restart: unless-stopped
+    environment:
+      WEVIR_PUSH_TRUST_PROXY: "1"
+      WEVIR_PUSH_LOG_LEVEL: ${WEVIR_PUSH_LOG_LEVEL:-info}
+      WEVIR_PUSH_APNS_KEY: ${WEVIR_PUSH_APNS_KEY:-}
+      WEVIR_PUSH_APNS_KEY_ID: ${WEVIR_PUSH_APNS_KEY_ID:-}
+      WEVIR_PUSH_APNS_TEAM_ID: ${WEVIR_PUSH_APNS_TEAM_ID:-}
+      WEVIR_PUSH_APNS_TOPIC: ${WEVIR_PUSH_APNS_TOPIC:-}
+      WEVIR_PUSH_FCM_CREDENTIALS: ${WEVIR_PUSH_FCM_CREDENTIALS:-}
+    volumes:
+      - push-data:/data
+    expose:
+      - "8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+volumes:
+  push-data:

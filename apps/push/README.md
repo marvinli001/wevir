@@ -72,6 +72,8 @@ PUSH_DOMAIN=push.example.com APNS_KEY_ID=XXXXXXXXXX APNS_TEAM_ID=YYYYYYYYYY APNS
 
 Point the domain's DNS at the machine first and open ports 80 and 443. Bindings are stored in the `push-data` volume.
 
+Behind a TLS proxy you already run, such as a hosting platform that deploys Compose files from a Git repository, use `deploy/compose.proxied.yaml` instead: it builds the image from the repository, runs only the gateway on port 8080 with `WEVIR_PUSH_TRUST_PROXY=1`, and takes the credentials inline from environment variables (`WEVIR_PUSH_APNS_KEY` with the `.p8` contents, `WEVIR_PUSH_FCM_CREDENTIALS` with the service account JSON). Route the gateway's domain to port 8080 and keep that port closed to the internet.
+
 ### Without Docker
 
 Node 24 or later:
