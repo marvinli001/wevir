@@ -49,6 +49,7 @@ import { OpinionCard, OpinionQuote } from './opinion-card';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
 import { SessionLink, useSessionEntry } from './session-link';
+import { reportBody } from './session-link-model';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { formatRelativeTime } from './subagent-model';
@@ -316,9 +317,9 @@ function RelayedMessage({ message }: { message: UserChatMessage }) {
   const source = useSessionEntry(from?.sessionId)?.session;
   if (from === undefined) return null;
   const report = from.kind === 'report';
-  const text = message.parts
-    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-    .join('\n');
+  const raw = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+  // 回报的正文是 Host 发给模型的英文外壳，只显示那个会话的回答。
+  const text = report ? reportBody(raw) : raw;
   const Icon = report ? Reply : MessagesSquare;
   return (
     <div

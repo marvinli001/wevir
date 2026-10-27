@@ -49,3 +49,16 @@ export function sessionStatus(session: Session): { tone: StatusTone; label: stri
 export function sessionPlace(workspace: Workspace): string {
   return isChats(workspace) ? t('sidebar.chats') : workspace.displayName;
 }
+
+/**
+ * 回报正文（Host 的 `reportText`，发给模型的英文外壳：“Session … finished a turn you asked for (…). Its final answer: …
+ * Read the whole conversation with wevir_session_read …”）里给人看的部分：那个会话的回答，没有回答时是错误。认不出时原样返回。
+ */
+const REPORT_TEXT =
+  /^Session ses_[0-9A-Za-z]+(?: "[\s\S]*?")? finished a turn you asked for \(\w+\)\.(?:\nError: ([^\n]*))?\n(?:Its final answer:\n\n([\s\S]*?)|It gave no final answer\.)\n\nRead the whole conversation with wevir_session_read if you need more\.$/;
+
+export function reportBody(text: string): string {
+  const match = REPORT_TEXT.exec(text);
+  if (!match) return text;
+  return match[2] ?? match[1] ?? '';
+}

@@ -1,6 +1,12 @@
 import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { findSession, sessionHrefId, sessionPlace, sessionStatus } from './session-link-model';
+import {
+  findSession,
+  reportBody,
+  sessionHrefId,
+  sessionPlace,
+  sessionStatus,
+} from './session-link-model';
 
 const NOW = '2026-10-27T00:00:00.000Z';
 
@@ -56,5 +62,20 @@ describe('会话链接', () => {
     expect(sessionStatus(session({ state: 'error' })).tone).toBe('danger');
     expect(sessionStatus(session()).label).toBe('空闲');
     expect(sessionPlace({ ...workspace, kind: 'chats' })).toBe('对话');
+  });
+
+  it('回报只显示那个会话的回答；没有回答时是错误；认不出的原样', () => {
+    const tail = '\n\nRead the whole conversation with wevir_session_read if you need more.';
+    expect(
+      reportBody(
+        `Session ses_ab "修复登录" finished a turn you asked for (completed).\nIts final answer:\n\n改好了。\n\n测试通过。${tail}`,
+      ),
+    ).toBe('改好了。\n\n测试通过。');
+    expect(
+      reportBody(
+        `Session ses_ab finished a turn you asked for (failed).\nError: 额度用完\nIt gave no final answer.${tail}`,
+      ),
+    ).toBe('额度用完');
+    expect(reportBody('别的文字')).toBe('别的文字');
   });
 });
