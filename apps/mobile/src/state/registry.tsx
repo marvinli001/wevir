@@ -1,4 +1,5 @@
-// 全 App 共用的电脑列表：一个 `ComputerRegistry`（真实的存储、网络与 mDNS），跟着 `AppState` 在前台连、进后台断。
+// 全 App 共用的电脑列表：一个 `ComputerRegistry`（真实的存储、网络与 mDNS），跟着 `AppState` 在前台连、进后台断。推送的登记
+// （push-registrar.ts）与它一起建：退出电脑时先请那台电脑解绑推送。
 
 import { generateKeyPair } from '@wevir/noise';
 import { DEVICE_NAME_MAX_LENGTH } from '@wevir/protocol';
@@ -24,6 +25,7 @@ import {
   withNativeOrigin,
 } from '../lib/remote';
 import { fileStorage, loadDeviceKey, loadIdentity } from '../lib/storage';
+import { type AppPushRegistrar, createPushRegistrar } from './push-registrar';
 
 const remoteDeps: RemoteDeps = {
   // React Native 自带的 WebSocket（iOS 的 SocketRocket、Android 的 OkHttp），`binaryType = 'arraybuffer'` 由 client-sdk 设。
@@ -32,19 +34,27 @@ const remoteDeps: RemoteDeps = {
   identity: loadIdentity,
 };
 
-function createRegistry(): ComputerRegistry {
-  return new ComputerRegistry(fileStorage, {
+function createRegistry(): { registry: ComputerRegistry; push: AppPushRegistrar } {
+  const push = createPushRegistrar((name) => registry.link(name));
+  const registry: ComputerRegistry = new ComputerRegistry(fileStorage, {
     connect: remoteConnect(remoteDeps, loadDeviceKey),
     now: () => new Date(),
     setTimer: (callback, ms) => setTimeout(callback, ms),
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    beforeForget: (link) =>
+      push.remove(
+        { name: link.snapshot.record.name, routeId: link.snapshot.record.routeId },
+        link.push,
+      ),
   });
+  return { registry, push };
 }
 
 const RegistryContext = createContext<ComputerRegistry | undefined>(undefined);
+const PushRegistrarContext = createContext<AppPushRegistrar | undefined>(undefined);
 
 export function RegistryProvider({ children }: { children: ReactNode }) {
-  const [registry] = useState(createRegistry);
+  const [{ registry, push }] = useState(createRegistry);
   useEffect(() => {
     let disposed = false;
     registry
@@ -64,7 +74,17 @@ export function RegistryProvider({ children }: { children: ReactNode }) {
       registry.setActive(false);
     };
   }, [registry]);
-  return <RegistryContext.Provider value={registry}>{children}</RegistryContext.Provider>;
+  return (
+    <RegistryContext.Provider value={registry}>
+      <PushRegistrarContext.Provider value={push}>{children}</PushRegistrarContext.Provider>
+    </RegistryContext.Provider>
+  );
+}
+
+export function usePushRegistrar(): AppPushRegistrar {
+  const push = useContext(PushRegistrarContext);
+  if (push === undefined) throw new Error('usePushRegistrar outside RegistryProvider');
+  return push;
 }
 
 export function useRegistry(): ComputerRegistry {

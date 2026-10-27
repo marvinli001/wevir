@@ -1,4 +1,16 @@
 {
   "NSCameraUsageDescription": "Scansionare il codice QR di abbinamento mostrato sul computer.",
-  "NSLocalNetworkUsageDescription": "Trovare i computer con Wevir nella rete locale e connettersi direttamente."
+  "NSLocalNetworkUsageDescription": "Trovare i computer con Wevir nella rete locale e connettersi direttamente.",
+  "ios": {
+    "Localizable.strings": {
+      "WEVIR_PUSH_TITLE": "Wevir",
+      "WEVIR_PUSH_BODY": "Richiede attenzione",
+      "WEVIR_PUSH_KIND_APPROVAL": "In attesa di approvazione",
+      "WEVIR_PUSH_KIND_QUESTION": "In attesa di risposta",
+      "WEVIR_PUSH_KIND_COMPLETED": "Completato",
+      "WEVIR_PUSH_KIND_FAILED": "Errore",
+      "WEVIR_PUSH_KIND_AUTOMATION": "Automazione",
+      "WEVIR_PUSH_KIND_CHANNEL": "Nuovo messaggio"
+    }
+  }
 }

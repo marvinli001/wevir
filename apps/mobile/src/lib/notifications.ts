@@ -1,5 +1,6 @@
 // App 开着、连着电脑时的提醒：电脑上 Host 判定的通知意图（`notification.intent`）在顶部弹一条，点开去对应的地方。助理的（带
-// `channelId`：它开口了，或它的会话里要批准、回答）打开那个助理；别的会话打开会话页；没有会话的自动化打开那台电脑。纯逻辑。
+// `channelId`：它开口了，或它的会话里要批准、回答）打开那个助理；别的会话打开会话页；没有会话的自动化打开那台电脑。点系统通知（推送，
+// push.ts）也按同样的规则跳转。纯逻辑。
 
 import type { NotificationIntent } from '@wevir/protocol';
 import { botKey } from './bots';
@@ -11,7 +12,7 @@ export type NotificationTarget =
 
 export function notificationTarget(
   computer: string,
-  intent: NotificationIntent,
+  intent: Pick<NotificationIntent, 'channelId' | 'sessionId'>,
 ): NotificationTarget {
   if (intent.channelId !== undefined)
     return { pathname: '/bot/[key]', params: { key: botKey(computer, intent.channelId) } };

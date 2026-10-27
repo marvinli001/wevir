@@ -23,6 +23,7 @@ import {
   discoveredCandidates,
   type PairingEnvironment,
 } from './pairing';
+import type { PushLinkClient } from './push';
 import { type ComputerRecord, knownCandidates, type StoredCandidate } from './records';
 import type { SessionClient } from './session-watch';
 
@@ -203,9 +204,19 @@ function wrapClient(client: WevirClient): LinkClient {
         subscribe: (sessionId, options) => client.subscribe(sessionId, options),
       }
     : undefined;
+  const push: PushLinkClient | undefined =
+    client.supports('remote_push') && client.can('session.read')
+      ? {
+          get: () => client.request('push.get', {}),
+          register: (params) => client.request('push.register', params),
+          unregister: () => client.request('push.unregister', {}),
+          onChanged: (listener) => client.onPushChanged(listener),
+        }
+      : undefined;
   return {
     ...(channels !== undefined && { channels }),
     ...(sessions !== undefined && { sessions }),
+    ...(push !== undefined && { push }),
     watchNotifications: (listener) => client.watchNotifications(listener),
     onStateChange: (listener) => client.onStateChange(listener),
     onSessionsChanged: (listener) => client.onSessionsChanged(listener),

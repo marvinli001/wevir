@@ -1,8 +1,9 @@
-// 电脑页：配对过的电脑，每台显示在线 / 离线（上次在线时间）与直连 / 经中继；导航栏右边的玻璃按钮添加电脑。
+// 电脑页：配对过的电脑，每台显示在线 / 离线（上次在线时间）与直连 / 经中继，底部是推送的锁屏设置；导航栏右边的玻璃按钮添加电脑。
 
 import { Stack, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet } from 'react-native';
 import { HeaderButton } from '../../../components/header-button';
+import { PushSettingsSection } from '../../../components/push-section';
 import { EmptyState, Group, Row, StatusText } from '../../../components/ui';
 import { t } from '../../../i18n';
 import { displayName } from '../../../lib/records';
@@ -22,20 +23,26 @@ export default function ComputersScreen() {
       <HeaderButton sf="plus" md="add" label={t('computers.add')} onPress={add} />
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
         {computers.length > 0 ? (
-          <Group>
-            {computers.map((item, index) => (
-              <Row
-                key={item.record.name}
-                icon={{ ios: 'laptopcomputer', android: 'laptop_mac' }}
-                title={displayName(item.record)}
-                subtitle={<StatusText line={statusLine(item, now)} />}
-                last={index === computers.length - 1}
-                onPress={() =>
-                  router.push({ pathname: '/computer/[name]', params: { name: item.record.name } })
-                }
-              />
-            ))}
-          </Group>
+          <>
+            <Group>
+              {computers.map((item, index) => (
+                <Row
+                  key={item.record.name}
+                  icon={{ ios: 'laptopcomputer', android: 'laptop_mac' }}
+                  title={displayName(item.record)}
+                  subtitle={<StatusText line={statusLine(item, now)} />}
+                  last={index === computers.length - 1}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/computer/[name]',
+                      params: { name: item.record.name },
+                    })
+                  }
+                />
+              ))}
+            </Group>
+            <PushSettingsSection />
+          </>
         ) : (
           loaded && (
             <EmptyState

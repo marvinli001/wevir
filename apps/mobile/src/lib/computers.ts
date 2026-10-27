@@ -13,11 +13,15 @@ export interface ComputerStorage {
   deleteKey(routeId: string): Promise<void>;
 }
 
-export type RegistryEnvironment = Omit<LinkEnvironment, 'saveRecord'>;
+export type RegistryEnvironment = Omit<LinkEnvironment, 'saveRecord'> & {
+  /** 退出一台电脑、断开之前（例如请那台电脑解绑推送）；出错不影响退出。 */
+  beforeForget?(link: ComputerLink): Promise<void>;
+};
 
 export class ComputerRegistry {
   readonly #storage: ComputerStorage;
   readonly #env: LinkEnvironment;
+  readonly #beforeForget: RegistryEnvironment['beforeForget'];
   readonly #links = new Map<string, ComputerLink>();
   readonly #unsubscribe = new Map<string, () => void>();
   readonly #listeners = new Set<() => void>();
@@ -27,7 +31,9 @@ export class ComputerRegistry {
 
   constructor(storage: ComputerStorage, env: RegistryEnvironment) {
     this.#storage = storage;
-    this.#env = { ...env, saveRecord: (record) => storage.save(record) };
+    const { beforeForget, ...linkEnv } = env;
+    this.#env = { ...linkEnv, saveRecord: (record) => storage.save(record) };
+    this.#beforeForget = beforeForget;
   }
 
   get loaded(): boolean {
@@ -83,6 +89,8 @@ export class ComputerRegistry {
     const link = this.#links.get(name);
     if (link === undefined) return;
     const { routeId } = link.snapshot.record;
+    await this.#beforeForget?.(link).catch(() => {});
+    if (this.#links.get(name) !== link) return;
     this.#detach(name);
     this.#changed();
     await this.#storage.remove(name);

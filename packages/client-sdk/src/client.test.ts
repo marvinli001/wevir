@@ -1078,6 +1078,32 @@ describe('防休眠（0.102.0）', () => {
   });
 });
 
+describe('推送（0.112.0）', () => {
+  it('onPushChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { remote_push: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onPushChanged((change) => changes.push(change));
+    const state = {
+      enabled: true,
+      registered: false,
+      gatewayUrl: 'https://push.wevir.si',
+      routeId: 'A'.repeat(43),
+    };
+    host.last.notify('push.changed', state);
+    await vi.waitFor(() => expect(changes).toEqual([state]));
+    host.last.notify('push.changed', { ...state, registered: 'yes' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed push.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+  });
+});
+
 describe('设备与配对（0.107.0）', () => {
   it('onRemoteDevicesChanged：三种通知各自带上内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

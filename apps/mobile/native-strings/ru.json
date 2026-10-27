@@ -1,4 +1,16 @@
 {
   "NSCameraUsageDescription": "Отсканировать QR-код сопряжения на экране компьютера.",
-  "NSLocalNetworkUsageDescription": "Находить компьютеры с Wevir в локальной сети и подключаться к ним напрямую."
+  "NSLocalNetworkUsageDescription": "Находить компьютеры с Wevir в локальной сети и подключаться к ним напрямую.",
+  "ios": {
+    "Localizable.strings": {
+      "WEVIR_PUSH_TITLE": "Wevir",
+      "WEVIR_PUSH_BODY": "Требует внимания",
+      "WEVIR_PUSH_KIND_APPROVAL": "Ждёт одобрения",
+      "WEVIR_PUSH_KIND_QUESTION": "Ждёт ответа",
+      "WEVIR_PUSH_KIND_COMPLETED": "Готово",
+      "WEVIR_PUSH_KIND_FAILED": "Ошибка",
+      "WEVIR_PUSH_KIND_AUTOMATION": "Автоматизация",
+      "WEVIR_PUSH_KIND_CHANNEL": "Новое сообщение"
+    }
+  }
 }

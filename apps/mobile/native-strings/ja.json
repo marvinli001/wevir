@@ -1,4 +1,16 @@
 {
   "NSCameraUsageDescription": "コンピュータに表示されたペアリング用 QR コードをスキャンします。",
-  "NSLocalNetworkUsageDescription": "ローカルネットワーク上で Wevir を実行しているコンピュータを探して直接接続します。"
+  "NSLocalNetworkUsageDescription": "ローカルネットワーク上で Wevir を実行しているコンピュータを探して直接接続します。",
+  "ios": {
+    "Localizable.strings": {
+      "WEVIR_PUSH_TITLE": "Wevir",
+      "WEVIR_PUSH_BODY": "対応が必要",
+      "WEVIR_PUSH_KIND_APPROVAL": "承認待ち",
+      "WEVIR_PUSH_KIND_QUESTION": "回答待ち",
+      "WEVIR_PUSH_KIND_COMPLETED": "完了",
+      "WEVIR_PUSH_KIND_FAILED": "エラー",
+      "WEVIR_PUSH_KIND_AUTOMATION": "オートメーション",
+      "WEVIR_PUSH_KIND_CHANNEL": "新着メッセージ"
+    }
+  }
 }

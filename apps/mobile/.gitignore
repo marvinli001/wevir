@@ -4,3 +4,6 @@
 .expo/
 expo-env.d.ts
 web-build/
+# Firebase 的客户端配置（推送，app.config.ts 的 `pushBuildConfig`）：由维护者放进来，不进仓库。
+google-services.json
+GoogleService-Info.plist

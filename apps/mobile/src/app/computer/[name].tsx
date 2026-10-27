@@ -1,8 +1,9 @@
 // 一台电脑：大标题是电脑名，下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
-// `sessions.changed`，只读），最后是“退出这台电脑”。
+// `sessions.changed`，只读），这台电脑的推送状态，最后是“退出这台电脑”。
 
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { PushStatusSection } from '../../components/push-section';
 import { SessionRow } from '../../components/session-row';
 import { Button, Group, Icon, Row, SectionTitle, StatusText } from '../../components/ui';
 import { t } from '../../i18n';
@@ -110,6 +111,8 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
             )}
           </>
         )}
+
+        {status.kind !== 'removed' && <PushStatusSection name={record.name} />}
 
         <Group style={styles.forget}>
           <Row

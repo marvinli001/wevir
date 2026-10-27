@@ -1,4 +1,16 @@
 {
   "NSCameraUsageDescription": "掃描電腦上顯示的配對 QR 碼。",
-  "NSLocalNetworkUsageDescription": "在區域網路裡尋找並直連執行 Wevir 的電腦。"
+  "NSLocalNetworkUsageDescription": "在區域網路裡尋找並直連執行 Wevir 的電腦。",
+  "ios": {
+    "Localizable.strings": {
+      "WEVIR_PUSH_TITLE": "Wevir",
+      "WEVIR_PUSH_BODY": "需要處理",
+      "WEVIR_PUSH_KIND_APPROVAL": "待核准",
+      "WEVIR_PUSH_KIND_QUESTION": "待回答",
+      "WEVIR_PUSH_KIND_COMPLETED": "已完成",
+      "WEVIR_PUSH_KIND_FAILED": "出錯",
+      "WEVIR_PUSH_KIND_AUTOMATION": "自動化",
+      "WEVIR_PUSH_KIND_CHANNEL": "新訊息"
+    }
+  }
 }

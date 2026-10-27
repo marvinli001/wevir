@@ -1,4 +1,16 @@
 {
   "NSCameraUsageDescription": "Den auf dem Computer angezeigten Kopplungs-QR-Code scannen.",
-  "NSLocalNetworkUsageDescription": "Computer mit Wevir im lokalen Netzwerk finden und direkt verbinden."
+  "NSLocalNetworkUsageDescription": "Computer mit Wevir im lokalen Netzwerk finden und direkt verbinden.",
+  "ios": {
+    "Localizable.strings": {
+      "WEVIR_PUSH_TITLE": "Wevir",
+      "WEVIR_PUSH_BODY": "Erfordert Aktion",
+      "WEVIR_PUSH_KIND_APPROVAL": "Freigabe nötig",
+      "WEVIR_PUSH_KIND_QUESTION": "Antwort nötig",
+      "WEVIR_PUSH_KIND_COMPLETED": "Erledigt",
+      "WEVIR_PUSH_KIND_FAILED": "Fehler",
+      "WEVIR_PUSH_KIND_AUTOMATION": "Automatisierung",
+      "WEVIR_PUSH_KIND_CHANNEL": "Neue Nachricht"
+    }
+  }
 }

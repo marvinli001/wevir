@@ -44,6 +44,7 @@ import {
   PROTOCOL_VERSION,
   PreviewChangedParamsSchema,
   ProcessChangedParamsSchema,
+  PushChangedParamsSchema,
   ReadinessChangedParamsSchema,
   RemoteChangedParamsSchema,
   type RemoteStatus,
@@ -105,6 +106,8 @@ export type SpeechChange = NotificationParams<'speech.changed'>;
 export type MarketInstallProgress = NotificationParams<'market.installProgress'>;
 /** `power.changed` 的内容（0.102.0）。 */
 export type PowerChange = NotificationParams<'power.changed'>;
+/** `push.changed` 的内容（0.112.0）：这台远程设备看到的推送状态。 */
+export type PushChange = NotificationParams<'push.changed'>;
 /** `inbox.changed` 的内容（0.105.0）。 */
 export type InboxChange = NotificationParams<'inbox.changed'>;
 /** 设备与配对的变化（0.107.0）：`devices.changed`、`pairing.request`、`pairing.ended`，以及远程监听的 `remote.changed`（0.109.0）。 */
@@ -406,6 +409,7 @@ export class WevirClient {
   readonly #earlyChannelMessages = new Map<string, Array<{ method: string; params: unknown }>>();
   readonly #marketInstallListeners = new Set<(progress: MarketInstallProgress) => void>();
   readonly #powerListeners = new Set<(change: PowerChange | undefined) => void>();
+  readonly #pushListeners = new Set<(change: PushChange | undefined) => void>();
   readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
   readonly #remoteDevicesListeners = new Set<(change: RemoteDevicesChange | undefined) => void>();
   readonly #notificationListeners = new Set<(intent: NotificationIntent) => void>();
@@ -871,6 +875,15 @@ export class WevirClient {
   }
 
   /**
+   * 这台远程设备的推送状态变了（0.112.0，`push.changed`，Host 功能 `remote_push`）：只有调过 `push.*` 的那台设备的连接收得到。重连上
+   * 之后以 `undefined` 调一次（期间的变化没收到，重读 `push.get`）。返回取消函数。
+   */
+  onPushChanged(listener: (change: PushChange | undefined) => void): () => void {
+    this.#pushListeners.add(listener);
+    return () => this.#pushListeners.delete(listener);
+  }
+
+  /**
    * 收件箱变了（0.105.0，`inbox.changed`，Host 功能 `inbox`）：只有调过 `inbox.*` 的连接收得到，`inboxVersion` 不等于上次（列表结果或
    * 上一条）加一时重读 `inbox.list`。重连上之后以 `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
    */
@@ -942,6 +955,16 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('an inbox listener threw', { error });
+      }
+    }
+  }
+
+  #pushChanged(change: PushChange | undefined): void {
+    for (const listener of [...this.#pushListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a push listener threw', { error });
       }
     }
   }
@@ -1514,6 +1537,7 @@ export class WevirClient {
         this.#earlyChannelMessages.clear();
         for (const watcher of this.#channelWatchers) this.#subscribeChannel(watcher);
         if (reread('prevent_sleep', 'power.get')) this.#powerChanged(undefined);
+        if (reread('remote_push', 'push.get')) this.#pushChanged(undefined);
         if (reread('inbox', 'inbox.list')) this.#inboxChanged(undefined);
         if (reread('remote_devices', 'device.list')) this.#remoteDevicesChanged(undefined);
         if (reread('tuning', 'tuning.get')) this.#tuningChanged(undefined);
@@ -1931,6 +1955,15 @@ export class WevirClient {
         return;
       }
       this.#remoteDevicesChanged({ kind: 'listener', status: parsed.data });
+      return;
+    }
+    if (method === 'push.changed') {
+      const parsed = PushChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed push.changed notification');
+        return;
+      }
+      this.#pushChanged(parsed.data);
       return;
     }
     if (method === 'power.changed') {

@@ -18,6 +18,7 @@ import {
 } from '@wevir/client-sdk';
 import { CloseCode, type NotificationIntent, type Session } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
+import type { PushLinkClient } from './push';
 import {
   type ComputerRecord,
   type ConnectedInfo,
@@ -110,6 +111,8 @@ export interface LinkClient {
   readonly sessions?: SessionClient;
   /** Host 判定的通知意图（`notification.intent`）；Host 没有这项功能时什么都不收。 */
   watchNotifications?(listener: (intent: NotificationIntent) => void): () => void;
+  /** 这台设备的推送（`push.*`）；Host 没有 `remote_push` 功能或没有 `session.read` 时没有。 */
+  readonly push?: PushLinkClient;
   close(): void;
 }
 
@@ -186,6 +189,11 @@ export class ComputerLink {
   /** 连着时按 ID 看会话的接口。 */
   get sessions(): SessionClient | undefined {
     return this.#client?.sessions;
+  }
+
+  /** 连着时这台设备的推送接口。 */
+  get push(): PushLinkClient | undefined {
+    return this.#client?.push;
   }
 
   /** 连着时收这台电脑的通知意图；没连着时返回的取消函数什么都不做。 */
