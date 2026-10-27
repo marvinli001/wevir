@@ -19,6 +19,7 @@ import {
 import { CloseCode, type NotificationIntent, type Session } from '@wevir/protocol';
 import type { ChannelClient } from './bot-store';
 import type { CacheProvider, SessionCache } from './cache';
+import type { ChangesClient } from './changes';
 import type { InboxClient } from './inbox-store';
 import {
   type ComputerRecord,
@@ -113,6 +114,8 @@ export interface LinkClient {
   readonly sessions?: SessionClient;
   /** 收件箱（0.105.0）；Host 没有 `inbox` 功能或没有 `session.read` 时没有。 */
   readonly inbox?: InboxClient;
+  /** 读变更与文件（`workspace.diff`、`files.read`）。 */
+  readonly changes?: ChangesClient;
   /** Host 判定的通知意图（`notification.intent`）；Host 没有这项功能时什么都不收。 */
   watchNotifications?(listener: (intent: NotificationIntent) => void): () => void;
   close(): void;
@@ -217,6 +220,10 @@ export class ComputerLink {
   /** 连着时的收件箱接口。 */
   get inbox(): InboxClient | undefined {
     return this.#client?.inbox;
+  }
+
+  get changes(): ChangesClient | undefined {
+    return this.#client?.changes;
   }
 
   /** 连着时收这台电脑的通知意图；没连着时返回的取消函数什么都不做。 */
