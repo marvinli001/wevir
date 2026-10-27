@@ -36,6 +36,7 @@ import { t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
 import { sessionTabs } from '../browser/browser-store';
 import { type PaneController, usePanes } from './pane-controller';
+import { useOpenTask } from './panes/tasks-pane';
 import {
   candidateInput,
   commandLine,
@@ -195,6 +196,7 @@ function PreviewDetails({
 }) {
   const { client } = useHostConnection();
   const panes = usePanes();
+  const openTask = useOpenTask(workspaceId, sessionId, panes);
   const rows = usePreviewRows(workspaceId, list?.root ?? '', list?.configs ?? []);
   const [notice, setNotice] = useState<Notice>();
   const [editing, setEditing] = useState<PreviewConfig | 'new'>();
@@ -292,7 +294,7 @@ function PreviewDetails({
                 const url = row.process?.preview?.url;
                 if (url !== undefined) void openInBrowser(sessionId, url, panes).catch(fail);
               }}
-              onOutput={() => panes?.open({ kind: 'processes' })}
+              onOutput={() => row.process && openTask.process(row.process)}
               onEdit={() => setEditing(row.config)}
               onRemove={() => void remove(row.config)}
             />

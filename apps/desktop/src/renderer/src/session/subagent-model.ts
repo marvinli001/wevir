@@ -91,31 +91,6 @@ export function groupSubagents(subagents: readonly SubagentSummary[]): SubagentG
   };
 }
 
-/**
- * “后台任务”的“清除已完成”（desktop-layout.md §15）：记下当时已结束的里最晚的结束时刻（Host 的时钟），之后列表只留运行中的
- * 与在那之后结束的。只是不显示，记录还在；又被父 agent 叫醒、再结束的重新出现。没有已结束的时返回 undefined。
- */
-export function clearMark(subagents: readonly SubagentSummary[]): string | undefined {
-  let mark: string | undefined;
-  for (const summary of subagents) {
-    if (summary.status === 'running') continue;
-    const at = lastActivity(summary);
-    if (mark === undefined || at > mark) mark = at;
-  }
-  return mark;
-}
-
-export function withoutCleared(
-  subagents: readonly SubagentSummary[],
-  mark: string | undefined,
-): readonly SubagentSummary[] {
-  if (mark === undefined) return subagents;
-  const kept = subagents.filter(
-    (summary) => summary.status === 'running' || lastActivity(summary) > mark,
-  );
-  return kept.length === subagents.length ? subagents : kept;
-}
-
 /** 相对时间（截图 03 的“1 小时前”）：不到一分钟是“刚刚”，再往后是分钟、小时、天。 */
 export function formatRelativeTime(iso: string, now: number): string {
   const ms = now - Date.parse(iso);

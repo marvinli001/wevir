@@ -1,10 +1,11 @@
+// Host 起的后台进程（0.69.0）在“后台任务”窗格里的详情（desktop-layout.md §15）：命令、目录、来源与输出（虚拟滚动，不能输入），以及
+// 停止对话框。列表的行在 tasks-pane.tsx。
+
 import type { WevirClient } from '@wevir/client-sdk';
-import type { HostProcess, ProcessStopSignal, SessionId, WorkspaceId } from '@wevir/protocol';
+import type { HostProcess, ProcessStopSignal } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ScrollText, Square } from 'lucide-react';
-import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { IconButton } from '@/components/icon-button';
-import { StatusDot, type StatusTone } from '@/components/status-dot';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { StatusTone } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,22 +16,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTranscript } from '@/data/workbench-data';
-import { describe, useHostConnection } from '@/host/host-connection';
+import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
-import { formatDuration } from '@/session/format';
-import { useNow } from '@/session/use-now';
-import type { PaneContext } from '../pane-registry';
 import {
   droppedBefore,
   hasEarlier,
   outputLines,
-  processKey,
-  sortProcesses,
   stopTarget,
   visibleRange,
   wrapRows,
 } from '../process-model';
-import { useProcessList, useProcessOutput } from '../use-processes';
+import { useProcessOutput } from '../use-processes';
 
 const ROW_HEIGHT = 18;
 
@@ -46,138 +42,7 @@ const TRIGGER_LABELS: Record<string, PlainMessageKey> = {
   repair: 'processes.trigger.repair',
 };
 
-/**
- * “进程输出”窗格（0.69.0，desktop-layout.md §2.1）：当前会话或项目里 Host 起的后台进程（Agent 起的、回合后检查起的），看输出、
- * 停止。不是终端：不能输入。
- */
-export function ProcessesPane({ context }: { context: PaneContext }) {
-  const { client } = useHostConnection();
-  const { entry, sessionId } = context;
-  if (!entry) return <Note>{t('processes.noProject')}</Note>;
-  if (!client?.supports('process_output')) return <Note>{t('processes.unsupported')}</Note>;
-  return (
-    <ProcessesView
-      key={entry.workspace.id}
-      client={client}
-      workspaceId={entry.workspace.id as WorkspaceId}
-      sessionId={sessionId as SessionId | undefined}
-      titles={new Map(entry.sessions.map((session) => [session.id, session.title]))}
-    />
-  );
-}
-
-function Note({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <ScrollText aria-hidden className="size-6 stroke-[1.5] text-muted-foreground" />
-      <p className="max-w-64 text-sm text-muted-foreground">{children}</p>
-    </div>
-  );
-}
-
-function ProcessesView({
-  client,
-  workspaceId,
-  sessionId,
-  titles,
-}: {
-  client: WevirClient;
-  workspaceId: WorkspaceId;
-  sessionId: SessionId | undefined;
-  titles: ReadonlyMap<string, string>;
-}) {
-  const [scope, setScope] = useState<'session' | 'workspace'>(
-    sessionId === undefined ? 'workspace' : 'session',
-  );
-  const effective = sessionId === undefined ? 'workspace' : scope;
-  const { processes, error } = useProcessList(client, {
-    workspaceId,
-    ...(effective === 'session' && sessionId !== undefined && { sessionId }),
-  });
-  const { running, exited } = useMemo(() => sortProcesses(processes ?? []), [processes]);
-  const [selectedKey, setSelectedKey] = useState<string>();
-  const ordered = useMemo(() => [...running, ...exited], [running, exited]);
-  const selected =
-    ordered.find((item) => processKey(item) === selectedKey) ??
-    (selectedKey === undefined ? ordered[0] : undefined);
-  // 默认选中的那个（最近起的在跑的）记下来：它退出后在列表里换了位置也还选着它。
-  const fallbackKey = selectedKey === undefined && selected ? processKey(selected) : undefined;
-  useEffect(() => {
-    if (fallbackKey !== undefined) setSelectedKey(fallbackKey);
-  }, [fallbackKey]);
-  const now = useNow(running.length > 0 ? 1000 : undefined);
-  const [stopping, setStopping] = useState<HostProcess>();
-
-  return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="processes-pane">
-      {sessionId !== undefined && (
-        <div className="flex shrink-0 items-center gap-1 px-3 pt-1 pb-2">
-          {(['session', 'workspace'] as const).map((value) => (
-            <Button
-              key={value}
-              size="xs"
-              variant={effective === value ? 'secondary' : 'ghost'}
-              aria-pressed={effective === value}
-              onClick={() => setScope(value)}
-            >
-              {t(value === 'session' ? 'processes.scope.session' : 'processes.scope.workspace')}
-            </Button>
-          ))}
-        </div>
-      )}
-      {error !== undefined && processes === undefined ? (
-        <p
-          role="alert"
-          className="mx-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {t('processes.loadFailed', { error: describe(error) })}
-        </p>
-      ) : processes === undefined ? null : ordered.length === 0 ? (
-        <Note>{t('processes.empty')}</Note>
-      ) : (
-        <>
-          <ul
-            className="max-h-[40%] shrink-0 overflow-y-auto border-b border-border px-2 pb-2"
-            aria-label={t('pane.kind.processes')}
-          >
-            {ordered.map((item) => (
-              <ProcessRow
-                key={processKey(item)}
-                process={item}
-                now={now}
-                selected={selected !== undefined && processKey(selected) === processKey(item)}
-                sessionTitle={
-                  effective === 'workspace' ? titles.get(item.source.sessionId) : undefined
-                }
-                onSelect={() => setSelectedKey(processKey(item))}
-                onStop={item.stopSignals.length > 0 ? () => setStopping(item) : undefined}
-              />
-            ))}
-          </ul>
-          {selected === undefined ? (
-            <Note>{t('processes.gone')}</Note>
-          ) : (
-            <ProcessDetail
-              key={processKey(selected)}
-              client={client}
-              process={selected}
-              sessionTitle={titles.get(selected.source.sessionId)}
-            />
-          )}
-        </>
-      )}
-      {stopping && (
-        <StopDialog
-          client={client}
-          process={ordered.find((item) => processKey(item) === processKey(stopping)) ?? stopping}
-          onClose={() => setStopping(undefined)}
-        />
-      )}
-    </div>
-  );
-}
-
-function statusOf(process: HostProcess): { tone: StatusTone; label: string } {
+export function statusOf(process: HostProcess): { tone: StatusTone; label: string } {
   if (process.status === 'running') return { tone: 'accent', label: t('processes.status.running') };
   if (process.error !== undefined) return { tone: 'danger', label: t('processes.status.failed') };
   // 被停的不算失败：退出码是停它的信号带来的。
@@ -191,7 +56,7 @@ function statusOf(process: HostProcess): { tone: StatusTone; label: string } {
   };
 }
 
-function stopperLabel(process: HostProcess): string | undefined {
+export function stopperLabel(process: HostProcess): string | undefined {
   switch (process.stoppedBy) {
     case 'user':
       return t('processes.stoppedBy.user');
@@ -204,70 +69,14 @@ function stopperLabel(process: HostProcess): string | undefined {
   }
 }
 
-function sourceLabel(process: HostProcess): string {
+export function sourceLabel(process: HostProcess): string {
   if (process.source.kind === 'agent') return t('processes.source.agent');
   if (process.source.kind === 'preview') return t('processes.source.preview');
   const trigger = TRIGGER_LABELS[process.source.trigger];
   return `${t('processes.source.check')} · ${trigger ? t(trigger) : process.source.trigger}`;
 }
 
-function ProcessRow({
-  process,
-  now,
-  selected,
-  sessionTitle,
-  onSelect,
-  onStop,
-}: {
-  process: HostProcess;
-  now: number;
-  selected: boolean;
-  sessionTitle: string | undefined;
-  onSelect: () => void;
-  onStop: (() => void) | undefined;
-}) {
-  const status = statusOf(process);
-  const end = process.endedAt === undefined ? now : Date.parse(process.endedAt);
-  const meta = [sourceLabel(process), sessionTitle, status.label, stopperLabel(process)].filter(
-    Boolean,
-  );
-  return (
-    <li
-      data-testid="process-row"
-      data-status={process.status}
-      className={cn('flex items-center gap-2 rounded-lg px-2 py-1.5', selected && 'bg-accent')}
-    >
-      <button
-        type="button"
-        aria-current={selected || undefined}
-        onClick={onSelect}
-        className="-mx-1 flex min-w-0 flex-1 items-start gap-2 rounded-md px-1 text-left outline-none focus-visible:focus-ring"
-      >
-        <StatusDot tone={status.tone} pulse={process.status === 'running'} className="mt-1.5" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm">{process.name}</span>
-          <span className="block truncate text-xs text-muted-foreground">{meta.join(' · ')}</span>
-        </span>
-      </button>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {formatDuration(end - Date.parse(process.startedAt))}
-      </span>
-      {onStop && (
-        <IconButton
-          label={t('processes.stop')}
-          size="icon-xs"
-          className="text-muted-foreground hover:text-destructive"
-          onClick={onStop}
-          data-testid="process-stop"
-        >
-          <Square />
-        </IconButton>
-      )}
-    </li>
-  );
-}
-
-function ProcessDetail({
+export function ProcessDetail({
   client,
   process,
   sessionTitle,
@@ -454,7 +263,7 @@ function OutputView({ client, process }: { client: WevirClient; process: HostPro
   );
 }
 
-function StopDialog({
+export function StopDialog({
   client,
   process,
   onClose,

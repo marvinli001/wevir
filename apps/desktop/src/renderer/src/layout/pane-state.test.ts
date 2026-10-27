@@ -55,7 +55,6 @@ describe('pane-kinds', () => {
       'changes',
       'files',
       'tasks',
-      'processes',
       'terminal',
       'browser',
       'retro',
@@ -68,6 +67,7 @@ describe('pane-kinds', () => {
     expect(openableKinds(true)).not.toContain('session');
     // “子智能体”并进了“后台任务”，只为读回旧的本机状态。
     expect(openableKinds(true)).not.toContain('subagents');
+    expect(openableKinds(true)).not.toContain('processes');
   });
 
   it('外壳没有内置浏览器、连接没有 terminal.write、Host 没有模拟器时不列这几种', () => {
