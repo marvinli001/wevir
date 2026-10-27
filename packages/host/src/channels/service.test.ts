@@ -66,6 +66,23 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
     adapter,
     worktreesDir: join(dataDir, 'worktrees'),
     onTurnFinished: (info) => channels?.onTurnFinished(info),
+    // 用量统计照 Host 记：Echo 每回合报一次请求（第二回合起带缓存读取）。
+    onUsage: ({ sessionId, providerId, modelId }, event) => {
+      storage.usage.insert({
+        sessionId,
+        requestId: event.requestId,
+        at: Date.now(),
+        source: 'openai-compatible',
+        providerId,
+        providerName: providerId,
+        model: event.model ?? modelId,
+        inputTokens: event.inputTokens ?? 0,
+        outputTokens: event.outputTokens ?? 0,
+        cacheReadTokens: event.cacheReadTokens ?? 0,
+        cacheWriteTokens: event.cacheWriteTokens ?? 0,
+        reasoningTokens: event.reasoningTokens ?? 0,
+      });
+    },
   });
   channels = new ChannelService({
     storage,
@@ -377,6 +394,29 @@ describe('ChannelService', () => {
     expect(row.state).toBe('paused');
     expect(row.pauseReason).toBe('budget');
     expect(h.posts(bot.id).filter((post) => post.author.kind === 'coordinator')).toHaveLength(1);
+  });
+
+  it('预算的 token 按用量统计算，缓存读取不算', async () => {
+    const h = await setup();
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    await h.coordinatorPosts(bot.id, 1);
+    h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'One more' }] }, identity);
+    await h.coordinatorPosts(bot.id, 2);
+    const sessionId = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
+      .coordinator.sessionId as SessionId;
+    const rows = h.storage.usage.range(0, Number.MAX_SAFE_INTEGER);
+    expect(rows.some((row) => row.cacheReadTokens > 0)).toBe(true);
+    const day = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    await vi.waitFor(() => {
+      expect(h.storage.channels.usage(bot.id, day)?.tokens).toBe(
+        h.storage.usage.sessionTotals(sessionId).tokens,
+      );
+    });
+    expect(h.storage.usage.sessionTotals(sessionId).requests).toBe(2);
   });
 
   it('用户在自己的帖子上开线程：线程会话的首条是引用的原帖，标记解决', async () => {

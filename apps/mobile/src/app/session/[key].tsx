@@ -9,6 +9,7 @@ import type {
   QuestionAnswer,
   QuestionId,
   SessionId,
+  ToolDisplayKind,
   UserImagePart,
 } from '@wevir/protocol';
 import { SESSION_TITLE_MAX_LENGTH } from '@wevir/protocol';
@@ -51,6 +52,23 @@ import { SPACE, TEXT, type Theme, useTheme } from '../../theme';
 
 interface Attachment extends ComposerAttachment {
   image?: UserImagePart;
+}
+
+const TOOL_VERBS: Partial<Record<ToolDisplayKind, MessageKey>> = {
+  read: 'tool.read',
+  search: 'tool.search',
+  edit: 'tool.edit',
+  write: 'tool.write',
+  shell: 'tool.shell',
+  fetch: 'tool.fetch',
+  plan: 'tool.plan',
+  sub_agent: 'tool.sub_agent',
+};
+
+/** 工具一行开头的动词；图片与不认识的种类用工具名。 */
+function toolVerb(kind: ToolDisplayKind): string | undefined {
+  const key = TOOL_VERBS[kind];
+  return key !== undefined ? t(key) : undefined;
 }
 
 export default function SessionScreen() {
@@ -119,7 +137,10 @@ export default function SessionScreen() {
   }, []);
 
   const items = useMemo(
-    () => (view.transcript !== undefined ? sessionItems(view.transcript, t('bot.image')) : []),
+    () =>
+      view.transcript !== undefined
+        ? sessionItems(view.transcript, { image: t('bot.image'), tool: toolVerb })
+        : [],
     [view.transcript],
   );
   const session = view.session;

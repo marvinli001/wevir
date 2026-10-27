@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { formatBytes, t, timeAgo } from '../i18n';
 import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
+import { Markdown } from './markdown';
 import { Button, Chevron, Icon, type IconName } from './ui';
 
 type Decide = (decision: Exclude<Decision, 'pending'>) => Promise<void>;
@@ -60,9 +61,9 @@ function TextPost({ author, text }: { author: BotPost['author']; text: string })
     return <Text style={[styles.host, { color: theme.mutedForeground }]}>{text}</Text>;
   }
   return (
-    <Text style={[styles.body, styles.reply, { color: theme.foreground }]} selectable>
-      {text}
-    </Text>
+    <View style={styles.reply}>
+      <Markdown text={text} />
+    </View>
   );
 }
 

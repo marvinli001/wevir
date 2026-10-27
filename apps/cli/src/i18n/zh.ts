@@ -412,6 +412,9 @@ export const zh = {
   'option.allowAlways': '总是允许',
   'option.rejectOnce': '拒绝',
   'option.rejectAlways': '总是拒绝',
+  'option.allow': '允许',
+  'option.allowForSession': '本会话都允许',
+  'option.rejectAndStop': '拒绝并停止',
   'time.minutes': '{minutes} 分 {seconds} 秒',
 
   // render.ts：会话事件

@@ -9,7 +9,7 @@ import type {
   PreviewStartResult,
 } from '@wevir/protocol';
 import type { StatusTone } from '@/components/status-dot';
-import type { PlainMessageKey } from '@/i18n';
+import { type PlainMessageKey, t } from '@/i18n';
 
 export type PreviewState = 'idle' | 'starting' | 'ready' | 'failed';
 
@@ -169,7 +169,7 @@ export function startProblem(
       key: 'preview.blocked',
       items: result.readiness
         .map((item) => (item.path === '' ? item.name : `${item.name} · ${item.path}`))
-        .join('、'),
+        .join(t('common.listSeparator')),
     };
   }
   if (result.status === 'port_in_use') {

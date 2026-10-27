@@ -638,7 +638,7 @@ function QuestionPart({ part }: { part: ChatPartOf<'question'> }) {
                 ? t('question.skipped')
                 : item.secret
                   ? '••••'
-                  : answer.join('、')}
+                  : answer.join(t('common.listSeparator'))}
             </span>
           </li>
         );

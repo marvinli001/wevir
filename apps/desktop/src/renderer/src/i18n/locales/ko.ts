@@ -8,6 +8,8 @@ export const messages: Messages = {
   'common.cancel': '취소',
   'common.loading': '불러오는 중…',
   'common.listSeparator': ', ',
+  'common.colon': ': ',
+  'common.parenthetical': ' ({text})',
 
   'toast.region': '알림',
 
@@ -1004,6 +1006,8 @@ export const messages: Messages = {
   'approval.option.allowAlways': '항상 허용',
   'approval.option.reject': '거부',
   'approval.option.rejectAlways': '항상 거부',
+  'approval.option.allowForSession': '이 세션에서 허용',
+  'approval.option.rejectAndStop': '거부하고 중지',
   'approval.resolved': '처리됨: {decision}',
   'approval.resolvedBy': '{who}에서 처리함: {decision}',
   'approval.respondFailed': '승인 제출 실패: {error}',

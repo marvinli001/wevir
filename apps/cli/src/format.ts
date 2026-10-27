@@ -72,6 +72,15 @@ export function optionLabel(option: Pick<ApprovalOption, 'kind' | 'label'>): str
       return t('option.rejectOnce');
     case 'reject_always':
       return t('option.rejectAlways');
+    // Codex 与 Claude 适配器的选项（它们的 label 是简体中文）。
+    case 'allow_accept':
+      return t('option.allow');
+    case 'allow_accept_for_session':
+      return t('option.allowForSession');
+    case 'reject_decline':
+      return t('option.rejectOnce');
+    case 'reject_cancel':
+      return t('option.rejectAndStop');
     default:
       return option.label || option.kind;
   }

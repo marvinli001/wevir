@@ -427,6 +427,9 @@ Also:
   'option.allowAlways': 'Always allow',
   'option.rejectOnce': 'Reject',
   'option.rejectAlways': 'Always reject',
+  'option.allow': 'Allow',
+  'option.allowForSession': 'Allow for this session',
+  'option.rejectAndStop': 'Reject and stop',
   'time.minutes': '{minutes} min {seconds} s',
 
   'render.liveDivider': '── live output below ──',

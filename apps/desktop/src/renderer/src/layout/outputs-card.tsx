@@ -42,7 +42,10 @@ function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) 
           deleted && 'text-destructive',
         )}
       />
-      <span className="sr-only">{t(`rail.outputs.kind.${file.kind}`)}：</span>
+      <span className="sr-only">
+        {t(`rail.outputs.kind.${file.kind}`)}
+        {t('common.colon')}
+      </span>
       <span className={cn('shrink-0 truncate', deleted && 'text-muted-foreground line-through')}>
         {name}
       </span>

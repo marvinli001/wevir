@@ -8,6 +8,8 @@ export const messages: Messages = {
   'common.cancel': 'Cancelar',
   'common.loading': 'Cargando…',
   'common.listSeparator': ', ',
+  'common.colon': ': ',
+  'common.parenthetical': ' ({text})',
 
   'toast.region': 'Notificaciones',
 
@@ -1023,6 +1025,8 @@ export const messages: Messages = {
   'approval.option.allowAlways': 'Permitir siempre',
   'approval.option.reject': 'Denegar',
   'approval.option.rejectAlways': 'Denegar siempre',
+  'approval.option.allowForSession': 'Permitir en esta sesión',
+  'approval.option.rejectAndStop': 'Denegar y detener',
   'approval.resolved': 'Resuelto: {decision}',
   'approval.resolvedBy': 'Resuelto por {who}: {decision}',
   'approval.respondFailed': 'Error al enviar la aprobación: {error}',

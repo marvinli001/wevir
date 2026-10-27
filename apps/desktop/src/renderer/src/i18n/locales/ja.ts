@@ -8,6 +8,8 @@ export const messages: Messages = {
   'common.cancel': 'キャンセル',
   'common.loading': '読み込み中…',
   'common.listSeparator': '、',
+  'common.colon': '：',
+  'common.parenthetical': '（{text}）',
 
   'toast.region': '通知',
 
@@ -1008,6 +1010,8 @@ export const messages: Messages = {
   'approval.option.allowAlways': '常に許可',
   'approval.option.reject': '拒否',
   'approval.option.rejectAlways': '常に拒否',
+  'approval.option.allowForSession': 'このセッションでは許可',
+  'approval.option.rejectAndStop': '拒否して停止',
   'approval.resolved': '処理済み: {decision}',
   'approval.resolvedBy': '{who}で処理済み: {decision}',
   'approval.respondFailed': '承認の送信に失敗しました: {error}',

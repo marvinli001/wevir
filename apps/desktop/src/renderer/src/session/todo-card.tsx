@@ -116,7 +116,8 @@ function TodoRow({
           )}
         >
           <span className="sr-only">
-            {t(`todo.status.${state === 'settled' ? 'completed' : state}`)}：
+            {t(`todo.status.${state === 'settled' ? 'completed' : state}`)}
+            {t('common.colon')}
           </span>
           {item.content}
         </span>

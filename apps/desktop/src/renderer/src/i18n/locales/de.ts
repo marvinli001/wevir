@@ -8,6 +8,8 @@ export const messages: Messages = {
   'common.cancel': 'Abbrechen',
   'common.loading': 'Wird geladen…',
   'common.listSeparator': ', ',
+  'common.colon': ': ',
+  'common.parenthetical': ' ({text})',
 
   'toast.region': 'Benachrichtigungen',
 
@@ -1018,6 +1020,8 @@ export const messages: Messages = {
   'approval.option.allowAlways': 'Immer zulassen',
   'approval.option.reject': 'Ablehnen',
   'approval.option.rejectAlways': 'Immer ablehnen',
+  'approval.option.allowForSession': 'Für die Sitzung zulassen',
+  'approval.option.rejectAndStop': 'Ablehnen und stoppen',
   'approval.resolved': 'Erledigt: {decision}',
   'approval.resolvedBy': 'Erledigt ({who}): {decision}',
   'approval.respondFailed': 'Freigabe konnte nicht gesendet werden: {error}',

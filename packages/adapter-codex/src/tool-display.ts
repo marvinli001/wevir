@@ -183,7 +183,10 @@ export function displayCommand(command: string, actions: readonly CommandAction[
   return actions.length === 1 && actions[0] !== undefined ? actions[0].command : command;
 }
 
-/** 文件改动：全是新建 → `write`，否则 `edit`；`paths` 是全部改动的路径（移动的写目标路径）。 */
+/**
+ * 文件改动：全是新建 → `write`，否则 `edit`；`paths` 是全部改动的路径（移动的写目标路径）。多个文件时摘要是第一个路径加
+ * `+N`，不带语言：客户端照原样显示。
+ */
 export function fileChangeDisplay(changes: readonly FileUpdateChange[]): ToolDisplay {
   const paths = unique(
     changes.map((change) =>
@@ -192,7 +195,7 @@ export function fileChangeDisplay(changes: readonly FileUpdateChange[]): ToolDis
   );
   const kind =
     changes.length > 0 && changes.every((change) => change.kind.type === 'add') ? 'write' : 'edit';
-  const summary = paths.length <= 1 ? (paths[0] ?? '') : `${paths[0]} 等 ${paths.length} 个文件`;
+  const summary = paths.length <= 1 ? (paths[0] ?? '') : `${paths[0]} +${paths.length - 1}`;
   return { kind, summary, paths };
 }
 

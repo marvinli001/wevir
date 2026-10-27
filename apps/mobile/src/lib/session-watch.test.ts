@@ -12,9 +12,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalNotVerifiedError, setApprovalGate } from './approval-gate';
 import { approval } from './bot-test-utils';
 import type { SessionCache } from './cache';
-import { sessionItems } from './session-items';
+import { type SessionItemLabels, sessionItems } from './session-items';
 import { type SessionClient, type SessionView, SessionWatch } from './session-watch';
 
+const LABELS: SessionItemLabels = {
+  image: '图片',
+  tool: (kind) => (kind === 'shell' ? '运行' : undefined),
+};
 const SES = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' as SessionId;
 const TURN = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' as TurnId;
 
@@ -117,9 +121,9 @@ describe('SessionWatch', () => {
     expect(watch.view.error).toBeUndefined();
     await vi.waitFor(() => expect(watch.view.caughtUp).toBe(true));
     expect(watch.view.session?.title).toBe('修登录页');
-    const items = sessionItems(watch.view.transcript as never, '图片');
+    const items = sessionItems(watch.view.transcript as never, LABELS);
     expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool', 'approval']);
-    expect(items[2]).toMatchObject({ label: 'shell · pnpm test', state: 'failed' });
+    expect(items[2]).toMatchObject({ label: '运行 · pnpm test', state: 'failed' });
     expect(items[3]).toMatchObject({
       kind: 'approval',
       post: { card: { kind: 'approval', tool: 'gmail · send_email', decision: 'pending' } },
@@ -214,7 +218,7 @@ describe('SessionWatch 的本地缓存', () => {
       caughtUp: true,
       cachedAt: '2026-10-27T08:00:00.000Z',
     });
-    const items = sessionItems(offline.view.transcript as never, '图片');
+    const items = sessionItems(offline.view.transcript as never, LABELS);
     expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool']);
     await offline.respond((approval() as ApprovalRequest).id, 'approved');
   });

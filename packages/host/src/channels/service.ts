@@ -72,6 +72,7 @@ import {
   type WakeReason,
   wakeEnvelope,
 } from './envelope.js';
+import { plainPreviewLine } from './plain-preview.js';
 
 /** 建助理时给它的晨间简报（0.121.0）：每天这个时刻（本机时区）。 */
 export const MORNING_BRIEF_TIME = '08:00';
@@ -187,7 +188,9 @@ interface ActiveWake {
   seq: number;
   generation: number;
   replyTo?: ChannelPostId;
+  /** 唤醒前会话的用量：引擎报的累计 token，与用量统计里的请求数和 token 合计（不含缓存读取）。 */
   tokensBefore: number;
+  recordedBefore: { requests: number; tokens: number };
   extraPosts: number;
   /** 晨间简报：协调者这回合的回答带这张卡片（唤醒时组装）。 */
   brief?: Extract<ChannelCard, { kind: 'brief' }>;
@@ -249,12 +252,9 @@ export function postOfAnswer(text: string): { text: string; quiet: boolean } {
   return { text: lines.slice(0, -1).join('\n').trim(), quiet: true };
 }
 
-/** 第一段文字，打码后截断；只有图片时 `[image]`。 */
+/** 第一行文字（去掉 Markdown 记号），打码后截断；只有图片时 `[image]`。 */
 function previewOf(post: Pick<ChannelPost, 'content' | 'card'>): string {
-  const text =
-    postText(post)
-      .split('\n')
-      .find((line) => line.trim() !== '') ?? '';
+  const text = plainPreviewLine(postText(post));
   const shown = text === '' && post.card?.kind === 'suggestion' ? post.card.text : text;
   return clip(redactSecrets(shown.trim()).text, CHANNEL_POST_PREVIEW_MAX_LENGTH);
 }
@@ -977,6 +977,20 @@ export class ChannelService {
     pending.timer.unref?.();
   }
 
+  /**
+   * 这次唤醒花了多少 token，算预算用：有用量统计时取请求的输入、缓存写入与输出，缓存读取不算（它占了协调者用量的大头，
+   * 计价也只是零头）；引擎不报单次请求时退回引擎的累计 token 之差（含缓存读取）。
+   */
+  #wakeTokens(active: ActiveWake): number {
+    const recorded = this.#storage.usage.sessionTotals(active.sessionId);
+    if (recorded.requests > active.recordedBefore.requests) {
+      return Math.max(0, recorded.tokens - active.recordedBefore.tokens);
+    }
+    const tokensAfter =
+      this.#options.events.snapshot(active.sessionId)?.usage?.totalTokens ?? active.tokensBefore;
+    return Math.max(0, tokensAfter - active.tokensBefore);
+  }
+
   async #flushWake(channelId: ChannelId): Promise<void> {
     const pending = this.#pending.get(channelId);
     if (pending === undefined || pending.reasons.size === 0) return;
@@ -1079,6 +1093,7 @@ export class ChannelService {
       }
     }
     const tokensBefore = this.#options.events.snapshot(sessionId)?.usage?.totalTokens ?? 0;
+    const recordedBefore = this.#storage.usage.sessionTotals(sessionId);
     const lastUserPost = pending.posts.findLast((post) => post.author.kind === 'user');
     try {
       const sent = await this.#options.sessions.send(
@@ -1094,6 +1109,7 @@ export class ChannelService {
         generation: coordinator.generation,
         ...(lastUserPost !== undefined && { replyTo: lastUserPost.id }),
         tokensBefore,
+        recordedBefore,
         extraPosts: 0,
         ...(brief !== undefined && { brief }),
       });
@@ -1200,9 +1216,7 @@ export class ChannelService {
         files.push(...event.payload.files);
       }
     }
-    const tokensAfter =
-      this.#options.events.snapshot(active.sessionId)?.usage?.totalTokens ?? active.tokensBefore;
-    const spent = Math.max(0, tokensAfter - active.tokensBefore);
+    const spent = this.#wakeTokens(active);
     if (spent > 0) this.#storage.channels.addUsage(record.id, this.#day(), { tokens: spent });
     if (outcome === 'failed') {
       const message = this.#options.events.snapshot(active.sessionId)?.session.lastError?.message;

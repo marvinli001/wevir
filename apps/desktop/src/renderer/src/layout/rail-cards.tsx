@@ -87,7 +87,7 @@ function PathRow({ name, path }: { name: string; path: string }) {
       <button
         type="button"
         title={copied ? t('environment.copied') : t('environment.copyPath')}
-        aria-label={`${t('environment.copyPath')}：${path}`}
+        aria-label={`${t('environment.copyPath')}${t('common.colon')}${path}`}
         onClick={() =>
           void platformApi()
             .copyText(path)

@@ -88,7 +88,7 @@ describe('fileChangeDisplay', () => {
         { path: 'b', kind: { type: 'update', move_path: 'c' }, diff: '' },
         { path: 'd', kind: { type: 'delete' }, diff: '' },
       ]),
-    ).toEqual({ kind: 'edit', summary: 'a 等 3 个文件', paths: ['a', 'c', 'd'] });
+    ).toEqual({ kind: 'edit', summary: 'a +2', paths: ['a', 'c', 'd'] });
   });
 });
 

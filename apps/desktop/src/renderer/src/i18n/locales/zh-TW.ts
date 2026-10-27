@@ -8,6 +8,8 @@ export const messages: Messages = {
   'common.cancel': '取消',
   'common.loading': '正在載入…',
   'common.listSeparator': '、',
+  'common.colon': '：',
+  'common.parenthetical': '（{text}）',
 
   'toast.region': '通知',
 
@@ -1002,6 +1004,8 @@ export const messages: Messages = {
   'approval.option.allowAlways': '一律允許',
   'approval.option.reject': '拒絕',
   'approval.option.rejectAlways': '一律拒絕',
+  'approval.option.allowForSession': '本工作階段都允許',
+  'approval.option.rejectAndStop': '拒絕並停止',
   'approval.resolved': '已處理：{decision}',
   'approval.resolvedBy': '已由{who}處理：{decision}',
   'approval.respondFailed': '送出核准結果失敗：{error}',

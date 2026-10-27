@@ -48,6 +48,8 @@ export interface UsageRepository {
   ): { rows: StoredUsageRow[]; total: number };
   /** 删一个 Provider 的全部记录（删 Provider 时），返回删了几条。 */
   deleteProvider(providerId: string): number;
+  /** 一个会话记了几次请求，与输入、缓存写入、输出的 token 合计（不含缓存读取）。 */
+  sessionTotals(sessionId: string): { requests: number; tokens: number };
 }
 
 export function createUsageRepository(db: SqliteDatabase): UsageRepository {
@@ -73,6 +75,10 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
   );
   const count = db.prepare(`SELECT COUNT(*) AS n FROM usage_records ${where}`);
   const deleteProvider = db.prepare('DELETE FROM usage_records WHERE provider_id = ?');
+  const sessionTotals = db.prepare(`
+    SELECT COUNT(*) AS requests,
+      COALESCE(SUM(input_tokens + cache_write_tokens + output_tokens), 0) AS tokens
+    FROM usage_records WHERE session_id = ?`);
 
   return {
     insert(row) {
@@ -111,6 +117,10 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
       };
     },
     deleteProvider: (providerId) => Number(deleteProvider.run(providerId).changes),
+    sessionTotals(sessionId) {
+      const row = sessionTotals.get(sessionId) ?? {};
+      return { requests: integer(row, 'requests'), tokens: integer(row, 'tokens') };
+    },
   };
 }
 

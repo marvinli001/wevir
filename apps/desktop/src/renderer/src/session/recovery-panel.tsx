@@ -80,7 +80,9 @@ export function RecoveryPanel({
             <>
               <Hint label={lastError.message} whenClipped>
                 <p className="line-clamp-3 break-words text-foreground">
-                  {t(`engineError.category.${lastError.category}`)}：{lastError.message}
+                  {t(`engineError.category.${lastError.category}`)}
+                  {t('common.colon')}
+                  {lastError.message}
                 </p>
               </Hint>
               <p>{t(`engineError.hint.${lastError.category}`)}</p>

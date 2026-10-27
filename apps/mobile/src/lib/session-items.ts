@@ -2,7 +2,12 @@
 // 消息。思考、子会话之类桌面专有的部件不画。纯逻辑。
 
 import type { ChatMessage, Transcript } from '@wevir/client-sdk';
-import type { PendingDelivery, PendingMessage, QuestionRequest } from '@wevir/protocol';
+import type {
+  PendingDelivery,
+  PendingMessage,
+  QuestionRequest,
+  ToolDisplayKind,
+} from '@wevir/protocol';
 import { approvalView, type BotPost } from './bots';
 
 export type ToolState = 'running' | 'done' | 'failed';
@@ -26,6 +31,12 @@ function toolState(status: string): ToolState {
 }
 
 /** 用户消息的文字，图片写成 `[图片]`。 */
+/** 界面语言的文字：图片占位，工具种类的动词（不认识的种类给 `undefined`，用工具名）。 */
+export interface SessionItemLabels {
+  image: string;
+  tool: (kind: ToolDisplayKind) => string | undefined;
+}
+
 function userText(parts: readonly { type: string; text?: string }[], imageLabel: string): string {
   return parts
     .map((part) =>
@@ -46,10 +57,10 @@ function pendingItem(message: PendingMessage, imageLabel: string): SessionItem {
   };
 }
 
-function messageItems(message: ChatMessage, imageLabel: string): SessionItem[] {
+function messageItems(message: ChatMessage, labels: SessionItemLabels): SessionItem[] {
   const out: SessionItem[] = [];
   if (message.role === 'user') {
-    const text = userText(message.parts, imageLabel);
+    const text = userText(message.parts, labels.image);
     if (text !== '') out.push({ kind: 'user', key: message.id, text });
     return out;
   }
@@ -66,7 +77,7 @@ function messageItems(message: ChatMessage, imageLabel: string): SessionItem[] {
       case 'tool': {
         const display = part.display;
         const detail = display.summary ?? display.command ?? display.url ?? display.query;
-        const name = part.toolName.split('__').at(-1) ?? part.toolName;
+        const name = labels.tool(display.kind) ?? part.toolName.split('__').at(-1) ?? part.toolName;
         out.push({
           kind: 'tool',
           key: part.key,
@@ -84,8 +95,8 @@ function messageItems(message: ChatMessage, imageLabel: string): SessionItem[] {
 }
 
 /** 消息流，末尾是待批准的审批、等回答的问题与还没送达的消息。 */
-export function sessionItems(transcript: Transcript, imageLabel: string): SessionItem[] {
-  const out = transcript.messages.flatMap((message) => messageItems(message, imageLabel));
+export function sessionItems(transcript: Transcript, labels: SessionItemLabels): SessionItem[] {
+  const out = transcript.messages.flatMap((message) => messageItems(message, labels));
   for (const request of transcript.pendingApprovals) {
     out.push({
       kind: 'approval',
@@ -99,7 +110,7 @@ export function sessionItems(transcript: Transcript, imageLabel: string): Sessio
   }
   for (const message of transcript.pendingMessages) {
     if (message.status === 'waiting' || message.status === 'held')
-      out.push(pendingItem(message, imageLabel));
+      out.push(pendingItem(message, labels.image));
   }
   return out;
 }

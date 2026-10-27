@@ -52,7 +52,7 @@ import {
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { type PlainMessageKey, t } from '@/i18n';
 import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { platformSlots } from '@/platform/platform';
 import { pluginsAvailability } from '@/plugins/plugins-model';
@@ -775,12 +775,13 @@ function MoreList<T>({
   );
 }
 
-const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string }> = {
-  running: { tone: 'accent', label: t('session.marker.running') },
-  awaiting_approval: { tone: 'warning', label: t('session.marker.awaitingApproval') },
-  awaiting_input: { tone: 'warning', label: t('session.marker.awaitingInput') },
-  awaiting_decision: { tone: 'warning', label: t('session.marker.awaitingDecision') },
-  error: { tone: 'danger', label: t('session.marker.error') },
+// 文案 key 而不是文案：模块加载时界面语言的目录还没读进来，这里调 t() 会定格成简体中文。
+const MARKERS: Record<SessionMarker, { tone: StatusTone; label: PlainMessageKey }> = {
+  running: { tone: 'accent', label: 'session.marker.running' },
+  awaiting_approval: { tone: 'warning', label: 'session.marker.awaitingApproval' },
+  awaiting_input: { tone: 'warning', label: 'session.marker.awaitingInput' },
+  awaiting_decision: { tone: 'warning', label: 'session.marker.awaitingDecision' },
+  error: { tone: 'danger', label: 'session.marker.error' },
 };
 
 interface SessionRowProps {
@@ -843,7 +844,7 @@ const SessionRow = memo(function SessionRow({
   branch,
 }: SessionRowProps) {
   const marker = sessionMarker(session);
-  const markerInfo = marker && MARKERS[marker];
+  const markerInfo = marker && { tone: MARKERS[marker].tone, label: t(MARKERS[marker].label) };
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
   // 状态与标题的变化动效（§71）：只在这次运行里变了才有时刻。
   const motion = sessionMotion(session);

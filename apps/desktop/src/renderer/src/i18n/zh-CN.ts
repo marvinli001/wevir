@@ -21,6 +21,8 @@ export const zhCN = {
   'common.cancel': '取消',
   'common.loading': '正在加载…',
   'common.listSeparator': '、',
+  'common.colon': '：',
+  'common.parenthetical': '（{text}）',
 
   'toast.region': '通知',
 
@@ -1016,6 +1018,8 @@ export const zhCN = {
   'approval.option.allowAlways': '总是允许',
   'approval.option.reject': '拒绝',
   'approval.option.rejectAlways': '总是拒绝',
+  'approval.option.allowForSession': '本会话都允许',
+  'approval.option.rejectAndStop': '拒绝并停止',
   'approval.resolved': '已处理：{decision}',
   'approval.resolvedBy': '已由{who}处理：{decision}',
   'approval.respondFailed': '提交审批失败：{error}',

@@ -8,6 +8,8 @@ export const messages: Messages = {
   'common.cancel': 'Отмена',
   'common.loading': 'Загрузка…',
   'common.listSeparator': ', ',
+  'common.colon': ': ',
+  'common.parenthetical': ' ({text})',
 
   'toast.region': 'Уведомления',
 
@@ -1035,6 +1037,8 @@ export const messages: Messages = {
   'approval.option.allowAlways': 'Всегда разрешать',
   'approval.option.reject': 'Отклонить',
   'approval.option.rejectAlways': 'Всегда отклонять',
+  'approval.option.allowForSession': 'Разрешить на этот сеанс',
+  'approval.option.rejectAndStop': 'Отклонить и остановить',
   'approval.resolved': 'Решение: {decision}',
   'approval.resolvedBy': 'Решение ({who}): {decision}',
   'approval.respondFailed': 'Не удалось отправить решение: {error}',

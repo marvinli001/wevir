@@ -128,7 +128,7 @@ export function alwaysAllow(
   const option = approval.options.find((candidate) => candidate.category === 'allow');
   const prefixes = approval.proposedRule?.prefixes;
   if (option === undefined || prefixes === undefined) return undefined;
-  return { option, prefix: prefixes.map(prefixText).join('、') };
+  return { option, prefix: prefixes.map(prefixText).join(t('common.listSeparator')) };
 }
 
 /** 显示用的前缀：`git status`，含空白或引号的词加单引号（与 Host 的 `formatPrefix` 一致）。 */
@@ -151,6 +151,11 @@ const OPTION_LABELS: Record<string, PlainMessageKey> = {
   allow_always: 'approval.option.allowAlways',
   reject_once: 'approval.option.reject',
   reject_always: 'approval.option.rejectAlways',
+  // Codex 与 Claude 适配器的选项（它们的 label 是简体中文）。
+  allow_accept: 'approval.allow',
+  allow_accept_for_session: 'approval.option.allowForSession',
+  reject_decline: 'approval.reject',
+  reject_cancel: 'approval.option.rejectAndStop',
 };
 
 const CLIENT_KIND_LABELS: Record<ClientIdentity['clientKind'], PlainMessageKey> = {

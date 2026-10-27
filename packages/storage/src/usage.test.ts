@@ -90,4 +90,15 @@ describe('usage_records', () => {
     expect(s.usage.deleteProvider('prv_claude')).toBe(0);
     expect(s.usage.range(0, 10_000).map((r) => r.providerId)).toEqual(['prv_other']);
   });
+
+  it('会话合计：请求数与输入、缓存写入、输出之和，不含缓存读取', () => {
+    const s = storage();
+    expect(s.usage.sessionTotals('ses_01')).toEqual({ requests: 0, tokens: 0 });
+    s.usage.insert(row());
+    s.usage.insert(
+      row({ requestId: 'req_2', inputTokens: 5, outputTokens: 5, cacheWriteTokens: 0 }),
+    );
+    s.usage.insert(row({ sessionId: 'ses_02', requestId: 'req_3' }));
+    expect(s.usage.sessionTotals('ses_01')).toEqual({ requests: 2, tokens: 80 });
+  });
 });

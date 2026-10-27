@@ -216,6 +216,7 @@ export function retroMarkdownText(
 ): string {
   const out: string[] = [];
   const notRecorded = `- ${t('retro.notRecorded')}`;
+  const colon = t('common.colon');
   const section = (name: string, lines: string[], empty = notRecorded) => {
     out.push('', `## ${name}`, ...(lines.length === 0 ? [empty] : lines));
   };
@@ -231,9 +232,9 @@ export function retroMarkdownText(
 
   const goal: string[] = [];
   if (retro.goal.goal) {
-    goal.push(item(`${goalStatusLabel(retro.goal.goal.status)}：`, retro.goal.goal));
+    goal.push(item(`${goalStatusLabel(retro.goal.goal.status)}${colon}`, retro.goal.goal));
   }
-  if (retro.goal.request) goal.push(item(`${t('retro.goal.request')}：`, retro.goal.request));
+  if (retro.goal.request) goal.push(item(`${t('retro.goal.request')}${colon}`, retro.goal.request));
   section(t('retro.section.goal'), goal);
   if (retro.chapters && retro.chapters.length > 0) {
     section(
@@ -241,7 +242,7 @@ export function retroMarkdownText(
       retro.chapters.map((chapter) =>
         item('', {
           ...chapter,
-          text: `${chapter.text}${chapter.summary ? `：${chapter.summary}` : ''}（${t('retro.chapterTurns', { count: chapter.turns })}）`,
+          text: `${chapter.text}${chapter.summary ? `${colon}${chapter.summary}` : ''}${t('common.parenthetical', { text: t('retro.chapterTurns', { count: chapter.turns }) })}`,
         }),
       ),
     );
@@ -266,14 +267,14 @@ export function retroMarkdownText(
       .join(' · ');
     const tests = check.tests ? ` · ${t('verification.tests', testParams(check.tests))}` : '';
     verification.push(
-      `- ${check.name} \`${oneLine(check.command)}\`：${detail}${tests}${cite(check)}`,
+      `- ${check.name} \`${oneLine(check.command)}\`${colon}${detail}${tests}${cite(check)}`,
     );
     for (const run of check.earlier ?? []) {
       verification.push(`  - ${checkStatusText(run)} (v:${run.runId})`);
     }
   }
   if (retro.verification.commands.length > 0) {
-    verification.push('', `${t('retro.section.commands')}：`);
+    verification.push('', `${t('retro.section.commands')}${colon}`);
     for (const command of retro.verification.commands) {
       const status = command.status === undefined ? '' : ` ${workStatusLabel(command.status)}`;
       verification.push(`- \`${oneLine(command.text)}\`${status}${cite(command)}`);
@@ -283,17 +284,17 @@ export function retroMarkdownText(
 
   const d = retro.delivery;
   section(t('retro.section.delivery'), [
-    `- ${t('retro.delivery.checks')}：${deliveryLabel(d.checks)}`,
-    `- ${t('retro.delivery.commit')}：${deliveryLabel(d.commit)}${
+    `- ${t('retro.delivery.checks')}${colon}${deliveryLabel(d.checks)}`,
+    `- ${t('retro.delivery.commit')}${colon}${deliveryLabel(d.commit)}${
       retro.changes.uncommitted
         ? ` · ${t('retro.uncommitted', { count: retro.changes.uncommitted })}`
         : ''
     }`,
-    `- ${t('retro.delivery.push')}：${deliveryLabel(d.push)}${
+    `- ${t('retro.delivery.push')}${colon}${deliveryLabel(d.push)}${
       d.ahead ? ` · ${t('retro.ahead', { count: d.ahead })}` : ''
     }`,
-    `- ${t('retro.delivery.ci')}：${deliveryLabel(d.ci)}`,
-    `- ${t('retro.delivery.deploy')}：${deliveryLabel(d.deploy)}`,
+    `- ${t('retro.delivery.ci')}${colon}${deliveryLabel(d.ci)}`,
+    `- ${t('retro.delivery.deploy')}${colon}${deliveryLabel(d.deploy)}`,
   ]);
 
   const changes = retro.changes.files.map(
@@ -336,7 +337,7 @@ export function retroMarkdownText(
     t('retro.section.next'),
     retro.next.map((entry) => {
       const detail = nextDetail(entry);
-      return `- ${nextLabel(entry)}${detail ? `：${oneLine(detail)}` : ''}${cite(entry)}`;
+      return `- ${nextLabel(entry)}${detail ? `${colon}${oneLine(detail)}` : ''}${cite(entry)}`;
     }),
     `- ${t('retro.next.none')}`,
   );

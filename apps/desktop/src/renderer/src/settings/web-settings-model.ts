@@ -38,5 +38,8 @@ export function testNotice(result: WebTestResult): Notice {
     };
   }
   const reason = t(REASONS[result.reason ?? 'unknown']);
-  return { tone: 'error', text: result.message ? `${reason}：${result.message}` : reason };
+  return {
+    tone: 'error',
+    text: result.message ? `${reason}${t('common.colon')}${result.message}` : reason,
+  };
 }
