@@ -659,9 +659,12 @@ function threadOpen(
   );
 }
 
-/** 子会话前面那条线：竖线连到下一个，最后一个拐个弯收住（照 Claude Code 桌面端）。 */
+/**
+ * 子会话前面那条线（照 Claude Code 桌面端）：竖线在父会话标题起点稍右，连到下一个，最后一个拐个弯收住；子会话的标题在线右边
+ * 16 px，状态点落在线上（`SessionRow` 的 `branch`）。用前景色的 20%：`border` 在侧栏底色上几乎看不见。
+ */
 const BRANCH =
-  'relative pl-5 before:pointer-events-none before:absolute before:-top-px before:left-4 before:border-l before:border-border';
+  'relative pl-11 before:pointer-events-none before:absolute before:-top-px before:left-9 before:border-l before:border-foreground/20';
 const BRANCH_MID = 'before:bottom-0';
 const BRANCH_LAST = 'before:h-[17px] before:w-2 before:rounded-bl-md before:border-b';
 
@@ -715,6 +718,7 @@ function ThreadItem({
                   workspaceId={workspaceId}
                   session={child}
                   unread={isUnread(child)}
+                  branch
                   {...label(child)}
                 />
               </li>
@@ -731,8 +735,6 @@ function ThreadItem({
             onClick={() => toggleThread(session.id)}
             className={cn(ROW, 'h-7 text-sm text-muted-foreground hover:text-foreground')}
           >
-            {/* 和会话行的状态格一样宽，文字与子会话的标题对齐。 */}
-            <span aria-hidden className="w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate text-left">
               {t('sidebar.threadCount', { count })}
               {runningCount > 0 && ` · ${t('sidebar.threadRunning', { count: runningCount })}`}
@@ -803,6 +805,8 @@ interface SessionRowProps {
   project?: { displayName: string; rootPath: string };
   /** 它开出的会话归在它下面（session-threads.ts）：几个、展开着没有。标题后面有展开、收起的箭头。 */
   thread?: { count: number; open: boolean };
+  /** 子会话行（`BRANCH`）：状态格移到行左边，落在那条线上，标题紧跟行首。 */
+  branch?: boolean;
 }
 
 /**
@@ -817,7 +821,8 @@ function sameRow(a: SessionRowProps, b: SessionRowProps): boolean {
     a.project?.displayName === b.project?.displayName &&
     a.project?.rootPath === b.project?.rootPath &&
     a.thread?.count === b.thread?.count &&
-    a.thread?.open === b.thread?.open
+    a.thread?.open === b.thread?.open &&
+    a.branch === b.branch
   );
 }
 
@@ -849,6 +854,7 @@ const SessionRow = memo(function SessionRow({
   unread,
   project,
   thread,
+  branch,
 }: SessionRowProps) {
   const marker = sessionMarker(session);
   const markerInfo = marker && MARKERS[marker];
@@ -905,7 +911,12 @@ const SessionRow = memo(function SessionRow({
         >
           {({ isActive }) => (
             <>
-              <span className="flex w-4 shrink-0 justify-center">
+              <span
+                className={cn(
+                  'flex w-4 shrink-0 justify-center',
+                  branch && 'absolute inset-y-0 -left-4 items-center',
+                )}
+              >
                 {(marker === 'running' ||
                   marker === 'awaiting_approval' ||
                   marker === 'awaiting_input') &&
