@@ -88,8 +88,8 @@ export const DEEPSEEK_OFFICIAL_PRESET: OpenAIPreset = {
 
 export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
-    // Sol / Astra 调工具要求 Responses，Luna 在 Chat 上只有 none 支持函数调用，统一由网关透传 Responses
-    // （2026-10-15 核对，providers.md §7.8）。
+    // Sol / Astra / Terra 调工具要求 Responses，Luna 在 Chat 上只有 none 支持函数调用，统一由网关透传 Responses
+    // （2026-10-15 核对，Terra 2026-10-27，providers.md §7.8）。
     id: 'openai',
     name: 'provider.preset.openai',
     api: 'openai-responses',
@@ -108,6 +108,13 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
         maxTokens: 128000,
         supportsImages: true,
         reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'gpt-6.1-terra',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: ['off', ...FIVE_EFFORTS],
       },
       {
         id: 'gpt-6-luna',
@@ -216,7 +223,8 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       'https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude',
   },
   {
-    // 百炼按量 Responses（2026-10-15 核对，providers.md §7.2）；工具支持待真实 Key 验证，显式保留保守默认供代理使用。
+    // 百炼按量 Responses（2026-10-15 核对，目录 2026-10-27 按官方 Codex 指南的按量目录收窄为 Qwen 3.8 / 3.7 Max，
+    // providers.md §7.2）；工具支持待真实 Key 验证，显式保留保守默认供代理使用。
     id: 'dashscope',
     name: 'provider.preset.dashscope',
     api: 'openai-responses',
@@ -234,14 +242,8 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
         reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
       },
       {
-        id: 'qwen3.8-flash',
+        id: 'qwen3.7-max',
         contextWindow: 1000000,
-        reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
-      },
-      {
-        id: 'qwen3.7-plus',
-        contextWindow: 1000000,
-        supportsImages: true,
         reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'],
       },
     ],
@@ -482,13 +484,14 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://docs.ollama.com/integrations/codex',
   },
   {
-    // 公开 /v1/models（2026-10-17）：只列声明 tools 的主力编码模型；未给逐模型推理枚举，暂不列力度。
+    // 公开 /v1/models（2026-10-17，GPT 2026-10-27 换成 6.1 Sol）：只列声明 tools 的主力编码模型；未给逐模型推理枚举，
+    // 暂不列力度。Claude 5 系列在目录里没有工具声明，仍列 Opus 4.8。
     id: 'redpill',
     name: 'provider.catalog.redpill',
     api: 'openai-responses',
     baseURL: 'https://api.redpill.ai/v1',
     models: [
-      { id: 'openai/gpt-5.5', contextWindow: 1050000, maxTokens: 128000, supportsImages: true },
+      { id: 'openai/gpt-6.1-sol', contextWindow: 272000, maxTokens: 128000, supportsImages: true },
       {
         id: 'anthropic/claude-opus-4.8',
         contextWindow: 1000000,
@@ -497,7 +500,7 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       },
       { id: 'z-ai/glm-5.3', contextWindow: 1048576, maxTokens: 1048576 },
     ],
-    defaultModelId: 'openai/gpt-5.5',
+    defaultModelId: 'openai/gpt-6.1-sol',
     compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
     docsURL: 'https://docs.redpill.ai/guides/integrations/coding-tools/codex-cli',
   },

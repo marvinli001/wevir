@@ -52,7 +52,7 @@ describe('RedPill 多模型入口', () => {
       kind: 'openai-compatible',
       api: 'openai-responses',
       baseURL: 'https://api.redpill.ai/v1',
-      defaultModelId: 'openai/gpt-5.5',
+      defaultModelId: 'openai/gpt-6.1-sol',
       models: preset.models,
       compat: {
         supportsCustomTools: false,

@@ -547,14 +547,8 @@ describe('预设模板（providers.md §7）', () => {
         reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
       },
       {
-        id: 'qwen3.8-flash',
+        id: 'qwen3.7-max',
         contextWindow: 1000000,
-        reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
-      },
-      {
-        id: 'qwen3.7-plus',
-        contextWindow: 1000000,
-        supportsImages: true,
         reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'],
       },
     ]);
@@ -702,7 +696,7 @@ describe('预设模板（providers.md §7）', () => {
     expect(params.models).toEqual(deepseekOpenAI.models);
   });
 
-  it('OpenAI 目录使用 Responses 模板，只有 Luna 提供关闭推理，保存后仍保留各模型的档位', () => {
+  it('OpenAI 目录使用 Responses 模板，只有 Terra 与 Luna 提供关闭推理，保存后仍保留各模型的档位', () => {
     const entry = catalogEntry('openai');
     if (entry?.source?.kind !== 'preset') throw new Error('缺少 OpenAI 模板');
     const params = upsertSchema.parse(toUpsertParams(newOpenAIForm(entry.source.preset, [])));
@@ -716,6 +710,7 @@ describe('预设模板（providers.md §7）', () => {
     expect(params.models.map(({ id, reasoningEfforts }) => ({ id, reasoningEfforts }))).toEqual([
       { id: 'gpt-6.1-sol', reasoningEfforts: five },
       { id: 'gpt-6-astra', reasoningEfforts: five },
+      { id: 'gpt-6.1-terra', reasoningEfforts: ['off', ...five] },
       { id: 'gpt-6-luna', reasoningEfforts: ['off', ...five] },
     ]);
   });
