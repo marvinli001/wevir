@@ -854,10 +854,7 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': 'Rendu indisponible ; affichage de la source',
   'markdown.mermaidInvalid': 'Le diagramme n’a pas pu être rendu ; affichage de la source',
 
-  'agentStatus.label': 'État de l’agent',
   'agentStatus.writing': 'Réponse en cours',
-  'agentStatus.steps': '{count, plural, one {# étape} other {# étapes}}',
-  'agentStatus.opened': 'Sessions ouvertes',
 
   'work.thinking': 'Réflexion en cours',
   'work.awaiting': 'En attente d’approbation',

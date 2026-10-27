@@ -842,10 +842,7 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': '렌더링할 수 없어 소스를 표시합니다',
   'markdown.mermaidInvalid': '다이어그램을 렌더링할 수 없어 소스를 표시합니다',
 
-  'agentStatus.label': '에이전트 상태',
   'agentStatus.writing': '응답 중',
-  'agentStatus.steps': '{count}단계',
-  'agentStatus.opened': '연 세션',
 
   'work.thinking': '생각 중',
   'work.awaiting': '승인 대기 중',

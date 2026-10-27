@@ -855,10 +855,7 @@ export const messages: Messages = {
   'markdown.mermaidInvalid':
     'Impossibile eseguire il rendering del diagramma; viene mostrata la sorgente',
 
-  'agentStatus.label': 'Stato dell’agente',
   'agentStatus.writing': 'Risposta in corso',
-  'agentStatus.steps': '{count, plural, one {# passaggio} other {# passaggi}}',
-  'agentStatus.opened': 'Sessioni aperte',
 
   'work.thinking': 'Ragionamento in corso',
   'work.awaiting': 'In attesa di approvazione',

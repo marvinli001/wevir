@@ -854,10 +854,7 @@ export const zhCN = {
   'markdown.mermaidUnavailable': '无法渲染，显示源码',
   'markdown.mermaidInvalid': '图无法渲染，显示源码',
 
-  'agentStatus.label': '代理状态',
   'agentStatus.writing': '正在回复',
-  'agentStatus.steps': '{count} 步',
-  'agentStatus.opened': '开出的会话',
 
   'work.thinking': '正在思考',
   'work.awaiting': '等待审批',

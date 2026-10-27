@@ -852,10 +852,7 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': 'Rendern nicht verfügbar; Quelltext wird angezeigt',
   'markdown.mermaidInvalid': 'Diagramm konnte nicht gerendert werden; Quelltext wird angezeigt',
 
-  'agentStatus.label': 'Agentenstatus',
   'agentStatus.writing': 'Antwortet',
-  'agentStatus.steps': '{count, plural, one {# Schritt} other {# Schritte}}',
-  'agentStatus.opened': 'Geöffnete Sitzungen',
 
   'work.thinking': 'Denkt nach',
   'work.awaiting': 'Wartet auf Freigabe',

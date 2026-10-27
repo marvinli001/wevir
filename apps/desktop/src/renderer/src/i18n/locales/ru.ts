@@ -857,10 +857,7 @@ export const messages: Messages = {
   'markdown.mermaidUnavailable': 'Отрисовка недоступна; показан исходник',
   'markdown.mermaidInvalid': 'Не удалось отрисовать диаграмму; показан исходник',
 
-  'agentStatus.label': 'Состояние агента',
   'agentStatus.writing': 'Отвечает',
-  'agentStatus.steps': '{count, plural, one {# шаг} few {# шага} many {# шагов} other {# шага}}',
-  'agentStatus.opened': 'Открытые сеансы',
 
   'work.thinking': 'Думает',
   'work.awaiting': 'Ожидает подтверждения',
