@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   DEFAULT_HOST_SETTINGS,
   type HostSettings,
@@ -228,5 +228,28 @@ describe('SpeechService', () => {
       error: expect.stringMatching(/500/),
     });
     expect(changes[0]?.local.state).toBe('installing');
+  });
+
+  it('启动时在后台读模型状态：读到装好的经 watch 通知，读完之前的 install 不重下', async () => {
+    const models = installer();
+    const paths = models.pathsOf();
+    mkdirSync(dirname(paths.model), { recursive: true });
+    for (const file of [paths.model, paths.tokens, paths.vad]) writeFileSync(file, 'xx');
+    let downloads = 0;
+    const speech = service({ installer: models });
+    const original = models.install.bind(models);
+    models.install = (onProgress) => {
+      downloads += 1;
+      return original(onProgress);
+    };
+    const changes: SpeechStatus[] = [];
+    speech.watch((status) => changes.push(status));
+    const init = speech.init();
+    expect(speech.install().status.local.state).toBe('missing');
+    await init;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(speech.status().local).toMatchObject({ state: 'ready', installedBytes: 6 });
+    expect(changes.at(-1)?.local.state).toBe('ready');
+    expect(downloads).toBe(0);
   });
 });

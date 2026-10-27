@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import {
   type MethodParams,
@@ -44,6 +44,8 @@ export const SIMULATOR_POLL_MS = 10_000;
 export const SIMULATOR_STREAM_FPS = 60;
 /** 两次向 helper 要关键帧的最短间隔。 */
 const KEYFRAME_INTERVAL_MS = 500;
+/** 启动时挪开的旧输出目录名的中缀（`output.stale-<随机>`），在后台删掉。 */
+const STALE_OUTPUT = '.stale-';
 
 /** `/simulator/stream` 用到的 WebSocket 的部分。 */
 export interface SimulatorStreamSocket {
@@ -170,10 +172,27 @@ export class SimulatorService {
     }
   }
 
-  /** 清空上次留下的输出目录。 */
+  /** 清空上次留下的输出目录：改名挪开、建新的，旧的（含上次没删完的）在后台删，不拖慢 Host 启动。 */
   async init(): Promise<void> {
-    await rm(this.#outputDir, { recursive: true, force: true });
+    await rename(
+      this.#outputDir,
+      `${this.#outputDir}${STALE_OUTPUT}${randomBytes(6).toString('hex')}`,
+    ).catch(() => {});
     await mkdir(this.#outputDir, { recursive: true, mode: 0o700 });
+    void this.#removeStaleOutput();
+  }
+
+  async #removeStaleOutput(): Promise<void> {
+    const names = await readdir(this.#options.dir).catch(() => []);
+    const stale = names.filter((name) => name.startsWith(`output${STALE_OUTPUT}`));
+    await Promise.all(
+      stale.map((name) =>
+        rm(join(this.#options.dir, name), { recursive: true, force: true }).catch(
+          (error: unknown) =>
+            this.#options.onWarning?.('failed to remove old simulator output', { error }),
+        ),
+      ),
+    );
   }
 
   /** 构建的 DerivedData 目录。 */

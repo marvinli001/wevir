@@ -60,15 +60,29 @@ export class SpeechService {
   #progress: SpeechInstallProgress | undefined;
   #error: string | undefined;
   #installedBytes: number | undefined;
+  /** 启动时正在读磁盘上的状态（`init`）；读完之前的 `install` 等它，免得重下已经装好的模型。 */
+  #checking: Promise<void> | undefined;
   #disposed = false;
 
   constructor(options: SpeechServiceOptions) {
     this.#options = options;
   }
 
-  /** 启动时读一次磁盘上的状态。 */
-  async init(): Promise<void> {
-    this.#installedBytes = await this.#options.installer.installedBytes();
+  /** 启动时读一次磁盘上的状态。Host 不等它：读到装好的模型时经 `speech.changed` 通知。 */
+  init(): Promise<void> {
+    const checking = this.#options.installer.installedBytes().then(
+      (bytes) => {
+        this.#checking = undefined;
+        this.#installedBytes = bytes;
+        if (bytes !== undefined) this.#emit();
+      },
+      (error: unknown) => {
+        this.#checking = undefined;
+        throw error;
+      },
+    );
+    this.#checking = checking.catch(() => {});
+    return checking;
   }
 
   watch(listener: (status: SpeechStatus) => void): () => void {
@@ -104,6 +118,12 @@ export class SpeechService {
       throw failed('Local speech recognition is not available on this platform.', {
         reason: 'runtime_missing',
       });
+    }
+    if (this.#checking !== undefined) {
+      void this.#checking.then(() => {
+        if (!this.#disposed) this.install();
+      });
+      return { status: this.status() };
     }
     if (!installer.installing && this.#installedBytes === undefined) {
       this.#error = undefined;

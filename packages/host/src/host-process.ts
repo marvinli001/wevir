@@ -263,6 +263,7 @@ export interface RunningHost {
  */
 export async function startHost(options: StartHostOptions): Promise<RunningHost> {
   const { home, adapter, logger } = options;
+  const startup = startupTimer(logger);
   await mkdir(home, { recursive: true, mode: 0o700 });
   const runtimeFile = await RuntimeFile.acquire({
     home,
@@ -276,6 +277,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       staleStartedAt: runtimeFile.reclaimed.startedAt,
     });
   }
+
+  startup.mark('runtime_file');
 
   let storage: Storage | undefined;
   let events: EventStore | undefined;
@@ -321,6 +324,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.warn('session list push error', { error }),
     });
     sessionList = listFeed;
+    startup.mark('storage');
     // 适配器能生成标题时才读提示词；读不到只是没有模型生成的标题，不阻止 Host 启动。
     let titleInstructions: string | undefined;
     if (adapter.generateTitle !== undefined) {
@@ -368,16 +372,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         });
       }
     }
+    startup.mark('prompts');
     // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
     const settings = new HostSettingsStore({
       path: homePath(home, 'settingsFile'),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
-    await settings.load();
-    // 防休眠的判定（0.102.0，domain-model §3.45）：设置与会话事件进来，值变了经 `power.changed` 交给桌面主进程。
-    const keepAwake = new KeepAwake(settings.get());
-    settings.watch((current) => keepAwake.settingsChanged(current));
-    store.listenAll((event) => keepAwake.onEvent(event));
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
     const secrets = new FileSecretStore(home);
@@ -397,8 +397,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       builtinSkillsRoot: join(options.promptsDir ?? defaultPromptsDir(), 'skills'),
       onWarning: (message) => logger.warn(message),
     });
-    await plugins.load();
-    await mcpOAuth.load();
+    // 用户的交互终端（0.69.0，terminals.ts）：node-pty 加载不了时没有，不声明 user_terminal。模块与下面的读盘同时加载。
+    const terminalModulesLoading = loadTerminalModules((message, fields) =>
+      logger.warn(message, fields),
+    );
+    // 设置与插件注册表互不依赖，一起读；连接器的 OAuth 令牌按注册表里的目标读，排在注册表之后。
+    await Promise.all([settings.load(), plugins.load().then(() => mcpOAuth.load())]);
+    startup.mark('settings_plugins');
+    // 防休眠的判定（0.102.0，domain-model §3.45）：设置与会话事件进来，值变了经 `power.changed` 交给桌面主进程。
+    const keepAwake = new KeepAwake(settings.get());
+    settings.watch((current) => keepAwake.settingsChanged(current));
+    store.listenAll((event) => keepAwake.onEvent(event));
     const mcpRemote = new McpRemoteProxy({
       oauth: mcpOAuth,
       target: (id) => plugins.oauthTargetById(id),
@@ -414,9 +423,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     turnCheckpoints = checkpoints;
     // 每种 Provider 的引擎能做什么（0.25.0，接力）：hello 里告诉客户端，接力时按它挑权限模式、提不提读历史的工具。
     const engineFeatures = hostEngineFeatures(adapter, options.engine);
-    // 消息里的图片（0.28.0）：没发出去的过一天删掉，启动时先清一遍。
+    // 消息里的图片（0.28.0）：没发出去的过一天删掉，启动时在后台先清一遍。
     const images = new ImageStore({ dir: homePath(home, 'imagesDir') });
-    await images
+    void images
       .sweep()
       .catch((error: unknown) => logger.warn('failed to sweep staged images', { error }));
     // 应用级工具（0.30.0，app-mcp.ts / app-tools.ts）：MCP 端点开在 RPC 的同一个端口上，监听之后才发令牌；工具要用会话管理器
@@ -434,10 +443,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     void toolOutput
       .prune()
       .catch((error: unknown) => logger.warn('failed to prune tool output', { error }));
-    // 用户的交互终端（0.69.0，terminals.ts）：node-pty 加载不了时没有，不声明 user_terminal。
-    const terminalModules = await loadTerminalModules((message, fields) =>
-      logger.warn(message, fields),
-    );
+    const terminalModules = await terminalModulesLoading;
+    startup.mark('terminal_modules');
     const terminals =
       terminalModules !== undefined
         ? new TerminalService({
@@ -467,6 +474,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       : undefined;
     iosSimulators = simulators;
     await simulators?.init();
+    startup.mark('simulators');
     // 进程输出（0.69.0，process-output.ts）：客户端看 Agent 的后台进程与检查的进程。
     const processOutput = new ProcessOutputService({ storage });
     const processes =
@@ -482,10 +490,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     if (processes !== undefined) processOutput.attachAgent(processes);
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
-    await chats.load();
     // 助理的隐藏工作区（0.120.0）。
     const assistants = new AssistantFolders({ dir: homePath(home, 'assistantsDir') });
-    await assistants.load();
+    await Promise.all([chats.load(), assistants.load()]);
+    startup.mark('chats_assistants');
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
@@ -788,6 +796,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     channels = channelService;
     channelService.start();
+    startup.mark('services');
     const recovery = manager.recover();
     if (
       recovery.expiredApprovals > 0 ||
@@ -796,6 +805,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ) {
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
+    startup.mark('session_recover');
     const checksStore = new ChecksStore({
       dir: homePath(home, 'checksDir'),
       onWarning: (message, fields) => logger.warn(message, fields),
@@ -818,6 +828,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const abandonedInstalls = await readinessService.recover();
     if (abandonedInstalls > 0)
       logger.warn('marked unfinished installs as cancelled', { count: abandonedInstalls });
+    startup.mark('readiness_recover');
     // 回合后验证（0.65.0，ADR-0008）：检查配置存在 Host，检查进程由 Host 起（与 Agent 的后台进程分开）。上次没跑完的检查与修复链
     // 在服务客户端之前对账，什么都不重开。修复材料的模板读不到时不阻止 Host 启动，只是没有这个功能。
     try {
@@ -1023,16 +1034,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             onUsageRemoved: () => usageStats.recordsChanged(),
           });
 
+    startup.mark('services_late');
     // 把已存的 Provider（含 Key）交给引擎（T3.4）。失败不阻止 Host 启动：会话建不起来时报引擎错误。
-    await syncProviders(storage, secrets, adapter).catch((error: unknown) =>
-      logger.error('failed to apply providers to the engine', { error }),
-    );
-    // 联网服务（0.34.0）：引擎第一次启动时要它的端点，所以在开始服务之前就监听。
-    await options.web?.start(secrets);
+    // 联网服务（0.34.0）：引擎第一次启动时要它的端点，所以在开始服务之前就监听；与交 Provider 互不依赖，一起做。
+    await Promise.all([
+      syncProviders(storage, secrets, adapter).catch((error: unknown) =>
+        logger.error('failed to apply providers to the engine', { error }),
+      ),
+      options.web?.start(secrets),
+    ]);
+    startup.mark('providers_web');
 
     // 已登录账号的用量由 Host 定时重读，推给看着账号的客户端（usage-refresh.ts）。
     accounts?.usage.start();
     await automationService.start();
+    startup.mark('automations_start');
     // 收件箱（0.105.0）：对账与自动化载入之后从事件、审批表与运行记录重建，之后增量维护；调过 inbox.* 的连接收 inbox.changed。
     const inboxService = new InboxService({
       storage,
@@ -1131,6 +1147,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     };
     ensureRemoteKeys(settings.get());
     settings.watch(ensureRemoteKeys);
+    startup.mark('inbox_remote');
     if (accounts?.hasSubscriptions === true) {
       // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
@@ -1146,6 +1163,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       );
     }
 
+    startup.mark('subscriptions');
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
     browserBroker = browsers;
@@ -1286,8 +1304,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         logger.warn('dictation polish is unavailable', { error });
       }
     }
+    startup.mark('app_tools');
     const speechInstaller = new SpeechModelInstaller({ directory: homePath(home, 'speechDir') });
     const sherpa = loadSherpa((message, fields) => logger.info(message, fields));
+    startup.mark('sherpa');
     const speech = new SpeechService({
       installer: speechInstaller,
       ...(sherpa !== undefined && {
@@ -1324,7 +1344,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     dictation = speech;
-    await speech.init();
+    // 本机模型装没装好在后台读，读完经 `speech.changed` 通知。
+    void speech
+      .init()
+      .catch((error: unknown) => logger.warn('failed to read the speech model state', { error }));
 
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
@@ -1537,6 +1560,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     rpc = server;
     rpcServer = server;
     const url = await server.listen();
+    startup.mark('rpc_listen');
     rpcBase = `ws://127.0.0.1:${server.port}`;
     remoteListener.refresh();
     settings.watch(() => remoteListener.refresh());
@@ -1553,6 +1577,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 一个进程服务所有会话的引擎（OpenCode）拿引擎令牌；它的服务器下次起来时挂上。
     if (mcp !== undefined) adapter.bindEngineAppTools?.((kinds) => mcp.grantEngine(kinds));
     await runtimeFile.publish(url, token);
+    startup.mark('publish');
+    startup.done();
 
     let stopping: Promise<void> | undefined;
     const host: RunningHost = {
@@ -1821,6 +1847,26 @@ function describeTrigger(trigger: ShutdownTrigger): Record<string, unknown> {
 
 function elapsed(since: number): number {
   return Math.round(performance.now() - since);
+}
+
+/**
+ * 启动各阶段的耗时，记在 debug 日志里，用来看 Host 慢在哪一步。`mark` 记从上一个标记到现在的时间（含其间的同步工作），
+ * `done` 再记一行汇总。
+ */
+function startupTimer(logger: Logger): { mark: (phase: string) => void; done: () => void } {
+  const startedAt = performance.now();
+  let last = startedAt;
+  const phases: Record<string, number> = {};
+  return {
+    mark: (phase) => {
+      const now = performance.now();
+      const ms = Math.round((now - last) * 10) / 10;
+      last = now;
+      phases[phase] = ms;
+      logger.debug('host startup phase', { phase, ms });
+    },
+    done: () => logger.debug('host startup', { ms: elapsed(startedAt), phases }),
+  };
 }
 
 /**
