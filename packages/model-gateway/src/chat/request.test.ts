@@ -509,6 +509,22 @@ describe('请求参数', () => {
       json_schema: { name: 'out', schema: { type: 'object' }, strict: true },
     });
   });
+
+  it('DeepSeek 的 Chat 不收 json_schema：改发 json_object，Schema 接在 instructions 后面', () => {
+    const schema = { type: 'object', properties: { outcome: { type: 'string' } } };
+    const { request: chat } = toChatRequest(
+      request('hi', {
+        instructions: 'Review the action.',
+        text: { format: { type: 'json_schema', name: 'out', schema, strict: true } },
+      }),
+      provider({ baseURL: 'https://api.deepseek.com' }),
+    );
+    expect(chat.response_format).toEqual({ type: 'json_object' });
+    const system = chat.messages[0];
+    expect(system?.role).toBe('system');
+    expect(system?.content).toMatch(/^Review the action\.\n\n.*JSON/s);
+    expect(system?.content).toContain(JSON.stringify(schema));
+  });
 });
 
 describe('Gemini 的 thought signature（model-gateway.md §4.5）', () => {

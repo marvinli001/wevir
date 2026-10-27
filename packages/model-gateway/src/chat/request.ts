@@ -1,7 +1,7 @@
 // Responses 请求 → Chat Completions 请求。
 // 映射表见 docs/architecture/model-gateway.md §4.1（codex-notes §5.1 的表加上早期验证没做的部分）。
 
-import { effectiveCompat, isGeminiHost, isOpenAIOfficial } from '../providers.js';
+import { effectiveCompat, isDeepSeekHost, isGeminiHost, isOpenAIOfficial } from '../providers.js';
 import {
   compatibleToolChoice,
   customCallArguments,
@@ -130,7 +130,12 @@ export function toChatRequest(
     provider.kind === 'google-vertex' || isGeminiHost(baseURL)
       ? { provider: provider.id, model: body.model }
       : undefined;
-  const messages = toChatMessages(body, {
+  const format = isObject(body.text) ? body.text.format : undefined;
+  const schema = isObject(format) && format.type === 'json_schema' ? format : undefined;
+  // DeepSeek 的 Chat 端点不收 json_schema（400 `This response_format type is unavailable now`），只收 json_object：
+  // Schema 改写进 instructions，json_object 还要求提示里出现 “json” 字样。Codex 的自动审批审查就靠这个格式。
+  const jsonObject = schema !== undefined && isDeepSeekHost(baseURL);
+  const messages = toChatMessages(jsonObject ? withSchemaInstructions(body, schema) : body, {
     names,
     dropped,
     mode: compat.systemMessageMode ?? 'inline',
@@ -169,19 +174,29 @@ export function toChatRequest(
   for (const key of ['temperature', 'top_p'] as const) {
     if (typeof body[key] === 'number') request[key] = body[key];
   }
-  const format = isObject(body.text) ? body.text.format : undefined;
-  if (isObject(format) && format.type === 'json_schema') {
+  if (jsonObject) request.response_format = { type: 'json_object' };
+  else if (schema !== undefined) {
     request.response_format = {
       type: 'json_schema',
       json_schema: {
-        name: typeof format.name === 'string' ? format.name : 'output',
-        schema: format.schema,
-        ...(typeof format.strict === 'boolean' ? { strict: format.strict } : {}),
+        name: typeof schema.name === 'string' ? schema.name : 'output',
+        schema: schema.schema,
+        ...(typeof schema.strict === 'boolean' ? { strict: schema.strict } : {}),
       },
     };
   }
   for (const key of DROPPED_FIELDS) if (body[key] !== undefined) dropped.push(`field:${key}`);
   return { request, names, dropped, thinking, ...(signatures !== undefined && { signatures }) };
+}
+
+/** 把 `text.format` 的 JSON Schema 接在 instructions 后面，给只收 json_object 的上游。 */
+function withSchemaInstructions(body: ResponsesRequest, format: JsonObject): ResponsesRequest {
+  const note = `Respond with a single JSON object that conforms to this JSON Schema, and nothing else:\n${JSON.stringify(format.schema)}`;
+  const instructions =
+    typeof body.instructions === 'string' && body.instructions !== ''
+      ? `${body.instructions}\n\n${note}`
+      : note;
+  return { ...body, instructions };
 }
 
 /** 默认关闭的 Gemini 工具 Schema 清洗（§4.5）；不遍历 enum / default 等业务数据或改原始对象。 */
