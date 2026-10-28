@@ -49,6 +49,7 @@ import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './
 import { BROWSER_PARTITION } from './browser/browser-host.js';
 import { registerBrowserIpc } from './browser/browser-ipc.js';
 import { registerComputerIpc } from './computer/computer-ipc.js';
+import { editContextMenuTemplate } from './context-menu.js';
 import { Editors, isLineNumber } from './editors.js';
 import {
   failureOf,
@@ -613,7 +614,10 @@ function run(): void {
       mainWindow.webContents.send(IPC_CHANNELS.openSettings, tab);
     }
   };
+  // 右键菜单（context-menu.ts）与应用菜单用同一份文字，所有平台都记下。
+  let menuLabels = DEFAULT_APP_MENU_LABELS;
   const setAppMenu = (labels = DEFAULT_APP_MENU_LABELS) => {
+    menuLabels = labels;
     if (process.platform !== 'darwin') return;
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
@@ -697,6 +701,17 @@ function run(): void {
   // （开发服务器的整页刷新）；不允许挂 <webview>（Electron 安全清单第 12、13 条）。内置浏览器的标签页有自己的规则
   // （只放行 http(s)，弹窗变成新标签页，外部协议一律拒绝），这里只给它们加上“不许挂 <webview>”。
   app.on('web-contents-created', (_event, contents) => {
+    contents.on('context-menu', (_event, params) => {
+      const template = editContextMenuTemplate(params, menuLabels, {
+        undo: () => contents.undo(),
+        redo: () => contents.redo(),
+        cut: () => contents.cut(),
+        copy: () => contents.copy(),
+        paste: () => contents.paste(),
+        selectAll: () => contents.selectAll(),
+      });
+      if (template.length > 0) Menu.buildFromTemplate(template).popup();
+    });
     if (browser.isBrowserContents(contents)) {
       contents.on('will-attach-webview', (event) => event.preventDefault());
       return;
