@@ -79,19 +79,39 @@ function postBlock(post: ChannelPost): string {
   return `<post id="${post.id}" author="${author}"${from} at="${post.createdAt}">${escapeText(postText(post))}</post>`;
 }
 
+/** 协调者能用的：它的引擎注入的连接器与 skills、有没有内置浏览器。 */
+export interface WakeInventory {
+  connectors: readonly string[];
+  skills: readonly string[];
+  browser: boolean;
+  /** 本机启用了、协调者的引擎却不注入的连接器与 skills（OpenCode 等没有 `mcpServers` / `skills`）。 */
+  unavailable?: { engine: string; connectors: readonly string[]; skills: readonly string[] };
+}
+
+function names(list: readonly string[]): string {
+  return attr(list.join(', ') || 'none');
+}
+
+/** 清单之后的一句与 `<unavailable>`：引擎不支持的不算就绪。 */
+function unavailableBlock(inventory: WakeInventory): string {
+  const missing = inventory.unavailable;
+  if (missing === undefined) return '';
+  return `\nYour engine (${attr(missing.engine)}) cannot use the unavailable connectors and skills below: do not count them as ready or plan on them, and list them as unavailable with this brain.\n<unavailable engine="${attr(missing.engine)}" connectors="${names(missing.connectors)}" skills="${names(missing.skills)}"/>`;
+}
+
 export interface WakeInput {
   channel: Channel;
   reasons: ReadonlySet<WakeReason>;
   posts: readonly ChannelPost[];
   threads: readonly ChannelThread[];
   at: string;
-  /** 建好后的第一次：本机有的连接器、授权的文件夹、有没有内置浏览器，助理自己的工作文件夹。 */
-  setup?: {
-    connectors: readonly string[];
+  /** 建好后的第一次：协调者能用的、授权的文件夹，助理自己的工作文件夹。 */
+  setup?: WakeInventory & {
     folders: readonly string[];
-    browser: boolean;
     workspace?: string;
   };
+  /** 换了大脑（Provider）之后的第一次：新的引擎能用的。 */
+  brain?: WakeInventory;
   /** 定时唤醒：自动化的标题与指令。 */
   schedules?: readonly { title: string; prompt: string; brief?: boolean }[];
   /** 线程动态的汇总。 */
@@ -131,15 +151,18 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   ];
   if (input.changed !== undefined) parts.push(input.changed);
   if (input.setup !== undefined) {
-    const { connectors, folders, browser, workspace } = input.setup;
+    const { connectors, skills, folders, browser, workspace } = input.setup;
     const own =
       workspace === undefined
         ? ''
         : `\nYour working folder ${workspace} is already set up and is where your sessions run: keep your files there and count it as ready; only extra folders of the user's need granting.`;
     parts.push(
-      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.${own}\n<inventory connectors="${attr(
-        connectors.join(', ') || 'none',
-      )}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${attr(folders.join(', ') || 'none')}" browser="${browser ? 'yes' : 'no'}"/>\n</setup>`,
+      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.${own}\n<inventory connectors="${names(connectors)}" skills="${names(skills)}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${names(folders)}" browser="${browser ? 'yes' : 'no'}"/>${unavailableBlock(input.setup)}\n</setup>`,
+    );
+  } else if (input.brain !== undefined) {
+    const { connectors, skills, browser } = input.brain;
+    parts.push(
+      `<brain_changed>\nThe user switched you to another model provider. This is what you can use now; if it changes what you listed as ready or missing, say so.\n<inventory connectors="${names(connectors)}" skills="${names(skills)}" browser="${browser ? 'yes' : 'no'}"/>${unavailableBlock(input.brain)}\n</brain_changed>`,
     );
   }
   for (const schedule of input.schedules ?? []) {

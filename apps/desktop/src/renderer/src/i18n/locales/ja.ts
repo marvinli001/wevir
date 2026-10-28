@@ -3071,6 +3071,8 @@ export const messages: Messages = {
   'assistants.field.job': '担当',
   'assistants.field.model': 'モデル',
   'assistants.field.folders': 'アクセスできるフォルダ',
+  'assistants.engine.noTools': 'このエンジンではアシスタントを実行不可',
+  'assistants.engine.noPlugins': 'このエンジンではコネクタと Skills を使用不可',
   'assistants.edit.title': 'アシスタントを編集',
   'assistants.edit.save': '保存',
   'assistants.timeline.older': '以前のメッセージ',

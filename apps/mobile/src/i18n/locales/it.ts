@@ -143,6 +143,8 @@ export const it: Messages = {
     'Per creare assistenti, attiva «Modificare i progetti» e «Vedere i servizi di modelli» per questo dispositivo in Impostazioni → Dispositivi sul computer',
   'editBot.title': 'Modifica assistente',
   'editBot.model': 'Modello',
+  'editBot.engineNoTools': 'Questo motore non può eseguire un assistente',
+  'editBot.enginePlugins': 'Connettori e Skills non disponibili su questo motore',
   'editBot.folders': 'Cartelle accessibili',
   'editBot.addFolder': 'Aggiungi cartella',
   'editBot.removeFolder': 'Rimuovi cartella',

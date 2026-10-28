@@ -3056,6 +3056,8 @@ export const messages: Messages = {
   'assistants.field.job': '담당 업무',
   'assistants.field.model': '모델',
   'assistants.field.folders': '접근 가능한 폴더',
+  'assistants.engine.noTools': '이 엔진은 어시스턴트를 실행할 수 없음',
+  'assistants.engine.noPlugins': '이 엔진에서는 커넥터와 Skills 사용 불가',
   'assistants.edit.title': '어시스턴트 편집',
   'assistants.edit.save': '저장',
   'assistants.timeline.older': '이전 메시지',

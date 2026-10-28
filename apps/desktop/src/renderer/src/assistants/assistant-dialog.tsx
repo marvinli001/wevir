@@ -16,6 +16,7 @@ import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useWorkbenchData } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createStore } from '@/lib/store';
@@ -24,7 +25,13 @@ import { paths } from '@/routes/paths';
 import { type ModelChoice, ModelPicker } from '@/session/model-picker';
 import { resolveChoice, useModelChoice } from '@/session/start-session';
 import { AssistantAvatar } from './assistant-avatar';
-import { assistantPatch, randomAvatar, rerollAvatar } from './assistants-model';
+import {
+  assistantPatch,
+  BRAIN_LIMIT_LABEL,
+  brainLimit,
+  randomAvatar,
+  rerollAvatar,
+} from './assistants-model';
 
 /** 开着时：新建（`{}`）或编辑那个助理。 */
 const open = createStore<{ edit?: Channel } | undefined>(undefined);
@@ -35,6 +42,27 @@ export function openAssistantDialog(): void {
 
 export function editAssistant(channel: Channel): void {
   open.set({ edit: channel });
+}
+
+/** 选的大脑的引擎缺什么（`brainLimit`）。 */
+function useBrainLimit(providerId: string | undefined): 'tools' | 'plugins' | undefined {
+  const { view } = useHostConnection();
+  const data = useWorkbenchData();
+  if (view.status !== 'connected' || data.status !== 'ready' || providerId === undefined) {
+    return undefined;
+  }
+  const kind = data.providers.find((provider) => provider.id === providerId)?.kind;
+  return brainLimit(view.hello.engineFeatures, kind);
+}
+
+/** 模型下面的一行：大脑的引擎不能运行助理，或用不了连接器与 skills。 */
+function BrainLimitLine({ limit }: { limit: 'tools' | 'plugins' | undefined }) {
+  if (limit === undefined) return null;
+  return (
+    <p className="text-sm text-soft-foreground" data-brain-limit={limit}>
+      {t(BRAIN_LIMIT_LABEL[limit])}
+    </p>
+  );
 }
 
 export function AssistantDialog() {
@@ -62,7 +90,8 @@ function AssistantForm({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string>();
   // 建对话框时 Provider 还没读到：读到后用默认模型。
   const model = picked ?? models.choice;
-  const ready = name.trim() !== '' && job.trim() !== '' && model !== undefined;
+  const limit = useBrainLimit(model?.providerId);
+  const ready = name.trim() !== '' && job.trim() !== '' && model !== undefined && limit !== 'tools';
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -128,6 +157,7 @@ function AssistantForm({ onDone }: { onDone: () => void }) {
             <ModelPicker providers={models.providers} value={model} onChange={setPicked} />
           </div>
         )}
+        <BrainLimitLine limit={limit} />
         {error && (
           <p className="text-sm text-destructive" role="alert">
             {error}
@@ -177,7 +207,13 @@ function EditForm({ channel, onDone }: { channel: Channel; onDone: () => void })
     folders,
     ...(picked !== undefined && { model: picked }),
   });
-  const ready = name.trim() !== '' && job.trim() !== '' && patch !== undefined;
+  const limit = useBrainLimit(model ? model.providerId : undefined);
+  const ready =
+    name.trim() !== '' &&
+    job.trim() !== '' &&
+    patch !== undefined &&
+    // 换到不能运行助理的引擎才挡：原来的大脑照样能改别的。
+    !(limit === 'tools' && picked !== undefined);
 
   const addFolder = async () => {
     try {
@@ -239,6 +275,7 @@ function EditForm({ channel, onDone }: { channel: Channel; onDone: () => void })
             <ModelPicker providers={models.providers} value={model} onChange={setPicked} />
           </div>
         )}
+        <BrainLimitLine limit={limit} />
         {assistant !== undefined && (
           <div className="flex flex-col gap-2">
             <span className="text-sm text-soft-foreground">{t('assistants.field.folders')}</span>

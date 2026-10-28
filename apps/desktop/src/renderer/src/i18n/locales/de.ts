@@ -3117,6 +3117,8 @@ export const messages: Messages = {
   'assistants.field.job': 'Aufgabe',
   'assistants.field.model': 'Modell',
   'assistants.field.folders': 'Zugängliche Ordner',
+  'assistants.engine.noTools': 'Diese Engine kann keinen Assistenten ausführen',
+  'assistants.engine.noPlugins': 'Konnektoren und Skills auf dieser Engine nicht verfügbar',
   'assistants.edit.title': 'Assistent bearbeiten',
   'assistants.edit.save': 'Speichern',
   'assistants.timeline.older': 'Frühere Nachrichten',

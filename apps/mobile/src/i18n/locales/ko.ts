@@ -140,6 +140,8 @@ export const ko: Messages = {
     '어시스턴트를 만들려면 컴퓨터의 설정 → 기기에서 이 기기의 “프로젝트 수정”과 “모델 서비스 보기”를 켜세요',
   'editBot.title': '어시스턴트 편집',
   'editBot.model': '모델',
+  'editBot.engineNoTools': '이 엔진은 어시스턴트를 실행할 수 없음',
+  'editBot.enginePlugins': '이 엔진에서는 커넥터와 Skills 사용 불가',
   'editBot.folders': '접근 가능한 폴더',
   'editBot.addFolder': '폴더 추가',
   'editBot.removeFolder': '폴더 제거',

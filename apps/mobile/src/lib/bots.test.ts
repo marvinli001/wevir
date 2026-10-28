@@ -4,6 +4,7 @@ import {
   approvalView,
   botFromChannel,
   botPatch,
+  brainLimit,
   folderParts,
   postViews,
   sortBots,
@@ -249,5 +250,25 @@ describe('bots', () => {
       directory,
     );
     expect(view).toMatchObject({ author: 'bot', speaker: { id: CHANNEL_A, name: 'Ann' } });
+  });
+});
+
+describe('brainLimit', () => {
+  const codex = { engine: 'codex', mcpServers: true, skills: true, appTools: true, commands: [] };
+  const opencode = {
+    engine: 'opencode',
+    mcpServers: false,
+    skills: false,
+    appTools: true,
+    commands: [],
+  };
+  const plain = { engine: 'plain', mcpServers: false, skills: false, commands: [] };
+  it('挂不上 Wevir 工具的不能当大脑，不注入连接器或 skills 的提示，旧 Host 不提示', () => {
+    const features = { 'openai-compatible': codex, opencode, grok: plain };
+    expect(brainLimit(features, 'openai-compatible')).toBeUndefined();
+    expect(brainLimit(features, 'opencode')).toBe('plugins');
+    expect(brainLimit(features, 'grok')).toBe('tools');
+    expect(brainLimit(undefined, 'opencode')).toBeUndefined();
+    expect(brainLimit({ grok: plain }, 'grok')).toBe('plugins');
   });
 });

@@ -192,6 +192,9 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
           get canReadProviders() {
             return client.can('provider.read');
           },
+          get engineFeatures() {
+            return client.hello.engineFeatures;
+          },
           request: (method, ...args) => client.request(method, ...args),
           onChannelsChanged: (listener) => client.onChannelsChanged(listener),
           watchChannel: (channelId, handlers, options) =>

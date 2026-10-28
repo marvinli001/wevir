@@ -8,7 +8,13 @@ import type {
   ChannelWatchHandlers,
   WevirClient,
 } from '@wevir/client-sdk';
-import type { Channel, ChannelPost, MethodParams, ProviderProfile } from '@wevir/protocol';
+import type {
+  Channel,
+  ChannelPost,
+  EngineFeatures,
+  MethodParams,
+  ProviderProfile,
+} from '@wevir/protocol';
 import { verifyApproval } from './approval-gate';
 import type { Avatar } from './bot-avatar';
 import {
@@ -30,6 +36,8 @@ export interface ChannelClient {
   readonly canEdit: boolean;
   /** 能读这台电脑的模型服务（`provider.read`），改助理的模型要用。 */
   readonly canReadProviders: boolean;
+  /** 每种 Provider 的引擎能做什么（`host.hello` 的 `engineFeatures`），改大脑时提示用；旧 Host 没有。 */
+  readonly engineFeatures?: Readonly<Record<string, EngineFeatures>>;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
   watchChannel(
@@ -127,6 +135,11 @@ export class BotStore {
   channel(key: string): Channel | undefined {
     const target = this.target(key);
     return target?.state.channels.get(target.channelId);
+  }
+
+  /** 助理所在电脑的 `engineFeatures`。 */
+  engineFeatures(key: string): Readonly<Record<string, EngineFeatures>> | undefined {
+    return this.target(key)?.state.client?.engineFeatures;
   }
 
   access(key: string): BotAccess {

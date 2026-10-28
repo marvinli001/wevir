@@ -14,6 +14,7 @@ import {
   type Channel,
   type ChannelPost,
   type ChannelThread,
+  type EngineFeatures,
   type HostFeatures,
   type MethodParams,
 } from '@wevir/protocol';
@@ -107,6 +108,27 @@ export function groupsSupported(features: HostFeatures | undefined): boolean {
 export function schedulesSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_schedules');
 }
+
+/**
+ * 大脑的引擎缺什么（`host.hello` 的 `engineFeatures`，按大脑 Provider 的种类）：挂不上 Wevir 工具的不能当大脑（Host 有引擎挂得上时
+ * 才算，同 Host 的检查），不注入连接器或 skills 的用不了它们。旧 Host 没有 `engineFeatures` 时不提示。
+ */
+export function brainLimit(
+  engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined,
+  kind: string | undefined,
+): 'tools' | 'plugins' | undefined {
+  const features = kind === undefined ? undefined : engineFeatures?.[kind];
+  if (features === undefined) return undefined;
+  const anyTools = Object.values(engineFeatures ?? {}).some((value) => value.appTools === true);
+  if (anyTools && features.appTools !== true) return 'tools';
+  return features.mcpServers === true && features.skills === true ? undefined : 'plugins';
+}
+
+/** `brainLimit` 那一行的文案。 */
+export const BRAIN_LIMIT_LABEL = {
+  tools: 'assistants.engine.noTools',
+  plugins: 'assistants.engine.noPlugins',
+} as const satisfies Record<'tools' | 'plugins', PlainMessageKey>;
 
 // ---- 列表 ----
 

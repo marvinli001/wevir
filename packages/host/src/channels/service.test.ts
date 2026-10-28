@@ -7,6 +7,7 @@ import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
   type ChannelId,
+  type ChannelPost,
   ChannelPostSchema,
   ChannelSchema,
   type ClientIdentity,
@@ -52,6 +53,8 @@ async function setup(
   options: {
     budget?: { dailyWakes: number; dailyTokens: number };
     removed?: ChannelServiceOptions['removed'];
+    inventory?: ChannelServiceOptions['inventory'];
+    canUseAppTools?: ChannelServiceOptions['canUseAppTools'];
   } = {},
 ) {
   const dataDir = join(realpathSync(tempDir()), 'data');
@@ -98,7 +101,9 @@ async function setup(
     sessions,
     assistants,
     identity: { deviceId: 'host', clientId: 'wevir-channels', clientKind: 'desktop' },
-    inventory: () => ({ connectors: ['Calendar'], browser: true }),
+    inventory:
+      options.inventory ?? (() => ({ connectors: ['Calendar'], skills: [], browser: true })),
+    ...(options.canUseAppTools !== undefined && { canUseAppTools: options.canUseAppTools }),
     tasks: {
       list: async (root) => boardEventTasks(await taskBoards.list(root)),
       update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
@@ -265,6 +270,84 @@ describe('ChannelService', () => {
     expect(listed.map((channel) => channel.id).sort()).toEqual([first.id, second.id].sort());
     const workspace = h.storage.workspaces.get(first.workspaceId ?? '');
     expect(workspace?.rootPath.endsWith(join('assistants', first.id))).toBe(true);
+  });
+
+  it('大脑的引擎不注入连接器与 skills 时起步清单另列用不了的；换 Provider 后下次唤醒附上新引擎的；挂不上 Wevir 工具的不能当大脑', async () => {
+    const h = await setup({
+      // mock 当作 OpenCode：连接器与 skills 都不注入；codex 都注入。
+      inventory: async (providerId) =>
+        providerId === 'codex'
+          ? { connectors: ['Calendar'], skills: ['pdf'], browser: true }
+          : {
+              connectors: [],
+              skills: [],
+              browser: true,
+              unavailable: { engine: 'opencode', connectors: ['Calendar'], skills: ['pdf'] },
+            },
+      canUseAppTools: (providerId) => providerId !== 'plain',
+    });
+    for (const id of ['codex', 'plain']) {
+      h.storage.providers.insert({
+        id,
+        kind: 'openai-compatible',
+        displayName: id,
+        api: 'openai-completions',
+        baseURL: 'http://127.0.0.1:9/v1',
+        models: [{ id: 'm' }],
+        defaultModelId: 'm',
+        createdAt: '2026-10-28T00:00:00.000Z',
+        updatedAt: '2026-10-28T00:00:00.000Z',
+      });
+    }
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    const textOf = (post: ChannelPost | undefined) =>
+      post?.content[0]?.type === 'text' ? post.content[0].text : '';
+    const setupText = textOf((await h.coordinatorPosts(bot.id, 1))[0]);
+    expect(setupText).toContain('<inventory connectors="none" skills="none"');
+    expect(setupText).toContain('Your engine (opencode) cannot use');
+    expect(setupText).toContain(
+      '<unavailable engine="opencode" connectors="Calendar" skills="pdf"/>',
+    );
+    expect(setupText).not.toContain('<brain_changed>');
+
+    await expect(
+      h.methods['channel.update'](
+        { channelId: bot.id, coordinator: { providerId: 'plain' } },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      h.methods['channel.create'](
+        {
+          kind: 'assistant',
+          name: 'Plain',
+          description: 'x',
+          coordinator: { providerId: 'plain' },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+
+    // 换到 codex：下一次唤醒（新的一班）附上它能用的，再下一次不再附。
+    await h.methods['channel.update'](
+      { channelId: bot.id, coordinator: { providerId: 'codex' } },
+      context,
+    );
+    await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'Anything new?' }] },
+      context,
+    );
+    const changed = textOf((await h.coordinatorPosts(bot.id, 2))[1]);
+    expect(changed).toContain('<channel_handover');
+    expect(changed).toContain('<brain_changed>');
+    expect(changed).toContain('<inventory connectors="Calendar" skills="pdf" browser="yes"/>');
+    expect(changed).not.toContain('<unavailable');
+
+    await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'And now?' }] },
+      context,
+    );
+    expect(textOf((await h.coordinatorPosts(bot.id, 3))[2])).not.toContain('<brain_changed>');
   });
 
   it('发帖唤醒协调者：回答回到时间线并指向那条帖子；另一个助理不受影响；未读按读者算', async () => {

@@ -3119,6 +3119,8 @@ export const messages: Messages = {
   'assistants.field.job': 'Compito',
   'assistants.field.model': 'Modello',
   'assistants.field.folders': 'Cartelle accessibili',
+  'assistants.engine.noTools': 'Questo motore non può eseguire un assistente',
+  'assistants.engine.noPlugins': 'Connettori e Skills non disponibili su questo motore',
   'assistants.edit.title': 'Modifica assistente',
   'assistants.edit.save': 'Salva',
   'assistants.timeline.older': 'Messaggi precedenti',

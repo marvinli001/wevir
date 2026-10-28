@@ -6,6 +6,7 @@ import {
   assistantPatch,
   assistantsAvailability,
   assistantsById,
+  brainLimit,
   groupMembers,
   groupTasks,
   mentionedIn,
@@ -84,6 +85,28 @@ describe('功能门控', () => {
     expect(assistantsAvailability({ channels: true } as never)).toBe('ready');
     expect(schedulesSupported({ channels: true } as never)).toBe(false);
     expect(schedulesSupported({ channel_schedules: true } as never)).toBe(true);
+  });
+});
+
+describe('大脑的引擎', () => {
+  const codex = { engine: 'codex', mcpServers: true, skills: true, appTools: true, commands: [] };
+  const opencode = {
+    engine: 'opencode',
+    mcpServers: false,
+    skills: false,
+    appTools: true,
+    commands: [],
+  };
+  const plain = { engine: 'plain', mcpServers: false, skills: false, commands: [] };
+  it('挂不上 Wevir 工具的不能当大脑，不注入连接器或 skills 的提示，旧 Host 不提示', () => {
+    const features = { 'openai-compatible': codex, opencode, grok: plain };
+    expect(brainLimit(features, 'openai-compatible')).toBeUndefined();
+    expect(brainLimit(features, 'opencode')).toBe('plugins');
+    expect(brainLimit(features, 'grok')).toBe('tools');
+    expect(brainLimit(undefined, 'opencode')).toBeUndefined();
+    expect(brainLimit(features, undefined)).toBeUndefined();
+    // 只有 echo 这类都挂不上的 Host：Host 不查，只提示连接器与 skills。
+    expect(brainLimit({ grok: plain }, 'grok')).toBe('plugins');
   });
 });
 

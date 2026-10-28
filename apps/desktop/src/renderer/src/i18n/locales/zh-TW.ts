@@ -3046,6 +3046,8 @@ export const messages: Messages = {
   'assistants.field.job': '職責',
   'assistants.field.model': '模型',
   'assistants.field.folders': '可存取的資料夾',
+  'assistants.engine.noTools': '此引擎無法執行助理',
+  'assistants.engine.noPlugins': '此引擎不支援連接器與 Skills',
   'assistants.edit.title': '編輯助理',
   'assistants.edit.save': '儲存',
   'assistants.timeline.older': '更早的訊息',

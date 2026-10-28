@@ -98,6 +98,7 @@ import {
   postText,
   relayEnvelope,
   type WakeInput,
+  type WakeInventory,
   type WakeReason,
   wakeEnvelope,
 } from './envelope.js';
@@ -181,8 +182,11 @@ export interface ChannelServiceOptions {
   /** Host 代发消息用的身份。 */
   identity: ClientIdentity;
   tasks?: ChannelTasks;
-  /** 建助理后第一步要的：本机有的连接器名字、有没有内置浏览器。 */
-  inventory?: () => { connectors: string[]; browser: boolean };
+  /**
+   * 建助理后第一步与换大脑后要的：这个 Provider 的引擎注入的连接器与 skills、有没有内置浏览器，本机启用了却因引擎不支持而用不了的
+   * 另列。
+   */
+  inventory?: (providerId: string) => WakeInventory | Promise<WakeInventory>;
   /** 协调者的 Provider 能不能挂 Wevir 工具；不给时都算能。 */
   canUseAppTools?: (providerId: string) => boolean;
   wakeDelayMs?: number;
@@ -255,6 +259,8 @@ interface PendingWake {
   /** 群里等着这个成员的回合，按群（0.133.0）。 */
   groups: Map<ChannelId, PendingGroupWake>;
   setup?: true;
+  /** 换了 Provider：下次唤醒时附上新引擎能用的。 */
+  brain?: true;
   schedules: { title: string; prompt: string; brief?: boolean }[];
   /** 改了的设置：下次唤醒时附上新的身份与规矩。 */
   changed?: true;
@@ -675,6 +681,7 @@ export class ChannelService {
     }
     if (params.members !== undefined) throw invalid('members', 'only a group has members');
     const coordinator = { ...(record.coordinator as StoredCoordinator) };
+    let brainChanged = false;
     if (params.coordinator !== undefined) {
       const next = params.coordinator;
       if (next.providerId !== undefined && next.providerId !== coordinator.providerId) {
@@ -684,8 +691,9 @@ export class ChannelService {
         if (this.#options.canUseAppTools?.(next.providerId) === false) {
           throw invalid('coordinator.providerId', 'this provider cannot use Wevir tools');
         }
-        // 换 Provider 等同换班：下次唤醒另开一个协调者会话。
+        // 换 Provider 等同换班：下次唤醒另开一个协调者会话，并告诉它新引擎能用什么。
         coordinator.providerId = next.providerId;
+        brainChanged = true;
         delete coordinator.modelId;
         delete coordinator.reasoningEffort;
         coordinator.wakes = Number.MAX_SAFE_INTEGER;
@@ -733,6 +741,7 @@ export class ChannelService {
     }
     const channelId = record.id as ChannelId;
     if (identityChanged) this.#pendingFor(channelId).changed = true;
+    if (brainChanged) this.#pendingFor(channelId).brain = true;
     this.#touch(channelId);
     // 恢复后把暂停期间收的帖子交出去。
     if (params.paused === false && record.pausedAt !== undefined) this.#scheduleFlush(channelId, 0);
@@ -1499,19 +1508,30 @@ export class ChannelService {
     clearTimeout(pending.timer);
     if (groups.size > 0) this.#pendingFor(channelId).groups = groups;
     const workspace = this.#workspacePath(record);
+    const providerId = (record.coordinator as StoredCoordinator | null)?.providerId;
+    const inventory =
+      providerId !== undefined && (pending.setup === true || pending.brain === true)
+        ? ((await this.#options.inventory?.(providerId)) ?? {
+            connectors: [],
+            skills: [],
+            browser: false,
+          })
+        : undefined;
     const input: WakeInput = {
       channel,
       reasons: pending.reasons,
       posts: pending.posts,
       threads: this.#threads(record),
       at: iso(this.#now()),
-      ...(pending.setup === true && {
-        setup: {
-          ...(this.#options.inventory?.() ?? { connectors: [], browser: false }),
-          folders: channel.assistant?.folders ?? [],
-          ...(workspace !== undefined && { workspace }),
-        },
-      }),
+      ...(pending.setup === true &&
+        inventory !== undefined && {
+          setup: {
+            ...inventory,
+            folders: channel.assistant?.folders ?? [],
+            ...(workspace !== undefined && { workspace }),
+          },
+        }),
+      ...(pending.setup !== true && inventory !== undefined && { brain: inventory }),
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
       ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
