@@ -114,6 +114,7 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | | Cursor | 测试版 |
 | | GitHub Copilot | 测试版 |
 | 其他 | `wevir` 命令行 | 测试版 |
+| | 网页客户端 | 测试版 |
 | | 电脑操作 | 测试版 |
 | | 移动端 | 计划中 |
 
@@ -160,6 +161,17 @@ wevir provider add --kind deepseek-official
 wevir session new -w ~/my-project "概括这个仓库"
 ```
 
+## 网页客户端
+
+[Wevir Web](https://github.com/marvinli001/wevir-web) 是在浏览器中运行的桌面端界面，经端到端加密中继连接运行 Wevir 的电脑。会话、项目与凭据均保留在该电脑上。
+
+| 部署方式 | 地址 |
+| --- | --- |
+| 官方托管 | [web.wevir.si](https://web.wevir.si)，Wevir 中继位于同一域名 |
+| 自建 | 站点与中继部署于自有服务器的同一域名：[部署文档与 Agent 提示词](docs/self-hosting/web.zh-CN.md) |
+
+配对：**设置 → 设备 → 添加网页设备**。
+
 ## 从源码运行
 
 要求：Node.js **24.22.1+**（Node 24 LTS）、pnpm **12.6.0**。
@@ -179,7 +191,7 @@ pnpm dev                      # 启动桌面端
 | 仓库 | 内容 |
 | --- | --- |
 | [Wevir-Labs/wevir-marketplace](https://github.com/Wevir-Labs/wevir-marketplace) | 官方插件与技能市场 |
-| [marvinli001/wevir-web](https://github.com/marvinli001/wevir-web) | 网页客户端与官方中继（web.wevir.si） |
+| [marvinli001/wevir-web](https://github.com/marvinli001/wevir-web) | 网页客户端与官方中继（web.wevir.si）；[自建部署](docs/self-hosting/web.zh-CN.md) |
 
 ## 许可证
 

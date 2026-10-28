@@ -63,6 +63,7 @@ wevir/
 ├─ prompts/             Wevir 自己的提示词，随安装包分发
 ├─ scripts/             仓库脚本（引擎边界检查、上游同步、Codex 下载等）
 ├─ docs/upstream/       上游移植登记与第三方版权声明
+├─ docs/self-hosting/   自建部署文档（Wevir Web）
 ├─ biome.json           lint 与格式化（含引擎边界规则）
 ├─ tsconfig.base.json   所有包共用的 TypeScript 配置
 └─ vitest.config.ts     根测试配置，每个包是一个 project

@@ -114,6 +114,7 @@ Wevir is in preview. **Supported**: shipped in the builds and covered by automat
 | | Cursor | Beta |
 | | GitHub Copilot | Beta |
 | Other | `wevir` CLI | Beta |
+| | Web client | Beta |
 | | Computer use | Beta |
 | | Mobile app | Planned |
 
@@ -160,6 +161,17 @@ wevir provider add --kind deepseek-official
 wevir session new -w ~/my-project "Summarize this repository"
 ```
 
+## Web client
+
+[Wevir Web](https://github.com/marvinli001/wevir-web) is the desktop interface in the browser, connected to a computer running Wevir through an end-to-end encrypted relay. Sessions, projects, and credentials remain on that computer.
+
+| Deployment | Address |
+| --- | --- |
+| Hosted | [web.wevir.si](https://web.wevir.si), with the Wevir relay on the same domain |
+| Self-hosted | Site and relay on one domain on your own server: [deployment guide and agent prompt](docs/self-hosting/web.md) |
+
+Pairing: **Settings → Devices → Add web device**.
+
 ## Run from source
 
 Requirements: Node.js **24.22.1+** (Node 24 LTS) and pnpm **12.6.0**.
@@ -179,7 +191,7 @@ CLI: run `pnpm build` once, then `pnpm --silent wevir --help`. Commands, reposit
 | Repository | Contents |
 | --- | --- |
 | [Wevir-Labs/wevir-marketplace](https://github.com/Wevir-Labs/wevir-marketplace) | Official plugin and skill marketplace |
-| [marvinli001/wevir-web](https://github.com/marvinli001/wevir-web) | Web client and official relay (web.wevir.si) |
+| [marvinli001/wevir-web](https://github.com/marvinli001/wevir-web) | Web client and official relay (web.wevir.si); [self-hosting](docs/self-hosting/web.md) |
 
 ## License
 
