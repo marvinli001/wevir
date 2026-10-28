@@ -52,6 +52,7 @@ import type {
   TurnId,
   TurnOutcome,
   UserContentPart,
+  UserImagePart,
   WevirEvent,
 } from '@wevir/protocol';
 import {
@@ -90,6 +91,7 @@ import {
 } from './assistant-policy.js';
 import type { AssistantFolders } from './assistants.js';
 import {
+  escapeText,
   type GroupMemberLine,
   groupWakeEnvelope,
   HANDOVER_POSTS,
@@ -153,6 +155,10 @@ export interface ChannelSessions {
     options?: { from?: MessageFrom },
   ): Promise<{ turnId?: TurnId; seq: number }>;
   close(sessionId: SessionId): Promise<void>;
+  /** 停下会话的回合（`channel.stop`，0.134.0）。 */
+  cancel(sessionId: SessionId): Promise<void>;
+  /** 会话的模型收不收图片；不给时都算收。 */
+  acceptsImages?(sessionId: SessionId): boolean;
 }
 
 /** 频道要用的事件库（EventStore 的一部分）。 */
@@ -185,6 +191,8 @@ export interface ChannelServiceOptions {
   inventory?: () => { connectors: string[]; browser: boolean };
   /** 协调者的 Provider 能不能挂 Wevir 工具；不给时都算能。 */
   canUseAppTools?: (providerId: string) => boolean;
+  /** 帖子里的图片在本机的文件（模型看不了图片时写进说明）。 */
+  images?: { path(imageId: UserImagePart['imageId']): Promise<string | undefined> };
   wakeDelayMs?: number;
   now?: () => number;
   /** 预算的自然日按哪个时区；省略是本机时区。 */
@@ -975,6 +983,45 @@ export class ChannelService {
     return this.#channel(this.#record(id));
   }
 
+  /**
+   * 停止（`channel.stop`，0.134.0）：中断协调者回这条时间线的回合，取消还没交出的唤醒（帖子留在时间线上）。群里是正在回这个群的成员的
+   * 回合与等着轮到的成员，这一轮也到此为止（回合收尾时 @ 到的成员不再接话）。线程与别的群不受影响。
+   */
+  async stop(channelId: string): Promise<void> {
+    const record = this.#record(channelId);
+    const id = record.id as ChannelId;
+    const cancels: SessionId[] = [];
+    if (record.kind === 'group') {
+      this.#rounds.set(id, { replies: GROUP_ROUND_REPLIES_MAX });
+      for (const memberId of this.#membersOf(record)) {
+        const pending = this.#pending.get(memberId);
+        if (pending?.groups.delete(id) === true && pending.groups.size === 0) {
+          if (pending.reasons.size === 0) {
+            clearTimeout(pending.timer);
+            this.#pending.delete(memberId);
+          }
+        }
+        const active = this.#active.get(memberId);
+        if (active?.groupId === id) cancels.push(active.sessionId);
+      }
+    } else {
+      // 群里等着这个助理的留下。
+      const pending = this.#pending.get(id);
+      if (pending !== undefined) {
+        clearTimeout(pending.timer);
+        this.#pending.delete(id);
+        if (pending.groups.size > 0) {
+          this.#pendingFor(id).groups = pending.groups;
+          this.#scheduleFlush(id, this.#wakeDelayMs);
+        }
+      }
+      const active = this.#active.get(id);
+      if (active !== undefined && active.groupId === undefined) cancels.push(active.sessionId);
+    }
+    this.#touch(id);
+    await Promise.all(cancels.map((sessionId) => this.#options.sessions.cancel(sessionId)));
+  }
+
   /** 采纳或忽略一条建议（`channel.respondSuggestion`）。 */
   respondSuggestion(
     params: MethodParams<'channel.respondSuggestion'>,
@@ -1092,7 +1139,7 @@ export class ChannelService {
       80,
     );
     await this.#options.sessions.rename(session.id, title).catch(() => undefined);
-    const content = relayEnvelope(cited, input.brief);
+    const content = await this.#viewable(session.id, relayEnvelope(cited, input.brief));
     const sender = coordinator.sessionId ?? session.id;
     await this.#options.sessions.send(
       { sessionId: session.id, content, clientMessageId: `thread:${session.id}` },
@@ -1139,9 +1186,12 @@ export class ChannelService {
     await this.#options.sessions.send(
       {
         sessionId: thread.sessionId as SessionId,
-        content: relayEnvelope(
-          cited.map((post) => this.#post(post)),
-          input.note,
+        content: await this.#viewable(
+          thread.sessionId as SessionId,
+          relayEnvelope(
+            cited.map((post) => this.#post(post)),
+            input.note,
+          ),
         ),
         delivery: 'queue',
       },
@@ -1327,6 +1377,32 @@ export class ChannelService {
   }
 
   /**
+   * 会话的模型看不了图片时（0.134.0）：图片换成一段说明，列出图片在本机的文件，免得整条消息因为带图片发不出去。说明避开 echo 的
+   * 触发词（见文件头）。
+   */
+  async #viewable(sessionId: SessionId, content: UserContentPart[]): Promise<UserContentPart[]> {
+    if (!content.some((part) => part.type === 'image')) return content;
+    if (this.#options.sessions.acceptsImages?.(sessionId) !== false) return content;
+    const lines: string[] = [];
+    const kept: UserContentPart[] = [];
+    for (const part of content) {
+      if (part.type !== 'image') {
+        kept.push(part);
+        continue;
+      }
+      const path = await this.#options.images?.path(part.imageId).catch(() => undefined);
+      lines.push(
+        `- ${escapeText(part.name ?? part.mimeType)}${path === undefined ? '' : `: ${escapeText(path)}`}`,
+      );
+    }
+    kept.push({
+      type: 'text',
+      text: `<attached_images count="${lines.length}">\nYour model cannot view images. The files are on this computer; read them another way or have the user describe them.\n${lines.join('\n')}\n</attached_images>`,
+    });
+    return kept;
+  }
+
+  /**
    * 这次唤醒花了多少 token，算预算用：有用量统计时取请求的输入、缓存写入与输出，缓存读取不算（它占了协调者用量的大头，
    * 计价也只是零头）；引擎不报单次请求时退回引擎的累计 token 之差（含缓存读取）。
    */
@@ -1401,6 +1477,11 @@ export class ChannelService {
       } finally {
         this.#starting.delete(channelId);
       }
+      // 开新一班时用户按了停止：缓冲已经换掉（或没了）。
+      if (this.#pending.get(channelId) !== pending) {
+        if (this.#pending.has(channelId)) this.#scheduleFlush(channelId, 0);
+        return;
+      }
       record = this.#record(channelId);
       coordinator = record.coordinator as StoredCoordinator;
       fresh = true;
@@ -1419,7 +1500,7 @@ export class ChannelService {
       if (pending.reasons.size > 0 || pending.groups.size > 0) this.#scheduleFlush(channelId, 0);
       return;
     }
-    const { content } = wake;
+    const content = await this.#viewable(sessionId, wake.content);
     if (fresh) {
       const first = content[0];
       if (first?.type === 'text') {
@@ -2116,6 +2197,11 @@ export class ChannelService {
       if (snapshot.session.activeTurn !== undefined) working = true;
     }
     const queued = this.#pending.get(record.id as ChannelId);
+    const active = this.#active.get(record.id as ChannelId);
+    const answering =
+      (active !== undefined && active.groupId === undefined) ||
+      this.#starting.has(record.id as ChannelId) ||
+      (queued !== undefined && queued.reasons.size > 0 && record.pausedAt === undefined);
     if (queued !== undefined && queued.reasons.size > 0 && record.pausedAt === undefined)
       working = true;
     const state: Channel['state'] =
@@ -2147,6 +2233,7 @@ export class ChannelService {
       lastPostSeq: record.lastPostSeq,
       ...(lastPost !== undefined && { lastPost: lastPostOf(lastPost) }),
       ...(unread > 0 && { unreadCount: unread }),
+      ...(answering && { answering: true }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
@@ -2175,6 +2262,7 @@ export class ChannelService {
       lastPostSeq: record.lastPostSeq,
       ...(last !== undefined && { lastPost: lastPostOf(this.#post(last)) }),
       ...(unread > 0 && { unreadCount: unread }),
+      ...(working && { answering: true }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

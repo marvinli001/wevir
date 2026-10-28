@@ -449,8 +449,11 @@ const standaloneCases: Case[] = [
   {
     name: 'Channel',
     schema: protocol.ChannelSchema,
-    valid: [samples.channelSample],
-    invalid: [{ ...samples.channelSample, lastPostSeq: -1 }],
+    valid: [samples.channelSample, { ...samples.channelSample, answering: true }],
+    invalid: [
+      { ...samples.channelSample, lastPostSeq: -1 },
+      { ...samples.channelSample, answering: false },
+    ],
   },
   {
     name: 'ChannelPostAuthor',

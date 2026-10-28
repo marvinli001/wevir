@@ -134,6 +134,23 @@ describe('BotStore', () => {
     expect(store.timeline(KEY).decided).toEqual([{ request: approval(), decision: 'approved' }]);
   });
 
+  it('带照片发帖、停止（0.134.0）', async () => {
+    const { host, store } = setup({ posts: 1 });
+    await store.open(KEY);
+    const image = await store.uploadImage(KEY, 'image/jpeg', 'AAAA');
+    expect(host.calls('image.upload')).toEqual([{ mimeType: 'image/jpeg', data: 'AAAA' }]);
+    await store.send(KEY, '   ', [], [image]);
+    expect(host.calls('channel.post')[0]).toMatchObject({ content: [image] });
+    await store.send(KEY, '这张', [], [image]);
+    expect(host.calls('channel.post')[1]).toMatchObject({
+      content: [{ type: 'text', text: '这张' }, image],
+    });
+    await store.send(KEY, ' ');
+    expect(host.calls('channel.post')).toHaveLength(2);
+    await store.stop(KEY);
+    expect(host.calls('channel.stop')).toEqual([{ channelId: CHANNEL_A }]);
+  });
+
   it('已读：只在有更新的 seq 时发，并清掉未读数', async () => {
     const { host, store } = setup({ posts: 3 });
     await store.open(KEY);
@@ -187,12 +204,18 @@ describe('BotStore', () => {
       online: true,
       canEdit: false,
       canReadProviders: false,
+      composer: false,
     });
     expect(readOnly.store.onlineCount()).toBe(1);
 
     const { host, store } = setup({ canCreate: true });
     await vi.waitFor(() => expect(store.list).toHaveLength(2));
-    expect(store.access(KEY)).toEqual({ online: true, canEdit: true, canReadProviders: true });
+    expect(store.access(KEY)).toEqual({
+      online: true,
+      canEdit: true,
+      canReadProviders: true,
+      composer: false,
+    });
     await store.update(KEY, { name: '大管家', folders: ['/Users/me/web'] });
     expect(host.calls('channel.update')[0]).toEqual({
       channelId: CHANNEL_A,

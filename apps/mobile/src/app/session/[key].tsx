@@ -11,7 +11,6 @@ import type {
   QuestionId,
   SessionId,
   ToolDisplayKind,
-  UserImagePart,
 } from '@wevir/protocol';
 import { SESSION_TITLE_MAX_LENGTH } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
@@ -34,30 +33,21 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PostView } from '../../components/bot-cards';
-import { Composer, type ComposerAttachment } from '../../components/composer';
+import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog, useActionSheet } from '../../components/sheets';
 import { Icon } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
 import { keyboardOverlap } from '../../lib/keyboard';
-import {
-  PHOTOS_PER_MESSAGE,
-  PhotoPermissionError,
-  type PhotoSource,
-  pickPhotos,
-} from '../../lib/photos';
 import { displayName } from '../../lib/records';
 import { isBusy, SessionActions, sendErrorKey } from '../../lib/session-actions';
 import { type SessionItem, sessionItems, type ToolState } from '../../lib/session-items';
 import { type SessionView, SessionWatch } from '../../lib/session-watch';
 import { useMinuteClock } from '../../state/clock';
+import { usePhotoAttachments } from '../../state/photo-attachments';
 import { useComputer, useRegistry } from '../../state/registry';
 import { SPACE, TEXT, type Theme, useTheme } from '../../theme';
-
-interface Attachment extends ComposerAttachment {
-  image?: UserImagePart;
-}
 
 const TOOL_VERBS: Partial<Record<ToolDisplayKind, MessageKey>> = {
   read: 'tool.read',
@@ -99,7 +89,6 @@ export default function SessionScreen() {
     [client, sessionId],
   );
   const [delivery, setDelivery] = useState<PendingDelivery>('steer');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [error, setError] = useState<MessageKey>();
   const [renaming, setRenaming] = useState(false);
   const [keyboard, setKeyboard] = useState(0);
@@ -164,22 +153,6 @@ export default function SessionScreen() {
     .filter((part) => part !== undefined)
     .join(' · ');
 
-  const send = useCallback(
-    async (text: string) => {
-      if (actions === undefined) throw new Error('offline');
-      setError(undefined);
-      const images = attachments.flatMap((a) => (a.image !== undefined ? [a.image] : []));
-      try {
-        await actions.send({ text, images, ...(busy && { delivery }) });
-        setAttachments([]);
-      } catch (e) {
-        setError(sendErrorKey(e));
-        throw e;
-      }
-    },
-    [actions, attachments, busy, delivery],
-  );
-
   // Android 的系统相册与相机是另一个 Activity：选照片时 App 进了后台、连接断开，回来后换成新连接。
   // 上传用最新的连接；旧连接已经关了就等新连接上来（最多 15 秒）再传一次。
   const latest = useRef(actions);
@@ -201,40 +174,22 @@ export default function SessionScreen() {
     throw new ClientClosedError();
   };
 
-  const attach = async (source: PhotoSource) => {
-    if (actions === undefined) return;
-    setError(undefined);
-    let photos: Awaited<ReturnType<typeof pickPhotos>>;
-    try {
-      photos = await pickPhotos(source, PHOTOS_PER_MESSAGE - attachments.length);
-    } catch (e) {
-      setError(e instanceof PhotoPermissionError ? 'photo.cameraDenied' : 'photo.failed');
-      return;
-    }
-    for (const photo of photos) {
-      const key = `${photo.uri}:${Date.now()}`;
-      setAttachments((current) => [...current, { key, uri: photo.uri, uploading: true }]);
-      upload(photo.mimeType, photo.data).then(
-        (image) =>
-          setAttachments((current) =>
-            current.map((a) => (a.key === key ? { ...a, uploading: false, image } : a)),
-          ),
-        (e: unknown) => {
-          console.warn('[wevir] image upload failed', e);
-          setError(
-            sendErrorKey(e) === 'error.computerOnly' ? 'error.computerOnly' : 'photo.failed',
-          );
-          setAttachments((current) => current.filter((a) => a.key !== key));
-        },
-      );
-    }
-  };
+  const photos = usePhotoAttachments({ upload, showSheet, onError: setError });
 
-  const chooseSource = () =>
-    showSheet([
-      { label: t('photo.library'), onPress: () => void attach('library') },
-      { label: t('photo.camera'), onPress: () => void attach('camera') },
-    ]);
+  const send = useCallback(
+    async (text: string) => {
+      if (actions === undefined) throw new Error('offline');
+      setError(undefined);
+      try {
+        await actions.send({ text, images: photos.images, ...(busy && { delivery }) });
+        photos.clear();
+      } catch (e) {
+        setError(sendErrorKey(e));
+        throw e;
+      }
+    },
+    [actions, photos, busy, delivery],
+  );
 
   const archive = () => {
     if (actions === undefined) return;
@@ -338,11 +293,9 @@ export default function SessionScreen() {
                     ? t('error.computerOnly')
                     : undefined
               }
-              onAttach={canWrite ? chooseSource : undefined}
-              attachments={attachments}
-              onRemoveAttachment={(key) =>
-                setAttachments((current) => current.filter((a) => a.key !== key))
-              }
+              onAttach={canWrite ? photos.choose : undefined}
+              attachments={photos.attachments}
+              onRemoveAttachment={photos.remove}
               busy={busy}
               onStop={canWrite ? async () => actions?.interrupt() : undefined}
               delivery={delivery}

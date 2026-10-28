@@ -520,6 +520,11 @@ export const HOST_FEATURES = {
    */
   channel_groups: 'channel_groups',
   /**
+   * 助理的输入框（0.134.0）：`channel.post` 的图片由 Host 收下（同 `session.send`，协调者的模型看不了图片时换成说明），`channel.stop`
+   * 与 `Channel.answering`。
+   */
+  channel_composer: 'channel_composer',
+  /**
    * iOS 模拟器（0.122.0，domain-model §3.15.9）：`simulator.*` 方法、`simulator.changed` / `simulator.show` / `simulator.orientation`
    * 通知与 RPC 端口上的 `/simulator/stream`；设置的 `iosSimulator` 开着（默认）且有应用级工具时还有 `simulator_control` 与
    * `simulator_build`。Host 在 macOS 上、找得到 helper（`WEVIR_IOS_SIMULATOR_BIN`）时声明。
@@ -650,6 +655,7 @@ export const HostFeaturesSchema = z.looseObject({
   channels: z.boolean().optional(),
   channel_schedules: z.boolean().optional(),
   channel_groups: z.boolean().optional(),
+  channel_composer: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),

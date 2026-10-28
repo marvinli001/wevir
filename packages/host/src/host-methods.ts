@@ -19,7 +19,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
-import { DEFAULT_REMOTE_SETTINGS, isOutputStyle } from '@wevir/protocol';
+import { DEFAULT_REMOTE_SETTINGS, IMAGE_MAX_PER_MESSAGE, isOutputStyle } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type {
   EnvironmentRecord,
@@ -1715,7 +1715,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
     'channel.posts': (params) => channels().posts(params),
-    'channel.post': (params, { client }) => ({ post: channels().post(params, client) }),
+    // 帖子里的图片（0.134.0 起助理的输入框能带）：换成 Host 记下的、挪出暂存区，同 `session.send`。
+    'channel.post': async (params, { client }) => {
+      const images = params.content.filter((part) => part.type === 'image').length;
+      if (images > IMAGE_MAX_PER_MESSAGE) {
+        throw invalidParams(
+          ['content'],
+          `a post can carry at most ${IMAGE_MAX_PER_MESSAGE} images`,
+        );
+      }
+      const content = images === 0 ? params.content : await imageStore().keep(params.content);
+      return { post: channels().post({ ...params, content }, client) };
+    },
     'channel.markRead': ({ channelId, seq }, { client }) => {
       channels().markRead(channelId, seq, client);
       return {};
@@ -1740,6 +1751,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
     'channel.rotate': async ({ channelId }) => ({ channel: await channels().rotate(channelId) }),
+    'channel.stop': async ({ channelId }) => {
+      await channels().stop(channelId);
+      return {};
+    },
 
     'automation.list': async () => ({ automations: automations().list() }),
     'automation.get': async ({ automationId }) => automations().get(automationId),

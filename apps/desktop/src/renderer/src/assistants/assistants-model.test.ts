@@ -6,6 +6,8 @@ import {
   assistantPatch,
   assistantsAvailability,
   assistantsById,
+  composerAction,
+  composerSupported,
   groupMembers,
   groupTasks,
   mentionedIn,
@@ -305,5 +307,23 @@ describe('群', () => {
     expect(mentionQuery('@Ann done', 9)).toBeUndefined();
     expect(mentionedIn('@bob lee and @Annie', [ann, bob])).toEqual(['chn_bob']);
     expect(mentionedIn('@Ann, please', [ann, bob])).toEqual(['chn_ann']);
+  });
+});
+
+describe('输入框（0.134.0）', () => {
+  it('Host 有 channel_composer 才带图片与停止', () => {
+    expect(composerSupported(undefined)).toBe(false);
+    expect(composerSupported({ channels: true } as never)).toBe(false);
+    expect(composerSupported({ channel_composer: true } as never)).toBe(true);
+  });
+
+  it('在回、输入框空着时主按钮是停止；有字或有图片时照常发送', () => {
+    const answering = channel({ answering: true });
+    expect(composerAction({ channel: answering, supported: true, hasContent: false })).toBe('stop');
+    expect(composerAction({ channel: answering, supported: true, hasContent: true })).toBe('send');
+    expect(composerAction({ channel: answering, supported: false, hasContent: false })).toBe(
+      'send',
+    );
+    expect(composerAction({ channel: channel(), supported: true, hasContent: false })).toBe('send');
   });
 });

@@ -7716,6 +7716,10 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'channel.stop': {
+    params: { valid: [{ channelId: ids.channel }], invalid: [{}, { channelId: 'x' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
   'notification.subscribe': {
     params: { valid: [{}], invalid: [null, 'all'] },
     result: { valid: [{}], invalid: [null] },

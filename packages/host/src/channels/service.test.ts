@@ -21,6 +21,7 @@ import { AppTools } from '../app-tools.js';
 import { AutomationService } from '../automations/service.js';
 import { EventStore } from '../event-store.js';
 import { createHostMethods } from '../host-methods.js';
+import { ImageStore } from '../images.js';
 import { InboxService } from '../inbox.js';
 import { NotificationService } from '../notifications.js';
 import { SessionManager } from '../session-manager.js';
@@ -61,6 +62,7 @@ async function setup(
   const adapter = new EchoAdapter({ stepDelayMs: 0 });
   const assistants = new AssistantFolders({ dir: join(dataDir, 'assistants') });
   await assistants.load();
+  const images = new ImageStore({ dir: join(dataDir, 'images') });
   const taskBoards = new TaskBoardStore({
     dir: join(dataDir, 'tasks'),
     onChange: (root) => channels?.tasksChanged(root),
@@ -71,6 +73,7 @@ async function setup(
     storage,
     events,
     adapter,
+    images,
     worktreesDir: join(dataDir, 'worktrees'),
     onTurnFinished: (info) => channels?.onTurnFinished(info),
     approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
@@ -97,6 +100,7 @@ async function setup(
     events,
     sessions,
     assistants,
+    images,
     identity: { deviceId: 'host', clientId: 'wevir-channels', clientKind: 'desktop' },
     inventory: () => ({ connectors: ['Calendar'], browser: true }),
     tasks: {
@@ -156,6 +160,7 @@ async function setup(
     channels,
     assistants,
     automations,
+    images,
   });
   storage.providers.insert({
     id: 'mock',
@@ -168,15 +173,27 @@ async function setup(
     createdAt: '2026-10-16T00:00:00.000Z',
     updatedAt: '2026-10-16T00:00:00.000Z',
   });
+  // 看不了图片的模型（0.134.0）。
+  storage.providers.insert({
+    id: 'blind',
+    kind: 'openai-compatible',
+    displayName: 'Blind',
+    api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9/v1',
+    models: [{ id: 'm', supportsImages: false }],
+    defaultModelId: 'm',
+    createdAt: '2026-10-16T00:00:00.000Z',
+    updatedAt: '2026-10-16T00:00:00.000Z',
+  });
   const service = channels;
-  const create = async (name: string, description: string) =>
+  const create = async (name: string, description: string, providerId = 'mock') =>
     (
       await methods['channel.create'](
         {
           kind: 'assistant',
           name,
           description,
-          coordinator: { providerId: 'mock' },
+          coordinator: { providerId },
           ...(options.budget !== undefined && { budget: options.budget }),
         },
         context,
@@ -1094,6 +1111,150 @@ describe('助理的规矩由 Host 执行（0.132.0）', () => {
     expect(h.service.approvalPolicy('ses_other' as SessionId, tool)).toBeUndefined();
     expect(h.service.approvalPolicy(sessionId, undefined)).toBe('ask');
     expect(h.service.approvalPolicy(sessionId, tool)).toBe('ask');
+  });
+});
+
+describe('助理输入框的图片与停止（0.134.0）', () => {
+  /** 只有文件头的 PNG（签名 + IHDR）。 */
+  const png = (width: number, height: number) => {
+    const bytes = Buffer.alloc(33);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+    bytes.writeUInt32BE(13, 8);
+    bytes.write('IHDR', 12, 'latin1');
+    bytes.writeUInt32BE(width, 16);
+    bytes.writeUInt32BE(height, 20);
+    return bytes.toString('base64');
+  };
+  const textOf = (post: { content: { type: string; text?: string }[] } | undefined) =>
+    post?.content[0]?.type === 'text' ? (post.content[0].text ?? '') : '';
+  const row = async (h: Awaited<ReturnType<typeof setup>>, channelId: ChannelId) =>
+    (await h.methods['channel.get']({ channelId }, context)).channel;
+
+  it('帖子带图片：图片挪出暂存区、进协调者的信封；模型看不了图片时换成说明与本机的文件', async () => {
+    const h = await setup();
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    const blind = await h.create('Trip desk', 'Bookings.', 'blind');
+    await h.coordinatorPosts(bot.id, 1);
+    await h.coordinatorPosts(blind.id, 1);
+
+    for (const channel of [bot, blind]) {
+      const { image } = await h.methods['image.upload'](
+        { mimeType: 'image/png', data: png(4, 3), name: 'receipt.png' },
+        context,
+      );
+      const { post } = await h.methods['channel.post'](
+        {
+          channelId: channel.id,
+          content: [{ type: 'text', text: 'What is this?' }, image],
+        },
+        context,
+      );
+      expect(ChannelPostSchema.parse(post)).toEqual(post);
+      expect(post.content[1]).toMatchObject({ type: 'image', imageId: image.imageId, width: 4 });
+    }
+    const [, seen] = await h.coordinatorPosts(bot.id, 2);
+    expect(textOf(seen)).toContain('[image: receipt.png]');
+    expect(textOf(seen)).not.toContain('<attached_images');
+    const [, described] = await h.coordinatorPosts(blind.id, 2);
+    expect(textOf(described)).toContain('<attached_images count="1">');
+    expect(textOf(described)).toMatch(/- receipt\.png: .*images.*\.png/);
+    expect(textOf(described)).not.toContain('[image:');
+
+    // 没有这张图片：回 IMAGE_NOT_FOUND，不进时间线。
+    const before = h.posts(bot.id).length;
+    await expect(
+      h.methods['channel.post'](
+        {
+          channelId: bot.id,
+          content: [
+            {
+              type: 'image',
+              imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR' as never,
+              mimeType: 'image/png',
+              size: 33,
+            },
+          ],
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'IMAGE_NOT_FOUND' });
+    expect(h.posts(bot.id)).toHaveLength(before);
+  });
+
+  it('停止：协调者回这条时间线时 answering，channel.stop 中断回合、不发回答', async () => {
+    const h = await setup();
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    await h.coordinatorPosts(bot.id, 1);
+    await vi.waitFor(async () => expect((await row(h, bot.id)).answering).toBeUndefined());
+
+    // echo 的 ask 停在提问上，回合一直在跑。
+    await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'ask me first' }] },
+      context,
+    );
+    const sessionId = (await row(h, bot.id)).coordinator?.sessionId as SessionId;
+    await vi.waitFor(
+      () => expect(h.events.snapshot(sessionId)?.pendingQuestions?.length ?? 0).toBeGreaterThan(0),
+      { timeout: 5000 },
+    );
+    const busy = await row(h, bot.id);
+    expect(busy.answering).toBe(true);
+    expect(ChannelSchema.parse(busy)).toEqual(busy);
+
+    await h.methods['channel.stop']({ channelId: bot.id }, context);
+    await vi.waitFor(async () => {
+      expect(h.events.snapshot(sessionId)?.session.activeTurn).toBeUndefined();
+      expect((await row(h, bot.id)).answering).toBeUndefined();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.posts(bot.id).filter((post) => post.author.kind === 'coordinator')).toHaveLength(1);
+    expect(h.posts(bot.id).filter((post) => post.author.kind === 'host')).toHaveLength(0);
+    // 没有在回时无操作；之后照常回答。
+    await h.methods['channel.stop']({ channelId: bot.id }, context);
+    await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'Any news?' }] },
+      context,
+    );
+    const replies = await h.coordinatorPosts(bot.id, 2);
+    expect(textOf(replies[1])).toContain('Any news?');
+  });
+
+  it('群里停止：正在回这个群的成员都停下，这一轮不再有回答', async () => {
+    const h = await setup();
+    const ann = await h.create('Ann', 'Calendar.');
+    const bob = await h.create('Bob', 'Travel.');
+    for (const bot of [ann, bob]) await h.coordinatorPosts(bot.id, 1);
+    const { channel: group } = await h.methods['channel.create'](
+      { kind: 'group', name: 'Weekly', members: [ann.id, bob.id] },
+      context,
+    );
+    await h.methods['channel.post'](
+      { channelId: group.id, content: [{ type: 'text', text: 'ask both of you' }] },
+      context,
+    );
+    const sessions = [
+      (await row(h, ann.id)).coordinator?.sessionId as SessionId,
+      (await row(h, bob.id)).coordinator?.sessionId as SessionId,
+    ];
+    await vi.waitFor(
+      () => {
+        for (const sessionId of sessions) {
+          expect(h.events.snapshot(sessionId)?.pendingQuestions?.length ?? 0).toBeGreaterThan(0);
+        }
+      },
+      { timeout: 5000 },
+    );
+    expect((await row(h, group.id)).answering).toBe(true);
+
+    await h.methods['channel.stop']({ channelId: group.id }, context);
+    await vi.waitFor(async () => {
+      for (const sessionId of sessions) {
+        expect(h.events.snapshot(sessionId)?.session.activeTurn).toBeUndefined();
+      }
+      expect((await row(h, group.id)).answering).toBeUndefined();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.posts(group.id).filter((post) => post.author.kind === 'assistant')).toHaveLength(0);
   });
 });
 

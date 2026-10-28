@@ -8,7 +8,14 @@ import type {
   ChannelWatchHandlers,
   WevirClient,
 } from '@wevir/client-sdk';
-import type { Channel, ChannelPost, MethodParams, ProviderProfile } from '@wevir/protocol';
+import type {
+  Channel,
+  ChannelPost,
+  MethodParams,
+  ProviderProfile,
+  UserImageMimeType,
+  UserImagePart,
+} from '@wevir/protocol';
 import { verifyApproval } from './approval-gate';
 import type { Avatar } from './bot-avatar';
 import {
@@ -30,6 +37,8 @@ export interface ChannelClient {
   readonly canEdit: boolean;
   /** 能读这台电脑的模型服务（`provider.read`），改助理的模型要用。 */
   readonly canReadProviders: boolean;
+  /** 输入框能带照片、能停止（Host 功能 `channel_composer`，0.134.0）。 */
+  readonly composer: boolean;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
   watchChannel(
@@ -58,6 +67,8 @@ export interface BotAccess {
   online: boolean;
   canEdit: boolean;
   canReadProviders: boolean;
+  /** 输入框能带照片、能停止。 */
+  composer: boolean;
 }
 
 /** 改助理时交给 `channel.update` 的字段。 */
@@ -135,6 +146,7 @@ export class BotStore {
       online: client !== undefined,
       canEdit: client?.canEdit === true,
       canReadProviders: client?.canReadProviders === true,
+      composer: client?.composer === true,
     };
   }
 
@@ -256,14 +268,19 @@ export class BotStore {
     }
   }
 
-  /** 发帖；群里 `mentions` 是点选的成员（Host 另外认正文里的 `@名字`）。 */
-  async send(key: string, text: string, mentions: readonly string[] = []): Promise<void> {
+  /** 发帖；群里 `mentions` 是点选的成员（Host 另外认正文里的 `@名字`）；`images` 是传好的照片（0.134.0）。 */
+  async send(
+    key: string,
+    text: string,
+    mentions: readonly string[] = [],
+    images: readonly UserImagePart[] = [],
+  ): Promise<void> {
     const trimmed = text.trim();
-    if (trimmed === '') return;
+    if (trimmed === '' && images.length === 0) return;
     const { channelId, client } = this.connected(key);
     const { post } = await client.request('channel.post', {
       channelId,
-      content: [{ type: 'text', text: trimmed }],
+      content: [...(trimmed === '' ? [] : [{ type: 'text' as const, text: trimmed }]), ...images],
       clientPostId: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       ...(mentions.length > 0 && { mentions: mentions as Channel['id'][] }),
     });
@@ -308,6 +325,23 @@ export class BotStore {
         { request, decision },
       ],
     });
+  }
+
+  /** 传一张照片（base64），拿到能放进帖子的图片部件。 */
+  async uploadImage(
+    key: string,
+    mimeType: UserImageMimeType,
+    data: string,
+  ): Promise<UserImagePart> {
+    const { client } = this.connected(key);
+    const { image } = await client.request('image.upload', { mimeType, data });
+    return image;
+  }
+
+  /** 停止协调者（群里是正在回的成员）这回合（0.134.0）。 */
+  async stop(key: string): Promise<void> {
+    const { channelId, client } = this.connected(key);
+    await client.request('channel.stop', { channelId });
   }
 
   /** 协调者出错后重试。 */

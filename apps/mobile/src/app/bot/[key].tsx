@@ -1,6 +1,7 @@
 // 一个助理的对话：大标题是助理的名字，列表顶上是它的头像、职责、所在电脑与状态；往下是它自己的时间线（打开时停在最新一条），
 // 往上翻到顶再下拉加载更早的。底部是输入栏，键盘弹起时跟着上移。工作中时末尾有一枚在跳的头像。
 // 助理群（0.133.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人），没有编辑与重试。
+// 输入栏（0.134.0，Host 有 `channel_composer` 时）同会话页：前面一枚加照片的按钮，协调者（群里是成员）在回、输入栏空着时尾部是停止。
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,11 +24,13 @@ import { PostView } from '../../components/bot-cards';
 import { botPose, botStateColor, GroupAvatar } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
-import { locale, t } from '../../i18n';
+import { useActionSheet } from '../../components/sheets';
+import { locale, type MessageKey, t } from '../../i18n';
 import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
 import { keyboardOverlap } from '../../lib/keyboard';
-import { useBot, useBotStore, useTimeline } from '../../state/bots';
+import { useBot, useBotAccess, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
+import { usePhotoAttachments } from '../../state/photo-attachments';
 import { SPACE, TEXT, useTheme } from '../../theme';
 
 /** 隔了这么久的两条之间插一行时间。 */
@@ -178,16 +181,34 @@ function BotChat({ bot }: { bot: Bot }) {
   );
 
   const group = bot.kind === 'group';
+  const access = useBotAccess(bot.key);
+  const [error, setError] = useState<MessageKey>();
+  const [sheet, showSheet] = useActionSheet();
+  // Android 的系统相册与相机是另一个 Activity：选照片时 App 进了后台、连接断开，等这台电脑重新连上（最多 15 秒）再传。
+  const upload = async (mimeType: Parameters<typeof store.uploadImage>[1], data: string) => {
+    for (let waited = 0; ; waited += 250) {
+      try {
+        return await store.uploadImage(bot.key, mimeType, data);
+      } catch (e) {
+        if (waited >= 15_000 || store.access(bot.key).online) throw e;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  };
+  const photos = usePhotoAttachments({ upload, showSheet, onError: setError });
   // 群里点选的成员：这条消息 @ 他们；发出后清掉。
   const [mentions, setMentions] = useState<readonly string[]>([]);
   const send = useCallback(
     async (text: string) => {
       pinned.current = true;
-      await store.send(bot.key, text, mentions);
+      setError(undefined);
+      await store.send(bot.key, text, mentions, photos.images);
       setMentions([]);
+      photos.clear();
     },
-    [store, bot.key, mentions],
+    [store, bot.key, mentions, photos],
   );
+  const stop = useCallback(() => store.stop(bot.key), [store, bot.key]);
 
   const track = (e: NativeScrollEvent) => {
     const bottom = e.contentSize.height + e.contentInset.bottom - e.layoutMeasurement.height;
@@ -355,13 +376,26 @@ function BotChat({ bot }: { bot: Bot }) {
                 })}
               </ScrollView>
             )}
+            {error !== undefined && (
+              <Text style={[styles.error, { color: theme.destructive }]} testID="bot-error">
+                {t(error)}
+              </Text>
+            )}
             <Composer
               onSend={send}
               {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}
+              {...(access.composer && {
+                onAttach: photos.choose,
+                attachments: photos.attachments,
+                onRemoveAttachment: photos.remove,
+                busy: bot.answering,
+                onStop: stop,
+              })}
             />
           </View>
         </View>
       </KeyboardAvoidingView>
+      {sheet}
     </>
   );
 }
@@ -406,4 +440,5 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   memberName: { fontSize: TEXT.small, fontWeight: '500' },
+  error: { fontSize: TEXT.small, textAlign: 'center', paddingBottom: 6 },
 });

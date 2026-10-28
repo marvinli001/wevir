@@ -786,6 +786,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       events: store,
       sessions: manager,
       assistants,
+      images,
       identity: { deviceId: hostId, clientId: 'wevir-channels', clientKind: 'desktop' },
       // 建助理时给它一个每天 08:00 的晨间简报（0.121.0），删助理时一起删。
       schedules: {
@@ -1537,6 +1538,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         channels: true,
         channel_schedules: true,
         channel_groups: true,
+        channel_composer: true,
       },
       engineFeatures,
       plugins,

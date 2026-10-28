@@ -27,7 +27,11 @@ describe('bots', () => {
       avatar: { type: 'cloud', color: 2, seed: 0.4 },
       unreadCount: 3,
       lastPost: { text: '日程已排好', at: at(4) },
+      answering: false,
     });
+    expect(
+      botFromChannel('mac', 'MacBook', channel(CHANNEL_A, { answering: true })).answering,
+    ).toBe(true);
   });
 
   it('列表：等用户决定的在前，其余按最后动静', () => {

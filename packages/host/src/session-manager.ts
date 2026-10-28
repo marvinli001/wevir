@@ -2112,25 +2112,31 @@ export class SessionManager {
     if (count > IMAGE_MAX_PER_MESSAGE) {
       throw invalidContent(path, `a message can carry at most ${IMAGE_MAX_PER_MESSAGE} images`);
     }
-    const { providerId, modelId } = this.#snapshot(runtime).session;
     const images = this.#images;
-    // Provider 的模型列表标了不收图片的，不必再问引擎（OpenCode 等的模型目录带这一项）。
-    const listed = (this.#storage.providers.get(providerId)?.models ?? []) as {
-      id: string;
-      supportsImages?: boolean;
-    }[];
-    const refused = listed.find((model) => model.id === modelId)?.supportsImages === false;
-    if (
-      images === undefined ||
-      refused ||
-      this.#adapter.acceptsImages?.({ providerId, modelId }) !== true
-    ) {
+    if (images === undefined || !this.#acceptsImages(runtime)) {
+      const { providerId, modelId } = this.#snapshot(runtime).session;
       throw invalidContent(
         path,
         `model ${modelId} of provider ${providerId} does not accept images`,
       );
     }
     return images.keep(content);
+  }
+
+  /** 会话的模型收不收图片（同发送时的检查）；频道用它把图片换成说明（0.134.0）。 */
+  acceptsImages(sessionId: SessionId): boolean {
+    return this.#images !== undefined && this.#acceptsImages(this.#runtime(sessionId));
+  }
+
+  #acceptsImages(runtime: SessionRuntime): boolean {
+    const { providerId, modelId } = this.#snapshot(runtime).session;
+    // Provider 的模型列表标了不收图片的，不必再问引擎（OpenCode 等的模型目录带这一项）。
+    const listed = (this.#storage.providers.get(providerId)?.models ?? []) as {
+      id: string;
+      supportsImages?: boolean;
+    }[];
+    if (listed.find((model) => model.id === modelId)?.supportsImages === false) return false;
+    return this.#adapter.acceptsImages?.({ providerId, modelId }) === true;
   }
 
   /** 交给引擎的输入：图片换成数据目录里的文件。 */

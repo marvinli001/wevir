@@ -115,6 +115,7 @@ export class FakeChannels {
     canCreate: false,
     canEdit: false,
     canReadProviders: false,
+    composer: false,
     request: ((method: string, params: Params) =>
       this.#handle(method, params)) as ChannelClient['request'],
     onChannelsChanged: (listener) => {
@@ -205,6 +206,15 @@ export class FakeChannels {
         this.channels.push(created);
         return { channel: created };
       }
+      case 'image.upload':
+        return {
+          image: {
+            type: 'image',
+            imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR',
+            mimeType: params.mimeType,
+            size: 3,
+          },
+        };
       case 'provider.list':
         return { providers: [{ id: 'prov_off', enabled: false }, { id: 'prov_on' }] };
       case 'channel.update': {

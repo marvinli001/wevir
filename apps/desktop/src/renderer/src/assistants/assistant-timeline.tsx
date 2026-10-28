@@ -1,6 +1,7 @@
 // 助理的对话页签（0.120.0）：时间线（用户的帖子在右，助理的在左，Host 的说明居中），帖子带的卡片（我需要什么、建议、晨间简报、说明），
 // 挂在帖子下面的线程卡片，等用户批准的审批（展示要发出的原文），底部的输入框。看到的帖子标已读（`channel.markRead`）。
-// 0.133.0：别的助理写的帖子（群里的成员、发来消息的助理）带它的头像与名字；发给别的助理的帖子标“发给 …”；群的输入框打 @ 选成员。
+// 0.133.0：别的助理写的帖子（群里的成员、发来消息的助理）带它的头像与名字；发给别的助理的帖子标“发给 …”。输入框在
+// assistant-composer.tsx；0.134.0 起用户的帖子带图片。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { isRpcError } from '@wevir/client-sdk';
@@ -15,7 +16,6 @@ import type {
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
-  ArrowUp,
   Check,
   Circle,
   CircleCheck,
@@ -26,21 +26,21 @@ import {
   Sun,
   TriangleAlert,
 } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { describe } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { approvalLayout, optionLabel, presentApproval } from '@/session/approval-model';
+import { imagesOf } from '@/session/composer-images';
 import { formatMessageTime } from '@/session/format';
+import { MessageImages } from '@/session/image-attachments';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { AssistantAvatar } from './assistant-avatar';
+import { AssistantComposer } from './assistant-composer';
 import {
   type AssistantView,
   CATEGORY_LABEL,
   groupMembers,
-  mentionedIn,
-  mentionQuery,
   outgoingText,
   postText,
   threadsByRoot,
@@ -183,7 +183,7 @@ export function AssistantTimeline({
             onError={onError}
           />
         ))}
-        <Composer
+        <AssistantComposer
           client={client}
           channel={channel}
           members={channel.kind === 'group' ? groupMembers(channel, assistants) : []}
@@ -237,12 +237,14 @@ function PostRow({
     );
   }
   if (author === 'user') {
+    const images = imagesOf(post.content);
     return (
       <div
         className="flex flex-col items-end gap-1.5"
         data-post-author="user"
         data-post-seq={post.seq}
       >
+        {images.length > 0 && <MessageImages images={images} />}
         {text !== '' && (
           <div className="max-w-[85%] min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
             {text}
@@ -620,152 +622,5 @@ function AssistantApproval({
         )}
       </div>
     </section>
-  );
-}
-
-function Composer({
-  client,
-  channel,
-  members,
-  onPosted,
-  onError,
-}: {
-  client: WevirClient;
-  channel: Channel;
-  /** 群的成员（打 @ 时可选）；助理的时间线是空的。 */
-  members: readonly Channel[];
-  onPosted: (post: ChannelPost) => void;
-  onError: (text: string) => void;
-}) {
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [caret, setCaret] = useState(0);
-  const [picked, setPicked] = useState(0);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const query = members.length > 0 ? mentionQuery(text, caret) : undefined;
-  const choices =
-    query === undefined
-      ? []
-      : members.filter((member) =>
-          member.title.toLowerCase().startsWith(query.query.toLowerCase()),
-        );
-  const group = channel.kind === 'group';
-  const send = async () => {
-    const body = text.trim();
-    if (body === '' || busy) return;
-    setBusy(true);
-    try {
-      const mentions = mentionedIn(body, members);
-      const { post } = await client.request('channel.post', {
-        channelId: channel.id,
-        content: [{ type: 'text', text: body }],
-        clientPostId: crypto.randomUUID(),
-        ...(mentions.length > 0 && { mentions }),
-      });
-      setText('');
-      onPosted(post);
-    } catch (reason) {
-      onError(t('assistants.postFailed', { error: describe(reason) }));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const mention = (member: Channel) => {
-    if (query === undefined) return;
-    const next = `${text.slice(0, query.start)}@${member.title} ${text.slice(caret)}`;
-    const at = query.start + member.title.length + 2;
-    setText(next);
-    setCaret(at);
-    setPicked(0);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(at, at);
-    });
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    if (choices.length > 0) {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        const step = event.key === 'ArrowDown' ? 1 : -1;
-        setPicked((current) => (current + step + choices.length) % choices.length);
-        return;
-      }
-      if (event.key === 'Enter' || event.key === 'Tab') {
-        event.preventDefault();
-        const member = choices[Math.min(picked, choices.length - 1)];
-        if (member !== undefined) mention(member);
-        return;
-      }
-    }
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      void send();
-    }
-  };
-  const placeholder = t(
-    group ? 'assistants.group.placeholder' : 'assistants.composer.placeholder',
-    {
-      name: channel.title,
-    },
-  );
-  return (
-    <div className="relative">
-      {choices.length > 0 && (
-        <ul
-          className="absolute bottom-full left-0 mb-1.5 flex w-56 flex-col rounded-xl border border-border bg-popover p-1 shadow-md"
-          aria-label={t('assistants.group.mention')}
-          data-testid="mention-menu"
-        >
-          {choices.map((member, index) => (
-            <li key={member.id}>
-              <button
-                type="button"
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm outline-none hover:bg-muted',
-                  index === picked && 'bg-muted',
-                )}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => mention(member)}
-                aria-current={index === picked}
-                data-mention={member.id}
-              >
-                {member.assistant && <AssistantAvatar avatar={member.assistant.avatar} size={20} />}
-                <span className="min-w-0 truncate">{member.title}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* 单行时输入框与发送按钮同高（32px），文字和按钮在同一条中线上；四周留白相同。 */}
-      <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-2 focus-within:focus-field">
-        <Textarea
-          ref={inputRef}
-          value={text}
-          onChange={(event) => {
-            setText(event.target.value);
-            setCaret(event.target.selectionStart);
-            setPicked(0);
-          }}
-          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          className="max-h-48 min-h-8 flex-1 resize-none rounded-none border-0 bg-transparent px-2 py-1.5 text-sm leading-5 focus-visible:ring-0"
-          rows={1}
-          data-field="post"
-        />
-        <Button
-          size="icon"
-          className="rounded-full"
-          disabled={text.trim() === '' || busy}
-          onClick={() => void send()}
-          aria-label={t('assistants.composer.send')}
-          data-action="send"
-        >
-          <ArrowUp />
-        </Button>
-      </div>
-    </div>
   );
 }

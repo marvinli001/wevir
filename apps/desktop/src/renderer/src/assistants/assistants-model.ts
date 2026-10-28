@@ -1,6 +1,6 @@
-// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.133.0，`channel_groups`）：功能门控、列表行的
-// 状态与排序、头像的随机与换一个、时间线的合并（新帖、改了的帖子、翻页）、`channels.changed` 与 `channel.updated` 的套用、审批要发出的
-// 原文、群里的 @。不碰 DOM 与 Host。
+// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.133.0，`channel_groups`；输入框 0.134.0，
+// `channel_composer`）：功能门控、列表行的状态与排序、头像的随机与换一个、时间线的合并（新帖、改了的帖子、翻页）、`channels.changed`
+// 与 `channel.updated` 的套用、审批要发出的原文、群里的 @、输入框的主按钮。不碰 DOM 与 Host。
 
 import type { ChannelsChange, ChannelUpdate } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
@@ -101,6 +101,20 @@ export function assistantsAvailability(features: HostFeatures | undefined): Assi
 /** 助理之间与助理群（0.133.0）。 */
 export function groupsSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_groups');
+}
+
+/** 助理的输入框（0.134.0）：帖子带图片、停止。 */
+export function composerSupported(features: HostFeatures | undefined): boolean {
+  return features !== undefined && hostSupports(features, 'channel_composer');
+}
+
+/** 输入框的主按钮：协调者（群里是成员）在回、输入框空着时是停止，否则是发送（在回时发的帖子等它回完再交出去）。 */
+export function composerAction(input: {
+  channel: Pick<Channel, 'answering'>;
+  supported: boolean;
+  hasContent: boolean;
+}): 'send' | 'stop' {
+  return input.supported && input.channel.answering === true && !input.hasContent ? 'stop' : 'send';
 }
 
 /** 助理的日程与晨间简报（0.121.0）。 */

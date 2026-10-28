@@ -37,6 +37,8 @@ export interface Bot {
   description: string;
   avatar: Avatar;
   state: BotState;
+  /** 协调者（群里是成员）正在回这条时间线（0.134.0）：输入框空着时显示停止。 */
+  answering: boolean;
   unreadCount: number;
   lastPost?: { text: string; at: string };
   createdAt: string;
@@ -141,6 +143,7 @@ export function botFromChannel(
     description: channel.assistant?.description ?? '',
     avatar: normalizeAvatar(channel.assistant?.avatar ?? members[0]?.avatar),
     state: channel.state,
+    answering: channel.answering === true,
     unreadCount: channel.unreadCount ?? 0,
     ...(last !== undefined && {
       lastPost: {

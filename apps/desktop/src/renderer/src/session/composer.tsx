@@ -134,7 +134,8 @@ export async function attachDraftImage(
   }
 }
 
-function rejectionText(rejected: { reason: ImageRejection; name: string }): string {
+/** 没收下的图片的提示（助理的输入框也用）。 */
+export function rejectionText(rejected: { reason: ImageRejection; name: string }): string {
   if (rejected.reason === 'limit')
     return t('composer.imageLimit', { count: IMAGE_MAX_PER_MESSAGE });
   return rejected.reason === 'too_large'
