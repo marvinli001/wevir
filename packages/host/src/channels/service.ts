@@ -29,6 +29,7 @@ import type {
   ChannelThread,
   ChannelThreadStatus,
   ClientIdentity,
+  EnvironmentId,
   MessageFrom,
   MethodParams,
   NotificationParams,
@@ -160,6 +161,12 @@ export interface ChannelServiceOptions {
     created(channel: Channel): Promise<void>;
     deleted(channelId: ChannelId): Promise<void>;
   };
+  /** 助理删除后，清掉存在别处、按它的工作区或频道记的东西（记忆、任务清单、环境变量等）。 */
+  removed?: (removed: {
+    channelId: ChannelId;
+    workspaceId: string;
+    environmentIds: readonly string[];
+  }) => Promise<void>;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -580,6 +587,7 @@ export class ChannelService {
     });
     if (params.name !== undefined && params.name.trim() !== record.title) {
       this.#storage.workspaces.rename(record.workspaceId, params.name.trim(), now);
+      this.#options.assistants.rename(this.#storage, record.workspaceId, params.name.trim(), now);
     }
     const channelId = record.id as ChannelId;
     if (identityChanged) this.#pendingFor(channelId).changed = true;
@@ -592,14 +600,21 @@ export class ChannelService {
   async delete(channelId: string): Promise<void> {
     const record = this.#record(channelId);
     const id = record.id as ChannelId;
-    this.#storage.channels.softDelete(id, iso(this.#now()));
+    const now = iso(this.#now());
+    this.#storage.channels.softDelete(id, now);
     const pending = this.#pending.get(id);
     clearTimeout(pending?.timer);
     this.#pending.delete(id);
     this.#active.delete(id);
+    // 协调者与线程都在助理的工作区里，目录要删，先都关掉。
+    const open = this.#storage.sessions
+      .list({ workspaceId: record.workspaceId })
+      .filter((session) => session.state !== 'closed')
+      .map((session) => session.id as SessionId);
     const coordinator = (record.coordinator as StoredCoordinator).sessionId;
-    if (coordinator !== undefined) {
-      await this.#options.sessions.close(coordinator).catch(() => undefined);
+    if (coordinator !== undefined && !open.includes(coordinator)) open.push(coordinator);
+    for (const sessionId of open) {
+      await this.#options.sessions.close(sessionId).catch(() => undefined);
     }
     this.#rowPrints.delete(id);
     this.#emitList({ upserted: [], removed: [id] });
@@ -609,6 +624,23 @@ export class ChannelService {
         error: errorMessage(error),
       }),
     );
+    if (record.kind !== 'assistant') return;
+    // 助理的东西跟着删：环境、工作区行、目录、按工作区记的审批规则，再由 Host 清记忆、任务清单与环境变量。
+    const warn = (error: unknown) =>
+      this.#options.onWarning?.('assistant workspace not removed', {
+        channelId: id,
+        error: errorMessage(error),
+      });
+    const environmentIds = await this.#options.assistants
+      .remove(this.#storage, record.workspaceId, now)
+      .catch((error: unknown) => {
+        warn(error);
+        return [];
+      });
+    this.#storage.approvalRules.removeByWorkspace(record.workspaceId);
+    await this.#options
+      .removed?.({ channelId: id, workspaceId: record.workspaceId, environmentIds })
+      .catch(warn);
   }
 
   // ── 时间线 ────────────────────────────────────────────────────────────
@@ -762,6 +794,7 @@ export class ChannelService {
     const session = await this.#options.sessions.create(
       {
         workspaceId: record.workspaceId as Session['workspaceId'],
+        ...this.#environmentOf(record),
         providerId,
         ...((input.modelId ??
           (input.providerId === undefined ? coordinator.modelId : undefined)) !== undefined && {
@@ -1059,6 +1092,7 @@ export class ChannelService {
     this.#pending.delete(channelId);
     clearTimeout(pending.timer);
     const channel = this.#channel(record);
+    const workspace = this.#workspacePath(record);
     const input: WakeInput = {
       channel,
       reasons: pending.reasons,
@@ -1069,10 +1103,11 @@ export class ChannelService {
         setup: {
           ...(this.#options.inventory?.() ?? { connectors: [], browser: false }),
           folders: channel.assistant?.folders ?? [],
+          ...(workspace !== undefined && { workspace }),
         },
       }),
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
-      ...(pending.changed === true && !fresh && { changed: identityBlock(channel) }),
+      ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
     const brief = pending.schedules.some((schedule) => schedule.brief === true)
       ? await this.#briefCard(record)
@@ -1088,7 +1123,7 @@ export class ChannelService {
           .filter((post) => !pending.posts.some((p) => p.id === post.id));
         content[0] = {
           type: 'text',
-          text: `${handover(channel, recent, coordinator.generation)}\n\n${first.text}`,
+          text: `${handover(channel, recent, coordinator.generation, workspace)}\n\n${first.text}`,
         };
       }
     }
@@ -1174,6 +1209,7 @@ export class ChannelService {
     const session = await this.#options.sessions.create(
       {
         workspaceId: record.workspaceId as Session['workspaceId'],
+        ...this.#environmentOf(record),
         providerId: current.providerId,
         ...(current.modelId !== undefined && { modelId: current.modelId }),
         ...(current.reasoningEffort !== undefined && { reasoningEffort: current.reasoningEffort }),
@@ -1375,6 +1411,24 @@ export class ChannelService {
     const record = this.#storage.channels.get(channelId);
     if (record === undefined || record.deletedAt !== undefined) throw notFound(channelId);
     return record;
+  }
+
+  /** 助理的会话用它自己的环境（没有就补建）；项目频道不用。 */
+  #environmentOf(record: ChannelRecord): { environmentId?: EnvironmentId } {
+    if (record.kind !== 'assistant') return {};
+    const environmentId = this.#options.assistants.environment(
+      this.#storage,
+      record.workspaceId,
+      record.title,
+      iso(this.#now()),
+    );
+    return { environmentId: environmentId as EnvironmentId };
+  }
+
+  /** 助理的工作文件夹（隐藏工作区的目录）。 */
+  #workspacePath(record: ChannelRecord): string | undefined {
+    if (record.kind !== 'assistant') return undefined;
+    return this.#storage.workspaces.get(record.workspaceId)?.rootPath;
   }
 
   #entryOf(

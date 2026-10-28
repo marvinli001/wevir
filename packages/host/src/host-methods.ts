@@ -764,11 +764,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return resolveExtraFolders(workspace.rootPath, extraFolders, options.chats).then(apply);
     },
 
-    // 0.15.0（U22.1，domain-model §3.10）：保存的环境。
+    // 0.15.0（U22.1，domain-model §3.10）：保存的环境。助理的环境跟着助理（channels/assistants.ts），不列出、不能改删。
     'environment.list': async () => ({
       environments: await Promise.all(
         storage.environments
           .list()
+          .filter((record) => options.assistants?.isAssistantEnvironment(storage, record) !== true)
           .map(async (record) => toEnvironment(record, await readVariables(secrets, record.id))),
       ),
     }),
@@ -780,7 +781,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         id: newId('env'),
         name: environmentName(name),
         location: { kind: 'local' },
-        folders: checkEnvironmentFolders(storage, folders, options.chats),
+        folders: checkEnvironmentFolders(storage, folders, options),
         createdAt: now,
         updatedAt: now,
       };
@@ -797,14 +798,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'environment.update': async ({ environmentId, name, folders, variables }) => {
       const current = storage.environments.get(environmentId);
-      if (!current) {
+      if (!current || options.assistants?.isAssistantEnvironment(storage, current) === true) {
         throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${environmentId} not found`);
       }
       const record: EnvironmentRecord = {
         ...current,
         ...(name !== undefined && { name: environmentName(name) }),
         ...(folders !== undefined && {
-          folders: checkEnvironmentFolders(storage, folders, options.chats),
+          folders: checkEnvironmentFolders(storage, folders, options),
         }),
         updatedAt: isoNow(),
       };
@@ -816,7 +817,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     'environment.remove': async ({ environmentId }) => {
-      if (!storage.environments.remove(environmentId)) {
+      const current = storage.environments.get(environmentId);
+      if (
+        current === undefined ||
+        options.assistants?.isAssistantEnvironment(storage, current) === true ||
+        !storage.environments.remove(environmentId)
+      ) {
         throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${environmentId} not found`);
       }
       await writeVariables(secrets, environmentId, []);
@@ -2057,11 +2063,11 @@ function environmentName(name: string): string {
   return trimmed;
 }
 
-/** 环境的文件夹：工作区都在、没被移除，不重复。 */
+/** 环境的文件夹：工作区都在、没被移除，不重复，不是“对话”或助理的工作区。 */
 function checkEnvironmentFolders(
   storage: Storage,
   folders: readonly EnvironmentFolder[],
-  chats: ChatFolders | undefined,
+  { chats, assistants }: { chats?: ChatFolders; assistants?: AssistantFolders },
 ): EnvironmentRecord['folders'] {
   const seen = new Set<string>();
   for (const folder of folders) {
@@ -2075,6 +2081,9 @@ function checkEnvironmentFolders(
     }
     if (chats?.isChats(workspace) === true) {
       throw invalidParams(['folders'], 'the chats workspace cannot be in an environment');
+    }
+    if (assistants?.isAssistant(workspace) === true) {
+      throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${folder.workspaceId} not found`);
     }
   }
   return folders.map((folder) => ({ workspaceId: folder.workspaceId, worktree: folder.worktree }));

@@ -1,6 +1,6 @@
 // 频道与助理（0.120.0）：echo 引擎跑通建助理、发帖唤醒协调者、换班、预算、线程、列表与订阅的通知。
 
-import { mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { HostId, NotificationIntent } from '@wevir/protocol';
 import {
@@ -11,6 +11,7 @@ import {
   ChannelSchema,
   type ClientIdentity,
   DEFAULT_ASSISTANT_RULES,
+  type EnvironmentId,
   type SessionId,
 } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -28,6 +29,7 @@ import { identity, useStorages, useTempDir } from '../test-utils.js';
 import { AssistantFolders } from './assistants.js';
 import {
   ChannelService,
+  type ChannelServiceOptions,
   type ChannelSubscriptionMessage,
   MORNING_BRIEF_TIME,
   morningBriefAutomation,
@@ -46,7 +48,12 @@ afterEach(async () => {
 });
 const phone: ClientIdentity = { deviceId: 'phone-1', clientId: 'app-1', clientKind: 'mobile' };
 
-async function setup(options: { budget?: { dailyWakes: number; dailyTokens: number } } = {}) {
+async function setup(
+  options: {
+    budget?: { dailyWakes: number; dailyTokens: number };
+    removed?: ChannelServiceOptions['removed'];
+  } = {},
+) {
   const dataDir = join(realpathSync(tempDir()), 'data');
   mkdirSync(dataDir, { recursive: true });
   const storage = storages.open(dataDir);
@@ -104,6 +111,7 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
         await automations?.deleteForChannel(channelId);
       },
     },
+    ...(options.removed !== undefined && { removed: options.removed }),
   });
   channels.start();
   const service0 = channels;
@@ -243,6 +251,7 @@ describe('ChannelService', () => {
       expect(text).toContain('<channel_handover');
       expect(text).toContain('<setup>');
       expect(text).toContain('connectors="Calendar"');
+      expect(text).toContain('working_folder="');
     }
     const textA = setupA?.content[0]?.type === 'text' ? setupA.content[0].text : '';
     expect(textA).toContain('Sort my inbox every morning.');
@@ -459,6 +468,96 @@ describe('ChannelService', () => {
     expect(resolved.status).toBe('resolved');
     const view = await h.methods['channel.get']({ channelId: bot.id }, context);
     expect(view.threads.map((item) => item.sessionId)).toEqual([thread.sessionId]);
+  });
+
+  it('助理自带环境：协调者与线程都用它，不列出、不能改删；删助理时环境、工作区、目录与按工作区记的都删掉', async () => {
+    const removed = vi.fn(async () => {});
+    const h = await setup({ removed });
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    const [first] = await h.coordinatorPosts(bot.id, 1);
+    const coordinator = (
+      first?.author.kind === 'coordinator' ? first.author.sessionId : ''
+    ) as SessionId;
+    const environments = h.storage.environments
+      .list()
+      .filter((environment) => environment.folders[0]?.workspaceId === bot.workspaceId);
+    expect(environments).toEqual([
+      expect.objectContaining({
+        name: 'Mail desk',
+        folders: [{ workspaceId: bot.workspaceId, worktree: 'none' }],
+      }),
+    ]);
+    const environmentId = (environments[0]?.id ?? '') as EnvironmentId;
+    const workspace = h.storage.workspaces.get(bot.workspaceId);
+    expect(h.storage.sessions.get(coordinator)).toMatchObject({
+      environmentId,
+      cwd: workspace?.rootPath,
+    });
+    // 起步清单把自己的工作文件夹当作已有。
+    const text = first?.content[0]?.type === 'text' ? first.content[0].text : '';
+    expect(text).toContain(`working_folder="${workspace?.rootPath}"`);
+    expect(text).toContain(`<working_folder>${workspace?.rootPath}</working_folder>`);
+
+    // 不在环境列表里，也改不了、删不了，也不能拿助理的工作区建环境。
+    expect((await h.methods['environment.list']({}, context)).environments).toEqual([]);
+    await expect(
+      h.methods['environment.update']({ environmentId, name: 'x' }, context),
+    ).rejects.toMatchObject({ code: 'ENVIRONMENT_NOT_FOUND' });
+    await expect(h.methods['environment.remove']({ environmentId }, context)).rejects.toMatchObject(
+      { code: 'ENVIRONMENT_NOT_FOUND' },
+    );
+    await expect(
+      h.methods['environment.create'](
+        { name: 'x', folders: [{ workspaceId: bot.workspaceId, worktree: 'none' }] },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_NOT_FOUND' });
+
+    // 改名时环境跟着改。
+    await h.methods['channel.update']({ channelId: bot.id, name: 'Inbox desk' }, context);
+    expect(h.storage.environments.get(environmentId)?.name).toBe('Inbox desk');
+
+    // 之前建的助理没有环境：开线程时补建一个。
+    h.storage.environments.remove(environmentId);
+    const { post } = await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'Draft a reply to Ana' }] },
+      context,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    const { thread } = await h.methods['channel.startThread'](
+      { channelId: bot.id, rootPostId: post.id },
+      context,
+    );
+    const rebuilt = h.storage.environments
+      .list()
+      .filter((environment) => environment.folders[0]?.workspaceId === bot.workspaceId);
+    expect(rebuilt).toHaveLength(1);
+    expect(h.storage.sessions.get(thread.sessionId)).toMatchObject({
+      environmentId: rebuilt[0]?.id,
+      cwd: workspace?.rootPath,
+    });
+    h.storage.approvalRules.insert({
+      id: 'apr_1',
+      workspaceId: bot.workspaceId,
+      kind: 'command_prefix',
+      prefix: ['ls'],
+      source: 'approval',
+      createdAt: '2026-10-28T00:00:00.000Z',
+      useCount: 0,
+    });
+
+    await h.methods['channel.delete']({ channelId: bot.id }, context);
+    expect(h.storage.environments.list()).toEqual([]);
+    expect(h.storage.workspaces.get(bot.workspaceId)?.removedAt).toBeDefined();
+    expect(existsSync(workspace?.rootPath ?? '')).toBe(false);
+    expect(h.storage.approvalRules.listEffective(bot.workspaceId)).toEqual([]);
+    expect(h.storage.sessions.get(coordinator)?.state).toBe('closed');
+    expect(h.storage.sessions.get(thread.sessionId)?.state).toBe('closed');
+    expect(removed).toHaveBeenCalledWith({
+      channelId: bot.id,
+      workspaceId: bot.workspaceId,
+      environmentIds: [rebuilt[0]?.id],
+    });
   });
 
   it('改名字与说明：下次唤醒附上新的身份', async () => {

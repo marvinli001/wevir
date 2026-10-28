@@ -1281,7 +1281,7 @@ export class SessionManager {
       ? await this.#chatDirectory(sessionId)
       : opinion !== undefined
         ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
-        : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
+        : await this.#prepareEnvironment(params, sessionId, workspace, provider.id, channel);
     if (startedAt !== undefined) this.#startup?.begin(sessionId, startedAt);
     this.#startup?.mark(sessionId, 'prepared');
     const config: SessionConfig = {
@@ -1473,7 +1473,7 @@ export class SessionManager {
    * 按环境准备会话的目录（0.15.0，domain-model §3.10）。不带环境、也不要 worktree 时就是工作区目录。带环境时 `workspaceId`
    * 要是主文件夹；`worktree: 'new'`（0.18.0）等于只有这个工作区一个文件夹、要新开 worktree 的环境，只是不记 `environmentId`。
    * 不带环境时，项目的其他源文件夹（0.64.0，`Workspace.extraFolders`）原样跟在后面作为额外的可写目录（不开 worktree），引擎
-   * 不支持 `additionalRoots` 时不给；带环境时只用环境的文件夹。
+   * 不支持 `additionalRoots` 时不给；带环境时只用环境的文件夹，只有助理的会话（`channel`）用它自己的环境时也带上助理授权的文件夹。
    * 依次处理每个文件夹，要新开 worktree 的在 `<worktreesDir>/<会话 ID>/` 下开。任何一步失败都撤回已建的 worktree 并回
    * `INVALID_PARAMS`（工作区不在时 `WORKSPACE_NOT_FOUND`）。
    */
@@ -1482,11 +1482,12 @@ export class SessionManager {
     sessionId: SessionId,
     workspace: { id: string; rootPath: string },
     providerId: string,
+    channel?: SessionChannel,
   ): Promise<PreparedEnvironment> {
     const rootPath = workspace.rootPath;
     const kind = this.#storage.providers.get(providerId)?.kind;
     const projectFolders =
-      params.environmentId === undefined &&
+      (params.environmentId === undefined || channel !== undefined) &&
       kind !== undefined &&
       this.#featuresOf(kind)?.additionalRoots === true
         ? (this.#storage.workspaces.get(workspace.id)?.extraFolders ?? [])

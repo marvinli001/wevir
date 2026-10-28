@@ -83,8 +83,13 @@ export interface WakeInput {
   posts: readonly ChannelPost[];
   threads: readonly ChannelThread[];
   at: string;
-  /** 建好后的第一次：本机有的连接器、授权的文件夹、有没有内置浏览器。 */
-  setup?: { connectors: readonly string[]; folders: readonly string[]; browser: boolean };
+  /** 建好后的第一次：本机有的连接器、授权的文件夹、有没有内置浏览器，助理自己的工作文件夹。 */
+  setup?: {
+    connectors: readonly string[];
+    folders: readonly string[];
+    browser: boolean;
+    workspace?: string;
+  };
   /** 定时唤醒：自动化的标题与指令。 */
   schedules?: readonly { title: string; prompt: string; brief?: boolean }[];
   /** 线程动态的汇总。 */
@@ -124,11 +129,15 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   ];
   if (input.changed !== undefined) parts.push(input.changed);
   if (input.setup !== undefined) {
-    const { connectors, folders, browser } = input.setup;
+    const { connectors, folders, browser, workspace } = input.setup;
+    const own =
+      workspace === undefined
+        ? ''
+        : `\nYour working folder ${workspace} is already set up and is where your sessions run: keep your files there and count it as ready; only extra folders of the user's need granting.`;
     parts.push(
-      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.\n<inventory connectors="${attr(
+      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.${own}\n<inventory connectors="${attr(
         connectors.join(', ') || 'none',
-      )}" folders="${attr(folders.join(', ') || 'none')}" browser="${browser ? 'yes' : 'no'}"/>\n</setup>`,
+      )}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${attr(folders.join(', ') || 'none')}" browser="${browser ? 'yes' : 'no'}"/>\n</setup>`,
     );
   }
   for (const schedule of input.schedules ?? []) {
@@ -147,8 +156,8 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   return [{ type: 'text', text: parts.join('\n') }, ...images];
 }
 
-/** 助理的身份与规矩，交接材料与设置改动用。 */
-export function identityBlock(channel: Channel): string {
+/** 助理的身份与规矩，交接材料与设置改动用；`workspace` 是助理自己的工作文件夹。 */
+export function identityBlock(channel: Channel, workspace?: string): string {
   const assistant = channel.assistant;
   if (assistant === undefined) return `<channel name="${attr(channel.title)}"/>`;
   const rules = Object.entries(assistant.rules)
@@ -160,6 +169,9 @@ export function identityBlock(channel: Channel): string {
     escapeText(assistant.description || '(no job description yet)'),
     '</assistant>',
     `<rules>\n${rules}\n- money transfers, trading, securities: never, even if the user agrees\n</rules>`,
+    ...(workspace === undefined
+      ? []
+      : [`<working_folder>${escapeText(workspace)}</working_folder>`]),
     `<folders>${escapeText(folders)}</folders>`,
   ].join('\n');
 }
@@ -169,6 +181,7 @@ export function handover(
   channel: Channel,
   recent: readonly ChannelPost[],
   generation: number,
+  workspace?: string,
 ): string {
   const lines = recent.map(
     (post) =>
@@ -176,7 +189,7 @@ export function handover(
   );
   return [
     `<channel_handover channel="${attr(channel.title)}" kind="${channel.kind}" generation="${generation}">`,
-    identityBlock(channel),
+    identityBlock(channel, workspace),
     lines.length > 0
       ? `<recent_posts count="${lines.length}">\n${lines.join('\n')}\n</recent_posts>`
       : '<recent_posts count="0"/>',
