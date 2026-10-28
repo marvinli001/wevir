@@ -2,8 +2,10 @@
 # image from this repository and the proxy forwards HTTPS for the gateway's domain to port 8080. The proxy must
 # append the client address to X-Forwarded-For (WEVIR_PUSH_TRUST_PROXY=1), and port 8080 must not be reachable
 # from the internet directly, or clients could set that header themselves.
-# Credentials come from environment variables set on the platform, never from this file: leave all of a service's
-# variables empty to run without it (APNs, FCM).
+# Credentials are the service's own environment variables, set on the platform (or in an env_file you add), never in
+# this file: WEVIR_PUSH_APNS_KEY with the .p8 contents, WEVIR_PUSH_APNS_KEY_ID, WEVIR_PUSH_APNS_TEAM_ID,
+# WEVIR_PUSH_APNS_TOPIC and WEVIR_PUSH_FCM_CREDENTIALS. They are deliberately not listed under `environment`: an entry
+# there takes precedence over variables the platform injects and would replace them with empty values.
 services:
   push:
     build:
@@ -12,12 +14,6 @@ services:
     restart: unless-stopped
     environment:
       WEVIR_PUSH_TRUST_PROXY: "1"
-      WEVIR_PUSH_LOG_LEVEL: ${WEVIR_PUSH_LOG_LEVEL:-info}
-      WEVIR_PUSH_APNS_KEY: ${WEVIR_PUSH_APNS_KEY:-}
-      WEVIR_PUSH_APNS_KEY_ID: ${WEVIR_PUSH_APNS_KEY_ID:-}
-      WEVIR_PUSH_APNS_TEAM_ID: ${WEVIR_PUSH_APNS_TEAM_ID:-}
-      WEVIR_PUSH_APNS_TOPIC: ${WEVIR_PUSH_APNS_TOPIC:-}
-      WEVIR_PUSH_FCM_CREDENTIALS: ${WEVIR_PUSH_FCM_CREDENTIALS:-}
     volumes:
       - push-data:/data
     expose:
