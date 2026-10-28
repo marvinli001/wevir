@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import {
   type AccountState,
+  type ChannelPost,
   type ClientCapabilities,
   type ClientIdentity,
   CloseCode,
@@ -1161,9 +1162,19 @@ export class RpcConnection {
     const subscriptionId = newId('sub');
     const { lastSeq, unsubscribe } = channels.subscribe(params.channelId, undefined, (message) => {
       if (message.kind === 'posted') {
-        this.#notifyChecked('channel.posted', { subscriptionId, post: message.post });
+        this.#notifyChecked('channel.posted', {
+          subscriptionId,
+          post: postForClient(message.post, this.#protocolVersion),
+        });
       } else {
-        this.#notifyChecked('channel.updated', { subscriptionId, ...message.update });
+        const { posts, ...rest } = message.update;
+        this.#notifyChecked('channel.updated', {
+          subscriptionId,
+          ...rest,
+          ...(posts !== undefined && {
+            posts: posts.map((post) => postForClient(post, this.#protocolVersion)),
+          }),
+        });
       }
     });
     this.#channelSubscriptions.set(subscriptionId, unsubscribe);
@@ -1184,7 +1195,10 @@ export class RpcConnection {
       for (const post of posts) {
         if (post.seq > lastSeq) return;
         cursor = post.seq;
-        this.#notifyChecked('channel.posted', { subscriptionId, post });
+        this.#notifyChecked('channel.posted', {
+          subscriptionId,
+          post: postForClient(post, this.#protocolVersion),
+        });
       }
     }
   }
@@ -1727,6 +1741,14 @@ export function adaptResultForClient(
       return { ...answered, resolution: { ...answered.resolution, reason: 'user' } };
     }
   }
+  // COMPAT(assistantNotices): added in 0.132.0, remove gate after 2027-06-01
+  if (
+    method === 'channel.posts' &&
+    compareProtocolVersions(protocolVersion, ASSISTANT_NOTICES_SINCE) < 0
+  ) {
+    const listed = value as MethodResult<'channel.posts'>;
+    return { ...listed, posts: listed.posts.map((post) => postForClient(post, protocolVersion)) };
+  }
   // COMPAT(webDevicePlatform): added in 0.117.0, remove gate after 2027-06-01
   if (compareProtocolVersions(protocolVersion, WEB_DEVICE_SINCE) < 0) {
     if (method === 'device.list') {
@@ -1740,6 +1762,26 @@ export function adaptResultForClient(
     }
   }
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
+}
+
+/** 助理规矩的三种说明（`acted`、`handed_off`、`blocked`）进协议的版本：更早的客户端认不出，帖子去掉卡片、只留文字。 */
+const ASSISTANT_NOTICES_SINCE = '0.132.0';
+const OLD_NOTICE_REASONS = new Set(['budget', 'resumed', 'failed']);
+
+// COMPAT(assistantNotices): added in 0.132.0, remove gate after 2027-06-01
+function postForClient(post: ChannelPost, protocolVersion: string): ChannelPost {
+  if (
+    post.card?.kind !== 'notice' ||
+    compareProtocolVersions(protocolVersion, ASSISTANT_NOTICES_SINCE) >= 0
+  ) {
+    return post;
+  }
+  if (OLD_NOTICE_REASONS.has(post.card.reason)) {
+    const { category: _category, ...card } = post.card;
+    return { ...post, card };
+  }
+  const { card: _card, ...rest } = post;
+  return rest;
 }
 
 /** 设备平台 `web` 进协议的版本：更早的客户端的枚举里没有它，给它们看 `other`。 */

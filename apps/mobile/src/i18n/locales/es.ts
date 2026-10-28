@@ -120,6 +120,9 @@ export const es: Messages = {
   'bot.notice.budget': 'Presupuesto diario agotado, en pausa',
   'bot.notice.resumed': 'Reanudado',
   'bot.notice.failed': 'Turno fallido',
+  'bot.notice.acted': 'Hecho',
+  'bot.notice.handed_off': 'Reservado para ti',
+  'bot.notice.blocked': 'Bloqueado: transferencias, operaciones y valores',
   'bot.retry': 'Reintentar',
   'bot.image': 'Imagen',
 

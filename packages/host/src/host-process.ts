@@ -635,6 +635,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       adapter,
       approvalRules,
       guardrails,
+      // 助理的规矩（0.132.0）：助理的会话里引擎要批准时，按规矩替用户答。
+      approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
         context: async (sessionId) => appToolsContext?.(sessionId),

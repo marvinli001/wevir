@@ -120,6 +120,9 @@ export const ja: Messages = {
   'bot.notice.budget': '本日の予算を使い切り、一時停止中',
   'bot.notice.resumed': '再開済み',
   'bot.notice.failed': 'ターン失敗',
+  'bot.notice.acted': '完了',
+  'bot.notice.handed_off': '保留：ご自身で実行',
+  'bot.notice.blocked': 'ブロック：送金・取引・証券',
   'bot.retry': '再試行',
   'bot.image': '画像',
 

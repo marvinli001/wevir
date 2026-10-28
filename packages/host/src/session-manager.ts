@@ -390,6 +390,15 @@ export interface SessionManagerOptions {
     event: UsageRecordedEvent,
   ) => void;
   /**
+   * 助理的规矩（0.132.0，channels/assistant-policy.ts）：引擎要批准时先问它。`allow` 用只允许这一次的选项回复引擎，`reject` 用拒绝
+   * 这一次的选项回复（没有时取消回合），都不写审批；`ask` 或 `undefined`（不是助理的会话）照常走审批。Host 补问的插件写工具
+   * （`requestAppToolApproval`）不经它。
+   */
+  approvalPolicy?: (
+    sessionId: SessionId,
+    tool: { toolName: string; display: ToolDisplay; input?: unknown } | undefined,
+  ) => 'allow' | 'reject' | 'ask' | undefined;
+  /**
    * 审批规则（0.80.0，approval-rules/service.ts）：引擎发来命令审批时按规则替用户允许，没匹配上时提议“总是允许”的前缀；
    * `approval.respond` 带 `remember` 时加规则。没给时都没有。
    */
@@ -789,6 +798,7 @@ export class SessionManager {
    */
   readonly #contextInPrompt = new Set<SessionId>();
   readonly #approvalRules: SessionManagerOptions['approvalRules'];
+  readonly #approvalPolicy: SessionManagerOptions['approvalPolicy'];
   readonly #profile: SessionManagerOptions['profile'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
   readonly #environmentVariables: SessionManagerOptions['environmentVariables'];
@@ -860,6 +870,7 @@ export class SessionManager {
     this.#customInstructions = options.customInstructions;
     this.#images = options.images;
     this.#appTools = options.appTools;
+    this.#approvalPolicy = options.approvalPolicy;
     this.#projectConnectors = options.projectConnectors;
     this.#environmentVariables = options.environmentVariables;
     this.#guardrails = options.guardrails;
@@ -5249,6 +5260,7 @@ export class SessionManager {
       }
       case 'approval.requested':
         if (this.#autoAllowed(runtime, turn, event)) return;
+        if (this.#policyAnswered(runtime, turn, event)) return;
         this.#approvalRequested(runtime, turn, event);
         return;
       case 'approval.cancelled':
@@ -5409,9 +5421,50 @@ export class SessionManager {
       this.#onError(error);
     }
     if (!allowed) return false;
+    this.#answerEngine(runtime, event, option.optionId);
+    return true;
+  }
+
+  /**
+   * 助理的规矩（`approvalPolicy`）替用户答的审批：不写审批，直接回复引擎。取消已经开始、或要允许却没有只允许一次的选项时照常
+   * 走审批；要拒绝却没有拒绝这一次的选项时取消回合。
+   */
+  #policyAnswered(
+    runtime: SessionRuntime,
+    turn: TurnRuntime,
+    event: ApprovalRequestedEvent,
+  ): boolean {
+    const policy = this.#approvalPolicy;
+    if (policy === undefined || this.#snapshot(runtime).session.state === 'cancelling')
+      return false;
+    let decision: ReturnType<typeof policy>;
+    try {
+      decision = policy(runtime.id, turn.tools.get(event.toolCallId));
+    } catch (error) {
+      this.#onError(error);
+      return false;
+    }
+    if (decision === 'allow') {
+      const option = allowOnceOption(event.options);
+      if (option === undefined) return false;
+      this.#answerEngine(runtime, event, option.optionId);
+      return true;
+    }
+    if (decision !== 'reject') return false;
+    const option = rejectOnceOption(event.options);
+    if (option === undefined) {
+      this.cancel(runtime.id).catch(this.#onError);
+    } else {
+      this.#answerEngine(runtime, event, option.optionId);
+    }
+    return true;
+  }
+
+  /** 不写审批、直接回复引擎；回复失败的处理同 `#decide`（引擎侧已经结束的不算错）。 */
+  #answerEngine(runtime: SessionRuntime, event: ApprovalRequestedEvent, optionId: string): void {
     runtime.holds += 1;
     this.#adapter
-      .respondToApproval(runtime.engineSessionId, event.requestId, { optionId: option.optionId })
+      .respondToApproval(runtime.engineSessionId, event.requestId, { optionId })
       .catch((error: unknown) => {
         if (
           !isAdapterError(error, 'invalid_option') &&
@@ -5421,7 +5474,6 @@ export class SessionManager {
         }
       })
       .finally(() => this.#release(runtime));
-    return true;
   }
 
   /**
@@ -6960,6 +7012,16 @@ function allowOnceOption(
   options: readonly RuntimeApprovalOption[],
 ): RuntimeApprovalOption | undefined {
   return options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_accept');
+}
+
+/** 只拒绝这一次的选项；没有时取不“总是拒绝”以外的拒绝类选项。 */
+function rejectOnceOption(
+  options: readonly RuntimeApprovalOption[],
+): RuntimeApprovalOption | undefined {
+  return (
+    options.find((option) => option.kind === 'reject_once') ??
+    options.find((option) => option.kind.startsWith('reject') && !option.kind.includes('always'))
+  );
 }
 
 function approvalDetail(tool: ToolInfo): ApprovalDetail {

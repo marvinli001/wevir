@@ -73,6 +73,7 @@ async function setup(
     adapter,
     worktreesDir: join(dataDir, 'worktrees'),
     onTurnFinished: (info) => channels?.onTurnFinished(info),
+    approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
     // 用量统计照 Host 记：Echo 每回合报一次请求（第二回合起带缓存读取）。
     onUsage: ({ sessionId, providerId, modelId }, event) => {
       storage.usage.insert({
@@ -765,6 +766,156 @@ describe('日程与晨间简报', () => {
     h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'Hello' }] }, identity);
     await h.coordinatorPosts(bot.id, 2);
     expect(h.intents.slice(before).map((intent) => intent.kind)).toEqual(['channel']);
+  });
+});
+
+describe('助理的规矩由 Host 执行（0.132.0）', () => {
+  type Harness = Awaited<ReturnType<typeof setup>>;
+
+  async function ready(h: Harness) {
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    await h.coordinatorPosts(bot.id, 1);
+    const sessionId = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
+      .coordinator.sessionId as SessionId;
+    return { bot, sessionId };
+  }
+
+  /** 协调者会话里每个工具的结局：工具名 → `tool.finished` 的状态。 */
+  function toolResults(h: Harness, sessionId: SessionId): Record<string, string> {
+    const names = new Map<string, string>();
+    const results: Record<string, string> = {};
+    for (const event of h.events.readSince(sessionId, 0)) {
+      if (event.type === 'tool.started')
+        names.set(event.payload.toolCallId, event.payload.toolName);
+      if (event.type === 'tool.finished') {
+        results[names.get(event.payload.toolCallId) ?? '?'] = event.payload.status;
+      }
+    }
+    return results;
+  }
+
+  const approvalsIn = (h: Harness, sessionId: SessionId) =>
+    h.events.readSince(sessionId, 0).filter((event) => event.type === 'approval.requested');
+
+  const notices = (h: Harness, channelId: ChannelId) =>
+    h
+      .posts(channelId)
+      .filter((post) => post.author.kind === 'host' && post.card?.kind === 'notice')
+      .map((post) => ({
+        card: post.card,
+        text: post.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
+      }));
+
+  const say = (h: Harness, channelId: ChannelId, text: string) =>
+    h.service.post({ channelId, content: [{ type: 'text', text }] }, identity);
+
+  it('默认规矩：联网命令、工作区里写文件、只读的连接器、Wevir 自己的工具都不问；写文件做完在时间线上告知', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    say(
+      h,
+      bot.id,
+      'approval:shell:curl+-s+https://example.com approval:write:notes/today.md approval:mcp:github/list_issues approval:mcp:wevir/wevir_process_start',
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    expect(approvalsIn(h, sessionId)).toEqual([]);
+    expect(toolResults(h, sessionId)).toMatchObject({
+      echo_shell: 'completed',
+      echo_write: 'completed',
+      mcp__github__list_issues: 'completed',
+      mcp__wevir__wevir_process_start: 'completed',
+    });
+    await vi.waitFor(() =>
+      expect(notices(h, bot.id)).toEqual([
+        {
+          card: { kind: 'notice', reason: 'acted', category: 'local_files' },
+          text: 'notes/today.md',
+        },
+      ]),
+    );
+    // 告知的说明不发提醒。
+    expect(h.intents.filter((intent) => intent.kind === 'approval')).toEqual([]);
+  });
+
+  it('档位为 ask 的动作照常发审批，进助理的视图与收件箱；批准后接着做', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    say(h, bot.id, 'approval:mcp:gmail/send_email');
+    let approvalId = '';
+    await vi.waitFor(
+      async () => {
+        const view = await h.methods['channel.get']({ channelId: bot.id }, context);
+        expect(view.approvals).toHaveLength(1);
+        expect(view.approvals[0]?.detail?.toolName).toBe('mcp__gmail__send_email');
+        approvalId = view.approvals[0]?.id as string;
+      },
+      { timeout: 5000 },
+    );
+    await vi.waitFor(() =>
+      expect(h.inbox.list()).toEqual([
+        expect.objectContaining({ kind: 'approval', channelId: bot.id }),
+      ]),
+    );
+    await h.methods['approval.respond'](
+      { approvalId: approvalId as never, optionId: 'allow-once' },
+      context,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    expect(toolResults(h, sessionId)).toMatchObject({ mcp__gmail__send_email: 'completed' });
+    expect(notices(h, bot.id)).toEqual([]);
+  });
+
+  it('hand_off 的动作与转账都由 Host 拒绝，不发审批，时间线上写明拦下了什么', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    say(h, bot.id, 'approval:mcp:shop/checkout_cart approval:mcp:bank/transfer_money');
+    await h.coordinatorPosts(bot.id, 2);
+    expect(approvalsIn(h, sessionId)).toEqual([]);
+    expect(toolResults(h, sessionId)).toMatchObject({
+      mcp__shop__checkout_cart: 'failed',
+      mcp__bank__transfer_money: 'failed',
+    });
+    expect(notices(h, bot.id)).toEqual([
+      {
+        card: { kind: 'notice', reason: 'handed_off', category: 'purchases' },
+        text: 'shop/checkout_cart',
+      },
+      { card: { kind: 'notice', reason: 'blocked' }, text: 'bank/transfer_money' },
+    ]);
+  });
+
+  it('改了规矩对已有的协调者马上生效；交易无论哪一档都拦', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    await h.methods['channel.update'](
+      {
+        channelId: bot.id,
+        rules: { ...DEFAULT_ASSISTANT_RULES, messages: 'do', purchases: 'do' },
+      },
+      context,
+    );
+    say(h, bot.id, 'approval:mcp:gmail/send_email approval:mcp:alpaca/place_order');
+    await h.coordinatorPosts(bot.id, 2);
+    const after = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
+      .coordinator.sessionId;
+    expect(after).toBe(sessionId);
+    expect(approvalsIn(h, sessionId)).toEqual([]);
+    expect(toolResults(h, sessionId)).toMatchObject({
+      mcp__gmail__send_email: 'completed',
+      mcp__alpaca__place_order: 'failed',
+    });
+    expect(notices(h, bot.id).map((notice) => notice.card)).toEqual([
+      { kind: 'notice', reason: 'blocked' },
+    ]);
+  });
+
+  it('不是助理的会话不管；看不到是什么调用时照常问', async () => {
+    const h = await setup();
+    const { sessionId } = await ready(h);
+    const tool = { toolName: 'mcp__gmail__send_email', display: { kind: 'unknown' as const } };
+    expect(h.service.approvalPolicy('ses_other' as SessionId, tool)).toBeUndefined();
+    expect(h.service.approvalPolicy(sessionId, undefined)).toBe('ask');
+    expect(h.service.approvalPolicy(sessionId, tool)).toBe('ask');
   });
 });
 

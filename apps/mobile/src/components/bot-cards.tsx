@@ -68,7 +68,7 @@ function TextPost({ author, text }: { author: BotPost['author']; text: string })
   );
 }
 
-/** Host 的说明：预算用完、恢复、出错（出错时附重试）。 */
+/** Host 的说明：预算用完、恢复、出错（出错时附重试），以及按规矩做完告知、拦下交给用户、拦下的转账交易（0.132.0）。 */
 function Notice({
   reason,
   onRetry,
@@ -81,7 +81,10 @@ function Notice({
     <Text
       style={[
         styles.host,
-        { color: reason === 'failed' ? theme.destructive : theme.mutedForeground },
+        {
+          color:
+            reason === 'failed' || reason === 'blocked' ? theme.destructive : theme.mutedForeground,
+        },
       ]}
     >
       {t(`bot.notice.${reason}`)}

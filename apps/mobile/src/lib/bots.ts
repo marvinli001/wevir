@@ -37,7 +37,7 @@ export type NeedKind = 'connector' | 'folder' | 'login' | 'other';
 
 export type Decision = 'pending' | 'approved' | 'rejected';
 
-export type NoticeReason = 'budget' | 'resumed' | 'failed';
+export type NoticeReason = 'budget' | 'resumed' | 'failed' | 'acted' | 'handed_off' | 'blocked';
 
 /** 时间线上的一条：用户的话、助理的回答，或者一张卡片。 */
 export type BotCard =

@@ -121,6 +121,9 @@ export const de: Messages = {
   'bot.notice.budget': 'Tagesbudget aufgebraucht, pausiert',
   'bot.notice.resumed': 'Fortgesetzt',
   'bot.notice.failed': 'Durchlauf fehlgeschlagen',
+  'bot.notice.acted': 'Erledigt',
+  'bot.notice.handed_off': 'Für dich zurückgehalten',
+  'bot.notice.blocked': 'Blockiert: Überweisungen, Handel und Wertpapiere',
   'bot.retry': 'Wiederholen',
   'bot.image': 'Bild',
 

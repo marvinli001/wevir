@@ -118,6 +118,9 @@ export const ko: Messages = {
   'bot.notice.budget': '오늘 예산 소진, 일시 중지됨',
   'bot.notice.resumed': '재개됨',
   'bot.notice.failed': '턴 실패',
+  'bot.notice.acted': '완료',
+  'bot.notice.handed_off': '보류: 직접 처리',
+  'bot.notice.blocked': '차단: 송금·거래·증권',
   'bot.retry': '다시 시도',
   'bot.image': '이미지',
 

@@ -114,6 +114,9 @@ export const zhTW: Messages = {
   'bot.notice.budget': '今日預算用完，已暫停',
   'bot.notice.resumed': '已恢復',
   'bot.notice.failed': '本輪出錯',
+  'bot.notice.acted': '已完成',
+  'bot.notice.handed_off': '已攔下，待使用者操作',
+  'bot.notice.blocked': '已攔下：轉帳、交易與證券',
   'bot.retry': '重試',
   'bot.image': '圖片',
 

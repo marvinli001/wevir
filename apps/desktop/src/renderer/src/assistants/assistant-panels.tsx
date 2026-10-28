@@ -5,7 +5,6 @@ import type { WevirClient } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
 import {
   ASSISTANT_RULE_CATEGORIES,
-  type AssistantRuleCategory,
   type AssistantRuleTier,
   type Automation,
   type BoardTask,
@@ -28,7 +27,7 @@ import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
-import { groupTasks } from './assistants-model';
+import { CATEGORY_LABEL, groupTasks } from './assistants-model';
 
 const SECTION_TITLE = 'mb-2 text-sm font-medium text-soft-foreground';
 const ROW = 'flex min-h-12 items-center gap-3 px-3.5 py-2.5';
@@ -123,14 +122,6 @@ const TIER_LABEL: Record<AssistantRuleTier, PlainMessageKey> = {
   hand_off: 'assistants.rules.tier.hand_off',
 };
 const TIER_ORDER: readonly AssistantRuleTier[] = ['do', 'tell', 'ask', 'hand_off'];
-const CATEGORY_LABEL: Record<AssistantRuleCategory, PlainMessageKey> = {
-  messages: 'assistants.rules.messages',
-  publishing: 'assistants.rules.publishing',
-  purchases: 'assistants.rules.purchases',
-  deletions: 'assistants.rules.deletions',
-  shared_edits: 'assistants.rules.shared_edits',
-  local_files: 'assistants.rules.local_files',
-};
 const WAKE_CHOICES = [10, 20, 50, 100, 200] as const;
 const TOKEN_CHOICES = [100_000, 200_000, 500_000, 1_000_000, 5_000_000] as const;
 

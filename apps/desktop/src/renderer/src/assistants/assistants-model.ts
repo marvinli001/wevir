@@ -8,6 +8,7 @@ import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
   type AssistantAvatar,
+  type AssistantRuleCategory,
   type BoardTask,
   type Channel,
   type ChannelPost,
@@ -17,6 +18,18 @@ import {
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
 import { formatJson } from '@/session/format';
+
+// ---- 规矩 ----
+
+/** 规矩里各类动作的名字：规矩设置与时间线上 Host 的说明（0.132.0）共用。 */
+export const CATEGORY_LABEL: Record<AssistantRuleCategory, PlainMessageKey> = {
+  messages: 'assistants.rules.messages',
+  publishing: 'assistants.rules.publishing',
+  purchases: 'assistants.rules.purchases',
+  deletions: 'assistants.rules.deletions',
+  shared_edits: 'assistants.rules.shared_edits',
+  local_files: 'assistants.rules.local_files',
+};
 
 // ---- 编辑 ----
 

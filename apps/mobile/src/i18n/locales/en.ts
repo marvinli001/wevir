@@ -119,6 +119,9 @@ export const en: Messages = {
   'bot.notice.budget': 'Daily budget used, paused',
   'bot.notice.resumed': 'Resumed',
   'bot.notice.failed': 'Turn failed',
+  'bot.notice.acted': 'Done',
+  'bot.notice.handed_off': 'Held for the user',
+  'bot.notice.blocked': 'Blocked: money transfers, trading and securities',
   'bot.retry': 'Retry',
   'bot.image': 'Image',
 

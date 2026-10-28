@@ -3167,6 +3167,12 @@ const channelPostSamples: { valid: ChannelPost[]; invalid: unknown[] } = {
       author: { kind: 'host' },
       card: { kind: 'notice', reason: 'budget' },
     },
+    {
+      ...channelCoordinatorPost,
+      author: { kind: 'host' },
+      content: [{ type: 'text', text: 'notes/today.md' }],
+      card: { kind: 'notice', reason: 'acted', category: 'local_files' },
+    },
     { ...channelUserPost, routedTo: [ids.session] },
   ],
   invalid: [

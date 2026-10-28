@@ -48,9 +48,9 @@ function firstLine(text: string, max = 160): string {
 
 const TIER_WORDS: Record<AssistantRuleTier, string> = {
   do: 'go ahead',
-  tell: 'go ahead, then report it',
-  ask: 'confirm first, showing the exact outgoing content',
-  hand_off: 'prepare it only; the user does it',
+  tell: 'go ahead; Wevir tells the user afterwards',
+  ask: 'confirm first: Wevir asks the user before it runs',
+  hand_off: 'prepare it only; Wevir declines it and the user does it',
 };
 
 /** 线程概况：每次唤醒都带，≤ `ENVELOPE_THREADS_MAX` 行。 */
@@ -168,7 +168,7 @@ export function identityBlock(channel: Channel, workspace?: string): string {
     `<assistant name="${attr(channel.title)}">`,
     escapeText(assistant.description || '(no job description yet)'),
     '</assistant>',
-    `<rules>\n${rules}\n- money transfers, trading, securities: never, even if the user agrees\n</rules>`,
+    `<rules>\n${rules}\n- money transfers, trading, securities: never, even if the user agrees; Wevir declines them\n</rules>`,
     ...(workspace === undefined
       ? []
       : [`<working_folder>${escapeText(workspace)}</working_folder>`]),

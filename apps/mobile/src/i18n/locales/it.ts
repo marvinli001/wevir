@@ -121,6 +121,9 @@ export const it: Messages = {
   'bot.notice.budget': 'Budget giornaliero esaurito, in pausa',
   'bot.notice.resumed': 'Ripreso',
   'bot.notice.failed': 'Turno non riuscito',
+  'bot.notice.acted': 'Fatto',
+  'bot.notice.handed_off': 'Lasciato a te',
+  'bot.notice.blocked': 'Bloccato: bonifici, trading e titoli',
   'bot.retry': 'Riprova',
   'bot.image': 'Immagine',
 

@@ -226,7 +226,10 @@ export type ChannelBriefItem = z.infer<typeof ChannelBriefItemSchema>;
  * - `needs`：助理建好后的第一条，“我需要什么”（`wevir_channel_needs`）。
  * - `suggestion`：助理主动提的建议（`wevir_channel_suggest`），用户采纳或忽略（`channel.respondSuggestion`）。
  * - `brief`：晨间简报（0.121.0 起由日程发出）：今天的待办、昨晚完成的、等用户决定的。
- * - `notice`：Host 的说明：`budget` 预算用完已暂停、`resumed` 恢复、`failed` 协调者这回合出错（附重试，`channel.wake`）。
+ * - `notice`：Host 的说明：`budget` 预算用完已暂停、`resumed` 恢复、`failed` 协调者这回合出错（附重试，`channel.wake`）。助理的规矩
+ *   由 Host 执行（0.132.0）后另有三种，`category` 是规矩里的动作种类，帖子的文字是做了或拦下的动作（每行一个）：`acted` 档位为
+ *   `tell` 的动作做完了；`handed_off` 档位为 `hand_off` 的动作被拦下、交给用户做；`blocked` 转账、交易或证券操作被拦下（没有
+ *   `category`）。0.132.0 之前的客户端收到的这三种帖子没有卡片，只有文字。
  */
 export const ChannelCardSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('needs'), items: z.array(ChannelNeedSchema).min(1).max(12) }),
@@ -242,7 +245,11 @@ export const ChannelCardSchema = z.discriminatedUnion('kind', [
     done: z.array(ChannelBriefItemSchema).max(20),
     decisions: z.array(ChannelBriefItemSchema).max(20),
   }),
-  z.object({ kind: z.literal('notice'), reason: z.enum(['budget', 'resumed', 'failed']) }),
+  z.object({
+    kind: z.literal('notice'),
+    reason: z.enum(['budget', 'resumed', 'failed', 'acted', 'handed_off', 'blocked']),
+    category: z.string().min(1).max(40).optional(),
+  }),
 ]);
 export type ChannelCard = z.infer<typeof ChannelCardSchema>;
 

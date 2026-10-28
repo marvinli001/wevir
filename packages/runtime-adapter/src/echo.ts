@@ -22,6 +22,7 @@ import type {
   PermissionMode,
   ReviewRequest,
   SessionConfig,
+  ToolDisplay,
   UserQuestion,
 } from './types.js';
 
@@ -137,6 +138,34 @@ export const ECHO_SUGGESTIONS: ReadonlyArray<{ title: string; prompt: string; re
 /** `risky` 要审批的命令：删文件，Host 判为高风险（0.131.0）。 */
 export const ECHO_RISKY_COMMAND = 'rm -rf build';
 
+/** `approval:<种类>:<内容>` 要批准的工具调用（0.132.0）。 */
+function echoApprovalTool(
+  kind: 'mcp' | 'shell' | 'write',
+  spec: string,
+): { toolName: string; display: ToolDisplay; input: unknown } {
+  if (kind === 'mcp') {
+    const [server = 'echo', tool = spec] = spec.split('/');
+    return {
+      toolName: `mcp__${server}__${tool}`,
+      display: { kind: 'unknown', summary: `${server}/${tool}`, mcpServer: server },
+      input: {},
+    };
+  }
+  if (kind === 'shell') {
+    const command = spec.replaceAll('+', ' ');
+    return {
+      toolName: 'echo_shell',
+      display: { kind: 'shell', summary: command, command },
+      input: { command },
+    };
+  }
+  return {
+    toolName: 'echo_write',
+    display: { kind: 'write', summary: spec, paths: [spec] },
+    input: { file_path: spec, content: '' },
+  };
+}
+
 export const ECHO_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'allow-once', label: 'Allow once', kind: 'allow_once' },
   { optionId: 'reject-once', label: 'Reject', kind: 'reject_once' },
@@ -220,6 +249,7 @@ interface ReplyBlock {
  * | `tool` | 回复前模拟一次工具调用（`echo`，不需要审批） |
  * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败，回合照常结束 |
  * | `risky` | 同 `approve`，但审批的是一条删文件的命令（`echo_shell`，`rm -rf build`），Host 判为高风险（0.131.0） |
+ * | `approval:<种类>:<内容>` | 同 `approve`，审批的调用由内容定（0.132.0，测助理的规矩用，可以有好几个，依次请求）：`mcp:<服务>/<工具>` 是连接器的工具（`mcp__<服务>__<工具>`），`shell:<命令>` 是一条命令（`+` 代表空格），`write:<路径>` 是写一个文件 |
  * | `ask` | 向用户提两个问题（0.10.0：一个单选可填其他、一个多选），等 `respondToQuestion` 后在回复末尾写出回答 |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
@@ -938,6 +968,36 @@ export class EchoAdapter implements AgentRuntimeAdapter {
                 output: `Error: the user rejected ${toolName}`,
               },
         );
+      }
+
+      for (const match of subagent
+        ? []
+        : text.matchAll(/\bapproval:(mcp|shell|write):([\w./+:@=-]+)/gi)) {
+        const toolCallId = this.#nextId('call_echo');
+        const started = echoApprovalTool(
+          (match[1] as string).toLowerCase() as 'mcp' | 'shell' | 'write',
+          match[2] as string,
+        );
+        emit({ type: 'tool.started', engineSessionId, toolCallId, ...started });
+        openTools.set(toolCallId, `Error: approval for ${started.toolName} was cancelled`);
+        let allowed = true;
+        if ((session.config.permissionMode ?? 'on_request') === 'on_request') {
+          const optionId = await this.#requestApproval(turn, engineSessionId, toolCallId);
+          allowed =
+            ECHO_APPROVAL_OPTIONS.find((option) => option.optionId === optionId)?.kind.startsWith(
+              'allow',
+            ) ?? false;
+        }
+        openTools.delete(toolCallId);
+        emit({
+          type: 'tool.finished',
+          engineSessionId,
+          toolCallId,
+          status: allowed ? 'completed' : 'failed',
+          output: allowed
+            ? `Ran ${started.toolName}`
+            : `Error: the user rejected ${started.toolName}`,
+        });
       }
 
       if (!subagent && /\bsuggest\b/i.test(text)) {

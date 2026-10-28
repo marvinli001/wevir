@@ -5,6 +5,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import { isRpcError } from '@wevir/client-sdk';
 import type {
   ApprovalRequest,
+  AssistantRuleCategory,
   Channel,
   ChannelCard,
   ChannelPost,
@@ -33,7 +34,13 @@ import { approvalLayout, optionLabel, presentApproval } from '@/session/approval
 import { formatMessageTime } from '@/session/format';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { AssistantAvatar } from './assistant-avatar';
-import { type AssistantView, outgoingText, postText, threadsByRoot } from './assistants-model';
+import {
+  type AssistantView,
+  CATEGORY_LABEL,
+  outgoingText,
+  postText,
+  threadsByRoot,
+} from './assistants-model';
 
 /** 离底部这么近时，新帖来了跟着滚到底。 */
 const STICK_PX = 120;
@@ -277,6 +284,15 @@ function PostRow({
 
 const CARD = 'rounded-xl border border-border bg-card px-3.5 py-3';
 
+const NOTICE_LABEL: Record<Extract<ChannelCard, { kind: 'notice' }>['reason'], PlainMessageKey> = {
+  budget: 'assistants.notice.budget',
+  resumed: 'assistants.notice.resumed',
+  failed: 'assistants.notice.failed',
+  acted: 'assistants.notice.acted',
+  handed_off: 'assistants.notice.handed_off',
+  blocked: 'assistants.notice.blocked',
+};
+
 function HostNotice({
   card,
   text,
@@ -287,29 +303,26 @@ function HostNotice({
   onRetry: () => void;
 }) {
   const reason = card?.kind === 'notice' ? card.reason : undefined;
-  const label =
-    reason === 'budget'
-      ? t('assistants.notice.budget')
-      : reason === 'resumed'
-        ? t('assistants.notice.resumed')
-        : reason === 'failed'
-          ? t('assistants.notice.failed')
-          : undefined;
+  const category =
+    card?.kind === 'notice' && card.category !== undefined && card.category in CATEGORY_LABEL
+      ? t(CATEGORY_LABEL[card.category as AssistantRuleCategory])
+      : undefined;
+  const label = reason === undefined ? undefined : t(NOTICE_LABEL[reason]);
   return (
     <div
       className={cn(
         'flex max-w-[85%] items-center gap-2 rounded-lg px-3 py-1.5 text-sm',
-        reason === 'failed' || reason === 'budget'
+        reason === 'failed' || reason === 'budget' || reason === 'blocked'
           ? 'bg-warning/10 text-warning'
           : 'bg-muted text-muted-foreground',
       )}
       data-notice={reason}
     >
-      {(reason === 'failed' || reason === 'budget') && (
+      {(reason === 'failed' || reason === 'budget' || reason === 'blocked') && (
         <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
       )}
-      <span className="min-w-0 break-words">
-        {[label, text].filter((part) => part !== undefined && part !== '').join(' · ')}
+      <span className="min-w-0 whitespace-pre-line break-words">
+        {[category, label, text].filter((part) => part !== undefined && part !== '').join(' · ')}
       </span>
       {reason === 'failed' && (
         <Button variant="ghost" size="xs" onClick={onRetry} data-action="retry">

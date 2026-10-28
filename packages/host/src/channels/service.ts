@@ -15,7 +15,9 @@ import { createHash } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import type {
   ApprovalRequest,
+  Assistant,
   AssistantAvatar,
+  AssistantRuleCategory,
   AssistantRules,
   BoardTask,
   BoardTaskStatus,
@@ -62,6 +64,15 @@ import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
 import { approvalSummary } from '../inbox.js';
 import { redactSecrets } from '../secret-patterns.js';
+import {
+  type AssistantAction,
+  actionSummary,
+  classify,
+  decide,
+  type PolicyRoots,
+  type PolicyTool,
+  tierOf,
+} from './assistant-policy.js';
 import type { AssistantFolders } from './assistants.js';
 import {
   HANDOVER_POSTS,
@@ -105,6 +116,10 @@ export const ROTATE_CONTEXT = 0.6;
 export const EXTRA_POSTS_PER_TURN = 5;
 /** `channel.get` 带最近多少个已解决的线程。 */
 const RESOLVED_THREADS_KEPT = 50;
+/** 往上找助理会话的层数（子会话、开的会话）。 */
+const POLICY_DEPTH = 6;
+/** 一条 `notice: acted` 至多列几个动作。 */
+const TOLD_LINES_MAX = 20;
 
 /** 频道要用的会话操作（SessionManager 的一部分）。 */
 export interface ChannelSessions {
@@ -281,6 +296,10 @@ export class ChannelService {
   >();
   readonly #listListeners = new Set<(change: ChannelsChanged) => void>();
   readonly #postListeners = new Set<(channel: Channel, post: ChannelPost) => void>();
+  /** 助理会话里正在跑的工具调用（`会话 ID\0工具调用 ID`），做完时按规矩看要不要告知。 */
+  readonly #runningTools = new Map<string, PolicyTool>();
+  /** 档位为 `tell`、已经做完的动作：会话 ID → 动作；回合结束时写成 `notice: acted`。 */
+  readonly #told = new Map<SessionId, { category: AssistantRuleCategory; summary: string }[]>();
   readonly #subscribers = new Map<
     ChannelId,
     Set<{ listener: (message: ChannelSubscriptionMessage) => void; seen: Map<string, string> }>
@@ -1600,12 +1619,130 @@ export class ChannelService {
     };
   }
 
+  // ── 规矩 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 引擎要批准时按助理的规矩替用户答（assistant-policy.ts，SessionManager 的 `approvalPolicy`）：不是助理的会话返回 `undefined`；
+   * 看不到是什么调用时照常问。拦下的写一条 `notice: handed_off` / `blocked`。每次都读频道记录，改了规矩马上生效。
+   */
+  approvalPolicy(
+    sessionId: SessionId,
+    tool: PolicyTool | undefined,
+  ): 'allow' | 'reject' | 'ask' | undefined {
+    const record = this.#assistantOf(sessionId);
+    if (record === undefined) return undefined;
+    if (tool === undefined) return 'ask';
+    const result = decide(this.#classify(record, tool), (record.assistant as Assistant).rules);
+    if (result.decision === 'reject') {
+      this.#hostPost(
+        record,
+        {
+          kind: 'notice',
+          reason: result.notice,
+          ...(result.category !== undefined && { category: result.category }),
+        },
+        actionSummary(tool),
+      );
+    }
+    return result.decision;
+  }
+
+  /** 会话属于哪个助理：频道的协调者与线程，或它们派出的子会话、开的会话（往上至多找 `POLICY_DEPTH` 层）。 */
+  #assistantOf(sessionId: SessionId): ChannelRecord | undefined {
+    let id: string | undefined = sessionId;
+    for (let depth = 0; id !== undefined && depth < POLICY_DEPTH; depth++) {
+      const entry = this.#entryOf(id as SessionId);
+      if (entry !== undefined) {
+        const record = this.#storage.channels.get(entry.channelId);
+        return record?.kind === 'assistant' && record.deletedAt === undefined ? record : undefined;
+      }
+      const session = this.#storage.sessions.get(id);
+      const origin = session?.origin;
+      id =
+        session?.parentSessionId ??
+        (origin?.kind === 'agent' || origin?.kind === 'fork' ? origin.sessionId : undefined);
+    }
+    return undefined;
+  }
+
+  #classify(record: ChannelRecord, tool: PolicyTool): AssistantAction {
+    const workspace = this.#storage.workspaces.get(record.workspaceId);
+    const roots: PolicyRoots = {
+      root: workspace?.rootPath ?? '/',
+      folders: workspace?.extraFolders ?? (record.assistant as Assistant).folders,
+    };
+    return classify(tool, roots);
+  }
+
+  /**
+   * `tell`：助理的协调者与线程做完一个档位为 `tell` 的动作时记下，回合结束时按种类各写一条 `notice: acted`（帖子文字每行一个
+   * 动作）。看的是工具调用本身，不管引擎问没问。
+   */
+  #trackTell(channelId: ChannelId, event: WevirEvent): void {
+    const key = (toolCallId: string) => `${event.sessionId}\0${toolCallId}`;
+    switch (event.type) {
+      case 'tool.started': {
+        const { toolName, display, input } = event.payload;
+        this.#runningTools.set(key(event.payload.toolCallId), {
+          toolName,
+          display,
+          ...(input !== undefined && { input }),
+        });
+        return;
+      }
+      case 'tool.updated': {
+        const tool = this.#runningTools.get(key(event.payload.toolCallId));
+        if (tool === undefined) return;
+        if (event.payload.display !== undefined) tool.display = event.payload.display;
+        if (event.payload.input !== undefined) tool.input = event.payload.input;
+        return;
+      }
+      case 'tool.finished': {
+        const tool = this.#runningTools.get(key(event.payload.toolCallId));
+        this.#runningTools.delete(key(event.payload.toolCallId));
+        if (tool === undefined || event.payload.status !== 'completed') return;
+        const record = this.#storage.channels.get(channelId);
+        if (record?.kind !== 'assistant' || record.deletedAt !== undefined) return;
+        const action = this.#classify(record, tool);
+        if (action.kind !== 'category') return;
+        if (tierOf((record.assistant as Assistant).rules, action.category) !== 'tell') return;
+        const told = this.#told.get(event.sessionId) ?? [];
+        told.push({ category: action.category, summary: actionSummary(tool) });
+        this.#told.set(event.sessionId, told);
+        return;
+      }
+      case 'turn.finished': {
+        for (const running of this.#runningTools.keys()) {
+          if (running.startsWith(`${event.sessionId}\0`)) this.#runningTools.delete(running);
+        }
+        const told = this.#told.get(event.sessionId);
+        this.#told.delete(event.sessionId);
+        const record = this.#storage.channels.get(channelId);
+        if (told === undefined || record === undefined || record.deletedAt !== undefined) return;
+        const byCategory = new Map<AssistantRuleCategory, string[]>();
+        for (const { category, summary } of told) {
+          const lines = byCategory.get(category) ?? [];
+          if (!lines.includes(summary)) lines.push(summary);
+          byCategory.set(category, lines);
+        }
+        for (const [category, lines] of byCategory) {
+          const shown = lines.slice(0, TOLD_LINES_MAX);
+          if (lines.length > shown.length) shown.push(`+${lines.length - shown.length}`);
+          this.#hostPost(record, { kind: 'notice', reason: 'acted', category }, shown.join('\n'));
+        }
+        return;
+      }
+      default:
+    }
+  }
+
   // ── 内部：变化推送 ────────────────────────────────────────────────────
 
   #onEvent(event: WevirEvent): void {
     if (event.type === 'assistant.delta' || event.type === 'plan.delta') return;
     const entry = this.#entryOf(event.sessionId);
     if (entry === undefined) return;
+    this.#trackTell(entry.channelId, event);
     switch (event.type) {
       case 'turn.started':
       case 'turn.finished':

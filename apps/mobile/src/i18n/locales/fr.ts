@@ -121,6 +121,9 @@ export const fr: Messages = {
   'bot.notice.budget': 'Budget du jour épuisé, en pause',
   'bot.notice.resumed': 'Repris',
   'bot.notice.failed': 'Tour en échec',
+  'bot.notice.acted': 'Fait',
+  'bot.notice.handed_off': 'Laissé à vos soins',
+  'bot.notice.blocked': 'Bloqué : virements, transactions et titres',
   'bot.retry': 'Réessayer',
   'bot.image': 'Image',
 

@@ -1,4 +1,5 @@
 import type {
+  ChannelPost,
   PendingMessage,
   Session,
   UserContentPart,
@@ -249,5 +250,28 @@ describe('approval_rules', () => {
       payload: { ...resolved.payload, resolution: { ...resolution, reason: 'user' } },
     });
     expect(adaptEventForClient(resolved, { approval_rules: true })).toBe(resolved);
+  });
+});
+
+describe('assistant notices', () => {
+  const post = (card: ChannelPost['card']): ChannelPost => ({
+    id: 'cpo_1' as ChannelPost['id'],
+    channelId: 'chn_1' as ChannelPost['channelId'],
+    seq: 1,
+    author: { kind: 'host' },
+    content: [{ type: 'text', text: 'notes/today.md' }],
+    ...(card !== undefined && { card }),
+    createdAt: '2026-10-28T00:00:00.000Z',
+  });
+
+  it('0.132.0 之前的客户端：规矩的三种说明去掉卡片只留文字，旧的说明照旧', () => {
+    const acted = post({ kind: 'notice', reason: 'acted', category: 'local_files' });
+    const failed = post({ kind: 'notice', reason: 'failed' });
+    const result = { posts: [acted, failed], lastSeq: 2 };
+    expect(adaptResultForClient('channel.posts', result, {}, '0.131.0')).toEqual({
+      posts: [post(undefined), failed],
+      lastSeq: 2,
+    });
+    expect(adaptResultForClient('channel.posts', result, {}, '0.132.0')).toEqual(result);
   });
 });
