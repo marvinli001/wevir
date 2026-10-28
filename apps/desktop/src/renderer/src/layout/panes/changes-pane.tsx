@@ -103,6 +103,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTranscript } from '@/data/workbench-data';
+import {
+  FileLinkMenuProvider,
+  useAttachToSession,
+  useFileContextMenu,
+} from '@/files/file-link-menu';
 import { openFile } from '@/files/files-store';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -225,6 +230,9 @@ function SessionChanges({
       ? { ...stored, scope: { kind: 'uncommitted' as const } }
       : stored;
   const transcript = useTranscript(sessionId)?.transcript;
+  // 文件头的右键菜单（files/file-link-menu.tsx）：路径相对会话目录，“添加到对话”放进这个会话的输入框。
+  const session = sessions.find((candidate) => candidate.id === sessionId);
+  const attach = useAttachToSession(session);
   const sessionState = transcript?.state;
   const activeTurnId = transcript?.activeTurnId;
   // 回合开始、结束时重读：改动多半刚发生。
@@ -573,102 +581,104 @@ function SessionChanges({
     selection.scope.kind === 'branch' && result?.baseRef !== undefined ? result.baseRef : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-1.5 px-2">
-        <ScopeMenu
-          sessionId={sessionId}
-          scope={selection.scope}
-          turns={turns}
-          label={scopeLabel(selection.scope, turns)}
-          staged={gitSupported}
-          stats={hasFiles ? stats : undefined}
-        />
-        {branchBase !== undefined && (
-          <span
-            className="flex h-7 min-w-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground"
-            title={t('changes.against', { base: branchBase })}
-            data-testid="changes-base"
-          >
-            <GitBranch aria-hidden className="size-3.5 shrink-0" />
-            {git.status?.branch !== undefined && (
-              <>
-                <span className="min-w-0 truncate font-mono text-foreground">
-                  {git.status.branch}
-                </span>
-                <MoveRight aria-hidden className="size-3 shrink-0" />
-              </>
-            )}
-            <span className="min-w-0 truncate font-mono">{branchBase}</span>
-          </span>
-        )}
-        <div className="min-w-1 flex-1" />
-        {reviewSupported && (
-          <ReviewPanel
-            review={review}
-            sessions={sessions}
+    <FileLinkMenuProvider cwd={session?.cwd ?? ''} attach={attach}>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-11 shrink-0 items-center gap-1.5 px-2">
+          <ScopeMenu
             sessionId={sessionId}
-            onReveal={(path) => selectScope(sessionId, selection.scope, path)}
+            scope={selection.scope}
+            turns={turns}
+            label={scopeLabel(selection.scope, turns)}
+            staged={gitSupported}
+            stats={hasFiles ? stats : undefined}
+          />
+          {branchBase !== undefined && (
+            <span
+              className="flex h-7 min-w-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground"
+              title={t('changes.against', { base: branchBase })}
+              data-testid="changes-base"
+            >
+              <GitBranch aria-hidden className="size-3.5 shrink-0" />
+              {git.status?.branch !== undefined && (
+                <>
+                  <span className="min-w-0 truncate font-mono text-foreground">
+                    {git.status.branch}
+                  </span>
+                  <MoveRight aria-hidden className="size-3 shrink-0" />
+                </>
+              )}
+              <span className="min-w-0 truncate font-mono">{branchBase}</span>
+            </span>
+          )}
+          <div className="min-w-1 flex-1" />
+          {reviewSupported && (
+            <ReviewPanel
+              review={review}
+              sessions={sessions}
+              sessionId={sessionId}
+              onReveal={(path) => selectScope(sessionId, selection.scope, path)}
+            />
+          )}
+          <div
+            className="flex shrink-0 items-center gap-px rounded-full border border-border bg-card p-px shadow-xs [&_[data-slot=button]]:rounded-full"
+            data-testid="changes-tools"
+          >
+            <JumpToFile
+              paths={jumpPaths}
+              onJump={(path) => selectScope(sessionId, selection.scope, path)}
+            />
+            <IconButton
+              label={t('changes.refresh')}
+              size="icon-xs"
+              onClick={() => {
+                diff.refresh();
+                git.refresh();
+              }}
+              disabled={source === undefined}
+            >
+              <RotateCw className={cn(diff.loading && 'animate-spin')} />
+            </IconButton>
+            <IconButton
+              label={t('changes.wrap')}
+              size="icon-xs"
+              aria-pressed={prefs.wrap}
+              className={cn(prefs.wrap && 'bg-accent text-foreground')}
+              onClick={() => changesPrefs.set((current) => ({ ...current, wrap: !current.wrap }))}
+            >
+              <WrapText />
+            </IconButton>
+            <IconButton
+              label={t('changes.split')}
+              size="icon-xs"
+              aria-pressed={prefs.split}
+              className={cn(prefs.split && 'bg-accent text-foreground')}
+              onClick={() => changesPrefs.set((current) => ({ ...current, split: !current.split }))}
+            >
+              <Columns2 />
+            </IconButton>
+            <IconButton
+              label={allCollapsed ? t('changes.expandAllFiles') : t('changes.collapseAllFiles')}
+              size="icon-xs"
+              disabled={entries.length === 0}
+              onClick={toggleAllFiles}
+            >
+              {allCollapsed ? <ChevronsUpDown /> : <ChevronsDownUp />}
+            </IconButton>
+          </div>
+        </div>
+        <div className="relative min-h-0 flex-1 border-t border-border">{body}</div>
+        {gitSupported && (
+          <CommitPanel
+            git={git}
+            open={prefs.commit}
+            onOpenChange={(open) => changesPrefs.set((current) => ({ ...current, commit: open }))}
+            onReveal={(path, inIndex) =>
+              selectScope(sessionId, { kind: inIndex ? 'staged' : 'uncommitted' }, path)
+            }
           />
         )}
-        <div
-          className="flex shrink-0 items-center gap-px rounded-full border border-border bg-card p-px shadow-xs [&_[data-slot=button]]:rounded-full"
-          data-testid="changes-tools"
-        >
-          <JumpToFile
-            paths={jumpPaths}
-            onJump={(path) => selectScope(sessionId, selection.scope, path)}
-          />
-          <IconButton
-            label={t('changes.refresh')}
-            size="icon-xs"
-            onClick={() => {
-              diff.refresh();
-              git.refresh();
-            }}
-            disabled={source === undefined}
-          >
-            <RotateCw className={cn(diff.loading && 'animate-spin')} />
-          </IconButton>
-          <IconButton
-            label={t('changes.wrap')}
-            size="icon-xs"
-            aria-pressed={prefs.wrap}
-            className={cn(prefs.wrap && 'bg-accent text-foreground')}
-            onClick={() => changesPrefs.set((current) => ({ ...current, wrap: !current.wrap }))}
-          >
-            <WrapText />
-          </IconButton>
-          <IconButton
-            label={t('changes.split')}
-            size="icon-xs"
-            aria-pressed={prefs.split}
-            className={cn(prefs.split && 'bg-accent text-foreground')}
-            onClick={() => changesPrefs.set((current) => ({ ...current, split: !current.split }))}
-          >
-            <Columns2 />
-          </IconButton>
-          <IconButton
-            label={allCollapsed ? t('changes.expandAllFiles') : t('changes.collapseAllFiles')}
-            size="icon-xs"
-            disabled={entries.length === 0}
-            onClick={toggleAllFiles}
-          >
-            {allCollapsed ? <ChevronsUpDown /> : <ChevronsDownUp />}
-          </IconButton>
-        </div>
       </div>
-      <div className="relative min-h-0 flex-1 border-t border-border">{body}</div>
-      {gitSupported && (
-        <CommitPanel
-          git={git}
-          open={prefs.commit}
-          onOpenChange={(open) => changesPrefs.set((current) => ({ ...current, commit: open }))}
-          onReveal={(path, inIndex) =>
-            selectScope(sessionId, { kind: inIndex ? 'staged' : 'uncommitted' }, path)
-          }
-        />
-      )}
-    </div>
+    </FileLinkMenuProvider>
   );
 }
 
@@ -831,8 +841,11 @@ function FileHeader({
   const previous =
     fileDiff.prevName !== undefined && fileDiff.prevName !== path ? fileDiff.prevName : undefined;
   const Icon = fileIcon(path);
+  const onContextMenu = useFileContextMenu(fileDiff.type === 'deleted' ? undefined : path);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 右键菜单只是鼠标的便捷操作，菜单里的事都有别的入口。
     <div
+      onContextMenu={onContextMenu}
       style={{ height: DIFF_HEADER_HEIGHT }}
       className="group/header flex w-full min-w-0 items-center gap-2 px-3 font-sans text-[13px] transition-colors hover:bg-muted/40"
       data-changes-file={path}
