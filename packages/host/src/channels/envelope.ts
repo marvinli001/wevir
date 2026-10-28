@@ -12,8 +12,26 @@ import type {
   UserContentPart,
 } from '@wevir/protocol';
 
-/** `message` 别的助理发来消息，`reply` 别的助理回了这个助理发出的消息（0.133.0）。 */
-export type WakeReason = 'setup' | 'post' | 'schedule' | 'digest' | 'manual' | 'message' | 'reply';
+/**
+ * `message` 别的助理发来消息，`reply` 别的助理回了这个助理发出的消息（0.133.0）；`event` 是发给协调者会话、不是帖子的事：
+ * 后台进程退出或输出匹配、它开出的会话的回报、那些会话卡在等用户上。
+ */
+export type WakeReason =
+  | 'setup'
+  | 'post'
+  | 'schedule'
+  | 'digest'
+  | 'manual'
+  | 'message'
+  | 'reply'
+  | 'event';
+
+/** 唤醒信封里的一件事（`reason=event`）：`process` 后台进程，`report` 子会话的回报，`blocked` 子会话在等用户。 */
+export interface WakeEvent {
+  kind: 'process' | 'report' | 'blocked';
+  text: string;
+  at: string;
+}
 
 /** 换班的交接材料带最近多少条帖子。 */
 export const HANDOVER_POSTS = 30;
@@ -92,6 +110,8 @@ export interface WakeInput {
     browser: boolean;
     workspace?: string;
   };
+  /** 发给协调者会话的事（进程通知、子会话回报），按到达的先后。 */
+  events?: readonly WakeEvent[];
   /** 定时唤醒：自动化的标题与指令。 */
   schedules?: readonly { title: string; prompt: string; brief?: boolean }[];
   /** 线程动态的汇总。 */
@@ -148,6 +168,15 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
     );
   }
   if (input.brief !== undefined) parts.push(briefBlock(input.brief));
+  if (input.events !== undefined && input.events.length > 0) {
+    parts.push(
+      `<events count="${input.events.length}">\nThese reached you outside the channel, from work you started. The user sees only what you post, so tell them what matters.`,
+      ...input.events.map(
+        (event) => `<event kind="${event.kind}" at="${event.at}">${escapeText(event.text)}</event>`,
+      ),
+      '</events>',
+    );
+  }
   for (const post of input.posts) parts.push(postBlock(post));
   parts.push(threadsBlock(input.threads));
   if (input.digest !== undefined && input.digest !== '') parts.push(input.digest);

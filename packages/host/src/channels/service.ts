@@ -90,6 +90,7 @@ import {
 } from './assistant-policy.js';
 import type { AssistantFolders } from './assistants.js';
 import {
+  envelopeId,
   type GroupMemberLine,
   groupWakeEnvelope,
   HANDOVER_POSTS,
@@ -97,6 +98,7 @@ import {
   identityBlock,
   postText,
   relayEnvelope,
+  type WakeEvent,
   type WakeInput,
   type WakeReason,
   wakeEnvelope,
@@ -256,6 +258,8 @@ interface PendingWake {
   groups: Map<ChannelId, PendingGroupWake>;
   setup?: true;
   schedules: { title: string; prompt: string; brief?: boolean }[];
+  /** 发给协调者会话的事（`reason=event`），`id` 用来撤回还没交出去的。 */
+  events: (WakeEvent & { id: string })[];
   /** 改了的设置：下次唤醒时附上新的身份与规矩。 */
   changed?: true;
   timer?: ReturnType<typeof setTimeout>;
@@ -963,6 +967,44 @@ export class ChannelService {
     this.#queueWake(record.id as ChannelId, 'schedule', { immediate: true });
   }
 
+  /**
+   * 发给协调者会话、不是帖子的事（后台进程的通知、它开出的会话的回报与“在等用户”）：`sessionId` 是某个频道的协调者（哪一班都算，
+   * 旧一班的交给当前一班）时排进这个频道的唤醒，回答照常成帖，返回撤回用的 ID；不是协调者时 `undefined`，由调用方照旧发给会话。
+   */
+  deliverEvent(sessionId: SessionId, event: Pick<WakeEvent, 'kind' | 'text'>): string | undefined {
+    const entry = this.#entryOf(sessionId);
+    if (entry?.role !== 'coordinator') return undefined;
+    const record = this.#storage.channels.get(entry.channelId);
+    if (record === undefined || record.deletedAt !== undefined || record.kind === 'group') {
+      return undefined;
+    }
+    const id = envelopeId();
+    this.#pendingFor(entry.channelId).events.push({ id, ...event, at: iso(this.#now()) });
+    this.#queueWake(entry.channelId, 'event', {});
+    return id;
+  }
+
+  /** 撤回还没交给协调者的事（`deliverEvent` 的 ID）；已经交出去的撤不回，返回 `false`。 */
+  retractEvent(id: string): boolean {
+    for (const [channelId, pending] of this.#pending) {
+      const index = pending.events.findIndex((event) => event.id === id);
+      if (index === -1) continue;
+      pending.events.splice(index, 1);
+      if (pending.events.length === 0) pending.reasons.delete('event');
+      if (pending.reasons.size === 0 && pending.groups.size === 0 && pending.changed !== true) {
+        clearTimeout(pending.timer);
+        this.#pending.delete(channelId);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** 是不是某个频道的协调者会话（哪一班都算）。 */
+  isCoordinator(sessionId: SessionId): boolean {
+    return this.#entryOf(sessionId)?.role === 'coordinator';
+  }
+
   /** 立即换班（`channel.rotate`）：下一次唤醒用新的协调者会话。 */
   async rotate(channelId: string): Promise<Channel> {
     const record = this.#assistantRecord(channelId);
@@ -1262,6 +1304,7 @@ export class ChannelService {
         returns: [],
         groups: new Map(),
         schedules: [],
+        events: [],
       };
       this.#pending.set(channelId, pending);
     }
@@ -1513,6 +1556,9 @@ export class ChannelService {
         },
       }),
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
+      ...(pending.events.length > 0 && {
+        events: pending.events.map(({ kind, text, at }) => ({ kind, text, at })),
+      }),
       ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
     const brief = pending.schedules.some((schedule) => schedule.brief === true)
