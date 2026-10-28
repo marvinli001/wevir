@@ -1,6 +1,6 @@
 // 助理（私人 bot）在手机上的数据形状。助理是电脑上的一个频道（`kind: 'assistant'`）：一条时间线、一个协调者、开出的线程。
 // 这里把频道、帖子、线程与审批换成手机要画的部分；多台电脑的助理合并成一个列表，`key` 带电脑名区分。纯逻辑。
-// 助理群（0.132.0，`kind: 'group'`）也在列表里：成员是同一台电脑上的几个助理；群里与别的助理发来的帖子带说话的那个助理。
+// 助理群（0.133.0，`kind: 'group'`）也在列表里：成员是同一台电脑上的几个助理；群里与别的助理发来的帖子带说话的那个助理。
 
 import type {
   ApprovalRequest,
@@ -48,7 +48,7 @@ export type NeedKind = 'connector' | 'folder' | 'login' | 'other';
 
 export type Decision = 'pending' | 'approved' | 'rejected';
 
-export type NoticeReason = 'budget' | 'resumed' | 'failed';
+export type NoticeReason = 'budget' | 'resumed' | 'failed' | 'acted' | 'handed_off' | 'blocked';
 
 /** 时间线上的一条：用户的话、助理的回答，或者一张卡片。 */
 export type BotCard =

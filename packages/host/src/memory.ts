@@ -460,6 +460,12 @@ export class MemoryStore {
     return result;
   }
 
+  /** 项目没了不会再回来（删助理）：这个项目的笔记整个删掉。 */
+  async removeProject(workspaceId: string): Promise<void> {
+    const dir = this.#dir('project', workspaceId);
+    await this.#exclusive(dir, () => rm(dir, { recursive: true, force: true }));
+  }
+
   /**
    * 放进会话说明的那一段：全局和这个项目里启用的索引，一条一行；没有记忆时是 `undefined`。超过 `MEMORY_INDEX_MAX_BYTES` 的部分
    * 只说还有几条（模型用 `wevir_memory_list` 看全部）。

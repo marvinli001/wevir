@@ -12,7 +12,7 @@ import type {
   UserContentPart,
 } from '@wevir/protocol';
 
-/** `message` 别的助理发来消息，`reply` 别的助理回了这个助理发出的消息（0.132.0）。 */
+/** `message` 别的助理发来消息，`reply` 别的助理回了这个助理发出的消息（0.133.0）。 */
 export type WakeReason = 'setup' | 'post' | 'schedule' | 'digest' | 'manual' | 'message' | 'reply';
 
 /** 换班的交接材料带最近多少条帖子。 */
@@ -49,9 +49,9 @@ function firstLine(text: string, max = 160): string {
 
 const TIER_WORDS: Record<AssistantRuleTier, string> = {
   do: 'go ahead',
-  tell: 'go ahead, then report it',
-  ask: 'confirm first, showing the exact outgoing content',
-  hand_off: 'prepare it only; the user does it',
+  tell: 'go ahead; Wevir tells the user afterwards',
+  ask: 'confirm first: Wevir asks the user before it runs',
+  hand_off: 'prepare it only; Wevir declines it and the user does it',
 };
 
 /** 线程概况：每次唤醒都带，≤ `ENVELOPE_THREADS_MAX` 行。 */
@@ -85,8 +85,13 @@ export interface WakeInput {
   posts: readonly ChannelPost[];
   threads: readonly ChannelThread[];
   at: string;
-  /** 建好后的第一次：本机有的连接器、授权的文件夹、有没有内置浏览器。 */
-  setup?: { connectors: readonly string[]; folders: readonly string[]; browser: boolean };
+  /** 建好后的第一次：本机有的连接器、授权的文件夹、有没有内置浏览器，助理自己的工作文件夹。 */
+  setup?: {
+    connectors: readonly string[];
+    folders: readonly string[];
+    browser: boolean;
+    workspace?: string;
+  };
   /** 定时唤醒：自动化的标题与指令。 */
   schedules?: readonly { title: string; prompt: string; brief?: boolean }[];
   /** 线程动态的汇总。 */
@@ -126,11 +131,15 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   ];
   if (input.changed !== undefined) parts.push(input.changed);
   if (input.setup !== undefined) {
-    const { connectors, folders, browser } = input.setup;
+    const { connectors, folders, browser, workspace } = input.setup;
+    const own =
+      workspace === undefined
+        ? ''
+        : `\nYour working folder ${workspace} is already set up and is where your sessions run: keep your files there and count it as ready; only extra folders of the user's need granting.`;
     parts.push(
-      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.\n<inventory connectors="${attr(
+      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.${own}\n<inventory connectors="${attr(
         connectors.join(', ') || 'none',
-      )}" folders="${attr(folders.join(', ') || 'none')}" browser="${browser ? 'yes' : 'no'}"/>\n</setup>`,
+      )}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${attr(folders.join(', ') || 'none')}" browser="${browser ? 'yes' : 'no'}"/>\n</setup>`,
     );
   }
   for (const schedule of input.schedules ?? []) {
@@ -149,8 +158,8 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   return [{ type: 'text', text: parts.join('\n') }, ...images];
 }
 
-/** 助理的身份与规矩，交接材料与设置改动用。 */
-export function identityBlock(channel: Channel): string {
+/** 助理的身份与规矩，交接材料与设置改动用；`workspace` 是助理自己的工作文件夹。 */
+export function identityBlock(channel: Channel, workspace?: string): string {
   const assistant = channel.assistant;
   if (assistant === undefined) return `<channel name="${attr(channel.title)}"/>`;
   const rules = Object.entries(assistant.rules)
@@ -161,7 +170,10 @@ export function identityBlock(channel: Channel): string {
     `<assistant name="${attr(channel.title)}">`,
     escapeText(assistant.description || '(no job description yet)'),
     '</assistant>',
-    `<rules>\n${rules}\n- money transfers, trading, securities: never, even if the user agrees\n</rules>`,
+    `<rules>\n${rules}\n- money transfers, trading, securities: never, even if the user agrees; Wevir declines them\n</rules>`,
+    ...(workspace === undefined
+      ? []
+      : [`<working_folder>${escapeText(workspace)}</working_folder>`]),
     `<folders>${escapeText(folders)}</folders>`,
   ].join('\n');
 }
@@ -171,6 +183,7 @@ export function handover(
   channel: Channel,
   recent: readonly ChannelPost[],
   generation: number,
+  workspace?: string,
 ): string {
   const lines = recent.map(
     (post) =>
@@ -178,7 +191,7 @@ export function handover(
   );
   return [
     `<channel_handover channel="${attr(channel.title)}" kind="${channel.kind}" generation="${generation}">`,
-    identityBlock(channel),
+    identityBlock(channel, workspace),
     lines.length > 0
       ? `<recent_posts count="${lines.length}">\n${lines.join('\n')}\n</recent_posts>`
       : '<recent_posts count="0"/>',
@@ -215,7 +228,7 @@ export interface GroupMemberLine {
 }
 
 /**
- * 群的唤醒信封（0.132.0）：群名、成员表（带职责，`self` 是收信的这个助理）与它上次看过之后的新帖。回答发进群，所以只带群里的事，
+ * 群的唤醒信封（0.133.0）：群名、成员表（带职责，`self` 是收信的这个助理）与它上次看过之后的新帖。回答发进群，所以只带群里的事，
  * 不带这个助理自己的线程概况。成员表的名字前不加 `@`：echo 会原样复述信封，加了就等于每条回答都 @ 了全体。
  */
 export function groupWakeEnvelope(

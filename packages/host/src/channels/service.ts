@@ -11,7 +11,7 @@
 //
 // 列表行（`channels.changed`）与订阅（`channel.posted` / `channel.updated`）的变化在 `FLUSH_MS` 内合成一批，按指纹判断真变了没有。
 //
-// 助理之间（0.132.0）：`wevir_assistant_message` 在发起方时间线上记一条带 `to` 的协调者帖子，在对方时间线上写一条 `assistant` 作者的
+// 助理之间（0.133.0）：`wevir_channel_message` 在发起方时间线上记一条带 `to` 的协调者帖子，在对方时间线上写一条 `assistant` 作者的
 // 帖子（`meta.origin` 指回发起的那条）并唤醒对方；对方这回合的回答除了照常发在自己时间线上，还以 `assistant` 作者落回发起方、以
 // `reason=reply` 唤醒发起方（发起方对回答的回答不再自动送回）。来回的层数（`meta.depth`）有用户发言时归零，超过
 // `ASSISTANT_MESSAGE_DEPTH_MAX` 就不让再发。
@@ -23,7 +23,9 @@ import { createHash } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import type {
   ApprovalRequest,
+  Assistant,
   AssistantAvatar,
+  AssistantRuleCategory,
   AssistantRules,
   BoardTask,
   BoardTaskStatus,
@@ -39,6 +41,7 @@ import type {
   ChannelThread,
   ChannelThreadStatus,
   ClientIdentity,
+  EnvironmentId,
   MessageFrom,
   MethodParams,
   NotificationParams,
@@ -76,6 +79,15 @@ import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
 import { approvalSummary } from '../inbox.js';
 import { redactSecrets } from '../secret-patterns.js';
+import {
+  type AssistantAction,
+  actionSummary,
+  classify,
+  decide,
+  type PolicyRoots,
+  type PolicyTool,
+  tierOf,
+} from './assistant-policy.js';
 import type { AssistantFolders } from './assistants.js';
 import {
   type GroupMemberLine,
@@ -123,6 +135,10 @@ export const EXTRA_POSTS_PER_TURN = 5;
 export const GROUP_CONTEXT_POSTS = 20;
 /** `channel.get` 带最近多少个已解决的线程。 */
 const RESOLVED_THREADS_KEPT = 50;
+/** 往上找助理会话的层数（子会话、开的会话）。 */
+const POLICY_DEPTH = 6;
+/** 一条 `notice: acted` 至多列几个动作。 */
+const TOLD_LINES_MAX = 20;
 
 /** 频道要用的会话操作（SessionManager 的一部分）。 */
 export interface ChannelSessions {
@@ -179,6 +195,12 @@ export interface ChannelServiceOptions {
     created(channel: Channel): Promise<void>;
     deleted(channelId: ChannelId): Promise<void>;
   };
+  /** 助理删除后，清掉存在别处、按它的工作区或频道记的东西（记忆、任务清单、环境变量等）。 */
+  removed?: (removed: {
+    channelId: ChannelId;
+    workspaceId: string;
+    environmentIds: readonly string[];
+  }) => Promise<void>;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -188,7 +210,7 @@ interface StoredCoordinator extends ChannelCoordinator {
   wakes?: number;
 }
 
-/** 帖子的 `meta` 列（Host 自用，0.132.0）。 */
+/** 帖子的 `meta` 列（Host 自用，0.133.0）。 */
 interface PostMeta {
   to?: { channelId: ChannelId; name: string };
   mentions?: ChannelId[];
@@ -226,11 +248,11 @@ interface PreparedWake {
 interface PendingWake {
   reasons: Set<WakeReason>;
   posts: ChannelPost[];
-  /** 帖子里助理之间来回最深的一层；有用户帖子时归零（0.132.0）。 */
+  /** 帖子里助理之间来回最深的一层；有用户帖子时归零（0.133.0）。 */
   depth: number;
-  /** 别的助理发来、回答要送回去的（0.132.0）。 */
+  /** 别的助理发来、回答要送回去的（0.133.0）。 */
   returns: { channelId: ChannelId; postId: ChannelPostId; depth: number }[];
-  /** 群里等着这个成员的回合，按群（0.132.0）。 */
+  /** 群里等着这个成员的回合，按群（0.133.0）。 */
   groups: Map<ChannelId, PendingGroupWake>;
   setup?: true;
   schedules: { title: string; prompt: string; brief?: boolean }[];
@@ -253,10 +275,10 @@ interface ActiveWake {
   extraPosts: number;
   /** 晨间简报：协调者这回合的回答带这张卡片（唤醒时组装）。 */
   brief?: Extract<ChannelCard, { kind: 'brief' }>;
-  /** 助理之间来回到第几层（0.132.0）：这回合发出的消息是下一层。 */
+  /** 助理之间来回到第几层（0.133.0）：这回合发出的消息是下一层。 */
   depth: number;
   returns: PendingWake['returns'];
-  /** 群回合（0.132.0）：回答发进这个群。 */
+  /** 群回合（0.133.0）：回答发进这个群。 */
   groupId?: ChannelId;
 }
 
@@ -338,6 +360,10 @@ export class ChannelService {
   >();
   readonly #listListeners = new Set<(change: ChannelsChanged) => void>();
   readonly #postListeners = new Set<(channel: Channel, post: ChannelPost) => void>();
+  /** 助理会话里正在跑的工具调用（`会话 ID\0工具调用 ID`），做完时按规矩看要不要告知。 */
+  readonly #runningTools = new Map<string, PolicyTool>();
+  /** 档位为 `tell`、已经做完的动作：会话 ID → 动作；回合结束时写成 `notice: acted`。 */
+  readonly #told = new Map<SessionId, { category: AssistantRuleCategory; summary: string }[]>();
   readonly #subscribers = new Map<
     ChannelId,
     Set<{ listener: (message: ChannelSubscriptionMessage) => void; seen: Map<string, string> }>
@@ -346,7 +372,7 @@ export class ChannelService {
   readonly #dirty = new Set<ChannelId>();
   /** 正在建协调者会话的频道：两次唤醒不会各建一个。 */
   readonly #starting = new Map<ChannelId, Promise<void>>();
-  /** 群这一轮的计数（0.132.0）。 */
+  /** 群这一轮的计数（0.133.0）。 */
   readonly #rounds = new Map<ChannelId, GroupRound>();
   /** `群:成员` → 这个成员在群里看到了哪条（交给它的最后一条的 seq）。 */
   readonly #groupSeen = new Map<string, number>();
@@ -585,7 +611,7 @@ export class ChannelService {
     return channel;
   }
 
-  /** 建群（0.132.0）：没有工作区、协调者与预算，成员是几个助理。 */
+  /** 建群（0.133.0）：没有工作区、协调者与预算，成员是几个助理。 */
   #createGroup(params: CreateParams): Channel {
     const members = this.#checkMembers(params.members ?? []);
     const id = newId('chn');
@@ -703,6 +729,7 @@ export class ChannelService {
     });
     if (params.name !== undefined && params.name.trim() !== record.title) {
       this.#storage.workspaces.rename(record.workspaceId, params.name.trim(), now);
+      this.#options.assistants.rename(this.#storage, record.workspaceId, params.name.trim(), now);
     }
     const channelId = record.id as ChannelId;
     if (identityChanged) this.#pendingFor(channelId).changed = true;
@@ -715,7 +742,8 @@ export class ChannelService {
   async delete(channelId: string): Promise<void> {
     const record = this.#record(channelId);
     const id = record.id as ChannelId;
-    this.#storage.channels.softDelete(id, iso(this.#now()));
+    const now = iso(this.#now());
+    this.#storage.channels.softDelete(id, now);
     const pending = this.#pending.get(id);
     clearTimeout(pending?.timer);
     this.#pending.delete(id);
@@ -736,9 +764,18 @@ export class ChannelService {
         this.#touch(group.id as ChannelId);
       }
     }
+    // 协调者与线程都在助理的工作区里，目录要删，先都关掉。群没有会话。
+    const open = (
+      record.kind === 'group'
+        ? []
+        : this.#storage.sessions.list({ workspaceId: record.workspaceId })
+    )
+      .filter((session) => session.state !== 'closed')
+      .map((session) => session.id as SessionId);
     const coordinator = (record.coordinator as StoredCoordinator | null)?.sessionId;
-    if (coordinator !== undefined) {
-      await this.#options.sessions.close(coordinator).catch(() => undefined);
+    if (coordinator !== undefined && !open.includes(coordinator)) open.push(coordinator);
+    for (const sessionId of open) {
+      await this.#options.sessions.close(sessionId).catch(() => undefined);
     }
     this.#rowPrints.delete(id);
     this.#emitList({ upserted: [], removed: [id] });
@@ -748,6 +785,23 @@ export class ChannelService {
         error: errorMessage(error),
       }),
     );
+    if (record.kind !== 'assistant') return;
+    // 助理的东西跟着删：环境、工作区行、目录、按工作区记的审批规则，再由 Host 清记忆、任务清单与环境变量。
+    const warn = (error: unknown) =>
+      this.#options.onWarning?.('assistant workspace not removed', {
+        channelId: id,
+        error: errorMessage(error),
+      });
+    const environmentIds = await this.#options.assistants
+      .remove(this.#storage, record.workspaceId, now)
+      .catch((error: unknown) => {
+        warn(error);
+        return [];
+      });
+    this.#storage.approvalRules.removeByWorkspace(record.workspaceId);
+    await this.#options
+      .removed?.({ channelId: id, workspaceId: record.workspaceId, environmentIds })
+      .catch(warn);
   }
 
   // ── 时间线 ────────────────────────────────────────────────────────────
@@ -803,9 +857,9 @@ export class ChannelService {
     return post;
   }
 
-  // ── 助理之间（0.132.0） ───────────────────────────────────────────────
+  // ── 助理之间（0.133.0） ───────────────────────────────────────────────
 
-  /** 别的助理（`wevir_assistant_list`）：名字、职责、状态，与这个助理所在的群。 */
+  /** 别的助理（`wevir_channel_assistants`）：名字、职责、状态，与这个助理所在的群。 */
   peersOf(sessionId: SessionId): {
     assistants: { id: ChannelId; name: string; job: string; state: Channel['state'] }[];
     groups: { id: ChannelId; name: string; members: string[] }[];
@@ -838,7 +892,7 @@ export class ChannelService {
   }
 
   /**
-   * 给另一个助理发消息（`wevir_assistant_message`）：在自己时间线上记一条带 `to` 的帖子，在对方时间线上写一条并唤醒对方；对方的回答
+   * 给另一个助理发消息（`wevir_channel_message`）：在自己时间线上记一条带 `to` 的帖子，在对方时间线上写一条并唤醒对方；对方的回答
    * 以后落回这里。`to` 是助理的频道 ID 或名字。
    */
   messageAssistant(sessionId: SessionId, input: { to: string; text: string }): ChannelPost {
@@ -1012,6 +1066,7 @@ export class ChannelService {
     const session = await this.#options.sessions.create(
       {
         workspaceId: record.workspaceId as Session['workspaceId'],
+        ...this.#environmentOf(record),
         providerId,
         ...((input.modelId ??
           (input.providerId === undefined ? coordinator.modelId : undefined)) !== undefined && {
@@ -1374,7 +1429,7 @@ export class ChannelService {
           .filter((post) => !wake.posts.some((p) => p.id === post.id));
         content[0] = {
           type: 'text',
-          text: `${handover(channel, recent, coordinator.generation)}\n\n${first.text}`,
+          text: `${handover(channel, recent, coordinator.generation, this.#workspacePath(record))}\n\n${first.text}`,
         };
       }
     }
@@ -1443,6 +1498,7 @@ export class ChannelService {
     this.#pending.delete(channelId);
     clearTimeout(pending.timer);
     if (groups.size > 0) this.#pendingFor(channelId).groups = groups;
+    const workspace = this.#workspacePath(record);
     const input: WakeInput = {
       channel,
       reasons: pending.reasons,
@@ -1453,10 +1509,11 @@ export class ChannelService {
         setup: {
           ...(this.#options.inventory?.() ?? { connectors: [], browser: false }),
           folders: channel.assistant?.folders ?? [],
+          ...(workspace !== undefined && { workspace }),
         },
       }),
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
-      ...(pending.changed === true && !fresh && { changed: identityBlock(channel) }),
+      ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
     const brief = pending.schedules.some((schedule) => schedule.brief === true)
       ? await this.#briefCard(record)
@@ -1605,6 +1662,7 @@ export class ChannelService {
     const session = await this.#options.sessions.create(
       {
         workspaceId: record.workspaceId as Session['workspaceId'],
+        ...this.#environmentOf(record),
         providerId: current.providerId,
         ...(current.modelId !== undefined && { modelId: current.modelId }),
         ...(current.reasoningEffort !== undefined && { reasoningEffort: current.reasoningEffort }),
@@ -1943,8 +2001,8 @@ export class ChannelService {
     throw invalid(
       'to',
       byName.length > 1
-        ? `several assistants are called ${wanted}; use the id from wevir_assistant_list`
-        : `no assistant ${wanted}; see wevir_assistant_list`,
+        ? `several assistants are called ${wanted}; use the id from wevir_channel_assistants`
+        : `no assistant ${wanted}; see wevir_channel_assistants`,
     );
   }
 
@@ -1971,6 +2029,24 @@ export class ChannelService {
       }
     }
     return found;
+  }
+
+  /** 助理的会话用它自己的环境（没有就补建）；项目频道不用。 */
+  #environmentOf(record: ChannelRecord): { environmentId?: EnvironmentId } {
+    if (record.kind !== 'assistant') return {};
+    const environmentId = this.#options.assistants.environment(
+      this.#storage,
+      record.workspaceId,
+      record.title,
+      iso(this.#now()),
+    );
+    return { environmentId: environmentId as EnvironmentId };
+  }
+
+  /** 助理的工作文件夹（隐藏工作区的目录）。 */
+  #workspacePath(record: ChannelRecord): string | undefined {
+    if (record.kind !== 'assistant') return undefined;
+    return this.#storage.workspaces.get(record.workspaceId)?.rootPath;
   }
 
   #entryOf(
@@ -2164,12 +2240,130 @@ export class ChannelService {
     };
   }
 
+  // ── 规矩 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 引擎要批准时按助理的规矩替用户答（assistant-policy.ts，SessionManager 的 `approvalPolicy`）：不是助理的会话返回 `undefined`；
+   * 看不到是什么调用时照常问。拦下的写一条 `notice: handed_off` / `blocked`。每次都读频道记录，改了规矩马上生效。
+   */
+  approvalPolicy(
+    sessionId: SessionId,
+    tool: PolicyTool | undefined,
+  ): 'allow' | 'reject' | 'ask' | undefined {
+    const record = this.#assistantOf(sessionId);
+    if (record === undefined) return undefined;
+    if (tool === undefined) return 'ask';
+    const result = decide(this.#classify(record, tool), (record.assistant as Assistant).rules);
+    if (result.decision === 'reject') {
+      this.#hostPost(
+        record,
+        {
+          kind: 'notice',
+          reason: result.notice,
+          ...(result.category !== undefined && { category: result.category }),
+        },
+        actionSummary(tool),
+      );
+    }
+    return result.decision;
+  }
+
+  /** 会话属于哪个助理：频道的协调者与线程，或它们派出的子会话、开的会话（往上至多找 `POLICY_DEPTH` 层）。 */
+  #assistantOf(sessionId: SessionId): ChannelRecord | undefined {
+    let id: string | undefined = sessionId;
+    for (let depth = 0; id !== undefined && depth < POLICY_DEPTH; depth++) {
+      const entry = this.#entryOf(id as SessionId);
+      if (entry !== undefined) {
+        const record = this.#storage.channels.get(entry.channelId);
+        return record?.kind === 'assistant' && record.deletedAt === undefined ? record : undefined;
+      }
+      const session = this.#storage.sessions.get(id);
+      const origin = session?.origin;
+      id =
+        session?.parentSessionId ??
+        (origin?.kind === 'agent' || origin?.kind === 'fork' ? origin.sessionId : undefined);
+    }
+    return undefined;
+  }
+
+  #classify(record: ChannelRecord, tool: PolicyTool): AssistantAction {
+    const workspace = this.#storage.workspaces.get(record.workspaceId);
+    const roots: PolicyRoots = {
+      root: workspace?.rootPath ?? '/',
+      folders: workspace?.extraFolders ?? (record.assistant as Assistant).folders,
+    };
+    return classify(tool, roots);
+  }
+
+  /**
+   * `tell`：助理的协调者与线程做完一个档位为 `tell` 的动作时记下，回合结束时按种类各写一条 `notice: acted`（帖子文字每行一个
+   * 动作）。看的是工具调用本身，不管引擎问没问。
+   */
+  #trackTell(channelId: ChannelId, event: WevirEvent): void {
+    const key = (toolCallId: string) => `${event.sessionId}\0${toolCallId}`;
+    switch (event.type) {
+      case 'tool.started': {
+        const { toolName, display, input } = event.payload;
+        this.#runningTools.set(key(event.payload.toolCallId), {
+          toolName,
+          display,
+          ...(input !== undefined && { input }),
+        });
+        return;
+      }
+      case 'tool.updated': {
+        const tool = this.#runningTools.get(key(event.payload.toolCallId));
+        if (tool === undefined) return;
+        if (event.payload.display !== undefined) tool.display = event.payload.display;
+        if (event.payload.input !== undefined) tool.input = event.payload.input;
+        return;
+      }
+      case 'tool.finished': {
+        const tool = this.#runningTools.get(key(event.payload.toolCallId));
+        this.#runningTools.delete(key(event.payload.toolCallId));
+        if (tool === undefined || event.payload.status !== 'completed') return;
+        const record = this.#storage.channels.get(channelId);
+        if (record?.kind !== 'assistant' || record.deletedAt !== undefined) return;
+        const action = this.#classify(record, tool);
+        if (action.kind !== 'category') return;
+        if (tierOf((record.assistant as Assistant).rules, action.category) !== 'tell') return;
+        const told = this.#told.get(event.sessionId) ?? [];
+        told.push({ category: action.category, summary: actionSummary(tool) });
+        this.#told.set(event.sessionId, told);
+        return;
+      }
+      case 'turn.finished': {
+        for (const running of this.#runningTools.keys()) {
+          if (running.startsWith(`${event.sessionId}\0`)) this.#runningTools.delete(running);
+        }
+        const told = this.#told.get(event.sessionId);
+        this.#told.delete(event.sessionId);
+        const record = this.#storage.channels.get(channelId);
+        if (told === undefined || record === undefined || record.deletedAt !== undefined) return;
+        const byCategory = new Map<AssistantRuleCategory, string[]>();
+        for (const { category, summary } of told) {
+          const lines = byCategory.get(category) ?? [];
+          if (!lines.includes(summary)) lines.push(summary);
+          byCategory.set(category, lines);
+        }
+        for (const [category, lines] of byCategory) {
+          const shown = lines.slice(0, TOLD_LINES_MAX);
+          if (lines.length > shown.length) shown.push(`+${lines.length - shown.length}`);
+          this.#hostPost(record, { kind: 'notice', reason: 'acted', category }, shown.join('\n'));
+        }
+        return;
+      }
+      default:
+    }
+  }
+
   // ── 内部：变化推送 ────────────────────────────────────────────────────
 
   #onEvent(event: WevirEvent): void {
     if (event.type === 'assistant.delta' || event.type === 'plan.delta') return;
     const entry = this.#entryOf(event.sessionId);
     if (entry === undefined) return;
+    this.#trackTell(entry.channelId, event);
     switch (event.type) {
       case 'turn.started':
       case 'turn.finished':

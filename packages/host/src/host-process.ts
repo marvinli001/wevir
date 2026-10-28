@@ -46,7 +46,7 @@ import {
 } from './custom-instructions.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
-import { readVariables } from './environment-variables.js';
+import { readVariables, writeVariables } from './environment-variables.js';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
@@ -635,6 +635,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       adapter,
       approvalRules,
       guardrails,
+      // 助理的规矩（0.132.0）：助理的会话里引擎要批准时，按规矩替用户答。
+      approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
         context: async (sessionId) => appToolsContext?.(sessionId),
@@ -791,6 +793,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           await automationService.create(morningBriefAutomation(channel.id), { kind: 'user' });
         },
         deleted: (channelId) => automationService.deleteForChannel(channelId),
+      },
+      // 删助理时清掉它项目的记忆与环境的变量（任务清单下次启动时清，见上面的 sweep）。
+      removed: async ({ workspaceId, environmentIds }) => {
+        terminals?.removeWorkspace(workspaceId as WorkspaceId);
+        await memory.removeProject(workspaceId);
+        for (const environmentId of environmentIds) {
+          await writeVariables(secrets, environmentId, []);
+        }
       },
       tasks: {
         list: async (root) => boardEventTasks(await taskBoards.list(root)),

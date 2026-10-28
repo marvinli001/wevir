@@ -402,7 +402,7 @@ export class BotStore {
     const { client, generation } = state;
     if (client === undefined) return;
     try {
-      // 助理与群（0.132.0）；旧 Host 不给群。
+      // 助理与群（0.133.0）；旧 Host 不给群。
       const result = await client.request('channel.list', {});
       if (state.generation !== generation) return;
       state.channels = new Map(result.channels.filter(listed).map((c) => [c.id, c]));

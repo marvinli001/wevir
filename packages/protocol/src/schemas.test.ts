@@ -473,8 +473,16 @@ const standaloneCases: Case[] = [
   {
     name: 'ChannelCard',
     schema: protocol.ChannelCardSchema,
-    valid: [{ kind: 'notice', reason: 'resumed' }, samples.channelCoordinatorPost.card],
-    invalid: [{ kind: 'notice', reason: 'tired' }],
+    valid: [
+      { kind: 'notice', reason: 'resumed' },
+      samples.channelCoordinatorPost.card,
+      { kind: 'notice', reason: 'acted', category: 'local_files' },
+      { kind: 'notice', reason: 'blocked' },
+    ],
+    invalid: [
+      { kind: 'notice', reason: 'tired' },
+      { kind: 'notice', reason: 'acted', category: '' },
+    ],
   },
   {
     name: 'ChannelPost',

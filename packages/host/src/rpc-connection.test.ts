@@ -1,4 +1,5 @@
 import type {
+  ChannelPost,
   PendingMessage,
   Session,
   UserContentPart,
@@ -256,7 +257,7 @@ describe('approval_rules', () => {
   });
 });
 
-describe('channel groups (0.132.0)', () => {
+describe('channel groups (0.133.0)', () => {
   const A = 'chn_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
   const G = 'chn_01JA2B3C4D5E6F7G8H9JKMNPG1' as const;
   const group = {
@@ -286,7 +287,7 @@ describe('channel groups (0.132.0)', () => {
         'channel.list',
         { channels: [group, assistant], listVersion: 1 },
         {},
-        '0.131.0',
+        '0.132.0',
       ),
     ).toEqual({
       channels: [
@@ -298,7 +299,7 @@ describe('channel groups (0.132.0)', () => {
       listVersion: 1,
     });
     expect(
-      adaptResultForClient('channel.posts', { posts: [post], lastSeq: 1 }, {}, '0.131.0'),
+      adaptResultForClient('channel.posts', { posts: [post], lastSeq: 1 }, {}, '0.132.0'),
     ).toEqual({
       posts: [{ ...post, author: { kind: 'host' } }],
       lastSeq: 1,
@@ -307,19 +308,42 @@ describe('channel groups (0.132.0)', () => {
       channelNotificationForClient(
         'channels.changed',
         { listVersion: 2, upserted: [group], removed: [] },
-        '0.131.0',
+        '0.132.0',
       ).upserted,
     ).toEqual([]);
     const posted = { subscriptionId: 'sub_01JA2B3C4D5E6F7G8H9JKMNPQR' as const, post };
-    expect(channelNotificationForClient('channel.posted', posted, '0.131.0').post.author).toEqual({
+    expect(channelNotificationForClient('channel.posted', posted, '0.132.0').post.author).toEqual({
       kind: 'host',
     });
-    expect(channelNotificationForClient('channel.posted', posted, '0.132.0')).toBe(posted);
+    expect(channelNotificationForClient('channel.posted', posted, '0.133.0')).toBe(posted);
     expect(
-      adaptResultForClient('channel.posts', { posts: [post], lastSeq: 1 }, {}, '0.132.0'),
+      adaptResultForClient('channel.posts', { posts: [post], lastSeq: 1 }, {}, '0.133.0'),
     ).toEqual({
       posts: [post],
       lastSeq: 1,
     });
+  });
+});
+
+describe('assistant notices', () => {
+  const post = (card: ChannelPost['card']): ChannelPost => ({
+    id: 'cpo_1' as ChannelPost['id'],
+    channelId: 'chn_1' as ChannelPost['channelId'],
+    seq: 1,
+    author: { kind: 'host' },
+    content: [{ type: 'text', text: 'notes/today.md' }],
+    ...(card !== undefined && { card }),
+    createdAt: '2026-10-28T00:00:00.000Z',
+  });
+
+  it('0.132.0 之前的客户端：规矩的三种说明去掉卡片只留文字，旧的说明照旧', () => {
+    const acted = post({ kind: 'notice', reason: 'acted', category: 'local_files' });
+    const failed = post({ kind: 'notice', reason: 'failed' });
+    const result = { posts: [acted, failed], lastSeq: 2 };
+    expect(adaptResultForClient('channel.posts', result, {}, '0.131.0')).toEqual({
+      posts: [post(undefined), failed],
+      lastSeq: 2,
+    });
+    expect(adaptResultForClient('channel.posts', result, {}, '0.132.0')).toEqual(result);
   });
 });

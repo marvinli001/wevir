@@ -24,7 +24,7 @@ export function botStateColor(theme: Theme, state: BotState): string {
   }
 }
 
-/** 群的头像（0.132.0）：前两个成员错开叠放，只有一个成员时就是它。 */
+/** 群的头像（0.133.0）：前两个成员错开叠放，只有一个成员时就是它。 */
 export function GroupAvatar({ bot, size }: { bot: Bot; size: number }) {
   const [first, second] = bot.members;
   const pose = botPose(bot.state);

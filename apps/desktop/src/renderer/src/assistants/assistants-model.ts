@@ -1,4 +1,4 @@
-// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.132.0，`channel_groups`）：功能门控、列表行的
+// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.133.0，`channel_groups`）：功能门控、列表行的
 // 状态与排序、头像的随机与换一个、时间线的合并（新帖、改了的帖子、翻页）、`channels.changed` 与 `channel.updated` 的套用、审批要发出的
 // 原文、群里的 @。不碰 DOM 与 Host。
 
@@ -9,6 +9,7 @@ import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
   type AssistantAvatar,
+  type AssistantRuleCategory,
   type BoardTask,
   type Channel,
   type ChannelPost,
@@ -18,6 +19,18 @@ import {
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
 import { formatJson } from '@/session/format';
+
+// ---- 规矩 ----
+
+/** 规矩里各类动作的名字：规矩设置与时间线上 Host 的说明（0.132.0）共用。 */
+export const CATEGORY_LABEL: Record<AssistantRuleCategory, PlainMessageKey> = {
+  messages: 'assistants.rules.messages',
+  publishing: 'assistants.rules.publishing',
+  purchases: 'assistants.rules.purchases',
+  deletions: 'assistants.rules.deletions',
+  shared_edits: 'assistants.rules.shared_edits',
+  local_files: 'assistants.rules.local_files',
+};
 
 // ---- 编辑 ----
 
@@ -85,7 +98,7 @@ export function assistantsAvailability(features: HostFeatures | undefined): Assi
   return hostSupports(features, 'channels') ? 'ready' : 'unsupported';
 }
 
-/** 助理之间与助理群（0.132.0）。 */
+/** 助理之间与助理群（0.133.0）。 */
 export function groupsSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_groups');
 }

@@ -14759,11 +14759,6 @@
             "dailyWakes": 10,
             "dailyTokens": 100000
           }
-        },
-        {
-          "kind": "group",
-          "name": "周会",
-          "members": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR", "chn_01JA2B3C4D5E6F7G8H9JKMNPQS"]
         }
       ],
       "result": [
@@ -14815,28 +14810,6 @@
             "createdAt": "2026-10-12T08:00:00.000Z",
             "updatedAt": "2026-10-12T08:00:05.250Z"
           }
-        },
-        {
-          "channel": {
-            "id": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-            "kind": "group",
-            "title": "周会",
-            "group": {
-              "members": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR", "chn_01JA2B3C4D5E6F7G8H9JKMNPQS"]
-            },
-            "state": "working",
-            "lastPostSeq": 2,
-            "lastPost": {
-              "seq": 2,
-              "author": "assistant",
-              "assistantId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "preview": "收件箱里两封要回。",
-              "at": "2026-10-12T08:00:05.250Z"
-            },
-            "unreadCount": 1,
-            "createdAt": "2026-10-12T08:00:00.000Z",
-            "updatedAt": "2026-10-12T08:00:05.250Z"
-          }
         }
       ]
     },
@@ -14858,10 +14831,6 @@
           "rules": {
             "purchases": "hand_off"
           }
-        },
-        {
-          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-          "members": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR"]
         }
       ],
       "result": [
@@ -14997,71 +14966,6 @@
         {
           "posts": [],
           "lastSeq": 0
-        },
-        {
-          "posts": [
-            {
-              "id": "cpo_01JA2B3C4D5E6F7G8H9JKMNPR2",
-              "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-              "seq": 2,
-              "author": {
-                "kind": "assistant",
-                "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-                "name": "收件箱"
-              },
-              "content": [
-                {
-                  "type": "text",
-                  "text": "两封要回。@研究 帮忙看第二封。"
-                }
-              ],
-              "replyTo": "cpo_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "mentions": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQS"],
-              "createdAt": "2026-10-12T08:00:05.250Z"
-            },
-            {
-              "id": "cpo_01JA2B3C4D5E6F7G8H9JKMNPR3",
-              "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "seq": 5,
-              "author": {
-                "kind": "coordinator",
-                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
-                "generation": 1
-              },
-              "content": [
-                {
-                  "type": "text",
-                  "text": "这周的会议纪要在哪？"
-                }
-              ],
-              "to": {
-                "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQS",
-                "name": "研究"
-              },
-              "createdAt": "2026-10-12T08:01:00.000Z"
-            },
-            {
-              "id": "cpo_01JA2B3C4D5E6F7G8H9JKMNPR4",
-              "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-              "seq": 3,
-              "author": {
-                "kind": "host"
-              },
-              "content": [
-                {
-                  "type": "text",
-                  "text": ""
-                }
-              ],
-              "card": {
-                "kind": "notice",
-                "reason": "budget",
-                "assistantId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQS"
-              },
-              "createdAt": "2026-10-12T08:02:00.000Z"
-            }
-          ],
-          "lastSeq": 5
         }
       ]
     },
@@ -15112,16 +15016,6 @@
             }
           ],
           "clientPostId": "cp-2"
-        },
-        {
-          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-          "content": [
-            {
-              "type": "text",
-              "text": "@收件箱 今天有什么？"
-            }
-          ],
-          "mentions": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR"]
         }
       ],
       "result": [
@@ -16895,32 +16789,6 @@
         "listVersion": 9,
         "upserted": [],
         "removed": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR"]
-      },
-      {
-        "listVersion": 9,
-        "upserted": [
-          {
-            "id": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-            "kind": "group",
-            "title": "周会",
-            "group": {
-              "members": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR", "chn_01JA2B3C4D5E6F7G8H9JKMNPQS"]
-            },
-            "state": "working",
-            "lastPostSeq": 2,
-            "lastPost": {
-              "seq": 2,
-              "author": "assistant",
-              "assistantId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "preview": "收件箱里两封要回。",
-              "at": "2026-10-12T08:00:05.250Z"
-            },
-            "unreadCount": 1,
-            "createdAt": "2026-10-12T08:00:00.000Z",
-            "updatedAt": "2026-10-12T08:00:05.250Z"
-          }
-        ],
-        "removed": []
       }
     ],
     "channel.posted": [
@@ -17087,22 +16955,23 @@
         "subscriptionId": "sub_01JA2B3C4D5E6F7G8H9JKMNPQR",
         "post": {
           "id": "cpo_01JA2B3C4D5E6F7G8H9JKMNPR2",
-          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPG1",
-          "seq": 2,
+          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 5,
           "author": {
-            "kind": "assistant",
-            "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "name": "收件箱"
+            "kind": "host"
           },
           "content": [
             {
               "type": "text",
-              "text": "两封要回。@研究 帮忙看第二封。"
+              "text": "notes/today.md"
             }
           ],
-          "replyTo": "cpo_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "mentions": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQS"],
-          "createdAt": "2026-10-12T08:00:05.250Z"
+          "card": {
+            "kind": "notice",
+            "reason": "acted",
+            "category": "local_files"
+          },
+          "createdAt": "2026-10-12T08:00:06.000Z"
         }
       }
     ],

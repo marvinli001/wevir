@@ -1,6 +1,6 @@
 // 一个助理的对话：大标题是助理的名字，列表顶上是它的头像、职责、所在电脑与状态；往下是它自己的时间线（打开时停在最新一条），
 // 往上翻到顶再下拉加载更早的。底部是输入栏，键盘弹起时跟着上移。工作中时末尾有一枚在跳的头像。
-// 助理群（0.132.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人），没有编辑与重试。
+// 助理群（0.133.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人），没有编辑与重试。
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

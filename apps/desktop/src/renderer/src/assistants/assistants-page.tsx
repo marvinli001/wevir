@@ -1,6 +1,6 @@
 // 助理页（0.120.0，Host 功能 `channels`）：左栏是聊天列表（头像、名字、最后一条、时间、状态、未读），右边是选中的助理：头部（头像、
 // 名字、职责、暂停与删除），四个页签（对话、任务、日程与规矩、记忆）。照 Grok、Muse、Duet 一类个人助理：每个助理一条时间线。
-// 助理群（0.132.0）也在列表里：叠放的成员头像；选中时只有群的时间线，头部列出成员。
+// 助理群（0.133.0）也在列表里：叠放的成员头像；选中时只有群的时间线，头部列出成员。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { Channel, ChannelId, SessionId } from '@wevir/protocol';
@@ -413,7 +413,7 @@ function AssistantPane({
   );
 }
 
-/** 群（0.132.0）：头部是叠放的成员头像、群名与成员名，菜单里编辑与删除；下面只有群的时间线。 */
+/** 群（0.133.0）：头部是叠放的成员头像、群名与成员名，菜单里编辑与删除；下面只有群的时间线。 */
 function GroupPane({
   client,
   view,

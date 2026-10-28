@@ -1,8 +1,8 @@
 // 频道与助理（0.120.0）：echo 引擎跑通建助理、发帖唤醒协调者、换班、预算、线程、列表与订阅的通知。
 
-import { mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import type { HostId, NotificationIntent } from '@wevir/protocol';
+import type { HostId, NotificationIntent, WorkspaceId } from '@wevir/protocol';
 import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
@@ -11,6 +11,7 @@ import {
   ChannelSchema,
   type ClientIdentity,
   DEFAULT_ASSISTANT_RULES,
+  type EnvironmentId,
   type SessionId,
 } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -28,6 +29,7 @@ import { identity, useStorages, useTempDir } from '../test-utils.js';
 import { AssistantFolders } from './assistants.js';
 import {
   ChannelService,
+  type ChannelServiceOptions,
   type ChannelSubscriptionMessage,
   MORNING_BRIEF_TIME,
   morningBriefAutomation,
@@ -46,7 +48,12 @@ afterEach(async () => {
 });
 const phone: ClientIdentity = { deviceId: 'phone-1', clientId: 'app-1', clientKind: 'mobile' };
 
-async function setup(options: { budget?: { dailyWakes: number; dailyTokens: number } } = {}) {
+async function setup(
+  options: {
+    budget?: { dailyWakes: number; dailyTokens: number };
+    removed?: ChannelServiceOptions['removed'];
+  } = {},
+) {
   const dataDir = join(realpathSync(tempDir()), 'data');
   mkdirSync(dataDir, { recursive: true });
   const storage = storages.open(dataDir);
@@ -66,6 +73,7 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
     adapter,
     worktreesDir: join(dataDir, 'worktrees'),
     onTurnFinished: (info) => channels?.onTurnFinished(info),
+    approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
     // 用量统计照 Host 记：Echo 每回合报一次请求（第二回合起带缓存读取）。
     onUsage: ({ sessionId, providerId, modelId }, event) => {
       storage.usage.insert({
@@ -104,6 +112,7 @@ async function setup(options: { budget?: { dailyWakes: number; dailyTokens: numb
         await automations?.deleteForChannel(channelId);
       },
     },
+    ...(options.removed !== undefined && { removed: options.removed }),
   });
   channels.start();
   const service0 = channels;
@@ -243,6 +252,7 @@ describe('ChannelService', () => {
       expect(text).toContain('<channel_handover');
       expect(text).toContain('<setup>');
       expect(text).toContain('connectors="Calendar"');
+      expect(text).toContain('working_folder="');
     }
     const textA = setupA?.content[0]?.type === 'text' ? setupA.content[0].text : '';
     expect(textA).toContain('Sort my inbox every morning.');
@@ -459,6 +469,96 @@ describe('ChannelService', () => {
     expect(resolved.status).toBe('resolved');
     const view = await h.methods['channel.get']({ channelId: bot.id }, context);
     expect(view.threads.map((item) => item.sessionId)).toEqual([thread.sessionId]);
+  });
+
+  it('助理自带环境：协调者与线程都用它，不列出、不能改删；删助理时环境、工作区、目录与按工作区记的都删掉', async () => {
+    const removed = vi.fn(async () => {});
+    const h = await setup({ removed });
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    const [first] = await h.coordinatorPosts(bot.id, 1);
+    const coordinator = (
+      first?.author.kind === 'coordinator' ? first.author.sessionId : ''
+    ) as SessionId;
+    const environments = h.storage.environments
+      .list()
+      .filter((environment) => environment.folders[0]?.workspaceId === bot.workspaceId);
+    expect(environments).toEqual([
+      expect.objectContaining({
+        name: 'Mail desk',
+        folders: [{ workspaceId: bot.workspaceId, worktree: 'none' }],
+      }),
+    ]);
+    const environmentId = (environments[0]?.id ?? '') as EnvironmentId;
+    const workspace = h.storage.workspaces.get(bot.workspaceId ?? '');
+    expect(h.storage.sessions.get(coordinator)).toMatchObject({
+      environmentId,
+      cwd: workspace?.rootPath,
+    });
+    // 起步清单把自己的工作文件夹当作已有。
+    const text = first?.content[0]?.type === 'text' ? first.content[0].text : '';
+    expect(text).toContain(`working_folder="${workspace?.rootPath}"`);
+    expect(text).toContain(`<working_folder>${workspace?.rootPath}</working_folder>`);
+
+    // 不在环境列表里，也改不了、删不了，也不能拿助理的工作区建环境。
+    expect((await h.methods['environment.list']({}, context)).environments).toEqual([]);
+    await expect(
+      h.methods['environment.update']({ environmentId, name: 'x' }, context),
+    ).rejects.toMatchObject({ code: 'ENVIRONMENT_NOT_FOUND' });
+    await expect(h.methods['environment.remove']({ environmentId }, context)).rejects.toMatchObject(
+      { code: 'ENVIRONMENT_NOT_FOUND' },
+    );
+    await expect(
+      h.methods['environment.create'](
+        { name: 'x', folders: [{ workspaceId: bot.workspaceId as WorkspaceId, worktree: 'none' }] },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_NOT_FOUND' });
+
+    // 改名时环境跟着改。
+    await h.methods['channel.update']({ channelId: bot.id, name: 'Inbox desk' }, context);
+    expect(h.storage.environments.get(environmentId)?.name).toBe('Inbox desk');
+
+    // 之前建的助理没有环境：开线程时补建一个。
+    h.storage.environments.remove(environmentId);
+    const { post } = await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'Draft a reply to Ana' }] },
+      context,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    const { thread } = await h.methods['channel.startThread'](
+      { channelId: bot.id, rootPostId: post.id },
+      context,
+    );
+    const rebuilt = h.storage.environments
+      .list()
+      .filter((environment) => environment.folders[0]?.workspaceId === bot.workspaceId);
+    expect(rebuilt).toHaveLength(1);
+    expect(h.storage.sessions.get(thread.sessionId)).toMatchObject({
+      environmentId: rebuilt[0]?.id,
+      cwd: workspace?.rootPath,
+    });
+    h.storage.approvalRules.insert({
+      id: 'apr_1',
+      workspaceId: bot.workspaceId,
+      kind: 'command_prefix',
+      prefix: ['ls'],
+      source: 'approval',
+      createdAt: '2026-10-28T00:00:00.000Z',
+      useCount: 0,
+    });
+
+    await h.methods['channel.delete']({ channelId: bot.id }, context);
+    expect(h.storage.environments.list()).toEqual([]);
+    expect(h.storage.workspaces.get(bot.workspaceId ?? '')?.removedAt).toBeDefined();
+    expect(existsSync(workspace?.rootPath ?? '')).toBe(false);
+    expect(h.storage.approvalRules.listEffective(bot.workspaceId)).toEqual([]);
+    expect(h.storage.sessions.get(coordinator)?.state).toBe('closed');
+    expect(h.storage.sessions.get(thread.sessionId)?.state).toBe('closed');
+    expect(removed).toHaveBeenCalledWith({
+      channelId: bot.id,
+      workspaceId: bot.workspaceId,
+      environmentIds: [rebuilt[0]?.id],
+    });
   });
 
   it('改名字与说明：下次唤醒附上新的身份', async () => {
@@ -844,6 +944,156 @@ describe('助理之间与助理群', () => {
       { timeout: 5000 },
     );
     expect(assistantPosts(h, group.id)).toHaveLength(0);
+  });
+});
+
+describe('助理的规矩由 Host 执行（0.132.0）', () => {
+  type Harness = Awaited<ReturnType<typeof setup>>;
+
+  async function ready(h: Harness) {
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    await h.coordinatorPosts(bot.id, 1);
+    const sessionId = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
+      .coordinator?.sessionId as SessionId;
+    return { bot, sessionId };
+  }
+
+  /** 协调者会话里每个工具的结局：工具名 → `tool.finished` 的状态。 */
+  function toolResults(h: Harness, sessionId: SessionId): Record<string, string> {
+    const names = new Map<string, string>();
+    const results: Record<string, string> = {};
+    for (const event of h.events.readSince(sessionId, 0)) {
+      if (event.type === 'tool.started')
+        names.set(event.payload.toolCallId, event.payload.toolName);
+      if (event.type === 'tool.finished') {
+        results[names.get(event.payload.toolCallId) ?? '?'] = event.payload.status;
+      }
+    }
+    return results;
+  }
+
+  const approvalsIn = (h: Harness, sessionId: SessionId) =>
+    h.events.readSince(sessionId, 0).filter((event) => event.type === 'approval.requested');
+
+  const notices = (h: Harness, channelId: ChannelId) =>
+    h
+      .posts(channelId)
+      .filter((post) => post.author.kind === 'host' && post.card?.kind === 'notice')
+      .map((post) => ({
+        card: post.card,
+        text: post.content.map((part) => (part.type === 'text' ? part.text : '')).join(''),
+      }));
+
+  const say = (h: Harness, channelId: ChannelId, text: string) =>
+    h.service.post({ channelId, content: [{ type: 'text', text }] }, identity);
+
+  it('默认规矩：联网命令、工作区里写文件、只读的连接器、Wevir 自己的工具都不问；写文件做完在时间线上告知', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    say(
+      h,
+      bot.id,
+      'approval:shell:curl+-s+https://example.com approval:write:notes/today.md approval:mcp:github/list_issues approval:mcp:wevir/wevir_process_start',
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    expect(approvalsIn(h, sessionId)).toEqual([]);
+    expect(toolResults(h, sessionId)).toMatchObject({
+      echo_shell: 'completed',
+      echo_write: 'completed',
+      mcp__github__list_issues: 'completed',
+      mcp__wevir__wevir_process_start: 'completed',
+    });
+    await vi.waitFor(() =>
+      expect(notices(h, bot.id)).toEqual([
+        {
+          card: { kind: 'notice', reason: 'acted', category: 'local_files' },
+          text: 'notes/today.md',
+        },
+      ]),
+    );
+    // 告知的说明不发提醒。
+    expect(h.intents.filter((intent) => intent.kind === 'approval')).toEqual([]);
+  });
+
+  it('档位为 ask 的动作照常发审批，进助理的视图与收件箱；批准后接着做', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    say(h, bot.id, 'approval:mcp:gmail/send_email');
+    let approvalId = '';
+    await vi.waitFor(
+      async () => {
+        const view = await h.methods['channel.get']({ channelId: bot.id }, context);
+        expect(view.approvals).toHaveLength(1);
+        expect(view.approvals[0]?.detail?.toolName).toBe('mcp__gmail__send_email');
+        approvalId = view.approvals[0]?.id as string;
+      },
+      { timeout: 5000 },
+    );
+    await vi.waitFor(() =>
+      expect(h.inbox.list()).toEqual([
+        expect.objectContaining({ kind: 'approval', channelId: bot.id }),
+      ]),
+    );
+    await h.methods['approval.respond'](
+      { approvalId: approvalId as never, optionId: 'allow-once' },
+      context,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    expect(toolResults(h, sessionId)).toMatchObject({ mcp__gmail__send_email: 'completed' });
+    expect(notices(h, bot.id)).toEqual([]);
+  });
+
+  it('hand_off 的动作与转账都由 Host 拒绝，不发审批，时间线上写明拦下了什么', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    say(h, bot.id, 'approval:mcp:shop/checkout_cart approval:mcp:bank/transfer_money');
+    await h.coordinatorPosts(bot.id, 2);
+    expect(approvalsIn(h, sessionId)).toEqual([]);
+    expect(toolResults(h, sessionId)).toMatchObject({
+      mcp__shop__checkout_cart: 'failed',
+      mcp__bank__transfer_money: 'failed',
+    });
+    expect(notices(h, bot.id)).toEqual([
+      {
+        card: { kind: 'notice', reason: 'handed_off', category: 'purchases' },
+        text: 'shop/checkout_cart',
+      },
+      { card: { kind: 'notice', reason: 'blocked' }, text: 'bank/transfer_money' },
+    ]);
+  });
+
+  it('改了规矩对已有的协调者马上生效；交易无论哪一档都拦', async () => {
+    const h = await setup();
+    const { bot, sessionId } = await ready(h);
+    await h.methods['channel.update'](
+      {
+        channelId: bot.id,
+        rules: { ...DEFAULT_ASSISTANT_RULES, messages: 'do', purchases: 'do' },
+      },
+      context,
+    );
+    say(h, bot.id, 'approval:mcp:gmail/send_email approval:mcp:alpaca/place_order');
+    await h.coordinatorPosts(bot.id, 2);
+    const after = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
+      .coordinator?.sessionId;
+    expect(after).toBe(sessionId);
+    expect(approvalsIn(h, sessionId)).toEqual([]);
+    expect(toolResults(h, sessionId)).toMatchObject({
+      mcp__gmail__send_email: 'completed',
+      mcp__alpaca__place_order: 'failed',
+    });
+    expect(notices(h, bot.id).map((notice) => notice.card)).toEqual([
+      { kind: 'notice', reason: 'blocked' },
+    ]);
+  });
+
+  it('不是助理的会话不管；看不到是什么调用时照常问', async () => {
+    const h = await setup();
+    const { sessionId } = await ready(h);
+    const tool = { toolName: 'mcp__gmail__send_email', display: { kind: 'unknown' as const } };
+    expect(h.service.approvalPolicy('ses_other' as SessionId, tool)).toBeUndefined();
+    expect(h.service.approvalPolicy(sessionId, undefined)).toBe('ask');
+    expect(h.service.approvalPolicy(sessionId, tool)).toBe('ask');
   });
 });
 

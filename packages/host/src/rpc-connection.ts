@@ -1766,14 +1766,14 @@ export function adaptResultForClient(
         return { ...result, device: deviceForClient(result.device, protocolVersion) };
     }
   }
-  // COMPAT(channelGroups): added in 0.132.0, remove gate after 2027-06-01
+  // COMPAT(assistantNotices): added in 0.132.0; COMPAT(channelGroups): added in 0.133.0; remove gates after 2027-06-01
   if (
     method.startsWith('channel.') &&
     compareProtocolVersions(protocolVersion, CHANNEL_GROUPS_SINCE) < 0
   ) {
     return adaptKindsAndTitles(
       method,
-      channelResultForOldClient(value),
+      channelResultForClient(value, protocolVersion),
       capabilities,
       protocolVersion,
     );
@@ -1781,11 +1781,30 @@ export function adaptResultForClient(
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
 }
 
+/** 助理规矩的三种说明（`acted`、`handed_off`、`blocked`）进协议的版本：更早的客户端认不出，帖子去掉卡片、只留文字。 */
+const ASSISTANT_NOTICES_SINCE = '0.132.0';
+const OLD_NOTICE_REASONS = new Set(['budget', 'resumed', 'failed']);
 /** 助理群与 `assistant` 作者进协议的版本：更早的客户端看不到群，别的助理写的帖子给它们看成 Host 写的。 */
-const CHANNEL_GROUPS_SINCE = '0.132.0';
+const CHANNEL_GROUPS_SINCE = '0.133.0';
 
-function postForOldClient(post: ChannelPost): ChannelPost {
-  return post.author.kind === 'assistant' ? { ...post, author: { kind: 'host' } } : post;
+function postForClient(post: ChannelPost, protocolVersion: string): ChannelPost {
+  if (compareProtocolVersions(protocolVersion, CHANNEL_GROUPS_SINCE) >= 0) return post;
+  // COMPAT(channelGroups): added in 0.133.0, remove gate after 2027-06-01
+  const shown: ChannelPost =
+    post.author.kind === 'assistant' ? { ...post, author: { kind: 'host' } } : post;
+  // COMPAT(assistantNotices): added in 0.132.0, remove gate after 2027-06-01
+  if (
+    shown.card?.kind !== 'notice' ||
+    compareProtocolVersions(protocolVersion, ASSISTANT_NOTICES_SINCE) >= 0
+  ) {
+    return shown;
+  }
+  if (OLD_NOTICE_REASONS.has(shown.card.reason)) {
+    const { category: _category, ...card } = shown.card;
+    return { ...shown, card };
+  }
+  const { card: _card, ...rest } = shown;
+  return rest;
 }
 
 function channelForOldClient(channel: Channel): Channel {
@@ -1794,8 +1813,8 @@ function channelForOldClient(channel: Channel): Channel {
   return { ...channel, lastPost: { ...lastPost, author: 'host' } };
 }
 
-/** `channel.*` 的结果给 0.132.0 以前的客户端：去掉群，改写帖子作者。 */
-function channelResultForOldClient(value: unknown): unknown {
+/** `channel.*` 的结果给 0.133.0 以前的客户端：去掉群，改写帖子作者与认不出的说明。 */
+function channelResultForClient(value: unknown, protocolVersion: string): unknown {
   if (typeof value !== 'object' || value === null) return value;
   const result = { ...(value as Record<string, unknown>) };
   if (Array.isArray(result.channels)) {
@@ -1805,12 +1824,15 @@ function channelResultForOldClient(value: unknown): unknown {
   }
   if (result.channel !== undefined) result.channel = channelForOldClient(result.channel as Channel);
   if (Array.isArray(result.posts))
-    result.posts = (result.posts as ChannelPost[]).map(postForOldClient);
-  if (result.post !== undefined) result.post = postForOldClient(result.post as ChannelPost);
+    result.posts = (result.posts as ChannelPost[]).map((post) =>
+      postForClient(post, protocolVersion),
+    );
+  if (result.post !== undefined)
+    result.post = postForClient(result.post as ChannelPost, protocolVersion);
   return result;
 }
 
-/** 频道的通知给 0.132.0 以前的客户端：同 `channelResultForOldClient`。 */
+/** 频道的通知给 0.133.0 以前的客户端：同 `channelResultForClient`。 */
 export function channelNotificationForClient<
   N extends 'channels.changed' | 'channel.posted' | 'channel.updated',
 >(name: N, params: NotificationParams<N>, protocolVersion: string): NotificationParams<N> {
@@ -1824,7 +1846,7 @@ export function channelNotificationForClient<
         .map(channelForOldClient),
     } as NotificationParams<N>;
   }
-  return channelResultForOldClient(params) as NotificationParams<N>;
+  return channelResultForClient(params, protocolVersion) as NotificationParams<N>;
 }
 
 /** 设备平台 `web` 进协议的版本：更早的客户端的枚举里没有它，给它们看 `other`。 */

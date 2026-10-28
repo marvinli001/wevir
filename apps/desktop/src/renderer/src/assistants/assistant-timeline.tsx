@@ -1,11 +1,12 @@
 // 助理的对话页签（0.120.0）：时间线（用户的帖子在右，助理的在左，Host 的说明居中），帖子带的卡片（我需要什么、建议、晨间简报、说明），
 // 挂在帖子下面的线程卡片，等用户批准的审批（展示要发出的原文），底部的输入框。看到的帖子标已读（`channel.markRead`）。
-// 0.132.0：别的助理写的帖子（群里的成员、发来消息的助理）带它的头像与名字；发给别的助理的帖子标“发给 …”；群的输入框打 @ 选成员。
+// 0.133.0：别的助理写的帖子（群里的成员、发来消息的助理）带它的头像与名字；发给别的助理的帖子标“发给 …”；群的输入框打 @ 选成员。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { isRpcError } from '@wevir/client-sdk';
 import type {
   ApprovalRequest,
+  AssistantRuleCategory,
   Channel,
   ChannelCard,
   ChannelPost,
@@ -36,6 +37,7 @@ import { MarkdownView } from '@/session/markdown/markdown-view';
 import { AssistantAvatar } from './assistant-avatar';
 import {
   type AssistantView,
+  CATEGORY_LABEL,
   groupMembers,
   mentionedIn,
   mentionQuery,
@@ -325,6 +327,15 @@ function PostRow({
 
 const CARD = 'rounded-xl border border-border bg-card px-3.5 py-3';
 
+const NOTICE_LABEL: Record<Extract<ChannelCard, { kind: 'notice' }>['reason'], PlainMessageKey> = {
+  budget: 'assistants.notice.budget',
+  resumed: 'assistants.notice.resumed',
+  failed: 'assistants.notice.failed',
+  acted: 'assistants.notice.acted',
+  handed_off: 'assistants.notice.handed_off',
+  blocked: 'assistants.notice.blocked',
+};
+
 function HostNotice({
   card,
   text,
@@ -339,29 +350,28 @@ function HostNotice({
   onRetry?: () => void;
 }) {
   const reason = card?.kind === 'notice' ? card.reason : undefined;
-  const label =
-    reason === 'budget'
-      ? t('assistants.notice.budget')
-      : reason === 'resumed'
-        ? t('assistants.notice.resumed')
-        : reason === 'failed'
-          ? t('assistants.notice.failed')
-          : undefined;
+  const category =
+    card?.kind === 'notice' && card.category !== undefined && card.category in CATEGORY_LABEL
+      ? t(CATEGORY_LABEL[card.category as AssistantRuleCategory])
+      : undefined;
+  const label = reason === undefined ? undefined : t(NOTICE_LABEL[reason]);
   return (
     <div
       className={cn(
         'flex max-w-[85%] items-center gap-2 rounded-lg px-3 py-1.5 text-sm',
-        reason === 'failed' || reason === 'budget'
+        reason === 'failed' || reason === 'budget' || reason === 'blocked'
           ? 'bg-warning/10 text-warning'
           : 'bg-muted text-muted-foreground',
       )}
       data-notice={reason}
     >
-      {(reason === 'failed' || reason === 'budget') && (
+      {(reason === 'failed' || reason === 'budget' || reason === 'blocked') && (
         <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
       )}
-      <span className="min-w-0 break-words">
-        {[about, label, text].filter((part) => part !== undefined && part !== '').join(' · ')}
+      <span className="min-w-0 whitespace-pre-line break-words">
+        {[about, category, label, text]
+          .filter((part) => part !== undefined && part !== '')
+          .join(' · ')}
       </span>
       {reason === 'failed' && onRetry !== undefined && (
         <Button variant="ghost" size="xs" onClick={onRetry} data-action="retry">
@@ -727,7 +737,8 @@ function Composer({
           ))}
         </ul>
       )}
-      <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-1.5 focus-within:focus-field">
+      {/* 单行时输入框与发送按钮同高（32px），文字和按钮在同一条中线上；四周留白相同。 */}
+      <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-2 focus-within:focus-field">
         <Textarea
           ref={inputRef}
           value={text}
@@ -740,12 +751,12 @@ function Composer({
           onKeyDown={onKeyDown}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="max-h-48 min-h-9 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:ring-0"
+          className="max-h-48 min-h-8 flex-1 resize-none rounded-none border-0 bg-transparent px-2 py-1.5 text-sm leading-5 focus-visible:ring-0"
           rows={1}
           data-field="post"
         />
         <Button
-          size="icon-sm"
+          size="icon"
           className="rounded-full"
           disabled={text.trim() === '' || busy}
           onClick={() => void send()}

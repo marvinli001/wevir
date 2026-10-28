@@ -514,7 +514,7 @@ export const HOST_FEATURES = {
    */
   channel_schedules: 'channel_schedules',
   /**
-   * 助理之间与助理群（0.132.0）：频道种类 `group` 与 `Channel.group`、`channel.create` / `channel.update` 的 `members`、`channel.post`
+   * 助理之间与助理群（0.133.0）：频道种类 `group` 与 `Channel.group`、`channel.create` / `channel.update` 的 `members`、`channel.post`
    * 的 `mentions`、帖子作者 `assistant` 与帖子的 `to` / `mentions`、说明卡片的 `assistantId`，协调者的 `wevir_channel_assistants` 与
    * `wevir_channel_message`。
    */
