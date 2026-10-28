@@ -20,10 +20,25 @@ function base64urlJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
+const PEM_BLOCK = /-----BEGIN ([A-Z ]+)-----([\s\S]*?)-----END \1-----/;
+
+/**
+ * 把换行丢了或被转义的 PEM 还原成标准格式：托管平台的环境变量编辑器常把 `.p8` 的多行内容压成一行（换行变空格或消失），
+ * 或存成字面的 `\n`。只有正文（没有 BEGIN / END 行）时按 PKCS#8 的 `PRIVATE KEY` 补上。
+ */
+export function normalizePem(value: string): string {
+  const text = value.replace(/\\r/g, '').replace(/\\n/g, '\n').trim();
+  const block = PEM_BLOCK.exec(text);
+  const label = block?.[1] ?? 'PRIVATE KEY';
+  const body = (block?.[2] ?? text).replace(/\s+/g, '');
+  const lines = body.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
+}
+
 /** 读私钥（PEM）；读不了时报错，错误里不带密钥内容。 */
 export function loadPrivateKey(pem: string, what: string): KeyObject {
   try {
-    return createPrivateKey(pem);
+    return createPrivateKey(normalizePem(pem));
   } catch {
     throw new Error(`${what} is not a valid PEM private key`);
   }

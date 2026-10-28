@@ -24,7 +24,7 @@ import {
   startFakeFcm,
   testApnsKey,
 } from './testing.js';
-import { ApnsClient, FcmClient } from './upstream.js';
+import { ApnsClient, FcmClient, loadPrivateKey } from './upstream.js';
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -561,6 +561,29 @@ describe('loadConfig', () => {
       /client_email/,
     );
     expect(() => new ApnsClient({ key: 'garbage', keyId: 'k', teamId: 't', topic: 'x' })).toThrow(
+      'the APNs key is not a valid PEM private key',
+    );
+  });
+});
+
+describe('loadPrivateKey', () => {
+  it('还原平台变量编辑器压掉或转义了换行的 PEM', () => {
+    const pem = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+      .privateKey.export({ type: 'pkcs8', format: 'pem' })
+      .toString();
+    const body = pem.split('\n').filter((line) => line !== '' && !line.startsWith('-----'));
+    const variants = [
+      pem,
+      pem.replace(/\n/g, ' '),
+      pem.replace(/\n/g, ''),
+      pem.replace(/\n/g, '\\n'),
+      body.join(''),
+      `  ${pem.replace(/\n/g, '\r\n')}  `,
+    ];
+    for (const value of variants) {
+      expect(loadPrivateKey(value, 'the APNs key').asymmetricKeyType).toBe('ec');
+    }
+    expect(() => loadPrivateKey(pem.slice(0, 80), 'the APNs key')).toThrow(
       'the APNs key is not a valid PEM private key',
     );
   });

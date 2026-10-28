@@ -98,7 +98,7 @@ All settings are environment variables. Credentials can be given inline or as a 
 | `WEVIR_PUSH_TRUST_PROXY` | off | Take the client address from the last `X-Forwarded-For` entry. Only behind a proxy you run |
 | `WEVIR_PUSH_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 | `WEVIR_PUSH_DATA_DIR` | unset (`/data` in the image) | Directory for `bindings.db` (SQLite). Unset keeps bindings in memory; phones bind again the next time they connect to their computer |
-| `WEVIR_PUSH_APNS_KEY` / `WEVIR_PUSH_APNS_KEY_FILE` | unset | The APNs auth key (`.p8`, token-based authentication) |
+| `WEVIR_PUSH_APNS_KEY` / `WEVIR_PUSH_APNS_KEY_FILE` | unset | The APNs auth key (`.p8`, token-based authentication). Inline, its line breaks may be lost or written as `\n`, as some platforms' variable editors store them |
 | `WEVIR_PUSH_APNS_KEY_ID` | unset | Its key ID |
 | `WEVIR_PUSH_APNS_TEAM_ID` | unset | The Apple developer team ID |
 | `WEVIR_PUSH_APNS_TOPIC` | unset | The app's bundle ID |
