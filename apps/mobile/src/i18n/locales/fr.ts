@@ -123,6 +123,9 @@ export const fr: Messages = {
   'bot.notice.failed': 'Tour en échec',
   'bot.retry': 'Réessayer',
   'bot.image': 'Image',
+  'bot.to': 'À {name}',
+  'bot.mention': 'Mentionner {name}',
+  'bot.groupPlaceholder': 'Message à {name}',
 
   'newBot.name': 'Nom',
   'newBot.description': 'Rôle',

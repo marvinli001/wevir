@@ -123,29 +123,33 @@ export class NotificationService {
 
   /**
    * 助理在时间线上说了话（0.121.0）：协调者的帖子（`NOTHING_TO_REPORT` 的本来就不写），与 Host 贴的预算用完、回合失败的说明。
-   * 用户自己发的、恢复的说明不提醒。
+   * 用户自己发的、恢复的说明不提醒。群里（0.132.0）成员的回答提醒，正文前面带成员的名字；助理之间在各自时间线上的来往不提醒
+   * （回答的那一方照常提醒它的协调者帖子）。
    */
   #onPost(channel: Channel, post: ChannelPost): void {
     const author = post.author.kind;
     const notice = post.card?.kind === 'notice' ? post.card.reason : undefined;
     if (author === 'user' || (author === 'host' && notice !== 'budget' && notice !== 'failed'))
       return;
+    if (author === 'assistant' && channel.kind !== 'group') return;
+    if (author === 'coordinator' && post.to !== undefined) return;
     const id = `channel:${post.id}`;
     if (this.#seen.has(id)) return;
     this.#prune();
     const at = Date.parse(post.createdAt);
     this.#seen.set(id, at);
     if (!this.#fresh(at) || !this.#enabled('channel')) return;
-    const text = post.content
+    const body = post.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
+    const text = post.author.kind === 'assistant' ? `${post.author.name}: ${body}` : body;
     this.#emit({
       id,
       kind: 'channel',
       channelId: channel.id,
-      workspaceId: channel.workspaceId,
+      ...(channel.workspaceId !== undefined && { workspaceId: channel.workspaceId }),
       title: cut(channel.title, NOTIFICATION_TITLE_MAX_LENGTH),
       body: cut(redactSecrets(text).text, NOTIFICATION_BODY_MAX_LENGTH),
       createdAt: post.createdAt,

@@ -1,5 +1,6 @@
 // 助理时间线上的一条：用户的话是右侧的气泡，助理的回答是不带气泡的正文，Host 的说明是居中的小字；卡片是实底的圆角卡：
 // “开始前需要”、晨间简报、审批（原样展示将要发出的内容，批准 / 拒绝）、线程（它开出的会话与实时状态）、交给用户的文件、提议（采纳 / 忽略）。
+// 别的助理说的（群里的成员、发来消息的助理）上面一行是它的小头像与名字；发给别的助理的标“发给 …”。
 
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -7,6 +8,7 @@ import { formatBytes, type MessageKey, t, timeAgo } from '../i18n';
 import { ApprovalNotVerifiedError } from '../lib/approval-gate';
 import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
+import { BotAvatar } from './bot-avatar';
 import { Markdown } from './markdown';
 import { Button, Chevron, Icon, type IconName } from './ui';
 
@@ -23,13 +25,14 @@ export function PostView({
   now: Date;
   onDecide: (post: BotPost, decision: Exclude<Decision, 'pending'>) => Promise<void>;
   onOpenThread: (sessionId: string) => void;
-  onRetry: () => void;
+  /** 群没有协调者，不给重试。 */
+  onRetry?: () => void;
 }) {
   const { card } = post;
   const decide: Decide = (decision) => onDecide(post, decision);
   switch (card.kind) {
     case 'text':
-      return <TextPost author={post.author} text={card.text} />;
+      return <TextPost post={post} text={card.text} />;
     case 'brief':
       return <BriefCard card={card} at={timeAgo(post.createdAt, now)} />;
     case 'approval':
@@ -43,12 +46,19 @@ export function PostView({
     case 'needs':
       return <NeedsCard card={card} />;
     case 'notice':
-      return <Notice reason={card.reason} onRetry={onRetry} />;
+      return (
+        <Notice
+          reason={card.reason}
+          {...(card.about !== undefined && { about: card.about })}
+          {...(onRetry !== undefined && { onRetry })}
+        />
+      );
   }
 }
 
-function TextPost({ author, text }: { author: BotPost['author']; text: string }) {
+function TextPost({ post, text }: { post: BotPost; text: string }) {
   const theme = useTheme();
+  const author = post.author;
   if (author === 'user') {
     return (
       <View style={[styles.bubble, { backgroundColor: theme.dark ? theme.muted : theme.card }]}>
@@ -63,6 +73,19 @@ function TextPost({ author, text }: { author: BotPost['author']; text: string })
   }
   return (
     <View style={styles.reply}>
+      {post.speaker !== undefined && (
+        <View style={styles.speaker}>
+          <BotAvatar avatar={post.speaker.avatar} size={18} />
+          <Text style={[styles.speakerName, { color: theme.softForeground }]} numberOfLines={1}>
+            {post.speaker.name}
+          </Text>
+        </View>
+      )}
+      {post.to !== undefined && (
+        <Text style={[styles.to, { color: theme.mutedForeground }]} numberOfLines={1}>
+          {t('bot.to', { name: post.to })}
+        </Text>
+      )}
       <Markdown text={text} />
     </View>
   );
@@ -71,10 +94,13 @@ function TextPost({ author, text }: { author: BotPost['author']; text: string })
 /** Host 的说明：预算用完、恢复、出错（出错时附重试）。 */
 function Notice({
   reason,
+  about,
   onRetry,
 }: {
   reason: Extract<BotCard, { kind: 'notice' }>['reason'];
-  onRetry: () => void;
+  /** 群里：说的是哪个成员。 */
+  about?: string;
+  onRetry?: () => void;
 }) {
   const theme = useTheme();
   return (
@@ -84,8 +110,9 @@ function Notice({
         { color: reason === 'failed' ? theme.destructive : theme.mutedForeground },
       ]}
     >
+      {about === undefined ? '' : `${about} · `}
       {t(`bot.notice.${reason}`)}
-      {reason === 'failed' && (
+      {reason === 'failed' && onRetry !== undefined && (
         <Text
           style={[styles.retry, { color: theme.foreground }]}
           onPress={onRetry}
@@ -451,6 +478,9 @@ function NeedsCard({ card }: { card: Extract<BotCard, { kind: 'needs' }> }) {
 const styles = StyleSheet.create({
   body: { fontSize: TEXT.body, lineHeight: 23 },
   reply: { paddingRight: 24 },
+  speaker: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  speakerName: { fontSize: TEXT.caption, fontWeight: '600' },
+  to: { fontSize: TEXT.caption, marginBottom: 4 },
   bubble: {
     alignSelf: 'flex-end',
     maxWidth: '82%',

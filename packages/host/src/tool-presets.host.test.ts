@@ -137,7 +137,7 @@ describe('工具预设经 Host API', () => {
       ]),
     );
     expect(counts).toEqual({
-      sessions: 24,
+      sessions: 26,
       catalog: 2,
       tasks: 3,
       memory: 8,

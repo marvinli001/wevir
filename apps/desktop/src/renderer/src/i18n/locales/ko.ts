@@ -3120,4 +3120,15 @@ export const messages: Messages = {
   'assistants.memory.loadFailed': '메모리를 불러오지 못함: {error}',
   'assistants.memory.empty': '메모리 없음',
   'assistants.memory.delete': '삭제',
+  'assistants.group.new': '새 그룹',
+  'assistants.group.edit': '그룹 편집',
+  'assistants.group.name': '그룹 이름',
+  'assistants.group.members': '멤버 · {count}',
+  'assistants.group.delete': '그룹 삭제',
+  'assistants.group.delete.title': '“{name}” 그룹을 삭제할까요?',
+  'assistants.group.delete.body':
+    '그룹 타임라인이 삭제됩니다. 멤버 어시스턴트에는 영향이 없습니다.',
+  'assistants.group.placeholder': '{name}에 메시지',
+  'assistants.group.mention': '멤버 멘션',
+  'assistants.timeline.to': '{name}에게',
 };

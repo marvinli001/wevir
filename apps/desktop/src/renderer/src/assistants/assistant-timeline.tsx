@@ -1,5 +1,6 @@
 // 助理的对话页签（0.120.0）：时间线（用户的帖子在右，助理的在左，Host 的说明居中），帖子带的卡片（我需要什么、建议、晨间简报、说明），
 // 挂在帖子下面的线程卡片，等用户批准的审批（展示要发出的原文），底部的输入框。看到的帖子标已读（`channel.markRead`）。
+// 0.132.0：别的助理写的帖子（群里的成员、发来消息的助理）带它的头像与名字；发给别的助理的帖子标“发给 …”；群的输入框打 @ 选成员。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { isRpcError } from '@wevir/client-sdk';
@@ -33,7 +34,15 @@ import { approvalLayout, optionLabel, presentApproval } from '@/session/approval
 import { formatMessageTime } from '@/session/format';
 import { MarkdownView } from '@/session/markdown/markdown-view';
 import { AssistantAvatar } from './assistant-avatar';
-import { type AssistantView, outgoingText, postText, threadsByRoot } from './assistants-model';
+import {
+  type AssistantView,
+  groupMembers,
+  mentionedIn,
+  mentionQuery,
+  outgoingText,
+  postText,
+  threadsByRoot,
+} from './assistants-model';
 
 /** 离底部这么近时，新帖来了跟着滚到底。 */
 const STICK_PX = 120;
@@ -50,6 +59,7 @@ const THREAD_STATUS_LABEL: Record<ChannelThreadStatus, PlainMessageKey> = {
 export function AssistantTimeline({
   client,
   view,
+  assistants,
   loadingOlder,
   onLoadOlder,
   onPosted,
@@ -58,6 +68,8 @@ export function AssistantTimeline({
 }: {
   client: WevirClient;
   view: AssistantView;
+  /** 按 ID 找助理：别的助理写的帖子的头像与名字、群的成员。 */
+  assistants: ReadonlyMap<string, Channel>;
   loadingOlder: boolean;
   onLoadOlder: () => void;
   onPosted: (post: ChannelPost) => void;
@@ -134,6 +146,7 @@ export function AssistantTimeline({
               key={post.id}
               post={post}
               channel={channel}
+              assistants={assistants}
               threads={threads.get(post.id) ?? []}
               onRespond={(accept) =>
                 run(
@@ -171,6 +184,7 @@ export function AssistantTimeline({
         <Composer
           client={client}
           channel={channel}
+          members={channel.kind === 'group' ? groupMembers(channel, assistants) : []}
           onPosted={(post) => {
             stick.current = true;
             onPosted(post);
@@ -185,6 +199,7 @@ export function AssistantTimeline({
 function PostRow({
   post,
   channel,
+  assistants,
   threads,
   onRespond,
   onRetry,
@@ -193,6 +208,7 @@ function PostRow({
 }: {
   post: ChannelPost;
   channel: Channel;
+  assistants: ReadonlyMap<string, Channel>;
   threads: ChannelThread[];
   onRespond: (accept: boolean) => void;
   onRetry: () => void;
@@ -203,9 +219,18 @@ function PostRow({
   const time = formatMessageTime(post.createdAt, currentLocale());
   const author = post.author.kind;
   if (author === 'host') {
+    const about =
+      post.card?.kind === 'notice' && post.card.assistantId !== undefined
+        ? assistants.get(post.card.assistantId)?.title
+        : undefined;
     return (
       <div className="flex justify-center" data-post-author="host" data-post-seq={post.seq}>
-        <HostNotice card={post.card} text={text} onRetry={onRetry} />
+        <HostNotice
+          card={post.card}
+          text={text}
+          {...(about !== undefined && { about })}
+          {...(channel.kind !== 'group' && { onRetry })}
+        />
       </div>
     );
   }
@@ -237,12 +262,35 @@ function PostRow({
       </div>
     );
   }
+  // 别的助理写的：它的头像与名字（列表里没有了就用帖子上的名字）。
+  const other = post.author.kind === 'assistant' ? post.author : undefined;
+  const speaker = other === undefined ? channel : assistants.get(other.channelId);
+  const avatar = speaker?.assistant?.avatar;
   return (
-    <div className="flex gap-3" data-post-author="coordinator" data-post-seq={post.seq}>
-      {channel.assistant && (
-        <AssistantAvatar avatar={channel.assistant.avatar} size={24} className="mt-0.5 shrink-0" />
+    <div
+      className="flex gap-3"
+      data-post-author={author}
+      data-post-seq={post.seq}
+      {...(other !== undefined && { 'data-post-assistant': other.channelId })}
+    >
+      {avatar ? (
+        <AssistantAvatar avatar={avatar} size={24} className="mt-0.5 shrink-0" />
+      ) : (
+        <span aria-hidden className="mt-0.5 size-6 shrink-0 rounded-full bg-muted" />
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {other !== undefined && (
+          <span className="text-xs font-medium text-soft-foreground" data-post-name>
+            {speaker?.title ?? other.name}
+          </span>
+        )}
+        {post.to !== undefined && (
+          <span className="text-xs text-muted-foreground" data-post-to={post.to.channelId}>
+            {t('assistants.timeline.to', {
+              name: assistants.get(post.to.channelId)?.title ?? post.to.name,
+            })}
+          </span>
+        )}
         {post.card?.kind === 'brief' && <BriefCard card={post.card} />}
         {/* 建议的帖子文字就是建议本身，卡片里已有。 */}
         {text !== '' && !(post.card?.kind === 'suggestion' && text === post.card.text) && (
@@ -280,11 +328,15 @@ const CARD = 'rounded-xl border border-border bg-card px-3.5 py-3';
 function HostNotice({
   card,
   text,
+  about,
   onRetry,
 }: {
   card: ChannelCard | undefined;
   text: string;
-  onRetry: () => void;
+  /** 群里：说的是哪个成员。 */
+  about?: string;
+  /** 群没有协调者可以重试。 */
+  onRetry?: () => void;
 }) {
   const reason = card?.kind === 'notice' ? card.reason : undefined;
   const label =
@@ -309,9 +361,9 @@ function HostNotice({
         <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
       )}
       <span className="min-w-0 break-words">
-        {[label, text].filter((part) => part !== undefined && part !== '').join(' · ')}
+        {[about, label, text].filter((part) => part !== undefined && part !== '').join(' · ')}
       </span>
-      {reason === 'failed' && (
+      {reason === 'failed' && onRetry !== undefined && (
         <Button variant="ghost" size="xs" onClick={onRetry} data-action="retry">
           <RotateCcw />
           {t('assistants.notice.retry')}
@@ -564,25 +616,41 @@ function AssistantApproval({
 function Composer({
   client,
   channel,
+  members,
   onPosted,
   onError,
 }: {
   client: WevirClient;
   channel: Channel;
+  /** 群的成员（打 @ 时可选）；助理的时间线是空的。 */
+  members: readonly Channel[];
   onPosted: (post: ChannelPost) => void;
   onError: (text: string) => void;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [caret, setCaret] = useState(0);
+  const [picked, setPicked] = useState(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const query = members.length > 0 ? mentionQuery(text, caret) : undefined;
+  const choices =
+    query === undefined
+      ? []
+      : members.filter((member) =>
+          member.title.toLowerCase().startsWith(query.query.toLowerCase()),
+        );
+  const group = channel.kind === 'group';
   const send = async () => {
     const body = text.trim();
     if (body === '' || busy) return;
     setBusy(true);
     try {
+      const mentions = mentionedIn(body, members);
       const { post } = await client.request('channel.post', {
         channelId: channel.id,
         content: [{ type: 'text', text: body }],
         clientPostId: crypto.randomUUID(),
+        ...(mentions.length > 0 && { mentions }),
       });
       setText('');
       onPosted(post);
@@ -592,35 +660,101 @@ function Composer({
       setBusy(false);
     }
   };
+  const mention = (member: Channel) => {
+    if (query === undefined) return;
+    const next = `${text.slice(0, query.start)}@${member.title} ${text.slice(caret)}`;
+    const at = query.start + member.title.length + 2;
+    setText(next);
+    setCaret(at);
+    setPicked(0);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(at, at);
+    });
+  };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (choices.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setPicked((current) => (current + step + choices.length) % choices.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const member = choices[Math.min(picked, choices.length - 1)];
+        if (member !== undefined) mention(member);
+        return;
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       void send();
     }
   };
+  const placeholder = t(
+    group ? 'assistants.group.placeholder' : 'assistants.composer.placeholder',
+    {
+      name: channel.title,
+    },
+  );
   return (
-    <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-1.5 focus-within:focus-field">
-      <Textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKeyDown}
-        placeholder={t('assistants.composer.placeholder', { name: channel.title })}
-        aria-label={t('assistants.composer.placeholder', { name: channel.title })}
-        className="max-h-48 min-h-9 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:ring-0"
-        rows={1}
-        data-field="post"
-      />
-      <Button
-        size="icon-sm"
-        className="rounded-full"
-        disabled={text.trim() === '' || busy}
-        onClick={() => void send()}
-        aria-label={t('assistants.composer.send')}
-        data-action="send"
-      >
-        <ArrowUp />
-      </Button>
+    <div className="relative">
+      {choices.length > 0 && (
+        <ul
+          className="absolute bottom-full left-0 mb-1.5 flex w-56 flex-col rounded-xl border border-border bg-popover p-1 shadow-md"
+          aria-label={t('assistants.group.mention')}
+          data-testid="mention-menu"
+        >
+          {choices.map((member, index) => (
+            <li key={member.id}>
+              <button
+                type="button"
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm outline-none hover:bg-muted',
+                  index === picked && 'bg-muted',
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => mention(member)}
+                aria-current={index === picked}
+                data-mention={member.id}
+              >
+                {member.assistant && <AssistantAvatar avatar={member.assistant.avatar} size={20} />}
+                <span className="min-w-0 truncate">{member.title}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-1.5 focus-within:focus-field">
+        <Textarea
+          ref={inputRef}
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            setCaret(event.target.selectionStart);
+            setPicked(0);
+          }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+          aria-label={placeholder}
+          className="max-h-48 min-h-9 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:ring-0"
+          rows={1}
+          data-field="post"
+        />
+        <Button
+          size="icon-sm"
+          className="rounded-full"
+          disabled={text.trim() === '' || busy}
+          onClick={() => void send()}
+          aria-label={t('assistants.composer.send')}
+          data-action="send"
+        >
+          <ArrowUp />
+        </Button>
+      </div>
     </div>
   );
 }

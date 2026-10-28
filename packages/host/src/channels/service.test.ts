@@ -253,7 +253,7 @@ describe('ChannelService', () => {
     expect((await h.methods['session.list']({}, context)).sessions).toEqual([]);
     const listed = (await h.methods['channel.list']({}, context)).channels;
     expect(listed.map((channel) => channel.id).sort()).toEqual([first.id, second.id].sort());
-    const workspace = h.storage.workspaces.get(first.workspaceId);
+    const workspace = h.storage.workspaces.get(first.workspaceId ?? '');
     expect(workspace?.rootPath.endsWith(join('assistants', first.id))).toBe(true);
   });
 
@@ -377,7 +377,7 @@ describe('ChannelService', () => {
     );
     const channel = h.service.channelOf(secondSession as SessionId);
     expect(channel?.role).toBe('coordinator');
-    expect(channel?.channel.coordinator.generation).toBe(2);
+    expect(channel?.channel.coordinator?.generation).toBe(2);
   });
 
   it('预算用完时暂停并贴一条说明，帖子照收', async () => {
@@ -403,7 +403,7 @@ describe('ChannelService', () => {
     h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'One more' }] }, identity);
     await h.coordinatorPosts(bot.id, 2);
     const sessionId = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
-      .coordinator.sessionId as SessionId;
+      .coordinator?.sessionId as SessionId;
     const rows = h.storage.usage.range(0, Number.MAX_SAFE_INTEGER);
     expect(rows.some((row) => row.cacheReadTokens > 0)).toBe(true);
     const day = new Intl.DateTimeFormat('en-CA', {
@@ -666,6 +666,184 @@ describe('日程与晨间简报', () => {
     h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'Hello' }] }, identity);
     await h.coordinatorPosts(bot.id, 2);
     expect(h.intents.slice(before).map((intent) => intent.kind)).toEqual(['channel']);
+  });
+});
+
+describe('助理之间与助理群', () => {
+  const textOf = (post: { content: { type: string; text?: string }[] } | undefined) =>
+    post?.content[0]?.type === 'text' ? (post.content[0].text ?? '') : '';
+  const assistantPosts = (h: Awaited<ReturnType<typeof setup>>, channelId: ChannelId) =>
+    h.posts(channelId).filter((post) => post.author.kind === 'assistant');
+  const coordinatorOf = async (h: Awaited<ReturnType<typeof setup>>, channelId: ChannelId) =>
+    (await h.methods['channel.get']({ channelId }, context)).channel.coordinator
+      ?.sessionId as SessionId;
+
+  it('一个助理给另一个发消息：两边时间线都有，对方回答落回发起方并唤醒它，不再自动送回', async () => {
+    const h = await setup();
+    const mail = await h.create('Mail desk', 'Sort my inbox.');
+    const trip = await h.create('Trip desk', 'Bookings.');
+    await h.coordinatorPosts(mail.id, 1);
+    await h.coordinatorPosts(trip.id, 1);
+    const mailSession = await coordinatorOf(h, mail.id);
+
+    const listed = await h.call(mailSession, 'wevir_channel_assistants');
+    expect(JSON.stringify(listed.structuredContent)).toContain('Trip desk');
+    expect(JSON.stringify(listed.structuredContent)).not.toContain('Mail desk');
+    expect(
+      (await h.call(mailSession, 'wevir_channel_message', { to: 'mail desk', text: 'hi' })).isError,
+    ).toBe(true);
+
+    const sent = await h.call(mailSession, 'wevir_channel_message', {
+      to: 'trip desk',
+      text: 'When is the Berlin flight?',
+    });
+    expect(sent.isError).not.toBe(true);
+    const outgoing = h.posts(mail.id).find((post) => post.to !== undefined);
+    expect(outgoing?.to).toEqual({ channelId: trip.id, name: 'Trip desk' });
+    expect(outgoing?.author.kind).toBe('coordinator');
+
+    // 对方：一条来自 Mail desk 的帖子，协调者以 reason=message 醒来回答它。
+    const replies = await h.coordinatorPosts(trip.id, 2);
+    const incoming = assistantPosts(h, trip.id)[0];
+    expect(incoming?.author).toEqual({ kind: 'assistant', channelId: mail.id, name: 'Mail desk' });
+    expect(ChannelPostSchema.parse(incoming)).toEqual(incoming);
+    expect(replies[1]?.replyTo).toBe(incoming?.id);
+    expect(textOf(replies[1])).toContain('reason="message"');
+    expect(textOf(replies[1])).toContain('from="Mail desk"');
+
+    // 发起方：回答以 Trip desk 的名义落回，回复发出的那条；协调者以 reason=reply 醒来。
+    await vi.waitFor(() => expect(assistantPosts(h, mail.id)).toHaveLength(1), { timeout: 5000 });
+    const answer = assistantPosts(h, mail.id)[0];
+    expect(answer?.author).toEqual({ kind: 'assistant', channelId: trip.id, name: 'Trip desk' });
+    expect(answer?.replyTo).toBe(outgoing?.id);
+    const mailReplies = await h.coordinatorPosts(mail.id, 3);
+    expect(textOf(mailReplies[2])).toContain('reason="reply"');
+    // 发起方对回答的回答不再送回对方。
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(assistantPosts(h, trip.id)).toHaveLength(1);
+    expect(h.posts(trip.id).filter((post) => post.author.kind === 'coordinator')).toHaveLength(2);
+  });
+
+  it('建群：没有 @ 时全体成员各自回答，@ 了只唤醒被 @ 的；群外的助理不受影响', async () => {
+    const h = await setup();
+    const ann = await h.create('Ann', 'Calendar.');
+    const bob = await h.create('Bob', 'Travel.');
+    const cid = await h.create('Cid', 'Finance.');
+    for (const bot of [ann, bob, cid]) await h.coordinatorPosts(bot.id, 1);
+
+    await expect(
+      h.methods['channel.create']({ kind: 'group', name: 'Solo', members: [ann.id] }, context),
+    ).rejects.toThrow(/2 to 8/);
+    const { channel: group } = await h.methods['channel.create'](
+      { kind: 'group', name: 'Weekly', members: [ann.id, bob.id] },
+      context,
+    );
+    expect(ChannelSchema.parse(group)).toEqual(group);
+    expect(group).toMatchObject({ kind: 'group', group: { members: [ann.id, bob.id] } });
+    expect(group.coordinator).toBeUndefined();
+    expect(group.workspaceId).toBeUndefined();
+    expect(() => h.methods['channel.wake']({ channelId: group.id }, context)).toThrow(
+      /no coordinator/,
+    );
+
+    await h.methods['channel.post'](
+      { channelId: group.id, content: [{ type: 'text', text: 'Plan the week' }] },
+      context,
+    );
+    await vi.waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(2), {
+      timeout: 5000,
+    });
+    const first = assistantPosts(h, group.id);
+    expect(
+      first.map((post) => post.author.kind === 'assistant' && post.author.name).sort(),
+    ).toEqual(['Ann', 'Bob']);
+    expect(textOf(first[0])).toContain('<group_wake');
+    expect(textOf(first[0])).toContain('Plan the week');
+    for (const post of first) expect(ChannelPostSchema.parse(post)).toEqual(post);
+    // 回答发在群里，不在成员自己的时间线上；Cid 没被唤醒。
+    expect(h.posts(ann.id).filter((post) => post.author.kind === 'coordinator')).toHaveLength(1);
+    expect(h.posts(cid.id)).toHaveLength(1);
+
+    const { post: asked } = await h.methods['channel.post'](
+      { channelId: group.id, content: [{ type: 'text', text: '@Bob what about Friday?' }] },
+      context,
+    );
+    expect(asked.mentions).toEqual([bob.id]);
+    await vi.waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(3), {
+      timeout: 5000,
+    });
+    const third = assistantPosts(h, group.id)[2];
+    expect(third?.author).toMatchObject({ kind: 'assistant', channelId: bob.id });
+    expect(third?.replyTo).toBe(asked.id);
+    // Bob 只看到它上次之后的新帖：上一轮 Ann 的回答与这条。
+    expect(textOf(third)).toContain('what about Friday?');
+    expect(textOf(third)).not.toContain('Plan the week');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(assistantPosts(h, group.id)).toHaveLength(3);
+    const row = (await h.methods['channel.get']({ channelId: group.id }, context)).channel;
+    expect(row.lastPost).toMatchObject({ author: 'assistant', assistantId: bob.id });
+
+    // 删掉 Bob：从群里移出。
+    await h.methods['channel.delete']({ channelId: bob.id }, context);
+    const after = (await h.methods['channel.get']({ channelId: group.id }, context)).channel;
+    expect(after.group?.members).toEqual([ann.id]);
+  });
+
+  it('群里助理 @ 助理接话：层数到上限就停，等用户再发言', async () => {
+    const h = await setup();
+    // 职责里写着 @ 对方：echo 复述信封的成员表，回答就会 @ 到对方（避开 echo 的触发词，如 ask）。
+    const ann = await h.create('Ann', 'Dates. Ping @Bob for travel.');
+    const bob = await h.create('Bob', 'Travel. Ping @Ann for dates.');
+    for (const bot of [ann, bob]) await h.coordinatorPosts(bot.id, 1);
+    const { channel: group } = await h.methods['channel.create'](
+      { kind: 'group', name: 'Pair', members: [ann.id, bob.id] },
+      context,
+    );
+    await h.methods['channel.post'](
+      { channelId: group.id, content: [{ type: 'text', text: 'Hi' }], mentions: [ann.id] },
+      context,
+    );
+    await vi.waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(3), {
+      timeout: 3000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const chain = assistantPosts(h, group.id);
+    expect(chain).toHaveLength(3);
+    expect(chain.map((post) => post.author.kind === 'assistant' && post.author.name)).toEqual([
+      'Ann',
+      'Bob',
+      'Ann',
+    ]);
+    expect(chain[0]?.mentions).toEqual([bob.id]);
+    const idle = (await h.methods['channel.get']({ channelId: group.id }, context)).channel;
+    expect(idle.state).toBe('idle');
+  });
+
+  it('成员的预算用完：群里贴一条说明，带是哪个成员', async () => {
+    const h = await setup({ budget: { dailyWakes: 1, dailyTokens: 1_000_000 } });
+    const ann = await h.create('Ann', 'Calendar.');
+    const bob = await h.create('Bob', 'Travel.');
+    for (const bot of [ann, bob]) await h.coordinatorPosts(bot.id, 1);
+    const { channel: group } = await h.methods['channel.create'](
+      { kind: 'group', name: 'Weekly', members: [ann.id, bob.id] },
+      context,
+    );
+    await h.methods['channel.post'](
+      { channelId: group.id, content: [{ type: 'text', text: 'Plan the week' }] },
+      context,
+    );
+    await vi.waitFor(
+      () => {
+        const notices = h
+          .posts(group.id)
+          .filter((post) => post.card?.kind === 'notice' && post.card.reason === 'budget');
+        expect(
+          notices.map((post) => post.card?.kind === 'notice' && post.card.assistantId).sort(),
+        ).toEqual([ann.id, bob.id].sort());
+      },
+      { timeout: 5000 },
+    );
+    expect(assistantPosts(h, group.id)).toHaveLength(0);
   });
 });
 

@@ -1,5 +1,6 @@
 // 一个助理的对话：大标题是助理的名字，列表顶上是它的头像、职责、所在电脑与状态；往下是它自己的时间线（打开时停在最新一条），
 // 往上翻到顶再下拉加载更早的。底部是输入栏，键盘弹起时跟着上移。工作中时末尾有一枚在跳的头像。
+// 助理群（0.132.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人），没有编辑与重试。
 
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -9,7 +10,9 @@ import {
   KeyboardAvoidingView,
   type NativeScrollEvent,
   Platform,
+  Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -17,7 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BotAvatar } from '../../components/bot-avatar';
 import { PostView } from '../../components/bot-cards';
-import { botPose, botStateColor } from '../../components/bot-row';
+import { botPose, botStateColor, GroupAvatar } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
 import { locale, t } from '../../i18n';
@@ -174,12 +177,16 @@ function BotChat({ bot }: { bot: Bot }) {
     [router, bot.computer],
   );
 
+  const group = bot.kind === 'group';
+  // 群里点选的成员：这条消息 @ 他们；发出后清掉。
+  const [mentions, setMentions] = useState<readonly string[]>([]);
   const send = useCallback(
     async (text: string) => {
       pinned.current = true;
-      await store.send(bot.key, text);
+      await store.send(bot.key, text, mentions);
+      setMentions([]);
     },
-    [store, bot.key],
+    [store, bot.key, mentions],
   );
 
   const track = (e: NativeScrollEvent) => {
@@ -187,19 +194,25 @@ function BotChat({ bot }: { bot: Bot }) {
     pinned.current = bottom - e.contentOffset.y < 120;
   };
 
-  const data = useMemo(() => items(timelineViews(timeline, t('bot.image'))), [timeline]);
+  // 帖子里说话的助理按同一台电脑上的列表找；列表变了 bot 也会换，跟着重算。
+  const data = useMemo(
+    () => items(timelineViews(timeline, t('bot.image'), store.directory(bot.key))),
+    [timeline, store, bot],
+  );
   const stateColor = botStateColor(theme, bot.state);
   const bottom = keyboard > 0 ? 8 : Math.max(insets.bottom, 8);
 
   return (
     <>
       <Stack.Screen options={{ title: bot.name }} />
-      <HeaderButton
-        sf="slider.horizontal.3"
-        md="tune"
-        label={t('editBot.title')}
-        onPress={() => router.push({ pathname: '/edit-bot', params: { key: bot.key } })}
-      />
+      {!group && (
+        <HeaderButton
+          sf="slider.horizontal.3"
+          md="tune"
+          label={t('editBot.title')}
+          onPress={() => router.push({ pathname: '/edit-bot', params: { key: bot.key } })}
+        />
+      )}
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -249,10 +262,14 @@ function BotChat({ bot }: { bot: Bot }) {
             }
             ListHeaderComponent={
               <View style={styles.profile}>
-                <BotAvatar avatar={bot.avatar} size={64} pose={botPose(bot.state)} />
+                {group ? (
+                  <GroupAvatar bot={bot} size={64} />
+                ) : (
+                  <BotAvatar avatar={bot.avatar} size={64} pose={botPose(bot.state)} />
+                )}
                 <View style={styles.profileText}>
                   <Text style={[styles.description, { color: theme.softForeground }]}>
-                    {bot.description}
+                    {group ? bot.members.map((member) => member.name).join('、') : bot.description}
                   </Text>
                   <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
                     {bot.computerName}
@@ -285,7 +302,7 @@ function BotChat({ bot }: { bot: Bot }) {
                     now={now}
                     onDecide={decide}
                     onOpenThread={openThread}
-                    onRetry={retry}
+                    {...(!group && { onRetry: retry })}
                   />
                 </View>
               )
@@ -295,7 +312,53 @@ function BotChat({ bot }: { bot: Bot }) {
             style={[styles.composer, { paddingBottom: bottom }]}
             onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
           >
-            <Composer onSend={send} />
+            {group && bot.members.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.members}
+              >
+                {bot.members.map((member) => {
+                  const on = mentions.includes(member.id);
+                  return (
+                    <Pressable
+                      key={member.id}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={t('bot.mention', { name: member.name })}
+                      onPress={() =>
+                        setMentions((current) =>
+                          on ? current.filter((id) => id !== member.id) : [...current, member.id],
+                        )
+                      }
+                      style={[
+                        styles.member,
+                        {
+                          backgroundColor: on ? theme.primary : theme.card,
+                          borderColor: on ? theme.primary : theme.border,
+                        },
+                      ]}
+                    >
+                      <BotAvatar avatar={member.avatar} size={18} />
+                      <Text
+                        style={[
+                          styles.memberName,
+                          { color: on ? theme.primaryForeground : theme.foreground },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {`@${member.name}`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <Composer
+              onSend={send}
+              {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}
+            />
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -332,4 +395,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   composer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 12 },
+  members: { gap: 8, paddingBottom: 8, paddingHorizontal: 2 },
+  member: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  memberName: { fontSize: TEXT.small, fontWeight: '500' },
 });

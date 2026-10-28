@@ -51,13 +51,13 @@ describe('migrate', () => {
       expect(schemaVersion(db)).toBe(0);
       expect(migrate(db)).toEqual({
         from: 0,
-        to: 26,
+        to: 27,
         applied: [
           1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-          26,
+          26, 27,
         ],
       });
-      expect(schemaVersion(db)).toBe(26);
+      expect(schemaVersion(db)).toBe(27);
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
         .all()
@@ -91,6 +91,7 @@ describe('migrate', () => {
         { version: 24, name: 'tuning_auto' },
         { version: 25, name: 'device_push' },
         { version: 26, name: 'channels' },
+        { version: 27, name: 'channel_groups' },
       ]);
     } finally {
       db.close();
@@ -101,9 +102,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      expect(migrate(db)).toEqual({ from: 26, to: 26, applied: [] });
-      expect(migrate(db)).toEqual({ from: 26, to: 26, applied: [] });
-      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(26);
+      expect(migrate(db)).toEqual({ from: 27, to: 27, applied: [] });
+      expect(migrate(db)).toEqual({ from: 27, to: 27, applied: [] });
+      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(27);
     } finally {
       db.close();
     }
@@ -115,7 +116,7 @@ describe('migrate', () => {
     first.close();
     const second = openStorage({ dataDir: dataDir() });
     try {
-      expect(schemaVersion(second.db)).toBe(26);
+      expect(schemaVersion(second.db)).toBe(27);
       expect(second.workspaces.get('ws_01')).toEqual(workspace());
     } finally {
       second.close();
@@ -126,9 +127,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      const dir = migrationsWith({ '0027_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 26, to: 27, applied: [27] });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 27, to: 27, applied: [] });
+      const dir = migrationsWith({ '0028_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 27, to: 28, applied: [28] });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 28, to: 28, applied: [] });
     } finally {
       db.close();
     }
@@ -163,12 +164,12 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       const dir = migrationsWith({
-        '0027_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
-        '0028_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
+        '0028_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
+        '0029_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
       });
       expect(() => migrate(db, loadMigrations(dir))).toThrow(/syntax error/);
       expect(db.isTransaction).toBe(false);
-      // 0001–0027 与 0028 的前半段都在同一个事务里，一起回滚。
+      // 0001–0028 与 0029 的前半段都在同一个事务里，一起回滚。
       expect(schemaVersion(db)).toBe(0);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all();
       expect(tables).toEqual([]);
@@ -180,15 +181,15 @@ describe('migrate', () => {
   it('数据库版本高于程序已知的最新版本时拒绝运行', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
-      migrate(db, loadMigrations(migrationsWith({ '0027_x.sql': 'SELECT 1;' })));
-      expect(() => migrate(db)).toThrow(/schema 版本 27 高于本程序支持的 26/);
+      migrate(db, loadMigrations(migrationsWith({ '0028_x.sql': 'SELECT 1;' })));
+      expect(() => migrate(db)).toThrow(/schema 版本 28 高于本程序支持的 27/);
     } finally {
       db.close();
     }
   });
 
   it('迁移文件名不合规或版本号不连续时报错', () => {
-    expect(() => loadMigrations(migrationsWith({ '0028_gap.sql': 'SELECT 1;' }))).toThrow(
+    expect(() => loadMigrations(migrationsWith({ '0029_gap.sql': 'SELECT 1;' }))).toThrow(
       /从 1 开始连续/,
     );
   });

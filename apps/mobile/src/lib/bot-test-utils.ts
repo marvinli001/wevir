@@ -25,7 +25,7 @@ export function channel(id: Channel['id'], patch: Partial<Channel> = {}): Channe
       folders: [],
     },
     coordinator: {
-      providerId: 'prov_1' as Channel['coordinator']['providerId'],
+      providerId: 'prov_1' as NonNullable<Channel['coordinator']>['providerId'],
       mode: 'act',
       generation: 1,
     },
@@ -197,7 +197,7 @@ export class FakeChannels {
         const created = channel('chn_01JA2B3C4D5E6F7G8H9JKMNPQC' as Channel['id'], {
           title: params.name as string,
           coordinator: {
-            ...(params.coordinator as Channel['coordinator']),
+            ...(params.coordinator as NonNullable<Channel['coordinator']>),
             mode: 'act',
             generation: 1,
           },

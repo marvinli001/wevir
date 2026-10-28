@@ -176,7 +176,7 @@ describe('BotStore', () => {
     await vi.waitFor(() => expect(empty.calls('channel.list')).toHaveLength(1));
     await fresh.create({ computer: 'mac', name: 'n', description: '', avatar });
     expect(empty.calls('channel.create')[0]).toMatchObject({
-      coordinator: { providerId: 'prov_on' as Channel['coordinator']['providerId'] },
+      coordinator: { providerId: 'prov_on' as NonNullable<Channel['coordinator']>['providerId'] },
     });
   });
 

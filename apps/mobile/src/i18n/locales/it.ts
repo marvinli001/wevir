@@ -123,6 +123,9 @@ export const it: Messages = {
   'bot.notice.failed': 'Turno non riuscito',
   'bot.retry': 'Riprova',
   'bot.image': 'Immagine',
+  'bot.to': 'A {name}',
+  'bot.mention': 'Menziona {name}',
+  'bot.groupPlaceholder': 'Messaggio a {name}',
 
   'newBot.name': 'Nome',
   'newBot.description': 'Compito',

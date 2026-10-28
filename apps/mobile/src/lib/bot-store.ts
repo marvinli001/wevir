@@ -11,7 +11,14 @@ import type {
 import type { Channel, ChannelPost, MethodParams, ProviderProfile } from '@wevir/protocol';
 import { verifyApproval } from './approval-gate';
 import type { Avatar } from './bot-avatar';
-import { type Bot, botFromChannel, botKey, sortBots, type TimelineParts } from './bots';
+import {
+  type Bot,
+  type BotDirectory,
+  botFromChannel,
+  botKey,
+  sortBots,
+  type TimelineParts,
+} from './bots';
 
 export const PAGE_SIZE = 30;
 
@@ -105,6 +112,11 @@ export class BotStore {
 
   bot(key: string): Bot | undefined {
     return this.bots.find((b) => b.key === key);
+  }
+
+  /** 这个助理（或群）所在电脑上的助理与群，按 ID：群的成员、帖子里说话的助理。 */
+  directory(key: string): BotDirectory {
+    return this.target(key)?.state.channels ?? new Map();
   }
 
   timeline(key: string): Timeline {
@@ -244,7 +256,8 @@ export class BotStore {
     }
   }
 
-  async send(key: string, text: string): Promise<void> {
+  /** 发帖；群里 `mentions` 是点选的成员（Host 另外认正文里的 `@名字`）。 */
+  async send(key: string, text: string, mentions: readonly string[] = []): Promise<void> {
     const trimmed = text.trim();
     if (trimmed === '') return;
     const { channelId, client } = this.connected(key);
@@ -252,6 +265,7 @@ export class BotStore {
       channelId,
       content: [{ type: 'text', text: trimmed }],
       clientPostId: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      ...(mentions.length > 0 && { mentions: mentions as Channel['id'][] }),
     });
     this.addPosts(key, [post]);
   }
@@ -308,7 +322,8 @@ export class BotStore {
     const client = state?.client;
     if (state === undefined || client === undefined || !client.canCreate)
       throw new Error('this computer cannot create assistants');
-    let providerId = [...state.channels.values()][0]?.coordinator.providerId;
+    let providerId = [...state.channels.values()].find((c) => c.coordinator !== undefined)
+      ?.coordinator?.providerId;
     if (providerId === undefined) {
       const { providers } = await client.request('provider.list', {});
       providerId = providers.find((p) => p.enabled !== false)?.id;
@@ -323,7 +338,7 @@ export class BotStore {
     });
     state.channels.set(channel.id, channel);
     this.rebuild();
-    return botFromChannel(state.computer, state.computerName, channel);
+    return botFromChannel(state.computer, state.computerName, channel, state.channels);
   }
 
   /** 改助理：名字、职责、头像、模型、可访问的文件夹。 */
@@ -387,9 +402,10 @@ export class BotStore {
     const { client, generation } = state;
     if (client === undefined) return;
     try {
-      const result = await client.request('channel.list', { kind: 'assistant' });
+      // 助理与群（0.132.0）；旧 Host 不给群。
+      const result = await client.request('channel.list', {});
       if (state.generation !== generation) return;
-      state.channels = new Map(result.channels.map((c) => [c.id, c]));
+      state.channels = new Map(result.channels.filter(listed).map((c) => [c.id, c]));
       state.listVersion = result.listVersion;
       this.loadedHosts.add(state.computer);
       this.rebuild();
@@ -406,7 +422,7 @@ export class BotStore {
     state.listVersion = change.listVersion;
     for (const id of change.removed) state.channels.delete(id);
     for (const channel of change.upserted) {
-      if (channel.kind === 'assistant') state.channels.set(channel.id, channel);
+      if (listed(channel)) state.channels.set(channel.id, channel);
     }
     this.rebuild();
   }
@@ -510,7 +526,7 @@ export class BotStore {
     const bots: Bot[] = [];
     for (const state of this.hosts.values()) {
       for (const channel of state.channels.values()) {
-        bots.push(botFromChannel(state.computer, state.computerName, channel));
+        bots.push(botFromChannel(state.computer, state.computerName, channel, state.channels));
       }
     }
     this.bots = sortBots(bots);
@@ -525,6 +541,11 @@ export class BotStore {
   private emit(): void {
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+/** 列表里有的：助理与群。 */
+function listed(channel: Channel): boolean {
+  return channel.kind === 'assistant' || channel.kind === 'group';
 }
 
 /** 按 ID 合并（后来的替换先来的：卡片状态会变），按 seq 排。 */

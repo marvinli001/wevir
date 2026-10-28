@@ -3135,4 +3135,15 @@ export const messages: Messages = {
   'assistants.memory.loadFailed': 'メモリを読み込めませんでした：{error}',
   'assistants.memory.empty': 'メモリなし',
   'assistants.memory.delete': '削除',
+  'assistants.group.new': '新規グループ',
+  'assistants.group.edit': 'グループを編集',
+  'assistants.group.name': 'グループ名',
+  'assistants.group.members': 'メンバー · {count}',
+  'assistants.group.delete': 'グループを削除',
+  'assistants.group.delete.title': 'グループ「{name}」を削除しますか？',
+  'assistants.group.delete.body':
+    'グループのタイムラインは削除されます。メンバーのアシスタントには影響しません。',
+  'assistants.group.placeholder': '{name} にメッセージ',
+  'assistants.group.mention': 'メンバーをメンション',
+  'assistants.timeline.to': '{name} 宛て',
 };

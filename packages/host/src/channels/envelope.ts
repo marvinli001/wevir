@@ -12,7 +12,8 @@ import type {
   UserContentPart,
 } from '@wevir/protocol';
 
-export type WakeReason = 'setup' | 'post' | 'schedule' | 'digest' | 'manual';
+/** `message` 别的助理发来消息，`reply` 别的助理回了这个助理发出的消息（0.132.0）。 */
+export type WakeReason = 'setup' | 'post' | 'schedule' | 'digest' | 'manual' | 'message' | 'reply';
 
 /** 换班的交接材料带最近多少条帖子。 */
 export const HANDOVER_POSTS = 30;
@@ -74,7 +75,8 @@ export function threadsBlock(threads: readonly ChannelThread[]): string {
 
 function postBlock(post: ChannelPost): string {
   const author = post.author.kind;
-  return `<post id="${post.id}" author="${author}" at="${post.createdAt}">${escapeText(postText(post))}</post>`;
+  const from = post.author.kind === 'assistant' ? ` from="${attr(post.author.name)}"` : '';
+  return `<post id="${post.id}" author="${author}"${from} at="${post.createdAt}">${escapeText(postText(post))}</post>`;
 }
 
 export interface WakeInput {
@@ -201,5 +203,44 @@ export function relayEnvelope(
   }
   parts.push(`</channel_relay id="${id}">`);
   const images = cited.flatMap((post) => post.content.filter((part) => part.type === 'image'));
+  return [{ type: 'text', text: parts.join('\n') }, ...images];
+}
+
+/** 群里的一个成员（信封的成员表）。 */
+export interface GroupMemberLine {
+  id: string;
+  name: string;
+  job: string;
+  self: boolean;
+}
+
+/**
+ * 群的唤醒信封（0.132.0）：群名、成员表（带职责，`self` 是收信的这个助理）与它上次看过之后的新帖。回答发进群，所以只带群里的事，
+ * 不带这个助理自己的线程概况。成员表的名字前不加 `@`：echo 会原样复述信封，加了就等于每条回答都 @ 了全体。
+ */
+export function groupWakeEnvelope(
+  input: {
+    group: Pick<Channel, 'id' | 'title'>;
+    members: readonly GroupMemberLine[];
+    posts: readonly ChannelPost[];
+    /** 这次是被 @ 了（还是群里的新发言）。 */
+    mentioned: boolean;
+    at: string;
+  },
+  id = envelopeId(),
+): UserContentPart[] {
+  const members = input.members.map(
+    (member) =>
+      `- ${escapeText(member.name)}${member.self ? ' (you)' : ''}: ${escapeText(firstLine(member.job) || 'no job description')}`,
+  );
+  const parts = [
+    `<group_wake id="${id}" group="${attr(input.group.title)}" reason="${input.mentioned ? 'mentioned' : 'new_post'}" at="${input.at}">`,
+    `<members>\n${members.join('\n')}\n</members>`,
+    ...input.posts.map(postBlock),
+    `</group_wake id="${id}">`,
+  ];
+  const images = input.posts.flatMap((post) =>
+    post.content.filter((part) => part.type === 'image'),
+  );
   return [{ type: 'text', text: parts.join('\n') }, ...images];
 }

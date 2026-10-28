@@ -229,6 +229,8 @@ export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
   'wevir_channel_start_thread',
   'wevir_channel_forward',
   'wevir_channel_resolve',
+  'wevir_channel_assistants',
+  'wevir_channel_message',
   'wevir_process_list',
   'wevir_process_output',
   'wevir_process_wait',

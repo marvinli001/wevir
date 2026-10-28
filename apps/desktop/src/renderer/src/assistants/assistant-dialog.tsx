@@ -161,6 +161,7 @@ function EditForm({ channel, onDone }: { channel: Channel; onDone: () => void })
   const coordinator = channel.coordinator;
   const current =
     models.providers &&
+    coordinator !== undefined &&
     resolveChoice(models.providers, {
       providerId: coordinator.providerId,
       modelId: coordinator.modelId ?? '',

@@ -5,10 +5,15 @@ import {
   applyUpdate,
   assistantPatch,
   assistantsAvailability,
+  assistantsById,
+  groupMembers,
   groupTasks,
+  mentionedIn,
+  mentionQuery,
   mergePosts,
   outgoingText,
   postText,
+  previewLine,
   randomAvatar,
   rerollAvatar,
   rowState,
@@ -266,5 +271,39 @@ describe('assistantPatch', () => {
     expect(
       assistantPatch(current, { ...same, model: { providerId: 'mock', modelId: 'b' } }),
     ).toEqual({ coordinator: { providerId: 'mock', modelId: 'b', reasoningEffort: null } });
+  });
+});
+
+describe('群', () => {
+  const ann = channel({ id: 'chn_ann' as never, title: 'Ann' });
+  const bob = channel({ id: 'chn_bob' as never, title: 'Bob Lee' });
+  const group = channel({
+    id: 'chn_grp' as never,
+    kind: 'group',
+    title: 'Weekly',
+    group: { members: ['chn_ann' as never, 'chn_gone' as never, 'chn_bob' as never] },
+    lastPost: {
+      seq: 3,
+      author: 'assistant',
+      assistantId: 'chn_bob' as never,
+      preview: 'Done',
+      at: AT,
+    },
+  });
+
+  it('列表里有群；成员按顺序，已删的跳过；摘要带作者名', () => {
+    expect(sortAssistants([ann, group]).map((item) => item.id)).toContain('chn_grp');
+    const byId = assistantsById([ann, bob, group]);
+    expect([...byId.keys()]).toEqual(['chn_ann', 'chn_bob']);
+    expect(groupMembers(group, byId).map((member) => member.title)).toEqual(['Ann', 'Bob Lee']);
+    expect(previewLine(group, byId)).toBe('Bob Lee: Done');
+  });
+
+  it('@ 的输入与认人', () => {
+    expect(mentionQuery('hi @An', 6)).toEqual({ start: 3, query: 'An' });
+    expect(mentionQuery('mail@host', 9)).toBeUndefined();
+    expect(mentionQuery('@Ann done', 9)).toBeUndefined();
+    expect(mentionedIn('@bob lee and @Annie', [ann, bob])).toEqual(['chn_bob']);
+    expect(mentionedIn('@Ann, please', [ann, bob])).toEqual(['chn_ann']);
   });
 });

@@ -3182,4 +3182,15 @@ export const messages: Messages = {
   'assistants.memory.loadFailed': 'Erinnerungen konnten nicht geladen werden: {error}',
   'assistants.memory.empty': 'Keine Erinnerungen',
   'assistants.memory.delete': 'Löschen',
+  'assistants.group.new': 'Neue Gruppe',
+  'assistants.group.edit': 'Gruppe bearbeiten',
+  'assistants.group.name': 'Gruppenname',
+  'assistants.group.members': 'Mitglieder · {count}',
+  'assistants.group.delete': 'Gruppe löschen',
+  'assistants.group.delete.title': 'Gruppe „{name}“ löschen?',
+  'assistants.group.delete.body':
+    'Der Gruppenverlauf wird gelöscht. Die Assistenten bleiben erhalten.',
+  'assistants.group.placeholder': 'Nachricht an {name}',
+  'assistants.group.mention': 'Mitglied erwähnen',
+  'assistants.timeline.to': 'An {name}',
 };

@@ -121,6 +121,9 @@ export const en: Messages = {
   'bot.notice.failed': 'Turn failed',
   'bot.retry': 'Retry',
   'bot.image': 'Image',
+  'bot.to': 'To {name}',
+  'bot.mention': 'Mention {name}',
+  'bot.groupPlaceholder': 'Message {name}',
 
   'newBot.name': 'Name',
   'newBot.description': 'What it does',

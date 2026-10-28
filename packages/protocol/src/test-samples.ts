@@ -4,7 +4,7 @@
 import type { ApprovalRule } from './approval-rules.js';
 import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
-import type { Channel, ChannelPost, ChannelThread } from './channels.js';
+import type { Channel, ChannelCoordinator, ChannelPost, ChannelThread } from './channels.js';
 import type { ClientIdentity } from './common.js';
 import type { Device, PairingOffer, RemoteStatus } from './devices.js';
 import type {
@@ -7696,7 +7696,7 @@ export const methodSamples: MethodSamples = {
         {
           channel: {
             ...channelSample,
-            coordinator: { ...channelSample.coordinator, generation: 2 },
+            coordinator: { ...(channelSample.coordinator as ChannelCoordinator), generation: 2 },
           },
         },
       ],

@@ -122,6 +122,9 @@ export const ja: Messages = {
   'bot.notice.failed': 'ターン失敗',
   'bot.retry': '再試行',
   'bot.image': '画像',
+  'bot.to': '{name} 宛て',
+  'bot.mention': '{name} をメンション',
+  'bot.groupPlaceholder': '{name} にメッセージ',
 
   'newBot.name': '名前',
   'newBot.description': '役割',

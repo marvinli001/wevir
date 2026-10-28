@@ -10,6 +10,7 @@ import {
   useRouteError,
 } from 'react-router';
 import { AssistantDialog } from '@/assistants/assistant-dialog';
+import { GroupDialog } from '@/assistants/group-dialog';
 import { AutomationDialog } from '@/automations/automation-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
@@ -168,6 +169,7 @@ function AppRoot() {
       <DeleteSessionDialog />
       <AutomationDialog />
       <AssistantDialog />
+      <GroupDialog />
       <EditProjectDialog />
       <RemoveProjectDialog />
       <ArchiveProjectDialog />

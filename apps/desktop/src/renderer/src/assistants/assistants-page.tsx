@@ -1,11 +1,12 @@
 // 助理页（0.120.0，Host 功能 `channels`）：左栏是聊天列表（头像、名字、最后一条、时间、状态、未读），右边是选中的助理：头部（头像、
 // 名字、职责、暂停与删除），四个页签（对话、任务、日程与规矩、记忆）。照 Grok、Muse、Duet 一类个人助理：每个助理一条时间线。
+// 助理群（0.132.0）也在列表里：叠放的成员头像；选中时只有群的时间线，头部列出成员。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { Channel, ChannelId, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Bot, Ellipsis, Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Bot, Ellipsis, Pause, Pencil, Play, Plus, Trash2, Users } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
@@ -22,12 +23,21 @@ import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { formatMessageTime } from '@/session/format';
 import { Segmented } from '@/settings/settings-ui';
-import { AssistantAvatar } from './assistant-avatar';
+import { AssistantAvatar, GroupAvatar } from './assistant-avatar';
 import { editAssistant, openAssistantDialog } from './assistant-dialog';
 import { MemoryPanel, SchedulePanel, TasksPanel } from './assistant-panels';
 import { ThreadPage, ThreadPane } from './assistant-thread';
 import { AssistantTimeline } from './assistant-timeline';
-import { ROW_STATE_LABEL, rowState, schedulesSupported } from './assistants-model';
+import {
+  assistantsById,
+  groupMembers,
+  groupsSupported,
+  previewLine,
+  ROW_STATE_LABEL,
+  rowState,
+  schedulesSupported,
+} from './assistants-model';
+import { editGroup, openGroupDialog } from './group-dialog';
 import { useAssistantList, useAssistantView } from './use-assistants';
 
 type Tab = 'conversation' | 'tasks' | 'schedule' | 'memory';
@@ -47,25 +57,54 @@ export function AssistantsPage({
 }) {
   const list = useAssistantList(client);
   const channels = list.channels;
+  const assistants = useMemo(() => assistantsById(channels), [channels]);
+  const groups = groupsSupported(client.hello.features);
+  const assistantList = [...assistants.values()];
   return (
     <div className="flex h-full min-h-0" data-testid="assistants-page">
       <aside className="flex w-72 shrink-0 flex-col border-r border-border">
         <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4">
           <h1 className="text-base font-semibold">{t('assistants.title')}</h1>
-          <IconButton
-            label={t('assistants.new')}
-            onClick={openAssistantDialog}
-            data-action="new-assistant"
-          >
-            <Plus />
-          </IconButton>
+          {groups ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <IconButton label={t('assistants.new')} data-action="new-menu">
+                    <Plus />
+                  </IconButton>
+                }
+              />
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={openAssistantDialog} data-action="new-assistant">
+                  <Bot />
+                  {t('assistants.new')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={assistantList.length < 2}
+                  onClick={() => openGroupDialog(assistantList)}
+                  data-action="new-group"
+                >
+                  <Users />
+                  {t('assistants.group.new')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <IconButton
+              label={t('assistants.new')}
+              onClick={openAssistantDialog}
+              data-action="new-assistant"
+            >
+              <Plus />
+            </IconButton>
+          )}
         </div>
         <nav
           className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
           aria-label={t('assistants.title')}
         >
           {channels?.map((channel) => (
-            <AssistantRow key={channel.id} channel={channel} />
+            <AssistantRow key={channel.id} channel={channel} assistants={assistants} />
           ))}
         </nav>
       </aside>
@@ -73,7 +112,12 @@ export function AssistantsPage({
         {channelId !== undefined && threadId !== undefined ? (
           <ThreadPage key={threadId} client={client} channelId={channelId} sessionId={threadId} />
         ) : channelId !== undefined ? (
-          <AssistantPane key={channelId} client={client} channelId={channelId} />
+          <AssistantPane
+            key={channelId}
+            client={client}
+            channelId={channelId}
+            assistants={assistants}
+          />
         ) : channels === undefined ? null : (
           <EmptyState
             icon={<Bot />}
@@ -93,9 +137,15 @@ export function AssistantsPage({
   );
 }
 
-function AssistantRow({ channel }: { channel: Channel }) {
+function AssistantRow({
+  channel,
+  assistants,
+}: {
+  channel: Channel;
+  assistants: ReadonlyMap<string, Channel>;
+}) {
   const state = rowState(channel);
-  const preview = channel.lastPost?.preview;
+  const preview = previewLine(channel, assistants);
   const time = channel.lastPost && formatMessageTime(channel.lastPost.at, currentLocale());
   return (
     <NavLink
@@ -108,7 +158,18 @@ function AssistantRow({ channel }: { channel: Channel }) {
       }
       data-assistant-id={channel.id}
       data-assistant-state={state}
+      data-channel-kind={channel.kind}
     >
+      {channel.kind === 'group' && (
+        <GroupAvatar
+          members={groupMembers(channel, assistants).flatMap((member) =>
+            member.assistant ? [member.assistant.avatar] : [],
+          )}
+          size={32}
+          working={state === 'working'}
+          className="shrink-0"
+        />
+      )}
       {channel.assistant && (
         <AssistantAvatar
           avatar={channel.assistant.avatar}
@@ -125,7 +186,7 @@ function AssistantRow({ channel }: { channel: Channel }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            {state === 'idle' ? (preview ?? '') : t(ROW_STATE_LABEL[state])}
+            {state === 'idle' ? preview : t(ROW_STATE_LABEL[state])}
           </span>
           {channel.pendingCount !== undefined ? (
             <span
@@ -150,7 +211,15 @@ function AssistantRow({ channel }: { channel: Channel }) {
   );
 }
 
-function AssistantPane({ client, channelId }: { client: WevirClient; channelId: ChannelId }) {
+function AssistantPane({
+  client,
+  channelId,
+  assistants,
+}: {
+  client: WevirClient;
+  channelId: ChannelId;
+  assistants: ReadonlyMap<string, Channel>;
+}) {
   const state = useAssistantView(client, channelId);
   const [tab, setTab] = useState<Tab>('conversation');
   const [error, setError] = useState<string>();
@@ -180,6 +249,18 @@ function AssistantPane({ client, channelId }: { client: WevirClient; channelId: 
     );
   }
   const { channel } = view;
+  if (channel.kind === 'group') {
+    return (
+      <GroupPane
+        client={client}
+        view={view}
+        state={state}
+        assistants={assistants}
+        error={error}
+        onError={setError}
+      />
+    );
+  }
   const paused = channel.state === 'paused';
   const openTasks = view.tasks.filter(
     (task) => task.status === 'pending' || task.status === 'in_progress',
@@ -269,6 +350,7 @@ function AssistantPane({ client, channelId }: { client: WevirClient; channelId: 
             <AssistantTimeline
               client={client}
               view={view}
+              assistants={assistants}
               loadingOlder={state.loadingOlder}
               onLoadOlder={state.loadOlder}
               onPosted={state.addPost}
@@ -326,6 +408,100 @@ function AssistantPane({ client, channelId }: { client: WevirClient; channelId: 
         }}
       >
         <p>{t('assistants.delete.body')}</p>
+      </ConfirmDialog>
+    </div>
+  );
+}
+
+/** 群（0.132.0）：头部是叠放的成员头像、群名与成员名，菜单里编辑与删除；下面只有群的时间线。 */
+function GroupPane({
+  client,
+  view,
+  state,
+  assistants,
+  error,
+  onError,
+}: {
+  client: WevirClient;
+  view: NonNullable<ReturnType<typeof useAssistantView>['view']>;
+  state: ReturnType<typeof useAssistantView>;
+  assistants: ReadonlyMap<string, Channel>;
+  error: string | undefined;
+  onError: (text: string) => void;
+}) {
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const { channel } = view;
+  const members = groupMembers(channel, assistants);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-assistant-view={channel.id}>
+      <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-2.5">
+        <GroupAvatar
+          members={members.flatMap((member) => (member.assistant ? [member.assistant.avatar] : []))}
+          size={36}
+          working={channel.state === 'working'}
+          className="shrink-0"
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold">{channel.title}</h2>
+          <p className="truncate text-xs text-muted-foreground" data-group-members>
+            {members.map((member) => member.title).join('、')}
+          </p>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <IconButton label={t('assistants.actions')} data-action="group-menu">
+                <Ellipsis />
+              </IconButton>
+            }
+          />
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem
+              onClick={() => editGroup(channel, [...assistants.values()])}
+              data-action="edit-group"
+            >
+              <Pencil />
+              {t('assistants.group.edit')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setConfirming(true)}
+              data-action="delete-group"
+            >
+              <Trash2 />
+              {t('assistants.group.delete')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </header>
+      {error && (
+        <p className="shrink-0 bg-destructive/10 px-5 py-1.5 text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      <AssistantTimeline
+        client={client}
+        view={view}
+        assistants={assistants}
+        loadingOlder={state.loadingOlder}
+        onLoadOlder={state.loadOlder}
+        onPosted={state.addPost}
+        onOpenThread={() => undefined}
+        onError={onError}
+      />
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('assistants.group.delete.title', { name: channel.title })}
+        confirmLabel={t('assistants.group.delete')}
+        failure={(reason) => t('assistants.actionFailed', { error: reason })}
+        onConfirm={async () => {
+          await client.request('channel.delete', { channelId: channel.id });
+          navigate(paths.assistants());
+        }}
+      >
+        <p>{t('assistants.group.delete.body')}</p>
       </ConfirmDialog>
     </div>
   );

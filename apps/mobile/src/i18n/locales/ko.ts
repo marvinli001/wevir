@@ -120,6 +120,9 @@ export const ko: Messages = {
   'bot.notice.failed': '턴 실패',
   'bot.retry': '다시 시도',
   'bot.image': '이미지',
+  'bot.to': '{name}에게',
+  'bot.mention': '{name} 멘션',
+  'bot.groupPlaceholder': '{name}에 메시지',
 
   'newBot.name': '이름',
   'newBot.description': '하는 일',

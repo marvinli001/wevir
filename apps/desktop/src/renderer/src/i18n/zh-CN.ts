@@ -3125,6 +3125,16 @@ export const zhCN = {
   'assistants.memory.loadFailed': '读取记忆失败：{error}',
   'assistants.memory.empty': '暂无记忆',
   'assistants.memory.delete': '删除',
+  'assistants.group.new': '新建群聊',
+  'assistants.group.edit': '编辑群聊',
+  'assistants.group.name': '群名',
+  'assistants.group.members': '成员 · {count}',
+  'assistants.group.delete': '删除群聊',
+  'assistants.group.delete.title': '删除群聊“{name}”？',
+  'assistants.group.delete.body': '群的时间线一并删除，成员助理不受影响。',
+  'assistants.group.placeholder': '发消息到 {name}',
+  'assistants.group.mention': '提及成员',
+  'assistants.timeline.to': '发给 {name}',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

@@ -24,6 +24,22 @@ export function botStateColor(theme: Theme, state: BotState): string {
   }
 }
 
+/** 群的头像（0.132.0）：前两个成员错开叠放，只有一个成员时就是它。 */
+export function GroupAvatar({ bot, size }: { bot: Bot; size: number }) {
+  const [first, second] = bot.members;
+  const pose = botPose(bot.state);
+  if (first === undefined || second === undefined) {
+    return <BotAvatar avatar={first?.avatar ?? bot.avatar} size={size} pose={pose} />;
+  }
+  const small = Math.round(size * 0.68);
+  return (
+    <View style={{ width: size, height: size }}>
+      <BotAvatar avatar={first.avatar} size={small} pose={pose} style={styles.topLeft} />
+      <BotAvatar avatar={second.avatar} size={small} pose={pose} style={styles.bottomRight} />
+    </View>
+  );
+}
+
 export function BotRow({
   bot,
   now,
@@ -44,7 +60,13 @@ export function BotRow({
       chevron={false}
       onPress={onPress}
       inset={76}
-      leading={<BotAvatar avatar={bot.avatar} size={46} pose={botPose(bot.state)} />}
+      leading={
+        bot.kind === 'group' ? (
+          <GroupAvatar bot={bot} size={46} />
+        ) : (
+          <BotAvatar avatar={bot.avatar} size={46} pose={botPose(bot.state)} />
+        )
+      }
       title={
         <View style={styles.titleRow}>
           <Text style={[styles.name, { color: theme.foreground }]} numberOfLines={1}>
@@ -93,6 +115,8 @@ export function BotRow({
 }
 
 const styles = StyleSheet.create({
+  topLeft: { position: 'absolute', top: 0, left: 0 },
+  bottomRight: { position: 'absolute', right: 0, bottom: 0 },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   name: { flex: 1, fontSize: TEXT.body, fontWeight: '600', letterSpacing: -0.2 },
   time: { fontSize: TEXT.caption, fontVariant: ['tabular-nums'] },

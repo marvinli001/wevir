@@ -514,6 +514,12 @@ export const HOST_FEATURES = {
    */
   channel_schedules: 'channel_schedules',
   /**
+   * 助理之间与助理群（0.132.0）：频道种类 `group` 与 `Channel.group`、`channel.create` / `channel.update` 的 `members`、`channel.post`
+   * 的 `mentions`、帖子作者 `assistant` 与帖子的 `to` / `mentions`、说明卡片的 `assistantId`，协调者的 `wevir_channel_assistants` 与
+   * `wevir_channel_message`。
+   */
+  channel_groups: 'channel_groups',
+  /**
    * iOS 模拟器（0.122.0，domain-model §3.15.9）：`simulator.*` 方法、`simulator.changed` / `simulator.show` / `simulator.orientation`
    * 通知与 RPC 端口上的 `/simulator/stream`；设置的 `iosSimulator` 开着（默认）且有应用级工具时还有 `simulator_control` 与
    * `simulator_build`。Host 在 macOS 上、找得到 helper（`WEVIR_IOS_SIMULATOR_BIN`）时声明。
@@ -643,6 +649,7 @@ export const HostFeaturesSchema = z.looseObject({
   remote_web: z.boolean().optional(),
   channels: z.boolean().optional(),
   channel_schedules: z.boolean().optional(),
+  channel_groups: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),

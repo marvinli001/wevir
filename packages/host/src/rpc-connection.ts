@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import {
   type AccountState,
+  type Channel,
+  type ChannelPost,
   type ClientCapabilities,
   type ClientIdentity,
   CloseCode,
@@ -1146,7 +1148,10 @@ export class RpcConnection {
     if (this.#unwatchChannels !== undefined || this.#host.channels === undefined) return;
     if (this.#phase !== 'ready') return;
     this.#unwatchChannels = this.#host.channels.watch((change) => {
-      this.#notifyChecked('channels.changed', change);
+      this.#notifyChecked(
+        'channels.changed',
+        channelNotificationForClient('channels.changed', change, this.#protocolVersion),
+      );
     });
   }
 
@@ -1160,10 +1165,25 @@ export class RpcConnection {
       throw new HostError('INVALID_PARAMS', 'this host has no channels', { issues: [] });
     const subscriptionId = newId('sub');
     const { lastSeq, unsubscribe } = channels.subscribe(params.channelId, undefined, (message) => {
+      const version = this.#protocolVersion;
       if (message.kind === 'posted') {
-        this.#notifyChecked('channel.posted', { subscriptionId, post: message.post });
+        this.#notifyChecked(
+          'channel.posted',
+          channelNotificationForClient(
+            'channel.posted',
+            { subscriptionId, post: message.post },
+            version,
+          ),
+        );
       } else {
-        this.#notifyChecked('channel.updated', { subscriptionId, ...message.update });
+        this.#notifyChecked(
+          'channel.updated',
+          channelNotificationForClient(
+            'channel.updated',
+            { subscriptionId, ...message.update },
+            version,
+          ),
+        );
       }
     });
     this.#channelSubscriptions.set(subscriptionId, unsubscribe);
@@ -1184,7 +1204,14 @@ export class RpcConnection {
       for (const post of posts) {
         if (post.seq > lastSeq) return;
         cursor = post.seq;
-        this.#notifyChecked('channel.posted', { subscriptionId, post });
+        this.#notifyChecked(
+          'channel.posted',
+          channelNotificationForClient(
+            'channel.posted',
+            { subscriptionId, post },
+            this.#protocolVersion,
+          ),
+        );
       }
     }
   }
@@ -1739,7 +1766,65 @@ export function adaptResultForClient(
         return { ...result, device: deviceForClient(result.device, protocolVersion) };
     }
   }
+  // COMPAT(channelGroups): added in 0.132.0, remove gate after 2027-06-01
+  if (
+    method.startsWith('channel.') &&
+    compareProtocolVersions(protocolVersion, CHANNEL_GROUPS_SINCE) < 0
+  ) {
+    return adaptKindsAndTitles(
+      method,
+      channelResultForOldClient(value),
+      capabilities,
+      protocolVersion,
+    );
+  }
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
+}
+
+/** 助理群与 `assistant` 作者进协议的版本：更早的客户端看不到群，别的助理写的帖子给它们看成 Host 写的。 */
+const CHANNEL_GROUPS_SINCE = '0.132.0';
+
+function postForOldClient(post: ChannelPost): ChannelPost {
+  return post.author.kind === 'assistant' ? { ...post, author: { kind: 'host' } } : post;
+}
+
+function channelForOldClient(channel: Channel): Channel {
+  if (channel.lastPost?.author !== 'assistant') return channel;
+  const { assistantId: _assistantId, ...lastPost } = channel.lastPost;
+  return { ...channel, lastPost: { ...lastPost, author: 'host' } };
+}
+
+/** `channel.*` 的结果给 0.132.0 以前的客户端：去掉群，改写帖子作者。 */
+function channelResultForOldClient(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  const result = { ...(value as Record<string, unknown>) };
+  if (Array.isArray(result.channels)) {
+    result.channels = (result.channels as Channel[])
+      .filter((channel) => channel.kind !== 'group')
+      .map(channelForOldClient);
+  }
+  if (result.channel !== undefined) result.channel = channelForOldClient(result.channel as Channel);
+  if (Array.isArray(result.posts))
+    result.posts = (result.posts as ChannelPost[]).map(postForOldClient);
+  if (result.post !== undefined) result.post = postForOldClient(result.post as ChannelPost);
+  return result;
+}
+
+/** 频道的通知给 0.132.0 以前的客户端：同 `channelResultForOldClient`。 */
+export function channelNotificationForClient<
+  N extends 'channels.changed' | 'channel.posted' | 'channel.updated',
+>(name: N, params: NotificationParams<N>, protocolVersion: string): NotificationParams<N> {
+  if (compareProtocolVersions(protocolVersion, CHANNEL_GROUPS_SINCE) >= 0) return params;
+  if (name === 'channels.changed') {
+    const change = params as NotificationParams<'channels.changed'>;
+    return {
+      ...change,
+      upserted: change.upserted
+        .filter((channel) => channel.kind !== 'group')
+        .map(channelForOldClient),
+    } as NotificationParams<N>;
+  }
+  return channelResultForOldClient(params) as NotificationParams<N>;
 }
 
 /** 设备平台 `web` 进协议的版本：更早的客户端的枚举里没有它，给它们看 `other`。 */

@@ -1,5 +1,6 @@
 import type { AssistantAvatar as Avatar } from '@wevir/protocol';
 import { BotAvatar } from 'bot-avatars';
+import { cn } from 'cn';
 import { useFxTheme, useReducedMotion } from '@/fx/motion';
 import { AVATAR_COLORS } from '@/session/avatar';
 
@@ -39,5 +40,52 @@ export function AssistantAvatar({
       data-avatar-type={avatar.type}
       className={className}
     />
+  );
+}
+
+/**
+ * 群的头像（0.132.0）：前两个成员的头像错开叠放（左上、右下），只有一个成员时就是它；纯装饰，群名由旁边的文字给出。
+ */
+export function GroupAvatar({
+  members,
+  size = 28,
+  working = false,
+  className,
+}: {
+  members: readonly Avatar[];
+  size?: number;
+  working?: boolean;
+  className?: string;
+}) {
+  const [first, second] = members;
+  const small = Math.round(size * 0.68);
+  return (
+    <span
+      aria-hidden
+      className={cn('relative inline-block', className)}
+      style={{ width: size, height: size }}
+      data-group-avatar={members.length}
+    >
+      {first !== undefined && second === undefined && (
+        <AssistantAvatar avatar={first} size={size} working={working} />
+      )}
+      {first !== undefined && second !== undefined && (
+        <>
+          <AssistantAvatar
+            avatar={first}
+            size={small}
+            working={working}
+            className="absolute top-0 left-0"
+          />
+          <AssistantAvatar
+            avatar={second}
+            size={small}
+            working={working}
+            className="absolute right-0 bottom-0"
+          />
+        </>
+      )}
+      {first === undefined && <span className="absolute inset-0 rounded-full bg-muted" />}
+    </span>
   );
 }

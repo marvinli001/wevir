@@ -127,6 +127,7 @@ import frozen01280 from './compat/0.128.0.json' with { type: 'json' };
 import frozen01290 from './compat/0.129.0.json' with { type: 'json' };
 import frozen01300 from './compat/0.130.0.json' with { type: 'json' };
 import frozen01310 from './compat/0.131.0.json' with { type: 'json' };
+import frozen01320 from './compat/0.132.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -279,6 +280,7 @@ const frozenVersions: FrozenSamples[] = [
   frozen01290,
   frozen01300,
   frozen01310,
+  frozen01320,
 ];
 
 function issuesOf(schema: z.ZodType, value: unknown) {

@@ -122,6 +122,9 @@ export const ru: Messages = {
   'bot.notice.failed': 'Ход не удался',
   'bot.retry': 'Повторить',
   'bot.image': 'Изображение',
+  'bot.to': 'Для {name}',
+  'bot.mention': 'Упомянуть {name}',
+  'bot.groupPlaceholder': 'Сообщение в {name}',
 
   'newBot.name': 'Имя',
   'newBot.description': 'Задача',

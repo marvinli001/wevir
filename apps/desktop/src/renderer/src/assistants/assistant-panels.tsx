@@ -11,6 +11,7 @@ import {
   type BoardTask,
   type Channel,
   type ChannelBudget,
+  DEFAULT_ASSISTANT_BUDGET,
   DEFAULT_ASSISTANT_RULES,
   type MemorySummary,
   type MethodParams,
@@ -153,7 +154,7 @@ export function SchedulePanel({
       .catch((reason: unknown) =>
         onError(t('assistants.actionFailed', { error: describe(reason) })),
       );
-  const budget = channel.budget;
+  const budget = channel.budget ?? DEFAULT_ASSISTANT_BUDGET;
   const usage = channel.usage;
   const setBudget = (next: Partial<ChannelBudget>) => update({ budget: { ...budget, ...next } });
   const numberFormat = new Intl.NumberFormat();

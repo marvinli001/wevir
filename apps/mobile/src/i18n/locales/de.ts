@@ -123,6 +123,9 @@ export const de: Messages = {
   'bot.notice.failed': 'Durchlauf fehlgeschlagen',
   'bot.retry': 'Wiederholen',
   'bot.image': 'Bild',
+  'bot.to': 'An {name}',
+  'bot.mention': '{name} erwähnen',
+  'bot.groupPlaceholder': 'Nachricht an {name}',
 
   'newBot.name': 'Name',
   'newBot.description': 'Aufgabe',

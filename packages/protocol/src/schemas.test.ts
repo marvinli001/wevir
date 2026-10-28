@@ -423,6 +423,12 @@ const standaloneCases: Case[] = [
     invalid: [{ dailyWakes: 1, dailyTokens: 10 }],
   },
   {
+    name: 'ChannelGroup',
+    schema: protocol.ChannelGroupSchema,
+    valid: [{ members: ['chn_01JA2B3C4D5E6F7G8H9JKMNPQR', 'chn_01JA2B3C4D5E6F7G8H9JKMNPQS'] }],
+    invalid: [{ members: ['ws_01JA2B3C4D5E6F7G8H9JKMNPQR'] }, {}],
+  },
+  {
     name: 'ChannelUsage',
     schema: protocol.ChannelUsageSchema,
     valid: [{ day: '2026-10-12', wakes: 0, tokens: 0 }],

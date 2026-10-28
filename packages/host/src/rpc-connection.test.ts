@@ -6,7 +6,11 @@ import type {
   WevirEventOf,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { adaptEventForClient, adaptResultForClient } from './rpc-connection.js';
+import {
+  adaptEventForClient,
+  adaptResultForClient,
+  channelNotificationForClient,
+} from './rpc-connection.js';
 import { identity, SES, T0 } from './test-utils.js';
 
 // 按连接的能力位降级（host-api.md §10）。0.5.0：`TitleSource` 的 `generated` 只发给声明了 `title_source_generated`
@@ -249,5 +253,73 @@ describe('approval_rules', () => {
       payload: { ...resolved.payload, resolution: { ...resolution, reason: 'user' } },
     });
     expect(adaptEventForClient(resolved, { approval_rules: true })).toBe(resolved);
+  });
+});
+
+describe('channel groups (0.132.0)', () => {
+  const A = 'chn_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
+  const G = 'chn_01JA2B3C4D5E6F7G8H9JKMNPG1' as const;
+  const group = {
+    id: G,
+    kind: 'group' as const,
+    title: 'Weekly',
+    group: { members: [A] },
+    state: 'idle' as const,
+    lastPostSeq: 1,
+    lastPost: { seq: 1, author: 'assistant' as const, assistantId: A, preview: 'Hi', at: T0 },
+    createdAt: T0,
+    updatedAt: T0,
+  };
+  const post = {
+    id: 'cpo_01JA2B3C4D5E6F7G8H9JKMNPQR' as const,
+    channelId: A,
+    seq: 1,
+    author: { kind: 'assistant' as const, channelId: A, name: 'Ann' },
+    content: [{ type: 'text' as const, text: 'Hi' }],
+    createdAt: T0,
+  };
+
+  it('older clients see no groups and get posts by other assistants as host posts', () => {
+    const assistant = { ...group, id: A, kind: 'assistant' as const };
+    expect(
+      adaptResultForClient(
+        'channel.list',
+        { channels: [group, assistant], listVersion: 1 },
+        {},
+        '0.131.0',
+      ),
+    ).toEqual({
+      channels: [
+        {
+          ...assistant,
+          lastPost: { seq: 1, author: 'host', preview: 'Hi', at: T0 },
+        },
+      ],
+      listVersion: 1,
+    });
+    expect(
+      adaptResultForClient('channel.posts', { posts: [post], lastSeq: 1 }, {}, '0.131.0'),
+    ).toEqual({
+      posts: [{ ...post, author: { kind: 'host' } }],
+      lastSeq: 1,
+    });
+    expect(
+      channelNotificationForClient(
+        'channels.changed',
+        { listVersion: 2, upserted: [group], removed: [] },
+        '0.131.0',
+      ).upserted,
+    ).toEqual([]);
+    const posted = { subscriptionId: 'sub_01JA2B3C4D5E6F7G8H9JKMNPQR' as const, post };
+    expect(channelNotificationForClient('channel.posted', posted, '0.131.0').post.author).toEqual({
+      kind: 'host',
+    });
+    expect(channelNotificationForClient('channel.posted', posted, '0.132.0')).toBe(posted);
+    expect(
+      adaptResultForClient('channel.posts', { posts: [post], lastSeq: 1 }, {}, '0.132.0'),
+    ).toEqual({
+      posts: [post],
+      lastSeq: 1,
+    });
   });
 });

@@ -1,5 +1,6 @@
 // 助理（私人 bot）在手机上的数据形状。助理是电脑上的一个频道（`kind: 'assistant'`）：一条时间线、一个协调者、开出的线程。
 // 这里把频道、帖子、线程与审批换成手机要画的部分；多台电脑的助理合并成一个列表，`key` 带电脑名区分。纯逻辑。
+// 助理群（0.132.0，`kind: 'group'`）也在列表里：成员是同一台电脑上的几个助理；群里与别的助理发来的帖子带说话的那个助理。
 
 import type {
   ApprovalRequest,
@@ -13,10 +14,20 @@ import { type Avatar, normalizeAvatar } from './bot-avatar';
 /** 列表与详情里的状态：空闲、工作中、等用户决定、已暂停（用户暂停或预算用完）。 */
 export type BotState = Channel['state'];
 
+/** 群的成员，或时间线上说话的另一个助理。 */
+export interface BotMember {
+  id: string;
+  name: string;
+  avatar: Avatar;
+}
+
 export interface Bot {
   /** `电脑名/频道 ID`，全 App 唯一。 */
   key: string;
   id: string;
+  kind: 'assistant' | 'group';
+  /** 群的成员（同一台电脑上还在的助理，按成员顺序）；助理是空的。 */
+  members: readonly BotMember[];
   /** 所在电脑的配对记录名。 */
   computer: string;
   /** 所在电脑的显示名。 */
@@ -75,7 +86,7 @@ export type BotCard =
       items: readonly { kind: NeedKind; label: string; ready: boolean; detail?: string }[];
     }
   | { kind: 'suggestion'; text: string; decision: Decision }
-  | { kind: 'notice'; reason: NoticeReason };
+  | { kind: 'notice'; reason: NoticeReason; about?: string };
 
 export interface BotPost {
   /** 列表里的键：帖子是帖子 ID（带文字又带卡片的拆成两条），线程是会话 ID，审批是审批 ID。 */
@@ -83,25 +94,59 @@ export interface BotPost {
   author: 'user' | 'bot' | 'host';
   createdAt: string;
   card: BotCard;
+  /** 别的助理说的（群里的成员、发来消息的助理）：它的名字与头像。 */
+  speaker?: BotMember;
+  /** 发给了哪个助理（`wevir_channel_message`）。 */
+  to?: string;
 }
 
 export function botKey(computer: string, id: string): string {
   return `${computer}/${id}`;
 }
 
-export function botFromChannel(computer: string, computerName: string, channel: Channel): Bot {
+/** 同一台电脑上的助理，按 ID 找（群的成员、帖子里说话的助理）。 */
+export type BotDirectory = ReadonlyMap<string, Channel>;
+
+function memberOf(channel: Channel): BotMember {
+  return {
+    id: channel.id,
+    name: channel.title,
+    avatar: normalizeAvatar(channel.assistant?.avatar),
+  };
+}
+
+export function botFromChannel(
+  computer: string,
+  computerName: string,
+  channel: Channel,
+  directory: BotDirectory = new Map(),
+): Bot {
+  const members = (channel.group?.members ?? []).flatMap((id) => {
+    const member = directory.get(id);
+    return member === undefined || member.kind !== 'assistant' ? [] : [memberOf(member)];
+  });
+  const last = channel.lastPost;
+  const speaker =
+    last?.author === 'assistant' && last.assistantId !== undefined
+      ? directory.get(last.assistantId)?.title
+      : undefined;
   return {
     key: botKey(computer, channel.id),
     id: channel.id,
+    kind: channel.kind === 'group' ? 'group' : 'assistant',
+    members,
     computer,
     computerName,
     name: channel.title,
     description: channel.assistant?.description ?? '',
-    avatar: normalizeAvatar(channel.assistant?.avatar),
+    avatar: normalizeAvatar(channel.assistant?.avatar ?? members[0]?.avatar),
     state: channel.state,
     unreadCount: channel.unreadCount ?? 0,
-    ...(channel.lastPost !== undefined && {
-      lastPost: { text: channel.lastPost.preview, at: channel.lastPost.at },
+    ...(last !== undefined && {
+      lastPost: {
+        text: speaker === undefined ? last.preview : `${speaker}: ${last.preview}`,
+        at: last.at,
+      },
     }),
     createdAt: channel.createdAt,
   };
@@ -117,14 +162,34 @@ export function sortBots(bots: readonly Bot[]): Bot[] {
 }
 
 function author(post: ChannelPost): BotPost['author'] {
-  return post.author.kind === 'coordinator' ? 'bot' : post.author.kind;
+  return post.author.kind === 'coordinator' || post.author.kind === 'assistant'
+    ? 'bot'
+    : post.author.kind;
 }
 
 const DECISIONS = { open: 'pending', accepted: 'approved', dismissed: 'rejected' } as const;
 
 /** 一条帖子画成几条：文字一条，卡片一条，交给用户的文件各一条。只有图片时文字是 `imageLabel`。 */
-export function postViews(post: ChannelPost, imageLabel: string): BotPost[] {
-  const base = { author: author(post), createdAt: post.createdAt };
+export function postViews(
+  post: ChannelPost,
+  imageLabel: string,
+  directory: BotDirectory = new Map(),
+): BotPost[] {
+  const other = post.author.kind === 'assistant' ? post.author : undefined;
+  const known = other === undefined ? undefined : directory.get(other.channelId);
+  const speaker: BotMember | undefined =
+    other === undefined
+      ? undefined
+      : known !== undefined
+        ? memberOf(known)
+        : { id: other.channelId, name: other.name, avatar: normalizeAvatar(undefined) };
+  const to =
+    post.to === undefined ? undefined : (directory.get(post.to.channelId)?.title ?? post.to.name);
+  const base = {
+    author: author(post),
+    createdAt: post.createdAt,
+    ...(speaker !== undefined && { speaker }),
+  };
   const out: BotPost[] = [];
   const text = post.content
     .map((part) => (part.type === 'text' ? part.text : `[${imageLabel}]`))
@@ -133,7 +198,13 @@ export function postViews(post: ChannelPost, imageLabel: string): BotPost[] {
   const card = post.card;
   // 提议的正文就是卡片上那句，不再单独画一遍。
   const repeated = card?.kind === 'suggestion' && card.text.trim() === text;
-  if (text !== '' && !repeated) out.push({ ...base, id: post.id, card: { kind: 'text', text } });
+  if (text !== '' && !repeated)
+    out.push({
+      ...base,
+      id: post.id,
+      card: { kind: 'text', text },
+      ...(to !== undefined && { to }),
+    });
   if (card !== undefined) {
     const id = `${post.id}:card`;
     switch (card.kind) {
@@ -159,9 +230,17 @@ export function postViews(post: ChannelPost, imageLabel: string): BotPost[] {
           },
         });
         break;
-      case 'notice':
-        out.push({ ...base, author: 'host', id, card: { kind: 'notice', reason: card.reason } });
+      case 'notice': {
+        const about =
+          card.assistantId === undefined ? undefined : directory.get(card.assistantId)?.title;
+        out.push({
+          ...base,
+          author: 'host',
+          id,
+          card: { kind: 'notice', reason: card.reason, ...(about !== undefined && { about }) },
+        });
         break;
+      }
     }
   }
   for (const [index, file] of (post.files ?? []).entries()) {
@@ -251,7 +330,11 @@ export interface TimelineParts {
 /**
  * 整条时间线：帖子按 `seq`，线程卡片挂在开它的那条帖子后面；根帖还没加载的线程与审批按时间插进去（比已加载的最早一条还早的线程不画）。
  */
-export function timelineViews(timeline: TimelineParts, imageLabel: string): BotPost[] {
+export function timelineViews(
+  timeline: TimelineParts,
+  imageLabel: string,
+  directory: BotDirectory = new Map(),
+): BotPost[] {
   const byRoot = new Map<string, ChannelThread[]>();
   const loose: BotPost[] = [];
   const ids = new Set(timeline.posts.map((p) => p.id));
@@ -276,7 +359,7 @@ export function timelineViews(timeline: TimelineParts, imageLabel: string): BotP
     while (loose[0] !== undefined && loose[0].createdAt < post.createdAt) {
       out.push(loose.shift() as BotPost);
     }
-    out.push(...postViews(post, imageLabel));
+    out.push(...postViews(post, imageLabel, directory));
     const threads = (byRoot.get(post.id) ?? []).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
     );
@@ -329,10 +412,11 @@ export function botPatch(
       patch.folders = [...edit.folders];
   }
   const model = edit.model;
+  const coordinator = channel.coordinator;
   if (
     model !== undefined &&
-    (model.providerId !== channel.coordinator.providerId ||
-      model.modelId !== channel.coordinator.modelId)
+    coordinator !== undefined &&
+    (model.providerId !== coordinator.providerId || model.modelId !== coordinator.modelId)
   )
     patch.coordinator = {
       providerId: model.providerId,

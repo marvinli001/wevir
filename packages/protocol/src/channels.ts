@@ -4,6 +4,12 @@
 //
 // 助理（`kind: 'assistant'`）是不绑定项目、带身份与规矩的频道：隐藏工作区 `<数据目录>/assistants/<频道 ID>`（`Workspace.kind:
 // 'assistant'`），记忆用它的 `project` 作用域，协调者默认 `act`（自己做小事）。现在只开放建助理；项目频道（`project`）以后开放。
+//
+// 助理之间（0.132.0）：协调者用 `wevir_assistant_message` 给另一个助理发消息，落到对方时间线（作者 `assistant`）并唤醒对方，对方的
+// 回答再落回发起方的时间线、唤醒发起方。助理群（`kind: 'group'`）是没有自己协调者、工作区与预算的频道：成员是几个助理，用户在群里
+// 发言时被 @ 的成员（没有 @ 时全体）由各自的协调者回答，回答以 `assistant` 作者发进群；助理在回答里 @ 别的成员时那个成员接话。
+// 花费记在各成员自己的预算上；一轮（两次用户发言之间）助理至多回 `GROUP_ROUND_REPLIES_MAX` 条、接话至多 `GROUP_MENTION_DEPTH_MAX`
+// 层，没有用户发言时不再唤醒。
 
 import { z } from 'zod';
 import {
@@ -36,6 +42,15 @@ export const CHANNEL_POST_TEXT_MAX_LENGTH = 20_000;
 export const CHANNEL_POSTS_PAGE_MAX = 200;
 /** 助理能访问的文件夹（除隐藏工作区外）最多几个。 */
 export const ASSISTANT_FOLDERS_MAX = 7;
+/** 群的成员数：建群至少 2 个助理，至多 8 个。 */
+export const GROUP_MEMBERS_MIN = 2;
+export const GROUP_MEMBERS_MAX = 8;
+/** 群里一轮（两次用户发言之间）助理至多回几条。 */
+export const GROUP_ROUND_REPLIES_MAX = 6;
+/** 群里助理 @ 助理接话至多几层（用户发言唤醒的回答是第 1 层）。 */
+export const GROUP_MENTION_DEPTH_MAX = 3;
+/** 助理之间的消息没有用户插话时至多来回几次（发出与回来各算一次）。 */
+export const ASSISTANT_MESSAGE_DEPTH_MAX = 4;
 
 /**
  * 助理头像的形状（与子会话同一套 bot-avatars：桌面 `session/avatar.ts` 的 `AVATAR_TYPES`）。建助理时 Host 从形状 × 颜色里随机抽一个，
@@ -110,7 +125,8 @@ export const AssistantSchema = z.object({
 });
 export type Assistant = z.infer<typeof AssistantSchema>;
 
-export const ChannelKindSchema = z.enum(['project', 'assistant']);
+/** `group`（0.132.0）：助理群，见文件头。 */
+export const ChannelKindSchema = z.enum(['project', 'assistant', 'group']);
 export type ChannelKind = z.infer<typeof ChannelKindSchema>;
 
 /** 协调者能不能自己动手：`route` 只分诊、开线程（项目频道默认）；`act` 小事自己做，大事开线程（助理默认）。 */
@@ -128,6 +144,12 @@ export const ChannelCoordinatorSchema = z.object({
   generation: z.int().min(1),
 });
 export type ChannelCoordinator = z.infer<typeof ChannelCoordinatorSchema>;
+
+/** 群的成员（0.132.0）：助理的频道 ID，按加入的先后；被删的助理 Host 自动移出。 */
+export const ChannelGroupSchema = z.object({
+  members: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX),
+});
+export type ChannelGroup = z.infer<typeof ChannelGroupSchema>;
 
 /** 协调者每天的预算（按本机时区的自然日）；线程的花费不算在内。 */
 export const ChannelBudgetSchema = z.object({
@@ -157,7 +179,10 @@ export type ChannelState = z.infer<typeof ChannelStateSchema>;
 /** 最后一条帖子的摘要（列表行）：文字的第一段，打码后截断；只有图片时是 `[image]`。 */
 export const ChannelLastPostSchema = z.object({
   seq: z.int().min(1),
-  author: z.enum(['user', 'coordinator', 'host']),
+  /** `assistant`（0.132.0）：另一个助理写的（群里的成员、发来消息的助理）。 */
+  author: z.enum(['user', 'coordinator', 'host', 'assistant']),
+  /** `author: 'assistant'` 时是哪个助理。 */
+  assistantId: ChannelIdSchema.optional(),
   preview: z.string().max(CHANNEL_POST_PREVIEW_MAX_LENGTH),
   at: IsoTimeSchema,
 });
@@ -166,14 +191,18 @@ export type ChannelLastPost = z.infer<typeof ChannelLastPostSchema>;
 export const ChannelSchema = z.object({
   id: ChannelIdSchema,
   kind: ChannelKindSchema,
-  /** `project`：那个项目；`assistant`：助理自己的隐藏工作区。 */
-  workspaceId: WorkspaceIdSchema,
+  /** `project`：那个项目；`assistant`：助理自己的隐藏工作区；群没有。 */
+  workspaceId: WorkspaceIdSchema.optional(),
   /** 频道名；助理是它的名字。 */
   title: z.string().min(1).max(80),
   /** 只有助理有。 */
   assistant: AssistantSchema.optional(),
-  coordinator: ChannelCoordinatorSchema,
-  budget: ChannelBudgetSchema,
+  /** 只有群有（0.132.0）。 */
+  group: ChannelGroupSchema.optional(),
+  /** 群没有（成员各用自己的协调者）。 */
+  coordinator: ChannelCoordinatorSchema.optional(),
+  /** 群没有（花费记在成员自己的预算上）。 */
+  budget: ChannelBudgetSchema.optional(),
   /** 今天的用量；今天还没唤醒过时省略。 */
   usage: ChannelUsageSchema.optional(),
   pausedAt: IsoTimeSchema.optional(),
@@ -202,6 +231,14 @@ export const ChannelPostAuthorSchema = z.discriminatedUnion('kind', [
   }),
   /** Host 写的：说明、预算用完、协调者出错。 */
   z.object({ kind: z.literal('host') }),
+  /**
+   * 另一个助理写的（0.132.0）：群里成员的回答，或别的助理发来的消息与回答。`name` 是发帖时的名字，客户端优先用列表里的现名与头像。
+   */
+  z.object({
+    kind: z.literal('assistant'),
+    channelId: ChannelIdSchema,
+    name: z.string().min(1).max(80),
+  }),
 ]);
 export type ChannelPostAuthor = z.infer<typeof ChannelPostAuthorSchema>;
 
@@ -242,7 +279,12 @@ export const ChannelCardSchema = z.discriminatedUnion('kind', [
     done: z.array(ChannelBriefItemSchema).max(20),
     decisions: z.array(ChannelBriefItemSchema).max(20),
   }),
-  z.object({ kind: z.literal('notice'), reason: z.enum(['budget', 'resumed', 'failed']) }),
+  z.object({
+    kind: z.literal('notice'),
+    reason: z.enum(['budget', 'resumed', 'failed']),
+    /** 群里（0.132.0）：说的是哪个成员（它的预算用完了、它这回合出错了）。 */
+    assistantId: ChannelIdSchema.optional(),
+  }),
 ]);
 export type ChannelCard = z.infer<typeof ChannelCardSchema>;
 
@@ -259,6 +301,10 @@ export const ChannelPostSchema = z.object({
   /** 用户的这条被转给了哪些线程（Host 填，显示“已转给 …”）。 */
   routedTo: z.array(SessionIdSchema).optional(),
   card: ChannelCardSchema.optional(),
+  /** 协调者发给另一个助理的消息（0.132.0，`wevir_assistant_message`）：发给了谁；对方的回答以 `replyTo` 指向这条。 */
+  to: z.object({ channelId: ChannelIdSchema, name: z.string().min(1).max(80) }).optional(),
+  /** 群里这条 @ 了哪些成员（0.132.0）。 */
+  mentions: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX).optional(),
   /** 协调者在那个回合里交给用户的文件（`wevir_share_file`），路径相对协调者会话的目录。 */
   files: z.array(SharedFileSchema).optional(),
   clientPostId: z.string().min(1).max(128).optional(),
@@ -321,19 +367,27 @@ export const ChannelIdParamsSchema = z.object({ channelId: ChannelIdSchema });
 export const ChannelGetResultSchema = z.object({ channel: ChannelSchema, ...ChannelViewFields });
 
 /**
- * `channel.create`：现在只能建助理。名字与一句话的职责必填；不给头像时 Host 随机抽一个；协调者的 Provider 必选（要能挂 Wevir 工具）。
- * 建好后 Host 马上唤醒协调者做第一步：按职责检查要用的连接器、文件夹与浏览器登录，缺的列成“我需要什么”卡片。
+ * `channel.create`：建助理或群（0.132.0）。
+ * - 助理：名字与一句话的职责；不给头像时 Host 随机抽一个；协调者的 Provider 必选（要能挂 Wevir 工具）。建好后 Host 马上唤醒协调者做第一步：
+ *   按职责检查要用的连接器、文件夹与浏览器登录，缺的列成“我需要什么”卡片。
+ * - 群：名字与 `members`（`GROUP_MEMBERS_MIN`–`GROUP_MEMBERS_MAX` 个助理）；其余字段不用。
  */
 export const ChannelCreateParamsSchema = z.object({
-  kind: z.literal('assistant'),
+  kind: z.enum(['assistant', 'group']),
   name: z.string().trim().min(1).max(ASSISTANT_NAME_MAX_LENGTH),
-  description: z.string().trim().max(ASSISTANT_DESCRIPTION_MAX_LENGTH),
+  /** 助理必填（可以是空串）；群不用。 */
+  description: z.string().trim().max(ASSISTANT_DESCRIPTION_MAX_LENGTH).optional(),
   avatar: AssistantAvatarSchema.optional(),
-  coordinator: z.object({
-    providerId: ProviderIdSchema,
-    modelId: z.string().min(1).optional(),
-    reasoningEffort: z.string().min(1).optional(),
-  }),
+  /** 助理必填；群不用。 */
+  coordinator: z
+    .object({
+      providerId: ProviderIdSchema,
+      modelId: z.string().min(1).optional(),
+      reasoningEffort: z.string().min(1).optional(),
+    })
+    .optional(),
+  /** 群的成员（助理的频道 ID）。 */
+  members: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX).optional(),
   /** 授权访问的文件夹（绝对路径）。 */
   folders: z.array(z.string().min(1)).max(ASSISTANT_FOLDERS_MAX).optional(),
   rules: AssistantRulesSchema.optional(),
@@ -358,6 +412,8 @@ export const ChannelUpdateParamsSchema = z.object({
   rules: AssistantRulesSchema.optional(),
   budget: ChannelBudgetSchema.optional(),
   paused: z.boolean().optional(),
+  /** 群的成员（0.132.0），整份替换。 */
+  members: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX).optional(),
 });
 
 /** `channel.posts`：按 `seq` 翻页，`beforeSeq` 往前、`afterSeq` 往后，都不给时是最近的一页；结果按 `seq` 升序。 */
@@ -383,10 +439,14 @@ export const ChannelSubscribeResultSchema = z.object({
 });
 export const ChannelUnsubscribeParamsSchema = z.object({ subscriptionId: SubscriptionIdSchema });
 
-/** `channel.post`：用户在时间线上发帖；同一个 `clientPostId` 重发返回原来那条。 */
+/**
+ * `channel.post`：用户在时间线上发帖；同一个 `clientPostId` 重发返回原来那条。群里（0.132.0）`mentions` 是 @ 的成员，Host 另外认正文里的
+ * `@名字`；都没有时全体成员都收到。
+ */
 export const ChannelPostParamsSchema = z.object({
   channelId: ChannelIdSchema,
   content: z.array(UserContentPartSchema).min(1),
+  mentions: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX).optional(),
   clientPostId: z.string().min(1).max(128).optional(),
 });
 export const ChannelPostResultSchema = z.object({ post: ChannelPostSchema });

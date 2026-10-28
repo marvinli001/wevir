@@ -10,6 +10,14 @@
 // 自动恢复。线程是普通的顶层会话（`Session.channel.role: 'thread'`），状态由会话推导。
 //
 // 列表行（`channels.changed`）与订阅（`channel.posted` / `channel.updated`）的变化在 `FLUSH_MS` 内合成一批，按指纹判断真变了没有。
+//
+// 助理之间（0.132.0）：`wevir_assistant_message` 在发起方时间线上记一条带 `to` 的协调者帖子，在对方时间线上写一条 `assistant` 作者的
+// 帖子（`meta.origin` 指回发起的那条）并唤醒对方；对方这回合的回答除了照常发在自己时间线上，还以 `assistant` 作者落回发起方、以
+// `reason=reply` 唤醒发起方（发起方对回答的回答不再自动送回）。来回的层数（`meta.depth`）有用户发言时归零，超过
+// `ASSISTANT_MESSAGE_DEPTH_MAX` 就不让再发。
+//
+// 助理群（`kind: 'group'`）没有自己的协调者：成员的待唤醒缓冲按群另记（`PendingWake.groups`），轮到时用这个成员自己的协调者会话跑一个
+// 群回合（自己时间线上的事优先），回答以 `assistant` 作者发进群。一轮里助理 @ 别的成员才唤醒那个成员，层数与条数见协议的上限。
 
 import { createHash } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
@@ -20,8 +28,10 @@ import type {
   BoardTask,
   BoardTaskStatus,
   Channel,
+  ChannelBudget,
   ChannelCard,
   ChannelCoordinator,
+  ChannelGroup,
   ChannelId,
   ChannelPost,
   ChannelPostAuthor,
@@ -44,12 +54,17 @@ import type {
 import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
+  ASSISTANT_MESSAGE_DEPTH_MAX,
   CHANNEL_POST_PREVIEW_MAX_LENGTH,
   CHANNEL_POST_TEXT_MAX_LENGTH,
   CHANNEL_POSTS_PAGE_MAX,
   CHANNEL_QUIET_MARKER,
   DEFAULT_ASSISTANT_BUDGET,
   DEFAULT_ASSISTANT_RULES,
+  GROUP_MEMBERS_MAX,
+  GROUP_MEMBERS_MIN,
+  GROUP_MENTION_DEPTH_MAX,
+  GROUP_ROUND_REPLIES_MAX,
 } from '@wevir/protocol';
 import type {
   ChannelPostRecord,
@@ -63,6 +78,8 @@ import { approvalSummary } from '../inbox.js';
 import { redactSecrets } from '../secret-patterns.js';
 import type { AssistantFolders } from './assistants.js';
 import {
+  type GroupMemberLine,
+  groupWakeEnvelope,
   HANDOVER_POSTS,
   handover,
   identityBlock,
@@ -102,6 +119,8 @@ export const ROTATE_WAKES = 50;
 export const ROTATE_CONTEXT = 0.6;
 /** 一个回合里 `wevir_channel_post` 等额外的帖子最多几条。 */
 export const EXTRA_POSTS_PER_TURN = 5;
+/** 群回合的信封至多带多少条群里的新帖（第一次进群时是最近这么多条）。 */
+export const GROUP_CONTEXT_POSTS = 20;
 /** `channel.get` 带最近多少个已解决的线程。 */
 const RESOLVED_THREADS_KEPT = 50;
 
@@ -169,10 +188,50 @@ interface StoredCoordinator extends ChannelCoordinator {
   wakes?: number;
 }
 
+/** 帖子的 `meta` 列（Host 自用，0.132.0）。 */
+interface PostMeta {
+  to?: { channelId: ChannelId; name: string };
+  mentions?: ChannelId[];
+  /** 助理之间来回到第几层；用户的帖子没有（算 0）。 */
+  depth?: number;
+  /** 别的助理发来的消息：回答送回哪个助理的哪条帖子。 */
+  origin?: { channelId: ChannelId; postId: ChannelPostId };
+}
+
+/** 一个成员在一个群里等着的回合。 */
+interface PendingGroupWake {
+  /** 这回合的回答是第几层（用户发言唤醒的是 1）。 */
+  depth: number;
+  mentioned: boolean;
+}
+
+/** 一个群这一轮（两次用户发言之间）的计数。 */
+interface GroupRound {
+  replies: number;
+}
+
+/** 交给协调者的一次唤醒（自己时间线的，或一个群的）。 */
+interface PreparedWake {
+  content: UserContentPart[];
+  /** 信封里的帖子（换班的交接材料不重复它们）。 */
+  posts: readonly ChannelPost[];
+  replyTo?: ChannelPostId;
+  brief?: Extract<ChannelCard, { kind: 'brief' }>;
+  depth: number;
+  returns: PendingWake['returns'];
+  groupId?: ChannelId;
+}
+
 /** 待唤醒的缓冲。 */
 interface PendingWake {
   reasons: Set<WakeReason>;
   posts: ChannelPost[];
+  /** 帖子里助理之间来回最深的一层；有用户帖子时归零（0.132.0）。 */
+  depth: number;
+  /** 别的助理发来、回答要送回去的（0.132.0）。 */
+  returns: { channelId: ChannelId; postId: ChannelPostId; depth: number }[];
+  /** 群里等着这个成员的回合，按群（0.132.0）。 */
+  groups: Map<ChannelId, PendingGroupWake>;
   setup?: true;
   schedules: { title: string; prompt: string; brief?: boolean }[];
   /** 改了的设置：下次唤醒时附上新的身份与规矩。 */
@@ -194,6 +253,11 @@ interface ActiveWake {
   extraPosts: number;
   /** 晨间简报：协调者这回合的回答带这张卡片（唤醒时组装）。 */
   brief?: Extract<ChannelCard, { kind: 'brief' }>;
+  /** 助理之间来回到第几层（0.132.0）：这回合发出的消息是下一层。 */
+  depth: number;
+  returns: PendingWake['returns'];
+  /** 群回合（0.132.0）：回答发进这个群。 */
+  groupId?: ChannelId;
 }
 
 /** 订阅者收到的。 */
@@ -282,6 +346,10 @@ export class ChannelService {
   readonly #dirty = new Set<ChannelId>();
   /** 正在建协调者会话的频道：两次唤醒不会各建一个。 */
   readonly #starting = new Map<ChannelId, Promise<void>>();
+  /** 群这一轮的计数（0.132.0）。 */
+  readonly #rounds = new Map<ChannelId, GroupRound>();
+  /** `群:成员` → 这个成员在群里看到了哪条（交给它的最后一条的 seq）。 */
+  readonly #groupSeen = new Map<string, number>();
   #flushTimer: ReturnType<typeof setTimeout> | undefined;
   #listVersion: number;
   #unlisten: (() => void) | undefined;
@@ -299,8 +367,8 @@ export class ChannelService {
   /** 认出已有频道的会话，开始收事件。 */
   start(): void {
     for (const record of this.#storage.channels.list()) {
-      const coordinator = record.coordinator as StoredCoordinator;
-      if (coordinator.sessionId !== undefined) {
+      const coordinator = record.coordinator as StoredCoordinator | null;
+      if (coordinator?.sessionId !== undefined) {
         this.#sessionChannel.set(coordinator.sessionId, {
           channelId: record.id as ChannelId,
           role: 'coordinator',
@@ -343,15 +411,15 @@ export class ChannelService {
 
   /** 发给助理的自动化要的：助理的工作区与协调者的模型；助理不在时 `CHANNEL_NOT_FOUND`。 */
   scheduleTarget(channelId: string): {
-    workspaceId: Channel['workspaceId'];
+    workspaceId: NonNullable<Channel['workspaceId']>;
     providerId: string;
     modelId?: string;
     reasoningEffort?: string;
   } {
-    const record = this.#record(channelId);
+    const record = this.#assistantRecord(channelId);
     const coordinator = record.coordinator as StoredCoordinator;
     return {
-      workspaceId: record.workspaceId as Channel['workspaceId'],
+      workspaceId: record.workspaceId as NonNullable<Channel['workspaceId']>,
       providerId: coordinator.providerId,
       ...(coordinator.modelId !== undefined && { modelId: coordinator.modelId }),
       ...(coordinator.reasoningEffort !== undefined && {
@@ -448,13 +516,18 @@ export class ChannelService {
   // ── 建、改、删 ────────────────────────────────────────────────────────
 
   async create(params: CreateParams): Promise<Channel> {
-    if (this.#storage.providers.get(params.coordinator.providerId) === undefined) {
+    if (params.kind === 'group') return this.#createGroup(params);
+    const coordinatorParams = params.coordinator;
+    if (coordinatorParams === undefined) {
+      throw invalid('coordinator', 'an assistant needs a coordinator provider');
+    }
+    if (this.#storage.providers.get(coordinatorParams.providerId) === undefined) {
       throw new HostError(
         'PROVIDER_NOT_FOUND',
-        `provider ${params.coordinator.providerId} not found`,
+        `provider ${coordinatorParams.providerId} not found`,
       );
     }
-    if (this.#options.canUseAppTools?.(params.coordinator.providerId) === false) {
+    if (this.#options.canUseAppTools?.(coordinatorParams.providerId) === false) {
       throw invalid('coordinator.providerId', 'this provider cannot use Wevir tools');
     }
     const folders = await this.#folders(params.folders ?? []);
@@ -469,10 +542,10 @@ export class ChannelService {
       now,
     );
     const coordinator: StoredCoordinator = {
-      providerId: params.coordinator.providerId,
-      ...(params.coordinator.modelId !== undefined && { modelId: params.coordinator.modelId }),
-      ...(params.coordinator.reasoningEffort !== undefined && {
-        reasoningEffort: params.coordinator.reasoningEffort,
+      providerId: coordinatorParams.providerId,
+      ...(coordinatorParams.modelId !== undefined && { modelId: coordinatorParams.modelId }),
+      ...(coordinatorParams.reasoningEffort !== undefined && {
+        reasoningEffort: coordinatorParams.reasoningEffort,
       }),
       mode: 'act',
       generation: 1,
@@ -484,7 +557,7 @@ export class ChannelService {
         workspaceId: workspace.id,
         title: name,
         assistant: {
-          description: params.description.trim(),
+          description: (params.description ?? '').trim(),
           avatar: params.avatar ?? this.randomAvatar(),
           rules: { ...DEFAULT_ASSISTANT_RULES, ...params.rules },
           folders,
@@ -512,6 +585,45 @@ export class ChannelService {
     return channel;
   }
 
+  /** 建群（0.132.0）：没有工作区、协调者与预算，成员是几个助理。 */
+  #createGroup(params: CreateParams): Channel {
+    const members = this.#checkMembers(params.members ?? []);
+    const id = newId('chn');
+    const now = iso(this.#now());
+    this.#storage.channels.insert({
+      id,
+      kind: 'group',
+      workspaceId: '',
+      title: params.name.trim(),
+      group: { members } satisfies ChannelGroup,
+      coordinator: null,
+      budget: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const record = this.#record(id);
+    this.#touch(id as ChannelId);
+    return this.#channel(record);
+  }
+
+  /** 群的成员：活着的助理，去重，`GROUP_MEMBERS_MIN`–`GROUP_MEMBERS_MAX` 个。 */
+  #checkMembers(ids: readonly string[]): ChannelId[] {
+    const members = [...new Set(ids)];
+    if (members.length < GROUP_MEMBERS_MIN || members.length > GROUP_MEMBERS_MAX) {
+      throw invalid(
+        'members',
+        `a group needs ${GROUP_MEMBERS_MIN} to ${GROUP_MEMBERS_MAX} assistants`,
+      );
+    }
+    for (const id of members) {
+      const record = this.#storage.channels.get(id);
+      if (record === undefined || record.deletedAt !== undefined || record.kind !== 'assistant') {
+        throw invalid('members', `not an assistant: ${id}`);
+      }
+    }
+    return members as ChannelId[];
+  }
+
   /** 头像：从形状 × 颜色里随机抽一个。 */
   randomAvatar(): AssistantAvatar {
     const pick = (count: number) => Math.min(count - 1, Math.floor(this.#random() * count));
@@ -525,6 +637,17 @@ export class ChannelService {
   async update(params: UpdateParams): Promise<Channel> {
     const record = this.#record(params.channelId);
     const now = iso(this.#now());
+    if (record.kind === 'group') {
+      const members = params.members === undefined ? undefined : this.#checkMembers(params.members);
+      this.#storage.channels.update(record.id, {
+        ...(params.name !== undefined && { title: params.name.trim() }),
+        ...(members !== undefined && { group: { members } satisfies ChannelGroup }),
+        updatedAt: now,
+      });
+      this.#touch(record.id as ChannelId);
+      return this.#channel(this.#record(record.id));
+    }
+    if (params.members !== undefined) throw invalid('members', 'only a group has members');
     const coordinator = { ...(record.coordinator as StoredCoordinator) };
     if (params.coordinator !== undefined) {
       const next = params.coordinator;
@@ -597,7 +720,23 @@ export class ChannelService {
     clearTimeout(pending?.timer);
     this.#pending.delete(id);
     this.#active.delete(id);
-    const coordinator = (record.coordinator as StoredCoordinator).sessionId;
+    this.#rounds.delete(id);
+    if (record.kind === 'group') {
+      for (const pendingWake of this.#pending.values()) pendingWake.groups.delete(id);
+    } else {
+      // 助理被删：从它所在的群里移出。
+      for (const group of this.#storage.channels.list()) {
+        if (group.kind !== 'group') continue;
+        const members = this.#membersOf(group);
+        if (!members.includes(id)) continue;
+        this.#storage.channels.update(group.id, {
+          group: { members: members.filter((member) => member !== id) } satisfies ChannelGroup,
+          updatedAt: iso(this.#now()),
+        });
+        this.#touch(group.id as ChannelId);
+      }
+    }
+    const coordinator = (record.coordinator as StoredCoordinator | null)?.sessionId;
     if (coordinator !== undefined) {
       await this.#options.sessions.close(coordinator).catch(() => undefined);
     }
@@ -620,6 +759,7 @@ export class ChannelService {
       client.clientKind === 'mobile'
         ? { kind: 'user', deviceId: client.deviceId }
         : { kind: 'user' };
+    if (record.kind === 'group') return this.#groupPost(record, params, author, client);
     const { post, created } = this.#append(record, {
       author,
       content: params.content,
@@ -633,6 +773,116 @@ export class ChannelService {
     return post;
   }
 
+  /** 用户在群里发言：新的一轮，被 @ 的成员（没有 @ 时全体）各自稍后回答。 */
+  #groupPost(
+    record: ChannelRecord,
+    params: MethodParams<'channel.post'>,
+    author: ChannelPostAuthor,
+    client: ClientIdentity,
+  ): ChannelPost {
+    const members = this.#membersOf(record);
+    const mentions = [
+      ...new Set([
+        ...(params.mentions ?? []).filter((id) => members.includes(id)),
+        ...this.#mentionsIn(record, postText({ content: params.content })),
+      ]),
+    ];
+    const { post, created } = this.#append(record, {
+      author,
+      content: params.content,
+      ...(params.clientPostId !== undefined && { clientPostId: params.clientPostId }),
+      ...(mentions.length > 0 && { meta: { mentions } }),
+    });
+    if (!created) return post;
+    this.#storage.channels.markRead(record.id, readerOf(client), post.seq);
+    const groupId = record.id as ChannelId;
+    this.#rounds.set(groupId, { replies: 0 });
+    for (const memberId of mentions.length > 0 ? mentions : members) {
+      this.#queueGroupWake(memberId, groupId, 1, mentions.length > 0);
+    }
+    return post;
+  }
+
+  // ── 助理之间（0.132.0） ───────────────────────────────────────────────
+
+  /** 别的助理（`wevir_assistant_list`）：名字、职责、状态，与这个助理所在的群。 */
+  peersOf(sessionId: SessionId): {
+    assistants: { id: ChannelId; name: string; job: string; state: Channel['state'] }[];
+    groups: { id: ChannelId; name: string; members: string[] }[];
+  } {
+    const self = this.#coordinatorEntry(sessionId);
+    const records = this.#storage.channels.list();
+    const names = new Map(records.map((record) => [record.id, record.title]));
+    return {
+      assistants: records
+        .filter((record) => record.kind === 'assistant' && record.id !== self.channelId)
+        .map((record) => {
+          const channel = this.#channel(record);
+          return {
+            id: channel.id,
+            name: channel.title,
+            job: channel.assistant?.description ?? '',
+            state: channel.state,
+          };
+        }),
+      groups: records
+        .filter(
+          (record) => record.kind === 'group' && this.#membersOf(record).includes(self.channelId),
+        )
+        .map((record) => ({
+          id: record.id as ChannelId,
+          name: record.title,
+          members: this.#membersOf(record).map((id) => names.get(id) ?? id),
+        })),
+    };
+  }
+
+  /**
+   * 给另一个助理发消息（`wevir_assistant_message`）：在自己时间线上记一条带 `to` 的帖子，在对方时间线上写一条并唤醒对方；对方的回答
+   * 以后落回这里。`to` 是助理的频道 ID 或名字。
+   */
+  messageAssistant(sessionId: SessionId, input: { to: string; text: string }): ChannelPost {
+    const entry = this.#coordinatorEntry(sessionId);
+    const from = this.#assistantRecord(entry.channelId);
+    const target = this.#findAssistant(input.to);
+    if (target.id === from.id) throw invalid('to', 'an assistant cannot message itself');
+    const active = this.#active.get(entry.channelId);
+    const current = active !== undefined && active.sessionId === sessionId ? active : undefined;
+    const depth = (current?.depth ?? 0) + 1;
+    if (depth > ASSISTANT_MESSAGE_DEPTH_MAX) {
+      throw invalid(
+        'to',
+        'too many messages back and forth without the user; ask the user before writing again',
+      );
+    }
+    if (current !== undefined) {
+      if (current.extraPosts >= EXTRA_POSTS_PER_TURN) {
+        throw invalid('text', `at most ${EXTRA_POSTS_PER_TURN} extra posts per turn`);
+      }
+      current.extraPosts += 1;
+    }
+    const text = clip(input.text.trim(), CHANNEL_POST_TEXT_MAX_LENGTH);
+    if (text === '') throw invalid('text', 'the message is empty');
+    const coordinator = from.coordinator as StoredCoordinator;
+    const targetId = target.id as ChannelId;
+    const { post: sent } = this.#append(from, {
+      author: { kind: 'coordinator', sessionId, generation: coordinator.generation },
+      content: [{ type: 'text', text }],
+      meta: { to: { channelId: targetId, name: target.title }, depth },
+    });
+    const { post: received } = this.#append(target, {
+      author: { kind: 'assistant', channelId: from.id as ChannelId, name: from.title },
+      content: [{ type: 'text', text }],
+      meta: { depth, origin: { channelId: from.id as ChannelId, postId: sent.id } },
+    });
+    this.#queueWake(targetId, 'message', {
+      post: received,
+      depth,
+      returnTo: { channelId: from.id as ChannelId, postId: sent.id, depth },
+    });
+    return sent;
+  }
+
   markRead(channelId: string, seq: number, client: ClientIdentity): void {
     const record = this.#record(channelId);
     this.#storage.channels.markRead(record.id, readerOf(client), Math.min(seq, record.lastPostSeq));
@@ -641,7 +891,7 @@ export class ChannelService {
 
   /** 手动唤醒（`channel.wake`）。 */
   wake(channelId: string): void {
-    const record = this.#record(channelId);
+    const record = this.#assistantRecord(channelId);
     if (record.pausedAt !== undefined && record.pauseReason === 'user') {
       throw new HostError('INVALID_STATE', 'the channel is paused', { state: 'idle' });
     }
@@ -653,7 +903,7 @@ export class ChannelService {
     channelId: string,
     schedule: { title: string; prompt: string; brief?: boolean },
   ): void {
-    const record = this.#record(channelId);
+    const record = this.#assistantRecord(channelId);
     const pending = this.#pendingFor(record.id as ChannelId);
     pending.schedules.push(schedule);
     this.#queueWake(record.id as ChannelId, 'schedule', { immediate: true });
@@ -661,7 +911,7 @@ export class ChannelService {
 
   /** 立即换班（`channel.rotate`）：下一次唤醒用新的协调者会话。 */
   async rotate(channelId: string): Promise<Channel> {
-    const record = this.#record(channelId);
+    const record = this.#assistantRecord(channelId);
     const id = record.id as ChannelId;
     if (this.#active.has(id)) {
       throw new HostError('INVALID_STATE', 'the coordinator is working', { state: 'running' });
@@ -700,7 +950,7 @@ export class ChannelService {
 
   /** 用户改任务的状态（`channel.updateTask`）。 */
   async updateTask(params: MethodParams<'channel.updateTask'>): Promise<BoardTask[]> {
-    const record = this.#record(params.channelId);
+    const record = this.#assistantRecord(params.channelId);
     const tasks = this.#options.tasks;
     if (tasks === undefined) throw invalid('taskId', 'this host has no task lists');
     const root = record.id as unknown as SessionId;
@@ -735,7 +985,7 @@ export class ChannelService {
     modelId?: string;
     reasoningEffort?: string;
   }): Promise<ChannelThread> {
-    const record = this.#record(input.channelId);
+    const record = this.#assistantRecord(input.channelId);
     const root = this.#storage.channels.getPost(input.rootPostId);
     if (root === undefined || root.channelId !== record.id) {
       throw invalid('rootPostId', 'no such post in this channel');
@@ -811,7 +1061,7 @@ export class ChannelService {
     citePostIds: readonly string[];
     note?: string;
   }): Promise<ChannelThread> {
-    const record = this.#record(input.channelId);
+    const record = this.#assistantRecord(input.channelId);
     const thread = this.#storage.channels.getThread(input.threadSessionId);
     if (thread === undefined || thread.channelId !== record.id) {
       throw invalid('threadSessionId', 'not a thread of this channel');
@@ -887,8 +1137,7 @@ export class ChannelService {
     sessionId: SessionId,
     input: { text: string; card?: ChannelCard; replyTo?: string },
   ): ChannelPost {
-    const entry = this.#entryOf(sessionId);
-    if (entry?.role !== 'coordinator') throw invalid('sessionId', 'only the coordinator posts');
+    const entry = this.#coordinatorEntry(sessionId);
     const record = this.#record(entry.channelId);
     const active = this.#active.get(entry.channelId);
     if (active !== undefined && active.sessionId === sessionId) {
@@ -896,6 +1145,12 @@ export class ChannelService {
         throw invalid('text', `at most ${EXTRA_POSTS_PER_TURN} extra posts per turn`);
       }
       active.extraPosts += 1;
+      // 群回合里的帖子发进群（卡片只在自己的时间线上）。
+      const group =
+        active.groupId === undefined ? undefined : this.#storage.channels.get(active.groupId);
+      if (group !== undefined && group.deletedAt === undefined && input.card === undefined) {
+        return this.#groupPostAs(record, group, input.text, { depth: active.depth });
+      }
     }
     const coordinator = record.coordinator as StoredCoordinator;
     const replyTo =
@@ -945,7 +1200,14 @@ export class ChannelService {
   #pendingFor(channelId: ChannelId): PendingWake {
     let pending = this.#pending.get(channelId);
     if (pending === undefined) {
-      pending = { reasons: new Set(), posts: [], schedules: [] };
+      pending = {
+        reasons: new Set(),
+        posts: [],
+        depth: 0,
+        returns: [],
+        groups: new Map(),
+        schedules: [],
+      };
       this.#pending.set(channelId, pending);
     }
     return pending;
@@ -954,14 +1216,46 @@ export class ChannelService {
   #queueWake(
     channelId: ChannelId,
     reason: WakeReason,
-    extra: { post?: ChannelPost; setup?: true; immediate?: true },
+    extra: {
+      post?: ChannelPost;
+      setup?: true;
+      immediate?: true;
+      /** 助理之间的消息与回答：来回到第几层；用户的帖子把这次唤醒归零。 */
+      depth?: number;
+      returnTo?: PendingWake['returns'][number];
+    },
   ): void {
     const pending = this.#pendingFor(channelId);
     pending.reasons.add(reason);
     if (extra.post !== undefined) pending.posts.push(extra.post);
+    if (extra.post?.author.kind === 'user') pending.depth = 0;
+    else if (
+      extra.depth !== undefined &&
+      !pending.posts.some((post) => post.author.kind === 'user')
+    ) {
+      pending.depth = Math.max(pending.depth, extra.depth);
+    }
+    if (extra.returnTo !== undefined) pending.returns.push(extra.returnTo);
     if (extra.setup === true) pending.setup = true;
     this.#scheduleFlush(channelId, extra.immediate === true ? 0 : this.#wakeDelayMs);
     this.#touch(channelId);
+  }
+
+  /** 群里有事等这个成员：记进它的缓冲（同一个群合成一次，层数取浅的），稍后轮到。 */
+  #queueGroupWake(
+    memberId: ChannelId,
+    groupId: ChannelId,
+    depth: number,
+    mentioned: boolean,
+  ): void {
+    const pending = this.#pendingFor(memberId);
+    const existing = pending.groups.get(groupId);
+    pending.groups.set(groupId, {
+      depth: Math.min(existing?.depth ?? depth, depth),
+      mentioned: mentioned || existing?.mentioned === true,
+    });
+    this.#scheduleFlush(memberId, this.#wakeDelayMs);
+    this.#touch(groupId);
   }
 
   #scheduleFlush(channelId: ChannelId, delayMs: number): void {
@@ -993,20 +1287,23 @@ export class ChannelService {
 
   async #flushWake(channelId: ChannelId): Promise<void> {
     const pending = this.#pending.get(channelId);
-    if (pending === undefined || pending.reasons.size === 0) return;
+    if (pending === undefined || (pending.reasons.size === 0 && pending.groups.size === 0)) return;
     if (this.#active.has(channelId) || this.#starting.has(channelId)) return;
     let record = this.#storage.channels.get(channelId);
-    if (record === undefined || record.deletedAt !== undefined) {
+    if (record === undefined || record.deletedAt !== undefined || record.kind === 'group') {
       this.#pending.delete(channelId);
       return;
     }
     const day = this.#day();
-    const budget = record.budget as Channel['budget'];
+    const budget = record.budget as ChannelBudget;
     const usage = this.#storage.channels.usage(channelId, day);
     const overBudget =
       (usage?.wakes ?? 0) >= budget.dailyWakes || (usage?.tokens ?? 0) >= budget.dailyTokens;
     if (record.pausedAt !== undefined) {
-      if (record.pauseReason !== 'budget' || overBudget) return;
+      if (record.pauseReason !== 'budget' || overBudget) {
+        this.#dropGroupWakes(record, pending, record.pauseReason === 'budget');
+        return;
+      }
       // 新的一天：预算恢复。
       this.#storage.channels.update(channelId, {
         pausedAt: null,
@@ -1022,6 +1319,7 @@ export class ChannelService {
         updatedAt: iso(this.#now()),
       });
       this.#hostPost(this.#record(channelId), { kind: 'notice', reason: 'budget' });
+      this.#dropGroupWakes(record, pending, true);
       return;
     }
     // 协调者会话：没有、不能用了、或到了换班的阈值时另开一班。
@@ -1042,6 +1340,7 @@ export class ChannelService {
           { kind: 'notice', reason: 'failed' },
           errorMessage(error),
         );
+        this.#dropGroupWakes(record, pending, false);
         this.#pending.delete(channelId);
         return;
       } finally {
@@ -1055,10 +1354,95 @@ export class ChannelService {
       return;
     }
     const sessionId = coordinator.sessionId as SessionId;
-    // 交出缓冲：之后到的帖子进新的缓冲。
+    const channel = this.#channel(record);
+    // 自己时间线上的事优先；没有时轮一个群。
+    const wake =
+      pending.reasons.size > 0
+        ? await this.#ownWake(record, channel, pending, fresh)
+        : this.#groupWake(record, pending);
+    if (wake === undefined) {
+      if (pending.reasons.size > 0 || pending.groups.size > 0) this.#scheduleFlush(channelId, 0);
+      return;
+    }
+    const { content } = wake;
+    if (fresh) {
+      const first = content[0];
+      if (first?.type === 'text') {
+        const recent = this.#storage.channels
+          .posts(channelId, { limit: HANDOVER_POSTS })
+          .map((row) => this.#post(row))
+          .filter((post) => !wake.posts.some((p) => p.id === post.id));
+        content[0] = {
+          type: 'text',
+          text: `${handover(channel, recent, coordinator.generation)}\n\n${first.text}`,
+        };
+      }
+    }
+    const tokensBefore = this.#options.events.snapshot(sessionId)?.usage?.totalTokens ?? 0;
+    const recordedBefore = this.#storage.usage.sessionTotals(sessionId);
+    try {
+      const sent = await this.#options.sessions.send(
+        { sessionId, content },
+        this.#options.identity,
+        { from: { sessionId, kind: 'report', channel: { channelId, kind: 'wake' } } },
+      );
+      if (sent.turnId === undefined) throw new Error('the coordinator did not start a turn');
+      this.#active.set(channelId, {
+        sessionId,
+        turnId: sent.turnId,
+        seq: sent.seq,
+        generation: coordinator.generation,
+        ...(wake.replyTo !== undefined && { replyTo: wake.replyTo }),
+        tokensBefore,
+        recordedBefore,
+        extraPosts: 0,
+        ...(wake.brief !== undefined && { brief: wake.brief }),
+        depth: wake.depth,
+        returns: wake.returns,
+        ...(wake.groupId !== undefined && { groupId: wake.groupId }),
+      });
+      this.#storage.channels.addUsage(channelId, day, { wakes: 1 });
+      this.#storage.channels.update(channelId, {
+        coordinator: { ...coordinator, wakes: (coordinator.wakes ?? 0) + 1 },
+        updatedAt: iso(this.#now()),
+      });
+      this.#touch(channelId);
+      if (wake.groupId !== undefined) this.#touch(wake.groupId);
+      // 很快的回合（echo）可能在 send 返回之前就结束了：照事件补上。
+      this.#settle(channelId);
+    } catch (error) {
+      if (wake.groupId === undefined) {
+        this.#hostPost(
+          this.#record(channelId),
+          { kind: 'notice', reason: 'failed' },
+          errorMessage(error),
+        );
+      } else {
+        const group = this.#storage.channels.get(wake.groupId);
+        if (group !== undefined && group.deletedAt === undefined) {
+          this.#hostPost(
+            group,
+            { kind: 'notice', reason: 'failed', assistantId: channelId },
+            errorMessage(error),
+          );
+        }
+      }
+    }
+  }
+
+  /** 交出自己时间线上攒的：帖子、定时、设置改动，组成唤醒信封。 */
+  async #ownWake(
+    record: ChannelRecord,
+    channel: Channel,
+    pending: PendingWake,
+    fresh: boolean,
+  ): Promise<PreparedWake> {
+    const channelId = record.id as ChannelId;
+    // 交出缓冲：之后到的帖子进新的缓冲；群里等着的留下。
+    const groups = pending.groups;
     this.#pending.delete(channelId);
     clearTimeout(pending.timer);
-    const channel = this.#channel(record);
+    if (groups.size > 0) this.#pendingFor(channelId).groups = groups;
     const input: WakeInput = {
       channel,
       reasons: pending.reasons,
@@ -1078,55 +1462,102 @@ export class ChannelService {
       ? await this.#briefCard(record)
       : undefined;
     if (brief !== undefined) input.brief = brief;
-    const content = wakeEnvelope(input);
-    if (fresh) {
-      const first = content[0];
-      if (first?.type === 'text') {
-        const recent = this.#storage.channels
-          .posts(channelId, { limit: HANDOVER_POSTS })
-          .map((row) => this.#post(row))
-          .filter((post) => !pending.posts.some((p) => p.id === post.id));
-        content[0] = {
-          type: 'text',
-          text: `${handover(channel, recent, coordinator.generation)}\n\n${first.text}`,
-        };
-      }
+    const replyTo = pending.posts.findLast(
+      (post) => post.author.kind === 'user' || post.author.kind === 'assistant',
+    )?.id;
+    return {
+      content: wakeEnvelope(input),
+      posts: pending.posts,
+      ...(replyTo !== undefined && { replyTo }),
+      ...(brief !== undefined && { brief }),
+      depth: pending.depth,
+      returns: pending.returns,
+    };
+  }
+
+  /** 轮一个群：这个成员上次看过之后群里的新帖，组成群的唤醒信封。群已不在时跳过。 */
+  #groupWake(record: ChannelRecord, pending: PendingWake): PreparedWake | undefined {
+    const memberId = record.id as ChannelId;
+    const first = pending.groups.entries().next().value;
+    if (first === undefined) return undefined;
+    const [groupId, entry] = first;
+    pending.groups.delete(groupId);
+    if (pending.groups.size === 0 && pending.reasons.size === 0) {
+      clearTimeout(pending.timer);
+      this.#pending.delete(memberId);
     }
-    const tokensBefore = this.#options.events.snapshot(sessionId)?.usage?.totalTokens ?? 0;
-    const recordedBefore = this.#storage.usage.sessionTotals(sessionId);
-    const lastUserPost = pending.posts.findLast((post) => post.author.kind === 'user');
-    try {
-      const sent = await this.#options.sessions.send(
-        { sessionId, content },
-        this.#options.identity,
-        { from: { sessionId, kind: 'report', channel: { channelId, kind: 'wake' } } },
+    const group = this.#storage.channels.get(groupId);
+    if (
+      group === undefined ||
+      group.deletedAt !== undefined ||
+      !this.#membersOf(group).includes(memberId)
+    ) {
+      this.#touch(groupId);
+      return undefined;
+    }
+    const key = `${groupId}:${memberId}`;
+    const seen = this.#groupSeen.get(key);
+    const rows =
+      seen === undefined
+        ? this.#storage.channels.posts(groupId, { limit: GROUP_CONTEXT_POSTS })
+        : this.#storage.channels
+            .posts(groupId, { afterSeq: seen, limit: CHANNEL_POSTS_PAGE_MAX })
+            .slice(-GROUP_CONTEXT_POSTS);
+    this.#groupSeen.set(key, group.lastPostSeq);
+    const posts = rows
+      .map((row) => this.#post(row))
+      .filter(
+        (post) =>
+          post.author.kind !== 'host' &&
+          !(post.author.kind === 'assistant' && post.author.channelId === memberId),
       );
-      if (sent.turnId === undefined) throw new Error('the coordinator did not start a turn');
-      this.#active.set(channelId, {
-        sessionId,
-        turnId: sent.turnId,
-        seq: sent.seq,
-        generation: coordinator.generation,
-        ...(lastUserPost !== undefined && { replyTo: lastUserPost.id }),
-        tokensBefore,
-        recordedBefore,
-        extraPosts: 0,
-        ...(brief !== undefined && { brief }),
-      });
-      this.#storage.channels.addUsage(channelId, day, { wakes: 1 });
-      this.#storage.channels.update(channelId, {
-        coordinator: { ...coordinator, wakes: (coordinator.wakes ?? 0) + 1 },
-        updatedAt: iso(this.#now()),
-      });
-      this.#touch(channelId);
-      // 很快的回合（echo）可能在 send 返回之前就结束了：照事件补上。
-      this.#settle(channelId);
-    } catch (error) {
-      this.#hostPost(
-        this.#record(channelId),
-        { kind: 'notice', reason: 'failed' },
-        errorMessage(error),
-      );
+    if (posts.length === 0) {
+      this.#touch(groupId);
+      return undefined;
+    }
+    const members: GroupMemberLine[] = this.#memberRecords(group).map((member) => ({
+      id: member.id,
+      name: member.title,
+      job: (member.assistant as Channel['assistant'])?.description ?? '',
+      self: member.id === memberId,
+    }));
+    const replyTo = posts.at(-1)?.id;
+    return {
+      content: groupWakeEnvelope({
+        group: { id: groupId, title: group.title },
+        members,
+        posts,
+        mentioned: entry.mentioned,
+        at: iso(this.#now()),
+      }),
+      posts: [],
+      ...(replyTo !== undefined && { replyTo }),
+      depth: entry.depth,
+      returns: [],
+      groupId,
+    };
+  }
+
+  /** 成员暂停或预算用完时丢掉它在群里等着的回合；预算用完时在群里说一声。 */
+  #dropGroupWakes(record: ChannelRecord, pending: PendingWake, budget: boolean): void {
+    if (pending.groups.size === 0) return;
+    const groups = [...pending.groups.keys()];
+    pending.groups.clear();
+    if (pending.reasons.size === 0) {
+      clearTimeout(pending.timer);
+      this.#pending.delete(record.id as ChannelId);
+    }
+    for (const groupId of groups) {
+      const group = this.#storage.channels.get(groupId);
+      if (group === undefined || group.deletedAt !== undefined) continue;
+      if (budget) {
+        this.#hostPost(group, {
+          kind: 'notice',
+          reason: 'budget',
+          assistantId: record.id as ChannelId,
+        });
+      }
+      this.#touch(groupId);
     }
   }
 
@@ -1218,9 +1649,22 @@ export class ChannelService {
     }
     const spent = this.#wakeTokens(active);
     if (spent > 0) this.#storage.channels.addUsage(record.id, this.#day(), { tokens: spent });
+    if (active.groupId !== undefined) {
+      this.#finishGroupWake(record, active, outcome, answer, files);
+      return;
+    }
     if (outcome === 'failed') {
       const message = this.#options.events.snapshot(active.sessionId)?.session.lastError?.message;
       this.#hostPost(record, { kind: 'notice', reason: 'failed' }, message);
+      for (const origin of active.returns) {
+        const target = this.#storage.channels.get(origin.channelId);
+        if (target === undefined || target.deletedAt !== undefined) continue;
+        this.#hostPost(target, {
+          kind: 'notice',
+          reason: 'failed',
+          assistantId: record.id as ChannelId,
+        });
+      }
       return;
     }
     if (outcome !== 'completed') return;
@@ -1233,6 +1677,94 @@ export class ChannelService {
       ...(files.length > 0 && { files }),
       ...(active.brief !== undefined && { card: active.brief }),
     });
+    if (text !== '') this.#returnAnswer(record, active.returns, text);
+  }
+
+  /** 别的助理发来的消息有了回答：落回发起方的时间线（回复它发出的那条），以 `reason=reply` 唤醒发起方。 */
+  #returnAnswer(record: ChannelRecord, returns: ActiveWake['returns'], text: string): void {
+    for (const origin of returns) {
+      const target = this.#storage.channels.get(origin.channelId);
+      if (target === undefined || target.deletedAt !== undefined || target.kind !== 'assistant')
+        continue;
+      const depth = origin.depth + 1;
+      const { post } = this.#append(target, {
+        author: { kind: 'assistant', channelId: record.id as ChannelId, name: record.title },
+        content: [{ type: 'text', text: clip(text, CHANNEL_POST_TEXT_MAX_LENGTH) }],
+        ...(this.#storage.channels.getPost(origin.postId)?.channelId === target.id && {
+          replyTo: origin.postId,
+        }),
+        meta: { depth },
+      });
+      this.#queueWake(target.id as ChannelId, 'reply', { post, depth });
+    }
+  }
+
+  /** 群回合结束：回答以这个成员的名义发进群；回答里 @ 了别的成员时，在这一轮的上限内唤醒他们接话。 */
+  #finishGroupWake(
+    record: ChannelRecord,
+    active: ActiveWake,
+    outcome: TurnOutcome,
+    answer: string | undefined,
+    files: SharedFile[],
+  ): void {
+    const groupId = active.groupId as ChannelId;
+    const group = this.#storage.channels.get(groupId);
+    if (group === undefined || group.deletedAt !== undefined) return;
+    const memberId = record.id as ChannelId;
+    if (outcome === 'failed') {
+      const message = this.#options.events.snapshot(active.sessionId)?.session.lastError?.message;
+      this.#hostPost(group, { kind: 'notice', reason: 'failed', assistantId: memberId }, message);
+      return;
+    }
+    if (outcome !== 'completed') {
+      this.#touch(groupId);
+      return;
+    }
+    const { text, quiet } = postOfAnswer(answer ?? '');
+    if (quiet || (text === '' && files.length === 0)) {
+      this.#touch(groupId);
+      return;
+    }
+    this.#groupPostAs(record, group, text, {
+      depth: active.depth,
+      ...(active.replyTo !== undefined && { replyTo: active.replyTo }),
+      ...(files.length > 0 && { files }),
+    });
+  }
+
+  /** 成员在群里发一条（回合的回答或 `wevir_channel_post`），按 @ 唤醒接话的成员。 */
+  #groupPostAs(
+    member: ChannelRecord,
+    group: ChannelRecord,
+    text: string,
+    options: { depth: number; replyTo?: ChannelPostId; files?: SharedFile[] },
+  ): ChannelPost {
+    const memberId = member.id as ChannelId;
+    const groupId = group.id as ChannelId;
+    const mentions = this.#mentionsIn(group, text).filter((id) => id !== memberId);
+    const { post } = this.#append(group, {
+      author: { kind: 'assistant', channelId: memberId, name: member.title },
+      content: [{ type: 'text', text: clip(text, CHANNEL_POST_TEXT_MAX_LENGTH) }],
+      ...(options.replyTo !== undefined &&
+        this.#storage.channels.getPost(options.replyTo)?.channelId === group.id && {
+          replyTo: options.replyTo,
+        }),
+      ...(options.files !== undefined && { files: options.files }),
+      meta: { depth: options.depth, ...(mentions.length > 0 && { mentions }) },
+    });
+    // 自己说过的不再交给自己。
+    this.#groupSeen.set(`${groupId}:${memberId}`, post.seq);
+    const round = this.#rounds.get(groupId) ?? { replies: 0 };
+    round.replies += 1;
+    this.#rounds.set(groupId, round);
+    if (
+      mentions.length > 0 &&
+      options.depth < GROUP_MENTION_DEPTH_MAX &&
+      round.replies < GROUP_ROUND_REPLIES_MAX
+    ) {
+      for (const id of mentions) this.#queueGroupWake(id, groupId, options.depth + 1, true);
+    }
+    return post;
   }
 
   /**
@@ -1296,6 +1828,7 @@ export class ChannelService {
       replyTo?: ChannelPostId;
       files?: SharedFile[];
       clientPostId?: string;
+      meta?: PostMeta;
     },
   ): { post: ChannelPost; created: boolean } {
     const { post: row, created } = this.#storage.channels.appendPost({
@@ -1307,6 +1840,7 @@ export class ChannelService {
       ...(input.card !== undefined && { card: input.card }),
       ...(input.files !== undefined && { files: input.files }),
       ...(input.clientPostId !== undefined && { clientPostId: input.clientPostId }),
+      ...(input.meta !== undefined && { meta: input.meta }),
       createdAt: iso(this.#now()),
     });
     const post = this.#post(row);
@@ -1354,6 +1888,7 @@ export class ChannelService {
   }
 
   #post(row: ChannelPostRecord): ChannelPost {
+    const meta = row.meta as PostMeta | undefined;
     return {
       id: row.id as ChannelPostId,
       channelId: row.channelId as ChannelId,
@@ -1364,6 +1899,8 @@ export class ChannelService {
       ...(row.routedTo !== undefined && { routedTo: row.routedTo as SessionId[] }),
       ...(row.card !== undefined && { card: row.card as ChannelCard }),
       ...(row.files !== undefined && { files: row.files as SharedFile[] }),
+      ...(meta?.to !== undefined && { to: meta.to }),
+      ...(meta?.mentions !== undefined && meta.mentions.length > 0 && { mentions: meta.mentions }),
       ...(row.clientPostId !== undefined && { clientPostId: row.clientPostId }),
       createdAt: row.createdAt,
     };
@@ -1375,6 +1912,65 @@ export class ChannelService {
     const record = this.#storage.channels.get(channelId);
     if (record === undefined || record.deletedAt !== undefined) throw notFound(channelId);
     return record;
+  }
+
+  /** 只对助理有效的操作（唤醒、线程、日程、任务）：群报 `INVALID_PARAMS`。 */
+  #assistantRecord(channelId: string): ChannelRecord {
+    const record = this.#record(channelId);
+    if (record.kind === 'group') throw invalid('channelId', 'a group has no coordinator');
+    return record;
+  }
+
+  /** 协调者会话所在的频道；别的会话报 `INVALID_PARAMS`。 */
+  #coordinatorEntry(sessionId: SessionId): { channelId: ChannelId } {
+    const entry = this.#entryOf(sessionId);
+    if (entry?.role !== 'coordinator') throw invalid('sessionId', 'only the coordinator posts');
+    return entry;
+  }
+
+  /** 按频道 ID 或名字（不分大小写）找一个助理。 */
+  #findAssistant(to: string): ChannelRecord {
+    const wanted = to.trim().replace(/^@/, '');
+    const assistants = this.#storage.channels
+      .list()
+      .filter((record) => record.kind === 'assistant');
+    const byId = assistants.find((record) => record.id === wanted);
+    if (byId !== undefined) return byId;
+    const byName = assistants.filter(
+      (record) => record.title.toLowerCase() === wanted.toLowerCase(),
+    );
+    if (byName.length === 1 && byName[0] !== undefined) return byName[0];
+    throw invalid(
+      'to',
+      byName.length > 1
+        ? `several assistants are called ${wanted}; use the id from wevir_assistant_list`
+        : `no assistant ${wanted}; see wevir_assistant_list`,
+    );
+  }
+
+  #membersOf(record: ChannelRecord): ChannelId[] {
+    return ((record.group as ChannelGroup | undefined)?.members ?? []) as ChannelId[];
+  }
+
+  /** 群里还活着的成员，按成员顺序。 */
+  #memberRecords(record: ChannelRecord): ChannelRecord[] {
+    return this.#membersOf(record)
+      .map((id) => this.#storage.channels.get(id))
+      .filter(
+        (member): member is ChannelRecord => member !== undefined && member.deletedAt === undefined,
+      );
+  }
+
+  /** 正文里 `@名字` 提到的成员（不分大小写，名字后面不能紧跟字母或数字）。 */
+  #mentionsIn(group: ChannelRecord, text: string): ChannelId[] {
+    const found: ChannelId[] = [];
+    for (const member of this.#memberRecords(group)) {
+      const escaped = member.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])`, 'iu').test(text)) {
+        found.push(member.id as ChannelId);
+      }
+    }
+    return found;
   }
 
   #entryOf(
@@ -1403,7 +1999,7 @@ export class ChannelService {
 
   /** 协调者与没解决的线程待处理的审批。 */
   #approvals(record: ChannelRecord, threads = this.#threads(record)): ApprovalRequest[] {
-    const coordinator = (record.coordinator as StoredCoordinator).sessionId;
+    const coordinator = (record.coordinator as StoredCoordinator | null)?.sessionId;
     const sessions = [
       ...(coordinator === undefined ? [] : [coordinator]),
       ...threads.filter((thread) => thread.status !== 'resolved').map((thread) => thread.sessionId),
@@ -1422,6 +2018,7 @@ export class ChannelService {
   }
 
   #channel(record: ChannelRecord, threads = this.#threads(record)): Channel {
+    if (record.kind === 'group') return this.#groupChannel(record);
     const { wakes: _wakes, ...coordinator } = record.coordinator as StoredCoordinator;
     const usage = this.#storage.channels.usage(record.id, this.#day());
     const last = this.#storage.channels.posts(record.id, { limit: 1 })[0];
@@ -1472,14 +2069,35 @@ export class ChannelService {
       state,
       ...(pending > 0 && { pendingCount: pending }),
       lastPostSeq: record.lastPostSeq,
-      ...(lastPost !== undefined && {
-        lastPost: {
-          seq: lastPost.seq,
-          author: lastPost.author.kind,
-          preview: previewOf(lastPost),
-          at: lastPost.createdAt,
-        },
-      }),
+      ...(lastPost !== undefined && { lastPost: lastPostOf(lastPost) }),
+      ...(unread > 0 && { unreadCount: unread }),
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  /** 群的列表行：有成员在跑这个群的回合或等着轮到时 `working`。 */
+  #groupChannel(record: ChannelRecord): Channel {
+    const groupId = record.id as ChannelId;
+    const members = this.#membersOf(record);
+    const last = this.#storage.channels.posts(record.id, { limit: 1 })[0];
+    const unread = this.#storage.channels.countUnread(
+      record.id,
+      this.#storage.channels.seenSeq(record.id),
+    );
+    const working = members.some(
+      (id) =>
+        this.#active.get(id)?.groupId === groupId ||
+        this.#pending.get(id)?.groups.has(groupId) === true,
+    );
+    return {
+      id: groupId,
+      kind: 'group',
+      title: record.title,
+      group: { members },
+      state: working ? 'working' : 'idle',
+      lastPostSeq: record.lastPostSeq,
+      ...(last !== undefined && { lastPost: lastPostOf(this.#post(last)) }),
       ...(unread > 0 && { unreadCount: unread }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -1665,6 +2283,16 @@ export class ChannelService {
     }
     return out;
   }
+}
+
+function lastPostOf(post: ChannelPost): NonNullable<Channel['lastPost']> {
+  return {
+    seq: post.seq,
+    author: post.author.kind,
+    ...(post.author.kind === 'assistant' && { assistantId: post.author.channelId }),
+    preview: previewOf(post),
+    at: post.createdAt,
+  };
 }
 
 /** 读过到哪按读者记：远程设备各一份，本机客户端共用一份。 */

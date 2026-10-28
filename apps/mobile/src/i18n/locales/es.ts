@@ -122,6 +122,9 @@ export const es: Messages = {
   'bot.notice.failed': 'Turno fallido',
   'bot.retry': 'Reintentar',
   'bot.image': 'Imagen',
+  'bot.to': 'Para {name}',
+  'bot.mention': 'Mencionar a {name}',
+  'bot.groupPlaceholder': 'Mensaje a {name}',
 
   'newBot.name': 'Nombre',
   'newBot.description': 'Qué hace',

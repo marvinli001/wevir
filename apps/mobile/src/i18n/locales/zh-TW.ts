@@ -116,6 +116,9 @@ export const zhTW: Messages = {
   'bot.notice.failed': '本輪出錯',
   'bot.retry': '重試',
   'bot.image': '圖片',
+  'bot.to': '傳給 {name}',
+  'bot.mention': '提及 {name}',
+  'bot.groupPlaceholder': '傳訊息到 {name}',
 
   'newBot.name': '名稱',
   'newBot.description': '職責',

@@ -223,4 +223,31 @@ describe('bots', () => {
     expect(folderParts('/data')).toEqual({ name: 'data', parent: '' });
     expect(folderParts('C:\\work\\api')).toEqual({ name: 'api', parent: 'C:\\work' });
   });
+
+  it('群：成员取同一台电脑上的助理，摘要与帖子带说话的助理', () => {
+    const ann = channel(CHANNEL_A, { title: 'Ann' });
+    const group = channel('chn_01JA2B3C4D5E6F7G8H9JKMNPG1' as never, {
+      kind: 'group',
+      title: '周会',
+      group: { members: [CHANNEL_A, 'chn_01JA2B3C4D5E6F7G8H9JKMNPZZ' as never] },
+      lastPost: { seq: 2, author: 'assistant', assistantId: CHANNEL_A, preview: '好了', at: at(2) },
+    });
+    const directory = new Map([
+      [ann.id, ann],
+      [group.id, group],
+    ]);
+    const bot = botFromChannel('mac', 'Mac', group, directory);
+    expect(bot.kind).toBe('group');
+    expect(bot.members.map((member) => member.name)).toEqual(['Ann']);
+    expect(bot.lastPost?.text).toBe('Ann: 好了');
+    const [view] = postViews(
+      post(group.id, 2, {
+        author: { kind: 'assistant', channelId: CHANNEL_A, name: 'Old name' },
+        content: [{ type: 'text', text: '好了' }],
+      }),
+      'Image',
+      directory,
+    );
+    expect(view).toMatchObject({ author: 'bot', speaker: { id: CHANNEL_A, name: 'Ann' } });
+  });
 });

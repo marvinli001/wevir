@@ -117,6 +117,9 @@ export const zhCN = {
   'bot.notice.failed': '本轮出错',
   'bot.retry': '重试',
   'bot.image': '图片',
+  'bot.to': '发给 {name}',
+  'bot.mention': '提及 {name}',
+  'bot.groupPlaceholder': '发消息到 {name}',
 
   'newBot.name': '名字',
   'newBot.description': '职责',

@@ -1243,6 +1243,8 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_channel_start_thread',
       'mcp__wevir__wevir_channel_forward',
       'mcp__wevir__wevir_channel_resolve',
+      'mcp__wevir__wevir_channel_assistants',
+      'mcp__wevir__wevir_channel_message',
       // 0.47.0：后台进程的列出、读输出与等待。
       'mcp__wevir__wevir_process_list',
       'mcp__wevir__wevir_process_output',

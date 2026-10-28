@@ -3188,4 +3188,15 @@ export const messages: Messages = {
   'assistants.memory.loadFailed': 'No se pudo cargar la memoria: {error}',
   'assistants.memory.empty': 'Sin memorias',
   'assistants.memory.delete': 'Eliminar',
+  'assistants.group.new': 'Nuevo grupo',
+  'assistants.group.edit': 'Editar grupo',
+  'assistants.group.name': 'Nombre del grupo',
+  'assistants.group.members': 'Miembros · {count}',
+  'assistants.group.delete': 'Eliminar grupo',
+  'assistants.group.delete.title': '¿Eliminar el grupo «{name}»?',
+  'assistants.group.delete.body':
+    'Se elimina la cronología del grupo. Los asistentes no se ven afectados.',
+  'assistants.group.placeholder': 'Mensaje a {name}',
+  'assistants.group.mention': 'Mencionar a un miembro',
+  'assistants.timeline.to': 'Para {name}',
 };

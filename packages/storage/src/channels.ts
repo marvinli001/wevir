@@ -14,12 +14,16 @@ import {
 /** `channels` 表的一行（0026_channels，协议 0.120.0）。JSON 列的形状由 Host 按协议校验，这里不解释。 */
 export interface ChannelRecord {
   id: string;
-  /** `project` / `assistant`。 */
+  /** `project` / `assistant` / `group`。 */
   kind: string;
+  /** 群没有工作区，存空串。 */
   workspaceId: string;
   title: string;
   /** 助理的身份与规矩；项目频道没有。 */
   assistant?: unknown;
+  /** 群的成员（0027_channel_groups）；别的频道没有。 */
+  group?: unknown;
+  /** 群是 null。 */
   coordinator: unknown;
   budget: unknown;
   pausedAt?: string;
@@ -43,6 +47,8 @@ export interface ChannelPostRecord {
   card?: unknown;
   files?: unknown;
   clientPostId?: string;
+  /** Host 自用的附加信息（0027_channel_groups）：发给谁、@ 了谁、来回层数、回答送回哪里。 */
+  meta?: unknown;
   createdAt: string;
 }
 
@@ -74,7 +80,9 @@ export interface ChannelRepository {
   /** 改名称、身份、协调者、预算与暂停；没有这条时返回 false。 */
   update(
     id: string,
-    patch: Partial<Pick<ChannelRecord, 'title' | 'assistant' | 'coordinator' | 'budget'>> & {
+    patch: Partial<
+      Pick<ChannelRecord, 'title' | 'assistant' | 'group' | 'coordinator' | 'budget'>
+    > & {
       pausedAt?: string | null;
       pauseReason?: string | null;
       updatedAt: string;
@@ -127,6 +135,8 @@ function toChannel(row: SqlRow): ChannelRecord {
   };
   const assistant = optionalJson(row, 'assistant');
   if (assistant !== undefined) record.assistant = assistant;
+  const group = optionalJson(row, 'group_info');
+  if (group !== undefined) record.group = group;
   const pausedAt = optionalText(row, 'paused_at');
   if (pausedAt !== undefined) record.pausedAt = pausedAt;
   const pauseReason = optionalText(row, 'pause_reason');
@@ -155,6 +165,8 @@ function toPost(row: SqlRow): ChannelPostRecord {
   if (files !== undefined) record.files = files;
   const clientPostId = optionalText(row, 'client_post_id');
   if (clientPostId !== undefined) record.clientPostId = clientPostId;
+  const meta = optionalJson(row, 'meta');
+  if (meta !== undefined) record.meta = meta;
   return record;
 }
 
@@ -176,9 +188,11 @@ function toThread(row: SqlRow): ChannelThreadRecord {
 export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
   const insert = db.prepare(`
     INSERT INTO channels (
-      id, kind, workspace_id, title, assistant, coordinator, budget, paused_at, pause_reason, created_at, updated_at
+      id, kind, workspace_id, title, assistant, group_info, coordinator, budget, paused_at, pause_reason, created_at,
+      updated_at
     ) VALUES (
-      :id, :kind, :workspaceId, :title, :assistant, :coordinator, :budget, :pausedAt, :pauseReason, :createdAt, :updatedAt
+      :id, :kind, :workspaceId, :title, :assistant, :group, :coordinator, :budget, :pausedAt, :pauseReason, :createdAt,
+      :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM channels WHERE id = ?');
   const list = db.prepare(
@@ -192,9 +206,9 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
   );
   const insertPost = db.prepare(`
     INSERT INTO channel_posts (
-      channel_id, seq, id, author, content, reply_to, routed_to, card, files, client_post_id, created_at
+      channel_id, seq, id, author, content, reply_to, routed_to, card, files, client_post_id, meta, created_at
     ) VALUES (
-      :channelId, :seq, :id, :author, :content, :replyTo, :routedTo, :card, :files, :clientPostId, :createdAt
+      :channelId, :seq, :id, :author, :content, :replyTo, :routedTo, :card, :files, :clientPostId, :meta, :createdAt
     )`);
   const byClient = db.prepare(
     'SELECT * FROM channel_posts WHERE channel_id = ? AND client_post_id = ?',
@@ -241,6 +255,7 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
         workspaceId: record.workspaceId,
         title: record.title,
         assistant: toNullableJson(record.assistant),
+        group: toNullableJson(record.group),
         coordinator: toJson(record.coordinator),
         budget: toJson(record.budget),
         pausedAt: orNull(record.pausedAt),
@@ -264,6 +279,10 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
       if (patch.assistant !== undefined) {
         sets.push('assistant = :assistant');
         values.assistant = toJson(patch.assistant);
+      }
+      if (patch.group !== undefined) {
+        sets.push('group_info = :group');
+        values.group = toJson(patch.group);
       }
       if (patch.coordinator !== undefined) {
         sets.push('coordinator = :coordinator');
@@ -310,6 +329,7 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
           card: toNullableJson(post.card),
           files: toNullableJson(post.files),
           clientPostId: orNull(post.clientPostId),
+          meta: toNullableJson(post.meta),
           createdAt: post.createdAt,
         });
         db.exec('RELEASE channel_post');

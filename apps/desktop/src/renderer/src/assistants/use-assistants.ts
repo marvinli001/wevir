@@ -1,4 +1,4 @@
-// 助理页的数据（0.120.0）：列表读 `channel.list`，之后按 `channels.changed` 增量套用（版本不连续、重连后重读）；选中的助理读
+// 助理页的数据（0.120.0）：列表读 `channel.list`（助理与群，0.132.0），之后按 `channels.changed` 增量套用（版本不连续、重连后重读）；选中的助理读
 // `channel.get` 与最近一页帖子，再 `watchChannel` 从最后一条接着收新帖与变化，往前翻页用 `channel.posts` 的 `beforeSeq`。
 
 import type { WevirClient } from '@wevir/client-sdk';
@@ -32,7 +32,7 @@ export function useAssistantList(client: WevirClient): AssistantList {
     let seq = 0;
     const load = () => {
       const id = ++seq;
-      client.request('channel.list', { kind: 'assistant' }).then(
+      client.request('channel.list', {}).then(
         (list) => {
           if (alive && id === seq) setState({ list });
         },

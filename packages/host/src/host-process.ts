@@ -1526,6 +1526,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         remote_web: true,
         channels: true,
         channel_schedules: true,
+        channel_groups: true,
       },
       engineFeatures,
       plugins,

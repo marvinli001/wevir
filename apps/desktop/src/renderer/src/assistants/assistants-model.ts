@@ -1,5 +1,6 @@
-// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`）：功能门控、列表行的状态与排序、头像的随机与换一个、
-// 时间线的合并（新帖、改了的帖子、翻页）、`channels.changed` 与 `channel.updated` 的套用、审批要发出的原文。不碰 DOM 与 Host。
+// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.132.0，`channel_groups`）：功能门控、列表行的
+// 状态与排序、头像的随机与换一个、时间线的合并（新帖、改了的帖子、翻页）、`channels.changed` 与 `channel.updated` 的套用、审批要发出的
+// 原文、群里的 @。不碰 DOM 与 Host。
 
 import type { ChannelsChange, ChannelUpdate } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
@@ -61,6 +62,7 @@ export function assistantPatch(
   const coordinator = channel.coordinator;
   if (
     model !== undefined &&
+    coordinator !== undefined &&
     (model.providerId !== coordinator.providerId ||
       model.modelId !== coordinator.modelId ||
       model.reasoningEffort !== coordinator.reasoningEffort)
@@ -81,6 +83,11 @@ export type AssistantsAvailability = 'pending' | 'unsupported' | 'ready';
 export function assistantsAvailability(features: HostFeatures | undefined): AssistantsAvailability {
   if (features === undefined) return 'pending';
   return hostSupports(features, 'channels') ? 'ready' : 'unsupported';
+}
+
+/** 助理之间与助理群（0.132.0）。 */
+export function groupsSupported(features: HostFeatures | undefined): boolean {
+  return features !== undefined && hostSupports(features, 'channel_groups');
 }
 
 /** 助理的日程与晨间简报（0.121.0）。 */
@@ -104,11 +111,11 @@ export const ROW_STATE_LABEL: Record<AssistantRowState, PlainMessageKey> = {
   paused: 'assistants.state.paused',
 };
 
-/** 最近有动静的在前：最后一条帖子的时刻，没有帖子时用更新时刻。 */
+/** 助理与群，最近有动静的在前：最后一条帖子的时刻，没有帖子时用更新时刻。 */
 export function sortAssistants(channels: readonly Channel[]): Channel[] {
   const at = (channel: Channel) => channel.lastPost?.at ?? channel.updatedAt;
   return [...channels]
-    .filter((channel) => channel.kind === 'assistant')
+    .filter((channel) => channel.kind === 'assistant' || channel.kind === 'group')
     .sort((a, b) => at(b).localeCompare(at(a)) || a.title.localeCompare(b.title));
 }
 
@@ -123,6 +130,58 @@ export function applyListChange(
     channels: [...current.channels.filter((item) => !removed.has(item.id)), ...change.upserted],
     listVersion: change.listVersion,
   };
+}
+
+// ---- 群 ----
+
+/** 按 ID 找助理（群里帖子的头像与名字、成员表）。 */
+export function assistantsById(channels: readonly Channel[] | undefined): Map<string, Channel> {
+  return new Map(
+    (channels ?? [])
+      .filter((channel) => channel.kind === 'assistant')
+      .map((channel) => [channel.id, channel]),
+  );
+}
+
+/** 群的成员（列表里还在的助理，按成员顺序）。 */
+export function groupMembers(group: Channel, assistants: ReadonlyMap<string, Channel>): Channel[] {
+  return (group.group?.members ?? []).flatMap((id) => {
+    const member = assistants.get(id);
+    return member === undefined ? [] : [member];
+  });
+}
+
+/** 列表行的摘要：别的助理写的前面带它的名字。 */
+export function previewLine(channel: Channel, assistants: ReadonlyMap<string, Channel>): string {
+  const last = channel.lastPost;
+  if (last === undefined) return '';
+  if (last.author !== 'assistant' || last.assistantId === undefined) return last.preview;
+  const name = assistants.get(last.assistantId)?.title;
+  return name === undefined ? last.preview : `${name}: ${last.preview}`;
+}
+
+/** 输入框里光标前正在打的 `@名字`：返回 `@` 的位置与已打的部分；不在 @ 里时 undefined。 */
+export function mentionQuery(
+  text: string,
+  caret: number,
+): { start: number; query: string } | undefined {
+  const before = text.slice(0, caret);
+  const at = before.lastIndexOf('@');
+  if (at < 0) return undefined;
+  if (at > 0 && !/\s/.test(before[at - 1] ?? '')) return undefined;
+  const query = before.slice(at + 1);
+  if (/\s/.test(query) || query.length > 40) return undefined;
+  return { start: at, query };
+}
+
+/** 正文里 `@名字` 提到的成员（同 Host 的认法：不分大小写，名字后面不能紧跟字母或数字）。 */
+export function mentionedIn(text: string, members: readonly Channel[]): Channel['id'][] {
+  return members
+    .filter((member) => {
+      const escaped = member.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])`, 'iu').test(text);
+    })
+    .map((member) => member.id);
 }
 
 // ---- 头像 ----
