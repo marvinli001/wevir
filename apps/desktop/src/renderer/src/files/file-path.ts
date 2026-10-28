@@ -129,7 +129,11 @@ export interface FileLinkPaths {
 
 export function fileLinkPaths(href: string, cwd: string): FileLinkPaths | undefined {
   const target = parseFileHref(href);
-  if (!target) return undefined;
+  return target && fileTargetPaths(target, cwd);
+}
+
+/** 同上，路径已经拆好（文件卡片、工具行、变更列表里的路径不按链接解析行号与锚点）。 */
+export function fileTargetPaths(target: FileTarget, cwd: string): FileLinkPaths {
   const relative = cwd === '' ? undefined : toRelativePath(target.path, cwd);
   const absolute = isAbsolutePath(target.path)
     ? target.path

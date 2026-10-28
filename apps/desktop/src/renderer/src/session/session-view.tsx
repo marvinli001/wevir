@@ -41,7 +41,7 @@ import {
 } from '@/data/workbench-data';
 import { isChats, type WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
-import { FileLinkMenuProvider } from '@/files/file-link-menu';
+import { FileLinkMenuProvider, useAttachToSession } from '@/files/file-link-menu';
 import { OpenFileLink, OpenSessionFile, openFileLink } from '@/files/file-links';
 import type { FileScope } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
@@ -58,7 +58,6 @@ import { useRegisterCompact } from './compact-action';
 import {
   Composer,
   type ComposerPlan,
-  insertMention,
   insertQuote,
   isBusy,
   restoreDraft,
@@ -789,11 +788,8 @@ export function SessionView({
         }),
     };
   }, [writable, sideEnabled, client, session.id, panes]);
-  // 消息里文件链接的右键菜单（files/file-link-menu.tsx）的“添加到对话”：作为 @ 提及放进这个会话的输入框。
-  const attachPath = useMemo(
-    () => (writable ? (path: string) => insertMention(session.id, path) : undefined),
-    [writable, session.id],
-  );
+  // 文件右键菜单（files/file-link-menu.tsx）的“添加到对话”：作为 @ 提及放进这个会话的输入框。
+  const attachPath = useAttachToSession(session);
   const fileScope = useMemo<FileScope | undefined>(
     () =>
       filesEnabled

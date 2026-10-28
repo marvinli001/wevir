@@ -408,6 +408,8 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
 export interface SummaryPart {
   text: string;
   file?: string;
+  /** `file` 的完整路径（文件右键菜单用）。 */
+  path?: string;
   session?: { sessionId: string; title?: string };
   /** 文件名后面还有的文字（日文、韩文等动词在后的语言）。 */
   after?: string;
@@ -452,6 +454,7 @@ export function workSummaryParts(tally: WorkTally): SummaryPart[] {
       parts.push({
         text: before.trimEnd(),
         file: basename(only[0]),
+        path: only[0],
         ...(after.trim() && { after: after.trimStart() }),
       });
     } else {
@@ -526,6 +529,8 @@ export interface WorkLineView {
   target?: string;
   /** 目标只写了文件名时的完整路径（相对工作目录），悬停提示里显示。 */
   targetTitle?: string;
+  /** 只涉及一个文件时它的路径（工具输入里的写法，文件右键菜单用）。 */
+  filePath?: string;
   /** 跑得久的命令的用时（照 Codex 的“在 10s 内运行”），排在行尾。 */
   duration?: string;
   /** 会话工具指向的会话：目标画成会话胶囊（`target` 是找不到会话时的文字）。 */
@@ -684,6 +689,7 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
   const targetTitle = paths?.length
     ? paths.map((path) => relativeToRoot(path, root)).join('\n')
     : steps;
+  const filePath = paths?.length === 1 ? paths[0] : isFile && !paths?.length ? summary : undefined;
   const ms =
     kind === 'shell' && (lifecycle === 'completed' || lifecycle === 'failed')
       ? between(part.startedAt, part.finishedAt)
@@ -692,6 +698,7 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
     label,
     ...(target && { target }),
     ...(targetTitle !== undefined && targetTitle !== target && { targetTitle }),
+    ...(filePath && { filePath }),
     ...(ms !== undefined &&
       ms >= SHELL_DURATION_WORTH_MENTIONING_MS && { duration: formatDuration(ms) }),
     tone: LINE_TONES[lifecycle],

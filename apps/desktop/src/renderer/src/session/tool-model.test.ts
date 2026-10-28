@@ -293,6 +293,11 @@ describe('工作组的摘要：文件名与思考（U16）', () => {
       'index.ts',
       undefined,
     ]);
+    expect(workSummaryParts(one).map((part) => part.path)).toEqual([
+      '/w/README.md',
+      '/w/src/index.ts',
+      undefined,
+    ]);
 
     const patch = tallyWork(
       [
@@ -503,11 +508,14 @@ describe('逐条的一行', () => {
       target: 'a.ts, task.md',
       targetTitle: 'src/a.ts\n/Users/me/Library/Wevir/brain/task.md',
     });
+    // 几个文件时右键菜单不知道是哪个，不给路径。
+    expect(toolLine(edit, true, root).filePath).toBeUndefined();
     // 只有文件名时不重复提示。
     const plain = tool('b', 'read', { display: { kind: 'read', paths: ['README.md'] } });
     expect(toolLine(plain, true, root)).toEqual({
       label: '已读取',
       target: 'README.md',
+      filePath: 'README.md',
       tone: 'done',
     });
   });

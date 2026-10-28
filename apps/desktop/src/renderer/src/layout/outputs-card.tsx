@@ -5,6 +5,11 @@ import { cn } from 'cn';
 import { FileOutput, FilePen, FilePlus, FileX } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranscript } from '@/data/workbench-data';
+import {
+  FileLinkMenuProvider,
+  useAttachToSession,
+  useFileContextMenu,
+} from '@/files/file-link-menu';
 import { useFilesSupported } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
 import { t } from '@/i18n';
@@ -32,6 +37,8 @@ function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) 
   const Icon = KIND_ICONS[file.kind];
   const { name, folder } = splitPath(file);
   const deleted = file.kind === 'deleted';
+  // 删掉的文件只剩路径，没有菜单可用的东西，右键照常。
+  const onContextMenu = useFileContextMenu(deleted ? undefined : file.path);
   const content = (
     <>
       <Icon
@@ -65,7 +72,7 @@ function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) 
   );
   const row = 'flex h-7 w-full min-w-0 items-center gap-2 text-sm';
   return (
-    <li title={file.path}>
+    <li title={file.path} onContextMenu={onContextMenu}>
       {onOpen ? (
         <button
           type="button"
@@ -88,6 +95,7 @@ function useOutputsCard({ sessionId, session }: RailContext) {
   const state = useTranscript(sessionId);
   const panes = usePanes();
   const filesSupported = useFilesSupported();
+  const attach = useAttachToSession(session);
   const messages = state?.transcript.messages;
   const files = useMemo(
     () => (messages ? sessionOutputs(messages, session.cwd) : []),
@@ -108,15 +116,17 @@ function useOutputsCard({ sessionId, session }: RailContext) {
   return {
     summary: t('rail.outputs.files', { count: files.length }),
     details: (
-      <ul
-        data-testid="rail-outputs"
-        className="-mx-1.5 max-h-72 overflow-x-hidden overflow-y-auto px-1.5"
-      >
-        {files.map((file) => {
-          const open = opener(file);
-          return <OutputRow key={file.path} file={file} {...(open && { onOpen: open })} />;
-        })}
-      </ul>
+      <FileLinkMenuProvider cwd={session.cwd} attach={attach}>
+        <ul
+          data-testid="rail-outputs"
+          className="-mx-1.5 max-h-72 overflow-x-hidden overflow-y-auto px-1.5"
+        >
+          {files.map((file) => {
+            const open = opener(file);
+            return <OutputRow key={file.path} file={file} {...(open && { onOpen: open })} />;
+          })}
+        </ul>
+      </FileLinkMenuProvider>
     ),
   };
 }
