@@ -383,9 +383,10 @@ function commandOf(tool: PolicyTool): string | undefined {
 
 function inside(path: string, roots: PolicyRoots): boolean {
   const absolute = isAbsolute(path) ? resolve(path) : resolve(roots.root, path);
-  return [roots.root, ...roots.folders].some(
-    (root) => absolute === root || absolute.startsWith(`${root}${sep}`),
-  );
+  return [roots.root, ...roots.folders].some((folder) => {
+    const root = resolve(folder);
+    return absolute === root || absolute.startsWith(`${root}${sep}`);
+  });
 }
 
 /** 一个要批准的工具调用归成什么。 */

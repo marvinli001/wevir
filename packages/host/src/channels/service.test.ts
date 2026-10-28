@@ -44,6 +44,9 @@ import { CHANNEL_TOOLS, channelToolAllowed } from './tools.js';
 const tempDir = useTempDir();
 const storages = useStorages();
 const context = { client: identity, capabilities: {} };
+/** Windows 上的 CI 慢得多，等待放宽。 */
+const WAIT = process.platform === 'win32' ? 20_000 : 5000;
+const waitFor = <T>(callback: () => T | Promise<T>) => vi.waitFor(callback, { timeout: WAIT });
 /** 用例结束时停下服务，免得回合在存储关闭后还在写。 */
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => {
@@ -223,14 +226,11 @@ async function setup(
   const posts = (channelId: ChannelId) => service.posts({ channelId, limit: 200 }).posts;
   /** 等到协调者回答了这么多条。 */
   const coordinatorPosts = async (channelId: ChannelId, count: number) => {
-    await vi.waitFor(
-      () => {
-        expect(posts(channelId).filter((post) => post.author.kind === 'coordinator')).toHaveLength(
-          count,
-        );
-      },
-      { timeout: 5000 },
-    );
+    await waitFor(() => {
+      expect(posts(channelId).filter((post) => post.author.kind === 'coordinator')).toHaveLength(
+        count,
+      );
+    });
     return posts(channelId).filter((post) => post.author.kind === 'coordinator');
   };
   const tools = new AppTools({
@@ -420,13 +420,13 @@ describe('ChannelService', () => {
     expect(again.post.id).toBe(post.id);
 
     // 本机读到自己发的那条为止，协调者的回答算未读；手机另算。
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       const row = (await h.methods['channel.get']({ channelId: first.id }, context)).channel;
       expect(row.unreadCount).toBe(1);
       expect(row.lastPost?.author).toBe('coordinator');
     });
     h.service.markRead(first.id, reply?.seq ?? 0, identity);
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       expect(
         (await h.methods['channel.get']({ channelId: first.id }, context)).channel.unreadCount ?? 0,
       ).toBe(0);
@@ -446,7 +446,7 @@ describe('ChannelService', () => {
     );
     const bot = await h.create('Mail desk', 'Sort my inbox.');
     await h.coordinatorPosts(bot.id, 1);
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(changes.some((change) => change.upserted.includes(bot.id))).toBe(true),
     );
 
@@ -460,7 +460,7 @@ describe('ChannelService', () => {
       identity,
     );
     await h.coordinatorPosts(bot.id, 2);
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(
         received
           .filter((message) => message.kind === 'posted')
@@ -470,7 +470,7 @@ describe('ChannelService', () => {
     unsubscribe();
 
     await h.methods['channel.delete']({ channelId: bot.id }, context);
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(changes.some((change) => change.removed.includes(bot.id))).toBe(true),
     );
     expect((await h.methods['channel.list']({}, context)).channels).toEqual([]);
@@ -499,7 +499,7 @@ describe('ChannelService', () => {
     const text = reply?.content[0]?.type === 'text' ? reply.content[0].text : '';
     expect(text).toContain('<channel_handover');
     expect(text).toContain('generation="2"');
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(h.events.snapshot(firstSession as SessionId)?.session.state).toBe('closed'),
     );
     const channel = h.service.channelOf(secondSession as SessionId);
@@ -512,7 +512,7 @@ describe('ChannelService', () => {
     const bot = await h.create('Mail desk', 'Sort my inbox.');
     await h.coordinatorPosts(bot.id, 1);
     h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'One more' }] }, identity);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const notice = h.posts(bot.id).find((post) => post.card?.kind === 'notice');
       expect(notice?.card).toEqual({ kind: 'notice', reason: 'budget' });
       expect(ChannelPostSchema.parse(notice)).toEqual(notice);
@@ -538,7 +538,7 @@ describe('ChannelService', () => {
       month: '2-digit',
       day: '2-digit',
     }).format(new Date());
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(h.storage.channels.usage(bot.id, day)?.tokens).toBe(
         h.storage.usage.sessionTotals(sessionId).tokens,
       );
@@ -561,7 +561,7 @@ describe('ChannelService', () => {
     );
     expect(thread.rootPostId).toBe(post.id);
     expect(thread.title).toBe('Draft a reply to Ana');
-    await vi.waitFor(() => {
+    await waitFor(() => {
       const messages = h.events
         .readSince(thread.sessionId, 0)
         .filter((event) => event.type === 'user.message');
@@ -910,14 +910,11 @@ describe('日程与晨间简报', () => {
 
     const briefRun = await h.automations.runNow(schedules[0]?.id ?? '');
     expect(briefRun.status).toBe('completed');
-    const brief = await vi.waitFor(
-      () => {
-        const post = h.posts(bot.id).find((candidate) => candidate.card?.kind === 'brief');
-        expect(post).toBeDefined();
-        return post;
-      },
-      { timeout: 5000 },
-    );
+    const brief = await waitFor(() => {
+      const post = h.posts(bot.id).find((candidate) => candidate.card?.kind === 'brief');
+      expect(post).toBeDefined();
+      return post;
+    });
     expect(brief?.author.kind).toBe('coordinator');
     expect(brief?.card).toMatchObject({
       kind: 'brief',
@@ -963,7 +960,7 @@ describe('日程与晨间简报', () => {
     ).rejects.toThrow(/brief needs channelId/);
 
     await h.methods['channel.delete']({ channelId: bot.id }, context);
-    await vi.waitFor(() => expect(h.automations.forChannel(bot.id)).toEqual([]));
+    await waitFor(() => expect(h.automations.forChannel(bot.id)).toEqual([]));
   });
 
   it('协调者等批准：助理是 waiting，审批进 channel.get，收件箱与提醒带上助理', async () => {
@@ -974,16 +971,13 @@ describe('日程与晨间简报', () => {
       { channelId: bot.id, content: [{ type: 'text', text: 'approve this send' }] },
       identity,
     );
-    await vi.waitFor(
-      async () => {
-        const view = await h.methods['channel.get']({ channelId: bot.id }, context);
-        expect(view.channel.state).toBe('waiting');
-        expect(view.channel.pendingCount).toBe(1);
-        expect(view.approvals).toHaveLength(1);
-      },
-      { timeout: 5000 },
-    );
-    await vi.waitFor(() => {
+    await waitFor(async () => {
+      const view = await h.methods['channel.get']({ channelId: bot.id }, context);
+      expect(view.channel.state).toBe('waiting');
+      expect(view.channel.pendingCount).toBe(1);
+      expect(view.approvals).toHaveLength(1);
+    });
+    await waitFor(() => {
       expect(h.inbox.list()).toEqual([
         expect.objectContaining({ kind: 'approval', channelId: bot.id, title: 'Mail desk' }),
       ]);
@@ -1048,7 +1042,7 @@ describe('助理之间与助理群', () => {
     expect(textOf(replies[1])).toContain('from="Mail desk"');
 
     // 发起方：回答以 Trip desk 的名义落回，回复发出的那条；协调者以 reason=reply 醒来。
-    await vi.waitFor(() => expect(assistantPosts(h, mail.id)).toHaveLength(1), { timeout: 5000 });
+    await waitFor(() => expect(assistantPosts(h, mail.id)).toHaveLength(1));
     const answer = assistantPosts(h, mail.id)[0];
     expect(answer?.author).toEqual({ kind: 'assistant', channelId: trip.id, name: 'Trip desk' });
     expect(answer?.replyTo).toBe(outgoing?.id);
@@ -1086,9 +1080,7 @@ describe('助理之间与助理群', () => {
       { channelId: group.id, content: [{ type: 'text', text: 'Plan the week' }] },
       context,
     );
-    await vi.waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(2), {
-      timeout: 5000,
-    });
+    await waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(2));
     const first = assistantPosts(h, group.id);
     expect(
       first.map((post) => post.author.kind === 'assistant' && post.author.name).sort(),
@@ -1105,9 +1097,7 @@ describe('助理之间与助理群', () => {
       context,
     );
     expect(asked.mentions).toEqual([bob.id]);
-    await vi.waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(3), {
-      timeout: 5000,
-    });
+    await waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(3));
     const third = assistantPosts(h, group.id)[2];
     expect(third?.author).toMatchObject({ kind: 'assistant', channelId: bob.id });
     expect(third?.replyTo).toBe(asked.id);
@@ -1139,9 +1129,7 @@ describe('助理之间与助理群', () => {
       { channelId: group.id, content: [{ type: 'text', text: 'Hi' }], mentions: [ann.id] },
       context,
     );
-    await vi.waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(3), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(3));
     await new Promise((resolve) => setTimeout(resolve, 200));
     const chain = assistantPosts(h, group.id);
     expect(chain).toHaveLength(3);
@@ -1168,17 +1156,14 @@ describe('助理之间与助理群', () => {
       { channelId: group.id, content: [{ type: 'text', text: 'Plan the week' }] },
       context,
     );
-    await vi.waitFor(
-      () => {
-        const notices = h
-          .posts(group.id)
-          .filter((post) => post.card?.kind === 'notice' && post.card.reason === 'budget');
-        expect(
-          notices.map((post) => post.card?.kind === 'notice' && post.card.assistantId).sort(),
-        ).toEqual([ann.id, bob.id].sort());
-      },
-      { timeout: 5000 },
-    );
+    await waitFor(() => {
+      const notices = h
+        .posts(group.id)
+        .filter((post) => post.card?.kind === 'notice' && post.card.reason === 'budget');
+      expect(
+        notices.map((post) => post.card?.kind === 'notice' && post.card.assistantId).sort(),
+      ).toEqual([ann.id, bob.id].sort());
+    });
     expect(assistantPosts(h, group.id)).toHaveLength(0);
   });
 });
@@ -1239,7 +1224,7 @@ describe('助理的规矩由 Host 执行（0.132.0）', () => {
       mcp__github__list_issues: 'completed',
       mcp__wevir__wevir_process_start: 'completed',
     });
-    await vi.waitFor(() =>
+    await waitFor(() =>
       expect(notices(h, bot.id)).toEqual([
         {
           card: { kind: 'notice', reason: 'acted', category: 'local_files' },
@@ -1256,16 +1241,13 @@ describe('助理的规矩由 Host 执行（0.132.0）', () => {
     const { bot, sessionId } = await ready(h);
     say(h, bot.id, 'approval:mcp:gmail/send_email');
     let approvalId = '';
-    await vi.waitFor(
-      async () => {
-        const view = await h.methods['channel.get']({ channelId: bot.id }, context);
-        expect(view.approvals).toHaveLength(1);
-        expect(view.approvals[0]?.detail?.toolName).toBe('mcp__gmail__send_email');
-        approvalId = view.approvals[0]?.id as string;
-      },
-      { timeout: 5000 },
-    );
-    await vi.waitFor(() =>
+    await waitFor(async () => {
+      const view = await h.methods['channel.get']({ channelId: bot.id }, context);
+      expect(view.approvals).toHaveLength(1);
+      expect(view.approvals[0]?.detail?.toolName).toBe('mcp__gmail__send_email');
+      approvalId = view.approvals[0]?.id as string;
+    });
+    await waitFor(() =>
       expect(h.inbox.list()).toEqual([
         expect.objectContaining({ kind: 'approval', channelId: bot.id }),
       ]),
@@ -1404,7 +1386,7 @@ describe('助理输入框的图片与停止（0.135.0）', () => {
     const h = await setup();
     const bot = await h.create('Mail desk', 'Sort my inbox.');
     await h.coordinatorPosts(bot.id, 1);
-    await vi.waitFor(async () => expect((await row(h, bot.id)).answering).toBeUndefined());
+    await waitFor(async () => expect((await row(h, bot.id)).answering).toBeUndefined());
 
     // echo 的 ask 停在提问上，回合一直在跑。
     await h.methods['channel.post'](
@@ -1412,16 +1394,15 @@ describe('助理输入框的图片与停止（0.135.0）', () => {
       context,
     );
     const sessionId = (await row(h, bot.id)).coordinator?.sessionId as SessionId;
-    await vi.waitFor(
-      () => expect(h.events.snapshot(sessionId)?.pendingQuestions?.length ?? 0).toBeGreaterThan(0),
-      { timeout: 5000 },
+    await waitFor(() =>
+      expect(h.events.snapshot(sessionId)?.pendingQuestions?.length ?? 0).toBeGreaterThan(0),
     );
     const busy = await row(h, bot.id);
     expect(busy.answering).toBe(true);
     expect(ChannelSchema.parse(busy)).toEqual(busy);
 
     await h.methods['channel.stop']({ channelId: bot.id }, context);
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       expect(h.events.snapshot(sessionId)?.session.activeTurn).toBeUndefined();
       expect((await row(h, bot.id)).answering).toBeUndefined();
     });
@@ -1455,18 +1436,15 @@ describe('助理输入框的图片与停止（0.135.0）', () => {
       (await row(h, ann.id)).coordinator?.sessionId as SessionId,
       (await row(h, bob.id)).coordinator?.sessionId as SessionId,
     ];
-    await vi.waitFor(
-      () => {
-        for (const sessionId of sessions) {
-          expect(h.events.snapshot(sessionId)?.pendingQuestions?.length ?? 0).toBeGreaterThan(0);
-        }
-      },
-      { timeout: 5000 },
-    );
+    await waitFor(() => {
+      for (const sessionId of sessions) {
+        expect(h.events.snapshot(sessionId)?.pendingQuestions?.length ?? 0).toBeGreaterThan(0);
+      }
+    });
     expect((await row(h, group.id)).answering).toBe(true);
 
     await h.methods['channel.stop']({ channelId: group.id }, context);
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       for (const sessionId of sessions) {
         expect(h.events.snapshot(sessionId)?.session.activeTurn).toBeUndefined();
       }
@@ -1533,7 +1511,7 @@ describe('发给协调者的事', () => {
     await h.coordinatorPosts(bot.id, 1);
     const first = await coordinatorOf(h, bot.id);
     await h.methods['channel.rotate']({ channelId: bot.id }, context);
-    await vi.waitFor(() => expect(h.events.snapshot(first)?.session.state).toBe('closed'));
+    await waitFor(() => expect(h.events.snapshot(first)?.session.state).toBe('closed'));
 
     h.tools.onProcessNotice(exited(first));
     const replies = await h.coordinatorPosts(bot.id, 2);
