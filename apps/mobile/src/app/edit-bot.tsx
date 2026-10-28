@@ -10,7 +10,7 @@ import { BotAvatar } from '../components/bot-avatar';
 import { Button, Group, Icon, Row, SectionTitle } from '../components/ui';
 import { t } from '../i18n';
 import { randomAvatar } from '../lib/bot-avatar';
-import { type Bot, botPatch, folderParts } from '../lib/bots';
+import { type Bot, botPatch, brainLimit, folderParts } from '../lib/bots';
 import { useBot, useBotAccess, useBotStore } from '../state/bots';
 import { SPACE, TEXT, useTheme } from '../theme';
 
@@ -83,8 +83,18 @@ function EditBot({ bot }: { bot: Bot }) {
     channel !== undefined
       ? botPatch(channel, { name, description, avatar, folders, ...(model && { model }) })
       : undefined;
+  const limit = brainLimit(
+    store.engineFeatures(bot.key),
+    providers?.find((p) => p.id === selected.providerId)?.kind,
+  );
   const ready =
-    editable && !busy && patch !== undefined && name.trim() !== '' && description.trim() !== '';
+    editable &&
+    !busy &&
+    patch !== undefined &&
+    name.trim() !== '' &&
+    description.trim() !== '' &&
+    // 换到不能运行助理的引擎才挡：原来的大脑照样能改别的。
+    !(limit === 'tools' && model !== undefined);
 
   const reroll = () => {
     if (!editable) return;
@@ -225,6 +235,11 @@ function EditBot({ bot }: { bot: Bot }) {
                 );
               })}
             </Group>
+            {limit !== undefined && (
+              <Text style={[styles.note, { color: theme.mutedForeground }]}>
+                {t(limit === 'tools' ? 'editBot.engineNoTools' : 'editBot.enginePlugins')}
+              </Text>
+            )}
           </>
         )}
 

@@ -8,6 +8,7 @@ import type {
   ChannelPost,
   ChannelThread,
   ChannelThreadStatus,
+  EngineFeatures,
 } from '@wevir/protocol';
 import { type Avatar, normalizeAvatar } from './bot-avatar';
 
@@ -376,6 +377,21 @@ export interface BotEdit {
   avatar: Avatar;
   folders: readonly string[];
   model?: { providerId: string; modelId: string };
+}
+
+/**
+ * 大脑的引擎缺什么（`engineFeatures`，按大脑 Provider 的种类），同桌面端：Host 有引擎挂得上 Wevir 工具时，挂不上的不能当大脑；不注入
+ * 连接器或 skills 的用不了它们。旧 Host 没有 `engineFeatures` 时不提示。
+ */
+export function brainLimit(
+  engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined,
+  kind: string | undefined,
+): 'tools' | 'plugins' | undefined {
+  const features = kind === undefined ? undefined : engineFeatures?.[kind];
+  if (features === undefined) return undefined;
+  const anyTools = Object.values(engineFeatures ?? {}).some((value) => value.appTools === true);
+  if (anyTools && features.appTools !== true) return 'tools';
+  return features.mcpServers === true && features.skills === true ? undefined : 'plugins';
 }
 
 /** 改助理时交给 `channel.update` 的字段：只带变了的，空名字不改名；什么都没变时 undefined。换模型时清掉原来的推理强度。 */

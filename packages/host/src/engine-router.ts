@@ -401,6 +401,16 @@ export class EngineRouter implements AgentRuntimeAdapter {
     return features;
   }
 
+  /** 这个 Provider 的会话由哪个引擎跑、能做什么，添加的账号按认领它的引擎；没有引擎接时省略。 */
+  providerFeatures(providerId: string): EngineFeatures | undefined {
+    try {
+      const route = this.#forProvider(providerId);
+      return engineFeaturesOf(route.name, route.adapter);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** 交给引擎的配置：引擎不支持额外目录时，有额外目录的会话建不了。 */
   #configFor(route: EngineRoute, config: SessionConfig): SessionConfig {
     if (config.additionalRoots === undefined || route.adapter.additionalRoots === true)

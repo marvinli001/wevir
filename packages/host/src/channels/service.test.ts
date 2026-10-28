@@ -7,6 +7,7 @@ import {
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
   type ChannelId,
+  type ChannelPost,
   ChannelPostSchema,
   ChannelSchema,
   type ClientIdentity,
@@ -23,6 +24,7 @@ import { EventStore } from '../event-store.js';
 import { addWorkspace, createHostMethods } from '../host-methods.js';
 import { InboxService } from '../inbox.js';
 import { NotificationService } from '../notifications.js';
+import type { ProcessNotice } from '../processes.js';
 import { SessionManager } from '../session-manager.js';
 import { boardEventTasks, TaskBoardStore } from '../task-board.js';
 import { identity, useStorages, useTempDir } from '../test-utils.js';
@@ -52,6 +54,8 @@ async function setup(
   options: {
     budget?: { dailyWakes: number; dailyTokens: number };
     removed?: ChannelServiceOptions['removed'];
+    inventory?: ChannelServiceOptions['inventory'];
+    canUseAppTools?: ChannelServiceOptions['canUseAppTools'];
   } = {},
 ) {
   const dataDir = join(realpathSync(tempDir()), 'data');
@@ -67,12 +71,16 @@ async function setup(
   });
   let channels: ChannelService | undefined;
   let automations: AutomationService | undefined;
+  let appTools: AppTools | undefined;
   const sessions = new SessionManager({
     storage,
     events,
     adapter,
     worktreesDir: join(dataDir, 'worktrees'),
-    onTurnFinished: (info) => channels?.onTurnFinished(info),
+    onTurnFinished: (info) => {
+      channels?.onTurnFinished(info);
+      appTools?.onTurnFinished(info);
+    },
     approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
     // 用量统计照 Host 记：Echo 每回合报一次请求（第二回合起带缓存读取）。
     onUsage: ({ sessionId, providerId, modelId }, event) => {
@@ -98,7 +106,9 @@ async function setup(
     sessions,
     assistants,
     identity: { deviceId: 'host', clientId: 'wevir-channels', clientKind: 'desktop' },
-    inventory: () => ({ connectors: ['Calendar'], browser: true }),
+    inventory:
+      options.inventory ?? (() => ({ connectors: ['Calendar'], skills: [], browser: true })),
+    ...(options.canUseAppTools !== undefined && { canUseAppTools: options.canUseAppTools }),
     tasks: {
       list: async (root) => boardEventTasks(await taskBoards.list(root)),
       update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
@@ -210,6 +220,7 @@ async function setup(
     tasks: taskBoards,
     channels: service,
   });
+  appTools = tools;
   const call = (sessionId: SessionId, name: string, args: Record<string, unknown> = {}) => {
     const tool = tools.tools.find((candidate) => candidate.name === name);
     if (tool === undefined) throw new Error(`no tool ${name}`);
@@ -271,6 +282,84 @@ describe('ChannelService', () => {
     expect(listed.map((channel) => channel.id).sort()).toEqual([first.id, second.id].sort());
     const workspace = h.storage.workspaces.get(first.workspaceId ?? '');
     expect(workspace?.rootPath.endsWith(join('assistants', first.id))).toBe(true);
+  });
+
+  it('大脑的引擎不注入连接器与 skills 时起步清单另列用不了的；换 Provider 后下次唤醒附上新引擎的；挂不上 Wevir 工具的不能当大脑', async () => {
+    const h = await setup({
+      // mock 当作 OpenCode：连接器与 skills 都不注入；codex 都注入。
+      inventory: async (providerId) =>
+        providerId === 'codex'
+          ? { connectors: ['Calendar'], skills: ['pdf'], browser: true }
+          : {
+              connectors: [],
+              skills: [],
+              browser: true,
+              unavailable: { engine: 'opencode', connectors: ['Calendar'], skills: ['pdf'] },
+            },
+      canUseAppTools: (providerId) => providerId !== 'plain',
+    });
+    for (const id of ['codex', 'plain']) {
+      h.storage.providers.insert({
+        id,
+        kind: 'openai-compatible',
+        displayName: id,
+        api: 'openai-completions',
+        baseURL: 'http://127.0.0.1:9/v1',
+        models: [{ id: 'm' }],
+        defaultModelId: 'm',
+        createdAt: '2026-10-28T00:00:00.000Z',
+        updatedAt: '2026-10-28T00:00:00.000Z',
+      });
+    }
+    const bot = await h.create('Mail desk', 'Sort my inbox.');
+    const textOf = (post: ChannelPost | undefined) =>
+      post?.content[0]?.type === 'text' ? post.content[0].text : '';
+    const setupText = textOf((await h.coordinatorPosts(bot.id, 1))[0]);
+    expect(setupText).toContain('<inventory connectors="none" skills="none"');
+    expect(setupText).toContain('Your engine (opencode) cannot use');
+    expect(setupText).toContain(
+      '<unavailable engine="opencode" connectors="Calendar" skills="pdf"/>',
+    );
+    expect(setupText).not.toContain('<brain_changed>');
+
+    await expect(
+      h.methods['channel.update'](
+        { channelId: bot.id, coordinator: { providerId: 'plain' } },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      h.methods['channel.create'](
+        {
+          kind: 'assistant',
+          name: 'Plain',
+          description: 'x',
+          coordinator: { providerId: 'plain' },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+
+    // 换到 codex：下一次唤醒（新的一班）附上它能用的，再下一次不再附。
+    await h.methods['channel.update'](
+      { channelId: bot.id, coordinator: { providerId: 'codex' } },
+      context,
+    );
+    await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'Anything new?' }] },
+      context,
+    );
+    const changed = textOf((await h.coordinatorPosts(bot.id, 2))[1]);
+    expect(changed).toContain('<channel_handover');
+    expect(changed).toContain('<brain_changed>');
+    expect(changed).toContain('<inventory connectors="Calendar" skills="pdf" browser="yes"/>');
+    expect(changed).not.toContain('<unavailable');
+
+    await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'And now?' }] },
+      context,
+    );
+    expect(textOf((await h.coordinatorPosts(bot.id, 3))[2])).not.toContain('<brain_changed>');
   });
 
   it('发帖唤醒协调者：回答回到时间线并指向那条帖子；另一个助理不受影响；未读按读者算', async () => {
@@ -1219,6 +1308,113 @@ describe('助理的规矩由 Host 执行（0.132.0）', () => {
     expect(h.service.approvalPolicy('ses_other' as SessionId, tool)).toBeUndefined();
     expect(h.service.approvalPolicy(sessionId, undefined)).toBe('ask');
     expect(h.service.approvalPolicy(sessionId, tool)).toBe('ask');
+  });
+});
+
+describe('发给协调者的事', () => {
+  const textOf = (post: { content: { type: string; text?: string }[] } | undefined) =>
+    post?.content[0]?.type === 'text' ? (post.content[0].text ?? '') : '';
+  const coordinatorOf = async (h: Awaited<ReturnType<typeof setup>>, channelId: ChannelId) =>
+    (await h.methods['channel.get']({ channelId }, context)).channel.coordinator
+      ?.sessionId as SessionId;
+  const exited = (sessionId: SessionId): ProcessNotice => ({
+    event: 'exit',
+    tail: 'build ok',
+    process: {
+      id: 'p1',
+      sessionId,
+      name: 'nightly build',
+      command: 'make',
+      cwd: '/tmp',
+      pid: 42,
+      startedAt: Date.now() - 1000,
+      status: 'exited',
+      exitCode: 0,
+      signal: null,
+      endedAt: Date.now(),
+      logPath: '/tmp/p1.log',
+      bytes: 8,
+      killed: false,
+    },
+  });
+  /** 协调者会话里不是频道唤醒的消息（直接发进去、用户看不到的）。 */
+  const directMessages = (h: Awaited<ReturnType<typeof setup>>, sessionId: SessionId) =>
+    h.events
+      .readSince(sessionId, 0)
+      .filter(
+        (event) => event.type === 'user.message' && event.payload.from?.channel?.kind !== 'wake',
+      );
+
+  it('协调者起的后台进程退出：以 reason=event 唤醒，回答成帖', async () => {
+    const h = await setup();
+    const bot = await h.create('Build desk', 'Watch my builds.');
+    await h.coordinatorPosts(bot.id, 1);
+    const sessionId = await coordinatorOf(h, bot.id);
+
+    h.tools.onProcessNotice(exited(sessionId));
+    const replies = await h.coordinatorPosts(bot.id, 2);
+    const text = textOf(replies[1]);
+    expect(text).toContain('reason="event"');
+    expect(text).toContain('<event kind="process"');
+    expect(text).toContain('nightly build');
+    expect(replies[1]?.replyTo).toBeUndefined();
+    expect(directMessages(h, sessionId)).toEqual([]);
+  });
+
+  it('换班后旧一班起的进程退出：交给当前一班', async () => {
+    const h = await setup();
+    const bot = await h.create('Build desk', 'Watch my builds.');
+    await h.coordinatorPosts(bot.id, 1);
+    const first = await coordinatorOf(h, bot.id);
+    await h.methods['channel.rotate']({ channelId: bot.id }, context);
+    await vi.waitFor(() => expect(h.events.snapshot(first)?.session.state).toBe('closed'));
+
+    h.tools.onProcessNotice(exited(first));
+    const replies = await h.coordinatorPosts(bot.id, 2);
+    expect(replies[1]?.author).toMatchObject({ kind: 'coordinator', generation: 2 });
+    const second = replies[1]?.author.kind === 'coordinator' ? replies[1].author.sessionId : '';
+    expect(second).not.toBe(first);
+    expect(textOf(replies[1])).toContain('<event kind="process"');
+    expect(directMessages(h, first)).toEqual([]);
+  });
+
+  it('协调者开出的会话回报：以 reason=event 唤醒，回答成帖', async () => {
+    const h = await setup();
+    const bot = await h.create('Build desk', 'Watch my builds.');
+    await h.coordinatorPosts(bot.id, 1);
+    const sessionId = await coordinatorOf(h, bot.id);
+
+    const created = await h.call(sessionId, 'wevir_session_create', {
+      message: 'Count the files',
+      title: 'Counter',
+    });
+    expect(created.isError).not.toBe(true);
+    const replies = await h.coordinatorPosts(bot.id, 2);
+    const text = textOf(replies[1]);
+    expect(text).toContain('reason="event"');
+    expect(text).toContain('<event kind="report"');
+    expect(text).toContain('Counter');
+    expect(directMessages(h, sessionId)).toEqual([]);
+  });
+
+  it('撤回还没交出去的事：不再唤醒；不是协调者的会话不收', async () => {
+    const h = await setup();
+    const bot = await h.create('Build desk', 'Watch my builds.');
+    await h.coordinatorPosts(bot.id, 1);
+    const sessionId = await coordinatorOf(h, bot.id);
+    // 协调者在原始对话里忙着：事攒在缓冲里。
+    h.storage.channels.update(bot.id, {
+      pausedAt: new Date().toISOString(),
+      pauseReason: 'user',
+      updatedAt: new Date().toISOString(),
+    });
+    const id = h.service.deliverEvent(sessionId, { kind: 'blocked', text: 'waiting' });
+    expect(id).toBeDefined();
+    expect(h.service.retractEvent(id as string)).toBe(true);
+    expect(h.service.retractEvent(id as string)).toBe(false);
+    expect(h.service.deliverEvent('ses_other' as SessionId, { kind: 'report', text: 'x' })).toBe(
+      undefined,
+    );
   });
 });
 

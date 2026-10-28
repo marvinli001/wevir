@@ -3139,6 +3139,8 @@ export const messages: Messages = {
   'assistants.field.job': 'Обязанности',
   'assistants.field.model': 'Модель',
   'assistants.field.folders': 'Доступные папки',
+  'assistants.engine.noTools': 'Этот движок не может запускать ассистента',
+  'assistants.engine.noPlugins': 'Коннекторы и Skills недоступны на этом движке',
   'assistants.edit.title': 'Изменить ассистента',
   'assistants.edit.save': 'Сохранить',
   'assistants.timeline.older': 'Ранние сообщения',

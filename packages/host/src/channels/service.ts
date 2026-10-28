@@ -93,6 +93,7 @@ import {
 } from './assistant-policy.js';
 import type { AssistantFolders } from './assistants.js';
 import {
+  envelopeId,
   type GroupMemberLine,
   groupWakeEnvelope,
   HANDOVER_POSTS,
@@ -100,7 +101,9 @@ import {
   identityBlock,
   postText,
   relayEnvelope,
+  type WakeEvent,
   type WakeInput,
+  type WakeInventory,
   type WakeReason,
   wakeEnvelope,
 } from './envelope.js';
@@ -184,8 +187,11 @@ export interface ChannelServiceOptions {
   /** Host 代发消息用的身份。 */
   identity: ClientIdentity;
   tasks?: ChannelTasks;
-  /** 建助理后第一步要的：本机有的连接器名字、有没有内置浏览器。 */
-  inventory?: () => { connectors: string[]; browser: boolean };
+  /**
+   * 建助理后第一步与换大脑后要的：这个 Provider 的引擎注入的连接器与 skills、有没有内置浏览器，本机启用了却因引擎不支持而用不了的
+   * 另列。
+   */
+  inventory?: (providerId: string) => WakeInventory | Promise<WakeInventory>;
   /** 协调者的 Provider 能不能挂 Wevir 工具；不给时都算能。 */
   canUseAppTools?: (providerId: string) => boolean;
   wakeDelayMs?: number;
@@ -267,7 +273,11 @@ interface PendingWake {
   /** 群里等着这个成员的回合，按群（0.133.0）。 */
   groups: Map<ChannelId, PendingGroupWake>;
   setup?: true;
+  /** 换了 Provider：下次唤醒时附上新引擎能用的。 */
+  brain?: true;
   schedules: { title: string; prompt: string; brief?: boolean }[];
+  /** 发给协调者会话的事（`reason=event`），`id` 用来撤回还没交出去的。 */
+  events: (WakeEvent & { id: string })[];
   /** 改了的设置：下次唤醒时附上新的身份与规矩。 */
   changed?: true;
   timer?: ReturnType<typeof setTimeout>;
@@ -702,6 +712,7 @@ export class ChannelService {
     }
     if (params.members !== undefined) throw invalid('members', 'only a group has members');
     const coordinator = { ...(record.coordinator as StoredCoordinator) };
+    let brainChanged = false;
     if (params.coordinator !== undefined) {
       const next = params.coordinator;
       if (next.providerId !== undefined && next.providerId !== coordinator.providerId) {
@@ -711,8 +722,9 @@ export class ChannelService {
         if (this.#options.canUseAppTools?.(next.providerId) === false) {
           throw invalid('coordinator.providerId', 'this provider cannot use Wevir tools');
         }
-        // 换 Provider 等同换班：下次唤醒另开一个协调者会话。
+        // 换 Provider 等同换班：下次唤醒另开一个协调者会话，并告诉它新引擎能用什么。
         coordinator.providerId = next.providerId;
+        brainChanged = true;
         delete coordinator.modelId;
         delete coordinator.reasoningEffort;
         coordinator.wakes = Number.MAX_SAFE_INTEGER;
@@ -760,6 +772,7 @@ export class ChannelService {
     }
     const channelId = record.id as ChannelId;
     if (identityChanged) this.#pendingFor(channelId).changed = true;
+    if (brainChanged) this.#pendingFor(channelId).brain = true;
     this.#touch(channelId);
     // 恢复后把暂停期间收的帖子交出去。
     if (params.paused === false && record.pausedAt !== undefined) this.#scheduleFlush(channelId, 0);
@@ -988,6 +1001,44 @@ export class ChannelService {
     const pending = this.#pendingFor(record.id as ChannelId);
     pending.schedules.push(schedule);
     this.#queueWake(record.id as ChannelId, 'schedule', { immediate: true });
+  }
+
+  /**
+   * 发给协调者会话、不是帖子的事（后台进程的通知、它开出的会话的回报与“在等用户”）：`sessionId` 是某个频道的协调者（哪一班都算，
+   * 旧一班的交给当前一班）时排进这个频道的唤醒，回答照常成帖，返回撤回用的 ID；不是协调者时 `undefined`，由调用方照旧发给会话。
+   */
+  deliverEvent(sessionId: SessionId, event: Pick<WakeEvent, 'kind' | 'text'>): string | undefined {
+    const entry = this.#entryOf(sessionId);
+    if (entry?.role !== 'coordinator') return undefined;
+    const record = this.#storage.channels.get(entry.channelId);
+    if (record === undefined || record.deletedAt !== undefined || record.kind === 'group') {
+      return undefined;
+    }
+    const id = envelopeId();
+    this.#pendingFor(entry.channelId).events.push({ id, ...event, at: iso(this.#now()) });
+    this.#queueWake(entry.channelId, 'event', {});
+    return id;
+  }
+
+  /** 撤回还没交给协调者的事（`deliverEvent` 的 ID）；已经交出去的撤不回，返回 `false`。 */
+  retractEvent(id: string): boolean {
+    for (const [channelId, pending] of this.#pending) {
+      const index = pending.events.findIndex((event) => event.id === id);
+      if (index === -1) continue;
+      pending.events.splice(index, 1);
+      if (pending.events.length === 0) pending.reasons.delete('event');
+      if (pending.reasons.size === 0 && pending.groups.size === 0 && pending.changed !== true) {
+        clearTimeout(pending.timer);
+        this.#pending.delete(channelId);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** 是不是某个频道的协调者会话（哪一班都算）。 */
+  isCoordinator(sessionId: SessionId): boolean {
+    return this.#entryOf(sessionId)?.role === 'coordinator';
   }
 
   /** 立即换班（`channel.rotate`）：下一次唤醒用新的协调者会话。 */
@@ -1306,6 +1357,7 @@ export class ChannelService {
         returns: [],
         groups: new Map(),
         schedules: [],
+        events: [],
       };
       this.#pending.set(channelId, pending);
     }
@@ -1543,20 +1595,34 @@ export class ChannelService {
     clearTimeout(pending.timer);
     if (groups.size > 0) this.#pendingFor(channelId).groups = groups;
     const workspace = this.#workspacePath(record);
+    const providerId = (record.coordinator as StoredCoordinator | null)?.providerId;
+    const inventory =
+      providerId !== undefined && (pending.setup === true || pending.brain === true)
+        ? ((await this.#options.inventory?.(providerId)) ?? {
+            connectors: [],
+            skills: [],
+            browser: false,
+          })
+        : undefined;
     const input: WakeInput = {
       channel,
       reasons: pending.reasons,
       posts: pending.posts,
       threads: this.#threads(record),
       at: iso(this.#now()),
-      ...(pending.setup === true && {
-        setup: {
-          ...(this.#options.inventory?.() ?? { connectors: [], browser: false }),
-          folders: channel.assistant?.folders ?? [],
-          ...(workspace !== undefined && { workspace }),
-        },
-      }),
+      ...(pending.setup === true &&
+        inventory !== undefined && {
+          setup: {
+            ...inventory,
+            folders: channel.assistant?.folders ?? [],
+            ...(workspace !== undefined && { workspace }),
+          },
+        }),
+      ...(pending.setup !== true && inventory !== undefined && { brain: inventory }),
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
+      ...(pending.events.length > 0 && {
+        events: pending.events.map(({ kind, text, at }) => ({ kind, text, at })),
+      }),
       ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
     const brief = pending.schedules.some((schedule) => schedule.brief === true)

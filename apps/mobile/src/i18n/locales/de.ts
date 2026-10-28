@@ -144,6 +144,8 @@ export const de: Messages = {
     'Zum Erstellen von Assistenten auf dem Computer unter Einstellungen → Geräte für dieses Gerät „Projekte ändern“ und „Modelldienste ansehen“ aktivieren',
   'editBot.title': 'Assistent bearbeiten',
   'editBot.model': 'Modell',
+  'editBot.engineNoTools': 'Diese Engine kann keinen Assistenten ausführen',
+  'editBot.enginePlugins': 'Konnektoren und Skills auf dieser Engine nicht verfügbar',
   'editBot.folders': 'Zugängliche Ordner',
   'editBot.addFolder': 'Ordner hinzufügen',
   'editBot.removeFolder': 'Ordner entfernen',

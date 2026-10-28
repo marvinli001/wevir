@@ -822,12 +822,33 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         list: async (root) => boardEventTasks(await taskBoards.list(root)),
         update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
       },
-      inventory: () => ({
-        connectors: plugins
+      // 协调者的引擎不注入连接器与 skills（OpenCode 等）时，本机启用的列成用不了的，起步清单不把它们算作就绪。
+      inventory: async (providerId) => {
+        const features = providerEngineFeatures(adapter, options.engine, providerId);
+        const connectors = plugins
           .connectors()
           .filter((connector) => connector.enabled)
-          .map((connector) => connector.name),
-        browser: browserBroker?.available === true,
+          .map((connector) => connector.name);
+        const skills = (await plugins.enabledSkills()).map((skill) => skill.name);
+        const usableConnectors = features?.mcpServers === true ? connectors : [];
+        const usableSkills = features?.skills === true ? skills : [];
+        const lost = {
+          connectors: connectors.filter((name) => !usableConnectors.includes(name)),
+          skills: skills.filter((name) => !usableSkills.includes(name)),
+        };
+        return {
+          connectors: usableConnectors,
+          skills: usableSkills,
+          browser: browserBroker?.available === true && features?.appTools === true,
+          ...((lost.connectors.length > 0 || lost.skills.length > 0) && {
+            unavailable: { engine: features?.engine ?? 'unknown', ...lost },
+          }),
+        };
+      },
+      // 协调者靠 Wevir 工具回帖、开线程：Host 有应用级工具时，挂不上的引擎不能当大脑。只有 echo 一个引擎的测试 Host 都挂不上，不查。
+      ...(adapter.appTools === true && {
+        canUseAppTools: (providerId: string) =>
+          providerEngineFeatures(adapter, options.engine, providerId)?.appTools === true,
       }),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
@@ -1964,6 +1985,16 @@ export function hostEngineFeatures(
   if (adapter instanceof EngineRouter) return adapter.engineFeatures();
   const features = engineFeaturesOf(engine, adapter);
   return Object.fromEntries(ProviderKindSchema.options.map((kind) => [kind, features]));
+}
+
+/** 一个 Provider 的会话由哪个引擎跑、能做什么：多引擎时问路由，只有一个引擎时就是它。 */
+function providerEngineFeatures(
+  adapter: AgentRuntimeAdapter,
+  engine: string,
+  providerId: string,
+): EngineFeatures | undefined {
+  if (adapter instanceof EngineRouter) return adapter.providerFeatures(providerId);
+  return engineFeaturesOf(engine, adapter);
 }
 
 /**
