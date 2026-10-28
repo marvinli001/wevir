@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ShowFileLinkMenu } from '@/files/file-link-menu';
 import { OpenFileLink } from '@/files/file-links';
 import { useReducedMotion } from '@/fx/motion';
 import { t } from '@/i18n';
@@ -119,6 +120,9 @@ export const MarkdownView = memo(function MarkdownView({
   const openFileLink = useContext(OpenFileLink);
   const openFileRef = useRef(openFileLink);
   openFileRef.current = openFileLink;
+  const showFileMenu = useContext(ShowFileLinkMenu);
+  const showFileMenuRef = useRef(showFileMenu);
+  showFileMenuRef.current = showFileMenu;
   const blocks = useMemo<MarkdownBlockHtml[]>(
     () =>
       documentMode
@@ -226,9 +230,20 @@ export const MarkdownView = memo(function MarkdownView({
         openFileRef.current?.(fileLink.dataset.fileLink ?? '');
       }
     };
+    // 文件链接上右键：会话视图给了菜单（files/file-link-menu.tsx）时弹它，不弹系统菜单。
+    const onContextMenu = (event: MouseEvent) => {
+      const show = showFileMenuRef.current;
+      if (!show || !(event.target instanceof Element)) return;
+      const fileLink = event.target.closest<HTMLAnchorElement>('a[data-file-link]');
+      if (!fileLink || !root.contains(fileLink)) return;
+      event.preventDefault();
+      show(fileLink.dataset.fileLink ?? '', event.clientX, event.clientY);
+    };
     root.addEventListener('click', onClick);
+    root.addEventListener('contextmenu', onContextMenu);
     return () => {
       root.removeEventListener('click', onClick);
+      root.removeEventListener('contextmenu', onContextMenu);
       for (const timer of timers.values()) window.clearTimeout(timer);
     };
   }, []);

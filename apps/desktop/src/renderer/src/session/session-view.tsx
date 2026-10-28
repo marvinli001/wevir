@@ -41,6 +41,7 @@ import {
 } from '@/data/workbench-data';
 import { isChats, type WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
+import { FileLinkMenuProvider } from '@/files/file-link-menu';
 import { OpenFileLink, OpenSessionFile, openFileLink } from '@/files/file-links';
 import type { FileScope } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
@@ -57,6 +58,7 @@ import { useRegisterCompact } from './compact-action';
 import {
   Composer,
   type ComposerPlan,
+  insertMention,
   insertQuote,
   isBusy,
   restoreDraft,
@@ -787,6 +789,11 @@ export function SessionView({
         }),
     };
   }, [writable, sideEnabled, client, session.id, panes]);
+  // 消息里文件链接的右键菜单（files/file-link-menu.tsx）的“添加到对话”：作为 @ 提及放进这个会话的输入框。
+  const attachPath = useMemo(
+    () => (writable ? (path: string) => insertMention(session.id, path) : undefined),
+    [writable, session.id],
+  );
   const fileScope = useMemo<FileScope | undefined>(
     () =>
       filesEnabled
@@ -847,28 +854,30 @@ export function SessionView({
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
         <OpenTurnChanges value={openTurnChanges}>
           <OpenFileLink value={openLink}>
-            <OpenSessionFile value={openSessionFile}>
-              <MessageActionsContext value={messageActions}>
-                <TranscriptView
-                  sessionId={session.id}
-                  transcript={transcript}
-                  cwd={session.cwd}
-                  onReady={onReady}
-                  compact={variant === 'pane'}
-                  {...(quote && { quote })}
-                  footer={
-                    <ApprovalDock
-                      transcript={transcript}
-                      session={session}
-                      client={client}
-                      self={identity}
-                      subagentHref={subagentHref}
-                      recap={<TurnRecap transcript={transcript} />}
-                    />
-                  }
-                />
-              </MessageActionsContext>
-            </OpenSessionFile>
+            <FileLinkMenuProvider cwd={session.cwd} attach={attachPath}>
+              <OpenSessionFile value={openSessionFile}>
+                <MessageActionsContext value={messageActions}>
+                  <TranscriptView
+                    sessionId={session.id}
+                    transcript={transcript}
+                    cwd={session.cwd}
+                    onReady={onReady}
+                    compact={variant === 'pane'}
+                    {...(quote && { quote })}
+                    footer={
+                      <ApprovalDock
+                        transcript={transcript}
+                        session={session}
+                        client={client}
+                        self={identity}
+                        subagentHref={subagentHref}
+                        recap={<TurnRecap transcript={transcript} />}
+                      />
+                    }
+                  />
+                </MessageActionsContext>
+              </OpenSessionFile>
+            </FileLinkMenuProvider>
           </OpenFileLink>
         </OpenTurnChanges>
       ) : (

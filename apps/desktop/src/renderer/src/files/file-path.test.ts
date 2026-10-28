@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  fileLinkPaths,
   isMarkdownPath,
   parseFileHref,
   resolveRelativeTo,
@@ -71,5 +72,33 @@ describe('resolveRelativeTo', () => {
     expect(resolveRelativeTo('README.md', '../outside.png', '/w')).toBeUndefined();
     expect(resolveRelativeTo('README.md', 'https://example.com/a.png', '/w')).toBeUndefined();
     expect(resolveRelativeTo('README.md', 'data:image/png;base64,AA', '/w')).toBeUndefined();
+  });
+});
+
+describe('fileLinkPaths', () => {
+  it('目录里的链接：完整路径、相对路径、名称与行号', () => {
+    expect(fileLinkPaths('src/a.ts:12', '/w')).toEqual({
+      absolute: '/w/src/a.ts',
+      relative: 'src/a.ts',
+      name: 'a.ts',
+      line: 12,
+    });
+    expect(fileLinkPaths('/w/docs/', '/w')).toEqual({
+      absolute: '/w/docs/',
+      relative: 'docs',
+      name: 'docs',
+    });
+  });
+
+  it('目录外的绝对路径没有相对路径；往上走、没有会话目录时没有完整路径', () => {
+    expect(fileLinkPaths('/etc/hosts', '/w')).toEqual({ absolute: '/etc/hosts', name: 'hosts' });
+    expect(fileLinkPaths('../x.ts', '/w')).toEqual({ name: 'x.ts' });
+    expect(fileLinkPaths('a.ts', '')).toEqual({ name: 'a.ts' });
+    expect(fileLinkPaths('/w', '/w')).toEqual({ absolute: '/w', name: 'w' });
+  });
+
+  it('不是文件链接时 undefined', () => {
+    expect(fileLinkPaths('https://example.com', '/w')).toBeUndefined();
+    expect(fileLinkPaths('#top', '/w')).toBeUndefined();
   });
 });

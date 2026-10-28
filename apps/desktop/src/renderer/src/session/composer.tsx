@@ -180,6 +180,25 @@ export function insertQuote(draftKey: string, selected: string): void {
   focusOnOpen.add(draftKey);
 }
 
+/** 挂着的输入框：`insertMention` 在光标处插入 @ 提及。 */
+const mentionListeners = new Map<string, (path: string) => void>();
+
+/**
+ * 把一个文件或文件夹作为 @ 提及放进输入框（消息里文件链接的右键菜单“添加到对话”）：输入框挂着时插在光标处并获得焦点，规则同
+ * “+”菜单选的文件（目录里的用相对路径）；还没挂上时追加到草稿末尾。
+ */
+export function insertMention(draftKey: string, path: string): void {
+  const listener = mentionListeners.get(draftKey);
+  if (listener) {
+    listener(path);
+    return;
+  }
+  const current = drafts.get(draftKey) ?? '';
+  const separator = current === '' || /\s$/.test(current) ? '' : ' ';
+  drafts.set(draftKey, `${current}${separator}${mentionText(path)} `);
+  focusOnOpen.add(draftKey);
+}
+
 /**
  * 输入框：Enter 发送、Shift+Enter 换行、输入法合成期间不发送（openwork-notes §3.7）。回合进行中（R11）：给了
  * `busyDelivery`（Host 支持待发消息）时照常可以发，Enter 与发送键按 `busyDelivery`（“回合进行中按回车”的设置），Tab 用
@@ -649,6 +668,19 @@ export function Composer({
     );
     insertAtCursor(`${mentions.join(' ')} `);
   };
+
+  const insertPathsRef = useRef(insertPaths);
+  insertPathsRef.current = insertPaths;
+  useEffect(() => {
+    const mention = (path: string) => {
+      insertPathsRef.current([path]);
+      textareaRef.current?.focus();
+    };
+    mentionListeners.set(draftKey, mention);
+    return () => {
+      if (mentionListeners.get(draftKey) === mention) mentionListeners.delete(draftKey);
+    };
+  }, [draftKey]);
 
   /** “+”菜单的“文件和文件夹”：系统的选择框，选中的插入成 @ 提及。 */
   const attachPaths = async () => {

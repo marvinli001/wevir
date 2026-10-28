@@ -115,3 +115,32 @@ export function resolveRelativeTo(from: string, href: string, cwd: string): stri
   }
   return parts.length === 0 ? undefined : parts.join('/');
 }
+
+/** 文件链接的右键菜单（file-link-menu.tsx）要用的几种写法。 */
+export interface FileLinkPaths {
+  /** 这台电脑上的绝对路径；相对路径往上走出会话目录、或会话没有目录时没有。 */
+  absolute?: string;
+  /** 相对会话目录，`/` 分隔；在目录外或就是目录本身时没有。 */
+  relative?: string;
+  /** 最后一段（文件或文件夹名）。 */
+  name: string;
+  line?: number;
+}
+
+export function fileLinkPaths(href: string, cwd: string): FileLinkPaths | undefined {
+  const target = parseFileHref(href);
+  if (!target) return undefined;
+  const relative = cwd === '' ? undefined : toRelativePath(target.path, cwd);
+  const absolute = isAbsolutePath(target.path)
+    ? target.path
+    : relative !== undefined && cwd !== ''
+      ? toAbsolutePath(relative, cwd)
+      : undefined;
+  const name = normalize(target.path).split('/').pop() || target.path;
+  return {
+    ...(absolute !== undefined && { absolute }),
+    ...(relative && { relative }),
+    name,
+    ...(target.line !== undefined && { line: target.line }),
+  };
+}
