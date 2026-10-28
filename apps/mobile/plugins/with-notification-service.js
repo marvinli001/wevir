@@ -131,13 +131,15 @@ function withExtensionTarget(config) {
     project.addBuildPhase(RESOURCES, 'PBXResourcesBuildPhase', 'Resources', target.uuid);
     project.addBuildPhase([], 'PBXFrameworksBuildPhase', 'Frameworks', target.uuid);
 
-    // App 的 target 的设置：部署目标、版本、签名团队跟着它走。
+    // App 的 target 的设置：部署目标跟着它走。版本号、构建号与签名团队从配置取：Expo 自己写 App target 的这几项的 mod 与本插件
+    // 的先后不定，从 App target 抄可能抄到空值或默认值；扩展的 CFBundleVersion 与短版本号跟 App 不一致时 App Store Connect 拒收。
     const configurations = project.pbxXCBuildConfigurationSection();
     const appList = project.pbxXCConfigurationList()[appTarget.firstTarget.buildConfigurationList];
     const appSettings = {};
     for (const ref of appList.buildConfigurations) {
       appSettings[ref.comment] = configurations[ref.value].buildSettings;
     }
+    const team = cfg.ios?.appleTeamId ?? appSettings.Release?.DEVELOPMENT_TEAM;
     const extensionList =
       project.pbxXCConfigurationList()[target.pbxNativeTarget.buildConfigurationList];
     for (const ref of extensionList.buildConfigurations) {
@@ -151,9 +153,9 @@ function withExtensionTarget(config) {
         TARGETED_DEVICE_FAMILY: '"1"',
         GENERATE_INFOPLIST_FILE: 'NO',
         IPHONEOS_DEPLOYMENT_TARGET: app.IPHONEOS_DEPLOYMENT_TARGET ?? '16.4',
-        MARKETING_VERSION: app.MARKETING_VERSION ?? '1.0',
-        CURRENT_PROJECT_VERSION: app.CURRENT_PROJECT_VERSION ?? '1',
-        ...(app.DEVELOPMENT_TEAM !== undefined && { DEVELOPMENT_TEAM: app.DEVELOPMENT_TEAM }),
+        MARKETING_VERSION: cfg.version ?? app.MARKETING_VERSION ?? '1.0',
+        CURRENT_PROJECT_VERSION: cfg.ios?.buildNumber ?? app.CURRENT_PROJECT_VERSION ?? '1',
+        ...(team !== undefined && { DEVELOPMENT_TEAM: team }),
       });
     }
     return cfg;

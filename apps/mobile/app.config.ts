@@ -10,6 +10,13 @@ const ICONS = '../../assets/icons';
 /** 与 src/lib/keychain.ts 的 `IOS_APP_GROUP` 相同（配置加载器读不了 src 下的 TS 模块，keychain.test.ts 核对两者一致）。 */
 export const IOS_APP_GROUP = 'group.si.wevir.mobile';
 const BUNDLE_ID = 'si.wevir.mobile';
+/** 签名团队；换团队构建时用 `WEVIR_APPLE_TEAM_ID` 覆盖。 */
+const APPLE_TEAM_ID = process.env.WEVIR_APPLE_TEAM_ID || '678WA95W4U';
+/**
+ * iOS 的构建号（CFBundleVersion）。TestFlight 要求同一版本号下逐次递增：scripts/testflight.sh 每次填 UTC 时间
+ * （`20261028.1530`）。不设时是 `1`（开发构建）。
+ */
+const BUILD_NUMBER = process.env.WEVIR_BUILD_NUMBER || '1';
 
 /**
  * 推送（src/lib/push-native.ts）的构建配置：
@@ -41,6 +48,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     backgroundColor: '#f7f6f3',
     ios: {
       bundleIdentifier: BUNDLE_ID,
+      appleTeamId: APPLE_TEAM_ID,
+      buildNumber: BUILD_NUMBER,
       supportsTablet: false,
       // Icon Composer 工程（浅色、深色与 tinted 由系统按外观切换），与桌面端同一份。
       icon: `${ICONS}/source/Wevir.icon`,

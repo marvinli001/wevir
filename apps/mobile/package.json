@@ -10,6 +10,8 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "prebuild": "expo prebuild --clean",
+    "testflight": "bash scripts/testflight.sh export",
+    "testflight:upload": "bash scripts/testflight.sh upload",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

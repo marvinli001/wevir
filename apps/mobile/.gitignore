@@ -1,6 +1,8 @@
 # Expo 的 CNG：ios/、android/ 由 `expo prebuild` 从 app.config.ts 生成，不进仓库。
 /ios/
 /android/
+# scripts/testflight.sh 的归档、.ipa 与日志。
+/build/
 .expo/
 expo-env.d.ts
 web-build/
