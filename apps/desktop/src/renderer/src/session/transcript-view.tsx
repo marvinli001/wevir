@@ -96,6 +96,9 @@ export function TranscriptView({
   const start = turnStart(messages, focusIndex >= 0 ? Math.min(baseIndex, focusIndex) : baseIndex);
   const hidden = start;
   const firstRendered = messages[start]?.id;
+  const blocks = groupTurns(messages.slice(start));
+  // 最后一个回合之前的回合都“后面还有回合”：它们的下一步卡片不再画。
+  const lastTurnIndex = blocks.findLastIndex((block) => block.kind === 'turn');
   // 停在输入框上方的清单属于哪个回合（U20）：那个回合的消息里不再画它。
   const dockedTodos = latestTodos(transcript)?.turnId;
   // 每个回合触发的检查（0.65.0），画在回答下面。
@@ -225,7 +228,7 @@ export function TranscriptView({
           )}
           <FoldScopeProvider sessionId={sessionId} onToggle={holdPosition}>
             <WorkspaceRoot value={cwd}>
-              {groupTurns(messages.slice(start)).map((block, index, blocks) => {
+              {blocks.map((block, index) => {
                 const active = block.kind === 'turn' && isActiveTurn(block.turnId, transcript);
                 const fresh = !firstRender && sticky && !seenKeys.has(block.key);
                 seenKeys.add(block.key);
@@ -256,6 +259,7 @@ export function TranscriptView({
                         hasSubagents={transcript.subagents.length > 0}
                         hideTodos={block.turnId === dockedTodos}
                         lastTurn={index === blocks.length - 1}
+                        laterTurn={index < lastTurnIndex}
                         {...(checksByTurn.has(block.turnId) && {
                           checks: checksByTurn.get(block.turnId),
                         })}

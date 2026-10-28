@@ -58,6 +58,7 @@ export const TurnView = memo(
     hasSubagents,
     hideTodos = false,
     lastTurn = false,
+    laterTurn = false,
     steers = NO_STEERS,
     checks,
   }: {
@@ -74,6 +75,8 @@ export const TurnView = memo(
     hideTodos?: boolean;
     /** 会话最后一个回合：回答下面的操作行一直显示（照 Codex 桌面端），别的回合悬停时才出现。 */
     lastTurn?: boolean;
+    /** 后面还有回合（用户在这之后发过消息）：回合末的下一步卡片不再画。 */
+    laterTurn?: boolean;
     /** 进行中的回合：交给模型、还没插进来的插话，画在末尾（当前动作那一行之前）。 */
     steers?: readonly PendingMessage[];
     /** 这个回合触发的最近一轮检查（0.65.0）。 */
@@ -268,7 +271,9 @@ export const TurnView = memo(
               {answeredAt !== undefined && <RelativeTime ts={answeredAt} />}
             </GlideGroup>
           )}
-          {fold.finished && wrapUp !== undefined && <WrapUpCard turnId={turnId} wrapUp={wrapUp} />}
+          {fold.finished && !laterTurn && wrapUp !== undefined && (
+            <WrapUpCard turnId={turnId} wrapUp={wrapUp} />
+          )}
         </div>
       </TurnOrb>
     );
@@ -280,6 +285,7 @@ export const TurnView = memo(
     prev.orb === next.orb &&
     prev.hasSubagents === next.hasSubagents &&
     prev.lastTurn === next.lastTurn &&
+    prev.laterTurn === next.laterTurn &&
     sameItems(prev.steers ?? NO_STEERS, next.steers ?? NO_STEERS) &&
     prev.checks?.key === next.checks?.key &&
     prev.messages.length === next.messages.length &&
