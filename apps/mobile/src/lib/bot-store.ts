@@ -11,6 +11,7 @@ import type {
 import type {
   Channel,
   ChannelPost,
+  EngineFeatures,
   MethodParams,
   ProviderProfile,
   UserImageMimeType,
@@ -37,7 +38,9 @@ export interface ChannelClient {
   readonly canEdit: boolean;
   /** 能读这台电脑的模型服务（`provider.read`），改助理的模型要用。 */
   readonly canReadProviders: boolean;
-  /** 输入框能带照片、能停止（Host 功能 `channel_composer`，0.134.0）。 */
+  /** 每种 Provider 的引擎能做什么（`host.hello` 的 `engineFeatures`），改大脑时提示用；旧 Host 没有。 */
+  readonly engineFeatures?: Readonly<Record<string, EngineFeatures>>;
+  /** 输入框能带照片、能停止（Host 功能 `channel_composer`，0.135.0）。 */
   readonly composer: boolean;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
@@ -138,6 +141,11 @@ export class BotStore {
   channel(key: string): Channel | undefined {
     const target = this.target(key);
     return target?.state.channels.get(target.channelId);
+  }
+
+  /** 助理所在电脑的 `engineFeatures`。 */
+  engineFeatures(key: string): Readonly<Record<string, EngineFeatures>> | undefined {
+    return this.target(key)?.state.client?.engineFeatures;
   }
 
   access(key: string): BotAccess {
@@ -268,7 +276,7 @@ export class BotStore {
     }
   }
 
-  /** 发帖；群里 `mentions` 是点选的成员（Host 另外认正文里的 `@名字`）；`images` 是传好的照片（0.134.0）。 */
+  /** 发帖；群里 `mentions` 是点选的成员（Host 另外认正文里的 `@名字`）；`images` 是传好的照片（0.135.0）。 */
   async send(
     key: string,
     text: string,
@@ -338,7 +346,7 @@ export class BotStore {
     return image;
   }
 
-  /** 停止协调者（群里是正在回的成员）这回合（0.134.0）。 */
+  /** 停止协调者（群里是正在回的成员）这回合（0.135.0）。 */
   async stop(key: string): Promise<void> {
     const { channelId, client } = this.connected(key);
     await client.request('channel.stop', { channelId });

@@ -423,12 +423,21 @@ export class AppTools {
 
   /**
    * 后台进程退出或输出匹配（processes.ts）：作为消息发回起它的会话（`from` 是会话自己、带 `process`）。会话忙时按 Host 的
-   * `sendWhileBusy`，空闲时开一个回合，同回报。会话不在了或发不出去只记下。
+   * `sendWhileBusy`，空闲时开一个回合，同回报。起它的是频道的协调者时改由频道唤醒（回答成帖，旧一班起的交给当前一班）。
+   * 会话不在了或发不出去只记下。
    */
   onProcessNotice(notice: ProcessNotice): void {
     const { process: info } = notice;
     const sessionId = info.sessionId;
     if (this.#options.storage.sessions.get(sessionId) === undefined) return;
+    if (
+      this.#options.channels?.deliverEvent(sessionId, {
+        kind: 'process',
+        text: noticeText(notice),
+      }) !== undefined
+    ) {
+      return;
+    }
     const from: MessageFrom = {
       sessionId,
       kind: 'report',
@@ -602,10 +611,24 @@ export class AppTools {
   /**
    * 把攒着的笔记合成一条消息续上父会话：要有该叫醒的笔记，父会话空闲（不在跑、不只读、没有排着的消息），它的子会话都不在跑
    * （等用户的不算在跑），而且没有连续续上 `AUTO_WAKE_MAX` 次（中间有用户的消息就重新算）。消息末尾附上有关会话的状态。
+   * 父会话是频道的协调者时只等子会话都不在跑，交给频道唤醒（忙闲与次数由频道的唤醒队列和预算管）。
    */
   #tryWake(parent: SessionId): void {
     const notes = this.#notes.get(parent);
     if (notes === undefined || !notes.some((note) => note.wake)) return;
+    const channels = this.#options.channels;
+    if (channels?.isCoordinator(parent) === true) {
+      const linked = this.#linked(parent);
+      if (linked.some(isWorking)) return;
+      const delivered = channels.deliverEvent(parent, {
+        kind: 'report',
+        text: combinedReport(notes, linked),
+      });
+      if (delivered !== undefined) {
+        this.#notes.delete(parent);
+        return;
+      }
+    }
     const snapshot = this.#options.events.snapshot(parent);
     if (
       snapshot === undefined ||
@@ -684,7 +707,10 @@ export class AppTools {
       call: async (args, { sessionId }) => {
         const caller = this.#callerRecord(sessionId);
         const { storage, events } = this.#options;
-        const scope = optionalEnum(args, 'scope', ['project', 'all']) ?? 'project';
+        // 助理自己的工作区里没有用户的会话（0.134.0）：默认看全部项目。
+        const scope =
+          optionalEnum(args, 'scope', ['project', 'all']) ??
+          (this.#options.channels?.isAssistantSession(sessionId) === true ? 'all' : 'project');
         const state = optionalEnum(args, 'state', ['active', 'idle', 'any']) ?? 'any';
         const query = optionalString(args, 'query')?.toLowerCase();
         const limit = optionalInt(args, 'limit', 1, LIST_MAX) ?? 20;
@@ -694,6 +720,9 @@ export class AppTools {
           ...(args.includeArchived === true && { archived: 'include' as const }),
         });
         const sessions = records.flatMap((record) => {
+          // 频道的协调者（各班）不是用户的会话。
+          if (record.origin?.kind === 'channel' && record.origin.channelRole !== 'thread')
+            return [];
           const session = events.snapshot(record.id as SessionId)?.session;
           if (!session) return [];
           if (state === 'active' && !ACTIVE.has(session.state)) return [];
@@ -1079,7 +1108,7 @@ export class AppTools {
         '(wevir_session_close, wevir_session_archive); you cannot delete sessions, and the user keeps the archive. ' +
         'When it waits for the user to approve or answer, you cannot do that for the user: tell the user or stop it ' +
         "with wevir_session_interrupt. With Antigravity and OpenCode providers its commands need the user's " +
-        'approval even under auto_review.',
+        'approval even under auto_review. Assistants: project=folder path.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },
@@ -1091,6 +1120,7 @@ export class AppTools {
           permissionMode: { type: 'string', enum: Object.keys(PERMISSION_RANK) },
           worktree: { type: 'boolean' },
           reportBack: { type: 'boolean' },
+          project: { type: 'string' },
         },
         ['message'],
       ),
@@ -1100,9 +1130,18 @@ export class AppTools {
         const caller = this.#session(sessionId);
         const message = requiredString(args, 'message');
         const title = optionalString(args, 'title')?.trim();
+        // 助理的会话可以开进用户的项目（0.134.0，channels/service.ts 的 `assistantProject`）。
+        const projectArg = optionalString(args, 'project');
+        const channels = this.#options.channels;
+        if (projectArg !== undefined && channels === undefined) {
+          throw new AppToolError('project is only available to assistant sessions.');
+        }
+        const workspaceId =
+          projectArg === undefined || channels === undefined
+            ? callerRecord.workspaceId
+            : (await this.#host(() => channels.assistantProject(sessionId, projectArg))).id;
         const roleName = optionalString(args, 'role');
-        const role =
-          roleName === undefined ? undefined : await this.#role(roleName, callerRecord.workspaceId);
+        const role = roleName === undefined ? undefined : await this.#role(roleName, workspaceId);
         // 模型：这里明说的 > 角色的 > 开它的会话的。明说了 Provider 就不用角色的模型与档位（它们是角色那个 Provider 的）。
         const explicitProvider = optionalString(args, 'providerId');
         const explicitModel = optionalString(args, 'modelId');
@@ -1162,7 +1201,7 @@ export class AppTools {
         const session = await this.#host(() =>
           this.#options.sessions.create(
             {
-              workspaceId: callerRecord.workspaceId as Session['workspaceId'],
+              workspaceId: workspaceId as Session['workspaceId'],
               providerId: providerId as Session['providerId'],
               ...(modelId !== undefined && { modelId }),
               ...(reasoningEffort !== undefined && { reasoningEffort }),
@@ -2309,9 +2348,9 @@ export class AppTools {
     let notices = 0;
     let ended = false;
     /** 这一轮卡住发出、可能还在请求方队列里的提醒。 */
-    let queued: PendingMessageId[] = [];
+    let queued: BlockedNotice[] = [];
     const settle = () => {
-      for (const pendingId of queued) this.#retract(requester, pendingId);
+      for (const notice of queued) this.#retract(requester, notice);
       queued = [];
     };
     const subscription = this.#options.events.subscribe(target, (event) => {
@@ -2358,23 +2397,23 @@ export class AppTools {
       setImmediate(() => {
         // 发出之前这一轮就过去了：不发。
         if (ended || open.size === 0) return;
-        void this.#reportBlocked(target, requester, what, blockedAt).then((pendingId) => {
-          if (pendingId === undefined) return;
+        void this.#reportBlocked(target, requester, what, blockedAt).then((notice) => {
+          if (notice === undefined) return;
           // 发送期间这一轮过去了：直接撤回。
-          if (ended || open.size === 0) this.#retract(requester, pendingId);
-          else queued.push(pendingId);
+          if (ended || open.size === 0) this.#retract(requester, notice);
+          else queued.push(notice);
         });
       });
     });
   }
 
-  /** 告诉请求方对方在等用户；排进了请求方队列时返回待发消息的 ID。 */
+  /** 告诉请求方对方在等用户；排进了请求方队列（或频道的唤醒）时返回撤回用的句柄。 */
   async #reportBlocked(
     target: SessionId,
     requester: SessionId,
     what: string,
     blockedAt: number,
-  ): Promise<PendingMessageId | undefined> {
+  ): Promise<BlockedNotice | undefined> {
     try {
       if (this.#waiters.get(target)?.has(requester)) return undefined;
       // 请求方的 wait 在这次卡住时就返回了（`awaiting_approval`）：它已经知道，不再说一遍。
@@ -2391,13 +2430,15 @@ export class AppTools {
         `Session ${target}${title} is waiting for the user to ${clipLine(what)}. ` +
         'Its turn continues once the user responds there; you cannot approve or answer for the user. If the user ' +
         'has not noticed, tell them, or open it with wevir_show (kind "session"); wevir_session_interrupt stops it.';
+      const eventId = this.#options.channels?.deliverEvent(requester, { kind: 'blocked', text });
+      if (eventId !== undefined) return { eventId };
       const from: MessageFrom = { sessionId: target, kind: 'report' };
       const sent = await this.#options.sessions.send(
         { sessionId: requester, content: [{ type: 'text', text }], delivery: 'queue' },
         this.#identity,
         { from },
       );
-      return sent.pendingId;
+      return sent.pendingId === undefined ? undefined : { pendingId: sent.pendingId };
     } catch (error) {
       this.#options.onWarning?.('应用级工具没能告诉请求方对方在等用户', {
         sessionId: target,
@@ -2431,7 +2472,12 @@ export class AppTools {
   }
 
   /** 撤回还在对方队列里等着的回报；已经发出去的（开了回合）撤不回。 */
-  #retract(sessionId: SessionId, pendingId: PendingMessageId): void {
+  #retract(sessionId: SessionId, notice: BlockedNotice): void {
+    if ('eventId' in notice) {
+      this.#options.channels?.retractEvent(notice.eventId);
+      return;
+    }
+    const { pendingId } = notice;
     const pending = this.#options.events.pending(sessionId, pendingId);
     if (pending?.status !== 'waiting' || pending.delivery !== 'queue') return;
     try {
@@ -2573,6 +2619,9 @@ function isWorking(session: Pick<Session, 'state' | 'awaitingInput'>): boolean {
     session.state === 'cancelling'
   );
 }
+
+/** “对方在等用户”的提醒排在哪：请求方的消息队列，或（请求方是协调者时）频道的唤醒。 */
+type BlockedNotice = { pendingId: PendingMessageId } | { eventId: string };
 
 interface ReportNote {
   /** `<会话>:<回合>`。 */

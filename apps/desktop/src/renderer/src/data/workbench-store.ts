@@ -54,6 +54,8 @@ export class WorkbenchStore {
   #rerun: Promise<void> | undefined;
   /** 最近一次列表结果或推送的版本；旧 Host 没有。 */
   #listVersion: number | undefined;
+  /** 推送里见过、重读过也不在工作区列表里的工作区（不再为它们重读）。 */
+  readonly #triedWorkspaces = new Set<string>();
   readonly #unlistenSessions: () => void;
   #disposed = false;
 
@@ -157,6 +159,18 @@ export class WorkbenchStore {
     }
     this.#listVersion = change.listVersion;
     if (change.upserted.length === 0 && change.removed.length === 0) return;
+    // 会话所在的项目还不在列表里（助理开线程时登记的项目，0.134.0）：连项目一起重读，每个工作区只试一次（助理的隐藏工作区
+    // 本来就不列）。
+    const unknown = change.upserted
+      .map((session) => session.workspaceId as string)
+      .filter(
+        (id) => !this.#triedWorkspaces.has(id) && !this.#workspaces?.some((item) => item.id === id),
+      );
+    if (unknown.length > 0) {
+      for (const id of unknown) this.#triedWorkspaces.add(id);
+      void this.refresh();
+      return;
+    }
     this.#sessions = applySessionsChange(this.#sessions, change);
     recordBaselines([...this.#sessions.values()]);
     for (const id of change.removed) {

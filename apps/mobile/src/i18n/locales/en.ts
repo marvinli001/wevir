@@ -72,6 +72,7 @@ export const en: Messages = {
   'computer.forget.confirm': 'Forget',
 
   'session.untitled': 'Untitled session',
+  'session.assistant': 'Assistant {name}',
   'session.state.idle': 'Idle',
   'session.state.running': 'Running',
   'session.state.awaiting_approval': 'Needs approval',
@@ -141,6 +142,8 @@ export const en: Messages = {
     'To create assistants, turn on “Modify projects” and “View model services” for this device in Settings → Devices on the computer',
   'editBot.title': 'Edit assistant',
   'editBot.model': 'Model',
+  'editBot.engineNoTools': 'This engine cannot run an assistant',
+  'editBot.enginePlugins': 'Connectors and Skills unavailable on this engine',
   'editBot.folders': 'Accessible folders',
   'editBot.addFolder': 'Add folder',
   'editBot.removeFolder': 'Remove folder',

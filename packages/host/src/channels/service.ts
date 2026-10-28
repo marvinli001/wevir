@@ -21,6 +21,8 @@
 
 import { createHash } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import type {
   ApprovalRequest,
   Assistant,
@@ -75,6 +77,7 @@ import type {
   ChannelRecord,
   ChannelThreadRecord,
   Storage,
+  WorkspaceRecord,
 } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
@@ -91,6 +94,7 @@ import {
 } from './assistant-policy.js';
 import type { AssistantFolders } from './assistants.js';
 import {
+  envelopeId,
   escapeText,
   type GroupMemberLine,
   groupWakeEnvelope,
@@ -99,7 +103,9 @@ import {
   identityBlock,
   postText,
   relayEnvelope,
+  type WakeEvent,
   type WakeInput,
+  type WakeInventory,
   type WakeReason,
   wakeEnvelope,
 } from './envelope.js';
@@ -155,7 +161,7 @@ export interface ChannelSessions {
     options?: { from?: MessageFrom },
   ): Promise<{ turnId?: TurnId; seq: number }>;
   close(sessionId: SessionId): Promise<void>;
-  /** 停下会话的回合（`channel.stop`，0.134.0）。 */
+  /** 停下会话的回合（`channel.stop`，0.135.0）。 */
   cancel(sessionId: SessionId): Promise<void>;
   /** 会话的模型收不收图片；不给时都算收。 */
   acceptsImages?(sessionId: SessionId): boolean;
@@ -187,8 +193,11 @@ export interface ChannelServiceOptions {
   /** Host 代发消息用的身份。 */
   identity: ClientIdentity;
   tasks?: ChannelTasks;
-  /** 建助理后第一步要的：本机有的连接器名字、有没有内置浏览器。 */
-  inventory?: () => { connectors: string[]; browser: boolean };
+  /**
+   * 建助理后第一步与换大脑后要的：这个 Provider 的引擎注入的连接器与 skills、有没有内置浏览器，本机启用了却因引擎不支持而用不了的
+   * 另列。
+   */
+  inventory?: (providerId: string) => WakeInventory | Promise<WakeInventory>;
   /** 协调者的 Provider 能不能挂 Wevir 工具；不给时都算能。 */
   canUseAppTools?: (providerId: string) => boolean;
   /** 帖子里的图片在本机的文件（模型看不了图片时写进说明）。 */
@@ -202,6 +211,15 @@ export interface ChannelServiceOptions {
   schedules?: {
     created(channel: Channel): Promise<void>;
     deleted(channelId: ChannelId): Promise<void>;
+  };
+  /**
+   * 用户的项目（0.134.0）：助理的线程与它开的会话可以开进去。不给时只能开在助理自己的工作区。
+   */
+  projects?: {
+    /** 是用户的项目（不是助理的隐藏工作区，也不是“对话”）。 */
+    isProject(workspace: WorkspaceRecord): boolean;
+    /** 把文件夹登记成项目（同 `workspace.add`：已登记的直接返回，移除过的恢复）。`path` 是 realpath。 */
+    add(path: string): Promise<WorkspaceRecord>;
   };
   /** 助理删除后，清掉存在别处、按它的工作区或频道记的东西（记忆、任务清单、环境变量等）。 */
   removed?: (removed: {
@@ -263,7 +281,11 @@ interface PendingWake {
   /** 群里等着这个成员的回合，按群（0.133.0）。 */
   groups: Map<ChannelId, PendingGroupWake>;
   setup?: true;
+  /** 换了 Provider：下次唤醒时附上新引擎能用的。 */
+  brain?: true;
   schedules: { title: string; prompt: string; brief?: boolean }[];
+  /** 发给协调者会话的事（`reason=event`），`id` 用来撤回还没交出去的。 */
+  events: (WakeEvent & { id: string })[];
   /** 改了的设置：下次唤醒时附上新的身份与规矩。 */
   changed?: true;
   timer?: ReturnType<typeof setTimeout>;
@@ -536,6 +558,21 @@ export class ChannelService {
     return { channel: this.#channel(record), role: entry.role };
   }
 
+  /**
+   * 助理的会话（协调者、线程及它们开的会话）要开进的项目（0.134.0，`wevir_session_create` 的 `project`）：不是助理的会话时拒绝。
+   */
+  async assistantProject(sessionId: SessionId, project: string): Promise<WorkspaceRecord> {
+    const record = this.#assistantOf(sessionId);
+    if (record === undefined)
+      throw invalid('project', 'only assistant sessions can pick a project');
+    return this.#project(record, project);
+  }
+
+  /** 是不是助理的会话（协调者、线程及它们开的会话）。 */
+  isAssistantSession(sessionId: SessionId): boolean {
+    return this.#assistantOf(sessionId) !== undefined;
+  }
+
   /** 频道的线程（工具 `wevir_channel_status` 用）。 */
   threads(channelId: ChannelId): ChannelThread[] {
     return this.#threads(this.#record(channelId));
@@ -683,6 +720,7 @@ export class ChannelService {
     }
     if (params.members !== undefined) throw invalid('members', 'only a group has members');
     const coordinator = { ...(record.coordinator as StoredCoordinator) };
+    let brainChanged = false;
     if (params.coordinator !== undefined) {
       const next = params.coordinator;
       if (next.providerId !== undefined && next.providerId !== coordinator.providerId) {
@@ -692,8 +730,9 @@ export class ChannelService {
         if (this.#options.canUseAppTools?.(next.providerId) === false) {
           throw invalid('coordinator.providerId', 'this provider cannot use Wevir tools');
         }
-        // 换 Provider 等同换班：下次唤醒另开一个协调者会话。
+        // 换 Provider 等同换班：下次唤醒另开一个协调者会话，并告诉它新引擎能用什么。
         coordinator.providerId = next.providerId;
+        brainChanged = true;
         delete coordinator.modelId;
         delete coordinator.reasoningEffort;
         coordinator.wakes = Number.MAX_SAFE_INTEGER;
@@ -741,6 +780,7 @@ export class ChannelService {
     }
     const channelId = record.id as ChannelId;
     if (identityChanged) this.#pendingFor(channelId).changed = true;
+    if (brainChanged) this.#pendingFor(channelId).brain = true;
     this.#touch(channelId);
     // 恢复后把暂停期间收的帖子交出去。
     if (params.paused === false && record.pausedAt !== undefined) this.#scheduleFlush(channelId, 0);
@@ -971,6 +1011,44 @@ export class ChannelService {
     this.#queueWake(record.id as ChannelId, 'schedule', { immediate: true });
   }
 
+  /**
+   * 发给协调者会话、不是帖子的事（后台进程的通知、它开出的会话的回报与“在等用户”）：`sessionId` 是某个频道的协调者（哪一班都算，
+   * 旧一班的交给当前一班）时排进这个频道的唤醒，回答照常成帖，返回撤回用的 ID；不是协调者时 `undefined`，由调用方照旧发给会话。
+   */
+  deliverEvent(sessionId: SessionId, event: Pick<WakeEvent, 'kind' | 'text'>): string | undefined {
+    const entry = this.#entryOf(sessionId);
+    if (entry?.role !== 'coordinator') return undefined;
+    const record = this.#storage.channels.get(entry.channelId);
+    if (record === undefined || record.deletedAt !== undefined || record.kind === 'group') {
+      return undefined;
+    }
+    const id = envelopeId();
+    this.#pendingFor(entry.channelId).events.push({ id, ...event, at: iso(this.#now()) });
+    this.#queueWake(entry.channelId, 'event', {});
+    return id;
+  }
+
+  /** 撤回还没交给协调者的事（`deliverEvent` 的 ID）；已经交出去的撤不回，返回 `false`。 */
+  retractEvent(id: string): boolean {
+    for (const [channelId, pending] of this.#pending) {
+      const index = pending.events.findIndex((event) => event.id === id);
+      if (index === -1) continue;
+      pending.events.splice(index, 1);
+      if (pending.events.length === 0) pending.reasons.delete('event');
+      if (pending.reasons.size === 0 && pending.groups.size === 0 && pending.changed !== true) {
+        clearTimeout(pending.timer);
+        this.#pending.delete(channelId);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** 是不是某个频道的协调者会话（哪一班都算）。 */
+  isCoordinator(sessionId: SessionId): boolean {
+    return this.#entryOf(sessionId)?.role === 'coordinator';
+  }
+
   /** 立即换班（`channel.rotate`）：下一次唤醒用新的协调者会话。 */
   async rotate(channelId: string): Promise<Channel> {
     const record = this.#assistantRecord(channelId);
@@ -984,7 +1062,7 @@ export class ChannelService {
   }
 
   /**
-   * 停止（`channel.stop`，0.134.0）：中断协调者回这条时间线的回合，取消还没交出的唤醒（帖子留在时间线上）。群里是正在回这个群的成员的
+   * 停止（`channel.stop`，0.135.0）：中断协调者回这条时间线的回合，取消还没交出的唤醒（帖子留在时间线上）。群里是正在回这个群的成员的
    * 回合与等着轮到的成员，这一轮也到此为止（回合收尾时 @ 到的成员不再接话）。线程与别的群不受影响。
    */
   async stop(channelId: string): Promise<void> {
@@ -1085,8 +1163,15 @@ export class ChannelService {
     providerId?: string;
     modelId?: string;
     reasoningEffort?: string;
+    /** 开进用户的项目（0.134.0，`assistantProject` 的规则）；省略时开在助理自己的工作区。 */
+    project?: string;
+    /** 在项目里新开 worktree；要有 `project`。 */
+    worktree?: boolean;
   }): Promise<ChannelThread> {
     const record = this.#assistantRecord(input.channelId);
+    if (input.worktree === true && input.project === undefined) {
+      throw invalid('worktree', 'worktree needs a project');
+    }
     const root = this.#storage.channels.getPost(input.rootPostId);
     if (root === undefined || root.channelId !== record.id) {
       throw invalid('rootPostId', 'no such post in this channel');
@@ -1110,10 +1195,20 @@ export class ChannelService {
     if (this.#storage.providers.get(providerId) === undefined) {
       throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
     }
+    const project =
+      input.project === undefined ? undefined : await this.#project(record, input.project);
     const session = await this.#options.sessions.create(
       {
-        workspaceId: record.workspaceId as Session['workspaceId'],
-        ...this.#environmentOf(record),
+        // 开在项目里的线程是那个项目的普通会话（规则文件、记忆、角色、worktree 照常），不用助理的环境。
+        ...(project === undefined
+          ? {
+              workspaceId: record.workspaceId as Session['workspaceId'],
+              ...this.#environmentOf(record),
+            }
+          : {
+              workspaceId: project.id as Session['workspaceId'],
+              ...(input.worktree === true && { worktree: 'new' as const }),
+            }),
         providerId,
         ...((input.modelId ??
           (input.providerId === undefined ? coordinator.modelId : undefined)) !== undefined && {
@@ -1312,6 +1407,7 @@ export class ChannelService {
         returns: [],
         groups: new Map(),
         schedules: [],
+        events: [],
       };
       this.#pending.set(channelId, pending);
     }
@@ -1377,7 +1473,7 @@ export class ChannelService {
   }
 
   /**
-   * 会话的模型看不了图片时（0.134.0）：图片换成一段说明，列出图片在本机的文件，免得整条消息因为带图片发不出去。说明避开 echo 的
+   * 会话的模型看不了图片时（0.135.0）：图片换成一段说明，列出图片在本机的文件，免得整条消息因为带图片发不出去。说明避开 echo 的
    * 触发词（见文件头）。
    */
   async #viewable(sessionId: SessionId, content: UserContentPart[]): Promise<UserContentPart[]> {
@@ -1580,20 +1676,34 @@ export class ChannelService {
     clearTimeout(pending.timer);
     if (groups.size > 0) this.#pendingFor(channelId).groups = groups;
     const workspace = this.#workspacePath(record);
+    const providerId = (record.coordinator as StoredCoordinator | null)?.providerId;
+    const inventory =
+      providerId !== undefined && (pending.setup === true || pending.brain === true)
+        ? ((await this.#options.inventory?.(providerId)) ?? {
+            connectors: [],
+            skills: [],
+            browser: false,
+          })
+        : undefined;
     const input: WakeInput = {
       channel,
       reasons: pending.reasons,
       posts: pending.posts,
       threads: this.#threads(record),
       at: iso(this.#now()),
-      ...(pending.setup === true && {
-        setup: {
-          ...(this.#options.inventory?.() ?? { connectors: [], browser: false }),
-          folders: channel.assistant?.folders ?? [],
-          ...(workspace !== undefined && { workspace }),
-        },
-      }),
+      ...(pending.setup === true &&
+        inventory !== undefined && {
+          setup: {
+            ...inventory,
+            folders: channel.assistant?.folders ?? [],
+            ...(workspace !== undefined && { workspace }),
+          },
+        }),
+      ...(pending.setup !== true && inventory !== undefined && { brain: inventory }),
       ...(pending.schedules.length > 0 && { schedules: pending.schedules }),
+      ...(pending.events.length > 0 && {
+        events: pending.events.map(({ kind, text, at }) => ({ kind, text, at })),
+      }),
       ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
     const brief = pending.schedules.some((schedule) => schedule.brief === true)
@@ -2124,6 +2234,36 @@ export class ChannelService {
     return { environmentId: environmentId as EnvironmentId };
   }
 
+  /**
+   * 助理要开进的项目：已登记的项目（按根目录的路径），或用户授权给这个助理的文件夹（还没登记成项目时这里登记，侧栏才有地方放它的
+   * 会话）。路径可以用 `~/` 开头。别的文件夹、助理的隐藏工作区与“对话”都拒绝。
+   */
+  async #project(record: ChannelRecord, project: string): Promise<WorkspaceRecord> {
+    const projects = this.#options.projects;
+    if (projects === undefined) throw invalid('project', 'projects are not available here');
+    const raw = project.trim();
+    const path = raw === '~' || raw.startsWith('~/') ? join(homedir(), raw.slice(1)) : raw;
+    if (!isAbsolute(path)) throw invalid('project', `not an absolute folder path: ${project}`);
+    let real: string;
+    try {
+      real = await realpath(path);
+    } catch {
+      throw invalid('project', `no such folder: ${project}`);
+    }
+    const known = this.#storage.workspaces.getByRootPath(real);
+    if (known !== undefined && known.removedAt === undefined && projects.isProject(known)) {
+      return known;
+    }
+    const granted =
+      this.#storage.workspaces.get(record.workspaceId)?.extraFolders ??
+      (record.assistant as Assistant).folders;
+    if (granted.includes(real)) return projects.add(real);
+    throw invalid(
+      'project',
+      `not one of the user's projects or a folder granted to this assistant: ${project}`,
+    );
+  }
+
   /** 助理的工作文件夹（隐藏工作区的目录）。 */
   #workspacePath(record: ChannelRecord): string | undefined {
     if (record.kind !== 'assistant') return undefined;
@@ -2280,6 +2420,10 @@ export class ChannelService {
   #thread(row: ChannelThreadRecord): ChannelThread {
     const sessionId = row.sessionId as SessionId;
     const snapshot = this.#options.events.snapshot(sessionId);
+    const workspaceId = this.#storage.sessions.get(sessionId)?.workspaceId;
+    const inProject =
+      workspaceId !== undefined &&
+      workspaceId !== this.#storage.channels.get(row.channelId)?.workspaceId;
     let replyCount = 0;
     let lastReply: ChannelThread['lastReply'];
     let answer: string | undefined;
@@ -2320,6 +2464,7 @@ export class ChannelService {
       replyCount,
       ...(lastReply !== undefined && { lastReply }),
       openedBy: row.openedBy === 'user' ? 'user' : 'coordinator',
+      ...(inProject && { workspaceId: workspaceId as NonNullable<ChannelThread['workspaceId']> }),
       ...(row.resolvedAt !== undefined && { resolvedAt: row.resolvedAt }),
       ...(row.resolvedBy !== undefined && {
         resolvedBy: row.resolvedBy as NonNullable<ChannelThread['resolvedBy']>,

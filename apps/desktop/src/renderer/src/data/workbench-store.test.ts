@@ -188,6 +188,28 @@ describe('WorkbenchStore 与 sessions.changed（0.101.0）', () => {
     store.dispose();
   });
 
+  it('推来的会话在不认识的项目里：重读一次列表，同一个工作区不再重读', async () => {
+    const fake = fakeClient([
+      { sessions: [session('ses_a')], listVersion: 10 },
+      { sessions: [session('ses_a')], listVersion: 11 },
+    ]);
+    const store = new WorkbenchStore(fake.client);
+    await store.refresh();
+    fake.push({
+      listVersion: 11,
+      upserted: [session('ses_x', { workspaceId: 'ws_new' as Session['workspaceId'] })],
+      removed: [],
+    });
+    await vi.waitFor(() => expect(fake.listCalls()).toBe(2));
+    fake.push({
+      listVersion: 12,
+      upserted: [session('ses_y', { workspaceId: 'ws_new' as Session['workspaceId'] })],
+      removed: [],
+    });
+    expect(fake.listCalls()).toBe(2);
+    store.dispose();
+  });
+
   it('旧 Host 的列表没有版本：推送不起作用', async () => {
     const fake = fakeClient([{ sessions: [session('ses_a')] }]);
     const store = new WorkbenchStore(fake.client);

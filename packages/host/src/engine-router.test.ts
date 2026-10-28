@@ -213,6 +213,17 @@ describe('EngineRouter', () => {
     expect(features.claude?.goals).toBeUndefined();
   });
 
+  it('providerFeatures 按 Provider 答它的引擎能做什么；没有引擎接的省略', async () => {
+    const { router } = setup();
+    await router.configureProviders([
+      provider('local', 'openai-compatible'),
+      provider('claude', 'claude'),
+    ]);
+    expect(router.providerFeatures('local')).toEqual(router.engineFeatures()['openai-compatible']);
+    expect(router.providerFeatures('claude')?.engine).toBe('claude');
+    expect(router.providerFeatures('missing')).toBeUndefined();
+  });
+
   it('engineFeatures 总是带 commands，引擎一个都不会时是空数组（0.27.0）', () => {
     const plain = new Recording({ stepDelayMs: 0 });
     Object.assign(plain, { compact: undefined, review: undefined });

@@ -1,7 +1,7 @@
 // 助理的对话页签（0.120.0）：时间线（用户的帖子在右，助理的在左，Host 的说明居中），帖子带的卡片（我需要什么、建议、晨间简报、说明），
 // 挂在帖子下面的线程卡片，等用户批准的审批（展示要发出的原文），底部的输入框。看到的帖子标已读（`channel.markRead`）。
 // 0.133.0：别的助理写的帖子（群里的成员、发来消息的助理）带它的头像与名字；发给别的助理的帖子标“发给 …”。输入框在
-// assistant-composer.tsx；0.134.0 起用户的帖子带图片。
+// assistant-composer.tsx；0.135.0 起用户的帖子带图片。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { isRpcError } from '@wevir/client-sdk';
@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useWorkbenchSelector } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { approvalLayout, optionLabel, presentApproval } from '@/session/approval-model';
@@ -502,6 +503,13 @@ function ThreadCard({
 }) {
   const resolved = thread.status === 'resolved';
   const line = thread.status === 'working' ? thread.doing : thread.lastReply?.firstLine;
+  // 开在用户项目里的线程（0.134.0）写上项目名。
+  const project = useWorkbenchSelector((data) =>
+    thread.workspaceId === undefined || data.status !== 'ready'
+      ? undefined
+      : data.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace
+          .displayName,
+  );
   return (
     <section
       className={cn(
@@ -533,7 +541,7 @@ function ThreadCard({
             {thread.title}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {[t(THREAD_STATUS_LABEL[thread.status]), line]
+            {[t(THREAD_STATUS_LABEL[thread.status]), project, line]
               .filter((part) => part !== undefined && part !== '')
               .join(' · ')}
           </p>

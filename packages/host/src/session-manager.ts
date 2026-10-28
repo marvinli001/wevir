@@ -2123,7 +2123,7 @@ export class SessionManager {
     return images.keep(content);
   }
 
-  /** 会话的模型收不收图片（同发送时的检查）；频道用它把图片换成说明（0.134.0）。 */
+  /** 会话的模型收不收图片（同发送时的检查）；频道用它把图片换成说明（0.135.0）。 */
   acceptsImages(sessionId: SessionId): boolean {
     return this.#images !== undefined && this.#acceptsImages(this.#runtime(sessionId));
   }

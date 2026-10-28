@@ -3501,6 +3501,39 @@
         {
           "sessions": [],
           "listVersion": 0
+        },
+        {
+          "sessions": [
+            {
+              "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "cwd": "/Users/me/projects/wevir",
+              "engine": {
+                "kind": "dsh",
+                "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+              },
+              "providerId": "deepseek-official",
+              "modelId": "deepseek-chat",
+              "reasoningEffort": "high",
+              "permissionMode": "on_request",
+              "title": "整理本周周报",
+              "titleSource": "first_prompt",
+              "state": "awaiting_approval",
+              "activeTurn": {
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "startedAt": "2026-10-12T08:00:00.000Z",
+                "clientMessageId": "msg-1"
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z",
+              "lastSeq": 12,
+              "channel": {
+                "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "role": "thread"
+              }
+            }
+          ],
+          "listVersion": 1792368000001
         }
       ]
     },
@@ -14724,132 +14757,6 @@
           "threads": [],
           "approvals": [],
           "tasks": []
-        },
-        {
-          "channel": {
-            "id": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "kind": "assistant",
-            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "title": "收件箱",
-            "assistant": {
-              "description": "每天整理邮件，挑出要回的",
-              "avatar": {
-                "type": "clover",
-                "color": 2,
-                "seed": 0.42
-              },
-              "rules": {
-                "messages": "ask",
-                "local_files": "tell"
-              },
-              "folders": []
-            },
-            "coordinator": {
-              "providerId": "openai",
-              "modelId": "gpt-5.5-mini",
-              "mode": "act",
-              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
-              "generation": 1
-            },
-            "budget": {
-              "dailyWakes": 20,
-              "dailyTokens": 200000
-            },
-            "usage": {
-              "day": "2026-10-12",
-              "wakes": 3,
-              "tokens": 41200
-            },
-            "state": "working",
-            "lastPostSeq": 4,
-            "lastPost": {
-              "seq": 4,
-              "author": "coordinator",
-              "preview": "两封要回，草稿已备好。",
-              "at": "2026-10-12T08:00:05.250Z"
-            },
-            "unreadCount": 2,
-            "createdAt": "2026-10-12T08:00:00.000Z",
-            "updatedAt": "2026-10-12T08:00:05.250Z",
-            "answering": true
-          },
-          "threads": [
-            {
-              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "rootPostId": "cpo_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "title": "回复房东",
-              "status": "working",
-              "doing": "起草回信",
-              "replyCount": 1,
-              "lastReply": {
-                "at": "2026-10-12T08:00:05.250Z",
-                "firstLine": "草稿在附件里。"
-              },
-              "openedBy": "coordinator",
-              "createdAt": "2026-10-12T08:00:00.000Z"
-            }
-          ],
-          "approvals": [
-            {
-              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
-              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "toolCallId": "call_mv4pwxip_1",
-              "options": [
-                {
-                  "optionId": "allow-once",
-                  "label": "Allow once",
-                  "kind": "allow_once",
-                  "category": "allow"
-                },
-                {
-                  "optionId": "reject-once",
-                  "label": "Reject",
-                  "kind": "reject_once",
-                  "category": "reject"
-                }
-              ],
-              "detail": {
-                "toolName": "write",
-                "display": {
-                  "kind": "write",
-                  "summary": "/tmp/wevir-outside.txt",
-                  "paths": ["/tmp/wevir-outside.txt"]
-                },
-                "input": {
-                  "file_path": "/tmp/wevir-outside.txt",
-                  "content": "hello",
-                  "sandbox_permissions": "danger-full-access",
-                  "justification": "write outside workspace"
-                },
-                "justification": "write outside workspace",
-                "sandboxPermissions": "danger-full-access"
-              },
-              "status": "pending",
-              "createdAt": "2026-10-12T08:00:00.000Z"
-            }
-          ],
-          "tasks": [
-            {
-              "id": "t1",
-              "subject": "补齐导出接口的测试",
-              "description": "给 src/export.ts 的三个导出函数补单元测试，跑通 pnpm test。",
-              "status": "in_progress",
-              "owner": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
-              "blockedBy": [],
-              "notes": [
-                {
-                  "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
-                  "text": "两个函数已覆盖",
-                  "at": "2026-10-12T08:00:05.250Z"
-                }
-              ],
-              "createdBy": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "createdAt": "2026-10-12T08:00:00.000Z",
-              "updatedAt": "2026-10-12T08:00:05.250Z"
-            }
-          ]
         }
       ]
     },
@@ -15248,25 +15155,6 @@
             }
           ],
           "mentions": ["chn_01JA2B3C4D5E6F7G8H9JKMNPQR"]
-        },
-        {
-          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "content": [
-            {
-              "type": "text",
-              "text": "这张收据记一下"
-            },
-            {
-              "type": "image",
-              "imageId": "img_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "mimeType": "image/jpeg",
-              "size": 48213,
-              "width": 1280,
-              "height": 960,
-              "name": "receipt.jpg"
-            }
-          ],
-          "clientPostId": "cp-3"
         }
       ],
       "result": [
@@ -15327,6 +15215,24 @@
             },
             "openedBy": "coordinator",
             "createdAt": "2026-10-12T08:00:00.000Z"
+          }
+        },
+        {
+          "thread": {
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "rootPostId": "cpo_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "title": "回复房东",
+            "status": "working",
+            "doing": "起草回信",
+            "replyCount": 1,
+            "lastReply": {
+              "at": "2026-10-12T08:00:05.250Z",
+              "firstLine": "草稿在附件里。"
+            },
+            "openedBy": "coordinator",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
           }
         }
       ]
@@ -15813,14 +15719,6 @@
       "params": [
         {
           "providerId": "antigravity"
-        }
-      ],
-      "result": [{}]
-    },
-    "channel.stop": {
-      "params": [
-        {
-          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
       "result": [{}]

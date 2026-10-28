@@ -91,6 +91,7 @@ function ComputerSessions({
             <SessionRow
               key={session.id}
               session={session}
+              computer={record.name}
               now={now}
               last={index === list.length - 1}
               onPress={() =>

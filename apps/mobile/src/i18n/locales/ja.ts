@@ -73,6 +73,7 @@ export const ja: Messages = {
   'computer.forget.confirm': '削除',
 
   'session.untitled': '無題のセッション',
+  'session.assistant': 'アシスタント {name}',
   'session.state.idle': '待機中',
   'session.state.running': '実行中',
   'session.state.awaiting_approval': '承認待ち',
@@ -142,6 +143,8 @@ export const ja: Messages = {
     'アシスタントを作成するには、コンピュータの 設定 → デバイス でこのデバイスの「プロジェクトの変更」と「モデルサービスの閲覧」をオンにします',
   'editBot.title': 'アシスタントを編集',
   'editBot.model': 'モデル',
+  'editBot.engineNoTools': 'このエンジンではアシスタントを実行不可',
+  'editBot.enginePlugins': 'このエンジンではコネクタと Skills を使用不可',
   'editBot.folders': 'アクセスできるフォルダ',
   'editBot.addFolder': 'フォルダを追加',
   'editBot.removeFolder': 'フォルダを削除',

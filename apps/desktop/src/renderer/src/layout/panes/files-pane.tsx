@@ -30,6 +30,11 @@ import { splitPath } from '@/changes/changes-model';
 import { IconButton } from '@/components/icon-button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
+  FileLinkMenuProvider,
+  useAttachToSession,
+  useFileContextMenu,
+} from '@/files/file-link-menu';
+import {
   type FileScope,
   scopeKey,
   useDirectory,
@@ -72,9 +77,17 @@ export function FilesPane({ context }: { context: PaneContext }) {
   const supported = useFilesSupported();
   const scope = useFileScope(context);
   const refreshKey = useScopeRefreshKey(context);
+  // 文件与文件夹的右键菜单（files/file-link-menu.tsx）：“添加到对话”放进这个会话的输入框，没有会话时没有。
+  const attach = useAttachToSession(
+    context.entry?.sessions.find((candidate) => candidate.id === context.sessionId),
+  );
   if (!scope) return <Note>{t('files.noProject')}</Note>;
   if (!supported) return <Note>{t('files.unsupported')}</Note>;
-  return <FileBrowser scope={scope} refreshKey={refreshKey} />;
+  return (
+    <FileLinkMenuProvider cwd={scope.root} attach={attach}>
+      <FileBrowser scope={scope} refreshKey={refreshKey} />
+    </FileLinkMenuProvider>
+  );
 }
 
 export function Note({
@@ -310,6 +323,7 @@ function EntryRow({
   const { name, dir } = splitPath(entry.path);
   const directory = entry.kind === 'directory';
   const Icon = directory ? (expanded ? FolderOpen : Folder) : fileIcon(entry.path);
+  const onContextMenu = useFileContextMenu(entry.path);
   return (
     <button
       type="button"
@@ -318,6 +332,7 @@ function EntryRow({
       aria-selected={active === true}
       data-file-entry={entry.path}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       title={entry.path}
       className={cn(
         'flex h-6.5 w-full items-center gap-1.5 pr-3 text-left text-sm outline-none transition-colors duration-100 hover:bg-accent/70 focus-visible:bg-accent focus-visible:ring-1 focus-visible:ring-ring-soft focus-visible:ring-inset',

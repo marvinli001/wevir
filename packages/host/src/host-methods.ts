@@ -83,7 +83,7 @@ import type { PushService } from './remote/push.js';
 import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
-import { listRow } from './session-list.js';
+import { listedSession, listRow } from './session-list.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
@@ -676,38 +676,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         .map(toWorkspace),
     }),
 
-    'workspace.add': async ({ rootPath, displayName, extraFolders }) => {
-      const real = await resolveWorkspacePath(rootPath);
-      if (options.chats?.owns(real) === true) {
-        throw invalidParams(['rootPath'], 'this folder holds Wevir chats');
-      }
-      if (options.assistants?.owns(real) === true) {
-        throw invalidParams(['rootPath'], 'this folder holds Wevir assistants');
-      }
-      const extra =
-        extraFolders === undefined
-          ? []
-          : await resolveExtraFolders(real, extraFolders, options.chats);
-      // 查重与插入在同一个同步段里，两个并发的 add 不会都插入。
-      const existing = storage.workspaces.getByRootPath(real);
-      if (existing) {
-        if (existing.removedAt !== undefined) {
-          storage.workspaces.restore(existing.id, isoNow());
-          events.touch(workspaceSessionIds(existing.id));
-        }
-        return { workspace: toWorkspace(mustGetWorkspace(storage, existing.id)), created: false };
-      }
-      const now = isoNow();
-      const record: WorkspaceRecord = {
-        id: newId('ws'),
-        rootPath: real,
-        displayName: displayName ?? (basename(real) || real),
-        ...(extra.length > 0 && { extraFolders: extra }),
-        createdAt: now,
-        updatedAt: now,
-      };
-      storage.workspaces.insert(record);
-      return { workspace: toWorkspace(record), created: true };
+    'workspace.add': async (params) => {
+      const { record, created } = await addWorkspace(options, params);
+      return { workspace: toWorkspace(record), created };
     },
 
     'workspace.remove': ({ workspaceId }) => {
@@ -1223,9 +1194,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         ...(archived === true && { archived: 'only' as const }),
       });
       return {
-        // 频道的协调者与线程（0.120.0）在频道里看，不进会话列表。
+        // 频道的协调者与线程（0.120.0）在频道里看，不进会话列表；开在用户项目里的线程（0.134.0）除外。
         sessions: records.flatMap((record) => {
-          if (record.origin?.kind === 'channel') return [];
+          if (!listedSession(storage, record)) return [];
           const snapshot = events.snapshot(record.id as SessionId);
           return snapshot ? [listRow(snapshot, record.archivedAt)] : [];
         }),
@@ -1715,7 +1686,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
     'channel.posts': (params) => channels().posts(params),
-    // 帖子里的图片（0.134.0 起助理的输入框能带）：换成 Host 记下的、挪出暂存区，同 `session.send`。
+    // 帖子里的图片（0.135.0 起助理的输入框能带）：换成 Host 记下的、挪出暂存区，同 `session.send`。
     'channel.post': async (params, { client }) => {
       const images = params.content.filter((part) => part.type === 'image').length;
       if (images > IMAGE_MAX_PER_MESSAGE) {
@@ -1950,6 +1921,57 @@ export function assertSessionVisible(storage: Storage, sessionId: SessionId): vo
   if (!record || !workspace || workspace.removedAt !== undefined) {
     throw sessionNotFound(sessionId);
   }
+}
+
+/**
+ * 把文件夹登记成项目（`workspace.add`；助理把线程开进用户授权的文件夹时也用它，0.134.0）。已登记的直接返回，移除过的恢复（它的
+ * 会话随之回到列表）。
+ */
+export async function addWorkspace(
+  options: Pick<HostMethodsOptions, 'storage' | 'events' | 'chats' | 'assistants'>,
+  params: MethodParams<'workspace.add'>,
+): Promise<{ record: WorkspaceRecord; created: boolean }> {
+  const { storage, events } = options;
+  const real = await resolveWorkspacePath(params.rootPath);
+  if (options.chats?.owns(real) === true) {
+    throw invalidParams(['rootPath'], 'this folder holds Wevir chats');
+  }
+  if (options.assistants?.owns(real) === true) {
+    throw invalidParams(['rootPath'], 'this folder holds Wevir assistants');
+  }
+  const extra =
+    params.extraFolders === undefined
+      ? []
+      : await resolveExtraFolders(real, params.extraFolders, options.chats);
+  // 查重与插入在同一个同步段里，两个并发的 add 不会都插入。
+  const existing = storage.workspaces.getByRootPath(real);
+  if (existing) {
+    if (existing.removedAt !== undefined) {
+      storage.workspaces.restore(existing.id, isoNow());
+      events.touch(
+        storage.sessions
+          .list({
+            workspaceId: existing.id,
+            includeRemovedWorkspaces: true,
+            includeChildren: true,
+            archived: 'include',
+          })
+          .map((record) => record.id as SessionId),
+      );
+    }
+    return { record: mustGetWorkspace(storage, existing.id), created: false };
+  }
+  const now = isoNow();
+  const record: WorkspaceRecord = {
+    id: newId('ws'),
+    rootPath: real,
+    displayName: params.displayName ?? (basename(real) || real),
+    ...(extra.length > 0 && { extraFolders: extra }),
+    createdAt: now,
+    updatedAt: now,
+  };
+  storage.workspaces.insert(record);
+  return { record, created: true };
 }
 
 /** `workspace.add` 的路径检查：绝对路径、存在、是目录、可读可进入；返回 realpath。 */

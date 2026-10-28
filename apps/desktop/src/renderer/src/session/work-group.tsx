@@ -30,6 +30,7 @@ import {
 } from 'react';
 import { Collapse } from '@/components/collapse';
 import { Hint } from '@/components/hint';
+import { useFileContextMenu } from '@/files/file-link-menu';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
 import { livePreviewKey } from './file-preview-model';
@@ -282,9 +283,7 @@ function SummaryText({ tally }: { tally: ReturnType<typeof tallyWork> }) {
           {part.file && (
             <>
               {part.text && ' '}
-              <span className="text-foreground" data-summary-file>
-                {part.file}
-              </span>
+              <SummaryFile name={part.file} path={part.path} />
               {part.after && ` ${part.after}`}
             </>
           )}
@@ -297,6 +296,17 @@ function SummaryText({ tally }: { tally: ReturnType<typeof tallyWork> }) {
           )}
         </Fragment>
       ))}
+    </span>
+  );
+}
+
+/** 摘要里的文件名：右键弹文件菜单（files/file-link-menu.tsx）。 */
+function SummaryFile({ name, path }: { name: string; path: string | undefined }) {
+  const onContextMenu = useFileContextMenu(path);
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 右键菜单只是鼠标的便捷操作，菜单里的事都有别的入口。
+    <span className="text-foreground" data-summary-file onContextMenu={onContextMenu}>
+      {name}
     </span>
   );
 }
@@ -351,6 +361,8 @@ function WorkLine({
   // 失败与被拒绝的那条醒目标出：标签用失败色，下面带结果的第一行。
   const problem =
     entry.type === 'tool' && view.tone === 'failed' ? outputSummary(entry) : undefined;
+  // 只涉及一个文件的那行，右键弹文件菜单。
+  const onContextMenu = useFileContextMenu(view.filePath);
   return (
     <li data-work-line={view.tone} className={cn('shrink-0', entering && 'rise-in')}>
       {view.session ? (
@@ -369,6 +381,7 @@ function WorkLine({
           aria-controls={hasDetail ? id : undefined}
           disabled={!hasDetail}
           onClick={() => setOpen(!open)}
+          onContextMenu={onContextMenu}
           className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
         >
           <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />

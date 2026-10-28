@@ -1,4 +1,4 @@
-// 助理与群的输入框（0.120.0；0.133.0 群里打 @ 选成员；0.134.0 图片、文件、听写与停止）：一行，单行时输入框与左右的按钮同高
+// 助理与群的输入框（0.120.0；0.133.0 群里打 @ 选成员；0.135.0 图片、文件、听写与停止）：一行，单行时输入框与左右的按钮同高
 // （32px），文字和按钮在同一条中线上，四周留白相同。图片、文件、听写与主按钮都用会话输入框的那一套（session/）：图片先传给 Host
 // （`image.upload`）再放进帖子；文件插入成 @ 提及（绝对路径，助理不在哪个项目里）；听写在麦克风按钮上按住或点一下，录音时这一行换成
 // 录音条。协调者（群里是成员）在回、输入框空着时主按钮是停止（`channel.stop`），Esc 同。
@@ -65,7 +65,7 @@ export function AssistantComposer({
   const { view } = useHostConnection();
   const features = view.status === 'connected' ? view.hello.features : undefined;
   const supported = composerSupported(features);
-  /** 帖子能带图片：Host 收下帖子里的图片（0.134.0）。协调者的模型看不了时 Host 换成说明，这里不再按模型挡。 */
+  /** 帖子能带图片：Host 收下帖子里的图片（0.135.0）。协调者的模型看不了时 Host 换成说明，这里不再按模型挡。 */
   const imagesEnabled =
     supported && features !== undefined && hostSupports(features, 'user_images');
   /** 路径指这台电脑上的文件（外壳的 `localFiles`）：选择框与拖放带文件。 */

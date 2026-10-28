@@ -134,7 +134,7 @@ describe('BotStore', () => {
     expect(store.timeline(KEY).decided).toEqual([{ request: approval(), decision: 'approved' }]);
   });
 
-  it('带照片发帖、停止（0.134.0）', async () => {
+  it('带照片发帖、停止（0.135.0）', async () => {
     const { host, store } = setup({ posts: 1 });
     await store.open(KEY);
     const image = await store.uploadImage(KEY, 'image/jpeg', 'AAAA');

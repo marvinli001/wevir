@@ -67,6 +67,7 @@ export const zhTW: Messages = {
   'computer.forget.confirm': '退出',
 
   'session.untitled': '未命名工作階段',
+  'session.assistant': '助理 {name}',
   'session.state.idle': '閒置',
   'session.state.running': '執行中',
   'session.state.awaiting_approval': '待核准',
@@ -136,6 +137,8 @@ export const zhTW: Messages = {
     '在電腦的 設定 → 裝置 中為本機開啟「修改專案」與「檢視模型服務」後可新建助理',
   'editBot.title': '編輯助理',
   'editBot.model': '模型',
+  'editBot.engineNoTools': '此引擎無法執行助理',
+  'editBot.enginePlugins': '此引擎不支援連接器與 Skills',
   'editBot.folders': '可存取的資料夾',
   'editBot.addFolder': '新增資料夾',
   'editBot.removeFolder': '移除資料夾',

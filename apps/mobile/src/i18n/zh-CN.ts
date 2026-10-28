@@ -68,6 +68,7 @@ export const zhCN = {
   'computer.forget.confirm': '退出',
 
   'session.untitled': '未命名会话',
+  'session.assistant': '助理 {name}',
   'session.state.idle': '空闲',
   'session.state.running': '运行中',
   'session.state.awaiting_approval': '待审批',
@@ -136,6 +137,8 @@ export const zhCN = {
   'bots.newForbidden': '在电脑的 设置 → 设备 中为本机开启“修改项目”与“查看模型服务”后可新建助理',
   'editBot.title': '编辑助理',
   'editBot.model': '模型',
+  'editBot.engineNoTools': '此引擎不能运行助理',
+  'editBot.enginePlugins': '此引擎不支持连接器与 Skills',
   'editBot.folders': '可访问的文件夹',
   'editBot.addFolder': '添加文件夹',
   'editBot.removeFolder': '移除文件夹',

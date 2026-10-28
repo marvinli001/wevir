@@ -10,7 +10,7 @@ import type {
   SessionId,
   SessionSnapshot,
 } from '@wevir/protocol';
-import type { Storage } from '@wevir/storage';
+import type { SessionRecord, Storage } from '@wevir/storage';
 import type { EventStore } from './event-store.js';
 
 /** 同一批里合并的时间窗。 */
@@ -33,6 +33,21 @@ export function listRow(snapshot: SessionSnapshot, archivedAt: string | undefine
     ...(approvals > 0 && { pendingApprovalCount: approvals }),
     ...(questions > 0 && { pendingQuestionCount: questions }),
   };
+}
+
+/**
+ * 频道里的会话进不进会话列表：协调者与开在频道自己工作区里的线程不进（0.120.0，在频道里看）；开在用户项目里的线程（0.134.0）是那个
+ * 项目的会话，进。
+ */
+export function listedSession(
+  storage: Storage,
+  record: Pick<SessionRecord, 'origin' | 'workspaceId'>,
+): boolean {
+  const origin = record.origin;
+  if (origin?.kind !== 'channel') return true;
+  if (origin.channelRole !== 'thread') return false;
+  const channel = storage.channels.get(origin.channelId);
+  return channel !== undefined && channel.workspaceId !== record.workspaceId;
 }
 
 export interface SessionListFeedOptions {
@@ -143,10 +158,11 @@ export class SessionListFeed {
     }
   }
 
-  /** 会话现在在列表里的行；删了、是支线、工作区移除了时 `undefined`。 */
+  /** 会话现在在列表里的行；删了、是支线、工作区移除了、不进列表的频道会话时 `undefined`。 */
   #row(sessionId: SessionId): Session | undefined {
     const record = this.#storage.sessions.get(sessionId);
     if (record === undefined || record.side === true) return undefined;
+    if (!listedSession(this.#storage, record)) return undefined;
     const workspace = this.#storage.workspaces.get(record.workspaceId);
     if (workspace === undefined || workspace.removedAt !== undefined) return undefined;
     const snapshot = this.#events.snapshot(sessionId);
@@ -170,6 +186,8 @@ type ListParams = MethodParams<'session.list'>;
 export class SessionListScope {
   readonly #filters = new Map<string, ListParams>();
   readonly #seen = new Set<SessionId>();
+  /** 协商版本低于 0.134.0 的连接不认列表里的频道线程，设成 `false`。 */
+  channelThreads = true;
 
   /** 一次 `session.list`：记下参数与结果里的会话。 */
   add(params: ListParams, sessions: readonly Session[]): void {
@@ -199,8 +217,8 @@ export class SessionListScope {
 
   /** 同 storage 的 `sessions.list`：工作区、父会话（不给时只要顶层）、归档与否都要对上。 */
   #matches(row: Session): boolean {
-    // 频道的协调者与线程（0.120.0）不进会话列表。
-    if (row.channel !== undefined) return false;
+    // 进列表的频道会话只有开在用户项目里的线程（0.134.0，`listedSession`）；旧客户端一个都不要。
+    if (row.channel !== undefined && !this.channelThreads) return false;
     for (const filter of this.#filters.values()) {
       if (filter.workspaceId !== undefined && row.workspaceId !== filter.workspaceId) continue;
       if (row.parentSessionId !== filter.parentSessionId) continue;

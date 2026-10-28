@@ -5,6 +5,7 @@ import { Check, Download, ExternalLink, FolderOpen } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
+import { useFileContextMenu } from '@/files/file-link-menu';
 import { OpenSessionFile } from '@/files/file-links';
 import { currentLocale, t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
@@ -43,6 +44,7 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
   // 系统应用、另存为与访达只对这台电脑上的文件有用（platform/platform.ts 的 `localFiles`）。
   const local = capabilities().localFiles;
   const external = local && canOpenExternally(absolute);
+  const onContextMenu = useFileContextMenu(absolute);
   const Icon = fileIcon(file.name);
   const type = fileTypeLabel(file.name);
 
@@ -76,7 +78,11 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
     });
 
   return (
-    <li className="group/file flex min-h-12 items-center gap-1 pr-2" data-shared-file={file.path}>
+    <li
+      className="group/file flex min-h-12 items-center gap-1 pr-2"
+      data-shared-file={file.path}
+      onContextMenu={onContextMenu}
+    >
       <Hint label={file.path}>
         <button
           type="button"

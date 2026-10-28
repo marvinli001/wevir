@@ -1,4 +1,4 @@
-// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.133.0，`channel_groups`；输入框 0.134.0，
+// 助理页的纯逻辑（0.120.0，Host 功能 `channels`；日程 0.121.0，`channel_schedules`；群 0.133.0，`channel_groups`；输入框 0.135.0，
 // `channel_composer`）：功能门控、列表行的状态与排序、头像的随机与换一个、时间线的合并（新帖、改了的帖子、翻页）、`channels.changed`
 // 与 `channel.updated` 的套用、审批要发出的原文、群里的 @、输入框的主按钮。不碰 DOM 与 Host。
 
@@ -14,6 +14,7 @@ import {
   type Channel,
   type ChannelPost,
   type ChannelThread,
+  type EngineFeatures,
   type HostFeatures,
   type MethodParams,
 } from '@wevir/protocol';
@@ -103,7 +104,7 @@ export function groupsSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_groups');
 }
 
-/** 助理的输入框（0.134.0）：帖子带图片、停止。 */
+/** 助理的输入框（0.135.0）：帖子带图片、停止。 */
 export function composerSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_composer');
 }
@@ -121,6 +122,27 @@ export function composerAction(input: {
 export function schedulesSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_schedules');
 }
+
+/**
+ * 大脑的引擎缺什么（`host.hello` 的 `engineFeatures`，按大脑 Provider 的种类）：挂不上 Wevir 工具的不能当大脑（Host 有引擎挂得上时
+ * 才算，同 Host 的检查），不注入连接器或 skills 的用不了它们。旧 Host 没有 `engineFeatures` 时不提示。
+ */
+export function brainLimit(
+  engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined,
+  kind: string | undefined,
+): 'tools' | 'plugins' | undefined {
+  const features = kind === undefined ? undefined : engineFeatures?.[kind];
+  if (features === undefined) return undefined;
+  const anyTools = Object.values(engineFeatures ?? {}).some((value) => value.appTools === true);
+  if (anyTools && features.appTools !== true) return 'tools';
+  return features.mcpServers === true && features.skills === true ? undefined : 'plugins';
+}
+
+/** `brainLimit` 那一行的文案。 */
+export const BRAIN_LIMIT_LABEL = {
+  tools: 'assistants.engine.noTools',
+  plugins: 'assistants.engine.noPlugins',
+} as const satisfies Record<'tools' | 'plugins', PlainMessageKey>;
 
 // ---- 列表 ----
 

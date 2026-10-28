@@ -520,7 +520,7 @@ export const HOST_FEATURES = {
    */
   channel_groups: 'channel_groups',
   /**
-   * 助理的输入框（0.134.0）：`channel.post` 的图片由 Host 收下（同 `session.send`，协调者的模型看不了图片时换成说明），`channel.stop`
+   * 助理的输入框（0.135.0）：`channel.post` 的图片由 Host 收下（同 `session.send`，协调者的模型看不了图片时换成说明），`channel.stop`
    * 与 `Channel.answering`。
    */
   channel_composer: 'channel_composer',

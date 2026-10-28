@@ -192,6 +192,9 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
           get canReadProviders() {
             return client.can('provider.read');
           },
+          get engineFeatures() {
+            return client.hello.engineFeatures;
+          },
           get composer() {
             return client.supports('channel_composer') && client.can('session.write');
           },

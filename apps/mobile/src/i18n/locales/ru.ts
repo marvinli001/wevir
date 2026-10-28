@@ -73,6 +73,7 @@ export const ru: Messages = {
   'computer.forget.confirm': 'Забыть',
 
   'session.untitled': 'Сеанс без названия',
+  'session.assistant': 'Ассистент {name}',
   'session.state.idle': 'Простаивает',
   'session.state.running': 'Выполняется',
   'session.state.awaiting_approval': 'Ждёт одобрения',
@@ -142,6 +143,8 @@ export const ru: Messages = {
     'Чтобы создавать ассистентов, включите для этого устройства «Изменение проектов» и «Просмотр сервисов моделей» в разделе Настройки → Устройства на компьютере',
   'editBot.title': 'Изменить ассистента',
   'editBot.model': 'Модель',
+  'editBot.engineNoTools': 'Этот движок не может запускать ассистента',
+  'editBot.enginePlugins': 'Коннекторы и Skills недоступны на этом движке',
   'editBot.folders': 'Доступные папки',
   'editBot.addFolder': 'Добавить папку',
   'editBot.removeFolder': 'Убрать папку',

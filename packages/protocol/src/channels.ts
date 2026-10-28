@@ -11,7 +11,7 @@
 // 花费记在各成员自己的预算上；一轮（两次用户发言之间）助理至多回 `GROUP_ROUND_REPLIES_MAX` 条、接话至多 `GROUP_MENTION_DEPTH_MAX`
 // 层，没有用户发言时不再唤醒。
 //
-// 停止（0.134.0）：协调者正在回这条时间线（群里是有成员在回这个群）时 `Channel.answering`，`channel.stop` 中断这个回合并取消还没交出的
+// 停止（0.135.0）：协调者正在回这条时间线（群里是有成员在回这个群）时 `Channel.answering`，`channel.stop` 中断这个回合并取消还没交出的
 // 唤醒；帖子留在时间线上，线程不受影响。
 
 import { z } from 'zod';
@@ -220,7 +220,7 @@ export const ChannelSchema = z.object({
   /** 还没被任何读者看过的协调者与 Host 帖子数（读过取各读者的最大值），0 时省略。 */
   unreadCount: z.int().min(1).optional(),
   /**
-   * 协调者正在回这条时间线（0.134.0）：唤醒的回合在跑、正在开新一班，或帖子已收下、等着唤醒；群里是有成员在回这个群或等着轮到。
+   * 协调者正在回这条时间线（0.135.0）：唤醒的回合在跑、正在开新一班，或帖子已收下、等着唤醒；群里是有成员在回这个群或等着轮到。
    * 线程的回合不算（那是 `state: 'working'`）。这时 `channel.stop` 有用。
    */
   answering: z.literal(true).optional(),
@@ -349,6 +349,8 @@ export const ChannelThreadSchema = z.object({
   replyCount: z.int().min(0),
   lastReply: z.object({ at: IsoTimeSchema, firstLine: z.string().max(200) }).optional(),
   openedBy: z.enum(['coordinator', 'user']),
+  /** 开在用户项目里的线程（0.134.0）：那个项目；开在助理自己工作区里时省略。 */
+  workspaceId: WorkspaceIdSchema.optional(),
   resolvedAt: IsoTimeSchema.optional(),
   resolvedBy: z.enum(['user', 'coordinator', 'thread']).optional(),
   createdAt: IsoTimeSchema,
@@ -608,7 +610,7 @@ export const ChannelMethodSchemas = {
     permission: 'session.write',
   },
   /**
-   * 停止（0.134.0，Host 功能 `channel_composer`）：中断协调者正在回这条时间线的回合、取消还没交出的唤醒；群里是正在回这个群的成员的回合与
+   * 停止（0.135.0，Host 功能 `channel_composer`）：中断协调者正在回这条时间线的回合、取消还没交出的唤醒；群里是正在回这个群的成员的回合与
    * 等着轮到的成员。没有在回的时候无操作。线程与用户在原始对话里让协调者做的事不受影响。
    */
   'channel.stop': {
