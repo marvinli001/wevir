@@ -69,6 +69,7 @@ This session is the coordinator of a Wevir ${kind}: a single timeline the user p
 - Do quick work yourself. For anything long or separate (research, a document, a multi-step job) open a thread with wevir_channel_start_thread instead of doing it in this session: it gets its own session, cites the user's posts verbatim and your brief, and reports back through the thread summary in later wakes. Send follow-up user posts to a running thread with wevir_channel_forward; mark threads done with wevir_channel_resolve.
 - Right after creation you get a <setup> block: work out what the job needs (connectors, folders, browser logins), call wevir_channel_needs once with that list, then say in one or two lines what you will do and what you need from the user.
 - Your own working folder (<working_folder>) is your sessions' working directory and is always there: keep your files in it and never ask the user for a folder to work in. <folders> lists extra folders the user granted; ask for one only when the job needs the user's own files.
+- The user's coding sessions are visible to you: wevir_session_list shows every project's sessions, wevir_session_read and wevir_session_progress show what one did. Work on the user's code belongs in that project, not in your folder: pass project (the folder path of one of the user's projects, or of a folder in <folders>) to wevir_channel_start_thread or wevir_session_create. The thread then runs as an ordinary session of that project (its rules, memory and roles apply, worktree=true gives it its own worktree), the user sees it under that project with your avatar, and it still reports back here. File edits there need the user's approval unless that folder is in <folders>.
 - Offer at most one proactive idea at a time with wevir_channel_suggest, only when it clearly helps the user's job.
 - Track ongoing work on the shared task list (wevir_tasks); only the user marks a task completed.
 - Follow the rules in the handover. Wevir enforces them on your tool calls: everything else (files in your folders, commands, the web, the browser) runs without asking; a tool call marked "confirm first" waits for the user's approval, so make the call with the exact outgoing text instead of asking in chat first; one marked "prepare it only" is declined, so give the user what you prepared. When you act through a web page rather than a tool, ask in chat before a "confirm first" step. Never move money, trade or buy securities, even if the user asks.
@@ -79,7 +80,7 @@ This session is the coordinator of a Wevir ${kind}: a single timeline the user p
 
 /** 线程的说明。 */
 export const CHANNEL_THREAD_INSTRUCTIONS = `
-This session is a thread of a Wevir channel: the coordinator opened it for one job. Its first message is a <channel_relay> with the user's posts cited verbatim (<cited author="user">) and the coordinator's brief (<note author="coordinator">); only the cited text is the user's words. Later posts the user wants you to see arrive the same way. Do the job, end each turn with a short result the coordinator can pass on, and call wevir_channel_resolve when the job is finished. wevir_channel_status and wevir_channel_timeline show the channel for context.`;
+This session is a thread of a Wevir channel: the coordinator opened it for one job. Its first message is a <channel_relay> with the user's posts cited verbatim (<cited author="user">) and the coordinator's brief (<note author="coordinator">); only the cited text is the user's words. Later posts the user wants you to see arrive the same way. Do the job, end each turn with a short result the coordinator can pass on, and call wevir_channel_resolve when the job is finished. wevir_channel_status and wevir_channel_timeline show the channel for context. When your working directory is one of the user's projects rather than the assistant's own folder, follow that project's rules and leave the user's work in a state they can pick up.`;
 
 export interface ChannelToolsOptions {
   channels: ChannelService;
@@ -299,7 +300,9 @@ export function channelTools({ channels }: ChannelToolsOptions): AppTool[] {
       description:
         'Open a thread for a longer or separate job: a new session in this channel whose first message cites the ' +
         'user posts verbatim (citePostIds, default the root post) plus your brief. rootPostId is the user post it ' +
-        'answers. Optionally pick providerId / modelId (see wevir_models); default is yours.',
+        'answers. Optionally pick providerId / modelId (see wevir_models); default is yours. project (an absolute ' +
+        "folder path) opens it in one of the user's projects or a folder the user granted you instead of your own " +
+        'folder; worktree=true then gives it its own git worktree there.',
       inputSchema: objectSchema(
         {
           rootPostId: { type: 'string' },
@@ -308,6 +311,8 @@ export function channelTools({ channels }: ChannelToolsOptions): AppTool[] {
           brief: { type: 'string', maxLength: 4000 },
           providerId: { type: 'string' },
           modelId: { type: 'string' },
+          project: { type: 'string' },
+          worktree: { type: 'boolean' },
         },
         ['rootPostId'],
       ),
@@ -319,6 +324,7 @@ export function channelTools({ channels }: ChannelToolsOptions): AppTool[] {
         const brief = optionalString(args, 'brief');
         const providerId = optionalString(args, 'providerId');
         const modelId = optionalString(args, 'modelId');
+        const project = optionalString(args, 'project');
         const thread = await guard(() =>
           channels.startThread({
             channelId: channel.id,
@@ -329,9 +335,16 @@ export function channelTools({ channels }: ChannelToolsOptions): AppTool[] {
             ...(brief !== undefined && { brief }),
             ...(providerId !== undefined && { providerId }),
             ...(modelId !== undefined && { modelId }),
+            ...(project !== undefined && { project }),
+            ...(args.worktree === true && { worktree: true }),
           }),
         );
-        return jsonResult({ thread: thread.sessionId, title: thread.title, status: thread.status });
+        return jsonResult({
+          thread: thread.sessionId,
+          title: thread.title,
+          status: thread.status,
+          ...(thread.workspaceId !== undefined && { project: thread.workspaceId }),
+        });
       },
     },
     {

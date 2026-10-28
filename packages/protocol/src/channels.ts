@@ -341,6 +341,8 @@ export const ChannelThreadSchema = z.object({
   replyCount: z.int().min(0),
   lastReply: z.object({ at: IsoTimeSchema, firstLine: z.string().max(200) }).optional(),
   openedBy: z.enum(['coordinator', 'user']),
+  /** 开在用户项目里的线程（0.134.0）：那个项目；开在助理自己工作区里时省略。 */
+  workspaceId: WorkspaceIdSchema.optional(),
   resolvedAt: IsoTimeSchema.optional(),
   resolvedBy: z.enum(['user', 'coordinator', 'thread']).optional(),
   createdAt: IsoTimeSchema,

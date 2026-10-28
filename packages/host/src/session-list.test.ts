@@ -1,6 +1,6 @@
 // 会话列表推送（0.101.0）：SessionListFeed 从事件库收变化、100 ms 合一批、按行的指纹判断；SessionListScope 按一条连接的范围裁剪。
 
-import type { Session, SessionId } from '@wevir/protocol';
+import type { ChannelId, Session, SessionId } from '@wevir/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventStore } from './event-store.js';
 import {
@@ -254,5 +254,16 @@ describe('SessionListScope', () => {
     expect(result.removed).toEqual([]);
     // 取消归档：离开归档列表，也不在 ws_2 里。
     expect(scope.apply(batch([[SES, row(SES)]])).removed).toEqual([SES]);
+  });
+
+  it('开在项目里的频道线程（0.134.0）照常发；旧连接不要', () => {
+    const thread = row(SES, { channel: { channelId: 'chn_1' as ChannelId, role: 'thread' } });
+    const scope = new SessionListScope();
+    scope.add({}, []);
+    expect(scope.apply(batch([[SES, thread]])).upserted.map((s) => s.id)).toEqual([SES]);
+    const old = new SessionListScope();
+    old.channelThreads = false;
+    old.add({}, []);
+    expect(old.apply(batch([[SES, thread]])).upserted).toEqual([]);
   });
 });

@@ -54,7 +54,12 @@ import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
 import { GuardrailService } from './guardrails/service.js';
 import { homePath } from './home.js';
-import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
+import {
+  addWorkspace,
+  createHostMethods,
+  createProviderLock,
+  syncProviders,
+} from './host-methods.js';
 import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import { InboxService } from './inbox.js';
@@ -787,6 +792,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       sessions: manager,
       assistants,
       identity: { deviceId: hostId, clientId: 'wevir-channels', clientKind: 'desktop' },
+      // 助理的线程与它开的会话可以开进用户的项目（0.134.0）；授权的文件夹还不是项目时照 `workspace.add` 登记。
+      projects: {
+        isProject: (workspace) => !assistants.isAssistant(workspace) && !chats.isChats(workspace),
+        add: async (path) =>
+          (
+            await addWorkspace(
+              { storage: storage as Storage, events: store, chats, assistants },
+              { rootPath: path },
+            )
+          ).record,
+      },
       // 建助理时给它一个每天 08:00 的晨间简报（0.121.0），删助理时一起删。
       schedules: {
         created: async (channel) => {

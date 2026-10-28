@@ -29,6 +29,7 @@ import {
 import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { useWorkbenchSelector } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { approvalLayout, optionLabel, presentApproval } from '@/session/approval-model';
@@ -500,6 +501,13 @@ function ThreadCard({
 }) {
   const resolved = thread.status === 'resolved';
   const line = thread.status === 'working' ? thread.doing : thread.lastReply?.firstLine;
+  // 开在用户项目里的线程（0.134.0）写上项目名。
+  const project = useWorkbenchSelector((data) =>
+    thread.workspaceId === undefined || data.status !== 'ready'
+      ? undefined
+      : data.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace
+          .displayName,
+  );
   return (
     <section
       className={cn(
@@ -531,7 +539,7 @@ function ThreadCard({
             {thread.title}
           </p>
           <p className="truncate text-xs text-muted-foreground">
-            {[t(THREAD_STATUS_LABEL[thread.status]), line]
+            {[t(THREAD_STATUS_LABEL[thread.status]), project, line]
               .filter((part) => part !== undefined && part !== '')
               .join(' · ')}
           </p>

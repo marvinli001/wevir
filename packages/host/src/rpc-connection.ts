@@ -217,6 +217,8 @@ interface ZodIssueLike {
 
 /** `sessions.changed` 从这个协议版本起有（0.101.0）。 */
 const SESSION_LIST_PUSH_SINCE = '0.101.0';
+/** `session.list` 与 `sessions.changed` 列出开在用户项目里的频道线程从这个版本起。 */
+const PROJECT_THREADS_SINCE = '0.134.0';
 /** 通知意图的 `channel` 种类（助理的帖子）从这个版本起。 */
 const CHANNEL_INTENTS_SINCE = '0.121.0';
 /** `simulator.show` 从这个版本起。 */
@@ -1041,6 +1043,9 @@ export class RpcConnection {
     const feed = this.#host.sessionList;
     if (feed === undefined || this.#phase !== 'ready') return;
     if (compareProtocolVersions(this.#protocolVersion, SESSION_LIST_PUSH_SINCE) < 0) return;
+    // COMPAT(projectThreads): added in 0.134.0, remove gate after 2027-06-01
+    this.#sessionListScope.channelThreads =
+      compareProtocolVersions(this.#protocolVersion, PROJECT_THREADS_SINCE) >= 0;
     this.#sessionListScope.add(params, sessions);
     this.#unwatchSessionList ??= feed.watch((batch) => {
       const change = this.#sessionListScope.apply(batch);
@@ -1738,7 +1743,18 @@ export function adaptResultForClient(
   protocolVersion: string = PROTOCOL_VERSION,
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
-  const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  let value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  // COMPAT(projectThreads): added in 0.134.0, remove gate after 2027-06-01
+  if (
+    method === 'session.list' &&
+    compareProtocolVersions(protocolVersion, PROJECT_THREADS_SINCE) < 0
+  ) {
+    const listed = value as MethodResult<'session.list'>;
+    value = {
+      ...listed,
+      sessions: listed.sessions.filter((session) => session.channel === undefined),
+    };
+  }
   // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
   if (method === 'process.list' && capabilities.dev_preview !== true) {
     const listed = value as MethodResult<'process.list'>;

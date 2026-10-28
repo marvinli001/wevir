@@ -21,6 +21,8 @@
 
 import { createHash } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import type {
   ApprovalRequest,
   Assistant,
@@ -74,6 +76,7 @@ import type {
   ChannelRecord,
   ChannelThreadRecord,
   Storage,
+  WorkspaceRecord,
 } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
@@ -194,6 +197,15 @@ export interface ChannelServiceOptions {
   schedules?: {
     created(channel: Channel): Promise<void>;
     deleted(channelId: ChannelId): Promise<void>;
+  };
+  /**
+   * 用户的项目（0.134.0）：助理的线程与它开的会话可以开进去。不给时只能开在助理自己的工作区。
+   */
+  projects?: {
+    /** 是用户的项目（不是助理的隐藏工作区，也不是“对话”）。 */
+    isProject(workspace: WorkspaceRecord): boolean;
+    /** 把文件夹登记成项目（同 `workspace.add`：已登记的直接返回，移除过的恢复）。`path` 是 realpath。 */
+    add(path: string): Promise<WorkspaceRecord>;
   };
   /** 助理删除后，清掉存在别处、按它的工作区或频道记的东西（记忆、任务清单、环境变量等）。 */
   removed?: (removed: {
@@ -526,6 +538,21 @@ export class ChannelService {
     const record = this.#storage.channels.get(entry.channelId);
     if (record === undefined || record.deletedAt !== undefined) return undefined;
     return { channel: this.#channel(record), role: entry.role };
+  }
+
+  /**
+   * 助理的会话（协调者、线程及它们开的会话）要开进的项目（0.134.0，`wevir_session_create` 的 `project`）：不是助理的会话时拒绝。
+   */
+  async assistantProject(sessionId: SessionId, project: string): Promise<WorkspaceRecord> {
+    const record = this.#assistantOf(sessionId);
+    if (record === undefined)
+      throw invalid('project', 'only assistant sessions can pick a project');
+    return this.#project(record, project);
+  }
+
+  /** 是不是助理的会话（协调者、线程及它们开的会话）。 */
+  isAssistantSession(sessionId: SessionId): boolean {
+    return this.#assistantOf(sessionId) !== undefined;
   }
 
   /** 频道的线程（工具 `wevir_channel_status` 用）。 */
@@ -1038,8 +1065,15 @@ export class ChannelService {
     providerId?: string;
     modelId?: string;
     reasoningEffort?: string;
+    /** 开进用户的项目（0.134.0，`assistantProject` 的规则）；省略时开在助理自己的工作区。 */
+    project?: string;
+    /** 在项目里新开 worktree；要有 `project`。 */
+    worktree?: boolean;
   }): Promise<ChannelThread> {
     const record = this.#assistantRecord(input.channelId);
+    if (input.worktree === true && input.project === undefined) {
+      throw invalid('worktree', 'worktree needs a project');
+    }
     const root = this.#storage.channels.getPost(input.rootPostId);
     if (root === undefined || root.channelId !== record.id) {
       throw invalid('rootPostId', 'no such post in this channel');
@@ -1063,10 +1097,20 @@ export class ChannelService {
     if (this.#storage.providers.get(providerId) === undefined) {
       throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
     }
+    const project =
+      input.project === undefined ? undefined : await this.#project(record, input.project);
     const session = await this.#options.sessions.create(
       {
-        workspaceId: record.workspaceId as Session['workspaceId'],
-        ...this.#environmentOf(record),
+        // 开在项目里的线程是那个项目的普通会话（规则文件、记忆、角色、worktree 照常），不用助理的环境。
+        ...(project === undefined
+          ? {
+              workspaceId: record.workspaceId as Session['workspaceId'],
+              ...this.#environmentOf(record),
+            }
+          : {
+              workspaceId: project.id as Session['workspaceId'],
+              ...(input.worktree === true && { worktree: 'new' as const }),
+            }),
         providerId,
         ...((input.modelId ??
           (input.providerId === undefined ? coordinator.modelId : undefined)) !== undefined && {
@@ -2043,6 +2087,36 @@ export class ChannelService {
     return { environmentId: environmentId as EnvironmentId };
   }
 
+  /**
+   * 助理要开进的项目：已登记的项目（按根目录的路径），或用户授权给这个助理的文件夹（还没登记成项目时这里登记，侧栏才有地方放它的
+   * 会话）。路径可以用 `~/` 开头。别的文件夹、助理的隐藏工作区与“对话”都拒绝。
+   */
+  async #project(record: ChannelRecord, project: string): Promise<WorkspaceRecord> {
+    const projects = this.#options.projects;
+    if (projects === undefined) throw invalid('project', 'projects are not available here');
+    const raw = project.trim();
+    const path = raw === '~' || raw.startsWith('~/') ? join(homedir(), raw.slice(1)) : raw;
+    if (!isAbsolute(path)) throw invalid('project', `not an absolute folder path: ${project}`);
+    let real: string;
+    try {
+      real = await realpath(path);
+    } catch {
+      throw invalid('project', `no such folder: ${project}`);
+    }
+    const known = this.#storage.workspaces.getByRootPath(real);
+    if (known !== undefined && known.removedAt === undefined && projects.isProject(known)) {
+      return known;
+    }
+    const granted =
+      this.#storage.workspaces.get(record.workspaceId)?.extraFolders ??
+      (record.assistant as Assistant).folders;
+    if (granted.includes(real)) return projects.add(real);
+    throw invalid(
+      'project',
+      `not one of the user's projects or a folder granted to this assistant: ${project}`,
+    );
+  }
+
   /** 助理的工作文件夹（隐藏工作区的目录）。 */
   #workspacePath(record: ChannelRecord): string | undefined {
     if (record.kind !== 'assistant') return undefined;
@@ -2192,6 +2266,10 @@ export class ChannelService {
   #thread(row: ChannelThreadRecord): ChannelThread {
     const sessionId = row.sessionId as SessionId;
     const snapshot = this.#options.events.snapshot(sessionId);
+    const workspaceId = this.#storage.sessions.get(sessionId)?.workspaceId;
+    const inProject =
+      workspaceId !== undefined &&
+      workspaceId !== this.#storage.channels.get(row.channelId)?.workspaceId;
     let replyCount = 0;
     let lastReply: ChannelThread['lastReply'];
     let answer: string | undefined;
@@ -2232,6 +2310,7 @@ export class ChannelService {
       replyCount,
       ...(lastReply !== undefined && { lastReply }),
       openedBy: row.openedBy === 'user' ? 'user' : 'coordinator',
+      ...(inProject && { workspaceId: workspaceId as NonNullable<ChannelThread['workspaceId']> }),
       ...(row.resolvedAt !== undefined && { resolvedAt: row.resolvedAt }),
       ...(row.resolvedBy !== undefined && {
         resolvedBy: row.resolvedBy as NonNullable<ChannelThread['resolvedBy']>,

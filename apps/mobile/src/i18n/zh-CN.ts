@@ -68,6 +68,7 @@ export const zhCN = {
   'computer.forget.confirm': '退出',
 
   'session.untitled': '未命名会话',
+  'session.assistant': '助理 {name}',
   'session.state.idle': '空闲',
   'session.state.running': '运行中',
   'session.state.awaiting_approval': '待审批',

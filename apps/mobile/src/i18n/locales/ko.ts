@@ -71,6 +71,7 @@ export const ko: Messages = {
   'computer.forget.confirm': '삭제',
 
   'session.untitled': '제목 없는 세션',
+  'session.assistant': '어시스턴트 {name}',
   'session.state.idle': '대기',
   'session.state.running': '실행 중',
   'session.state.awaiting_approval': '승인 대기',

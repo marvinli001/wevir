@@ -667,6 +667,7 @@ export const messages: Messages = {
   'session.marker.goal': 'Цель',
   'session.marker.unread': 'Не прочитано',
   'session.role': 'Роль {role}',
+  'session.assistant': 'Ассистент {name}',
   'composer.add': 'Добавить',
   'composer.attachFiles': 'Файлы и папки',
   'composer.attachImages': 'Изображения',

@@ -1,7 +1,9 @@
 import type {
+  ChannelId,
   ChannelPost,
   PendingMessage,
   Session,
+  SessionId,
   UserContentPart,
   UserImagePart,
   WevirEventOf,
@@ -79,6 +81,25 @@ describe('adaptResultForClient', () => {
     expect(adaptResultForClient('workspace.list', { workspaces: [] }, {})).toEqual({
       workspaces: [],
     });
+  });
+
+  it('0.134.0 以前的连接看不到列表里的频道线程', () => {
+    const plain = session('user');
+    const thread = {
+      ...session('user'),
+      id: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQT' as SessionId,
+      channel: {
+        channelId: 'chn_01JA2B3C4D5E6F7G8H9JKMNPQR' as ChannelId,
+        role: 'thread' as const,
+      },
+    };
+    const listed = { sessions: [plain, thread], listVersion: 3 };
+    const caps = { title_source_generated: true };
+    expect(adaptResultForClient('session.list', listed, caps, '0.133.0')).toEqual({
+      sessions: [plain],
+      listVersion: 3,
+    });
+    expect(adaptResultForClient('session.list', listed, caps, '0.134.0')).toEqual(listed);
   });
 });
 

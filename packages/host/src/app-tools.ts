@@ -684,7 +684,10 @@ export class AppTools {
       call: async (args, { sessionId }) => {
         const caller = this.#callerRecord(sessionId);
         const { storage, events } = this.#options;
-        const scope = optionalEnum(args, 'scope', ['project', 'all']) ?? 'project';
+        // 助理自己的工作区里没有用户的会话（0.134.0）：默认看全部项目。
+        const scope =
+          optionalEnum(args, 'scope', ['project', 'all']) ??
+          (this.#options.channels?.isAssistantSession(sessionId) === true ? 'all' : 'project');
         const state = optionalEnum(args, 'state', ['active', 'idle', 'any']) ?? 'any';
         const query = optionalString(args, 'query')?.toLowerCase();
         const limit = optionalInt(args, 'limit', 1, LIST_MAX) ?? 20;
@@ -694,6 +697,9 @@ export class AppTools {
           ...(args.includeArchived === true && { archived: 'include' as const }),
         });
         const sessions = records.flatMap((record) => {
+          // 频道的协调者（各班）不是用户的会话。
+          if (record.origin?.kind === 'channel' && record.origin.channelRole !== 'thread')
+            return [];
           const session = events.snapshot(record.id as SessionId)?.session;
           if (!session) return [];
           if (state === 'active' && !ACTIVE.has(session.state)) return [];
@@ -1079,7 +1085,7 @@ export class AppTools {
         '(wevir_session_close, wevir_session_archive); you cannot delete sessions, and the user keeps the archive. ' +
         'When it waits for the user to approve or answer, you cannot do that for the user: tell the user or stop it ' +
         "with wevir_session_interrupt. With Antigravity and OpenCode providers its commands need the user's " +
-        'approval even under auto_review.',
+        'approval even under auto_review. Assistants: project=folder path.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },
@@ -1091,6 +1097,7 @@ export class AppTools {
           permissionMode: { type: 'string', enum: Object.keys(PERMISSION_RANK) },
           worktree: { type: 'boolean' },
           reportBack: { type: 'boolean' },
+          project: { type: 'string' },
         },
         ['message'],
       ),
@@ -1100,9 +1107,18 @@ export class AppTools {
         const caller = this.#session(sessionId);
         const message = requiredString(args, 'message');
         const title = optionalString(args, 'title')?.trim();
+        // 助理的会话可以开进用户的项目（0.134.0，channels/service.ts 的 `assistantProject`）。
+        const projectArg = optionalString(args, 'project');
+        const channels = this.#options.channels;
+        if (projectArg !== undefined && channels === undefined) {
+          throw new AppToolError('project is only available to assistant sessions.');
+        }
+        const workspaceId =
+          projectArg === undefined || channels === undefined
+            ? callerRecord.workspaceId
+            : (await this.#host(() => channels.assistantProject(sessionId, projectArg))).id;
         const roleName = optionalString(args, 'role');
-        const role =
-          roleName === undefined ? undefined : await this.#role(roleName, callerRecord.workspaceId);
+        const role = roleName === undefined ? undefined : await this.#role(roleName, workspaceId);
         // 模型：这里明说的 > 角色的 > 开它的会话的。明说了 Provider 就不用角色的模型与档位（它们是角色那个 Provider 的）。
         const explicitProvider = optionalString(args, 'providerId');
         const explicitModel = optionalString(args, 'modelId');
@@ -1162,7 +1178,7 @@ export class AppTools {
         const session = await this.#host(() =>
           this.#options.sessions.create(
             {
-              workspaceId: callerRecord.workspaceId as Session['workspaceId'],
+              workspaceId: workspaceId as Session['workspaceId'],
               providerId: providerId as Session['providerId'],
               ...(modelId !== undefined && { modelId }),
               ...(reasoningEffort !== undefined && { reasoningEffort }),

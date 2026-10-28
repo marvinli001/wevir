@@ -653,6 +653,7 @@ export const messages: Messages = {
   'session.marker.goal': '目標',
   'session.marker.unread': '未讀',
   'session.role': '角色 {role}',
+  'session.assistant': '助理 {name}',
   'composer.add': '新增',
   'composer.attachFiles': '檔案和資料夾',
   'composer.attachImages': '圖片',

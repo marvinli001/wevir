@@ -73,6 +73,7 @@ export const ja: Messages = {
   'computer.forget.confirm': '削除',
 
   'session.untitled': '無題のセッション',
+  'session.assistant': 'アシスタント {name}',
   'session.state.idle': '待機中',
   'session.state.running': '実行中',
   'session.state.awaiting_approval': '承認待ち',

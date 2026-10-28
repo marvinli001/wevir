@@ -67,6 +67,7 @@ export const zhTW: Messages = {
   'computer.forget.confirm': '退出',
 
   'session.untitled': '未命名工作階段',
+  'session.assistant': '助理 {name}',
   'session.state.idle': '閒置',
   'session.state.running': '執行中',
   'session.state.awaiting_approval': '待核准',

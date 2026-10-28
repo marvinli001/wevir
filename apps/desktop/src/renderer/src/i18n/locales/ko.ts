@@ -655,6 +655,7 @@ export const messages: Messages = {
   'session.marker.goal': '목표',
   'session.marker.unread': '읽지 않음',
   'session.role': '역할 {role}',
+  'session.assistant': '어시스턴트 {name}',
   'composer.add': '추가',
   'composer.attachFiles': '파일 및 폴더',
   'composer.attachImages': '이미지',

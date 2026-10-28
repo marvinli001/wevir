@@ -72,6 +72,7 @@ export const en: Messages = {
   'computer.forget.confirm': 'Forget',
 
   'session.untitled': 'Untitled session',
+  'session.assistant': 'Assistant {name}',
   'session.state.idle': 'Idle',
   'session.state.running': 'Running',
   'session.state.awaiting_approval': 'Needs approval',

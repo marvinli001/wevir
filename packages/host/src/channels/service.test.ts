@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppTools } from '../app-tools.js';
 import { AutomationService } from '../automations/service.js';
 import { EventStore } from '../event-store.js';
-import { createHostMethods } from '../host-methods.js';
+import { addWorkspace, createHostMethods } from '../host-methods.js';
 import { InboxService } from '../inbox.js';
 import { NotificationService } from '../notifications.js';
 import { SessionManager } from '../session-manager.js';
@@ -113,6 +113,11 @@ async function setup(
       },
     },
     ...(options.removed !== undefined && { removed: options.removed }),
+    projects: {
+      isProject: (workspace) => !assistants.isAssistant(workspace),
+      add: async (path) =>
+        (await addWorkspace({ storage, events, assistants }, { rootPath: path })).record,
+    },
   });
   channels.start();
   const service0 = channels;
@@ -169,13 +174,14 @@ async function setup(
     updatedAt: '2026-10-16T00:00:00.000Z',
   });
   const service = channels;
-  const create = async (name: string, description: string) =>
+  const create = async (name: string, description: string, folders?: string[]) =>
     (
       await methods['channel.create'](
         {
           kind: 'assistant',
           name,
           description,
+          ...(folders !== undefined && { folders }),
           coordinator: { providerId: 'mock' },
           ...(options.budget !== undefined && { budget: options.budget }),
         },
@@ -644,6 +650,125 @@ describe('频道的应用级工具', () => {
       context,
     );
     expect(tasks.map((task) => task.status)).toEqual(['completed']);
+  });
+});
+
+describe('开进用户项目的线程与会话（0.134.0）', () => {
+  it('线程开在已登记的项目里：是那个项目的会话、进会话列表，回报照旧；授权的文件夹自动登记；别的文件夹拒绝', async () => {
+    const h = await setup();
+    const root = realpathSync(tempDir());
+    const repo = join(root, 'repo');
+    const granted = join(root, 'granted');
+    const stranger = join(root, 'stranger');
+    for (const dir of [repo, granted, stranger]) mkdirSync(dir);
+    const { workspace } = await h.methods['workspace.add']({ rootPath: repo }, context);
+    const bot = await h.create('Coder', 'Fix my bugs.', [granted]);
+    const [first] = await h.coordinatorPosts(bot.id, 1);
+    const coordinator = (
+      first?.author.kind === 'coordinator' ? first.author.sessionId : ''
+    ) as SessionId;
+    expect(await h.tools.instructions(coordinator)).toContain(
+      'pass project (the folder path of one of',
+    );
+    const { post } = await h.methods['channel.post'](
+      { channelId: bot.id, content: [{ type: 'text', text: 'Fix the login bug' }] },
+      context,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+
+    const opened = await h.call(coordinator, 'wevir_channel_start_thread', {
+      rootPostId: post.id,
+      project: repo,
+    });
+    expect(opened.isError).toBeUndefined();
+    const result = opened.structuredContent as { thread: SessionId; project: string };
+    expect(result.project).toBe(workspace.id);
+    const record = h.storage.sessions.get(result.thread);
+    expect(record).toMatchObject({ workspaceId: workspace.id, cwd: repo });
+    expect(record?.environmentId).toBeUndefined();
+    expect(h.service.channelOf(result.thread)?.role).toBe('thread');
+    const listed = (await h.methods['session.list']({ workspaceId: workspace.id }, context))
+      .sessions;
+    expect(listed.map((session) => [session.id, session.channel])).toEqual([
+      [result.thread, { channelId: bot.id, role: 'thread' }],
+    ]);
+    // 协调者不进列表。
+    expect((await h.methods['session.list']({}, context)).sessions.map((s) => s.id)).toEqual([
+      result.thread,
+    ]);
+    const view = await h.methods['channel.get']({ channelId: bot.id }, context);
+    expect(view.threads.map((thread) => thread.workspaceId)).toEqual([workspace.id]);
+    // 规矩照样管它：在项目里跑命令不问。
+    expect(h.service.isAssistantSession(result.thread)).toBe(true);
+
+    // 授权的文件夹还不是项目：登记成项目再开。
+    const second = await h.call(coordinator, 'wevir_channel_start_thread', {
+      rootPostId: post.id,
+      project: granted,
+      worktree: false,
+    });
+    expect(second.isError).toBeUndefined();
+    const added = (await h.methods['workspace.list']({}, context)).workspaces.find(
+      (item) => item.rootPath === granted,
+    );
+    expect(added).toBeDefined();
+    expect(
+      h.storage.sessions.get((second.structuredContent as { thread: SessionId }).thread)
+        ?.workspaceId,
+    ).toBe(added?.id);
+
+    for (const project of [stranger, h.storage.workspaces.get(bot.workspaceId ?? '')?.rootPath]) {
+      const denied = await h.call(coordinator, 'wevir_channel_start_thread', {
+        rootPostId: post.id,
+        project,
+      });
+      expect(denied.isError).toBe(true);
+    }
+    const noProject = await h.call(coordinator, 'wevir_channel_start_thread', {
+      rootPostId: post.id,
+      worktree: true,
+    });
+    expect(noProject.isError).toBe(true);
+  });
+
+  it('wevir_session_create 的 project 只给助理；助理的 wevir_session_list 默认看全部项目', async () => {
+    const h = await setup();
+    const root = realpathSync(tempDir());
+    const repo = join(root, 'repo');
+    mkdirSync(repo);
+    const { workspace } = await h.methods['workspace.add']({ rootPath: repo }, context);
+    const mine = await h.sessions.create({ workspaceId: workspace.id, providerId: 'mock' });
+    const bot = await h.create('Coder', 'Fix my bugs.');
+    const [first] = await h.coordinatorPosts(bot.id, 1);
+    const coordinator = (
+      first?.author.kind === 'coordinator' ? first.author.sessionId : ''
+    ) as SessionId;
+
+    const listed = await h.call(coordinator, 'wevir_session_list');
+    const ids = (listed.structuredContent as { sessions: { sessionId: string }[] }).sessions.map(
+      (session) => session.sessionId,
+    );
+    expect(ids).toEqual([mine.id]);
+    const own = await h.call(mine.id, 'wevir_session_list');
+    expect(
+      (own.structuredContent as { sessions: { sessionId: string }[] }).sessions.map(
+        (session) => session.sessionId,
+      ),
+    ).toEqual([mine.id]);
+
+    const opened = await h.call(coordinator, 'wevir_session_create', {
+      message: 'Run the tests',
+      project: repo,
+      reportBack: false,
+    });
+    expect(opened.isError).toBeUndefined();
+    const created = (opened.structuredContent as { sessionId: SessionId }).sessionId;
+    expect(h.storage.sessions.get(created)?.workspaceId).toBe(workspace.id);
+    const refused = await h.call(mine.id, 'wevir_session_create', {
+      message: 'Run the tests',
+      project: repo,
+    });
+    expect(refused.isError).toBe(true);
   });
 });
 

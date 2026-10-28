@@ -20,6 +20,7 @@ import {
 import { type KeyboardEvent, memo, type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { assistantsAvailability } from '@/assistants/assistants-model';
+import { ThreadAssistantMark, ThreadAssistants } from '@/assistants/thread-mark';
 import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
 import { Hint } from '@/components/hint';
@@ -190,7 +191,14 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
         )}
       </div>
 
-      <ProjectsSection />
+      {/* 助理开在项目里的线程（0.134.0）行尾画助理的头像。 */}
+      {showAssistants && client !== undefined ? (
+        <ThreadAssistants client={client}>
+          <ProjectsSection />
+        </ThreadAssistants>
+      ) : (
+        <ProjectsSection />
+      )}
       <PinDragGhost />
       <ProjectDragGhost />
 
@@ -987,6 +995,12 @@ const SessionRow = memo(function SessionRow({
               {session.openedBy?.role !== undefined && (
                 <RoleLabel
                   role={session.openedBy.role}
+                  className="group-focus-within/session:hidden group-hover/session:hidden"
+                />
+              )}
+              {session.channel !== undefined && (
+                <ThreadAssistantMark
+                  channelId={session.channel.channelId}
                   className="group-focus-within/session:hidden group-hover/session:hidden"
                 />
               )}

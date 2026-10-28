@@ -4955,6 +4955,11 @@ export const methodSamples: MethodSamples = {
           listVersion: 1792368000000,
         },
         { sessions: [], listVersion: 0 },
+        // 0.134.0：助理开在用户项目里的线程照常列出。
+        {
+          sessions: [{ ...session, channel: { channelId: ids.channel, role: 'thread' } }],
+          listVersion: 1792368000001,
+        },
       ],
       invalid: [
         { sessions: [{ ...session, lastSeq: -1 }] },
@@ -7661,8 +7666,15 @@ export const methodSamples: MethodSamples = {
       invalid: [{ channelId: ids.channel }, { channelId: ids.channel, rootPostId: ids.session }],
     },
     result: {
-      valid: [{ thread: channelThread }],
-      invalid: [{ thread: { ...channelThread, status: 'busy' } }],
+      // 0.134.0：开在用户项目里的线程带 workspaceId。
+      valid: [
+        { thread: channelThread },
+        { thread: { ...channelThread, workspaceId: ids.workspace } },
+      ],
+      invalid: [
+        { thread: { ...channelThread, status: 'busy' } },
+        { thread: { ...channelThread, workspaceId: 'ws_' } },
+      ],
     },
   },
   'channel.resolveThread': {

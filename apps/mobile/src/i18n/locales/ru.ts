@@ -73,6 +73,7 @@ export const ru: Messages = {
   'computer.forget.confirm': 'Забыть',
 
   'session.untitled': 'Сеанс без названия',
+  'session.assistant': 'Ассистент {name}',
   'session.state.idle': 'Простаивает',
   'session.state.running': 'Выполняется',
   'session.state.awaiting_approval': 'Ждёт одобрения',

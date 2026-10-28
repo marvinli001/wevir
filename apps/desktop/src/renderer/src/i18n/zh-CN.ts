@@ -667,6 +667,7 @@ export const zhCN = {
   'session.marker.goal': '目标',
   'session.marker.unread': '未读',
   'session.role': '角色 {role}',
+  'session.assistant': '助理 {name}',
   'composer.add': '添加',
   'composer.attachFiles': '文件和文件夹',
   'composer.attachImages': '图片',

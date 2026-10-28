@@ -74,6 +74,7 @@ export const de: Messages = {
   'computer.forget.confirm': 'Entfernen',
 
   'session.untitled': 'Unbenannte Sitzung',
+  'session.assistant': 'Assistent {name}',
   'session.state.idle': 'Bereit',
   'session.state.running': 'Läuft',
   'session.state.awaiting_approval': 'Freigabe nötig',

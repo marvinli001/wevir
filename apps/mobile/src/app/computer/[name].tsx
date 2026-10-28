@@ -114,6 +114,7 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
                   <SessionRow
                     key={session.id}
                     session={session}
+                    computer={record.name}
                     now={now}
                     last={index === sessionList.length - 1}
                     onPress={() =>

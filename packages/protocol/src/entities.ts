@@ -1952,8 +1952,8 @@ export const SessionAutomationSchema = z.object({
 export type SessionAutomation = z.infer<typeof SessionAutomationSchema>;
 
 /**
- * 频道里的会话（0.120.0，ADR-0020）：`coordinator` 是频道常驻的协调者（各班），`thread` 是频道开出的线程。两者都不出现在不带
- * `channelId` 的 `session.list` 与 `sessions.changed` 里。
+ * 频道里的会话（0.120.0，ADR-0020）：`coordinator` 是频道常驻的协调者（各班），`thread` 是频道开出的线程。两者都不出现在
+ * `session.list` 与 `sessions.changed` 里，只有开在用户项目里的线程（0.134.0）例外：它是那个项目的会话，照常列出。
  */
 export const SessionChannelSchema = z.object({
   channelId: ChannelIdSchema,
