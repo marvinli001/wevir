@@ -599,20 +599,21 @@ function Composer({
       void send();
     }
   };
+  // 单行时输入框与发送按钮同高（32px），文字和按钮在同一条中线上；四周留白相同。
   return (
-    <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-1.5 focus-within:focus-field">
+    <div className="flex items-end gap-2 rounded-2xl border border-input bg-card p-2 focus-within:focus-field">
       <Textarea
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={t('assistants.composer.placeholder', { name: channel.title })}
         aria-label={t('assistants.composer.placeholder', { name: channel.title })}
-        className="max-h-48 min-h-9 flex-1 resize-none border-0 bg-transparent px-2 py-1.5 focus-visible:ring-0"
+        className="max-h-48 min-h-8 flex-1 resize-none rounded-none border-0 bg-transparent px-2 py-1.5 text-sm leading-5 focus-visible:ring-0"
         rows={1}
         data-field="post"
       />
       <Button
-        size="icon-sm"
+        size="icon"
         className="rounded-full"
         disabled={text.trim() === '' || busy}
         onClick={() => void send()}
