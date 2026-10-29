@@ -3,6 +3,9 @@
 
 import type {
   CanUseTool,
+  HookCallbackMatcher,
+  HookEvent,
+  HookJSONOutput,
   Options,
   PermissionResult,
   PermissionUpdate,
@@ -72,6 +75,9 @@ function loadedSdk(): SdkModule {
 
 export type {
   CanUseTool,
+  HookCallbackMatcher,
+  HookEvent,
+  HookJSONOutput,
   Options,
   PermissionResult,
   PermissionUpdate,

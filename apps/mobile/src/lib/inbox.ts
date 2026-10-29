@@ -124,6 +124,8 @@ function handledBy(
         ? who.clientKind
         : 'other';
     case 'rule':
+    // 生命周期钩子替用户答的（0.137.0）：手机上同规则一样写“自动处理”。
+    case 'hook':
       return 'rule';
     case 'timeout':
       return 'timeout';

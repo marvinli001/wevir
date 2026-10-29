@@ -1024,6 +1024,7 @@ export const messages: Messages = {
   'approval.scope.project': '本專案',
   'approval.scope.global': '所有專案',
   'approval.byRule': '已依規則允許',
+  'approval.byHook': '已由鉤子處理',
   'approval.ended.timeout': '核准已過期：無人處理',
 
   'question.label': '待回答的問題',
@@ -2981,6 +2982,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': '新增',
   'tuning.guardrails.rules': '護欄規則',
   'tuning.guardrails.repoHooks': '倉庫 hooks',
+  'tuning.guardrails.hooks': '鉤子',
   'tuning.guardrails.approvalRules': '審批規則',
   'tuning.guardrails.codexOnly': '僅 Codex',
   'tuning.guardrails.empty': '暫無護欄',

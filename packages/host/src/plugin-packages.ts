@@ -2,8 +2,9 @@
 // Copyright 2025 OpenAI
 // 导入部分改写自 openai/codex codex-rs/core-plugins/src/manifest.rs（清单字段、默认 ./skills、./ 路径规则）与
 // codex-rs/codex-mcp/src/agent_plugin_config.rs（`${PLUGIN_ROOT}` 指向插件目录），提交 092d3acd6bec3e3a14bdc7e7a2810ab628ab759d。
-// 修改：TypeScript；读 Wevir 自己的 wevir-plugin.json（0.42.0），把 Codex / Claude 包转成 Wevir 插件：只取 skills 与 MCP，
-// `${PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}` 换成 `${pluginDir}`，其余部分列为已忽略；不执行 hooks / 安装脚本。
+// 修改：TypeScript；读 Wevir 自己的 wevir-plugin.json（0.42.0），把 Codex / Claude 包转成 Wevir 插件：取 skills、MCP 与 hooks
+// （0.137.0，ADR-0023 决策 6：只列出，执行时由 Host 从安装目录读，`${CLAUDE_PLUGIN_ROOT}` / `${PLUGIN_ROOT}` 由环境变量给），
+// MCP 里的 `${PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}` 换成 `${pluginDir}`，其余部分列为已忽略；不执行安装脚本。
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -19,6 +20,7 @@ import {
   WEVIR_PLUGIN_MANIFEST,
   WevirPluginManifestSchema,
 } from '@wevir/protocol';
+import { parseHookTable, pluginHookTable } from './hooks/sources.js';
 import { member, readManifest, readMcpServers } from './plugin-install.js';
 import { record, scanSkills } from './plugin-skills.js';
 
@@ -35,7 +37,35 @@ export interface PluginPackage {
   inputs: PluginInput[];
   connectors: Array<{ name: string; config: McpServerConfig }>;
   skills: Skill[];
+  /** 包里的生命周期钩子（0.137.0）：安装确认列出，装上即信任这一版。`handler` 不是 `command` 的不执行。 */
+  hooks: PluginHookSummary[];
   ignored: string[];
+}
+
+export interface PluginHookSummary {
+  event: string;
+  matcher?: string;
+  handler: string;
+  command?: string;
+}
+
+/** 包里的 hooks（清单的 `hooks` 或 `./hooks/hooks.json`）。读坏了时报错，免得装上一个以为没有 hooks 的包。 */
+function packageHooks(root: string, format: 'wevir' | 'claude' | 'codex'): PluginHookSummary[] {
+  const warnings: string[] = [];
+  const table = pluginHookTable(root, format, warnings);
+  if (warnings.length > 0) throw new Error(`Invalid hooks: ${warnings[0]}`);
+  if (table === undefined) return [];
+  return parseHookTable(table, {
+    source: 'plugin',
+    idPrefix: 'plugin',
+    engines: [],
+    platform: process.platform,
+  }).map(({ event, matcher, handler, command }) => ({
+    event,
+    ...(matcher !== undefined && { matcher }),
+    handler,
+    ...(command !== undefined && { command }),
+  }));
 }
 
 /** 导入时照收的清单字段：元数据与 skills / MCP；别的都报为已忽略。 */
@@ -52,9 +82,10 @@ const IMPORTED_FIELDS = new Set([
   'interface',
   'skills',
   'mcpServers',
+  'hooks',
 ]);
 /** Claude 包按约定放在根目录、不写进清单的部分。 */
-const CONVENTION_DIRS = ['commands', 'agents', 'hooks', 'output-styles'];
+const CONVENTION_DIRS = ['commands', 'agents', 'output-styles'];
 
 const refs = (value: string) => [...value.matchAll(PLUGIN_INPUT_PATTERN)].map((match) => match[1]);
 
@@ -168,6 +199,7 @@ async function readWevir(root: string, raw: unknown): Promise<PluginPackage> {
     inputs,
     connectors,
     skills: await scanSkills(member(root, manifest.skills ?? './skills'), 'wevir', true),
+    hooks: packageHooks(root, 'wevir'),
     ignored: [],
   };
 }
@@ -276,6 +308,7 @@ async function readImported(
     inputs: [],
     connectors,
     skills,
+    hooks: packageHooks(root, format),
     ignored: ignored.sort(),
   };
 }
@@ -304,7 +337,7 @@ export async function readPluginPackage(root: string): Promise<PluginPackage> {
     if (names.has(skill.name)) throw new Error(`Duplicate skill "${skill.name}" in the plugin`);
     names.add(skill.name);
   }
-  if (pkg.skills.length === 0 && pkg.connectors.length === 0)
-    throw new Error('No skills or MCP servers found');
+  if (pkg.skills.length === 0 && pkg.connectors.length === 0 && pkg.hooks.length === 0)
+    throw new Error('No skills, MCP servers or hooks found');
   return pkg;
 }

@@ -36,6 +36,7 @@ import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
 import type { GitStatusResult } from './git.js';
 import type { Guardrail, GuardrailBlocked, RepoHook } from './guardrails.js';
+import type { Hook, HookOutcome } from './hooks.js';
 import type { InboxItem } from './inbox.js';
 import type { LspInstallRun, LspServerStatus } from './lsp.js';
 import type { WevirMarketIndex } from './market.js';
@@ -1719,6 +1720,48 @@ export const guardrailBlocked: GuardrailBlocked = {
   maxAttempts: 3,
 };
 
+/** Wevir 自己的一条生命周期钩子（0.137.0）。 */
+export const wevirHook: Hook = {
+  id: `hok_${ULID}`,
+  source: 'wevir',
+  workspaceId: ids.workspace,
+  name: '格式化',
+  event: 'PostToolUse',
+  matcher: 'Edit',
+  handler: 'command',
+  command: 'pnpm exec biome format --write .',
+  timeoutSec: 60,
+  engines: ['*'],
+  status: 'enabled',
+};
+
+/** 仓库里 `.claude/settings.json` 的一条（0.137.0）：启用后脚本变了。 */
+export const projectHook: Hook = {
+  id: 'claude_project:.claude/settings.json:PreToolUse:0:0',
+  source: 'claude_project',
+  file: '.claude/settings.json',
+  event: 'PreToolUse',
+  matcher: 'Bash',
+  handler: 'command',
+  command: './scripts/check.sh',
+  engines: ['claude'],
+  status: 'changed',
+  hash: 'sha256:d4f69cdd2c00f2ca673c7703b2aa6420430b66df86546d5334979761548590b4',
+  enabledAt: TS,
+};
+
+/** 一条 hook 拦下了命令（0.137.0）。 */
+export const hookOutcome: HookOutcome = {
+  hookId: projectHook.id,
+  source: 'claude_project',
+  event: 'PreToolUse',
+  action: 'blocked',
+  turnId: ids.turn,
+  tool: 'Bash',
+  command: './scripts/check.sh',
+  reason: 'rm -rf is not allowed here',
+};
+
 /** 调优的建议（0.87.0）：AGENTS.md 加两行，证据是一个回合与一次验证。 */
 export const ruleProposal: TuningProposal = {
   id: ids.tuningProposal,
@@ -2598,6 +2641,10 @@ export const eventPayloads: PayloadSamples = {
   'guardrail.blocked': {
     valid: guardrailBlocked,
     invalid: { ...guardrailBlocked, guardrailId: 'arl_x' },
+  },
+  'hook.outcome': {
+    valid: hookOutcome,
+    invalid: { ...hookOutcome, action: '' },
   },
 };
 
@@ -8163,6 +8210,69 @@ export const methodSamples: MethodSamples = {
         { hook: { ...repoHook, status: 'disabled', enabledAt: undefined } },
       ],
       invalid: [{ hook: { ...repoHook, file: '' } }],
+    },
+  },
+  'hook.list': {
+    params: { valid: [{ workspaceId: ids.workspace }, {}], invalid: [{ workspaceId: 'x' }] },
+    result: {
+      valid: [
+        {
+          hooks: [wevirHook, projectHook],
+          warnings: ['.wevir/hooks.json: Unexpected token'],
+          support: [
+            { engine: 'codex', events: ['SessionStart', 'PreToolUse', 'Stop'] },
+            { engine: 'copilot', events: ['SessionStart', 'Stop'] },
+          ],
+        },
+        { hooks: [], warnings: [], support: [] },
+      ],
+      invalid: [{ hooks: [{ ...wevirHook, engines: undefined }], warnings: [], support: [] }],
+    },
+  },
+  'hook.add': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          name: '格式化',
+          event: 'PostToolUse',
+          matcher: 'Edit',
+          handler: { type: 'command', command: 'pnpm exec biome format --write .', timeout: 60 },
+        },
+        { event: 'Stop', handler: { type: 'command', command: 'pnpm test', onFailure: 'block' } },
+      ],
+      invalid: [
+        { event: 'Notification', handler: { type: 'command', command: 'x' } },
+        { event: 'Stop', handler: { type: 'http', url: 'https://example.com' } },
+      ],
+    },
+    result: { valid: [{ hook: wevirHook }], invalid: [{}] },
+  },
+  'hook.update': {
+    params: {
+      valid: [
+        { hookId: wevirHook.id, matcher: null, name: null },
+        { hookId: wevirHook.id, handler: { type: 'command', command: 'make fmt' } },
+      ],
+      invalid: [{ hookId: '' }],
+    },
+    result: { valid: [{ hook: { ...wevirHook, matcher: undefined } }], invalid: [{}] },
+  },
+  'hook.delete': {
+    params: { valid: [{ hookId: wevirHook.id }], invalid: [{}] },
+    result: { valid: [{}], invalid: ['x'] },
+  },
+  'hook.setEnabled': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, hookId: projectHook.id, enabled: true },
+        { hookId: wevirHook.id, enabled: false },
+      ],
+      invalid: [{ hookId: wevirHook.id }],
+    },
+    result: {
+      valid: [{ hook: { ...projectHook, status: 'enabled' } }],
+      invalid: [{ hook: { ...projectHook, source: '' } }],
     },
   },
   'tuning.proposal.generate': {

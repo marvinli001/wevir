@@ -51,6 +51,11 @@ export const HOME_LAYOUT = {
    * 次数在 `state/<引擎会话 ID>.json`。
    */
   guardrailsDir: 'guardrails',
+  /**
+   * 生命周期钩子（0.137.0，hooks/service.ts）：Wevir 自己的 hooks 与仓库 / 插件来源的启停，`global.json` 与每个工作区一个
+   * `<工作区 ID>.json`（0600）；`taps/<会话 ID>.json` 是 Codex 接点转回 Host 的地址与令牌（0600，会话关闭时删）。
+   */
+  hooksDir: 'hooks',
   /** 自动化（0.66.0，automations/service.ts）：每个自动化一个 `<自动化 ID>.json`，含最近的运行（0700 / 0600）。 */
   automationsDir: 'automations',
   /**

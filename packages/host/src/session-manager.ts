@@ -23,6 +23,8 @@ import {
   type HandoffBinding,
   type HandoffMaterialRequest,
   type HandoffNoteRef,
+  type HookOutcome,
+  HookOutcomeSchema,
   IMAGE_MAX_PER_MESSAGE,
   type MessageFrom,
   type MethodParams,
@@ -107,6 +109,7 @@ import {
   type UsageRecordedEvent,
   type UsageUpdatedEvent,
 } from '@wevir/runtime-adapter';
+import type { GuardrailMarker } from '@wevir/runtime-adapter/guardrail';
 import { writeHistoryFile } from '@wevir/runtime-adapter/history-tool';
 import {
   type ApprovalRecord,
@@ -147,6 +150,7 @@ import {
   historyItems,
   withHandoffContext,
 } from './handoff.js';
+import type { HookDispatcher, HookSessionInfo } from './hooks/dispatcher.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import {
@@ -367,6 +371,21 @@ export interface SessionManagerOptions {
    * 引擎报的拦截写成 `guardrail.blocked` 并记命中。没给时不挂。
    */
   guardrails?: Pick<GuardrailService, 'sessionHooks' | 'recordHit'>;
+  /**
+   * 生命周期钩子（0.137.0，hooks/dispatcher.ts，ADR-0023）：建立或恢复引擎会话时挂接点（Codex 的转发命令 hook、Claude 的进程内回调）；
+   * 每个回合交给引擎之前跑 SessionStart（引擎会话的第一回合）与 UserPromptSubmit；引擎来要审批时先跑 PermissionRequest。没给时
+   * 都不跑。
+   */
+  hooks?: Pick<
+    HookDispatcher,
+    | 'codexHooks'
+    | 'claudeTap'
+    | 'sessionStart'
+    | 'restarted'
+    | 'userPromptSubmit'
+    | 'permissionRequest'
+    | 'has'
+  >;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
   /**
@@ -803,6 +822,7 @@ export class SessionManager {
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
   readonly #environmentVariables: SessionManagerOptions['environmentVariables'];
   readonly #guardrails: SessionManagerOptions['guardrails'];
+  readonly #hooks: SessionManagerOptions['hooks'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
@@ -874,6 +894,7 @@ export class SessionManager {
     this.#projectConnectors = options.projectConnectors;
     this.#environmentVariables = options.environmentVariables;
     this.#guardrails = options.guardrails;
+    this.#hooks = options.hooks;
     this.#onTurnFinished = options.onTurnFinished;
     this.#autoContinue = options.autoContinue;
     this.#autoContinueTimers = new AutoContinueTimers(
@@ -920,11 +941,26 @@ export class SessionManager {
       this.#guardrails !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
         ? this.#guardrails.sessionHooks(workspaceId as WorkspaceId | undefined, config.cwd)
         : undefined;
-    const withGuardrails =
-      guardrails === undefined ||
-      (guardrails.hooks.length === 0 && guardrails.disabledHooks.length === 0)
+    // 生命周期钩子（0.137.0）：Codex 挂转发命令 hook（与护栏的并在一起），Claude 给进程内接点。
+    const hookInfo = {
+      providerId: config.providerId,
+      cwd: config.cwd,
+      ...(workspaceId !== undefined && { workspaceId: workspaceId as WorkspaceId }),
+    };
+    const taps =
+      this.#hooks !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
+        ? this.#hooks.codexHooks(sessionId, hookInfo)
+        : [];
+    const engineHooks = [...(guardrails?.hooks ?? []), ...taps];
+    const disabledHooks = guardrails?.disabledHooks ?? [];
+    const withHooks =
+      engineHooks.length === 0 && disabledHooks.length === 0
         ? withEnv
-        : { ...withEnv, hooks: guardrails.hooks, disabledHooks: guardrails.disabledHooks };
+        : { ...withEnv, hooks: engineHooks, disabledHooks };
+    const withGuardrails =
+      this.#hooks !== undefined && this.#adapter.hookCallbacks?.(config.providerId) === true
+        ? { ...withHooks, hookTap: this.#hooks.claudeTap(sessionId) }
+        : withHooks;
     if (this.#adapter.appTools !== true) return withGuardrails;
     const appTools = this.#appTools?.grant(sessionId);
     if (appTools === undefined) return withGuardrails;
@@ -1138,6 +1174,63 @@ export class SessionManager {
       this.#storage.sessions.get(sessionId)?.workspaceId ??
       this.#creating.get(sessionId)?.workspaceId
     );
+  }
+
+  /** 生命周期钩子（0.137.0）用的会话信息；会话不存在时 `undefined`。 */
+  hookInfo(sessionId: SessionId): HookSessionInfo | undefined {
+    const record = this.#storage.sessions.get(sessionId);
+    const session = this.#events.snapshot(sessionId)?.session;
+    if (record === undefined || session === undefined) return undefined;
+    return {
+      providerId: session.providerId,
+      cwd: session.cwd,
+      workspaceId: record.workspaceId as WorkspaceId,
+      ...(session.activeTurn !== undefined && { turnId: session.activeTurn.turnId }),
+      ...(session.permissionMode !== undefined && { permissionMode: session.permissionMode }),
+      ...(record.parentSessionId !== undefined && { child: true }),
+    };
+  }
+
+  /** 一条 hook 起了作用（0.137.0）：写 `hook.outcome`。会话不在或已关闭时丢掉。 */
+  hookOutcome(sessionId: SessionId, outcome: HookOutcome): void {
+    if (this.#disposed) return;
+    const runtime = this.#runtimes.get(sessionId);
+    if (runtime === undefined) return;
+    const parsed = HookOutcomeSchema.safeParse(outcome);
+    if (!parsed.success) {
+      this.#onWarning('dropped a malformed hook outcome', { sessionId });
+      return;
+    }
+    this.#write(runtime, [{ type: 'hook.outcome', source: 'host', payload: parsed.data }]);
+  }
+
+  /** Host 执行的护栏检查程序拦下一步（0.137.0，Claude 会话）：同引擎报的 `guardrail.blocked`。 */
+  hookGuardrail(sessionId: SessionId, marker: GuardrailMarker): void {
+    if (this.#disposed) return;
+    const runtime = this.#runtimes.get(sessionId);
+    if (runtime === undefined) return;
+    this.#guardrailBlocked(runtime, {
+      type: 'guardrail.blocked',
+      engineSessionId: runtime.engineSessionId,
+      ...marker,
+    });
+  }
+
+  /**
+   * Host 兜底的 Stop 要求 Agent 接着做（0.137.0）：以一条 `from.hook` 的消息开后续回合，条件同修复回合（会话空闲、用户没有新的
+   * 消息或操作）。
+   */
+  continueAfterHook(
+    sessionId: SessionId,
+    text: string,
+    hookId: string,
+    sentBy: ClientIdentity,
+  ): Promise<{ turnId: TurnId } | { skipped: string }> {
+    return this.startRepairTurn(sessionId, {
+      content: [{ type: 'text', text }],
+      sentBy,
+      from: { sessionId, kind: 'report', hook: { event: 'Stop', hookId } },
+    });
   }
 
   /** 正在建、还没写进存储的会话的工作区与来历；不是正在建的会话时 `undefined`。 */
@@ -2058,7 +2151,28 @@ export class SessionManager {
     const rules =
       pendingRules?.engineSessionId === runtime.engineSessionId ? pendingRules.context : undefined;
     const handoff = this.#events.handoffState(runtime.id)?.context;
-    const prefix = [rules, handoff].filter((part) => part !== undefined).join('\n\n');
+    // 生命周期钩子（0.137.0）：引擎会话的第一回合前跑 SessionStart，用户的消息交给引擎前跑 UserPromptSubmit（别的会话转来的与
+    // Host 开的后续回合不跑）。拦下时这个回合以 `cancelled` 结束，理由在 `hook.outcome`。附加的上下文接在消息开头。
+    let hookContext: string | undefined;
+    if (this.#hooks !== undefined && goal === undefined) {
+      const started = await this.#hooks.sessionStart(
+        runtime.id,
+        snapshot.session.title === '' ? 'startup' : 'resume',
+      );
+      let submitted: { blocked?: string; context?: string } = {};
+      if (from === undefined && this.#hooks.has(runtime.id, 'UserPromptSubmit')) {
+        submitted = await this.#hooks.userPromptSubmit(runtime.id, plainTextOf(content));
+      }
+      if (submitted.blocked !== undefined) {
+        if (runtime.turn?.turnId === turnId) {
+          this.#turnEnded(runtime, runtime.turn, 'cancelled', 'hook_blocked');
+        }
+        return { turnId, seq: message.seq };
+      }
+      const parts = [started, submitted.context].filter((part) => part !== undefined);
+      if (parts.length > 0) hookContext = parts.join('\n\n');
+    }
+    const prefix = [rules, handoff, hookContext].filter((part) => part !== undefined).join('\n\n');
     // 输出风格的每回合提醒（0.78.0）：按这个会话交给引擎的风格，接在消息末尾；消息记录里没有。
     const reminder = this.#customInstructions?.reminder(
       this.#events.rulesState(runtime.id)?.rules?.custom?.outputStyle,
@@ -4888,6 +5002,8 @@ export class SessionManager {
 
   /** 订阅引擎会话的事件并开始消费。`subscribe` 同步抛出的错误交给调用方。 */
   #attach(runtime: SessionRuntime): void {
+    // 新的引擎会话：下一回合前再跑一次 SessionStart。
+    this.#hooks?.restarted(runtime.id);
     const iterator = this.#adapter.subscribe(runtime.engineSessionId)[Symbol.asyncIterator]();
     const attachment: Attachment = { iterator, detached: false };
     runtime.attachment = attachment;
@@ -5268,6 +5384,10 @@ export class SessionManager {
         if (this.#autoAllowed(runtime, turn, event)) return;
         if (this.#policyAnswered(runtime, turn, event)) return;
         this.#approvalRequested(runtime, turn, event);
+        // 生命周期钩子（0.137.0）：审批照常写下，同时问 PermissionRequest 的 hooks；它们批准或拒绝时替用户答（`reason: 'hook'`）。
+        if (this.#hooks?.has(runtime.id, 'PermissionRequest') === true) {
+          void this.#hookAnswer(runtime, turn, event).catch(this.#onError);
+        }
         return;
       case 'approval.cancelled':
         this.#approvalCancelled(runtime, event);
@@ -5409,6 +5529,36 @@ export class SessionManager {
           if (!isHostError(error, 'ALREADY_DECIDED')) this.#onError(error);
         });
     }
+  }
+
+  /** PermissionRequest 的 hooks 替用户答一个审批；用户或规则先答了时什么都不做。 */
+  async #hookAnswer(
+    runtime: SessionRuntime,
+    turn: TurnRuntime,
+    event: ApprovalRequestedEvent,
+  ): Promise<void> {
+    const approvalId = runtime.approvalIds.get(event.requestId);
+    if (approvalId === undefined || this.#hooks === undefined) return;
+    const tool = turn.tools.get(event.toolCallId);
+    const answer = await this.#hooks.permissionRequest(
+      runtime.id,
+      tool?.toolName ?? '',
+      tool?.input,
+    );
+    if (answer === undefined || runtime.approvalIds.get(event.requestId) !== approvalId) return;
+    const option =
+      answer.behavior === 'allow'
+        ? allowOnceOption(event.options)
+        : rejectOnceOption(event.options);
+    if (option === undefined) return;
+    await this.#decide(runtime, approvalId, option.optionId, {
+      reason: 'hook',
+      optionId: option.optionId,
+    }).catch((error: unknown) => {
+      if (!isHostError(error, 'ALREADY_DECIDED') && !isHostError(error, 'APPROVAL_EXPIRED')) {
+        throw error;
+      }
+    });
   }
 
   /**
@@ -7014,6 +7164,11 @@ function makeTitle(content: readonly UserContentPart[]): string {
  * 按规则替用户选的选项：只允许这一次的那种（ACP 的 `allow_once`、Codex 等的 `allow_accept`）；没有就不自动允许，不替用户选
  * “本会话都允许”“总是允许”这类会改变引擎自己记忆的选项。
  */
+/** 消息里的文字（UserPromptSubmit 的 `prompt`）；图片写成 `[image]`。 */
+function plainTextOf(content: readonly UserContentPart[]): string {
+  return content.map((part) => (part.type === 'text' ? part.text : '[image]')).join('\n');
+}
+
 function allowOnceOption(
   options: readonly RuntimeApprovalOption[],
 ): RuntimeApprovalOption | undefined {

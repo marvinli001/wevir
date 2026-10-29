@@ -205,8 +205,8 @@ export const RepoHookResultSchema = z.object({
 });
 
 /**
- * `guardrail.changed`：规则或仓库 hooks 的启用变了（任何客户端或 Host 自己，命中计数变化也算）。`workspaceId` 省略是全局的规则。发给
- * 调用过 `guardrail.*` 或 `repoHook.*` 的连接。
+ * `guardrail.changed`：规则、仓库 hooks 的启用或生命周期钩子（0.137.0，`hook.*`）变了（任何客户端或 Host 自己，命中计数变化也算）。
+ * `workspaceId` 省略是全局的。发给调用过 `guardrail.*`、`repoHook.*` 或 `hook.*` 的连接。
  */
 export const GuardrailChangedParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema.optional(),

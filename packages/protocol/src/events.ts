@@ -70,6 +70,7 @@ import {
   WrapUpActionSchema,
 } from './entities.js';
 import { GuardrailBlockedSchema } from './guardrails.js';
+import { HookOutcomeSchema } from './hooks.js';
 import {
   REVIEW_FINDINGS_MAX,
   REVIEW_SUMMARY_MAX_LENGTH,
@@ -607,6 +608,11 @@ export const EventPayloadSchemas = {
    * 接着做，或已到次数上限放行。Agent 收到的理由在 `reason`；消息流显示一行工具行。
    */
   'guardrail.blocked': GuardrailBlockedSchema,
+  /**
+   * 一条生命周期钩子起了作用（0.137.0，Host 功能 `lifecycle_hooks`，ADR-0023）：拦下、要求继续、替用户答权限请求、附加上下文、到了
+   * 次数上限或出错。只是放行的不记。消息流显示一行。
+   */
+  'hook.outcome': HookOutcomeSchema,
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -703,6 +709,7 @@ export const FileSharedEventSchema = eventSchema('file.shared');
 export const ChapterMarkedEventSchema = eventSchema('chapter.marked');
 export const TurnWrapUpEventSchema = eventSchema('turn.wrap_up');
 export const GuardrailBlockedEventSchema = eventSchema('guardrail.blocked');
+export const HookOutcomeEventSchema = eventSchema('hook.outcome');
 export const VerificationUpdatedEventSchema = eventSchema('verification.updated');
 export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
 export const RepairUpdatedEventSchema = eventSchema('repair.updated');
@@ -770,6 +777,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   InsightUpdatedEventSchema,
   ReviewFindingsEventSchema,
   GuardrailBlockedEventSchema,
+  HookOutcomeEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

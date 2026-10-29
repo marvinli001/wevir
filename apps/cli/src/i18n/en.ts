@@ -403,6 +403,7 @@ Also:
   'approvalEnd.host_shutdown': 'Approval cancelled (Host shut down)',
   'approvalEnd.host_restarted': 'Approval expired (Host restarted)',
   'approvalEnd.rule': 'Allowed by rule',
+  'approvalEnd.hook': 'Decided by a hook',
   'approvalEnd.timeout': 'Approval expired (nobody responded)',
   'providerTest.missing_key': 'no key',
   'providerTest.network': 'unreachable',

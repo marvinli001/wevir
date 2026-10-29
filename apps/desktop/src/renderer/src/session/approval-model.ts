@@ -182,6 +182,7 @@ export function resolutionText(
   self: ClientIdentity | undefined,
 ): string {
   if (resolution.reason === 'rule') return t('approval.byRule');
+  if (resolution.reason === 'hook') return t('approval.byHook');
   if (resolution.reason !== 'user') return t(`approval.ended.${resolution.reason}`);
   const option = approval.options.find((candidate) => candidate.optionId === resolution.optionId);
   const decision = option ? optionLabel(option) : (resolution.optionId ?? '');

@@ -1038,6 +1038,7 @@ export const zhCN = {
   'approval.scope.project': '本项目',
   'approval.scope.global': '所有项目',
   'approval.byRule': '已按规则允许',
+  'approval.byHook': '已由钩子处理',
   'approval.ended.timeout': '审批已过期：无人处理',
 
   'question.label': '待回答的问题',
@@ -2996,6 +2997,7 @@ export const zhCN = {
   'tuning.guardrails.new': '新建',
   'tuning.guardrails.rules': '护栏规则',
   'tuning.guardrails.repoHooks': '仓库 hooks',
+  'tuning.guardrails.hooks': '钩子',
   'tuning.guardrails.approvalRules': '审批规则',
   'tuning.guardrails.codexOnly': '仅 Codex',
   'tuning.guardrails.empty': '暂无护栏',

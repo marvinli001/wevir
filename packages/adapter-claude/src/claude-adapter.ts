@@ -27,6 +27,8 @@ import {
   type EngineRuleFiles,
   type EngineSession,
   EventHub,
+  type HookTap,
+  NATIVE_HOOK_EVENTS,
   type PendingApproval,
   type PermissionMode,
   type ProviderConfig,
@@ -66,6 +68,9 @@ import {
 import {
   type CanUseTool,
   type ClaudeSdk,
+  type HookCallbackMatcher,
+  type HookEvent,
+  type HookJSONOutput,
   type Options,
   type PermissionResult,
   type Query,
@@ -336,6 +341,31 @@ type Session = RootSession | ChildSession;
  * 会话的 MCP 服务：读历史的工具（stdio，0.25.0）与应用级工具（HTTP，0.30.0）。`allowedTools` 里是不用批准的工具，其余的 MCP
  * 工具经 `canUseTool` 问用户（完全访问时直接放行）。
  */
+/** 接点回调的时限（秒）：Host 依次跑护栏的检查命令与 hooks，留足余量。 */
+const HOOK_TAP_TIMEOUT_SEC = 3600;
+
+/** 生命周期钩子的接点（0.137.0）：每个转回 Host 的事件一个回调，结果原样交回 Claude Code。没有接点时不注册。 */
+function hookOptions(tap: HookTap | undefined): Pick<Options, 'hooks'> {
+  if (tap === undefined) return {};
+  const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
+  for (const event of NATIVE_HOOK_EVENTS) {
+    hooks[event] = [
+      {
+        timeout: HOOK_TAP_TIMEOUT_SEC,
+        hooks: [
+          async (input, _toolUseId, { signal }) =>
+            (await tap.run(
+              event,
+              input as unknown as Record<string, unknown>,
+              signal,
+            )) as HookJSONOutput,
+        ],
+      },
+    ];
+  }
+  return { hooks };
+}
+
 /** 预设系统提示词，后面接 Host 补的规则文件与应用级工具的会话上下文。 */
 function systemPrompt(
   config: Pick<SessionConfig, 'ruleInstructions' | 'appToolsContext'>,
@@ -511,6 +541,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
    * `SessionConfig.appToolsContext` 给，接在系统提示词后面，MCP 说明只剩工具说明。
    */
   appToolsContextInPrompt(): boolean {
+    return true;
+  }
+
+  /**
+   * 生命周期钩子（0.137.0，ADR-0023）：Host 给 `SessionConfig.hookTap`，工具前后、结束、压缩与子 agent 起止经 SDK 的 `hooks` 回调转回
+   * Host 执行（Wevir 自己的、仓库里启用了的、Claude 用户层的与插件的 hooks，以及护栏）。
+   */
+  hookCallbacks(): boolean {
     return true;
   }
 
@@ -1175,7 +1213,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       forwardSubagentText: true,
       // T3：要思考的摘要（新模型默认不显示思考内容）。
       thinking: { type: 'adaptive', display: 'summarized' },
-      settings: { showThinkingSummaries: true },
+      // 生命周期钩子（0.137.0，ADR-0023）：Claude Code 不再自己执行设置文件与已装插件里的 hooks（SDK 模式没有工作区信任，仓库的
+      // `.claude/settings.json` 会不经确认就跑），全部经 Host 的接点：Host 读同样的文件，仓库里的要用户逐个启用。
+      settings: { showThinkingSummaries: true, disableAllHooks: true },
+      ...hookOptions(session.config.hookTap),
       // 规则文件（0.68.0）：Claude Code 自己不读的（AGENTS.md 等）由 Host 补，接在预设系统提示词的后面；应用级工具的会话上下文
       // （记忆索引等）再接在它后面。
       systemPrompt: systemPrompt(session.config),

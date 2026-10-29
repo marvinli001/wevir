@@ -280,6 +280,12 @@ export interface AgentRuntimeAdapter {
   hookDialect?(providerId: string): 'codex' | undefined;
 
   /**
+   * 引擎会话能以进程内回调接生命周期钩子（0.137.0，ADR-0023）：回答 true 的来源收 `SessionConfig.hookTap`，`NATIVE_HOOK_EVENTS` 经它
+   * 转回 Host（Claude）。回答 `codex` 的 `hookDialect` 另经命令 hook 转回，不用这个。
+   */
+  hookCallbacks?(providerId: string): boolean;
+
+  /**
    * 应用级工具的会话上下文（记忆索引、自动化与频道会话的须知）交给引擎的系统说明，不放进 MCP 服务的 `instructions`：按 Provider
    * 问，回答 true 的引擎收 `SessionConfig.appToolsContext`，它的 MCP 说明只剩工具说明。给只取 MCP 说明开头一段的引擎用（Claude
    * Code 只取前 4,096 个字符）。不实现时照旧都在 MCP 说明里。

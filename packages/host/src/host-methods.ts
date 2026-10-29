@@ -57,6 +57,7 @@ import {
 } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import type { GuardrailService } from './guardrails/service.js';
+import type { HookService } from './hooks/service.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import type { InboxService } from './inbox.js';
@@ -250,6 +251,8 @@ export interface HostMethodsOptions {
   autoTuner?: Pick<AutoTuner, 'beforeClose'>;
   /** 护栏（0.86.0，`guardrail.*` 与 `repoHook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   guardrails?: GuardrailService;
+  /** 生命周期钩子（0.137.0，`hook.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  hooks?: HookService;
   /** 官方插件市场（0.91.0，`market.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   market?: MarketService;
   /** 听写（0.92.0，`speech.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
@@ -425,6 +428,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const guardrails = (): GuardrailService => {
     if (options.guardrails === undefined) throw invalidParams([], 'this host has no guardrails');
     return options.guardrails;
+  };
+  const hooks = (): HookService => {
+    if (options.hooks === undefined) throw invalidParams([], 'this host has no lifecycle hooks');
+    return options.hooks;
   };
   const market = (): MarketService => {
     if (options.market === undefined) throw invalidParams([], 'this host has no plugin market');
@@ -1881,6 +1888,24 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {
         hook: await guardrails().setRepoHookEnabled(workspaceId as WorkspaceId, hookId, enabled),
       };
+    },
+    // 0.137.0：生命周期钩子。
+    'hook.list': ({ workspaceId }) => {
+      if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
+      return hooks().list(workspaceId as WorkspaceId | undefined);
+    },
+    'hook.add': async (params) => {
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return { hook: await hooks().add(params) };
+    },
+    'hook.update': async (params) => ({ hook: await hooks().update(params) }),
+    'hook.delete': async ({ hookId }) => {
+      await hooks().delete(hookId);
+      return {};
+    },
+    'hook.setEnabled': async (params) => {
+      if (params.workspaceId !== undefined) requireWorkspace(storage, params.workspaceId);
+      return { hook: await hooks().setEnabled(params) };
     },
     // 0.87.0：调优的建议。
     'tuning.proposal.generate': (params) => proposals().generate(params),

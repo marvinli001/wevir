@@ -15,6 +15,7 @@ import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type RunningHost, startHost } from './host-process.js';
 import { createLogger } from './logger.js';
+import { readPluginPackage } from './plugin-packages.js';
 import { PluginRegistry } from './plugins.js';
 import { TestRpcClient, useTempDir, zip } from './test-utils.js';
 
@@ -298,7 +299,16 @@ describe('Wevir plugin packages', () => {
     ).rejects.toThrow('already exists');
   });
 
-  it('导入 Claude 包：id 取清单 name，CLAUDE_PLUGIN_ROOT 换成安装目录，commands / hooks 报为已忽略', async () => {
+  it('导入 Claude 包：id 取清单 name，CLAUDE_PLUGIN_ROOT 换成安装目录，hooks 照收（0.137.0），commands 报为已忽略', async () => {
+    expect((await readPluginPackage(fixture('claude-plugin'))).hooks).toEqual([
+      {
+        event: 'PostToolUse',
+        matcher: 'Edit|Write',
+        handler: 'command',
+        command: `\${CLAUDE_PLUGIN_ROOT}/bin/format.sh`,
+      },
+      { event: 'Stop', handler: 'prompt' },
+    ]);
     const h = await registry();
     const { plugin, ignored } = await h.store.installPlugin(fixture('claude-plugin'));
     expect(plugin).toMatchObject({
@@ -310,7 +320,7 @@ describe('Wevir plugin packages', () => {
       homepage: 'https://example.com/claude-sample',
       inputs: [],
     });
-    expect(ignored).toEqual(['commands', 'hooks']);
+    expect(ignored).toEqual(['commands']);
     const list = await h.store.list();
     expect(list.connectors[0]).toMatchObject({
       name: 'claude-sample_files',

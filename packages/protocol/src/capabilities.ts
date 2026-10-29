@@ -48,6 +48,9 @@ export const CLIENT_CAPABILITIES = {
    * 是 `expired`），回复过期审批时回 `ALREADY_DECIDED`。
    */
   approvalTimeout: 'approval_timeout',
+  // COMPAT(hookDecisions): added in 0.137.0, remove gate after 2027-06-01
+  /** 认得 `ApprovalResolutionReason` 的 `hook`；没有时 Host 把它降级成 `rule`。 */
+  hookDecisions: 'hook_decisions',
   // COMPAT(devPreview): added in 0.84.0, remove gate after 2027-06-01
   /** 认得 `ProcessSource` 的 `preview`；没有时 Host 从 `process.list` 与 `process.changed` 里去掉预览进程。 */
   devPreview: 'dev_preview',
@@ -68,6 +71,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   question_timeout: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
+  hook_decisions: z.boolean().optional(),
   dev_preview: z.boolean().optional(),
   tool_display_image: z.boolean().optional(),
 });
@@ -551,6 +555,12 @@ export const HOST_FEATURES = {
    * `resolvedAt`。Host 按命令与沙箱请求判定，手机据此在作答前要求验证本人。与引擎无关地声明。
    */
   approvalRisk: 'approval_risk',
+  /**
+   * 生命周期钩子（0.137.0，ADR-0023）：`hook.*` 方法、`hook.outcome` 事件、`ApprovalResolutionReason` 的 `hook` 与 `MessageFrom.hook`。
+   * 会话起止、提交提示与权限请求由 Host 派发、对所有引擎有效；工具前后、结束、压缩与子 agent 起止要引擎有接点（`hook.list` 的
+   * `support`）。与引擎无关地声明。
+   */
+  lifecycleHooks: 'lifecycle_hooks',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -661,6 +671,7 @@ export const HostFeaturesSchema = z.looseObject({
   engine_prewarm: z.boolean().optional(),
   environment_variables: z.boolean().optional(),
   approval_risk: z.boolean().optional(),
+  lifecycle_hooks: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

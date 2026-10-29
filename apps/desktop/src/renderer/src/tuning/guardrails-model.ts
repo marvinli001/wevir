@@ -6,6 +6,7 @@ import {
   type Guardrail,
   type GuardrailKind,
   type GuardrailRule,
+  type Hook,
   type ProfileLayer,
   type RepoHook,
   STOP_CHECK_ATTEMPTS_DEFAULT,
@@ -155,13 +156,22 @@ export const STOP_ATTEMPT_OPTIONS = Array.from(
   (_, i) => i + 1,
 );
 
-/** 仓库 hook 的显示：`文件 · 事件 · 命令`（不是命令 hook 的写处理器种类）。 */
-export function repoHookLabel(hook: RepoHook): string {
-  return [hook.file, hook.event, hook.command ?? hook.handler].join(' · ');
+/**
+ * hook 的显示：`来处 · 事件 · 命令`（不是命令 hook 的写处理器种类）。来处是文件；插件的是插件 ID，Wevir 自己的是名字，没有名字时
+ * 省略。
+ */
+export function repoHookLabel(hook: RepoHook | Hook): string {
+  const origin =
+    hook.file ??
+    ('pluginId' in hook && hook.pluginId !== undefined ? hook.pluginId : undefined) ??
+    ('name' in hook ? hook.name : undefined);
+  return [origin, hook.event, hook.command ?? hook.handler]
+    .filter((part) => part !== undefined)
+    .join(' · ');
 }
 
 /** 行右边的状态：不支持、内容变了；其余不写。 */
-export function repoHookStatus(hook: RepoHook): string | undefined {
+export function repoHookStatus(hook: RepoHook | Hook): string | undefined {
   if (hook.status === 'unsupported') return t('tuning.guardrails.hook.unsupported');
   if (hook.status === 'changed') return t('tuning.guardrails.hook.changed');
   return undefined;

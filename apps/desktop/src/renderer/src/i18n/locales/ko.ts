@@ -1026,6 +1026,7 @@ export const messages: Messages = {
   'approval.scope.project': '이 프로젝트',
   'approval.scope.global': '모든 프로젝트',
   'approval.byRule': '규칙으로 허용됨',
+  'approval.byHook': '훅이 처리함',
   'approval.ended.timeout': '승인 만료됨: 응답 없음',
 
   'question.label': '답변 대기 중인 질문',
@@ -2991,6 +2992,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': '새로 만들기',
   'tuning.guardrails.rules': '가드레일 규칙',
   'tuning.guardrails.repoHooks': '저장소 hooks',
+  'tuning.guardrails.hooks': '훅',
   'tuning.guardrails.approvalRules': '승인 규칙',
   'tuning.guardrails.codexOnly': 'Codex 전용',
   'tuning.guardrails.empty': '가드레일 없음',

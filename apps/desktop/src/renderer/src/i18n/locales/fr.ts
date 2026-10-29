@@ -1043,6 +1043,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Ce projet',
   'approval.scope.global': 'Tous les projets',
   'approval.byRule': 'Autorisé par règle',
+  'approval.byHook': 'Décidé par un hook',
   'approval.ended.timeout': 'Approbation expirée : aucune réponse',
 
   'question.label': 'Questions en attente',
@@ -3063,6 +3064,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': 'Nouveau',
   'tuning.guardrails.rules': 'Règles de garde-fou',
   'tuning.guardrails.repoHooks': 'Hooks du dépôt',
+  'tuning.guardrails.hooks': 'Hooks',
   'tuning.guardrails.approvalRules': "Règles d'approbation",
   'tuning.guardrails.codexOnly': 'Codex uniquement',
   'tuning.guardrails.empty': 'Aucun garde-fou',

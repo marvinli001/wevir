@@ -538,6 +538,21 @@ export class PluginRegistry {
     ].filter((value) => value !== '');
   }
 
+  /** 已装的插件包（生命周期钩子，0.137.0）：hooks 每次用时从安装目录里读。 */
+  installedPackages(): Array<{
+    id: string;
+    path: string;
+    source: Plugin['source'];
+    enabled: boolean;
+  }> {
+    return this.#state.plugins.map((plugin) => ({
+      id: plugin.id,
+      path: join(this.packagesRoot, plugin.id),
+      source: plugin.source,
+      enabled: plugin.enabled,
+    }));
+  }
+
   async #plugin(plugin: StoredPlugin): Promise<Plugin> {
     const path = join(this.packagesRoot, plugin.id);
     let iconUrl: string | undefined;

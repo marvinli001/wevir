@@ -236,10 +236,13 @@ export function TuningPage({ client, features }: { client: WevirClient; features
                 <ul className={LIST_CARD} data-testid="tuning-profile">
                   <CurrentRow current={current} />
                   {knownLayers(current.profile.layers).map((layer) =>
-                    layer.key === 'guardrails' && hostSupports(features, 'tuning_guardrails') ? (
+                    layer.key === 'guardrails' &&
+                    (hostSupports(features, 'tuning_guardrails') ||
+                      hostSupports(features, 'lifecycle_hooks')) ? (
                       <GuardrailsLayerRow
                         key={layer.key}
                         client={client}
+                        lifecycleHooks={hostSupports(features, 'lifecycle_hooks')}
                         layer={layer}
                         workspaceId={workspaceId}
                         expanded={expandedLayer === layer.key}

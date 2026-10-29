@@ -1057,6 +1057,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Этот проект',
   'approval.scope.global': 'Все проекты',
   'approval.byRule': 'Разрешено правилом',
+  'approval.byHook': 'Решено хуком',
   'approval.ended.timeout': 'Запрос истёк: нет ответа',
 
   'question.label': 'Вопросы без ответа',
@@ -3073,6 +3074,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': 'Создать',
   'tuning.guardrails.rules': 'Правила ограничителей',
   'tuning.guardrails.repoHooks': 'Хуки репозитория',
+  'tuning.guardrails.hooks': 'Хуки',
   'tuning.guardrails.approvalRules': 'Правила одобрения',
   'tuning.guardrails.codexOnly': 'Только Codex',
   'tuning.guardrails.empty': 'Нет ограничителей',

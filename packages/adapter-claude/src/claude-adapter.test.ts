@@ -209,6 +209,58 @@ describe('一问一答（录音 plain）', () => {
     expect(env?.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
   });
 
+  it('生命周期钩子（0.137.0）：Claude 自己不执行设置文件里的 hooks；有接点时七种事件的回调转给 Host、结果原样交回', async () => {
+    const { adapter, sdk } = harness();
+    expect(adapter.hookCallbacks()).toBe(true);
+    const calls: Array<[string, unknown]> = [];
+    const plain = await adapter.createSession(CONFIG);
+    const tapped = await adapter.createSession({
+      ...CONFIG,
+      hookTap: {
+        run: async (event, input) => {
+          calls.push([event, input]);
+          return event === 'PreToolUse'
+            ? { hookSpecificOutput: { hookEventName: event, permissionDecision: 'deny' } }
+            : {};
+        },
+      },
+    });
+    for (const id of [plain.engineSessionId, tapped.engineSessionId]) {
+      const log = collect(adapter, id);
+      await adapter.send(id, text('hi'));
+      await log.until(isTurnTerminal);
+    }
+    const [first, second] = sessionQueries(sdk);
+    expect(first?.options.settings).toMatchObject({ disableAllHooks: true });
+    expect(first?.options.hooks).toBeUndefined();
+    expect(second?.options.settings).toMatchObject({ disableAllHooks: true });
+    const hooks = second?.options.hooks ?? {};
+    expect(Object.keys(hooks).sort()).toEqual(
+      [
+        'PostCompact',
+        'PostToolUse',
+        'PreCompact',
+        'PreToolUse',
+        'Stop',
+        'SubagentStart',
+        'SubagentStop',
+      ].sort(),
+    );
+    const callback = hooks.PreToolUse?.[0]?.hooks[0];
+    const input = {
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+    };
+    const output = await callback?.(input as never, 'toolu_1', {
+      signal: new AbortController().signal,
+    });
+    expect(output).toEqual({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' },
+    });
+    expect(calls).toEqual([['PreToolUse', input]]);
+  });
+
   it('规则文件（0.68.0）：Host 补的接在预设系统提示词后面；不补时只有预设；读哪些按 claude 的版本', async () => {
     const { adapter, sdk } = harness();
     const plain = await adapter.createSession(CONFIG);

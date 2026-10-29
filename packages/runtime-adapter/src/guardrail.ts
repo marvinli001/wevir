@@ -531,14 +531,26 @@ export function isGitCommit(command) {
   });
 }
 
+const CLAUDE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
 /**
  * 执行工具前（PreToolUse）不用跑命令的判定：禁止命令与保护路径。拦下时给出规则与命中的命令或路径，否则 undefined。
  */
 export function evaluateTool(rules, input, options) {
   const tool = input.tool_name;
+  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
+  // Claude 的改文件工具（0.137.0，经 Host 的接点）：路径在 file_path / notebook_path。
+  if (CLAUDE_EDIT_TOOLS.has(tool)) {
+    const target = input.tool_input && (input.tool_input.file_path ?? input.tool_input.notebook_path);
+    if (typeof target !== 'string' || target === '') return undefined;
+    for (const rule of rules) {
+      if (rule.rule.kind !== 'protected_path') continue;
+      if (pathProtected(rule.rule.glob, target, cwd, options.home, options.ignoreCase)) return { rule, path: target };
+    }
+    return undefined;
+  }
   const raw = input.tool_input && typeof input.tool_input.command === 'string' ? input.tool_input.command : undefined;
   if (raw === undefined) return undefined;
-  const cwd = typeof input.cwd === 'string' ? input.cwd : process.cwd();
   if (tool === 'Bash') {
     for (const rule of rules) {
       if (rule.rule.kind === 'forbidden_command' && forbiddenMatch(rule.rule, raw)) {
@@ -742,6 +754,36 @@ function execHook(command, stdin) {
   return { exitCode: result.status ?? 1, stdout: defang(result.stdout), stderr: defang(result.stderr) };
 }
 
+/**
+ * 生命周期钩子的接点（0.137.0，ADR-0023）：把引擎给的 hook 输入原样转给 Host（接点文件里是地址与这个会话的令牌），按 Host 回的
+ * 退出码与输出交回引擎。Host 连不上或回得不对时放行（退出码 0、没有输出），原因记到接点文件旁的 forward-error.log。
+ */
+async function forward(file, stdin) {
+  let tap;
+  try {
+    tap = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    return { exitCode: 0, error };
+  }
+  try {
+    const response = await fetch(tap.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tap.token },
+      body: stdin,
+      signal: AbortSignal.timeout(Math.max(1, Number(tap.timeoutSec) || 600) * 1000),
+    });
+    const body = await response.json();
+    if (!response.ok || body === null || typeof body !== 'object') return { exitCode: 0, error: 'HTTP ' + response.status };
+    return {
+      exitCode: Number.isInteger(body.exitCode) ? body.exitCode : 0,
+      ...(typeof body.stdout === 'string' && { stdout: body.stdout }),
+      ...(typeof body.stderr === 'string' && { stderr: body.stderr }),
+    };
+  } catch (error) {
+    return { exitCode: 0, error };
+  }
+}
+
 async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
@@ -779,6 +821,18 @@ function logError(argv, error) {
 }
 
 export async function main(argv) {
+  if (argv[0] === '--forward') {
+    const result = await forward(argv[1], await readStdin());
+    if (result.error !== undefined) {
+      try {
+        appendFileSync(join(argv[1], '..', 'forward-error.log'), new Date().toISOString() + ' ' + String(result.error) + '\n');
+      } catch {}
+    }
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exitCode = result.exitCode;
+    return;
+  }
   try {
     const result = decide(argv, await readStdin());
     if (result === undefined) return;
@@ -899,6 +953,18 @@ export function guardrailHooks(
     });
   }
   return hooks;
+}
+
+/**
+ * 生命周期钩子的接点（0.137.0）：Codex 的会话层命令 hook，把事件转给 Host（`--forward <接点文件>`）。接点文件里是 Host 的地址与这个会话
+ * 的令牌，不放进命令行。
+ */
+export function hookForwardCommand(
+  checker: GuardrailChecker,
+  tapFile: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return guardrailCheckerCommand(checker, ['--forward', tapFile], platform);
 }
 
 /** 用户启用的仓库 hook 经检查程序转一手（`--exec`，命令按 base64 传，免得再套一层引号）。 */
