@@ -27,6 +27,7 @@ const TOP_LEVEL: Record<string, StorageCategory> = {
   [HOME_LAYOUT.historyDir]: 'sessions',
   [HOME_LAYOUT.chatsDir]: 'sessions',
   [HOME_LAYOUT.imagesDir]: 'sessions',
+  [HOME_LAYOUT.generatedImagesDir]: 'sessions',
   worktrees: 'worktrees',
   engines: 'engines',
   [HOME_LAYOUT.logsDir]: 'logs',

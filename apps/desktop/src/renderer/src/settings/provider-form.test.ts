@@ -4,6 +4,7 @@ import {
   ProviderTestFailureSchema,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
+import { imageDiscoveryParams, mergeImageModels } from './image-models';
 import { catalogAvailable, catalogEntry, providerLogo } from './provider-catalog';
 import {
   ASSUMED_CONTEXT_WINDOW,
@@ -1305,5 +1306,57 @@ describe('转写模型', () => {
     const form = { ...editForm(saved), transcriptionModels: 'whisper large' };
     expect(transcriptionIds(form.transcriptionModels)).toEqual(['whisper large']);
     expect(validateForm(form, []).transcriptionModels).toBe('模型 ID 不能含空格');
+  });
+});
+
+describe('图片模型', () => {
+  const saved = {
+    id: 'openai',
+    kind: 'openai-compatible',
+    displayName: 'OpenAI',
+    baseURL: 'https://api.openai.com/v1',
+    models: [{ id: 'gpt-6.1-sol' }],
+    defaultModelId: 'gpt-6.1-sol',
+    hasSecret: true,
+    imageModels: [{ id: 'gpt-image-2', displayName: 'GPT Image 2' }],
+  } as EditableProvider;
+
+  it('OpenAI 模板新建时带 gpt-image-2，空白表单没有', () => {
+    const openai = OPENAI_PRESETS.find((preset) => preset.id === 'openai');
+    expect(newOpenAIForm(openai, []).imageModels).toBe('gpt-image-2');
+    expect(newOpenAIForm(undefined, []).imageModels).toBe('');
+  });
+
+  it('编辑时带出已存的，保存时同 ID 保留显示名称，清空时发空列表', () => {
+    const form = editForm(saved);
+    expect(form.imageModels).toBe('gpt-image-2');
+    const params = toUpsertParams({ ...form, imageModels: 'gpt-image-2, gpt-image-1.5' });
+    expect(params).toMatchObject({
+      imageModels: [{ id: 'gpt-image-2', displayName: 'GPT Image 2' }, { id: 'gpt-image-1.5' }],
+    });
+    expect(upsertSchema.safeParse(params).success).toBe(true);
+    expect(toUpsertParams({ ...form, imageModels: '' })).toMatchObject({ imageModels: [] });
+  });
+
+  it('模型 ID 不能含空格，最多 20 个', () => {
+    const spaced = { ...editForm(saved), imageModels: 'gpt image' };
+    expect(validateForm(spaced, []).imageModels).toBe('模型 ID 不能含空格');
+    const many = {
+      ...editForm(saved),
+      imageModels: Array.from({ length: 21 }, (_, i) => `m${i}`).join(','),
+    };
+    expect(validateForm(many, []).imageModels).toBe('最多 20 个图片模型');
+  });
+
+  it('检测：已存的地址与 Key 没改时用 providerId，读到的接在已填的后面', () => {
+    const form = editForm(saved);
+    expect(imageDiscoveryParams(form)).toEqual({ providerId: 'openai' });
+    expect(imageDiscoveryParams({ ...form, apiKey: 'sk-new' })).toEqual({
+      baseURL: 'https://api.openai.com/v1',
+      apiKey: 'sk-new',
+    });
+    expect(mergeImageModels('gpt-image-1', ['gpt-image-2.5', 'gpt-image-1'])).toBe(
+      'gpt-image-1, gpt-image-2.5',
+    );
   });
 });

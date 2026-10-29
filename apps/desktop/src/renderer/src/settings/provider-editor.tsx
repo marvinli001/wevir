@@ -11,6 +11,7 @@ import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
 import { platformApi } from '@/platform/platform';
+import { ImageModelsField } from './image-models';
 import { OllamaModels } from './ollama-models';
 import {
   ASSUMED_CONTEXT_WINDOW,
@@ -246,6 +247,13 @@ export function ProviderEditor({
               aria-invalid={!!errors.transcriptionModels}
             />
           </FormField>
+          <ImageModelsField
+            id={`${ids}-images`}
+            client={client}
+            form={form}
+            error={errors.imageModels}
+            onChange={update}
+          />
         </>
       ) : (
         <>
@@ -321,6 +329,7 @@ const FIELD_KEYS = [
   'vertex',
   'serviceAccountJson',
   'transcriptionModels',
+  'imageModels',
 ];
 
 function FormField({

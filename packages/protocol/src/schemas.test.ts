@@ -4356,6 +4356,13 @@ const standaloneCases: Case[] = [
     valid: [{ id: 'whisper-1' }, { id: 'gpt-4o-transcribe', displayName: 'GPT-4o Transcribe' }],
     invalid: [{ id: '' }, {}],
   },
+  // ── 生图（0.139.0） ──
+  {
+    name: 'ProviderImageModel',
+    schema: protocol.ProviderImageModelSchema,
+    valid: [{ id: 'gpt-image-2' }, { id: 'gpt-image-1.5', displayName: 'GPT Image 1.5' }],
+    invalid: [{ id: '' }, {}],
+  },
   {
     name: 'SpeechTranscriber',
     schema: protocol.SpeechTranscriberSchema,

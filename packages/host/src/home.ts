@@ -23,6 +23,8 @@ export const HOME_LAYOUT = {
   mcpDir: 'mcp',
   /** 消息里的图片（0.28.0，images.ts）；没发出去的在 `staged/` 里，过一天删掉。 */
   imagesDir: 'images',
+  /** 生图工具（0.139.0，image-tools.ts）生成的图：每个会话一个 `<会话 ID>/`（0700 / 0600），模型从这里复制进项目。 */
+  generatedImagesDir: 'generated-images',
   /** 联网工具的设置（0.34.0，web/service.ts）：开关与所选的搜索服务；Key 在 `secrets.json`。 */
   webFile: 'web.json',
   /** 不在项目里的会话（0.39.0，chats.ts）：“对话”工作区，每个会话一个 `<会话 ID>/` 文件夹（0700）。 */

@@ -1279,6 +1279,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_task_update',
       'mcp__wevir__wevir_show',
       'mcp__wevir__wevir_share_file',
+      'mcp__wevir__wevir_image_generate',
       'mcp__wevir__wevir_mark_chapter',
       'mcp__wevir__wevir_wrap_up',
       // 0.83.0：报审查发现。

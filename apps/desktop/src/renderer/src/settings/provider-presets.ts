@@ -41,6 +41,8 @@ export interface OpenAIPreset {
   compat?: ProviderCompat;
   /** 官方文档（providers.md §7 的来源），经系统浏览器打开。 */
   docsURL?: string;
+  /** 图片模型（0.139.0）：新建时填进表单，第一个是生图工具的默认模型。 */
+  imageModels?: string[];
 }
 
 /** OpenAI 与 Anthropic 模板共用的五档推理；支持关闭的模型另加 off。 */
@@ -125,6 +127,7 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       },
     ],
     defaultModelId: 'gpt-6.1-sol',
+    imageModels: ['gpt-image-2'],
     docsURL: 'https://developers.openai.com/api/docs/models',
   },
   {

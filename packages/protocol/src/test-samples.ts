@@ -4441,9 +4441,11 @@ export const methodSamples: MethodSamples = {
         },
         { providers: [devinProvider] },
         { providers: [copilotProvider] },
+        { providers: [{ ...compatibleProvider, imageModels: [{ id: 'gpt-image-2' }] }] },
       ],
       invalid: [
         { providers: [{ ...compatibleProvider, hasSecret: undefined }] },
+        { providers: [{ ...compatibleProvider, imageModels: [{ id: '' }] }] },
         { providers: [{ ...chatgptProvider, kind: 'chatgpt-plus' }] },
         { providers: [{ ...claudeProvider, enabled: 'no' }] },
       ],
@@ -4480,6 +4482,16 @@ export const methodSamples: MethodSamples = {
           models: [{ id: 'llama-3.3-70b-versatile' }],
           transcriptionModels: [{ id: 'whisper-large-v3-turbo', displayName: 'Whisper Turbo' }],
           defaultModelId: 'llama-3.3-70b-versatile',
+        },
+        {
+          id: 'openai',
+          kind: 'openai-compatible',
+          displayName: 'OpenAI',
+          api: 'openai-responses',
+          baseURL: 'https://api.openai.com/v1',
+          models: [{ id: 'gpt-6.1' }],
+          imageModels: [{ id: 'gpt-image-2', displayName: 'GPT Image 2' }],
+          defaultModelId: 'gpt-6.1',
         },
         { id: 'chatgpt', kind: 'chatgpt', displayName: 'ChatGPT', defaultModelId: 'gpt-6.1-sol' },
         // 0.63.0：添加的 ChatGPT 账号
@@ -4525,6 +4537,16 @@ export const methodSamples: MethodSamples = {
           transcriptionModels: [{ id: '' }],
           defaultModelId: 'llama-3.3-70b-versatile',
         },
+        {
+          id: 'openai',
+          kind: 'openai-compatible',
+          displayName: 'OpenAI',
+          api: 'openai-responses',
+          baseURL: 'https://api.openai.com/v1',
+          models: [{ id: 'gpt-6.1' }],
+          imageModels: [{ id: '' }],
+          defaultModelId: 'gpt-6.1',
+        },
         // baseURL 只接受 http / https
         {
           id: 'local-ollama',
@@ -4543,6 +4565,10 @@ export const methodSamples: MethodSamples = {
         {
           provider: { ...compatibleProvider, transcriptionModels: [{ id: 'whisper-1' }] },
           created: true,
+        },
+        {
+          provider: { ...compatibleProvider, imageModels: [{ id: 'gpt-image-2' }] },
+          created: false,
         },
       ],
       invalid: [{ provider: { ...compatibleProvider, id: 'Local Ollama' }, created: false }],
@@ -4615,6 +4641,27 @@ export const methodSamples: MethodSamples = {
         { ok: true },
         { ok: true, models: [{ model: { id: '' } }] },
         { ok: false, models: [], reason: 'invalid' },
+      ],
+    },
+  },
+  'provider.discoverImageModels': {
+    params: {
+      valid: [
+        { providerId: 'openai' },
+        { baseURL: 'https://api.openai.com/v1', apiKey: 'placeholder-key' },
+      ],
+      invalid: [{ providerId: 42 }, { baseURL: 'file:///tmp/models' }, { apiKey: '' }],
+    },
+    result: {
+      valid: [
+        { ok: true, models: [] },
+        { ok: true, models: [{ id: 'gpt-image-2' }, { id: 'gpt-image-1.5' }] },
+        { ok: false, models: [], reason: 'auth', httpStatus: 401 },
+      ],
+      invalid: [
+        { ok: true },
+        { ok: true, models: [{ id: '' }] },
+        { ok: false, models: [], reason: 'nope' },
       ],
     },
   },

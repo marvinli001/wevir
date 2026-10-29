@@ -6,9 +6,11 @@
 import {
   HttpUrlSchema,
   type MethodParams,
+  PROVIDER_IMAGE_MODELS_MAX,
   PROVIDER_TRANSCRIPTION_MODELS_MAX,
   type ProviderCompat,
   ProviderIdSchema,
+  type ProviderImageModel,
   type ProviderKind,
   type ProviderModel,
   type ProviderProfile,
@@ -88,6 +90,10 @@ export interface ProviderForm {
   transcriptionModels: string;
   /** 已存的转写模型：保存时同 ID 的保留显示名称。 */
   savedTranscriptionModels?: readonly ProviderTranscriptionModel[];
+  /** `openai-compatible` 的图片模型（0.139.0）：逗号分隔的模型 ID，第一个是生图工具的默认模型。 */
+  imageModels: string;
+  /** 已存的图片模型：保存时同 ID 的保留显示名称。 */
+  savedImageModels?: readonly ProviderImageModel[];
 }
 
 let rowSeq = 0;
@@ -118,6 +124,7 @@ export function newDeepSeekForm(): ProviderForm {
     apiKey: '',
     preset: DEEPSEEK_OFFICIAL_PRESET,
     transcriptionModels: '',
+    imageModels: '',
   };
 }
 
@@ -140,6 +147,7 @@ export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string
     ...(preset?.compat && { compat: { ...preset.compat } }),
     ...(preset && { preset }),
     transcriptionModels: '',
+    imageModels: preset?.imageModels?.join(', ') ?? '',
   };
 }
 
@@ -170,6 +178,8 @@ export function editForm(provider: EditableProvider): ProviderForm {
     ...(provider.transcriptionModels && {
       savedTranscriptionModels: provider.transcriptionModels,
     }),
+    imageModels: (provider.imageModels ?? []).map((model) => model.id).join(', '),
+    ...(provider.imageModels && { savedImageModels: provider.imageModels }),
   };
 }
 
@@ -181,7 +191,7 @@ function uniqueId(base: string, taken: string[]): string {
   }
 }
 
-/** 转写模型输入框里的 ID：逗号或换行分隔，去掉空的与重复的。 */
+/** 转写模型与图片模型输入框里的 ID：逗号或换行分隔，去掉空的与重复的。 */
 export function transcriptionIds(text: string): string[] {
   return [...new Set(text.split(/[,，\n]/u).map((id) => id.trim()))].filter((id) => id !== '');
 }
@@ -272,6 +282,15 @@ export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors
     else if (transcription.length > PROVIDER_TRANSCRIPTION_MODELS_MAX)
       errors.transcriptionModels = t('provider.form.error.transcriptionLimit', {
         count: PROVIDER_TRANSCRIPTION_MODELS_MAX,
+      });
+    const images = transcriptionIds(form.imageModels);
+    if (images.some(hasProviderPlaceholder))
+      errors.imageModels = t('provider.form.error.placeholder');
+    else if (images.some((id) => id.length > 200 || /\s/.test(id)))
+      errors.imageModels = t('provider.form.error.transcriptionModels');
+    else if (images.length > PROVIDER_IMAGE_MODELS_MAX)
+      errors.imageModels = t('provider.form.error.imageLimit', {
+        count: PROVIDER_IMAGE_MODELS_MAX,
       });
   } else if (!deepseekModelChoices(form).includes(form.defaultModelId)) {
     errors.defaultModelId = t('provider.form.error.required');
@@ -403,6 +422,9 @@ export function toUpsertParams(
     // 总是带上：空列表清掉已存的。
     transcriptionModels: transcriptionIds(form.transcriptionModels).map(
       (id) => form.savedTranscriptionModels?.find((model) => model.id === id) ?? { id },
+    ),
+    imageModels: transcriptionIds(form.imageModels).map(
+      (id) => form.savedImageModels?.find((model) => model.id === id) ?? { id },
     ),
   };
 }

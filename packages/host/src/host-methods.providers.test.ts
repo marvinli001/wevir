@@ -278,6 +278,53 @@ describe('Provider 桥接（Host 侧）', () => {
     expect(duplicate.code).toBe('INVALID_PARAMS');
   });
 
+  it('图片模型（0.139.0）：保存并列出；旧客户端省略时保留，空数组清空，ID 不能重复', async () => {
+    const { methods, storage } = setup();
+    const created = await methods['provider.upsert'](
+      { ...qwen, imageModels: [{ id: 'gpt-image-2' }] },
+      context,
+    );
+    expect(created.provider.imageModels).toEqual([{ id: 'gpt-image-2' }]);
+    await methods['provider.upsert']({ ...qwen, displayName: '改名' }, context);
+    expect(storage.providers.get('qwen')?.imageModels).toEqual([{ id: 'gpt-image-2' }]);
+    const listed = await methods['provider.list']({}, context);
+    expect(listed.providers[0]?.imageModels).toEqual([{ id: 'gpt-image-2' }]);
+    await methods['provider.upsert']({ ...qwen, imageModels: [] }, context);
+    expect(storage.providers.get('qwen')?.imageModels).toBeUndefined();
+    const duplicate = await hostError(
+      Promise.resolve(
+        methods['provider.upsert'](
+          { ...qwen, imageModels: [{ id: 'gpt-image-2' }, { id: 'gpt-image-2' }] },
+          context,
+        ),
+      ),
+    );
+    expect(duplicate.code).toBe('INVALID_PARAMS');
+  });
+
+  it('provider.discoverImageModels：providerId 与 baseURL 恰好一个，Provider 不在时 PROVIDER_NOT_FOUND', async () => {
+    const { methods } = setup();
+    const both = await hostError(
+      Promise.resolve(
+        methods['provider.discoverImageModels'](
+          { providerId: 'qwen', baseURL: 'https://x/v1' },
+          context,
+        ),
+      ),
+    );
+    expect(both.code).toBe('INVALID_PARAMS');
+    const keyWithStored = await hostError(
+      Promise.resolve(
+        methods['provider.discoverImageModels']({ providerId: 'qwen', apiKey: 'k' }, context),
+      ),
+    );
+    expect(keyWithStored.code).toBe('INVALID_PARAMS');
+    const missing = await hostError(
+      Promise.resolve(methods['provider.discoverImageModels']({ providerId: 'nope' }, context)),
+    );
+    expect(missing.code).toBe('PROVIDER_NOT_FOUND');
+  });
+
   it('P0a 的 compat 经协议解析、保存、list 与引擎桥接后仍保留', async () => {
     const bridge = fakeBridge();
     const { methods, storage } = setup(bridge);

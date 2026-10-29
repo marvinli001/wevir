@@ -79,6 +79,12 @@ import { ConfigTools, type HostCall, SETTINGS_PAGES } from './config-tools.js';
 import { isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { historyItems } from './handoff.js';
+import {
+  IMAGE_TOOL,
+  IMAGE_TOOL_INSTRUCTIONS,
+  ImageTools,
+  type ImageToolsOptions,
+} from './image-tools.js';
 import type { LspManager } from './lsp/manager.js';
 import { LspTools } from './lsp-tools.js';
 import type { MemoryStore } from './memory.js';
@@ -229,6 +235,8 @@ export interface AppToolsOptions {
   previews?: PreviewService;
   /** 代码智能：有它时加上 `lsp_*` 工具。 */
   lsp?: LspManager;
+  /** 生图（0.139.0）：有它时加上 `wevir_image_generate`，只列给 Provider 有图片模型的会话。 */
+  images?: ImageToolsOptions;
   /** 第二意见（0.75.0）：有它时加上 `wevir_second_opinion`。 */
   opinions?: SecondOpinionService;
   /** 跨会话记忆：有它时加上 `wevir_memory_*` 工具。 */
@@ -270,6 +278,7 @@ export class AppTools {
   readonly plugins: PluginAppTools | undefined;
   readonly lsp: LspTools | undefined;
   readonly config: ConfigTools | undefined;
+  readonly images: ImageTools | undefined;
   readonly #options: AppToolsOptions;
   readonly #identity: ClientIdentity;
   /** 等待中的 `wevir_session_wait`：被等的会话 → 在等它的会话。 */
@@ -316,6 +325,7 @@ export class AppTools {
             sessions: options.sessions,
             ownSession: (callerId, id) => this.#ownSession(callerId, id),
           });
+    this.images = options.images === undefined ? undefined : new ImageTools(options.images);
     // Host 代发的消息：`from` 说明是哪个会话发的。
     this.#identity = {
       deviceId: options.hostId,
@@ -358,6 +368,7 @@ export class AppTools {
       this.#chapterTool(),
       this.#wrapUpTool(),
       this.#findingsTool(),
+      ...(this.images?.tools ?? []),
       ...(this.plugins?.tools ?? []),
       ...(this.config?.tools ?? []),
       ...(options.processes === undefined
@@ -2267,12 +2278,20 @@ export class AppTools {
               !(simulatorOff && (SIMULATOR_TOOLS as readonly string[]).includes(tool.name)),
           )
         : tools;
+    // 生图工具只给 Provider 有图片模型的会话（调用方不明时认不出 Provider，也不列）。
+    const images = this.images;
+    const imaged =
+      images !== undefined &&
+      allowed.some((tool) => tool.name === IMAGE_TOOL) &&
+      (sessionId === undefined || !images.available(sessionId))
+        ? allowed.filter((tool) => tool.name !== IMAGE_TOOL)
+        : allowed;
     // 调用方不明时不限（同角色与预设）；频道工具只给频道里的会话（channels/tools.ts）。
-    if (sessionId === undefined) return allowed;
+    if (sessionId === undefined) return imaged;
     const channelRole = this.#channelRole(sessionId);
-    const inChannel = allowed.some((tool) => !channelToolAllowed(tool.name, channelRole))
-      ? allowed.filter((tool) => channelToolAllowed(tool.name, channelRole))
-      : allowed;
+    const inChannel = imaged.some((tool) => !channelToolAllowed(tool.name, channelRole))
+      ? imaged.filter((tool) => channelToolAllowed(tool.name, channelRole))
+      : imaged;
     return toolsAllowed(inChannel, {
       role: await this.#roleOf(sessionId),
       preset: this.#options.sessions.toolPresetOf(sessionId),
@@ -2304,8 +2323,9 @@ export class AppTools {
    * 工具事件落库前：browser_batch 与 browser_run 的显示换成每一步的列表与脚本全文（消息流与审批卡片都用它）。
    */
   prepareEvent(sessionId: SessionId, input: AgentEvent): AgentEvent {
-    // 配置工具：记下参数摘要（引擎的批准沿用），环境变量的值不落库。
-    const event = this.config?.prepareEvent(sessionId, input) ?? input;
+    // 配置工具：记下参数摘要（引擎的批准沿用），环境变量的值不落库；生图换成图片的展示。
+    const configured = this.config?.prepareEvent(sessionId, input) ?? input;
+    const event = this.images?.prepareEvent(sessionId, configured) ?? configured;
     if (event.type !== 'tool.started' && event.type !== 'tool.updated') return event;
     const key = `${sessionId}:${event.toolCallId}`;
     const toolName = event.type === 'tool.started' ? event.toolName : this.#composeCalls.get(key);
@@ -2352,10 +2372,15 @@ export class AppTools {
   /** 只有工具说明，不带会话须知：系统说明另有会话上下文的引擎（Claude）的 MCP 说明就是它。 */
   async toolInstructions(sessionId: SessionId | undefined): Promise<string> {
     const listed = await this.filterTools(sessionId, this.tools);
-    return listedToolInstructions(
-      APP_TOOLS_INSTRUCTIONS,
-      listed.map((tool) => tool.name),
-    );
+    const names = listed.map((tool) => tool.name);
+    // 生图那一行只给列出了生图工具的会话（Provider 有图片模型），不占别的会话的说明长度。
+    const base = names.includes(IMAGE_TOOL)
+      ? APP_TOOLS_INSTRUCTIONS.replace(
+          '\n- wevir_show / ',
+          `\n${IMAGE_TOOL_INSTRUCTIONS}\n- wevir_show / `,
+        )
+      : APP_TOOLS_INSTRUCTIONS;
+    return listedToolInstructions(base, names);
   }
 
   /**

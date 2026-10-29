@@ -59,6 +59,7 @@ import { readGitStatus } from './git-status.js';
 import type { GuardrailService } from './guardrails/service.js';
 import type { HookService } from './hooks/service.js';
 import { newId } from './ids.js';
+import { discoverImageModels } from './image-gen.js';
 import type { ImageStore } from './images.js';
 import type { InboxService } from './inbox.js';
 import type { KeepAwake } from './keep-awake.js';
@@ -978,6 +979,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
             throw invalidParams(['transcriptionModels'], 'transcription model IDs must be unique');
           }
         }
+        if (params.kind === 'openai-compatible' && params.imageModels !== undefined) {
+          const ids = params.imageModels.map((model) => model.id);
+          if (new Set(ids).size !== ids.length) {
+            throw invalidParams(['imageModels'], 'image model IDs must be unique');
+          }
+        }
 
         const candidate: ProviderConfig = toProviderConfig(
           {
@@ -1048,6 +1055,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           if (Array.isArray(transcription) && transcription.length > 0) {
             record.transcriptionModels = transcription;
           }
+          // 图片模型（0.139.0）：规则同转写模型。
+          const images = params.imageModels ?? existing?.imageModels;
+          if (Array.isArray(images) && images.length > 0) record.imageModels = images;
         }
         if (secretRef !== undefined) record.secretRef = secretRef;
         if (existing?.enabled === false) record.enabled = false;
@@ -1127,6 +1137,25 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         return discoverOllamaModels(target);
       }
       return discoverOllamaModels({ baseURL: baseURL ?? '', apiKey, modelId });
+    },
+
+    // 0.139.0：已存的 Provider 用 SecretStore 里的 Key，没保存的表单带地址与可选的 Key（只在这次请求里用）。
+    'provider.discoverImageModels': async ({ providerId, baseURL, apiKey }) => {
+      if ((providerId === undefined) === (baseURL === undefined) || (providerId && apiKey))
+        throw invalidParams(
+          ['providerId'],
+          'provide a stored providerId or an unsaved baseURL and key',
+        );
+      if (providerId === undefined) return discoverImageModels({ baseURL: baseURL ?? '', apiKey });
+      const target = await serialProvider(async () => {
+        const provider = storage.providers.get(providerId);
+        if (!provider)
+          throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
+        if (provider.kind !== 'openai-compatible' || provider.baseURL === undefined)
+          throw invalidParams(['providerId'], 'image models need an OpenAI-compatible provider');
+        return { baseURL: provider.baseURL, apiKey: await secretOf(secrets, provider) };
+      });
+      return discoverImageModels(target);
     },
 
     // 0.129.0：失败（没装、没登录、启动不了）不报给客户端，建会话时照常报。停用的 Provider 不启动。
@@ -2112,6 +2141,7 @@ function toProviderProfile(record: ProviderProfileRecord): ProviderProfile {
     ...(record.transcriptionModels !== undefined && {
       transcriptionModels: record.transcriptionModels,
     }),
+    ...(record.imageModels !== undefined && { imageModels: record.imageModels }),
     ...(record.enabled === false && { enabled: false }),
   };
   // 记录里的枚举与 JSON 列是 string / unknown；形状由写入时的参数校验保证，发出前再按注册表校验。

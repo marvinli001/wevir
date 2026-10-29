@@ -13,6 +13,7 @@ import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
 import { BrowserBroker } from './browser-broker.js';
 import { channelToolAllowed } from './channels/tools.js';
 import { EventStore } from './event-store.js';
+import { IMAGE_TOOL } from './image-tools.js';
 import { LspManager } from './lsp/manager.js';
 import { MemoryStore } from './memory.js';
 import { PluginRegistry } from './plugins.js';
@@ -54,8 +55,9 @@ const BUDGETS: Record<string, { tools: number; instructions: number }> = {
 /**
  * 常驻层（`toolTier` 为 core 的工具）的 MCP 原形字节：工具搜索打开时首个请求里只有它们。2026-10-25 实测 20,023；2026-10-27
  * 回合收尾的 `wevir_wrap_up`（0.128.0，每个干活的回合都要调，不能按需加载）进常驻层，多 1,259，预算从 21,000 提到 22,000。
+ * 2026-10-29 生图的 `wevir_image_generate`（0.139.0，只列给 Provider 有图片模型的会话）进常驻层：列出时共 23,231，预算提到 23,500。
  */
-const RESIDENT_MAX_BYTES = 22_000;
+const RESIDENT_MAX_BYTES = 23_500;
 /**
  * 没有自带工具搜索的引擎（OpenCode）登记的：常驻层加上搜索与两个分发工具（2026-10-25 实测 20 个、21,810 字节；2026-10-27 加
  * `wevir_wrap_up` 后 23,627，预算从 23,000 提到 24,000）。
@@ -118,6 +120,7 @@ function productTools(): AppTools {
     retro: unused(),
     search: unused(),
     hostCall: unused(),
+    images: { storage, dir: join(root, 'images'), target: unused() },
   });
 }
 
@@ -181,8 +184,16 @@ describe('工具面体积预算', () => {
   it(`常驻层（核心工具）不超过 ${RESIDENT_MAX_BYTES} 字节`, async () => {
     const [plain] = await scenarios();
     const resident = (plain?.tools ?? []).filter((tool) => toolTier(tool.name) === 'core');
-    expect(resident.map((tool) => tool.name).sort()).toEqual([...CORE_TIER_TOOLS].sort());
-    const bytes = resident.reduce((sum, tool) => sum + listedBytes(tool), 0);
+    // 生图工具只列给 Provider 有图片模型的会话（调用方不明时不列）：名单里有它，字节按列出时算。
+    expect(resident.map((tool) => tool.name).sort()).toEqual(
+      CORE_TIER_TOOLS.filter((name) => name !== IMAGE_TOOL).sort(),
+    );
+    const imageTool = productTools().tools.find((tool) => tool.name === IMAGE_TOOL);
+    expect(imageTool).toBeDefined();
+    const bytes = [...resident, ...(imageTool ? [imageTool] : [])].reduce(
+      (sum, tool) => sum + listedBytes(tool),
+      0,
+    );
     const largest = [...resident]
       .sort((a, b) => listedBytes(b) - listedBytes(a))
       .slice(0, 10)

@@ -1401,6 +1401,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         automations: automationService,
         channels: channelService,
         ...(secondOpinions !== undefined && { opinions: secondOpinions }),
+        // 生图（0.139.0）：Provider 的地址与 Key，Key 只在调用时从 SecretStore 读。
+        images: {
+          storage,
+          dir: homePath(home, 'generatedImagesDir'),
+          target: async (providerId) => {
+            const record = storage?.providers.get(providerId);
+            if (record?.baseURL === undefined) return undefined;
+            const apiKey =
+              record.secretRef !== undefined ? await secrets.get(record.secretRef) : undefined;
+            return { baseURL: record.baseURL, apiKey };
+          },
+        },
         retro,
         search,
         hostCall: hostCaller(() => hostMethods, {
@@ -1595,6 +1607,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_folders: true,
         file_preview: true,
         office_preview: true,
+        image_generation: true,
         session_rename: true,
         session_archive: true,
         session_delete: true,

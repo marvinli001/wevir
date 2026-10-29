@@ -109,9 +109,11 @@ import {
   PendingDeliverySchema,
   PendingMessageSchema,
   PermissionModeSchema,
+  PROVIDER_IMAGE_MODELS_MAX,
   PROVIDER_TRANSCRIPTION_MODELS_MAX,
   ProviderApiSchema,
   ProviderCompatSchema,
+  ProviderImageModelSchema,
   ProviderModelSchema,
   ProviderProfileSchema,
   ProviderTranscriptionModelSchema,
@@ -934,6 +936,8 @@ export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
       .array(ProviderTranscriptionModelSchema)
       .max(PROVIDER_TRANSCRIPTION_MODELS_MAX)
       .optional(),
+    /** 图片模型（0.139.0）：规则同 `transcriptionModels`，省略保留已存的，空数组清空，ID 不能重复。 */
+    imageModels: z.array(ProviderImageModelSchema).max(PROVIDER_IMAGE_MODELS_MAX).optional(),
   }),
   z.object({
     id: ProviderIdSchema,
@@ -1045,6 +1049,25 @@ export const ProviderDiscoverModelsResultSchema = z.object({
   reason: ProviderTestFailureSchema.optional(),
   /** True when the server has more models than the bounded discovery list. */
   truncated: z.boolean().optional(),
+});
+
+/**
+ * 找图片模型（0.139.0，Host 功能 `image_generation`）：`GET <baseURL>/models`，留下认得出的图片模型（`gpt-image-*` 等）。
+ * `providerId` 与 `baseURL` 恰好给一个；没保存的表单用 `baseURL` 加可选的 `apiKey`（不落地、不回传），已存的 Provider 用 SecretStore 里的 Key。
+ */
+export const ProviderDiscoverImageModelsParamsSchema = z.object({
+  providerId: ProviderIdSchema.optional(),
+  baseURL: HttpUrlSchema.optional(),
+  apiKey: z.string().min(1).max(8192).optional(),
+});
+
+export const ProviderDiscoverImageModelsResultSchema = z.object({
+  ok: z.boolean(),
+  /** 认出的图片模型，按版本从新到旧。`ok` 为 false 时为空。 */
+  models: z.array(ProviderImageModelSchema).max(PROVIDER_IMAGE_MODELS_MAX),
+  /** `ok` 为 false 时有。 */
+  reason: ProviderTestFailureSchema.optional(),
+  httpStatus: z.int().min(100).max(599).optional(),
 });
 
 // ── account.*（0.7.0，R6） ─────────────────────────────────────────────
@@ -2088,6 +2111,11 @@ export const MethodSchemas = {
   'provider.discoverModels': {
     params: ProviderDiscoverModelsParamsSchema,
     result: ProviderDiscoverModelsResultSchema,
+    permission: 'provider.write',
+  },
+  'provider.discoverImageModels': {
+    params: ProviderDiscoverImageModelsParamsSchema,
+    result: ProviderDiscoverImageModelsResultSchema,
     permission: 'provider.write',
   },
 

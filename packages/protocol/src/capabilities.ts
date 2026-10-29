@@ -202,6 +202,11 @@ export const HOST_FEATURES = {
    */
   officePreview: 'office_preview',
   /**
+   * 生图（0.139.0）：`ProviderProfile.imageModels`、`provider.upsert` 的 `imageModels` 与 `provider.discoverImageModels`；会话的
+   * Provider 有图片模型时，应用级工具里有 `wevir_image_generate`（Host 用 Provider 的 Key 调 `/images/*`，图片照 Codex 生图显示）。
+   */
+  imageGeneration: 'image_generation',
+  /**
    * 内置浏览器（0.33.0，domain-model §3.15）：连接可以用 `browser.register` 登记为浏览器提供方、收 `browser.request` 通知、用
    * `browser.respond` 回答；应用级工具里有 `browser_*` 工具，`wevir_show` 能显示网页。只在有应用级工具时声明。
    */
@@ -604,6 +609,7 @@ export const HostFeaturesSchema = z.looseObject({
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
   office_preview: z.boolean().optional(),
+  image_generation: z.boolean().optional(),
   browser_tools: z.boolean().optional(),
   computer_use: z.boolean().optional(),
   web_tools: z.boolean().optional(),

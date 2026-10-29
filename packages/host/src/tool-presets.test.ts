@@ -253,6 +253,7 @@ describe('按列出的工具裁剪说明', () => {
       'wevir_preview_start',
       'wevir_workspace_readiness',
       'wevir_automations',
+      'wevir_image_generate',
     ];
     expect(listedToolInstructions(APP_TOOLS_INSTRUCTIONS, everything)).toBe(APP_TOOLS_INSTRUCTIONS);
   });

@@ -141,7 +141,7 @@ describe('工具预设经 Host API', () => {
       catalog: 2,
       tasks: 3,
       memory: 8,
-      workbench: 5,
+      workbench: 6,
       browser: 45,
       lsp: 7,
       processes: 10,

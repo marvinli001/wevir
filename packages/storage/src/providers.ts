@@ -19,6 +19,8 @@ export interface ProviderProfileRecord {
   models: unknown;
   /** protocol `ProviderTranscriptionModel[]`（0021，协议 0.92.0），原样存 JSON；省略表示没有。 */
   transcriptionModels?: unknown;
+  /** protocol `ProviderImageModel[]`（0028，协议 0.139.0），原样存 JSON；省略表示没有。 */
+  imageModels?: unknown;
   defaultModelId: string;
   secretRef?: string;
   /** 停用（0007，协议 0.19.0 的 `provider.setEnabled`）；省略表示启用。 */
@@ -42,17 +44,17 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
   const insert = db.prepare(`
     INSERT INTO provider_profiles (
       id, kind, display_name, api, base_url, compat, models, default_model_id, secret_ref,
-      enabled, vertex, transcription_models, created_at, updated_at
+      enabled, vertex, transcription_models, image_models, created_at, updated_at
     ) VALUES (
       :id, :kind, :displayName, :api, :baseURL, :compat, :models, :defaultModelId, :secretRef,
-      :enabled, :vertex, :transcriptionModels, :createdAt, :updatedAt
+      :enabled, :vertex, :transcriptionModels, :imageModels, :createdAt, :updatedAt
     )`);
   const update = db.prepare(`
     UPDATE provider_profiles SET
       display_name = :displayName, api = :api, base_url = :baseURL, compat = :compat,
       models = :models, default_model_id = :defaultModelId, secret_ref = :secretRef,
       enabled = :enabled, vertex = :vertex, transcription_models = :transcriptionModels,
-      updated_at = :updatedAt
+      image_models = :imageModels, updated_at = :updatedAt
     WHERE id = :id`);
   const get = db.prepare('SELECT * FROM provider_profiles WHERE id = ?');
   const list = db.prepare('SELECT * FROM provider_profiles ORDER BY created_at, id');
@@ -68,6 +70,7 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
       vertex: toNullableJson(record.vertex),
       models: toJson(record.models),
       transcriptionModels: toNullableJson(record.transcriptionModels),
+      imageModels: toNullableJson(record.imageModels),
       defaultModelId: record.defaultModelId,
       secretRef: record.secretRef ?? null,
       enabled: record.enabled === false ? 0 : 1,
@@ -109,6 +112,8 @@ function fromRow(row: SqlRow): ProviderProfileRecord {
   if (vertex !== undefined) record.vertex = vertex as ProviderProfileRecord['vertex'];
   const transcriptionModels = optionalJson(row, 'transcription_models');
   if (transcriptionModels !== undefined) record.transcriptionModels = transcriptionModels;
+  const imageModels = optionalJson(row, 'image_models');
+  if (imageModels !== undefined) record.imageModels = imageModels;
   const secretRef = optionalText(row, 'secret_ref');
   if (secretRef !== undefined) record.secretRef = secretRef;
   if (row.enabled === 0 || row.enabled === 0n) record.enabled = false;

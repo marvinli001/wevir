@@ -51,6 +51,15 @@ describe('provider_profiles', () => {
     expect(repo.get(record.id)?.transcriptionModels).toBeUndefined();
   });
 
+  it('图片模型（0028）随插入与修改往返，省略即没有', () => {
+    const repo = storage().providers;
+    const record = { ...compatible, imageModels: [{ id: 'gpt-image-2' }] };
+    repo.insert(record);
+    expect(repo.get(record.id)).toEqual(record);
+    repo.update(compatible);
+    expect(repo.get(record.id)?.imageModels).toBeUndefined();
+  });
+
   it('插入与读取，可选字段与 JSON 字段原样往返', () => {
     const repo = storage().providers;
     repo.insert(official);
@@ -108,6 +117,7 @@ describe('provider_profiles', () => {
       'enabled',
       'vertex',
       'transcription_models',
+      'image_models',
     ]);
   });
 

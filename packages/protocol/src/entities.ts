@@ -150,6 +150,21 @@ export type ProviderTranscriptionModel = z.infer<typeof ProviderTranscriptionMod
 export const PROVIDER_TRANSCRIPTION_MODELS_MAX = 20;
 
 /**
+ * 图片模型（0.139.0，生图，domain-model §3.2）：`openai-compatible` 的服务上走 `POST <baseURL>/images/generations` 与
+ * `/images/edits` 的模型（OpenAI 的 `gpt-image-2` 系列与兼容服务的同类模型）。与对话模型分开列，不出现在模型选择里；会话的
+ * Provider 有图片模型时，应用级工具多一个 `wevir_image_generate`。
+ */
+export const ProviderImageModelSchema = z.object({
+  /** 发给服务端的模型 ID。 */
+  id: z.string().min(1).max(200),
+  displayName: z.string().max(200).optional(),
+});
+export type ProviderImageModel = z.infer<typeof ProviderImageModelSchema>;
+
+/** 一个 Provider 最多几个图片模型。 */
+export const PROVIDER_IMAGE_MODELS_MAX = 20;
+
+/**
  * 请求格式的修正，用于 `openai-compatible` 与 `google-vertex`。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
  * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；其余只有模型网关用（0.4.0、0.12.0、0.26.0，
  * model-gateway.md §4.4），dsh 忽略。
@@ -221,6 +236,8 @@ export const ProviderProfileSchema = z.object({
     .array(ProviderTranscriptionModelSchema)
     .max(PROVIDER_TRANSCRIPTION_MODELS_MAX)
     .optional(),
+  /** 图片模型（0.139.0），只有 `openai-compatible` 有；省略表示没有。第一个是生图工具的默认模型。 */
+  imageModels: z.array(ProviderImageModelSchema).max(PROVIDER_IMAGE_MODELS_MAX).optional(),
   defaultModelId: z.string().min(1),
   hasSecret: z.boolean(),
   /**
