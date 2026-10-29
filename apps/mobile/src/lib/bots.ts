@@ -2,13 +2,20 @@
 // 这里把频道、帖子、线程与审批换成手机要画的部分；多台电脑的助理合并成一个列表，`key` 带电脑名区分。纯逻辑。
 // 助理群（0.133.0，`kind: 'group'`）也在列表里：成员是同一台电脑上的几个助理；群里与别的助理发来的帖子带说话的那个助理。
 
-import type {
-  ApprovalRequest,
-  Channel,
-  ChannelPost,
-  ChannelThread,
-  ChannelThreadStatus,
-  EngineFeatures,
+import {
+  type ApprovalRequest,
+  ASSISTANT_RULE_CATEGORIES,
+  type AssistantRuleCategory,
+  type AssistantRules,
+  type AssistantRuleTier,
+  type Channel,
+  type ChannelPost,
+  type ChannelThread,
+  type ChannelThreadStatus,
+  DEFAULT_ASSISTANT_RULES,
+  type EngineFeatures,
+  GROUP_MEMBERS_MAX,
+  GROUP_MEMBERS_MIN,
 } from '@wevir/protocol';
 import { type Avatar, normalizeAvatar } from './bot-avatar';
 
@@ -72,6 +79,8 @@ export type BotCard =
       subject?: string;
       /** 将要发出的原文（或命令、参数），原样展示。 */
       text: string;
+      /** Host 判为高风险：允许前要本人验证（同收件箱）。 */
+      risky?: true;
       decision: Decision;
     }
   | {
@@ -89,7 +98,15 @@ export type BotCard =
       items: readonly { kind: NeedKind; label: string; ready: boolean; detail?: string }[];
     }
   | { kind: 'suggestion'; text: string; decision: Decision }
-  | { kind: 'notice'; reason: NoticeReason; about?: string };
+  | {
+      kind: 'notice';
+      reason: NoticeReason;
+      about?: string;
+      /** 规矩里的动作种类（`acted`、`handed_off`）；认不出的种类不带。 */
+      category?: AssistantRuleCategory;
+      /** 帖子的文字：做了或拦下的动作，每行一个。 */
+      text?: string;
+    };
 
 export interface BotPost {
   /** 列表里的键：帖子是帖子 ID（带文字又带卡片的拆成两条），线程是会话 ID，审批是审批 ID。 */
@@ -201,7 +218,9 @@ export function postViews(
     .trim();
   const card = post.card;
   // 提议的正文就是卡片上那句，不再单独画一遍。
-  const repeated = card?.kind === 'suggestion' && card.text.trim() === text;
+  // 说明的文字（做了或拦下的动作）画在说明那一行里。
+  const repeated =
+    (card?.kind === 'suggestion' && card.text.trim() === text) || card?.kind === 'notice';
   if (text !== '' && !repeated)
     out.push({
       ...base,
@@ -237,11 +256,18 @@ export function postViews(
       case 'notice': {
         const about =
           card.assistantId === undefined ? undefined : directory.get(card.assistantId)?.title;
+        const category = ASSISTANT_RULE_CATEGORIES.find((c) => c === card.category);
         out.push({
           ...base,
           author: 'host',
           id,
-          card: { kind: 'notice', reason: card.reason, ...(about !== undefined && { about }) },
+          card: {
+            kind: 'notice',
+            reason: card.reason,
+            ...(about !== undefined && { about }),
+            ...(category !== undefined && { category }),
+            ...(text !== '' && { text }),
+          },
         });
         break;
       }
@@ -318,6 +344,7 @@ export function approvalView(request: ApprovalRequest, decision: Decision): BotP
       ...(target !== undefined && { target }),
       ...(subject !== undefined && { subject }),
       text,
+      ...(request.risk?.level === 'high' && { risky: true as const }),
       decision,
     },
   };
@@ -379,7 +406,17 @@ export interface BotEdit {
   description: string;
   avatar: Avatar;
   folders: readonly string[];
+  /** 改过的规矩；没改过的种类沿用原来的档。 */
+  rules?: Readonly<Partial<Record<AssistantRuleCategory, AssistantRuleTier>>>;
   model?: { providerId: string; modelId: string };
+}
+
+/** 一类动作现在的档：没设过的取新助理的默认。 */
+export function ruleTier(
+  rules: AssistantRules,
+  category: AssistantRuleCategory,
+): AssistantRuleTier {
+  return rules[category] ?? DEFAULT_ASSISTANT_RULES[category];
 }
 
 /**
@@ -397,7 +434,9 @@ export function brainLimit(
   return features.mcpServers === true && features.skills === true ? undefined : 'plugins';
 }
 
-/** 改助理时交给 `channel.update` 的字段：只带变了的，空名字不改名；什么都没变时 undefined。换模型时清掉原来的推理强度。 */
+/**
+ * 改助理时交给 `channel.update` 的字段：只带变了的，空名字不改名；什么都没变时 undefined。换模型时清掉原来的推理强度。规矩变了时交整份。
+ */
 export function botPatch(
   channel: Channel,
   edit: BotEdit,
@@ -407,6 +446,7 @@ export function botPatch(
       description?: string;
       avatar?: Avatar;
       folders?: string[];
+      rules?: AssistantRules;
       coordinator?: { providerId: string; modelId: string; reasoningEffort: null };
     }
   | undefined {
@@ -429,6 +469,14 @@ export function botPatch(
       edit.folders.some((folder, index) => folder !== assistant.folders[index])
     )
       patch.folders = [...edit.folders];
+    // 整份交上去（同桌面）：认不出的种类原样留着。
+    const rules = edit.rules ?? {};
+    if (
+      ASSISTANT_RULE_CATEGORIES.some(
+        (c) => rules[c] !== undefined && rules[c] !== ruleTier(assistant.rules, c),
+      )
+    )
+      patch.rules = { ...assistant.rules, ...rules };
   }
   const model = edit.model;
   const coordinator = channel.coordinator;
@@ -443,6 +491,26 @@ export function botPatch(
       reasoningEffort: null,
     };
   return Object.keys(patch).length === 0 ? undefined : patch;
+}
+
+/**
+ * 建群或改群时交上去的名字与成员（成员按勾选的先后）：名字为空、成员不在 `GROUP_MEMBERS_MIN`–`GROUP_MEMBERS_MAX` 之间时 undefined；
+ * 改群时只带变了的名字，成员整份替换，什么都没变时 undefined。
+ */
+export function groupPatch(
+  group: Channel | undefined,
+  name: string,
+  members: readonly string[],
+): { name?: string; members: string[] } | undefined {
+  const trimmed = name.trim();
+  if (trimmed === '' || members.length < GROUP_MEMBERS_MIN || members.length > GROUP_MEMBERS_MAX)
+    return undefined;
+  if (group === undefined) return { name: trimmed, members: [...members] };
+  const before = group.group?.members ?? [];
+  const renamed = trimmed !== group.title;
+  if (!renamed && members.length === before.length && members.every((id, i) => id === before[i]))
+    return undefined;
+  return { ...(renamed && { name: trimmed }), members: [...members] };
 }
 
 /** 文件夹的最后一段与上一级目录（家目录写成 `~`）。 */

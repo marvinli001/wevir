@@ -6,6 +6,7 @@ import {
   botPatch,
   brainLimit,
   folderParts,
+  groupPatch,
   postViews,
   sortBots,
   timelineViews,
@@ -78,6 +79,35 @@ describe('bots', () => {
     expect(notice).toEqual([
       expect.objectContaining({ author: 'host', card: { kind: 'notice', reason: 'failed' } }),
     ]);
+    // 按规矩的说明：文字（做了或拦下的动作）并进说明，认不出的种类不带。
+    const acted = postViews(
+      post(CHANNEL_A, 5, {
+        author: { kind: 'host' },
+        content: [{ type: 'text', text: 'gmail · send_email\nslack · post' }],
+        card: { kind: 'notice', reason: 'acted', category: 'messages' },
+      }),
+      '图片',
+    );
+    expect(acted).toEqual([
+      expect.objectContaining({
+        author: 'host',
+        card: {
+          kind: 'notice',
+          reason: 'acted',
+          category: 'messages',
+          text: 'gmail · send_email\nslack · post',
+        },
+      }),
+    ]);
+    const unknown = postViews(
+      post(CHANNEL_A, 6, {
+        author: { kind: 'host' },
+        content: [{ type: 'text', text: 'x' }],
+        card: { kind: 'notice', reason: 'handed_off', category: 'teleport' },
+      }),
+      '图片',
+    );
+    expect(unknown[0]?.card).toEqual({ kind: 'notice', reason: 'handed_off', text: 'x' });
     const brief = postViews(
       post(CHANNEL_A, 3, {
         content: [{ type: 'text', text: '' }],
@@ -128,6 +158,7 @@ describe('bots', () => {
           display: { kind: 'shell', command: 'rm -rf dist' },
           input: { command: 'rm -rf dist' },
         },
+        risk: { level: 'high', reasons: ['destructive_command'] },
       }),
       'approved',
     ).card;
@@ -135,6 +166,7 @@ describe('bots', () => {
       kind: 'approval',
       tool: 'Bash',
       text: 'rm -rf dist',
+      risky: true,
       decision: 'approved',
     });
     const odd = approvalView(
@@ -219,6 +251,52 @@ describe('bots', () => {
       avatar: { type: 'drop', color: 1, seed: 0.2 },
       folders: ['/Users/me/web'],
       coordinator: { providerId: 'prov_1', modelId: 'b', reasoningEffort: null },
+    });
+  });
+
+  it('规矩：改了档的交整份，认不出的种类原样留着；改回原来的档不算改', () => {
+    const current = channel(CHANNEL_A, {
+      assistant: {
+        description: '邮件与日程',
+        avatar: { type: 'cloud', color: 2, seed: 0.4 },
+        rules: { messages: 'do', teleport: 'ask' },
+        folders: [],
+      },
+    });
+    const same = {
+      name: '小管家',
+      description: '邮件与日程',
+      avatar: { type: 'cloud' as const, color: 2, seed: 0.4 },
+      folders: [],
+    };
+    // publishing 没设过，默认是 ask。
+    expect(botPatch(current, { ...same, rules: { messages: 'do', publishing: 'ask' } })).toBe(
+      undefined,
+    );
+    expect(botPatch(current, { ...same, rules: { publishing: 'do', local_files: 'ask' } })).toEqual(
+      { rules: { messages: 'do', teleport: 'ask', publishing: 'do', local_files: 'ask' } },
+    );
+  });
+
+  it('群：名字与 2 到 8 个成员，改群只带变了的名字与整份成员', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'];
+    expect(groupPatch(undefined, ' 周会 ', ['a', 'b'])).toEqual({
+      name: '周会',
+      members: ['a', 'b'],
+    });
+    expect(groupPatch(undefined, ' ', ['a', 'b'])).toBeUndefined();
+    expect(groupPatch(undefined, '周会', ['a'])).toBeUndefined();
+    expect(groupPatch(undefined, '周会', ids)).toBeUndefined();
+    const group = channel(CHANNEL_A, {
+      kind: 'group',
+      title: '周会',
+      group: { members: ['a', 'b'] as never },
+    });
+    expect(groupPatch(group, '周会', ['a', 'b'])).toBeUndefined();
+    expect(groupPatch(group, '周会', ['b', 'a'])).toEqual({ members: ['b', 'a'] });
+    expect(groupPatch(group, '例会', ['a', 'b', 'c'])).toEqual({
+      name: '例会',
+      members: ['a', 'b', 'c'],
     });
   });
 

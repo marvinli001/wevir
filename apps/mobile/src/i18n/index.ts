@@ -53,6 +53,11 @@ export function locale(): Locale {
   return currentLocale;
 }
 
+/** 并列的几个名字（群的成员）：中文与日文用顿号，其余用逗号。 */
+export function joinNames(names: readonly string[]): string {
+  return names.join(/^(zh|ja)/.test(currentLocale) ? '、' : ', ');
+}
+
 export function t(key: MessageKey, params?: Record<string, string | number>): string {
   const template = current[key] ?? zhCN[key];
   if (params === undefined) return template;

@@ -89,6 +89,15 @@ export default function RootLayout() {
                     }}
                   />
                   <Stack.Screen
+                    name="edit-group"
+                    options={{
+                      title: t('bots.newGroup'),
+                      presentation: 'formSheet',
+                      sheetAllowedDetents: [0.75, 1],
+                      sheetGrabberVisible: true,
+                    }}
+                  />
+                  <Stack.Screen
                     name="edit-bot"
                     options={{
                       title: t('editBot.title'),

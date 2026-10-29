@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LOCALES, pickLocale, setLocale, t, timeAgo } from './index';
+import { joinNames, LOCALES, pickLocale, setLocale, t, timeAgo } from './index';
 import { zhCN } from './zh-CN';
 
 const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
@@ -43,7 +43,9 @@ describe('mobile i18n', () => {
     expect(timeAgo('2026-10-23T11:59:40Z', now)).toBe('just now');
     expect(timeAgo('2026-10-23T11:15:00Z', now)).toBe('45 min ago');
     expect(timeAgo('2026-10-21T12:00:00Z', now)).toBe('2 d ago');
+    expect(joinNames(['Ann', 'Cleo'])).toBe('Ann, Cleo');
     setLocale('zh-CN');
     expect(timeAgo('2026-10-23T09:00:00Z', now)).toBe('3 小时前');
+    expect(joinNames(['Ann', 'Cleo'])).toBe('Ann、Cleo');
   });
 });

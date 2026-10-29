@@ -38,6 +38,12 @@ export function channel(id: Channel['id'], patch: Partial<Channel> = {}): Channe
   };
 }
 
+/** 群：没有身份、协调者、预算与工作区。 */
+export function group(id: Channel['id'], title: string, members: Channel['id'][]): Channel {
+  const { assistant, coordinator, budget, workspaceId, ...base } = channel(id);
+  return { ...base, kind: 'group', title, group: { members } };
+}
+
 export function post(
   channelId: Channel['id'],
   seq: number,
@@ -116,6 +122,7 @@ export class FakeChannels {
     canEdit: false,
     canReadProviders: false,
     composer: false,
+    groups: true,
     request: ((method: string, params: Params) =>
       this.#handle(method, params)) as ChannelClient['request'],
     onChannelsChanged: (listener) => {
@@ -195,14 +202,18 @@ export class FakeChannels {
         };
       }
       case 'channel.create': {
-        const created = channel('chn_01JA2B3C4D5E6F7G8H9JKMNPQC' as Channel['id'], {
-          title: params.name as string,
-          coordinator: {
-            ...(params.coordinator as NonNullable<Channel['coordinator']>),
-            mode: 'act',
-            generation: 1,
-          },
-        });
+        const id = 'chn_01JA2B3C4D5E6F7G8H9JKMNPQC' as Channel['id'];
+        const created =
+          params.kind === 'group'
+            ? group(id, params.name as string, params.members as Channel['id'][])
+            : channel(id, {
+                title: params.name as string,
+                coordinator: {
+                  ...(params.coordinator as NonNullable<Channel['coordinator']>),
+                  mode: 'act',
+                  generation: 1,
+                },
+              });
         this.channels.push(created);
         return { channel: created };
       }
@@ -222,6 +233,9 @@ export class FakeChannels {
         const updated: Channel = {
           ...current,
           ...(params.name !== undefined && { title: params.name as string }),
+          ...(params.members !== undefined && {
+            group: { members: params.members as Channel['id'][] },
+          }),
           ...(current.assistant !== undefined && {
             assistant: {
               ...current.assistant,
