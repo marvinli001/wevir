@@ -36,6 +36,7 @@ import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { ComputerBroker } from './computer-broker.js';
 import { loadComputerGuide } from './computer-tools.js';
+import { hostCaller } from './config-tools.js';
 import {
   type CustomPrompts,
   customInputs,
@@ -58,6 +59,7 @@ import {
   addWorkspace,
   createHostMethods,
   createProviderLock,
+  type HostMethods,
   syncProviders,
 } from './host-methods.js';
 import { newId } from './ids.js';
@@ -652,8 +654,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           const shown = appTools?.prepareEvent(sessionId, event) ?? event;
           return appTools?.plugins?.prepareEvent(sessionId, shown) ?? Promise.resolve(shown);
         },
-        resolved: (sessionId, toolCallId, approved) =>
-          appTools?.plugins?.resolved(sessionId, toolCallId, approved),
+        resolved: (sessionId, toolCallId, approved) => {
+          appTools?.plugins?.resolved(sessionId, toolCallId, approved);
+          appTools?.config?.resolved(sessionId, toolCallId, approved);
+        },
         autoAllow: (sessionId, tool) => appTools?.autoAllow(sessionId, tool) ?? false,
         forget: (sessionIds) => {
           void processes?.removeSessions(sessionIds);
@@ -1257,6 +1261,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         onWarning: (message, fields) => logger.warn(message, fields),
       });
     }
+    // 配置工具（0.136.0）调的 Host 方法表：下面建 RPC 服务时才建好。
+    let hostMethods: HostMethods | undefined;
+    const keepMethods = (methods: HostMethods): HostMethods => {
+      hostMethods = methods;
+      return methods;
+    };
     if (adapter.appTools === true) {
       appTools = new AppTools({
         plugins,
@@ -1311,6 +1321,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(secondOpinions !== undefined && { opinions: secondOpinions }),
         retro,
         search,
+        hostCall: hostCaller(() => hostMethods, {
+          deviceId: hostId,
+          clientId: 'wevir-app-tools',
+          clientKind: 'desktop',
+        }),
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
@@ -1418,59 +1433,61 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       hostVersion: HOST_VERSION,
       storage,
       events: store,
-      methods: createHostMethods({
-        plugins,
-        mcpOAuth,
-        storage,
-        events: store,
-        sessions: manager,
-        secrets,
-        checkpoints,
-        providers: adapter,
-        providerLock,
-        ...(accounts !== undefined && { accounts }),
-        settings,
-        images,
-        fileUrls,
-        chats,
-        memory,
-        writingStyle,
-        usage: { service: usageStats, pricing },
-        ...(verification !== undefined && { verification }),
-        automations: automationService,
-        channels: channelService,
-        assistants,
-        ...(review !== undefined && { review }),
-        ...(secondOpinions !== undefined && { opinions: secondOpinions }),
-        retro,
-        git,
-        ...(processOutput.available && { processes: processOutput }),
-        ...(previews !== undefined && { previews }),
-        readiness: readinessService,
-        ...(terminals !== undefined && { terminals }),
-        ...(simulators !== undefined && { simulators }),
-        ...(lspStatus !== undefined && { lsp: lspStatus }),
-        ...(options.web !== undefined && { web: options.web }),
-        ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
-        externalImport,
-        search,
-        approvalRules,
-        tuning,
-        ...(guardrails !== undefined && { guardrails }),
-        ...(proposals !== undefined && { proposals }),
-        ...(trials !== undefined && { trials }),
-        ...(autoTuner !== undefined && { autoTuner }),
-        market,
-        speech,
-        keepAwake,
-        inbox: inboxService,
-        remote: {
-          devices: deviceService,
-          pairing: pairingService,
-          listener: remoteListener,
-          push: pushService,
-        },
-      }),
+      methods: keepMethods(
+        createHostMethods({
+          plugins,
+          mcpOAuth,
+          storage,
+          events: store,
+          sessions: manager,
+          secrets,
+          checkpoints,
+          providers: adapter,
+          providerLock,
+          ...(accounts !== undefined && { accounts }),
+          settings,
+          images,
+          fileUrls,
+          chats,
+          memory,
+          writingStyle,
+          usage: { service: usageStats, pricing },
+          ...(verification !== undefined && { verification }),
+          automations: automationService,
+          channels: channelService,
+          assistants,
+          ...(review !== undefined && { review }),
+          ...(secondOpinions !== undefined && { opinions: secondOpinions }),
+          retro,
+          git,
+          ...(processOutput.available && { processes: processOutput }),
+          ...(previews !== undefined && { previews }),
+          readiness: readinessService,
+          ...(terminals !== undefined && { terminals }),
+          ...(simulators !== undefined && { simulators }),
+          ...(lspStatus !== undefined && { lsp: lspStatus }),
+          ...(options.web !== undefined && { web: options.web }),
+          ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
+          externalImport,
+          search,
+          approvalRules,
+          tuning,
+          ...(guardrails !== undefined && { guardrails }),
+          ...(proposals !== undefined && { proposals }),
+          ...(trials !== undefined && { trials }),
+          ...(autoTuner !== undefined && { autoTuner }),
+          market,
+          speech,
+          keepAwake,
+          inbox: inboxService,
+          remote: {
+            devices: deviceService,
+            pairing: pairingService,
+            listener: remoteListener,
+            push: pushService,
+          },
+        }),
+      ),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
         plugins: true,

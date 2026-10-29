@@ -212,6 +212,11 @@ const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
   wevir_plugin_install: 'approval.title.pluginInstall',
   wevir_skill_install: 'approval.title.skillInstall',
   wevir_connector_add: 'approval.title.connectorAdd',
+  // 配置 Wevir 本身（0.136.0）：要用户批准的改动（照常的按权限模式问时也用它）。
+  wevir_config_settings: 'approval.title.wevirConfig',
+  wevir_config_update: 'approval.title.wevirConfig',
+  wevir_config_checks: 'approval.title.wevirConfig',
+  wevir_config_install: 'approval.title.wevirConfig',
   wevir_plugins_manage: 'approval.title.pluginManage',
   // 内置浏览器（0.33.0）：只读的不问，其余按会话的权限模式问。
   browser_new_tab: 'approval.title.browserOpen',

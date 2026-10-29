@@ -988,6 +988,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': '允許安裝此外掛程式？',
   'approval.title.skillInstall': '允許安裝 Skills？',
   'approval.title.connectorAdd': '允許新增此 MCP 伺服器？',
+  'approval.title.wevirConfig': '允許變更 Wevir 的設定？',
   'approval.title.pluginManage': '允許變更外掛程式設定？',
   'approval.title.browserOpen': '允許在瀏覽器中開啟網頁？',
   'approval.title.browserAct': '允許操作瀏覽器中的網頁？',

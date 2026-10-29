@@ -1,5 +1,5 @@
 // 工具预设：一个会话给模型看哪些 Wevir 应用级工具。按组划分，`full` 是全部（不带预设的会话就是它，与以前逐字节相同），`core` 只留
-// 会话协作、模型与角色、任务清单、记忆、展示与交文件，浏览器、LSP、后台进程、插件管理按组另加。
+// 会话协作、模型与角色、任务清单、记忆、展示与交文件，浏览器、LSP、后台进程、插件管理（0.136.0 起也含配置 Wevir 本身）按组另加。
 //
 // 范围：只管 Host 的 `wevir` MCP 服务（app-mcp.ts）里的工具与它给模型的说明。引擎自带的工具（shell、改文件、子 agent……）、读历史与
 // 联网这两个另外的 MCP 服务、用户自己接入的 MCP 连接器都不受预设管。预设也不是权限：角色（roles.ts）是上限，预设只能在它之内再收窄，
@@ -54,6 +54,8 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
 };
 const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['wevir_session_', 'sessions'],
+  // 配置 Wevir 本身（0.136.0，config-tools.ts）同插件管理一组。
+  ['wevir_config_', 'plugins'],
   ['wevir_automation_', 'sessions'],
   ['wevir_channel_', 'sessions'],
   ['wevir_task_', 'tasks'],

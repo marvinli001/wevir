@@ -133,7 +133,7 @@ describe.runIf(process.platform !== 'win32')('项目环境就绪经 Host API', (
     const agentBefore = await tool();
     expect(agentBefore).toContain('NOT READY');
     expect(agentBefore).toContain('`npm install`');
-    expect(agentBefore).toContain('only the user can start these');
+    expect(agentBefore).toContain('the user starts these from the Dependencies card');
     expect(agentBefore).not.toContain('tok-123456');
 
     // 安装：开始、结束各有通知，结束后重新预检。

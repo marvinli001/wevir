@@ -6,6 +6,7 @@ import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
 import { BrowserBroker } from './browser-broker.js';
+import type { HostCall } from './config-tools.js';
 import { EventStore } from './event-store.js';
 import { LspManager } from './lsp/manager.js';
 import { MemoryStore } from './memory.js';
@@ -38,7 +39,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
-/** 所有工具都挂上的 AppTools（同 wevir-host：浏览器、插件、进程、LSP、记忆、角色、任务清单）。 */
+/** 所有工具都挂上的 AppTools（同 wevir-host：浏览器、插件、进程、LSP、记忆、角色、任务清单、配置 Wevir）。 */
 function allTools(): AppTools {
   const root = tempDir();
   const storage = storages.open(join(root, 'data'));
@@ -72,6 +73,7 @@ function allTools(): AppTools {
     memory: new MemoryStore({ dir: join(root, 'memory') }),
     roles: new RoleStore({ dir: join(root, 'roles') }),
     tasks: new TaskBoardStore({ dir: join(root, 'tasks') }),
+    hostCall: (async () => ({})) as unknown as HostCall,
   });
 }
 
@@ -79,9 +81,9 @@ const CORE: ToolPreset = { id: 'core' };
 const FULL: ToolPreset = { id: 'full' };
 
 describe('工具分组', () => {
-  it('Host 的每个应用级工具都属于一个组；core 留 23 个，另 4 组是浏览器 29、LSP 7、进程 6、插件 6', () => {
+  it('Host 的每个应用级工具都属于一个组；core 留 23 个，另 4 组是浏览器 29、LSP 7、进程 6、插件与配置 12', () => {
     const tools = allTools().tools;
-    expect(tools).toHaveLength(71);
+    expect(tools).toHaveLength(77);
     expect(tools.filter((tool) => toolGroupOf(tool.name) === undefined)).toEqual([]);
     const contents = toolGroupContents(tools);
     expect(Object.fromEntries(contents.map((group) => [group.id, group.tools.length]))).toEqual({
@@ -93,7 +95,7 @@ describe('工具分组', () => {
       browser: 29,
       lsp: 7,
       processes: 6,
-      plugins: 6,
+      plugins: 12,
     });
     expect(contents.filter((group) => group.core).map((group) => group.id)).toEqual(
       CORE_TOOL_GROUPS,

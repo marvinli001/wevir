@@ -60,7 +60,8 @@ export function dispatchTools(deps: DispatchDeps): AppTool[] {
       title: 'Find Wevir tools',
       description:
         'Find Wevir tools that are not in your tool list by keywords: the browser pane (browser), code intelligence (lsp), ' +
-        'previews, plugins and skills, computer use, the iOS simulator, models and roles, automations, and more. Returns up to ' +
+        'previews, plugins and skills, Wevir settings and configuration, computer use, the iOS simulator, models and roles, ' +
+        'automations, and more. Returns up to ' +
         `${TOOL_SEARCH_LIMIT} tools with name, description and parameters; call read-only ones with ${APP_TOOLS_CALL_READONLY} ` +
         `and the others with ${APP_TOOLS_CALL}.`,
       inputSchema: {

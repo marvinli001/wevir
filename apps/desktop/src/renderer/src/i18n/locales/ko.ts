@@ -990,6 +990,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': '이 플러그인 설치를 허용할까요?',
   'approval.title.skillInstall': '이 스킬 설치를 허용할까요?',
   'approval.title.connectorAdd': '이 MCP 서버 추가를 허용할까요?',
+  'approval.title.wevirConfig': 'Wevir 구성 변경을 허용할까요?',
   'approval.title.pluginManage': '플러그인 구성 변경을 허용할까요?',
   'approval.title.browserOpen': '브라우저에서 페이지를 여는 것을 허용할까요?',
   'approval.title.browserAct': '브라우저의 페이지를 조작하는 것을 허용할까요?',

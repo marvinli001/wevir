@@ -1006,6 +1006,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': 'Autoriser l’installation de ce plugin ?',
   'approval.title.skillInstall': 'Autoriser l’installation de ces skills ?',
   'approval.title.connectorAdd': 'Autoriser l’ajout de ce serveur MCP ?',
+  'approval.title.wevirConfig': 'Autoriser la modification de la configuration de Wevir ?',
   'approval.title.pluginManage': 'Autoriser la modification de la configuration des plugins ?',
   'approval.title.browserOpen': 'Autoriser l’ouverture d’une page dans le navigateur ?',
   'approval.title.browserAct': 'Autoriser les actions sur une page du navigateur ?',

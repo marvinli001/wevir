@@ -1211,6 +1211,9 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_session_progress',
       'mcp__wevir__wevir_session_close',
       'mcp__wevir__wevir_session_archive',
+      // 0.136.0：只改自己与自己开出的会话、读配置。
+      'mcp__wevir__wevir_config_session',
+      'mcp__wevir__wevir_config_read',
       'mcp__wevir__wevir_models',
       'mcp__wevir__wevir_roles',
       'mcp__wevir__wevir_tasks',
