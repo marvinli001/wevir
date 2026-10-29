@@ -292,6 +292,11 @@ export const WevirPluginManifestSchema = z
       .union([PluginPathSchema, z.record(PluginConnectorNameSchema, McpServerConfigSchema)])
       .optional(),
     inputs: z.array(PluginInputSchema).max(PLUGIN_INPUTS_MAX).optional(),
+    /**
+     * 生命周期钩子（0.137.0，ADR-0023）：包内 JSON 文件的路径（内容是 `{ hooks: { 事件: [...] } }`，Claude Code / Codex 的写法），或行内的
+     * `{ 事件: [...] }`；默认 `./hooks/hooks.json`。安装即信任这一版，命令里可用环境变量 `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT`（插件目录）。
+     */
+    hooks: z.union([PluginPathSchema, z.record(z.string(), z.unknown())]).optional(),
     /** 以下四项给插件市场（0.91.0）。搜索用的关键词。 */
     keywords: z.array(z.string().min(1).max(32)).max(16).optional(),
     /** 市场分类 ID，取值见市场的分类表。 */

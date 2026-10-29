@@ -61,7 +61,14 @@ type Step =
       decline: Step[];
       interrupt: Step[];
     }
-  | { kind: 'delay'; ms: number };
+  | { kind: 'delay'; ms: number }
+  /** MCP 服务要用户输入：调 `onElicitation`，结果记进 `elicitations`，接受时走 `accept`，否则走 `decline`。 */
+  | {
+      kind: 'elicitation';
+      request: Record<string, unknown>;
+      accept: Step[];
+      decline: Step[];
+    };
 
 interface Script {
   steps: Step[];
@@ -364,6 +371,84 @@ function subagentApprovalScript(): Script {
   };
 }
 
+/** 回答一句话、结算这一轮（`uuid` 是这一轮的消息：Claude 自己开的一轮是它的任务通知）。 */
+function reply(msgId: string, text: string, uuid = '<prompt>'): Step[] {
+  return [
+    {
+      kind: 'message',
+      message: {
+        ...streamEvent({ type: 'message_start', message: { id: msgId, usage: {} } }),
+        user_message_uuid: uuid,
+        user_message_uuids: [uuid],
+      },
+    },
+    { kind: 'message', message: assistant(msgId, [{ type: 'text', text }]) },
+    {
+      kind: 'message',
+      message: result(text, { user_message_uuid: uuid, user_message_uuids: [uuid] }),
+    },
+  ];
+}
+
+function sessionState(state: 'running' | 'idle'): Step {
+  return {
+    kind: 'message',
+    message: {
+      type: 'system',
+      subtype: 'session_state_changed',
+      state,
+      uuid: uuid(),
+      session_id: '<session>',
+    },
+  };
+}
+
+/**
+ * 连接器的 MCP Task 在后台做完（脚本 `mcp-task`）：这一轮先答完；之后 `claude` 报任务结束、自己开一轮把结果交给模型（`running`、
+ * 新的一轮、`idle`）。
+ */
+export function mcpTaskScript(): Script {
+  return {
+    steps: [
+      sessionState('running'),
+      ...reply('msg_fake_t1', 'Started the export in the background.'),
+      sessionState('idle'),
+      { kind: 'delay', ms: 10 },
+      {
+        kind: 'message',
+        message: {
+          type: 'system',
+          subtype: 'task_notification',
+          task_id: 'task-1',
+          tool_use_id: 'toolu_export',
+          status: 'completed',
+          output_file: '',
+          summary: 'Export finished',
+          uuid: uuid(),
+          session_id: '<session>',
+        },
+      },
+      sessionState('running'),
+      ...reply('msg_fake_t2', 'The export is done.', 'task-notification-uuid'),
+      sessionState('idle'),
+    ],
+  };
+}
+
+/** MCP 服务要用户输入（脚本 `elicitation:<模式>`）：答完之后按接受与否回答。 */
+export function elicitationScript(request: Record<string, unknown>): Script {
+  return {
+    steps: [
+      {
+        kind: 'elicitation',
+        request,
+        accept: reply('msg_fake_e1', 'Accepted.'),
+        decline: reply('msg_fake_e1', 'Declined.'),
+      },
+    ],
+  };
+}
+
 /** 契约的提示词 → 脚本（未知的 prompt 按 plain 回答）。 */
 function scriptFor(prompt: string): Script {
   switch (prompt) {
@@ -389,6 +474,8 @@ export interface FakeQueryRecord {
   calls: Array<{ method: string; args: unknown[] }>;
   /** `getContextUsage()` 的参数：只读请求，不记进 `calls`（那里是会改进程状态的调用）。 */
   contextUsageRequests: unknown[];
+  /** `onElicitation` 的回复。 */
+  elicitations: unknown[];
   closed: boolean;
 }
 
@@ -420,6 +507,7 @@ export class FakeClaudeSdk implements ClaudeSdk {
       prompts: [],
       calls: [],
       contextUsageRequests: [],
+      elicitations: [],
       closed: false,
     };
     this.queries.push(record);
@@ -640,6 +728,19 @@ class FakeQuery {
         await sleep(step.ms);
       } else if (step.kind === 'message') {
         this.#emit(step.message, promptUuid);
+      } else if (step.kind === 'elicitation') {
+        const onElicitation = this.#record.options.onElicitation;
+        const answer =
+          onElicitation === undefined
+            ? { action: 'decline' }
+            : await onElicitation(step.request as unknown as Parameters<typeof onElicitation>[0], {
+                signal,
+                requestId: 'req-elicitation',
+              });
+        this.#record.elicitations.push(answer);
+        const accepted = (answer as { action?: string } | null)?.action === 'accept';
+        await this.#run(accepted ? step.accept : step.decline, delayMs, promptUuid, signal);
+        return;
       } else {
         const decision = await this.#permission(step, signal);
         const branch =

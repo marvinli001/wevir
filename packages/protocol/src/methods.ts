@@ -168,6 +168,15 @@ import {
   RepoHookResultSchema,
   RepoHookSetEnabledParamsSchema,
 } from './guardrails.js';
+import {
+  HookAddParamsSchema,
+  HookDeleteParamsSchema,
+  HookListParamsSchema,
+  HookListResultSchema,
+  HookResultSchema,
+  HookSetEnabledParamsSchema,
+  HookUpdateParamsSchema,
+} from './hooks.js';
 import { ImportMethodSchemas } from './imports.js';
 import {
   InboxChangedParamsSchema,
@@ -2900,6 +2909,35 @@ export const MethodSchemas = {
   'repoHook.setEnabled': {
     params: RepoHookSetEnabledParamsSchema,
     result: RepoHookResultSchema,
+    permission: 'policy.write',
+  },
+  /**
+   * 生命周期钩子（0.137.0，Host 功能 `lifecycle_hooks`，ADR-0023）：列出全部来源，增删改 Wevir 自己的，启用（信任）或停用任何一条。
+   * 变化经 `guardrail.changed` 通知。
+   */
+  'hook.list': {
+    params: HookListParamsSchema,
+    result: HookListResultSchema,
+    permission: 'workspace.read',
+  },
+  'hook.add': {
+    params: HookAddParamsSchema,
+    result: HookResultSchema,
+    permission: 'policy.write',
+  },
+  'hook.update': {
+    params: HookUpdateParamsSchema,
+    result: HookResultSchema,
+    permission: 'policy.write',
+  },
+  'hook.delete': {
+    params: HookDeleteParamsSchema,
+    result: EmptySchema,
+    permission: 'policy.write',
+  },
+  'hook.setEnabled': {
+    params: HookSetEnabledParamsSchema,
+    result: HookResultSchema,
     permission: 'policy.write',
   },
   /** 调优的建议（0.87.0）：生成调用会话的模型；采纳写项目文件、记忆与护栏。 */

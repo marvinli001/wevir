@@ -954,6 +954,8 @@ function packageSummary(
       ...safeConnector(config, secrets),
     })),
     skills: pkg.skills.map(({ name, description }) => ({ name, description })),
+    // 生命周期钩子（0.137.0）：装上即信任这一版，确认时列出完整命令。
+    hooks: pkg.hooks,
     inputs: pkg.inputs.map(({ key, label }) => ({ key, label, set: Boolean(inputs[key]) })),
     ignored: pkg.ignored,
   };

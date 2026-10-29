@@ -1019,6 +1019,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': '¿Permitir añadir este servidor MCP?',
   'approval.title.wevirConfig': '¿Permitir cambiar la configuración de Wevir?',
   'approval.title.pluginManage': '¿Permitir cambiar la configuración de plugins?',
+  'approval.title.openLink': '¿Abrir enlace?',
   'approval.title.browserOpen': '¿Permitir abrir una página en el navegador?',
   'approval.title.browserAct': '¿Permitir actuar sobre una página en el navegador?',
   'approval.title.browserClose': '¿Permitir cerrar una pestaña del navegador?',
@@ -1055,6 +1056,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Este proyecto',
   'approval.scope.global': 'Todos los proyectos',
   'approval.byRule': 'Permitido por regla',
+  'approval.byHook': 'Decidido por un hook',
   'approval.ended.timeout': 'Aprobación caducada: sin respuesta',
 
   'question.label': 'Preguntas pendientes',
@@ -3074,6 +3076,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': 'Nueva',
   'tuning.guardrails.rules': 'Reglas de barrera',
   'tuning.guardrails.repoHooks': 'Hooks del repositorio',
+  'tuning.guardrails.hooks': 'Hooks',
   'tuning.guardrails.approvalRules': 'Reglas de aprobación',
   'tuning.guardrails.codexOnly': 'Solo Codex',
   'tuning.guardrails.empty': 'Sin barreras',

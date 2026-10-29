@@ -23,6 +23,7 @@ import { errorCategory, questionId, userQuestions } from './opencode-adapter.js'
 import {
   childPermissionRules,
   DECLINE_FEEDBACK,
+  engineToolRules,
   permissionReply,
   permissionRules,
   SERVER_PERMISSION_CONFIG,
@@ -503,5 +504,25 @@ describe('adapter helpers', () => {
       isNotFound(new Error('x', { cause: { status: 400, body: { name: 'NotFoundError' } } })),
     ).toBe(false);
     expect(isNotFound(new Error('boom'))).toBe(false);
+  });
+});
+
+describe('角色关掉的引擎工具（engineToolRules）', () => {
+  it('每一类的权限写成 deny，接在完全访问的放行之后也盖得过', () => {
+    expect(engineToolRules(['shell', 'web'])).toEqual([
+      { permission: 'bash', pattern: '*', action: 'deny' },
+      { permission: 'webfetch', pattern: '*', action: 'deny' },
+      { permission: 'websearch', pattern: '*', action: 'deny' },
+      { permission: 'codesearch', pattern: '*', action: 'deny' },
+    ]);
+    expect(engineToolRules([])).toEqual([]);
+    const rules = [...permissionRules('full_access'), ...engineToolRules(['edit'])];
+    expect(rules.findLast((rule) => rule.permission === 'edit' || rule.permission === '*')).toEqual(
+      {
+        permission: 'edit',
+        pattern: '*',
+        action: 'deny',
+      },
+    );
   });
 });

@@ -77,11 +77,37 @@ export interface SessionConfig {
    */
   disabledHooks?: string[];
   /**
+   * 生命周期钩子的接点（0.137.0，ADR-0023）：只有 `hookCallbacks` 回答 true 的来源会收到。适配器为 `NATIVE_HOOK_EVENTS` 注册引擎自己的
+   * 回调（Claude Agent SDK 的 `hooks`），回调把事件交给 `run`、把结果原样交回引擎；同时停掉引擎自己从设置文件与插件执行 hooks
+   * （Claude：`disableAllHooks`），Wevir 之外没有第二条执行路径。恢复与分支会话时 Host 重新给。
+   */
+  hookTap?: HookTap;
+  /**
    * 环境的变量（0.130.0，domain-model §3.10）：Host 按会话的环境给，恢复与分出会话时按当时存的值重新给。能按会话设变量的适配器
    * 才用（Codex：`shell_environment_policy.set`，交给模型跑的命令；Claude：并进 `claude` 进程的环境），共用一个引擎进程的忽略。
    * 值是密钥，不得写进日志或事件。
    */
   env?: Record<string, string>;
+  /**
+   * 角色对引擎自带工具的限制（domain-model §3.15 的“角色”）：Host 按会话的角色给，恢复与分出会话时照样给。各适配器按引擎能做到的
+   * 程度执行（Claude 按名字精确去掉；Codex 关 shell、只读沙箱、关联网搜索；OpenCode 加 deny 规则；ACP 引擎拒掉这些类别的审批请求），
+   * 做不到的部分靠权限模式与角色说明。没有角色或角色不限引擎工具时省略。
+   */
+  engineTools?: EngineToolLimits;
+}
+
+/** 引擎自带工具的类别：读与搜索文件、改文件、跑命令、联网。 */
+export type EngineToolClass = 'read' | 'edit' | 'shell' | 'web';
+
+/**
+ * 角色对引擎自带工具的限制（`SessionConfig.engineTools`）。`denied` 是整类关掉的（只能按类关的引擎用它；角色只禁了某一类里的一个
+ * 工具时这一类也算关掉，宁严勿松）。`deniedNames` / `allowedNames` 是 Claude Code 的工具名（类别名已展开，`mcp__<服务>__<工具>` 与
+ * `mcp__<服务>__*` 原样），只有认这些名字的引擎（Claude）用：前者从模型的工具里去掉，后者是只许的内置工具（省略表示不按名字收窄）。
+ */
+export interface EngineToolLimits {
+  denied: EngineToolClass[];
+  deniedNames: string[];
+  allowedNames?: string[];
 }
 
 /**
@@ -94,6 +120,34 @@ export interface EngineHook {
   command: string;
   timeoutSec?: number;
   statusMessage?: string;
+}
+
+/**
+ * 经引擎接点转回 Host 的事件（0.137.0，ADR-0023）：工具前后、结束、压缩与子 agent 起止。会话起止、提交提示与权限请求由 Host 自己派发，
+ * 不经接点。
+ */
+export const NATIVE_HOOK_EVENTS = [
+  'PreToolUse',
+  'PostToolUse',
+  'Stop',
+  'PreCompact',
+  'PostCompact',
+  'SubagentStart',
+  'SubagentStop',
+] as const;
+export type NativeHookEvent = (typeof NATIVE_HOOK_EVENTS)[number];
+
+/** Host 执行生命周期钩子的入口（`SessionConfig.hookTap`）。 */
+export interface HookTap {
+  /**
+   * 执行这个事件的 hooks：`input` 是引擎给 hook 的输入（Claude Code 的形状，`hook_event_name` 等），返回 Claude Code 形状的 JSON 输出
+   * （没有要说的时是空对象）。不抛错：Host 内部的错误按放行处理。
+   */
+  run(
+    event: NativeHookEvent,
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown>>;
 }
 
 /** 规则文件的种类（0.68.0，protocol 的 `RuleFileKind` 已知的那几个）。 */

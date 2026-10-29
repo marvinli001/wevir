@@ -1017,6 +1017,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': 'Autoriser l’ajout de ce serveur MCP ?',
   'approval.title.wevirConfig': 'Autoriser la modification de la configuration de Wevir ?',
   'approval.title.pluginManage': 'Autoriser la modification de la configuration des plugins ?',
+  'approval.title.openLink': 'Ouvrir le lien ?',
   'approval.title.browserOpen': 'Autoriser l’ouverture d’une page dans le navigateur ?',
   'approval.title.browserAct': 'Autoriser les actions sur une page du navigateur ?',
   'approval.title.browserClose': 'Autoriser la fermeture d’un onglet du navigateur ?',
@@ -1052,6 +1053,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Ce projet',
   'approval.scope.global': 'Tous les projets',
   'approval.byRule': 'Autorisé par règle',
+  'approval.byHook': 'Décidé par un hook',
   'approval.ended.timeout': 'Approbation expirée : aucune réponse',
 
   'question.label': 'Questions en attente',
@@ -3079,6 +3081,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': 'Nouveau',
   'tuning.guardrails.rules': 'Règles de garde-fou',
   'tuning.guardrails.repoHooks': 'Hooks du dépôt',
+  'tuning.guardrails.hooks': 'Hooks',
   'tuning.guardrails.approvalRules': "Règles d'approbation",
   'tuning.guardrails.codexOnly': 'Codex uniquement',
   'tuning.guardrails.empty': 'Aucun garde-fou',

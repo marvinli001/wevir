@@ -13,6 +13,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type {
   ClientIdentity,
+  Hook,
+  HookCommandHandler,
   HostSettings,
   MethodParams,
   MethodResult,
@@ -21,7 +23,7 @@ import type {
   TurnId,
   WorkspaceId,
 } from '@wevir/protocol';
-import { MethodSchemas } from '@wevir/protocol';
+import { HOOK_EVENTS, MethodSchemas } from '@wevir/protocol';
 import { type AgentEvent, APP_TOOLS_SERVER, appToolBaseName } from '@wevir/runtime-adapter';
 import type { Storage } from '@wevir/storage';
 import {
@@ -145,8 +147,15 @@ const READ_SECTIONS = [
   'approval_rules',
   'usage',
   'lsp',
+  'hooks',
 ] as const;
-const CONFIGURE_TARGETS = ['project', 'environment', 'approval_rule', 'memory_note'] as const;
+const CONFIGURE_TARGETS = [
+  'project',
+  'environment',
+  'approval_rule',
+  'memory_note',
+  'hook',
+] as const;
 const CONFIGURE_ACTIONS = ['add', 'update', 'remove', 'enable', 'disable'] as const;
 const CHECK_ACTIONS = ['save', 'remove', 'repair', 'test_automation_check'] as const;
 const TOOLCHAIN_ACTIONS = [
@@ -320,8 +329,9 @@ export class ConfigTools {
       title: 'Read Wevir configuration',
       description:
         'Read Wevir setup: settings (and who may change each), projects, environments, checks (with candidate ' +
-        'commands), approval_rules, usage (cost of the last days, default 30) or lsp (language servers, install ' +
-        'plans). The other wevir_config_* tools change it.',
+        'commands), approval_rules, usage (cost of the last days, default 30), lsp (language servers, install ' +
+        'plans) or hooks (lifecycle hooks of every source, status, engines that run each event). The other ' +
+        'wevir_config_* tools change it.',
       inputSchema: objectSchema(
         {
           section: { type: 'string', enum: [...READ_SECTIONS] },
@@ -378,6 +388,8 @@ export class ConfigTools {
             return jsonResult(
               await this.#host(() => call('lsp.status', { workspaceId, sessionId })),
             );
+          case 'hooks':
+            return jsonResult(await this.#host(() => call('hook.list', { workspaceId })));
           default:
             throw new AppToolError(`section must be one of ${READ_SECTIONS.join(', ')}.`);
         }
@@ -458,7 +470,10 @@ export class ConfigTools {
         'remove; folders are [{"projectId","worktree":"none"|"new"}]; the user approves every environment change, ' +
         'and variable values are never shown back. approval_rule: add (prefix: command tokens such as ["pnpm","test"], ' +
         'scope "project" or "global") or remove (ruleId); commands starting with the prefix then run without asking, ' +
-        "so the user must approve. memory_note: enable or disable (scope, name); enabling needs the user's approval.",
+        "so the user must approve. memory_note: enable or disable (scope, name); enabling needs the user's approval. " +
+        'hook: Wevir lifecycle hooks (Claude Code format): add (event, optional matcher, command, timeout, onFailure, ' +
+        'name, scope), update (hookId and fields), remove, enable or disable (hookId); the user approves every hook ' +
+        'change. Hooks from the repository or plugins can only be enabled by the user on the settings page.',
       inputSchema: objectSchema(
         {
           target: { type: 'string', enum: [...CONFIGURE_TARGETS] },
@@ -485,6 +500,12 @@ export class ConfigTools {
           prefix: { type: 'array', items: { type: 'string' } },
           scope: { type: 'string', enum: ['project', 'global'] },
           ruleId: { type: 'string' },
+          hookId: { type: 'string' },
+          event: { type: 'string', enum: [...HOOK_EVENTS] },
+          matcher: { type: 'string' },
+          command: { type: 'string' },
+          timeout: { type: 'integer', minimum: 1, maximum: 600 },
+          onFailure: { type: 'string', enum: ['block', 'continue'] },
         },
         ['target', 'action'],
       ),
@@ -501,6 +522,8 @@ export class ConfigTools {
             return this.#approvalRule(action, args, call);
           case 'memory_note':
             return this.#memoryNote(action, args, call);
+          case 'hook':
+            return this.#hook(action, args, call);
           default:
             throw new AppToolError(`target must be one of ${CONFIGURE_TARGETS.join(', ')}.`);
         }
@@ -681,6 +704,119 @@ export class ConfigTools {
       }
       default:
         throw new AppToolError('approval_rule actions are add and remove.');
+    }
+  }
+
+  /** Wevir 自己的生命周期钩子（0.137.0，ADR-0023 决策 7）：每个改动都要用户批准；仓库与插件来源的不能经 Agent 启用。 */
+  async #hook(
+    action: (typeof CONFIGURE_ACTIONS)[number] | undefined,
+    args: Record<string, unknown>,
+    call: AppToolCall,
+  ): Promise<AppToolResult> {
+    const { workspaceId } = this.#caller(call.sessionId);
+    const host = this.#options.call;
+    const handlerOf = (command: string): HookCommandHandler => {
+      const timeout = optionalInt(args, 'timeout', 1, 600);
+      const onFailure = optionalEnum(args, 'onFailure', ['block', 'continue'] as const);
+      return {
+        type: 'command',
+        command,
+        ...(timeout !== undefined && { timeout }),
+        ...(onFailure !== undefined && { onFailure }),
+      };
+    };
+    const own = async (): Promise<Hook> => {
+      const hookId = requiredString(args, 'hookId');
+      const { hooks } = await this.#host(() => host('hook.list', { workspaceId }));
+      const hook = hooks.find((item) => item.id === hookId);
+      if (hook === undefined) throw new AppToolError(`No hook ${hookId}.`);
+      if (hook.source !== 'wevir') {
+        throw new AppToolError(
+          `Hook ${hookId} comes from ${hook.source === 'plugin' ? 'a plugin' : 'the repository or another app'}; only the user can enable or disable it on the settings page.`,
+        );
+      }
+      return hook;
+    };
+    switch (action) {
+      case 'add': {
+        const event = optionalEnum(args, 'event', HOOK_EVENTS);
+        if (event === undefined)
+          throw new AppToolError(`event must be one of ${HOOK_EVENTS.join(', ')}.`);
+        const command = requiredString(args, 'command');
+        const matcher = optionalString(args, 'matcher');
+        const name = optionalString(args, 'name');
+        const scope = optionalEnum(args, 'scope', ['project', 'global'] as const) ?? 'project';
+        const handler = handlerOf(command);
+        await this.#approve(call, 'wevir_config_update', args, {
+          action: 'Add a lifecycle hook that runs a command',
+          scope,
+          event,
+          ...(matcher !== undefined && { matcher }),
+          command,
+        });
+        const { hook } = await this.#host(() =>
+          host('hook.add', {
+            event,
+            handler,
+            ...(matcher !== undefined && { matcher }),
+            ...(name !== undefined && { name }),
+            ...(scope === 'project' && { workspaceId }),
+          }),
+        );
+        return jsonResult({ hook });
+      }
+      case 'update': {
+        const hook = await own();
+        const event = optionalEnum(args, 'event', HOOK_EVENTS);
+        const command = optionalString(args, 'command');
+        const matcher = optionalString(args, 'matcher');
+        const name = optionalString(args, 'name');
+        await this.#approve(call, 'wevir_config_update', args, {
+          action: 'Change a lifecycle hook',
+          event: event ?? hook.event,
+          ...((matcher ?? hook.matcher) !== undefined && { matcher: matcher ?? hook.matcher }),
+          command: command ?? hook.command,
+        });
+        const handler =
+          command !== undefined || args.timeout !== undefined || args.onFailure !== undefined
+            ? handlerOf(command ?? hook.command ?? '')
+            : undefined;
+        const { hook: updated } = await this.#host(() =>
+          host('hook.update', {
+            hookId: hook.id,
+            ...(event !== undefined && { event }),
+            ...(matcher !== undefined && { matcher }),
+            ...(name !== undefined && { name }),
+            ...(handler !== undefined && { handler }),
+          }),
+        );
+        return jsonResult({ hook: updated });
+      }
+      case 'remove': {
+        const hook = await own();
+        await this.#approve(call, 'wevir_config_update', args, {
+          action: 'Delete a lifecycle hook',
+          event: hook.event,
+          command: hook.command,
+        });
+        await this.#host(() => host('hook.delete', { hookId: hook.id }));
+        return jsonResult({ deleted: true });
+      }
+      case 'enable':
+      case 'disable': {
+        const hook = await own();
+        await this.#approve(call, 'wevir_config_update', args, {
+          action: action === 'enable' ? 'Enable a lifecycle hook' : 'Disable a lifecycle hook',
+          event: hook.event,
+          command: hook.command,
+        });
+        const { hook: updated } = await this.#host(() =>
+          host('hook.setEnabled', { hookId: hook.id, enabled: action === 'enable' }),
+        );
+        return jsonResult({ hook: updated });
+      }
+      default:
+        throw new AppToolError('hook actions are add, update, remove, enable and disable.');
     }
   }
 

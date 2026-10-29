@@ -2,18 +2,24 @@ import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter';
-import { isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
+import { isAdapterError, isTurnTerminal, MCP_URL_ELICITATION_TOOL } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ClaudeAccounts, withConfigDir } from './account.js';
 import {
   ClaudeAdapter,
   claudeProposedPlan,
   claudeRuleFiles,
+  engineToolOptions,
   PLAN_CAPTURED_MESSAGE,
 } from './claude-adapter.js';
 import { claudeLoginCommand } from './executable.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
-import { FakeClaudeSdk, loadRecording } from './test-fixtures/fake-sdk.js';
+import {
+  elicitationScript,
+  FakeClaudeSdk,
+  loadRecording,
+  mcpTaskScript,
+} from './test-fixtures/fake-sdk.js';
 import {
   FAKE_CLAUDE,
   type FakeHarness,
@@ -207,6 +213,58 @@ describe('一问一答（录音 plain）', () => {
     const env = sessionQueries(sdk)[0]?.options.env;
     expect(env).toMatchObject({ STRIPE_SECRET_KEY: 'sk_test_x', NODE_ENV: 'test' });
     expect(env?.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe('1');
+  });
+
+  it('生命周期钩子（0.137.0）：Claude 自己不执行设置文件里的 hooks；有接点时七种事件的回调转给 Host、结果原样交回', async () => {
+    const { adapter, sdk } = harness();
+    expect(adapter.hookCallbacks()).toBe(true);
+    const calls: Array<[string, unknown]> = [];
+    const plain = await adapter.createSession(CONFIG);
+    const tapped = await adapter.createSession({
+      ...CONFIG,
+      hookTap: {
+        run: async (event, input) => {
+          calls.push([event, input]);
+          return event === 'PreToolUse'
+            ? { hookSpecificOutput: { hookEventName: event, permissionDecision: 'deny' } }
+            : {};
+        },
+      },
+    });
+    for (const id of [plain.engineSessionId, tapped.engineSessionId]) {
+      const log = collect(adapter, id);
+      await adapter.send(id, text('hi'));
+      await log.until(isTurnTerminal);
+    }
+    const [first, second] = sessionQueries(sdk);
+    expect(first?.options.settings).toMatchObject({ disableAllHooks: true });
+    expect(first?.options.hooks).toBeUndefined();
+    expect(second?.options.settings).toMatchObject({ disableAllHooks: true });
+    const hooks = second?.options.hooks ?? {};
+    expect(Object.keys(hooks).sort()).toEqual(
+      [
+        'PostCompact',
+        'PostToolUse',
+        'PreCompact',
+        'PreToolUse',
+        'Stop',
+        'SubagentStart',
+        'SubagentStop',
+      ].sort(),
+    );
+    const callback = hooks.PreToolUse?.[0]?.hooks[0];
+    const input = {
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+    };
+    const output = await callback?.(input as never, 'toolu_1', {
+      signal: new AbortController().signal,
+    });
+    expect(output).toEqual({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' },
+    });
+    expect(calls).toEqual([['PreToolUse', input]]);
   });
 
   it('规则文件（0.68.0）：Host 补的接在预设系统提示词后面；不补时只有预设；读哪些按 claude 的版本', async () => {
@@ -1361,5 +1419,135 @@ describe('添加的账号（0.63.0）', () => {
         'win32',
       ),
     ).toBe("$env:CLAUDE_CONFIG_DIR='C:\\W\\claude'; & 'C:\\W\\runtime\\claude.exe' auth login");
+  });
+});
+
+describe('连接器的 MCP elicitation 与 Task', () => {
+  const FORM = {
+    serverName: 'tickets',
+    message: 'New ticket',
+    mode: 'form',
+    requestedSchema: {
+      type: 'object',
+      properties: { title: { type: 'string', title: 'Title' } },
+      required: ['title'],
+    },
+  };
+  const URL_REQUEST = {
+    serverName: 'tickets',
+    message: 'Authorize the ticket tracker',
+    mode: 'url',
+    url: 'https://tickets.example.com/authorize',
+    elicitationId: 'el-1',
+  };
+
+  it('表单换成提问，回答回给 MCP 服务', async () => {
+    const { adapter, sdk } = harness({
+      script: (prompt) => (prompt === 'form' ? elicitationScript(FORM) : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('form'));
+    const asked = await log.until((event) => event.type === 'question.requested');
+    expect(asked).toMatchObject({
+      questions: [
+        { id: 'title', header: 'Title', question: 'New ticket\n\nTitle', allowOther: true },
+      ],
+    });
+    if (asked.type !== 'question.requested') throw new Error('unreachable');
+    await adapter.respondToQuestion(engineSessionId, asked.requestId, { title: ['Broken login'] });
+    await log.until(isTurnTerminal);
+    expect(sessionQueries(sdk)[0]?.elicitations).toEqual([
+      { action: 'accept', content: { title: 'Broken login' } },
+    ]);
+  });
+
+  it.each([
+    ['accept', 'completed'],
+    ['decline', 'failed'],
+  ] as const)('链接换成工具调用加“打开链接”的审批：%s', async (optionId, status) => {
+    const { adapter, sdk } = harness({
+      script: (prompt) => (prompt === 'url' ? elicitationScript(URL_REQUEST) : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('url'));
+    const approval = (await log.until(
+      (event) => event.type === 'approval.requested',
+    )) as ApprovalRequestedEvent;
+    expect(log.events.find((event) => event.type === 'tool.started')).toMatchObject({
+      toolCallId: approval.toolCallId,
+      toolName: MCP_URL_ELICITATION_TOOL,
+      display: {
+        kind: 'fetch',
+        url: 'https://tickets.example.com/authorize',
+        mcpServer: 'tickets',
+      },
+    });
+    await adapter.respondToApproval(engineSessionId, approval.requestId, { optionId });
+    await log.until(isTurnTerminal);
+    expect(log.events.find((event) => event.type === 'tool.finished')).toMatchObject({ status });
+    expect(sessionQueries(sdk)[0]?.elicitations).toEqual([{ action: optionId }]);
+  });
+
+  it('没有回合时 Claude 自己开的一轮（MCP Task 做完后的唤醒）报成 turn.started 开头的回合', async () => {
+    const { adapter } = harness({
+      script: (prompt) => (prompt === 'export' ? mcpTaskScript() : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('export'));
+    await log.until(isTurnTerminal);
+    const first = log.events.length;
+    const started = await log.until((event) => event.type === 'turn.started', first);
+    expect(started).toEqual({ type: 'turn.started', engineSessionId });
+    const settled = await log.until(isTurnTerminal, first);
+    expect(settled).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    const wake = log.events.slice(first);
+    expect(wake.find((event) => event.type === 'assistant.message')).toMatchObject({
+      text: 'The export is done.',
+    });
+    expect(wake.some((event) => event.type === 'engine.raw' && event.method === 'result')).toBe(
+      false,
+    );
+  });
+});
+
+describe('角色对引擎工具的限制', () => {
+  it('关掉的类别与名字进 disallowedTools，只许的内置工具进 tools', async () => {
+    expect(engineToolOptions(undefined)).toEqual({});
+    expect(engineToolOptions({ denied: ['shell'], deniedNames: ['mcp__github__*'] })).toEqual({
+      disallowedTools: [
+        'Bash',
+        'BashOutput',
+        'KillShell',
+        'KillBash',
+        'PowerShell',
+        'mcp__github__*',
+      ],
+    });
+    expect(
+      engineToolOptions({
+        denied: ['web'],
+        deniedNames: [],
+        allowedNames: ['Read', 'Grep', 'mcp__tickets__list'],
+      }),
+    ).toEqual({ disallowedTools: ['WebFetch', 'WebSearch'], tools: ['Read', 'Grep'] });
+
+    const { adapter, sdk } = harness();
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      engineTools: { denied: ['edit'], deniedNames: ['Edit'] },
+    });
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    expect(sessionQueries(sdk)[0]?.options.disallowedTools).toEqual([
+      'Edit',
+      'MultiEdit',
+      'Write',
+      'NotebookEdit',
+    ]);
+    expect(sessionQueries(sdk)[0]?.options.tools).toBeUndefined();
   });
 });

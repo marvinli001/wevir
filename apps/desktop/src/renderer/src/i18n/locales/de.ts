@@ -1014,6 +1014,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': 'Hinzufügen dieses MCP-Servers erlauben?',
   'approval.title.wevirConfig': 'Änderung der Wevir-Konfiguration erlauben?',
   'approval.title.pluginManage': 'Änderung der Plugin-Konfiguration erlauben?',
+  'approval.title.openLink': 'Link öffnen?',
   'approval.title.browserOpen': 'Öffnen einer Seite im Browser erlauben?',
   'approval.title.browserAct': 'Bedienen einer Seite im Browser erlauben?',
   'approval.title.browserClose': 'Schließen eines Browser-Tabs erlauben?',
@@ -1049,6 +1050,7 @@ export const messages: Messages = {
   'approval.scope.project': 'Dieses Projekt',
   'approval.scope.global': 'Alle Projekte',
   'approval.byRule': 'Per Regel erlaubt',
+  'approval.byHook': 'Per Hook entschieden',
   'approval.ended.timeout': 'Freigabe abgelaufen: keine Antwort',
 
   'question.label': 'Offene Fragen',
@@ -3067,6 +3069,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': 'Neu',
   'tuning.guardrails.rules': 'Leitplankenregeln',
   'tuning.guardrails.repoHooks': 'Repository-Hooks',
+  'tuning.guardrails.hooks': 'Hooks',
   'tuning.guardrails.approvalRules': 'Freigaberegeln',
   'tuning.guardrails.codexOnly': 'Nur Codex',
   'tuning.guardrails.empty': 'Keine Leitplanken',

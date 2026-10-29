@@ -10,6 +10,7 @@ import {
   type ApprovalRequest,
   type ApprovalResolution,
   type ClientIdentity,
+  MCP_URL_ELICITATION_TOOL,
   type ProviderProfile,
   type Session,
   SUBSCRIPTION_KINDS,
@@ -68,6 +69,16 @@ export function presentApproval(
   if (!detail) {
     return { title: t(scope?.sandboxed ? 'approval.title.outside' : 'approval.title.generic') };
   }
+  const link = elicitationLink(approval);
+  if (link !== undefined) {
+    const message = isRecord(detail.input) ? detail.input.message : undefined;
+    return {
+      title: t('approval.title.openLink'),
+      target: link,
+      ...(typeof message === 'string' &&
+        message.trim() !== '' && { justification: message.trim() }),
+    };
+  }
   const kind = detail.display.kind;
   const title = t(titleKey(detail, scope));
   const target = (
@@ -93,6 +104,23 @@ export function presentApproval(
     };
   }
   return presentation;
+}
+
+/**
+ * 连接器要用户打开的链接（URL 模式的 MCP elicitation）：允许时客户端在浏览器里打开它。只认 http 与 https（Host 那边已经筛过，
+ * 这里再挡一次）。
+ */
+export function elicitationLink(approval: Pick<ApprovalRequest, 'detail'>): string | undefined {
+  const detail = approval.detail;
+  if (detail?.toolName !== MCP_URL_ELICITATION_TOOL || !isRecord(detail.input)) return undefined;
+  const url = detail.input.url;
+  if (typeof url !== 'string') return undefined;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -182,6 +210,7 @@ export function resolutionText(
   self: ClientIdentity | undefined,
 ): string {
   if (resolution.reason === 'rule') return t('approval.byRule');
+  if (resolution.reason === 'hook') return t('approval.byHook');
   if (resolution.reason !== 'user') return t(`approval.ended.${resolution.reason}`);
   const option = approval.options.find((candidate) => candidate.optionId === resolution.optionId);
   const decision = option ? optionLabel(option) : (resolution.optionId ?? '');

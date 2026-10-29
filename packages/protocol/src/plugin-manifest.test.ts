@@ -42,7 +42,12 @@ const full = {
 };
 
 describe('WevirPluginManifestSchema', () => {
-  it.each([minimal, full, { ...minimal, connectors: './connectors.json' }])('合法 %#', (value) => {
+  it.each([
+    minimal,
+    full,
+    { ...minimal, connectors: './connectors.json' },
+    { ...minimal, hooks: './hooks.json' },
+  ])('合法 %#', (value) => {
     expect(WevirPluginManifestSchema.safeParse(value).error?.issues).toBeUndefined();
   });
 
@@ -54,7 +59,7 @@ describe('WevirPluginManifestSchema', () => {
     ['id 里有下划线', { ...minimal, id: 'a_b' }],
     ['id 过长', { ...minimal, id: 'a'.repeat(65) }],
     ['非 semver', { ...minimal, version: '1.0' }],
-    ['未知字段', { ...minimal, hooks: './hooks.json' }],
+    ['未知字段', { ...minimal, commands: './commands' }],
     ['越界路径', { ...minimal, skills: '../skills' }],
     ['绝对路径', { ...minimal, skills: '/skills' }],
     ['中间的 ..', { ...minimal, connectors: './a/../../b.json' }],

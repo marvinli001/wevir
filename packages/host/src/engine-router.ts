@@ -100,6 +100,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly ruleFiles?: AgentRuntimeAdapter['ruleFiles'];
   readonly prewarm?: AgentRuntimeAdapter['prewarm'];
   readonly hookDialect?: AgentRuntimeAdapter['hookDialect'];
+  readonly hookCallbacks?: AgentRuntimeAdapter['hookCallbacks'];
   readonly appToolsContextInPrompt?: AgentRuntimeAdapter['appToolsContextInPrompt'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
   readonly deleteSession?: AgentRuntimeAdapter['deleteSession'];
@@ -215,6 +216,10 @@ export class EngineRouter implements AgentRuntimeAdapter {
       // 护栏（0.86.0）：问承载这个 Provider 的引擎会不会挂 hooks；不认识的 Provider 不会。
       this.hookDialect = (providerId) =>
         this.#routeOf(providerId)?.adapter.hookDialect?.(providerId);
+    }
+    if (adapters.some((adapter) => adapter.hookCallbacks !== undefined)) {
+      this.hookCallbacks = (providerId) =>
+        this.#routeOf(providerId)?.adapter.hookCallbacks?.(providerId) === true;
     }
     if (adapters.some((adapter) => adapter.appToolsContextInPrompt !== undefined)) {
       // 问承载这个 Provider 的引擎把应用级工具的会话上下文放在哪；不认识的 Provider 照旧放 MCP 说明。

@@ -823,7 +823,11 @@ export class RpcConnection {
         if (method.startsWith('market.')) this.#watchMarket();
         if (method.startsWith('power.')) this.#watchPower();
         if (method.startsWith('tuning.')) this.#watchTuning();
-        if (method.startsWith('guardrail.') || method.startsWith('repoHook.')) {
+        if (
+          method.startsWith('guardrail.') ||
+          method.startsWith('repoHook.') ||
+          method.startsWith('hook.')
+        ) {
           this.#watchGuardrails();
         }
         if (method.startsWith('terminal.')) this.#watchTerminals();
@@ -1708,6 +1712,23 @@ export function adaptEventForClient(
     return {
       ...event,
       payload: { ...event.payload, resolution: { ...event.payload.resolution, reason: 'user' } },
+    };
+  }
+  // COMPAT(hookDecisions): added in 0.137.0, remove gate after 2027-06-01
+  if (
+    event.type === 'approval.resolved' &&
+    event.payload.resolution.reason === 'hook' &&
+    capabilities.hook_decisions !== true
+  ) {
+    return {
+      ...event,
+      payload: {
+        ...event.payload,
+        resolution: {
+          ...event.payload.resolution,
+          reason: capabilities.approval_rules === true ? 'rule' : 'user',
+        },
+      },
     };
   }
   // COMPAT(approvalTimeout): added in 0.105.0, remove gate after 2027-06-01

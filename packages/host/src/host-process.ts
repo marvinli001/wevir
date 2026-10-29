@@ -55,6 +55,8 @@ import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
 import { GuardrailService } from './guardrails/service.js';
 import { homePath } from './home.js';
+import { HookDispatcher } from './hooks/dispatcher.js';
+import { HookService } from './hooks/service.js';
 import {
   addWorkspace,
   createHostMethods,
@@ -313,6 +315,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let notifications: NotificationService | undefined;
   let approvalRules: ApprovalRuleService | undefined;
   let guardrails: GuardrailService | undefined;
+  let hookService: HookService | undefined;
+  let hookDispatcher: HookDispatcher | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -526,7 +530,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       plugins,
     });
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
-    const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
+    // 用户级的 Claude Code 与 Codex agent 也当角色（external-agents.ts），主目录同导入。
+    const roles = new RoleStore({
+      dir: homePath(home, 'rolesDir'),
+      externalHome: {
+        userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
+        env: process.env,
+      },
+    });
     // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
     // 改动写进根会话的事件流（0.52.0 的 tasks.board_updated），桌面端据此显示清单。
     // 频道的清单（0.120.0）根是频道 ID，改动交给频道服务推给订阅者。
@@ -623,6 +634,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       .catch((error: unknown) => logger.warn('tuning blob cleanup failed', { error }));
     // 护栏（0.86.0）：规则文件与检查程序在数据目录；只有认 Codex hooks 的引擎挂得上。
     const workspaces = storage.workspaces;
+    const providerStore = storage.providers;
     guardrails = new GuardrailService({
       checker: guardrailChecker(homePath(home, 'guardrailsDir')),
       workspaceRoot: (workspaceId) => {
@@ -637,12 +649,66 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     guardrails.watch((change, { hitsOnly }) => {
       if (!hitsOnly) tuning.changed(change.workspaceId);
     });
+    // 生命周期钩子（0.137.0，ADR-0023）：Wevir 统一执行；Codex 经检查程序的 `--forward` 转回 `POST /hooks`，Claude 经进程内回调。
+    const guardrailService = guardrails;
+    const hookChecker = guardrailChecker(homePath(home, 'guardrailsDir'));
+    const hooksDir = homePath(home, 'hooksDir');
+    const engineOf = (providerId: string) => {
+      const kind = providerStore.get(providerId)?.kind;
+      if (adapter.hookDialect?.(providerId) === 'codex')
+        return { engine: 'codex', tap: 'codex' as const };
+      if (adapter.hookCallbacks?.(providerId) === true) {
+        return { engine: kind ?? 'claude', tap: 'callback' as const };
+      }
+      return kind === undefined ? undefined : { engine: kind };
+    };
+    hookService = new HookService({
+      dir: hooksDir,
+      workspaceRoot: (workspaceId) => {
+        const workspace = workspaces.get(workspaceId);
+        return workspace === undefined || workspace.removedAt !== undefined
+          ? undefined
+          : workspace.rootPath;
+      },
+      plugins: () => plugins.installedPackages(),
+      ...(adapter.hookCallbacks !== undefined && {
+        claudeUserSettings: () => ({
+          path: join(process.env.CLAUDE_CONFIG_DIR ?? join(userHome, '.claude'), 'settings.json'),
+          label: '~/.claude/settings.json',
+        }),
+      }),
+      codexRepoHooks: {
+        list: (workspaceId) => guardrailService.repoHooks(workspaceId),
+        setEnabled: (workspaceId, hookId, enabled) =>
+          guardrailService.setRepoHookEnabled(workspaceId, hookId, enabled),
+      },
+      support: () => hookDispatcher?.support() ?? [],
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    hookService.watch((change) => tuning.changed(change.workspaceId));
+    hookDispatcher = new HookDispatcher({
+      service: hookService,
+      engineOf,
+      checker: hookChecker,
+      guardrailKinds: (workspaceId) =>
+        new Set(
+          guardrailService
+            .list(workspaceId)
+            .filter((guardrail) => guardrail.enabled)
+            .map((guardrail) => guardrail.rule.kind),
+        ),
+      tapDir: join(hooksDir, 'taps'),
+      providers: () => providerStore.list(),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    const dispatcher = hookDispatcher;
     const manager = new SessionManager({
       storage,
       events: store,
       adapter,
       approvalRules,
       guardrails,
+      hooks: dispatcher,
       // 助理的规矩（0.132.0）：助理的会话里引擎要批准时，按规矩替用户答。
       approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
       appTools: {
@@ -670,6 +736,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         dispose: () => appTools?.plugins?.close(),
       },
+      // 角色对引擎自带工具的限制：按会话的角色现算。
+      engineTools: async (sessionId) => appTools?.engineToolLimits(sessionId),
       // 只给某个项目的连接器（0.74.0）：按会话所在的工作区交给引擎。
       projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
       // 环境变量（0.130.0）：建立、恢复与分出环境的会话时现读。
@@ -760,6 +828,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       profile: { ensure: (workspaceId) => tuning.ensure(workspaceId) },
     });
     sessions = manager;
+    const hookIdentity = {
+      deviceId: hostId,
+      clientId: 'wevir-hooks',
+      clientKind: 'desktop' as const,
+    };
+    dispatcher.bind({
+      info: (sessionId) => manager.hookInfo(sessionId),
+      outcome: (sessionId, outcome) => manager.hookOutcome(sessionId, outcome),
+      guardrailBlocked: (sessionId, marker) => manager.hookGuardrail(sessionId, marker),
+      continueTurn: (sessionId, text, hookId) =>
+        manager.continueAfterHook(sessionId, text, hookId, hookIdentity),
+    });
+    store.listenAll((event) => dispatcher.onEvent(event));
     // 自动化（0.66.0，automations/service.ts）：Host 自己计时，到点开会话、发指令；对账之后再开始计时。
     automations = new AutomationService({
       dir: homePath(home, 'automationsDir'),
@@ -1483,6 +1564,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           approvalRules,
           tuning,
           ...(guardrails !== undefined && { guardrails }),
+          ...(hookService !== undefined && { hooks: hookService }),
           ...(proposals !== undefined && { proposals }),
           ...(trials !== undefined && { trials }),
           ...(autoTuner !== undefined && { autoTuner }),
@@ -1584,6 +1666,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(previews !== undefined && { dev_preview: true }),
         tuning: true,
         ...(adapter.hookDialect !== undefined && { tuning_guardrails: true }),
+        ...(hookService !== undefined && { lifecycle_hooks: true }),
         ...(proposals !== undefined && { tuning_proposals: true, tuning_auto: true }),
         plugin_market: true,
         market_files: true,
@@ -1631,7 +1714,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       office,
       market,
       power: keepAwake,
-      ...(guardrails !== undefined && { guardrails }),
+      // 护栏与生命周期钩子的变化都经 `guardrail.changed`。
+      ...(guardrails !== undefined && {
+        guardrails: {
+          watch: (listener: (change: { workspaceId?: WorkspaceId }) => void) => {
+            const off = [
+              guardrails?.watch((change) => listener(change)),
+              hookService?.watch(listener),
+            ];
+            return () => {
+              for (const stop of off) stop?.();
+            };
+          },
+        },
+      }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
       ...(lspStatus !== undefined && { lsp: lspStatus }),
@@ -1648,7 +1744,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
       httpHandler: (req, res) =>
-        fileUrls.handle(req, res) || mcpRemote.handle(req, res) || (mcp?.handle(req, res) ?? false),
+        fileUrls.handle(req, res) ||
+        mcpRemote.handle(req, res) ||
+        (hookDispatcher?.handle(req, res) ?? false) ||
+        (mcp?.handle(req, res) ?? false),
       onError: (error) => logger.error('rpc error', { error }),
     });
     rpc = server;
@@ -1659,6 +1758,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     remoteListener.refresh();
     settings.watch(() => remoteListener.refresh());
     mcp?.setPort(server.port);
+    hookDispatcher?.setPort(server.port);
     fileUrls.setPort(server.port);
     // 代理有了端口，已登录的 OAuth 连接器才交给引擎；还没判断过要不要 OAuth 的远程服务在后台探测一遍。
     mcpOAuth.setPort(server.port);

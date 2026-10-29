@@ -11,6 +11,8 @@ export * from './errors.js';
 export * from './events.js';
 export * from './git.js';
 export * from './guardrails.js';
+export * from './hooks.js';
+export * from './hooks.js';
 export * from './imports.js';
 export * from './inbox.js';
 export * from './jsonrpc.js';

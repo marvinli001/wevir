@@ -4,7 +4,7 @@
 // （use-guardrails.ts），审批规则取档案层的条目。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type { Guardrail, ProfileLayer, RepoHook, WorkspaceId } from '@wevir/protocol';
+import type { Guardrail, ProfileLayer, WorkspaceId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Ellipsis, Pencil, Plus, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
@@ -37,7 +37,7 @@ import {
   ruleSummary,
 } from './guardrails-model';
 import { layerName, layerScopes, layerSummary, scopeName, shortHash } from './tuning-model';
-import { useGuardrails } from './use-guardrails';
+import { type ListedHook, useGuardrails } from './use-guardrails';
 
 export function GuardrailsLayerRow({
   client,
@@ -46,9 +46,12 @@ export function GuardrailsLayerRow({
   expanded,
   onToggle,
   onExpand,
+  lifecycleHooks = false,
 }: {
   client: WevirClient;
   layer: ProfileLayer;
+  /** Host 有生命周期钩子（0.137.0）：列 `hook.list` 的全部来源，启停经 `hook.setEnabled`。 */
+  lifecycleHooks?: boolean;
   /** 选中的项目；全局范围时省略。 */
   workspaceId: string | undefined;
   expanded: boolean;
@@ -56,7 +59,7 @@ export function GuardrailsLayerRow({
   /** 新建后展开这一层，看得到新规则。 */
   onExpand: () => void;
 }) {
-  const data = useGuardrails(client, workspaceId);
+  const data = useGuardrails(client, workspaceId, lifecycleHooks);
   const [editing, setEditing] = useState<GuardrailDraft>();
   const [deleting, setDeleting] = useState<Guardrail>();
   const [failure, setFailure] = useState<string>();
@@ -143,10 +146,12 @@ export function GuardrailsLayerRow({
             </ul>
           )}
         </Group>
-        {workspaceId !== undefined &&
+        {(workspaceId !== undefined || lifecycleHooks) &&
           data.data !== undefined &&
           (data.data.hooks.length > 0 || data.data.warnings.length > 0) && (
-            <Group title={t('tuning.guardrails.repoHooks')}>
+            <Group
+              title={t(lifecycleHooks ? 'tuning.guardrails.hooks' : 'tuning.guardrails.repoHooks')}
+            >
               <ul className="space-y-px" data-testid="guardrail-repo-hooks">
                 {data.data.hooks.map((hook) => (
                   <HookRow
@@ -154,11 +159,19 @@ export function GuardrailsLayerRow({
                     hook={hook}
                     onToggle={(enabled) =>
                       act(() =>
-                        client.request('repoHook.setEnabled', {
-                          workspaceId: workspaceId as WorkspaceId,
-                          hookId: hook.id,
-                          enabled,
-                        }),
+                        lifecycleHooks
+                          ? client.request('hook.setEnabled', {
+                              ...(workspaceId !== undefined && {
+                                workspaceId: workspaceId as WorkspaceId,
+                              }),
+                              hookId: hook.id,
+                              enabled,
+                            })
+                          : client.request('repoHook.setEnabled', {
+                              workspaceId: workspaceId as WorkspaceId,
+                              hookId: hook.id,
+                              enabled,
+                            }),
                       )
                     }
                   />
@@ -294,15 +307,20 @@ function RuleRow({
   );
 }
 
-function HookRow({ hook, onToggle }: { hook: RepoHook; onToggle: (enabled: boolean) => void }) {
+function HookRow({ hook, onToggle }: { hook: ListedHook; onToggle: (enabled: boolean) => void }) {
   const label = repoHookLabel(hook);
   const status = repoHookStatus(hook);
+  // 只在某些引擎上跑的（`.claude/`、`.codex/`、Claude / Codex 插件）在提示里写出引擎。
+  const engines = 'engines' in hook && !hook.engines.includes('*') ? hook.engines : [];
+  const title = [label, hook.matcher, engines.join(', ')]
+    .filter((part) => part !== undefined && part !== '')
+    .join(' · ');
   return (
     <li
       className="flex h-8 min-w-0 items-center gap-2 text-xs"
       data-repo-hook={hook.id}
       data-status={hook.status}
-      title={hook.matcher === undefined ? label : `${label} · ${hook.matcher}`}
+      title={title}
     >
       <span className="min-w-0 flex-1 truncate font-mono">{label}</span>
       {status !== undefined && (

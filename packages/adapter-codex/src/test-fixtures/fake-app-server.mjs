@@ -9,7 +9,8 @@
 // - initialize / thread/start / thread/resume / thread/unsubscribe / turn/start / turn/interrupt 有回应，其余回 -32601。
 // - `--thread-read-empty <n>`：也回应 thread/read，每个 thread 的前 n 次照真实二进制回 rollout 还是空的（-32603），之后
 //   给出昵称 Ampere（子 agent 刚报出时 rollout 还没写下的竞争）。不带这个参数时 thread/read 回 -32601。
-// - 审批：样本里的 `{"serverRequest": …}` 发给客户端，等它回复 `{decision}`，接着回放 `<样本名>.<决定>.jsonl`
+// - 审批：样本里的 `{"serverRequest": …}` 发给客户端，等它回复 `{decision}`（MCP 的 elicitation 是 `{action}`），接着回放
+//   `<样本名>.<决定>.jsonl`；客户端的回复逐行记在 cwd 下的 fake-replies.jsonl
 //   （acceptForSession 用 accept 的分支）；审批未决时 `turn/interrupt` 回放 `<样本名>.interrupt.jsonl`（turn/completed
 //   之后才是 serverRequest/resolved，与真实的顺序相同）。
 // - 恢复：有过回合的 thread 记在 cwd（CODEX_HOME）下的 fake-threads.json，进程被杀、重启之后照样能 thread/resume；没
@@ -151,7 +152,12 @@ async function replay(turn, name) {
       waiting.delete(id);
       if (turn.ended || answer === 'interrupt') return;
       turn.pending = undefined;
-      const decision = answer?.result?.decision;
+      // MCP 的 elicitation 回 `{action}`（0.163.0 的 McpServerElicitationRequestResponse），按它选分支。
+      const decision = answer?.result?.decision ?? answer?.result?.action;
+      appendFileSync(
+        join(process.cwd(), 'fake-replies.jsonl'),
+        `${JSON.stringify({ method: line.serverRequest.method, result: answer?.result })}\n`,
+      );
       await replay(turn, `${name}.${decision === 'acceptForSession' ? 'accept' : decision}`);
       return;
     }

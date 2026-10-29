@@ -1005,6 +1005,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': 'この MCP サーバーの追加を許可しますか？',
   'approval.title.wevirConfig': 'Wevir の設定の変更を許可しますか？',
   'approval.title.pluginManage': 'プラグイン設定の変更を許可しますか？',
+  'approval.title.openLink': 'リンクを開きますか？',
   'approval.title.browserOpen': 'ブラウザでページを開くことを許可しますか？',
   'approval.title.browserAct': 'ブラウザのページを操作することを許可しますか？',
   'approval.title.browserClose': 'ブラウザのタブを閉じることを許可しますか？',
@@ -1041,6 +1042,7 @@ export const messages: Messages = {
   'approval.scope.project': 'このプロジェクト',
   'approval.scope.global': 'すべてのプロジェクト',
   'approval.byRule': 'ルールで許可済み',
+  'approval.byHook': 'フックで処理済み',
   'approval.ended.timeout': '承認の期限切れ：応答なし',
 
   'question.label': '未回答の質問',
@@ -3022,6 +3024,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': '新規',
   'tuning.guardrails.rules': 'ガードレールルール',
   'tuning.guardrails.repoHooks': 'リポジトリ hooks',
+  'tuning.guardrails.hooks': 'フック',
   'tuning.guardrails.approvalRules': '承認ルール',
   'tuning.guardrails.codexOnly': 'Codex のみ',
   'tuning.guardrails.empty': 'ガードレールなし',

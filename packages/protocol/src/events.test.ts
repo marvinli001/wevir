@@ -121,6 +121,7 @@ function describeEvent(event: WevirEvent): string {
     case 'review.findings':
       return event.payload.origin;
     case 'guardrail.blocked':
+    case 'hook.outcome':
       return event.payload.action;
     case 'session.auto_continue':
       return event.payload.resumeAt ?? '';

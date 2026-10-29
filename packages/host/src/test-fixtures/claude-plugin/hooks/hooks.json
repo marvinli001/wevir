@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/format.sh" }]
+      }
+    ],
+    "Stop": [{ "hooks": [{ "type": "prompt", "prompt": "Is the task done?" }] }]
+  }
+}

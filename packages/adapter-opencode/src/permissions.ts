@@ -20,7 +20,7 @@
 // 因此什么都不做就答完了。Wevir 改为给自己起的服务器加一层配置（SERVER_PERMISSION_CONFIG，经 OPENCODE_CONFIG_CONTENT）：
 // 命令、改文件与联网对所有 agent 都是 ask，子会话在那一步里照样能用工具、越界的照样问；会话自己的规则仍然盖过它。
 
-import type { ApprovalOption, PermissionMode } from '@wevir/runtime-adapter';
+import type { ApprovalOption, EngineToolClass, PermissionMode } from '@wevir/runtime-adapter';
 import { isAppToolsPlugin, type OpenCodePluginEntry } from './app-tools.js';
 import type { PermissionRule, PermissionRuleset } from './sdk.js';
 
@@ -53,6 +53,28 @@ export const RESTRICTED_PERMISSIONS: readonly string[] = Object.freeze([
   'external_directory',
   'doom_loop',
 ]);
+
+/** 引擎工具的类别 → OpenCode 的权限名（`edit` 也管 write 与 patch）。 */
+const ENGINE_TOOL_PERMISSIONS: Readonly<Record<EngineToolClass, readonly string[]>> = {
+  read: ['read', 'glob', 'grep', 'list', 'lsp'],
+  edit: ['edit'],
+  shell: ['bash'],
+  web: ['webfetch', 'websearch', 'codesearch'],
+};
+
+/**
+ * 角色关掉的引擎工具（`SessionConfig.engineTools`）：每一类的权限都写成 deny，接在模式的规则后面（最后命中的生效），完全访问也
+ * 盖不过它。opencode 把最后命中 `*` 的 deny 的工具整个藏起来，模型看不到。
+ */
+export function engineToolRules(denied: readonly EngineToolClass[]): PermissionRuleset {
+  return denied.flatMap((kind) =>
+    ENGINE_TOOL_PERMISSIONS[kind].map((permission) => ({
+      permission,
+      pattern: '*',
+      action: 'deny' as const,
+    })),
+  );
+}
 
 /**
  * 会话的规则集（T3 的 `openCodePermissionRules` / `buildOpenCodePermissionRules`，去掉了给子会话继承的 deny 前缀，见文件头）。

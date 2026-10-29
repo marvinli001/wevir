@@ -999,6 +999,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': '允許新增此 MCP 伺服器？',
   'approval.title.wevirConfig': '允許變更 Wevir 的設定？',
   'approval.title.pluginManage': '允許變更外掛程式設定？',
+  'approval.title.openLink': '開啟連結？',
   'approval.title.browserOpen': '允許在瀏覽器中開啟網頁？',
   'approval.title.browserAct': '允許操作瀏覽器中的網頁？',
   'approval.title.browserClose': '允許關閉瀏覽器分頁？',
@@ -1033,6 +1034,7 @@ export const messages: Messages = {
   'approval.scope.project': '本專案',
   'approval.scope.global': '所有專案',
   'approval.byRule': '已依規則允許',
+  'approval.byHook': '已由鉤子處理',
   'approval.ended.timeout': '核准已過期：無人處理',
 
   'question.label': '待回答的問題',
@@ -2997,6 +2999,7 @@ export const messages: Messages = {
   'tuning.guardrails.new': '新增',
   'tuning.guardrails.rules': '護欄規則',
   'tuning.guardrails.repoHooks': '倉庫 hooks',
+  'tuning.guardrails.hooks': '鉤子',
   'tuning.guardrails.approvalRules': '審批規則',
   'tuning.guardrails.codexOnly': '僅 Codex',
   'tuning.guardrails.empty': '暫無護欄',

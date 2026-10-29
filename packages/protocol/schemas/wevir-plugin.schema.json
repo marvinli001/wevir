@@ -240,6 +240,22 @@
         "additionalProperties": false
       }
     },
+    "hooks": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^\\.\\/(?:(?!\\.\\.(?:\\/|$))[^/\\\\]+(?:\\/|$))*$"
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      ]
+    },
     "keywords": {
       "maxItems": 16,
       "type": "array",

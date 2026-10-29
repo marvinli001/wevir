@@ -686,6 +686,12 @@ export const ApprovalOptionSchema = z.object({
 });
 export type ApprovalOption = z.infer<typeof ApprovalOptionSchema>;
 
+/**
+ * 用户接入的 MCP 服务要用户打开一个链接（URL 模式的 elicitation）时，审批详情的 `toolName`：`input.url` 是要打开的地址（只会是 http 或
+ * https），`input.message` 是服务的说明。允许表示用户同意打开，客户端在浏览器里打开它；同 `@wevir/runtime-adapter` 的同名常量。
+ */
+export const MCP_URL_ELICITATION_TOOL = 'mcp/elicitation/url';
+
 export const ApprovalDetailSchema = z.object({
   toolName: z.string(),
   display: ToolDisplaySchema,
@@ -710,6 +716,11 @@ export const ApprovalResolutionReasonSchema = z.enum([
    * 没有拒绝类选项时没有 `optionId`，回合随之取消。
    */
   'timeout',
+  /**
+   * 生命周期钩子（0.137.0，`PermissionRequest`）替用户答的：带 `optionId`，没有 `decidedBy`；同时有一条 `hook.outcome`。客户端没有
+   * 能力位 `hook_decisions` 时 Host 把它降级成 `rule`。
+   */
+  'hook',
 ]);
 export type ApprovalResolutionReason = z.infer<typeof ApprovalResolutionReasonSchema>;
 
@@ -1019,6 +1030,11 @@ export const MessageFromSchema = z.object({
    * 回报显示）。
    */
   repair: RepairFromSchema.optional(),
+  /**
+   * 生命周期钩子（0.137.0）：引擎没有原生的结束接点时，`Stop` 钩子要求 Agent 接着做，Host 以这条消息开一个后续回合。`kind` 是
+   * `report`、`sessionId` 是这个会话自己（旧客户端照回报显示）。
+   */
+  hook: z.object({ event: z.string().min(1), hookId: z.string().optional() }).optional(),
   /**
    * 引用的第二意见（0.75.0）：Host 把意见拼成消息交给原会话。`kind` 是 `report`、`sessionId` 是给意见的会话（旧客户端照回报显示）；
    * `note` 是用户引用时附的话，原样也在消息正文里。
