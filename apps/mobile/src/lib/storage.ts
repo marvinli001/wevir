@@ -4,6 +4,7 @@
 // - 设备私钥：系统钥匙串 / Keystore（expo-secure-store，`WHEN_UNLOCKED_THIS_DEVICE_ONLY`：解锁后才读得到、不随 iCloud 备份或换机迁移）。
 //   每台电脑一把，键是 `wevir.device.<路由 ID>`；iOS 上在 App Group 的访问组里（keychain.ts）。私钥不进记录、日志与界面。
 // - `host.hello` 的身份（deviceId / clientId）：文稿目录下 `identity.json`，不是机密。
+// - 新建会话上次的选择：文稿目录下 `new-session.json`（`NewSessionMemory`），只有 ID 与选项，不是机密。
 
 import { base64urlToBytes, bytesToBase64url } from '@wevir/client-sdk';
 import { type KeyPair, publicKeyFromSecretKey } from '@wevir/noise';
@@ -15,6 +16,7 @@ import { Platform } from 'react-native';
 import { DeviceKeyMissingError } from './computer-link';
 import type { ComputerStorage } from './computers';
 import { IOS_APP_GROUP, KEYCHAIN_SERVICE } from './keychain';
+import { isNewSessionMemory, type NewSessionMemory } from './new-session';
 import { type ComputerRecord, isComputerRecord, RECORD_NAME_PATTERN } from './records';
 
 const KEY_OPTIONS: SecureStore.SecureStoreOptions = {
@@ -120,4 +122,28 @@ export function loadIdentity(): Promise<ClientIdentity> {
     return created;
   })();
   return identity;
+}
+
+function newSessionFile(): File {
+  return new File(Paths.document, 'new-session.json');
+}
+
+/** 新建会话上次的选择；没有或读不了时是空的。 */
+export async function loadNewSessionMemory(): Promise<NewSessionMemory> {
+  try {
+    const file = newSessionFile();
+    if (file.exists) {
+      const value: unknown = JSON.parse(await file.text());
+      if (isNewSessionMemory(value)) return value;
+    }
+  } catch {
+    // 坏了就当没有。
+  }
+  return { computers: {} };
+}
+
+export async function saveNewSessionMemory(memory: NewSessionMemory): Promise<void> {
+  const file = newSessionFile();
+  if (!file.exists) file.create();
+  await file.write(JSON.stringify(memory));
 }

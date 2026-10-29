@@ -27,11 +27,11 @@ import { PostView } from '../../components/bot-cards';
 import { botPose, botStateColor, GroupAvatar } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
-import { useActionSheet } from '../../components/sheets';
 import { joinNames, locale, type MessageKey, t } from '../../i18n';
 import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
 import { cachedImage } from '../../lib/image-cache';
 import { keyboardOverlap } from '../../lib/keyboard';
+import { sendErrorKey } from '../../lib/session-actions';
 import { useBot, useBotAccess, useBotProjects, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
 import { usePhotoAttachments } from '../../state/photo-attachments';
@@ -187,7 +187,6 @@ function BotChat({ bot }: { bot: Bot }) {
   const group = bot.kind === 'group';
   const access = useBotAccess(bot.key);
   const [error, setError] = useState<MessageKey>();
-  const [sheet, showSheet] = useActionSheet();
   // Android 的系统相册与相机是另一个 Activity：选照片时 App 进了后台、连接断开，等这台电脑重新连上（最多 15 秒）再传。
   const upload = async (mimeType: Parameters<typeof store.uploadImage>[1], data: string) => {
     for (let waited = 0; ; waited += 250) {
@@ -199,14 +198,20 @@ function BotChat({ bot }: { bot: Bot }) {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   };
-  const photos = usePhotoAttachments({ upload, showSheet, onError: setError });
+  const photos = usePhotoAttachments({ upload, onError: setError });
   // 群里点选的成员：这条消息 @ 他们；发出后清掉。
   const [mentions, setMentions] = useState<readonly string[]>([]);
   const send = useCallback(
     async (text: string) => {
       pinned.current = true;
       setError(undefined);
-      await store.send(bot.key, text, mentions, photos.images);
+      try {
+        await store.send(bot.key, text, mentions, photos.images);
+      } catch (e) {
+        // 电脑不在线时 store 直接抛错：说出来，输入栏把字放回去。
+        setError(store.access(bot.key).online ? sendErrorKey(e) : 'newSession.offline');
+        throw e;
+      }
       setMentions([]);
       photos.clear();
     },
@@ -397,7 +402,7 @@ function BotChat({ bot }: { bot: Bot }) {
               onSend={send}
               {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}
               {...(access.composer && {
-                onAttach: photos.choose,
+                attachMenu: photos.menu,
                 attachments: photos.attachments,
                 onRemoveAttachment: photos.remove,
                 busy: bot.answering,
@@ -408,7 +413,6 @@ function BotChat({ bot }: { bot: Bot }) {
           </View>
         </View>
       </KeyboardAvoidingView>
-      {sheet}
     </>
   );
 }

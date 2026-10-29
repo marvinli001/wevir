@@ -1,9 +1,9 @@
-// 两种小弹层：操作菜单（iOS 用系统的 Action Sheet；Android 的 Alert 至多三个按钮，改用底部的 Material 列表）与改名框（两边都是
-// 同一个 Modal，Android 没有 `Alert.prompt`）。
+// 两种小弹层：Android 的操作列表（底部的 Material 列表，Android 的 Alert 至多三个按钮）与改名框（两边都是同一个 Modal，Android 没有
+// `Alert.prompt`）。按钮上的菜单用 menu.tsx 的 MenuTrigger 与 header-button.tsx 的 HeaderMenu：iOS 是贴着按钮的系统菜单，Android 是
+// 这里的列表。
 
 import { useCallback, useState } from 'react';
 import {
-  ActionSheetIOS,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -16,15 +16,19 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '../i18n';
 import { RADIUS, SPACE, TEXT, useTheme } from '../theme';
-import { Button } from './ui';
+import { Button, Icon } from './ui';
 
 export interface SheetAction {
   label: string;
+  /** 名称可能重复时给。 */
+  id?: string;
   destructive?: boolean;
+  /** 单选列表里选中的一项（Android 的列表在行尾打勾）。 */
+  checked?: boolean;
   onPress: () => void;
 }
 
-/** 弹出一组操作；返回要放进页面里的元素（Android 的列表）与打开它的函数。 */
+/** 弹出一组操作（Android）；返回要放进页面里的元素与打开它的函数。 */
 export function useActionSheet(): [
   element: React.ReactNode,
   show: (actions: readonly SheetAction[], title?: string) => void,
@@ -33,19 +37,6 @@ export function useActionSheet(): [
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState<{ actions: readonly SheetAction[]; title?: string }>();
   const show = useCallback((actions: readonly SheetAction[], title?: string) => {
-    if (Platform.OS === 'ios') {
-      const destructive = actions.findIndex((a) => a.destructive === true);
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [...actions.map((a) => a.label), t('add.cancel')],
-          cancelButtonIndex: actions.length,
-          ...(destructive >= 0 && { destructiveButtonIndex: destructive }),
-          ...(title !== undefined && { title }),
-        },
-        (index) => actions[index]?.onPress(),
-      );
-      return;
-    }
     setOpen({ actions, ...(title !== undefined && { title }) });
   }, []);
   const element =
@@ -70,7 +61,7 @@ export function useActionSheet(): [
             )}
             {open?.actions.map((action) => (
               <Pressable
-                key={action.label}
+                key={action.id ?? action.label}
                 accessibilityRole="button"
                 android_ripple={{ color: theme.muted }}
                 onPress={() => {
@@ -87,6 +78,9 @@ export function useActionSheet(): [
                 >
                   {action.label}
                 </Text>
+                {action.checked === true && (
+                  <Icon name={{ android: 'check' }} size={22} color={theme.foreground} />
+                )}
               </Pressable>
             ))}
           </View>
@@ -182,8 +176,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   sheetTitle: { fontSize: TEXT.small, paddingHorizontal: 24, paddingVertical: 8 },
-  sheetRow: { minHeight: 52, justifyContent: 'center', paddingHorizontal: 24 },
-  sheetText: { fontSize: TEXT.body },
+  sheetRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 24,
+  },
+  sheetText: { flex: 1, fontSize: TEXT.body },
   center: {
     flex: 1,
     justifyContent: 'center',

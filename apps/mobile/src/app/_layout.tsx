@@ -72,12 +72,7 @@ export default function RootLayout() {
                   />
                   <Stack.Screen
                     name="new-session"
-                    options={{
-                      title: t('newSession.title'),
-                      presentation: 'formSheet',
-                      sheetAllowedDetents: [0.9, 1],
-                      sheetGrabberVisible: true,
-                    }}
+                    options={{ title: t('newSession.title'), presentation: 'modal' }}
                   />
                   <Stack.Screen
                     name="new-bot"

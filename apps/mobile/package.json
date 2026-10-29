@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@expo/ui": "58.0.24",
     "@wevir/client-sdk": "workspace:*",
     "@wevir/noise": "workspace:*",
     "@wevir/protocol": "workspace:*",

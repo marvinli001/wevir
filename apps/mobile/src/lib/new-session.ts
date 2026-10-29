@@ -1,6 +1,7 @@
 // 新建会话（M2）：选项目（或不在项目里的对话）、同目录或新工作树、来源（引擎与账号）、模型与思考力度、权限模式，写第一条消息；
 // `session.create` 之后 `session.send`（同桌面：发出第一条消息时才建）。权限模式只给“请求批准”和“自动批准”，完全放行只在电脑上。
-// 列模型服务要 `provider.read`，手机没有时说明只能在电脑上新建。纯逻辑，连接由调用方注入。
+// 列模型服务要 `provider.read`，手机没有时说明只能在电脑上新建。每台电脑上次的选择记在手机上（`NewSessionDefaults`），下次照用，
+// 多数时候打开就能直接写、直接发。纯逻辑，连接由调用方注入。
 
 import { accountId, isRpcError } from '@wevir/client-sdk';
 import type {
@@ -11,6 +12,7 @@ import type {
   ProviderModel,
   ProviderProfile,
   Session,
+  UserContentPart,
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
@@ -225,19 +227,86 @@ export async function loadOptions(client: NewSessionClient): Promise<NewSessionO
   }
 }
 
+/** 上次在一台电脑上新建会话时的选择。 */
+export interface NewSessionDefaults {
+  /** `null`：不在项目里的对话。 */
+  workspaceId?: string | null;
+  /** 只对同一个项目沿用。 */
+  newWorktree?: boolean;
+  choice?: ModelChoice;
+  permissionMode?: PhonePermissionMode;
+}
+
+/** 手机上记着的：上次用的电脑与每台电脑的选择。 */
+export interface NewSessionMemory {
+  computer?: string;
+  computers: Record<string, NewSessionDefaults>;
+}
+
+export function isNewSessionMemory(value: unknown): value is NewSessionMemory {
+  if (typeof value !== 'object' || value === null) return false;
+  const { computer, computers } = value as Partial<NewSessionMemory>;
+  return (
+    (computer === undefined || typeof computer === 'string') &&
+    typeof computers === 'object' &&
+    computers !== null
+  );
+}
+
+/** 页面打开时的选择：指定的项目优先，其次是上次的选择（还在、还能用的部分），最后是默认。 */
+export function initialDraft(
+  options: Extract<NewSessionOptions, { kind: 'ready' }>,
+  saved: NewSessionDefaults | undefined,
+  requested?: string,
+): Omit<NewSessionDraft, 'choice'> & { choice: ModelChoice | undefined } {
+  const exists = (id: string | null | undefined): id is string =>
+    typeof id === 'string' && options.workspaces.some((w) => w.id === id);
+  const workspaceId = exists(requested)
+    ? requested
+    : exists(saved?.workspaceId)
+      ? saved.workspaceId
+      : options.features.chats
+        ? undefined
+        : options.workspaces[0]?.id;
+  const savedMode = saved?.permissionMode;
+  return {
+    ...(workspaceId !== undefined && { workspaceId: workspaceId as WorkspaceId }),
+    newWorktree:
+      workspaceId !== undefined &&
+      options.features.worktree &&
+      saved?.workspaceId === workspaceId &&
+      saved.newWorktree === true,
+    choice: resolveChoice(options.providers, saved?.choice),
+    permissionMode:
+      savedMode !== undefined && (PHONE_PERMISSION_MODES as readonly string[]).includes(savedMode)
+        ? savedMode
+        : 'on_request',
+  };
+}
+
+/** 新建成功后记下的选择。 */
+export function rememberDraft(draft: NewSessionDraft): NewSessionDefaults {
+  return {
+    workspaceId: draft.workspaceId ?? null,
+    newWorktree: draft.newWorktree,
+    choice: draft.choice,
+    permissionMode: draft.permissionMode,
+  };
+}
+
 /** 建会话并发出第一条消息；返回建好的会话。消息没发出时会话已经建好，照样返回（之后在会话页再发）。 */
 export async function startSession(
   client: SessionClient,
   draft: NewSessionDraft,
   features: NewSessionFeatures,
-  text: string,
+  content: UserContentPart[],
   clientMessageId: string,
 ): Promise<{ session: Session; sent: boolean }> {
   const { session } = await client.request('session.create', createParams(draft, features));
   try {
     await client.request('session.send', {
       sessionId: session.id,
-      content: [{ type: 'text', text }],
+      content,
       clientMessageId,
     });
     return { session, sent: true };

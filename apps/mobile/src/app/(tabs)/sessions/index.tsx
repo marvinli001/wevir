@@ -21,12 +21,13 @@ export default function SessionsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: t('computer.sessions') }} />
-      {computers.some((c) => c.status.kind === 'online') && (
+      {computers.length > 0 && (
         <HeaderButton
           sf="square.and.pencil"
           md="edit_square"
           label={t('newSession.title')}
           onPress={() => router.push('/new-session')}
+          disabled={!computers.some((c) => c.status.kind === 'online')}
         />
       )}
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>

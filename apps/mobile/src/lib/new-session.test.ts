@@ -4,11 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createParams,
   effortsOf,
+  initialDraft,
+  isNewSessionMemory,
   loadOptions,
   type NewSessionClient,
   PHONE_PERMISSION_MODES,
   pickableProviders,
   providerTitle,
+  rememberDraft,
   resolveChoice,
   startSession,
 } from './new-session';
@@ -195,7 +198,7 @@ describe('new session', () => {
         permissionMode: 'on_request',
       },
       FEATURES,
-      'hello',
+      [{ type: 'text', text: 'hello' }],
       'm-1',
     );
     expect(result).toEqual({ session: { id: 'ses_new' }, sent: true });
@@ -204,6 +207,74 @@ describe('new session', () => {
       sessionId: 'ses_new',
       content: [{ type: 'text', text: 'hello' }],
       clientMessageId: 'm-1',
+    });
+  });
+
+  describe('remembered choices', () => {
+    const ready = {
+      kind: 'ready' as const,
+      workspaces: [
+        { id: 'ws_a', rootPath: '/a', displayName: 'a' },
+        { id: 'ws_b', rootPath: '/b', displayName: 'b' },
+      ] as never,
+      providers: [
+        provider('p', {
+          models: [{ id: 'a', reasoningEfforts: ['low', 'high'] }, { id: 'b' }] as never,
+          defaultModelId: 'a',
+        }),
+        provider('q'),
+      ],
+      accounts: undefined,
+      features: FEATURES,
+    };
+
+    it('starts as a chat with the first source when nothing is remembered', () => {
+      expect(initialDraft(ready, undefined)).toEqual({
+        newWorktree: false,
+        choice: { providerId: 'p', modelId: 'a' },
+        permissionMode: 'on_request',
+      });
+      expect(
+        initialDraft({ ...ready, features: { ...FEATURES, chats: false } }, undefined).workspaceId,
+      ).toBe('ws_a');
+    });
+
+    it('reuses the last choices that still exist', () => {
+      const saved = rememberDraft({
+        workspaceId: 'ws_b' as never,
+        newWorktree: true,
+        choice: { providerId: 'p', modelId: 'a', reasoningEffort: 'high' },
+        permissionMode: 'auto_review',
+      });
+      expect(initialDraft(ready, saved)).toEqual({
+        workspaceId: 'ws_b',
+        newWorktree: true,
+        choice: { providerId: 'p', modelId: 'a', reasoningEffort: 'high' },
+        permissionMode: 'auto_review',
+      });
+      // 换了项目不沿用新工作树；项目没了回到对话；模型没了用来源的默认模型。
+      expect(initialDraft(ready, saved, 'ws_a')).toMatchObject({
+        workspaceId: 'ws_a',
+        newWorktree: false,
+      });
+      expect(
+        initialDraft(ready, {
+          ...saved,
+          workspaceId: 'ws_gone',
+          choice: { providerId: 'p', modelId: 'x' },
+        }),
+      ).toEqual({
+        newWorktree: false,
+        choice: { providerId: 'p', modelId: 'a' },
+        permissionMode: 'auto_review',
+      });
+      expect(initialDraft(ready, { workspaceId: null }).workspaceId).toBeUndefined();
+    });
+
+    it('accepts only a well-formed memory file', () => {
+      expect(isNewSessionMemory({ computer: 'mac', computers: {} })).toBe(true);
+      expect(isNewSessionMemory({ computers: null })).toBe(false);
+      expect(isNewSessionMemory('x')).toBe(false);
     });
   });
 });

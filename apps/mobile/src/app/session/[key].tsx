@@ -34,9 +34,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PostView } from '../../components/bot-cards';
 import { Composer } from '../../components/composer';
-import { HeaderButton } from '../../components/header-button';
+import { HeaderMenu } from '../../components/header-button';
+import type { MenuSection } from '../../components/menu';
 import { QuestionCard } from '../../components/question-card';
-import { RenameDialog, useActionSheet } from '../../components/sheets';
+import { RenameDialog } from '../../components/sheets';
 import { Icon } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
 import { keyboardOverlap } from '../../lib/keyboard';
@@ -93,7 +94,6 @@ export default function SessionScreen() {
   const [renaming, setRenaming] = useState(false);
   const [keyboard, setKeyboard] = useState(0);
   const [composerHeight, setComposerHeight] = useState(64);
-  const [sheet, showSheet] = useActionSheet();
 
   useEffect(() => {
     const current = new SessionWatch(client, sessionId, setView, cache);
@@ -174,7 +174,7 @@ export default function SessionScreen() {
     throw new ClientClosedError();
   };
 
-  const photos = usePhotoAttachments({ upload, showSheet, onError: setError });
+  const photos = usePhotoAttachments({ upload, onError: setError });
 
   const send = useCallback(
     async (text: string) => {
@@ -208,44 +208,72 @@ export default function SessionScreen() {
     );
   };
 
-  const openMenu = () => {
-    const workspaceId = session?.workspaceId;
-    showSheet([
-      ...(workspaceId !== undefined
-        ? [
-            {
-              label: t('changes.title'),
-              onPress: () =>
-                router.push({
-                  pathname: '/changes/[key]',
-                  params: { key: `${computer}/${sessionId}` },
-                }),
-            },
-          ]
-        : []),
-      ...(actions?.canWrite === true
-        ? [
-            { label: t('session.rename'), onPress: () => setRenaming(true) },
-            {
-              label: t(archived ? 'session.unarchive' : 'session.archive'),
-              destructive: !archived,
-              onPress: archive,
-            },
-          ]
-        : []),
-    ]);
-  };
+  const workspaceId = session?.workspaceId;
+  const menu: MenuSection[] = [
+    {
+      items: [
+        ...(actions?.canWrite === true
+          ? [
+              {
+                label: t('newSession.title'),
+                icon: 'square.and.pencil' as const,
+                onPress: () =>
+                  router.push({
+                    pathname: '/new-session',
+                    params: {
+                      computer,
+                      ...(workspaceId !== undefined && { workspace: workspaceId }),
+                    },
+                  }),
+              },
+            ]
+          : []),
+        ...(workspaceId !== undefined
+          ? [
+              {
+                label: t('changes.title'),
+                icon: 'plusminus' as const,
+                onPress: () =>
+                  router.push({
+                    pathname: '/changes/[key]',
+                    params: { key: `${computer}/${sessionId}` },
+                  }),
+              },
+            ]
+          : []),
+      ],
+    },
+    ...(actions?.canWrite === true
+      ? [
+          {
+            items: [
+              {
+                label: t('session.rename'),
+                icon: 'pencil' as const,
+                onPress: () => setRenaming(true),
+              },
+              {
+                label: t(archived ? 'session.unarchive' : 'session.archive'),
+                icon: archived ? ('tray.and.arrow.up' as const) : ('archivebox' as const),
+                destructive: !archived,
+                onPress: archive,
+              },
+            ],
+          },
+        ]
+      : []),
+  ].filter((section) => section.items.length > 0);
 
   const bottom = keyboard > 0 ? 8 : Math.max(insets.bottom, 8);
 
   return (
     <>
       <Stack.Screen options={{ title }} />
-      <HeaderButton
+      <HeaderMenu
         sf="ellipsis"
         md="more_vert"
         label={t('session.menu')}
-        onPress={openMenu}
+        sections={menu}
         disabled={actions === undefined}
       />
       <KeyboardAvoidingView
@@ -293,7 +321,7 @@ export default function SessionScreen() {
                     ? t('error.computerOnly')
                     : undefined
               }
-              onAttach={canWrite ? photos.choose : undefined}
+              {...(canWrite && { attachMenu: photos.menu })}
               attachments={photos.attachments}
               onRemoveAttachment={photos.remove}
               busy={busy}
@@ -310,7 +338,6 @@ export default function SessionScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-      {sheet}
       <RenameDialog
         visible={renaming}
         initial={title}

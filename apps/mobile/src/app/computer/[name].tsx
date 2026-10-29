@@ -1,8 +1,10 @@
-// 一台电脑：大标题是电脑名，下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
-// `sessions.changed`，标题旁新建会话），这台电脑的推送状态，最后是“退出这台电脑”。
+// 一台电脑：大标题是电脑名（右上角新建会话），下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
+// `sessions.changed`），这台电脑的推送状态，最后是“退出这台电脑”（点开从这一行展开的确认菜单）。
 
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { HeaderButton } from '../../components/header-button';
+import { MenuTrigger } from '../../components/menu';
 import { PushStatusSection } from '../../components/push-section';
 import { SessionRow } from '../../components/session-row';
 import { Button, Group, Icon, Row, SectionTitle, StatusText } from '../../components/ui';
@@ -32,22 +34,24 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
   const placeholder = sessionList.length === 0 ? sessionsPlaceholder(snapshot) : undefined;
 
   const forget = () => {
-    Alert.alert(t('computer.forget.title'), t('computer.forget.consequence'), [
-      { text: t('add.cancel'), style: 'cancel' },
-      {
-        text: t('computer.forget.confirm'),
-        style: 'destructive',
-        onPress: () => {
-          router.back();
-          void registry.forget(record.name);
-        },
-      },
-    ]);
+    router.back();
+    void registry.forget(record.name);
   };
 
   return (
     <>
       <Stack.Screen options={{ title: displayName(record) }} />
+      {status.kind !== 'removed' && (
+        <HeaderButton
+          sf="square.and.pencil"
+          md="edit_square"
+          label={t('newSession.title')}
+          onPress={() =>
+            router.push({ pathname: '/new-session', params: { computer: record.name } })
+          }
+          disabled={status.kind !== 'online'}
+        />
+      )}
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
         <Group style={styles.statusCard}>
           <View style={styles.statusHead}>
@@ -84,30 +88,7 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
 
         {status.kind !== 'removed' && (
           <>
-            <SectionTitle
-              trailing={
-                status.kind === 'online' ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={t('newSession.title')}
-                    hitSlop={10}
-                    onPress={() =>
-                      router.push({ pathname: '/new-session', params: { computer: record.name } })
-                    }
-                    style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-                    testID="computer-new-session"
-                  >
-                    <Icon
-                      name={{ ios: 'square.and.pencil', android: 'edit_square' }}
-                      size={20}
-                      color={theme.foreground}
-                    />
-                  </Pressable>
-                ) : undefined
-              }
-            >
-              {t('computer.sessions')}
-            </SectionTitle>
+            <SectionTitle>{t('computer.sessions')}</SectionTitle>
             {sessionList.length > 0 ? (
               <Group>
                 {sessionList.map((session, index) => (
@@ -139,16 +120,34 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
         {status.kind !== 'removed' && <PushStatusSection name={record.name} />}
 
         <Group style={styles.forget}>
-          <Row
-            last
-            chevron={false}
-            title={
-              <Text style={[styles.forgetText, { color: theme.destructive }]}>
-                {t('computer.forget')}
-              </Text>
-            }
-            onPress={forget}
-          />
+          <MenuTrigger
+            label={t('computer.forget')}
+            title={t('computer.forget.consequence')}
+            sections={[
+              {
+                title: t('computer.forget.consequence'),
+                items: [
+                  {
+                    label: t('computer.forget.confirm'),
+                    icon: 'rectangle.portrait.and.arrow.right',
+                    destructive: true,
+                    onPress: forget,
+                  },
+                ],
+              },
+            ]}
+            testID="computer-forget"
+          >
+            <Row
+              last
+              chevron={false}
+              title={
+                <Text style={[styles.forgetText, { color: theme.destructive }]}>
+                  {t('computer.forget')}
+                </Text>
+              }
+            />
+          </MenuTrigger>
         </Group>
       </ScrollView>
     </>

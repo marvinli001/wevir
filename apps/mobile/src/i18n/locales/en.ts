@@ -278,7 +278,6 @@ export const en: Messages = {
   'newSession.effort': 'Reasoning effort',
   'newSession.permission': 'Permissions',
   'newSession.message': 'First message',
-  'newSession.start': 'Start',
   'newSession.failed': 'Could not create the session',
   'newSession.loadFailed': 'Could not load',
   'newSession.offline': 'Computer offline',

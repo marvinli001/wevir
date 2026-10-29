@@ -279,7 +279,6 @@ export const ja: Messages = {
   'newSession.effort': '推論レベル',
   'newSession.permission': '権限',
   'newSession.message': '最初のメッセージ',
-  'newSession.start': '開始',
   'newSession.failed': 'セッションを作成できませんでした',
   'newSession.loadFailed': '読み込めませんでした',
   'newSession.offline': 'コンピュータがオフライン',

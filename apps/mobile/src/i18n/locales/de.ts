@@ -280,7 +280,6 @@ export const de: Messages = {
   'newSession.effort': 'Denkaufwand',
   'newSession.permission': 'Berechtigungen',
   'newSession.message': 'Erste Nachricht',
-  'newSession.start': 'Starten',
   'newSession.failed': 'Sitzung konnte nicht erstellt werden',
   'newSession.loadFailed': 'Laden fehlgeschlagen',
   'newSession.offline': 'Computer offline',

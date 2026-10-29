@@ -271,7 +271,6 @@ export const zhCN = {
   'newSession.effort': '思考力度',
   'newSession.permission': '权限',
   'newSession.message': '第一条消息',
-  'newSession.start': '开始',
   'newSession.failed': '新建失败',
   'newSession.loadFailed': '读取失败',
   'newSession.offline': '电脑不在线',

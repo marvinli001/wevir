@@ -275,7 +275,6 @@ export const ko: Messages = {
   'newSession.effort': '추론 강도',
   'newSession.permission': '권한',
   'newSession.message': '첫 메시지',
-  'newSession.start': '시작',
   'newSession.failed': '세션을 만들지 못함',
   'newSession.loadFailed': '불러오지 못함',
   'newSession.offline': '컴퓨터 오프라인',

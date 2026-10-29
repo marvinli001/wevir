@@ -1,12 +1,11 @@
 // 助理页（首页）：所有配对电脑上的助理合并成一个聊天式列表，等用户决定的在前，其余按最后动静排；行内标电脑名。右上角新建：能建群
-// （有助理群、至少两个助理）时弹出新建助理与新建群聊；这台设备在哪台电脑上都没有建助理的权限（手机默认没有）时灰掉，列表下面说明到
+// （有助理群、至少两个助理）时是新建助理与新建群聊的菜单；这台设备在哪台电脑上都没有建助理的权限（手机默认没有）时灰掉，列表下面说明到
 // 电脑上哪里开。
 
 import { Stack, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text } from 'react-native';
 import { BotRow } from '../../../components/bot-row';
-import { HeaderButton } from '../../../components/header-button';
-import { useActionSheet } from '../../../components/sheets';
+import { HeaderButton, HeaderMenu } from '../../../components/header-button';
 import { EmptyState, Group } from '../../../components/ui';
 import { t } from '../../../i18n';
 import { useBotCreators, useBots, useGroupCreators, useOnlineBotHosts } from '../../../state/bots';
@@ -21,15 +20,7 @@ export default function BotsScreen() {
   const canCreate = useBotCreators().length > 0;
   const canGroup = useGroupCreators().length > 0;
   const online = useOnlineBotHosts();
-  const [sheet, showSheet] = useActionSheet();
   const create = () => router.push('/new-bot');
-  const add = () => {
-    if (!canGroup) return create();
-    showSheet([
-      ...(canCreate ? [{ label: t('bots.new'), onPress: create }] : []),
-      { label: t('bots.newGroup'), onPress: () => router.push('/edit-group') },
-    ]);
-  };
   const forbidden =
     online > 0 && !canCreate ? (
       <Text style={[styles.note, { color: theme.mutedForeground }]}>{t('bots.newForbidden')}</Text>
@@ -37,13 +28,35 @@ export default function BotsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: t('bots.title') }} />
-      <HeaderButton
-        sf="plus"
-        md="add"
-        label={t('bots.new')}
-        onPress={add}
-        disabled={!canCreate && !canGroup}
-      />
+      {canGroup ? (
+        <HeaderMenu
+          sf="plus"
+          md="add"
+          label={t('bots.new')}
+          sections={[
+            {
+              items: [
+                ...(canCreate
+                  ? [{ label: t('bots.new'), icon: 'sparkles' as const, onPress: create }]
+                  : []),
+                {
+                  label: t('bots.newGroup'),
+                  icon: 'person.3' as const,
+                  onPress: () => router.push('/edit-group'),
+                },
+              ],
+            },
+          ]}
+        />
+      ) : (
+        <HeaderButton
+          sf="plus"
+          md="add"
+          label={t('bots.new')}
+          onPress={create}
+          disabled={!canCreate}
+        />
+      )}
       <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
         {bots.length > 0 ? (
           <Group style={styles.list}>
@@ -74,7 +87,6 @@ export default function BotsScreen() {
         )}
         {forbidden}
       </ScrollView>
-      {sheet}
     </>
   );
 }

@@ -280,7 +280,6 @@ export const fr: Messages = {
   'newSession.effort': 'Niveau de raisonnement',
   'newSession.permission': 'Autorisations',
   'newSession.message': 'Premier message',
-  'newSession.start': 'Démarrer',
   'newSession.failed': 'Impossible de créer la session',
   'newSession.loadFailed': 'Échec du chargement',
   'newSession.offline': 'Ordinateur hors ligne',

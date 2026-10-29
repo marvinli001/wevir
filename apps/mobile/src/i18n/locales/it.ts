@@ -280,7 +280,6 @@ export const it: Messages = {
   'newSession.effort': 'Sforzo di ragionamento',
   'newSession.permission': 'Autorizzazioni',
   'newSession.message': 'Primo messaggio',
-  'newSession.start': 'Avvia',
   'newSession.failed': 'Impossibile creare la sessione',
   'newSession.loadFailed': 'Caricamento non riuscito',
   'newSession.offline': 'Computer offline',

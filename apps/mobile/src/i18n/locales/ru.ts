@@ -279,7 +279,6 @@ export const ru: Messages = {
   'newSession.effort': 'Уровень рассуждений',
   'newSession.permission': 'Разрешения',
   'newSession.message': 'Первое сообщение',
-  'newSession.start': 'Начать',
   'newSession.failed': 'Не удалось создать сессию',
   'newSession.loadFailed': 'Не удалось загрузить',
   'newSession.offline': 'Компьютер не в сети',

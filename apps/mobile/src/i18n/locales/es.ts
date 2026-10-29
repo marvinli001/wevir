@@ -279,7 +279,6 @@ export const es: Messages = {
   'newSession.effort': 'Esfuerzo de razonamiento',
   'newSession.permission': 'Permisos',
   'newSession.message': 'Primer mensaje',
-  'newSession.start': 'Empezar',
   'newSession.failed': 'No se pudo crear la sesión',
   'newSession.loadFailed': 'No se pudo cargar',
   'newSession.offline': 'Ordenador sin conexión',

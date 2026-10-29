@@ -1,6 +1,6 @@
 // 对话底部的输入栏：iOS 26 是浮在内容上的玻璃胶囊，Android 与旧 iOS 是同形状的实底。空着时尾部是听写，有字时换成墨色的发送按钮
-// （听写挪到它左边）。会话页与助理页另外用到：前面一枚加照片的按钮、上面一排待发的照片、回合进行中写着“插话 / 排队”的切换（点一下
-// 换成另一种，同桌面窄输入框），以及空着时的停止按钮。
+// （听写挪到它左边）。会话页、助理页与新建会话另外用到：前面一枚加照片的按钮（点开相册 / 拍照的菜单）、上面一排待发的照片、回合进行中
+// 写着“插话 / 排队”的切换（点一下换成另一种，同桌面窄输入框），以及空着时的停止按钮。
 // 听写（Host 有 `speech` 时，state/dictation.ts）：点麦克风开始录音，输入框换成录音条（红点与计时），前面 ✕ 丢掉、尾部 ✓ 结束并
 // 转写，文字放到光标处，不自动发送。不能听写时麦克风灰着。
 
@@ -22,6 +22,7 @@ import { type MessageKey, t } from '../i18n';
 import { insertDictation, type SpeechClient } from '../lib/dictation';
 import { type Dictation, useDictation } from '../state/dictation';
 import { TEXT, useTheme } from '../theme';
+import { type MenuSection, MenuTrigger } from './menu';
 import { GLASS, Icon } from './ui';
 
 export interface ComposerAttachment {
@@ -35,7 +36,7 @@ export function Composer({
   onSend,
   disabled = false,
   placeholder,
-  onAttach,
+  attachMenu,
   attachments = [],
   onRemoveAttachment,
   busy = false,
@@ -45,12 +46,14 @@ export function Composer({
   speech,
   sessionId,
   onDictationError,
+  canSend = true,
+  autoFocus = false,
 }: {
   onSend: (text: string) => Promise<void>;
   disabled?: boolean;
   placeholder?: string;
-  /** 给了就在前面放一枚加照片的按钮。 */
-  onAttach?: () => void;
+  /** 给了就在前面放一枚加照片的按钮，点开这个菜单。 */
+  attachMenu?: readonly MenuSection[];
   attachments?: readonly ComposerAttachment[];
   onRemoveAttachment?: (key: string) => void;
   /** 回合在跑：空着时尾部是停止，发出的消息按 `delivery` 送达。 */
@@ -64,6 +67,9 @@ export function Composer({
   sessionId?: string;
   /** 听写失败（`undefined`：清掉上一条）。 */
   onDictationError?: (key: MessageKey | undefined) => void;
+  /** `false`：能写，发送按钮灰着（新建会话还在读选项）。 */
+  canSend?: boolean;
+  autoFocus?: boolean;
 }) {
   const theme = useTheme();
   const [text, setText] = useState('');
@@ -88,7 +94,7 @@ export function Composer({
   const empty = text.trim() === '' && attachments.length === 0;
 
   const send = () => {
-    if (empty || sending || uploading || dictating) return;
+    if (empty || sending || uploading || dictating || !canSend) return;
     const value = text;
     setSending(true);
     setText('');
@@ -160,14 +166,14 @@ export function Composer({
       accessibilityRole="button"
       accessibilityLabel={t('bot.send')}
       onPress={send}
-      disabled={sending || uploading || disabled}
+      disabled={sending || uploading || disabled || !canSend}
       hitSlop={6}
       style={({ pressed }) => [
         styles.action,
         styles.send,
         {
           backgroundColor: theme.primary,
-          opacity: pressed || sending || uploading ? 0.6 : 1,
+          opacity: pressed || sending || uploading ? 0.6 : canSend ? 1 : 0.35,
         },
       ]}
       testID="composer-send"
@@ -259,18 +265,16 @@ export function Composer({
             <Icon name={{ ios: 'xmark', android: 'close' }} size={17} color={theme.foreground} />
           </Pressable>
         ) : (
-          onAttach !== undefined && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('composer.addPhoto')}
-              onPress={onAttach}
+          attachMenu !== undefined && (
+            <MenuTrigger
+              sections={attachMenu}
+              label={t('composer.addPhoto')}
               disabled={disabled}
-              hitSlop={6}
-              style={({ pressed }) => [styles.action, { opacity: pressed || disabled ? 0.5 : 1 }]}
+              style={{ ...styles.action, opacity: disabled ? 0.5 : 1 }}
               testID="composer-attach"
             >
               <Icon name={{ ios: 'plus', android: 'add' }} size={20} color={theme.foreground} />
-            </Pressable>
+            </MenuTrigger>
           )
         )}
         {dictating && <RecordingBar dictation={dictation} />}
@@ -283,11 +287,12 @@ export function Composer({
           placeholder={placeholder ?? t('bot.message')}
           placeholderTextColor={theme.mutedForeground}
           editable={!disabled}
+          autoFocus={autoFocus}
           multiline
           onContentSizeChange={(e) => setHeight(e.nativeEvent.contentSize.height)}
           style={[
             styles.input,
-            onAttach !== undefined && styles.inputAfterAttach,
+            attachMenu !== undefined && styles.inputAfterAttach,
             {
               color: theme.foreground,
               height: Math.min(INPUT_MAX, Math.max(INPUT_MIN, Math.ceil(height))),

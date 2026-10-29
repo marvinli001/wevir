@@ -271,7 +271,6 @@ export const zhTW: Messages = {
   'newSession.effort': '思考強度',
   'newSession.permission': '權限',
   'newSession.message': '第一則訊息',
-  'newSession.start': '開始',
   'newSession.failed': '新增失敗',
   'newSession.loadFailed': '讀取失敗',
   'newSession.offline': '電腦不在線',

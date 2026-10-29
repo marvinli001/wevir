@@ -4,7 +4,7 @@
 import type { UserImageMimeType, UserImagePart } from '@wevir/protocol';
 import { useState } from 'react';
 import type { ComposerAttachment } from '../components/composer';
-import type { SheetAction } from '../components/sheets';
+import type { MenuSection } from '../components/menu';
 import { type MessageKey, t } from '../i18n';
 import {
   PHOTOS_PER_MESSAGE,
@@ -20,19 +20,17 @@ export interface PhotoAttachment extends ComposerAttachment {
 
 export function usePhotoAttachments({
   upload,
-  showSheet,
   onError,
 }: {
   upload: (mimeType: UserImageMimeType, data: string) => Promise<UserImagePart>;
-  showSheet: (actions: readonly SheetAction[]) => void;
   /** 选或传失败（`undefined`：开始新的一次，清掉上一条）。 */
   onError: (key: MessageKey | undefined) => void;
 }): {
   attachments: readonly PhotoAttachment[];
   /** 传好的图片部件，按添加的先后。 */
   images: readonly UserImagePart[];
-  /** 弹出“相册 / 拍照”。 */
-  choose: () => void;
+  /** 加照片按钮的菜单：相册、拍照。 */
+  menu: readonly MenuSection[];
   remove: (key: string) => void;
   clear: () => void;
 } {
@@ -67,11 +65,18 @@ export function usePhotoAttachments({
   return {
     attachments,
     images: attachments.flatMap((a) => (a.image !== undefined ? [a.image] : [])),
-    choose: () =>
-      showSheet([
-        { label: t('photo.library'), onPress: () => void attach('library') },
-        { label: t('photo.camera'), onPress: () => void attach('camera') },
-      ]),
+    menu: [
+      {
+        items: [
+          {
+            label: t('photo.library'),
+            icon: 'photo.on.rectangle',
+            onPress: () => void attach('library'),
+          },
+          { label: t('photo.camera'), icon: 'camera', onPress: () => void attach('camera') },
+        ],
+      },
+    ],
     remove: (key) => setAttachments((current) => current.filter((a) => a.key !== key)),
     clear: () => setAttachments([]),
   };

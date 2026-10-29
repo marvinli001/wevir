@@ -13,7 +13,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BotAvatar } from '../components/bot-avatar';
-import { useActionSheet } from '../components/sheets';
+import { MenuTrigger } from '../components/menu';
 import { Button, Group, Icon, Row, SectionTitle } from '../components/ui';
 import { t } from '../i18n';
 import { randomAvatar } from '../lib/bot-avatar';
@@ -66,7 +66,6 @@ function EditBot({ bot }: { bot: Bot }) {
   const [folders, setFolders] = useState<readonly string[]>(channel?.assistant?.folders ?? []);
   const [model, setModel] = useState<{ providerId: string; modelId: string }>();
   const [rules, setRules] = useState<Partial<Record<AssistantRuleCategory, AssistantRuleTier>>>({});
-  const [sheet, showSheet] = useActionSheet();
   const [providers, setProviders] = useState<ProviderProfile[]>();
   const [choices, setChoices] = useState<string[]>();
   const [adding, setAdding] = useState(false);
@@ -144,14 +143,15 @@ function EditBot({ bot }: { bot: Bot }) {
   const addable = (choices ?? []).filter((folder) => !folders.includes(folder));
   const tierOf = (category: AssistantRuleCategory) =>
     rules[category] ?? ruleTier(channel?.assistant?.rules ?? {}, category);
-  const chooseTier = (category: AssistantRuleCategory) =>
-    showSheet(
-      TIERS.map((tier) => ({
+  const tierMenu = (category: AssistantRuleCategory) => [
+    {
+      items: TIERS.map((tier) => ({
         label: t(`rules.tier.${tier}`),
+        checked: tier === tierOf(category),
         onPress: () => setRules((current) => ({ ...current, [category]: tier })),
       })),
-      t(`rules.${category}`),
-    );
+    },
+  ];
 
   return (
     <>
@@ -356,18 +356,34 @@ function EditBot({ bot }: { bot: Bot }) {
         <SectionTitle>{t('editBot.rules')}</SectionTitle>
         <Group>
           {ASSISTANT_RULE_CATEGORIES.map((category, index) => (
-            <Row
+            <MenuTrigger
               key={category}
-              last={index === ASSISTANT_RULE_CATEGORIES.length - 1}
-              chevron={editable}
+              sections={tierMenu(category)}
+              label={t(`rules.${category}`)}
               title={t(`rules.${category}`)}
-              trailing={
-                <Text style={[styles.tier, { color: theme.mutedForeground }]}>
-                  {t(`rules.tier.${tierOf(category)}`)}
-                </Text>
-              }
-              {...(editable && { onPress: () => chooseTier(category) })}
-            />
+              disabled={!editable}
+            >
+              <Row
+                last={index === ASSISTANT_RULE_CATEGORIES.length - 1}
+                chevron={false}
+                title={t(`rules.${category}`)}
+                trailing={
+                  <View style={styles.tierValue}>
+                    <Text style={[styles.tier, { color: theme.mutedForeground }]}>
+                      {t(`rules.tier.${tierOf(category)}`)}
+                    </Text>
+                    {editable && (
+                      <Icon
+                        name={{ ios: 'chevron.up.chevron.down', android: 'unfold_more' }}
+                        size={12}
+                        weight="semibold"
+                        color={theme.mutedForeground}
+                      />
+                    )}
+                  </View>
+                }
+              />
+            </MenuTrigger>
           ))}
         </Group>
 
@@ -386,7 +402,6 @@ function EditBot({ bot }: { bot: Bot }) {
           </View>
         )}
       </ScrollView>
-      {sheet}
     </>
   );
 }
@@ -445,6 +460,7 @@ const styles = StyleSheet.create({
   separator: { height: StyleSheet.hairlineWidth, marginLeft: SPACE.page },
   sub: { fontSize: TEXT.caption },
   tier: { fontSize: TEXT.body },
+  tierValue: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   /** 图标只有 20，按钮放大到 32，再加 hitSlop 到 48。 */
   remove: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   choices: { marginTop: 12 },
