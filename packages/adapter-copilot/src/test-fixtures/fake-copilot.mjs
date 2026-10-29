@@ -11,7 +11,7 @@ const args = process.argv.slice(2);
 if (env.FAKE_COPILOT_ARGV_LOG) {
   appendFileSync(
     env.FAKE_COPILOT_ARGV_LOG,
-    `${JSON.stringify({ args, home: env.COPILOT_HOME ?? null, gh: env.GH_CONFIG_DIR ?? null, token: env.GH_TOKEN ?? null })}\n`,
+    `${JSON.stringify({ args, home: env.COPILOT_HOME ?? null, gh: env.GH_CONFIG_DIR ?? null, token: env.GH_TOKEN ?? null, autoUpdate: env.COPILOT_AUTO_UPDATE ?? null })}\n`,
   );
 }
 const configDir = env.COPILOT_HOME || join(homedir(), '.copilot');
@@ -217,6 +217,26 @@ function serve() {
         });
         await cancelled;
         stopReason = 'cancelled';
+      } else if (text === 'elicitation-form') {
+        // ACP `elicitation/create`（引擎的 MCP 服务要用户输入）：回答原样作为助手的文字交回去。
+        const answer = await Promise.race([
+          request('elicitation/create', {
+            sessionId,
+            mode: 'form',
+            message: 'New ticket',
+            requestedSchema: {
+              type: 'object',
+              properties: { title: { type: 'string', title: 'Title' } },
+              required: ['title'],
+            },
+          }),
+          cancelled,
+        ]);
+        if (answer === 'cancelled') stopReason = 'cancelled';
+        update(sessionId, {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: JSON.stringify(answer?.result ?? {}) },
+        });
       } else if (text === 'approval') {
         const toolCallId = `tool-${id}`;
         const rawInput = { command: 'echo ok > approve.txt' };
