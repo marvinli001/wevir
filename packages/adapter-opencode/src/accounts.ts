@@ -580,14 +580,17 @@ export class OpenCodeAccounts implements EngineAccounts {
     };
     if (!detection.ok) {
       this.#providers = undefined;
-      const canInstall = runtime.installer !== undefined;
+      // 没找到、Wevir 装的这份跑不起来，或没指定路径时找到的不能用（如 Homebrew 的 2.x）：当作没装，设置里下载 Wevir 自己的 1.x。
+      const canInstall =
+        runtime.installer !== undefined &&
+        (detection.reason === 'missing' ||
+          detection.managed === true ||
+          runtime.customPath === null);
       return {
         ...base,
-        // Wevir 装的这份跑不起来：当作没装，设置里重新下载。
-        installed: detection.reason !== 'missing' && detection.managed !== true,
+        installed: detection.reason !== 'missing' && !canInstall,
         installCommand: OPENCODE_INSTALL_COMMAND,
-        ...((detection.reason === 'missing' || detection.managed === true) &&
-          canInstall && { canInstall }),
+        ...(canInstall && { canInstall }),
         ...(detection.executablePath !== undefined && {
           executablePath: detection.executablePath,
         }),

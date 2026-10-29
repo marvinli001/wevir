@@ -308,7 +308,7 @@ describe('OpenCodeAccounts：下载安装', () => {
     expect(seen.at(-1)?.installing).toBeUndefined();
   });
 
-  it('Wevir 装的那份跑不起来：当作没装，可以重新下载；用户自己的跑不起来照旧是 installed', async () => {
+  it('Wevir 装的那份或 PATH 上的跑不起来：当作没装，可以下载；指定的路径跑不起来照旧是 installed', async () => {
     const fake = new FakeOpenCode();
     const engineDir = tempDir();
     const registry = fakeRegistry({
@@ -346,12 +346,66 @@ describe('OpenCodeAccounts：下载安装', () => {
       canInstall: true,
       lastError: 'exec format error',
     });
+    // PATH 上的跑不起来，Wevir 装的那份也跑不起来：报 PATH 上那份的原因，可以重新下载。
     const own = make(() => '/opt/opencode');
     expect(await own.accounts.read('opencode', { refresh: true })).toMatchObject({
-      installed: true,
+      installed: false,
+      canInstall: true,
+      executablePath: '/opt/opencode',
       lastError: 'exec format error',
     });
-    expect((await own.accounts.read('opencode')).canInstall).toBeUndefined();
+    const custom = make((path) => path ?? undefined);
+    await custom.accounts.setExecutablePath('opencode', '/opt/opencode');
+    expect(await custom.accounts.read('opencode', { refresh: true })).toMatchObject({
+      installed: true,
+      customPath: '/opt/opencode',
+      lastError: 'exec format error',
+    });
+    expect((await custom.accounts.read('opencode')).canInstall).toBeUndefined();
+  });
+
+  it('PATH 上的 opencode 是 2.x（如 Homebrew）：先给下载，装好后用 Wevir 的 1.x', async () => {
+    const fake = new FakeOpenCode();
+    const engineDir = tempDir();
+    const registry = fakeRegistry({
+      'opencode-darwin-arm64': { version: '1.19.3', tgz: platformPackage('bin/opencode', 'x') },
+    });
+    const runtime = new OpenCodeRuntime({
+      engineDir,
+      env: {},
+      sdk: async () => fake,
+      // 用户的 PATH 里总能找到 Homebrew 的 2.x，排在 Wevir 装的前面。
+      findExecutable: () => '/opt/homebrew/bin/opencode',
+      probeVersion: async (executable) => ({
+        ok: true,
+        version: executable === '/opt/homebrew/bin/opencode' ? '2.2.1' : FAKE_OPENCODE_VERSION,
+      }),
+      startServer: fake.start,
+      idleTtlMs: 20,
+      installerOptions: {
+        platform: 'darwin',
+        arch: 'arm64',
+        npm: { fetch: registry.fetch, registries: [REGISTRY] },
+      },
+    });
+    runtimes.push(runtime);
+    const accounts = new OpenCodeAccounts({ runtime, env: {} });
+    expect(await accounts.read('opencode')).toMatchObject({
+      installed: false,
+      canInstall: true,
+      version: '2.2.1',
+      lastError: expect.stringContaining('(2.x) is not supported yet'),
+    });
+    const seen: AccountState[] = [];
+    accounts.onChange((state) => seen.push(state));
+    await accounts.install('opencode');
+    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ installed: true }));
+    expect(seen.at(-1)).toMatchObject({
+      executablePath: join(engineDir, 'runtime', 'versions', '1.19.3', 'opencode'),
+      version: FAKE_OPENCODE_VERSION,
+    });
+    expect(seen.at(-1)?.lastError).toBeUndefined();
+    await expect(accounts.requireReady()).resolves.toBeUndefined();
   });
 
   it('本平台没有构建：不给下载，install 报 invalid_input', async () => {

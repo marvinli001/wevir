@@ -84,7 +84,7 @@ describe('OpenCode Go 的 Key 与用量', () => {
     expect(openCodeGoUsageWindows({})).toEqual([]);
   });
 
-  it('readOpenCodeGoUsage：带 Go 的 Key 请求；403（没有 Go 订阅）与没有 Key 是 undefined，别的失败抛错', async () => {
+  it('readOpenCodeGoUsage：带 Go 的 Key 请求；403（没有 Go 订阅）、401（Key 失效）与没有 Key 是 undefined，别的失败抛错', async () => {
     const env = { HOME: '/h' };
     const readFile = files({ '/h/.local/share/opencode/auth.json': AUTH });
     const ok = fakeFetch(json(USAGE));
@@ -96,6 +96,8 @@ describe('OpenCode Go 的 Key 与用量', () => {
 
     const forbidden = fakeFetch(json({}, 403));
     expect(await readOpenCodeGoUsage({ env, readFile, fetch: forbidden.fetch })).toBeUndefined();
+    const revoked = fakeFetch(json({ type: 'AuthError' }, 401));
+    expect(await readOpenCodeGoUsage({ env, readFile, fetch: revoked.fetch })).toBeUndefined();
     const none = fakeFetch(json(USAGE));
     expect(
       await readOpenCodeGoUsage({ env: { HOME: '/none' }, readFile, fetch: none.fetch }),

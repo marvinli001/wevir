@@ -189,6 +189,16 @@ export class OpenCodeRuntime {
         ...(this.#customPath !== null && { message: `${this.#customPath} does not exist` }),
       };
     }
+    const found = await this.#check(executablePath, isManaged);
+    if (found.ok || isManaged || managed === undefined || this.#customPath !== null) return found;
+    // 自己找到的不能用（如 Homebrew 的 opencode 已是 2.x）而 Wevir 装过 1.x：用 Wevir 的那份。
+    const fallback = await this.#check(managed.path, true);
+    return fallback.ok ? fallback : found;
+  }
+
+  /** 跑 `--version` 核对版本，能用就记下来。 */
+  async #check(executablePath: string, isManaged: boolean): Promise<Detection> {
+    const parentEnv = this.#options.env ?? process.env;
     const probe = await (this.#options.probeVersion ?? probeOpenCodeVersion)(
       executablePath,
       openCodeEnv(parentEnv, executablePath),
