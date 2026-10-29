@@ -3,7 +3,8 @@
 import type { EnginePluginConfig } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
 import type { CodexProcess } from './codex-process.js';
-import { CodexPlugins } from './plugins.js';
+import { HARDENING_TABLES } from './config.js';
+import { CodexPlugins, pluginsToml } from './plugins.js';
 
 function setup() {
   const calls: string[] = [];
@@ -91,5 +92,17 @@ describe('CodexPlugins.sync', () => {
     expect(h.lists()).toHaveLength(2);
     await h.plugins.sync('/a');
     expect(h.lists()).toHaveLength(2);
+  });
+});
+
+describe('pluginsToml', () => {
+  it('打开 skills 列表时 Codex 自带的 skills 仍关着，内置的 imagegen 只有 Wevir 那一份', () => {
+    const toml = pluginsToml(HARDENING_TABLES.join('\n'), {
+      skillsRoot: '/skills',
+      connectors: [],
+      skills: [{ name: 'imagegen', path: '/prompts/skills/imagegen/SKILL.md', enabled: true }],
+    });
+    expect(toml).toContain('[skills]\ninclude_instructions = true');
+    expect(toml).toContain('[skills.bundled]\nenabled = false');
   });
 });

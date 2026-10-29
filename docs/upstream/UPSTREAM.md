@@ -365,6 +365,19 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 
 `scripts/review_trigger_evals.py` 与 `agents/openai.yaml` 是 Wevir 新增的；上游的 `generate_report.py` 只给 `run_loop.py` 出报告，没有移植。
 
+内置的 imagegen skill（`prompts/skills/imagegen/`）改写自 Codex 的示例 skill（`codex-rs/skills/src/assets/samples/imagegen/`），Apache-2.0，`Copyright 2025 OpenAI`，目录里的 `LICENSE.txt` 随文件分发；`NOTICE` 第 5 节。Codex 自己的内置 skills（写进 `CODEX_HOME/skills/.system` 的那份）在 Wevir 的 Codex 配置里由 `[skills.bundled] enabled = false` 关掉，不会出现两个 imagegen。
+
+| Wevir 文件（`prompts/skills/imagegen/`） | 来源路径（openai/codex 的 `codex-rs/skills/src/assets/samples/imagegen/`） | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `SKILL.md` | `SKILL.md` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 工具改为 Wevir 的应用级工具 `wevir_image_generate`（ChatGPT 会话里列出的是 Codex 的 `image_gen` 时照用）；去掉 Python CLI 后备、依赖与 `OPENAI_API_KEY` 的说明（Key 在 Host）；编辑直接给本地文件路径；保存位置改为 Wevir 的 generated-images 目录；两个工具都没有时请用户在设置的模型服务里加图片模型；gpt-image-2 的透明背景改为先问再换模型 |
+| `references/image-api.md` | `references/image-api.md` | 同上 | Apache-2.0 | 只留 `wevir_image_generate` 接受的参数与模型、尺寸限制；去掉 CLI、端点、input_fidelity、压缩、审核与抠色键的说明 |
+| `references/prompting.md` | `references/prompting.md` | 同上 | Apache-2.0 | 两种模式改为两个工具；执行参数一节指向工具参数 |
+| `references/sample-prompts.md` | `references/sample-prompts.md` | 同上 | Apache-2.0 | 只改开头的说明，示例原样 |
+| `agents/openai.yaml` | `agents/openai.yaml` | 同上 | Apache-2.0 | 去掉图标（Wevir 不读）；短描述改写 |
+| `LICENSE.txt` | `LICENSE.txt` | 同上 | Apache-2.0 | 原样 |
+
+`scripts/image_gen.py`、`scripts/remove_chroma_key.py`、`references/cli.md`、`references/codex-network.md` 与 `assets/` 的图标没有移植。
+
 iOS 模拟器的 helper（2026-10-24）移植自 facebook/idb，MIT，`Copyright (c) Meta Platforms, Inc. and affiliates.`，文件都在 `apps/desktop/native/ios-simulator/` 下：
 
 | Wevir 文件 | 来源路径（facebook/idb） | 来源提交 | 许可证 | 修改说明 |

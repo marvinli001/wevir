@@ -195,6 +195,14 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
   packages/host/src/mcp-oauth/client.ts
       <- codex-rs/rmcp-client/src/oauth_callback.rs（callback_id_from_server_url，同上）
 
+内置的 imagegen skill（prompts/skills/imagegen/）改写自 Codex 的示例 skill，随安装包分发，目录里的 LICENSE.txt
+随文件分发；修改说明在各文件头：
+
+  prompts/skills/imagegen/SKILL.md、references/{prompting,sample-prompts,image-api}.md、agents/openai.yaml
+      <- codex-rs/skills/src/assets/samples/imagegen/ 下的同名文件
+  prompts/skills/imagegen/LICENSE.txt
+      <- 同目录的 LICENSE.txt（原样）
+
 上述文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
 
 下面两处测试样本是 codex-app-server 发给模型服务的请求的录制（及其经 Wevir 模型网关转换后的快照），

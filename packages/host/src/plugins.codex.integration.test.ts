@@ -174,15 +174,23 @@ describe.skipIf(!binary || process.platform === 'win32')(
         expect(context()).toContain('managed-canary');
         // 随 Wevir 分发的 skill（prompts/skills/）默认启用，同样进上下文。
         expect(context()).toContain('skill-creator');
+        expect(context()).toContain('imagegen');
         expect(context()).not.toContain('external-canary');
         expect(context()).not.toContain('project-canary');
         const codexSkills = await engine.process.request<{
           data: Array<{ skills: Array<{ name: string; enabled: boolean }> }>;
         }>('skills/list', { cwds: [cwd], forceReload: true });
+        // Codex 自带的 skills（`CODEX_HOME/skills/.system` 里也有一个 imagegen）关着，只列 Wevir 的那一份。
+        expect(
+          codexSkills.data
+            .flatMap((item) => item.skills)
+            .filter((item) => item.name === 'imagegen'),
+        ).toHaveLength(1);
         expect(codexSkills.data.flatMap((item) => item.skills)).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ name: 'managed-canary', enabled: true }),
             expect.objectContaining({ name: 'skill-creator', enabled: true }),
+            expect.objectContaining({ name: 'imagegen', enabled: true }),
             expect.objectContaining({ name: 'external-canary', enabled: false }),
             expect.objectContaining({ name: 'project-canary', enabled: false }),
           ]),
