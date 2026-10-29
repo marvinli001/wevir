@@ -3111,6 +3111,7 @@ export const messages: Messages = {
   'assistants.new': 'Новый ассистент',
   'assistants.empty': 'Нет ассистентов',
   'assistants.pick': 'Выберите ассистента',
+  'assistants.back': 'Все ассистенты',
   'assistants.unsupported': 'Фоновая служба не поддерживает ассистентов',
   'assistants.state.idle': 'Свободен',
   'assistants.state.working': 'Работает',

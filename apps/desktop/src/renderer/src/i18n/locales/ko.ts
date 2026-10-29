@@ -3029,6 +3029,7 @@ export const messages: Messages = {
   'assistants.new': '새 어시스턴트',
   'assistants.empty': '어시스턴트 없음',
   'assistants.pick': '어시스턴트 선택',
+  'assistants.back': '모든 어시스턴트',
   'assistants.unsupported': '백그라운드 서비스가 어시스턴트를 지원하지 않음',
   'assistants.state.idle': '대기 중',
   'assistants.state.working': '작업 중',

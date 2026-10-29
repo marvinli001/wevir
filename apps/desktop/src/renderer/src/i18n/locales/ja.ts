@@ -3044,6 +3044,7 @@ export const messages: Messages = {
   'assistants.new': '新規アシスタント',
   'assistants.empty': 'アシスタントなし',
   'assistants.pick': 'アシスタントを選択',
+  'assistants.back': 'アシスタント一覧',
   'assistants.unsupported': 'バックグラウンドサービスはアシスタントに未対応',
   'assistants.state.idle': '待機中',
   'assistants.state.working': '作業中',

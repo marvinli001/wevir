@@ -1,14 +1,7 @@
 import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
-import {
-  type CSSProperties,
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-} from 'react';
+import { type CSSProperties, useEffect, useReducer, useRef, useState } from 'react';
 import { Outlet, useLocation, useMatch, useNavigate, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -16,6 +9,7 @@ import { useRouteTarget, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { useElementSize } from '@/lib/use-element-size';
 import { ProjectBackdropLayer } from '@/projects/backdrop';
 import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
@@ -718,29 +712,6 @@ function useSubagentRoute(
       navigate(paths.session(workspaceId, sessionId));
     }
   }, [scopeKey, hasTab, childId, workspaceId, sessionId, navigate]);
-}
-
-/** 内容区的尺寸：首帧前量一次，之后跟着 ResizeObserver。 */
-function useElementSize() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const measure = () => {
-      const rect = element.getBoundingClientRect();
-      setSize((current) =>
-        current.width === rect.width && current.height === rect.height
-          ? current
-          : { width: rect.width, height: rect.height },
-      );
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, size] as const;
 }
 
 /** 会话列表读成功后清掉不在了的会话与工作区的窗格状态（§5.1）。 */

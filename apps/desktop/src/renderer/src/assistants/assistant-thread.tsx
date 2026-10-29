@@ -118,15 +118,17 @@ export function ThreadPane({
   );
 }
 
-/** 占满右边的线程：返回助理的对话、“在窗格中打开”。 */
+/** 占满右边的线程：返回助理的对话、“在窗格中打开”（页面窄到放不下窗格时没有）。 */
 export function ThreadPage({
   client,
   channelId,
   sessionId,
+  paneAvailable,
 }: {
   client: WevirClient;
   channelId: ChannelId;
   sessionId: SessionId;
+  paneAvailable: boolean;
 }) {
   const navigate = useNavigate();
   const [title, setTitle] = useState<string>();
@@ -144,13 +146,15 @@ export function ThreadPage({
           </IconButton>
         }
       >
-        <IconButton
-          label={t('assistants.thread.openPane')}
-          onClick={() => navigate(paths.assistantThread(channelId, sessionId, true))}
-          data-action="thread-pane"
-        >
-          <PanelRight />
-        </IconButton>
+        {paneAvailable && (
+          <IconButton
+            label={t('assistants.thread.openPane')}
+            onClick={() => navigate(paths.assistantThread(channelId, sessionId, true))}
+            data-action="thread-pane"
+          >
+            <PanelRight />
+          </IconButton>
+        )}
       </ThreadHeader>
       <ThreadSession
         client={client}

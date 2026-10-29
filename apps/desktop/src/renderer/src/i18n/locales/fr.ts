@@ -3101,6 +3101,7 @@ export const messages: Messages = {
   'assistants.new': 'Nouvel assistant',
   'assistants.empty': 'Aucun assistant',
   'assistants.pick': 'Sélectionner un assistant',
+  'assistants.back': 'Tous les assistants',
   'assistants.unsupported': 'Assistants non pris en charge par le service d’arrière-plan',
   'assistants.state.idle': 'Inactif',
   'assistants.state.working': 'Au travail',

@@ -3089,6 +3089,7 @@ export const messages: Messages = {
   'assistants.new': 'Neuer Assistent',
   'assistants.empty': 'Keine Assistenten',
   'assistants.pick': 'Assistent auswählen',
+  'assistants.back': 'Alle Assistenten',
   'assistants.unsupported': 'Assistenten vom Hintergrunddienst nicht unterstützt',
   'assistants.state.idle': 'Bereit',
   'assistants.state.working': 'Arbeitet',

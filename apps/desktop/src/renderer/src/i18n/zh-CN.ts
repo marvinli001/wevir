@@ -3034,6 +3034,7 @@ export const zhCN = {
   'assistants.new': '新建助理',
   'assistants.empty': '暂无助理',
   'assistants.pick': '选择助理',
+  'assistants.back': '全部助理',
   'assistants.unsupported': '后台服务不支持助理',
   'assistants.state.idle': '空闲',
   'assistants.state.working': '工作中',

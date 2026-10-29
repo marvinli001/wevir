@@ -1,11 +1,12 @@
 // 助理页（0.120.0，Host 功能 `channels`）：左栏是聊天列表（头像、名字、最后一条、时间、状态、未读），右边是选中的助理：头部（头像、
 // 名字、职责、暂停与删除），四个页签（对话、任务、日程与规矩、记忆）。照 Grok、Muse、Duet 一类个人助理：每个助理一条时间线。
 // 助理群（0.133.0）也在列表里：叠放的成员头像；选中时只有群的时间线，头部列出成员。
+// 页面窄到两栏放不下（手机上的 Wevir Web）时列表与对话二选一：没选中时是列表，选中后是对话，头部有返回；线程也占满整页。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { Channel, ChannelId, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Bot, Ellipsis, Pause, Pencil, Play, Plus, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, Bot, Ellipsis, Pause, Pencil, Play, Plus, Trash2, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
+import { useElementSize } from '@/lib/use-element-size';
 import { paths } from '@/routes/paths';
 import { formatMessageTime } from '@/session/format';
 import { Segmented } from '@/settings/settings-ui';
@@ -45,6 +47,9 @@ type Tab = 'conversation' | 'tasks' | 'schedule' | 'memory';
 /** 提示条显示多久。 */
 const ERROR_MS = 6000;
 
+/** 页面窄于它就只显示一栏：列表 288（w-72）加上对话至少 312。 */
+const SPLIT_MIN_WIDTH = 600;
+
 export function AssistantsPage({
   client,
   channelId,
@@ -60,80 +65,124 @@ export function AssistantsPage({
   const assistants = useMemo(() => assistantsById(channels), [channels]);
   const groups = groupsSupported(client.hello.features);
   const assistantList = [...assistants.values()];
+  const [pageRef, page] = useElementSize();
+  const narrow = page.width < SPLIT_MIN_WIDTH;
+  // 一栏时线程窗格放不下，`?thread=` 也占满整页。
+  const [search] = useSearchParams();
+  const paneThread = (search.get('thread') ?? undefined) as SessionId | undefined;
+  const pageThread = threadId ?? (narrow ? paneThread : undefined);
+  // 一栏时没有助理就不显示空列表，直接是带“新建”的空状态。
+  const showList =
+    !narrow || (channelId === undefined && channels !== undefined && channels.length > 0);
   return (
-    <div className="flex h-full min-h-0" data-testid="assistants-page">
-      <aside className="flex w-72 shrink-0 flex-col border-r border-border">
-        <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4">
-          <h1 className="text-base font-semibold">{t('assistants.title')}</h1>
-          {groups ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <IconButton label={t('assistants.new')} data-action="new-menu">
-                    <Plus />
-                  </IconButton>
-                }
-              />
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={openAssistantDialog} data-action="new-assistant">
-                  <Bot />
-                  {t('assistants.new')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={assistantList.length < 2}
-                  onClick={() => openGroupDialog(assistantList)}
-                  data-action="new-group"
-                >
-                  <Users />
-                  {t('assistants.group.new')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <IconButton
-              label={t('assistants.new')}
-              onClick={openAssistantDialog}
-              data-action="new-assistant"
-            >
-              <Plus />
-            </IconButton>
+    <div
+      ref={pageRef}
+      className="flex h-full min-h-0"
+      data-testid="assistants-page"
+      data-layout={narrow ? 'single' : 'split'}
+    >
+      {showList && (
+        <aside
+          className={cn(
+            'flex shrink-0 flex-col',
+            narrow ? 'min-w-0 flex-1' : 'w-72 border-r border-border',
           )}
-        </div>
-        <nav
-          className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
-          aria-label={t('assistants.title')}
         >
-          {channels?.map((channel) => (
-            <AssistantRow key={channel.id} channel={channel} assistants={assistants} />
-          ))}
-        </nav>
-      </aside>
-      <main className="flex min-w-0 flex-1 flex-col">
-        {channelId !== undefined && threadId !== undefined ? (
-          <ThreadPage key={threadId} client={client} channelId={channelId} sessionId={threadId} />
-        ) : channelId !== undefined ? (
-          <AssistantPane
-            key={channelId}
-            client={client}
-            channelId={channelId}
-            assistants={assistants}
-          />
-        ) : channels === undefined ? null : (
-          <EmptyState
-            icon={<Bot />}
-            title={t(channels.length === 0 ? 'assistants.empty' : 'assistants.pick')}
-            action={
-              channels.length === 0 && (
-                <Button onClick={openAssistantDialog} data-action="new-assistant-empty">
-                  <Plus />
-                  {t('assistants.new')}
-                </Button>
-              )
-            }
-          />
-        )}
-      </main>
+          <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-4">
+            <h1 className="text-base font-semibold">{t('assistants.title')}</h1>
+            {groups ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <IconButton label={t('assistants.new')} data-action="new-menu">
+                      <Plus />
+                    </IconButton>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={openAssistantDialog} data-action="new-assistant">
+                    <Bot />
+                    {t('assistants.new')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={assistantList.length < 2}
+                    onClick={() => openGroupDialog(assistantList)}
+                    data-action="new-group"
+                  >
+                    <Users />
+                    {t('assistants.group.new')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <IconButton
+                label={t('assistants.new')}
+                onClick={openAssistantDialog}
+                data-action="new-assistant"
+              >
+                <Plus />
+              </IconButton>
+            )}
+          </div>
+          <nav
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+            aria-label={t('assistants.title')}
+          >
+            {channels?.map((channel) => (
+              <AssistantRow key={channel.id} channel={channel} assistants={assistants} />
+            ))}
+          </nav>
+        </aside>
+      )}
+      {(!narrow || !showList) && (
+        <main className="flex min-w-0 flex-1 flex-col">
+          {channelId !== undefined && pageThread !== undefined ? (
+            <ThreadPage
+              key={pageThread}
+              client={client}
+              channelId={channelId}
+              sessionId={pageThread}
+              paneAvailable={!narrow}
+            />
+          ) : channelId !== undefined ? (
+            <AssistantPane
+              key={channelId}
+              client={client}
+              channelId={channelId}
+              assistants={assistants}
+              narrow={narrow}
+            />
+          ) : channels === undefined ? null : (
+            <EmptyState
+              icon={<Bot />}
+              title={t(channels.length === 0 ? 'assistants.empty' : 'assistants.pick')}
+              action={
+                channels.length === 0 && (
+                  <Button onClick={openAssistantDialog} data-action="new-assistant-empty">
+                    <Plus />
+                    {t('assistants.new')}
+                  </Button>
+                )
+              }
+            />
+          )}
+        </main>
+      )}
     </div>
+  );
+}
+
+/** 一栏时对话头部最左边：回到列表。 */
+function BackToList() {
+  const navigate = useNavigate();
+  return (
+    <IconButton
+      label={t('assistants.back')}
+      onClick={() => navigate(paths.assistants())}
+      data-action="assistants-back"
+    >
+      <ArrowLeft />
+    </IconButton>
   );
 }
 
@@ -215,10 +264,13 @@ function AssistantPane({
   client,
   channelId,
   assistants,
+  narrow,
 }: {
   client: WevirClient;
   channelId: ChannelId;
   assistants: ReadonlyMap<string, Channel>;
+  /** 一栏：头部有返回，页签另起一行，线程占满整页。 */
+  narrow: boolean;
 }) {
   const state = useAssistantView(client, channelId);
   const [tab, setTab] = useState<Tab>('conversation');
@@ -258,6 +310,7 @@ function AssistantPane({
         assistants={assistants}
         error={error}
         onError={setError}
+        narrow={narrow}
       />
     );
   }
@@ -271,9 +324,34 @@ function AssistantPane({
       .catch((reason: unknown) =>
         setError(t('assistants.actionFailed', { error: describe(reason) })),
       );
+  const tabs = (
+    <Segmented<Tab>
+      label={t('assistants.tabs')}
+      value={tab}
+      onChange={setTab}
+      options={[
+        { value: 'conversation', label: t('assistants.tab.conversation') },
+        {
+          value: 'tasks',
+          label:
+            openTasks > 0
+              ? t('assistants.tab.tasksCount', { count: openTasks })
+              : t('assistants.tab.tasks'),
+        },
+        { value: 'schedule', label: t('assistants.tab.schedule') },
+        { value: 'memory', label: t('assistants.tab.memory') },
+      ]}
+    />
+  );
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-assistant-view={channel.id}>
-      <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-2.5">
+      <header
+        className={cn(
+          'flex shrink-0 items-center border-b border-border py-2.5',
+          narrow ? 'gap-2 px-3' : 'gap-3 px-5',
+        )}
+      >
+        {narrow && <BackToList />}
         {channel.assistant && (
           <AssistantAvatar
             avatar={channel.assistant.avatar}
@@ -291,23 +369,7 @@ function AssistantPane({
               .join(' · ')}
           </p>
         </div>
-        <Segmented<Tab>
-          label={t('assistants.tabs')}
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: 'conversation', label: t('assistants.tab.conversation') },
-            {
-              value: 'tasks',
-              label:
-                openTasks > 0
-                  ? t('assistants.tab.tasksCount', { count: openTasks })
-                  : t('assistants.tab.tasks'),
-            },
-            { value: 'schedule', label: t('assistants.tab.schedule') },
-            { value: 'memory', label: t('assistants.tab.memory') },
-          ]}
-        />
+        {!narrow && tabs}
         <IconButton
           label={t(paused ? 'assistants.resume' : 'assistants.pause')}
           onClick={togglePause}
@@ -339,6 +401,11 @@ function AssistantPane({
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
+      {narrow && (
+        <div className="shrink-0 overflow-x-auto border-b border-border px-3 py-2 *:w-full">
+          {tabs}
+        </div>
+      )}
       {error && (
         <p className="shrink-0 bg-destructive/10 px-5 py-1.5 text-sm text-destructive" role="alert">
           {error}
@@ -355,7 +422,7 @@ function AssistantPane({
               onLoadOlder={state.loadOlder}
               onPosted={state.addPost}
               onOpenThread={(thread) =>
-                navigate(paths.assistantThread(channelId, thread.sessionId, true), {
+                navigate(paths.assistantThread(channelId, thread.sessionId, !narrow), {
                   replace: threadId !== undefined,
                 })
               }
@@ -421,6 +488,7 @@ function GroupPane({
   assistants,
   error,
   onError,
+  narrow,
 }: {
   client: WevirClient;
   view: NonNullable<ReturnType<typeof useAssistantView>['view']>;
@@ -428,6 +496,7 @@ function GroupPane({
   assistants: ReadonlyMap<string, Channel>;
   error: string | undefined;
   onError: (text: string) => void;
+  narrow: boolean;
 }) {
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
@@ -435,7 +504,13 @@ function GroupPane({
   const members = groupMembers(channel, assistants);
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-assistant-view={channel.id}>
-      <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-2.5">
+      <header
+        className={cn(
+          'flex shrink-0 items-center border-b border-border py-2.5',
+          narrow ? 'gap-2 px-3' : 'gap-3 px-5',
+        )}
+      >
+        {narrow && <BackToList />}
         <GroupAvatar
           members={members.flatMap((member) => (member.assistant ? [member.assistant.avatar] : []))}
           size={36}

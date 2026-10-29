@@ -3019,6 +3019,7 @@ export const messages: Messages = {
   'assistants.new': '新增助理',
   'assistants.empty': '尚無助理',
   'assistants.pick': '選擇助理',
+  'assistants.back': '全部助理',
   'assistants.unsupported': '背景服務不支援助理',
   'assistants.state.idle': '閒置',
   'assistants.state.working': '工作中',

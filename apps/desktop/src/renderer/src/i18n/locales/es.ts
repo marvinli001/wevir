@@ -3096,6 +3096,7 @@ export const messages: Messages = {
   'assistants.new': 'Nuevo asistente',
   'assistants.empty': 'Sin asistentes',
   'assistants.pick': 'Selecciona un asistente',
+  'assistants.back': 'Todos los asistentes',
   'assistants.unsupported': 'El servicio en segundo plano no admite asistentes',
   'assistants.state.idle': 'Inactivo',
   'assistants.state.working': 'Trabajando',
