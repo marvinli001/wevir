@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { engineStatusText, useOfficeEngine } from '@/files/office-engine';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
@@ -228,6 +229,7 @@ export function StorageSettings() {
             />
           ))}
         </div>
+        <OfficeEngineCard onChanged={refresh} />
         <SessionStorageCard
           onDeleted={refresh}
           onOpenArchived={() => navigate(paths.settings('archived'), { replace: true })}
@@ -246,5 +248,60 @@ export function StorageSettings() {
         {cleaning === 'browser' && <p>{t('settings.storage.browserWarning')}</p>}
       </ConfirmDialog>
     </>
+  );
+}
+
+/** 文档预览引擎（0.138.0，文件窗格的页面预览）：大小、下载与删除。Host 没有 `office_preview` 或平台不支持时不显示。 */
+function OfficeEngineCard({ onChanged }: { onChanged: () => void }) {
+  const engine = useOfficeEngine();
+  const status = engine.status;
+  const state = status?.state;
+  // 装好或删掉之后重新量一遍存储。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在状态变成装好或没装时重量。
+  useEffect(() => {
+    if (state === 'ready' || state === 'missing') onChanged();
+  }, [state]);
+  if (!engine.supported || status === undefined || status.state === 'unsupported') return null;
+  return (
+    <div className={LIST_CARD}>
+      <SettingsRow
+        title={t('settings.storage.officeEngine')}
+        data-setting="office-engine"
+        description={engine.error ?? engineStatusText(status, currentLocale())}
+        control={
+          status.state === 'installing' ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={engine.busy}
+              onClick={engine.cancel}
+              data-action="office-engine-cancel"
+            >
+              {t('common.cancel')}
+            </Button>
+          ) : status.state === 'ready' ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={engine.busy}
+              onClick={engine.remove}
+              data-action="office-engine-remove"
+            >
+              {t('settings.storage.officeEngine.remove')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={engine.busy}
+              onClick={engine.install}
+              data-action="office-engine-install"
+            >
+              {t('settings.storage.officeEngine.download')}
+            </Button>
+          )
+        }
+      />
+    </div>
   );
 }

@@ -76,6 +76,7 @@ import { type McpOAuthOptions, McpOAuthService } from './mcp-oauth/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory, sessionMemoryIndex } from './memory-tools.js';
 import { NotificationService } from './notifications.js';
+import { OfficeService } from './office/service.js';
 import type { TestConnectionGrant } from './permissions.js';
 import { PluginRegistry } from './plugins.js';
 import { Presence } from './presence.js';
@@ -1424,6 +1425,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       .init()
       .catch((error: unknown) => logger.warn('failed to read the speech model state', { error }));
 
+    // 办公文档预览（0.138.0）：LibreOffice 预览引擎按需下载；装没装好在后台读，读完经 `office.changed` 通知。
+    const office = new OfficeService({
+      directory: homePath(home, 'officeDir'),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    void office
+      .init()
+      .catch((error: unknown) => logger.warn('failed to read the office engine state', { error }));
+
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
     let requestShutdown: (trigger: ShutdownTrigger) => void = () => {};
@@ -1478,6 +1488,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ...(autoTuner !== undefined && { autoTuner }),
           market,
           speech,
+          office,
           keepAwake,
           inbox: inboxService,
           remote: {
@@ -1501,6 +1512,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_update: true,
         workspace_folders: true,
         file_preview: true,
+        office_preview: true,
         session_rename: true,
         session_archive: true,
         session_delete: true,
@@ -1616,6 +1628,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(processOutput.available && { processes: processOutput }),
       ...(previews !== undefined && { previews }),
       speech,
+      office,
       market,
       power: keepAwake,
       ...(guardrails !== undefined && { guardrails }),
@@ -1703,6 +1716,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           processes,
           previews,
           speech,
+          office,
           terminals,
           simulators,
           verification,
@@ -1788,6 +1802,8 @@ interface ShutdownParts {
   previews: PreviewService | undefined;
   /** 听写（0.92.0）：取消进行中的模型下载，放掉识别器。 */
   speech: SpeechService;
+  /** 办公文档预览（0.138.0）：取消进行中的引擎下载，释放转换器。 */
+  office: OfficeService;
   /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
   terminals: TerminalService | undefined;
   /** iOS 模拟器（0.122.0）：结束 helper、断开画面、清掉输出目录。 */
@@ -1854,6 +1870,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
   parts.previews?.dispose();
   parts.speech.dispose();
+  await step('stop_office', () => parts.office.dispose(), true);
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
   }

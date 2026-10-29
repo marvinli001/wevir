@@ -7,6 +7,10 @@
 # 压缩包，解压 181–243 MiB；另有 ripgrep，约 2 MiB）。真实二进制 + 网关 + mock 模型的契约测试与外连、密钥检查都进 CI，三个平台都跑；
 # 二进制不在时这些用例跳过并打印下载命令。
 #
+# 办公文档预览引擎（packages/host 的 office.engine.integration.test.ts）：测试从 npm registry 下载本平台的 LibreOffice 引擎
+# （macOS、Windows 原生约 70–75 MiB，Linux WebAssembly 约 48 MiB 的压缩包）并转换 docx、pptx、xlsx；以包表所在的 engine.ts 为键
+# 缓存在 .wevir-dev/office，三个平台都跑。
+#
 # Linux 上用户终端的 node-pty 没有预编译：Test 之前由 scripts/build-node-pty.sh 就地编（terminals.host.test.ts 才不跳过）。
 
 name: CI
@@ -92,9 +96,17 @@ jobs:
       - name: 下载 codex-app-server
         run: bash scripts/fetch-codex.sh
 
+      - name: 缓存办公文档预览引擎
+        uses: actions/cache@v6
+        with:
+          path: .wevir-dev/office/engine
+          key: office-engine-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packages/host/src/office/engine.ts') }}
+
       - name: 编 node-pty（Linux）
         if: runner.os == 'Linux'
         run: bash scripts/build-node-pty.sh
 
       - name: Test
         run: pnpm test
+        env:
+          WEVIR_TEST_OFFICE_DIR: ${{ github.workspace }}/.wevir-dev/office

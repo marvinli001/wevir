@@ -10,6 +10,7 @@ import type {
   WorkspaceEntryKind,
   WorkspaceFileUrlResult,
   WorkspaceId,
+  WorkspaceOfficePdfResult,
   WorkspaceReadFileResult,
   WorkspaceWriteFileResult,
 } from '@wevir/protocol';
@@ -183,6 +184,37 @@ export function useFileUrl(scope: FileScope, path: string, refreshKey: unknown, 
   const src =
     result?.url === undefined ? undefined : `${result.url}?v=${Math.round(result.mtimeMs ?? 0)}`;
   return { ...state, src };
+}
+
+/** Host 声明了 `office_preview`（0.138.0）：办公文档能转成 PDF。 */
+export function hasOfficePreview(view: HostConnectionView): boolean {
+  return view.status === 'connected' && hostSupports(view.hello.features, 'office_preview');
+}
+
+export function useOfficePreviewSupported(): boolean {
+  return hasOfficePreview(useHostConnection().view);
+}
+
+const officePdfs = new LruMap<string, WorkspaceOfficePdfResult>(200);
+
+/**
+ * 办公文档转成的 PDF（`workspace.officePdf`，0.138.0）；`enabled` 为 false 或 Host 没有 `office_preview` 时不读。转换可能要几秒；
+ * Host 按文件的修改时间缓存，重读同一版不再转换，地址也不变。
+ */
+export function useOfficePdf(
+  scope: FileScope,
+  path: string,
+  refreshKey: unknown,
+  enabled: boolean,
+) {
+  const { client } = useHostConnection();
+  const supported = useOfficePreviewSupported();
+  const key = enabled ? `${scopeKey(scope)}:${path}` : undefined;
+  const read =
+    client && supported && enabled
+      ? () => client.request('workspace.officePdf', { ...scopeParams(scope), path })
+      : undefined;
+  return useHostRead(key, officePdfs, read, refreshKey);
 }
 
 /** 输入时等这么久再搜（T3 也是 120 ms）。 */

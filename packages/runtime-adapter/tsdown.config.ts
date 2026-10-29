@@ -10,6 +10,7 @@ export default defineConfig({
     'src/web-tool.ts',
     'src/guardrail.ts',
     'src/npm-package.ts',
+    'src/npm-closure.ts',
     'src/private-home.ts',
     'src/contract.ts',
   ],

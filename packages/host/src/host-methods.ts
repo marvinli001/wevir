@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access, realpath, stat } from 'node:fs/promises';
+import { access, mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute } from 'node:path';
 import type {
   ClientCapabilities,
@@ -71,6 +71,7 @@ import {
   type MemorySource,
   type MemoryStore,
 } from './memory.js';
+import { OfficeConversionFailed, type OfficeService } from './office/service.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { PreviewService } from './preview/service.js';
@@ -254,6 +255,8 @@ export interface HostMethodsOptions {
   market?: MarketService;
   /** 听写（0.92.0，`speech.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   speech?: SpeechService;
+  /** 办公文档预览（0.138.0，`office.*` 与 `workspace.officePdf`）；省略时 `office.*` 回 `INVALID_PARAMS`（测试）。 */
+  office?: OfficeService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -472,6 +475,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const speech = (): SpeechService => {
     if (options.speech === undefined) throw invalidParams([], 'this host has no dictation');
     return options.speech;
+  };
+  const office = (): OfficeService => {
+    if (options.office === undefined) throw invalidParams([], 'this host has no office preview');
+    return options.office;
   };
   const terminals = (): TerminalService => {
     if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
@@ -873,6 +880,31 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (!isServablePath(path)) return { path, unavailable: 'unsupported' };
       const { url, expiresAt } = options.fileUrls.issue(root, path);
       return { path, url, size: file.size, mtimeMs: file.mtimeMs, expiresAt };
+    },
+
+    // 0.138.0：办公文档转成 PDF，地址指向 Host 的 PDF 缓存（同一套令牌）。
+    'workspace.officePdf': async ({ workspaceId, sessionId, path }) => {
+      const { file } = await resolveWorkspaceFile(workspaceId, sessionId, path);
+      if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
+      if (options.office === undefined) return { path, unavailable: 'engine_missing' };
+      try {
+        const pdf = await options.office.convert(file);
+        await mkdir(options.office.pdfDirectory, { recursive: true, mode: 0o700 });
+        const root = await realpath(options.office.pdfDirectory);
+        const { url, expiresAt } = options.fileUrls.issue(root, pdf.file);
+        return {
+          path,
+          url,
+          ...(pdf.pageCount !== undefined && { pageCount: pdf.pageCount }),
+          ...(pdf.missingFonts.length > 0 && { missingFonts: pdf.missingFonts }),
+          expiresAt,
+        };
+      } catch (error) {
+        if (error instanceof OfficeConversionFailed) {
+          return { path, unavailable: error.reason, message: error.message };
+        }
+        throw error;
+      }
     },
 
     'workspace.writeFile': async ({ workspaceId, sessionId, path, text, expectedMtimeMs }) => {
@@ -1567,6 +1599,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'process.stop': ({ processId, signal }) => ({
       process: processOutput().stop(processId, signal),
     }),
+    'office.status': () => ({ status: office().status() }),
+    'office.install': () => office().install(),
+    'office.cancelInstall': () => office().cancelInstall(),
+    'office.uninstall': () => office().uninstall(),
     'speech.status': () => ({ status: speech().status() }),
     'speech.install': () => speech().install(),
     'speech.cancelInstall': () => speech().cancelInstall(),

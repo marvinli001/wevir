@@ -263,6 +263,8 @@ import {
   memoryProposal,
   methodSamples,
   notificationSamples,
+  officeEngineMissing,
+  officeEngineReady,
   openInsight,
   pairingOfferSample,
   pendingApproval,
@@ -4935,6 +4937,21 @@ const standaloneCases: Case[] = [
     schema: protocol.SpeechRecordingIdSchema,
     valid: ['rec_01JA2B3C4D5E6F7G'],
     invalid: ['rec_', 'ses_01JA2B3C4D5E6F7G'],
+  },
+  {
+    name: 'OfficeEngineState',
+    schema: protocol.OfficeEngineStateSchema,
+    valid: ['unsupported', 'missing', 'installing', 'ready', 'failed'],
+    invalid: ['downloading'],
+  },
+  {
+    name: 'OfficeEngineStatus',
+    schema: protocol.OfficeEngineStatusSchema,
+    valid: [officeEngineMissing, officeEngineReady],
+    invalid: [
+      { ...officeEngineMissing, engineName: '' },
+      { ...officeEngineMissing, backend: 'gpu' },
+    ],
   },
   {
     name: 'SpeechLocalState',

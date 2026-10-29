@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { filePreviewDelimiter, parseDelimitedPreview } from './delimited-preview';
-import { filePaneView, filePreviewKind, isStreamedView, videoMimeType } from './file-preview';
+import {
+  filePaneView,
+  filePreviewKind,
+  isStreamedView,
+  officePdfConvertible,
+  videoMimeType,
+} from './file-preview';
 
 describe('filePreviewKind（T3）', () => {
   it('按扩展名与 MIME 分类', () => {
@@ -59,5 +65,26 @@ describe('parseDelimitedPreview（T3）', () => {
     const parsed = parseDelimitedPreview(tall, ',');
     expect(parsed.rows).toHaveLength(100);
     expect(parsed.truncated).toBe(true);
+  });
+});
+
+describe('officePdfConvertible（0.138.0）', () => {
+  it('Word、Excel、PowerPoint 与 OpenDocument 能转成 PDF；iWork、RTF 与别的格式不能', () => {
+    for (const path of [
+      'a.docx',
+      'b/C.DOC',
+      'c.odt',
+      'd.xlsx',
+      'e.xls',
+      'f.ods',
+      'g.pptx',
+      'h.ppt',
+      'i.odp',
+    ]) {
+      expect(officePdfConvertible(path), path).toBe(true);
+    }
+    for (const path of ['a.pages', 'b.key', 'c.numbers', 'd.rtf', 'e.pdf', 'f.md', 'docx']) {
+      expect(officePdfConvertible(path), path).toBe(false);
+    }
   });
 });

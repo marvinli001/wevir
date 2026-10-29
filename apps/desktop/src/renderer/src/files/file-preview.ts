@@ -7,6 +7,8 @@
 //
 // 文件窗格（0.32.0，desktop-layout.md §19）按文件名决定怎么显示。纯逻辑。
 
+import { OFFICE_PDF_EXTENSIONS } from '@wevir/protocol';
+
 const GENERIC_MIME_TYPES = new Set([
   'application/octet-stream',
   'binary/octet-stream',
@@ -183,6 +185,13 @@ export function filePaneView(path: string): FilePaneView {
   const kind = filePreviewKind({ name: path });
   if (kind === 'unsupported') return 'text';
   return kind;
+}
+
+const OFFICE_PDF = new Set<string>(OFFICE_PDF_EXTENSIONS);
+
+/** 预览引擎（0.138.0，`workspace.officePdf`）能转成 PDF 的办公文档：Word、Excel、PowerPoint 与 OpenDocument。 */
+export function officePdfConvertible(path: string): boolean {
+  return OFFICE_PDF.has(extensionOf(path));
 }
 
 /** 这几种由 Host 的流式地址加载，不读文本。 */

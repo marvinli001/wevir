@@ -32,6 +32,8 @@ describe('measureStorage', () => {
     await file('worktrees/s1/repo/file.ts', 300);
     await file('engines/codex/state_5.sqlite', 400);
     await file('logs/host.log', 3);
+    await file('office/engine/versions/0.2.0/node_modules/kit/engine.bin', 70);
+    await file('office/pdf/abc.pdf', 5);
     await file('plugins/registry.json', 2);
     await file('settings.json', 1);
     await file('desktop/Cache/Cache_Data/data_0', 50);
@@ -48,13 +50,13 @@ describe('measureStorage', () => {
     expect(bytesOf(usage)).toEqual({
       sessions: 142,
       worktrees: 300,
-      engines: 400,
+      engines: 470,
       cache: 140,
       browser: 17,
       logs: 3,
-      other: 24,
+      other: 29,
     });
-    expect(usage.total).toBe(1026);
+    expect(usage.total).toBe(1101);
     expect(usage.categories.map((category) => category.id)).toEqual([
       'sessions',
       'worktrees',

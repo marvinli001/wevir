@@ -12,16 +12,23 @@
 // 显示抽出的文字，其余 Office 文件交给系统预览（macOS 的 Quick Look）或默认应用（file-viewers.tsx）。PDF、网页、音视频与 Office
 // 文件从 Host 的流式地址加载（`workspace.fileUrl`），不走 base64。顶上一行是路径、切换、换行、保存状态、刷新、复制路径、系统预览
 // 与“打开方式”（外部编辑器、在访达中显示）。从带行号的链接打开时选中并滚到那一行。
+//
+// 0.138.0：Host 有 `office_preview` 时，Word、Excel、PowerPoint 与 OpenDocument 文件可以显示成页面：Host 用按需下载的 LibreOffice
+// 引擎转成 PDF（`workspace.officePdf`），同样交给 Chromium 的 PDF 查看器，macOS、Windows 与 Linux 一样。引擎没装时照旧显示文字或
+// 表格，上面一行给出下载；docx / pptx / xlsx 可以在页面与文字（表格）之间切换。
 
 import { File, Virtualizer } from '@pierre/diffs/react';
 import { cn } from 'cn';
 import {
+  AlignLeft,
   AppWindow,
   Check,
   ChevronDown,
   Code,
   Copy,
+  Download,
   Eye,
+  FileText,
   FileWarning,
   FolderOpen,
   RotateCw,
@@ -46,13 +53,20 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { filePreviewDelimiter } from '@/files/delimited-preview';
 import { resolveRelativeTo, toAbsolutePath } from '@/files/file-path';
-import { type FilePaneView, filePaneView, isStreamedView } from '@/files/file-preview';
+import {
+  type FilePaneView,
+  filePaneView,
+  isStreamedView,
+  officePdfConvertible,
+} from '@/files/file-preview';
 import {
   type FileScope,
   useFileContents,
   useFilePreviewSupported,
   useFilesSupported,
   useFileUrl,
+  useOfficePdf,
+  useOfficePreviewSupported,
 } from '@/files/files-data';
 import {
   filePrefs,
@@ -61,12 +75,14 @@ import {
   useEditors,
   useFileReveal,
 } from '@/files/files-store';
+import { installPercent, type OfficeEngine, useOfficeEngine } from '@/files/office-engine';
 import { useHostConnection } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { capabilities, platformApi } from '@/platform/platform';
 import { renderDocumentHtml } from '@/session/markdown/markdown-document';
 import { type DocumentMarkdown, MarkdownView } from '@/session/markdown/markdown-view';
+import { formatFileSize } from '@/session/shared-files-model';
 import { useTheme } from '@/theme/theme';
 import { canOpenExternally } from '../../../../shared/open-path.js';
 import type { PaneContext } from '../pane-registry';
@@ -127,8 +143,20 @@ function FilePreview({
     prefs[toggle] &&
     reveal?.line === undefined &&
     (view !== 'html' || preview);
+  // 办公文档的页面（0.138.0）：引擎装好时 docx / pptx / xlsx 按设置，旧格式与 OpenDocument 总是页面。
+  const officeSupported = useOfficePreviewSupported();
+  const engine = useOfficeEngine();
+  const convertible = preview && officeSupported && officePdfConvertible(path);
+  const engineReady = convertible && engine.status?.state === 'ready';
+  const pages = engineReady && (view === 'office' || prefs.renderOffice);
+  const offer =
+    convertible &&
+    !engineReady &&
+    engine.status !== undefined &&
+    engine.status.state !== 'unsupported';
+  const pdf = useOfficePdf(scope, path, key, pages);
   // Host 没有 file_preview（0.32.0 之前）时只有文本与图片（base64）。
-  const streamed = preview && (isStreamedView(view) || (view === 'html' && rendered));
+  const streamed = preview && !pages && (isStreamedView(view) || (view === 'html' && rendered));
   const contents = useFileContents(scope, path, key, !streamed);
   const url = useFileUrl(scope, path, key, streamed);
   const result = contents.value;
@@ -136,13 +164,29 @@ function FilePreview({
   const { name, dir } = splitPath(path);
   const Icon = fileIcon(path);
   const external = canOpenExternally(absolute);
-  const loading = streamed ? url.loading : contents.loading;
+  const loading = pages ? pdf.loading : streamed ? url.loading : contents.loading;
   const showsSource = !streamed && result?.text !== undefined && !rendered;
   const refresh = useCallback(() => setManual((value) => value + 1), []);
 
   let body: ReactNode;
-  const error = streamed ? url.error : contents.error;
-  if (streamed && url.value?.unavailable === undefined && url.src !== undefined) {
+  const error = pages ? pdf.error : streamed ? url.error : contents.error;
+  if (pages) {
+    const result = pdf.value;
+    body =
+      result?.url !== undefined ? (
+        <DocumentFrame src={result.url} title={path} pdf />
+      ) : result?.unavailable !== undefined ? (
+        <Note icon={FileWarning}>
+          {t('files.convertFailed', {
+            error: result.message ?? unavailableText(result.unavailable),
+          })}
+        </Note>
+      ) : error !== undefined ? (
+        <Note icon={FileWarning}>{t('files.failed', { error })}</Note>
+      ) : (
+        <Note icon={Icon}>{t('files.converting')}</Note>
+      );
+  } else if (streamed && url.value?.unavailable === undefined && url.src !== undefined) {
     body = (
       <StreamedBody
         view={view}
@@ -151,12 +195,13 @@ function FilePreview({
         name={name}
         onRetry={refresh}
         absolute={absolute}
+        engine={offer ? engine : undefined}
       />
     );
   } else if (streamed && url.value?.unavailable !== undefined) {
     body =
       view === 'office' ? (
-        <OfficeFallback absolute={absolute} />
+        <OfficeFallback absolute={absolute} engine={offer ? engine : undefined} />
       ) : (
         <Note icon={FileWarning}>{unavailableText(url.value.unavailable)}</Note>
       );
@@ -237,6 +282,22 @@ function FilePreview({
             {rendered ? <Code /> : view === 'table' ? <Table2 /> : <Eye />}
           </IconButton>
         )}
+        {engineReady && view !== 'office' && (
+          <IconButton
+            label={
+              pages
+                ? view === 'spreadsheet'
+                  ? t('files.showTable')
+                  : t('files.showText')
+                : t('files.showPages')
+            }
+            aria-pressed={pages}
+            onClick={() => filePrefs.set((current) => ({ ...current, renderOffice: !pages }))}
+            data-action="toggle-office-pages"
+          >
+            {pages ? view === 'spreadsheet' ? <Table2 /> : <AlignLeft /> : <FileText />}
+          </IconButton>
+        )}
         {showsSource && (
           <IconButton
             label={t('changes.wrap')}
@@ -257,8 +318,72 @@ function FilePreview({
         )}
         {capabilities().localFiles && <OpenInMenu path={absolute} line={reveal?.line} />}
       </div>
+      {offer && view !== 'office' && <OfficeEngineBar engine={engine} />}
       <div className="relative min-h-0 flex-1">{body}</div>
     </div>
+  );
+}
+
+/** 预览引擎没装时文字（表格）上面的一行：下载、进度与取消、失败后重试。 */
+function OfficeEngineBar({ engine }: { engine: OfficeEngine }) {
+  return (
+    <div
+      className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs text-muted-foreground"
+      data-testid="office-engine-bar"
+    >
+      <FileText aria-hidden className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{t('files.pagePreview')}</span>
+      <OfficeEngineAction engine={engine} />
+    </div>
+  );
+}
+
+/** 引擎的状态与操作：没装时“下载”，下载中显示进度与“取消”，失败时显示原因与“重试”。 */
+function OfficeEngineAction({ engine }: { engine: OfficeEngine }) {
+  const status = engine.status;
+  if (status === undefined) return null;
+  const failure =
+    engine.error ?? (status.state === 'failed' ? (status.error ?? undefined) : undefined);
+  if (status.state === 'installing') {
+    return (
+      <>
+        <span className="shrink-0 tabular-nums" aria-live="polite">
+          {t('files.officeEngine.downloading', { percent: installPercent(status) })}
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={engine.busy}
+          onClick={engine.cancel}
+          data-action="office-engine-cancel"
+        >
+          {t('common.cancel')}
+        </Button>
+      </>
+    );
+  }
+  return (
+    <>
+      {failure !== undefined && (
+        <span className="min-w-0 truncate text-destructive" title={failure}>
+          {t('files.officeEngine.failed', { error: failure })}
+        </span>
+      )}
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={engine.busy}
+        onClick={engine.install}
+        data-action="office-engine-install"
+      >
+        <Download />
+        {failure !== undefined
+          ? t('files.officeEngine.retry')
+          : t('files.officeEngine.download', {
+              size: formatFileSize(status.downloadBytes, currentLocale()),
+            })}
+      </Button>
+    </>
   );
 }
 
@@ -282,6 +407,7 @@ function StreamedBody({
   name,
   absolute,
   onRetry,
+  engine,
 }: {
   view: FilePaneView;
   src: string;
@@ -289,6 +415,7 @@ function StreamedBody({
   name: string;
   absolute: string;
   onRetry: () => void;
+  engine: OfficeEngine | undefined;
 }) {
   switch (view) {
     case 'image':
@@ -308,16 +435,21 @@ function StreamedBody({
         <OfficeTextView src={src} kind={path.toLowerCase().endsWith('.pptx') ? 'pptx' : 'docx'} />
       );
     default:
-      return <OfficeFallback absolute={absolute} />;
+      return <OfficeFallback absolute={absolute} engine={engine} />;
   }
 }
 
-/** 窗格里看不了的文档：交给系统预览或默认应用。 */
-function OfficeFallback({ absolute }: { absolute: string }) {
+/** 窗格里看不了的文档：交给系统预览或默认应用；能转成 PDF 的旧格式另给下载预览引擎（`engine`）。 */
+function OfficeFallback({ absolute, engine }: { absolute: string; engine?: OfficeEngine }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
       <FileWarning aria-hidden className="size-6 stroke-[1.5] text-muted-foreground" />
       <p className="max-w-64 text-sm text-muted-foreground">{t('files.noInlinePreview')}</p>
+      {engine !== undefined && (
+        <div className="flex max-w-80 flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
+          <OfficeEngineAction engine={engine} />
+        </div>
+      )}
       {capabilities().localFiles && canOpenExternally(absolute) && (
         <div className="flex gap-2">
           {IS_MAC && (

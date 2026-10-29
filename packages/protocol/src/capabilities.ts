@@ -193,6 +193,11 @@ export const HOST_FEATURES = {
    */
   filePreview: 'file_preview',
   /**
+   * 办公文档的高保真预览（0.138.0）：`office.*`（按需下载 LibreOffice 预览引擎）与 `office.changed` 通知、`workspace.officePdf`（把
+   * Word、Excel、PowerPoint 与 OpenDocument 文件转成 PDF 的流式地址）。与引擎无关。
+   */
+  officePreview: 'office_preview',
+  /**
    * 内置浏览器（0.33.0，domain-model §3.15）：连接可以用 `browser.register` 登记为浏览器提供方、收 `browser.request` 通知、用
    * `browser.respond` 回答；应用级工具里有 `browser_*` 工具，`wevir_show` 能显示网页。只在有应用级工具时声明。
    */
@@ -588,6 +593,7 @@ export const HostFeaturesSchema = z.looseObject({
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
+  office_preview: z.boolean().optional(),
   browser_tools: z.boolean().optional(),
   computer_use: z.boolean().optional(),
   web_tools: z.boolean().optional(),

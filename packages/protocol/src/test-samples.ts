@@ -48,6 +48,7 @@ import {
   type NotificationParams,
 } from './methods.js';
 import type { NotificationIntent } from './notifications.js';
+import type { OfficeEngineStatus } from './office.js';
 import type { PreviewCandidate, PreviewConfig } from './preview.js';
 import type { HostProcess } from './processes.js';
 import type { PushState } from './push.js';
@@ -838,6 +839,20 @@ export const speechLocalReady: SpeechLocalStatus = {
   ...speechLocalMissing,
   state: 'ready',
   installedBytes: 259_000_000,
+};
+
+/** 办公文档预览引擎（0.138.0）：没装 / 装好了。 */
+export const officeEngineMissing: OfficeEngineStatus = {
+  state: 'missing',
+  engineName: 'LibreOffice',
+  version: '0.2.0',
+  backend: 'native',
+  downloadBytes: 61_000_000,
+};
+export const officeEngineReady: OfficeEngineStatus = {
+  ...officeEngineMissing,
+  state: 'ready',
+  installedBytes: 174_000_000,
 };
 
 export const previewConfig: PreviewConfig = {
@@ -4275,6 +4290,29 @@ export const methodSamples: MethodSamples = {
         { path: 'gone.pdf', unavailable: 'not_found' },
       ],
       invalid: [{ url: 'http://127.0.0.1:1/files/x/a' }, { path: 'a', unavailable: '' }],
+    },
+  },
+  'workspace.officePdf': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, path: 'docs/report.docx' },
+        { workspaceId: ids.workspace, sessionId: ids.session, path: 'deck.pptx' },
+      ],
+      invalid: [{ workspaceId: ids.workspace, path: '' }, { path: 'a.docx' }],
+    },
+    result: {
+      valid: [
+        {
+          path: 'docs/report.docx',
+          url: 'http://127.0.0.1:52811/files/Zm9vYmFy/3f2a9c.pdf',
+          pageCount: 12,
+          missingFonts: ['Calibri'],
+          expiresAt: 1_760_003_600_000,
+        },
+        { path: 'deck.pptx', unavailable: 'engine_missing' },
+        { path: 'broken.docx', unavailable: 'invalid_document', message: 'The file is damaged.' },
+      ],
+      invalid: [{ url: 'http://127.0.0.1:1/files/x/a.pdf' }, { path: 'a', pageCount: -1 }],
     },
   },
   'workspace.writeFile': {
@@ -8343,6 +8381,44 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'office.status': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        { status: officeEngineMissing },
+        { status: officeEngineReady },
+        {
+          status: {
+            ...officeEngineMissing,
+            state: 'installing',
+            progress: { completedBytes: 1024, totalBytes: 61_000_000 },
+          },
+        },
+        { status: { ...officeEngineMissing, state: 'failed', error: 'checksum mismatch' } },
+        {
+          status: {
+            state: 'unsupported',
+            engineName: 'LibreOffice',
+            version: '0.2.0',
+            downloadBytes: 0,
+          },
+        },
+      ],
+      invalid: [{ status: { ...officeEngineMissing, state: 'downloading' } }, {}],
+    },
+  },
+  'office.install': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ status: officeEngineMissing }], invalid: [{ status: {} }] },
+  },
+  'office.cancelInstall': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ status: officeEngineMissing }], invalid: [{}] },
+  },
+  'office.uninstall': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ status: officeEngineMissing }], invalid: [{}] },
+  },
   'speech.status': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -9101,6 +9177,10 @@ export const notificationSamples: NotificationSamples = {
   'speech.changed': {
     valid: [{ status: { local: speechLocalReady } }],
     invalid: [{}, { status: { local: { state: 'ready' } } }],
+  },
+  'office.changed': {
+    valid: [{ status: officeEngineReady }],
+    invalid: [{}, { status: { state: 'ready' } }],
   },
   'market.installProgress': {
     valid: [

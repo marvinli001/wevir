@@ -41,13 +41,15 @@ export interface FilePrefs {
   renderHtml: boolean;
   /** CSV / TSV 显示成表格（0.32.0，照 T3 默认是）。 */
   renderTable: boolean;
+  /** 预览引擎装好时办公文档显示成页面（0.138.0，转成的 PDF），默认是；否则显示抽出的文字或表格。 */
+  renderOffice: boolean;
   /** 上次用的外部编辑器（`EditorInfo.id`）。 */
   editor?: string;
 }
 
 export const filePrefs = createPersistedStore<FilePrefs>(
   'wevir.files.v1',
-  { wrap: false, renderMarkdown: true, renderHtml: true, renderTable: true },
+  { wrap: false, renderMarkdown: true, renderHtml: true, renderTable: true, renderOffice: true },
   (raw) => {
     if (raw === null || typeof raw !== 'object') return undefined;
     const value = raw as Partial<Record<keyof FilePrefs, unknown>>;
@@ -56,6 +58,7 @@ export const filePrefs = createPersistedStore<FilePrefs>(
       renderMarkdown: value.renderMarkdown !== false,
       renderHtml: value.renderHtml !== false,
       renderTable: value.renderTable !== false,
+      renderOffice: value.renderOffice !== false,
       ...(typeof value.editor === 'string' && { editor: value.editor }),
     };
   },

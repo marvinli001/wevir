@@ -161,6 +161,10 @@ export interface ConnectionHost {
   readonly speech?: {
     watch(listener: (status: NotificationParams<'speech.changed'>['status']) => void): () => void;
   };
+  /** 办公文档预览引擎（0.138.0）：调过 `office.*` 的连接用它收 `office.changed`。 */
+  readonly office?: {
+    watch(listener: (status: NotificationParams<'office.changed'>['status']) => void): () => void;
+  };
   /** 调优的档案（0.85.0）：调过 `tuning.*` 的连接用它收 `tuning.changed`；参数是范围（省略是全局或不只一个项目）。 */
   readonly tuning?: {
     watch(listener: (workspaceId: string | undefined) => void): () => void;
@@ -324,6 +328,8 @@ export class RpcConnection {
   #unwatchPreviews: (() => void) | undefined;
   /** 调过 `speech.*` 之后：退订 `speech.changed`。 */
   #unwatchSpeech: (() => void) | undefined;
+  /** 调过 `office.*` 之后：退订 `office.changed`。 */
+  #unwatchOffice: (() => void) | undefined;
   /** 调过 `market.*` 之后：退订 `market.installProgress`。 */
   #unwatchMarket: (() => void) | undefined;
   /** 调过 `power.*` 之后：退订 `power.changed`。 */
@@ -813,6 +819,7 @@ export class RpcConnection {
         }
         if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('speech.')) this.#watchSpeech();
+        if (method.startsWith('office.')) this.#watchOffice();
         if (method.startsWith('market.')) this.#watchMarket();
         if (method.startsWith('power.')) this.#watchPower();
         if (method.startsWith('tuning.')) this.#watchTuning();
@@ -1278,6 +1285,20 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `office.*` 的连接之后收 `office.changed`（0.138.0），连接关闭即止。 */
+  #watchOffice(): void {
+    if (this.#unwatchOffice !== undefined || this.#host.office === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchOffice = this.#host.office.watch((status) => {
+      const parsed = NotificationSchemas['office.changed'].params.safeParse({ status });
+      if (!parsed.success) {
+        this.#host.onError(new Error(`office.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#notify('office.changed', parsed.data);
+    });
+  }
+
   /** 调过 `power.*` 的连接之后收 `power.changed`（0.102.0），连接关闭即止。 */
   #watchPower(): void {
     if (this.#unwatchPower !== undefined || this.#host.power === undefined) return;
@@ -1593,6 +1614,8 @@ export class RpcConnection {
     this.#unwatchPreviews = undefined;
     this.#unwatchSpeech?.();
     this.#unwatchSpeech = undefined;
+    this.#unwatchOffice?.();
+    this.#unwatchOffice = undefined;
     this.#unwatchMarket?.();
     this.#unwatchMarket = undefined;
     this.#unwatchPower?.();

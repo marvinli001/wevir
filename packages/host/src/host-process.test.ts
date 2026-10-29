@@ -54,6 +54,7 @@ afterEach(async () => {
 const SHUTDOWN_STEPS = [
   'stop_verification',
   'stop_installs',
+  'stop_office',
   ...(userTerminal ? ['stop_terminals'] : []),
   'stop_remote',
   'stop_accepting',
@@ -254,6 +255,7 @@ describe('startHost', () => {
     ).toEqual([
       ['shutdown step done', 'stop_verification'],
       ['shutdown step done', 'stop_installs'],
+      ['shutdown step done', 'stop_office'],
       ...(userTerminal ? [['shutdown step done', 'stop_terminals']] : []),
       ['shutdown step done', 'stop_remote'],
       ['shutdown step done', 'stop_accepting'],
@@ -398,6 +400,42 @@ describe('文件预览（0.32.0）', () => {
     expect(written).toMatchObject({ path: 'notes.md', size: 4 });
     expect(written.conflict).toBeUndefined();
     expect(readFileSync(join(workspaceDir, 'notes.md'), 'utf8')).toBe('# b\n');
+  });
+});
+
+describe('办公文档预览（0.138.0）', () => {
+  it('hello 声明 office_preview；引擎没装时 workspace.officePdf 回 engine_missing，不能转的格式回 unsupported', async () => {
+    const { host } = await start();
+    const client = await connect(host);
+    const hello = await TestRpcClient.connect(host.url);
+    clients.push(hello);
+    expect(
+      (
+        (await hello.hello(runtimeInfo(host.home).token as string)).result as {
+          features: Record<string, boolean>;
+        }
+      ).features.office_preview,
+    ).toBe(true);
+    const status = (await client.request('office.status', {})).status;
+    expect(status).toMatchObject({ engineName: 'LibreOffice' });
+    expect(['missing', 'unsupported']).toContain(status.state);
+    const workspaceDir = join(tempDir(), 'office-ws');
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(join(workspaceDir, 'report.docx'), 'not really a docx');
+    writeFileSync(join(workspaceDir, 'notes.md'), '# a\n');
+    const { workspace } = await client.request('workspace.add', { rootPath: workspaceDir });
+    expect(
+      await client.request('workspace.officePdf', {
+        workspaceId: workspace.id,
+        path: 'report.docx',
+      }),
+    ).toMatchObject({ path: 'report.docx', unavailable: 'engine_missing' });
+    expect(
+      await client.request('workspace.officePdf', { workspaceId: workspace.id, path: 'notes.md' }),
+    ).toMatchObject({ path: 'notes.md', unavailable: 'unsupported' });
+    expect(
+      await client.request('workspace.officePdf', { workspaceId: workspace.id, path: 'gone.docx' }),
+    ).toEqual({ path: 'gone.docx', unavailable: 'not_found' });
   });
 });
 

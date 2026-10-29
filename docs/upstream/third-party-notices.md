@@ -22,6 +22,8 @@
 
 不分发、不进声明的：构建与测试工具（TypeScript、Biome、Vitest、Vite、electron-vite、tsdown、`@tailwindcss/vite` 等）。其中 `lightningcss`（MPL-2.0，Tailwind 构建时用）、`caniuse-lite`（CC-BY-4.0）、`source-map-js`（BSD-3-Clause）只在构建时运行，产物里没有它们的代码。`electron` 这个 npm 包的依赖（`@electron/get` 等）只负责下载二进制，也不进安装包。
 
+按需下载、不随安装包的：办公文档预览引擎 `@deepseek-ai/libreoffice-kit` 0.2.0（MPL-2.0，github.com/deepseek-ai/dsh-libreoffice-kit）与本平台的引擎包（macOS、Windows 是原生 LibreOffice，Linux 是 WebAssembly 构建），连同它的依赖（`fontkit`、`fflate`、`saxes` 等，Windows 另有 `koffi`），在用户点“下载引擎”后由 Host 从 npm registry 装进数据目录的 `office/engine/`（`packages/host/src/office/engine.ts` 钉版本与 sha512）。引擎包自带 `LICENSE`、`NOTICE`、`sources/`（对应源码配方与补丁）与 `licenses/`（第三方再分发声明），原样保留，不改动。
+
 Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定）。打包阶段如果改为随安装包带一份 Node，要加上 Node.js 的 `LICENSE`（其中已含它捆绑的 OpenSSL、ICU 等的许可证）。
 
 ## 2. 第三方声明草稿

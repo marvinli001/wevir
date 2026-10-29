@@ -99,6 +99,8 @@ export interface HostRpcServerOptions {
   previews?: ConnectionHost['previews'];
   /** 听写（0.92.0）：调过 `speech.*` 的连接经它收 `speech.changed`。 */
   speech?: ConnectionHost['speech'];
+  /** 办公文档预览引擎（0.138.0）：调过 `office.*` 的连接经它收 `office.changed`。 */
+  office?: ConnectionHost['office'];
   /** 插件市场（0.99.0）：调过 `market.*` 的连接经它收 `market.installProgress`。 */
   market?: ConnectionHost['market'];
   /** 防休眠（0.102.0）：调过 `power.*` 的连接经它收 `power.changed`。 */
@@ -223,6 +225,7 @@ export class HostRpcServer {
       ...(options.readiness !== undefined && { readiness: options.readiness }),
       ...(options.previews !== undefined && { previews: options.previews }),
       ...(options.speech !== undefined && { speech: options.speech }),
+      ...(options.office !== undefined && { office: options.office }),
       ...(options.market !== undefined && { market: options.market }),
       ...(options.power !== undefined && { power: options.power }),
       ...(options.lsp !== undefined && { lsp: options.lsp }),

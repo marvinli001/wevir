@@ -63,6 +63,11 @@ export const HOME_LAYOUT = {
    * 听写（0.92.0，speech/）：本机模型，`<模型键>/` 里是 SenseVoice 与 Silero VAD 的模型文件；下载中的在 `.install-` 开头的目录里（0700 / 0600）。
    */
   speechDir: 'speech',
+  /**
+   * 办公文档预览（0.138.0，office/）：`engine/` 是按需下载的 LibreOffice 预览引擎（versions/<版本>/node_modules 与 active.json，
+   * runtime-adapter 的 npm-closure.ts），`pdf/` 是转出的 PDF 缓存（按内容身份命名，有总量上限，0700 / 0600）。
+   */
+  officeDir: 'office',
   /** 调优的档案（0.85.0，tuning/）：`blobs/<sha256>` 是各版本条目的文本，按内容去重（0700 / 0600）。 */
   tuningDir: 'tuning',
   /**

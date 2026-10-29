@@ -110,12 +110,19 @@ export async function measureStorage(home: string): Promise<StorageUsage> {
     addChildren(path, totals, limit, (name) =>
       join('Partitions', name) === BROWSER_PARTITION_DIR ? partition : 'other',
     );
+  // 办公文档预览（0.138.0）：office/engine/ 是下载的引擎，其余（PDF 缓存、字体索引）算“其他”。
+  const office = async (path: string) =>
+    addChildren(path, totals, limit, (name) => (name === 'engine' ? 'engines' : 'other'));
   const desktop = async (path: string) =>
     addChildren(path, totals, limit, (name) =>
       CACHE_DIRS.has(name) ? 'cache' : name === 'Partitions' ? partitions : 'other',
     );
   await addChildren(home, totals, limit, (name) =>
-    name === DESKTOP_DIR ? desktop : (TOP_LEVEL[name] ?? 'other'),
+    name === DESKTOP_DIR
+      ? desktop
+      : name === HOME_LAYOUT.officeDir
+        ? office
+        : (TOP_LEVEL[name] ?? 'other'),
   );
   const categories = STORAGE_CATEGORIES.map((id) => ({ id, bytes: totals.get(id) ?? 0 }));
   return {

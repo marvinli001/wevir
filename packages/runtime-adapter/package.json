@@ -42,6 +42,11 @@
       "types": "./dist/npm-package.d.ts",
       "default": "./dist/npm-package.js"
     },
+    "./npm-closure": {
+      "@wevir/source": "./src/npm-closure.ts",
+      "types": "./dist/npm-closure.d.ts",
+      "default": "./dist/npm-closure.js"
+    },
     "./private-home": {
       "@wevir/source": "./src/private-home.ts",
       "types": "./dist/private-home.d.ts",

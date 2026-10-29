@@ -1031,6 +1031,34 @@ describe('听写（0.92.0）', () => {
   });
 });
 
+describe('办公文档预览（0.138.0）', () => {
+  it('onOfficeChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { office_preview: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onOfficeChanged((change) => changes.push(change));
+    const status = {
+      state: 'ready',
+      engineName: 'LibreOffice',
+      version: '0.2.0',
+      backend: 'wasm',
+      downloadBytes: 1,
+      installedBytes: 2,
+    };
+    host.last.notify('office.changed', { status });
+    await vi.waitFor(() => expect(changes).toEqual([{ status }]));
+    host.last.notify('office.changed', { status: { state: 'ready' } });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed office.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+  });
+});
+
 describe('会话列表推送（0.101.0）', () => {
   it('onSessionsChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

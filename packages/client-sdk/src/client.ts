@@ -34,6 +34,7 @@ import {
   NotificationIntentSchema,
   type NotificationParams,
   NotificationSchemas,
+  OfficeChangedParamsSchema,
   type PairingEnded,
   PairingEndedParamsSchema,
   type PairingRequest,
@@ -102,6 +103,8 @@ interface ChannelWatcher {
 export type SessionsChange = NotificationParams<'sessions.changed'>;
 /** `speech.changed` 的内容（0.92.0）。 */
 export type SpeechChange = NotificationParams<'speech.changed'>;
+/** `office.changed` 的内容（0.138.0）。 */
+export type OfficeChange = NotificationParams<'office.changed'>;
 /** `market.installProgress` 的内容（0.99.0）。 */
 export type MarketInstallProgress = NotificationParams<'market.installProgress'>;
 /** `power.changed` 的内容（0.102.0）。 */
@@ -408,6 +411,7 @@ export class WevirClient {
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
   readonly #previewListeners = new Set<(change: PreviewChange | undefined) => void>();
   readonly #speechListeners = new Set<(change: SpeechChange | undefined) => void>();
+  readonly #officeListeners = new Set<(change: OfficeChange | undefined) => void>();
   readonly #sessionsListeners = new Set<(change: SessionsChange | undefined) => void>();
   readonly #channelsListeners = new Set<(change: ChannelsChange | undefined) => void>();
   readonly #channelWatchers = new Set<ChannelWatcher>();
@@ -783,6 +787,15 @@ export class WevirClient {
   }
 
   /**
+   * 办公文档预览引擎的状态变了（0.138.0，`office.changed`）：下载进度、装好、失败、删除。只有调过 `office.*` 的连接收得到。重连上之后
+   * 以 `undefined` 调一次（期间的变化没收到，重读）。返回取消函数。
+   */
+  onOfficeChanged(listener: (change: OfficeChange | undefined) => void): () => void {
+    this.#officeListeners.add(listener);
+    return () => this.#officeListeners.delete(listener);
+  }
+
+  /**
    * 会话列表变了（0.101.0，`sessions.changed`，Host 功能 `session_list_push`）：只有调过 `session.list` 的连接收得到，`listVersion` 不等于
    * 上次（列表结果或上一条）加一时重读列表。重连上之后以 `undefined` 调一次（新连接还没读过列表，期间的变化没收到）。返回取消函数。
    */
@@ -1022,6 +1035,16 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a power listener threw', { error });
+      }
+    }
+  }
+
+  #officeChanged(change: OfficeChange | undefined): void {
+    for (const listener of [...this.#officeListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('an office listener threw', { error });
       }
     }
   }
@@ -1586,6 +1609,7 @@ export class WevirClient {
         if (reread('workspace_readiness', 'readiness.get')) this.#readinessChanged(undefined);
         if (reread('dev_preview', 'preview.list')) this.#previewChanged(undefined);
         if (reread('speech', 'speech.status')) this.#speechChanged(undefined);
+        if (reread('office_preview', 'office.status')) this.#officeChanged(undefined);
         if (reread('session_list_push', 'session.list')) this.#sessionsChanged(undefined);
         if (reread('channels', 'channel.list')) this.#channelsChanged(undefined);
         this.#earlyChannelMessages.clear();
@@ -2030,6 +2054,15 @@ export class WevirClient {
         return;
       }
       this.#speechChanged(parsed.data);
+      return;
+    }
+    if (method === 'office.changed') {
+      const parsed = OfficeChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed office.changed notification');
+        return;
+      }
+      this.#officeChanged(parsed.data);
       return;
     }
     if (method === 'readiness.changed') {

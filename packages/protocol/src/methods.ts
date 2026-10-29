@@ -197,6 +197,12 @@ import {
   PresenceUpdateParamsSchema,
   PresenceUpdateResultSchema,
 } from './notifications.js';
+import {
+  OfficeChangedParamsSchema,
+  OfficeStatusResultSchema,
+  WorkspaceOfficePdfParamsSchema,
+  WorkspaceOfficePdfResultSchema,
+} from './office.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   PreviewChangedParamsSchema,
@@ -2033,6 +2039,12 @@ export const MethodSchemas = {
     result: WorkspaceFileUrlResultSchema,
     permission: 'workspace.read',
   },
+  /** 0.138.0：办公文档转成 PDF 的流式地址。 */
+  'workspace.officePdf': {
+    params: WorkspaceOfficePdfParamsSchema,
+    result: WorkspaceOfficePdfResultSchema,
+    permission: 'workspace.read',
+  },
   'workspace.writeFile': {
     params: WorkspaceWriteFileParamsSchema,
     result: WorkspaceWriteFileResultSchema,
@@ -2923,6 +2935,28 @@ export const MethodSchemas = {
     permission: 'session.read',
   },
 
+  /** 办公文档预览引擎（0.138.0）。 */
+  'office.status': {
+    params: EmptySchema,
+    result: OfficeStatusResultSchema,
+    permission: 'session.read',
+  },
+  'office.install': {
+    params: EmptySchema,
+    result: OfficeStatusResultSchema,
+    permission: 'host.manage',
+  },
+  'office.cancelInstall': {
+    params: EmptySchema,
+    result: OfficeStatusResultSchema,
+    permission: 'host.manage',
+  },
+  'office.uninstall': {
+    params: EmptySchema,
+    result: OfficeStatusResultSchema,
+    permission: 'host.manage',
+  },
+
   /** 听写（0.92.0）。 */
   'speech.status': {
     params: EmptySchema,
@@ -3069,6 +3103,8 @@ export const NotificationSchemas = {
   'tuning.proposal.changed': { params: TuningProposalChangedParamsSchema },
   /** 发给调用过 `speech.*` 的连接（0.92.0）。 */
   'speech.changed': { params: SpeechChangedParamsSchema },
+  /** 发给调用过 `office.*` 的连接（0.138.0）。 */
+  'office.changed': { params: OfficeChangedParamsSchema },
   /** 发给调用过 `market.*` 的连接（0.99.0）：`market.install` 的进度。 */
   'market.installProgress': { params: MarketInstallProgressSchema },
   /** 发给调用过 `power.*` 的连接（0.102.0）：`power.get` 的值变了。 */
@@ -3128,6 +3164,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'guardrail.changed': 'session.read',
   'tuning.proposal.changed': 'session.read',
   'speech.changed': 'session.read',
+  'office.changed': 'session.read',
   'market.installProgress': 'host.manage',
   'power.changed': 'session.read',
   'terminal.output': 'session.read',
