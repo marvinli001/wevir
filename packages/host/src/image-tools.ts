@@ -51,10 +51,17 @@ export interface ImageToolsOptions {
   fetch?: typeof fetch;
 }
 
-/** 会话的 Provider 的图片模型：`openai-compatible`、启用、有地址并配了图片模型时有，否则空。 */
-export function sessionImageModels(storage: Storage, sessionId: SessionId): ProviderImageModel[] {
-  const record = storage.sessions.get(sessionId);
-  const provider = record && storage.providers.get(record.providerId);
+/**
+ * 会话的 Provider 的图片模型：`openai-compatible`、启用、有地址并配了图片模型时有，否则空。`creatingProviderId`：正在建、还没写进
+ * 存储的会话将要用的 Provider（引擎在建会话期间就读工具与说明）。
+ */
+export function sessionImageModels(
+  storage: Storage,
+  sessionId: SessionId,
+  creatingProviderId?: string,
+): ProviderImageModel[] {
+  const providerId = storage.sessions.get(sessionId)?.providerId ?? creatingProviderId;
+  const provider = providerId === undefined ? undefined : storage.providers.get(providerId);
   if (
     provider === undefined ||
     provider.kind !== 'openai-compatible' ||
@@ -86,9 +93,9 @@ export class ImageTools {
     this.tools = [this.#generateTool()];
   }
 
-  /** 这个会话列不列生图工具。 */
-  available(sessionId: SessionId): boolean {
-    return sessionImageModels(this.#options.storage, sessionId).length > 0;
+  /** 这个会话列不列生图工具；`creatingProviderId` 见 `sessionImageModels`。 */
+  available(sessionId: SessionId, creatingProviderId?: string): boolean {
+    return sessionImageModels(this.#options.storage, sessionId, creatingProviderId).length > 0;
   }
 
   /**

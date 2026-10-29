@@ -2283,7 +2283,8 @@ export class AppTools {
     const imaged =
       images !== undefined &&
       allowed.some((tool) => tool.name === IMAGE_TOOL) &&
-      (sessionId === undefined || !images.available(sessionId))
+      (sessionId === undefined ||
+        !images.available(sessionId, this.#options.sessions.creating(sessionId)?.providerId))
         ? allowed.filter((tool) => tool.name !== IMAGE_TOOL)
         : allowed;
     // 调用方不明时不限（同角色与预设）；频道工具只给频道里的会话（channels/tools.ts）。

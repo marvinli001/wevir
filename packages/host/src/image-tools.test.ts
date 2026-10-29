@@ -297,6 +297,8 @@ function setup(
 }
 
 const call = { sessionId: SES, signal: new AbortController().signal };
+/** 正在建、还没写进存储的会话。 */
+const CREATING = 'ses_creating' as SessionId;
 
 describe('wevir_image_generate', () => {
   it('只列给 Provider 有图片模型的会话，说明里的那一行跟着工具', async () => {
@@ -304,7 +306,11 @@ describe('wevir_image_generate', () => {
     const tools = new AppTools({
       storage,
       events: new EventStore({ storage, deltaWindowMs: 5 }),
-      sessions: { toolPresetOf: () => undefined } as unknown as SessionManager,
+      sessions: {
+        toolPresetOf: () => undefined,
+        creating: (id: SessionId) =>
+          id === CREATING ? { workspaceId: 'ws_1', providerId: 'openai' } : undefined,
+      } as unknown as SessionManager,
       hostId: 'host_test' as HostId,
       sendWhileBusy: () => 'queue',
       images: options,
@@ -312,6 +318,9 @@ describe('wevir_image_generate', () => {
     const names = async (id: SessionId | undefined) =>
       (await tools.filterTools(id, tools.tools)).map((tool) => tool.name);
     expect(await names(SES)).toContain(IMAGE_TOOL);
+    // 正在建、还没写进存储的会话（引擎建会话时就读工具与说明）按它将要用的 Provider 算。
+    expect(await names(CREATING)).toContain(IMAGE_TOOL);
+    expect(await tools.toolInstructions(CREATING)).toContain('- wevir_image_generate:');
     expect(await names(SES2)).not.toContain(IMAGE_TOOL);
     expect(await names(undefined)).not.toContain(IMAGE_TOOL);
     expect(await tools.toolInstructions(SES)).toContain('- wevir_image_generate:');
