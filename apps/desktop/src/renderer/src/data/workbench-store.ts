@@ -52,6 +52,8 @@ export class WorkbenchStore {
   #quietTimer: ReturnType<typeof setTimeout> | undefined;
   #refreshing: Promise<void> | undefined;
   #rerun: Promise<void> | undefined;
+  /** 正在离开列表的会话（归档时，`hold`）：界面照这份快照显示，事件与重读都不改它。 */
+  readonly #held = new Map<SessionId, Session>();
   /** 最近一次列表结果或推送的版本；旧 Host 没有。 */
   #listVersion: number | undefined;
   /** 推送里见过、重读过也不在工作区列表里的工作区（不再为它们重读）。 */
@@ -103,6 +105,24 @@ export class WorkbenchStore {
     this.#sessions.set(session.id, session);
     this.#follow(session);
     this.#publish();
+  }
+
+  /**
+   * 归档时按下时的样子留住这些会话：之后的事件（关闭会推进 `updatedAt`、记成未读）不再让行换位置、加粗，重读或推送去掉了它也照样列着，
+   * 直到 `release`。行在这期间收起（session-actions.ts 的 `leavingSessions`），收起之后才从列表里拿掉，下面的行不会一下跳上来。
+   */
+  hold(sessionIds: readonly SessionId[]): void {
+    for (const id of sessionIds) {
+      const session = this.#sessions.get(id);
+      if (session) this.#held.set(id, session);
+    }
+  }
+
+  /** 放开 `hold` 留住的会话，列表回到实际的样子（归档成功时它已不在，失败时回到原处）。 */
+  release(sessionIds: readonly SessionId[]): void {
+    let changed = false;
+    for (const id of sessionIds) changed = this.#held.delete(id) || changed;
+    if (changed) this.#publish();
   }
 
   dispose(): void {
@@ -246,7 +266,12 @@ export class WorkbenchStore {
         status: 'ready',
         workspaces: shareEntries(
           previous,
-          groupSessions(this.#workspaces, this.#sessions.values()),
+          groupSessions(
+            this.#workspaces,
+            this.#held.size === 0
+              ? this.#sessions.values()
+              : new Map([...this.#sessions, ...this.#held]).values(),
+          ),
         ),
         providers: this.#providers,
       };

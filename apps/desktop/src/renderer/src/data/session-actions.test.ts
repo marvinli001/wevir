@@ -21,6 +21,7 @@ import {
   archiveSessions,
   canBranchSession,
   deleteSessionPermanently,
+  leavingSessions,
   moveTarget,
   pinnedSessions,
   worktreeRestoreNotices,
@@ -44,8 +45,13 @@ function fakeClient(fail: ReadonlySet<string> = new Set()) {
 }
 
 function fakeStore() {
-  const refresh = vi.fn(async () => {});
-  return { store: { refresh } as unknown as WorkbenchStore, refresh };
+  const steps: string[] = [];
+  const refresh = vi.fn(async () => {
+    steps.push('refresh');
+  });
+  const hold = vi.fn((ids: readonly SessionId[]) => steps.push(`hold ${ids.join(',')}`));
+  const release = vi.fn((ids: readonly SessionId[]) => steps.push(`release ${ids.join(',')}`));
+  return { store: { refresh, hold, release } as unknown as WorkbenchStore, refresh, steps };
 }
 
 beforeEach(() => {
@@ -119,13 +125,32 @@ describe('archiveSession', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it('归档时行先收起：留住会话、重读之后才放开；收起期间算离开', async () => {
+    const { client } = fakeClient();
+    const { store, steps } = fakeStore();
+    const pending = archiveSession(client, store, id('a'), true);
+    expect(leavingSessions.get().has(id('a'))).toBe(true);
+    await pending;
+    expect(steps).toEqual([`hold ${id('a')}`, 'refresh', `release ${id('a')}`]);
+    expect(leavingSessions.get().size).toBe(0);
+  });
+
+  it('归档失败时放开会话，行回到原处', async () => {
+    const { client } = fakeClient(new Set([id('a')]));
+    const { store, steps } = fakeStore();
+    await expect(archiveSession(client, store, id('a'), true)).rejects.toThrow();
+    expect(steps).toEqual([`hold ${id('a')}`, `release ${id('a')}`]);
+    expect(leavingSessions.get().size).toBe(0);
+  });
+
   it('取消归档只重读列表', async () => {
     const { client } = fakeClient();
-    const { store, refresh } = fakeStore();
+    const { store, refresh, steps } = fakeStore();
     route.matches = [{ params: { sessionId: id('a') } }];
     await archiveSession(client, store, id('a'), false);
     expect(route.navigate).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual(['refresh']);
   });
   it('取消归档时没恢复的 worktree 与改动没放回的各一条提示（0.81.0）', () => {
     const base = { workspaceId: 'ws_x', path: '/w/1-app' } as const;

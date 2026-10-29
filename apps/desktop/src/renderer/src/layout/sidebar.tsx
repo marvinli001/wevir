@@ -30,7 +30,7 @@ import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
-import { usePinnedSessions, useSessionActions } from '@/data/session-actions';
+import { useLeaving, usePinnedSessions, useSessionActions } from '@/data/session-actions';
 
 import { type SessionThread, threadSessions } from '@/data/session-threads';
 import { useSessionActivity, useWorkbenchData } from '@/data/workbench-data';
@@ -701,44 +701,46 @@ function ThreadItem({
         unread={isUnread(session)}
         {...(count > 0 && { thread: { count, open } })}
       />
-      {count > 0 && (
-        <Collapse open={open}>
-          <ul className="space-y-px pt-px">
-            {children.map((child, index) => (
-              <li
-                key={child.id}
-                className={cn(BRANCH, index === count - 1 ? BRANCH_LAST : BRANCH_MID)}
-              >
-                <SessionRow
-                  workspaceId={workspaceId}
-                  session={child}
-                  unread={isUnread(child)}
-                  branch
-                />
-              </li>
-            ))}
-          </ul>
-        </Collapse>
-      )}
-      {count > 0 && !open && (
-        <div className={cn(BRANCH, BRANCH_LAST, 'pt-px')}>
-          <button
-            type="button"
-            aria-expanded={false}
-            data-thread-summary={session.id}
-            onClick={() => toggleThread(session.id)}
-            className={cn(ROW, 'h-7 text-sm text-muted-foreground hover:text-foreground')}
-          >
-            <span className="min-w-0 flex-1 truncate text-left">
-              {t('sidebar.threadCount', { count })}
-              {runningCount > 0 && ` · ${t('sidebar.threadRunning', { count: runningCount })}`}
-            </span>
-            {unreadChild && (
-              <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
-            )}
-          </button>
-        </div>
-      )}
+      <Leaving sessionId={session.id}>
+        {count > 0 && (
+          <Collapse open={open}>
+            <ul className="space-y-px pt-px">
+              {children.map((child, index) => (
+                <li
+                  key={child.id}
+                  className={cn(BRANCH, index === count - 1 ? BRANCH_LAST : BRANCH_MID)}
+                >
+                  <SessionRow
+                    workspaceId={workspaceId}
+                    session={child}
+                    unread={isUnread(child)}
+                    branch
+                  />
+                </li>
+              ))}
+            </ul>
+          </Collapse>
+        )}
+        {count > 0 && !open && (
+          <div className={cn(BRANCH, BRANCH_LAST, 'pt-px')}>
+            <button
+              type="button"
+              aria-expanded={false}
+              data-thread-summary={session.id}
+              onClick={() => toggleThread(session.id)}
+              className={cn(ROW, 'h-7 text-sm text-muted-foreground hover:text-foreground')}
+            >
+              <span className="min-w-0 flex-1 truncate text-left">
+                {t('sidebar.threadCount', { count })}
+                {runningCount > 0 && ` · ${t('sidebar.threadRunning', { count: runningCount })}`}
+              </span>
+              {unreadChild && (
+                <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
+              )}
+            </button>
+          </div>
+        )}
+      </Leaving>
     </li>
   );
 }
@@ -869,212 +871,233 @@ const SessionRow = memo(function SessionRow({
   const pinLabel = t(pinned ? 'session.unpin' : 'session.pin');
   const dragging = usePinDragId() === session.id;
   return (
-    <ContextMenu>
-      <ContextMenuTrigger
-        render={
-          <div
-            className={cn(
-              'group/session relative transition-opacity duration-150',
-              dragging && 'opacity-40',
-            )}
-            onPointerDown={(event) => beginPinDrag(event, session)}
-          />
-        }
-      >
-        <NavLink
-          to={paths.session(workspaceId, session.id)}
-          title={project && `${project.displayName} · ${project.rootPath}`}
-          draggable={false}
-          {...(thread && {
-            'aria-expanded': thread.open,
-            onKeyDown: (event: KeyboardEvent) => {
-              if (event.key === (thread.open ? 'ArrowLeft' : 'ArrowRight')) {
-                event.preventDefault();
-                toggleThread(session.id);
-              }
-            },
-          })}
-          className={({ isActive }) =>
-            cn(
-              ROW,
-              'text-soft-foreground select-none group-focus-within/session:pr-14 group-hover/session:pr-14',
-              // 运行中多一行当前动作（代理状态）：行跟着变高。
-              live && 'h-auto min-h-8 py-1',
-              isActive && ROW_ACTIVE,
-            )
+    <Leaving sessionId={session.id}>
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <div
+              className={cn(
+                'group/session relative transition-opacity duration-150',
+                dragging && 'opacity-40',
+              )}
+              onPointerDown={(event) => beginPinDrag(event, session)}
+            />
           }
         >
-          {({ isActive }) => (
-            <>
-              <span
-                className={cn(
-                  'flex w-4 shrink-0 justify-center',
-                  branch && 'absolute inset-y-0 -left-4 items-center',
-                )}
-              >
-                {(marker === 'running' ||
-                  marker === 'awaiting_approval' ||
-                  marker === 'awaiting_input') &&
-                markerInfo ? (
-                  <span
-                    role="img"
-                    aria-label={markerInfo.label}
-                    className={cn(
-                      'flex',
-                      jumpAt !== undefined &&
-                        marker === 'running' &&
-                        motion.markerFrom === undefined &&
-                        'status-enter',
-                    )}
-                    style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
-                  >
-                    <Orb
-                      state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
-                      paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
-                    />
-                  </span>
-                ) : markerInfo ? (
-                  <span
-                    className="flex"
-                    style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
-                  >
-                    <StatusDot
-                      tone={markerInfo.tone}
-                      label={markerInfo.label}
-                      className={cn(jumpAt !== undefined && 'status-jump')}
-                    />
-                  </span>
-                ) : (
-                  motion.doneAt !== undefined && <DoneMark at={motion.doneAt} />
-                )}
-              </span>
-              <span
-                className={cn(
-                  'flex min-w-0 flex-col',
-                  // 有子会话时箭头紧跟在标题后面，空出来的地方放在箭头之后。
-                  !thread && 'flex-1',
-                )}
-              >
-                {/* 标题被截断时悬停看全名。 */}
-                <Hint label={session.title || t('session.untitled')} whenClipped>
-                  <span
-                    className={cn(
-                      'min-w-0 truncate',
-                      settledUnread && 'font-semibold text-foreground',
-                    )}
-                  >
-                    <GlyphReveal
-                      text={session.title || t('session.untitled')}
-                      at={motion.titleAt}
-                    />
-                  </span>
-                </Hint>
-                {live && <SessionActivityLine session={session} />}
-              </span>
-              {thread && (
-                // 箭头在链接里面：点它只展开、收起，不打开会话；键盘用左右方向键（上面的 onKeyDown）。
+          <NavLink
+            to={paths.session(workspaceId, session.id)}
+            title={project && `${project.displayName} · ${project.rootPath}`}
+            draggable={false}
+            {...(thread && {
+              'aria-expanded': thread.open,
+              onKeyDown: (event: KeyboardEvent) => {
+                if (event.key === (thread.open ? 'ArrowLeft' : 'ArrowRight')) {
+                  event.preventDefault();
+                  toggleThread(session.id);
+                }
+              },
+            })}
+            className={({ isActive }) =>
+              cn(
+                ROW,
+                'text-soft-foreground select-none group-focus-within/session:pr-14 group-hover/session:pr-14',
+                // 运行中多一行当前动作（代理状态）：行跟着变高。
+                live && 'h-auto min-h-8 py-1',
+                isActive && ROW_ACTIVE,
+              )
+            }
+          >
+            {({ isActive }) => (
+              <>
                 <span
-                  aria-hidden
-                  data-thread-toggle={session.id}
-                  title={t(thread.open ? 'sidebar.threadCollapse' : 'sidebar.threadExpand')}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleThread(session.id);
-                  }}
-                  className="-ml-1 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground"
+                  className={cn(
+                    'flex w-4 shrink-0 justify-center',
+                    branch && 'absolute inset-y-0 -left-4 items-center',
+                  )}
                 >
-                  {thread.open ? (
-                    <ChevronDown className="size-3.5" />
+                  {(marker === 'running' ||
+                    marker === 'awaiting_approval' ||
+                    marker === 'awaiting_input') &&
+                  markerInfo ? (
+                    <span
+                      role="img"
+                      aria-label={markerInfo.label}
+                      className={cn(
+                        'flex',
+                        jumpAt !== undefined &&
+                          marker === 'running' &&
+                          motion.markerFrom === undefined &&
+                          'status-enter',
+                      )}
+                      style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
+                    >
+                      <Orb
+                        state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
+                        paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
+                      />
+                    </span>
+                  ) : markerInfo ? (
+                    <span
+                      className="flex"
+                      style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
+                    >
+                      <StatusDot
+                        tone={markerInfo.tone}
+                        label={markerInfo.label}
+                        className={cn(jumpAt !== undefined && 'status-jump')}
+                      />
+                    </span>
                   ) : (
-                    <ChevronRight className="size-3.5" />
+                    motion.doneAt !== undefined && <DoneMark at={motion.doneAt} />
                   )}
                 </span>
-              )}
-              {thread && <span className="flex-1" />}
-              {session.openedBy?.role !== undefined && (
-                <RoleLabel
-                  role={session.openedBy.role}
-                  className="group-focus-within/session:hidden group-hover/session:hidden"
-                />
-              )}
-              {session.channel !== undefined && (
-                <ThreadAssistantMark
-                  channelId={session.channel.channelId}
-                  className="group-focus-within/session:hidden group-hover/session:hidden"
-                />
-              )}
-              {/* 悬停时让出位置给置顶与归档（U34）。 */}
-              <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
-                {badge ? (
-                  <span
-                    className={cn(
-                      'shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning',
-                      jumpAt !== undefined && 'status-jump',
-                    )}
-                    style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
-                  >
-                    {markerInfo?.label}
-                  </span>
-                ) : goal ? (
-                  <span
-                    data-goal
-                    className="shrink-0 rounded-sm bg-running/10 px-1.5 text-xs leading-5 font-medium text-running"
-                  >
-                    {t('session.marker.goal')}
-                  </span>
-                ) : working && !isActive ? (
-                  <span
-                    role="img"
-                    aria-label={t('session.marker.running')}
-                    className="inline-block size-1.5 shrink-0 animate-breathe rounded-full bg-muted-foreground"
-                  />
-                ) : settledUnread ? (
-                  <StatusDot
-                    tone="accent"
-                    label={t('session.marker.unread')}
-                    className="size-1.5"
-                  />
-                ) : (
-                  project && (
-                    <span className="max-w-40 shrink-0 truncate text-xs text-muted-foreground">
-                      {project.displayName}
+                <span
+                  className={cn(
+                    'flex min-w-0 flex-col',
+                    // 有子会话时箭头紧跟在标题后面，空出来的地方放在箭头之后。
+                    !thread && 'flex-1',
+                  )}
+                >
+                  {/* 标题被截断时悬停看全名。 */}
+                  <Hint label={session.title || t('session.untitled')} whenClipped>
+                    <span
+                      className={cn(
+                        'min-w-0 truncate',
+                        settledUnread && 'font-semibold text-foreground',
+                      )}
+                    >
+                      <GlyphReveal
+                        text={session.title || t('session.untitled')}
+                        at={motion.titleAt}
+                      />
                     </span>
-                  )
+                  </Hint>
+                  {live && <SessionActivityLine session={session} />}
+                </span>
+                {thread && (
+                  // 箭头在链接里面：点它只展开、收起，不打开会话；键盘用左右方向键（上面的 onKeyDown）。
+                  <span
+                    aria-hidden
+                    data-thread-toggle={session.id}
+                    title={t(thread.open ? 'sidebar.threadCollapse' : 'sidebar.threadExpand')}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleThread(session.id);
+                    }}
+                    className="-ml-1 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground"
+                  >
+                    {thread.open ? (
+                      <ChevronDown className="size-3.5" />
+                    ) : (
+                      <ChevronRight className="size-3.5" />
+                    )}
+                  </span>
                 )}
-              </span>
-            </>
-          )}
-        </NavLink>
-        <div
-          data-row-actions=""
-          className="absolute inset-y-0 right-1 flex items-center gap-px opacity-0 transition-opacity duration-150 group-focus-within/session:opacity-100 group-hover/session:opacity-100"
-        >
-          <IconButton
-            label={pinLabel}
-            size="icon-xs"
-            className={ROW_ACTION}
-            onClick={actions.togglePin}
-            data-action="pin-session"
+                {thread && <span className="flex-1" />}
+                {session.openedBy?.role !== undefined && (
+                  <RoleLabel
+                    role={session.openedBy.role}
+                    className="group-focus-within/session:hidden group-hover/session:hidden"
+                  />
+                )}
+                {session.channel !== undefined && (
+                  <ThreadAssistantMark
+                    channelId={session.channel.channelId}
+                    className="group-focus-within/session:hidden group-hover/session:hidden"
+                  />
+                )}
+                {/* 悬停时让出位置给置顶与归档（U34）。 */}
+                <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
+                  {badge ? (
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning',
+                        jumpAt !== undefined && 'status-jump',
+                      )}
+                      style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}
+                    >
+                      {markerInfo?.label}
+                    </span>
+                  ) : goal ? (
+                    <span
+                      data-goal
+                      className="shrink-0 rounded-sm bg-running/10 px-1.5 text-xs leading-5 font-medium text-running"
+                    >
+                      {t('session.marker.goal')}
+                    </span>
+                  ) : working && !isActive ? (
+                    <span
+                      role="img"
+                      aria-label={t('session.marker.running')}
+                      className="inline-block size-1.5 shrink-0 animate-breathe rounded-full bg-muted-foreground"
+                    />
+                  ) : settledUnread ? (
+                    <StatusDot
+                      tone="accent"
+                      label={t('session.marker.unread')}
+                      className="size-1.5"
+                    />
+                  ) : (
+                    project && (
+                      <span className="max-w-40 shrink-0 truncate text-xs text-muted-foreground">
+                        {project.displayName}
+                      </span>
+                    )
+                  )}
+                </span>
+              </>
+            )}
+          </NavLink>
+          <div
+            data-row-actions=""
+            className="absolute inset-y-0 right-1 flex items-center gap-px opacity-0 transition-opacity duration-150 group-focus-within/session:opacity-100 group-hover/session:opacity-100"
           >
-            <PinIcon filled={pinned} className="size-3.5" />
-          </IconButton>
-          {actions.archive && (
             <IconButton
-              label={t('session.archive')}
+              label={pinLabel}
               size="icon-xs"
               className={ROW_ACTION}
-              onClick={actions.archive}
-              data-action="archive-session"
+              onClick={actions.togglePin}
+              data-action="pin-session"
             >
-              <ArchiveIcon className="size-3.5" />
+              <PinIcon filled={pinned} className="size-3.5" />
             </IconButton>
-          )}
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <SessionContextMenuItems cwd={session.cwd} actions={actions} />
-      </ContextMenuContent>
-    </ContextMenu>
+            {actions.archive && (
+              <IconButton
+                label={t('session.archive')}
+                size="icon-xs"
+                className={ROW_ACTION}
+                onClick={actions.archive}
+                data-action="archive-session"
+              >
+                <ArchiveIcon className="size-3.5" />
+              </IconButton>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <SessionContextMenuItems cwd={session.cwd} actions={actions} />
+        </ContextMenuContent>
+      </ContextMenu>
+    </Leaving>
   );
 }, sameRow);
+
+/**
+ * 归档的会话离开列表（session-actions.ts 的 `leaving`）：行高收到 0、同时淡出，收完才从列表里拿掉，下面的行跟着滑上来。
+ * 平时不裁剪，免得切掉焦点环。
+ */
+function Leaving({ sessionId, children }: { sessionId: string; children: ReactNode }) {
+  const leaving = useLeaving(sessionId);
+  return (
+    <div
+      inert={leaving}
+      className={cn(
+        'grid transition-[grid-template-rows,opacity] duration-200 ease-expand',
+        leaving ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr]',
+      )}
+    >
+      <div className={cn('min-h-0', leaving && 'overflow-hidden')}>{children}</div>
+    </div>
+  );
+}
