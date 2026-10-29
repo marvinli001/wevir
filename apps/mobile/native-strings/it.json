@@ -1,5 +1,6 @@
 {
   "NSCameraUsageDescription": "Scansionare il codice QR di abbinamento mostrato sul computer e scattare foto da allegare ai messaggi.",
+  "NSMicrophoneUsageDescription": "Registrare la dettatura che il computer trascrive in testo.",
   "NSLocalNetworkUsageDescription": "Trovare i computer con Wevir nella rete locale e connettersi direttamente.",
   "NSFaceIDUsageDescription": "Sbloccare Wevir e confermare le approvazioni ad alto rischio.",
   "NSPhotoLibraryUsageDescription": "Scegliere foto da allegare ai messaggi.",

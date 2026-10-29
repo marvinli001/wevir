@@ -1,6 +1,7 @@
 // 助理（私人 bot）在手机上的数据形状。助理是电脑上的一个频道（`kind: 'assistant'`）：一条时间线、一个协调者、开出的线程。
 // 这里把频道、帖子、线程与审批换成手机要画的部分；多台电脑的助理合并成一个列表，`key` 带电脑名区分。纯逻辑。
 // 助理群（0.133.0，`kind: 'group'`）也在列表里：成员是同一台电脑上的几个助理；群里与别的助理发来的帖子带说话的那个助理。
+// 帖子里的图片（0.135.0 起用户的帖子能带）画成一排缩略图；开在用户项目里的线程（0.134.0）带项目名。
 
 import type {
   ApprovalRequest,
@@ -9,6 +10,7 @@ import type {
   ChannelThread,
   ChannelThreadStatus,
   EngineFeatures,
+  UserImagePart,
 } from '@wevir/protocol';
 import { type Avatar, normalizeAvatar } from './bot-avatar';
 
@@ -81,8 +83,11 @@ export type BotCard =
       status: ThreadStatus;
       /** 工作中时正在做的那项；回复后是最后一条回答的第一行。 */
       line?: string;
+      /** 开在用户项目里时：项目名。 */
+      project?: string;
     }
   | { kind: 'file'; name: string; size: number }
+  | { kind: 'images'; images: readonly UserImagePart[] }
   | {
       /** 建好后的第一条：要用的连接器、文件夹、浏览器登录，`ready` 已经有了。 */
       kind: 'needs';
@@ -109,6 +114,9 @@ export function botKey(computer: string, id: string): string {
 
 /** 同一台电脑上的助理，按 ID 找（群的成员、帖子里说话的助理）。 */
 export type BotDirectory = ReadonlyMap<string, Channel>;
+
+/** 同一台电脑上的项目名，按工作区 ID 找（线程卡片）。 */
+export type ProjectNames = ReadonlyMap<string, string>;
 
 function memberOf(channel: Channel): BotMember {
   return {
@@ -173,12 +181,8 @@ function author(post: ChannelPost): BotPost['author'] {
 
 const DECISIONS = { open: 'pending', accepted: 'approved', dismissed: 'rejected' } as const;
 
-/** 一条帖子画成几条：文字一条，卡片一条，交给用户的文件各一条。只有图片时文字是 `imageLabel`。 */
-export function postViews(
-  post: ChannelPost,
-  imageLabel: string,
-  directory: BotDirectory = new Map(),
-): BotPost[] {
+/** 一条帖子画成几条：图片一排，文字一条，卡片一条，交给用户的文件各一条。 */
+export function postViews(post: ChannelPost, directory: BotDirectory = new Map()): BotPost[] {
   const other = post.author.kind === 'assistant' ? post.author : undefined;
   const known = other === undefined ? undefined : directory.get(other.channelId);
   const speaker: BotMember | undefined =
@@ -195,8 +199,11 @@ export function postViews(
     ...(speaker !== undefined && { speaker }),
   };
   const out: BotPost[] = [];
+  const images = post.content.flatMap((part) => (part.type === 'image' ? [part] : []));
+  if (images.length > 0)
+    out.push({ ...base, id: `${post.id}:images`, card: { kind: 'images', images } });
   const text = post.content
-    .map((part) => (part.type === 'text' ? part.text : `[${imageLabel}]`))
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join('\n\n')
     .trim();
   const card = post.card;
@@ -257,8 +264,9 @@ export function postViews(
   return out;
 }
 
-export function threadView(thread: ChannelThread): BotPost {
+export function threadView(thread: ChannelThread, projects: ProjectNames = new Map()): BotPost {
   const line = thread.status === 'working' ? thread.doing : thread.lastReply?.firstLine;
+  const project = thread.workspaceId === undefined ? undefined : projects.get(thread.workspaceId);
   return {
     id: thread.sessionId,
     author: 'bot',
@@ -269,6 +277,7 @@ export function threadView(thread: ChannelThread): BotPost {
       title: thread.title,
       status: thread.status,
       ...(line !== undefined && line !== '' && { line }),
+      ...(project !== undefined && { project }),
     },
   };
 }
@@ -336,8 +345,8 @@ export interface TimelineParts {
  */
 export function timelineViews(
   timeline: TimelineParts,
-  imageLabel: string,
   directory: BotDirectory = new Map(),
+  projects: ProjectNames = new Map(),
 ): BotPost[] {
   const byRoot = new Map<string, ChannelThread[]>();
   const loose: BotPost[] = [];
@@ -349,7 +358,7 @@ export function timelineViews(
       list.push(thread);
       byRoot.set(thread.rootPostId, list);
     } else if (!timeline.hasMore || first === undefined || thread.createdAt >= first) {
-      loose.push(threadView(thread));
+      loose.push(threadView(thread, projects));
     }
   }
   const decided = new Set(timeline.decided.map((d) => d.request.id));
@@ -363,11 +372,11 @@ export function timelineViews(
     while (loose[0] !== undefined && loose[0].createdAt < post.createdAt) {
       out.push(loose.shift() as BotPost);
     }
-    out.push(...postViews(post, imageLabel, directory));
+    out.push(...postViews(post, directory));
     const threads = (byRoot.get(post.id) ?? []).sort((a, b) =>
       a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
     );
-    for (const thread of threads) out.push(threadView(thread));
+    for (const thread of threads) out.push(threadView(thread, projects));
   }
   out.push(...loose);
   return out;

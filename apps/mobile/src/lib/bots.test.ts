@@ -57,15 +57,19 @@ describe('bots', () => {
         card: { kind: 'needs', items: [{ kind: 'folder', label: '文稿', ready: false }] },
         files: [{ path: 'out/plan.md', name: 'plan.md', size: 2048 }],
       }),
-      '图片',
     );
     expect(views.map((v) => [v.author, v.card.kind])).toEqual([
+      ['bot', 'images'],
       ['bot', 'text'],
       ['bot', 'needs'],
       ['bot', 'file'],
     ]);
-    expect(views[0]?.card).toEqual({ kind: 'text', text: '需要这些：\n\n[图片]' });
-    expect(views[2]?.card).toEqual({ kind: 'file', name: 'plan.md', size: 2048 });
+    expect(views[0]?.card).toMatchObject({
+      kind: 'images',
+      images: [{ imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR', mimeType: 'image/png' }],
+    });
+    expect(views[1]?.card).toEqual({ kind: 'text', text: '需要这些：' });
+    expect(views[3]?.card).toEqual({ kind: 'file', name: 'plan.md', size: 2048 });
 
     const notice = postViews(
       post(CHANNEL_A, 2, {
@@ -73,7 +77,6 @@ describe('bots', () => {
         content: [{ type: 'text', text: '' }],
         card: { kind: 'notice', reason: 'failed' },
       }),
-      '图片',
     );
     expect(notice).toEqual([
       expect.objectContaining({ author: 'host', card: { kind: 'notice', reason: 'failed' } }),
@@ -89,7 +92,6 @@ describe('bots', () => {
           decisions: [{ title: '周五的会' }],
         },
       }),
-      '图片',
     );
     expect(brief[0]?.card).toEqual({
       kind: 'brief',
@@ -102,7 +104,6 @@ describe('bots', () => {
         content: [{ type: 'text', text: '订机票' }],
         card: { kind: 'suggestion', text: '订机票', status: 'dismissed' },
       }),
-      '图片',
     );
     expect(suggestion).toHaveLength(1);
     expect(suggestion[0]?.card).toEqual({
@@ -151,19 +152,16 @@ describe('bots', () => {
   it('时间线：线程挂在开它的帖子后面，审批按时间插入', () => {
     const posts = [post(CHANNEL_A, 1), post(CHANNEL_A, 2), post(CHANNEL_A, 3)];
     const elsewhere = post(CHANNEL_A, 99).id;
-    const views = timelineViews(
-      {
-        posts,
-        threads: [
-          thread(posts[0]?.id ?? elsewhere, { title: '挂在第一条' }),
-          thread(elsewhere, { title: '根不在这页', createdAt: at(2) }),
-        ],
-        approvals: [approval(), approval({ id: 'apr_01JA2B3C4D5E6F7G8H9JKMNPQS' })],
-        decided: [{ request: approval(), decision: 'approved' }],
-        hasMore: false,
-      },
-      '图片',
-    );
+    const views = timelineViews({
+      posts,
+      threads: [
+        thread(posts[0]?.id ?? elsewhere, { title: '挂在第一条' }),
+        thread(elsewhere, { title: '根不在这页', createdAt: at(2) }),
+      ],
+      approvals: [approval(), approval({ id: 'apr_01JA2B3C4D5E6F7G8H9JKMNPQS' })],
+      decided: [{ request: approval(), decision: 'approved' }],
+      hasMore: false,
+    });
     expect(views.map((v) => (v.card.kind === 'text' ? v.card.text : v.card.kind))).toEqual([
       '#1',
       'thread',
@@ -177,18 +175,37 @@ describe('bots', () => {
     expect(views.at(-1)?.card).toMatchObject({ decision: 'pending' });
   });
 
-  it('结掉的审批留在它提出时的位置，之后的帖子排在后面', () => {
-    const posts = [post(CHANNEL_A, 1), post(CHANNEL_A, 5)];
+  it('开在用户项目里的线程带项目名，项目不认识时不写', () => {
+    const root = post(CHANNEL_A, 1);
     const views = timelineViews(
       {
-        posts,
-        threads: [],
+        posts: [root],
+        threads: [
+          thread(root.id, { workspaceId: 'ws_site' as never }),
+          thread(root.id, { workspaceId: 'ws_gone' as never, sessionId: 'ses_other' as never }),
+        ],
         approvals: [],
-        decided: [{ request: approval({ createdAt: at(3) }), decision: 'rejected' }],
+        decided: [],
         hasMore: false,
       },
-      '图片',
+      new Map(),
+      new Map([['ws_site', 'site']]),
     );
+    expect(views.slice(1).map((v) => (v.card.kind === 'thread' ? v.card.project : null))).toEqual([
+      'site',
+      undefined,
+    ]);
+  });
+
+  it('结掉的审批留在它提出时的位置，之后的帖子排在后面', () => {
+    const posts = [post(CHANNEL_A, 1), post(CHANNEL_A, 5)];
+    const views = timelineViews({
+      posts,
+      threads: [],
+      approvals: [],
+      decided: [{ request: approval({ createdAt: at(3) }), decision: 'rejected' }],
+      hasMore: false,
+    });
     expect(views.map((v) => v.card.kind)).toEqual(['text', 'approval', 'text']);
   });
 
@@ -250,7 +267,6 @@ describe('bots', () => {
         author: { kind: 'assistant', channelId: CHANNEL_A, name: 'Old name' },
         content: [{ type: 'text', text: '好了' }],
       }),
-      'Image',
       directory,
     );
     expect(view).toMatchObject({ author: 'bot', speaker: { id: CHANNEL_A, name: 'Ann' } });

@@ -1,6 +1,7 @@
 // 助理时间线上的一条：用户的话是右侧的气泡，助理的回答是不带气泡的正文，Host 的说明是居中的小字；卡片是实底的圆角卡：
 // “开始前需要”、晨间简报、审批（原样展示将要发出的内容，批准 / 拒绝）、线程（它开出的会话与实时状态）、交给用户的文件、提议（采纳 / 忽略）。
-// 别的助理说的（群里的成员、发来消息的助理）上面一行是它的小头像与名字；发给别的助理的标“发给 …”。
+// 别的助理说的（群里的成员、发来消息的助理）上面一行是它的小头像与名字；发给别的助理的标“发给 …”。帖子里的图片是一排缩略图；
+// 开在用户项目里的线程（0.134.0）状态后写项目名。
 
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -10,6 +11,7 @@ import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
 import { BotAvatar } from './bot-avatar';
 import { Markdown } from './markdown';
+import { type LoadImage, PostImages } from './post-images';
 import { Button, Chevron, Icon, type IconName } from './ui';
 
 type Decide = (decision: Exclude<Decision, 'pending'>) => Promise<void>;
@@ -20,11 +22,14 @@ export function PostView({
   onDecide,
   onOpenThread,
   onRetry,
+  onLoadImage,
 }: {
   post: BotPost;
   now: Date;
   onDecide: (post: BotPost, decision: Exclude<Decision, 'pending'>) => Promise<void>;
   onOpenThread: (sessionId: string) => void;
+  /** 读帖子里的一张图片，给本机文件的 URI；不给时不画图片（会话页借用这里的文字与审批）。 */
+  onLoadImage?: LoadImage;
   /** 群没有协调者，不给重试。 */
   onRetry?: () => void;
 }) {
@@ -41,6 +46,14 @@ export function PostView({
       return <ThreadCard card={card} onPress={() => onOpenThread(card.sessionId)} />;
     case 'file':
       return <FileCard card={card} />;
+    case 'images':
+      return onLoadImage === undefined ? null : (
+        <PostImages
+          images={card.images}
+          align={post.author === 'user' ? 'end' : 'start'}
+          load={onLoadImage}
+        />
+      );
     case 'suggestion':
       return <SuggestionCard card={card} onDecide={decide} />;
     case 'needs':
@@ -374,6 +387,9 @@ function ThreadCard({
         </Text>
         <Text style={[styles.threadMeta, { color }]} numberOfLines={1}>
           {t(`bot.thread.${card.status}`)}
+          {card.project !== undefined && (
+            <Text style={{ color: theme.mutedForeground }}>{` · ${card.project}`}</Text>
+          )}
         </Text>
         {card.line !== undefined && (
           <Text style={[styles.threadLine, { color: theme.softForeground }]} numberOfLines={1}>

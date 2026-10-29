@@ -1,6 +1,7 @@
 // 助理列表与各助理时间线的内存状态：界面从这里读、经这里写。背后是各台电脑的连接（`ChannelClient`，Host 0.120.0 的 `channel.*`）：
 // 每台连上就读 `channel.list` 并跟着 `channels.changed` 改；打开一个助理时取最新一页帖子，从最后一条起 `watchChannel`，再取线程与
 // 审批。连接断了助理留在列表里；同一连接重连上之后 client-sdk 自己从最后一条接着补，这里重读列表与打开过的助理的线程、审批。
+// 线程开在用户项目里（0.134.0）时按 `workspace.list` 找项目名；帖子里的图片按需 `image.read`。
 
 import type {
   ChannelsChange,
@@ -11,6 +12,7 @@ import type {
 import type {
   Channel,
   ChannelPost,
+  ChannelThread,
   EngineFeatures,
   MethodParams,
   ProviderProfile,
@@ -24,11 +26,16 @@ import {
   type BotDirectory,
   botFromChannel,
   botKey,
+  type ProjectNames,
   sortBots,
   type TimelineParts,
 } from './bots';
+import type { SpeechClient } from './dictation';
+import { base64Bytes } from './photo-size';
 
 export const PAGE_SIZE = 30;
+
+const NO_PROJECTS: ProjectNames = new Map();
 
 /** 一台电脑上的频道接口（`WevirClient` 的一部分）。Host 没有 `channels` 功能或这台设备不能读会话时没有。 */
 export interface ChannelClient {
@@ -42,6 +49,10 @@ export interface ChannelClient {
   readonly engineFeatures?: Readonly<Record<string, EngineFeatures>>;
   /** 输入框能带照片、能停止（Host 功能 `channel_composer`，0.135.0）。 */
   readonly composer: boolean;
+  /** 能听写（Host 功能 `speech` 与 `session.write`）。 */
+  readonly speech: boolean;
+  /** 能列项目（`workspace.read`），线程卡片写项目名用。 */
+  readonly canReadProjects: boolean;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
   watchChannel(
@@ -72,6 +83,8 @@ export interface BotAccess {
   canReadProviders: boolean;
   /** 输入框能带照片、能停止。 */
   composer: boolean;
+  /** 能听写。 */
+  speech: boolean;
 }
 
 /** 改助理时交给 `channel.update` 的字段。 */
@@ -103,6 +116,10 @@ interface HostState {
   watches: Map<string, () => void>;
   /** 换连接时加一，旧连接的结果据此作废。 */
   generation: number;
+  /** 工作区 ID → 项目名（线程卡片）。 */
+  projects: Map<string, string>;
+  /** 查过的工作区 ID（查不到的不再查）。 */
+  askedProjects: Set<string>;
 }
 
 export class BotStore {
@@ -143,6 +160,16 @@ export class BotStore {
     return target?.state.channels.get(target.channelId);
   }
 
+  /** 助理所在电脑上的项目名，按工作区 ID。 */
+  projects(key: string): ProjectNames {
+    return this.target(key)?.state.projects ?? NO_PROJECTS;
+  }
+
+  /** 经助理所在电脑听写（`speech.*`）。 */
+  speech(key: string): SpeechClient {
+    return { request: (method, params) => this.connected(key).client.request(method, params) };
+  }
+
   /** 助理所在电脑的 `engineFeatures`。 */
   engineFeatures(key: string): Readonly<Record<string, EngineFeatures>> | undefined {
     return this.target(key)?.state.client?.engineFeatures;
@@ -155,6 +182,7 @@ export class BotStore {
       canEdit: client?.canEdit === true,
       canReadProviders: client?.canReadProviders === true,
       composer: client?.composer === true,
+      speech: client?.speech === true,
     };
   }
 
@@ -204,6 +232,8 @@ export class BotStore {
           stops: [],
           watches: new Map(),
           generation: 0,
+          projects: new Map(),
+          askedProjects: new Set(),
         };
         this.hosts.set(host.computer, state);
         changed = true;
@@ -344,6 +374,25 @@ export class BotStore {
     const { client } = this.connected(key);
     const { image } = await client.request('image.upload', { mimeType, data });
     return image;
+  }
+
+  /**
+   * 读帖子里的一张图片：`image.read` 一段段往下读（每段最多 `IMAGE_READ_CHUNK_BYTES`），每段的 base64 交给 `write`（各段单独解码，
+   * 边界不用对齐）。
+   */
+  async readImage(key: string, imageId: string, write: (base64: string) => Promise<void>) {
+    const { client } = this.connected(key);
+    let offset = 0;
+    for (;;) {
+      const chunk = await client.request('image.read', {
+        imageId: imageId as UserImagePart['imageId'],
+        offset,
+      });
+      const bytes = base64Bytes(chunk.data);
+      if (bytes > 0) await write(chunk.data);
+      offset += bytes;
+      if (bytes === 0 || offset >= chunk.size) return;
+    }
   }
 
   /** 停止协调者（群里是正在回的成员）这回合（0.135.0）。 */
@@ -524,6 +573,32 @@ export class BotStore {
       loading: false,
     });
     this.rebuild();
+    void this.readProjects(state, view.threads);
+  }
+
+  /** 线程开在不认识的项目里时重读 `workspace.list`；查过还没有的不再查。 */
+  private async readProjects(state: HostState, threads: readonly ChannelThread[]): Promise<void> {
+    const { client, generation } = state;
+    if (client === undefined || !client.canReadProjects) return;
+    const unknown = threads.flatMap((thread) =>
+      thread.workspaceId !== undefined && !state.askedProjects.has(thread.workspaceId)
+        ? [thread.workspaceId]
+        : [],
+    );
+    if (unknown.length === 0) return;
+    for (const id of unknown) state.askedProjects.add(id);
+    try {
+      const { workspaces } = await client.request('workspace.list', {});
+      if (state.generation !== generation) return;
+      // 换一份新的：界面按引用判断变没变。
+      state.projects = new Map(
+        workspaces.flatMap((w) => (w.kind === undefined ? [[w.id, w.displayName] as const] : [])),
+      );
+      this.emit();
+    } catch (error) {
+      for (const id of unknown) state.askedProjects.delete(id);
+      console.warn('[wevir] could not list projects', error);
+    }
   }
 
   private updated(state: HostState, channelId: string, update: ChannelUpdate): void {
@@ -539,6 +614,7 @@ export class BotStore {
       });
     }
     this.rebuild();
+    if (update.threads !== undefined) void this.readProjects(state, update.threads);
   }
 
   private addPosts(key: string, posts: readonly ChannelPost[]): void {

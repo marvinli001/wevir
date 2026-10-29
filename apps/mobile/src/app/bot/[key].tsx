@@ -2,7 +2,9 @@
 // 往上翻到顶再下拉加载更早的。底部是输入栏，键盘弹起时跟着上移。工作中时末尾有一枚在跳的头像。
 // 助理群（0.133.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人），没有编辑与重试。
 // 输入栏（0.135.0，Host 有 `channel_composer` 时）同会话页：前面一枚加照片的按钮，协调者（群里是成员）在回、输入栏空着时尾部是停止。
+// Host 有 `speech` 时能听写。帖子里的图片按需读进缓存（lib/image-cache.ts）。
 
+import type { UserImagePart } from '@wevir/protocol';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -27,8 +29,9 @@ import { HeaderButton } from '../../components/header-button';
 import { useActionSheet } from '../../components/sheets';
 import { locale, type MessageKey, t } from '../../i18n';
 import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
+import { cachedImage } from '../../lib/image-cache';
 import { keyboardOverlap } from '../../lib/keyboard';
-import { useBot, useBotAccess, useBotStore, useTimeline } from '../../state/bots';
+import { useBot, useBotAccess, useBotProjects, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
 import { usePhotoAttachments } from '../../state/photo-attachments';
 import { SPACE, TEXT, useTheme } from '../../theme';
@@ -209,6 +212,13 @@ function BotChat({ bot }: { bot: Bot }) {
     [store, bot.key, mentions, photos],
   );
   const stop = useCallback(() => store.stop(bot.key), [store, bot.key]);
+  const speech = useMemo(() => store.speech(bot.key), [store, bot.key]);
+  const projects = useBotProjects(bot.key);
+  const loadImage = useCallback(
+    (image: UserImagePart) =>
+      cachedImage(bot.computer, image, (write) => store.readImage(bot.key, image.imageId, write)),
+    [store, bot.key, bot.computer],
+  );
 
   const track = (e: NativeScrollEvent) => {
     const bottom = e.contentSize.height + e.contentInset.bottom - e.layoutMeasurement.height;
@@ -217,8 +227,8 @@ function BotChat({ bot }: { bot: Bot }) {
 
   // 帖子里说话的助理按同一台电脑上的列表找；列表变了 bot 也会换，跟着重算。
   const data = useMemo(
-    () => items(timelineViews(timeline, t('bot.image'), store.directory(bot.key))),
-    [timeline, store, bot],
+    () => items(timelineViews(timeline, store.directory(bot.key), projects)),
+    [timeline, store, bot, projects],
   );
   const stateColor = botStateColor(theme, bot.state);
   const bottom = keyboard > 0 ? 8 : Math.max(insets.bottom, 8);
@@ -323,6 +333,7 @@ function BotChat({ bot }: { bot: Bot }) {
                     now={now}
                     onDecide={decide}
                     onOpenThread={openThread}
+                    onLoadImage={loadImage}
                     {...(!group && { onRetry: retry })}
                   />
                 </View>
@@ -391,6 +402,7 @@ function BotChat({ bot }: { bot: Bot }) {
                 busy: bot.answering,
                 onStop: stop,
               })}
+              {...(access.speech && { speech, onDictationError: setError })}
             />
           </View>
         </View>

@@ -151,6 +151,26 @@ describe('BotStore', () => {
     expect(host.calls('channel.stop')).toEqual([{ channelId: CHANNEL_A }]);
   });
 
+  it('图片分段读完；线程开在项目里时查一次项目名', async () => {
+    const { host, store } = setup({ posts: 1 });
+    host.threads = [
+      thread(post(CHANNEL_A, 1).id, { workspaceId: 'ws_web' as never }),
+      thread(post(CHANNEL_A, 1).id, { workspaceId: 'ws_gone' as never }),
+    ];
+    await store.open(KEY);
+    await vi.waitFor(() => expect(store.projects(KEY).get('ws_web')).toBe('web'));
+    expect(store.projects(KEY).has('ws_hidden')).toBe(false);
+    host.updated(CHANNEL_A, { threads: host.threads });
+    expect(host.calls('workspace.list')).toHaveLength(1);
+
+    const chunks: string[] = [];
+    await store.readImage(KEY, 'img_01JA2B3C4D5E6F7G8H9JKMNPQR', async (data) => {
+      chunks.push(data);
+    });
+    expect(chunks).toEqual(['AQIDBA==', 'BQYH']);
+    expect(host.calls('image.read').map((p) => p.offset)).toEqual([0, 4]);
+  });
+
   it('已读：只在有更新的 seq 时发，并清掉未读数', async () => {
     const { host, store } = setup({ posts: 3 });
     await store.open(KEY);
@@ -205,6 +225,7 @@ describe('BotStore', () => {
       canEdit: false,
       canReadProviders: false,
       composer: false,
+      speech: false,
     });
     expect(readOnly.store.onlineCount()).toBe(1);
 
@@ -215,6 +236,7 @@ describe('BotStore', () => {
       canEdit: true,
       canReadProviders: true,
       composer: false,
+      speech: false,
     });
     await store.update(KEY, { name: '大管家', folders: ['/Users/me/web'] });
     expect(host.calls('channel.update')[0]).toEqual({

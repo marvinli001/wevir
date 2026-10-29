@@ -116,6 +116,8 @@ export class FakeChannels {
     canEdit: false,
     canReadProviders: false,
     composer: false,
+    speech: false,
+    canReadProjects: true,
     request: ((method: string, params: Params) =>
       this.#handle(method, params)) as ChannelClient['request'],
     onChannelsChanged: (listener) => {
@@ -215,6 +217,12 @@ export class FakeChannels {
             size: 3,
           },
         };
+      case 'image.read': {
+        // 7 个字节，每段最多 4 个。
+        const offset = (params.offset as number | undefined) ?? 0;
+        const data = ['AQIDBA==', 'BQYH'][offset === 0 ? 0 : 1];
+        return { imageId: params.imageId, mimeType: 'image/png', size: 7, offset, data };
+      }
       case 'provider.list':
         return { providers: [{ id: 'prov_off', enabled: false }, { id: 'prov_on' }] };
       case 'channel.update': {
@@ -238,9 +246,19 @@ export class FakeChannels {
       case 'workspace.list':
         return {
           workspaces: [
-            { rootPath: '/Users/me/web', extraFolders: ['/Users/me/api'] },
-            { rootPath: '/Users/me/hidden', kind: 'assistant' },
-            { rootPath: '/Users/me/api' },
+            {
+              id: 'ws_web',
+              displayName: 'web',
+              rootPath: '/Users/me/web',
+              extraFolders: ['/Users/me/api'],
+            },
+            {
+              id: 'ws_hidden',
+              displayName: '小管家',
+              rootPath: '/Users/me/hidden',
+              kind: 'assistant',
+            },
+            { id: 'ws_api', displayName: 'api', rootPath: '/Users/me/api' },
           ],
         };
       default:

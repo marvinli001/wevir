@@ -198,6 +198,12 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
           get composer() {
             return client.supports('channel_composer') && client.can('session.write');
           },
+          get speech() {
+            return client.supports('speech') && client.can('session.write');
+          },
+          get canReadProjects() {
+            return client.can('workspace.read');
+          },
           request: (method, ...args) => client.request(method, ...args),
           onChannelsChanged: (listener) => client.onChannelsChanged(listener),
           watchChannel: (channelId, handlers, options) =>

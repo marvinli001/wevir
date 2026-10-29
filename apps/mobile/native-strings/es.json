@@ -1,5 +1,6 @@
 {
   "NSCameraUsageDescription": "Escanear el código QR de vinculación que muestra el ordenador y hacer fotos para adjuntarlas a mensajes.",
+  "NSMicrophoneUsageDescription": "Grabar dictados para que el ordenador los transcriba a texto.",
   "NSLocalNetworkUsageDescription": "Buscar ordenadores con Wevir en la red local y conectarse directamente.",
   "NSFaceIDUsageDescription": "Desbloquear Wevir y confirmar aprobaciones de alto riesgo.",
   "NSPhotoLibraryUsageDescription": "Elegir fotos para adjuntarlas a mensajes.",

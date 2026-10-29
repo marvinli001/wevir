@@ -1,4 +1,4 @@
-// Expo 的应用配置（CNG：ios/、android/ 由 `expo prebuild` 从这里生成，不进仓库）。需要原生模块（mDNS、相机、钥匙串），用
+// Expo 的应用配置（CNG：ios/、android/ 由 `expo prebuild` 从这里生成，不进仓库）。需要原生模块（mDNS、相机、钥匙串、录音），用
 // development build（expo-dev-client），不用 Expo Go。
 
 import { existsSync } from 'node:fs';
@@ -57,6 +57,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         // 本地网络权限（iOS 14 起）与 Bonjour 浏览的服务类型（`_wevir._tcp`，host-api.md §1.1）。
         NSLocalNetworkUsageDescription: en.NSLocalNetworkUsageDescription,
         NSBonjourServices: ['_wevir._tcp'],
+        // 听写（src/state/dictation.ts）录音。
+        NSMicrophoneUsageDescription: en.NSMicrophoneUsageDescription,
         CFBundleAllowMixedLocalizations: true,
       },
       // 设备私钥与推送密钥存在这个 App Group 的钥匙串访问组里，通知服务扩展也读得到（src/lib/keychain.ts、push-store.ts）。真机构建要
@@ -72,8 +74,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         foregroundImage: `${ICONS}/exports/android/res/drawable-xxxhdpi/wevir_foreground.png`,
         backgroundImage: `${ICONS}/exports/android/res/drawable-xxxhdpi/wevir_background.png`,
       },
-      // react-native-zeroconf 自己声明组播锁与 Wi-Fi 状态的权限；不要录音。
-      blockedPermissions: ['android.permission.RECORD_AUDIO'],
+      // react-native-zeroconf 自己声明组播锁与 Wi-Fi 状态的权限；录音权限由 expo-audio 声明（听写）。
     },
     // Info.plist 的权限说明，十种语言（与界面同一组）。
     locales: {
@@ -94,7 +95,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         'expo-camera',
         {
           cameraPermission: en.NSCameraUsageDescription,
-          microphonePermission: false,
+          // 不录视频；麦克风的说明给听写用，三个插件写同一句，免得谁把它删掉。
+          microphonePermission: en.NSMicrophoneUsageDescription,
           recordAudioAndroid: false,
         },
       ],
@@ -104,7 +106,17 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         {
           photosPermission: en.NSPhotoLibraryUsageDescription,
           cameraPermission: en.NSCameraUsageDescription,
-          microphonePermission: false,
+          microphonePermission: en.NSMicrophoneUsageDescription,
+        },
+      ],
+      // 听写只在前台录音，不要后台播放与录音（不加 UIBackgroundModes 的 audio、Android 的前台服务）。
+      [
+        'expo-audio',
+        {
+          microphonePermission: en.NSMicrophoneUsageDescription,
+          recordAudioAndroid: true,
+          enableBackgroundPlayback: false,
+          enableBackgroundRecording: false,
         },
       ],
       // 本地缓存整库加密（src/lib/cache-store.ts）：编进 SQLCipher。

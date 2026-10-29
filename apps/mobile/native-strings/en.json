@@ -1,5 +1,6 @@
 {
   "NSCameraUsageDescription": "Scan the pairing QR code shown on your computer and take photos to attach to messages.",
+  "NSMicrophoneUsageDescription": "Record dictation for your computer to transcribe into text.",
   "NSLocalNetworkUsageDescription": "Find and connect directly to computers running Wevir on your local network.",
   "NSFaceIDUsageDescription": "Unlock Wevir and confirm high-risk approvals.",
   "NSPhotoLibraryUsageDescription": "Choose photos to attach to messages.",

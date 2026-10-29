@@ -300,6 +300,12 @@ export default function SessionScreen() {
               onStop={canWrite ? async () => actions?.interrupt() : undefined}
               delivery={delivery}
               onDeliveryChange={setDelivery}
+              {...(canWrite &&
+                client?.supports('speech') === true && {
+                  speech: client,
+                  sessionId,
+                  onDictationError: setError,
+                })}
             />
           </View>
         </View>

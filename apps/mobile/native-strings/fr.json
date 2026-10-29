@@ -1,5 +1,6 @@
 {
   "NSCameraUsageDescription": "Scanner le code QR d’association affiché sur l’ordinateur et prendre des photos à joindre aux messages.",
+  "NSMicrophoneUsageDescription": "Enregistrer la dictée que l’ordinateur transcrit en texte.",
   "NSLocalNetworkUsageDescription": "Trouver les ordinateurs exécutant Wevir sur le réseau local et s’y connecter directement.",
   "NSFaceIDUsageDescription": "Déverrouiller Wevir et confirmer les approbations à risque élevé.",
   "NSPhotoLibraryUsageDescription": "Choisir des photos à joindre aux messages.",

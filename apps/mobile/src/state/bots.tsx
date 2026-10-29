@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { type BotAccess, BotStore, type Timeline } from '../lib/bot-store';
-import type { Bot } from '../lib/bots';
+import type { Bot, ProjectNames } from '../lib/bots';
 import { displayName } from '../lib/records';
 import { useRegistry } from './registry';
 
@@ -62,6 +62,15 @@ export function useTimeline(key: string): Timeline {
   return useSyncExternalStore(
     (listener) => store.subscribe(listener),
     () => store.timeline(key),
+  );
+}
+
+/** 助理所在电脑上的项目名（线程卡片）。 */
+export function useBotProjects(key: string): ProjectNames {
+  const store = useBotStore();
+  return useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => store.projects(key),
   );
 }
 

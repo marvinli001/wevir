@@ -1,5 +1,6 @@
 {
   "NSCameraUsageDescription": "Den auf dem Computer angezeigten Kopplungs-QR-Code scannen und Fotos für Nachrichten aufnehmen.",
+  "NSMicrophoneUsageDescription": "Diktate aufnehmen, die der Computer in Text umwandelt.",
   "NSLocalNetworkUsageDescription": "Computer mit Wevir im lokalen Netzwerk finden und direkt verbinden.",
   "NSFaceIDUsageDescription": "Wevir entsperren und risikoreiche Freigaben bestätigen.",
   "NSPhotoLibraryUsageDescription": "Fotos für Nachrichten auswählen.",
