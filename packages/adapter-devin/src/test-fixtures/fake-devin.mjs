@@ -211,6 +211,26 @@ async function prompt(id, params) {
       });
       await cancelled;
       stopReason = 'cancelled';
+    } else if (text === 'elicitation-form') {
+      // ACP `elicitation/create`（引擎的 MCP 服务要用户输入）：回答原样作为助手的文字交回去。
+      const answer = await Promise.race([
+        request('elicitation/create', {
+          sessionId,
+          mode: 'form',
+          message: 'New ticket',
+          requestedSchema: {
+            type: 'object',
+            properties: { title: { type: 'string', title: 'Title' } },
+            required: ['title'],
+          },
+        }),
+        cancelled,
+      ]);
+      if (answer === 'cancelled') stopReason = 'cancelled';
+      update(sessionId, {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: JSON.stringify(answer?.result ?? {}) },
+      });
     } else if (text === 'approval') {
       const toolCallId = `tool-${id}`;
       const rawInput = { command: 'echo ok > approve.txt' };

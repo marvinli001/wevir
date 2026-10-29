@@ -180,6 +180,16 @@ export class DevinAdapter extends AcpAdapter {
     if (settings !== undefined) settings.pending = { ...config };
   }
 
+  /** MCP 服务的表单（ACP `elicitation/create`）换成的提问由用户回答（adapter-acp 的 `#onElicitation`）。 */
+  async respondToQuestion(
+    id: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): Promise<void> {
+    this.assertUsable();
+    this.answerQuestion(id, requestId, answers);
+  }
+
   override async send(id: string, input: AgentInput): Promise<void> {
     this.assertUsable();
     this.assertOpenSession(id);

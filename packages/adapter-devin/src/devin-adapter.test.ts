@@ -66,6 +66,20 @@ describe('Devin ACP', () => {
     expect(readLog(log).some((message) => message.method === 'authenticate')).toBe(false);
   });
 
+  it('MCP 服务的表单（elicitation/create）是提问，回答交回引擎', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('elicitation-form'));
+    const { event } = await events.waitFor((event) => event.type === 'question.requested');
+    if (event.type !== 'question.requested') throw new Error('missing question');
+    expect(event.questions).toMatchObject([{ id: 'title', header: 'Title' }]);
+    await adapter.respondToQuestion(id, event.requestId, { title: ['Broken login'] });
+    expect((await events.turn()).find((event) => event.type === 'assistant.message')).toMatchObject(
+      { text: JSON.stringify({ action: 'accept', content: { title: 'Broken login' } }) },
+    );
+  });
+
   it('审批的选项原样交出；拒绝和取消不会变成批准', async () => {
     const { adapter, config } = setup();
     const { engineSessionId: id } = await adapter.createSession(config);

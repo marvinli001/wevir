@@ -39,6 +39,18 @@ describe('错误归类（3000.11.92 的原文）', () => {
     expect(classifyDevinResumeError({ code: -32603, message: 'boom' }).failure).toEqual({
       kind: 'unknown',
     });
+    // 别的进程（如用户自己的 devin）打开着这个会话：不是挂在本进程上，不能当作沿用。
+    const locked = "Session 'abc' is already open in another process";
+    expect(
+      classifyDevinResumeError({
+        code: -32603,
+        message: locked,
+        data: { 'cognition.ai/errorKind': 'session_locked' },
+      }).failure,
+    ).toEqual({ kind: 'unknown' });
+    expect(classifyDevinResumeError({ code: -32603, message: locked }).failure).toEqual({
+      kind: 'unknown',
+    });
   });
 });
 
