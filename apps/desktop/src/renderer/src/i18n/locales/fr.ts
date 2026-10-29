@@ -821,6 +821,7 @@ export const messages: Messages = {
   'permission.auto_review': 'Approbation automatique',
   'permission.full_access': 'Accès complet',
   'permission.configureFailed': 'Échec du changement d’autorisations : {error}',
+  'permission.unsupported': 'Non pris en charge',
 
   'environment.local': 'Cet ordinateur',
   'environment.settings': 'Environnement local',

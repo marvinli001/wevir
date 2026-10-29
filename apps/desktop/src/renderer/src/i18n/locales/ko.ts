@@ -811,6 +811,7 @@ export const messages: Messages = {
   'permission.auto_review': '자동 승인',
   'permission.full_access': '전체 액세스',
   'permission.configureFailed': '권한 전환 실패: {error}',
+  'permission.unsupported': '지원 안 됨',
 
   'environment.local': '이 컴퓨터',
   'environment.settings': '로컬 환경',

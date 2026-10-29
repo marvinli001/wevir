@@ -30,7 +30,13 @@ import { createStore } from '@/lib/store';
 import { useChatsSupported } from '@/projects/chats';
 import { paths } from '@/routes/paths';
 import { ModelPicker } from '@/session/model-picker';
-import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
+import {
+  effectivePermissionMode,
+  PermissionPicker,
+  useAllowedPermissionModes,
+  useEnginePermissionModes,
+  usePermissionChoice,
+} from '@/session/permission-picker';
 import { useModelChoice } from '@/session/start-session';
 import {
   type AutomationDraft,
@@ -157,7 +163,15 @@ function AutomationForm({
   const editing = current.kind === 'edit';
   // 建对话框时 Provider 还没读到：读到后补上默认模型。
   const model = draft.model ?? models.choice;
-  const effective: AutomationDraft = model ? { ...draft, model } : draft;
+  const inSession = draft.sessionId !== undefined;
+  // 新会话跑时按选的模型所在引擎支持的权限模式（Windows 上的 Cursor 只有完全访问）。
+  const engineModes = useEnginePermissionModes(
+    models.providers,
+    inSession ? undefined : model?.providerId,
+  );
+  const allowedModes = useAllowedPermissionModes();
+  const permissionMode = effectivePermissionMode(draft.permissionMode, engineModes, allowedModes);
+  const effective: AutomationDraft = { ...draft, permissionMode, ...(model && { model }) };
   const problem =
     draftProblem(effective) ??
     (effective.workspaceId === undefined && !chatsSupported ? 'project' : undefined);
@@ -199,7 +213,6 @@ function AutomationForm({
         : []),
     ];
   }, [allSessions, draft.sessionId]);
-  const inSession = draft.sessionId !== undefined;
 
   const projectOptions = useMemo<SelectOption[]>(
     () => [
@@ -269,8 +282,9 @@ function AutomationForm({
           />
           <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
             <PermissionPicker
-              value={draft.permissionMode}
-              onChange={(permissionMode) => patch({ permissionMode })}
+              value={permissionMode}
+              {...(engineModes && { modes: engineModes })}
+              onChange={(next) => patch({ permissionMode: next })}
             />
             {models.providers && model && !inSession && (
               <ModelPicker
@@ -281,7 +295,7 @@ function AutomationForm({
             )}
           </div>
         </div>
-        {draft.permissionMode === 'full_access' && (
+        {permissionMode === 'full_access' && (
           <p className="-mt-2 flex items-start gap-1.5 text-xs text-warning">
             <TriangleAlert aria-hidden className="mt-px size-3.5 shrink-0" />
             {t('automations.dialog.fullAccessWarning')}

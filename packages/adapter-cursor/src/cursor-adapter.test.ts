@@ -9,6 +9,7 @@ import {
   agentOptions,
   CursorAdapter,
   type CursorAdapterOptions,
+  cursorPermissionModes,
   permissionPolicy,
   SETTING_SOURCES,
 } from './cursor-adapter.js';
@@ -339,6 +340,34 @@ describe('CursorAdapter', () => {
     expect(resumed.modelId).toBe('gpt-6');
     expect(sdk.agents).toHaveLength(2);
     expect(sdk.agent(engineSessionId).options.model).toEqual({ id: 'gpt-6' });
+  });
+
+  it('Windows 只有完全访问：别的模式的会话发消息时说明原因，不替用户升成完全访问', async () => {
+    expect(cursorPermissionModes('win32')).toEqual(['full_access']);
+    expect(cursorPermissionModes('darwin')).toEqual(['on_request', 'auto_review', 'full_access']);
+    expect(cursorPermissionModes('linux')).toEqual(['on_request', 'auto_review', 'full_access']);
+    const { adapter, sdk, home } = setup({ platform: 'win32' });
+    expect(adapter.permissionModes).toEqual(['full_access']);
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    await expect(adapter.send(engineSessionId, text('Say hello'))).rejects.toMatchObject({
+      code: 'invalid_input',
+      message: expect.stringContaining('full access'),
+    });
+    expect(sdk.agent(engineSessionId).sent).toEqual([]);
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.configureSession(engineSessionId, {
+      modelId: 'auto',
+      permissionMode: 'full_access',
+    });
+    await adapter.send(engineSessionId, text('Say hello'));
+    await until(events, 'turn.settled');
+    expect(sdk.agent(engineSessionId).options.local).toMatchObject({
+      sandboxOptions: { enabled: false },
+    });
   });
 
   it('换模型只影响下一个回合的 send；换权限模式在下一个回合前按新设置重新打开 agent', async () => {

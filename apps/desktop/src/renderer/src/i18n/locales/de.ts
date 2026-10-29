@@ -820,6 +820,7 @@ export const messages: Messages = {
   'permission.auto_review': 'Automatisch freigeben',
   'permission.full_access': 'Vollzugriff',
   'permission.configureFailed': 'Berechtigungswechsel fehlgeschlagen: {error}',
+  'permission.unsupported': 'Nicht unterstützt',
 
   'environment.local': 'Dieser Computer',
   'environment.settings': 'Lokale Umgebung',

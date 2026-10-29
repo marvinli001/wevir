@@ -823,6 +823,7 @@ export const zhCN = {
   'permission.auto_review': '自动批准',
   'permission.full_access': '完全访问',
   'permission.configureFailed': '切换权限失败：{error}',
+  'permission.unsupported': '不支持',
 
   'environment.local': '此计算机',
   'environment.settings': '本地环境',

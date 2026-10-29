@@ -88,6 +88,8 @@ export interface CursorAdapterOptions {
   sdk?: () => Promise<CursorSdk>;
   cancelTimeoutMs?: number;
   loginTimeoutMs?: number;
+  /** 测试用：换掉 `process.platform`（Windows 只有完全访问）。 */
+  platform?: NodeJS.Platform;
 }
 
 /** CursorAdapter 声明的权限模式。 */
@@ -96,6 +98,20 @@ export const PERMISSION_MODES: readonly PermissionMode[] = [
   'auto_review',
   'full_access',
 ];
+
+/**
+ * 本平台能用的权限模式：请求批准与自动审核要 Cursor 的沙箱，SDK（1.0.35）在 Windows 上一律报沙箱不支持，所以 Windows 只有
+ * 完全访问（维护者 2026-10-29 定）。
+ */
+export function cursorPermissionModes(
+  platform: NodeJS.Platform = process.platform,
+): readonly PermissionMode[] {
+  return platform === 'win32' ? ['full_access'] : PERMISSION_MODES;
+}
+
+/** 会话的权限模式在本平台用不了时给人看的原因。 */
+export const WINDOWS_FULL_ACCESS_ONLY =
+  "Cursor on Windows runs only in full access: Cursor's sandbox, which request approval and auto review need, is not available on Windows. Switch this session to full access.";
 
 /**
  * 权限模式 → SDK 的本地选项（cursor-event-mapping.md §3.2）。SDK 不能问用户，所以：
@@ -203,7 +219,7 @@ interface Session {
 
 export class CursorAdapter implements AgentRuntimeAdapter {
   readonly accounts: CursorAccounts;
-  readonly permissionModes = PERMISSION_MODES;
+  readonly permissionModes: readonly PermissionMode[];
   /** 应用级工具（0.30.0）：HTTP 的 MCP 服务交给 agent；Cursor 没有审批，工具直接调用。 */
   readonly appTools = true;
 
@@ -232,6 +248,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
 
   constructor(options: CursorAdapterOptions) {
     this.#options = options;
+    this.permissionModes = cursorPermissionModes(options.platform);
     const installer = options.sdkInstaller;
     this.#sdk =
       options.sdk ??
@@ -370,6 +387,10 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('invalid_input', 'the message is empty');
     }
     const message: string | SDKUserMessage = images.length === 0 ? text : { text, images };
+    // 没经过界面的会话（旧会话、接力过来的）可能还是请求批准：不替用户升成完全访问，说明原因。
+    if (!this.permissionModes.includes(session.settings.permissionMode ?? 'on_request')) {
+      throw new AdapterError('invalid_input', WINDOWS_FULL_ACCESS_ONLY);
+    }
 
     let resolve: () => void = () => {};
     const settled = new Promise<void>((done) => {

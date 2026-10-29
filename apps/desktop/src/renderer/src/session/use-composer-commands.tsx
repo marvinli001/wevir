@@ -128,8 +128,7 @@ function effortCommand(
 }
 
 function permissionCommand(
-  mode: PermissionMode,
-  onChange: (next: PermissionMode) => void,
+  { mode, onChange, modes = PERMISSION_MODES }: PermissionCommandOptions,
   policyWrite: boolean,
 ): ComposerCommand {
   return {
@@ -141,7 +140,9 @@ function permissionCommand(
     items: () =>
       PERMISSION_MODES.filter(
         (candidate) =>
-          candidate === mode || allowedPermissionModes(undefined, policyWrite).includes(candidate),
+          candidate === mode ||
+          (modes.includes(candidate) &&
+            allowedPermissionModes(undefined, policyWrite).includes(candidate)),
       ).map((candidate) => {
         const { icon: Icon, label } = PERMISSION_META[candidate];
         return {
@@ -153,6 +154,13 @@ function permissionCommand(
         };
       }),
   };
+}
+
+/** `/permissions` 的当前模式与切换；`modes` 是引擎支持的（省略时三种都有），不支持的不列。 */
+export interface PermissionCommandOptions {
+  mode: PermissionMode;
+  onChange: (next: PermissionMode) => void;
+  modes?: readonly PermissionMode[];
 }
 
 /** 计划模式（0.36.0）的开关：Shift+Tab、输入框底栏的芯片与这里是同一个开关。 */
@@ -214,7 +222,7 @@ export interface SessionCommandOptions {
   /** 能接力过去的别的 Provider（0.25.0）；省略时只在当前 Provider 里换。 */
   switchable?: (provider: ProviderProfile) => boolean;
   /** 有权限模式可选时给。 */
-  permission?: { mode: PermissionMode; onChange: (next: PermissionMode) => void };
+  permission?: PermissionCommandOptions;
   /** Host 能分出支线（/btw）。 */
   sideEnabled: boolean;
   filesEnabled: boolean;
@@ -320,8 +328,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
       const effort = effortCommand(providers, model, onModelChange);
       if (effort) commands.push(effort);
     }
-    if (permission)
-      commands.push(permissionCommand(permission.mode, permission.onChange, policyWrite));
+    if (permission) commands.push(permissionCommand(permission, policyWrite));
     commands.push(
       simple('new', t('command.new'), SquarePen, () => navigate(paths.draft(workspaceId))),
     );
@@ -403,7 +410,7 @@ export interface DraftCommandOptions {
   providers: readonly ProviderProfile[] | undefined;
   model: ModelChoice | undefined;
   onModelChange: (next: ModelChoice) => void;
-  permission?: { mode: PermissionMode; onChange: (next: PermissionMode) => void };
+  permission?: PermissionCommandOptions;
   filesEnabled: boolean;
   panes: PaneController | undefined;
   /** 发出第一条消息（建会话）；没有工作区时不给。 */
@@ -437,8 +444,7 @@ export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[
       const effort = effortCommand(providers, model, onModelChange);
       if (effort) commands.push(effort);
     }
-    if (permission)
-      commands.push(permissionCommand(permission.mode, permission.onChange, policyWrite));
+    if (permission) commands.push(permissionCommand(permission, policyWrite));
     if (filesEnabled && panes) {
       commands.push(simple('files', t('command.files'), FolderTree, () => openFiles(panes)));
     }

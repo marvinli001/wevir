@@ -18,7 +18,11 @@ import { EnvironmentBar } from '@/session/environment-bar';
 import { useAcceptsImages } from '@/session/image-attachments';
 import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
-import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
+import {
+  PermissionPicker,
+  useEnginePermissionModes,
+  usePermissionChoice,
+} from '@/session/permission-picker';
 import { usePlanControl } from '@/session/plan-mode';
 import { useModelChoice, usePermissionModes, useStartSession } from '@/session/start-session';
 import { useDraftCommands } from '@/session/use-composer-commands';
@@ -66,7 +70,9 @@ function Home({
 }) {
   const workspace = entry?.workspace;
   const { providers, choice, choose } = useModelChoice();
-  const permission = usePermissionChoice();
+  // 选的模型所在引擎支持的权限模式（Windows 上的 Cursor 只有完全访问）。
+  const engineModes = useEnginePermissionModes(providers, choice?.providerId);
+  const permission = usePermissionChoice(engineModes);
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspace?.id);
   const worktree = useWorktreeChoice(workspace?.id);
@@ -118,8 +124,15 @@ function Home({
     view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
   const sendCommandText = (text: string) => void send(text);
   const permissionCommand = useMemo(
-    () => (permissions ? { mode: permission.mode, onChange: permission.choose } : undefined),
-    [permissions, permission.mode, permission.choose],
+    () =>
+      permissions
+        ? {
+            mode: permission.mode,
+            onChange: permission.choose,
+            ...(engineModes && { modes: engineModes }),
+          }
+        : undefined,
+    [permissions, permission.mode, permission.choose, engineModes],
   );
   const commands = useDraftCommands({
     providers,
@@ -164,7 +177,11 @@ function Home({
             leading={
               <>
                 {permissions && (
-                  <PermissionPicker value={permission.mode} onChange={permission.choose} />
+                  <PermissionPicker
+                    value={permission.mode}
+                    {...(engineModes && { modes: engineModes })}
+                    onChange={permission.choose}
+                  />
                 )}
                 {noProvider && providerWrite && <AddProviderChip />}
               </>

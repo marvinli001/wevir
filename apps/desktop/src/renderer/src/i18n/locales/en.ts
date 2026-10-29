@@ -814,6 +814,7 @@ export const messages: Messages = {
   'permission.auto_review': 'Auto-approve',
   'permission.full_access': 'Full access',
   'permission.configureFailed': 'Failed to switch permissions: {error}',
+  'permission.unsupported': 'Not supported',
 
   'environment.local': 'This computer',
   'environment.settings': 'Local environment',

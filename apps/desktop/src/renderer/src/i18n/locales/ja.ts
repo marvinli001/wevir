@@ -815,6 +815,7 @@ export const messages: Messages = {
   'permission.auto_review': '自動承認',
   'permission.full_access': 'フルアクセス',
   'permission.configureFailed': '権限の切り替えに失敗しました: {error}',
+  'permission.unsupported': '非対応',
 
   'environment.local': 'このコンピューター',
   'environment.settings': 'ローカル環境',

@@ -80,7 +80,11 @@ import { NewSessionHero, NewSessionLayout } from './new-session';
 import { OllamaContextNotice } from './ollama-context-notice';
 import { PendingArea } from './pending-area';
 import { steersInline } from './pending-model';
-import { PermissionPicker, usePermissionChoice } from './permission-picker';
+import {
+  PermissionPicker,
+  useEnginePermissionModes,
+  usePermissionChoice,
+} from './permission-picker';
 import { usePlanControl } from './plan-mode';
 import { suggestionsEnabled, visibleSuggestion } from './prompt-suggestion';
 import { planImplementationPrompt, proposedPlanTitle } from './proposed-plan';
@@ -583,6 +587,7 @@ export function SessionView({
       permissionModes && writable && session.parentSessionId === undefined
         ? {
             mode: session.permissionMode ?? ('on_request' as const),
+            ...(engine?.permissionModes && { modes: engine.permissionModes }),
             onChange: (permissionMode: PermissionMode) => {
               client
                 ?.request('session.configure', { sessionId: session.id, permissionMode })
@@ -597,6 +602,7 @@ export function SessionView({
       writable,
       session.parentSessionId,
       session.permissionMode,
+      engine?.permissionModes,
       client,
       session.id,
     ],
@@ -1135,7 +1141,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     (session: Session) => movePaneScope(draftScopeKey(workspaceId), session.id),
     [workspaceId],
   );
-  const permission = usePermissionChoice();
+  const engineModes = useEnginePermissionModes(providers, choice?.providerId);
+  const permission = usePermissionChoice(engineModes);
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspaceId);
   const worktree = useWorktreeChoice(workspaceId);
@@ -1181,8 +1188,15 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   );
   const sendCommandText = useCallback((text: string) => void startWithPlan(text), [startWithPlan]);
   const permissionCommand = useMemo(
-    () => (permissions ? { mode: permission.mode, onChange: permission.choose } : undefined),
-    [permissions, permission.mode, permission.choose],
+    () =>
+      permissions
+        ? {
+            mode: permission.mode,
+            onChange: permission.choose,
+            ...(engineModes && { modes: engineModes }),
+          }
+        : undefined,
+    [permissions, permission.mode, permission.choose, engineModes],
   );
   const planCommand = useMemo(
     () => (plan.supported ? { active: plan.active, onToggle: plan.toggle } : undefined),
@@ -1266,7 +1280,11 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             acceptImages={acceptImages}
             leading={
               permissions && (
-                <PermissionPicker value={permission.mode} onChange={permission.choose} />
+                <PermissionPicker
+                  value={permission.mode}
+                  {...(engineModes && { modes: engineModes })}
+                  onChange={permission.choose}
+                />
               )
             }
             model={

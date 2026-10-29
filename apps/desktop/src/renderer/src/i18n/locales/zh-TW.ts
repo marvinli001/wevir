@@ -809,6 +809,7 @@ export const messages: Messages = {
   'permission.auto_review': '自動核准',
   'permission.full_access': '完整存取',
   'permission.configureFailed': '切換權限失敗：{error}',
+  'permission.unsupported': '不支援',
 
   'environment.local': '這台電腦',
   'environment.settings': '本機環境',

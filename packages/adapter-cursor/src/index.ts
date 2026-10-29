@@ -12,6 +12,7 @@ export {
   CursorAdapter,
   type CursorAdapterLogger,
   type CursorAdapterOptions,
+  cursorPermissionModes,
   PERMISSION_MODES,
   permissionPolicy,
   SETTING_SOURCES,

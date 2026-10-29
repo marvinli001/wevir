@@ -822,6 +822,7 @@ export const messages: Messages = {
   'permission.auto_review': 'Aprobación automática',
   'permission.full_access': 'Acceso total',
   'permission.configureFailed': 'Error al cambiar los permisos: {error}',
+  'permission.unsupported': 'No compatible',
 
   'environment.local': 'Este equipo',
   'environment.settings': 'Entorno local',

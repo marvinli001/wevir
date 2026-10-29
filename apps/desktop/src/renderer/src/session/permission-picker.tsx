@@ -1,4 +1,4 @@
-import type { PermissionMode } from '@wevir/protocol';
+import type { PermissionMode, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Hand, type LucideIcon, ShieldAlert, ShieldCheck } from 'lucide-react';
 import {
@@ -9,9 +9,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useCan } from '@/host/host-connection';
+import { useCan, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
+import { engineFeaturesOf } from './handoff-model';
 
 /** 三种权限模式，按菜单里的先后（protocol 0.11.0 的 `PermissionMode`）。 */
 export const PERMISSION_MODES: readonly PermissionMode[] = [
@@ -75,22 +76,49 @@ export function allowedPermissionModes(
   );
 }
 
-function useAllowedPermissionModes(): readonly PermissionMode[] {
+export function useAllowedPermissionModes(): readonly PermissionMode[] {
   return allowedPermissionModes(permissionModePrefs.use(), useCan('policy.write'));
 }
 
-export function usePermissionChoice() {
+/**
+ * 新会话实际用的模式：选的模式引擎不支持时（如 Windows 上的 Cursor 只有完全访问）换成引擎支持、又能选的模式里最严的那个；
+ * 一个也没有时照旧（发出去由引擎报原因）。`engineModes` 省略时不限。
+ */
+export function effectivePermissionMode(
+  chosen: PermissionMode,
+  engineModes: readonly PermissionMode[] | undefined,
+  allowed: readonly PermissionMode[],
+): PermissionMode {
+  if (engineModes === undefined || engineModes.includes(chosen)) return chosen;
+  return MODES.find((mode) => engineModes.includes(mode) && allowed.includes(mode)) ?? chosen;
+}
+
+/** 选的模型所在引擎支持的权限模式（0.25.0 的 `engineFeatures`）；不知道时 undefined。 */
+export function useEnginePermissionModes(
+  providers: readonly ProviderProfile[] | undefined,
+  providerId: string | undefined,
+): readonly PermissionMode[] | undefined {
+  const { view } = useHostConnection();
+  if (view.status !== 'connected' || providers === undefined || providerId === undefined) {
+    return undefined;
+  }
+  return engineFeaturesOf(view.hello.engineFeatures, providers, providerId)?.permissionModes;
+}
+
+/** 新会话的权限模式；`engineModes` 是选的模型所在引擎支持的（见 `effectivePermissionMode`）。 */
+export function usePermissionChoice(engineModes?: readonly PermissionMode[]) {
   const allowed = useAllowedPermissionModes();
   const last = lastMode.use();
   // 上次选的模式在设置里关掉了（或这台设备不能用）：新会话回到请求批准。
-  const mode = allowed.includes(last) ? last : 'on_request';
+  const chosen = allowed.includes(last) ? last : 'on_request';
+  const mode = effectivePermissionMode(chosen, engineModes, allowed);
   return { mode, choose: (next: PermissionMode) => lastMode.set(next) };
 }
 
 /**
  * 输入框左下角的权限模式（U15，照 Codex 桌面端的“完全访问”芯片）：芯片写着当前模式，完全访问用警示色；点开是三种模式，
  * 每种一行图标、名称与说明，当前的打勾。新会话（首页、草稿页）选的是建会话时用的；已有会话经 `session.configure`
- * （0.11.0）从下一个回合起生效。Host 不支持（没有 `permission_modes`）或会话只读时只显示。
+ * （0.11.0）从下一个回合起生效。Host 不支持（没有 `permission_modes`）或会话只读时只显示。引擎不支持的模式灰掉并标明。
  */
 export function PermissionPicker({
   value,
@@ -154,16 +182,16 @@ export function PermissionPicker({
           value={value}
           onValueChange={(next: PermissionMode) => onChange(next)}
         >
-          {MODES.filter(
-            (mode) => mode === value || (modes.includes(mode) && allowed.includes(mode)),
-          ).map((mode) => {
+          {MODES.filter((mode) => mode === value || allowed.includes(mode)).map((mode) => {
             const meta = PERMISSION_META[mode];
             const ModeIcon = meta.icon;
+            const unsupported = !modes.includes(mode);
             return (
               <DropdownMenuRadioItem
                 key={mode}
                 value={mode}
                 closeOnClick
+                disabled={unsupported}
                 data-mode={mode}
                 className={cn(
                   'gap-2.5 pl-2',
@@ -172,6 +200,11 @@ export function PermissionPicker({
               >
                 <ModeIcon aria-hidden className="size-4" />
                 {t(meta.label)}
+                {unsupported && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {t('permission.unsupported')}
+                  </span>
+                )}
               </DropdownMenuRadioItem>
             );
           })}

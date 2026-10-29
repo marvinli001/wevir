@@ -826,6 +826,7 @@ export const messages: Messages = {
   'permission.auto_review': 'Автоподтверждение',
   'permission.full_access': 'Полный доступ',
   'permission.configureFailed': 'Не удалось сменить разрешения: {error}',
+  'permission.unsupported': 'Не поддерживается',
 
   'environment.local': 'Этот компьютер',
   'environment.settings': 'Локальное окружение',
