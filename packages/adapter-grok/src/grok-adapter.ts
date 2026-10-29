@@ -344,6 +344,7 @@ export class GrokAdapter implements AgentRuntimeAdapter {
     const env = this.#options.env;
     this.accounts = new GrokAccounts({
       workDir: this.#workDir,
+      ...(account !== undefined && { runtimeDir: `${options.home}/engines/grok/runtime` }),
       ...(env !== undefined && { env }),
       ...options.accounts,
     });

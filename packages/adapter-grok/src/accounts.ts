@@ -66,6 +66,8 @@ export const GROK_DISABLE_AUTOUPDATER_ENV = 'GROK_DISABLE_AUTOUPDATER';
 export interface GrokAccountsOptions {
   /** 探测进程的工作目录（数据目录下的 engines/grok）。 */
   workDir: string;
+  /** Wevir 下载的 `grok` 放在哪里，默认 `<workDir>/runtime`（添加的账号与首个账号共用一份：设置里的下载装在首个账号那里）。 */
+  runtimeDir?: string;
   env?: NodeJS.ProcessEnv;
   /** 测试用：替换可执行文件的查找（第二个参数是 Wevir 自己装的 `grok`）。 */
   findExecutable?: (customPath: string | null, managedPath?: string) => string;
@@ -349,7 +351,7 @@ export class GrokAccounts implements EngineAccounts {
     const spec = grokNpmPackage();
     if (spec === undefined) return undefined;
     return new NpmPackageInstaller({
-      directory: path.join(this.#options.workDir, 'runtime'),
+      directory: this.#options.runtimeDir ?? path.join(this.#options.workDir, 'runtime'),
       spec,
       fetch: pinnedGrokFetch(spec.packageName),
       // 下载来的程序要能跑：`grok --version` 正常退出。

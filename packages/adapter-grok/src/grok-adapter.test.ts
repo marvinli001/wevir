@@ -2,7 +2,7 @@
 // 样本（test-fixtures/acp/）：逐字增量合成消息、工具、待办（`plan`）、审批、提问、取消、回合失败、引擎自己报的回合结束、
 // 后台任务自己开的回合，以及按权限模式分进程、会话中换模型与权限模式、要认证时认证后重试。
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
@@ -498,6 +498,34 @@ describe('GrokAdapter：权限模式、模型与认证', () => {
     events = new EventCollector(adapter.subscribe(engineSessionId));
     await adapter.send(engineSessionId, text('after restart'));
     expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.settled' });
+  });
+});
+
+describe('GrokAdapter：添加的账号', () => {
+  it('用首个账号那里下载的 grok（设置里的下载装在 engines/grok/runtime）', async () => {
+    const dir = temp.dir(`case-${++seq}`);
+    const home = join(dir, 'home');
+    const runtime = join(home, 'engines', 'grok', 'runtime');
+    const executable = join(runtime, 'versions', '1.0.70', 'grok');
+    mkdirSync(join(runtime, 'versions', '1.0.70'), { recursive: true });
+    writeFileSync(executable, '', { mode: 0o755 }); // 只看它有没有被找到，不运行
+    writeFileSync(join(runtime, 'active.json'), JSON.stringify({ version: '1.0.70' }));
+    const managed: (string | undefined)[] = [];
+    const env = fakeGrokEnv();
+    const adapter = fakeGrokAdapter(home, env, [], {
+      account: { workDir: join(dir, 'accounts', 'grok-a', 'work'), grokHome: join(dir, 'grok-a') },
+      userGrokHome: join(dir, 'user-grok'),
+      accounts: {
+        findExecutable: (_custom, path) => {
+          managed.push(path);
+          return env.WEVIR_GROK_BIN as string;
+        },
+        probeInitialize: async () => undefined,
+      },
+    });
+    adapters.push(adapter);
+    await adapter.accounts.read('grok');
+    expect(managed).toContain(executable);
   });
 });
 
