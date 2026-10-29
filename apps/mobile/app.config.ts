@@ -17,6 +17,32 @@ const APPLE_TEAM_ID = process.env.WEVIR_APPLE_TEAM_ID || '678WA95W4U';
  * （`20261028.1530`）。不设时是 `1`（开发构建）。
  */
 const BUILD_NUMBER = process.env.WEVIR_BUILD_NUMBER || '1';
+/**
+ * versionName 对应的 versionCode：`X.Y.Z` 与 `X.Y.Z-beta.N` 共用桌面端的版本线（正式版 X.Y.Z 之后的开发版是 X.Y.(Z+1)-beta.N），
+ * 按 semver 的先后单调递增：X·10⁸ + Y·10⁶ + Z·10⁴ + (开发版 N，正式版 9999)。Android 要求新包的 versionCode 更大才能覆盖安装。
+ */
+export function androidVersionCode(version: string): number {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/.exec(version);
+  if (match === null) throw new Error(`not a release version: ${version}`);
+  const [major, minor, patch] = [match[1], match[2], match[3]].map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  const beta = match[4] === undefined ? 9999 : Number(match[4]);
+  const code = major * 1e8 + minor * 1e6 + patch * 1e4 + beta;
+  // 每一段不许溢出到上一段；2,100,000,000 是 Google Play 的上限。
+  if (
+    minor > 99 ||
+    patch > 99 ||
+    beta > 9999 ||
+    (match[4] !== undefined && beta === 9999) ||
+    code > 2_100_000_000
+  ) {
+    throw new Error(`version out of the versionCode range: ${version}`);
+  }
+  return code;
+}
 
 /**
  * 推送（src/lib/push-native.ts）的构建配置：
@@ -35,6 +61,9 @@ function pushBuildConfig(projectRoot: string) {
 
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
   const push = pushBuildConfig(projectRoot ?? process.cwd());
+  // Android 发行包的版本（scripts/android-release.sh）：versionName 跟随桌面端这次发布的版本（`0.0.2-beta.17`、`0.1.0`），
+  // versionCode 由它算出。不设时是开发构建（顶层的 `version` 与 versionCode 1）。
+  const androidVersion = process.env.WEVIR_ANDROID_VERSION || undefined;
   return {
     ...config,
     name: 'Wevir',
@@ -55,10 +84,10 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       icon: `${ICONS}/source/Wevir.icon`,
       infoPlist: {
         // 本地网络权限（iOS 14 起）与 Bonjour 浏览的服务类型（`_wevir._tcp`，host-api.md §1.1）。
-        NSLocalNetworkUsageDescription: en.NSLocalNetworkUsageDescription,
+        NSLocalNetworkUsageDescription: en.ios.NSLocalNetworkUsageDescription,
         NSBonjourServices: ['_wevir._tcp'],
         // 听写（src/state/dictation.ts）录音。
-        NSMicrophoneUsageDescription: en.NSMicrophoneUsageDescription,
+        NSMicrophoneUsageDescription: en.ios.NSMicrophoneUsageDescription,
         CFBundleAllowMixedLocalizations: true,
       },
       // 设备私钥与推送密钥存在这个 App Group 的钥匙串访问组里，通知服务扩展也读得到（src/lib/keychain.ts、push-store.ts）。真机构建要
@@ -69,6 +98,10 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     },
     android: {
       package: BUNDLE_ID,
+      ...(androidVersion !== undefined && {
+        version: androidVersion,
+        versionCode: androidVersionCode(androidVersion),
+      }),
       ...(push.googleServices !== undefined && { googleServicesFile: push.googleServices }),
       adaptiveIcon: {
         foregroundImage: `${ICONS}/exports/android/res/drawable-xxxhdpi/wevir_foreground.png`,
@@ -76,7 +109,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       },
       // react-native-zeroconf 自己声明组播锁与 Wi-Fi 状态的权限；录音权限由 expo-audio 声明（听写）。
     },
-    // Info.plist 的权限说明，十种语言（与界面同一组）。
+    // Info.plist 的权限说明，十种语言（与界面同一组）。放在每个文件的 `ios` 下：顶层的键 Expo 也写进 Android 的 strings.xml，
+    // 默认语言里没有它们，release 构建的 lint（ExtraTranslation）会失败。
     locales: {
       en: './native-strings/en.json',
       'zh-Hans': './native-strings/zh-Hans.json',
@@ -94,9 +128,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       [
         'expo-camera',
         {
-          cameraPermission: en.NSCameraUsageDescription,
+          cameraPermission: en.ios.NSCameraUsageDescription,
           // 不录视频；麦克风的说明给听写用，三个插件写同一句，免得谁把它删掉。
-          microphonePermission: en.NSMicrophoneUsageDescription,
+          microphonePermission: en.ios.NSMicrophoneUsageDescription,
           recordAudioAndroid: false,
         },
       ],
@@ -104,16 +138,16 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       [
         'expo-image-picker',
         {
-          photosPermission: en.NSPhotoLibraryUsageDescription,
-          cameraPermission: en.NSCameraUsageDescription,
-          microphonePermission: en.NSMicrophoneUsageDescription,
+          photosPermission: en.ios.NSPhotoLibraryUsageDescription,
+          cameraPermission: en.ios.NSCameraUsageDescription,
+          microphonePermission: en.ios.NSMicrophoneUsageDescription,
         },
       ],
       // 听写只在前台录音，不要后台播放与录音（不加 UIBackgroundModes 的 audio、Android 的前台服务）。
       [
         'expo-audio',
         {
-          microphonePermission: en.NSMicrophoneUsageDescription,
+          microphonePermission: en.ios.NSMicrophoneUsageDescription,
           recordAudioAndroid: true,
           enableBackgroundPlayback: false,
           enableBackgroundRecording: false,
@@ -122,7 +156,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // 本地缓存整库加密（src/lib/cache-store.ts）：编进 SQLCipher。
       ['expo-sqlite', { useSQLCipher: true }],
       // App 锁与高风险审批的本人验证（src/state/lock.tsx）。
-      ['expo-local-authentication', { faceIDPermission: en.NSFaceIDUsageDescription }],
+      ['expo-local-authentication', { faceIDPermission: en.ios.NSFaceIDUsageDescription }],
       'expo-localization',
       [
         'expo-notifications',
@@ -137,6 +171,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       ['./plugins/with-notification-service.js', { appGroup: IOS_APP_GROUP }],
       './plugins/with-android-cleartext.js',
       './plugins/with-android-theme.js',
+      './plugins/with-android-signing.js',
     ],
     experiments: {
       typedRoutes: false,

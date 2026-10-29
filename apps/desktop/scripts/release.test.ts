@@ -6,8 +6,10 @@ import {
   OFFICE_ENGINE_RELEASE_TAG,
 } from '../../../packages/host/src/office/engine.ts';
 import { SPEECH_MIRRORS, SPEECH_RELEASE_TAG } from '../../../packages/host/src/speech/install.ts';
-import { manifestFile as feedManifestFile } from '../src/main/updates/feed.js';
+import { manifestFile as feedManifestFile, parseManifest } from '../src/main/updates/feed.js';
 import {
+  ANDROID_GITHUB_TAG,
+  ANDROID_PLATFORM_DIR,
   CDN_RETRY_MS,
   CDN_SETTLE_MS,
   type CdnCheck,
@@ -41,6 +43,7 @@ import {
   versionOfFile,
   waitForCdn,
 } from './release.js';
+import { androidManifest } from './release-dir.js';
 
 describe('compareVersions', () => {
   it('按 semver 比较，预发布低于正式版，预发布号按数字比', () => {
@@ -539,5 +542,48 @@ describe('命令行包', () => {
     expect(/^LINES="([^"]+)"$/m.exec(sh)?.[1]?.split(' ')).toEqual(lines);
     const ps1 = readFileSync(new URL('../../cli/scripts/install.ps1', import.meta.url), 'utf8');
     expect([...ps1.matchAll(/^ {4}'(https:[^']+)',?$/gm)].map((m) => m[1])).toEqual(lines);
+  });
+});
+
+describe('Android', () => {
+  it('平台目录 android：清单名、APK 的版本与清理', () => {
+    expect(manifestFile('beta', ANDROID_PLATFORM_DIR)).toBe('beta-android.yml');
+    expect(manifestFile('latest', ANDROID_PLATFORM_DIR)).toBe('latest-android.yml');
+    expect(versionOfFile('Wevir-0.0.1-beta.541-android.apk')).toBe('0.0.1-beta.541');
+    expect(versionOfFile('Wevir-0.1.0-android.apk')).toBe('0.1.0');
+    expect(versionOfFile('Wevir-0.1.0-android.apk.idsig')).toBeUndefined();
+    expect(versionOfFile('beta-android.yml')).toBeUndefined();
+    const names = [
+      'Wevir-0.0.1-beta.1-android.apk',
+      'Wevir-0.0.1-beta.2-android.apk',
+      'Wevir-0.0.1-beta.3-android.apk',
+      'beta-android.yml',
+      'beta-android.yml.sig',
+    ];
+    expect(filesToPrune(names, new Set(['0.0.1-beta.3']), 2)).toEqual([
+      'Wevir-0.0.1-beta.1-android.apk',
+    ]);
+    expect(ANDROID_GITHUB_TAG).not.toBe(CLI_GITHUB_TAG);
+  });
+
+  it('清单与 electron-builder 的同形，桌面端的解析与发布核对都认', () => {
+    const apk = { name: 'Wevir-0.0.1-beta.541-android.apk', sha512: 'c2hh', size: 1234 };
+    const text = androidManifest(apk, new Date('2026-10-29T08:00:00Z'));
+    expect(parseManifest(text)).toMatchObject({
+      version: '0.0.1-beta.541',
+      files: [{ url: apk.name, sha512: 'c2hh', size: 1234 }],
+      releaseDate: '2026-10-29T08:00:00.000Z',
+    });
+    expect(readManifest(text)).toEqual({ version: '0.0.1-beta.541', files: [apk.name] });
+    expect(
+      checkPlatformDir(
+        ANDROID_PLATFORM_DIR,
+        [apk.name, 'beta-android.yml', 'beta-android.yml.sig'],
+        text,
+        'dev',
+        '0.0.1-beta.541',
+      ).payload,
+    ).toEqual([apk.name]);
+    expect(() => androidManifest({ ...apk, name: 'app-release.apk' }, new Date())).toThrow();
   });
 });
