@@ -3,11 +3,11 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { NpmInstallCancelled, NpmInstallError } from '@wevir/runtime-adapter/npm-package';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import { CURSOR_SDK_VERSION, loadCursorSdk } from './sdk.js';
 import {
   CURSOR_SDK_PACKAGES,
@@ -290,12 +290,25 @@ describe('CursorSdkInstaller', () => {
     expect(await sdk.install()).toEqual(installation);
   });
 
-  it('装好的 SDK 从数据目录加载：包里的裸导入解析到同一个 node_modules，平台包的 rg 与 tree-sitter 经环境变量交给 SDK', async () => {
+  it('装好的 SDK 从数据目录加载：包里的裸导入解析到同一个 node_modules，平台包的 rg 与 tree-sitter 经环境变量交给 SDK，argv[1] 指到 SDK 好让它找到 cursorsandbox', async () => {
     delete process.env.CURSOR_RIPGREP_PATH;
     delete process.env.CURSOR_TREE_SITTER_VENDOR_DIR;
     const { installer: sdk } = installer(['a']);
     const { root } = await sdk.install();
+    const argv1 = process.argv[1];
+    onTestFinished(() => {
+      process.argv[1] = argv1 as string;
+    });
     const loaded = await loadCursorSdk(root);
+    // SDK 从 argv[1] 所在目录往上找 node_modules/@cursor/sdk-<平台>/bin（platform-package-locator）。
+    const entry = process.argv[1] as string;
+    expect(entry).toBe(join(root, 'node_modules', '@cursor', 'sdk', 'dist', 'esm', 'index.js'));
+    let dir = dirname(entry);
+    while (!existsSync(join(dir, 'node_modules', ...platformName.split('/'), 'bin', rgName))) {
+      expect(dirname(dir)).not.toBe(dir);
+      dir = dirname(dir);
+    }
+    expect(dir).toBe(root);
     expect(await loaded.me('k1')).toEqual({ userEmail: 'fake@k1.flat' });
     expect(await loadCursorSdk(root)).toBe(loaded);
     const platformDir = join(root, 'node_modules', ...platformName.split('/'));
