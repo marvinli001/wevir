@@ -638,7 +638,6 @@ function SourceDetail({
           }
           onClose={() => setRemoving(false)}
           onRemoved={async () => {
-            accountsStore?.forget(id);
             onSelect(source.kind);
             await store?.refresh();
           }}

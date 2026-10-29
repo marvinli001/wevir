@@ -24,7 +24,7 @@ import {
   WevirRpcError,
 } from './errors.js';
 import type { SubscriptionItem } from './subscription.js';
-import { event, FakeHost, HELLO, identity, SES } from './test-utils.js';
+import { event, FakeHost, HELLO, identity, type Reply, SES } from './test-utils.js';
 
 const ENDPOINT = { url: 'ws://127.0.0.1:43123/', token: 'secret-token' };
 const clients: WevirClient[] = [];
@@ -744,6 +744,78 @@ describe('全部账号（0.19.0）', () => {
     old.watchAccounts((list) => empty.push(list));
     await vi.waitFor(() => expect(empty).toEqual([[]]));
     expect(plain.last.requests('account.list')).toEqual([]);
+  });
+
+  const added = { kind: 'claude', id: 'claude-5704', status: 'signed_in', signIn: 'command' };
+  const subscriptionHost = () =>
+    new FakeHost().on('host.hello', () => ({
+      result: { ...HELLO, features: { subscription_sources: true } },
+    }));
+
+  it('account.remove 成功后从表里去掉这个账号，之后别的账号的通知不会把它带回来；失败时不动', async () => {
+    const host = subscriptionHost();
+    host.on('account.list', () => ({ result: { accounts: [claudeIn, added] } }));
+    host.on('account.remove', ({ id }) =>
+      id === added.id
+        ? { result: {} }
+        : { error: { code: ErrorCode.INVALID_PARAMS, message: `no account ${id}` } },
+    );
+    const { client } = await connect(host);
+    const seen: unknown[][] = [];
+    client.watchAccounts((list) => seen.push(list));
+    await vi.waitFor(() => expect(seen).toEqual([[claudeIn, added]]));
+    await client.request('account.remove', { id: added.id });
+    expect(seen.at(-1)).toEqual([claudeIn]);
+    host.last.notify('account.updated', { account: claudeOut });
+    expect(seen.at(-1)).toEqual([claudeOut]);
+    await expect(client.request('account.remove', { id: 'claude-gone' })).rejects.toSatisfy((e) =>
+      isRpcError(e, 'INVALID_PARAMS'),
+    );
+    expect(seen).toHaveLength(3);
+  });
+
+  it('读全部时到达的通知叠在新读到的表上，不丢掉新表；Host 已不再有的账号随之消失', async () => {
+    const host = subscriptionHost();
+    let reply = true;
+    let accounts: unknown[] = [claudeIn, added];
+    host.on('account.list', () => (reply ? { result: { accounts } } : 'no-reply'));
+    const { client } = await connect(host);
+    const seen: unknown[][] = [];
+    client.watchAccounts((list) => seen.push(list));
+    await vi.waitFor(() => expect(seen).toEqual([[claudeIn, added]]));
+    // Host 重启后不再有添加的账号；重连后的读还在途时，首个账号先来了一条通知。
+    reply = false;
+    accounts = [claudeIn, cursorOut];
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(host.last.requests('account.list')).toHaveLength(1));
+    host.last.notify('account.updated', { account: claudeOut });
+    const read = host.last.requests('account.list')[0];
+    if (read === undefined) throw new Error('no account.list');
+    host.last.reply(read.id, { result: { accounts } });
+    await vi.waitFor(() => expect(seen.at(-1)).toEqual([claudeOut, cursorOut]));
+  });
+
+  it('refreshAccounts：再读一次全部交给每个监听器，失败时 reject 而不交给 onError', async () => {
+    const host = subscriptionHost();
+    let result: Reply = { result: { accounts: [claudeIn, added] } };
+    host.on('account.list', () => result);
+    const { client } = await connect(host);
+    const seen: unknown[][] = [];
+    const errors: unknown[] = [];
+    client.watchAccounts(
+      (list) => seen.push(list),
+      (error) => errors.push(error),
+    );
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    // 别的设备删掉了添加的账号：Host 不发通知，回到前台时重读才知道。
+    result = { result: { accounts: [claudeIn] } };
+    await client.refreshAccounts();
+    expect(seen.at(-1)).toEqual([claudeIn]);
+    result = { error: { code: ErrorCode.INTERNAL_ERROR, message: 'boom' } };
+    await expect(client.refreshAccounts()).rejects.toBeDefined();
+    expect(errors).toEqual([]);
+    expect(seen).toHaveLength(2);
   });
 });
 

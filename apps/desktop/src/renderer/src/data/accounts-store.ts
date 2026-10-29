@@ -1,6 +1,8 @@
 // 全部账号（0.19.0，client-sdk 的 watchAccounts）：ChatGPT 与订阅来源的状态，设置页与模型选择共用一份。连上与重连时读全部，
-// 之后跟着 account.updated。某个账号刚变成已登录时 Host 会在后台建（或刷新）它的 Provider，所以这时重读工作台的列表。
-// 窗口回到前台时再读一次全部（至多每 15 秒一次）：Host 顺带在后台重读过期的用量，结果跟着 account.updated 到（usage-refresh.ts）。
+// 之后跟着 account.updated；删掉的账号（account.remove）由 client-sdk 在删成功时去掉。某个账号刚变成已登录时 Host 会在后台建
+// （或刷新）它的 Provider，所以这时重读工作台的列表。窗口回到前台时再读一次全部（至多每 15 秒一次，client-sdk 的
+// refreshAccounts）：Host 已不再有的账号（例如在别的设备上删掉的）随之消失；Host 顺带在后台重读过期的用量，结果跟着
+// account.updated 到（usage-refresh.ts）。
 
 import { accountId, type WevirClient } from '@wevir/client-sdk';
 import type { AccountState } from '@wevir/protocol';
@@ -22,17 +24,8 @@ export class AccountsStore {
       if (document.visibilityState !== 'visible' || this.#accounts === undefined) return;
       if (Date.now() - this.#focusReadAt < FOCUS_READ_MIN_MS) return;
       this.#focusReadAt = Date.now();
-      const read: Promise<AccountState[]> = client.supports('subscription_sources')
-        ? client.request('account.list').then(({ accounts }) => accounts)
-        : client.supports('chatgpt_account')
-          ? client.request('account.get', { kind: 'chatgpt' }).then(({ account }) => [account])
-          : Promise.resolve([]);
-      read
-        .then((accounts) => {
-          for (const account of accounts) this.merge(account);
-        })
-        // 只是顺带的，读不到等下次。
-        .catch(() => {});
+      // 只是顺带的，读不到等下次。
+      client.refreshAccounts().catch(() => {});
     };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
@@ -81,13 +74,6 @@ export class AccountsStore {
     if (index >= 0) accounts[index] = account;
     else accounts.push(account);
     this.#accounts = accounts;
-    this.#publish();
-  }
-
-  /** 删掉的账号（`account.remove`）：Host 不发通知，本端直接去掉。 */
-  forget(id: string): void {
-    if (this.#accounts === undefined) return;
-    this.#accounts = this.#accounts.filter((account) => accountId(account) !== id);
     this.#publish();
   }
 

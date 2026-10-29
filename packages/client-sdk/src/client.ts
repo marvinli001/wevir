@@ -171,10 +171,16 @@ interface AccountWatcher {
 interface AccountListWatcher {
   readonly listener: (accounts: AccountState[]) => void;
   readonly onError?: (error: unknown) => void;
-  /** 当前的全部账号，按 Host 给的顺序；通知按账号 ID 替换其中一项。 */
+  /** 当前的全部账号，按 Host 给的顺序；通知按账号 ID 替换其中一项，`account.remove` 成功时去掉一项。 */
   accounts: AccountState[];
-  /** 收到的 `account.updated` 数：读全部的结果晚于其间到达的通知时，它是旧的，丢掉。 */
-  updates: number;
+  /**
+   * 在途的读全部，各记着开始之后的变化（账号 ID → 新状态，`undefined` 是删掉了）：读到的表以 Host 为准，再把这些叠上去，
+   * 免得读之前的通知盖掉新表，或读之后的通知被新表盖掉。
+   */
+  readonly reads: Set<Map<string, AccountState | undefined>>;
+  /** 开始过的读全部数与已交出的最新一次：晚开始的先读到时，早开始的结果是旧的，丢掉。 */
+  started: number;
+  applied: number;
 }
 
 /** 账号的 ID（0.63.0）：`AccountState.id`，旧 Host 没有时是种类（那时一种只有一个账号）。 */
@@ -496,7 +502,8 @@ export class WevirClient {
 
   /**
    * 跟着全部账号（0.19.0，host-api.md §3.1 `account.list`）：现在与每次（重）连上之后读一次全部，之后每条 `account.updated`
-   * 按账号 ID（`accountId`，0.63.0 之前的 Host 没有 ID，就是种类）替换其中一项，每次都把整张表交给 `listener`。Host 有 `subscription_sources` 时读 `account.list`；只有
+   * 按账号 ID（`accountId`，0.63.0 之前的 Host 没有 ID，就是种类）替换其中一项，经这个客户端的 `account.remove` 成功时去掉
+   * 那一项（Host 删账号不发通知），每次都把整张表交给 `listener`。Host 有 `subscription_sources` 时读 `account.list`；只有
    * `chatgpt_account` 时只读 ChatGPT；都没有时交给它空表。读失败交给 `onError`。返回取消函数。
    */
   watchAccounts(
@@ -506,32 +513,72 @@ export class WevirClient {
     const watcher: AccountListWatcher = {
       listener,
       accounts: [],
-      updates: 0,
+      reads: new Set(),
+      started: 0,
+      applied: 0,
       ...(onError !== undefined && { onError }),
     };
     this.#accountListWatchers.add(watcher);
-    if (this.#connection !== undefined) this.#readAccountList(watcher);
+    if (this.#connection !== undefined) {
+      this.#readAccountList(watcher).catch((error: unknown) => watcher.onError?.(error));
+    }
     return () => this.#accountListWatchers.delete(watcher);
   }
 
-  #readAccountList(watcher: AccountListWatcher): void {
-    if (!this.#allowed('account.list')) return;
-    const before = watcher.updates;
-    const read: Promise<AccountState[]> = this.supports('subscription_sources')
-      ? this.request('account.list').then(({ accounts }) => accounts)
-      : this.supports('chatgpt_account')
-        ? this.request('account.get', { kind: 'chatgpt' }).then(({ account }) => [account])
-        : Promise.resolve([]);
-    read.then(
-      (accounts) => {
-        if (!this.#accountListWatchers.has(watcher) || watcher.updates !== before) return;
-        watcher.accounts = accounts;
-        this.#deliverAccountList(watcher);
-      },
-      (error: unknown) => {
-        if (this.#accountListWatchers.has(watcher)) watcher.onError?.(error);
-      },
+  /**
+   * 再读一次全部账号，交给每个 `watchAccounts` 的监听器：别处删掉的账号没有通知，例如窗口回到前台时调。读失败时 reject，
+   * 不交给 `onError`（顺带的重读，表照旧）。
+   */
+  async refreshAccounts(): Promise<void> {
+    await Promise.all(
+      [...this.#accountListWatchers].map((watcher) => this.#readAccountList(watcher)),
     );
+  }
+
+  /** 读全部交给 `watcher`；监听器已取消或这次读已过时时不交。失败时 reject（监听器已取消时不 reject）。 */
+  async #readAccountList(watcher: AccountListWatcher): Promise<void> {
+    if (!this.#allowed('account.list')) return;
+    const order = ++watcher.started;
+    const changes = new Map<string, AccountState | undefined>();
+    watcher.reads.add(changes);
+    let accounts: AccountState[];
+    try {
+      accounts = this.supports('subscription_sources')
+        ? (await this.request('account.list')).accounts
+        : this.supports('chatgpt_account')
+          ? [(await this.request('account.get', { kind: 'chatgpt' })).account]
+          : [];
+    } catch (error) {
+      if (this.#accountListWatchers.has(watcher)) throw error;
+      return;
+    } finally {
+      watcher.reads.delete(changes);
+    }
+    if (!this.#accountListWatchers.has(watcher) || order < watcher.applied) return;
+    watcher.applied = order;
+    for (const [id, account] of changes) {
+      const index = accounts.findIndex((item) => accountId(item) === id);
+      if (account === undefined) {
+        if (index >= 0) accounts.splice(index, 1);
+      } else if (index >= 0) accounts[index] = account;
+      else accounts.push(account);
+    }
+    watcher.accounts = accounts;
+    this.#deliverAccountList(watcher);
+  }
+
+  /** 一个账号变了（`undefined`：删掉了）：改每张表并交出，也记进在途的读全部。 */
+  #accountListChanged(id: string, account: AccountState | undefined): void {
+    for (const watcher of [...this.#accountListWatchers]) {
+      for (const changes of watcher.reads) changes.set(id, account);
+      const index = watcher.accounts.findIndex((item) => accountId(item) === id);
+      if (account === undefined) {
+        if (index < 0) continue;
+        watcher.accounts.splice(index, 1);
+      } else if (index >= 0) watcher.accounts[index] = account;
+      else watcher.accounts.push(account);
+      this.#deliverAccountList(watcher);
+    }
   }
 
   #deliverAccountList(watcher: AccountListWatcher): void {
@@ -1344,8 +1391,13 @@ export class WevirClient {
         timer: undefined,
         resolve: (raw) => {
           const parsed = schema.safeParse(raw);
-          if (parsed.success) resolve(parsed.data as MethodResult<M>);
-          else {
+          if (parsed.success) {
+            // Host 删账号不发通知（host-api.md §3.1）：本端删成功时自己从 `watchAccounts` 的表里去掉，先于调用方拿到结果。
+            if (method === 'account.remove') {
+              this.#accountListChanged((params as MethodParams<'account.remove'>).id, undefined);
+            }
+            resolve(parsed.data as MethodResult<M>);
+          } else {
             reject(
               new ProtocolError(
                 `result of ${method} does not match its schema`,
@@ -1520,7 +1572,9 @@ export class WevirClient {
         // 重读与“重连上了”的回调都按这条连接的权限跳过做不了的（远程设备只有部分权限，调了只会回 DEVICE_FORBIDDEN）；
         // 各 `#read*` 自己检查。
         for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
-        for (const watcher of this.#accountListWatchers) this.#readAccountList(watcher);
+        for (const watcher of this.#accountListWatchers) {
+          this.#readAccountList(watcher).catch((error: unknown) => watcher.onError?.(error));
+        }
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
         for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
         for (const watcher of this.#memoryWatchers) this.#readMemory(watcher);
@@ -1774,13 +1828,7 @@ export class WevirClient {
         watcher.updates += 1;
         this.#deliverAccount(watcher, account);
       }
-      for (const watcher of [...this.#accountListWatchers]) {
-        watcher.updates += 1;
-        const index = watcher.accounts.findIndex((item) => accountId(item) === id);
-        if (index >= 0) watcher.accounts[index] = account;
-        else watcher.accounts.push(account);
-        this.#deliverAccountList(watcher);
-      }
+      this.#accountListChanged(id, account);
       return;
     }
     if (method === 'settings.updated') {
