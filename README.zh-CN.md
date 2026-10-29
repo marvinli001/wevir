@@ -104,6 +104,8 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | | macOS，Intel | 测试版 |
 | | Windows x64 | 测试版 |
 | | Linux x64 与 arm64（AppImage、deb） | 测试版 |
+| 移动端 | iOS（TestFlight） | 测试版 |
+| | Android（APK） | 测试版 |
 | 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 |
 | | ChatGPT 账号登录 | 支持 |
 | 订阅 | Claude | 测试版 |
@@ -117,13 +119,13 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | 其他 | `wevir` 命令行 | 测试版 |
 | | 网页客户端 | 测试版 |
 | | 电脑操作 | 测试版 |
-| | 移动端 | 计划中 |
 
 ## 已知限制
 
 - **仅预览版。** 所有发布版本均为开发版（`0.0.1-beta.N`），由 `master` 在 CI 通过后自动构建。更新频繁，版本间行为可能变化。
 - **更新通道。** 应用内更新使用开发通道；正式通道尚未发布版本。
 - **订阅来源。** 依赖厂商官方客户端或 SDK 与本机登录，受厂商条款约束，客户端变更可能导致失效。
+- **移动端。** iOS 版仅通过 TestFlight 分发。Android 版暂不支持推送通知，仅在 App 打开时提醒。
 - **平台。** 无 Windows on Arm 安装包。电脑操作只有 macOS 版。Linux 上只有 AppImage 在应用内更新，deb 版只提示新版本并给出下载页。
 
 问题反馈：[GitHub Issues](https://github.com/marvinli001/wevir/issues)。提问与建议：[GitHub Discussions](https://github.com/marvinli001/wevir/discussions)。
@@ -139,6 +141,20 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://wevir.si/download/#platforms) |
 | <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://wevir.si/download/#platforms) |
 | <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://wevir.si/download/#platforms) |
+| <img alt="Linux" src="https://img.shields.io/badge/Linux-x64%20%7C%20arm64-FCC624?style=flat-square&logo=linux&logoColor=black" /> | [下载 AppImage 或 deb](https://wevir.si/download/#platforms) |
+| <img alt="iOS" src="https://img.shields.io/badge/iOS-TestFlight-111111?style=flat-square&logo=apple&logoColor=white" /> | TestFlight 测试版：邀请经 [Telegram 交流群](https://t.me/darkfiber_labs) 发放 |
+| <img alt="Android" src="https://img.shields.io/badge/Android-APK-34A853?style=flat-square&logo=android&logoColor=white" /> | [下载 APK](https://wevir.si/download/#platforms) |
+
+### 移动端
+
+手机 App 经端到端加密连接（局域网、Tailscale 或自建中继）连接运行 Wevir 的电脑，操作其上的会话。所有任务均在电脑上执行。
+
+| 平台 | 分发方式 |
+| --- | --- |
+| iOS | TestFlight 测试版。邀请在 [Telegram 交流群](https://t.me/darkfiber_labs) 中发放。 |
+| Android | 已签名的 APK，随每个桌面端预览版发布，版本号与桌面端一致。新版 APK 可直接覆盖安装。 |
+
+配对：**设置 → 设备 → 添加手机**。
 
 ### 命令行
 

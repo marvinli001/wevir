@@ -31,6 +31,11 @@
  *     发命令行包（apps/cli/scripts/package.ts 的产物，平铺在 <目录> 里）：写校验和文件，传到每条线路的 `cli/`（GitHub 线路是 tag
  *     `cli` 的 Release），最后写安装脚本与通道文件 latest.txt / beta.txt，并清理旧版本。布局与顺序见 publishCli。
  *
+ *   node scripts/release.ts android --channel dev|stable --version <版本> --dir <目录> [--only <线路>]
+ *     发 Android 的 APK（apps/mobile/scripts/android-release.sh 的产物，release-dir.ts --android 放进 `<目录>/android/` 并签好清单
+ *     `<通道>-android.yml`）：照 publish 的四步传到每条线路的 `android/`（GitHub 线路是 tag `android` 的 Release），清单的格式与
+ *     签名同桌面端，下载页按它链接。版本与桌面端这次发布的相同。
+ *
  *   node scripts/release.ts speech-models [--only <线路>]
  *     把听写的本机模型（packages/host/src/speech/install.ts 的 SENSE_VOICE_SMALL）从上游 sherpa-onnx 的 GitHub Release
  *     搬到三条线路：先下载并按写死的 sha256 核对，再传到 S3 线路的 `speech/<模型键>/<文件>` 与 GitHub 线路
@@ -144,8 +149,12 @@ export function channelName(channel: Channel): 'latest' | 'beta' {
   return channel === 'stable' ? 'latest' : 'beta';
 }
 
-/** 平台目录（`darwin-arm64`）里这个通道的清单文件名（与 feed.ts 的 manifestFile 相同：Linux 的 arm64 带架构后缀）。 */
+/**
+ * 平台目录（`darwin-arm64`）里这个通道的清单文件名（与 feed.ts 的 manifestFile 相同：Linux 的 arm64 带架构后缀）。
+ * Android 的目录是 `android`（ANDROID_PLATFORM_DIR），清单 `<通道>-android.yml`。
+ */
 export function manifestFile(name: string, platformDir: string): string {
+  if (platformDir === ANDROID_PLATFORM_DIR) return `${name}-android.yml`;
   if (platformDir.startsWith('darwin-')) return `${name}-mac.yml`;
   if (platformDir === 'linux-x64') return `${name}-linux.yml`;
   if (platformDir.startsWith('linux-')) return `${name}-${platformDir}.yml`;
@@ -162,9 +171,14 @@ export function readManifest(text: string): { version: string; files: string[] }
   return { version, files: [...new Set(files)] };
 }
 
-/** 安装包文件名里的版本（artifactName 是 `Wevir-<版本>-<mac|win|linux>-…`）；清单、签名等不是安装包的返回 undefined。 */
+/**
+ * 安装包文件名里的版本（artifactName 是 `Wevir-<版本>-<mac|win|linux>-…`，Android 是 `Wevir-<版本>-android.apk`）；清单、签名等
+ * 不是安装包的返回 undefined。
+ */
 export function versionOfFile(name: string): string | undefined {
-  return /^Wevir-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-(?:mac|win|linux)-/.exec(name)?.[1];
+  return /^Wevir-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)-(?:(?:mac|win|linux)-|android\.apk$)/.exec(
+    name,
+  )?.[1];
 }
 
 /**
@@ -894,6 +908,8 @@ async function publish(options: {
   dir: string;
   only?: string;
   skipPrune?: boolean;
+  /** 桶里的目录与 GitHub 线路的 Release；默认是桌面端的。 */
+  target?: { root: string; release: GithubRelease };
 }): Promise<void> {
   const releases: PlatformRelease[] = platformDirs(options.dir).map((platformDir) => {
     const names = readdirSync(join(options.dir, platformDir));
@@ -903,7 +919,7 @@ async function publish(options: {
       : '';
     return checkPlatformDir(platformDir, names, text, options.channel, options.version);
   });
-  const mirrors = selectLines(options.only);
+  const mirrors = selectLines(options.only, options.target);
 
   // 只许更高的版本覆盖：哪条线路上已有不低于这次的清单，一份清单都不写。上传前查一次（免得白传），写清单前再查一次。
   const checkNewer = (): void => {
@@ -1211,6 +1227,29 @@ function pruneCli(lines: readonly Line[]): void {
   }
 }
 
+// ---------- Android ----------
+
+/**
+ * Android 的 APK 在线路上的位置：S3 线路的 `android/`，GitHub 线路是 tag `android` 的 Release（滚动的预发布，同 desktop-updates）。
+ * 布局同桌面端的平台目录：
+ *   Wevir-<版本>-android.apk          名字带版本，发出去就不再变
+ *   latest-android.yml / beta-android.yml (+ .sig)   electron-builder 格式的清单与 Ed25519 签名（release-dir.ts --android）
+ * publish 的 `<目录>` 下是一个平台目录 `android`；S3 线路的根为空，键就是 `android/<文件>`。
+ */
+export const ANDROID_PLATFORM_DIR = 'android';
+export const ANDROID_GITHUB_TAG = 'android';
+
+const ANDROID_RELEASE: GithubRelease = {
+  tag: ANDROID_GITHUB_TAG,
+  title: 'Android downloads',
+  notes:
+    'The Wevir Android app (APK) for remote access to Wevir on your computers. Packages of the newest builds and their signed manifests; download from https://wevir.si/download.',
+  assetName: (_dir, name) => name,
+  dirListing: (assets) => [...assets],
+};
+
+export const ANDROID_TARGET = { root: '', release: ANDROID_RELEASE } as const;
+
 // ---------- plan ----------
 
 function git(args: readonly string[]): string {
@@ -1510,13 +1549,36 @@ async function main(): Promise<void> {
     await publishCli({ channel, version, dir, only });
     return;
   }
+  if (command === 'android') {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        channel: { type: 'string' },
+        version: { type: 'string' },
+        dir: { type: 'string' },
+        only: { type: 'string' },
+      },
+    });
+    const { channel, version, dir, only } = values;
+    if ((channel !== 'stable' && channel !== 'dev') || version === undefined || dir === undefined) {
+      throw new Error(
+        'usage: release.ts android --channel dev|stable --version <version> --dir <dir> [--only <mirror>]',
+      );
+    }
+    const dirs = platformDirs(dir);
+    if (dirs.length !== 1 || dirs[0] !== ANDROID_PLATFORM_DIR) {
+      throw new Error(`${dir} must hold exactly one directory, ${ANDROID_PLATFORM_DIR}/`);
+    }
+    await publish({ channel, version, dir, only, target: ANDROID_TARGET });
+    return;
+  }
   if (command === 'speech-models') {
     const { values } = parseArgs({ args: rest, options: { only: { type: 'string' } } });
     await publishSpeechModels(values.only);
     return;
   }
   console.error(
-    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | cli --channel dev|stable --version <v> --dir <dir> | speech-models [--only <mirror>]',
+    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | cli --channel dev|stable --version <v> --dir <dir> | android --channel dev|stable --version <v> --dir <dir> | speech-models [--only <mirror>]',
   );
   process.exit(2);
 }

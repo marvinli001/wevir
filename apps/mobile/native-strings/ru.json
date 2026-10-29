@@ -1,10 +1,10 @@
 {
-  "NSCameraUsageDescription": "Сканировать QR-код сопряжения на экране компьютера и снимать фото для сообщений.",
-  "NSMicrophoneUsageDescription": "Запись диктовки, которую компьютер преобразует в текст.",
-  "NSLocalNetworkUsageDescription": "Находить компьютеры с Wevir в локальной сети и подключаться к ним напрямую.",
-  "NSFaceIDUsageDescription": "Разблокировка Wevir и подтверждение одобрений с высоким риском.",
-  "NSPhotoLibraryUsageDescription": "Выбирать фото для сообщений.",
   "ios": {
+    "NSCameraUsageDescription": "Сканировать QR-код сопряжения на экране компьютера и снимать фото для сообщений.",
+    "NSMicrophoneUsageDescription": "Запись диктовки, которую компьютер преобразует в текст.",
+    "NSLocalNetworkUsageDescription": "Находить компьютеры с Wevir в локальной сети и подключаться к ним напрямую.",
+    "NSFaceIDUsageDescription": "Разблокировка Wevir и подтверждение одобрений с высоким риском.",
+    "NSPhotoLibraryUsageDescription": "Выбирать фото для сообщений.",
     "Localizable.strings": {
       "WEVIR_PUSH_TITLE": "Wevir",
       "WEVIR_PUSH_BODY": "Требует внимания",
