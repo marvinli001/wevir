@@ -1,12 +1,17 @@
 // 办公文档预览引擎（0.138.0）：DeepSeek 的 `@deepseek-ai/libreoffice-kit`（MPL-2.0，github.com/deepseek-ai/dsh-libreoffice-kit）。
-// 安装包不带它（每个平台 150–200 MB），第一次要高保真预览时由 Host 从 npm registry 下载（runtime-adapter 的 npm-closure.ts）：
+// 安装包不带它（每个平台 150–200 MB），第一次要高保真预览时由 Host 下载（runtime-adapter 的 npm-closure.ts）：
 // Node API 与它的依赖、本平台的引擎包。macOS 与 Windows 用原生引擎（LibreOfficeKit 的 helper 进程），其余平台（Linux）用共享的
 // WebAssembly 引擎，三个平台走同一个 API。Windows 的原生引擎经 koffi 建管道，koffi 的平台包也要装。
 //
 // 版本与 sha512 照 `npm install @deepseek-ai/libreoffice-kit@0.2.0` 的 package-lock.json（不取 registry 给的元数据）。0.2.0 是
 // 发布满两周的最新版；升级时重新生成这张表，并核对上游 README 的平台与运行库要求（Windows 要 Visual C++ v14 运行库）。
+//
+// 下载线路：npm registry（npmjs 与 npmmirror）与 Wevir 自己的两条主线路（GitHub Release `office-engine`、Cloudflare R2）一起
+// 竞速，Bunny 是后备（同听写模型，speech/install.ts）。镜像上是 npm 的原样 tgz，由发布脚本搬过去（apps/desktop/scripts/release.ts
+// office-engine），sha512 照这张表核对，所以从哪条线路下的都一样可信。改了这张表要再跑一次 .github/workflows/office-engine.yml。
+// 发布脚本不装依赖就引用这个文件，所以这里只 import 类型。
 
-import { closureFor, type NpmClosurePackage } from '@wevir/runtime-adapter/npm-closure';
+import type { NpmClosureMirror, NpmClosurePackage } from '@wevir/runtime-adapter/npm-closure';
 
 export const OFFICE_ENGINE_NAME = 'LibreOffice';
 export const OFFICE_KIT_PACKAGE = '@deepseek-ai/libreoffice-kit';
@@ -226,8 +231,13 @@ export function officeEnginePackages(
 ): NpmClosurePackage[] | undefined {
   const backend = officeEngineBackend(platform, arch);
   if (backend === undefined) return undefined;
-  const own = closureFor([...KIT_COMMON, ...KIT_ENGINES], platform, arch);
-  return backend === 'wasm' ? [...own, KIT_WASM] : own;
+  // 同 runtime-adapter 的 closureFor（这个文件只 import 类型）：`os` / `cpu` 不写的不限。
+  const own = KIT_ENGINES.filter(
+    (entry) =>
+      (entry.os === undefined || entry.os === platform) &&
+      (entry.cpu === undefined || entry.cpu === arch),
+  );
+  return [...KIT_COMMON, ...own, ...(backend === 'wasm' ? [KIT_WASM] : [])];
 }
 
 /** 要下载的字节数（约数）。 */
@@ -240,6 +250,19 @@ export function officeEngineDownloadBytes(
   const key = backend === 'wasm' ? 'wasm' : `${platform}-${arch}`;
   return (ENGINE_DOWNLOAD_BYTES[key] ?? 0) + COMMON_DOWNLOAD_BYTES;
 }
+
+/** 引擎在 GitHub 线路上的 Release（发布脚本往里传）。 */
+export const OFFICE_ENGINE_RELEASE_TAG = 'office-engine';
+
+/** 内置的镜像线路，与 SPEECH_MIRRORS 是同样三处，包放在 `office-engine/` 下（文件名见 npmMirrorAssetName）。 */
+export const OFFICE_ENGINE_MIRRORS: readonly NpmClosureMirror[] = [
+  {
+    id: 'github',
+    url: `https://github.com/marvinli001/wevir/releases/download/${OFFICE_ENGINE_RELEASE_TAG}`,
+  },
+  { id: 'r2', url: 'https://dl.edgeweir.com/office-engine' },
+  { id: 'global', url: 'https://download.wevir.si/office-engine', fallback: true },
+];
 
 /** 解开后约占的空间（最大的 Windows x64 引擎约 200 MB），留出余量。 */
 export const OFFICE_ENGINE_REQUIRED_SPACE = 400 * 1024 * 1024;

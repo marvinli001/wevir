@@ -36,6 +36,12 @@
  *     搬到三条线路：先下载并按写死的 sha256 核对，再传到 S3 线路的 `speech/<模型键>/<文件>` 与 GitHub 线路
  *     tag `speech-models` 的 Release（附件名 `<模型键>-<文件>`），最后逐个读回核对（GitHub 经公网地址，全球线路经 CDN 并先清缓存，R2 经 S3 接口）。
  *     只在换模型时跑（.github/workflows/speech-models.yml，手动触发）；同名文件整个重传，重跑无妨。
+ *
+ *   node scripts/release.ts office-engine [--only <线路>]
+ *     把办公文档预览引擎（packages/host/src/office/engine.ts 的 OFFICE_ENGINE_PACKAGES，所有平台的包）从 npmjs 原样搬到
+ *     三条线路：按写死的 sha512 核对，传到 S3 线路的 `office-engine/<文件>` 与 GitHub 线路 tag `office-engine` 的
+ *     Release（文件名都是 npmMirrorAssetName），再像 speech-models 一样逐个读回核对。改了那张包表后跑一次
+ *     （.github/workflows/office-engine.yml，手动触发）。
  */
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -57,12 +63,19 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
+  OFFICE_ENGINE_MIRRORS,
+  OFFICE_ENGINE_PACKAGES,
+  OFFICE_ENGINE_RELEASE_TAG,
+} from '../../../packages/host/src/office/engine.ts';
+import {
   SENSE_VOICE_SMALL,
   SPEECH_MIRRORS,
   SPEECH_RELEASE_TAG,
   type SpeechAsset,
   speechAssetPath,
 } from '../../../packages/host/src/speech/install.ts';
+import type { NpmClosurePackage } from '../../../packages/runtime-adapter/src/npm-closure.ts';
+import { npmMirrorAssetName } from '../../../packages/runtime-adapter/src/npm-mirror.ts';
 
 export type Channel = 'stable' | 'dev';
 
@@ -393,7 +406,7 @@ function contentType(name: string): string {
   if (name.endsWith('.exe')) return 'application/vnd.microsoft.portable-executable';
   if (name.endsWith('.deb')) return 'application/vnd.debian.binary-package';
   if (name.endsWith('.AppImage')) return 'application/vnd.appimage';
-  if (name.endsWith('.tar.gz')) return 'application/gzip';
+  if (name.endsWith('.tar.gz') || name.endsWith('.tgz')) return 'application/gzip';
   // 通道文件、校验和与安装脚本按纯文本给，浏览器里能直接看。
   if (/\.(?:txt|sh|ps1)$/.test(name)) return 'text/plain; charset=utf-8';
   return 'application/octet-stream';
@@ -1314,25 +1327,26 @@ async function fetchUpstream(asset: SpeechAsset, file: string): Promise<void> {
   console.log(`downloaded ${asset.url}`);
 }
 
-/** GitHub 线路上听写模型的 Release：没有就建（预发布、不标 Latest，同 desktop-updates）。 */
-function ensureSpeechRelease(repo: string, env: NodeJS.ProcessEnv): void {
-  const found = spawnSync(
-    'gh',
-    ['release', 'view', SPEECH_RELEASE_TAG, '--repo', repo, '--json', 'id'],
-    { env, encoding: 'utf8', timeout: AWS_CALL_TIMEOUT_MS },
-  );
+/** GitHub 线路上放这类文件的 Release：没有就建（预发布、不标 Latest，同 desktop-updates）。 */
+/** Release 的标题与说明（这类 Release 不分目录，用不到 GithubRelease 的其余字段）。 */
+type ReleaseInfo = Pick<GithubRelease, 'tag' | 'title' | 'notes'>;
+
+function ensureRelease(repo: string, env: NodeJS.ProcessEnv, release: ReleaseInfo): void {
+  const found = spawnSync('gh', ['release', 'view', release.tag, '--repo', repo, '--json', 'id'], {
+    env,
+    encoding: 'utf8',
+    timeout: AWS_CALL_TIMEOUT_MS,
+  });
   if (found.status === 0) return;
   if (!/not found/i.test(found.stderr)) {
-    throw new Error(
-      `[github] reading release ${SPEECH_RELEASE_TAG} failed: ${found.stderr.trim()}`,
-    );
+    throw new Error(`[github] reading release ${release.tag} failed: ${found.stderr.trim()}`);
   }
   execFileSync(
     'gh',
     [
       'release',
       'create',
-      SPEECH_RELEASE_TAG,
+      release.tag,
       '--repo',
       repo,
       '--target',
@@ -1340,23 +1354,38 @@ function ensureSpeechRelease(repo: string, env: NodeJS.ProcessEnv): void {
       '--prerelease',
       '--latest=false',
       '--title',
-      'Speech models',
+      release.title,
       '--notes',
-      'On-device dictation models mirrored from k2-fsa/sherpa-onnx for the Wevir Host. Files are named <model key>-<file>; the Host checks each against a pinned sha256.',
+      release.notes,
     ],
     { env, stdio: ['ignore', 'inherit', 'inherit'], timeout: AWS_CALL_TIMEOUT_MS },
   );
-  console.log(`[github] created release ${SPEECH_RELEASE_TAG}`);
+  console.log(`[github] created release ${release.tag}`);
 }
 
-async function publishSpeechModels(only: string | undefined): Promise<void> {
-  const wanted = (id: string) => only === undefined || id === only;
+/** 搬到三条线路的一个文件：S3 线路的键是 `key`，GitHub 线路的附件名是 `asset`，`url(线路)` 是 Host 下载它的地址。 */
+interface MirroredFile {
+  file: string;
+  key: string;
+  asset: string;
+  url: (line: string) => string;
+}
+
+/** 搬文件要用的线路：S3 线路的连接信息与 GitHub 的令牌在下载之前就核对，缺了就不白下载。 */
+interface MirrorLines {
+  wanted: (id: string) => boolean;
+  s3: MirrorTarget[];
+  github: boolean;
+  repo: string;
+  env: NodeJS.ProcessEnv;
+}
+
+function mirrorLines(only: string | undefined): MirrorLines {
   if (!LINE_IDS.includes(only ?? 'github')) {
     throw new Error(`unknown mirror ${only}; one of ${LINE_IDS.join(', ')}`);
   }
-  const spec = SENSE_VOICE_SMALL;
+  const wanted = (id: string) => only === undefined || id === only;
   const env = process.env;
-  // 先确认所选线路的连接信息都在，再花时间下载。
   const s3 = MIRRORS.filter((mirror) => wanted(mirror.id)).map((mirror) =>
     mirrorTarget(mirror, env),
   );
@@ -1364,88 +1393,201 @@ async function publishSpeechModels(only: string | undefined): Promise<void> {
   if (github && !env.GH_TOKEN?.trim() && !env.GITHUB_TOKEN?.trim()) {
     throw new Error('GH_TOKEN is not set');
   }
-  const repo = env.GITHUB_REPOSITORY?.trim() || GITHUB_REPO;
+  return { wanted, s3, github, repo: env.GITHUB_REPOSITORY?.trim() || GITHUB_REPO, env };
+}
+
+/**
+ * 把下载好的文件传到所选线路（S3 线路一次 PutObject，GitHub 线路传到 `release` 并覆盖同名附件），再逐个读回核对：
+ * GitHub 经公网地址（与 Host 下载时相同）；全球线路配了 BUNNY_API_KEY 时经 CDN（waitForCdn），否则与 R2 一样经 S3 接口
+ * 读回：Cloudflare 对 runner 的数据中心地址回 403，R2 强一致，读桶即可。
+ */
+async function mirrorFiles(
+  lines: MirrorLines,
+  release: ReleaseInfo,
+  files: readonly MirroredFile[],
+): Promise<void> {
+  const { s3, github, repo, env } = lines;
+  for (const mirror of s3) {
+    await forEachLimit(files, S3_UPLOAD_CONCURRENCY, ({ file, key }) => upload(mirror, file, key));
+  }
+  if (github) {
+    ensureRelease(repo, env, release);
+    const named = mkdtempSync(join(tmpdir(), 'wevir-mirror-gh-'));
+    try {
+      for (const { file, asset } of files) {
+        // gh 用文件名做附件名：复制一份改名的。
+        const path = join(named, asset);
+        copyFileSync(file, path);
+        await withRetries(`[github] ${asset}`, () =>
+          run(
+            'gh',
+            ['release', 'upload', release.tag, path, '--repo', repo, '--clobber'],
+            env,
+            uploadTimeoutMs(statSync(file).size),
+          ),
+        );
+        rmSync(path, { force: true });
+      }
+    } finally {
+      rmSync(named, { recursive: true, force: true });
+    }
+  }
+
+  const bunnyKey = env.BUNNY_API_KEY?.trim();
+  const readBack = mkdtempSync(join(tmpdir(), 'wevir-mirror-check-'));
+  try {
+    for (const id of LINE_IDS.filter(lines.wanted)) {
+      const checks = await Promise.all(
+        files.map(async (entry) => ({
+          entry,
+          url: entry.url(id),
+          expected: await fileDigest(entry.file),
+        })),
+      );
+      if (id === 'global' && bunnyKey) {
+        await waitForCdn(checks, bunnyCheck(bunnyKey));
+        continue;
+      }
+      const target = s3.find((line) => line.id === id);
+      for (const { entry, url, expected } of checks) {
+        let got: Digest;
+        if (target === undefined) {
+          const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
+          if (!response.ok || response.body === null) {
+            throw new Error(`${url}: HTTP ${response.status}`);
+          }
+          got = await digestOf(response.body);
+        } else {
+          const copy = join(readBack, `${id}-${entry.asset}`);
+          await run(
+            'aws',
+            ['s3', 'cp', `s3://${target.bucket}/${entry.key}`, copy, '--only-show-errors'],
+            target.awsEnv,
+            uploadTimeoutMs(expected.size),
+          );
+          got = await fileDigest(copy);
+          rmSync(copy, { force: true });
+        }
+        if (got.size !== expected.size || got.sha512 !== expected.sha512) {
+          throw new Error(
+            `${url} does not match the upload (${got.size} bytes, expected ${expected.size})`,
+          );
+        }
+        console.log(`[${id}] verified ${url}${target === undefined ? '' : ' (S3 API)'}`);
+      }
+    }
+  } finally {
+    rmSync(readBack, { recursive: true, force: true });
+  }
+}
+
+/** Host 的下载线路（SPEECH_MIRRORS、OFFICE_ENGINE_MIRRORS）里 id 相同的那条。 */
+function lineOf<T extends { id: string }>(mirrors: readonly T[], id: string): T {
+  const mirror = mirrors.find((line) => line.id === id);
+  if (mirror === undefined) throw new Error(`no ${id} line`);
+  return mirror;
+}
+
+const SPEECH_RELEASE: ReleaseInfo = {
+  tag: SPEECH_RELEASE_TAG,
+  title: 'Speech models',
+  notes:
+    'On-device dictation models mirrored from k2-fsa/sherpa-onnx for the Wevir Host. Files are named <model key>-<file>; the Host checks each against a pinned sha256.',
+};
+
+async function publishSpeechModels(only: string | undefined): Promise<void> {
+  const lines = mirrorLines(only);
+  const spec = SENSE_VOICE_SMALL;
   const temp = mkdtempSync(join(tmpdir(), 'wevir-speech-'));
   try {
     const files = spec.assets.map((asset) => ({ asset, file: join(temp, asset.fileName) }));
     for (const { asset, file } of files) await fetchUpstream(asset, file);
+    await mirrorFiles(
+      lines,
+      SPEECH_RELEASE,
+      files.map(({ asset, file }) => ({
+        file,
+        key: `speech/${speechAssetPath(spec, asset)}`,
+        asset: speechAssetPath(spec, asset, 'release'),
+        url: (id) => {
+          const mirror = lineOf(SPEECH_MIRRORS, id);
+          return `${mirror.url}/${speechAssetPath(spec, asset, mirror.layout)}`;
+        },
+      })),
+    );
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
 
-    for (const mirror of s3) {
-      await forEachLimit(files, S3_UPLOAD_CONCURRENCY, ({ asset, file }) =>
-        upload(mirror, file, `speech/${speechAssetPath(spec, asset)}`),
-      );
-    }
-    if (github) {
-      ensureSpeechRelease(repo, env);
-      const named = mkdtempSync(join(tmpdir(), 'wevir-speech-gh-'));
-      try {
-        for (const { asset, file } of files) {
-          // gh 用文件名做附件名：复制一份带模型键的。
-          const path = join(named, speechAssetPath(spec, asset, 'release'));
-          copyFileSync(file, path);
-          await withRetries(`[github] ${speechAssetPath(spec, asset, 'release')}`, () =>
-            run(
-              'gh',
-              ['release', 'upload', SPEECH_RELEASE_TAG, path, '--repo', repo, '--clobber'],
-              env,
-              uploadTimeoutMs(asset.size),
-            ),
-          );
-        }
-      } finally {
-        rmSync(named, { recursive: true, force: true });
-      }
-    }
+// ---------- 办公文档预览引擎 ----------
 
-    // 读回核对。GitHub 经公网地址（与 Host 下载时相同，SPEECH_MIRRORS）；全球线路配了 BUNNY_API_KEY 时经 CDN
-    // （waitForCdn），否则与 R2 一样经 S3 接口读回：Cloudflare 对 runner 的数据中心地址回 403，R2 强一致，读桶即可。
-    const bunnyKey = env.BUNNY_API_KEY?.trim();
-    const readBack = mkdtempSync(join(tmpdir(), 'wevir-speech-check-'));
-    try {
-      for (const mirror of SPEECH_MIRRORS.filter((line) => wanted(line.id))) {
-        const checks = await Promise.all(
-          files.map(async ({ asset, file }) => ({
-            asset,
-            url: `${mirror.url}/${speechAssetPath(spec, asset, mirror.layout)}`,
-            expected: await fileDigest(file),
-          })),
-        );
-        if (mirror.id === 'global' && bunnyKey) {
-          await waitForCdn(checks, bunnyCheck(bunnyKey));
-          continue;
-        }
-        const target = s3.find((line) => line.id === mirror.id);
-        for (const { asset, url, expected } of checks) {
-          let got: Digest;
-          if (target === undefined) {
-            const response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) });
-            if (!response.ok || response.body === null) {
-              throw new Error(`${url}: HTTP ${response.status}`);
-            }
-            got = await digestOf(response.body);
-          } else {
-            const key = `speech/${speechAssetPath(spec, asset)}`;
-            const copy = join(readBack, `${mirror.id}-${asset.fileName}`);
-            await run(
-              'aws',
-              ['s3', 'cp', `s3://${target.bucket}/${key}`, copy, '--only-show-errors'],
-              target.awsEnv,
-              uploadTimeoutMs(asset.size),
-            );
-            got = await fileDigest(copy);
-            rmSync(copy, { force: true });
-          }
-          if (got.size !== expected.size || got.sha512 !== expected.sha512) {
-            throw new Error(
-              `${url} does not match the upload (${got.size} bytes, expected ${expected.size})`,
-            );
-          }
-          console.log(`[${mirror.id}] verified ${url}${target === undefined ? '' : ' (S3 API)'}`);
-        }
-      }
-    } finally {
-      rmSync(readBack, { recursive: true, force: true });
-    }
+const OFFICE_ENGINE_RELEASE: ReleaseInfo = {
+  tag: OFFICE_ENGINE_RELEASE_TAG,
+  title: 'Office preview engine',
+  notes:
+    'The LibreOffice preview engine (@deepseek-ai/libreoffice-kit, MPL-2.0) and its dependencies, mirrored unchanged from the npm registry for the Wevir Host. Files are named <package without @, / as ->-<version>.tgz; the Host checks each against a pinned sha512.',
+};
+
+/** npm 包从 npmjs 下载时最多等多久（最大的 Windows x64 引擎包约 75 MB）。 */
+const NPM_FETCH_TIMEOUT_MS = uploadTimeoutMs(256 * 1024 * 1024);
+
+/** 从 npmjs 下载一个包的 tgz 到 `file`，与写死的 integrity（sha512）不对就抛错。 */
+async function fetchNpmPackage(
+  entry: { name: string; version: string; integrity: string },
+  file: string,
+): Promise<void> {
+  const base = entry.name.split('/').pop() as string;
+  const url = `https://registry.npmjs.org/${entry.name}/-/${base}-${entry.version}.tgz`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(NPM_FETCH_TIMEOUT_MS) });
+  if (!response.ok || response.body === null) {
+    throw new Error(`downloading ${url} failed: HTTP ${response.status}`);
+  }
+  const hash = createHash('sha512');
+  const out = createWriteStream(file);
+  for await (const chunk of response.body) {
+    hash.update(chunk);
+    if (!out.write(chunk)) await once(out, 'drain');
+  }
+  await new Promise<void>((resolve, reject) =>
+    out.end((error?: Error | null) => (error ? reject(error) : resolve())),
+  );
+  const integrity = `sha512-${hash.digest('base64')}`;
+  if (integrity !== entry.integrity) {
+    throw new Error(`${url}: got ${integrity}, expected ${entry.integrity}`);
+  }
+  console.log(`downloaded ${url}`);
+}
+
+/** 镜像上的文件名要互不相同（npmMirrorAssetName 平铺后 `@a/b` 与 `a-b` 会撞）。 */
+export function officeEngineAssets(): { entry: NpmClosurePackage; asset: string }[] {
+  const seen = new Map<string, string>();
+  return OFFICE_ENGINE_PACKAGES.map((entry) => {
+    const asset = npmMirrorAssetName(entry);
+    const other = seen.get(asset);
+    if (other !== undefined) throw new Error(`${entry.name} and ${other} both mirror as ${asset}`);
+    seen.set(asset, entry.name);
+    return { entry, asset };
+  });
+}
+
+async function publishOfficeEngine(only: string | undefined): Promise<void> {
+  const lines = mirrorLines(only);
+  const assets = officeEngineAssets();
+  const temp = mkdtempSync(join(tmpdir(), 'wevir-office-engine-'));
+  try {
+    const files = assets.map(({ entry, asset }) => ({ entry, asset, file: join(temp, asset) }));
+    await forEachLimit(files, 4, ({ entry, file }) => fetchNpmPackage(entry, file));
+    await mirrorFiles(
+      lines,
+      OFFICE_ENGINE_RELEASE,
+      files.map(({ asset, file }) => ({
+        file,
+        key: `office-engine/${asset}`,
+        asset,
+        url: (id) => `${lineOf(OFFICE_ENGINE_MIRRORS, id).url}/${asset}`,
+      })),
+    );
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -1510,13 +1652,13 @@ async function main(): Promise<void> {
     await publishCli({ channel, version, dir, only });
     return;
   }
-  if (command === 'speech-models') {
+  if (command === 'speech-models' || command === 'office-engine') {
     const { values } = parseArgs({ args: rest, options: { only: { type: 'string' } } });
-    await publishSpeechModels(values.only);
+    await (command === 'speech-models' ? publishSpeechModels : publishOfficeEngine)(values.only);
     return;
   }
   console.error(
-    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | cli --channel dev|stable --version <v> --dir <dir> | speech-models [--only <mirror>]',
+    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir> | cli --channel dev|stable --version <v> --dir <dir> | speech-models | office-engine [--only <mirror>]',
   );
   process.exit(2);
 }

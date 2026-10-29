@@ -16,6 +16,7 @@ import {
 import { NpmInstallCancelled } from '@wevir/runtime-adapter/npm-package';
 import { sizeOf } from '../dir-size.js';
 import {
+  OFFICE_ENGINE_MIRRORS,
   OFFICE_ENGINE_NAME,
   OFFICE_ENGINE_REQUIRED_SPACE,
   OFFICE_KIT_PACKAGE,
@@ -123,6 +124,7 @@ export class OfficeService {
         main: { name: OFFICE_KIT_PACKAGE, version: OFFICE_KIT_VERSION },
         packages: officeEnginePackages(options.platform, options.arch),
         requiredSpace: OFFICE_ENGINE_REQUIRED_SPACE,
+        mirrors: OFFICE_ENGINE_MIRRORS,
       });
     this.#installer.onChange((event) => {
       if (event.type === 'installed') {

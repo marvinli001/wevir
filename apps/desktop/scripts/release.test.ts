@@ -1,5 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import {
+  OFFICE_ENGINE_MIRRORS,
+  OFFICE_ENGINE_PACKAGES,
+  OFFICE_ENGINE_RELEASE_TAG,
+} from '../../../packages/host/src/office/engine.ts';
 import { SPEECH_MIRRORS, SPEECH_RELEASE_TAG } from '../../../packages/host/src/speech/install.ts';
 import { manifestFile as feedManifestFile } from '../src/main/updates/feed.js';
 import {
@@ -26,6 +31,7 @@ import {
   LINE_IDS,
   MIRRORS,
   manifestFile,
+  officeEngineAssets,
   platformDirOfFile,
   readManifest,
   stableVersionOfTag,
@@ -380,6 +386,21 @@ describe('线路', () => {
       ['github', `https://github.com/marvinli001/wevir/releases/download/${SPEECH_RELEASE_TAG}`],
       ...MIRRORS.map((m) => [m.id, `${m.publicUrl}/speech`]),
     ]);
+  });
+  it('预览引擎的线路与 Host 下载用的地址一致（S3 线路的 office-engine/ 下与 GitHub 的 office-engine），文件名不撞', () => {
+    expect(OFFICE_ENGINE_MIRRORS.map((m) => [m.id, m.url, m.fallback === true])).toEqual([
+      [
+        'github',
+        `https://github.com/marvinli001/wevir/releases/download/${OFFICE_ENGINE_RELEASE_TAG}`,
+        false,
+      ],
+      ...MIRRORS.map((m) => [m.id, `${m.publicUrl}/office-engine`, m.id === 'global']),
+    ]);
+    const assets = officeEngineAssets();
+    expect(assets).toHaveLength(OFFICE_ENGINE_PACKAGES.length);
+    expect(assets.map(({ asset }) => asset)).toContain(
+      'deepseek-ai-libreoffice-kit-wasm-0.2.0.tgz',
+    );
   });
 });
 

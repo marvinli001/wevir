@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 // 按需下载一组钉死的 npm 包（一个主包与它的生产依赖闭包，加上本平台的平台包）装进数据目录，不经 npm：Cursor SDK（许可证不许
-// 随包分发，adapter-cursor 的 sdk-install.ts）与 LibreOffice 预览引擎（每个平台 150–200 MB，host 的 office/install.ts）都用它。
+// 随包分发，adapter-cursor 的 sdk-install.ts）与 LibreOffice 预览引擎（每个平台 150–200 MB，host 的 office/service.ts）都用它。
 // 版本与 sha512 写死在调用方的包表里（与 pnpm-lock.yaml 或上游的锁文件一致），不取 registry 给的元数据，所以从哪个 registry
 // 下载都一样可信。
 //
 // 目录（`directory`）：versions/<主包版本>/node_modules/<包>/ 是 npm 的扁平布局（闭包里没有版本冲突），active.json 指向装好的
 // 版本；下载与解出都在 versions/.install-* 里进行，全部核对通过才改名并写指针，失败或取消不留半截。registry 照 npm-package.ts 的
 // `npmRegistries`（默认 npmjs 与 npmmirror，`WEVIR_NPM_REGISTRY` 可换）：先问谁有这个版本，先答的先用，一个包下载失败或校验不对
-// 再换下一个。
+// 再换下一个。调用方还可以给镜像线路（`mirrors`，tgz 原样平铺在一个目录里，见 npmMirrorAssetName）：主线路与 registry 一起
+// 竞速，后备线路（`fallback`）不参加，只在前面的都下不了某个包时才按顺序试。许可证不许转发的包（Cursor SDK）不给镜像。
 
 import { createHash, randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
@@ -16,6 +17,7 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import zlib from 'node:zlib';
+import { type NpmClosureMirror, npmMirrorAssetName } from './npm-mirror.js';
 import {
   NpmInstallCancelled,
   NpmInstallError,
@@ -23,6 +25,8 @@ import {
   readTar,
   type TarSink,
 } from './npm-package.js';
+
+export { type NpmClosureMirror, npmMirrorAssetName };
 
 /** 要下载的一个包；`os` / `cpu` 只在那个平台装（平台包）。 */
 export interface NpmClosurePackage {
@@ -72,6 +76,8 @@ export interface NpmClosureInstallerOptions {
   /** 解开后约占的空间：剩余空间不到它时不开始下载。 */
   requiredSpace: number;
   registries?: readonly string[];
+  /** 镜像线路（默认没有）。 */
+  mirrors?: readonly NpmClosureMirror[];
   fetch?: typeof fetch;
   /** 多久收不到数据算下载卡住。 */
   idleTimeoutMs?: number;
@@ -82,6 +88,12 @@ const ACTIVE_FILE = 'active.json';
 const LOOKUP_TIMEOUT_MS = 15_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
 const PROGRESS_INTERVAL_MS = 250;
+
+/** 一个包从哪里下载：registry 或镜像线路。 */
+interface NpmClosureSource {
+  host: string;
+  url: (entry: { name: string; version: string }) => string;
+}
 
 /** 同一时刻只有一次安装，进度与结果经 `onChange` 告诉每个监听者。 */
 export class NpmClosureInstaller {
@@ -222,7 +234,7 @@ export class NpmClosureInstaller {
       const existing = await this.active();
       if (existing !== undefined) return existing;
       await this.#checkSpace();
-      const registries = await this.#rankRegistries(signal);
+      const sources = await this.#rankSources(signal);
 
       const staging = await fsp.mkdtemp(path.join(this.#versions, '.install-'));
       try {
@@ -251,7 +263,7 @@ export class NpmClosureInstaller {
         };
         await Promise.all(
           packages.map((entry) =>
-            this.#fetchPackage(entry, registries, staging, signal, {
+            this.#fetchPackage(entry, sources, staging, signal, {
               size: (bytes) => {
                 sizes.set(entry.name, bytes);
                 report(true);
@@ -298,56 +310,76 @@ export class NpmClosureInstaller {
     }
   }
 
-  /** 同时问每个 registry 有没有主包的这个版本，先答的排前面；都答不了时报错。 */
-  async #rankRegistries(signal: AbortSignal): Promise<string[]> {
+  /**
+   * 同时问每个 registry 有没有主包的这个版本、每条主镜像线路有没有主包的 tgz，先答的排前面，后备线路排在最后；
+   * 没有一处答得上、也没有后备线路时报错。
+   */
+  async #rankSources(signal: AbortSignal): Promise<NpmClosureSource[]> {
     const { main } = this.#options;
     const registries = this.#options.registries ?? npmRegistries();
-    const ranked: string[] = [];
-    const lookups = registries.map(async (registry) => {
-      const response = await (this.#options.fetch ?? fetch)(
-        `${registry}/${encodeName(main.name)}/${main.version}`,
-        {
-          headers: { Accept: 'application/json' },
-          signal: AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]),
-        },
-      );
+    const mirrors = this.#options.mirrors ?? [];
+    const candidates: {
+      source: NpmClosureSource;
+      probe: string;
+      headers: Record<string, string>;
+    }[] = [
+      ...registries.map((registry) => ({
+        source: registrySource(registry),
+        probe: `${registry}/${encodeName(main.name)}/${main.version}`,
+        headers: { Accept: 'application/json' },
+      })),
+      ...mirrors
+        .filter((mirror) => mirror.fallback !== true)
+        .map((mirror) => ({
+          source: mirrorSource(mirror),
+          probe: `${mirror.url}/${npmMirrorAssetName(main)}`,
+          headers: { Range: 'bytes=0-0', 'Accept-Encoding': 'identity' },
+        })),
+    ];
+    const ranked: NpmClosureSource[] = [];
+    const lookups = candidates.map(async ({ source, probe, headers }) => {
+      const response = await (this.#options.fetch ?? fetch)(probe, {
+        headers,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]),
+      });
       await response.body?.cancel().catch(() => {});
-      if (!response.ok) throw new Error(`${hostOf(registry)} answered ${response.status}`);
-      ranked.push(registry);
+      if (!response.ok) throw new Error(`${source.host} answered ${response.status}`);
+      ranked.push(source);
     });
     const settled = await Promise.allSettled(lookups);
     if (signal.aborted) throw signal.reason;
-    if (ranked.length === 0) {
+    const fallback = mirrors.filter((mirror) => mirror.fallback === true).map(mirrorSource);
+    if (ranked.length === 0 && fallback.length === 0) {
       const reasons = settled.flatMap((result) =>
         result.status === 'rejected' ? [reasonOf(result.reason)] : [],
       );
       throw new NpmInstallError(
         'resolve',
-        `Could not reach the npm registry (${registries.map(hostOf).join(', ')}): ${reasons.join('; ')}. Check your network or proxy. WEVIR_NPM_REGISTRY can point to another registry.`,
+        `Could not reach the npm registry (${candidates.map(({ source }) => source.host).join(', ')}): ${reasons.join('; ')}. Check your network or proxy. WEVIR_NPM_REGISTRY can point to another registry.`,
       );
     }
-    return ranked;
+    return [...ranked, ...fallback];
   }
 
-  /** 按顺序从各 registry 下载一个包，边下边核对 sha512、边解开到 staging/node_modules/<包>；一个不行换下一个。 */
+  /** 按顺序从各处下载一个包，边下边核对 sha512、边解开到 staging/node_modules/<包>；一处不行换下一处。 */
   async #fetchPackage(
     entry: NpmClosurePackage,
-    registries: readonly string[],
+    sources: readonly NpmClosureSource[],
     staging: string,
     signal: AbortSignal,
     progress: { size: (bytes: number | undefined) => void; received: (bytes: number) => void },
   ): Promise<void> {
     const target = path.join(staging, 'node_modules', ...entry.name.split('/'));
     const failures: string[] = [];
-    for (const registry of registries) {
+    for (const source of sources) {
       try {
-        await this.#download(entry, tarballUrl(registry, entry), target, signal, progress);
+        await this.#download(entry, source.url(entry), target, signal, progress);
         return;
       } catch (error) {
         await fsp.rm(target, { recursive: true, force: true }).catch(() => {});
         if (signal.aborted) throw signal.reason;
         progress.received(0);
-        failures.push(`${hostOf(registry)}: ${reasonOf(error)}`);
+        failures.push(`${source.host}: ${reasonOf(error)}`);
       }
     }
     throw new NpmInstallError(
@@ -500,6 +532,14 @@ async function packageFile(
 export function tarballUrl(registry: string, entry: { name: string; version: string }): string {
   const base = entry.name.split('/').pop() as string;
   return `${registry}/${entry.name}/-/${base}-${entry.version}.tgz`;
+}
+
+function registrySource(registry: string): NpmClosureSource {
+  return { host: hostOf(registry), url: (entry) => tarballUrl(registry, entry) };
+}
+
+function mirrorSource(mirror: NpmClosureMirror): NpmClosureSource {
+  return { host: hostOf(mirror.url), url: (entry) => `${mirror.url}/${npmMirrorAssetName(entry)}` };
 }
 
 function encodeName(name: string): string {
