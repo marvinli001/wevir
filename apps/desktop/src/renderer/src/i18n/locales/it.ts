@@ -1005,6 +1005,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': 'Consentire l’installazione di questo plugin?',
   'approval.title.skillInstall': 'Consentire l’installazione di queste skill?',
   'approval.title.connectorAdd': 'Consentire l’aggiunta di questo server MCP?',
+  'approval.title.pluginManage': 'Consentire la modifica della configurazione dei plugin?',
   'approval.title.browserOpen': 'Consentire l’apertura di una pagina nel browser?',
   'approval.title.browserAct': 'Consentire azioni su una pagina nel browser?',
   'approval.title.browserClose': 'Consentire la chiusura di una scheda del browser?',

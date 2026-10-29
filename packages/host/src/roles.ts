@@ -159,6 +159,7 @@ export const BUILTIN_ROLES: readonly RoleDefinition[] = Object.freeze([
       'wevir_plugin_install',
       'wevir_skill_install',
       'wevir_connector_add',
+      'wevir_plugins_manage',
     ],
     instructions: [
       'Do the task you were given, completely: do not gold-plate it and do not leave it half-done. Stay inside its scope, and do the work yourself rather than handing the whole assignment to another session. Prefer editing an existing file to creating a new one, and do not create documentation or README files unless the task asks for them.',

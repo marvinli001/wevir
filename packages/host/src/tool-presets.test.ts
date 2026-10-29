@@ -79,9 +79,9 @@ const CORE: ToolPreset = { id: 'core' };
 const FULL: ToolPreset = { id: 'full' };
 
 describe('工具分组', () => {
-  it('Host 的每个应用级工具都属于一个组；core 留 23 个，另 4 组是浏览器 29、LSP 7、进程 6、插件 4', () => {
+  it('Host 的每个应用级工具都属于一个组；core 留 23 个，另 4 组是浏览器 29、LSP 7、进程 6、插件 6', () => {
     const tools = allTools().tools;
-    expect(tools).toHaveLength(69);
+    expect(tools).toHaveLength(71);
     expect(tools.filter((tool) => toolGroupOf(tool.name) === undefined)).toEqual([]);
     const contents = toolGroupContents(tools);
     expect(Object.fromEntries(contents.map((group) => [group.id, group.tools.length]))).toEqual({
@@ -93,7 +93,7 @@ describe('工具分组', () => {
       browser: 29,
       lsp: 7,
       processes: 6,
-      plugins: 4,
+      plugins: 6,
     });
     expect(contents.filter((group) => group.core).map((group) => group.id)).toEqual(
       CORE_TOOL_GROUPS,
@@ -135,6 +135,7 @@ describe('工具分组', () => {
       'lsp_hover',
       'wevir_process_start',
       'wevir_plugin_install',
+      'wevir_plugins_manage',
     ]) {
       expect(presetAllowsTool(CORE, name), name).toBe(false);
     }
@@ -270,7 +271,7 @@ describe('按列出的工具裁剪说明', () => {
       '- wevir_process_*',
       '- wevir_preview_*',
       '- wevir_workspace_readiness',
-      '- wevir_plugins_list',
+      '- wevir_plugin*',
       '- wevir_tuning_*',
     ]) {
       expect(core).not.toContain(gone);

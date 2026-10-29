@@ -1223,6 +1223,7 @@ describe('应用级工具（0.30.0）', () => {
       // 0.83.0：报审查发现。
       'mcp__wevir__wevir_report_findings',
       'mcp__wevir__wevir_plugins_list',
+      'mcp__wevir__wevir_plugins_browse',
       'mcp__wevir__wevir_memory_list',
       'mcp__wevir__wevir_memory_read',
       'mcp__wevir__wevir_memory_save',

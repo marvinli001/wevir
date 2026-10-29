@@ -212,6 +212,7 @@ const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
   wevir_plugin_install: 'approval.title.pluginInstall',
   wevir_skill_install: 'approval.title.skillInstall',
   wevir_connector_add: 'approval.title.connectorAdd',
+  wevir_plugins_manage: 'approval.title.pluginManage',
   // 内置浏览器（0.33.0）：只读的不问，其余按会话的权限模式问。
   browser_new_tab: 'approval.title.browserOpen',
   browser_navigate: 'approval.title.browserOpen',

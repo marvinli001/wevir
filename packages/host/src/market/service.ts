@@ -201,6 +201,11 @@ export class MarketService {
     return promise;
   }
 
+  /** 这个条目正在安装（应用级工具据此不并入界面发起的那一次）。 */
+  installing(entryId: string): boolean {
+    return this.#installs.has(entryId);
+  }
+
   /** 停下正在进行的安装；没有在装时什么也不做。 */
   cancelInstall(entryId: string): void {
     this.#installs.get(entryId)?.controller.abort();

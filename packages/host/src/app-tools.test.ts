@@ -1865,18 +1865,20 @@ describe('工具预设', () => {
     expect(await visible(h, withPlugins)).toEqual([
       ...CORE_NAMES,
       'wevir_plugins_list',
+      'wevir_plugins_browse',
+      'wevir_plugins_manage',
       'wevir_plugin_install',
       'wevir_skill_install',
       'wevir_connector_add',
     ]);
     expect(await h.call(withPlugins, 'wevir_plugins_list')).toHaveProperty('connectors');
     const text = await instructionsOf(h, core);
-    for (const gone of ['- browser_*', '- lsp_*', '- wevir_process_*', '- wevir_plugins_list']) {
+    for (const gone of ['- browser_*', '- lsp_*', '- wevir_process_*', '- wevir_plugin*']) {
       expect(text).not.toContain(gone);
     }
     expect(text).toContain('- wevir_tasks');
     expect(text).toContain('- wevir_session_create');
-    expect(await instructionsOf(h, withPlugins)).toContain('- wevir_plugins_list');
+    expect(await instructionsOf(h, withPlugins)).toContain('- wevir_plugin*');
     // 存的是规范写法。
     expect(h.storage.sessions.get(core)?.toolPreset).toEqual({ id: 'core' });
     expect(h.storage.sessions.get(withPlugins)?.toolPreset).toEqual({
@@ -1934,7 +1936,7 @@ describe('工具预设', () => {
     expect(seen[0]?.tools).toEqual(CORE_NAMES);
     expect(seen[0]?.tools).toEqual(await visible(h, core));
     expect(seen[0]?.instructions).toBe(await instructionsOf(h, core));
-    expect(seen[0]?.instructions).not.toContain('- wevir_plugins_list');
+    expect(seen[0]?.instructions).not.toContain('- wevir_plugin*');
   });
 
   it('与角色取交集；Agent 开的会话、子会话、分支与支线沿用预设', async () => {
@@ -2018,6 +2020,8 @@ describe('工具预设', () => {
     expect((await tools.filterTools(core, all)).map((tool) => tool.name)).toEqual([
       ...CORE_NAMES,
       'wevir_plugins_list',
+      'wevir_plugins_browse',
+      'wevir_plugins_manage',
       'wevir_plugin_install',
       'wevir_skill_install',
       'wevir_connector_add',
@@ -2303,14 +2307,17 @@ describe('对话里安装插件（P3）', () => {
     const h = await setup(500, true);
     const names = [
       'wevir_plugins_list',
+      'wevir_plugins_browse',
+      'wevir_plugins_manage',
       'wevir_plugin_install',
       'wevir_skill_install',
       'wevir_connector_add',
     ];
+    const reads = ['wevir_plugins_list', 'wevir_plugins_browse'];
     for (const name of names) {
       const tool = h.tools.tools.find((tool) => tool.name === name);
-      expect(tool?.annotations.readOnlyHint).toBe(name === 'wevir_plugins_list');
-      expect(APP_TOOLS_NO_APPROVAL.includes(name)).toBe(name === 'wevir_plugins_list');
+      expect(tool?.annotations.readOnlyHint).toBe(reads.includes(name));
+      expect(APP_TOOLS_NO_APPROVAL.includes(name)).toBe(reads.includes(name));
     }
     const schema = h.tools.tools.find((tool) => tool.name === 'wevir_connector_add')?.inputSchema;
     expect(Object.keys(schema?.properties as object)).toEqual(

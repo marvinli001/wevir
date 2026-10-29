@@ -43,6 +43,8 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
   wevir_wrap_up: 'workbench',
   wevir_report_findings: 'workbench',
   wevir_plugins_list: 'plugins',
+  wevir_plugins_browse: 'plugins',
+  wevir_plugins_manage: 'plugins',
   wevir_plugin_install: 'plugins',
   wevir_skill_install: 'plugins',
   wevir_connector_add: 'plugins',
@@ -60,6 +62,8 @@ const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['wevir_tuning_', 'memory'],
   ['wevir_process_', 'processes'],
   ['wevir_preview_', 'processes'],
+  // 插件管理（说明里写作 `wevir_plugin*`）。
+  ['wevir_plugin', 'plugins'],
   ['lsp_', 'lsp'],
   ['browser_', 'browser'],
   // 电脑操作（0.114.0）同属界面操作，归在浏览器一组。

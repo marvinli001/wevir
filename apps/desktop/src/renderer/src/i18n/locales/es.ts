@@ -1008,6 +1008,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': '¿Permitir instalar este plugin?',
   'approval.title.skillInstall': '¿Permitir instalar estas skills?',
   'approval.title.connectorAdd': '¿Permitir añadir este servidor MCP?',
+  'approval.title.pluginManage': '¿Permitir cambiar la configuración de plugins?',
   'approval.title.browserOpen': '¿Permitir abrir una página en el navegador?',
   'approval.title.browserAct': '¿Permitir actuar sobre una página en el navegador?',
   'approval.title.browserClose': '¿Permitir cerrar una pestaña del navegador?',

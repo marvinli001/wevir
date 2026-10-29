@@ -1260,6 +1260,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     if (adapter.appTools === true) {
       appTools = new AppTools({
         plugins,
+        pluginServices: { market, importer: externalImport, oauth: mcpOAuth },
         storage,
         events: store,
         sessions: manager,
