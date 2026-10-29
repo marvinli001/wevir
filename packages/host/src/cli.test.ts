@@ -405,5 +405,6 @@ describe('runHostCli', () => {
     await vi.waitFor(() => expect(existsSync(join(signalled.home, 'wevir.db-wal'))).toBe(false), {
       timeout: 15_000,
     });
-  });
+    // 两个 Host 各自启动、退出再等数据库关上，负载高的 runner 上超过默认的 5 s；上限盖住上面两次 15 s 的等待。
+  }, 40_000);
 });
