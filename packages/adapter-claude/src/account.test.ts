@@ -504,7 +504,8 @@ describe('ClaudeAccounts：下载安装与应用内登录', () => {
 
   it('命令登录的平台：Wevir 装的写全路径，用户自己的写 claude', async () => {
     const control = controlledInstaller(MANAGED);
-    const { created } = make({ installer: control.installer, inAppLogin: false });
+    const system = { platform: 'linux' as const, exists: () => false };
+    const { created } = make({ installer: control.installer, inAppLogin: false, system });
     expect(await created.read('claude')).toMatchObject({
       signIn: 'command',
       loginCommand: `"${MANAGED.path}" auth login`,
@@ -512,6 +513,7 @@ describe('ClaudeAccounts：下载安装与应用内登录', () => {
     const { created: own } = make({
       installer: control.installer,
       inAppLogin: false,
+      system,
       findExecutable: () => '/opt/claude',
     });
     expect((await own.read('claude')).loginCommand).toBe('claude auth login');

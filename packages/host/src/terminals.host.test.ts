@@ -302,7 +302,13 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
         JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8')) as { token: string }
       ).token;
       const second = await connect(h.host.url, home);
-      const first = await second.client.request('terminal.attach', { terminalId: terminal.id });
+      // 从头补原始输出：不带 since 拿到的是快照，shell 这时若已打出提示符（macOS 的 bash 3.2 先发 `\e[?1034h`），
+      // 快照不含这种不上屏的控制序列，下面按位置拼接就对不上了。
+      const first = await second.client.request('terminal.attach', {
+        terminalId: terminal.id,
+        since: 0,
+      });
+      expect(first.reset).toBe(false);
       const before = view(second.client, terminal.id, first);
       await input("printf 'A%.0s' $(seq 1 50); echo; echo part-$((1))-one\r");
       await before.until((text) => text.includes('part-1-one'), '断开前的输出');
