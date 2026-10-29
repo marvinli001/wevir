@@ -770,10 +770,13 @@ function run(): void {
     mark('appReady');
     startup.readyAt = Date.now();
     // 渲染进程的权限（摄像头、通知、剪贴板读取等）一律拒绝（Electron 安全清单第 5 条），只有听写（0.92.0）要的麦克风例外：主窗口
-    // 的主框架、应用自己的页面、只要音频（media-permission.ts）。
+    // 的主框架、应用自己的页面、只要音频（media-permission.ts）。主窗口销毁后（退出、装更新时）其他页面仍会触发权限检查，这时
+    // 读 mainWindow.webContents 会抛 "Object has been destroyed"，未捕获的异常弹窗挡住退出，更新就装不上。
+    const isMainContents = (contents: Electron.WebContents | null) =>
+      !!mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents;
     session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>
       callback(
-        contents === mainWindow?.webContents &&
+        isMainContents(contents) &&
           allowMicrophoneRequest(
             {
               permission,
@@ -787,7 +790,7 @@ function run(): void {
     );
     session.defaultSession.setPermissionCheckHandler(
       (contents, permission, requestingOrigin, details) =>
-        contents === mainWindow?.webContents &&
+        isMainContents(contents) &&
         allowMicrophoneCheck(permission, requestingOrigin, details.mediaType, rendererOrigin),
     );
     // 文件窗格里的网页（0.32.0）：子框架只许加载 Host 的文件地址，页面里的链接、跳转与 meta refresh 都不让框架离开（Paseo 的 HTML
