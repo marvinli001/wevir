@@ -686,6 +686,12 @@ export const ApprovalOptionSchema = z.object({
 });
 export type ApprovalOption = z.infer<typeof ApprovalOptionSchema>;
 
+/**
+ * 用户接入的 MCP 服务要用户打开一个链接（URL 模式的 elicitation）时，审批详情的 `toolName`：`input.url` 是要打开的地址（只会是 http 或
+ * https），`input.message` 是服务的说明。允许表示用户同意打开，客户端在浏览器里打开它；同 `@wevir/runtime-adapter` 的同名常量。
+ */
+export const MCP_URL_ELICITATION_TOOL = 'mcp/elicitation/url';
+
 export const ApprovalDetailSchema = z.object({
   toolName: z.string(),
   display: ToolDisplaySchema,

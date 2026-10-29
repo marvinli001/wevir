@@ -2,6 +2,15 @@ export type { AgentRuntimeAdapter, CancelOptions, EngineAccounts } from './adapt
 export * from './errors.js';
 export { EventHub, type EventHubOptions } from './event-hub.js';
 export * from './events.js';
+export {
+  type ElicitationResult,
+  elicitationQuestions,
+  elicitationResult,
+  elicitationUrl,
+  elicitationUrlDisplay,
+  MCP_URL_ELICITATION_TOOL,
+  URL_ELICITATION_OPTIONS,
+} from './mcp-elicitation.js';
 export type * from './plugins.js';
 export { accountRateLimits, clampPercent, isoTime } from './rate-limits.js';
 export type * from './types.js';

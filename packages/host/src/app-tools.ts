@@ -49,7 +49,12 @@ import {
   WRAP_UP_MESSAGE_MAX_LENGTH,
   WRAP_UP_RECAP_MAX_LENGTH,
 } from '@wevir/protocol';
-import { type AgentEvent, appToolBaseName, appToolServerOf } from '@wevir/runtime-adapter';
+import {
+  type AgentEvent,
+  appToolBaseName,
+  appToolServerOf,
+  type EngineToolLimits,
+} from '@wevir/runtime-adapter';
 import type { SessionRecord, Storage } from '@wevir/storage';
 import { type AppTool, AppToolError, type AppToolResult, jsonResult } from './app-mcp.js';
 import { automationRunInstructions, automationTools } from './automations/automation-tools.js';
@@ -89,7 +94,12 @@ import { readinessTools } from './readiness-tools.js';
 import { retroMarkdown } from './retro/markdown.js';
 import type { RetroService } from './retro/service.js';
 import type { FindingInput } from './review/service.js';
-import { ROLE_READONLY_TOOLS, type RoleDefinition, type RoleStore } from './roles.js';
+import {
+  ROLE_READONLY_TOOLS,
+  type RoleDefinition,
+  type RoleStore,
+  roleEngineTools,
+} from './roles.js';
 import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
 import { type SessionProgress, sessionProgress } from './session-progress.js';
@@ -1073,8 +1083,9 @@ export class AppTools {
         'List the preset roles you can give a new session (wevir_session_create role=...): name, what it is for, ' +
         'the model and permission ceiling it sets, and which Wevir tools it may use (tools = only those, ' +
         '"readonly" means every read-only tool; disallowedTools = never those). Roles come from Wevir (built in), ' +
-        "the user's roles folder and this project's .wevir/roles. A role limits Wevir's own tools; the engine's " +
-        'built-in tools (shell, file edits) are governed by its permission ceiling and its brief. On a long task, ' +
+        "the user's roles folder, this project's .wevir/roles, and Claude Code (.claude/agents) and Codex " +
+        "(agents/*.toml) agents. tools also limit the engine's own tools (read, edit, shell, web or Claude Code tool " +
+        'names) as far as the engine allows. On a long task, ' +
         'consider asking an advisor to look at your session before you commit to an approach, when you are stuck or ' +
         'about to change approach, and before you call the work done (save the result first: the advisor takes ' +
         'time). Weigh its advice; if you have direct evidence against a specific claim, say so in a follow-up ' +
@@ -1102,6 +1113,7 @@ export class AppTools {
             ...(role.permissionMode !== undefined && { permissionMode: role.permissionMode }),
             ...(role.tools !== undefined && { tools: role.tools }),
             ...(role.disallowedTools !== undefined && { disallowedTools: role.disallowedTools }),
+            ...(role.importedFrom !== undefined && { importedFrom: role.importedFrom }),
           })),
           ...(listed.problems.length > 0 && { problems: listed.problems }),
         });
@@ -1178,7 +1190,15 @@ export class AppTools {
           }
         }
         const sameProvider = providerId === caller.providerId;
-        const fromRole = explicitProvider === undefined ? role : undefined;
+        // 角色的模型对不上这个 Provider 的模型目录时不用（导入的 Claude Code agent 的 `sonnet`、Codex agent 的 OpenAI 模型）。
+        const fromRole =
+          explicitProvider === undefined &&
+          role?.modelId !== undefined &&
+          !this.#hasModel(providerId, role.modelId)
+            ? { ...role, modelId: undefined, reasoningEffort: undefined }
+            : explicitProvider === undefined
+              ? role
+              : undefined;
         const modelId =
           explicitModel ?? fromRole?.modelId ?? (sameProvider ? caller.modelId : undefined);
         const explicitEffort = optionalString(args, 'reasoningEffort');
@@ -1938,6 +1958,14 @@ export class AppTools {
    * agent 选的 Provider、模型与推理档位要在 `wevir_models` 列出的范围里：Provider 要在、没停用；Provider 列了模型时模型要在列表里，
    * 模型列了档位时档位要在其中。只查 agent 明说的（ChatGPT 的列表可能过期，用户在界面里选的照旧交给引擎判断）。
    */
+  /** Provider 有这个模型（没有模型目录的 Provider 算有）。 */
+  #hasModel(providerId: string, modelId: string): boolean {
+    const provider = this.#options.storage.providers.get(providerId);
+    if (provider === undefined) return false;
+    const models = providerModels(provider);
+    return models.length === 0 || models.some((model) => model.id === modelId);
+  }
+
   #checkModel(
     providerId: string,
     chosen: { modelId?: string; reasoningEffort?: string; effortModelId?: string | undefined },
@@ -2185,6 +2213,11 @@ export class AppTools {
       );
     }
     return found;
+  }
+
+  /** 这个会话的角色对引擎自带工具的限制（session-manager.ts 的 `engineTools`）；没有角色或角色不限时 `undefined`。 */
+  async engineToolLimits(sessionId: SessionId): Promise<EngineToolLimits | undefined> {
+    return roleEngineTools(await this.#roleOf(sessionId));
   }
 
   /**

@@ -213,11 +213,13 @@ export type UserInput = TextUserInput | LocalImageUserInput;
 /** v2/ApprovalsReviewer.ts：`auto_review` 由 Codex 的审查子 agent 用会话的模型判断（旧名 `guardian_subagent`）。 */
 export type ApprovalsReviewer = 'user' | 'auto_review';
 
-/** v2/SandboxPolicy.ts 里本包用到的两种（`type` 是判别字段；workspaceWrite 的其余字段取默认值）。 */
+/** v2/SandboxPolicy.ts 里本包用到的三种（`type` 是判别字段；workspaceWrite 的其余字段取默认值）。 */
 export type SandboxPolicy =
   | { type: 'dangerFullAccess' }
   /** `writableRoots`：cwd 之外还能写的目录（0.15.0 的环境会话，codex-event-mapping.md §4.8）。 */
-  | { type: 'workspaceWrite'; writableRoots?: string[] };
+  | { type: 'workspaceWrite'; writableRoots?: string[] }
+  /** 角色关掉了改文件时（roles.ts）。 */
+  | { type: 'readOnly'; networkAccess: boolean };
 
 /** v2/TurnStartParams.ts 的稳定字段里本包用到的。 */
 export interface TurnStartParams {
@@ -790,8 +792,12 @@ export interface McpServerElicitationRequestParams {
   threadId: string;
   turnId?: string | null;
   serverName: string;
+  /** `form`：`requestedSchema` 是表单（v2/McpElicitationSchema.ts）；`url`：`url` 与 `elicitationId`。 */
   mode?: string;
   message?: string;
+  requestedSchema?: unknown;
+  url?: string;
+  elicitationId?: string;
   _meta?: unknown;
 }
 

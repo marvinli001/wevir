@@ -1,0 +1,7 @@
+{"_meta":{"recordedBy":"手写（照 codex-rs app-server-protocol v2/McpServerElicitationRequestParams.ts，rust-v0.163.0）","codex":"rust-v0.163.0","scenario":"elicitation-url","part":"elicitation 之后：decline","description":"用户接入的 MCP 服务在工具调用里要用户输入：表单与链接两种 elicitation"}}
+{"method":"serverRequest/resolved","params":{"threadId":"<thread>","requestId":"<request>"}}
+{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"<item:1>","server":"tickets","tool":"create_ticket","status":"failed","arguments":{},"result":null,"error":null},"threadId":"<thread>","turnId":"<turn>","completedAtMs":1792554319577}}
+{"method":"item/started","params":{"item":{"type":"agentMessage","id":"<item:2>","text":"","phase":null,"memoryCitation":null,"delivery":null,"questions":null},"threadId":"<thread>","turnId":"<turn>","startedAtMs":1792554319577}}
+{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"<item:2>","text":"The user declined.","phase":null,"memoryCitation":null,"delivery":null,"questions":null},"threadId":"<thread>","turnId":"<turn>","completedAtMs":1792554319577}}
+{"method":"thread/status/changed","params":{"threadId":"<thread>","status":{"type":"idle"}}}
+{"method":"turn/completed","params":{"threadId":"<thread>","turn":{"id":"<turn>","rootTurnId":"<turn>","items":[],"itemsView":"summary","status":"completed","error":null,"startedAt":1792554319,"completedAt":1792554319,"durationMs":92}}}

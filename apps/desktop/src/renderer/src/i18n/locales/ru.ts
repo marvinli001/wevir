@@ -1023,6 +1023,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': 'Разрешить добавление этого MCP-сервера?',
   'approval.title.wevirConfig': 'Разрешить изменение конфигурации Wevir?',
   'approval.title.pluginManage': 'Разрешить изменение настроек плагинов?',
+  'approval.title.openLink': 'Открыть ссылку?',
   'approval.title.browserOpen': 'Разрешить открыть страницу в браузере?',
   'approval.title.browserAct': 'Разрешить действия на странице в браузере?',
   'approval.title.browserClose': 'Разрешить закрыть вкладку браузера?',

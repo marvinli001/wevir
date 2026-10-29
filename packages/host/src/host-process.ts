@@ -529,7 +529,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       plugins,
     });
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
-    const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
+    // 用户级的 Claude Code 与 Codex agent 也当角色（external-agents.ts），主目录同导入。
+    const roles = new RoleStore({
+      dir: homePath(home, 'rolesDir'),
+      externalHome: {
+        userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
+        env: process.env,
+      },
+    });
     // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
     // 改动写进根会话的事件流（0.52.0 的 tasks.board_updated），桌面端据此显示清单。
     // 频道的清单（0.120.0）根是频道 ID，改动交给频道服务推给订阅者。
@@ -728,6 +735,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         dispose: () => appTools?.plugins?.close(),
       },
+      // 角色对引擎自带工具的限制：按会话的角色现算。
+      engineTools: async (sessionId) => appTools?.engineToolLimits(sessionId),
       // 只给某个项目的连接器（0.74.0）：按会话所在的工作区交给引擎。
       projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
       // 环境变量（0.130.0）：建立、恢复与分出环境的会话时现读。

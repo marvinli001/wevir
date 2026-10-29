@@ -1,4 +1,8 @@
-import type { ApprovalRequest, ClientIdentity } from '@wevir/protocol';
+import {
+  type ApprovalRequest,
+  type ClientIdentity,
+  MCP_URL_ELICITATION_TOOL,
+} from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   type ApprovalScope,
@@ -7,6 +11,7 @@ import {
   approvalScope,
   clientLabel,
   decidedHere,
+  elicitationLink,
   optionLabel,
   prefixText,
   presentApproval,
@@ -288,5 +293,38 @@ describe('总是允许（0.80.0）', () => {
     expect(
       resolutionText(approval(null), { reason: 'rule', optionId: 'allow-once', ruleIds: [] }, self),
     ).toBe('已按规则允许');
+  });
+});
+
+describe('连接器要打开的链接（URL 模式的 MCP elicitation）', () => {
+  const link = (url: string) =>
+    approval({
+      toolName: MCP_URL_ELICITATION_TOOL,
+      display: { kind: 'fetch', summary: url },
+      input: { server: 'tickets', message: 'Authorize the ticket tracker', url },
+    });
+
+  it('标题问要不要打开，目标是地址，说明是服务的原话', () => {
+    expect(presentApproval(link('https://tickets.example.com/authorize'), codex)).toEqual({
+      title: '打开链接？',
+      target: 'https://tickets.example.com/authorize',
+      justification: 'Authorize the ticket tracker',
+    });
+    expect(elicitationLink(link('https://tickets.example.com/authorize'))).toBe(
+      'https://tickets.example.com/authorize',
+    );
+  });
+
+  it('只认 http 与 https；别的工具不是链接', () => {
+    expect(elicitationLink(link('javascript:alert(1)'))).toBeUndefined();
+    expect(
+      elicitationLink(
+        approval({
+          toolName: 'mcp__tickets__open',
+          display: { kind: 'fetch' },
+          input: { url: 'https://x.example' },
+        }),
+      ),
+    ).toBeUndefined();
   });
 });

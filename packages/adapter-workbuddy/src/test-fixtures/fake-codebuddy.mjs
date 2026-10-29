@@ -267,6 +267,37 @@ async function prompt(id, params) {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Finished' },
       });
+    } else if (text === 'elicitation-form' || text === 'elicitation-url') {
+      // ACP `elicitation/create`（引擎的 MCP 服务要用户输入）：回答原样作为助手的文字交回去。
+      const answer = await Promise.race([
+        request(
+          'elicitation/create',
+          text === 'elicitation-form'
+            ? {
+                sessionId,
+                mode: 'form',
+                message: 'New ticket',
+                requestedSchema: {
+                  type: 'object',
+                  properties: { title: { type: 'string', title: 'Title' } },
+                  required: ['title'],
+                },
+              }
+            : {
+                sessionId,
+                mode: 'url',
+                message: 'Authorize the ticket tracker',
+                url: 'https://tickets.example.com/authorize',
+                elicitationId: 'el-1',
+              },
+        ),
+        cancelled,
+      ]);
+      if (answer === 'cancelled') stopReason = 'cancelled';
+      update(sessionId, {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: JSON.stringify(answer?.result ?? {}) },
+      });
     } else if (text === 'question-extension') {
       const answer = await Promise.race([
         request('_codebuddy.ai/question', {

@@ -88,6 +88,26 @@ export interface SessionConfig {
    * 值是密钥，不得写进日志或事件。
    */
   env?: Record<string, string>;
+  /**
+   * 角色对引擎自带工具的限制（domain-model §3.15 的“角色”）：Host 按会话的角色给，恢复与分出会话时照样给。各适配器按引擎能做到的
+   * 程度执行（Claude 按名字精确去掉；Codex 关 shell、只读沙箱、关联网搜索；OpenCode 加 deny 规则；ACP 引擎拒掉这些类别的审批请求），
+   * 做不到的部分靠权限模式与角色说明。没有角色或角色不限引擎工具时省略。
+   */
+  engineTools?: EngineToolLimits;
+}
+
+/** 引擎自带工具的类别：读与搜索文件、改文件、跑命令、联网。 */
+export type EngineToolClass = 'read' | 'edit' | 'shell' | 'web';
+
+/**
+ * 角色对引擎自带工具的限制（`SessionConfig.engineTools`）。`denied` 是整类关掉的（只能按类关的引擎用它；角色只禁了某一类里的一个
+ * 工具时这一类也算关掉，宁严勿松）。`deniedNames` / `allowedNames` 是 Claude Code 的工具名（类别名已展开，`mcp__<服务>__<工具>` 与
+ * `mcp__<服务>__*` 原样），只有认这些名字的引擎（Claude）用：前者从模型的工具里去掉，后者是只许的内置工具（省略表示不按名字收窄）。
+ */
+export interface EngineToolLimits {
+  denied: EngineToolClass[];
+  deniedNames: string[];
+  allowedNames?: string[];
 }
 
 /**

@@ -1004,6 +1004,7 @@ export const zhCN = {
   'approval.title.connectorAdd': '允许添加此 MCP 服务？',
   'approval.title.wevirConfig': '允许更改 Wevir 的配置？',
   'approval.title.pluginManage': '允许更改插件配置？',
+  'approval.title.openLink': '打开链接？',
   'approval.title.browserOpen': '允许在浏览器中打开网页？',
   'approval.title.browserAct': '允许操作浏览器中的网页？',
   'approval.title.browserClose': '允许关闭浏览器标签页？',

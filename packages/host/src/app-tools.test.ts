@@ -53,6 +53,8 @@ afterEach(async () => {
 class ToolEcho extends EchoAdapter {
   readonly appTools = true;
   readonly endpoints = new Map<string, AppToolsEndpoint | undefined>();
+  /** 每个引擎会话拿到的角色限制（`SessionConfig.engineTools`）。 */
+  readonly engineTools = new Map<string, SessionConfig['engineTools']>();
   /** 建会话的过程中先调它（同 Codex：起 thread 时就连上应用级工具）。 */
   onCreate: ((config: SessionConfig) => Promise<void>) | undefined;
 
@@ -60,6 +62,7 @@ class ToolEcho extends EchoAdapter {
     await this.onCreate?.(config);
     const session = await super.createSession(config);
     this.endpoints.set(session.engineSessionId, config.appTools);
+    this.engineTools.set(session.engineSessionId, config.engineTools);
     return session;
   }
 }
@@ -113,6 +116,7 @@ async function setup(
       dispose: () => tools?.plugins?.close(),
     },
     onTurnFinished: (info) => tools?.onTurnFinished(info),
+    engineTools: async (sessionId) => tools?.engineToolLimits(sessionId),
   });
   const plugins = withPlugins
     ? new PluginRegistry({
@@ -1667,6 +1671,43 @@ describe('预设角色', () => {
     );
     const gone = await h.call(caller, 'wevir_session_create', { message: 'x', role: 'remote' });
     expect(gone.error).toMatch(/provider gone, which is not available/);
+  });
+
+  it('角色限制引擎自带的工具：建会话时交给引擎；角色的模型不在 Provider 里时沿用开它的会话的', async () => {
+    const h = await setup();
+    mkdirSync(h.rolesDir, { recursive: true });
+    writeFileSync(
+      join(h.rolesDir, 'reader.md'),
+      role([
+        'description: Reads only',
+        'tools: Read, Grep, readonly',
+        'disallowedTools: [mcp__github__*]',
+        'model: sonnet',
+      ]),
+    );
+    const caller = await h.create();
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'read around',
+      role: 'reader',
+      reportBack: false,
+    });
+    const child = opened.sessionId as SessionId;
+    expect(opened.modelId).toBe(h.storage.sessions.get(caller)?.modelId);
+    const engineSessionId = h.storage.sessions.get(child)?.engineSessionId as string;
+    expect(h.adapter.engineTools.get(engineSessionId)).toEqual({
+      denied: ['edit', 'shell', 'web'],
+      deniedNames: ['mcp__github__*'],
+      allowedNames: ['Read', 'Grep'],
+    });
+    // 只读的应用级工具照样能用，关掉 shell 与 web 的同时去掉后台进程与浏览器。
+    const seen = await visible(h, child);
+    expect(seen).toContain('wevir_session_list');
+    expect(seen).not.toContain('wevir_session_create');
+    expect(seen.some((name) => name.startsWith('browser_'))).toBe(false);
+    // 没有角色的会话不带。
+    expect(
+      h.adapter.engineTools.get(h.storage.sessions.get(caller)?.engineSessionId as string),
+    ).toBe(undefined);
   });
 
   it('角色限制应用级工具：tools/list 不列、tools/call 拒绝；readonly 与前缀；没有角色的不受影响', async () => {

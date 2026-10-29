@@ -37,6 +37,7 @@ import {
   type EngineAppToolsGrant,
   type EngineRuleFiles,
   type EngineSession,
+  type EngineToolClass,
   EventHub,
   isAdapterError,
   type PendingApproval,
@@ -55,6 +56,7 @@ import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
 import {
   APPROVAL_OPTIONS,
   childPermissionRules,
+  engineToolRules,
   PERMISSION_MODES,
   permissionReply,
   permissionRules,
@@ -127,6 +129,8 @@ interface SessionSettings {
   additionalRoots?: string[];
   /** 这个会话看不到的应用级工具（Host 按角色与工具预设去掉的，`#hiddenAppTools`），在规则末尾写成 deny。 */
   hiddenTools?: string[];
+  /** 角色关掉的引擎工具类别（`SessionConfig.engineTools`），在规则末尾写成 deny（permissions.ts 的 `engineToolRules`）。 */
+  deniedTools?: EngineToolClass[];
   /** Host 补给的规则文件（0.68.0，`SessionConfig.ruleInstructions`）：每次 `promptAsync` 作为 `system` 带上。 */
   system?: string;
 }
@@ -681,6 +685,9 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ...settingsOf(config),
       ...(session.settings.additionalRoots !== undefined && {
         additionalRoots: session.settings.additionalRoots,
+      }),
+      ...(session.settings.deniedTools !== undefined && {
+        deniedTools: session.settings.deniedTools,
       }),
       ...(session.settings.hiddenTools !== undefined && {
         hiddenTools: session.settings.hiddenTools,
@@ -1801,8 +1808,11 @@ function settingsOf(config: {
   permissionMode?: PermissionMode;
   additionalRoots?: string[];
   ruleInstructions?: string;
+  engineTools?: SessionConfig['engineTools'];
 }): SessionSettings {
   return {
+    ...(config.engineTools !== undefined &&
+      config.engineTools.denied.length > 0 && { deniedTools: [...config.engineTools.denied] }),
     modelId: config.modelId,
     ...(config.ruleInstructions !== undefined && { system: config.ruleInstructions }),
     ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
@@ -1814,7 +1824,10 @@ function settingsOf(config: {
 
 /** 会话的规则集：权限模式的规则，末尾接上它看不到的应用级工具的 deny（最后命中的规则生效）。 */
 function sessionRules(settings: SessionSettings): PermissionRuleset {
-  const rules = permissionRules(settings.permissionMode, settings.additionalRoots);
+  const rules = [
+    ...permissionRules(settings.permissionMode, settings.additionalRoots),
+    ...engineToolRules(settings.deniedTools ?? []),
+  ];
   const hidden = settings.hiddenTools ?? [];
   return hidden.length === 0 ? rules : [...rules, ...hiddenToolRules(hidden)];
 }

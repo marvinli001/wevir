@@ -92,6 +92,7 @@ import {
   type DeltaBlockRef,
   type EngineGoal,
   type EngineSession,
+  type EngineToolLimits,
   type GuardrailBlockedEvent,
   isAdapterError,
   type QuestionCancelledEvent,
@@ -329,6 +330,11 @@ export interface SessionManagerOptions {
   };
   /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
   toolOutputDir?: string;
+  /**
+   * 会话的角色对引擎自带工具的限制（roles.ts 的 `roleEngineTools`）：建立、恢复、分出与接力会话时现算，交给适配器的
+   * `SessionConfig.engineTools`。没给、没有角色或角色不限时不带。
+   */
+  engineTools?: (sessionId: SessionId) => Promise<EngineToolLimits | undefined>;
   /**
    * 消息里的图片（0.28.0，images.ts）。没给时、或适配器没有 `acceptsImages` 时，带图片的消息回 `INVALID_PARAMS`。
    */
@@ -811,6 +817,7 @@ export class SessionManager {
   readonly #customInstructions: SessionManagerOptions['customInstructions'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
+  readonly #engineTools: SessionManagerOptions['engineTools'];
   /**
    * 应用级工具的会话上下文交给引擎系统说明的会话（适配器的 `appToolsContextInPrompt`）：它们的 MCP 说明只剩工具说明。建立与恢复
    * 引擎会话时按 Provider 记下。
@@ -890,6 +897,7 @@ export class SessionManager {
     this.#customInstructions = options.customInstructions;
     this.#images = options.images;
     this.#appTools = options.appTools;
+    this.#engineTools = options.engineTools;
     this.#approvalPolicy = options.approvalPolicy;
     this.#projectConnectors = options.projectConnectors;
     this.#environmentVariables = options.environmentVariables;
@@ -926,6 +934,10 @@ export class SessionManager {
       connectors === undefined || connectors.length === 0
         ? withRules
         : { ...withRules, connectors };
+    // 角色对引擎工具的限制：按会话的角色（分支、子会话沿用），每次建立或恢复都按当时的角色文件。
+    const engineTools = await this.#engineTools?.(sessionId);
+    const withRole =
+      engineTools === undefined ? withConnectors : { ...withConnectors, engineTools };
     // 环境变量（0.130.0）：按会话的环境，每次建立或恢复都按当时存的值。
     const environmentId =
       this.#storage.sessions.get(sessionId)?.environmentId ??
@@ -933,9 +945,7 @@ export class SessionManager {
     const env =
       environmentId === undefined ? undefined : await this.#environmentVariables?.(environmentId);
     const withEnv =
-      env === undefined || Object.keys(env).length === 0
-        ? withConnectors
-        : { ...withConnectors, env };
+      env === undefined || Object.keys(env).length === 0 ? withRole : { ...withRole, env };
     // 护栏（0.86.0）：只有认 Codex hooks 的来源挂；别的引擎不受影响。
     const guardrails =
       this.#guardrails !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
