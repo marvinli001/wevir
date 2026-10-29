@@ -3,6 +3,7 @@
 // 写着“插话 / 排队”的切换（点一下换成另一种，同桌面窄输入框），以及空着时的停止按钮。
 // 听写（Host 有 `speech` 时，state/dictation.ts）：点麦克风开始录音，输入框换成录音条（红点与计时），前面 ✕ 丢掉、尾部 ✓ 结束并
 // 转写，文字放到光标处，不自动发送。不能听写时麦克风灰着。
+// 给了 `draftKey` 时没发出的字记在 state/drafts.ts，离开页面再回来还在。
 
 import type { PendingDelivery } from '@wevir/protocol';
 import { GlassView } from 'expo-glass-effect';
@@ -21,6 +22,7 @@ import {
 import { type MessageKey, t } from '../i18n';
 import { insertDictation, type SpeechClient } from '../lib/dictation';
 import { type Dictation, useDictation } from '../state/dictation';
+import { readDraft, writeDraft } from '../state/drafts';
 import { TEXT, useTheme } from '../theme';
 import { type MenuSection, MenuTrigger } from './menu';
 import { GLASS, Icon } from './ui';
@@ -48,6 +50,7 @@ export function Composer({
   onDictationError,
   canSend = true,
   autoFocus = false,
+  draftKey,
 }: {
   onSend: (text: string) => Promise<void>;
   disabled?: boolean;
@@ -70,9 +73,14 @@ export function Composer({
   /** `false`：能写，发送按钮灰着（新建会话还在读选项）。 */
   canSend?: boolean;
   autoFocus?: boolean;
+  /** 草稿的键（会话、助理各一个）。 */
+  draftKey?: string;
 }) {
   const theme = useTheme();
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => (draftKey !== undefined ? readDraft(draftKey) : ''));
+  useEffect(() => {
+    if (draftKey !== undefined) writeDraft(draftKey, text);
+  }, [draftKey, text]);
   const cursor = useRef(0);
   const dictation = useDictation({
     client: speech,

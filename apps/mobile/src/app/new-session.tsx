@@ -415,6 +415,7 @@ export default function NewSessionScreen() {
             </Text>
           )}
           <Composer
+            draftKey="new-session"
             onSend={start}
             autoFocus
             canSend={canStart}

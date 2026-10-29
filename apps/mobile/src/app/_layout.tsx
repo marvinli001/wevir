@@ -1,4 +1,5 @@
-// 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表、收件箱与助理、推送（登记与点通知跳转）、App 开着时的提醒条与 App 锁。
+// 根布局：选语言、跑一次 Noise 自检（开发构建）、提供电脑列表、收件箱与助理、推送（登记与点通知跳转）、App 开着时的提醒条、底部的
+// 提示（“已归档 · 撤销”）与 App 锁。
 // 底下是四个标签页（助理、收件箱、会话、电脑），助理对话、会话、改动与文件、电脑详情、添加电脑、新建会话、新建与编辑助理压在标签页之上。
 
 import { getLocales } from 'expo-localization';
@@ -15,6 +16,7 @@ import { LockProvider } from '../state/lock';
 import { NotificationBanners } from '../state/notifications';
 import { PushProvider } from '../state/push';
 import { RegistryProvider } from '../state/registry';
+import { ToastProvider } from '../state/toast';
 import { useTheme } from '../theme';
 
 setLocale(pickLocale(getLocales().map((l) => l.languageTag)));
@@ -49,59 +51,61 @@ export default function RootLayout() {
           <LockProvider>
             <PushProvider>
               <NotificationBanners>
-                <Stack screenOptions={stackOptions(theme)}>
-                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                  <Stack.Screen
-                    name="add"
-                    options={{ title: t('add.title'), presentation: 'modal' }}
-                  />
-                  <Stack.Screen
-                    name="computer/[name]"
-                    options={{ title: '', headerLargeTitleEnabled: true }}
-                    dangerouslySingular={byName}
-                  />
-                  <Stack.Screen
-                    name="bot/[key]"
-                    options={{ title: '', headerLargeTitleEnabled: true }}
-                    dangerouslySingular={byKey}
-                  />
-                  <Stack.Screen
-                    name="session/[key]"
-                    options={{ title: '', headerLargeTitleEnabled: true }}
-                    dangerouslySingular={byKey}
-                  />
-                  <Stack.Screen
-                    name="new-session"
-                    options={{ title: t('newSession.title'), presentation: 'modal' }}
-                  />
-                  <Stack.Screen
-                    name="new-bot"
-                    options={{
-                      title: t('bots.new'),
-                      presentation: 'formSheet',
-                      sheetAllowedDetents: [0.62, 1],
-                      sheetGrabberVisible: true,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="edit-group"
-                    options={{
-                      title: t('bots.newGroup'),
-                      presentation: 'formSheet',
-                      sheetAllowedDetents: [0.75, 1],
-                      sheetGrabberVisible: true,
-                    }}
-                  />
-                  <Stack.Screen
-                    name="edit-bot"
-                    options={{
-                      title: t('editBot.title'),
-                      presentation: 'formSheet',
-                      sheetAllowedDetents: [0.75, 1],
-                      sheetGrabberVisible: true,
-                    }}
-                  />
-                </Stack>
+                <ToastProvider>
+                  <Stack screenOptions={stackOptions(theme)}>
+                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="add"
+                      options={{ title: t('add.title'), presentation: 'modal' }}
+                    />
+                    <Stack.Screen
+                      name="computer/[name]"
+                      options={{ title: '', headerLargeTitleEnabled: true }}
+                      dangerouslySingular={byName}
+                    />
+                    <Stack.Screen
+                      name="bot/[key]"
+                      options={{ title: '', headerLargeTitleEnabled: true }}
+                      dangerouslySingular={byKey}
+                    />
+                    <Stack.Screen
+                      name="session/[key]"
+                      options={{ title: '', headerLargeTitleEnabled: true }}
+                      dangerouslySingular={byKey}
+                    />
+                    <Stack.Screen
+                      name="new-session"
+                      options={{ title: t('newSession.title'), presentation: 'modal' }}
+                    />
+                    <Stack.Screen
+                      name="new-bot"
+                      options={{
+                        title: t('bots.new'),
+                        presentation: 'formSheet',
+                        sheetAllowedDetents: [0.62, 1],
+                        sheetGrabberVisible: true,
+                      }}
+                    />
+                    <Stack.Screen
+                      name="edit-group"
+                      options={{
+                        title: t('bots.newGroup'),
+                        presentation: 'formSheet',
+                        sheetAllowedDetents: [0.75, 1],
+                        sheetGrabberVisible: true,
+                      }}
+                    />
+                    <Stack.Screen
+                      name="edit-bot"
+                      options={{
+                        title: t('editBot.title'),
+                        presentation: 'formSheet',
+                        sheetAllowedDetents: [0.75, 1],
+                        sheetGrabberVisible: true,
+                      }}
+                    />
+                  </Stack>
+                </ToastProvider>
               </NotificationBanners>
             </PushProvider>
           </LockProvider>

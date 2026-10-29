@@ -1,11 +1,20 @@
 // 收件箱：所有连着的电脑上等你处理的事合成一个列表（要作答的在前，先到期的在前），每张卡片标出电脑与会话。审批直接批准或拒绝
-// （高风险的批准先验证本人），只有一题单选的提问直接点选项，失败回合与自动化可以收起；点卡片进对应的会话或助理。作答撞上别处
-// 先处理了或已过期时，卡片换成一行“已在电脑上处理 · 已批准 · 2 分钟前”，点掉为止。离线的电脑列在最后。
+// （高风险的批准先验证本人；摘要超过四行时先“显示全部”看完整条命令，才出现批准），只有一题单选的提问直接点选项，失败回合与自动化可以收起；点卡片进对应的会话或助理。作答撞上别处
+// 先处理了或已过期时，卡片换成一行“已在电脑上处理 · 已批准 · 2 分钟前”，点掉为止。离线的电脑列在最后（点一下重连）。下拉重读收件箱、
+// 重连离线的电脑。
 
 import type { InboxItem } from '@wevir/protocol';
 import { Stack, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Badge, Button, EmptyState, Icon, type IconName } from '../../../components/ui';
 import { locale, type MessageKey, t, timeAgo } from '../../../i18n';
 import { ApprovalNotVerifiedError } from '../../../lib/approval-gate';
@@ -18,7 +27,8 @@ import {
 } from '../../../lib/inbox';
 import type { SettledEntry } from '../../../lib/inbox-store';
 import { useInbox, useInboxStore } from '../../../state/inbox';
-import { useComputers } from '../../../state/registry';
+import { usePullToRefresh } from '../../../state/refresh';
+import { useComputers, useRegistry } from '../../../state/registry';
 import { RADIUS, SPACE, TEXT, type Theme, useTheme } from '../../../theme';
 
 /** 有会过期的项时每 10 秒走一次，倒计时与“已过期”最多晚 10 秒；没有时按分钟走（只用于“几分钟前”）。 */
@@ -35,13 +45,21 @@ function useInboxClock(expiring: boolean): Date {
 export default function InboxScreen() {
   const router = useRouter();
   const inbox = useInbox();
+  const store = useInboxStore();
+  const registry = useRegistry();
+  const theme = useTheme();
+  const pull = usePullToRefresh(() => Promise.all([store.refresh(), registry.refresh()]));
   const { loaded, computers } = useComputers();
   const now = useInboxClock(inbox.entries.some((entry) => entry.item.expiresAt !== undefined));
   const empty = inbox.entries.length === 0 && inbox.settled.length === 0;
   return (
     <>
       <Stack.Screen options={{ title: t('inbox.title') }} />
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl {...pull} tintColor={theme.mutedForeground} />}
+      >
         {inbox.settled.map((settled) => (
           <SettledCard key={`settled:${settled.entry.key}`} settled={settled} now={now} />
         ))}
@@ -70,6 +88,7 @@ export default function InboxScreen() {
             text={t('inbox.unavailable', {
               names: inbox.unavailable.join(locale().startsWith('zh') ? '、' : ', '),
             })}
+            onPress={() => void registry.refresh()}
           />
         )}
       </ScrollView>
@@ -77,9 +96,23 @@ export default function InboxScreen() {
   );
 }
 
-function Footer({ text }: { text: string }) {
+function Footer({ text, onPress }: { text: string; onPress: () => void }) {
   const theme = useTheme();
-  return <Text style={[styles.footer, { color: theme.mutedForeground }]}>{text}</Text>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      hitSlop={8}
+      style={({ pressed }) => [styles.footerRow, { opacity: pressed ? 0.5 : 1 }]}
+    >
+      <Text style={[styles.footer, { color: theme.mutedForeground }]}>{text}</Text>
+      <Icon
+        name={{ ios: 'arrow.clockwise', android: 'refresh' }}
+        size={13}
+        color={theme.mutedForeground}
+      />
+    </Pressable>
+  );
 }
 
 function kindLabel(item: InboxItem): { icon: IconName; label: MessageKey } {
@@ -138,6 +171,10 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
   const store = useInboxStore();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<MessageKey>();
+  // 摘要的总行数（量一份不截断的隐形副本）；超过四行时收着，展开前批准是灰的。“显示全部”放在摘要里，
+  // 不和批准占同一个位置，免得连点两下就批了。
+  const [summaryLines, setSummaryLines] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   const { item } = entry;
   const { icon, label } = kindLabel(item);
   const tone = toneOf(theme, item);
@@ -164,6 +201,7 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
   const reject =
     options.find((o) => o.category === 'reject' && o.kind.endsWith('_once')) ??
     options.find((o) => o.category === 'reject');
+  const truncated = summaryLines > SUMMARY_LINES && !expanded;
 
   return (
     <Card onPress={() => router.push(inboxTarget(entry))}>
@@ -187,11 +225,37 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
               { color: theme.foreground },
               item.kind === 'approval' && styles.mono,
             ]}
-            numberOfLines={4}
+            {...(!expanded && { numberOfLines: SUMMARY_LINES })}
             selectable
           >
             {item.summary}
           </Text>
+          <Text
+            style={[styles.quoteText, styles.measure, item.kind === 'approval' && styles.mono]}
+            onTextLayout={(e) => setSummaryLines(e.nativeEvent.lines.length)}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+          >
+            {item.summary}
+          </Text>
+          {truncated && (
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={{ top: 8, bottom: 12, left: 12, right: 12 }}
+              onPress={() => setExpanded(true)}
+              style={styles.more}
+            >
+              <Text style={[styles.moreText, { color: theme.foreground }]}>
+                {t('inbox.showAll')}
+              </Text>
+              <Icon
+                name={{ ios: 'chevron.down', android: 'expand_more' }}
+                size={12}
+                color={theme.foreground}
+                weight="semibold"
+              />
+            </Pressable>
+          )}
         </View>
       )}
       {(risky || expiry.kind !== 'none') && (
@@ -220,7 +284,7 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
             <Button
               title={t('bot.approve')}
               {...(risky && { icon: { ios: 'faceid', android: 'fingerprint' } as const })}
-              disabled={busy || expiry.kind === 'expired'}
+              disabled={busy || truncated || expiry.kind === 'expired'}
               onPress={() => run(() => store.respondApproval(entry, allow.optionId))}
             />
           </View>
@@ -262,6 +326,9 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
     </Card>
   );
 }
+
+/** 卡片里摘要最多显示的行数。 */
+const SUMMARY_LINES = 4;
 
 /** “已在电脑上处理 · 已批准 · 2 分钟前”；规则、过期、取消只说一句。 */
 function outcomeLine(outcome: SettledEntry['outcome'], now: Date): string {
@@ -328,6 +395,16 @@ const styles = StyleSheet.create({
   title: { fontSize: TEXT.body, fontWeight: '600', lineHeight: 21 },
   quote: { borderRadius: RADIUS.control, borderCurve: 'continuous', padding: 12 },
   quoteText: { fontSize: 15, lineHeight: 21 },
+  // 量行数用的副本：同样的宽度与字体，不占位、不显示。
+  measure: { position: 'absolute', left: 12, right: 12, top: 12, opacity: 0 },
+  more: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingTop: 8,
+  },
+  moreText: { fontSize: TEXT.small, fontWeight: '600' },
   mono: { fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), fontSize: 14 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   metaText: { fontSize: TEXT.small },
@@ -335,5 +412,12 @@ const styles = StyleSheet.create({
   action: { flex: 1 },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dismiss: { alignSelf: 'flex-start' },
-  footer: { fontSize: TEXT.small, textAlign: 'center', marginTop: 12 },
+  footer: { fontSize: TEXT.small, textAlign: 'center', flexShrink: 1 },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 12,
+  },
 });

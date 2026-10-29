@@ -38,7 +38,7 @@ import { HeaderMenu } from '../../components/header-button';
 import type { MenuSection } from '../../components/menu';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
-import { Icon } from '../../components/ui';
+import { Button, Icon } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { displayName } from '../../lib/records';
@@ -48,6 +48,7 @@ import { type SessionView, SessionWatch } from '../../lib/session-watch';
 import { useMinuteClock } from '../../state/clock';
 import { usePhotoAttachments } from '../../state/photo-attachments';
 import { useComputer, useRegistry } from '../../state/registry';
+import { useToast } from '../../state/toast';
 import { SPACE, TEXT, type Theme, useTheme } from '../../theme';
 
 const TOOL_VERBS: Partial<Record<ToolDisplayKind, MessageKey>> = {
@@ -83,6 +84,8 @@ export default function SessionScreen() {
   const client = link?.sessions;
   const cache = link?.cache;
   const [view, setView] = useState<SessionView>({ caughtUp: false });
+  // 读取失败后点“重试”：加一次，重新订阅。
+  const [attempt, setAttempt] = useState(0);
   const watch = useRef<SessionWatch | undefined>(undefined);
   const actions = useMemo(
     () =>
@@ -92,9 +95,11 @@ export default function SessionScreen() {
   const [delivery, setDelivery] = useState<PendingDelivery>('steer');
   const [error, setError] = useState<MessageKey>();
   const [renaming, setRenaming] = useState(false);
+  const showToast = useToast();
   const [keyboard, setKeyboard] = useState(0);
   const [composerHeight, setComposerHeight] = useState(64);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` 变了（点了重试）就重新订阅
   useEffect(() => {
     const current = new SessionWatch(client, sessionId, setView, cache);
     watch.current = current;
@@ -103,7 +108,7 @@ export default function SessionScreen() {
       current.stop();
       if (watch.current === current) watch.current = undefined;
     };
-  }, [client, cache, sessionId]);
+  }, [client, cache, sessionId, attempt]);
 
   useEffect(() => {
     let stopped = false;
@@ -195,7 +200,20 @@ export default function SessionScreen() {
     if (actions === undefined) return;
     actions.archive(!archived).then(
       () => {
-        if (!archived) router.back();
+        if (archived) return;
+        // 归档后会话从列表里消失、手机上找不回来：退回去，底部给几秒“撤销”。
+        router.back();
+        showToast({
+          text: t('session.archived'),
+          action: {
+            label: t('session.undo'),
+            onPress: () =>
+              void actions.archive(false).catch((e: unknown) => {
+                console.warn('[wevir] could not unarchive', e);
+                Alert.alert(t('session.unarchiveFailed'));
+              }),
+          },
+        });
       },
       (e: unknown) =>
         Alert.alert(
@@ -296,6 +314,10 @@ export default function SessionScreen() {
             onAnswer={async (questionId, answers) => {
               await actions?.answer(questionId as QuestionId, answers);
             }}
+            onRetry={() => {
+              link?.retryNow();
+              setAttempt((n) => n + 1);
+            }}
             onCancelPending={(pendingId) => {
               actions
                 ?.cancelPending(pendingId as PendingMessageId)
@@ -312,6 +334,7 @@ export default function SessionScreen() {
               </Text>
             )}
             <Composer
+              draftKey={key}
               onSend={send}
               disabled={!canWrite}
               placeholder={
@@ -371,6 +394,7 @@ function SessionList({
   onDecide,
   onAnswer,
   onCancelPending,
+  onRetry,
 }: {
   items: readonly SessionItem[];
   meta: string;
@@ -382,6 +406,7 @@ function SessionList({
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
   onCancelPending: (pendingId: string) => void;
+  onRetry: () => void;
 }) {
   const now = useMinuteClock();
   const list = useRef<FlatList<SessionItem>>(null);
@@ -390,6 +415,10 @@ function SessionList({
   const follow = useRef(true);
   const dragging = useRef(false);
   const viewport = useRef(0);
+  const contentHeight = useRef(0);
+  // 离底部远（翻到了上面）时右下角浮出“最新消息”按钮；期间有新内容时按钮上加一个点。
+  const [away, setAway] = useState(false);
+  const [fresh, setFresh] = useState(false);
   const lastKey = useRef<string | undefined>(undefined);
   const last = items.at(-1);
   // 刚发出的消息总要看见，即使之前翻到了上面。
@@ -397,16 +426,35 @@ function SessionList({
     lastKey.current = last?.key;
     if (last?.kind === 'user' || last?.kind === 'pending') follow.current = true;
   }
+  useEffect(() => {
+    if (last !== undefined && !follow.current) setFresh(true);
+  }, [last]);
   const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (!dragging.current) return;
     const n = e.nativeEvent;
     follow.current = n.contentSize.height - n.contentOffset.y - n.layoutMeasurement.height < 120;
   };
+  // 自己算偏移：FlatList 的 scrollToEnd 按单元格估算，不算底部给输入框留的内边距。
+  // 列表铺到导航栏下面，内容加导航栏高度超出一屏才滚，否则会把开头推到导航栏下。
+  const toEnd = (animated: boolean) => {
+    if (contentHeight.current + headerHeight > viewport.current)
+      list.current?.scrollToOffset({
+        offset: contentHeight.current - viewport.current,
+        animated,
+      });
+  };
+  const jump = () => {
+    follow.current = true;
+    setFresh(false);
+    toEnd(true);
+  };
   return (
     <View
       style={styles.flex}
       onLayout={(e) => {
+        // 键盘弹起时页面变矮：跟着底部时滚回底部，最新的内容不被键盘挡住。
         viewport.current = e.nativeEvent.layout.height;
+        if (follow.current) toEnd(false);
       }}
     >
       <FlatList
@@ -429,14 +477,16 @@ function SessionList({
           settle(e);
           dragging.current = false;
         }}
-        // 自己算偏移：FlatList 的 scrollToEnd 按单元格估算，不算底部给输入框留的内边距。
-        // 列表铺到导航栏下面，内容加导航栏高度超出一屏才滚，否则会把开头推到导航栏下。
-        onContentSizeChange={(_, contentHeight) => {
-          if (follow.current && contentHeight + headerHeight > viewport.current)
-            list.current?.scrollToOffset({
-              offset: contentHeight - viewport.current,
-              animated: false,
-            });
+        scrollEventThrottle={100}
+        onScroll={(e) => {
+          const n = e.nativeEvent;
+          const far = n.contentSize.height - n.contentOffset.y - n.layoutMeasurement.height > 240;
+          setAway(far);
+          if (!far) setFresh(false);
+        }}
+        onContentSizeChange={(_, height) => {
+          contentHeight.current = height;
+          if (follow.current) toEnd(false);
         }}
         ListHeaderComponent={
           <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
@@ -447,9 +497,19 @@ function SessionList({
           loading ? (
             <ActivityIndicator style={styles.empty} color={theme.mutedForeground} />
           ) : (
-            <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>
-              {failed ? t('thread.unavailable') : t('thread.empty')}
-            </Text>
+            <View style={styles.emptyBox}>
+              <Text style={[styles.emptyText, { color: theme.mutedForeground }]}>
+                {failed ? t('thread.unavailable') : t('thread.empty')}
+              </Text>
+              {failed && (
+                <Button
+                  kind="secondary"
+                  title={t('computer.retry')}
+                  icon={{ ios: 'arrow.clockwise', android: 'refresh' }}
+                  onPress={onRetry}
+                />
+              )}
+            </View>
           )
         }
         renderItem={({ item }) => (
@@ -466,6 +526,32 @@ function SessionList({
           </View>
         )}
       />
+      {away && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('session.latest')}
+          onPress={jump}
+          hitSlop={8}
+          style={({ pressed }) => [
+            styles.latest,
+            {
+              bottom: bottomInset + 4,
+              backgroundColor: theme.card,
+              borderColor: theme.border,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+          testID="session-latest"
+        >
+          <Icon
+            name={{ ios: 'arrow.down', android: 'arrow_downward' }}
+            size={17}
+            weight="semibold"
+            color={theme.foreground}
+          />
+          {fresh && <View style={[styles.latestDot, { backgroundColor: theme.running }]} />}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -613,7 +699,20 @@ const styles = StyleSheet.create({
   pendingText: { fontSize: TEXT.body, lineHeight: 23 },
   pendingMeta: { flexDirection: 'row', gap: 12, paddingHorizontal: 4 },
   empty: { marginTop: 48 },
-  emptyText: { fontSize: TEXT.small, textAlign: 'center', marginTop: 48 },
+  emptyBox: { alignItems: 'center', gap: 14, marginTop: 48 },
+  emptyText: { fontSize: TEXT.small, textAlign: 'center' },
+  latest: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 2px 10px rgba(26, 26, 23, 0.12)',
+  },
+  latestDot: { position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: 4 },
   composer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 12, gap: 6 },
   error: { fontSize: TEXT.small, textAlign: 'center' },
 });

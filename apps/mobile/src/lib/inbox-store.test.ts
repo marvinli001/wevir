@@ -167,6 +167,21 @@ describe('InboxStore', () => {
     expect(studio.listeners.size).toBe(0);
   });
 
+  it('下拉刷新重读每台连着的电脑，读完才完成', async () => {
+    const studio = new FakeHost('mobile-s');
+    const source = new FakeSource();
+    source.add('studio', studio);
+    source.add('laptop', undefined);
+    const store = new InboxStore(source);
+    store.start();
+    await settle();
+    studio.items = [approvalItem('apr_1')];
+    await store.refresh();
+    expect(studio.lists).toBe(2);
+    expect(store.snapshot.entries.map((e) => e.item.id)).toEqual(['approval:apr_1']);
+    store.stop();
+  });
+
   it('手机批准与电脑上同时作答：后到的说明已在别处处理，写明谁、何时', async () => {
     const studio = new FakeHost('mobile-s');
     studio.items = [approvalItem('apr_1')];

@@ -64,7 +64,8 @@ interface ComputerState {
   list: InboxList | undefined;
   status: 'loading' | 'ready' | 'failed' | 'unavailable';
   stop: (() => void) | undefined;
-  reading: boolean;
+  /** 正在读的那一次（读完是 `undefined`）。 */
+  reading: Promise<void> | undefined;
   rereadQueued: boolean;
 }
 
@@ -155,6 +156,15 @@ export class InboxStore {
   }
 
   /** 用户看过“已在别处处理”的一项。 */
+  /** 下拉刷新：连着的电脑重读收件箱，读完时完成（没连着的由电脑列表去重连）。 */
+  async refresh(): Promise<void> {
+    await Promise.all(
+      [...this.#computers.values()].flatMap((state) =>
+        state.client !== undefined ? [this.#read(state, state.client)] : [],
+      ),
+    );
+  }
+
   acknowledge(key: string): void {
     this.#settled = this.#settled.filter((s) => s.entry.key !== key);
     this.#publish();
@@ -202,7 +212,7 @@ export class InboxStore {
           list: undefined,
           status: 'unavailable',
           stop: undefined,
-          reading: false,
+          reading: undefined,
           rereadQueued: false,
         };
         this.#computers.set(record.name, state);
@@ -220,7 +230,7 @@ export class InboxStore {
       if (client !== undefined) {
         const current = state;
         current.stop = client.onInboxChanged((change) => this.#changed(current, client, change));
-        this.#read(current, client);
+        void this.#read(current, client);
       }
     }
     for (const [name, state] of this.#computers) {
@@ -239,20 +249,19 @@ export class InboxStore {
         ? undefined
         : applyInboxChange(state.list, change);
     if (next === undefined) {
-      this.#read(state, client);
+      void this.#read(state, client);
       return;
     }
     state.list = next;
     this.#publish();
   }
 
-  #read(state: ComputerState, client: InboxClient): void {
-    if (state.reading) {
+  #read(state: ComputerState, client: InboxClient): Promise<void> {
+    if (state.reading !== undefined) {
       state.rereadQueued = true;
-      return;
+      return state.reading;
     }
-    state.reading = true;
-    client
+    state.reading = client
       .listInbox()
       .then(
         (list) => {
@@ -266,13 +275,14 @@ export class InboxStore {
         },
       )
       .finally(() => {
-        state.reading = false;
+        state.reading = undefined;
         if (state.client === client && state.rereadQueued) {
           state.rereadQueued = false;
-          this.#read(state, client);
+          void this.#read(state, client);
         }
         this.#publish();
       });
+    return state.reading;
   }
 
   #publish(): void {

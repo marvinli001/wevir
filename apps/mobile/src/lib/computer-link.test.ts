@@ -158,6 +158,31 @@ describe('ComputerLink', () => {
     expect(client.listCalls).toBe(3);
   });
 
+  it('re-reads sessions on pull-to-refresh, or reconnects when offline', async () => {
+    const a = session('ses_a', '2026-10-23T11:00:00.000Z');
+    const { env, link } = await started([
+      { error: new RemoteUnreachableError(['192.168.1.5:47830']) },
+      {
+        client: (hooks) => {
+          const client = new FakeClient(hooks);
+          client.lists = [
+            { sessions: [], listVersion: 1 },
+            { sessions: [a], listVersion: 2 },
+          ];
+          return client;
+        },
+      },
+    ]);
+    expect(link.snapshot.status.kind).toBe('offline');
+    await link.refresh();
+    await flush();
+    expect(env.connects).toBe(2);
+    expect(link.snapshot.sessions).toEqual({ kind: 'ready', sessions: [] });
+    await link.refresh();
+    expect((env.clients[0] as FakeClient).listCalls).toBe(2);
+    expect(link.snapshot.sessions).toEqual({ kind: 'ready', sessions: [a] });
+  });
+
   it('shows offline and retries on its own when the first connect fails', async () => {
     const { env, link } = await started([
       { error: new RemoteUnreachableError(['192.168.1.5:47830']) },

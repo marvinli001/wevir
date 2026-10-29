@@ -399,6 +399,7 @@ function BotChat({ bot }: { bot: Bot }) {
               </Text>
             )}
             <Composer
+              draftKey={`bot:${bot.key}`}
               onSend={send}
               {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}
               {...(access.composer && {

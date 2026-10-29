@@ -1,8 +1,8 @@
 // 一台电脑：大标题是电脑名（右上角新建会话），下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
-// `sessions.changed`），这台电脑的推送状态，最后是“退出这台电脑”（点开从这一行展开的确认菜单）。
+// `sessions.changed`，下拉重读或重连），这台电脑的推送状态，最后是“退出这台电脑”（点开从这一行展开的确认菜单）。
 
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { HeaderButton } from '../../components/header-button';
 import { MenuTrigger } from '../../components/menu';
 import { PushStatusSection } from '../../components/push-section';
@@ -13,6 +13,7 @@ import type { LinkSnapshot } from '../../lib/computer-link';
 import { displayName } from '../../lib/records';
 import { sessionsPlaceholder, statusLine, statusNotice } from '../../lib/status-text';
 import { useMinuteClock } from '../../state/clock';
+import { usePullToRefresh } from '../../state/refresh';
 import { useComputer, useRegistry } from '../../state/registry';
 import { RADIUS, SPACE, TEXT, useTheme } from '../../theme';
 
@@ -28,6 +29,9 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
   const router = useRouter();
   const registry = useRegistry();
   const now = useMinuteClock();
+  const pull = usePullToRefresh(
+    () => registry.link(snapshot.record.name)?.refresh() ?? Promise.resolve(),
+  );
   const { record, status, sessions } = snapshot;
   const notice = statusNotice(status);
   const sessionList = sessions.kind === 'ready' ? sessions.sessions : [];
@@ -52,7 +56,11 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
           disabled={status.kind !== 'online'}
         />
       )}
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl {...pull} tintColor={theme.mutedForeground} />}
+      >
         <Group style={styles.statusCard}>
           <View style={styles.statusHead}>
             <View style={[styles.hero, { backgroundColor: theme.muted }]}>

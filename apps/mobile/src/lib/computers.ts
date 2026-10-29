@@ -61,6 +61,11 @@ export class ComputerRegistry {
     this.#changed();
   }
 
+  /** 下拉刷新：每台电脑重连或重读会话列表。 */
+  async refresh(): Promise<void> {
+    await Promise.all([...this.#links.values()].map((link) => link.refresh()));
+  }
+
   /** 前台 / 后台。 */
   setActive(active: boolean): void {
     this.#active = active;

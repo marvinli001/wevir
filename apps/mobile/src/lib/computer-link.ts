@@ -269,6 +269,16 @@ export class ComputerLink {
     this.#start();
   }
 
+  /** 下拉刷新：没连着就立刻重连，连着就重读会话列表；读完（或开始重连）时完成。 */
+  refresh(): Promise<void> {
+    if (this.#client === undefined) {
+      this.retryNow();
+      return Promise.resolve();
+    }
+    this.#readSessions(this.#generation);
+    return this.#reading ?? Promise.resolve();
+  }
+
   /** 退出这台电脑：断开，之后不再用。 */
   dispose(): void {
     this.#active = false;
