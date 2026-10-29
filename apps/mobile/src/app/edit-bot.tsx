@@ -1,16 +1,23 @@
-// 编辑助理：头像（点一下换一个）、名字、职责、模型（那台电脑上启用的模型服务）、可访问的文件夹（从那台电脑的项目文件夹里加，或移除）。
+// 编辑助理：头像（点一下换一个）、名字、职责、模型（那台电脑上启用的模型服务）、可访问的文件夹（从那台电脑的项目文件夹里加，或移除）、
+// 规矩（每类动作四档，同桌面的“规矩”：设为先问的动作走收件箱与推送审批）。
 // 这台设备在那台电脑上没有“修改项目”权限时只能看，下面说明到电脑上哪里开；没有“查看模型服务”时不列模型。页面是表单卡片。
 
-import type { ProviderProfile } from '@wevir/protocol';
+import {
+  ASSISTANT_RULE_CATEGORIES,
+  type AssistantRuleCategory,
+  type AssistantRuleTier,
+  type ProviderProfile,
+} from '@wevir/protocol';
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { BotAvatar } from '../components/bot-avatar';
+import { useActionSheet } from '../components/sheets';
 import { Button, Group, Icon, Row, SectionTitle } from '../components/ui';
 import { t } from '../i18n';
 import { randomAvatar } from '../lib/bot-avatar';
-import { type Bot, botPatch, brainLimit, folderParts } from '../lib/bots';
+import { type Bot, botPatch, brainLimit, folderParts, ruleTier } from '../lib/bots';
 import { useBot, useBotAccess, useBotStore } from '../state/bots';
 import { SPACE, TEXT, useTheme } from '../theme';
 
@@ -18,6 +25,7 @@ const NAME_MAX = 40;
 const DESCRIPTION_MAX = 120;
 /** 与 Host 的 `ASSISTANT_FOLDERS_MAX` 相同。 */
 const FOLDERS_MAX = 7;
+const TIERS: readonly AssistantRuleTier[] = ['do', 'tell', 'ask', 'hand_off'];
 
 export default function EditBotScreen() {
   const { key } = useLocalSearchParams<{ key: string }>();
@@ -57,6 +65,8 @@ function EditBot({ bot }: { bot: Bot }) {
   const [description, setDescription] = useState(bot.description);
   const [folders, setFolders] = useState<readonly string[]>(channel?.assistant?.folders ?? []);
   const [model, setModel] = useState<{ providerId: string; modelId: string }>();
+  const [rules, setRules] = useState<Partial<Record<AssistantRuleCategory, AssistantRuleTier>>>({});
+  const [sheet, showSheet] = useActionSheet();
   const [providers, setProviders] = useState<ProviderProfile[]>();
   const [choices, setChoices] = useState<string[]>();
   const [adding, setAdding] = useState(false);
@@ -81,7 +91,7 @@ function EditBot({ bot }: { bot: Bot }) {
 
   const patch =
     channel !== undefined
-      ? botPatch(channel, { name, description, avatar, folders, ...(model && { model }) })
+      ? botPatch(channel, { name, description, avatar, folders, rules, ...(model && { model }) })
       : undefined;
   const limit = brainLimit(
     store.engineFeatures(bot.key),
@@ -132,6 +142,16 @@ function EditBot({ bot }: { bot: Bot }) {
   };
 
   const addable = (choices ?? []).filter((folder) => !folders.includes(folder));
+  const tierOf = (category: AssistantRuleCategory) =>
+    rules[category] ?? ruleTier(channel?.assistant?.rules ?? {}, category);
+  const chooseTier = (category: AssistantRuleCategory) =>
+    showSheet(
+      TIERS.map((tier) => ({
+        label: t(`rules.tier.${tier}`),
+        onPress: () => setRules((current) => ({ ...current, [category]: tier })),
+      })),
+      t(`rules.${category}`),
+    );
 
   return (
     <>
@@ -333,6 +353,24 @@ function EditBot({ bot }: { bot: Bot }) {
           </Group>
         )}
 
+        <SectionTitle>{t('editBot.rules')}</SectionTitle>
+        <Group>
+          {ASSISTANT_RULE_CATEGORIES.map((category, index) => (
+            <Row
+              key={category}
+              last={index === ASSISTANT_RULE_CATEGORIES.length - 1}
+              chevron={editable}
+              title={t(`rules.${category}`)}
+              trailing={
+                <Text style={[styles.tier, { color: theme.mutedForeground }]}>
+                  {t(`rules.tier.${tierOf(category)}`)}
+                </Text>
+              }
+              {...(editable && { onPress: () => chooseTier(category) })}
+            />
+          ))}
+        </Group>
+
         {access.online && !access.canEdit && (
           <Text style={[styles.note, { color: theme.mutedForeground }]}>
             {t('editBot.forbidden')}
@@ -348,6 +386,7 @@ function EditBot({ bot }: { bot: Bot }) {
           </View>
         )}
       </ScrollView>
+      {sheet}
     </>
   );
 }
@@ -405,6 +444,7 @@ const styles = StyleSheet.create({
   fieldInput: { flex: 1, fontSize: TEXT.body, paddingVertical: 12 },
   separator: { height: StyleSheet.hairlineWidth, marginLeft: SPACE.page },
   sub: { fontSize: TEXT.caption },
+  tier: { fontSize: TEXT.body },
   /** 图标只有 20，按钮放大到 32，再加 hitSlop 到 48。 */
   remove: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   choices: { marginTop: 12 },

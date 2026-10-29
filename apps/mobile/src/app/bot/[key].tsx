@@ -1,6 +1,7 @@
 // 一个助理的对话：大标题是助理的名字，列表顶上是它的头像、职责、所在电脑与状态；往下是它自己的时间线（打开时停在最新一条），
 // 往上翻到顶再下拉加载更早的。底部是输入栏，键盘弹起时跟着上移。工作中时末尾有一枚在跳的头像。
-// 助理群（0.133.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人），没有编辑与重试。
+// 助理群（0.133.0）用同一页：顶上是叠放的成员头像与成员名，输入栏上面一排成员可点选（选中的就是这条 @ 的人）；右上角改群名与成员，
+// 没有重试。
 // 输入栏（0.135.0，Host 有 `channel_composer` 时）同会话页：前面一枚加照片的按钮，协调者（群里是成员）在回、输入栏空着时尾部是停止。
 // Host 有 `speech` 时能听写。帖子里的图片按需读进缓存（lib/image-cache.ts）。
 
@@ -27,7 +28,7 @@ import { botPose, botStateColor, GroupAvatar } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
 import { useActionSheet } from '../../components/sheets';
-import { locale, type MessageKey, t } from '../../i18n';
+import { joinNames, locale, type MessageKey, t } from '../../i18n';
 import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
 import { cachedImage } from '../../lib/image-cache';
 import { keyboardOverlap } from '../../lib/keyboard';
@@ -236,14 +237,14 @@ function BotChat({ bot }: { bot: Bot }) {
   return (
     <>
       <Stack.Screen options={{ title: bot.name }} />
-      {!group && (
-        <HeaderButton
-          sf="slider.horizontal.3"
-          md="tune"
-          label={t('editBot.title')}
-          onPress={() => router.push({ pathname: '/edit-bot', params: { key: bot.key } })}
-        />
-      )}
+      <HeaderButton
+        sf="slider.horizontal.3"
+        md="tune"
+        label={t(group ? 'group.edit' : 'editBot.title')}
+        onPress={() =>
+          router.push({ pathname: group ? '/edit-group' : '/edit-bot', params: { key: bot.key } })
+        }
+      />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -300,7 +301,7 @@ function BotChat({ bot }: { bot: Bot }) {
                 )}
                 <View style={styles.profileText}>
                   <Text style={[styles.description, { color: theme.softForeground }]}>
-                    {group ? bot.members.map((member) => member.name).join('、') : bot.description}
+                    {group ? joinNames(bot.members.map((member) => member.name)) : bot.description}
                   </Text>
                   <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
                     {bot.computerName}

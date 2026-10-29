@@ -1,7 +1,7 @@
 // 助理列表的一行，像聊天列表：头像、名字与时间，最后一条消息的摘要，电脑名与状态，尾部未读数。
 
 import { StyleSheet, Text, View } from 'react-native';
-import { t, timeAgo } from '../i18n';
+import { joinNames, t, timeAgo } from '../i18n';
 import type { AvatarPose } from '../lib/bot-avatar';
 import type { Bot, BotState } from '../lib/bots';
 import { TEXT, type Theme, useTheme } from '../theme';
@@ -92,7 +92,10 @@ export function BotRow({
               ]}
               numberOfLines={1}
             >
-              {bot.lastPost?.text ?? bot.description}
+              {bot.lastPost?.text ??
+                (bot.kind === 'group'
+                  ? joinNames(bot.members.map((m) => m.name))
+                  : bot.description)}
             </Text>
             <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
               {bot.computerName}

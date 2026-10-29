@@ -24,6 +24,7 @@ import type { Avatar } from './bot-avatar';
 import {
   type Bot,
   type BotDirectory,
+  type BotMember,
   botFromChannel,
   botKey,
   type ProjectNames,
@@ -53,6 +54,8 @@ export interface ChannelClient {
   readonly speech: boolean;
   /** 能列项目（`workspace.read`），线程卡片写项目名用。 */
   readonly canReadProjects: boolean;
+  /** 有助理群（Host 功能 `channel_groups`）。 */
+  readonly groups: boolean;
   request: WevirClient['request'];
   onChannelsChanged(listener: (change: ChannelsChange | undefined) => void): () => void;
   watchChannel(
@@ -189,6 +192,29 @@ export class BotStore {
   /** 在线、能看助理的电脑数（有它们而没有 `creators()` 时，“新建”是因为权限不够而不能用）。 */
   onlineCount(): number {
     return [...this.hosts.values()].filter((h) => h.client !== undefined).length;
+  }
+
+  /** 能建群的电脑：有助理群、能改设置，且至少有两个助理。 */
+  groupCreators(): { computer: string; name: string }[] {
+    return [...this.hosts.values()]
+      .filter(
+        (h) =>
+          h.client?.groups === true &&
+          h.client.canEdit &&
+          [...h.channels.values()].filter((c) => c.kind === 'assistant').length >= 2,
+      )
+      .map((h) => ({ computer: h.computer, name: h.computerName }));
+  }
+
+  /** 一台电脑上的助理（建群、改群时挑成员），按建的先后。 */
+  assistants(computer: string): BotMember[] {
+    const state = this.hosts.get(computer);
+    if (state === undefined) return [];
+    return [...state.channels.values()]
+      .filter((c) => c.kind === 'assistant')
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+      .map((c) => botFromChannel(state.computer, state.computerName, c))
+      .map((bot) => ({ id: bot.id, name: bot.name, avatar: bot.avatar }));
   }
 
   /** 能建助理的电脑。 */
@@ -432,7 +458,23 @@ export class BotStore {
     return botFromChannel(state.computer, state.computerName, channel, state.channels);
   }
 
-  /** 改助理：名字、职责、头像、模型、可访问的文件夹。 */
+  /** 在一台电脑上建群（0.133.0）：名字与成员（那台电脑上的助理）。 */
+  async createGroup(computer: string, name: string, members: readonly string[]): Promise<Bot> {
+    const state = this.hosts.get(computer);
+    const client = state?.client;
+    if (state === undefined || client === undefined || !client.groups || !client.canEdit)
+      throw new Error('this computer cannot create groups');
+    const { channel } = await client.request('channel.create', {
+      kind: 'group',
+      name,
+      members: members as Channel['id'][],
+    });
+    state.channels.set(channel.id, channel);
+    this.rebuild();
+    return botFromChannel(state.computer, state.computerName, channel, state.channels);
+  }
+
+  /** 改助理：名字、职责、头像、模型、可访问的文件夹、规矩；改群：名字与成员。 */
   async update(key: string, patch: BotPatch): Promise<void> {
     const { state, channelId, client } = this.connected(key);
     const { channel } = await client.request('channel.update', { channelId, ...patch });

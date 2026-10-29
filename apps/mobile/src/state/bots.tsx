@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { type BotAccess, BotStore, type Timeline } from '../lib/bot-store';
-import type { Bot, ProjectNames } from '../lib/bots';
+import type { Bot, BotMember, ProjectNames } from '../lib/bots';
 import { displayName } from '../lib/records';
 import { useRegistry } from './registry';
 
@@ -101,4 +101,24 @@ export function useBotCreators(): { computer: string; name: string }[] {
     () => JSON.stringify(store.creators()),
   );
   return JSON.parse(key) as { computer: string; name: string }[];
+}
+
+/** 能建群的电脑（有助理群、能改设置、至少两个助理）。 */
+export function useGroupCreators(): { computer: string; name: string }[] {
+  const store = useBotStore();
+  const key = useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => JSON.stringify(store.groupCreators()),
+  );
+  return JSON.parse(key) as { computer: string; name: string }[];
+}
+
+/** 一台电脑上的助理（群的成员可选的）。 */
+export function useAssistants(computer: string | undefined): BotMember[] {
+  const store = useBotStore();
+  const key = useSyncExternalStore(
+    (listener) => store.subscribe(listener),
+    () => JSON.stringify(computer === undefined ? [] : store.assistants(computer)),
+  );
+  return JSON.parse(key) as BotMember[];
 }

@@ -12,7 +12,7 @@ import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
 import { BotAvatar } from './bot-avatar';
 import { Markdown } from './markdown';
 import { type LoadImage, PostImages } from './post-images';
-import { Button, Chevron, Icon, type IconName } from './ui';
+import { Badge, Button, Chevron, Icon, type IconName } from './ui';
 
 type Decide = (decision: Exclude<Decision, 'pending'>) => Promise<void>;
 
@@ -59,13 +59,7 @@ export function PostView({
     case 'needs':
       return <NeedsCard card={card} />;
     case 'notice':
-      return (
-        <Notice
-          reason={card.reason}
-          {...(card.about !== undefined && { about: card.about })}
-          {...(onRetry !== undefined && { onRetry })}
-        />
-      );
+      return <Notice card={card} {...(onRetry !== undefined && { onRetry })} />;
   }
 }
 
@@ -104,18 +98,27 @@ function TextPost({ post, text }: { post: BotPost; text: string }) {
   );
 }
 
-/** Host 的说明：预算用完、恢复、出错（出错时附重试），以及按规矩做完告知、拦下交给用户、拦下的转账交易（0.132.0）。 */
+/**
+ * Host 的说明：预算用完、恢复、出错（出错时附重试），以及按规矩做完告知、拦下交给用户、拦下的转账交易（0.132.0）。同桌面，一行里依次
+ * 是群里说的哪个成员、动作的种类、说明与做了或拦下的动作（每行一个）。
+ */
 function Notice({
-  reason,
-  about,
+  card,
   onRetry,
 }: {
-  reason: Extract<BotCard, { kind: 'notice' }>['reason'];
-  /** 群里：说的是哪个成员。 */
-  about?: string;
+  card: Extract<BotCard, { kind: 'notice' }>;
   onRetry?: () => void;
 }) {
   const theme = useTheme();
+  const { reason } = card;
+  const label = [
+    card.about,
+    card.category === undefined ? undefined : t(`rules.${card.category}`),
+    t(`bot.notice.${reason}`),
+    card.text,
+  ]
+    .filter((part) => part !== undefined && part !== '')
+    .join(' · ');
   return (
     <Text
       style={[
@@ -126,8 +129,7 @@ function Notice({
         },
       ]}
     >
-      {about === undefined ? '' : `${about} · `}
-      {t(`bot.notice.${reason}`)}
+      {label}
       {reason === 'failed' && onRetry !== undefined && (
         <Text
           style={[styles.retry, { color: theme.foreground }]}
@@ -234,8 +236,14 @@ function ApprovalCard({
           {card.text}
         </Text>
       </View>
+      {card.risky === true && card.decision === 'pending' && (
+        <View style={styles.risk}>
+          <Badge text={t('inbox.highRisk')} color={theme.destructive} />
+        </View>
+      )}
       <Decisions
         decision={card.decision}
+        {...(card.risky === true && { verify: true })}
         accept={t('bot.approve')}
         reject={t('bot.reject')}
         accepted={t('bot.approved')}
@@ -265,6 +273,7 @@ function Decisions({
   reject,
   accepted,
   rejected,
+  verify = false,
   onDecide,
 }: {
   decision: Decision;
@@ -272,6 +281,8 @@ function Decisions({
   reject: string;
   accepted: string;
   rejected: string;
+  /** 允许前要本人验证：按钮上带 Face ID / 指纹图标。 */
+  verify?: boolean;
   onDecide: Decide;
 }) {
   const theme = useTheme();
@@ -322,7 +333,12 @@ function Decisions({
           />
         </View>
         <View style={styles.action}>
-          <Button title={accept} disabled={busy} onPress={() => press('approved')} />
+          <Button
+            title={accept}
+            {...(verify && { icon: { ios: 'faceid', android: 'fingerprint' } as const })}
+            disabled={busy}
+            onPress={() => press('approved')}
+          />
         </View>
       </View>
       {failed !== undefined && (
@@ -535,6 +551,7 @@ const styles = StyleSheet.create({
   quote: { borderRadius: RADIUS.control, borderCurve: 'continuous', padding: 12 },
   quoteText: { fontSize: 15, lineHeight: 21 },
   decide: { gap: 8 },
+  risk: { flexDirection: 'row' },
   actions: { flexDirection: 'row', gap: 10 },
   failed: { fontSize: TEXT.small },
   action: { flex: 1 },

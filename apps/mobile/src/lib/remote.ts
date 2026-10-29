@@ -204,6 +204,9 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
           get canReadProjects() {
             return client.can('workspace.read');
           },
+          get groups() {
+            return client.supports('channel_groups');
+          },
           request: (method, ...args) => client.request(method, ...args),
           onChannelsChanged: (listener) => client.onChannelsChanged(listener),
           watchChannel: (channelId, handlers, options) =>

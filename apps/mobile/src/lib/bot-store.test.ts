@@ -8,6 +8,7 @@ import {
   CHANNEL_B,
   channel,
   FakeChannels,
+  group,
   post,
   thread,
 } from './bot-test-utils';
@@ -215,6 +216,39 @@ describe('BotStore', () => {
     expect(empty.calls('channel.create')[0]).toMatchObject({
       coordinator: { providerId: 'prov_on' as NonNullable<Channel['coordinator']>['providerId'] },
     });
+  });
+
+  it('建群与改群（0.133.0）：要能改设置、有助理群、至少两个助理，成员按建的先后列出', async () => {
+    const readOnly = setup();
+    await vi.waitFor(() => expect(readOnly.store.list).toHaveLength(2));
+    expect(readOnly.store.groupCreators()).toEqual([]);
+    await expect(readOnly.store.createGroup('mac', '周会', [CHANNEL_A, CHANNEL_B])).rejects.toThrow(
+      'cannot create groups',
+    );
+
+    const { host, store } = setup({ canCreate: true });
+    await vi.waitFor(() => expect(store.list).toHaveLength(2));
+    expect(store.groupCreators()).toEqual([{ computer: 'mac', name: 'MacBook' }]);
+    expect(store.assistants('mac').map((a) => a.id)).toEqual([CHANNEL_A, CHANNEL_B]);
+    const created = await store.createGroup('mac', '周会', [CHANNEL_B, CHANNEL_A]);
+    expect(host.calls('channel.create')[0]).toEqual({
+      kind: 'group',
+      name: '周会',
+      members: [CHANNEL_B, CHANNEL_A],
+    });
+    expect(created).toMatchObject({ kind: 'group', name: '周会' });
+    expect(created.members.map((m) => m.name)).toEqual(['读书笔记', '小管家']);
+    // 群不算成员可选的助理。
+    expect(store.assistants('mac')).toHaveLength(2);
+    await store.update(created.key, { members: [CHANNEL_A, CHANNEL_B] });
+    expect(store.bot(created.key)?.members.map((m) => m.id)).toEqual([CHANNEL_A, CHANNEL_B]);
+
+    const single = new FakeChannels({ canEdit: true });
+    single.channels = [channel(CHANNEL_A), group(CHANNEL_B, '旧群', [CHANNEL_A])];
+    const lone = new BotStore();
+    lone.setHosts([{ computer: 'mini', computerName: 'Mini', client: single.client }]);
+    await vi.waitFor(() => expect(lone.list).toHaveLength(2));
+    expect(lone.groupCreators()).toEqual([]);
   });
 
   it('改助理：权限、模型服务与项目文件夹，改完更新列表', async () => {
