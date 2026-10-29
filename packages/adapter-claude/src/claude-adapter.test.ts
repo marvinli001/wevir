@@ -11,6 +11,7 @@ import {
   claudeRuleFiles,
   PLAN_CAPTURED_MESSAGE,
 } from './claude-adapter.js';
+import { claudeLoginCommand } from './executable.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
 import { FakeClaudeSdk, loadRecording } from './test-fixtures/fake-sdk.js';
 import {
@@ -1349,5 +1350,12 @@ describe('添加的账号（0.63.0）', () => {
     expect(withConfigDir('claude auth login', 'C:\\W\\claude', 'win32')).toBe(
       "$env:CLAUDE_CONFIG_DIR='C:\\W\\claude'; claude auth login",
     );
+    expect(
+      withConfigDir(
+        claudeLoginCommand('C:\\W\\runtime\\claude.exe', true, 'win32'),
+        'C:\\W\\claude',
+        'win32',
+      ),
+    ).toBe("$env:CLAUDE_CONFIG_DIR='C:\\W\\claude'; & 'C:\\W\\runtime\\claude.exe' auth login");
   });
 });

@@ -29,12 +29,18 @@ export const CLAUDE_INSTALL_COMMAND =
 export const CLAUDE_LOGIN_COMMAND = 'claude auth login';
 
 /**
- * 登录命令：Wevir 替用户装的 `claude` 不在 PATH 里，终端里要写全路径。
+ * 登录命令：Wevir 替用户装的 `claude` 不在 PATH 里，终端里要写全路径。Windows 写 PowerShell 的写法（默认的终端）：带引号的
+ * 路径是字符串，后面接参数会报“意外的标记”，要用调用运算符 `&`；单引号里 `$` 不展开。
  */
-export function claudeLoginCommand(executablePath: string | undefined, managed: boolean): string {
-  return managed && executablePath !== undefined
-    ? `"${executablePath}" auth login`
-    : CLAUDE_LOGIN_COMMAND;
+export function claudeLoginCommand(
+  executablePath: string | undefined,
+  managed: boolean,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (!managed || executablePath === undefined) return CLAUDE_LOGIN_COMMAND;
+  return platform === 'win32'
+    ? `& '${executablePath.replaceAll("'", "''")}' auth login`
+    : `"${executablePath}" auth login`;
 }
 
 /** 是不是 musl 的 Linux（Alpine 等）：glibc 的 Node 在诊断报告里有 `glibcVersionRuntime`，musl 的没有。 */

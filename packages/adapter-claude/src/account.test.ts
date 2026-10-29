@@ -400,13 +400,14 @@ describe('ClaudeAccounts：下载安装与应用内登录', () => {
   }
 
   /** 假的 `claude auth login`：测试决定什么时候退出。 */
-  function loginFlow(authUrl = 'http://localhost:51274/callback-auth') {
+  /** `null`：没有授权地址（Windows 上 claude 自己开浏览器）。 */
+  function loginFlow(authUrl: string | null = 'http://localhost:51274/callback-auth') {
     let finish: (result: ClaudeLoginResult) => void = () => {};
     const done = new Promise<ClaudeLoginResult>((resolve) => {
       finish = resolve;
     });
     const flow: ClaudeLoginFlow = {
-      authUrl,
+      ...(authUrl !== null && { authUrl }),
       done,
       cancel: vi.fn(() => finish({ ok: false, cancelled: true, message: 'cancelled' })),
     };
@@ -514,6 +515,57 @@ describe('ClaudeAccounts：下载安装与应用内登录', () => {
       findExecutable: () => '/opt/claude',
     });
     expect((await own.read('claude')).loginCommand).toBe('claude auth login');
+  });
+
+  it('命令登录的 Windows 写法：PowerShell 的调用运算符，添加的账号先设 CLAUDE_CONFIG_DIR', async () => {
+    const managed = {
+      path: 'C:\\Users\\me\\AppData\\Roaming\\Wevir\\engines\\claude\\runtime\\versions\\2.1.310\\claude.exe',
+      version: '2.1.310',
+    };
+    const { created } = make({
+      installer: controlledInstaller(managed).installer,
+      inAppLogin: false,
+      system: { platform: 'win32', exists: () => false },
+    });
+    expect((await created.read('claude')).loginCommand).toBe(`& '${managed.path}' auth login`);
+    const { created: added } = make({
+      installer: controlledInstaller(managed).installer,
+      inAppLogin: false,
+      configDir: 'C:\\W\\accounts\\a1\\claude',
+      system: { platform: 'win32', exists: () => false },
+    });
+    expect((await added.read('claude')).loginCommand).toBe(
+      `$env:CLAUDE_CONFIG_DIR='C:\\W\\accounts\\a1\\claude'; & '${managed.path}' auth login`,
+    );
+  });
+
+  it('Windows 的添加的账号：应用内登录，带 CLAUDE_CONFIG_DIR；claude 自己开浏览器时 signing_in 不带地址', async () => {
+    const { flow, finish } = loginFlow(null);
+    const startLogin = vi.fn(async () => flow);
+    const { installer } = controlledInstaller(MANAGED);
+    const { created, seen, signIn } = make({
+      installer,
+      startLogin,
+      inAppLogin: undefined,
+      configDir: 'C:\\W\\accounts\\a1\\claude',
+      env: { CLAUDE_CONFIG_DIR: 'C:\\W\\accounts\\a1\\claude' },
+      system: { platform: 'win32', exists: () => false },
+    });
+    expect(await created.read('claude')).toMatchObject({
+      signIn: 'in_app',
+      loginMethods: ['browser'],
+    });
+    const state = await created.login('claude');
+    expect(state).toMatchObject({ status: 'signing_in', login: { method: 'browser' } });
+    expect(state.login?.authUrl).toBeUndefined();
+    expect(startLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        env: expect.objectContaining({ CLAUDE_CONFIG_DIR: 'C:\\W\\accounts\\a1\\claude' }),
+      }),
+    );
+    signIn();
+    finish({ ok: true });
+    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ status: 'signed_in' }));
   });
 
   it('应用内登录：signing_in 带授权地址，登录完成后重新检测成 signed_in', async () => {

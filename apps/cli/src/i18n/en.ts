@@ -1176,6 +1176,7 @@ Options:
   'subscription.openUrl': 'Open in a browser: {url}',
   'subscription.callbackNote':
     "Authorization returns to the Host's computer; use a browser on that computer",
+  'subscription.browserOnHost': "Continue in the browser opened on the Host's computer",
   'subscription.signedInAs': '✓ Signed in to {name}: {account}',
   'subscription.loggedOut': 'Signed out of {name}',
   'subscription.localLogout': "This used the terminal's sign-in; the terminal is signed out too",

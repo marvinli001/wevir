@@ -1149,6 +1149,7 @@ export const zh = {
   'subscription.deviceStep1': '1. 在浏览器中打开 {url} 并登录',
   'subscription.openUrl': '在浏览器中打开：{url}',
   'subscription.callbackNote': '授权完成后回到 Host 所在的电脑；浏览器需在这台电脑上',
+  'subscription.browserOnHost': '在 Host 所在电脑上打开的浏览器中继续',
   'subscription.signedInAs': '✓ 已登录 {name}：{account}',
   'subscription.loggedOut': '已登出 {name}',
   'subscription.localLogout': '使用本机终端的登录，终端也已登出',

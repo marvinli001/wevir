@@ -5,8 +5,9 @@
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；用量只留 5 小时与 7 天两个窗口，另认 `rate_limit_event` 的 `unifiedWindows`；去掉 slash 命令、skills 与重置额度。
 //
 // Claude Agent 的账号（claude-event-mapping.md §2）：Wevir 自己不碰令牌。`claude` 找用户自己装的，没有就由 Wevir 从 npm 下载
-// 一份（install.ts 的 `NpmPackageInstaller`，`account.install`）；登录在 macOS 与 Linux 上由设置里的按钮替用户启动
-// `claude auth login`（login.ts），其余平台给命令，用户在终端里登录后重新检测。检测照 T3：
+// 一份（install.ts 的 `NpmPackageInstaller`，`account.install`）；登录由设置里的按钮替用户启动 `claude auth login`（login.ts：
+// macOS、Linux 与 Windows；Windows 上钩子用不了时让 claude 自己开浏览器，没有授权地址），其余平台给命令（Windows 是
+// PowerShell 的写法），用户在终端里登录后重新检测。添加的账号（`CLAUDE_CONFIG_DIR`）走同一个流程。检测照 T3：
 // 先找 `claude` 并跑 `--version`，再开一个 SDK 的探测会话读初始化结果里的 `account`——探测的 prompt 永远不产出，`claude`
 // 只做本地的初始化，不向 Anthropic 发请求——顺带读一次套餐用量（SDK 的实验接口，失败不影响登录状态）。结果缓存 5 分钟
 // （T3 的 `CAPABILITIES_PROBE_TTL`），`read` 带 `refresh` 时重新检测；回合里的 `rate_limit_event` 更新用量。
@@ -355,7 +356,7 @@ export interface ClaudeAccountsOptions {
   env?: NodeJS.ProcessEnv;
   /** 测试用：替换版本探测。 */
   probeVersion?: typeof probeClaudeVersion;
-  /** 测试用：覆盖“能不能在应用内登录”（默认只有 macOS 与 Linux）。 */
+  /** 测试用：覆盖“能不能在应用内登录”（默认 macOS、Linux 与 Windows）。 */
   inAppLogin?: boolean;
   /** 测试用：替换可执行文件的查找（第二个参数是 Wevir 自己装的 `claude`）。 */
   findExecutable?: (customPath: string | null, managedPath?: string) => string | undefined;
@@ -418,8 +419,9 @@ export class ClaudeAccounts implements EngineAccounts {
   }
 
   /**
-   * 登录。macOS 与 Linux 上启动 `claude auth login`，拿到浏览器要打开的授权地址就返回 `signing_in`（带 `login.authUrl`），用户在
-   * 浏览器里同意后 claude 退出，再检测一次账号并通知；其余平台给命令（`signIn: command`）。
+   * 登录。macOS、Linux 与 Windows 上启动 `claude auth login`，拿到浏览器要打开的授权地址就返回 `signing_in`（带
+   * `login.authUrl`；Windows 退回让 claude 自己开浏览器时不带），用户在浏览器里同意后 claude 退出，再检测一次账号并通知；其余
+   * 平台给命令（`signIn: command`）。
    */
   async login(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
@@ -459,7 +461,7 @@ export class ClaudeAccounts implements EngineAccounts {
       info: {
         loginId: randomUUID(),
         method: 'browser' as const,
-        authUrl: flow.authUrl,
+        ...(flow.authUrl !== undefined && { authUrl: flow.authUrl }),
         startedAt: new Date(this.#now()).toISOString(),
       },
     };
@@ -722,7 +724,11 @@ export class ClaudeAccounts implements EngineAccounts {
         : {
             signIn: 'command' as const,
             loginCommand: withConfigDir(
-              claudeLoginCommand(executablePath, isManaged),
+              claudeLoginCommand(
+                executablePath,
+                isManaged,
+                this.#options.system?.platform ?? process.platform,
+              ),
               this.#options.configDir,
               this.#options.system?.platform ?? process.platform,
             ),

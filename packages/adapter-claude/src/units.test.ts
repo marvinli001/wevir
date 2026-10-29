@@ -138,10 +138,28 @@ describe('找 claude', () => {
   });
 
   it('登录命令：Wevir 装的不在 PATH 里，写全路径', () => {
-    expect(claudeLoginCommand('/usr/local/bin/claude', false)).toBe('claude auth login');
-    expect(claudeLoginCommand(undefined, true)).toBe('claude auth login');
-    expect(claudeLoginCommand('/data/runtime/claude', true)).toBe(
+    expect(claudeLoginCommand('/usr/local/bin/claude', false, 'darwin')).toBe('claude auth login');
+    expect(claudeLoginCommand(undefined, true, 'linux')).toBe('claude auth login');
+    expect(claudeLoginCommand('/data/runtime/claude', true, 'linux')).toBe(
       '"/data/runtime/claude" auth login',
+    );
+    expect(claudeLoginCommand('C:\\Users\\x\\claude.exe', false, 'win32')).toBe(
+      'claude auth login',
+    );
+  });
+
+  it('登录命令：Windows 写 PowerShell 的调用运算符，路径用单引号', () => {
+    expect(
+      claudeLoginCommand(
+        'C:\\Users\\Xlysia\\AppData\\Roaming\\Wevir\\engines\\claude\\runtime\\versions\\2.1.310\\claude.exe',
+        true,
+        'win32',
+      ),
+    ).toBe(
+      "& 'C:\\Users\\Xlysia\\AppData\\Roaming\\Wevir\\engines\\claude\\runtime\\versions\\2.1.310\\claude.exe' auth login",
+    );
+    expect(claudeLoginCommand("C:\\Users\\O'Neil $x\\claude.exe", true, 'win32')).toBe(
+      "& 'C:\\Users\\O''Neil $x\\claude.exe' auth login",
     );
   });
 

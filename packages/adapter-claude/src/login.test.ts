@@ -1,11 +1,21 @@
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { inAppLoginSupported, LOGIN_URL_ENV, runClaudeCommand, startClaudeLogin } from './login.js';
+import {
+  inAppLoginSupported,
+  LOGIN_NODE_ENV,
+  LOGIN_URL_ENV,
+  runClaudeCommand,
+  startClaudeLogin,
+  writeWindowsLoginHook,
+} from './login.js';
 
 // 应用内登录的进程部分：用一个 shell 脚本冒充 `claude`，行为照实测的 `claude auth login`——把授权地址作为第一个参数交给
-// `$BROWSER`，然后等到登录完成（这里是等一个文件出现）才退出。
+// `$BROWSER`，然后等到登录完成（这里是等一个文件出现）才退出。Windows 的分支（`platform: 'win32'`）也在这里用 shell 脚本走：
+// 冒充的 claude 像 cmd 跑 `open-url.cmd` 那样，用 `$WEVIR_LOGIN_NODE` 运行旁边的 `open-url.cjs`；`.cmd` 本身在 Windows 上
+// 单独测。
 
 const posix = process.platform === 'win32' ? describe.skip : describe;
 
@@ -141,10 +151,144 @@ posix('runClaudeCommand', () => {
   });
 });
 
+// 冒充 claude.exe 调 `BROWSER`（open-url.cmd）：cmd 会用 `%WEVIR_LOGIN_NODE%` 运行旁边的 open-url.cjs，参数原样。
+const RUN_WINDOWS_HOOK =
+  'case "$BROWSER" in *open-url.cmd) ;; *) exit 7 ;; esac\nrun_hook() { "$WEVIR_LOGIN_NODE" "$(dirname "$BROWSER")/open-url.cjs" "$@"; }';
+const MANUAL_URL_LINE =
+  "echo 'If the browser did not open, visit: https://claude.com/cai/oauth/authorize?redirect_uri=https%3A%2F%2Fplatform.claude.com'";
+
+posix('startClaudeLogin（Windows 分支）', () => {
+  const launches = (dir: string) => {
+    try {
+      return readFileSync(join(dir, 'launches'), 'utf8').trim().split('\n');
+    } catch {
+      return [];
+    }
+  };
+  const record = (dir: string) => `echo "browser=\${BROWSER:-none}" >> '${join(dir, 'launches')}'`;
+
+  it('钩子收到地址：去掉两头的引号，取第一个 http(s) 参数', async () => {
+    const fake = fakeClaude('');
+    writeFileSync(
+      fake.executable,
+      `#!/bin/sh\n${RUN_WINDOWS_HOOK}\nrun_hook --new-window '"${AUTH_URL}"'\n${WAIT_FOR_APPROVAL.replaceAll('$TRIGGER', fake.trigger)}\nexit 0\n`,
+    );
+    const flow = await startClaudeLogin({
+      executablePath: fake.executable,
+      env: { PATH: process.env.PATH, BROWSER: 'firefox' },
+      directory: join(fake.dir, 'login'),
+      platform: 'win32',
+      nodeExecutable: process.execPath,
+    });
+    expect(flow.authUrl).toBe(AUTH_URL);
+    const hook = readFileSync(join(fake.dir, 'login', 'open-url.cmd'), 'utf8');
+    expect(hook).toContain(`"%${LOGIN_NODE_ENV}%" "%~dp0open-url.cjs" %*`);
+    expect(hook).toContain('ELECTRON_RUN_AS_NODE=1');
+    writeFileSync(fake.trigger, '');
+    expect(await flow.done).toEqual({ ok: true });
+  });
+
+  it('钩子在时限内没收到地址：停掉，不设 BROWSER 重新启动，流程没有地址', async () => {
+    const fake = fakeClaude(
+      `${record('$DIR')}\n[ -n "$BROWSER" ] && sleep 30\n${MANUAL_URL_LINE}\n${WAIT_FOR_APPROVAL}\nexit 0`.replaceAll(
+        '$DIR',
+        root,
+      ),
+    );
+    writeFileSync(join(root, 'launches'), '');
+    const flow = await startClaudeLogin({
+      executablePath: fake.executable,
+      env: { PATH: process.env.PATH, BROWSER: 'firefox' },
+      directory: join(fake.dir, 'login'),
+      platform: 'win32',
+      nodeExecutable: process.execPath,
+      // 新写的脚本第一次运行时 macOS 要先扫描，留足时间。
+      hookWaitMs: 1500,
+    });
+    expect(flow.authUrl).toBeUndefined();
+    const seen = launches(root);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatch(/open-url\.cmd$/u);
+    expect(seen[1]).toBe('browser=none');
+    writeFileSync(fake.trigger, '');
+    expect(await flow.done).toEqual({ ok: true });
+  });
+
+  it('钩子核对不过（Node 起不来）：直接不设 BROWSER 启动；取消照常', async () => {
+    const dir = join(root, 'preflight');
+    mkdirSync(dir, { recursive: true });
+    const fake = fakeClaude(`${record(dir)}\n${MANUAL_URL_LINE}\n${WAIT_FOR_APPROVAL}\nexit 0`);
+    const flow = await startClaudeLogin({
+      executablePath: fake.executable,
+      env: { PATH: process.env.PATH, browser: 'firefox' },
+      directory: join(fake.dir, 'login'),
+      platform: 'win32',
+      nodeExecutable: join(root, 'no-such-node'),
+    });
+    expect(flow.authUrl).toBeUndefined();
+    expect(launches(dir)).toEqual(['browser=none']);
+    flow.cancel();
+    expect(await flow.done).toMatchObject({ ok: false, cancelled: true });
+  });
+
+  it('claude 在钩子阶段就出错退出：报它的输出，不再退回', async () => {
+    const dir = join(root, 'early-exit');
+    mkdirSync(dir, { recursive: true });
+    const fake = fakeClaude(`${record(dir)}\necho 'error: unknown option --claudeai' >&2\nexit 1`);
+    await expect(
+      startClaudeLogin({
+        executablePath: fake.executable,
+        env: { PATH: process.env.PATH },
+        directory: join(fake.dir, 'login'),
+        platform: 'win32',
+        nodeExecutable: process.execPath,
+      }),
+    ).rejects.toThrow('error: unknown option --claudeai');
+    expect(launches(dir)).toHaveLength(1);
+  });
+
+  it('退回后 claude 没开浏览器就退出：报它的输出', async () => {
+    const fake = fakeClaude(
+      '[ -n "$BROWSER" ] && sleep 30\necho \'Login failed: offline\' >&2\nexit 1',
+    );
+    await expect(
+      startClaudeLogin({
+        executablePath: fake.executable,
+        env: { PATH: process.env.PATH },
+        directory: join(fake.dir, 'login'),
+        platform: 'win32',
+        nodeExecutable: process.execPath,
+        hookWaitMs: 1500,
+      }),
+    ).rejects.toThrow('Login failed: offline');
+  });
+});
+
+(process.platform === 'win32' ? describe : describe.skip)('open-url.cmd（Windows）', () => {
+  it('cmd 运行钩子：带 & 的地址原样写进文件', () => {
+    const dir = join(root, 'win hook 中文');
+    const { hook } = writeWindowsLoginHook(dir);
+    const file = join(dir, 'url.txt');
+    const result = spawnSync(
+      process.env.ComSpec ?? 'cmd.exe',
+      ['/d', '/s', '/c', `""${hook}" "${AUTH_URL}""`],
+      {
+        env: { ...process.env, [LOGIN_NODE_ENV]: process.execPath, [LOGIN_URL_ENV]: file },
+        windowsVerbatimArguments: true,
+        encoding: 'utf8',
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
+    expect(readFileSync(file, 'utf8')).toBe(`${AUTH_URL}\n`);
+  });
+});
+
 describe('inAppLoginSupported', () => {
-  it('shell 脚本只有 macOS 与 Linux 跑得了', () => {
+  it('macOS 与 Linux 用 shell 脚本，Windows 用 .cmd 钩子', () => {
     expect(inAppLoginSupported('darwin')).toBe(true);
     expect(inAppLoginSupported('linux')).toBe(true);
-    expect(inAppLoginSupported('win32')).toBe(false);
+    expect(inAppLoginSupported('win32')).toBe(true);
+    expect(inAppLoginSupported('freebsd')).toBe(false);
   });
 });

@@ -402,7 +402,8 @@ async function waitForLogin(
       ctx.print(t('subscription.openUrl', { url: ctx.styles.bold(login.authUrl) }));
       ctx.print(ctx.styles.dim(`   ${t('subscription.callbackNote')}`));
     } else {
-      throw new CliError(t('account.noDeviceCode'), t('account.noDeviceCode.hint'));
+      // 引擎的 CLI 自己在 Host 的电脑上打开了浏览器（Devin；Windows 上的 Claude 用不了钩子时），没有地址可给。
+      ctx.print(t('subscription.browserOnHost'));
     }
     ctx.print('');
     ctx.print(ctx.styles.dim(t('account.waiting')));
