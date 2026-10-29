@@ -107,6 +107,7 @@ describe('wevir plugin 与 mcp', () => {
     expect(list.code, list.err).toBe(0);
     expect(list.out).toContain('Skills');
     expect(list.out).toMatch(/greet\s+Wevir\s+启用\s+Say hello in the house style/);
+    expect(list.out).toMatch(/imagegen\s+内置/);
     expect(list.out).toMatch(/skill-creator\s+内置/);
     expect(list.out).toContain('连接器');
     expect(list.out).toMatch(/files\s+stdio\s+停用/);

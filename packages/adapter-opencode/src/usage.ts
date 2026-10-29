@@ -82,7 +82,7 @@ export interface OpenCodeGoUsageRequest {
 }
 
 /**
- * 读 OpenCode Go 的用量。没有 Go 的 Key、Key 没有 Go 订阅（403，Zen 的 Key 也能接上游）时 undefined；读文件、网络等失败时
+ * 读 OpenCode Go 的用量。没有 Go 的 Key、Key 没有 Go 订阅（403，Zen 的 Key 也能接上游）或已失效（401）时 undefined；读文件、网络等失败时
  * 抛错（调用方留着上一次的值）。Key 不进错误消息。
  */
 export async function readOpenCodeGoUsage(
@@ -94,7 +94,7 @@ export async function readOpenCodeGoUsage(
     headers: { Authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(request.timeoutMs ?? USAGE_TIMEOUT_MS),
   });
-  if (response.status === 403) return undefined;
+  if (response.status === 401 || response.status === 403) return undefined;
   if (!response.ok)
     throw new Error(`OpenCode Go usage request failed with HTTP ${response.status}`);
   return accountRateLimits(openCodeGoUsageWindows(await response.json()));

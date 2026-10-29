@@ -27,7 +27,8 @@ import {
 } from './install.js';
 
 // GitHub Release 的安装：假的发布服务器（本机 HTTP）给 latest/download/SHA256SUMS.txt 与 download/v<版本>/ 下的 tar.gz，包里只有
-// copilot 一个文件，和真实的压缩包一样；解包用系统的 tar（和生产一样）。
+// copilot 一个文件，和真实的压缩包一样；解包用系统的 tar（和生产一样）。清单默认是 1.0.105 起的格式（npm 包只有分平台的），
+// `redirectLatest` 时像 GitHub 一样把 latest 转到 download/v<版本>/。
 
 function tarHeader(name: string, size: number, mode = '0000755'): Buffer {
   const header = Buffer.alloc(512);
@@ -75,6 +76,7 @@ let origin = '';
 let release: Release | undefined;
 let latestStatus = 200;
 let archiveHang = false;
+let redirectLatest = false;
 const hits: string[] = [];
 
 function handle(request: IncomingMessage, response: ServerResponse) {
@@ -90,14 +92,24 @@ function handle(request: IncomingMessage, response: ServerResponse) {
     response.end('not found');
     return;
   }
-  if (url.pathname === '/latest/download/SHA256SUMS.txt') {
+  if (redirectLatest && url.pathname === '/latest/download/SHA256SUMS.txt') {
+    response.writeHead(302, { location: `/download/v${release.version}/SHA256SUMS.txt` });
+    response.end();
+    return;
+  }
+  if (
+    url.pathname ===
+    (redirectLatest
+      ? `/download/v${release.version}/SHA256SUMS.txt`
+      : '/latest/download/SHA256SUMS.txt')
+  ) {
     response.end(
       release.sums ??
         [
           `${'0'.repeat(64)}  copilot-other-os-arm64.tar.gz`,
           `${release.checksum ?? sha256(release.archive)}  ${ASSET}`,
-          `${'1'.repeat(64)}  github-copilot-${release.version}-test-os-x64.tgz`,
-          `${'2'.repeat(64)}  github-copilot-${release.version}.tgz`,
+          `${'1'.repeat(64)}  github-copilot-${release.version}-other-os-arm64.tgz`,
+          `${'2'.repeat(64)}  github-copilot-${release.version}-test-os-x64.tgz`,
         ].join('\n'),
     );
     return;
@@ -136,6 +148,7 @@ afterEach(() => {
   release = undefined;
   latestStatus = 200;
   archiveHang = false;
+  redirectLatest = false;
   hits.length = 0;
 });
 
@@ -195,6 +208,26 @@ describe('copilotArchive', () => {
     expect(parseChecksums('').version).toBeUndefined();
     expect(
       parseChecksums(`${'b'.repeat(64)}  github-copilot-1.0.103-darwin-arm64.tgz`).version,
+    ).toBeUndefined();
+  });
+  it('1.0.105 起只有分平台的 npm 包：去掉清单里出现过的平台名得到版本，预发布版本号也认', () => {
+    const sums = (version: string) =>
+      [
+        `${'a'.repeat(64)}  copilot-win32-x64.zip`,
+        `${'b'.repeat(64)}  copilot-darwin-arm64.tar.gz`,
+        `${'c'.repeat(64)}  copilot-x64.msi`,
+        `${'d'.repeat(64)}  github-copilot-${version}-darwin-arm64.tgz`,
+        `${'e'.repeat(64)}  github-copilot-${version}-win32-x64.tgz`,
+      ].join('\n');
+    expect(parseChecksums(sums('1.0.105')).version).toBe('1.0.105');
+    expect(parseChecksums(sums('1.0.106-0')).version).toBe('1.0.106-0');
+    expect(
+      parseChecksums(
+        [
+          `${'b'.repeat(64)}  copilot-darwin-arm64.tar.gz`,
+          `${'d'.repeat(64)}  github-copilot-latest-darwin-arm64.tgz`,
+        ].join('\n'),
+      ).version,
     ).toBeUndefined();
   });
 });
@@ -282,6 +315,22 @@ describe('CopilotInstaller', () => {
     });
     expect(await subject.active()).toBeUndefined();
     expect(readdirSync(join(root, 'versions'))).toEqual([]);
+  });
+
+  it('清单里认不出版本时用 latest 转向里的版本', async () => {
+    redirectLatest = true;
+    release = good('1.0.107');
+    release = { ...release, sums: `${sha256(release.archive)}  ${ASSET}` };
+    const root = fresh();
+    expect(await installer(root).install(() => {})).toEqual({
+      path: join(root, 'versions', '1.0.107', 'copilot'),
+      version: '1.0.107',
+    });
+    expect(hits).toEqual([
+      '/latest/download/SHA256SUMS.txt',
+      '/download/v1.0.107/SHA256SUMS.txt',
+      '/download/v1.0.107/copilot-test-os-x64.tar.gz',
+    ]);
   });
 
   it('Release 里没有本平台、认不出版本、地址连不上：说明哪里出了问题', async () => {

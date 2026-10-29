@@ -29,6 +29,7 @@ import {
   copilotLoginCommand,
   copilotTokenEnv,
   findCopilot,
+  managedCopilotEnv,
   parseCopilotVersion,
   runCopilot,
 } from './launch.js';
@@ -42,6 +43,8 @@ export const COPILOT_SIGN_IN_HINT = 'Sign in to GitHub Copilot in Settings > Mod
 
 export interface CopilotAccountsOptions {
   workDir: string;
+  /** Wevir 下载的 `copilot` 放在哪里，默认 `<workDir>/runtime`（添加的账号与首个账号共用一份：设置里的下载装在首个账号那里）。 */
+  runtimeDir?: string;
   env?: NodeJS.ProcessEnv;
   /** 添加的账号（0.63.0）：它自己的 `COPILOT_HOME` 与空的 GitHub CLI 配置目录；首个账号省略，用用户本机的登录。 */
   account?: CopilotAccountDirs;
@@ -434,14 +437,14 @@ export class CopilotAccounts implements EngineAccounts {
     const archive = copilotArchive();
     if (archive === undefined) return undefined;
     return new CopilotInstaller({
-      directory: join(this.#options.workDir, 'runtime'),
+      directory: this.#options.runtimeDir ?? join(this.#options.workDir, 'runtime'),
       archive,
       // 下载来的程序要能跑：`copilot --version` 有答复。
       validate: async (file, _version, signal) => {
         const run = await runCopilot(
           file,
           ['--version'],
-          copilotEnv(this.#parentEnv(), file, this.#options.account),
+          managedCopilotEnv(copilotEnv(this.#parentEnv(), file, this.#options.account)),
           30_000,
           signal,
         );
@@ -523,7 +526,9 @@ export class CopilotAccounts implements EngineAccounts {
     const base = this.#base(customPath, executablePath, isManaged);
     const executable: CopilotExecutable = {
       path: executablePath,
-      env: copilotEnv(parent, executablePath, this.#options.account),
+      env: isManaged
+        ? managedCopilotEnv(copilotEnv(parent, executablePath, this.#options.account))
+        : copilotEnv(parent, executablePath, this.#options.account),
       args: copilotAcpArgs(isManaged),
     };
     const versionRun = await runCopilot(

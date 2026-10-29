@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import type { CopilotAdapter } from './copilot-adapter.js';
+import { CopilotAdapter } from './copilot-adapter.js';
 import {
   EventCollector,
   fakeCopilotAdapter,
@@ -43,6 +43,39 @@ const configCalls = (log: string) =>
     .filter((message) => message.method === 'session/set_config_option')
     .map((message) => [message.params.configId, message.params.value]);
 
+describe('Copilot：添加的账号', () => {
+  it('用首个账号那里下载的 copilot（设置里的下载装在 engines/copilot/runtime）', async () => {
+    const dir = temp.dir(`case-${++seq}`);
+    const home = join(dir, 'home');
+    const runtime = join(home, 'engines', 'copilot', 'runtime');
+    const executable = join(runtime, 'versions', '1.0.105', 'copilot');
+    mkdirSync(join(runtime, 'versions', '1.0.105'), { recursive: true });
+    writeFileSync(executable, '', { mode: 0o755 }); // 只看它有没有被找到，不运行
+    writeFileSync(join(runtime, 'active.json'), JSON.stringify({ version: '1.0.105' }));
+    const managed: (string | undefined)[] = [];
+    const env = fakeCopilotEnv();
+    const adapter = new CopilotAdapter({
+      home,
+      env,
+      account: {
+        workDir: join(dir, 'accounts', 'copilot-a', 'work'),
+        copilotHome: join(dir, 'copilot-a'),
+        ghConfigDir: join(dir, 'gh-a'),
+      },
+      accounts: {
+        findExecutable: (_custom, path) => {
+          managed.push(path);
+          return env.WEVIR_COPILOT_BIN as string;
+        },
+        probeSession: async () => ({ signedIn: false }) as never,
+      },
+    });
+    adapters.push(adapter);
+    await adapter.accounts.read('copilot');
+    expect(managed).toContain(executable);
+  });
+});
+
 describe('Copilot ACP', () => {
   it('构造不启动；`copilot --acp` 的文本、思考、工具复用通用映射；模型按类别找到选项再设', async () => {
     const { adapter, config, log } = setup();
@@ -74,6 +107,20 @@ describe('Copilot ACP', () => {
     const { adapter, config, log } = setup();
     await adapter.createSession({ ...config, modelId: 'copilot-default' });
     expect(configCalls(log)).toEqual([]);
+  });
+
+  it('MCP 服务的表单（elicitation/create）是提问，回答交回引擎', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('elicitation-form'));
+    const { event } = await events.waitFor((event) => event.type === 'question.requested');
+    if (event.type !== 'question.requested') throw new Error('missing question');
+    expect(event.questions).toMatchObject([{ id: 'title', header: 'Title' }]);
+    await adapter.respondToQuestion(id, event.requestId, { title: ['Broken login'] });
+    expect((await events.turn()).find((event) => event.type === 'assistant.message')).toMatchObject(
+      { text: JSON.stringify({ action: 'accept', content: { title: 'Broken login' } }) },
+    );
   });
 
   it('请求批准：选项原样交出，拒绝和取消不会变成批准', async () => {

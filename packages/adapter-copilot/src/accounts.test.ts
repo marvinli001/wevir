@@ -8,6 +8,7 @@ import {
   copilotUserLabel,
   readCopilotUser,
 } from './accounts.js';
+import type { CopilotInstaller } from './install.js';
 import { FAKE_COPILOT, fakeCopilotEnv, tempRoot } from './test-fixtures/harness.js';
 
 const temp = tempRoot('accounts');
@@ -142,6 +143,23 @@ describe('CopilotAccounts', () => {
       code: 'invalid_input',
       message: expect.stringContaining('GH_TOKEN'),
     });
+  });
+
+  it('Wevir 下载的那份：--version、探测与登录都带 COPILOT_AUTO_UPDATE=false，用户自己装的不带', async () => {
+    const installer = {
+      active: async () => ({ path: FAKE_COPILOT, version: '1.0.105' }),
+      cancel: () => {},
+    } as unknown as CopilotInstaller;
+    const managed = setup(
+      {},
+      { installer, findExecutable: (_custom, path) => path ?? FAKE_COPILOT },
+    );
+    expect(await managed.accounts.read('copilot')).toMatchObject({ installed: true });
+    expect(lines(managed.argv).length).toBeGreaterThan(0);
+    for (const entry of lines(managed.argv)) expect(entry).toMatchObject({ autoUpdate: 'false' });
+    const own = setup();
+    await own.accounts.read('copilot');
+    for (const entry of lines(own.argv)) expect(entry).toMatchObject({ autoUpdate: null });
   });
 
   it('添加的账号：自己的 COPILOT_HOME 与空的 GitHub CLI 配置目录，不带首个账号的令牌环境变量', async () => {

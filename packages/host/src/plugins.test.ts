@@ -46,7 +46,7 @@ describe('Codex skill metadata and discovery', () => {
   it('仓库里的内置 skills 都能解析，每个文件夹一个 SKILL.md', async () => {
     const root = join(defaultPromptsDir(), 'skills');
     const skills = await scanSkills(root, 'wevir', true);
-    expect(skills.map((item) => item.name)).toEqual(['skill-creator']);
+    expect(skills.map((item) => item.name)).toEqual(['imagegen', 'skill-creator']);
     for (const item of skills) {
       expect(item.description.length).toBeLessThanOrEqual(1024);
       expect(item.shortDescription).toBeTruthy();

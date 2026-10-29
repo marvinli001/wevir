@@ -32,6 +32,7 @@
 | [`plugins/shared/browser-operation.md`](plugins/shared/browser-operation.md) | 两个浏览器插件共用的操作要领与安全规则 | 被引入 | 可用 |
 | [`plugins/shared/ui-action-confirmations.md`](plugins/shared/ui-action-confirmations.md) | 三个插件共用的界面操作确认规则（技能说明另有更严的规定时以更严的为准） | 被引入 | 可用 |
 | [`skills/skill-creator/`](skills/skill-creator/SKILL.md) | 内置 skill：创建、测试与改进 skills（移植自 anthropics/skills，Apache-2.0，见 `NOTICE` 第 14 节） | Host（0.96.0，`packages/host/src/plugins.ts`）：`prompts/skills/` 下每个文件夹是一个内置 skill，`plugins.list` 里 `source: wevir`、`builtin: true`，默认启用、可以关、不能删；和别的 skills 一样交给引擎（Codex）。文件原样给模型读，不走下面的模板语法；脚本由 agent 用 `python3 -B` 按路径运行，输出不写进这个目录 | 已接入（Codex 引擎） |
+| [`skills/imagegen/`](skills/imagegen/SKILL.md) | 内置 skill：生成与编辑图片，用 Wevir 的 `wevir_image_generate`（ChatGPT 会话里用 Codex 的 `image_gen`）；改写自 Codex 的示例 skill（Apache-2.0，见 `NOTICE` 第 5 节） | Host：同 skill-creator，`prompts/skills/` 下的内置 skill | 已接入（Codex 引擎）；工具只在会话的模型服务配了图片模型时出现 |
 
 ## 用在哪些模型上
 

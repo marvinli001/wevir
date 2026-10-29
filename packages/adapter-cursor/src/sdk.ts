@@ -11,7 +11,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type {
   AgentOptions,
   InteractionUpdate,
@@ -103,7 +103,10 @@ export function loadCursorSdk(root?: string): Promise<CursorSdk> {
 }
 
 async function importSdk(root: string | undefined): Promise<typeof import('@cursor/sdk')> {
-  if (root === undefined) return import('@cursor/sdk');
+  if (root === undefined) {
+    useSandboxHelper(fileURLToPath(import.meta.resolve('@cursor/sdk')));
+    return import('@cursor/sdk');
+  }
   const packageDir = join(root, 'node_modules', '@cursor', 'sdk');
   const manifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')) as {
     exports?: { '.'?: { import?: unknown; default?: unknown } };
@@ -111,14 +114,25 @@ async function importSdk(root: string | undefined): Promise<typeof import('@curs
   const entry = manifest.exports?.['.']?.import ?? manifest.exports?.['.']?.default;
   if (typeof entry !== 'string') throw new Error('the installed @cursor/sdk has no ESM entry');
   useInstalledPlatformPackage(root);
+  useSandboxHelper(join(packageDir, entry));
   return import(pathToFileURL(join(packageDir, entry)).href) as Promise<
     typeof import('@cursor/sdk')
   >;
 }
 
 /**
+ * SDK 找 `cursorsandbox` 只从 `process.argv[1]` 与可执行文件往上找 `node_modules/@cursor/sdk-<平台>/bin`，没有对应的环境变量；
+ * 找不到时开沙箱的权限模式（请求批准、自动审核）每条消息都失败，而且这个结果在进程里一直缓存。Host 只在启动时读命令行，
+ * 所以把 `argv[1]` 指到 SDK 自己的入口文件：从它往上就是装 SDK 的 `node_modules`，平台包与 SDK 并列（数据目录里的下载与
+ * pnpm 的布局都是）。
+ */
+function useSandboxHelper(entryFile: string): void {
+  process.argv[1] = entryFile;
+}
+
+/**
  * SDK 找平台包里的 `rg` 与 tree-sitter 是从 Host 的入口文件与可执行文件往上找 `node_modules`，找不到下载在数据目录里的这份，
- * 所以经它认的两个环境变量指过去（用户自己设了的不动）。`cursorsandbox` 没有对应的变量，与开发环境一样找不到。
+ * 所以经它认的两个环境变量指过去（用户自己设了的不动）。`cursorsandbox` 没有对应的变量，见 `useSandboxHelper`。
  */
 function useInstalledPlatformPackage(root: string): void {
   const platformDir = join(

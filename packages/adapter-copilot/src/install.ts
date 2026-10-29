@@ -32,6 +32,7 @@ const PROGRESS_INTERVAL_MS = 250;
 const REQUIRED_FREE_SPACE = 768 * 1024 * 1024;
 const ACTIVE_FILE = 'active.json';
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/u;
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?$/u;
 
 export function copilotReleaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const custom = env[COPILOT_RELEASE_URL_ENV]?.trim().replace(/\/+$/u, '');
@@ -134,22 +135,40 @@ export interface CopilotInstallerOptions {
 }
 
 /**
- * `SHA256SUMS.txt`（`<sha256>  <文件名>` 一行一个）→ 文件名到 sha256；版本号取自不分平台的 npm 包 `github-copilot-<版本>.tgz` 的文件名。
+ * `SHA256SUMS.txt`（`<sha256>  <文件名>` 一行一个）→ 文件名到 sha256；版本号取自 npm 包的文件名：1.0.103 有不分平台的
+ * `github-copilot-<版本>.tgz`，1.0.105 起只剩分平台的 `github-copilot-<版本>-<平台>.tgz`。平台名只认同一份清单里
+ * `copilot-<平台>.tar.gz|zip` 出现过的，免得把 `-darwin-arm64` 当成预发布版本号。
  */
 export function parseChecksums(text: string): { version?: string; sums: Map<string, string> } {
   const sums = new Map<string, string>();
-  let version: string | undefined;
   for (const line of text.split(/\r?\n/u)) {
     const match = /^([0-9a-f]{64})\s+\*?(\S+)$/iu.exec(line.trim());
-    if (match === null) continue;
-    const name = match[2] as string;
-    sums.set(name, (match[1] as string).toLowerCase());
-    const named = /^github-copilot-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\.tgz$/u.exec(name);
-    if (version === undefined && named !== null && VERSION.test(named[1] as string)) {
-      version = named[1];
-    }
+    if (match !== null) sums.set(match[2] as string, (match[1] as string).toLowerCase());
   }
-  return { ...(version !== undefined && { version }), sums };
+  const targets: string[] = [];
+  for (const name of sums.keys()) {
+    const target = /^copilot-(.+)\.(?:tar\.gz|zip)$/u.exec(name)?.[1];
+    if (target !== undefined) targets.push(target);
+  }
+  for (const name of sums.keys()) {
+    const named = /^github-copilot-(.+)\.tgz$/u.exec(name)?.[1];
+    if (named === undefined) continue;
+    const target = targets.find((t) => named.endsWith(`-${t}`));
+    const version = target === undefined ? named : named.slice(0, -target.length - 1);
+    if (RELEASE_VERSION.test(version)) return { version, sums };
+  }
+  return { sums };
+}
+
+/** `latest` 转向的地址里的版本（`…/download/v<版本>/SHA256SUMS.txt`）。 */
+function taggedVersion(location: string, from: string): string | undefined {
+  try {
+    const tagged = /\/download\/v([^/]+)\/SHA256SUMS\.txt$/u.exec(new URL(location, from).pathname);
+    const version = tagged?.[1];
+    return version !== undefined && RELEASE_VERSION.test(version) ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function hostOf(url: string): string {
@@ -369,19 +388,33 @@ export class CopilotInstaller {
     }
   }
 
-  /** 官方现在的版本，以及本平台压缩包的地址与 sha256（`SHA256SUMS.txt`，版本号取自其中不分平台的 npm 包的文件名）。 */
+  /**
+   * 官方现在的版本，以及本平台压缩包的地址与 sha256（`SHA256SUMS.txt`，版本号取自其中 npm 包的文件名；认不出时用 GitHub 把
+   * `latest` 转到 `download/v<版本>/` 的那次转向）。
+   */
   async #lookup(
     base: string,
     signal: AbortSignal,
   ): Promise<{ version: string; url: string; sha256: string }> {
     const url = `${base}/latest/download/SHA256SUMS.txt`;
     const asset = copilotAssetName(this.archive);
+    const fetchImpl = this.#options.fetch ?? fetch;
     try {
-      const response = await (this.#options.fetch ?? fetch)(url, {
-        signal: AbortSignal.any([signal, AbortSignal.timeout(MANIFEST_TIMEOUT_MS)]),
-      });
+      const timeout = AbortSignal.any([signal, AbortSignal.timeout(MANIFEST_TIMEOUT_MS)]);
+      let response = await fetchImpl(url, { redirect: 'manual', signal: timeout });
+      const location =
+        response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
+      const tagged = location === null ? undefined : taggedVersion(location, url);
+      if (location !== null || response.type === 'opaqueredirect') {
+        await response.body?.cancel().catch(() => {});
+        response = await fetchImpl(location === null ? url : new URL(location, url), {
+          signal: timeout,
+        });
+      }
       if (!response.ok) throw new Error(`${hostOf(url)} answered ${response.status}`);
-      const { version, sums } = parseChecksums(await response.text());
+      const parsed = parseChecksums(await response.text());
+      const { sums } = parsed;
+      const version = parsed.version ?? tagged;
       if (version === undefined) throw new Error(`${hostOf(url)} returned no version`);
       const sha256 = sums.get(asset);
       if (sha256 === undefined) throw new Error(`the release has no checksum for ${asset}`);

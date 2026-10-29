@@ -38,12 +38,18 @@ export function classifyDevinTurnError(error: unknown): ClassifiedTurnError {
   return { category: 'unknown', ...info };
 }
 
-/** `session/load` 找不到会话：-32016 “Session not found”，`data['cognition.ai/errorKind']` 是 `session_not_found`。 */
+/**
+ * `session/load` 找不到会话：-32016 “Session not found”，`data['cognition.ai/errorKind']` 是 `session_not_found`。会话被别的
+ * 进程打开着（`session_locked`，“is already open in another process”，如用户自己的 devin）不是挂在本进程上，原文照报。
+ */
 export function classifyDevinResumeError(error: unknown): ClassifiedResumeError {
   const info = errorInfo(error);
   const kind = record(record(error)?.data)?.['cognition.ai/errorKind'];
   if (kind === 'session_not_found' || /session.*not found|unknown session/i.test(info.message)) {
     return { failure: { kind: 'lost', reason: 'not_found' }, ...info };
+  }
+  if (kind === 'session_locked' || /another process/i.test(info.message)) {
+    return { failure: { kind: 'unknown' }, ...info };
   }
   if (/already (?:active|loaded|open)|locked/i.test(info.message)) {
     return { failure: { kind: 'already_active' }, ...info };

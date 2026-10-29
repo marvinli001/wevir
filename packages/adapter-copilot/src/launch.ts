@@ -264,6 +264,14 @@ export function copilotAcpArgs(managed: boolean): string[] {
 }
 
 /**
+ * Wevir 装的那份的环境：`COPILOT_AUTO_UPDATE=false`（`copilot help environment`）让 `--version`、`login` 也不自更新、不改跑
+ * 缓存里更新的版本，设置里显示的版本与登录用的程序才是 ACP 用的这一份。`--no-auto-update` 只能放在子命令前，环境变量都管。
+ */
+export function managedCopilotEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, COPILOT_AUTO_UPDATE: 'false' };
+}
+
+/**
  * 官方的 `copilot --acp` 进程的启动器（`AcpLauncher`）：每次启动前重新取可执行文件（用户可能刚换了路径或装上 Copilot），工作
  * 目录是数据目录下的引擎目录（每个会话的 cwd 在 `session/new` 里给）。POSIX 上分离成自己的进程组，回收时连同它起的工具进程
  * 一起（T3 的 `ownDetachedProcessGroup`）。
