@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HookOutcome, SessionId, TurnId, WevirEvent, WorkspaceId } from '@wevir/protocol';
 import { type GuardrailMarker, guardrailChecker } from '@wevir/runtime-adapter/guardrail';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuardrailService } from '../guardrails/service.js';
 import { HookDispatcher, type HookSessionInfo } from './dispatcher.js';
 import { HookService } from './service.js';
@@ -50,18 +50,40 @@ function dispatcher(tap: 'codex' | 'callback' | undefined): HookDispatcher {
 
 const command = (cmd: string) => ({ type: 'command' as const, command: cmd });
 
-/** 异步跑 shell 命令（同一进程里的 HTTP 服务要能回应）。 */
+let scripts = 0;
+/**
+ * 用 node 跑一段脚本的 hook（POSIX 的 sh 与 Windows 的 PowerShell 都认这条命令行）。`input` 是 stdin 的文本，`stderr(text)`
+ * 写理由；退出码用 `process.exitCode` 设，免得输出还没写完进程就退了。
+ */
+function script(body: string) {
+  scripts += 1;
+  const file = join(root, `hook-${scripts}.mjs`);
+  writeFileSync(
+    file,
+    `import { readFileSync } from 'node:fs';\nconst input = readFileSync(0, 'utf8');\nconst stderr = (text) => process.stderr.write(text + '\\n');\n${body}\n`,
+  );
+  return command(`node "${file}"`);
+}
+
+/** 异步按 Codex 的方式跑 hook 命令行：POSIX 是 `sh -c`，Windows 是 PowerShell（同一进程里的 HTTP 服务要能回应）。 */
 function sh(line: string, input: string): Promise<{ status: number | null; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn('/bin/sh', ['-c', line]);
+  return new Promise((resolve, reject) => {
+    const child =
+      process.platform === 'win32'
+        ? spawn('powershell.exe', ['-NoProfile', '-Command', line], { windowsHide: true })
+        : spawn('/bin/sh', ['-c', line]);
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
-    child.on('close', (status) => resolve({ status, stderr }));
+    child.on('error', reject);
+    child.on('close', (status) => resolve({ status, stderr: stderr.replaceAll('\r\n', '\n') }));
     child.stdin.end(input);
   });
 }
+
+// Windows 的 runner 上每个 hook 都经 PowerShell，冷启动要好几秒。
+if (process.platform === 'win32') vi.setConfig({ testTimeout: 90_000 });
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'wevir-dispatch-'));
@@ -94,7 +116,9 @@ describe('HookDispatcher', () => {
       workspaceId: WS,
       event: 'PreToolUse',
       matcher: 'Bash',
-      handler: command('grep -q "rm -rf" && { echo "no rm -rf" >&2; exit 2; } || exit 0'),
+      handler: script(
+        `if (input.includes('rm -rf')) { stderr('no rm -rf'); process.exitCode = 2; }`,
+      ),
     });
     const tap = dispatcher('callback').claudeTap(SES);
     expect(
@@ -141,7 +165,10 @@ describe('HookDispatcher', () => {
   });
 
   it('Stop 要求继续，同一回合最多 3 次', async () => {
-    await hooks.add({ event: 'Stop', handler: command('echo "run the tests" >&2; exit 2') });
+    await hooks.add({
+      event: 'Stop',
+      handler: script(`stderr('run the tests'); process.exitCode = 2;`),
+    });
     const tap = dispatcher('callback').claudeTap(SES);
     for (let i = 0; i < 3; i += 1) {
       expect(await tap.run('Stop', {})).toEqual({ decision: 'block', reason: 'run the tests' });
@@ -158,7 +185,7 @@ describe('HookDispatcher', () => {
   it('Codex 接点：转发命令经 POST /hooks 回到 Host，拦下时退出码 2、理由在 stderr', async () => {
     await hooks.add({
       event: 'PreToolUse',
-      handler: command('echo "blocked by policy" >&2; exit 2'),
+      handler: script(`stderr('blocked by policy'); process.exitCode = 2;`),
     });
     const hub = dispatcher('codex');
     server = createServer((req, res) => {
@@ -184,13 +211,18 @@ describe('HookDispatcher', () => {
   it('Host 派发：UserPromptSubmit 拦下或附加上下文，SessionStart 每个引擎会话一次', async () => {
     await hooks.add({
       event: 'UserPromptSubmit',
-      handler: command(
-        'grep -q secret && { echo "no secrets" >&2; exit 2; } || echo "on branch main"',
+      handler: script(
+        `if (input.includes('secret')) { stderr('no secrets'); process.exitCode = 2; } else console.log('on branch main');`,
       ),
     });
-    await hooks.add({ event: 'SessionStart', handler: command('echo "read NOTES.md first"') });
+    await hooks.add({
+      event: 'SessionStart',
+      handler: script(`console.log('read NOTES.md first');`),
+    });
     const hub = dispatcher(undefined);
-    expect(await hub.userPromptSubmit(SES, 'print the secret')).toEqual({ blocked: 'no secrets' });
+    expect(await hub.userPromptSubmit(SES, 'print the secret')).toEqual({
+      blocked: 'no secrets',
+    });
     expect(await hub.userPromptSubmit(SES, 'hello')).toEqual({ context: 'on branch main' });
     expect(await hub.sessionStart(SES, 'startup')).toBe('read NOTES.md first');
     expect(await hub.sessionStart(SES, 'resume')).toBeUndefined();
@@ -204,8 +236,8 @@ describe('HookDispatcher', () => {
     await hooks.add({
       event: 'PermissionRequest',
       matcher: 'Bash',
-      handler: command(
-        `echo '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'`,
+      handler: script(
+        `console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } }));`,
       ),
     });
     expect(await hub.permissionRequest(SES, 'Bash', { command: 'ls' })).toEqual({
@@ -215,7 +247,10 @@ describe('HookDispatcher', () => {
   });
 
   it('没有原生接点：回合结束后 Host 跑 Stop，要求继续时开后续回合，这串回合合计最多 3 次', async () => {
-    await hooks.add({ event: 'Stop', handler: command('echo "not done" >&2; exit 2') });
+    await hooks.add({
+      event: 'Stop',
+      handler: script(`stderr('not done'); process.exitCode = 2;`),
+    });
     const hub = dispatcher(undefined);
     const finished = (turnId: string): WevirEvent =>
       ({
@@ -226,12 +261,14 @@ describe('HookDispatcher', () => {
         source: 'host',
         payload: { turnId, outcome: 'completed', durationMs: 1 },
       }) as WevirEvent;
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+    // 每个回合结束都等它的 Stop 记下结果再发下一个。
+    const settle = (count: number) =>
+      vi.waitFor(() => expect(outcomes).toHaveLength(count), { timeout: 20_000, interval: 20 });
     hub.onEvent(finished(TURN));
-    await settle();
+    await settle(1);
     for (let i = 1; i <= 3; i += 1) {
       hub.onEvent(finished(`trn_${i}`));
-      await settle();
+      await settle(i + 1);
     }
     expect(continued).toEqual(['not done', 'not done', 'not done']);
     expect(outcomes.map((outcome) => outcome.action)).toEqual([
@@ -242,7 +279,7 @@ describe('HookDispatcher', () => {
     ]);
     // 用户自己开的下一回合重新计数。
     hub.onEvent(finished('trn_user'));
-    await settle();
+    await settle(5);
     expect(continued).toHaveLength(4);
   });
 

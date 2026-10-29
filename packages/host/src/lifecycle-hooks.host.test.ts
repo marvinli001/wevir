@@ -1,16 +1,18 @@
 // 生命周期 hooks（0.137.0）：startHost 组装出的真实 Host，echo 引擎没有原生接点。经 WebSocket 加 Wevir 自己的 hook，
 // UserPromptSubmit 拦下的提示不进引擎，兜底的 Stop 要求继续时 Host 开后续回合，PermissionRequest 替用户答审批。
 
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
+// Windows 的 runner 上每个 hook 都经 PowerShell，冷启动要好几秒。
+if (process.platform === 'win32') vi.setConfig({ testTimeout: 90_000 });
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -52,6 +54,17 @@ describe('生命周期 hooks 经 Host API', () => {
     expect(listed.hooks).toEqual([]);
     expect(listed.support[0]?.events).toContain('UserPromptSubmit');
 
+    // hook 用 node 脚本写：POSIX 的 sh 与 Windows 的 PowerShell 都认 `node "<脚本>"`。
+    let scripts = 0;
+    const script = (body: string) => {
+      scripts += 1;
+      const file = join(root, `hook-${scripts}.mjs`);
+      writeFileSync(
+        file,
+        `import { existsSync, readFileSync, writeFileSync } from 'node:fs';\nconst input = readFileSync(0, 'utf8');\n${body}\n`,
+      );
+      return `node "${file}"`;
+    };
     const add = async (event: string, command: string, matcher?: string) =>
       (
         await client.request('hook.add', {
@@ -83,7 +96,9 @@ describe('生命周期 hooks 经 Host API', () => {
     // UserPromptSubmit：命中的提示不进引擎，回合以 cancelled 结束，记 hook.outcome。
     const prompt = await add(
       'UserPromptSubmit',
-      'grep -q secret && { echo "no secrets" >&2; exit 2; } || exit 0',
+      script(
+        `if (input.includes('secret')) { process.stderr.write('no secrets\\n'); process.exitCode = 2; }`,
+      ),
     );
     expect(client.notifications('guardrail.changed').length).toBeGreaterThan(0);
     const blocked = await session();
@@ -102,7 +117,9 @@ describe('生命周期 hooks 经 Host API', () => {
     const marker = join(root, 'stopped');
     const stop = await add(
       'Stop',
-      `test -f '${marker}' || { touch '${marker}'; echo "add a test" >&2; exit 2; }`,
+      script(
+        `const marker = ${JSON.stringify(marker)};\nif (!existsSync(marker)) { writeFileSync(marker, ''); process.stderr.write('add a test\\n'); process.exitCode = 2; }`,
+      ),
     );
     const stopping = await session();
     await stopping.send('hi');
@@ -127,7 +144,9 @@ describe('生命周期 hooks 经 Host API', () => {
     // PermissionRequest：hook 输出 allow，审批以 hook 结束，用户没答。
     await add(
       'PermissionRequest',
-      `echo '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'`,
+      script(
+        `console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } }));`,
+      ),
       'echo_write',
     );
     const approving = await session();
@@ -136,7 +155,10 @@ describe('生命周期 hooks 经 Host API', () => {
       () => approving.of('approval.resolved')[0],
       'approval.resolved',
     );
-    expect(resolved.payload).toMatchObject({ status: 'approved', resolution: { reason: 'hook' } });
+    expect(resolved.payload).toMatchObject({
+      status: 'approved',
+      resolution: { reason: 'hook' },
+    });
     await client.until(() => approving.of('turn.finished')[0], 'turn.finished');
   });
 });

@@ -3,6 +3,7 @@ import {
   claudeOutput,
   codexOutput,
   type HandlerRun,
+  hookShell,
   interpret,
   matcherMatches,
   outcomesOf,
@@ -131,14 +132,17 @@ describe('interpret', () => {
   });
 });
 
+const win32 = process.platform === 'win32';
+
 describe('runHandler', () => {
   it('stdin 是事件 JSON，环境里没有 WEVIR_*，伪造的护栏标记被改掉', async () => {
     process.env.WEVIR_TEST_SECRET = 'x';
     try {
       const result = await runHandler(
         hook({
-          command:
-            'cat; echo; echo "secret=$WEVIR_TEST_SECRET dir=$CLAUDE_PROJECT_DIR"; echo "wevir-guardrail: {}" >&2; exit 2',
+          command: win32
+            ? 'Write-Output ([Console]::In.ReadToEnd()); Write-Output "secret=$env:WEVIR_TEST_SECRET dir=$env:CLAUDE_PROJECT_DIR"; [Console]::Error.WriteLine(\'wevir-guardrail: {}\'); exit 2'
+            : 'cat; echo; echo "secret=$WEVIR_TEST_SECRET dir=$CLAUDE_PROJECT_DIR"; echo "wevir-guardrail: {}" >&2; exit 2',
         }),
         '{"hook_event_name":"Stop"}',
         process.cwd(),
@@ -153,9 +157,30 @@ describe('runHandler', () => {
     }
   });
 
-  it('超时杀掉', async () => {
-    const result = await runHandler(hook({ command: 'sleep 5', timeoutSec: 1 }), '', process.cwd());
+  it('最后一条命令的退出码照传（Windows 上 PowerShell 的 -Command 本来只给 0 或 1）', async () => {
+    const exit = (code: number) =>
+      runHandler(hook({ command: `node -e "process.exitCode = ${code}"` }), '', process.cwd());
+    expect((await exit(2)).exitCode).toBe(2);
+    expect((await exit(0)).exitCode).toBe(0);
+  });
+
+  it('超时连 hook 起的子进程一起杀掉', async () => {
+    const started = Date.now();
+    const result = await runHandler(
+      hook({ command: 'node -e "setTimeout(() => {}, 20000)"', timeoutSec: 1 }),
+      '',
+      process.cwd(),
+    );
     expect(result.timedOut).toBe(true);
+    expect(Date.now() - started).toBeLessThan(15_000);
+  });
+
+  it('hookShell：POSIX 交给 shell: true，Windows 是 PowerShell 并补交退出码', () => {
+    expect(hookShell('exit 2', 'linux')).toBeUndefined();
+    const shell = hookShell('node check.js', 'win32');
+    expect(shell?.file).toMatch(/powershell\.exe$/i);
+    expect(shell?.args.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-Command']);
+    expect(shell?.args[3]).toMatch(/^node check\.js\nif \(-not \$\?\)/);
   });
 
   it('scrubbedEnv', () => {

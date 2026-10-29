@@ -6,6 +6,8 @@
 // SessionStart 的纯文本 stdout 当作附加上下文；退出码 2 拦下、stderr 是理由；其他退出码与超时是不拦的错误，`onFailure: block` 时拦下。
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { win32 } from 'node:path';
 import type { HookOutcome } from '@wevir/protocol';
 import { HOOK_OUTCOME_TEXT_MAX_LENGTH, HOOK_TIMEOUT_DEFAULT_SEC } from '@wevir/protocol';
 import { GUARDRAIL_MARKER } from '@wevir/runtime-adapter/guardrail';
@@ -118,6 +120,29 @@ export function scrubbedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
 /** 输出里伪造的护栏标记改掉（hook 不能冒充护栏的拦截）。 */
 const defang = (text: string) => text.split(GUARDRAIL_MARKER).join('wevir-guardrail (hook): ');
 
+/**
+ * 跑 hook 的 shell。POSIX 是 `/bin/sh -c`。Windows 同 Codex（护栏与转发的命令行也是照它写的）用 PowerShell 的
+ * `-NoProfile -Command`：它把原生程序的退出码折成 0 或 1，所以命令后面补一行，最后一条命令失败时交回它自己的退出码
+ * （`node check.js` 退出 2 才拦得下）。
+ */
+export function hookShell(
+  command: string,
+  platform: NodeJS.Platform,
+): { file: string; args: string[] } | undefined {
+  if (platform !== 'win32') return undefined;
+  const root = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
+  const powershell = win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return {
+    file: existsSync(powershell) ? powershell : 'powershell.exe',
+    args: [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `${command}\nif (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE } else { exit 1 } }`,
+    ],
+  };
+}
+
 /** 执行一个处理器：stdin 是事件 JSON，cwd 是会话目录。不抛错。 */
 export function runHandler(
   hook: RunnableHook,
@@ -148,14 +173,18 @@ export function runHandler(
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(hook.command, {
+      const options = {
         cwd,
-        shell: true,
         env: { ...scrubbedEnv(process.env), CLAUDE_PROJECT_DIR: cwd, ...hook.env },
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         detached: platform !== 'win32',
-      });
+      };
+      const shell = hookShell(hook.command, platform);
+      child =
+        shell === undefined
+          ? spawn(hook.command, { ...options, shell: true })
+          : spawn(shell.file, shell.args, options);
     } catch (error) {
       resolvePromise({
         hook,
@@ -167,10 +196,18 @@ export function runHandler(
       });
       return;
     }
+    // 连同 hook 起的子进程一起杀：POSIX 杀进程组；Windows 没有进程组，用 taskkill 杀进程树（只杀 shell 的话，子进程还占着
+    // 输出管道，close 要等它自己退出）。
     const kill = () => {
       try {
-        if (platform !== 'win32' && child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
-        else child.kill('SIGKILL');
+        if (child.pid === undefined) child.kill('SIGKILL');
+        else if (platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
+        else {
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+            stdio: 'ignore',
+            windowsHide: true,
+          }).on('error', () => child.kill('SIGKILL'));
+        }
       } catch {}
     };
     const timer = setTimeout(() => {
