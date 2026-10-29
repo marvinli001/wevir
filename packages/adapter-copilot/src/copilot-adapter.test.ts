@@ -48,7 +48,12 @@ describe('Copilot：添加的账号', () => {
     const dir = temp.dir(`case-${++seq}`);
     const home = join(dir, 'home');
     const runtime = join(home, 'engines', 'copilot', 'runtime');
-    const executable = join(runtime, 'versions', '1.0.105', 'copilot');
+    const executable = join(
+      runtime,
+      'versions',
+      '1.0.105',
+      process.platform === 'win32' ? 'copilot.exe' : 'copilot',
+    );
     mkdirSync(join(runtime, 'versions', '1.0.105'), { recursive: true });
     writeFileSync(executable, '', { mode: 0o755 }); // 只看它有没有被找到，不运行
     writeFileSync(join(runtime, 'active.json'), JSON.stringify({ version: '1.0.105' }));

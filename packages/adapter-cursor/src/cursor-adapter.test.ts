@@ -34,6 +34,7 @@ function setup(options: Partial<CursorAdapterOptions> = {}) {
     env: { CURSOR_API_KEY: 'test-key' },
     sdk: async () => sdk,
     logger: { warn: (message) => warnings.push(message) },
+    platform: 'linux', // Windows 只有完全访问，单独的用例传 win32
     ...options,
   });
   adapters.push(adapter);

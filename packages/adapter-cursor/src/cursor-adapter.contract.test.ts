@@ -20,6 +20,7 @@ runAdapterContract(
       home,
       env: { CURSOR_API_KEY: 'contract-key' },
       sdk: async () => sdk,
+      platform: 'linux', // 契约按默认的审批模式发送，Windows 上的 Cursor 只有完全访问
     });
   },
   {
