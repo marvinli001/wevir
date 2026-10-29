@@ -996,6 +996,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': 'この MCP サーバーの追加を許可しますか？',
   'approval.title.wevirConfig': 'Wevir の設定の変更を許可しますか？',
   'approval.title.pluginManage': 'プラグイン設定の変更を許可しますか？',
+  'approval.title.openLink': 'リンクを開きますか？',
   'approval.title.browserOpen': 'ブラウザでページを開くことを許可しますか？',
   'approval.title.browserAct': 'ブラウザのページを操作することを許可しますか？',
   'approval.title.browserClose': 'ブラウザのタブを閉じることを許可しますか？',

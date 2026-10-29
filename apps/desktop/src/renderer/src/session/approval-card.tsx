@@ -34,6 +34,7 @@ import { Beam } from '@/fx/beam';
 import { describe, useCan } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { platformApi } from '@/platform/platform';
 import {
   type ApprovalLayout,
   type ApprovalScope,
@@ -41,6 +42,7 @@ import {
   approvalLayout,
   approvalScope,
   decidedHere,
+  elicitationLink,
   presentApproval,
   resolutionText,
 } from './approval-model';
@@ -119,6 +121,10 @@ export function ApprovalDock({
         optionId,
         ...(remember !== undefined && { remember }),
       });
+      // 连接器要打开的链接：用户允许了才打开。
+      const link = elicitationLink(approval);
+      const option = approval.options.find((candidate) => candidate.optionId === optionId);
+      if (link !== undefined && option?.category === 'allow') void platformApi().openExternal(link);
     } catch (error) {
       if (isRpcError(error, 'ALREADY_DECIDED') && error.data) {
         // 另一端抢先一步：提示它的决定。

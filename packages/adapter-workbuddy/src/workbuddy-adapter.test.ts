@@ -67,7 +67,10 @@ describe('WorkBuddy ACP', () => {
     expect(
       readLog(log)
         .filter((message) => message.method === 'initialize')
-        .every((message) => JSON.stringify(message.params.clientCapabilities) === '{}'),
+        // 不声明 fs 与 terminal（工具在引擎自己的沙箱里执行）；会话的进程只声明 elicitation。
+        .every((message) =>
+          Object.keys(message.params.clientCapabilities).every((key) => key === 'elicitation'),
+        ),
     ).toBe(true);
   });
   it('普通审批的所有选项原样交出；拒绝和取消不会变成批准', async () => {
@@ -213,6 +216,56 @@ describe('WorkBuddy ACP', () => {
     expect(
       (await events.turn(from)).find((event) => event.type === 'assistant.message'),
     ).toMatchObject({ text: JSON.stringify({ outcome: 'submitted', answers: { q_0: ['B'] } }) });
+  });
+  it('MCP 的 elicitation：initialize 声明支持，表单是提问，链接是“打开链接”的审批', async () => {
+    const { adapter, config, log } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    expect(
+      readLog(log).some(
+        (message) =>
+          message.method === 'initialize' &&
+          JSON.stringify(message.params.clientCapabilities) ===
+            JSON.stringify({ elicitation: { form: {}, url: {} } }),
+      ),
+    ).toBe(true);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('elicitation-form'));
+    const { event } = await events.waitFor((event) => event.type === 'question.requested');
+    if (event.type !== 'question.requested') throw new Error('missing question');
+    expect(event.questions).toEqual([
+      {
+        id: 'title',
+        header: 'Title',
+        question: 'New ticket\n\nTitle',
+        options: [],
+        allowOther: true,
+      },
+    ]);
+    await adapter.respondToQuestion(id, event.requestId, { title: ['Broken login'] });
+    expect((await events.turn()).find((event) => event.type === 'assistant.message')).toMatchObject(
+      { text: JSON.stringify({ action: 'accept', content: { title: 'Broken login' } }) },
+    );
+    const from = events.events.length;
+    await adapter.send(id, text('elicitation-url'));
+    const approval = await events.waitFor((event) => event.type === 'approval.requested', from);
+    if (approval.event.type !== 'approval.requested') throw new Error('missing approval');
+    const toolCallId = approval.event.toolCallId;
+    expect(
+      events.events.find(
+        (event) => event.type === 'tool.started' && event.toolCallId === toolCallId,
+      ),
+    ).toMatchObject({
+      toolName: 'mcp/elicitation/url',
+      input: { url: 'https://tickets.example.com/authorize' },
+    });
+    await adapter.respondToApproval(id, approval.event.requestId, { optionId: 'accept' });
+    const turn = await events.turn(from);
+    expect(
+      turn.find((event) => event.type === 'tool.finished' && event.toolCallId === toolCallId),
+    ).toMatchObject({ status: 'completed' });
+    expect(turn.find((event) => event.type === 'assistant.message')).toMatchObject({
+      text: JSON.stringify({ action: 'accept' }),
+    });
   });
   it('提问时取消回收未决请求；ExitPlanMode 交出计划并拒绝实施', async () => {
     const { adapter, config } = setup();

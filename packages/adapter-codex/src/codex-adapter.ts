@@ -26,9 +26,14 @@ import {
   type EngineRuleFiles,
   type EngineSession,
   EventHub,
+  elicitationQuestions,
+  elicitationResult,
+  elicitationUrl,
+  elicitationUrlDisplay,
   type ForkOptions,
   type GoalStartRequest,
   isAdapterError,
+  MCP_URL_ELICITATION_TOOL,
   type PendingApproval,
   type PermissionMode,
   type ProviderConfig,
@@ -38,6 +43,7 @@ import {
   type ReviewRequest,
   type SessionConfig,
   type TitleRequest,
+  URL_ELICITATION_OPTIONS,
 } from '@wevir/runtime-adapter';
 import {
   type HistoryToolServer,
@@ -330,7 +336,15 @@ interface CodexSession {
   /** Wevir 的 requestId → 未决审批。 */
   readonly approvals: Map<string, PendingCodexApproval>;
   /** Wevir 的 requestId → 未答的提问（0.10.0）。 */
-  readonly questions: Map<string, { rpcId: RequestId; reply: (result: unknown) => void }>;
+  readonly questions: Map<
+    string,
+    {
+      rpcId: RequestId;
+      reply: (result: unknown) => void;
+      /** 回答 → 回复（MCP 的表单 elicitation 回 `{action, content}`）；没有时回 `{answers}`。 */
+      respond?: (answers: Record<string, string[]>) => unknown;
+    }
+  >;
   /** 进行中的 collabAgentToolCall（item ID → item），按 rootTurnId 认出子 thread 时用。 */
   readonly collab: Map<string, CollabAgentToolCallItem>;
   /** 子会话：回合已开始（`turn/started`），`turn.started` 等它的 userMessage 带上输入再发。 */
@@ -2228,12 +2242,19 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /**
    * 批准一次应用级工具的调用（0.30.0，codex-event-mapping.md §6.11）：`mcpServer/elicitation/request` 里 `wevir` 服务的
    * `mcp_tool_call` 批准，0.41.0 起也包括 Host 启用的用户连接器。属于挂着的会话进行中的回合时上报为 `approval.requested`，
-   * 选项只有允许与拒绝。其他服务或种类的确认一律 `decline`（Wevir 不显示 MCP 表单）。
+   * 选项只有允许与拒绝。表单与链接类的 elicitation 见 `#onElicitation`，别的一律 `decline`。
    */
   #onMcpApproval(request: CodexServerRequest): Promise<unknown> {
     const params = request.params as McpServerElicitationRequestParams;
     const decline = Promise.resolve({ action: 'decline' } satisfies McpServerElicitationResponse);
     const meta = isRecord(params) && isRecord(params._meta) ? params._meta : undefined;
+    if (
+      isRecord(params) &&
+      meta?.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND &&
+      (params.mode === 'form' || params.mode === 'url')
+    ) {
+      return this.#onElicitation(request);
+    }
     if (
       !isRecord(params) ||
       typeof params.threadId !== 'string' ||
@@ -2282,6 +2303,110 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#approvalsByRpc.set(request.id, { session, requestId: info.requestId });
       session.hub.emit({ type: 'approval.requested', ...copyApproval(info) });
       if (turn.cancelRequested) this.#endApproval(session, info.requestId, 'turn_cancelled');
+    });
+  }
+
+  /**
+   * MCP 服务向用户要输入（codex-event-mapping.md §6.11）：不是工具批准的 `mcpServer/elicitation/request`，来自用户接入的连接器
+   * （Host 代理的远程连接器也一样，代理只转发）。属于挂着的会话进行中的回合时，表单换成 `question.requested`，链接换成一次
+   * “打开链接”的审批（先报一个 `MCP_URL_ELICITATION_TOOL` 的工具调用，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）；否则、
+   * 表单字段认不出或地址不是 http(s) 时回 `decline`。
+   */
+  #onElicitation(request: CodexServerRequest): Promise<unknown> {
+    const params = request.params as McpServerElicitationRequestParams;
+    const decline = Promise.resolve({ action: 'decline' } satisfies McpServerElicitationResponse);
+    const session = this.#sessions.get(params.threadId);
+    const turn = session?.status === 'open' ? session.turn : undefined;
+    if (
+      session === undefined ||
+      turn === undefined ||
+      turn.cancelRequested ||
+      typeof params.serverName !== 'string' ||
+      (turn.turnId !== undefined &&
+        typeof params.turnId === 'string' &&
+        params.turnId !== turn.turnId)
+    ) {
+      this.#logger.warn('MCP 的 elicitation 不属于进行中的回合，拒绝', {
+        threadId: params.threadId,
+      });
+      return decline;
+    }
+    const message = typeof params.message === 'string' ? params.message : '';
+    if (params.mode === 'form') {
+      const questions = elicitationQuestions(message, params.requestedSchema);
+      if (questions === undefined) {
+        this.#warnOnce('elicitation_form', 'MCP 的表单字段认不出，拒绝', {
+          serverName: params.serverName,
+        });
+        return decline;
+      }
+      this.#nextQuestion += 1;
+      const requestId = `codex-q-${this.#nextQuestion}`;
+      const toolCallId = session.mapper.openMcpCall(params.serverName);
+      return new Promise<unknown>((reply) => {
+        session.questions.set(requestId, {
+          rpcId: request.id,
+          reply,
+          respond: (answers) =>
+            ({
+              content: null,
+              ...elicitationResult(message, params.requestedSchema, answers),
+            }) satisfies McpServerElicitationResponse,
+        });
+        this.#questionsByRpc.set(request.id, { session, requestId });
+        session.hub.emit({
+          type: 'question.requested',
+          engineSessionId: session.id,
+          requestId,
+          ...(toolCallId !== undefined && { toolCallId }),
+          questions,
+        });
+      });
+    }
+    const url = elicitationUrl(params.url);
+    if (url === undefined) {
+      this.#warnOnce('elicitation_url', 'MCP 要打开的不是 http(s) 地址，拒绝', {
+        serverName: params.serverName,
+      });
+      return decline;
+    }
+    this.#nextApproval += 1;
+    const toolCallId = `mcp-elicitation-${this.#nextApproval}`;
+    session.hub.emit({
+      type: 'tool.started',
+      engineSessionId: session.id,
+      toolCallId,
+      toolName: MCP_URL_ELICITATION_TOOL,
+      display: elicitationUrlDisplay(params.serverName, url),
+      input: { server: params.serverName, message, url },
+    });
+    const info: PendingApproval = {
+      engineSessionId: session.id,
+      requestId: `codex-${this.#nextApproval}`,
+      toolCallId,
+      options: URL_ELICITATION_OPTIONS.map((option) => ({ ...option })),
+    };
+    return new Promise<unknown>((reply) => {
+      session.approvals.set(info.requestId, {
+        info,
+        rpcId: request.id,
+        reply,
+        respond: (optionId) => {
+          const accepted = optionId === 'accept';
+          session.hub.emit({
+            type: 'tool.finished',
+            engineSessionId: session.id,
+            toolCallId,
+            status: accepted ? 'completed' : 'failed',
+          });
+          return {
+            action: accepted ? 'accept' : 'decline',
+            content: null,
+          } satisfies McpServerElicitationResponse;
+        },
+      });
+      this.#approvalsByRpc.set(request.id, { session, requestId: info.requestId });
+      session.hub.emit({ type: 'approval.requested', ...copyApproval(info) });
     });
   }
 
@@ -2345,11 +2470,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     session.questions.delete(requestId);
     this.#questionsByRpc.delete(pending.rpcId);
-    pending.reply({
-      answers: Object.fromEntries(
-        Object.entries(answers).map(([id, list]) => [id, { answers: list }]),
-      ),
-    } satisfies ToolRequestUserInputResponse);
+    pending.reply(
+      pending.respond?.(answers) ??
+        ({
+          answers: Object.fromEntries(
+            Object.entries(answers).map(([id, list]) => [id, { answers: list }]),
+          ),
+        } satisfies ToolRequestUserInputResponse),
+    );
   }
 
   /** 结掉一个未答的提问：不再回复 app-server，发 `question.cancelled`。 */

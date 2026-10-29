@@ -145,6 +145,7 @@ export class CopilotAdapter extends AcpAdapter {
             hooks.onSessionUpdate(params);
           },
           onRequestPermission: hooks.onRequestPermission,
+          onElicitation: hooks.onElicitation,
           onExtRequest: hooks.onExtRequest,
           onExtNotification: hooks.onExtNotification,
         });

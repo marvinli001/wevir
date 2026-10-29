@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import {
   type ContentBlock,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type McpServer,
   methods,
   type PromptResponse,
@@ -17,11 +19,16 @@ import {
   type ApprovalOption,
   type EngineExitedEvent,
   type EngineSession,
+  elicitationQuestions,
+  elicitationResult,
+  elicitationUrl,
   isAdapterError,
+  MCP_URL_ELICITATION_TOOL,
   type PendingApproval,
   type SessionConfig,
   type TurnFailedEvent,
   type TurnSettledEvent,
+  URL_ELICITATION_OPTIONS,
   type UsageRecordedEvent,
   type UserQuestion,
 } from '@wevir/runtime-adapter';
@@ -78,6 +85,11 @@ export interface AcpProcessHooks {
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ) => Promise<RequestPermissionResponse>;
+  /** ACP `elicitation/create`（引擎的 MCP 服务要用户输入），原样作 `AcpProcessOptions.onElicitation`。 */
+  onElicitation: (
+    params: CreateElicitationRequest,
+    signal: AbortSignal,
+  ) => Promise<CreateElicitationResponse>;
   onExtNotification: (method: string, params: unknown) => void;
   onExtRequest: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
   logger: AdapterLogger;
@@ -192,6 +204,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.process = options.createProcess({
       onSessionUpdate: (params) => this.#onSessionUpdate(params),
       onRequestPermission: (params, signal) => this.#onRequestPermission(params, signal),
+      onElicitation: (params, signal) => this.#onElicitation(params, signal),
       onExtNotification: (method, params) => {
         try {
           this.extNotification(method, params);
@@ -894,6 +907,71 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           ? PERMISSION_CANCELLED
           : { outcome: { outcome: 'selected', optionId } },
     );
+  }
+
+  /**
+   * ACP `elicitation/create`（acp-event-mapping.md §5.7，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：引擎的 MCP 服务要用户
+   * 输入。只认属于会话进行中回合的请求。表单换成提问（引擎实现了 `respondToQuestion` 的才问，否则 `decline`）；链接先当一个
+   * `MCP_URL_ELICITATION_TOOL` 工具调用报出（同 `tool_call`），再请求“打开链接”的审批，决定之后报这个工具调用结束。被取消时回
+   * `cancel`；认不出的表单、不是 http(s) 的地址与别的模式回 `decline`。
+   */
+  async #onElicitation(
+    params: CreateElicitationRequest,
+    signal: AbortSignal,
+  ): Promise<CreateElicitationResponse> {
+    const sessionId = 'sessionId' in params ? params.sessionId : undefined;
+    if (typeof sessionId !== 'string' || !this.inTurn(sessionId)) return { action: 'decline' };
+    const toolCallId =
+      'toolCallId' in params && typeof params.toolCallId === 'string'
+        ? params.toolCallId
+        : undefined;
+    if (params.mode === 'form' && 'requestedSchema' in params) {
+      const questions = elicitationQuestions(params.message, params.requestedSchema);
+      const answers =
+        questions === undefined ||
+        typeof (this as AgentRuntimeAdapter).respondToQuestion !== 'function'
+          ? null
+          : await this.requestAnswers(sessionId, toolCallId, questions, signal);
+      if (answers === null) return { action: 'decline' };
+      if (answers === undefined) return { action: 'cancel' };
+      const result = elicitationResult(params.message, params.requestedSchema, answers);
+      return result.action === 'accept'
+        ? { action: 'accept', content: result.content ?? {} }
+        : { action: result.action };
+    }
+    const url = params.mode === 'url' && 'url' in params ? elicitationUrl(params.url) : undefined;
+    if (url === undefined) return { action: 'decline' };
+    const session = this.#sessions.get(sessionId);
+    if (session === undefined) return { action: 'decline' };
+    const elicitationToolCallId = `mcp-elicitation-${++this.#nextRequestId}`;
+    session.queue.acpUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: 'tool_call',
+        toolCallId: elicitationToolCallId,
+        title: MCP_URL_ELICITATION_TOOL,
+        kind: 'fetch',
+        status: 'pending',
+        rawInput: { message: params.message, url },
+      },
+    });
+    const optionId = await this.requestApproval(
+      sessionId,
+      elicitationToolCallId,
+      URL_ELICITATION_OPTIONS.map((option) => ({ ...option })),
+      signal,
+    );
+    session.queue.acpUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: elicitationToolCallId,
+        status: optionId === 'accept' ? 'completed' : 'failed',
+      },
+    });
+    return optionId === undefined
+      ? { action: 'cancel' }
+      : { action: optionId === 'accept' ? 'accept' : 'decline' };
   }
 
   /**

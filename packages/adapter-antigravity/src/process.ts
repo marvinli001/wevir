@@ -155,7 +155,7 @@ export interface AntigravityProcessOptions {
   context: AntigravityRuntimeContext;
   launcher?: AntigravityLauncher;
   /** 会话进程：AcpAdapter 交来的回调。 */
-  hooks?: Pick<AcpProcessHooks, 'onSessionUpdate' | 'onRequestPermission'>;
+  hooks?: Pick<AcpProcessHooks, 'onSessionUpdate' | 'onRequestPermission' | 'onElicitation'>;
   /**
    * session：initialize 之后先 `authenticate`，要登录就停掉进程报 `missing_credentials`；none：不认证（登录、登出、
    * 校验用的进程自己决定）。
@@ -183,6 +183,7 @@ export function createAntigravityProcess(options: AntigravityProcessOptions): {
     ...(options.hooks !== undefined && {
       onSessionUpdate: options.hooks.onSessionUpdate,
       onRequestPermission: options.hooks.onRequestPermission,
+      onElicitation: options.hooks.onElicitation,
     }),
     clientInfo: context.clientInfo ?? { name: 'wevir', version: '0.0.0' },
     protocolVersions: ANTIGRAVITY_PROTOCOL_VERSIONS,

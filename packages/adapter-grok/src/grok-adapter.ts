@@ -111,6 +111,7 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
           launcher: new GrokLauncher(mode, workDir, () => accounts.executable()),
           onSessionUpdate: hooks.onSessionUpdate,
           onRequestPermission: hooks.onRequestPermission,
+          onElicitation: hooks.onElicitation,
           onExtNotification: hooks.onExtNotification,
           onExtRequest: hooks.onExtRequest,
         }),

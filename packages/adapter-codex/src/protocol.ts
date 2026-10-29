@@ -790,8 +790,12 @@ export interface McpServerElicitationRequestParams {
   threadId: string;
   turnId?: string | null;
   serverName: string;
+  /** `form`：`requestedSchema` 是表单（v2/McpElicitationSchema.ts）；`url`：`url` 与 `elicitationId`。 */
   mode?: string;
   message?: string;
+  requestedSchema?: unknown;
+  url?: string;
+  elicitationId?: string;
   _meta?: unknown;
 }
 

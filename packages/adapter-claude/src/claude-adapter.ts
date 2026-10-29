@@ -27,6 +27,11 @@ import {
   type EngineRuleFiles,
   type EngineSession,
   EventHub,
+  elicitationQuestions,
+  elicitationResult,
+  elicitationUrl,
+  elicitationUrlDisplay,
+  MCP_URL_ELICITATION_TOOL,
   type PendingApproval,
   type PermissionMode,
   type ProviderConfig,
@@ -35,6 +40,7 @@ import {
   type TitleRequest,
   type TurnFailedEvent,
   type TurnSettledEvent,
+  URL_ELICITATION_OPTIONS,
 } from '@wevir/runtime-adapter';
 import {
   HISTORY_TOOL_NAME,
@@ -105,7 +111,6 @@ const IGNORED_MESSAGES: ReadonlySet<string> = new Set([
   'auth_status',
   'prompt_suggestion',
   'system/status',
-  'system/session_state_changed',
   'system/thinking_tokens',
   'system/hook_started',
   'system/hook_progress',
@@ -250,8 +255,11 @@ interface Owner {
 
 interface Turn {
   promptUuid: string;
-  /** `compact` 开的回合（0.24.0）：它的压缩记为 `manual`，结果不按 uuid 对。 */
-  readonly kind?: 'compact';
+  /**
+   * `compact` 开的回合（0.24.0）：它的压缩记为 `manual`，结果不按 uuid 对。`engine`：Claude 自己开的一轮（后台任务结束后的唤醒，
+   * 包括连接器的 MCP Task 做完），不经 `send`，结果同样不按 uuid 对。
+   */
+  readonly kind?: 'compact' | 'engine';
   /** 进行中的压缩（`status` 是 `compacting`，0.24.0），等 `compact_boundary`。 */
   compaction?: { id: string; trigger: 'manual' | 'auto' };
   settled: boolean;
@@ -306,6 +314,11 @@ interface RootSession extends Owner {
   lastSettledUuid?: string;
   /** `injectNote` 补进来、还没交给 `claude` 的说明。 */
   pendingNotes: string[];
+  /**
+   * 没有回合时 `claude` 报了 `session_state_changed: running`：它自己开了一轮（后台的子 agent、命令或 MCP Task 结束后把结果交给
+   * 模型）。等到第一条顶层的输出再报 `turn.started`，`idle` 时清掉。
+   */
+  waking?: boolean;
   /** 当前（最近一个由消息开始的）回合在计划模式里（0.36.0）：进程的权限模式是 `plan`。 */
   planning: boolean;
   /** 子 agent：派出它的工具调用 ID → 子会话（各层都登记在顶层会话上）。 */
@@ -541,6 +554,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   /** 添加的账号：用户条目链好之前不起会话。 */
   readonly #prepared: Promise<void>;
   #disposed = false;
+  /** MCP elicitation 的序号（审批与提问的 requestId、链接的工具调用 ID）。 */
+  #nextElicitation = 0;
 
   constructor(options: ClaudeAdapterOptions) {
     this.#sdk = options.sdk ?? realClaudeSdk;
@@ -1170,6 +1185,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       permissionMode: desired.mode,
       ...(desired.dangerous && { allowDangerouslySkipPermissions: true }),
       canUseTool: this.#canUseTool(session),
+      onElicitation: this.#onElicitation(session),
       ...mcpOptions(this.#historyTool, session.config.appTools),
       includePartialMessages: true,
       forwardSubagentText: true,
@@ -1389,6 +1405,155 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     };
   }
 
+  /**
+   * 用户接入的 MCP 服务要用户输入（claude-event-mapping.md §5.4，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：表单换成
+   * `question.requested`，链接换成一个 `MCP_URL_ELICITATION_TOOL` 工具调用加“打开链接”的审批。属于顶层会话进行中的回合（子 agent 的
+   * 请求分不出是谁的，也算顶层会话的）；没有回合、表单认不出或地址不是 http(s) 时回 `decline`。
+   */
+  #onElicitation(session: RootSession): NonNullable<Options['onElicitation']> {
+    return async (request, { signal }) => {
+      const turn = session.turn;
+      if (turn === undefined || turn.settled || turn.cancelRequested || this.#disposed) {
+        return { action: 'decline' };
+      }
+      this.#nextElicitation += 1;
+      const requestId = `elicitation-${this.#nextElicitation}`;
+      if (request.mode === 'url') {
+        const url = elicitationUrl(request.url);
+        if (url === undefined) return { action: 'decline' };
+        const toolCallId = `mcp-elicitation-${this.#nextElicitation}`;
+        session.hub.emit({
+          type: 'tool.started',
+          engineSessionId: session.id,
+          toolCallId,
+          toolName: MCP_URL_ELICITATION_TOOL,
+          display: elicitationUrlDisplay(request.serverName, url),
+          input: { server: request.serverName, message: request.message, url },
+        });
+        const info: PendingApproval = {
+          engineSessionId: session.id,
+          requestId,
+          toolCallId,
+          options: URL_ELICITATION_OPTIONS.map((option) => ({ ...option })),
+        };
+        return new Promise((resolve) => {
+          let done = false;
+          const finish = (accepted: boolean) => {
+            if (done) return;
+            done = true;
+            session.approvals.delete(requestId);
+            signal.removeEventListener('abort', onAbort);
+            session.hub.emit({
+              type: 'tool.finished',
+              engineSessionId: session.id,
+              toolCallId,
+              status: accepted ? 'completed' : 'failed',
+            });
+            resolve({ action: accepted ? 'accept' : 'decline' });
+          };
+          const entry: ApprovalEntry = {
+            info,
+            decide: (decision) => finish(decision === 'accept'),
+            end: (reason) => {
+              if (done) return;
+              session.hub.emit({
+                type: 'approval.cancelled',
+                engineSessionId: session.id,
+                requestId,
+                reason,
+              });
+              finish(false);
+            },
+          };
+          const onAbort = () => entry.end(turn.cancelRequested ? 'turn_cancelled' : 'turn_ended');
+          signal.addEventListener('abort', onAbort, { once: true });
+          session.approvals.set(requestId, entry);
+          session.hub.emit({
+            type: 'approval.requested',
+            ...info,
+            options: info.options.map((option) => ({ ...option })),
+          });
+          if (signal.aborted) onAbort();
+        });
+      }
+      const questions = elicitationQuestions(request.message, request.requestedSchema);
+      if (questions === undefined) return { action: 'decline' };
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = (result: Awaited<ReturnType<NonNullable<Options['onElicitation']>>>) => {
+          if (done) return;
+          done = true;
+          session.questions.delete(requestId);
+          signal.removeEventListener('abort', onAbort);
+          resolve(result);
+        };
+        const entry: QuestionEntry = {
+          answer: (answers) =>
+            finish(elicitationResult(request.message, request.requestedSchema, answers)),
+          end: (reason) => {
+            if (done) return;
+            session.hub.emit({
+              type: 'question.cancelled',
+              engineSessionId: session.id,
+              requestId,
+              reason,
+            });
+            finish({ action: 'cancel' });
+          },
+        };
+        const onAbort = () => entry.end(turn.cancelRequested ? 'turn_cancelled' : 'turn_ended');
+        signal.addEventListener('abort', onAbort, { once: true });
+        session.questions.set(requestId, entry);
+        session.hub.emit({
+          type: 'question.requested',
+          engineSessionId: session.id,
+          requestId,
+          questions,
+        });
+        if (signal.aborted) onAbort();
+      });
+    };
+  }
+
+  /**
+   * `claude` 的会话状态（claude-event-mapping.md §4.6）：没有回合时转成 `running` 是它自己开了一轮，记下等第一条输出；`idle` 时还没
+   * 结算的自开回合按完成结算（结果已经到了的话早已结算）。
+   */
+  #stateChanged(session: RootSession, live: LiveQuery, state: string): void {
+    if (state === 'running') {
+      if (session.turn === undefined) session.waking = true;
+      return;
+    }
+    if (state !== 'idle') return;
+    session.waking = false;
+    const turn = session.turn;
+    if (turn?.kind === 'engine' && !turn.settled && turn.live === live) {
+      this.#settle(session, turn, {
+        type: 'turn.settled',
+        outcome: 'completed',
+        stopReason: 'idle',
+      });
+    }
+  }
+
+  /** Claude 自己开的一轮的第一条输出：开一个 `engine` 回合，报 `turn.started`（不带输入：交给模型的是 Claude 自己的任务通知）。 */
+  #engineTurn(session: RootSession, live: LiveQuery): void {
+    session.waking = false;
+    session.turn = {
+      kind: 'engine',
+      promptUuid: randomUUID(),
+      settled: false,
+      cancelRequested: false,
+      stoppedByUser: false,
+      authFailed: false,
+      steers: [],
+      usageMessages: new Set(),
+      waiters: [],
+      live,
+    };
+    session.hub.emit({ type: 'turn.started', engineSessionId: session.id });
+  }
+
   /** AskUserQuestion：问用户，回答作为工具的输入交回去（T3 的做法）。 */
   #ask(
     owner: Owner,
@@ -1598,6 +1763,18 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (lifecycle.type === 'command_lifecycle') {
       if (lifecycle.state === 'cancelled') this.#steerDropped(session, lifecycle.command_uuid);
       return;
+    }
+    if (message.type === 'system' && message.subtype === 'session_state_changed') {
+      this.#stateChanged(session, live, message.state);
+      return;
+    }
+    if (
+      session.waking === true &&
+      session.turn === undefined &&
+      (message.type === 'stream_event' || message.type === 'assistant') &&
+      message.parent_tool_use_id === null
+    ) {
+      this.#engineTurn(session, live);
     }
     switch (message.type) {
       case 'stream_event':
@@ -2131,7 +2308,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       (message.user_message_uuid === undefined ? [] : [message.user_message_uuid]);
     // `/compact` 是本地命令（0.24.0），它的结果不一定带这条消息的 uuid。
     if (
-      turn.kind !== 'compact' &&
+      turn.kind === undefined &&
       echoed.length > 0 &&
       !echoed.includes(turn.promptUuid) &&
       !turn.steers.some((steer) => echoed.includes(steer.uuid))

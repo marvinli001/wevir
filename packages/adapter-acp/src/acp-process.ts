@@ -4,6 +4,8 @@ import { Readable, Writable } from 'node:stream';
 import {
   type AnyMessage,
   type ClientConnection,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   client,
   type Implementation,
   type InitializeResponse,
@@ -159,6 +161,14 @@ export interface AcpProcessOptions {
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ) => Promise<RequestPermissionResponse>;
+  /**
+   * ACP `elicitation/create`：引擎把它的 MCP 服务要用户输入的请求转过来（表单或链接）。给了时 `initialize` 声明
+   * `clientCapabilities.elicitation`（`form` 与 `url`）；不给时不声明，这个方法回 `Method not found`。
+   */
+  onElicitation?: (
+    params: CreateElicitationRequest,
+    signal: AbortSignal,
+  ) => Promise<CreateElicitationResponse>;
   /**
    * 引擎的扩展通知（引擎描述 `extensions.notifications` 里的方法），与 `onSessionUpdate` 一样在 SDK 之前按引擎写出的
    * 顺序同步调用，不得抛错。
@@ -427,6 +437,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         // 不声明 fs 与 terminal：Host 不替引擎读写文件或执行命令，工具一律在引擎自己的沙箱里执行
         // （ADR-0001 §1）。
         clientCapabilities: {
+          ...(this.#options.onElicitation !== undefined && { elicitation: { form: {}, url: {} } }),
           ...(capabilitiesMeta !== undefined && { _meta: { ...capabilitiesMeta } }),
         },
         clientInfo,
@@ -510,6 +521,12 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
           ? this.#options.onRequestPermission(params, signal)
           : { outcome: { outcome: 'cancelled' } },
     );
+    const onElicitation = this.#options.onElicitation;
+    if (onElicitation !== undefined) {
+      app.onRequest(methods.client.elicitation.create, ({ params, signal }) =>
+        onElicitation(params, signal),
+      );
+    }
     const onExtRequest = this.#options.onExtRequest;
     if (onExtRequest !== undefined) {
       for (const method of this.#options.engine.extensions?.requests ?? []) {

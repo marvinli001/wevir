@@ -1010,6 +1010,7 @@ export const messages: Messages = {
   'approval.title.connectorAdd': '¿Permitir añadir este servidor MCP?',
   'approval.title.wevirConfig': '¿Permitir cambiar la configuración de Wevir?',
   'approval.title.pluginManage': '¿Permitir cambiar la configuración de plugins?',
+  'approval.title.openLink': '¿Abrir enlace?',
   'approval.title.browserOpen': '¿Permitir abrir una página en el navegador?',
   'approval.title.browserAct': '¿Permitir actuar sobre una página en el navegador?',
   'approval.title.browserClose': '¿Permitir cerrar una pestaña del navegador?',
