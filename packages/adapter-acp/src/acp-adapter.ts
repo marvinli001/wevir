@@ -19,6 +19,7 @@ import {
   type ApprovalOption,
   type EngineExitedEvent,
   type EngineSession,
+  type EngineToolClass,
   elicitationQuestions,
   elicitationResult,
   elicitationUrl,
@@ -126,7 +127,20 @@ interface AcpSession {
   readonly questions: Map<string, PendingQuestion>;
   /** 引擎最近报的 `configOptions`（`session/new` / `session/resume`、选定路由、`config_option_update`）。 */
   configOptions: unknown;
+  /** 角色关掉的引擎工具类别（`SessionConfig.engineTools`）：这些类别的审批请求直接拒绝。 */
+  readonly deniedTools: ReadonlySet<EngineToolClass>;
 }
+
+/** ACP 的工具种类（`ToolKind`）→ 引擎工具的类别；`think`、`switch_mode`、`other` 不归哪一类。 */
+const TOOL_KIND_CLASSES: Readonly<Record<string, EngineToolClass>> = {
+  read: 'read',
+  search: 'read',
+  edit: 'edit',
+  delete: 'edit',
+  move: 'edit',
+  execute: 'shell',
+  fetch: 'web',
+};
 
 /** 一个挂起的审批：引擎在等 `reply` 的结果（所选的 `optionId`，undefined 表示取消）。 */
 interface PendingPermission {
@@ -277,7 +291,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(id, config.cwd, configOptions);
+      this.#register(id, config.cwd, configOptions, config.engineTools?.denied);
       return {
         engineSessionId: id,
         engineVersion: this.engine.version,
@@ -350,7 +364,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(engineSessionId, config.cwd, configOptions);
+      this.#register(engineSessionId, config.cwd, configOptions, config.engineTools?.denied);
       return {
         engineSessionId,
         engineVersion: this.engine.version,
@@ -894,6 +908,25 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       });
       return Promise.resolve(PERMISSION_CANCELLED);
     }
+    // 角色关掉的引擎工具（acp-event-mapping.md §1.9）：ACP 没有按会话收工具的办法，只能拒掉引擎为它们请求的批准；引擎不问就做的
+    // （完全访问、它自己放行的读）管不到。
+    const kind = TOOL_KIND_CLASSES[params.toolCall.kind ?? ''];
+    if (
+      kind !== undefined &&
+      this.#sessions.get(params.sessionId)?.deniedTools.has(kind) === true
+    ) {
+      const reject =
+        params.options.find((option) => option.kind === 'reject_once') ??
+        params.options.find((option) => option.kind === 'reject_always');
+      this.#warnOnce(`role_denied:${kind}`, `角色不许 ${kind} 类的工具，拒绝审批`, {
+        engineSessionId: params.sessionId,
+      });
+      return Promise.resolve(
+        reject === undefined
+          ? PERMISSION_CANCELLED
+          : { outcome: { outcome: 'selected', optionId: reject.optionId } },
+      );
+    }
     const intercepted = this.interceptPermission(params, signal);
     if (intercepted !== undefined) return intercepted;
     const options: ApprovalOption[] = params.options.map((option) => ({
@@ -910,7 +943,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   /**
-   * ACP `elicitation/create`（acp-event-mapping.md §5.7，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：引擎的 MCP 服务要用户
+   * ACP `elicitation/create`（acp-event-mapping.md §1.8，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：引擎的 MCP 服务要用户
    * 输入。只认属于会话进行中回合的请求。表单换成提问（引擎实现了 `respondToQuestion` 的才问，否则 `decline`）；链接先当一个
    * `MCP_URL_ELICITATION_TOOL` 工具调用报出（同 `tool_call`），再请求“打开链接”的审批，决定之后报这个工具调用结束。被取消时回
    * `cancel`；认不出的表单、不是 http(s) 的地址与别的模式回 `decline`。
@@ -1158,7 +1191,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   /** 登记一个刚挂到本进程上的会话；之前的记录（已关闭或已脱开，事件队列已结束）被替换。 */
-  #register(id: string, cwd: string, configOptions: unknown): void {
+  #register(
+    id: string,
+    cwd: string,
+    configOptions: unknown,
+    deniedTools: readonly EngineToolClass[] = [],
+  ): void {
     this.#sessions.set(id, {
       id,
       cwd,
@@ -1167,6 +1205,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       approvals: new Map(),
       questions: new Map(),
       configOptions,
+      deniedTools: new Set(deniedTools),
     });
   }
 

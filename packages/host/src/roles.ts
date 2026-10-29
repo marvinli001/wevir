@@ -3,14 +3,29 @@
 // 正文是给这个角色的说明。
 //
 // 来源（后面的盖住前面的同名角色）：随 Host 的内置角色 → `<数据目录>/roles/*.md`（用户的，所有项目）→ `<项目>/.wevir/roles/*.md`。
-// 工具限制只管 Wevir 的应用级工具（会话、浏览器、进程、LSP……）：Host 在 `tools/list` 里不列、在 `tools/call` 里拒绝；引擎自己的
-// 工具（shell、改文件、联网搜索）不归 Host 管，只能靠权限模式（上限）和说明。
+// 用户与项目两级各自还读别的工具写的 agent（external-agents.ts）：Claude Code 的 `.claude/agents/*.md` 与 Codex 的
+// `agents/*.toml`，同一级里 Wevir 自己的同名角色盖过它们。
+//
+// `tools` / `disallowedTools` 里两种写法混着写：Wevir 的应用级工具（`wevir_*`、`browser_*`、`readonly`……）由 Host 在 `tools/list`
+// 里不列、在 `tools/call` 里拒绝；引擎自带的工具写类别名（`read`、`edit`、`shell`、`web`）或 Claude Code 的工具名（`Bash`、`Edit`、
+// `WebFetch`、连接器的 `mcp__<服务>__*`……），换成 `SessionConfig.engineTools` 交给适配器按引擎能做到的程度执行。允许列表按种类各管
+// 各的：只写了引擎工具的 `tools` 不收窄应用级工具，反之亦然。关掉 `shell` 时应用级的后台进程工具一并去掉，关掉 `web` 时联网与内置
+// 浏览器的工具一并去掉。
 
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { PermissionMode } from '@wevir/protocol';
-import { appToolBaseName } from '@wevir/runtime-adapter';
+import {
+  appToolBaseName,
+  type EngineToolClass,
+  type EngineToolLimits,
+} from '@wevir/runtime-adapter';
 import { parse as parseYaml } from 'yaml';
+import {
+  type ExternalAgentHome,
+  externalAgentDirs,
+  readExternalAgents,
+} from './external-agents.js';
 
 /** 角色名：小写字母、数字、连字符，文件名也用它。 */
 export const ROLE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -25,6 +40,38 @@ export const ROLE_READONLY_TOOLS = 'readonly';
 
 const PERMISSION_MODES: readonly PermissionMode[] = ['on_request', 'auto_review', 'full_access'];
 
+/** 引擎自带工具的类别名（角色的 `tools` / `disallowedTools` 里直接写）。 */
+export const ENGINE_TOOL_CLASSES: readonly EngineToolClass[] = ['read', 'edit', 'shell', 'web'];
+
+/**
+ * Claude Code 的工具名 → 类别（子 agent 的 frontmatter 用这套名字，导入的 Claude 与 Codex agent 也换成它）。不在表里的名字（`Task`、
+ * `TodoWrite`、`mcp__…`）只有 Claude 按名字执行。
+ */
+export const CLAUDE_TOOL_CLASSES: Readonly<Record<string, EngineToolClass>> = {
+  Read: 'read',
+  Grep: 'read',
+  Glob: 'read',
+  LS: 'read',
+  NotebookRead: 'read',
+  Edit: 'edit',
+  MultiEdit: 'edit',
+  Write: 'edit',
+  NotebookEdit: 'edit',
+  Bash: 'shell',
+  BashOutput: 'shell',
+  KillShell: 'shell',
+  KillBash: 'shell',
+  PowerShell: 'shell',
+  WebFetch: 'web',
+  WebSearch: 'web',
+};
+
+/** 关掉某类引擎工具时一并去掉的应用级工具（前缀）：后台进程是 shell，联网与内置浏览器是 web。 */
+const APP_TOOLS_OF_CLASS: Readonly<Partial<Record<EngineToolClass, readonly string[]>>> = {
+  shell: ['wevir_process_'],
+  web: ['wevir_web', 'browser_'],
+};
+
 export type RoleSource = 'builtin' | 'user' | 'project';
 
 export interface RoleDefinition {
@@ -36,12 +83,17 @@ export interface RoleDefinition {
   reasoningEffort?: string;
   /** 权限模式的上限：新会话不会比它宽，也不会比开它的会话宽。 */
   permissionMode?: PermissionMode;
-  /** 只许这些应用级工具：工具名、`前缀*` 或 `readonly`；省略表示都许。 */
+  /**
+   * 只许这些工具：应用级工具的名字、`前缀*` 或 `readonly`，引擎工具的类别名或 Claude Code 的工具名（见文件头）；省略表示都许，
+   * 只写了一种时另一种不限。
+   */
   tools?: string[];
   /** 不许这些（写法同 `tools`），先于 `tools` 判断。 */
   disallowedTools?: string[];
   /** 给这个角色的任务说明，放在第一条消息前面。 */
   instructions: string;
+  /** 从哪个文件读来的（导入的 Claude Code / Codex agent：`claude` / `codex`，给 `wevir_roles` 看）；Wevir 自己的角色省略。 */
+  importedFrom?: 'claude' | 'codex';
 }
 
 /** 读不进来的角色文件：给用户和模型看原因，不拖垮别的角色。 */
@@ -175,22 +227,38 @@ export const BUILTIN_ROLES: readonly RoleDefinition[] = Object.freeze([
 export interface RoleStoreOptions {
   /** `<数据目录>/roles`。 */
   dir: string;
+  /** 读用户级的 Claude Code 与 Codex agent（external-agents.ts）；省略时只读项目里的。 */
+  externalHome?: ExternalAgentHome;
 }
 
 export class RoleStore {
   readonly #dir: string;
+  readonly #externalHome: ExternalAgentHome | undefined;
 
   constructor(options: RoleStoreOptions) {
     this.#dir = options.dir;
+    this.#externalHome = options.externalHome;
   }
 
-  /** 这个项目能用的角色（内置 < 用户 < 项目，同名的后者盖前者），按名字排；读不进来的文件另列。 */
+  /**
+   * 这个项目能用的角色（内置 < 用户 < 项目，同名的后者盖前者；每一级里 Claude Code 的 agent < Codex 的 < Wevir 自己的），按名字
+   * 排；读不进来的文件另列。
+   */
   async list(projectRoot?: string): Promise<{ roles: RoleDefinition[]; problems: RoleProblem[] }> {
     const byName = new Map<string, RoleDefinition>(BUILTIN_ROLES.map((role) => [role.name, role]));
     const problems: RoleProblem[] = [];
-    const sources: Array<[RoleSource, string]> = [['user', this.#dir]];
-    if (projectRoot !== undefined) sources.push(['project', join(projectRoot, '.wevir', 'roles')]);
-    for (const [source, dir] of sources) {
+    const sources: Array<[Exclude<RoleSource, 'builtin'>, string, string]> = [
+      ['user', this.#dir, ''],
+    ];
+    if (projectRoot !== undefined) {
+      sources.push(['project', join(projectRoot, '.wevir', 'roles'), projectRoot]);
+    }
+    for (const [source, dir, root] of sources) {
+      for (const { dialect, dir: agents } of externalAgentDirs(source, root, this.#externalHome)) {
+        const external = await readExternalAgents(source, dialect, agents);
+        for (const role of external.roles) byName.set(role.name, role);
+        problems.push(...external.problems);
+      }
       for (const file of await markdownFiles(dir)) {
         const text = await readFile(join(dir, file), 'utf8').catch(() => undefined);
         if (text === undefined) continue;
@@ -231,12 +299,10 @@ function stringList(value: unknown, field: string): string[] | { message: string
   return items.map((item) => item.trim()).filter((item) => item !== '');
 }
 
-/** 解析一个角色文件；不合规时返回原因。文件名（去掉 .md）是 `name` 的默认值。 */
-export function parseRole(
-  source: RoleSource,
-  file: string,
+/** 拆开带 YAML frontmatter 的 Markdown：frontmatter 的字段与正文。 */
+export function parseFrontmatter(
   text: string,
-): RoleDefinition | { message: string } {
+): { fields: Record<string, unknown>; body: string } | { message: string } {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replace(/\r\n/g, '\n'));
   if (match === null) return { message: 'needs YAML frontmatter (--- … ---) with a description' };
   let front: unknown;
@@ -250,32 +316,73 @@ export function parseRole(
   if (front === null || typeof front !== 'object' || Array.isArray(front)) {
     return { message: 'frontmatter must be a mapping' };
   }
-  const fields = front as Record<string, unknown>;
-  const name = typeof fields.name === 'string' ? fields.name.trim() : basename(file, '.md');
+  return { fields: front as Record<string, unknown>, body: match[2] ?? '' };
+}
+
+/** 解析一个角色文件；不合规时返回原因。文件名（去掉 .md）是 `name` 的默认值。 */
+export function parseRole(
+  source: RoleSource,
+  file: string,
+  text: string,
+): RoleDefinition | { message: string } {
+  const parsed = parseFrontmatter(text);
+  if ('message' in parsed) return parsed;
+  return roleFromFields(source, file, parsed.fields, parsed.body);
+}
+
+/**
+ * 按 Wevir 角色的字段建角色（`parseRole` 与导入的 Claude Code / Codex agent 共用，external-agents.ts 先把它们的字段换成这一套）。
+ * `importedFrom` 给了时名字先规范成小写、下划线换连字符，说明超长时截断（别的工具的说明常常带长例子）。
+ */
+export function roleFromFields(
+  source: RoleSource,
+  file: string,
+  fields: Record<string, unknown>,
+  body: string,
+  importedFrom?: RoleDefinition['importedFrom'],
+): RoleDefinition | { message: string } {
+  const stem = basename(file).replace(/\.(md|toml)$/, '');
+  const rawName = typeof fields.name === 'string' ? fields.name.trim() : stem;
+  const name = importedFrom === undefined ? rawName : rawName.toLowerCase().replace(/[_\s]+/g, '-');
   if (!ROLE_NAME_PATTERN.test(name)) {
     return { message: `name "${name}" must be lowercase letters, digits and hyphens` };
   }
-  const description = typeof fields.description === 'string' ? fields.description.trim() : '';
+  let description = typeof fields.description === 'string' ? fields.description.trim() : '';
   if (description === '') return { message: 'description is required' };
   if (Array.from(description).length > ROLE_DESCRIPTION_MAX) {
-    return { message: `description is longer than ${ROLE_DESCRIPTION_MAX} characters` };
+    if (importedFrom === undefined) {
+      return { message: `description is longer than ${ROLE_DESCRIPTION_MAX} characters` };
+    }
+    description = `${Array.from(description)
+      .slice(0, ROLE_DESCRIPTION_MAX - 1)
+      .join('')
+      .trimEnd()}…`;
   }
-  const instructions = (match[2] ?? '').trim();
+  const instructions = body.trim();
   if (Buffer.byteLength(instructions, 'utf8') > ROLE_INSTRUCTIONS_MAX_BYTES) {
     return { message: `instructions are longer than ${ROLE_INSTRUCTIONS_MAX_BYTES} bytes` };
   }
-  const role: RoleDefinition = { name, description, source, instructions };
+  const role: RoleDefinition = {
+    name,
+    description,
+    source,
+    instructions,
+    ...(importedFrom !== undefined && { importedFrom }),
+  };
+  // `effort` 是 Claude Code 子 agent 的写法；`model: inherit` 等于不写（沿用开它的会话的模型）。
   for (const [key, target] of [
     ['provider', 'providerId'],
     ['model', 'modelId'],
     ['reasoningEffort', 'reasoningEffort'],
+    ['effort', 'reasoningEffort'],
   ] as const) {
     const value = fields[key];
     if (value === undefined || value === null) continue;
     if (typeof value !== 'string' || value.trim() === '') {
       return { message: `${key} must be a non-empty string` };
     }
-    role[target] = value.trim();
+    if (key === 'model' && value.trim() === 'inherit') continue;
+    role[target] ??= value.trim();
   }
   if (fields.permissionMode !== undefined) {
     if (!(PERMISSION_MODES as readonly unknown[]).includes(fields.permissionMode)) {
@@ -290,6 +397,58 @@ export function parseRole(
     role[key] = list;
   }
   return role;
+}
+
+/** 这一项说的是引擎自带的工具（类别名、Claude Code 的大写工具名、用户连接器的 `mcp__…`），不是应用级工具。 */
+export function isEngineToolEntry(entry: string): boolean {
+  if ((ENGINE_TOOL_CLASSES as readonly string[]).includes(entry)) return true;
+  if (/^[A-Z]/.test(entry)) return true;
+  return entry.startsWith('mcp__') && appToolBaseName(entry) === entry;
+}
+
+/** 类别名展开成 Claude Code 的工具名，别的原样。 */
+function claudeNames(entry: string): string[] {
+  if (!(ENGINE_TOOL_CLASSES as readonly string[]).includes(entry)) return [entry];
+  return Object.entries(CLAUDE_TOOL_CLASSES)
+    .filter(([, kind]) => kind === entry)
+    .map(([name]) => name);
+}
+
+function classOf(entry: string): EngineToolClass | undefined {
+  return (ENGINE_TOOL_CLASSES as readonly string[]).includes(entry)
+    ? (entry as EngineToolClass)
+    : CLAUDE_TOOL_CLASSES[entry];
+}
+
+/**
+ * 这个角色对引擎自带工具的限制（交给适配器的 `SessionConfig.engineTools`）；不限引擎工具时 `undefined`。允许列表里有引擎工具时，
+ * 一个都没许到的类别算关掉；禁止列表里出现某一类的任何一个工具，这一类都算关掉（按类执行的引擎只能这样，Claude 另按名字精确执行）。
+ */
+export function roleEngineTools(
+  role: Pick<RoleDefinition, 'tools' | 'disallowedTools'> | undefined,
+): EngineToolLimits | undefined {
+  const allow = (role?.tools ?? []).filter(isEngineToolEntry);
+  const deny = (role?.disallowedTools ?? []).filter(isEngineToolEntry);
+  if (allow.length === 0 && deny.length === 0) return undefined;
+  const denied = new Set<EngineToolClass>();
+  for (const entry of deny) {
+    const kind = classOf(entry);
+    if (kind !== undefined) denied.add(kind);
+  }
+  if (allow.length > 0) {
+    const allowed = new Set(allow.map(classOf).filter((kind) => kind !== undefined));
+    for (const kind of ENGINE_TOOL_CLASSES) if (!allowed.has(kind)) denied.add(kind);
+  }
+  const deniedNames = [...new Set(deny.flatMap(claudeNames))];
+  return {
+    denied: ENGINE_TOOL_CLASSES.filter((kind) => denied.has(kind)),
+    deniedNames,
+    ...(allow.length > 0 && {
+      allowedNames: [...new Set(allow.flatMap(claudeNames))].filter(
+        (name) => !deniedNames.includes(name),
+      ),
+    }),
+  };
 }
 
 function matches(pattern: string, tool: { name: string; readOnly: boolean }): boolean {
@@ -307,7 +466,17 @@ export function roleAllowsTool(
 ): boolean {
   if (role === undefined) return true;
   const probe = { name: tool.name, readOnly: tool.annotations.readOnlyHint === true };
-  if (role.disallowedTools?.some((pattern) => matches(pattern, probe))) return false;
+  const engine = roleEngineTools(role);
+  for (const kind of engine?.denied ?? []) {
+    if (APP_TOOLS_OF_CLASS[kind]?.some((prefix) => tool.name.startsWith(prefix))) return false;
+  }
+  if (
+    role.disallowedTools?.some((pattern) => !isEngineToolEntry(pattern) && matches(pattern, probe))
+  )
+    return false;
   if (role.tools === undefined) return true;
-  return role.tools.some((pattern) => matches(pattern, probe));
+  const allowed = role.tools.filter((pattern) => !isEngineToolEntry(pattern));
+  // 只写了引擎工具的允许列表不收窄应用级工具（空的列表照旧是一个都不许）。
+  if (allowed.length === 0 && role.tools.length > 0) return true;
+  return allowed.some((pattern) => matches(pattern, probe));
 }

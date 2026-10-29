@@ -324,6 +324,8 @@ interface CodexSession {
   permission: PermissionMode;
   /** 环境会话的额外目录（0.15.0）：沙箱的 writableRoots。 */
   readonly roots: readonly string[];
+  /** 角色关掉了改文件（roles.ts）：沙箱只读，改文件的审批直接拒绝。 */
+  readonly readOnly: boolean;
   /** 只挂在这个 thread 上的项目连接器（0.74.0）里启用的名字：它们的 MCP 确认按用户连接器处理。 */
   readonly connectors: ReadonlySet<string>;
   /** 子会话（子 agent 的 thread）的父会话（R4）。 */
@@ -765,6 +767,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.hooks,
           config.disabledHooks,
           config.env,
+          config.engineTools,
         ),
         ...threadDeveloperInstructions(config),
       };
@@ -784,6 +787,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.permissionMode,
         config.additionalRoots,
         config.connectors,
+        config.engineTools,
       );
       return engineSession(id, response);
     } finally {
@@ -823,6 +827,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.hooks,
           config.disabledHooks,
           config.env,
+          config.engineTools,
         ),
         ...threadDeveloperInstructions(config),
         excludeTurns: true,
@@ -837,6 +842,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.permissionMode,
         config.additionalRoots,
         config.connectors,
+        config.engineTools,
       );
       // 0.35.0：记下 thread 的目标（停止回合时要知道它是不是进行中）；Codex 恢复时的那次通知可能早于登记。
       const session = this.#sessions.get(engineSessionId);
@@ -920,7 +926,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       threadId: session.id,
       input,
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
-      ...permissionSettings(session.permission, session.roots),
+      ...permissionSettings(session.permission, session.roots, session.readOnly),
       collaborationMode: this.#collaborationMode(session, mode),
     };
     let response: TurnStartResponse;
@@ -1238,6 +1244,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.hooks,
           config.disabledHooks,
           config.env,
+          config.engineTools,
         ),
         ephemeral: side,
         excludeTurns: true,
@@ -1258,6 +1265,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.permissionMode,
         config.additionalRoots,
         config.connectors,
+        config.engineTools,
       );
       if (!side) return engineSession(id, response);
       const inject: ThreadInjectItemsParams = {
@@ -1974,6 +1982,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       effort: parent.effort,
       permission: parent.permission,
       roots: parent.roots,
+      readOnly: parent.readOnly,
       connectors: parent.connectors,
       parentId: parent.id,
       status: 'open',
@@ -2194,6 +2203,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       });
       return decline;
     }
+    if (method === 'item/fileChange/requestApproval' && session.readOnly) {
+      this.#warnOnce('role_read_only', '角色不许改文件，拒绝改文件的审批', {
+        engineSessionId: session.id,
+      });
+      return decline;
+    }
     const turn = session.turn;
     if (turn === undefined || (turn.turnId !== undefined && params.turnId !== turn.turnId)) {
       this.#logger.warn('审批请求不属于进行中的回合，拒绝', {
@@ -2307,7 +2322,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * MCP 服务向用户要输入（codex-event-mapping.md §6.11）：不是工具批准的 `mcpServer/elicitation/request`，来自用户接入的连接器
+   * MCP 服务向用户要输入（codex-event-mapping.md §6.20）：不是工具批准的 `mcpServer/elicitation/request`，来自用户接入的连接器
    * （Host 代理的远程连接器也一样，代理只转发）。属于挂着的会话进行中的回合时，表单换成 `question.requested`，链接换成一次
    * “打开链接”的审批（先报一个 `MCP_URL_ELICITATION_TOOL` 的工具调用，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）；否则、
    * 表单字段认不出或地址不是 http(s) 时回 `decline`。
@@ -2642,7 +2657,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     hooks: SessionConfig['hooks'],
     disabledHooks: SessionConfig['disabledHooks'],
     env: SessionConfig['env'],
+    engineTools: SessionConfig['engineTools'],
   ): Omit<ThreadStartParams, 'cwd'> {
+    // 角色关掉的引擎工具（roles.ts）：命令关 shell，改文件用只读沙箱（`turn/start` 每回合也带，见 `permissionSettings`），联网关
+    // Codex 的搜索与 Wevir 的联网工具。读文件关不掉（shell 能读），靠说明。
+    const denied = new Set(engineTools?.denied ?? []);
+    const sandbox = denied.has('edit') ? 'read-only' : 'workspace-write';
     // 项目的连接器（0.74.0）只挂在这个 thread 上（`mcp_servers.<名字>` 的覆盖），全局的在 config.toml 里。
     const projectTools =
       connectors === undefined || connectors.length === 0
@@ -2655,6 +2675,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       ...hooksThreadConfig(hooks ?? [], disabledHooks),
       // 环境的变量（0.130.0）：只给这个 thread 里模型跑的命令。
       ...sessionEnvConfig(env, (value) => this.#logger.addSecret?.(value)),
+      ...(denied.has('shell') && {
+        'features.shell_tool': false,
+        'features.unified_exec': false,
+      }),
+      ...(denied.has('web') && { web_search: 'disabled' }),
     };
     if (this.#chatgpt) {
       // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。
@@ -2662,7 +2687,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         model: model.id,
         modelProvider: OPENAI_PROVIDER,
         approvalPolicy: 'on-request',
-        sandbox: 'workspace-write',
+        sandbox,
         config: {
           ...chatgptThreadConfig(
             reasoningEffort,
@@ -2679,7 +2704,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       model: model.id,
       modelProvider: codexProviderId(provider.id),
       approvalPolicy: 'on-request',
-      sandbox: 'workspace-write',
+      sandbox,
       // 经网关的第三方模型用 Wevir 的 base.md（补记 2），按会话的 Provider 与模型渲染；模型目录里同名模型只有一条，
       // 这里覆盖保证显示名是这个 Provider 的。ChatGPT 登录的 OpenAI 模型（R6）不覆盖。
       baseInstructions: this.#prompt.render(basePromptVars(provider, model)),
@@ -2696,7 +2721,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         // 联网工具（0.34.0）：按这一刻的设置登记（关着不起，没配搜索的 Key 只有抓取）。
         ...(this.#launcher.webRegistered &&
           this.#options.webTool !== undefined &&
-          webToolThreadConfig(this.#options.webTool.state())),
+          (denied.has('web')
+            ? webToolThreadConfig({ ...this.#options.webTool.state(), enabled: false })
+            : webToolThreadConfig(this.#options.webTool.state()))),
       },
     };
   }
@@ -2710,6 +2737,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     permission: PermissionMode = 'on_request',
     roots: readonly string[] = [],
     connectors: SessionConfig['connectors'] = [],
+    engineTools?: SessionConfig['engineTools'],
   ): void {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
@@ -2722,6 +2750,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       effort: reasoningEffort === undefined ? null : toCodexEffort(reasoningEffort),
       permission,
       roots,
+      readOnly: engineTools?.denied.includes('edit') === true,
       status: 'open',
       hub: new EventHub<AgentEvent>(),
       // 换了模型（0.9.0）后用新模型的上下文大小。
@@ -2838,17 +2867,21 @@ export function permissionSettings(
   mode: PermissionMode,
   /** 环境会话的额外目录（0.15.0）：沙箱里同 cwd 一样可写。 */
   roots: readonly string[] = [],
+  /** 角色关掉了改文件：哪种模式都是只读沙箱（完全访问时不问、写不了，别的模式越界照常问，改文件的审批由适配器拒绝）。 */
+  readOnly = false,
 ): Pick<TurnStartParams, 'approvalPolicy' | 'approvalsReviewer' | 'sandboxPolicy'> {
-  const workspaceWrite = {
-    type: 'workspaceWrite' as const,
-    ...(roots.length > 0 && { writableRoots: [...roots] }),
-  };
+  const workspaceWrite = readOnly
+    ? { type: 'readOnly' as const, networkAccess: mode === 'full_access' }
+    : {
+        type: 'workspaceWrite' as const,
+        ...(roots.length > 0 && { writableRoots: [...roots] }),
+      };
   switch (mode) {
     case 'full_access':
       return {
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
-        sandboxPolicy: { type: 'dangerFullAccess' },
+        sandboxPolicy: readOnly ? workspaceWrite : { type: 'dangerFullAccess' },
       };
     case 'auto_review':
       return {

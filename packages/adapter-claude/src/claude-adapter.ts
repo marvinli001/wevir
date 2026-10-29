@@ -26,6 +26,7 @@ import {
   type CancelOptions,
   type EngineRuleFiles,
   type EngineSession,
+  type EngineToolClass,
   EventHub,
   elicitationQuestions,
   elicitationResult,
@@ -344,6 +345,35 @@ interface ChildSession extends Owner {
 }
 
 type Session = RootSession | ChildSession;
+
+/** Claude Code 的内置工具，按类别：角色关掉整类时去掉这些（按名字的限制 Host 已经展开在 `deniedNames` 里）。 */
+const CLAUDE_TOOLS_OF_CLASS: Readonly<Record<EngineToolClass, readonly string[]>> = {
+  read: ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead'],
+  edit: ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'],
+  shell: ['Bash', 'BashOutput', 'KillShell', 'KillBash', 'PowerShell'],
+  web: ['WebFetch', 'WebSearch'],
+};
+
+/**
+ * 角色对引擎工具的限制（`SessionConfig.engineTools`，claude-event-mapping.md §5.7）：不许的从模型的工具里去掉（`disallowedTools`，
+ * 连接器的 `mcp__<服务>__*` 也认），只许的是内置工具的基础集（`tools`，MCP 工具不在里面，照常由 `disallowedTools` 管）。
+ */
+export function engineToolOptions(
+  limits: SessionConfig['engineTools'],
+): Pick<Options, 'disallowedTools' | 'tools'> {
+  if (limits === undefined) return {};
+  const disallowed = [
+    ...new Set([
+      ...limits.denied.flatMap((kind) => CLAUDE_TOOLS_OF_CLASS[kind]),
+      ...limits.deniedNames,
+    ]),
+  ];
+  const builtin = limits.allowedNames?.filter((name) => !name.startsWith('mcp__'));
+  return {
+    ...(disallowed.length > 0 && { disallowedTools: disallowed }),
+    ...(builtin !== undefined && { tools: builtin }),
+  };
+}
 
 /**
  * 会话的 MCP 服务：读历史的工具（stdio，0.25.0）与应用级工具（HTTP，0.30.0）。`allowedTools` 里是不用批准的工具，其余的 MCP
@@ -1186,6 +1216,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       ...(desired.dangerous && { allowDangerouslySkipPermissions: true }),
       canUseTool: this.#canUseTool(session),
       onElicitation: this.#onElicitation(session),
+      ...engineToolOptions(session.config.engineTools),
       ...mcpOptions(this.#historyTool, session.config.appTools),
       includePartialMessages: true,
       forwardSubagentText: true,
@@ -1406,7 +1437,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * 用户接入的 MCP 服务要用户输入（claude-event-mapping.md §5.4，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：表单换成
+   * 用户接入的 MCP 服务要用户输入（claude-event-mapping.md §5.6，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：表单换成
    * `question.requested`，链接换成一个 `MCP_URL_ELICITATION_TOOL` 工具调用加“打开链接”的审批。属于顶层会话进行中的回合（子 agent 的
    * 请求分不出是谁的，也算顶层会话的）；没有回合、表单认不出或地址不是 http(s) 时回 `decline`。
    */
@@ -1516,7 +1547,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * `claude` 的会话状态（claude-event-mapping.md §4.6）：没有回合时转成 `running` 是它自己开了一轮，记下等第一条输出；`idle` 时还没
+   * `claude` 的会话状态（claude-event-mapping.md §4.11）：没有回合时转成 `running` 是它自己开了一轮，记下等第一条输出；`idle` 时还没
    * 结算的自开回合按完成结算（结果已经到了的话早已结算）。
    */
   #stateChanged(session: RootSession, live: LiveQuery, state: string): void {

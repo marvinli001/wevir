@@ -9,6 +9,7 @@ import {
   ClaudeAdapter,
   claudeProposedPlan,
   claudeRuleFiles,
+  engineToolOptions,
   PLAN_CAPTURED_MESSAGE,
 } from './claude-adapter.js';
 import { claudeLoginCommand } from './executable.js';
@@ -1457,5 +1458,44 @@ describe('连接器的 MCP elicitation 与 Task', () => {
     expect(wake.some((event) => event.type === 'engine.raw' && event.method === 'result')).toBe(
       false,
     );
+  });
+});
+
+describe('角色对引擎工具的限制', () => {
+  it('关掉的类别与名字进 disallowedTools，只许的内置工具进 tools', async () => {
+    expect(engineToolOptions(undefined)).toEqual({});
+    expect(engineToolOptions({ denied: ['shell'], deniedNames: ['mcp__github__*'] })).toEqual({
+      disallowedTools: [
+        'Bash',
+        'BashOutput',
+        'KillShell',
+        'KillBash',
+        'PowerShell',
+        'mcp__github__*',
+      ],
+    });
+    expect(
+      engineToolOptions({
+        denied: ['web'],
+        deniedNames: [],
+        allowedNames: ['Read', 'Grep', 'mcp__tickets__list'],
+      }),
+    ).toEqual({ disallowedTools: ['WebFetch', 'WebSearch'], tools: ['Read', 'Grep'] });
+
+    const { adapter, sdk } = harness();
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      engineTools: { denied: ['edit'], deniedNames: ['Edit'] },
+    });
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    expect(sessionQueries(sdk)[0]?.options.disallowedTools).toEqual([
+      'Edit',
+      'MultiEdit',
+      'Write',
+      'NotebookEdit',
+    ]);
+    expect(sessionQueries(sdk)[0]?.options.tools).toBeUndefined();
   });
 });

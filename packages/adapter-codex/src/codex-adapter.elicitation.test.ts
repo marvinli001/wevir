@@ -1,4 +1,4 @@
-// 用户接入的 MCP 服务的 elicitation（codex-event-mapping.md §6.11）：CodexAdapter 驱动 test-fixtures/fake-app-server.mjs，回放手写的
+// 用户接入的 MCP 服务的 elicitation（codex-event-mapping.md §6.20）：CodexAdapter 驱动 test-fixtures/fake-app-server.mjs，回放手写的
 // `mcpServer/elicitation/request` 样本（表单与链接），核对上报的提问与审批、以及回给 app-server 的 `{action, content}`。不需要二进制。
 
 import { readdirSync, readFileSync } from 'node:fs';
