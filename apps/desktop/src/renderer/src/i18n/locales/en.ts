@@ -995,6 +995,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': 'Allow installing this plugin?',
   'approval.title.skillInstall': 'Allow installing these skills?',
   'approval.title.connectorAdd': 'Allow adding this MCP server?',
+  'approval.title.wevirConfig': 'Allow changing the Wevir configuration?',
   'approval.title.browserOpen': 'Allow opening a page in the browser?',
   'approval.title.browserAct': 'Allow acting on a page in the browser?',
   'approval.title.browserClose': 'Allow closing a browser tab?',

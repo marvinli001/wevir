@@ -3,9 +3,11 @@
 
 import type { Session, SessionId, UiShowTarget } from '@wevir/protocol';
 import { useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
 import { openChanges } from '@/changes/changes-store';
 import { openFile, openFiles } from '@/files/files-store';
 import type { PaneController } from '@/layout/pane-controller';
+import { isSettingsTab, paths } from '@/routes/paths';
 
 /** 比这早的 `ui.show` 当作历史，不再打开。 */
 export const UI_SHOW_FRESH_MS = 15_000;
@@ -20,12 +22,23 @@ export function shouldShow(
   return now - Date.parse(show.ts) <= UI_SHOW_FRESH_MS;
 }
 
-/** 打开 `target` 对应的窗格；`sessionTitle` 是要显示的会话的标题（窗格标签用）。 */
+/**
+ * 设置页（0.136.0）的路径：设置的分页或插件页；这个版本没有的页是 `undefined`，不打开。
+ */
+export function settingsPath(page: string): string | undefined {
+  if (page === 'plugins') return paths.plugins();
+  return isSettingsTab(page) ? paths.settings(page) : undefined;
+}
+
+/**
+ * 打开 `target` 对应的窗格；`sessionTitle` 是要显示的会话的标题（窗格标签用），`navigate` 换到设置页用。
+ */
 export function showTarget(
   panes: PaneController,
   sessionId: SessionId,
   target: UiShowTarget,
   sessionTitle?: string,
+  navigate?: (path: string) => void,
 ): void {
   switch (target.kind) {
     case 'file':
@@ -46,6 +59,11 @@ export function showTarget(
         },
       });
       return;
+    case 'settings': {
+      const path = settingsPath(target.page);
+      if (path !== undefined) navigate?.(path);
+      return;
+    }
   }
 }
 
@@ -58,6 +76,7 @@ export function useUiShow(
   panes: PaneController | undefined,
   titleOf: (sessionId: SessionId) => string | undefined,
 ): void {
+  const navigate = useNavigate();
   const handled = useRef<{ sessionId: SessionId; seq: number | undefined }>({
     sessionId: session.id,
     seq: undefined,
@@ -78,6 +97,7 @@ export function useUiShow(
       session.id,
       target,
       target.kind === 'session' ? titleOf(target.sessionId) : undefined,
+      (path) => void navigate(path),
     );
-  }, [session.id, uiShow, panes, titleOf]);
+  }, [session.id, uiShow, panes, titleOf, navigate]);
 }

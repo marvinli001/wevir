@@ -36,16 +36,18 @@ const INSTRUCTIONS_MAX_CHARS = 4000;
 
 /**
  * 各场景的预算（字节）：`tools` 是 `tools/list` 的 MCP 原形，`instructions` 是按列出的工具裁剪后的说明。2026-10-25 实测：默认会话
- * 84 个工具 96,255 / 3,716，core 37,716 / 2,704，只读角色 38,077 / 3,340，worker 86,880 / 3,410；各留 5% 左右的余量。
+ * 84 个工具 96,255 / 3,716，core 37,716 / 2,704，只读角色 38,077 / 3,340，worker 86,880 / 3,410；各留 5% 左右的余量。2026-10-29
+ * 配置 Wevir 本身的六个 `wevir_config_*`（0.136.0，按需那层）与 `wevir_show` 的设置页进来后实测：默认会话 91 个工具 106,134 / 3,832，
+ * core 39,681 / 2,738，只读角色 40,219 / 3,456（多了只读的 `wevir_config_read`），worker（不许改设置与配置）81 个工具 93,239 / 3,526；工具字节的预算照样留 5%。
  */
 const BUDGETS: Record<string, { tools: number; instructions: number }> = {
-  default: { tools: 101_000, instructions: 3_900 },
-  core: { tools: 39_600, instructions: 2_850 },
-  advisor: { tools: 40_000, instructions: 3_500 },
-  explorer: { tools: 40_000, instructions: 3_500 },
-  planner: { tools: 40_000, instructions: 3_500 },
-  reviewer: { tools: 40_000, instructions: 3_500 },
-  worker: { tools: 91_200, instructions: 3_600 },
+  default: { tools: 111_500, instructions: 3_900 },
+  core: { tools: 41_700, instructions: 2_850 },
+  advisor: { tools: 42_200, instructions: 3_500 },
+  explorer: { tools: 42_200, instructions: 3_500 },
+  planner: { tools: 42_200, instructions: 3_500 },
+  reviewer: { tools: 42_200, instructions: 3_500 },
+  worker: { tools: 98_000, instructions: 3_600 },
 };
 
 /**
@@ -114,6 +116,7 @@ function productTools(): AppTools {
     channels: unused(),
     retro: unused(),
     search: unused(),
+    hostCall: unused(),
   });
 }
 

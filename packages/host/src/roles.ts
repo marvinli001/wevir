@@ -159,6 +159,9 @@ export const BUILTIN_ROLES: readonly RoleDefinition[] = Object.freeze([
       'wevir_plugin_install',
       'wevir_skill_install',
       'wevir_connector_add',
+      // 改所有会话共用的设置、项目、环境与审批规则不在一项任务的范围里（0.136.0）。
+      'wevir_config_settings',
+      'wevir_config_update',
     ],
     instructions: [
       'Do the task you were given, completely: do not gold-plate it and do not leave it half-done. Stay inside its scope, and do the work yourself rather than handing the whole assignment to another session. Prefer editing an existing file to creating a new one, and do not create documentation or README files unless the task asks for them.',

@@ -1,5 +1,6 @@
 // 项目环境就绪的应用级工具（0.70.0）：`wevir_workspace_readiness` 只读，让 Agent 在动手之前知道会话目录的环境缺什么（工具、版本、依赖、
-// 锁文件、检查命令）与网络情况。安装只由用户在 Wevir 里发起，这个工具不能装；归在工具预设的 `processes` 组。
+// 锁文件、检查命令）与网络情况。这个工具不能装：用户在 Wevir 里装，或 Agent 用 `wevir_config_install`（0.136.0）请用户批准后装；归在工具预设的
+// `processes` 组。
 
 import type { ReadinessItem, ReadinessReport, SessionId, WorkspaceId } from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
@@ -101,7 +102,7 @@ export function readinessText(report: ReadinessReport): string {
   if (report.plans.length > 0) {
     lines.push(
       '',
-      'Install plans (only the user can start these, from the Dependencies card in Wevir):',
+      "Install plans (the user starts these from the Dependencies card in Wevir; where wevir_config_install is available, you can run one with the user's approval):",
     );
     for (const plan of report.plans) {
       const scripts = [
@@ -148,7 +149,7 @@ export function readinessText(report: ReadinessReport): string {
   if (blocking.length > 0) {
     lines.push(
       '',
-      'Do not change correct code to work around these. Tell the user what is missing; they can install dependencies from Wevir. Do not try to get around the sandbox to install them yourself.',
+      'Do not change correct code to work around these. Tell the user what is missing; they can install dependencies from Wevir, or approve an install plan you run with wevir_config_install. Do not try to get around the sandbox to install them yourself.',
     );
   }
   return lines.join('\n');

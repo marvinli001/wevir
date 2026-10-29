@@ -1021,6 +1021,7 @@ export const messages: Messages = {
   'approval.title.pluginInstall': 'Разрешить установку этого плагина?',
   'approval.title.skillInstall': 'Разрешить установку этих навыков?',
   'approval.title.connectorAdd': 'Разрешить добавление этого MCP-сервера?',
+  'approval.title.wevirConfig': 'Разрешить изменение конфигурации Wevir?',
   'approval.title.browserOpen': 'Разрешить открыть страницу в браузере?',
   'approval.title.browserAct': 'Разрешить действия на странице в браузере?',
   'approval.title.browserClose': 'Разрешить закрыть вкладку браузера?',

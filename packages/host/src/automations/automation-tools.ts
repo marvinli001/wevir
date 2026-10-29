@@ -162,7 +162,7 @@ const SCHEDULE_PROPERTY = {
   required: ['kind'],
 };
 
-const CHECK_PROPERTY = {
+export const CHECK_PROPERTY = {
   type: 'object',
   description:
     'Optional gate script. Before each run Wevir runs command in the project folder with the user\'s shell and only wakes the agent when the script says so, so runs with nothing new cost no tokens. wake "exit_code": exit 0 wakes the agent, exit 1 stays silent, any other code is a failure. wake "output_changed": wakes only when the output (and exit code) differs from the previous check; the first check only records a baseline. The tail of the output is appended to the prompt. Three failures in a row pause the automation.',
@@ -174,7 +174,7 @@ const CHECK_PROPERTY = {
   required: ['command', 'wake'],
 };
 
-function parseCheck(value: unknown, remove: boolean): AutomationCheck | null | undefined {
+export function parseCheck(value: unknown, remove: boolean): AutomationCheck | null | undefined {
   if (remove) return null;
   if (value === undefined || value === null) return undefined;
   const parsed = AutomationCheckSchema.safeParse(value);
