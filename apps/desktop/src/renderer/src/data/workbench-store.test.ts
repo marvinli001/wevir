@@ -221,6 +221,37 @@ describe('WorkbenchStore 与 sessions.changed（0.101.0）', () => {
   });
 });
 
+describe('WorkbenchStore.hold（归档时行收起）', () => {
+  it('留住的会话照按下时的样子列着：推送去掉它、事件改它都不变，放开后才是实际的列表', async () => {
+    const fake = fakeClient([{ sessions: [session('ses_a'), session('ses_b')], listVersion: 1 }]);
+    const store = new WorkbenchStore(fake.client);
+    await store.refresh();
+    const held = () => {
+      const data = store.get();
+      return data.status === 'ready'
+        ? data.workspaces[0]?.sessions.find((item) => item.id === 'ses_a')
+        : undefined;
+    };
+    const before = held();
+    store.hold(['ses_a' as SessionId]);
+    fake.push({
+      listVersion: 2,
+      upserted: [session('ses_b', { title: 'b2', lastSeq: 2 })],
+      removed: ['ses_a'],
+    });
+    expect(titles(store)).toEqual(['b2', 'ses_a']);
+    expect(held()).toBe(before);
+    const notified = vi.fn();
+    store.subscribe(notified);
+    store.release(['ses_a' as SessionId]);
+    expect(notified).toHaveBeenCalledTimes(1);
+    expect(titles(store)).toEqual(['b2']);
+    store.release(['ses_a' as SessionId]);
+    expect(notified).toHaveBeenCalledTimes(1);
+    store.dispose();
+  });
+});
+
 describe('WorkbenchStore 与流式事件', () => {
   function event(seq: number, type: string, payload: unknown = {}): WevirEvent {
     return {

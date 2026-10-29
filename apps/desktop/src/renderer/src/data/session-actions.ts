@@ -10,6 +10,7 @@ import type {
   SessionMoveTarget,
   SessionWorktreeArchive,
 } from '@wevir/protocol';
+import { useSyncExternalStore } from 'react';
 import { openAutomationDialog } from '@/automations/automation-dialog';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -99,6 +100,46 @@ async function afterArchive(
   await store?.refresh();
 }
 
+/** 归档时行收起的时长（与 sidebar.tsx 里的 duration-200 一致）。 */
+export const LEAVE_MS = 200;
+
+/** 正在归档、行在收起的会话。 */
+export const leavingSessions = createStore<ReadonlySet<string>>(new Set());
+
+/** 这个会话的行在不在收起（只在它自己的进出时重渲染）。 */
+export function useLeaving(sessionId: string): boolean {
+  return useSyncExternalStore(leavingSessions.subscribe, () =>
+    leavingSessions.get().has(sessionId),
+  );
+}
+
+/**
+ * 归档的会话离开左栏：按下时的样子留住（`WorkbenchStore.hold`），行收起，归档请求与收起都结束后再重读、放开。不留住的话，关闭
+ * 会话的事件比重读早到一帧，行先跳到项目最上面、加粗，连所在项目一起换位置，再消失，整个列表闪一下。失败时行展开回原处。
+ */
+async function leaving<T>(
+  store: WorkbenchStore | undefined,
+  sessionIds: readonly SessionId[],
+  work: () => Promise<T>,
+): Promise<T> {
+  store?.hold(sessionIds);
+  leavingSessions.set((current) => new Set([...current, ...sessionIds]));
+  try {
+    const [result] = await Promise.all([
+      work(),
+      new Promise((resolve) => setTimeout(resolve, LEAVE_MS)),
+    ]);
+    return result;
+  } finally {
+    store?.release(sessionIds);
+    leavingSessions.set((current) => {
+      const next = new Set(current);
+      for (const id of sessionIds) next.delete(id);
+      return next;
+    });
+  }
+}
+
 /** 归档或取消归档；归档掉正在看的会话时回到首页，并取消置顶。取消归档时没能恢复的 worktree（0.81.0）逐个提示。 */
 export async function archiveSession(
   client: WevirClient,
@@ -106,10 +147,14 @@ export async function archiveSession(
   sessionId: SessionId,
   archived: boolean,
 ): Promise<void> {
-  const { worktrees } = await client.request('session.archive', { sessionId, archived });
-  if (archived) await afterArchive(store, [sessionId]);
-  else await store?.refresh();
-  for (const text of worktreeRestoreNotices(worktrees ?? [])) reportActionFailure(text);
+  const request = async () => {
+    const { worktrees } = await client.request('session.archive', { sessionId, archived });
+    if (archived) await afterArchive(store, [sessionId]);
+    else await store?.refresh();
+    return worktrees ?? [];
+  };
+  const worktrees = archived ? await leaving(store, [sessionId], request) : await request();
+  for (const text of worktreeRestoreNotices(worktrees)) reportActionFailure(text);
 }
 
 /** 取消归档时要告诉用户的 worktree：没恢复的，与分支有了新提交、改动没放回的。 */
@@ -138,20 +183,22 @@ export async function archiveSessions(
   store: WorkbenchStore | undefined,
   sessionIds: readonly SessionId[],
 ): Promise<{ failed: number; firstError?: unknown }> {
-  const done: SessionId[] = [];
-  let failed = 0;
-  let firstError: unknown;
-  for (const sessionId of sessionIds) {
-    try {
-      await client.request('session.archive', { sessionId, archived: true });
-      done.push(sessionId);
-    } catch (error) {
-      failed += 1;
-      firstError ??= error;
+  return leaving(store, sessionIds, async () => {
+    const done: SessionId[] = [];
+    let failed = 0;
+    let firstError: unknown;
+    for (const sessionId of sessionIds) {
+      try {
+        await client.request('session.archive', { sessionId, archived: true });
+        done.push(sessionId);
+      } catch (error) {
+        failed += 1;
+        firstError ??= error;
+      }
     }
-  }
-  await afterArchive(store, done);
-  return { failed, ...(firstError !== undefined && { firstError }) };
+    await afterArchive(store, done);
+    return { failed, ...(firstError !== undefined && { firstError }) };
+  });
 }
 
 // ── 分支 ─────────────────────────────────────────────────────────
