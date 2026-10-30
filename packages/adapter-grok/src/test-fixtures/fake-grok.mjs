@@ -3,7 +3,8 @@
 //
 //   grok --version                       打印 FAKE_GROK_VERSION（默认 `grok 1.0.41`）
 //   grok models                          打印 FAKE_GROK_MODELS（默认已登录与三个模型）；FAKE_GROK_MODELS_EXIT 是退出码；
-//                                        FAKE_GROK_MODELS_FILE 指向的文件有内容时打印它（测试中途改它来换登录状态）
+//                                        FAKE_GROK_MODELS_FILE 指向的文件有内容时打印它（测试中途改它来换登录状态）；
+//                                        FAKE_GROK_MODELS_ONCE 指向的文件在时打印它并删掉（只有下一次这样说）
 //   grok logout                          FAKE_GROK_MODELS_FILE 有值时把它改成“没登录”；FAKE_GROK_LOGOUT_EXIT 是退出码
 //   grok [--permission-mode M] agent [--always-approve] stdio
 //                                        说 ACP（NDJSON），`initialize` 与 `session/new` 的结果取自 simple 样本
@@ -22,7 +23,14 @@
 // FAKE_GROK_REQUIRE_AUTH=1（`authenticate` 之前 `session/new` / `session/resume` 报 -32000 Authentication required）、
 // FAKE_GROK_PROMPT_RESPONSE=never（只发 `prompt_complete`，不回 `session/prompt`）。
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +72,11 @@ if (args[0] === 'logout') {
   process.exit(Number(env.FAKE_GROK_LOGOUT_EXIT ?? 0));
 }
 if (args[0] === 'models') {
+  if (env.FAKE_GROK_MODELS_ONCE && existsSync(env.FAKE_GROK_MODELS_ONCE)) {
+    process.stdout.write(readFileSync(env.FAKE_GROK_MODELS_ONCE, 'utf8'));
+    rmSync(env.FAKE_GROK_MODELS_ONCE);
+    process.exit(0);
+  }
   const fromFile =
     env.FAKE_GROK_MODELS_FILE && existsSync(env.FAKE_GROK_MODELS_FILE)
       ? readFileSync(env.FAKE_GROK_MODELS_FILE, 'utf8')

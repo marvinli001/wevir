@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { isTurnTerminal } from '@wevir/runtime-adapter';
 import { DEFAULT_CONTRACT_PROMPTS } from '@wevir/runtime-adapter/contract';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openCodeRuleFiles, STEER_IDLE_GRACE_MS } from './opencode-adapter.js';
 import {
   childPermissionRules,
@@ -389,6 +389,61 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     });
   });
 
+  it('子 agent 跑着时换权限模式：子会话的规则跟着换，留下 opencode 给它的限制', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    await h.adapter.send(id, text(DEFAULT_CONTRACT_PROMPTS.subagentApproval));
+    await log.until(
+      (events) => events.some((event) => event.type === 'subagent.started'),
+      '子会话',
+    );
+    const childId = (
+      log.events.find((event) => event.type === 'subagent.started') as {
+        childEngineSessionId: string;
+      }
+    ).childEngineSessionId;
+    const child = collect(h.adapter.subscribe(childId));
+    await child.until(
+      (events) => events.some((event) => event.type === 'approval.requested'),
+      '子会话的审批',
+    );
+    const native: PermissionRuleset = [
+      { permission: 'external_directory', pattern: '*', action: 'ask' },
+      { permission: 'task', pattern: '*', action: 'deny' },
+    ];
+    const childUpdates = () =>
+      calls(h, 'updateSession')
+        .filter((args) => args[0] === childId)
+        .map((args) => (args[1] as { permission: PermissionRuleset }).permission);
+    expect(childUpdates()).toEqual([childPermissionRules(permissionRules('on_request'), native)]);
+
+    await h.adapter.configureSession(id, { modelId: MODEL, permissionMode: 'full_access' });
+    expect(childUpdates().at(-1)).toEqual([
+      ...permissionRules('full_access'),
+      { permission: 'task', pattern: '*', action: 'deny' },
+    ]);
+    // 换回更严的模式：子会话不留完全访问的放行。
+    await h.adapter.configureSession(id, { modelId: MODEL, permissionMode: 'on_request' });
+    expect(childUpdates().at(-1)).toEqual([
+      ...permissionRules('on_request'),
+      { permission: 'task', pattern: '*', action: 'deny' },
+    ]);
+    // 规则不变的模式（auto_review 与 on_request 同一套规则）不再写。
+    const before = childUpdates().length;
+    await h.adapter.configureSession(id, { modelId: MODEL, permissionMode: 'auto_review' });
+    expect(childUpdates()).toHaveLength(before);
+    await expect(
+      h.adapter.configureSession(childId, { modelId: MODEL, permissionMode: 'full_access' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+
+    const request = child.events.find((event) => event.type === 'approval.requested') as {
+      requestId: string;
+    };
+    await h.adapter.respondToApproval(childId, request.requestId, { optionId: 'accept' });
+    await child.terminal();
+    await log.terminal();
+  });
+
   it('子会话的审批在子会话的流里，用子会话的 ID 回复', async () => {
     const h = setup();
     const { id, log } = await openSession(h);
@@ -431,6 +486,50 @@ describe('OpenCodeAdapter（假 opencode）', () => {
       message: 'mock model rejected the request',
       code: 400,
     });
+  });
+
+  it('上游报 429：先重读账号的用量（之后的 idle 不按完成结算），再报 turn.failed 带 usageLimit；别的错误不重读', async () => {
+    const h = setup();
+    const fail = h.fake.recordings.find((recording) => recording.name === 'fail');
+    const error = fail?.lines.find((line) => line.event?.type === 'session.error')?.event as
+      | { properties: { error: { data: { statusCode: number; message: string } } } }
+      | undefined;
+    if (error === undefined) throw new Error('fail 录音里没有 session.error');
+    error.properties.error.data.statusCode = 429;
+    error.properties.error.data.message = 'Rate limit exceeded';
+    const { id, log } = await openSession(h);
+    let release: () => void = () => {};
+    const refresh = vi.spyOn(h.adapter.accounts, 'refreshUsage').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await h.adapter.send(id, text(EXTRA_PROMPTS.fail));
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledWith('opencode'));
+    // 录音里 session.error 之后紧跟 idle：重读完成之前回合不结束。
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      log.events.some((event) => event.type === 'turn.failed' || event.type === 'turn.settled'),
+    ).toBe(false);
+    release();
+    await log.terminal();
+    expect(log.events.at(-1)).toMatchObject({
+      type: 'turn.failed',
+      category: 'provider',
+      message: 'Rate limit exceeded',
+      code: 429,
+      usageLimit: {},
+    });
+
+    error.properties.error.data.statusCode = 400;
+    const from = log.events.length;
+    await h.adapter.send(id, text(EXTRA_PROMPTS.fail));
+    await vi.waitFor(() =>
+      expect(log.events.slice(from).some((event) => event.type === 'turn.failed')).toBe(true),
+    );
+    expect(log.events.at(-1)).not.toHaveProperty('usageLimit');
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('接受输入之前到的 idle（上一个回合留下的）不结束这个回合', async () => {

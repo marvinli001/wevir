@@ -488,6 +488,8 @@ export interface FakeSdkOptions {
   script?: (prompt: string) => Script | undefined;
   /** `getContextUsage()` 的响应；省略时像老版本的 `claude` 一样拒绝这个请求。 */
   contextUsage?: Record<string, unknown>;
+  /** 进程起在哪个权限模式（参数是请求的那个）；省略时就是请求的。模型不支持 `auto` 时 claude 会退回 `default`。 */
+  startPermissionMode?: (requested: string) => string;
 }
 
 export class FakeClaudeSdk implements ClaudeSdk {
@@ -608,6 +610,8 @@ class FakeQuery {
   readonly #sessionId: string;
   #turnAbort: AbortController | undefined;
   #turnRunning = false;
+  /** 进程当前的权限模式：`init` 报这个（录音里写死的是 default）。 */
+  #permissionMode: string;
   /** 回合进行中收到的插话（priority next）。 */
   #steers: SDKUserMessage[] = [];
   #closed = false;
@@ -623,6 +627,8 @@ class FakeQuery {
     this.#options = options;
     const resume = record.options.resume;
     this.#sessionId = resume ?? record.options.sessionId ?? 'fake-probe';
+    const requested = record.options.permissionMode ?? 'default';
+    this.#permissionMode = options.startPermissionMode?.(requested) ?? requested;
     if (typeof prompt !== 'string') void this.#read(prompt, resume);
     else void this.#oneShot(prompt);
   }
@@ -777,6 +783,9 @@ class FakeQuery {
       .replaceAll('<session>', this.#sessionId);
     const parsed = JSON.parse(json) as Record<string, unknown>;
     parsed.session_id = this.#sessionId;
+    if (parsed.type === 'system' && parsed.subtype === 'init') {
+      parsed.permissionMode = this.#permissionMode;
+    }
     this.#out.push(parsed as unknown as SDKMessage);
   }
 
@@ -830,6 +839,7 @@ class FakeQuery {
 
   async setPermissionMode(mode: string): Promise<void> {
     this.#record.calls.push({ method: 'setPermissionMode', args: [mode] });
+    this.#permissionMode = mode;
   }
 
   async getContextUsage(opts?: unknown): Promise<Record<string, unknown>> {

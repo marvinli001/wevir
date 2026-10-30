@@ -217,11 +217,19 @@ export function sessionConfigInfo(
   return info;
 }
 
-/** 模型选项的 ID：引擎描述给了 `modelCategory` 且 `configOptions` 里有这一类的选项时是它的 ID，否则是 `modelOption`。 */
+/**
+ * 模型选项的 ID：引擎描述给了 `modelCategory` 且 `configOptions` 里有这一类的 select 选项时是第一个的 ID，否则是 `modelOption`。
+ * 同一类里别的类型的选项（开关之类）不算：读模型列表的只认 select，选模型时要落在同一个选项上（T3 Code #19567）。
+ */
 export function routeModelOption(configOptions: unknown, route: AcpRouteCodec): string {
   if (route.modelCategory !== undefined && Array.isArray(configOptions)) {
     const option = configOptions.find(
-      (o) => isRecord(o) && o.category === route.modelCategory && typeof o.id === 'string',
+      (o) =>
+        isRecord(o) &&
+        o.category === route.modelCategory &&
+        o.type === 'select' &&
+        typeof o.id === 'string' &&
+        o.id.trim() !== '',
     );
     if (isRecord(option)) return option.id as string;
   }

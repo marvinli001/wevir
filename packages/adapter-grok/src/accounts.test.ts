@@ -1,6 +1,6 @@
 // Grok 账号的检测（grok-event-mapping.md §2）：假 grok 回答 `--version`、`grok models` 与只做 initialize 的 ACP 探测。
 
-import { chmodSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountState } from '@wevir/runtime-adapter';
 import {
@@ -35,6 +35,14 @@ function accounts(extra: Record<string, string> = {}, options: { now?: () => num
     ...options,
   });
   return { subject, log };
+}
+
+/** `FAKE_GROK_ARGV_LOG` 里 `grok models` 跑了几次。 */
+function modelRuns(file: string): number {
+  return readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .filter((line) => (JSON.parse(line) as string[])[0] === 'models').length;
 }
 
 describe('GrokAccounts', () => {
@@ -79,6 +87,27 @@ describe('GrokAccounts', () => {
     expect(state).toMatchObject({ status: 'signed_out', installed: true, version: '1.0.41' });
     await expect(subject.executable()).rejects.toMatchObject({ code: 'missing_credentials' });
     subject.dispose();
+  });
+
+  it('grok models 说没登录时再问一次：令牌过期刷新后第二次说已登录就算已登录；两次都说没登录才是 signed_out', async () => {
+    const dir = temp.dir(`once-${seq + 1}`);
+    const once = join(dir, 'models-once.txt');
+    writeFileSync(once, 'You are not authenticated.\n');
+    const argv = join(dir, 'argv.ndjson');
+    const refreshed = accounts({ FAKE_GROK_MODELS_ONCE: once, FAKE_GROK_ARGV_LOG: argv });
+    expect(await refreshed.subject.read('grok')).toMatchObject({ status: 'signed_in' });
+    expect(await refreshed.subject.read('grok')).not.toHaveProperty('lastError');
+    expect(modelRuns(argv)).toBe(2);
+    refreshed.subject.dispose();
+
+    const argv2 = join(dir, 'argv2.ndjson');
+    const out = accounts({
+      FAKE_GROK_MODELS: 'You are not logged in. Run `grok login`.\n',
+      FAKE_GROK_ARGV_LOG: argv2,
+    });
+    expect(await out.subject.read('grok')).toMatchObject({ status: 'signed_out' });
+    expect(modelRuns(argv2)).toBe(2);
+    out.subject.dispose();
   });
 
   it('XAI_API_KEY：算已登录（API Key），不管 grok models 怎么说', async () => {

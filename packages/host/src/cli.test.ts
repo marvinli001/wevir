@@ -285,7 +285,7 @@ describe('runHostCli', () => {
     expect(out.stdout).not.toContain(info.token);
   });
 
-  it('Cursor SDK 起 shell 失败留下的 unhandled rejection 只记日志，Host 照常运行；别的 unhandled rejection 仍然致命', async () => {
+  it('Cursor SDK 起 shell 失败、往已关闭的流写入留下的 unhandled rejection 只记日志，Host 照常运行；别的 unhandled rejection 仍然致命', async () => {
     const { home, exit, emit } = await launch();
     const spawnFailure = Object.assign(new Error('spawn /bin/zsh ENOENT'), {
       syscall: 'spawn /bin/zsh',
@@ -298,7 +298,18 @@ describe('runHostCli', () => {
       logLines(home).some((l) => l.msg === 'engine shell spawn failed; the host keeps running'),
     ).toBe(true);
 
-    emit('unhandledRejection', new Error('boom'));
+    const closedStreamWrite = Object.assign(new Error('WritableIterable is closed'), {
+      name: 'WriteIterableClosedError',
+    });
+    emit('unhandledRejection', closedStreamWrite);
+    expect(existsSync(join(home, 'run', 'host.json'))).toBe(true);
+    expect(
+      logLines(home).some(
+        (l) => l.msg === 'Cursor SDK wrote to a closed exec stream; the host keeps running',
+      ),
+    ).toBe(true);
+
+    emit('unhandledRejection', new Error('WritableIterable is closed'));
     expect(await exit).toBe(EXIT_CODE.failure);
     expect(logLines(home).some((l) => l.msg === 'fatal error')).toBe(true);
   });

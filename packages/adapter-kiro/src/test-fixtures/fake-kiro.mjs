@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // 合成的 Kiro CLI：不登录、不联网、不运行工具。形状依据 2.36.0 的官方程序与 ACP 文档，非真实账号录音。
+import { spawn } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
@@ -216,6 +217,32 @@ function serve() {
         };
         return send({ id, error: errors[text.slice(6)] });
       }
+      if (text === 'stop-error') {
+        // ACP v2 的回合失败：结果是 stopReason error 带 error，不是 JSON-RPC 错误。
+        return send({
+          id,
+          result: {
+            stopReason: 'error',
+            error: {
+              code: -32603,
+              message:
+                'Upstream failed: OPENAI_API_KEY=sk-fakefakefakefakefakefake1234 my_api_key=hunter2',
+            },
+          },
+        });
+      }
+      if (text === 'crash') {
+        // 留一个在同一进程组里的子进程（像工具起的浏览器），stderr 带像密钥的内容，然后退出。
+        const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+          stdio: 'ignore',
+        });
+        if (env.FAKE_KIRO_CHILD_PID) writeFileSync(env.FAKE_KIRO_CHILD_PID, String(child.pid));
+        process.stderr.write(
+          'fatal: request failed\nAuthorization: Bearer short-tok\nkiro_api_key=abc123 password: "p a s s"\n',
+        );
+        setTimeout(() => process.exit(3), 50);
+        return;
+      }
       if (text === 'hang') {
         update(sessionId, {
           sessionUpdate: 'agent_message_chunk',
@@ -223,7 +250,7 @@ function serve() {
         });
         await cancelled;
         stopReason = 'cancelled';
-      } else if (text === 'approval') {
+      } else if (text === 'approval' || text === 'approval-id-only') {
         const toolCallId = `tool-${id}`;
         const rawInput = { command: 'echo ok > approve.txt' };
         update(sessionId, {
@@ -237,7 +264,11 @@ function serve() {
         const answer = await Promise.race([
           request('session/request_permission', {
             sessionId,
-            toolCall: { toolCallId, title: 'execute_bash', kind: 'execute', rawInput },
+            // ACP 允许审批请求只用 toolCallId 指向已报过的工具调用。
+            toolCall:
+              text === 'approval-id-only'
+                ? { toolCallId }
+                : { toolCallId, title: 'execute_bash', kind: 'execute', rawInput },
             options: sample('permissionOptions'),
           }),
           cancelled,

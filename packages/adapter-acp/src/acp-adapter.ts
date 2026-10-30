@@ -26,6 +26,7 @@ import {
   isAdapterError,
   MCP_URL_ELICITATION_TOOL,
   type PendingApproval,
+  redactDiagnostics,
   type SessionConfig,
   type TurnFailedEvent,
   type TurnSettledEvent,
@@ -38,7 +39,12 @@ import {
   acpAppToolsServer,
   writeAppToolsBridgeScript,
 } from '@wevir/runtime-adapter/app-tools-bridge';
-import { isAcpSessionNotification, routeModelOption, sessionConfigInfo } from './acp-mapping.js';
+import {
+  type AcpSessionUpdate,
+  isAcpSessionNotification,
+  routeModelOption,
+  sessionConfigInfo,
+} from './acp-mapping.js';
 import { type AcpExit, type AcpProcess, settledWithin } from './acp-process.js';
 import type { AcpEngine } from './engine.js';
 import {
@@ -96,8 +102,18 @@ export interface AcpProcessHooks {
   logger: AdapterLogger;
 }
 
-/** 引擎自己报的回合结束（Grok 的 `prompt_complete`，`completeTurn`）：停止原因，或要归类的错误。 */
-export type TurnCompletion = { stopReason: string } | { error: unknown };
+/**
+ * 引擎自己报的回合结束（Grok 的 `prompt_complete`，`completeTurn`）：停止原因，或要归类的错误。停止原因是 `error` 时同
+ * `session/prompt` 的结果，回合失败（`promptOutcome`）。
+ */
+export type TurnCompletion = { stopReason: string; error?: unknown } | { error: unknown };
+
+/** 引擎报过的一个工具调用里审批要用的字段（`tool_call` / `tool_call_update` 最近一次给的）。 */
+interface TrackedToolCall {
+  kind?: string;
+  title?: string;
+  rawInput?: unknown;
+}
 
 interface Turn {
   cancelRequested: boolean;
@@ -129,6 +145,11 @@ interface AcpSession {
   configOptions: unknown;
   /** 角色关掉的引擎工具类别（`SessionConfig.engineTools`）：这些类别的审批请求直接拒绝。 */
   readonly deniedTools: ReadonlySet<EngineToolClass>;
+  /**
+   * 本回合引擎报过的工具调用，按 `toolCallId`。ACP 的审批请求可以只带 `toolCallId`：缺的 `kind`、`title`、`rawInput` 从这里补，
+   * 不然角色的限制（只看 `kind`）会被绕过（T3 Code #26647）。回合开始与结束时清空。
+   */
+  readonly toolCalls: Map<string, TrackedToolCall>;
 }
 
 /** ACP 的工具种类（`ToolKind`）→ 引擎工具的类别；`think`、`switch_mode`、`other` 不归哪一类。 */
@@ -438,6 +459,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     });
     const turn: Turn = { cancelRequested: false, done, finish };
     session.turn = turn;
+    session.toolCalls.clear();
     session.queue.beginTurn();
     const meta = this.promptMeta(engineSessionId);
     // ACP 的 session/prompt 到回合结束才返回（适配器接口注释第 7 条），这里发出请求就返回。
@@ -447,16 +469,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       ...(meta !== undefined && { _meta: meta }),
     });
     prompt.then(
-      ({ stopReason }) => {
-        this.#settle(session, turn, settledEvent(engineSessionId, stopReason));
+      (response) => {
+        this.#settle(session, turn, this.#promptOutcome(engineSessionId, turn, response));
         turn.finish();
       },
       (error: unknown) => {
-        this.#settle(session, turn, {
-          type: 'turn.failed',
-          engineSessionId,
-          ...this.engine.classifyTurnError(error),
-        });
+        this.#settle(session, turn, this.#turnFailed(engineSessionId, error));
         turn.finish();
       },
     );
@@ -648,13 +666,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.#settle(
       session,
       turn,
-      'error' in completion
-        ? {
-            type: 'turn.failed',
-            engineSessionId,
-            ...this.engine.classifyTurnError(completion.error),
-          }
-        : settledEvent(engineSessionId, completion.stopReason),
+      'stopReason' in completion
+        ? this.#promptOutcome(engineSessionId, turn, completion)
+        : this.#turnFailed(engineSessionId, completion.error),
     );
     return true;
   }
@@ -908,6 +922,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         // 约定不抛错；万一抛了就用原文。
       }
     }
+    if (session.turn !== undefined) trackToolCall(session.toolCalls, notification.update);
     session.queue.acpUpdate(notification);
   }
 
@@ -916,16 +931,20 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    * 没有挂着的会话或进行中的回合时直接回复 cancelled；其余见 `requestApproval`。
    */
   #onRequestPermission(
-    params: RequestPermissionRequest,
+    request: RequestPermissionRequest,
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> {
-    if (!this.inTurn(params.sessionId)) {
+    if (!this.inTurn(request.sessionId)) {
       this.#logger.warn('ACP session/request_permission 不属于进行中的回合，回复 cancelled', {
-        engineSessionId: params.sessionId,
-        toolCallId: params.toolCall.toolCallId,
+        engineSessionId: request.sessionId,
+        toolCallId: request.toolCall.toolCallId,
       });
       return Promise.resolve(PERMISSION_CANCELLED);
     }
+    const params = withTrackedToolCall(
+      request,
+      this.#sessions.get(request.sessionId)?.toolCalls.get(request.toolCall.toolCallId),
+    );
     // 角色关掉的引擎工具（acp-event-mapping.md §1.9）：ACP 没有按会话收工具的办法，只能拒掉引擎为它们请求的批准；引擎不问就做的
     // （完全访问、它自己放行的读）管不到。
     const kind = TOOL_KIND_CLASSES[params.toolCall.kind ?? ''];
@@ -1072,9 +1091,49 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     // 回合在审批未决时自己结束了（dsh 不会这样，防御）：审批与提问随回合结束。
     this.#cancelPending(session, 'turn_ended');
     session.turn = undefined;
+    session.toolCalls.clear();
     session.queue.endTurn(event);
     turn.finish();
     this.afterTurn(session.id);
+  }
+
+  /**
+   * `session/prompt` 的结果（或引擎自己报的回合结束）→ 回合的结算。`stopReason: error`（ACP v2 把回合失败报成带 `error` 的结果，
+   * 而不是 JSON-RPC 错误；SDK 不校验结果，这个值照样到这里）算失败，`error` 的 `code`、`message`、`data` 像 JSON-RPC 错误那样交给
+   * 引擎归类（T3 Code #24615），已经请求取消的回合仍算取消；其余的除 `cancelled` 外都算完成。
+   */
+  #promptOutcome(
+    engineSessionId: string,
+    turn: Turn,
+    response: { stopReason: string; error?: unknown },
+  ): TurnSettledEvent | TurnFailedEvent {
+    if (response.stopReason !== 'error') return settledEvent(engineSessionId, response.stopReason);
+    if (turn.cancelRequested) {
+      return { type: 'turn.settled', engineSessionId, outcome: 'cancelled', stopReason: 'error' };
+    }
+    const error = isRecord(response.error) ? response.error : {};
+    const message =
+      typeof error.message === 'string' && error.message !== ''
+        ? error.message
+        : `${this.engine.name} 报回合失败（stopReason: error）`;
+    return this.#turnFailed(
+      engineSessionId,
+      Object.assign(new Error(message), {
+        code: typeof error.code === 'number' ? error.code : -32603,
+        ...(error.data !== undefined && { data: error.data }),
+      }),
+    );
+  }
+
+  /** 回合失败：按引擎归类；原文进事件库之前遮盖像密钥的片段（`redactDiagnostics`）。 */
+  #turnFailed(engineSessionId: string, error: unknown): TurnFailedEvent {
+    const classified = this.engine.classifyTurnError(error);
+    return {
+      type: 'turn.failed',
+      engineSessionId,
+      ...classified,
+      message: redactDiagnostics(classified.message),
+    };
   }
 
   /** 引擎描述了 `sessionModels` 时把结果里的 ACP `models` 并进 `configOptions`。 */
@@ -1231,6 +1290,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       questions: new Map(),
       configOptions,
       deniedTools: new Set(deniedTools),
+      toolCalls: new Map(),
     });
   }
 
@@ -1266,6 +1326,42 @@ function stderrLogger(name: string): AdapterLogger {
 
 function copyApproval(info: PendingApproval): PendingApproval {
   return { ...info, options: info.options.map((option) => ({ ...option })) };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 记下 `tool_call` / `tool_call_update` 带来的 `kind`、`title`、`rawInput`（后到的盖掉先到的；没给或是 null 的不动）。 */
+function trackToolCall(calls: Map<string, TrackedToolCall>, update: AcpSessionUpdate): void {
+  if (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') return;
+  if (typeof update.toolCallId !== 'string') return;
+  const tracked = calls.get(update.toolCallId) ?? {};
+  if (typeof update.kind === 'string') tracked.kind = update.kind;
+  if (typeof update.title === 'string') tracked.title = update.title;
+  if (update.rawInput !== undefined && update.rawInput !== null) tracked.rawInput = update.rawInput;
+  calls.set(update.toolCallId, tracked);
+}
+
+/** 审批请求里没给（或给了 null）的 `kind`、`title`、`rawInput` 用记下的补上；给了的照用。 */
+function withTrackedToolCall(
+  params: RequestPermissionRequest,
+  tracked: TrackedToolCall | undefined,
+): RequestPermissionRequest {
+  if (tracked === undefined) return params;
+  const { kind, title, rawInput } = params.toolCall;
+  return {
+    ...params,
+    toolCall: {
+      ...params.toolCall,
+      ...(kind == null &&
+        tracked.kind !== undefined && {
+          kind: tracked.kind as NonNullable<RequestPermissionRequest['toolCall']['kind']>,
+        }),
+      ...(title == null && tracked.title !== undefined && { title: tracked.title }),
+      ...(rawInput == null && tracked.rawInput !== undefined && { rawInput: tracked.rawInput }),
+    },
+  };
 }
 
 function settledEvent(engineSessionId: string, stopReason: string): TurnSettledEvent {

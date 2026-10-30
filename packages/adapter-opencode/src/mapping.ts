@@ -2,11 +2,12 @@
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/adapter.ts（`handlePartUpdated`、`handlePartDelta`、
 // `handleAssistantCompleted`、`emitTextPart`、`emitToolPart`、`emitTodo`、`accumulateOpenCodeStepUsage`、`toolStatus`、
 // `toolOutput`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；`nativeReadOutput` 移植自 toolItems.ts，来源提交
+// cfbfbca6e0582fb48423949b10f0663f8fed2be0
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 的节点、回合条目与计划换成 Wevir 的 AgentEvent（增量与替换它们的已提交消息、工具三段、清单、上下文用量）；清单取
 // todowrite 工具调用的输入（要带 toolCallId），不用 opencode 另发的 todo.updated；bash 运行中的输出（metadata.output）作工具的
-// 增量输出。
+// 增量输出；read 的输出去掉 opencode 1.x 包在外面的 `<path>` / `<type>` / `<content>`（或 `<entries>`）。
 //
 // 一个 opencode 会话（顶层或 task 子会话）里一个回合的事件 → AgentEvent（opencode-event-mapping.md §5）。回合的开始与结束、审批
 // 与提问在 opencode-adapter.ts；这里只管消息的内容：
@@ -80,6 +81,22 @@ function stableJson(value: unknown): string {
 }
 
 /** todowrite 的 `todos` → 清单（opencode 的状态：pending、in_progress、completed、cancelled，原样保留）。 */
+/**
+ * opencode 1.x 的 read 输出外面包着 `<path>…</path>`、`<type>file|directory</type>` 与 `<content>` / `<entries>`（给模型看的），
+ * 界面上只要里面的内容（T3 的 nativeReadOutput）。文件内容的每行带行号，只有单独一行的结束标签才算包裹的结尾；包裹之后
+ * opencode 可能接着附上说明（如 `<system-reminder>`），原样留下。认不出包裹时原样返回。
+ */
+export function nativeReadOutput(output: string): string {
+  const header = /^<path>[^\r\n]+<\/path>\r?\n<type>(directory|file)<\/type>\r?\n/.exec(output);
+  if (header === null) return output;
+  const body = output.slice(header[0].length);
+  const envelope =
+    header[1] === 'directory'
+      ? /^<entries>\r?\n([\s\S]*?)\r?\n<\/entries>(?=\r?\n|$)/.exec(body)
+      : /^<content>(?:\r?\n)?([\s\S]*?)\r?\n<\/content>(?=\r?\n|$)/.exec(body);
+  return envelope === null ? output : `${envelope[1]}${body.slice(envelope[0].length)}`;
+}
+
 export function todoItems(input: unknown): TodoItem[] | undefined {
   const todos = (input as { todos?: unknown } | undefined)?.todos;
   if (!Array.isArray(todos)) return undefined;
@@ -478,7 +495,8 @@ export class OpenCodeTurnMapper {
       }
     } else if (status === 'completed' || status === 'error') {
       state.finished = true;
-      const output = status === 'completed' ? part.state.output : part.state.error;
+      const raw = status === 'completed' ? part.state.output : part.state.error;
+      const output = status === 'completed' && part.tool === 'read' ? nativeReadOutput(raw) : raw;
       events.push({
         type: 'tool.finished',
         engineSessionId: this.#engineSessionId,

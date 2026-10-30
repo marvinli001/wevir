@@ -13,7 +13,7 @@ import {
   parseKiroVersion,
 } from './launch.js';
 import { parseDeviceCode } from './login.js';
-import { kiroModels, withModelOption } from './models.js';
+import { kiroModels, modelOption, withModelOption } from './models.js';
 import { readSample } from './test-fixtures/harness.js';
 import { kiroToolDisplay } from './tool-display.js';
 
@@ -53,6 +53,18 @@ describe('错误归类', () => {
 
 describe('模型', () => {
   const models = readSample('models');
+  it('模型选项：同类别里排在前面的开关与空 ID 的选项不算（与选模型时落在同一个选项上）', () => {
+    const select = {
+      id: 'model',
+      type: 'select',
+      category: 'model',
+      currentValue: 'a',
+      options: [{ value: 'a', name: 'A' }],
+    };
+    const toggle = { id: 'fast', type: 'boolean', category: 'model', currentValue: true };
+    expect(modelOption([toggle, { ...select, id: '' }, select])).toBe(select);
+    expect(modelOption([toggle])).toBeUndefined();
+  });
   it('读 ACP 的 models；没有时读 configOptions 的模型选项；都没有是 undefined', () => {
     expect(kiroModels(undefined, models)).toEqual({
       models: [

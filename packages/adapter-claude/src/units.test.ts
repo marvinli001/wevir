@@ -26,7 +26,14 @@ import type { SDKResultMessage } from './sdk.js';
 import { recordedMessages } from './test-fixtures/fake-sdk.js';
 import { applyTaskTool, askUserQuestions, todoWriteItems } from './todos.js';
 import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
-import { isAbortedResult, rejectedUsageLimit, resultFailure, retryingOf } from './turn-result.js';
+import {
+  CONTEXT_WINDOW_FULL_ERROR,
+  isAbortedResult,
+  rejectedUsageLimit,
+  resultFailure,
+  retryingOf,
+  USAGE_LIMIT_ERROR,
+} from './turn-result.js';
 
 describe('找 claude', () => {
   const files = (list: string[]) => (path: string) => list.includes(path);
@@ -439,7 +446,7 @@ describe('回合结果（录音里的真实结果）', () => {
     ).toMatchObject({ category: 'unknown', message: 'Reached max turns' });
   });
 
-  it('用量上限：被拒的 rate_limit_event 给出重置时刻与窗口，回合失败带 usageLimit；blocking_limit 也算', () => {
+  it('用量上限：被拒的 rate_limit_event 给出重置时刻与窗口，回合失败带 usageLimit', () => {
     const limit = rejectedUsageLimit({
       status: 'rejected',
       rateLimitType: 'five_hour',
@@ -463,12 +470,70 @@ describe('回合结果（录音里的真实结果）', () => {
       usageLimit: limit,
     });
     expect(resultFailure(limited, false)).not.toHaveProperty('usageLimit');
+  });
+
+  it('blocking_limit 没有用量上限的证据时是上下文窗口满了，不报 usageLimit；有被拒的 rate_limit_event 才是用量上限', () => {
+    const base = resultOf('plain');
+    const full = {
+      ...base,
+      is_error: true,
+      result: 'Prompt is too long',
+      terminal_reason: 'blocking_limit',
+    } as SDKResultMessage;
+    const failure = resultFailure(full, false);
+    expect(failure).toEqual({ category: 'provider', message: CONTEXT_WINDOW_FULL_ERROR });
+    expect(failure?.message).toContain('/compact');
     expect(
+      resultFailure({ ...full, terminal_reason: 'prompt_too_long' } as SDKResultMessage, false),
+    ).toMatchObject({ message: CONTEXT_WINDOW_FULL_ERROR });
+    const limit = { resetsAt: '2026-10-14T17:46:40.000Z', windowMinutes: 300 };
+    expect(resultFailure(full, false, limit)).toEqual({
+      category: 'provider',
+      message: USAGE_LIMIT_ERROR,
+      usageLimit: limit,
+    });
+  });
+
+  it('api_error：结果以 API Error: 开头时说明用原文（去掉首尾空白、脱敏、截到 500 字）；其余照旧', () => {
+    const base = resultOf('plain');
+    const apiError = (result: string, extra: Record<string, unknown> = {}) =>
       resultFailure(
-        { ...base, is_error: true, terminal_reason: 'blocking_limit' } as SDKResultMessage,
+        {
+          ...base,
+          is_error: true,
+          api_error_status: 400,
+          terminal_reason: 'api_error',
+          result,
+          ...extra,
+        } as SDKResultMessage,
         false,
+      )?.message;
+    expect(
+      apiError('  API Error: 400 Request rejected by a safeguard.\n', { is_error: false }),
+    ).toBe('API Error: 400 Request rejected by a safeguard.');
+    expect(
+      apiError(
+        `API Error: 400 ${'x'.repeat(440)} {"token":"${'synthetic-secret'.repeat(100)}"} ${'y'.repeat(100)}`,
       ),
-    ).toMatchObject({ category: 'provider', usageLimit: {} });
+    ).toBe(`${`API Error: 400 ${'x'.repeat(440)} {"token":"[REDACTED]"} `.padEnd(499, 'y')}…`);
+    expect(apiError('API Error: 401 see https://user:pw@example.com/x?key=abc now')).toBe(
+      'API Error: 401 see https://example.com/x now',
+    );
+    expect(apiError('I found three files.')).toBe('Claude gave up after repeated API errors.');
+    expect(
+      apiError('API Error: 400 Request rejected.', {
+        errors: ['[ede_diagnostic] internal detail', 'Tool execution failed: EACCES'],
+      }),
+    ).toBe('Tool execution failed: EACCES');
+    expect(apiError('API Error: 529 Specific overload detail.', { api_error_status: 529 })).toBe(
+      'Claude API is overloaded (529). Try again shortly.',
+    );
+    expect(apiError('API Error: 429 Specific rate limit detail.', { api_error_status: 429 })).toBe(
+      'Claude API rate limit reached. Try again later.',
+    );
+    expect(
+      apiError('API Error: 400 Request rejected.', { terminal_reason: 'prompt_too_long' }),
+    ).toBe(CONTEXT_WINDOW_FULL_ERROR);
   });
 
   it('api_retry → turn.retrying：次数与原因（错误种类加状态码）', () => {

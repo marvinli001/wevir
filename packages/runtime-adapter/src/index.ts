@@ -19,6 +19,13 @@ export {
   trackProcessGroup,
 } from './process-groups.js';
 export { accountRateLimits, clampPercent, isoTime } from './rate-limits.js';
+export {
+  looksLikeSecret,
+  REDACTED,
+  redactDiagnostics,
+  redactSecrets,
+  SECRET_PATTERNS,
+} from './secret-patterns.js';
 export type * from './types.js';
 export {
   APP_TOOLS_CALL,

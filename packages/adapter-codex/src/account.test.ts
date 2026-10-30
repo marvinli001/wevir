@@ -299,6 +299,48 @@ describe('ChatgptAccount', () => {
     expect(states.at(-1)?.rateLimits).toEqual({ primary: { usedPercent: 60, windowMinutes: 300 } });
   });
 
+  it('与上一条通知相同的窗口是缓存的旧额度，不覆盖重读到的新用量', async () => {
+    let percent = 100;
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => ({
+        rateLimits: {
+          primary: { usedPercent: percent, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+          planType: 'plus',
+        },
+      }),
+    });
+    await account.read();
+    const stale = {
+      rateLimits: {
+        primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: null },
+        secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: null },
+      },
+    };
+    account.onNotification('account/rateLimits/updated', stale);
+    // 额度重置后重读到 0%；随后的 token 用量又带来同样的缓存额度。
+    percent = 0;
+    await account.refreshUsage();
+    account.onNotification('account/rateLimits/updated', stale);
+    expect(account.state.rateLimits?.primary).toEqual({ usedPercent: 0, windowMinutes: 300 });
+    // 变了的窗口照常更新，没变的那个仍不动。
+    account.onNotification('account/rateLimits/updated', {
+      rateLimits: {
+        ...stale.rateLimits,
+        secondary: { usedPercent: 41, windowDurationMins: 10080, resetsAt: null },
+      },
+    });
+    expect(account.state.rateLimits).toEqual({
+      primary: { usedPercent: 0, windowMinutes: 300 },
+      secondary: { usedPercent: 41, windowMinutes: 10080 },
+    });
+    // 新进程的第一条通知照常生效。
+    account.onExit();
+    account.onNotification('account/rateLimits/updated', stale);
+    expect(account.state.rateLimits?.primary).toEqual({ usedPercent: 100, windowMinutes: 300 });
+  });
+
   it('进程退出时登录中断，记一条错误', async () => {
     const { account } = setup({
       'account/read': signedOut,

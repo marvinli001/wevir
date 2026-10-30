@@ -312,6 +312,157 @@ describe('CursorAdapter', () => {
     });
   });
 
+  it('回合结束后 SDK 恢复没有进展而报错：回合照常完成、不把恢复写的结果当回答；结束后又开始工作时仍然失败；说明文字之后的传输诊断算失败', async () => {
+    const { adapter, sdk, home, warnings } = setup();
+    const resumeFailure = {
+      status: 'error' as const,
+      error: { message: 'Agent turn stopped after repeated resume attempts made no progress' },
+    };
+    const scripts: Record<string, RunScript> = {
+      regenerated: {
+        updates: [
+          { type: 'text-delta', text: 'The answer.' },
+          { type: 'turn-ended' },
+          { type: 'text-delta', text: 'A regenerated closing.' },
+          { type: 'turn-ended' },
+        ],
+        result: resumeFailure,
+      },
+      continued: {
+        updates: [
+          { type: 'text-delta', text: 'The answer.' },
+          { type: 'turn-ended' },
+          { type: 'text-delta', text: 'Following up on the stop hook.' },
+        ],
+        result: resumeFailure,
+      },
+      silent: {
+        updates: [{ type: 'turn-ended' }],
+        result: { ...resumeFailure, result: 'A regenerated closing.' },
+      },
+      commentary: {
+        updates: [
+          { type: 'text-delta', text: 'Checking the build first.' },
+          { type: 'step-completed', stepId: 1, stepDurationMs: 1 },
+          { type: 'text-delta', text: 'Error: RetriableError: WritableIterable is closed' },
+        ],
+      },
+    };
+    sdk.script = (message) => scripts[message] ?? { updates: PLAIN_UPDATES };
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    const terminal = async (message: string) => {
+      const from = events.length;
+      await adapter.send(engineSessionId, text(message));
+      await vi.waitFor(() =>
+        expect(
+          events
+            .slice(from)
+            .some((event) => event.type === 'turn.failed' || event.type === 'turn.settled'),
+        ).toBe(true),
+      );
+      return events.slice(from);
+    };
+    const answers = (turn: AgentEvent[]) =>
+      turn.flatMap((event) => (event.type === 'assistant.message' ? [event.text] : []));
+
+    const regenerated = await terminal('regenerated');
+    expect(regenerated.at(-1)).toEqual({
+      type: 'turn.settled',
+      engineSessionId,
+      outcome: 'completed',
+      stopReason: 'finished',
+    });
+    expect(warnings).toContain('Cursor gave up resuming a run whose turn had already ended');
+    expect((await terminal('continued')).at(-1)).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: 'Agent turn stopped after repeated resume attempts made no progress',
+    });
+    const silent = await terminal('silent');
+    expect(silent.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    expect(answers(silent)).toEqual([]);
+    expect((await terminal('commentary')).at(-1)).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: 'Error: RetriableError: WritableIterable is closed',
+    });
+  });
+
+  it('用量到了上限：先重读账号的用量再报 turn.failed，带 usageLimit；wait 抛出 RateLimitError 也一样；别的错误不重读', async () => {
+    const { adapter, sdk, home } = setup();
+    const scripts: Record<string, RunScript> = {
+      limit: {
+        updates: [],
+        result: {
+          status: 'error',
+          error: { message: "You've hit your usage limit", code: 'PRO_USER_USAGE_LIMIT' },
+        },
+      },
+      error: { updates: [], result: { status: 'error', error: { message: 'model overloaded' } } },
+    };
+    sdk.script = (message) => scripts[message] ?? { updates: PLAIN_UPDATES };
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    const failedBeforeRefresh: boolean[] = [];
+    const refresh = vi.spyOn(adapter.accounts, 'refreshUsage').mockImplementation(async () => {
+      failedBeforeRefresh.push(events.some((event) => event.type === 'turn.failed'));
+    });
+    const terminal = async (message: string) => {
+      const from = events.length;
+      await adapter.send(engineSessionId, text(message));
+      await vi.waitFor(() =>
+        expect(events.slice(from).some((event) => event.type === 'turn.failed')).toBe(true),
+      );
+      return events.slice(from).at(-1);
+    };
+
+    expect(await terminal('limit')).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: "You've hit your usage limit",
+      usageLimit: {},
+    });
+    expect(refresh).toHaveBeenCalledWith('cursor');
+    expect(failedBeforeRefresh).toEqual([false]);
+
+    expect(await terminal('error')).not.toHaveProperty('usageLimit');
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    const agent = sdk.agent(engineSessionId);
+    const original = agent.send.bind(agent);
+    agent.send = async (message, options) => {
+      const run = await original(message, options);
+      return {
+        ...run,
+        id: run.id,
+        agentId: run.agentId,
+        wait: async () =>
+          Promise.reject(sdkError('RateLimitError', 'Too many requests', { status: 429 })),
+        cancel: () => run.cancel(),
+      };
+    };
+    expect(await terminal('Say hello')).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: 'Too many requests',
+      usageLimit: {},
+    });
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
   it('恢复：挂着时不问 SDK；SDK 没有这个 agent 报 session_lost；关闭后恢复能继续', async () => {
     const { adapter, sdk, home } = setup();
     await expect(

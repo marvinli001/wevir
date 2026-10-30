@@ -28,6 +28,7 @@ import {
   permissionRules,
   SERVER_PERMISSION_CONFIG,
   serverConfigContent,
+  subagentOwnRules,
 } from './permissions.js';
 import { unsupportedVersion } from './runtime.js';
 import type { PermissionRule } from './sdk.js';
@@ -314,6 +315,23 @@ describe('permissions', () => {
     ]);
     expect(evaluate(child, 'task', 'general')).toBe('deny');
     expect(evaluate(child, 'bash', 'ls')).toBe('ask');
+  });
+
+  it('子 agent 自己的规则：去掉建它时从父会话继承的 deny 与 external_directory', () => {
+    const native = [
+      { permission: 'external_directory', pattern: '*', action: 'allow' },
+      { permission: 'bash', pattern: 'rm *', action: 'deny' },
+      { permission: 'task', pattern: '*', action: 'deny' },
+    ] as const satisfies PermissionRule[];
+    const own = subagentOwnRules(permissionRules('full_access'), native);
+    expect(own).toEqual([
+      { permission: 'bash', pattern: 'rm *', action: 'deny' },
+      { permission: 'task', pattern: '*', action: 'deny' },
+    ]);
+    // 换成更严的模式后按它重算：完全访问继承来的 external_directory 放行不留下。
+    const stricter = [...permissionRules('on_request'), ...own];
+    expect(evaluate(stricter, 'external_directory', '/etc/passwd')).toBe('ask');
+    expect(evaluate(stricter, 'task', 'general')).toBe('deny');
   });
 
   it('服务器配置：并进用户的 OPENCODE_CONFIG_CONTENT，不是 JSON 时原样交出', () => {
