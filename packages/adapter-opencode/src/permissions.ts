@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/adapter.ts（`openCodePermissionRules`、`openCodeChildPermissionRules`、
 // `openCodePermissionRequestKind`）与 OpenCodeRuntime.ts（`buildOpenCodePermissionRules`、`toOpenCodePermissionReply`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；换权限模式时重算子会话规则（`subagentOwnRules`）参照
+// 8031991591e22d76830e4acf6358c4fd78ffcf60
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 的 runtimePolicy（沙箱类型 + 审批策略）换成 Wevir 的三种权限模式；去掉给子会话继承的 deny 前缀，改由服务器的权限配置
 // 兜住子会话的第一步（见下）；放行只读的 list；环境会话的额外目录放行 external_directory；审批选项照 adapter-codex 的四个，
@@ -14,7 +15,7 @@
 // - `full_access`：全部放行。
 //
 // 子 agent（task 工具）的会话是 opencode 自己建的，只继承父会话的 deny 与 external_directory 规则（deriveSubagentSessionPermission），
-// 适配器在 `session.created` 时再给它装上父会话的完整规则（childPermissionRules）。装上之前的那一小段（opencode 在步开始时取
+// 适配器在 `session.created` 时再给它装上父会话的完整规则（childPermissionRules），换权限模式时按 subagentOwnRules 重算。装上之前的那一小段（opencode 在步开始时取
 // 规则，所以是子会话的第一步）子会话按 agent 的默认权限走，默认是全部放行。T3 为此在父会话的规则前面先写一串 deny 让子会话
 // 继承，可这也让子会话第一步一个工具都看不到（opencode 把最后命中 `*` 的 deny 的工具整个藏起来），真实的 opencode 上子 agent
 // 因此什么都不做就答完了。Wevir 改为给自己起的服务器加一层配置（SERVER_PERMISSION_CONFIG，经 OPENCODE_CONFIG_CONTENT）：
@@ -179,13 +180,23 @@ export function childPermissionRules(
   parentRules: PermissionRuleset,
   nativeChildRules: PermissionRuleset,
 ): PermissionRuleset {
+  return [...parentRules, ...subagentOwnRules(parentRules, nativeChildRules)];
+}
+
+/**
+ * opencode 给子会话的规则里子 agent 自己的那几条：去掉建它时从父会话继承来的 deny 与 external_directory。换权限模式时子会话的
+ * 规则按它重算（T3 记下上次写进子会话的父会话规则 inheritedPermission 来去掉旧的）：否则旧模式继承来的规则会留在新规则后面。
+ */
+export function subagentOwnRules(
+  parentRules: PermissionRuleset,
+  nativeChildRules: PermissionRuleset,
+): PermissionRuleset {
   const inherited = parentRules.filter(
     (rule) => rule.permission === 'external_directory' || rule.action === 'deny',
   );
-  const childSpecific = nativeChildRules.filter(
+  return nativeChildRules.filter(
     (rule) => !inherited.some((candidate) => sameRule(rule, candidate)),
   );
-  return [...parentRules, ...childSpecific];
 }
 
 /**

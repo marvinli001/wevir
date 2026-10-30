@@ -168,6 +168,78 @@ describe('OpenCodeAccounts', () => {
     expect(fake.calls.filter((call) => call.method === 'providers')).toHaveLength(3);
   });
 
+  it('模型目录读不到：只缓存到下一次重试，读到后回到 5 分钟', async () => {
+    let now = 0;
+    const { accounts, fake } = setup({
+      now: () => now,
+      // 自动重试在这个用例里不触发，只看 read 的缓存。
+      accounts: { catalogRetry: { minMs: 1_000, maxMs: 4_000 } },
+    });
+    const providerCalls = () => fake.calls.filter((call) => call.method === 'providers').length;
+    fake.providersError = new Error('connection reset');
+    const failed = await accounts.read('opencode');
+    expect(failed).toMatchObject({ installed: true, status: 'signed_out' });
+    expect(failed.lastError).toMatch(/provider list: connection reset/);
+    expect(await accounts.models('opencode')).toEqual({ models: [] });
+    expect(providerCalls()).toBe(1);
+    now = 1_001;
+    await accounts.read('opencode');
+    expect(providerCalls()).toBe(2);
+    // 第二次失败：间隔翻倍。
+    now = 2_002;
+    await accounts.read('opencode');
+    expect(providerCalls()).toBe(2);
+    now = 3_002;
+    fake.providersError = undefined;
+    expect((await accounts.models('opencode')).models).toHaveLength(2);
+    expect(providerCalls()).toBe(3);
+    now = 3_002 + 4_001;
+    await accounts.read('opencode');
+    expect(providerCalls()).toBe(3);
+    accounts.dispose();
+  });
+
+  it('模型目录读不到：退避着自己重试，读到后报出已登录、不再重试', async () => {
+    const { accounts, fake } = setup({ accounts: { catalogRetry: { minMs: 10, maxMs: 20 } } });
+    const providerCalls = () => fake.calls.filter((call) => call.method === 'providers').length;
+    const changes: AccountState[] = [];
+    accounts.onChange((state) => changes.push(state));
+    // 接了上游，却还没列出模型。
+    const empty = fake.providerList;
+    fake.providerList = {
+      ...empty,
+      all: empty.all.map((provider) => ({ ...provider, models: {} })),
+    };
+    expect(await accounts.read('opencode')).toMatchObject({ status: 'signed_in' });
+    fake.providerList = empty;
+    fake.providersError = new Error('connection reset');
+    const deadline = Date.now() + 2_000;
+    while (providerCalls() < 3 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(providerCalls()).toBeGreaterThanOrEqual(3);
+    expect(changes.some((state) => state.status === 'signed_out')).toBe(true);
+    fake.providersError = undefined;
+    while (changes.at(-1)?.status !== 'signed_in' || changes.length < 3) {
+      if (Date.now() > deadline) throw new Error('没等到重试读到模型目录');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect((await accounts.models('opencode')).models).toHaveLength(2);
+    const settled = providerCalls();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(providerCalls()).toBe(settled);
+    accounts.dispose();
+  });
+
+  it('dispose 之后不再自动重试', async () => {
+    const { accounts, fake } = setup({ accounts: { catalogRetry: { minMs: 10, maxMs: 10 } } });
+    fake.providersError = new Error('connection reset');
+    await accounts.read('opencode');
+    accounts.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.calls.filter((call) => call.method === 'providers')).toHaveLength(1);
+  });
+
   it('指定路径：customPath 记在状态里，找不到时说明', async () => {
     const { accounts } = setup({
       executable: (customPath) =>

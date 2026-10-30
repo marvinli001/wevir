@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type {
   ApprovalRequest,
   ClientIdentity,
+  MessageFrom,
   SessionId,
   SessionState,
   TurnId,
@@ -2004,6 +2005,40 @@ describe('SessionManager：回合进行中发消息（R11）', () => {
     );
     await waitForState(h, id, 'idle');
     expect(snapshot(h, id).pendingMessages).toBeUndefined();
+  });
+
+  it('回合完成后放行暂停的、别的会话发来的消息；用户发的与引用的第二意见仍暂停', async () => {
+    const h = setup();
+    const id = await create(h);
+    const other = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const queue = (value: string, from?: MessageFrom) =>
+      h.manager.send({ sessionId: id, content: text(value), delivery: 'queue' }, cli, {
+        ...(from !== undefined && { from }),
+      });
+    const mine = await queue('mine');
+    const report = await queue('report', { sessionId: other, kind: 'report' });
+    const quoted = await queue('quoted', {
+      sessionId: other,
+      kind: 'report',
+      opinion: { opinionId: 'opn_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+    });
+    await h.manager.cancel(id);
+    // 停下的回合不放行。
+    expect(snapshot(h, id).pendingMessages?.map((p) => p.status)).toEqual(['held', 'held', 'held']);
+
+    await send(h, id, 'next');
+    await vi.waitFor(
+      () => expect(userMessages(h, id)).toEqual(['please approve', 'next', 'report']),
+      { timeout: 2000, interval: 5 },
+    );
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).pendingMessages).toEqual([
+      expect.objectContaining({ id: mine.pendingId, status: 'held' }),
+      expect.objectContaining({ id: quoted.pendingId, status: 'held' }),
+    ]);
+    expect(ofType(h, id, 'user.message').at(-1)?.payload.pendingId).toBe(report.pendingId);
   });
 
   it('引擎退出：等待中的暂停；会话 error 时不能继续发送，resume 之后继续发送', async () => {
