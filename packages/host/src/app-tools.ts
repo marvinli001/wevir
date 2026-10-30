@@ -90,6 +90,7 @@ import type { LspManager } from './lsp/manager.js';
 import { LspTools } from './lsp-tools.js';
 import type { MemoryStore } from './memory.js';
 import { MEMORY_TOOLS, memoryTools } from './memory-tools.js';
+import { type NotifyToolOptions, notifyTools } from './notify-tool.js';
 import { PluginAppTools, type PluginAppToolsOptions } from './plugin-app-tools.js';
 import type { PluginRegistry } from './plugins.js';
 import type { PreviewService } from './preview/service.js';
@@ -207,7 +208,7 @@ Sessions you open or message cannot get broader permissions than yours. Messages
  * 搜什么。何时用哪个工具在常驻的 `wevir` 的说明里。
  */
 export const MORE_TOOLS_INSTRUCTIONS =
-  "More Wevir app tools, loaded on demand: the Wevir browser (browser_*), language-server code intelligence (lsp_*), background processes and dev-server previews, the project's environment check, session management (progress, interrupt, close, archive, second opinions, models, roles), automations, plugins and connectors, Wevir settings and configuration (projects, environments, checks, approval rules, installs, session model), memory deletion, tuning, review findings, chapters, the iOS Simulator and computer use. The wevir server's instructions say when to use each.";
+  "More Wevir app tools, loaded on demand: the Wevir browser (browser_*), language-server code intelligence (lsp_*), background processes and dev-server previews, the project's environment check, session management (progress, interrupt, close, archive, second opinions, models, roles), automations, plugins and connectors, Wevir settings and configuration (projects, environments, checks, approval rules, installs, session model), memory deletion, tuning, review findings, chapters, notifying the user's phone, the iOS Simulator and computer use. The wevir server's instructions say when to use each.";
 
 /**
  * 引擎令牌的调用方（app-mcp.ts 的 `engineSession`）：这个 Host 的引擎会话 ID → Wevir 会话（接力后是当前挂着的那个引擎会话；
@@ -255,6 +256,8 @@ export interface AppToolsOptions {
   lsp?: LspManager;
   /** 生图（0.139.0）：有它时加上 `wevir_image_generate`，只列给 Provider 有图片模型的会话。 */
   images?: ImageToolsOptions;
+  /** agent 的提醒（0.142.0）：有通知意图时加上 `wevir_notify`。 */
+  notify?: NotifyToolOptions;
   /** 第二意见（0.75.0）：有它时加上 `wevir_second_opinion`。 */
   opinions?: SecondOpinionService;
   /** 跨会话记忆：有它时加上 `wevir_memory_*` 工具。 */
@@ -392,6 +395,7 @@ export class AppTools {
       this.#wrapUpTool(),
       this.#findingsTool(),
       ...(this.images?.tools ?? []),
+      ...(options.notify === undefined ? [] : notifyTools(options.notify)),
       ...(this.plugins?.tools ?? []),
       ...(this.config?.tools ?? []),
       ...(options.processes === undefined

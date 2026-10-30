@@ -178,6 +178,7 @@ export const zhTW: Messages = {
   'notify.failed': '出錯',
   'notify.automation': '自動化',
   'notify.channel': '新訊息',
+  'notify.agent': '代理提醒',
   'push.section': '推播',
   'push.generic': '需要處理',
   'push.channel': '提醒',

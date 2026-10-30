@@ -117,6 +117,14 @@ describe('推送数据与跳转', () => {
       body: 'kind:approval',
     });
     expect(pushContent({ ...message, title: '' }, String).title).toBe('Mac');
+    // agent 的提醒（0.142.0）显示它写的正文；点开同样去那个会话。
+    const agent = { ...message, kind: 'agent' as const, body: ' Staging is down. ' };
+    expect(pushContent(agent, (kind) => `kind:${kind}`).body).toBe('Staging is down.');
+    expect(pushContent({ ...agent, body: '' }, (kind) => `kind:${kind}`).body).toBe('kind:agent');
+    expect(pushTarget({ name: 'mac', routeId: 'r' }, agent)).toEqual({
+      computer: 'mac',
+      sessionId: 'ses_1',
+    });
     const target = pushTarget({ name: 'mac', routeId: 'r' }, message);
     expect(target).toEqual({ computer: 'mac', sessionId: 'ses_1' });
     expect(readPushTarget({ wevirTarget: target })).toEqual(target);

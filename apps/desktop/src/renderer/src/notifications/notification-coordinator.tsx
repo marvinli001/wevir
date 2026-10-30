@@ -38,6 +38,7 @@ const TITLES = {
   question: 'notify.question',
   completed: 'notify.completed',
   failed: 'notify.failed',
+  agent: 'notify.agent',
 } as const satisfies Record<NotificationKind, string>;
 
 const TONES: Record<NotificationKind, ToastTone> = {
@@ -45,6 +46,7 @@ const TONES: Record<NotificationKind, ToastTone> = {
   question: 'attention',
   completed: 'success',
   failed: 'danger',
+  agent: 'attention',
 };
 
 /** 提醒点开去哪：会话（`sessionId`、它的工作区）或助理（0.121.0，`id` 是助理的频道 ID）。 */
@@ -53,6 +55,8 @@ interface Target {
   id: string;
   path: string;
   title: string;
+  /** agent 的提醒（0.142.0）：agent 写的正文，提醒里显示它而不是种类名。 */
+  message?: string;
 }
 
 interface ShownToast extends Target {
@@ -158,8 +162,8 @@ export function NotificationCoordinator() {
       void platformApi()
         .notify({
           tag: notificationTag(target.id),
-          title: t(TITLES[kind]),
-          body: target.title,
+          title: target.message !== undefined ? target.title : t(TITLES[kind]),
+          body: target.message ?? target.title,
           sound: current.sound,
         })
         .then((shown) => {
@@ -223,10 +227,17 @@ export function NotificationCoordinator() {
     };
     const stop = client.watchNotifications((intent) => {
       const title = intent.title || t('session.untitled');
+      // agent 的提醒（0.142.0）：正文是 agent 写的那句话。
+      const message = intent.kind === 'agent' && intent.body !== '' ? intent.body : undefined;
       if (intent.channelId !== undefined) {
         deliverRef.current(
           intentDisplayKind(intent),
-          { id: intent.channelId, path: paths.assistant(intent.channelId), title },
+          {
+            id: intent.channelId,
+            path: paths.assistant(intent.channelId),
+            title,
+            ...(message !== undefined && { message }),
+          },
           intent.id,
           true,
         );
@@ -238,7 +249,10 @@ export function NotificationCoordinator() {
         if (disposed || workspaceId === undefined) return;
         deliverRef.current(
           intentDisplayKind(intent),
-          sessionTarget(sessionId, workspaceId, title),
+          {
+            ...sessionTarget(sessionId, workspaceId, title),
+            ...(message !== undefined && { message }),
+          },
           intent.id,
           true,
         );
@@ -317,7 +331,7 @@ export function NotificationCoordinator() {
       key={toast.key}
       open={toast.open}
       tone={TONES[toast.kind]}
-      title={t(TITLES[toast.kind])}
+      title={toast.message !== undefined ? toast.title : t(TITLES[toast.kind])}
       duration={TOAST_MS}
       testId="session-notification"
       onClose={() =>
@@ -326,7 +340,15 @@ export function NotificationCoordinator() {
         )
       }
     >
-      <p className="truncate text-xs text-muted-foreground">{toast.title}</p>
+      <p
+        className={
+          toast.message !== undefined
+            ? 'line-clamp-3 text-xs text-muted-foreground'
+            : 'truncate text-xs text-muted-foreground'
+        }
+      >
+        {toast.message ?? toast.title}
+      </p>
       <div className="pt-1.5">
         <Button size="sm" variant="outline" onClick={() => open(toast.path)}>
           {t('notify.open')}

@@ -185,6 +185,7 @@ export const ru: Messages = {
   'notify.failed': 'Ошибка',
   'notify.automation': 'Автоматизация',
   'notify.channel': 'Новое сообщение',
+  'notify.agent': 'Уведомление агента',
   'push.section': 'Push',
   'push.generic': 'Требует внимания',
   'push.channel': 'Оповещения',

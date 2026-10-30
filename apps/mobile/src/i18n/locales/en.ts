@@ -184,6 +184,7 @@ export const en: Messages = {
   'notify.failed': 'Failed',
   'notify.automation': 'Automation',
   'notify.channel': 'New message',
+  'notify.agent': 'Agent notification',
   'push.section': 'Push',
   'push.generic': 'Needs attention',
   'push.channel': 'Alerts',

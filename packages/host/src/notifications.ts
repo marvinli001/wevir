@@ -3,9 +3,12 @@
 // 由客户端决定。意图不存储、不补发。
 //
 // 来源：审批、提问、失败回合与自动化的失败、完成取收件箱新出现的项（`InboxService.watch`）；回合正常完成不进收件箱，取事件库的
-// `turn.finished`；自动化进入 `waiting` 取自动化的变化。Host 启动重建收件箱时不发批次，所以重启前就有的事不产生意图。
+// `turn.finished`；自动化进入 `waiting` 取自动化的变化；agent 的提醒（0.142.0）由 `wevir_notify`（notify-tool.ts）经 `agentIntent` 与
+// `publish` 发。Host 启动重建收件箱时不发批次，所以重启前就有的事不产生意图。
 
 import {
+  AGENT_NOTIFICATION_BODY_MAX_LENGTH,
+  AGENT_NOTIFICATION_TITLE_MAX_LENGTH,
   type Automation,
   type AutomationNotify,
   type AutomationRun,
@@ -52,6 +55,17 @@ export interface NotificationServiceOptions {
   onError?: (error: unknown) => void;
 }
 
+/**
+ * `agentIntent` 不发的原因：会话不在了（`session`）；是子会话、支线、别的会话开的、第二意见或助理的线程（`nested`，由开它的会话决定）；
+ * 种类开关关着（`off`）。
+ */
+export interface AgentIntentRefusal {
+  refused: 'session' | 'nested' | 'off';
+}
+
+/** 意图的监听者。客户端连接收下了意图时返回 true（`publish` 据此数有几个 App 收到），别的返回值不算。 */
+export type NotificationListener = (intent: NotificationIntent) => unknown;
+
 /** 会话的提醒要的东西。 */
 interface SessionFacts {
   session: Session;
@@ -71,7 +85,7 @@ export class NotificationService {
   readonly #settings: () => HostSettings;
   readonly #now: () => number;
   readonly #onError: (error: unknown) => void;
-  readonly #listeners = new Set<(intent: NotificationIntent) => void>();
+  readonly #listeners = new Set<NotificationListener>();
   /** 判定过的意图 ID 与事发时刻（毫秒）。 */
   readonly #seen = new Map<string, number>();
   /** 提醒过 `waiting` 的运行：一次运行只提醒一次，运行结束时删掉。 */
@@ -158,9 +172,55 @@ export class NotificationService {
   }
 
   /** 收此后的每条意图，返回取消函数。`listener` 同步调用，不要在里面做慢的事。 */
-  watch(listener: (intent: NotificationIntent) => void): () => void {
+  watch(listener: NotificationListener): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * agent 的提醒（0.142.0，`wevir_notify`）：只给顶层会话（见 `AgentIntentRefusal`），按种类开关 `agent`；不看在场与
+   * “这个会话该不该按会话提醒”（自动化开的会话、助理的会话也能提醒）。标题省略时用会话标题；标题与正文由调用方折行、限长、查过密钥。
+   * 只生成意图，`publish` 才发。
+   */
+  agentIntent(
+    sessionId: SessionId,
+    message: { title?: string; body: string },
+  ): NotificationIntent | AgentIntentRefusal {
+    const facts = this.#sessionFacts(sessionId);
+    if (facts === undefined || facts.archived) return { refused: 'session' };
+    const { session } = facts;
+    if (
+      session.parentSessionId !== undefined ||
+      session.side === true ||
+      session.openedBy !== undefined ||
+      session.opinionOf !== undefined ||
+      session.channel?.role === 'thread'
+    ) {
+      return { refused: 'nested' };
+    }
+    if (!this.#enabled('agent')) return { refused: 'off' };
+    // ID 用毫秒时刻（同一会话至少隔一分钟才发一条，见 notify-tool.ts）：Host 重启后也不会与发过的重复，手机按 ID 去重。
+    const at = this.#now();
+    const channelId = session.channel?.channelId;
+    return {
+      id: `agent:${sessionId}:${at}`,
+      kind: 'agent',
+      sessionId,
+      workspaceId: session.workspaceId,
+      ...(channelId !== undefined && { channelId }),
+      title: cut(
+        message.title ?? session.title,
+        Math.min(NOTIFICATION_TITLE_MAX_LENGTH, AGENT_NOTIFICATION_TITLE_MAX_LENGTH),
+      ),
+      body: cut(message.body, AGENT_NOTIFICATION_BODY_MAX_LENGTH),
+      createdAt: new Date(at).toISOString(),
+      collapseKey: `agent:${sessionId}`,
+    };
+  }
+
+  /** 发出 `agentIntent` 生成的意图，返回收下它的客户端连接数。 */
+  publish(intent: NotificationIntent): number {
+    return this.#emit(intent);
   }
 
   close(): void {
@@ -322,14 +382,17 @@ export class NotificationService {
     }
   }
 
-  #emit(intent: NotificationIntent): void {
+  /** 发给每个监听者，返回收下它的客户端连接数。 */
+  #emit(intent: NotificationIntent): number {
+    let clients = 0;
     for (const listener of [...this.#listeners]) {
       try {
-        listener(intent);
+        if (listener(intent) === true) clients += 1;
       } catch (error) {
         this.#onError(error);
       }
     }
+    return clients;
   }
 }
 

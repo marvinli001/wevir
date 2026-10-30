@@ -13,7 +13,8 @@
       "WEVIR_PUSH_KIND_COMPLETED": "Completado",
       "WEVIR_PUSH_KIND_FAILED": "Error",
       "WEVIR_PUSH_KIND_AUTOMATION": "Automatización",
-      "WEVIR_PUSH_KIND_CHANNEL": "Mensaje nuevo"
+      "WEVIR_PUSH_KIND_CHANNEL": "Mensaje nuevo",
+      "WEVIR_PUSH_KIND_AGENT": "Aviso del agente"
     }
   }
 }

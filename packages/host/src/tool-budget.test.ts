@@ -121,6 +121,7 @@ function productTools(): AppTools {
     search: unused(),
     hostCall: unused(),
     images: { storage, dir: join(root, 'images'), target: unused() },
+    notify: { notifications: unused(), push: unused() },
   });
 }
 

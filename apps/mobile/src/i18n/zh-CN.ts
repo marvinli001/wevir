@@ -178,6 +178,7 @@ export const zhCN = {
   'notify.failed': '出错',
   'notify.automation': '自动化',
   'notify.channel': '新消息',
+  'notify.agent': '智能体提醒',
   'push.section': '推送',
   'push.generic': '需要处理',
   'push.channel': '提醒',

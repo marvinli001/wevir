@@ -225,6 +225,8 @@ const SESSION_LIST_PUSH_SINCE = '0.101.0';
 const PROJECT_THREADS_SINCE = '0.134.0';
 /** 通知意图的 `channel` 种类（助理的帖子）从这个版本起。 */
 const CHANNEL_INTENTS_SINCE = '0.121.0';
+/** 通知意图的 `agent` 种类（`wevir_notify`）从这个版本起。 */
+const AGENT_INTENTS_SINCE = '0.142.0';
 /** `simulator.show` 从这个版本起。 */
 const SIMULATOR_SINCE = '0.122.0';
 
@@ -1087,9 +1089,12 @@ export class RpcConnection {
     if (this.#phase !== 'ready') return;
     // 0.121.0 之前的客户端不认 `channel` 种类的意图。
     const channelKind = compareProtocolVersions(this.#protocolVersion, CHANNEL_INTENTS_SINCE) >= 0;
+    // 0.142.0 之前的客户端不认 `agent` 种类。收下了的返回 true，`wevir_notify` 据此数有几个 App 收到。
+    const agentKind = compareProtocolVersions(this.#protocolVersion, AGENT_INTENTS_SINCE) >= 0;
     this.#unwatchNotifications = this.#host.notifications.watch((intent) => {
       if (intent.kind === 'channel' && !channelKind) return;
-      this.#notify('notification.intent', intent);
+      if (intent.kind === 'agent' && !agentKind) return;
+      return this.#notify('notification.intent', intent);
     });
   }
 

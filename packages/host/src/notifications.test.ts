@@ -449,3 +449,65 @@ describe('NotificationService', () => {
     expect(flush()).toMatchObject([{ id: `completed:${TURN2}`, kind: 'completed' }]);
   });
 });
+
+describe('NotificationService：agent 的提醒（0.142.0）', () => {
+  const OPENED: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQX';
+
+  it('生成意图不发，publish 才发；标题省略用会话标题，ID 带时刻，收起键与回合完成分开', () => {
+    const { service, flush } = setup();
+    const intent = service.agentIntent(SES, { body: 'Staging is down; approve the rollback.' });
+    expect(flush()).toEqual([]);
+    expect(intent).toEqual({
+      id: `agent:${SES}:${NOW}`,
+      kind: 'agent',
+      sessionId: SES,
+      workspaceId: 'ws_1',
+      title: '修登录页',
+      body: 'Staging is down; approve the rollback.',
+      createdAt: new Date(NOW).toISOString(),
+      collapseKey: `agent:${SES}`,
+    });
+    if ('refused' in intent) throw new Error('refused');
+    // 测试的监听者不是客户端连接，不算收下。
+    expect(service.publish(intent)).toBe(0);
+    expect(flush()).toEqual([intent]);
+    expect(service.agentIntent(SES, { title: 'Deploy', body: 'Done.' })).toMatchObject({
+      title: 'Deploy',
+    });
+  });
+
+  it('publish 数收下它的客户端连接（监听者返回 true 的）', () => {
+    const { service } = setup();
+    service.watch(() => true);
+    service.watch(() => true);
+    service.watch(() => undefined);
+    const intent = service.agentIntent(SES, { body: 'Build finished.' });
+    if ('refused' in intent) throw new Error('refused');
+    expect(service.publish(intent)).toBe(2);
+  });
+
+  it('子会话、支线、别的会话开的会话不发；种类开关关着、会话归档或不在时说原因', () => {
+    const { service, events, storage, setSettings } = setup();
+    const base = storage.sessions.get(SES);
+    if (base === undefined) throw new Error('no base session');
+    storage.sessions.insert({
+      ...base,
+      id: OPENED,
+      engineSessionId: `engine-${OPENED}`,
+      origin: { kind: 'agent', sessionId: SES },
+    });
+    events.append(OPENED, ev.created());
+    for (const sessionId of [CHILD, SIDE, OPENED]) {
+      expect(service.agentIntent(sessionId, { body: 'x' })).toEqual({ refused: 'nested' });
+    }
+    // 自动化开的会话可以提醒（它们的回合不按会话提醒，agent 主动要提醒的照发）。
+    expect(service.agentIntent(AUTO, { body: 'x' })).toMatchObject({ kind: 'agent' });
+    expect(service.agentIntent('ses_01JA2B3C4D5E6F7G8H9JKMNPQZ', { body: 'x' })).toEqual({
+      refused: 'session',
+    });
+    storage.sessions.setArchived(SES2, new Date(NOW).toISOString());
+    expect(service.agentIntent(SES2, { body: 'x' })).toEqual({ refused: 'session' });
+    setSettings({ sendWhileBusy: 'steer', notifications: { agent: false } });
+    expect(service.agentIntent(SES, { body: 'x' })).toEqual({ refused: 'off' });
+  });
+});

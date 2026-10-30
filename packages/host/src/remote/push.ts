@@ -167,7 +167,19 @@ export function pushCategory(intent: NotificationIntent): PushCategory {
     // 助理在时间线上说话（0.121.0）：同回合完成；预算用完、回合失败的说明也归这一路。
     case 'channel':
       return 'completion';
+    // agent 的提醒（0.142.0）：要用户处理或想知道的事。
+    case 'agent':
+      return 'action';
   }
+}
+
+/**
+ * 一条意图会推到几台设备（`recipients`，`wevir_notify` 据此告诉模型）；一台都没有时的原因：推送或这一路关着（`off`）、没有开了推送
+ * 并报过令牌的设备（`no_device`）、电脑前有人（`at_computer`）、设备都到了每小时的上限（`rate_limited`）。
+ */
+export interface PushRecipients {
+  devices: number;
+  skipped?: 'off' | 'no_device' | 'at_computer' | 'rate_limited';
 }
 
 export interface PushServiceOptions {
@@ -395,19 +407,47 @@ export class PushService {
     for (const listener of [...this.#statusListeners]) listener();
   }
 
-  #onIntent(intent: NotificationIntent): void {
-    if (this.#closed) return;
+  /** 这条意图现在会推到几台设备（不发）：同 `#onIntent` 的判定，另把到了每小时上限的设备算作不发。 */
+  recipients(intent: NotificationIntent): PushRecipients {
+    const targets = this.#targets(intent);
+    if (!Array.isArray(targets)) return { devices: 0, skipped: targets };
+    const now = this.#now();
+    const open = targets.filter(
+      (deviceId) =>
+        (this.#sent.get(deviceId) ?? []).filter((at) => now - at < 60 * 60_000).length <
+        this.#maxPerHour,
+    );
+    return open.length === 0 && targets.length > 0
+      ? { devices: 0, skipped: 'rate_limited' }
+      : { devices: open.length };
+  }
+
+  /** 要推给哪些设备；不推时是原因。 */
+  #targets(intent: NotificationIntent): DeviceId[] | NonNullable<PushRecipients['skipped']> {
+    if (this.#closed) return 'off';
     const settings = this.#options.settings();
-    if (settings?.enabled !== true || settings.push.enabled !== true) return;
+    if (settings?.enabled !== true || settings.push.enabled !== true) return 'off';
     const category = pushCategory(intent);
-    if (category === 'action' && settings.push.needsAction === false) return;
-    if (category === 'completion' && settings.push.completion === false) return;
-    if (this.#options.presence.atComputer()) return;
-    for (const device of this.#options.devices.list()) {
-      if (device.status !== 'active' || device.push?.enabled !== true) continue;
-      if (device.push.registered !== true || !device.permissions.includes('session.read')) continue;
-      this.#enqueue(device.id, intent);
-    }
+    if (category === 'action' && settings.push.needsAction === false) return 'off';
+    if (category === 'completion' && settings.push.completion === false) return 'off';
+    const devices = this.#options.devices
+      .list()
+      .filter(
+        (device) =>
+          device.status === 'active' &&
+          device.push?.enabled === true &&
+          device.push.registered === true &&
+          device.permissions.includes('session.read'),
+      );
+    if (devices.length === 0) return 'no_device';
+    if (this.#options.presence.atComputer()) return 'at_computer';
+    return devices.map((device) => device.id);
+  }
+
+  #onIntent(intent: NotificationIntent): void {
+    const targets = this.#targets(intent);
+    if (!Array.isArray(targets)) return;
+    for (const deviceId of targets) this.#enqueue(deviceId, intent);
   }
 
   #enqueue(deviceId: DeviceId, intent: NotificationIntent): void {
@@ -480,6 +520,8 @@ export class PushService {
       ...(intent.workspaceId !== undefined && { workspaceId: intent.workspaceId }),
       ...(intent.automationId !== undefined && { automationId: intent.automationId }),
       ...(intent.channelId !== undefined && { channelId: intent.channelId }),
+      // 只有 agent 的提醒（0.142.0）带正文：它就是 agent 要说的话，别的种类的正文不上手机。
+      ...(intent.kind === 'agent' && intent.body !== '' && { body: intent.body }),
       createdAt: intent.createdAt,
     };
     const now = this.#now();

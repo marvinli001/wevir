@@ -109,6 +109,11 @@ describe('host intents (0.106.0)', () => {
     expect(run('waiting')).toBe('approval');
     expect(run('failed')).toBe('failed');
     expect(run('completed')).toBe('completed');
+    // agent 的提醒（0.142.0）只来自 Host：本机判定从不产生它。
+    expect(intentDisplayKind(intent({ kind: 'agent' }))).toBe('agent');
+    expect(
+      deliveryFor('agent', { focused: false, viewing: false }, DEFAULT_NOTIFICATION_SETTINGS),
+    ).toEqual({ toast: false, system: false });
   });
 
   it('presents a host intent exactly like the local decision did when the kind is on', () => {

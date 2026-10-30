@@ -185,6 +185,7 @@ export const ja: Messages = {
   'notify.failed': 'エラー',
   'notify.automation': 'オートメーション',
   'notify.channel': '新着メッセージ',
+  'notify.agent': 'エージェントからの通知',
   'push.section': 'プッシュ',
   'push.generic': '対応が必要',
   'push.channel': '通知',

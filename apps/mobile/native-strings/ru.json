@@ -13,7 +13,8 @@
       "WEVIR_PUSH_KIND_COMPLETED": "Готово",
       "WEVIR_PUSH_KIND_FAILED": "Ошибка",
       "WEVIR_PUSH_KIND_AUTOMATION": "Автоматизация",
-      "WEVIR_PUSH_KIND_CHANNEL": "Новое сообщение"
+      "WEVIR_PUSH_KIND_CHANNEL": "Новое сообщение",
+      "WEVIR_PUSH_KIND_AGENT": "Уведомление агента"
     }
   }
 }

@@ -15,6 +15,9 @@ import {
 export const NOTIFICATION_TITLE_MAX_LENGTH = 200;
 /** 意图的 `body` 最多多少字符；Host 打码后截断，同收件箱的 `INBOX_SUMMARY_MAX_LENGTH`。 */
 export const NOTIFICATION_BODY_MAX_LENGTH = 300;
+/** `agent`（0.142.0）意图的标题与正文上限：`wevir_notify` 的参数超过时拒绝，不截断。 */
+export const AGENT_NOTIFICATION_TITLE_MAX_LENGTH = 80;
+export const AGENT_NOTIFICATION_BODY_MAX_LENGTH = 200;
 /** 事发超过这么久的不提醒（断线、取消归档后重新出现的旧事）。 */
 export const NOTIFICATION_MAX_AGE_MS = 2 * 60_000;
 
@@ -26,6 +29,8 @@ export const NOTIFICATION_KINDS = [
   'automation',
   /** 0.121.0：助理在时间线上说了话（`NOTHING_TO_REPORT` 的不算），或 Host 贴了预算用完、回合失败的说明。 */
   'channel',
+  /** 0.142.0：会话里的 agent 用 `wevir_notify` 提醒用户（要用户处理、或用户不在电脑前也想知道的事）。 */
+  'agent',
 ] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;
@@ -36,7 +41,7 @@ export type NotificationAutomationStatus = z.infer<typeof NotificationAutomation
 
 /**
  * 一条通知意图。`id` 稳定、同一件事只发一次：`approval:<ApprovalId>`、`question:<QuestionId>`、`turn_failed:<TurnId>`、
- * `completed:<TurnId>`、`automation:<AutomationRunId>:<状态>`。
+ * `completed:<TurnId>`、`automation:<AutomationRunId>:<状态>`、`agent:<SessionId>:<毫秒时刻>`（0.142.0）。
  */
 export const NotificationIntentSchema = z.object({
   id: z
@@ -52,12 +57,15 @@ export const NotificationIntentSchema = z.object({
   automationStatus: NotificationAutomationStatusSchema.optional(),
   /** `channel`（0.121.0）：哪个助理；审批与提问出在助理的会话里时也带。 */
   channelId: ChannelIdSchema.optional(),
-  /** 会话标题（自动化是自动化的标题）；会话没标题时是空串。 */
+  /** 会话标题（自动化是自动化的标题；`agent` 是 agent 给的标题，没给时是会话标题）；会话没标题时是空串。 */
   title: z.string().max(NOTIFICATION_TITLE_MAX_LENGTH),
-  /** 一句说明，同收件箱的 `summary`（打码、截断）；回合完成是空串。不含密钥。 */
+  /** 一句说明，同收件箱的 `summary`（打码、截断）；回合完成是空串；`agent` 是 agent 写的正文（打码）。不含密钥。 */
   body: z.string().max(NOTIFICATION_BODY_MAX_LENGTH),
   createdAt: IsoTimeSchema,
-  /** `session:<SessionId>`，没有会话时 `automation:<AutomationId>`：同一个键客户端只留最新的一条。 */
+  /**
+   * `session:<SessionId>`，没有会话时 `automation:<AutomationId>`，`agent` 是 `agent:<SessionId>`（0.142.0，不被同一会话的回合完成
+   * 顶掉）：同一个键客户端只留最新的一条。
+   */
   collapseKey: z.string().min(1).max(128),
 });
 export type NotificationIntent = z.infer<typeof NotificationIntentSchema>;
@@ -70,6 +78,8 @@ export const NotificationKindSettingsSchema = z.object({
   failed: z.boolean().optional(),
   automation: z.boolean().optional(),
   channel: z.boolean().optional(),
+  /** 0.142.0：agent 的提醒（`wevir_notify`）。 */
+  agent: z.boolean().optional(),
 });
 export type NotificationKindSettings = z.infer<typeof NotificationKindSettingsSchema>;
 

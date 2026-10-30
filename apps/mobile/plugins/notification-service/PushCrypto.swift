@@ -94,14 +94,17 @@ struct PushMessage: Decodable {
   let host: String
   let sessionId: String?
   let channelId: String?
+  /// 只在 agent 的提醒（0.142.0）：agent 写的正文。
+  let body: String?
 
-  static let kinds: Set<String> = ["approval", "question", "completed", "failed", "automation", "channel"]
+  static let kinds: Set<String> = ["approval", "question", "completed", "failed", "automation", "channel", "agent"]
 
   /// 版本、种类与长度不合 schema 时 nil。
   static func decode(_ data: Data) -> PushMessage? {
     guard let message = try? JSONDecoder().decode(PushMessage.self, from: data),
       message.v == 1, kinds.contains(message.kind),
-      message.title.utf16.count <= 200, message.host.utf16.count <= 64, message.id.utf16.count <= 160
+      message.title.utf16.count <= 200, message.host.utf16.count <= 64, message.id.utf16.count <= 160,
+      (message.body?.utf16.count ?? 0) <= 200
     else { return nil }
     return message
   }

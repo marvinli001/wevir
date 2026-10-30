@@ -110,7 +110,7 @@ describe.skipIf(!hasSwift)('Swift 的解密与 JS 一致', () => {
     expect(output.state).toEqual(guard.state());
   }, 180_000);
 
-  it('改写：标题、电脑名、提醒种类与跳转；重放、错的密钥、锁屏隐藏', () => {
+  it('改写：标题、电脑名、提醒种类与跳转；重放、错的密钥、锁屏隐藏；agent 的正文', () => {
     mkdirSync(join(dir, 'rewrite'));
     const main = join(dir, 'rewrite/main.swift');
     const binary = join(dir, 'rewrite/check');
@@ -192,6 +192,20 @@ describe.skipIf(!hasSwift)('Swift 的解密与 JS 一致', () => {
         keys,
       },
       { name: 'not a Wevir push', payload: approval, computers, keys, wevir: 'other' },
+      {
+        name: 'agent with body',
+        payload: seal(16, {
+          ...base,
+          id: 'agent:ses_4:1',
+          kind: 'agent',
+          title: 'Deploy',
+          host: 'Mac',
+          sessionId: 'ses_4',
+          body: 'Staging is down; approve the rollback.',
+        }),
+        computers,
+        keys,
+      },
     ];
     const spec = join(dir, 'cases.json');
     writeFileSync(spec, JSON.stringify(cases));
@@ -241,10 +255,19 @@ describe.skipIf(!hasSwift)('Swift 的解密与 JS 一致', () => {
       null,
       null,
       null,
+      {
+        title: 'Deploy',
+        subtitle: 'Mac',
+        body: 'Staging is down; approve the rollback.',
+        category: 'wevir.push',
+        thread: 'studio/ses_4',
+        target: { computer: 'studio', sessionId: 'ses_4' },
+        hasPayload: false,
+      },
     ]);
     // 重放状态写回 App Group 里的 replay.json，只记解得开的那台电脑。
     expect(Object.keys(output.replay)).toEqual(['r-studio']);
-    expect(output.replay['r-studio']?.highest).toBe(15);
+    expect(output.replay['r-studio']?.highest).toBe(16);
   }, 180_000);
 });
 
