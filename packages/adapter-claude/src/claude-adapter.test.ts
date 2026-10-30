@@ -510,6 +510,112 @@ describe('审批（录音 approval.*）', () => {
   });
 });
 
+describe('前台 Bash 的实时输出', () => {
+  const tmpRoots: string[] = [];
+  afterEach(() => {
+    for (const root of tmpRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+  const message = (value: Record<string, unknown>) => ({
+    kind: 'message' as const,
+    message: value,
+  });
+  const bashScript = (holdMs: number) => ({
+    steps: [
+      message({
+        type: 'assistant',
+        message: {
+          id: 'msg_bash',
+          model: 'claude-haiku-4-5',
+          content: [
+            { type: 'tool_use', id: 'toolu_bash', name: 'Bash', input: { command: './slow.sh' } },
+          ],
+        },
+        parent_tool_use_id: null,
+        uuid: 'a-bash',
+      }),
+      message({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'b1',
+        tool_use_id: 'toolu_bash',
+        description: './slow.sh',
+        task_type: 'local_bash',
+        is_backgrounded: false,
+        uuid: 'task-b1',
+      }),
+      { kind: 'delay' as const, ms: holdMs },
+      message({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_bash', content: 'one\ntwo\nthree' }],
+        },
+        parent_tool_use_id: null,
+        uuid: 'u-bash',
+      }),
+      message({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: '',
+        stop_reason: 'end_turn',
+        modelUsage: {},
+        user_message_uuids: ['<prompt>'],
+      }),
+    ],
+  });
+  async function bashSession(holdMs: number) {
+    const tmp = mkdtempSync(join(tmpdir(), 'wevir-claude-tasks-'));
+    tmpRoots.push(tmp);
+    const { adapter } = harness({
+      script: (prompt) => (prompt === 'run it' ? bashScript(holdMs) : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      env: { CLAUDE_CODE_TMPDIR: tmp },
+    });
+    const tasks = join(
+      tmp,
+      `claude-${process.getuid?.()}`,
+      'some-project',
+      engineSessionId,
+      'tasks',
+    );
+    return { adapter, engineSessionId, tasks, log: collect(adapter, engineSessionId) };
+  }
+
+  it.skipIf(process.getuid === undefined)(
+    '读 Claude Code 写的输出文件，到目前为止的输出随 tool.updated 报；工具结果之后不再报',
+    async () => {
+      const { adapter, engineSessionId, tasks, log } = await bashSession(1500);
+      mkdirSync(tasks, { recursive: true });
+      const file = join(tasks, 'b1.output');
+      writeFileSync(file, 'one\n');
+      await adapter.send(engineSessionId, text('run it'));
+      await log.until((event) => event.type === 'tool.updated' && event.output === 'one\n');
+      writeFileSync(file, 'one\ntwo\n');
+      await log.until((event) => event.type === 'tool.updated' && event.output === 'one\ntwo\n');
+      await log.until(isTurnTerminal);
+      const finished = log.events.findIndex((event) => event.type === 'tool.finished');
+      expect(log.events[finished]).toMatchObject({ output: 'one\ntwo\nthree' });
+      writeFileSync(file, 'one\ntwo\nthree\n');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(log.events.slice(finished).some((event) => event.type === 'tool.updated')).toBe(false);
+    },
+  );
+
+  it('没有输出文件时照旧：没有 tool.updated，工具结果带完整输出', async () => {
+    const { adapter, engineSessionId, log } = await bashSession(600);
+    await adapter.send(engineSessionId, text('run it'));
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'completed' });
+    expect(log.events.some((event) => event.type === 'tool.updated')).toBe(false);
+    expect(log.events.find((event) => event.type === 'tool.finished')).toMatchObject({
+      status: 'completed',
+      output: 'one\ntwo\nthree',
+    });
+  });
+});
+
 describe('每次请求的用量（0.62.0）', () => {
   it('顶层按流式事件报：message_delta 的最终用量，ttft_ms 是首个 token 的时间', async () => {
     const { adapter } = harness();

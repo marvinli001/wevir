@@ -92,6 +92,7 @@ import {
   type SdkPermissionMode,
 } from './sdk.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
+import { claudeTaskOutputRoot, tailClaudeTaskOutput } from './task-output.js';
 import {
   applyTaskTool,
   askUserAnswers,
@@ -313,6 +314,8 @@ interface LiveQuery {
   closing: boolean;
   /** 收到过第一个 `init`：只有它说明进程起在了哪个权限模式。 */
   receivedInit: boolean;
+  /** Claude Code 写前台命令输出文件的目录（按这个进程的环境）；没有时不读实时输出。 */
+  taskOutputRoot: string | undefined;
   /**
    * 进程起来时 claude 没用请求的权限模式（第一个 `init` 报的是别的，如模型不支持 `auto` 时退回 `default`；T3 598298c）。之后要的还是
    * `requested` 时以 `actual` 为准，不在进程里再改；换模型时重起进程，让新模型重新协商。
@@ -350,6 +353,8 @@ interface RootSession extends Owner {
   waking?: boolean;
   /** 当前（最近一个由消息开始的）回合在计划模式里（0.36.0）：进程的权限模式是 `plan`。 */
   planning: boolean;
+  /** 正在读输出文件的前台 Bash 调用（工具调用 ID → 停下读取），见 task-output.ts。 */
+  outputTails: Map<string, { stop: () => void }>;
   /** 子 agent：派出它的工具调用 ID → 子会话（各层都登记在顶层会话上）。 */
   children: Map<string, ChildSession>;
   stream?: { attemptId: string; blocks: Map<number, StreamBlock> };
@@ -1194,6 +1199,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       sideNotePending: false,
       pendingNotes: [],
       planning: false,
+      outputTails: new Map(),
       children: new Map(),
     };
     this.#sessions.set(id, session);
@@ -1292,10 +1298,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       this.#historyScriptWritten = true;
     }
     const input = new PushQueue<SDKUserMessage>();
+    const env = { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env };
     const options: Options = {
       pathToClaudeCodeExecutable: installation.executablePath,
       // 环境的变量（0.130.0）并进这个会话的 `claude` 进程，模型跑的命令继承它。
-      env: { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env },
+      env,
       cwd: session.config.cwd,
       ...(session.config.additionalRoots !== undefined &&
         session.config.additionalRoots.length > 0 && {
@@ -1340,6 +1347,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       done: Promise.resolve(),
       closing: false,
       receivedInit: false,
+      taskOutputRoot: claudeTaskOutputRoot(env),
     };
     live.done = this.#pump(session, live);
     return live;
@@ -1394,6 +1402,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   async #closeLive(session: RootSession, live: LiveQuery): Promise<void> {
     live.closing = true;
+    this.#stopOutputTails(session);
     live.input.close();
     try {
       live.query.close();
@@ -1427,6 +1436,49 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       ...(extra.shouldQuery !== undefined && { shouldQuery: extra.shouldQuery }),
       ...(extra.uuid !== undefined && { uuid: extra.uuid as SDKUserMessage['uuid'] }),
     };
+  }
+
+  /**
+   * 前台 Bash 的实时输出（T3 a5d9792）：`task_started` 是 `local_bash` 且没放到后台时读 Claude Code 写的输出文件，到目前为止的输出
+   * 随 `tool.updated` 报（与 Codex 的命令输出一样）。读不到就没有，工具结果照样带完整输出。
+   */
+  #tailCommandOutput(
+    session: RootSession,
+    live: LiveQuery,
+    message: Extract<SDKMessage, { type: 'system'; subtype: 'task_started' }>,
+  ): void {
+    const toolCallId = message.tool_use_id;
+    // 老版本的 Claude Code 前台的调用不带 is_backgrounded。
+    if (
+      live.taskOutputRoot === undefined ||
+      toolCallId === undefined ||
+      message.task_type !== 'local_bash' ||
+      message.is_backgrounded === true ||
+      session.outputTails.has(toolCallId)
+    ) {
+      return;
+    }
+    const owner = [session, ...session.children.values()].find(
+      (candidate) => candidate.tools.get(toolCallId)?.name === 'Bash',
+    );
+    if (owner === undefined || owner.finished.has(toolCallId)) return;
+    let output = '';
+    const tail = tailClaudeTaskOutput({
+      root: live.taskOutputRoot,
+      sessionId: message.session_id,
+      taskId: message.task_id,
+      onChunk: (chunk) => {
+        if (owner.finished.has(toolCallId)) return;
+        output += chunk;
+        owner.hub.emit({ type: 'tool.updated', engineSessionId: owner.id, toolCallId, output });
+      },
+    });
+    session.outputTails.set(toolCallId, tail);
+  }
+
+  #stopOutputTails(session: RootSession): void {
+    for (const tail of session.outputTails.values()) tail.stop();
+    session.outputTails.clear();
   }
 
   #endHubs(session: RootSession): void {
@@ -1949,6 +2001,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
               ? undefined
               : session.children.get(message.tool_use_id);
           if (child !== undefined) child.taskId = message.task_id;
+          this.#tailCommandOutput(session, live, message);
           return;
         }
         if (message.subtype === 'task_notification') {
@@ -2420,6 +2473,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       const toolCallId = fields.tool_use_id;
       if (typeof toolCallId !== 'string' || owner.finished.has(toolCallId)) continue;
       owner.finished.add(toolCallId);
+      session.outputTails.get(toolCallId)?.stop();
+      session.outputTails.delete(toolCallId);
       // ExitPlanMode 没报 tool.started（计划另报），结果也不报。
       if (owner.tools.get(toolCallId)?.name === EXIT_PLAN_MODE) continue;
       const text = toolResultText(fields.content);
@@ -2560,6 +2615,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#flushStream(session);
     session.stream = undefined;
     this.#flushRequest(session);
+    this.#stopOutputTails(session);
     const cancelled = terminal.type === 'turn.settled' && terminal.outcome === 'cancelled';
     for (const entry of [...session.approvals.values()])
       entry.end(cancelled ? 'turn_cancelled' : 'turn_ended');

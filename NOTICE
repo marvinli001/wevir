@@ -416,6 +416,8 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
 
   packages/adapter-claude/src/claude-adapter.ts
       <- apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
+  packages/adapter-claude/src/task-output.ts
+      <- apps/server/src/orchestration-v2/Adapters/ClaudeTaskOutputTail.ts
   packages/adapter-claude/src/account.ts
       <- apps/server/src/provider/ClaudeProvider.ts
          apps/server/src/provider/claudeUsageLimits.ts
