@@ -44,6 +44,7 @@ import {
   type ReviewRequest,
   type SessionConfig,
   type TitleRequest,
+  type TurnFailedEvent,
   URL_ELICITATION_OPTIONS,
 } from '@wevir/runtime-adapter';
 import {
@@ -175,6 +176,22 @@ import { lowestEffort, TITLE_THREAD_CONFIG, TitleCollector, titleViaGateway } fr
 export const CANCEL_TIMEOUT_MS = 4000;
 
 /**
+ * 模型满载时自动续跑（同 T3 Code）：回合以 `serverOverloaded` 失败、Codex 不再重试时，等 `baseDelayMs · 2^(n-1)`（不超过
+ * `maxDelayMs`）后以空输入 `turn/start` 接着 thread 上已有的历史做，不重发用户的消息；最多 `maxAttempts` 次。
+ */
+export interface OverloadRetryPolicy {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+export const OVERLOAD_RETRY: OverloadRetryPolicy = {
+  maxAttempts: 5,
+  baseDelayMs: 2000,
+  maxDelayMs: 30_000,
+};
+
+/**
  * `thread/resume` 遇到 thread 正在卸载（关闭后没有订阅者、空闲满 60 s，`thread … is closing`）时的重试：每次间隔
  * `RESUME_RETRY_DELAY_MS`，最多 `RESUME_RETRIES` 次。
  */
@@ -269,6 +286,8 @@ export interface CodexAdapterOptions {
    */
   titleVia?: 'gateway' | 'thread';
   cancelTimeoutMs?: number;
+  /** 测试用：模型满载时自动续跑的次数与退避，默认 `OVERLOAD_RETRY`。 */
+  overloadRetry?: Partial<OverloadRetryPolicy>;
   initializeTimeoutMs?: number;
   restart?: Partial<RestartPolicy>;
   disposeTimeouts?: Partial<DisposeTimeouts>;
@@ -289,6 +308,14 @@ interface Turn {
   readonly engine?: true;
   /** `startGoal` 的回合（0.35.0）：`turn/start` 之后才把目标设为 `active`；此前取消的不再设。 */
   goalActivation?: boolean;
+  /** 回合的协作模式（0.36.0）：满载后续跑的 `turn/start` 照用。 */
+  mode?: 'default' | 'plan';
+  /** 这个回合里 Codex 报的最后一个不再重试的 `error`（`willRetry: false`）的 `codexErrorInfo`。 */
+  lastErrorInfo?: unknown;
+  /** 模型满载后自动续跑：已经续了几次；`timer` 是等着续跑的计时器（这时回合没有 Codex 的回合 ID）。 */
+  overload?: { attempts: number; timer?: NodeJS.Timeout };
+  /** 子会话的回合：派出它的父回合（`turn/started` 的 `rootTurnId`）。 */
+  rootTurnId?: string;
   cancelRequested: boolean;
   /** 交给 `turn/steer`、还没进回合的插话（R11）：`clientUserMessageId`，见到同一 `clientId` 的 userMessage 完成就报出。 */
   readonly steers: Set<string>;
@@ -354,6 +381,10 @@ interface CodexSession {
   pendingTurnStart?: boolean;
   /** 最近一个结束的回合（Codex 的 turn ID）：回合进行中分支时只分到这里（0.17.0，§6.9）。 */
   lastTurnId?: string;
+  /** 根会话里没有正常完成（取消、失败）的回合：它们派出的子 agent 跑完不叫醒父会话（`#wakeParent`）。 */
+  stoppedTurns?: Set<string>;
+  /** 子会话这个回合里最后一条回答：跑完时交给父会话（`#wakeParent`）。 */
+  lastAnswer?: string;
   /** 最近知道的目标（0.35.0）：`null` 没有，`undefined` 还不知道（恢复后 Codex 报一次）。 */
   goal?: EngineGoal | null;
   /**
@@ -645,6 +676,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly #logger: CodexAdapterLogger;
   readonly #warned = new Set<string>();
   readonly #cancelTimeoutMs: number;
+  readonly #overloadRetry: OverloadRetryPolicy;
   readonly #sessions = new Map<string, CodexSession>();
   /** 还没认出来的 thread 的通知（子 thread 早于父会话里报出它的 collabAgentToolCall 到达时）。 */
   readonly #unknownThreads = new Map<
@@ -669,6 +701,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#options = options;
     this.#logger = options.logger ?? stderrLogger();
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#overloadRetry = { ...OVERLOAD_RETRY, ...options.overloadRetry };
     this.#prompt = new BasePrompt(options.promptsDir ?? defaultPromptsDir());
     this.#launcher = new Launcher(options, this.#logger, this.#prompt);
     this.paths = this.#launcher.paths;
@@ -925,13 +958,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     input: UserInput[],
     mode: 'default' | 'plan' = 'default',
   ): Promise<void> {
-    const params: TurnStartParams = {
-      threadId: session.id,
-      input,
-      ...(session.override && { model: session.override.model, effort: session.override.effort }),
-      ...permissionSettings(session.permission, session.roots, session.readOnly),
-      collaborationMode: this.#collaborationMode(session, mode),
-    };
+    turn.mode = mode;
+    const params = this.#turnStartParams(session, input, mode);
     let response: TurnStartResponse;
     try {
       response = await this.process.request<TurnStartResponse>('turn/start', params);
@@ -949,6 +977,153 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     session.settingsSynced = true;
     this.#learnTurnId(session, turn, response.turn.id);
+  }
+
+  #turnStartParams(
+    session: CodexSession,
+    input: UserInput[],
+    mode: 'default' | 'plan',
+  ): TurnStartParams {
+    return {
+      threadId: session.id,
+      input,
+      ...(session.override && { model: session.override.model, effort: session.override.effort }),
+      ...permissionSettings(session.permission, session.roots, session.readOnly),
+      collaborationMode: this.#collaborationMode(session, mode),
+    };
+  }
+
+  /**
+   * 回合以 `serverOverloaded`（模型满载）失败、Codex 不再重试（T3 Code #25611）：不报 `turn.failed`，报 `turn.retrying`，等一会儿
+   * 以空输入 `turn/start` 续跑（`#continueOverloaded`）。Wevir 的回合不变，接着收新的 Codex 回合的事件。只管根会话的普通回合
+   * （子 agent 由父 agent 驱动，压缩与审查回合不能这样续），取消中的、次数用完的照常失败。等待时 Codex 自己开了回合（进行中的
+   * 目标）就并进那个回合（`#deliverMapped`）。
+   */
+  #retryOverloaded(
+    session: CodexSession,
+    turn: Turn,
+    params: unknown,
+    failed: TurnFailedEvent,
+  ): boolean {
+    const completed = isRecord(params) && isRecord(params.turn) ? params.turn : undefined;
+    const error = isRecord(completed?.error) ? completed.error : undefined;
+    const info = error?.codexErrorInfo ?? turn.lastErrorInfo;
+    const policy = this.#overloadRetry;
+    const attempt = (turn.overload?.attempts ?? 0) + 1;
+    if (
+      info !== 'serverOverloaded' ||
+      session.parentId !== undefined ||
+      turn.kind !== undefined ||
+      turn.cancelRequested ||
+      attempt > policy.maxAttempts
+    ) {
+      return false;
+    }
+    const delayMs = Math.min(policy.baseDelayMs * 2 ** (attempt - 1), policy.maxDelayMs);
+    this.#endApprovals(session, 'turn_ended');
+    this.#endQuestions(session, 'turn_ended');
+    // 失败的那个 Codex 回合迟到的通知不再归这个回合。
+    const failedTurnId = notificationTurnId(params) ?? turn.turnId;
+    if (failedTurnId !== undefined) session.lastTurnId = failedTurnId;
+    turn.turnId = undefined;
+    turn.lastErrorInfo = undefined;
+    turn.overload = {
+      attempts: attempt,
+      timer: setTimeout(() => void this.#continueOverloaded(session, turn, failed), delayMs),
+    };
+    session.hub.emit({
+      type: 'turn.retrying',
+      engineSessionId: session.id,
+      attempt,
+      maxAttempts: policy.maxAttempts,
+      reason: failed.message,
+    });
+    return true;
+  }
+
+  /** 满载后续跑：空输入 `turn/start`，用回合原来的协作模式与会话当前的设置。没开成就以原来的失败结束回合。 */
+  async #continueOverloaded(
+    session: CodexSession,
+    turn: Turn,
+    failed: TurnFailedEvent,
+  ): Promise<void> {
+    if (turn.overload !== undefined) turn.overload.timer = undefined;
+    if (session.turn !== turn || session.status !== 'open' || turn.turnId !== undefined) return;
+    if (turn.cancelRequested) return;
+    try {
+      const response = await this.process.request<TurnStartResponse>(
+        'turn/start',
+        this.#turnStartParams(session, [], turn.mode ?? 'default'),
+      );
+      session.settingsSynced = true;
+      // 结果到之前这个回合可能已经结束，或又失败了在等下一次续跑。
+      if (session.turn === turn && turn.overload?.timer === undefined) {
+        this.#learnTurnId(session, turn, response.turn.id);
+      }
+    } catch (error) {
+      this.#logger.warn('模型满载后续跑的 turn/start 失败，回合按原来的失败结束', {
+        engineSessionId: session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (session.turn === turn && turn.turnId === undefined)
+        this.#finishTurn(session, turn, failed);
+    }
+  }
+
+  /** 回合结束：报终结事件，结算回合。 */
+  #finishTurn(session: CodexSession, turn: Turn, terminal: AgentEvent): void {
+    session.hub.emit(terminal);
+    session.turn = undefined;
+    if (turn.turnId !== undefined) session.lastTurnId = turn.turnId;
+    const completed = terminal.type === 'turn.settled' && terminal.outcome === 'completed';
+    if (session.parentId === undefined && !completed && turn.turnId !== undefined) {
+      session.stoppedTurns ??= new Set();
+      session.stoppedTurns.add(turn.turnId);
+    }
+    turn.settle();
+    if (session.parentId !== undefined) this.#wakeParent(session, turn, terminal);
+    this.#afterTurn();
+  }
+
+  /**
+   * 父回合已经结束、子 agent 之后才跑完（T3 Code #23840）：Codex 只把子 agent 的结局记进父 thread（`<subagent_notification>`，
+   * 不开回合），结果没人读。父会话空闲时由适配器开一个引擎回合叫醒它，输入是子 agent 的结局与最后的回答（Codex 的那条记录
+   * 可能比这里晚到）。只管根会话的直接子 agent（孙 agent 回报给自己的父 agent）；被取消的子回合、派出它的父回合没有正常完成
+   * （用户停了它、失败）、父会话在跑（Codex 自己交给进行中的回合）时不叫醒。
+   */
+  #wakeParent(child: CodexSession, turn: Turn, terminal: AgentEvent): void {
+    const outcome =
+      terminal.type === 'turn.failed'
+        ? 'failed'
+        : terminal.type === 'turn.settled' && terminal.outcome === 'completed'
+          ? 'completed'
+          : undefined;
+    const parent = child.parentId === undefined ? undefined : this.#sessions.get(child.parentId);
+    if (
+      outcome === undefined ||
+      parent === undefined ||
+      parent.parentId !== undefined ||
+      parent.status !== 'open' ||
+      parent.turn !== undefined ||
+      this.#disposed !== undefined ||
+      (turn.rootTurnId !== undefined && parent.stoppedTurns?.has(turn.rootTurnId) === true)
+    ) {
+      return;
+    }
+    const text = subagentFinishedNote(
+      child.id,
+      outcome,
+      outcome === 'failed' && terminal.type === 'turn.failed' ? terminal.message : child.lastAnswer,
+    );
+    const wake = this.#beginTurn(parent, undefined, true);
+    parent.hub.emit({ type: 'turn.started', engineSessionId: parent.id });
+    this.#turnStart(parent, wake, [{ type: 'text', text, text_elements: [] }]).catch(
+      (error: unknown) =>
+        this.#logger.warn('子 agent 跑完后叫醒父会话失败', {
+          engineSessionId: parent.id,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
   }
 
   /**
@@ -1481,6 +1656,17 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
       // turn/start 的结果还没到时，等它到了再发（send 里）。
       if (turn.turnId !== undefined && session.turn === turn) this.#interrupt(session, turn);
+      // 模型满载后等着续跑：不再续跑，回合就此取消。
+      if (turn.overload?.timer !== undefined && session.turn === turn) {
+        clearTimeout(turn.overload.timer);
+        turn.overload.timer = undefined;
+        this.#finishTurn(session, turn, {
+          type: 'turn.settled',
+          engineSessionId: session.id,
+          outcome: 'cancelled',
+          stopReason: 'interrupted',
+        });
+      }
     }
     if (!(await settledWithin(turn.done, this.#cancelTimeoutMs))) {
       if (session.turn === turn && this.#disposed === undefined) {
@@ -1558,6 +1744,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           this.#endApprovals(session, 'disposed');
           this.#endQuestions(session, 'disposed');
         }
+        clearTimeout(session.turn?.overload?.timer);
         session.turn?.settle();
         session.turn = undefined;
         session.hub.end();
@@ -1891,17 +2078,28 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     if (steerId !== undefined && turn.steers.delete(steerId)) {
       session.hub.emit({ type: 'turn.steered', engineSessionId: session.id, steerId });
     }
+    // 模型满载后等着续跑时 Codex 自己开了回合（进行中的目标）：不再续跑，并进这个回合。
+    if (method === 'turn/started' && turn.overload?.timer !== undefined && turnId !== undefined) {
+      clearTimeout(turn.overload.timer);
+      turn.overload.timer = undefined;
+      this.#learnTurnId(session, turn, turnId);
+    }
+    if (method === 'error' && isRecord(params) && params.willRetry === false) {
+      turn.lastErrorInfo = isRecord(params.error) ? params.error.codexErrorInfo : undefined;
+    }
     for (const event of session.mapper.map(method, params)) {
+      if (event.type === 'turn.failed' && this.#retryOverloaded(session, turn, params, event)) {
+        continue;
+      }
       if (event.type === 'turn.settled' || event.type === 'turn.failed') {
         // 回合结束时仍未决的审批：app-server 之后才发 serverRequest/resolved，先在终结事件之前结掉。
         this.#endApprovals(session, 'turn_ended');
         this.#endQuestions(session, 'turn_ended');
-        session.hub.emit(event);
-        session.turn = undefined;
-        if (turn.turnId !== undefined) session.lastTurnId = turn.turnId;
-        turn.settle();
-        this.#afterTurn();
+        this.#finishTurn(session, turn, event);
       } else {
+        if (event.type === 'assistant.message' && session.parentId !== undefined) {
+          session.lastAnswer = event.text;
+        }
         session.hub.emit(event);
       }
     }
@@ -2079,8 +2277,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         return true;
       }
       let settle!: () => void;
+      const turn = isRecord(params) ? params.turn : undefined;
+      const rootTurnId = isRecord(turn) ? nonEmpty(turn.rootTurnId) : undefined;
+      session.lastAnswer = undefined;
       session.turn = {
         turnId,
+        ...(rootTurnId !== undefined && { rootTurnId }),
         cancelRequested: false,
         steers: new Set(),
         done: new Promise<void>((resolve) => {
@@ -2609,6 +2811,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#endApprovals(session, 'engine_exited');
       this.#endQuestions(session, 'engine_exited');
       session.status = 'detached';
+      clearTimeout(session.turn?.overload?.timer);
       session.turn?.settle();
       session.turn = undefined;
       session.hub.emit({ type: 'engine.exited', engineSessionId: session.id, ...exit });
@@ -2773,7 +2976,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    */
   #usageOptions(model: () => ProviderModelConfig): CodexEventMapperOptions {
     // 每次请求的用量记会话当前的模型（0.62.0）。
-    if (this.#chatgpt) return { contextSize: () => model().contextWindow, model: () => model().id };
+    if (this.#chatgpt) {
+      return {
+        contextSize: () => model().contextWindow,
+        model: () => model().id,
+        subscription: true,
+      };
+    }
     return {
       contextSize: () => contextWindowOf(model()),
       autoCompactAt: () => autoCompactLimit(model()),
@@ -3027,6 +3236,20 @@ function steeredId(method: string, params: unknown): string | undefined {
   const item = params.item;
   if (!isRecord(item) || item.type !== 'userMessage') return undefined;
   return typeof item.clientId === 'string' ? item.clientId : undefined;
+}
+
+/** 父回合结束之后跑完的子 agent：叫醒父会话的那个回合的输入（`#wakeParent`）。 */
+export function subagentFinishedNote(
+  childThreadId: string,
+  outcome: 'completed' | 'failed',
+  result: string | undefined,
+): string {
+  const head = `The sub-agent running in thread ${childThreadId} ${outcome === 'completed' ? 'finished' : 'failed'} after your previous turn ended.`;
+  const body =
+    result === undefined || result.trim() === ''
+      ? ''
+      : `\n\n${outcome === 'completed' ? 'Its final message' : 'Its error'}:\n${result}`;
+  return `${head}${body}\n\nContinue the task with this result.`;
 }
 
 /** 告诉父 agent 用户停止了一个子 agent（0.14.0）：补进父 thread 的一条 user 消息，模型下一次请求时看得到。 */

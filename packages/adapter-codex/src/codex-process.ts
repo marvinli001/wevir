@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { createInterface } from 'node:readline';
+import type { Readable } from 'node:stream';
 import { AdapterError, trackProcessGroup } from '@wevir/runtime-adapter';
 import type {
   ClientInfo,
@@ -19,6 +19,18 @@ export const INITIALIZE_TIMEOUT_MS = 15_000;
 
 /** stderr 只保留尾部，用于诊断（字符数）。 */
 export const STDERR_TAIL_CHARS = 16 * 1024;
+
+/**
+ * stdout 一行（一条消息，不含换行符）的上限（字节）。超过时不再读这个进程，按传输错误结束它：拼出这么长的字符串之前
+ * 就停下，免得耗尽内存或超出 V8 字符串的长度上限让 Host 崩溃。
+ */
+export const MAX_LINE_BYTES = 128 * 1024 * 1024;
+
+/**
+ * stdout 关闭后等进程退出状态的时限。进程崩溃时 Node 先报 stdout 结束、后报退出；stdout 也可能在进程还活着时关闭，
+ * 这时等不来退出，挂起的请求不能一直等下去。
+ */
+export const STDOUT_EXIT_GRACE_MS = 250;
 
 /**
  * 回收阶梯每一步等待退出的时限：关 stdin（Spike 实测 EOF 后 6 ms 退出）→ SIGTERM → SIGKILL。三步加起来 4.5 s，
@@ -139,6 +151,8 @@ export interface CodexProcessOptions {
   initializeTimeoutMs?: number;
   restart?: Partial<RestartPolicy>;
   disposeTimeouts?: Partial<DisposeTimeouts>;
+  /** 测试用：stdout 一行的上限，默认 `MAX_LINE_BYTES`。 */
+  maxLineBytes?: number;
 }
 
 /** app-server 回复的 JSON-RPC 错误。 */
@@ -185,6 +199,8 @@ interface Launch {
   readyAt?: number;
   /** 回收阶梯，每个进程只跑一次。 */
   stopping?: Promise<CodexExit | undefined>;
+  /** stdout 读不下去了（一行太长、stdout 关闭而进程还在）：之后的请求以它失败，进程正在被结束。 */
+  broken?: AdapterError;
 }
 
 /**
@@ -338,6 +354,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
     if (launch.exit !== undefined || launch.stopping !== undefined) {
       return Promise.reject(new AdapterError('engine_unavailable', 'codex-app-server 已退出'));
     }
+    if (launch.broken !== undefined) return Promise.reject(launch.broken);
     const id = launch.nextId++;
     return new Promise<T>((resolve, reject) => {
       launch.pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject });
@@ -448,9 +465,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
     stderr.on('data', (chunk: string) => {
       launch.stderrTail = (launch.stderrTail + chunk).slice(-STDERR_TAIL_CHARS);
     });
-    createInterface({ input: stdout, crlfDelay: Number.POSITIVE_INFINITY }).on('line', (line) =>
-      this.#onLine(launch, line),
-    );
+    this.#readLines(launch, stdout);
 
     const finish = (exitCode: number | null, signal: NodeJS.Signals | null, error?: Error) => {
       if (launch.exit !== undefined) return;
@@ -477,6 +492,76 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
       if (child.pid === undefined) finish(null, null, error);
     });
     return launch;
+  }
+
+  /**
+   * stdout 按换行切成消息。按字节累计还没结束的一行，超过 `maxLineBytes` 就不再读、结束进程（拼成字符串之前）；按字节
+   * 切开再整行解码，跨块的多字节字符不会断开。stdout 结束时没有换行的最后一行照样交付。
+   */
+  #readLines(launch: Launch, stdout: Readable): void {
+    const maxBytes = this.#options.maxLineBytes ?? MAX_LINE_BYTES;
+    let parts: Buffer[] = [];
+    let size = 0;
+    const deliver = () => {
+      const text = Buffer.concat(parts, size).toString('utf8');
+      parts = [];
+      size = 0;
+      this.#onLine(launch, text.endsWith('\r') ? text.slice(0, -1) : text);
+    };
+    stdout.on('data', (chunk: Buffer) => {
+      let start = 0;
+      while (launch.broken === undefined) {
+        const newline = chunk.indexOf(0x0a, start);
+        const end = newline === -1 ? chunk.length : newline;
+        size += end - start;
+        if (size > maxBytes) {
+          parts = [];
+          size = 0;
+          this.#abort(
+            launch,
+            new AdapterError(
+              'engine_unavailable',
+              `codex-app-server 的一条消息超过 ${maxBytes} 字节，连接已断开`,
+            ),
+          );
+          return;
+        }
+        if (end > start) parts.push(chunk.subarray(start, end));
+        if (newline === -1) return;
+        deliver();
+        start = newline + 1;
+      }
+    });
+    stdout.once('end', () => {
+      if (launch.broken === undefined && size > 0) deliver();
+      void this.#onStdoutEnded(launch);
+    });
+  }
+
+  /** stdout 结束：进程随后退出的按退出处理；`STDOUT_EXIT_GRACE_MS` 内没退出的，读不到回复了，结束它。 */
+  async #onStdoutEnded(launch: Launch): Promise<void> {
+    if (await settledWithin(launch.exited, STDOUT_EXIT_GRACE_MS)) return;
+    this.#abort(
+      launch,
+      new AdapterError('engine_unavailable', 'codex-app-server 的 stdout 已关闭，进程没有退出'),
+    );
+  }
+
+  /**
+   * 读不下去的进程：挂起与之后的请求以 `reason` 失败，原因记进 stderr 尾部，再结束进程（SIGTERM，不退出就 SIGKILL）。
+   * 不走回收阶梯——那条路不报 `exit`；这里随后照意外退出处理：报 `exit`、自动重启，挂在它上面的会话随之结束。
+   */
+  #abort(launch: Launch, reason: AdapterError): void {
+    if (launch.exit !== undefined || launch.stopping !== undefined) return;
+    if (launch.broken !== undefined) return;
+    launch.broken = reason;
+    launch.stderrTail = `${launch.stderrTail}[${reason.message}]\n`.slice(-STDERR_TAIL_CHARS);
+    this.#rejectPending(launch, reason);
+    void (async () => {
+      signal(launch.child, 'SIGTERM');
+      if (await settledWithin(launch.exited, this.#disposeTimeouts.sigtermMs)) return;
+      signal(launch.child, 'SIGKILL');
+    })();
   }
 
   #onLine(launch: Launch, line: string): void {

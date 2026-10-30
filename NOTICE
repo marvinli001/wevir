@@ -368,6 +368,16 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
          apps/web/src/components/ChatView.tsx（目标横幅）
   packages/adapter-codex/src/codex-adapter.ts（会话目标的顺序）
       <- apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts（runGoalCommand、resolveGoalStopTarget）
+  packages/adapter-codex/src/codex-adapter.ts（模型满载时续跑、子 agent 跑完叫醒父会话）
+      <- apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts（retryCapacityFailure、continuationRequests；
+         740de0e642d630a08e37d0780fa99c178c27808e、11adcb0e25a04785f70d01c3f2a858889683007e）
+  packages/adapter-codex/src/account.ts（不让旧额度覆盖新额度）
+      <- apps/server/src/provider/codexUsageLimits.ts（codexRateLimitsToUpdate；c3f5e363e59371d292f4a7e27008d2c5d1260725）
+  packages/adapter-codex/src/turn-error.ts（isUsageLimit）
+      <- apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts（codexUsageLimitError；58b48274ff7db9361ab904d90c76b968e9a9228f）
+  packages/adapter-codex/src/codex-process.ts（stdout 的单行上限与关闭）
+      <- packages/effect-codex-app-server/src/protocol.ts（e859e318a0ed88f0493958c9226e4501c9aaa7e3、
+         7769d709ce1983df0224c5f0e666b81ec61cac9f）
   apps/desktop/src/renderer/src/session/composer-images.ts（规则）
       <- packages/contracts/src/chatAttachment.ts
          apps/web/src/components/chat/composerAttachmentFiles.ts
