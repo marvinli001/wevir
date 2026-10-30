@@ -53,6 +53,7 @@ import {
   type AgentEvent,
   appToolBaseName,
   appToolServerOf,
+  type EngineToolEnforcement,
   type EngineToolLimits,
 } from '@wevir/runtime-adapter';
 import type { SessionRecord, Storage } from '@wevir/storage';
@@ -101,6 +102,7 @@ import { retroMarkdown } from './retro/markdown.js';
 import type { RetroService } from './retro/service.js';
 import type { FindingInput } from './review/service.js';
 import {
+  advisoryEngineTools,
   ROLE_READONLY_TOOLS,
   type RoleDefinition,
   type RoleStore,
@@ -266,6 +268,11 @@ export interface AppToolsOptions {
   tuning?: Omit<TuningToolsOptions, 'storage'>;
   /** 预设角色：有它时加上 `wevir_roles`，`wevir_session_create` 认 `role`，角色限制的工具由 `filterTools` 过滤。 */
   roles?: RoleStore;
+  /**
+   * 一个 Provider 的引擎能保证做到的角色限制（适配器的 `engineToolEnforcement`）：用角色开会话的结果里说明哪些限制只是建议。省略时
+   * 都当作建议。
+   */
+  engineToolEnforcement?: (providerId: string) => EngineToolEnforcement | undefined;
   /** 共享任务清单：有它时加上 `wevir_tasks`、`wevir_task_create`、`wevir_task_update`。 */
   tasks?: TaskBoardStore;
   /** 自动化（0.66.0）：有它时加上 `wevir_automation*`，自动化开的会话的说明里多一段运行须知。 */
@@ -1304,10 +1311,16 @@ export class AppTools {
           this.#expect(sessionId, session.id);
         }
         const created = this.#session(session.id);
+        const engineTools = roleEngineToolsResult(
+          roleEngineTools(role),
+          this.#options.engineToolEnforcement?.(providerId),
+          permissionMode,
+        );
         return jsonResult({
           ...this.#describe(created, sessionId),
           ...(sent.turnId !== undefined && { turnId: sent.turnId }),
           reportBack,
+          ...(engineTools !== undefined && { engineTools }),
         });
       },
     };
@@ -2761,6 +2774,38 @@ interface ReportNote {
   text: string;
   /** 父会话要回报的回合：攒到能续上时叫醒父会话；否则只跟着下一次续上带过去。 */
   wake: boolean;
+}
+
+/**
+ * 用角色开会话的结果里的 `engineTools`：角色关掉的引擎工具类别，以及这个引擎做不到、只是建议的部分（`note` 说明靠什么挡着）。角色不限
+ * 引擎工具时 `undefined`。
+ */
+export function roleEngineToolsResult(
+  limits: EngineToolLimits | undefined,
+  enforcement: EngineToolEnforcement | undefined,
+  permissionMode: PermissionMode,
+): { denied: string[]; advisory?: string[]; note?: string } | undefined {
+  if (limits === undefined) return undefined;
+  const gaps = advisoryEngineTools(limits, enforcement);
+  if (gaps === undefined) return { denied: [...limits.denied] };
+  const notes: string[] = [];
+  if (gaps.advisory.length > 0) {
+    notes.push(
+      `This engine cannot remove its own ${gaps.advisory.join(', ')} tools: Wevir refuses the engine's approval ` +
+        "requests for them, but what the engine does without asking is held back only by the role's instructions " +
+        'and the permission mode.',
+    );
+  }
+  if (gaps.commandsCanWrite) {
+    notes.push(
+      `Shell commands can still write files; only the permission mode (${permissionMode}) holds them back.`,
+    );
+  }
+  return {
+    denied: [...limits.denied],
+    ...(gaps.advisory.length > 0 && { advisory: gaps.advisory }),
+    note: notes.join(' '),
+  };
 }
 
 /** 用角色开的会话的第一条消息：先是角色的说明，再是开它的会话交代的任务。 */

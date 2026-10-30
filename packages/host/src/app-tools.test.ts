@@ -17,7 +17,12 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HostId, PendingDelivery, SessionId, SessionState, WevirEvent } from '@wevir/protocol';
-import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
+import type {
+  AppToolsEndpoint,
+  EngineSession,
+  EngineToolEnforcement,
+  SessionConfig,
+} from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppMcpServer } from './app-mcp.js';
@@ -55,6 +60,8 @@ class ToolEcho extends EchoAdapter {
   readonly endpoints = new Map<string, AppToolsEndpoint | undefined>();
   /** 每个引擎会话拿到的角色限制（`SessionConfig.engineTools`）。 */
   readonly engineTools = new Map<string, SessionConfig['engineTools']>();
+  /** 引擎能保证做到的角色限制；用例按要模拟的引擎改。 */
+  engineToolEnforcement: EngineToolEnforcement | undefined;
   /** 建会话的过程中先调它（同 Codex：起 thread 时就连上应用级工具）。 */
   onCreate: ((config: SessionConfig) => Promise<void>) | undefined;
 
@@ -139,6 +146,7 @@ async function setup(
   const projectRolesDir = join(workspace, '.wevir', 'roles');
   tools = new AppTools({
     roles: new RoleStore({ dir: rolesDir }),
+    engineToolEnforcement: () => adapter.engineToolEnforcement,
     tasks: new TaskBoardStore({
       dir: join(root, 'data', 'tasks'),
       onChange: boardEventRecorder(events, (message, fields) => errors.push({ message, fields })),
@@ -1718,6 +1726,58 @@ describe('预设角色', () => {
     expect(
       h.adapter.engineTools.get(h.storage.sessions.get(caller)?.engineSessionId as string),
     ).toBe(undefined);
+  });
+
+  it('只读角色也关掉引擎的改文件工具：做不到的部分在结果里说明，引擎请求写文件的审批由 Host 拒掉', async () => {
+    const h = await setup();
+    const caller = await h.create();
+    const engineOf = (id: unknown) =>
+      h.storage.sessions.get(id as SessionId)?.engineSessionId as string;
+    // 引擎保证得了（Codex：只读沙箱，命令也写不了）：结果只列关掉的类别。
+    h.adapter.engineToolEnforcement = { classes: ['edit', 'shell', 'web'], readOnlyCommands: true };
+    const enforced = await h.call(caller, 'wevir_session_create', {
+      message: 'look around',
+      role: 'reviewer',
+      reportBack: false,
+    });
+    expect(enforced.engineTools).toEqual({ denied: ['edit'] });
+    expect(h.adapter.engineTools.get(engineOf(enforced.sessionId))).toEqual({
+      denied: ['edit'],
+      deniedNames: [],
+    });
+    // 改文件的工具去掉了、命令照样能写（Claude、OpenCode、Cursor）：说明靠权限模式。
+    h.adapter.engineToolEnforcement = { classes: ['read', 'edit', 'shell', 'web'] };
+    const commands = await h.call(caller, 'wevir_session_create', {
+      message: 'look around',
+      role: 'explorer',
+      reportBack: false,
+    });
+    expect(commands.engineTools).toEqual({
+      denied: ['edit'],
+      note: 'Shell commands can still write files; only the permission mode (on_request) holds them back.',
+    });
+    // 引擎不声明（ACP 引擎、echo）：只是建议；引擎请求写文件的审批由 Host 直接拒绝，不写审批，工具失败。
+    h.adapter.engineToolEnforcement = undefined;
+    const advisory = await h.call(caller, 'wevir_session_create', {
+      message: 'Please approve writing a file',
+      role: 'reviewer',
+      reportBack: false,
+    });
+    expect(advisory.engineTools).toMatchObject({
+      denied: ['edit'],
+      advisory: ['edit'],
+      note: expect.stringContaining('cannot remove its own edit tools'),
+    });
+    const child = advisory.sessionId as SessionId;
+    await h.settle(child);
+    const events = h.all(child);
+    expect(events.some((event) => event.type === 'approval.requested')).toBe(false);
+    expect(events.find((event) => event.type === 'tool.finished')?.payload).toMatchObject({
+      status: 'failed',
+    });
+    // 没有角色的会话照常问用户。
+    await h.send(caller, 'Please approve writing a file');
+    await vi.waitFor(() => expect(h.state(caller)).toBe('awaiting_approval'));
   });
 
   it('角色限制应用级工具：tools/list 不列、tools/call 拒绝；readonly 与前缀；没有角色的不受影响', async () => {

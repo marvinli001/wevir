@@ -30,6 +30,8 @@ import {
   type AppToolsEndpoint,
   type EngineRuleFiles,
   type EngineSession,
+  type EngineToolClass,
+  type EngineToolEnforcement,
   EventHub,
   isAdapterError,
   type PendingApproval,
@@ -148,6 +150,26 @@ export const SETTING_SOURCES: readonly SettingSource[] = [
 ];
 
 /**
+ * 角色关掉的引擎工具类别 → SDK 的工具名（`AgentOptions.disallowedTools`，SDK 1.0.35 的 `ToolName`：agent proto 里 `tool` 的各个
+ * `*ToolCall` 去掉后缀，见打包的 tools-option.ts）。`shell` 是一组，连带往 shell 的 stdin 写。
+ */
+const CURSOR_TOOLS_OF_CLASS: Readonly<Record<EngineToolClass, readonly string[]>> = {
+  read: ['read', 'grep', 'glob', 'ls', 'semSearch', 'readLints'],
+  edit: ['edit', 'delete', 'applyAgentDiff'],
+  shell: ['shell'],
+  web: ['webSearch', 'webFetch', 'fetch'],
+};
+
+/**
+ * 角色关掉的引擎工具（`SessionConfig.engineTools`）→ `disallowedTools`。SDK 的限制只管主循环，`task` 开出的子 agent 用它们自己的
+ * 工具，所以关掉任何一类时连 `task` 一起关。不持久在 agent 上，每次打开（新建、恢复、换权限重开）都要给。
+ */
+export function disallowedTools(denied: readonly EngineToolClass[] | undefined): string[] {
+  if (denied === undefined || denied.length === 0) return [];
+  return [...denied.flatMap((kind) => CURSOR_TOOLS_OF_CLASS[kind]), 'task'];
+}
+
+/**
  * 会话的配置 → `Agent.create` / `Agent.resume` 的选项（T3 的 makeCursorAgentOptions；T3 自己的 MCP 服务换成 Wevir 的应用级工具，
  * 0.30.0，cursor-event-mapping.md §7）。
  */
@@ -159,8 +181,10 @@ export function agentOptions(input: {
   permissionMode?: PermissionMode;
   catalog?: readonly SDKModel[];
   appTools?: AppToolsEndpoint;
+  deniedTools?: readonly EngineToolClass[];
 }): AgentOptions {
   const policy = permissionPolicy(input.permissionMode);
+  const disallowed = disallowedTools(input.deniedTools);
   return {
     model: modelSelection(input.modelId, input.reasoningEffort, input.catalog),
     name: 'Wevir',
@@ -173,6 +197,7 @@ export function agentOptions(input: {
       sandboxOptions: { enabled: policy.sandboxEnabled },
       enableAgentRetries: true,
     },
+    ...(disallowed.length > 0 && { disallowedTools: disallowed }),
     ...(input.appTools !== undefined && {
       mcpServers: {
         [APP_TOOLS_SERVER]: {
@@ -207,6 +232,8 @@ interface Session {
   settings: SessionSettings;
   /** 应用级工具（0.30.0）：重新打开 agent 时照样挂上。 */
   appTools: AppToolsEndpoint | undefined;
+  /** 角色关掉的引擎工具类别：重新打开 agent 时照样给（`disallowedTools` 不持久在 agent 上）。 */
+  deniedTools: readonly EngineToolClass[] | undefined;
   /** 挂着的 agent；关闭、登出、dispose 之后是 undefined，要 `resumeSession`。 */
   agent: CursorAgentHandle | undefined;
   hub: EventHub<AgentEvent>;
@@ -222,6 +249,10 @@ export class CursorAdapter implements AgentRuntimeAdapter {
   readonly permissionModes: readonly PermissionMode[];
   /** 应用级工具（0.30.0）：HTTP 的 MCP 服务交给 agent；Cursor 没有审批，工具直接调用。 */
   readonly appTools = true;
+  /** 角色关掉的引擎工具：四类都从主循环的工具里去掉（`disallowedTools`）；沙箱里的命令照样能写工作区，靠权限模式。 */
+  readonly engineToolEnforcement: EngineToolEnforcement = {
+    classes: ['read', 'edit', 'shell', 'web'],
+  };
 
   /**
    * 0.68.0：Cursor 的 SDK 从 cwd 一路往上读 `.cursor/rules`、AGENTS.md、CLAUDE.md 与 CLAUDE.local.md，仓库根的 .cursorrules（打包的
@@ -286,6 +317,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       ...settings,
       catalog: await this.#catalog(apiKey, settings),
       ...(config.appTools !== undefined && { appTools: config.appTools }),
+      ...(config.engineTools !== undefined && { deniedTools: config.engineTools.denied }),
     });
     let agent: CursorAgentHandle;
     try {
@@ -302,6 +334,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       cwd: config.cwd,
       settings,
       appTools: config.appTools,
+      deniedTools: config.engineTools?.denied,
       agent,
       hub: new EventHub(),
       turn: undefined,
@@ -325,6 +358,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       ...settings,
       catalog: await this.#catalog(apiKey, settings),
       ...(config.appTools !== undefined && { appTools: config.appTools }),
+      ...(config.engineTools !== undefined && { deniedTools: config.engineTools.denied }),
     });
     let agent: CursorAgentHandle;
     try {
@@ -347,6 +381,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       cwd: config.cwd,
       settings,
       appTools: config.appTools,
+      deniedTools: config.engineTools?.denied,
       agent,
       hub: new EventHub(),
       turn: undefined,
@@ -682,6 +717,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       ...session.settings,
       catalog: await this.#catalog(apiKey, session.settings),
       ...(session.appTools !== undefined && { appTools: session.appTools }),
+      ...(session.deniedTools !== undefined && { deniedTools: session.deniedTools }),
     });
     let reopened: CursorAgentHandle;
     try {

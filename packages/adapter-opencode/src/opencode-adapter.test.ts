@@ -12,6 +12,7 @@ import { openCodeRuleFiles, STEER_IDLE_GRACE_MS } from './opencode-adapter.js';
 import {
   childPermissionRules,
   DECLINE_FEEDBACK,
+  engineToolRules,
   permissionRules,
   TITLE_PERMISSION_RULES,
 } from './permissions.js';
@@ -140,6 +141,18 @@ describe('OpenCodeAdapter（假 opencode）', () => {
       permission: 'external_directory',
       pattern: '/other/project/*',
       action: 'allow',
+    });
+  });
+
+  it('角色关掉的引擎工具：建会话的规则集末尾是这些类别的 deny，完全访问也盖不过', async () => {
+    const h = setup();
+    expect(h.adapter.engineToolEnforcement).toEqual({ classes: ['read', 'edit', 'shell', 'web'] });
+    await openSession(h, {
+      permissionMode: 'full_access',
+      engineTools: { denied: ['edit'], deniedNames: [] },
+    });
+    expect(calls(h, 'createSession')[0]?.[0]).toEqual({
+      permission: [...permissionRules('full_access'), ...engineToolRules(['edit'])],
     });
   });
 

@@ -27,6 +27,7 @@ import {
   type EngineRuleFiles,
   type EngineSession,
   type EngineToolClass,
+  type EngineToolEnforcement,
   EventHub,
   elicitationQuestions,
   elicitationResult,
@@ -578,6 +579,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
    * `allowedTools`，其余经 `canUseTool` 走审批。
    */
   readonly appTools = true;
+  /** 角色关掉的引擎工具（§5.7）四类都从模型的工具里去掉；命令照样能写文件，靠权限模式。 */
+  readonly engineToolEnforcement: EngineToolEnforcement = {
+    classes: ['read', 'edit', 'shell', 'web'],
+  };
 
   /**
    * Claude Code 只取 MCP 服务说明的前 4,096 个字符：应用级工具的会话上下文（记忆索引、自动化与频道须知）改由 Host 经

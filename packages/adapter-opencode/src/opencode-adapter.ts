@@ -38,6 +38,7 @@ import {
   type EngineRuleFiles,
   type EngineSession,
   type EngineToolClass,
+  type EngineToolEnforcement,
   EventHub,
   isAdapterError,
   type PendingApproval,
@@ -321,6 +322,10 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
    * 不上，用 Host 给的引擎令牌经插件挂在服务器上（`bindEngineAppTools`，app-tools.ts）。
    */
   readonly appTools = true;
+  /** 角色关掉的引擎工具：四类都写成 deny 规则（permissions.ts 的 `engineToolRules`），模型看不到；bash 照样能写文件，靠权限模式。 */
+  readonly engineToolEnforcement: EngineToolEnforcement = {
+    classes: ['read', 'edit', 'shell', 'web'],
+  };
 
   bindEngineAppTools(grant: EngineAppToolsGrant): void {
     this.#runtime.setAppTools(() => grant(['opencode']));

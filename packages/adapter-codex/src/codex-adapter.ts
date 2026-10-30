@@ -25,6 +25,7 @@ import {
   type EnginePluginSource,
   type EngineRuleFiles,
   type EngineSession,
+  type EngineToolEnforcement,
   EventHub,
   elicitationQuestions,
   elicitationResult,
@@ -592,6 +593,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * （Streamable HTTP，带这个会话的令牌）；要批准的工具经 `mcpServer/elicitation/request` 上报为审批。
    */
   readonly appTools = true;
+  /** 角色关掉的引擎工具（§4.11）：shell 与联网按 thread 关掉，改文件用只读沙箱（命令也写不了）；读关不掉。 */
+  readonly engineToolEnforcement: EngineToolEnforcement = CODEX_TOOL_ENFORCEMENT;
 
   /** 0.68.0：Codex 读哪些规则文件（`CODEX_RULE_FILES`）。 */
   ruleFiles(): EngineRuleFiles {
@@ -2850,6 +2853,12 @@ function chatgptAccounts(account: ChatgptAccount): EngineAccounts {
 }
 
 /** `thread/start` / `thread/resume` 的结果 → EngineSession。 */
+/** CodexAdapter 与 CodexRuntime 能保证做到的角色限制（§4.11）。 */
+export const CODEX_TOOL_ENFORCEMENT: EngineToolEnforcement = {
+  classes: ['edit', 'shell', 'web'],
+  readOnlyCommands: true,
+};
+
 /** CodexAdapter 与 CodexRuntime 声明的权限模式。 */
 export const PERMISSION_MODES: readonly PermissionMode[] = [
   'on_request',

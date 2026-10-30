@@ -9,6 +9,7 @@ import type {
   EnginePluginSource,
   EngineRuleFiles,
   EngineSession,
+  EngineToolEnforcement,
   ForkOptions,
   GoalStartRequest,
   PendingApproval,
@@ -22,6 +23,7 @@ import type {
 } from '@wevir/runtime-adapter';
 import {
   CODEX_RULE_FILES,
+  CODEX_TOOL_ENFORCEMENT,
   CodexAdapter,
   type CodexAdapterOptions,
   PERMISSION_MODES,
@@ -51,6 +53,8 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   readonly suggestedTasks = true;
   /** 应用级工具（0.30.0）：两个进程都按 thread 挂上。 */
   readonly appTools = true;
+  /** 角色关掉的引擎工具：两个进程都是 CodexAdapter。 */
+  readonly engineToolEnforcement: EngineToolEnforcement = CODEX_TOOL_ENFORCEMENT;
   /** 计划模式（0.36.0）：两个进程都是 Codex 的协作模式。 */
   readonly planMode = true;
   /** 分支到新会话（0.38.0）：两个进程都是 `thread/fork`。 */

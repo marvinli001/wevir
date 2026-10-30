@@ -92,6 +92,7 @@ import {
   type DeltaBlockRef,
   type EngineGoal,
   type EngineSession,
+  type EngineToolClass,
   type EngineToolLimits,
   type GuardrailBlockedEvent,
   isAdapterError,
@@ -818,6 +819,8 @@ export class SessionManager {
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
   readonly #engineTools: SessionManagerOptions['engineTools'];
+  /** 角色对引擎工具的限制，按会话（最近一次建立或恢复时算的）：审批请求按它拒绝（`#roleRefused`）。 */
+  readonly #roleLimits = new Map<SessionId, EngineToolLimits>();
   /**
    * 应用级工具的会话上下文交给引擎系统说明的会话（适配器的 `appToolsContextInPrompt`）：它们的 MCP 说明只剩工具说明。建立与恢复
    * 引擎会话时按 Provider 记下。
@@ -936,6 +939,8 @@ export class SessionManager {
         : { ...withRules, connectors };
     // 角色对引擎工具的限制：按会话的角色（分支、子会话沿用），每次建立或恢复都按当时的角色文件。
     const engineTools = await this.#engineTools?.(sessionId);
+    if (engineTools === undefined) this.#roleLimits.delete(sessionId);
+    else this.#roleLimits.set(sessionId, engineTools);
     const withRole =
       engineTools === undefined ? withConnectors : { ...withConnectors, engineTools };
     // 环境变量（0.130.0）：按会话的环境，每次建立或恢复都按当时存的值。
@@ -5393,6 +5398,7 @@ export class SessionManager {
         return;
       }
       case 'approval.requested':
+        if (this.#roleRefused(runtime, turn, event)) return;
         if (this.#autoAllowed(runtime, turn, event)) return;
         if (this.#policyAnswered(runtime, turn, event)) return;
         this.#approvalRequested(runtime, turn, event);
@@ -5571,6 +5577,40 @@ export class SessionManager {
         throw error;
       }
     });
+  }
+
+  /**
+   * 角色关掉的引擎工具（`SessionConfig.engineTools`）的审批请求：不写审批，直接拒绝这一次。引擎自己关不掉这类工具时（ACP 引擎的
+   * 读、Codex 只读沙箱外的命令……）这是 Host 这边的底线，也不让审批规则、助理的规矩或用户替它放行；子会话按父会话的角色。
+   * 只看引擎自带的工具（展示类型带 `mcpServer` 的 MCP 工具由应用级工具的过滤与引擎各自管）。没有拒绝的选项时取消回合。
+   */
+  #roleRefused(runtime: SessionRuntime, turn: TurnRuntime, event: ApprovalRequestedEvent): boolean {
+    const display = turn.tools.get(event.toolCallId)?.display;
+    if (display === undefined || display.mcpServer !== undefined) return false;
+    const kind = DISPLAY_TOOL_CLASSES[display.kind];
+    if (kind === undefined || !this.#roleLimitsOf(runtime.id)?.denied.includes(kind)) return false;
+    if (this.#snapshot(runtime).session.state === 'cancelling') return false;
+    this.#onWarning('the role does not allow this kind of engine tool; refused the approval', {
+      sessionId: runtime.id,
+      kind,
+    });
+    const option =
+      rejectOnceOption(event.options) ??
+      event.options.find((candidate) => candidate.kind.startsWith('reject'));
+    if (option === undefined) this.cancel(runtime.id).catch(this.#onError);
+    else this.#answerEngine(runtime, event, option.optionId);
+    return true;
+  }
+
+  /** 会话的角色限制；子会话（引擎派出的子 agent）没有自己的，按父会话的。 */
+  #roleLimitsOf(sessionId: SessionId): EngineToolLimits | undefined {
+    let id: SessionId | undefined = sessionId;
+    for (let depth = 0; depth < 8 && id !== undefined; depth += 1) {
+      const limits = this.#roleLimits.get(id);
+      if (limits !== undefined) return limits;
+      id = this.#storage.sessions.get(id)?.parentSessionId as SessionId | undefined;
+    }
+    return undefined;
   }
 
   /**
@@ -7186,6 +7226,16 @@ function allowOnceOption(
 ): RuntimeApprovalOption | undefined {
   return options.find((option) => option.kind === 'allow_once' || option.kind === 'allow_accept');
 }
+
+/** 工具的展示类型 → 引擎工具的类别（`#roleRefused`）；计划、子 agent、图片与不认识的不归哪一类。 */
+const DISPLAY_TOOL_CLASSES: Readonly<Partial<Record<ToolDisplay['kind'], EngineToolClass>>> = {
+  shell: 'shell',
+  read: 'read',
+  search: 'read',
+  edit: 'edit',
+  write: 'edit',
+  fetch: 'web',
+};
 
 /** 只拒绝这一次的选项；没有时取不“总是拒绝”以外的拒绝类选项。 */
 function rejectOnceOption(

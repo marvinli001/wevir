@@ -10,7 +10,7 @@
 // 里不列、在 `tools/call` 里拒绝；引擎自带的工具写类别名（`read`、`edit`、`shell`、`web`）或 Claude Code 的工具名（`Bash`、`Edit`、
 // `WebFetch`、连接器的 `mcp__<服务>__*`……），换成 `SessionConfig.engineTools` 交给适配器按引擎能做到的程度执行。允许列表按种类各管
 // 各的：只写了引擎工具的 `tools` 不收窄应用级工具，反之亦然。关掉 `shell` 时应用级的后台进程工具一并去掉，关掉 `web` 时联网与内置
-// 浏览器的工具一并去掉。
+// 浏览器的工具一并去掉。`tools` 里的 `readonly`（只许只读的应用级工具）也让引擎的改文件工具关掉：只读角色在引擎那边同样不改文件。
 
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -18,6 +18,7 @@ import type { PermissionMode } from '@wevir/protocol';
 import {
   appToolBaseName,
   type EngineToolClass,
+  type EngineToolEnforcement,
   type EngineToolLimits,
 } from '@wevir/runtime-adapter';
 import { parse as parseYaml } from 'yaml';
@@ -423,14 +424,18 @@ function classOf(entry: string): EngineToolClass | undefined {
 /**
  * 这个角色对引擎自带工具的限制（交给适配器的 `SessionConfig.engineTools`）；不限引擎工具时 `undefined`。允许列表里有引擎工具时，
  * 一个都没许到的类别算关掉；禁止列表里出现某一类的任何一个工具，这一类都算关掉（按类执行的引擎只能这样，Claude 另按名字精确执行）。
+ * 允许列表里有 `readonly` 的是只读角色，`edit` 也关掉。
  */
 export function roleEngineTools(
   role: Pick<RoleDefinition, 'tools' | 'disallowedTools'> | undefined,
 ): EngineToolLimits | undefined {
   const allow = (role?.tools ?? []).filter(isEngineToolEntry);
   const deny = (role?.disallowedTools ?? []).filter(isEngineToolEntry);
-  if (allow.length === 0 && deny.length === 0) return undefined;
-  const denied = new Set<EngineToolClass>();
+  const readOnly = (role?.tools ?? []).some(
+    (entry) => appToolBaseName(entry) === ROLE_READONLY_TOOLS,
+  );
+  if (allow.length === 0 && deny.length === 0 && !readOnly) return undefined;
+  const denied = new Set<EngineToolClass>(readOnly ? ['edit'] : []);
   for (const entry of deny) {
     const kind = classOf(entry);
     if (kind !== undefined) denied.add(kind);
@@ -479,4 +484,24 @@ export function roleAllowsTool(
   // 只写了引擎工具的允许列表不收窄应用级工具（空的列表照旧是一个都不许）。
   if (allowed.length === 0 && role.tools.length > 0) return true;
   return allowed.some((pattern) => matches(pattern, probe));
+}
+
+/**
+ * 引擎做不到、只是建议的那部分限制（用角色开会话的结果里给模型看）：`advisory` 是关掉了而引擎不保证关得住的类别（Host 拒掉引擎为它们
+ * 请求的批准，引擎不问就做的管不到）；`commandsCanWrite` 是关了 `edit`、没关 `shell`，而引擎的命令照样能写文件（只靠权限模式）。
+ * 全都做得到时 `undefined`。
+ */
+export function advisoryEngineTools(
+  limits: EngineToolLimits | undefined,
+  enforcement: EngineToolEnforcement | undefined,
+): { advisory: EngineToolClass[]; commandsCanWrite: boolean } | undefined {
+  if (limits === undefined) return undefined;
+  const enforced = new Set(enforcement?.classes ?? []);
+  const advisory = limits.denied.filter((kind) => !enforced.has(kind));
+  const commandsCanWrite =
+    limits.denied.includes('edit') &&
+    !limits.denied.includes('shell') &&
+    enforcement?.readOnlyCommands !== true;
+  if (advisory.length === 0 && !commandsCanWrite) return undefined;
+  return { advisory, commandsCanWrite };
 }

@@ -116,6 +116,26 @@ describe('Kiro ACP', () => {
     });
   });
 
+  it('角色关掉的引擎工具：这类审批请求直接拒绝一次，不交给用户（ACP 只能做到这一步，限制只是建议）', async () => {
+    const permissions = join(temp.dir(`perm-${seq + 1}`), 'permissions.ndjson');
+    const { adapter, config } = setup({ FAKE_KIRO_PERMISSION_LOG: permissions });
+    expect('engineToolEnforcement' in adapter).toBe(false);
+    const { engineSessionId: id } = await adapter.createSession({
+      ...config,
+      engineTools: { denied: ['shell'], deniedNames: ['Bash'] },
+    });
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('approval'));
+    const turn = await events.turn();
+    expect(turn.some((event) => event.type === 'approval.requested')).toBe(false);
+    expect(turn.find((event) => event.type === 'tool.finished')).toMatchObject({
+      status: 'failed',
+    });
+    expect(readFileSync(permissions, 'utf8').trim()).toBe(
+      JSON.stringify({ outcome: 'selected', optionId: 'reject_once' }),
+    );
+  });
+
   it('完全访问：Wevir 替用户选“允许一次”；换模型与换回请求批准从下一条消息起生效', async () => {
     const permissions = join(temp.dir(`perm-${seq + 1}`), 'permissions.ndjson');
     const { adapter, config, log } = setup({ FAKE_KIRO_PERMISSION_LOG: permissions });

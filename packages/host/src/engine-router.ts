@@ -19,6 +19,7 @@ import type {
   CancelOptions,
   EngineAccounts,
   EngineSession,
+  EngineToolEnforcement,
   GoalStartRequest,
   PendingApproval,
   PermissionMode,
@@ -411,6 +412,15 @@ export class EngineRouter implements AgentRuntimeAdapter {
     try {
       const route = this.#forProvider(providerId);
       return engineFeaturesOf(route.name, route.adapter);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 这个 Provider 的引擎能保证做到的角色限制（适配器的 `engineToolEnforcement`）；没有引擎接或引擎不声明时省略。 */
+  providerToolEnforcement(providerId: string): EngineToolEnforcement | undefined {
+    try {
+      return this.#forProvider(providerId).adapter.engineToolEnforcement;
     } catch {
       return undefined;
     }

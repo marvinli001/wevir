@@ -1,20 +1,22 @@
 // 角色对引擎自带工具的限制（`SessionConfig.engineTools`，codex-event-mapping.md §4.11）：真实 codex-app-server + 网关 + mock 模型。
-// 关掉 shell 时发给模型的工具里没有执行命令的；关掉改文件时沙箱只读，apply_patch 新建文件不成、改文件的审批不报给用户。二进制不在时
-// 跳过。
+// 关掉 shell 时发给模型的工具里没有执行命令的；关掉改文件时沙箱只读，apply_patch 新建文件不成、改文件的审批不报给用户，命令也写不了
+// 文件（`engineToolEnforcement.readOnlyCommands`）。二进制不在时跳过。
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent, EngineToolLimits } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { CodexAdapter } from './codex-adapter.js';
+import { CODEX_TOOL_ENFORCEMENT, type CodexAdapter } from './codex-adapter.js';
 import {
   codexBinaryOrSkip,
   collectEvents,
   finishTurn,
   newAdapter,
+  ofType,
   TempDirs,
 } from './test-fixtures/harness.js';
 import {
+  defaultMockScript,
   MOCK_MODEL,
   type MockModel,
   type MockRequestBody,
@@ -61,13 +63,30 @@ async function run(adapter: CodexAdapter, id: string, events: AgentEvent[], text
 }
 
 const SHELL_TOOLS = ['exec_command', 'write_stdin', 'shell', 'local_shell'];
+/** 用命令在工作区里写文件（不申请越出沙箱）：工作区可写的沙箱里成，只读沙箱里不成。 */
+const COMMAND_WRITE = '用命令写个文件';
+const COMMAND_FILE = 'wevir-command.txt';
 
 describe.skipIf(binary === undefined)(
   'CodexAdapter 角色的工具限制（真实 codex-app-server）',
   { timeout: 90_000 },
   () => {
     beforeAll(async () => {
-      mock = await startMockModel();
+      mock = await startMockModel((view) =>
+        view.toolOutputs.length === 0 && view.lastUserText.includes(COMMAND_WRITE)
+          ? {
+              text: ['我用命令写一个文件。'],
+              toolCalls: [
+                {
+                  kind: 'function',
+                  name: 'exec_command',
+                  args: { cmd: `printf x > ${COMMAND_FILE}` },
+                },
+              ],
+              delayMs: 5,
+            }
+          : defaultMockScript(view),
+      );
     });
     afterEach(async () => {
       await Promise.allSettled(adapters.splice(0).map((adapter) => adapter.dispose()));
@@ -100,6 +119,43 @@ describe.skipIf(binary === undefined)(
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
       expect(turn.some((event) => event.type === 'approval.requested')).toBe(false);
       expect(existsSync(join(workspace, 'wevir-mock.txt'))).toBe(false);
+    });
+
+    it('关掉改文件：命令也写不了文件（只读沙箱）；要越出沙箱重跑时问用户，拒绝后仍没有文件', async () => {
+      expect(CODEX_TOOL_ENFORCEMENT).toEqual({
+        classes: ['edit', 'shell', 'web'],
+        readOnlyCommands: true,
+      });
+      const plain = await open();
+      await run(plain.adapter, plain.id, plain.events, COMMAND_WRITE);
+      expect(existsSync(join(plain.workspace, COMMAND_FILE))).toBe(true);
+
+      const { adapter, id, events, workspace } = await open({ denied: ['edit'], deniedNames: [] });
+      expect(adapter.engineToolEnforcement).toBe(CODEX_TOOL_ENFORCEMENT);
+      const from = events.length;
+      await adapter.send(id, { content: [{ type: 'text', text: COMMAND_WRITE }] });
+      // Codex 在只读沙箱里写失败后可能请求越出沙箱重跑：那是用户的决定，这里拒绝。
+      const settle = finishTurn(events, from);
+      const declined = (async () => {
+        for (;;) {
+          const approval = events.slice(from).find(ofType('approval.requested'));
+          if (approval !== undefined) {
+            const reject = approval.options.find((option) => option.kind.startsWith('reject'));
+            if (reject !== undefined) {
+              await adapter.respondToApproval(id, approval.requestId, {
+                optionId: reject.optionId,
+              });
+            }
+            return;
+          }
+          if (events.slice(from).some((event) => event.type === 'turn.settled')) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const turn = await settle;
+      await declined;
+      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(existsSync(join(workspace, COMMAND_FILE))).toBe(false);
     });
   },
 );

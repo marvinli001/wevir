@@ -11,6 +11,7 @@ import type {
   EngineAppToolsGrant,
   EngineGoal,
   EngineSession,
+  EngineToolEnforcement,
   ForkOptions,
   GoalStartRequest,
   PendingApproval,
@@ -251,6 +252,11 @@ export interface AgentRuntimeAdapter {
    * 并在 `engineFeatures` 里报 `appTools`。
    */
   readonly appTools?: boolean;
+  /**
+   * 角色对引擎自带工具的限制（`SessionConfig.engineTools`）能做到什么程度（types.ts 的 `EngineToolEnforcement`）。不声明表示都只是
+   * 建议：Host 照样拒掉这些类别的审批请求，并在用角色开会话的结果里说明。
+   */
+  readonly engineToolEnforcement?: EngineToolEnforcement;
 
   /**
    * 引擎级的应用级工具入口（OpenCode，domain-model §3.15）：一个引擎进程服务所有会话、MCP 服务挂不到单个会话上的引擎实现它。

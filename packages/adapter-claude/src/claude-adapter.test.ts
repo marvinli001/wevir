@@ -1536,6 +1536,8 @@ describe('角色对引擎工具的限制', () => {
     ).toEqual({ disallowedTools: ['WebFetch', 'WebSearch'], tools: ['Read', 'Grep'] });
 
     const { adapter, sdk } = harness();
+    // 四类都从模型的工具里去掉；Bash 照样能写文件（只靠权限模式），所以不声明 readOnlyCommands。
+    expect(adapter.engineToolEnforcement).toEqual({ classes: ['read', 'edit', 'shell', 'web'] });
     const { engineSessionId } = await adapter.createSession({
       ...CONFIG,
       engineTools: { denied: ['edit'], deniedNames: ['Edit'] },

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseClaudeAgent, parseCodexAgent } from './external-agents.js';
 import {
+  advisoryEngineTools,
   BUILTIN_ROLES,
   parseRole,
   ROLE_DESCRIPTION_MAX,
@@ -158,9 +159,22 @@ describe('RoleStore', () => {
 });
 
 describe('引擎自带工具的限制', () => {
-  it('类别名与 Claude Code 的工具名换成 engineTools；只写应用级工具时不限引擎', () => {
-    expect(roleEngineTools({ tools: ['readonly'] })).toBeUndefined();
+  it('类别名与 Claude Code 的工具名换成 engineTools；只写应用级工具时不限引擎，readonly 另关改文件', () => {
+    expect(roleEngineTools({ tools: ['wevir_session_list'] })).toBeUndefined();
+    expect(roleEngineTools({ disallowedTools: ['browser_*'] })).toBeUndefined();
     expect(roleEngineTools(undefined)).toBeUndefined();
+    // 只读角色在引擎那边也不改文件；写成 `mcp__wevir__readonly` 也认。
+    expect(roleEngineTools({ tools: ['readonly'] })).toEqual({ denied: ['edit'], deniedNames: [] });
+    expect(roleEngineTools({ tools: ['mcp__wevir__readonly'] })).toEqual({
+      denied: ['edit'],
+      deniedNames: [],
+    });
+    // 内置角色：四个只读角色关掉改文件，worker 不限引擎。
+    for (const role of BUILTIN_ROLES) {
+      expect(roleEngineTools(role)).toEqual(
+        role.name === 'worker' ? undefined : { denied: ['edit'], deniedNames: [] },
+      );
+    }
     expect(roleEngineTools({ disallowedTools: ['Bash', 'mcp__github__*'] })).toEqual({
       denied: ['shell'],
       deniedNames: ['Bash', 'mcp__github__*'],
@@ -199,6 +213,39 @@ describe('引擎自带工具的限制', () => {
       false,
     );
     expect(roleAllowsTool({ disallowedTools: ['Bash'] }, tool('browser_click'))).toBe(true);
+  });
+
+  it('只是建议的部分：引擎保证不了的类别，以及关了改文件、没关 shell 而命令照样能写', () => {
+    const readOnly = { denied: ['edit' as const], deniedNames: [] };
+    expect(advisoryEngineTools(undefined, undefined)).toBeUndefined();
+    // Codex：只读沙箱让命令也写不了。
+    expect(
+      advisoryEngineTools(readOnly, { classes: ['edit', 'shell', 'web'], readOnlyCommands: true }),
+    ).toBeUndefined();
+    // Claude / OpenCode / Cursor：改文件的工具去掉了，命令照样能写。
+    expect(advisoryEngineTools(readOnly, { classes: ['read', 'edit', 'shell', 'web'] })).toEqual({
+      advisory: [],
+      commandsCanWrite: true,
+    });
+    // 一并关掉 shell 时命令写不了。
+    expect(
+      advisoryEngineTools(
+        { denied: ['edit', 'shell'], deniedNames: [] },
+        { classes: ['read', 'edit', 'shell', 'web'] },
+      ),
+    ).toBeUndefined();
+    // ACP 引擎不声明：都只是建议。
+    expect(advisoryEngineTools({ denied: ['read', 'edit'], deniedNames: [] }, undefined)).toEqual({
+      advisory: ['read', 'edit'],
+      commandsCanWrite: true,
+    });
+    // Codex 关不掉读。
+    expect(
+      advisoryEngineTools(
+        { denied: ['read', 'edit', 'shell', 'web'], deniedNames: [] },
+        { classes: ['edit', 'shell', 'web'], readOnlyCommands: true },
+      ),
+    ).toEqual({ advisory: ['read'], commandsCanWrite: false });
   });
 
   it('effort 是 reasoningEffort 的别名，model: inherit 等于不写', () => {

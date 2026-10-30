@@ -111,6 +111,16 @@ export interface EngineToolLimits {
 }
 
 /**
+ * 引擎能保证做到的角色限制（适配器的 `engineToolEnforcement`）：`classes` 是关掉后引擎自己去掉或拒绝的类别，不论权限模式与模型
+ * 怎么做；`readOnlyCommands` 表示关掉 `edit` 时命令也写不了文件（Codex 的只读沙箱），没有它时命令照样能写，只靠权限模式。不在
+ * `classes` 里的类别只是建议：Host 拒掉引擎为它们请求的批准，引擎不问就做的管不到。
+ */
+export interface EngineToolEnforcement {
+  classes: readonly EngineToolClass[];
+  readOnlyCommands?: boolean;
+}
+
+/**
  * 一个命令 hook（Codex 与 Claude Code 同一套写法）：`event` 是引擎的事件名（`PreToolUse`、`Stop`…），`matcher` 选工具（`Bash`、
  * `apply_patch`，正则或 `|` 分隔），`command` 是交给 shell 的整条命令行（stdin 是事件的 JSON），`timeoutSec` 是时限。
  */

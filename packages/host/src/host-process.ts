@@ -19,7 +19,7 @@ import {
   type WorkspaceId,
   webDeviceIdleDays,
 } from '@wevir/protocol';
-import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
+import type { AgentRuntimeAdapter, EngineToolEnforcement } from '@wevir/runtime-adapter';
 import { guardrailChecker } from '@wevir/runtime-adapter/guardrail';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
@@ -1397,6 +1397,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             },
           }),
         roles,
+        engineToolEnforcement: (providerId) => providerToolEnforcement(adapter, providerId),
         tasks: taskBoards,
         automations: automationService,
         channels: channelService,
@@ -2135,6 +2136,15 @@ export function hostEngineFeatures(
   if (adapter instanceof EngineRouter) return adapter.engineFeatures();
   const features = engineFeaturesOf(engine, adapter);
   return Object.fromEntries(ProviderKindSchema.options.map((kind) => [kind, features]));
+}
+
+/** 一个 Provider 的引擎能保证做到的角色限制：多引擎时问路由，只有一个引擎时就是它的。 */
+function providerToolEnforcement(
+  adapter: AgentRuntimeAdapter,
+  providerId: string,
+): EngineToolEnforcement | undefined {
+  if (adapter instanceof EngineRouter) return adapter.providerToolEnforcement(providerId);
+  return adapter.engineToolEnforcement;
 }
 
 /** 一个 Provider 的会话由哪个引擎跑、能做什么：多引擎时问路由，只有一个引擎时就是它。 */

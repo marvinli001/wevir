@@ -10,6 +10,7 @@ import {
   CursorAdapter,
   type CursorAdapterOptions,
   cursorPermissionModes,
+  disallowedTools,
   permissionPolicy,
   SETTING_SOURCES,
 } from './cursor-adapter.js';
@@ -341,6 +342,44 @@ describe('CursorAdapter', () => {
     expect(resumed.modelId).toBe('gpt-6');
     expect(sdk.agents).toHaveLength(2);
     expect(sdk.agent(engineSessionId).options.model).toEqual({ id: 'gpt-6' });
+  });
+
+  it('角色关掉的引擎工具 → disallowedTools（连带 task），新建、恢复与换权限重开都带', async () => {
+    expect(disallowedTools(undefined)).toEqual([]);
+    expect(disallowedTools([])).toEqual([]);
+    expect(disallowedTools(['edit'])).toEqual(['edit', 'delete', 'applyAgentDiff', 'task']);
+    expect(agentOptions({ apiKey: 'k', cwd: '/w', modelId: 'auto' })).not.toHaveProperty(
+      'disallowedTools',
+    );
+    const { adapter, sdk, home } = setup();
+    const engineTools = { denied: ['edit' as const, 'web' as const], deniedNames: [] };
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+      engineTools,
+    });
+    const expected = ['edit', 'delete', 'applyAgentDiff', 'webSearch', 'webFetch', 'fetch', 'task'];
+    expect(sdk.agent(engineSessionId).options.disallowedTools).toEqual(expected);
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.configureSession(engineSessionId, {
+      modelId: 'auto',
+      permissionMode: 'full_access',
+    });
+    await adapter.send(engineSessionId, text('Say hello'));
+    await until(events, 'turn.settled');
+    expect(sdk.agents).toHaveLength(2);
+    expect(sdk.agent(engineSessionId).options.disallowedTools).toEqual(expected);
+    await adapter.close(engineSessionId);
+    await adapter.resumeSession(engineSessionId, {
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+      engineTools,
+    });
+    expect(sdk.agents).toHaveLength(3);
+    expect(sdk.agent(engineSessionId).options.disallowedTools).toEqual(expected);
+    expect(adapter.engineToolEnforcement.classes).toEqual(['read', 'edit', 'shell', 'web']);
   });
 
   it('Windows 只有完全访问：别的模式的会话发消息时说明原因，不替用户升成完全访问', async () => {
