@@ -16,6 +16,12 @@ export function todoStatus(item: Pick<TodoItem, 'status'>): TodoStatus {
   return 'pending';
 }
 
+/** 取消了的一项（OpenCode 的 todowrite 有 `cancelled`）：不再是要做的事，清单与进度里都不算。 */
+function todoCancelled(item: Pick<TodoItem, 'status'>): boolean {
+  const status = item.status.toLowerCase();
+  return status === 'cancelled' || status === 'canceled';
+}
+
 export interface TurnTodos {
   turnId: TurnId;
   items: readonly TodoItem[];
@@ -36,7 +42,9 @@ function lastTurnId(messages: readonly ChatMessage[]): TurnId | undefined {
   return undefined;
 }
 
-/** 会话最近一个回合的清单；那个回合没有清单（或清单是空的）时是 undefined，更早回合的清单不算。 */
+/**
+ * 会话最近一个回合的清单（不含取消了的项）；那个回合没有清单（或清单是空的、全取消了）时是 undefined，更早回合的清单不算。
+ */
 export function latestTodos(
   transcript: Pick<Transcript, 'messages' | 'activeTurnId'>,
 ): TurnTodos | undefined {
@@ -45,11 +53,12 @@ export function latestTodos(
   for (const message of transcript.messages) {
     if (message.role === 'system' || message.turnId !== turnId) continue;
     const part = message.parts.find((candidate) => candidate.type === 'todo');
-    if (part?.type === 'todo' && part.items.length > 0) {
+    const items = part?.type === 'todo' ? part.items.filter((item) => !todoCancelled(item)) : [];
+    if (items.length > 0) {
       const active = transcript.activeTurnId === turnId;
       return {
         turnId,
-        items: part.items,
+        items,
         active,
         finishedWell:
           !active &&
