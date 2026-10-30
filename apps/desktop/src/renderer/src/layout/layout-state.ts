@@ -99,6 +99,8 @@ export interface TransientLayout {
   railTightOpen: boolean;
   /** 最大化的窗格（§3.4），只对那个会话有效。 */
   maximized?: { scope: string; groupId: string };
+  /** 会话里的 agent 请显示会话侧栏卡片（0.140.0）的次数；变了时布局把收起的侧栏停靠出来（停靠不下时不弹浮层）。 */
+  railRequest: number;
 }
 
 export const transientLayout = createStore<TransientLayout>({
@@ -106,6 +108,7 @@ export const transientLayout = createStore<TransientLayout>({
   auxOverlayOpen: false,
   railOverlayOpen: false,
   railTightOpen: false,
+  railRequest: 0,
 });
 
 /** 展开或收起会话侧栏的一张卡片（U18）。 */
@@ -116,6 +119,14 @@ export function toggleRailCard(id: string): void {
       ? prefs.railOpen.filter((open) => open !== id)
       : [...prefs.railOpen, id],
   }));
+}
+
+/** 会话里的 agent 请显示一张卡片（0.140.0）：展开它，并请布局把会话侧栏露出来。 */
+export function revealRailCard(id: string): void {
+  layoutPrefs.set((prefs) =>
+    prefs.railOpen.includes(id) ? prefs : { ...prefs, railOpen: [...prefs.railOpen, id] },
+  );
+  transientLayout.set((state) => ({ ...state, railRequest: state.railRequest + 1 }));
 }
 
 /** 在设置里打开或关掉会话侧栏的一张可选卡片。 */

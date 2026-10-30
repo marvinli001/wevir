@@ -1945,6 +1945,7 @@ export type BoardTask = z.infer<typeof BoardTaskSchema>;
 /**
  * 请界面显示的东西（0.30.0，`ui.show`）：会话目录里的文件（`path` 相对会话目录，`line` 从 1 开始）、“变更”窗格、“文件”窗格、
  * 另一个会话。0.136.0 起还有设置页（`settings`，`page` 是开放字符串：桌面端的设置分页名与 `plugins`，客户端没有这一页时不打开）；
+ * 0.140.0 起还有会话侧栏的卡片（`card`，`card` 是开放字符串：桌面端会话侧栏里要在设置中打开的卡片名，客户端没有这张卡片时不显示）。
  * 旧客户端解析不了这条事件，按 host-api.md §4 跳过。
  */
 export const UiShowTargetSchema = z.discriminatedUnion('kind', [
@@ -1957,6 +1958,7 @@ export const UiShowTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('files') }),
   z.object({ kind: z.literal('session'), sessionId: SessionIdSchema }),
   z.object({ kind: z.literal('settings'), page: z.string().regex(/^[A-Za-z][A-Za-z0-9]{0,39}$/) }),
+  z.object({ kind: z.literal('card'), card: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/) }),
 ]);
 export type UiShowTarget = z.infer<typeof UiShowTargetSchema>;
 

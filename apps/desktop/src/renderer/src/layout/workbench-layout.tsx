@@ -186,6 +186,20 @@ export function WorkbenchLayout() {
       transientLayout.set((state) => ({ ...state, railTightOpen: false }));
     }
   }, [rail, room, transient.railTightOpen]);
+  // 会话里的 agent 请显示会话侧栏的卡片（0.140.0）：收起着就停靠出来（地方够时改偏好，地方紧时临时）；放不下时不弹浮层，
+  // 免得抢走输入框的焦点，卡片照样在侧栏里。
+  const railRequest = useRef(transient.railRequest);
+  useEffect(() => {
+    if (transient.railRequest === railRequest.current) return;
+    railRequest.current = transient.railRequest;
+    if (room === 'roomy') {
+      layoutPrefs.set((current) => (current.railShown ? current : { ...current, railShown: true }));
+    } else if (room === 'tight') {
+      transientLayout.set((state) =>
+        state.railTightOpen ? state : { ...state, railTightOpen: true },
+      );
+    }
+  }, [transient.railRequest, room]);
   // 窗格区与会话侧栏的浮层一次只开一个：窗格区的浮层打开时收起侧栏的。
   useEffect(() => {
     if (transient.auxOverlayOpen) {

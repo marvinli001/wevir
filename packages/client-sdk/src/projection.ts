@@ -411,6 +411,11 @@ export interface Transcript {
    * 历史里的。
    */
   uiShow: { seq: number; ts: IsoTime; target: UiShowTarget } | undefined;
+  /**
+   * 0.140.0：会话里的 agent 请界面显示过的会话侧栏卡片（`ui.show` 的 `card`），按第一次请求的先后、不重复。客户端在这个会话里
+   * 照样显示这些卡片，即使用户没在设置里打开。
+   */
+  railCards: readonly string[];
   /** 0.35.0：会话的目标（最近一次 `session.goal_changed`），清除或没有时 undefined。 */
   goal: SessionGoal | undefined;
   /** 0.119.0：额度恢复后自动继续（最近一次 `session.auto_continue`）；关掉、发出或有了新的回合时 undefined。规则同 `Session.autoContinue`。 */
@@ -571,6 +576,7 @@ export class TranscriptProjection {
   /** 建议的后续任务（0.16.0），按提出的先后。 */
   #tasks = new Map<TaskId, SuggestedTask>();
   #uiShow: Transcript['uiShow'];
+  #railCards: string[] = [];
   /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
   #taskParts = new Map<string, MutableMessage>();
   /**
@@ -638,6 +644,7 @@ export class TranscriptProjection {
     this.#opinions.clear();
     this.#opinionParts.clear();
     this.#insights.clear();
+    this.#railCards = [];
     this.#pending = [];
     this.#collaborationMode = 'default';
     this.#latestPlan = undefined;
@@ -898,6 +905,12 @@ export class TranscriptProjection {
         return;
       case 'ui.show':
         this.#uiShow = { seq: event.seq, ts: event.ts, target: event.payload.target };
+        if (
+          event.payload.target.kind === 'card' &&
+          !this.#railCards.includes(event.payload.target.card)
+        ) {
+          this.#railCards = [...this.#railCards, event.payload.target.card];
+        }
         return;
       case 'opinion.updated':
         this.#opinion(event);
@@ -989,6 +1002,7 @@ export class TranscriptProjection {
       opinions: [...this.#opinions.values()],
       insights: [...this.#insights.values()],
       uiShow: this.#uiShow,
+      railCards: this.#railCards,
       goal: this.#goal,
       autoContinue: this.#autoContinue,
       collaborationMode: this.#collaborationMode,

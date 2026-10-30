@@ -1083,7 +1083,7 @@ describe('应用级工具', () => {
     expect(h.storage.sessions.get(grand.id)?.archivedAt).toBeUndefined();
   });
 
-  it('wevir_show：会话目录里的文件写成 ui.show，目录外的拒绝', async () => {
+  it('wevir_show：会话目录里的文件与会话侧栏的卡片写成 ui.show，目录外的与不认识的卡片拒绝', async () => {
     const h = await setup();
     const a = await h.create();
     const b = await h.create();
@@ -1102,12 +1102,22 @@ describe('应用级工具', () => {
     );
     await h.call(a, 'wevir_show', { kind: 'session', sessionId: b });
     await h.call(a, 'wevir_show', { kind: 'changes' });
+    // 0.140.0：会话侧栏的卡片，只认 SHOW_CARDS 里的名字。
+    expect(await h.call(a, 'wevir_show', { kind: 'card', card: 'verification' })).toEqual({
+      shown: true,
+      target: { kind: 'card', card: 'verification' },
+    });
+    expect(await h.call(a, 'wevir_show', { kind: 'card' })).toHaveProperty('error');
+    expect(await h.call(a, 'wevir_show', { kind: 'card', card: 'context' })).toHaveProperty(
+      'error',
+    );
     const shown = h.all(a).filter((e) => e.type === 'ui.show');
     expect(shown.map((e) => e.type === 'ui.show' && e.payload.target)).toEqual([
       { kind: 'file', path: 'notes.md', line: 1 },
       { kind: 'file', path: 'notes.md' },
       { kind: 'session', sessionId: b },
       { kind: 'changes' },
+      { kind: 'card', card: 'verification' },
     ]);
   });
 

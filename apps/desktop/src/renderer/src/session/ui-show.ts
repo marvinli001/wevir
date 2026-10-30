@@ -1,11 +1,13 @@
 // 会话里的 agent 请界面显示的东西（0.30.0，应用级工具的 `wevir_show`，desktop-layout.md §20）：会话视图看到新的 `ui.show` 时
-// 打开对应的窗格。只对打开会话之后新到的打开：订阅从头回放的历史里也有，按时刻跳过旧的。
+// 打开对应的窗格。只对打开会话之后新到的打开：订阅从头回放的历史里也有，按时刻跳过旧的。0.140.0 的会话侧栏卡片例外：历史里请求过的
+// 卡片在这个会话里一直显示（投影的 railCards），只有展开与露出侧栏按这里的规则。
 
 import type { Session, SessionId, UiShowTarget } from '@wevir/protocol';
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { openChanges } from '@/changes/changes-store';
 import { openFile, openFiles } from '@/files/files-store';
+import { revealRailCard } from '@/layout/layout-state';
 import type { PaneController } from '@/layout/pane-controller';
 import { isSettingsTab, paths } from '@/routes/paths';
 
@@ -64,6 +66,10 @@ export function showTarget(
       if (path !== undefined) navigate?.(path);
       return;
     }
+    case 'card':
+      // 卡片本身由投影的 railCards 显示出来（session-rail.tsx）；这里展开它、露出侧栏。
+      revealRailCard(target.card);
+      return;
   }
 }
 

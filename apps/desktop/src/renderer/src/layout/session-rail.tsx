@@ -4,7 +4,7 @@ import { SquareMenu } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
-import { useWorkbenchProviders } from '@/data/workbench-data';
+import { useTranscript, useWorkbenchProviders } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceGit, type WorkspaceGitState } from '@/data/workspace-git';
 import { t } from '@/i18n';
@@ -54,6 +54,7 @@ export function registerRailCard(card: RailCard): void {
 }
 
 const NO_PROVIDERS: readonly ProviderProfile[] = [];
+const NO_CARDS: readonly string[] = [];
 
 /**
  * 侧栏的内容：竖排的卡片，多了在这一列里滚动。`visible` 为 false（收起着、浮层关着）时仍渲染（开合有宽度过渡），但不读
@@ -75,6 +76,8 @@ export function SessionRail({
 }) {
   const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const { railOpen, railCards } = layoutPrefs.use();
+  // 0.140.0：这个会话里 agent 请显示过的卡片，没在设置里打开也显示。
+  const agentCards = useTranscript(sessionId)?.transcript.railCards ?? NO_CARDS;
   // 回合结束（离开 running）时重读一次，改动多半刚发生。
   // 环境会话新开了 worktree 时读它（0.15.0），否则读工作区目录。
   const git = useWorkspaceGit(entry.workspace.id, {
@@ -94,7 +97,9 @@ export function SessionRail({
   for (const card of cards) {
     // 设置里没打开的可选卡片照样调用 hook（个数与顺序不变），只是当作看不见，不去 Host 读。
     const enabled =
-      !(OPTIONAL_RAIL_CARDS as readonly string[]).includes(card.id) || railCards.includes(card.id);
+      !(OPTIONAL_RAIL_CARDS as readonly string[]).includes(card.id) ||
+      railCards.includes(card.id) ||
+      agentCards.includes(card.id);
     // biome-ignore lint/correctness/useHookAtTopLevel: 登记表在模块加载时就定了，每次渲染调用的 hook 个数与顺序都一样。
     const content = card.useCard(enabled ? context : { ...context, visible: false });
     if (content && enabled) items.push({ card, content });

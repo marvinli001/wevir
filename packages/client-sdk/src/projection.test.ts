@@ -1655,6 +1655,18 @@ describe('应用级工具（0.30.0）', () => {
     expect(transcript.messages[0]).toMatchObject({ role: 'user', from });
     expect(transcript.uiShow).toEqual({ seq: last.seq, ts: last.ts, target: last.payload.target });
     expect(first.seq).toBeLessThan(last.seq);
+    expect(transcript.railCards).toEqual([]);
+  });
+
+  it('ui.show 的卡片（0.140.0）按第一次请求的先后记进 railCards，不重复', () => {
+    const { list, add } = events();
+    add('ui.show', { target: { kind: 'card', card: 'verification' } });
+    add('ui.show', { target: { kind: 'changes' } });
+    add('ui.show', { target: { kind: 'card', card: 'lsp' } });
+    add('ui.show', { target: { kind: 'card', card: 'verification' } });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    expect(projection.snapshot().railCards).toEqual(['verification', 'lsp']);
   });
 });
 

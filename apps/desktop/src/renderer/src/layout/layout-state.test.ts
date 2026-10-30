@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { OPTIONAL_RAIL_CARDS, parseLayoutPrefs } from './layout-state';
+import {
+  layoutPrefs,
+  OPTIONAL_RAIL_CARDS,
+  parseLayoutPrefs,
+  revealRailCard,
+  transientLayout,
+} from './layout-state';
 
 describe('parseLayoutPrefs', () => {
   it('读 v1 的格式；没有会话侧栏的字段时开着、只展开“环境”', () => {
@@ -64,5 +70,19 @@ describe('parseLayoutPrefs', () => {
     expect(parseLayoutPrefs({ railCards: ['retro', 2, 'lsp'] })).toMatchObject({
       railCards: ['retro', 'lsp'],
     });
+  });
+});
+
+describe('revealRailCard（0.140.0）', () => {
+  it('展开那张卡片、请布局露出侧栏，不动设置里打开的可选卡片', () => {
+    const before = transientLayout.get().railRequest;
+    const cards = layoutPrefs.get().railCards;
+    revealRailCard('verification');
+    revealRailCard('verification');
+    expect(layoutPrefs.get().railOpen.filter((id) => id === 'verification')).toEqual([
+      'verification',
+    ]);
+    expect(layoutPrefs.get().railCards).toBe(cards);
+    expect(transientLayout.get().railRequest).toBe(before + 2);
   });
 });

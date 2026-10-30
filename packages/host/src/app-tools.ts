@@ -144,6 +144,20 @@ export const NOTE_ANSWER_MAX_CHARS = 400;
 /** 父会话连续被回报续上多少次（中间没有用户的消息）之后，笔记压到用户下一次发言再带上（防环）。 */
 export const AUTO_WAKE_MAX = 5;
 
+/**
+ * `wevir_show` 能打开的会话侧栏卡片（0.140.0）：桌面端要在设置里打开才显示的那几张，与它的 `OPTIONAL_RAIL_CARDS` 一致。
+ */
+export const SHOW_CARDS = [
+  'instructions',
+  'rules',
+  'readiness',
+  'verification',
+  'preview',
+  'lsp',
+  'task-board',
+  'retro',
+] as const;
+
 const ACTIVE = new Set(['running', 'awaiting_approval', 'cancelling']);
 /**
  * 关闭、归档自己开的会话：只动 agent 自己开出来的（`#openedTarget`），不用批准（2026-10-22，维护者定）。不标 `readOnlyHint`，
@@ -1594,12 +1608,13 @@ export class AppTools {
       name: 'wevir_show',
       title: 'Show in Wevir',
       description:
-        'Open something in the Wevir window next to this conversation: kind "file" opens a file of this session\'s ' +
+        'Open something in the Wevir window next to this conversation: kind "file" a file of this session\'s ' +
         'folder (path relative to it, optional 1-based line), "changes" the diff, "files" the file ' +
         'tree, "session" another session (sessionId), "browser" a page in the Wevir browser: a local URL (localhost, ' +
-        "127.0.0.1, e.g. your dev server) in a new tab, or one of this session's tabs (browserId), " +
-        '"settings" a settings page (page: providers for API keys, plugins for sign-in). ' +
-        'Use it when showing the thing is clearer than describing it. It opens only while the user is looking at ' +
+        "127.0.0.1, your dev server) in a new tab, or one of this session's tabs (browserId), " +
+        '"settings" a settings page (page: providers for API keys, plugins for sign-in), "card" a sidebar card ' +
+        'even if turned off, only when the user must look at it now. ' +
+        'Use it when showing is clearer than describing. It opens only while the user is looking at ' +
         'this session.',
       inputSchema: objectSchema(
         {
@@ -1608,6 +1623,7 @@ export class AppTools {
           line: { type: 'integer', minimum: 1 },
           sessionId: { type: 'string' },
           page: { type: 'string' },
+          card: { type: 'string', enum: [...SHOW_CARDS] },
           ...(this.#options.browser !== undefined && {
             url: { type: 'string' },
             browserId: { type: 'string' },
@@ -1649,6 +1665,14 @@ export class AppTools {
               throw new AppToolError(`page is required: one of ${SETTINGS_PAGES.join(', ')}.`);
             }
             target = { kind: 'settings', page };
+            break;
+          }
+          case 'card': {
+            const card = optionalEnum(args, 'card', SHOW_CARDS);
+            if (card === undefined) {
+              throw new AppToolError(`card is required: one of ${SHOW_CARDS.join(', ')}.`);
+            }
+            target = { kind: 'card', card };
             break;
           }
           default:
@@ -2024,6 +2048,7 @@ export class AppTools {
       'files',
       'session',
       'settings',
+      'card',
       ...(this.#options.browser === undefined ? [] : ['browser']),
     ];
   }
