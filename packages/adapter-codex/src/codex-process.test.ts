@@ -99,18 +99,23 @@ describe('CodexProcess 的 stdout', () => {
     expect(exits[0]?.stderrTail).toContain('超过 1024 字节');
   });
 
-  it('stdout 关闭而进程还在：短暂等待后挂起的请求失败，进程被结束', async () => {
-    const { codex, exits, failed } = start();
-    await codex.start();
-    const startedAt = Date.now();
-    const pending = codex.request('closeStdout', {});
-    await expect(pending).rejects.toMatchObject({
-      code: 'engine_unavailable',
-      message: expect.stringContaining('stdout 已关闭'),
-    });
-    expect(Date.now() - startedAt).toBeLessThan(2000);
-    await failed;
-    expect(exits).toHaveLength(1);
-    expect(exits[0]?.stderrTail).toContain('stdout 已关闭');
-  });
+  // Windows 上子进程关不掉自己的 stdout 让父进程读到结束（closeSync(1)、句柄 close、stdout.end() 实测都不行），
+  // 这个场景造不出来；处理逻辑与平台无关，由其他平台覆盖。
+  it.skipIf(process.platform === 'win32')(
+    'stdout 关闭而进程还在：短暂等待后挂起的请求失败，进程被结束',
+    async () => {
+      const { codex, exits, failed } = start();
+      await codex.start();
+      const startedAt = Date.now();
+      const pending = codex.request('closeStdout', {});
+      await expect(pending).rejects.toMatchObject({
+        code: 'engine_unavailable',
+        message: expect.stringContaining('stdout 已关闭'),
+      });
+      expect(Date.now() - startedAt).toBeLessThan(2000);
+      await failed;
+      expect(exits).toHaveLength(1);
+      expect(exits[0]?.stderrTail).toContain('stdout 已关闭');
+    },
+  );
 });
