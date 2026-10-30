@@ -327,6 +327,8 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
       <- apps/server/src/vcs/GitVcsDriver.ts
          apps/server/src/orchestration-v2/CheckpointService.ts
          apps/server/src/checkpointing/Diffs.ts
+         apps/server/src/vcs/VcsProcess.ts
+         （落盘设置，来源提交 55ba1baa559ee73b9db177da07f56000774371f2）
   apps/desktop/src/renderer/src/layout/panes/changes-pane.tsx
       <- apps/web/src/components/DiffPanel.tsx
   apps/desktop/src/renderer/src/changes/styled-code-view.tsx
@@ -466,6 +468,9 @@ OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.t
   packages/adapter-opencode/src/mapping.ts
   packages/adapter-opencode/src/opencode-adapter.ts
   packages/adapter-opencode/src/title.ts
+
+其中 accounts.ts、permissions.ts、mapping.ts 与 opencode-adapter.ts 另有几处取自上面那个提交之后的修复（cfbfbca6e0582fb48423949b10f0663f8fed2be0、
+807319c276c6831b2c219640e9da5b38019a8f1d、8031991591e22d76830e4acf6358c4fd78ffcf60，见各文件头），许可证与版权声明相同。
 
 packages/adapter-opencode/src/test-fixtures/events/ 是 opencode 1.18.34（MIT，Copyright (c) 2025 opencode，
 https://github.com/anomalyco/opencode）的服务器对着本机假模型交出的事件流的录制，见 docs/upstream/UPSTREAM.md §4.1。
