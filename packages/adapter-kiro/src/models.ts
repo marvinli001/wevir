@@ -13,10 +13,18 @@ export function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/** 会话 `configOptions` 里的模型选项：类别是 `model` 的 select，没有类别时 ID 是 `model` 的。 */
+/**
+ * 会话 `configOptions` 里的模型选项：类别是 `model` 的第一个 select，没有类别时 ID 是 `model` 的。与选模型时用的
+ * （`@wevir/adapter-acp` 的 `routeModelOption`）是同一个。
+ */
 export function modelOption(configOptions: unknown) {
   if (!Array.isArray(configOptions)) return undefined;
-  const options = configOptions.map(record).filter((option) => option?.type === 'select');
+  const options = configOptions
+    .map(record)
+    .filter(
+      (option) =>
+        option?.type === 'select' && typeof option.id === 'string' && option.id.trim() !== '',
+    );
   return (
     options.find((option) => option?.category === 'model') ??
     options.find((option) => option?.id === 'model')

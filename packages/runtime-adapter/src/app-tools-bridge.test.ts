@@ -21,14 +21,29 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function startServer(): Promise<{ url: string; seen: string[] }> {
+/** 本机的假 Host。`tools/call` 不回复，挂到客户端断开，断开的请求 id 记进 `aborted`。 */
+async function startServer(): Promise<{
+  url: string;
+  seen: string[];
+  methods: string[];
+  aborted: unknown[];
+}> {
   const seen: string[] = [];
+  const methods: string[] = [];
+  const aborted: unknown[] = [];
   const server: Server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk) => chunks.push(chunk));
     req.on('end', () => {
       seen.push(req.headers.authorization ?? '');
       const message = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      methods.push(message.method);
+      if (message.method === 'tools/call') {
+        res.on('close', () => {
+          if (!res.writableFinished) aborted.push(message.id);
+        });
+        return;
+      }
       if (message.id === undefined) {
         res.writeHead(202).end();
         return;
@@ -39,8 +54,19 @@ async function startServer(): Promise<{ url: string; seen: string[] }> {
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`, seen };
+  cleanups.push(
+    () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  );
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`,
+    seen,
+    methods,
+    aborted,
+  };
 }
 
 function runBridge(url: string, token: string) {
@@ -96,5 +122,34 @@ describe('应用级工具的 stdio 桥', () => {
     await until(() => lines.length === 1);
     expect(lines[0]).toMatchObject({ id: 7, error: { code: -32603 } });
     expect(child.exitCode).toBeNull();
+  });
+
+  it('引擎取消请求（notifications/cancelled）时中止对 Host 的那个请求，不再回复；通知照样转发', async () => {
+    const { url, methods, aborted } = await startServer();
+    const { child, lines } = runBridge(url, 'tok');
+    const call = { jsonrpc: '2.0', id: 'call-1', method: 'tools/call', params: { name: 'x' } };
+    child.stdin.write(`${JSON.stringify(call)}\n`);
+    await until(() => methods.includes('tools/call'));
+    child.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'call-1' } })}\n`,
+    );
+    await until(() => aborted.length === 1 && methods.includes('notifications/cancelled'));
+    expect(aborted).toEqual(['call-1']);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`);
+    await until(() => lines.length === 1);
+    expect(lines).toEqual([{ jsonrpc: '2.0', id: 2, result: { echo: 'tools/list' } }]);
+  });
+
+  it('stdin 关闭时中止进行中的请求并退出', async () => {
+    const { url, methods, aborted } = await startServer();
+    const { child, lines } = runBridge(url, 'tok');
+    const exited = new Promise<number | null>((resolve) => child.once('exit', resolve));
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call' })}\n`);
+    await until(() => methods.includes('tools/call'));
+    child.stdin.end();
+    expect(await exited).toBe(0);
+    await until(() => aborted.length === 1);
+    expect(aborted).toEqual([5]);
+    expect(lines).toEqual([]);
   });
 });

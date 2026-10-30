@@ -136,6 +136,34 @@ describe('Kiro ACP', () => {
     );
   });
 
+  it('只带 toolCallId 的审批请求：用回合里报过的工具调用补上 kind，角色关掉的照样拒绝，没关的照常问用户', async () => {
+    const permissions = join(temp.dir(`perm-${seq + 1}`), 'permissions.ndjson');
+    const { adapter, config } = setup({ FAKE_KIRO_PERMISSION_LOG: permissions });
+    const { engineSessionId: id } = await adapter.createSession({
+      ...config,
+      engineTools: { denied: ['shell'], deniedNames: ['Bash'] },
+    });
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('approval-id-only'));
+    const turn = await events.turn();
+    expect(turn.some((event) => event.type === 'approval.requested')).toBe(false);
+    expect(readFileSync(permissions, 'utf8').trim()).toBe(
+      JSON.stringify({ outcome: 'selected', optionId: 'reject_once' }),
+    );
+
+    const open = setup();
+    const { engineSessionId: other } = await open.adapter.createSession({
+      ...open.config,
+      engineTools: { denied: ['web'], deniedNames: ['WebFetch'] },
+    });
+    const otherEvents = new EventCollector(open.adapter.subscribe(other));
+    await open.adapter.send(other, text('approval-id-only'));
+    const { event } = await otherEvents.waitFor((event) => event.type === 'approval.requested');
+    if (event.type !== 'approval.requested') throw new Error('missing approval');
+    await open.adapter.respondToApproval(other, event.requestId, { optionId: 'allow_once' });
+    expect((await otherEvents.turn()).at(-1)).toMatchObject({ outcome: 'completed' });
+  });
+
   it('完全访问：Wevir 替用户选“允许一次”；换模型与换回请求批准从下一条消息起生效', async () => {
     const permissions = join(temp.dir(`perm-${seq + 1}`), 'permissions.ndjson');
     const { adapter, config, log } = setup({ FAKE_KIRO_PERMISSION_LOG: permissions });
@@ -246,4 +274,44 @@ describe('Kiro ACP', () => {
       outcome: 'completed',
     });
   });
+
+  it('结果的 stopReason 是 error：回合失败（不是完成），原文里像密钥的片段遮盖掉', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('stop-error'));
+    const last = (await events.turn()).at(-1);
+    expect(last).toMatchObject({ type: 'turn.failed', category: 'unknown', code: -32603 });
+    if (last?.type !== 'turn.failed') throw new Error('not failed');
+    expect(last.message).toBe('Upstream failed: OPENAI_API_KEY=[REDACTED] my_api_key=[REDACTED]');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    '引擎退出：engine.exited 的 stderr 尾部遮盖像密钥的片段，进程组里留下的子进程被收掉',
+    async () => {
+      const childPid = join(temp.dir(`crash-${seq + 1}`), 'child.pid');
+      const { adapter, config } = setup({ FAKE_KIRO_CHILD_PID: childPid });
+      const { engineSessionId: id } = await adapter.createSession(config);
+      const events = new EventCollector(adapter.subscribe(id));
+      await adapter.send(id, text('crash'));
+      const { event } = await events.waitFor((event) => event.type === 'engine.exited');
+      if (event.type !== 'engine.exited') throw new Error('missing exit');
+      expect(event.exitCode).toBe(3);
+      expect(event.stderrTail).toContain('fatal: request failed');
+      expect(event.stderrTail).toContain('Authorization: Bearer [REDACTED]');
+      expect(event.stderrTail).toContain('kiro_api_key=[REDACTED] password: [REDACTED]');
+      expect(event.stderrTail).not.toMatch(/short-tok|abc123|p a s s/);
+      const pid = Number(readFileSync(childPid, 'utf8'));
+      const alive = () => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      for (let i = 0; i < 100 && alive(); i += 1) await new Promise((r) => setTimeout(r, 20));
+      expect(alive()).toBe(false);
+    },
+  );
 });

@@ -4,7 +4,9 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；ACP 的探测经 `@wevir/adapter-acp`
 // 的 `AcpProcess`；邮箱与用量照 T3 读 ~/.grok 的 auth.json（只读，见 usage.ts），没有套餐；不做 skills 与斜杠命令；结果缓存
-// 5 分钟，`read` 带 `refresh` 时重新检测。
+// 5 分钟，`read` 带 `refresh` 时重新检测。2026-10-30 补入 T3 之后的两处修复：`initialize` 探测的时限 8 s → 20 s（来源提交
+// c632d7e96bd8bc8a808d76c3f766809c7730a765）；`grok models` 说没登录时再跑一次才下结论（来源提交
+// a2157eced708fd25fab7b616f5a68cb65312eaed）。
 //
 // Grok 的账号（grok-event-mapping.md §2）：Wevir 自己不碰令牌。`grok` 找用户自己装的，没有就由 Wevir 从 npm 下载一份
 // （install.ts 的 `NpmPackageInstaller`，`account.install`）；登录由设置里的按钮替用户启动 `grok login --device-auth`
@@ -56,8 +58,11 @@ export const PROBE_TTL_MS = 5 * 60_000;
 export const VERSION_TIMEOUT_MS = 10_000;
 /** `grok models` 的时限（T3 的 `AUTH_PROBE_TIMEOUT_MS`）。 */
 export const MODELS_TIMEOUT_MS = 10_000;
-/** 只做 `initialize` 的探测的时限（T3 的 `GROK_ACP_INITIALIZE_TIMEOUT_MS`）。 */
-export const INITIALIZE_PROBE_TIMEOUT_MS = 8_000;
+/**
+ * 只做 `initialize` 的探测的时限（T3 的 `GROK_ACP_INITIALIZE_TIMEOUT_MS`）。Grok 先做完启动的准备（设置、找 skills、监视文件）
+ * 才回 `initialize`，T3 在 1.0.52 上从主目录起测到 9–14 s，8 s 会把好好的 CLI 记成探测失败。
+ */
+export const INITIALIZE_PROBE_TIMEOUT_MS = 20_000;
 /** `grok logout` 的时限。 */
 export const LOGOUT_TIMEOUT_MS = 20_000;
 /** 交给 Wevir 装的 `grok` 的环境变量：更新只经设置里的下载，不让它自己下载新版换掉（文档：Process 级开关）。 */
@@ -483,12 +488,22 @@ export class GrokAccounts implements EngineAccounts {
       ...(this.#options.readFile !== undefined && { readFile: this.#options.readFile }),
     });
 
+    const apiKey = parentEnv[XAI_API_KEY_ENV]?.trim();
     // `grok models`：只解析干净退出的输出（失败时打印的是帮助或错误，不能当模型或登录结论，T3）。
-    const modelsRun = await runGrok(executablePath, ['models'], env, MODELS_TIMEOUT_MS, signal);
-    const cli: GrokModelsCliOutput =
-      modelsRun.ok && modelsRun.code === 0
-        ? parseGrokModelsOutput(`${modelsRun.stdout}\n${modelsRun.stderr}`)
-        : { authenticated: null, models: { models: [] } };
+    const listModels = async () => {
+      const run = await runGrok(executablePath, ['models'], env, MODELS_TIMEOUT_MS, signal);
+      const output: GrokModelsCliOutput =
+        run.ok && run.code === 0
+          ? parseGrokModelsOutput(`${run.stdout}\n${run.stderr}`)
+          : { authenticated: null, models: { models: [] } };
+      return { run, output };
+    };
+    let { run: modelsRun, output: cli } = await listModels();
+    // 访问令牌过期时 CLI 先打印没登录，再在同一个进程里刷新令牌：那个进程退出后再问一次，才分得清是刷新还是真的登出了（T3）。
+    if (cli.authenticated === false && (apiKey === undefined || apiKey === '')) {
+      const recheck = await listModels();
+      if (recheck.output.authenticated !== null) ({ run: modelsRun, output: cli } = recheck);
+    }
 
     // `initialize` 的 `_meta.modelState`：带上下文窗口与推理档位，有就用它（T3）。失败只让模型信息少一些。
     let initialize: unknown;
@@ -504,7 +519,6 @@ export class GrokAccounts implements EngineAccounts {
     const acpModels = modelsFromInitialize(initialize);
     this.#models = acpModels ?? (cli.models.models.length > 0 ? cli.models : GROK_DEFAULT_MODELS);
 
-    const apiKey = parentEnv[XAI_API_KEY_ENV]?.trim();
     if (apiKey !== undefined && apiKey !== '') {
       return { ...installed, status: 'signed_in', plan: 'apiKey', planLabel: 'xAI API Key' };
     }
