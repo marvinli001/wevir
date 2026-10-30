@@ -56,6 +56,8 @@ export interface MockReply {
   endAfterText?: number;
   /** 以 `response.incomplete`（`incomplete_details.reason` 是这个值）结束，代替 `response.completed`。 */
   incomplete?: string;
+  /** 只发 `response.created` 与 `response.failed`（带这个 `error`）：如模型满载的 `server_is_overloaded`。 */
+  failed?: { code: string; message: string };
 }
 
 export type MockScript = (view: MockView) => MockReply;
@@ -122,6 +124,13 @@ function* render(
   body: MockRequestBody,
 ): Generator<Record<string, unknown> | null> {
   yield { type: 'response.created', response: { id: responseId } };
+  if (reply.failed !== undefined) {
+    yield {
+      type: 'response.failed',
+      response: { id: responseId, status: 'failed', error: reply.failed, usage: null },
+    };
+    return;
+  }
   let outputIndex = 0;
   const output: Record<string, unknown>[] = [];
   if (reply.reasoning?.length) {

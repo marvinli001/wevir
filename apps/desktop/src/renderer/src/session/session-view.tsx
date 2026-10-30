@@ -492,6 +492,46 @@ export function SessionView({
       ? lastTurnId(transcript)
       : undefined;
   const autoContinueArmed = transcript?.autoContinue;
+  // 换模型继续（0.143.0）：额度卡片上选模型，Host 换模型（别的来源时接力）再替用户发继续消息。同一来源要 Host 能换模型。
+  const switchable = useHandoffTargets(session);
+  const configurable =
+    view.status === 'connected' && hostSupports(view.hello.features, 'session_configure');
+  const switchModelEnabled =
+    messageActionsEnabled && hostSupports(view.hello.features, 'usage_limit_switch');
+  const switchTurnId =
+    switchModelEnabled && sessionState === 'idle' && transcript !== undefined
+      ? lastTurnId(transcript)
+      : undefined;
+  const switchModelTo = useCallback(
+    async (turnId: TurnId, next: ModelChoice) => {
+      if (!client) return;
+      setNotice(undefined);
+      try {
+        const { session: updated } = await client.request('session.continueWithModel', {
+          turnId,
+          ...configureParams(session, next),
+        });
+        store?.upsertSession(updated);
+        transcriptRef.current?.jumpToLatest('auto');
+      } catch (error) {
+        setNotice(t('usageLimit.switchFailed', { error: describe(error) }));
+      }
+    },
+    [client, session, store],
+  );
+  const canSwitchTo = useCallback(
+    (provider: ProviderProfile) =>
+      provider.id === session.providerId ? configurable : (switchable?.(provider) ?? false),
+    [configurable, switchable, session.providerId],
+  );
+  const switchModelValue = useMemo<ModelChoice>(
+    () => ({
+      providerId: session.providerId,
+      modelId: session.modelId,
+      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+    }),
+    [session.providerId, session.modelId, session.reasoningEffort],
+  );
   // 回合末的下一步卡片（0.128.0）：按钮发出 agent 写好的消息，同输入框发出的一样。
   const wrapUpTurnId =
     messageActionsEnabled && sessionState === 'idle' && transcript !== undefined
@@ -507,6 +547,15 @@ export function SessionView({
           ...(autoContinueTurnId !== undefined && { lastTurnId: autoContinueTurnId }),
           ...(autoContinueArmed !== undefined && { armed: autoContinueArmed }),
           set: setAutoContinue,
+        },
+      }),
+      ...(switchModelEnabled && {
+        switchModel: {
+          ...(switchTurnId !== undefined && { lastTurnId: switchTurnId }),
+          providers,
+          value: switchModelValue,
+          switchable: canSwitchTo,
+          run: switchModelTo,
         },
       }),
       ...(messageActionsEnabled && {
@@ -528,6 +577,12 @@ export function SessionView({
       autoContinueTurnId,
       autoContinueArmed,
       setAutoContinue,
+      switchModelEnabled,
+      switchTurnId,
+      providers,
+      switchModelValue,
+      canSwitchTo,
+      switchModelTo,
     ],
   );
 
@@ -581,7 +636,6 @@ export function SessionView({
     },
     [client, session],
   );
-  const switchable = useHandoffTargets(session);
   const permission = useMemo(
     () =>
       permissionModes && writable && session.parentSessionId === undefined

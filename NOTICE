@@ -327,6 +327,8 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
       <- apps/server/src/vcs/GitVcsDriver.ts
          apps/server/src/orchestration-v2/CheckpointService.ts
          apps/server/src/checkpointing/Diffs.ts
+         apps/server/src/vcs/VcsProcess.ts
+         （落盘设置，来源提交 55ba1baa559ee73b9db177da07f56000774371f2）
   apps/desktop/src/renderer/src/layout/panes/changes-pane.tsx
       <- apps/web/src/components/DiffPanel.tsx
   apps/desktop/src/renderer/src/changes/styled-code-view.tsx
@@ -368,6 +370,16 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
          apps/web/src/components/ChatView.tsx（目标横幅）
   packages/adapter-codex/src/codex-adapter.ts（会话目标的顺序）
       <- apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts（runGoalCommand、resolveGoalStopTarget）
+  packages/adapter-codex/src/codex-adapter.ts（模型满载时续跑、子 agent 跑完叫醒父会话）
+      <- apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts（retryCapacityFailure、continuationRequests；
+         740de0e642d630a08e37d0780fa99c178c27808e、11adcb0e25a04785f70d01c3f2a858889683007e）
+  packages/adapter-codex/src/account.ts（不让旧额度覆盖新额度）
+      <- apps/server/src/provider/codexUsageLimits.ts（codexRateLimitsToUpdate；c3f5e363e59371d292f4a7e27008d2c5d1260725）
+  packages/adapter-codex/src/turn-error.ts（isUsageLimit）
+      <- apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts（codexUsageLimitError；58b48274ff7db9361ab904d90c76b968e9a9228f）
+  packages/adapter-codex/src/codex-process.ts（stdout 的单行上限与关闭）
+      <- packages/effect-codex-app-server/src/protocol.ts（e859e318a0ed88f0493958c9226e4501c9aaa7e3、
+         7769d709ce1983df0224c5f0e666b81ec61cac9f）
   apps/desktop/src/renderer/src/session/composer-images.ts（规则）
       <- packages/contracts/src/chatAttachment.ts
          apps/web/src/components/chat/composerAttachmentFiles.ts
@@ -416,6 +428,8 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
 
   packages/adapter-claude/src/claude-adapter.ts
       <- apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
+  packages/adapter-claude/src/task-output.ts
+      <- apps/server/src/orchestration-v2/Adapters/ClaudeTaskOutputTail.ts
   packages/adapter-claude/src/account.ts
       <- apps/server/src/provider/ClaudeProvider.ts
          apps/server/src/provider/claudeUsageLimits.ts
@@ -431,6 +445,7 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
          apps/web/src/onboarding/providerReadiness.logic.ts
   packages/adapter-claude/src/permissions.ts、tool-display.ts、todos.ts、turn-result.ts
       <- apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
+         packages/provider-core/src/server/failure.ts（turn-result.ts 的报错脱敏）
 
 packages/adapter-claude/src/test-fixtures/sdk/ 是 Claude Code（Anthropic 的商业条款，© Anthropic PBC）经 Claude Agent
 SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
@@ -464,6 +479,9 @@ OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.t
   packages/adapter-opencode/src/opencode-adapter.ts
   packages/adapter-opencode/src/title.ts
 
+其中 accounts.ts、permissions.ts、mapping.ts 与 opencode-adapter.ts 另有几处取自上面那个提交之后的修复（cfbfbca6e0582fb48423949b10f0663f8fed2be0、
+807319c276c6831b2c219640e9da5b38019a8f1d、8031991591e22d76830e4acf6358c4fd78ffcf60，见各文件头），许可证与版权声明相同。
+
 packages/adapter-opencode/src/test-fixtures/events/ 是 opencode 1.18.34（MIT，Copyright (c) 2025 opencode，
 https://github.com/anomalyco/opencode）的服务器对着本机假模型交出的事件流的录制，见 docs/upstream/UPSTREAM.md §4.1。
 
@@ -479,9 +497,14 @@ Effect 的 TypeScript，建在 @wevir/adapter-acp 上：
   packages/adapter-grok/src/launch.ts
       <- acpSupport.ts、status.ts、driver.ts
   packages/adapter-grok/src/accounts.ts
-      <- status.ts
+      <- status.ts（另含来源提交 c632d7e96bd8bc8a808d76c3f766809c7730a765、a2157eced708fd25fab7b616f5a68cb65312eaed
+         的两处修复）
   packages/adapter-grok/src/grok-adapter.ts
       <- adapter.ts、xaiAcpExtension.ts、acpSupport.ts、packages/provider-acp/src/server/AcpSessionRuntime.ts
+
+packages/runtime-adapter/src/secret-patterns.ts 里 redactDiagnostics 的规则改写自 T3 Code 的
+packages/provider-core/src/server/failure.ts 与 packages/provider-acp/src/server/stderr.ts（来源提交
+67afdd56c7905e9df721c61f5795578bb8c27867、49d014245777bbf47756635886ddf0846d2330d3）。
 
 packages/adapter-grok/src/test-fixtures/acp/ 是 T3 Code 的 apps/server/src/orchestration-v2/testkit/fixtures/ 里 7 个
 grok_transcript.ndjson 的原样副本：T3 录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返，其中 Grok 的输出受 xAI 的条款约束。

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts（`resultUserFacingError`、`terminalResultError`、`isOverloadedResult`、`terminalStatusFromResult`、`providerFailureFromResult`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 与 packages/provider-core/src/server/failure.ts（`redactUrl`、`replaceUnsafeControlCharacters`、`redactProviderFailureText`、`boundedText`）
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；上下文满与用量上限的区分取自 fb9af9e57dcfcf2a8cf74ba0a52031a65eb02dc9，
+// `API Error:` 原文与脱敏取自 55a8fe9a938c61ef6e6bce718c58647ebdb4c88d
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：输出 Wevir 的 `turn.settled` / `turn.failed`（错误归成 missing_credentials / provider / unknown），去掉 T3 的失败对象与网关限流的特判。
 //
@@ -9,6 +11,75 @@
 
 import type { TurnFailedEvent, TurnRetryingEvent } from '@wevir/runtime-adapter';
 import type { SDKAPIRetryMessage, SDKRateLimitInfo, SDKResultMessage } from './sdk.js';
+
+/** 用量上限挡下回合时的说明（T3 的 `failureHint`）。 */
+export const USAGE_LIMIT_ERROR =
+  'Claude usage limit reached. Send the message again once the limit resets.';
+
+/** 上下文窗口满了（T3 fb9af9e）：`prompt_too_long`，以及没有用量上限证据的 `blocking_limit`。 */
+export const CONTEXT_WINDOW_FULL_ERROR =
+  "Claude stopped: the prompt exceeds the model's context window. Run /compact or start a new session.";
+
+/** `api_error` 结果里 `API Error: …` 原文的长度上限（T3 55a8fe9）。 */
+const API_ERROR_TEXT_MAX = 500;
+
+function redactUrl(match: string): string {
+  const trailing = /[),.;!?]+$/u.exec(match)?.[0] ?? '';
+  const candidate = trailing.length === 0 ? match : match.slice(0, -trailing.length);
+  try {
+    const url = new URL(candidate);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return `${url.toString()}${trailing}`;
+  } catch {
+    return '[REDACTED_URL]';
+  }
+}
+
+function replaceUnsafeControlCharacters(value: string): string {
+  const sanitized: string[] = [];
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    sanitized.push(
+      codePoint <= 0x08 ||
+        (codePoint >= 0x0b && codePoint <= 0x0c) ||
+        (codePoint >= 0x0e && codePoint <= 0x1f) ||
+        codePoint === 0x7f
+        ? ' '
+        : character,
+    );
+  }
+  return sanitized.join('');
+}
+
+/** API 报错的原文可能带令牌、密钥或带凭据的地址：先脱敏再给人看（T3 的 `redactProviderFailureText`）。 */
+function redactFailureText(value: string): string {
+  return replaceUnsafeControlCharacters(value)
+    .replace(/\bhttps?:\/\/[^\s<>"']+/giu, redactUrl)
+    .replace(/\b(Bearer|Basic)\s+[^\s,;]+/giu, '$1 [REDACTED]')
+    .replace(
+      /(["'](?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)["']\s*:\s*["'])[^"']*(["'])/giu,
+      '$1[REDACTED]$2',
+    )
+    .replace(
+      /(\b(?:access[_-]?token|api[_-]?key|authorization|credential|password|secret|token)\b\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu,
+      '$1[REDACTED]',
+    )
+    .replace(/\bsk-[A-Za-z0-9_-]{16,}\b/gu, '[REDACTED]')
+    .trim();
+}
+
+/** 脱敏后截到 `maxLength`（截断处加省略号，不切开代理对；T3 的 `boundedText`）。 */
+function boundedFailureText(value: string, maxLength: number): string {
+  const redacted = redactFailureText(value);
+  if (redacted.length <= maxLength) return redacted;
+  let end = Math.max(0, maxLength - 1);
+  const finalCodeUnit = redacted.charCodeAt(end - 1);
+  if (finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff) end -= 1;
+  return `${redacted.slice(0, end)}…`;
+}
 
 /** 给人看的第一条错误（T3：`[ede_diagnostic]` 是 CLI 内部的遥测，不当错误显示）。 */
 export function resultUserFacingError(result: SDKResultMessage): string | undefined {
@@ -38,11 +109,12 @@ export function terminalReasonError(
     case 'turn_setup_failed':
       return 'Claude could not start the turn.';
     case 'blocking_limit':
-      return 'Claude stopped: a usage limit blocked the request.';
+      // 上下文窗口满了（“Prompt is too long”）CLI 也以 blocking_limit 结束回合；只有用量上限的证据才给 hint（T3 fb9af9e）。
+      return hint ?? CONTEXT_WINDOW_FULL_ERROR;
     case 'rapid_refill_breaker':
       return 'Claude stopped: the context refilled too quickly after compaction.';
     case 'prompt_too_long':
-      return "Claude stopped: the prompt exceeds the model's context window.";
+      return CONTEXT_WINDOW_FULL_ERROR;
     case 'image_error':
       return 'Claude stopped: an image in the conversation could not be processed.';
     case 'model_error':
@@ -117,8 +189,9 @@ export function retryingOf(
 
 /**
  * 失败的回合 → `turn.failed` 的字段；正常完成时 undefined。`authFailed`：回合里的助手消息报过 `authentication_failed`
- * （没登录或登录过期），归为 `missing_credentials`。`usageLimit`：回合里被拒的 `rate_limit_event`（0.119.0）；结果的
- * `terminal_reason` 是 `blocking_limit` 时也算用量上限。
+ * （没登录或登录过期），归为 `missing_credentials`。`usageLimit`：回合里被拒的 `rate_limit_event`（0.119.0），只有它算用量上限：
+ * `blocking_limit` 本身也可能是上下文窗口满了（T3 fb9af9e）。`api_error` 的结果以 `API Error:` 开头时，说明用这段原文（脱敏、截断，
+ * T3 55a8fe9）。
  */
 export function resultFailure(
   result: SDKResultMessage,
@@ -133,12 +206,19 @@ export function resultFailure(
       message: listed ?? (result.errors.join('\n') || result.subtype),
     };
   }
+  const apiError =
+    result.terminal_reason === 'api_error' && result.result.trim().startsWith('API Error:')
+      ? boundedFailureText(result.result, API_ERROR_TEXT_MAX)
+      : undefined;
   const structured =
     status === 529
       ? 'Claude API is overloaded (529). Try again shortly.'
       : status === 429
         ? 'Claude API rate limit reached. Try again later.'
-        : terminalReasonError(result.terminal_reason);
+        : terminalReasonError(
+            result.terminal_reason,
+            usageLimit !== undefined ? USAGE_LIMIT_ERROR : apiError,
+          );
   if (!result.is_error && structured === undefined) return undefined;
   const category =
     authFailed || status === 401
@@ -148,11 +228,10 @@ export function resultFailure(
         : result.terminal_reason === 'api_error' || result.terminal_reason === 'blocking_limit'
           ? 'provider'
           : 'unknown';
-  const limited = usageLimit ?? (result.terminal_reason === 'blocking_limit' ? {} : undefined);
   return {
     category,
     message: listed ?? structured ?? (result.result || 'Claude reported an error.'),
     ...(typeof status === 'number' && { code: status }),
-    ...(limited !== undefined && category !== 'missing_credentials' && { usageLimit: limited }),
+    ...(usageLimit !== undefined && category !== 'missing_credentials' && { usageLimit }),
   };
 }

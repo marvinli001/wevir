@@ -549,6 +549,33 @@ describe('映射的边界情况', () => {
     expect(fail('rateLimitExceeded')[0]).not.toHaveProperty('usageLimit');
   });
 
+  it('ChatGPT 进程：rateLimitExceeded 与 429 重试用完也是用量上限；经网关的进程不是', () => {
+    const fail = (codexErrorInfo: unknown, subscription: boolean) =>
+      new CodexEventMapper(id, { subscription }).map('turn/completed', {
+        threadId: id,
+        turn: {
+          id: turnId,
+          status: 'failed',
+          error: { message: 'exceeded retry limit', codexErrorInfo, additionalDetails: null },
+        },
+      })[0];
+    const exhausted = (httpStatusCode: number | null) => ({
+      responseTooManyFailedAttempts: { httpStatusCode },
+    });
+    expect(fail('rateLimitExceeded', true)).toMatchObject({ usageLimit: {} });
+    expect(fail(exhausted(429), true)).toMatchObject({
+      category: 'provider',
+      code: 429,
+      usageLimit: {},
+    });
+    expect(fail('usageLimitExceeded', true)).toMatchObject({ usageLimit: {} });
+    expect(fail(exhausted(500), true)).not.toHaveProperty('usageLimit');
+    expect(fail(exhausted(null), true)).not.toHaveProperty('usageLimit');
+    expect(fail('serverOverloaded', true)).not.toHaveProperty('usageLimit');
+    expect(fail('rateLimitExceeded', false)).not.toHaveProperty('usageLimit');
+    expect(fail(exhausted(429), false)).not.toHaveProperty('usageLimit');
+  });
+
   it('中断时只有空白的增量以 abandoned 结束，不补发消息', () => {
     const mapper = new CodexEventMapper(id);
     mapper.map('item/agentMessage/delta', { threadId: id, turnId, itemId: 'm1', delta: '  \n' });

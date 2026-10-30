@@ -2,7 +2,12 @@
 
 import type { AgentEvent, ToolDisplay } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
-import { type AcpSessionNotification, mapAcpUpdate, sessionConfigInfo } from './acp-mapping.js';
+import {
+  type AcpSessionNotification,
+  mapAcpUpdate,
+  routeModelOption,
+  sessionConfigInfo,
+} from './acp-mapping.js';
 import { acpAdapterCapabilities } from './capabilities.js';
 import type { AcpRouteCodec, AcpToolPresentation } from './engine.js';
 import { SessionEventQueue } from './session-events.js';
@@ -122,5 +127,27 @@ describe('SessionEventQueue：已提交消息的引擎', () => {
     for await (const event of events) out.push(event);
     expect(out.map((e) => e.type)).toEqual(['assistant.message', 'turn.settled']);
     expect(out[0]).toMatchObject({ text: '你好', replaces: [] });
+  });
+});
+
+describe('模型选项（按类别）', () => {
+  const route: AcpRouteCodec = { ...PLAIN_ROUTE, modelOption: 'model', modelCategory: 'model' };
+  const select = (id: string, currentValue: string) => ({
+    id,
+    name: id,
+    type: 'select',
+    category: 'model',
+    currentValue,
+    options: [{ value: currentValue, name: currentValue }],
+  });
+
+  it('只认这一类里第一个 select，同类的开关与空 ID 不算；没有时用 modelOption', () => {
+    const toggle = { id: 'fast', type: 'boolean', category: 'model', currentValue: true };
+    const blank = { ...select('  ', 'x'), id: '  ' };
+    const options = [toggle, blank, select('model_id', 'fixture-a'), select('later', 'fixture-b')];
+    expect(routeModelOption(options, route)).toBe('model_id');
+    expect(sessionConfigInfo(options, route)).toEqual({ modelId: 'fixture-a' });
+    expect(routeModelOption([toggle], route)).toBe('model');
+    expect(routeModelOption(undefined, route)).toBe('model');
   });
 });

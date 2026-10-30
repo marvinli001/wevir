@@ -4,15 +4,17 @@
 // `abortDescendants`、`emitSubagent`、`routeRuntimeRequest`）、OpenCodeRuntime.ts
 // （`openCodeQuestionId`、`toOpenCodeQuestionAnswers`），以及 adapter.ts 的 `steerTurn`、`advanceOpenCodePromptAdmission`、
 // `reconcilePromptAdmission`、`forkThread`、`openCodeBoundaryAfterProviderTurn`
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；换权限模式时子会话跟着换（`applyPermissionRules`）来源提交
+// 8031991591e22d76830e4acf6358c4fd78ffcf60
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；T3 的编排节点、计划与 MCP 工具、附件、slash 命令、压缩与回滚不搬；插话
 // 以回答它的 assistant 消息（`parentID` 是插话的消息 ID）报 `turn.steered`，没用上的插话在下一次发送前从 opencode 的历史里删掉
 // （T3 留着，Host 把它改为排队再发一次时模型会看到两遍）；分支只做 Wevir 的支线（分到最近一个完成的回合，补一条边界消息）；
 // 子 agent 照 Wevir 的子会话报（subagent.started + 子会话自己的流），子会话的审批与提问在子会话的流里报（T3 挂到顶层
 // 会话上，Wevir 的 Host 自己会把子会话的审批交给父会话的界面）；子会话的规则在 session.created 时就装上（T3 等 task 工具报出
-// 子会话 ID 才装）；回合以见到它的 busy 为开始，之前的 idle 一律当作上一个回合留下的（T3 的 admission 状态机在“旧 idle 赶上
+// 子会话 ID 才装），换权限模式时按记下的子 agent 自己的规则重算（T3 记下上次写进去的父会话规则再去掉）；回合以见到它的 busy 为开始，之前的 idle 一律当作上一个回合留下的（T3 的 admission 状态机在“旧 idle 赶上
 // opencode 的循环还没开始”时会去问 session.status、读到 idle 就提前结束回合）；取消在回合没停下之前每秒重发一次 abort。
+// 跟进 T3 8298664e9e：上游报 HTTP 429 时回合失败带 `usageLimit`，之前先重读账号的用量。
 //
 // OpenCode 引擎（订阅来源 `opencode`，ADR-0005 补记 14，docs/architecture/opencode-event-mapping.md）：用户自己装的 `opencode`
 // 与他接上的上游，Wevir 在本机起它的服务器（runtime.ts / server.ts），经 `@opencode-ai/sdk` 说话。一个 Wevir 会话是一个
@@ -56,11 +58,11 @@ import { newMessageId } from './message-id.js';
 import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
 import {
   APPROVAL_OPTIONS,
-  childPermissionRules,
   engineToolRules,
   PERMISSION_MODES,
   permissionReply,
   permissionRules,
+  subagentOwnRules,
 } from './permissions.js';
 import { OpenCodeRuntime, type OpenCodeRuntimeOptions, type ServerLease } from './runtime.js';
 import {
@@ -89,6 +91,8 @@ export const ACTIVITY_TIMEOUT_MS = 5_000;
 export const STREAM_READY_TIMEOUT_MS = 10_000;
 /** 插话交出去之前到的 idle 先压着；交出去之后再等这么久，还没见到 busy 才去问 session.status。 */
 export const STEER_IDLE_GRACE_MS = 250;
+/** 回合撞上用量上限时最多等多久重读账号的用量。 */
+export const USAGE_REFRESH_TIMEOUT_MS = 5_000;
 
 /** 告警与日志出口；Host 的 Logger 满足这个接口。 */
 export interface OpenCodeAdapterLogger {
@@ -176,6 +180,8 @@ interface Turn {
   rechecking: boolean;
   prompt: AbortController | undefined;
   cancelling: boolean;
+  /** 撞上了用量上限，正在重读用量、之后以失败结算：这期间到的 idle 不按完成结算。 */
+  limited: boolean;
   done: boolean;
   readonly settled: Promise<void>;
   readonly resolve: () => void;
@@ -209,6 +215,8 @@ interface Session {
   readonly parent: Session | undefined;
   settings: SessionSettings;
   rules: PermissionRuleset;
+  /** 子会话：opencode 给子 agent 自己的规则（subagentOwnRules），换权限模式时据此重算；顶层会话为空。 */
+  readonly agentRules: PermissionRuleset;
   hub: EventHub<AgentEvent>;
   attached: boolean;
   stream: DirectoryStream | undefined;
@@ -702,12 +710,26 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const rules = sessionRules(session.settings);
     if (JSON.stringify(rules) === JSON.stringify(session.rules)) return;
     session.rules = rules;
-    if (session.attached && session.stream !== undefined) {
-      try {
-        await session.stream.client.updateSession(session.id, { permission: session.rules });
-      } catch (error) {
-        throw adapterError(error, 'session.update');
+    await this.#installRules(session);
+    // opencode 只在建子会话时抄一次父会话的规则：正在跑的子 agent 也换成新模式的规则（T3 的 applyPermissionRules）。
+    const pending = [...session.children];
+    for (let child = pending.pop(); child !== undefined; child = pending.pop()) {
+      child.settings = { ...session.settings };
+      const childRules = subagentRules(session, child.agentRules);
+      if (JSON.stringify(childRules) !== JSON.stringify(child.rules)) {
+        child.rules = childRules;
+        await this.#installRules(child);
       }
+      pending.push(...child.children);
+    }
+  }
+
+  async #installRules(session: Session): Promise<void> {
+    if (!session.attached || session.stream === undefined) return;
+    try {
+      await session.stream.client.updateSession(session.id, { permission: session.rules });
+    } catch (error) {
+      throw adapterError(error, 'session.update');
     }
   }
 
@@ -913,6 +935,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       parent: undefined,
       settings,
       rules,
+      agentRules: [],
       hub: new EventHub(),
       attached: true,
       stream,
@@ -936,16 +959,14 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const existing = this.#sessions.get(info.id);
     if (existing?.attached) return existing;
     const root = rootOf(parent);
+    const agentRules = subagentOwnRules(root.rules, info.permission ?? []);
     const child: Session = {
       id: info.id,
       cwd: parent.cwd,
       parent,
       settings: { ...root.settings },
-      // 父会话藏掉的应用级工具再接在最后，免得 opencode 给子会话的规则里排在后面的放行盖过它们。
-      rules: [
-        ...childPermissionRules(root.rules, info.permission ?? []),
-        ...hiddenToolRules(root.settings.hiddenTools ?? []),
-      ],
+      rules: subagentRules(root, agentRules),
+      agentRules,
       hub: new EventHub({ bufferUntilSubscribed: true }),
       attached: true,
       stream: parent.stream,
@@ -1037,6 +1058,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       rechecking: false,
       prompt: undefined,
       cancelling: false,
+      limited: false,
       done: false,
       settled,
       resolve,
@@ -1112,6 +1134,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   /** 发出回合的终结事件（T3 的 finalizeTurn）：先提交没提交的文本、结掉未决的审批与提问。 */
   #settle(session: Session, turn: Turn, terminal: AgentEvent): void {
     if (turn.done) return;
+    if (turn.limited && terminal.type === 'turn.settled' && terminal.outcome === 'completed')
+      return;
     turn.done = true;
     clearTimeout(turn.watchdog);
     if (session.parent === undefined) session.history = true;
@@ -1615,7 +1639,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       error?.name ||
       'OpenCode session failed without an error payload';
     const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
-    this.#settle(session, turn, {
+    const usageLimited = error?.name === 'APIError' && statusCode === 429;
+    const failed: AgentEvent = {
       type: 'turn.failed',
       engineSessionId: session.id,
       category: errorCategory(
@@ -1623,6 +1648,26 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ),
       message,
       ...(statusCode !== undefined && { code: statusCode }),
+      ...(usageLimited && { usageLimit: {} }),
+    };
+    if (!usageLimited) {
+      this.#settle(session, turn, failed);
+      return;
+    }
+    // 先重读用量（最多等 USAGE_REFRESH_TIMEOUT_MS），Host 记下上限时好从刚读到的用量里补额度恢复的时刻（auto-continue.ts 的
+    // completeUsageLimit）。期间取消照常结算为取消。
+    turn.limited = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    void Promise.race([
+      this.accounts.refreshUsage('opencode').catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, USAGE_REFRESH_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]).then(() => {
+      clearTimeout(timer);
+      turn.limited = false;
+      this.#settle(session, turn, failed);
     });
   }
 
@@ -1733,6 +1778,14 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   #alive(): void {
     if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
   }
+}
+
+/**
+ * 子会话的规则（T3 的 openCodeChildPermissionRules）：顶层会话的规则加上子 agent 自己的限制。顶层会话藏掉的应用级工具再接在
+ * 最后，免得子 agent 自己的规则里的放行盖过它们。
+ */
+function subagentRules(root: Session, agentRules: PermissionRuleset): PermissionRuleset {
+  return [...root.rules, ...agentRules, ...hiddenToolRules(root.settings.hiddenTools ?? [])];
 }
 
 function rootOf(session: Session): Session {

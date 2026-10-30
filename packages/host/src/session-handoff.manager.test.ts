@@ -117,6 +117,46 @@ describe('接力（SessionManager）', () => {
     return answer?.type === 'assistant.message' ? answer.payload.text : '';
   }
 
+  it('换模型继续（0.143.0）：额度用完的回合接力到别的来源，新引擎拿到摘要与继续消息', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, '整理 README');
+    await turn(env, sessionId, 'hitlimit');
+    const limited = env.events.readSince(sessionId, 0).findLast((e) => e.type === 'turn.started');
+    const turnId = limited?.type === 'turn.started' ? limited.payload.turnId : undefined;
+    if (turnId === undefined) throw new Error('no turn');
+    const result = await env.manager.continueWithModel(
+      { sessionId, turnId, providerId: 'claude' },
+      identity,
+    );
+    expect(result.session).toMatchObject({ providerId: 'claude', modelId: 'claude-opus-5-5' });
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('idle'), {
+      timeout: 5000,
+    });
+    expect(handoffs(env, sessionId)).toHaveLength(1);
+    const message = env.events.readSince(sessionId, 0).findLast((e) => e.type === 'user.message');
+    expect(message?.type === 'user.message' && message.payload.from).toEqual({
+      sessionId,
+      kind: 'report',
+      usageLimit: { turnId },
+    });
+    // 新引擎看到接力的摘要（含之前的对话）与继续消息。
+    // 接力在继续消息之前，继续的回合跑在新来源上。
+    const types = env.events
+      .readSince(sessionId, 0)
+      .map((e) => e.type)
+      .filter((type) => ['session.handoff', 'user.message', 'turn.started'].includes(type));
+    expect(types.slice(-3)).toEqual(['session.handoff', 'user.message', 'turn.started']);
+    expect(message?.type === 'user.message' && message.payload.content).toEqual([
+      {
+        type: 'text',
+        text: 'I hit my usage limit while you were working, so I switched to a different model. Please continue from where you left off.',
+      },
+    ]);
+    expect(env.claude.sessionCount).toBe(1);
+  });
+
   it('写读历史工具的文件，摘要里提这个工具；文件里是全文', async () => {
     const env = setup();
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });

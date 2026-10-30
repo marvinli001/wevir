@@ -82,6 +82,11 @@ export class ChatgptAccount {
   #login: AccountState['login'];
   /** 被替换或取消的登录：它们的失败通知不记错误。 */
   readonly #abandoned = new Set<string>();
+  /**
+   * 每个额度上一条 `account/rateLimits/updated` 带的窗口。Codex 每次报 token 用量都重发会话里缓存的额度，可能早于随后
+   * 重读到的用量（额度已经重置）；与上一条相同的窗口不是新消息，不覆盖。
+   */
+  readonly #notified = new Map<string, Pick<CodexRateLimit, 'primary' | 'secondary'>>();
   #published = '';
 
   constructor(options: ChatgptAccountOptions) {
@@ -223,6 +228,7 @@ export class ChatgptAccount {
     }
     this.#login = undefined;
     this.#base = { signedIn: false };
+    this.#notified.clear();
     return this.#publish();
   }
 
@@ -268,6 +274,8 @@ export class ChatgptAccount {
 
   /** 进程退出：进行中的登录随之结束；账号状态等下次读。 */
   onExit(): void {
+    // 新进程的缓存从它自己的第一条通知算起。
+    this.#notified.clear();
     if (this.#login === undefined) return;
     this.#abandoned.add(this.#login.loginId);
     this.#login = undefined;
@@ -301,6 +309,7 @@ export class ChatgptAccount {
     if (params?.authMode === null || params?.authMode === undefined) {
       if (this.#base?.signedIn !== true) return;
       this.#base = { signedIn: false };
+      this.#notified.clear();
       this.#publish();
       return;
     }
@@ -320,10 +329,18 @@ export class ChatgptAccount {
     const name = nonEmpty(update.limitName);
     const primary = rateLimitWindow(update.primary);
     const secondary = rateLimitWindow(update.secondary);
+    const previous = this.#notified.get(id);
+    this.#notified.set(id, {
+      ...(primary !== undefined && { primary }),
+      ...(secondary !== undefined && { secondary }),
+    });
+    const fresh = (window: AccountRateLimitWindow | undefined, last?: AccountRateLimitWindow) =>
+      window !== undefined && !sameWindow(window, last);
+    const changed = fresh(primary, previous?.primary) || fresh(secondary, previous?.secondary);
     if (name !== undefined) limit.name = name;
-    if (primary !== undefined) limit.primary = primary;
-    if (secondary !== undefined) limit.secondary = secondary;
-    if (limit.primary === undefined && limit.secondary === undefined) return;
+    if (fresh(primary, previous?.primary)) limit.primary = primary;
+    if (fresh(secondary, previous?.secondary)) limit.secondary = secondary;
+    if (!changed || (limit.primary === undefined && limit.secondary === undefined)) return;
     this.#base.limits = { ...this.#base.limits, [id]: limit };
     this.#publish();
   }
@@ -467,6 +484,15 @@ function rateLimitWindow(
     result.resetsAt = new Date(window.resetsAt * 1000).toISOString();
   }
   return result;
+}
+
+function sameWindow(a: AccountRateLimitWindow, b: AccountRateLimitWindow | undefined): boolean {
+  return (
+    b !== undefined &&
+    a.usedPercent === b.usedPercent &&
+    a.windowMinutes === b.windowMinutes &&
+    a.resetsAt === b.resetsAt
+  );
 }
 
 function rpcError(error: unknown, method: string): AdapterError {

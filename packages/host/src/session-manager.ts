@@ -127,6 +127,7 @@ import {
   AutoContinueTimers,
   completeUsageLimit,
   resumeAtFor,
+  SWITCH_CONTINUE_PROMPT,
 } from './auto-continue.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
@@ -6520,6 +6521,10 @@ export class SessionManager {
           ? 'waiting'
           : 'held',
       ),
+      // 暂停是等用户看过自己排的消息；别的会话、Host 发来的没人会去看，之后的回合完成（不是停下的）就放行。
+      ...(finalOutcome === 'completed' && state !== 'cancelling'
+        ? releaseUnattended(snapshot)
+        : []),
     );
     // 自动继续的回合又碰到上限（0.119.0，重置时刻估早了、或另一个窗口也用完了）：知道下一次重置、还在一天之内时接着等。已经
     // 过去的重置时刻不再排，免得每 30 秒发一次。
@@ -6592,6 +6597,69 @@ export class SessionManager {
       }
       this.#write(runtime, [autoContinueEvent(params.turnId, resumeAt)]);
       return { session: this.#snapshot(runtime).session };
+    });
+  }
+
+  /**
+   * `session.continueWithModel`（0.143.0）：额度用完的回合换模型继续。先在会话的命令队列里核对 `turnId` 是最后一个、因用量上限失败的
+   * 回合，会话空闲不只读，并取消排着的自动继续；再照 `session.configure` 换模型（别的来源时接力，错误同它）；最后替用户发
+   * `SWITCH_CONTINUE_PROMPT`（`from.usageLimit`，同额度恢复后自动继续）。来源与模型都没换时 `INVALID_PARAMS`。
+   */
+  async continueWithModel(
+    params: MethodParams<'session.continueWithModel'>,
+    sentBy: ClientIdentity,
+  ): Promise<MethodResult<'session.continueWithModel'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    const assertLimited = () => {
+      const { session } = this.#snapshot(runtime);
+      if (this.#events.usageLimited(runtime.id)?.turnId !== params.turnId) {
+        throw new HostError(
+          'INVALID_STATE',
+          `turn ${params.turnId} is not the last turn of the session or did not hit a usage limit`,
+          { state: session.state },
+        );
+      }
+      if (session.state !== 'idle' || session.readOnly !== undefined) {
+        throw new HostError('INVALID_STATE', `session ${runtime.id} is ${session.state}`, {
+          state: session.state,
+          ...(session.readOnly !== undefined && { readOnly: session.readOnly }),
+        });
+      }
+      return session;
+    };
+    const { providerId, modelId } = await this.#serial(runtime, async () => {
+      const session = assertLimited();
+      const providerId = params.providerId ?? session.providerId;
+      if (
+        providerId === session.providerId &&
+        (params.modelId ?? session.modelId) === session.modelId
+      ) {
+        const message = `the session already uses ${providerId} / ${session.modelId}`;
+        throw new HostError('INVALID_PARAMS', message, {
+          issues: [{ path: ['modelId'], message }],
+        });
+      }
+      if (session.autoContinue !== undefined) {
+        this.#write(runtime, [autoContinueEvent(session.autoContinue.turnId, null)]);
+      }
+      return { providerId, modelId: params.modelId };
+    });
+    await this.configure({
+      sessionId: params.sessionId,
+      ...(providerId !== this.#snapshot(runtime).session.providerId && { providerId }),
+      ...(modelId !== undefined && { modelId }),
+      ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
+    });
+    return this.#serial(runtime, async () => {
+      assertLimited();
+      const { turnId } = await this.#startTurn(runtime, {
+        content: [{ type: 'text', text: SWITCH_CONTINUE_PROMPT }],
+        sentBy,
+        from: { sessionId: runtime.id, kind: 'report', usageLimit: { turnId: params.turnId } },
+      });
+      return { session: this.#snapshot(runtime).session, turnId };
     });
   }
 
@@ -7047,6 +7115,22 @@ function settlePendings(
     if (isDeepStrictEqual(next, pending)) return [];
     return [pendingUpdated({ ...next, updatedAt: now })];
   });
+}
+
+/**
+ * 回合完成时放行暂停的、不是用户发的待发消息（T3 的 releaseUnattendedHolds）：带 `from` 的（别的会话的消息与回报、后台进程的
+ * 通知、钩子、助理的唤醒与转帖）转回等待。引用第二意见是用户的操作，与用户自己发的一样仍等用户继续。
+ */
+function releaseUnattended(snapshot: SessionSnapshot): AppendInput[] {
+  const now = isoNow();
+  return (snapshot.pendingMessages ?? [])
+    .filter(
+      (pending) =>
+        pending.status === 'held' &&
+        pending.from !== undefined &&
+        pending.from.opinion === undefined,
+    )
+    .map((pending) => pendingUpdated({ ...pending, status: 'waiting', updatedAt: now }));
 }
 
 function isTerminalPending(pending: PendingMessage): boolean {

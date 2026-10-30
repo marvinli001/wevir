@@ -235,7 +235,17 @@ describe('TurnCheckpoints', () => {
     expect(refs(dir)).toEqual([]);
     expect(warnings).toMatchObject([{ message: 'checkpoint skipped', reason: 'sparse_checkout' }]);
 
+    // 会话目录被上层仓库忽略：git 不肯 add，记告警，不留 ref（不打出只有 HEAD 的空快照）。
+    const ignored = join(dir, 'ignored-project');
+    mkdirSync(ignored);
+    writeFileSync(join(dir, '.gitignore'), 'ignored-project/\n');
+    writeFileSync(join(ignored, 'b.txt'), 'b\n');
+    const outer = checkpoints();
     sh(dir, 'config', 'core.sparseCheckout', 'false');
+    await outer.service.beforeTurn(SID, ignored, T1);
+    expect(refs(dir)).toEqual([]);
+    expect(outer.warnings).toMatchObject([{ message: 'checkpoint failed' }]);
+
     const slow = checkpoints({ timeoutMs: 1 });
     await slow.service.beforeTurn(SID, dir, T1);
     await slow.service.beforeTurn(SID, dir, T2);
