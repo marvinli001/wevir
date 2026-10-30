@@ -1647,6 +1647,8 @@ describe('预设角色', () => {
     expect(text).toContain(`The session that opened you is ${caller};`);
     expect(text).toContain('Plan first, then write the plan to PLAN.md.');
     expect(text.endsWith('Your task:\n\nplan the migration')).toBe(true);
+    // 标题取任务正文，不取角色说明的第一行。
+    expect(h.events.snapshot(child)?.session.title).toBe('plan the migration');
     // 读这个会话时，角色说明折成一行，只留任务正文。
     const read = await h.call(caller, 'wevir_session_read', { sessionId: child });
     const firstRead = (read.items as Array<{ role: string; text: string }>).find(

@@ -23,14 +23,13 @@ import type {
 } from '@wevir/protocol';
 import { SECOND_OPINION_RUNNING_MAX, SECOND_OPINION_TEXT_MAX_LENGTH } from '@wevir/protocol';
 import type { SessionRecord, Storage } from '@wevir/storage';
-import { roleBrief } from './app-tools.js';
 import { CAPTURE_TIMEOUT_MS, captureBlocker, workingTreeHash } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { readBranch, repoInfo } from './git-diff.js';
 import { WorktreeError } from './git-worktree.js';
 import { newId } from './ids.js';
-import { BUILTIN_ROLES } from './roles.js';
+import { BUILTIN_ROLES, roleBrief } from './roles.js';
 import type { SessionManager } from './session-manager.js';
 import { defaultPromptsDir } from './title.js';
 
