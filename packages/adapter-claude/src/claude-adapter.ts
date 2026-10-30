@@ -44,6 +44,7 @@ import {
   type TitleRequest,
   type TurnFailedEvent,
   type TurnSettledEvent,
+  trackProcessGroup,
   URL_ELICITATION_OPTIONS,
 } from '@wevir/runtime-adapter';
 import {
@@ -553,6 +554,7 @@ function spawnProcessGroup(options: {
     stdio: ['pipe', 'pipe', 'ignore'],
     detached: true,
   });
+  trackProcessGroup(child, { kind: 'engine', name: 'claude' });
   child.once('exit', () => {
     try {
       if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');

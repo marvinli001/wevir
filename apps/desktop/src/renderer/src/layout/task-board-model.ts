@@ -1,5 +1,6 @@
 // 会话侧栏“任务清单”卡片的纯逻辑（0.52.0，desktop-layout.md §12）：共享任务清单（`tasks.board_updated`）按状态分组，
-// 每项算出等着谁、能不能开始，认领的会话认成“本会话 / 子智能体 / 别的会话 / 不认识”。清单由 agent 改，界面只读。
+// 每项算出等着谁、能不能开始，认领的会话认成“本会话 / 子智能体 / 别的会话 / 不认识”；清单在会话树的哪个会话里（`boardRootOf`）。
+// 清单由 agent 改，界面只读。
 
 import type {
   BoardTask,
@@ -26,8 +27,8 @@ export type SessionRef =
   | { kind: 'unknown' };
 
 export interface SessionDirectory {
-  /** 清单所在的会话（会话树的根，当前看的这个）。 */
-  rootId: SessionId;
+  /** 当前看的会话（会话树里的任何一个，不一定是根）：它认领的项标“本会话”。 */
+  sessionId: SessionId;
   workspaceId: string;
   /** 它派出的子会话。 */
   subagents: readonly Pick<SubagentSummary, 'sessionId' | 'title' | 'nickname'>[];
@@ -37,14 +38,42 @@ export interface SessionDirectory {
   untitled: string;
 }
 
+type TreeLinks = Pick<Session, 'id' | 'parentSessionId' | 'forkedFrom' | 'openedBy' | 'opinionOf'>;
+
+/**
+ * 清单在哪个会话里：会话树的根（Host 只把 `tasks.board_updated` 写进根会话）。照 Host 找根的办法一层层往上：子会话到父会话、
+ * 分支与支线到被分的会话、agent 开的会话到开它的会话、第二意见到收意见的会话。`lookup` 认不得上一层（归档了、不在列表里）时，
+ * 就当上一层是根。
+ */
+export function boardRootOf(
+  session: TreeLinks,
+  lookup: (id: SessionId) => TreeLinks | undefined,
+): SessionId {
+  const seen = new Set<string>();
+  let current = session;
+  while (!seen.has(current.id)) {
+    seen.add(current.id);
+    const up =
+      current.parentSessionId ??
+      current.forkedFrom?.sessionId ??
+      current.openedBy?.sessionId ??
+      current.opinionOf?.sessionId;
+    if (up === undefined) break;
+    const next = lookup(up);
+    if (next === undefined) return up;
+    current = next;
+  }
+  return current.id;
+}
+
 export function resolveSession(id: string, directory: SessionDirectory): SessionRef {
-  if (id === directory.rootId) return { kind: 'self' };
+  if (id === directory.sessionId) return { kind: 'self' };
   const child = directory.subagents.find((item) => item.sessionId === id);
   if (child) {
     return {
       kind: 'subagent',
       title: child.title.trim() || child.nickname?.trim() || directory.untitled,
-      to: paths.agent(directory.workspaceId, directory.rootId, id),
+      to: paths.agent(directory.workspaceId, directory.sessionId, id),
     };
   }
   const session = directory.sessions.find((item) => item.id === id);

@@ -188,6 +188,7 @@ import {
 } from './recap.js';
 import { pastedContent, relayContent } from './relay.js';
 import type { FindingInput } from './review/service.js';
+import { roleBriefTask } from './roles.js';
 import {
   type FoundRuleFile,
   planRules,
@@ -2123,7 +2124,8 @@ export class SessionManager {
     if (pending !== undefined) {
       inputs.push(pendingUpdated({ ...pending, status: 'sent', turnId, updatedAt: isoNow() }));
     }
-    const title = makeTitle(content);
+    const titleContent = withoutRoleBrief(content);
+    const title = makeTitle(titleContent);
     const firstTitle =
       title !== '' &&
       snapshot.session.title === '' &&
@@ -2238,7 +2240,7 @@ export class SessionManager {
       this.#storage.sendReceipts.setStatus(runtime.id, receipt, 'confirmed', isoNow());
     }
     // 截断的标题已经写下；引擎接受了第一个回合，再用会话的模型生成标题（不等它）。
-    if (firstTitle) this.#generateTitle(runtime, content);
+    if (firstTitle) this.#generateTitle(runtime, titleContent);
     return { turnId, seq: message.seq };
   }
 
@@ -7340,6 +7342,14 @@ function invalidContent(path: Array<string | number>, message: string): HostErro
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 用角色开的会话的第一条消息（roles.ts 的 `roleBrief`）：标题只看任务正文，不看 Wevir 拼进去的角色说明。 */
+function withoutRoleBrief(content: readonly UserContentPart[]): readonly UserContentPart[] {
+  const [first, ...rest] = content;
+  if (first?.type !== 'text') return content;
+  const task = roleBriefTask(first.text);
+  return task === undefined ? content : [{ ...first, text: task }, ...rest];
 }
 
 function makeTitle(content: readonly UserContentPart[]): string {

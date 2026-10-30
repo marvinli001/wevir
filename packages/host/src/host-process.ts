@@ -19,7 +19,11 @@ import {
   type WorkspaceId,
   webDeviceIdleDays,
 } from '@wevir/protocol';
-import type { AgentRuntimeAdapter, EngineToolEnforcement } from '@wevir/runtime-adapter';
+import {
+  type AgentRuntimeAdapter,
+  type EngineToolEnforcement,
+  setProcessGroupTracker,
+} from '@wevir/runtime-adapter';
 import { guardrailChecker } from '@wevir/runtime-adapter/guardrail';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
@@ -84,8 +88,9 @@ import { PluginRegistry } from './plugins.js';
 import { Presence } from './presence.js';
 import { PreviewService } from './preview/service.js';
 import { PreviewStore } from './preview/store.js';
+import { ProcessGroupRegistry, type ReapedGroup } from './process-groups.js';
 import { ProcessOutputService } from './process-output.js';
-import { ProcessManager } from './processes.js';
+import { type InterruptedProcess, ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { ReadinessService } from './readiness/service.js';
 import { loadRecapInstructions } from './recap.js';
@@ -293,6 +298,33 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   }
 
   startup.mark('runtime_file');
+  // 上一次 Host 被强行结束时留下的子进程组（process-groups.ts）：接受连接之前结束掉；这次起的组登记在这里，Host 再被强行
+  // 结束时由看门狗结束。
+  const processGroups = new ProcessGroupRegistry({
+    dir: homePath(home, 'processGroupsDir'),
+    onWarning: (message, fields) => logger.warn(message, fields),
+  });
+  const reapedGroups = await processGroups.reap().catch((error: unknown): ReapedGroup[] => {
+    logger.warn('failed to reap process groups left by the previous host', { error });
+    return [];
+  });
+  if (reapedGroups.length > 0) {
+    logger.warn('reaped process groups left by the previous host', {
+      groups: reapedGroups.map(({ record, outcome, signal }) => ({
+        kind: record.kind,
+        name: record.name,
+        pgid: record.pgid,
+        outcome,
+        ...(signal !== undefined && { signal }),
+      })),
+    });
+  }
+  const untrackProcessGroups = setProcessGroupTracker(processGroups);
+  const closeProcessGroups = async () => {
+    untrackProcessGroups();
+    await processGroups.close().catch(() => {});
+  };
+  startup.mark('process_groups');
 
   let storage: Storage | undefined;
   let events: EventStore | undefined;
@@ -503,6 +535,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           })
         : undefined;
     backgroundProcesses = processes;
+    // 上一次被强行结束时还在跑的后台进程：记成被 Host 停的（process.list 与 wevir_process_list 看得到）。
+    await processes?.restoreInterrupted(interruptedProcesses(reapedGroups));
     if (processes !== undefined) processOutput.attachAgent(processes);
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
@@ -1851,6 +1885,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           storage: db,
           runtimeFile,
           ...(options.web !== undefined && { web: options.web }),
+          closeProcessGroups,
         });
         return stopping;
       },
@@ -1893,9 +1928,31 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     } catch {
       // 同上。
     }
+    await closeProcessGroups();
     runtimeFile.releaseSync();
     throw error;
   }
+}
+
+/** 回收了的后台进程（不含预览与检查：预览不留记录，检查由 verification 记成 `host_restarted`）。 */
+function interruptedProcesses(reaped: readonly ReapedGroup[]): InterruptedProcess[] {
+  const result: InterruptedProcess[] = [];
+  for (const { record, signal } of reaped) {
+    const { sessionId, ownerId, command, cwd, logPath } = record;
+    if (record.kind !== 'process' || sessionId === undefined || ownerId === undefined) continue;
+    if (command === undefined || cwd === undefined || logPath === undefined) continue;
+    result.push({
+      id: ownerId,
+      sessionId: sessionId as SessionId,
+      name: record.name,
+      command,
+      cwd,
+      logPath,
+      startedAt: record.startedAt,
+      ...(signal !== undefined && { signal }),
+    });
+  }
+  return result;
 }
 
 interface ShutdownParts {
@@ -1945,6 +2002,8 @@ interface ShutdownParts {
   storage: Storage;
   runtimeFile: RuntimeFile;
   web?: WebService;
+  /** 子进程组的登记（process-groups.ts）：最后关，让看门狗不动手就退出。 */
+  closeProcessGroups: () => Promise<void>;
 }
 
 async function shutdownSequence(parts: ShutdownParts): Promise<void> {
@@ -2022,6 +2081,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   if (parts.lsp !== undefined) await step('close_lsp', () => parts.lsp?.close(), true);
   // 引擎（和它挂着的桥脚本）停了之后再关联网服务的端点。
   if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);
+  // 没结束的组（超时没退出的引擎）的登记留着，下次启动回收。
+  await parts.closeProcessGroups();
   await step('flush_storage', () => {
     parts.search.close();
     parts.sessionList.close();

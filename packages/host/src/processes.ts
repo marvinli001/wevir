@@ -3,7 +3,8 @@
 // 通知作为消息发回会话（app-tools.ts，同回报）。Claude Code 的后台 Bash（run_in_background + BashOutput / KillShell）与
 // Monitor 是参考，写法是 Wevir 自己的：只用 Node 内置模块，不开伪终端。
 //
-// 进程只在内存里登记，Host 退出时全部结束（SIGTERM，3 秒后 SIGKILL），删除会话时结束它的。stdout 与 stderr 按到达顺序写进
+// 进程只在内存里登记，Host 退出时全部结束（SIGTERM，3 秒后 SIGKILL），删除会话时结束它的。Host 被强行结束时由
+// process-groups.ts 的看门狗或下次启动结束它们，下次启动时记成被 Host 停的（`restoreInterrupted`）。stdout 与 stderr 按到达顺序写进
 // `<数据目录>/tool-output/<会话 ID>/process-<ID>.log`（tool-output.ts），超过 `PROCESS_LOG_ROTATE_BYTES` 时换到 `.1`。
 // 客户端经 `process.*`（0.69.0，process-output.ts）也看得到、停得了这些进程；`onChange` 报起来、退出、被停与输出变多。
 
@@ -19,6 +20,7 @@ import type {
   VerificationRunId,
   VerificationTrigger,
 } from '@wevir/protocol';
+import { trackProcessGroup } from '@wevir/runtime-adapter';
 import { AppToolError } from './app-mcp.js';
 import type { ToolOutputStore } from './tool-output.js';
 
@@ -143,6 +145,19 @@ export interface StartOptions {
   turnId?: TurnId;
   check?: ProcessCheck;
   preview?: ProcessPreviewInfo;
+}
+
+/** `restoreInterrupted`：上一次 Host 留下、这次启动时回收了的后台进程。 */
+export interface InterruptedProcess {
+  id: string;
+  sessionId: SessionId;
+  name: string;
+  command: string;
+  cwd: string;
+  logPath: string;
+  startedAt: number;
+  /** 回收时最后发的信号；进程已经不在时没有。 */
+  signal?: string;
 }
 
 export interface WaitResult {
@@ -323,6 +338,23 @@ export class ProcessManager {
     }
     managed.child = child;
     info.pid = child.pid;
+    // 登记进程组（process-groups.ts）：Host 被强行结束时由看门狗或下次启动结束它。
+    if (platform !== 'win32') {
+      trackProcessGroup(child, {
+        kind:
+          options.check !== undefined
+            ? 'check'
+            : options.preview !== undefined
+              ? 'preview'
+              : 'process',
+        name: info.name,
+        sessionId,
+        ownerId: id,
+        command: options.command,
+        cwd: options.cwd,
+        logPath,
+      });
+    }
     child.stdout?.on('data', (chunk: Buffer) => this.#data(managed, chunk));
     child.stderr?.on('data', (chunk: Buffer) => this.#data(managed, chunk));
     child.stdin?.on('error', () => {});
@@ -339,6 +371,56 @@ export class ProcessManager {
     });
     this.#changed(managed);
     return { ...info };
+  }
+
+  /**
+   * 上一次 Host 被强行结束时还在跑、这次启动时回收了的后台进程（process-groups.ts）：记成已退出、被 Host 停的，`wevir_process_list`
+   * 与 `process.list` 看得到它们和之前的输出。ID 沿用，之后新起的进程从更大的号接着编。
+   */
+  async restoreInterrupted(processes: readonly InterruptedProcess[]): Promise<void> {
+    const prefix = this.#options.idPrefix ?? 'p';
+    for (const entry of processes) {
+      if (this.#processes.has(entry.id) || !entry.id.startsWith(prefix)) continue;
+      const number = Number(entry.id.slice(prefix.length));
+      if (!Number.isInteger(number) || number <= 0) continue;
+      this.#nextId = Math.max(this.#nextId, number + 1);
+      const now = Date.now();
+      const info: ProcessInfo = {
+        id: entry.id,
+        sessionId: entry.sessionId,
+        name: entry.name,
+        command: entry.command,
+        cwd: entry.cwd,
+        pid: undefined,
+        startedAt: entry.startedAt,
+        status: 'exited',
+        exitCode: null,
+        signal: entry.signal ?? null,
+        endedAt: now,
+        logPath: entry.logPath,
+        bytes: await logSize(entry.logPath),
+        killed: true,
+        stoppedBy: 'host',
+      };
+      this.#processes.set(entry.id, {
+        info,
+        child: undefined,
+        log: undefined,
+        logStart: 0,
+        rotateFrom: 0,
+        writing: Promise.resolve(),
+        rotation: undefined,
+        decoder: new StringDecoder('utf8'),
+        partial: '',
+        tail: [],
+        notifyOnExit: false,
+        notify: undefined,
+        waiters: new Set(),
+        exited: Promise.resolve(),
+        changeTimer: undefined,
+      });
+      this.#forgetOld(entry.sessionId);
+    }
   }
 
   /** 所有会话的进程（`process.list`）。 */
