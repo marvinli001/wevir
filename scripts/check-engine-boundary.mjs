@@ -7,6 +7,7 @@
 // @opencode-ai/*（`@opencode-ai/sdk` 等）与 @opencode/*（2.x 的包）只在 packages/adapter-opencode（ADR-0005 补记 14）。
 // @xai-official/grok（Grok Build 的 CLI）谁都不声明：用户自己装，packages/adapter-grok 只启动它，名义上也只许它声明。
 // @github/copilot（GitHub Copilot CLI）同样谁都不声明：用户自己装或设置里下载独立程序，packages/adapter-copilot 只启动它。
+// Kiro CLI（kiro-cli）不是 npm 包：用户自己装或设置里按官方清单下载，packages/adapter-kiro 只启动它，没有要拦的依赖。
 // Biome 的 noRestrictedImports（见 biome.json）负责拦截静态 import、动态 import() 等写法，
 // 但看不见 CommonJS require()、createRequire() 之类的加载方式。pnpm 的 node_modules 是隔离的：
 // 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要适配器包以外

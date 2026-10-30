@@ -123,6 +123,7 @@ describe('订阅多账号（0.63.0）', () => {
       'workbuddy',
       'devin',
       'copilot',
+      'kiro',
     ]);
     const byId = new Map(accounts.map((account) => [account.id, account]));
     expect(byId.get('claude')).toMatchObject({ localLogin: true, multiAccount: true });
@@ -133,6 +134,8 @@ describe('订阅多账号（0.63.0）', () => {
     expect(byId.get('devin')).toMatchObject({ localLogin: true });
     expect(byId.get('devin')?.multiAccount).toBeUndefined();
     expect(byId.get('copilot')).toMatchObject({ localLogin: true, multiAccount: true });
+    expect(byId.get('kiro')).toMatchObject({ localLogin: true });
+    expect(byId.get('kiro')?.multiAccount).toBeUndefined();
   });
 
   it('OpenCode 添加的账号（0.104.0）：上游按账号读、接、断，首个账号不受影响', async () => {

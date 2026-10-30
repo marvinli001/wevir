@@ -14,7 +14,7 @@ import { Questioner } from '../prompt.js';
 import { describeAccount, describeWindow } from './account.js';
 
 // `wevir account`（0.19.0 订阅来源、0.63.0 多账号、0.56.0 上游）：ChatGPT 与各家订阅（Claude、Cursor、OpenCode、Grok、
-// Antigravity、WorkBuddy、Devin、GitHub Copilot）的状态、安装、登录与登出。凭据都在引擎里，CLI 只看状态（host-api.md §3.1 account.*）。
+// Antigravity、WorkBuddy、Devin、GitHub Copilot、Kiro）的状态、安装、登录与登出。凭据都在引擎里，CLI 只看状态（host-api.md §3.1 account.*）。
 // 应用内登录给出网址（浏览器回调落在 Host 那台电脑上）或设备码；要在终端里登录的给出命令，之后 `status --refresh` 重新检测。
 
 /** 来源的产品名，原样显示。 */
@@ -28,6 +28,7 @@ export const ACCOUNT_NAMES: Record<AccountKind, string> = {
   workbuddy: 'WorkBuddy',
   devin: 'Devin',
   copilot: 'GitHub Copilot',
+  kiro: 'Kiro',
 };
 
 /** 账号的说法：`Claude`，添加的账号带标签或 ID：`Claude（工作）`。 */

@@ -77,7 +77,7 @@ async function providersOf(client: TestRpcClient, ids: string[]) {
 }
 
 describe('订阅来源（0.19.0）', () => {
-  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出八种', async () => {
+  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出九种', async () => {
     const { connect } = await start();
     const { client, hello } = await connect();
     expect(hello.features).toMatchObject({ subscription_sources: true, provider_enabled: true });
@@ -93,6 +93,7 @@ describe('订阅来源（0.19.0）', () => {
       'workbuddy',
       'devin',
       'copilot',
+      'kiro',
     ]);
     expect(accounts[0]).toMatchObject({
       kind: 'claude',
@@ -109,6 +110,12 @@ describe('订阅来源（0.19.0）', () => {
       kind: 'copilot',
       signIn: 'in_app',
       loginMethods: ['device_code'],
+    });
+    expect(accounts[8]).toMatchObject({
+      kind: 'kiro',
+      signIn: 'in_app',
+      loginMethods: ['device_code'],
+      canInstall: true,
     });
   });
 
@@ -232,6 +239,21 @@ describe('订阅来源（0.19.0）', () => {
       ).toBe(true),
     );
     expect(old.notifications('account.updated')).toEqual([]);
+  });
+
+  it('Kiro 沿用订阅能力位，0.141.0 之前即使声明它也不收到新枚举值', async () => {
+    const { connect } = await start('kiro=signed_in');
+    const full = (await connect()).client;
+    await providersOf(full, ['kiro']);
+    const old = (await connect(FULL, '0.140.0')).client;
+    expect(
+      (await old.request('provider.list')).providers.some(
+        (p: { kind: string }) => p.kind === 'kiro',
+      ),
+    ).toBe(false);
+    expect(
+      (await old.request('account.list')).accounts.some((a: { kind: string }) => a.kind === 'kiro'),
+    ).toBe(false);
   });
 
   it('Copilot 沿用订阅能力位，0.125.0 之前即使声明它也不收到新枚举值', async () => {

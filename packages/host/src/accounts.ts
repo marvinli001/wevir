@@ -33,6 +33,7 @@ export const ACCOUNT_PROVIDER_NAMES: Readonly<Record<AccountKind, string>> = {
   workbuddy: 'WorkBuddy',
   devin: 'Devin',
   copilot: 'GitHub Copilot',
+  kiro: 'Kiro',
 };
 
 /** 以前的默认显示名：Provider 还叫它时刷新时换成 `ACCOUNT_PROVIDER_NAMES` 里现在的。 */
@@ -51,6 +52,7 @@ const LOCAL_LOGIN_KINDS: readonly AccountKind[] = [
   'workbuddy',
   'devin',
   'copilot',
+  'kiro',
 ];
 
 /** 读账号时刷新账号 Provider 的模型列表的最短间隔。 */

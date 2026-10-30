@@ -690,8 +690,12 @@ function SubscriptionBody({
     client.supports('subscription_upstreams');
   // 应用内登录按账号给的方式（GitHub Copilot 是设备码，0.125.0）；设备码由用户复制后自己打开页面，引擎的 CLI 也可能已经打开。
   const method = account?.loginMethods?.[0] ?? 'browser';
-  const login = async () => {
-    const next = await run('login', () => client.request('account.login', { ...ref, method }));
+  // 引擎给了几种登录方式（Kiro：Builder ID、Google、GitHub；WorkBuddy：国内、国际站）时每种一个按钮，`option` 交给引擎。
+  const loginOptions = account?.loginOptions ?? [];
+  const login = async (option?: string) => {
+    const next = await run('login', () =>
+      client.request('account.login', { ...ref, method, ...(option !== undefined && { option }) }),
+    );
     const url = next?.login?.authUrl;
     if (url !== undefined) void platformApi().openExternal(url);
   };
@@ -760,15 +764,33 @@ function SubscriptionBody({
         <Step
           title={t('source.login.title', { name })}
           actions={
-            <Button
-              size="sm"
-              disabled={busy !== undefined}
-              onClick={() => void login()}
-              data-action="login"
-            >
-              {busy === 'login' ? <LoaderCircle className="animate-spin" /> : <LogIn />}
-              {t('source.login')}
-            </Button>
+            loginOptions.length > 1 ? (
+              loginOptions.map((option, index) => (
+                <Button
+                  key={option.id}
+                  size="sm"
+                  variant={index === 0 ? 'default' : 'outline'}
+                  disabled={busy !== undefined}
+                  onClick={() => void login(option.id)}
+                  data-action="login"
+                  data-option={option.id}
+                >
+                  {index === 0 &&
+                    (busy === 'login' ? <LoaderCircle className="animate-spin" /> : <LogIn />)}
+                  {option.label}
+                </Button>
+              ))
+            ) : (
+              <Button
+                size="sm"
+                disabled={busy !== undefined}
+                onClick={() => void login()}
+                data-action="login"
+              >
+                {busy === 'login' ? <LoaderCircle className="animate-spin" /> : <LogIn />}
+                {t('source.login')}
+              </Button>
+            )
           }
         />
       ) : phase.kind === 'signing_in' && prompt?.kind === 'device_code' ? (

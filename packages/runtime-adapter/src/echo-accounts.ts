@@ -25,6 +25,7 @@ export const ECHO_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = [
   'workbuddy',
   'devin',
   'copilot',
+  'kiro',
 ];
 
 const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>> = {
@@ -36,6 +37,7 @@ const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>>
   workbuddy: 'signed_out',
   devin: 'installable',
   copilot: 'signed_out',
+  kiro: 'installable',
 };
 
 /** 每种订阅的登录方式与安装说明，照各自 CLI 的真实做法（T3 Code 的调研）。 */
@@ -79,6 +81,12 @@ const PROFILES: Readonly<
     loginMethods: ['device_code'],
     loginCommand: 'copilot login',
     installCommand: 'curl -fsSL https://gh.io/copilot-install | bash',
+  },
+  kiro: {
+    signIn: 'in_app',
+    loginMethods: ['device_code'],
+    loginCommand: 'kiro-cli login',
+    installCommand: 'curl -fsSL https://cli.kiro.dev/install | bash',
   },
 };
 
@@ -133,6 +141,13 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
       { id: 'auto', displayName: 'Auto' },
       { id: 'claude-sonnet-4.5', displayName: 'Claude Sonnet 4.5' },
       { id: 'gpt-5.2', displayName: 'GPT-5.2' },
+    ],
+    defaultModelId: 'auto',
+  },
+  kiro: {
+    models: [
+      { id: 'auto', displayName: 'Auto' },
+      { id: 'claude-sonnet-4.5', displayName: 'Claude Sonnet 4.5' },
     ],
     defaultModelId: 'auto',
   },
@@ -263,7 +278,7 @@ export class EchoAccounts implements EngineAccounts {
       this.#states.set(kind, {
         ...state,
         signIn: 'in_app',
-        loginMethods: kind === 'copilot' ? ['device_code'] : ['browser'],
+        loginMethods: kind === 'copilot' || kind === 'kiro' ? ['device_code'] : ['browser'],
       });
       return;
     }

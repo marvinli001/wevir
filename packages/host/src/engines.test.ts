@@ -10,7 +10,7 @@ const home = mkdtempSync(join(tmpdir(), 'wevir-engines-'));
 afterAll(() => rmSync(home, { recursive: true, force: true }));
 
 describe('subscriptionEngines', () => {
-  it('开发环境装了两个 SDK：八种订阅引擎都挂上', () => {
+  it('开发环境装了两个 SDK：九种订阅引擎都挂上', () => {
     const lines: string[] = [];
     const routes = subscriptionEngines({
       home,
@@ -26,6 +26,7 @@ describe('subscriptionEngines', () => {
       'workbuddy',
       'devin',
       'copilot',
+      'kiro',
     ]);
     expect(lines.join('\n')).not.toContain('engine sdk not installed');
   });
@@ -43,6 +44,7 @@ describe('subscriptionEngines', () => {
       'workbuddy',
       'devin',
       'copilot',
+      'kiro',
     ]);
     expect(lines.filter((line) => line.includes('engine sdk not installed'))).toHaveLength(2);
   });

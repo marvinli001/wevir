@@ -40,6 +40,12 @@ export interface AcpEngine {
    * 把连续的增量合成一块再提交（chunk-stream.ts）。
    */
   readonly messageChunks?: 'committed' | 'streamed';
+  /**
+   * 可选：`session/new`、`session/load` / `session/resume` 的结果里 ACP 的 `models`（`availableModels` 与 `currentModelId`）并进
+   * `configOptions`，返回新的 `configOptions`（Kiro：v2 引擎只给 `models`，`session/set_model` 的当前值要从模型选项里读）。
+   * 按引擎写出的顺序同步调用，不得抛错。
+   */
+  sessionModels?(configOptions: unknown, models: unknown): unknown;
   /** `initialize` 请求的 `_meta`（Grok：`clientType: extension`，自动模式拦下的操作才会问客户端）。 */
   readonly initializeMeta?: Readonly<Record<string, unknown>>;
   /** `initialize` 的 `clientCapabilities._meta`（Copilot：订阅哪些原始会话事件，用来读额度）。 */

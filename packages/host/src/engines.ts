@@ -20,6 +20,7 @@ import {
 } from '@wevir/adapter-cursor';
 import { DevinAdapter } from '@wevir/adapter-devin';
 import { GrokAdapter } from '@wevir/adapter-grok';
+import { KiroAdapter } from '@wevir/adapter-kiro';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
 import type { AccountKind } from '@wevir/protocol';
@@ -167,6 +168,19 @@ export function subscriptionEngines(
       }),
       kinds: ['copilot'],
     },
+    // Kiro（kiro-event-mapping.md）：用户自己装的或 Wevir 下载的 `kiro-cli acp`（v2 引擎）与 Kiro 自己存的登录，复用通用 ACP 与
+    // MCP 桥；完全访问由 Wevir 批准它的权限请求，恢复用 session/load，换模型用 session/set_model。
+    {
+      name: 'kiro',
+      adapter: new KiroAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+        ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+      kinds: ['kiro'],
+    },
   ];
   return routes.filter(
     (route) =>
@@ -180,7 +194,8 @@ export function subscriptionEngines(
  * 有 Claude、Cursor、Grok、Antigravity、OpenCode 与 GitHub Copilot（ChatGPT 的在 cli.ts）；OpenCode 只分开数据目录，用户的配置与上游
  * 照旧共用；Copilot 换掉 `COPILOT_HOME`（它在里面记用哪个 GitHub 账号，令牌在系统钥匙串里按账号存），并给一个空的 GitHub CLI 配置
  * 目录，不退回首个账号的 `gh` 登录。
- * WorkBuddy 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，都只有首个账号。SDK 没有的种类不能添加；
+ * WorkBuddy 没有能换的登录位置、也不能登出，Devin 的登录、会话与配置在同一组用户目录里，Kiro 的登录存在用户目录下固定的
+ * data.sqlite3 里（`KIRO_HOME`、`KIRO_DATA_DIR` 都不搬它），都只有首个账号。SDK 没有的种类不能添加；
  * Cursor 的 SDK 要下载时添加的账号与首个账号共用安装器，装好后一起能用。
  */
 export function subscriptionAccountEngines(

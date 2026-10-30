@@ -147,7 +147,7 @@ describe('来源分页', () => {
       'workbuddy',
       'devin',
     ]);
-    expect(pages[1]).toEqual(['copilot']);
+    expect(pages[1]).toEqual(['copilot', 'kiro']);
     expect(sourcePages(['claude', 'cursor', 'grok'], 2)).toEqual([['claude', 'cursor'], ['grok']]);
   });
 });

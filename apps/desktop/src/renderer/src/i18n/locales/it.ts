@@ -1535,6 +1535,7 @@ export const messages: Messages = {
   'source.workbuddy': 'WorkBuddy',
   'source.devin': 'Devin',
   'source.copilot': 'GitHub Copilot',
+  'source.kiro': 'Kiro',
   'source.more': 'Altro',
   'source.back': 'Indietro',
   'source.page.count': '{count, plural, one {# fonte} other {# fonti}}',

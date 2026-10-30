@@ -16,6 +16,7 @@ import grok from '@/assets/provider-logos/grok.svg';
 import groq from '@/assets/provider-logos/groq.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
 import kimiLight from '@/assets/provider-logos/kimi-color-light.svg';
+import kiro from '@/assets/provider-logos/kiro-color.svg';
 import minimax from '@/assets/provider-logos/minimax-color.svg';
 import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
@@ -75,6 +76,7 @@ const LOGOS = {
   antigravity: { src: antigravity, mono: false },
   devin: { src: devin, mono: false },
   copilot: { src: copilot, mono: true },
+  kiro: { src: kiro, mono: false },
 } satisfies Record<string, LogoEntry>;
 
 export type ProviderLogoId = keyof typeof LOGOS;

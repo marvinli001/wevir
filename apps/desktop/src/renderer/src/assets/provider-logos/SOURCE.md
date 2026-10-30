@@ -36,6 +36,7 @@
 | `antigravity-color.svg` | 订阅来源 Antigravity | `652128cf55a28bb958563ee372d0bd00208d9e6fd446f523f77aafd811eef8ca` |
 | `devin-color.svg` | 订阅来源 Devin（Devin CLI） | `beb58575f94fda57a6c1f9ed5624e6407bff405f55b6258b53032b674aadd8c8` |
 | `githubcopilot.svg` | 订阅来源 GitHub Copilot（Copilot CLI） | `bbc7fddc13448236e5edea8c399d2072dc40aa5da5bca07f7a2f412405c500a3` |
+| `kiro-color.svg` | 订阅来源 Kiro（Kiro CLI） | `4eae4d6e818da7342c32c7d443ab7c97b93c544db9af379d5b5bf7f0a3127d66` |
 
 订阅来源的标志（0.19.0）是软件本身的标志（Claude 用 Claude 的标志，不用 Claude Code 的，照 Anthropic 对第三方的品牌要求）。
 

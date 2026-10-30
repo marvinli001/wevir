@@ -39,6 +39,7 @@ export const SOURCES: Readonly<Record<AccountKind, SourceInfo>> = {
   },
   devin: { kind: 'devin', name: 'source.devin', logo: 'devin' },
   copilot: { kind: 'copilot', name: 'source.copilot', logo: 'copilot' },
+  kiro: { kind: 'kiro', name: 'source.kiro', logo: 'kiro' },
 };
 
 /**

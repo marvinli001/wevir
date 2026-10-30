@@ -1098,7 +1098,7 @@ Options:
   'cmd.account.list.usage': 'wevir account list [--json]',
   'cmd.account.status.summary': "Show an account's status, usage and how to sign in",
   'cmd.account.status.usage': 'wevir account status <source|ID> [--refresh] [--json]',
-  'cmd.account.status.help': `Sources: chatgpt, claude, cursor, opencode, grok, antigravity, workbuddy, devin, copilot; IDs come from wevir account list
+  'cmd.account.status.help': `Sources: chatgpt, claude, cursor, opencode, grok, antigravity, workbuddy, devin, copilot, kiro; IDs come from wevir account list
 
 Options:
   --refresh   Check again (after signing in or installing in a terminal)`,

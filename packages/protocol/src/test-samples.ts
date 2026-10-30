@@ -1317,6 +1317,63 @@ export const copilotProvider: ProviderProfile = {
   createdAt: TS,
   updatedAt: TS,
 };
+/** Kiro（0.141.0）：设备码登录的 Kiro CLI，Wevir 下载的；只有首个账号，可选 Builder ID、Google 或 GitHub。 */
+export const kiroAccount: AccountState = {
+  kind: 'kiro',
+  status: 'signed_in',
+  email: 'me@example.com',
+  signIn: 'in_app',
+  loginMethods: ['device_code'],
+  loginCommand: 'kiro-cli login',
+  installed: true,
+  version: '2.36.0',
+  executablePath: '/Users/me/.local/bin/kiro-cli',
+};
+/** 0.141.0：Kiro 登录中（`kiro-cli login --use-device-flow` 给出的网址与码）。 */
+export const kiroSigningIn: AccountState = {
+  kind: 'kiro',
+  status: 'signing_in',
+  signIn: 'in_app',
+  loginMethods: ['device_code'],
+  loginCommand: 'kiro-cli login',
+  installed: true,
+  version: '2.36.0',
+  login: {
+    loginId: 'login-kiro',
+    method: 'device_code',
+    verificationUrl: 'https://view.awsapps.com/start/#/device?user_code=RGDP-CFQG',
+    userCode: 'RGDP-CFQG',
+    startedAt: TS,
+  },
+};
+/** 0.141.0：Kiro 没登录时可选的登录方式。 */
+export const kiroSignedOut: AccountState = {
+  kind: 'kiro',
+  status: 'signed_out',
+  signIn: 'in_app',
+  loginMethods: ['device_code'],
+  loginOptions: [
+    { id: 'builder-id', label: 'AWS Builder ID' },
+    { id: 'google', label: 'Google' },
+    { id: 'github', label: 'GitHub' },
+  ],
+  loginCommand: 'kiro-cli login',
+  installed: true,
+  version: '2.36.0',
+};
+export const kiroProvider: ProviderProfile = {
+  id: 'kiro',
+  kind: 'kiro',
+  displayName: 'Kiro',
+  models: [
+    { id: 'auto', displayName: 'Auto' },
+    { id: 'claude-sonnet-4.5', displayName: 'Claude Sonnet 4.5' },
+  ],
+  defaultModelId: 'auto',
+  hasSecret: false,
+  createdAt: TS,
+  updatedAt: TS,
+};
 
 export const antigravityInstalling: AccountState = {
   kind: 'antigravity',
@@ -4441,6 +4498,7 @@ export const methodSamples: MethodSamples = {
         },
         { providers: [devinProvider] },
         { providers: [copilotProvider] },
+        { providers: [kiroProvider] },
         { providers: [{ ...compatibleProvider, imageModels: [{ id: 'gpt-image-2' }] }] },
       ],
       invalid: [
@@ -4692,6 +4750,7 @@ export const methodSamples: MethodSamples = {
         { accounts: [signedInAccount, claudeAccount, antigravityInstalling, workbuddyAccount] },
         { accounts: [devinAccount] },
         { accounts: [copilotAccount, copilotSigningIn] },
+        { accounts: [kiroAccount, kiroSigningIn, kiroSignedOut] },
         {
           accounts: [
             {
@@ -4723,6 +4782,7 @@ export const methodSamples: MethodSamples = {
         { kind: 'workbuddy', refresh: true },
         { kind: 'devin', refresh: true },
         { kind: 'copilot', refresh: true },
+        { kind: 'kiro', refresh: true },
         // 0.63.0：按账号 ID 读添加的账号。
         { kind: 'claude', id: 'claude-3f9a', refresh: true },
       ],
@@ -4774,6 +4834,8 @@ export const methodSamples: MethodSamples = {
         // 0.56.0：选上游、方式与 Key（给了 upstream 时 method 被忽略）。
         { kind: 'opencode', method: 'browser', upstream: 'github-copilot' },
         { kind: 'opencode', method: 'device_code', upstream: 'openai', option: '1' },
+        // 0.141.0：Kiro 选登录方式。
+        { kind: 'kiro', method: 'device_code', option: 'google' },
         {
           kind: 'opencode',
           method: 'browser',
@@ -9311,6 +9373,8 @@ export const notificationSamples: NotificationSamples = {
       { account: devinSigningIn },
       { account: copilotAccount },
       { account: copilotSigningIn },
+      { account: kiroAccount },
+      { account: kiroSigningIn },
     ],
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },

@@ -1507,6 +1507,7 @@ export const messages: Messages = {
   'source.workbuddy': 'WorkBuddy',
   'source.devin': 'Devin',
   'source.copilot': 'GitHub Copilot',
+  'source.kiro': 'Kiro',
   'source.more': '더 보기',
   'source.back': '뒤로',
   'source.page.count': '소스 {count}개',

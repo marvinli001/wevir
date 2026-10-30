@@ -265,7 +265,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const connection = await this.#readyConnection();
     this.#activating += 1;
     try {
-      let response: { sessionId: string; configOptions?: unknown; modes?: unknown };
+      let response: {
+        sessionId: string;
+        configOptions?: unknown;
+        modes?: unknown;
+        models?: unknown;
+      };
       try {
         response = await this.#withAuth(() =>
           connection.agent.request(methods.agent.session.new, {
@@ -279,7 +284,11 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       const id = response.sessionId;
       let configOptions: unknown;
       try {
-        configOptions = await this.#selectRoute(id, config, response.configOptions);
+        configOptions = await this.#selectRoute(
+          id,
+          config,
+          this.#withSessionModels(response.configOptions, response.models),
+        );
         configOptions = await this.afterActivation(id, config, {
           configOptions,
           modes: response.modes,
@@ -319,8 +328,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     try {
       let configOptions: unknown;
       let modes: unknown;
+      let models: unknown;
       try {
-        ({ configOptions, modes } = await this.#withAuth(() =>
+        ({ configOptions, modes, models } = await this.#withAuth<{
+          configOptions?: unknown;
+          modes?: unknown;
+          models?: unknown;
+        }>(() =>
           connection.agent.request(
             this.engine.resumeMethod === 'load'
               ? methods.agent.session.load
@@ -353,7 +367,11 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         );
       }
       try {
-        configOptions = await this.#selectRoute(engineSessionId, config, configOptions);
+        configOptions = await this.#selectRoute(
+          engineSessionId,
+          config,
+          this.#withSessionModels(configOptions, models),
+        );
         configOptions = await this.afterActivation(engineSessionId, config, {
           configOptions,
           modes,
@@ -1057,6 +1075,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.queue.endTurn(event);
     turn.finish();
     this.afterTurn(session.id);
+  }
+
+  /** 引擎描述了 `sessionModels` 时把结果里的 ACP `models` 并进 `configOptions`。 */
+  #withSessionModels(configOptions: unknown, models: unknown): unknown {
+    return this.engine.sessionModels === undefined || models === undefined
+      ? configOptions
+      : this.engine.sessionModels(configOptions, models);
   }
 
   /**

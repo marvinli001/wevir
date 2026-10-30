@@ -1543,6 +1543,7 @@ export const messages: Messages = {
   'source.workbuddy': 'WorkBuddy',
   'source.devin': 'Devin',
   'source.copilot': 'GitHub Copilot',
+  'source.kiro': 'Kiro',
   'source.more': 'Ещё',
   'source.back': 'Назад',
   'source.page.count':

@@ -1144,6 +1144,7 @@ const standaloneCases: Case[] = [
       'workbuddy',
       'devin',
       'copilot',
+      'kiro',
     ],
     invalid: ['anthropic', 'gemini'],
   },
@@ -1715,13 +1716,23 @@ const standaloneCases: Case[] = [
   {
     name: 'AccountKind',
     schema: AccountKindSchema,
-    valid: ['chatgpt', 'claude', 'antigravity', 'workbuddy', 'devin', 'copilot'],
+    valid: ['chatgpt', 'claude', 'antigravity', 'workbuddy', 'devin', 'copilot', 'kiro'],
     invalid: ['ChatGPT', 'gemini'],
   },
   {
     name: 'SubscriptionKind',
     schema: SubscriptionKindSchema,
-    valid: ['claude', 'cursor', 'opencode', 'grok', 'antigravity', 'workbuddy', 'devin', 'copilot'],
+    valid: [
+      'claude',
+      'cursor',
+      'opencode',
+      'grok',
+      'antigravity',
+      'workbuddy',
+      'devin',
+      'copilot',
+      'kiro',
+    ],
     invalid: ['chatgpt', 'Claude', 'Devin'],
   },
   {

@@ -619,6 +619,15 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/adapter-kiro:
+    dependencies:
+      '@wevir/adapter-acp':
+        specifier: workspace:*
+        version: link:../adapter-acp
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/adapter-opencode:
     dependencies:
       '@opencode-ai/sdk':
@@ -700,6 +709,9 @@ importers:
       '@wevir/adapter-grok':
         specifier: workspace:*
         version: link:../adapter-grok
+      '@wevir/adapter-kiro':
+        specifier: workspace:*
+        version: link:../adapter-kiro
       '@wevir/adapter-opencode':
         specifier: workspace:*
         version: link:../adapter-opencode

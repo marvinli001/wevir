@@ -1505,6 +1505,7 @@ export const messages: Messages = {
   'source.workbuddy': 'WorkBuddy',
   'source.devin': 'Devin',
   'source.copilot': 'GitHub Copilot',
+  'source.kiro': 'Kiro',
   'source.more': '更多',
   'source.back': '返回',
   'source.page.count': '{count} 個來源',

@@ -12,6 +12,7 @@ import { CopilotAdapter } from '@wevir/adapter-copilot';
 import { CursorAdapter } from '@wevir/adapter-cursor';
 import { DevinAdapter } from '@wevir/adapter-devin';
 import { GrokAdapter } from '@wevir/adapter-grok';
+import { KiroAdapter } from '@wevir/adapter-kiro';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
 import { CloseCode } from '@wevir/protocol';
@@ -177,6 +178,7 @@ describe('runHostCli', () => {
         ['workbuddy', ['workbuddy']],
         ['devin', ['devin']],
         ['copilot', ['copilot']],
+        ['kiro', ['kiro']],
       ]);
       expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
       expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
@@ -200,6 +202,8 @@ describe('runHostCli', () => {
       expect((router.routes[8]?.adapter as CopilotAdapter | undefined)?.process.state).toBe(
         'stopped',
       );
+      expect(router.routes[9]?.adapter).toBeInstanceOf(KiroAdapter);
+      expect((router.routes[9]?.adapter as KiroAdapter | undefined)?.process.state).toBe('stopped');
       const codex = router.routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
@@ -215,6 +219,7 @@ describe('runHostCli', () => {
         'workbuddy',
         'devin',
         'copilot',
+        'kiro',
       ]);
       expect(existsSync(home)).toBe(false);
     } finally {

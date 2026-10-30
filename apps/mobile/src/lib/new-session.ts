@@ -39,6 +39,7 @@ const SOURCE_NAMES: Record<(typeof SOURCE_KINDS)[number], string> = {
   antigravity: 'Antigravity',
   devin: 'Devin',
   copilot: 'Copilot',
+  kiro: 'Kiro',
 };
 
 function isSourceKind(kind: string): kind is (typeof SOURCE_KINDS)[number] {

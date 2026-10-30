@@ -1,0 +1,8 @@
+{"name": "initialize", "value": {"protocolVersion": 1, "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "audio": false, "embeddedContext": false}, "mcpCapabilities": {"http": true, "sse": false}}, "agentInfo": {"name": "kiro-cli", "title": "Kiro CLI", "version": "2.36.0"}, "authMethods": []}}
+{"name": "models", "value": {"currentModelId": "auto", "availableModels": [{"modelId": "auto", "name": "Auto"}, {"modelId": "fixture-model-a", "name": "Fixture A"}, {"modelId": "fixture-model-b", "name": "Fixture B"}]}}
+{"name": "modes", "value": {"currentModeId": "kiro_default", "availableModes": [{"id": "kiro_default", "name": "kiro_default"}]}}
+{"name": "notFound", "value": {"code": -32002, "message": "Session not found"}}
+{"name": "permissionOptions", "value": [{"optionId": "allow_once", "kind": "allow_once", "name": "Yes"}, {"optionId": "allow_always", "kind": "allow_always", "name": "Trust"}, {"optionId": "reject_once", "kind": "reject_once", "name": "No"}]}
+{"name": "read", "value": {"sessionUpdate": "tool_call", "toolCallId": "fs-read-1", "title": "fs_read", "kind": "read", "status": "in_progress", "rawInput": {"operations": [{"mode": "Line", "path": "fixture.txt"}]}}}
+{"name": "readFinished", "value": {"sessionUpdate": "tool_call_update", "toolCallId": "fs-read-1", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "fixture content"}}]}}
+{"name": "metadata", "value": {"contextUsagePercentage": 3.2}}
