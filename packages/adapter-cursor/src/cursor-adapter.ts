@@ -4,7 +4,7 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；去掉 T3 的 MCP 服务、skills、附件与计划模式；权限模式改按 Wevir 的三种映射；
-// 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。
+// 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。跟进 T3 be1d066732：回合已经结束后 SDK 迟到的恢复失败不算回合失败。
 //
 // Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，docs/architecture/cursor-event-mapping.md）：经官方 `@cursor/sdk` 在 Host
 // 进程里跑本地 agent。一个 Wevir 会话是一个 Cursor agent（引擎会话 ID = agentId），一个回合是一次 `agent.send` 开出的 run。
@@ -609,14 +609,22 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     try {
       const result = await run.wait();
       if (turn.done) return;
-      const answer = mapper.finalResult(result.result);
+      const lateResumeFailure = isResumeFailureAfterTurnEnded(mapper, result);
+      if (lateResumeFailure) {
+        this.#options.logger?.warn('Cursor gave up resuming a run whose turn had already ended', {
+          engineSessionId,
+          runId: run.id,
+        });
+      }
+      // 没有进展的恢复写出的文字不是这个回合的回答。
+      const answer = lateResumeFailure ? [] : mapper.finalResult(result.result);
       if (turn.cancelling || result.status === 'cancelled') {
         events = [
           ...answer,
           ...mapper.finish('cancelled'),
           { type: 'turn.settled', engineSessionId, outcome: 'cancelled', stopReason: 'cancelled' },
         ];
-      } else if (result.status === 'error') {
+      } else if (result.status === 'error' && !lateResumeFailure) {
         const message = result.error?.message || 'Cursor run failed';
         events = [
           ...answer,
@@ -639,7 +647,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
                   type: 'turn.settled',
                   engineSessionId,
                   outcome: 'completed',
-                  stopReason: result.status,
+                  stopReason: lateResumeFailure ? 'finished' : result.status,
                 },
               ]
             : [
@@ -838,6 +846,24 @@ async function checkCwd(cwd: string): Promise<void> {
 }
 
 /** run 以 error 结束时的归类：认证类是 missing_credentials，其余算模型服务（Cursor）那边的错。 */
+/**
+ * 回合结束后，可重试的流错误会让 SDK 在同一个 run 里从较早的检查点恢复；恢复一直没有进展时，它用这条错误结束 run，而回答早已
+ * 交付（T3 be1d066732）。
+ */
+const RESUME_NO_PROGRESS_MESSAGE =
+  'Agent turn stopped after repeated resume attempts made no progress';
+
+function isResumeFailureAfterTurnEnded(
+  mapper: CursorTurnMapper,
+  result: { status: string; error?: { message: string } },
+): boolean {
+  return (
+    mapper.turnEnded &&
+    result.status === 'error' &&
+    result.error?.message === RESUME_NO_PROGRESS_MESSAGE
+  );
+}
+
 function runErrorCategory(
   error: { message: string; code?: string } | undefined,
 ): TurnFailedEvent['category'] {

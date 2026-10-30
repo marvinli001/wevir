@@ -17,7 +17,7 @@ export {
   permissionPolicy,
   SETTING_SOURCES,
 } from './cursor-adapter.js';
-export { isCursorShellSpawnFailure } from './errors.js';
+export { isCursorClosedStreamWrite, isCursorShellSpawnFailure } from './errors.js';
 export { CursorTurnMapper, ENGINE_RAW_PROTOCOL } from './mapping.js';
 export { AUTO_MODEL_ID, accountModels, modelSelection } from './models.js';
 export {

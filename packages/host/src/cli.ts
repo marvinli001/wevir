@@ -21,7 +21,7 @@ import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js'
 import { EngineRouter } from './engine-router.js';
 import {
   engineSdks,
-  isIgnorableEngineRejection,
+  ignorableEngineRejection,
   subscriptionAccountEngines,
   subscriptionEngines,
 } from './engines.js';
@@ -412,8 +412,9 @@ export async function runHostCli(
     };
     proc.on('uncaughtException', onFatal);
     proc.on('unhandledRejection', (reason: unknown) => {
-      if (isIgnorableEngineRejection(reason)) {
-        logger.warn('engine shell spawn failed; the host keeps running', { error: reason });
+      const ignored = ignorableEngineRejection(reason);
+      if (ignored !== undefined) {
+        logger.warn(ignored, { error: reason });
         return;
       }
       onFatal(reason);

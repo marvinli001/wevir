@@ -4,6 +4,7 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 投影成自己的节点、消息与回合项；这里产出 Wevir 的增量、已提交消息、工具与待办事件，子 agent 只当工具，没完成的工具在取消或失败时按失败收尾。
+// 跟进 T3 656f3f4094（每段回答单独判断传输诊断）与 be1d066732（记下回合是否已经结束）。
 //
 // Cursor SDK 的流式更新（`send` 的 `onDelta`，`InteractionUpdate`）→ AgentEvent（docs/architecture/cursor-event-mapping.md §4）。
 // 一个回合（一个 run）一个映射器，按更新到达的顺序调用 `map`，回合结束时 `finish`。
@@ -31,6 +32,16 @@ export const IGNORED_UPDATES: ReadonlySet<string> = new Set([
   'user-message-appended',
 ]);
 
+/** 表示 agent 又开始干活的更新：`turn-ended` 之后再出现这些，回合就没有结束。 */
+const WORK_UPDATES: ReadonlySet<string> = new Set([
+  'step-started',
+  'user-message-appended',
+  'text-delta',
+  'thinking-delta',
+  'partial-tool-call',
+  'tool-call-started',
+]);
+
 interface TextSegment {
   readonly attemptId: string;
   text: string;
@@ -55,8 +66,8 @@ interface OpenTool {
 export class CursorTurnMapper {
   readonly engineSessionId: string;
   readonly runId: string;
-  /** 回答是否只是一段传输诊断（transport-failure.ts）。 */
-  readonly reply = new CursorTransportFailure();
+  #reply = new CursorTransportFailure();
+  #turnEnded = false;
   readonly #text: TextStream = { kind: 'text', current: undefined, count: 0 };
   readonly #reasoning: TextStream = { kind: 'reasoning', current: undefined, count: 0 };
   readonly #tools = new Map<string, OpenTool>();
@@ -74,12 +85,27 @@ export class CursorTurnMapper {
     return this.#text.count > 0;
   }
 
+  /** 当前这段回答是否只是一段传输诊断（transport-failure.ts）；每段回答重新判断，前面的说明文字不会盖住后面的诊断。 */
+  get reply(): CursorTransportFailure {
+    return this.#reply;
+  }
+
+  /** agent 最近一次 `turn-ended` 之后还没有开始新的工作。 */
+  get turnEnded(): boolean {
+    return this.#turnEnded;
+  }
+
   map(update: InteractionUpdate): AgentEvent[] {
     if (this.#finished) return [];
     const type = (update as { type: string }).type;
+    if (type === 'turn-ended') this.#turnEnded = true;
+    else if (WORK_UPDATES.has(type)) this.#turnEnded = false;
     switch (update.type) {
       case 'text-delta':
-        this.reply.push(update.text);
+        if (this.#text.current === undefined && update.text !== '') {
+          this.#reply = new CursorTransportFailure();
+        }
+        this.#reply.push(update.text);
         return [...this.#complete(this.#reasoning), ...this.#append(this.#text, update.text)];
       case 'thinking-delta':
         return [...this.#complete(this.#text), ...this.#append(this.#reasoning, update.text)];
@@ -153,7 +179,7 @@ export class CursorTurnMapper {
    */
   finalResult(text: string | undefined): AgentEvent[] {
     if (this.#finished || this.answered || text === undefined || text.trim() === '') return [];
-    this.reply.push(text);
+    this.#reply.push(text);
     return [
       {
         type: 'assistant.message',
