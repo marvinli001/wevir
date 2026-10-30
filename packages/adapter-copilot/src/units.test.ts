@@ -15,7 +15,7 @@ import {
   parseCopilotVersion,
 } from './launch.js';
 import { parseDeviceCode } from './login.js';
-import { copilotModels } from './models.js';
+import { copilotModels, modelOption } from './models.js';
 import { readSample } from './test-fixtures/harness.js';
 import { copilotToolDisplay } from './tool-display.js';
 import { copilotRateLimits, rateLimitsOfEvent } from './usage.js';
@@ -75,6 +75,20 @@ describe('模型', () => {
     });
     expect(copilotModels([mode, { ...model, options: [] }])).toBeUndefined();
     expect(copilotModels(undefined)).toBeUndefined();
+  });
+
+  it('同类别里排在前面的开关与空 ID 的选项不算模型选项（与选模型时落在同一个选项上）', () => {
+    const model = readSample('modelOption') as Record<string, unknown>;
+    const toggle = {
+      id: 'fast',
+      name: 'Fast',
+      type: 'boolean',
+      category: 'model',
+      currentValue: true,
+    };
+    const blank = { ...model, id: ' ' };
+    expect(modelOption([toggle, blank, model])).toBe(model);
+    expect(copilotModels([toggle, blank, model])?.defaultModelId).toBe('auto');
   });
 });
 

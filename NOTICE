@@ -487,9 +487,14 @@ Effect 的 TypeScript，建在 @wevir/adapter-acp 上：
   packages/adapter-grok/src/launch.ts
       <- acpSupport.ts、status.ts、driver.ts
   packages/adapter-grok/src/accounts.ts
-      <- status.ts
+      <- status.ts（另含来源提交 c632d7e96bd8bc8a808d76c3f766809c7730a765、a2157eced708fd25fab7b616f5a68cb65312eaed
+         的两处修复）
   packages/adapter-grok/src/grok-adapter.ts
       <- adapter.ts、xaiAcpExtension.ts、acpSupport.ts、packages/provider-acp/src/server/AcpSessionRuntime.ts
+
+packages/runtime-adapter/src/secret-patterns.ts 里 redactDiagnostics 的规则改写自 T3 Code 的
+packages/provider-core/src/server/failure.ts 与 packages/provider-acp/src/server/stderr.ts（来源提交
+67afdd56c7905e9df721c61f5795578bb8c27867、49d014245777bbf47756635886ddf0846d2330d3）。
 
 packages/adapter-grok/src/test-fixtures/acp/ 是 T3 Code 的 apps/server/src/orchestration-v2/testkit/fixtures/ 里 7 个
 grok_transcript.ndjson 的原样副本：T3 录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返，其中 Grok 的输出受 xAI 的条款约束。
