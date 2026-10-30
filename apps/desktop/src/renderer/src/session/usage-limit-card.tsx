@@ -1,20 +1,26 @@
 // 用量上限的卡片（0.119.0）：回合因订阅账号的用量上限失败时代替错误部件，照 Claude Code 桌面版的会话上限卡片——哪个窗口用完了、
 // 什么时候重置，勾上“额度恢复后自动继续”后 Host 在重置之后替用户发一条继续消息（消息流里不显示），卡片写出发出的时刻。每周额度等
-// 一天之后才重置的没有勾选。重连进度（`retry` 部件）也在这里：一行“正在重新连接 2/5”，点开是断开的原因。
+// 一天之后才重置的没有勾选。0.143.0 起还有“换模型继续”：点开是输入框模型菜单的列表，额度也用完的来源排在后面、标出来；选好后
+// Host 换模型（别的来源时接力），替用户发一条继续消息。重连进度（`retry` 部件）也在这里：一行“正在重新连接 2/5”，点开是断开的原因。
 
 import type { ChatPartOf } from '@wevir/client-sdk';
-import { AUTO_CONTINUE_MAX_WAIT_MS } from '@wevir/protocol';
+import { AUTO_CONTINUE_MAX_WAIT_MS, type TurnId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, Gauge, RotateCw } from 'lucide-react';
+import { ChevronDown, Gauge, RotateCw, Shuffle } from 'lucide-react';
 import { useState } from 'react';
+import { buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useAccounts } from '@/data/workbench-data';
 import { currentLocale, t } from '@/i18n';
 import { resetLabel, windowName } from '@/settings/chatgpt-account-model';
-import { useMessageActions } from './message-actions';
+import { type MessageActions, useMessageActions } from './message-actions';
+import { ModelList } from './model-picker';
+import { switchTargets } from './usage-limit-model';
 
 /** 回合因用量上限失败的错误部件（有 `usageLimit`）。 */
 export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
-  const { autoContinue } = useMessageActions();
+  const { autoContinue, switchModel } = useMessageActions();
   const [busy, setBusy] = useState(false);
   const limit = part.usageLimit;
   if (limit === undefined) return null;
@@ -66,6 +72,12 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
             {t('usageLimit.autoContinue')}
           </label>
         )}
+        {switchModel !== undefined &&
+          part.turnId !== undefined &&
+          switchModel.lastTurnId === part.turnId &&
+          part.resumedAt === undefined && (
+            <SwitchModelButton switchModel={switchModel} turnId={part.turnId} />
+          )}
         {armed !== undefined && (
           <p className="mt-1 text-xs text-muted-foreground" data-resume-at={armed.resumeAt}>
             {t('usageLimit.resumeAt', { time: clockLabel(armed.resumeAt) })}
@@ -81,6 +93,48 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
         </p>
       </div>
     </div>
+  );
+}
+
+/** “换模型继续”：点开是模型列表，选了与当前不同的模型就换过去并继续。 */
+function SwitchModelButton({
+  switchModel,
+  turnId,
+}: {
+  switchModel: NonNullable<MessageActions['switchModel']>;
+  turnId: TurnId;
+}) {
+  const accounts = useAccounts();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { value } = switchModel;
+  const targets = switchTargets(switchModel.providers, accounts, value.providerId);
+  const choose = (providerId: string, modelId: string) => {
+    setOpen(false);
+    if (providerId === value.providerId && modelId === value.modelId) return;
+    setBusy(true);
+    void switchModel.run(turnId, { providerId, modelId }).finally(() => setBusy(false));
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        disabled={busy}
+        data-testid="usage-limit-switch-model"
+        className={cn(buttonVariants({ size: 'xs', variant: 'outline' }), 'mt-2')}
+      >
+        <Shuffle aria-hidden />
+        {t('usageLimit.switchModel')}
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" sideOffset={6} className="w-72 gap-0 p-0">
+        <ModelList
+          providers={targets.providers}
+          exhausted={targets.exhausted}
+          locked={(provider) => !switchModel.switchable(provider)}
+          value={value}
+          onChoose={(providerId, model) => choose(providerId, model.id)}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 

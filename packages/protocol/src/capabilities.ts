@@ -176,6 +176,11 @@ export const HOST_FEATURES = {
    */
   usageAutoContinue: 'usage_auto_continue',
   /**
+   * 换模型继续（0.143.0）：`session.continueWithModel`。与引擎无关；换到别的来源时还要 `session_handoff`，同一来源里换模型要
+   * `session_configure`。
+   */
+  usageLimitSwitch: 'usage_limit_switch',
+  /**
    * 接力（0.25.0，domain-model §3.14）：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与
    * `host.hello` 的 `engineFeatures`。已有会话能换到别的来源的模型。与引擎无关。
    */
@@ -609,6 +614,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_review: z.boolean().optional(),
   session_goals: z.boolean().optional(),
   usage_auto_continue: z.boolean().optional(),
+  usage_limit_switch: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),

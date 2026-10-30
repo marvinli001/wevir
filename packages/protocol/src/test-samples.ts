@@ -5675,6 +5675,29 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'session.continueWithModel': {
+    params: {
+      valid: [
+        { sessionId: ids.session, turnId: ids.turn, providerId: 'claude' },
+        {
+          sessionId: ids.session,
+          turnId: ids.turn,
+          providerId: 'claude',
+          modelId: 'claude-sonnet-5-5',
+          reasoningEffort: 'high',
+        },
+        { sessionId: ids.session, turnId: ids.turn, modelId: 'gpt-5.5', reasoningEffort: null },
+      ],
+      invalid: [
+        { sessionId: ids.session, providerId: 'claude' },
+        { sessionId: ids.session, turnId: ids.turn, modelId: '' },
+      ],
+    },
+    result: {
+      valid: [{ session: { ...session, state: 'running' }, turnId: ids.turn }],
+      invalid: [{ session: { ...session, state: 'running' } }],
+    },
+  },
   'session.compact': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}, { sessionId: ids.turn }] },
     result: {

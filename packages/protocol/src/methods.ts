@@ -1428,6 +1428,29 @@ export const SessionSetAutoContinueParamsSchema = z.object({
   enabled: z.boolean(),
 });
 
+/**
+ * 换模型继续（0.143.0，Host 功能 `usage_limit_switch`）：`turnId` 是会话最后一个回合、因用量上限失败，会话空闲不只读。Host 先取消排着的
+ * 自动继续，再照 `session.configure` 换模型（`providerId` 是别的来源时接力），然后替用户发一条继续的消息（`MessageFrom.usageLimit`，
+ * 同额度恢复后自动继续，不重发用户原来的消息）。`providerId` 与 `modelId` 都没换时 `INVALID_PARAMS`；回合不对、会话不空闲时
+ * `INVALID_STATE`；换模型的错误同 `session.configure`。
+ */
+export const SessionContinueWithModelParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  turnId: TurnIdSchema,
+  /** 省略或与会话当前的相同：不换来源。 */
+  providerId: ProviderIdSchema.optional(),
+  /** 省略：来源的默认模型（换来源时）或不改。 */
+  modelId: z.string().min(1).optional(),
+  /** 同 `session.configure`。 */
+  reasoningEffort: z.string().min(1).nullable().optional(),
+});
+
+/** `session.continueWithModel` 的结果：换过模型的会话与继续的回合。 */
+export const SessionContinueWithModelResultSchema = z.object({
+  session: SessionSchema,
+  turnId: TurnIdSchema,
+});
+
 /** `session.compact`（0.24.0）与 `session.review` 的结果：开始的回合与它的 `turn.started` 的 `seq`。 */
 export const SessionCommandResultSchema = z.object({
   turnId: TurnIdSchema,
@@ -2307,6 +2330,11 @@ export const MethodSchemas = {
   'session.setAutoContinue': {
     params: SessionSetAutoContinueParamsSchema,
     result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.continueWithModel': {
+    params: SessionContinueWithModelParamsSchema,
+    result: SessionContinueWithModelResultSchema,
     permission: 'session.write',
   },
   'session.rename': {

@@ -2630,6 +2630,78 @@ describe('SessionManager：重连进度与额度恢复后自动继续（0.119.0�
   });
 });
 
+describe('换模型继续（0.143.0）', () => {
+  const PROMPT =
+    'I hit my usage limit while you were working, so I switched to a different model. Please continue from where you left off.';
+
+  it('同一来源换模型：取消排着的自动继续，换模型后替用户发继续消息', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    await waitForState(h, id, 'idle');
+    await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
+    const result = await h.manager.continueWithModel(
+      { sessionId: id, turnId, modelId: 'deepseek-reasoner', reasoningEffort: 'high' },
+      cli,
+    );
+    expect(result.session).toMatchObject({ modelId: 'deepseek-reasoner', reasoningEffort: 'high' });
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'session.auto_continue').map((e) => e.payload.resumeAt === null)).toEqual([
+      false,
+      true,
+    ]);
+    const types = all(h, id)
+      .map((e) => e.type)
+      .filter((type) =>
+        ['session.auto_continue', 'session.configured', 'turn.started'].includes(type),
+      );
+    expect(types).toEqual([
+      'turn.started',
+      'session.auto_continue',
+      'session.auto_continue',
+      'session.configured',
+      'turn.started',
+    ]);
+    const resumed = ofType(h, id, 'user.message')[1];
+    expect(resumed?.payload.turnId).toBe(result.turnId);
+    expect(resumed?.payload.from).toEqual({
+      sessionId: id,
+      kind: 'report',
+      usageLimit: { turnId },
+    });
+    expect(resumed?.payload.content).toEqual(text(PROMPT));
+    expect(resumed?.payload.sentBy).toEqual(cli);
+    expect(ofType(h, id, 'assistant.message').at(-1)?.payload.text).toBe(`Echo: ${PROMPT}`);
+    expect(snapshot(h, id).session.autoContinue).toBeUndefined();
+    expect(ofType(h, id, 'user.message')).toHaveLength(2);
+  });
+
+  it('没换模型、回合不是用量上限的最后一个回合时不换也不发', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    await waitForState(h, id, 'idle');
+    await expect(
+      h.manager.continueWithModel({ sessionId: id, turnId, modelId: 'deepseek-chat' }, cli),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(h.manager.continueWithModel({ sessionId: id, turnId }, cli)).rejects.toMatchObject(
+      { code: 'INVALID_PARAMS' },
+    );
+    const next = turnOf(await send(h, id, 'hello'));
+    await waitForState(h, id, 'idle');
+    for (const target of [turnId, next]) {
+      await expect(
+        h.manager.continueWithModel(
+          { sessionId: id, turnId: target, modelId: 'deepseek-reasoner' },
+          cli,
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    }
+    expect(ofType(h, id, 'session.configured')).toHaveLength(0);
+    expect(ofType(h, id, 'user.message')).toHaveLength(2);
+  });
+});
+
 // ── 测试用的事件流 ────────────────────────────────────────────────────
 
 async function* breakAfter(source: AsyncIterable<AgentEvent>, count: number) {

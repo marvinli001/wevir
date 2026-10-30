@@ -206,19 +206,22 @@ export function ModelPicker({
 
 /**
  * 模型列表（0.19.0 起混合全部来源）：顶上是搜索；按 Provider 分组，订阅来源在前、组头写软件名与“订阅”，每行左边是软件标志；
- * API 的组头是服务的标志与“API”，行里不带标志。已有会话里不能接力过去的来源（`locked`）置灰。
+ * API 的组头是服务的标志与“API”，行里不带标志。已有会话里不能接力过去的来源（`locked`）置灰。额度用完的卡片（0.143.0）也用它：
+ * `exhausted` 里的来源组头标“已用完”，没有 `onBack` 时不带返回。
  */
-function ModelList({
+export function ModelList({
   providers,
   locked: isLocked,
+  exhausted,
   value,
   onBack,
   onChoose,
 }: {
   providers: readonly ProviderProfile[];
   locked: (provider: ProviderProfile) => boolean;
+  exhausted?: ReadonlySet<string>;
   value: ModelChoice;
-  onBack: () => void;
+  onBack?: () => void;
   onChoose: (providerId: string, model: ProviderModel) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -252,10 +255,18 @@ function ModelList({
   return (
     <div className="flex max-h-[26rem] flex-col animate-in duration-150 fade-in slide-in-from-right-2">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-1.5">
-        <IconButton label={t('model.picker.back')} size="icon-xs" onClick={onBack}>
-          <ChevronLeft />
-        </IconButton>
-        <Search aria-hidden className="ml-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        {onBack !== undefined && (
+          <IconButton label={t('model.picker.back')} size="icon-xs" onClick={onBack}>
+            <ChevronLeft />
+          </IconButton>
+        )}
+        <Search
+          aria-hidden
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground',
+            onBack === undefined ? 'ml-1.5' : 'ml-0.5',
+          )}
+        />
         <input
           // biome-ignore lint/a11y/noAutofocus: 打开模型列表就是要找模型。
           autoFocus
@@ -297,7 +308,17 @@ function ModelList({
                     {email}
                   </span>
                 )}
-                <span className="ml-auto shrink-0 rounded-sm border border-border px-1 text-[0.625rem] leading-4 tracking-wide">
+                {exhausted?.has(provider.id) === true && (
+                  <span className="ml-auto shrink-0 text-[0.625rem] leading-4" data-exhausted>
+                    {t('model.picker.exhausted')}
+                  </span>
+                )}
+                <span
+                  className={cn(
+                    'shrink-0 rounded-sm border border-border px-1 text-[0.625rem] leading-4 tracking-wide',
+                    exhausted?.has(provider.id) !== true && 'ml-auto',
+                  )}
+                >
                   {t(source ? 'model.picker.subscription' : 'model.picker.api')}
                 </span>
               </h3>

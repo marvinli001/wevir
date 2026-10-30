@@ -127,6 +127,7 @@ import {
   AutoContinueTimers,
   completeUsageLimit,
   resumeAtFor,
+  SWITCH_CONTINUE_PROMPT,
 } from './auto-continue.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
@@ -6592,6 +6593,69 @@ export class SessionManager {
       }
       this.#write(runtime, [autoContinueEvent(params.turnId, resumeAt)]);
       return { session: this.#snapshot(runtime).session };
+    });
+  }
+
+  /**
+   * `session.continueWithModel`（0.143.0）：额度用完的回合换模型继续。先在会话的命令队列里核对 `turnId` 是最后一个、因用量上限失败的
+   * 回合，会话空闲不只读，并取消排着的自动继续；再照 `session.configure` 换模型（别的来源时接力，错误同它）；最后替用户发
+   * `SWITCH_CONTINUE_PROMPT`（`from.usageLimit`，同额度恢复后自动继续）。来源与模型都没换时 `INVALID_PARAMS`。
+   */
+  async continueWithModel(
+    params: MethodParams<'session.continueWithModel'>,
+    sentBy: ClientIdentity,
+  ): Promise<MethodResult<'session.continueWithModel'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    const assertLimited = () => {
+      const { session } = this.#snapshot(runtime);
+      if (this.#events.usageLimited(runtime.id)?.turnId !== params.turnId) {
+        throw new HostError(
+          'INVALID_STATE',
+          `turn ${params.turnId} is not the last turn of the session or did not hit a usage limit`,
+          { state: session.state },
+        );
+      }
+      if (session.state !== 'idle' || session.readOnly !== undefined) {
+        throw new HostError('INVALID_STATE', `session ${runtime.id} is ${session.state}`, {
+          state: session.state,
+          ...(session.readOnly !== undefined && { readOnly: session.readOnly }),
+        });
+      }
+      return session;
+    };
+    const { providerId, modelId } = await this.#serial(runtime, async () => {
+      const session = assertLimited();
+      const providerId = params.providerId ?? session.providerId;
+      if (
+        providerId === session.providerId &&
+        (params.modelId ?? session.modelId) === session.modelId
+      ) {
+        const message = `the session already uses ${providerId} / ${session.modelId}`;
+        throw new HostError('INVALID_PARAMS', message, {
+          issues: [{ path: ['modelId'], message }],
+        });
+      }
+      if (session.autoContinue !== undefined) {
+        this.#write(runtime, [autoContinueEvent(session.autoContinue.turnId, null)]);
+      }
+      return { providerId, modelId: params.modelId };
+    });
+    await this.configure({
+      sessionId: params.sessionId,
+      ...(providerId !== this.#snapshot(runtime).session.providerId && { providerId }),
+      ...(modelId !== undefined && { modelId }),
+      ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
+    });
+    return this.#serial(runtime, async () => {
+      assertLimited();
+      const { turnId } = await this.#startTurn(runtime, {
+        content: [{ type: 'text', text: SWITCH_CONTINUE_PROMPT }],
+        sentBy,
+        from: { sessionId: runtime.id, kind: 'report', usageLimit: { turnId: params.turnId } },
+      });
+      return { session: this.#snapshot(runtime).session, turnId };
     });
   }
 

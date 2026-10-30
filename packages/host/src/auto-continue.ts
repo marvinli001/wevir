@@ -14,6 +14,10 @@ import {
 export const AUTO_CONTINUE_PROMPT =
   'I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.';
 
+/** 换模型继续（0.143.0，`session.continueWithModel`）时交给引擎的继续消息：额度没有恢复，换了别的模型接着做。 */
+export const SWITCH_CONTINUE_PROMPT =
+  'I hit my usage limit while you were working, so I switched to a different model. Please continue from where you left off.';
+
 /** 重置之后再等一会儿才发：服务端窗口的边界与本机时钟有出入，早了又会碰到上限。 */
 export const AUTO_CONTINUE_DELAY_MS = 30_000;
 

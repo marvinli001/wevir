@@ -2,7 +2,7 @@
 // （撤回最后一个回合，改过的消息照常发出）。会话视图按 Host 与会话当前引擎的能力提供，子智能体详情与支线窗格里没有。
 
 import type { UserChatMessage } from '@wevir/client-sdk';
-import type { SessionAutoContinue, TurnId } from '@wevir/protocol';
+import type { ProviderProfile, SessionAutoContinue, TurnId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Pencil, Split } from 'lucide-react';
 import {
@@ -17,6 +17,7 @@ import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
 import { composerPrefs } from './composer-prefs';
+import type { ModelChoice } from './model-picker';
 
 export interface MessageActions {
   /** 从这个回合分支到新会话；会话不能分支时没有。 */
@@ -33,6 +34,18 @@ export interface MessageActions {
     lastTurnId?: TurnId;
     armed?: SessionAutoContinue;
     set(turnId: TurnId, enabled: boolean): Promise<void>;
+  };
+  /**
+   * 换模型继续（0.143.0，Host 功能 `usage_limit_switch`）：`lastTurnId` 同 `autoContinue`；`providers` 与 `value` 是输入框模型菜单的
+   * 数据，`switchable` 判断能不能换到这个来源（同一来源要 Host 能换模型，别的来源要能接力），`run` 换模型并继续（失败的提示由会话
+   * 视图显示）。Host 不支持、会话不可写或是子会话时没有。
+   */
+  switchModel?: {
+    lastTurnId?: TurnId;
+    providers: readonly ProviderProfile[];
+    value: ModelChoice;
+    switchable(provider: ProviderProfile): boolean;
+    run(turnId: TurnId, next: ModelChoice): Promise<void>;
   };
   /**
    * 回合末的下一步卡片（0.128.0）：`lastTurnId` 是会话空闲时的最后一个回合（只有它的卡片能点），`send` 以用户身份发出按钮的消息，
