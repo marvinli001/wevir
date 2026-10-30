@@ -10,6 +10,7 @@ import {
   codexBinaryOrSkip,
   collectEvents,
   collectingLogger,
+  finishTurn,
   newAdapter,
   ofType,
   runTurn,
@@ -135,6 +136,57 @@ describe.skipIf(binary === undefined)('子会话 + 真实 codex-app-server', { t
     const child = collectEvents(adapter, started.childEngineSessionId);
     await waitForEvent(child, ofType('turn.settled'), '子回合结束');
     expect(child.find(ofType('assistant.message'))?.text).toBe('Helper done.');
+  });
+
+  it('父回合先结束、子 agent 之后跑完：父会话空闲时开一个引擎回合叫醒它，输入带子 agent 的回答', async () => {
+    script = (view) => {
+      if (view.lastUserText.startsWith('Helper task')) {
+        return { text: ['Helper', ' done.'], delayMs: 200 };
+      }
+      if (view.lastUserText.includes('after your previous turn ended')) return { text: ['收到。'] };
+      if (view.toolOutputs.length > 0) return { text: ['Spawned.'] };
+      return spawn('Helper task\nSay done.');
+    };
+    const { adapter, id, events } = await open();
+    const parentTurn = await runTurn(adapter, id, 'spawn', events);
+    expect(parentTurn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    const started = parentTurn.find(ofType('subagent.started'));
+    if (started === undefined) throw new Error('父回合里没有 subagent.started');
+    const from = events.length;
+    await waitForEvent(events, ofType('turn.started'), '叫醒父会话的回合', from);
+    const wake = await finishTurn(events, from);
+    expect(wake[0]).toEqual({ type: 'turn.started', engineSessionId: id });
+    expect(wake.find(ofType('assistant.message'))?.text).toBe('收到。');
+    expect(wake.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    const request = mock.requests.at(-1);
+    const note = JSON.stringify(request?.body.input.at(-1));
+    expect(note).toContain(started.childEngineSessionId);
+    expect(note).toContain('Helper done.');
+  });
+
+  it('派出子 agent 的父回合被取消：子 agent 之后跑完不叫醒父会话', async () => {
+    script = (view) => {
+      if (view.lastUserText.startsWith('Helper task')) return SLOW_CHILD;
+      if (view.toolOutputs.length > 0) return SLOW_CHILD;
+      return spawn('Helper task\nSay done.');
+    };
+    const { adapter, id, events } = await open();
+    const from = events.length;
+    await adapter.send(id, { content: [{ type: 'text', text: 'spawn' }] });
+    const started = await waitForEvent(
+      events,
+      ofType('subagent.started'),
+      'subagent.started',
+      from,
+    );
+    const child = collectEvents(adapter, started.childEngineSessionId);
+    await adapter.cancel(id);
+    const parentTurn = await finishTurn(events, from);
+    expect(parentTurn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+    const childEnd = await waitForEvent(child, ofType('turn.settled'), '子回合结束');
+    expect(childEnd.outcome).toBe('completed');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(events.slice(from + parentTurn.length).filter(ofType('turn.started'))).toEqual([]);
   });
 
   it('close_agent：父会话的流里报 subagent.updated（closed），子回合被中断', async () => {

@@ -69,6 +69,20 @@ export function classifyTurnError(error: TurnError | null | undefined): Classifi
   return { category: 'unknown' };
 }
 
+/**
+ * 回合是不是因订阅账号的额度失败（0.119.0 的 `usageLimit`）：`usageLimitExceeded` 总是；ChatGPT 登录的进程（`subscription`）
+ * 还有 `rateLimitExceeded` 与对 429 重试用完的 `responseTooManyFailedAttempts`——上游只用最后一次的状态码说明原因，
+ * 订阅账号的 429 就是额度到了。经网关的 Provider 的 429 是限流，不算。
+ */
+export function isUsageLimit(error: TurnError | null | undefined, subscription: boolean): boolean {
+  const info = error?.codexErrorInfo;
+  if (info === 'usageLimitExceeded') return true;
+  if (!subscription) return false;
+  if (info === 'rateLimitExceeded') return true;
+  const exhausted = isRecord(info) ? info.responseTooManyFailedAttempts : undefined;
+  return isRecord(exhausted) && exhausted.httpStatusCode === 429;
+}
+
 function httpStatusOf(info: unknown): number | undefined {
   if (!isRecord(info)) return undefined;
   for (const key of HTTP_VARIANTS) {

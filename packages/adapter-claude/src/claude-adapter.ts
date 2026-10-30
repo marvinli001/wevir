@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts（每个 thread 一个常驻的 query、`makeClaudeQueryOptions`、`spawnClaudeProcessGroup`、流式 / 快照 / 工具结果 / 结果的处理、`canUseTool`、中断、插话与 `forkThread`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 b49488759211b2c69a9419b845e1bdff17d23fb3（计划回合在完全访问下也问写操作）、
+// 66cae3d7565a6cc086672a53349cc5da225189c1（上下文用量读流式事件）、598298cc3c56ef6943301944d6986578f6b7d587（以第一个 `init` 的权限模式为准）、
+// 499c9ee68b28492c9e088a98f112998dfc4ffafc（用量上限挡下的 `/compact` 算失败）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，实现 Wevir 的 `AgentRuntimeAdapter`；插话用 priority next（T3 用 now）；关掉后台任务；不移植 T3 编排专用的部分（唤醒回合、prompt 回声的门控、后台任务名单、goal、回滚、编排用的 MCP 工具）。
 //
@@ -90,6 +92,7 @@ import {
   type SdkPermissionMode,
 } from './sdk.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
+import { claudeTaskOutputRoot, tailClaudeTaskOutput } from './task-output.js';
 import {
   applyTaskTool,
   askUserAnswers,
@@ -99,7 +102,13 @@ import {
   todoWriteItems,
 } from './todos.js';
 import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
-import { isAbortedResult, rejectedUsageLimit, resultFailure, retryingOf } from './turn-result.js';
+import {
+  isAbortedResult,
+  rejectedUsageLimit,
+  resultFailure,
+  retryingOf,
+  USAGE_LIMIT_ERROR,
+} from './turn-result.js';
 import { type ClaudeRequest, claudeUsageRecord, mergeClaudeUsage } from './usage-record.js';
 
 /** `cancel` 等回合结算的时限；超过就关掉进程（照样算取消成功，进程没了回合必然已停）。 */
@@ -270,6 +279,8 @@ interface Turn {
   readonly kind?: 'compact' | 'engine';
   /** 进行中的压缩（`status` 是 `compacting`，0.24.0），等 `compact_boundary`。 */
   compaction?: { id: string; trigger: 'manual' | 'auto' };
+  /** 最近一次压缩状态报了失败（`compact_result: 'failed'`），带 Claude 的错误原文（T3 499c9ee）。 */
+  compactionFailure?: { message: string | undefined };
   settled: boolean;
   cancelRequested: boolean;
   cancelPromise?: Promise<void>;
@@ -283,7 +294,11 @@ interface Turn {
   deferredResult?: SDKResultMessage;
   /** 这个回合最后一条顶层消息的 uuid（会话记录里的条目，支线从这里分）。 */
   lastEntryUuid?: string;
-  usageMessages: Set<string>;
+  /**
+   * 最近一个顶层请求的用量，从它的流式事件拼（T3 66cae3d）。它的快照重复 `message_start` 的用量，走中转时可能全是 0，所以快照只在
+   * 流式事件还没报出输入时补上。压缩之后这份用量过期（null），但还记着请求，免得它后到的快照盖掉压缩后的用量。
+   */
+  contextRequest?: { id: string; usage: Record<string, unknown> | null };
   lastContextUsed?: number;
   waiters: Array<() => void>;
   /** 跑这个回合的进程（消息推给它之后才有）：别的进程退出不结算这个回合。 */
@@ -297,6 +312,15 @@ interface LiveQuery {
   done: Promise<void>;
   /** 由适配器主动关掉（取消超时、换设置、关闭会话、dispose）。 */
   closing: boolean;
+  /** 收到过第一个 `init`：只有它说明进程起在了哪个权限模式。 */
+  receivedInit: boolean;
+  /** Claude Code 写前台命令输出文件的目录（按这个进程的环境）；没有时不读实时输出。 */
+  taskOutputRoot: string | undefined;
+  /**
+   * 进程起来时 claude 没用请求的权限模式（第一个 `init` 报的是别的，如模型不支持 `auto` 时退回 `default`；T3 598298c）。之后要的还是
+   * `requested` 时以 `actual` 为准，不在进程里再改；换模型时重起进程，让新模型重新协商。
+   */
+  fallback?: { requested: SdkPermissionMode; actual: SdkPermissionMode };
 }
 
 /** 进程启动时定下的设置（有的能在进程里改，有的要重起，见 `#applyLive`）。 */
@@ -329,6 +353,8 @@ interface RootSession extends Owner {
   waking?: boolean;
   /** 当前（最近一个由消息开始的）回合在计划模式里（0.36.0）：进程的权限模式是 `plan`。 */
   planning: boolean;
+  /** 正在读输出文件的前台 Bash 调用（工具调用 ID → 停下读取），见 task-output.ts。 */
+  outputTails: Map<string, { stop: () => void }>;
   /** 子 agent：派出它的工具调用 ID → 子会话（各层都登记在顶层会话上）。 */
   children: Map<string, ChildSession>;
   stream?: { attemptId: string; blocks: Map<number, StreamBlock> };
@@ -384,7 +410,7 @@ export function engineToolOptions(
 
 /**
  * 会话的 MCP 服务：读历史的工具（stdio，0.25.0）与应用级工具（HTTP，0.30.0）。`allowedTools` 里是不用批准的工具，其余的 MCP
- * 工具经 `canUseTool` 问用户（完全访问时直接放行）。
+ * 工具经 `canUseTool` 问用户（完全访问时直接放行，计划回合除外）。
  */
 /** 接点回调的时限（秒）：Host 依次跑护栏的检查命令与 hooks，留足余量。 */
 const HOOK_TAP_TIMEOUT_SEC = 3600;
@@ -504,6 +530,27 @@ function readImages(input: AgentInput) {
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function usageCount(usage: Record<string, unknown>, key: string): number {
+  const value = usage[key];
+  return typeof value === 'number' ? value : 0;
+}
+
+/** 一次请求的输入：`input_tokens` 不含缓存的读写，加上它们才是送进上下文的全部。 */
+function contextInput(usage: Record<string, unknown>): number {
+  return (
+    usageCount(usage, 'input_tokens') +
+    usageCount(usage, 'cache_creation_input_tokens') +
+    usageCount(usage, 'cache_read_input_tokens')
+  );
+}
+
+/** 后到的用量盖掉先到的；null 或缺的字段不动（同 usage-record.ts 的 `mergeClaudeUsage`）。 */
+function mergeUsage(target: Record<string, unknown>, usage: unknown): void {
+  for (const [key, value] of Object.entries(record(usage))) {
+    if (value !== null && value !== undefined) target[key] = value;
+  }
 }
 
 /** 工具结果的文本：字符串，或内容块里的文本拼起来。 */
@@ -770,7 +817,6 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       stoppedByUser: false,
       authFailed: false,
       steers: [],
-      usageMessages: new Set(),
       waiters: [],
     };
     session.turn = turn;
@@ -1153,6 +1199,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       sideNotePending: false,
       pendingNotes: [],
       planning: false,
+      outputTails: new Map(),
       children: new Map(),
     };
     this.#sessions.set(id, session);
@@ -1219,8 +1266,13 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   /** 在进程里换模型、档位与权限模式（T3 的 `canApplyClaudeSelectionLive`）；要重起时返回 false。 */
-  async #applyLive(live: LiveQuery, desired: Applied): Promise<boolean> {
+  async #applyLive(live: LiveQuery, wanted: Applied): Promise<boolean> {
     const applied = live.applied;
+    let desired = wanted;
+    if (live.fallback !== undefined && wanted.mode === live.fallback.requested) {
+      if (wanted.model !== applied.model) return false;
+      desired = { ...wanted, mode: live.fallback.actual };
+    }
     // 清掉档位、换到完全访问（要带启动参数 allowDangerouslySkipPermissions）只能重起。
     if (desired.effort === undefined && applied.effort !== undefined) return false;
     if (desired.dangerous && !applied.dangerous) return false;
@@ -1246,10 +1298,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       this.#historyScriptWritten = true;
     }
     const input = new PushQueue<SDKUserMessage>();
+    const env = { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env };
     const options: Options = {
       pathToClaudeCodeExecutable: installation.executablePath,
       // 环境的变量（0.130.0）并进这个会话的 `claude` 进程，模型跑的命令继承它。
-      env: { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env },
+      env,
       cwd: session.config.cwd,
       ...(session.config.additionalRoots !== undefined &&
         session.config.additionalRoots.length > 0 && {
@@ -1293,6 +1346,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       applied: desired,
       done: Promise.resolve(),
       closing: false,
+      receivedInit: false,
+      taskOutputRoot: claudeTaskOutputRoot(env),
     };
     live.done = this.#pump(session, live);
     return live;
@@ -1347,6 +1402,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   async #closeLive(session: RootSession, live: LiveQuery): Promise<void> {
     live.closing = true;
+    this.#stopOutputTails(session);
     live.input.close();
     try {
       live.query.close();
@@ -1380,6 +1436,49 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       ...(extra.shouldQuery !== undefined && { shouldQuery: extra.shouldQuery }),
       ...(extra.uuid !== undefined && { uuid: extra.uuid as SDKUserMessage['uuid'] }),
     };
+  }
+
+  /**
+   * 前台 Bash 的实时输出（T3 a5d9792）：`task_started` 是 `local_bash` 且没放到后台时读 Claude Code 写的输出文件，到目前为止的输出
+   * 随 `tool.updated` 报（与 Codex 的命令输出一样）。读不到就没有，工具结果照样带完整输出。
+   */
+  #tailCommandOutput(
+    session: RootSession,
+    live: LiveQuery,
+    message: Extract<SDKMessage, { type: 'system'; subtype: 'task_started' }>,
+  ): void {
+    const toolCallId = message.tool_use_id;
+    // 老版本的 Claude Code 前台的调用不带 is_backgrounded。
+    if (
+      live.taskOutputRoot === undefined ||
+      toolCallId === undefined ||
+      message.task_type !== 'local_bash' ||
+      message.is_backgrounded === true ||
+      session.outputTails.has(toolCallId)
+    ) {
+      return;
+    }
+    const owner = [session, ...session.children.values()].find(
+      (candidate) => candidate.tools.get(toolCallId)?.name === 'Bash',
+    );
+    if (owner === undefined || owner.finished.has(toolCallId)) return;
+    let output = '';
+    const tail = tailClaudeTaskOutput({
+      root: live.taskOutputRoot,
+      sessionId: message.session_id,
+      taskId: message.task_id,
+      onChunk: (chunk) => {
+        if (owner.finished.has(toolCallId)) return;
+        output += chunk;
+        owner.hub.emit({ type: 'tool.updated', engineSessionId: owner.id, toolCallId, output });
+      },
+    });
+    session.outputTails.set(toolCallId, tail);
+  }
+
+  #stopOutputTails(session: RootSession): void {
+    for (const tail of session.outputTails.values()) tail.stop();
+    session.outputTails.clear();
   }
 
   #endHubs(session: RootSession): void {
@@ -1422,7 +1521,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       if (toolName === EXIT_PLAN_MODE) {
         return { behavior: 'deny', message: PLAN_CAPTURED_MESSAGE, toolUseID: options.toolUseID };
       }
-      if (session.config.permissionMode === 'full_access') {
+      // 计划回合要只读（T3 b494887）：完全访问时 Claude 也把计划模式里的写操作交给这里，照样问用户。
+      if (session.config.permissionMode === 'full_access' && !session.planning) {
         return { behavior: 'allow', updatedInput: toolInput, toolUseID: options.toolUseID };
       }
       const requestId = options.toolUseID;
@@ -1626,7 +1726,6 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       stoppedByUser: false,
       authFailed: false,
       steers: [],
-      usageMessages: new Set(),
       waiters: [],
       live,
     };
@@ -1882,11 +1981,17 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       }
       case 'system':
         if (message.subtype === 'init') {
-          if (message.permissionMode !== live.applied.mode) {
-            this.#logger?.warn('claude started in a different permission mode', {
-              requested: live.applied.mode,
-              actual: message.permissionMode,
-            });
+          // 以第一个 `init` 为准（T3 598298c）：进程实际的权限模式，之后的回合不再按请求的那个去改。
+          if (!live.receivedInit) {
+            live.receivedInit = true;
+            if (message.permissionMode !== live.applied.mode) {
+              this.#logger?.warn('claude started in a different permission mode', {
+                requested: live.applied.mode,
+                actual: message.permissionMode,
+              });
+              live.fallback = { requested: live.applied.mode, actual: message.permissionMode };
+              live.applied = { ...live.applied, mode: message.permissionMode };
+            }
           }
           return;
         }
@@ -1896,6 +2001,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
               ? undefined
               : session.children.get(message.tool_use_id);
           if (child !== undefined) child.taskId = message.task_id;
+          this.#tailCommandOutput(session, live, message);
           return;
         }
         if (message.subtype === 'task_notification') {
@@ -1957,7 +2063,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   /**
    * `status`（0.24.0）：`compacting` 是压缩开始（`compact` 开的回合是 `manual`，其余是 Claude 自己压缩）；压缩失败
-   * （`compact_result: 'failed'`）时丢掉，回合照常结算。其余状态不出事件。
+   * （`compact_result: 'failed'`）时丢掉，回合照常结算（用量上限挡下的 `/compact` 除外，见 `#result`）。其余状态不出事件。
    */
   #compactionStatus(
     session: RootSession,
@@ -1980,6 +2086,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       });
       return;
     }
+    if (message.compact_result !== undefined) {
+      turn.compactionFailure =
+        message.compact_result === 'failed' ? { message: message.compact_error } : undefined;
+    }
     if (message.compact_result === 'failed') turn.compaction = undefined;
   }
 
@@ -1995,6 +2105,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     }
     const compactionId = turn.compaction?.id ?? message.uuid;
     turn.compaction = undefined;
+    if (turn.contextRequest !== undefined) turn.contextRequest.usage = null;
     session.hub.emit({
       type: 'context.compacted',
       engineSessionId: session.id,
@@ -2056,10 +2167,26 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     event: Extract<SDKMessage, { type: 'stream_event' }>['event'],
   ): void {
     switch (event.type) {
-      case 'message_start':
+      case 'message_start': {
         this.#flushStream(session);
         session.stream = { attemptId: event.message.id, blocks: new Map() };
+        const turn = session.turn;
+        if (turn !== undefined) {
+          const usage = { ...record(event.message.usage) };
+          turn.contextRequest = { id: event.message.id, usage };
+          this.#contextUsage(session, turn, usage);
+        }
         return;
+      }
+      case 'message_delta': {
+        // `message_delta` 的用量是这条消息累计的：null 或缺的字段沿用 `message_start` 的，明确的 0 盖掉它。
+        const turn = session.turn;
+        const usage = turn?.contextRequest?.usage;
+        if (turn === undefined || usage === undefined || usage === null) return;
+        mergeUsage(usage, event.usage);
+        this.#contextUsage(session, turn, usage);
+        return;
+      }
       case 'content_block_start': {
         const block = event.content_block;
         if (session.stream === undefined) return;
@@ -2199,15 +2326,30 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   ): void {
     const usage = message.message.usage as unknown as Record<string, unknown> | undefined;
     if (usage === undefined || message.message.model === '<synthetic>') return;
-    if (turn.usageMessages.has(message.message.id)) return;
-    turn.usageMessages.add(message.message.id);
-    const count = (key: string) => (typeof usage[key] === 'number' ? (usage[key] as number) : 0);
+    const known = turn.contextRequest;
+    if (known === undefined || known.id !== message.message.id) {
+      // 没有流式事件的请求：记下它，之后同一请求的快照不再重复报。
+      turn.contextRequest = { id: message.message.id, usage: { ...usage } };
+      this.#contextUsage(session, turn, usage);
+    } else if (known.usage !== null && contextInput(known.usage) <= 0 && contextInput(usage) > 0) {
+      known.usage = {
+        ...usage,
+        output_tokens: Math.max(
+          usageCount(usage, 'output_tokens'),
+          usageCount(known.usage, 'output_tokens'),
+        ),
+      };
+      this.#contextUsage(session, turn, known.usage);
+    }
+  }
+
+  /** 一个顶层请求的用量报成当前的上下文用量（`usage.updated`）。没有输入的用量是占位，不报（T3 66cae3d）。 */
+  #contextUsage(session: RootSession, turn: Turn, usage: Record<string, unknown>): void {
+    if (turn.settled) return;
+    const input = contextInput(usage);
+    if (input <= 0) return;
     // 同 T3 的 `claudeProviderTurnTokenUsage`：输入（含缓存的读写）加输出。
-    const contextUsed =
-      count('input_tokens') +
-      count('cache_creation_input_tokens') +
-      count('cache_read_input_tokens') +
-      count('output_tokens');
+    const contextUsed = input + usageCount(usage, 'output_tokens');
     turn.lastContextUsed = contextUsed;
     session.hub.emit({
       type: 'usage.updated',
@@ -2331,6 +2473,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       const toolCallId = fields.tool_use_id;
       if (typeof toolCallId !== 'string' || owner.finished.has(toolCallId)) continue;
       owner.finished.add(toolCallId);
+      session.outputTails.get(toolCallId)?.stop();
+      session.outputTails.delete(toolCallId);
       // ExitPlanMode 没报 tool.started（计划另报），结果也不报。
       if (owner.tools.get(toolCallId)?.name === EXIT_PLAN_MODE) continue;
       const text = toolResultText(fields.content);
@@ -2431,6 +2575,21 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       });
       return;
     }
+    // 用量上限挡下的 `/compact` 照样以成功的结果结束：算失败，带上 usageLimit，Host 不把排着的消息发进同一个上限（T3 499c9ee）。
+    if (
+      turn.kind === 'compact' &&
+      turn.usageLimit !== undefined &&
+      turn.compactionFailure !== undefined &&
+      message.subtype === 'success'
+    ) {
+      this.#settle(session, turn, {
+        type: 'turn.failed',
+        category: 'provider',
+        message: turn.compactionFailure.message ?? USAGE_LIMIT_ERROR,
+        usageLimit: turn.usageLimit,
+      });
+      return;
+    }
     const failure = resultFailure(message, turn.authFailed, turn.usageLimit);
     if (failure !== undefined) {
       this.#settle(session, turn, { type: 'turn.failed', ...failure });
@@ -2456,6 +2615,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#flushStream(session);
     session.stream = undefined;
     this.#flushRequest(session);
+    this.#stopOutputTails(session);
     const cancelled = terminal.type === 'turn.settled' && terminal.outcome === 'cancelled';
     for (const entry of [...session.approvals.values()])
       entry.end(cancelled ? 'turn_cancelled' : 'turn_ended');
