@@ -327,6 +327,8 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
       <- apps/server/src/vcs/GitVcsDriver.ts
          apps/server/src/orchestration-v2/CheckpointService.ts
          apps/server/src/checkpointing/Diffs.ts
+         apps/server/src/vcs/VcsProcess.ts
+         （落盘设置，来源提交 55ba1baa559ee73b9db177da07f56000774371f2）
   apps/desktop/src/renderer/src/layout/panes/changes-pane.tsx
       <- apps/web/src/components/DiffPanel.tsx
   apps/desktop/src/renderer/src/changes/styled-code-view.tsx
