@@ -510,6 +510,112 @@ describe('审批（录音 approval.*）', () => {
   });
 });
 
+describe('前台 Bash 的实时输出', () => {
+  const tmpRoots: string[] = [];
+  afterEach(() => {
+    for (const root of tmpRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+  const message = (value: Record<string, unknown>) => ({
+    kind: 'message' as const,
+    message: value,
+  });
+  const bashScript = (holdMs: number) => ({
+    steps: [
+      message({
+        type: 'assistant',
+        message: {
+          id: 'msg_bash',
+          model: 'claude-haiku-4-5',
+          content: [
+            { type: 'tool_use', id: 'toolu_bash', name: 'Bash', input: { command: './slow.sh' } },
+          ],
+        },
+        parent_tool_use_id: null,
+        uuid: 'a-bash',
+      }),
+      message({
+        type: 'system',
+        subtype: 'task_started',
+        task_id: 'b1',
+        tool_use_id: 'toolu_bash',
+        description: './slow.sh',
+        task_type: 'local_bash',
+        is_backgrounded: false,
+        uuid: 'task-b1',
+      }),
+      { kind: 'delay' as const, ms: holdMs },
+      message({
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_bash', content: 'one\ntwo\nthree' }],
+        },
+        parent_tool_use_id: null,
+        uuid: 'u-bash',
+      }),
+      message({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: '',
+        stop_reason: 'end_turn',
+        modelUsage: {},
+        user_message_uuids: ['<prompt>'],
+      }),
+    ],
+  });
+  async function bashSession(holdMs: number) {
+    const tmp = mkdtempSync(join(tmpdir(), 'wevir-claude-tasks-'));
+    tmpRoots.push(tmp);
+    const { adapter } = harness({
+      script: (prompt) => (prompt === 'run it' ? bashScript(holdMs) : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      env: { CLAUDE_CODE_TMPDIR: tmp },
+    });
+    const tasks = join(
+      tmp,
+      `claude-${process.getuid?.()}`,
+      'some-project',
+      engineSessionId,
+      'tasks',
+    );
+    return { adapter, engineSessionId, tasks, log: collect(adapter, engineSessionId) };
+  }
+
+  it.skipIf(process.getuid === undefined)(
+    '读 Claude Code 写的输出文件，到目前为止的输出随 tool.updated 报；工具结果之后不再报',
+    async () => {
+      const { adapter, engineSessionId, tasks, log } = await bashSession(1500);
+      mkdirSync(tasks, { recursive: true });
+      const file = join(tasks, 'b1.output');
+      writeFileSync(file, 'one\n');
+      await adapter.send(engineSessionId, text('run it'));
+      await log.until((event) => event.type === 'tool.updated' && event.output === 'one\n');
+      writeFileSync(file, 'one\ntwo\n');
+      await log.until((event) => event.type === 'tool.updated' && event.output === 'one\ntwo\n');
+      await log.until(isTurnTerminal);
+      const finished = log.events.findIndex((event) => event.type === 'tool.finished');
+      expect(log.events[finished]).toMatchObject({ output: 'one\ntwo\nthree' });
+      writeFileSync(file, 'one\ntwo\nthree\n');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(log.events.slice(finished).some((event) => event.type === 'tool.updated')).toBe(false);
+    },
+  );
+
+  it('没有输出文件时照旧：没有 tool.updated，工具结果带完整输出', async () => {
+    const { adapter, engineSessionId, log } = await bashSession(600);
+    await adapter.send(engineSessionId, text('run it'));
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'completed' });
+    expect(log.events.some((event) => event.type === 'tool.updated')).toBe(false);
+    expect(log.events.find((event) => event.type === 'tool.finished')).toMatchObject({
+      status: 'completed',
+      output: 'one\ntwo\nthree',
+    });
+  });
+});
+
 describe('每次请求的用量（0.62.0）', () => {
   it('顶层按流式事件报：message_delta 的最终用量，ttft_ms 是首个 token 的时间', async () => {
     const { adapter } = harness();
@@ -571,6 +677,108 @@ describe('每次请求的用量（0.62.0）', () => {
       ['msg_011Cg3JxFM5GLHx9hGkTVMms', 199],
       ['msg_011Cg3JxXySR94KnSf3btyJX', 53],
     ]);
+  });
+});
+
+describe('上下文用量从流式事件读', () => {
+  const stream = (event: Record<string, unknown>) => ({
+    kind: 'message' as const,
+    message: { type: 'stream_event', event, parent_tool_use_id: null, uuid: `s-${event.type}` },
+  });
+  const zero = { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  const start = (usage: Record<string, unknown>) =>
+    stream({
+      type: 'message_start',
+      message: { id: 'msg_ctx', model: 'claude-haiku-4-5', usage: { ...usage, output_tokens: 1 } },
+    });
+  const snapshot = (usage: Record<string, unknown>) => ({
+    kind: 'message' as const,
+    message: {
+      type: 'assistant',
+      message: {
+        id: 'msg_ctx',
+        model: 'claude-haiku-4-5',
+        content: [{ type: 'text', text: 'hi' }],
+        usage,
+      },
+      parent_tool_use_id: null,
+      uuid: 'a-ctx',
+    },
+  });
+  const delta = (usage: Record<string, unknown>) =>
+    stream({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage });
+  const boundary = {
+    kind: 'message' as const,
+    message: {
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'auto', pre_tokens: 2000, post_tokens: 400 },
+      uuid: 'boundary-ctx',
+    },
+  };
+  const done = {
+    kind: 'message' as const,
+    message: {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'hi',
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {
+        'claude-haiku-4-5': {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+        },
+      },
+      user_message_uuids: ['<prompt>'],
+    },
+  };
+  const scripts: Record<string, unknown[]> = {
+    // 中转：message_start 与快照的用量全是 0，message_delta 才带真的。
+    proxy: [
+      start(zero),
+      snapshot({ ...zero, output_tokens: 1 }),
+      delta({ input_tokens: 1200, cache_read_input_tokens: 800, output_tokens: 50 }),
+      stream({ type: 'message_stop' }),
+      done,
+    ],
+    // 流式事件没报出输入：快照补上，之后的 message_delta 只带输出。
+    fill: [
+      start(zero),
+      snapshot({ input_tokens: 500, output_tokens: 2 }),
+      delta({ output_tokens: 30 }),
+      stream({ type: 'message_stop' }),
+      done,
+    ],
+    // 压缩之后同一请求后到的快照不盖掉压缩后的用量。
+    stale: [start({ input_tokens: 1000 }), boundary, snapshot({ input_tokens: 1000 }), done],
+  };
+  const contextUsed = async (prompt: string) => {
+    const { adapter } = harness({
+      script: (value) => (value in scripts ? { steps: scripts[value] as never } : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text(prompt));
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'completed' });
+    return log.events.flatMap((event) =>
+      event.type === 'usage.updated' ? [event.contextUsed] : [],
+    );
+  };
+
+  it('message_delta 的用量盖掉全是 0 的 message_start 与快照；0 不报', async () => {
+    expect(await contextUsed('proxy')).toEqual([2050, 2050]);
+  });
+
+  it('流式事件没有输入时用快照的，message_delta 的输出接着累计', async () => {
+    expect(await contextUsed('fill')).toEqual([502, 530, 530]);
+  });
+
+  it('压缩后同一请求的快照不再报', async () => {
+    expect(await contextUsed('stale')).toEqual([1001, 400, 400]);
   });
 });
 
@@ -652,6 +860,46 @@ describe('会话中换设置、支线、补说明、标题', () => {
       effort: 'max',
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
+    });
+  });
+
+  it('claude 起来时退回了别的权限模式：以第一个 init 为准，同一模型不再改回 auto，换模型时重起进程重新协商', async () => {
+    const { adapter, sdk } = harness({
+      startPermissionMode: (requested) => (requested === 'auto' ? 'default' : requested),
+    });
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      permissionMode: 'auto_review',
+    });
+    const log = collect(adapter, engineSessionId);
+    const turn = async (input: Parameters<ClaudeAdapter['send']>[1]) => {
+      const from = log.events.length;
+      await adapter.send(engineSessionId, input);
+      expect(await log.until(isTurnTerminal, from)).toMatchObject({ outcome: 'completed' });
+    };
+    await turn(text('hi'));
+    expect(sessionQueries(sdk)[0]?.options.permissionMode).toBe('auto');
+    await turn(text('next'));
+    expect(sessionQueries(sdk)[0]?.calls).toEqual([]);
+    // 计划回合之后回到进程实际起在的 default，不去改回 auto。
+    await turn({ ...text('again'), collaborationMode: 'plan' });
+    await turn(text('after plan'));
+    expect(sessionQueries(sdk)).toHaveLength(1);
+    expect(sessionQueries(sdk)[0]?.calls).toEqual([
+      { method: 'setPermissionMode', args: ['plan'] },
+      { method: 'setPermissionMode', args: ['default'] },
+    ]);
+
+    await adapter.configureSession(engineSessionId, {
+      modelId: 'claude-opus-4-7',
+      permissionMode: 'auto_review',
+    });
+    await turn(text('new model'));
+    expect(sessionQueries(sdk)).toHaveLength(2);
+    expect(sessionQueries(sdk)[1]?.options).toMatchObject({
+      resume: engineSessionId,
+      model: 'claude-opus-4-7',
+      permissionMode: 'auto',
     });
   });
 
@@ -789,6 +1037,47 @@ describe('压缩上下文（0.24.0）', () => {
     expect(log.events[1]).toMatchObject({ compactionId: 'status-compacting', trigger: 'manual' });
     expect(log.events[2]).toMatchObject({ contextUsed: 400 });
     expect(log.events[3]).toMatchObject({ outcome: 'completed' });
+  });
+
+  it('用量上限挡下的 /compact 算失败，带 usageLimit 与 Claude 的错误原文；没被拒的失败压缩照常结算', async () => {
+    const rateLimit = (status: 'rejected' | 'allowed') => ({
+      kind: 'message' as const,
+      message: {
+        type: 'rate_limit_event',
+        rate_limit_info: { status, rateLimitType: 'five_hour', resetsAt: 1_792_000_000 },
+        uuid: `rate-${status}`,
+        session_id: '<session>',
+      },
+    });
+    const failedCompaction = (limit: 'rejected' | 'allowed') => [
+      rateLimit(limit),
+      status('compacting'),
+      status(null, { compact_result: 'failed', compact_error: "You've hit your limit" }),
+      compactResult,
+    ];
+    let limit: 'rejected' | 'allowed' = 'rejected';
+    const { adapter } = harness({
+      script: (prompt) => (prompt === '/compact' ? { steps: failedCompaction(limit) } : undefined),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.compact(engineSessionId);
+    expect(await log.until(isTurnTerminal)).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: "You've hit your limit",
+      usageLimit: { resetsAt: '2026-10-14T17:46:40.000Z', windowMinutes: 300 },
+    });
+    expect(log.events.some((event) => event.type === 'context.compacted')).toBe(false);
+
+    limit = 'allowed';
+    const from = log.events.length;
+    await adapter.compact(engineSessionId);
+    expect(await log.until(isTurnTerminal, from)).toMatchObject({
+      type: 'turn.settled',
+      outcome: 'completed',
+    });
   });
 
   it('Claude 在回合中自己压缩：auto；压缩失败的不报完成', async () => {
@@ -1093,6 +1382,18 @@ describe('计划模式（0.36.0）', () => {
     expect(plans).toEqual([
       { type: 'plan.proposed', engineSessionId, planId: 'toolu_x', text: '# P' },
     ]);
+
+    // 计划回合只读：完全访问也不直接放行写操作，照样问用户，拒绝就拦下。
+    const write = canUseTool?.(
+      'Bash',
+      { command: 'echo after > target.txt' },
+      { signal: new AbortController().signal, toolUseID: 'toolu_write', requestId: 'req-w' },
+    );
+    const request = (await log.until(
+      (event) => event.type === 'approval.requested' && event.toolCallId === 'toolu_write',
+    )) as ApprovalRequestedEvent;
+    await adapter.respondToApproval(engineSessionId, request.requestId, { optionId: 'decline' });
+    expect(await write).toMatchObject({ behavior: 'deny' });
     await adapter.cancel(engineSessionId);
   });
 

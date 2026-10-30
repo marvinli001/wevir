@@ -15,7 +15,12 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
-import { AdapterError, isAdapterError, trackProcessGroup } from '@wevir/runtime-adapter';
+import {
+  AdapterError,
+  isAdapterError,
+  redactDiagnostics,
+  trackProcessGroup,
+} from '@wevir/runtime-adapter';
 import type { AcpEngine } from './engine.js';
 
 /** `initialize` 的时限。dsh 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s（T0.3）。 */
@@ -79,6 +84,7 @@ export interface AcpExit {
   pid: number | undefined;
   exitCode: number | null;
   signal: NodeJS.Signals | null;
+  /** stderr 的尾部，像密钥的片段已遮盖（`redactDiagnostics`）：它会写进 `engine.exited` 与错误说明。 */
   stderrTail: string;
   /** spawn 本身失败（如可执行文件不存在）时的错误。 */
   error?: Error;
@@ -266,9 +272,9 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     return this.#generation;
   }
 
-  /** 当前（或最近一个）进程的 stderr 尾部。 */
+  /** 当前（或最近一个）进程的 stderr 尾部，像密钥的片段已遮盖。 */
   get stderrTail(): string {
-    return this.#current?.stderrTail ?? '';
+    return redactDiagnostics(this.#current?.stderrTail ?? '');
   }
 
   /** 最近一次进程退出，含 `dispose` 引起的。 */
@@ -499,6 +505,8 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     }
     // Host 被强行结束时由它的看门狗或下次启动结束（ACP 引擎读到 stdin EOF 一般自己退出，组里的工具进程不一定）。
     trackProcessGroup(child, { kind: 'engine', name: this.#name });
+    // 引擎是组长（POSIX 上启动器以 detached 起它）时，它退出后收掉组里剩下的进程。
+    const ownsGroup = spec.options.detached === true && process.platform !== 'win32';
     // 进程退出后的写入会报 EPIPE，结果以 exit 事件为准。
     for (const stream of child.stdio) stream?.on('error', () => {});
 
@@ -587,10 +595,13 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         pid: child.pid,
         exitCode,
         signal,
-        stderrTail: launch.stderrTail,
+        stderrTail: redactDiagnostics(launch.stderrTail),
         ...(error === undefined ? {} : { error }),
       };
       launch.exit = exit;
+      if (ownsGroup && child.pid !== undefined) {
+        reapProcessGroup(child.pid, this.#disposeTimeouts.sigkillMs);
+      }
       // 关掉我们这端的 stdin：引擎经启动脚本起时（Windows 上 npm 的 .cmd 经 cmd.exe），退出的可能只是启动脚本，
       // 还拿着管道的引擎读到 EOF 才会退出。
       stdin.destroy();
@@ -678,6 +689,27 @@ function signal(child: ChildProcess, sig: NodeJS.Signals): void {
     }
   }
   child.kill(sig);
+}
+
+/**
+ * 引擎（组长）退出之后组里还活着的进程：它的工具起的浏览器（agent-browser、Chrome）、开发服务器这类，没人再管就一直留着（T3 Code
+ * #21299 用 systemd scope 收，Wevir 用进程组）。先 SIGTERM，`graceMs` 后还有就 SIGKILL。组里已经没有进程时 `-pid` 报 ESRCH，
+ * 什么都不做。组还在时这个 ID 不会被拿去当别的组号；只有组在这 `graceMs` 里空了、ID 又恰好被新的组长占用时 SIGKILL 才会发错，
+ * 可以忽略。自己另开了进程组或会话的子进程（`setsid`、detached）收不到。
+ */
+export function reapProcessGroup(pid: number, graceMs: number): void {
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    return;
+  }
+  setTimeout(() => {
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      // 已经都退出了。
+    }
+  }, graceMs).unref();
 }
 
 export async function settledWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
