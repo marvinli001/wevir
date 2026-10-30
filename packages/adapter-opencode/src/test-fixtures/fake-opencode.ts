@@ -159,6 +159,8 @@ export class FakeOpenCode implements OpenCodeSdk {
   /** 回放两条事件之间的间隔（毫秒）。 */
   delayMs = 0;
   providerList: ProviderListResponse = fakeProviderList();
+  /** 设了时 `provider.list` 抛它（模型目录读不到）。 */
+  providersError: Error | undefined;
   /** 标题请求（`format: json_schema` 的 prompt）的回答。 */
   titleReply: { structured?: unknown; text?: string; error?: AssistantMessage['error'] } = {
     structured: MOCK_STRUCTURED_TITLE,
@@ -207,6 +209,7 @@ export class FakeOpenCode implements OpenCodeSdk {
       },
       providers: async () => {
         record('providers');
+        if (this.providersError !== undefined) throw this.providersError;
         return this.providerList;
       },
       providerAuth: async () => {

@@ -466,6 +466,9 @@ OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.t
   packages/adapter-opencode/src/opencode-adapter.ts
   packages/adapter-opencode/src/title.ts
 
+其中 accounts.ts、permissions.ts、mapping.ts 与 opencode-adapter.ts 另有几处取自上面那个提交之后的修复（cfbfbca6e0582fb48423949b10f0663f8fed2be0、
+807319c276c6831b2c219640e9da5b38019a8f1d、8031991591e22d76830e4acf6358c4fd78ffcf60，见各文件头），许可证与版权声明相同。
+
 packages/adapter-opencode/src/test-fixtures/events/ 是 opencode 1.18.34（MIT，Copyright (c) 2025 opencode，
 https://github.com/anomalyco/opencode）的服务器对着本机假模型交出的事件流的录制，见 docs/upstream/UPSTREAM.md §4.1。
 
