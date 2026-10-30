@@ -10,18 +10,28 @@ import { APP_TOOLS_SERVER, type AppToolsEndpoint } from './types.js';
 export const APP_TOOLS_URL_ENV = 'WEVIR_APP_TOOLS_URL';
 export const APP_TOOLS_TOKEN_ENV = 'WEVIR_APP_TOOLS_TOKEN';
 
-/** 桥的源码：stdin 一行一条 JSON-RPC，逐条 POST 给 Host，回复按到达顺序写回 stdout（请求可以并发）。 */
+/**
+ * 桥的源码：stdin 一行一条 JSON-RPC，逐条 POST 给 Host，回复按到达顺序写回 stdout（请求可以并发）。引擎发来
+ * `notifications/cancelled` 时中止它点名的那个请求（通知照样转给 Host），stdin 关闭（引擎退出或不再用这个服务）时中止全部，
+ * 被中止的请求不再回复（T3 Code #23955）。
+ */
 export const APP_TOOLS_BRIDGE_SCRIPT = `// 由 Wevir 生成（packages/runtime-adapter/src/app-tools-bridge.ts），每次启动引擎前重写，不要手改。
 import { createInterface } from 'node:readline';
 
 const URL_ = process.env.${APP_TOOLS_URL_ENV};
 const TOKEN = process.env.${APP_TOOLS_TOKEN_ENV};
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
+/** 进行中的请求的中止开关，按 JSON-RPC 的 id。 */
+const inflight = new Map();
+const key = (id) => JSON.stringify(id);
 
 async function forward(message) {
   const isRequest = message && typeof message.method === 'string' && message.id !== undefined && message.id !== null;
+  const abort = new AbortController();
+  if (isRequest) inflight.set(key(message.id), abort);
   try {
     const response = await fetch(URL_, {
+      signal: abort.signal,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,25 +41,35 @@ async function forward(message) {
       body: JSON.stringify(message),
     });
     const text = await response.text();
-    if (!isRequest) return;
+    if (!isRequest || abort.signal.aborted) return;
     if (!response.ok || text === '') {
       return send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'Wevir app tools: HTTP ' + response.status } });
     }
     send(JSON.parse(text));
   } catch (error) {
-    if (isRequest) {
+    if (isRequest && !abort.signal.aborted) {
       send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'Wevir app tools unavailable: ' + (error && error.message) } });
     }
+  } finally {
+    if (isRequest && inflight.get(key(message.id)) === abort) inflight.delete(key(message.id));
   }
 }
 
-createInterface({ input: process.stdin }).on('line', (line) => {
+const lines = createInterface({ input: process.stdin });
+lines.on('close', () => {
+  for (const abort of inflight.values()) abort.abort();
+  inflight.clear();
+});
+lines.on('line', (line) => {
   if (line.trim() === '') return;
   let message;
   try {
     message = JSON.parse(line);
   } catch {
     return send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'parse error' } });
+  }
+  if (message && message.method === 'notifications/cancelled' && message.params && message.params.requestId !== undefined) {
+    inflight.get(key(message.params.requestId))?.abort();
   }
   void forward(message);
 });
