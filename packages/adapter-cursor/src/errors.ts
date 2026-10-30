@@ -4,7 +4,8 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：错误按 name 判断而不用 instanceof；去掉 T3 自己注册的 unhandledRejection 监听，改由 Host 的 cli.ts 先问 engines.ts；
-// 加上 AgentNotFoundError 与 AdapterError 的归类。isCursorClosedStreamWrite 跟进 T3 f54dfc0991。
+// 加上 AgentNotFoundError 与 AdapterError 的归类。isCursorClosedStreamWrite 跟进 T3 f54dfc0991，isUsageLimitError 跟进 T3 8298664e9e
+// （CursorAgentSdk.ts 的 isCursorUsageLimitError）。
 //
 // SDK 抛出的错误的归类（docs/architecture/cursor-event-mapping.md §6）。SDK 的错误类有自己的 `name`（AuthenticationError、
 // AgentNotFoundError…），按 `name` 与 `status` 判断，不用 instanceof：测试里的假 SDK 与动态加载的真 SDK 是两套类。
@@ -44,6 +45,20 @@ export function isCancellationError(error: unknown): boolean {
     current = Reflect.get(current, 'cause');
   }
   return false;
+}
+
+// SDK 把后端的细节映射成 PRO_USER_USAGE_LIMIT、RATE_LIMITED 之类的错误码，不带 HTTP 状态。
+const USAGE_LIMIT_CODE =
+  /^(?:resource_exhausted|rate_limited(?:_changeable)?|\w*_usage_limit|\w*_rate_limit(?:_exceeded)?)$/i;
+
+/** 账号的用量到了上限：SDK 的 `RateLimitError`、HTTP 429，或上面那类错误码（`RunResult.error.code` 或抛出的错误）。 */
+export function isUsageLimitError(error: unknown): boolean {
+  const code = field(error, 'code');
+  return (
+    field(error, 'name') === 'RateLimitError' ||
+    field(error, 'status') === 429 ||
+    (typeof code === 'string' && USAGE_LIMIT_CODE.test(code))
+  );
 }
 
 /** 恢复的 agent 还挂着上一个进程留下的 run（T3 的 isActiveRunConflict）。 */

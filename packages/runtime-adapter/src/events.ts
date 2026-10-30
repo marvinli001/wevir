@@ -277,7 +277,8 @@ export interface TurnFailedEvent {
   /** 引擎的错误码（dsh：JSON-RPC 错误码，如 -32603）。 */
   code?: number;
   /**
-   * 回合因订阅账号的用量上限失败（0.119.0，Codex 的 `usageLimitExceeded`、Claude 被拒的 `rate_limit_event`）。引擎报了额度恢复的
+   * 回合因订阅账号的用量上限失败（0.119.0，Codex 的 `usageLimitExceeded`、Claude 被拒的 `rate_limit_event`；Cursor 的
+   * `RateLimitError` / 429 / 用量上限错误码，OpenCode 上游的 HTTP 429，这两家报之前先重读账号的用量）。引擎报了额度恢复的
    * 时刻与窗口长度时带上；都没报时是空对象，Host 从账号的用量里补。
    */
   usageLimit?: { resetsAt?: string; windowMinutes?: number };

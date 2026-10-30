@@ -4,7 +4,8 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；去掉 T3 的 MCP 服务、skills、附件与计划模式；权限模式改按 Wevir 的三种映射；
-// 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。跟进 T3 be1d066732：回合已经结束后 SDK 迟到的恢复失败不算回合失败。
+// 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。跟进 T3 be1d066732：回合已经结束后 SDK 迟到的恢复失败不算回合失败；
+// 跟进 T3 8298664e9e：用量到了上限时回合失败带 `usageLimit`，之前先重读账号的用量。
 //
 // Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，docs/architecture/cursor-event-mapping.md）：经官方 `@cursor/sdk` 在 Host
 // 进程里跑本地 agent。一个 Wevir 会话是一个 Cursor agent（引擎会话 ID = agentId），一个回合是一次 `agent.send` 开出的 run。
@@ -48,6 +49,7 @@ import {
   isAgentNotFound,
   isAuthenticationFailure,
   isCancellationError,
+  isUsageLimitError,
 } from './errors.js';
 import { CursorTurnMapper } from './mapping.js';
 import { modelSelection } from './models.js';
@@ -62,6 +64,8 @@ import type { CursorSdkInstaller } from './sdk-install.js';
 
 /** 等取消确认的时限（T3 的 interruptTurn 等 10 秒）。 */
 export const CANCEL_TIMEOUT_MS = 10_000;
+/** 回合撞上用量上限时最多等多久重读账号的用量。 */
+export const USAGE_REFRESH_TIMEOUT_MS = 5_000;
 
 /** 告警与日志出口；Host 的 Logger 满足这个接口（`addSecret` 登记 API Key，日志里抹掉）。 */
 export interface CursorAdapterLogger {
@@ -616,6 +620,16 @@ export class CursorAdapter implements AgentRuntimeAdapter {
           runId: run.id,
         });
       }
+      const usageLimited =
+        result.status === 'error' &&
+        !lateResumeFailure &&
+        !turn.cancelling &&
+        runErrorCategory(result.error) !== 'missing_credentials' &&
+        isUsageLimitError(result.error);
+      if (usageLimited) {
+        await this.#refreshUsage();
+        if (turn.done) return;
+      }
       // 没有进展的恢复写出的文字不是这个回合的回答。
       const answer = lateResumeFailure ? [] : mapper.finalResult(result.result);
       if (turn.cancelling || result.status === 'cancelled') {
@@ -634,6 +648,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
             engineSessionId,
             category: runErrorCategory(result.error),
             message,
+            ...(usageLimited && { usageLimit: {} }),
           },
         ];
       } else {
@@ -658,28 +673,55 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       }
     } catch (error) {
       if (turn.done) return;
-      events =
-        turn.cancelling || isCancellationError(error)
-          ? [
-              ...mapper.finish('cancelled'),
-              {
-                type: 'turn.settled',
-                engineSessionId,
-                outcome: 'cancelled',
-                stopReason: 'cancelled',
-              },
-            ]
-          : [
-              ...mapper.finish('failed'),
-              {
-                type: 'turn.failed',
-                engineSessionId,
-                category: isAuthenticationFailure(error) ? 'missing_credentials' : 'unknown',
-                message: errorMessage(error),
-              },
-            ];
+      const cancelled = turn.cancelling || isCancellationError(error);
+      const usageLimited =
+        !cancelled && !isAuthenticationFailure(error) && isUsageLimitError(error);
+      if (usageLimited) {
+        await this.#refreshUsage();
+        if (turn.done) return;
+      }
+      events = cancelled
+        ? [
+            ...mapper.finish('cancelled'),
+            {
+              type: 'turn.settled',
+              engineSessionId,
+              outcome: 'cancelled',
+              stopReason: 'cancelled',
+            },
+          ]
+        : [
+            ...mapper.finish('failed'),
+            {
+              type: 'turn.failed',
+              engineSessionId,
+              category: isAuthenticationFailure(error)
+                ? 'missing_credentials'
+                : usageLimited
+                  ? 'provider'
+                  : 'unknown',
+              message: errorMessage(error),
+              ...(usageLimited && { usageLimit: {} }),
+            },
+          ];
     }
     this.#settle(session, turn, events);
+  }
+
+  /**
+   * 回合撞上用量上限：先重读这个账号的用量（最多等 `USAGE_REFRESH_TIMEOUT_MS`，读不到就算了），Host 记下上限时好从刚读到的
+   * 用量里补额度恢复的时刻（auto-continue.ts 的 completeUsageLimit）。
+   */
+  async #refreshUsage(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      this.accounts.refreshUsage('cursor').catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, USAGE_REFRESH_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+    clearTimeout(timer);
   }
 
   #settle(session: Session, turn: Turn, events: AgentEvent[]): void {

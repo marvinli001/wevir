@@ -13,6 +13,7 @@
 // 会话上，Wevir 的 Host 自己会把子会话的审批交给父会话的界面）；子会话的规则在 session.created 时就装上（T3 等 task 工具报出
 // 子会话 ID 才装）；回合以见到它的 busy 为开始，之前的 idle 一律当作上一个回合留下的（T3 的 admission 状态机在“旧 idle 赶上
 // opencode 的循环还没开始”时会去问 session.status、读到 idle 就提前结束回合）；取消在回合没停下之前每秒重发一次 abort。
+// 跟进 T3 8298664e9e：上游报 HTTP 429 时回合失败带 `usageLimit`，之前先重读账号的用量。
 //
 // OpenCode 引擎（订阅来源 `opencode`，ADR-0005 补记 14，docs/architecture/opencode-event-mapping.md）：用户自己装的 `opencode`
 // 与他接上的上游，Wevir 在本机起它的服务器（runtime.ts / server.ts），经 `@opencode-ai/sdk` 说话。一个 Wevir 会话是一个
@@ -89,6 +90,8 @@ export const ACTIVITY_TIMEOUT_MS = 5_000;
 export const STREAM_READY_TIMEOUT_MS = 10_000;
 /** 插话交出去之前到的 idle 先压着；交出去之后再等这么久，还没见到 busy 才去问 session.status。 */
 export const STEER_IDLE_GRACE_MS = 250;
+/** 回合撞上用量上限时最多等多久重读账号的用量。 */
+export const USAGE_REFRESH_TIMEOUT_MS = 5_000;
 
 /** 告警与日志出口；Host 的 Logger 满足这个接口。 */
 export interface OpenCodeAdapterLogger {
@@ -176,6 +179,8 @@ interface Turn {
   rechecking: boolean;
   prompt: AbortController | undefined;
   cancelling: boolean;
+  /** 撞上了用量上限，正在重读用量、之后以失败结算：这期间到的 idle 不按完成结算。 */
+  limited: boolean;
   done: boolean;
   readonly settled: Promise<void>;
   readonly resolve: () => void;
@@ -1037,6 +1042,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       rechecking: false,
       prompt: undefined,
       cancelling: false,
+      limited: false,
       done: false,
       settled,
       resolve,
@@ -1112,6 +1118,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   /** 发出回合的终结事件（T3 的 finalizeTurn）：先提交没提交的文本、结掉未决的审批与提问。 */
   #settle(session: Session, turn: Turn, terminal: AgentEvent): void {
     if (turn.done) return;
+    if (turn.limited && terminal.type === 'turn.settled' && terminal.outcome === 'completed')
+      return;
     turn.done = true;
     clearTimeout(turn.watchdog);
     if (session.parent === undefined) session.history = true;
@@ -1615,7 +1623,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       error?.name ||
       'OpenCode session failed without an error payload';
     const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
-    this.#settle(session, turn, {
+    const usageLimited = error?.name === 'APIError' && statusCode === 429;
+    const failed: AgentEvent = {
       type: 'turn.failed',
       engineSessionId: session.id,
       category: errorCategory(
@@ -1623,6 +1632,26 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ),
       message,
       ...(statusCode !== undefined && { code: statusCode }),
+      ...(usageLimited && { usageLimit: {} }),
+    };
+    if (!usageLimited) {
+      this.#settle(session, turn, failed);
+      return;
+    }
+    // 先重读用量（最多等 USAGE_REFRESH_TIMEOUT_MS），Host 记下上限时好从刚读到的用量里补额度恢复的时刻（auto-continue.ts 的
+    // completeUsageLimit）。期间取消照常结算为取消。
+    turn.limited = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    void Promise.race([
+      this.accounts.refreshUsage('opencode').catch(() => {}),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, USAGE_REFRESH_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]).then(() => {
+      clearTimeout(timer);
+      turn.limited = false;
+      this.#settle(session, turn, failed);
     });
   }
 

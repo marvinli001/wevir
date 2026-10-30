@@ -395,6 +395,74 @@ describe('CursorAdapter', () => {
     });
   });
 
+  it('用量到了上限：先重读账号的用量再报 turn.failed，带 usageLimit；wait 抛出 RateLimitError 也一样；别的错误不重读', async () => {
+    const { adapter, sdk, home } = setup();
+    const scripts: Record<string, RunScript> = {
+      limit: {
+        updates: [],
+        result: {
+          status: 'error',
+          error: { message: "You've hit your usage limit", code: 'PRO_USER_USAGE_LIMIT' },
+        },
+      },
+      error: { updates: [], result: { status: 'error', error: { message: 'model overloaded' } } },
+    };
+    sdk.script = (message) => scripts[message] ?? { updates: PLAIN_UPDATES };
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    const failedBeforeRefresh: boolean[] = [];
+    const refresh = vi.spyOn(adapter.accounts, 'refreshUsage').mockImplementation(async () => {
+      failedBeforeRefresh.push(events.some((event) => event.type === 'turn.failed'));
+    });
+    const terminal = async (message: string) => {
+      const from = events.length;
+      await adapter.send(engineSessionId, text(message));
+      await vi.waitFor(() =>
+        expect(events.slice(from).some((event) => event.type === 'turn.failed')).toBe(true),
+      );
+      return events.slice(from).at(-1);
+    };
+
+    expect(await terminal('limit')).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: "You've hit your usage limit",
+      usageLimit: {},
+    });
+    expect(refresh).toHaveBeenCalledWith('cursor');
+    expect(failedBeforeRefresh).toEqual([false]);
+
+    expect(await terminal('error')).not.toHaveProperty('usageLimit');
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    const agent = sdk.agent(engineSessionId);
+    const original = agent.send.bind(agent);
+    agent.send = async (message, options) => {
+      const run = await original(message, options);
+      return {
+        ...run,
+        id: run.id,
+        agentId: run.agentId,
+        wait: async () =>
+          Promise.reject(sdkError('RateLimitError', 'Too many requests', { status: 429 })),
+        cancel: () => run.cancel(),
+      };
+    };
+    expect(await terminal('Say hello')).toEqual({
+      type: 'turn.failed',
+      engineSessionId,
+      category: 'provider',
+      message: 'Too many requests',
+      usageLimit: {},
+    });
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
   it('恢复：挂着时不问 SDK；SDK 没有这个 agent 报 session_lost；关闭后恢复能继续', async () => {
     const { adapter, sdk, home } = setup();
     await expect(
