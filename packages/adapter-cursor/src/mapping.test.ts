@@ -258,6 +258,37 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
     const { mapper } = replay(TRANSPORT_FAILURE_UPDATES);
     expect(mapper.reply.failure).toBe('Error: ConnectError: [unavailable] upstream connect error');
   });
+
+  it('每段回答单独判断：前面有说明文字，最后一段只是传输诊断时也认出它', () => {
+    const { mapper } = replay([
+      { type: 'text-delta', text: 'Checking the build first.' },
+      { type: 'step-completed', stepId: 1, stepDurationMs: 1 },
+      { type: 'text-delta', text: 'Error: RetriableError: WritableIterable is closed' },
+    ]);
+    expect(mapper.reply.failure).toBe('Error: RetriableError: WritableIterable is closed');
+    const { mapper: quoted } = replay([
+      { type: 'text-delta', text: 'Error: ConnectError: [unavailable] upstream connect error' },
+      { type: 'step-completed', stepId: 1, stepDurationMs: 1 },
+      { type: 'text-delta', text: 'Retried; the build passes now.' },
+    ]);
+    expect(quoted.reply.failure).toBeUndefined();
+  });
+
+  it('turnEnded：turn-ended 之后没有新的工作才算结束', () => {
+    const mapper = new CursorTurnMapper(SESSION, 'run-1');
+    expect(mapper.turnEnded).toBe(false);
+    replay([{ type: 'text-delta', text: 'The answer.' }, { type: 'turn-ended' }], mapper);
+    expect(mapper.turnEnded).toBe(true);
+    replay([{ type: 'text-delta', text: 'Following up.' }], mapper);
+    expect(mapper.turnEnded).toBe(false);
+    replay(
+      [{ type: 'turn-ended' }, { type: 'step-completed', stepId: 2, stepDurationMs: 1 }],
+      mapper,
+    );
+    expect(mapper.turnEnded).toBe(true);
+    replay([{ type: 'step-started', stepId: 3 }], mapper);
+    expect(mapper.turnEnded).toBe(false);
+  });
 });
 
 describe('回合的用量（0.62.0）', () => {
