@@ -167,8 +167,14 @@ function reasonOf(error: unknown): string {
   return String(error);
 }
 
-/** 系统的 tar：macOS、Linux 自带。 */
+/**
+ * 系统的 tar：macOS、Linux 自带。Windows 不发压缩包，但测试照样解包：用 System32 里的 bsdtar（同 adapter-copilot），PATH 上的可能是
+ * Git 带的 GNU tar，它把 `C:` 当成远程主机。
+ */
 function tarCommand(): string {
+  if (process.platform === 'win32') {
+    return path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  }
   return existsSync('/usr/bin/tar') ? '/usr/bin/tar' : 'tar';
 }
 
