@@ -155,7 +155,15 @@ export class AntigravityInstallation {
         if (typeof active.releaseId !== 'string' || !RELEASE_ID.test(active.releaseId)) {
           throw invalidRecord();
         }
-        return await this.#completedRelease(active.releaseId);
+        const managed = await this.#completedRelease(active.releaseId);
+        // 钉住的发布换了版本（Wevir 升级后）：旧的那份当作没装，设置里重新下载（Claude 低于最低版本时也这样）。
+        if (this.releaseAsset !== null && managed.version !== this.releaseAsset.version) {
+          throw new AntigravityInstallationError(
+            'resolve',
+            `The downloaded Antigravity runtime is ${managed.version}; this version of Wevir uses ${this.releaseAsset.version}. Download it again.`,
+          );
+        }
+        return managed;
       }
       for (const candidate of this.#pathCandidates(this.#names.executable)) {
         const selected = await this.#fromExternal(candidate, 'path');

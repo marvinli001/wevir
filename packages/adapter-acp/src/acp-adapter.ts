@@ -836,6 +836,11 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.configOptions = await this.#selectRoute(engineSessionId, config, session.configOptions);
   }
 
+  /** 会话最近的 `configOptions`（子类在 `applyRoute` 之后按新模型设别的选项时读，Antigravity：思考档位）。 */
+  protected sessionConfigOptions(engineSessionId: string): unknown {
+    return this.#openSession(engineSessionId).configOptions;
+  }
+
   /**
    * 会话挂到引擎上（`session/new` / `session/resume` 成功、路由已选定）之后、交给 Host 之前调用：引擎在这里按 `config`
    * 设定会话的其他选项（Antigravity：权限模式）。返回最终的 `configOptions`；抛错时会话被关掉，错误交给调用方。

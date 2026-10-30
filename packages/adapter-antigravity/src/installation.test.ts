@@ -22,8 +22,10 @@ import {
   ANTIGRAVITY_RELEASE_VERSION,
   type AntigravityReleaseAsset,
   antigravityDownloadUrl,
+  matchesReleaseVersion,
   resolveAntigravityReleaseAsset,
 } from './release.js';
+import { INITIALIZE_1_4_1 } from './test-fixtures/acp-samples.js';
 import {
   buildZip,
   collectingLogger,
@@ -307,6 +309,35 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     ).toBe(false);
   });
 
+  it('Wevir 升级后钉住的版本变了：旧的那份当作没装、说明要重新下载，下载新的之后启用新的', async () => {
+    // 旧发布：同样大小、内容不同（sha256 不同），运行体自报 1.3.0。
+    const oldZip = buildZip([
+      { name: 'agy_acp_server.par', data: files.executable },
+      {
+        name: 'localharness_external',
+        data: Buffer.from(files.harness.toString().replace('exit 0', 'exit 1')),
+      },
+    ]);
+    const url = await serve(oldZip);
+    const old = installation(
+      { ...assetFor(url, oldZip), version: '1.3.0' },
+      { env: { FAKE_AGY_VERSION: '1.3.0' } },
+    );
+    expect(await old.install(() => {})).toMatchObject({ source: 'managed', version: '1.3.0' });
+
+    server?.closeAllConnections();
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    const current = installation(assetFor(await serve(ZIP)));
+    await expect(current.resolve()).rejects.toThrow(
+      `The downloaded Antigravity runtime is 1.3.0; this version of Wevir uses ${ANTIGRAVITY_RELEASE_VERSION}. Download it again.`,
+    );
+    expect(await current.install(() => {})).toMatchObject({
+      source: 'managed',
+      version: ANTIGRAVITY_RELEASE_VERSION,
+    });
+    expect(await current.resolve()).toMatchObject({ version: ANTIGRAVITY_RELEASE_VERSION });
+  });
+
   it('运行体自报的不是这个发布：校验失败，不启用', async () => {
     const asset = assetFor(await serve(ZIP));
     const target = installation(asset, {
@@ -314,6 +345,75 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     });
     await expect(target.install(() => {})).rejects.toThrow(/did not identify/);
     await expect(target.resolve()).rejects.toThrow(/not installed/);
+  });
+
+  it('钉住的发布是 1.4.1：六个平台的地址、sha256 与大小（2026-10-30 下载核对过），运行体自报的版本认得出', () => {
+    expect(ANTIGRAVITY_RELEASE_VERSION).toBe('1.4.1');
+    const platforms = [
+      [
+        'darwin',
+        'arm64',
+        'macos/agy-acp-server-1.4.1-darwin-arm64.zip',
+        'f9bdd68291ae78c38d2141e63bc86b84e6cc7b9f60f71652c68435a7943deb17',
+        112_737_434,
+      ],
+      [
+        'darwin',
+        'x64',
+        'macos/agy-acp-server-1.4.1-darwin-x86_64.zip',
+        '27e31f096874704f14167b07ef9e84cc77134615ee41d024f7b1c957add85307',
+        118_349_036,
+      ],
+      [
+        'linux',
+        'x64',
+        'linux/agy-acp-server-1.4.1-linux-x86_64.zip',
+        '2e37012ceb2a5c7fc7309b6e6596234fb637ee3c62a5199f65d4cbe777871384',
+        336_170_339,
+      ],
+      [
+        'linux',
+        'arm64',
+        'linux/agy-acp-server-1.4.1-linux-arm64.zip',
+        '609336a1c97545487e3ddd55dbd153dc0f40f4e6534486cc1c5f4c0ebb85c2da',
+        321_922_507,
+      ],
+      [
+        'win32',
+        'x64',
+        'windows/agy-acp-server-1.4.1-windows-x86_64.zip',
+        '5f5b7d0328df17c128b2be338d4567b0d24e56ace8196e88794fec37d1372554',
+        129_599_308,
+      ],
+      [
+        'win32',
+        'arm64',
+        'windows/agy-acp-server-1.4.1-windows-arm64.zip',
+        '24c52bbc12aae20f55eb53d373669412d95a9c44fd59be4ea4e355918b91fbf7',
+        132_507_344,
+      ],
+    ] as const;
+    for (const [platform, arch, file, sha256, archiveBytes] of platforms) {
+      expect(resolveAntigravityReleaseAsset(platform, arch)).toMatchObject({
+        version: '1.4.1',
+        url: `https://dl.google.com/agy-extensions/releases/${file}`,
+        sha256,
+        archiveBytes,
+      });
+    }
+    expect(resolveAntigravityReleaseAsset('darwin', 'arm64')).toMatchObject({
+      executable: { name: 'agy_acp_server.par', bytes: 280_996_576 },
+      harness: { name: 'localharness_external', bytes: 120_246_928 },
+    });
+    expect(resolveAntigravityReleaseAsset('win32', 'x64')).toMatchObject({
+      executable: { name: 'agy_acp_server.exe', bytes: 86_098_784 },
+      harness: { name: 'localharness_external.exe', bytes: 146_036_888 },
+    });
+    // 真实 1.4.1 的 initialize 报裸版本号。
+    expect(
+      matchesReleaseVersion(INITIALIZE_1_4_1.agentInfo.version, ANTIGRAVITY_RELEASE_VERSION),
+    ).toBe(true);
+    expect(matchesReleaseVersion('1.3.0', ANTIGRAVITY_RELEASE_VERSION)).toBe(false);
   });
 
   it('连不上 dl.google.com：说明在大陆网络下的出路，下载地址可以换成镜像', async () => {
@@ -324,7 +424,7 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
         WEVIR_ANTIGRAVITY_MIRROR: 'https://mirror.example.cn/google/',
       }),
     ).toBe(
-      'https://mirror.example.cn/google/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-arm64.zip',
+      'https://mirror.example.cn/google/agy-extensions/releases/macos/agy-acp-server-1.4.1-darwin-arm64.zip',
     );
 
     const target = installation(asset, {

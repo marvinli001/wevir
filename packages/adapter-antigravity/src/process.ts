@@ -78,6 +78,7 @@ export interface AntigravityRuntimeContext {
   /** BROWSER 钩子用的 Node；默认 Host 自己。 */
   nodeExecutable?: string;
   logger: AdapterLogger;
+  /** `initialize` 的 clientInfo；默认 `ANTIGRAVITY_CLIENT_INFO`（测试换掉它看名单外的客户端）。 */
   clientInfo?: { name: string; version: string };
   initializeTimeoutMs?: number;
   /** 第一次启动任何进程之前清掉上一个 Host 留下的解包目录（只做一次）。 */
@@ -165,6 +166,14 @@ export interface AntigravityProcessOptions {
   onAuthorizationUrl?: (url: AntigravityAuthorizationUrl) => void;
 }
 
+/**
+ * `initialize` 报给运行体的 clientInfo（照 T3 4432fbef 的做法）：运行体 1.4 只给名单上的客户端（Zed、Xcode、JetBrains、
+ * Android Studio，见它的 `model_selection.supports_third_party_models`）列 Claude、GPT 等非 Gemini 模型，别的客户端只有
+ * Gemini。所以 Wevir 报成 Zed。运行体也把这个名字放进发给 Google 的 User-Agent（`host_path=zed/0.0.0`）：Google 看到的是
+ * Zed，名单或校验一改这些模型就会消失。
+ */
+export const ANTIGRAVITY_CLIENT_INFO = Object.freeze({ name: 'zed', version: '0.0.0' });
+
 /** 建一个 Antigravity 的 AcpProcess（不启动）。 */
 export function createAntigravityProcess(options: AntigravityProcessOptions): {
   process: AcpProcess;
@@ -185,7 +194,7 @@ export function createAntigravityProcess(options: AntigravityProcessOptions): {
       onRequestPermission: options.hooks.onRequestPermission,
       onElicitation: options.hooks.onElicitation,
     }),
-    clientInfo: context.clientInfo ?? { name: 'wevir', version: '0.0.0' },
+    clientInfo: context.clientInfo ?? { ...ANTIGRAVITY_CLIENT_INFO },
     protocolVersions: ANTIGRAVITY_PROTOCOL_VERSIONS,
     ...(context.initializeTimeoutMs !== undefined && {
       initializeTimeoutMs: context.initializeTimeoutMs,

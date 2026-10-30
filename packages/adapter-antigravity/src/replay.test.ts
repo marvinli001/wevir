@@ -10,15 +10,28 @@ import {
   classifyAntigravityResumeError,
   classifyAntigravityTurnError,
 } from './engine.js';
-import { antigravityModelsFromSetup } from './models.js';
-import { antigravityQuestion, antigravityToolDisplay } from './protocol.js';
+import {
+  antigravityModelsFromSetup,
+  antigravityThinkingOption,
+  knownEfforts,
+  probeThinkingLevels,
+  thinkingEfforts,
+  thinkingLevelFor,
+} from './models.js';
+import {
+  antigravityQuestion,
+  antigravityToolDisplay,
+  isAntigravitySubagentTool,
+} from './protocol.js';
 import {
   LARGE_TOOL_UPDATE,
   PERMISSION_REQUEST,
   QUESTION_REQUEST,
   SESSION,
   SESSION_SETUP,
+  SESSION_SETUP_1_4,
   TURN_WITH_COMMAND,
+  thinkingOption,
 } from './test-fixtures/acp-samples.js';
 
 async function replay(notifications: unknown[]): Promise<AgentEvent[]> {
@@ -153,6 +166,87 @@ describe('Antigravity 样本回放', () => {
     expect(antigravityModelsFromSetup({ configOptions: [] })).toBeUndefined();
   });
 
+  it('1.4 的思考档位：当前模型取 thought_level 选项，别的模型用记下的档位，没记过的与没有档位的是固定档位', () => {
+    const known = new Map<string, readonly string[]>([
+      ['claude', ['low']],
+      ['plain', []],
+    ]);
+    expect(antigravityModelsFromSetup(SESSION_SETUP_1_4, known)).toEqual({
+      models: [
+        { id: 'gemini', displayName: 'Gemini', reasoningEfforts: ['low', 'high'] },
+        { id: 'claude', displayName: 'Claude', reasoningEfforts: ['low'] },
+        { id: 'plain', displayName: 'Plain' },
+        { id: 'unseen', displayName: 'Unseen' },
+      ],
+      defaultModelId: 'gemini',
+    });
+    // 当前模型以会话报的为准，记下的旧值不顶替。
+    expect(
+      antigravityModelsFromSetup(SESSION_SETUP_1_4, new Map([['gemini', ['minimal']]]))?.models[0],
+    ).toMatchObject({ reasoningEfforts: ['low', 'high'] });
+    // 当前模型没有档位选项：固定档位。
+    const withoutThinking = { configOptions: SESSION_SETUP_1_4.configOptions.slice(0, 1) };
+    expect(antigravityModelsFromSetup(withoutThinking)?.models[0]).toEqual({
+      id: 'gemini',
+      displayName: 'Gemini',
+    });
+    // 存下的档位读回来就是下一次的 known。
+    expect(knownEfforts(antigravityModelsFromSetup(SESSION_SETUP_1_4, known))).toEqual(
+      new Map([
+        ['gemini', ['low', 'high']],
+        ['claude', ['low']],
+      ]),
+    );
+  });
+
+  it('运行体档位与 Wevir 推理档位：extra_high 记作 xhigh，表外的不要；反过来先找同名再找 extra_high', () => {
+    expect(
+      thinkingEfforts(['minimal', 'low', 'medium', 'high', 'extra_high', 'max', 'turbo', 'high']),
+    ).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(thinkingEfforts(['xhigh', 'extra_high'])).toEqual(['xhigh']);
+    expect(thinkingLevelFor('xhigh', ['low', 'extra_high'])).toBe('extra_high');
+    expect(thinkingLevelFor('xhigh', ['extra_high', 'xhigh'])).toBe('xhigh');
+    expect(thinkingLevelFor('high', ['low', 'high'])).toBe('high');
+    expect(thinkingLevelFor('medium', ['low', 'high'])).toBeUndefined();
+    expect(thinkingLevelFor('off', ['low', 'high'])).toBeUndefined();
+    expect(antigravityThinkingOption(SESSION_SETUP_1_4.configOptions)).toEqual({
+      id: 'thinking_level',
+      currentValue: 'high',
+      values: ['low', 'high'],
+    });
+    // 1.3 没有这个选项。
+    expect(antigravityThinkingOption(SESSION_SETUP.configOptions)).toBeUndefined();
+  });
+
+  it('逐个选一遍模型读档位：跳过当前模型，选不上的不写；1.3 没有档位选项时不探测', async () => {
+    const selected: string[] = [];
+    const models = await probeThinkingLevels(SESSION_SETUP_1_4, async (modelId) => {
+      selected.push(modelId);
+      if (modelId === 'unseen') throw new Error('PERMISSION_DENIED');
+      const [model, ...rest] = SESSION_SETUP_1_4.configOptions;
+      return [
+        { ...model, currentValue: modelId },
+        ...(modelId === 'claude' ? [thinkingOption('low', ['low', 'medium', 'extra_high'])] : []),
+        ...rest.slice(1),
+      ];
+    });
+    expect(selected).toEqual(['claude', 'plain', 'unseen']);
+    expect(models?.models).toEqual([
+      { id: 'gemini', displayName: 'Gemini', reasoningEfforts: ['low', 'high'] },
+      { id: 'claude', displayName: 'Claude', reasoningEfforts: ['low', 'medium', 'xhigh'] },
+      { id: 'plain', displayName: 'Plain' },
+      { id: 'unseen', displayName: 'Unseen' },
+    ]);
+    expect(models?.defaultModelId).toBe('gemini');
+
+    const untouched: string[] = [];
+    await probeThinkingLevels(SESSION_SETUP, async (modelId) => {
+      untouched.push(modelId);
+      return [];
+    });
+    expect(untouched).toEqual([]);
+  });
+
   it('interaction_* 是单选题：按选项 ID 或 label 回答，重名的 label 带选项 ID，答不上的保持未决', () => {
     const question = antigravityQuestion(QUESTION_REQUEST as RequestPermissionRequest);
     expect(question?.questions).toEqual([
@@ -186,6 +280,30 @@ describe('Antigravity 样本回放', () => {
     });
     // 普通审批不是提问。
     expect(antigravityQuestion(PERMISSION_REQUEST as RequestPermissionRequest)).toBeUndefined();
+  });
+
+  it('子 agent 的标题：start_subagent 与 1.4 的 invoke_subagent，运行中与等审批两种写法；别的标题与 MCP 工具不算', () => {
+    for (const title of [
+      'Running start_subagent',
+      'Run start_subagent?',
+      'Running invoke_subagent',
+      'Run invoke_subagent?',
+    ]) {
+      expect(isAntigravitySubagentTool(title, 'other', {})).toBe(true);
+      expect(isAntigravitySubagentTool(title, undefined, undefined)).toBe(true);
+      expect(isAntigravitySubagentTool(title, 'other', { is_mcp_tool_call: true })).toBe(false);
+      expect(isAntigravitySubagentTool(title, 'execute', {})).toBe(false);
+    }
+    for (const title of ['Running invoke_subagents', 'Run invoke_subagent', 'invoke_subagent']) {
+      expect(isAntigravitySubagentTool(title, 'other', {})).toBe(false);
+    }
+    expect(
+      antigravityToolDisplay(
+        'Run invoke_subagent?',
+        { Description: 'Check the build' },
+        { kind: 'other' },
+      ),
+    ).toEqual({ kind: 'sub_agent', summary: 'Check the build' });
   });
 
   it('工具的展示类型：按 ACP kind，start_subagent 是子 agent（MCP 的同名工具不是）', () => {

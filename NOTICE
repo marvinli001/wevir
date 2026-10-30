@@ -313,7 +313,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
 10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单、接力、会话目标、计划卡片与 Claude Agent、Cursor、OpenCode、Grok、Antigravity 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
-来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
+来源提交：ec1313c8f8333292506f05a355bb72d308a455d8（Antigravity 运行体 1.4.1 的升级另照 4432fbef71817c279290f86549be660af25005f2）
 许可证：MIT
 版权：Copyright (c) 2026 T3 Tools Inc.
 
@@ -544,6 +544,8 @@ packages/adapter-kiro/src/launch.ts 与 packages/adapter-kiro/src/kiro-adapter.t
       <- apps/server/src/provider/acp/AntigravityProtocol.ts
   packages/adapter-antigravity/src/models.ts
       <- apps/server/src/provider/AntigravityProvider.ts
+         apps/server/src/provider/acp/AntigravityAcpSupport.ts
+         apps/server/src/provider/Drivers/AntigravityDriver.ts
   packages/adapter-antigravity/src/accounts.ts
       <- apps/server/src/provider/AntigravityAuth.ts
          apps/server/src/provider/Drivers/AntigravityDriver.ts
