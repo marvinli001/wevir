@@ -112,8 +112,9 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
 
   it('在应用里登录：BROWSER 钩子给出登录网址，浏览器回调之后已登录，模型列表存下，临时文件清掉', async () => {
     const dump = path.join(home, 'env.json');
+    const clientDump = path.join(home, 'client.json');
     const { accounts, states } = create({
-      env: { FAKE_AGY_ENV_DUMP: dump, GEMINI_API_KEY: 'leak' },
+      env: { FAKE_AGY_ENV_DUMP: dump, FAKE_AGY_CLIENT_DUMP: clientDump, GEMINI_API_KEY: 'leak' },
     });
     await accounts.setExecutablePath('antigravity', executable());
     const started = await accounts.login('antigravity', 'browser');
@@ -124,17 +125,32 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     await completeBrowserSignIn(authUrl);
     await waitFor(() => states.at(-1)?.status === 'signed_in', '已登录');
     expect(states.at(-1)).toMatchObject({ status: 'signed_in', installed: true });
-    expect(await accounts.models('antigravity')).toEqual({
+    // 报成 Zed（运行体只给名单上的客户端列非 Gemini 模型）；各模型的档位是逐个选一遍读到的。
+    expect(JSON.parse(readFileSync(clientDump, 'utf8'))).toEqual({ name: 'zed', version: '0.0.0' });
+    const models = {
       models: [
-        { id: 'gemini-3.7-flash-high', displayName: 'Gemini 3.7 Flash (High)' },
-        { id: 'gemini-pro-agent', displayName: 'Gemini 3.1 Pro (High)' },
-        { id: 'gemini-3.1-pro-low', displayName: 'Gemini 3.1 Pro (Low)' },
+        {
+          id: 'gemini-3.8-flash',
+          displayName: 'Gemini 3.8 Flash',
+          reasoningEfforts: ['minimal', 'low', 'high'],
+        },
+        {
+          id: 'gemini-3.1-pro',
+          displayName: 'Gemini 3.1 Pro',
+          reasoningEfforts: ['low', 'high', 'xhigh'],
+        },
+        { id: 'gemini-pro-agent', displayName: 'Gemini Pro Agent' },
+        {
+          id: 'claude-sonnet-4-6',
+          displayName: 'Claude Sonnet 4.6',
+          reasoningEfforts: ['low', 'high'],
+        },
+        { id: 'gpt-oss-120b-medium', displayName: 'GPT-OSS 120B (Medium)' },
       ],
-      defaultModelId: 'gemini-3.7-flash-high',
-    });
-    expect(JSON.parse(readFileSync(path.join(root(), 'models.json'), 'utf8')).defaultModelId).toBe(
-      'gemini-3.7-flash-high',
-    );
+      defaultModelId: 'gemini-3.8-flash',
+    };
+    expect(await accounts.models('antigravity')).toEqual(models);
+    expect(JSON.parse(readFileSync(path.join(root(), 'models.json'), 'utf8'))).toEqual(models);
     // 一次性会话的对话文件、登录进程的临时目录与解包目录都不留下。
     expect(readdirSync(path.join(root(), 'profile', 'antigravity-acp', 'conversations'))).toEqual(
       [],
@@ -155,7 +171,7 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     const restarted = create().accounts;
     await restarted.setExecutablePath('antigravity', executable());
     expect((await restarted.read('antigravity')).status).toBe('signed_in');
-    expect((await restarted.models('antigravity')).defaultModelId).toBe('gemini-3.7-flash-high');
+    expect(await restarted.models('antigravity')).toEqual(models);
   });
 
   it('1.1.1 把登录网址写在 stdout 上：照样认出，ACP 连接不受影响', async () => {
@@ -191,7 +207,13 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     await accounts.setExecutablePath('antigravity', executable());
     const refreshed = await accounts.read('antigravity', { refresh: true });
     expect(refreshed.status).toBe('signed_in');
-    expect((await accounts.models('antigravity')).models).toHaveLength(3);
+    expect((await accounts.models('antigravity')).models.map((model) => model.id)).toEqual([
+      'gemini-3.8-flash',
+      'gemini-3.1-pro',
+      'gemini-pro-agent',
+      'claude-sonnet-4-6',
+      'gpt-oss-120b-medium',
+    ]);
     expect(leftovers()).toEqual([]);
 
     accounts.markSignInRequired();

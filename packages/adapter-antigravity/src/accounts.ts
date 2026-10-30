@@ -29,7 +29,14 @@ import {
   AntigravityInstallCancelled,
   type InstallProgress,
 } from './installation.js';
-import { antigravityModelsFromSetup, clearModels, loadModels, saveModels } from './models.js';
+import {
+  antigravityModelsFromSetup,
+  clearModels,
+  knownEfforts,
+  loadModels,
+  probeThinkingLevels,
+  saveModels,
+} from './models.js';
 import {
   type AntigravityLauncher,
   type AntigravityRuntimeContext,
@@ -211,7 +218,7 @@ export class AntigravityAccounts implements EngineAccounts {
         mcpServers: [],
       });
       current.sessionId = created.sessionId;
-      return antigravityModelsFromSetup(created);
+      return readModels(connection, created);
     })();
     run.then(
       (models) => void this.#finish(current, models),
@@ -353,7 +360,7 @@ export class AntigravityAccounts implements EngineAccounts {
 
   /** 会话的 `configOptions` 带来的模型列表（建会话、恢复时）：有变化就存下。 */
   noteSessionModels(configOptions: unknown): void {
-    const models = antigravityModelsFromSetup({ configOptions });
+    const models = antigravityModelsFromSetup({ configOptions }, knownEfforts(this.#models));
     if (models === undefined || models.models.length === 0) return;
     if (JSON.stringify(models) === JSON.stringify(this.#models)) return;
     this.#models = models;
@@ -564,7 +571,7 @@ export class AntigravityAccounts implements EngineAccounts {
           mcpServers: [],
         });
         sessionId = created.sessionId;
-        return antigravityModelsFromSetup(created);
+        return readModels(process.connection, created);
       })();
       const models = await Promise.race([
         work,
@@ -699,6 +706,21 @@ function loginFailure(error: unknown): string {
 function describeCause(error: unknown): string | undefined {
   const cause = (error as { cause?: unknown } | null)?.cause;
   return cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause);
+}
+
+/** 一次性会话的模型列表，连同各模型的推理档位（逐个选一遍，见 probeThinkingLevels）。 */
+async function readModels(
+  connection: AcpProcess['connection'],
+  created: { sessionId: string; configOptions?: unknown; models?: unknown },
+): Promise<AccountModels | undefined> {
+  return probeThinkingLevels(created, async (modelId) => {
+    const result = await connection.agent.request(methods.agent.session.setConfigOption, {
+      sessionId: created.sessionId,
+      configId: 'model',
+      value: modelId,
+    });
+    return result.configOptions;
+  });
 }
 
 async function exists(filePath: string): Promise<boolean> {

@@ -47,7 +47,7 @@ async function create(): Promise<AntigravityAdapter> {
 }
 
 function config(extra: Partial<SessionConfig> = {}): SessionConfig {
-  return { cwd: workspace, providerId: 'antigravity', modelId: 'gemini-3.7-flash-high', ...extra };
+  return { cwd: workspace, providerId: 'antigravity', modelId: 'gemini-3.8-flash', ...extra };
 }
 
 function collect(adapter: AntigravityAdapter, session: EngineSession): AgentEvent[] {
@@ -116,10 +116,10 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
     writeFakeToken(home);
     const adapter = await create();
     const session = await adapter.createSession(config({ permissionMode: 'full_access' }));
-    expect(session).toMatchObject({ modelId: 'gemini-3.7-flash-high', engineVersion: '1.3.0' });
+    expect(session).toMatchObject({ modelId: 'gemini-3.8-flash', engineVersion: '1.4.1' });
     const events = collect(adapter, session);
     expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
-      'mode=yolo model=gemini-3.7-flash-high',
+      'mode=yolo model=gemini-3.8-flash-high',
     );
     await adapter.configureSession(session.engineSessionId, {
       modelId: 'gemini-pro-agent',
@@ -130,6 +130,68 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
     );
     // 会话带来的模型列表存下（Host 重启后不必启动运行体）。
     expect(existsSync(path.join(home, 'engines', 'antigravity', 'models.json'))).toBe(true);
+  });
+
+  it('推理档位对到运行体的思考档位：建会话时设，会话中换模型与档位从下一个回合起生效，没有这一档时沿用', async () => {
+    writeFakeToken(home);
+    const logger = collectingLogger();
+    const adapter = new AntigravityAdapter({
+      home,
+      logger,
+      env: { PATH: process.env.PATH, HOME: home },
+    });
+    adapters.push(adapter);
+    await adapter.accounts.setExecutablePath(
+      'antigravity',
+      path.join(home, 'bin', 'agy_acp_server.par'),
+    );
+    const session = await adapter.createSession(config({ reasoningEffort: 'low' }));
+    expect(session.modelId).toBe('gemini-3.8-flash');
+    const events = collect(adapter, session);
+    expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
+      'mode=default model=gemini-3.8-flash-low',
+    );
+    // xhigh 在这个模型上是 extra_high。
+    await adapter.configureSession(session.engineSessionId, {
+      modelId: 'gemini-3.1-pro',
+      reasoningEffort: 'xhigh',
+    });
+    expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
+      'mode=default model=gemini-3.1-pro-extra_high',
+    );
+    // 非 Gemini 模型（报成 Zed 才有）：换过去不给档位时运行体取最近的一档。
+    await adapter.configureSession(session.engineSessionId, { modelId: 'claude-sonnet-4-6' });
+    expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
+      'mode=default model=claude-sonnet-4-6-high',
+    );
+    // 没有这一档：告警，沿用当前档位，回合照常。
+    await adapter.configureSession(session.engineSessionId, {
+      modelId: 'claude-sonnet-4-6',
+      reasoningEffort: 'minimal',
+    });
+    expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
+      'mode=default model=claude-sonnet-4-6-high',
+    );
+    expect(logger.messages).toContain('Antigravity 的这个模型没有这个思考档位，沿用当前档位');
+    // 没有档位的模型：给了档位也只告警。
+    await adapter.configureSession(session.engineSessionId, {
+      modelId: 'gemini-pro-agent',
+      reasoningEffort: 'high',
+    });
+    expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
+      'mode=default model=gemini-pro-agent',
+    );
+  });
+
+  it('1.3 存下的带档位的模型 ID：照样交给运行体，会话落在对应的家族与档位上', async () => {
+    writeFakeToken(home);
+    const adapter = await create();
+    const session = await adapter.createSession(config({ modelId: 'gemini-3.8-flash-low' }));
+    expect(session.modelId).toBe('gemini-3.8-flash');
+    const events = collect(adapter, session);
+    expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
+      'mode=default model=gemini-3.8-flash-low',
+    );
   });
 
   it('interaction_* 提问：经 requestAnswers 报 question.requested，按 label 回答，换成选项 ID 回复', async () => {

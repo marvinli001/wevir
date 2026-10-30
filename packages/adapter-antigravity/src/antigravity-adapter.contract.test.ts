@@ -46,7 +46,7 @@ describe.skipIf(process.platform === 'win32')('AntigravityAdapter 契约', () =>
       sessionConfig: () => ({
         cwd: workspace,
         providerId: 'antigravity',
-        modelId: 'gemini-3.7-flash-high',
+        modelId: 'gemini-3.8-flash',
       }),
       waitTimeoutMs: 15_000,
     },

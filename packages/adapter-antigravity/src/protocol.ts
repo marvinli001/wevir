@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/acp/AntigravityProtocol.ts（interaction_* 提问、工具负载的截断、原生命令字段、
-// start_subagent 的识别）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// start_subagent / invoke_subagent 的识别）
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；invoke_subagent 照 4432fbef71817c279290f86549be660af25005f2
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect Schema 改写成手写检查；提问报成 Wevir 的 UserQuestion（回答是选项的 label，重名的 label 后面带选项 ID 以便
 // 区分）；工具调用换成 Wevir 的 ToolDisplay；T3 的“允许一次 / 本会话 / 拒绝”取舍与安全提示不移植（Wevir 原样转交引擎给的
@@ -287,11 +287,19 @@ function subagentSummary(rawInput: unknown): string | undefined {
   return undefined;
 }
 
-/** ACP 1.1.1 起子 agent 是普通工具（`start_subagent`），没有子会话 ID；MCP 的同名工具不算。 */
+/** 子 agent 工具的标题：1.1.1 起是 `start_subagent`，1.4 起还有 `invoke_subagent`（运行中与等审批两种写法）。 */
+const ANTIGRAVITY_SUBAGENT_TITLES: ReadonlySet<string> = new Set([
+  'Running start_subagent',
+  'Run start_subagent?',
+  'Running invoke_subagent',
+  'Run invoke_subagent?',
+]);
+
+/** 子 agent 是普通工具，没有子会话 ID；MCP 的同名工具不算。 */
 export function isAntigravitySubagentTool(title: string, kind: unknown, meta: unknown): boolean {
   return (
     (kind === undefined || kind === null || kind === 'other') &&
-    (title === 'Running start_subagent' || title === 'Run start_subagent?') &&
+    ANTIGRAVITY_SUBAGENT_TITLES.has(title) &&
     !(isRecord(meta) && meta.is_mcp_tool_call === true)
   );
 }

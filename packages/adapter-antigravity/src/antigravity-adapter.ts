@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.ts（权限模式、模型选择、提问）与
 // provider/acp/AntigravityAcpSupport.ts（antigravityPermissionMode、applyAntigravityAcpModelSelection）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；思考档位照 4432fbef71817c279290f86549be660af25005f2
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话；Wevir 的三种权限模式对到 Antigravity 的
-// default / auto_edit / yolo；会话中换模型与模式记下、下一个回合开始前生效；不声明 fs 能力（T3 让编辑经它的文件接口走），
-// 工具在运行体自己的环境里执行，审批照 ACP 原样转交；没有 T3 的附件、子 agent 批次与文本生成。
+// default / auto_edit / yolo；Wevir 的推理档位对到运行体 1.4 的思考档位（`thinking_level`）；会话中换模型、档位与模式记下、
+// 下一个回合开始前生效；不声明 fs 能力（T3 1.4.1 起也不再声明写文件，编辑用运行体自己的 diff），工具在运行体自己的环境里
+// 执行，审批照 ACP 原样转交；没有 T3 的附件、子 agent 批次与文本生成。
 //
 // Antigravity 引擎的 AgentRuntimeAdapter（订阅来源 `antigravity`，docs/architecture/antigravity-event-mapping.md）。
 
@@ -16,6 +17,7 @@ import {
   type RequestPermissionResponse,
 } from '@wevir/adapter-acp/sdk';
 import {
+  AdapterError,
   type AgentInput,
   type EngineRuleFiles,
   type EngineSession,
@@ -27,6 +29,7 @@ import type { AppToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import { AntigravityAccounts } from './accounts.js';
 import { ANTIGRAVITY_ENGINE, classifyAntigravityTurnError } from './engine.js';
 import { AntigravityInstallation, type AntigravityInstallationOptions } from './installation.js';
+import { antigravityThinkingOption, thinkingLevelFor } from './models.js';
 import {
   type AntigravityLauncher,
   type AntigravityRuntimeContext,
@@ -76,7 +79,7 @@ interface SessionSettings {
   configOptions: unknown;
   modes: unknown;
   /** 会话中改了、下一个回合开始前才交给运行体的设置。 */
-  pending?: { modelId: string; permissionMode: PermissionMode };
+  pending?: { modelId: string; reasoningEffort?: string; permissionMode: PermissionMode };
   /** 运行体会话库里每次模型请求的 token（`step-usage.ts`）。 */
   usage: AntigravityStepUsage;
 }
@@ -194,7 +197,7 @@ export class AntigravityAdapter extends AcpAdapter {
     return this.#signInAware(() => super.resumeSession(engineSessionId, config));
   }
 
-  /** 会话中换模型或权限模式：记下，下一个回合开始前交给运行体（AgentRuntimeAdapter.configureSession 的约定）。 */
+  /** 会话中换模型、推理档位或权限模式：记下，下一个回合开始前交给运行体（AgentRuntimeAdapter.configureSession 的约定）。 */
   async configureSession(
     engineSessionId: string,
     config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
@@ -205,6 +208,7 @@ export class AntigravityAdapter extends AcpAdapter {
     if (settings === undefined) return;
     settings.pending = {
       modelId: config.modelId,
+      ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
       permissionMode: config.permissionMode ?? 'on_request',
     };
   }
@@ -221,6 +225,8 @@ export class AntigravityAdapter extends AcpAdapter {
         providerId: settings.providerId,
         modelId: pending.modelId,
       });
+      settings.configOptions = this.sessionConfigOptions(engineSessionId);
+      await this.#applyThinking(engineSessionId, settings, pending.reasoningEffort);
       await this.#applyMode(engineSessionId, settings, pending.permissionMode);
     }
     return super.send(engineSessionId, input);
@@ -259,7 +265,8 @@ export class AntigravityAdapter extends AcpAdapter {
       usage,
     };
     this.#sessions.set(engineSessionId, settings);
-    this.accounts.noteSessionModels(setup.configOptions);
+    await this.#applyThinking(engineSessionId, settings, config.reasoningEffort);
+    this.accounts.noteSessionModels(settings.configOptions);
     await this.#applyMode(engineSessionId, settings, config.permissionMode ?? 'on_request');
     return settings.configOptions;
   }
@@ -323,6 +330,42 @@ export class AntigravityAdapter extends AcpAdapter {
     } catch (error) {
       if (isAdapterError(error, 'missing_credentials')) this.accounts.markSignInRequired();
       throw error;
+    }
+  }
+
+  /**
+   * 会话的思考档位（T3 的 thinking levels）：当前模型有 `thought_level` 选项时把 Wevir 的推理档位换成它提供的运行体档位，
+   * 与当前值不同就 `session/set_config_option`。没给档位时沿用运行体的默认；模型没有档位或没有这一档时告警，不换。
+   */
+  async #applyThinking(
+    engineSessionId: string,
+    settings: SessionSettings,
+    effort: string | undefined,
+  ): Promise<void> {
+    if (effort === undefined) return;
+    const option = antigravityThinkingOption(settings.configOptions);
+    const level = option === undefined ? undefined : thinkingLevelFor(effort, option.values);
+    if (option === undefined || level === undefined) {
+      this.logger.warn('Antigravity 的这个模型没有这个思考档位，沿用当前档位', {
+        engineSessionId,
+        effort,
+        available: option?.values ?? [],
+      });
+      return;
+    }
+    if (option.currentValue === level) return;
+    try {
+      const result = await this.process.connection.agent.request(
+        methods.agent.session.setConfigOption,
+        { sessionId: engineSessionId, configId: option.id, value: level },
+      );
+      settings.configOptions = result.configOptions;
+    } catch (error) {
+      throw new AdapterError(
+        'invalid_input',
+        `Antigravity 选不上思考档位 ${level}：${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
     }
   }
 

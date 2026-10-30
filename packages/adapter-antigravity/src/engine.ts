@@ -15,8 +15,10 @@ export const AUTH_REQUIRED_CODE = -32000;
 const INVALID_PARAMS = -32602;
 
 /**
- * Antigravity 的会话路由：模型就是 ACP config option `model` 的值（Google 账号能用的原生模型 ID，含思考档位，例如
- * `gemini-3.7-flash-high`），没有单独的推理强度选项。Provider 只有一个（`antigravity`），不编码进值里。
+ * Antigravity 的会话路由：模型就是 ACP config option `model` 的值（Google 账号能用的原生模型 ID）。运行体 1.4 起同一模型的
+ * 思考档位合成一项（`gemini-3.8-flash`），档位另有 `thinking_level` 选项，选项随模型变，由适配器在选定模型之后设
+ * （antigravity-adapter.ts 的 #applyThinking），不经路由；1.3 存下的带档位的 ID（`gemini-3.8-flash-high`）运行体照样认。
+ * Provider 只有一个（`antigravity`），不编码进值里。
  */
 export const ANTIGRAVITY_ROUTE: AcpRouteCodec = Object.freeze<AcpRouteCodec>({
   modelOption: 'model',
