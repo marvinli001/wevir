@@ -1,7 +1,7 @@
 // 后台进程（processes.ts）：用真实的 /bin/sh 跑小命令。Windows 上跳过（命令是 POSIX shell 写的）。
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, TurnId } from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -439,3 +439,41 @@ describe('辅助函数', () => {
 
 // 确认测试机上 /bin/sh 可用（runIf 只看平台）。
 if (posix) execFileSync('/bin/sh', ['-c', 'true']);
+
+describe.runIf(posix)('ProcessManager.restoreInterrupted', () => {
+  it('上一次 Host 留下的进程记成被 Host 停的，读得到之前的输出；新进程的 ID 接着编', async () => {
+    const h = setup();
+    const logPath = join(h.root, 'process-p7.log');
+    writeFileSync(logPath, 'before restart\n');
+    await h.manager.restoreInterrupted([
+      {
+        id: 'p7',
+        sessionId: A,
+        name: 'dev',
+        command: 'npm run dev',
+        cwd: h.root,
+        logPath,
+        startedAt: 1000,
+        signal: 'SIGTERM',
+      },
+      // 别的前缀（检查）的不收。
+      { id: 'v1', sessionId: A, name: 'x', command: 'x', cwd: h.root, logPath, startedAt: 1 },
+    ]);
+    expect(h.manager.list(A)).toEqual([
+      expect.objectContaining({
+        id: 'p7',
+        status: 'exited',
+        killed: true,
+        stoppedBy: 'host',
+        signal: 'SIGTERM',
+        exitCode: null,
+        startedAt: 1000,
+        bytes: 15,
+      }),
+    ]);
+    expect((await h.manager.read(A, 'p7')).text).toBe('before restart\n');
+    expect(() => h.manager.signal(A, 'p7', 'SIGTERM')).toThrow(AppToolError);
+    const next = await h.manager.start(A, { command: 'true', cwd: h.root });
+    expect(next.id).toBe('p8');
+  });
+});

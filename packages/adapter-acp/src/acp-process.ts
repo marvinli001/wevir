@@ -15,7 +15,7 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
-import { AdapterError, isAdapterError } from '@wevir/runtime-adapter';
+import { AdapterError, isAdapterError, trackProcessGroup } from '@wevir/runtime-adapter';
 import type { AcpEngine } from './engine.js';
 
 /** `initialize` 的时限。dsh 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s（T0.3）。 */
@@ -497,6 +497,8 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       child.kill('SIGKILL');
       throw new Error(`${this.#name} 的 stdio 没有建立`);
     }
+    // Host 被强行结束时由它的看门狗或下次启动结束（ACP 引擎读到 stdin EOF 一般自己退出，组里的工具进程不一定）。
+    trackProcessGroup(child, { kind: 'engine', name: this.#name });
     // 进程退出后的写入会报 EPIPE，结果以 exit 事件为准。
     for (const stream of child.stdio) stream?.on('error', () => {});
 

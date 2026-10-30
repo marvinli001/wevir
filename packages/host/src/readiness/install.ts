@@ -5,6 +5,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createWriteStream, type WriteStream } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
+import { trackProcessGroup } from '@wevir/runtime-adapter';
 import { childEnv, PROCESS_KILL_GRACE_MS, shellCommand, stripAnsi } from '../processes.js';
 
 /** 一行太长时不等换行，攒到这么多就写。 */
@@ -206,6 +207,13 @@ export function startInstall(options: InstallRunOptions): InstallProcess {
     } catch (error) {
       finish(null, null, error instanceof Error ? error.message : String(error));
       return;
+    }
+    if (options.platform !== 'win32') {
+      trackProcessGroup(child, {
+        kind: 'install',
+        name: options.command.slice(0, 60),
+        cwd: options.cwd,
+      });
     }
     child.stdout?.on('data', (chunk: Buffer) => onText(decoder.write(chunk)));
     child.stderr?.on('data', (chunk: Buffer) => onText(decoder.write(chunk)));

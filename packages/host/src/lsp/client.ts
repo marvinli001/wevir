@@ -15,6 +15,7 @@ import { type FSWatcher, watch } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { trackProcessGroup } from '@wevir/runtime-adapter';
 import type {
   Diagnostic,
   InitializeResult,
@@ -214,6 +215,9 @@ export class LspClient {
       windowsHide: true,
       shell,
     });
+    // 不自成进程组（留在 Host 的组里）：Host 死掉时它读到 stdin EOF，也会按 `initialize` 的 processId 发现 Host 不在了；登记
+    // 只为两者都不管用的服务器，回收时退回只结束它本身。
+    trackProcessGroup(this.#process, { kind: 'lsp', name: this.label, cwd: options.root });
     this.#process.stderr.setEncoding('utf8');
     this.#process.stderr.on('data', (chunk: string) => {
       this.#stderr = (this.#stderr + chunk).slice(-STDERR_TAIL);

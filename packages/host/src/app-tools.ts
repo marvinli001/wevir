@@ -615,10 +615,13 @@ export class AppTools {
   ): { parent: SessionId; wake: boolean } | undefined {
     const requester = this.#requesterOf(sessionId, turnId, events);
     if (requester !== undefined) return { parent: requester, wake: true };
-    const origin = this.#options.storage.sessions.get(sessionId)?.origin;
+    const record = this.#options.storage.sessions.get(sessionId);
+    const origin = record?.origin;
+    // Agent 分出自己的会话（`context: "fork"`）开头是抄来的历史，开它的那条消息是第一条从开它的会话来的。
     const first = events.find(
       (event): event is Extract<WevirEvent, { type: 'user.message' }> =>
-        event.type === 'user.message',
+        event.type === 'user.message' &&
+        (record?.forkedFrom === undefined || event.payload.from?.sessionId === origin?.sessionId),
     );
     if (origin?.kind === 'suggested_task') {
       return { parent: origin.sessionId as SessionId, wake: first?.payload.turnId === turnId };
@@ -1156,21 +1159,20 @@ export class AppTools {
         'Open a new Wevir session in this project and send it a first message. It runs on its own, is listed under ' +
         "your session in the user's sidebar and does not share your conversation, so put everything it needs in message. Provider, " +
         'model, reasoning level and permission mode default to yours (see wevir_models); the permission mode cannot be ' +
-        'broader than yours. worktree=true gives it its own git worktree. reportBack (default true) sends its answer ' +
-        'back to you as a message when the turn ends; end your turn instead of polling. Reports and other Wevir ' +
-        'messages are queued while you are working and arrive after your current turn ends; when you need a result ' +
-        'within this turn, use wevir_session_wait. Decide yourself when a piece of the work deserves its own session: ' +
-        'it can run independently of what you do next, takes more than a handful of steps, and ends in a result of its ' +
-        'own (a change, a branch, a report), so splitting it off lets the pieces run in parallel or keeps your context ' +
-        'small. Keep quick work here: a question, a read, a search, one edit, or helper work whose result you need in ' +
-        'this turn (use your own built-in subagent tools for that). Two sessions must not edit the same files; give ' +
-        'each worktree=true when their edits may overlap. role (see wevir_roles) starts it from a preset role: the role ' +
-        'supplies the model, a permission ceiling, a task brief and the Wevir tools it may use; providerId, modelId and ' +
-        'reasoningEffort given here override the role. Close or archive sessions you opened when their work is done ' +
-        '(wevir_session_close, wevir_session_archive); you cannot delete sessions, and the user keeps the archive. ' +
-        'When it waits for the user to approve or answer, you cannot do that for the user: tell the user or stop it ' +
-        "with wevir_session_interrupt. With Antigravity and OpenCode providers its commands need the user's " +
-        'approval even under auto_review. Assistants: project=folder path.',
+        'broader than yours. worktree=true gives it its own git worktree. context=fork gives it your conversation up ' +
+        'to your last finished turn (not this one) and keeps your model and role; message then needs only the task and ' +
+        'what this turn added. reportBack (default true) sends its answer back to you as a message when the turn ends; ' +
+        'end your turn instead of polling. Wevir messages arrive after your current turn ends; for a result within ' +
+        'this turn, use wevir_session_wait. A piece of work deserves its own session when it runs independently of ' +
+        'what you do next, takes more than a handful of steps and ends in a result of its own (a change, a branch, a ' +
+        'report). Keep quick work, and helper work whose result you need in this turn, here (use your built-in ' +
+        'subagents). Two sessions must not edit the same files; give each worktree=true when their edits may overlap. ' +
+        'role (see wevir_roles) starts it from a preset role: the role supplies the model, a permission ceiling, a task ' +
+        'brief and the Wevir tools it may use; providerId, modelId and reasoningEffort given here override the role. ' +
+        'Close or archive sessions you opened when their work is done (wevir_session_close, wevir_session_archive); ' +
+        "you cannot delete them. If it waits for the user's approval or answer, tell the user or stop it with " +
+        "wevir_session_interrupt. With Antigravity and OpenCode providers its commands need the user's approval even " +
+        'under auto_review. Assistants: project=folder path.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },
@@ -1183,6 +1185,7 @@ export class AppTools {
           worktree: { type: 'boolean' },
           reportBack: { type: 'boolean' },
           project: { type: 'string' },
+          context: { type: 'string', enum: ['fork'] },
         },
         ['message'],
       ),
@@ -1192,6 +1195,9 @@ export class AppTools {
         const caller = this.#session(sessionId);
         const message = requiredString(args, 'message');
         const title = optionalString(args, 'title')?.trim();
+        if (optionalEnum(args, 'context', ['fork']) === 'fork') {
+          return this.#forkSelf(args, sessionId, caller, message, title);
+        }
         // 助理的会话可以开进用户的项目（0.134.0，channels/service.ts 的 `assistantProject`）。
         const projectArg = optionalString(args, 'project');
         const channels = this.#options.channels;
@@ -1267,7 +1273,6 @@ export class AppTools {
             ? ceiling
             : callerMode;
         const permissionMode = requested ?? roleMode;
-        const reportBack = args.reportBack !== false;
         const session = await this.#host(() =>
           this.#options.sessions.create(
             {
@@ -1281,38 +1286,90 @@ export class AppTools {
             { openedBy: sessionId, ...(role !== undefined && { role: role.name }) },
           ),
         );
-        if (title !== undefined && title !== '') {
-          await this.#host(() => this.#options.sessions.rename(session.id, title)).catch(
-            () => undefined,
-          );
-        }
-        const sent = await this.#host(() =>
-          this.#options.sessions.send(
-            {
-              sessionId: session.id,
-              content: [
-                {
-                  type: 'text',
-                  text: role === undefined ? message : roleBrief(role, message, sessionId),
-                },
-              ],
-            },
-            this.#identity,
-            { from: { sessionId, kind: 'message', ...(reportBack && { reportBack: true }) } },
-          ),
-        );
-        if (reportBack && sent.turnId !== undefined) {
-          this.#watchBlocked(session.id, sent.turnId, sessionId);
-          this.#expect(sessionId, session.id);
-        }
-        const created = this.#session(session.id);
-        return jsonResult({
-          ...this.#describe(created, sessionId),
-          ...(sent.turnId !== undefined && { turnId: sent.turnId }),
-          reportBack,
-        });
+        const brief = role === undefined ? message : roleBrief(role, message, sessionId);
+        return this.#startOpened(session.id, sessionId, brief, title, args.reportBack !== false);
       },
     };
+  }
+
+  /**
+   * `wevir_session_create` 的 `context: "fork"`：从调用方到最近一个完成的回合为止的对话分出一个会话（`SessionManager.agentFork`：
+   * 引擎能分支时原生分支，否则交接力材料），沿用它的 Provider、模型、档位与角色；权限模式只能收窄。结果里的 `fork` 说是哪一种。
+   */
+  async #forkSelf(
+    args: Record<string, unknown>,
+    sessionId: SessionId,
+    caller: Session,
+    message: string,
+    title: string | undefined,
+  ): Promise<AppToolResult> {
+    const kept = ['role', 'providerId', 'modelId', 'reasoningEffort', 'project'].find(
+      (key) => args[key] !== undefined,
+    );
+    if (kept !== undefined) {
+      throw new AppToolError(
+        `context=fork keeps your provider, model, reasoning level, role and project; leave out ${kept}.`,
+      );
+    }
+    const callerMode = caller.permissionMode ?? DEFAULT_PERMISSION_MODE;
+    const requested = optionalEnum(
+      args,
+      'permissionMode',
+      Object.keys(PERMISSION_RANK) as PermissionMode[],
+    );
+    if (requested !== undefined && PERMISSION_RANK[requested] > PERMISSION_RANK[callerMode]) {
+      throw new AppToolError(
+        `permissionMode ${requested} is broader than this session's (${callerMode}).`,
+      );
+    }
+    const forked = await this.#host(() =>
+      this.#options.sessions.agentFork(sessionId, {
+        ...(args.worktree === true && { worktree: true }),
+        ...(requested !== undefined && { permissionMode: requested }),
+      }),
+    );
+    return this.#startOpened(
+      forked.session.id,
+      sessionId,
+      message,
+      title,
+      args.reportBack !== false,
+      {
+        fork: forked.via,
+      },
+    );
+  }
+
+  /** 给刚开的会话起标题、发第一条消息；`reportBack` 时等它回报。返回 `wevir_session_create` 的结果。 */
+  async #startOpened(
+    id: SessionId,
+    sessionId: SessionId,
+    brief: string,
+    title: string | undefined,
+    reportBack: boolean,
+    extra: Record<string, unknown> = {},
+  ): Promise<AppToolResult> {
+    if (title !== undefined && title !== '') {
+      await this.#host(() => this.#options.sessions.rename(id, title)).catch(() => undefined);
+    }
+    const sent = await this.#host(() =>
+      this.#options.sessions.send(
+        { sessionId: id, content: [{ type: 'text', text: brief }] },
+        this.#identity,
+        { from: { sessionId, kind: 'message', ...(reportBack && { reportBack: true }) } },
+      ),
+    );
+    if (reportBack && sent.turnId !== undefined) {
+      this.#watchBlocked(id, sent.turnId, sessionId);
+      this.#expect(sessionId, id);
+    }
+    const created = this.#session(id);
+    return jsonResult({
+      ...this.#describe(created, sessionId),
+      ...extra,
+      ...(sent.turnId !== undefined && { turnId: sent.turnId }),
+      reportBack,
+    });
   }
 
   #secondOpinionTool(opinions: SecondOpinionService): AppTool {

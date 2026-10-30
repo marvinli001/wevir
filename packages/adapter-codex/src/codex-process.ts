@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createInterface } from 'node:readline';
-import { AdapterError } from '@wevir/runtime-adapter';
+import { AdapterError, trackProcessGroup } from '@wevir/runtime-adapter';
 import type {
   ClientInfo,
   InitializeParams,
@@ -427,6 +427,8 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
       child.kill('SIGKILL');
       throw new Error('codex-app-server 的 stdio 没有建立');
     }
+    // Host 被强行结束时由它的看门狗或下次启动结束（app-server 自己读到 stdin EOF 也会退出，组里的工具进程不一定）。
+    trackProcessGroup(child, { kind: 'engine', name: 'codex-app-server' });
     for (const stream of child.stdio) stream?.on('error', () => {});
 
     let settle!: (exit: CodexExit) => void;

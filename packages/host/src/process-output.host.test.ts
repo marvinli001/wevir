@@ -2,14 +2,16 @@
 // 调 `wevir_process_start`，客户端经 WebSocket 用 `process.*` 列出、分页读输出、停止，并收 `process.changed`。另跑一个检查，看检查的
 // 进程也列得出、停止等于取消这次检查。覆盖大输出、断线重连后接着读、Host 重启、进程自己退出、非 UTF-8 输出与超长行。POSIX 上跑。
 
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from './host-process.js';
 import { createLogger } from './logger.js';
+import { type ProcessGroupRecord, processFingerprint } from './process-groups.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
 
 const WAIT_MS = 15_000;
@@ -294,6 +296,73 @@ describe.runIf(process.platform !== 'win32')('进程输出经 Host API', () => {
     expect((await restarted.client.request('process.list')).processes).toEqual([]);
     const gone = await restarted.client.call('process.output', { processId: 'p1' });
     expect(gone.error?.message).toContain('not found');
+  }, 30_000);
+
+  it('Host 被强行结束后再启动：登记的后台进程被结束，列表里记成被 Host 停的，新进程的 ID 接着编', async () => {
+    const { home, workspaceDir } = dirs();
+    const h = await boot(home, workspaceDir);
+    const sessionId = await h.create();
+    // 运行中的进程登记在 process-groups/ 里。
+    await h.tool(sessionId, 'wevir_process_start', { command: 'sleep 60', name: 'live' });
+    const groupsDir = join(home, 'process-groups');
+    await vi.waitFor(() => expect(readdirSync(groupsDir)).toHaveLength(1), { timeout: WAIT_MS });
+    const live = JSON.parse(
+      readFileSync(join(groupsDir, readdirSync(groupsDir)[0] as string), 'utf8'),
+    ) as ProcessGroupRecord;
+    expect(live).toMatchObject({ kind: 'process', sessionId, ownerId: 'p1', name: 'live' });
+    await h.shutdown();
+    // 正常关闭：进程结束，登记删掉。
+    expect(readdirSync(groupsDir)).toEqual([]);
+
+    // 模拟上一次 Host 被强行结束：一个还活着的组与它的登记（看门狗也没了）。
+    const orphan = spawn('/bin/sh', ['-c', 'sleep 60 & exec sleep 60'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    const pgid = orphan.pid as number;
+    cleanups.push(() => {
+      try {
+        process.kill(-pgid, 'SIGKILL');
+      } catch {}
+    });
+    const logPath = join(home, 'tool-output', sessionId, 'process-p4.log');
+    writeFileSync(logPath, 'still running\n');
+    const record: ProcessGroupRecord = {
+      kind: 'process',
+      name: 'orphan',
+      sessionId,
+      ownerId: 'p4',
+      command: 'sleep 60',
+      cwd: workspaceDir,
+      logPath,
+      pgid,
+      fingerprint: (await processFingerprint(pgid)) as string,
+      hostPid: 1,
+      hostInstance: 'crashed',
+      startedAt: Date.now() - 1000,
+    };
+    writeFileSync(join(groupsDir, `${pgid}.json`), JSON.stringify(record));
+
+    const restarted = await boot(home, workspaceDir);
+    expect(() => process.kill(-pgid, 0)).toThrow();
+    expect(readdirSync(groupsDir)).toEqual([]);
+    const { processes } = await restarted.client.request('process.list', { sessionId });
+    expect(processes).toEqual([
+      expect.objectContaining({
+        id: 'p4',
+        name: 'orphan',
+        status: 'exited',
+        stoppedBy: 'host',
+        signal: 'SIGTERM',
+        bytes: 14,
+      }),
+    ]);
+    expect((await readAll(restarted.client, 'p4')).text).toBe('still running\n');
+    // ID 不分会话编号（新起的会话挂在这次的引擎上）。
+    const fresh = await restarted.create();
+    expect(
+      await restarted.tool(fresh, 'wevir_process_start', { command: 'true', name: 'next' }),
+    ).toContain('p5');
   }, 30_000);
 
   it('检查的进程：跑的时候列得出（来源带检查与回合），停止等于取消这次检查', async () => {
