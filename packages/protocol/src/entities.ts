@@ -1002,7 +1002,8 @@ export type PendingDelivery = z.infer<typeof PendingDeliverySchema>;
 
 /**
  * 待发消息的状态：`waiting` 等待（插话等这一步结束，排队等回合结束）；`held` 暂停（回合以失败或取消结束、会话出错或
- * 关闭、Host 重启，等用户继续发送、编辑或删除）；终态 `inserted` 已插入、`sent` 已发送、`cancelled` 已取消。
+ * 关闭、Host 重启，等用户继续发送、编辑或删除；带 `from` 的（引用第二意见除外）在之后的回合完成时转回等待）；终态 `inserted` 已插入、
+ * `sent` 已发送、`cancelled` 已取消。
  */
 export const PendingStatusSchema = z.enum(['waiting', 'held', 'inserted', 'sent', 'cancelled']);
 export type PendingStatus = z.infer<typeof PendingStatusSchema>;

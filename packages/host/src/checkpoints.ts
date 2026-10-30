@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/vcs/GitVcsDriver.ts、apps/server/src/orchestration-v2/CheckpointService.ts、apps/server/src/checkpointing/Diffs.ts
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；落盘设置（core.fsync 与 F_FULLFSYNC 不受支持时的重试）取自
+// 55ba1baa559ee73b9db177da07f56000774371f2 的 GitVcsDriver.ts 与 VcsProcess.ts
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：取自 GitVcsDriver.ts 的 captureCheckpoint（临时的 GIT_INDEX_FILE，先从 HEAD 填好、能复用时复制用户的索引保留
 // stat 信息，再 `add -A`、`write-tree`、`commit-tree -p HEAD`、`update-ref`；还没有提交的嵌套仓库让 `add` 失败时排除
 // 它们再试一次）、listAuthoredPaths、deleteCheckpointRefs，Diffs.ts 的 isGitImport，CheckpointService.ts 的 ref 命名空间与
 // 回合后的文件统计。与 T3 不同：ref 用 Wevir 的命名空间、以回合 ID 命名并分前后两个；统计写进提交说明；sparse checkout
 // 不打快照（T3 处理了 cone 模式）；所有 git 命令用 git-diff.ts 的 safeConfig，commit-tree 不签名；listAuthoredPaths 用
-// `--diff-merges=off`（T3 的 remerge 会跑仓库配置的合并驱动）；会话关闭时删掉它的 ref，每个会话最多留最近 100 个回合。
+// `--diff-merges=off`（T3 的 remerge 会跑仓库配置的合并驱动）；会话关闭时删掉它的 ref，每个会话最多留最近 100 个回合；
+// 落盘设置只加在打快照的命令上（算树散列的不加），F_FULLFSYNC 不受支持时的重试只在 macOS 上做。
 //
 // 每个回合前后的快照（0.20.0，domain-model §3.13）：回合开始前与结束后，Host 把会话目录现在的样子（含没被忽略的未跟踪
 // 文件）写成一个提交，挂在 `refs/wevir/checkpoints/<会话 ID>/<回合 ID>/before` 与 `…/after` 上；一个回合的 diff 是这两个
@@ -24,6 +26,7 @@ import type {
   WorkspaceDiffResult,
 } from '@wevir/protocol';
 import {
+  GitError,
   type NumstatEntry,
   parseNumstat,
   type RepoInfo,
@@ -52,6 +55,35 @@ const AUTHOR = {
   GIT_COMMITTER_NAME: 'Wevir',
   GIT_COMMITTER_EMAIL: 'checkpoint@wevir.invalid',
 };
+
+// macOS 上 git 的 fsync 用 F_FULLFSYNC，writeout-only 仍用 fsync(2)。网络挂载的盘可能拒绝 F_FULLFSYNC；写 ref 时的报错
+// 不带 errno，所以它那句光秃秃的写入失败也重试，别的明确的错误照样失败。Linux 的 writeout-only 只是开始回写，不能这样退。
+const FULL_FSYNC_ARG = 'core.fsyncMethod=fsync';
+const BATCH_FSYNC_ARG = 'core.fsyncMethod=batch';
+const WRITEOUT_ONLY_FSYNC_ARG = 'core.fsyncMethod=writeout-only';
+
+/**
+ * 快照的对象与 ref 先落盘再挂出去（T3 durableWrite）：不落盘的话，没正常退出后 ref 可能指向没写完的对象，或留下 0 字节的
+ * ref 文件，之后的 fetch、push 都会出错。macOS 默认的 writeout-only 也到不了盘。先写 fsync：Git 2.36 不认识 batch 时会忽略
+ * 它、不会把方法重置掉；Git 说明 batch 在 macOS 的 HFS+/APFS 与 Windows 的 NTFS/ReFS 上与逐个 fsync 一样可靠，别的平台
+ * 仍逐个 fsync。batch 对 ref 照样完整刷盘。
+ */
+export function durableWriteConfig(platform: NodeJS.Platform = process.platform): string[] {
+  return [
+    '-c',
+    'core.fsync=objects,reference',
+    '-c',
+    FULL_FSYNC_ARG,
+    ...(platform === 'darwin' || platform === 'win32' ? ['-c', BATCH_FSYNC_ARG] : []),
+  ];
+}
+
+export function canRetryFullFsync(stderr: string): boolean {
+  return (
+    /fsync error on [^\r\n]+: operation not supported\r?$/im.test(stderr) ||
+    /cannot update ref [^\r\n]+: couldn't write '[^\r\n]+\.lock'\r?$/im.test(stderr)
+  );
+}
 
 type Stage = 'before' | 'after' | 'undone' | 'redone-from';
 
@@ -457,7 +489,7 @@ interface CaptureInput {
 
 /** 会话目录现在的样子写成一个提交（父提交是 HEAD），挂到 `ref` 上。只在临时索引上操作。 */
 export function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Promise<string> {
-  return withWorkingTree(repo, input.signal, async (tree, run) => {
+  return withWorkingTree(repo, input.signal, durableWriteConfig(), async (tree, run) => {
     const message = await input.message(tree);
     const commit = (
       await run([
@@ -482,20 +514,42 @@ export function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Promise<
  * 不动用户的索引与引用；文件的 blob 照样写进对象库（同回合快照）。
  */
 export function workingTreeHash(repo: RepoInfo, signal: AbortSignal): Promise<string> {
-  return withWorkingTree(repo, signal, async (tree) => tree);
+  return withWorkingTree(repo, signal, [], async (tree) => tree);
 }
 
+/** `durable`：加在每条命令上的落盘设置（durableWriteConfig）；空的不落盘。 */
 async function withWorkingTree<T>(
   repo: RepoInfo,
   signal: AbortSignal,
+  durable: readonly string[],
   use: (tree: string, run: IndexRun) => Promise<T>,
 ): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'wevir-checkpoint-'));
   const indexFile = join(dir, 'index');
   const env = { ...AUTHOR, GIT_INDEX_FILE: indexFile };
   const indexConfig = ['-c', 'core.splitIndex=false', '-c', 'splitIndex.sharedIndexExpire=never'];
-  const run = (args: readonly string[], options: { stdin?: string; okCodes?: number[] } = {}) =>
-    runGit(repo.cwd, [...repo.config, ...indexConfig, ...args], { env, signal, ...options });
+  const run = async (
+    args: readonly string[],
+    options: { stdin?: string; okCodes?: number[] } = {},
+  ) => {
+    const full = [...repo.config, ...indexConfig, ...durable, ...args];
+    try {
+      return await runGit(repo.cwd, full, { env, signal, ...options });
+    } catch (error) {
+      if (
+        process.platform !== 'darwin' ||
+        !durable.includes(FULL_FSYNC_ARG) ||
+        !(error instanceof GitError) ||
+        !canRetryFullFsync(error.stderr ?? '')
+      ) {
+        throw error;
+      }
+      const weaker = full.map((arg) =>
+        arg === FULL_FSYNC_ARG || arg === BATCH_FSYNC_ARG ? WRITEOUT_ONLY_FSYNC_ARG : arg,
+      );
+      return runGit(repo.cwd, weaker, { env, signal, ...options });
+    }
+  };
   try {
     if (repo.head !== undefined) {
       if (!(await reuseIndex(repo, indexFile, run))) {

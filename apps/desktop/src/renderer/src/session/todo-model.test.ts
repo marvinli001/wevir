@@ -90,6 +90,20 @@ describe('latestTodos', () => {
     expect(run('completed', T1)).toBe(false);
   });
 
+  it('取消了的项不算：做完其余的就是全部完成；全取消了时不显示', () => {
+    const messages = [user(T1), assistant(T1, [todo('completed', 'cancelled', 'completed')])];
+    const todos = latestTodos({ messages, activeTurnId: T1 });
+    expect(todos?.items.map((item) => item.status)).toEqual(['completed', 'completed']);
+    expect(todoProgress(todos?.items ?? [])).toMatchObject({ done: 2, total: 2 });
+    expect(turnRecap({ messages, activeTurnId: T1 })).toEqual({
+      kind: 'todos',
+      progress: { done: 2, total: 2, current: undefined },
+    });
+    expect(
+      latestTodos({ messages: [user(T1), assistant(T1, [todo('cancelled')])], activeTurnId: T1 }),
+    ).toBeUndefined();
+  });
+
   it('插话分出的后一条助手消息也算同一个回合', () => {
     const messages = [
       user(T1),
