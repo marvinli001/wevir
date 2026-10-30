@@ -416,7 +416,7 @@ export function replayGuards(states: PushReplayStates): {
   };
 }
 
-/** 通知上显示的内容：标题是会话（没有时用电脑名），副标题是电脑名，正文是提醒的种类。 */
+/** 通知上显示的内容：标题是会话（没有时用电脑名），副标题是电脑名，正文是提醒的种类（agent 的提醒是它写的正文，0.142.0）。 */
 export function pushContent(
   message: PushMessage,
   kindText: (kind: PushMessage['kind']) => string,
@@ -425,7 +425,7 @@ export function pushContent(
   return {
     title: message.title.trim() || host || 'Wevir',
     subtitle: host,
-    body: kindText(message.kind),
+    body: message.body?.trim() || kindText(message.kind),
   };
 }
 

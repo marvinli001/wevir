@@ -1,5 +1,6 @@
 // Wevir 的通知服务扩展（plugins/with-notification-service.js 在 prebuild 时把它加进 Xcode 工程）。推送网关送来的提醒只有通用文案
-// （`WEVIR_PUSH_TITLE` / `WEVIR_PUSH_BODY`）与加密载荷 `p`；这里在手机上解密，改写成会话标题、电脑名与提醒种类，并把跳转信息写进
+// （`WEVIR_PUSH_TITLE` / `WEVIR_PUSH_BODY`）与加密载荷 `p`；这里在手机上解密，改写成会话标题、电脑名与提醒种类（agent 的提醒是它写的
+// 正文），并把跳转信息写进
 // `userInfo["body"]`（expo-notifications 的 `content.data`），App 点开时据此打开那个会话或助理。
 //
 // 读的东西（都由 App 写，src/lib/push-store.ts）：
@@ -107,7 +108,11 @@ enum PushRewriter {
       let title = message.title.trimmingCharacters(in: .whitespacesAndNewlines)
       content.title = title.isEmpty ? (host.isEmpty ? "Wevir" : host) : title
       content.subtitle = host
-      content.body = strings["WEVIR_PUSH_KIND_\(message.kind.uppercased())"] ?? strings["WEVIR_PUSH_BODY"] ?? ""
+      // agent 的提醒（0.142.0）显示 agent 写的正文，别的种类显示种类文案。
+      let body = message.body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      content.body = body.isEmpty
+        ? strings["WEVIR_PUSH_KIND_\(message.kind.uppercased())"] ?? strings["WEVIR_PUSH_BODY"] ?? ""
+        : body
       return content
     }
     return nil

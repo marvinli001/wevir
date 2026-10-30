@@ -103,7 +103,9 @@ async function boot() {
   });
 
   let count = 0;
-  const connect = async (options: { permissions?: readonly Permission[] } = {}) => {
+  const connect = async (
+    options: { permissions?: readonly Permission[]; protocolVersion?: string } = {},
+  ) => {
     count += 1;
     const who: ClientIdentity = { ...local, clientId: `client-${count}` };
     if (options.permissions !== undefined) {
@@ -114,7 +116,15 @@ async function boot() {
     }
     const client = await TestRpcClient.connect(url);
     cleanups.push(() => client.ws.terminate());
-    const hello = await client.hello(TOKEN, who);
+    const hello =
+      options.protocolVersion === undefined
+        ? await client.hello(TOKEN, who)
+        : await client.call('host.hello', {
+            token: TOKEN,
+            protocolVersion: options.protocolVersion,
+            ...who,
+            capabilities: {},
+          });
     expect(hello.error).toBeUndefined();
     return client;
   };
@@ -143,6 +153,7 @@ async function boot() {
   return {
     connect,
     createSession,
+    notifications,
     presence,
     watchers: () => watchers,
     setSettings: (next: HostSettings) => {
@@ -209,6 +220,26 @@ describe('notification.subscribe', () => {
     await send(writer, id, 'please approve');
     await phone.until(() => intents(phone).find((item) => item.sessionId === id), 'phone');
     expect(intents(blind)).toEqual([]);
+  });
+
+  it('agent 的提醒（0.142.0）：只发给 0.142.0 起的连接，publish 数收下它的连接', async () => {
+    const { connect, createSession, notifications } = await boot();
+    const writer = await connect();
+    const current = await connect();
+    const old = await connect({ protocolVersion: '0.141.0' });
+    await current.request('notification.subscribe');
+    await old.request('notification.subscribe');
+    const id = await createSession(writer);
+    const intent = notifications.agentIntent(id, { body: 'Build finished; ready to merge?' });
+    if ('refused' in intent) throw new Error(`refused: ${intent.refused}`);
+    expect(notifications.publish(intent)).toBe(1);
+    const received = await current.until(
+      () => intents(current).find((item) => item.kind === 'agent'),
+      'agent intent',
+    );
+    expect(received).toEqual(intent);
+    await delay(20);
+    expect(intents(old).filter((item) => item.kind === 'agent')).toEqual([]);
   });
 
   it('连接关闭即退订', async () => {

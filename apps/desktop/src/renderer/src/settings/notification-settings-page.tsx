@@ -25,7 +25,7 @@ type KindKey = keyof NotificationKindSettings;
 
 /**
  * 设置 → 通知（U31）：方式（系统通知、应用内、提示音、角标）只存在本机；事件（回合完成、审批、提问、出错）0.106.0 起在 Host 有
- * `notification_intents` 时读写 Host 设置 `notifications`，并多“自动化”一行，旧 Host 上只存在本机。
+ * `notification_intents` 时读写 Host 设置 `notifications`，并多“自动化”一行（0.142.0 起还有 agent 的提醒），旧 Host 上只存在本机。
  */
 export function NotificationSettingsPage() {
   const settings = useNotificationSettings();
@@ -38,6 +38,9 @@ export function NotificationSettingsPage() {
   // 助理开口的提醒（0.121.0）。
   const assistants =
     view.status === 'connected' && hostSupports(view.hello.features, 'channel_schedules');
+  // agent 的提醒（0.142.0，`wevir_notify`）。
+  const agents =
+    view.status === 'connected' && hostSupports(view.hello.features, 'agent_notifications');
   const kinds = host.settings.notifications;
 
   const row = (key: Key, title: PlainMessageKey, disabled = false) => (
@@ -75,7 +78,7 @@ export function NotificationSettingsPage() {
           />
         }
       />
-    ) : key === 'automation' || key === 'channel' ? null : (
+    ) : key === 'automation' || key === 'channel' || key === 'agent' ? null : (
       row(key, title)
     );
 
@@ -97,6 +100,7 @@ export function NotificationSettingsPage() {
           {kindRow('failed', 'settings.notify.failed')}
           {kindRow('automation', 'settings.notify.automation')}
           {assistants && kindRow('channel', 'settings.notify.channel')}
+          {agents && kindRow('agent', 'settings.notify.agent')}
         </div>
       </SettingsSection>
     </>

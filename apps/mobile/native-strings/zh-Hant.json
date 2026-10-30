@@ -13,7 +13,8 @@
       "WEVIR_PUSH_KIND_COMPLETED": "已完成",
       "WEVIR_PUSH_KIND_FAILED": "出錯",
       "WEVIR_PUSH_KIND_AUTOMATION": "自動化",
-      "WEVIR_PUSH_KIND_CHANNEL": "新訊息"
+      "WEVIR_PUSH_KIND_CHANNEL": "新訊息",
+      "WEVIR_PUSH_KIND_AGENT": "代理提醒"
     }
   }
 }

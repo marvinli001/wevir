@@ -13,7 +13,8 @@
       "WEVIR_PUSH_KIND_COMPLETED": "已完成",
       "WEVIR_PUSH_KIND_FAILED": "出错",
       "WEVIR_PUSH_KIND_AUTOMATION": "自动化",
-      "WEVIR_PUSH_KIND_CHANNEL": "新消息"
+      "WEVIR_PUSH_KIND_CHANNEL": "新消息",
+      "WEVIR_PUSH_KIND_AGENT": "智能体提醒"
     }
   }
 }

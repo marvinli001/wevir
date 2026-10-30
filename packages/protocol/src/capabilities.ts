@@ -571,6 +571,11 @@ export const HOST_FEATURES = {
    * `support`）。与引擎无关地声明。
    */
   lifecycleHooks: 'lifecycle_hooks',
+  /**
+   * agent 的提醒（0.142.0）：通知种类 `agent`（`wevir_notify`）、Host 设置 `notifications.agent` 与推送载荷的 `body`。有应用级工具与
+   * 通知意图时声明。
+   */
+  agentNotifications: 'agent_notifications',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -684,6 +689,7 @@ export const HostFeaturesSchema = z.looseObject({
   environment_variables: z.boolean().optional(),
   approval_risk: z.boolean().optional(),
   lifecycle_hooks: z.boolean().optional(),
+  agent_notifications: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

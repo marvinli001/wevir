@@ -1401,6 +1401,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         automations: automationService,
         channels: channelService,
         ...(secondOpinions !== undefined && { opinions: secondOpinions }),
+        // agent 的提醒（0.142.0）：经通知意图发，电脑前没人时由推送服务推到手机。
+        notify: { notifications: notificationService, push: pushService },
         // 生图（0.139.0）：Provider 的地址与 Key，Key 只在调用时从 SecretStore 读。
         images: {
           storage,
@@ -1648,6 +1650,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { shared_files: true }),
         ...(mcp !== undefined && { transcript_chapters: true }),
         ...(mcp !== undefined && { turn_wrap_up: true }),
+        // agent 的提醒（0.142.0）：`wevir_notify` 与通知种类 `agent`。
+        ...(mcp !== undefined && { agent_notifications: true }),
         ...(mcp !== undefined && { task_board: true }),
         ...(mcp !== undefined && { tool_presets: true }),
         ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),

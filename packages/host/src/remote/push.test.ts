@@ -194,6 +194,72 @@ describe('pushCategory', () => {
     expect(pushCategory(intent({ kind: 'automation', automationStatus: 'completed' }))).toBe(
       'completion',
     );
+    expect(pushCategory(intent({ kind: 'agent' }))).toBe('action');
+  });
+});
+
+describe('PushService：agent 的提醒（0.142.0）', () => {
+  const agent = (overrides: Partial<NotificationIntent> = {}) =>
+    intent({
+      id: `agent:${SES}:1730000000000`,
+      kind: 'agent',
+      title: 'Deploy',
+      body: 'Staging is down; approve the rollback in Wevir.',
+      collapseKey: `agent:${SES}`,
+      ...overrides,
+    });
+
+  it('载荷里带正文（只有 agent 的提醒带），收起键与同一会话的回合完成分开', async () => {
+    const t = await setup();
+    const { pair } = await t.phone();
+    const event = agent();
+    t.emit(event);
+    await until(() => t.sends().length === 1, 'send');
+    const send = t.sends()[0] as Extract<GatewayCall, { kind: 'send' }>;
+    const { key, message } = t.open(pair, send.payload);
+    expect(message).toEqual({
+      v: 1,
+      id: event.id,
+      kind: 'agent',
+      category: 'action',
+      title: 'Deploy',
+      host: 'Studio Mac',
+      sessionId: SES,
+      body: 'Staging is down; approve the rollback in Wevir.',
+      createdAt: event.createdAt,
+    });
+    // 正文只在密文里，网关看不到。
+    expect(send.payload).not.toContain('Staging');
+    expect(send.collapseKey).toBe(pushCollapseKey(key, `agent:${SES}`));
+    expect(send.collapseKey).not.toBe(pushCollapseKey(key, `session:${SES}`));
+    // 紧接着同一会话的回合完成不会顶掉它（收起键不同，各发一条）。
+    t.emit(intent({ kind: 'completed', body: '', collapseKey: `session:${SES}` }));
+    await until(() => t.sends().length === 2, 'completed too');
+  });
+
+  it('recipients：会推到几台；不推时说原因（关着、没设备、有人在电脑前、到了上限）', async () => {
+    const t = await setup({ coalesceMs: 0, maxPerHour: 1 });
+    expect(t.push.recipients(agent())).toEqual({ devices: 0, skipped: 'no_device' });
+    await t.phone();
+    expect(t.push.recipients(agent())).toEqual({ devices: 1 });
+    t.present(true);
+    expect(t.push.recipients(agent())).toEqual({ devices: 0, skipped: 'at_computer' });
+    t.present(false);
+    t.setRemote({ ...t.remote(), push: { enabled: true, needsAction: false } });
+    expect(t.push.recipients(agent())).toEqual({ devices: 0, skipped: 'off' });
+    t.setRemote({ ...t.remote(), push: { enabled: false } });
+    expect(t.push.recipients(agent())).toEqual({ devices: 0, skipped: 'off' });
+    t.setRemote({ ...t.remote(), push: { enabled: true } });
+    await t.phone('iPhone', TOKEN);
+    t.emit(agent());
+    await until(() => t.sends().length === 1, 'send');
+    expect(t.push.recipients(agent({ id: `agent:${SES}:2` }))).toEqual({
+      devices: 0,
+      skipped: 'rate_limited',
+    });
+    // 只是判定：recipients 本身从不发。
+    await settle();
+    expect(t.sends()).toHaveLength(1);
   });
 });
 

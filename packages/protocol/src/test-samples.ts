@@ -3853,6 +3853,7 @@ export const methodSamples: MethodSamples = {
         { settings: { marketMirror: 'auto' } },
         { settings: { preventSleep: true } },
         { settings: { notifications: { approval: true, question: false } } },
+        { settings: { notifications: { agent: false } } },
         {
           settings: {
             remote: {
@@ -9340,6 +9341,16 @@ export const notificationSamples: NotificationSamples = {
         body: 'Two new emails from the school.',
         createdAt: TS2,
         collapseKey: `channel:${ids.channel}`,
+      },
+      {
+        id: `agent:${ids.session}:1792656000000`,
+        kind: 'agent',
+        sessionId: ids.session,
+        workspaceId: ids.workspace,
+        title: 'Deploy',
+        body: 'Staging is down; approve the rollback.',
+        createdAt: TS2,
+        collapseKey: `agent:${ids.session}`,
       },
     ],
     invalid: [

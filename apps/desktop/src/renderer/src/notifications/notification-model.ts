@@ -6,7 +6,8 @@
 import type { NotificationIntent, Session, WevirEvent } from '@wevir/protocol';
 import type { NotificationSettings } from './notification-settings';
 
-export type NotificationKind = 'approval' | 'question' | 'completed' | 'failed';
+/** 本机提醒的种类；`agent`（0.142.0）只来自 Host 的意图（`wevir_notify`），标题与正文是 agent 写的。 */
+export type NotificationKind = 'approval' | 'question' | 'completed' | 'failed' | 'agent';
 
 /** 太旧的事件不提醒（断线重连后补到的事件）。 */
 export const NOTIFICATION_MAX_AGE_MS = 2 * 60_000;
@@ -56,7 +57,7 @@ export function deliveryFor(
   context: NotificationContext,
   settings: NotificationSettings,
 ): Delivery {
-  if (!settings[kind]) return NONE;
+  if (kind === 'agent' || !settings[kind]) return NONE;
   return displayDelivery(context, settings);
 }
 
@@ -75,6 +76,7 @@ export function displayDelivery(
 export function intentDisplayKind(intent: NotificationIntent): NotificationKind {
   // 助理开口（0.121.0）当作完成。
   if (intent.kind === 'channel') return 'completed';
+  if (intent.kind === 'agent') return 'agent';
   if (intent.kind !== 'automation') return intent.kind;
   if (intent.automationStatus === 'failed') return 'failed';
   if (intent.automationStatus === 'completed') return 'completed';

@@ -11,7 +11,11 @@ import {
   SessionIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
-import { NOTIFICATION_TITLE_MAX_LENGTH, NotificationKindSchema } from './notifications.js';
+import {
+  AGENT_NOTIFICATION_BODY_MAX_LENGTH,
+  NOTIFICATION_TITLE_MAX_LENGTH,
+  NotificationKindSchema,
+} from './notifications.js';
 
 /** 官方推送网关的地址。域名由维护者部署时定，换了改这一个常量。 */
 export const PUSH_GATEWAY_URL = 'https://push.wevir.si';
@@ -33,7 +37,7 @@ export const PushTokenSchema = z
 export const PUSH_VERIFY_CODE_BYTES = 16;
 export const PushVerifyCodeSchema = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
 
-/** 两路开关的类别：需要操作（审批、提问、失败，自动化等待或失败）与完成（回合完成、自动化完成）。 */
+/** 两路开关的类别：需要操作（审批、提问、失败，自动化等待或失败，agent 的提醒）与完成（回合完成、自动化完成）。 */
 export const PushCategorySchema = z.enum(['action', 'completion']);
 export type PushCategory = z.infer<typeof PushCategorySchema>;
 
@@ -110,8 +114,8 @@ export const PushChangedParamsSchema = PushStateSchema;
 export const PUSH_MESSAGE_VERSION = 1;
 
 /**
- * 手机解密后看到的一条提醒（UTF-8 JSON）：只放显示与跳转要的最少字段，没有正文。`host` 是电脑的名称，`id` 同通知意图的 ID
- * （手机据此去重）。
+ * 手机解密后看到的一条提醒（UTF-8 JSON）：只放显示与跳转要的最少字段，只有 agent 的提醒带正文。`host` 是电脑的名称，`id` 同通知意图的 ID
+ * （手机据此去重）。旧版手机认不出 `agent` 种类，显示通用的“需要处理”。
  */
 export const PushMessageSchema = z.looseObject({
   v: z.literal(PUSH_MESSAGE_VERSION),
@@ -125,6 +129,8 @@ export const PushMessageSchema = z.looseObject({
   automationId: AutomationIdSchema.optional(),
   /** 0.121.0：助理的提醒点开去助理页。 */
   channelId: ChannelIdSchema.optional(),
+  /** 0.142.0：只在 `agent`，agent 写的正文（打码），手机显示它而不是种类文案。 */
+  body: z.string().max(AGENT_NOTIFICATION_BODY_MAX_LENGTH).optional(),
   createdAt: IsoTimeSchema,
 });
 export type PushMessage = z.infer<typeof PushMessageSchema>;

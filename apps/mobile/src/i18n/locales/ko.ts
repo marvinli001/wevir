@@ -182,6 +182,7 @@ export const ko: Messages = {
   'notify.failed': '오류',
   'notify.automation': '자동화',
   'notify.channel': '새 메시지',
+  'notify.agent': '에이전트 알림',
   'push.section': '푸시',
   'push.generic': '확인 필요',
   'push.channel': '알림',

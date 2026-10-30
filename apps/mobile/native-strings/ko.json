@@ -13,7 +13,8 @@
       "WEVIR_PUSH_KIND_COMPLETED": "완료",
       "WEVIR_PUSH_KIND_FAILED": "오류",
       "WEVIR_PUSH_KIND_AUTOMATION": "자동화",
-      "WEVIR_PUSH_KIND_CHANNEL": "새 메시지"
+      "WEVIR_PUSH_KIND_CHANNEL": "새 메시지",
+      "WEVIR_PUSH_KIND_AGENT": "에이전트 알림"
     }
   }
 }
