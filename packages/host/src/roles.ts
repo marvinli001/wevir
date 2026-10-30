@@ -480,3 +480,22 @@ export function roleAllowsTool(
   if (allowed.length === 0 && role.tools.length > 0) return true;
   return allowed.some((pattern) => matches(pattern, probe));
 }
+
+/** 用角色开的会话的第一条消息：先是角色的说明，再是开它的会话交代的任务。 */
+export function roleBrief(role: RoleDefinition, task: string, opener?: string): string {
+  const head = `You are working as the "${role.name}" role (${role.description})`;
+  const from =
+    opener === undefined
+      ? ''
+      : `\nThe session that opened you is ${opener}; read its conversation with wevir_session_read when you need its context.`;
+  const body = role.instructions === '' ? '' : `\n\n${role.instructions}`;
+  return `${head}${from}${body}\n\nYour task:\n\n${task}`;
+}
+
+/** `roleBrief` 拼出来的消息里的任务正文；不是这种消息时 `undefined`。 */
+export function roleBriefTask(text: string): string | undefined {
+  if (!text.startsWith('You are working as the "')) return undefined;
+  const marker = '\n\nYour task:\n\n';
+  const at = text.indexOf(marker);
+  return at === -1 ? undefined : text.slice(at + marker.length);
+}

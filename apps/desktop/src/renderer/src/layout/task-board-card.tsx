@@ -1,6 +1,7 @@
 // 会话侧栏的“任务清单”卡片（0.52.0，desktop-layout.md §12）：agent 用 wevir_tasks 系列工具维护的共享任务清单（task-board-model.ts），
 // 按状态分组，每项有认领的会话（点它去那个会话）、“可开始”“等待 t1”的标记，点一项展开说明与备注。清单属于会话树的根会话，
-// 只在根会话的侧栏里；界面只读。
+// 只写在根会话的事件流里；树里别的会话（agent 开的、分支、第二意见）的侧栏读根会话的消息投影，显示同一张，当前会话认领的项标
+// “本会话”。界面只读。
 
 import type { BoardTaskStatus } from '@wevir/protocol';
 import { cn } from 'cn';
@@ -16,6 +17,7 @@ import {
   type BoardRow,
   boardGroups,
   boardProgress,
+  boardRootOf,
   type SessionRef,
 } from './task-board-model';
 
@@ -177,23 +179,31 @@ function TaskBoardDetails({ groups }: { groups: readonly BoardGroup[] }) {
 
 const NO_SESSIONS: never[] = [];
 
-function useTaskBoardCard({ sessionId, entry }: RailContext) {
-  const state = useTranscript(sessionId);
+function useTaskBoardCard({ sessionId, session, entry, visible }: RailContext) {
+  const own = useTranscript(sessionId);
   const data = useWorkbenchData();
-  const board = state?.transcript.taskBoard;
-  const subagents = state?.transcript.subagents;
   const sessions = useMemo(
     () =>
       data.status === 'ready' ? data.workspaces.flatMap((item) => item.sessions) : NO_SESSIONS,
     [data],
   );
+  const rootId = useMemo(() => {
+    const byId = new Map(sessions.map((item) => [item.id, item]));
+    return boardRootOf(session, (id) => byId.get(id));
+  }, [session, sessions]);
+  // 不是根会话时读根会话的投影（侧栏看得见时才订阅）；根会话读不了（已删除）时退回自己的。
+  const shared = rootId !== sessionId;
+  const root = useTranscript(shared && visible ? rootId : undefined);
+  const board =
+    shared && root?.error === undefined ? root?.transcript.taskBoard : own?.transcript.taskBoard;
+  const subagents = own?.transcript.subagents;
   const workspaceId = entry.workspace.id;
   const groups = useMemo(
     () =>
       board === undefined || board.length === 0
         ? []
         : boardGroups(board, {
-            rootId: sessionId,
+            sessionId,
             workspaceId,
             subagents: subagents ?? [],
             sessions,

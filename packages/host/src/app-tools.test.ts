@@ -915,6 +915,83 @@ describe('应用级工具', () => {
     );
   });
 
+  it('分出自己（context: fork）：原生分支带着到上个完成回合的对话，记 openedBy，简报是第一条消息，结果照常回报', async () => {
+    const h = await setup();
+    const parent = await h.create();
+    await h.send(parent, 'first ALPHA');
+    await h.settle(parent);
+    const created = await h.call(parent, 'wevir_session_create', {
+      message: 'recall BRAVO',
+      title: 'Fork',
+      context: 'fork',
+    });
+    const child = created.sessionId as SessionId;
+    expect(created).toMatchObject({ title: 'Fork', fork: 'native', reportBack: true });
+    const session = h.events.snapshot(child)?.session;
+    expect(session?.openedBy).toEqual({ sessionId: parent });
+    expect(session?.forkedFrom).toMatchObject({ sessionId: parent });
+    await h.settle(child);
+    const answer = h.all(child).findLast((e) => e.type === 'assistant.message');
+    expect(answer?.type === 'assistant.message' && answer.payload.text).toMatch(/History: .*ALPHA/);
+    await vi.waitFor(() => expect(reports(h, parent)).toHaveLength(1));
+    expect(reports(h, parent)[0]).toMatchObject({ from: { sessionId: child, kind: 'report' } });
+    // 关闭与归档的规则照旧：是自己开出来的。
+    expect(await h.call(parent, 'wevir_session_close', { sessionId: child })).not.toHaveProperty(
+      'error',
+    );
+  });
+
+  it('分出自己：引擎不能分支时交接力材料；沿用模型与权限模式，不收 Provider、模型与角色，权限不能更宽', async () => {
+    const h = await setup();
+    Object.defineProperty(h.adapter, 'branches', { value: false });
+    const parent = await h.create({ permissionMode: 'auto_review' });
+    expect(
+      (await h.call(parent, 'wevir_session_create', { message: 'x', context: 'fork' })).error,
+    ).toMatch(/no finished turn/);
+    await h.send(parent, 'first ALPHA');
+    await h.settle(parent);
+    expect(
+      (
+        await h.call(parent, 'wevir_session_create', {
+          message: 'x',
+          context: 'fork',
+          modelId: 'm2',
+        })
+      ).error,
+    ).toMatch(/leave out modelId/);
+    expect(
+      (
+        await h.call(parent, 'wevir_session_create', {
+          message: 'x',
+          context: 'fork',
+          permissionMode: 'full_access',
+        })
+      ).error,
+    ).toMatch(/broader/);
+    const created = await h.call(parent, 'wevir_session_create', {
+      message: 'brief ECHO',
+      context: 'fork',
+      reportBack: false,
+    });
+    const child = created.sessionId as SessionId;
+    expect(created).toMatchObject({ fork: 'handoff', reportBack: false });
+    const session = h.events.snapshot(child)?.session;
+    expect(session?.openedBy).toEqual({ sessionId: parent });
+    expect(session?.forkedFrom).toBeUndefined();
+    expect(session?.permissionMode).toBe('auto_review');
+    await h.settle(child);
+    const answer = h.all(child).findLast((e) => e.type === 'assistant.message');
+    const text = answer?.type === 'assistant.message' ? answer.payload.text : '';
+    expect(text).toContain('Context handoff (fork_summary)');
+    expect(text).toContain('first ALPHA');
+    const messages = h.all(child).filter((e) => e.type === 'user.message');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.payload).toMatchObject({
+      content: [{ type: 'text', text: 'brief ECHO' }],
+      from: { sessionId: parent, kind: 'message' },
+    });
+  });
+
   it('新开会话：Provider、模型与推理档位要在 wevir_models 列出的范围里', async () => {
     const h = await setup();
     h.storage.providers.insert({
@@ -1647,6 +1724,8 @@ describe('预设角色', () => {
     expect(text).toContain(`The session that opened you is ${caller};`);
     expect(text).toContain('Plan first, then write the plan to PLAN.md.');
     expect(text.endsWith('Your task:\n\nplan the migration')).toBe(true);
+    // 标题取任务正文，不取角色说明的第一行。
+    expect(h.events.snapshot(child)?.session.title).toBe('plan the migration');
     // 读这个会话时，角色说明折成一行，只留任务正文。
     const read = await h.call(caller, 'wevir_session_read', { sessionId: child });
     const firstRead = (read.items as Array<{ role: string; text: string }>).find(

@@ -4,6 +4,7 @@ import {
   BOARD_STATUS_ORDER,
   boardGroups,
   boardProgress,
+  boardRootOf,
   resolveSession,
   type SessionDirectory,
 } from './task-board-model';
@@ -14,7 +15,7 @@ const CHILD = 'ses_child' as SessionId;
 const GONE = 'ses_gone' as SessionId;
 
 const directory: SessionDirectory = {
-  rootId: ROOT,
+  sessionId: ROOT,
   workspaceId: 'ws_1',
   subagents: [
     { sessionId: CHILD, title: '', nickname: 'Scout' },
@@ -44,7 +45,7 @@ function task(id: string, extra: Partial<BoardTask> = {}): BoardTask {
 }
 
 describe('resolveSession', () => {
-  it('清单所在的会话是“本会话”；子智能体先认（标题，没有就昵称），再认列表里的会话，都不是就不认识', () => {
+  it('当前看的会话是“本会话”；子智能体先认（标题，没有就昵称），再认列表里的会话，都不是就不认识', () => {
     expect(resolveSession(ROOT, directory)).toEqual({ kind: 'self' });
     expect(resolveSession(CHILD, directory)).toEqual({
       kind: 'subagent',
@@ -62,6 +63,16 @@ describe('resolveSession', () => {
       to: '/workspace/ws_2/session/ses_worker',
     });
     expect(resolveSession(GONE, directory)).toEqual({ kind: 'unknown' });
+  });
+
+  it('从树里别的会话看：它自己是“本会话”，根会话是列表里的会话，点它回到根会话', () => {
+    const fromWorker = { ...directory, sessionId: WORKER, subagents: [] };
+    expect(resolveSession(WORKER, fromWorker)).toEqual({ kind: 'self' });
+    expect(resolveSession(ROOT, fromWorker)).toEqual({
+      kind: 'session',
+      title: '主会话',
+      to: '/workspace/ws_1/session/ses_root',
+    });
   });
 });
 
@@ -156,5 +167,39 @@ describe('boardProgress', () => {
     ).toEqual({ done: 1, total: 3 });
     expect(boardProgress([task('t1', { status: 'cancelled' })])).toEqual({ done: 0, total: 0 });
     expect(boardProgress([])).toEqual({ done: 0, total: 0 });
+  });
+});
+
+describe('boardRootOf', () => {
+  const tree = [
+    { id: ROOT },
+    { id: WORKER, openedBy: { sessionId: ROOT } },
+    { id: 'ses_grand' as SessionId, openedBy: { sessionId: WORKER, role: 'worker' } },
+    { id: 'ses_branch' as SessionId, forkedFrom: { sessionId: WORKER } },
+    {
+      id: 'ses_opinion' as SessionId,
+      opinionOf: { sessionId: ROOT, opinionId: 'opn_1' as never },
+    },
+    { id: CHILD, parentSessionId: 'ses_grand' as SessionId },
+    { id: 'ses_loop_a' as SessionId, openedBy: { sessionId: 'ses_loop_b' as SessionId } },
+    { id: 'ses_loop_b' as SessionId, openedBy: { sessionId: 'ses_loop_a' as SessionId } },
+  ];
+  const byId = new Map(tree.map((item) => [item.id, item]));
+  const rootOf = (id: string) =>
+    boardRootOf(byId.get(id as SessionId) ?? { id: id as SessionId }, (up) => byId.get(up));
+
+  it('agent 开的、孙辈、分支、第二意见与子会话都找到同一个根；根是它自己', () => {
+    for (const id of [ROOT, WORKER, 'ses_grand', 'ses_branch', 'ses_opinion', CHILD])
+      expect(rootOf(id)).toBe(ROOT);
+  });
+
+  it('上一层认不得（归档了、不在列表里）时当它是根；成环时不死循环（同 Host）', () => {
+    expect(
+      boardRootOf(
+        { id: GONE, openedBy: { sessionId: 'ses_archived' as SessionId } },
+        () => undefined,
+      ),
+    ).toBe('ses_archived');
+    expect(rootOf('ses_loop_a')).toBe('ses_loop_a');
   });
 });

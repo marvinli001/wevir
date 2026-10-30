@@ -82,6 +82,11 @@ export const HOME_LAYOUT = {
    * `simulator_build` 的 DerivedData（0700）。
    */
   simulatorDir: 'simulator',
+  /**
+   * 子进程组的登记（process-groups.ts）：每个还在跑的、Host 以 detached 起的组一个 `<组号>.json`（组长的启动指纹、种类、所属会话），
+   * 组长退出时删掉，Host 启动时回收上一次留下的（0700 / 0600）。
+   */
+  processGroupsDir: 'process-groups',
 } as const;
 
 export interface ResolveHomeOptions {
