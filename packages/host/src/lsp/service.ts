@@ -15,6 +15,7 @@ import {
   type LspInstallRun,
   type LspServerStatus,
 } from '@wevir/protocol';
+import { trackProcessGroup } from '@wevir/runtime-adapter';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
 import { stripAnsi } from '../processes.js';
@@ -209,6 +210,7 @@ export class LspStatusService {
       return { ...run.info };
     }
     run.child = child;
+    trackProcessGroup(child, { kind: 'install', name: command.slice(0, 60), cwd });
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => this.#append(run, chunk));

@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { trackProcessGroup } from '@wevir/runtime-adapter';
 import type { OpenCodePluginEntry } from './app-tools.js';
 import { serverConfigContent } from './permissions.js';
 
@@ -121,6 +122,8 @@ export async function startOpenCodeServer(
     windowsHide: true,
   });
 
+  // opencode serve 不读 stdin，Host 被强行结束时不会自己退出：由 Host 的看门狗或下次启动结束。
+  trackProcessGroup(child, { kind: 'engine', name: 'opencode serve' });
   let stdout = '';
   let stderr = '';
   let ready = false;

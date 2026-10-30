@@ -12,6 +12,12 @@ export {
   URL_ELICITATION_OPTIONS,
 } from './mcp-elicitation.js';
 export type * from './plugins.js';
+export {
+  type ProcessGroupInfo,
+  type ProcessGroupTracker,
+  setProcessGroupTracker,
+  trackProcessGroup,
+} from './process-groups.js';
 export { accountRateLimits, clampPercent, isoTime } from './rate-limits.js';
 export type * from './types.js';
 export {
