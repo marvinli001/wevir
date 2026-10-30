@@ -68,7 +68,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     ...config,
     name: 'Wevir',
     slug: 'wevir',
-    version: '0.1.0',
+    version: '1.0.0',
     // 配对链接 `wevir://pair?…`：系统相机扫码、点链接都打开 App 的添加电脑页（src/app/+native-intent.tsx）。
     scheme: 'wevir',
     orientation: 'portrait',
@@ -89,9 +89,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         // 听写（src/state/dictation.ts）录音。
         NSMicrophoneUsageDescription: en.ios.NSMicrophoneUsageDescription,
         CFBundleAllowMixedLocalizations: true,
-        // 配对与推送用的 Noise（X25519、ChaCha20-Poly1305）是 App 自己实现的标准算法，不只是系统加密。
-        // 声明在这里，App Store Connect 就不再逐个构建询问出口合规。
-        ITSAppUsesNonExemptEncryption: true,
+        // 不写 ITSAppUsesNonExemptEncryption：配对与推送用的 Noise 是 App 自己实现的标准算法，写 true 就必须带上 Apple 审过
+        // 文稿后给的 ITSEncryptionExportComplianceCode，否则上传被拒（90592）。不在法国区上架不需要文稿，也就没有这个代码，
+        // 所以每个构建在 App Store Connect 里回答一次出口合规问题。
       },
       // 设备私钥与推送密钥存在这个 App Group 的钥匙串访问组里，通知服务扩展也读得到（src/lib/keychain.ts、push-store.ts）。真机构建要
       // 在开发者账号里登记这个 App Group，给 App 与扩展（`si.wevir.mobile.NotificationService`）的 App ID 都打开，App 的还要打开 Push。
