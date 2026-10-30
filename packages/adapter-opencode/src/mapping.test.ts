@@ -3,7 +3,7 @@
 
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
-import { contextTokens, OpenCodeTurnMapper, todoItems } from './mapping.js';
+import { contextTokens, nativeReadOutput, OpenCodeTurnMapper, todoItems } from './mapping.js';
 import type { Event } from './sdk.js';
 import { loadRecording, type Recording } from './test-fixtures/fake-opencode.js';
 
@@ -296,6 +296,58 @@ describe('辅助函数', () => {
     expect(contextTokens({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } })).toBe(
       undefined,
     );
+  });
+
+  it('nativeReadOutput 去掉 read 输出外面的包裹，留下包裹后的说明；认不出时原样', () => {
+    const directory =
+      '<path>/workspace/src</path>\n<type>directory</type>\n<entries>\nenv.ts\nlib/\n\n(2 entries)\n</entries>';
+    const file =
+      '<path>/workspace/src/env.ts</path>\n<type>file</type>\n<content>\n1: hello\n2: </content> literal\n3: world\n</content>';
+    const withInstructions =
+      '<path>/workspace/src/env.ts</path>\n<type>file</type>\n<content>1: hello\n\n(End of file - total 1 lines)\n</content>\n\n<system-reminder>\nProject instructions\n</system-reminder>';
+    expect(nativeReadOutput(directory)).toBe('env.ts\nlib/\n\n(2 entries)');
+    expect(nativeReadOutput(file)).toBe('1: hello\n2: </content> literal\n3: world');
+    expect(nativeReadOutput(withInstructions)).toBe(
+      '1: hello\n\n(End of file - total 1 lines)\n\n<system-reminder>\nProject instructions\n</system-reminder>',
+    );
+    expect(nativeReadOutput('---\nfile body')).toBe('---\nfile body');
+    const missingPath = directory.slice(directory.indexOf('<type>'));
+    expect(nativeReadOutput(missingPath)).toBe(missingPath);
+    const missingClose = file.slice(0, file.lastIndexOf('\n</content>'));
+    expect(nativeReadOutput(missingClose)).toBe(missingClose);
+  });
+
+  it('read 完成时的输出去掉包裹，别的工具与失败原样', () => {
+    const mapper = new OpenCodeTurnMapper('ses_1');
+    const output = '<path>/w/a.ts</path>\n<type>file</type>\n<content>\n1: x\n</content>';
+    const tool = (callID: string, name: string, state: Record<string, unknown>) =>
+      mapper.part({
+        id: `prt_${callID}`,
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        callID,
+        tool: name,
+        state: {
+          input: { filePath: '/w/a.ts' },
+          title: '',
+          metadata: {},
+          time: { start: 1 },
+          ...state,
+        },
+      } as unknown as Parameters<OpenCodeTurnMapper['part']>[0]);
+    const finished = (events: AgentEvent[]) =>
+      events.find((event) => event.type === 'tool.finished');
+    expect(finished(tool('c1', 'read', { status: 'completed', output }))).toMatchObject({
+      output: '1: x',
+    });
+    expect(finished(tool('c2', 'custom_read', { status: 'completed', output }))).toMatchObject({
+      output,
+    });
+    expect(finished(tool('c3', 'read', { status: 'error', error: output }))).toMatchObject({
+      status: 'failed',
+      output,
+    });
   });
 
   it('part 只发快照不发增量（旧版本）时按快照的差补增量', () => {

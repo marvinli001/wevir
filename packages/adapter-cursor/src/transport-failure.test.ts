@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-// 移植自 pingdotgg/t3code packages/provider-cursor/src/server/transportFailure.test.ts（用例）
+// 移植自 pingdotgg/t3code packages/provider-cursor/src/server/transportFailure.test.ts、CursorSdk.test.ts（用例）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：用例改写成 Vitest，补上 isCursorShellSpawnFailure 的用例。
+// 修改：用例改写成 Vitest，补上 isCursorShellSpawnFailure 的用例；isCursorClosedStreamWrite 的用例跟进 T3 f54dfc0991。
 
 import { describe, expect, it } from 'vitest';
-import { isCursorShellSpawnFailure } from './errors.js';
+import { isCursorClosedStreamWrite, isCursorShellSpawnFailure } from './errors.js';
 import { CursorTransportFailure } from './transport-failure.js';
 
 function failureOf(...chunks: string[]): string | undefined {
@@ -49,5 +49,18 @@ describe('isCursorShellSpawnFailure', () => {
     expect(isCursorShellSpawnFailure({ ...failure, syscall: 'open' })).toBe(false);
     expect(isCursorShellSpawnFailure(new Error('boom'))).toBe(false);
     expect(isCursorShellSpawnFailure(undefined)).toBe(false);
+  });
+});
+
+describe('isCursorClosedStreamWrite', () => {
+  it('按 name 认出 SDK 往已关闭的流写入（类名被压缩，不看构造函数）', () => {
+    // 形状照 SDK 压缩后的类：构造函数不叫这个名字。
+    class o extends Error {
+      override name = 'WriteIterableClosedError';
+    }
+    expect(isCursorClosedStreamWrite(new o('WritableIterable is closed'))).toBe(true);
+    expect(isCursorClosedStreamWrite(new Error('WritableIterable is closed'))).toBe(false);
+    expect(isCursorClosedStreamWrite({ name: 'WriteIterableClosedError' })).toBe(false);
+    expect(isCursorClosedStreamWrite(undefined)).toBe(false);
   });
 });

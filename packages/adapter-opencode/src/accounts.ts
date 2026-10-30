@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/status.ts（`checkOpenCodeProviderStatus`、`formatOpenCodeProbeError`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；模型目录没读到时退避重试来源提交 807319c276c6831b2c219640e9da5b38019a8f1d
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；“已登录”与套餐显示接上了哪些上游；
 // 不读 skills、slash 命令与 agent 列表；不支持外部服务器的网址与密码（只用本机起的服务器）。另移植了 usageLimits.ts（见 usage.ts）。
@@ -11,6 +11,7 @@
 // `opencode auth login`；凭据在 opencode 自己的数据目录里（Wevir 只读 OpenCode Go 的 Key 查用量）。照 T3：先找 `opencode` 跑 `--version`，
 // 再起本机服务器读 `provider.list`——`connected` 里有上游就算已登录，套餐写接上了哪些。接上了 OpenCode Go 时顺带读它的用量
 // （usage.ts：读 auth.json 里 Go 的 Key，只读；读不到时留着上一次的）。结果缓存 5 分钟，`read` 带 `refresh` 时重新检测。
+// 上游列表读不到、或接了上游却没列出模型时（T3 #23939），不缓存 5 分钟，而是退避着自己重试，读到了再回到正常的周期。
 
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -50,6 +51,8 @@ import { OPENCODE_GO_PROVIDER, readOpenCodeGoUsage } from './usage.js';
 
 /** 检测结果的有效期（同 adapter-claude 的 PROBE_TTL_MS）。 */
 export const PROBE_TTL_MS = 5 * 60_000;
+/** 模型目录没读到之后重试的间隔：从 minMs 起每次翻倍，最多 maxMs；结果只缓存到下一次重试。 */
+export const CATALOG_RETRY = Object.freeze({ minMs: 2_000, maxMs: 60_000 });
 /** 一次 OAuth 登录最长等多久（用户在浏览器里同意、或输入设备码前；设备码 15 分钟失效）。 */
 export const LOGIN_TIMEOUT_MS = 15 * 60_000;
 
@@ -71,6 +74,8 @@ export interface OpenCodeAccountsOptions {
   /** 读 auth.json（测试换成假的）。 */
   readFile?: (file: string) => Promise<string>;
   now?: () => number;
+  /** 模型目录没读到之后的重试间隔（测试换成短的）；省略时用 CATALOG_RETRY。 */
+  catalogRetry?: { minMs: number; maxMs: number };
 }
 
 /** OpenCode 的 `EngineAccounts`：只有一种 `opencode`。 */
@@ -81,6 +86,12 @@ export class OpenCodeAccounts implements EngineAccounts {
   #state: AccountState | undefined;
   #providers: ProviderListResponse | undefined;
   #checkedAt = 0;
+  /** 最近一次检测装着能用的 opencode，模型目录却没读到（provider.list 失败，或接了上游却没有模型）。 */
+  #catalogFailed = false;
+  /** 连着没读到模型目录的次数，与下一次自动重试。 */
+  #retries = 0;
+  #retryDelay = 0;
+  #retryTimer: ReturnType<typeof setTimeout> | undefined;
   #probing: Promise<AccountState> | undefined;
   #installing: { completedBytes: number; totalBytes?: number } | undefined;
   #installError: string | undefined;
@@ -95,7 +106,7 @@ export class OpenCodeAccounts implements EngineAccounts {
     this.#check(kind);
     const fresh =
       this.#state !== undefined &&
-      this.#now() - this.#checkedAt < PROBE_TTL_MS &&
+      this.#now() - this.#checkedAt < (this.#catalogFailed ? this.#retryDelay : PROBE_TTL_MS) &&
       this.#probing === undefined;
     if (fresh && options?.refresh !== true) return this.#view(this.#state as AccountState);
     if (options?.refresh === true) this.#installError = undefined;
@@ -350,6 +361,8 @@ export class OpenCodeAccounts implements EngineAccounts {
 
   dispose(): void {
     this.#disposed = true;
+    clearTimeout(this.#retryTimer);
+    this.#retryTimer = undefined;
     this.#options.runtime.installer?.cancel();
     if (this.#login !== undefined) this.#endLogin(this.#login);
     this.#listeners.clear();
@@ -372,6 +385,7 @@ export class OpenCodeAccounts implements EngineAccounts {
       (state) => {
         if (this.#probing === run) this.#probing = undefined;
         this.#checkedAt = this.#now();
+        this.#scheduleRetry();
         this.#publish(state);
         return state;
       },
@@ -382,6 +396,27 @@ export class OpenCodeAccounts implements EngineAccounts {
     );
     this.#probing = run;
     return run;
+  }
+
+  /**
+   * 模型目录没读到：过一会儿自己再检测一次（间隔翻倍、有上限），读到了经 onChange 报出新状态，Host 随之刷新模型列表；读到了
+   * 或 opencode 本身不能用时停下、清零。
+   */
+  #scheduleRetry(): void {
+    clearTimeout(this.#retryTimer);
+    this.#retryTimer = undefined;
+    if (!this.#catalogFailed || this.#disposed) {
+      this.#retries = 0;
+      return;
+    }
+    const { minMs, maxMs } = this.#options.catalogRetry ?? CATALOG_RETRY;
+    this.#retryDelay = Math.min(maxMs, minMs * 2 ** this.#retries);
+    this.#retries += 1;
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = undefined;
+      if (!this.#disposed) this.#probe(false).catch(() => {});
+    }, this.#retryDelay);
+    this.#retryTimer.unref?.();
   }
 
   /** 状态里加上不属于检测结果的部分：正在安装的进度、安装失败的原因。 */
@@ -565,6 +600,7 @@ export class OpenCodeAccounts implements EngineAccounts {
   }
 
   async #detect(): Promise<AccountState> {
+    this.#catalogFailed = false;
     const runtime = this.#options.runtime;
     const detection = await runtime.detect();
     const executablePath = detection.ok
@@ -616,12 +652,15 @@ export class OpenCodeAccounts implements EngineAccounts {
       }
     } catch (error) {
       this.#providers = undefined;
+      this.#catalogFailed = true;
       return {
         ...installed,
         lastError: `Failed to load the OpenCode provider list: ${errorMessage(error)}`,
       };
     }
     this.#providers = providers;
+    this.#catalogFailed =
+      providers.connected.length > 0 && accountModels(providers).models.length === 0;
     const label = planLabel(providers);
     if (label === undefined) return installed;
     const rateLimits = providers.connected.includes(OPENCODE_GO_PROVIDER)

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-// 移植自 pingdotgg/t3code packages/provider-cursor/src/server/CursorSdk.ts（isCursorShellSpawnFailure）、CursorAgentSdk.ts（isCursorCancellationError、
+// 移植自 pingdotgg/t3code packages/provider-cursor/src/server/CursorSdk.ts（isCursorShellSpawnFailure、isCursorClosedStreamWrite）、CursorAgentSdk.ts（isCursorCancellationError、
 // isActiveRunConflict）、CursorSdkCatalog.ts（isAuthenticationFailure）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：错误按 name 判断而不用 instanceof；去掉 T3 自己注册的 unhandledRejection 监听，改由 Host 的 cli.ts 先问 engines.ts；
-// 加上 AgentNotFoundError 与 AdapterError 的归类。
+// 加上 AgentNotFoundError 与 AdapterError 的归类。isCursorClosedStreamWrite 跟进 T3 f54dfc0991。
 //
 // SDK 抛出的错误的归类（docs/architecture/cursor-event-mapping.md §6）。SDK 的错误类有自己的 `name`（AuthenticationError、
 // AgentNotFoundError…），按 `name` 与 `status` 判断，不用 instanceof：测试里的假 SDK 与动态加载的真 SDK 是两套类。
@@ -82,4 +82,12 @@ export function isCursorShellSpawnFailure(reason: unknown): boolean {
     (arg) =>
       typeof arg === 'string' && CURSOR_SHELL_SPAWN_MARKERS.some((marker) => arg.includes(marker)),
   );
+}
+
+/**
+ * 本地 exec 失败后，SDK 从一个没人等的 promise 往这个 exec 的流里写最后一帧；流已经关了时这次写入 reject，同样成了进程级的
+ * unhandled rejection。SDK 的类名被压缩过，只能按 `name` 认。
+ */
+export function isCursorClosedStreamWrite(reason: unknown): boolean {
+  return reason instanceof Error && reason.name === 'WriteIterableClosedError';
 }
