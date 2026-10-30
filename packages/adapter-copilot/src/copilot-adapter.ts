@@ -70,6 +70,9 @@ interface Settings {
 }
 
 export class CopilotAdapter extends AcpAdapter {
+  /** 报了开始、还没结束的压缩，按引擎会话（`session.compaction_complete` 没带 `compactionAttemptId` 时用）。 */
+  readonly #compacting = new Map<string, string>();
+  #compactions = 0;
   readonly accounts: CopilotAccounts;
   readonly historyTool: boolean;
   /** 请求批准：Copilot 问的每一项都交给用户；完全访问：Wevir 替用户批准（同 CLI 的 `--allow-all`）。 */
@@ -262,11 +265,48 @@ export class CopilotAdapter extends AcpAdapter {
     return undefined;
   }
 
-  /** 原始会话事件：只看 `assistant.usage` 里的额度。 */
+  /**
+   * 原始会话事件：`assistant.usage` 里的额度；压缩上下文（`session.compaction_start` → `context.compacting`，成功的
+   * `session.compaction_complete` → `context.compacted`）与截掉旧消息的 `session.truncation`（截掉了消息时当作一次完成的压缩：
+   * 截掉的可能正是带规则的第一条）。Host 据 `context.compacted` 在下一回合重新补随消息交的规则。没有真实账号核对过。
+   */
   protected override extNotification(method: string, params: unknown): void {
     if (method !== COPILOT_SESSION_EVENT && method !== `_${COPILOT_SESSION_EVENT}`) return;
     const rateLimits = rateLimitsOfEvent(params);
     if (rateLimits !== undefined) this.accounts.setRateLimits(rateLimits);
+    const event = record(params);
+    const sessionId = event?.sessionId;
+    if (event === undefined || typeof sessionId !== 'string') return;
+    const data = record(event.data) ?? {};
+    const attempt =
+      typeof data.compactionAttemptId === 'string' && data.compactionAttemptId !== ''
+        ? data.compactionAttemptId
+        : undefined;
+    switch (event.type) {
+      case 'session.compaction_start': {
+        const id = attempt ?? `copilot-compaction-${++this.#compactions}`;
+        if (this.reportCompaction(sessionId, id, 'compacting')) this.#compacting.set(sessionId, id);
+        return;
+      }
+      case 'session.compaction_complete': {
+        const id =
+          attempt ?? this.#compacting.get(sessionId) ?? `copilot-compaction-${++this.#compactions}`;
+        this.#compacting.delete(sessionId);
+        if (data.success === true) this.reportCompaction(sessionId, id, 'compacted');
+        return;
+      }
+      case 'session.truncation': {
+        const removed = data.messagesRemovedDuringTruncation;
+        if (typeof removed === 'number' && removed > 0) {
+          this.reportCompaction(
+            sessionId,
+            `copilot-truncation-${++this.#compactions}`,
+            'compacted',
+          );
+        }
+        return;
+      }
+    }
   }
 
   #versioned(session: EngineSession): EngineSession {

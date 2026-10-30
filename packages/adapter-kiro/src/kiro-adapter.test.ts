@@ -1,5 +1,6 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AgentEvent } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import type { KiroAdapter } from './kiro-adapter.js';
 import {
@@ -273,6 +274,29 @@ describe('Kiro ACP', () => {
       type: 'turn.settled',
       outcome: 'completed',
     });
+  });
+
+  it('压缩上下文：_kiro.dev/compaction/status 报开始，之后的 metadata 当作完成；直接报完成的补上开始', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    const compaction = (turn: readonly AgentEvent[]) =>
+      turn
+        .filter(
+          (event) => event.type === 'context.compacting' || event.type === 'context.compacted',
+        )
+        .map((event) => event.type);
+    await adapter.send(id, text('compact'));
+    expect(compaction(await events.turn())).toEqual(['context.compacting', 'context.compacted']);
+    const from = events.events.length;
+    await adapter.send(id, text('compact:done'));
+    expect(compaction(await events.turn(from))).toEqual([
+      'context.compacting',
+      'context.compacted',
+    ]);
+    const plain = events.events.length;
+    await adapter.send(id, text('plain'));
+    expect(compaction(await events.turn(plain))).toEqual([]);
   });
 
   it('结果的 stopReason 是 error：回合失败（不是完成），原文里像密钥的片段遮盖掉', async () => {

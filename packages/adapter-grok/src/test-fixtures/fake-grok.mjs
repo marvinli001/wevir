@@ -15,6 +15,7 @@
 //                       了拒绝时工具失败、回合照常结束；回放中途收到 `session/cancel` 时以 cancelled 结束（同 message_steering
 //                       样本的写法）。
 //   hang                 不回答，直到 `session/cancel`
+//   compact              先报自动压缩（`auto_compact_started` / `auto_compact_completed`，形状取自 1.0.70 的程序），再回显
 //   其他                 回显：三段 `agent_message_chunk`，然后 `turn_completed`、`prompt_complete` 与 end_turn
 //
 // 环境变量：FAKE_GROK_FIXTURES（样本目录，默认 ./acp）、FAKE_GROK_STORE（会话记在这个目录，重启后的进程能 resume）、
@@ -263,6 +264,24 @@ async function prompt(id, params) {
       await cancelSignal;
       finish(sessionId, promptId, 'cancelled', id);
     } else {
+      if (text === 'compact') {
+        for (const update of [
+          {
+            sessionUpdate: 'auto_compact_started',
+            tokens_used: 180000,
+            context_window: 200000,
+            percentage: 90,
+          },
+          {
+            sessionUpdate: 'auto_compact_completed',
+            tokens_before: 180000,
+            tokens_after: 20000,
+            elapsed_ms: 1200,
+          },
+        ]) {
+          send({ method: '_x.ai/session_notification', params: { sessionId, update } });
+        }
+      }
       for (const part of ['echo: ', text.slice(0, 3), text.slice(3)]) {
         update(sessionId, {
           sessionUpdate: 'agent_message_chunk',

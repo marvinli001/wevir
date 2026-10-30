@@ -38,6 +38,7 @@ import {
   WORKBUDDY_ENGINE,
   WORKBUDDY_QUESTION,
   WORKBUDDY_RESOLVE_INTERRUPTION,
+  workBuddyNormalizeUpdate,
 } from './engine.js';
 import { WorkBuddyLauncher } from './launch.js';
 import { nativeEffort, record, selectEntries, selectOption, wevirEffort } from './models.js';
@@ -102,6 +103,7 @@ export class WorkBuddyAdapter extends AcpAdapter {
     let processVersion: string | undefined;
     const engine = {
       ...WORKBUDDY_ENGINE,
+      normalizeUpdate: workBuddyNormalizeUpdate(),
       classifyTurnError: (error: unknown) => {
         const classified = WORKBUDDY_ENGINE.classifyTurnError(error);
         if (classified.category === 'missing_credentials') accounts.markSignedOut();

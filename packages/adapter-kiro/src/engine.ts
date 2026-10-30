@@ -53,6 +53,11 @@ export function classifyKiroResumeError(error: unknown): ClassifiedResumeError {
   return { failure: { kind: 'unknown' }, ...info };
 }
 
+/** Kiro 压缩上下文的进度（kiro.dev/docs/cli/acp 只列了名字，字段没有公开）。 */
+export const KIRO_COMPACTION_STATUS = '_kiro.dev/compaction/status';
+/** Kiro 每个回合与压缩之后重算的上下文用量（`contextUsagePercentage` 等）。 */
+export const KIRO_METADATA = '_kiro.dev/metadata';
+
 export const KIRO_ENGINE: AcpEngine = {
   name: 'kiro',
   version: 'unknown',
@@ -75,6 +80,8 @@ export const KIRO_ENGINE: AcpEngine = {
   // 声明 `loadSession: true`，没有 session/resume：用 session/load，适配器在恢复期间丢掉它回放的历史。
   resumeMethod: 'load',
   sessionModels: withModelOption,
+  // 压缩上下文（2.36.0 不发 ACP 的 `compaction_update`）：Kiro 自己的进度通知，与压缩后重算上下文用量的 `metadata`（kiro-adapter.ts）。
+  extensions: { notifications: [KIRO_COMPACTION_STATUS, KIRO_METADATA] },
   classifyTurnError: classifyKiroTurnError,
   classifyResumeError: classifyKiroResumeError,
 };

@@ -90,7 +90,17 @@ describe('Copilot ACP', () => {
     expect(configCalls(log)).toEqual([['fixture-model-option', 'fixture-model-a']]);
     const initialize = readLog(log).find((message) => message.method === 'initialize');
     expect(initialize?.params.clientCapabilities).toEqual({
-      _meta: { 'github.com/copilot': { events: ['assistant.usage'] } },
+      session: { compaction: {} },
+      _meta: {
+        'github.com/copilot': {
+          events: [
+            'assistant.usage',
+            'session.compaction_start',
+            'session.compaction_complete',
+            'session.truncation',
+          ],
+        },
+      },
     });
     const events = new EventCollector(adapter.subscribe(session.engineSessionId));
     await adapter.send(session.engineSessionId, text('tool'));
@@ -106,6 +116,26 @@ describe('Copilot ACP', () => {
     });
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     expect(readLog(log).some((message) => message.method === 'authenticate')).toBe(false);
+  });
+
+  it('压缩上下文：原始会话事件的 compaction_start / 成功的 compaction_complete 报成 compacting / compacted；失败不报完成；截掉旧消息当作压缩', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    const compaction = async (prompt: string) => {
+      const from = events.events.length;
+      await adapter.send(id, text(prompt));
+      return (await events.turn(from))
+        .filter((event) => event.type.startsWith('context.'))
+        .map((event) => event.type);
+    };
+    expect(await compaction('compact')).toEqual(['context.compacting', 'context.compacted']);
+    expect(await compaction('compact:failed')).toEqual(['context.compacting']);
+    expect(await compaction('compact:truncate')).toEqual([
+      'context.compacting',
+      'context.compacted',
+    ]);
+    expect(await compaction('plain')).toEqual([]);
   });
 
   it('默认模型不发给 CLI，沿用 Copilot 当前的', async () => {

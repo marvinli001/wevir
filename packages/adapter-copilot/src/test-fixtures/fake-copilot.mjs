@@ -281,6 +281,28 @@ function serve() {
           emit('read');
           emit('readFinished');
         }
+        if (text.startsWith('compact')) {
+          // 原始会话事件里的压缩（形状取自 1.0.105 随包的 copilot-sdk session-events.d.ts）：`compact` 成功一次，
+          // `compact:failed` 失败，`compact:truncate` 只截掉旧消息。
+          const event = (type, data) =>
+            send({ method: 'github.com/copilot/sessionEvent', params: { sessionId, type, data } });
+          if (text === 'compact:truncate') {
+            event('session.truncation', {
+              messagesRemovedDuringTruncation: 4,
+              tokensRemovedDuringTruncation: 9000,
+              performedBy: 'BasicTruncator',
+            });
+          } else {
+            event('session.compaction_start', {
+              compactionAttemptId: `attempt-${text}`,
+              trigger: 'auto',
+            });
+            event('session.compaction_complete', {
+              compactionAttemptId: `attempt-${text}`,
+              success: text !== 'compact:failed',
+            });
+          }
+        }
         emit('thought');
         for (const chunk of ['echo: ', text])
           update(sessionId, {

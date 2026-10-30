@@ -54,7 +54,7 @@ describe('WorkBuddyAccounts', () => {
     });
     expect((await subject.models('workbuddy')).models).toHaveLength(2);
     expect(readLog(log).map((message) => message.method)).toEqual(['initialize', 'session/new']);
-    expect(readLog(log)[0]?.params.clientCapabilities).toEqual({});
+    expect(readLog(log)[0]?.params.clientCapabilities).toEqual({ session: { compaction: {} } });
     expect(readLog(log)[1]?.params.mcpServers).toEqual([]);
   });
   it('未登录：应用内能登录时只是未登录，检测从不 authenticate', async () => {

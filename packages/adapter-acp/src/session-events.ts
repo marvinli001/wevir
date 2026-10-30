@@ -2,6 +2,8 @@ import {
   type AgentEvent,
   type ApprovalCancelledEvent,
   type ApprovalRequestedEvent,
+  type ContextCompactedEvent,
+  type ContextCompactingEvent,
   EventHub,
   type PlanProposedEvent,
   type QuestionCancelledEvent,
@@ -45,6 +47,8 @@ export class SessionEventQueue {
   /** 本回合最近一个写待办的工具调用（`tools.isPlanTool`），ACP `plan` 记在它上面。 */
   #planToolCallId: string | undefined;
   #planSeq = 0;
+  /** 已经报过的压缩（`compactionId` → 报到了哪一步），去掉同一次压缩的重复更新。 */
+  readonly #compactions = new Map<string, 'compacting' | 'compacted'>();
 
   constructor(
     engineSessionId: string,
@@ -126,8 +130,36 @@ export class SessionEventQueue {
       if (event.type === 'tool.started' && this.#tools.isPlanTool?.(event.toolName) === true) {
         this.#planToolCallId = event.toolCallId;
       }
+      if (event.type === 'context.compacting' || event.type === 'context.compacted') {
+        this.#compaction(event);
+        continue;
+      }
       this.#hub.emit(event);
     }
+  }
+
+  /**
+   * 上下文压缩的开始与完成（ACP 的 `compaction_update`，或引擎的扩展通知，`AcpAdapter.reportCompaction`）。只属于回合；同一次压缩
+   * 只报一次开始、一次完成，只报了完成的先补上开始。正在流式的一块内容先提交。
+   */
+  compaction(event: ContextCompactingEvent | ContextCompactedEvent): void {
+    if (!this.#inTurn) return;
+    this.#flushChunks();
+    this.#compaction(event);
+  }
+
+  #compaction(event: ContextCompactingEvent | ContextCompactedEvent): void {
+    const seen = this.#compactions.get(event.compactionId);
+    if (event.type === 'context.compacting') {
+      if (seen !== undefined) return;
+      this.#compactions.set(event.compactionId, 'compacting');
+      this.#hub.emit(event);
+      return;
+    }
+    if (seen === 'compacted') return;
+    if (seen === undefined) this.#hub.emit({ ...event, type: 'context.compacting' });
+    this.#compactions.set(event.compactionId, 'compacted');
+    this.#hub.emit(event);
   }
 
   /**

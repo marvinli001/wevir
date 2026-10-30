@@ -1082,7 +1082,16 @@ export class SessionManager {
     sessionId: SessionId,
     plan: RulePlan | undefined,
     engineSessionId: string,
-    { fresh, inherited = false }: { fresh: boolean; inherited?: boolean },
+    {
+      fresh,
+      inherited = false,
+      redeliver = false,
+    }: {
+      fresh: boolean;
+      inherited?: boolean;
+      /** 引擎压缩过上下文（`RulesState.compacted`）：给过的也再带正文，照样写。 */
+      redeliver?: boolean;
+    },
   ): AppendInput | undefined {
     if (plan === undefined) return undefined;
     const state = this.#events.rulesState(sessionId);
@@ -1094,7 +1103,7 @@ export class SessionManager {
     ) {
       return undefined;
     }
-    const delivered = !fresh && state?.sentTo.includes(engineSessionId) === true;
+    const delivered = !fresh && !redeliver && state?.sentTo.includes(engineSessionId) === true;
     const context =
       plan.rules.channel === 'message' && !inherited && !delivered ? plan.text : undefined;
     const pending = state?.pending;
@@ -1102,7 +1111,8 @@ export class SessionManager {
       context === undefined
         ? pending === undefined
         : pending?.engineSessionId === engineSessionId && pending.context === context;
-    if (!fresh && samePending && sameRules(state?.rules, plan.rules)) return undefined;
+    if (!fresh && !redeliver && samePending && sameRules(state?.rules, plan.rules))
+      return undefined;
     return {
       type: 'session.rules',
       source: 'host',
@@ -1112,6 +1122,23 @@ export class SessionManager {
         ...(context !== undefined && { context }),
       },
     };
+  }
+
+  /**
+   * 引擎压缩上下文之后重新补规则正文（`RulesState.compacted`）：按现在的规则文件写一条带正文的 `session.rules`，随这一回合的消息
+   * 交出去。现在不随消息交了（规则文件都关了、换了能放进说明的引擎）就不写，标记留到下一次带正文的 `session.rules`。
+   */
+  async #redeliverRules(runtime: SessionRuntime): Promise<void> {
+    const record = this.#record(runtime);
+    const plan = await this.#rulePlan(record.cwd, record.providerId, customTarget(record), () =>
+      this.#profileVersion(record.workspaceId),
+    );
+    if (plan?.rules.channel !== 'message') return;
+    const input = this.#rulesInput(runtime.id, plan, runtime.engineSessionId, {
+      fresh: false,
+      redeliver: true,
+    });
+    if (input !== undefined) this.#write(runtime, [input]);
   }
 
   /**
@@ -2190,6 +2217,10 @@ export class SessionManager {
       await this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
     }
 
+    // 随消息交的规则正文之后引擎压缩过上下文：这一回合重新补（T3 Code #21053）。
+    if (this.#events.rulesState(runtime.id)?.compacted === true) {
+      await this.#redeliverRules(runtime);
+    }
     // 接力（0.25.0）：还没交出去的历史摘要放在这条消息的开头交给新引擎；消息记录里只有用户写的。规则文件（0.68.0）要随消息补的
     // 也放在开头，在摘要之前。
     const pendingRules = this.#events.rulesState(runtime.id)?.pending;

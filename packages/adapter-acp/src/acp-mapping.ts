@@ -45,6 +45,7 @@ export const MAPPED_ACP_UPDATES = Object.freeze([
   'tool_call',
   'tool_call_update',
   'usage_update',
+  'compaction_update',
 ] as const);
 
 /** 认识但 v0 有意保留为 `engine.raw` 的类型。 */
@@ -53,6 +54,7 @@ export const RAW_BY_DESIGN_ACP_UPDATES = Object.freeze([
   'available_commands_update',
   'current_mode_update',
   'session_info_update',
+  'compaction_summary_chunk',
 ] as const);
 
 /**
@@ -173,6 +175,30 @@ export function mapAcpUpdate(
       }
       return [{ type: 'usage.updated', engineSessionId, contextUsed: used, contextSize: size }];
     }
+
+    case 'compaction_update': {
+      // 引擎压缩上下文（ACP 的 unstable 能力，客户端声明了 `session.compaction` 才发）：`in_progress` 是开始，`completed` 是完成；
+      // 失败、取消与之后只改摘要的补丁不发事件。引擎只在回合里自己压缩，记为 `auto`。同一次压缩的重复更新由会话队列去重。
+      const { compactionId, status } = update;
+      if (typeof compactionId !== 'string' || compactionId === '' || typeof status !== 'string') {
+        return raw('unexpected_fields', 'compaction_update 缺少 compactionId 或 status');
+      }
+      if (status !== 'in_progress' && status !== 'completed') {
+        return raw('by_design', `compaction_update ${status}`);
+      }
+      return [
+        {
+          type: status === 'in_progress' ? 'context.compacting' : 'context.compacted',
+          engineSessionId,
+          compactionId: `${engineSessionId}:${compactionId}`,
+          trigger: 'auto',
+        },
+      ];
+    }
+
+    case 'compaction_summary_chunk':
+      // 压缩的摘要正文：Wevir 不显示。
+      return raw('by_design', kind);
 
     case 'config_option_update':
       // v0 没有中途改模型的事件（预留 session.config_changed，domain-model.md §6.6）。

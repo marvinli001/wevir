@@ -33,7 +33,12 @@ import {
   writeHistoryToolScript,
 } from '@wevir/runtime-adapter/history-tool';
 import { KIRO_SIGN_IN_HINT, KiroAccounts, type KiroAccountsOptions } from './accounts.js';
-import { isKiroAuthRequired, KIRO_ENGINE } from './engine.js';
+import {
+  isKiroAuthRequired,
+  KIRO_COMPACTION_STATUS,
+  KIRO_ENGINE,
+  KIRO_METADATA,
+} from './engine.js';
 import { KiroLauncher } from './launch.js';
 import { record } from './models.js';
 
@@ -68,6 +73,9 @@ export class KiroAdapter extends AcpAdapter {
   readonly #settings: Map<string, Settings>;
   readonly #loading: Set<string>;
   readonly #processVersion: () => string | undefined;
+  /** 报了开始、还没认出结束的压缩，按引擎会话。 */
+  readonly #compacting = new Map<string, string>();
+  #compactions = 0;
 
   /**
    * 0.68.0：Kiro CLI 自己读 `.kiro/steering/`、AGENTS.md 与 `~/.kiro` 下的说明，具体读哪些随版本、代理配置与用户设置变，没有逐项
@@ -245,9 +253,69 @@ export class KiroAdapter extends AcpAdapter {
     return undefined;
   }
 
+  /**
+   * 上下文压缩（`_kiro.dev/compaction/status`）：字段没有公开，按状态类字段的值认——像失败、取消的不算，像完成的报
+   * `context.compacted`，其余（开始、进行中，或认不出）报 `context.compacting`；之后 Kiro 重算上下文用量的 `_kiro.dev/metadata`
+   * 当作这次压缩完成。Host 据 `context.compacted` 在下一回合重新补随消息交的规则。没有真实账号核对过。
+   */
+  protected override extNotification(method: string, params: unknown): void {
+    const fields = record(params);
+    if (typeof fields?.sessionId !== 'string') return;
+    const sessionId = fields.sessionId;
+    const open = this.#compacting.get(sessionId);
+    if (method === KIRO_METADATA) {
+      if (open === undefined) return;
+      this.#compacting.delete(sessionId);
+      this.reportCompaction(sessionId, open, 'compacted');
+      return;
+    }
+    if (method !== KIRO_COMPACTION_STATUS) return;
+    const status = compactionStatus(fields);
+    if (status === 'failed') {
+      this.#compacting.delete(sessionId);
+      return;
+    }
+    const id = open ?? `kiro-compaction-${++this.#compactions}`;
+    if (status === 'completed') {
+      this.#compacting.delete(sessionId);
+      this.reportCompaction(sessionId, id, 'compacted');
+      return;
+    }
+    if (this.reportCompaction(sessionId, id, 'compacting')) this.#compacting.set(sessionId, id);
+  }
+
   #versioned(session: EngineSession): EngineSession {
     return { ...session, engineVersion: this.#processVersion() ?? session.engineVersion };
   }
+}
+
+/** `_kiro.dev/compaction/status` 的状态：看 `status`、`state`、`phase`、`stage`、`event`、`type` 里第一个字符串（也看嵌在 `status` 里的）。 */
+function compactionStatus(fields: Record<string, unknown>): 'failed' | 'completed' | 'running' {
+  const nested = record(fields.status);
+  const value = [fields, nested]
+    .flatMap((source) =>
+      source === undefined
+        ? []
+        : ['status', 'state', 'phase', 'stage', 'event', 'type'].map((key) => source[key]),
+    )
+    .find((candidate): candidate is string => typeof candidate === 'string');
+  if (value === undefined) return 'running';
+  const words = value.toLowerCase().split(/[^a-z]+/);
+  if (
+    words.some((word) =>
+      /^(?:fail|failed|failure|error|errored|cancel|cancell?ed|abort|aborted)$/.test(word),
+    )
+  ) {
+    return 'failed';
+  }
+  if (
+    words.some((word) =>
+      /^(?:complete|completed|done|success|succeeded|finish|finished|end|ended)$/.test(word),
+    )
+  ) {
+    return 'completed';
+  }
+  return 'running';
 }
 
 /** Kiro 的推理档位（`--effort`）在 ACP 里怎么设没有核对过：不交给 ACP，用 Kiro 的默认档位。 */

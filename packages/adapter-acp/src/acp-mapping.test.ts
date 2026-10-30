@@ -151,3 +151,79 @@ describe('模型选项（按类别）', () => {
     expect(routeModelOption(undefined, route)).toBe('model');
   });
 });
+
+describe('上下文压缩（compaction_update）', () => {
+  const update = (value: Record<string, unknown>): AcpSessionNotification => ({
+    sessionId: 's1',
+    update: { sessionUpdate: 'compaction_update', ...value },
+  });
+
+  it('in_progress → context.compacting，completed → context.compacted（auto，ID 带会话）；失败与摘要不发事件', () => {
+    expect(mapAcpUpdate(update({ compactionId: 'c1', status: 'in_progress' }), KIND_TOOLS)).toEqual(
+      [
+        {
+          type: 'context.compacting',
+          engineSessionId: 's1',
+          compactionId: 's1:c1',
+          trigger: 'auto',
+        },
+      ],
+    );
+    expect(mapAcpUpdate(update({ compactionId: 'c1', status: 'completed' }), KIND_TOOLS)).toEqual([
+      { type: 'context.compacted', engineSessionId: 's1', compactionId: 's1:c1', trigger: 'auto' },
+    ]);
+    const reasons: string[] = [];
+    const onRaw = (reason: string) => reasons.push(reason);
+    expect(
+      mapAcpUpdate(update({ compactionId: 'c1', status: 'failed' }), KIND_TOOLS, onRaw)[0]?.type,
+    ).toBe('engine.raw');
+    const chunk: AcpSessionNotification = {
+      sessionId: 's1',
+      update: {
+        sessionUpdate: 'compaction_summary_chunk',
+        compactionId: 'c1',
+        content: { type: 'text', text: 'summary' },
+      },
+    };
+    expect(mapAcpUpdate(chunk, KIND_TOOLS, onRaw)[0]?.type).toBe('engine.raw');
+    expect(mapAcpUpdate(update({ status: 'completed' }), KIND_TOOLS, onRaw)[0]?.type).toBe(
+      'engine.raw',
+    );
+    expect(reasons).toEqual(['by_design', 'by_design', 'unexpected_fields']);
+  });
+
+  it('会话队列：同一次压缩只报一次开始、一次完成；只报了完成的先补开始；回合外不报', async () => {
+    const queue = new SessionEventQueue('s1', () => {}, { tools: KIND_TOOLS });
+    const events = queue.subscribe();
+    queue.acpUpdate(update({ compactionId: 'early', status: 'completed' }));
+    queue.beginTurn();
+    queue.acpUpdate(update({ compactionId: 'c1', status: 'in_progress' }));
+    queue.acpUpdate(update({ compactionId: 'c1', status: 'in_progress' }));
+    queue.acpUpdate(update({ compactionId: 'c1', status: 'completed' }));
+    queue.acpUpdate(update({ compactionId: 'c1', status: 'completed', summary: [] }));
+    queue.acpUpdate(update({ compactionId: 'c2', status: 'completed' }));
+    queue.endTurn({
+      type: 'turn.settled',
+      engineSessionId: 's1',
+      outcome: 'completed',
+      stopReason: 'end_turn',
+    });
+    queue.end();
+    const out: AgentEvent[] = [];
+    for await (const event of events) out.push(event);
+    expect(
+      out.map((e) =>
+        e.type.startsWith('context.')
+          ? `${e.type} ${(e as { compactionId: string }).compactionId}`
+          : e.type,
+      ),
+    ).toEqual([
+      'engine.raw',
+      'context.compacting s1:c1',
+      'context.compacted s1:c1',
+      'context.compacting s1:c2',
+      'context.compacted s1:c2',
+      'turn.settled',
+    ]);
+  });
+});

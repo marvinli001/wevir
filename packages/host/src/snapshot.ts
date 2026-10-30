@@ -106,6 +106,11 @@ export interface SessionProjection {
   readonly rulesPending?: { readonly engineSessionId: string; readonly context: string };
   /** 已经随消息收到规则正文的引擎会话：接力回到它、恢复它时不再补。 */
   readonly rulesSentTo?: readonly string[];
+  /**
+   * 随消息交的规则正文（`channel` 是 `message`）之后引擎压缩过上下文（`context.compacted`）：压缩的摘要不一定留着它，下一回合
+   * 重新补一次。带正文的 `session.rules` 与 `session.handoff` 清除；回合结束不清除，补规则的那个回合里又压缩了也照样再补。
+   */
+  readonly rulesCompacted?: true;
   /** 进行中的回合由命令开始（`turn.started` 带 `command`）：它不带接力摘要，结束时摘要仍没交出去。 */
   readonly commandTurnId?: TurnId;
   /** 仍是 `pending` 的审批，按请求先后排列。 */
@@ -357,6 +362,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'session.handoff': {
       const { from, to, resumed } = event.payload;
+      next.rulesCompacted = undefined;
       const engines = [
         ...(projection.engines ?? [
           {
@@ -405,8 +411,12 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       const { engineSessionId, context, ...rules } = event.payload;
       next.rules = rules;
       next.rulesPending = context === undefined ? undefined : { engineSessionId, context };
+      if (context !== undefined) next.rulesCompacted = undefined;
       break;
     }
+    case 'context.compacted':
+      if (projection.rules?.channel === 'message') next.rulesCompacted = true;
+      break;
     case 'session.configured':
       next.model = {
         modelId: event.payload.modelId,

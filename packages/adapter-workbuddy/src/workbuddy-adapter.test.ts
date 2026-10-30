@@ -67,9 +67,11 @@ describe('WorkBuddy ACP', () => {
     expect(
       readLog(log)
         .filter((message) => message.method === 'initialize')
-        // 不声明 fs 与 terminal（工具在引擎自己的沙箱里执行）；会话的进程只声明 elicitation。
+        // 不声明 fs 与 terminal（工具在引擎自己的沙箱里执行）；会话的进程只声明 elicitation 与压缩上下文的更新。
         .every((message) =>
-          Object.keys(message.params.clientCapabilities).every((key) => key === 'elicitation'),
+          Object.keys(message.params.clientCapabilities).every(
+            (key) => key === 'elicitation' || key === 'session',
+          ),
         ),
     ).toBe(true);
   });
@@ -225,7 +227,7 @@ describe('WorkBuddy ACP', () => {
         (message) =>
           message.method === 'initialize' &&
           JSON.stringify(message.params.clientCapabilities) ===
-            JSON.stringify({ elicitation: { form: {}, url: {} } }),
+            JSON.stringify({ session: { compaction: {} }, elicitation: { form: {}, url: {} } }),
       ),
     ).toBe(true);
     const events = new EventCollector(adapter.subscribe(id));
@@ -306,6 +308,31 @@ describe('WorkBuddy ACP', () => {
       text: 'echo: member',
     });
     expect(member.some((event) => event.type === 'engine.raw')).toBe(true);
+  });
+  it('带 isCompactInternal 的回答块改报上下文压缩，摘要不进回答', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    for (const prompt of ['compact', 'compact:emergency']) {
+      const from = events.events.length;
+      await adapter.send(id, text(prompt));
+      const turn = await events.turn(from);
+      const compactions = turn.filter((event) => event.type.startsWith('context.'));
+      expect(compactions.map((event) => event.type)).toEqual([
+        'context.compacting',
+        'context.compacted',
+      ]);
+      expect(
+        new Set(compactions.map((event) => 'compactionId' in event && event.compactionId)).size,
+      ).toBe(1);
+      expect(turn.find((event) => event.type === 'assistant.message')).toMatchObject({
+        text: `echo: ${prompt}`,
+      });
+    }
+    const ids = events.events.flatMap((event) =>
+      event.type === 'context.compacted' ? [event.compactionId] : [],
+    );
+    expect(new Set(ids).size).toBe(2);
   });
   it.each([
     ['auth', 'missing_credentials'],

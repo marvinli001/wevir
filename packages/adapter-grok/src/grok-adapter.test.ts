@@ -213,6 +213,23 @@ describe('GrokAdapter：样本回放', () => {
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', stopReason: 'end_turn' });
   });
 
+  it('自动压缩上下文：session_notification 的 auto_compact_started / completed 报成 context.compacting / compacted', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(engineSessionId));
+    await adapter.send(engineSessionId, text('compact'));
+    const turn = await events.turn();
+    const compaction = turn.filter((event) => event.type.startsWith('context.'));
+    expect(compaction).toEqual([
+      expect.objectContaining({ type: 'context.compacting', trigger: 'auto' }),
+      expect.objectContaining({ type: 'context.compacted', trigger: 'auto' }),
+    ]);
+    expect(compaction[0]).toMatchObject({
+      compactionId: (compaction[1] as { compactionId: string }).compactionId,
+    });
+    expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+
   it('取消：session/cancel 带 cancelTrigger，回合以取消结算', async () => {
     const { adapter, config, log } = setup();
     const { engineSessionId } = await adapter.createSession(config);

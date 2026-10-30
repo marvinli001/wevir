@@ -48,6 +48,7 @@ import { GROK_LOGIN_COMMAND, GrokLauncher, XAI_API_KEY_ENV } from './launch.js';
 import {
   ASK_USER_QUESTION_CANCELLED,
   askUserQuestionResponse,
+  compactionOf,
   completionOf,
   EXIT_PLAN_CAPTURED,
   GROK_CANCEL_META,
@@ -92,6 +93,9 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
   readonly #accounts: GrokAccounts;
   /** 每个会话进行中的回合的 `promptId`。 */
   readonly #prompts = new Map<string, string>();
+  /** 报了开始、还没结束的自动压缩，按引擎会话。 */
+  readonly #compacting = new Map<string, string>();
+  #compactions = 0;
   #nextPrompt = 0;
   /** `usage.recorded.requestId` 的前缀：`promptId` 只在这个实例里唯一。 */
   readonly #instance = randomUUID().slice(0, 8);
@@ -164,6 +168,19 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
    * 的按会话认。之前的 `session/update` 都已入队。
    */
   protected override extNotification(method: string, params: unknown): void {
+    // 自动压缩上下文：报 `context.compacting` / `context.compacted`，Host 据后者在下一回合重新补随消息交的规则。
+    const compaction = compactionOf(method, params);
+    if (compaction !== undefined) {
+      const { sessionId, phase } = compaction;
+      const id = this.#compacting.get(sessionId) ?? `grok-compaction-${++this.#compactions}`;
+      if (phase === 'started') {
+        if (this.reportCompaction(sessionId, id, 'compacting')) this.#compacting.set(sessionId, id);
+      } else {
+        this.#compacting.delete(sessionId);
+        if (phase === 'completed') this.reportCompaction(sessionId, id, 'compacted');
+      }
+      return;
+    }
     // 回合的用量（0.62.0）在结算之前报。Wevir 的 `promptId` 是进程里的序号，Host 重启后会重复，所以 `requestId` 前面加上
     // 这个适配器实例的随机前缀。
     const usage = turnUsageOf(method, params);

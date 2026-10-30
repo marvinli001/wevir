@@ -298,6 +298,19 @@ function serve() {
           emit('read');
           emit('readFinished');
         }
+        if (text.startsWith('compact')) {
+          // 压缩上下文：Kiro 的进度通知（字段是猜的，2.36.0 没有公开），`compact:done` 直接报完成，否则之后重算用量。
+          send({
+            method: '_kiro.dev/compaction/status',
+            params: { sessionId, status: text === 'compact:done' ? 'completed' : 'started' },
+          });
+          if (text !== 'compact:done') {
+            send({
+              method: '_kiro.dev/metadata',
+              params: { sessionId, contextUsagePercentage: 1.5 },
+            });
+          }
+        }
         for (const chunk of ['echo: ', text])
           update(sessionId, {
             sessionUpdate: 'agent_message_chunk',

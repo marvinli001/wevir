@@ -687,6 +687,26 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     return true;
   }
 
+  /**
+   * 引擎在扩展通知里报的上下文压缩（没有 ACP `compaction_update` 的引擎）：按 `compactionId` 报 `context.compacting` /
+   * `context.compacted`（`auto`），同一次压缩只报一次，只报了完成的先补上开始。只属于进行中的回合；没有进行中的回合时返回 false。
+   */
+  protected reportCompaction(
+    engineSessionId: string,
+    compactionId: string,
+    phase: 'compacting' | 'compacted',
+  ): boolean {
+    const session = this.#sessions.get(engineSessionId);
+    if (session?.status !== 'open' || session.turn === undefined) return false;
+    session.queue.compaction({
+      type: phase === 'compacting' ? 'context.compacting' : 'context.compacted',
+      engineSessionId,
+      compactionId: `${engineSessionId}:${compactionId}`,
+      trigger: 'auto',
+    });
+    return true;
+  }
+
   /** 会话有进行中的回合。 */
   protected inTurn(engineSessionId: string): boolean {
     const session = this.#sessions.get(engineSessionId);

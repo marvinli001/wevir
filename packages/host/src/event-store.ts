@@ -75,6 +75,8 @@ export interface RulesState {
   rules?: SessionRules;
   pending?: { engineSessionId: string; context: string };
   sentTo: string[];
+  /** 随消息交的规则正文之后引擎压缩过上下文，下一回合要重新补（`SessionProjection.rulesCompacted`）。 */
+  compacted: boolean;
 }
 
 export interface EventStoreOptions {
@@ -434,15 +436,16 @@ export class EventStore {
 
   /**
    * 规则文件的状态（0.68.0）：最近一次 `session.rules`、还没随消息交出去的规则正文与它给的引擎会话、已经随消息收到规则的引擎
-   * 会话。会话不存在时为 `undefined`。
+   * 会话，以及交出去之后引擎有没有压缩过上下文。会话不存在时为 `undefined`。
    */
   rulesState(sessionId: SessionId): RulesState | undefined {
     if (!this.#storage.sessions.get(sessionId)) return undefined;
-    const { rules, rulesPending, rulesSentTo } = this.#projection(sessionId);
+    const { rules, rulesPending, rulesSentTo, rulesCompacted } = this.#projection(sessionId);
     return {
       ...(rules !== undefined && { rules: structuredClone(rules) }),
       ...(rulesPending !== undefined && { pending: { ...rulesPending } }),
       sentTo: [...(rulesSentTo ?? [])],
+      compacted: rulesCompacted === true,
     };
   }
 

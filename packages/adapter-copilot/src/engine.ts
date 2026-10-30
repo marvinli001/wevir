@@ -5,11 +5,23 @@ import { copilotToolDisplay } from './tool-display.js';
 export const COPILOT_TESTED_VERSION = '1.0.103';
 
 /**
- * Copilot 的原始会话事件（`initialize` 的 `clientCapabilities._meta`，T3 Code 的 copilotAcp.ts 同样订阅）：只要回合里每次调模型
- * 后的 `assistant.usage`，它的 `quotaSnapshots` 是账号的额度。事件经扩展通知 `github.com/copilot/sessionEvent` 送来。
+ * Copilot 的原始会话事件（`initialize` 的 `clientCapabilities._meta`，T3 Code 的 copilotAcp.ts 同样订阅）：回合里每次调模型
+ * 后的 `assistant.usage`，它的 `quotaSnapshots` 是账号的额度；另有压缩上下文的几种（`COPILOT_SUBSCRIBED_EVENTS`）。事件经扩展
+ * 通知 `github.com/copilot/sessionEvent` 送来。
  */
 export const COPILOT_META_KEY = 'github.com/copilot';
 export const COPILOT_SESSION_EVENT = 'github.com/copilot/sessionEvent';
+
+/**
+ * 订阅的原始会话事件：`assistant.usage` 的额度，以及压缩上下文的 `session.compaction_start` / `session.compaction_complete` 与截掉
+ * 旧消息的 `session.truncation`（1.0.105 不发 ACP 的 `compaction_update`；形状取自它随包的 copilot-sdk 的 session-events.d.ts）。
+ */
+export const COPILOT_SUBSCRIBED_EVENTS = [
+  'assistant.usage',
+  'session.compaction_start',
+  'session.compaction_complete',
+  'session.truncation',
+] as const;
 
 function errorInfo(error: unknown) {
   const fields = record(error);
@@ -76,7 +88,7 @@ export const COPILOT_ENGINE: AcpEngine = {
   images: true,
   // 1.0.103 的 initialize 只声明 loadSession，没有 session/resume：用 session/load，适配器在恢复期间丢掉它回放的历史。
   resumeMethod: 'load',
-  clientCapabilitiesMeta: { [COPILOT_META_KEY]: { events: ['assistant.usage'] } },
+  clientCapabilitiesMeta: { [COPILOT_META_KEY]: { events: [...COPILOT_SUBSCRIBED_EVENTS] } },
   // 方法名带不带 ACP 扩展的 `_` 前缀没有核对过，两种都收。
   extensions: { notifications: [COPILOT_SESSION_EVENT, `_${COPILOT_SESSION_EVENT}`] },
   classifyTurnError: classifyCopilotTurnError,

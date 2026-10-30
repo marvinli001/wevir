@@ -140,6 +140,33 @@ export function promptCompleteOf(method: string, params: unknown): XAiPromptComp
   return complete;
 }
 
+/**
+ * 自动压缩上下文的进度（`session_notification` 的 `auto_compact_started` / `auto_compact_completed` / `auto_compact_failed` /
+ * `auto_compact_cancelled`；1.0.70 的程序里有，录到的样本里没有发生过压缩）→ 开始、完成或结束（失败、取消）。Grok 不发 ACP 的
+ * `compaction_update`。不是这几种时 undefined。
+ */
+export function compactionOf(
+  method: string,
+  params: unknown,
+): { sessionId: string; phase: 'started' | 'completed' | 'ended' } | undefined {
+  if (!XAI_SESSION_NOTIFICATION_METHODS.includes(method)) return undefined;
+  const fields = record(params);
+  const sessionId = nonEmpty(fields?.sessionId);
+  const kind = record(fields?.update)?.sessionUpdate;
+  if (sessionId === undefined) return undefined;
+  switch (kind) {
+    case 'auto_compact_started':
+      return { sessionId, phase: 'started' };
+    case 'auto_compact_completed':
+      return { sessionId, phase: 'completed' };
+    case 'auto_compact_failed':
+    case 'auto_compact_cancelled':
+      return { sessionId, phase: 'ended' };
+    default:
+      return undefined;
+  }
+}
+
 /** 一个回合里一个模型的用量（0.62.0，`usage.recorded` 去掉 `type`、`engineSessionId` 与 `requestId`）。 */
 export interface XAiModelUsage {
   model?: string;

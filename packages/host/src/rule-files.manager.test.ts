@@ -187,6 +187,32 @@ describe('规则文件（SessionManager）', () => {
     expect(await turn(env, sessionId, 'fourth')).not.toContain('Indent with tabs');
   });
 
+  it('随消息补的引擎压缩过上下文：下一回合重新带规则，之后不再带；补规则的回合里又压缩了就再补；进说明的引擎不补', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'grok' });
+    const sessionId = id as SessionId;
+    expect(await turn(env, sessionId, 'first')).toContain('Indent with tabs.');
+    // echo 见到 compact 先自己压缩一次（context.compacted，auto）再回复：这个回合不带规则。
+    expect(await turn(env, sessionId, 'please compact')).not.toContain('Indent with tabs');
+    expect(env.events.rulesState(sessionId)?.compacted).toBe(true);
+    expect(await turn(env, sessionId, 'after')).toContain('Indent with tabs.');
+    expect(env.events.rulesState(sessionId)?.compacted).toBe(false);
+    expect(await turn(env, sessionId, 'later')).not.toContain('Indent with tabs');
+
+    expect(await turn(env, sessionId, 'compact once more')).not.toContain('Indent with tabs');
+    // 补规则的回合里又压缩了：标记留着，下一回合再补。
+    expect(await turn(env, sessionId, 'compact while reinjecting')).toContain('Indent with tabs.');
+    expect(env.events.rulesState(sessionId)?.compacted).toBe(true);
+    expect(await turn(env, sessionId, 'next')).toContain('Indent with tabs.');
+    expect(await turn(env, sessionId, 'quiet')).not.toContain('Indent with tabs');
+
+    const codex = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const codexId = codex.id as SessionId;
+    await turn(env, codexId, 'please compact');
+    expect(env.events.rulesState(codexId)?.compacted).toBe(false);
+    expect(await turn(env, codexId, 'after')).not.toContain('Indent with tabs');
+  });
+
   it('接力预览列出新来源会加载的规则文件', async () => {
     const env = setup();
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });

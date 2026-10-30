@@ -443,6 +443,9 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         // 不声明 fs 与 terminal：Host 不替引擎读写文件或执行命令，工具一律在引擎自己的沙箱里执行
         // （ADR-0001 §1）。
         clientCapabilities: {
+          // 压缩上下文时报 `compaction_update`（ACP 的 unstable 能力，不声明的引擎不发），映射成 `context.compacting` /
+          // `context.compacted`；Host 据此在下一回合重新补随消息交的规则。
+          session: { compaction: {} },
           ...(this.#options.onElicitation !== undefined && { elicitation: { form: {}, url: {} } }),
           ...(capabilitiesMeta !== undefined && { _meta: { ...capabilitiesMeta } }),
         },

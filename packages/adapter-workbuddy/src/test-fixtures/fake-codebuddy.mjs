@@ -333,6 +333,21 @@ async function prompt(id, params) {
           send({ method: `_codebuddy.ai/${method}`, params: { sessionId, ignored: true } });
         emit('usage');
       }
+      if (text.startsWith('compact')) {
+        // 手动 /compact 先发只有开头标签的开始块；紧急压缩（compact:emergency）只发完成块。
+        const compact = (summary, type) =>
+          update(sessionId, {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `<conversation_history_summary><summary>${summary}` },
+            _meta: { 'codebuddy.ai/isCompactInternal': true, 'codebuddy.ai/compactType': type },
+          });
+        const emergency = text === 'compact:emergency';
+        if (!emergency) compact('', 'user-command');
+        compact(
+          'Earlier work.</summary></conversation_history_summary>',
+          emergency ? 'emergency-auto' : 'user-command',
+        );
+      }
       if (text === 'member')
         update(sessionId, {
           sessionUpdate: 'agent_message_chunk',
