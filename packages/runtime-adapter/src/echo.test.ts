@@ -154,6 +154,27 @@ describe('EchoAdapter', () => {
     expect(after.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
   });
 
+  it('approve：拒绝附言（0.144.0）写进失败工具的输出', async () => {
+    const session = await open();
+    await session.send('approve it');
+    const before = await session.readUntil((event) => event.type === 'approval.requested');
+    const request = before.at(-1);
+    if (request?.type !== 'approval.requested') throw new Error('no approval request');
+    expect(request.options.find((option) => option.kind === 'reject_once')?.acceptsMessage).toBe(
+      true,
+    );
+    await session.adapter.respondToApproval(session.id, request.requestId, {
+      optionId: 'reject-once',
+      message: 'write it under /tmp instead',
+    });
+    const after = await session.readUntil(settled);
+    expect(after[0]).toMatchObject({
+      type: 'tool.finished',
+      status: 'failed',
+      output: 'Error: the user rejected echo_write: write it under /tmp instead',
+    });
+  });
+
   it('ask：提两个问题，回答后写进回复；取消时提问以 question.cancelled 结束', async () => {
     const session = await open();
     await session.send('ask me');

@@ -84,6 +84,7 @@ import {
   AccountLoginMethodSchema,
   AccountStateSchema,
   AccountUpstreamSchema,
+  APPROVAL_MESSAGE_MAX_LENGTH,
   ApprovalResolutionSchema,
   CollaborationModeSchema,
   ENVIRONMENT_VARIABLE_VALUE_MAX,
@@ -1582,6 +1583,12 @@ export const SessionSendParamsSchema = z.object({
    * 不起作用。会话当前的引擎没有计划模式（`engineFeatures` 的 `planMode`）时 `INVALID_PARAMS`。
    */
   collaborationMode: CollaborationModeSchema.optional(),
+  /**
+   * 审批改道（0.144.0，Host 功能 `approval_messages`）：会话或它的子会话有未决审批时，拒绝最早的那条，这条消息作为拒绝附言交给
+   * 发起请求的 Agent（同 `approval.respond` 的 `message`），不开回合、不排队。引擎收不了附言、或消息带图片时，拒绝后这条消息作为插话
+   * 发出（引擎不能插话时排队）。没有能拒绝的未决审批时照常发送。只给用户自己发的消息用。
+   */
+  declineApproval: z.literal(true).optional(),
 });
 
 export const SessionSendResultSchema = z.object({
@@ -1589,7 +1596,12 @@ export const SessionSendResultSchema = z.object({
   turnId: TurnIdSchema.optional(),
   /** 成为待发消息时有（0.8.0）。 */
   pendingId: PendingMessageIdSchema.optional(),
-  /** 本次 `user.message`（成为待发消息时是 `pending.added`）事件的 `seq`。 */
+  /** 审批改道拒绝的审批（0.144.0）；附言交给了引擎时没有 `turnId` 与 `pendingId`。 */
+  approvalId: ApprovalIdSchema.optional(),
+  /**
+   * 本次 `user.message`（成为待发消息时是 `pending.added`）事件的 `seq`；审批改道、附言交给了引擎时是 `approval.resolved` 的
+   * `seq`。
+   */
   seq: SeqSchema,
 });
 
@@ -1908,6 +1920,12 @@ export const ApprovalRespondParamsSchema = z.object({
    * `proposedRule`、或选的不是允许类选项时 `INVALID_PARAMS`。规则在引擎接受回复之后才加，加了的 ID 在结果的 `resolution.ruleIds`。
    */
   remember: ApprovalRuleScopeSchema.optional(),
+  /**
+   * 拒绝附言（0.144.0，Host 功能 `approval_messages`）：用户写给 Agent 的话，随拒绝交给发起请求的 Agent（子 Agent 的审批交给子 Agent）。
+   * 只能配拒绝类选项，否则 `INVALID_PARAMS`；去掉首尾空白后不能是空的。引擎收不了附言时 Host 拒绝后把它作为插话发出，引擎不能插话
+   * 时排成待发消息。
+   */
+  message: z.string().trim().min(1).max(APPROVAL_MESSAGE_MAX_LENGTH).optional(),
 });
 
 export const ApprovalRespondResultSchema = z.object({

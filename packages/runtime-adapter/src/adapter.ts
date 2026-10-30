@@ -307,7 +307,8 @@ export interface AgentRuntimeAdapter {
 
   /**
    * 回复一个未决审批（dsh：ACP `{"outcome":{"outcome":"selected","optionId":…}}`）。审批随即不再未决，
-   * 引擎随后的事件（通常是该工具的 `tool.finished`）照常上报。同一请求只能决定一次。
+   * 引擎随后的事件（通常是该工具的 `tool.finished`）照常上报。同一请求只能决定一次。`decision.message`（0.144.0）只在所选选项标了
+   * `acceptsMessage` 时有，随拒绝交给发起请求的 Agent。
    * 错误：`session_not_found`、`approval_not_found`、`invalid_option`（审批保持未决）、`disposed`。
    */
   respondToApproval(

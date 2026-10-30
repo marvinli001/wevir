@@ -775,6 +775,8 @@ export const messages: Messages = {
   'session.stop': 'Arrêter',
   'session.sendSteer': 'Intervenir',
   'session.sendQueue': 'Mettre en file',
+  'session.sendRedirect': 'Refuser et envoyer',
+  'session.redirectPlaceholder': 'Refuser et rediriger…',
 
   'pending.label': 'Messages en attente',
   'pending.group.steer': 'Interventions',
@@ -1039,6 +1041,8 @@ export const messages: Messages = {
   'approval.viewSubagent': 'Voir le sous-agent',
   'approval.allow': 'Autoriser',
   'approval.reject': 'Refuser',
+  'approval.feedback': 'Message',
+  'approval.feedbackLabel': 'Message avec le refus',
   'approval.option.allowOnce': 'Autoriser une fois',
   'approval.option.allowAlways': 'Toujours autoriser',
   'approval.option.reject': 'Refuser',

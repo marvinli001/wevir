@@ -249,6 +249,7 @@ export function Composer({
   plan,
   suggestion,
   sessionId,
+  redirect = false,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -292,6 +293,11 @@ export function Composer({
   suggestion?: string;
   /** 所在的会话（听写打开润色时用它的模型）；新会话的草稿页没有。 */
   sessionId?: SessionId;
+  /**
+   * 审批挂起（0.144.0，Host 有 `approval_messages`）：发出的消息拒绝最早的审批并作为附言交给 Agent。占位文字与发送按钮随之改变，
+   * 不显示“插话 | 排队”。
+   */
+  redirect?: boolean;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
@@ -854,7 +860,9 @@ export function Composer({
       : 'send'
     : busyDelivery === undefined || !hasContent
       ? 'stop'
-      : busyDelivery;
+      : redirect
+        ? 'redirect'
+        : busyDelivery;
 
   return (
     // 菜单（U33）画在最外层：光束那一层裁掉溢出（overflow: hidden），放在里面会被裁掉。
@@ -973,7 +981,10 @@ export function Composer({
               placeholder={
                 ghost !== undefined
                   ? ''
-                  : (disabledReason ?? placeholder ?? t('session.composerPlaceholder'))
+                  : (disabledReason ??
+                    (busy && redirect ? t('session.redirectPlaceholder') : undefined) ??
+                    placeholder ??
+                    t('session.composerPlaceholder'))
               }
               className={cn(
                 'max-h-60 resize-none rounded-none border-0 bg-transparent px-4 pb-1 shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent',
@@ -1037,7 +1048,7 @@ export function Composer({
                       }}
                     />
                   )}
-                  {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
+                  {busy && !redirect && busyDelivery !== undefined && onBusyDeliveryChange && (
                     <DeliverySwitch
                       value={busyDelivery}
                       disabled={disabled}

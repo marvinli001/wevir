@@ -770,6 +770,8 @@ export const messages: Messages = {
   'session.stop': '停止',
   'session.sendSteer': '割り込み',
   'session.sendQueue': 'キューに追加',
+  'session.sendRedirect': '拒否して送信',
+  'session.redirectPlaceholder': '拒否して指示を変更…',
 
   'pending.label': '送信待ちメッセージ',
   'pending.group.steer': '割り込み',
@@ -1026,6 +1028,8 @@ export const messages: Messages = {
   'approval.viewSubagent': 'サブエージェントを表示',
   'approval.allow': '許可',
   'approval.reject': '拒否',
+  'approval.feedback': 'メッセージ',
+  'approval.feedbackLabel': '拒否に添えるメッセージ',
   'approval.option.allowOnce': '今回のみ許可',
   'approval.option.allowAlways': '常に許可',
   'approval.option.reject': '拒否',

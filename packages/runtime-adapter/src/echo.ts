@@ -168,7 +168,7 @@ function echoApprovalTool(
 
 export const ECHO_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'allow-once', label: 'Allow once', kind: 'allow_once' },
-  { optionId: 'reject-once', label: 'Reject', kind: 'reject_once' },
+  { optionId: 'reject-once', label: 'Reject', kind: 'reject_once', acceptsMessage: true },
 ]);
 
 /** 上下文窗口的假值，`usage.updated` 用。 */
@@ -188,7 +188,7 @@ class TurnAbort extends Error {
 
 interface PendingDecision {
   info: PendingApproval;
-  decide(optionId: string): void;
+  decide(decision: ApprovalDecision): void;
 }
 
 interface PendingQuestionReply {
@@ -247,7 +247,7 @@ interface ReplyBlock {
  * | 关键词 | 行为 |
  * |---|---|
  * | `tool` | 回复前模拟一次工具调用（`echo`，不需要审批） |
- * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败，回合照常结束 |
+ * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败（拒绝附言写进工具输出，0.144.0），回合照常结束 |
  * | `risky` | 同 `approve`，但审批的是一条删文件的命令（`echo_shell`，`rm -rf build`），Host 判为高风险（0.131.0） |
  * | `approval:<种类>:<内容>` | 同 `approve`，审批的调用由内容定（0.132.0，测助理的规矩用，可以有好几个，依次请求）：`mcp:<服务>/<工具>` 是连接器的工具（`mcp__<服务>__<工具>`），`shell:<命令>` 是一条命令（`+` 代表空格），`write:<路径>` 是写一个文件 |
  * | `ask` | 向用户提两个问题（0.10.0：一个单选可填其他、一个多选），等 `respondToQuestion` 后在回复末尾写出回答 |
@@ -596,7 +596,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('invalid_option', `unknown option ${decision.optionId}`);
     }
     turn.approval = undefined;
-    approval.decide(decision.optionId);
+    approval.decide(decision);
   }
 
   async listPendingApprovals(engineSessionId?: string): Promise<PendingApproval[]> {
@@ -943,12 +943,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         openTools.set(toolCallId, `Error: approval for ${toolName} was cancelled`);
         // 只有 on_request 问用户；auto_review 当作审查通过，full_access 不问。
         let allowed = true;
+        let note: string | undefined;
         if ((session.config.permissionMode ?? 'on_request') === 'on_request') {
-          const optionId = await this.#requestApproval(turn, engineSessionId, toolCallId);
-          allowed =
-            ECHO_APPROVAL_OPTIONS.find((option) => option.optionId === optionId)?.kind.startsWith(
-              'allow',
-            ) ?? false;
+          const decision = await this.#requestApproval(turn, engineSessionId, toolCallId);
+          allowed = echoAllowed(decision);
+          note = decision.message;
         }
         openTools.delete(toolCallId);
         emit(
@@ -965,7 +964,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
                 engineSessionId,
                 toolCallId,
                 status: 'failed',
-                output: `Error: the user rejected ${toolName}`,
+                output: rejectedOutput(toolName, note),
               },
         );
       }
@@ -981,12 +980,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         emit({ type: 'tool.started', engineSessionId, toolCallId, ...started });
         openTools.set(toolCallId, `Error: approval for ${started.toolName} was cancelled`);
         let allowed = true;
+        let note: string | undefined;
         if ((session.config.permissionMode ?? 'on_request') === 'on_request') {
-          const optionId = await this.#requestApproval(turn, engineSessionId, toolCallId);
-          allowed =
-            ECHO_APPROVAL_OPTIONS.find((option) => option.optionId === optionId)?.kind.startsWith(
-              'allow',
-            ) ?? false;
+          const decision = await this.#requestApproval(turn, engineSessionId, toolCallId);
+          allowed = echoAllowed(decision);
+          note = decision.message;
         }
         openTools.delete(toolCallId);
         emit({
@@ -994,9 +992,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
           engineSessionId,
           toolCallId,
           status: allowed ? 'completed' : 'failed',
-          output: allowed
-            ? `Ran ${started.toolName}`
-            : `Error: the user rejected ${started.toolName}`,
+          output: allowed ? `Ran ${started.toolName}` : rejectedOutput(started.toolName, note),
         });
       }
 
@@ -1342,7 +1338,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     }
   }
 
-  #requestApproval(turn: EchoTurn, engineSessionId: string, toolCallId: string): Promise<string> {
+  #requestApproval(
+    turn: EchoTurn,
+    engineSessionId: string,
+    toolCallId: string,
+  ): Promise<ApprovalDecision> {
     const signal = turn.abort.signal;
     const info: PendingApproval = {
       engineSessionId,
@@ -1359,9 +1359,9 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       signal.addEventListener('abort', onAbort, { once: true });
       turn.approval = {
         info,
-        decide: (optionId) => {
+        decide: (decision) => {
           signal.removeEventListener('abort', onAbort);
-          resolve(optionId);
+          resolve(decision);
         },
       };
       turn.hub.emit({ type: 'approval.requested', ...copyApproval(info) });
@@ -1485,6 +1485,21 @@ function untilAborted(promise: Promise<void>, signal: AbortSignal): Promise<void
       resolve();
     });
   });
+}
+
+function echoAllowed(decision: ApprovalDecision): boolean {
+  return (
+    ECHO_APPROVAL_OPTIONS.find((option) => option.optionId === decision.optionId)?.kind.startsWith(
+      'allow',
+    ) ?? false
+  );
+}
+
+/** 拒绝后工具的输出；有拒绝附言（0.144.0）时照引擎的做法把那句话放进去，Agent 从工具结果里读到。 */
+function rejectedOutput(toolName: string, note: string | undefined): string {
+  return note === undefined
+    ? `Error: the user rejected ${toolName}`
+    : `Error: the user rejected ${toolName}: ${note}`;
 }
 
 function copyApproval(info: PendingApproval): PendingApproval {

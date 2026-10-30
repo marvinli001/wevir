@@ -766,6 +766,8 @@ export const messages: Messages = {
   'session.stop': '중지',
   'session.sendSteer': '끼어들기',
   'session.sendQueue': '대기열',
+  'session.sendRedirect': '거부하고 보내기',
+  'session.redirectPlaceholder': '거부하고 방향 전환…',
 
   'pending.label': '대기 중인 메시지',
   'pending.group.steer': '끼어들기',
@@ -1022,6 +1024,8 @@ export const messages: Messages = {
   'approval.viewSubagent': '하위 에이전트 보기',
   'approval.allow': '허용',
   'approval.reject': '거부',
+  'approval.feedback': '메시지',
+  'approval.feedbackLabel': '거부 메시지',
   'approval.option.allowOnce': '한 번 허용',
   'approval.option.allowAlways': '항상 허용',
   'approval.option.reject': '거부',

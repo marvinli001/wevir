@@ -344,6 +344,11 @@ export interface UserChatMessage extends MessageBase {
   pendingId?: PendingMessageId;
   /** 0.30.0：别的会话发来的消息或回报（应用级工具）。 */
   from?: MessageFrom;
+  /**
+   * 0.144.0：随拒绝交给 Agent 的附言（`approval.resolved` 的 `resolution.message`），在回合中间、拒绝的那一刻，同时带 `steered`；
+   * `id` 是 `<turnId>:declined:<approvalId>`。
+   */
+  declinedApproval?: ApprovalId;
   ts: IsoTime;
 }
 
@@ -503,6 +508,7 @@ interface MutableMessage {
   steered?: true;
   pendingId?: PendingMessageId;
   from?: MessageFrom;
+  declinedApproval?: ApprovalId;
   ts?: IsoTime;
   startedAt?: IsoTime;
   finished?: { outcome: TurnOutcome; durationMs: number };
@@ -1572,6 +1578,27 @@ export class TranscriptProjection {
       status: part.status === 'awaiting_approval' ? 'running' : part.status,
       approval: part.approval && { ...part.approval, status, resolution },
     }));
+    // 拒绝附言（0.144.0）：交给了引擎的那句话是用户在回合中间说的，像插话一样放进消息流。
+    if (resolution.message !== undefined) {
+      const turn = this.#turn(approval.turnId);
+      this.#dropWrapUp(approval.turnId);
+      this.#push({
+        role: 'user',
+        id: `${approval.turnId}:declined:${approvalId}`,
+        turnId: approval.turnId,
+        parts: userParts([{ type: 'text', text: resolution.message }]),
+        firstSeq: event.seq,
+        lastSeq: event.seq,
+        ...(resolution.decidedBy !== undefined && { sentBy: resolution.decidedBy }),
+        // 同插话：不是回合的第一条，编辑、撤销与回合编号都不算它。
+        steered: true,
+        declinedApproval: approvalId,
+        ts: event.ts,
+        snapshot: undefined,
+      });
+      turn.assistant = undefined;
+      turn.nextAssistantId = `${approval.turnId}:assistant:${event.seq}`;
+    }
   }
 
   // ── 提问（0.10.0） ───────────────────────────────────────────────────
@@ -1852,6 +1879,9 @@ function freeze(message: MutableMessage): ChatMessage {
         ...(message.steered && { steered: true }),
         ...(message.pendingId !== undefined && { pendingId: message.pendingId }),
         ...(message.from !== undefined && { from: message.from }),
+        ...(message.declinedApproval !== undefined && {
+          declinedApproval: message.declinedApproval,
+        }),
         ts: message.ts as IsoTime,
       };
     case 'assistant':

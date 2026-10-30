@@ -119,9 +119,14 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
           {t('command.goal')}
         </span>
       )}
-      {message.steered && (
+      {message.steered && message.declinedApproval === undefined && (
         <span className="mt-1 text-xs text-muted-foreground" data-steered>
           {t('transcript.steered')}
+        </span>
+      )}
+      {message.declinedApproval !== undefined && (
+        <span className="mt-1 text-xs text-muted-foreground" data-declined-approval>
+          {t('approval.feedbackLabel')}
         </span>
       )}
       {message.collaborationMode === 'plan' && (

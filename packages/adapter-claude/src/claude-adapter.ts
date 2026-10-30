@@ -239,7 +239,8 @@ class PushQueue<T> implements AsyncIterable<T> {
 
 interface ApprovalEntry {
   info: PendingApproval;
-  decide(decision: ApprovalDecisionId): void;
+  /** `feedback` 是拒绝附言（0.144.0），只有标了 `acceptsMessage` 的选项会带。 */
+  decide(decision: ApprovalDecisionId, feedback?: string): void;
   /** 没经过 `respondToApproval` 就结束：发 `approval.cancelled`，回给 Claude 拒绝。 */
   end(reason: 'turn_cancelled' | 'turn_ended' | 'engine_exited' | 'disposed'): void;
 }
@@ -953,7 +954,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         `not an option of ${requestId}: ${decision.optionId}`,
       );
     }
-    entry.decide(decision.optionId as ApprovalDecisionId);
+    entry.decide(decision.optionId as ApprovalDecisionId, decision.message);
   }
 
   async respondToQuestion(
@@ -1543,7 +1544,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         };
         const entry: ApprovalEntry = {
           info,
-          decide: (decision) => {
+          decide: (decision, feedback) => {
             if (decision === 'cancel') turn.stoppedByUser = true;
             finish(
               permissionResult({
@@ -1552,6 +1553,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
                 toolInput,
                 toolUseID: options.toolUseID,
                 ...(options.suggestions !== undefined && { suggestions: options.suggestions }),
+                ...(feedback !== undefined && { feedback }),
               }),
             );
           },

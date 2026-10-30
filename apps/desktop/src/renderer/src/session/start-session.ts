@@ -35,6 +35,8 @@ export async function sendText(
   images?: readonly UserImagePart[],
   /** 协作模式（0.36.0）；只在 Host 与引擎有计划模式时给。 */
   collaborationMode?: CollaborationMode,
+  /** 审批改道（0.144.0）：有未决审批时拒绝最早的那条，这条消息作为附言；只在 Host 有 `approval_messages` 时给。 */
+  declineApproval?: boolean,
 ) {
   await client.request('session.send', {
     sessionId,
@@ -42,6 +44,7 @@ export async function sendText(
     clientMessageId: crypto.randomUUID(),
     ...(delivery !== undefined && { delivery }),
     ...(collaborationMode !== undefined && { collaborationMode }),
+    ...(declineApproval === true && { declineApproval: true }),
   });
 }
 

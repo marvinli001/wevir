@@ -776,6 +776,8 @@ export const messages: Messages = {
   'session.stop': 'Ferma',
   'session.sendSteer': 'Inserisci',
   'session.sendQueue': 'Accoda',
+  'session.sendRedirect': 'Rifiuta e invia',
+  'session.redirectPlaceholder': 'Rifiuta e reindirizza…',
 
   'pending.label': 'Messaggi in attesa',
   'pending.group.steer': 'Da inserire',
@@ -1038,6 +1040,8 @@ export const messages: Messages = {
   'approval.viewSubagent': 'Visualizza subagente',
   'approval.allow': 'Consenti',
   'approval.reject': 'Rifiuta',
+  'approval.feedback': 'Messaggio',
+  'approval.feedbackLabel': 'Messaggio con il rifiuto',
   'approval.option.allowOnce': 'Consenti una volta',
   'approval.option.allowAlways': 'Consenti sempre',
   'approval.option.reject': 'Rifiuta',

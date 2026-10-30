@@ -364,6 +364,11 @@ describe('permissions', () => {
     expect(permissionReply('accept')).toEqual({ reply: 'once' });
     expect(permissionReply('acceptForSession')).toEqual({ reply: 'always' });
     expect(permissionReply('decline')).toEqual({ reply: 'reject', message: DECLINE_FEEDBACK });
+    // 拒绝附言（0.144.0）代替固定的反馈。
+    expect(permissionReply('decline', 'Use the staging bucket.')).toEqual({
+      reply: 'reject',
+      message: 'Use the staging bucket.',
+    });
     expect(permissionReply('cancel')).toEqual({ reply: 'reject' });
     expect(permissionReply('nope')).toBeUndefined();
   });

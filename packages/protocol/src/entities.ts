@@ -742,6 +742,9 @@ export const ApprovalResolutionReasonSchema = z.enum([
 ]);
 export type ApprovalResolutionReason = z.infer<typeof ApprovalResolutionReasonSchema>;
 
+/** 拒绝附言的长度上限（0.144.0），按 UTF-16 code unit。 */
+export const APPROVAL_MESSAGE_MAX_LENGTH = 20_000;
+
 export const ApprovalResolutionSchema = z.object({
   /** `reason` 为 `user` 时必有。 */
   optionId: z.string().min(1).optional(),
@@ -753,6 +756,11 @@ export const ApprovalResolutionSchema = z.object({
    * `remember`）。规则之后可能被删掉，这里只是当时的 ID。
    */
   ruleIds: z.array(ApprovalRuleIdSchema).optional(),
+  /**
+   * 拒绝附言（0.144.0）：随拒绝交给了引擎的用户的话（`approval.respond` 的 `message`、`session.send` 的 `declineApproval`）。引擎收不了
+   * 附言时没有，那句话作为插话或待发消息出现在消息记录里。
+   */
+  message: z.string().min(1).max(APPROVAL_MESSAGE_MAX_LENGTH).optional(),
 });
 export type ApprovalResolution = z.infer<typeof ApprovalResolutionSchema>;
 

@@ -780,6 +780,8 @@ export const messages: Messages = {
   'session.stop': 'Остановить',
   'session.sendSteer': 'Вмешаться',
   'session.sendQueue': 'В очередь',
+  'session.sendRedirect': 'Отклонить и отправить',
+  'session.redirectPlaceholder': 'Отклонить и перенаправить…',
 
   'pending.label': 'Ожидают отправки',
   'pending.group.steer': 'Вмешательство',
@@ -1053,6 +1055,8 @@ export const messages: Messages = {
   'approval.viewSubagent': 'Открыть субагента',
   'approval.allow': 'Разрешить',
   'approval.reject': 'Отклонить',
+  'approval.feedback': 'Сообщение',
+  'approval.feedbackLabel': 'Сообщение к отказу',
   'approval.option.allowOnce': 'Разрешить один раз',
   'approval.option.allowAlways': 'Всегда разрешать',
   'approval.option.reject': 'Отклонить',

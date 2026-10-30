@@ -29,6 +29,7 @@ import {
   type MessageFrom,
   type MethodParams,
   type MethodResult,
+  type PendingDelivery,
   type PendingMessage,
   type PendingMessageId,
   type PermissionMode,
@@ -456,6 +457,13 @@ export interface SendOptions {
   from?: MessageFrom;
 }
 
+/** `#decide` 的结果：`approval.respond` 的结果、`approval.resolved` 的 `seq`，以及引擎收不下、要另发的拒绝附言（0.144.0）。 */
+interface DecideOutcome {
+  result: MethodResult<'approval.respond'>;
+  seq: number;
+  relay?: string;
+}
+
 /** `recover()` 的结果：启动对账修正了什么。 */
 export interface RecoveryReport {
   /** 结为 `expired` 的审批数。 */
@@ -557,6 +565,8 @@ interface SessionRuntime {
   readonly requestIds: Map<ApprovalId, string>;
   /** 未决审批上 Host 提议的规则前缀（0.80.0）：`approval.respond` 的 `remember` 按它加规则。 */
   readonly proposedRules: Map<ApprovalId, string[][]>;
+  /** 未决审批里引擎收得下拒绝附言的选项（0.144.0，适配器标的 `acceptsMessage`）。 */
+  readonly messageOptions: Map<ApprovalId, ReadonlySet<string>>;
   /** 引擎的提问 requestId ↔ Host 的 QuestionId（0.10.0），只保留未结束的。 */
   readonly questionIds: Map<string, QuestionId>;
   readonly questionRequests: Map<QuestionId, string>;
@@ -1761,6 +1771,11 @@ export class SessionManager {
     // 图片（0.28.0）：换成 Host 记下的、挪出暂存区。回执的指纹仍按客户端发来的内容算，重发时照样认得出。
     const content = await this.#acceptContent(runtime, params.content, ['content']);
     const accepted = { ...params, content };
+    // 审批改道（0.144.0）：只给用户自己发的消息，别的会话、自动化与频道发来的照常排队。
+    if (params.declineApproval === true && from === undefined) {
+      const redirected = await this.#redirect(runtime, accepted, sentBy, fingerprint);
+      if (redirected !== undefined) return redirected;
+    }
     const snapshot = this.#snapshot(runtime);
     if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
       return this.#addPending(runtime, accepted, sentBy, fingerprint, from);
@@ -2416,6 +2431,127 @@ export class SessionManager {
         }),
       ]);
     }
+  }
+
+  /**
+   * 审批改道（0.144.0）：拒绝会话与它的子会话里最早的、能拒绝的未决审批，消息作为拒绝附言。引擎收不下附言、或消息带图片时，拒绝后
+   * 整条消息作为插话发出（`#relayDeclineMessage`）。没有能拒绝的审批，或审批在这期间被别处结算了，返回 undefined，调用方照常发送。
+   */
+  async #redirect(
+    runtime: SessionRuntime,
+    params: MethodParams<'session.send'>,
+    sentBy: ClientIdentity,
+    fingerprint: string,
+  ): Promise<MethodResult<'session.send'> | undefined> {
+    const target = this.#declinable(runtime);
+    if (target === undefined) return undefined;
+    const text = params.content.every((part) => part.type === 'text')
+      ? params.content
+          .map((part) => part.text)
+          .join('\n')
+          .trim()
+      : '';
+    const { clientMessageId } = params;
+    let settled: DecideOutcome;
+    try {
+      settled = await this.#decide(
+        target.runtime,
+        target.approvalId,
+        target.optionId,
+        { reason: 'user', optionId: target.optionId, decidedBy: sentBy },
+        {
+          ...(text !== '' && { message: text }),
+          ...(clientMessageId !== undefined &&
+            target.native &&
+            text !== '' && { receipt: { clientMessageId, fingerprint } }),
+        },
+      );
+    } catch (error) {
+      // 另一端抢先结算了：这条消息照常发送。
+      if (isHostError(error, 'ALREADY_DECIDED')) return undefined;
+      throw error;
+    }
+    const approvalId = settled.result.approvalId;
+    if (settled.relay === undefined && text !== '') return { approvalId, seq: settled.seq };
+    const relayed = await this.#relayDeclineMessage(runtime, params.content, sentBy, {
+      clientMessageId,
+      fingerprint,
+    });
+    return { ...relayed, approvalId };
+  }
+
+  /** 会话与它的子会话里最早的未决审批，及拒绝它用的选项（先挑引擎收得下附言的，不挑“拒绝并停止”与“总是拒绝”，除非只有它们）。 */
+  #declinable(
+    runtime: SessionRuntime,
+  ):
+    | { runtime: SessionRuntime; approvalId: ApprovalId; optionId: string; native: boolean }
+    | undefined {
+    const snapshot = this.#snapshot(runtime);
+    const pending = [
+      ...snapshot.pendingApprovals,
+      ...(snapshot.subagents ?? []).flatMap((subagent) => subagent.pendingApprovals),
+    ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const approval of pending) {
+      const owner = this.#runtimes.get(approval.sessionId as SessionId);
+      if (owner === undefined || !owner.requestIds.has(approval.id)) continue;
+      const rejects = (approval.options as ApprovalOption[]).filter((o) => o.category === 'reject');
+      const carries = owner.messageOptions.get(approval.id);
+      const option =
+        rejects.find((o) => carries?.has(o.optionId) === true) ??
+        rejects.find((o) => o.kind === 'reject_once' || o.kind === 'reject_decline') ??
+        rejects.find((o) => o.kind !== 'reject_cancel' && o.kind !== 'reject_always') ??
+        rejects[0];
+      if (option !== undefined) {
+        const requestId = owner.requestIds.get(approval.id) as string;
+        const native = carries?.has(option.optionId) === true && !this.#appApprovals.has(requestId);
+        return { runtime: owner, approvalId: approval.id, optionId: option.optionId, native };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 引擎收不下的拒绝附言（0.144.0）：拒绝之后作为用户的插话发给顶层会话（子会话不收消息），引擎不能插话时排成待发消息，回合结束后
+   * 发出；回合已经结束时直接开新回合。
+   */
+  async #relayDeclineMessage(
+    runtime: SessionRuntime,
+    content: UserContentPart[],
+    sentBy: ClientIdentity,
+    receipt: { clientMessageId?: string | undefined; fingerprint?: string } = {},
+  ): Promise<MethodResult<'session.send'>> {
+    const top = this.#topLevel(runtime);
+    const delivery: PendingDelivery = this.#canSteer(top) ? 'steer' : 'queue';
+    const fingerprint = receipt.fingerprint ?? requestFingerprint(content);
+    const params: MethodParams<'session.send'> = {
+      sessionId: top.id,
+      content,
+      delivery,
+      ...(receipt.clientMessageId !== undefined && { clientMessageId: receipt.clientMessageId }),
+    };
+    if (ACTIVE_STATES.includes(this.#snapshot(top).session.state)) {
+      return this.#addPending(top, params, sentBy, fingerprint);
+    }
+    return this.send(params, sentBy);
+  }
+
+  /** 顶层会话：子会话一路找到父会话。 */
+  #topLevel(runtime: SessionRuntime): SessionRuntime {
+    let current = runtime;
+    while (current.parentId !== undefined) {
+      const parent = this.#runtimes.get(current.parentId);
+      if (parent === undefined) break;
+      current = parent;
+    }
+    return current;
+  }
+
+  /** 会话当前的引擎能不能插话：按 Provider 的种类查 `engineFeatures`；没给时看适配器。 */
+  #canSteer(runtime: SessionRuntime): boolean {
+    if (this.#adapter.steer === undefined) return false;
+    if (this.#engineFeatures === undefined) return true;
+    const kind = this.#storage.providers.get(this.#snapshot(runtime).session.providerId)?.kind;
+    return kind !== undefined && this.#engineFeatures[kind]?.steer === true;
   }
 
   /** `pending.update`：改内容或方式（domain-model §4.6 的表）。 */
@@ -4249,30 +4385,41 @@ export class SessionManager {
     decidedBy: ClientIdentity,
   ): Promise<MethodResult<'approval.respond'>> {
     this.#assertOpen();
-    const { approvalId, optionId, remember } = params;
+    const { approvalId, optionId, remember, message } = params;
     const found = this.#storage.approvals.get(approvalId);
     if (!found) throw new HostError('APPROVAL_NOT_FOUND', `approval ${approvalId} not found`);
     const runtime = this.#runtime(found.sessionId as SessionId, 'APPROVAL_NOT_FOUND');
-    return this.#decide(
+    const settled = await this.#decide(
       runtime,
       approvalId,
       optionId,
       { reason: 'user', optionId, decidedBy },
-      remember,
+      { remember, message },
     );
+    if (settled.relay !== undefined) {
+      await this.#relayDeclineMessage(runtime, [{ type: 'text', text: settled.relay }], decidedBy);
+    }
+    return settled.result;
   }
 
   /**
    * 结算一个未决审批（`approval.respond` 与按规则自动允许共用）：按会话串行，回复引擎成功后写 `approval.resolved`。`remember`
-   * （0.80.0）在回复成功后按审批提议的前缀加规则，规则 ID 记进结果。
+   * （0.80.0）在回复成功后按审批提议的前缀加规则，规则 ID 记进结果。`message`（0.144.0）是拒绝附言：所选选项引擎收得下时随回复交给
+   * 引擎、记进结果的 `resolution.message`，收不下时原样放在返回的 `relay` 里，由调用方拒绝后另发。`receipt` 是审批改道的发送回执，与
+   * `approval.resolved` 写在同一事务里。
    */
   #decide(
     runtime: SessionRuntime,
     approvalId: ApprovalId,
     optionId: string,
     base: ApprovalResolution,
-    remember?: ApprovalRuleScope,
-  ): Promise<MethodResult<'approval.respond'>> {
+    extra: {
+      remember?: ApprovalRuleScope | undefined;
+      message?: string | undefined;
+      receipt?: { clientMessageId: string; fingerprint: string } | undefined;
+    } = {},
+  ): Promise<DecideOutcome> {
+    const { remember, message, receipt } = extra;
     return this.#serial(runtime, async () => {
       // 过了 `expiresAt`、计时器还没轮到：先按过期结掉（0.105.0），用户的回复不再生效。
       if (base.reason === 'user' && this.#expired(approvalId))
@@ -4294,14 +4441,31 @@ export class SessionManager {
         });
       }
 
+      if (message !== undefined && option.category !== 'reject') {
+        const text = `option ${optionId} of approval ${approvalId} is not a reject option`;
+        throw new HostError('INVALID_PARAMS', text, {
+          issues: [{ path: ['message'], message: text }],
+        });
+      }
+      // 拒绝附言（0.144.0）：引擎在这个选项上收得下才交给它；Host 补问的插件写工具审批没有引擎。
+      const delivered =
+        message !== undefined &&
+        !this.#appApprovals.has(requestId) &&
+        runtime.messageOptions.get(approvalId)?.has(optionId) === true;
+
       const status: ResolvedApprovalStatus = option.category === 'allow' ? 'approved' : 'denied';
-      let resolution: ApprovalResolution = base;
+      let resolution: ApprovalResolution = delivered ? { ...base, message } : base;
       let failure: { error: unknown } | undefined;
+      let seq = 0;
       runtime.holds += 1;
       try {
         try {
           if (!this.#appApprovals.has(requestId))
-            await this.#adapter.respondToApproval(runtime.engineSessionId, requestId, { optionId });
+            await this.#adapter.respondToApproval(
+              runtime.engineSessionId,
+              requestId,
+              delivered ? { optionId, message } : { optionId },
+            );
         } catch (error) {
           failure = { error };
         }
@@ -4321,7 +4485,7 @@ export class SessionManager {
                   approvalId,
                 },
               );
-              resolution = { ...base, ruleIds };
+              resolution = { ...resolution, ruleIds };
             } catch (error) {
               // 引擎已经按允许执行了：规则没加上只告警，审批照常结算。
               this.#onWarning('审批规则没有加上', { approvalId, error: String(error) });
@@ -4335,7 +4499,24 @@ export class SessionManager {
           ) {
             inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
           }
-          this.#write(runtime, inputs);
+          const [written] = this.#write(runtime, inputs, {
+            inTransaction: (events) => {
+              const event = events[0];
+              if (receipt === undefined || !event) return;
+              // 审批改道的回执（0.144.0）：`turnId` 列放审批 ID，重发时 `#replay` 认得出。
+              this.#storage.sendReceipts.insert({
+                sessionId: this.#topLevel(runtime).id,
+                clientMessageId: receipt.clientMessageId,
+                fingerprint: receipt.fingerprint,
+                status: 'confirmed',
+                turnId: approvalId,
+                seq: event.seq,
+                createdAt: event.ts,
+                updatedAt: event.ts,
+              });
+            },
+          });
+          seq = written?.seq ?? 0;
         } else if (
           // approval_not_found：引擎侧已经结束了这个审批，它的 approval.cancelled 在暂扣的事件里。
           !isAdapterError(failure.error, 'invalid_option') &&
@@ -4347,7 +4528,13 @@ export class SessionManager {
         this.#release(runtime);
       }
 
-      if (!failure) return { approvalId, status, resolution };
+      if (!failure) {
+        return {
+          result: { approvalId, status, resolution },
+          seq,
+          ...(message !== undefined && !delivered && { relay: message }),
+        };
+      }
       if (isAdapterError(failure.error, 'invalid_option'))
         throw invalidOption(approvalId, optionId);
       const after = this.#approvalRecord(approvalId);
@@ -5055,6 +5242,10 @@ export class SessionManager {
     if (receipt.turnId.startsWith('pnd_')) {
       return { pendingId: receipt.turnId as PendingMessageId, seq: receipt.seq };
     }
+    // 审批改道、附言交给了引擎的发送（0.144.0）：放的是审批 ID。
+    if (receipt.turnId.startsWith('apr_')) {
+      return { approvalId: receipt.turnId as ApprovalId, seq: receipt.seq };
+    }
     return { turnId: receipt.turnId as TurnId, seq: receipt.seq };
   }
 
@@ -5650,6 +5841,10 @@ export class SessionManager {
     };
     runtime.approvalIds.set(event.requestId, approvalId);
     runtime.requestIds.set(approvalId, event.requestId);
+    const messageOptions = event.options.filter((option) => option.acceptsMessage === true);
+    if (messageOptions.length > 0) {
+      runtime.messageOptions.set(approvalId, new Set(messageOptions.map((o) => o.optionId)));
+    }
     const rule =
       source === 'engine' && state !== 'cancelling'
         ? this.#ruleFor(runtime, tool, event)
@@ -6832,6 +7027,7 @@ export class SessionManager {
           runtime.requestIds.delete(event.payload.approvalId);
           runtime.approvalIds.delete(requestId);
           runtime.proposedRules.delete(event.payload.approvalId);
+          runtime.messageOptions.delete(event.payload.approvalId);
         }
       } else if (event.type === 'question.resolved') {
         this.#clearQuestionTimer(event.payload.questionId);
@@ -6883,6 +7079,7 @@ export class SessionManager {
         approvalIds: new Map(),
         requestIds: new Map(),
         proposedRules: new Map(),
+        messageOptions: new Map(),
         questionIds: new Map(),
         questionRequests: new Map(),
       };

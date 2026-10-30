@@ -296,6 +296,31 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     expect(log.events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
   });
 
+  it('拒绝附言（0.144.0）：“拒绝并继续”的 reject 带上用户的话', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    await h.adapter.send(id, text(DEFAULT_CONTRACT_PROMPTS.approval));
+    await log.until(
+      (events) => events.some((event) => event.type === 'approval.requested'),
+      '审批',
+    );
+    const request = log.events.find((event) => event.type === 'approval.requested') as {
+      requestId: string;
+      options: Array<{ optionId: string; acceptsMessage?: true }>;
+    };
+    expect(request.options.filter((o) => o.acceptsMessage).map((o) => o.optionId)).toEqual([
+      'decline',
+    ]);
+    await h.adapter.respondToApproval(id, request.requestId, {
+      optionId: 'decline',
+      message: 'Write it to ./out instead.',
+    });
+    await log.terminal();
+    expect(calls(h, 'replyPermission')).toEqual([
+      [request.requestId, 'reject', 'Write it to ./out instead.'],
+    ]);
+  });
+
   it('拒绝并停止：不带反馈的 reject，opencode 停下循环，回合完成', async () => {
     const h = setup();
     const { id, log } = await openSession(h);

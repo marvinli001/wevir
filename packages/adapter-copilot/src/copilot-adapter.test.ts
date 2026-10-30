@@ -140,6 +140,8 @@ describe('Copilot ACP', () => {
       'allow_always',
       'reject_once',
     ]);
+    // ACP 的 `selected` 回复只有 optionId：不标 acceptsMessage，Host 把拒绝附言改作待发消息（0.144.0）。
+    expect(event.options.some((option) => option.acceptsMessage === true)).toBe(false);
     await adapter.respondToApproval(id, event.requestId, { optionId: 'reject_once' });
     expect((await events.turn()).find((event) => event.type === 'tool.finished')).toMatchObject({
       status: 'failed',

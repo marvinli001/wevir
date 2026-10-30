@@ -36,7 +36,8 @@ export function claudePermissionMode(mode: PermissionMode | undefined): SdkPermi
 export const APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'accept', label: '允许', kind: 'allow_accept' },
   { optionId: 'acceptForSession', label: '允许，本会话不再询问', kind: 'allow_accept_for_session' },
-  { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline' },
+  // 拒绝附言（0.144.0，T3 的 #23657）：作为拒绝的 `message` 回给发起请求的 agent（子 agent 的请求回给子 agent）。
+  { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline', acceptsMessage: true },
   // 中断回合：用户接着说该怎么做（SDK 的 `interrupt: true`）。
   { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel' },
 ]);
@@ -53,6 +54,8 @@ export function permissionResult(input: {
   toolInput: Record<string, unknown>;
   toolUseID: string;
   suggestions?: readonly PermissionUpdate[];
+  /** 用户的拒绝附言（0.144.0），代替固定的拒绝文案。 */
+  feedback?: string;
 }): PermissionResult {
   if (input.decision === 'accept' || input.decision === 'acceptForSession') {
     return {
@@ -69,9 +72,10 @@ export function permissionResult(input: {
   return {
     behavior: 'deny',
     message:
-      input.decision === 'cancel'
+      input.feedback?.trim() ||
+      (input.decision === 'cancel'
         ? 'User cancelled tool execution.'
-        : 'User declined tool execution.',
+        : 'User declined tool execution.'),
     toolUseID: input.toolUseID,
     decisionClassification: 'user_reject',
     ...(input.decision === 'cancel' && { interrupt: true }),

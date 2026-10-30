@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { t } from '@/i18n';
 import { composerPrefs, sendKeyLabel } from './composer-prefs';
 
-export type ComposerAction = 'send' | 'refine' | 'stop' | 'steer' | 'queue';
+export type ComposerAction = 'send' | 'refine' | 'stop' | 'steer' | 'queue' | 'redirect';
 
 const ACTION_LABELS = {
   send: 'session.send',
@@ -20,6 +20,7 @@ const ACTION_LABELS = {
   stop: 'session.stop',
   steer: 'session.sendSteer',
   queue: 'session.sendQueue',
+  redirect: 'session.sendRedirect',
 } as const;
 
 type Glyph = 'send' | 'stop' | 'loading';

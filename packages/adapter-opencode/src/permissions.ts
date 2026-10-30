@@ -212,7 +212,8 @@ export const TITLE_PERMISSION_RULES: PermissionRuleset = Object.freeze([
 export const APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'accept', label: '允许', kind: 'allow_accept' },
   { optionId: 'acceptForSession', label: '允许，本会话不再询问', kind: 'allow_accept_for_session' },
-  { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline' },
+  // 拒绝附言（0.144.0）：代替 `DECLINE_FEEDBACK` 作为 reject 的 message，opencode 原样交给模型。
+  { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline', acceptsMessage: true },
   { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel' },
 ]);
 
@@ -224,11 +225,12 @@ export const DECLINE_FEEDBACK = 'The user declined this action. Continue without
  * - 允许 → `once`；
  * - 本会话不再询问 → `always`：opencode 把请求带的 `always` 模式记进这个目录实例的已批准列表（只在内存里，opencode 服务器
  *   重启就没了，不写用户的配置）；
- * - 拒绝并继续 → `reject` 带反馈；
+ * - 拒绝并继续 → `reject` 带反馈：用户写了拒绝附言（0.144.0）就是那句话，否则是 `DECLINE_FEEDBACK`；
  * - 拒绝并停止 → `reject` 不带反馈：opencode 记成 RejectedError，停下这个会话的循环（同一会话里别的未决请求一并拒绝）。
  */
 export function permissionReply(
   optionId: string,
+  feedback?: string,
 ): { reply: 'once' | 'always' | 'reject'; message?: string } | undefined {
   switch (optionId) {
     case 'accept':
@@ -236,7 +238,7 @@ export function permissionReply(
     case 'acceptForSession':
       return { reply: 'always' };
     case 'decline':
-      return { reply: 'reject', message: DECLINE_FEEDBACK };
+      return { reply: 'reject', message: feedback ?? DECLINE_FEEDBACK };
     case 'cancel':
       return { reply: 'reject' };
     default:

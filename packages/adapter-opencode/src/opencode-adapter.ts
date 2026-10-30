@@ -747,7 +747,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (approval === undefined) {
       throw new AdapterError('approval_not_found', `OpenCode has no pending approval ${requestId}`);
     }
-    const reply = permissionReply(decision.optionId);
+    const reply = permissionReply(decision.optionId, decision.message);
     if (reply === undefined) {
       throw new AdapterError('invalid_option', `unknown approval option ${decision.optionId}`);
     }

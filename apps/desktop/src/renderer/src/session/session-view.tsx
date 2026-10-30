@@ -102,6 +102,7 @@ import {
   usePermissionModes,
   useStartSession,
 } from './start-session';
+import { pendingApprovals } from './subagent-model';
 import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
@@ -282,6 +283,12 @@ export function SessionView({
     plan.supported && readOnly === undefined && session.parentSessionId === undefined;
 
   /** 发一条消息；`mode` 是这条消息的协作模式（0.36.0，省略即默认模式）。 */
+  // 审批挂起时发消息即拒绝并改道（0.144.0）：会话自己的与子会话的审批都算，Host 拒绝最早的那条。
+  const redirect =
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'approval_messages') &&
+    transcript !== undefined &&
+    pendingApprovals(transcript).length > 0;
   const deliver = useCallback(
     async (
       text: string,
@@ -336,7 +343,7 @@ export function SessionView({
         if (sessionState === 'error' || sessionState === 'closed') {
           await client.request('session.resume', { sessionId: session.id });
         }
-        await sendText(client, session.id, text, delivery, images, mode);
+        await sendText(client, session.id, text, delivery, images, mode, redirect);
         transcriptRef.current?.jumpToLatest('auto');
         return true;
       } catch (error) {
@@ -344,7 +351,7 @@ export function SessionView({
         return false;
       }
     },
-    [client, session.id, sessionState, sideEnabled, panes, goalsEnabled, goal, runGoal],
+    [client, session.id, sessionState, sideEnabled, panes, goalsEnabled, goal, runGoal, redirect],
   );
   const send = useCallback(
     (text: string, delivery?: PendingDelivery, images?: readonly UserImagePart[]) =>
@@ -1045,6 +1052,7 @@ export function SessionView({
             {...(fileScope && { fileScope })}
             {...(composerPlan && { plan: composerPlan })}
             {...(suggestion !== undefined && { suggestion })}
+            redirect={redirect}
           />
         </div>
       </div>

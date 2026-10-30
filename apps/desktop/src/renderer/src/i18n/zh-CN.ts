@@ -778,6 +778,8 @@ export const zhCN = {
   'session.stop': '停止',
   'session.sendSteer': '插话',
   'session.sendQueue': '排队',
+  'session.sendRedirect': '拒绝并发送',
+  'session.redirectPlaceholder': '拒绝审批并改道…',
 
   'pending.label': '待发消息',
   'pending.group.steer': '插话',
@@ -1034,6 +1036,8 @@ export const zhCN = {
   'approval.viewSubagent': '查看子智能体',
   'approval.allow': '允许',
   'approval.reject': '拒绝',
+  'approval.feedback': '附言',
+  'approval.feedbackLabel': '拒绝附言',
   'approval.option.allowOnce': '允许一次',
   'approval.option.allowAlways': '总是允许',
   'approval.option.reject': '拒绝',

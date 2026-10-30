@@ -462,6 +462,31 @@ describe('审批（录音 approval.*）', () => {
     await adapter.respondToApproval(engineSessionId, request.requestId, { optionId: 'accept' });
   });
 
+  it('拒绝附言（0.144.0）：“拒绝并继续”标了 acceptsMessage，附言作为拒绝的 message 回给 Claude', async () => {
+    const { adapter, sdk } = harness();
+    const { engineSessionId, request } = await approval(adapter);
+    expect(
+      request.options.filter((option) => option.acceptsMessage).map((o) => o.optionId),
+    ).toEqual(['decline']);
+    const canUseTool = sessionQueries(sdk)[0]?.options.canUseTool;
+    const pending = canUseTool?.(
+      'Bash',
+      { command: 'rm -rf build' },
+      { signal: new AbortController().signal, toolUseID: 'toolu_note', requestId: 'req' },
+    );
+    await adapter.respondToApproval(engineSessionId, 'toolu_note', {
+      optionId: 'decline',
+      message: 'Keep the build folder; delete dist instead.',
+    });
+    expect(await pending).toEqual({
+      behavior: 'deny',
+      message: 'Keep the build folder; delete dist instead.',
+      toolUseID: 'toolu_note',
+      decisionClassification: 'user_reject',
+    });
+    await adapter.respondToApproval(engineSessionId, request.requestId, { optionId: 'decline' });
+  });
+
   it('拒绝并停止：Claude 中断回合，按取消结算', async () => {
     const { adapter } = harness();
     const { engineSessionId, log, request } = await approval(adapter);

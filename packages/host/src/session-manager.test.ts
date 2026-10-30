@@ -3267,3 +3267,254 @@ function textOf(content: readonly UserContentPart[]): string {
   const part = content[0];
   return part?.type === 'text' ? part.text : '';
 }
+
+describe('SessionManager：拒绝附言与审批改道（0.144.0）', () => {
+  /** 审批选项去掉 `acceptsMessage`：引擎收不下附言（Codex、ACP 系）。 */
+  function withoutMessages(h: Harness) {
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      stripMessageOptions(subscribe(engineSessionId)),
+    );
+  }
+
+  function redirect(h: Harness, sessionId: SessionId, value: string, clientMessageId?: string) {
+    return h.manager.send(
+      {
+        sessionId,
+        content: text(value),
+        delivery: 'queue',
+        declineApproval: true,
+        ...(clientMessageId !== undefined && { clientMessageId }),
+      },
+      desktop,
+    );
+  }
+
+  it('approval.respond 带附言：引擎收得下时随拒绝交给它，记进 resolution.message', async () => {
+    const h = setup();
+    const respond = vi.spyOn(h.adapter, 'respondToApproval');
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    const result = await h.manager.respondToApproval(
+      { approvalId: approval.id, optionId: 'reject-once', message: 'write under /tmp' },
+      desktop,
+    );
+    expect(result).toEqual({
+      approvalId: approval.id,
+      status: 'denied',
+      resolution: {
+        reason: 'user',
+        optionId: 'reject-once',
+        decidedBy: desktop,
+        message: 'write under /tmp',
+      },
+    });
+    expect(respond).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
+      optionId: 'reject-once',
+      message: 'write under /tmp',
+    });
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'tool.finished').at(-1)?.payload).toMatchObject({
+      status: 'failed',
+      output: { text: 'Error: the user rejected echo_write: write under /tmp' },
+    });
+    expect(ofType(h, id, 'pending.added')).toEqual([]);
+  });
+
+  it('附言只能配拒绝类选项：允许带附言 INVALID_PARAMS，审批不变', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    await expect(
+      h.manager.respondToApproval(
+        { approvalId: approval.id, optionId: 'allow-once', message: 'go' },
+        desktop,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    expect(snapshot(h, id).pendingApprovals.map((a) => a.id)).toEqual([approval.id]);
+    await h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, cli);
+    await waitForState(h, id, 'idle');
+  });
+
+  it('引擎收不下附言：只回拒绝，附言作为插话进同一个回合', async () => {
+    const h = setup();
+    withoutMessages(h);
+    const respond = vi.spyOn(h.adapter, 'respondToApproval');
+    const id = await create(h);
+    const { turnId } = await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    const result = await h.manager.respondToApproval(
+      { approvalId: approval.id, optionId: 'reject-once', message: 'write under /tmp' },
+      desktop,
+    );
+    expect(result.resolution).toEqual({
+      reason: 'user',
+      optionId: 'reject-once',
+      decidedBy: desktop,
+    });
+    expect(respond).toHaveBeenCalledWith(expect.any(String), expect.any(String), {
+      optionId: 'reject-once',
+    });
+    expect(ofType(h, id, 'pending.added').map((e) => e.payload.pending)).toEqual([
+      expect.objectContaining({
+        delivery: 'steer',
+        sentBy: desktop,
+        content: text('write under /tmp'),
+      }),
+    ]);
+    await waitForState(h, id, 'idle');
+    expect(
+      ofType(h, id, 'user.steered').map((e) => [e.payload.turnId, textOf(e.payload.content)]),
+    ).toEqual([[turnId, 'write under /tmp']]);
+  });
+
+  it('引擎不能插话：附言排成待发消息，回合结束后作为下一条消息发出', async () => {
+    const h = setup({
+      manager: { engineFeatures: { 'deepseek-official': { engine: 'echo' } } },
+    });
+    withoutMessages(h);
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    await h.manager.respondToApproval(
+      { approvalId: approval.id, optionId: 'reject-once', message: 'try again' },
+      desktop,
+    );
+    expect(ofType(h, id, 'pending.added')[0]?.payload.pending).toMatchObject({
+      delivery: 'queue',
+      content: text('try again'),
+    });
+    expect(ofType(h, id, 'pending.added')[0]?.payload.pending.fallback).toBeUndefined();
+    await vi.waitFor(
+      () =>
+        expect(ofType(h, id, 'user.message').map((e) => textOf(e.payload.content))).toEqual([
+          'please approve',
+          'try again',
+        ]),
+      { timeout: 2000, interval: 5 },
+    );
+    await waitForState(h, id, 'idle');
+  });
+
+  it('审批挂起时用户发消息（declineApproval）：拒绝最早的审批并附上这条消息，不排队', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    const result = await redirect(h, id, 'use a temp dir instead', 'msg-redirect');
+    const resolved = ofType(h, id, 'approval.resolved').at(-1);
+    expect(result).toEqual({ approvalId: approval.id, seq: resolved?.seq });
+    expect(resolved?.payload).toEqual({
+      approvalId: approval.id,
+      status: 'denied',
+      resolution: {
+        reason: 'user',
+        optionId: 'reject-once',
+        decidedBy: desktop,
+        message: 'use a temp dir instead',
+      },
+    });
+    expect(ofType(h, id, 'pending.added')).toEqual([]);
+    // 同一 clientMessageId 重发返回原结果，不再拒绝什么。
+    expect(await redirect(h, id, 'use a temp dir instead', 'msg-redirect')).toEqual(result);
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'user.message')).toHaveLength(1);
+  });
+
+  it('审批改道、引擎收不下附言：拒绝后这条消息作为插话发出，结果带审批与待发消息', async () => {
+    const h = setup();
+    withoutMessages(h);
+    const id = await create(h);
+    const { turnId } = await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    const result = await redirect(h, id, 'stop and explain', 'msg-relay');
+    expect(result).toEqual({
+      approvalId: approval.id,
+      pendingId: expect.stringMatching(/^pnd_/),
+      seq: expect.any(Number),
+    });
+    expect(ofType(h, id, 'approval.resolved').at(-1)?.payload.resolution).not.toHaveProperty(
+      'message',
+    );
+    await waitForState(h, id, 'idle');
+    expect(
+      ofType(h, id, 'user.steered').map((e) => [e.payload.turnId, textOf(e.payload.content)]),
+    ).toEqual([[turnId, 'stop and explain']]);
+  });
+
+  it('子会话的审批也算：父会话里发的消息拒绝它，附言交给发起请求的子 agent', async () => {
+    const h = setup();
+    const parent = await create(h);
+    await send(h, parent, 'subagent approve');
+    let child: SessionId | undefined;
+    await vi.waitFor(
+      () => {
+        child = h.storage.sessions.list({ parentSessionId: parent })[0]?.id as SessionId;
+        expect(child).toBeDefined();
+      },
+      { timeout: 2000, interval: 5 },
+    );
+    const approval = await waitForApproval(h, child as SessionId);
+    await vi.waitFor(
+      () =>
+        expect(snapshot(h, parent).subagents?.[0]?.pendingApprovals.map((a) => a.id)).toEqual([
+          approval.id,
+        ]),
+      { timeout: 2000, interval: 5 },
+    );
+    const result = await redirect(h, parent, 'skip that file');
+    expect(result).toEqual({ approvalId: approval.id, seq: expect.any(Number) });
+    expect(
+      ofType(h, child as SessionId, 'approval.resolved').at(-1)?.payload.resolution,
+    ).toMatchObject({
+      message: 'skip that file',
+    });
+    await waitForState(h, parent, 'idle');
+    expect(ofType(h, child as SessionId, 'tool.finished').at(-1)?.payload).toMatchObject({
+      output: { text: 'Error: the user rejected echo_write: skip that file' },
+    });
+  });
+
+  it('没有未决审批、或不是用户自己发的消息：照常发送与排队', async () => {
+    const h = setup();
+    const id = await create(h);
+    const idle = await redirect(h, id, 'hello');
+    expect(idle).toEqual({ turnId: expect.stringMatching(/^trn_/), seq: expect.any(Number) });
+    await waitForState(h, id, 'idle');
+
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    const relayed = await h.manager.send(
+      { sessionId: id, content: text('report'), delivery: 'queue', declineApproval: true },
+      cli,
+      { from: { sessionId: id, kind: 'report' } },
+    );
+    expect(relayed.pendingId).toMatch(/^pnd_/);
+    expect(relayed).not.toHaveProperty('approvalId');
+    expect(snapshot(h, id).pendingApprovals.map((a) => a.id)).toEqual([approval.id]);
+    // 不带 declineApproval 的（旧客户端）照旧排队。
+    const queued = await h.manager.send(
+      { sessionId: id, content: text('later'), delivery: 'queue' },
+      desktop,
+    );
+    expect(queued.pendingId).toMatch(/^pnd_/);
+    expect(snapshot(h, id).pendingApprovals).toHaveLength(1);
+    await h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, cli);
+    await waitForState(h, id, 'idle');
+  });
+});
+
+async function* stripMessageOptions(source: AsyncIterable<AgentEvent>) {
+  for await (const event of source) {
+    if (event.type === 'approval.requested') {
+      yield {
+        ...event,
+        options: event.options.map(({ acceptsMessage: _carries, ...option }) => option),
+      } satisfies AgentEvent;
+      continue;
+    }
+    yield event;
+  }
+}

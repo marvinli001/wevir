@@ -476,11 +476,18 @@ export interface ApprovalOption {
   label: string;
   /** ACP：allow_once / allow_always / reject_once / reject_always。以 `allow` 开头才算批准。 */
   kind: string;
+  /**
+   * 选它时引擎收得下 `ApprovalDecision.message`（0.144.0，拒绝附言）：适配器把那句话交给发起请求的 Agent（如 Claude 的 `canUseTool`
+   * 拒绝的 `message`）。只标在拒绝类选项上；没标的，Host 不传附言，拒绝后自己把它作为插话或待发消息发出。
+   */
+  acceptsMessage?: true;
 }
 
 /** 审批决定：所选选项的 ID，必须是该请求 `options` 中的一个。 */
 export interface ApprovalDecision {
   optionId: string;
+  /** 拒绝附言（0.144.0）：只在所选选项标了 `acceptsMessage` 时有，已去掉首尾空白、不是空的。 */
+  message?: string;
 }
 
 /** 一个尚未决定的审批请求。`listPendingApprovals` 返回它，`approval.requested` 事件也是这个形状。 */

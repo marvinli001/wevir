@@ -1,5 +1,6 @@
 // 用户接入的 MCP 服务的 elicitation（codex-event-mapping.md §6.20）：CodexAdapter 驱动 test-fixtures/fake-app-server.mjs，回放手写的
-// `mcpServer/elicitation/request` 样本（表单与链接），核对上报的提问与审批、以及回给 app-server 的 `{action, content}`。不需要二进制。
+// `mcpServer/elicitation/request` 样本（表单与链接），核对上报的提问与审批、以及回给 app-server 的 `{action, content}`；另核对命令审批的
+// 拒绝不带附言（0.144.0）。不需要二进制。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -145,6 +146,22 @@ describe('链接 elicitation', () => {
     ).toMatchObject({ status });
     expect(replies()).toEqual([
       { method: 'mcpServer/elicitation/request', result: { action: optionId, content: null } },
+    ]);
+  });
+});
+
+describe('拒绝附言（0.144.0）', () => {
+  it('命令审批的 decline 没有附言字段：选项不标 acceptsMessage，回给 app-server 的只有 decision', async () => {
+    const { adapter, engineSessionId, events, replies } = await start('approval-exec');
+    const approval = await waitForEvent(events, ofType('approval.requested'), 'approval.requested');
+    expect(approval.options.some((option) => option.acceptsMessage === true)).toBe(false);
+    await adapter.respondToApproval(engineSessionId, approval.requestId, {
+      optionId: 'decline',
+      message: 'not this one',
+    });
+    await waitForEvent(events, ofType('turn.settled'), 'turn.settled');
+    expect(replies()).toEqual([
+      { method: 'item/commandExecution/requestApproval', result: { decision: 'decline' } },
     ]);
   });
 });

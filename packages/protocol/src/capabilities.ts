@@ -581,6 +581,11 @@ export const HOST_FEATURES = {
    * 通知意图时声明。
    */
   agentNotifications: 'agent_notifications',
+  /**
+   * 拒绝附言与审批改道（0.144.0）：`approval.respond` 的 `message`、`ApprovalResolution.message`，`session.send` 的 `declineApproval` 与
+   * 结果的 `approvalId`。引擎收不了附言时 Host 改为插话或待发消息，与引擎无关地声明。
+   */
+  approvalMessages: 'approval_messages',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -696,6 +701,7 @@ export const HostFeaturesSchema = z.looseObject({
   approval_risk: z.boolean().optional(),
   lifecycle_hooks: z.boolean().optional(),
   agent_notifications: z.boolean().optional(),
+  approval_messages: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

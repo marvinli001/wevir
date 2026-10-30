@@ -775,6 +775,8 @@ export const messages: Messages = {
   'session.stop': 'Stoppen',
   'session.sendSteer': 'Einschieben',
   'session.sendQueue': 'Einreihen',
+  'session.sendRedirect': 'Ablehnen und senden',
+  'session.redirectPlaceholder': 'Ablehnen und umlenken…',
 
   'pending.label': 'Ausstehende Nachrichten',
   'pending.group.steer': 'Einschieben',
@@ -1036,6 +1038,8 @@ export const messages: Messages = {
   'approval.viewSubagent': 'Subagent anzeigen',
   'approval.allow': 'Zulassen',
   'approval.reject': 'Ablehnen',
+  'approval.feedback': 'Nachricht',
+  'approval.feedbackLabel': 'Nachricht zur Ablehnung',
   'approval.option.allowOnce': 'Einmal zulassen',
   'approval.option.allowAlways': 'Immer zulassen',
   'approval.option.reject': 'Ablehnen',

@@ -8,7 +8,7 @@
 // 预览）；标出“还有 N 个待审批”；另一端先处理时按 approval.resolved 收起并提示由谁处理。R5：父会话里也显示子会话的
 // 审批（父会话快照里的副本），标出来自哪个子智能体，并能跳到它的视图。U13：版式与快捷键照 Claude Code 的权限提示。
 
-import { isRpcError, type Transcript, type WevirClient } from '@wevir/client-sdk';
+import { hostSupports, isRpcError, type Transcript, type WevirClient } from '@wevir/client-sdk';
 import type {
   ApprovalId,
   ApprovalOption,
@@ -19,7 +19,7 @@ import type {
   SubagentSummary,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, MessageSquareText } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useSession, useWorkbenchProviders } from '@/data/workbench-data';
 import { Beam } from '@/fx/beam';
-import { describe, useCan } from '@/host/host-connection';
+import { describe, useCan, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { platformApi } from '@/platform/platform';
@@ -90,6 +90,10 @@ export function ApprovalDock({
   const [notice, setNotice] = useState<Notice>();
   const shown = useRef<ApprovalId | undefined>(undefined);
   const scope = useApprovalScope(transcript, session);
+  // 拒绝附言（0.144.0）：Host 有 `approval_messages` 时拒绝能附一段话。
+  const { view } = useHostConnection();
+  const feedback =
+    view.status === 'connected' && hostSupports(view.hello.features, 'approval_messages');
 
   // 正在显示的审批不再未决：按结算结果提示（本窗口做的决定不提示）。
   useEffect(() => {
@@ -111,6 +115,7 @@ export function ApprovalDock({
     approval: ApprovalRequest,
     optionId: string,
     remember?: ApprovalRuleScope,
+    message?: string,
   ) => {
     if (!client) return;
     setSubmitting(approval.id);
@@ -120,6 +125,7 @@ export function ApprovalDock({
         approvalId: approval.id,
         optionId,
         ...(remember !== undefined && { remember }),
+        ...(message !== undefined && { message }),
       });
       // 连接器要打开的链接：用户允许了才打开。
       const link = elicitationLink(approval);
@@ -166,8 +172,11 @@ export function ApprovalDock({
             remaining={remaining}
             recap={recap}
             busy={submitting === current.id}
+            feedback={feedback}
             error={notice?.tone === 'error' ? notice.text : undefined}
-            onRespond={(optionId, remember) => void respond(current, optionId, remember)}
+            onRespond={(optionId, remember, message) =>
+              void respond(current, optionId, remember, message)
+            }
           />
         </Beam>
       )}
@@ -194,7 +203,8 @@ function useApprovalScope(
  * 一个审批（U13 起照 Claude Code 的权限提示）：一句问话做标题，下面是 Agent 给的理由、所需权限（警示色）与放在代码块里的
  * 目标（命令全文或路径），写文件再附内容预览；底部只有两个按钮（U15）：左边“拒绝”（1、Esc），右边“允许”（2、⌘↵，主按钮），
  * 取哪个选项见 approval-model.ts 的 `approvalLayout`。快捷键在焦点在卡片里、或不在任何输入框里时生效；卡片出现时把焦点
- * 拿过来，除非用户正在输入框里打字。
+ * 拿过来，除非用户正在输入框里打字。拒绝旁的“附言”（0.144.0，Tab）在卡片里展开一行输入框：写了字再拒绝（回车或按钮）就把
+ * 这段话随拒绝交给 Agent，Esc 收起。
  */
 function ApprovalCard({
   approval,
@@ -203,6 +213,7 @@ function ApprovalCard({
   remaining,
   recap,
   busy,
+  feedback,
   error,
   onRespond,
 }: {
@@ -213,8 +224,10 @@ function ApprovalCard({
   remaining: number;
   recap: ReactNode;
   busy: boolean;
+  /** 拒绝能附一段话（Host 有 `approval_messages`）。 */
+  feedback: boolean;
   error: string | undefined;
-  onRespond: (optionId: string, remember?: ApprovalRuleScope) => void;
+  onRespond: (optionId: string, remember?: ApprovalRuleScope, message?: string) => void;
 }) {
   const presentation = presentApproval(approval, scope);
   const layout = useMemo(() => approvalLayout(approval.options), [approval.options]);
@@ -226,8 +239,25 @@ function ApprovalCard({
   );
   const titleId = `approval-${approval.id}`;
   const cardRef = useRef<HTMLElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const respond = useRef(onRespond);
   respond.current = onRespond;
+  const canNote = feedback && layout.reject !== undefined;
+  const [noting, setNoting] = useState(false);
+  const [note, setNote] = useState('');
+  const openNote = () => {
+    setNoting(true);
+    window.setTimeout(() => noteRef.current?.focus(), 0);
+  };
+  const closeNote = () => {
+    setNoting(false);
+    cardRef.current?.focus({ preventScroll: true });
+  };
+  const reject = () => {
+    if (!layout.reject) return;
+    const message = note.trim();
+    onRespond(layout.reject.optionId, undefined, noting && message !== '' ? message : undefined);
+  };
 
   useEffect(() => {
     const active = document.activeElement;
@@ -247,8 +277,16 @@ function ApprovalCard({
       const card = cardRef.current;
       const scope = target?.closest('[data-keyboard-scope]');
       if (scope && scope !== card) return;
-      if (!scope && isEditable(target)) return;
+      // 附言输入框里打字不触发快捷键（它自己处理回车与 Esc）。
+      if (isEditable(target)) return;
       if (document.querySelector('[role="dialog"]')) return;
+      // Tab 只在焦点在卡片本身时展开附言，焦点在卡片里的按钮上时照常移动焦点。
+      if (canNote && target === card && event.key === 'Tab' && !hasModifier(event)) {
+        event.preventDefault();
+        setNoting(true);
+        window.setTimeout(() => noteRef.current?.focus(), 0);
+        return;
+      }
       // 数字键 3：总是允许，只对这个项目（“所有项目”要从按钮的菜单里选）。
       if (always && event.key === '3' && !hasModifier(event)) {
         event.preventDefault();
@@ -262,7 +300,7 @@ function ApprovalCard({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [busy, layout, always]);
+  }, [busy, layout, always, canNote]);
 
   const button = (option: ApprovalOption | undefined) => {
     if (option === undefined) return null;
@@ -274,7 +312,7 @@ function ApprovalCard({
         variant={primary ? 'default' : 'secondary'}
         disabled={busy}
         data-option-kind={option.kind}
-        onClick={() => onRespond(option.optionId)}
+        onClick={() => (primary ? onRespond(option.optionId) : reject())}
         className="h-8 gap-1.5 pr-1.5 pl-3"
       >
         {t(primary ? 'approval.allow' : 'approval.reject')}
@@ -345,9 +383,46 @@ function ApprovalCard({
           </Disclosure>
         )}
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+        {noting && (
+          <textarea
+            ref={noteRef}
+            rows={1}
+            value={note}
+            disabled={busy}
+            aria-label={t('approval.feedbackLabel')}
+            placeholder={t('approval.feedbackLabel')}
+            data-testid="approval-feedback"
+            onChange={(event) => setNote(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                closeNote();
+              } else if (event.key === 'Enter' && !event.shiftKey && note.trim() !== '') {
+                event.preventDefault();
+                reject();
+              }
+            }}
+            className="mt-3 field-sizing-content max-h-32 min-h-9 w-full resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:focus-field disabled:opacity-50"
+          />
+        )}
       </div>
       <footer className="mt-3.5 flex flex-wrap items-center gap-2 px-3 pb-3">
         {button(layout.reject)}
+        {canNote && !noting && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            data-testid="approval-feedback-open"
+            onClick={openNote}
+            className="h-8 gap-1.5 pr-1.5 pl-2.5 text-muted-foreground"
+          >
+            <MessageSquareText aria-hidden className="size-3.5" />
+            {t('approval.feedback')}
+            <Kbd>Tab</Kbd>
+          </Button>
+        )}
         <span className="ml-auto flex min-w-0 items-center gap-2">
           {always && (
             <DropdownMenu>

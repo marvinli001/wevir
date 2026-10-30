@@ -764,6 +764,8 @@ export const messages: Messages = {
   'session.stop': '停止',
   'session.sendSteer': '插話',
   'session.sendQueue': '排隊',
+  'session.sendRedirect': '拒絕並傳送',
+  'session.redirectPlaceholder': '拒絕審批並改道…',
 
   'pending.label': '待傳送訊息',
   'pending.group.steer': '插話',
@@ -1020,6 +1022,8 @@ export const messages: Messages = {
   'approval.viewSubagent': '檢視子代理',
   'approval.allow': '允許',
   'approval.reject': '拒絕',
+  'approval.feedback': '附言',
+  'approval.feedbackLabel': '拒絕附言',
   'approval.option.allowOnce': '允許一次',
   'approval.option.allowAlways': '一律允許',
   'approval.option.reject': '拒絕',

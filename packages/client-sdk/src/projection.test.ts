@@ -1215,6 +1215,49 @@ describe('待发消息与插话（R11）', () => {
     expect(transcript.pendingMessages.map((p) => [p.id, p.status])).toEqual([[PENDING2, 'held']]);
   });
 
+  it('拒绝附言（0.144.0）：交给了引擎的那句话在拒绝处成为一条用户消息，之后的输出另起一条助手消息', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('tool.started', {
+      turnId: TURN,
+      toolCallId: 'call_1',
+      toolName: 'shell',
+      display: { kind: 'shell' },
+      input: {},
+    });
+    add('approval.requested', { approval: approval('call_1') });
+    add('approval.resolved', {
+      approvalId: APPROVAL,
+      status: 'denied',
+      resolution: {
+        optionId: 'reject',
+        decidedBy: identity,
+        reason: 'user',
+        message: '别删，先列出来',
+      },
+    });
+    add('tool.finished', { turnId: TURN, toolCallId: 'call_1', status: 'failed' });
+    add('assistant.message', { turnId: TURN, messageId: 'm1', text: '好，先列出来', replaces: [] });
+    const transcript = projectTranscript(list);
+    expect(
+      transcript.messages.map((m) => [
+        m.role,
+        m.id,
+        m.parts.map((p) => (p.type === 'text' ? p.text : p.type)),
+      ]),
+    ).toEqual([
+      ['user', TURN, ['你好']],
+      ['assistant', `${TURN}:assistant`, ['tool']],
+      ['user', `${TURN}:declined:${APPROVAL}`, ['别删，先列出来']],
+      ['assistant', expect.stringMatching(new RegExp(`^${TURN}:assistant:`)), ['好，先列出来']],
+    ]);
+    expect(transcript.messages[2]).toMatchObject({
+      declinedApproval: APPROVAL,
+      steered: true,
+      sentBy: identity,
+    });
+  });
+
   it('插话：回合中间一条用户消息，之后的输出另起一条助手消息；finished 在最后一条，增量与工具在各自的消息里收尾', () => {
     const { list, add, turn } = events();
     turn();
