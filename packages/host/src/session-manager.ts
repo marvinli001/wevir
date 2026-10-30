@@ -145,6 +145,7 @@ import type { GuardrailService } from './guardrails/service.js';
 import {
   assembleHandoff,
   DELTA_SINCE_TARGET_LAST_SEEN,
+  FORK_SUMMARY,
   FULL_THREAD_SUMMARY,
   HANDOFF_BUDGET_BYTES,
   type HandoffAssembly,
@@ -857,6 +858,8 @@ export class SessionManager {
    * （`workspaceOf`）、受哪个角色限制（`creating`）、用哪个工具预设（`toolPresetOf`）。
    */
   readonly #creating = new Map<SessionId, CreatingSession>();
+  /** Agent 分出自己时还没随第一条消息交出去的接力材料（`agentFork`）。 */
+  readonly #forkContext = new Map<SessionId, string>();
   /** 接力时恢复失败过的引擎会话（0.59.0）：之后的接力与预览直接按新建算，不再试。只在内存里，Host 重启后重新试。 */
   readonly #unresumable = new Set<string>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
@@ -1282,6 +1285,8 @@ export class SessionManager {
       opinion?: OpinionSessionOptions;
       /** 频道的协调者或线程（0.120.0）：记进 `origin`，`Session.channel` 由它来。 */
       channel?: SessionChannel;
+      /** 用这个会话的目录、额外目录与环境（Agent 分出自己时的接力材料方式，`agentFork`），不新开 worktree。 */
+      sameDirectoryAs?: SessionId;
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
@@ -1317,6 +1322,7 @@ export class SessionManager {
         options.automation,
         options.opinion,
         options.channel,
+        options.sameDirectoryAs,
         startedAt,
       );
     } finally {
@@ -1390,17 +1396,22 @@ export class SessionManager {
     automation?: SessionAutomation,
     opinion?: OpinionSessionOptions,
     channel?: SessionChannel,
+    sameDirectoryAs?: SessionId,
     /** `session.create` 到达的时刻（startup-timing.ts）。 */
     startedAt?: number,
   ): Promise<Session> {
     const sessionId = newId('ses');
+    const shared =
+      sameDirectoryAs === undefined ? undefined : this.#storage.sessions.get(sameDirectoryAs);
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
     // （0.75.0）是原会话目录的快照。
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
       : opinion !== undefined
         ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
-        : await this.#prepareEnvironment(params, sessionId, workspace, provider.id, channel);
+        : shared !== undefined
+          ? sharedDirectory(shared)
+          : await this.#prepareEnvironment(params, sessionId, workspace, provider.id, channel);
     if (startedAt !== undefined) this.#startup?.begin(sessionId, startedAt);
     this.#startup?.mark(sessionId, 'prepared');
     const config: SessionConfig = {
@@ -2166,7 +2177,9 @@ export class SessionManager {
     const pendingRules = this.#events.rulesState(runtime.id)?.pending;
     const rules =
       pendingRules?.engineSessionId === runtime.engineSessionId ? pendingRules.context : undefined;
-    const handoff = this.#events.handoffState(runtime.id)?.context;
+    // Agent 分出自己（`agentFork`）的接力材料同接力摘要，随第一条消息交出去。
+    const forkContext = this.#forkContext.get(runtime.id);
+    const handoff = this.#events.handoffState(runtime.id)?.context ?? forkContext;
     // 生命周期钩子（0.137.0）：引擎会话的第一回合前跑 SessionStart，用户的消息交给引擎前跑 UserPromptSubmit（别的会话转来的与
     // Host 开的后续回合不跑）。拦下时这个回合以 `cancelled` 结束，理由在 `hook.outcome`。附加的上下文接在消息开头。
     let hookContext: string | undefined;
@@ -2219,6 +2232,7 @@ export class SessionManager {
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
       return { turnId, seq: message.seq };
     }
+    if (forkContext !== undefined) this.#forkContext.delete(runtime.id);
     this.#startup?.mark(runtime.id, 'handed');
     if (receipt !== undefined) {
       this.#storage.sendReceipts.setStatus(runtime.id, receipt, 'confirmed', isoNow());
@@ -3718,8 +3732,14 @@ export class SessionManager {
    * - 分支（不带 `side`，0.38.0，§3.18）：到 `turnId`（省略时最近一个完成的回合），普通的顶层会话，标题同被分的会话；
    *   `session.created` 之后抄来被分会话到那个回合为止的消息记录（`#branchHistory`）。引擎去掉那个回合之后的回合
    *   （`dropTurns`）。接力（0.25.0）之前的回合不在现在的引擎里，分不了。
+   *
+   * `options`（Agent 分出自己，`wevir_session_create` 的 `context: "fork"`）：`openedBy` 记成 Agent 开的会话（`origin` 是 `agent`，
+   * 带被分会话的角色），`worktree` 在新开的 worktree 里（不带被分会话的环境），`permissionMode` 换掉抄来的权限模式。只用于分支。
    */
-  async fork(params: MethodParams<'session.fork'>): Promise<Session> {
+  async fork(
+    params: MethodParams<'session.fork'>,
+    options: AgentForkOptions = {},
+  ): Promise<Session> {
     this.#assertOpen();
     const side = params.side === true;
     if (side && params.turnId !== undefined) {
@@ -3763,23 +3783,55 @@ export class SessionManager {
       if (!side && this.#adapter.supports?.(source.engineSessionId, 'branch') === false) {
         throw refuse("the session's engine cannot branch");
       }
-      const config = sessionConfig(record);
       const sessionId = newId('ses');
+      // Agent 分出自己时可以在新开的 worktree 里（同 `session.create` 的 `worktree: 'new'`），不带被分会话的环境。
+      const prepared =
+        options.worktree === true && !side
+          ? await this.#prepareEnvironment(
+              {
+                workspaceId: record.workspaceId as WorkspaceId,
+                providerId: record.providerId as ProviderId,
+                worktree: 'new',
+              },
+              sessionId,
+              await this.#createWorkspace({
+                workspaceId: record.workspaceId as WorkspaceId,
+                providerId: record.providerId as ProviderId,
+                worktree: 'new',
+              }),
+              record.providerId,
+            )
+          : undefined;
+      const config = sessionConfig(record);
+      const permissionMode = options.permissionMode ?? record.permissionMode;
+      if (permissionMode !== undefined) config.permissionMode = permissionMode as PermissionMode;
+      const environmentId = prepared === undefined ? record.environmentId : undefined;
+      const extraRoots = prepared === undefined ? record.extraRoots : prepared.extraRoots;
+      if (prepared !== undefined) {
+        config.cwd = prepared.cwd;
+        if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
+        else delete config.additionalRoots;
+      }
       // 角色会话分出来的会话带着同一个角色（工具限制跟着走）；记在自己的记录里，被分的会话之后删了也不丢。
       const role = record.origin?.role;
+      const openedBy = side ? undefined : options.openedBy;
       const origin: SessionRecord['origin'] =
-        role === undefined ? undefined : { kind: 'fork', sessionId: source.id, role };
+        openedBy !== undefined
+          ? { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) }
+          : role === undefined
+            ? undefined
+            : { kind: 'fork', sessionId: source.id, role };
       let engineSession: EngineSession;
       this.#creating.set(sessionId, {
         workspaceId: record.workspaceId,
         providerId: record.providerId,
         ...(origin !== undefined && { origin }),
         ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset }),
-        ...(record.environmentId !== undefined && { environmentId: record.environmentId }),
+        ...(environmentId !== undefined && { environmentId }),
       });
       const profile = this.#profileVersion(record.workspaceId);
       const rules = await this.#rulePlan(
-        record.cwd,
+        config.cwd,
         record.providerId,
         customTarget({ origin }),
         () => profile,
@@ -3793,6 +3845,7 @@ export class SessionManager {
         );
       } catch (error) {
         this.#creating.delete(sessionId);
+        await prepared?.undo();
         const info = engineErrorInfo(error);
         throw new HostError('ENGINE_ERROR', info.message, info);
       }
@@ -3805,7 +3858,7 @@ export class SessionManager {
         const forked: SessionRecord = {
           id: sessionId,
           workspaceId: record.workspaceId,
-          cwd: record.cwd,
+          cwd: config.cwd,
           engine: this.#engine,
           engineSessionId: engineSession.engineSessionId,
           providerId: record.providerId,
@@ -3820,9 +3873,12 @@ export class SessionManager {
           updatedAt: now,
         };
         if (reasoningEffort !== undefined) forked.reasoningEffort = reasoningEffort;
-        if (record.permissionMode !== undefined) forked.permissionMode = record.permissionMode;
-        if (record.environmentId !== undefined) forked.environmentId = record.environmentId;
-        if (record.extraRoots !== undefined) forked.extraRoots = record.extraRoots;
+        if (permissionMode !== undefined) forked.permissionMode = permissionMode;
+        if (environmentId !== undefined) forked.environmentId = environmentId;
+        if (extraRoots !== undefined && extraRoots.length > 0) forked.extraRoots = extraRoots;
+        if (prepared !== undefined && prepared.worktrees.length > 0) {
+          forked.worktrees = prepared.worktrees;
+        }
         if (origin !== undefined) forked.origin = origin;
         if (record.toolPreset !== undefined) forked.toolPreset = record.toolPreset;
         if (profileVersion !== undefined) forked.profileVersionId = profileVersion.id;
@@ -3832,17 +3888,22 @@ export class SessionManager {
           source: 'host',
           payload: {
             workspaceId: record.workspaceId as WorkspaceId,
-            cwd: record.cwd,
+            cwd: config.cwd,
             providerId: record.providerId,
             modelId,
             ...(reasoningEffort !== undefined && { reasoningEffort }),
-            ...(record.permissionMode !== undefined && {
-              permissionMode: record.permissionMode as PermissionMode,
+            ...(permissionMode !== undefined && {
+              permissionMode: permissionMode as PermissionMode,
             }),
-            ...(record.environmentId !== undefined && {
-              environmentId: record.environmentId as EnvironmentId,
+            ...(environmentId !== undefined && {
+              environmentId: environmentId as EnvironmentId,
             }),
-            ...(record.extraRoots !== undefined && { extraRoots: record.extraRoots }),
+            ...(extraRoots !== undefined && extraRoots.length > 0 && { extraRoots }),
+            ...(prepared !== undefined &&
+              prepared.worktrees.length > 0 && { worktrees: prepared.worktrees }),
+            ...(openedBy !== undefined && {
+              openedBy: { sessionId: openedBy, ...(role !== undefined && { role }) },
+            }),
             forkedFrom,
             ...(side && { side: true as const }),
             ...(engineSession.engineVersion !== undefined && {
@@ -3871,6 +3932,7 @@ export class SessionManager {
         if (rulesInput !== undefined) this.#events.append(sessionId, rulesInput);
       } catch (error) {
         await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
+        await prepared?.undo();
         throw error;
       } finally {
         this.#creating.delete(sessionId);
@@ -3883,6 +3945,85 @@ export class SessionManager {
       }
       return this.#snapshot(runtime).session;
     });
+  }
+
+  /**
+   * Agent 分出自己（`wevir_session_create` 的 `context: "fork"`）：分到最近一个完成的回合，进行中的回合（调工具的这个）不带。
+   * 引擎能分支、那个回合也在现在的引擎里时原生分支（`fork`，带 `openedBy`）；否则（引擎不能分支、刚接力过）新建同一来源、模型、
+   * 档位与目录的会话，被分会话到那个回合为止的历史整理成接力材料（`assembleHandoff`，同一份预算），随第一条消息交给新引擎，
+   * 消息记录里只有简报。`via` 说是哪一种。
+   */
+  async agentFork(
+    sourceId: SessionId,
+    options: Omit<AgentForkOptions, 'openedBy'> = {},
+  ): Promise<{ session: Session; via: 'native' | 'handoff' }> {
+    this.#assertOpen();
+    const source = this.#runtime(sourceId);
+    this.#assertNotChild(source);
+    const record = this.#record(source);
+    const { session } = this.#snapshot(source);
+    const refuse = (message: string) =>
+      new HostError('INVALID_STATE', message, { state: session.state });
+    if (record.side) throw refuse('a side session cannot be forked again');
+    if (session.readOnly !== undefined) throw refuse('session is read-only');
+    const { turns, handoffSeq, hidden } = this.#finishedTurns(source.id);
+    const target = turns.filter((turn) => !hidden.has(turn.turnId)).at(-1);
+    if (target === undefined) throw refuse('session has no finished turn to fork from');
+    if (this.#branchable(source) && target.seq >= handoffSeq) {
+      const forked = await this.fork({ sessionId: sourceId }, { ...options, openedBy: sourceId });
+      return { session: forked, via: 'native' };
+    }
+    const role = record.origin?.role;
+    const permissionMode = options.permissionMode ?? record.permissionMode;
+    const created = await this.create(
+      {
+        workspaceId: record.workspaceId as WorkspaceId,
+        providerId: record.providerId as ProviderId,
+        modelId: record.modelId,
+        ...(record.reasoningEffort !== undefined && { reasoningEffort: record.reasoningEffort }),
+        ...(permissionMode !== undefined && { permissionMode: permissionMode as PermissionMode }),
+        ...(options.worktree === true && { worktree: 'new' as const }),
+      },
+      {
+        openedBy: sourceId,
+        ...(role !== undefined && { role }),
+        ...(options.worktree !== true && { sameDirectoryAs: sourceId }),
+      },
+    );
+    const describe = (provider: string, model: string) => this.#describeModel(provider, model);
+    const events = this.#events.readSince(source.id, 0, target.seq).filter((event) => {
+      if (event.seq > target.seq) return false;
+      const turnId = (event.payload as { turnId?: TurnId }).turnId;
+      return turnId === undefined || !hidden.has(turnId);
+    });
+    const items = historyItems(events, describe);
+    const kind = this.#storage.providers.get(record.providerId)?.kind;
+    const features = kind === undefined ? undefined : this.#featuresOf(kind);
+    const historyTool = features?.historyTool === true && this.#historyDir !== undefined;
+    const assembly = assembleHandoff({
+      sessionId: source.id,
+      strategy: FORK_SUMMARY,
+      fromModel: describe(record.providerId, record.modelId),
+      covered: { fromSeq: 1, toSeq: target.seq },
+      items,
+      historyTool,
+    });
+    if (assembly.kind === 'material') {
+      if (historyTool) this.#writeHistory(source.id, target.seq, describe);
+      this.#forkContext.set(created.id, assembly.context);
+    }
+    return { session: created, via: 'handoff' };
+  }
+
+  /** 会话现在的引擎能不能分支（0.38.0）：适配器能，引擎会话也没说不能；刚接力、新引擎还没跑过回合时不能。 */
+  #branchable(runtime: SessionRuntime): boolean {
+    if (this.#adapter.fork === undefined || this.#adapter.branches !== true) return false;
+    if (this.#events.handoffState(runtime.id)?.context !== undefined) return false;
+    try {
+      return this.#adapter.supports?.(runtime.engineSessionId, 'branch') !== false;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -7317,10 +7458,33 @@ function isoNow(): string {
 
 /** 环境会话准备好的目录（#prepareEnvironment）。 */
 /** `SessionManager.create` 的 `opinion`（0.75.0）。 */
+/** Agent 分出自己时 `fork` 的附加参数（`agentFork`）。 */
+export interface AgentForkOptions {
+  /** 开它的会话：记成 `origin: { kind: 'agent' }`，`Session.openedBy` 由它来。 */
+  openedBy?: SessionId;
+  /** 在新开的 worktree 里，不带被分会话的环境与额外目录。 */
+  worktree?: boolean;
+  /** 换掉抄来的权限模式（调用方保证不比被分的会话宽）。 */
+  permissionMode?: PermissionMode;
+}
+
 export interface OpinionSessionOptions {
   of: SessionOpinionOf;
   /** 原会话目录（realpath）、它当时的 HEAD 与工作树的树散列（`checkpoints.ts` 的 `workingTreeHash`）。 */
   snapshot: { from: string; head: string; tree: string };
+}
+
+/** 和另一个会话同一个目录（`create` 的 `sameDirectoryAs`）：不新开、也不收回它的 worktree。 */
+function sharedDirectory(record: SessionRecord): PreparedEnvironment {
+  return {
+    ...(record.environmentId !== undefined && {
+      environmentId: record.environmentId as EnvironmentId,
+    }),
+    cwd: record.cwd,
+    extraRoots: [...(record.extraRoots ?? [])],
+    worktrees: [],
+    undo: async () => {},
+  };
 }
 
 interface PreparedEnvironment {
