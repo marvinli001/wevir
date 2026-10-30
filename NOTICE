@@ -431,6 +431,7 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
          apps/web/src/onboarding/providerReadiness.logic.ts
   packages/adapter-claude/src/permissions.ts、tool-display.ts、todos.ts、turn-result.ts
       <- apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
+         packages/provider-core/src/server/failure.ts（turn-result.ts 的报错脱敏）
 
 packages/adapter-claude/src/test-fixtures/sdk/ 是 Claude Code（Anthropic 的商业条款，© Anthropic PBC）经 Claude Agent
 SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
