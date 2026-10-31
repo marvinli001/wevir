@@ -1085,7 +1085,8 @@ const SessionRow = memo(function SessionRow({
 
 /**
  * 归档的会话离开列表（session-actions.ts 的 `leaving`）：行高收到 0、同时淡出，收完才从列表里拿掉，下面的行跟着滑上来。
- * 平时不裁剪，免得切掉焦点环。
+ * 平时不裁剪，免得切掉焦点环。格子里的一项默认不窄于内容，`min-w-0` 让行跟着侧栏的宽度截断标题，不然长标题把行撑出侧栏，
+ * 悬停时右边的置顶与归档被裁掉。
  */
 function Leaving({ sessionId, children }: { sessionId: string; children: ReactNode }) {
   const leaving = useLeaving(sessionId);
@@ -1097,7 +1098,7 @@ function Leaving({ sessionId, children }: { sessionId: string; children: ReactNo
         leaving ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr]',
       )}
     >
-      <div className={cn('min-h-0', leaving && 'overflow-hidden')}>{children}</div>
+      <div className={cn('min-h-0 min-w-0', leaving && 'overflow-hidden')}>{children}</div>
     </div>
   );
 }
