@@ -225,6 +225,11 @@ describe('接力（SessionManager）', () => {
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
     const sessionId = id as SessionId;
     await turn(env, sessionId, 'hello');
+    await env.manager.send(
+      { sessionId, content: [{ type: 'text', text: 'slow interrupted turn' }] },
+      identity,
+    );
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('running'));
     await env.api.simulateEngineExit();
     await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('error'));
     const session = await env.manager.configure({ sessionId, providerId: 'claude' });

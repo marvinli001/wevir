@@ -477,6 +477,8 @@ describe('SessionManager：SESSION_BUSY 与 INVALID_STATE', () => {
     expect(lastSeq(h, id)).toBe(before);
 
     const id2 = await create(h);
+    await send(h, id2, 'please approve');
+    await waitForApproval(h, id2);
     await h.adapter.simulateEngineExit();
     await waitForState(h, id2, 'error');
     await expect(send(h, id2, 'hi')).rejects.toMatchObject({
@@ -918,10 +920,15 @@ describe('SessionManager：取消与关闭', () => {
     });
 
     const id3 = await create(h);
+    await send(h, id3, 'please approve');
+    await waitForApproval(h, id3);
     await h.adapter.simulateEngineExit();
     await waitForState(h, id3, 'error');
     await h.manager.close(id3);
-    expect(transitions(h, id3)).toEqual(['idle→error:engine_exited', 'error→closed:closed']);
+    expect(transitions(h, id3).slice(-2)).toEqual([
+      'awaiting_approval→error:engine_exited',
+      'error→closed:closed',
+    ]);
   });
 
   it('#14：活动中关闭，先取消（审批原因 session_closed）再关闭', async () => {
@@ -1018,6 +1025,8 @@ describe('SessionManager：恢复会话（#12）', () => {
   it('error 与 closed 时 resume 回到 idle，之后能继续对话', async () => {
     const h = setup();
     const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
     await h.adapter.simulateEngineExit();
     await waitForState(h, id, 'error');
     const resumed = await h.manager.resume(id);
@@ -1030,7 +1039,9 @@ describe('SessionManager：恢复会话（#12）', () => {
     await send(h, id, 'and again');
     await waitForState(h, id, 'idle');
     expect(transitions(h, id)).toEqual([
-      'idle→error:engine_exited',
+      'idle→running:turn_started',
+      'running→awaiting_approval:approval_requested',
+      'awaiting_approval→error:engine_exited',
       'error→idle:resumed',
       'idle→running:turn_started',
       'running→idle:turn_finished',
@@ -1194,6 +1205,8 @@ describe('SessionManager：引擎会话恢复与只读（T3.5）', () => {
   it('引擎为确认不了的取消重启（cancel_unconfirmed）：会话 error，消息提示 resume', async () => {
     const h = setup();
     const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
     await h.adapter.simulateEngineExit({ signal: null, reason: 'cancel_unconfirmed' });
     await waitForState(h, id, 'error');
     expect(ofType(h, id, 'engine.error').at(-1)?.payload).toMatchObject({
@@ -1294,22 +1307,62 @@ describe('SessionManager：引擎异常（#10）', () => {
     expect(snapshot(h, id).session.lastError?.category).toBe('engine_exited');
   });
 
-  it('适配器为应用新的 Provider 配置重启引擎（config_changed）：会话 error，消息提示 resume，之后能继续', async () => {
+  it.each([undefined, 'config_changed', 'cancel_unconfirmed'] as const)(
+    '空闲时引擎退出（%s）：不写错误、不改变未读与排序，下次发送自动恢复',
+    async (reason) => {
+      const h = setup();
+      const id = await create(h);
+      await send(h, id, 'first turn');
+      await waitForState(h, id, 'idle');
+      const before = snapshot(h, id);
+      const resume = vi.spyOn(h.adapter, 'resumeSession');
+      await h.adapter.simulateEngineExit({ signal: null, ...(reason !== undefined && { reason }) });
+      await send(h, id, 'hello again');
+      await waitForState(h, id, 'idle');
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(ofType(h, id, 'engine.error')).toEqual([]);
+      expect(typesAfter(h, id, before.session.lastSeq).slice(0, 3)).toEqual([
+        'session.resumed',
+        'user.message',
+        'turn.started',
+      ]);
+      expect(ofType(h, id, 'assistant.message')).toHaveLength(2);
+    },
+  );
+
+  it('配置重启不会触碰其他空闲会话的快照与事件', async () => {
     const h = setup();
-    const id = await create(h);
-    await h.adapter.simulateEngineExit({ exitCode: null, signal: null, reason: 'config_changed' });
-    await waitForState(h, id, 'error');
-    expect(ofType(h, id, 'engine.error')[0]?.payload).toEqual({
-      category: 'engine_exited',
-      message: 'engine restarted to apply provider changes; resume the session to continue',
-      fatal: true,
-    });
-    await h.manager.resume(id);
-    await send(h, id, 'hello again');
-    await waitForState(h, id, 'idle');
+    const active = await create(h);
+    const idle = await create(h);
+    const before = snapshot(h, idle);
+    await h.adapter.simulateEngineExit({ signal: null, reason: 'config_changed' });
+    await send(h, active, 'after restart');
+    await waitForState(h, active, 'idle');
+    expect(snapshot(h, idle)).toEqual(before);
   });
 
-  it('生成中、回合之间、取消中引擎退出都转 error', async () => {
+  it('回合间仍有待运行目标时引擎退出：会话 error，保留中断原因', async () => {
+    const h = setup();
+    const id = await create(h);
+    h.events.append(id, {
+      type: 'session.goal_changed',
+      source: 'engine',
+      payload: {
+        goal: {
+          objective: 'finish the task',
+          status: 'active',
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          updatedAt: T0,
+        },
+      },
+    });
+    await h.adapter.simulateEngineExit();
+    await waitForState(h, id, 'error');
+    expect(transitions(h, id)).toEqual(['idle→error:engine_exited']);
+  });
+
+  it('生成中、取消中引擎退出转 error，其他空闲会话保持 idle', async () => {
     const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 5, chunkSize: 1 }) });
     const running = await create(h);
     const idle = await create(h);
@@ -1317,10 +1370,10 @@ describe('SessionManager：引擎异常（#10）', () => {
     await vi.waitFor(() => expect(ofType(h, running, 'assistant.delta').length).toBeGreaterThan(0));
     await h.adapter.simulateEngineExit();
     await waitForState(h, running, 'error');
-    await waitForState(h, idle, 'error');
+    expect(state(h, idle)).toBe('idle');
     expect(transitions(h, running).at(-1)).toBe('running→error:engine_exited');
-    expect(transitions(h, idle)).toEqual(['idle→error:engine_exited']);
-    expect(ofType(h, idle, 'engine.error')[0]?.payload).not.toHaveProperty('turnId');
+    expect(transitions(h, idle)).toEqual([]);
+    expect(ofType(h, idle, 'engine.error')).toEqual([]);
 
     // 取消挂起时引擎退出：取消随之结束。
     const h2 = setup();
@@ -2267,6 +2320,26 @@ describe('SessionManager：子会话（R4）', () => {
   function summaries(h: Harness, parent: SessionId) {
     return snapshot(h, parent).subagents ?? [];
   }
+
+  it('子会话还没收到首个回合时引擎退出：转 error，父会话的子任务标为 failed', async () => {
+    const h = setup();
+    const parent = await create(h);
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation(async function* (engineSessionId) {
+      for await (const event of subscribe(engineSessionId)) {
+        if (event.type === 'engine.exited') yield event;
+      }
+    });
+    await send(h, parent, 'subagent approve');
+    const child = await childOf(h, parent);
+    expect(snapshot(h, child).session).toMatchObject({
+      state: 'idle',
+      subagent: { status: 'running' },
+    });
+    await h.adapter.simulateEngineExit();
+    await waitForState(h, child, 'error');
+    expect(summaries(h, parent)[0]?.status).toBe('failed');
+  });
 
   it('C1 C2：父回合派出子会话，子会话有自己的事件流，父会话的摘要跟着它的状态', async () => {
     const h = setup();

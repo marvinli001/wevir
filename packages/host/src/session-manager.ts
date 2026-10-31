@@ -6941,7 +6941,8 @@ export class SessionManager {
 
   /**
    * 引擎不可用（#10）：进程退出、适配器调用失败、事件流中断。断开订阅；会话已是 `error` / `closed`
-   * 时只断开。否则未决审批结为 `cancelled`（`engine_exited`）、有回合时补齐工具并以 `interrupted`
+   * 时只断开；进程退出时，没有待运行目标或子任务的空闲会话也只断开，下次发送自动恢复，不写错误与未读事件。
+   * 否则未决审批结为 `cancelled`（`engine_exited`）、有回合时补齐工具并以 `interrupted`
    * 结束、写 `engine.error`（`fatal: true`），转 `error`。不是进程退出时，再尽力让引擎停下可能还在
    * 跑的回合。
    */
@@ -6952,8 +6953,16 @@ export class SessionManager {
   ): void {
     this.#detach(runtime);
     const snapshot = this.#snapshot(runtime);
-    const { state, activeTurn } = snapshot.session;
+    const { state, activeTurn, goal, subagent } = snapshot.session;
     if (state === 'error' || state === 'closed') return;
+    if (
+      options.exited &&
+      state === 'idle' &&
+      goal?.status !== 'active' &&
+      subagent?.status !== 'running'
+    ) {
+      return;
+    }
     const inputs = [
       ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'engine_exited' }),
       ...cancelQuestions(snapshot, 'engine_exited'),
