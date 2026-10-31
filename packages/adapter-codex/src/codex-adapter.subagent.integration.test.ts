@@ -155,7 +155,10 @@ describe.skipIf(binary === undefined)('子会话 + 真实 codex-app-server', { t
     const from = events.length;
     await waitForEvent(events, ofType('turn.started'), '叫醒父会话的回合', from);
     const wake = await finishTurn(events, from);
-    expect(wake[0]).toEqual({ type: 'turn.started', engineSessionId: id });
+    // Nickname updates can arrive before the wake-up turn starts.
+    expect(wake.filter(ofType('turn.started'))).toEqual([
+      { type: 'turn.started', engineSessionId: id },
+    ]);
     expect(wake.find(ofType('assistant.message'))?.text).toBe('收到。');
     expect(wake.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     const request = mock.requests.at(-1);

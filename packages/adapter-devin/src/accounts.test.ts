@@ -146,7 +146,8 @@ describe('DevinAccounts', () => {
     expect(state.status).toBe('signing_in');
     expect(state.login).toMatchObject({ method: 'browser' });
     expect(state.login?.authUrl).toBeUndefined();
-    await until(() => existsSync(authLog));
+    // The child process creates the file before the complete NDJSON record is visible.
+    await until(() => existsSync(authLog) && readFileSync(authLog, 'utf8').endsWith('\n'));
     expect(JSON.parse(readFileSync(authLog, 'utf8'))).toEqual({ methodId: 'devin-browser' });
     writeFileSync(done, '');
     await until(() => seen.some((change) => change.status === 'signed_in'));
