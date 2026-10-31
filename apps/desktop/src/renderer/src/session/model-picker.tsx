@@ -1,4 +1,4 @@
-import type { ProviderModel, ProviderProfile } from '@wevir/protocol';
+import { type ProviderModel, type ProviderProfile, resolveProviderModels } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
@@ -29,7 +29,7 @@ export interface ModelChoice {
 
 /** Provider 能选的模型：DeepSeek 官方没列模型时是默认模型（providers.md §2.2）。 */
 export function modelsOf(provider: ProviderProfile): ProviderModel[] {
-  if (provider.models.length > 0) return provider.models;
+  if (provider.models.length > 0) return resolveProviderModels(provider);
   return DEEPSEEK_DEFAULT_MODELS.map((id) => ({ id }));
 }
 

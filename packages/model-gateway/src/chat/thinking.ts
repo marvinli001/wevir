@@ -81,9 +81,14 @@ export function chatThinkingParameters(
   }
   const params: JsonObject = format === 'minimax' ? { reasoning_split: true } : {};
   if (typeof requested !== 'string' || requested === '') return params;
-  // 未设或尚未实现的格式保持旧行为，已有 Provider 不因新增方言而迁移。
+  // 未指定方言时使用标准 Chat 参数，包括显式关闭思考的 none。
   if (format === undefined) {
-    if (requested === 'none') return params;
+    if (
+      requested === 'none' &&
+      provider.compat?.thinkingFormat === undefined &&
+      isGeminiHost(provider.baseURL ?? '')
+    )
+      return params;
     // Gemini 3.8 Flash 拒收 minimal；只对官方地址、未声明格式时降档（§4.5）。
     const effort =
       provider.compat?.thinkingFormat === undefined &&

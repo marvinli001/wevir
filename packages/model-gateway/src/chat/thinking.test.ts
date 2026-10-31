@@ -104,8 +104,8 @@ describe('思考格式的请求（同一份录制工具结果）', () => {
         expect(chat).not.toHaveProperty(key);
       if (format === 'minimax') expect(chat.reasoning_split).toBe(true);
     }
-    expect(translated(undefined, 'none')).not.toHaveProperty('reasoning_effort');
-    expect(translated('openrouter', 'none')).not.toHaveProperty('reasoning_effort');
+    expect(translated(undefined, 'none')).toHaveProperty('reasoning_effort', 'none');
+    expect(translated('openrouter', 'none')).toHaveProperty('reasoning_effort', 'none');
   });
 
   it.each(['minimal', 'medium', 'xhigh'])('DeepSeek 的 %s 映射为有效档位', (effort) => {

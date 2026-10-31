@@ -14,6 +14,7 @@ import {
   type ProviderKind,
   type ProviderModel,
   type ProviderProfile,
+  type ProviderReasoningLevel,
   type ProviderTranscriptionModel,
 } from '@wevir/protocol';
 import { t } from '@/i18n';
@@ -37,6 +38,8 @@ export interface ModelRow {
   contextWindow: string;
   /** 收图片输入（`supportsImages`）：Codex 只给标了的模型开图片输入。 */
   images: boolean;
+  /** undefined keeps the original value; null restores automatic detection. */
+  reasoningEfforts?: ProviderReasoningLevel[] | null;
   /** 编辑已有 Provider 或模板带来的原模型：保存时保留表单不编辑的字段（推理档位、最大输出等）。 */
   base?: ProviderModel;
 }
@@ -107,6 +110,13 @@ export function modelRow(model?: ProviderModel): ModelRow {
     images: model?.supportsImages === true,
     ...(model && { base: model }),
   };
+}
+
+export function modelReasoningEfforts(row: ModelRow): ProviderReasoningLevel[] | undefined {
+  if (row.reasoningEfforts !== undefined) return row.reasoningEfforts ?? undefined;
+  return row.base && (row.base.id === row.id.trim() || hasProviderPlaceholder(row.base.id))
+    ? row.base.reasoningEfforts
+    : undefined;
 }
 
 export function newDeepSeekForm(): ProviderForm {
@@ -339,6 +349,7 @@ export function connectionChanged(initial: ProviderForm, form: ProviderForm): bo
       (initial.vertex?.location?.trim() || 'global') ||
     form.baseURL.trim() !== initial.baseURL.trim() ||
     (form.kind !== 'deepseek-official' && form.api !== initial.api) ||
+    form.compat?.thinkingFormat !== initial.compat?.thinkingFormat ||
     defaultModelOf(form) !== defaultModelOf(initial)
   );
 }
@@ -375,18 +386,21 @@ export function toUpsertParams(
     const {
       contextWindow: _previous,
       supportsImages: marked,
+      reasoningEfforts: _previousEfforts,
       ...rest
     } = row.base && (row.base.id === id || hasProviderPlaceholder(row.base.id)) ? row.base : { id };
     const contextWindow =
       row.contextWindow.trim() === '' ? undefined : parseContextWindow(row.contextWindow);
     // 没勾选时，原模型标过的写 false，没标过的照旧不写。
     const supportsImages = row.images ? true : marked !== undefined ? false : undefined;
-    // 手动加的行与模板更新前存的模型没有档位，表单也不编辑：按同地址模板的同名模型补，已有值不覆盖。
-    const known = rest.reasoningEfforts === undefined ? presetModel(form, id) : undefined;
+    const declaredEfforts = modelReasoningEfforts(row);
+    const known = declaredEfforts === undefined ? presetModel(form, id) : undefined;
+    const reasoningEfforts =
+      declaredEfforts ?? (row.reasoningEfforts === null ? undefined : known?.reasoningEfforts);
     return {
       ...rest,
       id,
-      ...(known?.reasoningEfforts && { reasoningEfforts: known.reasoningEfforts }),
+      ...(reasoningEfforts !== undefined && { reasoningEfforts }),
       ...(rest.maxTokens === undefined &&
         known?.maxTokens !== undefined && { maxTokens: known.maxTokens }),
       ...(contextWindow !== undefined && { contextWindow }),

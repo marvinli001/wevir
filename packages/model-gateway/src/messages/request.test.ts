@@ -536,7 +536,7 @@ describe('请求参数', () => {
       thinking('claude-sonnet-4-5', { effort: 'xhigh' }, { compat: { thinkingFormat: 'enabled' } }),
     ).toEqual({
       thinking: { type: 'enabled', budget_tokens: 31_999 },
-      output_config: { effort: 'xhigh' },
+      output_config: undefined,
     });
     expect(
       thinking('kimi', { effort: 'high' }, { compat: { thinkingFormat: 'adaptive' } }).thinking,
@@ -651,7 +651,7 @@ describe('Anthropic 当前模型限制', () => {
     });
   });
 
-  it('采样只在官方地址或显式 adaptive 上按 Claude 版本去掉，不波及其他兼容服务', () => {
+  it('当前 Claude 在中转地址自动遵守模型限制，显式格式与其他模型保持原规则', () => {
     const convert = (model: string, p = official()) =>
       toMessagesRequest(request('x', { model, temperature: 1, top_p: 1 }), p);
     for (const model of [
@@ -668,13 +668,14 @@ describe('Anthropic 当前模型限制', () => {
     for (const model of ['claude-opus-4-6', 'claude-haiku-4-5', 'deepseek-flash', 'm']) {
       expect(convert(model).request).toMatchObject({ temperature: 1, top_p: 1 });
     }
-    expect(convert('claude-opus-5-5', provider()).request).toMatchObject({
-      temperature: 1,
-      top_p: 1,
-    });
+    expect(convert('claude-opus-5-5', provider()).request).not.toHaveProperty('temperature');
     expect(
       convert('claude-opus-5-5', provider({ baseURL: 'https://api.anthropic.com.example.com' }))
         .request,
+    ).not.toHaveProperty('top_p');
+    expect(convert('m', provider()).request).toHaveProperty('top_p', 1);
+    expect(
+      convert('claude-opus-5-5', provider({ compat: { thinkingFormat: 'enabled' } })).request,
     ).toHaveProperty('top_p', 1);
     expect(
       convert('claude-opus-5-5', provider({ compat: { thinkingFormat: 'adaptive' } })).request,

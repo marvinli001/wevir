@@ -485,14 +485,14 @@ describe('请求参数', () => {
     ).toBe(16);
   });
 
-  it('reasoning.effort → reasoning_effort；none 不发', () => {
+  it('reasoning.effort → reasoning_effort，包括显式 none', () => {
     expect(
       toChatRequest(request('hi', { reasoning: { effort: 'low' } }), provider()).request
         .reasoning_effort,
     ).toBe('low');
     expect(
       toChatRequest(request('hi', { reasoning: { effort: 'none' } }), provider()).request,
-    ).not.toHaveProperty('reasoning_effort');
+    ).toHaveProperty('reasoning_effort', 'none');
   });
 
   it('text.format 的 json_schema → response_format', () => {

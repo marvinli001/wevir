@@ -105,8 +105,7 @@ export const ProviderApiSchema = z.enum([
 export type ProviderApi = z.infer<typeof ProviderApiSchema>;
 
 /**
- * 推理档位（pi-ai 的 `ModelThinkingLevel`）。`off` 表示不带推理参数，其余原样作为 `reasoning_effort`
- * 发给服务端（docs/architecture/providers.md §2）。
+ * 推理档位。Codex 将 `off` 映射为 `none`，网关按所选协议转换为关闭思考或 effort 参数。
  */
 export const ProviderReasoningLevelSchema = z.enum([
   'off',
@@ -129,8 +128,8 @@ export const ProviderModelSchema = z.object({
   /** 是否接受图片输入（0.2.0）。省略时沿用 dsh 目录，目录里没有的模型只收文本。 */
   supportsImages: z.boolean().optional(),
   /**
-   * 可选的推理档位（0.2.0），对 `openai-compatible` 与 `google-vertex` 有意义。省略：沿用 dsh 目录（手填的模型不推理）；
-   * 空数组：明确不推理。
+   * 可选的推理档位（0.2.0），对 `openai-compatible` 与 `google-vertex` 有意义。省略：按已知模型 ID 识别；
+   * 空数组：固定力度，不提供档位选择。
    */
   reasoningEfforts: z.array(ProviderReasoningLevelSchema).optional(),
 });

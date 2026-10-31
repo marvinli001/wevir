@@ -35,6 +35,7 @@ import {
   CHAPTER_SUMMARY_MAX_LENGTH,
   CHAPTER_TITLE_MAX_LENGTH,
   DEFAULT_PERMISSION_MODE,
+  inferredReasoningEfforts,
   REVIEW_FINDING_TITLE_MAX_LENGTH,
   REVIEW_FINDINGS_MAX,
   SEARCH_KINDS,
@@ -2890,11 +2891,23 @@ interface ListedModel {
 }
 
 /** Provider 记下的模型列表（存储里是不透明的 JSON）。 */
-function providerModels(provider: { models?: unknown }): ListedModel[] {
-  return (Array.isArray(provider.models) ? provider.models : []).filter(
-    (model): model is ListedModel =>
-      typeof model === 'object' && model !== null && typeof (model as ListedModel).id === 'string',
-  );
+function providerModels(provider: { kind?: string; models?: unknown }): ListedModel[] {
+  return (Array.isArray(provider.models) ? provider.models : [])
+    .filter(
+      (model): model is ListedModel =>
+        typeof model === 'object' &&
+        model !== null &&
+        typeof (model as ListedModel).id === 'string',
+    )
+    .map((model) => {
+      if (
+        model.reasoningEfforts !== undefined ||
+        (provider.kind !== 'openai-compatible' && provider.kind !== 'google-vertex')
+      )
+        return model;
+      const reasoningEfforts = inferredReasoningEfforts(model.id);
+      return reasoningEfforts === undefined ? model : { ...model, reasoningEfforts };
+    });
 }
 
 /** 模型列出的推理档位；没列时 `undefined`。 */

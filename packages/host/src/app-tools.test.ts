@@ -1414,6 +1414,55 @@ describe('应用级工具', () => {
   });
 });
 
+describe('第三方模型思考强度', () => {
+  it('relay models advertise and validate inferred reasoning levels', async () => {
+    const h = await setup();
+    h.storage.providers.insert({
+      id: 'relay',
+      kind: 'openai-compatible',
+      displayName: 'Relay',
+      api: 'anthropic-messages',
+      baseURL: 'https://relay.example',
+      models: [{ id: 'claude-opus-5-5' }],
+      defaultModelId: 'claude-opus-5-5',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const caller = await h.create();
+    expect(await h.call(caller, 'wevir_models')).toMatchObject({
+      providers: expect.arrayContaining([
+        expect.objectContaining({
+          providerId: 'relay',
+          models: [
+            {
+              id: 'claude-opus-5-5',
+              name: 'claude-opus-5-5',
+              reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+          ],
+        }),
+      ]),
+    });
+    expect(
+      (
+        await h.call(caller, 'wevir_session_create', {
+          message: 'x',
+          providerId: 'relay',
+          reasoningEffort: 'ultra',
+        })
+      ).error,
+    ).toContain('has no reasoning level ultra');
+    const child = await h.call(caller, 'wevir_session_create', {
+      message: 'x',
+      providerId: 'relay',
+      reasoningEffort: 'max',
+      reportBack: false,
+    });
+    expect(child.error).toBeUndefined();
+    await h.settle(child.sessionId as SessionId);
+  });
+});
+
 describe('共享任务清单', () => {
   const tasks = async (h: Awaited<ReturnType<typeof setup>>, id: SessionId, args = {}) =>
     (await h.call(id, 'wevir_tasks', args)) as {

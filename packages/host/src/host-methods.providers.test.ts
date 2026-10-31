@@ -85,6 +85,36 @@ async function hostError(promise: Promise<unknown>): Promise<HostError> {
 }
 
 describe('Provider 桥接（Host 侧）', () => {
+  it('resolves existing relay models for the engine without rewriting storage or explicit levels', async () => {
+    const bridge = fakeBridge();
+    const { methods, storage, secrets } = setup(bridge);
+    const models = [
+      { id: 'claude-opus-5-5' },
+      { id: 'claude-sonnet-5-5', reasoningEfforts: [] },
+      { id: 'relay-alias', reasoningEfforts: ['low', 'high'] },
+    ];
+    await methods['provider.upsert'](
+      {
+        ...qwen,
+        id: 'relay',
+        api: 'anthropic-messages',
+        baseURL: 'https://relay.example',
+        models,
+        defaultModelId: 'claude-opus-5-5',
+      } as MethodParams<'provider.upsert'>,
+      context,
+    );
+    bridge.applied.length = 0;
+    await syncProviders(storage, secrets, bridge);
+    expect(bridge.applied[0]?.[0]?.models).toEqual([
+      { id: 'claude-opus-5-5', reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      models[1],
+      models[2],
+    ]);
+    expect(storage.providers.get('relay')?.models).toEqual(models);
+    expect((await methods['provider.list']({}, context)).providers[0]?.models).toEqual(models);
+  });
+
   it('discovery snapshots a stored endpoint and key together across a concurrent edit', async () => {
     const { methods, secrets } = setup();
     await methods['provider.upsert'](

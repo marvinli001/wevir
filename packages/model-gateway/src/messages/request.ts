@@ -116,7 +116,7 @@ function currentClaude(model: string): 'opus' | 'sonnet' | 'haiku' | 'fable' | u
 
 /** Bedrock 的模型 ID 带 `anthropic.` 前缀（Mantle 的 `anthropic.claude-opus-5-5`）；判断型号前去掉。 */
 function bareClaude(model: string): string {
-  return model.replace(/^anthropic\./i, '');
+  return model.replace(/^anthropic[/.]/i, '');
 }
 
 /** Claude 4.7 起拒收采样参数；非 Claude 模型与旧版本不改。 */
@@ -138,8 +138,10 @@ export function toMessagesRequest(
     provider.kind === 'google-vertex' || isAnthropicHost(provider.baseURL ?? '') || azure;
   // Foundry 的 model 可以是任意部署别名；未显式指定格式时按当前 Claude 用 adaptive（§3.5）。
   const thinkingFormat = compat.thinkingFormat ?? (azure ? 'adaptive' : undefined);
-  // 代理用显式 adaptive 开启 Claude 方言；不把其他 Messages 服务当作 Anthropic。
-  const claudeDialect = official || compat.thinkingFormat === 'adaptive';
+  const claudeDialect =
+    official ||
+    compat.thinkingFormat === 'adaptive' ||
+    (thinkingFormat === undefined && currentClaude(body.model) !== undefined);
   const model = currentClaude(body.model);
   const names = new ToolNames();
   const dropped: string[] = [];
@@ -235,9 +237,22 @@ function thinkingParams(
     if (model === 'haiku') return { thinking: { type: 'disabled' }, output_config };
     effort = 'low';
   }
-  const output_config = { effort: effort === 'minimal' ? 'low' : effort };
+  const legacy = /^claude-(opus|sonnet|haiku)-4-5(?:$|-)/i.exec(bareClaude(body.model));
+  // Sonnet/Haiku 4.5 accept thinking budgets but reject output_config.effort.
+  const output_config =
+    legacy && legacy[1]?.toLowerCase() !== 'opus'
+      ? undefined
+      : {
+          effort:
+            effort === 'minimal'
+              ? 'low'
+              : legacy && ['xhigh', 'max'].includes(effort)
+                ? 'high'
+                : effort,
+        };
   const format =
-    thinkingFormat ?? (/^claude-/i.test(bareClaude(body.model)) ? 'adaptive' : 'enabled');
+    thinkingFormat ??
+    (legacy ? 'enabled' : /^claude-/i.test(bareClaude(body.model)) ? 'adaptive' : 'enabled');
   if (format === 'adaptive') {
     const summary = reasoning.summary;
     const display =

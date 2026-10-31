@@ -39,6 +39,35 @@ const direct = (baseURL: string, body: MessagesRequest) =>
   });
 
 describe('Anthropic 当前模型 Messages 往返', () => {
+  it.each(['claude-opus-5-5', 'claude-sonnet-5-5'])(
+    '%s: a relay without compat settings accepts low and max effort',
+    async (model) => {
+      const mock = await startMockMessages(() => ({ text: ['ok'] }));
+      cleanups.push(() => mock.close());
+      const gw = await startModelGateway();
+      cleanups.push(() => gw.close());
+      const { compat: _compat, ...p } = provider(mock.baseURL, model);
+      gw.setProviders([p]);
+      for (const effort of ['low', 'max']) {
+        const response = await postResponses(gw.baseURL(p.id), gw.token, {
+          model,
+          input: 'ping',
+          reasoning: { effort },
+          temperature: 1,
+        });
+        expect(response.status).toBe(200);
+        expect((await readEvents(response)).at(-1)?.type).toBe('response.completed');
+      }
+      expect(mock.requests.map((request) => request.body.output_config?.effort)).toEqual([
+        'low',
+        'max',
+      ]);
+      expect(mock.requests.every((request) => request.body.thinking?.type === 'adaptive')).toBe(
+        true,
+      );
+    },
+  );
+
   it.each(MODELS)('%s：工具结果、中途指令与下一回合保留思考原文和前缀', async (model) => {
     let step = 0;
     const patch = '*** Begin Patch\n*** Add File: notes.md\n+# 笔记\n*** End Patch';

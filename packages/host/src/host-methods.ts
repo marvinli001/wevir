@@ -19,7 +19,12 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
-import { DEFAULT_REMOTE_SETTINGS, IMAGE_MAX_PER_MESSAGE, isOutputStyle } from '@wevir/protocol';
+import {
+  DEFAULT_REMOTE_SETTINGS,
+  IMAGE_MAX_PER_MESSAGE,
+  isOutputStyle,
+  resolveProviderModels,
+} from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type {
   EnvironmentRecord,
@@ -2158,7 +2163,7 @@ function toProviderConfig(
     id: record.id,
     kind: record.kind as ProviderConfig['kind'],
     displayName: record.displayName,
-    models: record.models as ProviderConfig['models'],
+    models: resolveProviderModels(toProviderProfile(record)),
     defaultModelId: record.defaultModelId,
   };
   if (record.api !== undefined) config.api = record.api;

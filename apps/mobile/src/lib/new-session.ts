@@ -16,7 +16,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
-import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
+import { resolveProviderModels, SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { MessageKey } from '../i18n';
 import type { SessionClient } from './session-watch';
 
@@ -95,7 +95,7 @@ export function providerTitle(
 
 /** 来源的模型；没列模型的只有默认模型。 */
 export function modelsOf(provider: ProviderProfile): ProviderModel[] {
-  if (provider.models.length > 0) return provider.models;
+  if (provider.models.length > 0) return resolveProviderModels(provider);
   return [{ id: provider.defaultModelId }];
 }
 

@@ -14,6 +14,7 @@ import {
   type EditableProvider,
   editForm,
   hasProviderPlaceholder,
+  modelReasoningEfforts,
   modelRow,
   newDeepSeekForm,
   newOpenAIForm,
@@ -36,6 +37,64 @@ const ollama = OPENAI_PRESETS.find((preset) => preset.id === 'local-ollama');
 if (!kimi || !deepseekOpenAI || !ollama) throw new Error('缺少模板');
 
 const upsertSchema = MethodSchemas['provider.upsert'].params;
+
+describe('第三方模型思考强度', () => {
+  it('自动识别不落库，别名支持自定义档位和固定力度，重新编辑保留选择', () => {
+    const form = newOpenAIForm(undefined, []);
+    const auto = modelRow({ id: 'claude-opus-5-5', contextWindow: 1000000 });
+    const alias = {
+      ...modelRow({ id: 'relay-alias' }),
+      reasoningEfforts: ['low', 'high'] as const,
+    };
+    const models = [
+      auto,
+      { ...alias, reasoningEfforts: [...alias.reasoningEfforts] },
+      {
+        ...modelRow({ id: 'claude-sonnet-5-5' }),
+        reasoningEfforts: [],
+      },
+    ];
+    const params = upsertSchema.parse(
+      toUpsertParams({
+        ...form,
+        id: 'relay',
+        displayName: 'Relay',
+        api: 'anthropic-messages',
+        baseURL: 'https://relay.example',
+        models,
+      }),
+    );
+    if (params.kind === 'chatgpt') throw new Error('Expected custom provider');
+    expect(params.models).toEqual([
+      { id: 'claude-opus-5-5', contextWindow: 1000000 },
+      { id: 'relay-alias', reasoningEfforts: ['low', 'high'] },
+      { id: 'claude-sonnet-5-5', reasoningEfforts: [] },
+    ]);
+    const edited = editForm(profile({ ...params } as Partial<EditableProvider>));
+    expect(edited.models.map(modelReasoningEfforts)).toEqual([undefined, ['low', 'high'], []]);
+    edited.models = edited.models.map((row, index) =>
+      index === 1 ? { ...row, reasoningEfforts: null } : row,
+    );
+    expect(toUpsertParams(edited).models[1]).toEqual({ id: 'relay-alias' });
+  });
+
+  it('清除模板档位可恢复自动；修改思考格式需要重新检测连接', () => {
+    const form = newOpenAIForm(
+      OPENAI_PRESETS.find((preset) => preset.id === 'anthropic'),
+      [],
+    );
+    const changed = {
+      ...form,
+      models: form.models.map((row) => ({ ...row, reasoningEfforts: null })),
+    };
+    expect(
+      toUpsertParams(changed).models.every((model) => model.reasoningEfforts === undefined),
+    ).toBe(true);
+    expect(
+      connectionChanged(form, { ...form, compat: { ...form.compat, thinkingFormat: 'enabled' } }),
+    ).toBe(true);
+  });
+});
 
 describe('Azure 模板与通用占位', () => {
   it.each(['azure-openai', 'azure-claude'])('%s 的资源名和每一条部署名未替换前不能保存', (id) => {

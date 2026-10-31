@@ -1,4 +1,5 @@
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
+import { inferredReasoningEfforts, ProviderReasoningLevelSchema } from '@wevir/protocol';
 import { ArrowLeft, ExternalLink, Plus, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
@@ -11,6 +12,7 @@ import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
 import { platformApi } from '@/platform/platform';
+import { effortLabel } from '@/session/model-picker';
 import { ImageModelsField } from './image-models';
 import { OllamaModels } from './ollama-models';
 import {
@@ -20,6 +22,7 @@ import {
   deepseekModelChoices,
   type FormErrors,
   hasProviderPlaceholder,
+  modelReasoningEfforts,
   modelRow,
   type ProviderForm,
   placeholderError,
@@ -204,6 +207,9 @@ export function ProviderEditor({
         <>
           <VertexFields form={form} errors={errors} onChange={update} />
           <ModelsField form={form} errors={errors} onChange={update} />
+          {form.api === 'anthropic-messages' && (
+            <ThinkingFormatField form={form} onChange={update} />
+          )}
         </>
       ) : openAI ? (
         <>
@@ -232,6 +238,9 @@ export function ProviderEditor({
           </FormField>
           <OllamaModels client={client} form={form} onChange={update} />
           <ModelsField form={form} errors={errors} onChange={update} />
+          {form.api === 'anthropic-messages' && (
+            <ThinkingFormatField form={form} onChange={update} />
+          )}
           <FormField
             id={`${ids}-transcription`}
             label={t('provider.form.transcriptionModels')}
@@ -404,6 +413,8 @@ export function ModelsField({
         {form.models.map((row, index) => {
           const idError = placeholderError(row.id) ?? errors[`models.${index}.id`];
           const contextError = errors[`models.${index}.contextWindow`];
+          const efforts = modelReasoningEfforts(row);
+          const inferred = inferredReasoningEfforts(row.id.trim());
           return (
             <div key={row.key} className="contents" data-model-row={index}>
               <div className="flex h-8 items-center justify-center">
@@ -459,6 +470,56 @@ export function ModelsField({
                   <X />
                 </IconButton>
               </div>
+              <details className="col-span-full mb-2 ml-8 text-sm" data-model-reasoning={index}>
+                <summary className="w-fit cursor-pointer text-muted-foreground">
+                  {t('provider.form.reasoning')}
+                </summary>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <Select
+                    className="w-36"
+                    aria-label={t('provider.form.reasoning')}
+                    value={
+                      efforts === undefined ? 'auto' : efforts.length === 0 ? 'fixed' : 'custom'
+                    }
+                    options={[
+                      { value: 'auto', label: t('provider.form.reasoningAuto') },
+                      { value: 'fixed', label: t('model.effort.fixed') },
+                      { value: 'custom', label: t('provider.form.reasoningCustom') },
+                    ]}
+                    onValueChange={(mode) =>
+                      setRow(index, {
+                        reasoningEfforts:
+                          mode === 'auto'
+                            ? null
+                            : mode === 'fixed'
+                              ? []
+                              : (inferred ?? ['low', 'medium', 'high']),
+                      })
+                    }
+                  />
+                  {efforts !== undefined && efforts.length !== 0
+                    ? ProviderReasoningLevelSchema.options.map((level) => (
+                        <label key={level} className="flex items-center gap-1.5">
+                          <Checkbox
+                            checked={efforts.includes(level)}
+                            onCheckedChange={(checked) => {
+                              setRow(index, {
+                                reasoningEfforts: ProviderReasoningLevelSchema.options.filter(
+                                  (entry) => (entry === level ? checked : efforts.includes(entry)),
+                                ),
+                              });
+                            }}
+                          />
+                          {effortLabel(level)}
+                        </label>
+                      ))
+                    : efforts === undefined && (
+                        <span className="text-xs text-muted-foreground">
+                          {inferred?.map(effortLabel).join(' · ') ?? t('model.effort.fixed')}
+                        </span>
+                      )}
+                </div>
+              </details>
             </div>
           );
         })}
@@ -474,5 +535,32 @@ export function ModelsField({
       </Button>
       {general && <p className="text-sm text-destructive">{general}</p>}
     </fieldset>
+  );
+}
+
+function ThinkingFormatField({
+  form,
+  onChange,
+}: {
+  form: ProviderForm;
+  onChange: (patch: Partial<ProviderForm>) => void;
+}) {
+  const id = useId();
+  return (
+    <FormField id={id} label={t('provider.form.thinkingFormat')}>
+      <Select
+        id={id}
+        value={form.compat?.thinkingFormat ?? 'auto'}
+        options={[
+          { value: 'auto', label: t('provider.form.reasoningAuto') },
+          { value: 'adaptive', label: t('provider.form.thinkingAdaptive') },
+          { value: 'enabled', label: t('provider.form.thinkingBudget') },
+        ]}
+        onValueChange={(value) => {
+          const { thinkingFormat: _previous, ...compat } = form.compat ?? {};
+          onChange({ compat: { ...compat, ...(value !== 'auto' && { thinkingFormat: value }) } });
+        }}
+      />
+    </FormField>
   );
 }

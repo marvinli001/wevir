@@ -91,6 +91,17 @@ describe('new session', () => {
     expect(PHONE_PERMISSION_MODES).not.toContain('full_access');
   });
 
+  it('uses inferred relay levels and keeps explicit fixed effort', () => {
+    const p = provider('relay', {
+      models: [{ id: 'claude-opus-5-5' }, { id: 'claude-sonnet-5-5', reasoningEfforts: [] }],
+      defaultModelId: 'claude-opus-5-5',
+    });
+    const choice = { providerId: p.id, modelId: p.defaultModelId, reasoningEffort: 'max' };
+    expect(effortsOf([p], choice)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(resolveChoice([p], choice)).toEqual(choice);
+    expect(effortsOf([p], { ...choice, modelId: 'claude-sonnet-5-5' })).toEqual([]);
+  });
+
   it('builds create params: chats without a project, worktree only inside one', () => {
     const choice = { providerId: 'p', modelId: 'a', reasoningEffort: 'high' };
     expect(

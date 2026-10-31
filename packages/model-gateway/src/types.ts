@@ -128,8 +128,8 @@ export interface GatewayCompat extends ProviderCompatConfig {
   /**
    * 协议共用的字段（各家思考开关的写法）。Chat 读 openai / deepseek / qwen / zai / minimax / tencent
    * （model-gateway.md §4.4）；`anthropic-messages` 上：`adaptive` 发
-   * `thinking: {type: adaptive}`，`enabled` 发 `thinking: {type: enabled, budget_tokens}`；不设时模型 ID 以
-   * `claude-` 开头用 `adaptive`，其余用 `enabled`（model-gateway.md §5.4）。
+   * `thinking: {type: adaptive}`，`enabled` 发 `thinking: {type: enabled, budget_tokens}`；不设时 Claude 4.5 用 `enabled`，
+   * 其他 Claude 用 `adaptive`，其余用 `enabled`（model-gateway.md §5.4）。
    */
   thinkingFormat?: string;
   /**
