@@ -179,14 +179,13 @@ async function changedUntil(
   check: (terminal: any) => boolean,
   label: string,
 ) {
-  return client.until(
-    () =>
-      client
-        .notifications('terminal.changed')
-        .map((change) => change.terminal)
-        .find((terminal) => terminal?.id === terminalId && check(terminal)),
-    label,
-  );
+  return client.until(() => {
+    const terminal = client
+      .notifications('terminal.changed')
+      .map((change) => change.terminal)
+      .findLast((terminal) => terminal?.id === terminalId);
+    return terminal !== undefined && check(terminal) ? terminal : undefined;
+  }, label);
 }
 
 // node-pty 加载得了才跑：macOS、Windows 用包里的预编译，Linux 要先 bash scripts/build-node-pty.sh（CI 会编）。
