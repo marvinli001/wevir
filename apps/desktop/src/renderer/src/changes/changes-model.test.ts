@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@wevir/client-sdk';
+import type { ChatMessage, ChatPartOf } from '@wevir/client-sdk';
 import type { TurnId } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
@@ -7,11 +7,13 @@ import {
   LARGE_DIFF_FILES,
   LARGE_DIFF_LINES,
   LARGE_FILE_LINES,
+  recordedChangePreviews,
   resolveSource,
   sameScope,
   scopeLabel,
   splitPath,
   toggleAll,
+  turnChangeStats,
   turnNumbers,
   turnOptions,
 } from './changes-model';
@@ -34,6 +36,35 @@ function user(turnId: TurnId, steered = false): ChatMessage {
 
 function assistant(turnId: TurnId): ChatMessage {
   return { id: `${turnId}:a`, role: 'assistant', turnId, parts: [], seqRange: [0, 0] };
+}
+
+function editMessage(status: ChatPartOf<'tool'>['status'] = 'completed'): ChatMessage {
+  return {
+    ...assistant(T2),
+    role: 'assistant',
+    turnId: T2,
+    finished: { outcome: 'completed', durationMs: 1000 },
+    parts: [
+      {
+        type: 'tool',
+        key: 'edit',
+        toolCallId: 'edit',
+        toolName: 'fileChange',
+        status,
+        startedAt: '2026-10-15T00:00:00.000Z',
+        display: { kind: 'edit', paths: ['dev-docs/TODO.md'] },
+        input: {
+          changes: [
+            {
+              path: 'dev-docs/TODO.md',
+              kind: { type: 'update' },
+              diff: '--- a/dev-docs/TODO.md\n+++ b/dev-docs/TODO.md\n@@ -1,2 +1,2 @@\n-old\n+new\n keep\n',
+            },
+          ],
+        },
+      },
+    ],
+  };
 }
 
 describe('回合', () => {
@@ -65,6 +96,66 @@ describe('回合', () => {
       { turnId: T3, number: 3, live: true },
       { turnId: T1, number: 1, fileCount: 2, added: 5, removed: 1, live: false },
     ]);
+  });
+});
+
+describe('回合改动的摘要与内容', () => {
+  const messages = [user(T2), editMessage()];
+  const numbers = turnNumbers(messages);
+
+  it('被 Git 忽略的文件让快照为空时，菜单保留消息里的统计与编辑内容', () => {
+    const [turn] = turnOptions(
+      [{ turnId: T2, fileCount: 0, added: 0, removed: 0 }],
+      numbers,
+      messages,
+    );
+    expect(turn).toEqual({
+      turnId: T2,
+      number: 1,
+      fileCount: 1,
+      added: 1,
+      removed: 1,
+      live: false,
+    });
+    const previews = recordedChangePreviews(messages);
+    expect(previews).toHaveLength(1);
+    expect(previews[0]?.preview.path).toBe('dev-docs/TODO.md');
+    expect(previews[0]?.preview.lines.filter((line) => line.kind === 'add')).toHaveLength(
+      turn?.added ?? 0,
+    );
+    expect(previews[0]?.preview.lines.filter((line) => line.kind === 'remove')).toHaveLength(
+      turn?.removed ?? 0,
+    );
+  });
+
+  it('非空快照的净改动同时用于菜单与消息摘要，不累计重复编辑', () => {
+    const checkpoint = { turnId: T2, fileCount: 2, added: 3, removed: 1 };
+    expect(turnChangeStats(checkpoint, { files: 1, added: 8, removed: 8 })).toEqual({
+      files: 2,
+      added: 3,
+      removed: 1,
+    });
+    expect(turnOptions([checkpoint], numbers, messages)[0]).toMatchObject({
+      fileCount: 2,
+      added: 3,
+      removed: 1,
+    });
+  });
+
+  it('没有快照的历史回合也能按原回合 ID 打开记录，最近回合包含它', () => {
+    const turns = turnOptions(
+      [{ turnId: T1, fileCount: 0, added: 0, removed: 0 }],
+      numbers,
+      messages,
+    );
+    expect(turns[0]).toMatchObject({ turnId: T2, fileCount: 1, added: 1, removed: 1, live: false });
+    expect(resolveSource({ kind: 'latest' }, turns)).toEqual({ kind: 'turn', turnId: T2 });
+  });
+
+  it('失败的编辑不计入菜单，也不显示为成功的改动', () => {
+    const failed = [user(T2), editMessage('failed')];
+    expect(turnOptions([], turnNumbers(failed), failed)).toEqual([]);
+    expect(recordedChangePreviews(failed)).toEqual([]);
   });
 });
 

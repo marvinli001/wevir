@@ -25,6 +25,7 @@ import { ListChecks, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useBrowserReveal } from '@/browser/browser-store';
+import { useCheckpoints } from '@/changes/changes-data';
 import { openChanges } from '@/changes/changes-store';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
@@ -142,6 +143,15 @@ export function SessionView({
         ? (turnId: TurnId) => openChanges(panes, session.id, { kind: 'turn', turnId })
         : undefined,
     [variant, diffEnabled, panes, session.side, session.id],
+  );
+  const checkpoints = useCheckpoints(
+    session.id,
+    `${state?.transcript.state ?? ''}:${state?.transcript.activeTurnId ?? ''}`,
+    openTurnChanges !== undefined,
+  );
+  const turnChanges = useMemo(
+    () => ({ open: openTurnChanges, checkpoints }),
+    [openTurnChanges, checkpoints],
   );
   // 助手消息里的文件链接（U32）：Host 有 `workspace_files` 时在文件窗格里打开（主会话与支线都用会话目录）。
   const filesEnabled =
@@ -915,7 +925,7 @@ export function SessionView({
           />
         </div>
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
-        <OpenTurnChanges value={openTurnChanges}>
+        <OpenTurnChanges value={turnChanges}>
           <OpenFileLink value={openLink}>
             <FileLinkMenuProvider cwd={session.cwd} attach={attachPath}>
               <OpenSessionFile value={openSessionFile}>

@@ -49,12 +49,14 @@ import {
   areAllCollapsed,
   type ChangesScope,
   defaultCollapsed,
+  recordedChangePreviews,
   resolveSource,
   sameScope,
   scopeLabel,
   splitPath,
   type TurnOption,
   toggleAll,
+  turnChangeStats,
   turnLabel,
   turnNumbers,
   turnOptions,
@@ -111,6 +113,8 @@ import {
 import { openFile } from '@/files/files-store';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { FilePreviewBlock } from '@/session/file-preview';
+import { foldTurn } from '@/session/turn-model';
 import { useTheme } from '@/theme/theme';
 import { usePanes } from '../pane-controller';
 import type { PaneContext } from '../pane-registry';
@@ -243,7 +247,10 @@ function SessionChanges({
   const gitKey = `${git.status?.head ?? ''}:${git.status?.index ?? ''}`;
   const messages = transcript?.messages;
   const numbers = useMemo(() => turnNumbers(messages ?? []), [messages]);
-  const turns = useMemo(() => turnOptions(checkpoints ?? [], numbers), [checkpoints, numbers]);
+  const turns = useMemo(
+    () => turnOptions(checkpoints ?? [], numbers, messages),
+    [checkpoints, numbers, messages],
+  );
   const source = resolveSource(selection.scope, turns);
   const sourceTurn =
     source?.kind === 'turn' ? turns.find((turn) => turn.turnId === source.turnId) : undefined;
@@ -262,6 +269,23 @@ function SessionChanges({
     [git.status],
   );
   const result = diff.result;
+  const selectedTurnId = source?.kind === 'turn' ? source.turnId : undefined;
+  const turnMessages = useMemo(
+    () =>
+      selectedTurnId === undefined
+        ? []
+        : (messages?.filter(
+            (message) => message.role !== 'system' && message.turnId === selectedTurnId,
+          ) ?? []),
+    [messages, selectedTurnId],
+  );
+  const recorded = useMemo(
+    () =>
+      result !== undefined && !(result.fileCount ?? 0) && selectedTurnId !== undefined
+        ? recordedChangePreviews(turnMessages)
+        : [],
+    [result, selectedTurnId, turnMessages],
+  );
   const scopeKey = source === undefined ? undefined : sourceKey(sessionId, source);
 
   const renderable = useMemo(
@@ -325,7 +349,11 @@ function SessionChanges({
   );
   const view = useMemo<DiffView>(() => ({ base: result?.base, head: result?.head }), [result]);
   const commentable =
-    reviewSupported && source !== undefined && !staged && result?.base !== undefined;
+    reviewSupported &&
+    source !== undefined &&
+    !staged &&
+    result?.base !== undefined &&
+    recorded.length === 0;
   const [draft, setDraft] = useState<Draft>();
   const [selectedLines, setSelectedLines] = useState<CodeViewLineSelection | null>(null);
   const placed = useMemo(() => {
@@ -521,15 +549,25 @@ function SessionChanges({
     [toggleFile, staging, gitFiles, gitBusy, toggleStage, placed, panes],
   );
 
-  const stats = {
-    added: result?.added ?? 0,
-    removed: result?.removed ?? 0,
-  };
-  const hasFiles = (result?.fileCount ?? 0) > 0;
+  const stats =
+    selectedTurnId !== undefined
+      ? turnChangeStats(result, foldTurn(turnMessages, false, false).changes)
+      : { added: result?.added ?? 0, removed: result?.removed ?? 0 };
+  const hasFiles = (result?.fileCount ?? 0) > 0 || recorded.length > 0;
 
   let body: ReactNode;
   if (selection.scope.kind === 'latest' && checkpoints !== undefined && turns.length === 0) {
     body = <Note>{t('changes.noTurns')}</Note>;
+  } else if (recorded.length > 0) {
+    body = (
+      <ScrollFade className="h-full overflow-auto p-3">
+        <div className="space-y-2" data-turn-change-previews>
+          {recorded.map(({ key, preview }) => (
+            <FilePreviewBlock key={key} preview={preview} root={session?.cwd} />
+          ))}
+        </div>
+      </ScrollFade>
+    );
   } else if (diff.error !== undefined && !result) {
     body = <Note>{t('changes.failed', { error: diff.error })}</Note>;
   } else if (!result) {
@@ -641,6 +679,7 @@ function SessionChanges({
             <IconButton
               label={t('changes.wrap')}
               size="icon-xs"
+              disabled={recorded.length > 0}
               aria-pressed={prefs.wrap}
               className={cn(prefs.wrap && 'bg-accent text-foreground')}
               onClick={() => changesPrefs.set((current) => ({ ...current, wrap: !current.wrap }))}
@@ -650,6 +689,7 @@ function SessionChanges({
             <IconButton
               label={t('changes.split')}
               size="icon-xs"
+              disabled={recorded.length > 0}
               aria-pressed={prefs.split}
               className={cn(prefs.split && 'bg-accent text-foreground')}
               onClick={() => changesPrefs.set((current) => ({ ...current, split: !current.split }))}

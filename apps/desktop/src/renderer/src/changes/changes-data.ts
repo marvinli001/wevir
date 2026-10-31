@@ -108,29 +108,34 @@ export function useWorkspaceDiff(
 export function useCheckpoints(
   sessionId: SessionId,
   refreshKey: unknown,
+  enabled = true,
 ): readonly TurnCheckpoint[] | undefined {
   const { client } = useHostConnection();
   const supported = useDiffSupported();
-  const [turns, setTurns] = useState(() => lastCheckpoints.get(sessionId));
+  const [state, setState] = useState(() => ({ sessionId, turns: lastCheckpoints.get(sessionId) }));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey 只用来触发重读。
   useEffect(() => {
-    setTurns(lastCheckpoints.get(sessionId));
-    if (!client || !supported) return;
+    setState({ sessionId, turns: lastCheckpoints.get(sessionId) });
+    if (!client || !supported || !enabled) return;
     let stopped = false;
     client
       .request('session.checkpoints', { sessionId })
       .then((result) => {
         lastCheckpoints.set(sessionId, result.turns);
-        if (!stopped) setTurns(result.turns);
+        if (!stopped) setState({ sessionId, turns: result.turns });
       })
       .catch(() => {
-        if (!stopped) setTurns(undefined);
+        if (!stopped) setState({ sessionId, turns: undefined });
       });
     return () => {
       stopped = true;
     };
-  }, [client, supported, sessionId, refreshKey]);
+  }, [client, supported, sessionId, refreshKey, enabled]);
 
-  return supported ? turns : undefined;
+  return supported && enabled
+    ? state.sessionId === sessionId
+      ? state.turns
+      : lastCheckpoints.get(sessionId)
+    : undefined;
 }

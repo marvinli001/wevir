@@ -9,6 +9,8 @@
 import type { ChatMessage } from '@wevir/client-sdk';
 import type { DiffSource, TurnCheckpoint, TurnId } from '@wevir/protocol';
 import { t } from '@/i18n';
+import { filePreviews } from '@/session/file-preview-model';
+import { foldTurn, type TurnFold } from '@/session/turn-model';
 
 /** 窗格选的范围：未提交、已暂存（0.67.0）、本分支、最近一回合（跟着会话走）、第 N 回合。 */
 export type ChangesScope =
@@ -41,29 +43,76 @@ export interface TurnOption {
   fileCount?: number;
   added?: number;
   removed?: number;
-  /** 还没有回合后的快照：进行中。 */
+  /** 回合尚未结束，也没有回合后的快照。 */
   live: boolean;
 }
 
-/** “回合”子菜单：有快照的回合，从新到旧。 */
+/** Git 不收录被忽略的文件；空快照保留工具记录的编辑，非空快照采用净改动。 */
+export function turnChangeStats(
+  checkpoint: Pick<TurnCheckpoint, 'fileCount' | 'added' | 'removed'> | undefined,
+  recorded: TurnFold['changes'],
+): TurnFold['changes'] {
+  return checkpoint?.fileCount
+    ? {
+        files: checkpoint.fileCount,
+        added: checkpoint.added ?? 0,
+        removed: checkpoint.removed ?? 0,
+      }
+    : recorded;
+}
+
+export function recordedChangePreviews(messages: readonly ChatMessage[]) {
+  return messages.flatMap((message) =>
+    message.role !== 'assistant'
+      ? []
+      : message.parts.flatMap((part) =>
+          part.type === 'tool' && part.status === 'completed'
+            ? (filePreviews(part) ?? []).map((preview, index) => ({
+                key: `${message.id}/${part.key}/${index}`,
+                preview,
+              }))
+            : [],
+        ),
+  );
+}
+
+/** “回合”子菜单：快照与有编辑记录的回合，从新到旧。 */
 export function turnOptions(
   checkpoints: readonly TurnCheckpoint[],
   numbers: ReadonlyMap<TurnId, number>,
+  messages: readonly ChatMessage[] = [],
 ): TurnOption[] {
-  return [...checkpoints].reverse().map((checkpoint) => {
-    const number = numbers.get(checkpoint.turnId);
-    return {
-      turnId: checkpoint.turnId,
-      ...(number !== undefined && { number }),
-      ...(checkpoint.fileCount !== undefined && { fileCount: checkpoint.fileCount }),
-      ...(checkpoint.added !== undefined && { added: checkpoint.added }),
-      ...(checkpoint.removed !== undefined && { removed: checkpoint.removed }),
-      live: checkpoint.fileCount === undefined,
-    };
-  });
+  const turns = new Map<TurnId, ChatMessage[]>();
+  for (const message of messages) {
+    if (message.role === 'system') continue;
+    const turn = turns.get(message.turnId) ?? [];
+    turn.push(message);
+    turns.set(message.turnId, turn);
+  }
+  const snapshots = new Map(checkpoints.map((checkpoint) => [checkpoint.turnId, checkpoint]));
+  const ids = new Set(snapshots.keys());
+  for (const [turnId, turn] of turns) {
+    if (!snapshots.has(turnId) && recordedChangePreviews(turn).length > 0) ids.add(turnId);
+  }
+  return [...ids]
+    .sort()
+    .reverse()
+    .map((turnId) => {
+      const checkpoint = snapshots.get(turnId);
+      const fold = foldTurn(turns.get(turnId) ?? [], false, false);
+      const stats = turnChangeStats(checkpoint, fold.changes);
+      const settled = checkpoint?.fileCount !== undefined || fold.finished !== undefined;
+      const number = numbers.get(turnId);
+      return {
+        turnId,
+        ...(number !== undefined && { number }),
+        ...(settled && { fileCount: stats.files, added: stats.added, removed: stats.removed }),
+        live: !settled,
+      };
+    });
 }
 
-/** 范围对应的来源；“最近一回合”在还没有快照的会话里没有来源。 */
+/** 范围对应的来源；没有快照或编辑记录时，“最近一回合”没有来源。 */
 export function resolveSource(
   scope: ChangesScope,
   turns: readonly TurnOption[],

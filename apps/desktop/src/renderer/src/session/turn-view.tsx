@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, CircleAlert, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
 import { Fragment, memo, useContext, useEffect, useId, useRef } from 'react';
 import type { OrbState } from 'thinking-orbs';
+import { turnChangeStats } from '@/changes/changes-model';
 import { Collapse } from '@/components/collapse';
 import { GlideGroup } from '@/components/glide';
 import { t } from '@/i18n';
@@ -83,6 +84,11 @@ export const TurnView = memo(
     checks?: ChecksSummary;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
+    const { checkpoints } = useContext(OpenTurnChanges);
+    const changes = turnChangeStats(
+      checkpoints?.find((turn) => turn.turnId === turnId),
+      fold.changes,
+    );
     const { branch } = useMessageActions();
     const [open, setOpen] = useFold(`turn:${turnId}`, !fold.defaultFolded);
     const folded = fold.showHeader && !open;
@@ -236,15 +242,15 @@ export const TurnView = memo(
               {...(writingPlan && { label: t('plan.writing') })}
             />
           )}
-          {fold.finished && (fold.changes.files > 0 || checks) && (
+          {fold.finished && (changes.files > 0 || checks) && (
             // 两颗药丸放进同一行 flex 居中：各自 inline-flex 时按基线对齐，“检查”以图标开头，基线落在图标底边，会比“已更改”高。
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              {fold.changes.files > 0 && (
+              {changes.files > 0 && (
                 <ChangesChip
                   turnId={turnId}
                   messages={messages}
                   hasSubagents={hasSubagents}
-                  fold={fold}
+                  changes={changes}
                 />
               )}
               {checks && <ChecksChip checks={checks} />}
@@ -376,15 +382,15 @@ function ChangesChip({
   turnId,
   messages,
   hasSubagents,
-  fold,
+  changes,
 }: {
   turnId: TurnId;
   messages: readonly ChatMessage[];
   hasSubagents: boolean;
-  fold: TurnFold;
+  changes: TurnFold['changes'];
 }) {
   const setFolds = useFoldSetter();
-  const openTurn = useContext(OpenTurnChanges);
+  const { open: openTurn } = useContext(OpenTurnChanges);
   const expand = () => {
     if (openTurn) {
       openTurn(turnId);
@@ -411,8 +417,8 @@ function ChangesChip({
       data-turn-changes
       className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-3 text-sm text-soft-foreground outline-none hover:border-border-strong hover:text-foreground focus-visible:focus-field"
     >
-      {t('turn.changes', { count: fold.changes.files })}
-      <DiffStat stats={fold.changes} />
+      {t('turn.changes', { count: changes.files })}
+      <DiffStat stats={changes} />
     </button>
   );
 }
