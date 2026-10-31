@@ -784,6 +784,17 @@ describe('映射的边界情况', () => {
     ).toEqual([]);
   });
 
+  it('回合之外的 MCP 服务启动状态不出事件，起不来的也一样', () => {
+    const mapper = new CodexEventMapper(id);
+    const status = (name: string, value: string) => ({ threadId: id, name, status: value });
+    for (const params of [status('playwright', 'starting'), status('playwright', 'failed')]) {
+      expect(mapper.map('mcpServer/startupStatus/updated', params, { stale: true })).toEqual([]);
+    }
+    expect(
+      mapper.map('mcpServer/startupStatus/updated', status('playwright', 'failed')),
+    ).toMatchObject([{ type: 'engine.raw', method: 'mcpServer/startupStatus/updated' }]);
+  });
+
   it('contextCompaction（0.24.0）：开始与完成各一个事件，compact 开的回合是 manual，其余是 auto', () => {
     const mapper = new CodexEventMapper(id);
     const item = { type: 'contextCompaction', id: 'c1' };

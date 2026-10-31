@@ -242,7 +242,7 @@ export class CodexEventMapper {
 
   /**
    * 一条通知对应的 AgentEvent，按发出顺序。`turn/completed` 的最后一个事件是回合的终结事件。`stale`：不属于进行中回合的
-   * 通知（适配器判断），它的用量只更新累计、不记成请求（0.62.0）。
+   * 通知（适配器判断），它的用量只更新累计、不记成请求（0.62.0），MCP 服务的启动状态不出事件。
    */
   map(method: string, params: unknown, context: { stale?: boolean } = {}): AgentEvent[] {
     if ((IGNORED_NOTIFICATIONS as readonly string[]).includes(method)) return [];
@@ -298,6 +298,9 @@ export class CodexEventMapper {
           ? this.#usage(params, context.stale === true)
           : [this.raw(method, params)];
       case 'mcpServer/startupStatus/updated':
+        // 回合之外的：`config/mcpServer/reload` 让每个挂着的 thread 都重启 MCP 服务，记进空闲会话会推进它的 `updatedAt` 与
+        // `lastSeq`（左栏的排序与未读）。
+        if (context.stale === true) return [];
         // Wevir 自己的 MCP 服务（§6.8、§6.10、§6.11）每个 thread 起一次：正常启动不出事件，起不来的照常留 engine.raw。
         return WEVIR_MCP_SERVERS.includes(params.name as string) &&
           (params.status === 'starting' || params.status === 'ready')

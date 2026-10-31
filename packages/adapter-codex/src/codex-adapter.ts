@@ -2062,8 +2062,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       (turnId !== undefined &&
         (turn.turnId !== undefined ? turnId !== turn.turnId : turnId === session.lastTurnId));
     if (stale) {
-      // 用量与 MCP 服务启动（Wevir 自己的正常启动不出事件，§6.8）的映射不读回合状态；按设计忽略的（thread 状态等）照样
-      // 忽略；其余一律原样保留。
+      // 用量（只更新累计）与 MCP 服务的启动状态（不出事件）交给映射；按设计忽略的（thread 状态等）照样忽略；其余一律原样保留。
       const events =
         method === 'thread/tokenUsage/updated' || method === 'mcpServer/startupStatus/updated'
           ? session.mapper.map(method, params, { stale: true })
