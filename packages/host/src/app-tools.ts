@@ -1407,7 +1407,8 @@ export class AppTools {
         'cannot touch your files. Its review arrives here as a message when it finishes, so end your turn instead of ' +
         'waiting or polling. Worth it before committing to a risky approach and before calling substantial work ' +
         'done. Pick providerId (and modelId) from wevir_models, preferably a provider other than ' +
-        'yours so the review is independent; focus says what to look at hardest. Needs a git repository with at ' +
+        'yours so the review is independent; focus says what to look at hardest (at most ' +
+        `${SECOND_OPINION_FOCUS_MAX_LENGTH} characters). Needs a git repository with at ` +
         `least one commit; at most ${SECOND_OPINION_RUNNING_MAX} run at once.`,
       inputSchema: objectSchema(
         {
@@ -1870,7 +1871,9 @@ export class AppTools {
       name: 'wevir_wrap_up',
       title: 'Wrap up the turn',
       description:
-        "Wrap up a turn that changed files, ran commands or did multi-step work: call it once before your final answer (not for chat or quick answers), then answer as usual. recap: 2-3 sentences on what is now true and what is not done or verified. When the next move is the user's decision, add ask (that one decision, no reasons or options) and 1-2 actions, your recommendation first: label is 1-3 words, message is what clicking sends you in the user's voice. The user sees them as a card under your answer; do not ask again there. blocked: you cannot go on without an answer.",
+        "Wrap up a turn that changed files, ran commands or did multi-step work: call it once before your final answer (not for chat or quick answers), then answer as usual. recap: 2-3 sentences on what is now true and what is not done or verified. When the next move is the user's decision, add ask (that one decision, no reasons or options) and " +
+        `1-${WRAP_UP_ACTIONS_MAX} actions, your recommendation first: label is 1-3 words, message is what clicking sends you in the user's voice. The user sees them as a card under your answer; do not ask again there. blocked: you cannot go on without an answer (needs ask and actions). ` +
+        `Max characters: recap ${WRAP_UP_RECAP_MAX_LENGTH}, ask ${WRAP_UP_ASK_MAX_LENGTH}, label ${WRAP_UP_LABEL_MAX_LENGTH}, message ${WRAP_UP_MESSAGE_MAX_LENGTH}.`,
       inputSchema: objectSchema(
         {
           recap: { type: 'string', minLength: 1, maxLength: WRAP_UP_RECAP_MAX_LENGTH },

@@ -1,10 +1,15 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Session, SessionId } from '@wevir/protocol';
+import {
+  AUTOMATION_PROMPT_MAX_LENGTH,
+  AUTOMATION_TITLE_MAX_LENGTH,
+  type Session,
+  type SessionId,
+} from '@wevir/protocol';
 import { APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AppTool } from '../app-mcp.js';
+import { type AppTool, AppToolError } from '../app-mcp.js';
 import {
   type AutomationCaller,
   automationRunInstructions,
@@ -157,6 +162,44 @@ describe('wevir_automation_*', () => {
     );
     await expect(call('wevir_automation_delete', { automationId: 'aut_nope' })).rejects.toThrow(
       /not found/,
+    );
+  });
+
+  it.each([
+    ['title', AUTOMATION_TITLE_MAX_LENGTH],
+    ['prompt', AUTOMATION_PROMPT_MAX_LENGTH],
+  ] as const)('%s：建和改都拒绝空白与超长输入，允许去空白后刚好达到上限', async (field, max) => {
+    const { call, service } = await setup();
+    const base = { title: 'Standup', prompt: 'Summarize commits.', schedule: { kind: 'manual' } };
+    const invalid = ['', ' \n\t ', 'x'.repeat(max + 1)];
+    for (const value of invalid) {
+      await expect(
+        call('wevir_automation_save', { ...base, [field]: value }),
+      ).rejects.toBeInstanceOf(AppToolError);
+    }
+    expect(service.list()).toHaveLength(0);
+
+    const boundary = 'x'.repeat(max);
+    const saved = await call('wevir_automation_save', { ...base, [field]: ` ${boundary} ` });
+    expect(saved[field]).toBe(boundary);
+    const id = saved.automationId as string;
+    for (const value of invalid) {
+      await expect(
+        call('wevir_automation_save', { automationId: id, [field]: value, enabled: false }),
+      ).rejects.toBeInstanceOf(AppToolError);
+      expect(service.get(id).automation).toMatchObject({ [field]: boundary, enabled: true });
+    }
+
+    const updated = await call('wevir_automation_save', {
+      automationId: id,
+      [field]: ` ${'y'.repeat(max)} `,
+    });
+    expect(updated[field]).toBe('y'.repeat(max));
+    expect(await call('wevir_automation_save', { automationId: id, enabled: false })).toMatchObject(
+      {
+        [field]: updated[field],
+        enabled: false,
+      },
     );
   });
 

@@ -115,6 +115,8 @@ export const BrowserTabDispositionSchema = z.enum(['deliverable', 'handoff']);
 export type BrowserTabDisposition = z.infer<typeof BrowserTabDispositionSchema>;
 /** `finalize_tabs` 一次最多留下的标签页数。 */
 export const BROWSER_FINALIZE_KEEP_MAX = 20;
+/** `keypress` 的按键（含组合键）最长的字符数。 */
+export const BROWSER_KEY_MAX_LENGTH = 32;
 
 const tab = { browserId: BrowserTabIdSchema };
 const selector = z.string().min(1).max(2_000);
@@ -174,7 +176,11 @@ export const BrowserCommandSchema = z.discriminatedUnion('command', [
   }),
   z.object({
     command: z.literal('keypress'),
-    args: z.object({ ...tab, ref: BrowserRefSchema.optional(), key: z.string().min(1).max(32) }),
+    args: z.object({
+      ...tab,
+      ref: BrowserRefSchema.optional(),
+      key: z.string().min(1).max(BROWSER_KEY_MAX_LENGTH),
+    }),
   }),
   z.object({
     command: z.literal('select'),

@@ -82,7 +82,7 @@ const RUN_DESCRIPTION =
   `the tabs at the end. At most ${BROWSER_RUN_MAX_CALLS} browser calls and timeoutMs (default 60000, at most ` +
   `${COMPOSE_MAX_TIMEOUT_MS}). Example: for (const r of (await tab.query('a.next')).elements) { await tab.click(r.ref); console.log(await tab.snapshot({viewportOnly:true})); } ` +
   'The whole script is approved once and runs with the permissions of the tools it calls. Prefer single tools ' +
-  'or browser_batch when the steps are known in advance.';
+  `or browser_batch when the steps are known in advance. Max characters: script ${SCRIPT_MAX_CHARS}.`;
 
 /** browser_batch 与 browser_run。 */
 export function browserComposeTools(options: BrowserComposeOptions): AppTool[] {

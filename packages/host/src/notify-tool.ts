@@ -135,7 +135,8 @@ export function notifyTools(options: NotifyToolOptions): AppTool[] {
       name: NOTIFY_TOOL,
       title: 'Notify the user',
       description:
-        'Send the user a short notification: pushed to their paired phones when they are away from the computer, otherwise shown by the Wevir app. Only for what they must act on (a decision you are blocked on, a failure that needs them) or would want to know while away (a long job they wait for finished); not for progress or anything your answer already says. Never include secrets. body: one line; title (optional) replaces the session title. At most one a minute and six an hour per session. The result says where it went; if it was not delivered, do not retry.',
+        'Send the user a short notification: pushed to their paired phones when they are away from the computer, otherwise shown by the Wevir app. Only for what they must act on (a decision you are blocked on, a failure that needs them) or would want to know while away (a long job they wait for finished); not for progress or anything your answer already says. Never include secrets. body: one line; title (optional) replaces the session title. At most one a minute and six an hour per session. The result says where it went; if it was not delivered, do not retry. ' +
+        `Max characters: title ${AGENT_NOTIFICATION_TITLE_MAX_LENGTH}, body ${AGENT_NOTIFICATION_BODY_MAX_LENGTH}.`,
       inputSchema: {
         type: 'object',
         properties: {

@@ -21,6 +21,7 @@ import type { BrowserCommand, BrowserResult, SessionId } from '@wevir/protocol';
 import {
   BROWSER_DOWNLOAD_MAX_BYTES,
   BROWSER_FINALIZE_KEEP_MAX,
+  BROWSER_KEY_MAX_LENGTH,
   BROWSER_RESULT_MAX_BYTES,
   BROWSER_SNAPSHOT_MAX_NODES,
   BROWSER_UPLOAD_MAX_FILES,
@@ -500,8 +501,12 @@ const SPECS: BrowserToolSpec[] = [
   {
     name: 'browser_keypress',
     title: 'Press a key in the browser',
-    description: `Press a key (Enter, Tab, Escape, Space, ArrowDown, F5, a, …) or a combination joined with + (Shift+Tab, Shift+A, ControlOrMeta+a; modifiers Shift, Control, Alt, Meta, and ControlOrMeta, which is Meta on macOS and Control elsewhere, so ControlOrMeta+a selects all everywhere) on an element, or on the focused element when ref is omitted. To choose an option of a select element use browser_select (arrow keys open its menu instead of changing it on macOS). ${REF_NOTE}`,
-    properties: { browserId: BROWSER_ID, key: { type: 'string', maxLength: 32 }, ref: REF },
+    description: `Press a key (Enter, Tab, Escape, Space, ArrowDown, F5, a, …) or a combination joined with + (Shift+Tab, Shift+A, ControlOrMeta+a; modifiers Shift, Control, Alt, Meta, and ControlOrMeta, which is Meta on macOS and Control elsewhere, so ControlOrMeta+a selects all everywhere) on an element, or on the focused element when ref is omitted. To choose an option of a select element use browser_select (arrow keys open its menu instead of changing it on macOS). ${REF_NOTE} Max characters: key ${BROWSER_KEY_MAX_LENGTH}.`,
+    properties: {
+      browserId: BROWSER_ID,
+      key: { type: 'string', maxLength: BROWSER_KEY_MAX_LENGTH },
+      ref: REF,
+    },
     required: ['browserId', 'key'],
     readOnly: false,
     command: (args) => {

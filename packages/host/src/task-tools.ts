@@ -174,7 +174,8 @@ export function taskTools({
         'Add a task to the shared list. subject is a short imperative; description says what done looks like. ' +
         'blockedBy lists ids of tasks that must finish first. owner "me" claims it for yourself, or give the id ' +
         'of a session in this tree; assigning only records it, it does not wake the session (message it with ' +
-        'wevir_session_send to make it start). Returns the new id.',
+        'wevir_session_send to make it start). Returns the new id. Max characters: subject ' +
+        `${TASK_SUBJECT_MAX}, description ${TASK_DESCRIPTION_MAX}.`,
       inputSchema: objectSchema(
         {
           subject: { type: 'string', maxLength: TASK_SUBJECT_MAX },
@@ -214,7 +215,8 @@ export function taskTools({
         'release it, or a session id in this tree), subject, description, addBlockedBy / removeBlockedBy, or add a ' +
         'short note about progress or findings. Starting a task (in_progress) claims it for you unless it has an ' +
         'owner; a task owned by another session only takes notes from you, and a task cannot start or finish while ' +
-        'what it waits for is open. Mark your task completed as soon as it is done. delete=true removes it.',
+        'what it waits for is open. Mark your task completed as soon as it is done. delete=true removes it. ' +
+        `Max characters: subject ${TASK_SUBJECT_MAX}, description ${TASK_DESCRIPTION_MAX}, note ${TASK_NOTE_MAX}.`,
       inputSchema: objectSchema(
         {
           id: {

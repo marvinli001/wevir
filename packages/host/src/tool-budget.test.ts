@@ -56,13 +56,14 @@ const BUDGETS: Record<string, { tools: number; instructions: number }> = {
  * 常驻层（`toolTier` 为 core 的工具）的 MCP 原形字节：工具搜索打开时首个请求里只有它们。2026-10-25 实测 20,023；2026-10-27
  * 回合收尾的 `wevir_wrap_up`（0.128.0，每个干活的回合都要调，不能按需加载）进常驻层，多 1,259，预算从 21,000 提到 22,000。
  * 2026-10-29 生图的 `wevir_image_generate`（0.139.0，只列给 Provider 有图片模型的会话）进常驻层：列出时共 23,231，预算提到 23,500。
+ * 2026-10-31 `wevir_wrap_up` 与任务工具的说明写上字段长度上限（Codex 转给模型的 schema 里没有 `maxLength`）：共 23,527，预算提到 24,000。
  */
-const RESIDENT_MAX_BYTES = 23_500;
+const RESIDENT_MAX_BYTES = 24_000;
 /**
  * 没有自带工具搜索的引擎（OpenCode）登记的：常驻层加上搜索与两个分发工具（2026-10-25 实测 20 个、21,810 字节；2026-10-27 加
- * `wevir_wrap_up` 后 23,627，预算从 23,000 提到 24,000）。
+ * `wevir_wrap_up` 后 23,627，预算从 23,000 提到 24,000；2026-10-31 写上字段长度上限后 24,105，预算提到 24,500）。
  */
-const DISPATCH_MAX_BYTES = 24_000;
+const DISPATCH_MAX_BYTES = 24_500;
 
 const tempDir = useTempDir();
 const storages = useStorages();

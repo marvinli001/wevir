@@ -6,6 +6,8 @@
 // 写操作不在 `APP_TOOLS_NO_APPROVAL` 里：按会话的权限模式走引擎自己的批准；运行会话的权限不能比建它的会话宽。
 
 import {
+  AUTOMATION_PROMPT_MAX_LENGTH,
+  AUTOMATION_TITLE_MAX_LENGTH,
   type Automation,
   type AutomationCheck,
   type AutomationCheckResult,
@@ -258,11 +260,12 @@ export function automationTools({ automations, callerOf }: AutomationToolsOption
         'schedule: a structured object in the user\'s local time (timezone defaults to this computer\'s). Defaults come from this session: same project (project: "none" runs outside any project), same provider, model and reasoning level, and its permission mode, which is also the most a run may have. runIn "this_session" sends every run back into this conversation instead of a new session each time; prefer it for recurring follow-ups on the work in this conversation (keep watching this PR, check back on this build). notify: "important" (default: only results worth reporting, failures and runs waiting for the user), "changes" (like important, but not when the result is the same as last time), "always", "failures" or "never"; a request to mute changes notify, not the prompt.',
         'For "tell me when X happens" requests, add a check script that detects X cheaply (a gh, curl or test command) so the agent only wakes when there is something to do, instead of polling with the agent itself. Keep the check read-only and quick.',
         'After saving, tell the user in one or two sentences what will run and the returned next run time, in plain words; never show raw schedule objects. Only say it was created or changed if the result confirms it; if it fails, explain the error. Runs under on_request permission stop and wait whenever a tool needs approval; mention this when the task needs actions that ask for approval.',
+        `Max characters: title ${AUTOMATION_TITLE_MAX_LENGTH}, prompt ${AUTOMATION_PROMPT_MAX_LENGTH}.`,
       ].join('\n\n'),
       inputSchema: objectSchema({
         automationId: { type: 'string', description: 'Omit to create a new automation.' },
-        title: { type: 'string', maxLength: 120 },
-        prompt: { type: 'string' },
+        title: { type: 'string', minLength: 1, maxLength: AUTOMATION_TITLE_MAX_LENGTH },
+        prompt: { type: 'string', minLength: 1, maxLength: AUTOMATION_PROMPT_MAX_LENGTH },
         schedule: SCHEDULE_PROPERTY,
         timezone: { type: 'string', description: 'IANA time zone, e.g. Asia/Shanghai.' },
         enabled: { type: 'boolean', description: 'false pauses it, true resumes.' },
@@ -289,8 +292,17 @@ export function automationTools({ automations, callerOf }: AutomationToolsOption
       call: async (args, { sessionId }) => {
         const caller = callerOf(sessionId);
         const automationId = optionalString(args, 'automationId');
-        const title = optionalString(args, 'title');
-        const prompt = optionalString(args, 'prompt');
+        const title = args.title === undefined ? undefined : requiredString(args, 'title').trim();
+        const prompt =
+          args.prompt === undefined ? undefined : requiredString(args, 'prompt').trim();
+        for (const [key, value, max] of [
+          ['title', title, AUTOMATION_TITLE_MAX_LENGTH],
+          ['prompt', prompt, AUTOMATION_PROMPT_MAX_LENGTH],
+        ] as const) {
+          if (value !== undefined && value.length > max) {
+            throw new AppToolError(`${key} must be at most ${max} characters.`);
+          }
+        }
         const schedule = args.schedule === undefined ? undefined : parseSchedule(args.schedule);
         const timezone = optionalString(args, 'timezone');
         const enabled = typeof args.enabled === 'boolean' ? args.enabled : undefined;

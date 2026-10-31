@@ -161,7 +161,8 @@ export function tuningTools(options: TuningToolsOptions): AppTool[] {
       'Wevir keeps it or reverts it by their verification results and failed turns, and the user can undo it. Sessions ' +
       'already running, including this one, do not reread it. Prefer this over editing those files directly. ' +
       'Propose one when the user corrects a recurring problem, you find a fixed way this project works, or a hard ' +
-      'rule is needed.',
+      'rule is needed. Max characters: title ' +
+      `${TUNING_PROPOSAL_TITLE_MAX_LENGTH}, description ${MEMORY_DESCRIPTION_MAX}.`,
     inputSchema: objectSchema(
       {
         kind: { type: 'string', enum: ['rule', 'skill', 'memory', 'guardrail'] },
