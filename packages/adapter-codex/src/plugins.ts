@@ -93,13 +93,19 @@ interface StatusList {
     authStatus?: string;
     tools: Record<string, { name: string; description?: string }>;
   }>;
-  nextCursor?: string | null;
+}
+
+/** 开着的 thread 与只挂在它上面的项目连接器里启用的名字。 */
+export interface CodexPluginThread {
+  id: string;
+  cwd: string;
+  connectors: ReadonlySet<string>;
 }
 
 export class CodexPlugins {
   source: EnginePluginSource | undefined;
   readonly #process: CodexProcess;
-  readonly #threads: () => Array<{ id: string; cwd: string }>;
+  readonly #threads: () => CodexPluginThread[];
   readonly #secret: (value: string) => void;
   #queue: Promise<unknown> = Promise.resolve();
   #applied = '';
@@ -116,7 +122,7 @@ export class CodexPlugins {
 
   constructor(
     process: CodexProcess,
-    threads: () => Array<{ id: string; cwd: string }>,
+    threads: () => CodexPluginThread[],
     secret: (value: string) => void,
   ) {
     this.#process = process;
@@ -234,34 +240,55 @@ export class CodexPlugins {
     remember();
   }
 
+  /**
+   * Host 的连接器各问一次，带 `serverName`：带 thread 时 Codex 读那个 thread 已有的连接。不带 `serverName` 时 Codex 每次都
+   * 把配置里的全部 MCP 服务新起一遍，按 thread 逐个这样问，开着几十个会话时插件页要等半分钟。
+   */
   async status(): Promise<EngineConnectorStatus[]> {
     if (!this.source || this.#process.state !== 'ready') return [];
-    const statuses = new Map<string, EngineConnectorStatus>();
     const threads = this.#threads();
-    for (const thread of threads.length > 0 ? threads : [undefined]) {
-      let cursor: string | undefined;
-      do {
-        const page = await this.#process.request<StatusList>('mcpServerStatus/list', {
-          detail: 'toolsAndAuthOnly',
-          ...(thread && { threadId: thread.id }),
-          ...(cursor && { cursor }),
-        });
-        for (const item of page.data) {
-          if (item.name.startsWith('wevir')) continue;
-          const status = {
-            name: item.name,
-            ...(item.runtimeStatus !== null && { status: item.runtimeStatus }),
-            ...(item.authStatus !== undefined && { authStatus: item.authStatus }),
-            tools: Object.values(item.tools).map(({ name, description }) => ({
-              name,
-              ...(description !== undefined && { description }),
-            })),
-          };
-          if (statuses.get(item.name)?.status !== 'connected') statuses.set(item.name, status);
-        }
-        cursor = page.nextCursor ?? undefined;
-      } while (cursor);
-    }
-    return [...statuses.values()];
+    const names = new Set([...this.#enabledNames, ...threads.flatMap((t) => [...t.connectors])]);
+    const statuses = await Promise.all(
+      [...names]
+        .filter((name) => !name.startsWith('wevir'))
+        .map(async (name) => {
+          let found: EngineConnectorStatus | undefined;
+          const owners = threads.filter(
+            (thread) => this.#enabledNames.has(name) || thread.connectors.has(name),
+          );
+          // 有一个 thread 连上了就算连上了，不再问别的。
+          for (const thread of threads.length > 0 ? owners : [undefined]) {
+            found = (await this.#serverStatus(name, thread?.id)) ?? found;
+            if (found?.status === 'connected') break;
+          }
+          return found;
+        }),
+    );
+    return statuses.filter((item) => item !== undefined);
+  }
+
+  async #serverStatus(
+    name: string,
+    threadId: string | undefined,
+  ): Promise<EngineConnectorStatus | undefined> {
+    // 问的时候 thread 可能刚关掉，跳过它问下一个。
+    const page = await this.#process
+      .request<StatusList>('mcpServerStatus/list', {
+        detail: 'toolsAndAuthOnly',
+        serverName: name,
+        ...(threadId !== undefined && { threadId }),
+      })
+      .catch(() => undefined);
+    const item = page?.data.find((entry) => entry.name === name);
+    if (item === undefined) return undefined;
+    return {
+      name,
+      ...(item.runtimeStatus !== null && { status: item.runtimeStatus }),
+      ...(item.authStatus !== undefined && { authStatus: item.authStatus }),
+      tools: Object.values(item.tools).map(({ name: tool, description }) => ({
+        name: tool,
+        ...(description !== undefined && { description }),
+      })),
+    };
   }
 }

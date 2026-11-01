@@ -719,7 +719,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       () =>
         [...this.#sessions.values()]
           .filter((session) => session.status === 'open')
-          .map(({ id, cwd }) => ({ id, cwd })),
+          .map(({ id, cwd, connectors }) => ({ id, cwd, connectors })),
       (value) => this.#logger.addSecret?.(value),
     );
     this.process.on('exit', (exit) => this.#onExit(exit));

@@ -4,18 +4,27 @@ import type { EnginePluginConfig } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
 import type { CodexProcess } from './codex-process.js';
 import { HARDENING_TABLES } from './config.js';
-import { CodexPlugins, pluginsToml } from './plugins.js';
+import { CodexPlugins, type CodexPluginThread, pluginsToml } from './plugins.js';
 
 function setup() {
   const calls: string[] = [];
-  const hooks: { onList?: () => void } = {};
+  const hooks: { onList?: () => void; connected?: Set<string> } = {};
   let generation = 1;
   const process = {
     state: 'ready',
     get generation() {
       return generation;
     },
-    request: async (method: string, params: { cwds?: string[] }) => {
+    request: async (
+      method: string,
+      params: { cwds?: string[]; threadId?: string; serverName?: string },
+    ) => {
+      if (method === 'mcpServerStatus/list') {
+        const asked = `${params.threadId ?? '-'} ${params.serverName}`;
+        calls.push(`${method} ${asked}`);
+        const status = hooks.connected?.has(asked) ? 'connected' : 'starting';
+        return { data: [{ name: params.serverName, runtimeStatus: status, tools: {} }] };
+      }
       calls.push(method === 'skills/list' ? `${method} ${params.cwds?.join(',')}` : method);
       if (method === 'skills/list') {
         hooks.onList?.();
@@ -24,7 +33,7 @@ function setup() {
       return {};
     },
   } as unknown as CodexProcess;
-  const threads: Array<{ id: string; cwd: string }> = [];
+  const threads: CodexPluginThread[] = [];
   const plugins = new CodexPlugins(
     process,
     () => threads,
@@ -33,10 +42,15 @@ function setup() {
   let config: EnginePluginConfig = { skillsRoot: '/skills', connectors: [], skills: [] };
   plugins.source = { read: async () => config, changed: () => {} };
   const lists = () => calls.filter((call) => call.startsWith('skills/list'));
+  const statusCalls = () =>
+    calls
+      .filter((call) => call.startsWith('mcpServerStatus/list'))
+      .map((call) => call.slice('mcpServerStatus/list '.length));
   return {
     plugins,
     threads,
     lists,
+    statusCalls,
     hooks,
     setConfig: (next: EnginePluginConfig) => {
       config = next;
@@ -56,7 +70,7 @@ describe('CodexPlugins.sync', () => {
     await h.plugins.sync('/a');
     expect(h.lists()).toHaveLength(2);
     // 列完紧接着在 /a 开了 thread：之后在 /a 建会话、重读插件都不用再列。
-    h.threads.push({ id: 't1', cwd: '/a' });
+    h.threads.push({ id: 't1', cwd: '/a', connectors: new Set() });
     await h.plugins.sync('/a');
     await h.plugins.sync();
     expect(h.lists()).toHaveLength(2);
@@ -82,7 +96,7 @@ describe('CodexPlugins.sync', () => {
 
   it('列的时候收到的 skills/changed 让下次照样重列', async () => {
     const h = setup();
-    h.threads.push({ id: 't1', cwd: '/a' });
+    h.threads.push({ id: 't1', cwd: '/a', connectors: new Set() });
     h.hooks.onList = () => {
       h.hooks.onList = undefined;
       h.plugins.notification('skills/changed');
@@ -92,6 +106,37 @@ describe('CodexPlugins.sync', () => {
     expect(h.lists()).toHaveLength(2);
     await h.plugins.sync('/a');
     expect(h.lists()).toHaveLength(2);
+  });
+});
+
+describe('CodexPlugins.status', () => {
+  it('按名字问连接器，用开着的 thread 已有的连接，连上一个就不再问别的', async () => {
+    const h = setup();
+    const stdio = { transport: 'stdio' as const, command: 'mcp' };
+    h.setConfig({
+      skillsRoot: '/skills',
+      connectors: [
+        { name: 'docs', config: stdio, enabled: true },
+        { name: 'off', config: stdio, enabled: false },
+      ],
+      skills: [],
+    });
+    await h.plugins.sync('/a');
+    h.threads.push(
+      { id: 't1', cwd: '/a', connectors: new Set(['proj']) },
+      { id: 't2', cwd: '/a', connectors: new Set() },
+      { id: 't3', cwd: '/b', connectors: new Set() },
+    );
+    h.hooks.connected = new Set(['t2 docs', 't1 proj']);
+    expect(await h.plugins.status()).toEqual([
+      { name: 'docs', status: 'connected', tools: [] },
+      { name: 'proj', status: 'connected', tools: [] },
+    ]);
+    expect(h.statusCalls()).toEqual(['t1 docs', 't1 proj', 't2 docs']);
+    // 没有开着的 thread：只问 Host 的连接器，不让 Codex 把全部 MCP 服务起一遍。
+    h.threads.length = 0;
+    await h.plugins.status();
+    expect(h.statusCalls().slice(3)).toEqual(['- docs']);
   });
 });
 
