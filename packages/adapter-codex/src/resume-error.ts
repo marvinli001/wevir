@@ -12,7 +12,7 @@ import { CodexRpcError } from './codex-process.js';
 export type CodexResumeFailure =
   /** Codex 没有这个会话或读不了它：Host 标为只读。 */
   | { kind: 'lost'; reason: SessionLostReason; explanation: string }
-  /** thread 正在卸载（关闭后没有订阅者、空闲满 60 s），稍后重试。 */
+  /** thread 正在卸载（关闭后没有订阅者、空闲满 `thread_unload_delay_secs`），稍后重试。 */
   | { kind: 'closing' }
   /** app-server 拒绝了这次恢复：`session_unavailable`，不标只读。 */
   | { kind: 'rejected' }

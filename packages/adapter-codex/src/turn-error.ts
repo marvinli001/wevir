@@ -24,12 +24,19 @@ const HTTP_VARIANTS = [
   'responseTooManyFailedAttempts',
 ] as const;
 
-/** 上游（模型服务）报的错误：鉴权、限流与额度、服务端出错、请求不合规、上下文超长、内容策略。 */
+/**
+ * 上游（模型服务）报的错误：鉴权、限流与额度、服务端出错与容量不足、请求不合规、模型不存在、上下文超长、内容策略。
+ * rust-v0.165.0 起 `modelNotFound`（上游错误码 `model_not_found`，Codex 不重试、原文是上游的说明）单独报出；
+ * `policyCapacityUnavailable`（受策略限制的线路容量不足，与 `serverOverloaded` 同样处理）是 rust-v0.166.0 才有的，
+ * 锁定的版本不报，留着无妨。
+ */
 const PROVIDER_ERRORS = new Set([
   'unauthorized',
   'badRequest',
+  'modelNotFound',
   'internalServerError',
   'serverOverloaded',
+  'policyCapacityUnavailable',
   'rateLimitExceeded',
   'usageLimitExceeded',
   'contextWindowExceeded',

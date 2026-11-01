@@ -10,7 +10,7 @@ export function modelErrorRecovery(
     return 'continue';
   }
   if (
-    /insufficient[_\s-]*(?:quota|credits?|balance|funds)|quota[_\s-]*(?:exceeded|exhausted)|billing|credit balance|余额不足|额度不足|欠费|invalid[_\s-]*(?:api[_\s-]*)?key|unauthori[sz]ed|context[_\s-]*(?:window|length)|content[_\s-]*filter|content policy/i.test(
+    /insufficient[_\s-]*(?:quota|credits?|balance|funds)|quota[_\s-]*(?:exceeded|exhausted)|billing|credit balance|余额不足|额度不足|欠费|invalid[_\s-]*(?:api[_\s-]*)?key|model[_\s-]*not[_\s-]*found|model\b.{0,80}\b(?:does not exist|not found)|unauthori[sz]ed|context[_\s-]*(?:window|length)|content[_\s-]*filter|content policy/i.test(
       message,
     )
   ) {
@@ -24,7 +24,7 @@ export function modelErrorRecovery(
     return [408, 409, 425, 429].includes(status) || status >= 500 ? 'retry' : undefined;
   }
   if (
-    /stream.{0,40}(?:disconnect|closed|reset)|connection.{0,40}(?:failed|closed|reset|refused)|network|fetch failed|failed to fetch|error sending request|timed? out|timeout|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|rate[_\s-]*limit|overload|temporarily unavailable|server[_\s-]*error/i.test(
+    /stream.{0,40}(?:disconnect|closed|reset)|connection.{0,40}(?:failed|closed|reset|refused)|network|fetch failed|failed to fetch|error sending request|timed? out|timeout|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|rate[_\s-]*limit|overload|capacity.{0,20}unavailable|temporarily unavailable|server[_\s-]*error/i.test(
       message,
     )
   ) {

@@ -164,11 +164,14 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'subagent',
     description:
-      '子 agent：父 thread 调 multi_agent_v1.spawn_agent、不等它就结束回合，子 thread 的通知推到同一连接（R4 起按子会话上报）',
+      '子 agent：父 thread 调 multi_agent_v1.spawn_agent、不等它就结束回合，子 thread 的通知推到同一连接（R4 起按子会话上报）；子 agent 跑完后适配器叫醒父会话，父 thread 再跑一个回合',
     prompt: 'Spawn a helper',
     settleMs: 3000,
     script: (view) => {
       if (view.lastUserText.startsWith('Helper task')) return { text: ['Helper', ' done.'] };
+      // 子 agent 在父回合结束后才跑完，适配器叫醒父会话（subagentFinishedNote）：只回答一次，不再派新的。
+      if (view.lastUserText.startsWith('The sub-agent running'))
+        return { text: ['Got the helper result.'] };
       if (view.toolOutputs.length > 0) return { text: ['Spawned the helper.'] };
       return {
         toolCalls: [

@@ -176,7 +176,8 @@ import { lowestEffort, TITLE_THREAD_CONFIG, TitleCollector, titleViaGateway } fr
 export const CANCEL_TIMEOUT_MS = 4000;
 
 /**
- * 模型满载时自动续跑（同 T3 Code）：回合以 `serverOverloaded` 失败、Codex 不再重试时，等 `baseDelayMs · 2^(n-1)`（不超过
+ * 模型满载时自动续跑（同 T3 Code）：回合以 `serverOverloaded`（或 `policyCapacityUnavailable`：受策略限制的线路容量
+ * 不足，rust-v0.166.0 才有，Codex 对两者的重试规则相同）失败、Codex 不再重试时，等 `baseDelayMs · 2^(n-1)`（不超过
  * `maxDelayMs`）后以空输入 `turn/start` 接着 thread 上已有的历史做，不重发用户的消息；最多 `maxAttempts` 次。
  */
 export interface OverloadRetryPolicy {
@@ -185,6 +186,12 @@ export interface OverloadRetryPolicy {
   maxDelayMs: number;
 }
 
+/** 按满载续跑的 `codexErrorInfo`。 */
+const OVERLOADED_ERRORS: ReadonlySet<string> = new Set([
+  'serverOverloaded',
+  'policyCapacityUnavailable',
+]);
+
 export const OVERLOAD_RETRY: OverloadRetryPolicy = {
   maxAttempts: 5,
   baseDelayMs: 2000,
@@ -192,8 +199,8 @@ export const OVERLOAD_RETRY: OverloadRetryPolicy = {
 };
 
 /**
- * `thread/resume` 遇到 thread 正在卸载（关闭后没有订阅者、空闲满 60 s，`thread … is closing`）时的重试：每次间隔
- * `RESUME_RETRY_DELAY_MS`，最多 `RESUME_RETRIES` 次。
+ * `thread/resume` 遇到 thread 正在卸载（关闭后没有订阅者、空闲满 `thread_unload_delay_secs`，`thread … is closing`）
+ * 时的重试：每次间隔 `RESUME_RETRY_DELAY_MS`，最多 `RESUME_RETRIES` 次。
  */
 export const RESUME_RETRIES = 10;
 export const RESUME_RETRY_DELAY_MS = 200;
@@ -994,10 +1001,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * 回合以 `serverOverloaded`（模型满载）失败、Codex 不再重试（T3 Code #25611）：不报 `turn.failed`，报 `turn.retrying`，等一会儿
-   * 以空输入 `turn/start` 续跑（`#continueOverloaded`）。Wevir 的回合不变，接着收新的 Codex 回合的事件。只管根会话的普通回合
-   * （子 agent 由父 agent 驱动，压缩与审查回合不能这样续），取消中的、次数用完的照常失败。等待时 Codex 自己开了回合（进行中的
-   * 目标）就并进那个回合（`#deliverMapped`）。
+   * 回合以 `serverOverloaded`（模型满载）或 `policyCapacityUnavailable` 失败、Codex 不再重试（T3 Code #25611）：不报
+   * `turn.failed`，报 `turn.retrying`，等一会儿以空输入 `turn/start` 续跑（`#continueOverloaded`）。Wevir 的回合不变，接着收
+   * 新的 Codex 回合的事件。只管根会话的普通回合（子 agent 由父 agent 驱动，压缩与审查回合不能这样续），取消中的、次数用完的
+   * 照常失败。等待时 Codex 自己开了回合（进行中的目标）就并进那个回合（`#deliverMapped`）。
    */
   #retryOverloaded(
     session: CodexSession,
@@ -1011,7 +1018,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const policy = this.#overloadRetry;
     const attempt = (turn.overload?.attempts ?? 0) + 1;
     if (
-      info !== 'serverOverloaded' ||
+      typeof info !== 'string' ||
+      !OVERLOADED_ERRORS.has(info) ||
       session.parentId !== undefined ||
       turn.kind !== undefined ||
       turn.cancelRequested ||
@@ -1686,7 +1694,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /**
    * 关闭会话：有回合时先取消，再 `thread/unsubscribe`。app-server 的语义（thread_processor.rs
    * `thread_unsubscribe_response_inner`）：本连接不再收这个 thread 的通知；thread 没有订阅者且空闲满
-   * `thread_unload_delay_secs`（默认 60 s）后才卸载，磁盘上的 rollout 保留，之后可以 `thread/resume`。
+   * `thread_unload_delay_secs`（config.ts 写死 1800 s，见那里的说明）后才卸载，磁盘上的 rollout 保留，
+   * 之后可以 `thread/resume`。
    */
   async close(engineSessionId: string): Promise<void> {
     this.#assertUsable();

@@ -74,6 +74,7 @@ describe('renderConfigToml', () => {
       'approvals_reviewer = "user"',
       'check_for_update_on_startup = false',
       'web_search = "disabled"',
+      'thread_unload_delay_secs = 1800',
       '[analytics]\nenabled = false',
       '[features]\nplugins = false\napps = false\ngoals = true\nimage_generation = true\nmemories = false\ninstant_interrupt = false',
       '[tools.update_plan]\nenabled = true',
@@ -259,6 +260,7 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
     for (const line of [
       'approval_policy = "on-request"',
       'web_search = "disabled"',
+      'thread_unload_delay_secs = 1800',
       'model_provider = "openai"',
       'cli_auth_credentials_store = "file"',
       'forced_login_method = "chatgpt"',

@@ -32,7 +32,7 @@ import type { BasePromptVars } from './prompts.js';
 import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
 
 // 生成 CODEX_HOME/config.toml 与模型目录（ADR-0005 决策 5，docs/architecture/codex-event-mapping.md §3）。
-// 每次启动 codex-app-server 之前重写；配置键以 rust-v0.163.0 为准，进程带 --strict-config 启动，写错就启动失败。
+// 每次启动 codex-app-server 之前重写；配置键以 rust-v0.165.0 为准，进程带 --strict-config 启动，写错就启动失败。
 
 /**
  * 加固项（ADR-0005 决策 5 与补记 1，codex-notes §6）。顶层键必须写在任何表之前，所以分成两段。
@@ -56,6 +56,11 @@ import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
  *   Codex 只在 Provider 是 OpenAI 自己的（ChatGPT 登录）时给模型这个工具，经网关的 Provider 拿不到。默认就是开，写出来防默认值变化；
  * - `features.memories = false`、`approvals_reviewer = "user"`：两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI
  *   模型名）；
+ * - `thread_unload_delay_secs = 1800`：关掉的会话（`thread/unsubscribe`，没有订阅者）空闲满这么久 app-server 才卸载 thread。
+ *   rust-v0.165.0 默认就是 1800，rust-v0.166.0 改成了 60，写死免得升级后变化：Wevir 关会话（关闭、接力、移动）后常常
+ *   很快又 `thread/resume` 回来，没卸载时直接接上，卸载了就要重读 rollout、把 MCP 服务重起一遍；卸载期间来的 resume 还会
+ *   碰上 `thread … is closing`（codex-adapter.ts 的 RESUME_RETRIES 重试）。开着的会话一直有订阅者，不受这个值影响，插件页
+ *   借连接查 `mcpServerStatus/list` 也只问开着的会话；代价是关掉的会话多占半小时内存与 MCP 进程（1800 本来就是这样）；
  * - `tools.update_plan.enabled = true`：计划默认关；
  * - 未绑定 Host 插件注册表时 `skills.include_instructions = false`、`skills.bundled.enabled = false`：不把 skills 列表放进上下文，也不往
  *   CODEX_HOME 装内置 skills。Codex 读用户的 `~/.agents/skills`（HOME 是用户真实的家目录），不关就会把用户给别的
@@ -70,6 +75,7 @@ export const HARDENING_TOP: readonly string[] = [
   'check_for_update_on_startup = false',
   'web_search = "disabled"',
   'suppress_unstable_features_warning = true',
+  'thread_unload_delay_secs = 1800',
 ];
 
 export const HARDENING_TABLES: readonly string[] = [

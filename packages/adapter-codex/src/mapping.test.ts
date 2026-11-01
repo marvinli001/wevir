@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { checkDeltaReplacement, checkTurnEvents } from '@wevir/runtime-adapter/contract';
@@ -115,7 +116,7 @@ describe('回放 codex-app-server 的通知', () => {
       {
         type: 'usage.recorded',
         engineSessionId: threadId,
-        requestId: '01a15c90-223c-77a2-a64c-87ff2b39cd15:1020',
+        requestId: '01a19647-6269-7b22-b79b-94e258b8d942:1020',
         inputTokens: 1000,
         outputTokens: 20,
         reasoningTokens: 2,
@@ -420,7 +421,10 @@ describe('回放 codex-app-server 的通知', () => {
 
   it('subagent：父 thread 上的 spawn_agent 是 sub_agent 工具调用', () => {
     const { threadId, events } = replay('subagent');
-    expect(checkTurnEvents(events, threadId)).toEqual([]);
+    // 子 agent 在父回合结束后才跑完，适配器叫醒父会话（subagentFinishedNote），样本里父 thread 有两个回合。
+    const end = events.findIndex((e) => e.type === 'turn.settled') + 1;
+    expect(checkTurnEvents(events.slice(0, end), threadId)).toEqual([]);
+    expect(checkTurnEvents(events.slice(end), threadId)).toEqual([]);
     expect(of(events, 'tool.started')[0]).toMatchObject({
       toolName: 'collabAgentToolCall.spawnAgent',
       display: { kind: 'sub_agent', summary: 'Helper task' },
@@ -714,6 +718,53 @@ describe('映射的边界情况', () => {
         images: [{ data: 'iVBORw0KGgo=' }],
       },
     ]);
+  });
+
+  it('imageGeneration（rust-v0.164.0 起）：只给 fileId、不带 result 时读 savedPath 的文件；两样都没有就不出图', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-codex-image-'));
+    try {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+      const savedPath = join(dir, 'ig4.png');
+      writeFileSync(savedPath, png);
+      const item = {
+        type: 'imageGeneration',
+        id: 'ig4',
+        status: 'completed',
+        revisedPrompt: 'a fox',
+        failure: null,
+        generationId: 'gen_1',
+        fileId: 'file_abc',
+        savedPath,
+      };
+      const events = new CodexEventMapper(id).map('item/completed', { threadId: id, turnId, item });
+      expect(types(events)).toEqual(['tool.started', 'tool.finished']);
+      expect(events[0]).toMatchObject({ input: { fileId: 'file_abc', savedPath } });
+      expect(events[1]).toMatchObject({
+        status: 'completed',
+        images: [{ data: png.toString('base64') }],
+      });
+
+      // 有 result 时用 result，不读文件。
+      const inline = new CodexEventMapper(id).map('item/completed', {
+        threadId: id,
+        turnId,
+        item: { ...item, fileId: undefined, result: 'iVBORw0KGgo=' },
+      });
+      expect(inline[1]).toMatchObject({ images: [{ data: 'iVBORw0KGgo=' }] });
+
+      for (const missing of [{ savedPath: undefined }, { savedPath: join(dir, 'gone.png') }]) {
+        const none = new CodexEventMapper(id).map('item/completed', {
+          threadId: id,
+          turnId,
+          item: { ...item, ...missing },
+        });
+        expect(types(none)).toEqual(['tool.started', 'tool.finished']);
+        expect(none[1]).toMatchObject({ status: 'completed' });
+        expect(none[1]).not.toHaveProperty('images');
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('imageGeneration 失败：没有图片；额度用完时输出写明何时恢复', () => {

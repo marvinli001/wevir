@@ -75,4 +75,21 @@ describe('classifyTurnError', () => {
       }),
     ).toEqual({ category: 'provider' });
   });
+
+  it('modelNotFound（rust-v0.165.0）与 policyCapacityUnavailable（rust-v0.166.0）：provider，不带状态码', () => {
+    expect(
+      classifyTurnError({
+        message: 'The model `gpt-missing` does not exist or you do not have access to it.',
+        codexErrorInfo: 'modelNotFound',
+        additionalDetails: null,
+      }),
+    ).toEqual({ category: 'provider' });
+    expect(
+      classifyTurnError({
+        message: 'Policy-restricted capacity is unavailable. Please try again later.',
+        codexErrorInfo: 'policyCapacityUnavailable',
+        additionalDetails: null,
+      }),
+    ).toEqual({ category: 'provider' });
+  });
 });

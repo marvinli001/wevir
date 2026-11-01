@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { AgentToolImage, ToolDisplay } from '@wevir/runtime-adapter';
 import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL, WEB_TOOL_SERVER } from '@wevir/runtime-adapter/web-tool';
 import type {
@@ -31,6 +32,7 @@ export function isToolItem(item: unknown): item is ToolItem {
   if (typeof item !== 'object' || item === null) return false;
   const fields = item as Record<string, unknown>;
   const str = (key: string) => typeof fields[key] === 'string';
+  const optionalStr = (key: string) => fields[key] === undefined || str(key);
   switch (fields.type) {
     case 'commandExecution':
       return (
@@ -59,7 +61,8 @@ export function isToolItem(item: unknown): item is ToolItem {
     case 'imageView':
       return str('path');
     case 'imageGeneration':
-      return str('status') && str('result');
+      // rust-v0.164.0 起 `result` 可能不在、换成 `fileId`：两样都不要求，图片拿不到就不出图（toolImages）。
+      return str('status') && optionalStr('result') && optionalStr('fileId');
     default:
       return false;
   }
@@ -124,7 +127,7 @@ export function toolDisplay(item: ToolItem): ToolDisplay {
 
 /**
  * `tool.started.input`：item 原样，只是生成的图片不放进去（`imageGeneration.result` 是整张 PNG 的 base64，图片另走
- * `tool.finished.images`）。
+ * `tool.finished.images`）。`fileId` 只是个 ID，留着。
  */
 export function toolInput(item: ToolItem): unknown {
   if (item.type !== 'imageGeneration') return item;
@@ -132,11 +135,24 @@ export function toolInput(item: ToolItem): unknown {
   return rest;
 }
 
-/** 生成的图片（`tool.finished.images`）：完成且有数据时一张，交给 Host 存。 */
+/**
+ * 生成的图片（`tool.finished.images`）：完成且有数据时一张，交给 Host 存。item 不带 `result`（只有 `fileId`）时读
+ * Codex 存下的 `savedPath`；两样都没有、或文件读不到就不出图。Codex 与 Host 在同一台机器上，路径直接可读。
+ */
 export function toolImages(item: ToolItem): AgentToolImage[] | undefined {
   if (item.type !== 'imageGeneration' || item.status !== 'completed') return undefined;
-  const data = item.result.trim();
-  return data === '' ? undefined : [{ data }];
+  const data = item.result?.trim() || savedImage(item.savedPath);
+  return data ? [{ data }] : undefined;
+}
+
+function savedImage(path: string | undefined): string | undefined {
+  if (path === undefined || path === '') return undefined;
+  try {
+    const bytes = readFileSync(path);
+    return bytes.length === 0 ? undefined : bytes.toString('base64');
+  } catch {
+    return undefined;
+  }
 }
 
 /**

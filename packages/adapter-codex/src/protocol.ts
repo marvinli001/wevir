@@ -1,5 +1,5 @@
 // codex-app-server 协议里本包用到的子集，手写（不整批拷贝生成的类型）。每个类型注明它对应的生成文件，路径相对
-// upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.163.0 = 8308618）。只写本包读写的
+// upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.165.0 = 360319d）。只写本包读写的
 // 字段，其余字段按 `[key: string]: unknown` 不管；收到的消息不做 schema 校验，读之前自己检查要用的字段（mapping.ts）。
 // 0.36.0 起 initialize 带 `experimentalApi: true`（ADR-0005 补记 16，结束未决事项 5），为的是协作模式（计划模式）：
 // `turn/start` 的 `collaborationMode` 与 `item/plan/delta`。其余仍只用稳定面的字段，用到的实验字段逐个注明。升级时与新版本的
@@ -569,9 +569,10 @@ export interface ImageViewItem {
 }
 
 /**
- * ThreadItem `imageGeneration`（ImageGenerationItem.ts，rust-v0.163.0 的 image_gen 扩展）：模型调 `image_gen.imagegen`，
- * Codex 经当前 Provider 的 Images API 生成或编辑图片。开始时 `in_progress`、`result` 为空；完成时 `result` 是 PNG 的
- * base64，`savedPath` 是 Codex 存下的文件（`$CODEX_HOME/generated_images/<thread>/<call>.png`），存不下时没有。
+ * ThreadItem `imageGeneration`（ImageGenerationItem.ts，rust-v0.165.0 的 image_gen 扩展）：模型调 `image_gen.imagegen`，
+ * Codex 经当前 Provider 的 Images API 生成或编辑图片。开始时 `in_progress`；完成时图片有两种给法：`result` 是 PNG 的
+ * base64，或者只给图片后端的 `fileId`、不带图片数据（rust-v0.164.0 起，两者必有其一）。`savedPath` 是 Codex 存下的文件
+ * （`$CODEX_HOME/generated_images/<thread>/<call>.png`），存不下时没有。
  */
 export interface ImageGenerationItem {
   type: 'imageGeneration';
@@ -580,11 +581,18 @@ export interface ImageGenerationItem {
   status: string;
   /** 完成或失败时是模型给的提示词。 */
   revisedPrompt: string | null;
-  result: string;
   transparentBackground?: boolean;
   /** 额度用完时才有（目前只有这一种）。 */
   failure: { type: 'usageLimitExceeded'; limitId: string; resetsAt: number | null } | null;
   savedPath?: string;
+  /** 这次请求实际读到的本地输入图片（编辑图片时），旧 item 没有。 */
+  inputImages?: { path: string; sha256: string }[];
+  /** 图片后端给的生成 ID，没有时为 null（rust-v0.166.0 起才有）。 */
+  generationId?: string | null;
+  /** PNG 的 base64；与 `fileId` 二者有其一（上游的类型是两者的联合，这里写成两个可选字段）。 */
+  result?: string;
+  /** 图片后端的文件 ID，不带图片数据。 */
+  fileId?: string;
 }
 
 /** 映射成工具调用的 item（mapping.ts）。 */

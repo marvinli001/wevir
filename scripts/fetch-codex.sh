@@ -19,9 +19,9 @@
 # ripgrep 取自 BurntSushi/ripgrep 的 GitHub Release，版本与 sha256 抄自 Codex 锁定提交的
 # scripts/codex_package/rg（DotSlash 清单）；MIT / Unlicense 双许可，许可证全文在 apps/desktop/licenses/ripgrep/。
 #
-# 版本与 docs/upstream/upstream.lock 的 codex 行一致（rust-v0.163.0 = 8308618），也要与 adapter-codex 的
-# CODEX_VERSION 一致。sha256 取自 GitHub Release API 的资产 digest（2026-10-21）：
-#   curl -s https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0 | jq '.assets[] | {name, digest}'
+# 版本与 docs/upstream/upstream.lock 的 codex 行一致（rust-v0.165.0 = 360319d），也要与 adapter-codex 的
+# CODEX_VERSION 一致。sha256 取自 GitHub Release API 的资产 digest（2026-11-01）：
+#   curl -s https://api.github.com/repos/openai/codex/releases/tags/rust-v0.165.0 | jq '.assets[] | {name, digest}'
 # 升级时版本号与下面 14 个校验和一起改（docs/upstream/UPSTREAM.md 的 Codex 升级检查清单）；ripgrep 的版本与 6 个校验和
 # 跟着 Codex 锁定提交的 scripts/codex_package/rg 走。
 #
@@ -36,7 +36,7 @@
 
 set -euo pipefail
 
-version="rust-v0.163.0"
+version="rust-v0.165.0"
 rg_version="15.2.0"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mirror="${WEVIR_GITHUB_MIRROR:-https://github.com}"
@@ -70,37 +70,37 @@ bwrap_sha=""
 # ripgrep 没有 aarch64 的 musl 构建，Linux arm64 用 gnu 的（与上游一致）；Windows 的发布包是 zip。
 case "$target" in
   aarch64-apple-darwin)
-    sha="8165de84cc8e436d46d5e52fe6b68de053ba729c543e6310a1bd41e881cf4c37"
-    host_sha="2e28f49a4767a97586843c92692b96481be74d837199b49038f731cec88e9941"
+    sha="6d5530758a51aa67ef1e8a843145f0a6fc14aef8ceab13a6f5e9dc84d55b716c"
+    host_sha="d861a7dd3656e91d04d3753f2ca5624f100e37401993b299661ab6631bda8610"
     rg_target="aarch64-apple-darwin"
     rg_sha="3750b2e93f37e0c692657da574d7019a101c0084da05a790c83fd335bad973e4" ;;
   x86_64-apple-darwin)
-    sha="52f272e33c2cd52531cbea9660f93068e3aebfc85f340e9e88aa8bc077cbe82f"
-    host_sha="5211c6ed5062c84ba5796e555903c22a6e38fcccf6fe11ee11d7e1b5687ce1fd"
+    sha="83ecc52e7e930112de4679c276af3fabf76bbf89f0f12a1288d8ce87a4507fe9"
+    host_sha="adf4ef991fccc0b5a6afdda9c9bf88b233aaded13edf51e4523ff8d959c8cb8d"
     rg_target="x86_64-apple-darwin"
     rg_sha="af7825fcc69a2afc7a7aea55fc9af90e26421d8f20fe59df32e233c0b8a231c1" ;;
   x86_64-unknown-linux-musl)
-    sha="bd587a5419f9b6fa488e4950b065c9127f7db0989388210a3785294b460cdf09"
-    host_sha="314263128ba6592e7e807c265deeaf928a692b72dcbfeb5e0b20c9423b703529"
-    bwrap_sha="bcc196b1d25dc2c2b912dcedf780b562deb0552f3c50648761ced145c3466a23"
+    sha="5f6940dae95bc711b699f57c4edba522b7de682e267901c37a03038c3b440fc0"
+    host_sha="9577b09b2a546eeb3da8a09807de6d58fbaa207755256390113772ea4f05235e"
+    bwrap_sha="6524527367e2c8e7fcf07a08775cddac6d6cfa8f0bec4bf60aae510bc97532fe"
     rg_target="x86_64-unknown-linux-musl"
     rg_sha="33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c" ;;
   aarch64-unknown-linux-musl)
-    sha="38cad7aadc6cf472fbaa43cacefb9802147592f95e570a75b7ced8406cda9919"
-    host_sha="284356aefb197f00b76b912efdfdbae8ccf3ea1f89b976dde064b7ccb43214ef"
-    bwrap_sha="953647c6f8c8adc1b8fc6534ff283bf95e6ba0230274a70a9eda33bb2c8e6a82"
+    sha="431e82c7dfa08c2aa97cdd637d09324557c8de8140279184259eefbe871e4e26"
+    host_sha="400956c325a2118768029f235958b7d2fd2ea4e59c5466d336fb4fb7f0e94b61"
+    bwrap_sha="ffde98edd6345ee09486d5c0afca041bc21f18926d09c730a3089de56cdbbf19"
     rg_target="aarch64-unknown-linux-gnu"
     rg_sha="a740b91c82eaf9914cfedd353572f2791cbe0162c84101ee0951058f4dcbc90d" ;;
   x86_64-pc-windows-msvc)
     exe=".exe"
-    sha="d4da4ba8024b0cf9caedcb428a34cf2904f6bb1b41137a5f04f551e6d0699f54"
-    host_sha="87b71dd4d0a5e2eba4971f0949627bc60523efd044f03fb58a4f8dd30d0f28e3"
+    sha="edabc69d77eb4fb4491b368150be7cd93b1b532f0c11ddb771b3ccedc50844fb"
+    host_sha="67de9681bd42623b7a8e2560ad01d7456fdc936d4e480909ba2f5e3ada45b2d7"
     rg_target="x86_64-pc-windows-msvc"
     rg_sha="71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5" ;;
   aarch64-pc-windows-msvc)
     exe=".exe"
-    sha="9c7b15dbf0cb7260801e46f12dc2689fb50320d902d2a1694a12ba32ed4cde94"
-    host_sha="945080034f34c85a59fed8f3c60d3d3d248215a94ab7ea81940348f178e3ce77"
+    sha="27425ea88387ad2f6ddd285f117d5fc0c499703ef73a8aafe6f3303b0c14da38"
+    host_sha="e179ea98c248e2edb8f188868ddd1081db91b4337edd9d234b681558c6ac5394"
     rg_target="aarch64-pc-windows-msvc"
     rg_sha="e4abca10c3a64ebea742667dd7009449d49403db5460dd6873e389fa2945360f" ;;
   *) echo "fetch-codex: 不支持的目标 $target" >&2; exit 1 ;;

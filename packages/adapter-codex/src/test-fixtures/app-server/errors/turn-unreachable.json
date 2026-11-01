@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.163.0",
+    "codex": "rust-v0.165.0",
     "case": "turn-unreachable",
     "description": "连不上上游：网关回 502（wevir gateway: 连不上上游）"
   },
@@ -22,9 +22,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1792554323,
-      "completedAt": 1792554323,
-      "durationMs": 55
+      "startedAt": 1793522635,
+      "completedAt": 1793522635,
+      "durationMs": 61
     }
   }
 }

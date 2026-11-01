@@ -16,6 +16,7 @@ describe('modelErrorRecovery', () => {
       { message: 'stream disconnected before completion' },
       { message: 'error sending request for url (https://example.test/v1/responses)' },
       { message: 'connection timed out' },
+      { message: 'Policy-restricted capacity is unavailable. Please try again later.' },
     ]) {
       expect(modelErrorRecovery({ category: 'provider', ...error }), error.message).toBe('retry');
     }
@@ -31,6 +32,9 @@ describe('modelErrorRecovery', () => {
       { code: 500, message: 'credit balance is too low' },
       { message: 'Incomplete response returned, reason: content_filter' },
       { message: 'context_length_exceeded' },
+      { message: 'The model `gpt-missing` does not exist or you do not have access to it.' },
+      { code: 404, message: 'model_not_found' },
+      { message: 'Model not found: gpt-missing (server error)' },
       { message: 'unknown provider failure' },
       { message: 'Rate limit exceeded', usageLimit: {} },
       { message: 'stream disconnected', fatal: true },
