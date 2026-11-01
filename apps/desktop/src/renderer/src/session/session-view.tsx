@@ -509,6 +509,28 @@ export function SessionView({
       ? lastTurnId(transcript)
       : undefined;
   const autoContinueArmed = transcript?.autoContinue;
+  const retryEnabled = messageActionsEnabled && hostSupports(view.hello.features, 'turn_retry');
+  const lastAssistant = transcript?.messages.findLast((message) => message.role === 'assistant');
+  const retryTurnId =
+    retryEnabled &&
+    sessionState === 'idle' &&
+    transcript !== undefined &&
+    lastAssistant?.finished?.outcome === 'failed'
+      ? lastTurnId(transcript)
+      : undefined;
+  const retryTurn = useCallback(
+    async (turnId: TurnId) => {
+      if (!client) return;
+      setNotice(undefined);
+      try {
+        await client.request('session.retryTurn', { sessionId: session.id, turnId });
+        transcriptRef.current?.jumpToLatest('auto');
+      } catch (error) {
+        setNotice(t('engineError.retryFailed', { error: describe(error) }));
+      }
+    },
+    [client, session.id],
+  );
   // 换模型继续（0.143.0）：额度卡片上选模型，Host 换模型（别的来源时接力）再替用户发继续消息。同一来源要 Host 能换模型。
   const switchable = useHandoffTargets(session);
   const configurable =
@@ -559,6 +581,9 @@ export function SessionView({
     () => ({
       ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
       ...(editTurnId !== undefined && { editTurnId, submitEdit }),
+      ...(retryEnabled && {
+        retry: { ...(retryTurnId !== undefined && { lastTurnId: retryTurnId }), run: retryTurn },
+      }),
       ...(autoContinueEnabled && {
         autoContinue: {
           ...(autoContinueTurnId !== undefined && { lastTurnId: autoContinueTurnId }),
@@ -590,6 +615,9 @@ export function SessionView({
       branchFrom,
       editTurnId,
       submitEdit,
+      retryEnabled,
+      retryTurnId,
+      retryTurn,
       autoContinueEnabled,
       autoContinueTurnId,
       autoContinueArmed,

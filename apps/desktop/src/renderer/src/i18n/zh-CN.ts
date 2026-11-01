@@ -1085,6 +1085,9 @@ export const zhCN = {
   'client.otherDevice': '{kind}（设备 {device}）',
 
   'engineError.category.missing_credentials': '缺少凭据',
+  'engineError.retry': '重试',
+  'engineError.continue': '继续生成',
+  'engineError.retryFailed': '无法重试：{error}',
   'engineError.category.provider': '模型服务错误',
   'engineError.category.engine_exited': '引擎已退出',
   'engineError.category.cancel_unconfirmed': '取消未确认',

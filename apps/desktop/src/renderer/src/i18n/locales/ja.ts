@@ -1079,6 +1079,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (デバイス {device})',
 
   'engineError.category.missing_credentials': '認証情報がありません',
+  'engineError.retry': '再試行',
+  'engineError.continue': '生成を続ける',
+  'engineError.retryFailed': '再試行できません：{error}',
   'engineError.category.provider': 'モデルプロバイダーのエラー',
   'engineError.category.engine_exited': 'エンジンが終了しました',
   'engineError.category.cancel_unconfirmed': 'キャンセル未確認',

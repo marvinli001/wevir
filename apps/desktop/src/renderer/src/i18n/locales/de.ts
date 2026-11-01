@@ -1087,6 +1087,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (Gerät {device})',
 
   'engineError.category.missing_credentials': 'Fehlende Anmeldedaten',
+  'engineError.retry': 'Erneut versuchen',
+  'engineError.continue': 'Generierung fortsetzen',
+  'engineError.retryFailed': 'Erneuter Versuch fehlgeschlagen: {error}',
   'engineError.category.provider': 'Fehler beim Modellanbieter',
   'engineError.category.engine_exited': 'Engine beendet',
   'engineError.category.cancel_unconfirmed': 'Abbruch nicht bestätigt',

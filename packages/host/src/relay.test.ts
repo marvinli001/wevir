@@ -1,4 +1,4 @@
-import type { MessageFrom, SessionId, UserContentPart } from '@wevir/protocol';
+import type { MessageFrom, SessionId, TurnId, UserContentPart } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { pastedContent, relayContent } from './relay.js';
 
@@ -6,6 +6,16 @@ const SESSION = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' as SessionId;
 const text = (value: string): UserContentPart => ({ type: 'text', text: value });
 
 describe('relayContent', () => {
+  it('sends the user-initiated retry directly to the engine', () => {
+    const from: MessageFrom = {
+      sessionId: SESSION,
+      kind: 'report',
+      retry: { turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' as TurnId },
+    };
+    expect(relayContent(from, [text('Please continue from where you left off.')])).toEqual([
+      text('Please continue from where you left off.'),
+    ]);
+  });
   it('leaves the user’s own messages alone', () => {
     const content = [text('fix the build')];
     expect(relayContent(undefined, content)).toEqual(content);

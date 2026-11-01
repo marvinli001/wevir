@@ -1071,6 +1071,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind}（裝置 {device}）',
 
   'engineError.category.missing_credentials': '缺少憑證',
+  'engineError.retry': '重試',
+  'engineError.continue': '繼續生成',
+  'engineError.retryFailed': '無法重試：{error}',
   'engineError.category.provider': '模型服務錯誤',
   'engineError.category.engine_exited': '引擎已結束',
   'engineError.category.cancel_unconfirmed': '取消未確認',

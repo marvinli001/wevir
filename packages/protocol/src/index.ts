@@ -39,6 +39,7 @@ export * from './speech.js';
 export * from './terminals.js';
 export * from './tuning.js';
 export * from './tuning-proposals.js';
+export * from './turn-recovery.js';
 export * from './usage.js';
 export * from './verification.js';
 export * from './version.js';

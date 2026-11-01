@@ -1078,6 +1078,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (device {device})',
 
   'engineError.category.missing_credentials': 'Missing credentials',
+  'engineError.retry': 'Retry',
+  'engineError.continue': 'Continue generating',
+  'engineError.retryFailed': 'Unable to retry: {error}',
   'engineError.category.provider': 'Model provider error',
   'engineError.category.engine_exited': 'Engine exited',
   'engineError.category.cancel_unconfirmed': 'Cancellation unconfirmed',

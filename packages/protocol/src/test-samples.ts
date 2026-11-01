@@ -5675,6 +5675,16 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'session.retryTurn': {
+    params: {
+      valid: [{ sessionId: ids.session, turnId: ids.turn }],
+      invalid: [{ sessionId: ids.session }, { turnId: ids.turn }],
+    },
+    result: {
+      valid: [{ turnId: ids.turn, seq: 12 }],
+      invalid: [{ turnId: ids.turn }, { seq: 12 }],
+    },
+  },
   'session.continueWithModel': {
     params: {
       valid: [

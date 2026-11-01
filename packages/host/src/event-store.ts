@@ -396,6 +396,10 @@ export class EventStore {
     return limited === undefined ? undefined : structuredClone(limited);
   }
 
+  retryableTurnId(sessionId: SessionId): TurnId | undefined {
+    return this.#projection(sessionId).retryableTurnId;
+  }
+
   /** 一条待发消息（R11），含已到终态的；会话或消息不存在时为 `undefined`。 */
   pending(sessionId: SessionId, pendingId: PendingMessageId): PendingMessage | undefined {
     if (!this.#storage.sessions.get(sessionId)) return undefined;

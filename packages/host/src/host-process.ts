@@ -1682,6 +1682,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.startGoal !== undefined && { session_goals: true }),
         usage_auto_continue: true,
         usage_limit_switch: true,
+        turn_retry: true,
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),

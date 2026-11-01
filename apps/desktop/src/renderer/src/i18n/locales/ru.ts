@@ -1104,6 +1104,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (устройство {device})',
 
   'engineError.category.missing_credentials': 'Нет учётных данных',
+  'engineError.retry': 'Повторить',
+  'engineError.continue': 'Продолжить генерацию',
+  'engineError.retryFailed': 'Не удалось повторить: {error}',
   'engineError.category.provider': 'Ошибка поставщика моделей',
   'engineError.category.engine_exited': 'Движок завершил работу',
   'engineError.category.cancel_unconfirmed': 'Отмена не подтверждена',

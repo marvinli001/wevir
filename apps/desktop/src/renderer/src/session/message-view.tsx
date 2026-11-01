@@ -17,6 +17,7 @@ import {
   Info,
   MessagesSquare,
   Reply,
+  RotateCw,
   ScanSearch,
   SquareTerminal,
   Wrench,
@@ -27,6 +28,7 @@ import { GoalIcon } from '@/components/command-icons';
 import { GlideGroup } from '@/components/glide';
 import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
@@ -75,7 +77,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.from?.repair !== undefined) return <RepairReport message={message} />;
   if (message.from?.opinion !== undefined) return <OpinionQuote message={message} />;
   // 额度恢复后 Host 替用户发的继续消息（0.119.0）不显示：额度卡片上写着已自动继续。
-  if (message.from?.usageLimit !== undefined) return null;
+  if (message.from?.usageLimit !== undefined || message.from?.retry !== undefined) return null;
   if (message.from?.kind === 'report' || message.from?.kind === 'message') {
     return <RelayedMessage message={message} />;
   }
@@ -723,22 +725,48 @@ function TodoList({ part }: { part: ChatPartOf<'todo'> }) {
 }
 
 function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
+  const { retry } = useMessageActions();
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
   if (part.usageLimit !== undefined) return <UsageLimitCard part={part} />;
   const phala = part.category === 'provider' ? phalaErrorPresentation(part) : undefined;
+  const turnId = part.turnId;
+  const retryable =
+    retry !== undefined &&
+    turnId !== undefined &&
+    retry.lastTurnId === turnId &&
+    part.recovery !== undefined;
+  const run = () => {
+    if (!retryable || sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    void retry.run(turnId).finally(() => {
+      sending.current = false;
+      setBusy(false);
+    });
+  };
   return (
     <div
       role="note"
       className="my-2 flex gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
     >
       <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-destructive" />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="font-medium text-destructive">
           {phala?.title ?? t(`engineError.category.${part.category}`)}
         </p>
         <p className="mt-0.5 font-mono text-xs break-words whitespace-pre-wrap">{part.message}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {phala?.hint ?? t(`engineError.hint.${part.category}`)}
-        </p>
+        {part.recovery === undefined && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {phala?.hint ?? t(`engineError.hint.${part.category}`)}
+          </p>
+        )}
+        {retryable && (
+          <Button variant="outline" size="xs" className="mt-2" disabled={busy} onClick={run}>
+            <RotateCw aria-hidden className={cn(busy && 'animate-spin')} />
+            {t(part.recovery === 'continue' ? 'engineError.continue' : 'engineError.retry')}
+          </Button>
+        )}
       </div>
     </div>
   );

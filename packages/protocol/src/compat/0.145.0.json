@@ -1,0 +1,52 @@
+{
+  "protocolVersion": "0.145.0",
+  "frozenAt": "2026-11-01",
+  "methods": {
+    "session.retryTurn": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 12
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "seq": 8,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "user.message",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "content": [
+          {
+            "type": "text",
+            "text": "Please continue from where you left off."
+          }
+        ],
+        "sentBy": {
+          "deviceId": "dev-mac",
+          "clientId": "desktop-1",
+          "clientKind": "desktop"
+        },
+        "from": {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "kind": "report",
+          "retry": {
+            "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+          }
+        }
+      }
+    }
+  ],
+  "errors": []
+}

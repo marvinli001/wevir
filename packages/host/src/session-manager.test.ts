@@ -18,6 +18,7 @@ import {
   type AgentEvent,
   EventHub,
   type TitleRequest,
+  type TurnFailedEvent,
   type UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -2647,6 +2648,115 @@ describe('SessionManager：其他', () => {
       t.from.map((from) => `${from}→${t.to}:${t.reason}`),
     );
     expect(expected.filter((t) => !seenTransitions.has(t))).toEqual([]);
+  });
+});
+
+describe('SessionManager：模型错误恢复', () => {
+  async function failedTurn(
+    error: Omit<TurnFailedEvent, 'type' | 'engineSessionId'>,
+    collaborationMode?: 'plan',
+  ) {
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation(async function* (engineSessionId) {
+      let failed = false;
+      for await (const event of subscribe(engineSessionId)) {
+        if (!failed && event.type === 'turn.settled') {
+          failed = true;
+          yield { type: 'turn.failed', engineSessionId, ...error };
+        } else {
+          yield event;
+        }
+      }
+    });
+    const id = await create(h);
+    const turnId = turnOf(
+      await h.manager.send({ sessionId: id, content: text('work'), collaborationMode }, cli),
+    );
+    await waitForState(h, id, 'idle');
+    return { h, id, turnId };
+  }
+
+  it.each([
+    { message: 'Incomplete response returned, reason: max_output_tokens' },
+    { message: 'Service unavailable', code: 503 },
+  ])('保留已有输出，内部继续消息直达引擎：$message', async (error) => {
+    const { h, id, turnId } = await failedTurn({ category: 'provider', ...error });
+    const result = await h.manager.retryTurn({ sessionId: id, turnId }, desktop);
+    await waitForState(h, id, 'idle');
+    expect(result.turnId).not.toBe(turnId);
+    expect(ofType(h, id, 'turn.finished').map((e) => e.payload.outcome)).toEqual([
+      'failed',
+      'completed',
+    ]);
+    expect(ofType(h, id, 'assistant.message').map((e) => e.payload.text)).toEqual([
+      'Echo: work',
+      'Echo: Please continue from where you left off.',
+    ]);
+    expect(ofType(h, id, 'user.message').at(-1)?.payload).toMatchObject({
+      content: text('Please continue from where you left off.'),
+      sentBy: desktop,
+      from: { sessionId: id, kind: 'report', retry: { turnId } },
+    });
+  });
+
+  it('重复请求只发出一次；新的回合完成后旧错误仍不能恢复', async () => {
+    const { h, id, turnId } = await failedTurn({ category: 'provider', message: 'timeout' });
+    const results = await Promise.allSettled([
+      h.manager.retryTurn({ sessionId: id, turnId }, desktop),
+      h.manager.retryTurn({ sessionId: id, turnId }, cli),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: { code: 'INVALID_STATE' },
+    });
+    await waitForState(h, id, 'idle');
+    await expect(h.manager.retryTurn({ sessionId: id, turnId }, cli)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    expect(ofType(h, id, 'user.message')).toHaveLength(2);
+  });
+
+  it('恢复时保留计划模式；撤回失败回合后不能再恢复', async () => {
+    const { h, id, turnId } = await failedTurn(
+      { category: 'provider', message: 'timeout' },
+      'plan',
+    );
+    await h.manager.retryTurn({ sessionId: id, turnId }, cli);
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'user.message').at(-1)?.payload.collaborationMode).toBe('plan');
+
+    const other = await failedTurn({ category: 'provider', message: 'timeout' });
+    await other.h.manager.rewind({ sessionId: other.id, turnId: other.turnId });
+    await expect(
+      other.h.manager.retryTurn({ sessionId: other.id, turnId: other.turnId }, cli),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
+  it.each([
+    { message: 'Unauthorized', code: 401 },
+    { message: 'insufficient_quota', code: 429 },
+    { message: 'Usage limit exceeded', usageLimit: {} },
+  ])('需要处理的模型错误不发出继续消息：$message', async (error) => {
+    const { h, id, turnId } = await failedTurn({ category: 'provider', ...error });
+    await expect(h.manager.retryTurn({ sessionId: id, turnId }, cli)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    expect(ofType(h, id, 'user.message')).toHaveLength(1);
+  });
+
+  it('用户发了新消息或会话关闭后，拒绝恢复历史错误', async () => {
+    const { h, id, turnId } = await failedTurn({ category: 'provider', message: 'timeout' });
+    await h.manager.close(id);
+    await expect(h.manager.retryTurn({ sessionId: id, turnId }, cli)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    await h.manager.resume(id);
+    await send(h, id, 'new request');
+    await waitForState(h, id, 'idle');
+    await expect(h.manager.retryTurn({ sessionId: id, turnId }, cli)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
   });
 });
 

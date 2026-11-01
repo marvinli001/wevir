@@ -2265,6 +2265,32 @@ describe('重连进度与额度卡片（0.119.0）', () => {
     });
   });
 
+  it('模型错误保留恢复动作与回合，隐藏继续消息保留来源供界面识别', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('engine.error', {
+      category: 'provider',
+      message: 'Incomplete response returned, reason: max_output_tokens',
+      turnId: TURN,
+      fatal: false,
+    });
+    add('turn.finished', { turnId: TURN, outcome: 'failed', durationMs: 10 });
+    add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: 'Please continue from where you left off.' }],
+      sentBy: identity,
+      from: { sessionId: SES, kind: 'report', retry: { turnId: TURN } },
+    });
+    add('turn.started', { turnId: TURN2 });
+    const transcript = projectTranscript(list);
+    expect(transcript.messages.find((m) => m.role === 'assistant')?.parts).toMatchObject([
+      { type: 'error', turnId: TURN, recovery: 'continue' },
+    ]);
+    expect(transcript.messages.find((m) => m.role === 'user' && m.turnId === TURN2)).toMatchObject({
+      from: { retry: { turnId: TURN } },
+    });
+  });
+
   it('会话：auto_continue 打开、关掉，新的回合开始时去掉', () => {
     const base = { id: SES, lastSeq: 0 } as Session;
     const event = <T extends WevirEventType>(seq: number, type: T, payload: WevirEventPayload<T>) =>

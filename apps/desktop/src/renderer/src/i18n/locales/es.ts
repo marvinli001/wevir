@@ -1093,6 +1093,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (dispositivo {device})',
 
   'engineError.category.missing_credentials': 'Faltan credenciales',
+  'engineError.retry': 'Reintentar',
+  'engineError.continue': 'Continuar generación',
+  'engineError.retryFailed': 'No se pudo reintentar: {error}',
   'engineError.category.provider': 'Error del proveedor de modelos',
   'engineError.category.engine_exited': 'El motor se cerró',
   'engineError.category.cancel_unconfirmed': 'Cancelación sin confirmar',

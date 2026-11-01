@@ -54,6 +54,7 @@ import type {
   WorkspaceId,
 } from '@wevir/protocol';
 import {
+  modelErrorRecovery,
   PROMPT_SUGGESTION_VOIDING_EVENTS,
   PROTOCOL_VERSION,
   VERIFICATION_RUNS_KEPT,
@@ -127,6 +128,7 @@ export interface SessionProjection {
   readonly wrapUp?: SessionWrapUp;
   /** 最近一个回合因用量上限失败（0.119.0，`engine.error` 的 `usageLimit`）；有了新的回合时没有。 */
   readonly usageLimited?: { readonly turnId: TurnId; readonly limit: UsageLimit };
+  readonly retryableTurnId?: TurnId;
   /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
   readonly taskBoard?: readonly BoardTask[];
   /** 输入建议（0.53.0）：最近一次 `suggestion.updated`，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件出现后没有。 */
@@ -453,6 +455,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'turn.rewound':
     case 'turn.undone':
+      if (projection.retryableTurnId === event.payload.turnId) next.retryableTurnId = undefined;
       if (projection.wrapUp?.turnId === event.payload.turnId) next.wrapUp = undefined;
       break;
     case 'user.steered':
@@ -479,6 +482,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       // 新的回合开始：自动继续作废（或就是它开的），上一个回合的用量上限也过去了。
       next.autoContinue = undefined;
       next.usageLimited = undefined;
+      next.retryableTurnId = undefined;
       next.wrapUp = undefined;
       if (projection.subagent !== undefined) {
         const { endedAt: _ended, ...rest } = projection.subagent;
@@ -487,6 +491,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'turn.finished':
+      if (event.payload.outcome !== 'failed') next.retryableTurnId = undefined;
       if (projection.activeTurn?.turnId === event.payload.turnId) next.activeTurn = undefined;
       // 接力摘要随这个回合的消息交出去了；回合在引擎那边没开始（`interrupted`）时下一条消息再带。
       // 由命令开始的回合（压缩、审查）没带摘要，摘要留给下一条消息。
@@ -593,6 +598,8 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'engine.error':
       next.lastError = { category: event.payload.category, message: event.payload.message };
+      next.retryableTurnId =
+        modelErrorRecovery(event.payload) === undefined ? undefined : event.payload.turnId;
       if (event.payload.usageLimit !== undefined && event.payload.turnId !== undefined) {
         next.usageLimited = { turnId: event.payload.turnId, limit: event.payload.usageLimit };
       }

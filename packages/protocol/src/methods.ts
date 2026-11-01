@@ -1452,6 +1452,12 @@ export const SessionContinueWithModelResultSchema = z.object({
   turnId: TurnIdSchema,
 });
 
+/** 最新回合因可恢复的模型错误失败且会话空闲时，发送隐藏的继续消息；否则 `INVALID_STATE`。 */
+export const SessionRetryTurnParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  turnId: TurnIdSchema,
+});
+
 /** `session.compact`（0.24.0）与 `session.review` 的结果：开始的回合与它的 `turn.started` 的 `seq`。 */
 export const SessionCommandResultSchema = z.object({
   turnId: TurnIdSchema,
@@ -2353,6 +2359,11 @@ export const MethodSchemas = {
   'session.continueWithModel': {
     params: SessionContinueWithModelParamsSchema,
     result: SessionContinueWithModelResultSchema,
+    permission: 'session.write',
+  },
+  'session.retryTurn': {
+    params: SessionRetryTurnParamsSchema,
+    result: SessionCommandResultSchema,
     permission: 'session.write',
   },
   'session.rename': {

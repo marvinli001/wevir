@@ -1073,6 +1073,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (기기 {device})',
 
   'engineError.category.missing_credentials': '자격 증명 없음',
+  'engineError.retry': '다시 시도',
+  'engineError.continue': '생성 계속',
+  'engineError.retryFailed': '다시 시도할 수 없음: {error}',
   'engineError.category.provider': '모델 제공자 오류',
   'engineError.category.engine_exited': '엔진 종료됨',
   'engineError.category.cancel_unconfirmed': '취소 미확인',

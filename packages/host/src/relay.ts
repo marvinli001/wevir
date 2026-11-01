@@ -15,6 +15,7 @@ function relayAttributes(from: MessageFrom): Record<string, string> | undefined 
     from.repair !== undefined ||
     from.opinion !== undefined ||
     from.usageLimit !== undefined ||
+    from.retry !== undefined ||
     from.channel !== undefined
   ) {
     return undefined;

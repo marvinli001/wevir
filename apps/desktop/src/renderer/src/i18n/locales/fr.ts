@@ -1090,6 +1090,9 @@ export const messages: Messages = {
   'client.otherDevice': '{kind} (appareil {device})',
 
   'engineError.category.missing_credentials': 'Identifiants manquants',
+  'engineError.retry': 'Réessayer',
+  'engineError.continue': 'Continuer la génération',
+  'engineError.retryFailed': 'Nouvel essai impossible : {error}',
   'engineError.category.provider': 'Erreur du fournisseur de modèles',
   'engineError.category.engine_exited': 'Moteur arrêté',
   'engineError.category.cancel_unconfirmed': 'Annulation non confirmée',

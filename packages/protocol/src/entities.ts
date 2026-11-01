@@ -1076,6 +1076,8 @@ export const MessageFromSchema = z.object({
    * 会话自己（旧客户端照回报显示）；新客户端不显示这条消息。
    */
   usageLimit: z.object({ turnId: TurnIdSchema }).optional(),
+  /** 用户点击模型错误的恢复按钮后，Host 发出的继续消息；客户端不显示气泡。 */
+  retry: z.object({ turnId: TurnIdSchema }).optional(),
   /**
    * 频道（0.120.0，ADR-0020）：`wake` 是 Host 交给协调者的唤醒信封（`kind` 是 `report`、`sessionId` 是协调者自己）；`relay` 是协调者
    * 转给线程的用户帖子（`kind` 是 `message`、`sessionId` 是协调者）。旧客户端照会话间消息显示。

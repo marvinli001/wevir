@@ -6889,6 +6889,33 @@ export class SessionManager {
     });
   }
 
+  async retryTurn(
+    params: MethodParams<'session.retryTurn'>,
+    sentBy: ClientIdentity,
+  ): Promise<MethodResult<'session.retryTurn'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const snapshot = this.#snapshot(runtime);
+      if (
+        snapshot.session.state !== 'idle' ||
+        snapshot.session.readOnly !== undefined ||
+        this.#events.retryableTurnId(runtime.id) !== params.turnId
+      ) {
+        throw new HostError('INVALID_STATE', 'turn is no longer available for retry', {
+          state: snapshot.session.state,
+        });
+      }
+      return this.#startTurn(runtime, {
+        content: [{ type: 'text', text: 'Please continue from where you left off.' }],
+        sentBy,
+        from: { sessionId: runtime.id, kind: 'report', retry: { turnId: params.turnId } },
+        ...(snapshot.session.collaborationMode === 'plan' && { collaborationMode: 'plan' }),
+      });
+    });
+  }
+
   /**
    * 到了发继续消息的时刻：仍排着同一个回合、会话空闲、没有待审批 / 待回答 / 待发消息时，以 `from.usageLimit` 替用户发
    * `AUTO_CONTINUE_PROMPT`（引擎看到的就是这句，不包信封）。不能发（有人在用、出错、只读）时关掉，不再等。

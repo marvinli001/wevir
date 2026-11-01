@@ -20,6 +20,10 @@ import { composerPrefs } from './composer-prefs';
 import type { ModelChoice } from './model-picker';
 
 export interface MessageActions {
+  retry?: {
+    lastTurnId?: TurnId;
+    run(turnId: TurnId): Promise<void>;
+  };
   /** 从这个回合分支到新会话；会话不能分支时没有。 */
   branch?: (turnId: TurnId) => void;
   /** 能编辑的用户消息所在的回合：会话最后一个完成的回合，会话空闲、能撤回时才有。 */

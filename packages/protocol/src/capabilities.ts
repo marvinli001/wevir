@@ -180,6 +180,8 @@ export const HOST_FEATURES = {
    * `session_configure`。
    */
   usageLimitSwitch: 'usage_limit_switch',
+  /** 模型错误恢复：`session.retryTurn`，以隐藏的继续消息开始后续回合。 */
+  turnRetry: 'turn_retry',
   /**
    * 接力（0.25.0，domain-model §3.14）：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与
    * `host.hello` 的 `engineFeatures`。已有会话能换到别的来源的模型。与引擎无关。
@@ -620,6 +622,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_goals: z.boolean().optional(),
   usage_auto_continue: z.boolean().optional(),
   usage_limit_switch: z.boolean().optional(),
+  turn_retry: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),

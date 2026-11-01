@@ -1386,6 +1386,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'session.clearGoal': ({ sessionId }) => sessions.clearGoal(sessionId),
     'session.setAutoContinue': (params) => sessions.setAutoContinue(params),
     'session.continueWithModel': (params, { client }) => sessions.continueWithModel(params, client),
+    'session.retryTurn': (params, { client }) => sessions.retryTurn(params, client),
 
     'pending.update': async (params) => ({ pending: await sessions.updatePending(params) }),
 

@@ -78,6 +78,7 @@ import type {
   WrapUpAction,
 } from '@wevir/protocol';
 import {
+  modelErrorRecovery,
   PROMPT_SUGGESTION_VOIDING_EVENTS,
   type PromptSuggestion,
   VERIFICATION_RUNS_KEPT,
@@ -212,6 +213,7 @@ export type ChatPart =
       message: string;
       fatal: boolean;
       turnId?: TurnId;
+      recovery?: 'retry' | 'continue';
       usageLimit?: UsageLimit;
       resumedAt?: IsoTime;
     }
@@ -1750,6 +1752,7 @@ export class TranscriptProjection {
 
   #engineError(event: WevirEventOf<'engine.error'>): void {
     const { category, message, turnId, fatal, usageLimit } = event.payload;
+    const recovery = modelErrorRecovery(event.payload);
     this.#lastError = { category, message };
     this.#target(turnId, event.seq).parts.push({
       type: 'error',
@@ -1757,7 +1760,9 @@ export class TranscriptProjection {
       category,
       message,
       fatal,
-      ...(usageLimit !== undefined && turnId !== undefined && { turnId, usageLimit }),
+      ...(turnId !== undefined && { turnId }),
+      ...(usageLimit !== undefined && { usageLimit }),
+      ...(recovery !== undefined && { recovery }),
     });
   }
 
