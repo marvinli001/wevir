@@ -7,6 +7,7 @@ export * from './errors.js';
 export { type BackoffOptions, DEFAULT_BACKOFF, type ReconnectReason } from './lifecycle.js';
 export * from './projection.js';
 export * from './remote.js';
+export * from './report-body.js';
 export * from './session-state.js';
 export * from './simulator-stream.js';
 export type { EventSubscription, SubscribeOptions, SubscriptionItem } from './subscription.js';

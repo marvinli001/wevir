@@ -35,15 +35,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PostView } from '../../components/bot-cards';
 import { Composer } from '../../components/composer';
 import { HeaderMenu } from '../../components/header-button';
+import { Markdown } from '../../components/markdown';
 import type { MenuSection } from '../../components/menu';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
-import { Button, Icon } from '../../components/ui';
+import { Button, Icon, type IconName } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { displayName } from '../../lib/records';
 import { isBusy, SessionActions, sendErrorKey } from '../../lib/session-actions';
-import { type SessionItem, sessionItems, type ToolState } from '../../lib/session-items';
+import {
+  type NoticeIcon,
+  type SessionItem,
+  sessionItems,
+  type ToolState,
+} from '../../lib/session-items';
 import { type SessionView, SessionWatch } from '../../lib/session-watch';
 import { useMinuteClock } from '../../state/clock';
 import { usePhotoAttachments } from '../../state/photo-attachments';
@@ -135,12 +141,22 @@ export default function SessionScreen() {
     };
   }, []);
 
+  // 发来消息、回报的会话的标题，从这台电脑的会话列表里查。
+  const listed = snapshot?.sessions.kind === 'ready' ? snapshot.sessions.sessions : undefined;
+  const sessionTitles = useMemo(
+    () => new Map((listed ?? []).map((entry) => [entry.id, entry.title])),
+    [listed],
+  );
   const items = useMemo(
     () =>
       view.transcript !== undefined
-        ? sessionItems(view.transcript, { image: t('bot.image'), tool: toolVerb })
+        ? sessionItems(view.transcript, {
+            image: t('bot.image'),
+            tool: toolVerb,
+            sessionTitle: (id) => sessionTitles.get(id),
+          })
         : [],
-    [view.transcript],
+    [view.transcript, sessionTitles],
   );
   const session = view.session;
   const state = view.transcript?.state ?? session?.state;
@@ -623,6 +639,10 @@ function Item({
           {item.text}
         </Text>
       );
+    case 'relayed':
+      return <RelayedCard item={item} theme={theme} />;
+    case 'notice':
+      return <NoticeChip item={item} theme={theme} />;
     case 'question':
       return (
         <QuestionCard
@@ -634,16 +654,30 @@ function Item({
     case 'pending':
       return (
         <View style={styles.pending} testID="pending-message">
-          <View
-            style={[
-              styles.pendingBubble,
-              { borderColor: theme.borderStrong, backgroundColor: theme.background },
-            ]}
-          >
-            <Text style={[styles.pendingText, { color: theme.softForeground }]} numberOfLines={4}>
-              {item.text}
-            </Text>
-          </View>
+          {item.notice !== undefined ? (
+            <View
+              style={[
+                styles.chip,
+                { borderColor: theme.borderStrong, backgroundColor: theme.background },
+              ]}
+            >
+              <Icon name={NOTICE_ICONS[item.notice.icon]} size={15} color={theme.mutedForeground} />
+              <Text style={[styles.chipText, { color: theme.softForeground }]} numberOfLines={1}>
+                {item.notice.label}
+              </Text>
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.pendingBubble,
+                { borderColor: theme.borderStrong, backgroundColor: theme.background },
+              ]}
+            >
+              <Text style={[styles.pendingText, { color: theme.softForeground }]} numberOfLines={4}>
+                {item.text}
+              </Text>
+            </View>
+          )}
           <View style={styles.pendingMeta}>
             <Text style={[styles.note, { color: theme.mutedForeground }]}>
               {t(`composer.pending.${item.delivery}`)}
@@ -664,6 +698,99 @@ function Item({
         </View>
       );
   }
+}
+
+const NOTICE_ICONS: Record<NoticeIcon, IconName> = {
+  process: { ios: 'apple.terminal', android: 'terminal' },
+  repair: { ios: 'wrench.and.screwdriver', android: 'build' },
+  opinion: { ios: 'bubble.left.and.bubble.right', android: 'forum' },
+  report: { ios: 'arrowshape.turn.up.left', android: 'reply' },
+  message: { ios: 'bubble.left.and.bubble.right', android: 'forum' },
+};
+
+/** 别的会话发来的消息或回报（同桌面端）：标题一行可收起，下面是发来的会话与正文。 */
+function RelayedCard({
+  item,
+  theme,
+}: {
+  item: Extract<SessionItem, { kind: 'relayed' }>;
+  theme: Theme;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <View
+      style={[styles.relayed, { borderColor: theme.border, backgroundColor: theme.card }]}
+      testID="relayed-message"
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={styles.relayedHeader}
+      >
+        <Icon name={NOTICE_ICONS[item.icon]} size={15} color={theme.mutedForeground} />
+        <Text style={[styles.chipText, { color: theme.softForeground }]} numberOfLines={1}>
+          {item.label}
+        </Text>
+        <Icon
+          name={
+            open
+              ? { ios: 'chevron.down', android: 'expand_more' }
+              : { ios: 'chevron.right', android: 'chevron_right' }
+          }
+          size={12}
+          color={theme.mutedForeground}
+        />
+      </Pressable>
+      {open && (
+        <View style={styles.relayedBody}>
+          {item.source !== undefined && (
+            <Text
+              style={[styles.relayedSource, { color: theme.mutedForeground }]}
+              numberOfLines={1}
+            >
+              {t('transcript.relayed.from')} {item.source}
+            </Text>
+          )}
+          {item.text.trim() !== '' && <Markdown text={item.text} />}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Host 交给模型的通知（后台进程、自动修复、第二意见）：一行标记，点开看交给模型的全文。 */
+function NoticeChip({
+  item,
+  theme,
+}: {
+  item: Extract<SessionItem, { kind: 'notice' }>;
+  theme: Theme;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.notice} testID="notice-message">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={({ pressed }) => [
+          styles.chip,
+          { borderColor: theme.border, backgroundColor: theme.card, opacity: pressed ? 0.7 : 1 },
+        ]}
+      >
+        <Icon name={NOTICE_ICONS[item.icon]} size={15} color={theme.mutedForeground} />
+        <Text style={[styles.chipText, { color: theme.softForeground }]} numberOfLines={1}>
+          {item.label}
+        </Text>
+      </Pressable>
+      {open && item.text !== '' && (
+        <Text style={[styles.noticeText, { color: theme.mutedForeground }]} selectable>
+          {item.text}
+        </Text>
+      )}
+    </View>
+  );
 }
 
 function toolIcon(state: ToolState) {
@@ -698,6 +825,35 @@ const styles = StyleSheet.create({
   },
   pendingText: { fontSize: TEXT.body, lineHeight: 23 },
   pendingMeta: { flexDirection: 'row', gap: 12, paddingHorizontal: 4 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    minHeight: 30,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingLeft: 9,
+    paddingRight: 12,
+  },
+  chipText: { flexShrink: 1, fontSize: TEXT.small },
+  notice: { alignItems: 'flex-start', gap: 6 },
+  noticeText: { fontSize: TEXT.caption, lineHeight: 18, paddingHorizontal: 4 },
+  relayed: {
+    maxWidth: '92%',
+    borderRadius: 16,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  relayedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+  },
+  relayedBody: { paddingHorizontal: 12, paddingBottom: 10, gap: 4 },
+  relayedSource: { fontSize: TEXT.caption },
   empty: { marginTop: 48 },
   emptyBox: { alignItems: 'center', gap: 14, marginTop: 48 },
   emptyText: { fontSize: TEXT.small, textAlign: 'center' },

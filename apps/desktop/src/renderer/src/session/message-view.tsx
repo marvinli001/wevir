@@ -1,9 +1,10 @@
-import type {
-  ChatPart,
-  ChatPartOf,
-  SystemChatMessage,
-  UserChatMessage,
-  UserTextSegment,
+import {
+  type ChatPart,
+  type ChatPartOf,
+  reportBody,
+  type SystemChatMessage,
+  type UserChatMessage,
+  type UserTextSegment,
 } from '@wevir/client-sdk';
 import type { PendingMessage, ProviderProfile, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
@@ -52,7 +53,6 @@ import { OpinionCard, OpinionQuote } from './opinion-card';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
 import { SessionLink, useSessionEntry } from './session-link';
-import { reportBody } from './session-link-model';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { formatRelativeTime } from './subagent-model';
