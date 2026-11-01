@@ -36,10 +36,11 @@ function remember(imageId: ImageId, data: Promise<string>): Promise<string> {
 export function useAcceptsImages(
   choice: { providerId: string; modelId: string } | undefined,
 ): boolean {
-  const { view } = useHostConnection();
+  const { client } = useHostConnection();
   const providers = useWorkbenchProviders();
-  if (choice === undefined || view.status !== 'connected') return false;
-  if (!hostSupports(view.hello.features, 'user_images')) return false;
+  if (choice === undefined || client === undefined) return false;
+  // 重连时上传请求会排队，沿用最近一次握手的能力，避免把截图误判成不支持的文件。
+  if (!hostSupports(client.hello.features, 'user_images')) return false;
   const provider = providers?.find((candidate) => candidate.id === choice.providerId);
   return modelAcceptsImages(provider, choice.modelId);
 }
