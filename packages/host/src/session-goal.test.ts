@@ -124,9 +124,13 @@ describe('会话目标', () => {
     const env = setup(new EchoAdapter({ stepDelayMs: 2 }));
     const sessionId = await newSession(env);
     await env.methods['session.setGoal']({ sessionId, objective: 'slow 迁移构建脚本' }, context);
-    // 等到引擎自己开的续跑回合。
-    await vi.waitFor(() =>
-      expect(all(env, sessionId).filter((event) => event.type === 'turn.started')).toHaveLength(2),
+    // Windows 的定时器粒度较粗，slow 回合会超过 waitFor 默认的 1 s。
+    await vi.waitFor(
+      () =>
+        expect(all(env, sessionId).filter((event) => event.type === 'turn.started')).toHaveLength(
+          2,
+        ),
+      { timeout: 5000 },
     );
     await env.methods['session.cancel']({ sessionId }, context);
     expect(goalStatus(env, sessionId)).toBe('paused');
@@ -139,7 +143,9 @@ describe('会话目标', () => {
       context,
     );
     expect(goal.status).toBe('active');
-    await vi.waitFor(() => expect(goalStatus(env, sessionId)).toBe('complete'));
+    await vi.waitFor(() => expect(goalStatus(env, sessionId)).toBe('complete'), {
+      timeout: 5000,
+    });
     const started = all(env, sessionId).filter((event) => event.type === 'turn.started');
     expect(started).toHaveLength(3);
     expect(started[2]?.payload).toMatchObject({ trigger: 'goal' });
