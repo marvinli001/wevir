@@ -1084,6 +1084,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': 'Введите ответ',
   'question.skip': 'Пропустить',
   'question.skipAll': 'Пропустить все',
+  'question.previous': 'Предыдущий',
   'question.next': 'Следующий',
   'question.submit': 'Отправить',
   'question.collapse': 'Свернуть',

@@ -1059,6 +1059,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': '回答を入力',
   'question.skip': 'スキップ',
   'question.skipAll': 'すべてスキップ',
+  'question.previous': '前の質問',
   'question.next': '次の質問',
   'question.submit': '送信',
   'question.collapse': '折りたたむ',

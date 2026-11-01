@@ -1058,6 +1058,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': 'Type an answer',
   'question.skip': 'Skip',
   'question.skipAll': 'Skip all',
+  'question.previous': 'Previous',
   'question.next': 'Next',
   'question.submit': 'Submit',
   'question.collapse': 'Collapse',

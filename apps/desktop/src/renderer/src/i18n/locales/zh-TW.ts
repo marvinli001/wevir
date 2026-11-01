@@ -1051,6 +1051,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': '輸入回答',
   'question.skip': '略過',
   'question.skipAll': '全部略過',
+  'question.previous': '上一題',
   'question.next': '下一題',
   'question.submit': '送出',
   'question.collapse': '收合',

@@ -1,7 +1,7 @@
 import type { Transcript, WevirClient } from '@wevir/client-sdk';
 import type { QuestionRequest, UserQuestion } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Check, ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,8 @@ const OTHER = '\u0000other';
 
 /**
  * 一组问题（protocol 0.10.0 的 `QuestionRequest`）：顶上是“第几题 / 共几题”与题目，下面是选项（单选点一下即选中，多选是
- * 勾选框），允许时最后一项是“其他”加输入框；数字键选选项，⌘↵ 下一题，最后一题是提交。跳过的题回答为空。推荐的选项
+ * 勾选框），允许时最后一项是“其他”加输入框；数字键选选项，⌘↵ 下一题，最后一题是提交；右上角的箭头或 ←/→ 在题目间
+ * 来回切换，回答过的题可以回去改。跳过的题回答为空。推荐的选项
  * （0.72.0 的 `defaultOption`）带标记；无人值守的会话里底栏左边倒数到 `autoAnswerAt`，到时 Host 按推荐回答。
  */
 function QuestionCard({
@@ -103,6 +104,7 @@ function QuestionCard({
     if (last) void submit(picks);
     else setIndex((value) => value + 1);
   };
+  const go = (step: number) => setIndex((value) => Math.min(total - 1, Math.max(0, value + step)));
   const skip = () => {
     const picks = { ...chosen, [question.id]: [] };
     setChosen(picks);
@@ -116,6 +118,12 @@ function QuestionCard({
       return;
     }
     if (event.target instanceof HTMLInputElement) return;
+    const modified = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+    if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !modified) {
+      event.preventDefault();
+      go(event.key === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
     const digit = Number.parseInt(event.key, 10);
     const values = [
       ...question.options.map((option) => option.label),
@@ -146,6 +154,30 @@ function QuestionCard({
           {question.header && <p className="text-xs text-muted-foreground">{question.header}</p>}
           <h3 className="text-base leading-snug font-medium">{question.question}</h3>
         </div>
+        {total > 1 && (
+          <div className="flex items-center">
+            <IconButton
+              label={t('question.previous')}
+              shortcut="←"
+              size="icon-xs"
+              className="text-muted-foreground"
+              disabled={index === 0}
+              onClick={() => go(-1)}
+            >
+              <ChevronLeft />
+            </IconButton>
+            <IconButton
+              label={t('question.next')}
+              shortcut="→"
+              size="icon-xs"
+              className="text-muted-foreground"
+              disabled={last}
+              onClick={() => go(1)}
+            >
+              <ChevronRight />
+            </IconButton>
+          </div>
+        )}
         <IconButton
           label={t(collapsed ? 'question.expand' : 'question.collapse')}
           size="icon-xs"

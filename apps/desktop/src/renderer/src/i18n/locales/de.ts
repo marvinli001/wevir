@@ -1067,6 +1067,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': 'Antwort eingeben',
   'question.skip': 'Überspringen',
   'question.skipAll': 'Alle überspringen',
+  'question.previous': 'Vorherige Frage',
   'question.next': 'Nächste Frage',
   'question.submit': 'Absenden',
   'question.collapse': 'Einklappen',

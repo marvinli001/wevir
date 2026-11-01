@@ -1053,6 +1053,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': '답변 입력',
   'question.skip': '건너뛰기',
   'question.skipAll': '모두 건너뛰기',
+  'question.previous': '이전 질문',
   'question.next': '다음 질문',
   'question.submit': '제출',
   'question.collapse': '접기',

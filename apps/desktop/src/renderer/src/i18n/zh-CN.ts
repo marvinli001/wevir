@@ -1065,6 +1065,7 @@ export const zhCN = {
   'question.otherPlaceholder': '输入回答',
   'question.skip': '跳过',
   'question.skipAll': '全部跳过',
+  'question.previous': '上一题',
   'question.next': '下一题',
   'question.submit': '提交',
   'question.collapse': '收起',

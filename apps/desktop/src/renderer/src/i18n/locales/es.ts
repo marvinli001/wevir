@@ -1073,6 +1073,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': 'Escribe una respuesta',
   'question.skip': 'Omitir',
   'question.skipAll': 'Omitir todas',
+  'question.previous': 'Anterior',
   'question.next': 'Siguiente',
   'question.submit': 'Enviar',
   'question.collapse': 'Contraer',

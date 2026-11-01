@@ -1070,6 +1070,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': 'Saisir une réponse',
   'question.skip': 'Passer',
   'question.skipAll': 'Tout passer',
+  'question.previous': 'Précédente',
   'question.next': 'Suivante',
   'question.submit': 'Envoyer',
   'question.collapse': 'Réduire',

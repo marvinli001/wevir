@@ -1069,6 +1069,7 @@ export const messages: Messages = {
   'question.otherPlaceholder': 'Scrivi una risposta',
   'question.skip': 'Salta',
   'question.skipAll': 'Salta tutte',
+  'question.previous': 'Domanda precedente',
   'question.next': 'Domanda successiva',
   'question.submit': 'Invia',
   'question.collapse': 'Comprimi',
