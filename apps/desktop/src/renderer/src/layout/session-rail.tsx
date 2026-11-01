@@ -57,22 +57,19 @@ const NO_PROVIDERS: readonly ProviderProfile[] = [];
 const NO_CARDS: readonly string[] = [];
 
 /**
- * 侧栏的内容：竖排的卡片，多了在这一列里滚动。`visible` 为 false（收起着、浮层关着）时仍渲染（开合有宽度过渡），但不读
- * git 状态。`floating`（停靠时，盖在主窗格的消息流上）：只有卡片接鼠标，这一列不画滚动条，免得与消息流贴着窗口右边的
- * 滚动条叠在一起（卡片上照样能滚），右边留出那条滚动条的位置。
+ * 侧栏的内容：竖排的几节（照 Claude Code 桌面端，节与节之间一条分隔线），多了在这一列里滚动。`visible` 为 false（收起着、
+ * 浮层关着）时仍渲染（开合有宽度过渡），但不读 git 状态。
  */
 export function SessionRail({
   sessionId,
   session,
   entry,
   visible,
-  floating = false,
 }: {
   sessionId: SessionId;
   session: Session;
   entry: WorkspaceEntry;
   visible: boolean;
-  floating?: boolean;
 }) {
   const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const { railOpen, railCards } = layoutPrefs.use();
@@ -107,13 +104,7 @@ export function SessionRail({
   return (
     <aside
       aria-label={t('rail.label')}
-      className={cn(
-        'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-2',
-        // 停靠时右边留 PANE_LAYOUT.railEdge（12 px），浮层里同窗格的 8 px。
-        floating
-          ? 'pointer-events-none pr-3 [scrollbar-width:none]'
-          : 'pr-2 [scrollbar-width:thin]',
-      )}
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1.5 [scrollbar-width:thin]"
       data-testid="session-rail"
     >
       {items.map(({ card, content }) => (
@@ -143,14 +134,14 @@ function RailCardView({
   return (
     <section
       aria-label={title}
-      className="pointer-events-auto shrink-0 rounded-xl border border-border bg-background"
+      className="mx-4 shrink-0 border-border border-t first:border-t-0"
       data-testid={`rail-card-${id}`}
     >
       <button
         type="button"
         aria-expanded={open}
         onClick={() => toggleRailCard(id)}
-        className="flex h-10 w-full items-center gap-1.5 rounded-xl px-3 text-left text-sm outline-none focus-visible:focus-ring"
+        className="-mx-1.5 flex h-10 w-[calc(100%+0.75rem)] items-center gap-1.5 rounded-md px-1.5 text-left text-sm outline-none focus-visible:focus-ring"
       >
         <span className="shrink-0 font-medium">{title}</span>
         {/* 实心小三角（照 Claude Code 的侧栏卡片）：展开朝下，收起朝右。 */}
@@ -172,7 +163,7 @@ function RailCardView({
         )}
       </button>
       <Collapse open={open}>
-        <div className="px-3 pb-3 text-sm">{content.details}</div>
+        <div className="pb-3 text-sm">{content.details}</div>
       </Collapse>
     </section>
   );

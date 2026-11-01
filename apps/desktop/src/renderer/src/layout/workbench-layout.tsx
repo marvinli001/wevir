@@ -409,8 +409,8 @@ export function WorkbenchLayout() {
           {/* 内容区：主窗格是浮在壳上的卡片（index.css 的 surface-card），停靠的窗格区在它右边、各自也是卡片；左边与侧栏、
               下边与右边与窗口边缘都隔着 PANE_LAYOUT.gap。 */}
           <div ref={contentRef} className="relative flex min-h-0 flex-1 pl-2">
-            {/* 主窗格与盖在它右边的会话侧栏（§12）：`主窗格 | 侧栏 | 窗格区`，侧栏跟着主窗格的右边走，开关窗格区、拖分隔条时
-                一起移动。最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。 */}
+            {/* 主窗格与停靠在它右边的会话侧栏（§12）：`主窗格 | 侧栏 | 窗格区`，侧栏在主窗格的卡片里占一列，左边一条分隔线，
+                开合时消息流跟着变宽变窄。最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。 */}
             <div
               className={cn(
                 'surface-card relative mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden',
@@ -423,31 +423,28 @@ export function WorkbenchLayout() {
                 tabIndex={-1}
                 inert={plan.mode === 'maximized'}
                 onPointerDownCapture={() => panes?.focus(PRIMARY)}
-                className="rail-inset relative min-h-0 min-w-0 flex-1 outline-none"
-                // 侧栏盖在主窗格上：主窗格占到窗格区（或窗口）的边，消息流的滚动条贴着它；消息与输入框在整个主窗格里居中，
-                // 碰到侧栏才往左让（index.css 的 rail-clear 按 --rail-inset 算）。
-                style={
-                  { '--rail-inset': `${railDocked ? RAIL_DOCKED_WIDTH : 0}px` } as CSSProperties
-                }
+                className="relative min-h-0 min-w-0 flex-1 outline-none"
               >
                 <Outlet />
               </main>
-              {/* 停靠的会话侧栏：开合过渡外层宽度，收起时不卸载。宽只有开与关两种，拖窗口时也过渡：跨过默认显示的宽度时
-                  滑进滑出，不是一下跳开（index.css）。卡片之外的地方不接鼠标：在空白处滚动、拖滚动条落到下面的消息流。 */}
+              {/* 停靠的会话侧栏：开合过渡外层宽度，收起时不卸载，里面一列始终是侧栏的宽。宽只有开与关两种，拖窗口时也过渡：
+                  跨过默认显示的宽度时滑进滑出，不是一下跳开（index.css）。 */}
               {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (
                 <div
-                  className="layout-transition pointer-events-none absolute inset-y-0 right-0 z-10 flex overflow-hidden"
+                  className="layout-transition relative flex shrink-0 justify-end overflow-hidden"
                   data-resize-transition
                   inert={!railDocked}
                   style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
                 >
-                  <div className="flex shrink-0 flex-col" style={{ width: RAIL_DOCKED_WIDTH }}>
+                  <div
+                    className="flex shrink-0 flex-col border-l border-border"
+                    style={{ width: RAIL_DOCKED_WIDTH }}
+                  >
                     <SessionRail
                       sessionId={sessionId as Session['id']}
                       session={rail}
                       entry={header.entry}
                       visible={railDocked}
-                      floating
                     />
                   </div>
                 </div>
@@ -560,7 +557,7 @@ export function WorkbenchLayout() {
               className="gap-0 bg-background text-foreground data-[side=right]:w-(--overlay-width) data-[side=right]:sm:max-w-none"
               style={
                 {
-                  '--overlay-width': `${PANE_LAYOUT.railWidth + 2 * PANE_LAYOUT.gap}px`,
+                  '--overlay-width': `${PANE_LAYOUT.railWidth}px`,
                 } as CSSProperties
               }
             >
@@ -569,7 +566,7 @@ export function WorkbenchLayout() {
                 <span className="flex-1" />
                 <RailToggle shown onToggle={() => setRailOverlayOpen(false)} />
               </div>
-              <div className="flex min-h-0 flex-1 pl-2">
+              <div className="flex min-h-0 flex-1 flex-col">
                 <SessionRail
                   sessionId={sessionId as Session['id']}
                   session={rail}

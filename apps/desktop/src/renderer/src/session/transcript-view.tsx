@@ -212,8 +212,7 @@ export function TranscriptView({
         // 可聚焦，键盘也能滚动（滚动控制器据此识别导航键）。
         // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动区域需要能用键盘滚动。
         tabIndex={0}
-        // 右内边距给盖在上面的会话侧栏让位（index.css 的 rail-clear，主窗格里才有）：内边距在滚动条里面，滚动条仍贴着右边。
-        className="transcript-scroll scroll-fade rail-clear h-full overflow-y-auto outline-none [--scroll-fade-size:32px]"
+        className="transcript-scroll scroll-fade h-full overflow-y-auto outline-none [--scroll-fade-size:32px]"
       >
         <div
           ref={contentRef}
@@ -279,7 +278,7 @@ export function TranscriptView({
         <SelectionToolbar containerRef={containerRef} sessionId={sessionId} actions={quote} />
       )}
       {transcript.chapters.length >= CHAPTER_NAV_MIN && (
-        <div className="rail-clear pointer-events-none absolute inset-x-0 top-2 flex justify-end px-3">
+        <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-end px-3">
           <ChapterNav
             chapters={transcript.chapters}
             containerRef={containerRef}
@@ -288,7 +287,7 @@ export function TranscriptView({
         </div>
       )}
       {showJump && (
-        <div className="rail-clear pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <Hint label={t('transcript.jumpToLatest')}>
             <button
               type="button"

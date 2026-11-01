@@ -28,10 +28,8 @@ export const PANE_LAYOUT = {
   /** 浮层最宽 = 内容区宽 − 这么多，左边总留一条能看到主窗格的边。 */
   overlayMargin: 48,
   maxVisible: 4,
-  /** 会话侧栏（U18，§12）的宽，不含它右边的间距。 */
-  railWidth: 288,
-  /** 停靠的会话侧栏与窗口右边缘的间距：比 gap 宽，消息流贴着窗口右边的细滚动条（约 11 px）从这里过（§12）。 */
-  railEdge: 12,
+  /** 会话侧栏（U18，§12）的宽，含它左边的分隔线。 */
+  railWidth: 300,
 } as const;
 
 export type TemplateId = 'one' | 'rows2' | 'cols2' | 'side3' | 'rows3' | 'grid4';
