@@ -48,43 +48,52 @@ function fixtures(root: string): string {
 
 describe('CodexAdapter 容量不足时续跑', () => {
   it('policyCapacityUnavailable 与 serverOverloaded 一样报 turn.retrying，空输入续跑后回合完成', async () => {
-    const { home, workspace } = dirs.make('capacity');
-    const adapter = newAdapter({
-      home,
-      binary: process.execPath,
-      binaryArgs: [FAKE_APP_SERVER, '--fixtures', fixtures(home)],
-      overloadRetry: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 10 },
-      providers: [
-        {
-          id: 'mock',
-          kind: 'openai-compatible',
-          displayName: 'Wevir Mock',
-          api: 'openai-responses',
-          baseURL: 'http://127.0.0.1:9/v1',
-          models: [{ id: MOCK_MODEL, contextWindow: 128_000 }],
-          defaultModelId: MOCK_MODEL,
-          apiKey: MOCK_UPSTREAM_KEY,
-        },
-      ],
-    });
-    adapters.push(adapter);
-    const { engineSessionId } = await adapter.createSession({
-      cwd: workspace,
-      providerId: 'mock',
-      modelId: MOCK_MODEL,
-    });
-    const events = collectEvents(adapter, engineSessionId);
-    const turn = await runTurn(adapter, engineSessionId, 'replay:capacity', events);
-    expect(turn.filter(ofType('turn.retrying'))).toEqual([
-      {
-        type: 'turn.retrying',
-        engineSessionId,
-        attempt: 1,
-        maxAttempts: 2,
-        reason: MESSAGE,
-      },
-    ]);
-    expect(turn.filter(ofType('turn.failed'))).toEqual([]);
-    expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    await expectContinued([]);
+  });
+
+  it('失败回合的通知先于 turn/start 的结果处理完：续跑照样开新回合，不把失败的回合 ID 记回去', async () => {
+    await expectContinued(['--notify-before-result']);
   });
 });
+
+/** 以 `policyCapacityUnavailable` 失败一次，续跑回放录下的 `stream`：报一次 turn.retrying，回合正常完成。 */
+async function expectContinued(fakeArgs: string[]): Promise<void> {
+  const { home, workspace } = dirs.make('capacity');
+  const adapter = newAdapter({
+    home,
+    binary: process.execPath,
+    binaryArgs: [FAKE_APP_SERVER, '--fixtures', fixtures(home), ...fakeArgs],
+    overloadRetry: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 10 },
+    providers: [
+      {
+        id: 'mock',
+        kind: 'openai-compatible',
+        displayName: 'Wevir Mock',
+        api: 'openai-responses',
+        baseURL: 'http://127.0.0.1:9/v1',
+        models: [{ id: MOCK_MODEL, contextWindow: 128_000 }],
+        defaultModelId: MOCK_MODEL,
+        apiKey: MOCK_UPSTREAM_KEY,
+      },
+    ],
+  });
+  adapters.push(adapter);
+  const { engineSessionId } = await adapter.createSession({
+    cwd: workspace,
+    providerId: 'mock',
+    modelId: MOCK_MODEL,
+  });
+  const events = collectEvents(adapter, engineSessionId);
+  const turn = await runTurn(adapter, engineSessionId, 'replay:capacity', events);
+  expect(turn.filter(ofType('turn.retrying'))).toEqual([
+    {
+      type: 'turn.retrying',
+      engineSessionId,
+      attempt: 1,
+      maxAttempts: 2,
+      reason: MESSAGE,
+    },
+  ]);
+  expect(turn.filter(ofType('turn.failed'))).toEqual([]);
+  expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+}

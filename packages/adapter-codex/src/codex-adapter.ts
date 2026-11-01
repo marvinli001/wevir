@@ -1348,7 +1348,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   /** 知道了回合 ID：之前就要取消的，这时才发 `turn/interrupt`。 */
   #learnTurnId(session: CodexSession, turn: Turn, turnId: string): void {
-    if (turn.turnId !== undefined) return;
+    // `turn/start` 的结果可能晚于这个 Codex 回合的通知处理完：回合已经失败并在等满载续跑（`#retryOverloaded` 清掉了
+    // turnId、记成 lastTurnId）时，再记回去会让续跑以为已经开了回合而放弃，新回合的通知也被当成别的回合丢掉。
+    if (turn.turnId !== undefined || turnId === session.lastTurnId) return;
     turn.turnId = turnId;
     if (turn.cancelRequested && session.turn === turn) this.#interrupt(session, turn);
   }

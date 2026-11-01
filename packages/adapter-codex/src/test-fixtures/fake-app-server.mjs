@@ -4,11 +4,13 @@
 // 样本里的 thread、回合、item 与服务端请求的 ID 换成当前的。只用 Node 内置模块。
 //
 //   node fake-app-server.mjs [--fixtures <目录>] [--version] [--strict-config] [--thread-read-empty <n>]
+//                            [--notify-before-result]
 //
 // - `--version`：打印锁定的版本（与 paths.ts 的 CODEX_VERSION 一致）后退出。
 // - initialize / thread/start / thread/resume / thread/unsubscribe / turn/start / turn/interrupt 有回应，其余回 -32601。
 // - `--thread-read-empty <n>`：也回应 thread/read，每个 thread 的前 n 次照真实二进制回 rollout 还是空的（-32603），之后
 //   给出昵称 Ampere（子 agent 刚报出时 rollout 还没写下的竞争）。不带这个参数时 thread/read 回 -32601。
+// - `--notify-before-result`：`turn/start` 先把整个样本的通知写完，再写结果（回合很快结束时结果晚于通知的竞争）。
 // - 审批：样本里的 `{"serverRequest": …}` 发给客户端，等它回复 `{decision}`（MCP 的 elicitation 是 `{action}`），接着回放
 //   `<样本名>.<决定>.jsonl`；客户端的回复逐行记在 cwd 下的 fake-replies.jsonl
 //   （acceptForSession 用 accept 的分支）；审批未决时 `turn/interrupt` 回放 `<样本名>.interrupt.jsonl`（turn/completed
@@ -41,6 +43,7 @@ const FIXTURES =
     : fileURLToPath(new URL('./app-server/', import.meta.url));
 const threadReadIndex = args.indexOf('--thread-read-empty');
 const THREAD_READ_EMPTY = threadReadIndex >= 0 ? Number(args[threadReadIndex + 1]) : undefined;
+const NOTIFY_BEFORE_RESULT = args.includes('--notify-before-result');
 /** threadId → 已经回过几次 rollout 是空的。 */
 const emptyReads = new Map();
 const STORE = join(process.cwd(), 'fake-threads.json');
@@ -278,9 +281,17 @@ const handlers = {
       materialized.add(thread.id);
       writeFileSync(STORE, JSON.stringify([...materialized]));
     }
-    setImmediate(
-      () => void replay(turn, name).catch((error) => process.stderr.write(`${error}\n`)),
-    );
+    if (NOTIFY_BEFORE_RESULT) {
+      // 样本的通知全部先于 turn/start 的结果写出（客户端处理完通知才拿到结果的竞争）；不支持审批与子 thread。
+      for (const line of fixture(name)) {
+        if (turn.ended || 'serverRequest' in line) break;
+        emit(turn, line);
+      }
+    } else {
+      setImmediate(
+        () => void replay(turn, name).catch((error) => process.stderr.write(`${error}\n`)),
+      );
+    }
     return { turn: { id: turn.id, status: 'inProgress', error: null, items: [] } };
   },
   'turn/interrupt': (params) => {
