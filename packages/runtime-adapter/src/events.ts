@@ -113,6 +113,8 @@ export interface ToolFinishedEvent {
   engineSessionId: string;
   toolCallId: string;
   status: 'completed' | 'failed';
+  /** 命令的最终退出码；引擎没有给时省略。 */
+  exitCode?: number;
   output?: string;
   /** 工具产出的图片（0.118.0，展示类型 `image`）。Host 认格式、存进图片目录，事件里换成图片的引用。 */
   images?: AgentToolImage[];

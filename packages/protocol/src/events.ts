@@ -354,6 +354,7 @@ export const EventPayloadSchemas = {
     turnId: TurnIdSchema,
     toolCallId: z.string(),
     status: ToolFinishStatusSchema,
+    exitCode: z.number().int().optional(),
     /** Host 收尾补写（`unknown`）时没有。 */
     output: ToolOutputSchema.optional(),
     /**

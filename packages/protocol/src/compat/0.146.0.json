@@ -1,0 +1,26 @@
+{
+  "protocolVersion": "0.146.0",
+  "frozenAt": "2026-11-01",
+  "methods": {},
+  "notifications": {},
+  "events": [
+    {
+      "seq": 8,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-11-01T10:00:00.000Z",
+      "type": "tool.finished",
+      "source": "engine",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "toolCallId": "exec-1",
+        "status": "failed",
+        "exitCode": 2,
+        "output": {
+          "text": "matched.ts:1:match\nrg: missing: No such file or directory (os error 2)\n",
+          "truncated": false
+        }
+      }
+    }
+  ],
+  "errors": []
+}

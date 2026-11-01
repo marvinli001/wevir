@@ -2454,6 +2454,7 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
       toolCallId: 'call_mv4pwxip_2',
       status: 'completed',
+      exitCode: 0,
       output: { text: 'ok', truncated: true, originalLength: 70000 },
       images: [
         {

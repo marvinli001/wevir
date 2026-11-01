@@ -977,6 +977,7 @@ export const messages: Messages = {
   'work.line.unknown': 'Статус неизвестен: {verb}',
 
   'tool.input': 'Параметры',
+  'tool.exitCode': 'Код завершения {code}',
   'tool.output': 'Результат',
   'tool.noOutput': 'Нет вывода',
   'tool.outputTruncated': 'Обрезано (всего {length} симв.)',

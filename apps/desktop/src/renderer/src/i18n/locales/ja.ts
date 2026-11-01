@@ -953,6 +953,7 @@ export const messages: Messages = {
   'work.line.unknown': '{verb}状態不明',
 
   'tool.input': '引数',
+  'tool.exitCode': '終了コード {code}',
   'tool.output': '結果',
   'tool.noOutput': '出力なし',
   'tool.outputTruncated': '切り詰め済み (全 {length} 文字)',

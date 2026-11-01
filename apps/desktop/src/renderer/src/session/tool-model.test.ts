@@ -15,6 +15,7 @@ import {
   thoughtLine,
   toolLifecycle,
   toolLine,
+  toolParameters,
   toolSummary,
   type WorkEntry,
   workIssues,
@@ -99,6 +100,64 @@ describe('toolSummary / outputSummary', () => {
     const output = { text: '\n\n  Found 5 matches\nmore', truncated: false };
     expect(outputSummary(tool('a', 'search', { output }))).toBe('Found 5 matches');
     expect(outputSummary(tool('a', 'search'))).toBeUndefined();
+  });
+
+  it('命令失败时用最终退出码作摘要，不把此前的成功输出当失败原因', () => {
+    expect(
+      outputSummary(
+        tool('a', 'search', {
+          status: 'failed',
+          exitCode: 2,
+          output: {
+            text: 'Found 5 matches\nrg: missing: No such file or directory',
+            truncated: false,
+          },
+        }),
+      ),
+    ).toBe('退出码 2');
+    expect(outputSummary(tool('a', 'shell', { status: 'failed', exitCode: 1 }))).toBe('退出码 1');
+  });
+});
+
+describe('toolParameters', () => {
+  it('旧的 Codex 命令快照只展示命令、工作目录与审批理由', () => {
+    expect(
+      toolParameters(
+        tool('a', 'shell', {
+          toolName: 'commandExecution',
+          input: {
+            type: 'commandExecution',
+            command: 'rg match missing',
+            cwd: '/tmp',
+            justification: 'Read project files',
+            status: 'inProgress',
+            exitCode: null,
+            aggregatedOutput: null,
+            durationMs: null,
+            processId: '123',
+          },
+        }),
+      ),
+    ).toEqual({ command: 'rg match missing', cwd: '/tmp', justification: 'Read project files' });
+  });
+
+  it.each(['mcpToolCall', 'dynamicToolCall'])(
+    '%s 只展示调用参数，保留参数自己的 status 字段',
+    (type) => {
+      const args = { status: 'completed', id: 't1' };
+      expect(
+        toolParameters(
+          tool('a', 'unknown', {
+            input: { type, arguments: args, status: 'inProgress', result: null },
+          }),
+        ),
+      ).toEqual(args);
+    },
+  );
+
+  it('其他引擎的输入原样显示', () => {
+    const input = { command: 'pwd', timeout: 1000 };
+    expect(toolParameters(tool('a', 'shell', { input }))).toBe(input);
   });
 });
 

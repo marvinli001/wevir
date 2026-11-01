@@ -62,8 +62,26 @@ export function toolSummary(part: Pick<ToolPart, 'display' | 'input'>): string |
   return undefined;
 }
 
-/** 结果摘要：输出的第一行非空文字。 */
+/** 参数只展示调用的输入，Codex item 的运行状态与结果留在结果区。 */
+export function toolParameters(part: ToolPart): unknown {
+  const input = part.input;
+  if (!isRecord(input)) return input;
+  if (part.toolName === 'commandExecution' && input.type === 'commandExecution') {
+    return {
+      command: input.command,
+      cwd: input.cwd,
+      ...(input.justification !== undefined && { justification: input.justification }),
+    };
+  }
+  if (input.type === 'mcpToolCall' || input.type === 'dynamicToolCall') return input.arguments;
+  return input;
+}
+
+/** 命令失败先显示退出码，其余取输出的第一行非空文字。 */
 export function outputSummary(part: ToolPart): string | undefined {
+  if (part.status === 'failed' && part.exitCode !== undefined && part.exitCode !== 0) {
+    return t('tool.exitCode', { code: part.exitCode });
+  }
   const text = part.output?.text;
   if (!text) return undefined;
   for (const line of text.split('\n')) {

@@ -962,6 +962,7 @@ export const messages: Messages = {
   'work.line.unknown': '{verb}: Status unbekannt',
 
   'tool.input': 'Parameter',
+  'tool.exitCode': 'Exit-Code {code}',
   'tool.output': 'Ergebnis',
   'tool.noOutput': 'Keine Ausgabe',
   'tool.outputTruncated': 'Gekürzt ({length} Zeichen insgesamt)',

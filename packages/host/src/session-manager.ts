@@ -5679,6 +5679,7 @@ export class SessionManager {
               turnId,
               toolCallId: event.toolCallId,
               status: event.status === 'failed' && cancelling ? 'cancelled' : event.status,
+              ...(event.exitCode !== undefined && { exitCode: event.exitCode }),
               ...(event.output !== undefined && {
                 output: { text: event.output, truncated: false },
               }),

@@ -961,6 +961,7 @@ export const zhCN = {
   'work.line.unknown': '{verb}状态未知',
 
   'tool.input': '参数',
+  'tool.exitCode': '退出码 {code}',
   'tool.output': '结果',
   'tool.noOutput': '无输出',
   'tool.outputTruncated': '已截断（共 {length} 字符）',

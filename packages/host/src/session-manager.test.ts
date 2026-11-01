@@ -398,6 +398,26 @@ describe('SessionManager：回合', () => {
     expect(transitions(h, id)).toEqual(['idle→running:turn_started', 'running→idle:turn_finished']);
   });
 
+  it.each([0, 2])('命令最终退出码 %s 与输出写入事件库', async (exitCode) => {
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    const status = exitCode === 0 ? 'completed' : 'failed';
+    const output = 'present:1:match\nrg: missing: No such file or directory (os error 2)\n';
+    vi.spyOn(h.adapter, 'subscribe').mockImplementationOnce(async function* (engineSessionId) {
+      for await (const event of subscribe(engineSessionId)) {
+        yield event.type === 'tool.finished' ? { ...event, status, exitCode, output } : event;
+      }
+    });
+    const id = await create(h);
+    await send(h, id, 'call a tool');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'tool.finished')[0]?.payload).toMatchObject({
+      status,
+      exitCode,
+      output: { text: output, truncated: false },
+    });
+  });
+
   it('工具调用、思考照写；回合结束时未收尾的工具补 unknown', async () => {
     const h = setup();
     const id = await create(h);

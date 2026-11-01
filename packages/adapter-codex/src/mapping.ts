@@ -544,6 +544,8 @@ export class CodexEventMapper {
       // declined（被拒绝）、interrupted 都记为 failed：tool.finished 只有两种状态，拒绝的语义由审批事件承担
       // （ADR-0005 决策 6.2）；webSearch / imageView 没有状态字段，见 toolStatus。
       status: toolStatus(item),
+      ...(item.type === 'commandExecution' &&
+        item.exitCode !== null && { exitCode: item.exitCode }),
       ...(output !== undefined && { output }),
       ...(images !== undefined && { images }),
     });

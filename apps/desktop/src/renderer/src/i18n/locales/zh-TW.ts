@@ -947,6 +947,7 @@ export const messages: Messages = {
   'work.line.unknown': '{verb}狀態不明',
 
   'tool.input': '參數',
+  'tool.exitCode': '結束代碼 {code}',
   'tool.output': '結果',
   'tool.noOutput': '無輸出',
   'tool.outputTruncated': '已截斷（共 {length} 個字元）',

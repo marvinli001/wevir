@@ -4,7 +4,7 @@ import { t } from '@/i18n';
 import { FilePreviewBlock } from './file-preview';
 import { filePreviews } from './file-preview-model';
 import { formatJson } from './format';
-import type { ToolPart } from './tool-model';
+import { type ToolPart, toolParameters } from './tool-model';
 
 // 工具调用的详情（T5.3 的工具卡片展开后的内容，U2 起在工作组里逐条展开时显示）：参数与完整结果；修改与写文件（§56）是
 // 按文件的预览。
@@ -30,6 +30,16 @@ export function ToolDetails({ part, root }: { part: ToolPart; root?: string }) {
         <ToolInput part={part} />
       </Section>
       <Section label={t('tool.output')}>
+        {part.exitCode !== undefined && (
+          <p
+            className={cn(
+              'mb-1 text-xs text-muted-foreground',
+              part.exitCode !== 0 && 'text-destructive',
+            )}
+          >
+            {t('tool.exitCode', { code: part.exitCode })}
+          </p>
+        )}
         {part.output ? (
           <>
             <Pre>{part.output.text || t('tool.noOutput')}</Pre>
@@ -50,7 +60,7 @@ export function ToolDetails({ part, root }: { part: ToolPart; root?: string }) {
 }
 
 function ToolInput({ part }: { part: ToolPart }) {
-  const { text, truncatedFrom } = formatJson(part.input ?? {});
+  const { text, truncatedFrom } = formatJson(toolParameters(part) ?? {});
   return (
     <>
       <Pre>{text}</Pre>

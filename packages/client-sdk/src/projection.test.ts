@@ -369,6 +369,23 @@ describe('TranscriptProjection：工具与审批', () => {
     });
   });
 
+  it.each([0, 2])('命令最终退出码 %s 随结束状态投影，保留输出', (exitCode) => {
+    const { list, add, turn } = events();
+    turn();
+    add('tool.started', {
+      turnId: TURN,
+      toolCallId: 'exec-1',
+      toolName: 'commandExecution',
+      display: { kind: 'shell', command: 'rg match present missing' },
+      input: { status: 'inProgress', exitCode: null },
+    });
+    expect(assistantParts(list)[0]).not.toHaveProperty('exitCode');
+    const status = exitCode === 0 ? 'completed' : 'failed';
+    const output = { text: 'match\nrg: missing: No such file or directory\n', truncated: false };
+    add('tool.finished', { turnId: TURN, toolCallId: 'exec-1', status, exitCode, output });
+    expect(assistantParts(list)[0]).toMatchObject({ status, exitCode, output });
+  });
+
   it('生成的图片（0.118.0）：tool.finished 的 images 放进工具段', () => {
     const { list, add, turn } = events();
     turn();

@@ -949,6 +949,7 @@ export const messages: Messages = {
   'work.line.unknown': '{verb} 상태 알 수 없음',
 
   'tool.input': '인수',
+  'tool.exitCode': '종료 코드 {code}',
   'tool.output': '결과',
   'tool.noOutput': '출력 없음',
   'tool.outputTruncated': '잘림 (총 {length}자)',

@@ -10,7 +10,7 @@ import {
   ENGINE_RAW_PROTOCOL,
   PLAN_TOOL_CALL_PREFIX,
 } from './mapping.js';
-import type { ApprovalRequestMethod } from './protocol.js';
+import type { ApprovalRequestMethod, CommandExecutionItem } from './protocol.js';
 
 // 回放真实 codex-app-server（rust-v0.163.0）录下的通知序列（src/test-fixtures/app-server/，录制方法见
 // record-app-server.test.ts），检查映射成的 AgentEvent（docs/architecture/codex-event-mapping.md §6）。
@@ -247,6 +247,7 @@ describe('回放 codex-app-server 的通知', () => {
         engineSessionId: threadId,
         toolCallId: started?.toolCallId,
         status: 'completed',
+        exitCode: 0,
         output: 'hello readme\n',
       },
     ]);
@@ -292,6 +293,33 @@ describe('回放 codex-app-server 的通知', () => {
       status: 'completed',
       output: 'line 1\nline 2\nline 3\n',
     });
+  });
+
+  it.each([0, 2, null])('命令保留最终退出码 %s，状态与输出分别映射', (exitCode) => {
+    const mapper = new CodexEventMapper('thread');
+    const item: CommandExecutionItem = {
+      type: 'commandExecution',
+      id: 'exec-1',
+      command: 'rg match present missing',
+      cwd: '/tmp',
+      commandActions: [],
+      status: 'inProgress',
+      aggregatedOutput: null,
+      exitCode: null,
+      durationMs: null,
+    };
+    mapper.map('item/started', { threadId: 'thread', turnId: 'turn', item });
+    const status = exitCode === 0 ? 'completed' : 'failed';
+    const output = 'present:1:match\nrg: missing: No such file or directory (os error 2)\n';
+    const events = mapper.map('item/completed', {
+      threadId: 'thread',
+      turnId: 'turn',
+      item: { ...item, status, exitCode, aggregatedOutput: output, durationMs: 10 },
+    });
+    const [finished] = of(events, 'tool.finished');
+    expect(finished).toMatchObject({ status, output });
+    if (exitCode === null) expect(finished).not.toHaveProperty('exitCode');
+    else expect(finished).toHaveProperty('exitCode', exitCode);
   });
 
   it('apply-patch：新建文件显示为 write，输出是 diff；turn/diff/updated 保留为 engine.raw', () => {
