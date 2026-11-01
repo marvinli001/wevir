@@ -62,6 +62,27 @@ describe('mapAcpUpdate：工具展示与待办来自引擎描述', () => {
     const noTodos: AcpToolPresentation = { display: () => ({ kind: 'unknown' }) };
     expect(mapAcpUpdate(notification, noTodos).map((e) => e.type)).toEqual(['tool.started']);
   });
+
+  it('引擎报 cancelled 的工具调用算失败结束，不留成进行中', () => {
+    const onRaw = (reason: string) => expect.fail(`不该保留为 engine.raw：${reason}`);
+    expect(
+      mapAcpUpdate(
+        {
+          sessionId: 's1',
+          update: { sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'cancelled' },
+        },
+        KIND_TOOLS,
+        onRaw,
+      ),
+    ).toEqual([
+      { type: 'tool.finished', engineSessionId: 's1', toolCallId: 't1', status: 'failed' },
+    ]);
+    expect(
+      mapAcpUpdate(update({ title: 'Run', status: 'cancelled' }), KIND_TOOLS, onRaw).map(
+        (e) => e.type === 'tool.finished' && e.status,
+      ),
+    ).toEqual([false, 'failed']);
+  });
 });
 
 describe('sessionConfigInfo：按引擎的路由编码读回模型', () => {

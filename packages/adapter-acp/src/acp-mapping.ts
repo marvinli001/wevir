@@ -276,9 +276,13 @@ export function rawEvent(notification: AcpSessionNotification): EngineRawEvent {
 
 type ToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | null;
 
-/** ACP 的工具状态；缺省（`tool_call_update` 只改别的字段）记为 null，不认识的值为 undefined。 */
+/**
+ * ACP 的工具状态；缺省（`tool_call_update` 只改别的字段）记为 null，不认识的值为 undefined。`cancelled`（取消回合时引擎结掉的
+ * 工具调用）算失败，不留成进行中（T3 Code 076aacca16eed7c603140aab2888bb3f75cbf342）。
+ */
 function toolStatus(value: unknown): ToolStatus | undefined {
   if (value === undefined || value === null) return null;
+  if (value === 'cancelled') return 'failed';
   return value === 'pending' ||
     value === 'in_progress' ||
     value === 'completed' ||
