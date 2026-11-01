@@ -57,6 +57,26 @@ export function classifyCopilotTurnError(error: unknown): ClassifiedTurnError {
   return { category: 'unknown', ...info };
 }
 
+/** Copilot 进程里会话丢了或锁住了：之后每条消息都这样失败，直到换掉进程（T3 Code 28bfae00d4a481b83ee587f9c86661a38230afb1）。 */
+const COPILOT_LOST_SESSION_MARKERS = [
+  'session event delivery failed: session not found: ',
+  'session lock unavailable during is_session_generation_current: acquisition timed out',
+];
+
+/**
+ * `session/prompt` 的 -32603 是会话丢了或锁住了：老版本把原因放在 `data.details`，1.0.105 的原生 ACP 层放在 `message`（T3）。
+ * 只用于 `session/prompt` 的失败（`AcpEngine.restartAfterTurnError`）。
+ */
+export function isCopilotLostSessionError(error: unknown): boolean {
+  const fields = record(error);
+  if (fields?.code !== -32603) return false;
+  return [fields.message, record(fields.data)?.details].some(
+    (text) =>
+      typeof text === 'string' &&
+      COPILOT_LOST_SESSION_MARKERS.some((marker) => text.includes(marker)),
+  );
+}
+
 /** `session/load` 找不到会话（Copilot 没公开错误码，按原文认）。 */
 export function classifyCopilotResumeError(error: unknown): ClassifiedResumeError {
   const info = errorInfo(error);
@@ -93,4 +113,7 @@ export const COPILOT_ENGINE: AcpEngine = {
   extensions: { notifications: [COPILOT_SESSION_EVENT, `_${COPILOT_SESSION_EVENT}`] },
   classifyTurnError: classifyCopilotTurnError,
   classifyResumeError: classifyCopilotResumeError,
+  restartAfterTurnError: isCopilotLostSessionError,
+  // 1.0.105 不接客户端给的 stdio MCP 服务（警告 `Rejecting non-http/sse MCP server`），声明了 http 时应用级工具走 HTTP（T3）。
+  mcpOverHttp: true,
 };

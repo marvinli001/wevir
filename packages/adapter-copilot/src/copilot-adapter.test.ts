@@ -294,6 +294,89 @@ describe('Copilot ACP', () => {
     });
   });
 
+  it('会话丢了或锁住了：回合照常失败，等别的会话的回合结算后重启进程，恢复到新进程上再发消息就好', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: a } = await adapter.createSession(config);
+    const { engineSessionId: b } = await adapter.createSession(config);
+    const eventsA = new EventCollector(adapter.subscribe(a));
+    const eventsB = new EventCollector(adapter.subscribe(b));
+    // 账号检测另起的 copilot 也写同一份日志：数适配器自己的进程就绪了几次。
+    let started = 1;
+    adapter.process.on('ready', () => {
+      started += 1;
+    });
+    const initializes = () => started;
+
+    // 普通的失败不换进程。
+    await adapter.send(a, text('error:unknown'));
+    await eventsA.turn();
+    await adapter.send(b, text('hang'));
+    await eventsB.waitFor((event) => event.type === 'assistant.delta');
+    await adapter.send(a, text('error:lost'));
+    const from = eventsA.events.length;
+    expect((await eventsA.turn(from)).at(-1)).toMatchObject({ type: 'turn.failed' });
+    // B 的回合还在：不重启。
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(eventsA.ended).toBe(false);
+    expect(initializes()).toBe(1);
+
+    await adapter.cancel(b);
+    await eventsA.waitFor((event) => event.type === 'engine.exited', from);
+    await eventsB.waitFor((event) => event.type === 'engine.exited');
+    expect(eventsB.events.findLast((event) => event.type === 'turn.settled')).toMatchObject({
+      outcome: 'cancelled',
+    });
+
+    await adapter.resumeSession(a, config);
+    const resumed = new EventCollector(adapter.subscribe(a));
+    await adapter.send(a, text('again'));
+    expect((await resumed.turn()).at(-1)).toMatchObject({ type: 'turn.settled' });
+    expect(initializes()).toBe(2);
+
+    // 1.0.105 把锁住的原因放在 message 里：同样换进程。
+    await adapter.send(a, text('error:locked'));
+    await resumed.waitFor((event) => event.type === 'engine.exited');
+    await adapter.resumeSession(a, config);
+    expect(initializes()).toBe(3);
+  });
+
+  it('引擎声明了 mcpCapabilities.http 时应用级工具直接给 HTTP 形式，没声明时经 stdio 桥', async () => {
+    const appTools = { url: 'http://127.0.0.1:4100/mcp', token: 'session-token' };
+    const mcpServers = async (extra: Record<string, string>) => {
+      const dir = temp.dir(`case-${++seq}`);
+      const log = join(dir, 'messages.ndjson');
+      const bridge = { script: join(dir, 'mcp', 'wevir-app-tools.mjs'), node: '/usr/bin/node' };
+      const adapter = fakeCopilotAdapter(
+        join(dir, 'home'),
+        fakeCopilotEnv({ FAKE_COPILOT_LOG: log, FAKE_COPILOT_SIGNED_IN: '1', ...extra }),
+        [],
+        { appToolsBridge: bridge },
+      );
+      adapters.push(adapter);
+      const cwd = temp.dir(`ws-${seq}`);
+      await adapter.createSession({
+        cwd,
+        providerId: 'copilot',
+        modelId: 'fixture-model-a',
+        appTools,
+      });
+      return readLog(log).find(
+        (message) => message.method === 'session/new' && message.params.cwd === cwd,
+      )?.params.mcpServers;
+    };
+    expect(await mcpServers({})).toEqual([
+      {
+        type: 'http',
+        name: 'wevir',
+        url: appTools.url,
+        headers: [{ name: 'Authorization', value: 'Bearer session-token' }],
+      },
+    ]);
+    expect(await mcpServers({ FAKE_COPILOT_NO_HTTP_MCP: '1' })).toEqual([
+      expect.objectContaining({ name: 'wevir', command: '/usr/bin/node' }),
+    ]);
+  });
+
   it('回合里的 assistant.usage 带来每月的高级请求额度，无限的不列', async () => {
     const { adapter, config } = setup({ FAKE_COPILOT_USAGE: '1' });
     const { engineSessionId: id } = await adapter.createSession(config);

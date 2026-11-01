@@ -14,6 +14,7 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  APP_TOOLS_SERVER,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type ApprovalOption,
@@ -220,6 +221,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   #disposed: Promise<void> | undefined;
   /** 进行中的有计划重启（合并并发的请求）。 */
   #restart: Promise<void> | undefined;
+  /** 引擎描述的 `restartAfterTurnError` 认出的失败之后，等空闲时重启进程。 */
+  #restartWhenIdle = false;
   /**
    * 进行中的 `createSession` / `resumeSession` 数：它们的会话还没登记，有计划的重启要等它们完成，否则会话会挂在
    * 被回收的进程上（`busy`）。
@@ -269,10 +272,28 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     return this.#sessions.size;
   }
 
-  /** 交给这个会话的 MCP 服务：固定的那些，加上它的应用级工具（0.30.0）。 */
+  /**
+   * 交给这个会话的 MCP 服务：固定的那些，加上它的应用级工具（0.30.0）。引擎描述了 `mcpOverHttp` 且当前进程的 `initialize`
+   * 声明了 `mcpCapabilities.http` 时应用级工具直接给 HTTP 形式，否则经 stdio 桥。
+   */
   #sessionMcpServers(config: SessionConfig): McpServer[] {
     const bridge = this.#appToolsBridge;
     if (bridge === undefined || config.appTools === undefined) return this.#mcpServers;
+    if (
+      this.engine.mcpOverHttp === true &&
+      this.process.initializeResponse?.agentCapabilities?.mcpCapabilities?.http === true
+    ) {
+      const { url, token } = config.appTools;
+      return [
+        ...this.#mcpServers,
+        {
+          type: 'http',
+          name: APP_TOOLS_SERVER,
+          url,
+          headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
+        },
+      ];
+    }
     if (!this.#bridgeWritten) {
       writeAppToolsBridgeScript(bridge);
       this.#bridgeWritten = true;
@@ -474,6 +495,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         turn.finish();
       },
       (error: unknown) => {
+        if (
+          session.turn === turn &&
+          !turn.cancelRequested &&
+          this.engine.restartAfterTurnError?.(error) === true
+        ) {
+          this.#restartWhenIdle = true;
+        }
         this.#settle(session, turn, this.#turnFailed(engineSessionId, error));
         turn.finish();
       },
@@ -1120,6 +1148,25 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.queue.endTurn(event);
     turn.finish();
     this.afterTurn(session.id);
+    void this.#restartIfRequested();
+  }
+
+  /**
+   * 引擎描述的 `restartAfterTurnError` 要求换进程、而且没有进行中的回合与建会话时重启（挂着的会话都空闲，Host 只断开它们，下次
+   * 发消息时恢复）。有别的会话在回合中时等它们结算。
+   */
+  #restartIfRequested(): Promise<void> {
+    if (!this.#restartWhenIdle || this.busy || this.#disposed !== undefined) {
+      return Promise.resolve();
+    }
+    this.#restartWhenIdle = false;
+    this.#logger.warn(`${this.engine.name} 的会话失败后要换进程才能恢复，重启引擎`);
+    // `config_changed`：会话都空闲，Host 不报错，只断开订阅。
+    return this.restartEngine('config_changed').catch((error: unknown) =>
+      this.#logger.warn(`重启 ${this.engine.name} 失败`, {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
   }
 
   /**
@@ -1271,6 +1318,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   /** 启动或等进行中的重启完成，返回就绪的连接。 */
   async #readyConnection() {
     await this.process.start();
+    await this.#restartIfRequested();
     await this.beforeActivation();
     this.assertUsable();
     return this.process.connection;

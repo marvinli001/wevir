@@ -30,6 +30,12 @@ export interface AcpEngine {
   /** `session/resume` 失败的归类。不是 ACP 错误（连接断开等）的归 `unknown`。 */
   classifyResumeError(error: unknown): ClassifiedResumeError;
   /**
+   * 可选：`session/prompt` 的这个失败之后引擎进程要换掉（Copilot：会话丢了或锁住了，之后每条消息都这样失败，直到换进程；T3 Code
+   * 28bfae00d4a481b83ee587f9c86661a38230afb1）。返回 true 时适配器等到没有进行中的回合与建会话时重启进程，挂着的会话脱开，下一次
+   * 发消息时恢复到新进程上。已经请求取消的回合不看。
+   */
+  restartAfterTurnError?(error: unknown): boolean;
+  /**
    * 恢复会话发哪个请求：`resume`（默认）是 `session/resume`；`load` 是 `session/load`（Devin 只实现了它）。`session/load` 先把
    * 历史作 `session/update` 回放，引擎的适配器要在恢复期间丢掉这些回放，不然它们落进还挂着的会话成了 `engine.raw`。
    */
@@ -46,6 +52,12 @@ export interface AcpEngine {
    * 按引擎写出的顺序同步调用，不得抛错。
    */
   sessionModels?(configOptions: unknown, models: unknown): unknown;
+  /**
+   * 应用级工具的 MCP 服务在引擎的 `initialize` 声明了 `mcpCapabilities.http` 时直接给 HTTP 形式（Host 的 `/mcp` 加这个会话的
+   * 令牌），不经 stdio 桥（Copilot 1.0.105 不接客户端给的 stdio 服务；T3 Code 94a53a2f79c3b61f3a94ac6a97311ce0deb69306）。默认
+   * 不开：有的引擎声明了 http 却丢掉注入的 HTTP 服务（T3 记的 codex-acp 1.2.0、pi-acp）。
+   */
+  readonly mcpOverHttp?: boolean;
   /** `initialize` 请求的 `_meta`（Grok：`clientType: extension`，自动模式拦下的操作才会问客户端）。 */
   readonly initializeMeta?: Readonly<Record<string, unknown>>;
   /** `initialize` 的 `clientCapabilities._meta`（Copilot：订阅哪些原始会话事件，用来读额度）。 */

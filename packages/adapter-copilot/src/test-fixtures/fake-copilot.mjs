@@ -120,7 +120,11 @@ function serve() {
     return [sample('modeOption'), model];
   }
   const handlers = {
-    initialize: () => sample('initialize'),
+    initialize: () => {
+      const result = sample('initialize');
+      if (env.FAKE_COPILOT_NO_HTTP_MCP === '1') delete result.agentCapabilities.mcpCapabilities;
+      return result;
+    },
     'session/new': (params) => {
       if (!signedIn()) throw sample('authError');
       const sessionId = `copilot-fake-${process.pid}-${sessions.size + 1}-${nextRequest++}`;
@@ -207,6 +211,19 @@ function serve() {
         const errors = {
           provider: { code: -32603, message: 'You have exceeded your premium request allowance' },
           unknown: { code: -32603, message: 'Unexpected failure' },
+          // 会话丢了（老版本把原因放在 data.details）与锁住了（1.0.105 放在 message 里），原因的原文取自 T3 Code 28bfae0 认的标记。
+          lost: {
+            code: -32603,
+            message: 'Internal error',
+            data: {
+              details: `session event delivery failed: session not found: ${sessionId}`,
+            },
+          },
+          locked: {
+            code: -32603,
+            message:
+              'session lock unavailable during is_session_generation_current: acquisition timed out',
+          },
         };
         return send({ id, error: errors[text.slice(6)] });
       }
