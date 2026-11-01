@@ -20,7 +20,7 @@ export const USAGE_LIMIT_ERROR =
 export const CONTEXT_WINDOW_FULL_ERROR =
   "Claude stopped: the prompt exceeds the model's context window. Run /compact or start a new session.";
 
-/** `api_error` 结果里 `API Error: …` 原文的长度上限（T3 55a8fe9）。 */
+/** API 错误与限额原因原文的长度上限（T3 55a8fe9）。 */
 const API_ERROR_TEXT_MAX = 500;
 
 function redactUrl(match: string): string {
@@ -214,7 +214,10 @@ export function resultFailure(
     status === 529
       ? 'Claude API is overloaded (529). Try again shortly.'
       : status === 429
-        ? 'Claude API rate limit reached. Try again later.'
+        ? boundedFailureText(result.result, API_ERROR_TEXT_MAX) ||
+          (usageLimit !== undefined
+            ? USAGE_LIMIT_ERROR
+            : 'Claude rate limit reached. Try again later.')
         : terminalReasonError(
             result.terminal_reason,
             usageLimit !== undefined ? USAGE_LIMIT_ERROR : apiError,

@@ -411,13 +411,13 @@ describe('回合结果（录音里的真实结果）', () => {
     const base = resultOf('plain');
     expect(
       resultFailure(
-        { ...base, is_error: true, api_error_status: 429, result: 'x' } as SDKResultMessage,
+        { ...base, is_error: true, api_error_status: 429, result: '  \n' } as SDKResultMessage,
         false,
       ),
     ).toMatchObject({
       category: 'provider',
       code: 429,
-      message: 'Claude API rate limit reached. Try again later.',
+      message: 'Claude rate limit reached. Try again later.',
     });
     expect(
       resultFailure(
@@ -467,9 +467,13 @@ describe('回合结果（录音里的真实结果）', () => {
     } as SDKResultMessage;
     expect(resultFailure(limited, false, limit)).toMatchObject({
       category: 'provider',
+      message: "You've hit your limit · resets 3pm",
       usageLimit: limit,
     });
     expect(resultFailure(limited, false)).not.toHaveProperty('usageLimit');
+    expect(
+      resultFailure({ ...limited, result: '' } as SDKResultMessage, false, limit),
+    ).toMatchObject({ message: USAGE_LIMIT_ERROR, usageLimit: limit });
   });
 
   it('blocking_limit 没有用量上限的证据时是上下文窗口满了，不报 usageLimit；有被拒的 rate_limit_event 才是用量上限', () => {
@@ -529,11 +533,35 @@ describe('回合结果（录音里的真实结果）', () => {
       'Claude API is overloaded (529). Try again shortly.',
     );
     expect(apiError('API Error: 429 Specific rate limit detail.', { api_error_status: 429 })).toBe(
-      'Claude API rate limit reached. Try again later.',
+      'API Error: 429 Specific rate limit detail.',
     );
     expect(
       apiError('API Error: 400 Request rejected.', { terminal_reason: 'prompt_too_long' }),
     ).toBe(CONTEXT_WINDOW_FULL_ERROR);
+  });
+
+  it('429 原因不要求 API Error 前缀，保留 credit 限制、重置时间与错误码；脱敏后截到 500 字', () => {
+    const base = resultOf('plain');
+    const limited = (cause: string) =>
+      resultFailure(
+        { ...base, is_error: true, api_error_status: 429, result: cause } as SDKResultMessage,
+        false,
+      );
+    expect(limited('  Fable requires usage credits. Resets Dec 1.\n')).toEqual({
+      category: 'provider',
+      code: 429,
+      message: 'Fable requires usage credits. Resets Dec 1.',
+    });
+    expect(
+      limited(
+        'Usage credits required. {"api_key":"synthetic-secret"} Bearer synthetic-token https://user:pass@example.com/limits?token=hidden',
+      )?.message,
+    ).toBe(
+      'Usage credits required. {"api_key":"[REDACTED]"} Bearer [REDACTED] https://example.com/limits',
+    );
+    expect(limited(`Usage credits required. ${'x'.repeat(500)}`)?.message).toBe(
+      `${`Usage credits required. ${'x'.repeat(500)}`.slice(0, 499)}…`,
+    );
   });
 
   it('api_retry → turn.retrying：次数与原因（错误种类加状态码）', () => {
