@@ -54,12 +54,20 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
     >
       <Gauge aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="font-medium">
-          {title}
-          {resets !== undefined && (
-            <span className="font-normal text-muted-foreground"> · {resets}</span>
-          )}
-        </p>
+        <div className="flex items-start gap-3">
+          <p className="min-w-0 flex-1 font-medium">
+            {title}
+            {resets !== undefined && (
+              <span className="font-normal text-muted-foreground"> · {resets}</span>
+            )}
+          </p>
+          {switchModel !== undefined &&
+            part.turnId !== undefined &&
+            switchModel.lastTurnId === part.turnId &&
+            part.resumedAt === undefined && (
+              <SwitchModelButton switchModel={switchModel} turnId={part.turnId} />
+            )}
+        </div>
         {(toggleable || armed !== undefined) && (
           <label className="mt-2 flex w-fit items-center gap-2 text-sm">
             <Checkbox
@@ -72,12 +80,6 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
             {t('usageLimit.autoContinue')}
           </label>
         )}
-        {switchModel !== undefined &&
-          part.turnId !== undefined &&
-          switchModel.lastTurnId === part.turnId &&
-          part.resumedAt === undefined && (
-            <SwitchModelButton switchModel={switchModel} turnId={part.turnId} />
-          )}
         {armed !== undefined && (
           <p className="mt-1 text-xs text-muted-foreground" data-resume-at={armed.resumeAt}>
             {t('usageLimit.resumeAt', { time: clockLabel(armed.resumeAt) })}
@@ -96,7 +98,7 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
   );
 }
 
-/** “换模型继续”：点开是模型列表，选了与当前不同的模型就换过去并继续。 */
+/** “换模型继续”：标题行右侧的按钮，点开是模型列表，选了与当前不同的模型就换过去并继续。 */
 function SwitchModelButton({
   switchModel,
   turnId,
@@ -120,12 +122,12 @@ function SwitchModelButton({
       <PopoverTrigger
         disabled={busy}
         data-testid="usage-limit-switch-model"
-        className={cn(buttonVariants({ size: 'xs', variant: 'outline' }), 'mt-2')}
+        className={cn(buttonVariants({ size: 'xs', variant: 'outline' }), '-my-0.5 shrink-0')}
       >
         <Shuffle aria-hidden />
         {t('usageLimit.switchModel')}
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={6} className="w-72 gap-0 p-0">
+      <PopoverContent side="top" align="end" sideOffset={6} className="w-72 gap-0 p-0">
         <ModelList
           providers={targets.providers}
           exhausted={targets.exhausted}
