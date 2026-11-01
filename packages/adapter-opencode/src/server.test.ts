@@ -31,6 +31,15 @@ writeFileSync(out + '.env', JSON.stringify({
   config: process.env.OPENCODE_CONFIG_CONTENT,
   args: process.argv.slice(2),
 }));
+if (process.env.FAKE_MODE === 'locked') {
+  const { existsSync, readFileSync } = require('node:fs');
+  const attempts = existsSync(out + '.attempts') ? Number(readFileSync(out + '.attempts', 'utf8')) : 0;
+  writeFileSync(out + '.attempts', String(attempts + 1));
+  if (attempts < Number(process.env.FAKE_LOCKED_TIMES)) {
+    console.error('Error: SQLITE_BUSY: database is locked');
+    process.exit(1);
+  }
+}
 if (process.env.FAKE_MODE === 'exit') { console.error('boom: no provider'); process.exit(3); }
 if (process.env.FAKE_MODE === 'hang') { setInterval(() => {}, 1000); return; }
 const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -114,6 +123,40 @@ describe.skipIf(!posix)('startOpenCodeServer', { timeout: 20_000 }, () => {
         verify: async () => '1.18.34',
       }),
     ).rejects.toThrow(/exited before startup completed \(code: 3\)[\s\S]*boom: no provider/);
+  });
+
+  it('opencode.db 被锁：隔一会儿重起，锁放开后照常就绪', async () => {
+    const out = join(root, 'locked');
+    const server = await startOpenCodeServer({
+      executable,
+      env: { ...process.env, FAKE_OUT: out, FAKE_MODE: 'locked', FAKE_LOCKED_TIMES: '2' },
+      verify: async () => '1.18.34',
+    });
+    expect(readFileSync(`${out}.attempts`, 'utf8')).toBe('3');
+    await server.stop();
+  });
+
+  it('opencode.db 一直被锁：最多再试 3 次后报错', async () => {
+    const out = join(root, 'locked-forever');
+    const failure = startOpenCodeServer({
+      executable,
+      env: { ...process.env, FAKE_OUT: out, FAKE_MODE: 'locked', FAKE_LOCKED_TIMES: '99' },
+      verify: async () => '1.18.34',
+    });
+    await expect(failure).rejects.toThrow(/database is locked/);
+    await expect(failure).rejects.toMatchObject({ reason: 'databaseLocked' });
+    expect(readFileSync(`${out}.attempts`, 'utf8')).toBe('4');
+  });
+
+  it('其他启动失败不重试', async () => {
+    const out = join(root, 'exit-once');
+    await expect(
+      startOpenCodeServer({
+        executable,
+        env: { ...process.env, FAKE_OUT: out, FAKE_MODE: 'exit' },
+        verify: async () => '1.18.34',
+      }),
+    ).rejects.toMatchObject({ reason: undefined });
   });
 
   it('超时：停掉进程并报错', async () => {

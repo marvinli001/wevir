@@ -15,6 +15,7 @@
 // 子会话 ID 才装），换权限模式时按记下的子 agent 自己的规则重算（T3 记下上次写进去的父会话规则再去掉）；回合以见到它的 busy 为开始，之前的 idle 一律当作上一个回合留下的（T3 的 admission 状态机在“旧 idle 赶上
 // opencode 的循环还没开始”时会去问 session.status、读到 idle 就提前结束回合）；取消在回合没停下之前每秒重发一次 abort。
 // 跟进 T3 8298664e9e：上游报 HTTP 429 时回合失败带 `usageLimit`，之前先重读账号的用量。
+// 跟进 T3 9f018954d0474d9dbfaa53636294459496ed08ba：上游错误的信息是 `<none>` 时改报可读的说明（`readableProviderErrorMessage`）。
 //
 // OpenCode 引擎（订阅来源 `opencode`，ADR-0005 补记 14，docs/architecture/opencode-event-mapping.md）：用户自己装的 `opencode`
 // 与他接上的上游，Wevir 在本机起它的服务器（runtime.ts / server.ts），经 `@opencode-ai/sdk` 说话。一个 Wevir 会话是一个
@@ -286,6 +287,28 @@ export function userQuestions(
     ...(question.multiple === true && { multiSelect: true }),
     allowOther: question.custom !== false,
   }));
+}
+
+/**
+ * 上游错误的可读信息（T3 的 `readableProviderErrorMessage`）：opencode 读不到上游的响应体时信息存成 `<none>`，这时取响应体
+ * 里 HTML 的 `<title>`，再不行按 HTTP 状态码说明。
+ */
+export function readableProviderErrorMessage(
+  message?: string,
+  status?: number,
+  body?: string,
+): string | undefined {
+  const text = message?.trim() ?? '';
+  if (text !== '' && text.toLowerCase() !== '<none>') return text;
+  const title = body
+    ?.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]
+    ?.replace(/\s+/g, ' ')
+    .trim();
+  if (title) return status !== undefined ? `${title} (HTTP ${status}).` : title;
+  if (status !== undefined) return `The model provider failed the request (HTTP ${status}).`;
+  return text !== ''
+    ? 'The model provider failed the request and did not include an error message.'
+    : undefined;
 }
 
 /** `session.error` 的错误 → 回合失败的归类。 */
@@ -1634,11 +1657,15 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       return;
     }
     const data = (error?.data ?? {}) as Record<string, unknown>;
+    const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
     const message =
-      (typeof data.message === 'string' && data.message.trim()) ||
+      readableProviderErrorMessage(
+        typeof data.message === 'string' ? data.message : undefined,
+        statusCode,
+        typeof data.responseBody === 'string' ? data.responseBody : undefined,
+      ) ||
       error?.name ||
       'OpenCode session failed without an error payload';
-    const statusCode = typeof data.statusCode === 'number' ? data.statusCode : undefined;
     const usageLimited = error?.name === 'APIError' && statusCode === 429;
     const failed: AgentEvent = {
       type: 'turn.failed',

@@ -557,6 +557,26 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it('上游错误的信息是 <none>：回合失败报可读的说明', async () => {
+    const h = setup();
+    const fail = h.fake.recordings.find((recording) => recording.name === 'fail');
+    const error = fail?.lines.find((line) => line.event?.type === 'session.error')?.event as
+      | { properties: { error: { data: Record<string, unknown> } } }
+      | undefined;
+    if (error === undefined) throw new Error('fail 录音里没有 session.error');
+    error.properties.error.data.statusCode = 502;
+    error.properties.error.data.message = '<none>';
+    error.properties.error.data.responseBody = '<html><title>Bad Gateway</title></html>';
+    const { id, log } = await openSession(h);
+    await h.adapter.send(id, text(EXTRA_PROMPTS.fail));
+    await log.terminal();
+    expect(log.events.at(-1)).toMatchObject({
+      type: 'turn.failed',
+      message: 'Bad Gateway (HTTP 502).',
+      code: 502,
+    });
+  });
+
   it('接受输入之前到的 idle（上一个回合留下的）不结束这个回合', async () => {
     const h = setup();
     const { id, log } = await openSession(h);

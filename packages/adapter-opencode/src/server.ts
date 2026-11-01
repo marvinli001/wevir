@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/OpenCodeRuntime.ts（`startOpenCodeServerProcess`、
 // `parseServerUrlFromOutput`、`resolveOpenCodeConfigContent`、`verifyOpenCodeServerVersion`）、OpenCodeServerLedger.ts
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 b058babb1694da9fa4b46b489dec2b76523dc218（共用的
+// opencode.db 被锁时重试启动）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 的 Scope 换成显式的 stop()；服务器的密码由 Wevir 每次随机生成（T3 只在用户设了 OPENCODE_SERVER_PASSWORD 时带
 // 密码）；台账记在 Wevir 数据目录的 engines/opencode/servers 下，Host 第一次起服务器时清理上一个 Host 崩溃留下的。
@@ -25,6 +26,11 @@ import { serverConfigContent } from './permissions.js';
 export const SERVER_START_TIMEOUT_MS = 30_000;
 /** 停服务器时 SIGTERM 之后等多久再 SIGKILL。 */
 export const SERVER_STOP_GRACE_MS = 1_000;
+/** 进程退出后等两路输出读完的时限：子孙进程可能一直占着管道（T3 的 OPENCODE_SERVER_EXIT_DRAIN_TIMEOUT）。 */
+const EXIT_DRAIN_MS = 500;
+/** opencode.db 被锁时再试几次、间隔多久（T3：`times: 3`、`Schedule.spaced("250 millis")`）。 */
+export const DATABASE_LOCKED_RETRIES = 3;
+export const DATABASE_LOCKED_RETRY_DELAY_MS = 250;
 /** stdout / stderr 的尾部留多少字符（启动失败与退出的诊断）。 */
 const OUTPUT_TAIL_CHARS = 8 * 1024;
 /** 只在本机听。 */
@@ -47,6 +53,24 @@ export interface ServerExit {
   signal: string | null;
   /** stderr 的尾部。 */
   stderrTail: string;
+}
+
+/** 启动失败的类别（T3 的 `OpenCodeStartupFailureReason`）。 */
+export type OpenCodeStartupFailureReason = 'databaseLocked';
+
+/** 服务器没起来（T3 的 `OpenCodeRuntimeError` 带 `reason`）。 */
+export class OpenCodeServerStartError extends Error {
+  readonly reason: OpenCodeStartupFailureReason | undefined;
+  constructor(message: string, reason?: OpenCodeStartupFailureReason) {
+    super(message);
+    this.name = 'OpenCodeServerStartError';
+    this.reason = reason;
+  }
+}
+
+/** opencode 在 stderr 报 opencode.db 被锁；在拿到退出的地方归类一次，调用方按类别分支（T3 的 `classifyStartupExit`）。 */
+export function classifyStartupExit(stderr: string): OpenCodeStartupFailureReason | undefined {
+  return /SQLITE_BUSY|database is locked/i.test(stderr) ? 'databaseLocked' : undefined;
 }
 
 /** 起来的服务器。 */
@@ -101,10 +125,27 @@ function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 /**
  * 起一个 opencode 服务器（T3 的 `startOpenCodeServerProcess`）。`OPENCODE_CONFIG_CONTENT` 沿用调用方或继承的值（T3：不能盖掉用户
  * 自己的配置，否则用户配的 Provider 与模型都看不见），并进 Wevir 的权限配置（permissions.ts 的 serverConfigContent）。
+ *
+ * 各个 opencode 实例共用 opencode.db，迁移与 WAL 的锁是暂时的：启动前因为库被锁退出时隔 250 ms 再起，最多再试 3 次；配置与
+ * 可执行文件的错误重起也没用，直接报。
  */
 export async function startOpenCodeServer(
   options: StartServerOptions,
 ): Promise<OpenCodeServerHandle> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await startServerAttempt(options);
+    } catch (error) {
+      const locked = error instanceof OpenCodeServerStartError && error.reason === 'databaseLocked';
+      if (!locked || attempt >= DATABASE_LOCKED_RETRIES || options.signal?.aborted === true) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, DATABASE_LOCKED_RETRY_DELAY_MS));
+    }
+  }
+}
+
+async function startServerAttempt(options: StartServerOptions): Promise<OpenCodeServerHandle> {
   const port = await findFreePort();
   const password = randomBytes(32).toString('base64url');
   const args = ['serve', `--hostname=${SERVER_HOSTNAME}`, `--port=${port}`];
@@ -127,8 +168,24 @@ export async function startOpenCodeServer(
   let stdout = '';
   let stderr = '';
   let ready = false;
+  // 退出时让尾部的诊断读完，但子孙进程可能一直占着管道，最多等 EXIT_DRAIN_MS。
+  const stderrEnded = new Promise<void>((resolve) => {
+    if (child.stderr === null) resolve();
+    else child.stderr.once('close', () => resolve());
+  });
   const exited = new Promise<ServerExit>((resolve) => {
-    child.once('exit', (code, signal) => resolve({ code, signal, stderrTail: stderr.trim() }));
+    child.once('exit', (code, signal) => {
+      let timer: NodeJS.Timeout | undefined;
+      void Promise.race([
+        stderrEnded,
+        new Promise<void>((done) => {
+          timer = setTimeout(done, EXIT_DRAIN_MS);
+        }),
+      ]).then(() => {
+        clearTimeout(timer);
+        resolve({ code, signal, stderrTail: stderr.trim() });
+      });
+    });
     child.once('error', (error) =>
       resolve({ code: null, signal: null, stderrTail: `${stderr}\n${error.message}`.trim() }),
     );
@@ -182,7 +239,7 @@ export async function startOpenCodeServer(
         clearTimeout(timer);
         options.signal?.removeEventListener('abort', onAbort);
         reject(
-          new Error(
+          new OpenCodeServerStartError(
             [
               `OpenCode server exited before startup completed (code: ${String(exit.code)}${exit.signal === null ? '' : `, signal: ${exit.signal}`}).`,
               stdout.trim() === '' ? undefined : `stdout:\n${stdout.trim()}`,
@@ -190,6 +247,7 @@ export async function startOpenCodeServer(
             ]
               .filter((line) => line !== undefined)
               .join('\n\n'),
+            classifyStartupExit(exit.stderrTail),
           ),
         );
       });

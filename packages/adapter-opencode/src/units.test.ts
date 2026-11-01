@@ -19,7 +19,12 @@ import {
 } from './executable.js';
 import { newMessageId } from './message-id.js';
 import { accountModels, parseModelId, planLabel } from './models.js';
-import { errorCategory, questionId, userQuestions } from './opencode-adapter.js';
+import {
+  errorCategory,
+  questionId,
+  readableProviderErrorMessage,
+  userQuestions,
+} from './opencode-adapter.js';
 import {
   childPermissionRules,
   DECLINE_FEEDBACK,
@@ -518,6 +523,24 @@ describe('adapter helpers', () => {
     expect(errorCategory({ name: 'ContextOverflowError', data: {} })).toBe('provider');
     expect(errorCategory({ name: 'UnknownError', data: {} })).toBe('unknown');
     expect(errorCategory(undefined)).toBe('unknown');
+  });
+
+  it('上游错误信息是 <none>：取响应体的标题，再按状态码说明', () => {
+    expect(readableProviderErrorMessage('Rate limit exceeded', 429)).toBe('Rate limit exceeded');
+    expect(
+      readableProviderErrorMessage(
+        '<none>',
+        502,
+        '<html><head><title>\n  502 Bad   Gateway </title></head></html>',
+      ),
+    ).toBe('502 Bad Gateway (HTTP 502).');
+    expect(readableProviderErrorMessage('<NONE>', 503)).toBe(
+      'The model provider failed the request (HTTP 503).',
+    );
+    expect(readableProviderErrorMessage('<none>')).toBe(
+      'The model provider failed the request and did not include an error message.',
+    );
+    expect(readableProviderErrorMessage('  ')).toBeUndefined();
   });
 
   it('SDK 的 404 与 NotFoundError', () => {
