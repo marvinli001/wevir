@@ -23,7 +23,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cursor/sdk": "1.0.35",
-    "@wevir/runtime-adapter": "workspace:*"
+    "@cursor/sdk": "1.0.38",
+    "@wevir/runtime-adapter": "workspace:*",
+    "zod": "3.25.76"
   }
 }

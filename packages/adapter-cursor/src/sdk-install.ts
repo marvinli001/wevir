@@ -18,13 +18,13 @@ import { CURSOR_SDK_VERSION } from './sdk.js';
 /** 要下载的一个包；`os` / `cpu` 只在那个平台装（平台包）。integrity 来自 pnpm-lock.yaml。 */
 export type CursorSdkPackage = NpmClosurePackage;
 
-/** `@cursor/sdk` 的生产依赖闭包（pnpm-lock.yaml，钉 1.0.35）。 */
+/** `@cursor/sdk` 的生产依赖闭包（pnpm-lock.yaml，钉 1.0.38）。1.0.38 起 `zod` 是 peer，由本包的依赖钉在 3.25.76，下载时照样带上。 */
 export const CURSOR_SDK_PACKAGES: readonly CursorSdkPackage[] = Object.freeze([
   {
     name: '@cursor/sdk',
     version: CURSOR_SDK_VERSION,
     integrity:
-      'sha512-CJQR4ocRFm74N1miSqSSrhWyEbvTRIJGyMfHQvZlcBIYzLMXCVPmb1bV82L4NJ8mG9TyvbckEjERjbnzpG5akQ==',
+      'sha512-8UwPKaprIXvlVR71yHyNNTyFwZCOzfHW7W+FKjPdDS9Ym9FDZc51Jwsu9lAhxHf7n0US3t0pybkDaNFdldrQ+A==',
   },
   {
     name: '@bufbuild/protobuf',
@@ -66,7 +66,7 @@ export const CURSOR_SDK_PACKAGES: readonly CursorSdkPackage[] = Object.freeze([
     name: '@cursor/sdk-darwin-arm64',
     version: CURSOR_SDK_VERSION,
     integrity:
-      'sha512-q9/y2NHTGnE0iwMfJ+FIHmj2gDGDRy45fH3rF3SAFGEGzM4xh726r64n6hH4OQYwKhcMqhqxbPGBpXHd5lRW4A==',
+      'sha512-pXxj4pjbIoDo6ZjgksSf4VTD4EJz6BGDKvFjDVVUMg0PmLCVbceOnp0pqfRO8SVpdUSE45GFrXuLnSZgLag/xw==',
     os: 'darwin',
     cpu: 'arm64',
   },
@@ -74,7 +74,7 @@ export const CURSOR_SDK_PACKAGES: readonly CursorSdkPackage[] = Object.freeze([
     name: '@cursor/sdk-darwin-x64',
     version: CURSOR_SDK_VERSION,
     integrity:
-      'sha512-0IGwzNr3Lq9IrcIRU4AlT7kTkwwVhRpQyjHqhvnKdgtn+WFYShr9gqTb44leihi/Cbf7a76yEdCgpfScBCPtxQ==',
+      'sha512-rutfTMq1f9WZckPFH8R5bzNzHaZg7I/TijVUkfD3GbqIqqc5OKHzdTMqZf+AFAqRDQccGJn4GLWcnQ9wTwIVNA==',
     os: 'darwin',
     cpu: 'x64',
   },
@@ -82,7 +82,7 @@ export const CURSOR_SDK_PACKAGES: readonly CursorSdkPackage[] = Object.freeze([
     name: '@cursor/sdk-linux-arm64',
     version: CURSOR_SDK_VERSION,
     integrity:
-      'sha512-AAx2DBqOc21kIwKuHRLl+4bCbuU7Su/BWY+TzXMgMsxAOHvLDGg7SGVvHOMV4ENczbOEcO4zc3XDbmQB4x3rdw==',
+      'sha512-CqmUnM8W8W2mKucSrdHO0kn4ems82siWuo7kvVJvXCtPkaziVNC++dro5h9hSh2oVgRbB91sWQ4lzsHVIDpkvA==',
     os: 'linux',
     cpu: 'arm64',
   },
@@ -90,7 +90,7 @@ export const CURSOR_SDK_PACKAGES: readonly CursorSdkPackage[] = Object.freeze([
     name: '@cursor/sdk-linux-x64',
     version: CURSOR_SDK_VERSION,
     integrity:
-      'sha512-3PABXvbT/Ue3jN+ytWcNDPBWptAiJv4qzxL0m2rma3e7kyx/Q1/8FYRYunIpX21HfPGgDSURlWztEov1xdZs3Q==',
+      'sha512-RL6OJTAF3oozMG+HNtykySQ5BOP94yJNWP65wZ2yzMLTAW9ao80++OnaWJya1lndLacHLYP+QZT4igm5TT+BWQ==',
     os: 'linux',
     cpu: 'x64',
   },
@@ -98,7 +98,7 @@ export const CURSOR_SDK_PACKAGES: readonly CursorSdkPackage[] = Object.freeze([
     name: '@cursor/sdk-win32-x64',
     version: CURSOR_SDK_VERSION,
     integrity:
-      'sha512-zADtORY6QRMCBTckxTieAKxcthRiefNNHxVhX2RtO3pQGa4iQwTrHjmjUw0nqCF6sJlCrQ58DTgkrz+BZhLEcw==',
+      'sha512-IUfuCk/S/qzEB+tfT4yWH6iSMz56Lvakn1zNjdk+oAsZ7RJWtWkZcea6eqMSRB1WLmTeQG0uetXKX330w+xI0A==',
     os: 'win32',
     cpu: 'x64',
   },
