@@ -177,9 +177,11 @@ describe.skipIf(!binary || process.platform === 'win32')(
                 'utf8',
               ),
             ).toContain('follow the user request');
-          expect(
-            readdirSync(join(home, 'plugins')).filter((name) => name.startsWith('.install-')),
-          ).toEqual([]);
+          await expect
+            .poll(() =>
+              readdirSync(join(home, 'plugins')).filter((name) => name.startsWith('.install-')),
+            )
+            .toEqual([]);
         },
       );
     }
