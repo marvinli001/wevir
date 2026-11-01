@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/ClaudeProvider.ts（`checkClaudeProviderStatus`、`probeClaudeCapabilities`、`buildClaudeCapabilitiesProbeQueryOptions`、`claudeSubscriptionLabel`、`claudeAuthStatus`、`claudeAuthMetadata`）、apps/server/src/provider/claudeUsageLimits.ts
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；套餐名照 bf270e74e4c6144fc65648186e879d8bfdb411ed（Max 5x 并入 Max，Max 20x 改称 Ultra）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；用量只留 5 小时与 7 天两个窗口，另认 `rate_limit_event` 的 `unifiedWindows`；去掉 slash 命令、skills 与重置额度。
 //
@@ -81,13 +81,12 @@ export function claudeSubscriptionLabel(subscriptionType: string | undefined): s
     case 'claudemaxsubscription':
     case 'max':
     case 'maxplan':
-      return 'Max';
     case 'claudemax5xsubscription':
     case 'max5':
-      return 'Max 5x';
+      return 'Max';
     case 'claudemax20xsubscription':
     case 'max20':
-      return 'Max 20x';
+      return 'Ultra';
     case 'claudeenterprisesubscription':
     case 'enterprise':
       return 'Enterprise';

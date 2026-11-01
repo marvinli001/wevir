@@ -490,6 +490,8 @@ export interface FakeSdkOptions {
   contextUsage?: Record<string, unknown>;
   /** 进程起在哪个权限模式（参数是请求的那个）；省略时就是请求的。模型不支持 `auto` 时 claude 会退回 `default`。 */
   startPermissionMode?: (requested: string) => string;
+  /** `interrupt()` 一直不返回，也不停回合（`claude` 不回中断的确认时）。 */
+  hangInterrupt?: boolean;
 }
 
 export class FakeClaudeSdk implements ClaudeSdk {
@@ -811,6 +813,7 @@ class FakeQuery {
 
   async interrupt(): Promise<undefined> {
     this.#record.calls.push({ method: 'interrupt', args: [] });
+    if (this.#options.hangInterrupt === true) return new Promise<undefined>(() => {});
     this.#turnAbort?.abort();
     return undefined;
   }

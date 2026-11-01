@@ -33,8 +33,8 @@ afterAll(() => rmSync(join(WORK_DIR, '..', '..'), { recursive: true, force: true
 
 describe('套餐与登录状态（T3 的 claudeSubscriptionLabel / claudeAuthStatus）', () => {
   it('subscriptionType → 显示名', () => {
-    expect(claudeSubscriptionLabel('max20')).toBe('Max 20x');
-    expect(claudeSubscriptionLabel('claude_max_5x_subscription')).toBe('Max 5x');
+    expect(claudeSubscriptionLabel('max20')).toBe('Ultra');
+    expect(claudeSubscriptionLabel('claude_max_5x_subscription')).toBe('Max');
     expect(claudeSubscriptionLabel('pro')).toBe('Pro');
     expect(claudeSubscriptionLabel('team_premium')).toBe('Team Premium');
     expect(claudeSubscriptionLabel(undefined)).toBeUndefined();
@@ -53,7 +53,7 @@ describe('套餐与登录状态（T3 的 claudeSubscriptionLabel / claudeAuthSta
     expect(claudePlan({ tokenSource: 'apiKey' })).toEqual({ plan: 'apiKey', planLabel: 'API Key' });
     expect(claudePlan({ subscriptionType: 'max20' })).toEqual({
       plan: 'max20',
-      planLabel: 'Max 20x',
+      planLabel: 'Ultra',
     });
     expect(claudePlan({ apiProvider: 'bedrock' })).toEqual({
       plan: 'bedrock',
@@ -130,7 +130,7 @@ describe('ClaudeAccounts', () => {
       executablePath: '/opt/claude',
       email: 'me@example.com',
       plan: 'max20',
-      planLabel: 'Max 20x',
+      planLabel: 'Ultra',
       rateLimits: { primary: { usedPercent: 3 }, secondary: { usedPercent: 56 } },
     });
     // 探测会话：不写记录、不跑 hooks、不连 MCP，prompt 永远不产出。
@@ -596,7 +596,7 @@ describe('ClaudeAccounts：下载安装与应用内登录', () => {
       expect(seen.at(-1)).toMatchObject({
         status: 'signed_in',
         email: 'me@example.com',
-        planLabel: 'Max 20x',
+        planLabel: 'Ultra',
       }),
     );
     expect(seen.at(-1)?.login).toBeUndefined();

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter';
 import { isAdapterError, isTurnTerminal, MCP_URL_ELICITATION_TOOL } from '@wevir/runtime-adapter';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeAccounts, withConfigDir } from './account.js';
 import {
   ClaudeAdapter,
@@ -1431,6 +1431,24 @@ describe('计划模式（0.36.0）', () => {
 });
 
 describe('失败与登录', () => {
+  it('停止回合：interrupt 一直没有确认时限时放弃，关掉进程并按取消结算（T3 7195b699）', async () => {
+    const { adapter, sdk } = harness({
+      cancelTimeoutMs: 50,
+      hangInterrupt: true,
+      script: (prompt) =>
+        prompt === 'hang' ? { steps: [{ kind: 'delay', ms: 1000 }] } : undefined,
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('hang'));
+    await vi.waitFor(() => expect(sessionQueries(sdk)[0]?.prompts.length).toBe(1));
+    await adapter.cancel(engineSessionId);
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'cancelled' });
+    const query = sessionQueries(sdk)[0];
+    expect(query?.calls.some((call) => call.method === 'interrupt')).toBe(true);
+    expect(query?.closed).toBe(true);
+  });
+
   it('没登录：建会话报 missing_credentials；没装：engine_unavailable', async () => {
     const { home } = harness();
     const sdk = new FakeClaudeSdk({ account: { tokenSource: 'none', apiKeySource: 'none' } });
