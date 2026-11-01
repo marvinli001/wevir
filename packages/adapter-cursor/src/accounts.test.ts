@@ -167,6 +167,51 @@ describe('CursorAccounts', () => {
     });
   });
 
+  it('团队屏蔽 /v1/me（403）：照常登录，没有邮箱，模型照读；plan_required 与 401 仍然失败', async () => {
+    const { accounts, sdk, path } = setup();
+    await new CursorCredentialFile(path).save({
+      version: 1,
+      backendUrl: 'x',
+      apiKey: 'enterprise',
+      createdAtMs: 0,
+    });
+    sdk.user = sdkError('CursorSdkError', '[feature_unavailable] Not available for this team.', {
+      code: 'feature_unavailable',
+      status: 403,
+    });
+    expect(await accounts.read('cursor')).toEqual({ ...SIGNED_OUT, status: 'signed_in' });
+    expect((await accounts.models('cursor')).models.length).toBeGreaterThan(0);
+
+    sdk.user = sdkError('CursorSdkError', '[unknown] Forbidden', { code: 'unknown', status: 403 });
+    expect(await accounts.read('cursor', { refresh: true })).toMatchObject({
+      status: 'signed_in',
+    });
+
+    sdk.user = sdkError('CursorSdkError', '[plan_required] Not available for free users.', {
+      code: 'plan_required',
+      status: 403,
+    });
+    const fresh = setup();
+    await new CursorCredentialFile(fresh.path).save({
+      version: 1,
+      backendUrl: 'x',
+      apiKey: 'free',
+      createdAtMs: 0,
+    });
+    fresh.sdk.user = sdk.user;
+    await expect(fresh.accounts.read('cursor')).rejects.toMatchObject({
+      code: 'engine_unavailable',
+    });
+    fresh.sdk.user = sdkError('CursorSdkError', 'Unauthorized', {
+      code: 'feature_unavailable',
+      status: 401,
+    });
+    expect(await fresh.accounts.read('cursor', { refresh: true })).toEqual({
+      ...SIGNED_OUT,
+      lastError: 'Cursor sign-in expired or was rejected. Sign in again.',
+    });
+  });
+
   it('过期的 Key 当作没有', async () => {
     const { accounts, path } = setup({ now: () => 2_000 });
     await new CursorCredentialFile(path).save({
@@ -255,7 +300,7 @@ class FakeInstaller implements CursorSdkInstall {
 
   finish() {
     this.installing = undefined;
-    this.installation = { root: '/sdk/versions/1.0.35', version: '1.0.35' };
+    this.installation = { root: '/sdk/versions/1.0.38', version: '1.0.38' };
     this.emit({ type: 'installed', installation: this.installation });
   }
 
@@ -301,13 +346,13 @@ describe('CursorAccounts：安装包里按需下载 SDK', () => {
     });
     installer.finish();
     await vi.waitFor(() =>
-      expect(states.at(-1)).toEqual({ ...SIGNED_OUT, installed: true, version: '1.0.35' }),
+      expect(states.at(-1)).toEqual({ ...SIGNED_OUT, installed: true, version: '1.0.38' }),
     );
     // 已装好：install 只是重新读。
     expect(await accounts.install('cursor')).toEqual({
       ...SIGNED_OUT,
       installed: true,
-      version: '1.0.35',
+      version: '1.0.38',
     });
     expect(installer.installs).toBe(1);
   });
@@ -316,10 +361,10 @@ describe('CursorAccounts：安装包里按需下载 SDK', () => {
     const installer = new FakeInstaller();
     const { accounts, states } = setup({ installer });
     await accounts.install('cursor');
-    installer.fail('Could not download @cursor/sdk@1.0.35 (registry.npmjs.org: 503).');
+    installer.fail('Could not download @cursor/sdk@1.0.38 (registry.npmjs.org: 503).');
     expect(states.at(-1)).toEqual({
       ...NOT_INSTALLED,
-      lastError: 'Could not download @cursor/sdk@1.0.35 (registry.npmjs.org: 503).',
+      lastError: 'Could not download @cursor/sdk@1.0.38 (registry.npmjs.org: 503).',
     });
     expect(await accounts.install('cursor')).toEqual({
       ...NOT_INSTALLED,
@@ -342,8 +387,8 @@ describe('CursorAccounts：安装包里按需下载 SDK', () => {
     expect(second.states.at(-1)).toMatchObject({ installing: { completedBytes: 0 } });
     installer.finish();
     await vi.waitFor(() => expect(second.states.at(-1)?.status).toBe('signed_in'));
-    expect(second.states.at(-1)).toMatchObject({ installed: true, version: '1.0.35' });
-    expect(first.states.at(-1)).toEqual({ ...SIGNED_OUT, installed: true, version: '1.0.35' });
+    expect(second.states.at(-1)).toMatchObject({ installed: true, version: '1.0.38' });
+    expect(first.states.at(-1)).toEqual({ ...SIGNED_OUT, installed: true, version: '1.0.38' });
     expect(await second.accounts.requireApiKey()).toBe('second_key');
     expect(await first.accounts.readApiKey()).toBeUndefined();
   });

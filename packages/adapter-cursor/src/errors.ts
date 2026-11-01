@@ -5,7 +5,8 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：错误按 name 判断而不用 instanceof；去掉 T3 自己注册的 unhandledRejection 监听，改由 Host 的 cli.ts 先问 engines.ts；
 // 加上 AgentNotFoundError 与 AdapterError 的归类。isCursorClosedStreamWrite 跟进 T3 f54dfc0991，isUsageLimitError 跟进 T3 8298664e9e
-// （CursorAgentSdk.ts 的 isCursorUsageLimitError）。
+// （CursorAgentSdk.ts 的 isCursorUsageLimitError），isAccountLookupBlocked 跟进 T3 80fd67eca6aba67da3e632f90c4b82a4e1cf0fbc
+// （CursorSdkCatalogError.accountBlocked）。
 //
 // SDK 抛出的错误的归类（docs/architecture/cursor-event-mapping.md §6）。SDK 的错误类有自己的 `name`（AuthenticationError、
 // AgentNotFoundError…），按 `name` 与 `status` 判断，不用 instanceof：测试里的假 SDK 与动态加载的真 SDK 是两套类。
@@ -26,6 +27,18 @@ export function errorMessage(error: unknown): string {
 /** API Key 无效、过期或被吊销（`AuthenticationError`，或 HTTP 401）。 */
 export function isAuthenticationFailure(error: unknown): boolean {
   return field(error, 'name') === 'AuthenticationError' || field(error, 'status') === 401;
+}
+
+/**
+ * 读账号（`Cursor.me`，`/v1/me`）被团队策略挡下：HTTP 403，但不是 `plan_required`（免费账号）也不是认证失败。企业团队可以只屏蔽
+ * 账号信息，模型与运行照常可用（T3 的 CursorSdkCatalogError.accountBlocked）。
+ */
+export function isAccountLookupBlocked(error: unknown): boolean {
+  return (
+    field(error, 'status') === 403 &&
+    field(error, 'code') !== 'plan_required' &&
+    !isAuthenticationFailure(error)
+  );
 }
 
 /** 本地 agent 不在 SDK 的存储里（`AgentNotFoundError`）。 */

@@ -4,6 +4,7 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 EngineAccounts：登录先写内存、确认后才落盘，5 分钟超时，取消，替换进行中的登录，登出清掉凭据并停掉用着它的会话，
 // 模型列表缓存 30 分钟，15 s 超时；状态报成 Wevir 的 AccountState。用量不读 Cursor CLI 的登录，用这把 API Key 读（usage.ts）。
+// 团队屏蔽 `/v1/me` 时照常登录、不带邮箱，跟进 T3 80fd67eca6aba67da3e632f90c4b82a4e1cf0fbc。
 //
 // Cursor 的账号（订阅来源 `cursor`，domain-model §3.6，docs/architecture/cursor-event-mapping.md §2）：在应用里登录。
 // `Cursor.auth.login` 给出浏览器网址，用户在浏览器里登录后 SDK 铸一把有期限的 API Key（90 天，Cursor 后台的 API Keys 里看得到、
@@ -23,7 +24,7 @@ import {
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
 import { CursorCredentialFile, MemoryCredentials } from './credentials.js';
-import { errorMessage, isAuthenticationFailure } from './errors.js';
+import { errorMessage, isAccountLookupBlocked, isAuthenticationFailure } from './errors.js';
 import { accountModels } from './models.js';
 import type { CursorSdk } from './sdk.js';
 import type { CursorSdkInstaller } from './sdk-install.js';
@@ -84,7 +85,8 @@ interface LoginFlow {
 
 interface Catalog {
   readonly apiKey: string;
-  readonly user: SDKUser;
+  /** 团队屏蔽了 `/v1/me` 时没有。 */
+  readonly user: SDKUser | undefined;
   readonly at: number;
 }
 
@@ -148,34 +150,38 @@ export class CursorAccounts implements EngineAccounts {
     }
     // 用量与账号同时读；读不到用量不影响登录状态。
     const usage = this.#readUsage(credential);
-    let user: SDKUser;
+    let user: SDKUser | undefined;
     try {
       const sdk = await this.#options.sdk();
       user = await withTimeout(sdk.me(apiKey), CATALOG_TIMEOUT_MS, 'Cursor account request');
     } catch (error) {
-      if (isAuthenticationFailure(error)) {
-        this.#catalog = undefined;
-        return this.#set({
-          ...BASE,
-          lastError: this.usesEnvironmentKey
-            ? 'Cursor rejected CURSOR_API_KEY. Check the key.'
-            : 'Cursor sign-in expired or was rejected. Sign in again.',
-        });
+      if (!isAccountLookupBlocked(error)) {
+        if (isAuthenticationFailure(error)) {
+          this.#catalog = undefined;
+          return this.#set({
+            ...BASE,
+            lastError: this.usesEnvironmentKey
+              ? 'Cursor rejected CURSOR_API_KEY. Check the key.'
+              : 'Cursor sign-in expired or was rejected. Sign in again.',
+          });
+        }
+        // 网络等其他失败：有上一次的结果就沿用，没有就报错（Host 的 account.list 把它显示成未登录带原因）。
+        if (cached?.apiKey === apiKey && this.#state.status === 'signed_in') return this.#state;
+        throw new AdapterError(
+          'engine_unavailable',
+          `Cursor account request failed: ${errorMessage(error)}`,
+          { cause: error },
+        );
       }
-      // 网络等其他失败：有上一次的结果就沿用，没有就报错（Host 的 account.list 把它显示成未登录带原因）。
-      if (cached?.apiKey === apiKey && this.#state.status === 'signed_in') return this.#state;
-      throw new AdapterError(
-        'engine_unavailable',
-        `Cursor account request failed: ${errorMessage(error)}`,
-        { cause: error },
-      );
+      // 企业团队可以屏蔽账号信息，模型与运行照常可用：当作已登录，只是没有邮箱。
+      user = undefined;
     }
     const previous =
       cached?.apiKey === apiKey && this.#state.status === 'signed_in'
         ? this.#state.rateLimits
         : undefined;
     this.#catalog = { apiKey, user, at: this.#now() };
-    const email = user.userEmail?.trim();
+    const email = user?.userEmail?.trim();
     const read = await usage;
     const rateLimits = read.ok ? read.rateLimits : previous;
     return this.#set({
