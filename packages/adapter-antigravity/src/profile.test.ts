@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -112,7 +113,8 @@ describe.skipIf(process.platform === 'win32')('prepareAntigravityProfile', () =>
   it('核对 BROWSER 钩子、建 0700 的目录、写不含凭据的 settings.json、把用户的全局 skills 链进来', async () => {
     const userHome = path.join(dir, 'home');
     mkdirSync(path.join(userHome, '.gemini', 'config', 'skills'), { recursive: true });
-    // 链接位置已有真目录：那是用户自己的内容，不动。
+    mkdirSync(path.join(userHome, '.gemini', 'antigravity-cli', 'skills'), { recursive: true });
+    // 链接位置已有非空的真目录：那是用户自己的内容，不动。
     const profileDirectory = path.join(dir, 'profile');
     mkdirSync(path.join(profileDirectory, 'antigravity-cli', 'skills'), { recursive: true });
     writeFileSync(path.join(profileDirectory, 'antigravity-cli', 'skills', 'mine.md'), 'x');
@@ -166,10 +168,26 @@ describe.skipIf(process.platform === 'win32')('prepareAntigravityProfile', () =>
     expect(() => lstatSync(cliLink)).toThrow();
     expect(warnings).toEqual([]);
 
+    // 运行体在没有链接时启动，留下空目录占位：用户的目录还不在时不动它。
+    mkdirSync(cliLink, { recursive: true });
+    await prepare(warnings);
+    expect(lstatSync(cliLink).isDirectory()).toBe(true);
+    expect(warnings).toEqual([]);
+
     mkdirSync(cliSkills, { recursive: true });
     await prepare(warnings);
     expect(readlinkSync(cliLink)).toBe(cliSkills);
     expect(existsSync(cliLink)).toBe(true);
+    expect(warnings).toEqual([]);
+
+    rmSync(cliLink);
+    symlinkSync(path.join(dir, 'elsewhere'), cliLink, 'dir');
+    await prepare(warnings);
+    expect(readlinkSync(cliLink)).toBe(cliSkills);
+
+    rmSync(cliSkills, { recursive: true });
+    await prepare(warnings);
+    expect(() => lstatSync(cliLink)).toThrow();
     expect(warnings).toEqual([]);
   });
 

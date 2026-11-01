@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/antigravityAuthSupport.ts（环境、BROWSER 钩子、私有 profile、登录网址的
 // 解析、stdout / stderr 上的登录提示）与 Drivers/AntigravitySkills.ts（用户全局 skills 的两个目录）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 a6e2236c4d4ed2f655c42e1766b8c79214ff4075（skills 目录不在时
+// 不留悬空链接，运行体留下的空占位目录换成链接）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS；只保留个人 Google 账号登录（oauth-personal），不做 T3 的 API Key、Gemini Enterprise 与
 // Vertex（Wevir 不保存这类密钥，AGENTS.md 规则 5）；BROWSER 钩子用 Host 自己的 Node（process.execPath，Electron 里靠
@@ -253,8 +254,9 @@ async function verifyBrowserHelper(executable: string, env: NodeJS.ProcessEnv): 
 /**
  * 运行体在 GEMINI_HOME 下读用户全局的 skills，而 GEMINI_HOME 是私有 profile：把这两个目录链回用户真正的 `~/.gemini`，
  * 全局 skills 照常加载，MCP 服务、hooks 与凭据仍然隔离。尽力而为：链不上只少了全局 skills；链接位置已有真目录时那是
- * 用户自己的内容，不动。用户那边没有这个目录（没装 `agy` CLI 时 `antigravity-cli/skills` 通常不存在）就不链，以前链过的
- * 删掉：悬空的链接会被运行体解析成真实路径交给模型，模型拿它当工作目录，命令就起不来。
+ * 用户自己的内容，不动；空目录是运行体上次在没有链接时建的占位，换成链接。用户那边没有这个目录（没装 `agy` CLI 时
+ * `antigravity-cli/skills` 通常不存在）就不链，以前链过的删掉：悬空的链接会被运行体解析成真实路径交给模型，模型拿它当
+ * 工作目录，命令就起不来；运行体建这个目录时也会因悬空链接失败，登录跟着失败。
  */
 async function linkUserSkills(
   geminiHome: string,
@@ -267,21 +269,30 @@ async function linkUserSkills(
   for (const [index, link] of links.entries()) {
     const target = targets[index] as string;
     try {
-      const existing = await fsp
-        .readlink(link)
-        .then((value) => path.resolve(path.dirname(link), value))
-        .catch((error: NodeJS.ErrnoException) => {
-          if (error.code === 'ENOENT') return undefined;
-          throw error;
-        });
       const present = await fsp.stat(target).then(
         (stats) => stats.isDirectory(),
         () => false,
       );
+      // 运行体自己会建这两个目录，而 mkdir 遇到悬空的链接会失败。
       if (!present) {
-        if (existing !== undefined) await fsp.rm(link, { force: true });
+        const linked = await fsp.readlink(link).then(
+          () => true,
+          () => false,
+        );
+        if (linked) await fsp.rm(link, { force: true });
         continue;
       }
+      const existing = await fsp
+        .readlink(link)
+        .then((value): string | undefined => path.resolve(path.dirname(link), value))
+        .catch(async (error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return undefined;
+          // 空目录是运行体在没有链接时启动留下的占位；rmdir 不删非空目录，期间加进去的内容不会丢。
+          await fsp.rmdir(link).catch(() => {
+            throw error;
+          });
+          return undefined;
+        });
       if (existing === target) continue;
       if (existing !== undefined) await fsp.rm(link, { force: true });
       await fsp.mkdir(path.dirname(link), { recursive: true });
