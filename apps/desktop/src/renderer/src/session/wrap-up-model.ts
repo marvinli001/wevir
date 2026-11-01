@@ -35,3 +35,19 @@ export function lastTurnShowsWrapUp(transcript: Pick<Transcript, 'messages'>): b
   );
   return wrapUpCardOf(turnWrapUp(turnMessages)) !== undefined;
 }
+
+/** 记住关掉过的卡片（按回合 ID）时最多留多少条：只保留最近的，旧的回合早已不画卡片。 */
+export const DISMISSED_WRAP_UP_LIMIT = 200;
+
+/** 关掉一个回合的卡片：追加到末尾，超出上限丢最早的。 */
+export function dismissWrapUp(dismissed: readonly string[], turnId: string): readonly string[] {
+  if (dismissed.includes(turnId)) return dismissed;
+  return [...dismissed, turnId].slice(-DISMISSED_WRAP_UP_LIMIT);
+}
+
+export function parseDismissedWrapUps(raw: unknown): readonly string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter((item): item is string => typeof item === 'string')
+    .slice(-DISMISSED_WRAP_UP_LIMIT);
+}

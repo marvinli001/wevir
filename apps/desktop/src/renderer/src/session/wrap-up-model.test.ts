@@ -1,6 +1,13 @@
 import type { ChatMessage } from '@wevir/client-sdk';
 import { describe, expect, it } from 'vitest';
-import { lastTurnShowsWrapUp, turnWrapUp, wrapUpCardOf } from './wrap-up-model';
+import {
+  DISMISSED_WRAP_UP_LIMIT,
+  dismissWrapUp,
+  lastTurnShowsWrapUp,
+  parseDismissedWrapUps,
+  turnWrapUp,
+  wrapUpCardOf,
+} from './wrap-up-model';
 
 const actions = [
   { label: '提交', message: '提交这次改动。' },
@@ -59,5 +66,20 @@ describe('turnWrapUp 与 lastTurnShowsWrapUp', () => {
       }),
     ).toBe(false);
     expect(lastTurnShowsWrapUp({ messages: [] })).toBe(false);
+  });
+});
+
+describe('dismissWrapUp 与 parseDismissedWrapUps', () => {
+  it('按回合记住关掉的卡片，只留最近的若干条', () => {
+    expect(dismissWrapUp([], 't1')).toEqual(['t1']);
+    const once = ['t1'];
+    expect(dismissWrapUp(once, 't1')).toBe(once);
+    const full = Array.from({ length: DISMISSED_WRAP_UP_LIMIT }, (_, index) => `t${index}`);
+    const next = dismissWrapUp(full, 'new');
+    expect(next).toHaveLength(DISMISSED_WRAP_UP_LIMIT);
+    expect(next[0]).toBe('t1');
+    expect(next.at(-1)).toBe('new');
+    expect(parseDismissedWrapUps(['a', 1, 'b'])).toEqual(['a', 'b']);
+    expect(parseDismissedWrapUps({})).toBeUndefined();
   });
 });
