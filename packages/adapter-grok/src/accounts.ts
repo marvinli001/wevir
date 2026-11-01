@@ -6,7 +6,8 @@
 // 的 `AcpProcess`；邮箱与用量照 T3 读 ~/.grok 的 auth.json（只读，见 usage.ts），没有套餐；不做 skills 与斜杠命令；结果缓存
 // 5 分钟，`read` 带 `refresh` 时重新检测。2026-10-30 补入 T3 之后的两处修复：`initialize` 探测的时限 8 s → 20 s（来源提交
 // c632d7e96bd8bc8a808d76c3f766809c7730a765）；`grok models` 说没登录时再跑一次才下结论（来源提交
-// a2157eced708fd25fab7b616f5a68cb65312eaed）。
+// a2157eced708fd25fab7b616f5a68cb65312eaed）。2026-11-01 补入：检测跑的 `--version`、`grok models` 与 `initialize` 探测带
+// `GROK_DISABLE_AUTOUPDATER=1`，不让后台的检测启动 Grok 的自动更新（来源提交 2a7bd1673c7bdad4304b7771944e73c29ecd3c01）。
 //
 // Grok 的账号（grok-event-mapping.md §2）：Wevir 自己不碰令牌。`grok` 找用户自己装的，没有就由 Wevir 从 npm 下载一份
 // （install.ts 的 `NpmPackageInstaller`，`account.install`）；登录由设置里的按钮替用户启动 `grok login --device-auth`
@@ -449,11 +450,14 @@ export class GrokAccounts implements EngineAccounts {
     }
     const isManaged = managed !== undefined && executablePath === managed.path;
     const env = isManaged ? this.#managedEnv(executablePath) : grokEnv(parentEnv, executablePath);
+    // 检测在后台定时跑，它启动的更新用户看不见（Windows 上还会为 npm 弹出控制台窗口）：检测的进程关掉 Grok 的自动更新（文档里
+    // 是进程级的开关）；会话、登录与登出照用户的环境（T3 的 `grokProbeEnvironment`）。
+    const probeEnv: NodeJS.ProcessEnv = { ...env, [GROK_DISABLE_AUTOUPDATER_ENV]: '1' };
     const signal = this.#abort.signal;
     const versionRun = await runGrok(
       executablePath,
       ['--version'],
-      env,
+      probeEnv,
       VERSION_TIMEOUT_MS,
       signal,
     );
@@ -491,7 +495,7 @@ export class GrokAccounts implements EngineAccounts {
     const apiKey = parentEnv[XAI_API_KEY_ENV]?.trim();
     // `grok models`：只解析干净退出的输出（失败时打印的是帮助或错误，不能当模型或登录结论，T3）。
     const listModels = async () => {
-      const run = await runGrok(executablePath, ['models'], env, MODELS_TIMEOUT_MS, signal);
+      const run = await runGrok(executablePath, ['models'], probeEnv, MODELS_TIMEOUT_MS, signal);
       const output: GrokModelsCliOutput =
         run.ok && run.code === 0
           ? parseGrokModelsOutput(`${run.stdout}\n${run.stderr}`)
@@ -509,7 +513,7 @@ export class GrokAccounts implements EngineAccounts {
     let initialize: unknown;
     try {
       initialize = await (this.#options.probeInitialize ?? probeInitialize)(
-        executable,
+        { ...executable, env: probeEnv },
         signal,
         this.#options.workDir,
       );

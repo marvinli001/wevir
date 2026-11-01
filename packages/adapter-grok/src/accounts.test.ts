@@ -418,7 +418,7 @@ describe('GrokAccounts：下载安装与应用内登录', () => {
     },
   );
 
-  it('Wevir 装的 grok 带 GROK_DISABLE_AUTOUPDATER=1（更新只经设置里的下载）；用户自己的不动', async () => {
+  it('Wevir 装的 grok 带 GROK_DISABLE_AUTOUPDATER=1（更新只经设置里的下载）；用户自己的只在检测时带，会话照用户的环境', async () => {
     const { installer } = controlledInstaller(MANAGED);
     const managed = make({ installer });
     await managed.created.read('grok');
@@ -427,9 +427,23 @@ describe('GrokAccounts：下载安装与应用内登录', () => {
     expect(new Set(logged(managed.envLog))).toEqual(new Set(['1']));
     managed.created.dispose();
 
-    const own = make({ installer: null, findExecutable: () => FAKE_GROK });
+    const probed: Array<string | undefined> = [];
+    const own = make(
+      {
+        installer: null,
+        findExecutable: () => FAKE_GROK,
+        probeInitialize: async (executable) => {
+          probed.push(executable.env.GROK_DISABLE_AUTOUPDATER);
+          return undefined;
+        },
+      },
+      true,
+    );
     await own.created.read('grok');
-    expect(new Set(logged(own.envLog))).toEqual(new Set([null]));
+    // `--version` 与 `grok models`。
+    expect(logged(own.envLog)).toEqual(['1', '1']);
+    expect(probed).toEqual(['1']);
+    expect((await own.created.executable()).env.GROK_DISABLE_AUTOUPDATER).toBeUndefined();
     own.created.dispose();
   });
 
