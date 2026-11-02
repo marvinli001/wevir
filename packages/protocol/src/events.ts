@@ -114,6 +114,8 @@ export const EventPayloadSchemas = {
     providerId: ProviderIdSchema,
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
+    /** 快速模式（0.148.0）；省略表示标准速度。 */
+    fast: z.boolean().optional(),
     /** 权限模式（0.11.0）；省略表示 `on_request`。 */
     permissionMode: PermissionModeSchema.optional(),
     /** 建立引擎会话的引擎版本（0.3.0；dsh：`@deepseek-ai/dsh` 的包版本）。适配器不报时省略。 */
@@ -177,11 +179,12 @@ export const EventPayloadSchemas = {
   }),
   /**
    * 会话的模型、推理档位或权限模式改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有
-   * `reasoningEffort` 表示用模型的默认档位；没有 `permissionMode`（0.11.0 之前的 Host）表示 `on_request`。
+   * `reasoningEffort` 表示用模型的默认档位；没有 `permissionMode`（0.11.0 之前的 Host）表示 `on_request`；没有 `fast`（0.148.0）表示标准速度。
    */
   'session.configured': z.object({
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
+    fast: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
   }),
   /**
@@ -201,6 +204,8 @@ export const EventPayloadSchemas = {
       engineSessionId: z.string().min(1),
     }),
     reasoningEffort: z.string().optional(),
+    /** 快速模式（0.148.0）；省略表示标准速度。 */
+    fast: z.boolean().optional(),
     permissionMode: PermissionModeSchema.optional(),
     /** true：接着用这个来源以前的引擎会话（只补它错过的）；false：新建的引擎会话。 */
     resumed: z.boolean(),

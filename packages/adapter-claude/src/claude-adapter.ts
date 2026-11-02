@@ -66,6 +66,7 @@ import {
   claudeApiModelId,
   claudeContextWindow,
   claudeEffort,
+  claudeSupportsFast,
   compareVersions,
   lowestClaudeEffort,
 } from './model-catalog.js';
@@ -328,6 +329,8 @@ interface LiveQuery {
 interface Applied {
   model: string;
   effort: ClaudeEffort | undefined;
+  /** 快速模式（0.148.0，设置 `fastMode`）；模型没有快速模式时 undefined，不设。 */
+  fast: boolean | undefined;
   mode: SdkPermissionMode;
   dangerous: boolean;
 }
@@ -870,16 +873,27 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   async configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
+    config: {
+      modelId: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      permissionMode?: PermissionMode;
+    },
   ): Promise<void> {
     this.#ensureAlive();
     const session = this.#root(engineSessionId, 'configure');
-    const { reasoningEffort: _effort, permissionMode: _mode, ...rest } = session.config;
+    const {
+      reasoningEffort: _effort,
+      fast: _fast,
+      permissionMode: _mode,
+      ...rest
+    } = session.config;
     // 下一个回合起生效：进程在 `send` 时再按新的值调整（`#liveFor`）。
     session.config = {
       ...rest,
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
+      ...(config.fast === true && { fast: true }),
       ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
     };
   }
@@ -1238,6 +1252,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     return {
       model: claudeApiModelId(session.config.modelId),
       effort: claudeEffort(session.config.modelId, session.config.reasoningEffort),
+      fast: claudeSupportsFast(session.config.modelId) ? session.config.fast === true : undefined,
       // 计划回合用 `plan`（0.36.0）；完全访问的启动参数照旧留着，回到默认模式时不用重起进程。
       mode: session.planning ? 'plan' : mode,
       dangerous: mode === 'bypassPermissions',
@@ -1279,9 +1294,13 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (desired.dangerous && !applied.dangerous) return false;
     try {
       if (desired.model !== applied.model) await live.query.setModel(desired.model);
-      if (desired.effort !== undefined && desired.effort !== applied.effort) {
-        await live.query.applyFlagSettings({ effortLevel: desired.effort });
-      }
+      // 档位与快速模式（0.148.0，T3 的 `claudeLiveSelectionFlagSettings`）一起改；换到没有快速模式的模型时清掉（null）。
+      const flags = {
+        ...(desired.effort !== undefined &&
+          desired.effort !== applied.effort && { effortLevel: desired.effort }),
+        ...(desired.fast !== applied.fast && { fastMode: desired.fast ?? null }),
+      };
+      if (Object.keys(flags).length > 0) await live.query.applyFlagSettings(flags);
       if (desired.mode !== applied.mode) await live.query.setPermissionMode(desired.mode);
     } catch (error) {
       this.#logger?.warn('claude could not apply settings live; restarting the process', {
@@ -1323,7 +1342,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       thinking: { type: 'adaptive', display: 'summarized' },
       // 生命周期钩子（0.137.0，ADR-0023）：Claude Code 不再自己执行设置文件与已装插件里的 hooks（SDK 模式没有工作区信任，仓库的
       // `.claude/settings.json` 会不经确认就跑），全部经 Host 的接点：Host 读同样的文件，仓库里的要用户逐个启用。
-      settings: { showThinkingSummaries: true, disableAllHooks: true },
+      settings: {
+        showThinkingSummaries: true,
+        disableAllHooks: true,
+        // 快速模式（0.148.0）：明确开或关，不沿用用户在 Claude Code 里的设置。
+        ...(desired.fast !== undefined && { fastMode: desired.fast }),
+      },
       ...hookOptions(session.config.hookTap),
       // 规则文件（0.68.0）：Claude Code 自己不读的（AGENTS.md 等）由 Host 补，接在预设系统提示词的后面；应用级工具的会话上下文
       // （记忆索引等）再接在它后面。

@@ -20,11 +20,15 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
 
-/** 选中的模型：哪个 Provider 的哪个模型，推理档位（省略表示模型的默认档位）。 */
+/**
+ * 选中的模型：哪个 Provider 的哪个模型，推理档位（省略表示模型的默认档位），快速模式（0.148.0，省略表示模型的默认，见
+ * fast-mode.ts）。
+ */
 export interface ModelChoice {
   providerId: string;
   modelId: string;
   reasoningEffort?: string;
+  fast?: boolean;
 }
 
 /** Provider 能选的模型：DeepSeek 官方没列模型时是默认模型（providers.md §2.2）。 */

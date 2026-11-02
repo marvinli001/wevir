@@ -97,6 +97,7 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
         id: 'claude-opus-5-5',
         displayName: 'Claude Opus 5.5',
         reasoningEfforts: ['low', 'medium', 'high', 'max'],
+        supportsFast: true,
       },
       {
         id: 'claude-sonnet-5-5',

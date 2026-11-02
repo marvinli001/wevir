@@ -414,6 +414,13 @@ export class ChatgptAccount {
   }
 }
 
+/** Codex 的快速档 ID：目录的 `priority`（`ServiceTier::Fast` 的请求值）与旧的 `fast`。 */
+export const CODEX_FAST_TIER = 'priority';
+
+function isFastTier(id: unknown): boolean {
+  return id === CODEX_FAST_TIER || id === 'fast';
+}
+
 /** `model/list` 的结果 → Wevir 的模型（只留 Wevir 认得的推理档位），默认模型取 `isDefault` 的那个。 */
 export function accountModels(data: readonly CodexModel[]): AccountModels {
   const models: ProviderModelConfig[] = [];
@@ -433,6 +440,15 @@ export function accountModels(data: readonly CodexModel[]): AccountModels {
       entry.reasoningEfforts = model.supportedReasoningEfforts
         .map((option) => fromCodexEffort(String(option?.reasoningEffort)))
         .filter((effort) => WEVIR_EFFORTS.has(effort));
+    }
+    // 快速模式（0.148.0）：目录列了快速档（`priority`，旧字段 `additionalSpeedTiers` 的 `fast`）；有的模型默认就是它。
+    const tiers = [
+      ...(Array.isArray(model.serviceTiers) ? model.serviceTiers.map((tier) => tier?.id) : []),
+      ...(Array.isArray(model.additionalSpeedTiers) ? model.additionalSpeedTiers : []),
+    ];
+    if (tiers.some(isFastTier)) {
+      entry.supportsFast = true;
+      if (isFastTier(model.defaultServiceTier)) entry.fastByDefault = true;
     }
     models.push(entry);
     if (model.isDefault === true && defaultModelId === undefined) defaultModelId = id;

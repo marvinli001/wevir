@@ -1004,6 +1004,24 @@ describe('applySessionEvent', () => {
     expect(list.reduce(applySessionEvent, base).permissionMode).toBeUndefined();
   });
 
+  it('快速模式（0.148.0）：session.configured 与 session.handoff 带了就打开，不带即标准速度', () => {
+    const { list, add } = events();
+    add('session.configured', { modelId: 'gpt-6.1-sol', fast: true });
+    expect(list.reduce(applySessionEvent, base).fast).toBe(true);
+    add('session.configured', { modelId: 'gpt-6.1-sol' });
+    expect(list.reduce(applySessionEvent, base).fast).toBeUndefined();
+    add('session.handoff', {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'a' },
+      to: { providerId: 'claude', modelId: 'claude-opus-5-5', engineSessionId: 'b' },
+      fast: true,
+      resumed: false,
+      strategy: 'full_thread_summary',
+      items: 0,
+      omittedItems: 0,
+    });
+    expect(list.reduce(applySessionEvent, base).fast).toBe(true);
+  });
+
   it('接力（0.25.0）：Provider、模型、引擎会话与权限模式换成新的，档位没给时清掉，只读解除', () => {
     const { list, add } = events();
     add('session.configured', { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });

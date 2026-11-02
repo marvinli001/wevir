@@ -36,6 +36,7 @@ import {
   PROMPT_SUGGESTION_VOIDING_EVENTS,
   type ProfileVersionRef,
   type ProviderId,
+  type ProviderModel,
   type QuestionId,
   type QuestionRequest,
   type QuestionResolution,
@@ -1457,6 +1458,7 @@ export class SessionManager {
       modelId: params.modelId ?? provider.defaultModelId,
     };
     if (params.reasoningEffort !== undefined) config.reasoningEffort = params.reasoningEffort;
+    if (this.#fastFor(provider.id, config.modelId, params.fast)) config.fast = true;
     if (permissionMode !== undefined) config.permissionMode = permissionMode;
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     const recordOrigin: SessionRecord['origin'] =
@@ -1527,6 +1529,7 @@ export class SessionManager {
         updatedAt: now,
       };
       if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+      if (config.fast === true) record.fast = true;
       if (permissionMode !== undefined) record.permissionMode = permissionMode;
       if (prepared.environmentId !== undefined) record.environmentId = prepared.environmentId;
       if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
@@ -1544,6 +1547,7 @@ export class SessionManager {
           providerId: provider.id,
           modelId,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(config.fast === true && { fast: true }),
           ...(permissionMode !== undefined && { permissionMode }),
           ...(prepared.environmentId !== undefined && { environmentId: prepared.environmentId }),
           ...(prepared.extraRoots.length > 0 && { extraRoots: prepared.extraRoots }),
@@ -2814,10 +2818,18 @@ export class SessionManager {
           ? undefined
           : (params.reasoningEffort ??
             (modelId === session.modelId ? session.reasoningEffort : undefined));
+      // 换了模型而没给：原来是快速的照旧，标准速度的取新模型的默认。
+      const fast = this.#fastFor(
+        session.providerId,
+        modelId,
+        params.fast ??
+          (session.fast === true || modelId !== session.modelId ? session.fast : false),
+      );
       const permissionMode = this.#permissionMode(params.permissionMode ?? session.permissionMode);
       if (
         modelId === session.modelId &&
         reasoningEffort === session.reasoningEffort &&
+        fast === (session.fast === true) &&
         (permissionMode ?? DEFAULT_PERMISSION_MODE) ===
           (session.permissionMode ?? DEFAULT_PERMISSION_MODE)
       ) {
@@ -2828,6 +2840,7 @@ export class SessionManager {
           await configureSession(runtime.engineSessionId, {
             modelId,
             ...(reasoningEffort !== undefined && { reasoningEffort }),
+            ...(fast && { fast }),
             ...(permissionMode !== undefined && { permissionMode }),
           });
         } catch (error) {
@@ -2847,6 +2860,7 @@ export class SessionManager {
           payload: {
             modelId,
             ...(reasoningEffort !== undefined && { reasoningEffort }),
+            ...(fast && { fast }),
             ...(permissionMode !== undefined && { permissionMode }),
           },
         },
@@ -2883,6 +2897,7 @@ export class SessionManager {
       }
       const features = this.#featuresOf(target.kind);
       const reasoningEffort = params.reasoningEffort ?? undefined;
+      const fast = this.#fastFor(target.id, modelId, params.fast ?? session.fast);
       const permissionMode = this.#handoffPermissionMode(
         params.permissionMode,
         session.permissionMode,
@@ -2913,6 +2928,7 @@ export class SessionManager {
 
       const config: SessionConfig = { cwd: record.cwd, providerId: target.id, modelId };
       if (reasoningEffort !== undefined) config.reasoningEffort = reasoningEffort;
+      if (fast) config.fast = true;
       if (permissionMode !== undefined) config.permissionMode = permissionMode;
       if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
 
@@ -3002,6 +3018,7 @@ export class SessionManager {
             ...((engine.reasoningEffort ?? reasoningEffort) !== undefined && {
               reasoningEffort: engine.reasoningEffort ?? reasoningEffort,
             }),
+            ...(fast && { fast }),
             ...(permissionMode !== undefined && { permissionMode }),
             resumed,
             strategy: final.strategy,
@@ -3559,6 +3576,7 @@ export class SessionManager {
             ...((engine.reasoningEffort ?? session.reasoningEffort) !== undefined && {
               reasoningEffort: engine.reasoningEffort ?? session.reasoningEffort,
             }),
+            ...(config.fast === true && { fast: true }),
             ...(session.permissionMode !== undefined && { permissionMode: session.permissionMode }),
             resumed: false,
             strategy: plan.strategy,
@@ -4040,6 +4058,7 @@ export class SessionManager {
           updatedAt: now,
         };
         if (reasoningEffort !== undefined) forked.reasoningEffort = reasoningEffort;
+        if (config.fast === true) forked.fast = true;
         if (permissionMode !== undefined) forked.permissionMode = permissionMode;
         if (environmentId !== undefined) forked.environmentId = environmentId;
         if (extraRoots !== undefined && extraRoots.length > 0) forked.extraRoots = extraRoots;
@@ -4059,6 +4078,7 @@ export class SessionManager {
             providerId: record.providerId,
             modelId,
             ...(reasoningEffort !== undefined && { reasoningEffort }),
+            ...(config.fast === true && { fast: true }),
             ...(permissionMode !== undefined && {
               permissionMode: permissionMode as PermissionMode,
             }),
@@ -6678,6 +6698,17 @@ export class SessionManager {
    * 请求里的权限模式（0.11.0）：引擎声明了 `permissionModes` 时返回它（省略时是 `on_request`，写进会话）；引擎不支持时只
    * 接受省略或 `on_request`，返回 undefined（会话不带这个字段）。引擎不支持的值回 `INVALID_PARAMS`。
    */
+  /**
+   * 快速模式（0.148.0）：Provider 的这个模型 `supportsFast` 时才可能打开，没要（`undefined`）时取模型的 `fastByDefault`；别的模型、
+   * 不认识的模型一律标准速度，不报错。
+   */
+  #fastFor(providerId: string, modelId: string, requested: boolean | undefined): boolean {
+    const models = (this.#storage.providers.get(providerId)?.models ?? []) as ProviderModel[];
+    const model = models.find((candidate) => candidate.id === modelId);
+    if (model?.supportsFast !== true) return false;
+    return requested ?? model.fastByDefault === true;
+  }
+
   #permissionMode(requested: PermissionMode | undefined): PermissionMode | undefined {
     const supported = this.#adapter.permissionModes;
     const mode = requested ?? DEFAULT_PERMISSION_MODE;
@@ -7642,6 +7673,7 @@ function sessionConfig(record: SessionRecord): SessionConfig {
     modelId: record.modelId,
   };
   if (record.reasoningEffort !== undefined) config.reasoningEffort = record.reasoningEffort;
+  if (record.fast === true) config.fast = true;
   if (record.permissionMode !== undefined) {
     config.permissionMode = record.permissionMode as PermissionMode;
   }

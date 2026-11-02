@@ -132,6 +132,16 @@ export const ProviderModelSchema = z.object({
    * 空数组：固定力度，不提供档位选择。
    */
   reasoningEfforts: z.array(ProviderReasoningLevelSchema).optional(),
+  /**
+   * 快速模式（0.148.0，Host 功能 `fast_mode`）：来源的引擎能用更快的速度档跑这个模型，用量更多（Codex 的 `serviceTier: fast`、Claude 的
+   * `fastMode`）。只有订阅来源的模型由 Host 填；省略表示不支持，客户端不显示开关。
+   */
+  supportsFast: z.boolean().optional(),
+  /**
+   * 引擎默认就用快速档跑这个模型（0.148.0，Codex 目录的 `defaultServiceTier`）：`session.create` 没给 `fast` 时会话是快速模式，客户端的
+   * 开关初值也取它。只在 `supportsFast` 时有意义。
+   */
+  fastByDefault: z.boolean().optional(),
 });
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 
@@ -2136,6 +2146,8 @@ export const SessionSchema = z.object({
   modelId: z.string().min(1),
   /** dsh 的 reasoning_effort 选项值，原样。 */
   reasoningEffort: z.string().optional(),
+  /** 快速模式（0.148.0，Host 功能 `fast_mode`）：只在模型 `supportsFast` 时为 true；省略表示标准速度。 */
+  fast: z.boolean().optional(),
   /** 权限模式（0.11.0）；省略表示 `on_request`。 */
   permissionMode: PermissionModeSchema.optional(),
   /**

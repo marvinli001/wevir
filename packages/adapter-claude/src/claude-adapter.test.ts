@@ -859,7 +859,8 @@ describe('会话中换设置、支线、补说明、标题', () => {
     // Opus 4.7 的 xhigh 交给 Claude Code 时是 max（T3 清单的 effortMap）。
     expect(sessionQueries(sdk)[0]?.calls).toEqual([
       { method: 'setModel', args: ['claude-opus-4-7'] },
-      { method: 'applyFlagSettings', args: [{ effortLevel: 'max' }] },
+      // 换到有快速模式的模型：明确关着（0.148.0）。
+      { method: 'applyFlagSettings', args: [{ effortLevel: 'max', fastMode: false }] },
       { method: 'setPermissionMode', args: ['auto'] },
     ]);
 
@@ -886,6 +887,41 @@ describe('会话中换设置、支线、补说明、标题', () => {
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
     });
+  });
+
+  it('快速模式（0.148.0）：起进程时设 fastMode，会话中在进程里开关；换到没有快速模式的模型时清掉', async () => {
+    const { adapter, sdk } = harness();
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      modelId: 'claude-opus-5-5',
+      fast: true,
+    });
+    const log = collect(adapter, engineSessionId);
+    const turn = async (value: string) => {
+      const from = log.events.length;
+      await adapter.send(engineSessionId, text(value));
+      await log.until(isTurnTerminal, from);
+    };
+    await turn('one');
+    expect(sessionQueries(sdk)[0]?.options.settings).toMatchObject({ fastMode: true });
+
+    await adapter.configureSession(engineSessionId, { modelId: 'claude-opus-5-5' });
+    await turn('two');
+    await adapter.configureSession(engineSessionId, { modelId: 'claude-haiku-4-5', fast: true });
+    await turn('three');
+    expect(sessionQueries(sdk)).toHaveLength(1);
+    expect(sessionQueries(sdk)[0]?.calls).toEqual([
+      { method: 'applyFlagSettings', args: [{ fastMode: false }] },
+      { method: 'setModel', args: ['claude-haiku-4-5'] },
+      { method: 'applyFlagSettings', args: [{ fastMode: null }] },
+    ]);
+
+    // 没有快速模式的模型起进程时不设。
+    const other = await adapter.createSession({ ...CONFIG, fast: true });
+    const otherLog = collect(adapter, other.engineSessionId);
+    await adapter.send(other.engineSessionId, text('hi'));
+    await otherLog.until(isTurnTerminal);
+    expect(sessionQueries(sdk)[1]?.options.settings).not.toHaveProperty('fastMode');
   });
 
   it('claude 起来时退回了别的权限模式：以第一个 init 为准，同一模型不再改回 auto，换模型时重起进程重新协商', async () => {

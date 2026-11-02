@@ -369,6 +369,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     const {
       permissionMode: _mode,
       reasoningEffort: _effort,
+      fast: _fast,
       connectors: _connectors,
       ...rest
     } = session.config;
@@ -378,6 +379,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       providerId: config.providerId,
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
+      ...(config.fast === true && { fast: true }),
       ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
       // 项目的连接器（0.74.0）按恢复时的设置。
       ...(config.connectors !== undefined && { connectors: config.connectors }),
@@ -550,18 +552,29 @@ export class EchoAdapter implements AgentRuntimeAdapter {
 
   async configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
+    config: {
+      modelId: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      permissionMode?: PermissionMode;
+    },
   ): Promise<void> {
     this.#assertUsable();
     const session = this.#session(engineSessionId);
     if (session.parentId !== undefined) {
       throw new AdapterError('invalid_input', 'a sub-agent session is driven by its parent agent');
     }
-    const { reasoningEffort: _effort, permissionMode: _mode, ...rest } = session.config;
+    const {
+      reasoningEffort: _effort,
+      fast: _fast,
+      permissionMode: _mode,
+      ...rest
+    } = session.config;
     session.config = {
       ...rest,
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
+      ...(config.fast === true && { fast: true }),
       ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
     };
   }

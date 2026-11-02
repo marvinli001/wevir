@@ -68,6 +68,7 @@ import { expandPastes } from './composer-pastes';
 import { ContextMeter } from './context-meter';
 import { type DraftOrigin, draftOrigin, newSessionDraftKey } from './draft-origin';
 import { EnvironmentBar } from './environment-bar';
+import { fastParam } from './fast-mode';
 import { GoalBanner } from './goal-banner';
 import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
@@ -1131,11 +1132,23 @@ function SessionModelPicker({
     providerId: session.providerId,
     modelId: session.modelId,
     ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+    // 快速模式（0.148.0）：会话的值就是实际的；模型不支持时不带。
+    ...fastParam(
+      providers.find((provider) => provider.id === session.providerId),
+      { ...session, fast: session.fast === true },
+    ),
   };
   const configure = async (next: ModelChoice) => {
     if (!client) return;
     try {
-      await client.request('session.configure', configureParams(session, next));
+      await client.request(
+        'session.configure',
+        configureParams(
+          session,
+          next,
+          providers.find((provider) => provider.id === next.providerId),
+        ),
+      );
     } catch (error) {
       onError(t('model.configureFailed', { error: describe(error) }));
     }
@@ -1153,14 +1166,16 @@ function SessionModelPicker({
 }
 
 /**
- * 换模型的请求：别的 Provider 的模型带 `providerId`（0.25.0 的接力），同一个 Provider 里照常只换模型与档位。
+ * 换模型的请求：别的 Provider 的模型带 `providerId`（0.25.0 的接力），同一个 Provider 里照常只换模型与档位；选过快速模式
+ * （0.148.0）且模型支持时带 `fast`，没选过时 Host 沿用会话的值。
  */
-function configureParams(session: Session, next: ModelChoice) {
+function configureParams(session: Session, next: ModelChoice, provider?: ProviderProfile) {
   return {
     sessionId: session.id,
     ...(next.providerId !== session.providerId && { providerId: next.providerId }),
     modelId: next.modelId,
     reasoningEffort: next.reasoningEffort ?? null,
+    ...fastParam(provider, next),
   };
 }
 

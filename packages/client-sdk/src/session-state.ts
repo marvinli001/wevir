@@ -101,6 +101,9 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       next.engine = { ...session.engine, sessionId: to.engineSessionId };
       if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;
       else next.reasoningEffort = event.payload.reasoningEffort;
+      // 0.148.0：没有 `fast` 表示标准速度。
+      if (event.payload.fast === true) next.fast = true;
+      else delete next.fast;
       if (event.payload.permissionMode === undefined) delete next.permissionMode;
       else next.permissionMode = event.payload.permissionMode;
       delete next.readOnly;
@@ -131,6 +134,9 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       next.modelId = event.payload.modelId;
       if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;
       else next.reasoningEffort = event.payload.reasoningEffort;
+      // 0.148.0：没有 `fast` 表示标准速度。
+      if (event.payload.fast === true) next.fast = true;
+      else delete next.fast;
       // 0.11.0 之前的 Host 不带权限模式：那时只有 on_request，省略即是。
       if (event.payload.permissionMode === undefined) delete next.permissionMode;
       else next.permissionMode = event.payload.permissionMode;

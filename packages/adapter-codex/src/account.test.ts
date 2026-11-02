@@ -434,6 +434,38 @@ describe('accountModels（model/list → Wevir 的模型）', () => {
     });
   });
 
+  it('快速模式（0.148.0）：目录列了 priority（或旧的 additionalSpeedTiers 的 fast）的支持；默认档是它的默认快速', () => {
+    const model = (id: string, extra: Record<string, unknown>) => ({
+      id,
+      model: id,
+      displayName: id,
+      hidden: false,
+      supportedReasoningEfforts: [],
+      defaultReasoningEffort: 'low',
+      inputModalities: ['text'],
+      isDefault: false,
+      ...extra,
+    });
+    const fast = { id: 'priority', name: 'Fast', description: '2x speed, increased usage' };
+    expect(
+      accountModels([
+        model('sol', {
+          serviceTiers: [fast],
+          additionalSpeedTiers: ['fast'],
+          defaultServiceTier: null,
+        }),
+        model('luna', { serviceTiers: [fast], defaultServiceTier: 'priority' }),
+        model('legacy', { additionalSpeedTiers: ['fast'] }),
+        model('flex', { serviceTiers: [{ id: 'flex', name: 'Flex', description: '' }] }),
+      ]).models.map(({ id, supportsFast, fastByDefault }) => ({ id, supportsFast, fastByDefault })),
+    ).toEqual([
+      { id: 'sol', supportsFast: true, fastByDefault: undefined },
+      { id: 'luna', supportsFast: true, fastByDefault: true },
+      { id: 'legacy', supportsFast: true, fastByDefault: undefined },
+      { id: 'flex', supportsFast: undefined, fastByDefault: undefined },
+    ]);
+  });
+
   it('没有标默认的取第一个；空列表没有默认', () => {
     expect(accountModels([])).toEqual({ models: [] });
   });

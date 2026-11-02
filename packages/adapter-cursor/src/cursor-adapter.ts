@@ -182,6 +182,7 @@ export function agentOptions(input: {
   cwd: string;
   modelId: string;
   reasoningEffort?: string;
+  fast?: boolean;
   permissionMode?: PermissionMode;
   catalog?: readonly SDKModel[];
   appTools?: AppToolsEndpoint;
@@ -190,7 +191,7 @@ export function agentOptions(input: {
   const policy = permissionPolicy(input.permissionMode);
   const disallowed = disallowedTools(input.deniedTools);
   return {
-    model: modelSelection(input.modelId, input.reasoningEffort, input.catalog),
+    model: modelSelection(input.modelId, input.reasoningEffort, input.fast, input.catalog),
     name: 'Wevir',
     mode: 'agent',
     apiKey: input.apiKey,
@@ -217,6 +218,7 @@ export function agentOptions(input: {
 interface SessionSettings {
   modelId: string;
   reasoningEffort?: string;
+  fast?: boolean;
   permissionMode?: PermissionMode;
 }
 
@@ -459,6 +461,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
           model: modelSelection(
             session.settings.modelId,
             session.settings.reasoningEffort,
+            session.settings.fast,
             this.accounts.cachedModels(apiKey),
           ),
           mode: 'agent',
@@ -494,7 +497,12 @@ export class CursorAdapter implements AgentRuntimeAdapter {
 
   async configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
+    config: {
+      modelId: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      permissionMode?: PermissionMode;
+    },
   ): Promise<void> {
     this.#alive();
     const session = this.#sessions.get(engineSessionId);
@@ -810,10 +818,15 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     }
   }
 
-  /** 推理档位换成 SDK 参数要模型列表：有缓存用缓存，没有且要用时读一次（失败就不带档位）。 */
+  /** 推理档位与快速模式换成 SDK 参数要模型列表：有缓存用缓存，没有且要用时读一次（失败就不带）。 */
   async #catalog(apiKey: string, settings: SessionSettings): Promise<SDKModel[] | undefined> {
     const cached = this.accounts.cachedModels(apiKey);
-    if (cached !== undefined || settings.reasoningEffort === undefined) return cached;
+    if (
+      cached !== undefined ||
+      (settings.reasoningEffort === undefined && settings.fast !== true)
+    ) {
+      return cached;
+    }
     return this.accounts.catalogModels(apiKey).catch(() => undefined);
   }
 
@@ -857,11 +870,13 @@ export class CursorAdapter implements AgentRuntimeAdapter {
 function settingsOf(config: {
   modelId: string;
   reasoningEffort?: string;
+  fast?: boolean;
   permissionMode?: PermissionMode;
 }): SessionSettings {
   return {
     modelId: config.modelId,
     ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
+    ...(config.fast === true && { fast: true }),
     ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
   };
 }

@@ -1474,6 +1474,8 @@ export const SessionCreateParamsSchema = z.object({
   /** 省略时用 Provider 的 `defaultModelId`。 */
   modelId: z.string().min(1).optional(),
   reasoningEffort: z.string().min(1).optional(),
+  /** 快速模式（0.148.0，Host 功能 `fast_mode`）：模型不 `supportsFast` 时 Host 忽略。省略时取模型的 `fastByDefault`。 */
+  fast: z.boolean().optional(),
   /** 权限模式（0.11.0，Host 功能 `permission_modes`）；省略时是 `on_request`。 */
   permissionMode: PermissionModeSchema.optional(),
   /** 用这个环境建（0.15.0，Host 功能 `environments`）：`workspaceId` 必须是它的主文件夹。 */
@@ -1511,6 +1513,11 @@ export const SessionConfigureParamsSchema = z.object({
   modelId: z.string().min(1).optional(),
   /** 省略：不改；null：清掉，用模型的默认档位。换了模型而没给它时也清掉。 */
   reasoningEffort: z.string().min(1).nullable().optional(),
+  /**
+   * 快速模式（0.148.0，Host 功能 `fast_mode`）。省略：不改；换了模型时，原来是标准速度的取新模型的 `fastByDefault`，换到的模型不
+   * `supportsFast` 时关掉。给了而模型不 `supportsFast` 时 Host 忽略，会话是标准速度。
+   */
+  fast: z.boolean().optional(),
   /** 省略：不改。 */
   permissionMode: PermissionModeSchema.optional(),
   /**

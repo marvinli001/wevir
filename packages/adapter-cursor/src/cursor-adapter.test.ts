@@ -118,7 +118,13 @@ describe('CursorAdapter', () => {
     const agent = sdk.agent('agent-1');
     expect(agent.options).toMatchObject({
       apiKey: 'test-key',
-      model: { id: 'composer-2', params: [{ id: 'effort', value: 'high' }] },
+      model: {
+        id: 'composer-2',
+        params: [
+          { id: 'effort', value: 'high' },
+          { id: 'fast', value: 'false' },
+        ],
+      },
       local: { cwd: home, autoReview: true, sandboxOptions: { enabled: true } },
     });
     const { events } = collect(adapter, session.engineSessionId);
@@ -127,13 +133,34 @@ describe('CursorAdapter', () => {
     expect(agent.sent[0]?.message).toBe('Say hello');
     expect(agent.sent[0]?.options).toMatchObject({
       mode: 'agent',
-      model: { id: 'composer-2', params: [{ id: 'effort', value: 'high' }] },
+      model: {
+        id: 'composer-2',
+        params: [
+          { id: 'effort', value: 'high' },
+          { id: 'fast', value: 'false' },
+        ],
+      },
     });
     expect(events.at(-1)).toEqual({
       type: 'turn.settled',
       engineSessionId: 'agent-1',
       outcome: 'completed',
       stopReason: 'finished',
+    });
+
+    // 快速模式（0.148.0）：configureSession 之后的 send 带 fast: true。
+    await adapter.configureSession(session.engineSessionId, {
+      modelId: 'composer-2',
+      fast: true,
+      permissionMode: 'auto_review',
+    });
+    await adapter.send(session.engineSessionId, text('Again'));
+    await vi.waitFor(() =>
+      expect(events.filter((event) => event.type === 'turn.settled')).toHaveLength(2),
+    );
+    expect(agent.sent[1]?.options?.model).toEqual({
+      id: 'composer-2',
+      params: [{ id: 'fast', value: 'true' }],
     });
   });
 

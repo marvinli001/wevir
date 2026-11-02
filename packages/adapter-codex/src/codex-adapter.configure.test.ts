@@ -45,6 +45,7 @@ function findFile(dir: string, name: string): string | undefined {
 function turnStarts(home: string): {
   model?: string;
   effort?: string | null;
+  serviceTier?: string | null;
   approvalPolicy?: string;
   approvalsReviewer?: string;
   sandboxPolicy?: { type: string };
@@ -115,6 +116,50 @@ describe('CodexAdapter.configureSession', () => {
     await expect(
       adapter.configureSession(engineSessionId, { modelId: 'missing' }),
     ).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('快速模式（0.148.0）：ChatGPT 订阅里支持的模型每个 turn/start 带 serviceTier，关着时是 default；别的模型不带', async () => {
+    const { home } = dirs.make('fast');
+    const adapter = newAdapter({
+      mode: 'chatgpt',
+      home,
+      binary: process.execPath,
+      binaryArgs: [FAKE_APP_SERVER],
+      logger: collectingLogger(),
+      providers: [
+        {
+          id: 'chatgpt',
+          kind: 'chatgpt',
+          displayName: 'ChatGPT',
+          models: [
+            { id: 'gpt-6.1-sol', supportsFast: true },
+            { id: 'gpt-6-plain', reasoningEfforts: ['low', 'high'] },
+          ],
+          defaultModelId: 'gpt-6.1-sol',
+        },
+      ],
+    });
+    adapters.push(adapter);
+    const { engineSessionId } = await adapter.createSession({
+      cwd: dirs.make('fast-ws').workspace,
+      providerId: 'chatgpt',
+      modelId: 'gpt-6.1-sol',
+      fast: true,
+    });
+    const events = collectEvents(adapter, engineSessionId);
+    const turn = (text: string) => runTurn(adapter, engineSessionId, text, events);
+
+    await turn('one');
+    await adapter.configureSession(engineSessionId, { modelId: 'gpt-6.1-sol' });
+    await turn('two');
+    await adapter.configureSession(engineSessionId, { modelId: 'gpt-6-plain', fast: true });
+    await turn('three');
+
+    expect(turnStarts(home).map(({ serviceTier }) => serviceTier)).toEqual([
+      'priority',
+      'default',
+      undefined,
+    ]);
   });
 
   it('每个 turn/start 按权限模式带审批策略、审查方与沙箱；建会话、resume 与 configureSession 都能定', async () => {

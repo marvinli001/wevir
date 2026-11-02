@@ -21,6 +21,7 @@ import { createPersistedStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
 import { messageContent } from './composer-images';
 import { expandPastes } from './composer-pastes';
+import { fastParam } from './fast-mode';
 import { parseGoalCommand } from './goal-command';
 import { engineFeaturesOf } from './handoff-model';
 import { type ModelChoice, modelsOf } from './model-picker';
@@ -63,19 +64,20 @@ const lastChoice = createPersistedStore<ModelChoice | null>(
   (raw) => {
     if (raw === null) return null;
     if (typeof raw !== 'object') return undefined;
-    const { providerId, modelId, reasoningEffort } = raw as Record<string, unknown>;
+    const { providerId, modelId, reasoningEffort, fast } = raw as Record<string, unknown>;
     if (typeof providerId !== 'string' || typeof modelId !== 'string') return undefined;
     return {
       providerId,
       modelId,
       ...(typeof reasoningEffort === 'string' && { reasoningEffort }),
+      ...(typeof fast === 'boolean' && { fast }),
     };
   },
 );
 
 /**
- * 记下的选择还能用就用它（Provider 还在、模型还在它的列表里，档位不在模型的档位里时去掉），否则用第一个（或 `preferred`
- * 指定的）Provider 的默认模型。
+ * 记下的选择还能用就用它（Provider 还在、模型还在它的列表里，档位不在模型的档位里时去掉，模型没有快速模式时去掉 `fast`），
+ * 否则用第一个（或 `preferred` 指定的）Provider 的默认模型。
  */
 export function resolveChoice(
   providers: readonly ProviderProfile[],
@@ -101,6 +103,7 @@ export function resolveChoice(
       model.reasoningEfforts?.includes(effort as never) && {
         reasoningEffort: effort,
       }),
+    ...fastParam(provider, candidate),
   };
 }
 
@@ -170,6 +173,12 @@ export function useStartSession(
     client.request('provider.prewarm', { providerId }).catch(() => {});
   }, [client, prewarm, providerId]);
 
+  // 快速模式（0.148.0）要看选中模型的 `supportsFast`。
+  const chosen =
+    data.status === 'ready' && choice !== undefined
+      ? data.providers.find((provider) => provider.id === choice.providerId)
+      : undefined;
+
   const start = useCallback(
     /**
      * `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）；`images`：带的图片（0.28.0）；`collaborationMode`：第一条
@@ -195,6 +204,7 @@ export function useStartSession(
           providerId: choice.providerId,
           modelId: choice.modelId,
           ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
+          ...fastParam(chosen, choice),
           ...(permissions && permissionMode !== undefined && { permissionMode }),
           // 环境与新工作树只对选的那个项目生效（首页先建项目再接着发时 target 是新项目）。
           ...(environmentId !== undefined &&
@@ -236,6 +246,7 @@ export function useStartSession(
       client,
       workspaceId,
       choice,
+      chosen,
       store,
       navigate,
       onCreated,
