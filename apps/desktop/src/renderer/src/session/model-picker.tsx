@@ -16,6 +16,7 @@ import {
   sourceTitle,
 } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
+import { ParticleFlow } from '@/fx/particle-flow';
 import { type PlainMessageKey, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
@@ -142,23 +143,25 @@ export function ModelPicker({
       <PopoverContent side="top" align="center" sideOffset={8} className="w-72 gap-0 p-0">
         {view === 'effort' ? (
           <div className="flex flex-col gap-3 p-3 animate-in duration-150 fade-in">
-            <div className="flex items-start gap-2">
-              <div className="flex min-w-0 flex-1 flex-col items-center gap-0.5 pl-8">
-                <p className="text-base font-semibold" data-testid="model-picker-effort">
+            <div className="flex items-center gap-1">
+              <span aria-hidden className="size-6 shrink-0" />
+              <button
+                type="button"
+                onClick={() => setView('models')}
+                className="inline-flex min-w-0 flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
+                data-action="choose-model"
+              >
+                <span className="truncate">{name}</span>
+                <span
+                  className="shrink-0 font-normal text-muted-foreground"
+                  data-testid="model-picker-effort"
+                >
                   {efforts.length > 0
                     ? effortLabel(value.reasoningEffort)
                     : t('model.effort.fixed')}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setView('models')}
-                  className="inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
-                  data-action="choose-model"
-                >
-                  <span className="truncate">{name}</span>
-                  <ChevronRight aria-hidden className="size-3.5 shrink-0" />
-                </button>
-              </div>
+                </span>
+                <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              </button>
               <IconButton
                 label={t('model.effort.reset')}
                 size="icon-xs"
@@ -394,7 +397,8 @@ function EffortChipLabel({
 }
 
 /**
- * 思考力度的滑块：每一档是一个停靠点，已选的一段是墨色，圆钮停在当前档（没选时在最左、填充为空）。点、拖与方向键都能换。
+ * 思考力度的滑块（照 Codex 桌面端）：胶囊轨道，每一档是一个停靠点；已选的一段是蓝色，里面有流动的白色粒子（fx/particle-flow.tsx）；
+ * 白色圆钮停在当前档（没选时在最左、填充为空）。点、拖与方向键都能换；填充按裁剪露出，粒子层不随档位重排。
  */
 function EffortSlider({
   efforts,
@@ -451,27 +455,34 @@ function EffortSlider({
       onPointerDown={onPointerDown}
       onPointerMove={(event) => event.buttons === 1 && pick(event.clientX)}
       onKeyDown={onKeyDown}
-      className="relative h-7 cursor-pointer touch-none rounded-full bg-muted outline-none focus-visible:focus-ring"
+      className="group relative h-7 cursor-pointer touch-none rounded-full bg-muted ring-1 ring-border/60 ring-inset outline-none focus-visible:focus-ring"
     >
       <span
         aria-hidden
-        className="absolute inset-y-0 left-0 rounded-full bg-foreground/85 transition-[width] duration-200 ease-out"
-        style={{ width: index < 0 ? 0 : `calc(${position} * (100% - 1.75rem) + 1.75rem)` }}
-      />
+        className="absolute inset-0 overflow-hidden rounded-full bg-effort-fill transition-[clip-path] duration-(--spring-snap-duration) ease-spring-snap"
+        style={{
+          clipPath:
+            index < 0
+              ? 'inset(0 100% 0 0 round 9999px)'
+              : `inset(0 calc(100% - (${position} * (100% - 1.75rem) + 1.75rem)) 0 0 round 9999px)`,
+        }}
+      >
+        <ParticleFlow active={index >= 0} />
+      </span>
       {efforts.map((effort, stop) => (
         <span
           key={effort}
           aria-hidden
           className={cn(
             'absolute top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full transition-colors',
-            stop <= index ? 'bg-background/70' : 'bg-muted-foreground/60',
+            stop <= index ? 'bg-effort-thumb/75' : 'bg-muted-foreground/50',
           )}
           style={{ left: `calc(${stop / last} * (100% - 1.75rem) + 0.875rem)` }}
         />
       ))}
       <span
         aria-hidden
-        className="absolute top-0.5 size-6 rounded-full bg-card shadow-sm ring-1 ring-border transition-[left] duration-200 ease-out"
+        className="absolute top-0.5 size-6 rounded-full bg-effort-thumb shadow-sm ring-1 ring-foreground/8 transition-[left,scale] duration-(--spring-snap-duration) ease-spring-snap group-active:scale-105"
         style={{ left: `calc(${position} * (100% - 1.75rem) + 0.125rem)` }}
       />
     </div>

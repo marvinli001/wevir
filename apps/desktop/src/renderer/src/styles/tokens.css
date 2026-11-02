@@ -20,6 +20,9 @@
   --popover: var(--ivory-1);
   /* 分段切换的滑块（输入框里的“插话 | 排队”，session/delivery-switch.tsx），轨道是 --muted。 */
   --switch-thumb: var(--ivory-1);
+  /* 思考力度滑块（session/model-picker.tsx，照 Codex 桌面端）：已选一段的蓝，圆钮、粒子与档位点的白；亮暗同值，只用于图形。 */
+  --effort-fill: var(--sky-vivid);
+  --effort-thumb: var(--ivory-1);
 
   /* 文字层级：正文 → 次正文 → 说明文字（标签、时间、快捷键提示、图标）。 */
   --foreground: var(--ivory-9);
@@ -86,6 +89,8 @@
   --card: var(--graphite-4);
   --popover: var(--graphite-4);
   --switch-thumb: var(--graphite-7);
+  --effort-fill: var(--sky-vivid);
+  --effort-thumb: var(--ivory-1);
 
   --foreground: var(--graphite-10);
   --soft-foreground: var(--graphite-9);
