@@ -58,7 +58,7 @@ import {
   splitFiles,
 } from './composer-images';
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
-import { isLargePaste, registerPaste } from './composer-pastes';
+import { isLargePaste, pasteOf, registerPaste, withPastes } from './composer-pastes';
 import { ComposerPlusMenu } from './composer-plus-menu';
 import { composerPrefs } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
@@ -66,6 +66,7 @@ import { DeliverySwitch } from './delivery-switch';
 import { DictationBar, DictationButton } from './dictation-button';
 import { insertDictation } from './dictation-model';
 import { ComposerThumb, ImagePreview, readAsDataUrl, uploadImage } from './image-attachments';
+import { AttachmentStrip, ComposerPasteChip, PastedTextPreview } from './pasted-text';
 import { composerKeyAction, otherDelivery } from './pending-model';
 import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
 import { ghostText, isAcceptKey } from './prompt-suggestion';
@@ -89,6 +90,9 @@ export interface ComposerPlan {
 
 /** 未发送的草稿按会话留在内存里，切走再切回来还在（不持久化）。 */
 const drafts = new Map<string, string>();
+
+/** 草稿里粘贴的大段文字（附件条里的占位符，composer-pastes.ts），同样按会话留在内存里。 */
+const pasteDrafts = new Map<string, string[]>();
 
 /** 草稿里的图片（0.28.0），同样按会话留在内存里。 */
 const imageDrafts = new Map<string, ComposerImage[]>();
@@ -225,6 +229,9 @@ export function insertMention(draftKey: string, path: string): void {
  *
  * 0.36.0 起有计划模式（`plan`，见 `ComposerPlan`）。
  *
+ * 粘贴的大段文字（0.90.0）照 Codex 桌面端放在文字上方的附件条里，同图片排成一行（放不下时横向滚动，滚轮也能左右滑），点开看原文；
+ * 发出时排在文字前面，各成一段标 `pasted` 的文本。
+ *
  * 0.92.0 起有听写（Host 支持 `speech` 时）：发送键左边的麦克风按钮或 ⌘⇧D，按住说话、松开转写，文字放到光标处，不自动发送；
  * 录音时 Esc 丢掉这段。
  */
@@ -352,9 +359,20 @@ export function Composer({
   }, [draftKey]);
   const updateImages = (update: (current: ComposerImage[]) => ComposerImage[]) =>
     updateImageDraft(draftKey, update);
+  // ── 粘贴的大段文字 ──────────────────────────────────────────────────
+  const [pastes, setPastes] = useState<string[]>(() => pasteDrafts.get(draftKey) ?? []);
+  const [openPaste, setOpenPaste] = useState<string>();
+  useEffect(() => {
+    if (pastes.length > 0) pasteDrafts.set(draftKey, pastes);
+    else pasteDrafts.delete(draftKey);
+  }, [draftKey, pastes]);
+  const removePaste = (token: string) => {
+    setPastes((current) => current.filter((entry) => entry !== token));
+    textareaRef.current?.focus();
+  };
   const uploading = images.some((image) => image.part === undefined);
   const imagesEnabled = acceptImages && client !== undefined && !disabled;
-  const hasContent = text.trim() !== '' || images.length > 0;
+  const hasContent = text.trim() !== '' || images.length > 0 || pastes.length > 0;
   const canSend = (!busy || pendingEnabled) && !disabled && !sending && !uploading && hasContent;
   // 计划给出之后，输入框空着时按发送就是“实施”（0.36.0）。
   const followUp = !busy ? plan?.followUp : undefined;
@@ -418,8 +436,8 @@ export function Composer({
   };
 
   /**
-   * 粘贴：剪贴板里有图片时当图片加进来（同 T3 Code：有文件就不粘贴文字）；一大段文字（0.90.0，composer-pastes.ts）在光标处换成
-   * 占位符，发出时作为单独标 `pasted` 的一段。
+   * 粘贴：剪贴板里有图片时当图片加进来（同 T3 Code：有文件就不粘贴文字）；一大段文字（0.90.0，composer-pastes.ts）放进附件条，
+   * 发出时作为单独标 `pasted` 的一段。
    */
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(event.clipboardData.files);
@@ -432,8 +450,8 @@ export function Composer({
     const pasted = event.clipboardData.getData('text/plain');
     if (files.length > 0 || !isLargePaste(pasted)) return;
     event.preventDefault();
-    const { selectionStart, selectionEnd } = event.currentTarget;
-    replaceRange(selectionStart, selectionEnd, registerPaste(pasted));
+    const token = registerPaste(pasted);
+    setPastes((current) => [...current, token]);
     setHistoryIndex(-1);
   };
 
@@ -483,7 +501,11 @@ export function Composer({
       ? `mention:${mention.rangeStart}`
       : undefined;
   const menuOpen = menuKey !== undefined && menuKey !== dismissed && focused && !disabled;
-  const ghost = ghostText(suggestion, { text, imageCount: images.length, menuOpen });
+  const ghost = ghostText(suggestion, {
+    text,
+    imageCount: images.length + pastes.length,
+    menuOpen,
+  });
   const ghostId = useId();
   // 触发没了（删掉了 `/` 或 `@`、发出去了）：下一次照常弹出。
   useEffect(() => {
@@ -767,13 +789,15 @@ export function Composer({
     setSending(true);
     const sent = text.trim();
     const sentImages = images;
+    const sentPastes = pastes;
     try {
       // 等待期间可能已经输入了下一条（回合进行中接着发是常事）：只清掉发出去的那条。
       const parts = sentImages.flatMap((image) => (image.part ? [image.part] : []));
-      if (await onSend(sent, busy ? delivery : undefined, parts)) {
+      if (await onSend(withPastes(sentPastes, sent), busy ? delivery : undefined, parts)) {
         if (sent !== '') rememberPrompt(sent);
         setHistoryIndex(-1);
         setText((current) => (current.trim() === sent ? '' : current));
+        setPastes((current) => current.filter((token) => !sentPastes.includes(token)));
         const keys = new Set(sentImages.map((image) => image.key));
         updateImages((current) => current.filter((image) => !keys.has(image.key)));
         setImageError(undefined);
@@ -925,32 +949,36 @@ export function Composer({
               )}
             </div>
           )}
-          {(images.length > 0 || imageError) && (
-            <div className="flex flex-col gap-1.5 px-3.5 pt-3">
-              {images.length > 0 && (
-                <div className="flex flex-wrap gap-2" data-testid="composer-images">
-                  {images.map((image) => (
-                    <ComposerThumb
-                      key={image.key}
-                      src={image.dataUrl}
-                      {...(image.name !== undefined && { name: image.name })}
-                      uploading={image.part === undefined}
-                      onRemove={() => removeImage(image.key)}
-                      onOpen={() => setPreview(image)}
-                    />
-                  ))}
-                </div>
-              )}
-              {imageError && (
-                <p
-                  role="alert"
-                  className="text-xs text-destructive"
-                  data-testid="composer-image-error"
-                >
-                  {imageError}
-                </p>
-              )}
-            </div>
+          {(images.length > 0 || pastes.length > 0) && (
+            <AttachmentStrip count={images.length + pastes.length}>
+              {pastes.map((token) => (
+                <ComposerPasteChip
+                  key={token}
+                  text={pasteOf(token) ?? token}
+                  onOpen={() => setOpenPaste(pasteOf(token) ?? token)}
+                  onRemove={() => removePaste(token)}
+                />
+              ))}
+              {images.map((image) => (
+                <ComposerThumb
+                  key={image.key}
+                  src={image.dataUrl}
+                  {...(image.name !== undefined && { name: image.name })}
+                  uploading={image.part === undefined}
+                  onRemove={() => removeImage(image.key)}
+                  onOpen={() => setPreview(image)}
+                />
+              ))}
+            </AttachmentStrip>
+          )}
+          {imageError && (
+            <p
+              role="alert"
+              className="px-4 pt-1.5 text-xs text-destructive"
+              data-testid="composer-image-error"
+            >
+              {imageError}
+            </p>
           )}
           <div className="relative">
             <Textarea
@@ -1107,6 +1135,7 @@ export function Composer({
         {...(preview?.name !== undefined && { name: preview.name })}
         onClose={() => setPreview(undefined)}
       />
+      <PastedTextPreview text={openPaste} onClose={() => setOpenPaste(undefined)} />
     </div>
   );
 }

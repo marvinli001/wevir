@@ -677,6 +677,7 @@ export const messages: Messages = {
   'dictation.error.failed': '받아쓰기 실패',
   'composer.planExit': '계획 모드 종료',
   'composer.removeImage': '이미지 제거',
+  'composer.removeAttachment': '첨부 제거',
   'composer.imageUnsupported': '지원하지 않는 이미지 형식: {name}',
   'composer.imageTooLarge': '10MB를 초과하는 이미지: {name}',
   'composer.imageLimit': '이미지는 최대 {count}개',

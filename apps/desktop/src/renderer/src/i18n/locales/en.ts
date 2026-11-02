@@ -680,6 +680,7 @@ export const messages: Messages = {
   'dictation.error.failed': 'Dictation failed',
   'composer.planExit': 'Exit plan mode',
   'composer.removeImage': 'Remove image',
+  'composer.removeAttachment': 'Remove attachment',
   'composer.imageUnsupported': 'Unsupported image format: {name}',
   'composer.imageTooLarge': 'Image larger than 10 MB: {name}',
   'composer.imageLimit': 'Up to {count} images',

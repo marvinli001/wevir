@@ -687,6 +687,7 @@ export const messages: Messages = {
   'dictation.error.failed': 'Сбой диктовки',
   'composer.planExit': 'Выйти из режима плана',
   'composer.removeImage': 'Убрать изображение',
+  'composer.removeAttachment': 'Убрать вложение',
   'composer.imageUnsupported': 'Неподдерживаемый формат изображения: {name}',
   'composer.imageTooLarge': 'Изображение больше 10 МБ: {name}',
   'composer.imageLimit': 'Не более {count} изображений',

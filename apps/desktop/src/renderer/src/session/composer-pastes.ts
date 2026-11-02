@@ -1,9 +1,10 @@
 import type { UserTextPart } from '@wevir/protocol';
 import { t } from '@/i18n';
 
-// 粘贴的大段文字（0.90.0，照 Claude Code）：输入框里只放一个占位符，原文记在这里；发出去时占位符换成单独一段、标 `pasted` 的文本，
+// 粘贴的大段文字（0.90.0，照 Claude Code）：原文记在这里，换成一个占位符；发出去时占位符换成单独一段、标 `pasted` 的文本，
 // Host 交给模型时包进 `<pasted_content>`，模型据此分清哪些是用户自己写的。占位符被改动或删掉时就当作普通文字（或不发）。
 // 登记表只在内存里，按占位符找，同一次运行里占位符的编号不重复；翻历史、切会话再切回来都还能展开。
+// 输入框照 Codex 把占位符放在文字上方的附件条里（composer.tsx），发出时排在用户写的文字前面（`withPastes`）。
 
 /** 不少于这么多字符，或不少于这么多行的粘贴，才换成占位符。 */
 export const PASTE_MIN_LENGTH = 800;
@@ -27,6 +28,25 @@ export function registerPaste(text: string): string {
   const token = `[${t('composer.pastedText', { n: counter, lines: lineCount(text) })}]`;
   pastes.set(token, text);
   return token;
+}
+
+/** 占位符记下的原文。 */
+export function pasteOf(token: string): string | undefined {
+  return pastes.get(token);
+}
+
+/** 附件条与消息里粘贴块的标题：原文开头一段，空白折成一个空格。 */
+export function pastePreview(text: string, max = 80): string {
+  return text
+    .slice(0, max * 4)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+/** 发出去的文字：附件条里的粘贴（占位符）各占一行排在前面，之后是用户写的文字。 */
+export function withPastes(tokens: readonly string[], text: string): string {
+  return [...tokens, text].filter((part) => part !== '').join('\n');
 }
 
 /** 文字里出现的占位符，按出现的先后。 */

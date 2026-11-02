@@ -681,6 +681,7 @@ export const messages: Messages = {
   'dictation.error.failed': '音声入力に失敗しました',
   'composer.planExit': 'プランモードを終了',
   'composer.removeImage': '画像を削除',
+  'composer.removeAttachment': '添付を削除',
   'composer.imageUnsupported': '対応していない画像形式：{name}',
   'composer.imageTooLarge': '10 MB を超える画像：{name}',
   'composer.imageLimit': '画像は最大 {count} 枚',

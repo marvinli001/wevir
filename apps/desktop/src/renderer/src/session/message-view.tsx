@@ -4,16 +4,13 @@ import {
   reportBody,
   type SystemChatMessage,
   type UserChatMessage,
-  type UserTextSegment,
 } from '@wevir/client-sdk';
 import type { PendingMessage, ProviderProfile, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ArrowLeftRight,
   ChevronDown,
-  ChevronRight,
   CircleAlert,
-  ClipboardList,
   FoldVertical,
   Info,
   MessagesSquare,
@@ -36,7 +33,6 @@ import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
-import { lineCount } from './composer-pastes';
 import { CopyButton } from './copy-button';
 import { FindingsCard } from './findings-card';
 import { useTranscriptSessionId } from './fold-state';
@@ -50,6 +46,7 @@ import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
 import { OpinionCard, OpinionQuote } from './opinion-card';
+import { MessagePastes } from './pasted-text';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
 import { SessionLink, useSessionEntry } from './session-link';
@@ -85,8 +82,12 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
   const text = texts.join('\n');
-  // 粘贴的段落（0.90.0）在气泡里折叠显示；复制与编辑仍用全文。
+  // 粘贴的段落（0.90.0）照 Codex 画成气泡上方的胶囊，气泡里只有用户自己写的；复制与编辑仍用全文。
   const segments = message.parts.find((part) => part.type === 'text')?.segments;
+  const pastes = segments?.flatMap((segment) => (segment.pasted ? [segment.text] : [])) ?? [];
+  const own = segments
+    ? segments.flatMap((segment) => (segment.pasted ? [] : [segment.text])).join('\n')
+    : text;
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
   // 编辑（0.38.0）：只有会话最后一个完成的回合的用户消息，插话不算。
   const editable =
@@ -106,11 +107,17 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
     <div className="group/user flex flex-col items-end" data-message-role="user">
-      {/* 图片（0.28.0）在文字上方，同 Codex 与 Claude Code 桌面端。 */}
-      {images.length > 0 && (
-        <MessageImages images={images} className={texts.length > 0 ? 'mb-1.5' : undefined} />
+      {/* 粘贴与图片（0.28.0）在文字上方，同 Codex 与 Claude Code 桌面端。 */}
+      {pastes.length > 0 && (
+        <MessagePastes
+          texts={pastes}
+          className={images.length > 0 || own !== '' ? 'mb-1.5' : undefined}
+        />
       )}
-      {texts.length > 0 && <UserBubble text={text} {...(segments && { segments })} />}
+      {images.length > 0 && (
+        <MessageImages images={images} className={own !== '' ? 'mb-1.5' : undefined} />
+      )}
+      {own !== '' && <UserBubble text={own} />}
       {message.fromParentAgent && (
         <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.fromParentAgent')}
@@ -156,6 +163,12 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
  */
 export function PendingSteerMessage({ message }: { message: PendingMessage }) {
   const text = pendingText(message);
+  const pastes = message.content.flatMap((part) =>
+    part.type === 'text' && part.pasted ? [part.text] : [],
+  );
+  const own = message.content
+    .flatMap((part) => (part.type === 'text' && !part.pasted ? [part.text] : []))
+    .join('\n');
   const images = message.content.flatMap((part) => (part.type === 'image' ? [part] : []));
   return (
     <div
@@ -163,10 +176,16 @@ export function PendingSteerMessage({ message }: { message: PendingMessage }) {
       data-message-role="user"
       data-pending-steer={message.id}
     >
-      {images.length > 0 && (
-        <MessageImages images={images} className={text !== '' ? 'mb-1.5' : undefined} />
+      {pastes.length > 0 && (
+        <MessagePastes
+          texts={pastes}
+          className={images.length > 0 || own !== '' ? 'mb-1.5' : undefined}
+        />
       )}
-      {text !== '' && <UserBubble text={text} />}
+      {images.length > 0 && (
+        <MessageImages images={images} className={own !== '' ? 'mb-1.5' : undefined} />
+      )}
+      {own !== '' && <UserBubble text={own} />}
       <GlideGroup className="mt-1 flex h-6 items-center gap-0.5">
         {text !== '' && <CopyButton text={text} className="text-muted-foreground" />}
         <span className="px-1 text-xs text-muted-foreground">{t('pending.steerLocked')}</span>
@@ -181,7 +200,7 @@ const USER_FOLD_PX = 300;
 const USER_FOLD_SLACK_PX = 96;
 
 /** 用户消息的气泡：很长时收起到 300 px，底部渐隐，下面是“展开 / 收起”，展开收起有高度过渡。 */
-function UserBubble({ text, segments }: { text: string; segments?: readonly UserTextSegment[] }) {
+function UserBubble({ text }: { text: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number>();
   const [expanded, setExpanded] = useState(false);
@@ -195,9 +214,7 @@ function UserBubble({ text, segments }: { text: string; segments?: readonly User
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  // 有粘贴块（0.90.0）时不再整条折叠：粘贴的部分本来就收着，展开后自己限高滚动。
-  const foldable =
-    segments === undefined && height !== undefined && height > USER_FOLD_PX + USER_FOLD_SLACK_PX;
+  const foldable = height !== undefined && height > USER_FOLD_PX + USER_FOLD_SLACK_PX;
   const folded = foldable && !expanded;
   return (
     <>
@@ -212,17 +229,7 @@ function UserBubble({ text, segments }: { text: string; segments?: readonly User
         data-user-bubble={foldable ? (folded ? 'folded' : 'expanded') : undefined}
         data-quotable=""
       >
-        {segments
-          ? segments.map((segment, index) =>
-              segment.pasted ? (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 段落的顺序与内容不变
-                <PastedBlock key={index} text={segment.text} />
-              ) : (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 段落的顺序与内容不变
-                <div key={index}>{segment.text}</div>
-              ),
-            )
-          : text}
+        {text}
       </div>
       {foldable && (
         <button
@@ -235,35 +242,6 @@ function UserBubble({ text, segments }: { text: string; segments?: readonly User
         </button>
       )}
     </>
-  );
-}
-
-/** 用户消息里粘贴的一段（0.90.0）：默认收起成一行“粘贴的文本 · 42 行”，点开看原文。 */
-function PastedBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="my-1 rounded-lg border border-border bg-card text-sm" data-pasted-block="">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-soft-foreground outline-none hover:text-foreground focus-visible:focus-ring"
-      >
-        <ClipboardList aria-hidden className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">
-          {t('transcript.pastedText', { lines: lineCount(text) })}
-        </span>
-        <ChevronRight
-          aria-hidden
-          className={cn('size-4 shrink-0 transition-transform duration-150', open && 'rotate-90')}
-        />
-      </button>
-      {open && (
-        <pre className="max-h-80 overflow-auto border-t border-border px-2.5 py-2 font-mono text-xs whitespace-pre-wrap break-words">
-          {text}
-        </pre>
-      )}
-    </div>
   );
 }
 

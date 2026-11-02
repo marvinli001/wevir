@@ -686,6 +686,7 @@ export const messages: Messages = {
   'dictation.error.failed': 'Échec de la dictée',
   'composer.planExit': 'Quitter le mode plan',
   'composer.removeImage': 'Retirer l’image',
+  'composer.removeAttachment': 'Retirer la pièce jointe',
   'composer.imageUnsupported': 'Format d’image non pris en charge : {name}',
   'composer.imageTooLarge': 'Image de plus de 10 Mo : {name}',
   'composer.imageLimit': '{count} images au maximum',

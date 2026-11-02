@@ -6,8 +6,11 @@ import {
   lineCount,
   PASTE_MIN_LENGTH,
   PASTE_MIN_LINES,
+  pasteOf,
+  pastePreview,
   registerPaste,
   textParts,
+  withPastes,
 } from './composer-pastes';
 
 describe('粘贴的大段文字', () => {
@@ -58,5 +61,23 @@ describe('粘贴的大段文字', () => {
       { type: 'text', text: 'body', pasted: true },
       image,
     ]);
+  });
+
+  it('附件条里的粘贴排在文字前面，发出去各成一段', () => {
+    const a = registerPaste('第一段\n日志');
+    const b = registerPaste('第二段');
+    expect(pasteOf(a)).toBe('第一段\n日志');
+    expect(withPastes([a, b], '看看哪里失败')).toBe(`${a}\n${b}\n看看哪里失败`);
+    expect(withPastes([a], '')).toBe(a);
+    expect(textParts(withPastes([a, b], '看看哪里失败'))).toEqual([
+      { type: 'text', text: '第一段\n日志', pasted: true },
+      { type: 'text', text: '第二段', pasted: true },
+      { type: 'text', text: '看看哪里失败' },
+    ]);
+  });
+
+  it('标题取原文开头，空白折成一个空格', () => {
+    expect(pastePreview('  新建会话\n\t搜索 ⌘K  助理 ')).toBe('新建会话 搜索 ⌘K 助理');
+    expect(pastePreview('x'.repeat(500), 10)).toBe('x'.repeat(10));
   });
 });

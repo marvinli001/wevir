@@ -5,13 +5,14 @@ import type { WevirClient } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
 import type { ImageId, UserImageMimeType, UserImagePart } from '@wevir/protocol';
 import { cn } from 'cn';
-import { LoaderCircle, X } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchProviders } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { base64Of, modelAcceptsImages } from './composer-images';
+import { RemoveAttachmentButton } from './pasted-text';
 
 /** 读回来的图片（data URL），按 ID 缓存；最多留这么多张，先进先出。 */
 const CACHE_LIMIT = 40;
@@ -141,7 +142,7 @@ export function ImagePreview({
   );
 }
 
-/** 输入框上方的一张缩略图：传完之前转圈，右上角移除。 */
+/** 输入框附件条里的一张缩略图：传完之前转圈，右上角移除。 */
 export function ComposerThumb({
   src,
   name,
@@ -156,12 +157,12 @@ export function ComposerThumb({
   onOpen: () => void;
 }) {
   return (
-    <div className="group/thumb relative size-14 shrink-0" data-testid="composer-image">
+    <div className="relative size-14 shrink-0" data-testid="composer-image">
       <button
         type="button"
         onClick={onOpen}
         aria-label={name ?? t('image.preview')}
-        className="size-full overflow-hidden rounded-lg border border-border bg-muted outline-none focus-visible:focus-field"
+        className="size-full overflow-hidden rounded-xl border border-border bg-muted outline-none focus-visible:focus-field"
       >
         <img src={src} alt="" className={cn('size-full object-cover', uploading && 'opacity-50')} />
       </button>
@@ -171,15 +172,11 @@ export function ComposerThumb({
           className="pointer-events-none absolute inset-0 m-auto size-4 animate-spin text-foreground"
         />
       )}
-      <button
-        type="button"
+      <RemoveAttachmentButton
+        label={t('composer.removeImage')}
+        action="remove-image"
         onClick={onRemove}
-        aria-label={t('composer.removeImage')}
-        data-action="remove-image"
-        className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-xs outline-none transition-opacity duration-150 group-hover/thumb:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:focus-field"
-      >
-        <X aria-hidden className="size-3" />
-      </button>
+      />
     </div>
   );
 }

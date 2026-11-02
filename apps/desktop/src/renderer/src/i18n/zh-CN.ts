@@ -689,6 +689,7 @@ export const zhCN = {
   'dictation.error.failed': '听写失败',
   'composer.planExit': '退出计划模式',
   'composer.removeImage': '移除图片',
+  'composer.removeAttachment': '移除附件',
   'composer.imageUnsupported': '不支持的图片格式：{name}',
   'composer.imageTooLarge': '图片超过 10 MB：{name}',
   'composer.imageLimit': '最多 {count} 张图片',

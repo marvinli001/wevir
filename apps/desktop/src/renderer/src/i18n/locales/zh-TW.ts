@@ -675,6 +675,7 @@ export const messages: Messages = {
   'dictation.error.failed': '聽寫失敗',
   'composer.planExit': '退出計畫模式',
   'composer.removeImage': '移除圖片',
+  'composer.removeAttachment': '移除附件',
   'composer.imageUnsupported': '不支援的圖片格式：{name}',
   'composer.imageTooLarge': '圖片超過 10 MB：{name}',
   'composer.imageLimit': '最多 {count} 張圖片',

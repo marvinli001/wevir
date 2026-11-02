@@ -685,6 +685,7 @@ export const messages: Messages = {
   'dictation.error.failed': 'Diktat fehlgeschlagen',
   'composer.planExit': 'Planmodus beenden',
   'composer.removeImage': 'Bild entfernen',
+  'composer.removeAttachment': 'Anhang entfernen',
   'composer.imageUnsupported': 'Nicht unterstütztes Bildformat: {name}',
   'composer.imageTooLarge': 'Bild größer als 10 MB: {name}',
   'composer.imageLimit': 'Höchstens {count} Bilder',
