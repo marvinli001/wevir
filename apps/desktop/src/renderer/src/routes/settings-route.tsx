@@ -437,7 +437,9 @@ function TabList({ query, state }: { query: string; state: unknown }) {
     <div className="px-2.5 pb-4">
       {groups.map((group) => (
         <section key={group.label} className="pt-2 first:pt-0">
-          <h3 className="flex h-8 items-center px-2 text-xs text-muted-foreground">{t(group.label)}</h3>
+          <h3 className="flex h-8 items-center px-2 text-xs text-muted-foreground">
+            {t(group.label)}
+          </h3>
           <ul className="space-y-0.5">
             {group.tabs.map((id) => {
               const { label, icon: Icon } = TABS[id];
