@@ -7,7 +7,6 @@ import { Collapse } from '@/components/collapse';
 import { Hint } from '@/components/hint';
 import { t } from '@/i18n';
 import {
-  latestTodos,
   type TurnTodos,
   todoCollapsedByDefault,
   todoProgress,
@@ -16,17 +15,13 @@ import {
 } from './todo-model';
 
 /**
- * 输入框上方的实时清单（U20，desktop-tokens.md §25；截图 05–07）：会话最近一个回合有清单时显示，回合结束或会话在等用户时
- * 收成一行；回合结束后没标完的项不再转圈，回合自己做完收了尾的，没标完的按做完显示。
+ * 回合的实时清单（U20，desktop-tokens.md §25；截图 05–07）：2026-11-02 起照 Claude Code 画在消息流里回合末尾（当前动作那一行
+ * 之前），不再停在输入框上方。回合结束时收成一行；回合结束后没标完的项不再转圈，回合自己做完收了尾的，没标完的按做完显示。
+ * `running` 是进行中的子会话数，写在进行中那一项下面。
  */
-export function TodoDock({ transcript }: { transcript: Transcript }) {
-  const todos = latestTodos(transcript);
-  // 等审批、等回答时不显示：那张卡片上方已经有本回合的进度（TurnRecap），两张叠着只是重复。
-  if (!todos || transcript.pendingApprovals.length > 0 || transcript.pendingQuestions.length > 0)
-    return null;
-  const running = transcript.subagents.filter((summary) => summary.status === 'running').length;
+export function TurnTodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
   // 换回合时重建：用户点开或收起过的只对这一个回合有效。
-  return <TodoCard key={todos.turnId} todos={todos} running={running} />;
+  return <TodoCard key={todos.turnId} todos={todos} running={todos.active ? running : 0} />;
 }
 
 function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
@@ -37,7 +32,7 @@ function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
     <section
       aria-label={t('todo.title')}
       data-testid="todo-card"
-      className="mb-2 rounded-xl border border-border bg-background animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
+      className="mt-3 rounded-xl border border-border bg-background animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
     >
       <button
         type="button"
@@ -64,7 +59,7 @@ function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
         />
       </button>
       <Collapse open={open}>
-        <ul className="max-h-40 overflow-y-auto px-3 pb-2">
+        <ul className="px-3 pb-2">
           {todos.items.map((item, index) => (
             <TodoRow
               // biome-ignore lint/suspicious/noArrayIndexKey: 清单整体替换，没有稳定 ID。
@@ -72,7 +67,7 @@ function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
               item={item}
               turnActive={todos.active}
               finishedWell={todos.finishedWell}
-              running={todos.active ? running : 0}
+              running={running}
             />
           ))}
         </ul>

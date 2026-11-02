@@ -783,6 +783,7 @@ export const messages: Messages = {
   'pending.group.queue': 'Einreihen',
   'pending.group.held': 'Angehalten',
   'pending.steerLocked': 'Übermittelt',
+  'pending.noticeWaiting': 'Zustellung ausstehend',
   'pending.heldHint': 'Vorherige Runde unerwartet beendet, Senden angehalten',
   'pending.resume': 'Senden fortsetzen',
   'pending.edit': 'Bearbeiten',

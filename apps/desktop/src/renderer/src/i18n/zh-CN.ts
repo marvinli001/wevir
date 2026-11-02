@@ -786,6 +786,7 @@ export const zhCN = {
   'pending.group.queue': '排队',
   'pending.group.held': '已暂停',
   'pending.steerLocked': '已提交',
+  'pending.noticeWaiting': '待送达',
   'pending.heldHint': '上一回合异常结束，已暂停发送',
   'pending.resume': '继续发送',
   'pending.edit': '编辑',

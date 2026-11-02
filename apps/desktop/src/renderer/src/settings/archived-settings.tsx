@@ -1,5 +1,5 @@
 import type { Session, SessionId } from '@wevir/protocol';
-import { Archive, Search, X } from 'lucide-react';
+import { Archive, LoaderCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { archiveSession, useSessionManagement } from '@/data/session-actions';
@@ -149,9 +149,14 @@ export function ArchivedSettings() {
                       size="sm"
                       variant="outline"
                       disabled={busy === session.id}
+                      aria-busy={busy === session.id || undefined}
+                      className="aria-busy:opacity-100"
                       onClick={() => void unarchive(session)}
                       data-action="unarchive"
                     >
+                      {busy === session.id && (
+                        <LoaderCircle className="animate-spin" data-icon="inline-start" />
+                      )}
                       {t('session.unarchive')}
                     </Button>
                   </li>

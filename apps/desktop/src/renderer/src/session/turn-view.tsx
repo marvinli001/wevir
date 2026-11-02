@@ -14,7 +14,10 @@ import { useFold, useFoldSetter } from './fold-state';
 import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
 import { BranchButton, useMessageActions } from './message-actions';
 import { PartsView, PendingSteerMessage, RelativeTime, UserMessage } from './message-view';
+import { PendingNoticeLine } from './pending-area';
 import { visibleParts } from './subagent-model';
+import { TurnTodoCard } from './todo-card';
+import { turnTodos } from './todo-model';
 import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
 import {
@@ -57,10 +60,11 @@ export const TurnView = memo(
     live,
     orb = 'working',
     hasSubagents,
-    hideTodos = false,
+    runningSubagents = 0,
     lastTurn = false,
     laterTurn = false,
     steers = NO_STEERS,
+    notices = NO_STEERS,
     checks,
   }: {
     turnId: TurnId;
@@ -72,18 +76,22 @@ export const TurnView = memo(
     orb?: OrbState;
     /** 会话派出过子会话：collab 工具调用不显示（subagent-model.ts 的 visibleParts）。 */
     hasSubagents: boolean;
-    /** 这个回合的清单停在输入框上方（U20，todo-card.tsx），消息里不再画。 */
-    hideTodos?: boolean;
+    /** 进行中的子会话数：写在清单进行中那一项下面（todo-card.tsx）。 */
+    runningSubagents?: number;
     /** 会话最后一个回合：回答下面的操作行一直显示（照 Codex 桌面端），别的回合悬停时才出现。 */
     lastTurn?: boolean;
     /** 后面还有回合（用户在这之后发过消息）：回合末的下一步卡片不再画。 */
     laterTurn?: boolean;
     /** 进行中的回合：交给模型、还没插进来的插话，画在末尾（当前动作那一行之前）。 */
     steers?: readonly PendingMessage[];
+    /** 进行中的回合：别的会话与后台进程发来、等回合结束再交给模型的消息，画在插话之后（pending-area.tsx）。 */
+    notices?: readonly PendingMessage[];
     /** 这个回合触发的最近一轮检查（0.65.0）。 */
     checks?: ChecksSummary;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
+    // 回合的清单画在回合末尾、当前动作那一行之前（照 Claude Code）；回合结束收起过程时一起收起。
+    const todos = turnTodos(messages, turnId, turnActive);
     const { checkpoints } = useContext(OpenTurnChanges);
     const changes = turnChangeStats(
       checkpoints?.find((turn) => turn.turnId === turnId),
@@ -168,9 +176,10 @@ export const TurnView = memo(
               }
               if (message.role !== 'assistant') return null;
               const visible = visibleParts(message.parts, hasSubagents);
-              const parts = filesAfterAnswer(
+              // 清单不在它第一次出现的位置画，统一画在回合末尾（todo-card.tsx）。
+              const parts = filesAfterAnswer<(typeof visible)[number]>(
                 message.id,
-                hideTodos ? visible.filter((part) => part.type !== 'todo') : visible,
+                visible.filter((part) => part.type !== 'todo'),
                 fold,
               );
               if (parts.length === 0) return null;
@@ -229,9 +238,22 @@ export const TurnView = memo(
               );
             })}
           </div>
+          {todos &&
+            (fold.showHeader ? (
+              <Collapse open={!folded} fromOpen={justFolded}>
+                <TurnTodoCard todos={todos} running={runningSubagents} />
+              </Collapse>
+            ) : (
+              <TurnTodoCard todos={todos} running={runningSubagents} />
+            ))}
           {steers.map((message) => (
             <div key={message.id} className="mt-3">
               <PendingSteerMessage message={message} />
+            </div>
+          ))}
+          {notices.map((message) => (
+            <div key={message.id} className="mt-3">
+              <PendingNoticeLine message={message} />
             </div>
           ))}
           {live && !liveTail && (
@@ -290,9 +312,11 @@ export const TurnView = memo(
     prev.live === next.live &&
     prev.orb === next.orb &&
     prev.hasSubagents === next.hasSubagents &&
+    prev.runningSubagents === next.runningSubagents &&
     prev.lastTurn === next.lastTurn &&
     prev.laterTurn === next.laterTurn &&
     sameItems(prev.steers ?? NO_STEERS, next.steers ?? NO_STEERS) &&
+    sameItems(prev.notices ?? NO_STEERS, next.notices ?? NO_STEERS) &&
     prev.checks?.key === next.checks?.key &&
     prev.messages.length === next.messages.length &&
     prev.messages.every((message, index) => message === next.messages[index]),

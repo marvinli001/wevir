@@ -777,6 +777,7 @@ export const messages: Messages = {
   'pending.group.queue': 'Queue',
   'pending.group.held': 'Paused',
   'pending.steerLocked': 'Submitted',
+  'pending.noticeWaiting': 'Pending delivery',
   'pending.heldHint': 'Previous turn ended abnormally; sending paused',
   'pending.resume': 'Resume sending',
   'pending.edit': 'Edit',

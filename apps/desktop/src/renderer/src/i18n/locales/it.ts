@@ -784,6 +784,7 @@ export const messages: Messages = {
   'pending.group.queue': 'In coda',
   'pending.group.held': 'In pausa',
   'pending.steerLocked': 'Inviato',
+  'pending.noticeWaiting': 'In attesa di consegna',
   'pending.heldHint': 'Turno precedente terminato in modo anomalo, invio sospeso',
   'pending.resume': 'Riprendi invio',
   'pending.edit': 'Modifica',

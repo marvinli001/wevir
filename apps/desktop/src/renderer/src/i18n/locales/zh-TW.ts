@@ -772,6 +772,7 @@ export const messages: Messages = {
   'pending.group.queue': '排隊',
   'pending.group.held': '已暫停',
   'pending.steerLocked': '已送出',
+  'pending.noticeWaiting': '待送達',
   'pending.heldHint': '上一回合異常結束，已暫停傳送',
   'pending.resume': '繼續傳送',
   'pending.edit': '編輯',

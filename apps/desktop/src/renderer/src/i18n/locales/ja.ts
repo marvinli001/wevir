@@ -778,6 +778,7 @@ export const messages: Messages = {
   'pending.group.queue': 'キュー',
   'pending.group.held': '一時停止中',
   'pending.steerLocked': '送信済み',
+  'pending.noticeWaiting': '配信待ち',
   'pending.heldHint': '前のターンが異常終了したため送信を一時停止中',
   'pending.resume': '送信を再開',
   'pending.edit': '編集',

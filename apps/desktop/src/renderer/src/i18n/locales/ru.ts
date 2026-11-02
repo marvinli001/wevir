@@ -788,6 +788,7 @@ export const messages: Messages = {
   'pending.group.queue': 'Очередь',
   'pending.group.held': 'Приостановлено',
   'pending.steerLocked': 'Отправлено',
+  'pending.noticeWaiting': 'Ожидает доставки',
   'pending.heldHint': 'Предыдущий ход прерван, отправка приостановлена',
   'pending.resume': 'Продолжить отправку',
   'pending.edit': 'Изменить',

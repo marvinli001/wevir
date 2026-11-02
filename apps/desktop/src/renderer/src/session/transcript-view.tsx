@@ -15,7 +15,6 @@ import { SystemMessage } from './message-view';
 import { groupPending } from './pending-model';
 import { useStickToBottom } from './scroll-controller';
 import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
-import { latestTodos } from './todo-model';
 import {
   FOCUS_HIGHLIGHT,
   FOCUS_HIGHLIGHT_MS,
@@ -100,8 +99,6 @@ export function TranscriptView({
   const blocks = groupTurns(messages.slice(start));
   // 最后一个回合之前的回合都“后面还有回合”：它们的下一步卡片不再画。
   const lastTurnIndex = blocks.findLastIndex((block) => block.kind === 'turn');
-  // 停在输入框上方的清单属于哪个回合（U20）：那个回合的消息里不再画它。
-  const dockedTodos = latestTodos(transcript)?.turnId;
   // 每个回合触发的检查（0.65.0），画在回答下面。
   const checksByTurn = useMemo(
     () => turnChecks(transcript.verification),
@@ -259,9 +256,13 @@ export function TranscriptView({
                           orb: turnOrb(sessionId, block.turnId),
                           // 交给模型、还没插进来的插话画在进行中的回合末尾（照 Claude 桌面端），不在输入框上方的待发区。
                           steers: groupPending(transcript.pendingMessages).steer,
+                          // 别的会话与后台进程发来的消息不是用户写的，不进输入框上方的待发区，也不画成用户气泡。
+                          notices: groupPending(transcript.pendingMessages).notices,
+                          runningSubagents: transcript.subagents.filter(
+                            (summary) => summary.status === 'running',
+                          ).length,
                         })}
                         hasSubagents={transcript.subagents.length > 0}
-                        hideTodos={block.turnId === dockedTodos}
                         lastTurn={index === blocks.length - 1}
                         laterTurn={index < lastTurnIndex}
                         {...(checksByTurn.has(block.turnId) && {

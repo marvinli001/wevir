@@ -1,4 +1,4 @@
-// 实时清单与“这一轮”回顾（U20，desktop-tokens.md §25）的纯逻辑：最近一个回合的清单、进度、收起规则与回顾的素材。
+// 实时清单与“这一轮”回顾（U20，desktop-tokens.md §25；2026-11-02 起清单画在消息流里回合末尾）的纯逻辑：最近一个回合的清单、进度、收起规则与回顾的素材。
 
 import type { ChatMessage, Transcript } from '@wevir/client-sdk';
 import type { TodoItem, TurnId } from '@wevir/protocol';
@@ -43,26 +43,26 @@ function lastTurnId(messages: readonly ChatMessage[]): TurnId | undefined {
 }
 
 /**
- * 会话最近一个回合的清单（不含取消了的项）；那个回合没有清单（或清单是空的、全取消了）时是 undefined，更早回合的清单不算。
+ * 一个回合的清单（不含取消了的项）；回合没有清单（或清单是空的、全取消了）时是 undefined。`messages` 可以是整个会话的，
+ * 只看这个回合的。
  */
-export function latestTodos(
-  transcript: Pick<Transcript, 'messages' | 'activeTurnId'>,
+export function turnTodos(
+  messages: readonly ChatMessage[],
+  turnId: TurnId,
+  active: boolean,
 ): TurnTodos | undefined {
-  const turnId = lastTurnId(transcript.messages);
-  if (turnId === undefined) return undefined;
-  for (const message of transcript.messages) {
+  for (const message of messages) {
     if (message.role === 'system' || message.turnId !== turnId) continue;
     const part = message.parts.find((candidate) => candidate.type === 'todo');
     const items = part?.type === 'todo' ? part.items.filter((item) => !todoCancelled(item)) : [];
     if (items.length > 0) {
-      const active = transcript.activeTurnId === turnId;
       return {
         turnId,
         items,
         active,
         finishedWell:
           !active &&
-          transcript.messages.some(
+          messages.some(
             (candidate) =>
               candidate.role === 'assistant' &&
               candidate.turnId === turnId &&
@@ -72,6 +72,15 @@ export function latestTodos(
     }
   }
   return undefined;
+}
+
+/** 会话最近一个回合的清单；那个回合没有清单时是 undefined，更早回合的清单不算。 */
+export function latestTodos(
+  transcript: Pick<Transcript, 'messages' | 'activeTurnId'>,
+): TurnTodos | undefined {
+  const turnId = lastTurnId(transcript.messages);
+  if (turnId === undefined) return undefined;
+  return turnTodos(transcript.messages, turnId, transcript.activeTurnId === turnId);
 }
 
 export interface TodoProgress {
@@ -91,8 +100,7 @@ export function todoProgress(items: readonly TodoItem[], settled = false): TodoP
 }
 
 /**
- * 清单卡片默认收起：回合结束（没标完的也收起：模型常忘了最后再更新一次，回合已经不在做了）。用户点过的照用户的。等用户
- * （审批、提问）时整张不显示（TodoDock）。
+ * 清单卡片默认收起：回合结束（没标完的也收起：模型常忘了最后再更新一次，回合已经不在做了）。用户点过的照用户的。
  */
 export function todoCollapsedByDefault(todos: TurnTodos): boolean {
   return !todos.active;

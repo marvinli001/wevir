@@ -783,6 +783,7 @@ export const messages: Messages = {
   'pending.group.queue': 'File d’attente',
   'pending.group.held': 'En pause',
   'pending.steerLocked': 'Envoyé',
+  'pending.noticeWaiting': 'En attente de remise',
   'pending.heldHint': 'Envoi suspendu : fin anormale du tour précédent',
   'pending.resume': 'Reprendre l’envoi',
   'pending.edit': 'Modifier',

@@ -104,7 +104,7 @@ import {
   useStartSession,
 } from './start-session';
 import { pendingApprovals } from './subagent-model';
-import { TodoDock, TurnRecap } from './todo-card';
+import { TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
 import { lastTurnId } from './turn-model';
@@ -993,14 +993,13 @@ export function SessionView({
             variant === 'pane' ? 'px-4 pb-4' : 'px-6 pb-5',
           )}
         >
-          {/* 输入框上方的清单（U20）、提问、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
+          {/* 输入框上方的提问、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
           <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
             {/* 最后一个回合的下一步卡片（0.128.0）已经在消息流底部说了同一段回顾，不再重复。 */}
             {sessionRecap && !(transcript && lastTurnShowsWrapUp(transcript)) && (
               <RecapCard text={sessionRecap.text} onDismiss={sessionRecap.dismiss} />
             )}
             {insight && <InsightCard key={insight.id} sessionId={session.id} insight={insight} />}
-            {transcript && <TodoDock transcript={transcript} />}
             <OllamaContextNotice
               client={client}
               providerId={session.providerId}
@@ -1038,6 +1037,7 @@ export function SessionView({
                 sessionId={session.id}
                 pending={transcript.pendingMessages}
                 steerInline={steersInline(transcript)}
+                noticesInline={steersInline(transcript)}
                 state={sessionState}
                 client={client}
                 onError={setNotice}

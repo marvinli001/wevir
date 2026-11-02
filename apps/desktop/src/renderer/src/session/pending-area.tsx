@@ -19,9 +19,10 @@ import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useSession } from '@/data/workbench-data';
-import { describe as describeError } from '@/host/host-connection';
+import { describe as describeError, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { imagesOf, messageContent } from './composer-images';
+import { useTranscriptSessionId } from './fold-state';
 import {
   canSteerNow,
   fallbackNote,
@@ -35,7 +36,8 @@ import {
  * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束；有进行中的回合时画在消息流里，见 `steerInline`）、排队
  * （回合结束后）、已暂停三组。排队的与暂停的
  * 可以编辑、删除，排队的在回合进行中可以改为插话；交给模型的插话只能看。暂停的有“继续发送”。别的会话的 agent 发来的回报与
- * 消息、后台进程的通知（`from` 不是空的）不是用户写的：单独一行说明，不当作用户的排队消息，不能编辑。没有待发消息时不显示。
+ * 消息、后台进程的通知（`from` 不是空的）不是用户写的：有进行中的回合时画在消息流里回合末尾（`PendingNoticeLine`），没有时
+ * 才在这里单独一行说明，不能编辑。没有待发消息时不显示。
  */
 export function PendingArea({
   sessionId,
@@ -44,18 +46,22 @@ export function PendingArea({
   client,
   onError,
   steerInline = false,
+  noticesInline = false,
 }: {
   sessionId: SessionId;
   pending: readonly PendingMessage[];
   state: SessionState | undefined;
   /** 插话画在消息流里（pending-model.ts 的 steersInline），这里不列。 */
   steerInline?: boolean;
+  /** 别的会话与后台进程发来的消息画在消息流里进行中的回合末尾（同插话），这里不列。 */
+  noticesInline?: boolean;
   client: WevirClient | undefined;
   onError: (message: string) => void;
 }) {
   const [editing, setEditing] = useState<string>();
   const groups = groupPending(pending);
   if (steerInline) groups.steer = [];
+  if (noticesInline) groups.notices = [];
   if (
     groups.notices.length + groups.steer.length + groups.queue.length + groups.held.length ===
     0
@@ -320,5 +326,47 @@ function PendingEditor({
         </Button>
       </div>
     </li>
+  );
+}
+
+/**
+ * 别的会话或后台进程发来、等这个回合结束再交给模型的消息，画在消息流里进行中的回合末尾（2026-11-02 起，不在输入框上方的
+ * 待发区）：不是用户写的，所以不画成用户气泡，是一行淡色说明，同送达后的回报卡片头部；悬停看全文，悬停时可以删除。
+ */
+export function PendingNoticeLine({ message }: { message: PendingMessage }) {
+  const { client } = useHostConnection();
+  const sessionId = useTranscriptSessionId() as SessionId | undefined;
+  const from = message.from;
+  const sender = useSession(from?.sessionId);
+  if (from === undefined) return null;
+  const title = sender?.title || t('session.untitled');
+  const Icon =
+    from.process !== undefined ? SquareTerminal : from.kind === 'report' ? Reply : MessageSquare;
+  return (
+    <div
+      className="group/notice flex h-8 max-w-[85%] items-center gap-1.5 rounded-xl border border-dashed border-border px-3 text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
+      data-pending-id={message.id}
+      data-pending-notice={from.process !== undefined ? 'process' : from.kind}
+    >
+      <Icon aria-hidden className="size-4 shrink-0" />
+      <Hint label={pendingText(message)}>
+        <span className="min-w-0 truncate">{noticeLabel(from, title)}</span>
+      </Hint>
+      <span className="shrink-0 text-xs">· {t('pending.noticeWaiting')}</span>
+      {client && sessionId && (
+        <IconButton
+          label={t('pending.remove')}
+          size="icon-xs"
+          className="-mr-1.5 ml-auto opacity-0 transition-opacity group-hover/notice:opacity-100 focus-visible:opacity-100"
+          onClick={() =>
+            void client
+              .request('pending.cancel', { sessionId, pendingId: message.id })
+              .catch(() => undefined)
+          }
+        >
+          <Trash2 />
+        </IconButton>
+      )}
+    </div>
   );
 }

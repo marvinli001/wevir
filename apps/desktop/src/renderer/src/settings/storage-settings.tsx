@@ -1,5 +1,5 @@
 import { cn } from 'cn';
-import { FolderOpen, RotateCw } from 'lucide-react';
+import { FolderOpen, LoaderCircle, RotateCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -285,8 +285,11 @@ function OfficeEngineCard({ onChanged }: { onChanged: () => void }) {
               variant="outline"
               disabled={engine.busy}
               onClick={engine.remove}
+              aria-busy={engine.busy || undefined}
+              className="aria-busy:opacity-100"
               data-action="office-engine-remove"
             >
+              {engine.busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
               {t('settings.storage.officeEngine.remove')}
             </Button>
           ) : (
@@ -295,8 +298,11 @@ function OfficeEngineCard({ onChanged }: { onChanged: () => void }) {
               variant="secondary"
               disabled={engine.busy}
               onClick={engine.install}
+              aria-busy={engine.busy || undefined}
+              className="aria-busy:opacity-100"
               data-action="office-engine-install"
             >
+              {engine.busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
               {t('settings.storage.officeEngine.download')}
             </Button>
           )

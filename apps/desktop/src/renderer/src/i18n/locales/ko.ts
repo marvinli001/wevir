@@ -774,6 +774,7 @@ export const messages: Messages = {
   'pending.group.queue': '대기열',
   'pending.group.held': '일시 중지됨',
   'pending.steerLocked': '제출됨',
+  'pending.noticeWaiting': '전달 대기',
   'pending.heldHint': '이전 턴 비정상 종료로 전송 일시 중지됨',
   'pending.resume': '전송 재개',
   'pending.edit': '편집',
