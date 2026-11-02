@@ -30,6 +30,7 @@ import { ParticleFlow } from '@/fx/particle-flow';
 import { type PlainMessageKey, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
+import { carryEffort } from './effort';
 import { isFast, supportsFast } from './fast-mode';
 
 /**
@@ -221,14 +222,17 @@ export function ModelPicker({
             }
             value={value}
             onBack={() => setView('effort')}
-            onChoose={(providerId, next) =>
+            onChoose={(providerId, next) => {
+              const effort = carryEffort(value.reasoningEffort, next.reasoningEfforts);
               choose(
                 next.id === value.modelId && providerId === value.providerId
                   ? value
-                  : // 换模型时开着的快速模式沿用（新模型支持时），否则取新模型的默认，同 Host（0.148.0）。
+                  : // 换模型时思考力度沿用（新模型没有这一档取最接近的，effort.ts）；开着的快速模式沿用（新模型支持时），否则
+                    // 取新模型的默认，同 Host（0.148.0）。
                     {
                       providerId,
                       modelId: next.id,
+                      ...(effort !== undefined && { reasoningEffort: effort }),
                       ...(fast &&
                       supportsFast(
                         listed.find((candidate) => candidate.id === providerId),
@@ -237,8 +241,8 @@ export function ModelPicker({
                         ? { fast: true }
                         : {}),
                     },
-              )
-            }
+              );
+            }}
           />
         )}
       </PopoverContent>
