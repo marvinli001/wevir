@@ -32,6 +32,11 @@ export interface SessionConfig {
   /** 引擎原值，如 dsh 的 off / low / high / max。 */
   reasoningEffort?: string;
   /**
+   * 快速模式（0.148.0）：Host 只在模型 `supportsFast` 时给 true。适配器按引擎的方式打开（Codex：`turn/start` 的 `serviceTier`；
+   * Claude：`fastMode` 设置；Cursor：模型参数 `fast`），模型支持而这里省略时明确要标准速度，不支持的模型与引擎忽略。
+   */
+  fast?: boolean;
+  /**
    * 权限模式（0.11.0）；省略表示 `on_request`。只有声明了 `permissionModes` 的适配器会收到别的值，从这个会话的下一个回合
    * 起生效。
    */
@@ -597,6 +602,10 @@ export interface ProviderModelConfig {
   supportsImages?: boolean;
   /** 推理档位（off / minimal / low / medium / high / xhigh / max）；空数组表示不推理。 */
   reasoningEfforts?: string[];
+  /** 快速模式（0.148.0）：引擎能以更快的速度档跑这个模型。省略表示不支持。 */
+  supportsFast?: boolean;
+  /** 引擎默认就用快速档跑它（0.148.0，Codex 目录的 `defaultServiceTier`）。 */
+  fastByDefault?: boolean;
 }
 
 /**

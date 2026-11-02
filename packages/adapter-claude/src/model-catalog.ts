@@ -2,12 +2,12 @@
 // 移植自 pingdotgg/t3code apps/server/src/provider/ClaudeModelCatalog.ts、ClaudeModelManifest.ts，apps/server/src/claudeModelOptions.ts
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：改写成不依赖 `effect` 的普通 TS；输出 Wevir 的 `ProviderModelConfig`（档位只留 Wevir 认识的值），去掉自定义模型、ultracode / ultrathink / fastMode 与 T3 的选项描述。
+// 修改：改写成不依赖 `effect` 的普通 TS；输出 Wevir 的 `ProviderModelConfig`（档位只留 Wevir 认识的值，fastMode 开关换成 `supportsFast`），去掉自定义模型、ultracode / ultrathink 与 T3 的选项描述。
 //
 // Claude 的模型目录（claude-event-mapping.md §3）：随包清单 model-manifest.ts → Wevir 的 `ProviderModelConfig`。照 T3：
 // 按装的 `claude` 版本过滤（`minVersion`），档位的 Wevir 值经 profile 的 `effortMap` 换成 Claude Code 的值，上下文窗口取
-// `fixedContextWindowTokens` 或默认的 `contextWindow` 选项（带 `[1m]` 后缀的模型 ID 也照它）。T3 的 ultracode、
-// ultrathink 与 fastMode 不在 Wevir 的档位里，不提供。
+// `fixedContextWindowTokens` 或默认的 `contextWindow` 选项（带 `[1m]` 后缀的模型 ID 也照它）。T3 的 ultracode 与
+// ultrathink 不在 Wevir 的档位里，不提供；fastMode 布尔选项（0.148.0）是模型的 `supportsFast`。
 
 import type { AccountModels, ProviderModelConfig } from '@wevir/runtime-adapter';
 import { CLAUDE_MODEL_MANIFEST } from './model-manifest.js';
@@ -124,6 +124,11 @@ export function claudeContextWindow(slugOrAlias: string): number | undefined {
   return window === undefined ? undefined : runtime?.contextWindowTokens?.[window];
 }
 
+/** 模型有快速模式（0.148.0，T3 `compileClaudeModelSelection` 的 `supportsBoolean("fastMode")`）：profile 有 fastMode 布尔选项。 */
+export function claudeSupportsFast(slugOrAlias: string): boolean {
+  return descriptor(profileOf(findModel(slugOrAlias)), 'fastMode')?.type === 'boolean';
+}
+
 function toProviderModel(model: ManifestModel): ProviderModelConfig {
   const profile = profileOf(model);
   const efforts = wevirEfforts(profile);
@@ -134,6 +139,7 @@ function toProviderModel(model: ManifestModel): ProviderModelConfig {
     supportsImages: true,
     ...(contextWindow !== undefined && { contextWindow }),
     ...(efforts !== undefined && { reasoningEfforts: efforts }),
+    ...(claudeSupportsFast(model.slug) && { supportsFast: true }),
   };
 }
 

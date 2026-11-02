@@ -3174,6 +3174,100 @@ describe('SessionManager：换模型与推理档位（0.9.0）', () => {
     await waitForState(h, id, 'idle');
   });
 
+  it('快速模式（0.148.0）：只在模型 supportsFast 时打开；换到不支持的模型时关掉；重启后 resume 照样交给引擎', async () => {
+    const first = setup();
+    first.storage.providers.insert({
+      id: 'sub',
+      kind: 'openai-compatible',
+      displayName: 'Sub',
+      api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:11434/v1',
+      models: [{ id: 'quick', supportsFast: true }, { id: 'plain' }],
+      defaultModelId: 'quick',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const create = vi.spyOn(first.adapter, 'createSession');
+    const ignored = await first.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'sub',
+      modelId: 'plain',
+      fast: true,
+    });
+    expect(ignored.fast).toBeUndefined();
+    expect(create.mock.calls[0]?.[0].fast).toBeUndefined();
+
+    const session = await first.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'sub',
+      fast: true,
+    });
+    const id = session.id;
+    expect(session.fast).toBe(true);
+    expect(create.mock.calls[1]?.[0].fast).toBe(true);
+    expect(ofType(first, id, 'session.created')[0]?.payload).toMatchObject({ fast: true });
+    expect(first.storage.sessions.get(id)?.fast).toBe(true);
+
+    const configure = vi.spyOn(first.adapter, 'configureSession');
+    // 只给 reasoningEffort：快速模式沿用。
+    await first.manager.configure({ sessionId: id, reasoningEffort: 'high' });
+    expect(configure).toHaveBeenLastCalledWith(session.engine.sessionId, {
+      modelId: 'quick',
+      reasoningEffort: 'high',
+      fast: true,
+      permissionMode: 'on_request',
+    });
+    // 换到不支持的模型：关掉；换回来不自动打开。
+    const plain = await first.manager.configure({ sessionId: id, modelId: 'plain' });
+    expect(plain.fast).toBeUndefined();
+    expect(configure.mock.lastCall?.[1].fast).toBeUndefined();
+    expect(first.storage.sessions.get(id)?.fast).toBeUndefined();
+    expect(
+      (await first.manager.configure({ sessionId: id, modelId: 'quick' })).fast,
+    ).toBeUndefined();
+    expect((await first.manager.configure({ sessionId: id, fast: true })).fast).toBe(true);
+    expect(ofType(first, id, 'session.configured').map((e) => e.payload.fast)).toEqual([
+      true,
+      undefined,
+      undefined,
+      true,
+    ]);
+    // 不支持的模型上要快速：忽略，值没变不写。
+    await first.manager.configure({ sessionId: id, fast: true });
+    expect(ofType(first, id, 'session.configured')).toHaveLength(4);
+
+    const { h } = restart(first);
+    const resume = vi.spyOn(h.adapter, 'resumeSession');
+    // 新的 EchoAdapter 不认识原来的引擎会话，恢复失败；只看交给它的配置。
+    await expect(send(h, id, 'hi')).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
+    expect(resume.mock.calls[0]?.[1].fast).toBe(true);
+    expect(h.storage.sessions.get(id)?.fast).toBe(true);
+  });
+
+  it('快速模式（0.148.0）：没给时取模型的 fastByDefault，明确给 false 时是标准速度', async () => {
+    const h = setup();
+    h.storage.providers.insert({
+      id: 'sub',
+      kind: 'openai-compatible',
+      displayName: 'Sub',
+      api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:11434/v1',
+      models: [{ id: 'sol', supportsFast: true, fastByDefault: true }, { id: 'plain' }],
+      defaultModelId: 'sol',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    expect((await h.manager.create({ workspaceId: 'ws_1', providerId: 'sub' })).fast).toBe(true);
+    const off = await h.manager.create({ workspaceId: 'ws_1', providerId: 'sub', fast: false });
+    expect(off.fast).toBeUndefined();
+    // 同一个模型上关掉的不因默认值又打开；换到别的模型再换回来时取默认值。
+    expect(
+      (await h.manager.configure({ sessionId: off.id, reasoningEffort: 'high' })).fast,
+    ).toBeUndefined();
+    await h.manager.configure({ sessionId: off.id, modelId: 'plain' });
+    expect((await h.manager.configure({ sessionId: off.id, modelId: 'sol' })).fast).toBe(true);
+  });
+
   it('Host 重启后引擎会话没挂上：只记下新值，resume 时交给引擎', async () => {
     const first = setup();
     const id = await create(first);

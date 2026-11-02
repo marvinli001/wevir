@@ -56,7 +56,7 @@ import {
   type WebToolServer,
   writeWebToolScript,
 } from '@wevir/runtime-adapter/web-tool';
-import { ChatgptAccount } from './account.js';
+import { ChatgptAccount, CODEX_FAST_TIER } from './account.js';
 import {
   type CodexExit,
   type CodexLauncher,
@@ -355,6 +355,8 @@ interface CodexSession {
   override?: { model: string; effort: string | null };
   /** 会话当前的推理强度（Codex 的值；null 是模型的默认档位）：协作模式（0.36.0）的 `settings` 要带上。 */
   effort: string | null;
+  /** 快速模式（0.148.0）：模型 `supportsFast` 时每个 `turn/start` 按它带 `serviceTier`，`configureSession` 可以换。 */
+  fast: boolean;
   /** 权限模式（0.11.0）：每个 `turn/start` 按它带审批策略、审查方与沙箱，`configureSession` 可以换。 */
   permission: PermissionMode;
   /** 环境会话的额外目录（0.15.0）：沙箱的 writableRoots。 */
@@ -831,6 +833,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.additionalRoots,
         config.connectors,
         config.engineTools,
+        config.fast,
       );
       return engineSession(id, response);
     } finally {
@@ -886,6 +889,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.additionalRoots,
         config.connectors,
         config.engineTools,
+        config.fast,
       );
       // 0.35.0：记下 thread 的目标（停止回合时要知道它是不是进行中）；Codex 恢复时的那次通知可能早于登记。
       const session = this.#sessions.get(engineSessionId);
@@ -995,9 +999,19 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       threadId: session.id,
       input,
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
+      ...this.#serviceTier(session),
       ...permissionSettings(session.permission, session.roots, session.readOnly),
       collaborationMode: this.#collaborationMode(session, mode),
     };
+  }
+
+  /**
+   * 快速模式（0.148.0，照 T3 Code 的 `getCodexServiceTierOptionValue`）：ChatGPT 订阅里目录列了快速档的模型，每个回合明确带上档位，关着时
+   * 是 `default`（不落到目录的默认档，有的模型默认就是快速档）。别的模型不带，沿用 thread 的设置。
+   */
+  #serviceTier(session: CodexSession): Pick<TurnStartParams, 'serviceTier'> {
+    if (!this.#chatgpt || session.model.supportsFast !== true) return {};
+    return { serviceTier: session.fast ? CODEX_FAST_TIER : 'default' };
   }
 
   /**
@@ -1356,13 +1370,18 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * 换模型或推理档位（0.9.0，codex-event-mapping.md §4.6）：记在会话上，之后每个 `turn/start` 带 `model` 与 `effort`
+   * 换模型、推理档位（0.9.0，codex-event-mapping.md §4.6）或快速模式（0.148.0）：记在会话上，之后每个 `turn/start` 带 `model` 与 `effort`
    * （Codex 的这两个字段对这个回合及之后都生效）。基础提示词是 `thread/start` 时按原来的模型渲染的，不重渲染。没给档位时
    * `effort` 是 null（不覆盖，沿用 thread 的设置）。权限模式（0.11.0，§4.7）同样记下，下一个 `turn/start` 起按它带。
    */
   async configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
+    config: {
+      modelId: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      permissionMode?: PermissionMode;
+    },
   ): Promise<void> {
     this.#assertUsable();
     const session = this.#session(engineSessionId);
@@ -1378,6 +1397,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     session.effort =
       config.reasoningEffort === undefined ? null : toCodexEffort(config.reasoningEffort);
     session.override = { model: model.id, effort: session.effort };
+    session.fast = config.fast === true;
     session.permission = config.permissionMode ?? 'on_request';
     // 新的设置要等下一个 turn/start 才交给 thread（0.35.0：Codex 自己开的目标回合沿用 thread 上的）。
     session.settingsSynced = false;
@@ -1454,6 +1474,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.additionalRoots,
         config.connectors,
         config.engineTools,
+        config.fast,
       );
       if (!side) return engineSession(id, response);
       const inject: ThreadInjectItemsParams = {
@@ -2191,6 +2212,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       model,
       // 子 thread 由 Codex 驱动，不经 turn/start；记下父会话的模式与档位只为完整。
       effort: parent.effort,
+      fast: parent.fast,
       permission: parent.permission,
       roots: parent.roots,
       readOnly: parent.readOnly,
@@ -2954,6 +2976,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     roots: readonly string[] = [],
     connectors: SessionConfig['connectors'] = [],
     engineTools?: SessionConfig['engineTools'],
+    fast?: boolean,
   ): void {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
@@ -2964,6 +2987,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       providerId: provider.id,
       model,
       effort: reasoningEffort === undefined ? null : toCodexEffort(reasoningEffort),
+      fast: fast === true,
       permission,
       roots,
       readOnly: engineTools?.denied.includes('edit') === true,

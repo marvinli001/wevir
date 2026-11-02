@@ -1,0 +1,81 @@
+{
+  "protocolVersion": "0.148.0",
+  "frozenAt": "2026-11-02",
+  "methods": {
+    "session.create": {
+      "params": [
+        {
+          "providerId": "chatgpt",
+          "modelId": "gpt-6.1-sol",
+          "reasoningEffort": "high",
+          "fast": true
+        }
+      ],
+      "result": []
+    },
+    "session.configure": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "fast": true
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "modelId": "gpt-6.1-sol",
+          "fast": false
+        }
+      ],
+      "result": []
+    },
+    "provider.list": {
+      "params": [{}],
+      "result": [
+        {
+          "providers": [
+            {
+              "id": "chatgpt",
+              "kind": "chatgpt",
+              "displayName": "ChatGPT",
+              "models": [
+                {
+                  "id": "gpt-6.1-sol",
+                  "displayName": "GPT-6.1-Sol",
+                  "supportsImages": true,
+                  "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+                  "supportsFast": true
+                },
+                {
+                  "id": "gpt-6-sol",
+                  "displayName": "GPT-6-Sol",
+                  "supportsFast": true,
+                  "fastByDefault": true
+                }
+              ],
+              "defaultModelId": "gpt-6.1-sol",
+              "hasSecret": false,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "seq": 2,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-11-02T08:00:00.000Z",
+      "type": "session.configured",
+      "source": "host",
+      "payload": {
+        "modelId": "gpt-6.1-sol",
+        "reasoningEffort": "high",
+        "fast": true,
+        "permissionMode": "on_request"
+      }
+    }
+  ],
+  "errors": []
+}

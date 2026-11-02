@@ -588,6 +588,12 @@ export const HOST_FEATURES = {
    * 结果的 `approvalId`。引擎收不了附言时 Host 改为插话或待发消息，与引擎无关地声明。
    */
   approvalMessages: 'approval_messages',
+  /**
+   * 快速模式（0.148.0）：`ProviderModel.supportsFast`、`Session.fast`，`session.create` / `session.configure` 的 `fast` 与
+   * `session.created` / `session.configured` / `session.handoff` 的 `fast`。Host 只把它交给声明了模型 `supportsFast` 的引擎（Codex 的
+   * ChatGPT 订阅、Claude 订阅），别的模型忽略。与引擎无关地声明。
+   */
+  fastMode: 'fast_mode',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -705,6 +711,7 @@ export const HostFeaturesSchema = z.looseObject({
   lifecycle_hooks: z.boolean().optional(),
   agent_notifications: z.boolean().optional(),
   approval_messages: z.boolean().optional(),
+  fast_mode: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

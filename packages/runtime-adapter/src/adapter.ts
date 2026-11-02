@@ -172,13 +172,18 @@ export interface AgentRuntimeAdapter {
   /**
    * 换会话的模型、推理档位（0.9.0，`session.configure`）或权限模式（0.11.0）：Host 每次给全部当前值，从下一个回合起用新的
    * 值，进行中的回合不受影响（Codex：下一个 `turn/start` 带 `model`、`effort` 与审批、沙箱设置）。`reasoningEffort` 省略
-   * 表示不指定，用模型的默认档位；`permissionMode` 省略表示 `on_request`。会话没挂着（关闭、脱开）时 Host 不调它，之后
+   * 表示不指定，用模型的默认档位；`fast`（0.148.0）省略表示标准速度；`permissionMode` 省略表示 `on_request`。会话没挂着（关闭、脱开）时 Host 不调它，之后
    * `resumeSession` 的配置里就是新的值。不实现表示引擎不能在会话中换（dsh），Host 不声明 `session_configure`。
    * 错误：`session_not_found`、`invalid_input`（Provider 没有这个模型、子会话）、`disposed`。
    */
   configureSession?(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
+    config: {
+      modelId: string;
+      reasoningEffort?: string;
+      fast?: boolean;
+      permissionMode?: PermissionMode;
+    },
   ): Promise<void>;
 
   /**

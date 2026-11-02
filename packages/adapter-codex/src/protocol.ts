@@ -230,6 +230,11 @@ export interface TurnStartParams {
   /** 这个回合及之后的推理强度（ReasoningEffort.ts）。 */
   effort?: string | null;
   /**
+   * 这个回合及之后的速度档（快速模式 0.148.0）：目录里的档位 ID（`priority` 即 Fast）或 `default`（明确要标准速度，不用目录的默认档）。
+   * null 清掉，用目录的默认；省略不改。
+   */
+  serviceTier?: string | null;
+  /**
    * 这个回合及之后的审批策略（v2/AskForApproval.ts；字段是 `experimental(nested)`，只有 granular 一种要 experimentalApi，
    * 本包只用 `on-request` 与 `never`，权限模式 0.11.0）。
    */
@@ -927,5 +932,11 @@ export interface CodexModel {
   supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }>;
   defaultReasoningEffort: string;
   inputModalities: string[];
+  /** 已废弃的速度档列表（v2/Model.ts），新目录用 `serviceTiers`；快速是 `fast`。 */
+  additionalSpeedTiers?: string[];
+  /** v2/ModelServiceTier.ts：快速档的 ID 是 `priority`（名字 Fast）。 */
+  serviceTiers?: Array<{ id: string; name: string; description: string }>;
+  /** 目录给这个模型的默认档位 ID；null 表示标准速度。 */
+  defaultServiceTier?: string | null;
   isDefault: boolean;
 }

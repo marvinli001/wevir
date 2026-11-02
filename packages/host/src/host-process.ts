@@ -1658,6 +1658,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         environment_variables: true,
         approval_risk: true,
         approval_messages: true,
+        fast_mode: true,
         session_worktree: true,
         provider_enabled: true,
         chat_sessions: true,

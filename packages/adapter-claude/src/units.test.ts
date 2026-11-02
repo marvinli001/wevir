@@ -373,6 +373,15 @@ describe('模型目录（T3 的随包清单）', () => {
     );
   });
 
+  it('快速模式（0.148.0）：清单里有 fastMode 开关的模型（Opus）supportsFast，别的没有', () => {
+    const fast = claudeModels('2.1.300')
+      .models.filter((model) => model.supportsFast === true)
+      .map((model) => model.id);
+    expect(fast).toContain('claude-opus-5-5');
+    expect(fast).toContain('claude-opus-4-6');
+    expect(fast.every((id) => id.startsWith('claude-opus-'))).toBe(true);
+  });
+
   it('档位：只留 Wevir 认识的值；effortMap 换算；上下文窗口与 [1m] 后缀', () => {
     const opus = claudeModels('2.1.287').models.find((model) => model.id === 'claude-opus-5-5');
     expect(opus).toMatchObject({

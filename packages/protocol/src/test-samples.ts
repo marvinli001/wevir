@@ -1158,7 +1158,9 @@ export const chatgptProvider: ProviderProfile = {
       displayName: 'GPT-6.1-Sol',
       supportsImages: true,
       reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsFast: true,
     },
+    { id: 'gpt-6-sol', displayName: 'GPT-6-Sol', supportsFast: true, fastByDefault: true },
   ],
   defaultModelId: 'gpt-6.1-sol',
   hasSecret: false,
@@ -2254,7 +2256,12 @@ export const eventPayloads: PayloadSamples = {
     invalid: { reason: 'engine_session_missing', message: 'x' },
   },
   'session.configured': {
-    valid: { modelId: 'deepseek-v4-pro', reasoningEffort: 'high', permissionMode: 'auto_review' },
+    valid: {
+      modelId: 'gpt-6.1-sol',
+      reasoningEffort: 'high',
+      fast: true,
+      permissionMode: 'auto_review',
+    },
     invalid: { modelId: 'deepseek-v4-pro', permissionMode: 'yolo' },
   },
   'session.handoff': {
@@ -5085,6 +5092,8 @@ export const methodSamples: MethodSamples = {
         },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', worktree: 'new' },
         { providerId: 'deepseek-official', permissionMode: 'full_access' },
+        // 0.148.0：快速模式。
+        { providerId: 'chatgpt', modelId: 'gpt-6.1-sol', reasoningEffort: 'high', fast: true },
         // 0.61.0：工具预设。
         { providerId: 'deepseek-official', toolPreset: { id: 'full' } },
         {
@@ -5177,6 +5186,10 @@ export const methodSamples: MethodSamples = {
         { session: { ...session, state: 'idle' }, pendingApprovals: [] },
         { session: { ...session, state: 'idle', collaborationMode: 'plan' }, pendingApprovals: [] },
         {
+          session: { ...session, providerId: 'chatgpt', modelId: 'gpt-6.1-sol', fast: true },
+          pendingApprovals: [],
+        },
+        {
           session: { ...session, state: 'idle', activityAt: TS, activitySeq: 9 },
           pendingApprovals: [],
         },
@@ -5216,6 +5229,9 @@ export const methodSamples: MethodSamples = {
         { sessionId: ids.session, modelId: 'deepseek-v4-pro', reasoningEffort: 'high' },
         { sessionId: ids.session, reasoningEffort: null },
         { sessionId: ids.session, permissionMode: 'auto_review' },
+        // 0.148.0：快速模式。
+        { sessionId: ids.session, fast: true },
+        { sessionId: ids.session, modelId: 'gpt-6.1-sol', fast: false },
         { sessionId: ids.session, providerId: 'claude', modelId: 'claude-opus-5-5' },
         { sessionId: ids.session, providerId: 'claude' },
         // 0.59.0：必须携带的约束与选入的笔记。
@@ -5251,6 +5267,7 @@ export const methodSamples: MethodSamples = {
         { modelId: 'deepseek-v4-pro' },
         { sessionId: ids.session, modelId: '' },
         { sessionId: ids.session, permissionMode: 'ask' },
+        { sessionId: ids.session, fast: 'on' },
         { sessionId: ids.session, providerId: 'Claude' },
         { sessionId: ids.session, providerId: 'claude', handoff: { constraints: ['  '] } },
         {

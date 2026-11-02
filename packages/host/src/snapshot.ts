@@ -78,11 +78,13 @@ export interface SessionProjection {
   readonly title: string;
   readonly titleSource: TitleSource;
   /**
-   * 最近一次 `session.configured`（0.9.0）带来的模型、推理档位与权限模式（0.11.0）；没有时用 `sessions` 表里建会话时的值。
+   * 最近一次 `session.configured`（0.9.0）带来的模型、推理档位、快速模式（0.148.0）与权限模式（0.11.0）；没有时用 `sessions` 表里建
+   * 会话时的值。
    */
   readonly model?: {
     readonly modelId: string;
     readonly reasoningEffort?: string;
+    readonly fast?: true;
     readonly permissionMode?: PermissionMode;
   };
   readonly activeTurn?: ActiveTurn;
@@ -412,6 +414,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         ...(event.payload.reasoningEffort !== undefined && {
           reasoningEffort: event.payload.reasoningEffort,
         }),
+        ...(event.payload.fast === true && { fast: true as const }),
         ...(event.payload.permissionMode !== undefined && {
           permissionMode: event.payload.permissionMode,
         }),
@@ -434,6 +437,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         ...(event.payload.reasoningEffort !== undefined && {
           reasoningEffort: event.payload.reasoningEffort,
         }),
+        ...(event.payload.fast === true && { fast: true as const }),
         ...(event.payload.permissionMode !== undefined && {
           permissionMode: event.payload.permissionMode,
         }),
@@ -885,6 +889,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     ? projection.model.reasoningEffort
     : record.reasoningEffort;
   if (reasoningEffort !== undefined) session.reasoningEffort = reasoningEffort;
+  if (projection.model ? projection.model.fast === true : record.fast === true) session.fast = true;
   const permissionMode = projection.model
     ? projection.model.permissionMode
     : (record.permissionMode as PermissionMode | undefined);
@@ -1015,6 +1020,7 @@ export function toCachePatch(projection: SessionProjection): SessionCachePatch {
   if (projection.model) {
     patch.modelId = projection.model.modelId;
     patch.reasoningEffort = projection.model.reasoningEffort ?? null;
+    patch.fast = projection.model.fast ?? null;
     if (projection.model.permissionMode !== undefined) {
       patch.permissionMode = projection.model.permissionMode;
     }

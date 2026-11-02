@@ -32,6 +32,8 @@ export interface SessionRecord {
   providerId: string;
   modelId: string;
   reasoningEffort?: string;
+  /** 快速模式（0029_session_fast，协议 0.148.0）：省略表示标准速度。 */
+  fast?: boolean;
   /** 权限模式（U15，0003_permission_mode）：省略表示 `on_request`。 */
   permissionMode?: string;
   /** 环境会话（U22.1，0004_environments）：用哪个环境建的、额外的可写目录、新开的 worktree。建会话后不变。 */
@@ -105,13 +107,14 @@ export interface SessionRecord {
   profileVersionId?: string;
 }
 
-/** 可更新的缓存字段。`activeTurn`、`lastError`、`reasoningEffort` 传 `null` 表示清空。 */
+/** 可更新的缓存字段。`activeTurn`、`lastError`、`reasoningEffort`、`fast` 传 `null` 表示清空。 */
 export interface SessionCachePatch {
   /** 接力（0.25.0）后当前的 Provider 与引擎会话。 */
   providerId?: string;
   engineSessionId?: string;
   modelId?: string;
   reasoningEffort?: string | null;
+  fast?: true | null;
   permissionMode?: string;
   title?: string;
   titleSource?: string;
@@ -175,6 +178,7 @@ const PATCH_COLUMNS = {
   engineSessionId: 'engine_session_id',
   modelId: 'model_id',
   reasoningEffort: 'reasoning_effort',
+  fast: 'fast',
   permissionMode: 'permission_mode',
   title: 'title',
   titleSource: 'title_source',
@@ -190,12 +194,12 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const updates = new Map<string, SqliteStatement>();
   const insert = db.prepare(`
     INSERT INTO sessions (
-      id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
+      id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort, fast,
       permission_mode, environment_id, extra_roots, worktrees, origin, tool_preset, forked_from, side,
       parent_session_id, parent_tool_call_id, profile_version_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
-      :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
+      :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort, :fast,
       :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :toolPreset, :forkedFrom, :side,
       :parentSessionId, :parentToolCallId, :profileVersionId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
@@ -253,6 +257,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         providerId: record.providerId,
         modelId: record.modelId,
         reasoningEffort: record.reasoningEffort ?? null,
+        fast: record.fast === true ? 1 : null,
         permissionMode: record.permissionMode ?? null,
         environmentId: record.environmentId ?? null,
         extraRoots: record.extraRoots ? JSON.stringify(record.extraRoots) : null,
@@ -340,7 +345,9 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         params[key] =
           key === 'activeTurn' || key === 'lastError'
             ? toNullableJson(value)
-            : (value as string | number | null);
+            : value === true
+              ? 1
+              : (value as string | number | null);
       }
       if (sets.length === 0) throw new TypeError('SessionCachePatch 至少要有一个字段');
       const columns = sets.join(', ');
@@ -375,6 +382,7 @@ function fromRow(row: SqlRow): SessionRecord {
   };
   const reasoningEffort = optionalText(row, 'reasoning_effort');
   if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+  if (row.fast === 1) record.fast = true;
   const permissionMode = optionalText(row, 'permission_mode');
   if (permissionMode !== undefined) record.permissionMode = permissionMode;
   const environmentId = optionalText(row, 'environment_id');

@@ -92,6 +92,16 @@ describe('sessions', () => {
     expect(s.sessions.get('ses_01')?.reasoningEffort).toBeUndefined();
   });
 
+  it('快速模式（0029，0.148.0）：没写时省略；可由 session.configured 打开与清掉', () => {
+    const s = storage();
+    seedSession(s);
+    expect(s.sessions.get('ses_01')?.fast).toBeUndefined();
+    s.sessions.update('ses_01', { fast: true });
+    expect(s.sessions.get('ses_01')?.fast).toBe(true);
+    s.sessions.update('ses_01', { fast: null });
+    expect(s.sessions.get('ses_01')?.fast).toBeUndefined();
+  });
+
   it('权限模式（0.11.0）：没写时省略，表示 on_request；可由 session.configured 改', () => {
     const s = storage();
     seedSession(s);
