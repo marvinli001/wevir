@@ -68,7 +68,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     ...config,
     name: 'Wevir',
     slug: 'wevir',
-    version: '1.0.0',
+    version: '1.0.1',
     // 配对链接 `wevir://pair?…`：系统相机扫码、点链接都打开 App 的添加电脑页（src/app/+native-intent.tsx）。
     scheme: 'wevir',
     orientation: 'portrait',
