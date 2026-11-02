@@ -5,6 +5,7 @@
 // --spring-reveal），遮罩仍 200 ms ease-smooth，两者退场都是 110 ms ease-smooth。
 // 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
 // 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
+// 2026-11-02 起：对话框带 shadow-lg（--elevation，同菜单与浮层）；有叠在上面的对话框时下面这层缩小、上移、蒙遮罩。
 
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cn } from 'cn';
@@ -56,7 +57,10 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:slide-in-from-bottom-2 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:slide-in-from-bottom-2 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          // 叠在上面的对话框打开时（Base UI 的 nested，确认框叠在列表框上）：下面这层缩小一点、往上退一点、蒙一层遮罩色，
+          // 上下两层分得出前后。只过渡 scale / translate，不碰颜色（见文件头 transition-none 的原因）。
+          'transition-[scale,translate] duration-300 ease-smooth data-nested-dialog-open:scale-[calc(1-0.05*var(--nested-dialogs))] data-nested-dialog-open:-translate-y-[calc(50%+0.75rem*var(--nested-dialogs))] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:bg-overlay after:opacity-0 after:transition-opacity after:duration-300 after:ease-smooth data-nested-dialog-open:after:opacity-100',
           className,
         )}
         {...props}
