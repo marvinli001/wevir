@@ -6919,8 +6919,9 @@ export class SessionManager {
   }
 
   /**
-   * 到了发继续消息的时刻：仍排着同一个回合、会话空闲、没有待审批 / 待回答 / 待发消息时，以 `from.usageLimit` 替用户发
-   * `AUTO_CONTINUE_PROMPT`（引擎看到的就是这句，不包信封）。不能发（有人在用、出错、只读）时关掉，不再等。
+   * 到了发继续消息的时刻：仍排着同一个回合、会话空闲、没有待审批 / 待回答 / 等待中的待发消息时，以 `from.usageLimit` 替用户发
+   * `AUTO_CONTINUE_PROMPT`（引擎看到的就是这句，不包信封）。不能发（有人在用、出错、只读）时关掉，不再等。失败的回合里排的消息
+   * 都已暂停，不挡：继续的回合完成后别的会话、Host 发来的照常放行，用户自己的仍等用户继续。
    */
   #autoContinueDue(sessionId: SessionId): void {
     if (this.#shuttingDown || this.#disposed) return;
@@ -6939,7 +6940,7 @@ export class SessionManager {
       const blocked =
         session.state !== 'idle' ||
         session.readOnly !== undefined ||
-        (snapshot.pendingMessages ?? []).length > 0 ||
+        (snapshot.pendingMessages ?? []).some((pending) => pending.status !== 'held') ||
         snapshot.pendingApprovals.length > 0 ||
         (snapshot.pendingQuestions?.length ?? 0) > 0;
       if (blocked) {

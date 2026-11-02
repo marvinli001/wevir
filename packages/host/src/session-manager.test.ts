@@ -2832,6 +2832,40 @@ describe('SessionManager：重连进度与额度恢复后自动继续（0.119.0�
     expect(snapshot(h, id).session.autoContinue).toBeUndefined();
   });
 
+  it('失败的回合里排的消息都暂停了也照样继续；继续完成后放行别的会话发来的，用户发的仍暂停', async () => {
+    const h = setup({
+      adapter: new EchoAdapter({ stepDelayMs: 50 }),
+      manager: { autoContinue: { now: () => Date.now() + 120_000, delayMs: 0 } },
+    });
+    const id = await create(h);
+    const other = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    const queue = (value: string, from?: MessageFrom) =>
+      h.manager.send({ sessionId: id, content: text(value), delivery: 'queue' }, cli, {
+        ...(from !== undefined && { from }),
+      });
+    const mine = await queue('mine');
+    await queue('report', { sessionId: other, kind: 'report' });
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).pendingMessages?.map((p) => p.status)).toEqual(['held', 'held']);
+
+    await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
+    await vi.waitFor(
+      () =>
+        expect(ofType(h, id, 'user.message').map((e) => textOf(e.payload.content))).toEqual([
+          'hitlimit',
+          'I hit my usage limit while you were working, but it has reset now. Please continue from where you left off.',
+          'report',
+        ]),
+      { timeout: 8000, interval: 5 },
+    );
+    // 回合慢（每步 50ms，好在失败之前排进消息），等得久一些。
+    await vi.waitFor(() => expect(state(h, id)).toBe('idle'), { timeout: 8000, interval: 5 });
+    expect(snapshot(h, id).pendingMessages).toEqual([
+      expect.objectContaining({ id: mine.pendingId, status: 'held' }),
+    ]);
+  }, 20_000);
+
   it('默认排上：回合因用量上限失败就开着，再打开不重写；已经重置过、过了一天才重置的不排', async () => {
     const h = setup();
     const id = await create(h);
