@@ -2,7 +2,6 @@
 // （push-registrar.ts）与它一起建：退出电脑时先请那台电脑解绑推送。
 
 import { generateKeyPair } from '@wevir/noise';
-import { DEVICE_NAME_MAX_LENGTH } from '@wevir/protocol';
 import * as Device from 'expo-device';
 import {
   createContext,
@@ -17,6 +16,7 @@ import { cacheProvider } from '../lib/cache';
 import { deleteComputerCache, openComputerCache } from '../lib/cache-store';
 import type { LinkSnapshot } from '../lib/computer-link';
 import { ComputerRegistry } from '../lib/computers';
+import { pickDeviceName } from '../lib/device-name';
 import { browseWevirHosts } from '../lib/mdns';
 import type { PairingEnvironment } from '../lib/pairing';
 import {
@@ -127,8 +127,7 @@ export function pairingEnvironment(deviceName: string): PairingEnvironment {
   };
 }
 
-/** 设备名称的初值：系统设备名，没有时用机型。 */
+/** 设备名称的初值：系统里的设备名，只是机型类别或没有时用机型（lib/device-name.ts）。 */
 export function defaultDeviceName(): string {
-  const name = (Device.deviceName ?? Device.modelName ?? 'Wevir Mobile').trim();
-  return (name === '' ? 'Wevir Mobile' : name).slice(0, DEVICE_NAME_MAX_LENGTH);
+  return pickDeviceName(Device.deviceName, Device.modelName);
 }

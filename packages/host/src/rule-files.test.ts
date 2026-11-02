@@ -76,11 +76,12 @@ describe('discoverRuleFiles', () => {
       'codex-home/AGENTS.md': 'custom codex',
       'claude-home/CLAUDE.md': 'custom claude',
       'home/.codex/AGENTS.md': 'ignored',
-      'loose/AGENTS.md': 'loose',
-      'AGENTS.md': 'parent of loose',
+      'home/loose/AGENTS.md': 'loose',
+      'home/AGENTS.md': 'parent of loose',
     });
+    // 会话目录放在家目录下：往上找 `.git` 停在家目录，不受系统临时目录之上别的测试留下的 `.git` 影响。
     const found = await discoverRuleFiles({
-      cwd: join(root, 'loose'),
+      cwd: join(home, 'loose'),
       home,
       env: { CODEX_HOME: join(root, 'codex-home'), CLAUDE_CONFIG_DIR: join(root, 'claude-home') },
     });

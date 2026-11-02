@@ -41,9 +41,9 @@ describe('androidVersionCode', () => {
       process.env.WEVIR_ANDROID_VERSION = '0.0.2-beta.7';
       const result = appConfig({ config: {}, projectRoot: __dirname } as unknown as ConfigInput);
       expect(result.android).toMatchObject({ version: '0.0.2-beta.7', versionCode: 20007 });
-      expect(result.version).toBe('1.0.0');
       delete process.env.WEVIR_ANDROID_VERSION;
       const dev = appConfig({ config: {}, projectRoot: __dirname } as unknown as ConfigInput);
+      expect(result.version).toBe(dev.version);
       expect(dev.android?.version).toBeUndefined();
       expect(dev.android?.versionCode).toBeUndefined();
     } finally {

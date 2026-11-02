@@ -34,6 +34,8 @@ describe('档案的护栏层经 Host API', () => {
     const home = join(root, 'home');
     const project = join(root, 'project');
     mkdirSync(join(project, '.codex'), { recursive: true });
+    // 自成仓库：hooks 的 id 相对仓库根，不能往上找到系统临时目录之上的 `.git`。
+    mkdirSync(join(project, '.git'));
     writeFileSync(
       join(project, '.codex', 'hooks.json'),
       JSON.stringify({

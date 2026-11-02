@@ -18,6 +18,13 @@ const APPLE_TEAM_ID = process.env.WEVIR_APPLE_TEAM_ID || '678WA95W4U';
  */
 const BUILD_NUMBER = process.env.WEVIR_BUILD_NUMBER || '1';
 /**
+ * 读 iPhone 的本机名称（设置 > 通用 > 关于本机 > 名称）：iOS 16 起要 Apple 批准的 user-assigned-device-name 授权，没有时
+ * UIDevice.name 只给“iPhone”，添加电脑页改用机型（src/lib/device-name.ts）。授权在
+ * https://developer.apple.com/contact/request/user-assigned-device-name/ 申请；批下来后 App ID 里会多出这项能力，再改成 true，
+ * 否则描述文件里没有这项授权，签名失败。
+ */
+const USER_ASSIGNED_DEVICE_NAME = false;
+/**
  * versionName 对应的 versionCode：`X.Y.Z` 与 `X.Y.Z-beta.N` 共用桌面端的版本线（正式版 X.Y.Z 之后的开发版是 X.Y.(Z+1)-beta.N），
  * 按 semver 的先后单调递增：X·10⁸ + Y·10⁶ + Z·10⁴ + (开发版 N，正式版 9999)。Android 要求新包的 versionCode 更大才能覆盖安装。
  */
@@ -97,6 +104,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // 在开发者账号里登记这个 App Group，给 App 与扩展（`si.wevir.mobile.NotificationService`）的 App ID 都打开，App 的还要打开 Push。
       entitlements: {
         'com.apple.security.application-groups': [IOS_APP_GROUP],
+        ...(USER_ASSIGNED_DEVICE_NAME
+          ? { 'com.apple.developer.device-information.user-assigned-device-name': true }
+          : {}),
       },
     },
     android: {
