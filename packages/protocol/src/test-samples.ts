@@ -5176,6 +5176,10 @@ export const methodSamples: MethodSamples = {
         snapshot,
         { session: { ...session, state: 'idle' }, pendingApprovals: [] },
         { session: { ...session, state: 'idle', collaborationMode: 'plan' }, pendingApprovals: [] },
+        {
+          session: { ...session, state: 'idle', activityAt: TS, activitySeq: 9 },
+          pendingApprovals: [],
+        },
         { session: readOnlySession, pendingApprovals: [] },
         { ...snapshot, subagents: [subagentSummary] },
         { session: childSession, pendingApprovals: [childApproval] },
@@ -5199,6 +5203,7 @@ export const methodSamples: MethodSamples = {
         { ...snapshot, promptSuggestion: { turnId: ids.turn, text: '' } },
         { ...snapshot, promptSuggestion: { text: '跑一下测试' } },
         { session },
+        { session: { ...session, activitySeq: -1 }, pendingApprovals: [] },
         { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] },
         { ...snapshot, taskBoard: [{ ...boardTask, blockedBy: [''] }] },
         { session: { ...session, collaborationMode: 'ask' }, pendingApprovals: [] },

@@ -3,12 +3,13 @@
 // 自己的字段；客户端据此在两次读取列表之间跟上状态、标题与最近活动时间。子会话（R4）另外推进 `subagent`；父会话的
 // 子会话列表用 `applySubagentEvent`。
 
-import type {
-  Session,
-  SubagentStatus,
-  SubagentSummary,
-  TurnOutcome,
-  WevirEvent,
+import {
+  SESSION_ACTIVITY_EVENTS,
+  type Session,
+  type SubagentStatus,
+  type SubagentSummary,
+  type TurnOutcome,
+  type WevirEvent,
 } from '@wevir/protocol';
 
 /** 子会话的回合结果 → 子会话的状态（domain-model §3.3.1，与 Host 的推导相同）。 */
@@ -19,6 +20,16 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
   interrupted: 'failed',
 };
 
+/** 会话的最近活动时刻（0.147.0）：`activityAt`，旧 Host 没给时用 `updatedAt`。客户端排会话、显示多久以前都用它。 */
+export function sessionActivityAt(session: Pick<Session, 'activityAt' | 'updatedAt'>): string {
+  return session.activityAt ?? session.updatedAt;
+}
+
+/** 会话的最近活动的 `seq`（0.147.0）：`activitySeq`，旧 Host 没给时用 `lastSeq`。客户端判断未读用它。 */
+export function sessionActivitySeq(session: Pick<Session, 'activitySeq' | 'lastSeq'>): number {
+  return session.activitySeq ?? session.lastSeq;
+}
+
 /**
  * 应用一条事件，返回新的 `Session`（不修改传入的对象）。事件的 seq 不大于 `session.lastSeq` 时视为已应用，
  * 原样返回；不认识的事件只推进 `lastSeq` 与 `updatedAt`。
@@ -26,6 +37,11 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
 export function applySessionEvent(session: Session, event: WevirEvent): Session {
   if (event.sessionId !== session.id || event.seq <= session.lastSeq) return session;
   const next: Session = { ...session, lastSeq: event.seq, updatedAt: event.ts };
+  // 0.147.0：最近活动只由用户或 agent 看得见的内容推进；旧 Host 不给这两个字段时也不补，客户端照旧用 `updatedAt` 与 `lastSeq`。
+  if (session.activitySeq !== undefined && SESSION_ACTIVITY_EVENTS.has(event.type)) {
+    next.activityAt = event.ts;
+    next.activitySeq = event.seq;
+  }
   switch (event.type) {
     case 'session.read_only':
       next.readOnly = {

@@ -57,6 +57,7 @@ import {
   modelErrorRecovery,
   PROMPT_SUGGESTION_VOIDING_EVENTS,
   PROTOCOL_VERSION,
+  SESSION_ACTIVITY_EVENTS,
   VERIFICATION_RUNS_KEPT,
 } from '@wevir/protocol';
 import type { SessionCachePatch, SessionRecord } from '@wevir/storage';
@@ -70,6 +71,9 @@ export interface SessionProjection {
   readonly lastSeq: number;
   /** 最后一个事件的 `ts`。 */
   readonly updatedAt?: IsoTime;
+  /** 最近活动（0.147.0）：最后一条 `SESSION_ACTIVITY_EVENTS` 里的事件的 `ts` 与 `seq`。 */
+  readonly activityAt?: IsoTime;
+  readonly activitySeq?: number;
   readonly state: SessionState;
   readonly title: string;
   readonly titleSource: TitleSource;
@@ -256,6 +260,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * 应用一条事件。只读状态、不做校验：库里已有的事件都是事实，重放时照单全收；不认识的 `type`
  * （更新版本写入的事件）只推进 `lastSeq` 与 `updatedAt`。写入前的校验见 `checkEvent`。
  *
+ * - `activityAt` / `activitySeq`（0.147.0）：`SESSION_ACTIVITY_EVENTS` 里的事件推进，别的事件不动。
  * - `lastError`：每条 `engine.error` 都会覆盖它（含回合失败这类不改变状态的错误）；回合开始
  *   （`turn_started`）或恢复（`resumed`）时清空。
  * - `activeTurn`：`turn.started` 设置，`turn.finished` 清空。
@@ -277,6 +282,10 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     updatedAt: event.ts,
   };
   if (PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type)) next.promptSuggestion = undefined;
+  if (SESSION_ACTIVITY_EVENTS.has(event.type)) {
+    next.activityAt = event.ts;
+    next.activitySeq = event.seq;
+  }
   switch (event.type) {
     case 'session.created': {
       const parent = event.payload.parent;
@@ -868,6 +877,10 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     updatedAt: projection.updatedAt ?? record.updatedAt,
     lastSeq: projection.lastSeq,
   };
+  if (projection.activitySeq !== undefined && projection.activityAt !== undefined) {
+    session.activityAt = projection.activityAt;
+    session.activitySeq = projection.activitySeq;
+  }
   const reasoningEffort = projection.model
     ? projection.model.reasoningEffort
     : record.reasoningEffort;

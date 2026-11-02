@@ -1,4 +1,5 @@
 import { PreviewCard } from '@base-ui/react/preview-card';
+import { sessionActivityAt } from '@wevir/client-sdk';
 import type { SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -49,7 +50,7 @@ function SessionCardBody({ entry }: { entry: SessionEntry }) {
         </span>
         <span className="min-w-0 truncate">{sessionPlace(workspace)}</span>
         <span className="ml-auto shrink-0 tabular-nums">
-          {formatRelativeTime(session.updatedAt, Date.now())}
+          {formatRelativeTime(sessionActivityAt(session), Date.now())}
         </span>
       </div>
       <p className="mt-2 line-clamp-2 text-sm font-medium break-words text-foreground">

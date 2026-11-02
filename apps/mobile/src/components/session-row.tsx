@@ -1,6 +1,7 @@
 // 会话列表的一行：前面一枚状态标记（运行中转圈、待处理琥珀色、出错红色、其余空心点），标题与“项目 · 状态 · 时间”，尾部待处理数。
 // 会话页与电脑详情共用。助理开在项目里的线程（0.134.0）标题前带助理的头像。
 
+import { sessionActivityAt } from '@wevir/client-sdk';
 import type { Session } from '@wevir/protocol';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { t, timeAgo } from '../i18n';
@@ -110,7 +111,7 @@ export function SessionRow({
             {session.title.trim() || t('session.untitled')}
           </Text>
           <Text style={[styles.time, { color: theme.mutedForeground }]} numberOfLines={1}>
-            {timeAgo(session.updatedAt, now)}
+            {timeAgo(sessionActivityAt(session), now)}
           </Text>
         </View>
       }

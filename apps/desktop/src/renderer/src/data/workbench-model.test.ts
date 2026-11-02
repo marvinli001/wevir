@@ -199,6 +199,28 @@ describe('最近活动的顺序', () => {
     );
     expect(entry?.sessions.map((s) => s.id)).toEqual(['ses_late', 'ses_idle', 'ses_early']);
   });
+
+  it('空闲的按最近活动排（0.147.0）：一起被关闭、引擎重启过的旧会话不排到新会话前面；旧 Host 没有时用 updatedAt', () => {
+    const closedAt = '2026-11-02T05:26:38.371Z';
+    const [entry] = groupSessions(
+      [workspace('ws_a')],
+      [
+        session('ses_old', 'ws_a', { updatedAt: closedAt, activityAt: '2026-10-29T10:00:00.000Z' }),
+        session('ses_new', 'ws_a', {
+          updatedAt: '2026-11-02T03:10:42.212Z',
+          activityAt: '2026-11-02T03:10:42.212Z',
+        }),
+        session('ses_mid', 'ws_a', { updatedAt: closedAt, activityAt: '2026-10-31T10:48:21.839Z' }),
+        session('ses_legacy', 'ws_a', { updatedAt: '2026-11-01T00:00:00.000Z' }),
+      ],
+    );
+    expect(entry?.sessions.map((s) => s.id)).toEqual([
+      'ses_new',
+      'ses_legacy',
+      'ses_mid',
+      'ses_old',
+    ]);
+  });
 });
 
 describe('recentWorkspaces', () => {

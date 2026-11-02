@@ -1,5 +1,6 @@
 // 左栏“工作区 → 会话”树的数据模型与路由解析（T5.2）。纯函数，不碰 DOM 与 Host 连接。
 
+import { sessionActivityAt } from '@wevir/client-sdk';
 import type { ProviderProfile, Session, SessionId, Workspace } from '@wevir/protocol';
 
 import { threadSessions } from './session-threads';
@@ -98,10 +99,11 @@ export function onlyProgressed(before: Session, after: Session): boolean {
 
 /**
  * 排序用的“最近活动”：回合进行中时是这个回合开始的时刻，不是最后一个事件的时刻——否则几个会话同时流式输出时，每来一个
- * 事件它们就互换位置，左栏的行来回跳（U19 发现）。回合结束后回到 `updatedAt`。
+ * 事件它们就互换位置，左栏的行来回跳（U19 发现）。回合结束后回到会话的最近活动（0.147.0，`sessionActivityAt`）：引擎重启、
+ * 关闭这类事件不把旧会话顶到前面。
  */
 function activityAt(session: Session): string {
-  return session.activeTurn?.startedAt ?? session.updatedAt;
+  return session.activeTurn?.startedAt ?? sessionActivityAt(session);
 }
 
 function byRecentActivity(a: Session, b: Session): number {
@@ -213,7 +215,7 @@ export function groupByStatus(
     const marker = sessionMarker(session);
     if (marker === 'running') return 'running';
     if (marker !== undefined) return 'needsYou';
-    return Date.parse(session.updatedAt) >= since ? 'completed' : undefined;
+    return Date.parse(sessionActivityAt(session)) >= since ? 'completed' : undefined;
   };
   const ranked: Array<{ row: StatusRow; group: keyof StatusGroups; latest: Session }> = [];
   for (const { workspace, sessions } of workspaces) {

@@ -961,6 +961,32 @@ describe('applySessionEvent', () => {
     expect(base.state).toBe('idle');
   });
 
+  it('最近活动（0.147.0）只跟着看得见的内容走；旧 Host 不给时不补', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    const finished = list.at(-2);
+    add('engine.error', {
+      category: 'engine_exited',
+      message: 'engine restarted to apply provider changes; resume the session to continue',
+      fatal: true,
+    });
+    add('session.state_changed', { from: 'idle', to: 'error', reason: 'engine_exited' });
+    add('session.state_changed', { from: 'error', to: 'closed', reason: 'closed' });
+    const tracked = { ...base, activityAt: base.createdAt, activitySeq: 1 };
+    const session = list.reduce(applySessionEvent, tracked);
+    expect(session).toMatchObject({
+      activityAt: finished?.ts,
+      activitySeq: finished?.seq,
+      lastSeq: list.length,
+      updatedAt: list.at(-1)?.ts,
+    });
+    const legacy = list.reduce(applySessionEvent, base);
+    expect(legacy.activitySeq).toBeUndefined();
+    expect(legacy.activityAt).toBeUndefined();
+  });
+
   it('换模型与推理档位（0.9.0）：没给档位时清掉', () => {
     const { list, add } = events();
     add('session.configured', { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });

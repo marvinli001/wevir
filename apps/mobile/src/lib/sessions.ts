@@ -1,6 +1,7 @@
 // 一台电脑的会话列表（0.101.0 的 `session.list` + `sessions.changed`，domain-model §3.46）：先读一次列表记下 `listVersion`，之后
 // 每条变化的版本必须正好加一，否则（或重连上之后）整张重读。纯逻辑。
 
+import { sessionActivityAt } from '@wevir/client-sdk';
 import type { Session } from '@wevir/protocol';
 
 export interface SessionList {
@@ -15,11 +16,13 @@ export interface SessionsChangeLike {
   removed: readonly string[];
 }
 
-/** 按 `updatedAt` 从新到旧（同 `session.list`）。 */
+/** 按最近活动（0.147.0，旧 Host 是 `updatedAt`）从新到旧：引擎重启、关闭这类事件不把旧会话顶到前面。 */
 export function sortSessions(sessions: readonly Session[]): Session[] {
-  return [...sessions].sort((a, b) =>
-    a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0,
-  );
+  return [...sessions].sort((a, b) => {
+    const at = sessionActivityAt(a);
+    const bt = sessionActivityAt(b);
+    return at < bt ? 1 : at > bt ? -1 : 0;
+  });
 }
 
 /** 应用一条变化；版本接不上时返回 `undefined`，调用方重读整张列表。 */

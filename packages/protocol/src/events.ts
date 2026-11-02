@@ -630,6 +630,20 @@ export const PROMPT_SUGGESTION_VOIDING_EVENTS: ReadonlySet<string> = new Set<Wev
   'turn.undone',
   'turn.redone',
 ]);
+/**
+ * 推进会话最近活动（0.147.0，`Session.activityAt` / `activitySeq`）的事件类型：用户或 agent 看得见的内容。Host 的快照与 client-sdk 的
+ * `applySessionEvent` 都按它推进；引擎退出、状态变化、恢复、规则、用量这类事件不算。
+ */
+export const SESSION_ACTIVITY_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
+  'session.created',
+  'user.message',
+  'user.steered',
+  'assistant.message',
+  'plan.proposed',
+  'approval.requested',
+  'question.requested',
+  'turn.finished',
+]);
 export type WevirEventPayload<T extends WevirEventType> = z.infer<(typeof EventPayloadSchemas)[T]>;
 
 export const WEVIR_EVENT_TYPES = Object.keys(EventPayloadSchemas) as WevirEventType[];

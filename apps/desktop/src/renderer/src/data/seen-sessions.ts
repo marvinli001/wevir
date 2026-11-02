@@ -1,7 +1,8 @@
-// 会话的“未读”标记（T5.2）：本机记下每个会话看过的最后一个事件 seq，会话的 lastSeq 比它大就算未读。
-// 第一次见到的会话以当时的 lastSeq 为起点（不把历史会话全标成未读）；打开会话时更新。只存在本机的
-// localStorage，不同步到其他设备。
+// 会话的“未读”标记（T5.2）：本机记下每个会话看过的最后一个事件 seq，会话最近活动的 seq（0.147.0，`sessionActivitySeq`）比它大
+// 就算未读：引擎重启、关闭、恢复这类 Host 自己的事件只推进 lastSeq，不让看过的会话变回未读。第一次见到的会话以当时的 lastSeq
+// 为起点（不把历史会话全标成未读）；打开会话时更新。只存在本机的 localStorage，不同步到其他设备。
 
+import { sessionActivitySeq } from '@wevir/client-sdk';
 import type { Session } from '@wevir/protocol';
 import { useSyncExternalStore } from 'react';
 import { createPersistedStore } from '@/lib/store';
@@ -32,16 +33,16 @@ export function markSeen(session: Session): void {
   seen.set((current) => ({ ...current, [session.id]: session.lastSeq }));
 }
 
-/** 标记为未读：记的位置退到最后一个事件之前，会话的 `lastSeq` 就比它大；会话再被打开时照常记为已读。 */
+/** 标记为未读：记的位置退到最近活动之前，最近活动的 seq 就比它大；会话再被打开时照常记为已读。 */
 export function markUnread(session: Session): void {
-  const before = Math.max(0, session.lastSeq - 1);
+  const before = Math.max(0, sessionActivitySeq(session) - 1);
   if (seen.get()[session.id] === before) return;
   seen.set((current) => ({ ...current, [session.id]: before }));
 }
 
 export function isUnread(map: SeenMap, session: Session): boolean {
   const last = map[session.id];
-  return last !== undefined && session.lastSeq > last;
+  return last !== undefined && sessionActivitySeq(session) > last;
 }
 
 export const useSeenSessions = seen.use;
