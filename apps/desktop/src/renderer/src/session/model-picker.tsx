@@ -537,9 +537,11 @@ function EffortSlider({
         aria-hidden
         className="absolute inset-0 overflow-hidden rounded-full bg-effort-fill transition-[clip-path] duration-(--spring-snap-duration) ease-spring-snap"
         style={{
+          // 默认档留 0.01px 而不是整段裁掉：刚挂上、从没画过的元素裁成空区域时，Chromium 不过渡第一次的 clip-path，
+          // 蓝底会一下跳到位、滑块随后才跟上（换模型后最常见）。
           clipPath:
             index < 0
-              ? 'inset(0 100% 0 0 round 9999px)'
+              ? 'inset(0 calc(100% - 0.01px) 0 0 round 9999px)'
               : `inset(0 calc(100% - (${position} * (100% - 1.75rem) + 1.75rem)) 0 0 round 9999px)`,
         }}
       >
