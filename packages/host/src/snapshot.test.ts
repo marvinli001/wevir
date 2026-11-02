@@ -292,10 +292,33 @@ describe('会话快照推导', () => {
     expect(all.filter((edge) => !covered.has(edge))).toEqual([]);
   });
 
+  it('最近活动（0.147.0）：回合结束后的引擎重启、出错、关闭只推进 lastSeq，不推进 activityAt / activitySeq', () => {
+    const dir = dataDir();
+    const storage = open(dir);
+    const store = createStore(storage);
+    expect(store.snapshot(SES)?.session).toMatchObject({ activitySeq: 1 });
+    store.appendMany(SES, START);
+    const finished = store.append(SES, ev.turnFinished('completed'));
+    store.append(SES, ev.state('running', 'idle', 'turn_finished'));
+    store.appendMany(SES, TO_ERROR);
+    store.append(SES, ev.state('error', 'closed', 'closed'));
+
+    const { session } = expectConsistent(storage, store);
+    expect(session).toMatchObject({ activityAt: finished.ts, activitySeq: finished.seq });
+    expect(session.lastSeq).toBeGreaterThan(finished.seq);
+
+    // 重放（如升级后检查点作废）得到同样的结果。
+    storage.close();
+    expect(createStore(open(dir)).snapshot(SES)?.session).toMatchObject({
+      activityAt: finished.ts,
+      activitySeq: finished.seq,
+    });
+  });
+
   it('快照的其余字段：身份取自会话行，标题、回合、待办、用量、更新时间取自事件', () => {
     const storage = open(dataDir());
     const store = createStore(storage);
-    store.appendMany(SES, START);
+    const [sent] = store.appendMany(SES, START);
     store.append(SES, ev.todo([{ content: '读 CSV', status: 'in_progress' }]));
     const last = store.append(SES, ev.usage(1200));
 
@@ -320,6 +343,8 @@ describe('会话快照推导', () => {
         createdAt: '2026-10-13T00:00:00.000Z',
         updatedAt: last.ts,
         lastSeq: 7,
+        activityAt: sent?.ts,
+        activitySeq: 2,
       },
       pendingApprovals: [],
       todos: [{ content: '读 CSV', status: 'in_progress' }],

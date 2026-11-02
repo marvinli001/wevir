@@ -2183,6 +2183,13 @@ export const SessionSchema = z.object({
   /** 会话里最后一个事件的 `seq`；新建会话为 1（`session.created`）。 */
   lastSeq: SeqCursorSchema,
   /**
+   * 最近活动（0.147.0，`SESSION_ACTIVITY_EVENTS`）：最后一条用户或 agent 看得见的内容（建会话、用户的消息、agent 的回答、回合结束、等审批或
+   * 回答）的 `ts` 与 `seq`。引擎重启、关闭、恢复这类 Host 自己的事件不推进它。客户端按它排会话、判断未读；旧 Host 不给时用 `updatedAt` 与
+   * `lastSeq`。
+   */
+  activityAt: IsoTimeSchema.optional(),
+  activitySeq: SeqCursorSchema.optional(),
+  /**
    * 接力过的会话（0.25.0，`session.handoff`）：挂过的引擎会话，按第一次用的先后；当前的是 `engine.sessionId` 那个，`providerId`、
    * `modelId` 也跟着它。没接力过时省略。
    */

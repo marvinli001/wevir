@@ -1,5 +1,6 @@
 // 会话全文搜索（0.77.0，Host 功能 `session_search`）的界面状态与纯函数：浮窗开关、结果的去处、片段的高亮分段、状态行。
 
+import { sessionActivityAt } from '@wevir/client-sdk';
 import type { SearchHit, SearchKind, SearchQueryResult, Session } from '@wevir/protocol';
 import { createStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
@@ -90,11 +91,11 @@ export function partialResult(result: Pick<SearchQueryResult, 'scan' | 'index'>)
 
 /** 查询词为空时列出的最近会话：所有项目里最近活动的顶层会话。 */
 export function recentSessions(
-  sessions: readonly Pick<Session, 'id' | 'updatedAt' | 'parentSessionId'>[],
+  sessions: readonly Pick<Session, 'id' | 'updatedAt' | 'activityAt' | 'parentSessionId'>[],
   limit: number,
 ) {
   return [...sessions]
     .filter((session) => session.parentSessionId === undefined)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .sort((a, b) => sessionActivityAt(b).localeCompare(sessionActivityAt(a)))
     .slice(0, limit);
 }

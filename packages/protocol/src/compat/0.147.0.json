@@ -1,0 +1,33 @@
+{
+  "protocolVersion": "0.147.0",
+  "frozenAt": "2026-11-02",
+  "methods": {
+    "session.get": {
+      "params": [{ "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR" }],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": { "kind": "codex", "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14" },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "title": "整理本周周报",
+            "titleSource": "generated",
+            "state": "closed",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-11-02T05:26:38.371Z",
+            "lastSeq": 55,
+            "activityAt": "2026-10-31T10:48:21.839Z",
+            "activitySeq": 40
+          },
+          "pendingApprovals": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

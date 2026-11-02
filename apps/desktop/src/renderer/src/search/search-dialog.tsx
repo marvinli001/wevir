@@ -2,7 +2,7 @@
 // 项目、按种类筛、含已归档），结果点开跳到会话里那一处（session/transcript-focus.ts）。索引没追上、短词只扫了最近的时，底部
 // 写明范围，空结果不说成没有历史。
 
-import { hostSupports } from '@wevir/client-sdk';
+import { hostSupports, sessionActivityAt } from '@wevir/client-sdk';
 import type { SearchHit, SearchQueryResult, Session, WorkspaceId } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -324,7 +324,7 @@ function SearchPanel() {
                   icon={MessagesSquare}
                   title={row.session.title || t('session.untitled')}
                   place={workspaceName.get(row.session.workspaceId)}
-                  time={row.session.updatedAt}
+                  time={sessionActivityAt(row.session)}
                 />
               ) : (
                 <ResultRow
