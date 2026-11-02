@@ -6971,7 +6971,8 @@ export class SessionManager {
 
   /**
    * 引擎不可用（#10）：进程退出、适配器调用失败、事件流中断。断开订阅；会话已是 `error` / `closed`
-   * 时只断开；进程退出时，没有待运行目标或子任务的空闲会话也只断开，下次发送自动恢复，不写错误与未读事件。
+   * 时只断开；进程退出时（意外退出，或适配器为 Provider 配置、确认不了的取消重启），没有待运行目标、子任务、未决审批
+   * 与提问的空闲会话也只断开，下次发送等要用引擎的命令自动恢复，不写错误与未读事件。
    * 否则未决审批结为 `cancelled`（`engine_exited`）、有回合时补齐工具并以 `interrupted`
    * 结束、写 `engine.error`（`fatal: true`），转 `error`。不是进程退出时，再尽力让引擎停下可能还在
    * 跑的回合。
@@ -6989,7 +6990,9 @@ export class SessionManager {
       options.exited &&
       state === 'idle' &&
       goal?.status !== 'active' &&
-      subagent?.status !== 'running'
+      subagent?.status !== 'running' &&
+      snapshot.pendingApprovals.length === 0 &&
+      (snapshot.pendingQuestions ?? []).length === 0
     ) {
       return;
     }

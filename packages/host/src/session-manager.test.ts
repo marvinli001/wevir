@@ -4,6 +4,7 @@ import type {
   ApprovalRequest,
   ClientIdentity,
   MessageFrom,
+  QuestionId,
   SessionId,
   SessionState,
   TurnId,
@@ -1360,6 +1361,50 @@ describe('SessionManager：引擎异常（#10）', () => {
     await send(h, active, 'after restart');
     await waitForState(h, active, 'idle');
     expect(snapshot(h, idle)).toEqual(before);
+  });
+
+  it('配置重启后不经 send 的引擎命令同样自动恢复：撤回回合不写错误', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = (await send(h, id, 'first turn')).turnId as TurnId;
+    await waitForState(h, id, 'idle');
+    const before = snapshot(h, id);
+    const resume = vi.spyOn(h.adapter, 'resumeSession');
+    await h.adapter.simulateEngineExit({ signal: null, reason: 'config_changed' });
+    await h.manager.rewind({ sessionId: id, turnId });
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(typesAfter(h, id, before.session.lastSeq)).toEqual(['session.resumed', 'turn.rewound']);
+    expect(ofType(h, id, 'engine.error')).toEqual([]);
+    expect(state(h, id)).toBe('idle');
+  });
+
+  it('空闲却还有未结的提问时引擎退出：提问结为 cancelled，会话 error', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = (await send(h, id, 'first turn')).turnId as TurnId;
+    await waitForState(h, id, 'idle');
+    h.events.append(id, {
+      type: 'question.requested',
+      source: 'engine',
+      payload: {
+        question: {
+          id: 'qst_STALE' as QuestionId,
+          sessionId: id,
+          turnId,
+          questions: [{ id: 'scope', header: 'Scope', question: 'Which scope?', options: [] }],
+          status: 'pending',
+          createdAt: T0,
+        },
+      },
+    });
+    await h.adapter.simulateEngineExit({ signal: null, reason: 'config_changed' });
+    await waitForState(h, id, 'error');
+    expect(ofType(h, id, 'question.resolved')[0]?.payload).toMatchObject({
+      questionId: 'qst_STALE',
+      status: 'cancelled',
+      resolution: { reason: 'engine_exited' },
+    });
+    expect(transitions(h, id).at(-1)).toBe('idle→error:engine_exited');
   });
 
   it('回合间仍有待运行目标时引擎退出：会话 error，保留中断原因', async () => {
