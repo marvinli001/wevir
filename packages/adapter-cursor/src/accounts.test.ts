@@ -199,16 +199,79 @@ describe('CursorAccounts', () => {
       createdAtMs: 0,
     });
     fresh.sdk.user = sdk.user;
-    await expect(fresh.accounts.read('cursor')).rejects.toMatchObject({
-      code: 'engine_unavailable',
+    expect(await fresh.accounts.read('cursor')).toMatchObject({
+      status: 'signed_out',
+      lastError: expect.stringContaining('paid plan'),
     });
+    expect(existsSync(fresh.path)).toBe(false);
     fresh.sdk.user = sdkError('CursorSdkError', 'Unauthorized', {
       code: 'feature_unavailable',
       status: 401,
     });
+    await new CursorCredentialFile(fresh.path).save({
+      version: 1,
+      backendUrl: 'x',
+      apiKey: 'other',
+      createdAtMs: 0,
+    });
     expect(await fresh.accounts.read('cursor', { refresh: true })).toEqual({
       ...SIGNED_OUT,
       lastError: 'Cursor sign-in expired or was rejected. Sign in again.',
+    });
+  });
+
+  it('已登录账号被免费计划拒绝：清凭据与模型缓存，停止旧会话，不沿用已登录状态', async () => {
+    const { accounts, sdk, signedOut, path } = setup();
+    await accounts.login('cursor', 'browser');
+    sdk.completeLogin('free');
+    await vi.waitFor(async () => expect((await accounts.read('cursor')).status).toBe('signed_in'));
+    await accounts.models('cursor');
+    sdk.user = sdkError('CursorSdkError', 'Free plan', { code: 'plan_required', status: 403 });
+    expect(await accounts.read('cursor', { refresh: true })).toMatchObject({
+      status: 'signed_out',
+      lastError: expect.stringContaining('paid plan'),
+    });
+    expect(signedOut).toHaveBeenCalledTimes(1);
+    expect(existsSync(path)).toBe(false);
+    expect(accounts.cachedModels('free')).toBeUndefined();
+    expect(await accounts.models('cursor')).toEqual({ models: [] });
+    await expect(accounts.requireApiKey()).rejects.toMatchObject({ code: 'missing_credentials' });
+  });
+
+  it('免费计划的浏览器登录验证失败，保留原因并允许重新登录', async () => {
+    const { accounts, sdk, states, path } = setup();
+    sdk.user = sdkError('CursorSdkError', 'Free plan', { code: 'plan_required', status: 403 });
+    await accounts.login('cursor', 'browser');
+    sdk.completeLogin('free');
+    await vi.waitFor(() =>
+      expect(states.at(-1)).toMatchObject({
+        status: 'signed_out',
+        lastError: expect.stringContaining('paid plan'),
+      }),
+    );
+    expect(existsSync(path)).toBe(false);
+    sdk.user = { userEmail: 'paid@example.com', apiKeyName: 'Wevir', createdAt: '2026-11-03' };
+    await accounts.login('cursor', 'browser');
+    sdk.completeLogin('paid');
+    await vi.waitFor(() =>
+      expect(states.at(-1)).toMatchObject({
+        status: 'signed_in',
+        email: 'paid@example.com',
+      }),
+    );
+    expect(await accounts.requireApiKey()).toBe('paid');
+  });
+
+  it('免费计划的环境 Key：说明所属账号的计划要求，不能开会话', async () => {
+    const { accounts, sdk } = setup({ env: { CURSOR_API_KEY: 'free' } });
+    sdk.user = sdkError('CursorSdkError', 'Free plan', { code: 'plan_required', status: 403 });
+    expect(await accounts.read('cursor')).toMatchObject({
+      status: 'signed_out',
+      lastError: expect.stringContaining('CURSOR_API_KEY'),
+    });
+    await expect(accounts.requireApiKey()).rejects.toMatchObject({
+      code: 'missing_credentials',
+      message: expect.stringContaining('paid plan'),
     });
   });
 

@@ -449,6 +449,11 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
       <- apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
          packages/provider-core/src/server/failure.ts（turn-result.ts 的报错脱敏）
 
+2026-11-03 的补充移植：Claude 服务端工具结果与压缩预留取自 T3 Code
+25dde99a5199b89641ea0b5aef556033ea9201fb / 159a914d6b99e6844f2796da44a6dee101f35d59
+的 ClaudeAdapterV2.ts；Cursor 免费计划拒绝取自 8046e1d8cdaacd50bf1e4a2257a1a02eaec3d8bf
+的 packages/provider-cursor/src/server/status.ts、auth.ts、CursorSdkCatalog.ts。均为 MIT，Copyright (c) 2026 T3 Tools Inc.
+
 packages/adapter-claude/src/test-fixtures/sdk/ 是 Claude Code（Anthropic 的商业条款，© Anthropic PBC）经 Claude Agent
 SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
 
@@ -470,6 +475,7 @@ OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.t
 
   packages/adapter-opencode/src/sdk.ts
   packages/adapter-opencode/src/executable.ts
+      <- packages/shared/src/shell.ts（npmShimExecutable，b6629dcd68dd26a98250e34087c594592ea55a46）
   packages/adapter-opencode/src/server.ts
   packages/adapter-opencode/src/runtime.ts
   packages/adapter-opencode/src/accounts.ts

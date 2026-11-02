@@ -127,6 +127,105 @@ describe('上下文分布（0.50.0）', () => {
     expect(
       log.events.some((event) => event.type === 'usage.updated' && event.breakdown !== undefined),
     ).toBe(false);
+    expect(log.events.filter((event) => event.type === 'usage.updated')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ autoCompactAt: 167_000 })]),
+    );
+  });
+
+  it.each([
+    { response: { maxTokens: 150_000, autoCompactThreshold: 117_000 }, threshold: 117_000 },
+    { response: { maxTokens: 150_000 }, threshold: 117_000 },
+    { response: { maxTokens: 150_000, isAutoCompactEnabled: false }, threshold: undefined },
+  ])('CLI 校准压缩线，后续回合沿用：$threshold', async ({ response, threshold }) => {
+    const { adapter } = harness({ contextUsage: { ...response, categories: [] } });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    const calibrated = await log.until(
+      (event) => event.type === 'usage.updated' && event.autoCompactAt === threshold,
+    );
+    expect(calibrated).toMatchObject({ contextSize: 200_000 });
+    expect(calibrated.type === 'usage.updated' && calibrated.autoCompactAt).toBe(threshold);
+    const from = log.events.length;
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal, from);
+    const usages = log.events.slice(from).filter((event) => event.type === 'usage.updated');
+    expect(usages.length).toBeGreaterThan(0);
+    for (const usage of usages) {
+      expect(usage.contextSize).toBe(200_000);
+      expect(usage.autoCompactAt).toBe(threshold);
+    }
+  });
+});
+
+describe('服务端工具结果', () => {
+  it.each([
+    ['advisor', 'advisor_tool_result', { type: 'advisor_result', text: 'Looks right.' }, false],
+    [
+      'advisor',
+      'advisor_tool_result',
+      { type: 'advisor_tool_result_error', error_code: 'overloaded' },
+      true,
+    ],
+    [
+      'web_search',
+      'web_search_tool_result',
+      [{ type: 'web_search_result', title: 'Found', url: 'https://example.com' }],
+      false,
+    ],
+    [
+      'web_search',
+      'web_search_tool_result',
+      { type: 'web_search_tool_result_error', error_code: 'unavailable' },
+      true,
+    ],
+    ['mcp__server__tool', 'mcp_tool_result', [{ type: 'text', text: 'MCP output' }], true],
+  ])('%s / %s 的结果只结算一次', async (name, type, content, failed) => {
+    const frame = (blocks: unknown[]) => ({
+      kind: 'message' as const,
+      message: {
+        type: 'assistant',
+        uuid: 'server-frame',
+        parent_tool_use_id: null,
+        message: { id: 'server-message', model: CONFIG.modelId, content: blocks },
+      },
+    });
+    const result = {
+      type,
+      tool_use_id: 'server-tool',
+      content,
+      is_error: type === 'mcp_tool_result',
+    };
+    const { adapter } = harness({
+      script: () => ({
+        steps: [
+          frame([
+            {
+              type: type === 'mcp_tool_result' ? 'mcp_tool_use' : 'server_tool_use',
+              id: 'server-tool',
+              name,
+              input: {},
+            },
+          ]),
+          frame([result]),
+          frame([result]),
+          ...recordedMessages('plain').map((message) => ({ kind: 'message' as const, message })),
+        ],
+      }),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Run the server tool'));
+    await log.until(isTurnTerminal);
+    expect(log.events.filter((event) => event.type === 'tool.started')).toHaveLength(1);
+    expect(log.events.filter((event) => event.type === 'tool.finished')).toEqual([
+      expect.objectContaining({
+        toolCallId: 'server-tool',
+        status: failed ? 'failed' : 'completed',
+        output: expect.any(String),
+      }),
+    ]);
   });
 });
 
@@ -1227,7 +1326,7 @@ describe('压缩上下文（0.24.0）', () => {
     ]);
     expect(log.events[0]).toMatchObject({ compactionId: 'status-compacting', trigger: 'manual' });
     expect(log.events[1]).toMatchObject({ compactionId: 'status-compacting', trigger: 'manual' });
-    expect(log.events[2]).toMatchObject({ contextUsed: 400 });
+    expect(log.events[2]).toMatchObject({ contextUsed: 400, autoCompactAt: 167_000 });
     expect(log.events[3]).toMatchObject({ outcome: 'completed' });
   });
 

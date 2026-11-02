@@ -29,15 +29,17 @@ export function isAuthenticationFailure(error: unknown): boolean {
   return field(error, 'name') === 'AuthenticationError' || field(error, 'status') === 401;
 }
 
+export function isPlanRequired(error: unknown): boolean {
+  return field(error, 'code') === 'plan_required';
+}
+
 /**
  * 读账号（`Cursor.me`，`/v1/me`）被团队策略挡下：HTTP 403，但不是 `plan_required`（免费账号）也不是认证失败。企业团队可以只屏蔽
  * 账号信息，模型与运行照常可用（T3 的 CursorSdkCatalogError.accountBlocked）。
  */
 export function isAccountLookupBlocked(error: unknown): boolean {
   return (
-    field(error, 'status') === 403 &&
-    field(error, 'code') !== 'plan_required' &&
-    !isAuthenticationFailure(error)
+    field(error, 'status') === 403 && !isPlanRequired(error) && !isAuthenticationFailure(error)
   );
 }
 

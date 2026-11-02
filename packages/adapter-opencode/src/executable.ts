@@ -14,7 +14,7 @@
 // 与 `-musl` 变体，选哪个照 `opencode-ai` 主包 postinstall.mjs 的顺序）：tgz 里只有 `bin/opencode`（Windows 是 `bin/opencode.exe`）。
 
 import { execFile } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -220,6 +220,44 @@ function executableNames(platform: NodeJS.Platform): string[] {
     : ['opencode'];
 }
 
+// 移植自 pingdotgg/t3code packages/shared/src/shell.ts，b6629dcd68dd26a98250e34087c594592ea55a46，MIT。
+const NPM_SHIM_PREFIX = [
+  '@ECHO off',
+  'GOTO start',
+  ':find_dp0',
+  'SET dp0=%~dp0',
+  'EXIT /b',
+  ':start',
+  'SETLOCAL',
+  'CALL :find_dp0',
+];
+
+function readShim(file: string): string | undefined {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** 只绕过 npm 原生程序 shim；CMD 保留的空白和额外命令必须原样比较。 */
+export function npmShimExecutable(
+  shim: string,
+  read: (file: string) => string | undefined = readShim,
+  exists: (file: string) => boolean = isFile,
+): string | undefined {
+  if (path.win32.extname(shim).toLowerCase() !== '.cmd') return undefined;
+  const lines = read(shim)
+    ?.split(/\r?\n/)
+    .filter((line) => line.length > 0);
+  if (lines?.length !== NPM_SHIM_PREFIX.length + 1) return undefined;
+  if (NPM_SHIM_PREFIX.some((line, index) => lines[index] !== line)) return undefined;
+  const target = /^"%dp0%\\([^"%]+\.exe)" +%\*$/.exec(lines.at(-1) ?? '')?.[1];
+  if (target === undefined) return undefined;
+  const executable = path.win32.join(path.win32.dirname(shim), target);
+  return exists(executable) ? executable : undefined;
+}
+
 export interface FindOpenCodeOptions {
   /** `account.setPath` 指定的路径，`~` 开头的按家目录展开。 */
   customPath?: string | null;
@@ -229,6 +267,7 @@ export interface FindOpenCodeOptions {
   platform?: NodeJS.Platform;
   home?: string;
   exists?: (filePath: string) => boolean;
+  readFile?: (filePath: string) => string | undefined;
 }
 
 /**
@@ -241,15 +280,17 @@ export function findOpenCode(options: FindOpenCodeOptions = {}): string | undefi
   const home = options.home ?? homedir();
   const exists = options.exists ?? isFile;
   const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  const resolve = (file: string) =>
+    platform === 'win32' ? (npmShimExecutable(file, options.readFile, exists) ?? file) : file;
 
   const custom = options.customPath?.trim();
   if (custom !== undefined && custom !== '') {
     const expanded =
       custom === '~' || custom.startsWith('~/') ? pathApi.join(home, custom.slice(1)) : custom;
-    return exists(expanded) ? expanded : undefined;
+    return exists(expanded) ? resolve(expanded) : undefined;
   }
   const fromEnv = env[OPENCODE_BIN_ENV]?.trim();
-  if (fromEnv !== undefined && fromEnv !== '' && exists(fromEnv)) return fromEnv;
+  if (fromEnv !== undefined && fromEnv !== '' && exists(fromEnv)) return resolve(fromEnv);
 
   const pathValue = env.PATH ?? env.Path ?? '';
   const dirs = [
@@ -259,11 +300,11 @@ export function findOpenCode(options: FindOpenCodeOptions = {}): string | undefi
   for (const dir of dirs) {
     for (const name of executableNames(platform)) {
       const candidate = pathApi.join(dir, name);
-      if (exists(candidate)) return candidate;
+      if (exists(candidate)) return resolve(candidate);
     }
   }
   const managed = options.managedPath?.trim();
-  return managed !== undefined && managed !== '' && exists(managed) ? managed : undefined;
+  return managed !== undefined && managed !== '' && exists(managed) ? resolve(managed) : undefined;
 }
 
 /**

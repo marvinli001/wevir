@@ -5,6 +5,7 @@
 // 修改：Effect 改写成普通 TS 的 EngineAccounts：登录先写内存、确认后才落盘，5 分钟超时，取消，替换进行中的登录，登出清掉凭据并停掉用着它的会话，
 // 模型列表缓存 30 分钟，15 s 超时；状态报成 Wevir 的 AccountState。用量不读 Cursor CLI 的登录，用这把 API Key 读（usage.ts）。
 // 团队屏蔽 `/v1/me` 时照常登录、不带邮箱，跟进 T3 80fd67eca6aba67da3e632f90c4b82a4e1cf0fbc。
+// 免费计划拒绝不沿用登录状态，跟进 T3 8046e1d8cdaacd50bf1e4a2257a1a02eaec3d8bf（status.ts / auth.ts，MIT）。
 //
 // Cursor 的账号（订阅来源 `cursor`，domain-model §3.6，docs/architecture/cursor-event-mapping.md §2）：在应用里登录。
 // `Cursor.auth.login` 给出浏览器网址，用户在浏览器里登录后 SDK 铸一把有期限的 API Key（90 天，Cursor 后台的 API Keys 里看得到、
@@ -24,7 +25,12 @@ import {
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
 import { CursorCredentialFile, MemoryCredentials } from './credentials.js';
-import { errorMessage, isAccountLookupBlocked, isAuthenticationFailure } from './errors.js';
+import {
+  errorMessage,
+  isAccountLookupBlocked,
+  isAuthenticationFailure,
+  isPlanRequired,
+} from './errors.js';
 import { accountModels } from './models.js';
 import type { CursorSdk } from './sdk.js';
 import type { CursorSdkInstaller } from './sdk-install.js';
@@ -156,6 +162,18 @@ export class CursorAccounts implements EngineAccounts {
       user = await withTimeout(sdk.me(apiKey), CATALOG_TIMEOUT_MS, 'Cursor account request');
     } catch (error) {
       if (!isAccountLookupBlocked(error)) {
+        if (isPlanRequired(error)) {
+          this.#catalog = undefined;
+          this.#models = undefined;
+          if (!this.usesEnvironmentKey) await this.#store.clear();
+          this.#options.onSignedOut?.();
+          return this.#set({
+            ...BASE,
+            lastError: this.usesEnvironmentKey
+              ? 'Cursor requires a paid plan. Upgrade the account that owns CURSOR_API_KEY or use a key from a paid account.'
+              : 'Cursor requires a paid plan. Upgrade this account or sign in with a different one.',
+          });
+        }
         if (isAuthenticationFailure(error)) {
           this.#catalog = undefined;
           return this.#set({
@@ -413,6 +431,13 @@ export class CursorAccounts implements EngineAccounts {
       throw new AdapterError(
         'missing_credentials',
         'Cursor sign-in or sign-out is in progress. Try again after it finishes.',
+      );
+    }
+    const state = await this.read(KIND);
+    if (state.status !== 'signed_in') {
+      throw new AdapterError(
+        'missing_credentials',
+        state.lastError ?? 'Sign in to Cursor in Settings, or set CURSOR_API_KEY.',
       );
     }
     const apiKey = await this.readApiKey();

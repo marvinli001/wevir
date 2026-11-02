@@ -1,6 +1,7 @@
 // 不依赖 opencode 的小函数：可执行文件、版本、规则集、配置、模型、工具展示、消息 ID、服务器输出与台账的解析、提问与错误归类。
 
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,6 +9,7 @@ import {
   compareVersions,
   detectAvx2,
   findOpenCode,
+  npmShimExecutable,
   OPENCODE_BIN_ENV,
   OPENCODE_LOGIN_COMMAND,
   openCodeAccountEnv,
@@ -16,6 +18,7 @@ import {
   openCodePackageNames,
   openCodePath,
   parseOpenCodeVersion,
+  probeOpenCodeVersion,
 } from './executable.js';
 import { newMessageId } from './message-id.js';
 import { accountModels, parseModelId, planLabel } from './models.js';
@@ -67,6 +70,98 @@ describe('sdk', () => {
 });
 
 describe('executable', () => {
+  const shim = [
+    '@ECHO off',
+    'GOTO start',
+    ':find_dp0',
+    'SET dp0=%~dp0',
+    'EXIT /b',
+    ':start',
+    'SETLOCAL',
+    'CALL :find_dp0',
+    '"%dp0%\\node_modules\\opencode-ai\\bin\\opencode.exe"   %*',
+    '',
+  ].join('\r\n');
+  const shimPath = 'C:\\Program Files\\npm\\opencode.cmd';
+  const native = 'C:\\Program Files\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe';
+
+  it('Windows npm shim：PATH、指定路径与环境变量都解析为 exe，不经 shell', () => {
+    const base = {
+      platform: 'win32' as const,
+      home: 'C:\\Users\\u',
+      exists: (file: string) => file === shimPath || file === native,
+      readFile: () => shim,
+    };
+    expect(findOpenCode({ ...base, env: { Path: 'C:\\Program Files\\npm' } })).toBe(native);
+    expect(findOpenCode({ ...base, env: {}, customPath: shimPath })).toBe(native);
+    expect(findOpenCode({ ...base, env: { [OPENCODE_BIN_ENV]: shimPath } })).toBe(native);
+    expect(npmShimExecutable(shimPath.replace('.cmd', '.CMD'), () => shim, base.exists)).toBe(
+      native,
+    );
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'Windows：从磁盘上的 npm shim 解析并启动原生程序',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'wevir opencode shim '));
+      const executable = join(dir, 'node_modules', 'opencode-ai', 'bin', 'opencode.exe');
+      const command = join(dir, 'opencode.cmd');
+      try {
+        mkdirSync(join(dir, 'node_modules', 'opencode-ai', 'bin'), { recursive: true });
+        copyFileSync(process.execPath, executable);
+        writeFileSync(command, shim);
+        const found = findOpenCode({ customPath: command });
+        expect(found).toBe(executable);
+        expect(await probeOpenCodeVersion(found as string, process.env)).toEqual({
+          ok: true,
+          version: process.versions.node,
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('含额外设置、CMD 敏感空白、脚本目标或缺失目标的 shim 不绕过', () => {
+    for (const content of [
+      shim.replace('SETLOCAL', 'SETLOCAL\r\nSET OPENCODE_CONFIG=C:\\custom'),
+      ...[' ', '\t', '\u00a0'].map((suffix) =>
+        shim.replace('SET dp0=%~dp0', `SET dp0=%~dp0${suffix}`),
+      ),
+      shim.replace('opencode.exe"   %*', 'opencode.exe"\u00a0%*'),
+      shim.replace('opencode.exe', 'opencode.js'),
+    ]) {
+      expect(
+        npmShimExecutable(
+          shimPath,
+          () => content,
+          () => true,
+        ),
+      ).toBeUndefined();
+    }
+    expect(
+      npmShimExecutable(
+        shimPath,
+        () => shim,
+        () => false,
+      ),
+    ).toBeUndefined();
+    expect(
+      npmShimExecutable(
+        shimPath,
+        () => undefined,
+        () => true,
+      ),
+    ).toBeUndefined();
+    expect(
+      npmShimExecutable(
+        shimPath.replace('.cmd', '.bat'),
+        () => shim,
+        () => true,
+      ),
+    ).toBeUndefined();
+  });
+
   it('找 opencode：指定路径 → 环境变量 → PATH → 常见位置', () => {
     const files = new Set([
       '/custom/opencode',

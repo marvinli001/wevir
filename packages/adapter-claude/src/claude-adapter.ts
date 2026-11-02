@@ -3,7 +3,8 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 b49488759211b2c69a9419b845e1bdff17d23fb3（计划回合在完全访问下也问写操作）、
 // 66cae3d7565a6cc086672a53349cc5da225189c1（上下文用量读流式事件）、598298cc3c56ef6943301944d6986578f6b7d587（以第一个 `init` 的权限模式为准）、
 // 499c9ee68b28492c9e088a98f112998dfc4ffafc（用量上限挡下的 `/compact` 算失败）；
-// 0b84aa3fa7853e2645322feebc0859802ccc1a31（#21806，完全访问下保留 Claude 的审批）、e74924538705d774e2e1c56616485351d33d38db（#22546，审批原因与长期授权限制）
+// 0b84aa3fa7853e2645322feebc0859802ccc1a31（#21806，完全访问下保留 Claude 的审批）、e74924538705d774e2e1c56616485351d33d38db（#22546，审批原因与长期授权限制）；
+// 25dde99a5199b89641ea0b5aef556033ea9201fb（#24254，服务端工具结果与错误）、159a914d6b99e6844f2796da44a6dee101f35d59（#22654，压缩预留 33,000 token）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，实现 Wevir 的 `AgentRuntimeAdapter`；插话用 priority next（T3 用 now）；关掉后台任务；不移植 T3 编排专用的部分（唤醒回合、prompt 回声的门控、后台任务名单、goal、回滚、编排用的 MCP 工具）。
 //
@@ -323,6 +324,7 @@ interface LiveQuery {
   closing: boolean;
   /** 收到过第一个 `init`：只有它说明进程起在了哪个权限模式。 */
   receivedInit: boolean;
+  contextLimits?: { model: string; autoCompactAt?: number };
   /** Claude Code 写前台命令输出文件的目录（按这个进程的环境）；没有时不读实时输出。 */
   taskOutputRoot: string | undefined;
   /**
@@ -574,6 +576,18 @@ export function toolResultText(content: unknown): string | undefined {
   });
   return texts.length === 0 ? undefined : texts.join('\n');
 }
+
+const TOOL_RESULT_TYPES = new Set<unknown>([
+  'tool_result',
+  'mcp_tool_result',
+  'advisor_tool_result',
+  'bash_code_execution_tool_result',
+  'code_execution_tool_result',
+  'text_editor_code_execution_tool_result',
+  'tool_search_tool_result',
+  'web_fetch_tool_result',
+  'web_search_tool_result',
+]);
 
 /** 后台启动的子 agent 的确认（T3 的 `isClaudeSubagentAsyncLaunchAck`）。 */
 function isAsyncLaunchAck(structured: unknown, text: string | undefined): boolean {
@@ -2158,7 +2172,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         type: 'usage.updated',
         engineSessionId: session.id,
         contextUsed: turn.lastContextUsed,
-        contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
+        ...this.#contextLimits(session),
       });
     }
   }
@@ -2327,6 +2341,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         this.#toolStarted(session, owner, fields.id, fields.name, fields.input);
       }
     }
+    this.#toolResults(session, owner, message.message.content);
     owner.blockCounts.set(messageId, index);
   }
 
@@ -2394,8 +2409,18 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       type: 'usage.updated',
       engineSessionId: session.id,
       contextUsed,
-      contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
+      ...this.#contextLimits(session),
     });
+  }
+
+  #contextLimits(session: RootSession): { contextSize: number; autoCompactAt?: number } {
+    const contextSize = claudeContextWindow(session.config.modelId) ?? 200_000;
+    const known = session.live?.contextLimits;
+    if (known?.model === session.config.modelId) {
+      const { model: _, ...limits } = known;
+      return { contextSize, ...limits };
+    }
+    return { contextSize, autoCompactAt: contextSize - 33_000 };
   }
 
   /**
@@ -2478,17 +2503,37 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     const live = turn.live;
     const contextUsed = turn.lastContextUsed;
     if (live === undefined || contextUsed === undefined) return;
+    const model = session.config.modelId;
     live.query.getContextUsage({ detail: 'summary' }).then(
       (response) => {
-        if (live.closing || session.live !== live) return;
+        if (live.closing || session.live !== live || session.config.modelId !== model) return;
+        const contextSize =
+          Number.isFinite(response.maxTokens) && response.maxTokens > 0
+            ? response.maxTokens
+            : (claudeContextWindow(model) ?? 200_000);
+        const threshold = response.autoCompactThreshold;
+        live.contextLimits = {
+          model,
+          ...(response.isAutoCompactEnabled !== false && {
+            autoCompactAt:
+              threshold !== undefined && Number.isFinite(threshold) && threshold > 0
+                ? Math.round(threshold)
+                : contextSize - 33_000,
+          }),
+        };
         const breakdown = claudeContextBreakdown(response);
-        if (breakdown === undefined) return;
+        // 回合已切换时只保留阈值，不让上一回合的用量盖掉实时事件。
+        if (
+          (session.turn !== undefined && session.turn !== turn) ||
+          (session.turn === undefined && session.lastSettledUuid !== turn.lastEntryUuid)
+        )
+          return;
         session.hub.emit({
           type: 'usage.updated',
           engineSessionId: session.id,
           contextUsed,
-          contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
-          breakdown,
+          ...this.#contextLimits(session),
+          ...(breakdown !== undefined && { breakdown }),
         });
       },
       // 老版本的 `claude` 不认这个请求，或进程已经走了：没有分布而已。
@@ -2506,7 +2551,16 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (owner === session && typeof message.uuid === 'string') turn.lastEntryUuid = message.uuid;
     const content = message.message.content;
     if (!Array.isArray(content)) return;
-    const results = content.filter((part) => record(part).type === 'tool_result');
+    this.#toolResults(session, owner, content, message.tool_use_result);
+  }
+
+  #toolResults(
+    session: RootSession,
+    owner: Owner,
+    content: readonly unknown[],
+    result?: unknown,
+  ): void {
+    const results = content.filter((part) => TOOL_RESULT_TYPES.has(record(part).type));
     for (const part of results) {
       const fields = record(part);
       const toolCallId = fields.tool_use_id;
@@ -2516,8 +2570,13 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       session.outputTails.delete(toolCallId);
       // ExitPlanMode 没报 tool.started（计划另报），结果也不报。
       if (owner.tools.get(toolCallId)?.name === EXIT_PLAN_MODE) continue;
-      const text = toolResultText(fields.content);
-      const failed = fields.is_error === true;
+      const text =
+        toolResultText(fields.content) ??
+        (fields.type === 'tool_result' ? undefined : JSON.stringify(fields.content));
+      const resultType = record(fields.content).type;
+      const failed =
+        fields.is_error === true ||
+        (typeof resultType === 'string' && resultType.endsWith('_tool_result_error'));
       owner.hub.emit({
         type: 'tool.finished',
         engineSessionId: owner.id,
@@ -2526,7 +2585,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         ...(text !== undefined && { output: text }),
       });
       const tool = owner.tools.get(toolCallId);
-      const structured = results.length === 1 ? message.tool_use_result : undefined;
+      const structured = results.length === 1 ? result : undefined;
       if (tool !== undefined && !failed && TASK_TOOLS.has(tool.name)) {
         const tasks = applyTaskTool(owner.tasks, tool.name, tool.input, structured);
         if (tasks !== undefined) {
@@ -2601,11 +2660,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         type: 'usage.updated',
         engineSessionId: session.id,
         contextUsed: turn.lastContextUsed,
-        contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
+        ...this.#contextLimits(session),
         totalTokens,
       });
-      this.#reportContextBreakdown(session, turn);
     }
+    this.#reportContextBreakdown(session, turn);
     if (turn.cancelRequested || turn.stoppedByUser || isAbortedResult(message)) {
       this.#settle(session, turn, {
         type: 'turn.settled',
