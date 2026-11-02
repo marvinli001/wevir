@@ -13,6 +13,8 @@ export const ja: Messages = {
   'status.removed': '削除済み',
   'status.remoteDisabled': 'リモートアクセスがオフ',
   'status.hostMismatch': 'ID 不一致',
+  'connect.loading': '同期中',
+  'connect.connected': '接続済み',
   'route.direct': '直接接続',
   'route.relay': 'リレー経由',
 

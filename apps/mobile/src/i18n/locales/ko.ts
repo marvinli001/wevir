@@ -13,6 +13,8 @@ export const ko: Messages = {
   'status.removed': '제거됨',
   'status.remoteDisabled': '원격 액세스 꺼짐',
   'status.hostMismatch': '신원 불일치',
+  'connect.loading': '동기화 중',
+  'connect.connected': '연결됨',
   'route.direct': '직접 연결',
   'route.relay': '릴레이 경유',
 

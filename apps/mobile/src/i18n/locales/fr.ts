@@ -13,6 +13,8 @@ export const fr: Messages = {
   'status.removed': 'Retiré',
   'status.remoteDisabled': 'Accès à distance désactivé',
   'status.hostMismatch': 'Identité différente',
+  'connect.loading': 'Synchronisation',
+  'connect.connected': 'Connecté',
   'route.direct': 'Direct',
   'route.relay': 'Via relais',
 

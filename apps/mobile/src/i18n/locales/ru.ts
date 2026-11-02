@@ -13,6 +13,8 @@ export const ru: Messages = {
   'status.removed': 'Удалено',
   'status.remoteDisabled': 'Удалённый доступ выключен',
   'status.hostMismatch': 'Другая личность',
+  'connect.loading': 'Синхронизация',
+  'connect.connected': 'Подключено',
   'route.direct': 'Напрямую',
   'route.relay': 'Через ретранслятор',
 

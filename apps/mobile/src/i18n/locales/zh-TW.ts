@@ -13,6 +13,8 @@ export const zhTW: Messages = {
   'status.removed': '已移除',
   'status.remoteDisabled': '遠端存取已關閉',
   'status.hostMismatch': '身分不符',
+  'connect.loading': '正在同步',
+  'connect.connected': '已連線',
   'route.direct': '直連',
   'route.relay': '經中繼',
 
