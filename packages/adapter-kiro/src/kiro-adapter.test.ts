@@ -197,6 +197,27 @@ describe('Kiro ACP', () => {
     expect(modelCalls(log)).toEqual(['fixture-model-a', 'fixture-model-b']);
   });
 
+  it('完全访问没有单次授权时交给用户，不能自动留下长期信任规则', async () => {
+    const permissions = join(temp.dir(`perm-${seq + 1}`), 'permissions.ndjson');
+    const { adapter, config } = setup({ FAKE_KIRO_PERMISSION_LOG: permissions });
+    const { engineSessionId: id } = await adapter.createSession({
+      ...config,
+      permissionMode: 'full_access',
+    });
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('approval-always-only'));
+    const { event } = await events.waitFor((event) => event.type === 'approval.requested');
+    if (event.type !== 'approval.requested') throw new Error('missing approval');
+    expect(event.options.map((option) => option.optionId)).toEqual(['allow_always', 'reject_once']);
+    await adapter.respondToApproval(id, event.requestId, { optionId: 'reject_once' });
+    expect((await events.turn()).find((event) => event.type === 'tool.finished')).toMatchObject({
+      status: 'failed',
+    });
+    expect(readFileSync(permissions, 'utf8').trim()).toBe(
+      JSON.stringify({ outcome: 'selected', optionId: 'reject_once' }),
+    );
+  });
+
   it('恢复用 session/load，丢掉它回放的历史；引擎里没有这个会话时报 session_lost', async () => {
     const { adapter, config, log, env, dir } = setup();
     const { engineSessionId: id } = await adapter.createSession(config);

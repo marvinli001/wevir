@@ -250,7 +250,11 @@ function serve() {
         });
         await cancelled;
         stopReason = 'cancelled';
-      } else if (text === 'approval' || text === 'approval-id-only') {
+      } else if (
+        text === 'approval' ||
+        text === 'approval-id-only' ||
+        text === 'approval-always-only'
+      ) {
         const toolCallId = `tool-${id}`;
         const rawInput = { command: 'echo ok > approve.txt' };
         update(sessionId, {
@@ -269,7 +273,9 @@ function serve() {
               text === 'approval-id-only'
                 ? { toolCallId }
                 : { toolCallId, title: 'execute_bash', kind: 'execute', rawInput },
-            options: sample('permissionOptions'),
+            options: sample('permissionOptions').filter(
+              (option) => text !== 'approval-always-only' || option.kind !== 'allow_once',
+            ),
           }),
           cancelled,
         ]);

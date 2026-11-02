@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // 复用 Wevir adapter-grok 的 ACP 构造与历史 MCP 接法。其来源：pingdotgg/t3code
 // packages/provider-grok/src/server/adapter.ts，提交 ec1313c8f8333292506f05a355bb72d308a455d8。
+// 单次授权规则参照 packages/provider-kiro/src/server/acpSupport.ts，提交 55e25385619c7680dad0b0f34f5185187806c57a（MIT）。
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：经 Wevir 的 GitHub Copilot 适配器改写；Kiro 的完全访问由 Wevir 自动批准它的权限请求，恢复用 session/load 并丢掉它
+// 修改：经 Wevir 的 GitHub Copilot 适配器改写；Kiro 的完全访问由 Wevir 自动批准单次授权，恢复用 session/load 并丢掉它
 // 回放的历史，换模型用 session/set_model。
 
 import {
@@ -45,9 +46,6 @@ import { record } from './models.js';
 /** 恢复期间仍要看的更新（模型与模式），其余是 `session/load` 回放的历史。 */
 const LIVE_DURING_LOAD = new Set(['config_option_update', 'current_mode_update']);
 
-/** 完全访问时替用户选的批准项：先选只批这一次的，不让 Kiro 记下长期的信任。 */
-const AUTO_APPROVE_KINDS = ['allow_once', 'allow_always'];
-
 export interface KiroAdapterOptions {
   home: string;
   env?: NodeJS.ProcessEnv;
@@ -68,7 +66,7 @@ interface Settings {
 export class KiroAdapter extends AcpAdapter {
   readonly accounts: KiroAccounts;
   readonly historyTool: boolean;
-  /** 请求批准：Kiro 问的每一项都交给用户；完全访问：Wevir 替用户批准（同 CLI 的 `--trust-all-tools`）。 */
+  /** 请求批准：交给用户；完全访问：自动批准单次授权，长期授权仍交给用户。 */
   readonly permissionModes: readonly PermissionMode[] = ['on_request', 'full_access'];
   readonly #settings: Map<string, Settings>;
   readonly #loading: Set<string>;
@@ -237,18 +235,18 @@ export class KiroAdapter extends AcpAdapter {
     return setup.configOptions;
   }
 
-  /** 完全访问的会话：Kiro 的权限请求由 Wevir 直接批准，不打扰用户。 */
+  /** `allow_always` 会留下工作区信任规则，只有用户能选择。 */
   protected override interceptPermission(
     params: RequestPermissionRequest,
     _signal: AbortSignal,
   ): Promise<RequestPermissionResponse> | undefined {
     const settings = this.#settings.get(params.sessionId);
     if (settings?.config.permissionMode !== 'full_access') return undefined;
-    for (const kind of AUTO_APPROVE_KINDS) {
-      const option = params.options.find((candidate) => candidate.kind === kind);
-      if (option !== undefined) {
-        return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } });
-      }
+    const option = params.options.find(
+      (candidate) => candidate.kind === 'allow_once' && candidate.optionId.trim() !== '',
+    );
+    if (option !== undefined) {
+      return Promise.resolve({ outcome: { outcome: 'selected', optionId: option.optionId } });
     }
     return undefined;
   }
