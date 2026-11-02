@@ -530,8 +530,6 @@ interface TurnRuntime {
    * 自动修复的回合（0.65.0，ADR-0008）：不能插话；用户这时发来消息，Host 停下这个回合，消息在停止后照常发出。
    */
   readonly repair?: true;
-  /** 额度恢复后 Host 替用户发的继续消息开的回合（0.119.0，`from.usageLimit`）：又碰到上限时自动重新排上。 */
-  readonly autoContinued?: true;
   /**
    * 这个回合里的自动压缩（`#checkAutoCompaction`）：`pending` 是刚压缩完、还没看到之后的第一次用量；`fruitless` 是连续几次
    * 自动压缩之后的第一次用量仍不低于压缩线。
@@ -2208,7 +2206,6 @@ export class SessionManager {
       finished: deferred(),
       addedWhileCancelling: new Set(),
       ...(from?.repair !== undefined && { repair: true as const }),
-      ...(from?.usageLimit !== undefined && { autoContinued: true as const }),
     };
 
     // 回合前的快照（0.20.0）：打完再交给引擎，免得快照里混进这个回合的改动。不会抛错。
@@ -6753,12 +6750,14 @@ export class SessionManager {
         ? releaseUnattended(snapshot)
         : []),
     );
-    // 自动继续的回合又碰到上限（0.119.0，重置时刻估早了、或另一个窗口也用完了）：知道下一次重置、还在一天之内时接着等。已经
-    // 过去的重置时刻不再排，免得每 30 秒发一次。
+    // 回合因用量上限失败时默认就排上额度恢复后自动继续（卡片上的勾选默认勾着，用户可以取消）；自动继续的回合又碰到上限（0.119.0，
+    // 重置时刻估早了、或另一个窗口也用完了）时同样接着等。只排知道下一次重置、还在一天之内的；已经过去的重置时刻不排，免得每
+    // 30 秒发一次。子会话由父 agent 驱动，只读的会话发不了消息，都不排。
     const resetsAt = error?.usageLimit?.resetsAt;
     const now = this.#now();
     const resumeAt =
-      turn.autoContinued === true &&
+      runtime.parentId === undefined &&
+      snapshot.session.readOnly === undefined &&
       finalOutcome === 'failed' &&
       resetsAt !== undefined &&
       Date.parse(resetsAt) > now
@@ -6794,6 +6793,8 @@ export class SessionManager {
         }
         return { session: this.#snapshot(runtime).session };
       }
+      // 回合结束时已经默认排上了：不再写一遍。
+      if (session.autoContinue?.turnId === params.turnId) return { session };
       const limited = this.#events.usageLimited(runtime.id);
       if (limited?.turnId !== params.turnId) {
         throw new HostError(

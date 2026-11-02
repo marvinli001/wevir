@@ -168,7 +168,7 @@ export const EventPayloadSchemas = {
   }),
   /**
    * 额度恢复后自动继续变了（0.119.0，`session.setAutoContinue`，Host 功能 `usage_auto_continue`）：用户在因用量上限失败的回合
-   * `turnId` 上打开（`resumeAt` 是 Host 发出继续消息的时刻）或关掉（`null`）。Host 自己也会写：自动继续的回合又碰到上限时重新排上，
+   * `turnId` 上打开（`resumeAt` 是 Host 发出继续消息的时刻）或关掉（`null`）。Host 自己也会写：回合因用量上限失败、重置时刻在将来且在一天之内时默认就排上（自动继续的回合又碰到上限也一样），
    * 到时会话不能继续（有人在用、出错）时关掉。会话开始任何新的回合时作废，不另写事件。
    */
   'session.auto_continue': z.object({

@@ -2832,12 +2832,29 @@ describe('SessionManager：重连进度与额度恢复后自动继续（0.119.0�
     expect(snapshot(h, id).session.autoContinue).toBeUndefined();
   });
 
+  it('默认排上：回合因用量上限失败就开着，再打开不重写；已经重置过、过了一天才重置的不排', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).session.autoContinue).toEqual({ turnId, resumeAt: expect.any(String) });
+    await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
+    expect(ofType(h, id, 'session.auto_continue')).toHaveLength(1);
+
+    for (const offset of [120_000, -2 * 24 * 60 * 60 * 1000]) {
+      const other = setup({ manager: { autoContinue: { now: () => Date.now() + offset } } });
+      const otherId = await create(other);
+      await send(other, otherId, 'hitlimit');
+      await waitForState(other, otherId, 'idle');
+      expect(snapshot(other, otherId).session.autoContinue).toBeUndefined();
+    }
+  });
+
   it('关掉、发了新消息都作废；没碰到上限的回合、过了一天才重置的打不开', async () => {
     const h = setup();
     const id = await create(h);
     const turnId = turnOf(await send(h, id, 'hitlimit'));
     await waitForState(h, id, 'idle');
-    await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: true });
     const off = await h.manager.setAutoContinue({ sessionId: id, turnId, enabled: false });
     expect(off.session.autoContinue).toBeUndefined();
     expect(ofType(h, id, 'session.auto_continue').map((e) => e.payload.resumeAt === null)).toEqual([
