@@ -14,6 +14,8 @@ export const zhCN = {
   'status.removed': '已移除',
   'status.remoteDisabled': '远程访问已关闭',
   'status.hostMismatch': '身份不符',
+  'connect.loading': '正在同步',
+  'connect.connected': '已连接',
   'route.direct': '直连',
   'route.relay': '经中继',
 
