@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/ClaudeProvider.ts（`checkClaudeProviderStatus`、`probeClaudeCapabilities`、`buildClaudeCapabilitiesProbeQueryOptions`、`claudeSubscriptionLabel`、`claudeAuthStatus`、`claudeAuthMetadata`）、apps/server/src/provider/claudeUsageLimits.ts
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；套餐名照 bf270e74e4c6144fc65648186e879d8bfdb411ed（Max 5x 并入 Max，Max 20x 改称 Ultra）
+// 后续用量修复：fd8dd51654f855dbf4e23c457701f5088c59b689（月度花费）、0d10c36ded035425e8eb8a372f886cee55e49091（探测时序）、6e45544850e41c989e704e99c1d3315584f03d55（失败不缓存）。
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；用量只留 5 小时与 7 天两个窗口，另认 `rate_limit_event` 的 `unifiedWindows`；去掉 slash 命令、skills 与重置额度。
+// 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；用量保留 5 小时、7 天与月度花费，另认 `rate_limit_event` 的 `unifiedWindows`；去掉 slash 命令、skills 与重置额度。
 //
 // Claude Agent 的账号（claude-event-mapping.md §2）：Wevir 自己不碰令牌。`claude` 找用户自己装的，没有就由 Wevir 从 npm 下载
 // 一份（install.ts 的 `NpmPackageInstaller`，`account.install`）；登录由设置里的按钮替用户启动 `claude auth login`（login.ts：
 // macOS、Linux 与 Windows；Windows 上钩子用不了时让 claude 自己开浏览器，没有授权地址），其余平台给命令（Windows 是
 // PowerShell 的写法），用户在终端里登录后重新检测。添加的账号（`CLAUDE_CONFIG_DIR`）走同一个流程。检测照 T3：
 // 先找 `claude` 并跑 `--version`，再开一个 SDK 的探测会话读初始化结果里的 `account`——探测的 prompt 永远不产出，`claude`
-// 只做本地的初始化，不向 Anthropic 发请求——顺带读一次套餐用量（SDK 的实验接口，失败不影响登录状态）。结果缓存 5 分钟
+// 只做本地的初始化，不向 Anthropic 发请求——顺带读一次套餐用量（SDK 的实验接口，失败不影响登录状态）。成功且带用量的已登录结果缓存 5 分钟
 // （T3 的 `CAPABILITIES_PROBE_TTL`），`read` 带 `refresh` 时重新检测；回合里的 `rate_limit_event` 更新用量。
 
 import { randomUUID } from 'node:crypto';
@@ -21,6 +22,7 @@ import {
   type AccountRateLimitWindow,
   type AccountState,
   AdapterError,
+  accountRateLimits,
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
 import { NpmInstallCancelled, NpmPackageInstaller } from '@wevir/runtime-adapter/npm-package';
@@ -151,6 +153,77 @@ function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
+function spendPercent(
+  limits: NonNullable<SDKControlGetUsageResponse['rate_limits']>,
+): number | undefined {
+  const percent = (used: unknown, limit: unknown): number | undefined =>
+    typeof used === 'number' &&
+    Number.isFinite(used) &&
+    used >= 0 &&
+    typeof limit === 'number' &&
+    Number.isFinite(limit) &&
+    limit > 0 &&
+    Number.isFinite((used / limit) * 100)
+      ? clampPercent((used / limit) * 100)
+      : undefined;
+  // `spend` 比 SDK 类型先发布；只有币种与小数位相同，minor-unit 才能直接相除。
+  const spend = (limits as { spend?: { enabled?: boolean; used?: unknown; limit?: unknown } })
+    .spend;
+  const money = (
+    value: unknown,
+  ): { amount_minor: number; currency: string; exponent: number } | undefined => {
+    if (typeof value !== 'object' || value === null) return undefined;
+    const entry = value as Record<string, unknown>;
+    if (
+      typeof entry.amount_minor !== 'number' ||
+      !Number.isInteger(entry.amount_minor) ||
+      entry.amount_minor < 0 ||
+      typeof entry.currency !== 'string' ||
+      entry.currency.trim() === '' ||
+      typeof entry.exponent !== 'number' ||
+      !Number.isInteger(entry.exponent) ||
+      entry.exponent < 0
+    )
+      return undefined;
+    return {
+      amount_minor: entry.amount_minor,
+      currency: entry.currency.trim(),
+      exponent: entry.exponent,
+    };
+  };
+  const used = money(spend?.used);
+  const limit = money(spend?.limit);
+  if (
+    spend?.enabled === true &&
+    used !== undefined &&
+    limit !== undefined &&
+    used.currency === limit.currency &&
+    used.exponent === limit.exponent
+  ) {
+    const value = percent(used.amount_minor, limit.amount_minor);
+    if (value !== undefined) return value;
+  }
+  const extra = limits.extra_usage;
+  if (extra?.is_enabled !== true) return undefined;
+  const value = percent(extra.used_credits, extra.monthly_limit) ?? extra.utilization;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? clampPercent(value)
+    : undefined;
+}
+
+function mergeRateLimits(
+  current: AccountState['rateLimits'],
+  updates: readonly AccountRateLimitWindow[],
+): AccountState['rateLimits'] {
+  const windows = new Map(
+    (current?.windows ?? [current?.primary, current?.secondary])
+      .filter((window): window is AccountRateLimitWindow => window !== undefined)
+      .map((window) => [window.period ?? window.windowMinutes, window]),
+  );
+  for (const window of updates) windows.set(window.period ?? window.windowMinutes, window);
+  return accountRateLimits([...windows.values()]);
+}
+
 function isoOrUndefined(value: string | number | null | undefined): string | undefined {
   if (value === null || value === undefined) return undefined;
   const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
@@ -159,7 +232,7 @@ function isoOrUndefined(value: string | number | null | undefined): string | und
 
 /**
  * `get_usage` 的结果 → 账号的用量（T3 的 `claudeUsageResponseToLimits`）：5 小时窗口是 primary，7 天窗口是 secondary，百分比
- * 已是 0–100。没有套餐用量（API Key、Bedrock）时 undefined。按模型的周窗口 Wevir 的账号状态放不下，不报。
+ * 已是 0–100。月度花费来自 `spend` 或 `extra_usage`。没有套餐用量（API Key、Bedrock）时 undefined。
  */
 export function usageRateLimits(
   response: Pick<SDKControlGetUsageResponse, 'rate_limits_available' | 'rate_limits'>,
@@ -181,11 +254,12 @@ export function usageRateLimits(
   };
   const primary = window(response.rate_limits.five_hour, FIVE_HOURS);
   const secondary = window(response.rate_limits.seven_day, ONE_WEEK);
-  if (primary === undefined && secondary === undefined) return undefined;
-  return {
-    ...(primary !== undefined && { primary }),
-    ...(secondary !== undefined && { secondary }),
-  };
+  const monthly = spendPercent(response.rate_limits);
+  return accountRateLimits([
+    ...(primary !== undefined ? [primary] : []),
+    ...(secondary !== undefined ? [secondary] : []),
+    ...(monthly !== undefined ? [{ usedPercent: monthly, period: 'monthly' as const }] : []),
+  ]);
 }
 
 /**
@@ -218,11 +292,10 @@ export function applyRateLimitEvent(
     const primary = window(unified.five_hour, FIVE_HOURS);
     const secondary = window(unified.seven_day, ONE_WEEK);
     if (primary !== undefined || secondary !== undefined) {
-      return {
-        ...current,
-        ...(primary !== undefined && { primary }),
-        ...(secondary !== undefined && { secondary }),
-      };
+      return mergeRateLimits(current, [
+        ...(primary !== undefined ? [primary] : []),
+        ...(secondary !== undefined ? [secondary] : []),
+      ]);
     }
   }
   if (typeof info.utilization !== 'number') return undefined;
@@ -234,14 +307,13 @@ export function applyRateLimitEvent(
         : undefined;
   if (slot === undefined) return undefined;
   const resetsAt = isoOrUndefined(info.resetsAt);
-  return {
-    ...current,
-    [slot]: {
+  return mergeRateLimits(current, [
+    {
       usedPercent: clampPercent(info.utilization * 100),
       windowMinutes: slot === 'primary' ? FIVE_HOURS : ONE_WEEK,
       ...(resetsAt !== undefined && { resetsAt }),
     },
-  };
+  ]);
 }
 
 /** 探测会话的 SDK 选项（T3 的 `buildClaudeCapabilitiesProbeQueryOptions`）。 */
@@ -292,6 +364,7 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
 export interface ClaudeProbe {
   account: ClaudeAccountInfo | undefined;
   usage?: Pick<SDKControlGetUsageResponse, 'rate_limits_available' | 'rate_limits'>;
+  usageCheckedAt?: number;
 }
 
 /**
@@ -300,7 +373,12 @@ export interface ClaudeProbe {
  */
 export async function probeClaudeAccount(
   sdk: ClaudeSdk,
-  input: { executablePath: string; env: Record<string, string | undefined>; cwd: string },
+  input: {
+    executablePath: string;
+    env: Record<string, string | undefined>;
+    cwd: string;
+    now?: () => number;
+  },
   signal?: AbortSignal,
 ): Promise<ClaudeProbe> {
   const abortController = new AbortController();
@@ -323,6 +401,7 @@ export async function probeClaudeAccount(
     });
     const init = await withTimeout(q.initializationResult(), PROBE_TIMEOUT_MS, 'Claude probe');
     let usage: ClaudeProbe['usage'];
+    const usageCheckedAt = (input.now ?? Date.now)();
     try {
       const response = await withTimeout(
         q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }),
@@ -337,7 +416,7 @@ export async function probeClaudeAccount(
       usage = undefined;
     }
     const account = init.account as ClaudeAccountInfo | undefined;
-    return { account, ...(usage !== undefined && { usage }) };
+    return { account, ...(usage !== undefined && { usage, usageCheckedAt }) };
   } finally {
     signal?.removeEventListener('abort', onAbort);
     abortController.abort();
@@ -390,7 +469,8 @@ export class ClaudeAccounts implements EngineAccounts {
   #customPath: string | null = null;
   #state: AccountState | undefined;
   #installation: ClaudeInstallation | undefined;
-  #checkedAt = 0;
+  #checkedAt: number | undefined;
+  #liveUsageAt: number | undefined;
   #probing: Promise<AccountState> | undefined;
   readonly #installer: NpmPackageInstaller | undefined;
   #installing: { completedBytes: number; totalBytes?: number } | undefined;
@@ -410,6 +490,7 @@ export class ClaudeAccounts implements EngineAccounts {
     this.#check(kind);
     const fresh =
       this.#state !== undefined &&
+      this.#checkedAt !== undefined &&
       this.#now() - this.#checkedAt < PROBE_TTL_MS &&
       this.#probing === undefined;
     if (fresh && options?.refresh !== true) return this.#view(this.#state as AccountState);
@@ -599,6 +680,7 @@ export class ClaudeAccounts implements EngineAccounts {
     if (state === undefined || state.status !== 'signed_in') return;
     const rateLimits = applyRateLimitEvent(state.rateLimits, info);
     if (rateLimits === undefined) return;
+    this.#liveUsageAt = this.#now();
     this.#publish({ ...state, rateLimits });
   }
 
@@ -607,7 +689,9 @@ export class ClaudeAccounts implements EngineAccounts {
     const state = this.#state;
     if (state === undefined || state.status !== 'signed_in') return;
     const { email: _email, plan: _plan, planLabel: _label, rateLimits: _limits, ...rest } = state;
-    this.#checkedAt = 0;
+    this.#checkedAt = undefined;
+    this.#liveUsageAt = undefined;
+    this.#probing = undefined;
     this.#publish({ ...rest, status: 'signed_out', lastError: message });
   }
 
@@ -689,10 +773,16 @@ export class ClaudeAccounts implements EngineAccounts {
 
   #probe(force: boolean): Promise<AccountState> {
     if (this.#probing !== undefined && !force) return this.#probing;
-    const run = this.#detect().then(
-      (state) => {
-        if (this.#probing === run) this.#probing = undefined;
-        this.#checkedAt = this.#now();
+    const run: Promise<AccountState> = this.#detect().then(
+      ({ state, probe }) => {
+        if (this.#probing !== run) return this.#probing ?? this.#state ?? state;
+        this.#probing = undefined;
+        this.#checkedAt =
+          state.status === 'signed_in' &&
+          state.lastError === undefined &&
+          probe?.usage !== undefined
+            ? this.#now()
+            : undefined;
         this.#publish(state);
         return state;
       },
@@ -705,7 +795,7 @@ export class ClaudeAccounts implements EngineAccounts {
     return run;
   }
 
-  async #detect(): Promise<AccountState> {
+  async #detect(): Promise<{ state: AccountState; probe?: ClaudeProbe }> {
     const parentEnv = this.#options.env ?? process.env;
     const managed = await this.#installer?.active();
     const find =
@@ -737,11 +827,13 @@ export class ClaudeAccounts implements EngineAccounts {
     if (executablePath === undefined) {
       this.#installation = undefined;
       return {
-        ...base,
-        installed: false,
-        installCommand: CLAUDE_INSTALL_COMMAND,
-        ...(canInstall && { canInstall }),
-        ...(this.#customPath !== null && { lastError: `${this.#customPath} does not exist` }),
+        state: {
+          ...base,
+          installed: false,
+          installCommand: CLAUDE_INSTALL_COMMAND,
+          ...(canInstall && { canInstall }),
+          ...(this.#customPath !== null && { lastError: `${this.#customPath} does not exist` }),
+        },
       };
     }
     const system = this.#options.system ?? {};
@@ -776,16 +868,18 @@ export class ClaudeAccounts implements EngineAccounts {
       this.#abort.signal,
     );
     if (!version.ok) {
-      if (version.reason === 'failed' && needsGit(version.message)) return gitMissing();
+      if (version.reason === 'failed' && needsGit(version.message)) return { state: gitMissing() };
       this.#installation = undefined;
       return {
-        ...base,
-        // Wevir 装的这份跑不起来：当作没装，设置里重新下载。
-        installed: version.reason !== 'missing' && !isManaged,
-        executablePath,
-        installCommand: CLAUDE_INSTALL_COMMAND,
-        ...(isManaged && canInstall && { canInstall }),
-        lastError: version.message,
+        state: {
+          ...base,
+          // Wevir 装的这份跑不起来：当作没装，设置里重新下载。
+          installed: version.reason !== 'missing' && !isManaged,
+          executablePath,
+          installCommand: CLAUDE_INSTALL_COMMAND,
+          ...(isManaged && canInstall && { canInstall }),
+          lastError: version.message,
+        },
       };
     }
     this.#installation = { executablePath, version: version.version };
@@ -800,26 +894,51 @@ export class ClaudeAccounts implements EngineAccounts {
       mkdirSync(this.#options.workDir, { recursive: true });
       probe = await probeClaudeAccount(
         this.#options.sdk,
-        { executablePath, env, cwd: this.#options.workDir },
+        { executablePath, env, cwd: this.#options.workDir, now: () => this.#now() },
         this.#abort.signal,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (needsGit(message)) return gitMissing();
+      if (needsGit(message)) return { state: gitMissing() };
+      const previous = this.#state;
       return {
-        ...installed,
-        lastError: `Could not verify Claude authentication: ${message}`,
+        state: {
+          ...(previous?.status === 'signed_in' &&
+          previous.executablePath === executablePath &&
+          previous.customPath === installed.customPath
+            ? previous
+            : installed),
+          lastError: `Could not verify Claude authentication: ${message}`,
+        },
       };
     }
-    if (!claudeSignedIn(probe.account)) return installed;
+    if (!claudeSignedIn(probe.account)) return { state: installed, probe };
     const plan = claudePlan(probe.account);
-    const rateLimits = probe.usage === undefined ? undefined : usageRateLimits(probe.usage);
+    const previous =
+      this.#state?.status === 'signed_in' && this.#state.email === probe.account?.email
+        ? this.#state.rateLimits
+        : undefined;
+    let rateLimits = probe.usage === undefined ? previous : usageRateLimits(probe.usage);
+    if (
+      rateLimits !== undefined &&
+      probe.usageCheckedAt !== undefined &&
+      this.#liveUsageAt !== undefined &&
+      this.#liveUsageAt >= probe.usageCheckedAt
+    ) {
+      rateLimits = mergeRateLimits(
+        rateLimits,
+        (previous?.windows ?? []).filter((window) => window.period !== 'monthly'),
+      );
+    }
     return {
-      ...installed,
-      status: 'signed_in',
-      ...(probe.account?.email !== undefined && { email: probe.account.email }),
-      ...(plan !== undefined && plan),
-      ...(rateLimits !== undefined && { rateLimits }),
+      state: {
+        ...installed,
+        status: 'signed_in',
+        ...(probe.account?.email !== undefined && { email: probe.account.email }),
+        ...(plan !== undefined && plan),
+        ...(rateLimits !== undefined && { rateLimits }),
+      },
+      probe,
     };
   }
 

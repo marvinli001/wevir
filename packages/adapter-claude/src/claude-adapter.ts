@@ -112,7 +112,12 @@ import {
   retryingOf,
   USAGE_LIMIT_ERROR,
 } from './turn-result.js';
-import { type ClaudeRequest, claudeUsageRecord, mergeClaudeUsage } from './usage-record.js';
+import {
+  type ClaudeRequest,
+  claudeUsageRecord,
+  claudeUsageRecords,
+  mergeClaudeUsage,
+} from './usage-record.js';
 
 /** `cancel` 等回合结算的时限；超过就关掉进程（照样算取消成功，进程没了回合必然已停）。 */
 export const CANCEL_TIMEOUT_MS = 10_000;
@@ -2434,7 +2439,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     const request = session.request;
     if (request === undefined) return;
     session.request = undefined;
-    session.hub.emit(claudeUsageRecord(session.id, request));
+    for (const usage of claudeUsageRecords(session.id, request)) session.hub.emit(usage);
   }
 
   /**
@@ -2462,7 +2467,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       (key) => (final[key] ?? 0) === (request.usage[key] ?? 0),
     );
     if (typeof final.output_tokens === 'number' && same) mergeClaudeUsage(request, final);
-    child.hub.emit(claudeUsageRecord(child.id, request));
+    for (const usage of claudeUsageRecords(child.id, request)) child.hub.emit(usage);
   }
 
   /**

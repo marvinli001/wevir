@@ -25,11 +25,19 @@ import {
   GIT_FOR_WINDOWS_URL,
 } from './executable.js';
 import type { ClaudeLoginFlow, ClaudeLoginResult } from './login.js';
-import { FakeClaudeSdk, recordedMessages } from './test-fixtures/fake-sdk.js';
+import { FakeClaudeSdk, type FakeSdkOptions, recordedMessages } from './test-fixtures/fake-sdk.js';
 
 // 探测会话的工作目录（检测时会建它）。
 const WORK_DIR = join(mkdtempSync(join(tmpdir(), 'wevir-claude-account-')), 'engines', 'claude');
 afterAll(() => rmSync(join(WORK_DIR, '..', '..'), { recursive: true, force: true }));
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 describe('套餐与登录状态（T3 的 claudeSubscriptionLabel / claudeAuthStatus）', () => {
   it('subscriptionType → 显示名', () => {
@@ -76,6 +84,10 @@ describe('用量', () => {
     ).toEqual({
       primary: { usedPercent: 3, windowMinutes: 300, resetsAt: '2026-10-15T18:00:00.000Z' },
       secondary: { usedPercent: 56, windowMinutes: 10080 },
+      windows: [
+        { usedPercent: 3, windowMinutes: 300, resetsAt: '2026-10-15T18:00:00.000Z' },
+        { usedPercent: 56, windowMinutes: 10080 },
+      ],
     });
     expect(
       usageRateLimits({ rate_limits_available: false, rate_limits: null } as never),
@@ -94,10 +106,69 @@ describe('用量', () => {
         rateLimitType: 'five_hour',
         utilization: 0.25,
       }),
-    ).toEqual({ primary: { usedPercent: 25, windowMinutes: 300 } });
+    ).toMatchObject({ primary: { usedPercent: 25, windowMinutes: 300 } });
     expect(
       applyRateLimitEvent(undefined, { status: 'allowed', rateLimitType: 'overage' }),
     ).toBeUndefined();
+  });
+
+  const spend = {
+    enabled: true,
+    used: { amount_minor: 4631, currency: 'USD', exponent: 2 },
+    limit: { amount_minor: 50000, currency: 'USD', exponent: 2 },
+    percent: 9,
+  };
+  const extra = { is_enabled: true, used_credits: 4631, monthly_limit: 50000, utilization: 9 };
+  const limits = (rate_limits: Record<string, unknown>) =>
+    usageRateLimits({
+      rate_limits_available: true,
+      rate_limits,
+    });
+
+  it('月度花费优先使用同币种、同精度的 spend 金额，保留独立的月度窗口', () => {
+    const result = limits({
+      five_hour: { utilization: 12, resets_at: null },
+      spend,
+      extra_usage: { ...extra, used_credits: 30000 },
+    });
+    expect(result?.windows).toEqual([
+      { usedPercent: 12, windowMinutes: 300 },
+      { usedPercent: expect.closeTo(9.262, 10), period: 'monthly' },
+    ]);
+    const updated = applyRateLimitEvent(result, {
+      status: 'allowed',
+      rateLimitType: 'five_hour',
+      utilization: 0.5,
+    });
+    expect(updated?.primary?.usedPercent).toBe(50);
+    expect(updated?.windows).toEqual([
+      { usedPercent: 50, windowMinutes: 300 },
+      { usedPercent: expect.closeTo(9.262, 10), period: 'monthly' },
+    ]);
+    expect(limits({ spend })?.windows).toEqual([
+      { usedPercent: expect.closeTo(9.262, 10), period: 'monthly' },
+    ]);
+  });
+
+  it('旧版本回退到 extra_usage 金额或百分比；禁用、币种不符和无效金额不生成窗口', () => {
+    expect(limits({ extra_usage: extra })?.primary?.usedPercent).toBeCloseTo(9.262, 10);
+    expect(
+      limits({
+        extra_usage: { ...extra, used_credits: null, monthly_limit: null, utilization: 120 },
+      })?.primary?.usedPercent,
+    ).toBe(100);
+    expect(
+      limits({ spend: { ...spend, enabled: false }, extra_usage: { ...extra, is_enabled: false } }),
+    ).toBeUndefined();
+    for (const limit of [
+      { ...spend.limit, currency: 'EUR' },
+      { ...spend.limit, exponent: 3 },
+      { ...spend.limit, amount_minor: 0 },
+    ])
+      expect(limits({ spend: { ...spend, limit } })).toBeUndefined();
+    expect(
+      limits({ spend: { ...spend, used: null }, extra_usage: extra })?.primary?.usedPercent,
+    ).toBeCloseTo(9.262, 10);
   });
 });
 
@@ -324,6 +395,126 @@ describe('ClaudeAccounts', () => {
     await created.read('claude');
     created.applyRateLimit({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.5 });
     expect(seen).toEqual(['signed_in:3', 'signed_in:50']);
+  });
+
+  const usageResponse = (utilization: number) => ({
+    rate_limits_available: true,
+    rate_limits: { five_hour: { utilization, resets_at: null } },
+  });
+
+  it('未登录不缓存，终端登录后下一次普通读取立即恢复', async () => {
+    const options: FakeSdkOptions = { account: { tokenSource: 'none', apiKeySource: 'none' } };
+    const sdk = new FakeClaudeSdk(options);
+    const { created } = accounts({ sdk });
+    expect((await created.read('claude')).status).toBe('signed_out');
+    options.account = { tokenSource: 'claude.ai', email: 'me@example.com' };
+    expect((await created.read('claude')).status).toBe('signed_in');
+    expect(sdk.queries).toHaveLength(2);
+  });
+
+  it('用量读取失败保留上次用量且不缓存，下一次普通读取重试；不支持用量的成功响应清除旧窗口', async () => {
+    const options: FakeSdkOptions = {};
+    const sdk = new FakeClaudeSdk(options);
+    const { created, advance } = accounts({ sdk });
+    const first = await created.read('claude');
+    options.usage = async () => {
+      throw new Error('usage unavailable');
+    };
+    advance(1);
+    expect((await created.read('claude', { refresh: true })).rateLimits).toEqual(first.rateLimits);
+    options.usage = async () => usageResponse(42);
+    expect((await created.read('claude')).rateLimits?.primary?.usedPercent).toBe(42);
+    options.usage = async () => ({ rate_limits_available: false, rate_limits: null });
+    expect((await created.read('claude', { refresh: true })).rateLimits).toBeUndefined();
+    expect(sdk.queries).toHaveLength(4);
+  });
+
+  it('初始化失败保留登录和用量并报告错误，失败结果不缓存；明确未登录时清掉用量', async () => {
+    const options: FakeSdkOptions = {};
+    const sdk = new FakeClaudeSdk(options);
+    const { created } = accounts({ sdk });
+    const first = await created.read('claude');
+    options.initError = new Error('temporarily unavailable');
+    expect(await created.read('claude', { refresh: true })).toMatchObject({
+      status: 'signed_in',
+      rateLimits: first.rateLimits,
+      lastError: expect.stringContaining('temporarily unavailable'),
+    });
+    options.initError = undefined;
+    expect(await created.read('claude')).not.toHaveProperty('lastError');
+    options.account = { tokenSource: 'none', apiKeySource: 'none' };
+    expect(await created.read('claude', { refresh: true })).not.toHaveProperty('rateLimits');
+    expect(sdk.queries).toHaveLength(4);
+  });
+
+  it('旧探测不能盖掉回合实时用量，后发起的成功探测仍可更新和重置用量', async () => {
+    const options: FakeSdkOptions = {};
+    const { created, advance } = accounts({ sdk: new FakeClaudeSdk(options) });
+    await created.read('claude');
+    const pending = deferred<Record<string, unknown>>();
+    const started = deferred<void>();
+    options.usage = () => {
+      started.resolve();
+      return pending.promise;
+    };
+    advance(1);
+    const read = created.read('claude', { refresh: true });
+    await started.promise;
+    advance(1);
+    created.applyRateLimit({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.5 });
+    pending.resolve({
+      ...usageResponse(3),
+      rate_limits: {
+        ...usageResponse(3).rate_limits,
+        extra_usage: { is_enabled: true, used_credits: 10, monthly_limit: 100, utilization: 10 },
+      },
+    });
+    const merged = await read;
+    expect(merged.rateLimits?.primary?.usedPercent).toBe(50);
+    expect(merged.rateLimits?.windows?.at(-1)?.period).toBe('monthly');
+    advance(1);
+    options.usage = async () => usageResponse(0);
+    expect((await created.read('claude', { refresh: true })).rateLimits?.primary?.usedPercent).toBe(
+      0,
+    );
+  });
+
+  it('同时强制刷新时只发布较新的探测结果', async () => {
+    const options: FakeSdkOptions = {};
+    const { created } = accounts({ sdk: new FakeClaudeSdk(options) });
+    await created.read('claude');
+    const pending = deferred<Record<string, unknown>>();
+    const started = deferred<void>();
+    options.usage = () => {
+      started.resolve();
+      return pending.promise;
+    };
+    const old = created.read('claude', { refresh: true });
+    await started.promise;
+    options.usage = async () => usageResponse(80);
+    const current = await created.read('claude', { refresh: true });
+    pending.resolve(usageResponse(1));
+    expect(await old).toEqual(current);
+    expect((await created.read('claude')).rateLimits?.primary?.usedPercent).toBe(80);
+  });
+
+  it('回合报未登录后，进行中的旧探测不能恢复登录或旧用量', async () => {
+    const options: FakeSdkOptions = {};
+    const { created } = accounts({ sdk: new FakeClaudeSdk(options) });
+    await created.read('claude');
+    const pending = deferred<Record<string, unknown>>();
+    const started = deferred<void>();
+    options.usage = () => {
+      started.resolve();
+      return pending.promise;
+    };
+    const read = created.read('claude', { refresh: true });
+    await started.promise;
+    created.markSignedOut('expired');
+    pending.resolve(usageResponse(3));
+    const state = await read;
+    expect(state).toMatchObject({ status: 'signed_out', lastError: 'expired' });
+    expect(state).not.toHaveProperty('rateLimits');
   });
 });
 

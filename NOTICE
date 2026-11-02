@@ -433,6 +433,8 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
   packages/adapter-claude/src/account.ts
       <- apps/server/src/provider/ClaudeProvider.ts
          apps/server/src/provider/claudeUsageLimits.ts
+  packages/adapter-claude/src/usage-record.ts（advisor 用量）
+      <- apps/server/src/provider/Drivers/claudeUsage.ts
   packages/adapter-claude/src/model-manifest.ts
       <- apps/server/src/provider/model-manifest.json（claudeAgent 一节）
   packages/adapter-claude/src/model-catalog.ts

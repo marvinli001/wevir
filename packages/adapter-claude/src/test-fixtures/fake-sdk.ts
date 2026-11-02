@@ -484,6 +484,7 @@ export interface FakeSdkOptions {
   account?: Record<string, unknown>;
   /** 探测会话的 `initializationResult()` 抛这个错（`claude` 起不来时）。 */
   initError?: Error;
+  usage?: () => Promise<Record<string, unknown>>;
   /** 按 prompt 换脚本（测试用自己拼的消息）。 */
   script?: (prompt: string) => Script | undefined;
   /** `getContextUsage()` 的响应；省略时像老版本的 `claude` 一样拒绝这个请求。 */
@@ -875,6 +876,7 @@ class FakeQuery {
   async usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(): Promise<
     Record<string, unknown>
   > {
+    if (this.#options.usage !== undefined) return this.#options.usage();
     return {
       rate_limits_available: true,
       rate_limits: {

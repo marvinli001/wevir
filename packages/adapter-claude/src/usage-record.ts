@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: MIT
+// advisor 记账参照 pingdotgg/t3code apps/server/src/provider/Drivers/claudeUsage.ts，提交 adba9a31d021ed9c9cc3205aa01d7ad670568e86。
+// Copyright (c) 2026 T3 Tools Inc.
+// 修改：从 SDK 用量发出 Wevir 的 `usage.recorded`，不扫描 transcript。
 // 一次 API 请求的用量 → `usage.recorded`（0.62.0，用量统计）。Anthropic 的 usage 本来就是事件要的口径：`input_tokens` 不含
 // 缓存的读写，思考的 token（`output_tokens_details.thinking_tokens`）含在 `output_tokens` 里。
 
@@ -63,4 +67,35 @@ export function claudeUsageRecord(
     ...(duration !== undefined && { durationMs: duration }),
     ...(ttft !== undefined && { firstTokenMs: ttft }),
   };
+}
+
+export function claudeUsageRecords(
+  engineSessionId: string,
+  request: ClaudeRequest,
+): UsageRecordedEvent[] {
+  const records = [claudeUsageRecord(engineSessionId, request)];
+  const iterations: unknown[] = Array.isArray(request.usage.iterations)
+    ? request.usage.iterations
+    : [];
+  // 顶层总量只含执行模型；advisor 的用量另记，不能把 message iterations 再加一次。
+  for (const [index, value] of iterations.entries()) {
+    if (typeof value !== 'object' || value === null) continue;
+    const iteration = value as Record<string, unknown>;
+    const model = iteration.model;
+    if (
+      iteration.type !== 'advisor_message' ||
+      typeof model !== 'string' ||
+      model.trim() === '' ||
+      model === '<synthetic>'
+    )
+      continue;
+    records.push(
+      claudeUsageRecord(engineSessionId, {
+        id: `${request.id}:advisor:${index}`,
+        model,
+        usage: iteration,
+      }),
+    );
+  }
+  return records;
 }

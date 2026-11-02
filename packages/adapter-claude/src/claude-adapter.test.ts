@@ -19,6 +19,7 @@ import {
   FakeClaudeSdk,
   loadRecording,
   mcpTaskScript,
+  recordedMessages,
 } from './test-fixtures/fake-sdk.js';
 import {
   FAKE_CLAUDE,
@@ -724,6 +725,54 @@ describe('前台 Bash 的实时输出', () => {
 });
 
 describe('每次请求的用量（0.62.0）', () => {
+  it('流式最终用量里的 advisor 事件只发一次，按 advisor 模型发出', async () => {
+    const { adapter } = harness({
+      script: (prompt) =>
+        prompt === 'advisor usage'
+          ? {
+              steps: recordedMessages('plain').map((original) => {
+                const message = structuredClone(original) as unknown as Record<string, unknown>;
+                if (original.type === 'stream_event' && original.event.type === 'message_delta') {
+                  message.event = {
+                    ...original.event,
+                    usage: {
+                      ...original.event.usage,
+                      iterations: [
+                        { type: 'message', input_tokens: 10, output_tokens: 45 },
+                        {
+                          type: 'advisor_message',
+                          model: 'claude-fable-5-1',
+                          input_tokens: 54000,
+                          output_tokens: 4200,
+                        },
+                      ],
+                    },
+                  };
+                }
+                return { kind: 'message' as const, message };
+              }),
+            }
+          : undefined,
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('advisor usage'));
+    await log.until(isTurnTerminal);
+    const records = log.events.filter((event) => event.type === 'usage.recorded');
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: 10,
+      outputTokens: 45,
+    });
+    expect(records[1]).toMatchObject({
+      requestId: `${records[0]?.requestId}:advisor:1`,
+      model: 'claude-fable-5-1',
+      inputTokens: 54000,
+      outputTokens: 4200,
+    });
+  });
+
   it('顶层按流式事件报：message_delta 的最终用量，ttft_ms 是首个 token 的时间', async () => {
     const { adapter } = harness();
     const { engineSessionId } = await adapter.createSession(CONFIG);
