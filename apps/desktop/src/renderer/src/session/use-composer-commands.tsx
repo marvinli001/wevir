@@ -40,6 +40,7 @@ import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import type { ComposerCommand, ComposerCommandItem } from './composer-commands';
 import { composerPrefs, toggleContextMeter } from './composer-prefs';
+import { carryEffort } from './effort';
 import { initPrompt } from './init-prompt';
 import { effortLabel, type ModelChoice, modelsOf } from './model-picker';
 import { allowedPermissionModes, PERMISSION_META, PERMISSION_MODES } from './permission-picker';
@@ -84,7 +85,12 @@ function modelCommand(
           checked: candidate.id === value.providerId && model.id === value.modelId,
           run: () => {
             if (candidate.id === value.providerId && model.id === value.modelId) return;
-            onChange({ providerId: candidate.id, modelId: model.id });
+            const effort = carryEffort(value.reasoningEffort, model.reasoningEfforts);
+            onChange({
+              providerId: candidate.id,
+              modelId: model.id,
+              ...(effort !== undefined && { reasoningEffort: effort }),
+            });
           },
         }));
       });
