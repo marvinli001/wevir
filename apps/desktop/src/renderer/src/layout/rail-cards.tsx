@@ -1,12 +1,12 @@
 // 会话侧栏的“环境”“上下文”“变更”三张卡片（U18，desktop-layout.md §12；截图 10–12）。“后台任务”在
 // panes/tasks-pane.tsx，与“后台任务”窗格同一份数据。
 
-import type { GitFileChange } from '@wevir/protocol';
-import { cn } from 'cn';
-import { Check, ChevronRight, Folder, GitBranch, Laptop, Layers } from 'lucide-react';
+import { Check, Diff, Folder, GitBranch, Laptop, Layers } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { useDiffSupported } from '@/changes/changes-data';
-import { openChanges } from '@/changes/changes-store';
+import { changesPrefs, openChanges } from '@/changes/changes-store';
+import { useGitSupported } from '@/changes/git-data';
+import { Button } from '@/components/ui/button';
 import { useTranscript } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
@@ -21,8 +21,6 @@ import { abbreviateHome, contextUsage, parentDirectory } from './rail-model';
 import { type RailContext, registerRailCard } from './session-rail';
 
 const COPIED_MS = 1500;
-/** “变更”展开时先列几个文件。 */
-const CHANGED_FILES_SHOWN = 8;
 
 // ── 环境 ────────────────────────────────────────────────────────────
 
@@ -156,105 +154,71 @@ function LineCounts({ added, removed }: { added: number; removed: number }) {
   );
 }
 
-const STATUS_LETTERS: Record<string, string> = {
-  modified: 'M',
-  added: 'A',
-  deleted: 'D',
-  untracked: 'U',
-};
-
-/** 一个改动的文件；Host 有 `workspace_diff`（0.20.0）时点它在“变更”窗格里打开到这个文件。 */
-function FileRow({ file, onOpen }: { file: GitFileChange; onOpen?: (path: string) => void }) {
-  const known = file.status in STATUS_LETTERS;
-  const content = (
-    <>
-      <span
-        title={
-          known
-            ? t(`rail.changes.status.${file.status}` as 'rail.changes.status.modified')
-            : file.status
-        }
-        className={cn(
-          'w-3 shrink-0 font-mono text-muted-foreground',
-          file.status === 'deleted' && 'text-destructive',
-          (file.status === 'added' || file.status === 'untracked') && 'text-success',
-        )}
-      >
-        {STATUS_LETTERS[file.status] ?? '?'}
-      </span>
-      <span dir="rtl" className="min-w-0 flex-1 truncate text-left font-mono">
-        <bdi dir="ltr">{file.path}</bdi>
-      </span>
-      {file.added !== undefined && file.removed !== undefined && (
-        <LineCounts added={file.added} removed={file.removed} />
-      )}
-    </>
-  );
-  return (
-    <li className="flex h-6 min-w-0 items-center text-xs">
-      {onOpen ? (
-        <button
-          type="button"
-          onClick={() => onOpen(file.path)}
-          className="-mx-1.5 flex h-6 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
-        >
-          {content}
-        </button>
-      ) : (
-        <span className="flex w-full min-w-0 items-center gap-2">{content}</span>
-      )}
-    </li>
-  );
-}
-
-function useChangesCard({ git, sessionId }: RailContext) {
+/**
+ * 照 Claude Code 的“Changes”：按 git 仓库一行，图标、项目名与 `+N −M`，不列文件。Host 有 `workspace_diff`（0.20.0）时点这一行
+ * 在“变更”窗格里打开“未提交”，有 `git_commit`（0.67.0）时右边多一个“提交”，打开窗格并展开底部的提交区。
+ */
+function useChangesCard({ entry, git, session, sessionId }: RailContext) {
   const panes = usePanes();
   const diffSupported = useDiffSupported();
+  const commitSupported = useGitSupported();
   const status = git.status;
   if (!status?.repo) return null;
-  // 0.20.0：打开“变更”窗格（未提交），可带要滚到的文件。
   const open =
     diffSupported && panes
-      ? (path?: string) => openChanges(panes, sessionId, { kind: 'uncommitted' }, path)
+      ? () => openChanges(panes, sessionId, { kind: 'uncommitted' })
       : undefined;
-  const { added = 0, removed = 0, fileCount = 0, files = [] } = status;
-  const shown = files.slice(0, CHANGED_FILES_SHOWN);
-  const more = fileCount - shown.length;
+  const { added = 0, removed = 0, fileCount = 0 } = status;
+  const counts =
+    fileCount === 0 ? (
+      <span className="shrink-0 text-muted-foreground">{t('rail.changes.none')}</span>
+    ) : (
+      <LineCounts added={added} removed={removed} />
+    );
+  const label = (
+    <>
+      <Diff aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate text-soft-foreground">
+        {workspaceLabel(entry.workspace)}
+      </span>
+      {counts}
+    </>
+  );
   return {
     summary:
       fileCount === 0 ? t('rail.changes.none') : <LineCounts added={added} removed={removed} />,
-    details:
-      fileCount === 0 ? (
-        <p className="text-muted-foreground">{t('rail.changes.none')}</p>
-      ) : (
-        <div data-testid="rail-changes">
-          <div className="flex items-baseline justify-between gap-2">
-            <span>{t('rail.changes.files', { count: fileCount })}</span>
-            <LineCounts added={added} removed={removed} />
-          </div>
-          <ul className="mt-1.5">
-            {shown.map((file) => (
-              <FileRow key={file.path} file={file} {...(open && { onOpen: open })} />
-            ))}
-          </ul>
-          {more > 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t('rail.changes.more', { count: more })}
-            </p>
-          )}
-          {open && (
-            <button
-              type="button"
-              onClick={() => open()}
-              data-testid="rail-changes-open"
-              className="-mx-1.5 mt-1.5 flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-soft-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring"
-            >
-              {t('rail.changes.open')}
-              <ChevronRight aria-hidden className="size-3.5 text-muted-foreground" />
-            </button>
-          )}
-        </div>
-      ),
+    details: (
+      <div
+        data-testid="rail-changes"
+        title={session.cwd}
+        className="-mx-1.5 flex h-8 w-[calc(100%+0.75rem)] min-w-0 items-center gap-1 rounded-md pr-1"
+      >
+        {open ? (
+          <button
+            type="button"
+            onClick={open}
+            className="flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
+          >
+            {label}
+          </button>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5">{label}</span>
+        )}
+        {open && commitSupported && fileCount > 0 && (
+          <Button
+            variant="secondary"
+            size="xs"
+            data-testid="rail-changes-commit"
+            onClick={() => {
+              changesPrefs.set((current) => ({ ...current, commit: true }));
+              open();
+            }}
+          >
+            {t('commit.title')}
+          </Button>
+        )}
+      </div>
+    ),
   };
 }
 

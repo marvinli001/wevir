@@ -2,7 +2,6 @@
 // 与“变更”（工作区的 git 状态）不同：只算这个会话自己动过的，不在 git 仓库里也有。
 
 import { cn } from 'cn';
-import { FileOutput, FilePen, FilePlus, FileX } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranscript } from '@/data/workbench-data';
 import {
@@ -14,63 +13,36 @@ import { useFilesSupported } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
 import { t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
-import { type OutputFile, type OutputKind, sessionOutputs } from './outputs-model';
+import { type OutputFile, sessionOutputs } from './outputs-model';
 import { usePanes } from './pane-controller';
+import { fileIcon } from './panes/files-pane';
 import { type RailContext, registerRailCard } from './session-rail';
 
-const KIND_ICONS: Record<OutputKind, typeof FilePlus> = {
-  created: FilePlus,
-  modified: FilePen,
-  deleted: FileX,
-  shared: FileOutput,
-};
-
-function splitPath(file: OutputFile): { name: string; folder: string } {
+function fileName(file: OutputFile): string {
   const shown = file.relative ?? file.path;
-  const slash = Math.max(shown.lastIndexOf('/'), shown.lastIndexOf('\\'));
-  return slash < 0
-    ? { name: shown, folder: '' }
-    : { name: shown.slice(slash + 1), folder: shown.slice(0, slash) };
+  return shown.slice(Math.max(shown.lastIndexOf('/'), shown.lastIndexOf('\\')) + 1);
 }
 
+/** 照 Claude Code 的“Outputs”：文件类型图标与文件名，悬停显示完整路径；删掉的文件名加删除线。 */
 function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) {
-  const Icon = KIND_ICONS[file.kind];
-  const { name, folder } = splitPath(file);
+  const name = fileName(file);
+  const Icon = fileIcon(name);
   const deleted = file.kind === 'deleted';
   // 删掉的文件只剩路径，没有菜单可用的东西，右键照常。
   const onContextMenu = useFileContextMenu(deleted ? undefined : file.path);
   const content = (
     <>
-      <Icon
-        aria-hidden
-        className={cn(
-          'size-4 shrink-0 text-muted-foreground',
-          file.kind === 'created' && 'text-success',
-          deleted && 'text-destructive',
-        )}
-      />
+      <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       <span className="sr-only">
         {t(`rail.outputs.kind.${file.kind}`)}
         {t('common.colon')}
       </span>
-      <span className={cn('shrink-0 truncate', deleted && 'text-muted-foreground line-through')}>
+      <span className={cn('min-w-0 truncate', deleted && 'text-muted-foreground line-through')}>
         {name}
       </span>
-      {folder && (
-        <span dir="rtl" className="min-w-0 flex-1 truncate text-left text-muted-foreground">
-          <bdi dir="ltr">{folder}</bdi>
-        </span>
-      )}
-      {!folder && <span className="flex-1" />}
-      {file.lines && (file.lines.added > 0 || file.lines.removed > 0) && (
-        <span className="shrink-0 text-xs tabular-nums">
-          <span className="text-success">+{file.lines.added.toLocaleString('en-US')}</span>{' '}
-          <span className="text-destructive">−{file.lines.removed.toLocaleString('en-US')}</span>
-        </span>
-      )}
     </>
   );
-  const row = 'flex h-7 w-full min-w-0 items-center gap-2 text-sm';
+  const row = 'flex h-7 w-full min-w-0 items-center gap-2.5 text-sm';
   return (
     <li title={file.path} onContextMenu={onContextMenu}>
       {onOpen ? (

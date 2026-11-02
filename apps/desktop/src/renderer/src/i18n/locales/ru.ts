@@ -205,15 +205,6 @@ export const messages: Messages = {
   'rail.usage.minutes': '{minutes} мин',
   'rail.changes': 'Изменения',
   'rail.changes.none': 'Нет изменений',
-  'rail.changes.files':
-    '{count, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}',
-  'rail.changes.more':
-    'Ещё {count, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}',
-  'rail.changes.open': 'Показать изменения',
-  'rail.changes.status.modified': 'Изменён',
-  'rail.changes.status.added': 'Добавлен',
-  'rail.changes.status.deleted': 'Удалён',
-  'rail.changes.status.untracked': 'Не отслеживается',
   'rail.outputs': 'Результаты',
   'rail.outputs.files':
     '{count, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}',
