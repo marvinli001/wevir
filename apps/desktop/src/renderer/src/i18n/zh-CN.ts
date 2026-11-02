@@ -1026,6 +1026,8 @@ export const zhCN = {
   'approval.title.browserRun': '允许在浏览器中运行这段脚本？',
   'approval.permission': '所需权限：{permission}',
   'approval.permission.fullAccess': '完全访问',
+  'approval.claudeAskRule': 'Claude 的 ask 规则要求确认。',
+  'approval.claudeProviderCheck': 'Claude 的安全检查或权限策略要求确认。',
   'approval.preview': '内容预览',
   'approval.previewMore': '…',
   'approval.details': '完整参数 · {tool}',

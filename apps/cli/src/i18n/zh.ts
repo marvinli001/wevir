@@ -464,6 +464,8 @@ export const zh = {
   'render.approvalFromSubagent': '（来自子 agent {title}）',
   'render.approvalNeeded': '⚠ 需要审批{from}：{what}',
   'render.justification': '理由：{text}',
+  'render.claudeAskRule': 'Claude 的 ask 规则要求确认。',
+  'render.claudeProviderCheck': 'Claude 的安全检查或权限策略要求确认。',
   'render.sandboxPermissions': '申请权限：{text}',
   'render.options': '选项：{options}',
   'render.decidedHere': '✓ 本终端已处理：{decision}',

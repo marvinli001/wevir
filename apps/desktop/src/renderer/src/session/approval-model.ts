@@ -26,6 +26,8 @@ export interface ApprovalPresentation {
   target?: string;
   permission?: string;
   justification?: string;
+  reason?: string;
+  confirmation?: string;
   /** 写文件时的内容开头。 */
   preview?: { text: string; more: boolean };
 }
@@ -87,6 +89,14 @@ export function presentApproval(
       : (detail.display.paths?.join('\n') ?? detail.display.summary ?? detail.display.command)
   )?.trim();
   const presentation: ApprovalPresentation = { title };
+  if (detail.reason) presentation.reason = detail.reason;
+  if (detail.fullAccessOverride) {
+    presentation.confirmation = t(
+      detail.fullAccessOverride === 'ask_rule'
+        ? 'approval.claudeAskRule'
+        : 'approval.claudeProviderCheck',
+    );
+  }
   if (target) presentation.target = target;
   if (detail.sandboxPermissions) {
     presentation.permission =

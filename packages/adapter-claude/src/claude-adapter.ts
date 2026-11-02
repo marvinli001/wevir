@@ -2,7 +2,8 @@
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts（每个 thread 一个常驻的 query、`makeClaudeQueryOptions`、`spawnClaudeProcessGroup`、流式 / 快照 / 工具结果 / 结果的处理、`canUseTool`、中断、插话与 `forkThread`）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 b49488759211b2c69a9419b845e1bdff17d23fb3（计划回合在完全访问下也问写操作）、
 // 66cae3d7565a6cc086672a53349cc5da225189c1（上下文用量读流式事件）、598298cc3c56ef6943301944d6986578f6b7d587（以第一个 `init` 的权限模式为准）、
-// 499c9ee68b28492c9e088a98f112998dfc4ffafc（用量上限挡下的 `/compact` 算失败）
+// 499c9ee68b28492c9e088a98f112998dfc4ffafc（用量上限挡下的 `/compact` 算失败）；
+// 0b84aa3fa7853e2645322feebc0859802ccc1a31（#21806，完全访问下保留 Claude 的审批）、e74924538705d774e2e1c56616485351d33d38db（#22546，审批原因与长期授权限制）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，实现 Wevir 的 `AgentRuntimeAdapter`；插话用 priority next（T3 用 now）；关掉后台任务；不移植 T3 编排专用的部分（唤醒回合、prompt 回声的门控、后台任务名单、goal、回滚、编排用的 MCP 工具）。
 //
@@ -16,6 +17,7 @@ import { mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import {
   AdapterError,
   type AgentEvent,
@@ -414,7 +416,7 @@ export function engineToolOptions(
 
 /**
  * 会话的 MCP 服务：读历史的工具（stdio，0.25.0）与应用级工具（HTTP，0.30.0）。`allowedTools` 里是不用批准的工具，其余的 MCP
- * 工具经 `canUseTool` 问用户（完全访问时直接放行，计划回合除外）。
+ * 工具经 `canUseTool` 问用户，包括完全访问下 Claude 仍要求确认的请求。
  */
 /** 接点回调的时限（秒）：Host 依次跑护栏的检查命令与 hooks，留足余量。 */
 const HOOK_TAP_TIMEOUT_SEC = 3600;
@@ -1546,16 +1548,22 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       if (toolName === EXIT_PLAN_MODE) {
         return { behavior: 'deny', message: PLAN_CAPTURED_MESSAGE, toolUseID: options.toolUseID };
       }
-      // 计划回合要只读（T3 b494887）：完全访问时 Claude 也把计划模式里的写操作交给这里，照样问用户。
-      if (session.config.permissionMode === 'full_access' && !session.planning) {
-        return { behavior: 'allow', updatedInput: toolInput, toolUseID: options.toolUseID };
-      }
+      // 普通操作已由 Claude 放行；仍到达回调的请求可能来自 ask 规则、安全检查或 bypass 降级，必须保留。
+      const reason = stripVTControlCharacters(options.decisionReason ?? '').trim();
+      const fullAccess = session.config.permissionMode === 'full_access' && !session.planning;
       const requestId = options.toolUseID;
       const info: PendingApproval = {
         engineSessionId: owner.id,
         requestId,
         toolCallId: options.toolUseID,
-        options: APPROVAL_OPTIONS.map((option) => ({ ...option })),
+        options: APPROVAL_OPTIONS.filter(
+          (option) => !options.suppressAlwaysAllowRule || option.optionId !== 'acceptForSession',
+        ).map((option) => ({ ...option })),
+        ...(reason !== '' && { reason }),
+        ...(fullAccess && {
+          fullAccessOverride: options.matchedAskRule === undefined ? 'provider_check' : 'ask_rule',
+        }),
+        ...(options.suppressAlwaysAllowRule === true && { suppressAlwaysAllowRule: true }),
       };
       return new Promise<PermissionResult>((resolve) => {
         let done = false;

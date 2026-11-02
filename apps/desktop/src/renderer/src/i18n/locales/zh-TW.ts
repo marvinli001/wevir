@@ -1012,6 +1012,8 @@ export const messages: Messages = {
   'approval.title.browserRun': '允許在瀏覽器中執行這段指令碼？',
   'approval.permission': '所需權限：{permission}',
   'approval.permission.fullAccess': '完整存取',
+  'approval.claudeAskRule': 'Claude 的 ask 規則要求確認。',
+  'approval.claudeProviderCheck': 'Claude 的安全檢查或權限原則要求確認。',
   'approval.preview': '內容預覽',
   'approval.previewMore': '…',
   'approval.details': '完整參數 · {tool}',

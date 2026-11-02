@@ -48,6 +48,28 @@ const codex: ApprovalScope = { roots: ['/repo'], sandboxed: true };
 const claude: ApprovalScope = { roots: ['/repo', '/wt/repo-feature'], sandboxed: false };
 
 describe('presentApproval（acp-event-mapping.md §5.5）', () => {
+  it.each([
+    ['ask_rule', 'Claude 的 ask 规则要求确认。'],
+    ['provider_check', 'Claude 的安全检查或权限策略要求确认。'],
+  ] as const)('完全访问下显示 %s 的原因与安全提醒', (fullAccessOverride, confirmation) => {
+    expect(
+      presentApproval(
+        approval({
+          toolName: 'Bash',
+          display: { kind: 'shell', command: 'git push' },
+          reason: 'Approval required by Claude',
+          justification: 'Publish the changes',
+          fullAccessOverride,
+        }),
+        claude,
+      ),
+    ).toMatchObject({
+      reason: 'Approval required by Claude',
+      justification: 'Publish the changes',
+      confirmation,
+    });
+  });
+
   it('写文件：标题、目标、完全访问、理由与内容预览（前 6 行）', () => {
     const content = Array.from({ length: 8 }, (_, i) => `第 ${i + 1} 行`).join('\n');
     const presentation = presentApproval(

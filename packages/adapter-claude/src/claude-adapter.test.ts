@@ -498,25 +498,107 @@ describe('审批（录音 approval.*）', () => {
     });
   });
 
-  it('完全访问：bypassPermissions 带 allowDangerouslySkipPermissions，canUseTool 直接允许', async () => {
-    const { adapter, sdk } = harness();
-    const { engineSessionId } = await adapter.createSession({
-      ...CONFIG,
-      permissionMode: 'full_access',
-    });
-    const log = collect(adapter, engineSessionId);
-    await adapter.send(
-      engineSessionId,
-      text('Please approve writing a file outside the workspace'),
-    );
-    const terminal = await log.until(isTurnTerminal);
-    expect(terminal).toMatchObject({ outcome: 'completed' });
-    expect(log.events.some((event) => event.type === 'approval.requested')).toBe(false);
-    expect(sessionQueries(sdk)[0]?.options).toMatchObject({
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-    });
-  });
+  it.each([
+    { effective: 'bypassPermissions', optionId: 'accept', outcome: 'completed' },
+    { effective: 'default', optionId: 'accept', outcome: 'completed' },
+    { effective: 'bypassPermissions', optionId: 'decline', outcome: 'completed' },
+    { effective: 'bypassPermissions', optionId: 'cancel', outcome: 'cancelled' },
+  ])(
+    '完全访问：Claude 使用 $effective 时仍等用户 $optionId',
+    async ({ effective, optionId, outcome }) => {
+      const { adapter, sdk } = harness({ startPermissionMode: () => effective });
+      const { engineSessionId } = await adapter.createSession({
+        ...CONFIG,
+        permissionMode: 'full_access',
+      });
+      const log = collect(adapter, engineSessionId);
+      await adapter.send(
+        engineSessionId,
+        text('Please approve writing a file outside the workspace'),
+      );
+      const request = (await log.until(
+        (event) => event.type === 'approval.requested',
+      )) as ApprovalRequestedEvent;
+      expect(request.fullAccessOverride).toBe('provider_check');
+      expect(request.reason).toBeUndefined();
+      expect(log.events.some(isTurnTerminal)).toBe(false);
+      expect(await adapter.listPendingApprovals(engineSessionId)).toContainEqual(
+        expect.objectContaining({
+          requestId: request.requestId,
+          fullAccessOverride: 'provider_check',
+        }),
+      );
+      expect(sessionQueries(sdk)[0]?.options).toMatchObject({
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+      });
+      await adapter.respondToApproval(engineSessionId, request.requestId, { optionId });
+      expect(await log.until(isTurnTerminal)).toMatchObject({ outcome });
+    },
+  );
+
+  it.each(['provider_check', 'ask_rule'] as const)(
+    '审批原因：%s 去掉终端转义；禁止长期授权时只允许一次',
+    async (override) => {
+      const { adapter, sdk } = harness();
+      const { engineSessionId } = await adapter.createSession({
+        ...CONFIG,
+        permissionMode: 'full_access',
+      });
+      const log = collect(adapter, engineSessionId);
+      await adapter.send(
+        engineSessionId,
+        text('Please approve writing a file outside the workspace'),
+      );
+      await log.until((event) => event.type === 'approval.requested');
+      const canUseTool = sessionQueries(sdk)[0]?.options.canUseTool;
+      const pending = canUseTool?.(
+        'Bash',
+        { command: 'git push' },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'toolu_reason',
+          requestId: 'req-reason',
+          decisionReason: '\u001b[33mApproval required by Claude\u001b[39m\n',
+          suppressAlwaysAllowRule: true,
+          ...(override === 'ask_rule' && {
+            matchedAskRule: { source: 'userSettings', toolName: 'Bash', ruleContent: 'git push:*' },
+          }),
+        },
+      );
+      const request = (await log.until(
+        (event) => event.type === 'approval.requested' && event.requestId === 'toolu_reason',
+      )) as ApprovalRequestedEvent;
+      expect(request).toMatchObject({
+        reason: 'Approval required by Claude',
+        fullAccessOverride: override,
+        suppressAlwaysAllowRule: true,
+      });
+      expect(request.options.map((option) => option.optionId)).toEqual([
+        'accept',
+        'decline',
+        'cancel',
+      ]);
+      expect(await adapter.listPendingApprovals(engineSessionId)).toContainEqual(
+        expect.objectContaining({
+          reason: request.reason,
+          fullAccessOverride: override,
+        }),
+      );
+      await expect(
+        adapter.respondToApproval(engineSessionId, request.requestId, {
+          optionId: 'acceptForSession',
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_option' });
+      await adapter.respondToApproval(engineSessionId, request.requestId, { optionId: 'accept' });
+      expect(await pending).toMatchObject({
+        behavior: 'allow',
+        updatedInput: { command: 'git push' },
+        decisionClassification: 'user_temporary',
+      });
+      await adapter.cancel(engineSessionId);
+    },
+  );
 
   it('自动批准：auto 模式（Claude 的分类器），拿不准的照样问', async () => {
     const { adapter, sdk } = harness();

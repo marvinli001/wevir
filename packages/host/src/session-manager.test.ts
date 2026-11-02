@@ -733,12 +733,13 @@ class ShellEchoAdapter extends EchoAdapter {
 }
 
 describe('SessionManager：审批规则（0.80.0）', () => {
-  function setupRules() {
+  function setupRules(manager: Partial<SessionManagerOptions> = {}) {
     let rules: ApprovalRuleService | undefined;
     const service = () => rules as ApprovalRuleService;
     const h = setup({
       adapter: new ShellEchoAdapter({ stepDelayMs: 1 }),
       manager: {
+        ...manager,
         approvalRules: {
           match: (...args) => service().match(...args),
           propose: (...args) => service().propose(...args),
@@ -750,6 +751,69 @@ describe('SessionManager：审批规则（0.80.0）', () => {
     rules = new ApprovalRuleService({ storage: h.storage });
     return { h, rules };
   }
+
+  it.each(['provider_check', 'ask_rule'] as const)(
+    'Claude 完全访问的 %s 不被 Host 自动放行，原因随审批存储',
+    async (fullAccessOverride) => {
+      const autoAllow = vi.fn(() => true);
+      const approvalPolicy = vi.fn(() => 'allow' as const);
+      const { h, rules } = setupRules({
+        appTools: { grant: () => undefined, autoAllow },
+        approvalPolicy,
+      });
+      rules.add(['git', 'status']);
+      const match = vi.spyOn(rules, 'match');
+      const propose = vi.spyOn(rules, 'propose');
+      const subscribe = h.adapter.subscribe.bind(h.adapter);
+      vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+        (async function* () {
+          for await (const event of subscribe(engineSessionId)) {
+            yield event.type === 'approval.requested'
+              ? { ...event, fullAccessOverride, reason: 'Approval required by Claude' }
+              : event;
+          }
+        })(),
+      );
+      const id = await create(h);
+      await send(h, id, 'approve: git status');
+      const approval = await waitForApproval(h, id);
+      expect(approval.detail).toMatchObject({
+        fullAccessOverride,
+        reason: 'Approval required by Claude',
+      });
+      expect(h.storage.approvals.get(approval.id)?.detail).toMatchObject({
+        fullAccessOverride,
+        reason: 'Approval required by Claude',
+      });
+      expect(approval.proposedRule).toBeUndefined();
+      for (const automatic of [autoAllow, approvalPolicy, match, propose])
+        expect(automatic).not.toHaveBeenCalled();
+      await h.manager.respondToApproval(
+        { approvalId: approval.id, optionId: 'allow-once' },
+        desktop,
+      );
+      await waitForState(h, id, 'idle');
+    },
+  );
+
+  it('引擎禁止长期授权时不匹配或提议 Host 命令规则', async () => {
+    const { h, rules } = setupRules();
+    rules.add(['git', 'status']);
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      (async function* () {
+        for await (const event of subscribe(engineSessionId)) {
+          yield event.type === 'approval.requested'
+            ? { ...event, suppressAlwaysAllowRule: true }
+            : event;
+        }
+      })(),
+    );
+    const id = await create(h);
+    await send(h, id, 'approve: git status');
+    expect((await waitForApproval(h, id)).proposedRule).toBeUndefined();
+    await h.manager.cancel(id);
+  });
 
   it('没有规则时提议前缀；选总是允许（项目）后加规则，下一次同前缀的命令由 Host 允许', async () => {
     const { h, rules } = setupRules();

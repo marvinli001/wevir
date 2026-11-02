@@ -1043,6 +1043,9 @@ export const messages: Messages = {
   'approval.title.browserRun': 'Разрешить запуск этого скрипта в браузере?',
   'approval.permission': 'Требуемое разрешение: {permission}',
   'approval.permission.fullAccess': 'Полный доступ',
+  'approval.claudeAskRule': 'Правило ask в Claude требует подтверждения.',
+  'approval.claudeProviderCheck':
+    'Проверка безопасности или политика разрешений Claude требует подтверждения.',
   'approval.preview': 'Предпросмотр',
   'approval.previewMore': '…',
   'approval.details': 'Все параметры · {tool}',

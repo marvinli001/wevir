@@ -479,6 +479,8 @@ Also:
   'render.approvalFromSubagent': ' (from subagent {title})',
   'render.approvalNeeded': '⚠ Approval needed{from}: {what}',
   'render.justification': 'Reason: {text}',
+  'render.claudeAskRule': 'Claude’s ask rule requires approval.',
+  'render.claudeProviderCheck': 'Claude’s safety checks or permission policy require approval.',
   'render.sandboxPermissions': 'Requested permissions: {text}',
   'render.options': 'Options: {options}',
   'render.decidedHere': '✓ Handled here: {decision}',

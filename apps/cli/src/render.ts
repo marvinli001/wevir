@@ -496,6 +496,14 @@ export class EventRenderer {
     const from =
       subagent === undefined ? '' : t('render.approvalFromSubagent', { title: subagent });
     this.#sink.line(this.#s.yellow(t('render.approvalNeeded', { from, what })));
+    if (detail?.fullAccessOverride) {
+      this.#sink.line(
+        `  ${t(detail.fullAccessOverride === 'ask_rule' ? 'render.claudeAskRule' : 'render.claudeProviderCheck')}`,
+      );
+    }
+    if (detail?.reason) {
+      this.#sink.line(`  ${t('render.justification', { text: detail.reason })}`);
+    }
     if (detail?.justification) {
       this.#sink.line(`  ${t('render.justification', { text: detail.justification })}`);
     }

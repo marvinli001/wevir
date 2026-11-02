@@ -8,7 +8,7 @@
 // - `on_request`（请求批准）→ `default`：Claude Code 自己判断哪些调用要问（改文件、不在只读名单里的命令等），经 `canUseTool`
 //   交给用户；
 // - `auto_review`（自动批准）→ `auto`：Claude Code 的模型分类器逐个批准或拒绝，拿不准时照样经 `canUseTool` 问用户；
-// - `full_access`（完全访问）→ `bypassPermissions`（带 `allowDangerouslySkipPermissions`）：不问。
+// - `full_access`（完全访问）→ `bypassPermissions`（带 `allowDangerouslySkipPermissions`）：Claude 仍交来的请求照常问用户。
 // 审批选项照 Codex 的四个（adapter-codex 的 `COMMAND_APPROVAL_OPTIONS`），决定照 T3 换成 SDK 的 `PermissionResult`。
 
 import type { ApprovalOption, PermissionMode } from '@wevir/runtime-adapter';

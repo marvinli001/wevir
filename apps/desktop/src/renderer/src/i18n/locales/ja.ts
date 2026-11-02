@@ -1018,6 +1018,8 @@ export const messages: Messages = {
   'approval.title.browserRun': 'ブラウザでこのスクリプトを実行することを許可しますか？',
   'approval.permission': '必要な権限: {permission}',
   'approval.permission.fullAccess': 'フルアクセス',
+  'approval.claudeAskRule': 'Claude の ask ルールにより承認が必要です。',
+  'approval.claudeProviderCheck': 'Claude の安全性チェックまたは権限ポリシーにより承認が必要です。',
   'approval.preview': '内容のプレビュー',
   'approval.previewMore': '…',
   'approval.details': '全引数 · {tool}',

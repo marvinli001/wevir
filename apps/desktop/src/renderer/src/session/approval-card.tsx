@@ -346,6 +346,12 @@ function ApprovalCard({
             </span>
           )}
         </div>
+        {presentation.confirmation && (
+          <p className="mt-1.5 text-sm text-warning">{presentation.confirmation}</p>
+        )}
+        {presentation.reason && (
+          <p className="mt-1.5 whitespace-pre-wrap text-soft-foreground">{presentation.reason}</p>
+        )}
         {presentation.justification && (
           <p className="mt-1.5 text-soft-foreground">{presentation.justification}</p>
         )}

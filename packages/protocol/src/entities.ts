@@ -726,6 +726,9 @@ export const ApprovalDetailSchema = z.object({
   input: z.unknown().optional(),
   justification: z.string().optional(),
   sandboxPermissions: z.string().optional(),
+  /** 引擎给出的审批原因，区别于工具输入的 justification。 */
+  reason: z.string().optional(),
+  fullAccessOverride: z.enum(['ask_rule', 'provider_check']).optional(),
 });
 export type ApprovalDetail = z.infer<typeof ApprovalDetailSchema>;
 

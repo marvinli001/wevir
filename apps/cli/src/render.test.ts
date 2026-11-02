@@ -81,6 +81,26 @@ const approval: ApprovalRequest = {
 describe('EventRenderer', () => {
   beforeEach(() => setLocale('zh'));
 
+  it('显示 Claude 完全访问下的确认原因', () => {
+    const { r, text } = renderer();
+    r.render(
+      ev('approval.requested', {
+        approval: {
+          ...approval,
+          detail: {
+            ...approval.detail,
+            toolName: 'write',
+            display: { kind: 'write', summary: '/home/u/out/summary.md' },
+            reason: 'Approval required by Claude',
+            fullAccessOverride: 'ask_rule',
+          },
+        },
+      }),
+    );
+    expect(text()).toContain('Claude 的 ask 规则要求确认。');
+    expect(text()).toContain('理由：Approval required by Claude');
+  });
+
   it('实时：增量到达即显示，替换它们的已提交消息不再重复', () => {
     const { r, text } = renderer();
     r.caughtUp();

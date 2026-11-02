@@ -1027,6 +1027,9 @@ export const messages: Messages = {
   'approval.title.browserRun': 'Ausführen dieses Browser-Skripts erlauben?',
   'approval.permission': 'Erforderliche Berechtigung: {permission}',
   'approval.permission.fullAccess': 'Vollzugriff',
+  'approval.claudeAskRule': 'Eine ask-Regel von Claude erfordert eine Bestätigung.',
+  'approval.claudeProviderCheck':
+    'Claudes Sicherheitsprüfungen oder Berechtigungsrichtlinien erfordern eine Bestätigung.',
   'approval.preview': 'Vorschau',
   'approval.previewMore': '…',
   'approval.details': 'Alle Parameter · {tool}',

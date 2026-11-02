@@ -5783,11 +5783,16 @@ export class SessionManager {
       }
       case 'approval.requested':
         if (this.#roleRefused(runtime, turn, event)) return;
-        if (this.#autoAllowed(runtime, turn, event)) return;
-        if (this.#policyAnswered(runtime, turn, event)) return;
+        if (event.fullAccessOverride === undefined) {
+          if (this.#autoAllowed(runtime, turn, event)) return;
+          if (this.#policyAnswered(runtime, turn, event)) return;
+        }
         this.#approvalRequested(runtime, turn, event);
         // 生命周期钩子（0.137.0）：审批照常写下，同时问 PermissionRequest 的 hooks；它们批准或拒绝时替用户答（`reason: 'hook'`）。
-        if (this.#hooks?.has(runtime.id, 'PermissionRequest') === true) {
+        if (
+          event.fullAccessOverride === undefined &&
+          this.#hooks?.has(runtime.id, 'PermissionRequest') === true
+        ) {
           void this.#hookAnswer(runtime, turn, event).catch(this.#onError);
         }
         return;
@@ -5884,7 +5889,7 @@ export class SessionManager {
         kind: option.kind,
         category: option.kind.startsWith('allow_') ? 'allow' : 'reject',
       })),
-      detail: tool ? approvalDetail(tool) : null,
+      detail: tool ? approvalDetail(tool, event) : null,
       status: 'pending',
       createdAt: new Date(now).toISOString(),
     };
@@ -6083,6 +6088,8 @@ export class SessionManager {
   ):
     | { matched?: { optionId: string; ruleIds: ApprovalRuleId[] }; proposed?: string[][] }
     | undefined {
+    if (event.fullAccessOverride !== undefined || event.suppressAlwaysAllowRule === true)
+      return undefined;
     const rules = this.#approvalRules;
     const command = approvalCommand(tool);
     if (rules === undefined || command === undefined) return undefined;
@@ -7784,8 +7791,10 @@ function rejectOnceOption(
   );
 }
 
-function approvalDetail(tool: ToolInfo): ApprovalDetail {
+function approvalDetail(tool: ToolInfo, event: ApprovalRequestedEvent): ApprovalDetail {
   const detail: ApprovalDetail = { toolName: tool.toolName, display: tool.display };
+  if (event.reason !== undefined) detail.reason = event.reason;
+  if (event.fullAccessOverride !== undefined) detail.fullAccessOverride = event.fullAccessOverride;
   const { input } = tool;
   if (input === undefined) return detail;
   detail.input = input;

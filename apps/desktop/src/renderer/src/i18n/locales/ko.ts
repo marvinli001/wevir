@@ -1014,6 +1014,8 @@ export const messages: Messages = {
   'approval.title.browserRun': '브라우저에서 이 스크립트를 실행하도록 허용할까요?',
   'approval.permission': '필요한 권한: {permission}',
   'approval.permission.fullAccess': '전체 액세스',
+  'approval.claudeAskRule': 'Claude의 ask 규칙에 따라 승인이 필요합니다.',
+  'approval.claudeProviderCheck': 'Claude의 안전 검사 또는 권한 정책에 따라 승인이 필요합니다.',
   'approval.preview': '내용 미리 보기',
   'approval.previewMore': '…',
   'approval.details': '전체 인수 · {tool}',
