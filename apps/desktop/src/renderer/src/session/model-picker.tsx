@@ -1,12 +1,22 @@
 import { type ProviderModel, type ProviderProfile, resolveProviderModels } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Search,
+  Zap,
+} from 'lucide-react';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 import { AccountBadge } from '@/components/account-badge';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { ScrollFade } from '@/components/scroll-fade';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   accountOfProvider,
   hasSiblingAccounts,
@@ -20,6 +30,7 @@ import { ParticleFlow } from '@/fx/particle-flow';
 import { type PlainMessageKey, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
+import { isFast, supportsFast } from './fast-mode';
 
 /**
  * 选中的模型：哪个 Provider 的哪个模型，推理档位（省略表示模型的默认档位），快速模式（0.148.0，省略表示模型的默认，见
@@ -87,6 +98,8 @@ export function ModelPicker({
   const provider = providers.find((candidate) => candidate.id === value.providerId);
   const model = provider && modelsOf(provider).find((candidate) => candidate.id === value.modelId);
   const efforts = model?.reasoningEfforts ?? [];
+  const fastAvailable = supportsFast(provider, value.modelId);
+  const fast = isFast(provider, value);
   const name = modelName(model, value.modelId);
   const source = provider && sourceOf(provider);
   // 同一来源有多个账号时（0.63.0）芯片在标志后面带账号的角标；没设标签时与只有一个账号一样。
@@ -104,6 +117,13 @@ export function ModelPicker({
         <ProviderLogo logo={source.logo} fallback={t(source.name)} className="size-3.5 shrink-0" />
       )}
       <AccountBadge label={account?.label} size="sm" />
+      {fast && (
+        <Zap
+          aria-hidden
+          className="size-3 shrink-0 fill-current text-foreground"
+          data-testid="model-picker-fast"
+        />
+      )}
       <span className="truncate">{name}</span>
       {efforts.length > 0 && <EffortChipLabel efforts={efforts} value={value.reasoningEffort} />}
     </>
@@ -148,7 +168,11 @@ export function ModelPicker({
         {view === 'effort' ? (
           <div className="flex flex-col gap-3 p-3 animate-in duration-150 fade-in">
             <div className="flex items-center gap-1">
-              <span aria-hidden className="size-6 shrink-0" />
+              {fastAvailable ? (
+                <FastToggle on={fast} onChange={(next) => onChange({ ...value, fast: next })} />
+              ) : (
+                <span aria-hidden className="size-6 shrink-0" />
+              )}
               <button
                 type="button"
                 onClick={() => setView('models')}
@@ -201,7 +225,18 @@ export function ModelPicker({
               choose(
                 next.id === value.modelId && providerId === value.providerId
                   ? value
-                  : { providerId, modelId: next.id },
+                  : // 换模型时开着的快速模式沿用（新模型支持时），否则取新模型的默认，同 Host（0.148.0）。
+                    {
+                      providerId,
+                      modelId: next.id,
+                      ...(fast &&
+                      supportsFast(
+                        listed.find((candidate) => candidate.id === providerId),
+                        next.id,
+                      )
+                        ? { fast: true }
+                        : {}),
+                    },
               )
             }
           />
@@ -397,6 +432,39 @@ function EffortChipLabel({
         </span>
       ))}
     </span>
+  );
+}
+
+/**
+ * 快速模式的开关（0.148.0，照 Codex 桌面端）：弹层左上角的闪电，开着时是滑块的蓝、实心；提示写速度与用量的取舍。只在模型
+ * `supportsFast` 时出现（fast-mode.ts）。
+ */
+function FastToggle({ on, onChange }: { on: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={t('model.fast.label')}
+            aria-pressed={on}
+            data-testid="fast-toggle"
+            className={cn(
+              'shrink-0',
+              on ? 'text-effort-fill hover:text-effort-fill' : 'text-muted-foreground',
+            )}
+            onClick={() => onChange(!on)}
+          />
+        }
+      >
+        <Zap className={cn('transition-[fill] duration-150', on && 'fill-current')} />
+      </TooltipTrigger>
+      <TooltipContent side="top" className="flex-col items-start gap-0">
+        <span>{t('model.fast.label')}</span>
+        <span className="opacity-70">{t('model.fast.tradeoff')}</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

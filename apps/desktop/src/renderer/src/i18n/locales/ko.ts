@@ -801,6 +801,8 @@ export const messages: Messages = {
   'model.effort.default': '기본값',
   'model.effort.fixed': '고정 강도',
   'model.effort.reset': '기본 강도로 복원',
+  'model.fast.label': '빠른 모드',
+  'model.fast.tradeoff': '더 빠름 · 사용량 증가',
   'model.configureFailed': '모델 전환 실패: {error}',
 
   'permission.title': '권한 모드',

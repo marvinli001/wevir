@@ -813,6 +813,8 @@ export const zhCN = {
   'model.effort.default': '默认',
   'model.effort.fixed': '固定力度',
   'model.effort.reset': '恢复默认力度',
+  'model.fast.label': '快速模式',
+  'model.fast.tradeoff': '速度更快 · 用量更多',
   'model.configureFailed': '切换模型失败：{error}',
 
   'permission.title': '权限模式',

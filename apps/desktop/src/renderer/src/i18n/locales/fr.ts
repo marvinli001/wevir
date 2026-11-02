@@ -811,6 +811,8 @@ export const messages: Messages = {
   'model.effort.default': 'Par défaut',
   'model.effort.fixed': 'Niveau fixe',
   'model.effort.reset': 'Rétablir le niveau par défaut',
+  'model.fast.label': 'Mode rapide',
+  'model.fast.tradeoff': 'Plus rapide · Consomme plus',
   'model.configureFailed': 'Échec du changement de modèle : {error}',
 
   'permission.title': 'Mode d’autorisation',

@@ -804,6 +804,8 @@ export const messages: Messages = {
   'model.effort.default': 'Default',
   'model.effort.fixed': 'Fixed effort',
   'model.effort.reset': 'Reset to default effort',
+  'model.fast.label': 'Fast mode',
+  'model.fast.tradeoff': 'Faster · Uses more',
   'model.configureFailed': 'Failed to switch model: {error}',
 
   'permission.title': 'Permission mode',

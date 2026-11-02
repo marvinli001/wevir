@@ -810,6 +810,8 @@ export const messages: Messages = {
   'model.effort.default': 'Standard',
   'model.effort.fixed': 'Fester Aufwand',
   'model.effort.reset': 'Standardaufwand wiederherstellen',
+  'model.fast.label': 'Schneller Modus',
+  'model.fast.tradeoff': 'Schneller · Mehr Verbrauch',
   'model.configureFailed': 'Modellwechsel fehlgeschlagen: {error}',
 
   'permission.title': 'Berechtigungsmodus',
