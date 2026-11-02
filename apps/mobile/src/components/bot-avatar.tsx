@@ -3,15 +3,8 @@
 //
 // 画布比布局大一半、用负偏移收回来（同桌面），跳起来不被裁掉；身体在画布里往下偏 0.1（库的留白）。
 
-import { useEffect, useId, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  Animated,
-  Easing,
-  StyleSheet,
-  View,
-  type ViewStyle,
-} from 'react-native';
+import { useEffect, useId, useRef } from 'react';
+import { Animated, Easing, StyleSheet, View, type ViewStyle } from 'react-native';
 import Svg, { Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
 import {
   AVATAR_COLORS,
@@ -22,26 +15,11 @@ import {
   bodyColor,
   inkColor,
 } from '../lib/bot-avatar';
+import { useReducedMotion } from '../state/reduced-motion';
 import { useTheme } from '../theme';
 
 const HOP_MS = 680;
 const HOP_HEIGHT = 12;
-
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => alive && setReduced(value))
-      .catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
-    return () => {
-      alive = false;
-      subscription.remove();
-    };
-  }, []);
-  return reduced;
-}
 
 export function BotAvatar({
   avatar,

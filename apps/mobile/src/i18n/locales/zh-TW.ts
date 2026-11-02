@@ -75,6 +75,13 @@ export const zhTW: Messages = {
   'session.state.error': '出錯',
   'session.state.closed': '已關閉',
   'session.awaitingInput': '待回答',
+  'live.thinking': '正在思考',
+  'live.awaiting': '等待核准',
+  'live.input': '等待回答',
+  'live.thought': '思考了 {duration}',
+  'live.thoughtPlain': '思考過',
+  'live.seconds': '{n} 秒',
+  'live.minutes': '{m} 分 {s} 秒',
 
   'bots.title': '助理',
   'bots.empty': '沒有助理',

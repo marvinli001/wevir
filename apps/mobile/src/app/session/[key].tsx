@@ -1,6 +1,7 @@
 // 一个会话：大标题是会话标题，下面一行是所在电脑与状态；消息流（用户的话是气泡，回答是正文，工具一行），末尾是待批准的审批、
 // 等回答的提问（在手机上作答）与还没送达的消息（可取消）。底部是输入栏：发消息、附照片；回合进行中发出的按“插话 / 排队”送达
 // （默认取电脑上“回合进行中按回车”的设置），空着时是停止。右上角的菜单：查看改动、改名、归档。打开时停在最新一条。
+// 回合进行中消息流末尾是运行状态（components/live-status.tsx），回答逐字放出（components/markdown.tsx）。
 
 import { ClientClosedError } from '@wevir/client-sdk';
 import type {
@@ -35,6 +36,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PostView } from '../../components/bot-cards';
 import { Composer } from '../../components/composer';
 import { HeaderMenu } from '../../components/header-button';
+import { LiveStatus, ThoughtRow } from '../../components/live-status';
 import { Markdown } from '../../components/markdown';
 import type { MenuSection } from '../../components/menu';
 import { QuestionCard } from '../../components/question-card';
@@ -150,13 +152,17 @@ export default function SessionScreen() {
   const items = useMemo(
     () =>
       view.transcript !== undefined
-        ? sessionItems(view.transcript, {
-            image: t('bot.image'),
-            tool: toolVerb,
-            sessionTitle: (id) => sessionTitles.get(id),
-          })
+        ? sessionItems(
+            view.transcript,
+            {
+              image: t('bot.image'),
+              tool: toolVerb,
+              sessionTitle: (id) => sessionTitles.get(id),
+            },
+            { live: view.offline !== true },
+          )
         : [],
-    [view.transcript, sessionTitles],
+    [view.transcript, view.offline, sessionTitles],
   );
   const session = view.session;
   const state = view.transcript?.state ?? session?.state;
@@ -436,7 +442,8 @@ function SessionList({
   const [away, setAway] = useState(false);
   const [fresh, setFresh] = useState(false);
   const lastKey = useRef<string | undefined>(undefined);
-  const last = items.at(-1);
+  // 运行状态一直在末尾，不算新内容。
+  const last = items.findLast((item) => item.kind !== 'live');
   // 刚发出的消息总要看见，即使之前翻到了上面。
   if (last?.key !== lastKey.current) {
     lastKey.current = last?.key;
@@ -590,13 +597,22 @@ function Item({
   onCancelPending: (pendingId: string) => void;
 }) {
   switch (item.kind) {
-    case 'user':
     case 'assistant':
+      return (
+        <View style={styles.reply}>
+          <Markdown text={item.text} streaming={item.streaming === true} />
+        </View>
+      );
+    case 'thought':
+      return <ThoughtRow item={item} theme={theme} />;
+    case 'live':
+      return <LiveStatus item={item} theme={theme} />;
+    case 'user':
       return (
         <PostView
           post={{
             id: item.key,
-            author: item.kind === 'user' ? 'user' : 'bot',
+            author: 'user',
             createdAt: now.toISOString(),
             card: { kind: 'text', text: item.text },
           }}
@@ -809,6 +825,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACE.page },
   meta: { fontSize: TEXT.caption, paddingHorizontal: 4, paddingBottom: 8 },
   item: { marginTop: 12 },
+  reply: { paddingRight: 24 },
   tool: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
   toolText: { flex: 1, fontSize: TEXT.small },
   note: { fontSize: TEXT.small, paddingHorizontal: 4 },

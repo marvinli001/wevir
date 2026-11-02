@@ -76,6 +76,13 @@ export const zhCN = {
   'session.state.error': '出错',
   'session.state.closed': '已关闭',
   'session.awaitingInput': '待回答',
+  'live.thinking': '正在思考',
+  'live.awaiting': '等待审批',
+  'live.input': '等待回答',
+  'live.thought': '思考了 {duration}',
+  'live.thoughtPlain': '思考过',
+  'live.seconds': '{n} 秒',
+  'live.minutes': '{m} 分 {s} 秒',
 
   'bots.title': '助理',
   'bots.empty': '没有助理',

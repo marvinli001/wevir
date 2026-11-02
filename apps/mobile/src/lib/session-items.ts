@@ -1,8 +1,9 @@
-// 会话页要画的行：用户的话、助手的回答、工具一行、错误，末尾是待批准的审批（画法同助理的审批卡）、等回答的问题与排队中的
+// 会话页要画的行：用户的话、助手的回答（还在写的带 `streaming`，逐字放出）、思考与工具各一行、错误；回合进行中消息流末尾是
+// 运行状态（当前动作、已用时间、正在流出的思考或命令输出），之后是待批准的审批（画法同助理的审批卡）、等回答的问题与排队中的
 // 消息。不是用户写的消息（别的会话发来的、回报、后台进程的通知等，`from`）照桌面端画成卡片或一行标记，不画成用户的气泡。
-// 思考、子会话之类桌面专有的部件不画。纯逻辑。
+// 子会话之类桌面专有的部件不画。纯逻辑。
 
-import { type ChatMessage, reportBody, type Transcript } from '@wevir/client-sdk';
+import { type ChatMessage, type ChatPartOf, reportBody, type Transcript } from '@wevir/client-sdk';
 import type {
   MessageFrom,
   PendingDelivery,
@@ -13,16 +14,30 @@ import type {
 } from '@wevir/protocol';
 import { t } from '../i18n';
 import { approvalView, type BotPost } from './bots';
+import { isBusy } from './session-actions';
 
 export type ToolState = 'running' | 'done' | 'failed';
 
 /** 不是用户写的消息的图标：后台进程、自动修复、第二意见、回报、别的会话发来的消息。 */
 export type NoticeIcon = 'process' | 'repair' | 'opinion' | 'report' | 'message';
 
+/** 进行中的回合正在做什么（同桌面端的当前动作）：停止中、等审批、等回答、在跑的工具，都不是时在思考。 */
+export type LiveAction =
+  | { kind: 'thinking' | 'awaiting' | 'input' | 'stopping' }
+  | { kind: 'tool'; label: string };
+
 export type SessionItem =
   | { kind: 'user'; key: string; text: string }
-  | { kind: 'assistant'; key: string; text: string }
+  /** `streaming`：还在流出的回答或计划。 */
+  | { kind: 'assistant'; key: string; text: string; streaming?: true }
+  /** 一段思考：一行“思考了 N 秒”，有文字时可展开。 */
+  | { kind: 'thought'; key: string; text: string; durationMs?: number }
   | { kind: 'tool'; key: string; label: string; state: ToolState }
+  /**
+   * 回合进行中的运行状态，在消息流末尾：当前动作，回合开始的时刻（`startedAt`，算已用时间），`detail` 是正在流出的思考或
+   * 在跑的命令最近的输出。
+   */
+  | { kind: 'live'; key: 'live'; action: LiveAction; startedAt?: string; detail?: string }
   | { kind: 'error'; key: string; text: string }
   /** 待批准的审批：`post` 是助理审批卡的形状，`approvalId` 用来回应。 */
   | { kind: 'approval'; key: string; approvalId: string; post: BotPost }
@@ -143,10 +158,53 @@ function pendingItem(
   };
 }
 
+type ToolPart = ChatPartOf<'tool'>;
+
+/** 工具一行的文字：动词（不认识的种类用工具名）加摘要、命令、网址或搜索词。 */
+function toolLabel(part: ToolPart, labels: SessionItemLabels): string {
+  const display = part.display;
+  const detail = display.summary ?? display.command ?? display.url ?? display.query;
+  const name = labels.tool(display.kind) ?? part.toolName.split('__').at(-1) ?? part.toolName;
+  return detail !== undefined && detail !== '' ? `${name} · ${detail}` : name;
+}
+
+function durationOf(part: ChatPartOf<'reasoning'>): number | undefined {
+  if (part.startedAt === undefined || part.endedAt === undefined) return undefined;
+  const ms = Date.parse(part.endedAt) - Date.parse(part.startedAt);
+  return Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+}
+
+/**
+ * 运行状态下面露出的那段：正在流出的思考或命令输出的末尾，压成一段。手机上只露三行，从末尾往前取到 `DETAIL_WIDTH` 个半角字宽
+ * （全角字按两个），前面截掉的写成省略号，最新的字总在最后一行。
+ */
+const DETAIL_WIDTH = 130;
+
+function detailText(text: string): string | undefined {
+  const flat = text
+    .replace(/[*_`#>]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (flat === '') return undefined;
+  const chars = Array.from(flat);
+  let width = 0;
+  let start = chars.length;
+  while (start > 0) {
+    const code = chars[start - 1]?.codePointAt(0) ?? 0;
+    const next = width + (code >= 0x2e80 ? 2 : 1);
+    if (next > DETAIL_WIDTH) break;
+    width = next;
+    start -= 1;
+  }
+  return start === 0 ? flat : `…${chars.slice(start).join('').trimStart()}`;
+}
+
 function messageItems(
   message: ChatMessage,
   own: SessionId | undefined,
   labels: SessionItemLabels,
+  /** 正在流出、由运行状态代表的思考（不另画一行）。 */
+  liveThought: string | undefined,
 ): SessionItem[] {
   const out: SessionItem[] = [];
   if (message.role === 'user') {
@@ -181,25 +239,36 @@ function messageItems(
   for (const part of message.parts) {
     switch (part.type) {
       case 'text':
-        if (part.text.trim() !== '')
-          out.push({ kind: 'assistant', key: part.key, text: part.text });
-        break;
       case 'plan':
         if (part.text.trim() !== '')
-          out.push({ kind: 'assistant', key: part.key, text: part.text });
+          out.push({
+            kind: 'assistant',
+            key: part.key,
+            text: part.text,
+            ...(part.state === 'streaming' && { streaming: true }),
+          });
         break;
-      case 'tool': {
-        const display = part.display;
-        const detail = display.summary ?? display.command ?? display.url ?? display.query;
-        const name = labels.tool(display.kind) ?? part.toolName.split('__').at(-1) ?? part.toolName;
+      case 'reasoning': {
+        if (part.key === liveThought) break;
+        const durationMs = durationOf(part);
+        // 没有文字、又不到一秒的思考（引擎只给了加密的思考）不占一行。
+        if (part.text.trim() === '' && (durationMs === undefined || durationMs < 1_000)) break;
         out.push({
-          kind: 'tool',
+          kind: 'thought',
           key: part.key,
-          label: detail !== undefined && detail !== '' ? `${name} · ${detail}` : name,
-          state: toolState(part.status),
+          text: part.text,
+          ...(durationMs !== undefined && { durationMs }),
         });
         break;
       }
+      case 'tool':
+        out.push({
+          kind: 'tool',
+          key: part.key,
+          label: toolLabel(part, labels),
+          state: toolState(part.status),
+        });
+        break;
       case 'error':
         out.push({ kind: 'error', key: part.key, text: part.message });
         break;
@@ -208,10 +277,87 @@ function messageItems(
   return out;
 }
 
-/** 消息流，末尾是待批准的审批、等回答的问题与还没送达的消息。 */
-export function sessionItems(transcript: Transcript, labels: SessionItemLabels): SessionItem[] {
+/**
+ * 回合进行中的运行状态（同桌面端的当前动作与“正在思考”那一行）；没在跑时 `undefined`。`toolKey` 是当前动作代表的那个工具
+ * （它不另画一行，做完了才列进消息流），`thoughtKey` 是正在流出的那段思考。
+ */
+function liveStatus(
+  transcript: Transcript,
+  labels: SessionItemLabels,
+):
+  | { item: Extract<SessionItem, { kind: 'live' }>; toolKey?: string; thoughtKey?: string }
+  | undefined {
+  if (!isBusy(transcript)) return undefined;
+  const turnId = transcript.activeTurnId;
+  const messages = transcript.messages.filter(
+    (message) => message.role !== 'system' && message.turnId === turnId,
+  );
+  const assistant = messages.findLast((message) => message.role === 'assistant');
+  const prompt = messages.find((message) => message.role === 'user');
+  const startedAt =
+    assistant?.role === 'assistant' && assistant.startedAt !== undefined
+      ? assistant.startedAt
+      : prompt?.role === 'user'
+        ? prompt.ts
+        : undefined;
+  const parts = assistant?.parts ?? [];
+  const tool = parts.findLast(
+    (part): part is ToolPart =>
+      part.type === 'tool' && (part.status === 'running' || part.status === 'awaiting_approval'),
+  );
+  const tail = parts.at(-1);
+  const thought = tail?.type === 'reasoning' && tail.state === 'streaming' ? tail : undefined;
+  let action: LiveAction;
+  if (transcript.state === 'cancelling') action = { kind: 'stopping' };
+  else if (transcript.pendingApprovals.length > 0) action = { kind: 'awaiting' };
+  else if (transcript.pendingQuestions.length > 0) action = { kind: 'input' };
+  else if (tool !== undefined && tool.status === 'running')
+    action = { kind: 'tool', label: toolLabel(tool, labels) };
+  else action = { kind: 'thinking' };
+  const detail =
+    thought !== undefined
+      ? detailText(thought.text)
+      : action.kind === 'tool' && tool?.output !== undefined
+        ? detailText(lastLine(tool.output.text))
+        : undefined;
+  return {
+    item: {
+      kind: 'live',
+      key: 'live',
+      action,
+      ...(startedAt !== undefined && { startedAt }),
+      ...(detail !== undefined && { detail }),
+    },
+    ...(action.kind === 'tool' && tool !== undefined && { toolKey: tool.key }),
+    ...(thought !== undefined && { thoughtKey: thought.key }),
+  };
+}
+
+/** 命令输出的最后一行有字的行。 */
+function lastLine(text: string): string {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = (lines[i] ?? '').trim();
+    if (line !== '') return line;
+  }
+  return '';
+}
+
+/**
+ * 消息流，回合进行中末尾是运行状态，然后是待批准的审批、等回答的问题与还没送达的消息。只有本地缓存（离线）时 `live` 给
+ * false：缓存里的回合在电脑上可能早已结束，不画运行状态。
+ */
+export function sessionItems(
+  transcript: Transcript,
+  labels: SessionItemLabels,
+  { live: showLive = true }: { live?: boolean } = {},
+): SessionItem[] {
   const own = transcript.sessionId;
-  const out = transcript.messages.flatMap((message) => messageItems(message, own, labels));
+  const live = showLive ? liveStatus(transcript, labels) : undefined;
+  const out = transcript.messages
+    .flatMap((message) => messageItems(message, own, labels, live?.thoughtKey))
+    .filter((item) => item.key !== live?.toolKey);
+  if (live !== undefined) out.push(live.item);
   for (const request of transcript.pendingApprovals) {
     out.push({
       kind: 'approval',

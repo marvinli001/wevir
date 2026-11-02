@@ -79,6 +79,13 @@ export const ko: Messages = {
   'session.state.error': '오류',
   'session.state.closed': '닫힘',
   'session.awaitingInput': '답변 대기',
+  'live.thinking': '생각 중',
+  'live.awaiting': '승인 대기 중',
+  'live.input': '답변 대기 중',
+  'live.thought': '{duration} 동안 생각함',
+  'live.thoughtPlain': '생각함',
+  'live.seconds': '{n}초',
+  'live.minutes': '{m}분 {s}초',
 
   'bots.title': '어시스턴트',
   'bots.empty': '어시스턴트 없음',

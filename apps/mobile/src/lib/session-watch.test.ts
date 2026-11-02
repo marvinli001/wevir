@@ -122,9 +122,16 @@ describe('SessionWatch', () => {
     await vi.waitFor(() => expect(watch.view.caughtUp).toBe(true));
     expect(watch.view.session?.title).toBe('修登录页');
     const items = sessionItems(watch.view.transcript as never, LABELS);
-    expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool', 'approval']);
+    expect(items.map((item) => item.kind)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'live',
+      'approval',
+    ]);
     expect(items[2]).toMatchObject({ label: '运行 · pnpm test', state: 'failed' });
-    expect(items[3]).toMatchObject({
+    expect(items[3]).toMatchObject({ kind: 'live', action: { kind: 'awaiting' } });
+    expect(items[4]).toMatchObject({
       kind: 'approval',
       post: { card: { kind: 'approval', tool: 'gmail · send_email', decision: 'pending' } },
     });
@@ -218,7 +225,7 @@ describe('SessionWatch 的本地缓存', () => {
       caughtUp: true,
       cachedAt: '2026-10-27T08:00:00.000Z',
     });
-    const items = sessionItems(offline.view.transcript as never, LABELS);
+    const items = sessionItems(offline.view.transcript as never, LABELS, { live: false });
     expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool']);
     await offline.respond((approval() as ApprovalRequest).id, 'approved');
   });

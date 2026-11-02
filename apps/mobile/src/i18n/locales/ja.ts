@@ -81,6 +81,13 @@ export const ja: Messages = {
   'session.state.error': 'エラー',
   'session.state.closed': '終了',
   'session.awaitingInput': '回答待ち',
+  'live.thinking': '思考中',
+  'live.awaiting': '承認待ち',
+  'live.input': '回答待ち',
+  'live.thought': '思考時間 {duration}',
+  'live.thoughtPlain': '思考',
+  'live.seconds': '{n} 秒',
+  'live.minutes': '{m} 分 {s} 秒',
 
   'bots.title': 'アシスタント',
   'bots.empty': 'アシスタントなし',

@@ -82,6 +82,13 @@ export const de: Messages = {
   'session.state.error': 'Fehler',
   'session.state.closed': 'Geschlossen',
   'session.awaitingInput': 'Antwort nötig',
+  'live.thinking': 'Denkt nach',
+  'live.awaiting': 'Wartet auf Freigabe',
+  'live.input': 'Wartet auf Antwort',
+  'live.thought': '{duration} nachgedacht',
+  'live.thoughtPlain': 'Nachgedacht',
+  'live.seconds': '{n} s',
+  'live.minutes': '{m} min {s} s',
 
   'bots.title': 'Assistenten',
   'bots.empty': 'Keine Assistenten',

@@ -76,6 +76,15 @@ export function timeAgo(iso: string, now: Date): string {
   return t('time.days', { n: Math.floor(hours / 24) });
 }
 
+/** 时长（同桌面端）：不到 10 秒保留一位小数（`whole` 时取整秒，每秒走一次的已用时间用），一分钟起写分与秒。 */
+export function formatDuration(ms: number, whole = false): string {
+  const seconds = Math.max(0, ms) / 1000;
+  if (seconds < 10 && !whole) return t('live.seconds', { n: Number(seconds.toFixed(1)) });
+  if (seconds < 60) return t('live.seconds', { n: Math.floor(seconds) });
+  const total = Math.floor(seconds);
+  return t('live.minutes', { m: Math.floor(total / 60), s: total % 60 });
+}
+
 /** 文件大小：按 1024 进位，保留一位小数。 */
 export function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB'];

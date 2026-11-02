@@ -81,6 +81,13 @@ export const ru: Messages = {
   'session.state.error': 'Ошибка',
   'session.state.closed': 'Закрыт',
   'session.awaitingInput': 'Ждёт ответа',
+  'live.thinking': 'Думает',
+  'live.awaiting': 'Ожидает подтверждения',
+  'live.input': 'Ожидает ответа',
+  'live.thought': 'Размышления: {duration}',
+  'live.thoughtPlain': 'Размышления',
+  'live.seconds': '{n} с',
+  'live.minutes': '{m} мин {s} с',
 
   'bots.title': 'Ассистенты',
   'bots.empty': 'Нет ассистентов',

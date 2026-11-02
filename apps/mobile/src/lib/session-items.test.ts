@@ -162,3 +162,155 @@ describe('sessionItems：不是用户写的消息', () => {
     expect(items[1]).not.toHaveProperty('notice');
   });
 });
+
+function assistant(parts: unknown[], startedAt = '2026-11-02T10:00:00.000Z'): ChatMessage {
+  return {
+    role: 'assistant',
+    id: 'a1',
+    turnId: 'trn_1',
+    startedAt,
+    parts,
+  } as unknown as ChatMessage;
+}
+
+function running(messages: ChatMessage[], patch: Partial<Transcript> = {}): Transcript {
+  return {
+    ...transcript(messages),
+    state: 'running',
+    activeTurnId: 'trn_1',
+    ...patch,
+  } as unknown as Transcript;
+}
+
+const shell = (status: string, output?: string) => ({
+  type: 'tool',
+  key: 'tool1',
+  toolCallId: 'call1',
+  toolName: 'exec_command',
+  display: { kind: 'shell', command: 'pnpm test' },
+  status,
+  input: {},
+  ...(output !== undefined && { output: { text: output, truncated: false } }),
+  startedAt: '2026-11-02T10:00:01.000Z',
+});
+
+describe('sessionItems：回合进行中', () => {
+  it('末尾是运行状态，正在流出的思考不另画一行，露在运行状态下面', () => {
+    const items = sessionItems(
+      running([
+        user('m1', '查一下'),
+        assistant([
+          {
+            type: 'reasoning',
+            key: 's:1:0',
+            text: '先看 **日志**\n再看配置',
+            state: 'streaming',
+            startedAt: '2026-11-02T10:00:00.000Z',
+            endedAt: '2026-11-02T10:00:03.000Z',
+          },
+        ]),
+      ]),
+      LABELS,
+    );
+    expect(items.map((item) => item.kind)).toEqual(['user', 'live']);
+    expect(items.at(-1)).toEqual({
+      kind: 'live',
+      key: 'live',
+      action: { kind: 'thinking' },
+      startedAt: '2026-11-02T10:00:00.000Z',
+      detail: '先看 日志 再看配置',
+    });
+  });
+
+  it('思考很长时只露末尾，前面写成省略号', () => {
+    const text = `${'开头'.repeat(100)}最新的一句`;
+    const items = sessionItems(
+      running([assistant([{ type: 'reasoning', key: 's:1:0', text, state: 'streaming' }])]),
+      LABELS,
+    );
+    const detail = (items.at(-1) as { detail: string }).detail;
+    expect(detail.startsWith('…')).toBe(true);
+    expect(detail.endsWith('最新的一句')).toBe(true);
+    expect(detail.length).toBeLessThanOrEqual(66);
+  });
+
+  it('在跑的工具由运行状态代表（带最近一行输出），做完了才列进消息流', () => {
+    const live = sessionItems(running([assistant([shell('running', 'PASS a\nRUN  b\n')])]), LABELS);
+    expect(live).toEqual([
+      {
+        kind: 'live',
+        key: 'live',
+        action: { kind: 'tool', label: 'exec_command · pnpm test' },
+        startedAt: '2026-11-02T10:00:00.000Z',
+        detail: 'RUN b',
+      },
+    ]);
+    const done = sessionItems(running([assistant([shell('completed')])]), LABELS);
+    expect(done.map((item) => item.kind)).toEqual(['tool', 'live']);
+    expect(done.at(-1)).toMatchObject({ action: { kind: 'thinking' } });
+  });
+
+  it('等审批、等回答、停止中', () => {
+    const base = [assistant([shell('awaiting_approval')])];
+    const approval = { id: 'apr_1', options: [], title: 'x' };
+    expect(
+      sessionItems(running(base, { pendingApprovals: [approval] } as never), LABELS).find(
+        (item) => item.kind === 'live',
+      ),
+    ).toMatchObject({ action: { kind: 'awaiting' } });
+    expect(
+      sessionItems(running(base, { state: 'cancelling' }), LABELS).find(
+        (item) => item.kind === 'live',
+      ),
+    ).toMatchObject({ action: { kind: 'stopping' } });
+  });
+
+  it('还在写的回答带 streaming，写完了的思考是一行带时长', () => {
+    const items = sessionItems(
+      running([
+        assistant([
+          {
+            type: 'reasoning',
+            key: 'r1',
+            text: '想好了',
+            state: 'done',
+            startedAt: '2026-11-02T10:00:00.000Z',
+            endedAt: '2026-11-02T10:00:04.500Z',
+          },
+          { type: 'text', key: 's:2:0', text: '答案是', state: 'streaming' },
+        ]),
+      ]),
+      LABELS,
+    );
+    expect(items).toEqual([
+      { kind: 'thought', key: 'r1', text: '想好了', durationMs: 4_500 },
+      { kind: 'assistant', key: 's:2:0', text: '答案是', streaming: true },
+      {
+        kind: 'live',
+        key: 'live',
+        action: { kind: 'thinking' },
+        startedAt: '2026-11-02T10:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('回合结束后没有运行状态；没有文字又不到一秒的思考不占一行', () => {
+    const items = sessionItems(
+      transcript([
+        assistant([
+          {
+            type: 'reasoning',
+            key: 'r1',
+            text: '',
+            state: 'done',
+            startedAt: '2026-11-02T10:00:00.000Z',
+            endedAt: '2026-11-02T10:00:00.400Z',
+          },
+          { type: 'text', key: 't1', text: '好了', state: 'done' },
+        ]),
+      ]),
+      LABELS,
+    );
+    expect(items).toEqual([{ kind: 'assistant', key: 't1', text: '好了' }]);
+  });
+});
