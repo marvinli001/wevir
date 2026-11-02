@@ -380,8 +380,8 @@ function SettingsNav({
       </div>
       <h1 className="px-4 pt-1 pb-3 text-xl font-semibold tracking-tight">{t('settings.title')}</h1>
       <div className="px-2.5 pb-2">
-        <label className="flex h-8 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:focus-ring">
-          <Search aria-hidden className="size-3.5 shrink-0" />
+        <label className="flex h-9 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:focus-ring">
+          <Search aria-hidden className="size-4 shrink-0" />
           <input
             value={query}
             onChange={(event) => onQuery(event.target.value)}
@@ -395,9 +395,9 @@ function SettingsNav({
               type="button"
               aria-label={t('settings.searchClear')}
               onClick={() => onQuery('')}
-              className="-mr-1 flex size-5 items-center justify-center rounded-full outline-none hover:text-foreground focus-visible:focus-ring"
+              className="-mr-1 flex size-6 items-center justify-center rounded-full outline-none hover:text-foreground focus-visible:focus-ring"
             >
-              <X className="size-3" />
+              <X className="size-3.5" />
             </button>
           )}
         </label>
@@ -436,9 +436,9 @@ function TabList({ query, state }: { query: string; state: unknown }) {
   return (
     <div className="px-2.5 pb-4">
       {groups.map((group) => (
-        <section key={group.label} className="pt-3 first:pt-1">
-          <h3 className="px-2 pb-1 text-xs text-muted-foreground">{t(group.label)}</h3>
-          <ul className="space-y-px">
+        <section key={group.label} className="pt-2 first:pt-0">
+          <h3 className="flex h-8 items-center px-2 text-xs text-muted-foreground">{t(group.label)}</h3>
+          <ul className="space-y-0.5">
             {group.tabs.map((id) => {
               const { label, icon: Icon } = TABS[id];
               return (
@@ -450,7 +450,7 @@ function TabList({ query, state }: { query: string; state: unknown }) {
                     data-settings-tab={id}
                     className={({ isActive }) =>
                       cn(
-                        'flex h-8 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:focus-ring',
+                        'flex h-9 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:focus-ring',
                         isActive &&
                           'bg-sidebar-accent/70 text-sidebar-accent-foreground ring-1 ring-selected-border ring-inset hover:bg-sidebar-accent/70',
                       )
