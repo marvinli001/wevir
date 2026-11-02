@@ -25,6 +25,7 @@ import {
 import {
   blockSeqRange,
   continuesAgent,
+  followsNotice,
   groupTurns,
   isActiveTurn,
   isReportOnly,
@@ -237,7 +238,11 @@ export function TranscriptView({
                     key={block.key}
                     className={cn(
                       'transcript-item first:pt-0',
-                      isReportOnly(block) ? 'pt-2' : continuesAgent(block) ? 'pt-0' : 'pt-6',
+                      isReportOnly(block) || followsNotice(block, blocks[index - 1])
+                        ? 'pt-2'
+                        : continuesAgent(block)
+                          ? 'pt-0'
+                          : 'pt-6',
                       fresh && 'block-enter',
                     )}
                     data-message-id={block.key}

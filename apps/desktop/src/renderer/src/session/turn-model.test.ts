@@ -18,6 +18,7 @@ import {
   foldedParts,
   foldSegments,
   foldTurn,
+  followsNotice,
   groupTurns,
   isActiveTurn,
   isReportOnly,
@@ -180,6 +181,21 @@ describe('groupTurns / turnStart', () => {
       ['turn', false],
       ['message', true],
       ['message', false],
+    ]);
+  });
+
+  it('followsNotice：紧跟提示行的提示行挨着放，跟在回合后面的不算', () => {
+    const s = session();
+    s.turn();
+    s.say(TURN, '完成。');
+    s.finish(TURN, 'completed');
+    s.add('session.read_only', { reason: 'engine_session_not_found', message: 'x' });
+    s.add('session.resumed', {});
+    const blocks = groupTurns(s.project().messages);
+    expect(blocks.map((block, index) => followsNotice(block, blocks[index - 1]))).toEqual([
+      false,
+      false,
+      true,
     ]);
   });
 });

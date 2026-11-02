@@ -49,6 +49,23 @@ export function isReportOnly(block: TranscriptBlock): boolean {
   );
 }
 
+/** 只含提示行（关闭、恢复、只读、换来源等）的系统消息。 */
+function isNoticeOnly(block: TranscriptBlock | undefined): boolean {
+  return (
+    block?.kind === 'message' &&
+    block.message.parts.length > 0 &&
+    block.message.parts.every((part) => part.type === 'notice')
+  );
+}
+
+/** 紧跟在提示行后面的提示行（例如“会话已关闭”下面的“已切换到 …”）：两行挨着放，上方不按回合之间的间距隔开。 */
+export function followsNotice(
+  block: TranscriptBlock,
+  previous: TranscriptBlock | undefined,
+): boolean {
+  return isNoticeOnly(block) && isNoticeOnly(previous);
+}
+
 /**
  * 接着前面 agent 内容的回合：开头没有用户自己写的消息，而是 Host 替别人发的回报（子会话的回报、别的会话发来的消息、后台进程的
  * 通知、额度恢复后的继续等），或者干脆没有用户消息（引擎自己开的）。它和上一个回合是同一段 agent 的输出，上方不按回合之间的间距隔开。
