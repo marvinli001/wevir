@@ -1,8 +1,8 @@
 // 左栏拖动置顶的计算（照 Claude Code 桌面端）：按住会话行拖进“置顶”一组就置顶，组里拖动改顺序，把置顶的拖出组外
 // 松开就取消置顶。不碰 DOM，单独测；DOM 与指针事件在 pin-drag.tsx。
 
-/** 置顶组里一行占的高：行高 32 加行间 1（`h-8`、`space-y-px`）。 */
-export const PIN_ROW_PITCH = 33;
+/** 置顶组里一行占的高：行高 36 加行间 2（`h-9`、`space-y-0.5`）。 */
+export const PIN_ROW_PITCH = 38;
 /** 置顶组的命中区比组本身向下多出这么多，拖到组下沿附近也算。 */
 export const PIN_ZONE_SLOP = 12;
 

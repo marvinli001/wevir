@@ -245,23 +245,23 @@ export function PinnedGroup<T extends { session: { id: string } }>({
       >
         <h3
           id="sidebar-group-pinned"
-          className="flex h-6 items-center px-2 text-xs font-medium text-muted-foreground"
+          className="flex h-8 items-center px-2 text-xs font-medium text-muted-foreground"
         >
           {t('sidebar.group.pinned')}
         </h3>
         <ul
           data-pin-list=""
           className={cn(
-            'relative space-y-px',
+            'relative space-y-0.5',
             drag && 'transition-[height] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]',
           )}
-          style={drag ? { height: Math.max(0, layout.slots * PIN_ROW_PITCH - 1) } : undefined}
+          style={drag ? { height: Math.max(0, layout.slots * PIN_ROW_PITCH - 2) } : undefined}
         >
           {drag && layout.gap !== undefined && (
             <div
               aria-hidden
               className={cn(
-                'absolute inset-x-0 h-8 rounded-lg transition-[top,background-color] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]',
+                'absolute inset-x-0 h-9 rounded-lg transition-[top,background-color] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]',
                 drag.over ? 'bg-sidebar-accent/60' : 'bg-transparent',
               )}
               style={{ top: layout.gap * PIN_ROW_PITCH }}
@@ -307,7 +307,7 @@ export function PinDragGhost() {
         </div>
       ) : (
         <div
-          className="absolute flex h-8 items-center gap-2 rounded-lg bg-sidebar-accent px-2 text-base text-sidebar-accent-foreground shadow-lg ring-1 ring-border"
+          className="absolute flex h-9 items-center gap-2.5 rounded-lg bg-sidebar-accent px-2 text-base text-sidebar-accent-foreground shadow-lg ring-1 ring-border"
           style={{ left: drag.x - drag.grabX, top: drag.y - drag.grabY, width: drag.width }}
         >
           <span className="w-4 shrink-0" />

@@ -82,13 +82,13 @@ import { sessionMotion } from './session-motion';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是同样的淡底加一圈 1 px 的选中细边（U5，§63 起不再是整块表面色）。 */
 const ROW =
-  'flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-base outline-none ' +
+  'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-base outline-none ' +
   'transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:focus-ring';
 const ROW_ACTIVE =
   'bg-sidebar-accent/70 text-sidebar-accent-foreground ring-1 ring-selected-border ring-inset hover:bg-sidebar-accent/70';
-/** 行右边悬停出现的置顶与归档（U34）：22 px、6 px 圆角，说明文字色，悬停时前景色加一层淡底。 */
+/** 行右边悬停出现的置顶与归档（U34）：28 px、6 px 圆角，说明文字色，悬停时前景色加一层淡底。 */
 const ROW_ACTION =
-  'size-[22px] rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground dark:hover:bg-sidebar-foreground/10';
+  'size-7 rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground dark:hover:bg-sidebar-foreground/10';
 
 /** 每个项目先列这么多个会话，其余的点“显示更多”。 */
 const SESSIONS_SHOWN = 5;
@@ -126,7 +126,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
         {controls}
       </div>
 
-      <div className="shrink-0 space-y-px px-2 pb-2">
+      <div className="shrink-0 space-y-0.5 px-2 pb-2">
         <NavLink
           to={paths.home()}
           end
@@ -208,7 +208,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
         {showUsage && (
           <NavLink
             to={paths.usage()}
-            className={({ isActive }) => cn(ROW, 'mb-px', isActive && ROW_ACTIVE)}
+            className={({ isActive }) => cn(ROW, 'mb-0.5', isActive && ROW_ACTIVE)}
             data-testid="sidebar-usage"
           >
             <ChartColumn className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -238,7 +238,7 @@ function ProjectsSection() {
   const manage = useWorkspaceManagement();
   return (
     <>
-      <div className="group/projects flex h-7 shrink-0 items-center justify-between pr-2 pl-2">
+      <div className="group/projects flex h-9 shrink-0 items-center justify-between pr-2 pl-2">
         <button
           type="button"
           aria-expanded={!projectsCollapsed}
@@ -246,7 +246,7 @@ function ProjectsSection() {
           onClick={() =>
             layoutPrefs.set((p) => ({ ...p, projectsCollapsed: !p.projectsCollapsed }))
           }
-          className="flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
+          className="flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
         >
           {title}
           <ChevronDown
@@ -263,7 +263,7 @@ function ProjectsSection() {
           {manage.create && (
             <IconButton
               label={t('sidebar.createProject')}
-              size="icon-xs"
+              size="icon-sm"
               className="text-muted-foreground"
               onClick={() => openCreateProject()}
             >
@@ -294,7 +294,7 @@ function ViewButton({
   return (
     <IconButton
       label={t(view === 'status' ? 'sidebar.view.status' : 'sidebar.view.project')}
-      size="icon-xs"
+      size="icon-sm"
       aria-pressed={active}
       className={cn(
         'text-muted-foreground',
@@ -354,12 +354,12 @@ function StatusTree() {
       <PinnedGroup rows={pinnedRows} render={rowContent} />
       {needsYou.length > 0 && (
         <StatusGroup title={t('sidebar.group.needsYou')} id="needs-you">
-          <ul className="space-y-px">{needsYou.map(row)}</ul>
+          <ul className="space-y-0.5">{needsYou.map(row)}</ul>
         </StatusGroup>
       )}
       {running.length > 0 && (
         <StatusGroup title={t('sidebar.group.running')} id="running">
-          <ul className="space-y-px">{running.map(row)}</ul>
+          <ul className="space-y-0.5">{running.map(row)}</ul>
         </StatusGroup>
       )}
       {completed.length > 0 && (
@@ -382,7 +382,7 @@ function StatusGroup({ title, id, children }: { title: string; id: string; child
     <section aria-labelledby={headingId} data-testid={`sidebar-group-${id}`}>
       <h3
         id={headingId}
-        className="flex h-6 items-center px-2 text-xs font-medium text-muted-foreground"
+        className="flex h-8 items-center px-2 text-xs font-medium text-muted-foreground"
       >
         {title}
       </h3>
@@ -432,7 +432,7 @@ function ProjectTree() {
           )}
         />
       </div>
-      <ul className="relative space-y-px" data-project-list="">
+      <ul className="relative space-y-0.5" data-project-list="">
         {projects.map((entry) => (
           <ProjectItem
             key={entry.workspace.id}
@@ -474,13 +474,13 @@ function ChatsGroup({
       data-testid="sidebar-group-chats"
       className="group/chats pt-3"
     >
-      <div className="relative flex h-6 items-center">
+      <div className="relative flex h-8 items-center">
         <h3 id="sidebar-group-chats" className="px-2 text-xs font-medium text-muted-foreground">
           {t('sidebar.chats')}
         </h3>
         <IconButton
           label={t('sidebar.newChat')}
-          size="icon-xs"
+          size="icon-sm"
           className="absolute right-1 text-muted-foreground opacity-0 group-hover/chats:opacity-100 focus-visible:opacity-100"
           onClick={() => {
             rememberWorkspace(null);
@@ -557,7 +557,7 @@ function ProjectItem({
         >
           <button
             type="button"
-            className={cn(ROW, 'pr-8 text-sidebar-foreground')}
+            className={cn(ROW, 'pr-10 text-sidebar-foreground')}
             aria-expanded={expanded}
             aria-controls={listId}
             title={workspace.rootPath}
@@ -578,7 +578,7 @@ function ProjectItem({
           </button>
           <IconButton
             label={t('sidebar.newSessionIn', { name: workspace.displayName })}
-            size="icon-xs"
+            size="icon-sm"
             className="absolute top-1 right-1 text-muted-foreground opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
             onClick={() => {
               rememberWorkspace(workspace.id);
@@ -667,9 +667,9 @@ function threadOpen(
  * 16 px，状态点落在线上（`SessionRow` 的 `branch`）。用前景色的 20%：`border` 在侧栏底色上几乎看不见。
  */
 const BRANCH =
-  'relative pl-11 before:pointer-events-none before:absolute before:-top-px before:left-9 before:border-l before:border-foreground/20';
+  'relative pl-11 before:pointer-events-none before:absolute before:-top-0.5 before:left-9 before:border-l before:border-foreground/20';
 const BRANCH_MID = 'before:bottom-0';
-const BRANCH_LAST = 'before:h-[17px] before:w-2 before:rounded-bl-md before:border-b';
+const BRANCH_LAST = 'before:h-[20px] before:w-2 before:rounded-bl-md before:border-b';
 
 /**
  * 一个线程：开出别的会话的会话下面列着它开出的会话；收起时只留一行“N 个子会话”，点它展开。标题后面的箭头展开、收起，
@@ -704,7 +704,7 @@ function ThreadItem({
       <Leaving sessionId={session.id}>
         {count > 0 && (
           <Collapse open={open}>
-            <ul className="space-y-px pt-px">
+            <ul className="space-y-0.5 pt-0.5">
               {children.map((child, index) => (
                 <li
                   key={child.id}
@@ -722,13 +722,13 @@ function ThreadItem({
           </Collapse>
         )}
         {count > 0 && !open && (
-          <div className={cn(BRANCH, BRANCH_LAST, 'pt-px')}>
+          <div className={cn(BRANCH, BRANCH_LAST, 'pt-0.5')}>
             <button
               type="button"
               aria-expanded={false}
               data-thread-summary={session.id}
               onClick={() => toggleThread(session.id)}
-              className={cn(ROW, 'h-7 text-sm text-muted-foreground hover:text-foreground')}
+              className={cn(ROW, 'h-8 text-sm text-muted-foreground hover:text-foreground')}
             >
               <span className="min-w-0 flex-1 truncate text-left">
                 {t('sidebar.threadCount', { count })}
@@ -765,10 +765,10 @@ function MoreList<T>({
   const rest = items.slice(limit);
   return (
     <>
-      <ul className="space-y-px">{items.slice(0, limit).map(render)}</ul>
+      <ul className="space-y-0.5">{items.slice(0, limit).map(render)}</ul>
       {rest.length > 0 && (
         <Collapse open={showAll || pinned}>
-          <ul className="space-y-px pt-px">{rest.map(render)}</ul>
+          <ul className="space-y-0.5 pt-0.5">{rest.map(render)}</ul>
         </Collapse>
       )}
       {rest.length > 0 && !pinned && (
@@ -776,7 +776,7 @@ function MoreList<T>({
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll((value) => !value)}
-          className={cn(ROW, 'mt-px pl-8 text-muted-foreground hover:text-foreground')}
+          className={cn(ROW, 'mt-0.5 pl-8 text-muted-foreground hover:text-foreground')}
         >
           {t(showAll ? 'sidebar.showLess' : 'sidebar.showMore')}
         </button>
@@ -900,9 +900,9 @@ const SessionRow = memo(function SessionRow({
             className={({ isActive }) =>
               cn(
                 ROW,
-                'text-soft-foreground select-none group-focus-within/session:pr-14 group-hover/session:pr-14',
+                'text-soft-foreground select-none group-focus-within/session:pr-16 group-hover/session:pr-16',
                 // 运行中多一行当前动作（代理状态）：行跟着变高。
-                live && 'h-auto min-h-8 py-1',
+                live && 'h-auto min-h-9 py-1',
                 isActive && ROW_ACTIVE,
               )
             }
@@ -985,12 +985,12 @@ const SessionRow = memo(function SessionRow({
                       event.stopPropagation();
                       toggleThread(session.id);
                     }}
-                    className="-ml-1 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground"
+                    className="-ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground"
                   >
                     {thread.open ? (
-                      <ChevronDown className="size-3.5" />
+                      <ChevronDown className="size-4" />
                     ) : (
-                      <ChevronRight className="size-3.5" />
+                      <ChevronRight className="size-4" />
                     )}
                   </span>
                 )}
@@ -1055,22 +1055,22 @@ const SessionRow = memo(function SessionRow({
           >
             <IconButton
               label={pinLabel}
-              size="icon-xs"
+              size="icon-sm"
               className={ROW_ACTION}
               onClick={actions.togglePin}
               data-action="pin-session"
             >
-              <PinIcon filled={pinned} className="size-3.5" />
+              <PinIcon filled={pinned} className="size-4" />
             </IconButton>
             {actions.archive && (
               <IconButton
                 label={t('session.archive')}
-                size="icon-xs"
+                size="icon-sm"
                 className={ROW_ACTION}
                 onClick={actions.archive}
                 data-action="archive-session"
               >
-                <ArchiveIcon className="size-3.5" />
+                <ArchiveIcon className="size-4" />
               </IconButton>
             )}
           </div>

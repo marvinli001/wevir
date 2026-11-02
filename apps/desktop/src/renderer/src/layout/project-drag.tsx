@@ -200,7 +200,7 @@ export function ProjectDragGhost() {
   return createPortal(
     <div aria-hidden className="pointer-events-none fixed inset-0 z-50">
       <div
-        className="absolute flex h-8 items-center gap-2 rounded-lg bg-sidebar-accent px-2 text-base text-sidebar-accent-foreground shadow-lg ring-1 ring-border"
+        className="absolute flex h-9 items-center gap-2.5 rounded-lg bg-sidebar-accent px-2 text-base text-sidebar-accent-foreground shadow-lg ring-1 ring-border"
         style={{ left: drag.x - drag.grabX, top: drag.y - drag.grabY, width: drag.width }}
       >
         <Folder className="size-4 shrink-0 text-muted-foreground" />
