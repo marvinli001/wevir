@@ -9,7 +9,7 @@ import {
   Search,
   Zap,
 } from 'lucide-react';
-import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
+import { type KeyboardEvent, type PointerEvent, type ReactNode, useRef, useState } from 'react';
 import { AccountBadge } from '@/components/account-badge';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -112,12 +112,11 @@ export function ModelPicker({
     ),
   );
 
-  const chip = (
+  // 快速模式的闪电在芯片最前面；弹层定位到闪电之后的部分（anchorRef）。芯片都靠右放，开关快速模式时这部分不动，弹层与滑块
+  // 也就不跟着芯片变宽而平移。
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const chip = (trailing?: ReactNode) => (
     <>
-      {source && (
-        <ProviderLogo logo={source.logo} fallback={t(source.name)} className="size-3.5 shrink-0" />
-      )}
-      <AccountBadge label={account?.label} size="sm" />
       {fast && (
         <Zap
           aria-hidden
@@ -125,8 +124,19 @@ export function ModelPicker({
           data-testid="model-picker-fast"
         />
       )}
-      <span className="truncate">{name}</span>
-      {efforts.length > 0 && <EffortChipLabel efforts={efforts} value={value.reasoningEffort} />}
+      <span ref={anchorRef} className="inline-flex min-w-0 items-center gap-1.5">
+        {source && (
+          <ProviderLogo
+            logo={source.logo}
+            fallback={t(source.name)}
+            className="size-3.5 shrink-0"
+          />
+        )}
+        <AccountBadge label={account?.label} size="sm" />
+        <span className="truncate">{name}</span>
+        {efforts.length > 0 && <EffortChipLabel efforts={efforts} value={value.reasoningEffort} />}
+        {trailing}
+      </span>
     </>
   );
   const chipClass =
@@ -135,7 +145,7 @@ export function ModelPicker({
   if (readOnly) {
     return (
       <span className={chipClass} data-testid="model-picker" data-source={source?.kind ?? 'api'}>
-        {chip}
+        {chip()}
       </span>
     );
   }
@@ -162,10 +172,15 @@ export function ModelPicker({
           'hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground',
         )}
       >
-        {chip}
-        <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+        {chip(<ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />)}
       </PopoverTrigger>
-      <PopoverContent side="top" align="center" sideOffset={8} className="w-72 gap-0 p-0">
+      <PopoverContent
+        side="top"
+        align="center"
+        sideOffset={8}
+        anchor={anchorRef}
+        className="w-72 gap-0 p-0"
+      >
         {view === 'effort' ? (
           <div className="flex flex-col gap-3 p-3 animate-in duration-150 fade-in">
             <div className="flex items-center gap-1">
