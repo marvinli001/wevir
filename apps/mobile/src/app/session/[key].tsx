@@ -43,6 +43,7 @@ import { Button, Icon, type IconName } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { displayName } from '../../lib/records';
+import { ScrollFollow, type ScrollMetrics, showsLatest } from '../../lib/scroll-follow';
 import { isBusy, SessionActions, sendErrorKey } from '../../lib/session-actions';
 import {
   type NoticeIcon,
@@ -399,6 +400,15 @@ function offlineText(status: string | undefined, cachedAt: string | undefined, n
     : t('offline.label');
 }
 
+function metrics(e: NativeSyntheticEvent<NativeScrollEvent>): ScrollMetrics {
+  const n = e.nativeEvent;
+  return {
+    contentHeight: n.contentSize.height,
+    offset: n.contentOffset.y,
+    viewport: n.layoutMeasurement.height,
+  };
+}
+
 function SessionList({
   items,
   meta,
@@ -427,9 +437,7 @@ function SessionList({
   const now = useMinuteClock();
   const list = useRef<FlatList<SessionItem>>(null);
   const headerHeight = useHeaderHeight();
-  // 只认用户拖动：程序滚动在 iOS 上也会触发 onMomentumScrollEnd，读到的偏移可能已经过时。
-  const follow = useRef(true);
-  const dragging = useRef(false);
+  const [scroll] = useState(() => new ScrollFollow());
   const viewport = useRef(0);
   const contentHeight = useRef(0);
   // 离底部远（翻到了上面）时右下角浮出“最新消息”按钮；期间有新内容时按钮上加一个点。
@@ -440,16 +448,11 @@ function SessionList({
   // 刚发出的消息总要看见，即使之前翻到了上面。
   if (last?.key !== lastKey.current) {
     lastKey.current = last?.key;
-    if (last?.kind === 'user' || last?.kind === 'pending') follow.current = true;
+    if (last?.kind === 'user' || last?.kind === 'pending') scroll.jump();
   }
   useEffect(() => {
-    if (last !== undefined && !follow.current) setFresh(true);
-  }, [last]);
-  const settle = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    if (!dragging.current) return;
-    const n = e.nativeEvent;
-    follow.current = n.contentSize.height - n.contentOffset.y - n.layoutMeasurement.height < 120;
-  };
+    if (last !== undefined && !scroll.following) setFresh(true);
+  }, [last, scroll]);
   // 自己算偏移：FlatList 的 scrollToEnd 按单元格估算，不算底部给输入框留的内边距。
   // 列表铺到导航栏下面，内容加导航栏高度超出一屏才滚，否则会把开头推到导航栏下。
   const toEnd = (animated: boolean) => {
@@ -460,7 +463,7 @@ function SessionList({
       });
   };
   const jump = () => {
-    follow.current = true;
+    scroll.jump();
     setFresh(false);
     toEnd(true);
   };
@@ -470,7 +473,7 @@ function SessionList({
       onLayout={(e) => {
         // 键盘弹起时页面变矮：跟着底部时滚回底部，最新的内容不被键盘挡住。
         viewport.current = e.nativeEvent.layout.height;
-        if (follow.current) toEnd(false);
+        if (scroll.sticks) toEnd(false);
       }}
     >
       <FlatList
@@ -482,27 +485,18 @@ function SessionList({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
         initialNumToRender={60}
-        onScrollBeginDrag={() => {
-          dragging.current = true;
-        }}
-        onScrollEndDrag={(e) => {
-          settle(e);
-          if ((e.nativeEvent.velocity?.y ?? 0) === 0) dragging.current = false;
-        }}
-        onMomentumScrollEnd={(e) => {
-          settle(e);
-          dragging.current = false;
-        }}
+        onScrollBeginDrag={() => scroll.beginDrag()}
+        onScrollEndDrag={(e) => scroll.endDrag(metrics(e), e.nativeEvent.velocity?.y ?? 0)}
+        onMomentumScrollEnd={(e) => scroll.momentumEnd(metrics(e))}
         scrollEventThrottle={100}
         onScroll={(e) => {
-          const n = e.nativeEvent;
-          const far = n.contentSize.height - n.contentOffset.y - n.layoutMeasurement.height > 240;
+          const far = showsLatest(metrics(e));
           setAway(far);
           if (!far) setFresh(false);
         }}
         onContentSizeChange={(_, height) => {
           contentHeight.current = height;
-          if (follow.current) toEnd(false);
+          if (scroll.sticks) toEnd(false);
         }}
         ListHeaderComponent={
           <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
