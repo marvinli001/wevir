@@ -32,6 +32,7 @@ export interface RetroLiveTarget {
   /** 会话已关闭（关闭时 Host 删掉它的回合快照）。 */
   closed: boolean;
   state: RetroState;
+  light?: boolean;
 }
 
 async function settle<T>(promise: Promise<T>): Promise<T | undefined> {
@@ -51,12 +52,14 @@ export async function readRetroLive(
   const live: RetroLive = { checkedAt, repo: repo !== undefined, session: deps.session };
 
   const [codeState, checkpoints, status, review, memories] = await Promise.all([
-    settle(readCodeState(target.cwd)),
-    repo === undefined || deps.checkpoints === undefined
+    target.light ? Promise.resolve(undefined) : settle(readCodeState(target.cwd)),
+    target.light || repo === undefined || deps.checkpoints === undefined
       ? Promise.resolve(undefined)
       : settle(deps.checkpoints.list(target.sessionId, target.cwd)),
-    repo === undefined ? Promise.resolve(undefined) : settle(readGitStatus(target.cwd)),
-    deps.review === undefined
+    target.light || repo === undefined
+      ? Promise.resolve(undefined)
+      : settle(readGitStatus(target.cwd)),
+    target.light || deps.review === undefined
       ? Promise.resolve(undefined)
       : settle(
           (async () => {
@@ -68,7 +71,7 @@ export async function readRetroLive(
             return comments.filter((comment) => comment.sessionId === target.sessionId);
           })(),
         ),
-    deps.memory === undefined
+    target.light || deps.memory === undefined
       ? Promise.resolve(undefined)
       : settle(deps.memory.list(target.workspaceId)),
   ]);
@@ -108,6 +111,7 @@ export async function readRetroLive(
   if (repo.branch !== undefined) live.branch = repo.branch;
 
   const base = await settle(sessionBase(repo, target));
+  if (base !== undefined) live.startHead = base;
   if (base !== undefined && repo.head !== undefined && base !== repo.head) {
     const log = await settle(
       runGit(repo.cwd, [
@@ -135,7 +139,7 @@ export async function readRetroLive(
     live.commits = [];
   }
 
-  if (repo.branch !== undefined) {
+  if (!target.light && repo.branch !== undefined) {
     const upstream = await settle(
       runGit(
         repo.cwd,

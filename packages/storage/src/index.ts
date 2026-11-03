@@ -23,6 +23,7 @@ export {
   type SqlValue,
 } from './driver.js';
 export * from './environments.js';
+export * from './episodes.js';
 export * from './events.js';
 export * from './inbox.js';
 export * from './migrate.js';

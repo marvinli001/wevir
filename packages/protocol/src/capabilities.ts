@@ -396,6 +396,7 @@ export const HOST_FEATURES = {
    * 模型摘要，引擎实现了 `generateTitle` 时才写得成），有应用级工具时还有 `wevir_session_retro`。与引擎无关。
    */
   sessionRetro: 'session_retro',
+  episodes: 'episodes',
   /**
    * 会话全文搜索（0.77.0）：`search.query`、`search.status`、`search.rebuild`。索引是 Host 从事件派生的，与引擎无关；运行时的
    * SQLite 没有 FTS5 trigram 时照样声明，查询都是有上限的扫描（`search.status` 的 `fts` 为 false）。
@@ -688,6 +689,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_from_history: z.boolean().optional(),
   second_opinion: z.boolean().optional(),
   session_retro: z.boolean().optional(),
+  episodes: z.boolean().optional(),
   session_search: z.boolean().optional(),
   agent_instructions: z.boolean().optional(),
   approval_rules: z.boolean().optional(),

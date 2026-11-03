@@ -52,6 +52,7 @@ import {
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { readVariables, writeVariables } from './environment-variables.js';
+import { EpisodeService } from './episodes/service.js';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
@@ -491,6 +492,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     let opinions: SecondOpinionService | undefined;
     // 自动调优（0.108.0）：建议服务建好之后才有。
     let autoTuner: AutoTuner | undefined;
+    let episodes: EpisodeService | undefined;
     let review: ReviewService | undefined;
     // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
     const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
@@ -791,6 +793,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           simulators?.removeSessions(sessionIds);
           void verificationService?.removeSessions(sessionIds);
           autoTuner?.forget(sessionIds);
+          episodes?.forget(sessionIds);
           tuningMetrics.forget(sessionIds);
         },
         dispose: () => appTools?.plugins?.close(),
@@ -812,6 +815,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         channels?.onTurnFinished(info);
         opinions?.onTurnFinished(info);
         autoTuner?.onTurnFinished(info.sessionId);
+        episodes?.onTurnFinished(info.sessionId);
         // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
         // （API Key 的 Provider）时 `turnEnded` 什么都不做。
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
@@ -889,6 +893,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 接力时用户选入的笔记（0.59.0）；自动记忆关着时不能选。
       memory,
       memoryEnabled: () => settings.get().autoMemory !== false,
+      episodes: {
+        beforeClose: async (id) => {
+          await episodes?.beforeClose(id);
+        },
+        catchUp: async (id) => {
+          await episodes?.catchUp(id);
+        },
+      },
       // 跨引擎的规则文件（0.68.0）：引擎不读的由 Host 补；设置关掉时只记引擎自己读的。
       ruleFiles: {
         discover: (cwd) =>
@@ -1148,6 +1160,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }
     }
     const retro = new RetroService({
+      onGet: async (id) => {
+        await episodes?.refresh(id);
+      },
       storage,
       events: store,
       checkpoints,
@@ -1160,6 +1175,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
+    episodes = new EpisodeService({
+      storage,
+      events: store,
+      retro,
+      enabled: () => settings.get().autoEpisodes !== false,
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    const episodeService = episodes;
     // 调优的建议（0.87.0）：同回顾摘要，适配器能生成才读提示词；读不到就没有建议（不声明 `tuning_proposals`）。
     let proposalInstructions: string | undefined;
     if (adapter.generateTitle !== undefined) {
@@ -1692,6 +1715,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ...(review !== undefined && { review }),
           ...(secondOpinions !== undefined && { opinions: secondOpinions }),
           retro,
+          episodes: episodeService,
           git,
           ...(processOutput.available && { processes: processOutput }),
           ...(previews !== undefined && { previews }),
@@ -1723,6 +1747,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           },
         }),
       ),
+      episodes: episodeService,
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
         plugins: true,
@@ -1809,6 +1834,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(review !== undefined && { review_findings: true }),
         git_commit: true,
         session_retro: true,
+        episodes: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
         ...(simulators !== undefined && { ios_simulator: true }),
@@ -1959,6 +1985,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         push: pushService,
       },
       shutdown: (trigger = { kind: 'api' }) => {
+        episodeService.dispose();
         pairingService.close();
         pushService.close();
         stopIdleExpiry();

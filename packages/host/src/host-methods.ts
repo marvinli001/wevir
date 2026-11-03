@@ -47,6 +47,7 @@ import {
   type VariableEntries,
   writeVariables,
 } from './environment-variables.js';
+import type { EpisodeService } from './episodes/service.js';
 import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import type { ExternalImport } from './external-import/service.js';
@@ -234,6 +235,7 @@ export interface HostMethodsOptions {
   lsp?: LspStatusService;
   /** 任务回顾（0.76.0，`retro.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   retro?: RetroService;
+  episodes?: EpisodeService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 开发服务器预览（0.84.0，`preview.*`）；省略时这些方法回 `INVALID_PARAMS`。`preview.start` 还要 `processes`。 */
@@ -488,6 +490,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     workspaceId,
     dir: await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
   });
+  const episodes = (): EpisodeService => {
+    if (options.episodes === undefined) throw invalidParams([], 'this host has no episodes');
+    return options.episodes;
+  };
   const retroService = (): RetroService => {
     if (options.retro === undefined) throw invalidParams([], 'this host has no session retro');
     return options.retro;
@@ -730,7 +736,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return { workspace: toWorkspace(record), created };
     },
 
-    'workspace.remove': ({ workspaceId }) => {
+    'workspace.remove': async ({ workspaceId }) => {
       const workspace = storage.workspaces.get(workspaceId);
       if (!workspace || workspace.removedAt !== undefined) {
         throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
@@ -750,6 +756,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       options.terminals?.removeWorkspace(workspaceId);
       void options.readiness?.removeWorkspace(workspaceId as WorkspaceId);
       void options.previews?.removeWorkspace(workspaceId as WorkspaceId);
+      await options.memory?.removeProject(workspaceId);
+      options.episodes?.removeWorkspace(workspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
       events.touch(workspaceSessionIds(workspaceId));
       return {};
@@ -1639,6 +1647,15 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
 
     // 0.76.0：任务回顾（ADR-0012）。
+    'episode.list': (params) => episodes().list(params),
+    'episode.get': ({ id }) => ({ episode: episodes().get(id) }),
+    'episode.update': (params) => episodes().update(params),
+    'episode.delete': (params) => episodes().delete(params),
+    'episode.refresh': async ({ sessionId }) => {
+      assertSessionVisible(storage, sessionId);
+      const episode = await episodes().refresh(sessionId, true);
+      return episode === undefined ? {} : { episode };
+    },
     'retro.get': ({ sessionId, redact }) =>
       retroService().get(sessionId, redact === undefined ? {} : { redact }),
     'retro.summarize': ({ sessionId }) => retroService().summarize(sessionId),

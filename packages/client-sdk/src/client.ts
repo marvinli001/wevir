@@ -406,6 +406,9 @@ export class WevirClient {
   readonly #pluginsWatchers = new Set<PluginsWatcher>();
   readonly #memoryWatchers = new Set<MemoryWatcher>();
   readonly #usageListeners = new Set<() => void>();
+  readonly #episodeListeners = new Set<
+    (change: NotificationParams<'episode.changed'> | undefined) => void
+  >();
   readonly #automationListeners = new Set<(change: AutomationChange | undefined) => void>();
   readonly #processListeners = new Set<(change: ProcessChange | undefined) => void>();
   readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
@@ -720,6 +723,13 @@ export class WevirClient {
    * 自动化变了（0.66.0，`automation.changed`）：建、改、删，或一次运行开始、状态变了（`change.run`）。重连上之后以 `undefined`
    * 调一次（Host 只给调过 `automation.*` 的连接发通知，重连后要重新读一次才会再收到），客户端整个重读。返回取消函数。
    */
+  onEpisodesChanged(
+    listener: (change: NotificationParams<'episode.changed'> | undefined) => void,
+  ): () => void {
+    this.#episodeListeners.add(listener);
+    return () => this.#episodeListeners.delete(listener);
+  }
+
   onAutomationsChanged(listener: (change: AutomationChange | undefined) => void): () => void {
     this.#automationListeners.add(listener);
     return () => this.#automationListeners.delete(listener);
@@ -1207,6 +1217,16 @@ export class WevirClient {
     }
   }
 
+  #episodesChanged(change: NotificationParams<'episode.changed'> | undefined): void {
+    for (const listener of this.#episodeListeners) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('an episode listener threw', { error });
+      }
+    }
+  }
+
   #automationsChanged(change: AutomationChange | undefined): void {
     for (const listener of [...this.#automationListeners]) {
       try {
@@ -1608,6 +1628,7 @@ export class WevirClient {
         const reread = (feature: HostFeature, method: MethodName) =>
           this.supports(feature) && this.#allowed(method);
         if (reread('usage_stats', 'usage.summary')) this.#usageChanged();
+        if (reread('episodes', 'episode.list')) this.#episodesChanged(undefined);
         if (reread('automations', 'automation.list')) this.#automationsChanged(undefined);
         if (reread('process_output', 'process.list')) this.#processesChanged(undefined);
         if (reread('workspace_readiness', 'readiness.get')) this.#readinessChanged(undefined);
@@ -1889,6 +1910,12 @@ export class WevirClient {
     }
     if (method === 'usage.changed') {
       this.#usageChanged();
+      return;
+    }
+    if (method === 'episode.changed') {
+      const parsed = NotificationSchemas['episode.changed'].params.safeParse(params);
+      if (parsed.success) this.#episodesChanged(parsed.data);
+      else this.#warn('ignored a malformed episode.changed notification');
       return;
     }
     if (method === 'automation.changed') {

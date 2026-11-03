@@ -43,6 +43,7 @@ export interface RetroServiceOptions extends Omit<RetroLiveDeps, 'session'> {
   generate?: RetroGenerate;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   now?: () => Date;
+  onGet?: (sessionId: SessionId) => Promise<unknown>;
 }
 
 export interface RetroProjection {
@@ -103,12 +104,65 @@ export class RetroService {
     return { state: next, build, builtAt: now };
   }
 
+  async episodeInput(sessionId: SessionId) {
+    const { storage } = this.#options;
+    const projection = this.projection(sessionId);
+    const record = storage.sessions.get(sessionId);
+    if (record === undefined)
+      throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    const inherited = projection.state.inheritedThrough ?? 0;
+    const state: RetroState = {
+      ...projection.state,
+      turns: projection.state.turns.filter((turn) => turn.seq > inherited),
+      runs: projection.state.runs.filter(
+        (run) =>
+          run.seq > inherited &&
+          (run.run.turnId === undefined ||
+            projection.state.turns.some(
+              (turn) => turn.turnId === run.run.turnId && !turn.hidden && turn.seq > inherited,
+            )),
+      ),
+      decisions: projection.state.decisions.filter((decision) => decision.seq > inherited),
+      chapters: projection.state.chapters.filter((chapter) => chapter.seq > inherited),
+      ...(projection.state.goal !== undefined &&
+        projection.state.goal.seq <= inherited && { goal: undefined }),
+      ...(projection.state.board !== undefined &&
+        projection.state.board.seq <= inherited && { board: undefined }),
+    };
+    const live = await readRetroLive(
+      { ...this.#options, session: (id) => storage.sessions.get(id) },
+      {
+        sessionId,
+        workspaceId: record.workspaceId,
+        cwd: record.cwd,
+        closed: record.state === 'closed',
+        state,
+        light: true,
+      },
+    );
+    const retro = buildRetro({
+      sessionId,
+      cwd: record.cwd,
+      state,
+      live,
+      builtAt: projection.builtAt,
+      build: projection.build,
+    });
+    const summary = this.#summary(sessionId, state);
+    return {
+      state,
+      live,
+      retro: { ...retro, title: record.title, ...(summary !== undefined && { summary }) },
+    };
+  }
+
   /** `retro.get`。 */
   async get(
     sessionId: SessionId,
     options: { redact?: boolean } = {},
   ): Promise<{ retro: SessionRetro; redactions?: number }> {
     const retro = await this.#retro(sessionId);
+    await this.#options.onGet?.(sessionId);
     if (options.redact !== true) return { retro };
     const redacted = redactRetro(retro);
     return { retro: redacted.retro, redactions: redacted.count };

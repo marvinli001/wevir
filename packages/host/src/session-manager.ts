@@ -136,6 +136,7 @@ import {
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { type CustomPlan, styledSession } from './custom-instructions.js';
+import type { EpisodeService } from './episodes/service.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
 import { reviewRepo } from './git-diff.js';
@@ -324,6 +325,7 @@ export interface SessionManagerOptions {
   historyDir?: string;
   /** 接力时用户选入的记忆笔记从这里读（0.59.0）。没给时不能选笔记。 */
   memory?: Pick<MemoryStore, 'read'>;
+  episodes?: Pick<EpisodeService, 'beforeClose' | 'catchUp'>;
   /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时接力不能选笔记。省略当作开着。 */
   memoryEnabled?: () => boolean;
   /**
@@ -848,6 +850,7 @@ export class SessionManager {
   readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
   readonly #historyDir: string | undefined;
   readonly #memory: SessionManagerOptions['memory'];
+  readonly #episodes: SessionManagerOptions['episodes'];
   readonly #memoryEnabled: () => boolean;
   readonly #ruleFiles: SessionManagerOptions['ruleFiles'];
   readonly #customInstructions: SessionManagerOptions['customInstructions'];
@@ -937,6 +940,7 @@ export class SessionManager {
     this.#engineFeatures = options.engineFeatures;
     this.#historyDir = options.historyDir;
     this.#memory = options.memory;
+    this.#episodes = options.episodes;
     this.#memoryEnabled = options.memoryEnabled ?? (() => true);
     this.#ruleFiles = options.ruleFiles;
     this.#customInstructions = options.customInstructions;
@@ -1389,6 +1393,7 @@ export class SessionManager {
     const workspace = await this.#createWorkspace(params);
     const chat = this.#chats?.isChats(workspace) === true;
     await assertDirectory(workspace.rootPath);
+    await this.#episodes?.catchUp(workspace.id);
     const permissionMode = this.#permissionMode(params.permissionMode);
     // 工具预设（0.61.0）：明说的，或 Agent 开的会话沿用开它的会话的；都没有时不记（等同 full）。
     const chosen = params.toolPreset ?? options.toolPreset;
@@ -2981,6 +2986,7 @@ export class SessionManager {
       const { session } = this.#snapshot(runtime);
       if (session.providerId === target.id) return session;
       assertHandoffAllowed(record, session);
+      await this.#episodes?.beforeClose(runtime.id);
       const invalid = (path: string, message: string) =>
         new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
       const modelId = params.modelId ?? target.defaultModelId;
@@ -3391,6 +3397,7 @@ export class SessionManager {
         throw new Error(`会话 ${runtime.id} 取消后仍是 ${state}`);
       }
 
+      await this.#episodes?.beforeClose(runtime.id);
       const inputs: AppendInput[] = [];
       const attachment = runtime.attachment;
       if (attachment) {

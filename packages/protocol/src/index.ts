@@ -5,6 +5,7 @@ export * from './capabilities.js';
 export * from './channels.js';
 export * from './common.js';
 export * from './computer.js';
+export * from './context.js';
 export * from './devices.js';
 export * from './entities.js';
 export * from './errors.js';

@@ -59,6 +59,7 @@ export interface RetroLive {
   checkpointsDropped?: boolean;
   head?: string | null;
   branch?: string;
+  startHead?: string;
   commits?: readonly { sha: string; subject: string; at: string }[];
   uncommitted?: number;
   /** 当前分支有没有上游；有时 `ahead` 是没推送的提交数。 */

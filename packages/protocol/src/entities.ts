@@ -1228,6 +1228,7 @@ export const HostSettingsSchema = z.object({
    * 说明，`wevir_memory_*` 工具不再列出，调用也被拒绝；用户照样能用 `memory.*` 管理已有笔记。省略按开着（默认）。
    */
   autoMemory: z.boolean().optional(),
+  autoEpisodes: z.boolean().optional(),
   /**
    * 跨引擎的规则文件（0.68.0，Host 功能 `rule_files`）：会话的引擎自己不读的 AGENTS.md / CLAUDE.md / GEMINI.md / Cursor 规则由 Host
    * 补给它。关掉后不再补，从下一次建会话、恢复或接力起生效；`session.rules` 照样记下引擎自己读的。省略按开着（默认）。
@@ -1321,6 +1322,7 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
   promptSuggestions: true,
   sessionRecap: true,
   autoMemory: true,
+  autoEpisodes: true,
   ruleFiles: true,
   sessionInsights: false,
 });

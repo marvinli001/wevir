@@ -6,6 +6,7 @@ import type { Automation, AutomationCheckResult, AutomationRun } from './automat
 import type { BrowserTabInfo } from './browser.js';
 import type { Channel, ChannelCoordinator, ChannelPost, ChannelThread } from './channels.js';
 import type { ClientIdentity } from './common.js';
+import type { Episode } from './context.js';
 import type { Device, PairingOffer, RemoteStatus } from './devices.js';
 import type {
   AccountState,
@@ -3322,6 +3323,48 @@ const channelPostSamples: { valid: ChannelPost[]; invalid: unknown[] } = {
   ],
 };
 
+export const episode: Episode = {
+  id: 'ep_1',
+  workspaceId: 'ws_1',
+  sessionId: 'ses_1',
+  rootSessionId: 'ses_1',
+  title: 'Repair invoices',
+  outcome: {
+    checks: 'unverified',
+    commit: 'unknown',
+    push: 'unknown',
+    ci: 'unknown',
+    deploy: 'unknown',
+    open: 0,
+    checkedAt: '2026-11-04T00:00:00.000Z',
+    comparedToCode: false,
+  },
+  done: [],
+  open: [],
+  decisions: [],
+  lessons: [],
+  files: [],
+  commits: [],
+  anchor: {},
+  engines: [],
+  period: {
+    start: '2026-11-04T00:00:00.000Z',
+    end: '2026-11-04T00:00:00.000Z',
+  },
+  throughSeq: 1,
+  schemaVersion: 1,
+  memories: [],
+  chapters: [],
+  sessions: [],
+  overrides: {},
+  pinned: false,
+  excluded: false,
+  source: 'available',
+  revision: 'abc',
+  redactions: 0,
+  updatedAt: '2026-11-04T00:00:00.000Z',
+};
+
 export const methodSamples: MethodSamples = {
   'session.createFromHistory': {
     params: {
@@ -3332,6 +3375,26 @@ export const methodSamples: MethodSamples = {
       invalid: [{}, { sessionId: 'bad' }, { sessionId: ids.session, modelId: '' }],
     },
     result: { valid: [{ session }], invalid: [{}] },
+  },
+  'episode.list': {
+    params: { valid: [{ workspaceId: 'ws_1' }], invalid: [{}] },
+    result: { valid: [{ episodes: [episode] }], invalid: [{}] },
+  },
+  'episode.get': {
+    params: { valid: [{ id: 'ep_1' }], invalid: [{ id: 'ses_1' }] },
+    result: { valid: [{ episode }], invalid: [{}] },
+  },
+  'episode.update': {
+    params: {
+      valid: [{ id: 'ep_1', revision: 'abc', patch: {} }],
+      invalid: [{ id: 'ep_1', patch: {} }],
+    },
+    result: { valid: [{ episode }], invalid: [{}] },
+  },
+  'episode.delete': { params: { valid: [{ id: 'ep_1' }], invalid: [{}] }, result: empty },
+  'episode.refresh': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: { valid: [{ episode }, {}], invalid: [{ episode: {} }] },
   },
   'plugins.list': {
     params: empty,
@@ -9330,6 +9393,7 @@ type NotificationSamples = {
 };
 
 export const notificationSamples: NotificationSamples = {
+  'episode.changed': { valid: [{ workspaceId: 'ws_1', id: 'ep_1' }], invalid: [{}] },
   'plugins.changed': empty,
   'events.event': {
     valid: [{ subscriptionId: ids.subscription, event: eventOf('assistant.delta', 13) }],
@@ -9880,6 +9944,7 @@ type ErrorDataSamples = {
 };
 
 export const errorDataSamples: ErrorDataSamples = {
+  EPISODE_NOT_FOUND: { valid: { id: 'ep_1' }, invalid: {} },
   METHOD_NOT_FOUND: {
     valid: { hostVersion: '0.0.0', hint: '请升级 Wevir Host' },
     invalid: { hostVersion: '0.0.0' },

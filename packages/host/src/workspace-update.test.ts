@@ -96,7 +96,7 @@ describe('workspace.update', () => {
       ),
     ).toThrow(expect.objectContaining({ code: 'WORKSPACE_NOT_FOUND' }));
     const { workspace } = await methods['workspace.add']({ rootPath: folder }, context);
-    methods['workspace.remove']({ workspaceId: workspace.id }, context);
+    await methods['workspace.remove']({ workspaceId: workspace.id }, context);
     expect(() =>
       methods['workspace.update']({ workspaceId: workspace.id, displayName: 'x' }, context),
     ).toThrow(expect.objectContaining({ code: 'WORKSPACE_NOT_FOUND' }));
@@ -106,7 +106,7 @@ describe('workspace.update', () => {
     const { methods, folder } = setup();
     const { workspace } = await methods['workspace.add']({ rootPath: folder }, context);
     await methods['workspace.update']({ workspaceId: workspace.id, displayName: '后端' }, context);
-    methods['workspace.remove']({ workspaceId: workspace.id }, context);
+    await methods['workspace.remove']({ workspaceId: workspace.id }, context);
     const again = await methods['workspace.add']({ rootPath: folder }, context);
     expect(again.created).toBe(false);
     expect(again.workspace).toMatchObject({ id: workspace.id, displayName: '后端' });

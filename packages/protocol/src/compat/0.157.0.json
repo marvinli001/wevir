@@ -1,0 +1,237 @@
+{
+  "protocolVersion": "0.157.0",
+  "methods": {
+    "episode.list": {
+      "params": [
+        {
+          "workspaceId": "ws_1"
+        }
+      ],
+      "result": [
+        {
+          "episodes": [
+            {
+              "id": "ep_1",
+              "workspaceId": "ws_1",
+              "sessionId": "ses_1",
+              "title": "Repair invoices",
+              "outcome": {
+                "checks": "unverified",
+                "commit": "unknown",
+                "push": "unknown",
+                "ci": "unknown",
+                "deploy": "unknown",
+                "open": 0,
+                "checkedAt": "2026-11-04T00:00:00.000Z",
+                "comparedToCode": false
+              },
+              "period": {
+                "start": "2026-11-04T00:00:00.000Z",
+                "end": "2026-11-04T00:00:00.000Z"
+              },
+              "throughSeq": 1,
+              "pinned": false,
+              "excluded": false,
+              "source": "available",
+              "revision": "abc",
+              "updatedAt": "2026-11-04T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "episode.get": {
+      "params": [
+        {
+          "id": "ep_1"
+        }
+      ],
+      "result": [
+        {
+          "episode": {
+            "id": "ep_1",
+            "workspaceId": "ws_1",
+            "sessionId": "ses_1",
+            "rootSessionId": "ses_1",
+            "title": "Repair invoices",
+            "outcome": {
+              "checks": "unverified",
+              "commit": "unknown",
+              "push": "unknown",
+              "ci": "unknown",
+              "deploy": "unknown",
+              "open": 0,
+              "checkedAt": "2026-11-04T00:00:00.000Z",
+              "comparedToCode": false
+            },
+            "done": [],
+            "open": [],
+            "decisions": [],
+            "lessons": [],
+            "files": [],
+            "commits": [],
+            "anchor": {},
+            "engines": [],
+            "period": {
+              "start": "2026-11-04T00:00:00.000Z",
+              "end": "2026-11-04T00:00:00.000Z"
+            },
+            "throughSeq": 1,
+            "schemaVersion": 1,
+            "memories": [],
+            "chapters": [],
+            "sessions": [],
+            "overrides": {},
+            "pinned": false,
+            "excluded": false,
+            "source": "available",
+            "revision": "abc",
+            "redactions": 0,
+            "updatedAt": "2026-11-04T00:00:00.000Z"
+          }
+        }
+      ]
+    },
+    "episode.update": {
+      "params": [
+        {
+          "id": "ep_1",
+          "revision": "abc",
+          "patch": {}
+        }
+      ],
+      "result": [
+        {
+          "episode": {
+            "id": "ep_1",
+            "workspaceId": "ws_1",
+            "sessionId": "ses_1",
+            "rootSessionId": "ses_1",
+            "title": "Repair invoices",
+            "outcome": {
+              "checks": "unverified",
+              "commit": "unknown",
+              "push": "unknown",
+              "ci": "unknown",
+              "deploy": "unknown",
+              "open": 0,
+              "checkedAt": "2026-11-04T00:00:00.000Z",
+              "comparedToCode": false
+            },
+            "done": [],
+            "open": [],
+            "decisions": [],
+            "lessons": [],
+            "files": [],
+            "commits": [],
+            "anchor": {},
+            "engines": [],
+            "period": {
+              "start": "2026-11-04T00:00:00.000Z",
+              "end": "2026-11-04T00:00:00.000Z"
+            },
+            "throughSeq": 1,
+            "schemaVersion": 1,
+            "memories": [],
+            "chapters": [],
+            "sessions": [],
+            "overrides": {},
+            "pinned": false,
+            "excluded": false,
+            "source": "available",
+            "revision": "abc",
+            "redactions": 0,
+            "updatedAt": "2026-11-04T00:00:00.000Z"
+          }
+        }
+      ]
+    },
+    "episode.delete": {
+      "params": [
+        {
+          "id": "ep_1",
+          "revision": "abc"
+        }
+      ],
+      "result": [{}]
+    },
+    "episode.refresh": {
+      "params": [
+        {
+          "sessionId": "ses_1"
+        }
+      ],
+      "result": [
+        {
+          "episode": {
+            "id": "ep_1",
+            "workspaceId": "ws_1",
+            "sessionId": "ses_1",
+            "rootSessionId": "ses_1",
+            "title": "Repair invoices",
+            "outcome": {
+              "checks": "unverified",
+              "commit": "unknown",
+              "push": "unknown",
+              "ci": "unknown",
+              "deploy": "unknown",
+              "open": 0,
+              "checkedAt": "2026-11-04T00:00:00.000Z",
+              "comparedToCode": false
+            },
+            "done": [],
+            "open": [],
+            "decisions": [],
+            "lessons": [],
+            "files": [],
+            "commits": [],
+            "anchor": {},
+            "engines": [],
+            "period": {
+              "start": "2026-11-04T00:00:00.000Z",
+              "end": "2026-11-04T00:00:00.000Z"
+            },
+            "throughSeq": 1,
+            "schemaVersion": 1,
+            "memories": [],
+            "chapters": [],
+            "sessions": [],
+            "overrides": {},
+            "pinned": false,
+            "excluded": false,
+            "source": "available",
+            "revision": "abc",
+            "redactions": 0,
+            "updatedAt": "2026-11-04T00:00:00.000Z"
+          }
+        },
+        {}
+      ]
+    }
+  },
+  "notifications": {
+    "episode.changed": [
+      {
+        "workspaceId": "ws_1",
+        "id": "ep_1"
+      }
+    ]
+  },
+  "events": [],
+  "errors": [
+    {
+      "name": "EPISODE_NOT_FOUND",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32081,
+          "message": "episode not found",
+          "data": {
+            "id": "ep_1"
+          }
+        }
+      }
+    }
+  ]
+}

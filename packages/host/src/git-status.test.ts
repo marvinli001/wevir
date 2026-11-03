@@ -236,7 +236,7 @@ describe('workspace.git 方法', () => {
     await expect(
       host['workspace.git']({ workspaceId: workspace.id }, context),
     ).rejects.toMatchObject({ code: 'WORKSPACE_PATH_INVALID' });
-    host['workspace.remove']({ workspaceId: workspace.id }, context);
+    await host['workspace.remove']({ workspaceId: workspace.id }, context);
     await expect(
       host['workspace.git']({ workspaceId: workspace.id }, context),
     ).rejects.toMatchObject({ code: 'WORKSPACE_NOT_FOUND' });

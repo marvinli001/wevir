@@ -97,6 +97,7 @@ export const SETTINGS_ACCESS: Record<keyof HostSettings, 'agent' | 'approval' | 
   compactIdleClaudeSessions: 'approval',
   claudeIdleCompactionOverrides: 'approval',
   autoMemory: 'agent',
+  autoEpisodes: 'agent',
   ruleFiles: 'agent',
   outputStyle: 'agent',
   marketMirror: 'agent',

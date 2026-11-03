@@ -6,6 +6,7 @@ import {
   PendingMessageIdSchema,
   SessionIdSchema,
 } from './common.js';
+import { EpisodeIdSchema } from './context.js';
 import {
   ActiveTurnSchema,
   ApprovalResolutionSchema,
@@ -105,6 +106,7 @@ export const ErrorCode = {
 
   /** 没有这个频道（0.120.0，`channel.*`），或它已删除。 */
   CHANNEL_NOT_FOUND: -32080,
+  EPISODE_NOT_FOUND: -32081,
 
   /**
    * iOS 模拟器的操作失败（0.122.0，`simulator.*`）：设备不在或没启动、helper 起不来、simctl 出错等，`data.code` 是 `SIMULATOR_ERROR_CODES`
@@ -124,6 +126,7 @@ export function errorCodeName(code: number): ErrorCodeName | undefined {
 
 /** 带结构化 `error.data` 的错误码。没列出的错误码不带 `data`。 */
 export const ErrorDataSchemas = {
+  EPISODE_NOT_FOUND: z.object({ id: EpisodeIdSchema }),
   METHOD_NOT_FOUND: z.object({
     hostVersion: z.string(),
     /** 给人看的提示，如“请升级 Wevir Host”。 */

@@ -24,6 +24,7 @@ import { WebSocketServer } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
 import type { ChannelService } from './channels/service.js';
 import type { ComputerBroker } from './computer-broker.js';
+import type { EpisodeChange } from './episodes/service.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethods } from './host-methods.js';
 import type { InboxService } from './inbox.js';
@@ -75,6 +76,7 @@ export interface HostRpcServerOptions {
   plugins?: { watch(listener: () => void): () => void };
   /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接经它收 `memory.changed`。 */
   memory?: { watch(listener: (change: MemoryChange) => void): () => void };
+  episodes?: { watch(listener: (change: EpisodeChange) => void): () => void };
   /** 会话列表推送（0.101.0）：调过 `session.list` 的连接经它收 `sessions.changed`。 */
   sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接收 `inbox.changed`。 */
@@ -213,6 +215,7 @@ export class HostRpcServer {
       ...(options.settings !== undefined && { settings: options.settings }),
       ...(options.plugins !== undefined && { plugins: options.plugins }),
       ...(options.memory !== undefined && { memory: options.memory }),
+      ...(options.episodes !== undefined && { episodes: options.episodes }),
       ...(options.sessionList !== undefined && { sessionList: options.sessionList }),
       ...(options.inbox !== undefined && { inbox: options.inbox }),
       ...(options.channels !== undefined && { channels: options.channels }),

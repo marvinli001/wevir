@@ -35,6 +35,7 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { workspaceLabel } from '@/projects/chats';
 import { useLastLocation } from '@/routes/last-location';
+import { EpisodeSettings } from './episode-settings';
 import { IMPORT_APP_LABEL } from './import-model';
 import {
   autoMemoryOn,
@@ -271,6 +272,7 @@ export function MemorySettings() {
           list('project', sections.project, sections.unreadable.project)
         )}
       </SettingsSection>
+      <EpisodeSettings workspaceId={workspaceId} />
       {editing && <MemoryEditor target={editing} onClose={() => setEditing(undefined)} />}
       <ConfirmDialog
         open={deleting !== undefined}

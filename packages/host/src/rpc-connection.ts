@@ -52,6 +52,7 @@ import type { RawData } from 'ws';
 import type { BrowserBroker } from './browser-broker.js';
 import type { ChannelService } from './channels/service.js';
 import type { ComputerBroker } from './computer-broker.js';
+import type { EpisodeChange } from './episodes/service.js';
 import { HostError, isHostError } from './errors.js';
 import { type EventStore, elideSuperseded } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
@@ -107,6 +108,7 @@ export interface ConnectionHost {
   readonly plugins?: { watch(listener: () => void): () => void };
   /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接用它收 `memory.changed`。 */
   readonly memory?: { watch(listener: (change: MemoryChange) => void): () => void };
+  episodes?: { watch(listener: (change: EpisodeChange) => void): () => void };
   /** 会话列表推送（0.101.0）：`session.list` 的结果加上它的版本，之后这条连接用它收 `sessions.changed`。 */
   readonly sessionList?: Pick<SessionListFeed, 'version' | 'watch'>;
   /** 收件箱（0.105.0）：调过 `inbox.*` 的连接用它收 `inbox.changed`。 */
@@ -303,6 +305,7 @@ export class RpcConnection {
   #unwatchPlugins: (() => void) | undefined;
   /** 调过 `memory.*` 之后：退订 `memory.changed`。 */
   #unwatchMemory: (() => void) | undefined;
+  #unwatchEpisodes: (() => void) | undefined;
   /** 调过 `session.list` 之后：它的参数并集与见过的会话，以及退订 `sessions.changed`。 */
   readonly #sessionListScope = new SessionListScope();
   #unwatchSessionList: (() => void) | undefined;
@@ -810,6 +813,10 @@ export class RpcConnection {
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
         if (method.startsWith('memory.')) this.#watchMemory();
+        if (method.startsWith('episode.') && this.#unwatchEpisodes === undefined)
+          this.#unwatchEpisodes = this.#host.episodes?.watch((change) =>
+            this.#notify('episode.changed', change),
+          );
         if (method.startsWith('usage.')) this.#watchUsage();
         if (method.startsWith('automation.')) this.#watchAutomations();
         if (method.startsWith('process.')) this.#watchProcesses();
@@ -1597,6 +1604,8 @@ export class RpcConnection {
     this.#unwatchPlugins?.();
     this.#unwatchPlugins = undefined;
     this.#unwatchSettings = undefined;
+    this.#unwatchEpisodes?.();
+    this.#unwatchEpisodes = undefined;
     this.#unwatchMemory?.();
     this.#unwatchMemory = undefined;
     this.#unwatchSessionList?.();

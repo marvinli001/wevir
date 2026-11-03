@@ -11,6 +11,7 @@ import { type ContextLedgerRepository, createContextLedgerRepository } from './c
 import { createDeviceRepository, type DeviceRepository } from './devices.js';
 import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
+import { createEpisodeRepository, type EpisodeRepository } from './episodes.js';
 import { createEventRepository, type EventRepository } from './events.js';
 import { createInboxRepository, type InboxRepository } from './inbox.js';
 import { migrate } from './migrate.js';
@@ -64,6 +65,7 @@ export interface Storage {
   readonly reviewComments: ReviewCommentRepository;
   /** 任务回顾的投影与模型摘要（0016_session_retros）。 */
   readonly retros: RetroRepository;
+  readonly episodes: EpisodeRepository;
   /** 调优的档案版本（0019_profile_versions）。 */
   readonly profileVersions: ProfileVersionRepository;
   /** 调优的建议（0020_tuning_proposals）。 */
@@ -113,6 +115,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       accounts: createSubscriptionAccountRepository(db),
       reviewComments: createReviewCommentRepository(db),
       retros: createRetroRepository(db),
+      episodes: createEpisodeRepository(db),
       profileVersions: createProfileVersionRepository(db),
       tuningProposals: createTuningProposalRepository(db),
       tuningRuns: createTuningRunRepository(db),

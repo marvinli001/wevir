@@ -60,6 +60,12 @@ import {
 } from './common.js';
 import { ComputerRequestSchema, ComputerResponseSchema } from './computer.js';
 import {
+  EpisodeIdSchema,
+  EpisodeOverridesSchema,
+  EpisodeSchema,
+  EpisodeSummarySchema,
+} from './context.js';
+import {
   DeviceListParamsSchema,
   DeviceListResultSchema,
   DeviceResultSchema,
@@ -2587,6 +2593,41 @@ export const MethodSchemas = {
     permission: 'session.read',
   },
   // 0.76.0：任务回顾（ADR-0012）。
+  'episode.list': {
+    params: z.object({
+      workspaceId: WorkspaceIdSchema,
+      cursor: z.string().optional(),
+      limit: z.int().min(1).max(100).optional(),
+    }),
+    result: z.object({ episodes: z.array(EpisodeSummarySchema), next: z.string().optional() }),
+    permission: 'session.read',
+  },
+  'episode.get': {
+    params: z.object({ id: EpisodeIdSchema }),
+    result: z.object({ episode: EpisodeSchema }),
+    permission: 'session.read',
+  },
+  'episode.update': {
+    params: z.object({
+      id: EpisodeIdSchema,
+      revision: z.string().min(1),
+      patch: EpisodeOverridesSchema,
+      pinned: z.boolean().optional(),
+      excluded: z.boolean().optional(),
+    }),
+    result: z.object({ episode: EpisodeSchema, conflict: z.boolean().optional() }),
+    permission: 'host.manage',
+  },
+  'episode.delete': {
+    params: z.object({ id: EpisodeIdSchema, revision: z.string().optional() }),
+    result: z.object({ conflict: z.boolean().optional() }),
+    permission: 'host.manage',
+  },
+  'episode.refresh': {
+    params: z.object({ sessionId: SessionIdSchema }),
+    result: z.object({ episode: EpisodeSchema.optional() }),
+    permission: 'session.write',
+  },
   'retro.get': {
     params: RetroGetParamsSchema,
     result: RetroGetResultSchema,
@@ -3249,6 +3290,9 @@ export const NotificationSchemas = {
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
   'settings.updated': { params: SettingsUpdatedParamsSchema },
   /** 发给调用过 `memory.*` 的连接（0.57.0）。 */
+  'episode.changed': {
+    params: z.object({ workspaceId: WorkspaceIdSchema, id: EpisodeIdSchema.optional() }),
+  },
   'memory.changed': { params: MemoryChangedParamsSchema },
   /** 发给调用过 `usage.*` 的连接（0.62.0）。 */
   'usage.changed': { params: UsageChangedParamsSchema },
@@ -3319,6 +3363,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'push.changed': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
+  'episode.changed': 'session.read',
   'memory.changed': 'session.read',
   'usage.changed': 'session.read',
   'automation.changed': 'session.read',

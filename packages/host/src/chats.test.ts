@@ -143,9 +143,9 @@ describe('“对话”工作区', () => {
     const h = await setup();
     const { session } = await h.methods['session.create']({ providerId: 'mock' }, context);
     const root = join(h.dataDir, 'chats');
-    expect(() =>
+    await expect(
       h.methods['workspace.remove']({ workspaceId: session.workspaceId }, context),
-    ).toThrow(expect.objectContaining({ code: 'INVALID_PARAMS' }));
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
     expect(() =>
       h.methods['workspace.update'](
         { workspaceId: session.workspaceId, displayName: '别的名字' },

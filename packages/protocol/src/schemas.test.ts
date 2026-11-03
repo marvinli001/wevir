@@ -237,6 +237,7 @@ import {
   deviceSample,
   environment,
   environmentWithVariables,
+  episode,
   errorDataSamples,
   eventOf,
   eventPayloads,
@@ -5620,7 +5621,42 @@ const ledgerCases = [
   },
 ];
 
-const allCases = [...standaloneCases, ...approvalRuleCases, ...registryCases, ...ledgerCases];
+const episodeCases = [
+  { name: 'EpisodeId', schema: protocol.EpisodeIdSchema, valid: ['ep_1'], invalid: ['ses_1'] },
+  {
+    name: 'EpisodeLesson',
+    schema: protocol.EpisodeLessonSchema,
+    valid: [
+      { kind: 'check_failed', text: 'lint unavailable', sources: ['v:vrn_1'], verified: true },
+    ],
+    invalid: [{ kind: 'automatic_model_lesson' }],
+  },
+  {
+    name: 'EpisodeOverrides',
+    schema: protocol.EpisodeOverridesSchema,
+    valid: [{ title: 'Invoices' }],
+    invalid: [{ title: '' }],
+  },
+  {
+    name: 'Episode',
+    schema: protocol.EpisodeSchema,
+    valid: [episode],
+    invalid: [{ ...episode, revision: '' }],
+  },
+  {
+    name: 'EpisodeSummary',
+    schema: protocol.EpisodeSummarySchema,
+    valid: [episode],
+    invalid: [{ id: 'ep_1' }],
+  },
+];
+const allCases = [
+  ...episodeCases,
+  ...standaloneCases,
+  ...approvalRuleCases,
+  ...registryCases,
+  ...ledgerCases,
+];
 
 describe('每个 schema 的合法与非法样例', () => {
   for (const { name, schema, valid, invalid } of allCases) {
