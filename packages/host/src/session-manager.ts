@@ -862,6 +862,7 @@ export class SessionManager {
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
   readonly #reviewFindings: SessionManagerOptions['reviewFindings'];
+  readonly #usageTurns = new Map<string, TurnId>();
   readonly #onUsage: SessionManagerOptions['onUsage'];
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
@@ -4848,7 +4849,7 @@ export class SessionManager {
   ): NonNullable<TitleRequest['onUsage']> {
     return (usage) => {
       also?.(usage);
-      if (this.#onUsage === undefined) return;
+      if (this.#onUsage === undefined || usage.recorded) return;
       const cacheRead = Math.min(usage.cacheReadTokens ?? 0, usage.inputTokens);
       const cacheWrite = Math.min(usage.cacheWriteTokens ?? 0, usage.inputTokens - cacheRead);
       const { providerId, modelId } = this.#snapshot(runtime).session;
@@ -4858,6 +4859,9 @@ export class SessionManager {
           type: 'usage.recorded',
           engineSessionId: runtime.engineSessionId,
           requestId: newId('req'),
+          kind: 'auxiliary',
+          origin: 'engine',
+          granularity: 'request',
           ...(usage.model !== undefined && { model: usage.model }),
           ...(usage.upstream !== undefined && { upstream: usage.upstream }),
           inputTokens: usage.inputTokens - cacheRead - cacheWrite,
@@ -5649,11 +5653,29 @@ export class SessionManager {
         ]);
         this.#checkAutoCompaction(runtime, event);
         return;
+      case 'turn.bound':
+        if (runtime.turn !== undefined)
+          this.#usageTurns.set(
+            JSON.stringify([runtime.engineSessionId, event.engineTurnId]),
+            runtime.turn.turnId,
+          );
+        return;
       case 'usage.recorded': {
         if (this.#onUsage === undefined) return;
         const { providerId, modelId } = this.#snapshot(runtime).session;
+        const turnId =
+          event.engineTurnId === null
+            ? undefined
+            : event.engineTurnId !== undefined
+              ? this.#usageTurns.get(JSON.stringify([runtime.engineSessionId, event.engineTurnId]))
+              : runtime.turn?.turnId;
         this.#onUsage(
-          { sessionId, providerId, modelId, ...(runtime.turn && { turnId: runtime.turn.turnId }) },
+          {
+            sessionId,
+            providerId: event.providerId ?? providerId,
+            modelId,
+            ...(turnId !== undefined && { turnId }),
+          },
           event,
         );
         return;

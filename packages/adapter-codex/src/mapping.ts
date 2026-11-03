@@ -179,6 +179,7 @@ interface ItemState {
 }
 
 export interface CodexEventMapperOptions {
+  gatewayUsage?: boolean;
   /** 会话模型的上下文大小（模型目录的 `context_window`）；不知道时用 Codex 报的 `modelContextWindow`。 */
   contextSize?: () => number | undefined;
   /** Codex 自动压缩的阈值（0.29.0，`autoCompactLimit`）；不知道时（ChatGPT 登录的模型）不报。 */
@@ -214,6 +215,7 @@ export class CodexEventMapper {
   readonly #model: () => string | undefined;
   readonly #now: () => number;
   readonly #subscription: boolean;
+  readonly #gatewayUsage: boolean;
   /** 这个回合里的压缩怎么来的：`compact` 开的回合是 `manual`，其余是引擎自己压缩（0.24.0）。 */
   #compaction: 'manual' | 'auto' = 'auto';
   /** 上一条用量通知的 thread 累计（0.62.0）：累计没变的通知不是新的请求。 */
@@ -224,6 +226,7 @@ export class CodexEventMapper {
 
   constructor(engineSessionId: string, options: CodexEventMapperOptions = {}) {
     this.engineSessionId = engineSessionId;
+    this.#gatewayUsage = options.gatewayUsage === true;
     this.#contextSize = options.contextSize ?? (() => undefined);
     this.#autoCompactAt = options.autoCompactAt ?? (() => undefined);
     this.#model = options.model ?? (() => undefined);
@@ -781,7 +784,7 @@ export class CodexEventMapper {
    * 首个 token 的时间。
    */
   #usage(params: TokenUsageNotification, stale: boolean): AgentEvent[] {
-    const recorded = this.#recordUsage(params, stale);
+    const recorded = this.#gatewayUsage ? [] : this.#recordUsage(params, stale);
     const contextSize = this.#contextSize() ?? params.tokenUsage.modelContextWindow ?? undefined;
     if (contextSize === undefined)
       return [...recorded, this.raw('thread/tokenUsage/updated', params)];

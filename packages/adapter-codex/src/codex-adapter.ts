@@ -1,6 +1,7 @@
 import {
   type ModelGateway,
   type ModelGatewayOptions,
+  type RequestObservation,
   startModelGateway,
   testProvider,
   VertexTokenCache,
@@ -448,6 +449,7 @@ class Launcher implements CodexLauncher {
   readonly #prompt: BasePrompt;
   providers: readonly ProviderConfig[] = [];
   gateway: ModelGateway | undefined;
+  onRequest: ((observation: RequestObservation) => void) | undefined;
   readonly vertexAuth: VertexTokenCache;
   /** 当前进程启动时用的模型目录（判断目录是否过期）。 */
   launchedCatalog: string | undefined;
@@ -534,6 +536,10 @@ class Launcher implements CodexLauncher {
     const gateway = await startModelGateway({
       ...this.#options.gateway,
       logger: gatewayLogger(this.#logger),
+      onRequest: (observation) => {
+        this.onRequest?.(observation);
+        this.#options.gateway?.onRequest?.(observation);
+      },
       vertexAuth: this.vertexAuth,
     });
     this.gateway = gateway;
@@ -688,6 +694,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly #overloadRetry: OverloadRetryPolicy;
   readonly #sessions = new Map<string, CodexSession>();
   /** 还没认出来的 thread 的通知（子 thread 早于父会话里报出它的 collabAgentToolCall 到达时）。 */
+  readonly #pendingUsage = new Map<string, RequestObservation[]>();
   readonly #unknownThreads = new Map<
     string,
     { readonly since: number; readonly notifications: Array<{ method: string; params: unknown }> }
@@ -713,6 +720,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#overloadRetry = { ...OVERLOAD_RETRY, ...options.overloadRetry };
     this.#prompt = new BasePrompt(options.promptsDir ?? defaultPromptsDir());
     this.#launcher = new Launcher(options, this.#logger, this.#prompt);
+    this.#launcher.onRequest = (observation) => this.#gatewayUsage(observation);
     this.paths = this.#launcher.paths;
     this.process = new CodexProcess({
       launcher: this.#launcher,
@@ -1366,6 +1374,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     // turnId、记成 lastTurnId）时，再记回去会让续跑以为已经开了回合而放弃，新回合的通知也被当成别的回合丢掉。
     if (turn.turnId !== undefined || turnId === session.lastTurnId) return;
     turn.turnId = turnId;
+    session.hub.emit({ type: 'turn.bound', engineSessionId: session.id, engineTurnId: turnId });
     if (turn.cancelRequested && session.turn === turn) this.#interrupt(session, turn);
   }
 
@@ -1810,7 +1819,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     const gateway = this.#launcher.gateway;
     if (gateway === undefined) throw new AdapterError('engine_unavailable', '网关没有启动');
-    return titleViaGateway(gateway, session.providerId, session.model, request);
+    return titleViaGateway(gateway, session.providerId, session.model, request, session.id);
   }
 
   /** 临时 thread：只读沙箱、审批 `never`、工具关掉，`turn/start` 带 `outputSchema`，取最终的助手消息。 */
@@ -2083,6 +2092,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#engineTurnStarted(session, params);
     }
     const turn = session.turn;
+    if (method === 'turn/started' && turn !== undefined) {
+      const engineTurnId = notificationTurnId(params);
+      if (engineTurnId !== undefined) this.#learnTurnId(session, turn, engineTurnId);
+    }
     // 不属于进行中回合的通知（上一个回合迟到的、或根本没有回合）：只保留 engine.raw 与用量（events.ts 的顺序约定）。
     const turnId = notificationTurnId(params);
     // 压缩（0.24.0）的回合 ID 由 app-server 的 `turn/started` 带来；在那之前上一个回合迟到的通知不算它的。
@@ -2151,6 +2164,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       engineSessionId: session.id,
       ...(goal && { trigger: 'goal' as const }),
     });
+    session.hub.emit({ type: 'turn.bound', engineSessionId: session.id, engineTurnId: turnId });
   }
 
   /**
@@ -2247,6 +2261,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#onNotification(notification.method, notification.params);
     }
     void this.#describeChild(parent, childId, prompt);
+    for (const observation of this.#pendingUsage.get(childId) ?? [])
+      this.#gatewayUsage(observation);
+    this.#pendingUsage.delete(childId);
   }
 
   /** 子 agent 晚到的信息：`thread/read`（稳定面）的昵称、角色与 thread 名称 → 父会话流里的 `subagent.updated`。 */
@@ -2349,6 +2366,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         engineSessionId: session.id,
         ...(input !== undefined && { input }),
       });
+      if (session.turn?.turnId !== undefined)
+        session.hub.emit({
+          type: 'turn.bound',
+          engineSessionId: session.id,
+          engineTurnId: session.turn.turnId,
+        });
       if (input !== undefined) return true;
     }
     return false;
@@ -3008,6 +3031,42 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 用量的上下文大小与自动压缩阈值（0.29.0）：经网关的模型照交给 Codex 的（`contextWindowOf`，没填按默认值）；ChatGPT
    * 登录的模型在 Codex 自己的目录里，大小取 Codex 报的，阈值不报。
    */
+  #gatewayUsage(observation: RequestObservation): void {
+    const threadId = observation.threadId;
+    if (threadId === undefined) {
+      this.#logger.warn('gateway usage has no session');
+      return;
+    }
+    const session = this.#sessions.get(threadId);
+    if (session === undefined) {
+      if (this.#pendingUsage.size < 100) {
+        const held = this.#pendingUsage.get(threadId) ?? [];
+        held.push(observation);
+        this.#pendingUsage.set(threadId, held);
+      }
+      return;
+    }
+    session.hub.emit({
+      type: 'usage.recorded',
+      engineSessionId: session.id,
+      requestId: observation.requestId,
+      providerId: observation.providerId,
+      model: observation.model,
+      kind: observation.kind,
+      origin: 'gateway',
+      granularity: 'request',
+      engineTurnId: observation.kind === 'auxiliary' ? null : (observation.turnId ?? null),
+      usageReported: observation.usage !== undefined,
+      outcome: observation.outcome,
+      supply: observation.supply,
+      inputTokens: 0,
+      outputTokens: 0,
+      ...observation.usage,
+      durationMs: observation.durationMs,
+      ...(observation.firstTokenMs !== undefined && { firstTokenMs: observation.firstTokenMs }),
+    });
+  }
+
   #usageOptions(model: () => ProviderModelConfig): CodexEventMapperOptions {
     // 每次请求的用量记会话当前的模型（0.62.0）。
     if (this.#chatgpt) {
@@ -3018,6 +3077,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       };
     }
     return {
+      gatewayUsage: true,
       contextSize: () => contextWindowOf(model()),
       autoCompactAt: () => autoCompactLimit(model()),
       model: () => model().id,

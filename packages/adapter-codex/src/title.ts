@@ -36,10 +36,14 @@ export async function titleViaGateway(
   providerId: string,
   model: ProviderModelConfig,
   request: TitleRequest,
+  engineSessionId?: string,
 ): Promise<string> {
   const effort = lowestEffort(model);
   const body = {
     model: model.id,
+    ...(engineSessionId !== undefined && {
+      client_metadata: { thread_id: engineSessionId, request_kind: 'auxiliary' },
+    }),
     instructions: request.instructions,
     input: [
       { type: 'message', role: 'user', content: [{ type: 'input_text', text: request.input }] },
@@ -68,7 +72,12 @@ export async function titleViaGateway(
       `生成标题的请求失败：HTTP ${response.status} ${text.slice(0, 500)}`,
     );
   }
-  return readResponsesText(response.body, request.onUsage);
+  return readResponsesText(
+    response.body,
+    engineSessionId === undefined
+      ? request.onUsage
+      : (usage) => request.onUsage?.({ ...usage, recorded: true }),
+  );
 }
 
 /**

@@ -1768,6 +1768,9 @@ describe('SessionManager：会话标题（R3）', () => {
           type: 'usage.recorded',
           engineSessionId: snapshot(h, id).session.engine.sessionId,
           requestId: expect.stringMatching(/^req_/),
+          kind: 'auxiliary',
+          origin: 'engine',
+          granularity: 'request',
           model: 'deepseek-chat-0927',
           inputTokens: 200,
           outputTokens: 40,
@@ -2770,6 +2773,51 @@ describe('SessionManager：其他', () => {
       event,
     );
     expect(all(h, id).map((e) => e.type)).not.toContain('usage.recorded');
+  });
+
+  it('迟到的网关用量按引擎回合绑定，辅助调用不归当前回合', async () => {
+    const injected = new EventHub<AgentEvent>();
+    const onUsage = vi.fn();
+    const h = setup({ manager: { onUsage } });
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      withInjected(subscribe(engineSessionId), injected, engineSessionId),
+    );
+    const id = await create(h);
+    const engineSessionId = h.storage.sessions.get(id)?.engineSessionId as string;
+    await send(h, id, 'slow');
+    injected.emit({ type: 'turn.bound', engineSessionId, engineTurnId: 'engine-turn' });
+    await waitForState(h, id, 'idle');
+    const firstTurn = ofType(h, id, 'turn.started')[0]?.payload.turnId;
+    await send(h, id, 'slow again');
+    injected.emit({
+      type: 'usage.recorded',
+      engineSessionId,
+      requestId: 'late',
+      engineTurnId: 'engine-turn',
+      origin: 'gateway',
+      inputTokens: 10,
+      outputTokens: 2,
+    });
+    injected.emit({
+      type: 'usage.recorded',
+      engineSessionId,
+      requestId: 'aux',
+      engineTurnId: null,
+      origin: 'gateway',
+      kind: 'auxiliary',
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await vi.waitFor(() =>
+      expect(onUsage.mock.calls.find(([, event]) => event.requestId === 'late')?.[0].turnId).toBe(
+        firstTurn,
+      ),
+    );
+    expect(
+      onUsage.mock.calls.find(([, event]) => event.requestId === 'aux')?.[0].turnId,
+    ).toBeUndefined();
+    await waitForState(h, id, 'idle');
   });
 
   it('echo 每回合的用量带正确的回合 ID，回合外省略', async () => {

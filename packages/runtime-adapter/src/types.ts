@@ -462,6 +462,7 @@ export interface TitleRequest {
 
 /** `generateTitle` 一次模型请求的用量。`inputTokens` 含缓存的读写（OpenAI 口径），`reasoningTokens` 含在 `outputTokens` 里。 */
 export interface TitleUsage {
+  recorded?: boolean;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;

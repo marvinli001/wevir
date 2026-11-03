@@ -497,6 +497,7 @@ export type AgentEvent =
   | QuestionRequestedEvent
   | QuestionCancelledEvent
   | UsageUpdatedEvent
+  | { type: 'turn.bound'; engineSessionId: string; engineTurnId: string }
   | UsageRecordedEvent
   | ContextCompactingEvent
   | ContextCompactedEvent

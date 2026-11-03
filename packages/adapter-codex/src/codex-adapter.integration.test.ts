@@ -113,7 +113,9 @@ describe.skipIf(binary === undefined)(
       expect(result.filter((e) => e.type === 'usage.recorded')).toEqual([
         expect.objectContaining({
           model: MOCK_MODEL,
-          requestId: expect.stringMatching(/:\d+$/),
+          requestId: expect.any(String),
+          origin: 'gateway',
+          granularity: 'request',
           durationMs: expect.any(Number),
           firstTokenMs: expect.any(Number),
         }),
