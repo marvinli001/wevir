@@ -8,19 +8,25 @@ import { AUTO_CONTINUE_MAX_WAIT_MS, type TurnId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronDown, Gauge, RotateCw, Shuffle } from 'lucide-react';
 import { useState } from 'react';
-import { buttonVariants } from '@/components/ui/button';
+import { useNavigate } from 'react-router';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useAccounts } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { currentLocale, t } from '@/i18n';
+import { paths } from '@/routes/paths';
 import { resetLabel, windowName } from '@/settings/chatgpt-account-model';
+import { modelLabel } from './handoff-model';
 import { type MessageActions, useMessageActions } from './message-actions';
 import { ModelList } from './model-picker';
 import { switchTargets } from './usage-limit-model';
 
 /** 回合因用量上限失败的错误部件（有 `usageLimit`）。 */
 export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
-  const { autoContinue, switchModel } = useMessageActions();
+  const { autoContinue, switchModel, routing } = useMessageActions();
+  const providers = useWorkbenchProviders();
+  const accounts = useAccounts();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const limit = part.usageLimit;
   if (limit === undefined) return null;
@@ -68,6 +74,18 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
               <SwitchModelButton switchModel={switchModel} turnId={part.turnId} />
             )}
         </div>
+        {routing?.enabled && part.routedTo && (
+          <p className="mt-2 text-xs text-running" data-testid="usage-limit-routed">
+            {t('usageLimit.routed', {
+              target: modelLabel(
+                providers ?? [],
+                part.routedTo.providerId,
+                part.routedTo.modelId,
+                accounts,
+              ),
+            })}
+          </p>
+        )}
         {(toggleable || armed !== undefined) && (
           <label className="mt-2 flex w-fit items-center gap-2 text-sm">
             <Checkbox
@@ -89,6 +107,17 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
           <p className="mt-1 text-xs text-muted-foreground" data-resumed-at={part.resumedAt}>
             {t('usageLimit.resumed', { time: clockLabel(part.resumedAt) })}
           </p>
+        )}
+        {routing !== undefined && (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="mt-1 -ml-1.5"
+            data-testid="usage-limit-routing"
+            onClick={() => void navigate(paths.settings('routing'))}
+          >
+            {t('settings.tab.routing')}
+          </Button>
         )}
         <p className="mt-1.5 font-mono text-xs break-words whitespace-pre-wrap text-muted-foreground">
           {part.message}

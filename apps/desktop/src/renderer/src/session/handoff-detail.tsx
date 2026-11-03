@@ -3,9 +3,14 @@
 import { cn } from 'cn';
 import { useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { CopyButton } from './copy-button';
-import { type HandoffNoticeOf, handoffDetailRows } from './handoff-model';
+import {
+  type ConfigurationNoticeOf,
+  type HandoffNoticeOf,
+  handoffDetailRows,
+} from './handoff-model';
 
 const TONE = {
   success: 'text-success',
@@ -20,7 +25,7 @@ export function HandoffDetailDialog({
   open,
   onOpenChange,
 }: {
-  notice: HandoffNoticeOf;
+  notice: HandoffNoticeOf | ConfigurationNoticeOf;
   /** “来源 · 模型”。 */
   target: string;
   from: string;
@@ -29,17 +34,20 @@ export function HandoffDetailDialog({
 }) {
   // 打开时聚焦可滚动的正文，而不是复制按钮（否则一打开就弹出它的提示）。
   const contextRef = useRef<HTMLPreElement>(null);
+  const providers = useWorkbenchProviders();
+  const accounts = useAccounts();
+  const context = notice.kind === 'handoff' ? notice.context : undefined;
   const rows = [
     { key: 'target', label: t('handoff.detail.target'), value: target },
     { key: 'from', label: t('handoff.detail.from'), value: from },
-    ...handoffDetailRows(notice),
+    ...handoffDetailRows(notice, providers, accounts),
   ];
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="gap-3 sm:max-w-xl"
         data-testid="handoff-detail"
-        {...(notice.context !== undefined && { initialFocus: contextRef })}
+        {...(context !== undefined && { initialFocus: contextRef })}
       >
         <DialogHeader>
           <DialogTitle>{t('handoff.detail.title')}</DialogTitle>
@@ -59,11 +67,11 @@ export function HandoffDetailDialog({
             </div>
           ))}
         </dl>
-        {notice.context !== undefined && (
+        {context !== undefined && (
           <div className="grid gap-1.5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">{t('handoff.detail.context')}</span>
-              <CopyButton text={notice.context} />
+              <CopyButton text={context} />
             </div>
             <pre
               ref={contextRef}
@@ -72,7 +80,7 @@ export function HandoffDetailDialog({
               className="max-h-[min(50vh,24rem)] overflow-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap outline-none focus-visible:focus-field"
               data-testid="handoff-context"
             >
-              {notice.context}
+              {context}
             </pre>
           </div>
         )}

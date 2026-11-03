@@ -30,6 +30,7 @@ describe('settingsTabVisible', () => {
       'storage',
       'devices',
       'providers',
+      'routing',
       'web',
       'computerUse',
       'approvalRules',
@@ -46,5 +47,9 @@ describe('settingsTabVisible', () => {
   it('有 host.manage 的设备看得到管理页，电脑操作仍要外壳支持', () => {
     expect(settingsTabVisible('devices', web, () => true)).toBe(true);
     expect(settingsTabVisible('computerUse', web, () => true)).toBe(false);
+    expect(settingsTabVisible('routing', web, (permission) => permission === 'host.manage')).toBe(
+      false,
+    );
+    expect(settingsTabVisible('routing', web, () => true)).toBe(true);
   });
 });

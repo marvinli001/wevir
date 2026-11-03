@@ -42,6 +42,9 @@ import type {
   QuestionRequest,
   RepairChain,
   ReviewFinding,
+  RoutingDecision,
+  RoutingFailover,
+  RoutingTarget,
   SecondOpinion,
   Session,
   SessionAcceptance,
@@ -103,14 +106,20 @@ export interface ToolPartApproval {
 
 type ModelConfiguration = Pick<Session, 'providerId' | 'modelId' | 'reasoningEffort' | 'fast'>;
 
+type NoticeRouting = {
+  reason?: 'usage_limit';
+  failover?: RoutingFailover;
+  skipped?: RoutingDecision['skipped'];
+};
+
 /** 不属于任何回合的会话级提示（引擎会话恢复、只读、关闭）。 */
 export type SessionNotice =
   | { kind: 'resumed'; engineVersion?: string }
   | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string }
   | { kind: 'closed' }
-  | { kind: 'configured'; from: ModelConfiguration; to: ModelConfiguration }
+  | ({ kind: 'configured'; from: ModelConfiguration; to: ModelConfiguration } & NoticeRouting)
   /** 换到了别的来源（0.25.0，`session.handoff`）：之后的回合由 `providerId` 的引擎跑。 */
-  | {
+  | ({
       kind: 'handoff';
       providerId: string;
       modelId: string;
@@ -139,7 +148,7 @@ export type SessionNotice =
         notes: readonly HandoffNoteRef[];
       };
       delivery: HandoffDelivery;
-    }
+    } & NoticeRouting)
   /** 会话换了目录（0.81.0，`session.moved`）：移进了 worktree，或移回了项目目录。 */
   | {
       kind: 'moved';
@@ -221,6 +230,7 @@ export type ChatPart =
       recovery?: 'retry' | 'continue';
       usageLimit?: UsageLimit;
       resumedAt?: IsoTime;
+      routedTo?: RoutingTarget;
     }
   /**
    * 引擎在重试模型请求（0.119.0，`turn.retrying`）：同一条消息里接连的几次合成一个部件（`key` 是第一次的 `t:<seq>`），只留最近一次的
@@ -572,6 +582,7 @@ export class TranscriptProjection {
   #title = '';
   #readOnly: SessionReadOnly | undefined;
   #configuration: ModelConfiguration | undefined;
+  #routingDecision: RoutingDecision | undefined;
   /** 最近一条 `session.moved` 的 seq（0.81.0）：紧跟着的 `session.resumed` 不另起一行。 */
   #lastMoved: number | undefined;
   #lastError: EngineErrorInfo | undefined;
@@ -640,6 +651,7 @@ export class TranscriptProjection {
     this.#title = '';
     this.#readOnly = undefined;
     this.#configuration = undefined;
+    this.#routingDecision = undefined;
     this.#lastMoved = undefined;
     this.#lastError = undefined;
     this.#usage = undefined;
@@ -741,6 +753,9 @@ export class TranscriptProjection {
         this.#repair = event.payload.repair;
         this.#acceptance ??= { status: 'unverified', updatedAt: event.ts };
         return;
+      case 'routing.decided':
+        this.#routingDecision = event.payload;
+        return;
       case 'session.configured': {
         const previous = this.#configuration;
         if (previous === undefined) return;
@@ -752,7 +767,12 @@ export class TranscriptProjection {
           previous.reasoningEffort !== reasoningEffort ||
           (previous.fast === true) !== (fast === true)
         ) {
-          this.#notice(event, { kind: 'configured', from: previous, to: next });
+          this.#notice(event, {
+            kind: 'configured',
+            from: previous,
+            to: next,
+            ...this.#routingNotice(event.payload, next),
+          });
         }
         return;
       }
@@ -777,6 +797,7 @@ export class TranscriptProjection {
           modelId: to.modelId,
           fromProviderId: from.providerId,
           fromModelId: from.modelId,
+          ...this.#routingNotice(event.payload, to),
           resumed,
           strategy,
           ...(covered !== undefined && { covered: { ...covered } }),
@@ -1786,6 +1807,38 @@ export class TranscriptProjection {
   }
 
   // ── 错误与调试 ───────────────────────────────────────────────────────
+
+  #routingNotice(payload: NoticeRouting, target: RoutingTarget): NoticeRouting {
+    const { reason, failover } = payload;
+    const decision = this.#routingDecision;
+    this.#routingDecision = undefined;
+    const metadata = {
+      ...(reason !== undefined && { reason }),
+      ...(failover !== undefined && { failover }),
+    };
+    if (
+      reason !== 'usage_limit' ||
+      decision?.to?.providerId !== target.providerId ||
+      decision.to.modelId !== target.modelId ||
+      decision.originTurnId !== failover?.originTurnId ||
+      decision.attempt !== failover.attempt
+    )
+      return metadata;
+    for (let index = this.#messages.length - 1; index >= 0; index--) {
+      const message = this.#messages[index];
+      if (message?.role !== 'assistant') continue;
+      const found = message.parts.findIndex(
+        (part) =>
+          part.type === 'error' && part.turnId === decision.turnId && part.usageLimit !== undefined,
+      );
+      const part = message.parts[found];
+      if (part?.type !== 'error') continue;
+      this.#touch(message, message.lastSeq);
+      message.parts[found] = { ...part, routedTo: { ...target } };
+      break;
+    }
+    return { ...metadata, skipped: decision.skipped };
+  }
 
   #engineError(event: WevirEventOf<'engine.error'>): void {
     const { category, message, turnId, fatal, usageLimit } = event.payload;

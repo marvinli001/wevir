@@ -1,3 +1,4 @@
+import { hostSupports } from '@wevir/client-sdk';
 import type { Permission } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -15,6 +16,7 @@ import {
   Mic,
   MousePointerClick,
   Palette,
+  Route,
   Search,
   Settings2,
   ShieldCheck,
@@ -51,6 +53,7 @@ import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { PersonalizationSettings } from '@/settings/personalization-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
+import { RoutingSettingsPage } from '@/settings/routing-settings';
 import { settingsTabVisible } from '@/settings/settings-access';
 import { LIST_CARD, SettingsSection } from '@/settings/settings-ui';
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
@@ -139,6 +142,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Cpu,
     keywords: ['provider.section.accounts', 'provider.section.keyed', 'account.chatgpt.title'],
   },
+  routing: {
+    label: 'settings.tab.routing',
+    icon: Route,
+    keywords: ['routing.chain', 'routing.preferReset', 'routing.decisions'],
+  },
   personalization: {
     label: 'settings.tab.personalization',
     icon: Sparkles,
@@ -217,6 +225,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
     label: 'settings.group.work',
     tabs: [
       'providers',
+      'routing',
       'personalization',
       'web',
       'computerUse',
@@ -346,7 +355,10 @@ export function SettingsRoute() {
             <ScrollArea className="min-h-0 flex-1">
               <div
                 key={tab}
-                className="mx-auto w-full max-w-180 px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10"
+                className={cn(
+                  'mx-auto w-full px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10',
+                  tab === 'routing' ? 'max-w-280' : 'max-w-180',
+                )}
               >
                 <h2 className="mb-7 text-2xl font-semibold tracking-tight">{t(TABS[tab].label)}</h2>
                 <SettingsTabContent tab={tab} />
@@ -421,7 +433,10 @@ function useTabVisible(): (tab: SettingsTab) => boolean {
   const { view } = useHostConnection();
   const can = (permission: Permission) =>
     view.status !== 'connected' || view.hello.permissions.includes(permission);
-  return (tab) => settingsTabVisible(tab, capabilities(), can);
+  return (tab) =>
+    settingsTabVisible(tab, capabilities(), can) &&
+    (tab !== 'routing' ||
+      (view.status === 'connected' && hostSupports(view.hello.features, 'usage_limit_routing')));
 }
 
 function TabList({ query, state }: { query: string; state: unknown }) {
@@ -487,6 +502,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <AboutSettings />;
     case 'providers':
       return <ProviderSettings />;
+    case 'routing':
+      return <RoutingSettingsPage />;
     case 'personalization':
       return <PersonalizationSettings />;
     case 'web':

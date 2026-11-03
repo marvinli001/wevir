@@ -626,4 +626,55 @@ describe('按 seq 找位置', () => {
     expect(first && blockSeqRange(first)).toEqual([1, 9]);
     expect(second && blockSeqRange(second)).toEqual([12, 20]);
   });
+  it.each(['session.handoff', 'session.configured'] as const)(
+    '额度继续更新旧卡片后，%s 的起点仍定位到切换消息',
+    (type) => {
+      const s = session();
+      s.add('session.created', {
+        workspaceId: 'ws_1',
+        cwd: '/w',
+        providerId: 'original',
+        modelId: 'm',
+      });
+      s.turn();
+      s.add('engine.error', {
+        category: 'provider',
+        message: 'quota',
+        fatal: false,
+        turnId: TURN,
+        usageLimit: {},
+      });
+      s.finish(TURN, 'failed');
+      if (type === 'session.configured')
+        s.add(type, {
+          modelId: 'other',
+          reason: 'usage_limit',
+          failover: { originTurnId: TURN, attempt: 1 },
+        });
+      else
+        s.add(type, {
+          from: { providerId: 'original', modelId: 'm', engineSessionId: 'a' },
+          to: { providerId: 'backup', modelId: 'other', engineSessionId: 'b' },
+          reason: 'usage_limit',
+          failover: { originTurnId: TURN, attempt: 1 },
+          resumed: false,
+          strategy: 'full_thread_summary',
+          items: 0,
+          omittedItems: 0,
+        });
+      const seq = s.list.length;
+      s.add('user.message', {
+        turnId: TURN2,
+        content: [{ type: 'text', text: 'continue' }],
+        sentBy: self,
+        from: { kind: 'report', sessionId: SES, usageLimit: { turnId: TURN } },
+      });
+      const messages = s.project().messages;
+      const marker = messages.findIndex((message) => message.role === 'system');
+      const previous = messages.find((message) => message.role === 'assistant');
+      expect(previous?.seqRange[1]).toBeGreaterThan(seq);
+      expect(messageIndexForSeq(messages, seq)).toBe(marker);
+      expect(messageIndexForSeq(messages, seq + 1)).toBe(messages.length - 1);
+    },
+  );
 });

@@ -2421,6 +2421,106 @@ describe('重连进度与额度卡片（0.119.0）', () => {
     });
   });
 
+  it.each(['session.handoff', 'session.configured'] as const)(
+    '额度路由：%s 保留原因、次数与跳过项，实际切换之后卡片才有目标',
+    (kind) => {
+      const { list, add, turn } = events();
+      turn();
+      add('engine.error', {
+        category: 'provider',
+        message: 'quota',
+        fatal: false,
+        turnId: TURN,
+        usageLimit: {},
+      });
+      add('turn.finished', { turnId: TURN, outcome: 'failed', durationMs: 10 });
+      const failover = { originTurnId: TURN, attempt: 1 };
+      const target = {
+        providerId: kind === 'session.configured' ? 'deepseek-official' : 'claude',
+        modelId: 'other',
+      };
+      const skipped = [{ providerId: 'full', reason: 'exhausted' }];
+      add('routing.decided', {
+        turnId: TURN,
+        ...failover,
+        from: { providerId: 'deepseek-official', modelId: 'deepseek-chat' },
+        to: target,
+        skipped,
+        at: '2026-11-03T00:00:00Z',
+      });
+      const projection = new TranscriptProjection();
+      for (const event of list) projection.apply(event);
+      const before = projection.snapshot();
+      expect(
+        before.messages.flatMap((message) => message.parts).find((part) => part.type === 'error'),
+      ).not.toHaveProperty('routedTo');
+      const common = { reason: 'usage_limit' as const, failover };
+      const switched =
+        kind === 'session.configured'
+          ? add(kind, { ...common, modelId: target.modelId })
+          : add(kind, {
+              ...common,
+              from: {
+                providerId: 'deepseek-official',
+                modelId: 'deepseek-chat',
+                engineSessionId: 'a',
+              },
+              to: { ...target, engineSessionId: 'b' },
+              resumed: false,
+              strategy: 'full_thread_summary',
+              items: 0,
+              omittedItems: 0,
+            });
+      projection.apply(switched);
+      const after = projection.snapshot();
+      expect(
+        after.messages.flatMap((message) => message.parts).find((part) => part.type === 'error'),
+      ).toMatchObject({ routedTo: target });
+      expect(
+        before.messages.flatMap((message) => message.parts).find((part) => part.type === 'error'),
+      ).not.toHaveProperty('routedTo');
+      expect(after.messages.at(-1)?.parts).toMatchObject([{ notice: { ...common, skipped } }]);
+      projection.reset();
+      for (const event of list) projection.apply(event);
+      expect(projection.snapshot()).toEqual(after);
+      const manual = add('session.configured', { modelId: 'manual' });
+      projection.apply(manual);
+      expect(projection.snapshot().messages.at(-1)?.parts[0]).not.toHaveProperty('notice.skipped');
+      expect(projection.snapshot().messages.at(-1)?.parts[0]).not.toHaveProperty('notice.reason');
+    },
+  );
+
+  it('无目标的决定与没有原因的旧接力不生成自动接力结果', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('engine.error', {
+      category: 'provider',
+      message: 'quota',
+      fatal: false,
+      turnId: TURN,
+      usageLimit: {},
+    });
+    add('routing.decided', {
+      turnId: TURN,
+      originTurnId: TURN,
+      attempt: 0,
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat' },
+      to: null,
+      skipped: [],
+      at: '2026-11-03T00:00:00Z',
+    });
+    add('session.handoff', {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'a' },
+      to: { providerId: 'claude', modelId: 'm', engineSessionId: 'b' },
+      resumed: false,
+      strategy: 'full_thread_summary',
+      items: 0,
+      omittedItems: 0,
+    });
+    expect(assistantParts(list)[0]).not.toHaveProperty('routedTo');
+    expect(projectTranscript(list).messages.at(-1)?.parts[0]).not.toHaveProperty('notice.reason');
+  });
+
   it('模型错误保留恢复动作与回合，隐藏继续消息保留来源供界面识别', () => {
     const { list, add, turn } = events();
     turn();

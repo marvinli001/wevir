@@ -16,6 +16,7 @@ import {
   MessagesSquare,
   Reply,
   RotateCw,
+  Route,
   ScanSearch,
   SquareTerminal,
   Wrench,
@@ -556,7 +557,7 @@ export const SystemMessage = memo(function SystemMessage({
   message: SystemChatMessage;
 }) {
   return (
-    <div data-message-role="system">
+    <div data-message-role="system" data-chat-message={message.id}>
       <PartsView parts={message.parts} turnActive={false} />
     </div>
   );
@@ -786,7 +787,34 @@ function ConfigurationNotice({
   notice: Extract<ChatPartOf<'notice'>['notice'], { kind: 'configured' }>;
 }) {
   const providers = useWorkbenchProviders();
+  const accounts = useAccounts();
+  const [open, setOpen] = useState(false);
   const { from, to } = notice;
+  if (notice.reason === 'usage_limit') {
+    const target = modelLabel(providers ?? NO_PROVIDERS, to.providerId, to.modelId, accounts);
+    return (
+      <div className="my-3 flex justify-center">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-md bg-running/10 px-2 py-1 text-xs text-running outline-none transition-colors hover:bg-running/15 focus-visible:focus-ring"
+          onClick={() => setOpen(true)}
+          data-testid="handoff-notice"
+          data-reason={notice.reason}
+          data-provider={to.providerId}
+        >
+          <Route aria-hidden className="size-3.5" />
+          {t('usageLimit.routed', { target })}
+        </button>
+        <HandoffDetailDialog
+          notice={notice}
+          target={target}
+          from={modelLabel(providers ?? NO_PROVIDERS, from.providerId, from.modelId, accounts)}
+          open={open}
+          onOpenChange={setOpen}
+        />
+      </div>
+    );
+  }
   const model = providers
     ?.find((provider) => provider.id === to.providerId)
     ?.models.find((candidate) => candidate.id === to.modelId);
@@ -830,12 +858,19 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
       <Hint label={t('handoff.detail.open')}>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs outline-none transition-colors focus-visible:focus-ring',
+            notice.reason === 'usage_limit'
+              ? 'bg-running/10 text-running hover:bg-running/15'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
           onClick={() => setOpen(true)}
           data-testid="handoff-notice"
           data-provider={notice.providerId}
           data-delivery={notice.delivery.status}
+          data-reason={notice.reason}
         >
+          {notice.reason === 'usage_limit' && <Route aria-hidden className="size-3.5" />}
           {provider ? (
             <ProviderLogo
               logo={source?.logo ?? providerLogo(provider)}
@@ -845,9 +880,11 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
           ) : (
             <ArrowLeftRight aria-hidden className="size-3.5" />
           )}
-          {notice.fromProviderId === notice.providerId
-            ? t('notice.handoffSameSource')
-            : t('notice.handoff', { model: label })}
+          {notice.reason === 'usage_limit'
+            ? t('usageLimit.routed', { target: label })
+            : notice.fromProviderId === notice.providerId
+              ? t('notice.handoffSameSource')
+              : t('notice.handoff', { model: label })}
         </button>
       </Hint>
       <HandoffDetailDialog

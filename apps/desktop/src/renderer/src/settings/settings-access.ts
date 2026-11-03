@@ -26,6 +26,8 @@ export function settingsTabVisible(
       return platform.computerUse && can('host.manage');
     case 'providers':
       return can('provider.read');
+    case 'routing':
+      return can('host.manage') && can('provider.read') && can('session.read');
     case 'approvalRules':
       return can('policy.write');
     default:

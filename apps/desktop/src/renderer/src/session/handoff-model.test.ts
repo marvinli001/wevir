@@ -35,6 +35,34 @@ const session: Pick<
 > = { providerId: 'mock', state: 'idle' };
 
 describe('接力的纯逻辑（0.25.0）', () => {
+  it('额度接力详情：原因、次数、跳过的账号及原因；同来源自动换模型也保留', () => {
+    const rows = handoffDetailRows(
+      {
+        kind: 'configured',
+        from: { providerId: 'mock', modelId: 'm' },
+        to: { providerId: 'mock', modelId: 'other' },
+        reason: 'usage_limit',
+        failover: { originTurnId: 'trn_1', attempt: 2 },
+        skipped: [
+          { providerId: 'claude', reason: 'signed_out' },
+          { providerId: 'removed', reason: 'future_reason' },
+        ],
+      },
+      [claude],
+    );
+    expect(rows.map(({ key, value }) => [key, value])).toEqual([
+      ['reason', '额度用完'],
+      ['attempt', '2'],
+      ['skipped', 'Claude · 未登录、removed · future_reason'],
+    ]);
+    expect(
+      handoffDetailRows({
+        kind: 'configured',
+        from: { providerId: 'mock', modelId: 'm' },
+        to: { providerId: 'mock', modelId: 'other' },
+      }),
+    ).toEqual([]);
+  });
   it('engineFeaturesOf：按会话当前 Provider 的种类查；旧 Host 或认不出的 Provider 没有', () => {
     expect(engineFeaturesOf(features, [api, claude], 'claude')).toEqual(features.claude);
     expect(engineFeaturesOf(undefined, [api], 'mock')).toBeUndefined();

@@ -58,7 +58,7 @@ export function sendError(error: unknown): string {
 }
 
 /** 上次新建会话用的模型（U8）：本机记住，下次首页与草稿页默认用它。 */
-const lastChoice = createPersistedStore<ModelChoice | null>(
+export const lastChoice = createPersistedStore<ModelChoice | null>(
   'wevir.model-choice.v1',
   null,
   (raw) => {

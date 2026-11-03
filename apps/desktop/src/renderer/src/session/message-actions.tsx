@@ -20,6 +20,7 @@ import { composerPrefs } from './composer-prefs';
 import type { ModelChoice } from './model-picker';
 
 export interface MessageActions {
+  routing?: { enabled: boolean };
   retry?: {
     lastTurnId?: TurnId;
     run(turnId: TurnId): Promise<void>;

@@ -54,6 +54,7 @@ export const SETTINGS_TABS = [
   'shortcuts',
   'storage',
   'providers',
+  'routing',
   'personalization',
   'web',
   'computerUse',

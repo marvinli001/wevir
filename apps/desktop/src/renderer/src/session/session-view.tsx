@@ -618,8 +618,16 @@ export function SessionView({
       ? lastTurnId(transcript)
       : undefined;
   const sendWrapUp = useCallback((message: string) => send(message), [send]);
+  const routingAvailable =
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'usage_limit_routing') &&
+    view.hello.permissions.includes('host.manage') &&
+    view.hello.permissions.includes('provider.read') &&
+    view.hello.permissions.includes('session.read');
+  const routingEnabled = settings.routing?.enabled === true;
   const messageActions = useMemo<MessageActions>(
     () => ({
+      ...(routingAvailable && { routing: { enabled: routingEnabled } }),
       ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
       ...(editTurnId !== undefined && { editTurnId, submitEdit }),
       ...(rewindEnabled && {
@@ -656,6 +664,8 @@ export function SessionView({
       }),
     }),
     [
+      routingAvailable,
+      routingEnabled,
       messageActionsEnabled,
       wrapUpTurnId,
       sendWrapUp,

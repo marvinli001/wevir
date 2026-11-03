@@ -10,6 +10,7 @@ import type {
 } from '@wevir/protocol';
 import { sourceOf, sourceTitle } from '@/data/sources';
 import { t } from '@/i18n';
+import { routingReason } from '@/settings/routing-model';
 
 const ACTIVE: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
 
@@ -47,6 +48,7 @@ export function canHandoffTo(
 }
 
 export type HandoffNoticeOf = Extract<SessionNotice, { kind: 'handoff' }>;
+export type ConfigurationNoticeOf = Extract<SessionNotice, { kind: 'configured' }>;
 
 /** 接力详情里的一行：名称与值，`tone` 给状态上色。 */
 export interface HandoffDetailRow {
@@ -60,8 +62,47 @@ export interface HandoffDetailRow {
  * 接力详情（只读）：方式、引擎会话、覆盖范围、条目、能不能读历史与递交状态，全部来自 `session.handoff` 与之后的回合。状态只说 Host
  * 有没有把摘要交给新来源，不说模型理解了没有。
  */
-export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
-  const rows = materialRows(notice);
+export function handoffDetailRows(
+  notice: HandoffNoticeOf | ConfigurationNoticeOf,
+  providers: readonly ProviderProfile[] = [],
+  accounts?: readonly AccountState[],
+): HandoffDetailRow[] {
+  const rows: HandoffDetailRow[] = [];
+  if (notice.reason !== undefined) {
+    rows.push({
+      key: 'reason',
+      label: t('handoff.detail.reason'),
+      value: t('handoff.reason.usage_limit'),
+    });
+    if (notice.failover !== undefined)
+      rows.push({
+        key: 'attempt',
+        label: t('handoff.detail.attempt'),
+        value: String(notice.failover.attempt),
+      });
+    if (notice.skipped !== undefined)
+      rows.push({
+        key: 'skipped',
+        label: t('handoff.detail.skipped'),
+        value:
+          notice.skipped.length === 0
+            ? t('handoff.detail.none')
+            : notice.skipped
+                .map((skip) => {
+                  const provider = providers.find((provider) => provider.id === skip.providerId);
+                  const source = provider && sourceOf(provider);
+                  const name = provider
+                    ? source
+                      ? sourceTitle(provider, accounts, t(source.name))
+                      : provider.displayName
+                    : skip.providerId;
+                  return `${name} · ${routingReason(skip.reason)}`;
+                })
+                .join(t('common.listSeparator')),
+      });
+  }
+  if (notice.kind === 'configured') return rows;
+  rows.push(...materialRows(notice));
   // 递交记录（0.59.0）：旧 Host 写的事件没有。
   const { receipt } = notice;
   if (receipt !== undefined) {

@@ -85,6 +85,9 @@ export function continuesAgent(block: TranscriptBlock): boolean {
  * 自己的消息，例如审批、检查）。都没有时 -1。
  */
 export function messageIndexForSeq(messages: readonly ChatMessage[], seq: number): number {
+  // 自动继续会扩展旧额度卡片的范围；精确的消息起点仍属于接力芯片或新消息。
+  const start = messages.findIndex((message) => message.seqRange[0] === seq);
+  if (start !== -1) return start;
   let before = -1;
   for (let index = 0; index < messages.length; index += 1) {
     const [first, last] = (messages[index] as ChatMessage).seqRange;
