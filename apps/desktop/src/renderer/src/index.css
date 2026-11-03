@@ -267,7 +267,7 @@
   opacity: 0;
   transition:
     transform var(--spring-snap-duration) var(--spring-snap),
-    opacity 200ms ease-out;
+    opacity 200ms var(--ease-smooth);
 }
 
 .sidebar-peek[data-open] {
@@ -289,7 +289,7 @@
   pointer-events: none;
   background-color: var(--overlay);
   opacity: 0;
-  transition: opacity 200ms ease-out;
+  transition: opacity 200ms var(--ease-smooth);
 }
 
 .sidebar-peek-backdrop[data-open] {
@@ -338,9 +338,11 @@
     transition-duration: 0.01ms;
   }
 
-  /* 布局过渡写在层外、优先级比上面的 * 高，要单独停下。 */
+  /* 布局过渡与侧栏窥视写在层外、优先级比上面的 * 高，要单独停下。 */
   .layout-transition,
-  .layout-transition[data-snapping] {
+  .layout-transition[data-snapping],
+  .sidebar-peek,
+  .sidebar-peek-backdrop {
     transition-duration: 0.01ms;
   }
 }
