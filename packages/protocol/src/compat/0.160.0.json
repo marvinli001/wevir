@@ -1,0 +1,166 @@
+{
+  "protocolVersion": "0.160.0",
+  "methods": {
+    "context.preview": {
+      "params": [
+        {
+          "sessionId": "ses_1"
+        }
+      ],
+      "result": [
+        {
+          "text": "",
+          "receipt": {
+            "occasion": "session_start",
+            "engineSession": "new",
+            "channel": "instructions",
+            "bytes": 0,
+            "budgetBytes": 8000,
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "included": [],
+            "omitted": [],
+            "memoryIndexBytes": 0
+          }
+        }
+      ]
+    },
+    "session.configure": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "claude",
+          "handoff": {
+            "constraints": ["金额一律用整数分；测试只用 npm test，不改 test/ 目录。"],
+            "notes": [
+              {
+                "scope": "project",
+                "name": "invoice-cents"
+              },
+              {
+                "scope": "global",
+                "name": "reply-language"
+              }
+            ],
+            "episode": true
+          }
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          }
+        }
+      ]
+    },
+    "session.handoffPreview": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "claude",
+          "handoff": {
+            "constraints": ["金额一律用整数分。"],
+            "notes": [
+              {
+                "scope": "project",
+                "name": "invoice-cents"
+              }
+            ],
+            "episode": true
+          }
+        }
+      ],
+      "result": [
+        {
+          "preview": {
+            "providerId": "claude",
+            "strategy": "full_thread_summary",
+            "resumed": false,
+            "historyTool": true,
+            "covered": {
+              "fromSeq": 1,
+              "toSeq": 11
+            },
+            "budgetBytes": 16000,
+            "items": 2,
+            "omittedItems": 1,
+            "omitted": [
+              {
+                "first": "e4",
+                "last": "e4",
+                "count": 1
+              }
+            ],
+            "context": "Context handoff (full_thread_summary):\n…",
+            "bytes": 2336,
+            "hash": "9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a",
+            "constraints": 1,
+            "notes": [
+              {
+                "scope": "project",
+                "name": "invoice-cents",
+                "revision": "3f1c2a9b7d4e6f10"
+              }
+            ]
+          },
+          "binding": {
+            "providerId": "claude",
+            "throughSeq": 11,
+            "strategy": "full_thread_summary",
+            "notes": [
+              {
+                "scope": "project",
+                "name": "invoice-cents",
+                "revision": "3f1c2a9b7d4e6f10"
+              }
+            ],
+            "hash": "9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a"
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "seq": 1,
+      "sessionId": "ses_1",
+      "ts": "2026-11-04T00:00:00.000Z",
+      "type": "session.context",
+      "source": "host",
+      "payload": {
+        "occasion": "session_start",
+        "engineSession": "new",
+        "channel": "instructions",
+        "bytes": 0,
+        "budgetBytes": 8000,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "included": [],
+        "omitted": [],
+        "memoryIndexBytes": 0
+      }
+    }
+  ],
+  "errors": []
+}

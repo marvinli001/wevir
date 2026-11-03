@@ -36,6 +36,7 @@ export * from './review-comments.js';
 export * from './search.js';
 export * from './secrets.js';
 export * from './send-receipts.js';
+export * from './session-contexts.js';
 export * from './sessions.js';
 export * from './storage.js';
 export * from './transaction.js';

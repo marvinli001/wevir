@@ -1564,6 +1564,7 @@ export const HANDOFF_MAX_NOTES = 5;
  * 说明放不下时 Host 拒绝（`INVALID_PARAMS`），不截短、不省掉。Host 设置的 `autoMemory` 关着时不能选笔记。
  */
 export const HandoffMaterialRequestSchema = z.object({
+  episode: z.boolean().optional(),
   constraints: z
     .array(z.string().trim().min(1).max(HANDOFF_CONSTRAINT_MAX_CHARS))
     .max(HANDOFF_MAX_CONSTRAINTS)
@@ -1702,6 +1703,7 @@ export const SessionRulesSchema = z.object({
 export type SessionRules = z.infer<typeof SessionRulesSchema>;
 
 export const HandoffPreviewSchema = z.object({
+  episode: z.object({ id: z.string(), revision: z.string() }).optional(),
   providerId: ProviderIdSchema,
   strategy: HandoffStrategySchema,
   resumed: z.boolean(),

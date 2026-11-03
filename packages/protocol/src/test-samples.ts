@@ -6,7 +6,7 @@ import type { Automation, AutomationCheckResult, AutomationRun } from './automat
 import type { BrowserTabInfo } from './browser.js';
 import type { Channel, ChannelCoordinator, ChannelPost, ChannelThread } from './channels.js';
 import type { ClientIdentity } from './common.js';
-import type { Episode } from './context.js';
+import type { ContextPackReceipt, Episode } from './context.js';
 import type { Device, PairingOffer, RemoteStatus } from './devices.js';
 import type {
   AccountState,
@@ -2220,7 +2220,18 @@ type PayloadSamples = {
   [T in WevirEventType]: { valid: WevirEventPayload<T>; invalid: unknown };
 };
 
+export const contextReceipt: ContextPackReceipt = {
+  occasion: 'session_start',
+  engineSession: 'new',
+  channel: 'mcp_instructions',
+  bytes: 0,
+  budgetBytes: 8000,
+  hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  included: [],
+  omitted: [],
+};
 export const eventPayloads: PayloadSamples = {
+  'session.context': { valid: contextReceipt, invalid: { ...contextReceipt, hash: 'invalid' } },
   'session.created': {
     valid: {
       workspaceId: ids.workspace,
@@ -3375,6 +3386,10 @@ export const methodSamples: MethodSamples = {
       invalid: [{}, { sessionId: 'bad' }, { sessionId: ids.session, modelId: '' }],
     },
     result: { valid: [{ session }], invalid: [{}] },
+  },
+  'context.preview': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: { valid: [{ text: '', receipt: contextReceipt }], invalid: [{ text: '' }] },
   },
   'context.search': {
     params: {

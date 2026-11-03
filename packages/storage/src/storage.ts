@@ -26,6 +26,10 @@ import { createRetroRepository, type RetroRepository } from './retros.js';
 import { createReviewCommentRepository, type ReviewCommentRepository } from './review-comments.js';
 import { createSearchRepository, type SearchRepository } from './search.js';
 import { createSendReceiptRepository, type SendReceiptRepository } from './send-receipts.js';
+import {
+  createSessionContextRepository,
+  type SessionContextRepository,
+} from './session-contexts.js';
 import { createSessionRepository, type SessionRepository } from './sessions.js';
 import { transaction } from './transaction.js';
 import {
@@ -61,6 +65,7 @@ export interface Storage {
   readonly usage: UsageRepository;
   readonly contextLedger: ContextLedgerRepository;
   readonly contextIndex: ContextIndexRepository;
+  readonly sessionContexts: SessionContextRepository;
   /** 订阅的多个账号（0013_subscription_accounts）。 */
   readonly accounts: SubscriptionAccountRepository;
   /** diff 上的行级批注（0015_review_comments）。 */
@@ -115,6 +120,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       usage: createUsageRepository(db),
       contextLedger: createContextLedgerRepository(db),
       contextIndex: createContextIndexRepository(db),
+      sessionContexts: createSessionContextRepository(db),
       accounts: createSubscriptionAccountRepository(db),
       reviewComments: createReviewCommentRepository(db),
       retros: createRetroRepository(db),

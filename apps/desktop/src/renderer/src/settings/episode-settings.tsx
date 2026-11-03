@@ -1,5 +1,11 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { Episode, EpisodeSummary, WorkspaceId } from '@wevir/protocol';
+import {
+  type Episode,
+  type EpisodeSummary,
+  episodeMarkdown,
+  type Session,
+  type WorkspaceId,
+} from '@wevir/protocol';
 import { useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -17,7 +23,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { useHostSettings } from '@/data/host-settings';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { useRetroOpen } from '@/retro/retro-data';
+import { deliveryLabel, retroTarget } from '@/retro/retro-model';
 import { paths } from '@/routes/paths';
+import { setDraft } from '@/session/composer';
+import { newSessionDraftKey } from '@/session/draft-origin';
+import { useSessions } from '@/session/suggested-tasks';
 import {
   EmptyList,
   LIST_CARD,
@@ -66,6 +77,20 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
   }, [client, supported, workspaceId]);
   if (!supported || !client) return null;
 
+  const continueFrom = async (summary: EpisodeSummary) => {
+    const { episode } = await client.request('episode.get', { id: summary.id });
+    setDraft(
+      newSessionDraftKey(episode.workspaceId),
+      `${t('episodes.continuePrefix')}\n\n${episodeMarkdown(episode)}\n\nep:${episode.id}`,
+    );
+    const providerId = episode.engines.at(-1)?.providerId;
+    void navigate(paths.draft(episode.workspaceId), {
+      state:
+        providerId === undefined
+          ? undefined
+          : { providerId, fromTitle: episode.title, material: 'episode' },
+    });
+  };
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
     setNotice(undefined);
@@ -100,7 +125,7 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
           >
             <button
               type="button"
-              className="focus-ring min-w-0 flex-1 text-left"
+              className="outline-none focus-visible:focus-ring min-w-0 flex-1 text-left"
               onClick={() =>
                 void run(async () => {
                   const value = await client.request('episode.get', { id: episode.id });
@@ -110,13 +135,22 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
             >
               <div className="truncate text-sm">{episode.title || episode.sessionId}</div>
               <div className="text-xs text-muted-foreground">
-                {episode.period.end.slice(0, 10)} ·{' '}
+                {episode.period.end.slice(0, 10)} · {deliveryLabel(episode.outcome.checks)} ·{' '}
                 {t('settings.episodes.openCount', { count: episode.outcome.open })}
                 {episode.excluded ? ` · ${t('settings.episodes.excluded')}` : ''}
                 {episode.pinned ? ` · ${t('settings.episodes.pinned')}` : ''}
+                {episode.stale ? ` · ${t('episodes.stale')}` : ''}
                 {episode.source === 'deleted' ? ` · ${t('settings.episodes.sourceDeleted')}` : ''}
               </div>
             </button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => void run(() => continueFrom(episode))}
+            >
+              {t('episodes.continue')}
+            </Button>
             {episode.source !== 'deleted' && (
               <Button
                 size="sm"
@@ -251,9 +285,15 @@ function EpisodeEditor({ initial, onClose }: { initial: Episode; onClose: () => 
         {Object.keys(initial.overrides).length > 0 && (
           <p className="text-xs text-muted-foreground">{t('settings.episodes.edited')}</p>
         )}
+        {initial.stale && <p className="text-xs text-warning">{t('episodes.stale')}</p>}
         <label className="grid gap-1 text-sm" htmlFor={`${fieldId}-name`}>
           {t('settings.episodes.name')}
-          <Input value={title} maxLength={300} onChange={(event) => setTitle(event.target.value)} />
+          <Input
+            id={`${fieldId}-name`}
+            value={title}
+            maxLength={300}
+            onChange={(event) => setTitle(event.target.value)}
+          />
         </label>
         <label className="grid gap-1 text-sm" htmlFor={`${fieldId}-goal`}>
           {t('settings.episodes.goal')}
@@ -305,6 +345,12 @@ function EpisodeEditor({ initial, onClose }: { initial: Episode; onClose: () => 
             }
           />
         </div>
+        <p className="text-xs text-muted-foreground">
+          {initial.engines.map((engine) => engine.modelId).join(' → ')} ·{' '}
+          {deliveryLabel(initial.outcome.checks)} · {deliveryLabel(initial.outcome.commit)} ·{' '}
+          {deliveryLabel(initial.outcome.push)}
+        </p>
+        <EpisodeSources episode={initial} />
         <div className="space-y-1 text-xs text-muted-foreground">
           <p>{initial.files.map((file) => file.path).join(' · ')}</p>
           <p>{initial.commits.map((commit) => commit.sha.slice(0, 7)).join(' · ')}</p>
@@ -338,5 +384,58 @@ function EpisodeEditor({ initial, onClose }: { initial: Episode; onClose: () => 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EpisodeSources({ episode }: { episode: Episode }) {
+  const session = useSessions().get(episode.sessionId);
+  return session === undefined ? null : <LiveEpisodeSources episode={episode} session={session} />;
+}
+
+function LiveEpisodeSources({ episode, session }: { episode: Episode; session: Session }) {
+  const { open } = useRetroOpen(session);
+  const items = [
+    ...(episode.goal ? [episode.goal] : []),
+    ...episode.done,
+    ...episode.open,
+    ...episode.decisions,
+    ...episode.files.map((file) => ({
+      id: file.id,
+      text: file.path,
+      ref: {
+        kind: 'turn_diff' as const,
+        turnId: file.turnIds.at(-1) as NonNullable<(typeof file.turnIds)[0]>,
+        path: file.path,
+      },
+    })),
+    ...episode.commits.map((commit) => ({
+      id: commit.id,
+      text: commit.subject,
+      ref: { kind: 'commit' as const, sha: commit.sha },
+    })),
+    ...episode.memories,
+  ];
+  return (
+    <details className="text-xs">
+      <summary className="outline-none focus-visible:focus-ring cursor-pointer text-muted-foreground">
+        {t('episodes.sources')}
+      </summary>
+      <div className="mt-2 grid gap-1">
+        {items.map((item) => {
+          const target = retroTarget(item.ref);
+          return (
+            <button
+              type="button"
+              key={item.id}
+              disabled={!target}
+              className="outline-none focus-visible:focus-ring text-left text-muted-foreground enabled:hover:text-foreground"
+              onClick={() => target && open(target)}
+            >
+              {item.text}
+            </button>
+          );
+        })}
+      </div>
+    </details>
   );
 }

@@ -83,7 +83,6 @@ import { MarketService, type MarketServiceOptions } from './market/service.js';
 import { McpRemoteProxy } from './mcp-oauth/proxy.js';
 import { type McpOAuthOptions, McpOAuthService } from './mcp-oauth/service.js';
 import { MemoryStore } from './memory.js';
-import { instructionsWithMemory, sessionMemoryIndex } from './memory-tools.js';
 import { NotificationService } from './notifications.js';
 import { OfficeService } from './office/service.js';
 import type { TestConnectionGrant } from './permissions.js';
@@ -111,6 +110,7 @@ import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
 import { loadOpinionTemplate, SecondOpinionService } from './second-opinion.js';
+import { SessionContexts } from './session-context.js';
 import { SessionListFeed } from './session-list.js';
 import { SessionManager, type SessionManagerOptions } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
@@ -494,6 +494,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 自动调优（0.108.0）：建议服务建好之后才有。
     let autoTuner: AutoTuner | undefined;
     let episodes: EpisodeService | undefined;
+    let sessionContexts: SessionContexts | undefined;
     let review: ReviewService | undefined;
     // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
     const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
@@ -799,6 +800,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           void verificationService?.removeSessions(sessionIds);
           autoTuner?.forget(sessionIds);
           episodes?.forget(sessionIds);
+          sessionContexts?.forget(sessionIds);
           tuningMetrics.forget(sessionIds);
         },
         dispose: () => appTools?.plugins?.close(),
@@ -899,12 +901,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memory,
       memoryEnabled: () => settings.get().autoMemory !== false,
       episodes: {
+        refresh: async (id) => episodes?.refresh(id),
         beforeClose: async (id) => {
           await episodes?.beforeClose(id);
         },
         catchUp: async (id) => {
           await episodes?.catchUp(id);
         },
+      },
+      contexts: {
+        prepare: async (id, target) => sessionContexts?.prepare(id, target),
+        bind: (id, engineId) => sessionContexts?.bind(id, engineId),
+        forget: (ids) => sessionContexts?.forget(ids),
       },
       // 跨引擎的规则文件（0.68.0）：引擎不读的由 Host 补；设置关掉时只记引擎自己读的。
       ruleFiles: {
@@ -1188,6 +1196,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const episodeService = episodes;
+    sessionContexts = new SessionContexts({
+      storage,
+      memory,
+      episodes: episodeService,
+      memoryEnabled: () => settings.get().autoMemory !== false,
+      episodesEnabled: () => settings.get().autoEpisodes !== false,
+      channel: (id) =>
+        adapter.appToolsContextInPrompt?.(id) === true ? 'instructions' : 'mcp_instructions',
+    });
+    const contexts = sessionContexts;
     const contextSearch = new ContextSearch({
       storage,
       events: store,
@@ -1563,23 +1581,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
       const tools = appTools;
       const ledgerEvents = events;
-      const memoryBytes = new Map<SessionId, number>();
-      const memoryIndexOptions = {
-        cwdOf: (id: SessionId) => storage?.sessions.get(id)?.cwd ?? manager.creating(id)?.cwd,
-        onIndex: (sessionId: SessionId | undefined, index: string | undefined) => {
-          if (sessionId !== undefined) memoryBytes.set(sessionId, Buffer.byteLength(index ?? ''));
-        },
-        memory,
-        workspaceOf: (sessionId: SessionId) => manager.workspaceOf(sessionId),
-        enabled: () => settings.get().autoMemory !== false,
-        onWarning: (message: string, fields?: Record<string, unknown>) =>
-          logger.warn(message, fields),
-      };
-      const memoryIndex = sessionMemoryIndex(memoryIndexOptions);
       appToolsContext = async (sessionId) => {
-        const parts = [tools.sessionBrief(sessionId)?.trim(), await memoryIndex(sessionId)].filter(
-          (part): part is string => part !== undefined && part !== '',
-        );
+        const parts = [
+          tools.sessionBrief(sessionId)?.trim(),
+          contexts.active(sessionId)?.text,
+        ].filter((part): part is string => part !== undefined && part !== '');
         const instructions = parts.join('\n\n');
         usageStats.recordSupply({
           sessionId,
@@ -1588,7 +1594,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           toolCount: 0,
           toolBytes: 0,
           instructionBytes: Buffer.byteLength(instructions),
-          memoryIndexBytes: memoryBytes.get(sessionId) ?? 0,
+          memoryIndexBytes: contexts.active(sessionId)?.receipt.memoryIndexBytes ?? 0,
           digest: createHash('sha256').update(instructions).digest('hex'),
         });
         return parts.length === 0 ? undefined : instructions;
@@ -1606,8 +1612,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             toolBytes: Buffer.byteLength(serialized),
             instructionBytes: Buffer.byteLength(instructions),
             memoryIndexBytes:
-              server === 'wevir' && !manager.appToolsContextInPrompt(sessionId)
-                ? (memoryBytes.get(sessionId) ?? 0)
+              server === 'wevir' &&
+              contexts.active(sessionId)?.receipt.channel === 'mcp_instructions'
+                ? (contexts.active(sessionId)?.receipt.memoryIndexBytes ?? 0)
                 : 0,
             digest: createHash('sha256')
               .update(serialized)
@@ -1619,15 +1626,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         onCall: (call) => usageStats.recordToolCall({ ...call, at: new Date().toISOString() }),
         filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
         version: HOST_VERSION,
-        instructions: instructionsWithMemory({
-          // Claude 这类只取 MCP 说明开头一段的引擎：MCP 说明只有工具说明，会话须知与记忆索引在系统说明里（appToolsContext）。
-          base: (sessionId) =>
-            sessionId !== undefined && manager.appToolsContextInPrompt(sessionId)
-              ? tools.toolInstructions(sessionId)
-              : tools.instructions(sessionId),
-          inPrompt: (sessionId) => manager.appToolsContextInPrompt(sessionId),
-          ...memoryIndexOptions,
-        }),
+        instructions: async (sessionId) => {
+          const inPrompt =
+            sessionId !== undefined &&
+            (contexts.active(sessionId)?.receipt.channel === 'instructions' ||
+              (contexts.active(sessionId) === undefined &&
+                manager.appToolsContextInPrompt(sessionId)));
+          const base = await (inPrompt
+            ? tools.toolInstructions(sessionId)
+            : tools.instructions(sessionId));
+          const text =
+            sessionId === undefined || inPrompt ? undefined : contexts.active(sessionId)?.text;
+          return text ? `${base}\n\n${text}` : base;
+        },
         onError: (error) => logger.error('app tools error', { error }),
         engineSession: engineSessionResolver(storage, options.engine),
         tierOf: toolTier,
@@ -1742,6 +1753,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           retro,
           episodes: episodeService,
           contextSearch,
+          contexts,
           git,
           ...(processOutput.available && { processes: processOutput }),
           ...(previews !== undefined && { previews }),
@@ -1863,6 +1875,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_retro: true,
         episodes: true,
         context_search: true,
+        ...(adapter.appTools === true && { context_pack: true }),
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
         ...(simulators !== undefined && { ios_simulator: true }),
@@ -2014,6 +2027,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       shutdown: (trigger = { kind: 'api' }) => {
         episodeService.dispose();
+        contexts.dispose();
         stopMemoryContextIndex();
         pairingService.close();
         pushService.close();

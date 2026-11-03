@@ -13,6 +13,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { ContextPackReceiptSchema } from './context.js';
 import {
   ApprovalRequestSchema,
   ApprovalResolutionSchema,
@@ -240,12 +241,14 @@ export const EventPayloadSchemas = {
     historyTool: z.boolean().optional(),
     constraints: z.int().min(1).optional(),
     notes: z.array(HandoffNoteRefSchema).min(1).optional(),
+    episode: z.object({ id: z.string(), revision: z.string() }).optional(),
   }),
   /**
    * 会话当前的来源加载了哪些规则文件（0.68.0，Host 功能 `rule_files`，domain-model §3.27）：建会话、接力之后，以及恢复引擎会话时
    * 列表变了才写。`engineSessionId` 是这份规则给的引擎会话。`channel` 是 `message` 时 `context` 是补给的正文，随下一条消息的开头交
    * 给引擎（同接力摘要，回合结束后算交过）；`instructions` 方式的正文每次建立或恢复引擎会话时由 Host 重新读文件，不记在事件里。
    */
+  'session.context': ContextPackReceiptSchema,
   'session.rules': SessionRulesSchema.extend({
     engineSessionId: z.string().min(1),
     context: z.string().min(1).optional(),
@@ -699,6 +702,7 @@ export const RoutingDecidedEventSchema = eventSchema('routing.decided');
 export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionHandoffEventSchema = eventSchema('session.handoff');
 export const SessionMovedEventSchema = eventSchema('session.moved');
+export const SessionContextEventSchema = eventSchema('session.context');
 export const SessionRulesEventSchema = eventSchema('session.rules');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
@@ -762,6 +766,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionConfiguredEventSchema,
   SessionHandoffEventSchema,
   SessionMovedEventSchema,
+  SessionContextEventSchema,
   SessionRulesEventSchema,
   SessionStateChangedEventSchema,
   UserMessageEventSchema,

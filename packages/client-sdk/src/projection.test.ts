@@ -586,6 +586,53 @@ describe('TranscriptProjection：工具与审批', () => {
 });
 
 describe('TranscriptProjection：会话级事件', () => {
+  it('保留开局上下文的来源回执并按事件顺序重放', () => {
+    const { list, add } = events();
+    const receipt: WevirEventPayload<'session.context'> = {
+      occasion: 'session_start',
+      engineSession: 'new',
+      channel: 'instructions',
+      bytes: 0,
+      budgetBytes: 8000,
+      hash: '0'.repeat(64),
+      included: [
+        {
+          kind: 'memory',
+          scope: 'project',
+          name: 'test-command',
+          revision: 'abc',
+          freshness: 'changed',
+        },
+      ],
+      omitted: [],
+    };
+    add('session.context', receipt);
+    add('session.context', { ...receipt, engineSession: 'resumed_frozen' });
+    expect(
+      projectTranscript(list)
+        .messages.flatMap((message) => message.parts)
+        .flatMap((part) => (part.type === 'notice' ? [part.notice] : [])),
+    ).toEqual([
+      { kind: 'context', receipt },
+      { kind: 'context', receipt: { ...receipt, engineSession: 'resumed_frozen' } },
+    ]);
+    const switched = add('session.handoff', {
+      from: { providerId: 'mock-a', modelId: 'mock', engineSessionId: 'a' },
+      to: { providerId: 'mock-b', modelId: 'mock', engineSessionId: 'b' },
+      resumed: false,
+      strategy: 'full_thread_summary',
+      items: 0,
+      omittedItems: 0,
+    });
+    const supplied = add('session.context', receipt);
+    const messages = projectTranscript(list).messages;
+    expect(messages).toHaveLength(3);
+    expect(messages[2]).toMatchObject({
+      seqRange: [switched.seq, supplied.seq],
+      parts: [{ type: 'notice', notice: { kind: 'handoff', contextPack: receipt } }],
+    });
+  });
+
   it('回合内的错误进助手消息，回合外的错误与恢复、关闭成为系统消息', () => {
     const { list, add, turn } = events();
     turn();

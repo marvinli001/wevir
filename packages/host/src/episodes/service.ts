@@ -115,6 +115,7 @@ export class EpisodeService {
     const before = storage.episodes.forSession(sessionId);
     if (before?.deletedAt !== undefined && !regenerate) return undefined;
     const input = await retro.episodeInput(sessionId);
+    if (this.#disposed) return undefined;
     const session = storage.sessions.get(sessionId);
     if (session === undefined || !this.#eligible(sessionId)) return undefined;
     const latest = storage.episodes.forSession(sessionId);
@@ -242,9 +243,11 @@ export class EpisodeService {
   }
 
   #read(row: EpisodeRecord): Episode {
+    const material: Episode = { ...JSON.parse(row.digest), ...JSON.parse(row.overrides) };
     return EpisodeSchema.parse({
-      ...JSON.parse(row.digest),
-      ...JSON.parse(row.overrides),
+      ...material,
+      outcome: { ...material.outcome, open: material.open.length },
+      redactions: material.redactions + (row.overrides.match(/\[REDACTED\]/g)?.length ?? 0),
       overrides: JSON.parse(row.overrides),
       pinned: row.pinned,
       excluded: row.excluded,
@@ -252,6 +255,7 @@ export class EpisodeService {
       updatedAt: row.updatedAt,
       source:
         this.#options.storage.sessions.get(row.sessionId) === undefined ? 'deleted' : 'available',
+      ...(this.#options.storage.events.lastSeq(row.sessionId) > row.throughSeq && { stale: true }),
     });
   }
   #changed(row: EpisodeRecord): void {

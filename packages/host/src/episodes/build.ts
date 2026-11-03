@@ -223,31 +223,4 @@ export function buildEpisode(input: {
   return redacted.value;
 }
 
-export function episodeMarkdown(episode: Episode, section?: string): string {
-  const item = (value: { id: string; text: string }) => `${value.text} (${value.id})`;
-  const fields: Record<string, string> = {
-    goal: episode.goal === undefined ? '' : item(episode.goal),
-    outcome: `${episode.outcome.checks} (not compared to current code); ${episode.outcome.commit}; ${episode.outcome.push}; ${episode.outcome.lastTurn ?? ''}`,
-    done: episode.done.map(item).join(' | '),
-    open: episode.open.map(item).join(' | '),
-    decisions: episode.decisions.map(item).join(' | '),
-    lessons: episode.lessons
-      .map(
-        (lesson) =>
-          `${lesson.text}${lesson.files?.length ? `; files: ${lesson.files.join(', ')}` : ''} (${lesson.sources.join(' → ')})`,
-      )
-      .join(' | '),
-    files: episode.files.map((file) => file.path).join(', '),
-    commits: episode.commits.map((commit) => `${commit.sha} ${commit.subject}`).join(' | '),
-    memories: episode.memories
-      .map((memory) => `${memory.scope}/${memory.name}: ${memory.operation} (${memory.id})`)
-      .join(' | '),
-  };
-  const header = `[episode; id=${episode.id}; session=${episode.sessionId}; through=e${episode.throughSeq}; revision=${episode.revision}; source=${episode.source}] ${episode.title}`;
-  return [
-    header,
-    ...Object.entries(fields)
-      .filter(([key, value]) => value !== '' && (section === undefined || section === key))
-      .map(([key, value]) => `${key}: ${value}`),
-  ].join('\n');
-}
+export { episodeMarkdown } from '@wevir/protocol';

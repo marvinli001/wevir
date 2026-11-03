@@ -4,6 +4,27 @@ import type { Messages } from '../zh-CN.js';
 export const messages: Messages = {
   'app.name': 'Wevir',
 
+  'context.receipt.title': 'Contexte initial',
+  'context.receipt.counts': 'Notes {notes} · Tâches {episodes} · {bytes} B',
+  'context.receipt.legacy': 'Ancien contexte',
+  'context.receipt.new': 'Nouveau',
+  'context.receipt.frozen': 'Réutilisation figée',
+  'context.receipt.hash': 'Empreinte',
+  'context.receipt.included': 'Inclus',
+  'context.receipt.omitted': 'Omis',
+  'handoff.preview.title': 'Aperçu du relais',
+  'handoff.preview.episode': 'Résumé de la tâche',
+  'handoff.preview.overBudget': 'Le contenu du relais dépasse le budget',
+  'handoff.preview.empty': 'Aucun contenu de relais',
+  'handoff.preview.confirm': 'Changer',
+  'episodes.continue': 'Continuer la tâche',
+  'episodes.continuePrefix':
+    'Poursuivre le travail en cours. Vérifier les notes modifiées en premier.',
+  'episodes.draftNotice': 'Compte rendu · {title}',
+  'episodes.deposited': 'Enregistré · {time}',
+  'episodes.stale': 'Mise à jour en attente',
+  'episodes.sources': 'Sources',
+
   'common.close': 'Fermer',
   'common.cancel': 'Annuler',
   'common.loading': 'Chargement…',

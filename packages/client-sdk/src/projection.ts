@@ -26,6 +26,7 @@ import type {
   ClientIdentity,
   CollaborationMode,
   CompactionTrigger,
+  ContextPackReceipt,
   EngineErrorCategory,
   EngineErrorInfo,
   GuardrailBlocked,
@@ -114,7 +115,8 @@ type NoticeRouting = {
 
 /** 不属于任何回合的会话级提示（引擎会话恢复、只读、关闭）。 */
 export type SessionNotice =
-  | { kind: 'resumed'; engineVersion?: string }
+  | { kind: 'context'; receipt: ContextPackReceipt }
+  | { kind: 'resumed'; engineVersion?: string; contextPack?: ContextPackReceipt }
   | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string }
   | { kind: 'closed' }
   | ({
@@ -126,6 +128,7 @@ export type SessionNotice =
   /** 换到了别的来源（0.25.0，`session.handoff`）：之后的回合由 `providerId` 的引擎跑。 */
   | ({
       kind: 'handoff';
+      contextPack?: ContextPackReceipt;
       providerId: string;
       modelId: string;
       fromProviderId: string;
@@ -152,6 +155,7 @@ export type SessionNotice =
         omitted: readonly HandoffOmittedRange[];
         constraints: number;
         notes: readonly HandoffNoteRef[];
+        episode?: { id: string; revision: string };
       };
       delivery: HandoffDelivery;
     } & NoticeRouting)
@@ -732,6 +736,25 @@ export class TranscriptProjection {
         if (this.#lastMoved === event.seq - 1) return;
         this.#notice(event, { kind: 'resumed', engineVersion: event.payload.engineVersion });
         return;
+      case 'session.context': {
+        const message = this.#messages.at(-1);
+        const part = message?.parts.at(-1);
+        if (
+          message?.role === 'system' &&
+          part?.type === 'notice' &&
+          (part.notice.kind === 'handoff' || part.notice.kind === 'resumed') &&
+          part.notice.contextPack === undefined
+        ) {
+          this.#touch(message, event.seq);
+          message.parts[message.parts.length - 1] = {
+            ...part,
+            notice: { ...part.notice, contextPack: event.payload },
+          };
+          return;
+        }
+        this.#notice(event, { kind: 'context', receipt: event.payload });
+        return;
+      }
       case 'session.moved': {
         const { to, cwd, branch } = event.payload;
         this.#lastMoved = event.seq;
@@ -858,6 +881,7 @@ export class TranscriptProjection {
                 omitted: omitted ?? [],
                 constraints: constraints ?? 0,
                 notes: notes ?? [],
+                ...(event.payload.episode !== undefined && { episode: event.payload.episode }),
               },
             }),
           delivery: context === undefined ? { status: 'none' } : { status: 'prepared' },

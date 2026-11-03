@@ -4,6 +4,27 @@ import type { Messages } from '../zh-CN.js';
 export const messages: Messages = {
   'app.name': 'Wevir',
 
+  'context.receipt.title': 'Начальный контекст',
+  'context.receipt.counts': 'Заметки {notes} · Задачи {episodes} · {bytes} B',
+  'context.receipt.legacy': 'Старый контекст',
+  'context.receipt.new': 'Новый',
+  'context.receipt.frozen': 'Повтор фиксированного',
+  'context.receipt.hash': 'Хеш',
+  'context.receipt.included': 'Включено',
+  'context.receipt.omitted': 'Пропущено',
+  'handoff.preview.title': 'Просмотр передачи',
+  'handoff.preview.episode': 'Сводка задачи',
+  'handoff.preview.overBudget': 'Материал передачи превышает лимит',
+  'handoff.preview.empty': 'Нет материала передачи',
+  'handoff.preview.confirm': 'Переключить',
+  'episodes.continue': 'Продолжить задачу',
+  'episodes.continuePrefix':
+    'Продолжить незавершённую работу. Сначала проверить изменённые заметки.',
+  'episodes.draftNotice': 'Запись задачи · {title}',
+  'episodes.deposited': 'Сохранено · {time}',
+  'episodes.stale': 'Ожидается обновление',
+  'episodes.sources': 'Источники',
+
   'common.close': 'Закрыть',
   'common.cancel': 'Отмена',
   'common.loading': 'Загрузка…',

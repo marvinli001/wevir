@@ -41,13 +41,18 @@ describe('episode lifecycle', () => {
     const edited = episodes.update({
       id: first.id,
       revision: first.revision,
-      patch: { title: 'User title' },
+      patch: {
+        title: 'User title',
+        open: [{ id: 'user:1', text: 'Open work', origin: 'todo', status: 'pending' }],
+      },
       pinned: true,
     });
     events.append(SES, ev.title('Automatic title'));
+    expect(episodes.get(first.id).stale).toBe(true);
     const refreshed = (await episodes.refresh(SES)) as Episode;
     expect(refreshed.title).toBe('User title');
     expect(refreshed.pinned).toBe(true);
+    expect(episodes.list({ workspaceId: 'ws_1' }).episodes[0]?.outcome.open).toBe(1);
     expect(
       episodes.update({ id: first.id, revision: first.revision, patch: { title: 'Old editor' } })
         .conflict,
@@ -66,6 +71,7 @@ describe('episode lifecycle', () => {
     expect(storage.episodes.get(first.id)?.overrides).not.toContain(
       'sk-abcdefghijklmnopqrstuvwxyz',
     );
+    expect(episodes.get(first.id).redactions).toBeGreaterThan(0);
     expect(episodes.delete({ id: first.id, revision: first.revision })).toEqual({ conflict: true });
     episodes.delete({ id: first.id });
     expect(await episodes.refresh(SES)).toBeUndefined();

@@ -1,23 +1,12 @@
 // 跨会话记忆（memory.ts）与它的应用级工具（memory-tools.ts）。
 
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import type { HostId, SessionId, TurnId, WorkspaceId } from '@wevir/protocol';
+import type { HostId, SessionId, TurnId } from '@wevir/protocol';
 import { MethodSchemas } from '@wevir/protocol';
-import {
-  APP_TOOLS_NO_APPROVAL,
-  type EngineSession,
-  type SessionConfig,
-} from '@wevir/runtime-adapter';
+import { APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -32,14 +21,9 @@ import {
   MemoryError,
   MemoryStore,
 } from './memory.js';
-import {
-  instructionsWithMemory,
-  MEMORY_OFF_MESSAGE,
-  MEMORY_TOOLS,
-  memoryTools,
-} from './memory-tools.js';
+import { MEMORY_OFF_MESSAGE, MEMORY_TOOLS, memoryTools } from './memory-tools.js';
 import { SessionManager } from './session-manager.js';
-import { ev, SES, SES2, seedSession, T0, useStorages, useTempDir } from './test-utils.js';
+import { ev, SES, SES2, seedSession, useStorages, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -874,18 +858,11 @@ describe('记忆经 MCP 端点', () => {
       memory,
       memoryEnabled,
     });
-    const warnings: string[] = [];
     mcp = new AppMcpServer({
       tools: tools.tools,
       filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
       version: '0.0.0',
-      instructions: instructionsWithMemory({
-        base: APP_TOOLS_INSTRUCTIONS,
-        memory,
-        workspaceOf: (sessionId) => storage.sessions.get(sessionId)?.workspaceId,
-        enabled: memoryEnabled,
-        onWarning: (message) => warnings.push(message),
-      }),
+      instructions: (sessionId) => tools.instructions(sessionId),
     });
     const server = createServer((req, res) => {
       if (!mcp?.handle(req, res)) res.writeHead(404).end();
@@ -908,18 +885,18 @@ describe('记忆经 MCP 端点', () => {
       // biome-ignore lint/suspicious/noExplicitAny: 读任意形状的 JSON-RPC 回复。
       return ((await response.json()) as Record<string, any>).result;
     };
-    return { storage, memory, rpc, warnings };
+    return { storage, memory, rpc };
   }
 
-  it('工具在列表里；保存后下一个会话的说明里有索引，只含全局和自己项目的', async () => {
-    const { storage, rpc, warnings } = await setup();
+  it('工具在列表里；保存与列出只含全局和自己项目的', async () => {
+    const { storage, rpc } = await setup();
     const listed = await rpc(SES, 'tools/list');
     expect(listed.tools.map((tool: { name: string }) => tool.name)).toEqual(
       expect.arrayContaining([...MEMORY_TOOLS]),
     );
 
     const before = await rpc(SES, 'initialize', { protocolVersion: '2025-06-18' });
-    expect(before.instructions).toBe(APP_TOOLS_INSTRUCTIONS);
+    expect(before.instructions).toContain('wevir_memory_');
     expect(APP_TOOLS_INSTRUCTIONS).toContain('wevir_memory_');
 
     const call = (sessionId: SessionId, name: string, args: Record<string, unknown>) =>
@@ -932,14 +909,14 @@ describe('记忆经 MCP 端点', () => {
       ...note({ name: 'dev-server', type: 'project', description: 'port 5173' }),
     });
 
-    // 另一个会话（同一个项目）看到两条；别的项目的会话只看到全局的。
-    const same = await rpc(SES2, 'initialize', { protocolVersion: '2025-06-18' });
-    expect(same.instructions).toContain('[global] avoid-rm-f (feedback)');
-    expect(same.instructions).toContain('[project] dev-server (project): port 5173');
-    const other = await rpc(SES_OTHER, 'initialize', { protocolVersion: '2025-06-18' });
-    expect(other.instructions).toContain('[global] avoid-rm-f');
-    expect(other.instructions).not.toContain('dev-server');
-    expect(warnings).toEqual([]);
+    const same = await call(SES2, 'wevir_memory_list', {});
+    expect(
+      same.structuredContent.notes.map((entry: { name: string }) => entry.name).sort(),
+    ).toEqual(['avoid-rm-f', 'dev-server']);
+    const other = await call(SES_OTHER, 'wevir_memory_list', {});
+    expect(other.structuredContent.notes.map((entry: { name: string }) => entry.name)).toEqual([
+      'avoid-rm-f',
+    ]);
     expect(storage.sessions.get(SES_OTHER)?.workspaceId).toBe('ws_2');
   });
 
@@ -963,7 +940,7 @@ describe('记忆经 MCP 端点', () => {
     await memory.save('global', undefined, note({ name: 'turned-off', description: 'hidden' }));
     await memory.setEnabled('global', undefined, 'turned-off', false);
     const on = await rpc(SES, 'initialize', { protocolVersion: '2025-06-18' });
-    expect(on.instructions).toContain('[global] avoid-rm-f');
+    expect(on.instructions).toContain('wevir_memory_');
     expect(on.instructions).not.toContain('turned-off');
 
     enabled = false;
@@ -986,106 +963,5 @@ describe('记忆经 MCP 端点', () => {
       'avoid-rm-f',
       'turned-off',
     ]);
-  });
-});
-
-describe('新会话的记忆索引', () => {
-  const managers: SessionManager[] = [];
-  afterEach(async () => {
-    await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
-  });
-
-  it('引擎在会话写进存储之前取说明（Codex 起 thread 时连 MCP）也认得项目，带上项目的笔记', async () => {
-    const root = tempDir();
-    const storage = storages.open(join(root, 'data'));
-    const project = join(root, 'project');
-    mkdirSync(project);
-    storage.workspaces.insert({
-      id: 'ws_1',
-      rootPath: realpathSync(project),
-      displayName: 'project',
-      createdAt: T0,
-      updatedAt: T0,
-    });
-    storage.providers.insert({
-      id: 'mock',
-      kind: 'openai-compatible',
-      displayName: 'Mock',
-      api: 'openai-completions',
-      baseURL: 'http://127.0.0.1:9/v1',
-      models: [{ id: 'm' }],
-      defaultModelId: 'm',
-      createdAt: T0,
-      updatedAt: T0,
-    });
-    const memory = new MemoryStore({ dir: join(root, 'memory') });
-    await memory.save('project', 'ws_1', note({ name: 'dev-server', type: 'project' }));
-    let manager: SessionManager | undefined;
-    const instructions = instructionsWithMemory({
-      base: APP_TOOLS_INSTRUCTIONS,
-      memory,
-      workspaceOf: (sessionId) => manager?.workspaceOf(sessionId),
-    });
-    let granted: SessionId | undefined;
-    const seen: { stored: boolean; text: string }[] = [];
-    class ConnectingEcho extends EchoAdapter {
-      readonly appTools = true;
-      override async createSession(config: SessionConfig): Promise<EngineSession> {
-        // 同 Codex：建会话的过程中就连上应用级工具、取说明。
-        if (granted !== undefined) {
-          seen.push({
-            stored: storage.sessions.get(granted) !== undefined,
-            text: await instructions(granted),
-          });
-        }
-        return super.createSession(config);
-      }
-    }
-    manager = new SessionManager({
-      storage,
-      events: new EventStore({ storage, deltaWindowMs: 5 }),
-      adapter: new ConnectingEcho({ stepDelayMs: 0 }),
-      appTools: {
-        grant: (sessionId) => {
-          granted = sessionId;
-          return { url: 'http://127.0.0.1:9/mcp', token: 'not-a-secret' };
-        },
-      },
-    });
-    managers.push(manager);
-    const session = await manager.create({
-      workspaceId: 'ws_1' as WorkspaceId,
-      providerId: 'mock',
-    });
-    expect(seen).toEqual([
-      { stored: false, text: expect.stringContaining('[project] dev-server (project)') },
-    ]);
-    expect(manager.workspaceOf(session.id)).toBe('ws_1');
-    expect(manager.workspaceOf('ses_01JA2B3C4D5E6F7G8H9JKMNPQZ' as SessionId)).toBeUndefined();
-  });
-});
-
-describe('按会话生成的工具说明', () => {
-  it('base 给函数时按调用方生成，记忆索引照旧接在后面；自动记忆关着时同样去掉讲记忆的那一行', async () => {
-    const memory = new MemoryStore({ dir: join(tempDir(), 'memory') });
-    await memory.save('global', undefined, note());
-    let enabled = true;
-    const calls: Array<SessionId | undefined> = [];
-    const instructions = instructionsWithMemory({
-      base: (sessionId) => {
-        calls.push(sessionId);
-        return sessionId === SES ? 'trimmed\n- wevir_memory_*: notes' : APP_TOOLS_INSTRUCTIONS;
-      },
-      memory,
-      workspaceOf: () => undefined,
-      enabled: () => enabled,
-    });
-    expect(await instructions(SES)).toMatch(/^trimmed\n- wevir_memory_\*: notes\n\nSaved memory/);
-    expect(await instructions(undefined)).toMatch(
-      /^You are running inside Wevir[\s\S]*Saved memory/,
-    );
-    enabled = false;
-    expect(await instructions(SES)).toBe('trimmed');
-    expect(calls).toEqual([SES, undefined, SES]);
   });
 });

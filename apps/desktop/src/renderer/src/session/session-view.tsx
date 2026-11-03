@@ -10,6 +10,7 @@ import {
 } from '@wevir/client-sdk';
 import type {
   CollaborationMode,
+  HandoffConfigure,
   PendingDelivery,
   PermissionMode,
   ProviderProfile,
@@ -74,6 +75,7 @@ import { FromHistoryDialog } from './from-history-dialog';
 import { GoalBanner } from './goal-banner';
 import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
+import { HandoffPreviewDialog } from './handoff-preview';
 import { historyDigest } from './history-digest';
 import { useAcceptsImages } from './image-attachments';
 import { InsightCard } from './insight-card';
@@ -1223,30 +1225,50 @@ function SessionModelPicker({
       { ...session, fast: session.fast === true },
     ),
   };
-  const configure = async (next: ModelChoice) => {
+  const [pending, setPending] = useState<ModelChoice>();
+  const previewSupported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'handoff_preview');
+  const records = view.status === 'connected' && hostSupports(view.hello.features, 'episodes');
+  const configure = async (next: ModelChoice, handoff?: HandoffConfigure) => {
     if (!client) return;
     try {
-      await client.request(
-        'session.configure',
-        configureParams(
+      await client.request('session.configure', {
+        ...configureParams(
           session,
           next,
           providers.find((provider) => provider.id === next.providerId),
         ),
-      );
+        ...(handoff && { handoff }),
+      });
     } catch (error) {
+      if (handoff !== undefined) throw error;
       onError(t('model.configureFailed', { error: describe(error) }));
     }
   };
   return (
-    <ModelPicker
-      providers={providers}
-      value={value}
-      lockProvider
-      {...(switchable && { switchable })}
-      readOnly={!supported || !client || session.readOnly !== undefined}
-      onChange={(next) => void configure(next)}
-    />
+    <>
+      <ModelPicker
+        providers={providers}
+        value={value}
+        lockProvider
+        {...(switchable && { switchable })}
+        readOnly={!supported || !client || session.readOnly !== undefined}
+        onChange={(next) => {
+          if (previewSupported && next.providerId !== session.providerId) setPending(next);
+          else void configure(next);
+        }}
+      />
+      {pending && (
+        <HandoffPreviewDialog
+          sessionId={session.id as SessionId}
+          providerId={pending.providerId}
+          target={`${providers.find((provider) => provider.id === pending.providerId)?.displayName ?? pending.providerId} · ${pending.modelId}`}
+          records={records}
+          onConfirm={(handoff) => configure(pending, handoff)}
+          onClose={() => setPending(undefined)}
+        />
+      )}
+    </>
   );
 }
 
@@ -1443,9 +1465,16 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
               data-testid="draft-from-history"
               className="mb-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
             >
-              {t(origin.material === 'retro' ? 'retro.draftNotice' : 'history.draftNotice', {
-                title: origin.fromTitle,
-              })}
+              {t(
+                origin.material === 'episode'
+                  ? 'episodes.draftNotice'
+                  : origin.material === 'retro'
+                    ? 'retro.draftNotice'
+                    : 'history.draftNotice',
+                {
+                  title: origin.fromTitle,
+                },
+              )}
             </p>
           )}
           {noProvider && (

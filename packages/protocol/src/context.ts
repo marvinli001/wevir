@@ -76,6 +76,7 @@ export const EpisodeSchema = z.object({
   pinned: z.boolean(),
   excluded: z.boolean(),
   source: z.enum(['available', 'deleted']),
+  stale: z.literal(true).optional(),
   revision: z.string().min(1),
   redactions: z.int().min(0),
   updatedAt: IsoTimeSchema,
@@ -92,6 +93,7 @@ export const EpisodeSummarySchema = EpisodeSchema.pick({
   pinned: true,
   excluded: true,
   source: true,
+  stale: true,
   revision: true,
   updatedAt: true,
 });
@@ -168,3 +170,52 @@ export const ContextSearchResultSchema = z.object({
   nextTextOffset: z.int().min(0).nullable().optional(),
 });
 export type ContextSearchResult = z.infer<typeof ContextSearchResultSchema>;
+
+export const ContextPackReceiptSchema = z.object({
+  occasion: z.literal('session_start'),
+  engineSession: z.enum(['new', 'resumed_frozen']),
+  channel: z.enum(['instructions', 'message', 'mcp_instructions']),
+  bytes: z.int().min(0),
+  budgetBytes: z.int().min(0),
+  hash: z.string().regex(/^[0-9a-f]{64}$/),
+  included: z.array(ContextSourceRefSchema),
+  omitted: z.array(ContextSourceRefSchema),
+  memoryIndexBytes: z.int().min(0).optional(),
+  engineSessionId: z.string().optional(),
+  legacy: z.literal(true).optional(),
+});
+export type ContextPackReceipt = z.infer<typeof ContextPackReceiptSchema>;
+export const ContextPackPreviewSchema = z.object({
+  text: z.string(),
+  receipt: ContextPackReceiptSchema,
+});
+export type ContextPackPreview = z.infer<typeof ContextPackPreviewSchema>;
+
+export function episodeMarkdown(episode: Episode, section?: string): string {
+  const item = (value: { id: string; text: string }) => `${value.text} (${value.id})`;
+  const fields: Record<string, string> = {
+    goal: episode.goal === undefined ? '' : item(episode.goal),
+    outcome: `${episode.outcome.checks} (not compared to current code); ${episode.outcome.commit}; ${episode.outcome.push}; ${episode.outcome.lastTurn ?? ''}`,
+    done: episode.done.map(item).join(' | '),
+    open: episode.open.map(item).join(' | '),
+    decisions: episode.decisions.map(item).join(' | '),
+    lessons: episode.lessons
+      .map(
+        (lesson) =>
+          `${lesson.text}${lesson.files?.length ? `; files: ${lesson.files.join(', ')}` : ''} (${lesson.sources.join(' → ')})`,
+      )
+      .join(' | '),
+    files: episode.files.map((file) => file.path).join(', '),
+    commits: episode.commits.map((commit) => `${commit.sha} ${commit.subject}`).join(' | '),
+    memories: episode.memories
+      .map((memory) => `${memory.scope}/${memory.name}: ${memory.operation} (${memory.id})`)
+      .join(' | '),
+  };
+  const header = `[episode; id=${episode.id}; session=${episode.sessionId}; through=e${episode.throughSeq}; revision=${episode.revision}; source=${episode.source}] ${episode.title}`;
+  return [
+    header,
+    ...Object.entries(fields)
+      .filter(([key, value]) => value !== '' && (section === undefined || section === key))
+      .map(([key, value]) => `${key}: ${value}`),
+  ].join('\n');
+}

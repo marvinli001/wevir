@@ -23,6 +23,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.to.providerId;
     case 'session.moved':
       return event.payload.cwd;
+    case 'session.context':
+      return event.payload.hash;
     case 'session.rules':
       return event.payload.providerId;
     case 'session.title_changed':

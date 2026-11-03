@@ -19,6 +19,7 @@ afterEach(async () => {
 });
 
 class NativeMock extends EchoAdapter {
+  readonly appTools = true;
   native = false;
   rejected = false;
   resumed: string[] = [];
@@ -63,6 +64,7 @@ async function setup(app: 'claude' | 'codex' = 'claude') {
   const events = new EventStore({ storage });
   const adapter = new NativeMock({ stepDelayMs: 0, chunkSize: 16_384 });
   const historyDir = join(root, 'history');
+  const prepare = vi.fn(async (_id: SessionId, _target: { engineSessionId?: string }) => undefined);
   const createManager = (store = events) => {
     const manager = new SessionManager({
       storage,
@@ -70,6 +72,7 @@ async function setup(app: 'claude' | 'codex' = 'claude') {
       adapter,
       engine: 'echo',
       historyDir,
+      contexts: { prepare, bind: () => undefined, forget: () => {} },
       engineFeatures: {
         claude: { engine: 'echo', historyTool: true },
         chatgpt: { engine: 'echo', historyTool: true },
@@ -110,7 +113,18 @@ async function setup(app: 'claude' | 'codex' = 'claude') {
       createdAt: at,
       updatedAt: at,
     });
-  return { storage, events, adapter, manager, createManager, historyDir, id, path, source };
+  return {
+    storage,
+    events,
+    adapter,
+    manager,
+    createManager,
+    historyDir,
+    id,
+    path,
+    source,
+    prepare,
+  };
 }
 
 async function send(
@@ -144,6 +158,9 @@ describe('createFromHistory', () => {
           : '22222222-2222-4222-8222-222222222222',
       ]);
       expect(env.adapter.inputs).toHaveLength(0);
+      expect(env.prepare.mock.calls.at(-1)?.[1]).toMatchObject({
+        engineSessionId: env.adapter.resumed[0],
+      });
       await send(env, env.manager, continued.id);
       expect(env.adapter.inputs[0]?.content).toEqual([
         { type: 'text', text: 'Continue the counter' },
@@ -176,6 +193,9 @@ describe('createFromHistory', () => {
       );
       expect(continued.origin).toMatchObject({ kind: 'history', via: 'handoff' });
       expect(env.adapter.resumed).toHaveLength(mode === 'native-rejected' ? 1 : 0);
+      expect(env.prepare.mock.calls.at(-1)?.[1].engineSessionId).toBeUndefined();
+      if (mode === 'native-rejected')
+        expect(env.prepare.mock.calls[0]?.[1].engineSessionId).toBeDefined();
       expect(env.adapter.inputs).toHaveLength(0);
       await env.manager.dispose();
       const reloadedEvents = new EventStore({ storage: env.storage });

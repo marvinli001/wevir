@@ -5623,6 +5623,15 @@ const ledgerCases = [
 
 const episodeCases = [
   {
+    name: 'ContextPackReceipt',
+    schema: protocol.ContextPackReceiptSchema,
+    valid: [
+      samples.contextReceipt,
+      { ...samples.contextReceipt, engineSession: 'resumed_frozen', legacy: true },
+    ],
+    invalid: [{ ...samples.contextReceipt, hash: '' }],
+  },
+  {
     name: 'ContextSourceRef',
     schema: protocol.ContextSourceRefSchema,
     valid: [

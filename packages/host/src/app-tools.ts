@@ -2512,7 +2512,7 @@ export class AppTools {
   }
 
   /**
-   * 给这个会话的工具说明（`AppMcpServer` 的 `instructions`，记忆索引由 memory-tools.ts 的 `instructionsWithMemory` 接在后面）：只讲
+   * 给这个会话的工具说明（`AppMcpServer` 的 `instructions`，冻结的上下文包由 Host 接在后面）：只讲
    * 这个会话列得出的工具（`filterTools` 留下的），预设、角色与设置去掉的那几行不出现；自动化与频道里的会话再接上 `sessionBrief`。
    */
   async instructions(sessionId: SessionId | undefined): Promise<string> {

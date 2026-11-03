@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import type { ContextPackPreview, ContextPackReceipt, Episode } from '@wevir/protocol';
 import {
   type AccountState,
   type ApprovalDetail,
@@ -136,6 +137,7 @@ import {
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { type CustomPlan, styledSession } from './custom-instructions.js';
+import { episodeMarkdown } from './episodes/build.js';
 import type { EpisodeService } from './episodes/service.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
@@ -205,6 +207,7 @@ import {
   sameRules,
   withCustomInstructions,
 } from './rule-files.js';
+import type { SessionContexts } from './session-context.js';
 import { deleteSessionData, measureUsage, worktreeRoots } from './session-delete.js';
 import { MoveError, type PreparedMove, prepareToLocal, prepareToWorktree } from './session-move.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
@@ -325,7 +328,15 @@ export interface SessionManagerOptions {
   historyDir?: string;
   /** 接力时用户选入的记忆笔记从这里读（0.59.0）。没给时不能选笔记。 */
   memory?: Pick<MemoryStore, 'read'>;
-  episodes?: Pick<EpisodeService, 'beforeClose' | 'catchUp'>;
+  episodes?: Pick<EpisodeService, 'beforeClose' | 'catchUp' | 'refresh'>;
+  contexts?: {
+    prepare(
+      sessionId: SessionId,
+      target: Parameters<SessionContexts['prepare']>[1],
+    ): Promise<ContextPackPreview | undefined>;
+    bind(sessionId: SessionId, engineSessionId: string): ContextPackReceipt | undefined;
+    forget(ids: readonly SessionId[]): void;
+  };
   /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时接力不能选笔记。省略当作开着。 */
   memoryEnabled?: () => boolean;
   /**
@@ -596,6 +607,7 @@ const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 
 interface HandoffExtras {
   constraints: readonly string[];
   notes: readonly HandoffNote[];
+  episode?: Episode;
 }
 
 /** 一次接力的材料与怎么算出来的（0.59.0，`#handoffPlan`）。 */
@@ -668,6 +680,9 @@ function handoffPreviewOf(
     budgetBytes: assembly.kind === 'empty' ? HANDOFF_BUDGET_BYTES : assembly.budgetBytes,
     constraints: extras.constraints.length,
     notes,
+    ...(extras.episode !== undefined && {
+      episode: { id: extras.episode.id, revision: extras.episode.revision },
+    }),
   };
   if (assembly.kind === 'over_budget') {
     return {
@@ -720,6 +735,9 @@ function handoffReceipt(plan: HandoffPlan) {
     historyTool: plan.historyTool,
     ...(extras.constraints.length > 0 && { constraints: extras.constraints.length }),
     ...(extras.notes.length > 0 && { notes: noteRefs(extras.notes) }),
+    ...(extras.episode !== undefined && {
+      episode: { id: extras.episode.id, revision: extras.episode.revision },
+    }),
   };
 }
 
@@ -851,6 +869,7 @@ export class SessionManager {
   readonly #historyDir: string | undefined;
   readonly #memory: SessionManagerOptions['memory'];
   readonly #episodes: SessionManagerOptions['episodes'];
+  readonly #contexts: SessionManagerOptions['contexts'];
   readonly #memoryEnabled: () => boolean;
   readonly #ruleFiles: SessionManagerOptions['ruleFiles'];
   readonly #customInstructions: SessionManagerOptions['customInstructions'];
@@ -941,6 +960,7 @@ export class SessionManager {
     this.#historyDir = options.historyDir;
     this.#memory = options.memory;
     this.#episodes = options.episodes;
+    this.#contexts = options.contexts;
     this.#memoryEnabled = options.memoryEnabled ?? (() => true);
     this.#ruleFiles = options.ruleFiles;
     this.#customInstructions = options.customInstructions;
@@ -990,6 +1010,7 @@ export class SessionManager {
     sessionId: SessionId,
     config: SessionConfig,
     rules?: RulePlan | undefined,
+    engineSessionId?: string,
   ): Promise<SessionConfig> {
     // 规则文件（0.68.0）：进引擎说明的那种随配置交过去，每次建立或恢复都按当时的文件。
     const withRules =
@@ -1044,9 +1065,22 @@ export class SessionManager {
         ? { ...withHooks, hookTap: this.#hooks.claudeTap(sessionId) }
         : withHooks;
     if (this.#adapter.appTools !== true) return withGuardrails;
+    const frozenContext =
+      workspaceId === undefined
+        ? undefined
+        : await this.#contexts?.prepare(sessionId, {
+            providerId: config.providerId,
+            workspaceId,
+            cwd: config.cwd,
+            ...(engineSessionId !== undefined && { engineSessionId }),
+          });
     const appTools = this.#appTools?.grant(sessionId);
     if (appTools === undefined) return withGuardrails;
-    if (this.#adapter.appToolsContextInPrompt?.(config.providerId) !== true) {
+    if (
+      frozenContext?.receipt.channel !== 'instructions' &&
+      (frozenContext !== undefined ||
+        this.#adapter.appToolsContextInPrompt?.(config.providerId) !== true)
+    ) {
       this.#contextInPrompt.delete(sessionId);
       return { ...withGuardrails, appTools };
     }
@@ -1145,6 +1179,9 @@ export class SessionManager {
       redeliver?: boolean;
     },
   ): AppendInput | undefined {
+    const receipt = this.#contexts?.bind(sessionId, engineSessionId);
+    if (receipt !== undefined)
+      this.#events.append(sessionId, { type: 'session.context', source: 'host', payload: receipt });
     if (plan === undefined) return undefined;
     const state = this.#events.rulesState(sessionId);
     // 一个规则文件都没有、之前也没记过：不写。
@@ -1557,23 +1594,31 @@ export class SessionManager {
     this.#startup?.mark(sessionId, 'rules');
     let profileVersion: ProfileVersionRef | undefined;
     try {
-      const engineConfig = await this.#engineConfig(sessionId, config, rules);
       if (history?.engineSessionId !== undefined) {
         try {
-          engineSession = await this.#adapter.resumeSession(history.engineSessionId, engineConfig);
+          engineSession = await this.#adapter.resumeSession(
+            history.engineSessionId,
+            await this.#engineConfig(sessionId, config, rules, history.engineSessionId),
+          );
           history.origin.via = 'native';
           history.origin.externalSessionId = engineSession.engineSessionId;
         } catch {
           history.origin.via = 'handoff';
-          engineSession = await this.#adapter.createSession(engineConfig);
+          engineSession = await this.#adapter.createSession(
+            await this.#engineConfig(sessionId, config, rules),
+          );
         }
-      } else engineSession = await this.#adapter.createSession(engineConfig);
+      } else
+        engineSession = await this.#adapter.createSession(
+          await this.#engineConfig(sessionId, config, rules),
+        );
       this.#startup?.mark(sessionId, 'engine');
       profileVersion = await profile;
       rules = withProfileVersion(rules, profileVersion);
     } catch (error) {
       this.#startup?.drop(sessionId);
       this.#creating.delete(sessionId);
+      this.#contexts?.forget([sessionId]);
       await prepared.undo();
       const info = engineErrorInfo(error);
       throw new HostError('ENGINE_ERROR', info.message, info);
@@ -3054,7 +3099,7 @@ export class SessionManager {
         try {
           engine = await this.#adapter.resumeSession(
             previous.engineSessionId,
-            await this.#engineConfig(runtime.id, config, rules),
+            await this.#engineConfig(runtime.id, config, rules, previous.engineSessionId),
           );
         } catch (error) {
           this.#unresumable.add(previous.engineSessionId);
@@ -3237,6 +3282,17 @@ export class SessionManager {
         historyTool,
         constraints: extras.constraints,
         notes: extras.notes,
+        ...(extras.episode !== undefined && {
+          episode: {
+            text: episodeMarkdown(extras.episode),
+            source: {
+              kind: 'episode' as const,
+              id: extras.episode.id,
+              revision: extras.episode.revision,
+              throughSeq: extras.episode.throughSeq,
+            },
+          },
+        }),
       }),
     };
   }
@@ -3251,7 +3307,14 @@ export class SessionManager {
   ): Promise<HandoffExtras> {
     const constraints = request?.constraints ?? [];
     const wanted = request?.notes ?? [];
-    if (wanted.length === 0) return { constraints, notes: [] };
+    const episode =
+      request?.episode === true ? await this.#episodes?.refresh(runtime.id) : undefined;
+    if (request?.episode === true && episode === undefined)
+      throw new HostError('INVALID_PARAMS', 'session record is unavailable', {
+        issues: [{ path: ['handoff', 'episode'], message: 'session record is unavailable' }],
+      });
+    if (wanted.length === 0)
+      return { constraints, notes: [], ...(episode !== undefined && { episode }) };
     const refuse = (path: (string | number)[], message: string) =>
       new HostError('INVALID_PARAMS', message, { issues: [{ path, message }] });
     const memory = this.#memory;
@@ -3286,7 +3349,7 @@ export class SessionManager {
         content: note.content,
       });
     }
-    return { constraints, notes };
+    return { constraints, notes, ...(episode !== undefined && { episode }) };
   }
 
   /** 一种 Provider 的引擎能做什么（0.25.0）；没给 `engineFeatures` 时只看适配器自己的。 */
@@ -3633,7 +3696,7 @@ export class SessionManager {
         engine = relocate
           ? await this.#adapter.resumeSession(
               runtime.engineSessionId,
-              await this.#engineConfig(runtime.id, config, rules),
+              await this.#engineConfig(runtime.id, config, rules, runtime.engineSessionId),
             )
           : await this.#adapter.createSession(await this.#engineConfig(runtime.id, config, rules));
       } catch (error) {
@@ -4114,7 +4177,12 @@ export class SessionManager {
       try {
         engine = await this.#adapter.resumeSession(
           runtime.engineSessionId,
-          await this.#engineConfig(runtime.id, sessionConfig(record), rules),
+          await this.#engineConfig(
+            runtime.id,
+            sessionConfig(record),
+            rules,
+            runtime.engineSessionId,
+          ),
         );
         if (!runtime.attachment) this.#attach(runtime);
       } catch (error) {
@@ -5544,7 +5612,7 @@ export class SessionManager {
     try {
       engine = await this.#adapter.resumeSession(
         runtime.engineSessionId,
-        await this.#engineConfig(runtime.id, sessionConfig(record), rules),
+        await this.#engineConfig(runtime.id, sessionConfig(record), rules, runtime.engineSessionId),
       );
       this.#attach(runtime);
     } catch (error) {

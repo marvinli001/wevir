@@ -34,6 +34,7 @@ import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
+import { ContextReceipt } from './context-receipt';
 import { CopyButton } from './copy-button';
 import { FindingsCard } from './findings-card';
 import { useTranscriptSessionId } from './fold-state';
@@ -764,8 +765,16 @@ function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
 
 function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   const { notice } = part;
+  if (notice.kind === 'context') return <ContextReceipt receipt={notice.receipt} />;
   if (notice.kind === 'handoff') return <HandoffNotice notice={notice} />;
   if (notice.kind === 'configured') return <ConfigurationNotice notice={notice} />;
+  if (notice.kind === 'resumed' && notice.contextPack)
+    return (
+      <div className="my-0.5 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted-foreground">
+        <span>{t('notice.resumed')}</span>
+        <ContextReceipt receipt={notice.contextPack} inline />
+      </div>
+    );
   const text =
     notice.kind === 'moved'
       ? [t(notice.to === 'local' ? 'notice.movedToLocal' : 'notice.movedToWorktree'), notice.branch]
@@ -875,7 +884,7 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
     .filter(Boolean)
     .join('\n');
   return (
-    <div className="my-3 flex justify-center">
+    <div className="my-0.5 flex flex-wrap items-center justify-center gap-1">
       <Hint label={hint}>
         <button
           type="button"
@@ -904,6 +913,7 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
           {handoffTransition(providers, notice.fromProviderId, notice.providerId, accounts)}
         </button>
       </Hint>
+      {notice.contextPack && <ContextReceipt receipt={notice.contextPack} inline />}
       <HandoffDetailDialog
         notice={notice}
         target={label}

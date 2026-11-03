@@ -29,7 +29,12 @@ import {
   type MockView,
   startMockModel,
 } from '@wevir/adapter-codex/testing';
-import { PROTOCOL_VERSION, type UsageRecord, type WevirEvent } from '@wevir/protocol';
+import {
+  episodeMarkdown,
+  PROTOCOL_VERSION,
+  type UsageRecord,
+  type WevirEvent,
+} from '@wevir/protocol';
 import { historyToolServer } from '@wevir/runtime-adapter/history-tool';
 import { afterAll, describe, expect, it } from 'vitest';
 import { homePath } from './home.js';
@@ -416,7 +421,9 @@ function textFrom(body: unknown, marker: string): string | undefined {
 
 /** 请求里记忆索引（工具说明后面那一段）的字节数与条目名；没有时是 0 与空表。 */
 function memoryIndexOf(body: unknown): { bytes: number; names: string[] } {
-  const found = textFrom(body, 'Saved memory from earlier sessions');
+  const found =
+    textFrom(body, 'Saved project context from earlier sessions') ??
+    textFrom(body, 'Saved memory from earlier sessions');
   if (found === undefined) return { bytes: 0, names: [] };
   const names = [...found.matchAll(/^- \[(global|project)\] ([a-z0-9-]+) /gm)].map(
     (match) => `${match[1]}/${match[2]}`,
@@ -850,6 +857,141 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
             indexNames: memoryIndexOf(offRequest).names,
             memoryTools: offTools,
           },
+        });
+      } finally {
+        await host.close();
+        await mock.close();
+      }
+    });
+
+    it('继续上次任务：确定性记录、失效提示与按需取回（假模型）', { timeout: 120_000 }, async () => {
+      const mock = await startMockModel((view) => {
+        if (JSON.stringify(view.body).includes(TITLE_PROMPT)) return defaultMockScript(view);
+        if (view.lastUserText.startsWith('[record-seed]')) {
+          if (view.toolOutputs.length === 0)
+            return {
+              toolCalls: [
+                call(view, 'wevir_memory_save', {
+                  scope: 'project',
+                  name: 'test-command',
+                  type: 'reference',
+                  description: 'Old test command',
+                  content: 'Use npm run test:unit; see `package.json`.',
+                  paths: ['package.json'],
+                }),
+                call(view, 'wevir_task_create', {
+                  subject: 'applyDiscount rounding',
+                  description: 'Add an integer-cents regression test',
+                  owner: 'me',
+                }),
+              ],
+            };
+          return { text: ['Recorded seed', 'Ready for correction'], delayMs: 500 };
+        }
+        if (view.lastUserText.includes('[continue-record]')) {
+          const handle = /ep:ep_[A-Za-z0-9]+/.exec(view.lastUserText)?.[0];
+          if (!handle) throw new Error('missing episode handle');
+          const tools = responsesCatalog(view.body as unknown as Json).names;
+          const target = 'mcp__wevir_more__wevir_context_search';
+          if (tools.includes('tool_search')) {
+            if (view.toolOutputs.length === 0)
+              return responsesStep(view, {
+                call: 'tool_search',
+                args: { query: 'context search records', limit: 5 },
+              });
+            if (view.toolOutputs.length === 1)
+              return responsesStep(view, {
+                call: 'call_tool',
+                args: { name: target, arguments: { handle } },
+              });
+          } else if (view.toolOutputs.length === 0)
+            return responsesStep(view, { call: target, args: { handle } });
+          const material = view.toolOutputs.join('\n');
+          if (
+            !material.includes('lint') ||
+            !material.includes('整数分') ||
+            !material.includes('applyDiscount')
+          )
+            throw new Error('incomplete continuation material');
+          return {
+            text: [
+              'Continue applyDiscount in integer cents. Keep the unavailable lint check recorded.',
+            ],
+          };
+        }
+        return { text: ['Correction recorded.'] };
+      });
+      const host = await boot([mockProvider('mock', mock.baseURL)]);
+      try {
+        const { client, a } = host;
+        const old = await newSession(client, a.id, 'mock');
+        const { subscriptionId } = await client.request('events.subscribe', {
+          sessionId: old,
+          sinceSeq: 0,
+        });
+        const seeded = runTurn(client, old, '[record-seed] Repair invoiceTotal.', 60_000);
+        await client.until(
+          () =>
+            client.events(subscriptionId).some((event) => event.type === 'assistant.delta') ||
+            undefined,
+          'seed response',
+        );
+        await client.request('session.send', {
+          sessionId: old,
+          delivery: 'steer',
+          content: [{ type: 'text', text: '用户纠正：金额一律用整数分。' }],
+        });
+        expect((await seeded).outcome).toBe('completed');
+        await client.request('checks.save', {
+          workspaceId: a.id,
+          check: { name: 'lint', command: 'npm run lint', kind: 'lint', trigger: 'manual' },
+        });
+        await client.request('verification.run', { sessionId: old });
+        await client.until(
+          () =>
+            client
+              .events(subscriptionId)
+              .some(
+                (event) =>
+                  event.type === 'verification.updated' &&
+                  event.payload.run.finishedAt !== undefined,
+              ) || undefined,
+          'lint result',
+        );
+        await client.request('session.archive', { sessionId: old, archived: true });
+        const records = await client.request('episode.list', { workspaceId: a.id });
+        const { episode } = await client.request('episode.get', { id: records.episodes[0].id });
+        expect(episode.lessons).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ kind: 'check_failed' }),
+            expect.objectContaining({ kind: 'correction' }),
+          ]),
+        );
+        expect(
+          episode.open.some((item: { text: string }) => item.text.includes('applyDiscount')),
+        ).toBe(true);
+        const packageFile = join(a.dir, 'package.json');
+        writeFileSync(packageFile, `${readFileSync(packageFile, 'utf8')}\n`);
+        const before = mock.requests.length;
+        const next = await newSession(client, a.id, 'mock');
+        const draft = `[continue-record]\n${episodeMarkdown(episode)}\n\nep:${episode.id}`;
+        const result = await runTurn(client, next, draft, 60_000);
+        const requests = agentRequests(mock.requests.slice(before));
+        const supplied =
+          textFrom(requests[0]?.body, 'Saved project context from earlier sessions') ?? '';
+        expect(supplied).toContain('test-command');
+        expect(supplied).toContain('changed since');
+        expect(supplied).toContain(`ep:${episode.id}`);
+        expect(Buffer.byteLength(supplied)).toBeLessThanOrEqual(8000);
+        expect(result.outcome).toBe('completed');
+        expect(result.finalText).toContain('integer cents');
+        expect(result.commands).toEqual([]);
+        expect(JSON.stringify(requests[1]?.body.input ?? '')).toContain('applyDiscount');
+        section('mock', 'continuation', {
+          requests: requests.length,
+          bytes: Buffer.byteLength(supplied),
+          passed: true,
+          lintRerun: false,
         });
       } finally {
         await host.close();

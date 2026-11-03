@@ -11,12 +11,16 @@ export interface DraftOrigin {
   providerId: string;
   fromTitle: string;
   /** 材料是什么：对话记录（默认）或任务回顾。 */
-  material?: 'retro';
+  material?: 'retro' | 'episode';
 }
 
 export function draftOrigin(state: unknown): DraftOrigin | undefined {
   if (state === null || typeof state !== 'object') return undefined;
   const { providerId, fromTitle, material } = state as Record<string, unknown>;
   if (typeof providerId !== 'string' || typeof fromTitle !== 'string') return undefined;
-  return { providerId, fromTitle, ...(material === 'retro' && { material }) };
+  return {
+    providerId,
+    fromTitle,
+    ...((material === 'retro' || material === 'episode') && { material }),
+  };
 }

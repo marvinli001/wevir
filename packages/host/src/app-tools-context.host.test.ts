@@ -2,6 +2,7 @@
 // Host，引擎声明 `appToolsContextInPrompt` 时，建会话的配置带上记忆索引（`SessionConfig.appToolsContext`），MCP 说明只剩工具说明；
 // 没声明的引擎照旧都在 MCP 说明里。
 
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId } from '@wevir/protocol';
@@ -42,6 +43,12 @@ class ToolEcho extends EchoAdapter {
   override async createSession(config: SessionConfig): Promise<EngineSession> {
     const session = await super.createSession(config);
     this.configs.set(session.engineSessionId, config);
+    return session;
+  }
+
+  override async resumeSession(id: string, config: SessionConfig): Promise<EngineSession> {
+    const session = await super.resumeSession(id, config);
+    this.configs.set(id, config);
     return session;
   }
 }
@@ -107,10 +114,165 @@ async function boot() {
   const instructions = async (session: { engine: { sessionId: string } }) =>
     (await mcp(session, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} }))
       .instructions as string;
-  return { adapter, create, configOf, mcp, instructions };
+  return { adapter, client, home, workspaceId, create, configOf, mcp, instructions };
 }
 
 describe('应用级工具的会话上下文', () => {
+  it('创建引擎时尚未入库也能冻结正确的项目记忆，其他项目只拿全局笔记', async () => {
+    const h = await boot();
+    h.adapter.inPrompt = true;
+    const writer = await h.create();
+    for (const scope of ['global', 'project'])
+      await h.mcp(writer, 'tools/call', {
+        name: 'wevir_memory_save',
+        arguments: {
+          scope,
+          name: scope === 'global' ? 'global-note' : 'project-note',
+          type: 'reference',
+          description: scope === 'global' ? 'Global convention' : 'Project convention',
+          content: 'Saved convention',
+        },
+      });
+    const same = await h.create();
+    expect(h.configOf(same).appToolsContext).toContain('project-note');
+    const otherRoot = join(h.home, 'other-project');
+    mkdirSync(otherRoot);
+    const { workspace } = await h.client.request('workspace.add', { rootPath: otherRoot });
+    const other = await h.create({ workspaceId: workspace.id });
+    expect(h.configOf(other).appToolsContext).toContain('global-note');
+    expect(h.configOf(other).appToolsContext).not.toContain('project-note');
+  });
+
+  it('接力新建才取新包，换回原引擎复用旧包；所选记录摘要与预览逐字节一致', async () => {
+    const h = await boot();
+    h.adapter.inPrompt = true;
+    await h.client.request('provider.upsert', {
+      id: 'other',
+      kind: 'openai-compatible',
+      displayName: 'Other',
+      api: 'openai-responses',
+      baseURL: 'http://127.0.0.1:9/v1',
+      models: [{ id: 'mock' }],
+      defaultModelId: 'mock',
+    });
+    const writer = await h.create();
+    const save = (description: string) =>
+      h.mcp(writer, 'tools/call', {
+        name: 'wevir_memory_save',
+        arguments: {
+          scope: 'global',
+          name: 'handoff-note',
+          type: 'reference',
+          description,
+          content: 'note body',
+        },
+      });
+    await save('First version');
+    const reader = await h.create();
+    const original = h.configOf(reader).appToolsContext;
+    await save('Second version');
+    const { preview, binding } = await h.client.request('session.handoffPreview', {
+      sessionId: reader.id,
+      providerId: 'other',
+      handoff: { episode: true },
+    });
+    expect(preview.context).toContain('[episode;');
+    expect(preview.episode).toBeDefined();
+    const { session: other } = await h.client.request('session.configure', {
+      sessionId: reader.id,
+      providerId: 'other',
+      handoff: { episode: true, binding },
+    });
+    expect(h.configOf(other).appToolsContext).toContain('Second version');
+    const { subscriptionId } = await h.client.request('events.subscribe', {
+      sessionId: reader.id,
+      sinceSeq: 0,
+    });
+    await h.client.until(
+      () => h.client.events(subscriptionId).find((event) => event.type === 'session.handoff'),
+      'handoff receipt',
+    );
+    const handoff = h.client
+      .events(subscriptionId)
+      .find((event) => event.type === 'session.handoff');
+    expect(handoff?.payload).toMatchObject({
+      context: preview.context,
+      hash: preview.hash,
+      episode: preview.episode,
+    });
+    const { session: back } = await h.client.request('session.configure', {
+      sessionId: reader.id,
+      providerId: 'deepseek-official',
+    });
+    expect(back.engine.sessionId).toBe(reader.engine.sessionId);
+    expect(h.configOf(back).appToolsContext).toBe(original);
+  });
+
+  it('MCP 重连与恢复同一引擎复用正文，新建才重算；预览与回执可独立核对', async () => {
+    const h = await boot();
+    const writer = await h.create();
+    const save = (description: string) =>
+      h.mcp(writer, 'tools/call', {
+        name: 'wevir_memory_save',
+        arguments: {
+          scope: 'global',
+          name: 'freeze-note',
+          type: 'reference',
+          description,
+          content: 'frozen body',
+        },
+      });
+    await save('Old description');
+    const reader = await h.create();
+    const before = await h.instructions(reader);
+    await save('New description');
+    expect(await h.instructions(reader)).toBe(before);
+    const preview = await h.client.request('context.preview', { sessionId: reader.id });
+    expect(preview.text).toContain('New description');
+    expect(await h.instructions(reader)).toBe(before);
+    await h.client.request('session.close', { sessionId: reader.id });
+    await h.client.request('session.resume', { sessionId: reader.id });
+    expect(await h.instructions(reader)).toBe(before);
+    expect(await h.instructions(await h.create())).toContain('New description');
+    const { subscriptionId } = await h.client.request('events.subscribe', {
+      sessionId: reader.id,
+      sinceSeq: 0,
+    });
+    await h.client.until(
+      () =>
+        h.client.events(subscriptionId).filter((event) => event.type === 'session.context')
+          .length === 2 || undefined,
+      'context receipts',
+    );
+    const receipts = h.client
+      .events(subscriptionId)
+      .filter((event) => event.type === 'session.context')
+      .map((event) => event.payload);
+    expect(receipts[0]?.hash).toBe(receipts[1]?.hash);
+    expect(receipts[1]?.engineSession).toBe('resumed_frozen');
+    h.adapter.inPrompt = true;
+    const prompted = await h.create();
+    const text = h.configOf(prompted).appToolsContext ?? '';
+    const { subscriptionId: promptSub } = await h.client.request('events.subscribe', {
+      sessionId: prompted.id,
+      sinceSeq: 0,
+    });
+    await h.client.until(
+      () =>
+        h.client.events(promptSub).some((event) => event.type === 'session.context') || undefined,
+      'prompt receipt',
+    );
+    const receipt = h.client.events(promptSub).find((event) => event.type === 'session.context');
+    expect(receipt?.payload).toMatchObject({
+      channel: 'instructions',
+      bytes: Buffer.byteLength(text),
+      hash: createHash('sha256').update(text).digest('hex'),
+    });
+    expect(receipts[0]?.included).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: 'memory', name: 'freeze-note' })]),
+    );
+  });
+
   it('引擎把上下文放进系统说明时：配置带记忆索引，MCP 说明只剩工具说明且不超过 4,096 字符', async () => {
     const h = await boot();
     const writer = await h.create();

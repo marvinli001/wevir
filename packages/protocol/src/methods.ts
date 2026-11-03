@@ -60,6 +60,7 @@ import {
 } from './common.js';
 import { ComputerRequestSchema, ComputerResponseSchema } from './computer.js';
 import {
+  ContextPackPreviewSchema,
   ContextSearchParamsSchema,
   ContextSearchResultSchema,
   EpisodeIdSchema,
@@ -2599,6 +2600,11 @@ export const MethodSchemas = {
     permission: 'session.read',
   },
   // 0.76.0：任务回顾（ADR-0012）。
+  'context.preview': {
+    params: z.object({ sessionId: SessionIdSchema }),
+    result: ContextPackPreviewSchema,
+    permission: 'session.read',
+  },
   'context.search': {
     params: ContextSearchParamsSchema,
     result: ContextSearchResultSchema,

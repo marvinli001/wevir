@@ -2,7 +2,16 @@
 // 出处的打开方式、导出、模型摘要与“基于回顾新建”。
 
 import { hostSupports } from '@wevir/client-sdk';
-import type { RetroSummary, Session, SessionId, SessionRetro } from '@wevir/protocol';
+import {
+  type Episode,
+  type EpisodeId,
+  ErrorCode,
+  episodeMarkdown,
+  type RetroSummary,
+  type Session,
+  type SessionId,
+  type SessionRetro,
+} from '@wevir/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { openChanges } from '@/changes/changes-store';
@@ -33,6 +42,7 @@ export function useRetroSupported(): boolean {
 
 export interface RetroData {
   retro: SessionRetro | undefined;
+  episode: Episode | undefined;
   error: string | undefined;
   loading: boolean;
   reload(): void;
@@ -40,12 +50,14 @@ export interface RetroData {
 
 /** `active` 时读，会话的事件变了就稍后重读。 */
 export function useRetro(sessionId: SessionId, active: boolean): RetroData {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
+  const viewFeatures = view.status === 'connected' ? view.hello.features : undefined;
   const supported = useRetroSupported();
   const lastSeq = useTranscript(sessionId)?.transcript.lastSeq ?? 0;
   const [state, setState] = useState<{
     sessionId: SessionId;
     retro?: SessionRetro;
+    episode?: Episode;
     error?: string;
   }>();
   const [loading, setLoading] = useState(false);
@@ -63,10 +75,29 @@ export function useRetro(sessionId: SessionId, active: boolean): RetroData {
         client
           .request('retro.get', { sessionId })
           .then(
-            (result) => {
+            async (result) => {
               if (stopped) return;
               loaded.current = sessionId;
               setState({ sessionId, retro: result.retro });
+              if (viewFeatures !== undefined && hostSupports(viewFeatures, 'episodes')) {
+                try {
+                  const { episode } = await client.request('episode.get', {
+                    id: `ep_${sessionId.slice(4)}` as EpisodeId,
+                  });
+                  if (!stopped) setState({ sessionId, retro: result.retro, episode });
+                } catch (reason) {
+                  if (
+                    !stopped &&
+                    !(
+                      typeof reason === 'object' &&
+                      reason !== null &&
+                      'code' in reason &&
+                      reason.code === ErrorCode.EPISODE_NOT_FOUND
+                    )
+                  )
+                    setState({ sessionId, retro: result.retro, error: describe(reason) });
+                }
+              }
             },
             (reason) => {
               if (stopped) return;
@@ -87,11 +118,17 @@ export function useRetro(sessionId: SessionId, active: boolean): RetroData {
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [client, supported, active, sessionId, lastSeq, nonce]);
+  }, [client, supported, active, sessionId, lastSeq, nonce, viewFeatures]);
 
   const reload = useCallback(() => setNonce((value) => value + 1), []);
   const current = state?.sessionId === sessionId ? state : undefined;
-  return { retro: current?.retro, error: current?.error, loading, reload };
+  return {
+    retro: current?.retro,
+    episode: current?.episode,
+    error: current?.error,
+    loading,
+    reload,
+  };
 }
 
 /** 打开一行的出处：事件跳到消息流里的位置，改动开“变更”窗格，提交复制提交号，会话跳过去，笔记开记忆设置。 */
@@ -139,7 +176,7 @@ export function useRetroOpen(session: Session): {
 
 /** 导出、摘要与“基于回顾新建”。导出与新建都先向 Host 要脱敏后的回顾（正则检查）。 */
 export function useRetroActions(session: Session, onChanged: () => void) {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
   const navigate = useNavigate();
   const [pending, setPending] = useState<'export' | 'summary' | 'new'>();
   const [error, setError] = useState<string>();
@@ -197,27 +234,41 @@ export function useRetroActions(session: Session, onChanged: () => void) {
     [run, client, sessionId, onChanged],
   );
 
-  /** 回顾作为起始材料放进同一工作区新会话的输入框（不写进记忆），沿用原会话的 Provider，用户确认后才发送。 */
   const startFromRetro = useCallback(
     () =>
       run('new', async () => {
-        const { retro, redactions } = await redacted();
-        const material = retroMarkdownText(retro, {
-          ...(retro.title && { title: retro.title }),
-          redactions: redactions ?? 0,
-        });
-        setDraft(
-          newSessionDraftKey(session.workspaceId),
-          `${t('retro.handoffPrefix')}\n\n${material}`,
-        );
+        if (!client) throw new Error(t('retro.offline'));
+        const supported =
+          view.status === 'connected' && hostSupports(view.hello.features, 'episodes');
+        const record = supported
+          ? await client.request('episode.refresh', { sessionId })
+          : undefined;
+        let material: string;
+        if (record?.episode)
+          material = `${t('episodes.continuePrefix')}\n\n${episodeMarkdown(record.episode)}\n\nep:${record.episode.id}`;
+        else {
+          const { retro, redactions } = await redacted();
+          material = `${t('retro.handoffPrefix')}\n\n${retroMarkdownText(retro, { ...(retro.title && { title: retro.title }), redactions: redactions ?? 0 })}`;
+        }
+        setDraft(newSessionDraftKey(session.workspaceId), material);
         const origin: DraftOrigin = {
           providerId: session.providerId,
           fromTitle: session.title,
-          material: 'retro',
+          material: record?.episode ? 'episode' : 'retro',
         };
         void navigate(paths.draft(session.workspaceId), { state: origin });
       }),
-    [run, redacted, navigate, session.title, session.workspaceId, session.providerId],
+    [
+      run,
+      client,
+      view,
+      sessionId,
+      redacted,
+      navigate,
+      session.title,
+      session.workspaceId,
+      session.providerId,
+    ],
   );
 
   return { pending, error, notice, exportAs, summarize, startFromRetro };

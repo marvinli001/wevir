@@ -202,8 +202,10 @@ describe('工具预设经 Host API', () => {
     expect(await raw(full.id)).toBe(await raw(plain.id));
     expect(await h.names(plain.id)).toHaveLength(90);
     const everything = listedToolInstructions(APP_TOOLS_INSTRUCTIONS, await h.names(plain.id));
-    expect(await h.instructions(plain.id)).toBe(everything);
-    expect(await h.instructions(full.id)).toBe(everything);
+    const toolPart = (text: string) =>
+      text.split('\n\nSaved project context from earlier sessions')[0];
+    expect(toolPart(await h.instructions(plain.id))).toBe(everything);
+    expect(toolPart(await h.instructions(full.id))).toBe(everything);
 
     // 认不出的预设或组：INVALID_PARAMS，不建会话。
     const bad = await h.client.call('session.create', {

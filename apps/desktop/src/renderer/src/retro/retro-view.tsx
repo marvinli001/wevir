@@ -72,7 +72,7 @@ export function checkTone(check: Pick<RetroCheck, 'status' | 'evidence'>): Statu
 
 export function RetroView({ session }: { session: Session }) {
   const sessionId = session.id as SessionId;
-  const { retro, error, loading, reload } = useRetro(sessionId, true);
+  const { retro, episode, error, loading, reload } = useRetro(sessionId, true);
   const actions = useRetroActions(session, reload);
   const { open, copied } = useRetroOpen(session);
   const proposals = useProposalGenerate(session);
@@ -146,6 +146,13 @@ export function RetroView({ session }: { session: Session }) {
             </IconButton>
           )}
         </header>
+        {episode && (
+          <p className="text-xs text-muted-foreground">
+            {t('episodes.deposited', {
+              time: formatMessageTime(episode.updatedAt, currentLocale()),
+            })}
+          </p>
+        )}
         {(actions.error || error) && (
           <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">
             {actions.error ?? error}

@@ -93,6 +93,7 @@ import type { PushService } from './remote/push.js';
 import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
+import type { SessionContexts } from './session-context.js';
 import { listedSession, listRow } from './session-list.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
@@ -238,6 +239,7 @@ export interface HostMethodsOptions {
   retro?: RetroService;
   episodes?: EpisodeService;
   contextSearch?: ContextSearch;
+  contexts?: SessionContexts;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 开发服务器预览（0.84.0，`preview.*`）；省略时这些方法回 `INVALID_PARAMS`。`preview.start` 还要 `processes`。 */
@@ -759,8 +761,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       void options.readiness?.removeWorkspace(workspaceId as WorkspaceId);
       void options.previews?.removeWorkspace(workspaceId as WorkspaceId);
       await options.memory?.removeProject(workspaceId);
-      options.episodes?.removeWorkspace(workspaceId);
-      storage.workspaces.markRemoved(workspaceId, isoNow());
+      storage.transaction(() => {
+        options.episodes?.removeWorkspace(workspaceId);
+        storage.workspaces.markRemoved(workspaceId, isoNow());
+      });
       events.touch(workspaceSessionIds(workspaceId));
       return {};
     },
@@ -1661,6 +1665,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
 
     // 0.76.0：任务回顾（ADR-0012）。
+    'context.preview': ({ sessionId }) => {
+      assertSessionVisible(storage, sessionId);
+      if (options.contexts === undefined) throw invalidParams([], 'this host has no context packs');
+      return options.contexts.preview(sessionId);
+    },
     'context.search': (params) => {
       if (options.contextSearch === undefined)
         throw invalidParams([], 'this host has no context search');
