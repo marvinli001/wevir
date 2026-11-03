@@ -22,6 +22,7 @@ export {
   toolSearchMode,
   validateProvider,
 } from './providers.js';
+export type { GatewayUsage, RequestObservation } from './request-observation.js';
 export * from './request-stats.js';
 export { type SseMessage, SseParser } from './sse.js';
 export type { GatewayCompat, GatewayProvider } from './types.js';

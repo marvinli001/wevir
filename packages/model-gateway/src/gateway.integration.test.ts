@@ -1,6 +1,14 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
-import { COMPRESS_MIN_BYTES, type GatewayLogger, startModelGateway } from './gateway.js';
+import {
+  COMPRESS_MIN_BYTES,
+  type GatewayLogger,
+  type ModelGatewayOptions,
+  startModelGateway,
+} from './gateway.js';
+import type { RequestObservation } from './request-observation.js';
 import {
   CODEX_METADATA_HEADERS,
   codexProblems,
@@ -37,7 +45,7 @@ interface LogLine {
   fields?: Record<string, unknown>;
 }
 
-async function gateway(options: { deepseekBaseURL?: string } = {}) {
+async function gateway(options: ModelGatewayOptions = {}) {
   const lines: LogLine[] = [];
   const logger: GatewayLogger = {
     info: (msg, fields) => lines.push({ level: 'info', msg, fields }),
@@ -1050,5 +1058,89 @@ describe('事件流的编码', () => {
       ]),
     );
     expect(text.split('\n\n').filter(Boolean)).toHaveLength(events.length);
+  });
+});
+
+describe('request observations', () => {
+  for (const mode of ['responses', 'chat', 'messages'] as const)
+    it(`${mode}: exact usage and metadata stay local`, async () => {
+      const mock = await {
+        responses: responsesUpstream,
+        chat: chatUpstream,
+        messages: messagesUpstream,
+      }[mode](() => ({ text: ['ok'] }));
+      const observed: RequestObservation[] = [];
+      const { gw } = await gateway({ onRequest: (value) => observed.push(value) });
+      const provider = {
+        responses: responsesProvider,
+        chat: chatProvider,
+        messages: messagesProvider,
+      }[mode](mock.baseURL);
+      gw.setProviders([provider]);
+      const response = await postResponses(
+        gw.baseURL(provider.id),
+        gw.token,
+        codexRequest('4-compact').body,
+      );
+      await response.text();
+      await until(() => observed.length === 1);
+      expect(observed[0]).toMatchObject({
+        kind: 'compaction',
+        compactionTrigger: 'manual',
+        threadId: '<ID-5>',
+        outcome: 'completed',
+        usage: { outputTokens: expect.any(Number) },
+        supply: { requestBytes: Buffer.byteLength(JSON.stringify(mock.requests[0]?.body)) },
+      });
+      expect(mock.requests[0]?.body).not.toHaveProperty('client_metadata');
+      expect(JSON.stringify(observed)).not.toContain(UPSTREAM_KEY);
+    });
+
+  it('preserves cache writes and completed usage when the client closes before upstream EOF', async () => {
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write(
+          `data: ${JSON.stringify({ type: 'response.completed', response: { id: 'r', usage: { input_tokens: 120, output_tokens: 7, input_tokens_details: { cached_tokens: 80, cache_write_tokens: 10 } } } })}\n\n`,
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    cleanups.push(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+    const observed: RequestObservation[] = [];
+    const { gw } = await gateway({ onRequest: (value) => observed.push(value) });
+    gw.setProviders([
+      responsesProvider(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`),
+    ]);
+    const response = await postResponses(
+      gw.baseURL('resp'),
+      gw.token,
+      codexRequest('1-first-turn').body,
+    );
+    const reader = response.body?.getReader();
+    await reader?.read();
+    await reader?.cancel();
+    await until(() => observed.length === 1);
+    expect(observed[0]).toMatchObject({
+      outcome: 'client_closed',
+      usage: { inputTokens: 30, cacheReadTokens: 80, cacheWriteTokens: 10, outputTokens: 7 },
+    });
+  });
+
+  it('records failed requests without inventing zero-token usage', async () => {
+    const mock = await responsesUpstream(() => ({ httpError: { status: 429 } }));
+    const observed: RequestObservation[] = [];
+    const { gw } = await gateway({ onRequest: (value) => observed.push(value) });
+    gw.setProviders([responsesProvider(mock.baseURL)]);
+    await (
+      await postResponses(gw.baseURL('resp'), gw.token, codexRequest('1-first-turn').body)
+    ).text();
+    await until(() => observed.length === 1);
+    expect(observed[0]).toMatchObject({ outcome: 'upstream_error', upstreamStatus: 429 });
+    expect(observed[0]?.usage).toBeUndefined();
   });
 });

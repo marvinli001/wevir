@@ -4,7 +4,7 @@
 // 在 Host 进程里监听 127.0.0.1 的随机端口，对 Codex 只暴露 POST /v1/p/<providerId>/responses。Codex 只拿到
 // 本实例的令牌（每个实例随机生成、只在内存）；上游 Key 只在 setProviders 交来的配置里。
 
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
@@ -20,6 +20,12 @@ import type { ProviderTestResult } from '@wevir/runtime-adapter';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { gatewayError, normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { type ProviderTestOptions, testProvider } from './provider-test.js';
+import {
+  type RequestObservation,
+  ResponseObservation,
+  requestSource,
+} from './request-observation.js';
+import { requestStats } from './request-stats.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
 import { errorText, prepareUpstream } from './upstream.js';
@@ -33,6 +39,7 @@ export interface GatewayLogger {
 
 export interface ModelGatewayOptions {
   logger?: GatewayLogger;
+  onRequest?: (observation: RequestObservation) => void;
   /** `deepseek-official` 的 Responses 地址，默认 DeepSeek 官方（测试指向本地 mock）。 */
   deepseekBaseURL?: string;
   /** testProvider 的时限，默认 20 s。 */
@@ -87,6 +94,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
   let providers = new Map<string, GatewayProvider>();
   const inflight = new Set<AbortController>();
   let closing = false;
+  const outputIds = new Map<string, Set<string>>();
   // 注入了 fetch（测试）时不用自己的连接池。
   const dispatcher =
     options.fetch === undefined
@@ -137,7 +145,11 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       req.resume();
       return;
     }
-    const log = (outcome: string, fields: Record<string, unknown>) =>
+    let observation: RequestObservation | undefined;
+    const responseObservation =
+      options.onRequest === undefined ? undefined : new ResponseObservation(started);
+    const log = (outcome: string, fields: Record<string, unknown>) => {
+      if (observation !== undefined) observation.outcome = outcome as RequestObservation['outcome'];
       logger?.info('gateway request', {
         method,
         providerId,
@@ -145,6 +157,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         ...fields,
         durationMs: Math.round(performance.now() - started),
       });
+    };
     const reject = (status: number, message: string, code?: string) => {
       send(res, status, gatewayError(message, code));
       req.resume();
@@ -178,6 +191,31 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
     const prepared = prepareUpstream(provider, body, { deepseekBaseURL: options.deepseekBaseURL });
     if (!prepared.ok) return reject(prepared.status, prepared.message);
 
+    const json = JSON.stringify(prepared.payload);
+    if (options.onRequest !== undefined) {
+      const source = requestSource(body, req.headers);
+      const key = JSON.stringify([providerId, source.threadId]);
+      let seen = outputIds.get(key);
+      if (seen === undefined) {
+        seen = new Set();
+        if (source.threadId !== undefined) outputIds.set(key, seen);
+      }
+      observation = {
+        requestId: randomUUID(),
+        providerId,
+        model: body.model,
+        ...source,
+        supply: requestStats(
+          prepared.payload as Record<string, unknown>,
+          prepared.mode,
+          json,
+          body,
+          seen,
+        ),
+        outcome: 'network_error',
+        durationMs: 0,
+      };
+    }
     const abort = new AbortController();
     inflight.add(abort);
     // Codex 断开（读到 response.completed、取消回合）或网关关闭：中断上游，按正常结束处理。
@@ -200,7 +238,6 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       }
       const redact = (value: string) =>
         upstreamKey ? value.replaceAll(upstreamKey, '***') : value;
-      const json = JSON.stringify(prepared.payload);
       const compressionKey = `${providerId}\n${prepared.url}`;
       const compress =
         provider.compat?.requestCompression === 'gzip' &&
@@ -269,7 +306,12 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         'content-type': prepared.contentType(upstream.headers.get('content-type')),
         'cache-control': 'no-cache',
       });
+      if (responseObservation !== undefined)
+        responseObservation.json = prepared
+          .contentType(upstream.headers.get('content-type'))
+          .includes('application/json');
       for await (const piece of prepared.translate(upstream, abort.signal)) {
+        responseObservation?.push(piece);
         await write(
           res,
           provider.kind === 'google-vertex' && typeof piece === 'string' ? redact(piece) : piece,
@@ -286,6 +328,21 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         });
       throw error;
     } finally {
+      responseObservation?.end();
+      if (observation !== undefined && responseObservation !== undefined) {
+        observation.durationMs = Math.round(performance.now() - started);
+        if (upstreamStatus !== undefined) observation.upstreamStatus = upstreamStatus;
+        if (responseObservation.usage !== undefined) observation.usage = responseObservation.usage;
+        if (responseObservation.responseId !== undefined)
+          observation.responseId = responseObservation.responseId;
+        if (responseObservation.firstTokenMs !== undefined)
+          observation.firstTokenMs = responseObservation.firstTokenMs;
+        try {
+          options.onRequest?.(observation);
+        } catch {
+          logger?.warn('gateway request observer failed');
+        }
+      }
       inflight.delete(abort);
       abort.abort();
     }
