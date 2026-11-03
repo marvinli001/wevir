@@ -1,0 +1,145 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`requestStats > 1-first-turn / chat 1`] = `
+{
+  "instructionBytes": 6036,
+  "mcpNoteBytes": 0,
+  "requestBytes": 21635,
+  "toolBytes": 14330,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 1-first-turn / messages 1`] = `
+{
+  "instructionBytes": 6232,
+  "mcpNoteBytes": 0,
+  "requestBytes": 21460,
+  "toolBytes": 14040,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 1-first-turn / responses 1`] = `
+{
+  "instructionBytes": 6240,
+  "mcpNoteBytes": 0,
+  "requestBytes": 21869,
+  "toolBytes": 14173,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 2-tool-results / chat 1`] = `
+{
+  "instructionBytes": 6036,
+  "mcpNoteBytes": 0,
+  "requestBytes": 22325,
+  "toolBytes": 14330,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 2-tool-results / messages 1`] = `
+{
+  "instructionBytes": 6232,
+  "mcpNoteBytes": 0,
+  "requestBytes": 22070,
+  "toolBytes": 14040,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 2-tool-results / responses 1`] = `
+{
+  "instructionBytes": 6240,
+  "mcpNoteBytes": 0,
+  "requestBytes": 22656,
+  "toolBytes": 14173,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 3-next-turn / chat 1`] = `
+{
+  "instructionBytes": 6545,
+  "mcpNoteBytes": 0,
+  "requestBytes": 23229,
+  "toolBytes": 14330,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 3-next-turn / messages 1`] = `
+{
+  "instructionBytes": 6232,
+  "mcpNoteBytes": 0,
+  "requestBytes": 23021,
+  "toolBytes": 14040,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 3-next-turn / responses 1`] = `
+{
+  "instructionBytes": 6786,
+  "mcpNoteBytes": 0,
+  "requestBytes": 23809,
+  "toolBytes": 14173,
+  "toolCount": 10,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 4-compact / chat 1`] = `
+{
+  "instructionBytes": 6545,
+  "mcpNoteBytes": 0,
+  "requestBytes": 9385,
+  "toolBytes": 2,
+  "toolCount": 0,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 4-compact / messages 1`] = `
+{
+  "instructionBytes": 6232,
+  "mcpNoteBytes": 0,
+  "requestBytes": 9913,
+  "toolBytes": 336,
+  "toolCount": 2,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;
+
+exports[`requestStats > 4-compact / responses 1`] = `
+{
+  "instructionBytes": 6786,
+  "mcpNoteBytes": 0,
+  "requestBytes": 10249,
+  "toolBytes": 2,
+  "toolCount": 0,
+  "wevirOutputBytes": 0,
+  "wevirOutputBytesNew": 0,
+}
+`;

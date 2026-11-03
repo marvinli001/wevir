@@ -770,6 +770,9 @@ importers:
       '@types/yauzl':
         specifier: 3.4.0
         version: 3.4.0
+      '@wevir/model-gateway':
+        specifier: workspace:*
+        version: link:../model-gateway
       '@wevir/push':
         specifier: workspace:*
         version: link:../../apps/push

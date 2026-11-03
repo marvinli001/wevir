@@ -9,6 +9,15 @@ import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 
+export {
+  type CatalogStats,
+  chatCatalog,
+  messagesCatalog,
+  responsesCatalog,
+} from '@wevir/model-gateway';
+
+import { chatCatalog, messagesCatalog } from '@wevir/model-gateway';
+
 // ── 项目 ──────────────────────────────────────────────────────────────
 
 export type ProjectFiles = Readonly<Record<string, string>>;
@@ -304,78 +313,6 @@ export function reportsLintFailure(text: string): boolean {
 }
 
 // ── 请求里的工具目录 ──────────────────────────────────────────────────
-
-export interface CatalogStats {
-  /** 工具的条数（命名空间按里面的工具算）。 */
-  tools: number;
-  /** 工具名（命名空间里的写成 `<命名空间>__<名字>` 或 `<命名空间>.<名字>`）。 */
-  names: string[];
-  /** `tools` 序列化后的字节数。 */
-  toolBytes: number;
-  /** 说明（Responses 的 `instructions`、Chat 的 system 消息、Messages 的 `system`）的字节数。 */
-  instructionBytes: number;
-  /** 整个请求体的字节数。 */
-  requestBytes: number;
-}
-
-const bytes = (value: unknown) =>
-  Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value ?? ''));
-
-/** Responses 请求（Codex 发给网关、网关透传给上游的形状）。 */
-export function responsesCatalog(body: Record<string, unknown>): CatalogStats {
-  const names: string[] = [];
-  for (const tool of (body.tools as Array<Record<string, unknown>> | undefined) ?? []) {
-    if (tool.type === 'namespace') {
-      // MCP 的命名空间（`mcp__wevir`）照网关摊平的写法接 `__`，Codex 自己的（`multi_agent_v1`）接 `.`。
-      const namespace = String(tool.name);
-      const join = namespace.startsWith('mcp__') ? '__' : '.';
-      for (const inner of (tool.tools as Array<{ name?: string }> | undefined) ?? []) {
-        names.push(`${namespace}${join}${inner.name ?? '?'}`);
-      }
-    } else {
-      names.push(String(tool.name ?? tool.type));
-    }
-  }
-  const input = (body.input as Array<{ role?: string; content?: unknown }> | undefined) ?? [];
-  return {
-    tools: names.length,
-    names,
-    toolBytes: bytes(body.tools ?? []),
-    instructionBytes:
-      bytes(body.instructions ?? '') +
-      input
-        .filter((item) => item.role === 'system' || item.role === 'developer')
-        .reduce((sum, item) => sum + bytes(item.content), 0),
-    requestBytes: bytes(body),
-  };
-}
-
-/** Chat Completions 请求（网关转换之后）。 */
-export function chatCatalog(body: Record<string, unknown>): CatalogStats {
-  const tools = (body.tools as Array<{ function?: { name?: string } }> | undefined) ?? [];
-  const messages = (body.messages as Array<{ role?: string; content?: unknown }> | undefined) ?? [];
-  return {
-    tools: tools.length,
-    names: tools.map((tool) => tool.function?.name ?? '?'),
-    toolBytes: bytes(tools),
-    instructionBytes: messages
-      .filter((message) => message.role === 'system' || message.role === 'developer')
-      .reduce((sum, message) => sum + bytes(message.content), 0),
-    requestBytes: bytes(body),
-  };
-}
-
-/** Anthropic Messages 请求（网关转换之后）。 */
-export function messagesCatalog(body: Record<string, unknown>): CatalogStats {
-  const tools = (body.tools as Array<{ name?: string }> | undefined) ?? [];
-  return {
-    tools: tools.length,
-    names: tools.map((tool) => tool.name ?? '?'),
-    toolBytes: bytes(tools),
-    instructionBytes: bytes(body.system ?? ''),
-    requestBytes: bytes(body),
-  };
-}
 
 // ── 记录请求的本地服务 ────────────────────────────────────────────────
 
