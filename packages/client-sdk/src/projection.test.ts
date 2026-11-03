@@ -79,6 +79,87 @@ function approval(toolCallId: string): ApprovalRequest {
 }
 
 describe('TranscriptProjection：增量与已提交消息（domain-model §6.3）', () => {
+  it('模型、档位与速度的变更在时间线留一行，权限变更与重复配置不留行', () => {
+    const { list, add } = events();
+    add('session.configured', { modelId: 'deepseek-chat', permissionMode: 'full_access' });
+    expect(projectTranscript(list).messages).toEqual([]);
+    const changed = add('session.configured', {
+      modelId: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+      fast: true,
+    });
+    add('session.configured', {
+      modelId: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+      fast: true,
+      permissionMode: 'on_request',
+    });
+    add('session.configured', { modelId: 'deepseek-v4-pro' });
+    add('session.configured', { modelId: 'deepseek-v4-pro', fast: false });
+    const transcript = projectTranscript(list);
+    expect(transcript.messages).toHaveLength(2);
+    expect(transcript.messages[0]).toMatchObject({
+      role: 'system',
+      id: `system:${changed.seq}`,
+      parts: [
+        {
+          type: 'notice',
+          notice: {
+            kind: 'configured',
+            from: { providerId: 'deepseek-official', modelId: 'deepseek-chat' },
+            to: {
+              providerId: 'deepseek-official',
+              modelId: 'deepseek-v4-pro',
+              reasoningEffort: 'high',
+              fast: true,
+            },
+          },
+        },
+      ],
+    });
+    expect(transcript.messages[1]?.parts).toMatchObject([
+      {
+        notice: {
+          kind: 'configured',
+          from: { reasoningEffort: 'high', fast: true },
+          to: { reasoningEffort: undefined, fast: undefined },
+        },
+      },
+    ]);
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    expect(projection.snapshot()).toEqual(transcript);
+    projection.reset();
+    for (const event of list) projection.apply(event);
+    expect(projection.snapshot()).toEqual(transcript);
+  });
+
+  it('接力更新配置基线，之后相同的配置不重复标记', () => {
+    const { list, add } = events();
+    add('session.handoff', {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'a' },
+      to: { providerId: 'claude', modelId: 'opus', engineSessionId: 'b' },
+      reasoningEffort: 'high',
+      fast: true,
+      resumed: false,
+      strategy: 'full_thread_summary',
+      items: 0,
+      omittedItems: 0,
+    });
+    add('session.configured', { modelId: 'opus', reasoningEffort: 'high', fast: true });
+    expect(projectTranscript(list).messages).toHaveLength(1);
+    add('session.configured', { modelId: 'opus', reasoningEffort: 'low', fast: true });
+    expect(projectTranscript(list).messages[1]?.parts).toMatchObject([
+      {
+        notice: {
+          kind: 'configured',
+          from: { providerId: 'claude', modelId: 'opus', reasoningEffort: 'high' },
+          to: { providerId: 'claude', modelId: 'opus', reasoningEffort: 'low' },
+        },
+      },
+    ]);
+  });
+
   it('增量就地累加，已提交消息在原位置替换并沿用 key', () => {
     const { list, add, turn } = events();
     turn();

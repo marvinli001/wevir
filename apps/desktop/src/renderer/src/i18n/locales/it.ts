@@ -818,6 +818,7 @@ export const messages: Messages = {
   'model.effort.fixed': 'Sforzo fisso',
   'model.effort.reset': 'Ripristina sforzo predefinito',
   'model.fast.label': 'Modalità veloce',
+  'model.speed.standard': 'Velocità normale',
   'model.fast.tradeoff': 'Più veloce · Consuma di più',
   'model.configureFailed': 'Cambio modello non riuscito: {error}',
 

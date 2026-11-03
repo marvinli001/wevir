@@ -45,6 +45,7 @@ import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
+import { effortLabel } from './model-picker';
 import { OpinionCard, OpinionQuote } from './opinion-card';
 import { MessagePastes } from './pasted-text';
 import { pendingText, processNoticeLabel } from './pending-model';
@@ -753,6 +754,7 @@ function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
 function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   const { notice } = part;
   if (notice.kind === 'handoff') return <HandoffNotice notice={notice} />;
+  if (notice.kind === 'configured') return <ConfigurationNotice notice={notice} />;
   const text =
     notice.kind === 'moved'
       ? [t(notice.to === 'local' ? 'notice.movedToLocal' : 'notice.movedToWorktree'), notice.branch]
@@ -774,6 +776,40 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
 }
 
 const NO_PROVIDERS: readonly ProviderProfile[] = [];
+
+function ConfigurationNotice({
+  notice,
+}: {
+  notice: Extract<ChatPartOf<'notice'>['notice'], { kind: 'configured' }>;
+}) {
+  const providers = useWorkbenchProviders();
+  const { from, to } = notice;
+  const model = providers
+    ?.find((provider) => provider.id === to.providerId)
+    ?.models.find((candidate) => candidate.id === to.modelId);
+  const label = [
+    model?.displayName ?? to.modelId,
+    to.reasoningEffort !== undefined || from.reasoningEffort !== to.reasoningEffort
+      ? effortLabel(to.reasoningEffort)
+      : undefined,
+    to.fast === true
+      ? t('model.fast.label')
+      : from.fast === true
+        ? t('model.speed.standard')
+        : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <p
+      className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
+      data-testid="configuration-notice"
+    >
+      <ArrowLeftRight aria-hidden className="size-3.5 shrink-0" />
+      {t('notice.handoff', { model: label })}
+    </p>
+  );
+}
 
 /**
  * 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。换目录（0.81.0）时同一来源新开的引擎

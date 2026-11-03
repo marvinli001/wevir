@@ -817,6 +817,7 @@ export const messages: Messages = {
   'model.effort.fixed': 'Fester Aufwand',
   'model.effort.reset': 'Standardaufwand wiederherstellen',
   'model.fast.label': 'Schneller Modus',
+  'model.speed.standard': 'Normale Geschwindigkeit',
   'model.fast.tradeoff': 'Schneller · Mehr Verbrauch',
   'model.configureFailed': 'Modellwechsel fehlgeschlagen: {error}',
 

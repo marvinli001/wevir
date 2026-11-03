@@ -805,6 +805,7 @@ export const messages: Messages = {
   'model.effort.fixed': '固定強度',
   'model.effort.reset': '還原預設強度',
   'model.fast.label': '快速模式',
+  'model.speed.standard': '標準速度',
   'model.fast.tradeoff': '速度更快 · 用量更多',
   'model.configureFailed': '切換模型失敗：{error}',
 

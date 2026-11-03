@@ -811,6 +811,7 @@ export const messages: Messages = {
   'model.effort.fixed': '固定',
   'model.effort.reset': 'デフォルトのレベルに戻す',
   'model.fast.label': '高速モード',
+  'model.speed.standard': '標準速度',
   'model.fast.tradeoff': '高速 · 使用量が増加',
   'model.configureFailed': 'モデルの切り替えに失敗しました: {error}',
 

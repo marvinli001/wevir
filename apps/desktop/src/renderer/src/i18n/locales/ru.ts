@@ -821,6 +821,7 @@ export const messages: Messages = {
   'model.effort.fixed': 'Фиксированный уровень',
   'model.effort.reset': 'Сбросить уровень',
   'model.fast.label': 'Быстрый режим',
+  'model.speed.standard': 'Обычная скорость',
   'model.fast.tradeoff': 'Быстрее · Больше расход',
   'model.configureFailed': 'Не удалось сменить модель: {error}',
 

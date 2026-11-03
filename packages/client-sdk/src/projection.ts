@@ -43,6 +43,7 @@ import type {
   RepairChain,
   ReviewFinding,
   SecondOpinion,
+  Session,
   SessionAcceptance,
   SessionAutoContinue,
   SessionGoal,
@@ -100,11 +101,14 @@ export interface ToolPartApproval {
   resolution?: ApprovalResolution;
 }
 
+type ModelConfiguration = Pick<Session, 'providerId' | 'modelId' | 'reasoningEffort' | 'fast'>;
+
 /** 不属于任何回合的会话级提示（引擎会话恢复、只读、关闭）。 */
 export type SessionNotice =
   | { kind: 'resumed'; engineVersion?: string }
   | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string }
   | { kind: 'closed' }
+  | { kind: 'configured'; from: ModelConfiguration; to: ModelConfiguration }
   /** 换到了别的来源（0.25.0，`session.handoff`）：之后的回合由 `providerId` 的引擎跑。 */
   | {
       kind: 'handoff';
@@ -567,6 +571,7 @@ export class TranscriptProjection {
   #activeTurnId: TurnId | undefined;
   #title = '';
   #readOnly: SessionReadOnly | undefined;
+  #configuration: ModelConfiguration | undefined;
   /** 最近一条 `session.moved` 的 seq（0.81.0）：紧跟着的 `session.resumed` 不另起一行。 */
   #lastMoved: number | undefined;
   #lastError: EngineErrorInfo | undefined;
@@ -634,6 +639,7 @@ export class TranscriptProjection {
     this.#activeTurnId = undefined;
     this.#title = '';
     this.#readOnly = undefined;
+    this.#configuration = undefined;
     this.#lastMoved = undefined;
     this.#lastError = undefined;
     this.#usage = undefined;
@@ -673,6 +679,8 @@ export class TranscriptProjection {
     switch (event.type) {
       case 'session.created': {
         this.#state = 'idle';
+        const { providerId, modelId, reasoningEffort, fast } = event.payload;
+        this.#configuration = { providerId, modelId, reasoningEffort, fast };
         const parent = event.payload.parent;
         if (parent !== undefined) this.#parent = { ...parent };
         return;
@@ -733,13 +741,33 @@ export class TranscriptProjection {
         this.#repair = event.payload.repair;
         this.#acceptance ??= { status: 'unverified', updatedAt: event.ts };
         return;
-      case 'session.configured':
+      case 'session.configured': {
+        const previous = this.#configuration;
+        if (previous === undefined) return;
+        const { modelId, reasoningEffort, fast } = event.payload;
+        const next = { providerId: previous.providerId, modelId, reasoningEffort, fast };
+        this.#configuration = next;
+        if (
+          previous.modelId !== modelId ||
+          previous.reasoningEffort !== reasoningEffort ||
+          (previous.fast === true) !== (fast === true)
+        ) {
+          this.#notice(event, { kind: 'configured', from: previous, to: next });
+        }
         return;
+      }
       case 'session.handoff': {
         const { from, to, resumed, strategy, covered, items, omittedItems, context } =
           event.payload;
         const { bytes, budgetBytes, hash, omitted, constraints, notes, historyTool } =
           event.payload;
+        const { reasoningEffort, fast } = event.payload;
+        this.#configuration = {
+          providerId: to.providerId,
+          modelId: to.modelId,
+          reasoningEffort,
+          fast,
+        };
         this.#readOnly = undefined;
         // 上一份摘要还没交出去就又换了来源：它不会再交了。
         this.#setHandoffDelivery({ status: 'failed', reason: 'superseded' });
