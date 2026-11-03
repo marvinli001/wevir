@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { open, readFile, rename, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -7,15 +7,17 @@ import {
   WEB_FETCH_DEFAULT_CHARS,
   WEB_FETCH_MAX_CHARS,
   WEB_FETCH_TOOL,
+  WEB_FETCH_TOOL_DEFINITION,
   WEB_SEARCH_DEFAULT_RESULTS,
   WEB_SEARCH_MAX_RESULTS,
   WEB_SEARCH_TOOL,
+  WEB_SEARCH_TOOL_DEFINITION,
   type WebToolEndpoint,
   type WebToolServer,
   type WebToolState,
   webToolScriptPath,
 } from '@wevir/runtime-adapter/web-tool';
-import type { SecretStore, ToolCallRow } from '@wevir/storage';
+import type { SecretStore, ToolCallRow, ToolSupplyRow } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import { type FetchedPage, type FetchPageOptions, fetchPage, WebFetchError } from './fetch-page.js';
@@ -74,6 +76,7 @@ interface WebLedger {
     engineSessionId: string | undefined,
   ) => { sessionId: string; turnId?: string } | undefined;
   onCall: (call: ToolCallRow) => void;
+  onSupply: (supply: ToolSupplyRow) => void;
 }
 
 type WebUpdateParams = MethodParams<'web.update'>;
@@ -238,6 +241,19 @@ export class WebService {
   /** 一次工具调用（桥脚本经端点转来的 `tools/call`）。 */
   async call(name: string, args: unknown, engineSessionId?: string): Promise<ToolResult> {
     const context = this.#ledger?.context(engineSessionId);
+    if (context !== undefined) {
+      const serialized = JSON.stringify([WEB_SEARCH_TOOL_DEFINITION, WEB_FETCH_TOOL_DEFINITION]);
+      this.#ledger?.onSupply({
+        sessionId: context.sessionId,
+        server: 'wevir_web',
+        at: new Date().toISOString(),
+        toolCount: 2,
+        toolBytes: Buffer.byteLength(serialized),
+        instructionBytes: 0,
+        memoryIndexBytes: 0,
+        digest: createHash('sha256').update(serialized).digest('hex'),
+      });
+    }
     const result = await this.#call(name, args);
     const bytes = Buffer.byteLength(JSON.stringify(result));
     this.#ledger?.onCall({

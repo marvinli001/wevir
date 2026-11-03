@@ -626,6 +626,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         return { sessionId: session.id, ...(turnId !== undefined && { turnId }) };
       },
       onCall: (call) => usageStats.recordToolCall(call),
+      onSupply: (supply) => usageStats.recordSupply(supply),
     });
     void pricing.start();
     // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。规则变了档案也跟着变。
@@ -1529,7 +1530,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const parts = [tools.sessionBrief(sessionId)?.trim(), await memoryIndex(sessionId)].filter(
           (part): part is string => part !== undefined && part !== '',
         );
-        return parts.length === 0 ? undefined : parts.join('\n\n');
+        const instructions = parts.join('\n\n');
+        usageStats.recordSupply({
+          sessionId,
+          server: 'wevir_prompt',
+          at: new Date().toISOString(),
+          toolCount: 0,
+          toolBytes: 0,
+          instructionBytes: Buffer.byteLength(instructions),
+          memoryIndexBytes: memoryBytes.get(sessionId) ?? 0,
+          digest: createHash('sha256').update(instructions).digest('hex'),
+        });
+        return parts.length === 0 ? undefined : instructions;
       };
       appMcp = new AppMcpServer({
         tools: appTools.tools,
