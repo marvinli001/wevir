@@ -4,6 +4,7 @@
 import { hostSupports } from '@wevir/client-sdk';
 import type { SessionId, WorkspaceGitResult, WorkspaceId } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
+import { folderCacheKey, folderParams } from '@/changes/change-folders';
 import { useHostConnection } from '@/host/host-connection';
 import { LruMap } from '@/lib/lru';
 import { everyWhileVisible } from '@/lib/visible-interval';
@@ -20,36 +21,85 @@ export interface WorkspaceGitState {
   status: WorkspaceGitResult | undefined;
 }
 
+interface GitOptions {
+  active: boolean;
+  refreshKey?: unknown;
+  sessionId?: SessionId;
+}
+
 export function useWorkspaceGit(
   workspaceId: WorkspaceId | undefined,
-  options: { active: boolean; refreshKey?: unknown; sessionId?: SessionId },
+  options: GitOptions & { folder?: string },
 ): WorkspaceGitState {
+  const { supported, statuses } = useGitFolders(workspaceId, [options.folder], options);
+  return { supported, status: statuses[0] };
+}
+
+export interface WorkspaceGitFolder {
+  folder: string;
+  status: WorkspaceGitResult | undefined;
+}
+
+export function useWorkspaceGitFolders(
+  workspaceId: WorkspaceId,
+  folders: readonly string[],
+  options: GitOptions,
+): { supported: boolean; folders: readonly WorkspaceGitFolder[] } {
+  const { view } = useHostConnection();
+  const multiple =
+    view.status === 'connected' && hostSupports(view.hello.features, 'multi_folder_changes');
+  const sources = multiple ? folders : folders.slice(0, 1);
+  const { supported, statuses } = useGitFolders(workspaceId, sources, options);
+  return {
+    supported,
+    folders: sources.map((folder, index) => ({ folder, status: statuses[index] })),
+  };
+}
+
+function useGitFolders(
+  workspaceId: WorkspaceId | undefined,
+  folders: readonly (string | undefined)[],
+  { active, refreshKey, sessionId }: GitOptions,
+): { supported: boolean; statuses: readonly (WorkspaceGitResult | undefined)[] } {
   const { client, view } = useHostConnection();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'workspace_git');
-  const [status, setStatus] = useState<WorkspaceGitResult | undefined>(() => {
-    const initial = options.sessionId ?? workspaceId;
-    return initial === undefined ? undefined : lastKnown.get(initial);
-  });
-  const { active, refreshKey, sessionId } = options;
-  const key = sessionId ?? workspaceId;
+  const features = view.status === 'connected' ? view.hello.features : undefined;
+  const requested = JSON.stringify(folders.map((folder) => folderParams(features, folder).folder));
+  const owner = sessionId ?? workspaceId;
+  const [statuses, setStatuses] = useState<ReadonlyMap<string, WorkspaceGitResult>>(new Map());
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey 只用来触发重读。
   useEffect(() => {
-    setStatus(key === undefined ? undefined : lastKnown.get(key));
-    if (!client || !supported || !active || workspaceId === undefined || key === undefined) return;
+    setStatuses(new Map());
+    if (!client || !supported || !active || workspaceId === undefined || owner === undefined)
+      return;
+    const sources = JSON.parse(requested) as (string | null)[];
     let stopped = false;
     const read = () => {
-      client
-        .request('workspace.git', { workspaceId, ...(sessionId && { sessionId }) })
-        .then((result) => {
-          lastKnown.set(key, result);
-          if (!stopped) setStatus(result);
-        })
-        .catch(() => {
-          lastKnown.delete(key);
-          if (!stopped) setStatus(undefined);
-        });
+      for (const folder of sources) {
+        const key = folderCacheKey(owner, folder ?? undefined);
+        client
+          .request('workspace.git', {
+            workspaceId,
+            ...(sessionId !== undefined && { sessionId }),
+            ...(folder !== null && { folder }),
+          })
+          .then((result) => {
+            if (stopped) return;
+            lastKnown.set(key, result);
+            setStatuses((current) => new Map(current).set(key, result));
+          })
+          .catch(() => {
+            if (stopped) return;
+            lastKnown.delete(key);
+            setStatuses((current) => {
+              const next = new Map(current);
+              next.delete(key);
+              return next;
+            });
+          });
+      }
     };
     read();
     const stopTimer = everyWhileVisible(read, REFRESH_MS);
@@ -59,7 +109,14 @@ export function useWorkspaceGit(
       stopTimer();
       window.removeEventListener('focus', read);
     };
-  }, [client, supported, active, workspaceId, sessionId, key, refreshKey]);
+  }, [client, supported, active, workspaceId, sessionId, owner, requested, refreshKey]);
 
-  return { supported, status: supported ? status : undefined };
+  return {
+    supported,
+    statuses: folders.map((folder) => {
+      if (!supported || owner === undefined) return undefined;
+      const key = folderCacheKey(owner, folderParams(features, folder).folder);
+      return statuses.get(key) ?? lastKnown.get(key);
+    }),
+  };
 }

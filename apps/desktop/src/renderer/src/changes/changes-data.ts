@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
 import { LruMap } from '@/lib/lru';
 import { everyWhileVisible } from '@/lib/visible-interval';
+import { folderCacheKey, folderParams } from './change-folders';
 
 const LIVE_REFRESH_MS = 5_000;
 
@@ -21,6 +22,11 @@ const LIVE_REFRESH_MS = 5_000;
 export function useDiffSupported(): boolean {
   const { view } = useHostConnection();
   return view.status === 'connected' && hostSupports(view.hello.features, 'workspace_diff');
+}
+
+export function useMultiFolderChangesSupported(): boolean {
+  const { view } = useHostConnection();
+  return view.status === 'connected' && hostSupports(view.hello.features, 'multi_folder_changes');
 }
 
 /** 最近一次读到的，换范围、换会话回来时先显示它（最近用过的一批；patch 合计最多这么多字符）。 */
@@ -31,10 +37,10 @@ const lastDiff = new LruMap<string, WorkspaceDiffResult>(32, {
 });
 const lastCheckpoints = new LruMap<SessionId, readonly TurnCheckpoint[]>(64);
 
-export function sourceKey(sessionId: SessionId, source: DiffSource): string {
-  return source.kind === 'turn'
-    ? `${sessionId}:turn:${source.turnId}`
-    : `${sessionId}:${source.kind}`;
+export function sourceKey(sessionId: SessionId, source: DiffSource, folder?: string): string {
+  const key =
+    source.kind === 'turn' ? `${sessionId}:turn:${source.turnId}` : `${sessionId}:${source.kind}`;
+  return folderCacheKey(key, source.kind === 'turn' ? undefined : folder);
 }
 
 export interface DiffState {
@@ -48,11 +54,16 @@ export function useWorkspaceDiff(
   workspaceId: WorkspaceId,
   sessionId: SessionId,
   source: DiffSource | undefined,
-  options: { refreshKey: unknown; live: boolean },
+  options: { refreshKey: unknown; live: boolean; folder?: string },
 ): DiffState {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
   const supported = useDiffSupported();
-  const key = source === undefined ? undefined : sourceKey(sessionId, source);
+  const folder = folderParams(
+    view.status === 'connected' ? view.hello.features : undefined,
+    options.folder,
+    source,
+  ).folder;
+  const key = source === undefined ? undefined : sourceKey(sessionId, source, folder);
   const [state, setState] = useState<{
     key?: string;
     result?: WorkspaceDiffResult;
@@ -74,7 +85,12 @@ export function useWorkspaceDiff(
     const read = () => {
       setLoading(true);
       client
-        .request('workspace.diff', { workspaceId, sessionId, source })
+        .request('workspace.diff', {
+          workspaceId,
+          sessionId,
+          source,
+          ...(folder !== undefined && { folder }),
+        })
         .then((result) => {
           lastDiff.set(key, result);
           if (!stopped) setState({ key, result });
@@ -97,7 +113,7 @@ export function useWorkspaceDiff(
       stopTimer?.();
       window.removeEventListener('focus', read);
     };
-  }, [client, supported, workspaceId, sessionId, key, live, refreshKey, manual]);
+  }, [client, supported, workspaceId, sessionId, key, folder, live, refreshKey, manual]);
 
   const refresh = useCallback(() => setManual((value) => value + 1), []);
   const current = state.key === key ? state : {};

@@ -497,6 +497,7 @@ export const zhCN = {
   'changes.jumpToFile': '跳转到文件',
   'changes.openFile': '打开文件',
   'changes.scope.uncommitted': '未提交',
+  'changes.folder': '文件夹',
   'changes.scope.staged': '已暂存',
   'changes.scope.branch': '本分支',
   'changes.scope.latest': '最近一回合',

@@ -493,6 +493,7 @@ export const messages: Messages = {
   'changes.jumpToFile': 'Vai al file',
   'changes.openFile': 'Apri file',
   'changes.scope.uncommitted': 'Senza commit',
+  'changes.folder': 'Cartella',
   'changes.scope.staged': 'In stage',
   'changes.scope.branch': 'Questo branch',
   'changes.scope.latest': 'Ultimo turno',

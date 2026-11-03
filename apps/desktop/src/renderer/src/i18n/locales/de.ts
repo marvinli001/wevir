@@ -489,6 +489,7 @@ export const messages: Messages = {
   'changes.jumpToFile': 'Zu Datei springen',
   'changes.openFile': 'Datei öffnen',
   'changes.scope.uncommitted': 'Nicht committet',
+  'changes.folder': 'Ordner',
   'changes.scope.staged': 'Vorgemerkt',
   'changes.scope.branch': 'Dieser Branch',
   'changes.scope.latest': 'Letzte Runde',
