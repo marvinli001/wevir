@@ -45,6 +45,8 @@ export interface TranscriptViewHandle {
   revealSeq(seq: number): boolean;
 }
 
+/** theme.css 的 block-enter 动画时长。 */
+const BLOCK_ENTER_MS = 300;
 /** 跳过去之后，所在的一块闪多久（styles/session.css 的 `seq-reveal`）。 */
 const REVEAL_HIGHLIGHT_MS = 1600;
 
@@ -179,11 +181,13 @@ export function TranscriptView({
     };
   }, [focusTick]);
   useEffect(() => onReady?.({ jumpToLatest, revealSeq }), [onReady, jumpToLatest, revealSeq]);
-  // 新到的块（U10）：贴底时末尾新出现的块淡入上移；首次渲染、向前展开的旧消息不动。在渲染时记下已见过的块。
-  const seen = useRef<{ sessionId: string; keys: Set<string> }>(undefined);
+  // 新到的块（U10）：贴底时末尾新出现的块淡入上移；首次渲染、向前展开的旧消息不动。在渲染时记下每块第一次出现的时刻，
+  // 动画播完之前的重画（回合开始、第一段输出都在这 300 ms 里）留着 block-enter，去掉类名会把动画截断在半路。
+  const seen = useRef<{ sessionId: string; keys: Map<string, number> }>(undefined);
   const firstRender = seen.current?.sessionId !== sessionId;
-  if (firstRender) seen.current = { sessionId, keys: new Set() };
-  const seenKeys = (seen.current as { keys: Set<string> }).keys;
+  if (firstRender) seen.current = { sessionId, keys: new Map() };
+  const seenKeys = (seen.current as { keys: Map<string, number> }).keys;
+  const renderedAt = performance.now();
   const showEarlier = () => setPinnedStart(messages[Math.max(0, start - RENDER_WINDOW)]?.id);
   const showEarlierRef = useRef(showEarlier);
   showEarlierRef.current = showEarlier;
@@ -229,8 +233,9 @@ export function TranscriptView({
             <WorkspaceRoot value={cwd}>
               {blocks.map((block, index) => {
                 const active = block.kind === 'turn' && isActiveTurn(block.turnId, transcript);
-                const fresh = !firstRender && sticky && !seenKeys.has(block.key);
-                seenKeys.add(block.key);
+                if (!seenKeys.has(block.key))
+                  seenKeys.set(block.key, !firstRender && sticky ? renderedAt : -Infinity);
+                const fresh = renderedAt - (seenKeys.get(block.key) ?? -Infinity) < BLOCK_ENTER_MS;
                 const [seqFirst, seqLast] = blockSeqRange(block);
                 return (
                   <div
@@ -294,21 +299,28 @@ export function TranscriptView({
           />
         </div>
       )}
-      {showJump && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-          <Hint label={t('transcript.jumpToLatest')}>
-            <button
-              type="button"
-              aria-label={t('transcript.jumpToLatest')}
-              onClick={() => jumpToLatest('smooth')}
-              data-action="jump-to-latest"
-              className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:focus-field"
-            >
-              <ArrowDown aria-hidden className="size-4" />
-            </button>
-          </Hint>
-        </div>
-      )}
+      {/* 一直挂着，出现与消失都过渡（出现走 reveal 弹簧，消失同弹层的 110 ms）；藏起时不接指针、不进 Tab 顺序。 */}
+      <div
+        data-shown={showJump || undefined}
+        aria-hidden={!showJump || undefined}
+        className="pointer-events-none absolute inset-x-0 bottom-3 flex translate-y-1 scale-90 justify-center opacity-0 transition-[opacity,translate,scale] duration-110 ease-smooth data-shown:translate-y-0 data-shown:scale-100 data-shown:opacity-100 data-shown:duration-(--spring-reveal-duration) data-shown:ease-spring-reveal"
+      >
+        <Hint label={t('transcript.jumpToLatest')}>
+          <button
+            type="button"
+            aria-label={t('transcript.jumpToLatest')}
+            tabIndex={showJump ? undefined : -1}
+            onClick={() => jumpToLatest('smooth')}
+            data-action="jump-to-latest"
+            className={cn(
+              'flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] hover:bg-muted hover:text-foreground focus-visible:focus-field',
+              showJump && 'pointer-events-auto',
+            )}
+          >
+            <ArrowDown aria-hidden className="size-4" />
+          </button>
+        </Hint>
+      </div>
     </div>
   );
 }
