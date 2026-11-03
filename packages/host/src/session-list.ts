@@ -158,10 +158,10 @@ export class SessionListFeed {
     }
   }
 
-  /** 会话现在在列表里的行；删了、是支线、工作区移除了、不进列表的频道会话时 `undefined`。 */
+  /** 会话现在在列表里的行；删了、工作区移除了、不进列表的频道会话时 `undefined`。 */
   #row(sessionId: SessionId): Session | undefined {
     const record = this.#storage.sessions.get(sessionId);
-    if (record === undefined || record.side === true) return undefined;
+    if (record === undefined) return undefined;
     if (!listedSession(this.#storage, record)) return undefined;
     const workspace = this.#storage.workspaces.get(record.workspaceId);
     if (workspace === undefined || workspace.removedAt !== undefined) return undefined;
@@ -194,6 +194,7 @@ export class SessionListScope {
     const filter: ListParams = {
       ...(params.workspaceId !== undefined && { workspaceId: params.workspaceId }),
       ...(params.parentSessionId !== undefined && { parentSessionId: params.parentSessionId }),
+      ...(params.sideOf !== undefined && { sideOf: params.sideOf }),
       ...(params.archived === true && { archived: true }),
     };
     this.#filters.set(JSON.stringify(filter), filter);
@@ -222,6 +223,9 @@ export class SessionListScope {
     for (const filter of this.#filters.values()) {
       if (filter.workspaceId !== undefined && row.workspaceId !== filter.workspaceId) continue;
       if (row.parentSessionId !== filter.parentSessionId) continue;
+      if (filter.sideOf !== undefined) {
+        if (!row.side || row.forkedFrom?.sessionId !== filter.sideOf) continue;
+      } else if (row.side) continue;
       if ((row.archivedAt !== undefined) !== (filter.archived === true)) continue;
       return true;
     }

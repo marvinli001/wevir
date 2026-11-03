@@ -55,6 +55,7 @@ import './lsp-card';
 import './outputs-card';
 import './task-board-card';
 import './retro-card';
+import './side-sessions-card';
 import { usePaneAccess } from './pane-access';
 import { type PaneKind, paneKindUsable } from './pane-kinds';
 import { PANE_LAUNCHERS, PaneLaunchers, showPaneKind } from './pane-launchers';

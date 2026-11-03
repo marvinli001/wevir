@@ -1291,7 +1291,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
 
-    'session.list': ({ workspaceId, parentSessionId, archived }) => {
+    'session.list': ({ workspaceId, parentSessionId, sideOf, archived }) => {
       if (workspaceId !== undefined) {
         const workspace = storage.workspaces.get(workspaceId);
         if (!workspace || workspace.removedAt !== undefined) {
@@ -1300,10 +1300,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
       // 默认不含子会话；给了 parentSessionId 只列它的子会话（domain-model §3.3.1）。
       if (parentSessionId !== undefined) assertSessionVisible(storage, parentSessionId);
+      if (sideOf !== undefined) assertSessionVisible(storage, sideOf);
       // 0.23.0：默认不含已归档的会话，archived 时只列它们。
       const records = storage.sessions.list({
         ...(workspaceId !== undefined && { workspaceId }),
         ...(parentSessionId !== undefined && { parentSessionId }),
+        ...(sideOf !== undefined && { sideOf }),
         ...(archived === true && { archived: 'only' as const }),
       });
       return {

@@ -142,6 +142,8 @@ export interface SessionRepository {
     includeChildren?: boolean;
     /** 也列支线会话（0006）；默认不列。 */
     includeSide?: boolean;
+    /** 只列从这个会话分出的支线。 */
+    sideOf?: string;
     /** 归档（0009）：`only` 只列已归档的，`include` 都列；默认不列已归档的。 */
     archived?: 'only' | 'include';
   }): SessionRecord[];
@@ -217,7 +219,10 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         WHEN :includeChildren = 1 THEN 1
         ELSE s.parent_session_id IS NULL
       END
-      AND (:includeSide = 1 OR s.side IS NULL)
+      AND CASE WHEN :sideOf IS NOT NULL
+        THEN s.side = 1 AND json_extract(s.forked_from, '$.sessionId') = :sideOf
+        ELSE :includeSide = 1 OR s.side IS NULL
+      END
       AND CASE :archived
         WHEN 'only' THEN s.archived_at IS NOT NULL
         WHEN 'include' THEN 1
@@ -295,6 +300,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
           parentSessionId: options?.parentSessionId ?? null,
           includeChildren: options?.includeChildren ? 1 : 0,
           includeSide: options?.includeSide ? 1 : 0,
+          sideOf: options?.sideOf ?? null,
           archived: options?.archived ?? null,
         })
         .map(fromRow);

@@ -119,6 +119,8 @@ export const HOST_FEATURES = {
   suggestedTasks: 'suggested_tasks',
   /** 支线会话（0.17.0，U23.1）：`session.fork` 与 `Session` 的 `forkedFrom`、`side`。取决于引擎。 */
   sideSessions: 'side_sessions',
+  /** 0.151.0：主会话详情的支线列表（session.list 的 sideOf）。 */
+  sideSessionList: 'side_session_list',
   /** 单独新开 worktree 的会话（0.18.0）：`session.create` 的 `worktree`。与引擎无关。 */
   sessionWorktree: 'session_worktree',
   /**
@@ -616,6 +618,7 @@ export const HostFeaturesSchema = z.looseObject({
   environments: z.boolean().optional(),
   suggested_tasks: z.boolean().optional(),
   side_sessions: z.boolean().optional(),
+  side_session_list: z.boolean().optional(),
   session_worktree: z.boolean().optional(),
   subscription_sources: z.boolean().optional(),
   provider_enabled: z.boolean().optional(),

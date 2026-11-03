@@ -191,7 +191,10 @@ export class WorkbenchStore {
       void this.refresh();
       return;
     }
-    this.#sessions = applySessionsChange(this.#sessions, change);
+    this.#sessions = applySessionsChange(this.#sessions, {
+      ...change,
+      upserted: change.upserted.filter((session) => !session.side),
+    });
     recordBaselines([...this.#sessions.values()]);
     for (const id of change.removed) {
       if (this.#sessions.has(id)) continue;

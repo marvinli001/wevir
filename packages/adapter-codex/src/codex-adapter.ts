@@ -1408,7 +1408,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * userMessage 可能早于响应到达。`turn/start` 的结果还没到（没有回合 ID）、取消已开始时不发请求，直接拒绝。
    */
   /**
-   * 分出支线（0.17.0，§6.9）：`thread/fork` 带 `ephemeral`，设置同 `thread/start`（继承的历史里已有主线的说明与额外目录）；
+   * 分出支线（0.17.0，§6.9）：`thread/fork` 创建可恢复的 thread，设置同 `thread/start`（继承的历史里已有主线的说明与额外目录）；
    * 回合进行中时带 `lastTurnId` 只分到最近一个结束的回合。新 thread 登记成会话，再注入边界消息；注入失败时关掉它。
    * 分支（0.38.0，§6.15）：持久化的 thread，不注入边界消息；`lastTurnId` 是从后往前数、跳过进行中的回合之后的第 `dropTurns`
    * 个回合（`thread/turns/list`）；没有要去掉的回合、也没有进行中的回合时不带，分到最后。
@@ -1454,7 +1454,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.env,
           config.engineTools,
         ),
-        ephemeral: side,
+        ephemeral: false,
         excludeTurns: true,
       };
       let response: ThreadForkResponse;

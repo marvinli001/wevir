@@ -317,3 +317,17 @@ describe('WorkbenchStore 与流式事件', () => {
     store.dispose();
   });
 });
+
+it('详情订阅的支线增量不进入主会话列表', async () => {
+  const mock = fakeClient([{ sessions: [session('ses_main')], listVersion: 1 }]);
+  const store = new WorkbenchStore(mock.client);
+  await store.refresh();
+  mock.push({
+    listVersion: 2,
+    upserted: [session('ses_side', { side: true, forkedFrom: { sessionId: 'ses_main' } })],
+    removed: [],
+  });
+  expect(titles(store)).toEqual(['ses_main']);
+  expect(mock.subscribed).not.toContain('ses_side');
+  store.dispose();
+});

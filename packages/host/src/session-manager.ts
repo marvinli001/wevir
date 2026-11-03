@@ -3360,6 +3360,12 @@ export class SessionManager {
     const runtime = this.#runtime(sessionId);
     this.#assertDeletable(sessionId);
     await this.close(sessionId);
+    await Promise.all(
+      this.#storage.sessions
+        .family(sessionId)
+        .filter((member) => member.side)
+        .map((member) => this.close(member.id as SessionId)),
+    );
     return this.#serial(runtime, async () => {
       const record = this.#assertDeletable(sessionId);
       return deleteSessionData(

@@ -1557,6 +1557,8 @@ export const SessionListParamsSchema = z.object({
    * 给了就只列出这个会话的子会话（0.6.0）；不给时不含子会话（domain-model §3.3.1）。
    */
   parentSessionId: SessionIdSchema.optional(),
+  /** 只列这个主会话的支线；默认列表仍不含支线。 */
+  sideOf: SessionIdSchema.optional(),
   /** 归档（0.23.0）：`true` 只列已归档的会话；省略或 `false` 时不含已归档的。 */
   archived: z.boolean().optional(),
 });

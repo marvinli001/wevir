@@ -267,3 +267,30 @@ describe('SessionListScope', () => {
     expect(old.apply(batch([[SES, thread]])).upserted).toEqual([]);
   });
 });
+
+describe('支线列表范围', () => {
+  it('默认范围不收支线，指定主会话时只收自己的支线', () => {
+    const main = new SessionListScope();
+    main.add({}, []);
+    const sides = new SessionListScope();
+    sides.add({ sideOf: SES }, []);
+    const { events } = setup();
+    const snapshot = events.snapshot(SES);
+    if (!snapshot) throw new Error('missing fixture session');
+    const side: Session = {
+      ...snapshot.session,
+      id: SES2,
+      side: true,
+      forkedFrom: { sessionId: SES },
+    };
+    const batch = { listVersion: 1, rows: new Map([[SES2, side]]) };
+    expect(main.apply(batch).upserted).toEqual([]);
+    expect(sides.apply(batch).upserted).toEqual([side]);
+    const other = new SessionListScope();
+    other.add({ sideOf: SES2 }, []);
+    expect(other.apply(batch).upserted).toEqual([]);
+    expect(sides.apply({ listVersion: 2, rows: new Map([[SES2, undefined]]) }).removed).toEqual([
+      SES2,
+    ]);
+  });
+});

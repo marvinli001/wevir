@@ -1,12 +1,9 @@
 // 支线会话（U23.1，0.17.0，desktop-layout.md §17、domain-model §3.12）：输入框里的 `/btw 〈问题〉` 从当前会话分出一个
-// 支线，在窗格区开一个支线窗格，问题发进支线；关掉窗格就关闭支线会话。
+// 支线，在窗格区开一个支线窗格，问题发进支线；关掉窗格后仍可从主会话的详情重开。
 
 import type { Transcript, WevirClient } from '@wevir/client-sdk';
 import type { SessionId } from '@wevir/protocol';
-import { useEffect } from 'react';
-import { useHostConnection } from '@/host/host-connection';
 import type { PaneController } from '@/layout/pane-controller';
-import { onPanesClosed } from '@/layout/pane-events';
 import { sendText } from './start-session';
 
 /** 标签上问题开头的字数。 */
@@ -60,21 +57,18 @@ export async function startSide(
   await sendText(client, sideId, question);
 }
 
-/** 关掉支线窗格时关闭支线会话（路由根上挂一次，routes/router.tsx 的 AppRoot）。 */
-export function SideSessionCloser(): null {
-  const { client } = useHostConnection();
-  useEffect(
-    () =>
-      onPanesClosed((tabs) => {
-        if (!client) return;
-        for (const tab of tabs) {
-          const sessionId = tab.kind === 'session' ? tab.params?.sessionId : undefined;
-          if (sessionId?.startsWith('ses_')) {
-            client.request('session.close', { sessionId: sessionId as SessionId }).catch(() => {});
-          }
-        }
-      }),
-    [client],
+/** 已完成的问答，作为引用带回主会话。 */
+export function sideReturnText(transcript: Transcript): string | undefined {
+  const answer = transcript.messages.findLast(
+    (message) => message.role === 'assistant' && message.finished?.outcome === 'completed',
   );
-  return null;
+  if (answer?.role !== 'assistant') return undefined;
+  const messages = transcript.messages.filter(
+    (message) => message.role === 'user' && message.turnId === answer.turnId,
+  );
+  const textOf = (message: Transcript['messages'][number]) =>
+    message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n\n');
+  const text = textOf(answer).trim();
+  if (!text) return undefined;
+  return [...messages.map(textOf), text].filter(Boolean).join('\n\n');
 }

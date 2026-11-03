@@ -1,0 +1,20 @@
+{
+  "protocolVersion": "0.151.0",
+  "methods": {
+    "session.list": {
+      "params": [
+        {
+          "sideOf": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "sessions": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

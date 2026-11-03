@@ -1,5 +1,5 @@
 // 支线会话（0.17.0，U23.1，codex-event-mapping.md §6.9）：真实 codex-app-server + 网关 + mock 模型。`fork` 分出的 thread
-// 带着主线的历史与边界说明，主线不受影响；主线回合进行中只分到最近一个结束的回合；临时 thread 换进程后恢复不了。
+// 带着主线的历史与边界说明，主线不受影响；主线回合进行中只分到最近一个结束的回合；支线换进程后仍可恢复。
 // 二进制不在时跳过。
 
 import type { AgentEvent } from '@wevir/runtime-adapter';
@@ -130,7 +130,7 @@ describe.skipIf(binary === undefined)(
       await finishTurn(events, from);
     });
 
-    it('临时 thread 不落盘：换一个进程后恢复报 session_lost', async () => {
+    it('支线持久化：换一个进程后恢复并保留历史与边界', async () => {
       const { adapter, id, config, events, home } = await open();
       await run(adapter, id, events, '你好');
       const side = await adapter.fork(id, config);
@@ -141,9 +141,14 @@ describe.skipIf(binary === undefined)(
         logger: collectingLogger(),
       });
       adapters.push(next);
-      await expect(next.resumeSession(side.engineSessionId, config)).rejects.toMatchObject({
-        code: 'session_lost',
+      await expect(next.resumeSession(side.engineSessionId, config)).resolves.toMatchObject({
+        engineSessionId: side.engineSessionId,
       });
+      const sideEvents = collectEvents(next, side.engineSessionId);
+      await run(next, side.engineSessionId, sideEvents, '重启后继续支线');
+      const input = JSON.stringify(lastRequestWith('重启后继续支线')?.body.input);
+      expect(input).toContain(BOUNDARY_LINE);
+      expect(input).toContain('你好');
       // 主线照常能恢复。
       await expect(next.resumeSession(id, config)).resolves.toMatchObject({ engineSessionId: id });
     });

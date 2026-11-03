@@ -109,6 +109,8 @@ describe('session.fork', () => {
     });
     const listed = await h.methods['session.list']({}, context);
     expect(listed.sessions.map((s) => s.id)).toEqual([main]);
+    const sides = await h.methods['session.list']({ sideOf: main }, context);
+    expect(sides.sessions.map((s) => s.id)).toEqual([side.id]);
     expect(h.events.snapshot(side.id)?.session.side).toBe(true);
 
     await h.send(side.id, 'btw what is this');

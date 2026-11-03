@@ -1,7 +1,7 @@
 import { projectTranscript } from '@wevir/client-sdk';
 import type { WevirEvent } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { btwQuestion, hasFinishedTurn, sideTitle } from './side-session';
+import { btwQuestion, hasFinishedTurn, sideReturnText, sideTitle } from './side-session';
 
 describe('支线（U23.1）', () => {
   it('只认 /btw 前缀加非空的问题，其余照原样发出', () => {
@@ -56,4 +56,33 @@ describe('支线（U23.1）', () => {
     });
     expect(hasFinishedTurn(projectTranscript(events))).toBe(true);
   });
+});
+
+it('只带回已完成的问答，不带思考或未完成的回答', () => {
+  const transcript = projectTranscript([]);
+  const user = {
+    id: 'u',
+    role: 'user' as const,
+    turnId: 'trn_1' as const,
+    ts: '2026-10-15T00:00:00.000Z',
+    seqRange: [1, 1] as const,
+    parts: [{ type: 'text' as const, key: 'u', state: 'done' as const, text: '问题' }],
+  };
+  const answer = {
+    id: 'a',
+    role: 'assistant' as const,
+    turnId: 'trn_1' as const,
+    seqRange: [2, 3] as const,
+    parts: [
+      { type: 'reasoning' as const, key: 'r', state: 'done' as const, text: '思考' },
+      { type: 'text' as const, key: 'a', state: 'done' as const, text: '答案' },
+    ],
+  };
+  expect(sideReturnText({ ...transcript, messages: [user, answer] })).toBeUndefined();
+  expect(
+    sideReturnText({
+      ...transcript,
+      messages: [user, { ...answer, finished: { outcome: 'completed', durationMs: 1 } }],
+    }),
+  ).toBe('问题\n\n答案');
 });

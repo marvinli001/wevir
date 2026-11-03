@@ -243,9 +243,11 @@ export async function deleteSessionData(
 
   deps.detach(ids);
 
-  // 引擎的数据：顶层会话挂过的每个引擎会话（子会话由引擎随它删，支线引擎不持久化）。
+  // 子会话由引擎随父会话删除；持久化支线各自删除。
   let engineDataKept = false;
-  const engineSessions = engineSessionsOf(record, deps.events.readSince(record.id as SessionId, 0));
+  const engineSessions = [record, ...family.filter((member) => member.side)].flatMap((member) =>
+    engineSessionsOf(member, deps.events.readSince(member.id as SessionId, 0)),
+  );
   for (const { providerId, engineSessionId } of engineSessions) {
     if (deps.adapter.deleteSession === undefined) {
       engineDataKept = true;

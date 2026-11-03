@@ -29,7 +29,6 @@ import { SearchDialog } from '@/search/search-dialog';
 import { searchOpen } from '@/search/search-model';
 import { DeleteSessionDialog } from '@/session/delete-session-dialog';
 import { RenameDialog } from '@/session/rename-dialog';
-import { SideSessionCloser } from '@/session/side-session';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
 import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, paths, ROUTE_PATTERNS } from './paths';
@@ -173,7 +172,6 @@ function AppRoot() {
       <EditProjectDialog />
       <RemoveProjectDialog />
       <ArchiveProjectDialog />
-      <SideSessionCloser />
       <SearchDialog />
     </>
   );

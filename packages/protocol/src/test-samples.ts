@@ -5134,6 +5134,7 @@ export const methodSamples: MethodSamples = {
         {},
         { workspaceId: ids.workspace },
         { parentSessionId: ids.session },
+        { sideOf: ids.session },
         { archived: true },
       ],
       invalid: [{ workspaceId: 'ws_' }, { parentSessionId: ids.workspace }, { archived: 'yes' }],
