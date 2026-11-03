@@ -245,9 +245,14 @@ export async function deleteSessionData(
 
   // 子会话由引擎随父会话删除；持久化支线各自删除。
   let engineDataKept = false;
-  const engineSessions = [record, ...family.filter((member) => member.side)].flatMap((member) =>
-    engineSessionsOf(member, deps.events.readSince(member.id as SessionId, 0)),
-  );
+  const engineSessions = [record, ...family.filter((member) => member.side)].flatMap((member) => {
+    if (member.origin?.kind === 'imported') return [];
+    const sessions = engineSessionsOf(member, deps.events.readSince(member.id as SessionId, 0));
+    const externalId =
+      member.origin?.kind === 'history' ? member.origin.externalSessionId : undefined;
+    if (externalId !== undefined) engineDataKept = true;
+    return sessions.filter((session) => session.engineSessionId !== externalId);
+  });
   for (const { providerId, engineSessionId } of engineSessions) {
     if (deps.adapter.deleteSession === undefined) {
       engineDataKept = true;

@@ -49,6 +49,27 @@ export interface SessionRecord {
    */
   origin?:
     | {
+        kind: 'imported';
+        app: 'claude' | 'codex';
+        externalId: string;
+        path: string;
+        skipped?: number;
+        nativeCompatible?: boolean;
+        sessionId?: undefined;
+        taskId?: undefined;
+        role?: undefined;
+        opinionId?: undefined;
+      }
+    | {
+        kind: 'history';
+        sessionId: string;
+        via?: 'native' | 'handoff';
+        externalSessionId?: string;
+        taskId?: undefined;
+        role?: string;
+        opinionId?: undefined;
+      }
+    | {
         kind: 'suggested_task' | 'agent' | 'fork';
         sessionId: string;
         taskId?: string;

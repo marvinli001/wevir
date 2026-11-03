@@ -302,6 +302,17 @@ export class EngineRouter implements AgentRuntimeAdapter {
     return session;
   }
 
+  async canResumeExternalSession(
+    origin: { app: 'claude' | 'codex'; externalId: string; path: string },
+    config: SessionConfig,
+  ): Promise<boolean> {
+    const route = this.#forProvider(config.providerId);
+    return (
+      (await route.adapter.canResumeExternalSession?.(origin, this.#configFor(route, config))) ??
+      false
+    );
+  }
+
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
     const route = this.#forSession(engineSessionId);
     const events = route.adapter.subscribe(engineSessionId);

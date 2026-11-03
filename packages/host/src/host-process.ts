@@ -55,6 +55,7 @@ import { readVariables, writeVariables } from './environment-variables.js';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
+import { SessionImports } from './external-import/sessions.js';
 import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
 import { GuardrailService } from './guardrails/service.js';
@@ -559,6 +560,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     // 从其他应用导入（0.74.0）：读用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录。
     const externalImport = new ExternalImport({
+      sessions: new SessionImports(storage, store),
       userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
       env: options.importEnv ?? process.env,
       workspaces: {
@@ -1813,6 +1815,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_readiness: true,
         ...(lspStatus !== undefined && { lsp_status: true }),
         external_import: true,
+        external_session_import: true,
+        session_from_history: true,
         ...(secondOpinions !== undefined && { second_opinion: true }),
         session_search: true,
         ...(customPrompts !== undefined && { agent_instructions: true, writing_style: true }),

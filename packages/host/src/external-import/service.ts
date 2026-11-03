@@ -33,6 +33,7 @@ import {
   type SkillDraft,
 } from './common.js';
 import { scanGrok } from './grok.js';
+import { type SessionDraft, type SessionImports, scanSessions } from './sessions.js';
 
 const SCANNERS: Record<ImportApp, (context: ScanContext) => Promise<AppScan>> = {
   claude: scanClaude,
@@ -42,6 +43,7 @@ const SCANNERS: Record<ImportApp, (context: ScanContext) => Promise<AppScan>> = 
 };
 
 export interface ExternalImportOptions {
+  sessions?: SessionImports;
   /** 用户主目录。 */
   userHome: string;
   /** 读 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`。 */
@@ -63,6 +65,7 @@ export class ExternalImport {
     const scan = await this.#read(app);
     const connectors = this.#options.plugins.connectors();
     const skills = await this.#skillHashes();
+    const sessionImports = this.#options.sessions;
     return {
       app,
       found: scan.found,
@@ -70,6 +73,10 @@ export class ExternalImport {
       memories: await Promise.all(scan.memories.map((draft) => this.#memoryCandidate(draft))),
       connectors: scan.connectors.map((draft) => connectorCandidate(draft, connectors)),
       skills: await Promise.all(scan.skills.map((draft) => skillCandidate(draft, skills))),
+      sessions:
+        sessionImports === undefined
+          ? []
+          : (scan.sessions ?? []).map((draft) => sessionImports.candidate(draft)),
       unsupported: scan.unsupported,
     };
   }
@@ -81,12 +88,16 @@ export class ExternalImport {
       | { kind: 'memory'; draft: MemoryDraft }
       | { kind: 'connector'; draft: ConnectorDraft }
       | { kind: 'skill'; draft: SkillDraft }
+      | { kind: 'session'; draft: SessionDraft }
     >([
       ...scan.memories.map((draft) => [draft.key, { kind: 'memory' as const, draft }] as const),
       ...scan.connectors.map(
         (draft) => [draft.key, { kind: 'connector' as const, draft }] as const,
       ),
       ...scan.skills.map((draft) => [draft.key, { kind: 'skill' as const, draft }] as const),
+      ...(scan.sessions ?? []).map(
+        (draft) => [draft.key, { kind: 'session' as const, draft }] as const,
+      ),
     ]);
     const results: ImportApplyResultItem[] = [];
     // 一条一条来：上限与重名按前面已导入的算。
@@ -107,6 +118,13 @@ export class ExternalImport {
         continue;
       }
       try {
+        if (found.kind === 'session') {
+          const sessions = this.#options.sessions;
+          results.push(
+            sessions === undefined ? fail('unsupported') : await sessions.apply(found.draft),
+          );
+          continue;
+        }
         results.push(
           found.kind === 'memory'
             ? await this.#applyMemory(app, item, found.draft)
@@ -135,6 +153,13 @@ export class ExternalImport {
     const seen = new Set<string>();
     return {
       ...scan,
+      ...(this.#options.sessions !== undefined && {
+        sessions: await scanSessions(app, scan.home),
+        unsupported:
+          app === 'claude' || app === 'codex'
+            ? scan.unsupported
+            : [...scan.unsupported, 'session' as const],
+      }),
       skills: scan.skills.filter((draft) => {
         const id = `${draft.name}\n${draft.hash}`;
         if (seen.has(id)) return false;

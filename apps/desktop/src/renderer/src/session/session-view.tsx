@@ -70,6 +70,7 @@ import { ContextMeter } from './context-meter';
 import { type DraftOrigin, draftOrigin, newSessionDraftKey } from './draft-origin';
 import { EnvironmentBar } from './environment-bar';
 import { fastParam } from './fast-mode';
+import { FromHistoryDialog } from './from-history-dialog';
 import { GoalBanner } from './goal-banner';
 import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
@@ -170,6 +171,9 @@ export function SessionView({
   );
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
+  const [fromHistoryOpen, setFromHistoryOpen] = useState(false);
+  const fromHistorySupported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'session_from_history');
 
   useEffect(() => markSeen(session), [session]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: 换会话时清掉上一个会话的提示。
@@ -995,6 +999,10 @@ export function SessionView({
 
   // 基于历史新建（T5.5）：对话记录放进同一工作区新会话的输入框，沿用原会话的 Provider，用户确认后发送。
   const startFromHistory = useCallback(() => {
+    if (fromHistorySupported) {
+      setFromHistoryOpen(true);
+      return;
+    }
     if (!transcript) return;
     setDraft(newSessionDraftKey(session.workspaceId), historyDigest(transcript));
     const origin: DraftOrigin = {
@@ -1002,10 +1010,25 @@ export function SessionView({
       fromTitle: transcript.title || session.title,
     };
     navigate(paths.draft(session.workspaceId), { state: origin });
-  }, [transcript, session.workspaceId, session.providerId, session.title, navigate]);
+  }, [
+    transcript,
+    session.workspaceId,
+    session.providerId,
+    session.title,
+    navigate,
+    fromHistorySupported,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
+      {fromHistoryOpen && (
+        <FromHistoryDialog
+          key={session.id}
+          session={session}
+          open
+          onOpenChange={setFromHistoryOpen}
+        />
+      )}
       {state?.error ? (
         <div className="min-h-0 flex-1">
           <EmptyState
@@ -1084,6 +1107,7 @@ export function SessionView({
               disabled={!client || !transcript}
               onResume={resume}
               onFromHistory={startFromHistory}
+              fromHistorySupported={fromHistorySupported}
             />
             {notice && (
               <p

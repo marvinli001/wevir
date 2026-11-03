@@ -3323,6 +3323,16 @@ const channelPostSamples: { valid: ChannelPost[]; invalid: unknown[] } = {
 };
 
 export const methodSamples: MethodSamples = {
+  'session.createFromHistory': {
+    params: {
+      valid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, providerId: 'mock', modelId: 'demo' },
+      ],
+      invalid: [{}, { sessionId: 'bad' }, { sessionId: ids.session, modelId: '' }],
+    },
+    result: { valid: [{ session }], invalid: [{}] },
+  },
   'plugins.list': {
     params: empty,
     result: {

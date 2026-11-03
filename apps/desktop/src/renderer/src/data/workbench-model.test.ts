@@ -140,6 +140,14 @@ describe('sessionMarker', () => {
     expect(sessionMarker(session('ses_1', 'ws_a', { readOnly }))).toBe('error');
     expect(sessionMarker(session('ses_1', 'ws_a'))).toBeUndefined();
     expect(sessionMarker(session('ses_1', 'ws_a', { state: 'closed' }))).toBeUndefined();
+    expect(
+      sessionMarker(
+        session('ses_imported', 'ws_a', {
+          state: 'closed',
+          readOnly: { reason: 'imported', message: '', since: NOW },
+        }),
+      ),
+    ).toBeUndefined();
   });
 });
 

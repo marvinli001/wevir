@@ -19,6 +19,7 @@ import {
 import { record, scanSkills } from '../plugin-skills.js';
 import { PENDING_CLIENT_SECRET } from '../plugins.js';
 import { SECRET_PATTERNS } from '../secret-patterns.js';
+import type { SessionDraft } from './sessions.js';
 
 /** Wevir 的一个项目：根目录加其他源文件夹（0.64.0）。 */
 export interface ImportProject {
@@ -72,6 +73,7 @@ export interface SkillDraft extends DraftBase {
 }
 
 export interface AppScan {
+  sessions?: SessionDraft[];
   home: string;
   found: boolean;
   memories: MemoryDraft[];

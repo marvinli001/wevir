@@ -134,6 +134,13 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return session;
   }
 
+  canResumeExternalSession(
+    origin: { app: 'claude' | 'codex'; externalId: string; path: string },
+    config: SessionConfig,
+  ): Promise<boolean> {
+    return this.#forProvider(config.providerId).canResumeExternalSession(origin, config);
+  }
+
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
     return this.#forSession(engineSessionId).subscribe(engineSessionId);
   }

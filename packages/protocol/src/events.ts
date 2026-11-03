@@ -27,6 +27,8 @@ import {
   HandoffNoteRefSchema,
   HandoffOmittedRangeSchema,
   HandoffStrategySchema,
+  HistorySessionOriginSchema,
+  ImportedSessionOriginSchema,
   MessageFromSchema,
   PendingMessageSchema,
   PermissionModeSchema,
@@ -110,6 +112,9 @@ export type ToolFinishStatus = z.infer<typeof ToolFinishStatusSchema>;
 /** 每种事件的 payload。键就是事件的 `type`。 */
 export const EventPayloadSchemas = {
   'session.created': z.object({
+    origin: z.union([ImportedSessionOriginSchema, HistorySessionOriginSchema]).optional(),
+    /** Pending full-thread summary; consumed with the first accepted user message. */
+    historyContext: z.string().optional(),
     workspaceId: WorkspaceIdSchema,
     cwd: z.string().min(1),
     providerId: ProviderIdSchema,

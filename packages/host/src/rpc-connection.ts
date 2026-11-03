@@ -984,7 +984,7 @@ export class RpcConnection {
       method: 'events.event',
       params: {
         subscriptionId: subscription.id,
-        event: adaptEventForClient(event, this.#capabilities),
+        event: adaptEventForClient(event, this.#capabilities, this.#protocolVersion),
       },
     });
   }
@@ -1065,6 +1065,9 @@ export class RpcConnection {
       // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
       if (this.#capabilities.title_source_generated !== true) {
         change.upserted = change.upserted.map(adaptSession);
+      }
+      if (compareProtocolVersions(this.#protocolVersion, '0.155.0') < 0) {
+        change.upserted = change.upserted.map(sessionBeforeImports);
       }
       this.#notify('sessions.changed', change);
     });
@@ -1661,7 +1664,15 @@ export class RpcConnection {
 export function adaptEventForClient(
   event: WevirEvent,
   capabilities: ClientCapabilities,
+  protocolVersion: string = PROTOCOL_VERSION,
 ): WevirEvent {
+  if (
+    compareProtocolVersions(protocolVersion, '0.155.0') < 0 &&
+    event.type === 'session.read_only' &&
+    event.payload.reason === 'imported'
+  ) {
+    return { ...event, payload: { ...event.payload, reason: 'engine_session_incompatible' } };
+  }
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   if (capabilities.user_images !== true) {
     switch (event.type) {
@@ -1793,6 +1804,22 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   let value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  if (compareProtocolVersions(protocolVersion, '0.155.0') < 0) {
+    if (method === 'import.scan') {
+      const { sessions: _sessions, ...scan } = value as MethodResult<'import.scan'>;
+      value = { ...scan, unsupported: scan.unsupported.filter((kind) => kind !== 'session') };
+    } else if (method === 'session.list') {
+      const list = value as MethodResult<'session.list'>;
+      value = { ...list, sessions: list.sessions.map(sessionBeforeImports) };
+    } else if (
+      method === 'session.get' ||
+      method === 'session.resume' ||
+      method === 'session.createFromHistory'
+    ) {
+      const item = value as { session: Session };
+      value = { ...item, session: sessionBeforeImports(item.session) };
+    }
+  }
   // COMPAT(projectThreads): added in 0.134.0, remove gate after 2027-06-01
   if (
     method === 'session.list' &&
@@ -2026,6 +2053,20 @@ function adaptSession(session: Session): Session {
   return session.titleSource === 'generated'
     ? { ...session, titleSource: 'first_prompt' }
     : session;
+}
+
+function sessionBeforeImports(session: Session): Session {
+  const { origin, readOnly, ...rest } = session;
+  return {
+    ...rest,
+    ...(origin?.kind === 'suggested_task' && { origin }),
+    ...(readOnly !== undefined && {
+      readOnly: {
+        ...readOnly,
+        reason: readOnly.reason === 'imported' ? 'engine_session_incompatible' : readOnly.reason,
+      },
+    }),
+  };
 }
 
 function sha256(value: string): Buffer {

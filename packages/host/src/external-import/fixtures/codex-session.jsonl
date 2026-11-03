@@ -1,0 +1,17 @@
+{"timestamp":"2026-10-01T10:00:00.000Z","type":"session_meta","ordinal":0,"payload":{"id":"22222222-2222-4222-8222-222222222222","cwd":"/workspace/demo","cli_version":"0.165.0","source":"cli"}}
+{"timestamp":"2026-10-01T10:00:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"one"}}
+{"timestamp":"2026-10-01T10:00:00.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"Generated instructions"}]}}
+{"timestamp":"2026-10-01T10:00:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Repair the counter"}]}}
+{"timestamp":"2026-10-01T10:00:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"Repair the counter"}}
+{"timestamp":"2026-10-01T10:00:01.000Z","type":"turn_context","payload":{"model":"demo-model","turn_id":"one"}}
+{"timestamp":"2026-10-01T10:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"cat counter.ts\"}","call_id":"call1"}}
+{"timestamp":"2026-10-01T10:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call1","output":"export const count = 0"}}
+{"timestamp":"2026-10-01T10:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Update File: counter.ts\n@@\n-0\n+1\n*** End Patch","call_id":"call2"}}
+{"timestamp":"2026-10-01T10:00:05.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call2","output":"Saved"}}
+{"timestamp":"2026-10-01T10:00:06.000Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"a1","phase":"final_answer","content":[{"type":"output_text","text":"Counter repaired."}]}}
+{"timestamp":"2026-10-01T10:00:06.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Counter repaired."}}
+{"timestamp":"2026-10-01T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"one"}}
+{"timestamp":"2026-10-01T10:01:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"two"}}
+{"timestamp":"2026-10-01T10:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Add a counter check"}]}}
+{"timestamp":"2026-10-01T10:01:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The next change is a counter check."}]}}
+{"timestamp":"2026-10-01T10:01:01.000Z","type":"future-record","payload":{}}

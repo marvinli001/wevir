@@ -19,6 +19,7 @@ export function RecoveryPanel({
   disabled,
   onResume,
   onFromHistory,
+  fromHistorySupported = false,
 }: {
   state: SessionState | undefined;
   readOnly: SessionReadOnly | undefined;
@@ -27,9 +28,11 @@ export function RecoveryPanel({
   disabled: boolean;
   onResume: () => Promise<void>;
   onFromHistory: () => void;
+  fromHistorySupported?: boolean;
 }) {
   const [resuming, setResuming] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const imported = readOnly?.reason === 'imported';
   if (!readOnly && state !== 'error') return null;
 
   const resume = async () => {
@@ -52,14 +55,18 @@ export function RecoveryPanel({
       aria-labelledby="recovery-title"
       className={cn(
         'mb-2 rounded-xl border px-3.5 py-3 text-sm',
-        readOnly ? 'border-destructive/30 bg-destructive/5' : 'border-warning/30 bg-warning/5',
+        imported
+          ? 'border-border bg-muted/30'
+          : readOnly
+            ? 'border-destructive/30 bg-destructive/5'
+            : 'border-warning/30 bg-warning/5',
       )}
     >
       <h2
         id="recovery-title"
         className={cn(
           'flex items-center gap-2 font-medium',
-          readOnly ? 'text-destructive' : 'text-warning',
+          imported ? 'text-foreground' : readOnly ? 'text-destructive' : 'text-warning',
         )}
       >
         {readOnly ? <Lock className="size-4" /> : <CircleAlert className="size-4" />}
@@ -69,11 +76,13 @@ export function RecoveryPanel({
         {readOnly ? (
           <>
             <p className="text-foreground">{t(`readOnly.${readOnly.reason}`)}</p>
-            <Hint label={readOnly.message} whenClipped>
-              <p className="line-clamp-3 font-mono text-xs break-all">
-                {t('recovery.engineMessage', { message: readOnly.message })}
-              </p>
-            </Hint>
+            {readOnly.message !== '' && (
+              <Hint label={readOnly.message} whenClipped>
+                <p className="line-clamp-3 font-mono text-xs break-all">
+                  {t('recovery.engineMessage', { message: readOnly.message })}
+                </p>
+              </Hint>
+            )}
           </>
         ) : (
           lastError && (
@@ -100,17 +109,19 @@ export function RecoveryPanel({
           <>
             <Button size="sm" disabled={disabled} onClick={onFromHistory}>
               <History data-icon="inline-start" />
-              {t('recovery.fromHistory')}
+              {t(fromHistorySupported ? 'recovery.continue' : 'recovery.fromHistory')}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={disabled || resuming}
-              onClick={() => void resume()}
-            >
-              <RotateCcw data-icon="inline-start" />
-              {resumeLabel ?? t('recovery.retryResume')}
-            </Button>
+            {readOnly.reason !== 'imported' && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={disabled || resuming}
+                onClick={() => void resume()}
+              >
+                <RotateCcw data-icon="inline-start" />
+                {resumeLabel ?? t('recovery.retryResume')}
+              </Button>
+            )}
           </>
         ) : (
           <Button size="sm" disabled={disabled || resuming} onClick={() => void resume()}>

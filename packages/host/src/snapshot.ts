@@ -317,6 +317,12 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
   switch (event.type) {
     case 'session.created': {
       next.created = { providerId: event.payload.providerId, modelId: event.payload.modelId };
+      if (event.payload.historyContext !== undefined)
+        next.handoffContext = event.payload.historyContext;
+      if (event.payload.origin?.kind === 'imported') {
+        next.state = 'closed';
+        next.readOnly = { reason: 'imported', message: '', since: event.ts };
+      }
       const parent = event.payload.parent;
       if (parent !== undefined) {
         next.subagent = {
@@ -1001,7 +1007,15 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     };
   }
   if (record.side) session.side = true;
-  if (record.origin?.kind === 'agent') {
+  if (record.origin?.kind === 'imported') {
+    session.origin = { ...record.origin };
+  } else if (record.origin?.kind === 'history') {
+    session.origin = {
+      kind: 'history',
+      sessionId: record.origin.sessionId as SessionId,
+      ...(record.origin.via !== undefined && { via: record.origin.via }),
+    };
+  } else if (record.origin?.kind === 'agent') {
     session.openedBy = {
       sessionId: record.origin.sessionId as SessionId,
       ...(record.origin.role !== undefined && { role: record.origin.role }),

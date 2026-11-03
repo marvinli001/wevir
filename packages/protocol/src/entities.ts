@@ -943,6 +943,7 @@ export type TitleSource = z.infer<typeof TitleSourceSchema>;
  * - `engine_session_corrupted`：引擎的会话日志损坏。
  */
 export const SessionReadOnlyReasonSchema = z.enum([
+  'imported',
   'engine_session_not_found',
   'engine_session_incompatible',
   'engine_session_corrupted',
@@ -2041,12 +2042,31 @@ export const SessionChannelSchema = z.object({
 export type SessionChannel = z.infer<typeof SessionChannelSchema>;
 
 /** 会话是怎么来的（0.16.0）：现在只有“从一项建议开出来”。 */
-export const SessionOriginSchema = z.object({
+export const SuggestedTaskOriginSchema = z.object({
   kind: z.literal('suggested_task'),
   /** 提出建议的会话。 */
   sessionId: SessionIdSchema,
   taskId: TaskIdSchema,
 });
+export const ImportedSessionOriginSchema = z.object({
+  kind: z.literal('imported'),
+  app: z.enum(['claude', 'codex']),
+  externalId: z.string().min(1),
+  path: z.string().min(1),
+  skipped: z.int().min(0).optional(),
+  nativeCompatible: z.boolean().optional(),
+});
+export type ImportedSessionOrigin = z.infer<typeof ImportedSessionOriginSchema>;
+export const HistorySessionOriginSchema = z.object({
+  kind: z.literal('history'),
+  sessionId: SessionIdSchema,
+  via: z.enum(['native', 'handoff']).optional(),
+});
+export const SessionOriginSchema = z.discriminatedUnion('kind', [
+  SuggestedTaskOriginSchema,
+  ImportedSessionOriginSchema,
+  HistorySessionOriginSchema,
+]);
 export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
 
 // ── 第二意见（0.75.0，domain-model §3.30） ────────────────────────────

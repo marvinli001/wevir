@@ -7,6 +7,25 @@ const ids = (threads: ReturnType<typeof threadSessions>) =>
   threads.map((thread) => [thread.session.id, thread.children.map((child) => child.id)]);
 
 describe('threadSessions', () => {
+  it('imported snapshots and history continuations remain separate top-level sessions', () => {
+    const list = [
+      session('ses_imported', {
+        origin: {
+          kind: 'imported',
+          app: 'claude',
+          externalId: 'external-id',
+          path: '/external/demo.jsonl',
+        },
+      }),
+      session('ses_continued', {
+        origin: { kind: 'history', sessionId: 'ses_imported', via: 'handoff' },
+      }),
+    ];
+    expect(ids(threadSessions(list))).toEqual([
+      ['ses_imported', []],
+      ['ses_continued', []],
+    ]);
+  });
   it('agent 开的与从建议开的会话归到开出它的会话下面，孙会话归到最上面那个', () => {
     const list = [
       session('ses_c', { openedBy: { sessionId: 'ses_a' } } as Partial<Session>),

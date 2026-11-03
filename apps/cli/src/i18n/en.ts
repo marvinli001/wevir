@@ -397,6 +397,7 @@ Also:
     'session not found by the engine (its data directory may have been cleaned up)',
   'readOnly.engine_session_incompatible': 'session format unreadable by the current engine version',
   'readOnly.engine_session_corrupted': 'engine session log corrupted',
+  'readOnly.imported': 'imported',
   'approvalEnd.turn_cancelled': 'Approval cancelled (turn cancelled)',
   'approvalEnd.session_closed': 'Approval cancelled (session closed)',
   'approvalEnd.engine_exited': 'Approval cancelled (engine exited)',

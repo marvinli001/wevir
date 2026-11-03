@@ -177,6 +177,88 @@ describe('import.* 与项目的连接器（RPC + echo）', () => {
     });
     expect(await connectorsSeen(client, ws.id)).toBe('keyed');
     const grok = await client.request('import.scan', { app: 'grok' });
-    expect(grok).toMatchObject({ found: false, unsupported: ['memory', 'connector'] });
+    expect(grok).toMatchObject({ found: false, unsupported: ['memory', 'connector', 'session'] });
+  }, 30_000);
+
+  it('imports a project history through RPC and continues it with echo without changing the external file', async () => {
+    const { client, hello, userHome } = await launch();
+    expect(hello.result.features).toMatchObject({
+      external_session_import: true,
+      session_from_history: true,
+    });
+    const project = join(temp(), 'history-project');
+    mkdirSync(project);
+    const source = readFileSync(
+      new URL('./fixtures/claude-session.jsonl', import.meta.url),
+      'utf8',
+    ).replaceAll('/workspace/demo', project.replaceAll('\\', '\\\\'));
+    const path = put(join(userHome, '.claude', 'projects', 'demo', 'one.jsonl'), source);
+    const scan = await client.request('import.scan', { app: 'claude' });
+    expect(scan.sessions).toHaveLength(1);
+    expect(scan.sessions[0]).toMatchObject({ title: 'Repair the counter', turns: 2, skipped: 1 });
+    expect(scan.sessions[0]).not.toHaveProperty('content');
+    const applied = await client.request('import.apply', {
+      app: 'claude',
+      items: [{ key: scan.sessions[0].key }],
+    });
+    const id = applied.results[0].sessionId;
+    const imported = (await client.request('session.get', { sessionId: id })).session;
+    expect(imported).toMatchObject({
+      state: 'closed',
+      readOnly: { reason: 'imported' },
+      origin: { kind: 'imported', path },
+    });
+    const found = await client.request('search.query', { query: '"Repair the counter"' });
+    expect(found.hits).toContainEqual(
+      expect.objectContaining({
+        sessionId: id,
+        workspaceId: imported.workspaceId,
+        kind: 'user_message',
+        snippet: expect.stringContaining('Repair the counter'),
+      }),
+    );
+    await expect(
+      client.request('session.send', { sessionId: id, content: [{ type: 'text', text: 'Next' }] }),
+    ).rejects.toMatchObject({ code: -32020 });
+    await expect(
+      client.request('session.configure', { sessionId: id, providerId: 'mock' }),
+    ).rejects.toMatchObject({ code: -32020 });
+    const continued = (
+      await client.request('session.createFromHistory', { sessionId: id, providerId: 'mock' })
+    ).session;
+    expect(continued).toMatchObject({
+      workspaceId: imported.workspaceId,
+      origin: { kind: 'history', sessionId: id, via: 'handoff' },
+    });
+    const { subscriptionId } = await client.request('events.subscribe', {
+      sessionId: continued.id,
+      sinceSeq: 0,
+    });
+    await client.request('session.send', {
+      sessionId: continued.id,
+      content: [{ type: 'text', text: 'Continue the counter' }],
+    });
+    await client.until(
+      () => client.events(subscriptionId).find((item) => item.type === 'turn.finished'),
+      'continued turn',
+    );
+    expect(
+      JSON.stringify(
+        client.events(subscriptionId).filter((item) => item.type === 'assistant.message'),
+      ),
+    ).toContain('Repair the counter');
+    expect(readFileSync(path, 'utf8')).toBe(source);
+    expect((await client.request('session.list', {})).sessions).toHaveLength(2);
+    await client.request('session.archive', { sessionId: id, archived: true });
+    const scope = { sessionIds: [id] };
+    expect((await client.request('search.query', { query: 'counter', scope })).hits).toEqual([]);
+    expect(
+      (
+        await client.request('search.query', {
+          query: 'counter',
+          scope: { ...scope, includeArchived: true },
+        })
+      ).hits,
+    ).toContainEqual(expect.objectContaining({ sessionId: id, archived: true }));
   }, 30_000);
 });

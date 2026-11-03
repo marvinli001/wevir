@@ -12,7 +12,10 @@ export interface SessionThread {
 
 /** 会话由哪个会话开出来：agent 开的取 `openedBy`，从建议开的取 `origin`。 */
 export function openerOf(session: Pick<Session, 'openedBy' | 'origin'>): string | undefined {
-  return session.openedBy?.sessionId ?? session.origin?.sessionId;
+  return (
+    session.openedBy?.sessionId ??
+    (session.origin?.kind === 'suggested_task' ? session.origin.sessionId : undefined)
+  );
 }
 
 /** 把一个列表里的会话按开出它的会话归成线程；线程的先后跟着最上面那个会话在列表里的位置。 */

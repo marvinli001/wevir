@@ -766,16 +766,26 @@ const READ_ONLY_REASONS = {
 } as const satisfies Record<SessionLostReason, SessionReadOnlyReason>;
 
 /**
- * 基于一个会话的历史新建会话（T3.5 只定接口，domain-model §4.4）：引擎会话恢复不了、会话只读之后的出路。
- * 新会话在原会话的工作区里建新的引擎会话，Provider 与模型默认沿用原会话；原会话的历史从事件库读，怎样交给新的
- * 引擎会话（整理成首个提示、摘要等）由实现决定，新会话的 `session.created` 记下来源。实现时 Host API 加对应的
- * 方法，并在 `HOST_FEATURES` 里声明，客户端据此显示入口。
+ * 从只读顶层历史创建可写会话；同登录目录的外部日志优先原生恢复，否则递交整段摘要。
+ * 来源会话保留，新会话的创建事件记录来源与待交付材料。
  */
 export interface SessionFromHistory {
   createFromHistory(
     sourceSessionId: SessionId,
     options?: { providerId?: ProviderId; modelId?: string; reasoningEffort?: string },
   ): Promise<Session>;
+}
+
+interface HistoryContinuation {
+  origin: {
+    kind: 'history';
+    sessionId: SessionId;
+    via: 'native' | 'handoff';
+    role?: string;
+    externalSessionId?: string;
+  };
+  engineSessionId?: string;
+  context?: string;
 }
 
 /** 适配器结掉审批的原因 → Host 的审批结算原因。 */
@@ -1367,6 +1377,7 @@ export class SessionManager {
       channel?: SessionChannel;
       /** 用这个会话的目录、额外目录与环境（Agent 分出自己时的接力材料方式，`agentFork`），不新开 worktree。 */
       sameDirectoryAs?: SessionId;
+      history?: HistoryContinuation;
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
@@ -1404,6 +1415,7 @@ export class SessionManager {
         options.channel,
         options.sameDirectoryAs,
         startedAt,
+        options.history,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -1479,6 +1491,7 @@ export class SessionManager {
     sameDirectoryAs?: SessionId,
     /** `session.create` 到达的时刻（startup-timing.ts）。 */
     startedAt?: number,
+    history?: HistoryContinuation,
   ): Promise<Session> {
     const sessionId = newId('ses');
     const shared =
@@ -1504,6 +1517,7 @@ export class SessionManager {
     if (permissionMode !== undefined) config.permissionMode = permissionMode;
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     const recordOrigin: SessionRecord['origin'] =
+      history?.origin ??
       origin ??
       (opinion !== undefined
         ? {
@@ -1537,9 +1551,17 @@ export class SessionManager {
     this.#startup?.mark(sessionId, 'rules');
     let profileVersion: ProfileVersionRef | undefined;
     try {
-      engineSession = await this.#adapter.createSession(
-        await this.#engineConfig(sessionId, config, rules),
-      );
+      const engineConfig = await this.#engineConfig(sessionId, config, rules);
+      if (history?.engineSessionId !== undefined) {
+        try {
+          engineSession = await this.#adapter.resumeSession(history.engineSessionId, engineConfig);
+          history.origin.via = 'native';
+          history.origin.externalSessionId = engineSession.engineSessionId;
+        } catch {
+          history.origin.via = 'handoff';
+          engineSession = await this.#adapter.createSession(engineConfig);
+        }
+      } else engineSession = await this.#adapter.createSession(engineConfig);
       this.#startup?.mark(sessionId, 'engine');
       profileVersion = await profile;
       rules = withProfileVersion(rules, profileVersion);
@@ -1588,6 +1610,15 @@ export class SessionManager {
           cwd: config.cwd,
           providerId: provider.id,
           modelId,
+          ...(history !== undefined && {
+            origin: {
+              kind: 'history' as const,
+              sessionId: history.origin.sessionId,
+              via: history.origin.via,
+            },
+            ...(history.origin.via === 'handoff' &&
+              history.context !== undefined && { historyContext: history.context }),
+          }),
           ...(reasoningEffort !== undefined && { reasoningEffort }),
           ...(config.fast === true && { fast: true }),
           ...(permissionMode !== undefined && { permissionMode }),
@@ -2829,6 +2860,11 @@ export class SessionManager {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     this.#assertNotChild(runtime);
+    if (this.#record(runtime).origin?.kind === 'imported') {
+      throw new HostError('INVALID_STATE', 'imported sessions are read-only', {
+        state: this.#snapshot(runtime).session.state,
+      });
+    }
     if (
       params.providerId !== undefined &&
       params.providerId !== this.#snapshot(runtime).session.providerId
@@ -3932,6 +3968,111 @@ export class SessionManager {
     return record && !record.side ? record.cwd : undefined;
   }
 
+  /** Create a writable session from a read-only history. */
+  async createFromHistory(
+    sourceSessionId: SessionId,
+    options: { providerId?: ProviderId; modelId?: string; reasoningEffort?: string } = {},
+  ): Promise<Session> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sourceSessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const record = this.#record(runtime);
+      const source = this.#snapshot(runtime).session;
+      if (source.readOnly === undefined || record.side === true) {
+        throw new HostError('INVALID_STATE', 'a read-only top-level session is required', {
+          state: source.state,
+        });
+      }
+      const providerId = options.providerId ?? source.providerId;
+      const provider = this.#storage.providers.get(providerId);
+      if (provider === undefined)
+        throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
+      const sameProvider = providerId === source.providerId;
+      const modelId =
+        options.modelId ??
+        (sameProvider && source.modelId !== 'unknown' ? source.modelId : provider.defaultModelId);
+      const reasoningEffort =
+        options.reasoningEffort ?? (sameProvider ? source.reasoningEffort : undefined);
+      const sourceEvents = this.#events.readSince(sourceSessionId, 0, source.lastSeq);
+      if (
+        record.origin?.kind === 'imported' &&
+        !sourceEvents.some(
+          (event) => event.type === 'session.read_only' && event.payload.reason === 'imported',
+        )
+      ) {
+        throw new HostError('INVALID_STATE', 'session import is still in progress', {
+          state: source.state,
+        });
+      }
+      const { turns, hidden } = this.#finishedTurns(sourceSessionId);
+      const visible = new Set(
+        turns.filter((turn) => !hidden.has(turn.turnId)).map((turn) => turn.turnId),
+      );
+      const describe = (p: string, m: string) => this.#describeModel(p, m);
+      const features = this.#featuresOf(provider.kind);
+      const historyTool = features?.historyTool === true && this.#historyDir !== undefined;
+      const assembly = assembleHandoff({
+        sessionId: sourceSessionId,
+        strategy: FULL_THREAD_SUMMARY,
+        fromModel: describe(source.providerId, source.modelId),
+        covered: { fromSeq: 1, toSeq: source.lastSeq },
+        items: historyItems(
+          sourceEvents.filter((event) => {
+            const turnId = (event.payload as { turnId?: TurnId }).turnId;
+            return turnId === undefined || visible.has(turnId);
+          }),
+          describe,
+        ),
+        historyTool,
+      });
+      const imported = record.origin?.kind === 'imported' ? record.origin : undefined;
+      const native =
+        imported !== undefined &&
+        provider.kind === (imported.app === 'claude' ? 'claude' : 'chatgpt') &&
+        imported.nativeCompatible !== false &&
+        this.#storage.sessions.getByEngineSessionId(this.#engine, imported.externalId) ===
+          undefined &&
+        (await this.#adapter.canResumeExternalSession?.(imported, {
+          cwd: record.cwd,
+          providerId,
+          modelId,
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+        })) === true;
+      if (historyTool) this.#writeHistory(sourceSessionId, source.lastSeq, describe);
+      const created = await this.create(
+        {
+          workspaceId: source.workspaceId,
+          providerId,
+          modelId,
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(source.permissionMode !== undefined && { permissionMode: source.permissionMode }),
+        },
+        {
+          sameDirectoryAs: sourceSessionId,
+          ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset as ToolPreset }),
+          history: {
+            origin: {
+              kind: 'history',
+              sessionId: sourceSessionId,
+              via: 'handoff',
+              ...(record.origin?.role !== undefined && { role: record.origin.role }),
+            },
+            ...(native && imported !== undefined && { engineSessionId: imported.externalId }),
+            ...(assembly.kind === 'material' && { context: assembly.context }),
+          },
+        },
+      );
+      if (source.title !== '')
+        this.#events.append(created.id, {
+          type: 'session.title_changed',
+          source: 'host',
+          payload: { title: source.title, source: 'first_prompt' },
+        });
+      return this.#snapshot(this.#runtime(created.id)).session;
+    });
+  }
+
   /**
    * `session.resume`：`error` / `closed` 时把引擎会话重新挂上（创建时的 cwd），成功后写 `session.resumed` 并转
    * `idle`（#12）；其他状态成功、无操作。工作区目录不在了返回 `WORKSPACE_PATH_INVALID`，不写事件。引擎拒绝时
@@ -3947,6 +4088,11 @@ export class SessionManager {
       const { session } = snapshot;
       if (session.state !== 'error' && session.state !== 'closed') return session;
       const record = this.#record(runtime);
+      if (record.origin?.kind === 'imported') {
+        throw new HostError('INVALID_STATE', 'imported sessions are read-only', {
+          state: session.state,
+        });
+      }
       if (!this.#storage.providers.get(record.providerId)) {
         throw new HostError('PROVIDER_NOT_FOUND', `provider ${record.providerId} not found`);
       }

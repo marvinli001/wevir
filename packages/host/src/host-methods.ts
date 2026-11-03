@@ -1398,6 +1398,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     'session.fork': async (params) => ({ session: await sessions.fork(params) }),
+    'session.createFromHistory': async ({ sessionId, ...options }) => ({
+      session: await sessions.createFromHistory(sessionId, options),
+    }),
     'session.rewind': (params) => sessions.rewind(params),
     'session.undo': (params) => sessions.undo(params),
     'session.recap': (params) => sessions.recap(params),

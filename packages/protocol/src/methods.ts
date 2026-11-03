@@ -129,10 +129,10 @@ import {
   SessionInsightSchema,
   SessionMoveSchema,
   SessionMoveTargetSchema,
-  SessionOriginSchema,
   SessionRecapSchema,
   SessionSchema,
   SessionSnapshotSchema,
+  SuggestedTaskOriginSchema,
   ToolGroupInfoSchema,
   ToolPresetInfoSchema,
   ToolPresetSchema,
@@ -1215,6 +1215,13 @@ export const SessionForkParamsSchema = z.object({
   turnId: TurnIdSchema.optional(),
 });
 
+export const SessionCreateFromHistoryParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  providerId: ProviderIdSchema.optional(),
+  modelId: z.string().min(1).optional(),
+  reasoningEffort: z.string().min(1).optional(),
+});
+
 /**
  * `session.rewind`（0.38.0，Host 功能 `session_rewind`）：撤掉会话最后一个完成的回合（`turnId` 必须是它），引擎的上下文与消息记录
  * 一起回到这个回合之前；用来编辑重发最后一条用户消息。不改会话目录里的文件。写一条 `turn.rewound`。
@@ -1497,7 +1504,7 @@ export const SessionCreateParamsSchema = z.object({
    */
   worktree: WorktreeModeSchema.optional(),
   /** 从一项建议开出来（0.16.0，Host 功能 `suggested_tasks`）。 */
-  origin: SessionOriginSchema.optional(),
+  origin: SuggestedTaskOriginSchema.optional(),
   /**
    * 工具预设（0.61.0，Host 功能 `tool_presets`）：这个会话给模型看哪些 Wevir 应用级工具，建好后不能改。省略时不选（等同 `full`）。
    * 旧 Host 不认这个字段（会忽略），客户端要先看功能位。
@@ -2308,6 +2315,11 @@ export const MethodSchemas = {
   },
   'session.fork': {
     params: SessionForkParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.createFromHistory': {
+    params: SessionCreateFromHistoryParamsSchema,
     result: SessionResultSchema,
     permission: 'session.write',
   },

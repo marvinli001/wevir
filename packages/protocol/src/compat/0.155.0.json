@@ -1,0 +1,260 @@
+{
+  "protocolVersion": "0.155.0",
+  "methods": {
+    "usage.turns": {
+      "params": [
+        {
+          "sessionIds": ["ses_1"]
+        }
+      ],
+      "result": [
+        {
+          "turns": [
+            {
+              "sessionId": "ses_1",
+              "turnId": "trn_1",
+              "compactions": {
+                "manual": 0,
+                "auto": 1
+              },
+              "groups": [
+                {
+                  "precision": "exact",
+                  "requests": {
+                    "total": 1,
+                    "agent": 1,
+                    "compaction": 0,
+                    "subagent": 0,
+                    "auxiliary": 0,
+                    "unknown": 0
+                  },
+                  "tokens": {
+                    "input": 10,
+                    "output": 2,
+                    "cacheRead": 3,
+                    "cacheWrite": 4,
+                    "reasoning": 1
+                  },
+                  "unpriced": 1,
+                  "missingUsage": 0
+                }
+              ],
+              "toolCalls": {
+                "precision": "exact",
+                "calls": 0,
+                "rawBytes": 0,
+                "returnedBytes": 0,
+                "byTool": []
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "usage.records": {
+      "params": [
+        {
+          "from": 0,
+          "to": 2000,
+          "filter": {
+            "precision": "exact"
+          }
+        }
+      ],
+      "result": [
+        {
+          "records": [
+            {
+              "id": "1",
+              "at": 1000,
+              "sessionId": "ses_1",
+              "requestId": "req_1",
+              "source": "openai-compatible",
+              "providerId": "mock",
+              "providerName": "Mock",
+              "model": "wevir-mock",
+              "tokens": {
+                "input": 10,
+                "output": 2,
+                "cacheRead": 3,
+                "cacheWrite": 4,
+                "reasoning": 1
+              },
+              "turnId": "trn_1",
+              "workspaceId": "ws_1",
+              "kind": "agent",
+              "origin": "gateway",
+              "granularity": "request",
+              "precision": "exact",
+              "usageReported": true,
+              "outcome": "completed",
+              "supply": {
+                "toolCount": 1,
+                "toolBytes": 20,
+                "mcpNoteBytes": 3,
+                "instructionBytes": 8,
+                "requestBytes": 100,
+                "wevirOutputBytes": 10,
+                "wevirOutputBytesNew": 6
+              }
+            }
+          ],
+          "total": 1
+        }
+      ]
+    },
+    "session.createFromHistory": {
+      "params": [
+        {
+          "sessionId": "ses_1"
+        },
+        {
+          "sessionId": "ses_1",
+          "providerId": "mock",
+          "modelId": "demo"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_1",
+            "workspaceId": "ws_1",
+            "cwd": "/workspace/demo",
+            "engine": {
+              "kind": "imported",
+              "sessionId": "external-demo"
+            },
+            "providerId": "claude",
+            "modelId": "demo",
+            "title": "Counter",
+            "titleSource": "first_prompt",
+            "state": "closed",
+            "createdAt": "2026-10-01T10:00:00.000Z",
+            "updatedAt": "2026-10-01T10:00:00.000Z",
+            "lastSeq": 2,
+            "origin": {
+              "kind": "history",
+              "sessionId": "ses_2",
+              "via": "handoff"
+            },
+            "readOnly": {
+              "reason": "imported",
+              "message": "",
+              "since": "2026-10-01T10:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "import.scan": {
+      "params": [
+        {
+          "app": "claude"
+        }
+      ],
+      "result": [
+        {
+          "app": "claude",
+          "home": "/external",
+          "found": true,
+          "memories": [],
+          "connectors": [],
+          "skills": [],
+          "sessions": [
+            {
+              "key": "session:demo",
+              "path": "/external/projects/demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "status": "new",
+              "recommended": false,
+              "app": "claude",
+              "externalId": "11111111-1111-4111-8111-111111111111",
+              "project": "/workspace/demo",
+              "title": "Counter",
+              "startedAt": "2026-10-01T10:00:00.000Z",
+              "updatedAt": "2026-10-01T10:00:00.000Z",
+              "turns": 1,
+              "skipped": 2
+            }
+          ],
+          "unsupported": []
+        }
+      ]
+    },
+    "session.get": {
+      "params": [
+        {
+          "sessionId": "ses_1"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_1",
+            "workspaceId": "ws_1",
+            "cwd": "/workspace/demo",
+            "engine": {
+              "kind": "imported",
+              "sessionId": "external-demo"
+            },
+            "providerId": "claude",
+            "modelId": "demo",
+            "title": "Counter",
+            "titleSource": "first_prompt",
+            "state": "closed",
+            "createdAt": "2026-10-01T10:00:00.000Z",
+            "updatedAt": "2026-10-01T10:00:00.000Z",
+            "lastSeq": 2,
+            "origin": {
+              "kind": "imported",
+              "app": "claude",
+              "externalId": "11111111-1111-4111-8111-111111111111",
+              "path": "/external/projects/demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "skipped": 2
+            },
+            "readOnly": {
+              "reason": "imported",
+              "message": "",
+              "since": "2026-10-01T10:00:00.000Z"
+            }
+          },
+          "pendingApprovals": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "sessionId": "ses_1",
+      "seq": 1,
+      "ts": "2026-10-01T10:00:00.000Z",
+      "source": "host",
+      "type": "session.created",
+      "payload": {
+        "workspaceId": "ws_1",
+        "cwd": "/workspace/demo",
+        "providerId": "claude",
+        "modelId": "demo",
+        "origin": {
+          "kind": "imported",
+          "app": "claude",
+          "externalId": "11111111-1111-4111-8111-111111111111",
+          "path": "/external/projects/demo/11111111-1111-4111-8111-111111111111.jsonl",
+          "skipped": 2
+        }
+      }
+    },
+    {
+      "sessionId": "ses_1",
+      "seq": 2,
+      "ts": "2026-10-01T10:00:00.000Z",
+      "source": "host",
+      "type": "session.read_only",
+      "payload": {
+        "reason": "imported",
+        "message": ""
+      }
+    }
+  ],
+  "errors": []
+}

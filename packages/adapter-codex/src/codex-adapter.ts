@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises';
+import { basename, join, sep } from 'node:path';
 import {
   type ModelGateway,
   type ModelGatewayOptions,
@@ -625,6 +627,22 @@ class Launcher implements CodexLauncher {
  * 有回合时等最后一个回合结束，挂着的会话以 `engine.exited`（`config_changed`）脱开。
  */
 export class CodexAdapter implements AgentRuntimeAdapter {
+  async canResumeExternalSession(
+    origin: { app: 'claude' | 'codex'; externalId: string; path: string },
+    _config: SessionConfig,
+  ): Promise<boolean> {
+    if (origin.app !== 'codex' || !basename(origin.path).endsWith(`-${origin.externalId}.jsonl`))
+      return false;
+    try {
+      const [source, sessions] = await Promise.all([
+        realpath(origin.path),
+        realpath(join(this.paths.codexHome, 'sessions')),
+      ]);
+      return source.startsWith(`${sessions}${sep}`);
+    } catch {
+      return false;
+    }
+  }
   readonly mcpServers = true;
   readonly skills = true;
   readonly #plugins: CodexPlugins;

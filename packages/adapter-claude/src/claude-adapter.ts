@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
@@ -743,6 +743,24 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   // ── 会话 ──────────────────────────────────────────────────────────────────
+
+  async canResumeExternalSession(
+    origin: { app: 'claude' | 'codex'; externalId: string; path: string },
+    _config: SessionConfig,
+  ): Promise<boolean> {
+    if (origin.app !== 'claude' || path.basename(origin.path) !== `${origin.externalId}.jsonl`)
+      return false;
+    const home = this.#env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+    try {
+      const [source, projects] = await Promise.all([
+        realpath(origin.path),
+        realpath(path.join(home, 'projects')),
+      ]);
+      return path.dirname(path.dirname(source)) === projects;
+    } catch {
+      return false;
+    }
+  }
 
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.#ensureAlive();

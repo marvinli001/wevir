@@ -10,6 +10,7 @@ import {
   type ImportKind,
   type ImportMemoryCandidate,
   type ImportScanResult,
+  type ImportSessionCandidate,
   type ImportSkillCandidate,
   MemoryNameSchema,
   type WorkspaceId,
@@ -35,12 +36,14 @@ export const IMPORT_KINDS = [
   'memory',
   'connector',
   'skill',
+  'session',
 ] as const satisfies readonly ImportKind[];
 
 export type ImportCandidate =
   | ImportMemoryCandidate
   | ImportConnectorCandidate
-  | ImportSkillCandidate;
+  | ImportSkillCandidate
+  | (ImportSessionCandidate & { name: string });
 
 /** 目标：`global` 或某个工作区的 ID。Skills 没有目标。 */
 export type ImportTarget = 'global' | (string & {});
@@ -66,6 +69,11 @@ export function candidatesOf(scan: ImportScanResult, kind: ImportKind): ImportCa
       return scan.connectors;
     case 'skill':
       return scan.skills;
+    case 'session':
+      return (scan.sessions ?? []).map((item) => ({
+        ...item,
+        name: item.title || item.externalId,
+      }));
   }
 }
 
@@ -164,7 +172,7 @@ export function renameError(
   candidate: ImportCandidate,
   state: ImportRowState,
 ): RenameError | undefined {
-  if (kind === 'skill' || !state.checked) return undefined;
+  if (kind === 'skill' || kind === 'session' || !state.checked) return undefined;
   const name = state.rename.trim();
   if (name === '') return candidate.status === 'exists' ? 'required' : undefined;
   if (name === candidate.name) return 'unchanged';
@@ -207,13 +215,13 @@ export function applyItems(scan: ImportScanResult, selection: ImportSelection): 
     return {
       key: candidate.key,
       ...targetFields(kind, state.target),
-      ...(kind !== 'skill' && name !== '' && { name }),
+      ...(kind !== 'skill' && kind !== 'session' && name !== '' && { name }),
     };
   });
 }
 
 function targetFields(kind: ImportKind, target: ImportTarget): Omit<ImportApplyItem, 'key'> {
-  if (kind === 'skill') return {};
+  if (kind === 'skill' || kind === 'session') return {};
   if (target === 'global') return { scope: 'global' };
   const workspaceId = target as WorkspaceId;
   return kind === 'memory' ? { scope: 'project', workspaceId } : { workspaceId };

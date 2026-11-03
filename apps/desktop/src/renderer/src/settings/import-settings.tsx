@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Select, type SelectOption } from '@/components/ui/select';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { chatsOf, projectsOf } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
@@ -59,15 +59,23 @@ const GROUP_TITLE: Record<ImportKind, PlainMessageKey> = {
   memory: 'settings.import.group.memory',
   connector: 'settings.import.group.connector',
   skill: 'settings.import.group.skill',
+  session: 'settings.import.group.session',
 };
 
 const GROUP_EMPTY: Record<ImportKind, PlainMessageKey> = {
   memory: 'settings.import.empty.memory',
   connector: 'settings.import.empty.connector',
   skill: 'settings.import.empty.skill',
+  session: 'settings.import.empty.session',
 };
 
 const RENAME_ERROR: Record<ImportKind, Record<RenameError, PlainMessageKey>> = {
+  session: {
+    required: 'settings.import.rename.required',
+    invalid: 'settings.import.rename.invalidMemory',
+    reserved: 'plugins.connector.error.nameReserved',
+    unchanged: 'settings.import.rename.unchanged',
+  },
   memory: {
     required: 'settings.import.rename.required',
     invalid: 'settings.import.rename.invalidMemory',
@@ -102,7 +110,10 @@ export function ImportSettings() {
   const { client, view } = useHostConnection();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'external_import');
+  const sessionsSupported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'external_session_import');
   const data = useWorkbenchData();
+  const store = useWorkbenchStore();
   const [app, setApp] = useState<ImportApp>('claude');
   const [state, setState] = useState<ScanState>({ status: 'loading', app });
   const [selection, setSelection] = useState<ImportSelection>({});
@@ -178,6 +189,7 @@ export function ImportSettings() {
         results.push(...(await client.request('import.apply', { app, items: batch })).results);
       }
       setSummary(summarize({ results }, scan));
+      await store?.refresh();
     } catch (reason) {
       setError(t('settings.import.applyFailed', { error: describe(reason) }));
     } finally {
@@ -213,7 +225,7 @@ export function ImportSettings() {
         <EmptyList>{t('settings.import.notFound', { app: t(IMPORT_APP_LABEL[app]) })}</EmptyList>
       ) : (
         <>
-          {IMPORT_KINDS.map((kind) => (
+          {IMPORT_KINDS.filter((kind) => kind !== 'session' || sessionsSupported).map((kind) => (
             <CandidateGroup
               key={kind}
               kind={kind}
@@ -299,6 +311,13 @@ function CandidateGroup({
   const check = groupCheck(kind, candidates, selection);
   const pickable = candidates.some((candidate) => selectable(kind, candidate));
   const title = t(GROUP_TITLE[kind]);
+  const groups = new Map<string, ImportCandidate[]>();
+  for (const candidate of candidates) {
+    const key = kind === 'session' ? (candidate.project ?? '') : '';
+    const rows = groups.get(key) ?? [];
+    rows.push(candidate);
+    groups.set(key, rows);
+  }
   return (
     <SettingsSection
       title={title}
@@ -328,19 +347,28 @@ function CandidateGroup({
       ) : candidates.length === 0 ? (
         <EmptyList>{t(GROUP_EMPTY[kind])}</EmptyList>
       ) : (
-        <ul className={cn(LIST_CARD, 'overflow-hidden')}>
-          {candidates.map((candidate) => (
-            <CandidateRow
-              key={candidate.key}
-              kind={kind}
-              candidate={candidate}
-              state={rowState(selection, candidate.key)}
-              targets={targets}
-              disabled={disabled}
-              onChange={(patch) => onChange(updateRow(selection, candidate.key, patch))}
-            />
+        <div className="space-y-3">
+          {Array.from(groups, ([project, rows]) => (
+            <div key={project}>
+              {project !== '' && (
+                <p className="mb-2 truncate font-mono text-xs text-muted-foreground">{project}</p>
+              )}
+              <ul className={cn(LIST_CARD, 'overflow-hidden')}>
+                {rows.map((candidate) => (
+                  <CandidateRow
+                    key={candidate.key}
+                    kind={kind}
+                    candidate={candidate}
+                    state={rowState(selection, candidate.key)}
+                    targets={targets}
+                    disabled={disabled}
+                    onChange={(patch) => onChange(updateRow(selection, candidate.key, patch))}
+                  />
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </SettingsSection>
   );
@@ -419,7 +447,7 @@ function CandidateRow({
             )}
           </span>
         </label>
-        {kind !== 'skill' && (
+        {kind !== 'skill' && kind !== 'session' && (
           <Select
             className="w-40"
             aria-label={t('settings.import.targetOf', { name: candidate.name })}
@@ -507,7 +535,24 @@ function CandidateMeta({
           </span>
         </span>
       )}
-      {candidate.project !== undefined && (
+      {'turns' in candidate && (
+        <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{t(IMPORT_APP_LABEL[candidate.app])}</span>
+          <time dateTime={candidate.startedAt}>
+            {new Date(candidate.startedAt).toLocaleString()}
+          </time>
+          <time dateTime={candidate.updatedAt}>
+            {new Date(candidate.updatedAt).toLocaleString()}
+          </time>
+          <span>{t('settings.import.turns', { count: candidate.turns })}</span>
+          {candidate.skipped > 0 && (
+            <span className="text-warning">
+              {t('settings.import.skippedLines', { count: candidate.skipped })}
+            </span>
+          )}
+        </span>
+      )}
+      {candidate.project !== undefined && !('turns' in candidate) && (
         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
           {t('settings.import.project', { project: candidate.project })}
         </span>

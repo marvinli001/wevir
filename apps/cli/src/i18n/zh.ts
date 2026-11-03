@@ -383,6 +383,7 @@ export const zh = {
   'readOnly.engine_session_not_found': '引擎找不到该会话（引擎数据目录可能已清理）',
   'readOnly.engine_session_incompatible': '当前引擎版本无法读取该会话格式',
   'readOnly.engine_session_corrupted': '引擎会话日志已损坏',
+  'readOnly.imported': '已导入',
   'approvalEnd.turn_cancelled': '审批已取消（回合已取消）',
   'approvalEnd.session_closed': '审批已取消（会话已关闭）',
   'approvalEnd.engine_exited': '审批已取消（引擎退出）',

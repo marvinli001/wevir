@@ -93,6 +93,12 @@ export interface AgentRuntimeAdapter {
    */
   resumeSession(engineSessionId: string, config: SessionConfig): Promise<EngineSession>;
 
+  /** True only when this adapter uses the external log's own login and session directory. No engine requests. */
+  canResumeExternalSession?(
+    origin: { app: 'claude' | 'codex'; externalId: string; path: string },
+    config: SessionConfig,
+  ): Promise<boolean>;
+
   /**
    * 订阅一个会话的事件。只推订阅之后发出的事件；可以有多个订阅者，各自收到全部事件。
    * 会话关闭（`close` 完成）、引擎退出（`engine.exited` 之后）、`dispose` 时迭代结束；

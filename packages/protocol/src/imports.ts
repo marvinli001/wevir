@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { WorkspaceIdSchema } from './common.js';
+import { IsoTimeSchema, SessionIdSchema, WorkspaceIdSchema } from './common.js';
 import { MemoryNameSchema, MemoryScopeSchema, MemoryTypeSchema } from './entities.js';
 import { ConnectorNameSchema, ImportAppSchema, McpServerViewSchema } from './plugins.js';
 
@@ -10,7 +10,7 @@ import { ConnectorNameSchema, ImportAppSchema, McpServerViewSchema } from './plu
 // 值一律留空，OAuth 令牌不读。客户端只传候选的 `key`，内容总由 Host 从源文件读，客户端不能借导入写入任意内容。
 
 /** 候选的种类。 */
-export const ImportKindSchema = z.enum(['memory', 'connector', 'skill']);
+export const ImportKindSchema = z.enum(['memory', 'connector', 'skill', 'session']);
 export type ImportKind = z.infer<typeof ImportKindSchema>;
 
 /**
@@ -66,6 +66,19 @@ export const ImportSkillCandidateSchema = z.object({
 });
 export type ImportSkillCandidate = z.infer<typeof ImportSkillCandidateSchema>;
 
+export const ImportSessionCandidateSchema = z.object({
+  ...candidate,
+  app: z.enum(['claude', 'codex']),
+  externalId: z.string().min(1),
+  title: z.string(),
+  startedAt: IsoTimeSchema,
+  updatedAt: IsoTimeSchema,
+  turns: z.int().min(0),
+  skipped: z.int().min(0),
+  workspaceId: WorkspaceIdSchema.optional(),
+});
+export type ImportSessionCandidate = z.infer<typeof ImportSessionCandidateSchema>;
+
 export const ImportScanParamsSchema = z.object({ app: ImportAppSchema });
 
 export const ImportScanResultSchema = z.object({
@@ -77,6 +90,8 @@ export const ImportScanResultSchema = z.object({
   memories: z.array(ImportMemoryCandidateSchema),
   connectors: z.array(ImportConnectorCandidateSchema),
   skills: z.array(ImportSkillCandidateSchema),
+  /** Session metadata only, grouped by project path by clients. */
+  sessions: z.array(ImportSessionCandidateSchema).optional(),
   /** 这个 Host 读不了的种类（格式还没支持），客户端照此显示而不是显示“没有”。 */
   unsupported: z.array(ImportKindSchema),
 });
@@ -112,6 +127,8 @@ export const ImportApplyResultItemSchema = z.object({
   /** 写入后的名字。 */
   name: z.string().min(1).optional(),
   reason: z.string().min(1).optional(),
+  sessionId: SessionIdSchema.optional(),
+  skipped: z.int().min(0).optional(),
 });
 export type ImportApplyResultItem = z.infer<typeof ImportApplyResultItemSchema>;
 

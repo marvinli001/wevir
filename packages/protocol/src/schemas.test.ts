@@ -344,6 +344,57 @@ interface Case {
 
 const standaloneCases: Case[] = [
   {
+    name: 'SuggestedTaskOrigin',
+    schema: protocol.SuggestedTaskOriginSchema,
+    valid: [{ kind: 'suggested_task', sessionId: 'ses_1', taskId: 'tsk_1' }],
+    invalid: [{ kind: 'suggested_task', sessionId: 'ses_1' }],
+  },
+  {
+    name: 'ImportedSessionOrigin',
+    schema: protocol.ImportedSessionOriginSchema,
+    valid: [
+      {
+        kind: 'imported',
+        app: 'claude',
+        externalId: 'external-id',
+        path: '/external/demo.jsonl',
+        skipped: 1,
+      },
+    ],
+    invalid: [{ kind: 'imported', app: 'unknown', externalId: 'x', path: '/external/demo.jsonl' }],
+  },
+  {
+    name: 'HistorySessionOrigin',
+    schema: protocol.HistorySessionOriginSchema,
+    valid: [
+      { kind: 'history', sessionId: 'ses_1', via: 'handoff' },
+      { kind: 'history', sessionId: 'ses_1', via: 'native' },
+    ],
+    invalid: [{ kind: 'history', sessionId: 'ses_1', via: 'copy' }],
+  },
+  {
+    name: 'ImportSessionCandidate',
+    schema: protocol.ImportSessionCandidateSchema,
+    valid: [
+      {
+        key: 'session:demo',
+        path: '/external/demo.jsonl',
+        status: 'new',
+        recommended: false,
+        app: 'codex',
+        externalId: 'external-id',
+        title: 'Counter',
+        startedAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:01.000Z',
+        turns: 2,
+        skipped: 1,
+      },
+    ],
+    invalid: [
+      { key: 'session:demo', path: '/external/demo.jsonl', status: 'new', recommended: false },
+    ],
+  },
+  {
     name: 'ChannelId',
     schema: protocol.ChannelIdSchema,
     valid: ['chn_01JA2B3C4D5E6F7G8H9JKMNPQR'],

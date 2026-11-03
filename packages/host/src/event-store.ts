@@ -494,12 +494,16 @@ export class EventStore {
    * 与 `payload` 照旧；不经 `checkEvent`、不写 `approvals` 表（调用方只抄消息记录里的事件，见 domain-model §3.18）。新会话还不能
    * 有别的事件，也不能有缓冲的增量。
    */
-  appendHistory(sessionId: SessionId, history: readonly WevirEvent[]): void {
+  appendHistory(sessionId: SessionId, history: readonly WevirEvent[], imported = false): void {
     this.#assertOpen();
     if (history.length === 0) return;
     const { events, projection } = this.#storage.transaction(() => {
       let projection = this.#catchUp(sessionId);
-      if (projection.lastSeq !== 1 || (this.#buffers.get(sessionId)?.parts.length ?? 0) > 0) {
+      if (
+        (projection.lastSeq !== 1 &&
+          !(imported && this.#storage.sessions.get(sessionId)?.origin?.kind === 'imported')) ||
+        (this.#buffers.get(sessionId)?.parts.length ?? 0) > 0
+      ) {
         throw new EventRejectedError(`会话 ${sessionId} 已有事件，不能再抄历史`);
       }
       const events: WevirEvent[] = [];

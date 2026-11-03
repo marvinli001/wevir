@@ -171,7 +171,7 @@ export function sessionMarker(session: Session): SessionMarker | undefined {
       if (session.lastError || session.readOnly) return 'error';
       return session.wrapUp?.blocked ? 'awaiting_decision' : undefined;
     case 'closed':
-      return session.readOnly ? 'error' : undefined;
+      return session.readOnly && session.readOnly.reason !== 'imported' ? 'error' : undefined;
   }
 }
 
