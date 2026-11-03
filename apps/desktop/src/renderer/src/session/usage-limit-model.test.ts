@@ -1,6 +1,6 @@
 import type { AccountState, ProviderProfile } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { isExhausted, switchTargets } from './usage-limit-model';
+import { exhaustionReset, isExhausted, quotaAlternative, switchTargets } from './usage-limit-model';
 
 const NOW = Date.parse('2026-10-30T12:00:00.000Z');
 const LATER = '2026-10-30T15:00:00.000Z';
@@ -64,6 +64,17 @@ describe('isExhausted', () => {
     expect(isExhausted(scoped(100, 100), NOW)).toBe(true);
   });
 
+  it('分份额度有一份已经重置时可用', () => {
+    const value = account('cursor', {
+      windows: [
+        { usedPercent: 100, scope: 'auto', resetsAt: EARLIER },
+        { usedPercent: 100, scope: 'api', resetsAt: LATER },
+      ],
+    });
+    expect(isExhausted(value, NOW)).toBe(false);
+    expect(exhaustionReset(value, NOW)).toBeUndefined();
+  });
+
   it('没有账号、读不到用量时不算', () => {
     expect(isExhausted(undefined, NOW)).toBe(false);
     expect(isExhausted(account('claude'), NOW)).toBe(false);
@@ -96,5 +107,54 @@ describe('switchTargets', () => {
     expect(targets.providers.map((p) => p.id)).toEqual(['cursor', 'grok', 'mock', 'claude', 'off']);
     expect(targets.exhausted.has('off')).toBe(true);
     expect(targets.providers.some((p) => p.id === 'copilot')).toBe(false);
+  });
+});
+
+describe('新会话额度', () => {
+  it('同时用完的窗口取最晚重置，分份额度取最早；未知重置时间不编造', () => {
+    const later = '2026-10-31T12:00:00.000Z';
+    const windows = [
+      { usedPercent: 100, resetsAt: LATER },
+      { usedPercent: 100, resetsAt: later },
+    ];
+    expect(exhaustionReset(account('claude', { windows }), NOW)).toBe(later);
+    expect(
+      exhaustionReset(
+        account('cursor', {
+          windows: windows.map((window, i) => ({ ...window, scope: String(i) })),
+        }),
+        NOW,
+      ),
+    ).toBe(LATER);
+    expect(
+      exhaustionReset(account('claude', { windows: [...windows, { usedPercent: 100 }] }), NOW),
+    ).toBeUndefined();
+    expect(
+      exhaustionReset(account('claude', { primary: { usedPercent: 100, resetsAt: EARLIER } }), NOW),
+    ).toBeUndefined();
+  });
+  it('换源跳过当前、用完、停用和未登录的，优先同类另一个账号', () => {
+    const providers = [
+      provider('claude', 'claude'),
+      provider('api', 'openai-compatible'),
+      provider('cursor', 'cursor'),
+      provider('claude-b', 'claude'),
+      provider('off', 'grok', { enabled: false }),
+    ];
+    const accounts = [
+      account('claude', { primary: { usedPercent: 100 } }),
+      account('claude', undefined, { id: 'claude-b' }),
+      account('cursor', undefined, { status: 'signed_out' }),
+    ];
+    expect(quotaAlternative(providers, accounts, 'claude', NOW)?.id).toBe('claude-b');
+    expect(
+      quotaAlternative(
+        providers.filter((p) => p.id !== 'claude-b'),
+        accounts,
+        'claude',
+        NOW,
+      )?.id,
+    ).toBe('api');
+    expect(quotaAlternative(providers.slice(0, 1), accounts, 'claude', NOW)).toBeUndefined();
   });
 });

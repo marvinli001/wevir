@@ -714,6 +714,8 @@ export const messages: Messages = {
   'command.effort': 'Глубина рассуждений',
   'command.permissions': 'Разрешения',
   'command.new': 'Новый сеанс',
+  'session.quota.exhausted': '{name} · Лимит исчерпан',
+  'session.quota.switch': 'Переключить на {name}',
   'side.list': 'Побочные беседы',
   'side.return': 'В основную беседу',
   'side.returned': 'Добавлено',

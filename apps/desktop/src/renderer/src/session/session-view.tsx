@@ -53,6 +53,7 @@ import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths, seqParam } from '@/routes/paths';
+import { NewSessionQuota } from '@/session/new-session-quota';
 import { useSimulatorReveal } from '@/simulator/simulator-reveal';
 import { ApprovalDock } from './approval-card';
 import { useRegisterCompact } from './compact-action';
@@ -1393,6 +1394,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
               )}
             </div>
           )}
+          <NewSessionQuota providers={providers} choice={choice} choose={choose} />
           <Composer
             key={workspaceId}
             variant="home"

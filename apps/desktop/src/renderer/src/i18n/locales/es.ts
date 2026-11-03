@@ -714,6 +714,8 @@ export const messages: Messages = {
   'command.effort': 'Esfuerzo de razonamiento',
   'command.permissions': 'Permisos',
   'command.new': 'Nueva sesión',
+  'session.quota.exhausted': '{name} · Límite alcanzado',
+  'session.quota.switch': 'Cambiar a {name}',
   'side.list': 'Conversaciones aparte',
   'side.return': 'Llevar a la principal',
   'side.returned': 'Añadido',

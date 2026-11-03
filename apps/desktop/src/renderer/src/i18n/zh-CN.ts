@@ -714,6 +714,8 @@ export const zhCN = {
   'command.effort': '思考力度',
   'command.permissions': '权限',
   'command.new': '新建会话',
+  'session.quota.exhausted': '{name} · 额度已用完',
+  'session.quota.switch': '切换到 {name}',
   'side.list': '支线对话',
   'side.return': '带回主会话',
   'side.returned': '已带回',

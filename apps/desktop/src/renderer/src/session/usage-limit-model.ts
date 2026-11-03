@@ -9,12 +9,12 @@ import { accountOfProvider, isPickable, pickerOrder } from '@/data/sources';
  * 额度）时要每一份都用完。读不到用量的不算。
  */
 export function isExhausted(account: AccountState | undefined, now: number = Date.now()): boolean {
-  const windows = rateLimitWindows(account).filter((window) => {
-    const resetsAt = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
-    return Number.isNaN(resetsAt) || resetsAt > now;
-  });
+  const windows = rateLimitWindows(account);
   if (windows.length === 0) return false;
-  const full = (window: AccountRateLimitWindow) => window.usedPercent >= 100;
+  const full = (window: AccountRateLimitWindow) => {
+    const resetsAt = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
+    return window.usedPercent >= 100 && (Number.isNaN(resetsAt) || resetsAt > now);
+  };
   const whole = windows.filter((window) => window.scope === undefined);
   return whole.length > 0 ? whole.some(full) : windows.every(full);
 }
@@ -56,4 +56,47 @@ function rateLimitWindows(account: AccountState | undefined): AccountRateLimitWi
   return [limits.primary, limits.secondary].filter(
     (window): window is AccountRateLimitWindow => window !== undefined,
   );
+}
+
+/** 所有阻塞窗口恢复后才可用；分份额度任一份恢复即可。 */
+export function exhaustionReset(
+  account: AccountState | undefined,
+  now = Date.now(),
+): string | undefined {
+  if (!isExhausted(account, now)) return undefined;
+  const full = rateLimitWindows(account).filter(
+    (window) =>
+      window.usedPercent >= 100 &&
+      (window.resetsAt === undefined ||
+        !Number.isFinite(Date.parse(window.resetsAt)) ||
+        Date.parse(window.resetsAt) > now),
+  );
+  const whole = full.filter((window) => window.scope === undefined);
+  const blocking = whole.length ? whole : full;
+  const times = blocking.map((window) =>
+    window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt),
+  );
+  if (whole.length && times.some((time) => !Number.isFinite(time))) return undefined;
+  const known = times.filter(Number.isFinite);
+  if (!known.length) return undefined;
+  return new Date(whole.length ? Math.max(...known) : Math.min(...known)).toISOString();
+}
+
+/** 新会话换源：优先选同类的另一个账号，再按模型菜单的顺序。 */
+export function quotaAlternative(
+  providers: readonly ProviderProfile[],
+  accounts: readonly AccountState[] | undefined,
+  currentProviderId: string,
+  now = Date.now(),
+): ProviderProfile | undefined {
+  const current = providers.find((provider) => provider.id === currentProviderId);
+  const available = pickerOrder(
+    providers.filter(
+      (provider) =>
+        provider.id !== currentProviderId &&
+        isPickable(provider, accounts) &&
+        !isExhausted(accountOfProvider(provider, accounts), now),
+    ),
+  );
+  return available.find((provider) => provider.kind === current?.kind) ?? available[0];
 }

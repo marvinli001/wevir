@@ -706,6 +706,8 @@ export const messages: Messages = {
   'command.effort': '思考レベル',
   'command.permissions': '権限',
   'command.new': '新しいセッション',
+  'session.quota.exhausted': '{name} · 使用量上限',
+  'session.quota.switch': '{name} に切り替え',
   'side.list': 'サイド会話',
   'side.return': 'メインに戻す',
   'side.returned': '追加済み',

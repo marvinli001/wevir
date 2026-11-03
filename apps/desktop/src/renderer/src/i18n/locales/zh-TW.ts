@@ -700,6 +700,8 @@ export const messages: Messages = {
   'command.effort': '思考強度',
   'command.permissions': '權限',
   'command.new': '新增工作階段',
+  'session.quota.exhausted': '{name} · 額度已用完',
+  'session.quota.switch': '切換至 {name}',
   'side.list': '支線對話',
   'side.return': '帶回主對話',
   'side.returned': '已帶回',

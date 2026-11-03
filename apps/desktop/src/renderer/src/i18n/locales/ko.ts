@@ -702,6 +702,8 @@ export const messages: Messages = {
   'command.effort': '추론 강도',
   'command.permissions': '권한',
   'command.new': '새 세션',
+  'session.quota.exhausted': '{name} · 사용량 한도 도달',
+  'session.quota.switch': '{name}(으)로 전환',
   'side.list': '곁가지 대화',
   'side.return': '본 대화로 가져오기',
   'side.returned': '추가됨',

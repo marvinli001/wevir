@@ -18,6 +18,7 @@ import { EnvironmentBar } from '@/session/environment-bar';
 import { useAcceptsImages } from '@/session/image-attachments';
 import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
+import { NewSessionQuota } from '@/session/new-session-quota';
 import {
   PermissionPicker,
   useEnginePermissionModes,
@@ -165,6 +166,7 @@ function Home({
               {error}
             </p>
           )}
+          <NewSessionQuota providers={providers} choice={choice} choose={choose} />
           <Composer
             variant="home"
             draftKey={HOME_DRAFT}

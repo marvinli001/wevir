@@ -711,6 +711,8 @@ export const messages: Messages = {
   'command.effort': 'Denkaufwand',
   'command.permissions': 'Berechtigungen',
   'command.new': 'Neue Sitzung',
+  'session.quota.exhausted': '{name} · Nutzungslimit erreicht',
+  'session.quota.switch': 'Zu {name} wechseln',
   'side.list': 'Nebengespräche',
   'side.return': 'Ins Hauptgespräch',
   'side.returned': 'Hinzugefügt',
