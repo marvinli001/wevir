@@ -356,6 +356,35 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
     return session.cwd;
   };
+  const changeDirectory = async (
+    workspaceId: string,
+    sessionId: string | undefined,
+    folder: string | undefined,
+  ): Promise<{ dir: string; sessionId: string | undefined }> => {
+    const primary = diffDirectory(workspaceId, sessionId);
+    if (folder === undefined) return { dir: await resolveWorkspacePath(primary), sessionId };
+    const workspace = mustGetWorkspace(storage, workspaceId);
+    const session = sessionId === undefined ? undefined : storage.sessions.get(sessionId);
+    // 没保存额外目录的旧会话沿用项目列表；worktree 会话只用自己的目录。
+    const roots =
+      session === undefined ||
+      ((session.extraRoots?.length ?? 0) === 0 && (session.worktrees?.length ?? 0) === 0)
+        ? (workspace.extraFolders ?? [])
+        : (session.extraRoots ?? []);
+    const dir = await resolveWorkspacePath(folder).catch(() => {
+      throw invalidParams(['folder'], 'folder must be an accessible absolute directory');
+    });
+    if ((await realpath(primary).catch(() => undefined)) === dir) return { dir, sessionId };
+    for (const root of roots) {
+      if ((await realpath(root).catch(() => undefined)) === dir) {
+        return { dir, sessionId: undefined };
+      }
+    }
+    throw invalidParams(
+      ['folder'],
+      'folder is not a source directory of this workspace or session',
+    );
+  };
   /**
    * 目录里的一个文件（`workspace.fileUrl` 与 `files.read` 共用的检查）：路径相对、`/` 分隔、没有空段、`.` 与 `..`，目录同
    * `diffDirectory`，realpath 之后仍要在目录里、是普通文件（`statWorkspaceFile`）。路径不合规则回 `INVALID_PARAMS`，文件读不到时是
@@ -821,15 +850,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.13.0（U18）：每次现读，目录已不存在时同 workspace.add 回 WORKSPACE_PATH_INVALID。
-    'workspace.git': async ({ workspaceId, sessionId }) =>
-      readGitStatus(await resolveWorkspacePath(diffDirectory(workspaceId, sessionId))),
+    'workspace.git': async ({ workspaceId, sessionId, folder }) =>
+      readGitStatus((await changeDirectory(workspaceId, sessionId, folder)).dir),
 
     // 0.20.0：改动的 diff。`turn` 要给会话，读这个会话目录里的快照。
-    'workspace.diff': async ({ workspaceId, sessionId, source }) => {
+    'workspace.diff': async ({ workspaceId, sessionId, folder, source }) => {
+      if (source.kind === 'turn' && folder !== undefined) {
+        throw invalidParams(['folder'], 'a turn diff does not accept folder');
+      }
       if (source.kind === 'turn' && sessionId === undefined) {
         throw invalidParams(['sessionId'], 'a turn diff needs sessionId');
       }
-      const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      const { dir } = await changeDirectory(workspaceId, sessionId, folder);
       if (source.kind === 'uncommitted') return readUncommitted(dir);
       if (source.kind === 'branch') return readBranch(dir);
       if (source.kind === 'staged') return readStaged(dir);
@@ -839,7 +871,15 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return options.checkpoints.diff(sessionId, dir, source.turnId);
     },
 
-    'workspace.diffFile': async ({ workspaceId, sessionId, oldRev, oldPath, newRev, newPath }) => {
+    'workspace.diffFile': async ({
+      workspaceId,
+      sessionId,
+      folder,
+      oldRev,
+      oldPath,
+      newRev,
+      newPath,
+    }) => {
       for (const [key, value] of [
         ['oldPath', oldPath],
         ['newPath', newPath],
@@ -851,7 +891,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (oldPath !== undefined && oldRev === undefined) {
         throw invalidParams(['oldRev'], 'oldPath needs oldRev');
       }
-      const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      const { dir } = await changeDirectory(workspaceId, sessionId, folder);
       return (
         (await readDiffFile(dir, {
           ...(oldRev !== undefined && { oldRev }),
@@ -1589,30 +1629,37 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'retro.summarize': ({ sessionId }) => retroService().summarize(sessionId),
 
     // 0.67.0：暂存与提交（ADR-0009）。只由用户在“变更”窗格发起，目录的选法同 workspace.diff。
-    'git.status': async ({ workspaceId, sessionId }) =>
-      gitService().status(await gitDirectory(workspaceId, sessionId), sessionId),
-    'git.stage': async ({ workspaceId, sessionId, paths, expected }) => ({
-      status: await gitService().stage(
-        await gitDirectory(workspaceId, sessionId),
-        paths,
-        expected,
-        sessionId,
-      ),
-    }),
-    'git.unstage': async ({ workspaceId, sessionId, paths, expected }) => ({
-      status: await gitService().unstage(
-        await gitDirectory(workspaceId, sessionId),
-        paths,
-        expected,
-        sessionId,
-      ),
-    }),
-    'git.commit': async ({ workspaceId, sessionId, message, expected, includeExternal }) =>
-      gitService().commit(
-        await gitDirectory(workspaceId, sessionId),
+    'git.status': async ({ workspaceId, sessionId, folder }) => {
+      const git = gitService();
+      const target = await changeDirectory(workspaceId, sessionId, folder);
+      return git.status(target.dir, target.sessionId);
+    },
+    'git.stage': async ({ workspaceId, sessionId, folder, paths, expected }) => {
+      const git = gitService();
+      const target = await changeDirectory(workspaceId, sessionId, folder);
+      return { status: await git.stage(target.dir, paths, expected, target.sessionId) };
+    },
+    'git.unstage': async ({ workspaceId, sessionId, folder, paths, expected }) => {
+      const git = gitService();
+      const target = await changeDirectory(workspaceId, sessionId, folder);
+      return { status: await git.unstage(target.dir, paths, expected, target.sessionId) };
+    },
+    'git.commit': async ({
+      workspaceId,
+      sessionId,
+      folder,
+      message,
+      expected,
+      includeExternal,
+    }) => {
+      const git = gitService();
+      const target = await changeDirectory(workspaceId, sessionId, folder);
+      return git.commit(
+        target.dir,
         { message, expected, ...(includeExternal !== undefined && { includeExternal }) },
-        sessionId,
-      ),
+        target.sessionId,
+      );
+    },
     'lsp.status': async ({ workspaceId, sessionId, refresh }) =>
       lspStatus().status(await gitDirectory(workspaceId, sessionId), refresh === true),
     'lsp.restart': async ({ workspaceId, sessionId, serverId, root }) => ({

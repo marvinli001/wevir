@@ -1642,6 +1642,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_files: true,
         workspace_update: true,
         workspace_folders: true,
+        multi_folder_changes: true,
         file_preview: true,
         office_preview: true,
         image_generation: true,
