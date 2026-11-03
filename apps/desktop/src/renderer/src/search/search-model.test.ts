@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import type { WorkspaceEntry } from '@/data/workbench-model';
 import {
   focusText,
   hitPath,
+  matchingSessions,
   nextKind,
   partialResult,
   recentSessions,
@@ -86,5 +88,51 @@ describe('搜索浮窗的纯函数', () => {
       { id: 'c', updatedAt: '2026-10-02T00:00:00.000Z' },
     ];
     expect(recentSessions(sessions as never, 5).map((session) => session.id)).toEqual(['c', 'a']);
+  });
+
+  it('先匹配标题，再匹配项目、路径和分支；同类按活动排序，忽略子会话', () => {
+    const workspaces = [
+      {
+        workspace: { displayName: 'Auth Service', rootPath: '/projects/auth' },
+        sessions: [
+          { id: 'title', title: 'Fix Login', cwd: '/projects/auth', updatedAt: '2026-11-01' },
+          { id: 'exact', title: 'login', cwd: '/projects/auth', updatedAt: '2026-10-01' },
+          {
+            id: 'branch',
+            title: 'Tests',
+            cwd: '/trees/auth',
+            worktrees: [{ branch: 'fix/login' }],
+            updatedAt: '2026-11-03',
+          },
+          {
+            id: 'title-recent',
+            title: 'LOGIN bug',
+            cwd: '/projects/auth',
+            updatedAt: '2026-11-02',
+          },
+          {
+            id: 'child',
+            title: 'Login',
+            cwd: '/projects/auth',
+            parentSessionId: 'title',
+            updatedAt: '2026-11-04',
+          },
+        ],
+      },
+    ] as unknown as WorkspaceEntry[];
+    expect(matchingSessions(workspaces, ' LOGIN ', 8).map((session) => session.id)).toEqual([
+      'exact',
+      'title-recent',
+      'title',
+      'branch',
+    ]);
+    expect(matchingSessions(workspaces, 'auth login', 2).map((session) => session.id)).toEqual([
+      'branch',
+      'title-recent',
+    ]);
+    expect(matchingSessions(workspaces, '/trees/auth', 8).map((session) => session.id)).toEqual([
+      'branch',
+    ]);
+    expect(matchingSessions(workspaces, 'auth absent', 8)).toEqual([]);
   });
 });

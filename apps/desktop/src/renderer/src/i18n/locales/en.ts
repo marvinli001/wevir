@@ -1428,6 +1428,8 @@ export const messages: Messages = {
   'search.archived': 'Archived',
   'search.archivedBadge': 'Archived',
   'search.recent': 'Recent',
+  'search.sessions': 'Sessions',
+  'search.messages': 'Messages',
   'search.loading': 'Searching',
   'search.empty': 'No matches',
   'search.emptyPartial': 'No matches in the searched range',

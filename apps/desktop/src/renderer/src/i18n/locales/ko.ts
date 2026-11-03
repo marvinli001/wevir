@@ -1417,6 +1417,8 @@ export const messages: Messages = {
   'search.archived': '보관됨',
   'search.archivedBadge': '보관됨',
   'search.recent': '최근',
+  'search.sessions': '세션',
+  'search.messages': '메시지',
   'search.loading': '검색 중',
   'search.empty': '일치하는 결과 없음',
   'search.emptyPartial': '검색한 범위에 일치 없음',

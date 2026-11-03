@@ -2,6 +2,7 @@
 
 import { sessionActivityAt } from '@wevir/client-sdk';
 import type { SearchHit, SearchKind, SearchQueryResult, Session } from '@wevir/protocol';
+import type { WorkspaceEntry } from '@/data/workbench-model';
 import { createStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
 
@@ -90,12 +91,46 @@ export function partialResult(result: Pick<SearchQueryResult, 'scan' | 'index'>)
 }
 
 /** 查询词为空时列出的最近会话：所有项目里最近活动的顶层会话。 */
-export function recentSessions(
-  sessions: readonly Pick<Session, 'id' | 'updatedAt' | 'activityAt' | 'parentSessionId'>[],
-  limit: number,
-) {
+export function recentSessions<
+  T extends Pick<Session, 'id' | 'updatedAt' | 'activityAt' | 'parentSessionId'>,
+>(sessions: readonly T[], limit: number) {
   return [...sessions]
     .filter((session) => session.parentSessionId === undefined)
     .sort((a, b) => sessionActivityAt(b).localeCompare(sessionActivityAt(a)))
     .slice(0, limit);
+}
+
+/** 标题命中优先，其次匹配项目、路径与分支；同类命中按最近活动排序。 */
+export function matchingSessions(
+  workspaces: readonly WorkspaceEntry[],
+  query: string,
+  limit: number,
+): Session[] {
+  const terms = query.trim().toLowerCase().split(/\s+/);
+  return workspaces
+    .flatMap(({ workspace, sessions }) =>
+      sessions.flatMap((session) => {
+        if (session.parentSessionId !== undefined) return [];
+        const title = session.title.toLowerCase();
+        const text = [
+          title,
+          workspace.displayName,
+          workspace.rootPath,
+          session.cwd,
+          ...(session.worktrees?.map((tree) => tree.branch) ?? []),
+        ]
+          .join('\n')
+          .toLowerCase();
+        if (!terms.every((term) => text.includes(term))) return [];
+        const rank =
+          title === terms.join(' ') ? 0 : terms.every((term) => title.includes(term)) ? 1 : 2;
+        return [{ session, rank }];
+      }),
+    )
+    .sort(
+      (a, b) =>
+        a.rank - b.rank || sessionActivityAt(b.session).localeCompare(sessionActivityAt(a.session)),
+    )
+    .slice(0, limit)
+    .map(({ session }) => session);
 }

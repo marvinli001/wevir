@@ -1415,6 +1415,8 @@ export const messages: Messages = {
   'search.archived': '已封存',
   'search.archivedBadge': '已封存',
   'search.recent': '最近',
+  'search.sessions': '工作階段',
+  'search.messages': '訊息',
   'search.loading': '搜尋中',
   'search.empty': '無符合結果',
   'search.emptyPartial': '已查範圍內無符合',

@@ -1452,6 +1452,8 @@ export const messages: Messages = {
   'search.archived': 'Архивные',
   'search.archivedBadge': 'В архиве',
   'search.recent': 'Недавние',
+  'search.sessions': 'Сессии',
+  'search.messages': 'Сообщения',
   'search.loading': 'Поиск',
   'search.empty': 'Ничего не найдено',
   'search.emptyPartial': 'В просмотренном диапазоне ничего нет',

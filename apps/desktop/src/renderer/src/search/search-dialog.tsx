@@ -1,4 +1,4 @@
-// 会话全文搜索的浮窗（0.77.0）：⌘K 或左栏“搜索”打开。空查询时列最近的会话；输入后按 Host 的全文索引查所有项目（可收到当前
+// 会话搜索的浮窗：⌘K 或左栏“搜索”打开。先匹配会话标题、项目与分支，再按 Host 的全文索引查消息（可收到当前
 // 项目、按种类筛、含已归档），结果点开跳到会话里那一处（session/transcript-focus.ts）。索引没追上、短词只扫了最近的时，底部
 // 写明范围，空结果不说成没有历史。
 
@@ -13,7 +13,7 @@ import {
   Search,
   SquareTerminal,
 } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMatches, useNavigate } from 'react-router';
 import { useScrollFade } from '@/components/scroll-fade';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -27,6 +27,7 @@ import {
   hitPath,
   KIND_FILTERS,
   type KindFilter,
+  matchingSessions,
   nextKind,
   partialResult,
   recentSessions,
@@ -86,7 +87,7 @@ interface Results {
 
 type Row =
   | { kind: 'hit'; key: string; hit: SearchHit }
-  | { kind: 'recent'; key: string; session: Session };
+  | { kind: 'session'; key: string; session: Session };
 
 function SearchPanel() {
   const { client } = useHostConnection();
@@ -100,6 +101,8 @@ function SearchPanel() {
   const [kind, setKind] = useState<KindFilter>('all');
   const [projectOnly, setProjectOnly] = useState(false);
   const [archived, setArchived] = useState(false);
+  const [archivedSessions, setArchivedSessions] = useState<Session[]>([]);
+  const [archivedError, setArchivedError] = useState<string>();
   const [results, setResults] = useState<Results>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -118,6 +121,23 @@ function SearchPanel() {
     () => new Map(workspaces.map((entry) => [entry.workspace.id, entry.workspace.displayName])),
     [workspaces],
   );
+
+  useEffect(() => {
+    if (!client || !archived) return;
+    let stopped = false;
+    setArchivedError(undefined);
+    void client.request('session.list', { archived: true }).then(
+      ({ sessions }) => {
+        if (!stopped) setArchivedSessions(sessions);
+      },
+      (reason) => {
+        if (!stopped) setArchivedError(describe(reason));
+      },
+    );
+    return () => {
+      stopped = true;
+    };
+  }, [client, archived]);
 
   const fetchPage = async (offset: number): Promise<void> => {
     if (!client || !supported || trimmed === '') return;
@@ -157,15 +177,15 @@ function SearchPanel() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 查询的键变了才重查。
   useEffect(() => {
     setActive(0);
-    if (trimmed === '') {
+    setError(undefined);
+    if (trimmed === '' || !supported) {
       setResults(undefined);
       setLoading(false);
-      setError(undefined);
       return;
     }
     const timer = window.setTimeout(() => void fetchRef.current(0), DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [key]);
+  }, [key, supported]);
 
   // 索引还没追上时隔一会儿重查第一页，追上后说明消失、结果补全；翻过页就不重查，免得丢掉已载入的。
   useEffect(() => {
@@ -176,35 +196,59 @@ function SearchPanel() {
   }, [results, key]);
 
   const rows: Row[] = useMemo(() => {
-    if (trimmed === '') {
-      const sessions = workspaces.flatMap((entry) => entry.sessions);
-      return recentSessions(sessions, RECENTS).map((session) => ({
-        kind: 'recent' as const,
-        key: session.id,
-        session: session as Session,
+    const entries = workspaces
+      .filter((entry) => scopeWorkspace === undefined || entry.workspace.id === scopeWorkspace)
+      .map((entry) => ({
+        ...entry,
+        sessions: archived
+          ? [
+              ...entry.sessions,
+              ...archivedSessions.filter((session) => session.workspaceId === entry.workspace.id),
+            ]
+          : entry.sessions,
       }));
-    }
-    if (results?.key !== key) return [];
-    return results.hits.map((hit) => ({
-      kind: 'hit' as const,
-      key: `${hit.sessionId}:${hit.seq}`,
-      hit,
+    const sessions =
+      trimmed === ''
+        ? recentSessions(
+            entries.flatMap((entry) => entry.sessions),
+            RECENTS,
+          )
+        : matchingSessions(entries, trimmed, RECENTS);
+    const sessionRows: Row[] = sessions.map((session) => ({
+      kind: 'session',
+      key: session.id,
+      session,
     }));
-  }, [trimmed, workspaces, results, key]);
+    if (trimmed === '' || results?.key !== key) return sessionRows;
+    return [
+      ...sessionRows,
+      ...results.hits.map((hit) => ({
+        kind: 'hit' as const,
+        key: `${hit.sessionId}:${hit.seq}`,
+        hit,
+      })),
+    ];
+  }, [trimmed, workspaces, results, key, scopeWorkspace, archived, archivedSessions]);
   const current = Math.min(active, Math.max(rows.length - 1, 0));
 
   // 选中的一行留在视野里；选到最后几行时翻下一页。
   useEffect(() => {
     listRef.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
-    if (results?.next != null && !loading && current >= rows.length - 3 && trimmed !== '') {
+    if (
+      results?.key === key &&
+      results.next != null &&
+      !loading &&
+      current >= rows.length - 3 &&
+      trimmed !== ''
+    ) {
       void fetchRef.current(results.next);
     }
-  }, [current, rows.length, results?.next, loading, trimmed]);
+  }, [current, rows.length, results?.key, results?.next, loading, trimmed, key]);
 
   const openRow = (row: Row | undefined) => {
     if (!row) return;
     searchOpen.set(false);
-    if (row.kind === 'recent') {
+    if (row.kind === 'session') {
       navigate(paths.session(row.session.workspaceId, row.session.id));
       return;
     }
@@ -220,25 +264,27 @@ function SearchPanel() {
 
   const onScroll = () => {
     const list = listRef.current;
-    if (!list || results?.next == null || loading) return;
+    if (!list || results?.key !== key || results.next == null || loading) return;
     if (list.scrollTop + list.clientHeight >= list.scrollHeight - 80) {
       void fetchRef.current(results.next);
     }
   };
 
   const notices = results && results.key === key ? searchNotices(results.last) : [];
-  const status: ReactNode =
-    trimmed === '' ? null : error !== undefined ? (
-      <p className="px-3 py-8 text-center text-sm text-destructive">
-        {t('search.failed', { error })}
-      </p>
-    ) : results?.key === key && rows.length === 0 ? (
-      <p className="px-3 py-8 text-center text-sm text-muted-foreground" data-search-empty>
-        {partialResult(results.last) ? t('search.emptyPartial') : t('search.empty')}
-      </p>
-    ) : results?.key !== key ? (
-      <p className="px-3 py-8 text-center text-sm text-muted-foreground">{t('search.loading')}</p>
-    ) : null;
+  const failure = error ?? (archived ? archivedError : undefined);
+  const status: ReactNode = !supported ? (
+    <p className="px-3 py-8 text-center text-sm text-muted-foreground">{t('search.unsupported')}</p>
+  ) : failure !== undefined ? (
+    <p className="px-3 py-8 text-center text-sm text-destructive">
+      {t('search.failed', { error: failure })}
+    </p>
+  ) : trimmed === '' ? null : results?.key === key && rows.length === 0 ? (
+    <p className="px-3 py-8 text-center text-sm text-muted-foreground" data-search-empty>
+      {partialResult(results.last) ? t('search.emptyPartial') : t('search.empty')}
+    </p>
+  ) : results?.key !== key ? (
+    <p className="px-3 py-8 text-center text-sm text-muted-foreground">{t('search.loading')}</p>
+  ) : null;
 
   return (
     <div className="flex max-h-[min(560px,76vh)] flex-col">
@@ -248,7 +294,6 @@ function SearchPanel() {
           // biome-ignore lint/a11y/noAutofocus: 浮窗打开就是为了输入。
           autoFocus
           value={query}
-          disabled={!supported}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
@@ -305,56 +350,62 @@ function SearchPanel() {
         aria-label={t('search.title')}
         className="scroll-fade min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 [--scroll-fade-size:16px]"
       >
-        {!supported ? (
-          <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-            {t('search.unsupported')}
-          </p>
-        ) : (
-          <>
-            {trimmed === '' && rows.length > 0 && (
-              <p className="px-2.5 pt-2 pb-1 text-xs text-muted-foreground">{t('search.recent')}</p>
+        {rows.map((row, index) => (
+          <Fragment key={row.key}>
+            {(index === 0 || rows[index - 1]?.kind !== row.kind) && (
+              <p
+                className="px-2.5 pt-2 pb-1 text-xs text-muted-foreground"
+                data-search-group={row.kind}
+              >
+                {t(
+                  row.kind === 'hit'
+                    ? 'search.messages'
+                    : trimmed === ''
+                      ? 'search.recent'
+                      : 'search.sessions',
+                )}
+              </p>
             )}
-            {rows.map((row, index) =>
-              row.kind === 'recent' ? (
-                <ResultRow
-                  key={row.key}
-                  active={index === current}
-                  onSelect={() => openRow(row)}
-                  onHover={() => setActive(index)}
-                  icon={MessagesSquare}
-                  title={row.session.title || t('session.untitled')}
-                  place={workspaceName.get(row.session.workspaceId)}
-                  time={sessionActivityAt(row.session)}
-                />
-              ) : (
-                <ResultRow
-                  key={row.key}
-                  active={index === current}
-                  onSelect={() => openRow(row)}
-                  onHover={() => setActive(index)}
-                  icon={KIND_ICONS[row.hit.kind] ?? MessageSquareText}
-                  title={row.hit.sessionTitle || t('session.untitled')}
-                  place={workspaceName.get(row.hit.workspaceId)}
-                  time={row.hit.ts}
-                  archived={row.hit.archived === true}
-                >
-                  {snippetSegments(row.hit.snippet, row.hit.highlights).map((segment, i) =>
-                    segment.mark ? (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: 片段的分段只随结果整体替换。
-                      <mark key={i} className="bg-transparent font-medium text-foreground">
-                        {segment.text}
-                      </mark>
-                    ) : (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: 同上。
-                      <span key={i}>{segment.text}</span>
-                    ),
-                  )}
-                </ResultRow>
-              ),
+            {row.kind === 'session' ? (
+              <ResultRow
+                key={row.key}
+                active={index === current}
+                onSelect={() => openRow(row)}
+                onHover={() => setActive(index)}
+                icon={MessagesSquare}
+                title={row.session.title || t('session.untitled')}
+                place={workspaceName.get(row.session.workspaceId)}
+                time={sessionActivityAt(row.session)}
+                archived={row.session.archivedAt !== undefined}
+              />
+            ) : (
+              <ResultRow
+                key={row.key}
+                active={index === current}
+                onSelect={() => openRow(row)}
+                onHover={() => setActive(index)}
+                icon={KIND_ICONS[row.hit.kind] ?? MessageSquareText}
+                title={row.hit.sessionTitle || t('session.untitled')}
+                place={workspaceName.get(row.hit.workspaceId)}
+                time={row.hit.ts}
+                archived={row.hit.archived === true}
+              >
+                {snippetSegments(row.hit.snippet, row.hit.highlights).map((segment, i) =>
+                  segment.mark ? (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 片段的分段只随结果整体替换。
+                    <mark key={i} className="bg-transparent font-medium text-foreground">
+                      {segment.text}
+                    </mark>
+                  ) : (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: 同上。
+                    <span key={i}>{segment.text}</span>
+                  ),
+                )}
+              </ResultRow>
             )}
-            {status}
-          </>
-        )}
+          </Fragment>
+        ))}
+        {status}
       </div>
       <div className="flex h-9 shrink-0 items-center gap-3 border-t border-border px-4 text-xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate" data-search-notice>

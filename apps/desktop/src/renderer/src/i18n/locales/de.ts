@@ -1442,6 +1442,8 @@ export const messages: Messages = {
   'search.archived': 'Archiviert',
   'search.archivedBadge': 'Archiviert',
   'search.recent': 'Zuletzt',
+  'search.sessions': 'Sitzungen',
+  'search.messages': 'Nachrichten',
   'search.loading': 'Suche läuft',
   'search.empty': 'Keine Treffer',
   'search.emptyPartial': 'Keine Treffer im durchsuchten Bereich',

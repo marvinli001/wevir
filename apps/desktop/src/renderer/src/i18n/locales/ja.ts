@@ -1429,6 +1429,8 @@ export const messages: Messages = {
   'search.archived': 'アーカイブ済み',
   'search.archivedBadge': 'アーカイブ済み',
   'search.recent': '最近',
+  'search.sessions': 'セッション',
+  'search.messages': 'メッセージ',
   'search.loading': '検索中',
   'search.empty': '一致する結果なし',
   'search.emptyPartial': '検索した範囲に一致なし',

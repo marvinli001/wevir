@@ -1428,6 +1428,8 @@ export const zhCN = {
   'search.archived': '已归档',
   'search.archivedBadge': '已归档',
   'search.recent': '最近',
+  'search.sessions': '会话',
+  'search.messages': '消息',
   'search.loading': '搜索中',
   'search.empty': '无匹配结果',
   'search.emptyPartial': '已查范围内无匹配',
