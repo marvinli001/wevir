@@ -234,6 +234,9 @@ export const messages: Messages = {
   'tasks.detail.model': 'Модель {model}',
   'tasks.detail.showMore': 'Показать ещё',
   'tasks.detail.showLess': 'Свернуть',
+  'tasks.children':
+    '{count, plural, one {# задача} few {# задачи} many {# задач} other {# задачи}}',
+  'tasks.fullOutput': 'Полный вывод',
   'processes.gone': 'Процесс больше не существует',
   'processes.loadFailed': 'Ошибка загрузки: {error}',
   'processes.status.running': 'Выполняется',
@@ -865,6 +868,8 @@ export const messages: Messages = {
 
   'time.seconds': '{n} с',
   'time.minutes': '{m} мин {s} с',
+  'time.minutesShort': '{n} мин',
+  'time.hoursShort': '{h} ч {m} мин',
   'time.justNow': 'Только что',
   'time.minutesAgo': '{n} мин назад',
   'time.hoursAgo': '{n} ч назад',

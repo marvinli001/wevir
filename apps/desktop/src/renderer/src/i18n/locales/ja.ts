@@ -234,6 +234,8 @@ export const messages: Messages = {
   'tasks.detail.model': 'モデル {model}',
   'tasks.detail.showMore': 'さらに表示',
   'tasks.detail.showLess': '折りたたむ',
+  'tasks.children': '{count} 件のタスク',
+  'tasks.fullOutput': '完全な出力',
   'processes.gone': 'プロセスは存在しません',
   'processes.loadFailed': '読み込み失敗：{error}',
   'processes.status.running': '実行中',
@@ -855,6 +857,8 @@ export const messages: Messages = {
 
   'time.seconds': '{n} 秒',
   'time.minutes': '{m} 分 {s} 秒',
+  'time.minutesShort': '{n} 分',
+  'time.hoursShort': '{h} 時間 {m} 分',
   'time.justNow': 'たった今',
   'time.minutesAgo': '{n} 分前',
   'time.hoursAgo': '{n} 時間前',

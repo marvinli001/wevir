@@ -4,7 +4,7 @@
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { HostProcess, SessionId, WorkspaceId } from '@wevir/protocol';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
 import {
   appendPage,
@@ -90,21 +90,28 @@ const NO_PROCESSES: readonly HostProcess[] = [];
 
 /**
  * 会话的后台进程（“后台任务”窗格与会话侧栏卡片，desktop-layout.md §15）；Host 没有 `process_output` 或 `active` 为 false 时是空的，
- * 不去 Host 读。
+ * 不去 Host 读。给了子会话（`childSessionIds`，它的子智能体）时按项目列、再留下这个会话与这些子会话起的。
  */
 export function useSessionProcesses(
   workspaceId: string,
   sessionId: string,
   active = true,
+  childSessionIds: readonly string[] = [],
 ): readonly HostProcess[] {
   const { client } = useHostConnection();
   const usable = active && client?.supports('process_output') ? client : undefined;
-  return (
-    useProcessList(usable, {
-      workspaceId: workspaceId as WorkspaceId,
-      sessionId: sessionId as SessionId,
-    }).processes ?? NO_PROCESSES
-  );
+  const withChildren = childSessionIds.length > 0;
+  const { processes } = useProcessList(usable, {
+    workspaceId: workspaceId as WorkspaceId,
+    ...(!withChildren && { sessionId: sessionId as SessionId }),
+  });
+  const owners = childSessionIds.join(' ');
+  return useMemo(() => {
+    if (processes === undefined) return NO_PROCESSES;
+    if (!withChildren) return processes;
+    const keep = new Set([sessionId, ...owners.split(' ')]);
+    return processes.filter((process) => keep.has(process.source.sessionId));
+  }, [processes, withChildren, sessionId, owners]);
 }
 
 export interface ProcessOutput {

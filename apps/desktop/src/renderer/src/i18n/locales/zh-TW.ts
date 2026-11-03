@@ -228,6 +228,8 @@ export const messages: Messages = {
   'tasks.detail.model': '模型 {model}',
   'tasks.detail.showMore': '顯示更多',
   'tasks.detail.showLess': '收合',
+  'tasks.children': '{count} 個任務',
+  'tasks.fullOutput': '完整輸出',
   'processes.gone': '程序已不在',
   'processes.loadFailed': '讀取失敗：{error}',
   'processes.status.running': '執行中',
@@ -849,6 +851,8 @@ export const messages: Messages = {
 
   'time.seconds': '{n} 秒',
   'time.minutes': '{m} 分 {s} 秒',
+  'time.minutesShort': '{n} 分',
+  'time.hoursShort': '{h} 小時 {m} 分',
   'time.justNow': '剛剛',
   'time.minutesAgo': '{n} 分鐘前',
   'time.hoursAgo': '{n} 小時前',

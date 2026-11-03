@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMessageTime } from './format';
+import { formatElapsedShort, formatMessageTime } from './format';
 
 describe('formatMessageTime（0.38.0）', () => {
   const now = new Date(2026, 9, 15, 18, 0);
@@ -16,5 +16,13 @@ describe('formatMessageTime（0.38.0）', () => {
 
   it('不是时间时是空的', () => {
     expect(formatMessageTime('x', 'zh-CN', now)).toBe('');
+  });
+});
+
+describe('formatElapsedShort', () => {
+  it('一分钟内写秒，之后只到分钟，一小时以上写时与分', () => {
+    expect(formatElapsedShort(45_900)).toBe('45 秒');
+    expect(formatElapsedShort(6 * 60_000 + 30_000)).toBe('6 分');
+    expect(formatElapsedShort(65 * 60_000)).toBe('1 小时 5 分');
   });
 });

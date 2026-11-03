@@ -9,6 +9,15 @@ export function formatDuration(ms: number): string {
   return t('time.minutes', { m: Math.floor(whole / 60), s: whole % 60 });
 }
 
+/** 窄处的用时（会话侧栏的“后台任务”卡片，照 Claude Code）：一分钟内是秒，之后只到分钟，一小时以上是时与分。 */
+export function formatElapsedShort(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  if (seconds < 60) return t('time.seconds', { n: seconds });
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return t('time.minutesShort', { n: minutes });
+  return t('time.hoursShort', { h: Math.floor(minutes / 60), m: minutes % 60 });
+}
+
 /** 两个 ISO 时刻之间的毫秒数；缺一个时为 undefined。 */
 export function between(from: string | undefined, to: string | undefined): number | undefined {
   if (!from || !to) return undefined;

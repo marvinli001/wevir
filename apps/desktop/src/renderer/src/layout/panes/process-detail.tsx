@@ -1,5 +1,5 @@
-// Host 起的后台进程（0.69.0）在“后台任务”窗格里的详情（desktop-layout.md §15）：命令、目录、来源与输出（虚拟滚动，不能输入），以及
-// 停止对话框。列表的行在 tasks-pane.tsx。
+// Host 起的后台进程（0.69.0）在“后台任务”窗格里的详情（desktop-layout.md §15）：命令、目录、来源与输出（虚拟滚动，不能输入），
+// 停止对话框，以及列表里行内展开的输出（`ProcessPeek`）。列表的行在 tasks-pane.tsx。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { HostProcess, ProcessStopSignal } from '@wevir/protocol';
@@ -258,6 +258,52 @@ function OutputView({ client, process }: { client: WevirClient; process: HostPro
             {t('processes.latest')}
           </Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** 行内展开只留输出的最后这么多行，完整的在详情里。 */
+const PEEK_LINES = 200;
+
+/**
+ * 列表里行内展开的进程（照 Claude Code）：等宽的 `$ 命令`，下面是输出的最后 PEEK_LINES 行，限高滚动，在底部时跟着新输出走。
+ * 读输出同详情（`useProcessOutput`），只在展开时挂上。
+ */
+export function ProcessPeek({ client, process }: { client: WevirClient; process: HostProcess }) {
+  const { buffer, error } = useProcessOutput(client, process);
+  const lines = useMemo(
+    () => (buffer === undefined ? [] : outputLines(buffer).slice(-PEEK_LINES)),
+    [buffer],
+  );
+  const scroller = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 输出变了才滚。
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (element && stick.current) element.scrollTop = element.scrollHeight;
+  }, [lines]);
+  return (
+    <div
+      ref={scroller}
+      data-testid="process-peek"
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        stick.current =
+          element.scrollTop + element.clientHeight >= element.scrollHeight - ROW_HEIGHT;
+      }}
+      className="max-h-60 overflow-y-auto font-mono text-xs leading-[18px] break-all whitespace-pre-wrap select-text"
+    >
+      <div className="text-muted-foreground">$ {process.command}</div>
+      {error !== undefined ? (
+        <p role="alert" className="font-sans text-destructive">
+          {t('processes.loadFailed', { error: describe(error) })}
+        </p>
+      ) : (
+        lines.length > 0 && <div className="mt-1.5">{lines.join('\n')}</div>
+      )}
+      {process.error !== undefined && (
+        <p className="mt-1.5 font-sans text-destructive">{process.error}</p>
       )}
     </div>
   );

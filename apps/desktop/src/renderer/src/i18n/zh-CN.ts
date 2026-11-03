@@ -241,6 +241,8 @@ export const zhCN = {
   'tasks.detail.model': '模型 {model}',
   'tasks.detail.showMore': '显示更多',
   'tasks.detail.showLess': '收起',
+  'tasks.children': '{count} 个任务',
+  'tasks.fullOutput': '完整输出',
   'processes.gone': '进程已不在',
   'processes.loadFailed': '读取失败：{error}',
   'processes.status.running': '运行中',
@@ -863,6 +865,8 @@ export const zhCN = {
 
   'time.seconds': '{n} 秒',
   'time.minutes': '{m} 分 {s} 秒',
+  'time.minutesShort': '{n} 分',
+  'time.hoursShort': '{h} 小时 {m} 分',
   'time.justNow': '刚刚',
   'time.minutesAgo': '{n} 分钟前',
   'time.hoursAgo': '{n} 小时前',

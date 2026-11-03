@@ -1,6 +1,6 @@
 import type { HostProcess, SessionId, SubagentSummary } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { clearMark, groupTasks, taskKey, withoutCleared } from './tasks-model';
+import { clearMark, groupProcesses, groupTasks, taskKey, withoutCleared } from './tasks-model';
 
 const T0 = Date.parse('2026-10-27T08:00:00.000Z');
 const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString();
@@ -80,5 +80,37 @@ describe('后台任务的列表', () => {
     expect(names(withoutCleared(after, mark).done)).toEqual(['Agent 3']);
     expect(withoutCleared(before, undefined)).toBe(before);
     expect(clearMark(before.open)).toBeUndefined();
+  });
+
+  it('子智能体自己起的进程挂在它下面，不单独成行', () => {
+    const agent = child(1, { status: 'completed', endedAt: at(20) });
+    const mine = (n: number, extra: Partial<HostProcess> = {}) =>
+      proc(n, { source: { kind: 'agent', sessionId: agent.sessionId }, ...extra });
+    const { open, done } = groupTasks(
+      [agent],
+      [proc(2), mine(3, { status: 'exited', exitCode: 0, endedAt: at(60), stopSignals: [] })],
+    );
+    expect(names(open)).toEqual(['Process 2']);
+    expect(names(done)).toEqual(['Agent 1']);
+    const [card] = done;
+    expect(card?.kind === 'subagent' && card.processes.map((item) => item.name)).toEqual([
+      'Process 3',
+    ]);
+    // 结束时刻取它与它的进程里最晚的：清除时一起藏起来。
+    expect(clearMark(done)).toBe(at(60));
+  });
+
+  it('子智能体结束了、它起的进程还在跑时仍在进行中', () => {
+    const agent = child(1, { status: 'completed', endedAt: at(20) });
+    const running = proc(4, { source: { kind: 'agent', sessionId: agent.sessionId } });
+    const { open, done } = groupTasks([agent], [running]);
+    expect(names(open)).toEqual(['Agent 1']);
+    expect(done).toEqual([]);
+    const groups = groupProcesses([
+      running,
+      proc(5, { status: 'exited', exitCode: 0, endedAt: at(30), stopSignals: [] }),
+    ]);
+    expect(groups.open.map((item) => item.name)).toEqual(['Process 4']);
+    expect(groups.done.map((item) => item.name)).toEqual(['Process 5']);
   });
 });

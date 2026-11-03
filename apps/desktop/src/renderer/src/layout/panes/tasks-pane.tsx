@@ -1,9 +1,8 @@
-import type { ChatMessage } from '@wevir/client-sdk';
+import type { ChatMessage, WevirClient } from '@wevir/client-sdk';
 import type { HostProcess, SessionId, SubagentSummary, WorkspaceId } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   Activity,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   SearchX,
@@ -26,7 +25,8 @@ import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from '@/session/approval-card';
-import { formatDuration } from '@/session/format';
+import { CopyButton } from '@/session/copy-button';
+import { formatDuration, formatElapsedShort } from '@/session/format';
 import { LiveIndicator, type LiveState } from '@/session/live-indicator';
 import { PartsView } from '@/session/message-view';
 import { SubagentAvatar } from '@/session/subagent-avatar';
@@ -47,17 +47,31 @@ import type { PaneContext } from '../pane-registry';
 import { processKey } from '../process-model';
 import { formatTokens } from '../rail-model';
 import { type RailContext, registerRailCard } from '../session-rail';
-import { clearFinishedTasks, setOpenProcess, useClearMark, useOpenProcess } from '../task-store';
-import { groupTasks, type TaskItem, taskKey, withoutCleared } from '../tasks-model';
+import {
+  clearFinishedTasks,
+  expandTaskPart,
+  setOpenProcess,
+  useClearMark,
+  useExpanded,
+  useOpenProcess,
+} from '../task-store';
+import { groupProcesses, groupTasks, type TaskItem, taskKey, withoutCleared } from '../tasks-model';
 import { useProcessList, useSessionProcesses } from '../use-processes';
-import { ProcessDetail, StopDialog, sourceLabel, statusOf, stopperLabel } from './process-detail';
+import { ProcessDetail, ProcessPeek, StopDialog, statusOf } from './process-detail';
 
 const NO_SUBAGENTS: readonly SubagentSummary[] = [];
 
+/** “已完成”一组在 task-store.ts 展开状态里的名字。 */
+const DONE_PART = 'done';
+
+const childIds = (subagents: readonly SubagentSummary[]) =>
+  subagents.map((summary) => summary.sessionId);
+
 /**
- * “后台任务”窗格（U21，desktop-layout.md §15）：当前会话的子智能体与 Host 起的后台进程，“进行中”与可收起的“已完成”两组平铺的
- * 行，各用自己的图标；点一行在窗格里进入它的详情（子智能体在 URL 的 `agent/:childId`，进程在 task-store.ts），窗格头换成返回与
- * 标题。窗格头另有“清除已完成”，只是不再列出，记录还在。
+ * “后台任务”窗格（U21，desktop-layout.md §15，照 Claude Code 的后台任务面板）：当前会话的子智能体与 Host 起的后台进程，“进行中”
+ * 与默认收起的“已完成”两组，一项一张圆角卡片。子智能体的卡片点标题进入它的详情（URL 的 `agent/:childId`），窗格头换成返回与
+ * 标题；它自己起的进程收在卡片下的“N 个任务”里。进程点一下在行内展开命令与输出的末尾，“完整输出”进入详情（task-store.ts）。
+ * 窗格头另有“清除已完成”，只是不再列出，记录还在。
  */
 export function TasksPane({ context }: { context: PaneContext }) {
   const { entry, sessionId, childId } = context;
@@ -116,8 +130,8 @@ function SessionTasks({
   const state = useTranscript(sessionId);
   const navigate = useNavigate();
   const openProcess = useOpenProcess(sessionId);
-  const processes = useSessionProcesses(workspaceId, sessionId);
   const subagents = state?.transcript.subagents ?? NO_SUBAGENTS;
+  const processes = useSessionProcesses(workspaceId, sessionId, true, childIds(subagents));
   const loaded = state !== undefined && (state.caughtUp || state.transcript.lastSeq > 0);
 
   if (childId !== undefined) {
@@ -175,7 +189,7 @@ function TaskList({
 }) {
   const { open, done } = withoutCleared(groupTasks(subagents, processes), useClearMark(sessionId));
   const now = useNow(open.length > 0 ? 1000 : undefined);
-  const [showDone, setShowDone] = useState(true);
+  const [showDone, toggleDone] = useExpanded(sessionId, DONE_PART);
   const slots = usePaneHeaderSlots();
   const openTask = useOpenTask(workspaceId, sessionId);
   const stopSubagent = useSubagentStop();
@@ -195,12 +209,19 @@ function TaskList({
     </IconButton>
   );
   if (open.length === 0 && done.length === 0) return <Note>{t('tasks.empty')}</Note>;
-  const row = (item: TaskItem) =>
+  const list: ListContext = {
+    sessionId,
+    now,
+    client,
+    stopProcess: (process) => (canStop(process) ? () => setStopping(process) : undefined),
+    openProcess: openTask.process,
+  };
+  const card = (item: TaskItem) =>
     item.kind === 'subagent' ? (
-      <SubagentRow
+      <SubagentCard
         key={taskKey(item)}
-        summary={item.summary}
-        now={now}
+        item={item}
+        list={list}
         onOpen={() => openTask.subagent(item.summary)}
         onStop={
           stopSubagent.supported && item.summary.status === 'running'
@@ -214,58 +235,55 @@ function TaskList({
         }
       />
     ) : (
-      <ProcessRow
+      <li
         key={taskKey(item)}
-        process={item.process}
-        now={now}
-        onOpen={() => openTask.process(item.process)}
-        onStop={canStop(item.process) ? () => setStopping(item.process) : undefined}
-      />
+        data-testid="task-item"
+        data-kind="process"
+        data-status={item.process.status}
+        className={CARD}
+      >
+        <ProcessLine process={item.process} list={list} card />
+      </li>
     );
   return (
     <ScrollArea className="h-full">
       {clear && <PaneHeaderPortal slot="actions">{clear}</PaneHeaderPortal>}
-      <div className="space-y-3 px-2 pt-1 pb-3" data-testid="tasks-pane">
+      <div className="space-y-5 px-3 pt-1 pb-3" data-testid="tasks-pane">
         {error && (
           <p
             role="alert"
-            className="mx-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
             {error}
           </p>
         )}
         {open.length > 0 && (
           <section aria-label={t('tasks.running', { count: open.length })}>
-            <h3 className="flex h-6 items-center px-2 text-xs text-muted-foreground">
+            <h3 className="flex h-7 items-center px-1 text-xs text-muted-foreground">
               {t('tasks.running', { count: open.length })}
             </h3>
-            <ul className="divide-y divide-border">{open.map(row)}</ul>
+            <ul className="space-y-2">{open.map(card)}</ul>
           </section>
         )}
         {done.length > 0 && (
           <section>
-            <div className="flex h-6 items-center px-1">
+            <div className="flex h-7 items-center">
               <button
                 type="button"
                 aria-expanded={showDone}
-                onClick={() => setShowDone((value) => !value)}
-                className="flex h-6 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
+                onClick={toggleDone}
+                className="flex h-7 items-center gap-2 rounded-md px-1 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
+                data-testid="tasks-done-toggle"
               >
+                <Caret open={showDone} />
                 {t('tasks.done', { count: done.length })}
-                <ChevronDown
-                  aria-hidden
-                  className={cn(
-                    'size-3.5 transition-transform duration-200 ease-smooth',
-                    !showDone && '-rotate-90',
-                  )}
-                />
               </button>
               <span className="flex-1" />
               {/* 窗格头是标签条时没有放按钮的地方，放在这一行。 */}
               {!slots.actions && clear}
             </div>
             <Collapse open={showDone}>
-              <ul className="divide-y divide-border">{done.map(row)}</ul>
+              <ul className="space-y-2 pt-1">{done.map(card)}</ul>
             </Collapse>
           </section>
         )}
@@ -285,170 +303,285 @@ function canStop(process: HostProcess): boolean {
   return process.status === 'running' && process.stopSignals.length > 0;
 }
 
+/** 列表里各层共用的：展开状态按会话记，用时每秒走，进程的停止与打开完整输出。 */
+interface ListContext {
+  sessionId: string;
+  now: number;
+  client: WevirClient | undefined;
+  stopProcess: (process: HostProcess) => (() => void) | undefined;
+  openProcess: (process: HostProcess) => void;
+}
+
+/** 一项一张浅灰底的圆角卡片（照 Claude Code），卡片里的几行之间隔一道底色的细缝。 */
+const CARD = 'overflow-hidden rounded-xl bg-muted/60 dark:bg-muted';
+
+/** 卡片里一行的悬停底色：比卡片深一档（深色时卡片已是 muted，再叠一层前景色）。 */
+const ROW_HOVER = 'hover:bg-muted dark:hover:bg-foreground/[0.08]';
+
+/** 卡片里的行贴着卡片边缘，外圈的焦点光会被裁掉，用内嵌的细线（theme.css 的 focus-ring 说明）。 */
+const ROW_FOCUS =
+  'outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring-soft focus-visible:ring-inset';
+
+/** 展开收起的实心小三角，展开时朝下。 */
+function Caret({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 8 8"
+      className={cn(
+        'size-2 shrink-0 fill-current transition-transform duration-200 ease-smooth',
+        open && 'rotate-90',
+      )}
+    >
+      <path d="M2 0.75 6.5 4 2 7.25Z" />
+    </svg>
+  );
+}
+
+/** 停止：浅灰底里的实心小方块、正文色，停止不是破坏性操作，悬停只加深底色。 */
+function TaskStop({
+  onStop,
+  className,
+  testId = 'task-stop',
+}: {
+  onStop: () => void;
+  className?: string;
+  testId?: string;
+}) {
+  return (
+    <IconButton
+      label={t('tasks.stop')}
+      size="icon-xs"
+      className={cn('bg-foreground/[0.06] hover:bg-foreground/10', className)}
+      onClick={onStop}
+      data-testid={testId}
+    >
+      <Square className="size-2.5 fill-current" />
+    </IconButton>
+  );
+}
+
+function Elapsed({ ms }: { ms: number }) {
+  return (
+    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+      {formatDuration(ms)}
+    </span>
+  );
+}
+
 /**
- * 一行（子智能体与进程共用）：图标、标题，下一行说明，右边用时；进行中的有停止（实心方块、正文色，停止不是破坏性操作，悬停只加
- * 底色），已完成的是 ›。
+ * 子智能体的卡片：一行标题与 ›（点它进入详情），右边用时，进行中的有停止；失败与取消写出状态，在等审批的标出来。它自己起的
+ * 后台进程在下面一行“N 个任务”，展开后分“进行中”“已完成”两组。
  */
-function TaskRow({
-  kind,
-  status,
-  icon,
-  title,
-  meta,
-  badge,
-  duration,
-  running,
+function SubagentCard({
+  item,
+  list,
   onOpen,
   onStop,
 }: {
-  kind: TaskItem['kind'];
-  status: string;
-  icon: ReactNode;
-  title: string;
-  meta: ReactNode;
-  badge?: ReactNode;
-  duration: number;
-  running: boolean;
+  item: Extract<TaskItem, { kind: 'subagent' }>;
+  list: ListContext;
   onOpen: () => void;
   onStop: (() => void) | undefined;
 }) {
+  const { summary, processes } = item;
+  const running = summary.status === 'running';
+  const end = running ? list.now : Date.parse(summary.endedAt ?? '') || list.now;
+  const failed = summary.status === 'failed' || summary.status === 'cancelled';
   return (
-    <li
-      data-testid="task-item"
-      data-kind={kind}
-      data-status={status}
-      className="group/task relative flex items-center py-px"
-    >
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors group-hover/task:bg-muted focus-visible:focus-ring"
-      >
-        <span
-          aria-hidden
-          className="flex size-4 shrink-0 items-center justify-center self-start pt-0.5"
+    <li data-testid="task-item" data-kind="subagent" data-status={summary.status} className={CARD}>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={onOpen}
+          className={cn(
+            'flex h-10 w-full min-w-0 items-center gap-1 px-3 text-left text-sm',
+            ROW_HOVER,
+            ROW_FOCUS,
+          )}
         >
-          {icon}
-        </span>
-        <span className="min-w-0 flex-1">
-          <TruncatedText text={title} className="block text-sm" />
-          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{meta}</span>
-        </span>
-        {badge}
-        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-          {formatDuration(duration)}
-        </span>
-        {running ? (
-          onStop && <span aria-hidden className="w-5 shrink-0" />
-        ) : (
-          <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        )}
-      </button>
-      {onStop && (
-        <IconButton
-          label={t('tasks.stop')}
-          size="icon-xs"
-          className="absolute right-1.5"
-          onClick={onStop}
-          data-testid="task-stop"
-        >
-          <Square className="size-2.5 fill-current" />
-        </IconButton>
+          <TruncatedText text={subagentTitle(summary)} className="min-w-0" />
+          <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-2 flex-1" />
+          {running && summary.pendingApprovals.length > 0 && (
+            <span className="mr-1 shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+              {t('subagent.awaitingApproval')}
+            </span>
+          )}
+          {failed && (
+            <span
+              className={cn(
+                'mr-1 shrink-0 text-xs',
+                summary.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {statusLabel(summary.status)}
+            </span>
+          )}
+          <Elapsed ms={end - Date.parse(summary.startedAt)} />
+          {onStop && <span aria-hidden className="w-7 shrink-0" />}
+        </button>
+        {onStop && <TaskStop onStop={onStop} className="absolute top-2 right-2.5" />}
+      </div>
+      {processes.length > 0 && (
+        <ChildTasks owner={summary.sessionId} processes={processes} list={list} />
       )}
     </li>
   );
 }
 
-/** 子智能体：头像，下一行模型（已完成的还有 token），失败与取消写出状态，等审批的标出来。 */
-function SubagentRow({
-  summary,
-  now,
-  onOpen,
-  onStop,
+/** 卡片下的“▸ N 个任务”：展开后是“N 个进行中”“N 个已完成”两组，每组同样可展开。 */
+function ChildTasks({
+  owner,
+  processes,
+  list,
 }: {
-  summary: SubagentSummary;
-  now: number;
-  onOpen: () => void;
-  onStop: (() => void) | undefined;
+  owner: string;
+  processes: readonly HostProcess[];
+  list: ListContext;
 }) {
-  const running = summary.status === 'running';
-  const tokens = useChildTokens(summary.sessionId, running);
-  const end = running ? now : Date.parse(summary.endedAt ?? '') || now;
-  const failed = summary.status === 'failed' || summary.status === 'cancelled';
-  const meta = [
-    summary.modelId,
-    !running && tokens !== undefined && t('tasks.tokens', { tokens: formatTokens(tokens) }),
-  ].filter(Boolean);
+  const [open, toggle] = useExpanded(list.sessionId, `children:${owner}`);
+  const groups = groupProcesses(processes);
   return (
-    <TaskRow
-      kind="subagent"
-      status={summary.status}
-      icon={<SubagentAvatar sessionId={summary.sessionId} status={summary.status} size={16} />}
-      title={subagentTitle(summary)}
-      meta={
-        <>
-          {meta.join(' · ')}
-          {failed && (
-            <span className={summary.status === 'failed' ? 'text-destructive' : undefined}>
-              {meta.length > 0 && ' · '}
-              {statusLabel(summary.status)}
-            </span>
+    <div className="border-t-2 border-background" data-testid="task-children">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={toggle}
+        className={cn(
+          'flex h-9 w-full items-center gap-2 px-3 text-left text-sm text-muted-foreground hover:text-foreground',
+          ROW_HOVER,
+          ROW_FOCUS,
+        )}
+      >
+        <Caret open={open} />
+        {t('tasks.children', { count: processes.length })}
+      </button>
+      <Collapse open={open}>
+        <div className="pb-1.5 pl-3">
+          {groups.open.length > 0 && (
+            <ChildGroup
+              part={`children:${owner}:open`}
+              label={t('rail.tasks.running', { count: groups.open.length })}
+              processes={groups.open}
+              list={list}
+            />
           )}
-        </>
-      }
-      badge={
-        running &&
-        summary.pendingApprovals.length > 0 && (
-          <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
-            {t('subagent.awaitingApproval')}
-          </span>
-        )
-      }
-      duration={end - Date.parse(summary.startedAt)}
-      running={running}
-      onOpen={onOpen}
-      onStop={onStop}
-    />
+          {groups.done.length > 0 && (
+            <ChildGroup
+              part={`children:${owner}:done`}
+              label={t('rail.tasks.done', { count: groups.done.length })}
+              processes={groups.done}
+              list={list}
+            />
+          )}
+        </div>
+      </Collapse>
+    </div>
   );
 }
 
-/** 后台进程：终端图标，下一行来源（Agent、检查、预览），已结束的还有退出码与谁停的。 */
-function ProcessRow({
+function ChildGroup({
+  part,
+  label,
+  processes,
+  list,
+}: {
+  part: string;
+  label: string;
+  processes: readonly HostProcess[];
+  list: ListContext;
+}) {
+  const [open, toggle] = useExpanded(list.sessionId, part);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={toggle}
+        className="flex h-8 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
+      >
+        <Caret open={open} />
+        {label}
+      </button>
+      <Collapse open={open}>
+        <ul className="pl-3">
+          {processes.map((process) => (
+            <li key={processKey(process)}>
+              <ProcessLine process={process} list={list} />
+            </li>
+          ))}
+        </ul>
+      </Collapse>
+    </div>
+  );
+}
+
+/**
+ * 一个后台进程：▸、名字，右边用时（非零退出与起不来的写出状态），在跑的有停止；点一下在行内展开 `$ 命令` 与输出的末尾（照
+ * Claude Code），下面“完整输出”进入详情。`card` 是列表里单独成卡片的（这个会话自己的进程），否则是子智能体卡片下的一行。
+ */
+function ProcessLine({
   process,
-  now,
-  onOpen,
-  onStop,
+  list,
+  card = false,
 }: {
   process: HostProcess;
-  now: number;
-  onOpen: () => void;
-  onStop: (() => void) | undefined;
+  list: ListContext;
+  card?: boolean;
 }) {
+  const [open, toggle] = useExpanded(list.sessionId, `process:${processKey(process)}`);
   const running = process.status === 'running';
   const status = statusOf(process);
-  const end = process.endedAt === undefined ? now : Date.parse(process.endedAt);
+  const end = process.endedAt === undefined ? list.now : Date.parse(process.endedAt);
+  const onStop = list.stopProcess(process);
   return (
-    <TaskRow
-      kind="process"
-      status={process.status}
-      icon={<Terminal className="size-4 text-muted-foreground" />}
-      title={process.name}
-      meta={
-        <>
-          {sourceLabel(process)}
-          {!running && (
-            <span className={status.tone === 'danger' ? 'text-destructive' : undefined}>
-              {' · '}
-              {[status.label, stopperLabel(process)].filter(Boolean).join(' · ')}
-            </span>
+    <div data-testid="task-process" data-status={process.status}>
+      <div className="relative">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggle}
+          className={cn(
+            'flex w-full min-w-0 items-center gap-2 text-left text-sm',
+            card ? 'h-10 px-3' : 'h-8 rounded-md px-3',
+            ROW_HOVER,
+            ROW_FOCUS,
           )}
-        </>
-      }
-      duration={end - Date.parse(process.startedAt)}
-      running={running}
-      onOpen={onOpen}
-      onStop={onStop}
-    />
+        >
+          <span className="flex text-muted-foreground">
+            <Caret open={open} />
+          </span>
+          <TruncatedText text={process.name} className="min-w-0" />
+          <span className="min-w-2 flex-1" />
+          {!running && status.tone === 'danger' && (
+            <span className="mr-1 shrink-0 text-xs text-destructive">{status.label}</span>
+          )}
+          <Elapsed ms={end - Date.parse(process.startedAt)} />
+          {onStop && <span aria-hidden className="w-7 shrink-0" />}
+        </button>
+        {onStop && (
+          <TaskStop
+            onStop={onStop}
+            className={cn('absolute right-2.5', card ? 'top-2' : 'top-1')}
+          />
+        )}
+      </div>
+      <Collapse open={open}>
+        <div className="pr-3 pb-2 pl-7">
+          {list.client && <ProcessPeek client={list.client} process={process} />}
+          <button
+            type="button"
+            onClick={() => list.openProcess(process)}
+            className="mt-1.5 flex items-center gap-0.5 rounded-sm text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
+            data-testid="task-process-open"
+          >
+            {t('tasks.fullOutput')}
+            <ChevronRight aria-hidden className="size-3" />
+          </button>
+        </div>
+      </Collapse>
+    </div>
   );
 }
 
@@ -656,11 +789,23 @@ function TaskProcess({
   // 进行中：最后一项是工作组时它自己显示当前动作，否则末尾另起状态圈（同 turn-view.tsx）。
   const tailIsWork = last?.role === 'assistant' && groupWork(last.parts).at(-1)?.kind === 'work';
   const failed = summary.status === 'failed' || summary.status === 'cancelled';
+  const tokens = useChildTokens(summary.sessionId, running);
   return (
     <div className="space-y-3 text-sm">
-      {promptMessage && prompt && <PromptBlock id={promptMessage.id} text={prompt} />}
+      {promptMessage && prompt && (
+        <div>
+          <PromptBlock id={promptMessage.id} text={prompt} />
+          <CopyButton text={prompt} className="mt-1 -ml-1 text-muted-foreground" />
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         {t('tasks.detail.model', { model: modelLine(summary) })}
+        {!running && tokens !== undefined && (
+          <>
+            {' · '}
+            {t('tasks.tokens', { tokens: formatTokens(tokens) })}
+          </>
+        )}
         {failed && (
           <span className={summary.status === 'failed' ? 'text-destructive' : undefined}>
             {' · '}
@@ -745,17 +890,20 @@ function taskIcon(item: TaskItem): ReactNode {
 }
 
 /**
- * 进行中的子智能体与后台进程各一行（各自的图标、标题、走动的用时、停止），整行点开它的详情；下面一行“N 个已完成”打开“后台任务”
- * 窗格。标题被截断时悬停显示全文。
+ * 进行中的子智能体与后台进程各一行（各自的图标、标题、只到分钟的用时、停止），整行点开它的详情；下面一行“N 个已完成”打开“后台
+ * 任务”窗格并展开“已完成”。标题被截断时悬停显示全文。
  */
 function useTasksCard({ sessionId, entry, visible }: RailContext) {
   const panes = usePanes();
   const state = useTranscript(sessionId);
-  const processes = useSessionProcesses(entry.workspace.id, sessionId, visible);
-  const { open, done } = withoutCleared(
-    groupTasks(state?.transcript.subagents ?? NO_SUBAGENTS, processes),
-    useClearMark(sessionId),
+  const subagents = state?.transcript.subagents ?? NO_SUBAGENTS;
+  const processes = useSessionProcesses(
+    entry.workspace.id,
+    sessionId,
+    visible,
+    childIds(subagents),
   );
+  const { open, done } = withoutCleared(groupTasks(subagents, processes), useClearMark(sessionId));
   const now = useNow(open.length > 0 ? 1000 : undefined);
   const stopSubagent = useSubagentStop();
   const openTask = useOpenTask(entry.workspace.id, sessionId, panes);
@@ -774,7 +922,7 @@ function useTasksCard({ sessionId, entry, visible }: RailContext) {
         {open.map((item) => {
           const onStop =
             item.kind === 'subagent'
-              ? stopSubagent.supported
+              ? stopSubagent.supported && item.summary.status === 'running'
                 ? () => void stopSubagent.stop(item.summary.sessionId)
                 : undefined
               : canStop(item.process)
@@ -797,7 +945,7 @@ function useTasksCard({ sessionId, entry, visible }: RailContext) {
                 {taskIcon(item)}
                 <TruncatedText text={title} className="min-w-0 flex-1" />
                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {formatDuration(now - Date.parse(startedAt))}
+                  {formatElapsedShort(now - Date.parse(startedAt))}
                 </span>
                 {onStop && <span aria-hidden className="w-5 shrink-0" />}
               </button>
@@ -819,7 +967,10 @@ function useTasksCard({ sessionId, entry, visible }: RailContext) {
           <li>
             <button
               type="button"
-              onClick={() => panes?.open({ kind: 'tasks' })}
+              onClick={() => {
+                expandTaskPart(sessionId, DONE_PART);
+                panes?.open({ kind: 'tasks' });
+              }}
               className={cn(RAIL_ROW, 'text-muted-foreground hover:bg-muted hover:text-foreground')}
               data-testid="rail-tasks-done"
             >

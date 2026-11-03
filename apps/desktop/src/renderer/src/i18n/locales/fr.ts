@@ -235,6 +235,8 @@ export const messages: Messages = {
   'tasks.detail.model': 'Modèle {model}',
   'tasks.detail.showMore': 'Afficher plus',
   'tasks.detail.showLess': 'Afficher moins',
+  'tasks.children': '{count, plural, one {# tâche} other {# tâches}}',
+  'tasks.fullOutput': 'Sortie complète',
   'processes.gone': 'Processus introuvable',
   'processes.loadFailed': 'Échec du chargement : {error}',
   'processes.status.running': 'En cours',
@@ -863,6 +865,8 @@ export const messages: Messages = {
 
   'time.seconds': '{n} s',
   'time.minutes': '{m} min {s} s',
+  'time.minutesShort': '{n} min',
+  'time.hoursShort': '{h} h {m} min',
   'time.justNow': 'À l’instant',
   'time.minutesAgo': 'Il y a {n} min',
   'time.hoursAgo': 'Il y a {n} h',

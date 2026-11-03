@@ -230,6 +230,8 @@ export const messages: Messages = {
   'tasks.detail.model': '모델 {model}',
   'tasks.detail.showMore': '더 보기',
   'tasks.detail.showLess': '접기',
+  'tasks.children': '작업 {count}개',
+  'tasks.fullOutput': '전체 출력',
   'processes.gone': '프로세스가 없음',
   'processes.loadFailed': '불러오기 실패: {error}',
   'processes.status.running': '실행 중',
@@ -851,6 +853,8 @@ export const messages: Messages = {
 
   'time.seconds': '{n}초',
   'time.minutes': '{m}분 {s}초',
+  'time.minutesShort': '{n}분',
+  'time.hoursShort': '{h}시간 {m}분',
   'time.justNow': '방금',
   'time.minutesAgo': '{n}분 전',
   'time.hoursAgo': '{n}시간 전',

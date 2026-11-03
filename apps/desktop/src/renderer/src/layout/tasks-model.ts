@@ -1,12 +1,17 @@
 // “后台任务”（desktop-layout.md §15）的纯逻辑：子智能体与 Host 起的后台进程（0.69.0）合成一个列表，按“进行中”“已完成”分组、
-// 排序，以及“清除已完成”的记号。组件在 panes/tasks-pane.tsx。
+// 排序，子智能体自己起的进程挂在它下面，以及“清除已完成”的记号。组件在 panes/tasks-pane.tsx。
 
 import type { HostProcess, SubagentSummary } from '@wevir/protocol';
 import { lastActivity } from '@/session/subagent-model';
 import { processKey } from './process-model';
 
 export type TaskItem =
-  | { kind: 'subagent'; summary: SubagentSummary }
+  | {
+      kind: 'subagent';
+      summary: SubagentSummary;
+      /** 它自己起的后台进程（`source.sessionId` 是它的子会话），照 Claude Code 卡片下的“N 个任务”。 */
+      processes: readonly HostProcess[];
+    }
   | { kind: 'process'; process: HostProcess };
 
 /** 列表里的身份：子会话 ID，或进程 ID 加启动时刻（Host 重启后 ID 会重用）。 */
@@ -16,17 +21,29 @@ export function taskKey(item: TaskItem): string {
     : `process:${processKey(item.process)}`;
 }
 
+/** 子智能体结束了、它起的进程还在跑时也算进行中。 */
 export function taskRunning(item: TaskItem): boolean {
   return item.kind === 'subagent'
-    ? item.summary.status === 'running'
+    ? item.summary.status === 'running' ||
+        item.processes.some((process) => process.status === 'running')
     : item.process.status === 'running';
 }
 
-/** 排序与清除用的时刻（都是 Host 的时钟）：进行中的是开始时刻，结束的是结束时刻。 */
-export function taskActivity(item: TaskItem): string {
-  if (item.kind === 'subagent') return lastActivity(item.summary);
-  const { process } = item;
+function processActivity(process: HostProcess): string {
   return process.status === 'running' ? process.startedAt : (process.endedAt ?? process.startedAt);
+}
+
+/**
+ * 排序与清除用的时刻（都是 Host 的时钟）：进行中的是开始时刻，结束的是结束时刻；子智能体取它与它的进程里最晚的。
+ */
+export function taskActivity(item: TaskItem): string {
+  if (item.kind === 'process') return processActivity(item.process);
+  let at = lastActivity(item.summary);
+  for (const process of item.processes) {
+    const own = processActivity(process);
+    if (own > at) at = own;
+  }
+  return at;
 }
 
 export interface TaskGroups {
@@ -36,14 +53,30 @@ export interface TaskGroups {
   done: TaskItem[];
 }
 
-/** 时刻相同时后来的在前（输入按派出、启动的先后）。 */
+/**
+ * 时刻相同时后来的在前（输入按派出、启动的先后）。`source.sessionId` 是某个子智能体的进程挂到它下面，其余的进程各占一行
+ * （调用方只给这个会话与它的子会话的进程）。
+ */
 export function groupTasks(
   subagents: readonly SubagentSummary[],
   processes: readonly HostProcess[],
 ): TaskGroups {
+  const children = new Map<string, HostProcess[]>(
+    subagents.map((summary) => [summary.sessionId, []]),
+  );
+  const own: HostProcess[] = [];
+  for (const process of processes) {
+    const list = children.get(process.source.sessionId);
+    if (list) list.push(process);
+    else own.push(process);
+  }
   const items: TaskItem[] = [
-    ...subagents.map((summary) => ({ kind: 'subagent' as const, summary })),
-    ...processes.map((process) => ({ kind: 'process' as const, process })),
+    ...subagents.map((summary) => ({
+      kind: 'subagent' as const,
+      summary,
+      processes: children.get(summary.sessionId) ?? [],
+    })),
+    ...own.map((process) => ({ kind: 'process' as const, process })),
   ];
   const ordered = items
     .map((item, index) => ({ item, index, at: taskActivity(item) }))
@@ -53,6 +86,17 @@ export function groupTasks(
     open: ordered.filter(taskRunning),
     done: ordered.filter((item) => !taskRunning(item)),
   };
+}
+
+/** 一个子智能体卡片下的进程，分组与排序同列表。 */
+export function groupProcesses(processes: readonly HostProcess[]): {
+  open: HostProcess[];
+  done: HostProcess[];
+} {
+  const { open, done } = groupTasks([], processes);
+  const unwrap = (items: TaskItem[]) =>
+    items.flatMap((item) => (item.kind === 'process' ? [item.process] : []));
+  return { open: unwrap(open), done: unwrap(done) };
 }
 
 /**

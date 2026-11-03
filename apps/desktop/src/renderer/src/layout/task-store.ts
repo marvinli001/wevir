@@ -47,3 +47,28 @@ export function setOpenProcess(sessionId: string, key: string | undefined): void
     return key === undefined ? rest : { ...rest, [sessionId]: key };
   });
 }
+
+// 列表里展开着的部分（“已完成”一组、卡片下的“N 个任务”与其中的分组、行内展开的进程）：键是会话 ID 加 tasks-pane.tsx 给的名字，
+// 不持久；进出详情、窗格重新挂上时保持原样。都默认收起（照 Claude Code）。
+const expanded = createStore<ReadonlySet<string>>(new Set());
+
+/** 展开 `part`（已展开时不变）：会话侧栏卡片的“N 个已完成”打开窗格时展开“已完成”一组。 */
+export function expandTaskPart(sessionId: string, part: string): void {
+  const id = `${sessionId}\n${part}`;
+  expanded.set((current) => (current.has(id) ? current : new Set([...current, id])));
+}
+
+export function useExpanded(sessionId: string, part: string): [boolean, () => void] {
+  const id = `${sessionId}\n${part}`;
+  const open = expanded.use().has(id);
+  return [
+    open,
+    () =>
+      expanded.set((current) => {
+        const next = new Set(current);
+        if (current.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+  ];
+}
