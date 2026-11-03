@@ -330,6 +330,8 @@ export interface RecordedUsage {
   input: number;
   cachedInput: number;
   output: number;
+  cacheWrite?: number;
+  reasoning?: number;
 }
 
 /** 从 Responses 的流（或非流式 JSON）里找上游报的用量；只取数字，不留响应正文。 */
@@ -345,10 +347,19 @@ export function usageOf(text: string): RecordedUsage | undefined {
       };
       const usage = value.response?.usage ?? value.usage;
       if (usage === undefined || typeof usage.input_tokens !== 'number') continue;
-      const details = usage.input_tokens_details as { cached_tokens?: number } | undefined;
+      const details = usage.input_tokens_details as
+        | { cached_tokens?: number; cache_write_tokens?: number }
+        | undefined;
+      const outputDetails = usage.output_tokens_details as
+        | { reasoning_tokens?: number }
+        | undefined;
       found = {
         input: usage.input_tokens,
         cachedInput: details?.cached_tokens ?? 0,
+        ...((details?.cache_write_tokens ?? 0) > 0 && { cacheWrite: details?.cache_write_tokens }),
+        ...((outputDetails?.reasoning_tokens ?? 0) > 0 && {
+          reasoning: outputDetails?.reasoning_tokens,
+        }),
         output: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
       };
     } catch {
@@ -617,9 +628,19 @@ export function startMessagesRecorder(
  * 转发到真实上游的记录代理：请求原样（含 `Authorization`）转给 `upstream` 下的同一路径，响应原样流回。只在内存里记请求体，
  * 不记响应、不写盘；请求头里的 Key 不进报告。
  */
-export function startForwardingRecorder(upstream: string): Promise<Recorder> {
+export function startForwardingRecorder(
+  upstream: string,
+  maxRequests = Number.POSITIVE_INFINITY,
+): Promise<Recorder> {
+  let forwarded = 0;
   const base = upstream.replace(/\/$/, '');
   return listen((request, res) => {
+    if (forwarded >= maxRequests) {
+      res.writeHead(429, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'baseline request cap' } }));
+      return;
+    }
+    forwarded += 1;
     const headers = new Headers();
     for (const name of ['authorization', 'content-type', 'accept', 'openai-beta']) {
       const value = request.headers[name];

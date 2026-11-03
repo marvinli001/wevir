@@ -141,6 +141,31 @@ function subscribes(sent: SentFrame[]): number[] {
 }
 
 describe('client-sdk 对着真实 Host', () => {
+  it('usage.turns 经真实 Host 返回回合账本，echo 保留 engine 精度', async () => {
+    const { home } = await setup();
+    const { client } = await open(home);
+    const sessionId = await createSession(client);
+    await client.request('session.send', { sessionId, content: [{ type: 'text', text: 'hello' }] });
+    await vi.waitFor(async () => {
+      const { turns } = await client.usageTurns([sessionId]);
+      expect(turns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sessionId,
+            turnId: expect.any(String),
+            groups: [
+              expect.objectContaining({
+                precision: 'engine',
+                requests: expect.objectContaining({ total: 1 }),
+              }),
+            ],
+          }),
+        ]),
+      );
+    });
+    expect(client.supports('context_ledger')).toBe(true);
+  });
+
   it('正常流程：读 host.json 连接与握手，类型安全的请求，回放 + 实时事件按 seq 连续，类型化错误', async () => {
     const { home, host } = await setup();
     expect(await readHostEndpoint(home)).toEqual({ url: host.url, token: expect.any(String) });

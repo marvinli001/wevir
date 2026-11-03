@@ -50,6 +50,58 @@
           ]
         }
       ]
+    },
+    "usage.records": {
+      "params": [
+        {
+          "from": 0,
+          "to": 2000,
+          "filter": {
+            "precision": "exact"
+          }
+        }
+      ],
+      "result": [
+        {
+          "records": [
+            {
+              "id": "1",
+              "at": 1000,
+              "sessionId": "ses_1",
+              "requestId": "req_1",
+              "source": "openai-compatible",
+              "providerId": "mock",
+              "providerName": "Mock",
+              "model": "wevir-mock",
+              "tokens": {
+                "input": 10,
+                "output": 2,
+                "cacheRead": 3,
+                "cacheWrite": 4,
+                "reasoning": 1
+              },
+              "turnId": "trn_1",
+              "workspaceId": "ws_1",
+              "kind": "agent",
+              "origin": "gateway",
+              "granularity": "request",
+              "precision": "exact",
+              "usageReported": true,
+              "outcome": "completed",
+              "supply": {
+                "toolCount": 1,
+                "toolBytes": 20,
+                "mcpNoteBytes": 3,
+                "instructionBytes": 8,
+                "requestBytes": 100,
+                "wevirOutputBytes": 10,
+                "wevirOutputBytesNew": 6
+              }
+            }
+          ],
+          "total": 1
+        }
+      ]
     }
   },
   "notifications": {},

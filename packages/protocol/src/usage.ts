@@ -144,6 +144,20 @@ export const UsageTurnSchema = z.object({
   }),
 });
 export type UsageTurn = z.infer<typeof UsageTurnSchema>;
+export const UsageSavingsSchema = z.object({
+  id: z.string(),
+  baseline: z.string(),
+  candidate: z.string(),
+  model: z.string(),
+  pairs: z.int().min(5),
+  precision: z.literal('exact'),
+  costPerTask: z.number().positive(),
+  agentRequestsDelta: z.number(),
+  costInterval: z.tuple([z.number(), z.number()]),
+  generatedAt: z.string(),
+  priceAt: z.int().min(0),
+});
+export type UsageSavings = z.infer<typeof UsageSavingsSchema>;
 export const UsageTurnsParamsSchema = z.object({
   sessionIds: z.array(z.string().min(1)).min(1).max(100),
 });
@@ -162,6 +176,7 @@ export type UsageTiming = z.infer<typeof UsageTimingSchema>;
 
 /** 一组请求的合计。 */
 export const UsageAggregateSchema = z.object({
+  modelRequests: z.int().min(0).nullable().optional(),
   requests: z.int().min(0),
   tokens: UsageTokensSchema,
   /** 能估价的请求的美元成本之和。 */
@@ -174,6 +189,7 @@ export type UsageAggregate = z.infer<typeof UsageAggregateSchema>;
 
 /** 只统计符合条件的请求；每个数组省略或为空表示不限。 */
 export const UsageFilterSchema = z.object({
+  precision: UsagePrecisionSchema.optional(),
   sources: z.array(ProviderKindSchema).optional(),
   providerIds: z.array(z.string().min(1)).optional(),
   models: z.array(z.string().min(1)).optional(),
@@ -217,6 +233,7 @@ export const UsageModelAggregateSchema = UsageAggregateSchema.extend({
 export type UsageModelAggregate = z.infer<typeof UsageModelAggregateSchema>;
 
 export const UsageSummaryResultSchema = z.object({
+  savings: UsageSavingsSchema.optional(),
   totals: UsageAggregateSchema,
   buckets: z.array(UsageAggregateSchema),
   /** 按请求数从多到少。 */
@@ -224,6 +241,7 @@ export const UsageSummaryResultSchema = z.object({
   byModel: z.array(UsageModelAggregateSchema),
   /** 这个时间段里出现过的来源、Provider 与模型（不受 `filter` 限制），给筛选菜单用。 */
   options: z.object({
+    precisions: z.array(UsagePrecisionSchema).optional(),
     sources: z.array(ProviderKindSchema),
     providers: z.array(
       z.object({ id: z.string().min(1), name: z.string(), source: ProviderKindSchema }),
@@ -260,3 +278,31 @@ export const UsagePricingResultSchema = z.object({
 
 /** `usage.changed` 通知：有了新的请求记录或价格表换了。发给调用过 `usage.*` 的连接，最多每秒一次；客户端重读它在看的。 */
 export const UsageChangedParamsSchema = z.object({});
+
+export const BaselineRunSchema = z.object({
+  arm: z.enum(['A', 'B']),
+  pair: z.int().min(1),
+  order: z.int().min(1),
+  precision: UsagePrecisionSchema,
+  success: z.boolean(),
+  environmentError: z.string().optional(),
+  requests: z.object({ total: z.int().min(1), agent: z.int().min(0), capHit: z.boolean() }),
+  tokens: UsageTokensSchema,
+  cost: UsageCostSchema.optional(),
+  ledgerMismatch: z.array(z.string()),
+});
+export const BaselineReportSchema = z.object({
+  mode: z.literal('real'),
+  generatedAt: z.iso.datetime(),
+  commit: z.string(),
+  model: z.string(),
+  providerId: z.string(),
+  task: z.literal('C0'),
+  configs: z.object({ A: z.object({ name: z.string() }), B: z.object({ name: z.string() }) }),
+  priceSnapshot: z.object({
+    source: z.literal('models.dev'),
+    at: z.int().min(0),
+    fetchedAt: z.int().min(0),
+  }),
+  runs: z.array(BaselineRunSchema).min(10).max(200),
+});

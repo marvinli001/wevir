@@ -52,7 +52,12 @@ describe('requestStats', () => {
     const body: ResponsesRequest = {
       model: 'm',
       input: [
-        { type: 'function_call', call_id: 'c', name: 'mcp__wevir__wevir_tasks' },
+        {
+          type: 'function_call',
+          call_id: 'c',
+          name: 'browser_snapshot',
+          namespace: 'mcp__wevir_more',
+        },
         { type: 'function_call_output', call_id: 'c', output: '账本' },
         { type: 'function_call', call_id: 'shell', name: 'exec_command' },
         { type: 'function_call_output', call_id: 'shell', output: 'ignored' },

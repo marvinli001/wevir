@@ -5457,7 +5457,119 @@ const registryCases: Case[] = [
   }),
 ];
 
-const allCases = [...standaloneCases, ...approvalRuleCases, ...registryCases];
+const ledgerGroup = {
+  precision: 'exact',
+  requests: { total: 1, agent: 1, compaction: 0, subagent: 0, auxiliary: 0, unknown: 0 },
+  tokens: { input: 10, output: 2, cacheRead: 3, cacheWrite: 4, reasoning: 1 },
+  unpriced: 1,
+  missingUsage: 0,
+};
+const ledgerTurn = {
+  sessionId: 'ses_1',
+  turnId: 'trn_1',
+  compactions: { manual: 0, auto: 1 },
+  groups: [ledgerGroup],
+  toolCalls: { precision: 'exact', calls: 0, rawBytes: 0, returnedBytes: 0, byTool: [] },
+};
+const ledgerRun = {
+  arm: 'A',
+  pair: 1,
+  order: 1,
+  precision: 'exact',
+  success: true,
+  requests: { total: 2, agent: 1, capHit: false },
+  tokens: ledgerGroup.tokens,
+  ledgerMismatch: [],
+};
+const ledgerCases = [
+  {
+    name: 'UsagePrecision',
+    schema: protocol.UsagePrecisionSchema,
+    valid: ['exact', 'engine', 'estimate', 'turn'],
+    invalid: ['unknown', 1],
+  },
+  {
+    name: 'UsageSupply',
+    schema: protocol.UsageSupplySchema,
+    valid: [
+      {
+        toolCount: 1,
+        toolBytes: 20,
+        mcpNoteBytes: 0,
+        instructionBytes: 4,
+        requestBytes: 100,
+        wevirOutputBytes: 6,
+        wevirOutputBytesNew: 3,
+      },
+    ],
+    invalid: [{}, { toolCount: -1 }],
+  },
+  {
+    name: 'UsageTurnGroup',
+    schema: protocol.UsageTurnGroupSchema,
+    valid: [
+      ledgerGroup,
+      {
+        ...ledgerGroup,
+        precision: 'turn',
+        requests: { ...ledgerGroup.requests, total: undefined },
+      },
+    ],
+    invalid: [{ ...ledgerGroup, tokens: { ...ledgerGroup.tokens, input: -1 } }],
+  },
+  {
+    name: 'UsageTurn',
+    schema: protocol.UsageTurnSchema,
+    valid: [ledgerTurn, { ...ledgerTurn, turnId: undefined }],
+    invalid: [{ ...ledgerTurn, groups: [{ ...ledgerGroup, precision: 'missing' }] }],
+  },
+  {
+    name: 'UsageSavings',
+    schema: protocol.UsageSavingsSchema,
+    valid: [
+      {
+        id: 'b',
+        baseline: 'A',
+        candidate: 'B',
+        model: 'm',
+        pairs: 5,
+        precision: 'exact',
+        costPerTask: 1,
+        agentRequestsDelta: 0,
+        costInterval: [-1, -0.5],
+        generatedAt: '2026-11-04T00:00:00.000Z',
+        priceAt: 1,
+      },
+    ],
+    invalid: [{ precision: 'estimate' }],
+  },
+  {
+    name: 'BaselineRun',
+    schema: protocol.BaselineRunSchema,
+    valid: [ledgerRun],
+    invalid: [{ ...ledgerRun, requests: { total: 0, agent: 0, capHit: false } }],
+  },
+  {
+    name: 'BaselineReport',
+    schema: protocol.BaselineReportSchema,
+    valid: [
+      {
+        mode: 'real',
+        generatedAt: '2026-11-04T00:00:00.000Z',
+        commit: 'abc',
+        model: 'm',
+        providerId: 'p',
+        task: 'C0',
+        configs: { A: { name: 'full' }, B: { name: 'core' } },
+        priceSnapshot: { source: 'models.dev', at: 1, fetchedAt: 1 },
+        runs: Array.from({ length: 10 }, () => ledgerRun),
+      },
+    ],
+    invalid: [{ mode: 'mock', runs: [] }],
+  },
+];
+
+const allCases = [...standaloneCases, ...approvalRuleCases, ...registryCases, ...ledgerCases];
 
 describe('每个 schema 的合法与非法样例', () => {
   for (const { name, schema, valid, invalid } of allCases) {

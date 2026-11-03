@@ -34,7 +34,7 @@ interface ProviderPrices {
   models: Record<string, ModelPrice>;
 }
 
-interface PricingFile {
+export interface PricingFile {
   version: number;
   fetchedAt: number;
   etag?: string;
@@ -112,6 +112,10 @@ export class PricingStore {
         this.#options.onWarning?.('failed to read pricing table', { error });
       }
     }
+  }
+
+  snapshot(): PricingFile | undefined {
+    return this.#table === undefined ? undefined : structuredClone(this.#table);
   }
 
   status(): UsagePricing {

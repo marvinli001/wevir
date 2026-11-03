@@ -1572,7 +1572,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     'usage.turns': async ({ sessionIds }) => ({ turns: usageStats().service.turns(sessionIds) }),
-    'usage.summary': async ({ edges, filter }) => usageStats().service.summary(edges, filter),
+    'usage.summary': async ({ edges, filter }) => {
+      const service = usageStats().service;
+      const summary = service.summary(edges, filter);
+      const savings = await service.savings(edges, filter);
+      return { ...summary, ...(savings !== undefined && { savings }) };
+    },
     'usage.records': async (params) => {
       if (params.to < params.from) throw invalidParams(['to'], 'to must not be before from');
       return usageStats().service.records(params);

@@ -133,6 +133,28 @@ describe('UsageService', () => {
     ).toBeUndefined();
   });
 
+  it('summary 与 records 使用同一精度筛选；回合行不能冒充一次请求', async () => {
+    const { service } = await setup();
+    service.record(claude, event({ requestId: 'exact', origin: 'gateway' }));
+    service.record(claude, event({ requestId: 'engine' }));
+    service.record(claude, event({ requestId: 'cursor', granularity: 'turn' }));
+    service.record(claude, event({ requestId: 'grok', granularity: 'turn', modelCalls: 4 }));
+    expect(service.summary([0, T0 + 1], { precision: 'exact' }).totals).toMatchObject({
+      requests: 1,
+      modelRequests: 1,
+      tokens: { input: 1000 },
+    });
+    expect(
+      service
+        .records({ from: 0, to: T0 + 1, filter: { precision: 'exact' } })
+        .records.map((row) => row.requestId),
+    ).toEqual(['exact']);
+    expect(service.summary([0, T0 + 1], { precision: 'turn' }).totals).toMatchObject({
+      requests: 2,
+      modelRequests: null,
+    });
+  });
+
   it('成本：单价是每百万 token，没有缓存价时按输入价', () => {
     expect(
       costOf(
@@ -181,6 +203,7 @@ describe('UsageService', () => {
     ]);
     expect(all.byModel.map((m) => m.model)).toEqual(['claude-opus-5-5', 'unknown-model']);
     expect(all.options).toEqual({
+      precisions: ['engine'],
       sources: ['chatgpt', 'claude'],
       providers: [
         { id: 'prv_chatgpt', name: 'ChatGPT', source: 'chatgpt' },

@@ -1,4 +1,5 @@
 import type { SqliteDatabase } from './driver.js';
+import { integer, optionalText, text } from './rows.js';
 
 export interface ToolSupplyRow {
   sessionId: string;
@@ -49,7 +50,17 @@ export function createContextLedgerRepository(db: SqliteDatabase) {
         .prepare(`SELECT session_id AS sessionId, server, at, tool_count AS toolCount, tool_bytes AS toolBytes,
         instruction_bytes AS instructionBytes, memory_index_bytes AS memoryIndexBytes, digest
         FROM tool_supply WHERE session_id IN (SELECT value FROM json_each(?)) ORDER BY id`)
-        .all(JSON.stringify(sessionIds)) as unknown as ToolSupplyRow[];
+        .all(JSON.stringify(sessionIds))
+        .map((row) => ({
+          sessionId: text(row, 'sessionId'),
+          server: text(row, 'server'),
+          at: text(row, 'at'),
+          toolCount: integer(row, 'toolCount'),
+          toolBytes: integer(row, 'toolBytes'),
+          instructionBytes: integer(row, 'instructionBytes'),
+          memoryIndexBytes: integer(row, 'memoryIndexBytes'),
+          digest: text(row, 'digest'),
+        }));
     },
     calls(sessionIds: readonly string[]): ToolCallRow[] {
       return db
@@ -58,13 +69,18 @@ export function createContextLedgerRepository(db: SqliteDatabase) {
         FROM tool_calls_ledger WHERE session_id IN (SELECT value FROM json_each(?)) ORDER BY id`)
         .all(JSON.stringify(sessionIds))
         .map((row) => {
-          const { turnId, spilled, isError, ...rest } = row;
+          const turnId = optionalText(row, 'turnId');
           return {
-            ...rest,
-            ...(turnId !== null && { turnId }),
-            spilled: spilled === 1,
-            isError: isError === 1,
-          } as unknown as ToolCallRow;
+            sessionId: text(row, 'sessionId'),
+            ...(turnId !== undefined && { turnId }),
+            at: text(row, 'at'),
+            server: text(row, 'server'),
+            tool: text(row, 'tool'),
+            rawBytes: integer(row, 'rawBytes'),
+            returnedBytes: integer(row, 'returnedBytes'),
+            spilled: row.spilled === 1,
+            isError: row.isError === 1,
+          };
         });
     },
   };

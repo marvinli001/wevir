@@ -66,6 +66,22 @@ describe('startForwardingRecorder', () => {
     proxy = undefined;
   });
 
+  it('enforces the upstream request cap before forwarding retries', async () => {
+    upstream = await startUpstream(0);
+    let forwarded = 0;
+    upstream.on('request', () => {
+      forwarded += 1;
+    });
+    proxy = await startForwardingRecorder(
+      `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+      1,
+    );
+    await readUntilCompleted(proxy);
+    const response = await fetch(`${proxy.baseURL}/v1/responses`, { method: 'POST', body: '{}' });
+    expect(response.status).toBe(429);
+    expect(forwarded).toBe(1);
+  });
+
   for (const endAfter of [0, 500]) {
     it(`keeps the usage when the client leaves after response.completed (upstream ends after ${endAfter} ms)`, async () => {
       upstream = await startUpstream(endAfter);

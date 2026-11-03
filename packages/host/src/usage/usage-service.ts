@@ -17,8 +17,16 @@ import {
   type UsageTurnGroup,
 } from '@wevir/protocol';
 import type { UsageRecordedEvent } from '@wevir/runtime-adapter';
-import { type Storage, type StoredUsageRow, type UsageRow, usagePrecision } from '@wevir/storage';
+import {
+  type Storage,
+  type StoredUsageRow,
+  type ToolCallRow,
+  type ToolSupplyRow,
+  type UsageRow,
+  usagePrecision,
+} from '@wevir/storage';
 import { HostError } from '../errors.js';
+import { baselineSavings } from './baseline-reports.js';
 import type { PricingStore } from './pricing.js';
 
 /** 速度只算输出够多、耗时够长的请求，免得短请求的首字等待把速度拉低（照 cc-switch 的估算口径）。 */
@@ -31,6 +39,7 @@ const NOTIFY_INTERVAL_MS = 1_000;
 
 export interface UsageServiceOptions {
   storage: Storage;
+  baselineDir?: string;
   pricing: PricingStore;
   now?: () => number;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
@@ -45,6 +54,7 @@ export interface UsageContext {
 }
 
 export class UsageService {
+  readonly #baselineDir: string | undefined;
   readonly #storage: Storage;
   readonly #pricing: PricingStore;
   readonly #now: () => number;
@@ -54,6 +64,7 @@ export class UsageService {
   #lastNotify = 0;
 
   constructor(options: UsageServiceOptions) {
+    this.#baselineDir = options.baselineDir;
     this.#storage = options.storage;
     this.#pricing = options.pricing;
     this.#now = options.now ?? Date.now;
@@ -131,6 +142,8 @@ export class UsageService {
     const to = edges.at(-1) as number;
     const rows = this.#storage.usage.range(from, to);
 
+    const precisions = new Set<ReturnType<typeof usagePrecision>>();
+    const withoutPrecision = matcher({ ...filter, precision: undefined });
     const sources = new Set<string>();
     const providers = new Map<string, { id: string; name: string; source: ProviderKind }>();
     const models = new Set<string>();
@@ -142,6 +155,7 @@ export class UsageService {
     let bucket = 0;
 
     for (const row of rows) {
+      if (withoutPrecision(row)) precisions.add(usagePrecision(row));
       sources.add(row.source);
       // 同一个 Provider 取最近一次的名字。
       providers.set(row.providerId, {
@@ -182,6 +196,7 @@ export class UsageService {
       byProvider: [...byProvider.values()].sort(byRequests),
       byModel: [...byModel.values()].sort(byRequests),
       options: {
+        precisions: [...precisions],
         sources: [...sources].sort() as ProviderKind[],
         providers: [...providers.values()].sort((a, b) => a.name.localeCompare(b.name)),
         models: [...models].sort(),
@@ -202,6 +217,7 @@ export class UsageService {
       params.from,
       params.to,
       {
+        ...(params.filter?.precision !== undefined && { precision: params.filter.precision }),
         ...(nonEmpty(params.filter?.sources) && { sources: params.filter?.sources }),
         ...(nonEmpty(params.filter?.providerIds) && { providerIds: params.filter?.providerIds }),
         ...(nonEmpty(params.filter?.models) && { models: params.filter?.models }),
@@ -210,6 +226,28 @@ export class UsageService {
       limit,
     );
     return { records: rows.map((row) => this.#toRecord(row)), total };
+  }
+
+  recordSupply(row: ToolSupplyRow): void {
+    try {
+      this.#storage.contextLedger.supply(row);
+    } catch (error) {
+      this.#onWarning?.('failed to record tool supply', { error, sessionId: row.sessionId });
+    }
+  }
+
+  recordToolCall(row: ToolCallRow): void {
+    try {
+      this.#storage.contextLedger.call(row);
+    } catch (error) {
+      this.#onWarning?.('failed to record tool call', { error, sessionId: row.sessionId });
+    }
+  }
+
+  savings(edges: readonly number[], filter: UsageFilter | undefined) {
+    return this.#baselineDir === undefined
+      ? Promise.resolve(undefined)
+      : baselineSavings(this.#baselineDir, edges[0] as number, edges.at(-1) as number, filter);
   }
 
   turns(sessionIds: readonly string[]): UsageTurn[] {
@@ -397,6 +435,7 @@ function tokensOf(row: UsageRow): UsageTokens {
 function emptyAggregate(): UsageAggregate {
   return {
     requests: 0,
+    modelRequests: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
     cost: 0,
     unpriced: 0,
@@ -412,6 +451,10 @@ function emptyAggregate(): UsageAggregate {
 
 function add(target: UsageAggregate, row: UsageRow, priced: { cost: UsageCost } | undefined): void {
   target.requests += 1;
+  if (target.modelRequests !== null) {
+    const requests = usagePrecision(row) === 'turn' ? row.modelCalls : 1;
+    target.modelRequests = requests === undefined ? null : (target.modelRequests ?? 0) + requests;
+  }
   target.tokens.input += row.inputTokens;
   target.tokens.output += row.outputTokens;
   target.tokens.cacheRead += row.cacheReadTokens;
@@ -439,6 +482,7 @@ function matcher(filter: UsageFilter | undefined): (row: UsageRow) => boolean {
   const providers = nonEmpty(filter?.providerIds);
   const models = nonEmpty(filter?.models);
   return (row) =>
+    (filter?.precision === undefined || filter.precision === usagePrecision(row)) &&
     (sources === undefined || sources.has(row.source)) &&
     (providers === undefined || providers.has(row.providerId)) &&
     (models === undefined || models.has(row.model));

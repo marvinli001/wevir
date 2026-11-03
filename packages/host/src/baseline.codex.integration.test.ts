@@ -29,7 +29,7 @@ import {
   type MockView,
   startMockModel,
 } from '@wevir/adapter-codex/testing';
-import { PROTOCOL_VERSION, type WevirEvent } from '@wevir/protocol';
+import { PROTOCOL_VERSION, type UsageRecord, type WevirEvent } from '@wevir/protocol';
 import { historyToolServer } from '@wevir/runtime-adapter/history-tool';
 import { afterAll, describe, expect, it } from 'vitest';
 import { homePath } from './home.js';
@@ -66,7 +66,10 @@ import {
   startMessagesRecorder,
   writeProject,
 } from './test-fixtures/baseline.js';
+import { ledgerRun } from './test-fixtures/baseline-ledger.js';
 import { removeTempDir, TestRpcClient } from './test-utils.js';
+import { type BaselineRun, comparePaired, pairedOrder, summarizeArm } from './usage/baseline.js';
+import { type PricingFile, PricingStore } from './usage/pricing.js';
 import { WebService } from './web/service.js';
 
 const ENABLED = process.env.WEVIR_BASELINE === '1';
@@ -79,6 +82,7 @@ const REAL_KEY =
   process.env.WEVIR_TEST_PROVIDER === 'deepseek-official'
     ? process.env.WEVIR_TEST_API_KEY || undefined
     : undefined;
+const RUN_REAL_SCENARIOS = REAL_KEY !== undefined && process.env.WEVIR_BASELINE_AB === undefined;
 /** 只认标题请求：交给默认脚本回 JSON 标题。 */
 const TITLE_PROMPT = '你为 Wevir 的会话起标题';
 const ROLES = ['explorer', 'planner', 'reviewer', 'advisor', 'worker'] as const;
@@ -125,10 +129,13 @@ const report: Json = {
 
 function gitHead(): string {
   try {
-    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+    const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
       cwd: REPO,
       encoding: 'utf8',
     }).trim();
+    const dirty =
+      execFileSync('git', ['status', '--porcelain'], { cwd: REPO, encoding: 'utf8' }).trim() !== '';
+    return `${commit}${dirty ? '+dirty' : ''}`;
   } catch {
     return 'unknown';
   }
@@ -168,12 +175,16 @@ interface Booted {
 /** 起一个产品配置的 Host（CodexRuntime + 读历史 + 联网工具），登记项目 A、B 与给出的 Provider。 */
 async function boot(
   providers: Json[],
-  options: { deepseekBaseURL?: string } = {},
+  options: { deepseekBaseURL?: string; pricingSnapshot?: PricingFile } = {},
 ): Promise<Booted> {
   const root = mkdirTemp();
   const home = join(root, 'home');
   const userHome = join(root, 'user');
   mkdirSync(userHome, { recursive: true });
+  if (options.pricingSnapshot !== undefined) {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(homePath(home, 'pricingFile'), JSON.stringify(options.pricingSnapshot));
+  }
   const dirA = join(root, 'invoice-tools');
   const dirB = join(root, 'reading-list');
   writeProject(dirA, PROJECT_A);
@@ -880,7 +891,200 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
       }
     });
 
-    describe.skipIf(REAL_KEY === undefined)(`真实模型：deepseek-official/${DEEPSEEK_MODEL}`, () => {
+    it.skipIf(process.env.WEVIR_BASELINE_AB === undefined)(
+      '成对账本：C0 的成本、请求数与逐请求对账',
+      { timeout: 3_600_000 },
+      async () => {
+        const names = (process.env.WEVIR_BASELINE_AB ?? '').split(',').map((name) => name.trim());
+        if (names.length !== 2 || names.some((name) => !(name in BASELINE_TOOL_PRESETS)))
+          throw new Error('WEVIR_BASELINE_AB requires two registered presets');
+        const pairs = Number(process.env.WEVIR_BASELINE_PAIRS ?? 5);
+        if (!Number.isSafeInteger(pairs) || pairs < 1 || pairs > 100)
+          throw new Error('WEVIR_BASELINE_PAIRS must be 1–100');
+        const configs = {
+          A: { name: names[0], preset: names[0], api: 'openai-responses', toolSearch: 'on' },
+          B: { name: names[1], preset: names[1], api: 'openai-responses', toolSearch: 'on' },
+        };
+        const runs: BaselineRun[] = [];
+        const priceRoot = mkdirTemp();
+        const pricingAt = Date.now();
+        const pricing = new PricingStore({
+          file: join(priceRoot, 'pricing.json'),
+          ...(REAL_KEY === undefined && {
+            fetch: async () =>
+              new Response(
+                JSON.stringify({
+                  openai: {
+                    models: {
+                      'wevir-mock': {
+                        cost: { input: 2, output: 10, cache_read: 0.2, cache_write: 2.5 },
+                      },
+                    },
+                  },
+                }),
+              ),
+          }),
+        });
+        await pricing.refresh();
+        const priceSnapshot = {
+          source: REAL_KEY === undefined ? 'fixture' : 'models.dev',
+          at: pricingAt,
+          ...pricing.snapshot(),
+        };
+        let totalRequests = 0;
+        const publish = () => {
+          const result = {
+            mode: REAL_KEY === undefined ? 'mock' : 'real',
+            generatedAt: new Date().toISOString(),
+            commit: gitHead(),
+            codexVersion: CODEX_VERSION,
+            protocolVersion: PROTOCOL_VERSION,
+            model: REAL_KEY === undefined ? 'wevir-mock' : DEEPSEEK_MODEL,
+            providerId: REAL_KEY === undefined ? 'mock' : 'deepseek-official',
+            task: 'C0',
+            configs,
+            priceSnapshot,
+            runs,
+            arms: {
+              A: summarizeArm(runs.filter((run) => run.arm === 'A')),
+              B: summarizeArm(runs.filter((run) => run.arm === 'B')),
+            },
+            paired: comparePaired(runs, 'A', 'B'),
+          };
+          section(REAL_KEY === undefined ? 'mock' : 'real', 'paired', result);
+          const saveHome = process.env.WEVIR_BASELINE_SAVE_HOME;
+          if (REAL_KEY !== undefined && saveHome !== undefined) {
+            const folder = join(saveHome, 'baseline-reports');
+            mkdirSync(folder, { recursive: true, mode: 0o700 });
+            writeFileSync(
+              join(folder, `${report.generatedAt as string}.json`.replaceAll(':', '-')),
+              JSON.stringify(result, null, 2),
+              { mode: 0o600 },
+            );
+          }
+        };
+        try {
+          for (const position of pairedOrder('A', 'B', pairs)) {
+            if (totalRequests >= REAL_TOTAL_CAP) break;
+            const arm = position.arm as 'A' | 'B';
+            const config = configs[arm];
+            const recorder =
+              REAL_KEY === undefined
+                ? await startMockModel(script)
+                : await startForwardingRecorder(
+                    DEEPSEEK,
+                    Math.min(REAL_REQUEST_CAP, REAL_TOTAL_CAP - totalRequests),
+                  );
+            const provider =
+              REAL_KEY === undefined ? mockProvider('mock', recorder.baseURL) : deepseek();
+            let host: Booted | undefined;
+            try {
+              host = await boot([provider], {
+                ...(REAL_KEY !== undefined && { deepseekBaseURL: recorder.baseURL }),
+                ...(pricing.snapshot() !== undefined && { pricingSnapshot: pricing.snapshot() }),
+              });
+              const { client, a, home } = host;
+              seedProjectNote(home, a.id, STALE_NOTE);
+              const session = await newSession(
+                client,
+                a.id,
+                REAL_KEY === undefined ? 'mock' : 'deepseek-official',
+                'full_access',
+                config.preset === 'full' ? undefined : (config.preset as BaselinePresetName),
+              );
+              const started = Date.now();
+              const turn = await runTurn(
+                client,
+                session,
+                C0_PROMPT,
+                REAL_KEY === undefined ? 120_000 : 540_000,
+                () => recorder.requests.length >= REAL_REQUEST_CAP,
+              );
+              // 等辅助请求也结束，再读同一份请求账；不从上下文快照推算。
+              const deadline = Date.now() + 10_000;
+              let count = recorder.requests.length;
+              let stableSince = Date.now();
+              let records: UsageRecord[] = [];
+              while (Date.now() < deadline) {
+                records = (
+                  await client.request('usage.records', {
+                    from: started - 1_000,
+                    to: Date.now() + 1,
+                    limit: 200,
+                  })
+                ).records.filter((row: UsageRecord) => row.sessionId === session);
+                if (count !== recorder.requests.length) {
+                  count = recorder.requests.length;
+                  stableSince = Date.now();
+                }
+                if (records.length === count && Date.now() - stableSince >= 300) break;
+                await new Promise((resolve) => setTimeout(resolve, 20));
+              }
+              const { turns } = await client.request('usage.turns', { sessionIds: [session] });
+              const check = checkC0(a.dir);
+              const observed = recorder.requests.map((request) => ({
+                body: request.body,
+                usage:
+                  REAL_KEY === undefined
+                    ? { input: 1000, cachedInput: 0, output: 20, reasoning: 0 }
+                    : 'usage' in request
+                      ? request.usage
+                      : undefined,
+              }));
+              const measured = ledgerRun({
+                ...position,
+                success: check.success && turn.outcome === 'completed',
+                check,
+                wallMs: Date.now() - started,
+                capHit: recorder.requests.length >= REAL_REQUEST_CAP,
+                records,
+                turns,
+                observed,
+                pricing,
+                pricingAt,
+              });
+              runs.push(measured);
+              if (REAL_KEY === undefined) {
+                expect(measured.ledgerMismatch).toEqual([]);
+                expect(measured.precision).toBe('exact');
+                expect(measured.success).toBe(true);
+              }
+            } catch (error) {
+              if (!runs.some((run) => run.order === position.order))
+                runs.push({
+                  ...ledgerRun({
+                    ...position,
+                    success: false,
+                    check: {},
+                    wallMs: 0,
+                    capHit: false,
+                    records: [],
+                    turns: [],
+                    observed: [],
+                    pricing,
+                    pricingAt,
+                  }),
+                  environmentError: error instanceof Error ? error.name : 'environment',
+                });
+              if (REAL_KEY === undefined) throw error;
+            } finally {
+              totalRequests += recorder.requests.length;
+              await host?.close();
+              await recorder.close();
+              publish();
+            }
+          }
+          publish();
+          if (REAL_KEY === undefined && names[0] === names[1])
+            expect(comparePaired(runs, 'A', 'B').verdict).toBe('inconclusive');
+        } finally {
+          pricing.stop();
+          removeTempDir(priceRoot);
+        }
+      },
+    );
+
+    describe.skipIf(!RUN_REAL_SCENARIOS)(`真实模型：deepseek-official/${DEEPSEEK_MODEL}`, () => {
       it(`C0：修 bug 并如实报告检查结果 ×${REPEAT}（工具预设：${REAL_PRESETS.join('、')}；工具搜索：${REAL_TOOL_SEARCH.join('、')}）`, {
         timeout: REPEAT * REAL_PRESETS.length * REAL_TOOL_SEARCH.length * 600_000,
       }, async () => {
@@ -1130,7 +1334,11 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
             await Promise.all([first.close(), second.close()]);
           }
         }
-        section('real', 'handoff', { constraints: HANDOFF_CONSTRAINTS, task: HANDOFF_TASK, runs });
+        section('real', 'handoff', {
+          constraints: HANDOFF_CONSTRAINTS,
+          task: HANDOFF_TASK,
+          runs,
+        });
       });
     });
   },

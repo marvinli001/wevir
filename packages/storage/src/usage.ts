@@ -47,6 +47,7 @@ export interface StoredUsageRow extends UsageRow {
 
 /** 每个数组省略表示不限，空数组表示什么都不要。 */
 export interface UsageRowFilter {
+  precision?: string;
   sources?: readonly string[];
   providerIds?: readonly string[];
   models?: readonly string[];
@@ -93,7 +94,10 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
     WHERE at >= :from AND at < :to
       AND (:sources IS NULL OR source IN (SELECT value FROM json_each(:sources)))
       AND (:providerIds IS NULL OR provider_id IN (SELECT value FROM json_each(:providerIds)))
-      AND (:models IS NULL OR model IN (SELECT value FROM json_each(:models)))`;
+      AND (:models IS NULL OR model IN (SELECT value FROM json_each(:models)))
+      AND (:precision IS NULL OR :precision = CASE
+        WHEN granularity = 'turn' OR (granularity IS NULL AND source IN ('cursor', 'grok')) THEN 'turn'
+        WHEN origin = 'gateway' THEN 'exact' ELSE 'engine' END)`;
   const page = db.prepare(
     `SELECT * FROM usage_records ${where} ORDER BY at DESC, id DESC LIMIT :limit OFFSET :offset`,
   );
@@ -146,6 +150,7 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
       const params = {
         from,
         to,
+        precision: filter.precision ?? null,
         sources: jsonOrNull(filter.sources),
         providerIds: jsonOrNull(filter.providerIds),
         models: jsonOrNull(filter.models),

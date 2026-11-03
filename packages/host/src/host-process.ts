@@ -606,6 +606,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     usage = new UsageService({
       storage,
+      baselineDir: join(home, 'baseline-reports'),
       pricing,
       onWarning: (message, fields) => logger.warn(message, fields),
     });
@@ -624,7 +625,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ?.turnId;
         return { sessionId: session.id, ...(turnId !== undefined && { turnId }) };
       },
-      onCall: (call) => webLedgerStorage.contextLedger.call(call),
+      onCall: (call) => usageStats.recordToolCall(call),
     });
     void pricing.start();
     // 审批规则（0.80.0）：存在库里，Host 在引擎发来命令审批时匹配，与引擎无关。规则变了档案也跟着变。
@@ -1511,7 +1512,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
-      const ledgerStorage = storage;
       const ledgerEvents = events;
       const memoryBytes = new Map<SessionId, number>();
       const memoryIndexOptions = {
@@ -1536,7 +1536,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         turnOf: (sessionId) => ledgerEvents.snapshot(sessionId)?.session.activeTurn?.turnId,
         onSupply: ({ sessionId, server, tools: supplied, instructions }) => {
           const serialized = JSON.stringify(supplied);
-          ledgerStorage.contextLedger.supply({
+          usageStats.recordSupply({
             sessionId,
             server,
             at: new Date().toISOString(),
@@ -1554,8 +1554,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               .digest('hex'),
           });
         },
-        onCall: (call) =>
-          ledgerStorage.contextLedger.call({ ...call, at: new Date().toISOString() }),
+        onCall: (call) => usageStats.recordToolCall({ ...call, at: new Date().toISOString() }),
         filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
         version: HOST_VERSION,
         instructions: instructionsWithMemory({

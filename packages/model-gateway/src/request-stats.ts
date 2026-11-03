@@ -1,4 +1,4 @@
-import { mcpNamespaceNote, mcpNamespaceNotes } from './tools.js';
+import { mcpNamespaceNotes } from './tools.js';
 import type { ResponsesRequest } from './types.js';
 
 export interface RequestSupply {
@@ -23,7 +23,12 @@ export function requestStats(
   ](payload, serialized);
   const input = Array.isArray(source.input) ? source.input : [];
   const calls = new Map(
-    input.filter((item) => item.type === 'function_call').map((item) => [item.call_id, item.name]),
+    input
+      .filter((item) => item.type === 'function_call')
+      .map((item) => [
+        item.call_id,
+        typeof item.namespace === 'string' ? `${item.namespace}__${item.name}` : item.name,
+      ]),
   );
   const outputs: Array<{ id: string; output: unknown }> = [];
   if (mode === 'responses') {
@@ -55,7 +60,10 @@ export function requestStats(
   const namespaces =
     mode === 'responses' ? ((payload.tools ?? []) as ResponsesRequest['tools']) : [];
   const namespaceBytes =
-    namespaces?.reduce((sum, tool) => sum + bytes(mcpNamespaceNote(tool) ?? ''), 0) ?? 0;
+    namespaces?.reduce(
+      (sum, tool) => sum + bytes(tool.name?.startsWith('mcp__') ? (tool.description ?? '') : ''),
+      0,
+    ) ?? 0;
   const instructionText =
     mode === 'responses'
       ? String(payload.instructions ?? '')

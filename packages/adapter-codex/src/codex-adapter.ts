@@ -3039,9 +3039,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     const session = this.#sessions.get(threadId);
     if (session === undefined) {
+      if (observation.kind !== 'subagent') {
+        this.#logger.warn('gateway usage has no matching session');
+        return;
+      }
       if (this.#pendingUsage.size < 100) {
         const held = this.#pendingUsage.get(threadId) ?? [];
-        held.push(observation);
+        if (held.length < 100) held.push(observation);
         this.#pendingUsage.set(threadId, held);
       }
       return;
