@@ -558,14 +558,17 @@ export class ChannelService {
     return { channel: this.#channel(record), role: entry.role };
   }
 
-  /**
-   * 助理的会话（协调者、线程及它们开的会话）要开进的项目（0.134.0，`wevir_session_create` 的 `project`）：不是助理的会话时拒绝。
-   */
-  async assistantProject(sessionId: SessionId, project: string): Promise<WorkspaceRecord> {
+  /** 会话要开进的项目；助理的后代会话沿用助理授权的文件夹。 */
+  async sessionProject(sessionId: SessionId, project: string): Promise<WorkspaceRecord> {
     const record = this.#assistantOf(sessionId);
-    if (record === undefined)
-      throw invalid('project', 'only assistant sessions can pick a project');
-    return this.#project(record, project);
+    const workspaceId = record?.workspaceId ?? this.#storage.sessions.get(sessionId)?.workspaceId;
+    if (workspaceId === undefined)
+      throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    return this.#project(
+      workspaceId,
+      project,
+      (record?.assistant as Assistant | undefined)?.folders,
+    );
   }
 
   /** 是不是助理的会话（协调者、线程及它们开的会话）。 */
@@ -1163,7 +1166,7 @@ export class ChannelService {
     providerId?: string;
     modelId?: string;
     reasoningEffort?: string;
-    /** 开进用户的项目（0.134.0，`assistantProject` 的规则）；省略时开在助理自己的工作区。 */
+    /** 开进用户的项目；省略时开在助理自己的工作区。 */
     project?: string;
     /** 在项目里新开 worktree；要有 `project`。 */
     worktree?: boolean;
@@ -1196,7 +1199,13 @@ export class ChannelService {
       throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
     }
     const project =
-      input.project === undefined ? undefined : await this.#project(record, input.project);
+      input.project === undefined
+        ? undefined
+        : await this.#project(
+            record.workspaceId,
+            input.project,
+            (record.assistant as Assistant).folders,
+          );
     const session = await this.#options.sessions.create(
       {
         // 开在项目里的线程是那个项目的普通会话（规则文件、记忆、角色、worktree 照常），不用助理的环境。
@@ -2235,10 +2244,14 @@ export class ChannelService {
   }
 
   /**
-   * 助理要开进的项目：已登记的项目（按根目录的路径），或用户授权给这个助理的文件夹（还没登记成项目时这里登记，侧栏才有地方放它的
-   * 会话）。路径可以用 `~/` 开头。别的文件夹、助理的隐藏工作区与“对话”都拒绝。
+   * 已登记的项目，或工作区授权的文件夹（还没登记时自动登记）。路径可以用 `~/` 开头。
+   * 别的文件夹、助理的隐藏工作区与“对话”都拒绝。
    */
-  async #project(record: ChannelRecord, project: string): Promise<WorkspaceRecord> {
+  async #project(
+    workspaceId: string,
+    project: string,
+    fallbackFolders: readonly string[] = [],
+  ): Promise<WorkspaceRecord> {
     const projects = this.#options.projects;
     if (projects === undefined) throw invalid('project', 'projects are not available here');
     const raw = project.trim();
@@ -2254,13 +2267,11 @@ export class ChannelService {
     if (known !== undefined && known.removedAt === undefined && projects.isProject(known)) {
       return known;
     }
-    const granted =
-      this.#storage.workspaces.get(record.workspaceId)?.extraFolders ??
-      (record.assistant as Assistant).folders;
+    const granted = this.#storage.workspaces.get(workspaceId)?.extraFolders ?? fallbackFolders;
     if (granted.includes(real)) return projects.add(real);
     throw invalid(
       'project',
-      `not one of the user's projects or a folder granted to this assistant: ${project}`,
+      `not one of the user's projects or a folder granted to this session: ${project}`,
     );
   }
 

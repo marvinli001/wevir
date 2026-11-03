@@ -842,7 +842,7 @@ describe('开进用户项目的线程与会话（0.134.0）', () => {
     expect(noProject.isError).toBe(true);
   });
 
-  it('wevir_session_create 的 project 只给助理；助理的 wevir_session_list 默认看全部项目', async () => {
+  it('普通会话和助理都能指定当前项目；助理的 wevir_session_list 默认看全部项目', async () => {
     const h = await setup();
     const root = realpathSync(tempDir());
     const repo = join(root, 'repo');
@@ -875,11 +875,103 @@ describe('开进用户项目的线程与会话（0.134.0）', () => {
     expect(opened.isError).toBeUndefined();
     const created = (opened.structuredContent as { sessionId: SessionId }).sessionId;
     expect(h.storage.sessions.get(created)?.workspaceId).toBe(workspace.id);
-    const refused = await h.call(mine.id, 'wevir_session_create', {
+    const selected = await h.call(mine.id, 'wevir_session_create', {
       message: 'Run the tests',
       project: repo,
+      reportBack: false,
     });
-    expect(refused.isError).toBe(true);
+    expect(selected.isError).toBeUndefined();
+    const child = (selected.structuredContent as { sessionId: SessionId }).sessionId;
+    expect(h.storage.sessions.get(child)).toMatchObject({ workspaceId: workspace.id, cwd: repo });
+    const hidden = await h.call(mine.id, 'wevir_session_create', {
+      message: 'Run the tests',
+      project: h.storage.workspaces.get(bot.workspaceId ?? '')?.rootPath,
+    });
+    expect(hidden.isError).toBe(true);
+  });
+
+  it('普通会话跨项目开子会话：使用目标目录、保留权限上限与父子关系，结果回报给原会话', async () => {
+    const h = await setup();
+    const root = realpathSync(tempDir());
+    const repo = join(root, 'repo');
+    const other = join(root, 'other');
+    for (const dir of [repo, other]) mkdirSync(dir);
+    const { workspace } = await h.methods['workspace.add']({ rootPath: repo }, context);
+    const { workspace: target } = await h.methods['workspace.add']({ rootPath: other }, context);
+    const parent = await h.sessions.create({
+      workspaceId: workspace.id,
+      providerId: 'mock',
+      permissionMode: 'auto_review',
+    });
+    const denied = await h.call(parent.id, 'wevir_session_create', {
+      message: 'Run the tests',
+      project: other,
+      permissionMode: 'full_access',
+    });
+    expect(denied.isError).toBe(true);
+    expect(denied.content).toContainEqual({
+      type: 'text',
+      text: expect.stringContaining('broader than'),
+    });
+
+    const opened = await h.call(parent.id, 'wevir_session_create', {
+      message: 'Run the tests',
+      project: other,
+    });
+    expect(opened.isError).toBeUndefined();
+    const child = (opened.structuredContent as { sessionId: SessionId }).sessionId;
+    expect(h.storage.sessions.get(child)).toMatchObject({
+      workspaceId: target.id,
+      cwd: other,
+      permissionMode: 'auto_review',
+    });
+    expect(h.events.snapshot(child)?.session.openedBy).toEqual({ sessionId: parent.id });
+    await waitFor(() => {
+      expect(
+        h.events
+          .readSince(parent.id, 0)
+          .some(
+            (event) =>
+              event.type === 'user.message' &&
+              event.payload.from?.kind === 'report' &&
+              event.payload.from.sessionId === child,
+          ),
+      ).toBe(true);
+    });
+  });
+
+  it('普通会话可选授权的额外文件夹，拒绝未授权、移除或无效的项目路径', async () => {
+    const h = await setup();
+    const root = realpathSync(tempDir());
+    const repo = join(root, 'repo');
+    const granted = join(root, 'granted');
+    const stranger = join(root, 'stranger');
+    const removed = join(root, 'removed');
+    for (const dir of [repo, granted, stranger, removed]) mkdirSync(dir);
+    const { workspace } = await h.methods['workspace.add'](
+      { rootPath: repo, extraFolders: [granted] },
+      context,
+    );
+    const { workspace: old } = await h.methods['workspace.add']({ rootPath: removed }, context);
+    h.storage.workspaces.markRemoved(old.id, '2026-11-03T00:00:00.000Z');
+    const parent = await h.sessions.create({ workspaceId: workspace.id, providerId: 'mock' });
+    for (const project of [stranger, removed, 'relative/path', join(root, 'missing')]) {
+      const denied = await h.call(parent.id, 'wevir_session_create', {
+        message: 'Run the tests',
+        project,
+      });
+      expect(denied.isError).toBe(true);
+    }
+    const opened = await h.call(parent.id, 'wevir_session_create', {
+      message: 'Run the tests',
+      project: granted,
+      reportBack: false,
+    });
+    expect(opened.isError).toBeUndefined();
+    const child = (opened.structuredContent as { sessionId: SessionId }).sessionId;
+    const target = h.storage.workspaces.getByRootPath(granted);
+    expect(target).toBeDefined();
+    expect(h.storage.sessions.get(child)).toMatchObject({ workspaceId: target?.id, cwd: granted });
   });
 });
 

@@ -1168,7 +1168,8 @@ export class AppTools {
       name: 'wevir_session_create',
       title: 'Open a Wevir session',
       description:
-        'Open a new Wevir session in this project and send it a first message. It runs on its own, is listed under ' +
+        'Open a new Wevir session and send it a first message. It defaults to this project; project selects another ' +
+        'registered project or a folder granted to this session. It runs on its own, is listed under ' +
         "your session in the user's sidebar and does not share your conversation, so put everything it needs in message. Provider, " +
         'model, reasoning level and permission mode default to yours (see wevir_models); the permission mode cannot be ' +
         'broader than yours. worktree=true gives it its own git worktree. context=fork gives it your conversation up ' +
@@ -1184,7 +1185,7 @@ export class AppTools {
         'Close or archive sessions you opened when their work is done (wevir_session_close, wevir_session_archive); ' +
         "you cannot delete them. If it waits for the user's approval or answer, tell the user or stop it with " +
         "wevir_session_interrupt. With Antigravity and OpenCode providers its commands need the user's approval even " +
-        'under auto_review. Assistants: project=folder path.',
+        'under auto_review.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },
@@ -1196,7 +1197,10 @@ export class AppTools {
           permissionMode: { type: 'string', enum: Object.keys(PERMISSION_RANK) },
           worktree: { type: 'boolean' },
           reportBack: { type: 'boolean' },
-          project: { type: 'string' },
+          project: {
+            type: 'string',
+            description: 'Project folder path; defaults to this project.',
+          },
           context: { type: 'string', enum: ['fork'] },
         },
         ['message'],
@@ -1210,16 +1214,15 @@ export class AppTools {
         if (optionalEnum(args, 'context', ['fork']) === 'fork') {
           return this.#forkSelf(args, sessionId, caller, message, title);
         }
-        // 助理的会话可以开进用户的项目（0.134.0，channels/service.ts 的 `assistantProject`）。
         const projectArg = optionalString(args, 'project');
         const channels = this.#options.channels;
         if (projectArg !== undefined && channels === undefined) {
-          throw new AppToolError('project is only available to assistant sessions.');
+          throw new AppToolError('Project selection is not available here.');
         }
         const workspaceId =
           projectArg === undefined || channels === undefined
             ? callerRecord.workspaceId
-            : (await this.#host(() => channels.assistantProject(sessionId, projectArg))).id;
+            : (await this.#host(() => channels.sessionProject(sessionId, projectArg))).id;
         const roleName = optionalString(args, 'role');
         const role = roleName === undefined ? undefined : await this.#role(roleName, workspaceId);
         // 模型：这里明说的 > 角色的 > 开它的会话的。明说了 Provider 就不用角色的模型与档位（它们是角色那个 Provider 的）。
