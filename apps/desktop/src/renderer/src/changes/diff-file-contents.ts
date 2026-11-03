@@ -9,12 +9,14 @@
 
 import type { FileDiffContentsLoader } from '@pierre/diffs';
 import type { WevirClient } from '@wevir/client-sdk';
-import type { SessionId, WorkspaceId } from '@wevir/protocol';
+import type { HostFeatures, SessionId, WorkspaceId } from '@wevir/protocol';
+import { folderParams } from './change-folders';
 import { resolveFileDiffPath } from './diff-rendering';
 
 export interface DiffFileContentsSource {
   workspaceId: WorkspaceId;
   sessionId: SessionId;
+  folder?: string;
   /** 这段 diff 旧的一侧与新的一侧（没有时是工作树）。 */
   base: string;
   head: string | undefined;
@@ -25,6 +27,7 @@ export interface DiffFileContentsSource {
 export function createDiffFileContentsLoader(
   client: WevirClient,
   source: DiffFileContentsSource,
+  features?: HostFeatures,
 ): FileDiffContentsLoader {
   return async (fileDiff) => {
     const newPath = resolveFileDiffPath(fileDiff);
@@ -32,6 +35,7 @@ export function createDiffFileContentsLoader(
     const result = await client.request('workspace.diffFile', {
       workspaceId: source.workspaceId,
       sessionId: source.sessionId,
+      ...folderParams(features, source.folder),
       ...(fileDiff.type !== 'new' && { oldRev: source.base, oldPath }),
       ...(fileDiff.type !== 'deleted' && {
         newPath,

@@ -38,9 +38,10 @@ export function useReviewComments(
   workspaceId: WorkspaceId,
   sessionId: SessionId,
   refreshKey: unknown,
+  enabled = true,
 ): ReviewState {
   const { client } = useHostConnection();
-  const supported = useReviewSupported();
+  const supported = useReviewSupported() && enabled;
   const [state, setState] = useState<{ key: string; comments: readonly ReviewComment[] }>();
   const [error, setError] = useState<string>();
   const [manual, setManual] = useState(0);
@@ -122,7 +123,7 @@ export function useReviewComments(
   );
 
   return {
-    comments: state?.key === key ? state.comments : NONE,
+    comments: supported && state?.key === key ? state.comments : NONE,
     error,
     refresh,
     add,

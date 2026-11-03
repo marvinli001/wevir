@@ -8,6 +8,7 @@ import { type ChangesScope, DEFAULT_SCOPE } from './changes-model';
 
 export interface ChangesSelection {
   scope: ChangesScope;
+  folder?: string;
   /** 打开时要滚到的文件（0.83.0 起可带新的一侧的行）；`id` 每次请求加一，同一个文件再点也会滚过去。 */
   reveal?: { path: string; line?: number; id: number };
 }
@@ -21,6 +22,15 @@ export function useChangesSelection(sessionId: SessionId): ChangesSelection {
   return selections.use().get(sessionId) ?? DEFAULT_SELECTION;
 }
 
+export function selectFolder(sessionId: SessionId, folder: string | undefined): void {
+  selections.set((current) =>
+    new Map(current).set(sessionId, {
+      scope: (current.get(sessionId) ?? DEFAULT_SELECTION).scope,
+      ...(folder !== undefined && { folder }),
+    }),
+  );
+}
+
 export function selectScope(
   sessionId: SessionId,
   scope: ChangesScope,
@@ -29,8 +39,10 @@ export function selectScope(
 ): void {
   selections.set((current) => {
     const next = new Map(current);
+    const folder = current.get(sessionId)?.folder;
     next.set(sessionId, {
       scope,
+      ...(folder !== undefined && { folder }),
       ...(revealPath !== undefined && {
         reveal: {
           path: revealPath,
@@ -48,9 +60,11 @@ export function openChanges(
   panes: PaneController | undefined,
   sessionId: SessionId,
   scope: ChangesScope,
+  folder?: string,
   revealPath?: string,
   revealLine?: number,
 ): void {
+  if (folder !== undefined) selectFolder(sessionId, folder);
   selectScope(sessionId, scope, revealPath, revealLine);
   panes?.open({ kind: 'changes' });
 }
