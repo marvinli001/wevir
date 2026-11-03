@@ -44,7 +44,7 @@ import { type HandoffNoticeOf, modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
-import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
+import { EditButton, RewindButton, UserMessageEditor, useMessageActions } from './message-actions';
 import { effortLabel } from './model-picker';
 import { OpinionCard, OpinionQuote } from './opinion-card';
 import { MessagePastes } from './pasted-text';
@@ -144,13 +144,16 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
           {t('command.plan')}
         </span>
       )}
-      {/* 悬停时消息下方靠右出现时间、“复制”（U36）与最后一条消息的“编辑”（0.38.0），照 Codex 桌面端。 */}
+      {/* 悬停时消息下方靠右出现时间、“复制”（U36）、最后一条消息的“编辑”（0.38.0）与插话的“回退”，照 Codex 与 Claude 桌面端。 */}
       {texts.length > 0 && (
         <GlideGroup className="mt-1 flex h-6 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
           <MessageTime ts={message.ts} />
           <CopyButton text={text} className="text-muted-foreground" />
           {editable && (
             <EditButton onClick={() => setEditing(true)} className="text-muted-foreground" />
+          )}
+          {message.steered && (
+            <RewindButton turnId={message.turnId} className="text-muted-foreground" />
           )}
         </GlideGroup>
       )}
@@ -159,7 +162,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
 }
 
 /**
- * 交给模型、还没插进回合的插话（R11），照 Claude 桌面端画在进行中的回合末尾：同用户消息的气泡，下面一直显示“复制”与“已提交”。
+ * 交给模型、还没插进回合的插话（R11），照 Claude 桌面端画在进行中的回合末尾：同用户消息的气泡，下面一直显示“复制”与置灰的“回退”。
  * 插进回合后由那条 `steered` 的用户消息接替；回合结束前没插成的转为排队，回到输入框上方的待发区。
  */
 export function PendingSteerMessage({ message }: { message: PendingMessage }) {
@@ -189,7 +192,7 @@ export function PendingSteerMessage({ message }: { message: PendingMessage }) {
       {own !== '' && <UserBubble text={own} />}
       <GlideGroup className="mt-1 flex h-6 items-center gap-0.5">
         {text !== '' && <CopyButton text={text} className="text-muted-foreground" />}
-        <span className="px-1 text-xs text-muted-foreground">{t('pending.steerLocked')}</span>
+        <RewindButton className="text-muted-foreground" />
       </GlideGroup>
     </div>
   );

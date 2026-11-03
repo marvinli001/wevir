@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useSession } from '@/data/workbench-data';
 import { describe as describeError, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { restoreDraft } from './composer';
 import { imagesOf, messageContent } from './composer-images';
 import { useTranscriptSessionId } from './fold-state';
 import {
@@ -35,7 +36,7 @@ import {
 /**
  * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束；有进行中的回合时画在消息流里，见 `steerInline`）、排队
  * （回合结束后）、已暂停三组。排队的与暂停的
- * 可以编辑、删除，排队的在回合进行中可以改为插话；交给模型的插话只能看。暂停的有“继续发送”。别的会话的 agent 发来的回报与
+ * 可以编辑、删除（删除时文字放回输入框），排队的在回合进行中可以改为插话；交给模型的插话只能看。暂停的有“继续发送”。别的会话的 agent 发来的回报与
  * 消息、后台进程的通知（`from` 不是空的）不是用户写的：有进行中的回合时画在消息流里回合末尾（`PendingNoticeLine`），没有时
  * 才在这里单独一行说明，不能编辑。没有待发消息时不显示。
  */
@@ -131,7 +132,12 @@ export function PendingArea({
         label={t('pending.remove')}
         size="icon-xs"
         onClick={() =>
-          run((c) => c.request('pending.cancel', { sessionId, pendingId: message.id }))
+          run(async (c) => {
+            await c.request('pending.cancel', { sessionId, pendingId: message.id });
+            // 删掉的排队消息的文字放回输入框（同 Claude 桌面端），接着改了再发；图片不放回。
+            const text = pendingText(message).trim();
+            if (text !== '') restoreDraft(sessionId, text, true);
+          })
         }
       >
         <Trash2 />

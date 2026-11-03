@@ -148,14 +148,20 @@ export function rejectionText(rejected: { reason: ImageRejection; name: string }
 }
 
 /** 挂着的输入框：`restoreDraft` 放回来的文字。 */
-const textListeners = new Map<string, Set<(text: string) => void>>();
+const textListeners = new Map<string, Set<(text: string, append: boolean) => void>>();
 
 /**
- * 把一段文字放回输入框（0.38.0：编辑过的消息撤回了回合却没发出去）：挂着的输入框空着时直接显示，否则留作草稿。
+ * 把一段文字放回输入框（0.38.0：编辑过的消息撤回了回合却没发出去）：输入框空着时直接显示，否则留作草稿。`append`（回退插话、删除
+ * 排队的消息）时输入框有字也不丢：另起一行接在后面。
  */
-export function restoreDraft(draftKey: string, text: string): void {
-  if ((drafts.get(draftKey) ?? '') === '') drafts.set(draftKey, text);
-  for (const listener of textListeners.get(draftKey) ?? []) listener(text);
+export function restoreDraft(draftKey: string, text: string, append = false): void {
+  drafts.set(draftKey, withRestored(drafts.get(draftKey) ?? '', text, append));
+  for (const listener of textListeners.get(draftKey) ?? []) listener(text, append);
+}
+
+function withRestored(current: string, text: string, append: boolean): string {
+  if (current.trim() === '') return text;
+  return append ? `${current.replace(/\s+$/, '')}\n${text}` : current;
 }
 
 /** 预先放一份草稿（基于历史新建会话，T5.5）：下次打开这个输入框时显示。 */
@@ -332,8 +338,8 @@ export function Composer({
   useEffect(() => {
     const listeners = textListeners.get(draftKey) ?? new Set();
     textListeners.set(draftKey, listeners);
-    const restore = (restored: string) =>
-      setText((current) => (current.trim() === '' ? restored : current));
+    const restore = (restored: string, append: boolean) =>
+      setText((current) => withRestored(current, restored, append));
     listeners.add(restore);
     return () => {
       listeners.delete(restore);

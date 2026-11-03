@@ -1,7 +1,7 @@
 import { projectTranscript } from '@wevir/client-sdk';
 import type { SessionId, TurnId, WevirEvent, WevirEventOf, WevirEventType } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { filesNotice, promptOfTurn } from './undo-model';
+import { filesNotice, promptOfTurn, rewindPrompt } from './undo-model';
 
 const SES: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR';
 const TURN: TurnId = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR';
@@ -66,6 +66,38 @@ describe('promptOfTurn', () => {
       sentBy: self,
     });
     expect(promptOfTurn(projectTranscript(list).messages, TURN)).toBeUndefined();
+  });
+});
+
+describe('rewindPrompt', () => {
+  it('回合开头的消息与之后的插话按顺序空一行隔开；别的会话发来的插话不算', () => {
+    const { list, add } = transcript();
+    add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: '改登录页' }],
+      sentBy: self,
+    });
+    add('turn.started', { turnId: TURN });
+    add('user.steered', {
+      turnId: TURN,
+      pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      content: [{ type: 'text', text: '按钮用蓝色 ' }],
+      sentBy: self,
+    });
+    add('user.steered', {
+      turnId: TURN,
+      pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQS',
+      content: [{ type: 'text', text: '别的会话的消息' }],
+      sentBy: self,
+      from: { sessionId: SES, kind: 'message' },
+    });
+    expect(rewindPrompt(projectTranscript(list).messages, TURN)).toBe('改登录页\n\n按钮用蓝色');
+  });
+
+  it('没有用户写的文字时没有', () => {
+    const { list, add } = transcript();
+    add('turn.started', { turnId: TURN, command: { kind: 'compact' } });
+    expect(rewindPrompt(projectTranscript(list).messages, TURN)).toBeUndefined();
   });
 });
 

@@ -112,7 +112,7 @@ import { OpenTurnChanges } from './turn-changes';
 import { handoffAfterLastTurn, lastTurnId } from './turn-model';
 import { useUiShow } from './ui-show';
 import { UndoBanner } from './undo-banner';
-import { filesNotice, promptOfTurn } from './undo-model';
+import { filesNotice, promptOfTurn, rewindPrompt } from './undo-model';
 import { useDraftCommands, useSessionCommands } from './use-composer-commands';
 import { lastTurnShowsWrapUp } from './wrap-up-model';
 
@@ -482,10 +482,39 @@ export function SessionView({
     },
     [client, session.id, planEnabled],
   );
+  // 插话的“回退”：撤回插话所在的回合，回合开头的消息与插话追加回输入框。
+  const rewindTurn = useCallback(
+    async (turnId: TurnId) => {
+      if (!client) return;
+      const messages = transcript?.messages ?? [];
+      setNotice(undefined);
+      try {
+        await client.request('session.rewind', { sessionId: session.id, turnId });
+      } catch (error) {
+        setNotice(
+          isRpcError(error, 'SESSION_BUSY')
+            ? t('session.busy')
+            : t('message.rewindFailed', { error: describe(error) }),
+        );
+        return;
+      }
+      const prompt = rewindPrompt(messages, turnId);
+      if (prompt !== undefined) restoreDraft(session.id, prompt, true);
+    },
+    [client, session.id, transcript],
+  );
   // 最后一个回合之后换过来源（0.25.0）：Host 不让编辑那个回合；额度用完的卡片比的是那个回合用的模型。
   const handoff = transcript === undefined ? undefined : handoffAfterLastTurn(transcript);
   const editTurnId =
     rewindEnabled && sessionState === 'idle' && transcript !== undefined && handoff === undefined
+      ? lastTurnId(transcript)
+      : undefined;
+  const rewindRunningTurnId =
+    rewindEnabled &&
+    (sessionState === 'running' ||
+      sessionState === 'awaiting_approval' ||
+      sessionState === 'cancelling') &&
+    transcript !== undefined
       ? lastTurnId(transcript)
       : undefined;
   // 额度恢复后自动继续（0.119.0）：用量上限的卡片上勾选，Host 到时替用户发继续消息。
@@ -593,6 +622,13 @@ export function SessionView({
     () => ({
       ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
       ...(editTurnId !== undefined && { editTurnId, submitEdit }),
+      ...(rewindEnabled && {
+        rewind: {
+          ...(editTurnId !== undefined && { turnId: editTurnId }),
+          ...(rewindRunningTurnId !== undefined && { runningTurnId: rewindRunningTurnId }),
+          run: rewindTurn,
+        },
+      }),
       ...(retryEnabled && {
         retry: { ...(retryTurnId !== undefined && { lastTurnId: retryTurnId }), run: retryTurn },
       }),
@@ -627,6 +663,9 @@ export function SessionView({
       branchFrom,
       editTurnId,
       submitEdit,
+      rewindEnabled,
+      rewindRunningTurnId,
+      rewindTurn,
       retryEnabled,
       retryTurnId,
       retryTurn,

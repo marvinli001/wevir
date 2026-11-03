@@ -1,10 +1,10 @@
 // 消息下方的操作（0.38.0，照 Codex 桌面端与 T3 Code 的 MessagesTimeline）：回答的“分支到新会话”，最后一条用户消息的“编辑”
-// （撤回最后一个回合，改过的消息照常发出）。会话视图按 Host 与会话当前引擎的能力提供，子智能体详情与支线窗格里没有。
+// （撤回最后一个回合，改过的消息照常发出），插话的“回退”（照 Claude 桌面端，撤回插话所在的回合，消息放回输入框）。会话视图按 Host 与会话当前引擎的能力提供，子智能体详情与支线窗格里没有。
 
 import type { UserChatMessage } from '@wevir/client-sdk';
 import type { ProviderProfile, SessionAutoContinue, TurnId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Pencil, Split } from 'lucide-react';
+import { Pencil, Split, Undo2 } from 'lucide-react';
 import {
   createContext,
   type KeyboardEvent,
@@ -30,6 +30,15 @@ export interface MessageActions {
   editTurnId?: TurnId;
   /** 撤回那个回合、发出改过的消息；成功时 `true`（失败的提示由会话视图显示）。 */
   submitEdit?: (message: UserChatMessage, text: string) => Promise<boolean>;
+  /**
+   * 插话的“回退”：撤回插话所在的回合（`session.rewind`，引擎只能整回合撤回），回合开头的消息与插话放回输入框。会话能撤回时就有；
+   * `turnId` 同 `editTurnId`，`runningTurnId` 是进行中的回合（它的插话按钮置灰）。失败的提示由会话视图显示。
+   */
+  rewind?: {
+    turnId?: TurnId;
+    runningTurnId?: TurnId;
+    run(turnId: TurnId): Promise<void>;
+  };
   /**
    * 额度恢复后自动继续（0.119.0，Host 功能 `usage_auto_continue`）：`lastTurnId` 是会话空闲时的最后一个回合（只有它的额度卡片能勾），
    * `armed` 是排着的自动继续，`set` 打开或关掉（失败的提示由会话视图显示）。Host 不支持、会话不可写时没有。
@@ -97,6 +106,32 @@ export function EditButton({ onClick, className }: { onClick(): void; className?
       data-action="edit-message"
     >
       <Pencil />
+    </IconButton>
+  );
+}
+
+/**
+ * 插话下面的“回退”：只在会话最后一个回合的插话上出现，回合进行中（还没插进去的插话也是）置灰，提示写明原因。`turnId` 省略表示
+ * 还没插进回合的插话。
+ */
+export function RewindButton({ turnId, className }: { turnId?: TurnId; className?: string }) {
+  const { rewind } = useMessageActions();
+  if (rewind === undefined) return null;
+  const enabled = turnId !== undefined && rewind.turnId === turnId;
+  const running =
+    turnId === undefined ? rewind.runningTurnId !== undefined : rewind.runningTurnId === turnId;
+  if (!enabled && !running) return null;
+  // 置灰用 aria-disabled 而不是 disabled：禁用的按钮收不到指针事件，提示出不来。
+  return (
+    <IconButton
+      label={enabled ? t('message.rewind') : t('message.rewindBusy')}
+      size="icon-xs"
+      className={cn(className, !enabled && 'cursor-default opacity-50 hover:bg-transparent')}
+      aria-disabled={!enabled || undefined}
+      onClick={enabled && turnId !== undefined ? () => void rewind.run(turnId) : undefined}
+      data-action="rewind-message"
+    >
+      <Undo2 />
     </IconButton>
   );
 }

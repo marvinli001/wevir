@@ -1,4 +1,4 @@
-// 撤销与重做（0.51.0，desktop-tokens §58）的纯逻辑：撤销之后放回输入框的文字、文件没还原时的提示。
+// 撤销与重做（0.51.0，desktop-tokens §58）的纯逻辑：撤销与回退插话之后放回输入框的文字、文件没还原时的提示。
 
 import type { ChatMessage } from '@wevir/client-sdk';
 import type { FilesRestore, TurnId } from '@wevir/protocol';
@@ -24,6 +24,30 @@ export function promptOfTurn(messages: readonly ChatMessage[], turnId: TurnId): 
     .join('\n')
     .trim();
   return text === '' ? undefined : text;
+}
+
+/**
+ * 回退插话（撤回整个回合）之后放回输入框的文字：回合开头用户写的与之后的插话（含拒绝审批时的附言），按顺序空一行隔开；排除父 agent 的
+ * 输入、命令、目标回合与别的会话发来的。都没有文字时 `undefined`。
+ */
+export function rewindPrompt(messages: readonly ChatMessage[], turnId: TurnId): string | undefined {
+  const texts = messages.flatMap((message) =>
+    message.role === 'user' &&
+    message.turnId === turnId &&
+    message.fromParentAgent !== true &&
+    message.command === undefined &&
+    message.trigger === undefined &&
+    message.from === undefined
+      ? [
+          message.parts
+            .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+            .join('\n')
+            .trim(),
+        ]
+      : [],
+  );
+  const own = texts.filter((text) => text !== '');
+  return own.length > 0 ? own.join('\n\n') : undefined;
 }
 
 const REASONS: Readonly<
