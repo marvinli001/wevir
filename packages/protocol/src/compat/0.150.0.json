@@ -1,0 +1,241 @@
+{
+  "protocolVersion": "0.150.0",
+  "frozenAt": "2026-11-03",
+  "methods": {
+    "workspace.git": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra"
+        }
+      ],
+      "result": []
+    },
+    "workspace.diff": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "source": {
+            "kind": "uncommitted"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "source": {
+            "kind": "uncommitted"
+          }
+        }
+      ],
+      "result": []
+    },
+    "workspace.diffFile": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "newPath": "file.txt"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "newPath": "file.txt"
+        }
+      ],
+      "result": []
+    },
+    "git.status": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra"
+        }
+      ],
+      "result": []
+    },
+    "git.stage": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "paths": ["file.txt"],
+          "expected": {
+            "head": null,
+            "index": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "paths": ["file.txt"],
+          "expected": {
+            "head": null,
+            "index": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ],
+      "result": []
+    },
+    "git.unstage": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "paths": ["file.txt"],
+          "expected": {
+            "head": null,
+            "index": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "paths": ["file.txt"],
+          "expected": {
+            "head": null,
+            "index": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ],
+      "result": []
+    },
+    "git.commit": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "message": "Update file",
+          "expected": {
+            "head": null,
+            "index": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "message": "Update file",
+          "expected": {
+            "head": null,
+            "index": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ],
+      "result": []
+    },
+    "host.hello": {
+      "params": [],
+      "result": [
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.150.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {
+            "multi_folder_changes": true
+          },
+          "permissions": ["host.manage", "session.read", "session.write"]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "seq": 1,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-11-03T08:00:00.000Z",
+      "type": "approval.requested",
+      "source": "engine",
+      "payload": {
+        "approval": {
+          "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "toolCallId": "toolu_approval",
+          "options": [
+            {
+              "optionId": "accept",
+              "kind": "allow_accept",
+              "label": "Allow",
+              "category": "allow"
+            },
+            {
+              "optionId": "cancel",
+              "kind": "reject_cancel",
+              "label": "Deny",
+              "category": "reject"
+            }
+          ],
+          "detail": {
+            "toolName": "Bash",
+            "display": {
+              "kind": "shell",
+              "command": "git push"
+            },
+            "reason": "Approval required by Claude",
+            "fullAccessOverride": "ask_rule"
+          },
+          "status": "pending",
+          "createdAt": "2026-11-03T08:00:00.000Z"
+        }
+      }
+    },
+    {
+      "seq": 2,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-11-03T08:00:00.000Z",
+      "type": "approval.requested",
+      "source": "engine",
+      "payload": {
+        "approval": {
+          "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "toolCallId": "toolu_approval",
+          "options": [
+            {
+              "optionId": "accept",
+              "kind": "allow_accept",
+              "label": "Allow",
+              "category": "allow"
+            },
+            {
+              "optionId": "cancel",
+              "kind": "reject_cancel",
+              "label": "Deny",
+              "category": "reject"
+            }
+          ],
+          "detail": {
+            "toolName": "Bash",
+            "display": {
+              "kind": "shell",
+              "command": "git push"
+            },
+            "reason": "Approval required by Claude",
+            "fullAccessOverride": "provider_check"
+          },
+          "status": "pending",
+          "createdAt": "2026-11-03T08:00:00.000Z"
+        }
+      }
+    }
+  ],
+  "errors": []
+}

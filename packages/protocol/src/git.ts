@@ -110,6 +110,8 @@ export const GitStatusParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   /** 读这个会话的目录（环境会话的 worktree），验证记录也取这个会话的；省略时读工作区目录、没有验证记录。 */
   sessionId: SessionIdSchema.optional(),
+  /** 0.150.0：源文件夹的绝对路径；附加文件夹不带会话主目录的验证记录。 */
+  folder: z.string().min(1).optional(),
 });
 
 /** `repo: false`（不是仓库、没有 git、出错或超时）时其余字段都省略。 */

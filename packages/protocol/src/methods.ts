@@ -554,6 +554,8 @@ export const WorkspaceGitParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   /** 0.15.0：读这个会话的目录（环境会话的 worktree）；会话要属于这个工作区。省略时读工作区目录。 */
   sessionId: SessionIdSchema.optional(),
+  /** 0.150.0：源文件夹的绝对路径；Host 按 realpath 校验允许列表。省略时沿用会话或工作区目录。 */
+  folder: z.string().min(1).optional(),
 });
 
 /** `workspace.git` 结果里的一个改动的文件。 */
@@ -598,6 +600,8 @@ export const WorkspaceDiffParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   /** 读这个会话的目录（环境会话的 worktree）；`turn` 必须给。会话要属于这个工作区。 */
   sessionId: SessionIdSchema.optional(),
+  /** 0.150.0：源文件夹的绝对路径；`turn` 不允许带 folder。 */
+  folder: z.string().min(1).optional(),
   source: DiffSourceSchema,
 });
 
@@ -660,6 +664,8 @@ export type WorkspaceDiffResult = z.infer<typeof WorkspaceDiffResultSchema>;
 export const WorkspaceDiffFileParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  /** 0.150.0：源文件夹的绝对路径；省略时沿用会话或工作区目录。 */
+  folder: z.string().min(1).optional(),
   oldRev: GitObjectIdSchema.optional(),
   oldPath: z.string().min(1).optional(),
   newRev: GitObjectIdSchema.optional(),
