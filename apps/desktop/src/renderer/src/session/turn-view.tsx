@@ -182,7 +182,7 @@ export const TurnView = memo(
                 outcome={fold.finished.outcome}
                 text={turnHeaderText(fold.finished)}
                 open={open}
-                issues={folded ? fold.issues : undefined}
+                issues={open ? fold.issues : undefined}
                 onToggle={() => setOpen(!open)}
               />
             )}
@@ -354,8 +354,8 @@ export const TurnView = memo(
 );
 
 /**
- * “已处理 2 分 31 秒 ›”，下面一条横线把它与回答隔开（照 Codex 桌面端）：点它展开或收起整个过程。收起时标出过程里的失败、
- * 被拒绝、状态未知。
+ * “已处理 2 分 31 秒 ›”，下面一条横线把它与回答隔开（照 Codex 桌面端）：点它展开或收起整个过程。展开时标出过程里的失败、
+ * 被拒绝、状态未知，收起时不标。
  */
 function TurnHeader({
   controls,
