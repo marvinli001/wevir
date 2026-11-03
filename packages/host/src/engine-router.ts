@@ -655,6 +655,10 @@ class MergedAccounts implements EngineAccounts {
     return part.setExecutablePath(kind, path);
   }
 
+  async checkUpdate(kind: AccountKind) {
+    return this.#part(kind).checkUpdate?.(kind);
+  }
+
   async install(kind: AccountKind): Promise<AccountState> {
     const part = this.#part(kind);
     if (part.install === undefined) {

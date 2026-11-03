@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import type { AccountState, EngineAccounts } from '@wevir/runtime-adapter';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AcpAdapter } from './acp-adapter.js';
 import { AcpProcess } from './acp-process.js';
 import type { AcpEngine } from './engine.js';
@@ -10,6 +11,7 @@ const setup = JSON.parse(process.env.FIXTURE_SETUP);
 if (setup.ignoreSigterm) process.on('SIGTERM', () => {});
 let configOptions = setup.configOptions;
 const calls = [];
+let pendingPrompt;
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params } = JSON.parse(line);
@@ -31,11 +33,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       reply(id, {});
       break;
     case 'session/prompt':
+      if (setup.hangPrompt) { pendingPrompt = id; break; }
       configOptions = setup.nextOptions ?? configOptions;
       process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
         sessionId: 's1', update: { sessionUpdate: 'config_option_update', configOptions }
       } }) + '\n');
       reply(id, { stopReason: 'end_turn' });
+      break;
+    case 'fixture/releasePrompt':
+      reply(id, {});
+      reply(pendingPrompt, { stopReason: 'end_turn' });
       break;
     case 'fixture/calls':
       reply(id, calls);
@@ -78,6 +85,9 @@ afterEach(async () => {
 });
 
 class FixtureAdapter extends AcpAdapter {
+  watch(accounts: Pick<EngineAccounts, 'onChange'>) {
+    this.watchRuntime(accounts);
+  }
   select(id: string, modelId: string) {
     return this.applyRoute(id, { providerId: 'fixture', modelId });
   }
@@ -211,4 +221,30 @@ describe.skipIf(process.platform === 'win32')('ACP stdout 关闭', () => {
     ).rejects.toMatchObject({ code: 'engine_unavailable', message: expect.stringContaining('7') });
     expect(adapter.process.lastExit?.exitCode).toBe(7);
   });
+});
+
+it('运行体升级等回合结束后重启，不打断回合；停用后解除监听', async () => {
+  const adapter = setup('config_option', { hangPrompt: true });
+  let changed: ((state: AccountState) => void) | undefined;
+  const stop = vi.fn();
+  adapter.watch({
+    onChange: (listener) => {
+      changed = listener;
+      return stop;
+    },
+  });
+  const session = await adapter.createSession({
+    cwd: process.cwd(),
+    providerId: 'fixture',
+    modelId: 'a',
+  });
+  const restart = vi.spyOn(adapter.process, 'restart');
+  changed?.({ kind: 'kiro', status: 'signed_in', installed: true, version: '1.0.0' });
+  await adapter.send(session.engineSessionId, { content: [{ type: 'text', text: 'hold' }] });
+  changed?.({ kind: 'kiro', status: 'signed_in', installed: true, version: '1.1.0' });
+  expect(restart).not.toHaveBeenCalled();
+  await adapter.process.connection.agent.request('fixture/releasePrompt', {});
+  await vi.waitFor(() => expect(restart).toHaveBeenCalledOnce());
+  await adapter.dispose();
+  expect(stop).toHaveBeenCalledOnce();
 });

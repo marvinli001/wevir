@@ -299,6 +299,15 @@ export class AntigravityAccounts implements EngineAccounts {
     return this.read(kind);
   }
 
+  async checkUpdate(kind: AccountKind) {
+    this.#check(kind);
+    const executable = await this.#resolve();
+    const asset = this.#context.installation.releaseAsset;
+    if (executable?.source !== 'managed' || executable.version === null || asset === null)
+      return undefined;
+    return { currentVersion: executable.version, latestVersion: asset.version };
+  }
+
   async install(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
     const { installation } = this.#context;

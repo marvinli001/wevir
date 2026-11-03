@@ -20,6 +20,7 @@ export interface ManagedInstaller {
   readonly installing: boolean;
   /** 已装好的程序；没装时 undefined。 */
   active(): Promise<ManagedExecutable | undefined>;
+  latestVersion?(): Promise<string>;
   install(onProgress: (progress: NpmInstallProgress) => void): Promise<ManagedExecutable>;
   cancel(): void;
 }
@@ -64,6 +65,22 @@ export class OpenCodeInstaller implements ManagedInstaller {
     const spec = this.#spec({ musl: false, avx2: true });
     if (spec === undefined) return undefined;
     return new NpmPackageInstaller({ directory: this.#options.directory, spec }).active();
+  }
+
+  async latestVersion(): Promise<string> {
+    const options = this.#options;
+    const platform = options.platform ?? process.platform;
+    const arch = options.arch ?? process.arch;
+    const target = options.target
+      ? await options.target()
+      : { avx2: await detectAvx2(platform, arch) };
+    const spec = this.#spec(target);
+    if (!spec) throw new Error(`Wevir has no opencode build for ${platform}-${arch}`);
+    return new NpmPackageInstaller({
+      directory: options.directory,
+      spec,
+      ...options.npm,
+    }).latestVersion();
   }
 
   install(onProgress: (progress: NpmInstallProgress) => void): Promise<ManagedExecutable> {

@@ -185,16 +185,20 @@ describe('WorkBuddy ACP', () => {
     expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.settled' });
   });
 
-  it('账号重新检测到新 CLI 时，在运行的进程仍记录其启动版本', async () => {
+  it('账号重新检测到新 CLI 时，空闲进程切换版本并脱开旧会话', async () => {
     const dir = temp.dir(`version-${++seq}`);
     const env = fakeWorkBuddyEnv();
     const adapter = fakeWorkBuddyAdapter(join(dir, 'home'), env);
     adapters.push(adapter);
     const config = { cwd: dir, providerId: 'workbuddy', modelId: 'fixture-model-a' };
-    expect((await adapter.createSession(config)).engineVersion).toBe('2.168.2');
+    const first = await adapter.createSession(config);
+    expect(first.engineVersion).toBe('2.168.2');
+    const events = new EventCollector(adapter.subscribe(first.engineSessionId));
     env.FAKE_WORKBUDDY_VERSION = '2.169.0';
     expect((await adapter.accounts.read('workbuddy', { refresh: true })).version).toBe('2.169.0');
-    expect((await adapter.createSession(config)).engineVersion).toBe('2.168.2');
+    expect((await adapter.createSession(config)).engineVersion).toBe('2.169.0');
+    const { event } = await events.waitFor((event) => event.type === 'engine.exited');
+    expect(event).toMatchObject({ type: 'engine.exited', reason: 'config_changed' });
   });
   it('AskUserQuestion 经现成提问桥收答案，再调用官方 ACP 扩展；不以批准冒充答案', async () => {
     const { adapter, config, log } = setup();

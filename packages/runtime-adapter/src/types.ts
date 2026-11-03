@@ -769,6 +769,7 @@ export interface AccountState {
   installCommand?: string;
   installUrl?: string;
   canInstall?: boolean;
+  runtimeUpdate?: { currentVersion: string; latestVersion: string; available: boolean };
   installing?: { completedBytes: number; totalBytes?: number };
 }
 

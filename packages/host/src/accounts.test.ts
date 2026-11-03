@@ -45,6 +45,13 @@ class FakeAccounts implements EngineAccounts {
   state: AccountState = { kind: 'chatgpt', status: 'signed_out' };
   models_: AccountModels = MODELS;
   readonly calls: string[] = [];
+  update: { currentVersion: string; latestVersion: string } | undefined;
+  updateError: string | undefined;
+  async checkUpdate() {
+    this.calls.push('checkUpdate');
+    if (this.updateError) throw new Error(this.updateError);
+    return this.update;
+  }
   readonly #listeners = new Set<(state: AccountState) => void>();
 
   async read(): Promise<AccountState> {
@@ -446,3 +453,35 @@ async function waitForProviders(client: TestRpcClient, count: number, ok?: (p: a
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
+
+describe('托管运行体更新', () => {
+  it('只在显式检查时查询，区分新版、已是最新和较旧版本；失败报原因，安装版本变化后不保留旧结果', async () => {
+    const adapter = new AccountAdapter();
+    const { accounts } = adapter;
+    accounts.set({ kind: 'chatgpt', status: 'signed_out', installed: true, version: '1.2.3' });
+    accounts.update = { currentVersion: '1.2.3', latestVersion: '1.3.0' };
+    const { connect } = await start(adapter);
+    const { client } = await connect();
+    await client.request('account.get', { kind: 'chatgpt' });
+    expect(accounts.calls).not.toContain('checkUpdate');
+    const checked = await client.request('account.get', { kind: 'chatgpt', checkUpdate: true });
+    expect(checked.account.runtimeUpdate).toEqual({ ...accounts.update, available: true });
+    accounts.update.latestVersion = '1.2.3';
+    expect(
+      (await client.request('account.get', { kind: 'chatgpt', checkUpdate: true })).account
+        .runtimeUpdate?.available,
+    ).toBe(false);
+    accounts.update.latestVersion = '1.0.0';
+    expect(
+      (await client.request('account.get', { kind: 'chatgpt', checkUpdate: true })).account
+        .runtimeUpdate?.available,
+    ).toBe(false);
+    accounts.updateError = 'release server offline';
+    const failed = await client.call('account.get', { kind: 'chatgpt', checkUpdate: true });
+    expect(failed.error?.message).toContain('release server offline');
+    accounts.set({ ...accounts.state, version: '1.3.0' });
+    expect(
+      (await client.request('account.get', { kind: 'chatgpt' })).account.runtimeUpdate,
+    ).toBeUndefined();
+  });
+});

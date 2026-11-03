@@ -176,6 +176,17 @@ function publish(version = '1.2.3', entries?: Buffer[]) {
 }
 
 describe('NpmPackageInstaller', () => {
+  it('检查更新只取元数据，不下载或改动已有安装', async () => {
+    publish('1.2.3');
+    const target = installer();
+    const active = await target.install(() => {});
+    hits.length = 0;
+    publish('1.3.0');
+    expect(await target.latestVersion()).toBe('1.3.0');
+    expect(hits).toEqual(['/@scope%2Ftool-darwin-arm64/latest']);
+    expect(await target.active()).toEqual(active);
+  });
+
   it('取最新版本的 tgz，核对 sha512，只解出要的文件，写下指针', async () => {
     publish('1.2.3', [
       tarEntry('package/package.json', Buffer.from('{}')),

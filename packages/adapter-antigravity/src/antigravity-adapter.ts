@@ -175,6 +175,7 @@ export class AntigravityAdapter extends AcpAdapter {
       ...(options.usageFetch !== undefined && { fetch: options.usageFetch }),
     });
     this.accounts = accounts;
+    this.watchRuntime(accounts);
   }
 
   override async createSession(config: SessionConfig): Promise<EngineSession> {

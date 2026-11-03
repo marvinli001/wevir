@@ -1234,9 +1234,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return { accounts: list };
     },
 
-    'account.get': async ({ kind, id, refresh }) => {
+    'account.get': async ({ kind, id, refresh, checkUpdate }) => {
       const accounts = requireAccounts();
-      const account = await accounts.read({ kind, id }, refresh === true ? { refresh } : undefined);
+      const account = await accounts.read(
+        { kind, id },
+        { ...(refresh === true && { refresh }), ...(checkUpdate === true && { checkUpdate }) },
+      );
       if (refresh !== true) accounts.usage.nudge(id ?? kind);
       return { account };
     },

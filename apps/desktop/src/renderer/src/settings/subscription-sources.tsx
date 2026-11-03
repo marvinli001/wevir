@@ -13,7 +13,14 @@ import {
   Plus,
   RotateCw,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Collapse } from '@/components/collapse';
 import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
@@ -674,7 +681,7 @@ function SubscriptionBody({
     setError(undefined);
     try {
       const result = await op();
-      accounts?.merge(result.account);
+      if (label !== 'install' && label !== 'update') accounts?.merge(result.account);
       return result.account;
     } catch (reason) {
       setError(describe(reason));
@@ -833,6 +840,17 @@ function SubscriptionBody({
           onRefresh={() => void refresh()}
         />
       )}
+      {account.installed !== false &&
+        phase.kind !== 'installing' &&
+        client.supports('subscription_updates') && (
+          <RuntimeUpdate
+            key={`${kind}:${account.executablePath ?? ''}:${account.version ?? ''}`}
+            client={client}
+            kind={kind}
+            busy={busy}
+            onRun={run}
+          />
+        )}
       {notice !== undefined && <NoticeBanner notice={{ tone: 'error', text: notice }} />}
     </div>
   );
@@ -955,7 +973,12 @@ function InstallStep({
     <div className="space-y-4">
       {account.canInstall === true || installing ? (
         <Step
-          title={t('source.download.title', { name })}
+          title={t(
+            installing && account.installed === true
+              ? 'source.update.updating'
+              : 'source.download.title',
+            { name },
+          )}
           actions={
             <Button
               size="sm"
@@ -1166,6 +1189,87 @@ function SignedIn({
           <span className="text-xs text-muted-foreground">{t('source.logout.command')}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+function RuntimeUpdate({
+  client,
+  kind,
+  busy,
+  onRun,
+}: {
+  client: WevirClient;
+  kind: AccountKind;
+  busy: string | undefined;
+  onRun: (label: string, op: () => Promise<{ account: AccountState }>) => Promise<unknown>;
+}) {
+  const [update, setUpdate] = useState<AccountState['runtimeUpdate']>();
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string>();
+  const revision = useRef(0);
+  const check = useCallback(async () => {
+    const current = ++revision.current;
+    setChecking(true);
+    setError(undefined);
+    try {
+      const { account } = await client.request('account.get', { kind, checkUpdate: true });
+      if (current === revision.current) setUpdate(account.runtimeUpdate);
+    } catch (reason) {
+      if (current === revision.current) setError(describe(reason));
+    } finally {
+      if (current === revision.current) setChecking(false);
+    }
+  }, [client, kind]);
+  useEffect(() => {
+    void check();
+    return () => {
+      revision.current += 1;
+    };
+  }, [check]);
+  if (!checking && !update && !error) return null;
+  return (
+    <div data-testid="runtime-update" className="space-y-2 border-t border-border pt-3">
+      <Step
+        title={t(
+          error
+            ? 'source.update.check'
+            : checking
+              ? 'source.update.checking'
+              : update?.available
+                ? 'source.update.available'
+                : 'source.update.current',
+          { version: update?.latestVersion ?? '' },
+        )}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={checking || busy !== undefined}
+              onClick={() => void check()}
+              data-action="check-runtime-update"
+            >
+              <RotateCw className={checking ? 'animate-spin' : undefined} />
+              {t('source.update.check')}
+            </Button>
+            {update?.available && (
+              <Button
+                size="sm"
+                disabled={checking || busy !== undefined}
+                onClick={() =>
+                  void onRun('update', () => client.request('account.install', { kind }))
+                }
+                data-action="update-runtime"
+              >
+                <Download />
+                {t('source.update')}
+              </Button>
+            )}
+          </>
+        }
+      />
+      {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
     </div>
   );
 }

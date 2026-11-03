@@ -226,6 +226,21 @@ export class WorkBuddyAccounts implements EngineAccounts {
     return this.#probe(true).then((state) => this.#view(state));
   }
 
+  async checkUpdate(kind: AccountKind) {
+    this.#check(kind);
+    const state = await this.read(kind);
+    const installer = this.#installer;
+    const active = await installer?.active();
+    if (
+      !installer ||
+      !active ||
+      state.executablePath !== active.path ||
+      state.customPath !== undefined
+    )
+      return undefined;
+    return { currentVersion: active.version, latestVersion: await installer.latestVersion() };
+  }
+
   /**
    * 替用户下载安装 `codebuddy`（`account.install`）：立即返回带 `installing` 的状态，进度、完成（再检测一次账号）与失败（原因
    * 在 `lastError`）经 `onChange` 报告；已在安装时返回当前状态。
@@ -366,7 +381,7 @@ export class WorkBuddyAccounts implements EngineAccounts {
     let view = state;
     if (this.#installing !== undefined) {
       view = { ...view, installing: this.#installing };
-    } else if (this.#installError !== undefined && view.installed === false) {
+    } else if (this.#installError !== undefined) {
       view = { ...view, lastError: this.#installError };
     }
     if (this.#login !== undefined && view.status !== 'signed_in') {

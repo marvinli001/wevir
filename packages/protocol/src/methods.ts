@@ -1092,6 +1092,8 @@ const AccountIdField = { id: ProviderIdSchema.optional() };
 /** `account.get`（0.19.0 起可带 `refresh`）。 */
 export const AccountGetParamsSchema = AccountKindParamsSchema.extend({
   ...AccountIdField,
+  /** 检查托管 CLI 的更新（不下载）。 */
+  checkUpdate: z.boolean().optional(),
   /** 重新检测（重新找可执行文件、重读登录状态），用户在终端里登录之后用；省略时引擎可以用最近一次的结果。 */
   refresh: z.boolean().optional(),
 });

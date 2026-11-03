@@ -425,6 +425,14 @@ export const AccountStateSchema = z.object({
   installUrl: HttpUrlSchema.optional(),
   /** Wevir 能替用户下载安装（`account.install`），如 Antigravity。 */
   canInstall: z.boolean().optional(),
+  /** 最近一次检查的托管运行体版本。 */
+  runtimeUpdate: z
+    .object({
+      currentVersion: z.string().min(1),
+      latestVersion: z.string().min(1),
+      available: z.boolean(),
+    })
+    .optional(),
   /** 正在下载安装；`totalBytes` 不知道时省略。失败时这一项去掉，原因在 `lastError`。 */
   installing: z
     .object({

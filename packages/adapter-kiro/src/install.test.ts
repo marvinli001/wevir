@@ -235,6 +235,14 @@ describe('kiroArchive', () => {
 });
 
 describe('KiroInstaller', () => {
+  it('只检查发布版本，不下载压缩包或写入安装指针', async () => {
+    release = good('2.36.0');
+    const target = installer(fresh());
+    expect(await target.latestVersion()).toBe('2.36.0');
+    expect(hits.some((url) => /\.(?:tar\.gz|zip)(?:$|\?)/.test(url))).toBe(false);
+    expect(await target.active()).toBeUndefined();
+  });
+
   it('装好：核对 sha256、整个压缩包解进 versions/<版本>，启动校验过才写指针', async () => {
     release = good();
     const root = fresh();

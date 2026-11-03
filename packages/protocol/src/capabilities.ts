@@ -128,6 +128,8 @@ export const HOST_FEATURES = {
    * 与 `AccountState` 的安装字段。Host 有带账号的引擎时声明；有哪些种类看 `account.list`。
    */
   subscriptionSources: 'subscription_sources',
+  /** 0.152.0：检查托管 CLI 更新（account.get 的 checkUpdate）。 */
+  subscriptionUpdates: 'subscription_updates',
   /** 启用与停用 Provider（0.19.0）：`provider.setEnabled` 与 `ProviderProfile.enabled`。与引擎无关。 */
   providerEnabled: 'provider_enabled',
   /**
@@ -621,6 +623,7 @@ export const HostFeaturesSchema = z.looseObject({
   side_session_list: z.boolean().optional(),
   session_worktree: z.boolean().optional(),
   subscription_sources: z.boolean().optional(),
+  subscription_updates: z.boolean().optional(),
   provider_enabled: z.boolean().optional(),
   workspace_diff: z.boolean().optional(),
   multi_folder_changes: z.boolean().optional(),

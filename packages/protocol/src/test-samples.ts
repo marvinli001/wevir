@@ -4787,6 +4787,7 @@ export const methodSamples: MethodSamples = {
       valid: [
         { kind: 'chatgpt' },
         { kind: 'claude', refresh: true },
+        { kind: 'claude', checkUpdate: true },
         { kind: 'grok' },
         { kind: 'workbuddy', refresh: true },
         { kind: 'devin', refresh: true },

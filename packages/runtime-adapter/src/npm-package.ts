@@ -197,6 +197,24 @@ export class NpmPackageInstaller {
     return { path: file, version };
   }
 
+  async latestVersion(): Promise<string> {
+    const registries = this.#options.registries ?? npmRegistries();
+    try {
+      const resolved = await Promise.any(
+        registries.map((registry) =>
+          this.#lookup(registry, AbortSignal.timeout(METADATA_TIMEOUT_MS)),
+        ),
+      );
+      return resolved.version;
+    } catch (cause) {
+      throw new NpmInstallError(
+        'resolve',
+        `Could not check for updates (${registries.map(hostOf).join(', ')}). Check your network or proxy.`,
+        { cause },
+      );
+    }
+  }
+
   /**
    * 装 registry 上最新的版本（已经是最新的就只是核对一遍）。同一时刻只有一次安装，进行中时返回同一个 Promise。失败抛
    * `NpmInstallError`，取消抛 `NpmInstallCancelled`；已装的版本不受影响。

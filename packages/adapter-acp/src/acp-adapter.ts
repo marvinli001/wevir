@@ -23,6 +23,7 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type ApprovalOption,
+  type EngineAccounts,
   type EngineExitedEvent,
   type EngineSession,
   type EngineToolClass,
@@ -227,8 +228,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   #disposed: Promise<void> | undefined;
   /** 进行中的有计划重启（合并并发的请求）。 */
   #restart: Promise<void> | undefined;
-  /** 引擎描述的 `restartAfterTurnError` 认出的失败之后，等空闲时重启进程。 */
+  /** 引擎失败或托管运行体升级之后，等空闲时重启进程。 */
   #restartWhenIdle = false;
+  readonly #runtimeWatchers: Array<() => void> = [];
   /**
    * 进行中的 `createSession` / `resumeSession` 数：它们的会话还没登记，有计划的重启要等它们完成，否则会话会挂在
    * 被回收的进程上（`busy`）。
@@ -611,6 +613,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
 
   dispose(): Promise<void> {
     this.#disposed ??= (async () => {
+      for (const stop of this.#runtimeWatchers.splice(0)) stop();
       let replied = false;
       for (const session of this.#sessions.values()) {
         replied = this.#cancelPending(session, 'disposed') || replied;
@@ -627,6 +630,22 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   // ── 给引擎子类的扩展点 ───────────────────────────────────────────────────────────────
+
+  /** 托管运行体升级后等全部回合结束，再换进程；既有会话由 Host 按需恢复。 */
+  protected watchRuntime(accounts: Pick<EngineAccounts, 'onChange'>): void {
+    let version: string | undefined;
+    this.#runtimeWatchers.push(
+      accounts.onChange((state) => {
+        if (state.version === undefined || state.installing !== undefined) return;
+        const previous = version;
+        version = state.version;
+        if (previous === undefined || previous === version || this.process.state !== 'ready')
+          return;
+        this.#restartWhenIdle = true;
+        void this.#restartIfRequested();
+      }),
+    );
+  }
 
   /** 告警出口（构造时给的 `logger`，默认写 stderr）。 */
   protected get logger(): AdapterLogger {
@@ -1194,7 +1213,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       return Promise.resolve();
     }
     this.#restartWhenIdle = false;
-    this.#logger.warn(`${this.engine.name} 的会话失败后要换进程才能恢复，重启引擎`);
+    this.#logger.warn(`重启 ${this.engine.name} 以重新建立引擎会话`);
     // `config_changed`：会话都空闲，Host 不报错，只断开订阅。
     return this.restartEngine('config_changed').catch((error: unknown) =>
       this.#logger.warn(`重启 ${this.engine.name} 失败`, {
@@ -1394,6 +1413,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
 
   /** 启动或等进行中的重启完成，返回就绪的连接。 */
   async #readyConnection() {
+    await this.#restart;
     await this.process.start();
     await this.#restartIfRequested();
     await this.beforeActivation();

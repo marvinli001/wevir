@@ -459,6 +459,10 @@ export interface EngineAccounts {
    * 完成与失败经 `onChange` 报告；已在安装时返回当前状态。不实现表示不能安装。
    */
   install?(kind: AccountKind): Promise<AccountState>;
+  /** 只检查 Wevir 管理的运行体，不下载；用户自己安装的返回 undefined。 */
+  checkUpdate?(
+    kind: AccountKind,
+  ): Promise<{ currentVersion: string; latestVersion: string } | undefined>;
   /**
    * 只重读用量（Host 的自动刷新用，usage-refresh.ts）：不重新找可执行文件、不重新检测登录，尽量不起进程（HTTP 或本地文件），
    * 读到变化经 `onChange` 发布。没登录、这类账号不报用量或读不到时什么都不做，不抛错。不实现时 Host 改用不带 `refresh` 的

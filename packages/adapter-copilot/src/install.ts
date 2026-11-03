@@ -279,6 +279,14 @@ export class CopilotInstaller {
     return { path: file, version };
   }
 
+  async latestVersion(): Promise<string> {
+    const release = await this.#lookup(
+      this.#options.releaseUrl ?? copilotReleaseUrl(),
+      AbortSignal.timeout(15_000),
+    );
+    return release.version;
+  }
+
   /**
    * 装官方现在的最新版（已经是最新的就只是核对一遍）。同一时刻只有一次安装，进行中时返回同一个 Promise。失败抛
    * `CopilotInstallError`，取消抛 `CopilotInstallCancelled`；已装的版本不受影响。

@@ -152,6 +152,7 @@ export class WorkBuddyAdapter extends AcpAdapter {
       },
     });
     this.accounts = accounts;
+    this.watchRuntime(accounts);
     this.#settings = settings;
     this.#processVersion = () => processVersion;
     this.historyTool = options.historyTool !== undefined;

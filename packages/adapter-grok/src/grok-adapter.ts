@@ -123,6 +123,7 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
     this.mode = mode;
     this.#env = options.env;
     this.#accounts = accounts;
+    this.watchRuntime(accounts);
   }
 
   /** 当前进程里 Grok 自报的版本。 */

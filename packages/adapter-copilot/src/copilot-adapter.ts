@@ -160,6 +160,7 @@ export class CopilotAdapter extends AcpAdapter {
       },
     });
     this.accounts = accounts;
+    this.watchRuntime(accounts);
     this.#settings = settings;
     this.#loading = loading;
     this.#processVersion = () => processVersion;

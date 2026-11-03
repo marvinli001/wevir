@@ -13,6 +13,7 @@ import type { ProviderProfileRecord, Storage } from '@wevir/storage';
 import type { EnginePathStore } from './engine-paths.js';
 import type { AccountPool } from './engine-router.js';
 import { HostError } from './errors.js';
+import { compareVersions, parseVersion } from './readiness/versions.js';
 import { UsageRefresher } from './usage-refresh.js';
 
 /** ChatGPT 登录成功后 Host 自己建的 Provider（protocol `provider.upsert` 的 `chatgpt` 一支，ID 固定）。 */
@@ -115,6 +116,7 @@ export class HostAccounts {
   readonly #slots = new Map<string, Slot>();
   /** 账号 ID → 最近一次的状态（引擎报的或读到的，没盖章）。 */
   readonly #last = new Map<string, AccountState>();
+  readonly #updates = new Map<string, NonNullable<AccountState['runtimeUpdate']>>();
   readonly #modelsRefreshedAt = new Map<string, number>();
   readonly #refreshing = new Map<string, Promise<void>>();
   /** 用量的自动刷新（usage-refresh.ts）；`startUsageRefresh` 之后才定时读。 */
@@ -226,12 +228,32 @@ export class HostAccounts {
     return slot === undefined || raw === undefined ? undefined : this.#stamp(slot, raw);
   }
 
-  async read(ref: AccountRef, options?: { refresh?: boolean }): Promise<AccountState> {
+  async read(
+    ref: AccountRef,
+    options?: { refresh?: boolean; checkUpdate?: boolean },
+  ): Promise<AccountState> {
     const slot = this.#slot(ref);
-    const raw = await this.#call(() => slot.engine.read(slot.kind, options));
+    let raw = await this.#call(() => slot.engine.read(slot.kind, options));
     this.#last.set(slot.id, raw);
+    if (options?.checkUpdate === true) {
+      const update = await this.#call(
+        () => slot.engine.checkUpdate?.(slot.kind) ?? Promise.resolve(undefined),
+      );
+      if (update === undefined) this.#updates.delete(slot.id);
+      else {
+        const current = parseVersion(update.currentVersion);
+        const latest = parseVersion(update.latestVersion);
+        this.#updates.set(slot.id, {
+          ...update,
+          available:
+            current !== undefined && latest !== undefined && compareVersions(latest, current) > 0,
+        });
+      }
+    }
+    raw = this.#last.get(slot.id) ?? raw;
     const state = this.#stamp(slot, raw);
     this.#notifyObservers(state);
+    if (options?.checkUpdate === true) this.#broadcast(state);
     if (raw.status === 'signed_in' && this.#modelsStale(slot.id)) this.#refreshInBackground(slot);
     return state;
   }
@@ -326,6 +348,9 @@ export class HostAccounts {
 
   install(kind: AccountKind): Promise<AccountState> {
     const slot = this.#slot({ kind });
+    for (const other of this.#slots.values()) {
+      if (other.kind === kind) this.#updates.delete(other.id);
+    }
     return this.#stamped(slot, async () => {
       const { accounts } = this.#options;
       if (accounts.install === undefined) throw new Error(`the ${kind} engine cannot be installed`);
@@ -527,6 +552,10 @@ export class HostAccounts {
       kind: slot.kind,
       id: slot.id,
       ...(slot.label !== undefined && { label: slot.label }),
+      ...(state.customPath === undefined &&
+        this.#updates.get(slot.id)?.currentVersion === state.version && {
+          runtimeUpdate: this.#updates.get(slot.id),
+        }),
       ...(!slot.added && LOCAL_LOGIN_KINDS.includes(slot.kind) && { localLogin: true as const }),
       ...(this.#canAdd(slot.kind) && { multiAccount: true as const }),
     };
