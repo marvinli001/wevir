@@ -200,6 +200,7 @@ export const messages: Messages = {
   'rules.skipped.unreadable': '読み込み不可',
   'rules.importedFrom': '{name} から読み込み',
   'rail.usage': '使用量',
+  'rail.usage.pace': '均等ペースの使用量 {percent}%',
   'rail.usage.resetsIn': '{duration}後にリセット',
   'rail.usage.hoursMinutes': '{hours} 時間 {minutes} 分',
   'rail.usage.hours': '{hours} 時間',

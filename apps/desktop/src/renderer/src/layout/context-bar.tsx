@@ -16,11 +16,14 @@ const TONE_FILL: Record<ContextUsage['tone'], string> = {
 export function ContextBar({
   usage,
   mark = true,
+  pacePercent,
   className,
 }: {
   usage: Pick<ContextUsage, 'percent' | 'tone' | 'autoCompactPercent'>;
   /** 画自动压缩的线（太窄的条不画）。 */
   mark?: boolean;
+  /** 订阅用量按周期匀速消耗时的位置。 */
+  pacePercent?: number;
   className?: string;
 }) {
   return (
@@ -39,6 +42,13 @@ export function ContextBar({
           data-testid="context-auto-compact-mark"
           className="absolute -top-0.5 -bottom-0.5 w-px bg-foreground/40"
           style={{ left: `${usage.autoCompactPercent}%` }}
+        />
+      )}
+      {pacePercent !== undefined && (
+        <span
+          data-testid="usage-pace-mark"
+          className="absolute -top-0.5 -bottom-0.5 w-px bg-foreground/60"
+          style={{ left: `${pacePercent}%` }}
         />
       )}
     </span>

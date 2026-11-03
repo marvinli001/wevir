@@ -71,6 +71,15 @@ export function usageBar(window: AccountRateLimitWindow): {
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
+/** 周期按匀速消耗时应到的位置；缺少周期长度或重置时刻、周期尚未开始或已结束时不画。 */
+export function usagePace(window: AccountRateLimitWindow, now: number): number | undefined {
+  if (window.windowMinutes === undefined || window.resetsAt === undefined) return undefined;
+  const duration = window.windowMinutes * MINUTE;
+  const left = Date.parse(window.resetsAt) - now;
+  if (left <= 0 || left > duration) return undefined;
+  return (1 - left / duration) * 100;
+}
+
 /** 什么时候重置：一天之内说还有多久（“4 小时 29 分钟后重置”），再远说日期与时刻；已过或没有时不说。 */
 export function resetText(resetsAt: string | undefined, now = new Date()): string | undefined {
   if (resetsAt === undefined) return undefined;

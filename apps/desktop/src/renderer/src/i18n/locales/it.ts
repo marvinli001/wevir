@@ -203,6 +203,7 @@ export const messages: Messages = {
   'rules.skipped.unreadable': 'Illeggibile',
   'rules.importedFrom': 'Importato da {name}',
   'rail.usage': 'Utilizzo',
+  'rail.usage.pace': 'Consumo uniforme: {percent}%',
   'rail.usage.resetsIn': 'Reimpostazione tra {duration}',
   'rail.usage.hoursMinutes': '{hours} h {minutes} min',
   'rail.usage.hours': '{hours} h',

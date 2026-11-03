@@ -5,6 +5,7 @@
 import { Settings } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { AccountBadge } from '@/components/account-badge';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { RollingNumber } from '@/components/rolling-number';
@@ -16,7 +17,7 @@ import { useNow } from '@/session/use-now';
 import { windowName } from '@/settings/chatgpt-account-model';
 import { ContextBar } from './context-bar';
 import { type RailContext, registerRailCard } from './session-rail';
-import { resetText, subscriptionUsage, usageBar } from './usage-model';
+import { resetText, subscriptionUsage, usageBar, usagePace } from './usage-model';
 
 /** 重置时间是“还有多久”，每分钟重画。 */
 const TICK_MS = 60_000;
@@ -42,6 +43,9 @@ function useUsageCard({ session, providers, visible }: RailContext) {
         <ul className="space-y-3">
           {usage.windows.map((window, index) => {
             const bar = usageBar(window);
+            const pace = usagePace(window, now);
+            const paceLabel =
+              pace === undefined ? undefined : t('rail.usage.pace', { percent: Math.round(pace) });
             const resets = resetText(window.resetsAt, new Date(now));
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: 窗口没有 ID，名字可能相同（长度不明的窗口）
@@ -53,7 +57,12 @@ function useUsageCard({ session, providers, visible }: RailContext) {
                     value={t('account.chatgpt.usage.used', { percent: bar.percent })}
                   />
                 </div>
-                <ContextBar usage={bar} className="mt-2" />
+                <Hint label={paceLabel}>
+                  <div className="mt-2">
+                    <ContextBar usage={bar} pacePercent={pace} />
+                    {paceLabel !== undefined && <span className="sr-only">{paceLabel}</span>}
+                  </div>
+                </Hint>
                 {resets !== undefined && (
                   <p className="mt-1.5 text-xs text-muted-foreground">{resets}</p>
                 )}

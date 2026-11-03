@@ -201,6 +201,7 @@ export const messages: Messages = {
   'rules.skipped.unreadable': 'Illisible',
   'rules.importedFrom': 'Importé par {name}',
   'rail.usage': 'Utilisation',
+  'rail.usage.pace': 'Consommation régulière : {percent}%',
   'rail.usage.resetsIn': 'Réinitialisation dans {duration}',
   'rail.usage.hoursMinutes': '{hours} h {minutes} min',
   'rail.usage.hours': '{hours} h',

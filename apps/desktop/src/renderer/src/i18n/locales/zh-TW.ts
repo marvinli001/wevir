@@ -194,6 +194,7 @@ export const messages: Messages = {
   'rules.skipped.unreadable': '無法讀取',
   'rules.importedFrom': '由 {name} 引入',
   'rail.usage': '用量',
+  'rail.usage.pace': '勻速用量 {percent}%',
   'rail.usage.resetsIn': '{duration}後重設',
   'rail.usage.hoursMinutes': '{hours} 小時 {minutes} 分鐘',
   'rail.usage.hours': '{hours} 小時',

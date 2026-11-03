@@ -196,6 +196,7 @@ export const messages: Messages = {
   'rules.skipped.unreadable': '읽을 수 없음',
   'rules.importedFrom': '{name}에서 가져옴',
   'rail.usage': '사용량',
+  'rail.usage.pace': '균등 사용량 {percent}%',
   'rail.usage.resetsIn': '{duration} 후 재설정',
   'rail.usage.hoursMinutes': '{hours}시간 {minutes}분',
   'rail.usage.hours': '{hours}시간',

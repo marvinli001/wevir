@@ -1,6 +1,6 @@
 import type { AccountState, ProviderProfile } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { resetText, subscriptionUsage, usageBar } from './usage-model';
+import { resetText, subscriptionUsage, usageBar, usagePace } from './usage-model';
 
 const providers = [
   { id: 'chatgpt', kind: 'chatgpt', models: [] },
@@ -121,5 +121,30 @@ describe('resetText', () => {
     expect(resetText('2026-10-14T07:00:00', now)).toBeUndefined();
     expect(resetText('soon', now)).toBeUndefined();
     expect(resetText(undefined, now)).toBeUndefined();
+  });
+});
+
+describe('usagePace', () => {
+  const resetsAt = '2026-11-03T10:00:00.000Z';
+  const window = { usedPercent: 80, windowMinutes: 300, resetsAt };
+
+  it('按整个窗口的时间进度计算，与已用额度无关', () => {
+    expect(usagePace(window, Date.parse('2026-11-03T05:00:00Z'))).toBe(0);
+    expect(usagePace(window, Date.parse('2026-11-03T07:30:00Z'))).toBe(50);
+    expect(usagePace({ ...window, usedPercent: 0 }, Date.parse('2026-11-03T07:30:00Z'))).toBe(50);
+    expect(
+      usagePace({ ...window, windowMinutes: 10080 }, Date.parse(resetsAt) - 2520 * 60_000),
+    ).toBe(75);
+  });
+
+  it('未开始、已重置与周期长度不明的窗口不画刻度', () => {
+    expect(usagePace(window, Date.parse('2026-11-03T04:00:00Z'))).toBeUndefined();
+    expect(usagePace(window, Date.parse(resetsAt))).toBeUndefined();
+    expect(
+      usagePace({ usedPercent: 20, resetsAt, period: 'monthly' }, Date.parse(resetsAt) - 1000),
+    ).toBeUndefined();
+    expect(
+      usagePace({ usedPercent: 20, windowMinutes: 300 }, Date.parse(resetsAt)),
+    ).toBeUndefined();
   });
 });

@@ -199,6 +199,7 @@ export const messages: Messages = {
   'rules.skipped.unreadable': 'Не читается',
   'rules.importedFrom': 'Импортирован из {name}',
   'rail.usage': 'Использование',
+  'rail.usage.pace': 'Равномерный расход: {percent}%',
   'rail.usage.resetsIn': 'Сброс через {duration}',
   'rail.usage.hoursMinutes': '{hours} ч {minutes} мин',
   'rail.usage.hours': '{hours} ч',

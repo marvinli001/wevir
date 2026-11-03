@@ -207,6 +207,7 @@ export const zhCN = {
   'rules.skipped.unreadable': '无法读取',
   'rules.importedFrom': '由 {name} 引入',
   'rail.usage': '用量',
+  'rail.usage.pace': '匀速用量 {percent}%',
   'rail.usage.resetsIn': '{duration}后重置',
   'rail.usage.hoursMinutes': '{hours} 小时 {minutes} 分钟',
   'rail.usage.hours': '{hours} 小时',
