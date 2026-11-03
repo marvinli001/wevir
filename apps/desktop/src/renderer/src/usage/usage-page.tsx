@@ -2,7 +2,13 @@
 // 添加的服务商，模型、时间段），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，写法与计算见 usage-model.ts。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type { ProviderProfile, UsageAggregate, UsagePricing, UsageRecord } from '@wevir/protocol';
+import type {
+  ProviderProfile,
+  UsageAggregate,
+  UsagePricing,
+  UsageRecord,
+  UsageSavings,
+} from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChartColumn, CircleAlert, RefreshCw } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
@@ -73,6 +79,31 @@ export function UsagePage({ client }: { client: WevirClient }) {
   const data = useUsage(client, prefs.range, selection, page);
   const summary = data.summary.data;
 
+  const needsPrecision =
+    client.supports('context_ledger') &&
+    selection.precision === undefined &&
+    (summary?.result.options.precisions?.length ?? 0) > 0;
+  useEffect(() => {
+    if (
+      !needsPrecision ||
+      summary === undefined ||
+      data.summary.loading ||
+      summary.filter?.providerIds?.[0] !== selection.providerId ||
+      summary.filter?.models?.[0] !== selection.model
+    )
+      return;
+    const available = summary.result.options.precisions ?? [];
+    setSelection((current) => ({
+      ...current,
+      precision: available.includes('exact') ? 'exact' : available[0],
+    }));
+  }, [needsPrecision, summary, data.summary.loading, selection.providerId, selection.model]);
+
+  const precisionChanging =
+    client.supports('context_ledger') &&
+    selection.precision !== undefined &&
+    summary?.filter?.precision !== selection.precision;
+
   // 选中的连接被删了（用量随之删除）：回到全部。
   const selectedGone =
     selection.providerId !== undefined &&
@@ -123,6 +154,10 @@ export function UsagePage({ client }: { client: WevirClient }) {
             providers={providers}
           />
 
+          {summary?.result.savings !== undefined && (
+            <Savings value={summary.result.savings} locale={locale} />
+          )}
+
           {notice && (
             <div className="mb-4">
               <NoticeBanner notice={notice} />
@@ -144,7 +179,7 @@ export function UsagePage({ client }: { client: WevirClient }) {
             </div>
           )}
 
-          {summary === undefined ? (
+          {summary === undefined || needsPrecision || precisionChanging ? (
             data.summary.error === undefined && <Skeleton />
           ) : summary.result.totals.requests === 0 ? (
             <EmptyState
@@ -161,7 +196,11 @@ export function UsagePage({ client }: { client: WevirClient }) {
               <Hero totals={summary.result.totals} locale={locale} />
               <UsageChart
                 data={summary}
-                metric={prefs.metric}
+                metric={
+                  prefs.metric === 'requests' && summary.result.totals.modelRequests === null
+                    ? 'tokens'
+                    : prefs.metric
+                }
                 onMetric={(metric) => usagePrefs.set((current) => ({ ...current, metric }))}
                 locale={locale}
               />
@@ -337,6 +376,21 @@ function Filters({
         ))}
       </fieldset>
       <div className="flex flex-wrap items-center gap-2">
+        {options?.precisions !== undefined && (
+          <Select
+            aria-label={t('usage.precision')}
+            value={selection.precision ?? 'exact'}
+            options={(['exact', 'engine', 'turn'] as const).map((value) => ({
+              value,
+              label: t(`usage.precision.${value}`),
+            }))}
+            onValueChange={(value) =>
+              onSelection({ ...selection, precision: value as 'exact' | 'engine' | 'turn' })
+            }
+            className="w-32"
+            data-filter="precision"
+          />
+        )}
         <Select
           aria-label={t('usage.filter.model')}
           value={selection.model ?? ALL}
@@ -464,7 +518,13 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
           <div>
             <div className="text-sm text-muted-foreground">{t('usage.requests')}</div>
             <div className="mt-1 text-xl font-semibold tabular-nums">
-              <RollingNumber value={formatInteger(totals.requests, locale)} />
+              <RollingNumber
+                value={
+                  totals.modelRequests === null
+                    ? '—'
+                    : formatInteger(totals.modelRequests ?? totals.requests, locale)
+                }
+              />
             </div>
           </div>
           <div>
@@ -503,5 +563,30 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
         </Stat>
       </div>
     </section>
+  );
+}
+
+function Savings({ value, locale }: { value: UsageSavings; locale: string }) {
+  return (
+    <div
+      className="mb-5 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-y border-border py-3"
+      data-testid="usage-savings"
+      title={t('usage.savings.scope', {
+        pairs: value.pairs,
+        low: formatCost(-value.costInterval[1], locale),
+        high: formatCost(-value.costInterval[0], locale),
+      })}
+    >
+      <div className="flex items-baseline gap-3">
+        <span className="text-sm text-muted-foreground">{t('usage.savings')}</span>
+        <span className="font-semibold tabular-nums">
+          {t('usage.savings.value', { cost: formatCost(value.costPerTask, locale) })}
+        </span>
+      </div>
+      <span className="text-xs text-muted-foreground">
+        {t('usage.savings.baseline', { baseline: value.baseline, candidate: value.candidate })} ·{' '}
+        {value.model}
+      </span>
+    </div>
   );
 }

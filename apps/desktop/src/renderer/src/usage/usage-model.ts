@@ -76,6 +76,7 @@ export function isHourly(range: UsageRange): boolean {
 
 /** 页面上的筛选：服务商（模型服务里添加的一个订阅或 API 连接）与模型，各自单选，省略表示全部。 */
 export interface UsageSelection {
+  precision?: UsageFilter['precision'];
   providerId?: string;
   model?: string;
 }
@@ -92,6 +93,7 @@ export function selectModel(selection: UsageSelection, model: string | undefined
 
 export function toFilter(selection: UsageSelection): UsageFilter | undefined {
   const filter: UsageFilter = {
+    ...(selection.precision !== undefined && { precision: selection.precision }),
     ...(selection.providerId !== undefined && { providerIds: [selection.providerId] }),
     ...(selection.model !== undefined && { models: [selection.model] }),
   };

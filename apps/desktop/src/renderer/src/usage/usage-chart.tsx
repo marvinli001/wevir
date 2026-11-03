@@ -66,7 +66,7 @@ const TOOLTIP_HALF = 96;
 
 function metricValue(bucket: UsageAggregate, metric: ChartMetric): number {
   if (metric === 'tokens') return totalTokens(bucket.tokens);
-  return metric === 'requests' ? bucket.requests : bucket.cost;
+  return metric === 'requests' ? (bucket.modelRequests ?? bucket.requests) : bucket.cost;
 }
 
 function useWidth<T extends HTMLElement>() {
@@ -130,7 +130,9 @@ export function UsageChart({
           label={t('usage.chart')}
           value={metric}
           onChange={onMetric}
-          options={CHART_METRICS.map((value) => ({ value, label: t(METRIC_LABEL[value]) }))}
+          options={CHART_METRICS.filter(
+            (value) => value !== 'requests' || data.result.totals.modelRequests !== null,
+          ).map((value) => ({ value, label: t(METRIC_LABEL[value]) }))}
         />
         {metric === 'tokens' && (
           <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -324,7 +326,12 @@ function BucketValues({
     );
   }
   if (metric === 'requests') {
-    return <ValueRow label={t('usage.requests')} value={formatInteger(bucket.requests, locale)} />;
+    return (
+      <ValueRow
+        label={t('usage.requests')}
+        value={formatInteger(bucket.modelRequests ?? bucket.requests, locale)}
+      />
+    );
   }
   return (
     <>

@@ -40,6 +40,14 @@ const plain = (text: string | undefined) => text?.replace(/\s/g, ' ');
 const tokens = { input: 100, output: 50, cacheRead: 300, cacheWrite: 100, reasoning: 20 };
 
 describe('功能门控', () => {
+  it('精度筛选与服务商、模型组合', () => {
+    expect(toFilter({ precision: 'exact', providerId: 'p', model: 'm' })).toEqual({
+      precision: 'exact',
+      providerIds: ['p'],
+      models: ['m'],
+    });
+  });
+
   it('没连上是 pending，Host 声明 usage_stats 才可用', () => {
     expect(usageAvailability(undefined)).toBe('pending');
     expect(usageAvailability({})).toBe('unsupported');

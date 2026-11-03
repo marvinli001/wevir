@@ -3,7 +3,7 @@
 // 结果，不闪“正在加载”。连接断开、重连期间发起的请求由 client-sdk 排队。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type { UsageRecord, UsageSummaryResult } from '@wevir/protocol';
+import type { UsageFilter, UsageRecord, UsageSummaryResult } from '@wevir/protocol';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   bucketEdges,
@@ -21,6 +21,7 @@ export interface Loadable<T> {
 }
 
 export interface SummaryData {
+  filter?: UsageFilter;
   range: UsageRange;
   /** 这次查询用的分桶边界，`result.buckets[i]` 是 `[edges[i], edges[i + 1])`。 */
   edges: number[];
@@ -28,6 +29,7 @@ export interface SummaryData {
 }
 
 export interface RecordsData {
+  precision?: UsageFilter['precision'];
   records: UsageRecord[];
   total: number;
   page: number;
@@ -55,14 +57,15 @@ export function useUsage(
   const [summary, setSummary] = useState<Loadable<SummaryData>>({ loading: true });
   const [records, setRecords] = useState<Loadable<RecordsData>>({ loading: true });
   const [refreshingPricing, setRefreshingPricing] = useState(false);
-  const { providerId, model } = selection;
+  const { providerId, model, precision } = selection;
   const filter = useMemo(
     () =>
       toFilter({
         ...(providerId !== undefined && { providerId }),
         ...(model !== undefined && { model }),
+        ...(precision !== undefined && { precision }),
       }),
-    [providerId, model],
+    [providerId, model, precision],
   );
   const query = useRef({ range, filter, page });
   query.current = { range, filter, page };
@@ -77,7 +80,10 @@ export function useUsage(
     client.request('usage.summary', { edges, ...(filter !== undefined && { filter }) }).then(
       (result) => {
         if (id === summarySeq.current)
-          setSummary({ data: { range, edges, result }, loading: false });
+          setSummary({
+            data: { range, edges, result, ...(filter !== undefined && { filter }) },
+            loading: false,
+          });
       },
       (error: unknown) => {
         if (id === summarySeq.current)
@@ -90,7 +96,11 @@ export function useUsage(
     const id = ++recordsSeq.current;
     const { range, filter, page } = query.current;
     const edges = bucketEdges(range, new Date());
-    setRecords((current) => ({ ...current, loading: true }));
+    setRecords((current) =>
+      current.data?.precision !== filter?.precision
+        ? { loading: true }
+        : { ...current, loading: true },
+    );
     client
       .request('usage.records', {
         from: edges[0] ?? 0,
@@ -102,7 +112,15 @@ export function useUsage(
       .then(
         ({ records, total }) => {
           if (id === recordsSeq.current) {
-            setRecords({ data: { records, total, page }, loading: false });
+            setRecords({
+              data: {
+                records,
+                total,
+                page,
+                ...(filter?.precision !== undefined && { precision: filter.precision }),
+              },
+              loading: false,
+            });
           }
         },
         (error: unknown) => {

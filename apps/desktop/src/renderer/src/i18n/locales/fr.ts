@@ -2462,6 +2462,15 @@ export const messages: Messages = {
   'settings.storage.worktreesSummary':
     '{count, plural, one {# worktree} other {# worktrees}} · {size}',
   'sidebar.usage': 'Utilisation',
+  'usage.savings': 'Économies',
+  'usage.savings.value': '{cost}/tâche',
+  'usage.savings.baseline': 'Référence · {baseline} → {candidate}',
+  'usage.savings.scope':
+    'Usage facturé · prix fixes · {pairs} paires · moyenne par tâche · IC à 95 % {low}–{high}',
+  'usage.precision': 'Précision',
+  'usage.precision.exact': 'Exacte',
+  'usage.precision.engine': 'Moteur',
+  'usage.precision.turn': 'Total du tour',
   'usage.title': 'Utilisation',
   'usage.unsupported':
     'Le service en arrière-plan ne prend pas en charge les statistiques d’utilisation',

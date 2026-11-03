@@ -2462,6 +2462,15 @@ export const messages: Messages = {
   'settings.storage.worktreesSummary':
     '{count, plural, one {# рабочее дерево} few {# рабочих дерева} many {# рабочих деревьев} other {# рабочего дерева}} · {size}',
   'sidebar.usage': 'Использование',
+  'usage.savings': 'Экономия',
+  'usage.savings.value': '{cost}/задача',
+  'usage.savings.baseline': 'База · {baseline} → {candidate}',
+  'usage.savings.scope':
+    'Учтённый расход · фиксированные цены · {pairs} пар · среднее за задачу · 95% ДИ {low}–{high}',
+  'usage.precision': 'Точность',
+  'usage.precision.exact': 'Точно',
+  'usage.precision.engine': 'От движка',
+  'usage.precision.turn': 'За ход',
   'usage.title': 'Использование',
   'usage.unsupported': 'Фоновая служба не поддерживает статистику использования',
   'usage.refresh': 'Обновить',

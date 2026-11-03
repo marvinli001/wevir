@@ -237,7 +237,11 @@ function AggregateTable({
             return (
               <tr key={key} className="border-t border-border">
                 <td className={cn(TD, 'max-w-64')}>{name}</td>
-                <td className={cn(TD, NUM)}>{formatInteger(aggregate.requests, locale)}</td>
+                <td className={cn(TD, NUM)}>
+                  {aggregate.modelRequests === null
+                    ? '—'
+                    : formatInteger(aggregate.modelRequests ?? aggregate.requests, locale)}
+                </td>
                 <td className={cn(TD, NUM)}>
                   {formatInteger(totalTokens(aggregate.tokens), locale)}
                 </td>
