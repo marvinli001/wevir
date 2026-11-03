@@ -207,7 +207,7 @@ export const TurnView = memo(
               // 整条都是过程：连同上边距一起收起。
               if (segments.every((segment) => !segment.kept)) {
                 return (
-                  <Collapse key={message.id} open={!folded} fromOpen={justFolded}>
+                  <Collapse key={message.id} open={!folded} fromOpen={justFolded} flow>
                     <div
                       className="mt-3"
                       data-message-role="assistant"
@@ -229,7 +229,7 @@ export const TurnView = memo(
                     segment.kept ? (
                       <Fragment key={segment.key}>{view(segment.parts)}</Fragment>
                     ) : (
-                      <Collapse key={segment.key} open={!folded} fromOpen={justFolded}>
+                      <Collapse key={segment.key} open={!folded} fromOpen={justFolded} flow>
                         {view(segment.parts)}
                       </Collapse>
                     ),
@@ -240,7 +240,7 @@ export const TurnView = memo(
           </div>
           {todos &&
             (fold.showHeader ? (
-              <Collapse open={!folded} fromOpen={justFolded}>
+              <Collapse open={!folded} fromOpen={justFolded} flow>
                 <TurnTodoCard todos={todos} running={runningSubagents} />
               </Collapse>
             ) : (
