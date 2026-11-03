@@ -971,6 +971,7 @@ export function SessionView({
               <OpenSessionFile value={openSessionFile}>
                 <MessageActionsContext value={messageActions}>
                   <TranscriptView
+                    key={session.id}
                     sessionId={session.id}
                     transcript={transcript}
                     cwd={session.cwd}

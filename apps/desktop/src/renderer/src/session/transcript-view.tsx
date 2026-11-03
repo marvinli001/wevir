@@ -14,6 +14,7 @@ import type { LiveState } from './live-indicator';
 import { SystemMessage } from './message-view';
 import { groupPending } from './pending-model';
 import { useStickToBottom } from './scroll-controller';
+import { scrollPositions } from './scroll-position';
 import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
 import {
   FOCUS_HIGHLIGHT,
@@ -87,7 +88,7 @@ export function TranscriptView({
   const { messages } = transcript;
   // 渲染从哪条消息开始。贴底时不固定：只渲染最后 RENDER_WINDOW 条，新消息进来时窗口随之后移，DOM 不随会话
   // 增长；手动阅读时固定在当前第一条，新消息只追加，正在读的内容不会被挪走。向前扩展同样固定。
-  const [pinnedStart, setPinnedStart] = useState<string>();
+  const [pinnedStart, setPinnedStart] = useState(() => scrollPositions.get(sessionId)?.start);
   // 跳到搜索结果（transcript-focus.ts）：那条消息一直在渲染的一段里，直到回到贴底。
   const [focusPin, setFocusPin] = useState<string>();
   const pinnedIndex = pinnedStart ? messages.findIndex((m) => m.id === pinnedStart) : -1;
@@ -214,6 +215,7 @@ export function TranscriptView({
       >
         <div
           ref={contentRef}
+          data-render-start={firstRendered}
           className={cn('mx-auto w-full max-w-content pt-6 pb-4', compact ? 'px-4' : 'px-6')}
         >
           {hidden > 0 && (

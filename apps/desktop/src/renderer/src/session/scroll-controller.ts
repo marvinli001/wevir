@@ -8,11 +8,12 @@
 // 程序滚动触发的 scroll 事件不算；手势滚到底部回到贴底；贴底时键盘焦点等把旧内容滚进视野也转为手动；
 // overflow-anchor 贴底时为 none、手动时为 auto（手动阅读时由浏览器锚定位置）；发送消息即回到贴底。U2：用户在消息流里
 // 点开或收起一处（工作组、回合）时转为手动、保持位置，不被拉回底部（holdPosition）；跳到某个事件时直接转为手动（release）。去掉
-// 移动端轮次留白、滚动位置与几何信息的持久化、历史分页、“跳到消息开头”，状态不进全局 store，只交出
+// 移动端轮次留白、几何信息的落盘、历史分页、“跳到消息开头”；手动阅读的位置按会话记在进程内，只交出
 // “是否贴底”给“跳到最新”按钮。交互手感一轮：手势停下时离底部不超过 RESNAP_GAP_PX 就吸回贴底；“跳到最新”只在离底部超过
 // JUMP_VISIBLE_GAP_PX 时出现，轻推几像素不闪出来。
 
 import { type RefObject, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { captureScrollPosition, restoreScrollPosition, scrollPositions } from './scroll-position';
 
 /** 距底部不超过这么多像素算在底部。 */
 const BOTTOM_GAP_PX = 2;
@@ -24,6 +25,8 @@ export const JUMP_VISIBLE_GAP_PX = 120;
 const GESTURE_SETTLE_MS = 160;
 /** 手势之后这段时间内的滚动算手势造成的（触控板惯性会比原始事件持续更久）。 */
 const GESTURE_WINDOW_MS = 600;
+const RESTORE_SETTLE_MS = 300;
+const RESTORE_MAX_MS = 1500;
 const NAVIGATION_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 
 /** 手势停下时：离底部不远就吸回贴底。 */
@@ -63,23 +66,23 @@ export interface StickToBottom {
 
 /**
  * 消息流的滚动控制。`container` 是滚动容器，`content` 是里面随消息增长的内容；`resetKey`（会话 ID）变化时
- * 回到贴底。
+ * 恢复该会话的阅读位置；没有记录时回到贴底。
  */
 export function useStickToBottom(
   containerRef: RefObject<HTMLElement | null>,
   contentRef: RefObject<HTMLElement | null>,
   resetKey: string,
 ): StickToBottom {
-  const [sticky, setSticky] = useState(true);
+  const [sticky, setSticky] = useState(() => !scrollPositions.has(resetKey));
   const [showJump, setShowJump] = useState(false);
   const controller = useRef<Controller | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resetKey 变化时重建，回到贴底。
   useLayoutEffect(() => {
     const container = containerRef.current;
     const content = contentRef.current;
     if (!container || !content) return;
-    let mode: 'sticky' | 'manual' = 'sticky';
+    const saved = scrollPositions.get(resetKey);
+    let mode: 'sticky' | 'manual' = saved ? 'manual' : 'sticky';
     let lastGestureAt = Number.NEGATIVE_INFINITY;
     let pointerDown = false;
     let smoothJump = false;
@@ -87,10 +90,26 @@ export function useStickToBottom(
     /** holdPosition 之后、布局之前：布局完仍在底部就回到贴底。 */
     let held = false;
     /** release 之后：非手势的滚动（滚动锚定、程序滚动）到了底部也不回到贴底，直到用户自己滚动或跳到最新。 */
-    let parked = false;
+    let parked = saved !== undefined;
     let heldTimer: number | undefined;
     let settleTimer: number | undefined;
     let jumpShown = false;
+    let restoring = saved;
+    let restoreFrame = 0;
+    let restoreMovedAt = performance.now();
+
+    const stopRestoring = () => {
+      if (restoring) container.style.overflowAnchor = mode === 'manual' ? 'auto' : 'none';
+      restoring = undefined;
+      cancelAnimationFrame(restoreFrame);
+    };
+    const restore = () => {
+      if (!restoring) return;
+      const before = container.scrollTop;
+      restoreScrollPosition(container, content, restoring);
+      if (Math.abs(container.scrollTop - before) > 1) restoreMovedAt = performance.now();
+      lastKnownTop = container.scrollTop;
+    };
 
     const distance = () => container.scrollHeight - container.scrollTop - container.clientHeight;
     const updateJump = () => {
@@ -109,6 +128,7 @@ export function useStickToBottom(
     const hasGesture = () => pointerDown || performance.now() - lastGestureAt < GESTURE_WINDOW_MS;
     const atBottom = () => distance() <= BOTTOM_GAP_PX;
     const jumpTo = (behavior: ScrollBehavior) => {
+      stopRestoring();
       lastGestureAt = Number.NEGATIVE_INFINITY;
       parked = false;
       setMode('sticky');
@@ -138,6 +158,7 @@ export function useStickToBottom(
     };
 
     const reconcile = () => {
+      restore();
       settleHold();
       if (mode === 'sticky' && !hasGesture() && !atBottom()) {
         smoothJump = false;
@@ -149,7 +170,9 @@ export function useStickToBottom(
     const onScroll = () => {
       const top = container.scrollTop;
       if (top === lastKnownTop) return;
-      if (hasGesture()) {
+      if (restoring) {
+        lastKnownTop = top;
+      } else if (hasGesture()) {
         // 只有真实输入能换模式；惯性滚动延长手势窗口。
         lastGestureAt = performance.now();
         smoothJump = false;
@@ -170,6 +193,7 @@ export function useStickToBottom(
     };
 
     const markGesture = () => {
+      stopRestoring();
       lastGestureAt = performance.now();
       if (smoothJump) {
         // 平滑跳转途中又动了滚轮：停在当前位置，交给用户。
@@ -188,7 +212,10 @@ export function useStickToBottom(
       if (NAVIGATION_KEYS.has(event.key)) markGesture();
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (event.isPrimary && event.button === 0) pointerDown = true;
+      if (event.isPrimary && event.button === 0) {
+        stopRestoring();
+        pointerDown = true;
+      }
     };
     const onPointerUp = () => {
       if (!pointerDown) return;
@@ -198,9 +225,28 @@ export function useStickToBottom(
     };
 
     container.style.overflowAnchor = 'none';
-    setSticky(true);
+    setSticky(!saved);
     setShowJump(false);
-    toBottom();
+    if (saved) {
+      container.scrollTop = saved.top;
+      restore();
+      updateJump();
+      // content-visibility 的估高在挂载后还会变，等可见内容的排版稳定再停止校正。
+      const startedAt = performance.now();
+      const step = () => {
+        restore();
+        updateJump();
+        const now = performance.now();
+        if (now - startedAt < RESTORE_MAX_MS && now - restoreMovedAt < RESTORE_SETTLE_MS) {
+          restoreFrame = requestAnimationFrame(step);
+        } else {
+          stopRestoring();
+        }
+      };
+      restoreFrame = requestAnimationFrame(step);
+    } else {
+      toBottom();
+    }
 
     const observer = new ResizeObserver(reconcile);
     observer.observe(content);
@@ -216,6 +262,7 @@ export function useStickToBottom(
     controller.current = {
       jumpToLatest: jumpTo,
       holdPosition() {
+        stopRestoring();
         if (mode !== 'sticky') return;
         smoothJump = false;
         setMode('manual');
@@ -225,6 +272,7 @@ export function useStickToBottom(
         heldTimer = window.setTimeout(settleHold, 200);
       },
       release() {
+        stopRestoring();
         smoothJump = false;
         parked = true;
         held = false;
@@ -235,6 +283,13 @@ export function useStickToBottom(
     };
 
     return () => {
+      if (mode === 'manual') {
+        // Suspense 可能在排版稳定前隐藏消息流，保留尚未恢复完的位置。
+        scrollPositions.set(resetKey, restoring ?? captureScrollPosition(container, content));
+      } else {
+        scrollPositions.delete(resetKey);
+      }
+      stopRestoring();
       window.clearTimeout(heldTimer);
       window.clearTimeout(settleTimer);
       observer.disconnect();
