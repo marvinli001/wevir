@@ -491,6 +491,7 @@ export const messages: Messages = {
   'changes.jumpToFile': 'ファイルへ移動',
   'changes.openFile': 'ファイルを開く',
   'changes.scope.uncommitted': '未コミット',
+  'changes.folder': 'フォルダー',
   'changes.scope.staged': 'ステージ済み',
   'changes.scope.branch': 'このブランチ',
   'changes.scope.latest': '最新のターン',

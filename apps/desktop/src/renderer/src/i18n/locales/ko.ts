@@ -487,6 +487,7 @@ export const messages: Messages = {
   'changes.jumpToFile': '파일로 이동',
   'changes.openFile': '파일 열기',
   'changes.scope.uncommitted': '커밋되지 않음',
+  'changes.folder': '폴더',
   'changes.scope.staged': '스테이징됨',
   'changes.scope.branch': '현재 브랜치',
   'changes.scope.latest': '최근 턴',

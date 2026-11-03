@@ -84,7 +84,7 @@ export function FindingsCard({ part }: { part: ChatPartOf<'findings'> }) {
   const jump = (row: FindingRow) => {
     if (row.path === undefined) return;
     if (row.state === 'text') openFile(panes, row.path, row.line);
-    else openChanges(panes, sessionId, { kind: row.scope }, row.path, row.line);
+    else openChanges(panes, sessionId, { kind: row.scope }, session?.cwd, row.path, row.line);
   };
 
   return (

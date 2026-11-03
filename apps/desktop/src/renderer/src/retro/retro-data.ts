@@ -115,7 +115,7 @@ export function useRetroOpen(session: Session): {
           void navigate(paths.sessionAt(session.workspaceId, session.id, target.seq));
           return;
         case 'diff':
-          openChanges(panes, session.id as SessionId, target.scope, target.path);
+          openChanges(panes, session.id as SessionId, target.scope, session.cwd, target.path);
           return;
         case 'commit':
           void platformApi()
@@ -132,7 +132,7 @@ export function useRetroOpen(session: Session): {
           return;
       }
     },
-    [navigate, panes, sessions, session.workspaceId, session.id],
+    [navigate, panes, sessions, session.workspaceId, session.id, session.cwd],
   );
   return { open, copied };
 }

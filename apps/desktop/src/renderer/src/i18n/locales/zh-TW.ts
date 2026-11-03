@@ -485,6 +485,7 @@ export const messages: Messages = {
   'changes.jumpToFile': '跳至檔案',
   'changes.openFile': '開啟檔案',
   'changes.scope.uncommitted': '未提交',
+  'changes.folder': '資料夾',
   'changes.scope.staged': '已暫存',
   'changes.scope.branch': '此分支',
   'changes.scope.latest': '最近一回合',

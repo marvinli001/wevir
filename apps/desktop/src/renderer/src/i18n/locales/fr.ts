@@ -494,6 +494,7 @@ export const messages: Messages = {
   'changes.jumpToFile': 'Aller au fichier',
   'changes.openFile': 'Ouvrir le fichier',
   'changes.scope.uncommitted': 'Non validé',
+  'changes.folder': 'Dossier',
   'changes.scope.staged': 'Indexés',
   'changes.scope.branch': 'Cette branche',
   'changes.scope.latest': 'Dernier tour',

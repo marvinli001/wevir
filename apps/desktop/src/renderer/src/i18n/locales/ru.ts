@@ -494,6 +494,7 @@ export const messages: Messages = {
   'changes.jumpToFile': 'Перейти к файлу',
   'changes.openFile': 'Открыть файл',
   'changes.scope.uncommitted': 'Незафиксированные',
+  'changes.folder': 'Папка',
   'changes.scope.staged': 'В индексе',
   'changes.scope.branch': 'Эта ветка',
   'changes.scope.latest': 'Последний ход',

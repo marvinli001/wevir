@@ -23,7 +23,7 @@ import {
   setDiffsText,
 } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
-import type { DiffFile, ReviewComment, Session, SessionId, WorkspaceId } from '@wevir/protocol';
+import type { DiffFile, ReviewComment, Session, SessionId, Workspace } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ChevronDown,
@@ -31,6 +31,7 @@ import {
   ChevronsUpDown,
   Columns2,
   Eye,
+  Folder,
   GitBranch,
   GitCompare,
   MessageSquare,
@@ -39,10 +40,12 @@ import {
   WrapText,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { changeFolders } from '@/changes/change-folders';
 import {
   sourceKey,
   useCheckpoints,
   useDiffSupported,
+  useMultiFolderChangesSupported,
   useWorkspaceDiff,
 } from '@/changes/changes-data';
 import {
@@ -61,7 +64,13 @@ import {
   turnNumbers,
   turnOptions,
 } from '@/changes/changes-model';
-import { changesPrefs, selectScope, useChangesSelection } from '@/changes/changes-store';
+import {
+  changesPrefs,
+  openChanges,
+  selectFolder,
+  selectScope,
+  useChangesSelection,
+} from '@/changes/changes-store';
 import { type StageState, stageState } from '@/changes/commit-model';
 import { CommitPanel } from '@/changes/commit-panel';
 import { DiffCommentDraft, DiffCommentNote } from '@/changes/diff-comment';
@@ -110,6 +119,7 @@ import {
   useAttachToSession,
   useFileContextMenu,
 } from '@/files/file-link-menu';
+import { toAbsolutePath } from '@/files/file-path';
 import { openFile } from '@/files/files-store';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -134,7 +144,8 @@ export function ChangesPane({ context }: { context: PaneContext }) {
   if (!supported) return <Note>{t('changes.unsupported')}</Note>;
   return (
     <SessionChanges
-      workspaceId={entry.workspace.id}
+      key={sessionId}
+      workspace={entry.workspace}
       sessionId={sessionId as SessionId}
       sessions={entry.sessions}
     />
@@ -215,15 +226,16 @@ function addAnnotation(
 }
 
 function SessionChanges({
-  workspaceId,
+  workspace,
   sessionId,
   sessions,
 }: {
-  workspaceId: WorkspaceId;
+  workspace: Workspace;
   sessionId: SessionId;
   sessions: readonly Session[];
 }) {
-  const { client } = useHostConnection();
+  const workspaceId = workspace.id;
+  const { client, view: connectionView } = useHostConnection();
   const { resolved: theme } = useTheme();
   const prefs = changesPrefs.use();
   const stored = useChangesSelection(sessionId);
@@ -236,6 +248,14 @@ function SessionChanges({
   const transcript = useTranscript(sessionId)?.transcript;
   // 文件头的右键菜单（files/file-link-menu.tsx）：路径相对会话目录，“添加到对话”放进这个会话的输入框。
   const session = sessions.find((candidate) => candidate.id === sessionId);
+  const multiple = useMultiFolderChangesSupported();
+  const folders = session ? changeFolders(workspace, session) : [];
+  const directory = multiple
+    ? (folders.find((folder) => folder === selection.folder) ?? session?.cwd)
+    : undefined;
+  const turnScope = selection.scope.kind === 'turn' || selection.scope.kind === 'latest';
+  const folder = turnScope ? undefined : directory;
+  const additional = folder !== undefined && folder !== session?.cwd;
   const attach = useAttachToSession(session);
   const sessionState = transcript?.state;
   const activeTurnId = transcript?.activeTurnId;
@@ -243,7 +263,7 @@ function SessionChanges({
   const refreshKey = `${sessionState ?? ''}:${activeTurnId ?? ''}`;
   const checkpoints = useCheckpoints(sessionId, refreshKey);
   // 暂存与提交（0.67.0）：暂存状态变了（索引或 HEAD）时 diff 一起重读。
-  const git = useGitStatus(workspaceId, sessionId, refreshKey);
+  const git = useGitStatus(workspaceId, sessionId, refreshKey, folder);
   const gitKey = `${git.status?.head ?? ''}:${git.status?.index ?? ''}`;
   const messages = transcript?.messages;
   const numbers = useMemo(() => turnNumbers(messages ?? []), [messages]);
@@ -259,6 +279,7 @@ function SessionChanges({
   const diff = useWorkspaceDiff(workspaceId, sessionId, source, {
     refreshKey: `${refreshKey}:${gitKey}`,
     live,
+    ...(folder !== undefined && { folder }),
   });
   const staged = source?.kind === 'staged';
   // 文件头的勾选框（Host 有 `git_commit`、看的是未提交或已暂存时）：勾上暂存整个文件，取消勾选取消暂存。
@@ -286,7 +307,7 @@ function SessionChanges({
         : [],
     [result, selectedTurnId, turnMessages],
   );
-  const scopeKey = source === undefined ? undefined : sourceKey(sessionId, source);
+  const scopeKey = source === undefined ? undefined : sourceKey(sessionId, source, folder);
 
   const renderable = useMemo(
     () => getRenderablePatch(result?.patch, `changes:${theme}`),
@@ -341,11 +362,12 @@ function SessionChanges({
   };
 
   // 行级批注（0.67.0）：Host 有 review_comments、这段 diff 读到了基线时才能写。
-  const reviewSupported = useReviewSupported();
+  const reviewSupported = useReviewSupported() && !additional;
   const review = useReviewComments(
     workspaceId,
     sessionId,
     `${scopeKey}:${fnv1a32(result?.patch ?? '')}`,
+    reviewSupported,
   );
   const view = useMemo<DiffView>(() => ({ base: result?.base, head: result?.head }), [result]);
   const commentable =
@@ -354,8 +376,18 @@ function SessionChanges({
     !staged &&
     result?.base !== undefined &&
     recorded.length === 0;
-  const [draft, setDraft] = useState<Draft>();
-  const [selectedLines, setSelectedLines] = useState<CodeViewLineSelection | null>(null);
+  const [draftState, setDraft] = useState<{ scopeKey: string | undefined; draft: Draft }>();
+  const draft = commentable && draftState?.scopeKey === scopeKey ? draftState?.draft : undefined;
+  const [lineSelection, setLineSelection] = useState<{
+    scopeKey: string | undefined;
+    lines: CodeViewLineSelection | null;
+  }>();
+  const selectedLines =
+    lineSelection?.scopeKey === scopeKey ? (lineSelection?.lines ?? null) : null;
+  const setSelectedLines = useCallback(
+    (lines: CodeViewLineSelection | null) => setLineSelection({ scopeKey, lines }),
+    [scopeKey],
+  );
   const placed = useMemo(() => {
     const byPath = new Map<string, { comment: ReviewComment; range: ReviewRange }[]>();
     if (!reviewSupported) return byPath;
@@ -408,13 +440,16 @@ function SessionChanges({
       const path = resolveFileDiffPath(item.fileDiff);
       const previous = item.fileDiff.prevName;
       setDraft({
-        fileKey: item.id,
-        path,
-        ...(previous !== undefined && previous !== path && { previousPath: previous }),
-        range: toReviewRange(item.fileDiff, range),
+        scopeKey,
+        draft: {
+          fileKey: item.id,
+          path,
+          ...(previous !== undefined && previous !== path && { previousPath: previous }),
+          range: toReviewRange(item.fileDiff, range),
+        },
       });
     },
-    [],
+    [scopeKey],
   );
   const saveDraft = useCallback(
     async (body: string) => {
@@ -433,12 +468,12 @@ function SessionChanges({
       setDraft(undefined);
       setSelectedLines(null);
     },
-    [draft, source, result, review],
+    [draft, source, result, review, setSelectedLines],
   );
   const cancelDraft = useCallback(() => {
     setDraft(undefined);
     setSelectedLines(null);
-  }, []);
+  }, [setSelectedLines]);
   const removeComment = review.remove;
   const renderAnnotation = useCallback(
     (annotation: DiffLineAnnotation<ReviewGroup>) => (
@@ -504,14 +539,19 @@ function SessionChanges({
   const loadDiffFiles = useMemo(() => {
     // 暂存的 diff 新的一侧是索引，没有全文可读。
     if (!client || staged || result?.base === undefined || scopeKey === undefined) return undefined;
-    return createDiffFileContentsLoader(client, {
-      workspaceId,
-      sessionId,
-      base: result.base,
-      head: result.head,
-      cacheKey: `${scopeKey}:${fnv1a32(result.patch ?? '')}`,
-    });
-  }, [client, workspaceId, sessionId, result, scopeKey, staged]);
+    return createDiffFileContentsLoader(
+      client,
+      {
+        workspaceId,
+        sessionId,
+        ...(folder !== undefined && { folder }),
+        base: result.base,
+        head: result.head,
+        cacheKey: `${scopeKey}:${fnv1a32(result.patch ?? '')}`,
+      },
+      connectionView.status === 'connected' ? connectionView.hello.features : undefined,
+    );
+  }, [client, connectionView, workspaceId, sessionId, result, scopeKey, staged, folder]);
 
   const omitted = useMemo(
     () => (result?.files ?? []).filter((file) => file.omitted !== undefined),
@@ -542,11 +582,15 @@ function SessionChanges({
           stageBusy={gitBusy}
           onStage={toggleStage}
           comments={placed.get(path)?.length ?? 0}
-          onOpen={item.fileDiff.type === 'deleted' ? undefined : () => openFile(panes, path)}
+          onOpen={
+            item.fileDiff.type === 'deleted'
+              ? undefined
+              : () => openFile(panes, additional ? toAbsolutePath(path, folder) : path)
+          }
         />
       );
     },
-    [toggleFile, staging, gitFiles, gitBusy, toggleStage, placed, panes],
+    [toggleFile, staging, gitFiles, gitBusy, toggleStage, placed, panes, additional, folder],
   );
 
   const stats =
@@ -619,7 +663,7 @@ function SessionChanges({
     selection.scope.kind === 'branch' && result?.baseRef !== undefined ? result.baseRef : undefined;
 
   return (
-    <FileLinkMenuProvider cwd={session?.cwd ?? ''} attach={attach}>
+    <FileLinkMenuProvider cwd={folder ?? session?.cwd ?? ''} attach={attach}>
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex h-11 shrink-0 items-center gap-1.5 px-2">
           <ScopeMenu
@@ -630,6 +674,13 @@ function SessionChanges({
             staged={gitSupported}
             stats={hasFiles ? stats : undefined}
           />
+          {multiple && !turnScope && folders.length > 1 && directory !== undefined && (
+            <FolderMenu
+              folders={folders}
+              folder={directory}
+              onSelect={(next) => selectFolder(sessionId, next)}
+            />
+          )}
           {branchBase !== undefined && (
             <span
               className="flex h-7 min-w-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground"
@@ -709,16 +760,73 @@ function SessionChanges({
         <div className="relative min-h-0 flex-1 border-t border-border">{body}</div>
         {gitSupported && (
           <CommitPanel
+            key={`${sessionId}:${folder ?? session?.cwd ?? ''}`}
             git={git}
             open={prefs.commit}
             onOpenChange={(open) => changesPrefs.set((current) => ({ ...current, commit: open }))}
             onReveal={(path, inIndex) =>
-              selectScope(sessionId, { kind: inIndex ? 'staged' : 'uncommitted' }, path)
+              openChanges(
+                panes,
+                sessionId,
+                { kind: inIndex ? 'staged' : 'uncommitted' },
+                folder ?? session?.cwd,
+                path,
+              )
             }
           />
         )}
       </div>
     </FileLinkMenuProvider>
+  );
+}
+
+function FolderMenu({
+  folders,
+  folder,
+  onSelect,
+}: {
+  folders: readonly string[];
+  folder: string;
+  onSelect: (folder: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className="min-w-0 max-w-40 shrink gap-1.5 rounded-full px-2.5 shadow-xs"
+            aria-label={t('changes.folder')}
+            title={folder}
+            data-testid="changes-folder"
+          />
+        }
+      >
+        <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">
+          {splitPath(folder.replace(/\\/g, '/').replace(/\/+$/, '')).name || folder}
+        </span>
+        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-w-80">
+        <DropdownMenuRadioGroup
+          value={folder}
+          onValueChange={(value) => {
+            if (typeof value === 'string' && folders.includes(value)) onSelect(value);
+          }}
+        >
+          {folders.map((path) => (
+            <DropdownMenuRadioItem key={path} value={path} title={path} closeOnClick>
+              <Folder aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                {splitPath(path.replace(/\\/g, '/').replace(/\/+$/, '')).name || path}
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

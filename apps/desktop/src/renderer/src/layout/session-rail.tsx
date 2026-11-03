@@ -2,11 +2,17 @@ import type { ProviderProfile, Session, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { SquareMenu } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
+import { changeFolders } from '@/changes/change-folders';
+import { useMultiFolderChangesSupported } from '@/changes/changes-data';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
 import { useTranscript, useWorkbenchProviders } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
-import { useWorkspaceGit, type WorkspaceGitState } from '@/data/workspace-git';
+import {
+  useWorkspaceGitFolders,
+  type WorkspaceGitFolder,
+  type WorkspaceGitState,
+} from '@/data/workspace-git';
 import { t } from '@/i18n';
 import { layoutPrefs, OPTIONAL_RAIL_CARDS, toggleRailCard } from './layout-state';
 
@@ -17,6 +23,7 @@ export interface RailContext {
   entry: WorkspaceEntry;
   providers: readonly ProviderProfile[];
   git: WorkspaceGitState;
+  gitFolders: readonly WorkspaceGitFolder[];
   /** 收起着、浮层关着时为 false：卡片照样渲染，但不该去 Host 读东西。 */
   visible: boolean;
 }
@@ -77,17 +84,25 @@ export function SessionRail({
   const agentCards = useTranscript(sessionId)?.transcript.railCards ?? NO_CARDS;
   // 回合结束（离开 running）时重读一次，改动多半刚发生。
   // 环境会话新开了 worktree 时读它（0.15.0），否则读工作区目录。
-  const git = useWorkspaceGit(entry.workspace.id, {
-    active: visible,
-    refreshKey: session.state,
-    ...(session.worktrees !== undefined && { sessionId }),
-  });
+  const multiple = useMultiFolderChangesSupported();
+  const sources = useWorkspaceGitFolders(
+    entry.workspace.id,
+    changeFolders(entry.workspace, session),
+    {
+      active: visible,
+      refreshKey: session.state,
+      ...((multiple || session.worktrees !== undefined) && { sessionId }),
+    },
+  );
+  const gitFolders = sources.folders;
+  const git: WorkspaceGitState = { supported: sources.supported, status: gitFolders[0]?.status };
   const context: RailContext = {
     sessionId,
     session,
     entry,
     providers,
     git,
+    gitFolders,
     visible,
   };
   const items: { card: RailCard; content: RailCardContent }[] = [];

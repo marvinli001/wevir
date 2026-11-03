@@ -11,6 +11,7 @@ import type {
 } from '@wevir/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { folderCacheKey, folderParams } from './change-folders';
 
 /** Host 声明了 `git_commit`（0.67.0）。 */
 export function useGitSupported(): boolean {
@@ -40,16 +41,21 @@ export function useGitStatus(
   workspaceId: WorkspaceId,
   sessionId: SessionId,
   refreshKey: unknown,
+  selectedFolder?: string,
 ): GitState {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
   const supported = useGitSupported();
-  const key = `${workspaceId}:${sessionId}`;
+  const folder = folderParams(
+    view.status === 'connected' ? view.hello.features : undefined,
+    selectedFolder,
+  ).folder;
+  const key = folderCacheKey(`${workspaceId}:${sessionId}`, folder);
   const [state, setState] = useState<{ key: string; status: GitStatusResult }>();
-  const [error, setError] = useState<GitState['error']>();
-  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<{ key: string; value: GitState['error'] }>();
+  const [busy, setBusy] = useState<string>();
   const [manual, setManual] = useState(0);
-  const latest = useRef<GitStatusResult>(undefined);
-  latest.current = state?.key === key ? state.status : undefined;
+  const latest = useRef({ key, status: state?.key === key ? state.status : undefined });
+  latest.current = { key, status: state?.key === key ? state.status : undefined };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey 与 manual 只用来触发重读。
   useEffect(() => {
@@ -57,14 +63,20 @@ export function useGitStatus(
     let stopped = false;
     const read = () => {
       client
-        .request('git.status', { workspaceId, sessionId })
+        .request('git.status', {
+          workspaceId,
+          sessionId,
+          ...(folder !== undefined && { folder }),
+        })
         .then((status) => {
           if (stopped) return;
           setState({ key, status });
-          setError((current) => (current?.kind === 'stale' ? current : undefined));
+          setError((current) =>
+            current?.key === key && current.value?.kind === 'stale' ? current : undefined,
+          );
         })
         .catch((cause: unknown) => {
-          if (!stopped) setError({ kind: 'failed', message: messageOf(cause) });
+          if (!stopped) setError({ key, value: { kind: 'failed', message: messageOf(cause) } });
         });
     };
     read();
@@ -73,7 +85,7 @@ export function useGitStatus(
       stopped = true;
       window.removeEventListener('focus', read);
     };
-  }, [client, supported, workspaceId, sessionId, key, refreshKey, manual]);
+  }, [client, supported, workspaceId, sessionId, key, folder, refreshKey, manual]);
 
   const refresh = useCallback(() => setManual((value) => value + 1), []);
 
@@ -83,27 +95,28 @@ export function useGitStatus(
       run: (expected: GitExpectedState) => Promise<T>,
       take: (result: T) => GitStatusResult,
     ) => {
-      const expected = expectedOf(latest.current);
-      if (!client || !expected) return undefined;
-      setBusy(true);
+      const expected = latest.current.key === key ? expectedOf(latest.current.status) : undefined;
+      if (!client || !supported || !expected) return undefined;
+      setBusy(key);
       setError(undefined);
       try {
         const result = await run(expected);
-        setState({ key, status: take(result) });
+        if (latest.current.key === key) setState({ key, status: take(result) });
         return result;
       } catch (cause) {
+        if (latest.current.key !== key) return undefined;
         if (isRpcError(cause, 'GIT_STATE_CHANGED')) {
-          setError({ kind: 'stale' });
+          setError({ key, value: { kind: 'stale' } });
           setManual((value) => value + 1);
         } else {
-          setError({ kind: 'failed', message: messageOf(cause) });
+          setError({ key, value: { kind: 'failed', message: messageOf(cause) } });
         }
         return undefined;
       } finally {
-        setBusy(false);
+        setBusy((current) => (current === key ? undefined : current));
       }
     },
-    [client, key],
+    [client, supported, key],
   );
 
   const stage = useCallback(
@@ -111,11 +124,17 @@ export function useGitStatus(
       if (!client || paths.length === 0) return;
       await write(
         (expected) =>
-          client.request('git.stage', { workspaceId, sessionId, paths: [...paths], expected }),
+          client.request('git.stage', {
+            workspaceId,
+            sessionId,
+            ...(folder !== undefined && { folder }),
+            paths: [...paths],
+            expected,
+          }),
         (result) => result.status,
       );
     },
-    [client, workspaceId, sessionId, write],
+    [client, workspaceId, sessionId, folder, write],
   );
 
   const unstage = useCallback(
@@ -123,11 +142,17 @@ export function useGitStatus(
       if (!client || paths.length === 0) return;
       await write(
         (expected) =>
-          client.request('git.unstage', { workspaceId, sessionId, paths: [...paths], expected }),
+          client.request('git.unstage', {
+            workspaceId,
+            sessionId,
+            ...(folder !== undefined && { folder }),
+            paths: [...paths],
+            expected,
+          }),
         (result) => result.status,
       );
     },
-    [client, workspaceId, sessionId, write],
+    [client, workspaceId, sessionId, folder, write],
   );
 
   const commit = useCallback(
@@ -138,6 +163,7 @@ export function useGitStatus(
           client.request('git.commit', {
             workspaceId,
             sessionId,
+            ...(folder !== undefined && { folder }),
             message,
             expected,
             ...(includeExternal && { includeExternal: true }),
@@ -146,13 +172,13 @@ export function useGitStatus(
       );
       return result?.outcome;
     },
-    [client, workspaceId, sessionId, write],
+    [client, workspaceId, sessionId, folder, write],
   );
 
   return {
     status: state?.key === key ? state.status : undefined,
-    error,
-    busy,
+    error: error?.key === key ? error.value : undefined,
+    busy: busy === key,
     refresh,
     stage,
     unstage,
