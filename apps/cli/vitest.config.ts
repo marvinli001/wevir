@@ -5,6 +5,8 @@ export default defineProject({
   ssr: { resolve: { conditions: ['@wevir/source'] } },
   test: {
     name: 'cli',
+    // 伪 TTY 需要 readline 的 Tab 补全；继承 TERM=dumb 会禁用它。
+    env: { TERM: 'xterm-256color' },
     // 集成测试起 Host 子进程；Windows 的 CI runner 上起进程慢，一个用例会超过默认的 5 s，
     // 超时后进程还占着临时目录，afterEach 清目录就报 EPERM。
     ...(process.platform === 'win32' && { testTimeout: 30_000, hookTimeout: 30_000 }),
