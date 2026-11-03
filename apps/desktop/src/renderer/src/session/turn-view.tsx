@@ -387,7 +387,7 @@ function TurnHeader({
         <ChevronRight
           aria-hidden
           className={cn(
-            'size-3.5 shrink-0 opacity-75 transition-transform',
+            'size-3.5 shrink-0 opacity-75 transition-transform duration-200 ease-expand',
             open && 'rotate-90',
           )}
         />

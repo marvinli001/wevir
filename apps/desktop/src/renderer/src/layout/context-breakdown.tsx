@@ -163,7 +163,7 @@ function GroupRow({ group }: { group: BreakdownGroup }) {
         <ChevronRight
           aria-hidden
           className={cn(
-            'size-3 shrink-0 text-muted-foreground transition-transform duration-200 ease-smooth',
+            'size-3 shrink-0 text-muted-foreground transition-transform duration-200 ease-expand',
             open && 'rotate-90',
           )}
         />

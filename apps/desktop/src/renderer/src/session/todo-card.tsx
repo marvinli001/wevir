@@ -53,7 +53,7 @@ function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
         <ChevronRight
           aria-hidden
           className={cn(
-            'size-3.5 transition-transform duration-200 ease-smooth',
+            'size-3.5 transition-transform duration-200 ease-expand',
             open && 'rotate-90',
           )}
         />

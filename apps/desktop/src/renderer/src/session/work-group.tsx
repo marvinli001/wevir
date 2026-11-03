@@ -206,7 +206,10 @@ export function WorkGroup({
         )}
         <ChevronRight
           aria-hidden
-          className={cn('size-3.5 shrink-0 opacity-75 transition-transform', open && 'rotate-90')}
+          className={cn(
+            'size-3.5 shrink-0 opacity-75 transition-transform duration-200 ease-expand',
+            open && 'rotate-90',
+          )}
         />
       </button>
       <Collapse open={open} id={id}>
@@ -402,7 +405,10 @@ function WorkLine({
           {hasDetail && (
             <ChevronRight
               aria-hidden
-              className={cn('size-3 shrink-0 opacity-70 transition-transform', open && 'rotate-90')}
+              className={cn(
+                'size-3 shrink-0 opacity-70 transition-transform duration-200 ease-expand',
+                open && 'rotate-90',
+              )}
             />
           )}
         </button>
@@ -482,7 +488,10 @@ function SessionWorkLine({
           className="flex size-4 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground"
         >
           <ChevronRight
-            className={cn('size-3 opacity-70 transition-transform', open && 'rotate-90')}
+            className={cn(
+              'size-3 opacity-70 transition-transform duration-200 ease-expand',
+              open && 'rotate-90',
+            )}
           />
         </button>
       )}

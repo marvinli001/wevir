@@ -59,7 +59,10 @@ export function GuardrailPart({ part }: { part: ChatPartOf<'guardrail'> }) {
         {hasDetail && (
           <ChevronRight
             aria-hidden
-            className={cn('size-3 shrink-0 opacity-70 transition-transform', open && 'rotate-90')}
+            className={cn(
+              'size-3 shrink-0 opacity-70 transition-transform duration-200 ease-expand',
+              open && 'rotate-90',
+            )}
           />
         )}
       </button>
