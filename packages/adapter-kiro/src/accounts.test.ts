@@ -123,6 +123,52 @@ describe('KiroAccounts', () => {
     expect((await accounts.executable()).path).toBe(FAKE_KIRO);
   });
 
+  it('确认登录后预取模型；并发读取复用探测，不启动 ACP', async () => {
+    const {
+      accounts,
+      state: file,
+      argv,
+    } = setup({
+      FAKE_KIRO_MODEL_LIST: JSON.stringify({
+        models: [{ model_id: 'a', model_name: 'A' }, { model_id: 'b' }],
+        default_model: 'b',
+      }),
+    });
+    signIn(file);
+    const state = accounts.read('kiro');
+    const models = accounts.models('kiro');
+    expect((await state).status).toBe('signed_in');
+    expect(await models).toEqual({
+      models: [
+        { id: 'a', displayName: 'A' },
+        { id: 'b', displayName: 'b' },
+      ],
+      defaultModelId: 'b',
+    });
+    expect(lines(argv).map((entry) => entry.args)).toEqual([
+      ['--version'],
+      ['whoami', '--format', 'json'],
+      ['chat', '--list-models', '--format', 'json'],
+    ]);
+  });
+
+  it.each<Record<string, string>>([
+    { FAKE_KIRO_MODEL_LIST_EXIT: '1' },
+    { FAKE_KIRO_MODEL_LIST: 'invalid json' },
+    { FAKE_KIRO_MODEL_LIST: '{"models":[]}' },
+  ])('模型探测失败不改登录状态，也不清掉会话学到的列表：%j', async (extra) => {
+    const { accounts, state: file } = setup(extra);
+    signIn(file);
+    expect((await accounts.read('kiro')).status).toBe('signed_in');
+    expect((await accounts.models('kiro')).defaultModelId).toBe('kiro-default');
+    accounts.noteSessionModels(undefined, {
+      currentModelId: 'a',
+      availableModels: [{ modelId: 'a', name: 'A' }],
+    });
+    expect((await accounts.read('kiro', { refresh: true })).status).toBe('signed_in');
+    expect((await accounts.models('kiro')).defaultModelId).toBe('a');
+  });
+
   it('会话报来的模型换掉“默认”；检测到没登录时换回', async () => {
     const { accounts, state: file } = setup();
     signIn(file);

@@ -46,6 +46,21 @@ if (args[0] === 'whoami') {
   process.stdout.write(`${JSON.stringify({ account })}\n`);
   process.exit(0);
 }
+if (args[0] === 'chat' && args.includes('--list-models')) {
+  if (!signedIn()) process.exit(3);
+  process.stdout.write(
+    env.FAKE_KIRO_MODEL_LIST ??
+      JSON.stringify({
+        default_model: 'auto',
+        models: [
+          { model_id: 'auto', model_name: 'Auto' },
+          { model_id: 'fixture-model-a', model_name: 'Fixture A' },
+          { model_id: 'fixture-model-b', model_name: 'Fixture B' },
+        ],
+      }),
+  );
+  process.exit(Number(env.FAKE_KIRO_MODEL_LIST_EXIT ?? 0));
+}
 if (args[0] === 'logout') {
   if (env.KIRO_API_KEY) {
     process.stderr.write('Already authenticated via KIRO_API_KEY. To logout unset KIRO_API_KEY\n');
@@ -202,6 +217,25 @@ function serve() {
       cancel = () => resolve('cancelled');
     });
     state.cancel = cancel;
+    state.acceptCancel = false;
+    if (env.FAKE_KIRO_CLOUD_CONFIG_TOOL === '1') {
+      update(sessionId, {
+        sessionUpdate: 'tool_call',
+        toolCallId: `cloud-${id}`,
+        title: 'Cloud config',
+        status: 'in_progress',
+        _meta: { kiro: { toolId: 'fetch_cloud_config' } },
+      });
+      update(sessionId, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: `cloud-${id}`,
+        status: 'completed',
+      });
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, Number(env.FAKE_KIRO_PROMPT_START_DELAY_MS ?? 0)),
+    );
+    state.acceptCancel = true;
     const text = params.prompt?.find((part) => part.type === 'text')?.text ?? '';
     const emit = (name) => update(sessionId, sample(name));
     let stopReason = 'end_turn';
@@ -243,28 +277,38 @@ function serve() {
         setTimeout(() => process.exit(3), 50);
         return;
       }
-      if (text === 'hang') {
-        update(sessionId, {
-          sessionUpdate: 'agent_message_chunk',
-          content: { type: 'text', text: 'Waiting' },
-        });
+      if (text === 'hang' || text === 'hang-silent' || text === 'hang-turn-start') {
+        if (text === 'hang')
+          update(sessionId, {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'Waiting' },
+          });
+        if (text === 'hang-turn-start')
+          update(sessionId, {
+            sessionUpdate: 'session_info_update',
+            _meta: { kiro: { kind: 'turn_start' } },
+          });
         await cancelled;
         stopReason = 'cancelled';
+      } else if (text === 'silent-finish') {
+        await new Promise((resolve) => setTimeout(resolve, 20));
       } else if (
         text === 'approval' ||
+        text === 'approval-no-start' ||
         text === 'approval-id-only' ||
         text === 'approval-always-only'
       ) {
         const toolCallId = `tool-${id}`;
         const rawInput = { command: 'echo ok > approve.txt' };
-        update(sessionId, {
-          sessionUpdate: 'tool_call',
-          toolCallId,
-          title: 'execute_bash',
-          kind: 'execute',
-          status: 'pending',
-          rawInput,
-        });
+        if (text !== 'approval-no-start')
+          update(sessionId, {
+            sessionUpdate: 'tool_call',
+            toolCallId,
+            title: 'execute_bash',
+            kind: 'execute',
+            status: 'pending',
+            rawInput,
+          });
         const answer = await Promise.race([
           request('session/request_permission', {
             sessionId,
@@ -346,7 +390,8 @@ function serve() {
       return;
     }
     if (message.method === 'session/cancel') {
-      sessions.get(message.params?.sessionId)?.cancel?.();
+      const state = sessions.get(message.params?.sessionId);
+      if (state?.acceptCancel) state.cancel?.();
       return;
     }
     if (message.id === undefined) return;

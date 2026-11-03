@@ -2,6 +2,7 @@
 // 复用 Wevir adapter-grok 的 ACP 构造与历史 MCP 接法。其来源：pingdotgg/t3code
 // packages/provider-grok/src/server/adapter.ts，提交 ec1313c8f8333292506f05a355bb72d308a455d8。
 // 单次授权规则参照 packages/provider-kiro/src/server/acpSupport.ts，提交 55e25385619c7680dad0b0f34f5185187806c57a（MIT）。
+// prompt 活动门控参照同提交 packages/provider-kiro/src/server/adapter.ts（isKiroPromptActivity）。
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：经 Wevir 的 GitHub Copilot 适配器改写；Kiro 的完全访问由 Wevir 自动批准单次授权，恢复用 session/load 并丢掉它
 // 回放的历史，换模型用 session/set_model。
@@ -63,6 +64,30 @@ interface Settings {
   sending?: boolean;
 }
 
+interface PromptActivity {
+  ready: Promise<void>;
+  started: () => void;
+}
+
+const CANCEL_HOLD_MS = 2000;
+
+function isPromptActivity(update: Record<string, unknown>): boolean {
+  if (update.sessionUpdate === 'session_info_update') {
+    return record(record(update._meta)?.kiro)?.kind === 'turn_start';
+  }
+  return [
+    'agent_message_chunk',
+    'agent_message',
+    'agent_thought_chunk',
+    'agent_thought',
+    'tool_call',
+    'tool_call_update',
+    'tool_call_content_chunk',
+    'plan',
+    'plan_update',
+  ].includes(String(update.sessionUpdate));
+}
+
 export class KiroAdapter extends AcpAdapter {
   readonly accounts: KiroAccounts;
   readonly historyTool: boolean;
@@ -70,6 +95,7 @@ export class KiroAdapter extends AcpAdapter {
   readonly permissionModes: readonly PermissionMode[] = ['on_request', 'full_access'];
   readonly #settings: Map<string, Settings>;
   readonly #loading: Set<string>;
+  readonly #prompts: Map<string, PromptActivity>;
   readonly #processVersion: () => string | undefined;
   /** 报了开始、还没认出结束的压缩，按引擎会话。 */
   readonly #compacting = new Map<string, string>();
@@ -92,6 +118,8 @@ export class KiroAdapter extends AcpAdapter {
     });
     const settings = new Map<string, Settings>();
     const loading = new Set<string>();
+    const prompts = new Map<string, PromptActivity>();
+    const cloudConfigTools = new Set<string>();
     let processVersion: string | undefined;
     const engine = {
       ...KIRO_ENGINE,
@@ -121,6 +149,17 @@ export class KiroAdapter extends AcpAdapter {
             const fields = record(params);
             const update = record(fields?.update);
             const sessionId = typeof fields?.sessionId === 'string' ? fields.sessionId : undefined;
+            if (sessionId !== undefined && typeof update?.toolCallId === 'string') {
+              const key = `${sessionId}\n${update.toolCallId}`;
+              if (record(record(update._meta)?.kiro)?.toolId === 'fetch_cloud_config') {
+                cloudConfigTools.add(key);
+              }
+              if (cloudConfigTools.has(key)) {
+                if (update.status === 'completed' || update.status === 'failed')
+                  cloudConfigTools.delete(key);
+                return;
+              }
+            }
             if (update?.sessionUpdate === 'config_option_update') {
               accounts.noteSessionModels(update.configOptions);
             }
@@ -132,6 +171,9 @@ export class KiroAdapter extends AcpAdapter {
             ) {
               return;
             }
+            if (sessionId !== undefined && update !== undefined && isPromptActivity(update)) {
+              prompts.get(sessionId)?.started();
+            }
             hooks.onSessionUpdate(params);
           },
           onRequestPermission: hooks.onRequestPermission,
@@ -142,12 +184,18 @@ export class KiroAdapter extends AcpAdapter {
         process.on('ready', ({ initialize }) => {
           processVersion = initialize.agentInfo?.version ?? accounts.version;
         });
+        process.on('exit', () => {
+          for (const prompt of prompts.values()) prompt.started();
+          prompts.clear();
+          cloudConfigTools.clear();
+        });
         return process;
       },
     });
     this.accounts = accounts;
     this.#settings = settings;
     this.#loading = loading;
+    this.#prompts = prompts;
     this.#processVersion = () => processVersion;
     this.historyTool = options.historyTool !== undefined;
   }
@@ -205,9 +253,42 @@ export class KiroAdapter extends AcpAdapter {
   }
 
   override async dispose(): Promise<void> {
+    for (const prompt of this.#prompts.values()) prompt.started();
+    this.#prompts.clear();
     await this.accounts.dispose();
     await super.dispose();
     this.#settings.clear();
+  }
+
+  protected override promptMeta(id: string): undefined {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    this.#prompts.set(id, { ready, started });
+    return undefined;
+  }
+
+  protected override async notifyCancel(id: string): Promise<void> {
+    const prompt = this.#prompts.get(id);
+    if (prompt === undefined) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        prompt.ready,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, CANCEL_HOLD_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (this.#prompts.get(id) === prompt && this.inTurn(id)) await super.notifyCancel(id);
+  }
+
+  protected override afterTurn(id: string): void {
+    this.#prompts.get(id)?.started();
+    this.#prompts.delete(id);
   }
 
   /** 进程已在运行时（启动器不再检查）先看账号，没登录不建会话。 */

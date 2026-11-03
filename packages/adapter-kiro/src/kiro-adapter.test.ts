@@ -75,11 +75,15 @@ describe('Kiro ACP', () => {
     expect(readLog(log).some((message) => message.method === 'authenticate')).toBe(false);
   });
 
-  it('会话的模型列表（session/new 的 models）换掉账号里的“默认”，当前的是这个会话选的', async () => {
+  it('首会话前就有 CLI 模型列表，会话随后更新当前值', async () => {
     const { adapter, config } = setup();
     expect(await adapter.accounts.models('kiro')).toEqual({
-      models: [{ id: 'kiro-default', displayName: 'Default' }],
-      defaultModelId: 'kiro-default',
+      models: [
+        { id: 'auto', displayName: 'Auto' },
+        { id: 'fixture-model-a', displayName: 'Fixture A' },
+        { id: 'fixture-model-b', displayName: 'Fixture B' },
+      ],
+      defaultModelId: 'auto',
     });
     await adapter.createSession(config);
     expect(await adapter.accounts.models('kiro')).toEqual({
@@ -90,6 +94,80 @@ describe('Kiro ACP', () => {
       ],
       defaultModelId: 'fixture-model-a',
     });
+  });
+
+  it.each(['hang', 'hang-turn-start', 'hang-silent'])(
+    '立即停止 %s：等待当前 prompt 启动，未报活动时最多等两秒',
+    async (prompt) => {
+      const { adapter, config, log } = setup({
+        FAKE_KIRO_PROMPT_START_DELAY_MS: '600',
+        FAKE_KIRO_CLOUD_CONFIG_TOOL: '1',
+      });
+      const { engineSessionId: id } = await adapter.createSession(config);
+      const events = new EventCollector(adapter.subscribe(id));
+      await adapter.send(id, text(prompt));
+      await Promise.all([adapter.cancel(id), adapter.cancel(id)]);
+      expect((await events.turn()).at(-1)).toMatchObject({
+        type: 'turn.settled',
+        outcome: 'cancelled',
+      });
+      expect(
+        events.events.some(
+          (event) => event.type === 'tool.started' || event.type === 'tool.finished',
+        ),
+      ).toBe(false);
+      expect(readLog(log).filter((entry) => entry.method === 'session/cancel')).toHaveLength(1);
+      const from = events.events.length;
+      await adapter.send(id, text('plain'));
+      expect((await events.turn(from)).at(-1)).toMatchObject({
+        type: 'turn.settled',
+        outcome: 'completed',
+      });
+    },
+  );
+
+  it('等待停止期间回合自然结束，不把迟到的取消发到后续回合', async () => {
+    const { adapter, config, log } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('silent-finish'));
+    await adapter.cancel(id);
+    await events.turn();
+    const from = events.events.length;
+    await adapter.send(id, text('plain'));
+    await events.turn(from);
+    expect(readLog(log).filter((entry) => entry.method === 'session/cancel')).toHaveLength(0);
+  });
+
+  it('停止等待计入取消时限；超时重启后不补发取消', async () => {
+    const { dir, env, config, log } = setup({ FAKE_KIRO_PROMPT_START_DELAY_MS: '1000' });
+    const adapter = fakeKiroAdapter(join(dir, 'short-deadline'), env, [], { cancelTimeoutMs: 100 });
+    adapters.push(adapter);
+    const { engineSessionId: id } = await adapter.createSession(config);
+    await adapter.send(id, text('hang-silent'));
+    await expect(adapter.cancel(id)).rejects.toMatchObject({ code: 'cancel_unconfirmed' });
+    await adapter.dispose();
+    expect(readLog(log).filter((entry) => entry.method === 'session/cancel')).toHaveLength(0);
+  });
+
+  it('停止等待期间到达的审批不再被完全访问自动批准', async () => {
+    const { adapter, config, log } = setup({ FAKE_KIRO_PROMPT_START_DELAY_MS: '100' });
+    const { engineSessionId: id } = await adapter.createSession({
+      ...config,
+      permissionMode: 'full_access',
+    });
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('approval-no-start'));
+    await adapter.cancel(id);
+    expect((await events.turn()).at(-1)).toMatchObject({
+      type: 'turn.settled',
+      outcome: 'cancelled',
+    });
+    expect(
+      readLog(log)
+        .filter((entry) => entry.result?.outcome)
+        .map((entry) => entry.result.outcome),
+    ).toEqual([{ outcome: 'cancelled' }]);
   });
 
   it('默认模型不发给 CLI，沿用 Kiro 当前的', async () => {

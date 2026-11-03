@@ -565,11 +565,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     if (session === undefined || turn === undefined) return;
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
-      const notified = this.#notifyCancel(engineSessionId);
-      // 挂起的审批与提问必须以 cancelled 回复，否则引擎一直等（ADR-0001 §6）。SDK 在 notify 调用时就把
-      // session/cancel 排进写队列，这些回复排在它后面，与 T0.3 场景 D 的顺序相同。
+      void this.notifyCancel(engineSessionId);
+      // 挂起的审批与提问必须立即以 cancelled 回复，否则引擎一直等（ADR-0001 §6）。默认先把 cancel 排进
+      // SDK 写队列；等待 prompt 启动的引擎在等待期间也要结束未决请求。
       this.#cancelPending(session, 'turn_cancelled');
-      await notified;
     }
     if (!(await settledWithin(turn.done, this.#cancelTimeoutMs))) {
       // 引擎可能卡住了：重启它，卡住的回合随旧进程结束，这个会话之后 resume 到新进程上。
@@ -1050,7 +1049,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           : { outcome: { outcome: 'selected', optionId: reject.optionId } },
       );
     }
-    const intercepted = this.interceptPermission(params, signal);
+    const intercepted = this.#sessions.get(params.sessionId)?.turn?.cancelRequested
+      ? undefined
+      : this.interceptPermission(params, signal);
     if (intercepted !== undefined) return intercepted;
     const options: ApprovalOption[] = params.options.map((option) => ({
       optionId: option.optionId,
@@ -1156,8 +1157,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     return true;
   }
 
-  /** 发 `session/cancel`，不抛错：连接已断时回合由引擎退出的路径结算（engine.exited）。 */
-  #notifyCancel(engineSessionId: string): Promise<void> {
+  /** 发 `session/cancel`，不抛错；子类可等待 prompt 启动，等待计入取消时限。连接断开由 engine.exited 结算。 */
+  protected notifyCancel(engineSessionId: string): Promise<void> {
     try {
       const meta = this.cancelMeta(engineSessionId);
       return this.process.connection.agent

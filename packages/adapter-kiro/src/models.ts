@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// 模型探测参考 pingdotgg/t3code packages/provider-kiro/src/server/status.ts，
+// 提交 55e25385619c7680dad0b0f34f5185187806c57a（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 import type { AccountModels, ProviderModelConfig } from '@wevir/runtime-adapter';
 
 /** 没读到模型时的“默认”：沿用 Kiro 当前的模型（Auto 或用户设的默认），不把这个占位 ID 发给 CLI。 */
@@ -11,6 +14,25 @@ export function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+/** 已登录账号的 `kiro-cli chat --list-models --format json`。 */
+export function parseKiroModelList(output: string): AccountModels | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return undefined;
+  }
+  const fields = record(parsed);
+  if (!Array.isArray(fields?.models)) return undefined;
+  return kiroModels(undefined, {
+    currentModelId: fields.default_model ?? 'auto',
+    availableModels: fields.models.map((entry: unknown) => {
+      const model = record(entry);
+      return { modelId: model?.model_id, name: model?.model_name };
+    }),
+  });
 }
 
 /**

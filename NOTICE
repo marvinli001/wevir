@@ -534,6 +534,8 @@ packages/adapter-copilot/src/launch.ts 与 packages/adapter-copilot/src/copilot-
 Kiro 适配器经 GitHub Copilot 的同一套启动器与 ACP / 历史工具接法改写，T3 的署名同样覆盖
 packages/adapter-kiro/src/launch.ts 与 packages/adapter-kiro/src/kiro-adapter.ts。
 kiro-adapter.ts 的单次授权规则另参照 packages/provider-kiro/src/server/acpSupport.ts（55e25385619c7680dad0b0f34f5185187806c57a）。
+同提交 packages/provider-kiro/src/server/adapter.ts 的 prompt 活动门控、cloud-config 工具过滤，及 status.ts 的模型列表探测
+改写在 packages/adapter-kiro/src/kiro-adapter.ts 与 packages/adapter-kiro/src/models.ts。
 其余 Kiro 实现及合成夹具为 Wevir 新写，不包含 Amazon 的 CLI 源码。
 
 订阅来源 Antigravity 的引擎（packages/adapter-antigravity）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），

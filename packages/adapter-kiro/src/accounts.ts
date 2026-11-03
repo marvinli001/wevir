@@ -30,7 +30,7 @@ import {
   type KiroLoginFlow,
   startKiroLogin,
 } from './login.js';
-import { KIRO_DEFAULT_MODELS, kiroModels, record } from './models.js';
+import { KIRO_DEFAULT_MODELS, kiroModels, parseKiroModelList, record } from './models.js';
 
 export const PROBE_TTL_MS = 5 * 60_000;
 export const COMMAND_TIMEOUT_MS = 30_000;
@@ -101,6 +101,7 @@ function accountLabel(account: unknown): string | undefined {
 interface Detection {
   state: AccountState;
   executable?: KiroExecutable;
+  models?: AccountModels;
 }
 
 /** 进行中的一次应用内登录。 */
@@ -111,8 +112,8 @@ interface ActiveLogin {
 
 /**
  * 找官方 CLI（用户自己装的优先，没有就用 Wevir 下载的），`kiro-cli whoami --format json` 看登录状态与账号名；检测不认证、不读
- * 令牌。登录由设置里的按钮起 `kiro-cli login --use-device-flow` 完成（login.ts），登出是 `kiro-cli logout`。模型列表要等会话建
- * 起来才知道（没登录时 ACP 进程起不来，也没有不登录就能读的列表），之前是“默认”。
+ * 令牌。登录由设置里的按钮起 `kiro-cli login --use-device-flow` 完成（login.ts），登出是 `kiro-cli logout`。确认登录后用
+ * `chat --list-models --format json` 预取模型，随后用会话的列表更新。
  *
  * 只有首个账号：Kiro 把登录存在用户目录下固定的 data.sqlite3 里（macOS `~/Library/Application Support/kiro-cli`），2.36.0 的
  * `KIRO_HOME` 与 `KIRO_DATA_DIR` 都不搬它。
@@ -164,7 +165,7 @@ export class KiroAccounts implements EngineAccounts {
 
   async models(kind: AccountKind): Promise<AccountModels> {
     this.#check(kind);
-    if (this.#state === undefined) await this.read(kind);
+    if (this.#state === undefined || this.#probing !== undefined) await this.read(kind);
     return this.#models;
   }
 
@@ -350,6 +351,7 @@ export class KiroAccounts implements EngineAccounts {
 
   markSignedOut(): void {
     if (this.#state === undefined || this.#disposed) return;
+    this.#models = KIRO_DEFAULT_MODELS;
     this.#checkedAt = this.#now();
     const { lastError: _stale, email: _email, ...rest } = this.#state;
     this.#publish({ ...rest, status: 'signed_out' });
@@ -468,6 +470,7 @@ export class KiroAccounts implements EngineAccounts {
           this.#checkedAt = this.#now();
           this.#executable = detected.executable;
           if (detected.state.status !== 'signed_in') this.#models = KIRO_DEFAULT_MODELS;
+          else if (detected.models !== undefined) this.#models = detected.models;
           this.#publish(detected.state);
         }
         return detected.state;
@@ -557,8 +560,19 @@ export class KiroAccounts implements EngineAccounts {
       };
     }
     if (!whoami.signedIn) return { executable, state: versioned };
+    // 未登录时这条命令会启动登录；只能在 whoami 确认之后运行。
+    const modelRun = await runKiro(
+      executablePath,
+      ['chat', '--list-models', '--format', 'json'],
+      executable.env,
+      COMMAND_TIMEOUT_MS,
+      signal,
+    );
+    const models =
+      modelRun.ok && modelRun.code === 0 ? parseKiroModelList(modelRun.stdout) : undefined;
     return {
       executable,
+      ...(models !== undefined && { models }),
       state: {
         ...versioned,
         status: 'signed_in',
