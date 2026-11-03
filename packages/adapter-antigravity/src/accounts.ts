@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/AntigravityAuth.ts（makeAntigravityAuth）、Drivers/AntigravityDriver.ts（不启动
 // 运行体的健康检查、refreshModels、一次性的登录进程）与 AntigravityProvider.ts（登录状态与模型）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；登录无响应的诊断照 2887855528661ec6a154c0bd094bfb5482fbdfbf
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 EngineAccounts。只有个人 Google 账号；回调落在 Host 这台机器的 127.0.0.1，浏览器要在
 // 本机，不做 T3 的远程粘贴回调网址（协议里没有这个方法）；登录状态不启动运行体，只看 profile 里登录文件在不在，
@@ -199,7 +199,9 @@ export class AntigravityAccounts implements EngineAccounts {
         void this.#fail(
           current,
           new Error('timeout'),
-          'Google sign-in expired. Start sign-in again.',
+          current.authUrl === undefined
+            ? "Antigravity could not reach Google. Check this machine's network connection, then start sign-in again."
+            : 'Google sign-in expired. Start sign-in again.',
         ),
       this.#options.loginTimeoutMs ?? LOGIN_TIMEOUT_MS,
     );

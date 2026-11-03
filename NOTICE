@@ -554,8 +554,11 @@ kiro-adapter.ts 的单次授权规则另参照 packages/provider-kiro/src/server
       <- apps/server/src/provider/acp/AntigravityAcpSupport.ts
   packages/adapter-antigravity/src/turn-outcome.ts
       <- apps/server/src/provider/acp/AntigravityTurnOutcome.ts
-  packages/adapter-acp/src/acp-adapter.ts（会话元信息）
+  packages/adapter-acp/src/acp-adapter.ts（会话元信息、模型校验）
       <- packages/provider-acp/src/server/AcpSessionRuntime.ts
+         packages/provider-acp/src/server/adapter.ts
+  packages/adapter-acp/src/acp-process.ts（stdout 关闭的诊断等待）
+      <- packages/effect-acp/src/protocol.ts
   packages/adapter-antigravity/src/protocol.ts
       <- apps/server/src/provider/acp/AntigravityProtocol.ts
   packages/adapter-antigravity/src/models.ts

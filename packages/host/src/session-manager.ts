@@ -154,6 +154,7 @@ import {
   type HandoffAssembly,
   type HandoffNote,
   historyItems,
+  isNativeSlashCommand,
   withHandoffContext,
 } from './handoff.js';
 import type { HookDispatcher, HookSessionInfo } from './hooks/dispatcher.js';
@@ -2143,6 +2144,7 @@ export class SessionManager {
 
     // 图片换成磁盘上的路径；找不到时在写事件之前报错。转来的消息与粘贴的段落交给引擎时包起来（relay.ts），事件里存原文。
     const engineContent = relayContent(from, pastedContent(content));
+    const nativeSlashCommand = goal === undefined && isNativeSlashCommand(engineContent);
     const agentInput = await this.#agentInput(engineContent);
     const snapshot = this.#snapshot(runtime);
     const turnId = newId('trn');
@@ -2258,11 +2260,11 @@ export class SessionManager {
     );
     try {
       const withPrefix =
-        prefix === ''
+        prefix === '' || nativeSlashCommand
           ? agentInput
           : await this.#agentInput(withHandoffContext(prefix, engineContent));
       const engineInput =
-        reminder === undefined
+        reminder === undefined || nativeSlashCommand
           ? withPrefix
           : {
               ...withPrefix,
@@ -2282,7 +2284,7 @@ export class SessionManager {
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
       return { turnId, seq: message.seq };
     }
-    if (forkContext !== undefined) this.#forkContext.delete(runtime.id);
+    if (forkContext !== undefined && !nativeSlashCommand) this.#forkContext.delete(runtime.id);
     this.#startup?.mark(runtime.id, 'handed');
     if (receipt !== undefined) {
       this.#storage.sendReceipts.setStatus(runtime.id, receipt, 'confirmed', isoNow());

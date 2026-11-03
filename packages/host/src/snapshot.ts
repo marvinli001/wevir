@@ -61,6 +61,7 @@ import {
   VERIFICATION_RUNS_KEPT,
 } from '@wevir/protocol';
 import type { SessionCachePatch, SessionRecord } from '@wevir/storage';
+import { isNativeSlashCommand } from './handoff.js';
 
 // 会话快照：由事件序列推导出的产品状态（domain-model §3.3、§4；ADR-0002 §3）。`applyEvent` 是纯函数，
 // 事件库在追加事件时逐条推进，Host 重启后从头重放得到同样的结果。
@@ -118,7 +119,7 @@ export interface SessionProjection {
    * 重新补一次。带正文的 `session.rules` 与 `session.handoff` 清除；回合结束不清除，补规则的那个回合里又压缩了也照样再补。
    */
   readonly rulesCompacted?: true;
-  /** 进行中的回合由命令开始（`turn.started` 带 `command`）：它不带接力摘要，结束时摘要仍没交出去。 */
+  /** 进行中的回合由命令开始或发送了原生斜杠命令：不带接力摘要，结束时摘要仍没交出去。 */
   readonly commandTurnId?: TurnId;
   /** 仍是 `pending` 的审批，按请求先后排列。 */
   readonly pendingApprovals: readonly ApprovalRequest[];
@@ -140,7 +141,11 @@ export interface SessionProjection {
   /** 输入建议（0.53.0）：最近一次 `suggestion.updated`，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件出现后没有。 */
   readonly promptSuggestion?: PromptSuggestion;
   /** 最近一条 `user.message`；同一回合的 `turn.started` 从这里取 `clientMessageId`。 */
-  readonly lastUserMessage?: { readonly turnId: TurnId; readonly clientMessageId?: string };
+  readonly lastUserMessage?: {
+    readonly turnId: TurnId;
+    readonly clientMessageId?: string;
+    readonly nativeSlashCommand?: boolean;
+  };
   /** 最近一条 `user.message` 的协作模式（0.36.0）；`plan` 以外省略。 */
   readonly collaborationMode?: 'plan';
   /** 子会话（R4，domain-model §3.3.1）：`session.created.parent` 设置，状态由子会话自己的事件推导。 */
@@ -476,8 +481,14 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'user.message': {
       const { turnId, clientMessageId, collaborationMode } = event.payload;
-      next.lastUserMessage =
-        clientMessageId === undefined ? { turnId } : { turnId, clientMessageId };
+      next.lastUserMessage = {
+        turnId,
+        ...(clientMessageId !== undefined && { clientMessageId }),
+        ...(event.payload.from === undefined &&
+          isNativeSlashCommand(event.payload.content) && {
+            nativeSlashCommand: true,
+          }),
+      };
       next.collaborationMode = collaborationMode === 'plan' ? 'plan' : undefined;
       next.wrapUp = undefined;
       break;
@@ -491,7 +502,13 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
           : undefined;
       if (clientMessageId !== undefined) activeTurn.clientMessageId = clientMessageId;
       next.activeTurn = activeTurn;
-      next.commandTurnId = event.payload.command === undefined ? undefined : turnId;
+      next.commandTurnId =
+        event.payload.command !== undefined ||
+        (event.payload.trigger !== 'goal' &&
+          projection.lastUserMessage?.turnId === turnId &&
+          projection.lastUserMessage.nativeSlashCommand === true)
+          ? turnId
+          : undefined;
       // 新的回合开始：自动继续作废（或就是它开的），上一个回合的用量上限也过去了。
       next.autoContinue = undefined;
       next.usageLimited = undefined;

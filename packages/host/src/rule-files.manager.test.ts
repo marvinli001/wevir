@@ -158,6 +158,22 @@ describe('规则文件（SessionManager）', () => {
     expect(await turn(env, id, 'hi')).not.toContain('Indent with tabs');
   });
 
+  it('原生命令不带规则与接力摘要，它们留到下一条普通消息', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, 'first');
+    await env.manager.configure({ sessionId, providerId: 'grok' });
+    expect(await turn(env, sessionId, '  /compact')).toBe('Echo:   /compact');
+    expect(env.events.rulesState(sessionId)?.pending?.context).toContain('Indent with tabs.');
+    expect(env.events.handoffState(sessionId)?.context).toContain('Context handoff');
+    const answer = await turn(env, sessionId, 'continue');
+    expect(answer).toContain('Indent with tabs.');
+    expect(answer).toContain('Context handoff');
+    expect(env.events.rulesState(sessionId)?.pending).toBeUndefined();
+    expect(env.events.handoffState(sessionId)?.context).toBeUndefined();
+  });
+
   it('接力到随消息补的引擎：下一条消息开头带着规则，之后不再带；换回去重新给说明，再换过来不重复', async () => {
     const env = setup();
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });

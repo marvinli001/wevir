@@ -170,6 +170,16 @@ describe('用户的说明与输出风格（SessionManager）', () => {
     expect(JSON.stringify(message)).not.toContain('system-reminder');
   });
 
+  it('原生斜杠命令保持原文，说明与风格提醒留到普通消息', async () => {
+    const env = setup({ agentInstructions: '回答用中文。', outputStyle: 'concise' });
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'grok' });
+    const sessionId = id as SessionId;
+    expect(await turn(env, sessionId, '/compact')).toBe('Echo: /compact');
+    const answer = await turn(env, sessionId, 'hi');
+    expect(answer).toContain('回答用中文。');
+    expect(answer).toContain('<system-reminder>');
+  });
+
   it('随消息补的引擎：说明放在第一条消息开头，之后只带提醒', async () => {
     const env = setup({ agentInstructions: '回答用中文。', outputStyle: 'proactive' });
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'grok' });

@@ -276,6 +276,10 @@ export class AntigravityAdapter extends AcpAdapter {
     return settings.configOptions;
   }
 
+  protected override modelCatalogValue(value: string): string {
+    return value.replace(/-(?:minimal|low|medium|high|extra_high|xhigh|max)$/, '');
+  }
+
   protected override sessionMeta(config: SessionConfig): Record<string, unknown> {
     return antigravitySessionMeta(
       this.process.initializeResponse?.agentInfo?.version,

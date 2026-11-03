@@ -237,7 +237,7 @@ describe('AntigravityUsage', () => {
     expect(major > 2 || (major === 2 && minor >= 16)).toBe(true);
   });
 
-  it('第一个端点失败换第二个；汇总没有窗口时退回按模型的额度', async () => {
+  it('一个端点失败保留另一个；汇总没有窗口时退回按模型的额度', async () => {
     const http = fakeFetch({
       ...TOKEN_OK,
       'daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary': json({}, 503),
@@ -258,6 +258,63 @@ describe('AntigravityUsage', () => {
         windows: [{ usedPercent: 50, scope: 'Gemini' }],
       },
     });
+  });
+
+  it('合并两个端点独有的额度组，同一窗口取用得最多的读数', async () => {
+    const http = fakeFetch({
+      ...TOKEN_OK,
+      'daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary': json({
+        groups: [
+          {
+            buckets: [
+              { bucketId: '3p-5h', window: '5h', remainingFraction: 0.25 },
+              { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 0.5 },
+            ],
+          },
+        ],
+      }),
+      '//cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary': json(SUMMARY),
+    });
+    const usage = new AntigravityUsage({
+      tokenPath: '/p',
+      readFile: read(TOKEN),
+      fetch: http.fetch,
+    });
+    const result = await usage.read();
+    expect(result.ok && result.rateLimits?.windows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'Gemini', windowMinutes: 300, usedPercent: 25 }),
+        expect.objectContaining({ scope: 'Gemini', windowMinutes: 10080, usedPercent: 60 }),
+        expect.objectContaining({ scope: 'Claude & GPT', windowMinutes: 300, usedPercent: 75 }),
+        expect.objectContaining({ scope: 'Claude & GPT', windowMinutes: 10080, usedPercent: 90 }),
+      ]),
+    );
+    expect(result.ok && result.rateLimits?.windows).toHaveLength(4);
+    expect(
+      http.calls.filter((call) => call.url.endsWith(':retrieveUserQuotaSummary')),
+    ).toHaveLength(2);
+  });
+
+  it('两个端点同时开始请求，失败的端点不丢掉成功的额度', async () => {
+    let release!: () => void;
+    const bothStarted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = 0;
+    const usage = new AntigravityUsage({
+      tokenPath: '/p',
+      readFile: read(TOKEN),
+      fetch: (async (input) => {
+        if (String(input) === GOOGLE_TOKEN_URL)
+          return json({ access_token: 'a', expires_in: 3600 })();
+        if (++started === 2) release();
+        await bothStarted;
+        if (String(input).includes('daily-cloudcode')) throw new TypeError('network unavailable');
+        return json(SUMMARY)();
+      }) as typeof fetch,
+    });
+    const result = await usage.read();
+    expect(result.ok && result.rateLimits?.windows).toHaveLength(4);
   });
 
   it('没有登录文件：ok 但没有用量，不联网；文件坏了、换令牌失败、都没有额度：ok false', async () => {

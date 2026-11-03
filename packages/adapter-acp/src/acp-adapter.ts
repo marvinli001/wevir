@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// 模型校验参考 pingdotgg/t3code packages/provider-acp/src/server/adapter.ts
+// e4a067b526a19b57515ceb0a820ed6b4334b8db8（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 // 会话元信息参考 pingdotgg/t3code packages/provider-acp/src/server/AcpSessionRuntime.ts
 // ab8e488e10d883fa880b0ddcf01917b51839ab07（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 import { readFile } from 'node:fs/promises';
@@ -147,6 +149,7 @@ interface AcpSession {
   readonly questions: Map<string, PendingQuestion>;
   /** 引擎最近报的 `configOptions`（`session/new` / `session/resume`、选定路由、`config_option_update`）。 */
   configOptions: unknown;
+  selection: Pick<SessionConfig, 'providerId' | 'modelId'>;
   /** 角色关掉的引擎工具类别（`SessionConfig.engineTools`）：这些类别的审批请求直接拒绝。 */
   readonly deniedTools: ReadonlySet<EngineToolClass>;
   /**
@@ -346,7 +349,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(id, config.cwd, configOptions, config.engineTools?.denied);
+      this.#register(id, config, configOptions, config.engineTools?.denied);
       return {
         engineSessionId: id,
         engineVersion: this.engine.version,
@@ -429,7 +432,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(engineSessionId, config.cwd, configOptions, config.engineTools?.denied);
+      this.#register(engineSessionId, config, configOptions, config.engineTools?.denied);
       return {
         engineSessionId,
         engineVersion: this.engine.version,
@@ -478,6 +481,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const pending = this.#promptBlocks(input);
     const blocks = Array.isArray(pending) ? pending : await pending;
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
+    this.#validateModel(session.configOptions, session.selection);
     const connection = this.process.connection;
     let finish!: () => void;
     const done = new Promise<void>((resolve) => {
@@ -905,11 +909,17 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   ): Promise<void> {
     const session = this.#openSession(engineSessionId);
     session.configOptions = await this.#selectRoute(engineSessionId, config, session.configOptions);
+    session.selection = { providerId: config.providerId, modelId: config.modelId };
   }
 
   /** 会话最近的 `configOptions`（子类在 `applyRoute` 之后按新模型设别的选项时读，Antigravity：思考档位）。 */
   protected sessionConfigOptions(engineSessionId: string): unknown {
     return this.#openSession(engineSessionId).configOptions;
+  }
+
+  /** 旧版模型 ID 对应的目录值；默认就是原值。 */
+  protected modelCatalogValue(value: string): string {
+    return value;
   }
 
   /**
@@ -1231,11 +1241,53 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     };
   }
 
-  /** 引擎描述了 `sessionModels` 时把结果里的 ACP `models` 并进 `configOptions`。 */
+  /** 引擎的旧版 `models` 也作为会话的模型目录。 */
   #withSessionModels(configOptions: unknown, models: unknown): unknown {
-    return this.engine.sessionModels === undefined || models === undefined
-      ? configOptions
-      : this.engine.sessionModels(configOptions, models);
+    const options = this.engine.sessionModels?.(configOptions, models) ?? configOptions;
+    const available = (models as { availableModels?: unknown } | undefined)?.availableModels;
+    const id = routeModelOption(options, this.engine.route);
+    if (
+      !Array.isArray(available) ||
+      (Array.isArray(options) && options.some((o) => o?.id === id))
+    ) {
+      return options;
+    }
+    return [
+      ...(Array.isArray(options) ? options : []),
+      {
+        id,
+        type: 'select',
+        currentValue: (models as { currentModelId?: unknown }).currentModelId,
+        options: available.map((model) => ({ value: model.modelId, name: model.name })),
+      },
+    ];
+  }
+
+  #validateModel(
+    configOptions: unknown,
+    config: Pick<SessionConfig, 'providerId' | 'modelId'>,
+  ): void {
+    const value = this.engine.route.encode(config.providerId, config.modelId);
+    const id = routeModelOption(configOptions, this.engine.route);
+    const option = Array.isArray(configOptions)
+      ? configOptions.find((entry) => entry?.id === id && entry.type === 'select')
+      : undefined;
+    if (value === undefined || option === undefined) return;
+    const choices = (entries: { value?: string; options?: unknown }[]): string[] =>
+      entries.flatMap((entry) =>
+        typeof entry.value === 'string'
+          ? [entry.value]
+          : Array.isArray(entry.options)
+            ? choices(entry.options)
+            : [],
+      );
+    const available = choices(option.options);
+    if (!available.includes(value) && !available.includes(this.modelCatalogValue(value))) {
+      throw new AdapterError(
+        'invalid_input',
+        `${this.engine.name} 不提供模型 ${config.modelId}。选择其他模型后重试。`,
+      );
+    }
   }
 
   /**
@@ -1251,6 +1303,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const connection = this.process.connection;
     const { name, route } = this.engine;
     let configOptions = initial;
+    this.#validateModel(configOptions, config);
     const set = async (configId: string, value: string, what: string) => {
       try {
         const result = await connection.agent.request(methods.agent.session.setConfigOption, {
@@ -1373,13 +1426,14 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   /** 登记一个刚挂到本进程上的会话；之前的记录（已关闭或已脱开，事件队列已结束）被替换。 */
   #register(
     id: string,
-    cwd: string,
+    config: SessionConfig,
     configOptions: unknown,
     deniedTools: readonly EngineToolClass[] = [],
   ): void {
     this.#sessions.set(id, {
       id,
-      cwd,
+      cwd: config.cwd,
+      selection: { providerId: config.providerId, modelId: config.modelId },
       status: 'open',
       queue: new SessionEventQueue(id, this.#warnOnce, this.engine),
       approvals: new Map(),

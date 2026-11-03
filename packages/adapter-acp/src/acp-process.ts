@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// stdout 关闭的等待时限参考 pingdotgg/t3code packages/effect-acp/src/protocol.ts
+// 82503ccf2e20fbfdf7e6637215d233c5bb63acd5（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
@@ -25,6 +28,7 @@ import type { AcpEngine } from './engine.js';
 
 /** `initialize` 的时限。dsh 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s（T0.3）。 */
 export const INITIALIZE_TIMEOUT_MS = 15_000;
+const STDOUT_EXIT_GRACE_MS = 250;
 
 const DEFAULT_CLIENT_INFO: Implementation = { name: 'wevir', version: '0.0.0' };
 
@@ -519,12 +523,27 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     });
     const wire = ndJsonStream(
       Writable.toWeb(stdin) as WritableStream<Uint8Array>,
-      // stdout 可能先于 exit 事件结束；等进程退出记下来再结束输入，进行中的请求才会以
-      // “进程已退出”失败，而不是笼统的连接关闭。
+      // 短暂等退出状态，保留崩溃诊断；stdout 单独关闭时结束连接与进程。
       (this.#options.transformStdout ?? ((stream) => stream))(
         Readable.toWeb(stdout) as ReadableStream<Uint8Array>,
       ).pipeThrough(
-        new TransformStream<Uint8Array, Uint8Array>({ flush: () => exited.then(() => {}) }),
+        new TransformStream<Uint8Array, Uint8Array>({
+          flush: async () => {
+            if (await settledWithin(exited, STDOUT_EXIT_GRACE_MS)) return;
+            const error = new AdapterError(
+              'engine_unavailable',
+              `${this.#name} 的 stdout 已关闭，进程没有退出`,
+            );
+            connection.close(error);
+            launch.stderrTail = `${launch.stderrTail}[${error.message}]\n`.slice(
+              -STDERR_TAIL_CHARS,
+            );
+            signal(child, 'SIGTERM');
+            if (!(await settledWithin(exited, this.#disposeTimeouts.sigtermMs))) {
+              signal(child, 'SIGKILL');
+            }
+          },
+        }),
       ),
     );
     const app = client({ name: 'wevir' }).onRequest(

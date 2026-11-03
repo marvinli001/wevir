@@ -12,6 +12,7 @@ import {
   type HandoffInput,
   type HistoryItem,
   historyItems,
+  isNativeSlashCommand,
   withHandoffContext,
 } from './handoff.js';
 
@@ -412,6 +413,16 @@ describe('assembleHandoff', () => {
     expect(delta.context).toContain(
       'Nothing new happened in the conversation since you last saw it.',
     );
+  });
+});
+
+describe('isNativeSlashCommand', () => {
+  it.each(['/compact', '  /repro-skill'])('识别原生命令 %s', (text) => {
+    expect(isNativeSlashCommand([{ type: 'text', text }])).toBe(true);
+  });
+  it('粘贴内容和消息中途的斜杠不是原生命令', () => {
+    expect(isNativeSlashCommand([{ type: 'text', text: '/compact', pasted: true }])).toBe(false);
+    expect(isNativeSlashCommand([{ type: 'text', text: 'run /compact' }])).toBe(false);
   });
 });
 

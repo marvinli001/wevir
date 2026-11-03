@@ -7,7 +7,8 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import type { AccountState } from '@wevir/runtime-adapter';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOGIN_TIMEOUT_MS } from './accounts.js';
 import { AntigravityAdapter, type AntigravityAdapterOptions } from './antigravity-adapter.js';
 import { antigravityTokenPath } from './profile.js';
 import { ANTIGRAVITY_RELEASE_VERSION } from './release.js';
@@ -36,6 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const adapter of adapters) await adapter.dispose();
   if (server !== undefined) {
     server.closeAllConnections();
@@ -71,6 +73,30 @@ function leftovers(): string[] {
 const posix = process.platform !== 'win32';
 
 describe.skipIf(!posix)('AntigravityAccounts', () => {
+  it.each([true, false])('登录超时：收到过网址=%s，区分网络不可达和过期', async (linkShown) => {
+    const original = globalThis.setTimeout;
+    let expire: (() => void) | undefined;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+      if (ms === LOGIN_TIMEOUT_MS) expire = () => callback(...args);
+      return original(callback, ms, ...args);
+    });
+    const { accounts, states } = create({ env: linkShown ? {} : { FAKE_AGY_AUTH_STALL: '1' } });
+    await accounts.setExecutablePath('antigravity', executable());
+    const login = accounts.login('antigravity', 'browser');
+    await waitFor(() => (linkShown ? states.at(-1)?.login?.authUrl : expire), '登录开始');
+    expire?.();
+    await login;
+    await waitFor(() => states.at(-1)?.lastError !== undefined, '登录超时');
+    const error = states.at(-1)?.lastError;
+    expect(states.at(-1)?.status).toBe('signed_out');
+    if (!linkShown) {
+      expect(error).toContain('could not reach Google');
+      expect(error).not.toContain('expired');
+    } else {
+      expect(error).toBe('Google sign-in expired. Start sign-in again.');
+    }
+    expect(leftovers()).toEqual([]);
+  });
   it('没装：installed false、可下载、应用内登录；本平台没有发布时写明原因', async () => {
     const { accounts } = create();
     const state = await accounts.read('antigravity');

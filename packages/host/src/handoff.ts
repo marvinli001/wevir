@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 改写自 pingdotgg/t3code apps/server/src/orchestration-v2/ContextHandoffService.ts、packages/provider-core/src/server/handoffBudget.ts、
 // apps/server/src/orchestration-v2/ContextHandoffDelivery.ts 与 docs/internals/context-handoffs.md
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；原生命令照 packages/provider-acp/src/server/adapter.ts
+// bd438fb315ffae6cb42e03d24291983ebe4e75bb
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：从 Wevir 的事件库整理历史（用户消息、助手回答、命令、改动的文件、回合错误、清单、之前的接力），不用 Effect；预算
 // （16 000 字节）、条目的取舍顺序（最近的用户消息、最近的回答、第一条用户消息，再从新到旧）与两种方式照 T3；每条文本照 T3
@@ -387,6 +388,11 @@ function handoffHeader(input: HandoffInput, count: number, omitted: number): str
     );
   }
   return lines.join('\n');
+}
+
+export function isNativeSlashCommand(content: readonly UserContentPart[]): boolean {
+  const first = content[0];
+  return first?.type === 'text' && first.pasted !== true && first.text.trimStart().startsWith('/');
 }
 
 /** 把摘要放在一条消息的开头（T3 的 `providerMessageWithContextHandoffs`）。 */

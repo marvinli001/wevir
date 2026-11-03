@@ -413,6 +413,16 @@ iOS 模拟器的 helper（2026-10-24）移植自 facebook/idb，MIT，`Copyright
 
 `Devices.swift`、`Media.swift`、`Protocol.swift`、`Settings.swift` 与 `main.swift` 是 Wevir 写的，用上面的移植代码。
 
+2026-11-03 ACP 与 Antigravity 修复：
+
+| Wevir 文件 | 来源路径（pingdotgg/t3code） | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `packages/adapter-acp/src/acp-adapter.ts`、`packages/adapter-antigravity/src/antigravity-adapter.ts` | T3 Code `packages/provider-acp/src/server/adapter.ts`（`validateModelSelection`） | `e4a067b526a19b57515ceb0a820ed6b4334b8db8` | MIT | 改写（2026-11-03）：创建、恢复、换模型与发送前按会话模型目录校验，识别分组与旧版 availableModels；保留引擎默认模型与 Antigravity 已支持的带档位 ID |
+| `packages/adapter-acp/src/acp-process.ts` | T3 Code `packages/effect-acp/src/protocol.ts`（输入结束后的诊断等待） | `82503ccf2e20fbfdf7e6637215d233c5bb63acd5` | MIT | 改写（2026-11-03）：stdout EOF 后最多等退出 250 ms，未退出则关闭连接、拒绝挂起请求并回收进程，保留正常退出的诊断 |
+| `packages/host/src/handoff.ts`、`session-manager.ts`、`snapshot.ts` | T3 Code `packages/provider-acp/src/server/adapter.ts`（原生斜杠命令） | `bd438fb315ffae6cb42e03d24291983ebe4e75bb` | MIT | 改写（2026-11-03）：命令不加规则、接力与风格提醒；未交付的规则、接力留到下一条普通消息 |
+| `packages/adapter-antigravity/src/usage.ts` | T3 Code `apps/server/src/provider/antigravityUsageLimits.ts`（`fetchWindows`） | `340ee237bf6f691634b91e21c1211570377ba678` | MIT | 改写（2026-11-03）：两个额度端点并行读取并合并同类窗口，重复窗口取用量较高者，单个端点失败保留另一端结果 |
+| `packages/adapter-antigravity/src/accounts.ts` | T3 Code `apps/server/src/provider/AntigravityAuth.ts`（登录超时分类） | `2887855528661ec6a154c0bd094bfb5482fbdfbf` | MIT | 改写（2026-11-03）：未收到 Google 登录网址时报网络不可达；已显示网址后超时保留过期提示 |
+
 ### 4.1 其他第三方来源的文件
 
 不来自上面五个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。

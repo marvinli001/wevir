@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/antigravityUsageLimits.ts（`makeAntigravityUsageProbe`、`summaryWindows`、
 // `modelWindows`、`quotaWindow`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；双端点合并照 340ee237bf6f691634b91e21c1211570377ba678
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `rateLimits`（0.45.0 的额度名 `scope`，窗口名由界面按长度说）；不读
 // Google 账号 ID（T3 用它跨环境合并账号）；只有个人 Google 账号这一种登录（Wevir 只做这种）。
@@ -228,7 +228,7 @@ export class AntigravityUsage {
       const body = JSON.stringify(
         token.project_id !== undefined ? { project: token.project_id } : {},
       );
-      const summary = await this.#firstWindows(
+      const summary = await this.#fetchWindows(
         'retrieveUserQuotaSummary',
         accessToken,
         body,
@@ -238,7 +238,7 @@ export class AntigravityUsage {
       const windows =
         summary.length > 0
           ? summary
-          : await this.#firstWindows(
+          : await this.#fetchWindows(
               'fetchAvailableModels',
               accessToken,
               body,
@@ -287,32 +287,41 @@ export class AntigravityUsage {
     return accessToken;
   }
 
-  /** 依次试两个端点，第一个给出窗口的为准；单个端点失败只换下一个（T3）。 */
-  async #firstWindows(
+  /** 并行读两个端点；同一额度窗口取用得最多的，单个端点失败不影响另一个。 */
+  async #fetchWindows(
     operation: string,
     accessToken: string,
     body: string,
     signal: AbortSignal,
     parse: (response: unknown) => AccountRateLimitWindow[],
   ): Promise<AccountRateLimitWindow[]> {
-    for (const endpoint of ENDPOINTS) {
-      try {
-        const windows = parse(
-          await this.#request(`${endpoint}/v1internal:${operation}`, signal, {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-              'User-Agent': `antigravity/hub/${ANTIGRAVITY_HUB_VERSION} (aidev_client; os_type=${process.platform}; arch=${process.arch}; cl=963137146)`,
-            },
-            body,
-          }),
-        );
-        if (windows.length > 0) return windows;
-      } catch {
-        // 换下一个端点。
+    const responses = await Promise.all(
+      ENDPOINTS.map(async (endpoint) => {
+        try {
+          return parse(
+            await this.#request(`${endpoint}/v1internal:${operation}`, signal, {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'User-Agent': `antigravity/hub/${ANTIGRAVITY_HUB_VERSION} (aidev_client; os_type=${process.platform}; arch=${process.arch}; cl=963137146)`,
+              },
+              body,
+            }),
+          );
+        } catch {
+          return [];
+        }
+      }),
+    );
+    const windows = new Map<string, AccountRateLimitWindow>();
+    for (const window of responses.flat()) {
+      const key = `${window.scope}\0${window.windowMinutes ?? ''}`;
+      const previous = windows.get(key);
+      if (previous === undefined || window.usedPercent > previous.usedPercent) {
+        windows.set(key, window);
       }
     }
-    return [];
+    return [...windows.values()];
   }
 
   /** POST，不跟随重定向（T3 的 MANUAL_REDIRECT），非 2xx 当失败。 */
