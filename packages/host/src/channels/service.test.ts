@@ -1581,6 +1581,29 @@ describe('发给协调者的事', () => {
         (event) => event.type === 'user.message' && event.payload.from?.channel?.kind !== 'wake',
       );
 
+  it('协调者派出的顶层会话也把额度报告交回同一频道', async () => {
+    const h = await setup();
+    const bot = await h.create('Work desk', 'Keep track of work.');
+    await h.coordinatorPosts(bot.id, 1);
+    const coordinator = await coordinatorOf(h, bot.id);
+    const child = await h.sessions.create(
+      { workspaceId: bot.workspaceId, providerId: 'mock' },
+      { openedBy: coordinator },
+    );
+    const text = '因额度从 A 接力到 B（第 1 次）';
+    h.service.onUsageRecovery({
+      sessionId: child.id,
+      turnId: 'trn_1',
+      originTurnId: 'trn_1',
+      seq: 1,
+      at: new Date().toISOString(),
+      text,
+    });
+    const replies = await h.coordinatorPosts(bot.id, 2);
+    expect(textOf(replies[1])).toContain(text);
+    expect(directMessages(h, coordinator)).toEqual([]);
+  });
+
   it('协调者起的后台进程退出：以 reason=event 唤醒，回答成帖', async () => {
     const h = await setup();
     const bot = await h.create('Build desk', 'Watch my builds.');

@@ -139,6 +139,11 @@ import { TuningService } from './tuning/service.js';
 import { TrialService } from './tuning/trials.js';
 import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
+import {
+  isUsageRecoveryEvent,
+  reportsUsageRecovery,
+  usageRecoveryReports,
+} from './usage-recovery.js';
 import { ChecksStore } from './verification/checks-store.js';
 import { CheckRunner } from './verification/runner.js';
 import { loadRepairTemplate, VerificationService } from './verification/service.js';
@@ -992,6 +997,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     channels = channelService;
     channelService.start();
+    store.listenAll((event) => {
+      if (!isUsageRecoveryEvent(event)) return;
+      const session = store.snapshot(event.sessionId)?.session;
+      if (session === undefined || !reportsUsageRecovery(session)) return;
+      const report = usageRecoveryReports(
+        store.readSince(event.sessionId, 0),
+        (id) => sessionsDb.providers.get(id)?.displayName ?? id,
+      ).find((report) => report.seq === event.seq);
+      if (report === undefined) return;
+      channelService.onUsageRecovery(report);
+      automationService.onUsageRecovery(report);
+    });
     startup.mark('services');
     const recovery = manager.recover();
     if (

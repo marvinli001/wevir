@@ -83,6 +83,7 @@ import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
 import { approvalSummary } from '../inbox.js';
 import { redactSecrets } from '../secret-patterns.js';
+import type { UsageRecoveryReport } from '../usage-recovery.js';
 import {
   type AssistantAction,
   actionSummary,
@@ -1376,6 +1377,29 @@ export class ChannelService {
   }
 
   // ── SessionManager 的回调 ─────────────────────────────────────────────
+
+  onUsageRecovery(report: UsageRecoveryReport): void {
+    const entry = this.#entryOf(report.sessionId);
+    const record =
+      entry === undefined
+        ? this.#assistantOf(report.sessionId)
+        : this.#storage.channels.get(entry.channelId);
+    if (record === undefined || record.deletedAt !== undefined) return;
+    const channelId = record.id as ChannelId;
+    const title = this.#options.events.snapshot(report.sessionId)?.session.title ?? '';
+    const text = redactSecrets(`${title} (${report.sessionId}): ${report.text}`).text;
+    if (entry?.role === 'coordinator') {
+      this.#append(record, { author: { kind: 'host' }, content: [{ type: 'text', text }] });
+    } else {
+      this.#pendingFor(channelId).events.push({
+        id: envelopeId(),
+        kind: 'report',
+        text,
+        at: report.at,
+      });
+      this.#queueWake(channelId, 'event', {});
+    }
+  }
 
   /** SessionManager 的 `onTurnFinished`：协调者的回合 → 帖子；线程的 → 刷新卡片。 */
   onTurnFinished(info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }): void {

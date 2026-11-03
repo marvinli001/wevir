@@ -245,7 +245,7 @@ describe('用户开启的额度路由', () => {
   });
 
   it.each(['agent', 'channel', 'automation'] as const)(
-    '%s 会话保留原自动继续，路由留给 L3',
+    '%s 顶层会话复用用户开启的路由',
     async (kind) => {
       const h = setup();
       const parent = await h.manager.create({ workspaceId: 'ws_1', providerId: 'api' });
@@ -258,9 +258,9 @@ describe('用户开启的额度路由', () => {
           automation: { automationId: 'aut_1' as never, runId: 'arn_1' as never },
         }),
       });
-      await settled(h, sessionId, 1);
-      expect(eventsOf(h, sessionId, 'routing.decided')).toEqual([]);
-      expect(h.events.snapshot(sessionId)?.session.autoContinue).toBeDefined();
+      await settled(h, sessionId, 2);
+      expect(eventsOf(h, sessionId, 'routing.decided')[0]?.payload.to?.providerId).toBe('api');
+      expect(h.events.snapshot(sessionId)?.session.autoContinue).toBeUndefined();
     },
   );
 

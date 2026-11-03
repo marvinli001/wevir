@@ -46,6 +46,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
+import { type UsageRecoveryReport, usageRecoveryReports } from '../usage-recovery.js';
 import { type CheckExecutor, checkTimeoutMs, decide, runCheck } from './check.js';
 import { isValidTimezone, localTimezone, nextOccurrence } from './schedule.js';
 
@@ -259,6 +260,7 @@ export class AutomationService {
           run.error = 'Interrupted when Wevir stopped.';
           changed = true;
         }
+        changed = this.#readRecoveries(run) || changed;
       }
       const { automation } = entry;
       if (automation.enabled && automation.nextRunAt === undefined) {
@@ -607,6 +609,17 @@ export class AutomationService {
         ...(error !== undefined && { error }),
       });
       return;
+    }
+  }
+
+  onUsageRecovery(report: UsageRecoveryReport): void {
+    for (const entry of this.#entries.values()) {
+      const run = entry.runs.find(
+        (run) => run.sessionId === report.sessionId && run.turnId === report.originTurnId,
+      );
+      if (run === undefined || !this.#appendRecovery(run, report)) continue;
+      void this.#save(entry);
+      this.#emit({ automationId: entry.automation.id, run: { ...run } });
     }
   }
 
@@ -966,6 +979,7 @@ export class AutomationService {
     if (detail.error !== undefined) run.error = detail.error;
     if (detail.summary !== undefined) run.summary = detail.summary;
     if (detail.quiet === true) run.quiet = true;
+    this.#readRecoveries(run);
     if (status === 'completed') {
       entry.state.failures = 0;
       const previous = entry.runs
@@ -982,6 +996,27 @@ export class AutomationService {
     if (status === 'failed') this.#failed(entry);
     void this.#save(entry);
     this.#emit({ automationId, run: { ...run } });
+  }
+
+  #appendRecovery(run: AutomationRun, report: UsageRecoveryReport): boolean {
+    if (run.error?.includes(report.text)) return false;
+    run.error = [run.error, report.text].filter(Boolean).join('\n');
+    return true;
+  }
+
+  #readRecoveries(run: AutomationRun): boolean {
+    if (run.sessionId === undefined || run.turnId === undefined) return false;
+    if (this.#options.storage.sessions.get(run.sessionId) === undefined) return false;
+    let changed = false;
+    for (const report of usageRecoveryReports(
+      this.#options.events.readSince(run.sessionId, 0),
+      (id) => this.#options.storage.providers.get(id)?.displayName ?? id,
+    )) {
+      if (report.originTurnId === run.turnId) {
+        changed = this.#appendRecovery(run, report) || changed;
+      }
+    }
+    return changed;
   }
 
   /** 又失败一次；连着 `AUTOMATION_MAX_CONSECUTIVE_FAILURES` 次时停用。 */

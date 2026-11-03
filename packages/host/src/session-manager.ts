@@ -218,6 +218,7 @@ import {
   titleInput,
 } from './title.js';
 import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
+import { unattended } from './unattended.js';
 import { archiveWorktrees, restoreWorktrees } from './worktree-archive.js';
 
 /**
@@ -7092,8 +7093,6 @@ export class SessionManager {
     return (
       runtime.parentId === undefined &&
       session.readOnly === undefined &&
-      !unattended(session) &&
-      session.channel === undefined &&
       !this.#record(runtime).side
     );
   }
@@ -7545,15 +7544,6 @@ function questionResolved(
 
 function toAnswerRecord(answers: Record<string, string[]>): QuestionResolution['answers'] {
   return Object.fromEntries(Object.entries(answers).map(([id, list]) => [id, { answers: list }]));
-}
-
-/** 没人盯着回答提问的会话（0.72.0）：自动化开的、引擎派出的子会话、另一个会话里的 agent 开的。 */
-function unattended(session: Session): boolean {
-  return (
-    session.automation !== undefined ||
-    session.parentSessionId !== undefined ||
-    session.openedBy !== undefined
-  );
 }
 
 /** 标签末尾的“(Recommended)”“（推荐）”一类标记：Claude 与 Codex 的提问工具都让模型这样标出推荐的选项。 */

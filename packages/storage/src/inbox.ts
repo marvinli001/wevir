@@ -19,6 +19,8 @@ export interface InboxRepository {
   retainDismissals(keep: ReadonlySet<string>): number;
   /** 每个会话里没被新回合盖住的失败回合，`turn.finished` 不早于 `since`。 */
   failedTurns(options: { since: string }): FailedTurnRecord[];
+  /** 有额度接力或自动继续计划的会话，供收件箱重建处理报告。 */
+  usageRecoverySessions(options: { since: string }): string[];
   /** 有还没结束的提问（`question.requested` 之后没有对应的 `question.resolved`）的会话。 */
   sessionsWithPendingQuestions(): string[];
 }
@@ -51,6 +53,14 @@ export function createInboxRepository(db: SqliteDatabase): InboxRepository {
           AND json_extract(resolved.payload, '$.questionId') = json_extract(asked.payload, '$.question.id')
       )
     ORDER BY asked.session_id`);
+  const usageRecoverySessions = db.prepare(`
+    SELECT DISTINCT session_id FROM events
+    WHERE ts >= :since AND (
+      (type = 'session.auto_continue' AND json_extract(payload, '$.resumeAt') IS NOT NULL)
+      OR (type IN ('session.handoff', 'session.configured')
+        AND json_extract(payload, '$.reason') = 'usage_limit'
+        AND json_extract(payload, '$.failover') IS NOT NULL)
+    ) ORDER BY session_id`);
 
   const dismissed = () => new Set(listDismissed.all().map((row) => text(row, 'item_id')));
   return {
@@ -75,5 +85,7 @@ export function createInboxRepository(db: SqliteDatabase): InboxRepository {
       })),
     sessionsWithPendingQuestions: () =>
       pendingQuestions.all().map((row) => text(row, 'session_id')),
+    usageRecoverySessions: ({ since }) =>
+      usageRecoverySessions.all({ since }).map((row) => text(row, 'session_id')),
   };
 }

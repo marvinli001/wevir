@@ -26,6 +26,12 @@ import type { Storage } from '@wevir/storage';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { REDACTED, redactSecrets } from './secret-patterns.js';
+import {
+  isUsageRecoveryEvent,
+  reportsUsageRecovery,
+  type UsageRecoveryReport,
+  usageRecoveryReports,
+} from './usage-recovery.js';
 
 /** 同一批里合并的时间窗。 */
 export const INBOX_WINDOW_MS = 100;
@@ -81,6 +87,7 @@ export class InboxService {
   readonly #bySession = new Map<SessionId, Set<InboxItemId>>();
   readonly #byAutomation = new Map<string, InboxItemId>();
   readonly #failedTurns = new Map<SessionId, FailedTurn>();
+  readonly #recoveries = new Map<SessionId, Map<TurnId, UsageRecoveryReport>>();
   #dismissed = new Set<string>();
   readonly #dirtySessions = new Set<SessionId>();
   readonly #dirtyAutomations = new Set<string>();
@@ -115,6 +122,7 @@ export class InboxService {
         } else if (event.type === 'turn.finished' && event.payload.outcome === 'failed') {
           this.#failedTurns.set(event.sessionId, { turnId: event.payload.turnId, at: event.ts });
         }
+        if (isUsageRecoveryEvent(event)) this.#readRecoveries(event.sessionId);
         this.#markSession(event.sessionId);
       }),
       this.#events.listenTouched((sessionIds) => {
@@ -137,10 +145,14 @@ export class InboxService {
         at: failed.finishedAt,
       });
     }
+    for (const id of this.#storage.inbox.usageRecoverySessions({ since })) {
+      this.#readRecoveries(id as SessionId);
+    }
     const sessionIds = new Set<SessionId>([
       ...this.#storage.approvals.listPending().map((approval) => approval.sessionId as SessionId),
       ...(this.#storage.inbox.sessionsWithPendingQuestions() as SessionId[]),
       ...this.#failedTurns.keys(),
+      ...this.#recoveries.keys(),
     ]);
     this.#dismissed = this.#storage.inbox.dismissed();
     for (const sessionId of sessionIds) this.#applySession(sessionId);
@@ -324,6 +336,7 @@ export class InboxService {
         : this.#events.snapshot(sessionId);
     if (record === undefined || snapshot === undefined) {
       this.#failedTurns.delete(sessionId);
+      this.#recoveries.delete(sessionId);
       return [];
     }
     const { session } = snapshot;
@@ -352,7 +365,8 @@ export class InboxService {
       // 协调者的失败回合由频道的 `notice: failed` 帖子代表（0.120.0）。
       session.channel?.role !== 'coordinator' &&
       record.archivedAt === undefined;
-    if (failed !== undefined && attended) {
+    const recoveries = this.#recoveries.get(sessionId);
+    if (failed !== undefined && attended && !recoveries?.has(failed.turnId)) {
       items.push({
         ...base,
         id: `turn_failed:${failed.turnId}`,
@@ -362,7 +376,35 @@ export class InboxService {
         ref: { turnId: failed.turnId },
       });
     }
+    if (record.archivedAt === undefined) {
+      for (const report of recoveries?.values() ?? []) {
+        items.push({
+          ...base,
+          id: `turn_failed:${report.turnId}`,
+          kind: 'turn_failed',
+          summary: this.#summary(report.text),
+          createdAt: report.at,
+          ref: { turnId: report.turnId },
+        });
+      }
+    }
     return items;
+  }
+
+  #readRecoveries(sessionId: SessionId): void {
+    const session = this.#events.snapshot(sessionId)?.session;
+    if (session === undefined || !reportsUsageRecovery(session)) return;
+    const since = new Date(this.#now() - INBOX_ATTENTION_MAX_AGE_DAYS * DAY_MS).toISOString();
+    const reports = usageRecoveryReports(
+      this.#events.readSince(sessionId, 0),
+      (id) => this.#storage.providers.get(id)?.displayName ?? id,
+    );
+    this.#recoveries.set(
+      sessionId,
+      new Map(
+        reports.filter((report) => report.at >= since).map((report) => [report.turnId, report]),
+      ),
+    );
   }
 
   #approvalItem(base: ItemBase, approval: ApprovalRequest): InboxItem {

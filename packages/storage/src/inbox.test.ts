@@ -64,4 +64,24 @@ describe('inbox', () => {
     ]);
     expect(db.inbox.sessionsWithPendingQuestions()).toEqual(['ses_asking']);
   });
+
+  it('额度报告重建：只查实际配置与非空自动继续，按时效过滤', () => {
+    const db = storage();
+    seedSession(db, { id: 'ses_recovery', engineSessionId: 'recovery' });
+    events(db, 'ses_recovery', [
+      [T0, 'routing.decided', { to: { providerId: 'next', modelId: 'm' } }],
+      [
+        T1,
+        'session.configured',
+        { reason: 'usage_limit', failover: { attempt: 1, originTurnId: 'trn_1' } },
+      ],
+      [T2, 'session.auto_continue', { turnId: 'trn_2', resumeAt: '2026-10-14T00:00:00.000Z' }],
+    ]);
+    seedSession(db, { id: 'ses_cancelled', engineSessionId: 'cancelled' });
+    events(db, 'ses_cancelled', [
+      [T1, 'session.auto_continue', { turnId: 'trn_3', resumeAt: null }],
+    ]);
+    expect(db.inbox.usageRecoverySessions({ since: T1 })).toEqual(['ses_recovery']);
+    expect(db.inbox.usageRecoverySessions({ since: '2026-10-14T00:00:00.000Z' })).toEqual([]);
+  });
 });
