@@ -41,7 +41,7 @@ import { formatMessageTime } from './format';
 import { GeneratedImage } from './generated-image';
 import { GuardrailPart } from './guardrail-part';
 import { HandoffDetailDialog } from './handoff-detail';
-import { type HandoffNoticeOf, modelLabel } from './handoff-model';
+import { type HandoffNoticeOf, handoffTransition, modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
@@ -786,39 +786,14 @@ function ConfigurationNotice({
 }: {
   notice: Extract<ChatPartOf<'notice'>['notice'], { kind: 'configured' }>;
 }) {
-  const providers = useWorkbenchProviders();
+  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const accounts = useAccounts();
   const [open, setOpen] = useState(false);
   const { from, to } = notice;
-  if (notice.reason === 'usage_limit') {
-    const target = modelLabel(providers ?? NO_PROVIDERS, to.providerId, to.modelId, accounts);
-    return (
-      <div className="my-3 flex justify-center">
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-md bg-running/10 px-2 py-1 text-xs text-running outline-none transition-colors hover:bg-running/15 focus-visible:focus-ring"
-          onClick={() => setOpen(true)}
-          data-testid="handoff-notice"
-          data-reason={notice.reason}
-          data-provider={to.providerId}
-        >
-          <Route aria-hidden className="size-3.5" />
-          {t('usageLimit.routed', { target })}
-        </button>
-        <HandoffDetailDialog
-          notice={notice}
-          target={target}
-          from={modelLabel(providers ?? NO_PROVIDERS, from.providerId, from.modelId, accounts)}
-          open={open}
-          onOpenChange={setOpen}
-        />
-      </div>
-    );
-  }
   const model = providers
-    ?.find((provider) => provider.id === to.providerId)
+    .find((provider) => provider.id === to.providerId)
     ?.models.find((candidate) => candidate.id === to.modelId);
-  const label = [
+  const configuration = [
     model?.displayName ?? to.modelId,
     to.reasoningEffort !== undefined || from.reasoningEffort !== to.reasoningEffort
       ? effortLabel(to.reasoningEffort)
@@ -831,21 +806,53 @@ function ConfigurationNotice({
   ]
     .filter(Boolean)
     .join(' · ');
+  if (notice.reason !== 'usage_limit') {
+    return (
+      <p
+        className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
+        data-testid="configuration-notice"
+      >
+        <ArrowLeftRight aria-hidden className="size-3.5 shrink-0" />
+        {t('notice.handoff', { model: configuration })}
+      </p>
+    );
+  }
+  const target = modelLabel(providers, to.providerId, to.modelId, accounts);
+  const origin = modelLabel(providers, from.providerId, from.modelId, accounts);
+  const label = [
+    t('handoff.transition', { from: origin, to: target }),
+    configuration,
+    notice.at && formatMessageTime(notice.at, currentLocale()),
+  ]
+    .filter(Boolean)
+    .join('\n');
   return (
-    <p
-      className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
-      data-testid="configuration-notice"
-    >
-      <ArrowLeftRight aria-hidden className="size-3.5 shrink-0" />
-      {t('notice.handoff', { model: label })}
-    </p>
+    <div className="my-3 flex justify-center">
+      <Hint label={label}>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-md bg-running/10 px-2 py-1 text-xs text-running outline-none hover:bg-running/15 focus-visible:focus-ring"
+          onClick={() => setOpen(true)}
+          data-testid="handoff-notice"
+          data-reason={notice.reason}
+          data-provider={to.providerId}
+        >
+          <Route aria-hidden className="size-3.5" />
+          {handoffTransition(providers, from.providerId, to.providerId, accounts)}
+        </button>
+      </Hint>
+      <HandoffDetailDialog
+        notice={notice}
+        target={target}
+        from={origin}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </div>
   );
 }
 
-/**
- * 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。换目录（0.81.0）时同一来源新开的引擎
- * 会话写“已转到新的引擎会话”。
- */
+/** 来源切换芯片；悬停看模型与时刻，点击查看接力详情。 */
 function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const accounts = useAccounts();
@@ -853,16 +860,23 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const provider = providers.find((candidate) => candidate.id === notice.providerId);
   const source = provider && sourceOf(provider);
   const label = modelLabel(providers, notice.providerId, notice.modelId, accounts);
+  const origin = modelLabel(providers, notice.fromProviderId, notice.fromModelId, accounts);
+  const hint = [
+    t('handoff.transition', { from: origin, to: label }),
+    notice.at && formatMessageTime(notice.at, currentLocale()),
+  ]
+    .filter(Boolean)
+    .join('\n');
   return (
     <div className="my-3 flex justify-center">
-      <Hint label={t('handoff.detail.open')}>
+      <Hint label={hint}>
         <button
           type="button"
           className={cn(
-            'flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs outline-none transition-colors focus-visible:focus-ring',
+            'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs outline-none focus-visible:focus-ring',
             notice.reason === 'usage_limit'
               ? 'bg-running/10 text-running hover:bg-running/15'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
           )}
           onClick={() => setOpen(true)}
           data-testid="handoff-notice"
@@ -880,11 +894,7 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
           ) : (
             <ArrowLeftRight aria-hidden className="size-3.5" />
           )}
-          {notice.reason === 'usage_limit'
-            ? t('usageLimit.routed', { target: label })
-            : notice.fromProviderId === notice.providerId
-              ? t('notice.handoffSameSource')
-              : t('notice.handoff', { model: label })}
+          {handoffTransition(providers, notice.fromProviderId, notice.providerId, accounts)}
         </button>
       </Hint>
       <HandoffDetailDialog

@@ -14,6 +14,7 @@ import {
   alwaysShown,
   blockSeqRange,
   continuesAgent,
+  engineSources,
   filesAfterAnswer,
   foldedParts,
   foldSegments,
@@ -290,6 +291,105 @@ describe('handoffAfterLastTurn（0.25.0）', () => {
     s.say(TURN2, '二');
     s.finish(TURN2, 'completed');
     expect(handoffAfterLastTurn(s.project())).toBeUndefined();
+  });
+});
+
+describe('回合的引擎分段', () => {
+  it('固定每回合的账号和模型；换模型沿用段，换账号及返回旧引擎各起新段', () => {
+    const s = session();
+    s.add('session.created', {
+      workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      cwd: '/workspace',
+      providerId: 'claude',
+      modelId: 'sonnet',
+    });
+    const first = { segment: 0, providerId: 'claude', modelId: 'sonnet' };
+    s.turn();
+    s.say(TURN, '一');
+    s.finish(TURN, 'completed');
+    s.add('session.configured', { modelId: 'opus' });
+    s.turn(TURN2);
+    s.say(TURN2, '二');
+    s.finish(TURN2, 'completed');
+    const switchTo = (from: string, to: string, modelId: string, resumed = false) =>
+      s.add('session.handoff', {
+        from: { providerId: from, modelId: 'opus', engineSessionId: `e-${from}` },
+        to: { providerId: to, modelId, engineSessionId: `e-${to}` },
+        resumed,
+        strategy: 'full_thread_summary',
+        items: 0,
+        omittedItems: 0,
+      });
+    switchTo('claude', 'claude-work', 'opus');
+    const third = 'trn_third';
+    s.add('turn.started', { turnId: third, command: { kind: 'compact' } });
+    s.say(third, '三');
+    s.add('user.steered', {
+      turnId: third,
+      pendingId: PENDING,
+      content: [{ type: 'text', text: '继续' }],
+      sentBy: self,
+    });
+    s.say(third, '继续');
+    s.finish(third, 'completed');
+    switchTo('claude-work', 'chatgpt', 'gpt');
+    switchTo('chatgpt', 'claude', 'sonnet', true);
+    s.turn('trn_return');
+    const transcript = s.project();
+    const turns = groupTurns(transcript.messages).filter((block) => block.kind === 'turn');
+    expect(turns.map((block) => block.engine)).toEqual([
+      first,
+      { segment: 0, providerId: 'claude', modelId: 'opus' },
+      { segment: 1, providerId: 'claude-work', modelId: 'opus' },
+      { segment: 3, providerId: 'claude', modelId: 'sonnet' },
+    ]);
+    expect(
+      turns[2]?.messages.every(
+        (message) => message.role !== 'system' && message.engine === turns[2]?.engine,
+      ),
+    ).toBe(true);
+    expect(transcript.engineSegments?.map((segment) => segment.providerId)).toEqual([
+      'claude',
+      'claude-work',
+      'chatgpt',
+      'claude',
+    ]);
+    expect(turns[0]?.engine).toEqual(first);
+    const notices = transcript.messages
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === 'notice');
+    expect(
+      notices.every(
+        (part) =>
+          (part.notice.kind === 'handoff' || part.notice.kind === 'configured') &&
+          part.notice.at !== undefined,
+      ),
+    ).toBe(true);
+  });
+
+  it('单段不显示来源；多段按来源首次出现去重，保留首次切换点和已删除的来源', () => {
+    const segments = ['claude', 'claude-work', 'chatgpt', 'claude', 'removed'].map(
+      (providerId, segment) => ({
+        segment,
+        providerId,
+        modelId: 'm',
+        seq: segment * 10 + 1,
+        startedAt: '2026-11-03T00:00:00.000Z',
+      }),
+    );
+    const providers = [
+      { id: 'claude', kind: 'claude' },
+      { id: 'claude-work', kind: 'claude' },
+      { id: 'chatgpt', kind: 'chatgpt' },
+    ] as const;
+    expect(engineSources(segments.slice(0, 1), providers)).toEqual([]);
+    expect(
+      engineSources(segments, providers).map((segment) => [segment.providerId, segment.seq]),
+    ).toEqual([
+      ['claude', 1],
+      ['chatgpt', 21],
+      ['removed', 41],
+    ]);
   });
 });
 

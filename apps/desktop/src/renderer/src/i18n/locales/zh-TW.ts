@@ -1112,6 +1112,8 @@ export const messages: Messages = {
   'notice.resumedVersion': '引擎工作階段已恢復（{version}）',
   'notice.readOnly': '工作階段唯讀：{reason}',
   'notice.closed': '工作階段已關閉',
+  'session.engineTrail': '來源',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': '已切換到 {model}',
   'notice.handoffSameSource': '已轉到新的引擎工作階段',
   'notice.movedToWorktree': '已移到工作樹',

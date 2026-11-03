@@ -1120,6 +1120,8 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Engine session resumed ({version})',
   'notice.readOnly': 'Read-only session: {reason}',
   'notice.closed': 'Session closed',
+  'session.engineTrail': 'Sources',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': 'Switched to {model}',
   'notice.handoffSameSource': 'Continued in a new engine session',
   'notice.movedToWorktree': 'Moved to worktree',

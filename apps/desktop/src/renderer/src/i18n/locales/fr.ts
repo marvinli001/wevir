@@ -1134,6 +1134,8 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Session du moteur reprise ({version})',
   'notice.readOnly': 'Session en lecture seule : {reason}',
   'notice.closed': 'Session fermée',
+  'session.engineTrail': 'Sources',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': 'Passé à {model}',
   'notice.handoffSameSource': 'Poursuivi dans une nouvelle session du moteur',
   'notice.movedToWorktree': 'Déplacé vers un worktree',

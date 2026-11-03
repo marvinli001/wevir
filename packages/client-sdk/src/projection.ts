@@ -117,7 +117,12 @@ export type SessionNotice =
   | { kind: 'resumed'; engineVersion?: string }
   | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string }
   | { kind: 'closed' }
-  | ({ kind: 'configured'; from: ModelConfiguration; to: ModelConfiguration } & NoticeRouting)
+  | ({
+      kind: 'configured';
+      from: ModelConfiguration;
+      to: ModelConfiguration;
+      at?: IsoTime;
+    } & NoticeRouting)
   /** 换到了别的来源（0.25.0，`session.handoff`）：之后的回合由 `providerId` 的引擎跑。 */
   | ({
       kind: 'handoff';
@@ -125,6 +130,7 @@ export type SessionNotice =
       modelId: string;
       fromProviderId: string;
       fromModelId: string;
+      at?: IsoTime;
       /** 接着用这个来源以前的引擎会话。 */
       resumed: boolean;
       /** 整段对话，还是只补这个来源错过的那段。 */
@@ -341,9 +347,23 @@ interface MessageBase {
   seqRange: readonly [number, number];
 }
 
+/** 回合开始时的引擎段与配置；Provider ID 同时标识订阅账号。 */
+export interface TurnEngine {
+  segment: number;
+  providerId: string;
+  modelId: string;
+}
+
+/** 按进入顺序记录的引擎段，返回旧引擎会话也另起一段。 */
+export interface TranscriptEngineSegment extends TurnEngine {
+  seq: number;
+  startedAt: IsoTime;
+}
+
 export interface UserChatMessage extends MessageBase {
   role: 'user';
   turnId: TurnId;
+  engine?: TurnEngine;
   /** 发出这条消息的客户端（`user.message`）。子会话里父 agent 给的输入没有。 */
   sentBy?: ClientIdentity;
   /** 子会话（R4）：这一回合的输入来自父 agent（`turn.started.input`），不是客户端发的。 */
@@ -372,6 +392,7 @@ export interface UserChatMessage extends MessageBase {
 export interface AssistantChatMessage extends MessageBase {
   role: 'assistant';
   turnId: TurnId;
+  engine?: TurnEngine;
   /** 回合开始（`turn.started`）的时刻；插话分出的每条助手消息都有。 */
   startedAt?: IsoTime;
   /** 回合结束后有。 */
@@ -404,6 +425,7 @@ export interface Transcript {
   /** 收到第一条事件之前为 undefined。 */
   sessionId: SessionId | undefined;
   messages: readonly ChatMessage[];
+  engineSegments?: readonly TranscriptEngineSegment[];
   /** 全部审批（含已结算），按 ID。 */
   approvals: ReadonlyMap<ApprovalId, ApprovalRequest>;
   /** 未决审批，按创建时间。 */
@@ -513,6 +535,7 @@ interface MutableMessage {
   role: ChatMessage['role'];
   id: string;
   turnId?: TurnId;
+  engine?: TurnEngine;
   parts: ChatPart[];
   firstSeq: number;
   lastSeq: number;
@@ -544,6 +567,7 @@ const HISTORY_TOOL_LINE = 'Read the full history with the read_session_history t
 
 /** 一个回合在投影里的消息：用户消息，与按插话分开的几条助手消息（最后一条是当前的）。 */
 interface TurnMessages {
+  engine?: TurnEngine;
   user?: MutableMessage;
   /** 当前的助手消息：之后的输出放进它；插话之后清空，下一条输出另起一条。 */
   assistant?: MutableMessage;
@@ -582,6 +606,7 @@ export class TranscriptProjection {
   #title = '';
   #readOnly: SessionReadOnly | undefined;
   #configuration: ModelConfiguration | undefined;
+  #engineSegments: readonly TranscriptEngineSegment[] = [];
   #routingDecision: RoutingDecision | undefined;
   /** 最近一条 `session.moved` 的 seq（0.81.0）：紧跟着的 `session.resumed` 不另起一行。 */
   #lastMoved: number | undefined;
@@ -651,6 +676,7 @@ export class TranscriptProjection {
     this.#title = '';
     this.#readOnly = undefined;
     this.#configuration = undefined;
+    this.#engineSegments = [];
     this.#routingDecision = undefined;
     this.#lastMoved = undefined;
     this.#lastError = undefined;
@@ -693,6 +719,9 @@ export class TranscriptProjection {
         this.#state = 'idle';
         const { providerId, modelId, reasoningEffort, fast } = event.payload;
         this.#configuration = { providerId, modelId, reasoningEffort, fast };
+        this.#engineSegments = [
+          { segment: 0, providerId, modelId, seq: event.seq, startedAt: event.ts },
+        ];
         const parent = event.payload.parent;
         if (parent !== undefined) this.#parent = { ...parent };
         return;
@@ -769,6 +798,7 @@ export class TranscriptProjection {
         ) {
           this.#notice(event, {
             kind: 'configured',
+            at: event.ts,
             from: previous,
             to: next,
             ...this.#routingNotice(event.payload, next),
@@ -782,6 +812,16 @@ export class TranscriptProjection {
         const { bytes, budgetBytes, hash, omitted, constraints, notes, historyTool } =
           event.payload;
         const { reasoningEffort, fast } = event.payload;
+        this.#engineSegments = [
+          ...this.#engineSegments,
+          {
+            segment: this.#engineSegments.length,
+            providerId: to.providerId,
+            modelId: to.modelId,
+            seq: event.seq,
+            startedAt: event.ts,
+          },
+        ];
         this.#configuration = {
           providerId: to.providerId,
           modelId: to.modelId,
@@ -793,6 +833,7 @@ export class TranscriptProjection {
         this.#setHandoffDelivery({ status: 'failed', reason: 'superseded' });
         this.#notice(event, {
           kind: 'handoff',
+          at: event.ts,
           providerId: to.providerId,
           modelId: to.modelId,
           fromProviderId: from.providerId,
@@ -1049,6 +1090,7 @@ export class TranscriptProjection {
     this.#snapshot = {
       sessionId: this.#sessionId,
       messages,
+      engineSegments: this.#engineSegments,
       approvals,
       pendingApprovals,
       state: this.#state,
@@ -1093,6 +1135,7 @@ export class TranscriptProjection {
   // ── 消息 ─────────────────────────────────────────────────────────────
 
   #push(message: MutableMessage): MutableMessage {
+    if (message.turnId !== undefined) message.engine = this.#turn(message.turnId).engine;
     this.#messages.push(message);
     return message;
   }
@@ -1275,7 +1318,16 @@ export class TranscriptProjection {
   #turn(turnId: TurnId): TurnMessages {
     let turn = this.#turns.get(turnId);
     if (!turn) {
-      turn = { segments: [] };
+      turn = {
+        segments: [],
+        ...(this.#configuration !== undefined && {
+          engine: {
+            segment: this.#engineSegments.length - 1,
+            providerId: this.#configuration.providerId,
+            modelId: this.#configuration.modelId,
+          },
+        }),
+      };
       this.#turns.set(turnId, turn);
     }
     return turn;
@@ -1963,6 +2015,7 @@ function freeze(message: MutableMessage): ChatMessage {
         ...base,
         role: 'user',
         turnId: message.turnId as TurnId,
+        ...(message.engine !== undefined && { engine: message.engine }),
         ...(message.sentBy !== undefined && { sentBy: message.sentBy }),
         ...(message.fromParentAgent && { fromParentAgent: true }),
         ...(message.command !== undefined && { command: message.command }),
@@ -1984,6 +2037,7 @@ function freeze(message: MutableMessage): ChatMessage {
         ...base,
         role: 'assistant',
         turnId: message.turnId as TurnId,
+        ...(message.engine !== undefined && { engine: message.engine }),
         ...(message.startedAt && { startedAt: message.startedAt }),
         ...(message.finished && { finished: message.finished }),
         ...(message.wrapUp && { wrapUp: message.wrapUp }),

@@ -14,6 +14,7 @@ import { ProjectBackdropLayer } from '@/projects/backdrop';
 import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
 import { paths, ROUTE_PATTERNS } from '@/routes/paths';
+import { EngineTrail } from '@/session/engine-trail';
 import {
   type AuxPlan,
   arrangePanes,
@@ -370,6 +371,7 @@ export function WorkbenchLayout() {
                   header.title
                 )}
               </h1>
+              {header.session && <EngineTrail sessionId={header.session.id} />}
               {header.subtitle && (
                 <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
                   {header.subtitle}

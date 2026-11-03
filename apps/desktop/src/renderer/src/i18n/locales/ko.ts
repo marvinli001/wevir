@@ -1114,6 +1114,8 @@ export const messages: Messages = {
   'notice.resumedVersion': '엔진 세션 복원됨 ({version})',
   'notice.readOnly': '읽기 전용 세션: {reason}',
   'notice.closed': '세션 닫힘',
+  'session.engineTrail': '소스',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': '{model}(으)로 전환됨',
   'notice.handoffSameSource': '새 엔진 세션에서 계속',
   'notice.movedToWorktree': '워크트리로 이동됨',

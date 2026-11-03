@@ -5,6 +5,7 @@ import {
   engineFeaturesOf,
   type HandoffNoticeOf,
   handoffDetailRows,
+  handoffTransition,
   modelLabel,
 } from './handoff-model';
 
@@ -35,6 +36,18 @@ const session: Pick<
 > = { providerId: 'mock', state: 'idle' };
 
 describe('接力的纯逻辑（0.25.0）', () => {
+  it('切换芯片显示两端来源，同来源换账号显示标签，已删除来源保留 ID', () => {
+    const work = provider('claude-work', 'claude');
+    const providers = [api, claude, work];
+    expect(handoffTransition(providers, 'claude', 'mock')).toBe('Claude → Mock API');
+    expect(
+      handoffTransition(providers, 'claude', 'claude-work', [
+        { kind: 'claude', id: 'claude', label: '个人', status: 'signed_in' },
+        { kind: 'claude', id: 'claude-work', label: '工作', status: 'signed_in' },
+      ]),
+    ).toBe('个人 → 工作');
+    expect(handoffTransition(providers, 'removed', 'claude')).toBe('removed → Claude');
+  });
   it('额度接力详情：原因、次数、跳过的账号及原因；同来源自动换模型也保留', () => {
     const rows = handoffDetailRows(
       {

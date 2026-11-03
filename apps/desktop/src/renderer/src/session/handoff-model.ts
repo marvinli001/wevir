@@ -8,7 +8,7 @@ import type {
   Session,
   SessionState,
 } from '@wevir/protocol';
-import { sourceOf, sourceTitle } from '@/data/sources';
+import { accountSuffix, sourceOf, sourceTitle } from '@/data/sources';
 import { t } from '@/i18n';
 import { routingReason } from '@/settings/routing-model';
 
@@ -49,6 +49,30 @@ export function canHandoffTo(
 
 export type HandoffNoticeOf = Extract<SessionNotice, { kind: 'handoff' }>;
 export type ConfigurationNoticeOf = Extract<SessionNotice, { kind: 'configured' }>;
+
+export function handoffTransition(
+  providers: readonly ProviderProfile[],
+  fromProviderId: string,
+  toProviderId: string,
+  accounts?: readonly AccountState[],
+): string {
+  const from = providers.find((provider) => provider.id === fromProviderId);
+  const to = providers.find((provider) => provider.id === toProviderId);
+  const fromSource = from && sourceOf(from);
+  const toSource = to && sourceOf(to);
+  const accountsChanged =
+    fromProviderId !== toProviderId && fromSource && fromSource.kind === toSource?.kind;
+  const label = (provider: ProviderProfile | undefined, id: string) => {
+    if (!provider) return id;
+    const source = sourceOf(provider);
+    if (accountsChanged && source) return accountSuffix(provider, accounts) ?? t(source.name);
+    return source ? t(source.name) : provider.displayName;
+  };
+  return t('handoff.transition', {
+    from: label(from, fromProviderId),
+    to: label(to, toProviderId),
+  });
+}
 
 /** 接力详情里的一行：名称与值，`tone` 给状态上色。 */
 export interface HandoffDetailRow {

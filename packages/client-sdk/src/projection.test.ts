@@ -62,6 +62,38 @@ function assistantParts(events: WevirEvent[], options = {}): ChatPart[] {
   return [...(message?.parts ?? [])];
 }
 
+it('引擎段在流式更新时保持引用；旧回合补写仍归原段，重置后重放一致', () => {
+  const e = events();
+  e.turn();
+  const projection = new TranscriptProjection();
+  for (const event of e.list) projection.apply(event);
+  const before = projection.snapshot();
+  const handoff = e.add('session.handoff', {
+    from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'one' },
+    to: { providerId: 'claude', modelId: 'sonnet', engineSessionId: 'two' },
+    resumed: false,
+    strategy: 'full_thread_summary',
+    items: 0,
+    omittedItems: 0,
+  });
+  projection.apply(handoff);
+  const switched = projection.snapshot();
+  expect(before.engineSegments).toHaveLength(1);
+  expect(switched.engineSegments).toHaveLength(2);
+  projection.apply(
+    e.add('assistant.message', { turnId: TURN, messageId: 'late', text: 'late', replaces: [] }),
+  );
+  const late = projection.snapshot();
+  expect(late.engineSegments).toBe(switched.engineSegments);
+  expect(late.messages.find((message) => message.role === 'assistant')).toMatchObject({
+    engine: { segment: 0, providerId: 'deepseek-official', modelId: 'deepseek-chat' },
+  });
+  projection.reset();
+  expect(projection.snapshot().engineSegments).toEqual([]);
+  for (const event of e.list) projection.apply(event);
+  expect(projection.snapshot()).toEqual(late);
+});
+
 function approval(toolCallId: string): ApprovalRequest {
   return {
     id: APPROVAL,
@@ -629,6 +661,7 @@ describe('TranscriptProjection：会话级事件', () => {
         key: `n:${list.length}`,
         notice: {
           kind: 'handoff',
+          at: list.at(-1)?.ts,
           providerId: 'claude',
           modelId: 'claude-opus-5-5',
           fromProviderId: 'deepseek-official',

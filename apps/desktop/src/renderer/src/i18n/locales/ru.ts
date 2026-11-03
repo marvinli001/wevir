@@ -1146,6 +1146,8 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Сессия движка восстановлена ({version})',
   'notice.readOnly': 'Сессия только для чтения: {reason}',
   'notice.closed': 'Сессия закрыта',
+  'session.engineTrail': 'Источники',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': 'Переключено на {model}',
   'notice.handoffSameSource': 'Продолжено в новом сеансе движка',
   'notice.movedToWorktree': 'Перенесено в рабочее дерево',

@@ -2,8 +2,15 @@
 // 助手正文之间的全部过程收进一行“已处理 2 分 31 秒”，只留最后的回答、错误与插话；回答下面是“N 个文件已更改 +a −d”。
 // 出错、被停止、被中断的回合不自动折叠，那一行写“出错 · 用时”等。工作组（一串思考与工具调用）的分组在 tool-model.ts。
 
-import type { ChatMessage, ChatPart, SessionNotice } from '@wevir/client-sdk';
-import type { SessionState, TurnId, TurnOutcome } from '@wevir/protocol';
+import type {
+  ChatMessage,
+  ChatPart,
+  SessionNotice,
+  TranscriptEngineSegment,
+  TurnEngine,
+} from '@wevir/client-sdk';
+import type { ProviderProfile, SessionState, TurnId, TurnOutcome } from '@wevir/protocol';
+import { sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
 import { formatDuration } from './format';
 import { visibleParts } from './subagent-model';
@@ -17,7 +24,7 @@ import {
 
 /** 消息流的一块：一个回合的全部消息（用户消息、助手消息、插话），或一条不属于回合的系统消息。 */
 export type TranscriptBlock =
-  | { kind: 'turn'; key: string; turnId: TurnId; messages: ChatMessage[] }
+  | { kind: 'turn'; key: string; turnId: TurnId; messages: ChatMessage[]; engine?: TurnEngine }
   | { kind: 'message'; key: string; message: ChatMessage };
 
 /** 连续的同一回合的消息合成一块；系统消息单独一块。块的 key 是第一条消息的 ID。 */
@@ -31,11 +38,34 @@ export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] 
     } else if (current?.turnId === message.turnId) {
       current.messages.push(message);
     } else {
-      current = { kind: 'turn', key: message.id, turnId: message.turnId, messages: [message] };
+      current = {
+        kind: 'turn',
+        key: message.id,
+        turnId: message.turnId,
+        messages: [message],
+        ...(message.engine !== undefined && { engine: message.engine }),
+      };
       blocks.push(current);
     }
   }
   return blocks;
+}
+
+/** 标题栏的来源：按首次进入顺序去重，同一订阅的多个账号共用一个图标。 */
+export function engineSources(
+  segments: readonly TranscriptEngineSegment[],
+  providers: readonly Pick<ProviderProfile, 'id' | 'kind'>[],
+): TranscriptEngineSegment[] {
+  if (segments.length < 2) return [];
+  const byId = new Map(providers.map((provider) => [provider.id, provider]));
+  const seen = new Set<string>();
+  return segments.filter((segment) => {
+    const provider = byId.get(segment.providerId);
+    const key = (provider && sourceOf(provider)?.kind) ?? segment.providerId;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**

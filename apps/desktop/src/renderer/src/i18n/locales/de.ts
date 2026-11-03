@@ -1132,6 +1132,8 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Engine-Sitzung wiederhergestellt ({version})',
   'notice.readOnly': 'Sitzung schreibgeschützt: {reason}',
   'notice.closed': 'Sitzung geschlossen',
+  'session.engineTrail': 'Quellen',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': 'Gewechselt zu {model}',
   'notice.handoffSameSource': 'In neuer Engine-Sitzung fortgesetzt',
   'notice.movedToWorktree': 'In Worktree verschoben',

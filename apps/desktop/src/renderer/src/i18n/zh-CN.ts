@@ -1126,6 +1126,8 @@ export const zhCN = {
   'notice.resumedVersion': '引擎会话已恢复（{version}）',
   'notice.readOnly': '会话只读：{reason}',
   'notice.closed': '会话已关闭',
+  'session.engineTrail': '来源',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': '已切换到 {model}',
   'notice.handoffSameSource': '已转到新的引擎会话',
   'notice.movedToWorktree': '已移到工作树',

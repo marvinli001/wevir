@@ -1121,6 +1121,8 @@ export const messages: Messages = {
   'notice.resumedVersion': 'エンジンセッションを再開しました ({version})',
   'notice.readOnly': 'セッションは読み取り専用: {reason}',
   'notice.closed': 'セッションは終了しました',
+  'session.engineTrail': 'ソース',
+  'handoff.transition': '{from} → {to}',
   'notice.handoff': '{model} に切り替えました',
   'notice.handoffSameSource': '新しいエンジンセッションで継続',
   'notice.movedToWorktree': 'ワークツリーへ移動しました',
