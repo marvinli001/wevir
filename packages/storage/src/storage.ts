@@ -7,6 +7,7 @@ import {
 import { type ApprovalRuleRepository, createApprovalRuleRepository } from './approval-rules.js';
 import { type ApprovalRepository, createApprovalRepository } from './approvals.js';
 import { type ChannelRepository, createChannelRepository } from './channels.js';
+import { type ContextLedgerRepository, createContextLedgerRepository } from './context-ledger.js';
 import { createDeviceRepository, type DeviceRepository } from './devices.js';
 import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
@@ -56,6 +57,7 @@ export interface Storage {
   readonly sendReceipts: SendReceiptRepository;
   /** 用量统计（0011_usage_records）。 */
   readonly usage: UsageRepository;
+  readonly contextLedger: ContextLedgerRepository;
   /** 订阅的多个账号（0013_subscription_accounts）。 */
   readonly accounts: SubscriptionAccountRepository;
   /** diff 上的行级批注（0015_review_comments）。 */
@@ -107,6 +109,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       approvalRules: createApprovalRuleRepository(db),
       sendReceipts: createSendReceiptRepository(db),
       usage: createUsageRepository(db),
+      contextLedger: createContextLedgerRepository(db),
       accounts: createSubscriptionAccountRepository(db),
       reviewComments: createReviewCommentRepository(db),
       retros: createRetroRepository(db),

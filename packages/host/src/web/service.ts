@@ -15,7 +15,7 @@ import {
   type WebToolState,
   webToolScriptPath,
 } from '@wevir/runtime-adapter/web-tool';
-import type { SecretStore } from '@wevir/storage';
+import type { SecretStore, ToolCallRow } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import type { Logger } from '../logger.js';
 import { type FetchedPage, type FetchPageOptions, fetchPage, WebFetchError } from './fetch-page.js';
@@ -69,6 +69,13 @@ export interface WebServiceOptions {
   node?: string;
 }
 
+interface WebLedger {
+  context: (
+    engineSessionId: string | undefined,
+  ) => { sessionId: string; turnId?: string } | undefined;
+  onCall: (call: ToolCallRow) => void;
+}
+
 type WebUpdateParams = MethodParams<'web.update'>;
 type WebTestParams = MethodParams<'web.test'>;
 
@@ -76,6 +83,7 @@ export class WebService {
   /** 交给引擎的 MCP 服务描述（`@wevir/runtime-adapter/web-tool`）。 */
   readonly tool: WebToolServer;
   readonly #options: WebServiceOptions;
+  #ledger: WebLedger | undefined;
   readonly #token = randomBytes(32).toString('base64url');
   #settings: StoredWebSettings = { ...DEFAULTS };
   /** 哪些服务存了 Key（`state()` 是同步的，所以记在内存里）。 */
@@ -223,8 +231,29 @@ export class WebService {
     }
   }
 
+  setLedger(ledger: WebLedger): void {
+    this.#ledger = ledger;
+  }
+
   /** 一次工具调用（桥脚本经端点转来的 `tools/call`）。 */
-  async call(name: string, args: unknown): Promise<ToolResult> {
+  async call(name: string, args: unknown, engineSessionId?: string): Promise<ToolResult> {
+    const context = this.#ledger?.context(engineSessionId);
+    const result = await this.#call(name, args);
+    const bytes = Buffer.byteLength(JSON.stringify(result));
+    this.#ledger?.onCall({
+      ...context,
+      at: new Date().toISOString(),
+      server: 'wevir_web',
+      tool: name,
+      rawBytes: bytes,
+      returnedBytes: bytes,
+      spilled: false,
+      isError: result.isError === true,
+    });
+    return result;
+  }
+
+  async #call(name: string, args: unknown): Promise<ToolResult> {
     if (!this.#settings.enabled) {
       return toolError('Web access is turned off in Wevir settings (Settings → Web search).');
     }
@@ -352,10 +381,21 @@ export class WebService {
     } catch {
       return reply(400, { error: 'bad request' });
     }
-    const { name, arguments: args } = (body ?? {}) as { name?: unknown; arguments?: unknown };
+    const {
+      name,
+      arguments: args,
+      engineSessionId,
+    } = (body ?? {}) as { name?: unknown; arguments?: unknown; engineSessionId?: unknown };
     if (typeof name !== 'string') return reply(400, { error: 'bad request' });
     try {
-      reply(200, await this.call(name, args));
+      reply(
+        200,
+        await this.call(
+          name,
+          args,
+          typeof engineSessionId === 'string' ? engineSessionId : undefined,
+        ),
+      );
     } catch (error) {
       this.#options.logger?.warn('web tool call failed', { tool: name, error });
       reply(200, toolError('Wevir could not run this web tool call.'));

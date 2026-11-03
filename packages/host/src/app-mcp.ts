@@ -66,6 +66,23 @@ export class AppToolError extends Error {}
 
 export interface AppMcpServerOptions {
   tools: readonly AppTool[];
+  onSupply?: (supply: {
+    sessionId: SessionId;
+    server: string;
+    tools: unknown[];
+    instructions: string;
+  }) => void;
+  onCall?: (call: {
+    sessionId: SessionId;
+    turnId?: string;
+    server: string;
+    tool: string;
+    rawBytes: number;
+    returnedBytes: number;
+    spilled: boolean;
+    isError: boolean;
+  }) => void;
+  turnOf?: (sessionId: SessionId) => string | undefined;
   /** `initialize` 结果里的服务版本。 */
   version: string;
   /**
@@ -122,6 +139,7 @@ const digest = (token: string) => createHash('sha256').update(token).digest('hex
  * Host 重启后全部作废，恢复会话时适配器拿到新的。
  */
 export class AppMcpServer {
+  readonly #supplyInstructions = new Map<string, string>();
   readonly #tools: ReadonlyMap<string, AppTool>;
   /** `dispatch` 列法里加的搜索与分发工具（给了 `tierOf` 时才有）。 */
   readonly #dispatch: ReadonlyMap<string, AppTool>;
@@ -327,6 +345,7 @@ export class AppMcpServer {
     spill = true,
     server?: string,
   ): Promise<AppToolResult> {
+    const turnId = this.#options.turnOf?.(sessionId);
     let result: AppToolResult;
     try {
       result = await tool.call(args, {
@@ -339,7 +358,20 @@ export class AppMcpServer {
       result = errorResult(error);
     }
     const spillOver = this.#options.spill;
-    return !spill || spillOver === undefined ? result : spillOver(sessionId, tool.name, result);
+    const returned =
+      !spill || spillOver === undefined ? result : await spillOver(sessionId, tool.name, result);
+    if (spill || tool.name === 'wevir_tool_search')
+      this.#options.onCall?.({
+        sessionId,
+        ...(turnId !== undefined && { turnId }),
+        server: server ?? APP_TOOLS_SERVER,
+        tool: tool.name,
+        rawBytes: Buffer.byteLength(JSON.stringify(result)),
+        returnedBytes: Buffer.byteLength(JSON.stringify(returned)),
+        spilled: returned !== result,
+        isError: returned.isError === true,
+      });
+    return returned;
   }
 
   /** 一条 JSON-RPC 消息；通知与客户端的回复返回 `undefined`。 */
@@ -375,6 +407,8 @@ export class AppMcpServer {
           // 说明生成不出来不该让引擎连不上工具：这次不带说明（Host 给的函数自己兜底，到这里是意外）。
           this.#options.onError?.(error);
         }
+        if (sessionId !== undefined)
+          this.#supplyInstructions.set(JSON.stringify([sessionId, tier]), instructions ?? '');
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
@@ -384,22 +418,34 @@ export class AppMcpServer {
       }
       case 'ping':
         return rpcResult(id, {});
-      case 'tools/list':
-        return rpcResult(id, {
-          tools: [
-            ...(await this.#visible(sessionId, [...this.#tools.values()], tier)),
-            ...(tier === 'dispatch' ? this.#dispatch.values() : []),
-          ].map((tool) => ({
-            name: tool.name,
-            title: tool.title,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-            annotations: { title: tool.title, ...tool.annotations },
-            // 不分层的列表（Claude、OpenCode）：常驻那层的工具不放到 Claude Code 的工具搜索后面。
-            ...(tier === undefined &&
-              this.#options.tierOf?.(tool.name) === 'core' && { _meta: ALWAYS_LOAD }),
-          })),
-        });
+      case 'tools/list': {
+        const tools = [
+          ...(await this.#visible(sessionId, [...this.#tools.values()], tier)),
+          ...(tier === 'dispatch' ? this.#dispatch.values() : []),
+        ].map((tool) => ({
+          name: tool.name,
+          title: tool.title,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          annotations: { title: tool.title, ...tool.annotations },
+          // 不分层的列表（Claude、OpenCode）：常驻那层的工具不放到 Claude Code 的工具搜索后面。
+          ...(tier === undefined &&
+            this.#options.tierOf?.(tool.name) === 'core' && { _meta: ALWAYS_LOAD }),
+        }));
+        if (sessionId !== undefined)
+          this.#options.onSupply?.({
+            sessionId,
+            server:
+              tier === 'more'
+                ? APP_TOOLS_MORE_SERVER
+                : tier === 'dispatch'
+                  ? 'wevir_dispatch'
+                  : APP_TOOLS_SERVER,
+            tools,
+            instructions: this.#supplyInstructions.get(JSON.stringify([sessionId, tier])) ?? '',
+          });
+        return rpcResult(id, { tools });
+      }
       case 'tools/call': {
         const name = typeof params.name === 'string' ? params.name : undefined;
         // 搜索与分发工具自己按会话过滤目标、目标的结果已经落过盘。

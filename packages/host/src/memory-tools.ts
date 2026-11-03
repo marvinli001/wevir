@@ -275,6 +275,7 @@ export function memoryTools({
 }
 
 interface MemoryIndexOptions {
+  onIndex?: (sessionId: SessionId | undefined, index: string | undefined) => void;
   memory: MemoryStore;
   workspaceOf: (sessionId: SessionId) => string | undefined;
   /** Host 设置的 `autoMemory`；返回 false 时不加索引。省略当作开着。 */
@@ -291,10 +292,15 @@ export function sessionMemoryIndex(
   options: MemoryIndexOptions,
 ): (sessionId: SessionId | undefined) => Promise<string | undefined> {
   return async (sessionId) => {
-    if (options.enabled?.() === false) return undefined;
+    if (options.enabled?.() === false) {
+      options.onIndex?.(sessionId, undefined);
+      return undefined;
+    }
     try {
       const workspaceId = sessionId === undefined ? undefined : options.workspaceOf(sessionId);
-      return await options.memory.indexText(workspaceId);
+      const index = await options.memory.indexText(workspaceId);
+      options.onIndex?.(sessionId, index);
+      return index;
     } catch (error) {
       options.onWarning?.('failed to read saved memory for the tool instructions', { error });
       return undefined;

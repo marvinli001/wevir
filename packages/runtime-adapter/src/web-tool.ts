@@ -110,14 +110,14 @@ const reply = (id, result) => send({ jsonrpc: '2.0', id, result });
 const fail = (id, code, message) => send({ jsonrpc: '2.0', id, error: { code, message } });
 const failed = (text) => ({ content: [{ type: 'text', text }], isError: true });
 
-async function call(name, args) {
+async function call(name, args, meta) {
   if (!ENDPOINT || !TOKEN) return failed('Web access is not available: Wevir did not pass its web service to this engine.');
   let response;
   try {
     response = await fetch(ENDPOINT + '/call', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOKEN },
-      body: JSON.stringify({ name, arguments: args || {} }),
+      body: JSON.stringify({ name, arguments: args || {}, engineSessionId: meta?.threadId }),
       signal: AbortSignal.timeout(${WEB_TOOL_CALL_TIMEOUT_MS}),
     });
   } catch {
@@ -159,7 +159,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       if (!TOOLS.some((tool) => tool.name === params.name)) {
         return fail(message.id, -32602, 'unknown tool: ' + params.name);
       }
-      return void call(params.name, params.arguments).then((result) => reply(message.id, result));
+      return void call(params.name, params.arguments, params._meta).then((result) => reply(message.id, result));
     default:
       return fail(message.id, -32601, 'method not found: ' + message.method);
   }

@@ -27,6 +27,8 @@ const TABLES = [
   'session_retros',
   'sessions',
   'subscription_accounts',
+  'tool_calls_ledger',
+  'tool_supply',
   'tuning_proposals',
   'tuning_runs',
   'usage_records',
@@ -51,13 +53,13 @@ describe('migrate', () => {
       expect(schemaVersion(db)).toBe(0);
       expect(migrate(db)).toEqual({
         from: 0,
-        to: 30,
+        to: 31,
         applied: [
           1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-          26, 27, 28, 29, 30,
+          26, 27, 28, 29, 30, 31,
         ],
       });
-      expect(schemaVersion(db)).toBe(30);
+      expect(schemaVersion(db)).toBe(31);
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
         .all()
@@ -95,6 +97,7 @@ describe('migrate', () => {
         { version: 28, name: 'image_models' },
         { version: 29, name: 'session_fast' },
         { version: 30, name: 'context_ledger' },
+        { version: 31, name: 'tool_ledger' },
       ]);
     } finally {
       db.close();
@@ -105,9 +108,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      expect(migrate(db)).toEqual({ from: 30, to: 30, applied: [] });
-      expect(migrate(db)).toEqual({ from: 30, to: 30, applied: [] });
-      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(30);
+      expect(migrate(db)).toEqual({ from: 31, to: 31, applied: [] });
+      expect(migrate(db)).toEqual({ from: 31, to: 31, applied: [] });
+      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(31);
     } finally {
       db.close();
     }
@@ -119,7 +122,7 @@ describe('migrate', () => {
     first.close();
     const second = openStorage({ dataDir: dataDir() });
     try {
-      expect(schemaVersion(second.db)).toBe(30);
+      expect(schemaVersion(second.db)).toBe(31);
       expect(second.workspaces.get('ws_01')).toEqual(workspace());
     } finally {
       second.close();
@@ -130,9 +133,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      const dir = migrationsWith({ '0031_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 30, to: 31, applied: [31] });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 31, to: 31, applied: [] });
+      const dir = migrationsWith({ '0032_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 31, to: 32, applied: [32] });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 32, to: 32, applied: [] });
     } finally {
       db.close();
     }
@@ -146,7 +149,7 @@ describe('migrate', () => {
       db.prepare(`INSERT INTO usage_records (session_id, request_id, at, source, provider_id,
         provider_name, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens)
         VALUES ('ses_old', 'r', 1793692800123, 'codex', 'p', 'P', 'm', 10, 2, 3, 4, 0)`).run();
-      expect(migrate(db)).toEqual({ from: 29, to: 30, applied: [30] });
+      expect(migrate(db)).toEqual({ from: 29, to: 31, applied: [30, 31] });
       expect(
         db.prepare('SELECT at, input_tokens, turn_id, origin FROM usage_records').get(),
       ).toEqual({
@@ -189,12 +192,12 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       const dir = migrationsWith({
-        '0031_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
-        '0032_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
+        '0032_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
+        '0033_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
       });
       expect(() => migrate(db, loadMigrations(dir))).toThrow(/syntax error/);
       expect(db.isTransaction).toBe(false);
-      // 0001–0031 与 0032 的前半段都在同一个事务里，一起回滚。
+      // 0001–0032 与 0033 的前半段都在同一个事务里，一起回滚。
       expect(schemaVersion(db)).toBe(0);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all();
       expect(tables).toEqual([]);
@@ -206,15 +209,15 @@ describe('migrate', () => {
   it('数据库版本高于程序已知的最新版本时拒绝运行', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
-      migrate(db, loadMigrations(migrationsWith({ '0031_x.sql': 'SELECT 1;' })));
-      expect(() => migrate(db)).toThrow(/schema 版本 31 高于本程序支持的 30/);
+      migrate(db, loadMigrations(migrationsWith({ '0032_x.sql': 'SELECT 1;' })));
+      expect(() => migrate(db)).toThrow(/schema 版本 32 高于本程序支持的 31/);
     } finally {
       db.close();
     }
   });
 
   it('迁移文件名不合规或版本号不连续时报错', () => {
-    expect(() => loadMigrations(migrationsWith({ '0032_gap.sql': 'SELECT 1;' }))).toThrow(
+    expect(() => loadMigrations(migrationsWith({ '0033_gap.sql': 'SELECT 1;' }))).toThrow(
       /从 1 开始连续/,
     );
   });
