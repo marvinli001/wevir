@@ -26,6 +26,7 @@
 // 看到它比最后一条 assistant 消息新，就接着跑一步，那一步的 assistant 消息的 `parentID` 就是它。支线（§5.12）是 `session.fork`
 // 加一条 `noReply` 的边界消息，标题（§5.11）在临时会话里同步 `prompt`（title.ts）。
 
+import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -243,7 +244,6 @@ const IGNORED_EVENTS: ReadonlySet<string> = new Set([
   'session.updated',
   'session.deleted',
   'session.diff',
-  'session.compacted',
   'message.removed',
   'message.part.removed',
   'todo.updated',
@@ -1446,6 +1446,20 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
           session.turn.idleHeld = false;
         }
         return;
+      case 'session.compacted': {
+        if (session.turn === undefined) return;
+        const compactionId = randomUUID();
+        this.#emit(session, [
+          {
+            type: 'context.compacting',
+            engineSessionId: session.id,
+            compactionId,
+            trigger: 'auto',
+          },
+          { type: 'context.compacted', engineSessionId: session.id, compactionId, trigger: 'auto' },
+        ]);
+        return;
+      }
       case 'session.idle':
         this.#onIdle(session);
         return;

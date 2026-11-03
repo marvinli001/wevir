@@ -577,6 +577,34 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     });
   });
 
+  it('session.compacted 映射进行中回合的自动压缩，回合外忽略', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    h.fake.delayMs = 40;
+    await h.adapter.send(id, text('Say hello'));
+    h.fake.emit({
+      id: 'compact',
+      type: 'session.compacted',
+      properties: { sessionID: id },
+    } as Event);
+    await log.terminal();
+    expect(log.events.filter((event) => event.type === 'context.compacted')).toEqual([
+      {
+        type: 'context.compacted',
+        engineSessionId: id,
+        compactionId: expect.any(String),
+        trigger: 'auto',
+      },
+    ]);
+    h.fake.emit({
+      id: 'outside',
+      type: 'session.compacted',
+      properties: { sessionID: id },
+    } as Event);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(log.events.filter((event) => event.type === 'context.compacted')).toHaveLength(1);
+  });
+
   it('接受输入之前到的 idle（上一个回合留下的）不结束这个回合', async () => {
     const h = setup();
     const { id, log } = await openSession(h);
