@@ -37,6 +37,18 @@ export const UsagePriceSchema = z.object({
 });
 export type UsagePrice = z.infer<typeof UsagePriceSchema>;
 
+export const UsagePrecisionSchema = z.enum(['exact', 'engine', 'estimate', 'turn']);
+export type UsagePrecision = z.infer<typeof UsagePrecisionSchema>;
+export const UsageSupplySchema = z.object({
+  toolCount: z.int().min(0),
+  toolBytes: z.int().min(0),
+  mcpNoteBytes: z.int().min(0),
+  instructionBytes: z.int().min(0),
+  requestBytes: z.int().min(0),
+  wevirOutputBytes: z.int().min(0),
+  wevirOutputBytesNew: z.int().min(0),
+});
+
 /** 一次请求。 */
 export const UsageRecordSchema = z.object({
   id: z.string().min(1),
@@ -45,6 +57,18 @@ export const UsageRecordSchema = z.object({
   sessionId: z.string().min(1),
   /** 引擎给这次请求的 ID（Claude 的 `msg_…`、OpenCode 的消息 ID、Codex 的回合与累计用量…），会话内唯一。 */
   requestId: z.string().min(1),
+  turnId: z.string().optional(),
+  workspaceId: z.string().optional(),
+  kind: z.enum(['agent', 'compaction', 'subagent', 'auxiliary']).optional(),
+  origin: z.enum(['gateway', 'engine']).optional(),
+  granularity: z.enum(['request', 'turn']).optional(),
+  precision: UsagePrecisionSchema.optional(),
+  modelCalls: z.int().min(0).optional(),
+  usageReported: z.boolean().optional(),
+  outcome: z
+    .enum(['completed', 'upstream_error', 'client_closed', 'network_error', 'auth_error'])
+    .optional(),
+  supply: UsageSupplySchema.optional(),
   /** 请求所在会话的来源种类。 */
   source: ProviderKindSchema,
   providerId: z.string().min(1),
@@ -64,6 +88,66 @@ export const UsageRecordSchema = z.object({
   firstTokenMs: z.int().min(0).optional(),
 });
 export type UsageRecord = z.infer<typeof UsageRecordSchema>;
+
+export const UsageTurnGroupSchema = z.object({
+  precision: UsagePrecisionSchema,
+  requests: z.object({
+    total: z.int().min(0).optional(),
+    agent: z.int().min(0),
+    compaction: z.int().min(0),
+    subagent: z.int().min(0),
+    auxiliary: z.int().min(0),
+    unknown: z.int().min(0),
+  }),
+  tokens: UsageTokensSchema,
+  cost: UsageCostSchema.optional(),
+  unpriced: z.int().min(0),
+  missingUsage: z.int().min(0),
+  supply: z
+    .object({
+      precision: z.literal('exact'),
+      toolCountFirst: z.int().min(0),
+      toolBytesFirst: z.int().min(0),
+      toolBytesMean: z.number().min(0),
+      toolBytesMax: z.int().min(0),
+      toolBytesChanged: z.boolean(),
+      instructionBytes: z.int().min(0),
+      mcpNoteBytes: z.int().min(0),
+      wevirOutputBytes: z.int().min(0),
+      wevirOutputBytesNew: z.int().min(0),
+    })
+    .optional(),
+});
+export type UsageTurnGroup = z.infer<typeof UsageTurnGroupSchema>;
+export const UsageTurnSchema = z.object({
+  sessionId: z.string(),
+  turnId: z.string().optional(),
+  startedAt: z.string().optional(),
+  finishedAt: z.string().optional(),
+  outcome: z.string().optional(),
+  compactions: z.object({ manual: z.int().min(0), auto: z.int().min(0) }),
+  groups: z.array(UsageTurnGroupSchema),
+  toolCalls: z.object({
+    precision: z.literal('exact'),
+    calls: z.int().min(0),
+    rawBytes: z.int().min(0),
+    returnedBytes: z.int().min(0),
+    byTool: z.array(
+      z.object({
+        server: z.string(),
+        tool: z.string(),
+        calls: z.int().min(0),
+        rawBytes: z.int().min(0),
+        returnedBytes: z.int().min(0),
+      }),
+    ),
+  }),
+});
+export type UsageTurn = z.infer<typeof UsageTurnSchema>;
+export const UsageTurnsParamsSchema = z.object({
+  sessionIds: z.array(z.string().min(1)).min(1).max(100),
+});
+export const UsageTurnsResultSchema = z.object({ turns: z.array(UsageTurnSchema) });
 
 /** 速度与首字的原始和，客户端自己除：速度 = `outputTokens / durationMs`，平均首字 = `firstTokenMs / firstTokenCount`。 */
 export const UsageTimingSchema = z.object({

@@ -73,6 +73,7 @@ describe('UsageService', () => {
     expect(total).toBe(2);
     expect(records[1]).toEqual({
       id: expect.any(String),
+      precision: 'engine',
       at: T0,
       sessionId: 'ses_1',
       requestId: 'req_1',
@@ -100,6 +101,36 @@ describe('UsageService', () => {
     service.record({ ...claude, turnId: 'trn_1' }, event());
     service.record(claude, event({ requestId: 'outside' }));
     expect(storage.usage.range(0, T0 + 1).map((row) => row.turnId)).toEqual(['trn_1', undefined]);
+  });
+
+  it('回合查询分精度；缺失 usage 不估价，已知请求数仍保留', async () => {
+    const { service } = await setup();
+    service.record({ ...claude, turnId: 'trn_a' }, event({ origin: 'gateway', kind: 'agent' }));
+    service.record({ ...claude, turnId: 'trn_a' }, event({ requestId: 'engine' }));
+    service.record(
+      { ...claude, turnId: 'trn_a' },
+      event({ requestId: 'missing', origin: 'gateway', usageReported: false }),
+    );
+    const [turn] = service.turns(['ses_1']);
+    expect(turn?.groups).toMatchObject([
+      {
+        precision: 'exact',
+        requests: { total: 2, agent: 1, unknown: 1 },
+        missingUsage: 1,
+        tokens: { input: 1000 },
+      },
+      {
+        precision: 'engine',
+        requests: { total: 1 },
+        missingUsage: 0,
+        cost: { total: expect.any(Number) },
+      },
+    ]);
+    expect(turn?.groups[0]?.cost).toBeUndefined();
+    expect(
+      service.records({ from: 0, to: T0 + 1 }).records.find((row) => row.requestId === 'missing')
+        ?.cost,
+    ).toBeUndefined();
   });
 
   it('成本：单价是每百万 token，没有缓存价时按输入价', () => {

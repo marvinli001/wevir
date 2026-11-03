@@ -1,0 +1,58 @@
+{
+  "protocolVersion": "0.154.0",
+  "methods": {
+    "usage.turns": {
+      "params": [
+        {
+          "sessionIds": ["ses_1"]
+        }
+      ],
+      "result": [
+        {
+          "turns": [
+            {
+              "sessionId": "ses_1",
+              "turnId": "trn_1",
+              "compactions": {
+                "manual": 0,
+                "auto": 1
+              },
+              "groups": [
+                {
+                  "precision": "exact",
+                  "requests": {
+                    "total": 1,
+                    "agent": 1,
+                    "compaction": 0,
+                    "subagent": 0,
+                    "auxiliary": 0,
+                    "unknown": 0
+                  },
+                  "tokens": {
+                    "input": 10,
+                    "output": 2,
+                    "cacheRead": 3,
+                    "cacheWrite": 4,
+                    "reasoning": 1
+                  },
+                  "unpriced": 1,
+                  "missingUsage": 0
+                }
+              ],
+              "toolCalls": {
+                "precision": "exact",
+                "calls": 0,
+                "rawBytes": 0,
+                "returnedBytes": 0,
+                "byTool": []
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

@@ -1571,6 +1571,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         : { conflict: true as const, note: toMemoryNote(result.conflict) };
     },
 
+    'usage.turns': async ({ sessionIds }) => ({ turns: usageStats().service.turns(sessionIds) }),
     'usage.summary': async ({ edges, filter }) => usageStats().service.summary(edges, filter),
     'usage.records': async (params) => {
       if (params.to < params.from) throw invalidParams(['to'], 'to must not be before from');

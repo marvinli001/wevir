@@ -1745,6 +1745,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         chat_sessions: true,
         memory: true,
         usage_stats: true,
+        context_ledger: true,
         automations: true,
         automation_conditions: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),

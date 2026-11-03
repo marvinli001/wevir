@@ -707,6 +707,10 @@ export class WevirClient {
    * 用量统计变了（0.62.0，`usage.changed`）：有了新的请求记录或价格表换了，以及每次重连上之后（Host 只给调过 `usage.*` 的连接
    * 发通知，重连后要重新读一次才会再收到）。客户端自己重读它在看的。返回取消函数。
    */
+  usageTurns(sessionIds: string[]) {
+    return this.request('usage.turns', { sessionIds });
+  }
+
   onUsageChanged(listener: () => void): () => void {
     this.#usageListeners.add(listener);
     return () => this.#usageListeners.delete(listener);

@@ -318,6 +318,7 @@ export const HOST_FEATURES = {
    * models.dev 价格估的成本。与引擎无关，哪些来源有记录取决于各引擎报不报。
    */
   usageStats: 'usage_stats',
+  contextLedger: 'context_ledger',
   /**
    * 订阅多账号（0.63.0）：`account.add`、`account.remove`、`account.setLabel`，`account.*` 的 `id`，`AccountState` 的 `id`、
    * `label`、`localLogin`、`multiAccount`。哪些种类能添加看 `multiAccount`。
@@ -667,6 +668,7 @@ export const HostFeaturesSchema = z.looseObject({
   handoff_preview: z.boolean().optional(),
   tool_presets: z.boolean().optional(),
   usage_stats: z.boolean().optional(),
+  context_ledger: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),

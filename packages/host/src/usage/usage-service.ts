@@ -13,9 +13,11 @@ import {
   type UsageRecord,
   type UsageSummaryResult,
   type UsageTokens,
+  type UsageTurn,
+  type UsageTurnGroup,
 } from '@wevir/protocol';
 import type { UsageRecordedEvent } from '@wevir/runtime-adapter';
-import type { Storage, StoredUsageRow, UsageRow } from '@wevir/storage';
+import { type Storage, type StoredUsageRow, type UsageRow, usagePrecision } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import type { PricingStore } from './pricing.js';
 
@@ -210,9 +212,100 @@ export class UsageService {
     return { records: rows.map((row) => this.#toRecord(row)), total };
   }
 
+  turns(sessionIds: readonly string[]): UsageTurn[] {
+    const calls = this.#storage.contextLedger.calls(sessionIds);
+    return this.#storage.usage.byTurn(sessionIds).map((turn) => {
+      const toolCalls: UsageTurn['toolCalls'] = {
+        precision: 'exact',
+        calls: 0,
+        rawBytes: 0,
+        returnedBytes: 0,
+        byTool: [],
+      };
+      for (const call of calls.filter(
+        (item) => item.sessionId === turn.sessionId && item.turnId === turn.turnId,
+      )) {
+        toolCalls.calls += 1;
+        toolCalls.rawBytes += call.rawBytes;
+        toolCalls.returnedBytes += call.returnedBytes;
+        let tool = toolCalls.byTool.find(
+          (item) => item.server === call.server && item.tool === call.tool,
+        );
+        if (tool === undefined) {
+          tool = { server: call.server, tool: call.tool, calls: 0, rawBytes: 0, returnedBytes: 0 };
+          toolCalls.byTool.push(tool);
+        }
+        tool.calls += 1;
+        tool.rawBytes += call.rawBytes;
+        tool.returnedBytes += call.returnedBytes;
+      }
+      const groups = turn.groups.map((group): UsageTurnGroup => {
+        const records = group.records.map((row) => this.#toRecord(row));
+        const unpriced = records.filter((record) => record.cost === undefined).length;
+        const cost: UsageCost = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
+        for (const record of records)
+          if (record.cost !== undefined)
+            for (const key of Object.keys(cost) as Array<keyof UsageCost>)
+              cost[key] += record.cost[key];
+        const supplies = records.flatMap((record) =>
+          record.supply === undefined ? [] : [record.supply],
+        );
+        const first = supplies[0];
+        return {
+          precision: group.precision,
+          requests: {
+            ...(group.requests !== undefined && { total: group.requests }),
+            agent: group.byKind.agent ?? 0,
+            compaction: group.byKind.compaction ?? 0,
+            subagent: group.byKind.subagent ?? 0,
+            auxiliary: group.byKind.auxiliary ?? 0,
+            unknown: group.byKind.unknown ?? 0,
+          },
+          tokens: group.tokens,
+          unpriced,
+          missingUsage: group.missingUsage,
+          ...(unpriced === 0 && group.missingUsage === 0 && { cost }),
+          ...(first !== undefined && {
+            supply: {
+              precision: 'exact',
+              toolCountFirst: first.toolCount,
+              toolBytesFirst: first.toolBytes,
+              toolBytesMean:
+                supplies.reduce((sum, item) => sum + item.toolBytes, 0) / supplies.length,
+              toolBytesMax: Math.max(...supplies.map((item) => item.toolBytes)),
+              toolBytesChanged: supplies.some((item) => item.toolBytes !== first.toolBytes),
+              instructionBytes: supplies.reduce((sum, item) => sum + item.instructionBytes, 0),
+              mcpNoteBytes: supplies.reduce((sum, item) => sum + item.mcpNoteBytes, 0),
+              wevirOutputBytes: supplies.reduce((sum, item) => sum + item.wevirOutputBytes, 0),
+              wevirOutputBytesNew: supplies.reduce(
+                (sum, item) => sum + item.wevirOutputBytesNew,
+                0,
+              ),
+            },
+          }),
+        };
+      });
+      return { ...turn, groups, toolCalls };
+    });
+  }
+
   #toRecord(row: StoredUsageRow): UsageRecord {
     const priced = this.#price(row);
     return {
+      ...(row.turnId !== undefined && { turnId: row.turnId }),
+      ...(row.workspaceId !== undefined && { workspaceId: row.workspaceId }),
+      ...(row.kind !== undefined && { kind: row.kind as NonNullable<UsageRecord['kind']> }),
+      ...(row.origin !== undefined && { origin: row.origin as NonNullable<UsageRecord['origin']> }),
+      ...(row.granularity !== undefined && {
+        granularity: row.granularity as NonNullable<UsageRecord['granularity']>,
+      }),
+      ...(row.modelCalls !== undefined && { modelCalls: row.modelCalls }),
+      ...(row.supply !== undefined && { supply: row.supply }),
+      ...(row.usageReported !== undefined && { usageReported: row.usageReported }),
+      ...(row.outcome !== undefined && {
+        outcome: row.outcome as NonNullable<UsageRecord['outcome']>,
+      }),
+      precision: usagePrecision(row),
       id: String(row.id),
       at: row.at,
       sessionId: row.sessionId,
@@ -234,6 +327,7 @@ export class UsageService {
   }
 
   #price(row: UsageRow): { cost: UsageCost; price: UsagePrice; provider: string } | undefined {
+    if (row.usageReported === false) return undefined;
     const baseURL = this.#storage.providers.get(row.providerId)?.baseURL;
     const match = this.#pricing.lookup(
       row.model,

@@ -6414,6 +6414,10 @@ export const methodSamples: MethodSamples = {
       invalid: [{ conflict: false }],
     },
   },
+  'usage.turns': {
+    params: { valid: [{ sessionIds: ['ses_1'] }], invalid: [{}, { sessionIds: [] }] },
+    result: { valid: [{ turns: [] }], invalid: [{ turns: [{}] }] },
+  },
   'usage.summary': {
     params: {
       valid: [

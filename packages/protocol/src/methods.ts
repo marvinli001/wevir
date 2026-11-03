@@ -367,6 +367,8 @@ import {
   UsageRecordsResultSchema,
   UsageSummaryParamsSchema,
   UsageSummaryResultSchema,
+  UsageTurnsParamsSchema,
+  UsageTurnsResultSchema,
 } from './usage.js';
 import {
   ChecksCandidatesParamsSchema,
@@ -2506,6 +2508,11 @@ export const MethodSchemas = {
     permission: 'session.read',
   },
 
+  'usage.turns': {
+    params: UsageTurnsParamsSchema,
+    result: UsageTurnsResultSchema,
+    permission: 'session.read',
+  },
   'usage.summary': {
     params: UsageSummaryParamsSchema,
     result: UsageSummaryResultSchema,
