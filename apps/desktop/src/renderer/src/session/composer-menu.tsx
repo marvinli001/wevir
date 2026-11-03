@@ -1,10 +1,12 @@
 // 输入框上方的菜单（U33，照 T3 Code 的 ComposerCommandMenu，MIT，ec1313c；外形照 Codex 桌面端的斜杠菜单）：斜杠命令、命令
 // 的二级菜单与 @ 提及共用。焦点一直在输入框里（上下键、回车、Tab、Esc 由输入框处理），菜单只画列表；指针悬停换高亮，按下
-// 时不抢焦点。
+// 时不抢焦点。高亮是一块单独的指示（照 Arc command-palette 的 highlight，components/glide.tsx 的 useSelectionIndicator）：上下键
+// 与指针换项时 snap 弹簧滑过去，第一次出现时跳到位、只淡入。
 
 import { cn } from 'cn';
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef } from 'react';
+import { useSelectionIndicator } from '@/components/glide';
 
 export interface MenuEntry {
   key: string;
@@ -50,6 +52,11 @@ export function ComposerMenu({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const activeKey = entries[active]?.key;
+  // 筛选、换一级菜单时项会变，选中项的位置也跟着重新量。
+  const indicator = useSelectionIndicator(
+    listRef,
+    `${activeKey} ${entries.map((entry) => entry.key).join()}`,
+  );
 
   useLayoutEffect(() => {
     if (activeKey === undefined) return;
@@ -82,8 +89,13 @@ export function ComposerMenu({
         id={listId}
         role="listbox"
         aria-label={label}
-        className="min-h-0 overflow-y-auto p-1.5"
+        className="relative isolate min-h-0 overflow-y-auto p-1.5"
       >
+        <span
+          ref={indicator}
+          aria-hidden
+          className="glide-mark rounded-lg bg-muted opacity-0 data-shown:opacity-100"
+        />
         {entries.length === 0 ? (
           <p className="px-2 py-2.5 text-xs text-muted-foreground">{empty}</p>
         ) : (
@@ -97,12 +109,12 @@ export function ComposerMenu({
               aria-selected={index === active}
               aria-disabled={entry.disabled || undefined}
               data-menu-entry={entry.key}
+              data-indicator-target
               onMouseMove={() => index !== active && onActive(index)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => !entry.disabled && onSelect(index)}
               className={cn(
                 'flex h-8 cursor-default items-center gap-2 rounded-lg px-2 text-sm select-none',
-                index === active && 'bg-muted',
                 entry.disabled && 'text-muted-foreground/70',
               )}
             >
