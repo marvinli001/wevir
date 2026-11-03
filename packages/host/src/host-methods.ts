@@ -1542,7 +1542,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       };
     },
 
-    'memory.update': async ({ scope, workspaceId, name, revision, type, description, content }) => {
+    'memory.update': async ({
+      scope,
+      workspaceId,
+      name,
+      revision,
+      type,
+      description,
+      content,
+      paths,
+      invalidate,
+    }) => {
       const memory = memoryStore();
       const workspace = memoryWorkspace(scope, workspaceId);
       const result = await memoryCall(() =>
@@ -1550,6 +1560,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           ...(type !== undefined && { type }),
           ...(description !== undefined && { description }),
           ...(content !== undefined && { content }),
+          ...(paths !== undefined && { paths }),
+          ...(invalidate !== undefined && { invalidate }),
         }),
       );
       return {
@@ -2330,6 +2342,10 @@ function toMemoryNote(note: MemoryNote): MemoryNote {
     updatedAt,
     enabled,
     revision,
+    ...(note.paths !== undefined && { paths: note.paths }),
+    ...(note.anchorHead !== undefined && { anchorHead: note.anchorHead }),
+    ...(note.validity !== undefined && { validity: note.validity }),
+    ...(note.freshness !== undefined && { freshness: note.freshness }),
     ...(note.origin !== undefined && { origin: note.origin }),
     ...(note.lastEdit !== undefined && { lastEdit: note.lastEdit }),
   };

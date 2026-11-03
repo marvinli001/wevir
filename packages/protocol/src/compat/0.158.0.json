@@ -1,0 +1,83 @@
+{
+  "protocolVersion": "0.158.0",
+  "methods": {
+    "memory.read": {
+      "params": [
+        {
+          "scope": "project",
+          "workspaceId": "ws_1",
+          "name": "test-command"
+        }
+      ],
+      "result": [
+        {
+          "note": {
+            "scope": "project",
+            "name": "test-command",
+            "type": "reference",
+            "description": "Test command",
+            "content": "Use pnpm test.",
+            "updatedAt": "2026-11-04T00:00:00.000Z",
+            "enabled": true,
+            "revision": "abc",
+            "paths": ["package.json"],
+            "anchorHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "freshness": {
+              "state": "changed",
+              "paths": ["package.json"],
+              "anchorHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "validity": {
+              "invalidAt": "2026-11-04T00:00:00.000Z",
+              "reason": "Retired",
+              "supersededBy": "test-new"
+            }
+          }
+        }
+      ]
+    },
+    "memory.update": {
+      "params": [
+        {
+          "scope": "project",
+          "workspaceId": "ws_1",
+          "name": "test-command",
+          "revision": "abc",
+          "paths": ["package.json"],
+          "invalidate": {
+            "reason": "Retired"
+          }
+        }
+      ],
+      "result": [
+        {
+          "note": {
+            "scope": "project",
+            "name": "test-command",
+            "type": "reference",
+            "description": "Test command",
+            "content": "Use pnpm test.",
+            "updatedAt": "2026-11-04T00:00:00.000Z",
+            "enabled": true,
+            "revision": "abc",
+            "paths": ["package.json"],
+            "anchorHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "freshness": {
+              "state": "changed",
+              "paths": ["package.json"],
+              "anchorHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "validity": {
+              "invalidAt": "2026-11-04T00:00:00.000Z",
+              "reason": "Retired",
+              "supersededBy": "test-new"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

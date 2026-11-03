@@ -1381,8 +1381,30 @@ export const MemorySourceSchema = z.object({
 });
 export type MemorySource = z.infer<typeof MemorySourceSchema>;
 
+export const MemoryFreshnessSchema = z.object({
+  state: z.enum(['fresh', 'changed', 'moved', 'missing', 'unknown', 'unanchored']),
+  paths: z.array(z.string()).optional(),
+  movedTo: z.string().optional(),
+  anchorHead: z.string().optional(),
+});
+export type MemoryFreshness = z.infer<typeof MemoryFreshnessSchema>;
+export const MemoryValiditySchema = z.object({
+  validFrom: IsoTimeSchema.optional(),
+  invalidAt: IsoTimeSchema.optional(),
+  reason: z.string().optional(),
+  supersededBy: MemoryNameSchema.optional(),
+});
+export type MemoryValidity = z.infer<typeof MemoryValiditySchema>;
+
 /** 一条笔记，不含正文（`memory.list`）。 */
 export const MemorySummarySchema = z.object({
+  paths: z.array(z.string().min(1)).max(10).optional(),
+  anchorHead: z
+    .string()
+    .regex(/^[0-9a-f]{40,64}$/)
+    .optional(),
+  validity: MemoryValiditySchema.optional(),
+  freshness: MemoryFreshnessSchema.optional(),
   scope: MemoryScopeSchema,
   name: MemoryNameSchema,
   type: MemoryTypeSchema,

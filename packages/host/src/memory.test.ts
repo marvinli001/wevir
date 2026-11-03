@@ -257,7 +257,10 @@ describe('MemoryStore 的管理（0.57.0）', () => {
     expect(saved.note).toMatchObject({ content: 'user edit', type: 'project', enabled: true });
     expect(saved.note.updatedAt > agent.updatedAt).toBe(true);
     expect(saved.note.revision).not.toBe(agent.revision);
-    expect(await store.read('global', undefined, 'avoid-rm-f')).toEqual(saved.note);
+    expect(await store.read('global', undefined, 'avoid-rm-f')).toEqual({
+      ...saved.note,
+      freshness: { state: 'unanchored' },
+    });
 
     const same = await store.update('global', undefined, 'avoid-rm-f', saved.note.revision, {
       content: 'user edit',
@@ -419,6 +422,7 @@ describe('memoryTools', () => {
     };
     expect(Object.keys(listed.notes[0] ?? {}).sort()).toEqual([
       'description',
+      'freshness',
       'name',
       'scope',
       'type',
@@ -535,7 +539,7 @@ describe('来源与版本（0.58.0）', () => {
     const file = join(dir, 'global', 'avoid-rm-f.md');
     utimesSync(file, new Date('2030-01-01T00:00:00Z'), new Date('2030-01-01T00:00:00Z'));
     const read = await store.read('global', undefined, 'avoid-rm-f');
-    expect(read).toEqual(saved);
+    expect(read).toEqual({ ...saved, freshness: { state: 'unanchored' } });
     expect(read.updatedAt).toBe('2026-10-19T00:00:00.000Z');
   });
 

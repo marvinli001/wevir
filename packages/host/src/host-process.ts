@@ -554,7 +554,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     startup.mark('chats_assistants');
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
-    const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
+    const memoryStorage = storage;
+    const memory = new MemoryStore({
+      dir: homePath(home, 'memoryDir'),
+      workspacePath: (id) => memoryStorage.workspaces.get(id)?.rootPath,
+    });
     // 写作风格（0.95.0）：档案与建档期间的样本；放了太久的样本启动时删掉。
     const writingStyle = new WritingStyleStore({ dir: homePath(home, 'writingStyleDir') });
     writingStyle.pruneStale().catch((error: unknown) => {
@@ -1541,6 +1545,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       const ledgerEvents = events;
       const memoryBytes = new Map<SessionId, number>();
       const memoryIndexOptions = {
+        cwdOf: (id: SessionId) => storage?.sessions.get(id)?.cwd ?? manager.creating(id)?.cwd,
         onIndex: (sessionId: SessionId | undefined, index: string | undefined) => {
           if (sessionId !== undefined) memoryBytes.set(sessionId, Buffer.byteLength(index ?? ''));
         },
@@ -1782,6 +1787,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         provider_enabled: true,
         chat_sessions: true,
         memory: true,
+        memory_anchors: true,
         usage_stats: true,
         context_ledger: true,
         automations: true,

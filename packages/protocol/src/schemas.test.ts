@@ -5622,6 +5622,26 @@ const ledgerCases = [
 ];
 
 const episodeCases = [
+  {
+    name: 'MemoryFreshness',
+    schema: protocol.MemoryFreshnessSchema,
+    valid: [
+      { state: 'changed', paths: ['package.json'] },
+      { state: 'moved', movedTo: 'new.json' },
+      { state: 'unknown' },
+    ],
+    invalid: [{ state: 'invalid' }],
+  },
+  {
+    name: 'MemoryValidity',
+    schema: protocol.MemoryValiditySchema,
+    valid: [
+      { invalidAt: '2026-11-04T00:00:00.000Z', reason: 'Retired', supersededBy: 'new-note' },
+      {},
+    ],
+    invalid: [{ invalidAt: 'yesterday' }, { supersededBy: '../note' }],
+  },
+
   { name: 'EpisodeId', schema: protocol.EpisodeIdSchema, valid: ['ep_1'], invalid: ['ses_1'] },
   {
     name: 'EpisodeLesson',

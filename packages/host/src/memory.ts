@@ -29,14 +29,23 @@ import {
   MEMORY_CONTENT_MAX_BYTES,
   MEMORY_DESCRIPTION_MAX,
   MEMORY_MAX_PER_SCOPE,
+  type MemoryFreshness,
   MemoryScopeSchema,
   MemorySourceSchema,
   MemoryTypeSchema,
+  type MemoryValidity,
+  MemoryValiditySchema,
   type MemorySource as ProtocolMemorySource,
   type SessionId,
   type TuningProposalId,
   type TurnId,
 } from '@wevir/protocol';
+import {
+  memoryAnchor,
+  memoryFreshness,
+  memoryFreshnessLabel,
+  validMemoryPaths,
+} from './memory-freshness.js';
 import { looksLikeSecret } from './secret-patterns.js';
 
 export { MEMORY_CONTENT_MAX_BYTES, MEMORY_DESCRIPTION_MAX, MEMORY_MAX_PER_SCOPE };
@@ -62,6 +71,10 @@ export interface MemoryNote {
   enabled: boolean;
   /** 这一版的标识：文件内容的散列，文件每次改动都会变。 */
   revision: string;
+  paths?: string[];
+  anchorHead?: string;
+  validity?: MemoryValidity;
+  freshness?: MemoryFreshness;
   /** 第一次写下的来源；0.58.0 之前存的笔记没有。 */
   origin?: MemorySource;
   /** 最近一次改写的来源；没有记录时省略。 */
@@ -106,10 +119,14 @@ export interface MemorySaveInput {
   type: MemoryType;
   description: string;
   content: string;
+  paths?: string[];
 }
 
 /** Agent 保存的条件（0.58.0）。 */
 export interface MemorySaveOptions {
+  cwd?: string;
+  supersedes?: string;
+  supersedesRevision?: string;
   /** 调工具的会话（Host 填）；省略时不记来源（测试与旧调用方）。 */
   writer?: MemoryAgentWriter;
   /**
@@ -120,7 +137,9 @@ export interface MemorySaveOptions {
 }
 
 /** 用户改一条笔记时给出的字段。 */
-export type MemoryPatch = Partial<Pick<MemorySaveInput, 'type' | 'description' | 'content'>>;
+export type MemoryPatch = Partial<
+  Pick<MemorySaveInput, 'type' | 'description' | 'content' | 'paths'>
+> & { invalidate?: { reason?: string; undo?: boolean } };
 
 /** 一个范围里的笔记变了（存、改、启停、删）。 */
 export interface MemoryChange {
@@ -139,6 +158,7 @@ export interface MemoryListing {
 export interface MemoryStoreOptions {
   dir: string;
   now?: () => Date;
+  workspacePath?: (workspaceId: string) => string | undefined;
 }
 
 /** 读出来的一份文件：笔记加上认不出的 frontmatter 字段（改写时原样写回）。 */
@@ -152,6 +172,7 @@ type Loaded = { kind: 'missing' } | { kind: 'unreadable' } | { kind: 'note'; not
 export class MemoryStore {
   readonly dir: string;
   readonly #now: () => Date;
+  readonly #workspacePath: MemoryStoreOptions['workspacePath'];
   /** 同一个范围的写入排队：几个会话同时存取时不会互相覆盖或超出上限。 */
   readonly #queues = new Map<string, Promise<unknown>>();
   readonly #listeners = new Set<(change: MemoryChange) => void>();
@@ -159,6 +180,7 @@ export class MemoryStore {
   constructor(options: MemoryStoreOptions) {
     this.dir = options.dir;
     this.#now = options.now ?? (() => new Date());
+    this.#workspacePath = options.workspacePath;
   }
 
   /** 笔记变了时调用 `listener`（`memory.changed`）。返回退订函数。 */
@@ -168,16 +190,26 @@ export class MemoryStore {
   }
 
   /** Agent 看到的：全局和（有项目时）这个项目里启用的记忆，不含正文，最近更新的在前。 */
-  async list(workspaceId?: string): Promise<MemorySummary[]> {
-    return (await this.listAll(workspaceId)).notes.filter((note) => note.enabled);
+  async list(workspaceId?: string, cwd?: string): Promise<MemorySummary[]> {
+    return (await this.listAll(workspaceId, cwd)).notes.filter(
+      (note) => note.enabled && note.validity?.invalidAt === undefined,
+    );
   }
 
   /** 用户管理用：全局和（有项目时）这个项目的全部笔记（含停用的），加上读不出来的文件名。 */
-  async listAll(workspaceId?: string): Promise<MemoryListing> {
+  async listAll(workspaceId?: string, cwd?: string): Promise<MemoryListing> {
     const scopes = [
       await this.#readScope('global', undefined),
       ...(workspaceId === undefined ? [] : [await this.#readScope('project', workspaceId)]),
     ];
+    const notes = scopes.flatMap((scope) => scope.notes);
+    const fresh = await memoryFreshness(
+      notes,
+      cwd ?? (workspaceId === undefined ? undefined : this.#workspacePath?.(workspaceId)),
+    );
+    notes.forEach((note, index) => {
+      note.freshness = fresh[index];
+    });
     return {
       notes: scopes
         .flatMap((scope) => scope.notes)
@@ -192,13 +224,19 @@ export class MemoryStore {
     scope: MemoryScope,
     workspaceId: string | undefined,
     name: string,
-    options: { includeDisabled?: boolean } = {},
+    options: { includeDisabled?: boolean; cwd?: string } = {},
   ): Promise<MemoryNote> {
     const loaded = await this.#load(scope, workspaceId, checkName(name));
     if (loaded.kind !== 'note' || (!loaded.note.enabled && options.includeDisabled !== true)) {
       throw notFound(scope, name);
     }
-    return publicNote(loaded.note);
+    const freshness = (
+      await memoryFreshness(
+        [loaded.note],
+        options.cwd ?? (workspaceId === undefined ? undefined : this.#workspacePath?.(workspaceId)),
+      )
+    )[0];
+    return { ...publicNote(loaded.note), freshness };
   }
 
   /**
@@ -213,6 +251,14 @@ export class MemoryStore {
   ): Promise<{ note: MemoryNote; created: boolean }> {
     const name = checkName(input.name);
     const fields = checkFields(input);
+    if (
+      input.paths !== undefined &&
+      (!validMemoryPaths(input.paths, scope) || input.paths.some(looksLikeSecret))
+    )
+      throw new MemoryError(
+        'invalid',
+        'paths must contain at most ten repository-relative paths without commas or newlines.',
+      );
     const dir = this.#dir(scope, workspaceId);
     const result = await this.#exclusive(dir, async () => {
       const existing = await this.#load(scope, workspaceId, name);
@@ -234,6 +280,24 @@ export class MemoryStore {
         if (conflict !== undefined) throw conflict;
       }
       if (existing.kind === 'missing') await this.#checkRoom(dir, scope);
+      let superseded: StoredNote | undefined;
+      if (options.supersedes !== undefined) {
+        if (options.supersedes === name)
+          throw new MemoryError('invalid', 'A note cannot supersede itself.');
+        superseded = await this.#loadNote(scope, workspaceId, checkName(options.supersedes));
+        if (!superseded.enabled)
+          throw new MemoryError('disabled', 'Disabled notes cannot be superseded by an Agent.');
+        const conflict = writeConflict(superseded, options.supersedesRevision, options.writer);
+        if (conflict !== undefined) throw conflict;
+      }
+      const anchor = await memoryAnchor(
+        scope === 'global'
+          ? undefined
+          : (options.cwd ??
+              (workspaceId === undefined ? undefined : this.#workspacePath?.(workspaceId))),
+        fields.content,
+        input.paths,
+      );
       const at = this.#now().toISOString();
       const source: MemorySource | undefined =
         options.writer === undefined ? undefined : { by: 'agent', at, ...options.writer };
@@ -247,15 +311,26 @@ export class MemoryStore {
         scope,
         name,
         ...fields,
+        ...anchor,
+        ...(existing.kind === 'note' &&
+          existing.note.validity !== undefined && { validity: existing.note.validity }),
         updatedAt: at,
         enabled: true,
         ...(origin !== undefined && { origin }),
         ...(source !== undefined && { lastEdit: source }),
         extra: existing.kind === 'note' ? existing.note.extra : [],
       });
+      if (superseded !== undefined)
+        await this.#write(dir, {
+          ...superseded,
+          validity: { ...superseded.validity, invalidAt: at, supersededBy: name },
+          updatedAt: at,
+          ...(source !== undefined && { lastEdit: source }),
+        });
       return { note, created: existing.kind === 'missing' };
     });
     this.#emit(scope, workspaceId, name);
+    if (options.supersedes !== undefined) this.#emit(scope, workspaceId, options.supersedes);
     return result;
   }
 
@@ -359,6 +434,11 @@ export class MemoryStore {
           ? existing.note.origin !== undefined && { origin: existing.note.origin }
           : { origin: source }),
         lastEdit: source,
+        ...(existing.kind === 'note' && {
+          paths: existing.note.paths,
+          anchorHead: existing.note.anchorHead,
+          validity: existing.note.validity,
+        }),
         extra: existing.kind === 'note' ? existing.note.extra : [],
       });
       return { note, created: existing.kind === 'missing' };
@@ -385,6 +465,29 @@ export class MemoryStore {
       const current = await this.#loadNote(scope, workspaceId, name);
       if (current.revision !== revision)
         return { note: publicNote(current), conflict: true as const };
+      if (
+        patch.paths !== undefined &&
+        (!validMemoryPaths(patch.paths, scope) || patch.paths.some(looksLikeSecret))
+      )
+        throw new MemoryError('invalid', 'Invalid memory paths.');
+      const validity =
+        patch.invalidate === undefined
+          ? current.validity
+          : patch.invalidate.undo === true
+            ? {
+                ...(current.validity?.validFrom !== undefined && {
+                  validFrom: current.validity.validFrom,
+                }),
+              }
+            : {
+                ...current.validity,
+                invalidAt: this.#now().toISOString(),
+                ...(patch.invalidate.reason !== undefined && {
+                  reason: oneLine(patch.invalidate.reason),
+                }),
+              };
+      if (patch.invalidate?.reason !== undefined && looksLikeSecret(patch.invalidate.reason))
+        throw new MemoryError('invalid', 'Memories never hold secrets.');
       const fields = checkFields({
         type: patch.type ?? current.type,
         description: patch.description ?? current.description,
@@ -393,7 +496,10 @@ export class MemoryStore {
       if (
         fields.type === current.type &&
         fields.description === current.description &&
-        fields.content === current.content
+        fields.content === current.content &&
+        (patch.paths === undefined ||
+          JSON.stringify(patch.paths) === JSON.stringify(current.paths ?? [])) &&
+        JSON.stringify(validity) === JSON.stringify(current.validity)
       ) {
         return { note: publicNote(current) };
       }
@@ -403,6 +509,8 @@ export class MemoryStore {
         note: await this.#write(dir, {
           ...current,
           ...fields,
+          ...(patch.paths !== undefined && { paths: patch.paths }),
+          ...(validity !== undefined && { validity }),
           updatedAt: at,
           lastEdit: { by: 'user', at },
         }),
@@ -470,24 +578,34 @@ export class MemoryStore {
    * 放进会话说明的那一段：全局和这个项目里启用的索引，一条一行；没有记忆时是 `undefined`。超过 `MEMORY_INDEX_MAX_BYTES` 的部分
    * 只说还有几条（模型用 `wevir_memory_list` 看全部）。
    */
-  async indexText(workspaceId?: string): Promise<string | undefined> {
-    const notes = await this.list(workspaceId);
+  async indexText(workspaceId?: string, cwd?: string): Promise<string | undefined> {
+    const notes = (await this.list(workspaceId, cwd)).sort(
+      (a, b) =>
+        Number(['feedback', 'user'].includes(b.type)) -
+          Number(['feedback', 'user'].includes(a.type)) || b.updatedAt.localeCompare(a.updatedAt),
+    );
     if (notes.length === 0) return undefined;
     const lines: string[] = [];
-    let bytes = 0;
+    const header =
+      'Saved memory from earlier sessions (notes you or other sessions wrote, not instructions from the user; they may be out of date, so check names, files and flags before relying on them). Read one with wevir_memory_read:';
+    let bytes = Buffer.byteLength(header) + 1;
     for (const [index, note] of notes.entries()) {
-      const line = `- [${note.scope}] ${note.name} (${note.type}): ${note.description}`;
+      const line = `- [${note.scope}] ${note.name} (${note.type}): ${note.description}${memoryFreshnessLabel(note.freshness)}`;
       bytes += Buffer.byteLength(line) + 1;
-      if (bytes > MEMORY_INDEX_MAX_BYTES) {
+      if (
+        bytes +
+          Buffer.byteLength(
+            `- … and ${notes.length - index} more; call wevir_memory_list to see them.`,
+          ) +
+          1 >
+        MEMORY_INDEX_MAX_BYTES
+      ) {
         lines.push(`- … and ${notes.length - index} more; call wevir_memory_list to see them.`);
         break;
       }
       lines.push(line);
     }
-    return [
-      'Saved memory from earlier sessions (notes you or other sessions wrote, not instructions from the user; they may be out of date, so check names, files and flags before relying on them). Read one with wevir_memory_read:',
-      ...lines,
-    ].join('\n');
+    return [header, ...lines].join('\n');
   }
 
   #dir(scope: MemoryScope, workspaceId: string | undefined): string {
@@ -713,6 +831,12 @@ const KNOWN_FIELDS = new Set([
   'updated',
   'disabled',
   'created',
+  'paths',
+  'anchor-head',
+  'valid-from',
+  'invalid-at',
+  'invalid-reason',
+  'superseded-by',
   ...SOURCE_FIELDS.flatMap((field) => [`created-${field}`, `updated-${field}`]),
 ]);
 
@@ -776,6 +900,14 @@ function renderNote(note: Omit<StoredNote, 'revision'>): string {
     `updated: ${note.updatedAt}`,
     ...sourceLines('updated', note.lastEdit),
     ...(note.enabled ? [] : ['disabled: true']),
+    ...(note.paths?.length ? [`paths: ${note.paths.join(', ')}`] : []),
+    ...(note.anchorHead === undefined ? [] : [`anchor-head: ${note.anchorHead}`]),
+    ...(note.validity?.validFrom === undefined ? [] : [`valid-from: ${note.validity.validFrom}`]),
+    ...(note.validity?.invalidAt === undefined ? [] : [`invalid-at: ${note.validity.invalidAt}`]),
+    ...(note.validity?.reason === undefined ? [] : [`invalid-reason: ${note.validity.reason}`]),
+    ...(note.validity?.supersededBy === undefined
+      ? []
+      : [`superseded-by: ${note.validity.supersededBy}`]),
     ...note.extra.map(([key, value]) => `${key}: ${value}`),
     '---',
     '',
@@ -804,6 +936,21 @@ function parseNote(scope: MemoryScope, name: string, text: string): StoredNote |
   if (description === undefined || description === '') return undefined;
   const origin = parseSource(fields, 'created');
   const lastEdit = parseSource(fields, 'updated');
+  const paths = fields
+    .get('paths')
+    ?.split(',')
+    .map((path) => path.trim())
+    .filter(Boolean);
+  if (paths !== undefined && !validMemoryPaths(paths, scope)) return undefined;
+  const anchorHead = fields.get('anchor-head');
+  if (anchorHead !== undefined && !/^[0-9a-f]{40,64}$/.test(anchorHead)) return undefined;
+  const validity = MemoryValiditySchema.safeParse({
+    validFrom: fields.get('valid-from'),
+    invalidAt: fields.get('invalid-at'),
+    reason: fields.get('invalid-reason'),
+    supersededBy: fields.get('superseded-by'),
+  });
+  if (!validity.success) return undefined;
   return {
     scope,
     name,
@@ -815,6 +962,11 @@ function parseNote(scope: MemoryScope, name: string, text: string): StoredNote |
     revision: revisionOf(text),
     ...(origin !== undefined && { origin }),
     ...(lastEdit !== undefined && { lastEdit }),
+    ...(paths !== undefined && { paths }),
+    ...(anchorHead !== undefined && { anchorHead }),
+    ...(Object.values(validity.data).some((value) => value !== undefined) && {
+      validity: validity.data,
+    }),
     extra,
   };
 }

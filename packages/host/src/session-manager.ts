@@ -491,7 +491,7 @@ export interface RecoveryReport {
 /** 正在建、还没写进存储的会话（`SessionManager.creating`）：以后会写进它的记录的这几项。 */
 export type CreatingSession = Pick<
   SessionRecord,
-  'workspaceId' | 'providerId' | 'origin' | 'toolPreset' | 'environmentId'
+  'workspaceId' | 'providerId' | 'origin' | 'toolPreset' | 'environmentId' | 'cwd'
 >;
 
 /** 算用户说明的会话（0.78.0）：是不是用户直接对话的会话（给不给风格）。 */
@@ -1540,6 +1540,7 @@ export class SessionManager {
               : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     this.#creating.set(sessionId, {
+      cwd: config.cwd,
       workspaceId: workspace.id,
       providerId: provider.id,
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
@@ -4234,6 +4235,7 @@ export class SessionManager {
             : { kind: 'fork', sessionId: source.id, role };
       let engineSession: EngineSession;
       this.#creating.set(sessionId, {
+        cwd: config.cwd,
         workspaceId: record.workspaceId,
         providerId: record.providerId,
         ...(origin !== undefined && { origin }),

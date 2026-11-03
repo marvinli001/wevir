@@ -1839,6 +1839,10 @@ export const MemoryNoteResultSchema = z.object({
  */
 export const MemoryUpdateParamsSchema = z.object({
   ...MemoryTarget,
+  paths: z.array(z.string().min(1)).max(10).optional(),
+  invalidate: z
+    .object({ reason: z.string().max(300).optional(), undo: z.boolean().optional() })
+    .optional(),
   revision: z.string().min(1),
   type: MemoryTypeSchema.optional(),
   description: z.string().optional(),

@@ -319,6 +319,15 @@ function MemoryRow({
           <span className="shrink-0 rounded bg-muted px-1.5 py-px">
             {t(MEMORY_TYPE_LABELS[note.type])}
           </span>
+          {note.validity?.invalidAt !== undefined && (
+            <span className="shrink-0 text-warning">{t('settings.memory.invalid')}</span>
+          )}
+          {note.freshness !== undefined &&
+            !['fresh', 'unanchored', 'unknown'].includes(note.freshness.state) && (
+              <span className="shrink-0 text-warning">
+                {t(`settings.memory.freshness.${note.freshness.state}`)}
+              </span>
+            )}
           {!note.enabled && (
             <span className="shrink-0 rounded bg-warning/10 px-1.5 py-px text-warning">
               {t('settings.memory.disabled')}
@@ -375,14 +384,24 @@ function updatedText(updatedAt: string): string {
  * 列出现在的版本，由用户选“用草稿覆盖”或“放弃草稿”。笔记已被删掉时只说明这一点。
  */
 function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () => void }) {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
+  const anchors =
+    view.status === 'connected' && hostSupports(view.hello.features, 'memory_anchors');
+  const [pathsDraft, setPathsDraft] = useState('');
+  const [invalidReason, setInvalidReason] = useState('');
   const [note, setNote] = useState<MemoryNote>();
   const [draft, setDraft] = useState<MemoryDraft>();
   const [conflict, setConflict] = useState<MemoryNote>();
   const [error, setError] = useState<string>();
   const [gone, setGone] = useState(false);
   const [busy, setBusy] = useState(false);
-  const ids = { description: useId(), content: useId(), type: useId() };
+  const ids = {
+    description: useId(),
+    content: useId(),
+    type: useId(),
+    paths: useId(),
+    reason: useId(),
+  };
 
   useEffect(() => {
     if (!client) return;
@@ -393,6 +412,8 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
         if (stopped) return;
         setNote(read);
         setDraft(draftOf(read));
+        setPathsDraft(read.paths?.join('\n') ?? '');
+        setInvalidReason(read.validity?.reason ?? '');
       })
       .catch((reason: unknown) => {
         if (stopped) return;
@@ -404,6 +425,8 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
     };
   }, [client, target]);
 
+  const pathsChanged = (base: MemoryNote) =>
+    anchors && pathsDraft.trim() !== (base.paths ?? []).join('\n');
   const save = async (base: MemoryNote) => {
     if (!client || !draft) return;
     setBusy(true);
@@ -413,6 +436,12 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
         ...target,
         revision: base.revision,
         ...updatePatch(draft, draftOf(base)),
+        ...(pathsChanged(base) && {
+          paths: pathsDraft
+            .split('\n')
+            .map((path) => path.trim())
+            .filter(Boolean),
+        }),
       });
       if (result.conflict) {
         setNote(result.note);
@@ -430,12 +459,19 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (note && draft && draftValid(draft) && draftChanged(draft, draftOf(note))) void save(note);
+    if (
+      note &&
+      draft &&
+      draftValid(draft) &&
+      (draftChanged(draft, draftOf(note)) || pathsChanged(note))
+    )
+      void save(note);
   };
 
   const discard = () => {
     if (!conflict) return;
     setDraft(draftOf(conflict));
+    setPathsDraft(conflict.paths?.join('\n') ?? '');
     setConflict(undefined);
   };
 
@@ -509,6 +545,65 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
                   data-testid="memory-content"
                 />
               </div>
+              {anchors && note && (
+                <div className="space-y-2">
+                  <label htmlFor={ids.paths} className="text-sm font-medium">
+                    {t('settings.memory.paths')}
+                  </label>
+                  <Textarea
+                    id={ids.paths}
+                    value={pathsDraft}
+                    onChange={(event) => setPathsDraft(event.target.value)}
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {note.anchorHead?.slice(0, 7)}
+                    {note.freshness &&
+                      ` · ${t(`settings.memory.freshness.${note.freshness.state}`)}`}
+                  </p>
+                  <label htmlFor={ids.reason} className="text-sm font-medium">
+                    {t('settings.memory.invalidReason')}
+                  </label>
+                  <Input
+                    id={ids.reason}
+                    value={invalidReason}
+                    maxLength={300}
+                    onChange={(event) => setInvalidReason(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy || !client}
+                    onClick={async () => {
+                      if (!client) return;
+                      setBusy(true);
+                      setError(undefined);
+                      try {
+                        const result = await client.request('memory.update', {
+                          ...target,
+                          revision: note.revision,
+                          invalidate: {
+                            undo: note.validity?.invalidAt !== undefined,
+                            ...(invalidReason.trim() !== '' && { reason: invalidReason }),
+                          },
+                        });
+                        setNote(result.note);
+                        if (result.conflict) setConflict(result.note);
+                      } catch (reason) {
+                        setError(describe(reason));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {t(
+                      note.validity?.invalidAt === undefined
+                        ? 'settings.memory.invalidate'
+                        : 'settings.memory.restore',
+                    )}
+                  </Button>
+                </div>
+              )}
               {note && <MemorySources note={note} onOpened={onClose} />}
             </div>
           )}
@@ -550,7 +645,7 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
                     !note ||
                     !draft ||
                     !draftValid(draft) ||
-                    !draftChanged(draft, draftOf(note))
+                    !(draftChanged(draft, draftOf(note)) || pathsChanged(note))
                   }
                   data-confirm
                 >

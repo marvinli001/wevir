@@ -422,6 +422,7 @@ export class AppTools {
         ? []
         : memoryTools({
             memory: options.memory,
+            cwdOf: (sessionId) => callerCwd(options.storage, sessionId),
             ...(options.memoryEnabled !== undefined && { enabled: options.memoryEnabled }),
             workspaceOf: (sessionId) => {
               callerCwd(options.storage, sessionId); // 会话或工作区不在了时拒绝
