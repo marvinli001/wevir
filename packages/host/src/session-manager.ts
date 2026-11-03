@@ -427,7 +427,7 @@ export interface SessionManagerOptions {
    * 模型，引擎没报模型时用会话的。
    */
   onUsage?: (
-    context: { sessionId: SessionId; providerId: string; modelId: string },
+    context: { sessionId: SessionId; providerId: string; modelId: string; turnId?: TurnId },
     event: UsageRecordedEvent,
   ) => void;
   /**
@@ -5652,7 +5652,10 @@ export class SessionManager {
       case 'usage.recorded': {
         if (this.#onUsage === undefined) return;
         const { providerId, modelId } = this.#snapshot(runtime).session;
-        this.#onUsage({ sessionId, providerId, modelId }, event);
+        this.#onUsage(
+          { sessionId, providerId, modelId, ...(runtime.turn && { turnId: runtime.turn.turnId }) },
+          event,
+        );
         return;
       }
       case 'subagent.started':

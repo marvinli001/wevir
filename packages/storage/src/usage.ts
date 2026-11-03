@@ -5,6 +5,15 @@ import { changed, integer, optionalText, orNull, text } from './rows.js';
 export interface UsageRow {
   sessionId: string;
   requestId: string;
+  turnId?: string;
+  workspaceId?: string;
+  kind?: string;
+  origin?: string;
+  granularity?: string;
+  modelCalls?: number;
+  usageReported?: boolean;
+  outcome?: string;
+  supply?: UsageSupply;
   at: number;
   /** 会话来源的种类（protocol `ProviderKind`）。 */
   source: string;
@@ -19,6 +28,16 @@ export interface UsageRow {
   reasoningTokens: number;
   durationMs?: number;
   firstTokenMs?: number;
+}
+
+export interface UsageSupply {
+  toolCount: number;
+  toolBytes: number;
+  mcpNoteBytes: number;
+  instructionBytes: number;
+  requestBytes: number;
+  wevirOutputBytes: number;
+  wevirOutputBytesNew: number;
 }
 
 /** 读出来的行多一个自增 `id`。 */
@@ -57,11 +76,15 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
     INSERT OR IGNORE INTO usage_records (
       session_id, request_id, at, source, provider_id, provider_name, upstream, model,
       input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-      duration_ms, first_token_ms
+      duration_ms, first_token_ms, turn_id, workspace_id, kind, origin, granularity,
+      model_calls, usage_reported, outcome, tool_count, tool_bytes, mcp_note_bytes,
+      instruction_bytes, request_bytes, wevir_output_bytes, wevir_output_bytes_new
     ) VALUES (
       :sessionId, :requestId, :at, :source, :providerId, :providerName, :upstream, :model,
       :inputTokens, :outputTokens, :cacheReadTokens, :cacheWriteTokens, :reasoningTokens,
-      :durationMs, :firstTokenMs
+      :durationMs, :firstTokenMs, :turnId, :workspaceId, :kind, :origin, :granularity,
+      :modelCalls, :usageReported, :outcome, :toolCount, :toolBytes, :mcpNoteBytes,
+      :instructionBytes, :requestBytes, :wevirOutputBytes, :wevirOutputBytesNew
     )`);
   const range = db.prepare('SELECT * FROM usage_records WHERE at >= ? AND at < ? ORDER BY at, id');
   // 数组条件用 JSON 传：NULL 表示不限。
@@ -99,6 +122,21 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
           reasoningTokens: row.reasoningTokens,
           durationMs: orNull(row.durationMs),
           firstTokenMs: orNull(row.firstTokenMs),
+          turnId: orNull(row.turnId),
+          workspaceId: orNull(row.workspaceId),
+          kind: orNull(row.kind),
+          origin: orNull(row.origin),
+          granularity: orNull(row.granularity),
+          modelCalls: orNull(row.modelCalls),
+          usageReported: row.usageReported === undefined ? null : Number(row.usageReported),
+          outcome: orNull(row.outcome),
+          toolCount: orNull(row.supply?.toolCount),
+          toolBytes: orNull(row.supply?.toolBytes),
+          mcpNoteBytes: orNull(row.supply?.mcpNoteBytes),
+          instructionBytes: orNull(row.supply?.instructionBytes),
+          requestBytes: orNull(row.supply?.requestBytes),
+          wevirOutputBytes: orNull(row.supply?.wevirOutputBytes),
+          wevirOutputBytesNew: orNull(row.supply?.wevirOutputBytesNew),
         }),
       );
     },
@@ -140,6 +178,7 @@ function fromRow(row: SqlRow): StoredUsageRow {
     id: integer(row, 'id'),
     sessionId: text(row, 'session_id'),
     requestId: text(row, 'request_id'),
+    ...ledgerFields(row),
     at: integer(row, 'at'),
     source: text(row, 'source'),
     providerId: text(row, 'provider_id'),
@@ -154,4 +193,33 @@ function fromRow(row: SqlRow): StoredUsageRow {
     ...(durationMs !== undefined && { durationMs }),
     ...(firstTokenMs !== undefined && { firstTokenMs }),
   };
+}
+
+function ledgerFields(row: SqlRow): Partial<UsageRow> {
+  const result: Partial<UsageRow> = {};
+  for (const [key, column] of [
+    ['turnId', 'turn_id'],
+    ['workspaceId', 'workspace_id'],
+    ['kind', 'kind'],
+    ['origin', 'origin'],
+    ['granularity', 'granularity'],
+    ['outcome', 'outcome'],
+  ] as const) {
+    const value = optionalText(row, column);
+    if (value !== undefined) result[key] = value;
+  }
+  const modelCalls = optionalInteger(row, 'model_calls');
+  if (modelCalls !== undefined) result.modelCalls = modelCalls;
+  if (row.usage_reported !== null) result.usageReported = row.usage_reported === 1;
+  if (row.tool_count !== null)
+    result.supply = {
+      toolCount: integer(row, 'tool_count'),
+      toolBytes: integer(row, 'tool_bytes'),
+      mcpNoteBytes: integer(row, 'mcp_note_bytes'),
+      instructionBytes: integer(row, 'instruction_bytes'),
+      requestBytes: integer(row, 'request_bytes'),
+      wevirOutputBytes: integer(row, 'wevir_output_bytes'),
+      wevirOutputBytesNew: integer(row, 'wevir_output_bytes_new'),
+    };
+  return result;
 }

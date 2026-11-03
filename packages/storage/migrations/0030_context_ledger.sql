@@ -1,0 +1,16 @@
+ALTER TABLE usage_records ADD COLUMN turn_id TEXT;
+ALTER TABLE usage_records ADD COLUMN workspace_id TEXT;
+ALTER TABLE usage_records ADD COLUMN kind TEXT;
+ALTER TABLE usage_records ADD COLUMN origin TEXT;
+ALTER TABLE usage_records ADD COLUMN granularity TEXT;
+ALTER TABLE usage_records ADD COLUMN model_calls INTEGER;
+ALTER TABLE usage_records ADD COLUMN usage_reported INTEGER;
+ALTER TABLE usage_records ADD COLUMN outcome TEXT;
+ALTER TABLE usage_records ADD COLUMN tool_count INTEGER;
+ALTER TABLE usage_records ADD COLUMN tool_bytes INTEGER;
+ALTER TABLE usage_records ADD COLUMN mcp_note_bytes INTEGER;
+ALTER TABLE usage_records ADD COLUMN instruction_bytes INTEGER;
+ALTER TABLE usage_records ADD COLUMN request_bytes INTEGER;
+ALTER TABLE usage_records ADD COLUMN wevir_output_bytes INTEGER;
+ALTER TABLE usage_records ADD COLUMN wevir_output_bytes_new INTEGER;
+CREATE INDEX usage_records_turn ON usage_records (session_id, turn_id);

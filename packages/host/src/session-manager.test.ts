@@ -2772,6 +2772,20 @@ describe('SessionManager：其他', () => {
     expect(all(h, id).map((e) => e.type)).not.toContain('usage.recorded');
   });
 
+  it('echo 每回合的用量带正确的回合 ID，回合外省略', async () => {
+    const onUsage = vi.fn();
+    const h = setup({ manager: { onUsage } });
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await waitForState(h, id, 'idle');
+    await send(h, id, 'world');
+    await waitForState(h, id, 'idle');
+    const turns = all(h, id)
+      .filter((e) => e.type === 'turn.started')
+      .map((e) => e.payload.turnId);
+    expect(onUsage.mock.calls.map(([context]) => context.turnId)).toEqual(turns);
+  });
+
   it('上面的用例走过了 domain-model §4.1 的每一条状态转换', () => {
     const expected = SESSION_TRANSITIONS.flatMap((t) =>
       t.from.map((from) => `${from}→${t.to}:${t.reason}`),

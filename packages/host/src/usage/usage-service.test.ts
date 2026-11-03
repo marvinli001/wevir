@@ -95,6 +95,13 @@ describe('UsageService', () => {
     expect(records[0]?.durationMs).toBeUndefined();
   });
 
+  it('保存回合归属；回合外的记录没有回合', async () => {
+    const { service, storage } = await setup();
+    service.record({ ...claude, turnId: 'trn_1' }, event());
+    service.record(claude, event({ requestId: 'outside' }));
+    expect(storage.usage.range(0, T0 + 1).map((row) => row.turnId)).toEqual(['trn_1', undefined]);
+  });
+
   it('成本：单价是每百万 token，没有缓存价时按输入价', () => {
     expect(
       costOf(

@@ -51,13 +51,13 @@ describe('migrate', () => {
       expect(schemaVersion(db)).toBe(0);
       expect(migrate(db)).toEqual({
         from: 0,
-        to: 29,
+        to: 30,
         applied: [
           1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-          26, 27, 28, 29,
+          26, 27, 28, 29, 30,
         ],
       });
-      expect(schemaVersion(db)).toBe(29);
+      expect(schemaVersion(db)).toBe(30);
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
         .all()
@@ -94,6 +94,7 @@ describe('migrate', () => {
         { version: 27, name: 'channel_groups' },
         { version: 28, name: 'image_models' },
         { version: 29, name: 'session_fast' },
+        { version: 30, name: 'context_ledger' },
       ]);
     } finally {
       db.close();
@@ -104,9 +105,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      expect(migrate(db)).toEqual({ from: 29, to: 29, applied: [] });
-      expect(migrate(db)).toEqual({ from: 29, to: 29, applied: [] });
-      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(29);
+      expect(migrate(db)).toEqual({ from: 30, to: 30, applied: [] });
+      expect(migrate(db)).toEqual({ from: 30, to: 30, applied: [] });
+      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(30);
     } finally {
       db.close();
     }
@@ -118,7 +119,7 @@ describe('migrate', () => {
     first.close();
     const second = openStorage({ dataDir: dataDir() });
     try {
-      expect(schemaVersion(second.db)).toBe(29);
+      expect(schemaVersion(second.db)).toBe(30);
       expect(second.workspaces.get('ws_01')).toEqual(workspace());
     } finally {
       second.close();
@@ -129,9 +130,31 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      const dir = migrationsWith({ '0030_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 29, to: 30, applied: [30] });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 30, to: 30, applied: [] });
+      const dir = migrationsWith({ '0031_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 30, to: 31, applied: [31] });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 31, to: 31, applied: [] });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('0030 保留旧用量及毫秒时间，不猜测旧回合', () => {
+    const db = openDatabase(join(dataDir(), 'wevir.db'));
+    try {
+      const migrations = loadMigrations();
+      migrate(db, migrations.slice(0, 29));
+      db.prepare(`INSERT INTO usage_records (session_id, request_id, at, source, provider_id,
+        provider_name, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens)
+        VALUES ('ses_old', 'r', 1793692800123, 'codex', 'p', 'P', 'm', 10, 2, 3, 4, 0)`).run();
+      expect(migrate(db)).toEqual({ from: 29, to: 30, applied: [30] });
+      expect(
+        db.prepare('SELECT at, input_tokens, turn_id, origin FROM usage_records').get(),
+      ).toEqual({
+        at: 1793692800123,
+        input_tokens: 10,
+        turn_id: null,
+        origin: null,
+      });
     } finally {
       db.close();
     }
@@ -166,12 +189,12 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       const dir = migrationsWith({
-        '0030_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
-        '0031_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
+        '0031_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
+        '0032_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
       });
       expect(() => migrate(db, loadMigrations(dir))).toThrow(/syntax error/);
       expect(db.isTransaction).toBe(false);
-      // 0001–0030 与 0031 的前半段都在同一个事务里，一起回滚。
+      // 0001–0031 与 0032 的前半段都在同一个事务里，一起回滚。
       expect(schemaVersion(db)).toBe(0);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all();
       expect(tables).toEqual([]);
@@ -183,15 +206,15 @@ describe('migrate', () => {
   it('数据库版本高于程序已知的最新版本时拒绝运行', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
-      migrate(db, loadMigrations(migrationsWith({ '0030_x.sql': 'SELECT 1;' })));
-      expect(() => migrate(db)).toThrow(/schema 版本 30 高于本程序支持的 29/);
+      migrate(db, loadMigrations(migrationsWith({ '0031_x.sql': 'SELECT 1;' })));
+      expect(() => migrate(db)).toThrow(/schema 版本 31 高于本程序支持的 30/);
     } finally {
       db.close();
     }
   });
 
   it('迁移文件名不合规或版本号不连续时报错', () => {
-    expect(() => loadMigrations(migrationsWith({ '0031_gap.sql': 'SELECT 1;' }))).toThrow(
+    expect(() => loadMigrations(migrationsWith({ '0032_gap.sql': 'SELECT 1;' }))).toThrow(
       /从 1 开始连续/,
     );
   });

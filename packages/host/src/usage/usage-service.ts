@@ -37,6 +37,7 @@ export interface UsageServiceOptions {
 /** 一次请求属于哪个会话、会话用的哪个 Provider 与模型（SessionManager 给）。 */
 export interface UsageContext {
   sessionId: string;
+  turnId?: string;
   providerId: string;
   modelId: string;
 }
@@ -64,6 +65,7 @@ export class UsageService {
       const row: UsageRow = {
         sessionId: context.sessionId,
         requestId: event.requestId,
+        ...(context.turnId !== undefined && { turnId: context.turnId }),
         at: this.#now(),
         source: provider?.kind ?? 'openai-compatible',
         providerId: context.providerId,
