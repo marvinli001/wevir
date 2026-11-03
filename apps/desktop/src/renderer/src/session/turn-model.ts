@@ -2,7 +2,7 @@
 // 助手正文之间的全部过程收进一行“已处理 2 分 31 秒”，只留最后的回答、错误与插话；回答下面是“N 个文件已更改 +a −d”。
 // 出错、被停止、被中断的回合不自动折叠，那一行写“出错 · 用时”等。工作组（一串思考与工具调用）的分组在 tool-model.ts。
 
-import type { ChatMessage, ChatPart } from '@wevir/client-sdk';
+import type { ChatMessage, ChatPart, SessionNotice } from '@wevir/client-sdk';
 import type { SessionState, TurnId, TurnOutcome } from '@wevir/protocol';
 import { t } from '@/i18n';
 import { formatDuration } from './format';
@@ -296,6 +296,27 @@ export function foldSegments(
 /** 回合那一行的文字：“已处理 2 分 31 秒”“出错 · 12 秒”“已停止 · 3 秒”“已中断 · 1 分 2 秒”。 */
 export function turnHeaderText(finished: { outcome: TurnOutcome; durationMs: number }): string {
   return t(`turn.header.${finished.outcome}`, { duration: formatDuration(finished.durationMs) });
+}
+
+/**
+ * 最后一个回合之后的第一次接力（0.25.0）：那个回合跑在它的 `fromProviderId` / `fromModelId` 上，之后会话换了来源。最后一个回合
+ * 之后没换过来源时 `undefined`。Host 不让编辑接力之前的回合，额度用完的卡片据此知道碰到上限的是哪个模型。
+ */
+export function handoffAfterLastTurn(transcript: {
+  messages: readonly ChatMessage[];
+}): Extract<SessionNotice, { kind: 'handoff' }> | undefined {
+  // 倒着找到最后一个回合为止：越往前越早，最早那次的 `from` 才是那个回合用的。
+  let earliest: Extract<SessionNotice, { kind: 'handoff' }> | undefined;
+  for (let i = transcript.messages.length - 1; i >= 0; i--) {
+    const message = transcript.messages[i];
+    if (message === undefined) continue;
+    if (message.role !== 'system') break;
+    for (let j = message.parts.length - 1; j >= 0; j--) {
+      const part = message.parts[j];
+      if (part?.type === 'notice' && part.notice.kind === 'handoff') earliest = part.notice;
+    }
+  }
+  return earliest;
 }
 
 /** 会话最后一个回合（0.38.0，编辑最后一条用户消息）：最后一条用户或助手消息所在的回合；没有回合时 `undefined`。 */

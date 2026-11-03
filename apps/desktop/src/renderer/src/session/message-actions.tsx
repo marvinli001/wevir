@@ -40,8 +40,8 @@ export interface MessageActions {
     set(turnId: TurnId, enabled: boolean): Promise<void>;
   };
   /**
-   * 换模型继续（0.143.0，Host 功能 `usage_limit_switch`）：`lastTurnId` 同 `autoContinue`；`providers` 与 `value` 是输入框模型菜单的
-   * 数据，`switchable` 判断能不能换到这个来源（同一来源要 Host 能换模型，别的来源要能接力），`run` 换模型并继续（失败的提示由会话
+   * 换模型继续（0.143.0，Host 功能 `usage_limit_switch`）：`lastTurnId` 同 `autoContinue`；`providers` 是输入框模型菜单的数据，
+   * `value` 是碰到上限的那个回合用的模型（之后在输入框换过来源时不是会话现在的），`switchable` 判断能不能换到这个来源（同一来源要 Host 能换模型，别的来源要能接力），`run` 换模型并继续（失败的提示由会话
    * 视图显示）。Host 不支持、会话不可写或是子会话时没有。
    */
   switchModel?: {

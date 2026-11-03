@@ -157,6 +157,46 @@ describe('接力（SessionManager）', () => {
     expect(env.claude.sessionCount).toBe(1);
   });
 
+  it('换模型继续：输入框里先接力到了选的来源，取消排着的自动继续，不再接力，直接继续', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, 'hitlimit');
+    const limited = env.events.readSince(sessionId, 0).findLast((e) => e.type === 'turn.started');
+    const turnId = limited?.type === 'turn.started' ? limited.payload.turnId : undefined;
+    if (turnId === undefined) throw new Error('no turn');
+    await env.manager.setAutoContinue({ sessionId, turnId, enabled: true });
+    expect(env.events.snapshot(sessionId)?.session.autoContinue?.turnId).toBe(turnId);
+    await env.manager.configure({ sessionId, providerId: 'claude' });
+    // 等的是 mock 账号的重置：换了来源就取消，也不能再勾上。
+    expect(env.events.snapshot(sessionId)?.session.autoContinue).toBeUndefined();
+    await expect(
+      env.manager.setAutoContinue({ sessionId, turnId, enabled: true }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(
+      env.manager.continueWithModel(
+        { sessionId, turnId, providerId: 'mock', modelId: 'm' },
+        identity,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    const result = await env.manager.continueWithModel(
+      { sessionId, turnId, providerId: 'claude', modelId: 'claude-opus-5-5' },
+      identity,
+    );
+    expect(result.session).toMatchObject({ providerId: 'claude', modelId: 'claude-opus-5-5' });
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('idle'), {
+      timeout: 5000,
+    });
+    expect(handoffs(env, sessionId)).toHaveLength(1);
+    const message = env.events.readSince(sessionId, 0).findLast((e) => e.type === 'user.message');
+    expect(message?.type === 'user.message' && message.payload.from).toEqual({
+      sessionId,
+      kind: 'report',
+      usageLimit: { turnId },
+    });
+    expect(env.claude.sessionCount).toBe(1);
+  });
+
   it('写读历史工具的文件，摘要里提这个工具；文件里是全文', async () => {
     const env = setup();
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });

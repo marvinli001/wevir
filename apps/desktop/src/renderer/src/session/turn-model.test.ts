@@ -20,6 +20,7 @@ import {
   foldTurn,
   followsNotice,
   groupTurns,
+  handoffAfterLastTurn,
   isActiveTurn,
   isReportOnly,
   lastTurnId,
@@ -259,6 +260,36 @@ describe('lastTurnId（0.38.0）', () => {
     expect(lastTurnId(s.project())).toBe(TURN2);
     s.add('turn.rewound', { turnId: TURN2 });
     expect(lastTurnId(s.project())).toBe(TURN);
+  });
+});
+
+describe('handoffAfterLastTurn（0.25.0）', () => {
+  const handoff = (from: string, to: string) => ({
+    from: { providerId: from, modelId: `${from}-m`, engineSessionId: `e-${from}` },
+    to: { providerId: to, modelId: `${to}-m`, engineSessionId: `e-${to}` },
+    resumed: false,
+    strategy: 'full_thread_summary' as const,
+    items: 0,
+    omittedItems: 0,
+  });
+
+  it('最后一个回合之后的最早一次接力；之后又有回合时没有', () => {
+    const s = session();
+    s.turn();
+    s.say(TURN, '一');
+    s.finish(TURN, 'failed');
+    expect(handoffAfterLastTurn(s.project())).toBeUndefined();
+    s.add('session.handoff', handoff('a', 'b'));
+    s.add('session.handoff', handoff('b', 'c'));
+    expect(handoffAfterLastTurn(s.project())).toMatchObject({
+      fromProviderId: 'a',
+      fromModelId: 'a-m',
+      providerId: 'b',
+    });
+    s.turn(TURN2);
+    s.say(TURN2, '二');
+    s.finish(TURN2, 'completed');
+    expect(handoffAfterLastTurn(s.project())).toBeUndefined();
   });
 });
 

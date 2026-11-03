@@ -98,7 +98,10 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
   );
 }
 
-/** “换模型继续”：标题行右侧的按钮，点开是模型列表，选了与当前不同的模型就换过去并继续。 */
+/**
+ * “换模型继续”：标题行右侧的按钮，点开是模型列表，选了与碰到上限的不同的模型就换过去并继续；会话已经在输入框换成了选的模型时
+ * Host 不再换，直接继续。
+ */
 function SwitchModelButton({
   switchModel,
   turnId,

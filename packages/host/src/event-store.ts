@@ -389,11 +389,23 @@ export class EventStore {
     return toSnapshot(record, this.#projection(sessionId));
   }
 
-  /** 会话最近一个回合因用量上限失败（0.119.0）：回合与 `usageLimit`；之后有了新的回合、或会话不存在时为 `undefined`。 */
-  usageLimited(sessionId: SessionId): { turnId: TurnId; limit: UsageLimit } | undefined {
-    if (!this.#storage.sessions.get(sessionId)) return undefined;
+  /**
+   * 会话最近一个回合因用量上限失败（0.119.0）：回合、`usageLimit` 与那个回合用的来源和模型；之后有了新的回合、或会话不存在时为
+   * `undefined`。
+   */
+  usageLimited(
+    sessionId: SessionId,
+  ): { turnId: TurnId; limit: UsageLimit; providerId: string; modelId: string } | undefined {
+    const record = this.#storage.sessions.get(sessionId);
+    if (!record) return undefined;
     const limited = this.#projection(sessionId).usageLimited;
-    return limited === undefined ? undefined : structuredClone(limited);
+    if (limited === undefined) return undefined;
+    return {
+      turnId: limited.turnId,
+      limit: structuredClone(limited.limit),
+      providerId: limited.providerId ?? record.providerId,
+      modelId: limited.modelId ?? record.modelId,
+    };
   }
 
   retryableTurnId(sessionId: SessionId): TurnId | undefined {

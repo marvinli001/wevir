@@ -3029,8 +3029,10 @@ export class SessionManager {
           },
         },
       ];
-      const { state: sessionState } = this.#snapshot(runtime).session;
+      const { state: sessionState, autoContinue } = this.#snapshot(runtime).session;
       if (sessionState !== 'idle') inputs.push(stateChanged(sessionState, 'idle', 'resumed'));
+      // 排着的额度恢复后自动继续等的是原来那个账号的重置：换了来源就取消，免得到时用新来源替用户发继续消息。
+      if (autoContinue !== undefined) inputs.push(autoContinueEvent(autoContinue.turnId, null));
       this.#write(runtime, inputs);
       const rulesInput = this.#rulesInput(runtime.id, rules, engine.engineSessionId, {
         fresh: !resumed,
@@ -3589,8 +3591,10 @@ export class SessionManager {
           },
         });
       }
-      const { state: sessionState } = this.#snapshot(runtime).session;
+      const { state: sessionState, autoContinue } = this.#snapshot(runtime).session;
       if (sessionState !== 'idle') inputs.push(stateChanged(sessionState, 'idle', 'resumed'));
+      // 排着的额度恢复后自动继续等的是原来那个账号的重置：换了来源就取消，免得到时用新来源替用户发继续消息。
+      if (autoContinue !== undefined) inputs.push(autoContinueEvent(autoContinue.turnId, null));
       this.#write(runtime, inputs);
       const rulesInput = this.#rulesInput(runtime.id, rules, runtime.engineSessionId, {
         fresh: !relocate,
@@ -6817,7 +6821,7 @@ export class SessionManager {
 
   /**
    * `session.setAutoContinue`：打开时会话要空闲，`turnId` 是最后一个回合、因用量上限失败、知道额度恢复的时刻且在一天之内（引擎没报
-   * 时刻的再从账号的用量里找一次）；否则 `INVALID_STATE`。关掉总是可以（没开着时什么都不写）。
+   * 时刻的再从账号的用量里找一次），之后没有换过来源；否则 `INVALID_STATE`。关掉总是可以（没开着时什么都不写）。
    */
   async setAutoContinue(
     params: MethodParams<'session.setAutoContinue'>,
@@ -6849,6 +6853,14 @@ export class SessionManager {
           ...(session.readOnly !== undefined && { readOnly: session.readOnly }),
         });
       }
+      // 之后换了来源：额度是原来那个账号的，等它重置没有意义。
+      if (session.providerId !== limited.providerId) {
+        throw new HostError(
+          'INVALID_STATE',
+          `the session moved from ${limited.providerId} to ${session.providerId} after the usage limit`,
+          { state: session.state },
+        );
+      }
       const limit = completeUsageLimit(
         limited.limit,
         this.#autoContinue?.account?.(session.providerId),
@@ -6871,7 +6883,8 @@ export class SessionManager {
   /**
    * `session.continueWithModel`（0.143.0）：额度用完的回合换模型继续。先在会话的命令队列里核对 `turnId` 是最后一个、因用量上限失败的
    * 回合，会话空闲不只读，并取消排着的自动继续；再照 `session.configure` 换模型（别的来源时接力，错误同它）；最后替用户发
-   * `SWITCH_CONTINUE_PROMPT`（`from.usageLimit`，同额度恢复后自动继续）。来源与模型都没换时 `INVALID_PARAMS`。
+   * `SWITCH_CONTINUE_PROMPT`（`from.usageLimit`，同额度恢复后自动继续）。比的是碰到上限的那个回合用的来源与模型：都一样时
+   * `INVALID_PARAMS`；会话已经在输入框换成了选的模型时不再换，直接继续。
    */
   async continueWithModel(
     params: MethodParams<'session.continueWithModel'>,
@@ -6882,7 +6895,8 @@ export class SessionManager {
     this.#assertNotChild(runtime);
     const assertLimited = () => {
       const { session } = this.#snapshot(runtime);
-      if (this.#events.usageLimited(runtime.id)?.turnId !== params.turnId) {
+      const limited = this.#events.usageLimited(runtime.id);
+      if (limited?.turnId !== params.turnId) {
         throw new HostError(
           'INVALID_STATE',
           `turn ${params.turnId} is not the last turn of the session or did not hit a usage limit`,
@@ -6895,16 +6909,18 @@ export class SessionManager {
           ...(session.readOnly !== undefined && { readOnly: session.readOnly }),
         });
       }
-      return session;
+      return { session, limited };
     };
-    const { providerId, modelId } = await this.#serial(runtime, async () => {
-      const session = assertLimited();
+    const { providerId, modelId, current } = await this.#serial(runtime, async () => {
+      const { session, limited } = assertLimited();
       const providerId = params.providerId ?? session.providerId;
-      if (
-        providerId === session.providerId &&
-        (params.modelId ?? session.modelId) === session.modelId
-      ) {
-        const message = `the session already uses ${providerId} / ${session.modelId}`;
+      const modelId =
+        params.modelId ??
+        (providerId === session.providerId
+          ? session.modelId
+          : this.#storage.providers.get(providerId)?.defaultModelId);
+      if (providerId === limited.providerId && modelId === limited.modelId) {
+        const message = `turn ${params.turnId} already used ${providerId} / ${limited.modelId}`;
         throw new HostError('INVALID_PARAMS', message, {
           issues: [{ path: ['modelId'], message }],
         });
@@ -6912,14 +6928,18 @@ export class SessionManager {
       if (session.autoContinue !== undefined) {
         this.#write(runtime, [autoContinueEvent(session.autoContinue.turnId, null)]);
       }
-      return { providerId, modelId: params.modelId };
+      // 输入框里已经换成了这个模型（额度卡片还在）：不再换，直接继续。
+      const current = providerId === session.providerId && modelId === session.modelId;
+      return { providerId, modelId: params.modelId, current };
     });
-    await this.configure({
-      sessionId: params.sessionId,
-      ...(providerId !== this.#snapshot(runtime).session.providerId && { providerId }),
-      ...(modelId !== undefined && { modelId }),
-      ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
-    });
+    if (!current) {
+      await this.configure({
+        sessionId: params.sessionId,
+        ...(providerId !== this.#snapshot(runtime).session.providerId && { providerId }),
+        ...(modelId !== undefined && { modelId }),
+        ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
+      });
+    }
     return this.#serial(runtime, async () => {
       assertLimited();
       const { turnId } = await this.#startTurn(runtime, {
@@ -6977,7 +6997,10 @@ export class SessionManager {
       const pending = snapshot.session.autoContinue;
       if (pending === undefined) return;
       const { session } = snapshot;
+      const limited = this.#events.usageLimited(runtime.id);
       const blocked =
+        // 排上之后换了来源（换来源时会取消，这里兜住之前排上的）：不用新来源替用户发。
+        (limited !== undefined && limited.providerId !== session.providerId) ||
         session.state !== 'idle' ||
         session.readOnly !== undefined ||
         (snapshot.pendingMessages ?? []).some((pending) => pending.status !== 'held') ||

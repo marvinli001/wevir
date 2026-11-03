@@ -108,7 +108,7 @@ import { pendingApprovals } from './subagent-model';
 import { TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
-import { lastTurnId } from './turn-model';
+import { handoffAfterLastTurn, lastTurnId } from './turn-model';
 import { useUiShow } from './ui-show';
 import { UndoBanner } from './undo-banner';
 import { filesNotice, promptOfTurn } from './undo-model';
@@ -481,8 +481,10 @@ export function SessionView({
     },
     [client, session.id, planEnabled],
   );
+  // 最后一个回合之后换过来源（0.25.0）：Host 不让编辑那个回合；额度用完的卡片比的是那个回合用的模型。
+  const handoff = transcript === undefined ? undefined : handoffAfterLastTurn(transcript);
   const editTurnId =
-    rewindEnabled && sessionState === 'idle' && transcript !== undefined
+    rewindEnabled && sessionState === 'idle' && transcript !== undefined && handoff === undefined
       ? lastTurnId(transcript)
       : undefined;
   // 额度恢复后自动继续（0.119.0）：用量上限的卡片上勾选，Host 到时替用户发继续消息。
@@ -505,8 +507,12 @@ export function SessionView({
     },
     [client, session.id, store],
   );
+  // 换了来源之后不能再勾：等的是原来那个账号的重置（Host 换来源时已经取消了排着的）。
   const autoContinueTurnId =
-    autoContinueEnabled && sessionState === 'idle' && transcript !== undefined
+    autoContinueEnabled &&
+    sessionState === 'idle' &&
+    transcript !== undefined &&
+    handoff === undefined
       ? lastTurnId(transcript)
       : undefined;
   const autoContinueArmed = transcript?.autoContinue;
@@ -564,13 +570,17 @@ export function SessionView({
       provider.id === session.providerId ? configurable : (switchable?.(provider) ?? false),
     [configurable, switchable, session.providerId],
   );
+  // 卡片上勾着的是碰到上限的那个模型：之后在输入框换过来源时是第一次接力之前的那个，选现在用的模型也照样继续。
+  const limitedProviderId = handoff?.fromProviderId ?? session.providerId;
+  const limitedModelId = handoff?.fromModelId ?? session.modelId;
+  const limitedEffort = handoff === undefined ? session.reasoningEffort : undefined;
   const switchModelValue = useMemo<ModelChoice>(
     () => ({
-      providerId: session.providerId,
-      modelId: session.modelId,
-      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+      providerId: limitedProviderId,
+      modelId: limitedModelId,
+      ...(limitedEffort !== undefined && { reasoningEffort: limitedEffort }),
     }),
-    [session.providerId, session.modelId, session.reasoningEffort],
+    [limitedProviderId, limitedModelId, limitedEffort],
   );
   // 回合末的下一步卡片（0.128.0）：按钮发出 agent 写好的消息，同输入框发出的一样。
   const wrapUpTurnId =

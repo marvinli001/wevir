@@ -3074,6 +3074,28 @@ describe('换模型继续（0.143.0）', () => {
     expect(ofType(h, id, 'user.message')).toHaveLength(2);
   });
 
+  it('输入框里已经换成了选的模型：不再换，直接继续；比的是碰到上限的那个模型', async () => {
+    const h = setup();
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'hitlimit'));
+    await waitForState(h, id, 'idle');
+    await h.manager.configure({ sessionId: id, modelId: 'deepseek-reasoner' });
+    const spy = vi.spyOn(h.adapter, 'configureSession');
+    await expect(
+      h.manager.continueWithModel({ sessionId: id, turnId, modelId: 'deepseek-chat' }, cli),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    const result = await h.manager.continueWithModel(
+      { sessionId: id, turnId, modelId: 'deepseek-reasoner' },
+      cli,
+    );
+    expect(spy).not.toHaveBeenCalled();
+    expect(result.session.modelId).toBe('deepseek-reasoner');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'session.configured')).toHaveLength(1);
+    expect(ofType(h, id, 'user.message')[1]?.payload.content).toEqual(text(PROMPT));
+    expect(snapshot(h, id).session.autoContinue).toBeUndefined();
+  });
+
   it('没换模型、回合不是用量上限的最后一个回合时不换也不发', async () => {
     const h = setup();
     const id = await create(h);

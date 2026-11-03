@@ -99,6 +99,8 @@ export interface SessionProjection {
   readonly engines?: readonly ProjectedEngine[];
   /** 最近一次 `session.handoff` 的 `to`：当前的 Provider 与引擎会话；没有时用 `sessions` 表的。 */
   readonly current?: { readonly providerId: string; readonly engineSessionId: string };
+  /** `session.created` 的来源与模型：`current` 与 `model` 都还没有时会话用的那个（`sessions` 表里的随之后换模型变）。 */
+  readonly created?: { readonly providerId: string; readonly modelId: string };
   /**
    * 当前的引擎会话的上下文里有会话到哪个 `seq` 为止的内容：每个回合结束（`turn.finished`）推到那条事件，接力摘要还没交出去
    * 时只有以 `interrupted` 以外的结局结束、不是由命令开始的回合才算（那时摘要随回合交出去了）。
@@ -133,8 +135,16 @@ export interface SessionProjection {
   readonly autoContinue?: SessionAutoContinue;
   /** 回合收尾（0.128.0）：最近一次 `turn.wrap_up`；用户发了消息、新的回合开始、那个回合被撤销或撤回时没有。 */
   readonly wrapUp?: SessionWrapUp;
-  /** 最近一个回合因用量上限失败（0.119.0，`engine.error` 的 `usageLimit`）；有了新的回合时没有。 */
-  readonly usageLimited?: { readonly turnId: TurnId; readonly limit: UsageLimit };
+  /**
+   * 最近一个回合因用量上限失败（0.119.0，`engine.error` 的 `usageLimit`）；有了新的回合时没有。`providerId` 与 `modelId` 是那时的
+   * `current` 与 `model`（没有时用 `created`）：之后换了模型也知道碰到上限的是哪个。
+   */
+  readonly usageLimited?: {
+    readonly turnId: TurnId;
+    readonly limit: UsageLimit;
+    readonly providerId?: string;
+    readonly modelId?: string;
+  };
   readonly retryableTurnId?: TurnId;
   /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
   readonly taskBoard?: readonly BoardTask[];
@@ -295,6 +305,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
   }
   switch (event.type) {
     case 'session.created': {
+      next.created = { providerId: event.payload.providerId, modelId: event.payload.modelId };
       const parent = event.payload.parent;
       if (parent !== undefined) {
         next.subagent = {
@@ -631,7 +642,14 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       next.retryableTurnId =
         modelErrorRecovery(event.payload) === undefined ? undefined : event.payload.turnId;
       if (event.payload.usageLimit !== undefined && event.payload.turnId !== undefined) {
-        next.usageLimited = { turnId: event.payload.turnId, limit: event.payload.usageLimit };
+        const providerId = projection.current?.providerId ?? projection.created?.providerId;
+        const modelId = projection.model?.modelId ?? projection.created?.modelId;
+        next.usageLimited = {
+          turnId: event.payload.turnId,
+          limit: event.payload.usageLimit,
+          ...(providerId !== undefined && { providerId }),
+          ...(modelId !== undefined && { modelId }),
+        };
       }
       break;
   }
