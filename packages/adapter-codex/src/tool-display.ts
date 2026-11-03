@@ -89,11 +89,28 @@ export function toolName(item: ToolItem): string {
  * `tool.finished.status`：`completed` → completed，`failed` / `declined` / `interrupted` → failed（declined 先映射为
  * failed，拒绝的语义由审批事件承担，ADR-0005 决策 6.2）。`webSearch`、`imageView` 的 item 没有 `status` 字段
  * （WebSearchItem.ts、ThreadItem 的 imageView），收到 `item/completed` 就是做完了；按“没写 completed 就是失败”判会把
- * 每次网页搜索与看图都记成失败。
+ * 每次网页搜索与看图都记成失败。只读与搜索的命令以搜索结尾、退出码 1 时是“没有匹配”，也算完成（`isNoMatchExit`）。
  */
 export function toolStatus(item: ToolItem): 'completed' | 'failed' {
   if (item.type === 'webSearch' || item.type === 'imageView') return 'completed';
+  if (item.type === 'commandExecution' && isNoMatchExit(item)) return 'completed';
   return item.status === 'completed' ? 'completed' : 'failed';
+}
+
+/** 输出里有这些就是真出错了：`&&` 链里前面的读取失败、zsh 的通配符没有匹配（退出码同样是 1）。 */
+const COMMAND_ERROR_OUTPUT =
+  /No such file or directory|Permission denied|Is a directory|Not a directory|no matches found|command not found|syntax error|parse error|regex parse error|illegal option|invalid option|unrecognized option/i;
+
+/**
+ * 退出码 1 只是 `rg` / `grep` 没找到：Codex 把整条命令解析成只有读取、列目录与搜索（有一段认不出时整条是 unknown），
+ * 最后一段是搜索（复合命令的退出码取最后一段），输出里也没有出错的字样。真出错时 `rg` 与 `grep` 的退出码是 2。
+ */
+function isNoMatchExit(item: CommandExecutionItem): boolean {
+  if (item.status !== 'failed' || item.exitCode !== 1) return false;
+  const actions = item.commandActions ?? [];
+  if (actions.length === 0 || actions.at(-1)?.type !== 'search') return false;
+  if (actions.some((action) => action.type === 'unknown')) return false;
+  return !COMMAND_ERROR_OUTPUT.test(item.aggregatedOutput ?? '');
 }
 
 export function toolDisplay(item: ToolItem): ToolDisplay {

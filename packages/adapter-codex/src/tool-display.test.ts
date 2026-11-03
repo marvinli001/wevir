@@ -159,6 +159,39 @@ describe('工具名与其他 item', () => {
     }
   });
 
+  it('toolStatus：只读与搜索、以搜索结尾的命令退出码 1 是没有匹配，算完成；出错的照旧是失败', () => {
+    const search = { type: 'search', command: 'rg -n foo src', query: 'foo', path: 'src' } as const;
+    const read = { type: 'read', command: 'sed -n 1,9p a.ts', name: 'a.ts', path: 'a.ts' } as const;
+    const command = (
+      commandActions: CommandAction[],
+      exitCode: number | null,
+      aggregatedOutput: string | null = '',
+    ): ToolItem => ({
+      type: 'commandExecution',
+      id: 'c',
+      command: '/bin/zsh -lc "…"',
+      cwd: '/w',
+      status: exitCode === 0 ? 'completed' : 'failed',
+      commandActions,
+      aggregatedOutput,
+      exitCode,
+      durationMs: 5,
+    });
+    expect(toolStatus(command([search], 1))).toBe('completed');
+    expect(toolStatus(command([read, search], 1, 'line 1\nline 2\n'))).toBe('completed');
+    // rg 真出错是 2；最后一段是读取、有认不出的一段、没有解析结果时都不认。
+    expect(toolStatus(command([search], 2))).toBe('failed');
+    expect(toolStatus(command([search, read], 1))).toBe('failed');
+    expect(toolStatus(command([{ type: 'unknown', command: 'lsof -i' }], 1))).toBe('failed');
+    expect(toolStatus(command([], 1))).toBe('failed');
+    // `sed … missing.ts && rg …`：前面的读取失败，退出码也是 1；zsh 通配符没有匹配同样。
+    expect(
+      toolStatus(command([read, search], 1, 'sed: missing.ts: No such file or directory\n')),
+    ).toBe('failed');
+    expect(toolStatus(command([search], 1, 'zsh:1: no matches found: src/*/x\n'))).toBe('failed');
+    expect(toolStatus({ ...command([search], 1), status: 'declined' } as ToolItem)).toBe('failed');
+  });
+
   it('isToolItem 检查映射要读的字段', () => {
     expect(isToolItem({ type: 'commandExecution', command: 'ls' })).toBe(true);
     expect(isToolItem({ type: 'commandExecution' })).toBe(false);
