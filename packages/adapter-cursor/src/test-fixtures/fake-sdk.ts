@@ -129,6 +129,7 @@ export class FakeAgent implements CursorAgentHandle {
   readonly sent: Array<{ message: string | SDKUserMessage; options: SendOptions | undefined }> = [];
   readonly runs: FakeRun[] = [];
   closed = false;
+  summarizeCalls = 0;
 
   constructor(sdk: FakeCursorSdk, agentId: string, options: AgentOptions) {
     this.#sdk = sdk;
@@ -161,6 +162,13 @@ export class FakeAgent implements CursorAgentHandle {
 
   close(): void {
     this.closed = true;
+  }
+
+  async summarize(): Promise<CursorRun> {
+    this.summarizeCalls += 1;
+    const run = await this.send('/summarize');
+    this.sent.pop();
+    return run;
   }
 }
 

@@ -86,6 +86,51 @@ function replyText(events: AgentEvent[]): string {
 const posix = process.platform !== 'win32';
 
 describe.skipIf(!posix)('AntigravityAdapter', () => {
+  it('运行体把额度错误报为 end_turn 时仍产生 turn.failed，后续正常回合不沿用旧错误', async () => {
+    writeFakeToken(home);
+    const adapter = await create();
+    const session = await adapter.createSession(config());
+    stepDatabase(path.join(home, 'engines/antigravity/profile'), session.engineSessionId).close();
+    const events = collect(adapter, session);
+    const failed = await turn(adapter, session, events, 'native-quota');
+    expect(failed.at(-1)).toMatchObject({
+      type: 'turn.failed',
+      category: 'provider',
+      usageLimit: { resetsAt: '2026-12-01T00:00:00Z' },
+    });
+    expect((await turn(adapter, session, events, 'hello')).at(-1)).toMatchObject({
+      type: 'turn.settled',
+      outcome: 'completed',
+    });
+  });
+
+  it.each(['resume', 'load'] as const)(
+    'new 与 %s 都禁用 workflow，并重新给系统规则',
+    async (resumeMethod) => {
+      writeFakeToken(home);
+      const first = await create();
+      const session = await first.createSession(config({ ruleInstructions: 'First rules' }));
+      expect(first.ruleFiles().instructions).toBe(true);
+      const before = collect(first, session);
+      expect(JSON.parse(replyText(await turn(first, session, before, 'session-meta?')))).toEqual({
+        antigravity: { disabledTools: ['run_workflow'], systemPrompt: { append: 'First rules' } },
+      });
+      expect(existsSync(path.join(workspace, 'skills/system/run-workflow/SKILL.md'))).toBe(false);
+      await first.dispose();
+      const second = await create();
+      Object.assign(second.engine, { resumeMethod });
+      const resumed = await second.resumeSession(
+        session.engineSessionId,
+        config({ ruleInstructions: 'Updated rules' }),
+      );
+      const after = collect(second, resumed);
+      expect(JSON.parse(replyText(await turn(second, resumed, after, 'session-meta?')))).toEqual({
+        antigravity: { disabledTools: ['run_workflow'], systemPrompt: { append: 'Updated rules' } },
+      });
+      expect(existsSync(path.join(workspace, 'skills/system/run-workflow/SKILL.md'))).toBe(false);
+    },
+  );
+
   it('没登录：建会话报 missing_credentials（不等用户去浏览器），账号改为未登录，进程停掉', async () => {
     const adapter = await create();
     await expect(adapter.createSession(config())).rejects.toMatchObject({
@@ -116,7 +161,7 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
     writeFakeToken(home);
     const adapter = await create();
     const session = await adapter.createSession(config({ permissionMode: 'full_access' }));
-    expect(session).toMatchObject({ modelId: 'gemini-3.8-flash', engineVersion: '1.4.1' });
+    expect(session).toMatchObject({ modelId: 'gemini-3.8-flash', engineVersion: '1.4.5' });
     const events = collect(adapter, session);
     expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
       'mode=yolo model=gemini-3.8-flash-high',

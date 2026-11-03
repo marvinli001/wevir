@@ -48,6 +48,7 @@ import {
   antigravityTokenPath,
 } from './profile.js';
 import { removeAntigravitySessionFiles } from './session-files.js';
+import { antigravitySessionMeta } from './session-meta.js';
 import { AntigravityUsage } from './usage.js';
 
 /** 一次登录最长等多久（T3 的 AUTH_TIMEOUT_MS）。 */
@@ -216,6 +217,7 @@ export class AntigravityAccounts implements EngineAccounts {
       const created = await connection.agent.request(methods.agent.session.new, {
         cwd,
         mcpServers: [],
+        _meta: antigravitySessionMeta(process.initializeResponse?.agentInfo?.version),
       });
       current.sessionId = created.sessionId;
       return readModels(connection, created);
@@ -569,6 +571,7 @@ export class AntigravityAccounts implements EngineAccounts {
         const created = await process.connection.agent.request(methods.agent.session.new, {
           cwd,
           mcpServers: [],
+          _meta: antigravitySessionMeta(process.initializeResponse?.agentInfo?.version),
         });
         sessionId = created.sessionId;
         return readModels(process.connection, created);

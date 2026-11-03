@@ -2,6 +2,7 @@
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.ts（权限模式、模型选择、提问）与
 // provider/acp/AntigravityAcpSupport.ts（antigravityPermissionMode、applyAntigravityAcpModelSelection）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；思考档位照 4432fbef71817c279290f86549be660af25005f2
+// 会话元信息与回合错误照 ab8e488e10d883fa880b0ddcf01917b51839ab07（AntigravityAcpSupport.ts、AntigravityTurnOutcome.ts）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话；Wevir 的三种权限模式对到 Antigravity 的
 // default / auto_edit / yolo；Wevir 的推理档位对到运行体 1.4 的思考档位（`thinking_level`）；会话中换模型、档位与模式记下、
@@ -13,6 +14,7 @@
 import { AcpAdapter, type AcpSessionSetup, type AdapterLogger } from '@wevir/adapter-acp';
 import {
   methods,
+  type PromptResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
 } from '@wevir/adapter-acp/sdk';
@@ -24,6 +26,7 @@ import {
   isAdapterError,
   type PermissionMode,
   type SessionConfig,
+  type TurnFailedEvent,
 } from '@wevir/runtime-adapter';
 import type { AppToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import { AntigravityAccounts } from './accounts.js';
@@ -39,7 +42,9 @@ import {
   validateAntigravityRuntime,
 } from './process.js';
 import { antigravityQuestion } from './protocol.js';
+import { antigravitySessionMeta } from './session-meta.js';
 import { AntigravityStepUsage } from './step-usage.js';
+import { watchAntigravityPromptOutcome } from './turn-outcome.js';
 
 const PERMISSION_CANCELLED: RequestPermissionResponse = { outcome: { outcome: 'cancelled' } };
 /** 回合结束时会话库里还有没结束的步骤：隔这么久再读一次（只再读一次，剩下的随下一个回合）。 */
@@ -99,10 +104,10 @@ export class AntigravityAdapter extends AcpAdapter {
 
   /**
    * 0.68.0：Antigravity 读项目里一路上的 GEMINI.md 与 AGENTS.md（IDE 里 language_server 带的说明；ACP 运行体没有核对过）。它的
-   * `GEMINI_HOME` 是 Wevir 的私有目录，用户的 `~/.gemini/GEMINI.md` 读不到，由 Host 补。ACP 没有放说明的地方，随下一条消息交。
+   * `GEMINI_HOME` 是 Wevir 的私有目录，用户的 `~/.gemini/GEMINI.md` 读不到，由 Host 补到 1.4.5 的系统说明。
    */
   ruleFiles(): EngineRuleFiles {
-    return { user: [], project: ['gemini', 'agents'], imports: false, instructions: false };
+    return { user: [], project: ['gemini', 'agents'], imports: false, instructions: true };
   }
 
   constructor(options: AntigravityAdapterOptions) {
@@ -269,6 +274,19 @@ export class AntigravityAdapter extends AcpAdapter {
     this.accounts.noteSessionModels(settings.configOptions);
     await this.#applyMode(engineSessionId, settings, config.permissionMode ?? 'on_request');
     return settings.configOptions;
+  }
+
+  protected override sessionMeta(config: SessionConfig): Record<string, unknown> {
+    return antigravitySessionMeta(
+      this.process.initializeResponse?.agentInfo?.version,
+      config.ruleInstructions,
+    );
+  }
+
+  protected override watchPromptOutcome(
+    engineSessionId: string,
+  ): (response: PromptResponse) => TurnFailedEvent | undefined {
+    return watchAntigravityPromptOutcome(this.#profile, engineSessionId);
   }
 
   /**

@@ -347,72 +347,71 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     await expect(target.resolve()).rejects.toThrow(/not installed/);
   });
 
-  it('钉住的发布是 1.4.1：六个平台的地址、sha256 与大小（2026-10-30 下载核对过），运行体自报的版本认得出', () => {
-    expect(ANTIGRAVITY_RELEASE_VERSION).toBe('1.4.1');
+  it('钉住的发布是 1.4.5：六个平台的地址、sha256 与大小（官方发布清单，macOS arm64 已实测），运行体自报的版本认得出', () => {
+    expect(ANTIGRAVITY_RELEASE_VERSION).toBe('1.4.5');
     const platforms = [
       [
         'darwin',
         'arm64',
-        'macos/agy-acp-server-1.4.1-darwin-arm64.zip',
-        'f9bdd68291ae78c38d2141e63bc86b84e6cc7b9f60f71652c68435a7943deb17',
-        112_737_434,
+        'macos/agy-acp-server-1.4.5-darwin-arm64.zip',
+        '886fff7767d08994ca39eb02c3d01a7532c7325a94aa33aaf52d52068733284f',
+        97_923_855,
       ],
       [
         'darwin',
         'x64',
-        'macos/agy-acp-server-1.4.1-darwin-x86_64.zip',
-        '27e31f096874704f14167b07ef9e84cc77134615ee41d024f7b1c957add85307',
-        118_349_036,
+        'macos/agy-acp-server-1.4.5-darwin-x86_64.zip',
+        'b39f3573c03b9acb9df028853f647527f1f3133f32bd77e78b796e48a205114a',
+        103_577_295,
       ],
       [
         'linux',
         'x64',
-        'linux/agy-acp-server-1.4.1-linux-x86_64.zip',
-        '2e37012ceb2a5c7fc7309b6e6596234fb637ee3c62a5199f65d4cbe777871384',
-        336_170_339,
+        'linux/agy-acp-server-1.4.5-linux-x86_64.zip',
+        '923923a0d7dc8073f66cc6f78647a3107e3a7ee2b7e1a24df8b3927b5188013b',
+        321_783_181,
       ],
       [
         'linux',
         'arm64',
-        'linux/agy-acp-server-1.4.1-linux-arm64.zip',
-        '609336a1c97545487e3ddd55dbd153dc0f40f4e6534486cc1c5f4c0ebb85c2da',
-        321_922_507,
+        'linux/agy-acp-server-1.4.5-linux-arm64.zip',
+        '7d64246633ae094f67e3bbcd2d679e89048f91346d5339313336e7483f40f056',
+        307_829_008,
       ],
       [
         'win32',
         'x64',
-        'windows/agy-acp-server-1.4.1-windows-x86_64.zip',
-        '5f5b7d0328df17c128b2be338d4567b0d24e56ace8196e88794fec37d1372554',
-        129_599_308,
+        'windows/agy-acp-server-1.4.5-windows-x86_64.zip',
+        'd24f4c73c9f96d4f44384e281c855a56c72d8eaa9c5b0fad7ccb1635c6b63f50',
+        100_423_655,
       ],
       [
         'win32',
         'arm64',
-        'windows/agy-acp-server-1.4.1-windows-arm64.zip',
-        '24c52bbc12aae20f55eb53d373669412d95a9c44fd59be4ea4e355918b91fbf7',
-        132_507_344,
+        'windows/agy-acp-server-1.4.5-windows-arm64.zip',
+        'ab0a9aac8349e08ef289be6d16da8f89e3abe60eba5158032ef78c4a1220261c',
+        102_703_121,
       ],
     ] as const;
     for (const [platform, arch, file, sha256, archiveBytes] of platforms) {
       expect(resolveAntigravityReleaseAsset(platform, arch)).toMatchObject({
-        version: '1.4.1',
+        version: '1.4.5',
         url: `https://dl.google.com/agy-extensions/releases/${file}`,
         sha256,
         archiveBytes,
       });
     }
     expect(resolveAntigravityReleaseAsset('darwin', 'arm64')).toMatchObject({
-      executable: { name: 'agy_acp_server.par', bytes: 280_996_576 },
-      harness: { name: 'localharness_external', bytes: 120_246_928 },
+      executable: { name: 'agy_acp_server.par', bytes: 178_915_920 },
+      harness: { name: 'localharness_external', bytes: 122_957_936 },
     });
     expect(resolveAntigravityReleaseAsset('win32', 'x64')).toMatchObject({
-      executable: { name: 'agy_acp_server.exe', bytes: 86_098_784 },
-      harness: { name: 'localharness_external.exe', bytes: 146_036_888 },
+      executable: { name: 'agy_acp_server.exe', bytes: 55_839_864 },
+      harness: { name: 'localharness_external.exe', bytes: 147_843_736 },
     });
-    // 真实 1.4.1 的 initialize 报裸版本号。
-    expect(
-      matchesReleaseVersion(INITIALIZE_1_4_1.agentInfo.version, ANTIGRAVITY_RELEASE_VERSION),
-    ).toBe(true);
+    // 真实 1.4.5 的 initialize 报裸版本号。
+    expect(matchesReleaseVersion('1.4.5', ANTIGRAVITY_RELEASE_VERSION)).toBe(true);
+    expect(matchesReleaseVersion(INITIALIZE_1_4_1.agentInfo.version, '1.4.1')).toBe(true);
     expect(matchesReleaseVersion('1.3.0', ANTIGRAVITY_RELEASE_VERSION)).toBe(false);
   });
 
@@ -424,7 +423,7 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
         WEVIR_ANTIGRAVITY_MIRROR: 'https://mirror.example.cn/google/',
       }),
     ).toBe(
-      'https://mirror.example.cn/google/agy-extensions/releases/macos/agy-acp-server-1.4.1-darwin-arm64.zip',
+      'https://mirror.example.cn/google/agy-extensions/releases/macos/agy-acp-server-1.4.5-darwin-arm64.zip',
     );
 
     const target = installation(asset, {

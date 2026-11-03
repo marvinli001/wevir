@@ -6,6 +6,7 @@
 // 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；去掉 T3 的 MCP 服务、skills、附件与计划模式；权限模式改按 Wevir 的三种映射；
 // 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。跟进 T3 be1d066732：回合已经结束后 SDK 迟到的恢复失败不算回合失败；
 // 跟进 T3 8298664e9e：用量到了上限时回合失败带 `usageLimit`，之前先重读账号的用量。
+// 手动压缩照 c8a601c0dfa5c7626e51e06d727076f6b840a005（CursorAgentSdk.ts、adapter.ts）的 summarize()。
 //
 // Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，docs/architecture/cursor-event-mapping.md）：经官方 `@cursor/sdk` 在 Host
 // 进程里跑本地 agent。一个 Wevir 会话是一个 Cursor agent（引擎会话 ID = agentId），一个回合是一次 `agent.send` 开出的 run。
@@ -223,6 +224,7 @@ interface SessionSettings {
 }
 
 interface Turn {
+  compact: boolean;
   run: CursorRun | undefined;
   mapper: CursorTurnMapper | undefined;
   cancelling: boolean;
@@ -403,6 +405,14 @@ export class CursorAdapter implements AgentRuntimeAdapter {
   }
 
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
+    return this.#startTurn(engineSessionId, input, false);
+  }
+
+  async compact(engineSessionId: string): Promise<void> {
+    return this.#startTurn(engineSessionId, { content: [] }, true);
+  }
+
+  async #startTurn(engineSessionId: string, input: AgentInput, compact: boolean): Promise<void> {
     this.#alive();
     const session = this.#attached(engineSessionId);
     if (session.turn !== undefined) {
@@ -424,7 +434,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
         : [],
     );
     const images = reads.length === 0 ? [] : await Promise.all(reads);
-    if (text.trim() === '' && images.length === 0) {
+    if (!compact && text.trim() === '' && images.length === 0) {
       throw new AdapterError('invalid_input', 'the message is empty');
     }
     const message: string | SDKUserMessage = images.length === 0 ? text : { text, images };
@@ -438,6 +448,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       resolve = done;
     });
     const turn: Turn = {
+      compact,
       run: undefined,
       mapper: undefined,
       cancelling: false,
@@ -457,16 +468,18 @@ export class CursorAdapter implements AgentRuntimeAdapter {
         else this.#emit(session, turn.mapper.map(update));
       };
       const send = () =>
-        agent.send(message, {
-          model: modelSelection(
-            session.settings.modelId,
-            session.settings.reasoningEffort,
-            session.settings.fast,
-            this.accounts.cachedModels(apiKey),
-          ),
-          mode: 'agent',
-          onDelta,
-        });
+        compact
+          ? agent.summarize()
+          : agent.send(message, {
+              model: modelSelection(
+                session.settings.modelId,
+                session.settings.reasoningEffort,
+                session.settings.fast,
+                this.accounts.cachedModels(apiKey),
+              ),
+              mode: 'agent',
+              onDelta,
+            });
       let run: CursorRun;
       try {
         run = await send();
@@ -483,6 +496,16 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       const mapper = new CursorTurnMapper(engineSessionId, run.id);
       turn.run = run;
       turn.mapper = mapper;
+      if (compact) {
+        this.#emit(session, [
+          {
+            type: 'context.compacting',
+            engineSessionId,
+            compactionId: run.id,
+            trigger: 'manual',
+          },
+        ]);
+      }
       for (const update of pending) this.#emit(session, mapper.map(update));
       if (turn.cancelling) run.cancel().catch(() => {});
       void this.#watch(session, turn, run, mapper);
@@ -639,7 +662,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
         if (turn.done) return;
       }
       // 没有进展的恢复写出的文字不是这个回合的回答。
-      const answer = lateResumeFailure ? [] : mapper.finalResult(result.result);
+      const answer = lateResumeFailure || turn.compact ? [] : mapper.finalResult(result.result);
       if (turn.cancelling || result.status === 'cancelled') {
         events = [
           ...answer,
@@ -666,6 +689,16 @@ export class CursorAdapter implements AgentRuntimeAdapter {
             ? [
                 ...answer,
                 ...mapper.finish('completed'),
+                ...(turn.compact
+                  ? [
+                      {
+                        type: 'context.compacted' as const,
+                        engineSessionId,
+                        compactionId: run.id,
+                        trigger: 'manual' as const,
+                      },
+                    ]
+                  : []),
                 {
                   type: 'turn.settled',
                   engineSessionId,

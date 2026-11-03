@@ -61,6 +61,75 @@ async function until(events: AgentEvent[], type: AgentEvent['type']): Promise<Ag
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
 describe('CursorAdapter', () => {
+  it('手动压缩调用 summarize，报压缩事件，摘要不成为助手回复，之后能继续对话', async () => {
+    const { adapter, sdk, home } = setup();
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'composer-2',
+    });
+    sdk.script = () => ({ updates: [], result: { result: 'Internal summary' } });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.compact(engineSessionId);
+    await until(events, 'turn.settled');
+    expect(sdk.agent(engineSessionId).summarizeCalls).toBe(1);
+    expect(sdk.agent(engineSessionId).sent).toEqual([]);
+    expect(events.map((event) => event.type)).toEqual([
+      'context.compacting',
+      'context.compacted',
+      'turn.settled',
+    ]);
+    expect(events[0]).toMatchObject({ compactionId: 'run-1', trigger: 'manual' });
+    expect(events[1]).toMatchObject({ compactionId: 'run-1', trigger: 'manual' });
+    await adapter.send(engineSessionId, text('Continue'));
+    await until(events, 'assistant.message');
+    expect(sdk.agent(engineSessionId).sent[0]?.message).toBe('Continue');
+  });
+
+  it.each(['error', 'cancelled'] as const)('压缩 %s 不报压缩完成', async (status) => {
+    const { adapter, sdk, home } = setup();
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'composer-2',
+    });
+    sdk.script = () => ({
+      updates: [],
+      result: { status, error: { message: 'Summarize failed' }, result: 'Internal summary' },
+    });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.compact(engineSessionId);
+    await until(events, status === 'error' ? 'turn.failed' : 'turn.settled');
+    expect(
+      events.some(
+        (event) => event.type === 'context.compacted' || event.type === 'assistant.message',
+      ),
+    ).toBe(false);
+  });
+
+  it('压缩与普通回合互斥；停止压缩后可以继续', async () => {
+    const { adapter, sdk, home } = setup();
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'composer-2',
+    });
+    sdk.script = () => ({ updates: [], hang: true });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Working'));
+    await expect(adapter.compact(engineSessionId)).rejects.toMatchObject({ code: 'session_busy' });
+    await adapter.cancel(engineSessionId);
+    events.length = 0;
+    await adapter.compact(engineSessionId);
+    await expect(adapter.send(engineSessionId, text('Busy'))).rejects.toMatchObject({
+      code: 'session_busy',
+    });
+    await adapter.cancel(engineSessionId);
+    await until(events, 'turn.settled');
+    expect(events.at(-1)).toMatchObject({ outcome: 'cancelled' });
+    expect(events.some((event) => event.type === 'context.compacted')).toBe(false);
+  });
+
   it('应用级工具（0.30.0）：会话带 appTools 时选项里有 HTTP 的 wevir 服务', () => {
     const options = agentOptions({
       apiKey: 'k',

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-cursor/src/server/sdk.ts（另参照同目录 CursorSdkCatalog.ts、CursorAgentSdk.ts 用到的 SDK 入口）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；SDK 1.0.38 跟进 850d1e7a6c5ffd894c48e9182169cf8e25097db5
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；SDK 1.2.0 跟进 c8a601c0dfa5c7626e51e06d727076f6b840a005
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：不再用 createRequire 加载 CJS 产物（T3 为了 Node SEA），改为第一次用到时动态 import（安装包里从数据目录下载装好的那份加载）；Effect 的 Context 服务换成窄接口 CursorSdk，
 // 测试换成假的。
@@ -27,7 +27,7 @@ import type {
 } from '@cursor/sdk';
 
 /** 锁定的 SDK 版本（package.json 钉的确切版本），写进 `EngineSession.engineVersion`。 */
-export const CURSOR_SDK_VERSION = '1.0.38';
+export const CURSOR_SDK_VERSION = '1.2.0';
 
 /** 一次 `send` 开出的 run。 */
 export interface CursorRun {
@@ -41,6 +41,7 @@ export interface CursorRun {
 export interface CursorAgentHandle {
   readonly agentId: string;
   send(message: string | SDKUserMessage, options?: SendOptions): Promise<CursorRun>;
+  summarize(): Promise<CursorRun>;
   close(): void;
 }
 

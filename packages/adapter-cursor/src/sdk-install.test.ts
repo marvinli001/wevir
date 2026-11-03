@@ -253,7 +253,7 @@ describe('CURSOR_SDK_PACKAGES', () => {
     expect(cursorSdkPackages('win32', 'arm64')).toBeUndefined();
     expect(
       tarballUrl('https://registry.npmjs.org', CURSOR_SDK_PACKAGES[0] as CursorSdkPackage),
-    ).toBe('https://registry.npmjs.org/@cursor/sdk/-/sdk-1.0.38.tgz');
+    ).toBe('https://registry.npmjs.org/@cursor/sdk/-/sdk-1.2.0.tgz');
     expect(tarballUrl('https://r.example', { name: 'zod', version: '3.25.76' })).toBe(
       'https://r.example/zod/-/zod-3.25.76.tgz',
     );

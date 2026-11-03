@@ -314,6 +314,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8（Antigravity 运行体 1.4.1 的升级另照 4432fbef71817c279290f86549be660af25005f2）
+Antigravity 1.4.5 的会话元信息与回合错误：ab8e488e10d883fa880b0ddcf01917b51839ab07；Cursor SDK 1.2.0 与手动压缩：c8a601c0dfa5c7626e51e06d727076f6b840a005。
 许可证：MIT
 版权：Copyright (c) 2026 T3 Tools Inc.
 
@@ -549,6 +550,12 @@ kiro-adapter.ts 的单次授权规则另参照 packages/provider-kiro/src/server
          apps/server/src/provider/Drivers/AntigravitySkills.ts
   packages/adapter-antigravity/src/session-files.ts
       <- apps/server/src/provider/acp/AntigravitySessionFiles.ts
+  packages/adapter-antigravity/src/session-meta.ts
+      <- apps/server/src/provider/acp/AntigravityAcpSupport.ts
+  packages/adapter-antigravity/src/turn-outcome.ts
+      <- apps/server/src/provider/acp/AntigravityTurnOutcome.ts
+  packages/adapter-acp/src/acp-adapter.ts（会话元信息）
+      <- packages/provider-acp/src/server/AcpSessionRuntime.ts
   packages/adapter-antigravity/src/protocol.ts
       <- apps/server/src/provider/acp/AntigravityProtocol.ts
   packages/adapter-antigravity/src/models.ts

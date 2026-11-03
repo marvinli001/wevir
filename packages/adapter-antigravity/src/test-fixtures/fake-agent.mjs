@@ -238,7 +238,7 @@ function initializeResult() {
     agentInfo: {
       name: process.env.FAKE_AGY_NAME ?? 'antigravity-acp',
       title: 'Google Antigravity',
-      version: process.env.FAKE_AGY_VERSION ?? '1.4.1',
+      version: process.env.FAKE_AGY_VERSION ?? '1.4.5',
     },
   };
 }
@@ -270,6 +270,7 @@ function splitCommand(command) {
 }
 
 function authenticate(id) {
+  if (process.env.FAKE_AGY_AUTH_STALL) return;
   if (fs.existsSync(tokenPath)) {
     respond(id, {});
     return;
@@ -322,6 +323,28 @@ async function prompt(id, params) {
   const text = params.prompt.map((part) => part.text ?? '').join('');
   const chunk = (value, kind = 'agent_message_chunk') =>
     notify(sessionId, { sessionUpdate: kind, content: { type: 'text', text: value } });
+
+  if (text === 'session-meta?') {
+    chunk(JSON.stringify(session.meta));
+    respond(id, { stopReason: 'end_turn' });
+    return;
+  }
+
+  if (text === 'native-quota') {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(path.join(acpDir, 'conversations', `${sessionId}.db`));
+    db.prepare(
+      'INSERT INTO steps (idx, step_type, status, step_payload) SELECT COALESCE(MAX(idx), -1) + 1, 17, 3, ? FROM steps',
+    ).run(
+      Buffer.from(
+        'Error 429, Message: Quota exhausted., Status: RESOURCE_EXHAUSTED, Details: [reason:QUOTA_EXHAUSTED quotaResetTimeStamp:2026-12-01T00:00:00Z]',
+      ),
+    );
+    db.close();
+    chunk('Quota exhausted.');
+    respond(id, { stopReason: 'end_turn' });
+    return;
+  }
 
   if (/slow/i.test(text)) {
     for (let i = 0; i < 500; i++) {
@@ -470,6 +493,12 @@ function handle(message) {
       const sessionId = randomUUID();
       const sessions = loadSessions();
       sessions[sessionId] = { cwd: params.cwd, model: CATALOG[0].id, mode: 'default' };
+      sessions[sessionId].meta = params._meta;
+      if (!params._meta?.antigravity?.disabledTools?.includes('run_workflow')) {
+        const skill = path.join(params.cwd, 'skills/system/run-workflow/SKILL.md');
+        fs.mkdirSync(path.dirname(skill), { recursive: true });
+        fs.writeFileSync(skill, 'workflow');
+      }
       saveSessions(sessions);
       fs.mkdirSync(path.join(acpDir, 'conversations'), { recursive: true });
       fs.writeFileSync(
@@ -480,12 +509,16 @@ function handle(message) {
       respond(id, { sessionId, configOptions: configOptions(sessions[sessionId]) });
       return;
     }
+    case 'session/load':
     case 'session/resume': {
-      const session = loadSessions()[params.sessionId];
+      const sessions = loadSessions();
+      const session = sessions[params.sessionId];
       if (!session) {
         fail(id, -32602, `Session not found: ${params.sessionId}`);
         return;
       }
+      session.meta = params._meta;
+      saveSessions(sessions);
       respond(id, { configOptions: configOptions(session) });
       return;
     }

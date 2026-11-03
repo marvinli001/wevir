@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// 会话元信息参考 pingdotgg/t3code packages/provider-acp/src/server/AcpSessionRuntime.ts
+// ab8e488e10d883fa880b0ddcf01917b51839ab07（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 import { readFile } from 'node:fs/promises';
 import {
   type ContentBlock,
@@ -318,6 +321,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           connection.agent.request(methods.agent.session.new, {
             cwd: config.cwd,
             mcpServers: this.#sessionMcpServers(config),
+            _meta: this.sessionMeta(config),
           }),
         );
       } catch (error) {
@@ -385,6 +389,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
               sessionId: engineSessionId,
               cwd: config.cwd,
               mcpServers: this.#sessionMcpServers(config),
+              _meta: this.sessionMeta(config),
             },
           ),
         ));
@@ -483,6 +488,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.toolCalls.clear();
     session.queue.beginTurn();
     const meta = this.promptMeta(engineSessionId);
+    const outcome = this.watchPromptOutcome(engineSessionId);
     // ACP 的 session/prompt 到回合结束才返回（适配器接口注释第 7 条），这里发出请求就返回。
     const prompt: Promise<PromptResponse> = connection.agent.request(methods.agent.session.prompt, {
       sessionId: engineSessionId,
@@ -491,7 +497,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     });
     prompt.then(
       (response) => {
-        this.#settle(session, turn, this.#promptOutcome(engineSessionId, turn, response));
+        const failure = turn.cancelRequested ? undefined : outcome?.(response);
+        this.#settle(
+          session,
+          turn,
+          failure ?? this.#promptOutcome(engineSessionId, turn, response),
+        );
         turn.finish();
       },
       (error: unknown) => {
@@ -661,6 +672,18 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
 
   /** `session/prompt` 的 `_meta`（Grok：本回合的 `promptId`，用来认出它的结束通知）。默认没有。 */
   protected promptMeta(_engineSessionId: string): Record<string, unknown> | undefined {
+    return undefined;
+  }
+
+  /** 每次 session/new、load、resume 都重新给引擎的会话元信息。 */
+  protected sessionMeta(_config: SessionConfig): Record<string, unknown> | undefined {
+    return undefined;
+  }
+
+  /** 发出 prompt 前记录引擎状态；响应到达时可据此识别未通过 ACP 报出的回合错误。 */
+  protected watchPromptOutcome(
+    _engineSessionId: string,
+  ): ((response: PromptResponse) => TurnFailedEvent | undefined) | undefined {
     return undefined;
   }
 
