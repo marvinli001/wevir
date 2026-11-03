@@ -191,6 +191,7 @@ async function prompt(id, params) {
   try {
     if (text.startsWith('error:')) {
       const errors = {
+        quota: { code: -32603, message: 'Internal error', data: { code: 14019 } },
         auth: { code: -32000, message: 'Authentication required' },
         provider: {
           code: -32603,

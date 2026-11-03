@@ -48,6 +48,13 @@ export function classifyCopilotTurnError(error: unknown): ClassifiedTurnError {
   const info = errorInfo(error);
   if (isCopilotAuthRequired(error)) return { category: 'missing_credentials', ...info };
   if (
+    /\b(?:quota_exceeded|free_quota_exceeded|overage_limit_reached|additional_spend_limit_reached)\b|\b(?:exceeded your premium request allowance|premium request quota exhausted|run out of your included AI credits for the month)\b/i.test(
+      info.message,
+    )
+  ) {
+    return { category: 'provider', ...info, usageLimit: {} };
+  }
+  if (
     /rate.?limit|quota|premium requests?|AI credits?|insufficient|billing|usage limit|overloaded|\b(?:402|429|5\d\d)\b/i.test(
       info.message,
     )

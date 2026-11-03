@@ -33,11 +33,49 @@ function writeConfig(config) {
 const signedIn = () =>
   env.FAKE_COPILOT_SIGNED_IN === '1' || readConfig().lastLoggedInUser !== undefined;
 
-if (args[0] === '--version' || args[0] === 'version') {
+if (args.includes('--headless') && args.includes('--stdio')) {
+  serveQuota();
+} else if (args[0] === '--version' || args[0] === 'version') {
   process.stdout.write(
     `GitHub Copilot CLI ${env.FAKE_COPILOT_VERSION ?? '1.0.103'}.\nRun 'copilot update' to check for updates.\n`,
   );
   process.exit(Number(env.FAKE_COPILOT_VERSION_EXIT ?? 0));
+}
+
+function serveQuota() {
+  let input = Buffer.alloc(0);
+  process.stdin.on('data', (chunk) => {
+    input = Buffer.concat([input, chunk]);
+    const headerEnd = input.indexOf('\r\n\r\n');
+    if (headerEnd === -1) return;
+    const length = Number(/Content-Length:\s*(\d+)/i.exec(input.toString())?.[1]);
+    if (input.length < headerEnd + 4 + length) return;
+    const request = JSON.parse(input.subarray(headerEnd + 4).toString());
+    if (env.FAKE_COPILOT_LOG) appendFileSync(env.FAKE_COPILOT_LOG, `${JSON.stringify(request)}\n`);
+    if (env.FAKE_COPILOT_QUOTA === 'hang') return;
+    const response =
+      env.FAKE_COPILOT_QUOTA === 'error'
+        ? { jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'Quota unavailable' } }
+        : {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              quotaSnapshots: {
+                premium_interactions: {
+                  entitlementRequests: 300,
+                  usedRequests: 300,
+                  remainingPercentage: 0,
+                  resetDate: '2030-01-01T00:00:00Z',
+                },
+              },
+            },
+          };
+    const body = JSON.stringify(response);
+    const frame = `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`;
+    // 分块跨过帧头与 JSON 边界，检验真实传输的组帧。
+    process.stdout.write(frame.slice(0, 13));
+    setTimeout(() => process.stdout.write(frame.slice(13)), 5);
+  });
 }
 if (args[0] === 'login') {
   if (!args.includes('--device-code')) process.exit(2);
@@ -66,7 +104,7 @@ if (args[0] === 'login') {
       process.exit(0);
     }, 25);
   }
-} else {
+} else if (!args.includes('--headless')) {
   if (!(args.includes('--acp') && args.includes('--stdio'))) process.exit(2);
   serve();
 }

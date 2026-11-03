@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { CopilotAdapter } from './copilot-adapter.js';
 import {
   EventCollector,
@@ -285,6 +285,7 @@ describe('Copilot ACP', () => {
       type: 'turn.failed',
       category: 'provider',
       message: 'You have exceeded your premium request allowance',
+      usageLimit: {},
     });
     const from = events.events.length;
     await adapter.send(id, text('error:unknown'));
@@ -292,6 +293,50 @@ describe('Copilot ACP', () => {
       type: 'turn.failed',
       category: 'unknown',
     });
+  });
+
+  it.each(['success', 'error'])('额度失败前重读一次配额：%s', async (quota) => {
+    const { adapter, config, log } = setup({ FAKE_COPILOT_QUOTA: quota });
+    const { engineSessionId: id } = await adapter.createSession(config);
+    adapter.accounts.setRateLimits({ primary: { usedPercent: 20 } });
+    const order: string[] = [];
+    adapter.accounts.onChange((state) => {
+      if (state.rateLimits?.primary?.usedPercent === 100) order.push('quota');
+    });
+    const original = adapter.subscribe(id);
+    const events = new EventCollector(
+      (async function* () {
+        for await (const event of original) {
+          if (event.type === 'turn.failed') order.push('failed');
+          yield event;
+        }
+      })(),
+    );
+    await adapter.send(id, text('error:provider'));
+    expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    expect(readLog(log).filter((entry) => entry.method === 'account.getQuota')).toHaveLength(1);
+    expect(order).toEqual(quota === 'success' ? ['quota', 'failed'] : ['failed']);
+    expect((await adapter.accounts.read('copilot')).rateLimits?.primary).toMatchObject(
+      quota === 'success'
+        ? { usedPercent: 100, resetsAt: '2030-01-01T00:00:00.000Z' }
+        : { usedPercent: 20 },
+    );
+  });
+
+  it('普通失败不刷新；释放会终止卡住的配额读取', async () => {
+    const { adapter, config, log } = setup({ FAKE_COPILOT_QUOTA: 'hang' });
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const refresh = vi.spyOn(adapter.accounts, 'refreshQuota');
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('error:unknown'));
+    await events.turn();
+    expect(refresh).not.toHaveBeenCalled();
+    const reading = adapter.accounts.refreshQuota();
+    await expect
+      .poll(() => readLog(log).some((entry) => entry.method === 'account.getQuota'))
+      .toBe(true);
+    await adapter.dispose();
+    await reading;
   });
 
   it('会话丢了或锁住了：回合照常失败，等别的会话的回合结算后重启进程，恢复到新进程上再发消息就好', async () => {

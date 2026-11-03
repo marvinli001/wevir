@@ -32,6 +32,13 @@ export function classifyKiroTurnError(error: unknown): ClassifiedTurnError {
   const info = errorInfo(error);
   if (isKiroAuthRequired(error)) return { category: 'missing_credentials', ...info };
   if (
+    /\b(?:MONTHLY_REQUEST_COUNT|MonthlyRequestCount|Monthly request limit reached)\b/i.test(
+      info.message,
+    )
+  ) {
+    return { category: 'provider', ...info, usageLimit: {} };
+  }
+  if (
     /rate.?limit|throttl|quota|credits?|overage|insufficient|billing|usage limit|monthly request|daily request|overloaded|capacity|\b(?:402|429|5\d\d)\b/i.test(
       info.message,
     )

@@ -31,6 +31,19 @@ export function isWorkBuddyAuthRequired(error: unknown): boolean {
 export function classifyWorkBuddyTurnError(error: unknown): ClassifiedTurnError {
   const info = errorInfo(error);
   if (isWorkBuddyAuthRequired(error)) return { category: 'missing_credentials', ...info };
+  const data = record(record(error)?.data);
+  const businessCode = record(data?.['codebuddy.ai/error'])?.businessCode ?? data?.code;
+  if (
+    businessCode === 14018 ||
+    businessCode === '14018' ||
+    businessCode === 14019 ||
+    businessCode === '14019' ||
+    /\b(?:no available credits?|quota exhausted|credits? exhausted)\b|额度已?用尽/i.test(
+      info.message,
+    )
+  ) {
+    return { category: 'provider', ...info, usageLimit: {} };
+  }
   if (
     /rate.?limit|quota|credits?|insufficient|RESOURCE_EXHAUSTED|\b(?:429|5\d\d)\b|API error/i.test(
       info.message,

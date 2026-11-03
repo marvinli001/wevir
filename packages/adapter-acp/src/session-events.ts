@@ -198,11 +198,16 @@ export class SessionEventQueue {
 
   /** 回合的终结事件（`turn.settled` / `turn.failed`）。不在回合中时忽略。 */
   endTurn(event: Exclude<TurnTerminalEvent, { type: 'engine.exited' }>): void {
-    if (!this.#inTurn) return;
+    this.deferTurnEnd(event)();
+  }
+
+  /** 输出立即结束；额度失败等刷新后才发布终结事件。 */
+  deferTurnEnd(event: Exclude<TurnTerminalEvent, { type: 'engine.exited' }>): () => void {
+    if (!this.#inTurn) return () => {};
     // 取消或出错时停在半途的一块内容按已生成的部分提交（与 dsh 取消时补发已生成部分的做法一致）。
     this.#flushChunks();
     this.#inTurn = false;
-    this.#hub.emit(event);
+    return () => this.#hub.emit(event);
   }
 
   /** 引擎进程退出：发 `engine.exited`（订阅的最后一个事件）并结束。 */

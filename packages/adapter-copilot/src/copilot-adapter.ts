@@ -233,6 +233,10 @@ export class CopilotAdapter extends AcpAdapter {
     }
   }
 
+  protected override refreshUsage(): Promise<void> {
+    return this.accounts.refreshQuota();
+  }
+
   protected override async authenticateAfter(error: unknown): Promise<boolean> {
     if (!isCopilotAuthRequired(error)) return false;
     this.accounts.markSignedOut();

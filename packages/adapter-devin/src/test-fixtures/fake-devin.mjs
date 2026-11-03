@@ -195,6 +195,7 @@ async function prompt(id, params) {
   try {
     if (text.startsWith('error:')) {
       const errors = {
+        quota: { code: -32603, message: 'Quota exhausted: usage quota has been exhausted' },
         provider: {
           code: -32603,
           message: 'Internal error',

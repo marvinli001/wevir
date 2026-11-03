@@ -1,6 +1,6 @@
 // 额度：Copilot 不经 ACP 报用量，但订阅了原始会话事件（engine.ts 的 `clientCapabilitiesMeta`）后，每次调模型后的
 // `assistant.usage` 带 `quotaSnapshots`（1.0.103 的 session-events.schema.json：按额度名，`entitlementRequests`、`usedRequests`、
-// `remainingPercentage`、`resetDate`、`isUnlimitedEntitlement`）。这些字段在 schema 里标着 internal，没有公开文档；读不懂就不报。
+// `remainingPercentage`、`resetDate`、`isUnlimitedEntitlement`）。headless RPC 的 account.getQuota 也返回这些快照；读不懂就不报。
 // 按月重置（计费周期），所以窗口是 `period: 'monthly'`；无限额度的不列。
 
 import type { AccountState } from '@wevir/runtime-adapter';
@@ -27,7 +27,12 @@ export function copilotRateLimits(snapshots: unknown): RateLimits | undefined {
   const windows: Window[] = [];
   for (const [name, value] of entries) {
     const snapshot = record(value);
-    if (snapshot === undefined || snapshot.isUnlimitedEntitlement === true) continue;
+    if (
+      snapshot === undefined ||
+      snapshot.isUnlimitedEntitlement === true ||
+      snapshot.entitlementRequests === -1
+    )
+      continue;
     const used = usedPercent(snapshot);
     if (used === undefined) continue;
     const resetsAt = isoTime(snapshot.resetDate);

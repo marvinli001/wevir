@@ -211,4 +211,12 @@ describe('Devin ACP', () => {
       category: 'unknown',
     });
   });
+
+  it('明确的额度耗尽带 usageLimit', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('error:quota'));
+    expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+  });
 });

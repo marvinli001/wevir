@@ -1,4 +1,4 @@
-import type { AccountState, EngineAccounts } from '@wevir/runtime-adapter';
+import type { AccountState, AgentEvent, EngineAccounts } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AcpAdapter } from './acp-adapter.js';
 import { AcpProcess } from './acp-process.js';
@@ -33,6 +33,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       reply(id, {});
       break;
     case 'session/prompt':
+      if (setup.promptError) {
+        process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, error: setup.promptError }) + '\n');
+        break;
+      }
+      if (setup.resultError) { reply(id, { stopReason: 'error', error: setup.resultError }); break; }
       if (setup.hangPrompt) { pendingPrompt = id; break; }
       configOptions = setup.nextOptions ?? configOptions;
       process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
@@ -43,6 +48,12 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     case 'fixture/releasePrompt':
       reply(id, {});
       reply(pendingPrompt, { stopReason: 'end_turn' });
+      break;
+    case 'fixture/lateOutput':
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', messageId: 'late', content: { type: 'text', text: 'late' } }
+      } }) + '\n');
+      reply(id, {});
       break;
     case 'fixture/calls':
       reply(id, calls);
@@ -85,6 +96,13 @@ afterEach(async () => {
 });
 
 class FixtureAdapter extends AcpAdapter {
+  refresh = vi.fn(async () => {});
+  protected override refreshUsage() {
+    return this.refresh();
+  }
+  complete(id: string, completion: { error: unknown } | { stopReason: string }) {
+    return this.completeTurn(id, completion);
+  }
   watch(accounts: Pick<EngineAccounts, 'onChange'>) {
     this.watchRuntime(accounts);
   }
@@ -97,7 +115,14 @@ function setup(
   modelMethod: 'config_option' | 'set_model' = 'config_option',
   fields: Record<string, unknown> = {},
 ) {
-  const engine = { ...ENGINE, route: { ...ENGINE.route, modelMethod } };
+  const engine = {
+    ...ENGINE,
+    route: { ...ENGINE.route, modelMethod },
+    classifyTurnError: (error: unknown) => ({
+      ...ENGINE.classifyTurnError(error),
+      ...(fields.usageLimit === true && { usageLimit: {} }),
+    }),
+  };
   const adapter = new FixtureAdapter({
     engine,
     createProcess: (hooks) =>
@@ -130,6 +155,119 @@ function setup(
 const config = (modelId: string) => ({ cwd: process.cwd(), providerId: 'fixture', modelId });
 const calls = (adapter: AcpAdapter) =>
   adapter.process.connection.agent.request<string[]>('fixture/calls', {});
+
+describe('ACP 额度失败结算', () => {
+  it.each(['promptError', 'resultError', 'completion'])('%s：先刷新，再报失败', async (source) => {
+    const adapter = setup('config_option', {
+      usageLimit: true,
+      ...(source === 'completion'
+        ? { hangPrompt: true }
+        : { [source]: { code: -32603, message: 'quota' } }),
+    });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    const order: string[] = [];
+    let release!: () => void;
+    adapter.refresh.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push('refresh');
+          release = resolve;
+        }),
+    );
+    const next = adapter
+      .subscribe(id)
+      [Symbol.asyncIterator]()
+      .next()
+      .then((event) => {
+        order.push('failed');
+        return event.value;
+      });
+    await adapter.send(id, { content: [{ type: 'text', text: 'quota' }] });
+    if (source === 'completion') adapter.complete(id, { error: new Error('quota') });
+    await expect.poll(() => order).toEqual(['refresh']);
+    release();
+    expect(await next).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    expect(order).toEqual(['refresh', 'failed']);
+  });
+
+  it('完成通知与 RPC 竞速只刷新、结算一次', async () => {
+    const adapter = setup('config_option', { usageLimit: true, hangPrompt: true });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    let release!: () => void;
+    adapter.refresh.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const events: AgentEvent[] = [];
+    const consume = (async () => {
+      for await (const event of adapter.subscribe(id)) events.push(event);
+    })();
+    await adapter.send(id, { content: [{ type: 'text', text: 'quota' }] });
+    adapter.complete(id, { error: new Error('quota') });
+    adapter.complete(id, { stopReason: 'end_turn' });
+    await adapter.process.connection.agent.request('fixture/releasePrompt', {});
+    expect(adapter.refresh).toHaveBeenCalledTimes(1);
+    await adapter.process.connection.agent.request('fixture/lateOutput', {});
+    expect(events).toMatchObject([{ type: 'engine.raw', kind: 'agent_message_chunk' }]);
+    release();
+    await expect.poll(() => events.length).toBe(2);
+    expect(events[1]).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    await adapter.dispose();
+    await consume;
+  });
+
+  it('刷新卡住最多等 5 秒；普通错误不刷新', async () => {
+    const adapter = setup('config_option', { usageLimit: true, hangPrompt: true });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    adapter.refresh.mockImplementation(() => new Promise(() => {}));
+    let settled = false;
+    const next = adapter
+      .subscribe(id)
+      [Symbol.asyncIterator]()
+      .next()
+      .then((event) => {
+        settled = true;
+        return event;
+      });
+    await adapter.send(id, { content: [{ type: 'text', text: 'quota' }] });
+    vi.useFakeTimers();
+    try {
+      adapter.complete(id, { error: new Error('quota') });
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await next).value).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    } finally {
+      vi.useRealTimers();
+    }
+    const ordinary = setup('config_option', { promptError: { code: -32603, message: 'network' } });
+    const session = await ordinary.createSession(config('a'));
+    const failure = ordinary.subscribe(session.engineSessionId)[Symbol.asyncIterator]().next();
+    await ordinary.send(session.engineSessionId, { content: [{ type: 'text', text: 'error' }] });
+    expect((await failure).value).not.toHaveProperty('usageLimit');
+    expect(ordinary.refresh).not.toHaveBeenCalled();
+  });
+
+  it('刷新抛错不改变失败；刷新期间取消不触发引擎重启', async () => {
+    const adapter = setup('config_option', { usageLimit: true, hangPrompt: true });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    adapter.refresh.mockRejectedValue(new Error('read failed'));
+    const iterator = adapter.subscribe(id)[Symbol.asyncIterator]();
+    const next = iterator.next();
+    await adapter.send(id, { content: [{ type: 'text', text: 'quota' }] });
+    adapter.complete(id, { error: new Error('quota') });
+    expect((await next).value).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    adapter.refresh.mockImplementation(() => new Promise(() => {}));
+    await adapter.send(id, { content: [{ type: 'text', text: 'quota' }] });
+    adapter.complete(id, { error: new Error('quota') });
+    const cancelled = iterator.next();
+    await adapter.cancel(id);
+    expect((await cancelled).value).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    expect(await calls(adapter)).not.toContain('session/cancel');
+  });
+});
 
 describe.each(['config_option', 'set_model'] as const)('ACP 模型目录（%s）', (method) => {
   it('创建与恢复都在发送模型选择前拒绝未提供的模型，并关闭会话', async () => {

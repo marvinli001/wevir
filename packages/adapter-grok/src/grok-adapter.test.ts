@@ -5,7 +5,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { GrokAdapter } from './grok-adapter.js';
 import {
   EventCollector,
@@ -45,6 +45,32 @@ function setup(extra: Record<string, string> = {}) {
 const types = (events: AgentEvent[]) => events.map((event) => event.type);
 
 describe('GrokAdapter：样本回放', () => {
+  it('额度完成通知先刷新用量；后到的 RPC 结果不抢先结算', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    let release!: () => void;
+    const refresh = vi.spyOn(adapter.accounts, 'refreshUsage').mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('quota'));
+    await expect.poll(() => refresh.mock.calls.length).toBe(1);
+    expect(refresh).toHaveBeenCalledWith('grok');
+    await adapter.configureSession(id, { modelId: config.modelId, permissionMode: 'full_access' });
+    await expect(adapter.send(id, text('during refresh'))).rejects.toMatchObject({
+      code: 'session_busy',
+    });
+    expect(
+      events.events.some((event) => event.type === 'turn.failed' || event.type === 'turn.settled'),
+    ).toBe(false);
+    release();
+    expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it('simple：逐字增量合成一条思考与一条消息，引擎报的回合结束先到', async () => {
     const { adapter, config, log } = setup();
     const { engineSessionId, engineVersion, modelId, reasoningEffort } =

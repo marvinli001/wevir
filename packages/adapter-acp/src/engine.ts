@@ -148,6 +148,7 @@ export interface ClassifiedTurnError {
   /** 引擎原文（ACP 错误的 `message`），不截断；适配器发出 `turn.failed` 前只遮盖像密钥的片段。 */
   message: string;
   code?: number;
+  usageLimit?: TurnFailedEvent['usageLimit'];
 }
 
 export type ResumeFailure =

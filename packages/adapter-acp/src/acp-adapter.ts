@@ -124,6 +124,7 @@ interface TrackedToolCall {
 
 interface Turn {
   cancelRequested: boolean;
+  settle?: () => void;
   /** 回合结算（`session/prompt` 成功、失败，引擎报了结束，或被引擎退出打断）后兑现，永不 reject。 */
   done: Promise<void>;
   finish: () => void;
@@ -503,24 +504,20 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     });
     prompt.then(
       (response) => {
+        if (session.turn !== turn || turn.settle !== undefined) return;
         const failure = turn.cancelRequested ? undefined : outcome?.(response);
         this.#settle(
           session,
           turn,
           failure ?? this.#promptOutcome(engineSessionId, turn, response),
         );
-        turn.finish();
       },
       (error: unknown) => {
-        if (
-          session.turn === turn &&
-          !turn.cancelRequested &&
-          this.engine.restartAfterTurnError?.(error) === true
-        ) {
+        if (session.turn !== turn || turn.settle !== undefined) return;
+        if (!turn.cancelRequested && this.engine.restartAfterTurnError?.(error) === true) {
           this.#restartWhenIdle = true;
         }
         this.#settle(session, turn, this.#turnFailed(engineSessionId, error));
-        turn.finish();
       },
     );
   }
@@ -565,6 +562,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.turn;
     if (session === undefined || turn === undefined) return;
+    if (turn.settle !== undefined) {
+      turn.settle();
+      return;
+    }
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
       void this.notifyCancel(engineSessionId);
@@ -735,7 +736,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   protected completeTurn(engineSessionId: string, completion: TurnCompletion): boolean {
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.status === 'open' ? session.turn : undefined;
-    if (session === undefined || turn === undefined) return false;
+    if (session === undefined || turn === undefined || turn.settle !== undefined) return false;
     this.#settle(
       session,
       turn,
@@ -770,7 +771,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     phase: 'compacting' | 'compacted',
   ): boolean {
     const session = this.#sessions.get(engineSessionId);
-    if (session?.status !== 'open' || session.turn === undefined) return false;
+    if (session?.status !== 'open' || !session.queue.inTurn) return false;
     session.queue.compaction({
       type: phase === 'compacting' ? 'context.compacting' : 'context.compacted',
       engineSessionId,
@@ -800,7 +801,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   ): Promise<string | undefined> {
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.status === 'open' ? session.turn : undefined;
-    if (session === undefined || turn === undefined) {
+    if (session === undefined || turn === undefined || turn.settle !== undefined) {
       this.#logger.warn('审批请求不属于进行中的回合，回复 cancelled', {
         engineSessionId,
         toolCallId,
@@ -842,7 +843,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    */
   protected proposePlan(engineSessionId: string, planId: string, text: string): boolean {
     const session = this.#sessions.get(engineSessionId);
-    if (session?.status !== 'open' || session.turn === undefined) return false;
+    if (session?.status !== 'open' || !session.queue.inTurn) return false;
     session.queue.plan({ type: 'plan.proposed', engineSessionId: session.id, planId, text });
     return true;
   }
@@ -859,7 +860,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   ): Promise<Record<string, string[]> | undefined> {
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.status === 'open' ? session.turn : undefined;
-    if (session === undefined || turn === undefined) {
+    if (session === undefined || turn === undefined || turn.settle !== undefined) {
       this.#logger.warn('提问不属于进行中的回合，回复 cancelled', { engineSessionId, toolCallId });
       return Promise.resolve(undefined);
     }
@@ -984,6 +985,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    */
   protected afterTurn(_engineSessionId: string): void {}
 
+  /** 额度失败之前重读账号用量；公共结算最多等 5 秒，读取错误不改变失败。 */
+  protected async refreshUsage(_engineSessionId: string): Promise<void> {}
+
   protected assertUsable(): void {
     if (this.#disposed !== undefined) {
       throw new AdapterError('disposed', `${this.engine.name} 适配器已释放`);
@@ -1026,7 +1030,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         // 约定不抛错；万一抛了就用原文。
       }
     }
-    if (session.turn !== undefined) trackToolCall(session.toolCalls, notification.update);
+    if (session.turn !== undefined && session.turn.settle === undefined)
+      trackToolCall(session.toolCalls, notification.update);
     session.queue.acpUpdate(notification);
   }
 
@@ -1038,7 +1043,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     request: RequestPermissionRequest,
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> {
-    if (!this.inTurn(request.sessionId)) {
+    if (
+      !this.inTurn(request.sessionId) ||
+      this.#sessions.get(request.sessionId)?.turn?.settle !== undefined
+    ) {
       this.#logger.warn('ACP session/request_permission 不属于进行中的回合，回复 cancelled', {
         engineSessionId: request.sessionId,
         toolCallId: request.toolCall.toolCallId,
@@ -1096,7 +1104,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     signal: AbortSignal,
   ): Promise<CreateElicitationResponse> {
     const sessionId = 'sessionId' in params ? params.sessionId : undefined;
-    if (typeof sessionId !== 'string' || !this.inTurn(sessionId)) return { action: 'decline' };
+    if (
+      typeof sessionId !== 'string' ||
+      !this.inTurn(sessionId) ||
+      this.#sessions.get(sessionId)?.turn?.settle !== undefined
+    )
+      return { action: 'decline' };
     const toolCallId =
       'toolCallId' in params && typeof params.toolCallId === 'string'
         ? params.toolCallId
@@ -1193,15 +1206,32 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
 
   #settle(session: AcpSession, turn: Turn, event: TurnSettledEvent | TurnFailedEvent): void {
     // 引擎退出、dispose 或引擎报的结束（completeTurn）已经结束了这个回合。
-    if (session.turn !== turn) return;
-    // 回合在审批未决时自己结束了（dsh 不会这样，防御）：审批与提问随回合结束。
+    if (session.turn !== turn || turn.settle !== undefined) return;
     this.#cancelPending(session, 'turn_ended');
-    session.turn = undefined;
-    session.toolCalls.clear();
-    session.queue.endTurn(event);
-    turn.finish();
-    this.afterTurn(session.id);
-    void this.#restartIfRequested();
+    const publish = session.queue.deferTurnEnd(event);
+    // 完成通知与 RPC 结果竞速：先认领回合，再等用量，后到的结果不能抢先结算。
+    turn.settle = () => {
+      if (session.turn !== turn) return;
+      session.turn = undefined;
+      session.toolCalls.clear();
+      publish();
+      turn.finish();
+      this.afterTurn(session.id);
+      void this.#restartIfRequested();
+    };
+    if (event.type === 'turn.failed' && event.usageLimit !== undefined && !turn.cancelRequested) {
+      void settledWithin(
+        Promise.race([
+          turn.done,
+          Promise.resolve()
+            .then(() => this.refreshUsage(session.id))
+            .catch(() => {}),
+        ]),
+        5000,
+      ).then(turn.settle);
+    } else {
+      turn.settle();
+    }
   }
 
   /**

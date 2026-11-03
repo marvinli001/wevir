@@ -185,6 +185,14 @@ describe('WorkBuddy ACP', () => {
     expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.settled' });
   });
 
+  it('明确的额度耗尽带 usageLimit', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('error:quota'));
+    expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.failed', usageLimit: {} });
+  });
+
   it('账号重新检测到新 CLI 时，空闲进程切换版本并脱开旧会话', async () => {
     const dir = temp.dir(`version-${++seq}`);
     const env = fakeWorkBuddyEnv();

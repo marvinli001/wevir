@@ -29,6 +29,13 @@ export function classifyDevinTurnError(error: unknown): ClassifiedTurnError {
   const info = errorInfo(error);
   if (isDevinAuthRequired(error)) return { category: 'missing_credentials', ...info };
   if (
+    /\b(?:Quota exhausted:|usage quota has been exhausted|monthly acu limit reached)/i.test(
+      info.message,
+    )
+  ) {
+    return { category: 'provider', ...info, usageLimit: {} };
+  }
+  if (
     /rate.?limit|quota|credits?|ACUs?\b|insufficient|billing|usage limit|overloaded|\b(?:429|5\d\d)\b/i.test(
       info.message,
     )

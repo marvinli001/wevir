@@ -360,6 +360,7 @@ describe('Kiro ACP', () => {
       type: 'turn.failed',
       category: 'provider',
       message: 'MonthlyRequestCount: you have used all your credits',
+      usageLimit: {},
     });
     const from = events.events.length;
     await adapter.send(id, text('error:unknown'));

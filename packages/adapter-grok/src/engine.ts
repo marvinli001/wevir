@@ -60,8 +60,7 @@ export function isAuthRequired(error: unknown): boolean {
 }
 
 /**
- * 回合失败的归类（grok-event-mapping.md §2.3）：要认证的是 `missing_credentials`；用量上限（`-32003` 或 `rate_limit`）、
- * 带 HTTP 状态码的上游错误（`API error (status 400 …)`）是 `provider`；其余 unknown。原文是 `data.message`。
+ * -32003（也来自 rate_limit 完成通知）带额度上限；裸 HTTP 状态不够判定订阅额度。原文是 data.message。
  */
 export function classifyTurnError(error: unknown): ClassifiedTurnError {
   const { message, code, httpStatus } = describeError(error);
@@ -69,11 +68,10 @@ export function classifyTurnError(error: unknown): ClassifiedTurnError {
   if (isAuthRequired(error) || /not (?:logged in|authenticated)/i.test(message)) {
     return { category: 'missing_credentials', ...base };
   }
-  if (
-    code === XAI_RATE_LIMITED_CODE ||
-    httpStatus !== undefined ||
-    /^API error \(status \d{3}/.test(message)
-  ) {
+  if (code === XAI_RATE_LIMITED_CODE) {
+    return { category: 'provider', ...base, usageLimit: {} };
+  }
+  if (httpStatus !== undefined || /^API error \(status \d{3}/.test(message)) {
     return { category: 'provider', ...base };
   }
   return { category: 'unknown', ...base };

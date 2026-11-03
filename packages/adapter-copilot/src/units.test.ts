@@ -112,6 +112,7 @@ describe('额度', () => {
         custom_quota: { entitlementRequests: 50, usedRequests: 10 },
         premium_interactions: { remainingPercentage: 40 },
         broken: { usedRequests: 1 },
+        unlimited: { entitlementRequests: -1, remainingPercentage: 0 },
       })?.windows,
     ).toEqual([
       { usedPercent: 60, period: 'monthly', scope: 'Premium requests' },

@@ -260,6 +260,8 @@ async function prompt(id, params) {
     const replay = /^replay:([\w-]+)(?:#(\d+))?$/.exec(text);
     if (replay) {
       await runReplay(id, sessionId, promptId, replay[1], Number(replay[2] ?? 1), cancelSignal);
+    } else if (text === 'quota') {
+      finish(sessionId, promptId, 'rate_limit', id);
     } else if (text === 'hang') {
       await cancelSignal;
       finish(sessionId, promptId, 'cancelled', id);

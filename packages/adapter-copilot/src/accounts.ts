@@ -35,6 +35,8 @@ import {
 } from './launch.js';
 import { type CopilotLoginFlow, startCopilotLogin } from './login.js';
 import { COPILOT_DEFAULT_MODELS, copilotModels, record } from './models.js';
+import { readCopilotQuota } from './quota.js';
+import { copilotRateLimits } from './usage.js';
 
 export const PROBE_TTL_MS = 5 * 60_000;
 export const PROBE_TIMEOUT_MS = 30_000;
@@ -114,7 +116,7 @@ export function copilotUserLabel(user: CopilotUser): string {
  * 找官方 CLI（用户自己装的优先，没有就用 Wevir 下载的），起一次 `copilot --acp` 建个会话看登录状态并读模型列表（没登录时
  * `session/new` 报“Authentication required”），账号名读配置目录的 config.json；检测不认证、不读令牌。登录由设置里的按钮起
  * `copilot login --device-code` 完成（login.ts），登出用 ACP 的 `logout`。额度来自会话里的 `assistant.usage` 事件
- * （usage.ts，`setRateLimits`）。
+ * （usage.ts，`setRateLimits`）；额度失败前以 headless RPC 重读快照（`refreshQuota`）。
  */
 export class CopilotAccounts implements EngineAccounts {
   readonly kinds: readonly AccountKind[] = ['copilot'];
@@ -125,6 +127,8 @@ export class CopilotAccounts implements EngineAccounts {
   #state: AccountState | undefined;
   #models: AccountModels = COPILOT_DEFAULT_MODELS;
   #rateLimits: AccountState['rateLimits'];
+  #quotaRead: Promise<void> | undefined;
+  #quotaAbort: AbortController | undefined;
   #executable: CopilotExecutable | undefined;
   #checkedAt = 0;
   #probing: Promise<AccountState> | undefined;
@@ -388,6 +392,30 @@ export class CopilotAccounts implements EngineAccounts {
     this.#emit();
   }
 
+  /** 失败前按当前账号重读配额；不会触发模型请求或重新探测登录。 */
+  refreshQuota(): Promise<void> {
+    this.#check('copilot');
+    if (this.#quotaRead !== undefined) return this.#quotaRead;
+    const executable = this.#executable;
+    if (this.#state?.status !== 'signed_in' || executable === undefined) return Promise.resolve();
+    const revision = this.#revision;
+    const abort = new AbortController();
+    this.#quotaAbort = abort;
+    const run: Promise<void> = readCopilotQuota(executable, this.#options.workDir, abort.signal)
+      .then((snapshots) => {
+        if (this.#disposed || this.#revision !== revision || this.#state?.status !== 'signed_in')
+          return;
+        const limits = copilotRateLimits(snapshots);
+        if (limits !== undefined) this.setRateLimits(limits);
+      })
+      .finally(() => {
+        this.#quotaRead = undefined;
+        this.#quotaAbort = undefined;
+      });
+    this.#quotaRead = run;
+    return run;
+  }
+
   async dispose(): Promise<void> {
     this.#disposed = true;
     this.#revision += 1;
@@ -395,8 +423,10 @@ export class CopilotAccounts implements EngineAccounts {
     this.#login?.flow.cancel();
     this.#login = undefined;
     this.#abort?.abort();
+    this.#quotaAbort?.abort();
     this.#listeners.clear();
     await Promise.all([...this.#probes].map((run) => run.catch(() => {})));
+    await this.#quotaRead;
   }
 
   #check(kind: AccountKind): void {

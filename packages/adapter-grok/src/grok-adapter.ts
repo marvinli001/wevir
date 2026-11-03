@@ -164,6 +164,10 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
     return { ...GROK_CANCEL_META };
   }
 
+  protected override refreshUsage(): Promise<void> {
+    return this.#accounts.refreshUsage('grok');
+  }
+
   /**
    * 回合结束的扩展通知（T3 的 `makeXAiPromptCompletionRuntime`）：`promptId` 与本会话进行中的回合相同才算；没带 `promptId`
    * 的按会话认。之前的 `session/update` 都已入队。
