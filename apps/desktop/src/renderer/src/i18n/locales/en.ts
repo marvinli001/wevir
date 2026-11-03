@@ -611,6 +611,8 @@ export const messages: Messages = {
   'sidebar.showMore': 'Show more',
   'sidebar.showLess': 'Show less',
   'sidebar.threadCount': '{count, plural, one {# nested session} other {# nested sessions}}',
+  'sidebar.threadMore':
+    '{count, plural, one {# more nested session} other {# more nested sessions}}',
   'sidebar.threadRunning': '{count} running',
   'sidebar.threadExpand': 'Expand nested sessions',
   'sidebar.threadCollapse': 'Collapse nested sessions',

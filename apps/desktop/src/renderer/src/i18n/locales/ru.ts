@@ -617,6 +617,7 @@ export const messages: Messages = {
   'sidebar.showMore': 'Показать ещё',
   'sidebar.showLess': 'Свернуть',
   'sidebar.threadCount': 'Вложенные сессии ({count})',
+  'sidebar.threadMore': 'Ещё вложенные сессии ({count})',
   'sidebar.threadRunning': 'выполняется: {count}',
   'sidebar.threadExpand': 'Развернуть вложенные сессии',
   'sidebar.threadCollapse': 'Свернуть вложенные сессии',

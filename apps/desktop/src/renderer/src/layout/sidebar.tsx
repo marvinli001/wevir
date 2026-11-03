@@ -345,7 +345,8 @@ function StatusTree() {
       key={entry.session.id}
       workspaceId={entry.workspace.id}
       thread={entry}
-      open={threadOpen(entry, collapsedThreads, sessionId)}
+      open={threadOpen(entry, collapsedThreads)}
+      activeId={sessionId}
       isUnread={(session) => isUnread(seen, session)}
     />
   );
@@ -630,7 +631,8 @@ function ThreadList({
           key={thread.session.id}
           workspaceId={workspaceId}
           thread={thread}
-          open={threadOpen(thread, collapsedThreads, activeId)}
+          open={threadOpen(thread, collapsedThreads)}
+          activeId={activeId}
           isUnread={isUnread}
         />
       )}
@@ -643,18 +645,12 @@ function inThread(thread: SessionThread, sessionId: string | undefined): boolean
 }
 
 /**
- * 线程展开着没有：用户没收起它就展开。收起了也照样展开的两种：当前会话是其中一个子会话（免得当前项被收起来）；有子会话
- * 等审批、等回答或出错（收起的线程里不藏需要用户处理的会话）。当前会话是父会话本身时照常收起（照 Claude Code 桌面端），
- * 父会话那一行还在。
+ * 线程展开着没有：用户没收起它就展开；有子会话等审批、等回答或出错时收起了也照样展开（收起的线程里不藏需要用户处理的
+ * 会话）。当前会话是其中一个子会话时照常收起，那一行留在外面（`ThreadItem`，照 Claude Code 桌面端）。
  */
-function threadOpen(
-  thread: SessionThread,
-  collapsedThreads: readonly string[],
-  activeId: string | undefined,
-): boolean {
+function threadOpen(thread: SessionThread, collapsedThreads: readonly string[]): boolean {
   return (
     !collapsedThreads.includes(thread.session.id) ||
-    thread.children.some((child) => child.id === activeId) ||
     thread.children.some((child) => {
       const marker = sessionMarker(child);
       return marker !== undefined && marker !== 'running';
@@ -672,27 +668,46 @@ const BRANCH_MID = 'before:bottom-0';
 const BRANCH_LAST = 'before:h-[20px] before:w-2 before:rounded-bl-md before:border-b';
 
 /**
- * 一个线程：开出别的会话的会话下面列着它开出的会话；收起时只留一行“N 个子会话”，点它展开。标题后面的箭头展开、收起，
- * 焦点在行上时左右方向键也行。
+ * 一个线程：开出别的会话的会话下面列着它开出的会话；收起时只留一行“N 个子会话”，点它展开。当前会话是其中一个子会话时
+ * 收起后它那一行还在，下面写“另外 N 个子会话”（照 Claude Code 桌面端）。标题后面的箭头展开、收起，焦点在行上时左右方向键
+ * 也行。
  */
 function ThreadItem({
   workspaceId,
   thread,
   open,
+  activeId,
   isUnread,
 }: {
   workspaceId: string;
   thread: SessionThread;
   open: boolean;
+  activeId: string | undefined;
   isUnread: (session: Session) => boolean;
 }) {
   const { session, children } = thread;
   const count = children.length;
-  // 收起时那一行写上有几个在跑；有没看过的（跑完了的）右边带未读点。需要用户处理的子会话不会收起（threadOpen）。
-  const runningCount = children.filter((child) => sessionMarker(child) === 'running').length;
-  const unreadChild = children.some(
-    (child) => isUnread(child) && sessionMarker(child) !== 'running',
+  // 当前的子会话收起时也留着：前后两段各自收起，它那一行不动。
+  const keptIndex = children.findIndex((child) => child.id === activeId);
+  const kept = keptIndex === -1 ? undefined : children[keptIndex];
+  const hidden = kept === undefined ? children : children.filter((child) => child !== kept);
+  // 收起时那一行写上收起的有几个在跑；有没看过的（跑完了的）右边带未读点。需要用户处理的子会话不会收起（threadOpen）。
+  const runningCount = hidden.filter((child) => sessionMarker(child) === 'running').length;
+  const unreadChild = hidden.some((child) => isUnread(child) && sessionMarker(child) !== 'running');
+  const summary = !open && hidden.length > 0;
+  const branchRow = (child: Session, last: boolean) => (
+    <li key={child.id} className={cn(BRANCH, last ? BRANCH_LAST : BRANCH_MID)}>
+      <SessionRow workspaceId={workspaceId} session={child} unread={isUnread(child)} branch />
+    </li>
   );
+  const segment = (items: readonly Session[]) =>
+    items.length > 0 && (
+      <Collapse open={open}>
+        <ul className="space-y-0.5 pt-0.5">
+          {items.map((child) => branchRow(child, child === children[count - 1]))}
+        </ul>
+      </Collapse>
+    );
   return (
     <li data-thread={count > 0 ? session.id : undefined}>
       <SessionRow
@@ -702,26 +717,14 @@ function ThreadItem({
         {...(count > 0 && { thread: { count, open } })}
       />
       <Leaving sessionId={session.id}>
-        {count > 0 && (
-          <Collapse open={open}>
-            <ul className="space-y-0.5 pt-0.5">
-              {children.map((child, index) => (
-                <li
-                  key={child.id}
-                  className={cn(BRANCH, index === count - 1 ? BRANCH_LAST : BRANCH_MID)}
-                >
-                  <SessionRow
-                    workspaceId={workspaceId}
-                    session={child}
-                    unread={isUnread(child)}
-                    branch
-                  />
-                </li>
-              ))}
-            </ul>
-          </Collapse>
+        {segment(kept === undefined ? children : children.slice(0, keptIndex))}
+        {kept !== undefined && (
+          <ul className="pt-0.5">
+            {branchRow(kept, summary ? false : open ? keptIndex === count - 1 : true)}
+          </ul>
         )}
-        {count > 0 && !open && (
+        {kept !== undefined && segment(children.slice(keptIndex + 1))}
+        {summary && (
           <div className={cn(BRANCH, BRANCH_LAST, 'pt-0.5')}>
             <button
               type="button"
@@ -731,7 +734,9 @@ function ThreadItem({
               className={cn(ROW, 'h-8 text-sm text-muted-foreground hover:text-foreground')}
             >
               <span className="min-w-0 flex-1 truncate text-left">
-                {t('sidebar.threadCount', { count })}
+                {t(kept === undefined ? 'sidebar.threadCount' : 'sidebar.threadMore', {
+                  count: hidden.length,
+                })}
                 {runningCount > 0 && ` · ${t('sidebar.threadRunning', { count: runningCount })}`}
               </span>
               {unreadChild && (

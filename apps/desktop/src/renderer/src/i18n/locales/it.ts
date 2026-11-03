@@ -617,6 +617,8 @@ export const messages: Messages = {
   'sidebar.showMore': 'Mostra altro',
   'sidebar.showLess': 'Mostra meno',
   'sidebar.threadCount': '{count, plural, one {# sessione annidata} other {# sessioni annidate}}',
+  'sidebar.threadMore':
+    '{count, plural, one {# altra sessione annidata} other {altre # sessioni annidate}}',
   'sidebar.threadRunning': '{count} in esecuzione',
   'sidebar.threadExpand': 'Mostra sessioni annidate',
   'sidebar.threadCollapse': 'Nascondi sessioni annidate',

@@ -616,6 +616,8 @@ export const messages: Messages = {
   'sidebar.showMore': 'Afficher plus',
   'sidebar.showLess': 'Afficher moins',
   'sidebar.threadCount': '{count, plural, one {# session imbriquée} other {# sessions imbriquées}}',
+  'sidebar.threadMore':
+    '{count, plural, one {# autre session imbriquée} other {# autres sessions imbriquées}}',
   'sidebar.threadRunning': '{count} en cours',
   'sidebar.threadExpand': 'Afficher les sessions imbriquées',
   'sidebar.threadCollapse': 'Masquer les sessions imbriquées',

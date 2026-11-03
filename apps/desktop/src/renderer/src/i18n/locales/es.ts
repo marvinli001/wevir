@@ -618,6 +618,8 @@ export const messages: Messages = {
   'sidebar.showMore': 'Mostrar más',
   'sidebar.showLess': 'Mostrar menos',
   'sidebar.threadCount': '{count, plural, one {# sesión anidada} other {# sesiones anidadas}}',
+  'sidebar.threadMore':
+    '{count, plural, one {# sesión anidada más} other {# sesiones anidadas más}}',
   'sidebar.threadRunning': '{count} en ejecución',
   'sidebar.threadExpand': 'Mostrar sesiones anidadas',
   'sidebar.threadCollapse': 'Ocultar sesiones anidadas',
