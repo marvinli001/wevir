@@ -506,6 +506,10 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'turn.started': {
       const { turnId } = event.payload;
+      if (next.usage !== undefined) {
+        const { promptCacheExpiresAt: _, ...usage } = next.usage;
+        next.usage = usage;
+      }
       const activeTurn: ActiveTurn = { turnId, startedAt: event.ts };
       const clientMessageId =
         projection.lastUserMessage?.turnId === turnId
@@ -630,6 +634,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         ...(event.payload.totalTokens !== undefined && { totalTokens: event.payload.totalTokens }),
         ...(event.payload.autoCompactAt !== undefined && {
           autoCompactAt: event.payload.autoCompactAt,
+        }),
+        ...(event.payload.promptCacheExpiresAt !== undefined && {
+          promptCacheExpiresAt: event.payload.promptCacheExpiresAt,
         }),
         // 回合中间的用量更新不带分布时沿用上一次的（0.50.0）。
         ...((event.payload.breakdown ?? projection.usage?.breakdown) !== undefined && {

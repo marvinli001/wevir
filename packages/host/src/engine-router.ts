@@ -268,6 +268,10 @@ export class EngineRouter implements AgentRuntimeAdapter {
     return this.#routes;
   }
 
+  canIdleCompact(engineSessionId: string): boolean {
+    return this.#forSession(engineSessionId).adapter.canIdleCompact?.(engineSessionId) ?? true;
+  }
+
   /** 会话所在的引擎有没有这个方法（0.24.0）、计划模式（0.36.0）或分支（0.38.0）：Host 在开始命令回合、分支与撤回之前问。 */
   supports(engineSessionId: string, method: SessionCapability): boolean {
     const adapter = this.#forSession(engineSessionId).adapter;

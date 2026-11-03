@@ -632,6 +632,8 @@ export const UsageSchema = z.object({
   totalTokens: z.int().min(0).optional(),
   /** 已用到这个数时引擎自己压缩上下文（0.29.0）；引擎不自动压缩或不说阈值时省略。 */
   autoCompactAt: z.int().min(0).optional(),
+  /** 最近一次主请求的提示缓存到期时间；省略表示未知，不沿用旧值。 */
+  promptCacheExpiresAt: IsoTimeSchema.optional(),
   /** 上下文的分布（0.50.0）；引擎不报时省略。回合中间的 `usage.updated` 不带它时，沿用上一次的。 */
   breakdown: UsageBreakdownSchema.optional(),
 });
@@ -1182,6 +1184,10 @@ export const UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES = 1440;
 
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
 export const HostSettingsSchema = z.object({
+  /** Claude 空闲会话在提示缓存过期前压缩；省略按关闭。 */
+  compactIdleClaudeSessions: z.boolean().optional(),
+  /** 按 Claude 来源覆盖全局闲置压缩开关；缺项沿用全局设置。 */
+  claudeIdleCompactionOverrides: z.record(ProviderIdSchema, z.boolean()).optional(),
   /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的切换改的就是它）。 */
   sendWhileBusy: PendingDeliverySchema,
   /**

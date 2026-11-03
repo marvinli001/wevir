@@ -6,6 +6,7 @@
 // 0b84aa3fa7853e2645322feebc0859802ccc1a31（#21806，完全访问下保留 Claude 的审批）、e74924538705d774e2e1c56616485351d33d38db（#22546，审批原因与长期授权限制）；
 // 25dde99a5199b89641ea0b5aef556033ea9201fb（#24254，服务端工具结果与错误）、159a914d6b99e6844f2796da44a6dee101f35d59（#22654，压缩预留 33,000 token）
 // Copyright (c) 2026 T3 Tools Inc.
+// 缓存到期计算参考同文件 a03648901640216a154d387cfb2cdec268e6527e（MIT，#21682）。
 // 修改：改写成不依赖 `effect` 的普通 TS，实现 Wevir 的 `AgentRuntimeAdapter`；插话用 priority next（T3 用 now）；关掉后台任务；不移植 T3 编排专用的部分（唤醒回合、prompt 回声的门控、后台任务名单、goal、回滚、编排用的 MCP 工具）。
 //
 // Claude Agent 引擎（docs/architecture/claude-event-mapping.md）：每个会话一个 `claude` 进程，由 Claude Agent SDK 的 `query()`
@@ -308,8 +309,9 @@ interface Turn {
    * 最近一个顶层请求的用量，从它的流式事件拼（T3 66cae3d）。它的快照重复 `message_start` 的用量，走中转时可能全是 0，所以快照只在
    * 流式事件还没报出输入时补上。压缩之后这份用量过期（null），但还记着请求，免得它后到的快照盖掉压缩后的用量。
    */
-  contextRequest?: { id: string; usage: Record<string, unknown> | null };
+  contextRequest?: { id: string; usage: Record<string, unknown> | null; startedAt?: number };
   lastContextUsed?: number;
+  promptCacheExpiresAt?: string;
   waiters: Array<() => void>;
   /** 跑这个回合的进程（消息推给它之后才有）：别的进程退出不结算这个回合。 */
   live?: LiveQuery;
@@ -324,6 +326,7 @@ interface LiveQuery {
   closing: boolean;
   /** 收到过第一个 `init`：只有它说明进程起在了哪个权限模式。 */
   receivedInit: boolean;
+  backgroundTasks: boolean;
   contextLimits?: { model: string; autoCompactAt?: number };
   /** Claude Code 写前台命令输出文件的目录（按这个进程的环境）；没有时不读实时输出。 */
   taskOutputRoot: string | undefined;
@@ -822,6 +825,18 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   async compact(engineSessionId: string): Promise<void> {
     this.#ensureAlive();
     await this.#startTurn(this.#root(engineSessionId, 'compact'), COMPACT_COMMAND, 'compact');
+  }
+
+  canIdleCompact(engineSessionId: string): boolean {
+    const session = this.#sessions.get(engineSessionId);
+    return (
+      session?.kind === 'root' &&
+      session.open &&
+      session.turn === undefined &&
+      !session.waking &&
+      session.live?.backgroundTasks !== true &&
+      ![...session.children.values()].some((child) => child.running)
+    );
   }
 
   /** `input` 带图片时（0.28.0）消息是内容块，否则是 `text` 字符串。 */
@@ -1393,6 +1408,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       done: Promise.resolve(),
       closing: false,
       receivedInit: false,
+      backgroundTasks: false,
       taskOutputRoot: claudeTaskOutputRoot(env),
     };
     live.done = this.#pump(session, live);
@@ -2048,6 +2064,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           }
           return;
         }
+        if (message.subtype === 'background_tasks_changed') {
+          live.backgroundTasks = message.tasks.some((task) => task.ambient !== true);
+          return;
+        }
         if (message.subtype === 'task_started') {
           const child =
             message.tool_use_id === undefined
@@ -2158,6 +2178,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     }
     const compactionId = turn.compaction?.id ?? message.uuid;
     turn.compaction = undefined;
+    turn.promptCacheExpiresAt = undefined;
     if (turn.contextRequest !== undefined) turn.contextRequest.usage = null;
     session.hub.emit({
       type: 'context.compacted',
@@ -2226,7 +2247,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         const turn = session.turn;
         if (turn !== undefined) {
           const usage = { ...record(event.message.usage) };
-          turn.contextRequest = { id: event.message.id, usage };
+          turn.contextRequest = { id: event.message.id, usage, startedAt: Date.now() };
           this.#contextUsage(session, turn, usage);
         }
         return;
@@ -2401,15 +2422,41 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   #contextUsage(session: RootSession, turn: Turn, usage: Record<string, unknown>): void {
     if (turn.settled) return;
     const input = contextInput(usage);
-    if (input <= 0) return;
+    if (input <= 0) {
+      if (turn.promptCacheExpiresAt !== undefined && turn.lastContextUsed !== undefined) {
+        turn.promptCacheExpiresAt = undefined;
+        session.hub.emit({
+          type: 'usage.updated',
+          engineSessionId: session.id,
+          contextUsed: turn.lastContextUsed,
+          ...this.#contextLimits(session),
+        });
+      }
+      return;
+    }
     // 同 T3 的 `claudeProviderTurnTokenUsage`：输入（含缓存的读写）加输出。
     const contextUsed = input + usageCount(usage, 'output_tokens');
     turn.lastContextUsed = contextUsed;
+    const cache = record(usage.cache_creation);
+    const ttl =
+      usageCount(cache, 'ephemeral_5m_input_tokens') > 0
+        ? 5 * 60_000
+        : usageCount(cache, 'ephemeral_1h_input_tokens') > 0
+          ? 60 * 60_000
+          : undefined;
+    const startedAt = turn.contextRequest?.startedAt;
+    turn.promptCacheExpiresAt =
+      ttl !== undefined && startedAt !== undefined
+        ? new Date(startedAt + ttl).toISOString()
+        : undefined;
     session.hub.emit({
       type: 'usage.updated',
       engineSessionId: session.id,
       contextUsed,
       ...this.#contextLimits(session),
+      ...(turn.promptCacheExpiresAt !== undefined && {
+        promptCacheExpiresAt: turn.promptCacheExpiresAt,
+      }),
     });
   }
 
@@ -2533,6 +2580,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           engineSessionId: session.id,
           contextUsed,
           ...this.#contextLimits(session),
+          ...(turn.promptCacheExpiresAt !== undefined && {
+            promptCacheExpiresAt: turn.promptCacheExpiresAt,
+          }),
           ...(breakdown !== undefined && { breakdown }),
         });
       },
@@ -2662,6 +2712,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         contextUsed: turn.lastContextUsed,
         ...this.#contextLimits(session),
         totalTokens,
+        ...(turn.promptCacheExpiresAt !== undefined && {
+          promptCacheExpiresAt: turn.promptCacheExpiresAt,
+        }),
       });
     }
     this.#reportContextBreakdown(session, turn);

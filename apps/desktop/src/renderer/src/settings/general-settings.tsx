@@ -19,6 +19,7 @@ import {
 } from '@/session/permission-picker';
 import { suggestionsEnabled } from '@/session/prompt-suggestion';
 import { usePermissionModes } from '@/session/start-session';
+import { ClaudeIdleCompactionSetting } from './claude-idle-compaction';
 import { LanguagePicker } from './language-picker';
 import { MarketMirrorRow } from './market-mirror';
 import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
@@ -170,6 +171,7 @@ export function GeneralSettings() {
               }
             />
           )}
+          <ClaudeIdleCompactionSetting />
           {insightsAvailable && (
             <SettingsRow
               title={t('settings.chat.insights')}

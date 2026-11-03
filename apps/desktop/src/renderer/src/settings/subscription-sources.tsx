@@ -45,6 +45,7 @@ import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
+import { ClaudeIdleCompactionSetting } from './claude-idle-compaction';
 import { NoticeBanner } from './settings-ui';
 import {
   AccountLabelControl,
@@ -600,6 +601,7 @@ function SourceDetail({
           />
         )}
       </div>
+      {source.kind === 'claude' && <ClaudeIdleCompactionSetting key={id} providerId={id} />}
       {canAdd && account !== undefined && (
         <div
           className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3"

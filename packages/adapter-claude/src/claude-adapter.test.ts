@@ -1011,6 +1011,95 @@ describe('上下文用量从流式事件读', () => {
     // 压缩之后同一请求后到的快照不盖掉压缩后的用量。
     stale: [start({ input_tokens: 1000 }), boundary, snapshot({ input_tokens: 1000 }), done],
   };
+  it.each([
+    { label: '5m', minutes: 5, oneHour: 0, fiveMinutes: 220_000 },
+    { label: '1h', minutes: 60, oneHour: 220_000, fiveMinutes: 0 },
+    { label: 'mixed', minutes: 5, oneHour: 100_000, fiveMinutes: 120_000 },
+  ])(
+    '$label 缓存从请求开始计时，后续用量与分布不延长它',
+    async ({ minutes, oneHour, fiveMinutes }) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime('2026-11-03T00:00:00.000Z');
+      try {
+        const usage = {
+          input_tokens: 100,
+          cache_creation_input_tokens: 220_000,
+          cache_creation: {
+            ephemeral_1h_input_tokens: oneHour,
+            ephemeral_5m_input_tokens: fiveMinutes,
+          },
+        };
+        const { adapter } = harness({
+          contextUsage: { maxTokens: 1_000_000, categories: [] },
+          script: () => ({
+            steps: [start(usage), { kind: 'delay', ms: 30 }, delta({ output_tokens: 50 }), done],
+          }),
+        });
+        const { engineSessionId } = await adapter.createSession(CONFIG);
+        const log = collect(adapter, engineSessionId);
+        const began = Date.now();
+        await adapter.send(engineSessionId, text('cache'));
+        await log.until((event) => event.type === 'usage.updated');
+        vi.setSystemTime(began + 3 * 60_000);
+        await log.until(isTurnTerminal);
+        await log.until((event) => event.type === 'usage.updated' && event.contextUsed === 220_150);
+        const usages = log.events.filter((event) => event.type === 'usage.updated');
+        expect(usages.length).toBeGreaterThan(1);
+        for (const event of usages) {
+          expect(event.promptCacheExpiresAt).toBe(new Date(began + minutes * 60_000).toISOString());
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('下一请求只读缓存时，不沿用旧缓存期限', async () => {
+    const warm = {
+      input_tokens: 100,
+      cache_creation_input_tokens: 220_000,
+      cache_creation: { ephemeral_1h_input_tokens: 220_000, ephemeral_5m_input_tokens: 0 },
+    };
+    const next = stream({
+      type: 'message_start',
+      message: {
+        id: 'next-request',
+        model: CONFIG.modelId,
+        usage: { cache_read_input_tokens: 220_000 },
+      },
+    });
+    const { adapter } = harness({ script: () => ({ steps: [start(warm), next, done] }) });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('cache'));
+    await log.until(isTurnTerminal);
+    const usages = log.events.filter((event) => event.type === 'usage.updated');
+    expect(usages[0]?.promptCacheExpiresAt).toBeDefined();
+    expect(usages.at(-1)?.promptCacheExpiresAt).toBeUndefined();
+  });
+
+  it.each([false, true])('原生后台任务阻止闲置压缩；ambient=%s', async (ambient) => {
+    const { adapter } = harness({
+      script: () => ({
+        steps: [
+          {
+            kind: 'message',
+            message: {
+              type: 'system',
+              subtype: 'background_tasks_changed',
+              tasks: [{ task_id: 'bg', task_type: 'local_bash', description: 'work', ambient }],
+            },
+          },
+          done,
+        ],
+      }),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('background'));
+    await log.until(isTurnTerminal);
+    expect(adapter.canIdleCompact(engineSessionId)).toBe(ambient);
+  });
   const contextUsed = async (prompt: string) => {
     const { adapter } = harness({
       script: (value) => (value in scripts ? { steps: scripts[value] as never } : undefined),

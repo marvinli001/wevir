@@ -814,6 +814,10 @@ export class TranscriptProjection {
         this.#userMessage(event);
         return;
       case 'turn.started': {
+        if (this.#usage !== undefined) {
+          const { promptCacheExpiresAt: _, ...usage } = this.#usage;
+          this.#usage = usage;
+        }
         // 子会话：这一回合的输入来自父 agent（R4），投影成一条用户消息；命令开的回合（0.24.0）同样有一条，带 `command`。
         if (event.payload.input !== undefined) this.#agentInput(event);
         if (event.payload.command !== undefined) this.#commandInput(event);
@@ -907,6 +911,9 @@ export class TranscriptProjection {
           }),
           ...(event.payload.autoCompactAt !== undefined && {
             autoCompactAt: event.payload.autoCompactAt,
+          }),
+          ...(event.payload.promptCacheExpiresAt !== undefined && {
+            promptCacheExpiresAt: event.payload.promptCacheExpiresAt,
           }),
           // 回合中间的用量更新不带分布时沿用上一次的（0.50.0）。
           ...((event.payload.breakdown ?? this.#usage?.breakdown) !== undefined && {

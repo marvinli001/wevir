@@ -404,6 +404,20 @@ describe('TranscriptProjection：上下文分布（0.50.0）', () => {
     add('usage.updated', { contextUsed: 1, contextSize: 2 });
     expect(projectTranscript(list).usage).toEqual({ contextUsed: 1, contextSize: 2 });
   });
+
+  it('缓存期限随请求更新，未知的新请求与新回合清掉旧值', () => {
+    const { list, add, turn } = events();
+    turn();
+    const usage = { contextUsed: 220_000, contextSize: 1_000_000 };
+    const promptCacheExpiresAt = '2026-11-03T01:00:00.000Z';
+    add('usage.updated', { ...usage, promptCacheExpiresAt });
+    expect(projectTranscript(list).usage?.promptCacheExpiresAt).toBe(promptCacheExpiresAt);
+    add('usage.updated', usage);
+    expect(projectTranscript(list).usage?.promptCacheExpiresAt).toBeUndefined();
+    add('usage.updated', { ...usage, promptCacheExpiresAt });
+    turn(TURN2);
+    expect(projectTranscript(list).usage?.promptCacheExpiresAt).toBeUndefined();
+  });
 });
 
 describe('TranscriptProjection：工具与审批', () => {

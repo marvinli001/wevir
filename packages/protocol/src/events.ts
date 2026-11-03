@@ -431,6 +431,7 @@ export const EventPayloadSchemas = {
      * 阈值时省略。
      */
     autoCompactAt: z.int().min(0).optional(),
+    promptCacheExpiresAt: IsoTimeSchema.optional(),
     /** 上下文的分布（0.50.0）；引擎不报或这次没算时省略。 */
     breakdown: UsageBreakdownSchema.optional(),
   }),

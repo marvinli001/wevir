@@ -480,6 +480,7 @@ export const HOST_FEATURES = {
    * 防休眠由 Host 判定（0.102.0，ADR-0017 §5）：设置 `preventSleep`、`power.get` 与 `power.changed` 通知。执行仍在桌面主进程。与引擎无关。
    */
   preventSleep: 'prevent_sleep',
+  idleCompaction: 'idle_compaction',
   /** 收件箱（0.105.0，ADR-0017 §5，domain-model §3.47）：`inbox.list`、`inbox.dismiss` 与 `inbox.changed` 通知。与引擎无关。 */
   inbox: 'inbox',
   /**
@@ -693,6 +694,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_list_push: z.boolean().optional(),
   files_read: z.boolean().optional(),
   prevent_sleep: z.boolean().optional(),
+  idle_compaction: z.boolean().optional(),
   inbox: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
   notification_intents: z.boolean().optional(),

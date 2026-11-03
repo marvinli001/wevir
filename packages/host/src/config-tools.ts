@@ -93,6 +93,8 @@ export const SETTINGS_ACCESS: Record<keyof HostSettings, 'agent' | 'approval' | 
   promptSuggestions: 'agent',
   sessionRecap: 'agent',
   sessionInsights: 'agent',
+  compactIdleClaudeSessions: 'approval',
+  claudeIdleCompactionOverrides: 'approval',
   autoMemory: 'agent',
   ruleFiles: 'agent',
   outputStyle: 'agent',

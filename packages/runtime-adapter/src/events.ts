@@ -206,6 +206,8 @@ export interface UsageUpdatedEvent {
   totalTokens?: number;
   /** 已用到这个数时引擎自己压缩上下文（0.29.0）；不自动压缩或不知道阈值时省略。 */
   autoCompactAt?: number;
+  /** 最近一次主请求的提示缓存到期时间；未知时省略，不能沿用上一请求。 */
+  promptCacheExpiresAt?: string;
   /** 上下文的分布（0.50.0）；引擎不报或这次没算时省略（Host 与客户端沿用上一次的）。 */
   breakdown?: UsageBreakdown;
 }

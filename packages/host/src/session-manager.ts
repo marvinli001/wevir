@@ -158,6 +158,7 @@ import {
   withHandoffContext,
 } from './handoff.js';
 import type { HookDispatcher, HookSessionInfo } from './hooks/dispatcher.js';
+import { idleCompactionWindow } from './idle-compaction.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import {
@@ -271,6 +272,10 @@ export interface SessionManagerOptions {
    * 设置 `promptSuggestions`），关着就不发请求。没给时没有输入建议。
    */
   suggestion?: { instructions: string; enabled: () => boolean };
+  idleCompaction?: {
+    enabled(providerId: string): boolean;
+    hasBackgroundWork?(sessionId: SessionId): boolean;
+  };
   /**
    * 离开后摘要用的说明（prompts/session-recap.md，`loadRecapInstructions`）。给了、并且适配器实现了 `generateTitle` 时，
    * `session.recap` 才会生成；否则回 `reason: 'unsupported'`。
@@ -537,6 +542,7 @@ interface TurnRuntime {
    * 自动压缩之后的第一次用量仍不低于压缩线。
    */
   autoCompaction?: { pending: boolean; fruitless: number };
+  compacted?: true;
 }
 
 /** 一次对引擎事件流的订阅。 */
@@ -572,6 +578,7 @@ interface SessionRuntime {
   readonly questionRequests: Map<QuestionId, string>;
   /** 正在为这个回合生成输入建议（0.53.0）；用户有了新消息、回合重新开始或回合被撤回时中止并清掉。 */
   suggestion?: { readonly turnId: TurnId; readonly abort: AbortController };
+  idleCompaction?: { providerId: string; modelId: string; expiresAt: number };
   /** 第一次生成标题没成（超时、引擎失败、解析不出来）时的首条消息：下一个回合正常结束后再试一次。 */
   titleRetry?: readonly UserContentPart[];
 }
@@ -862,6 +869,8 @@ export class SessionManager {
   /** 额度恢复后自动继续（0.119.0）：每个排上的会话一个按墙上时钟的计时器，只在内存里，Host 启动时按快照重新排。 */
   readonly #autoContinueTimers: AutoContinueTimers;
   readonly #autoContinue: SessionManagerOptions['autoContinue'];
+  readonly #idleCompaction: SessionManagerOptions['idleCompaction'];
+  readonly #idleCompactionTimers: AutoContinueTimers;
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
   /**
@@ -923,6 +932,26 @@ export class SessionManager {
     this.#hooks = options.hooks;
     this.#onTurnFinished = options.onTurnFinished;
     this.#autoContinue = options.autoContinue;
+    this.#idleCompaction = options.idleCompaction;
+    this.#idleCompactionTimers = new AutoContinueTimers((sessionId) => {
+      const runtime = this.#runtimes.get(sessionId);
+      const candidate = runtime?.idleCompaction;
+      if (runtime === undefined || candidate === undefined) return;
+      void this.#serial(runtime, async () => {
+        if (runtime.idleCompaction !== candidate) return;
+        runtime.idleCompaction = undefined;
+        const window = this.#idleWindow(runtime);
+        const { session } = this.#snapshot(runtime);
+        if (
+          window === undefined ||
+          window.end !== candidate.expiresAt ||
+          session.providerId !== candidate.providerId ||
+          session.modelId !== candidate.modelId
+        )
+          return;
+        await this.#startCommandTurn(runtime, { kind: 'compact' });
+      }).catch(this.#onError);
+    });
     this.#autoContinueTimers = new AutoContinueTimers(
       (sessionId) => this.#autoContinueDue(sessionId),
       options.autoContinue?.now,
@@ -4765,6 +4794,7 @@ export class SessionManager {
     this.#approvalTimers.clear();
     this.#approvalDeadlines.clear();
     this.#autoContinueTimers.dispose();
+    this.#idleCompactionTimers.dispose();
     this.#appTools?.dispose?.();
     this.#recaps.clear();
     for (const abort of this.#insightRuns.values()) abort.abort();
@@ -5575,6 +5605,9 @@ export class SessionManager {
               contextSize: event.contextSize,
               ...(event.totalTokens !== undefined && { totalTokens: event.totalTokens }),
               ...(event.autoCompactAt !== undefined && { autoCompactAt: event.autoCompactAt }),
+              ...(event.promptCacheExpiresAt !== undefined && {
+                promptCacheExpiresAt: event.promptCacheExpiresAt,
+              }),
               ...(event.breakdown !== undefined && { breakdown: event.breakdown }),
             },
           },
@@ -5729,6 +5762,7 @@ export class SessionManager {
         return;
       case 'context.compacting':
       case 'context.compacted':
+        if (event.type === 'context.compacted') turn.compacted = true;
         this.#write(runtime, [
           {
             type: event.type,
@@ -6815,6 +6849,37 @@ export class SessionManager {
     if (this.#snapshot(runtime).pendingMessages?.some((pending) => pending.status === 'waiting')) {
       void this.#scheduleDispatch(runtime);
     }
+    if (finalOutcome === 'completed' && turn.command === undefined && !turn.compacted) {
+      const window = this.#idleWindow(runtime);
+      if (window !== undefined) {
+        const { providerId, modelId } = this.#snapshot(runtime).session;
+        runtime.idleCompaction = { providerId, modelId, expiresAt: window.end };
+        this.#idleCompactionTimers.set(runtime.id, new Date(window.start).toISOString());
+      }
+    }
+  }
+
+  #idleWindow(runtime: SessionRuntime): ReturnType<typeof idleCompactionWindow> {
+    if (
+      this.#shuttingDown ||
+      this.#disposed ||
+      runtime.parentId !== undefined ||
+      runtime.attachment === undefined ||
+      this.#record(runtime).side ||
+      this.#idleCompaction === undefined
+    )
+      return undefined;
+    const snapshot = this.#snapshot(runtime);
+    if (
+      this.#storage.providers.get(snapshot.session.providerId)?.kind !== 'claude' ||
+      !this.#idleCompaction.enabled(snapshot.session.providerId) ||
+      this.#idleCompaction.hasBackgroundWork?.(runtime.id) ||
+      this.#adapter.canIdleCompact?.(runtime.engineSessionId) === false ||
+      this.#adapter.compact === undefined ||
+      this.#adapter.supports?.(runtime.engineSessionId, 'compact') === false
+    )
+      return undefined;
+    return idleCompactionWindow(snapshot, Date.now());
   }
 
   // ── 额度恢复后自动继续（0.119.0）──────────────────────────────────────
@@ -7097,6 +7162,15 @@ export class SessionManager {
     if (this.#disposed) throw new HostError('HOST_SHUTTING_DOWN', 'host is shutting down');
     const events = this.#events.appendMany(runtime.id, inputs, options);
     for (const event of events) {
+      if (
+        PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type) ||
+        event.type === 'session.configured' ||
+        event.type === 'session.handoff' ||
+        event.type === 'session.state_changed'
+      ) {
+        this.#idleCompactionTimers.clear(runtime.id);
+        runtime.idleCompaction = undefined;
+      }
       if (PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type)) this.#voidSuggestion(runtime);
       // 额度恢复后自动继续（0.119.0）：排上、关掉；任何新的回合都让它作废。
       if (event.type === 'session.auto_continue') {

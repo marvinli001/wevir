@@ -802,6 +802,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         account: (providerId) => accounts?.peek(providerId),
         identity: { deviceId: hostId, clientId: 'wevir-auto-continue', clientKind: 'desktop' },
       },
+      idleCompaction: {
+        enabled: (providerId) => {
+          const current = settings.get();
+          return (
+            current.claudeIdleCompactionOverrides?.[providerId] ??
+            current.compactIdleClaudeSessions === true
+          );
+        },
+        hasBackgroundWork: (sessionId) =>
+          processes?.list(sessionId).some((process) => process.status === 'running') === true ||
+          storage?.sessions.family(sessionId).some((child) => {
+            if (child.id === sessionId) return false;
+            const state = store.snapshot(child.id as SessionId)?.session.state;
+            return state === 'running' || state === 'awaiting_approval' || state === 'cancelling';
+          }) === true,
+      },
       // 审查发现（0.83.0）存成批注；没有批注功能时只记文字。
       reviewFindings: (sessionId, input) =>
         review === undefined
@@ -1734,6 +1750,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_list_push: true,
         files_read: true,
         prevent_sleep: true,
+        idle_compaction: true,
         inbox: true,
         approval_timeout: true,
         notification_intents: true,

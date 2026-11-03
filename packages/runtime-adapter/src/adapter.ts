@@ -125,6 +125,8 @@ export interface AgentRuntimeAdapter {
    * 错误：同 `send`。
    */
   compact?(engineSessionId: string): Promise<void>;
+  /** 闲置压缩前检查引擎内部的唤醒与后台工作；普通的手动压缩不受影响。 */
+  canIdleCompact?(engineSessionId: string): boolean;
 
   /**
    * 代码审查（0.24.0，`session.review`）：开始一个回合，同 `send`；审查结果是这个回合的助手消息。不实现表示引擎不能审查，Host
