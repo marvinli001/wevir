@@ -78,6 +78,8 @@ export function wrapFresh(
   }
   for (const { node, start } of nodes) {
     if (node.data.trim() === '') continue;
+    // 公式的 MathML、SVG 与排版节点不能插入淡入用的 span。
+    if (node.parentElement?.closest('.katex, [data-mermaid]')) continue;
     const end = start + node.data.length;
     // 从后往前切，前面的下标不受影响。
     const hits = ranges

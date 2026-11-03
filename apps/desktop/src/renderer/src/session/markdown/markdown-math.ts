@@ -4,7 +4,7 @@
 // Copyright (c) 2026-present Different AI, Inc.
 // 修改：出错时的兜底不带 OpenWork 的 Tailwind 类名，标记改叫 data-math-error（样式在 styles/markdown.css）。
 //
-// 文件窗格里 Markdown 的数学公式（0.32.0）：`$…$`、`$$…$$`、`\(…\)`、`\[…\]` 交给 KaTeX。KaTeX 的 HTML 带 style 属性，渲染进程
+// 聊天与文件窗格里 Markdown 的数学公式：`$…$`、`$$…$$`、`\(…\)`、`\[…\]` 交给 KaTeX。KaTeX 的 HTML 带 style 属性，渲染进程
 // 的 CSP 不放行，markdown.ts 清洗时把它挪到 data-csp-style，挂上之后经 CSSOM 补回（同 Pierre 的补丁）。
 
 import 'katex/dist/katex.min.css';

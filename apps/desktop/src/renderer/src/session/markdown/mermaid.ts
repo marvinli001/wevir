@@ -7,7 +7,7 @@
 // lib/style-nonce.ts）；Mermaid 排版期间同样改走 CSSOM 与 nonce（withCspSafeStyles）；主题取 Wevir 的 useTheme，文案走 i18n，
 // 样式在 styles/markdown.css；去掉“下载 SVG”。
 //
-// 文件窗格里 Markdown 的 Mermaid 图（0.32.0）：```mermaid 的代码块先显示源码，进入视口附近后再渲染成图，可切回源码；源码
+// 聊天与文件窗格里 Markdown 的 Mermaid 图：```mermaid 的代码块先显示源码，进入视口附近后再渲染成图，可切回源码；源码
 // 太大、太复杂、带不安全的指令或渲染失败时只显示源码。Mermaid 约 1 MB，第一次用到时才加载。
 
 import DOMPurify from 'dompurify';
@@ -350,10 +350,15 @@ async function withCspSafeStyles<T>(render: () => Promise<T>): Promise<T> {
   const setAttribute = elementProto.setAttribute;
   const createElementNS = documentProto.createElementNS;
   const parseFromString = DOMParser.prototype.parseFromString;
-  // Mermaid 渲染最后自己用 DOMPurify 清洗一遍（DOMParser 解析出的文档继承 CSP，每个 style 属性报一次违规）：解析前同样改名。
+  // Mermaid 最后用 DOMPurify 清洗；解析文档也继承 CSP，style 属性改名，样式表带上 nonce。
   DOMParser.prototype.parseFromString = function (this: DOMParser, string: string, type) {
     // DOMPurify 在有 Trusted Types 的浏览器里传 TrustedHTML（CSP 没有强制 Trusted Types，换回字符串照样能解析）。
-    return parseFromString.call(this, moveStyleAttributes(String(string)), type);
+    const markup = moveStyleAttributes(String(string));
+    return parseFromString.call(
+      this,
+      nonce ? markup.replaceAll('<style>', `<style nonce="${nonce}">`) : markup,
+      type,
+    );
   };
   elementProto.setAttribute = function (this: Element, name: string, value: string) {
     if (

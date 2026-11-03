@@ -39,6 +39,32 @@ describe('renderMarkdownHtml', () => {
     expect(html).toContain('align="center"');
     expect(html).not.toContain('style=');
   });
+
+  it('聊天支持两种公式分隔符，行内代码与代码块保持源码', () => {
+    const html = renderMarkdownHtml(
+      [
+        String.raw`$E=mc^2$ 与 \(a+b\)`,
+        String.raw`$$\frac{a}{b}$$`,
+        String.raw`\[\sqrt{x}\]`,
+        '`$source$`',
+        '```tex\n$code$\n```',
+      ].join('\n\n'),
+    );
+    expect(html.match(/class="katex"/g)).toHaveLength(4);
+    expect(html.match(/class="katex-display"/g)).toHaveLength(2);
+    expect(html).toContain('<code>$source$</code>');
+    expect(html).toContain('<code class="language-tex">$code$</code>');
+    expect(html).toContain('data-csp-style=');
+    expect(html).not.toContain(' style="');
+  });
+
+  it('聊天里的 Mermaid 保留可切换的源码；错误公式不会中断正文', () => {
+    const html = renderMarkdownHtml('```mermaid\ngraph TD; A-->B\n```\n\n$\\unknownCommand$ 后文');
+    expect(html).toContain('data-mermaid=""');
+    expect(html).toContain('data-mermaid-view="source"');
+    expect(html).toContain('<code class="language-mermaid">graph TD; A--&gt;B</code>');
+    expect(html).toContain('后文');
+  });
 });
 
 describe('createStreamingMarkdownRenderer', () => {
@@ -63,6 +89,7 @@ describe('createStreamingMarkdownRenderer', () => {
 
   it('每个前缀都与修补后的整篇渲染一致（只重新 lex 末尾不会走样）', () => {
     const docs = [
+      '# 公式\n\n$E=mc^2$\n\n$$\\frac{a}{b}$$\n\n\\[\\sqrt{x}\\]\n\n```mermaid\ngraph TD\n  A-->B\n```\n\n后文',
       '## 结论\n\n第二轮回归**基本通过**，剩下三处：\n\n1. 第一 `a()`\n2. 第二\n   继续\n3. 第三\n\n| a | b |\n|---|---|\n| 1 | *2* |\n\n> 引用\n> 第二行\n\n```ts\nconst a = 1;\n\n\nconst b = 2;\n```\n\n- x [链接](https://x.y)\n- y\n  - z\n\n最后 ~~删~~。\n',
       '我先看看。\n\n**结论**：可以。\n\n- 一\n\n- 二\n\n段落\n标题\n===\n\n    缩进代码\n\n结束',
       'Intro\n\n1. **Bold** item with `code`\n2. Another\n\n## Heading\n\nText.\n\n---\n\nMore with [link](https://x.y).\n',
@@ -144,8 +171,6 @@ describe('renderDocumentHtml（文件窗格，0.32.0）', () => {
     expect(html).toContain('<img data-file-image="docs/img/a.png" alt="架构" loading="lazy">');
     // 外部图片仍只是链接。
     expect(html).toContain('<a href="https://example.com/b.png" data-external-link="">外部</a>');
-    // 消息里的 Markdown 不变：没有公式与图。
-    expect(renderMarkdownHtml('$E$')).toBe('<p>$E$</p>\n');
   });
 
   it('原文里的 HTML 照旧按文本显示', () => {

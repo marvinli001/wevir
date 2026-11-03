@@ -23,8 +23,7 @@ import {
 } from './reveal';
 
 /**
- * 文件窗格里的 Markdown（0.32.0）：公式、Mermaid 图与会话目录里的图片。`render` 是 markdown-document.ts 的 renderDocumentHtml
- * （由文件窗格传进来，KaTeX 不进启动时的主块），`imageUrl` 向 Host 要会话目录里一张图片的地址。
+ * 文件窗格里的 Markdown：`render` 是 markdown-document.ts 的 renderDocumentHtml，`imageUrl` 向 Host 要会话目录里图片的地址。
  */
 export interface DocumentMarkdown {
   render(text: string): string;
@@ -160,14 +159,15 @@ export const MarkdownView = memo(function MarkdownView({
       if (blocks[index] !== previous[index]) wrapFresh(child, offset, ranges, now);
     }
   }, [blocks, live, animate]);
-  useMermaidEnhancer(rootRef, blocks, documentMode !== undefined);
+  useMermaidEnhancer(rootRef, blocks, !live);
 
-  // 文件窗格：KaTeX 的 style 经 CSSOM 补回，图片向 Host 要地址。
+  // KaTeX 的 style 经 CSSOM 补回；文件窗格的图片向 Host 要地址。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 内容（blocks）换了要对新的 DOM 重新做。
   useEffect(() => {
     const root = rootRef.current;
-    if (!root || !documentMode) return;
+    if (!root) return;
     restoreCspStyles(root);
+    if (!documentMode) return;
     let stopped = false;
     for (const image of root.querySelectorAll<HTMLImageElement>('img[data-file-image]')) {
       const path = image.dataset.fileImage;

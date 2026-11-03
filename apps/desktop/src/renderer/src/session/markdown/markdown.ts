@@ -3,19 +3,19 @@
 // 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
 // Copyright (c) 2026-present Different AI, Inc.
 // 修改：改写（T5.3，OpenWork 候选 #4）。保留 createStreamingMarkdownRenderer（流式时只重新 lex 末尾 2 个块，
-// 已定的块复用同一个 {__html} 对象，含引用式链接定义时整篇重来）与 DOMPurify 清洗。去掉 emoji、KaTeX、
-// Mermaid、会话引用、favicon、视频与图片预览、Shiki；渲染器改为几乎不带类名的语义 HTML（样式在
+// 已定的块复用同一个 {__html} 对象，含引用式链接定义时整篇重来）、KaTeX、Mermaid 与 DOMPurify 清洗。
+// 去掉 emoji、favicon、视频与图片预览、Shiki；渲染器改为几乎不带类名的语义 HTML（样式在
 // styles/markdown.css），因为 CSP 不放行 HTML 里的 style 属性：表格对齐用 align 属性，图片只显示为链接
 // （CSP 也不加载外部图片）。原文里的 HTML 一律按文本显示。代码块只输出转义后的源码，高亮在流式结束且
 // 进入视口后另做（highlight.ts）。链接不直接导航，由 markdown-view.tsx 经主进程用系统浏览器打开；U32 起相对与绝对路径的
-// 链接是文件链接，点开在文件窗格里。0.32.0 起文件窗格另用 markdown-document.ts：加回 OpenWork 的 KaTeX 与 Mermaid，会话目录里的
-// 图片显示出来。
+// 链接是文件链接，点开在文件窗格里。文件窗格另用 markdown-document.ts，显示会话目录里的图片。
 
 import DOMPurify from 'dompurify';
 import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 import { sessionHrefId } from '@/session/session-link-model';
+import { markdownMath } from './markdown-math';
 import { repairStreamingMarkdown } from './stream-safe';
 
 export function escapeHtml(value: string): string {
@@ -71,8 +71,27 @@ export const BASE_OPTIONS = {
   silent: true,
 } as const;
 
+/** Mermaid 的代码块：先显示源码，mermaid.ts 渲染成图后可切换（照 OpenWork 的 mermaidBlockHtml，样式在 styles/markdown.css）。 */
+function mermaidBlockHtml(text: string): string {
+  const rendered = escapeHtml(t('markdown.mermaidRendered'));
+  const source = escapeHtml(t('markdown.mermaidSource'));
+  return (
+    `<div class="md-mermaid" data-mermaid="" data-mermaid-state="source" aria-busy="false">` +
+    `<div class="md-mermaid-header"><span>${escapeHtml(t('markdown.mermaid'))}</span>` +
+    `<div role="group" class="md-mermaid-views">` +
+    `<button type="button" data-mermaid-view="rendered" aria-pressed="false" disabled="">${rendered}</button>` +
+    `<button type="button" data-mermaid-view="source" aria-pressed="true">${source}</button>` +
+    `</div></div>` +
+    `<div class="md-mermaid-rendered" data-mermaid-rendered="" hidden=""></div>` +
+    `<pre data-mermaid-source=""><code class="language-mermaid">${escapeHtml(text)}</code></pre>` +
+    `<p class="md-mermaid-status" data-mermaid-status="" aria-live="polite" hidden=""></p>` +
+    `</div>`
+  );
+}
+
 export const renderer: RendererObject<string, string> = {
   code({ text, lang }) {
+    if (codeLanguage(lang) === 'mermaid') return mermaidBlockHtml(text);
     return codeBlockHtml(text, lang);
   },
   html({ text }) {
@@ -101,9 +120,9 @@ export const renderer: RendererObject<string, string> = {
   },
 };
 
-const parser = new Marked<string, string>({ ...BASE_OPTIONS, renderer });
+const parser = new Marked<string, string>({ ...BASE_OPTIONS, renderer }, markdownMath());
 
-export const SANITIZE_ATTR = [
+const SANITIZE_ATTR = [
   'href',
   'title',
   'class',
@@ -120,18 +139,58 @@ export const SANITIZE_ATTR = [
   'data-session-link',
 ];
 
-function sanitize(html: string): string {
-  return DOMPurify.sanitize(html, {
-    ALLOWED_ATTR: SANITIZE_ATTR,
-    // 原文里的 HTML 已按文本转义，这里兜底；任务列表的复选框（marked 生成的 disabled <input>）保留。
-    FORBID_TAGS: ['style', 'img', 'iframe', 'form', 'video', 'audio', 'svg', 'math'],
+/**
+ * KaTeX 的 HTML 带 style 属性，CSP 不放行：清洗前挪到 data-csp-style，挂上之后经 CSSOM 补回（mermaid.ts 的
+ * restoreCspStyles）。只改 KaTeX 的输出：原文里的 HTML 已按文本转义，不会带进 style。
+ */
+function moveKatexStyles(html: string): string {
+  return html.replace(/ style="([^"]*)"/g, ' data-csp-style="$1"');
+}
+
+export function sanitizeMarkdown(html: string, allowImages = false): string {
+  return DOMPurify.sanitize(moveKatexStyles(html), {
+    ALLOWED_ATTR: [
+      ...SANITIZE_ATTR,
+      'alt',
+      'loading',
+      'hidden',
+      'role',
+      'aria-hidden',
+      'aria-pressed',
+      'aria-busy',
+      'aria-live',
+      'data-file-image',
+      'data-csp-style',
+      'data-math-error',
+      'data-mermaid',
+      'data-mermaid-state',
+      'data-mermaid-view',
+      'data-mermaid-rendered',
+      'data-mermaid-source',
+      'data-mermaid-status',
+      // KaTeX 的 MathML 与 SVG（根号、可伸缩的箭头）。
+      'encoding',
+      'xmlns',
+      'display',
+      'mathvariant',
+      'width',
+      'height',
+      'viewbox',
+      'viewBox',
+      'preserveaspectratio',
+      'preserveAspectRatio',
+      'd',
+    ],
+    // img 只有 data-file-image（src 由 markdown-view.tsx 换成 Host 的文件地址）。
+    FORBID_ATTR: ['src', 'srcset'],
+    FORBID_TAGS: ['style', 'iframe', 'form', 'video', 'audio', ...(allowImages ? [] : ['img'])],
   });
 }
 
 /** 整篇渲染（已定的消息、历史）。 */
 export function renderMarkdownHtml(text: string): string {
   if (!text.trim()) return '';
-  return sanitize(parser.parse(text, { async: false }));
+  return sanitizeMarkdown(parser.parse(text, { async: false }));
 }
 
 /**
@@ -172,7 +231,7 @@ export function createStreamingMarkdownRenderer(): StreamingMarkdownRenderer {
   let state: StreamingState | null = null;
 
   const renderBlock = (token: Token): MarkdownBlockHtml => ({
-    __html: sanitize(parser.parser([token])),
+    __html: sanitizeMarkdown(parser.parser([token])),
   });
 
   const renderAll = (source: string, previous: StreamingState | null): StreamingState => {
