@@ -193,6 +193,7 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
       for (const entry of usage.models) {
         this.recordUsage(usage.sessionId, {
           requestId: `${this.#instance}:${usage.promptId}:${entry.model ?? ''}`,
+          granularity: 'turn',
           ...entry,
         });
       }

@@ -165,6 +165,7 @@ export class CursorTurnMapper {
         type: 'usage.recorded',
         engineSessionId: this.engineSessionId,
         requestId: this.runId,
+        granularity: 'turn',
         inputTokens: input,
         outputTokens: output,
         ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),

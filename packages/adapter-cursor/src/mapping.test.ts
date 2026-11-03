@@ -70,7 +70,13 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
       },
       { type: 'assistant.stream_ended', attemptId: 'run-1:text:1', outcome: 'committed' },
       // turn-ended 带的用量（0.62.0）：每个回合一条，按 run ID。
-      { type: 'usage.recorded', requestId: 'run-1', inputTokens: 10, outputTokens: 5 },
+      {
+        type: 'usage.recorded',
+        granularity: 'turn',
+        requestId: 'run-1',
+        inputTokens: 10,
+        outputTokens: 5,
+      },
     ]);
     expect(mapper.answered).toBe(true);
     expect(mapper.reply.failure).toBeUndefined();
@@ -307,6 +313,7 @@ describe('回合的用量（0.62.0）', () => {
     expect(strip(events)).toEqual([
       {
         type: 'usage.recorded',
+        granularity: 'turn',
         requestId: 'run-1',
         inputTokens: 40,
         outputTokens: 300,

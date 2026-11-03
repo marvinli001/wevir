@@ -101,6 +101,7 @@ describe('GrokAdapter：样本回放', () => {
     expect(usage).toEqual([
       {
         type: 'usage.recorded',
+        granularity: 'turn',
         engineSessionId,
         requestId: expect.stringMatching(/^[0-9a-f]{8}:wevir-on_request-\d+:grok-4\.7-build$/),
         model: 'grok-4.7-build',
@@ -109,6 +110,7 @@ describe('GrokAdapter：样本回放', () => {
         cacheReadTokens: 1664,
         reasoningTokens: 31,
         durationMs: 1942,
+        modelCalls: 1,
       },
     ]);
 

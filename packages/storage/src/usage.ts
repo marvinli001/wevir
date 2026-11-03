@@ -65,6 +65,7 @@ export interface UsageRepository {
     offset: number,
     limit: number,
   ): { rows: StoredUsageRow[]; total: number };
+  byTurn(sessionIds: readonly string[]): UsageTurnRow[];
   /** 删一个 Provider 的全部记录（删 Provider 时），返回删了几条。 */
   deleteProvider(providerId: string): number;
   /** 一个会话记了几次请求，与输入、缓存写入、输出的 token 合计（不含缓存读取）。 */
@@ -154,6 +155,78 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
         total: integer(count.get(params) ?? {}, 'n'),
       };
     },
+    byTurn(sessionIds) {
+      const ids = JSON.stringify(sessionIds);
+      const turns = new Map<string, UsageTurnRow>();
+      const get = (sessionId: string, turnId?: string) => {
+        const key = JSON.stringify([sessionId, turnId]);
+        let turn = turns.get(key);
+        if (turn === undefined) {
+          turn = {
+            sessionId,
+            ...(turnId !== undefined && { turnId }),
+            compactions: { manual: 0, auto: 0 },
+            groups: [],
+          };
+          turns.set(key, turn);
+        }
+        return turn;
+      };
+      for (const event of db
+        .prepare(`SELECT session_id, ts, type, payload FROM events
+        WHERE session_id IN (SELECT value FROM json_each(?))
+          AND type IN ('turn.started', 'turn.finished', 'context.compacted') ORDER BY session_id, seq`)
+        .all(ids)) {
+        const payload = JSON.parse(text(event, 'payload')) as {
+          turnId: string;
+          outcome?: string;
+          trigger?: 'manual' | 'auto';
+        };
+        const turn = get(text(event, 'session_id'), payload.turnId);
+        if (event.type === 'turn.started') turn.startedAt = text(event, 'ts');
+        else if (event.type === 'turn.finished') {
+          turn.finishedAt = text(event, 'ts');
+          if (payload.outcome !== undefined) turn.outcome = payload.outcome;
+        } else if (payload.trigger !== undefined) turn.compactions[payload.trigger] += 1;
+      }
+      const rows = db
+        .prepare(`SELECT * FROM usage_records
+        WHERE session_id IN (SELECT value FROM json_each(?)) ORDER BY at, id`)
+        .all(ids)
+        .map(fromRow);
+      for (const row of rows) {
+        const turn = get(row.sessionId, row.turnId);
+        const precision = usagePrecision(row);
+        let group = turn.groups.find((item) => item.precision === precision);
+        if (group === undefined) {
+          group = {
+            precision,
+            requests: 0,
+            byKind: {},
+            tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+            missingUsage: 0,
+            records: [],
+          };
+          turn.groups.push(group);
+        }
+        const requests = precision === 'turn' ? row.modelCalls : 1;
+        if (requests === undefined) group.requests = undefined;
+        else if (group.requests !== undefined) group.requests += requests;
+        if (requests !== undefined)
+          group.byKind[row.kind ?? 'unknown'] =
+            (group.byKind[row.kind ?? 'unknown'] ?? 0) + requests;
+        if (row.usageReported === false) group.missingUsage += 1;
+        else {
+          group.tokens.input += row.inputTokens;
+          group.tokens.cacheRead += row.cacheReadTokens;
+          group.tokens.cacheWrite += row.cacheWriteTokens;
+          group.tokens.output += row.outputTokens;
+          group.tokens.reasoning += row.reasoningTokens;
+        }
+        group.records.push(row);
+      }
+      return [...turns.values()];
+    },
     deleteProvider: (providerId) => Number(deleteProvider.run(providerId).changes),
     sessionTotals(sessionId) {
       const row = sessionTotals.get(sessionId) ?? {};
@@ -222,4 +295,36 @@ function ledgerFields(row: SqlRow): Partial<UsageRow> {
       wevirOutputBytesNew: integer(row, 'wevir_output_bytes_new'),
     };
   return result;
+}
+
+export interface UsageTurnRow {
+  sessionId: string;
+  turnId?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  outcome?: string;
+  compactions: { manual: number; auto: number };
+  groups: Array<{
+    precision: 'exact' | 'engine' | 'turn';
+    requests: number | undefined;
+    byKind: Record<string, number>;
+    tokens: {
+      input: number;
+      cacheRead: number;
+      cacheWrite: number;
+      output: number;
+      reasoning: number;
+    };
+    missingUsage: number;
+    records: StoredUsageRow[];
+  }>;
+}
+
+export function usagePrecision(row: UsageRow): 'exact' | 'engine' | 'turn' {
+  if (
+    row.granularity === 'turn' ||
+    (row.granularity === undefined && ['cursor', 'grok'].includes(row.source))
+  )
+    return 'turn';
+  return row.origin === 'gateway' ? 'exact' : 'engine';
 }

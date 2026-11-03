@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { useTempStorage } from './test-utils.js';
+import { seedSession, useTempStorage } from './test-utils.js';
 import type { UsageRow } from './usage.js';
 
 function row(overrides: Partial<UsageRow> = {}): UsageRow {
@@ -100,5 +100,48 @@ describe('usage_records', () => {
     );
     s.usage.insert(row({ sessionId: 'ses_02', requestId: 'req_3' }));
     expect(s.usage.sessionTotals('ses_01')).toEqual({ requests: 2, tokens: 80 });
+  });
+});
+
+describe('usage.byTurn', () => {
+  const { storage } = useTempStorage();
+  it('按精度分组，回合外独立，Cursor 的请求数未知，Grok 使用 modelCalls', () => {
+    const s = storage();
+    seedSession(s);
+    for (const [index, type, payload] of [
+      [1, 'turn.started', { turnId: 't' }],
+      [2, 'context.compacted', { turnId: 't', trigger: 'auto' }],
+      [3, 'turn.finished', { turnId: 't', outcome: 'completed' }],
+    ] as const)
+      s.events.insert({
+        sessionId: 'ses_01',
+        seq: index,
+        ts: '2026-11-04T00:00:00.000Z',
+        type,
+        source: 'host',
+        payload,
+      });
+    s.usage.insert(row({ requestId: 'exact', turnId: 't', origin: 'gateway', kind: 'agent' }));
+    s.usage.insert(row({ requestId: 'engine', turnId: 't' }));
+    s.usage.insert(
+      row({ requestId: 'missing', turnId: 't', origin: 'gateway', usageReported: false }),
+    );
+    s.usage.insert(row({ requestId: 'grok', turnId: 'g', granularity: 'turn', modelCalls: 4 }));
+    s.usage.insert(row({ requestId: 'cursor', turnId: 'c', source: 'cursor' }));
+    s.usage.insert(row({ requestId: 'outside' }));
+    const turns = s.usage.byTurn(['ses_01']);
+    expect(turns[0]).toMatchObject({
+      turnId: 't',
+      outcome: 'completed',
+      compactions: { auto: 1, manual: 0 },
+      groups: [
+        { precision: 'exact', requests: 2, tokens: { input: 10 }, missingUsage: 1 },
+        { precision: 'engine', requests: 1, tokens: { input: 10 } },
+      ],
+    });
+    expect(turns.find((turn) => turn.turnId === 'g')?.groups[0]?.requests).toBe(4);
+    expect(turns.find((turn) => turn.turnId === 'c')?.groups[0]?.requests).toBeUndefined();
+    expect(turns.find((turn) => turn.turnId === undefined)?.groups[0]?.records).toHaveLength(1);
+    expect(s.usage.byTurn([])).toEqual([]);
   });
 });

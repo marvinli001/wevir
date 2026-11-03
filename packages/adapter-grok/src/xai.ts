@@ -169,6 +169,7 @@ export function compactionOf(
 
 /** 一个回合里一个模型的用量（0.62.0，`usage.recorded` 去掉 `type`、`engineSessionId` 与 `requestId`）。 */
 export interface XAiModelUsage {
+  modelCalls?: number;
   model?: string;
   inputTokens: number;
   outputTokens: number;
@@ -229,6 +230,9 @@ function modelUsageOf(entry: Record<string, unknown>): XAiModelUsage | undefined
     ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
     ...(reasoning > 0 && { reasoningTokens: reasoning }),
     ...(duration > 0 && { durationMs: duration }),
+    ...(typeof entry.modelCalls === 'number' &&
+      Number.isSafeInteger(entry.modelCalls) &&
+      entry.modelCalls >= 0 && { modelCalls: entry.modelCalls }),
   };
 }
 

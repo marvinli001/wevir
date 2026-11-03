@@ -62,10 +62,19 @@ export class UsageService {
   record(context: UsageContext, event: UsageRecordedEvent): void {
     try {
       const provider = this.#storage.providers.get(context.providerId);
+      const workspaceId = this.#storage.sessions.get(context.sessionId)?.workspaceId;
       const row: UsageRow = {
         sessionId: context.sessionId,
         requestId: event.requestId,
         ...(context.turnId !== undefined && { turnId: context.turnId }),
+        ...(workspaceId !== undefined && { workspaceId }),
+        ...(event.kind !== undefined && { kind: event.kind }),
+        ...(event.origin !== undefined && { origin: event.origin }),
+        ...(event.granularity !== undefined && { granularity: event.granularity }),
+        ...(event.modelCalls !== undefined && { modelCalls: event.modelCalls }),
+        ...(event.usageReported !== undefined && { usageReported: event.usageReported }),
+        ...(event.outcome !== undefined && { outcome: event.outcome }),
+        ...(event.supply !== undefined && { supply: event.supply }),
         at: this.#now(),
         source: provider?.kind ?? 'openai-compatible',
         providerId: context.providerId,

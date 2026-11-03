@@ -225,6 +225,24 @@ export interface UsageRecordedEvent {
   engineSessionId: string;
   /** 这次请求在这个引擎会话里唯一（引擎的消息 ID、回合 ID 等）。 */
   requestId: string;
+  kind?: 'agent' | 'compaction' | 'subagent' | 'auxiliary';
+  origin?: 'gateway' | 'engine';
+  granularity?: 'request' | 'turn';
+  modelCalls?: number;
+  usageReported?: boolean;
+  outcome?: 'completed' | 'upstream_error' | 'client_closed' | 'network_error' | 'auth_error';
+  /** 网关请求时的引擎回合，迟到用量不能归给下一回合；null 为会话辅助请求。 */
+  engineTurnId?: string | null;
+  providerId?: string;
+  supply?: {
+    toolCount: number;
+    toolBytes: number;
+    mcpNoteBytes: number;
+    instructionBytes: number;
+    requestBytes: number;
+    wevirOutputBytes: number;
+    wevirOutputBytesNew: number;
+  };
   /** 实际回答的模型（引擎报的原值）；引擎不报时省略，Host 用会话的模型。 */
   model?: string;
   /** 来源后面实际接的上游（0.62.0，OpenCode 的 `providerID`）；没有时省略。 */
