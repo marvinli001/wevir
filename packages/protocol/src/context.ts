@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IsoTimeSchema, SeqSchema, SessionIdSchema, WorkspaceIdSchema } from './common.js';
+import { MemoryFreshnessSchema, MemoryValiditySchema } from './entities.js';
 import {
   RetroChapterSchema,
   RetroCommitSchema,
@@ -95,3 +96,75 @@ export const EpisodeSummarySchema = EpisodeSchema.pick({
   updatedAt: true,
 });
 export type EpisodeSummary = z.infer<typeof EpisodeSummarySchema>;
+
+export const ContextSourceRefSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('constraint'), index: z.int().min(0) }),
+  z.object({
+    kind: z.literal('memory'),
+    scope: z.enum(['global', 'project']),
+    name: z.string(),
+    revision: z.string(),
+    workspaceId: WorkspaceIdSchema.optional(),
+    freshness: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('episode'),
+    id: EpisodeIdSchema,
+    revision: z.string(),
+    throughSeq: SeqSchema,
+    section: z.string().optional(),
+  }),
+  z.object({ kind: z.literal('history'), sessionId: SessionIdSchema, itemId: z.string() }),
+]);
+export type ContextSourceRef = z.infer<typeof ContextSourceRefSchema>;
+export const ContextHitSchema = z.object({
+  handle: z.string(),
+  kind: z.enum(['memory', 'episode', 'session']),
+  title: z.string(),
+  snippet: z.string().max(200),
+  updatedAt: z.string(),
+  source: ContextSourceRefSchema,
+  revision: z.string().optional(),
+  freshness: MemoryFreshnessSchema.optional(),
+  validity: MemoryValiditySchema.optional(),
+  sections: z.array(z.string()).optional(),
+});
+export type ContextHit = z.infer<typeof ContextHitSchema>;
+export const ContextSearchParamsSchema = z
+  .object({
+    workspaceId: WorkspaceIdSchema.optional(),
+    query: z.string().trim().min(1).max(1000).optional(),
+    handle: z.string().min(1).max(300).optional(),
+    kinds: z
+      .array(z.enum(['memory', 'episode', 'session']))
+      .min(1)
+      .max(3)
+      .optional(),
+    path: z.string().min(1).optional(),
+    includeInvalid: z.boolean().optional(),
+    limit: z.int().min(1).max(10).optional(),
+    textOffset: z.int().min(0).optional(),
+  })
+  .refine(
+    (value) => (value.query === undefined) !== (value.handle === undefined),
+    'Provide query or handle.',
+  );
+export type ContextSearchParams = z.infer<typeof ContextSearchParamsSchema>;
+export const ContextSearchResultSchema = z.object({
+  hits: z.array(ContextHitSchema),
+  scan: z
+    .object({
+      reason: z.enum(['short_term', 'fts_unavailable']),
+      examined: z.int().min(0),
+      limit: z.int().min(1),
+    })
+    .optional(),
+  body: z.string().optional(),
+  revision: z.string().optional(),
+  source: ContextSourceRefSchema.optional(),
+  freshness: MemoryFreshnessSchema.optional(),
+  validity: MemoryValiditySchema.optional(),
+  textOffset: z.int().min(0).optional(),
+  nextTextOffset: z.int().min(0).nullable().optional(),
+});
+export type ContextSearchResult = z.infer<typeof ContextSearchResultSchema>;

@@ -5623,6 +5623,33 @@ const ledgerCases = [
 
 const episodeCases = [
   {
+    name: 'ContextSourceRef',
+    schema: protocol.ContextSourceRefSchema,
+    valid: [
+      { kind: 'constraint', index: 0 },
+      { kind: 'memory', scope: 'project', name: 'test', revision: 'abc' },
+      { kind: 'episode', id: 'ep_1', revision: 'abc', throughSeq: 1 },
+      { kind: 'history', sessionId: 'ses_1', itemId: 'e1' },
+    ],
+    invalid: [{ kind: 'memory', scope: 'other' }],
+  },
+  {
+    name: 'ContextHit',
+    schema: protocol.ContextHitSchema,
+    valid: [
+      {
+        handle: 'ep:ep_1',
+        kind: 'episode',
+        title: 'Task',
+        snippet: '',
+        updatedAt: '',
+        source: { kind: 'episode', id: 'ep_1', revision: 'abc', throughSeq: 1 },
+      },
+    ],
+    invalid: [{ handle: 'x' }],
+  },
+
+  {
     name: 'MemoryFreshness',
     schema: protocol.MemoryFreshnessSchema,
     valid: [

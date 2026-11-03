@@ -9,6 +9,7 @@ export * from './accounts.js';
 export * from './approval-rules.js';
 export * from './approvals.js';
 export * from './channels.js';
+export * from './context-index.js';
 export * from './context-ledger.js';
 export * from './devices.js';
 export {

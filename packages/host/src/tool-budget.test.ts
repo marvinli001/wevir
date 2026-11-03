@@ -119,6 +119,7 @@ function productTools(): AppTools {
     automations: unused(),
     channels: unused(),
     retro: unused(),
+    contextSearch: unused(),
     search: unused(),
     hostCall: unused(),
     images: { storage, dir: join(root, 'images'), target: unused() },

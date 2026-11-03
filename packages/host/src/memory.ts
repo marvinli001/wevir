@@ -196,6 +196,18 @@ export class MemoryStore {
     );
   }
 
+  async readAll(workspaceId?: string, cwd?: string): Promise<MemoryNote[]> {
+    const notes = [
+      ...(await this.#readScope('global', undefined)).notes,
+      ...(workspaceId === undefined ? [] : (await this.#readScope('project', workspaceId)).notes),
+    ];
+    const freshness = await memoryFreshness(
+      notes,
+      cwd ?? (workspaceId === undefined ? undefined : this.#workspacePath?.(workspaceId)),
+    );
+    return notes.map((note, index) => ({ ...publicNote(note), freshness: freshness[index] }));
+  }
+
   /** 用户管理用：全局和（有项目时）这个项目的全部笔记（含停用的），加上读不出来的文件名。 */
   async listAll(workspaceId?: string, cwd?: string): Promise<MemoryListing> {
     const scopes = [

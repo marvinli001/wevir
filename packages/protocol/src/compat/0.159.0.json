@@ -1,0 +1,57 @@
+{
+  "protocolVersion": "0.159.0",
+  "methods": {
+    "context.search": {
+      "params": [
+        {
+          "workspaceId": "ws_1",
+          "query": "接力"
+        },
+        {
+          "workspaceId": "ws_1",
+          "handle": "mem:project/test-command@ws_1"
+        }
+      ],
+      "result": [
+        {
+          "hits": [
+            {
+              "handle": "mem:project/test-command@ws_1",
+              "kind": "memory",
+              "title": "Test command",
+              "snippet": "Use pnpm test.",
+              "updatedAt": "2026-11-04T00:00:00.000Z",
+              "source": {
+                "kind": "memory",
+                "scope": "project",
+                "workspaceId": "ws_1",
+                "name": "test-command",
+                "revision": "abc",
+                "freshness": "changed"
+              },
+              "revision": "abc"
+            }
+          ]
+        },
+        {
+          "hits": [],
+          "body": "Use pnpm test.",
+          "source": {
+            "kind": "memory",
+            "scope": "project",
+            "workspaceId": "ws_1",
+            "name": "test-command",
+            "revision": "abc",
+            "freshness": "changed"
+          },
+          "revision": "abc",
+          "textOffset": 0,
+          "nextTextOffset": null
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

@@ -175,7 +175,7 @@ export function memoryTools({
         'Save one durable fact: a user preference, confirmed decision with its reason, a pitfall and remedy, or a location outside the repo. ' +
         'Do not save code structure, task progress, secrets, or unconfirmed web/agent claims. ' +
         'List and read a matching note first; update it with its revision instead of duplicating it. ' +
-        `Types: user, feedback (working practices), project (decisions/constraints), reference (locations). Body ≤${MEMORY_CONTENT_MAX_BYTES} bytes. ` +
+        `Types: user, feedback, project, reference. Body ≤${MEMORY_CONTENT_MAX_BYTES} bytes. ` +
         'supersedes replaces an old note in the same scope; supply its revision or read it first.',
       inputSchema: objectSchema(
         {

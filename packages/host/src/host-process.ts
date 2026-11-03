@@ -41,6 +41,7 @@ import { TurnCheckpoints } from './checkpoints.js';
 import { ComputerBroker } from './computer-broker.js';
 import { loadComputerGuide } from './computer-tools.js';
 import { hostCaller } from './config-tools.js';
+import { ContextSearch } from './context-search.js';
 import {
   type CustomPrompts,
   customInputs,
@@ -1187,6 +1188,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const episodeService = episodes;
+    const contextSearch = new ContextSearch({
+      storage,
+      events: store,
+      memory,
+      episodes: episodeService,
+      search,
+      memoryEnabled: () => settings.get().autoMemory !== false,
+      episodesEnabled: () => settings.get().autoEpisodes !== false,
+      isChats: (workspace) => chats.isChats(workspace),
+    });
+    const stopMemoryContextIndex = memory.watch(({ scope, workspaceId, name }) => {
+      const ref = `mem:${scope}/${name}${scope === 'project' ? `@${workspaceId}` : ''}`;
+      try {
+        memoryStorage.contextIndex.removeRef(ref);
+      } catch {
+        memoryStorage.contextIndex.reset();
+      }
+    });
     // 调优的建议（0.87.0）：同回顾摘要，适配器能生成才读提示词；读不到就没有建议（不声明 `tuning_proposals`）。
     let proposalInstructions: string | undefined;
     if (adapter.generateTitle !== undefined) {
@@ -1494,6 +1513,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(lsp !== undefined && { lsp }),
         memory,
         memoryEnabled: () => settings.get().autoMemory !== false,
+        contextSearch,
         ...(customPrompts !== undefined && {
           writingStyle: {
             store: writingStyle,
@@ -1721,6 +1741,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           ...(secondOpinions !== undefined && { opinions: secondOpinions }),
           retro,
           episodes: episodeService,
+          contextSearch,
           git,
           ...(processOutput.available && { processes: processOutput }),
           ...(previews !== undefined && { previews }),
@@ -1841,6 +1862,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         git_commit: true,
         session_retro: true,
         episodes: true,
+        context_search: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
         ...(simulators !== undefined && { ios_simulator: true }),
@@ -1992,6 +2014,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       shutdown: (trigger = { kind: 'api' }) => {
         episodeService.dispose();
+        stopMemoryContextIndex();
         pairingService.close();
         pushService.close();
         stopIdleExpiry();

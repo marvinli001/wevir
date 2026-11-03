@@ -34,6 +34,7 @@ export const OPTIONAL_TOOL_GROUPS: readonly ToolGroup[] = TOOL_GROUPS.filter(
 
 /** 按名字前缀归组（先比完整名字，再比前缀）。 */
 const EXACT: Readonly<Record<string, ToolGroup>> = {
+  wevir_context_search: 'memory',
   wevir_models: 'catalog',
   wevir_roles: 'catalog',
   wevir_tasks: 'tasks',

@@ -40,6 +40,7 @@ import type { AssistantFolders } from './channels/assistants.js';
 import type { ChannelService } from './channels/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
+import type { ContextSearch } from './context-search.js';
 import {
   readVariables,
   resolveVariables,
@@ -236,6 +237,7 @@ export interface HostMethodsOptions {
   /** 任务回顾（0.76.0，`retro.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   retro?: RetroService;
   episodes?: EpisodeService;
+  contextSearch?: ContextSearch;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 开发服务器预览（0.84.0，`preview.*`）；省略时这些方法回 `INVALID_PARAMS`。`preview.start` 还要 `processes`。 */
@@ -1659,6 +1661,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
 
     // 0.76.0：任务回顾（ADR-0012）。
+    'context.search': (params) => {
+      if (options.contextSearch === undefined)
+        throw invalidParams([], 'this host has no context search');
+      return options.contextSearch.query(params);
+    },
     'episode.list': (params) => episodes().list(params),
     'episode.get': ({ id }) => ({ episode: episodes().get(id) }),
     'episode.update': (params) => episodes().update(params),

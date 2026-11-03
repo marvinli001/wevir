@@ -140,7 +140,7 @@ describe('工具预设经 Host API', () => {
       sessions: 26,
       catalog: 2,
       tasks: 3,
-      memory: 8,
+      memory: 9,
       workbench: 7,
       browser: 45,
       lsp: 7,
@@ -175,7 +175,7 @@ describe('工具预设经 Host API', () => {
     });
 
     const coreNames = await h.names(core.id);
-    expect(coreNames).toHaveLength(31 + 7);
+    expect(coreNames).toHaveLength(32 + 7);
     expect(coreNames.filter((name) => name.startsWith('browser_'))).toEqual([]);
     expect(coreNames).toContain('lsp_hover');
     expect(coreNames).toContain('wevir_memory_save');
@@ -200,7 +200,7 @@ describe('工具预设经 Host API', () => {
     const raw = async (sessionId: SessionId) =>
       JSON.stringify(await h.mcp(sessionId, 'tools/list'));
     expect(await raw(full.id)).toBe(await raw(plain.id));
-    expect(await h.names(plain.id)).toHaveLength(89);
+    expect(await h.names(plain.id)).toHaveLength(90);
     const everything = listedToolInstructions(APP_TOOLS_INSTRUCTIONS, await h.names(plain.id));
     expect(await h.instructions(plain.id)).toBe(everything);
     expect(await h.instructions(full.id)).toBe(everything);

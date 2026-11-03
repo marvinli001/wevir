@@ -1988,6 +1988,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_plugins_browse',
       'mcp__wevir__wevir_memory_list',
       'mcp__wevir__wevir_memory_read',
+      'mcp__wevir__wevir_context_search',
       'mcp__wevir__wevir_memory_save',
       'mcp__wevir__wevir_memory_delete',
       'mcp__wevir__wevir_writing_style_setup',

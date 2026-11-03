@@ -3376,6 +3376,13 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{ session }], invalid: [{}] },
   },
+  'context.search': {
+    params: {
+      valid: [{ query: '接力' }, { handle: 'ep:ep_1#open' }],
+      invalid: [{}, { query: 'x', handle: 'ep:ep_1' }],
+    },
+    result: { valid: [{ hits: [] }], invalid: [{ hits: [{}] }] },
+  },
   'episode.list': {
     params: { valid: [{ workspaceId: 'ws_1' }], invalid: [{}] },
     result: { valid: [{ episodes: [episode] }], invalid: [{}] },
