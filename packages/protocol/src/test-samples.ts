@@ -2255,6 +2255,18 @@ export const eventPayloads: PayloadSamples = {
     },
     invalid: { reason: 'engine_session_missing', message: 'x' },
   },
+  'routing.decided': {
+    valid: {
+      turnId: ids.turn,
+      originTurnId: ids.turn,
+      attempt: 1,
+      from: { providerId: 'chatgpt', modelId: 'gpt-6.1-sol' },
+      to: { providerId: 'claude', modelId: 'claude-opus-5-5' },
+      skipped: [{ providerId: 'cursor', reason: 'exhausted' }],
+      at: '2026-11-03T00:00:00.000Z',
+    },
+    invalid: { turnId: ids.turn, to: null },
+  },
   'session.configured': {
     valid: {
       modelId: 'gpt-6.1-sol',
@@ -5698,6 +5710,19 @@ export const methodSamples: MethodSamples = {
         { session: { ...session, autoContinue: { turnId: ids.turn } } },
         { session: { ...session, wrapUp: { turnId: ids.turn, recap: '', blocked: false } } },
       ],
+    },
+  },
+  'routing.decisions': {
+    params: {
+      valid: [
+        {},
+        { limit: 10, cursor: { at: '2026-11-03T00:00:00.000Z', sessionId: ids.session, seq: 1 } },
+      ],
+      invalid: [{ limit: 0 }, { cursor: { at: 'yesterday' } }],
+    },
+    result: {
+      valid: [{ decisions: [] }],
+      invalid: [{ decisions: [{}] }],
     },
   },
   'session.retryTurn': {

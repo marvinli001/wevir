@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { open, readFile, rename, rm } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import { DEFAULT_HOST_SETTINGS, type HostSettings, HostSettingsSchema } from '@wevir/protocol';
 
 /**
@@ -63,8 +64,10 @@ export class HostSettingsStore {
   update(patch: Partial<HostSettings>): Promise<HostSettings> {
     const result = this.#queue.then(async () => {
       const next = HostSettingsSchema.parse({ ...this.#settings, ...definedOnly(patch) });
-      const changed = (Object.keys(next) as (keyof HostSettings)[]).some(
-        (key) => next[key] !== this.#settings[key],
+      const changed = (Object.keys(next) as (keyof HostSettings)[]).some((key) =>
+        key === 'routing'
+          ? !isDeepStrictEqual(next.routing, this.#settings.routing)
+          : next[key] !== this.#settings[key],
       );
       if (!changed) return this.get();
       await this.#save(next);

@@ -1432,6 +1432,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'session.setAutoContinue': (params) => sessions.setAutoContinue(params),
     'session.continueWithModel': (params, { client }) => sessions.continueWithModel(params, client),
     'session.retryTurn': (params, { client }) => sessions.retryTurn(params, client),
+    'routing.decisions': (params) => events.routingDecisions(params),
 
     'pending.update': async (params) => ({ pending: await sessions.updatePending(params) }),
 

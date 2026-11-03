@@ -798,6 +798,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         accounts?.usage.used(context.providerId);
       },
       // 额度恢复后自动继续（0.119.0）：回合因用量上限失败时从账号最近的用量补重置时刻；账号 ID 就是 Provider ID。
+      routing: () => settings.get().routing,
       autoContinue: {
         account: (providerId) => accounts?.peek(providerId),
         identity: { deviceId: hostId, clientId: 'wevir-auto-continue', clientKind: 'desktop' },
@@ -1239,6 +1240,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       options.web?.start(secrets),
     ]);
     startup.mark('providers_web');
+    manager.resumePendingRouting();
 
     // 已登录账号的用量由 Host 定时重读，推给看着账号的客户端（usage-refresh.ts）。
     accounts?.usage.start();
@@ -1704,6 +1706,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.startGoal !== undefined && { session_goals: true }),
         usage_auto_continue: true,
         usage_limit_switch: true,
+        usage_limit_routing: true,
         turn_retry: true,
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),

@@ -550,6 +550,49 @@ describe('文件读取（0.102.0）', () => {
   });
 });
 
+describe('额度路由 RPC', () => {
+  it('默认关闭；用户设置后写决定，跨会话只读列表返回同一条记录', async () => {
+    const { host } = await start();
+    const client = await TestRpcClient.connect(host.url);
+    clients.push(client);
+    const hello = await client.hello(runtimeInfo(host.home).token as string);
+    expect(hello.result?.features).toMatchObject({ usage_limit_routing: true });
+    expect((await client.request('settings.get')).settings.routing).toEqual({
+      enabled: false,
+      chain: [],
+      preferSoonestReset: true,
+    });
+    const sessionId = await createSession(client);
+    const routing = {
+      enabled: true,
+      chain: [{ providerId: 'missing', enabled: false }],
+      preferSoonestReset: false,
+    };
+    expect(
+      (await client.request('settings.update', { settings: { routing } })).settings.routing,
+    ).toEqual(routing);
+    const notifications = client.notifications('settings.updated').length;
+    await client.request('settings.update', { settings: { routing } });
+    expect(client.notifications('settings.updated')).toHaveLength(notifications);
+    const { subscriptionId } = await client.request('events.subscribe', { sessionId, sinceSeq: 0 });
+    await client.request('session.send', {
+      sessionId,
+      content: [{ type: 'text', text: 'hitlimit' }],
+    });
+    const event = await client.until(
+      () => client.events(subscriptionId).find((event) => event.type === 'routing.decided'),
+      'routing.decided',
+    );
+    expect((await client.request('routing.decisions', { limit: 1 })).decisions).toEqual([
+      { ...event.payload, sessionId, seq: event.seq },
+    ]);
+    expect(event.payload).toMatchObject({
+      to: null,
+      skipped: [{ providerId: 'missing', reason: 'node_disabled' }],
+    });
+  });
+});
+
 describe('防休眠（0.102.0）', () => {
   it('preventSleep 开着时回合在跑才保持，等审批不算；值变了发 power.changed', async () => {
     const { host } = await start();

@@ -98,6 +98,17 @@ describe('配置工具的批准', () => {
     await expect(h.run({ settings: { remote: { enabled: true } } })).rejects.toThrow(
       'Only the user can change remote',
     );
+    await expect(
+      h.run({
+        settings: {
+          routing: {
+            enabled: true,
+            chain: [{ providerId: 'paid' }],
+            preferSoonestReset: true,
+          },
+        },
+      }),
+    ).rejects.toThrow('Only the user can change routing');
     expect(h.calls).toEqual(['settings.update']);
   });
 

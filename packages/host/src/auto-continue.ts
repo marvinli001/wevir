@@ -2,6 +2,7 @@ import {
   type AccountRateLimitWindow,
   type AccountState,
   AUTO_CONTINUE_MAX_WAIT_MS,
+  rateLimitWindows,
   type SessionId,
   type UsageLimit,
 } from '@wevir/protocol';
@@ -112,15 +113,6 @@ export class AutoContinueTimers {
     for (const timer of this.#timers.values()) clearTimeout(timer);
     this.#timers.clear();
   }
-}
-
-function rateLimitWindows(account: AccountState | undefined): AccountRateLimitWindow[] {
-  const limits = account?.rateLimits;
-  if (limits === undefined) return [];
-  if (limits.windows !== undefined && limits.windows.length > 0) return [...limits.windows];
-  return [limits.primary, limits.secondary].filter(
-    (window): window is AccountRateLimitWindow => window !== undefined,
-  );
 }
 
 function isoOrUndefined(value: string | undefined): string | undefined {

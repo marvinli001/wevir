@@ -273,6 +273,7 @@ import {
   ReviewSendResultSchema,
   ReviewUpdateParamsSchema,
 } from './review.js';
+import { RoutingDecisionsParamsSchema, RoutingDecisionsResultSchema } from './routing.js';
 import {
   SearchIndexStatusSchema,
   SearchQueryParamsSchema,
@@ -2377,6 +2378,11 @@ export const MethodSchemas = {
     params: SessionContinueWithModelParamsSchema,
     result: SessionContinueWithModelResultSchema,
     permission: 'session.write',
+  },
+  'routing.decisions': {
+    params: RoutingDecisionsParamsSchema,
+    result: RoutingDecisionsResultSchema,
+    permission: 'session.read',
   },
   'session.retryTurn': {
     params: SessionRetryTurnParamsSchema,

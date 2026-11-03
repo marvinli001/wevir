@@ -54,6 +54,7 @@ describe('Host 设置（settings.*）', () => {
         autoMemory: true,
         ruleFiles: true,
         sessionInsights: false,
+        routing: { enabled: false, chain: [], preferSoonestReset: true },
       },
     });
 
@@ -68,6 +69,7 @@ describe('Host 设置（settings.*）', () => {
         autoMemory: true,
         ruleFiles: true,
         sessionInsights: false,
+        routing: { enabled: false, chain: [], preferSoonestReset: true },
       },
     });
     await watcher.until(
@@ -83,6 +85,7 @@ describe('Host 设置（settings.*）', () => {
       autoMemory: true,
       ruleFiles: true,
       sessionInsights: false,
+      routing: { enabled: false, chain: [], preferSoonestReset: true },
     });
     // 值没变不通知。
     await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } });
@@ -99,6 +102,7 @@ describe('Host 设置（settings.*）', () => {
         autoMemory: true,
         ruleFiles: true,
         sessionInsights: false,
+        routing: { enabled: false, chain: [], preferSoonestReset: true },
       },
     });
     await watcher.until(
@@ -115,6 +119,7 @@ describe('Host 设置（settings.*）', () => {
       autoMemory: true,
       ruleFiles: true,
       sessionInsights: false,
+      routing: { enabled: false, chain: [], preferSoonestReset: true },
     });
 
     // 离开后摘要的开关（0.54.0）：默认开，关掉后写进文件，只改给出的字段。
@@ -130,6 +135,7 @@ describe('Host 设置（settings.*）', () => {
         autoMemory: true,
         ruleFiles: true,
         sessionInsights: false,
+        routing: { enabled: false, chain: [], preferSoonestReset: true },
       },
     });
     expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
@@ -139,6 +145,7 @@ describe('Host 设置（settings.*）', () => {
       autoMemory: true,
       ruleFiles: true,
       sessionInsights: false,
+      routing: { enabled: false, chain: [], preferSoonestReset: true },
     });
 
     // Host 重启后从文件读回。
@@ -154,6 +161,7 @@ describe('Host 设置（settings.*）', () => {
         autoMemory: true,
         ruleFiles: true,
         sessionInsights: false,
+        routing: { enabled: false, chain: [], preferSoonestReset: true },
       },
     });
   });

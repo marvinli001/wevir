@@ -17,6 +17,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.cwd;
     case 'session.configured':
       return event.payload.modelId;
+    case 'routing.decided':
+      return event.payload.to?.providerId ?? 'auto_continue';
     case 'session.handoff':
       return event.payload.to.providerId;
     case 'session.moved':

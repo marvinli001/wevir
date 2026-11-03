@@ -44,6 +44,11 @@ export interface EventRepository {
   insert(event: EventRecord): void;
   /** 按 `seq` 升序读取 `seq > afterSeq`（默认 0，即从头）的事件，最多 `limit` 条（默认不限）。 */
   list(sessionId: string, options?: { afterSeq?: number; limit?: number }): EventRecord[];
+  /** 跨会话按时间倒序列出额度路由决定；复合游标保证相同时刻也不重不漏。 */
+  routingDecisions(options: {
+    limit: number;
+    cursor?: { at: string; sessionId: string; seq: number };
+  }): EventRecord[];
   /**
    * 同 `list`（不限条数），但逐行读出，不把结果一次全读进内存：长会话从头重放时内存不随会话长度涨。迭代完（或中途放弃）之前别再
    * 调用它。
@@ -69,6 +74,10 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
   const list = db.prepare(`
     SELECT * FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?`);
   const iterate = db.prepare('SELECT * FROM events WHERE session_id = ? AND seq > ? ORDER BY seq');
+  const routingDecisions = db.prepare(`
+    SELECT * FROM events WHERE type = 'routing.decided'
+      AND (:at IS NULL OR (json_extract(payload, '$.at'), session_id, seq) < (:at, :sessionId, :seq))
+    ORDER BY json_extract(payload, '$.at') DESC, session_id DESC, seq DESC LIMIT :limit`);
   const lastSeq = db.prepare(
     'SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE session_id = ?',
   );
@@ -109,6 +118,16 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
     },
     list(sessionId, options) {
       return list.all(sessionId, options?.afterSeq ?? 0, options?.limit ?? -1).map(fromRow);
+    },
+    routingDecisions({ limit, cursor }) {
+      return routingDecisions
+        .all({
+          at: cursor?.at ?? null,
+          sessionId: cursor?.sessionId ?? null,
+          seq: cursor?.seq ?? null,
+          limit,
+        })
+        .map(fromRow);
     },
     *iterate(sessionId, options) {
       // for…of 在中途放弃时调用行迭代器的 return()，语句随之复位，不留着读事务。

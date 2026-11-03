@@ -4,6 +4,8 @@ import {
   type EventSource,
   EventSourceSchema,
   isKnownEventType,
+  type MethodParams,
+  type MethodResult,
   type OpinionId,
   type PendingMessage,
   type PendingMessageId,
@@ -33,6 +35,7 @@ import {
   INITIAL_PROJECTION,
   type ProjectedEngine,
   projectionCode,
+  type RoutingState,
   type SessionProjection,
   toCachePatch,
   toSnapshot,
@@ -410,6 +413,27 @@ export class EventStore {
 
   retryableTurnId(sessionId: SessionId): TurnId | undefined {
     return this.#projection(sessionId).retryableTurnId;
+  }
+
+  routingState(sessionId: SessionId): RoutingState | undefined {
+    return structuredClone(this.#projection(sessionId).routing);
+  }
+
+  routingDecisions(params: MethodParams<'routing.decisions'>): MethodResult<'routing.decisions'> {
+    const limit = params.limit ?? 50;
+    const events = this.#storage.events.routingDecisions({ ...params, limit: limit + 1 });
+    const decisions = events.slice(0, limit).map((record) => {
+      const event = fromRecord(record) as WevirEventOf<'routing.decided'>;
+      return { ...event.payload, sessionId: event.sessionId, seq: event.seq };
+    });
+    const last = decisions.at(-1);
+    return {
+      decisions,
+      ...(events.length > limit &&
+        last !== undefined && {
+          nextCursor: { at: last.at, sessionId: last.sessionId, seq: last.seq },
+        }),
+    };
   }
 
   /** 一条待发消息（R11），含已到终态的；会话或消息不存在时为 `undefined`。 */

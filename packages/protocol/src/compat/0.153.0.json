@@ -1,0 +1,219 @@
+{
+  "protocolVersion": "0.153.0",
+  "methods": {
+    "settings.get": {
+      "params": [{}],
+      "result": [
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "routing": {
+              "enabled": true,
+              "chain": [
+                {
+                  "providerId": "claude",
+                  "modelId": "m"
+                },
+                {
+                  "providerId": "cursor",
+                  "enabled": false
+                }
+              ],
+              "preferSoonestReset": true
+            }
+          }
+        }
+      ]
+    },
+    "settings.update": {
+      "params": [
+        {
+          "settings": {
+            "routing": {
+              "enabled": true,
+              "chain": [
+                {
+                  "providerId": "claude",
+                  "modelId": "m"
+                },
+                {
+                  "providerId": "cursor",
+                  "enabled": false
+                }
+              ],
+              "preferSoonestReset": true
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "routing": {
+              "enabled": true,
+              "chain": [
+                {
+                  "providerId": "claude",
+                  "modelId": "m"
+                },
+                {
+                  "providerId": "cursor",
+                  "enabled": false
+                }
+              ],
+              "preferSoonestReset": true
+            }
+          }
+        }
+      ]
+    },
+    "routing.decisions": {
+      "params": [
+        {},
+        {
+          "limit": 1,
+          "cursor": {
+            "at": "2026-11-03T00:00:00.000Z",
+            "sessionId": "ses_1",
+            "seq": 10
+          }
+        }
+      ],
+      "result": [
+        {
+          "decisions": [
+            {
+              "turnId": "trn_1",
+              "originTurnId": "trn_1",
+              "attempt": 1,
+              "from": {
+                "providerId": "chatgpt",
+                "modelId": "m"
+              },
+              "to": {
+                "providerId": "claude",
+                "modelId": "m"
+              },
+              "skipped": [
+                {
+                  "providerId": "cursor",
+                  "reason": "signed_out"
+                }
+              ],
+              "at": "2026-11-03T00:00:00.000Z",
+              "sessionId": "ses_1",
+              "seq": 10
+            }
+          ],
+          "nextCursor": {
+            "at": "2026-11-03T00:00:00.000Z",
+            "sessionId": "ses_1",
+            "seq": 10
+          }
+        },
+        {
+          "decisions": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "sessionId": "ses_1",
+      "seq": 10,
+      "ts": "2026-11-03T00:00:00.000Z",
+      "type": "routing.decided",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_1",
+        "originTurnId": "trn_1",
+        "attempt": 1,
+        "from": {
+          "providerId": "chatgpt",
+          "modelId": "m"
+        },
+        "to": {
+          "providerId": "claude",
+          "modelId": "m"
+        },
+        "skipped": [
+          {
+            "providerId": "cursor",
+            "reason": "signed_out"
+          }
+        ],
+        "at": "2026-11-03T00:00:00.000Z"
+      }
+    },
+    {
+      "sessionId": "ses_1",
+      "seq": 10,
+      "ts": "2026-11-03T00:00:00.000Z",
+      "type": "routing.decided",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_1",
+        "originTurnId": "trn_1",
+        "attempt": 3,
+        "from": {
+          "providerId": "chatgpt",
+          "modelId": "m"
+        },
+        "to": null,
+        "skipped": [
+          {
+            "providerId": "cursor",
+            "reason": "signed_out"
+          }
+        ],
+        "at": "2026-11-03T00:00:00.000Z"
+      }
+    },
+    {
+      "sessionId": "ses_1",
+      "seq": 10,
+      "ts": "2026-11-03T00:00:00.000Z",
+      "type": "session.configured",
+      "source": "host",
+      "payload": {
+        "modelId": "m2",
+        "reason": "usage_limit",
+        "failover": {
+          "attempt": 1,
+          "originTurnId": "trn_1"
+        }
+      }
+    },
+    {
+      "sessionId": "ses_1",
+      "seq": 10,
+      "ts": "2026-11-03T00:00:00.000Z",
+      "type": "session.handoff",
+      "source": "host",
+      "payload": {
+        "from": {
+          "providerId": "chatgpt",
+          "modelId": "m",
+          "engineSessionId": "echo-1"
+        },
+        "to": {
+          "providerId": "claude",
+          "modelId": "m",
+          "engineSessionId": "echo-2"
+        },
+        "resumed": false,
+        "strategy": "full_thread_summary",
+        "items": 1,
+        "omittedItems": 0,
+        "reason": "usage_limit",
+        "failover": {
+          "attempt": 1,
+          "originTurnId": "trn_1"
+        }
+      }
+    }
+  ],
+  "errors": []
+}

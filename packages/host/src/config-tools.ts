@@ -89,6 +89,7 @@ type ConfigToolName = (typeof CONFIG_TOOLS)[number];
  * 每个 Host 设置谁能改：`agent` 照常、`approval` 要用户批准、`user` 只有用户。列全所有键，新加的设置不归档就编译不过。
  */
 export const SETTINGS_ACCESS: Record<keyof HostSettings, 'agent' | 'approval' | 'user'> = {
+  routing: 'user',
   sendWhileBusy: 'agent',
   promptSuggestions: 'agent',
   sessionRecap: 'agent',

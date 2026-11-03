@@ -77,6 +77,7 @@ import {
   ReviewFindingSchema,
   ReviewFindingsOriginSchema,
 } from './review.js';
+import { RoutingDecisionSchema, RoutingFailoverSchema } from './routing.js';
 import {
   RepairChainSchema,
   SessionAcceptanceSchema,
@@ -177,11 +178,14 @@ export const EventPayloadSchemas = {
     turnId: TurnIdSchema,
     resumeAt: IsoTimeSchema.nullable(),
   }),
+  'routing.decided': RoutingDecisionSchema,
   /**
    * 会话的模型、推理档位或权限模式改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有
    * `reasoningEffort` 表示用模型的默认档位；没有 `permissionMode`（0.11.0 之前的 Host）表示 `on_request`；没有 `fast`（0.148.0）表示标准速度。
    */
   'session.configured': z.object({
+    reason: z.literal('usage_limit').optional(),
+    failover: RoutingFailoverSchema.optional(),
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
     fast: z.boolean().optional(),
@@ -193,6 +197,8 @@ export const EventPayloadSchemas = {
    * 历史时省略。会话原来是 `error` 或 `closed` 时，同一事务里接着写转 `idle`（`resumed`），只读随之解除。
    */
   'session.handoff': z.object({
+    reason: z.literal('usage_limit').optional(),
+    failover: RoutingFailoverSchema.optional(),
     from: z.object({
       providerId: ProviderIdSchema,
       modelId: z.string().min(1),
@@ -684,6 +690,7 @@ export const SessionReadOnlyEventSchema = eventSchema('session.read_only');
 export const SessionTitleChangedEventSchema = eventSchema('session.title_changed');
 export const SessionGoalChangedEventSchema = eventSchema('session.goal_changed');
 export const SessionAutoContinueEventSchema = eventSchema('session.auto_continue');
+export const RoutingDecidedEventSchema = eventSchema('routing.decided');
 export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionHandoffEventSchema = eventSchema('session.handoff');
 export const SessionMovedEventSchema = eventSchema('session.moved');
@@ -740,6 +747,7 @@ export const ReviewFindingsEventSchema = eventSchema('review.findings');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
+  RoutingDecidedEventSchema,
   SessionCreatedEventSchema,
   SessionResumedEventSchema,
   SessionReadOnlyEventSchema,

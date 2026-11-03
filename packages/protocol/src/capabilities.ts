@@ -186,6 +186,8 @@ export const HOST_FEATURES = {
    * `session_configure`。
    */
   usageLimitSwitch: 'usage_limit_switch',
+  /** 用户开启的额度路由（0.153.0）：routing 设置、决定事件与跨会话分页列表。 */
+  usageLimitRouting: 'usage_limit_routing',
   /** 模型错误恢复：`session.retryTurn`，以隐藏的继续消息开始后续回合。 */
   turnRetry: 'turn_retry',
   /**
@@ -638,6 +640,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_goals: z.boolean().optional(),
   usage_auto_continue: z.boolean().optional(),
   usage_limit_switch: z.boolean().optional(),
+  usage_limit_routing: z.boolean().optional(),
   turn_retry: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),

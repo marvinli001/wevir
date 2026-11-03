@@ -1351,6 +1351,49 @@ const standaloneCases: Case[] = [
     ],
   },
   {
+    name: 'RoutingTarget',
+    schema: protocol.RoutingTargetSchema,
+    valid: [{ providerId: 'claude', modelId: 'm' }],
+    invalid: [{ providerId: 'claude' }, { providerId: '', modelId: 'm' }],
+  },
+  {
+    name: 'RoutingSettings',
+    schema: protocol.RoutingSettingsSchema,
+    valid: [
+      { enabled: false, chain: [], preferSoonestReset: true },
+      {
+        enabled: true,
+        chain: [{ providerId: 'claude', modelId: 'm', enabled: false }],
+        preferSoonestReset: false,
+      },
+    ],
+    invalid: [
+      { enabled: true },
+      { enabled: true, chain: [{ providerId: 'claude', enabled: 'no' }], preferSoonestReset: true },
+    ],
+  },
+  {
+    name: 'RoutingFailover',
+    schema: protocol.RoutingFailoverSchema,
+    valid: [
+      { attempt: 1, originTurnId: ids.turn },
+      { attempt: 3, originTurnId: ids.turn },
+    ],
+    invalid: [
+      { attempt: 0, originTurnId: ids.turn },
+      { attempt: 4, originTurnId: ids.turn },
+    ],
+  },
+  {
+    name: 'RoutingCursor',
+    schema: protocol.RoutingCursorSchema,
+    valid: [{ at: '2026-11-03T00:00:00.000Z', sessionId: ids.session, seq: 1 }],
+    invalid: [
+      { at: 'yesterday', sessionId: ids.session, seq: 1 },
+      { at: '2026-11-03T00:00:00.000Z', sessionId: ids.session, seq: 0 },
+    ],
+  },
+  {
     name: 'HostSettings（离开后摘要开关可省略）',
     schema: HostSettingsSchema,
     valid: [

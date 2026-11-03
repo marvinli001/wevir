@@ -22,6 +22,7 @@ import type {
   QuestionId,
   QuestionRequest,
   RepairChain,
+  RoutingDecision,
   SecondOpinion,
   Session,
   SessionAcceptance,
@@ -133,6 +134,7 @@ export interface SessionProjection {
   readonly goal?: SessionGoal;
   /** 额度恢复后自动继续（0.119.0）：最近一次 `session.auto_continue`，关掉或有了新的回合时没有。 */
   readonly autoContinue?: SessionAutoContinue;
+  readonly routing?: RoutingState;
   /** 回合收尾（0.128.0）：最近一次 `turn.wrap_up`；用户发了消息、新的回合开始、那个回合被撤销或撤回时没有。 */
   readonly wrapUp?: SessionWrapUp;
   /**
@@ -186,6 +188,15 @@ export interface SessionProjection {
   readonly opinions: ReadonlyMap<OpinionId, SecondOpinion>;
   /** 你应该知道（0.79.0，domain-model §3.33）：`insight.updated` 按 `id` 替换，按提出的先后。 */
   readonly insights: ReadonlyMap<InsightId, SessionInsight>;
+}
+
+export interface RoutingState {
+  readonly originTurnId: TurnId;
+  readonly attempt: number;
+  readonly visited: readonly string[];
+  readonly lastTurnId: TurnId;
+  readonly continuedTurnId?: TurnId;
+  readonly pending?: RoutingDecision;
 }
 
 export interface ProjectedVerification {
@@ -389,7 +400,26 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       next.autoContinue = resumeAt === null ? undefined : { turnId, resumeAt };
       break;
     }
+    case 'routing.decided': {
+      const decision = event.payload;
+      const previous =
+        projection.routing?.originTurnId === decision.originTurnId ? projection.routing : undefined;
+      next.routing = {
+        originTurnId: decision.originTurnId,
+        attempt: decision.attempt,
+        lastTurnId: decision.turnId,
+        visited: [
+          ...new Set([
+            ...(previous?.visited ?? []),
+            ...(decision.to === null ? [] : [decision.from.providerId, decision.to.providerId]),
+          ]),
+        ],
+        ...(decision.to !== null && { pending: decision }),
+      };
+      break;
+    }
     case 'session.handoff': {
+      if (event.payload.failover === undefined) next.routing = undefined;
       const { from, to, resumed } = event.payload;
       next.rulesCompacted = undefined;
       const engines = [
@@ -448,6 +478,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       if (projection.rules?.channel === 'message') next.rulesCompacted = true;
       break;
     case 'session.configured':
+      if (event.payload.failover === undefined) next.routing = undefined;
       next.model = {
         modelId: event.payload.modelId,
         ...(event.payload.reasoningEffort !== undefined && {
@@ -492,6 +523,14 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'user.message': {
       const { turnId, clientMessageId, collaborationMode } = event.payload;
+      const routing = projection.routing;
+      const continued = event.payload.from?.usageLimit?.turnId;
+      next.routing =
+        routing !== undefined &&
+        continued !== undefined &&
+        (continued === routing.lastTurnId || continued === routing.continuedTurnId)
+          ? { ...routing, pending: undefined, continuedTurnId: turnId }
+          : undefined;
       next.lastUserMessage = {
         turnId,
         ...(clientMessageId !== undefined && { clientMessageId }),
@@ -506,6 +545,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'turn.started': {
       const { turnId } = event.payload;
+      if (projection.routing?.continuedTurnId !== turnId) next.routing = undefined;
       if (next.usage !== undefined) {
         const { promptCacheExpiresAt: _, ...usage } = next.usage;
         next.usage = usage;
@@ -536,6 +576,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'turn.finished':
+      if (event.payload.outcome !== 'failed') next.routing = undefined;
       if (event.payload.outcome !== 'failed') next.retryableTurnId = undefined;
       if (projection.activeTurn?.turnId === event.payload.turnId) next.activeTurn = undefined;
       // 接力摘要随这个回合的消息交出去了；回合在引擎那边没开始（`interrupted`）时下一条消息再带。

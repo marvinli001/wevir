@@ -1,23 +1,11 @@
 // 额度用完的卡片上“换模型继续”（0.143.0）的模型列表：同输入框的模型菜单（停用的、订阅没登录的不列，订阅来源在前），额度也用完了
 // 的来源排到最后并标出来。会话当前的来源刚碰到上限，总是算用完。
 
-import type { AccountRateLimitWindow, AccountState, ProviderProfile } from '@wevir/protocol';
-import { accountOfProvider, isPickable, pickerOrder } from '@/data/sources';
+import { type AccountState, isExhausted, type ProviderProfile } from '@wevir/protocol';
 
-/**
- * 账号的额度用完了没有：没有分份的窗口（5 小时、每周等）有一个用到 100% 且还没重置就算；窗口都分份（`scope`，如 Cursor 的几份
- * 额度）时要每一份都用完。读不到用量的不算。
- */
-export function isExhausted(account: AccountState | undefined, now: number = Date.now()): boolean {
-  const windows = rateLimitWindows(account);
-  if (windows.length === 0) return false;
-  const full = (window: AccountRateLimitWindow) => {
-    const resetsAt = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
-    return window.usedPercent >= 100 && (Number.isNaN(resetsAt) || resetsAt > now);
-  };
-  const whole = windows.filter((window) => window.scope === undefined);
-  return whole.length > 0 ? whole.some(full) : windows.every(full);
-}
+export { exhaustionReset, isExhausted } from '@wevir/protocol';
+
+import { accountOfProvider, isPickable, pickerOrder } from '@/data/sources';
 
 /** 换模型继续能选的来源与其中额度用完的：可用的在前，用完的在后，各自保持模型菜单的顺序。 */
 export function switchTargets(
@@ -47,39 +35,6 @@ export function switchTargets(
     ],
     exhausted,
   };
-}
-
-function rateLimitWindows(account: AccountState | undefined): AccountRateLimitWindow[] {
-  const limits = account?.rateLimits;
-  if (limits === undefined) return [];
-  if (limits.windows !== undefined && limits.windows.length > 0) return [...limits.windows];
-  return [limits.primary, limits.secondary].filter(
-    (window): window is AccountRateLimitWindow => window !== undefined,
-  );
-}
-
-/** 所有阻塞窗口恢复后才可用；分份额度任一份恢复即可。 */
-export function exhaustionReset(
-  account: AccountState | undefined,
-  now = Date.now(),
-): string | undefined {
-  if (!isExhausted(account, now)) return undefined;
-  const full = rateLimitWindows(account).filter(
-    (window) =>
-      window.usedPercent >= 100 &&
-      (window.resetsAt === undefined ||
-        !Number.isFinite(Date.parse(window.resetsAt)) ||
-        Date.parse(window.resetsAt) > now),
-  );
-  const whole = full.filter((window) => window.scope === undefined);
-  const blocking = whole.length ? whole : full;
-  const times = blocking.map((window) =>
-    window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt),
-  );
-  if (whole.length && times.some((time) => !Number.isFinite(time))) return undefined;
-  const known = times.filter(Number.isFinite);
-  if (!known.length) return undefined;
-  return new Date(whole.length ? Math.max(...known) : Math.min(...known)).toISOString();
 }
 
 /** 新会话换源：优先选同类的另一个账号，再按模型菜单的顺序。 */

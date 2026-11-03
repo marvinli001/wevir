@@ -47,6 +47,8 @@ import {
   type ResolvedApprovalStatus,
   type ReviewFinding,
   type ReviewTarget,
+  type RoutingDecision,
+  type RoutingSettings,
   SESSION_RECAP_MIN_AWAY_MS,
   type Session,
   type SessionAutomation,
@@ -194,6 +196,7 @@ import {
 import { pastedContent, relayContent } from './relay.js';
 import type { FindingInput } from './review/service.js';
 import { roleBriefTask } from './roles.js';
+import { decideRouting } from './routing.js';
 import {
   type FoundRuleFile,
   planRules,
@@ -456,6 +459,7 @@ export interface SessionManagerOptions {
     now?: () => number;
     delayMs?: number;
   };
+  routing?: () => RoutingSettings | undefined;
 }
 
 /** `session.send` 之外的发送参数（0.30.0）。 */
@@ -869,6 +873,8 @@ export class SessionManager {
   /** 额度恢复后自动继续（0.119.0）：每个排上的会话一个按墙上时钟的计时器，只在内存里，Host 启动时按快照重新排。 */
   readonly #autoContinueTimers: AutoContinueTimers;
   readonly #autoContinue: SessionManagerOptions['autoContinue'];
+  readonly #routing: SessionManagerOptions['routing'];
+  readonly #routingRecovery = new Set<SessionId>();
   readonly #idleCompaction: SessionManagerOptions['idleCompaction'];
   readonly #idleCompactionTimers: AutoContinueTimers;
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
@@ -932,6 +938,7 @@ export class SessionManager {
     this.#hooks = options.hooks;
     this.#onTurnFinished = options.onTurnFinished;
     this.#autoContinue = options.autoContinue;
+    this.#routing = options.routing;
     this.#idleCompaction = options.idleCompaction;
     this.#idleCompactionTimers = new AutoContinueTimers((sessionId) => {
       const runtime = this.#runtimes.get(sessionId);
@@ -1211,6 +1218,9 @@ export class SessionManager {
       }
       // 额度恢复后自动继续（0.119.0）：计时器只在内存里，按快照重新排；早已过了时刻的随即发出。
       const autoContinue = snapshot.session.autoContinue;
+      if (!active && this.#events.routingState(sessionId)?.pending !== undefined) {
+        this.#routingRecovery.add(sessionId);
+      }
       if (autoContinue !== undefined && !active) {
         this.#autoContinueTimers.set(sessionId, autoContinue.resumeAt);
       }
@@ -2807,6 +2817,13 @@ export class SessionManager {
    * 时回 `ENGINE_ERROR`。
    */
   async configure(params: MethodParams<'session.configure'>): Promise<Session> {
+    return this.#configure(params);
+  }
+
+  async #configure(
+    params: MethodParams<'session.configure'>,
+    routing?: RoutingDecision,
+  ): Promise<Session> {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     this.#assertNotChild(runtime);
@@ -2814,7 +2831,7 @@ export class SessionManager {
       params.providerId !== undefined &&
       params.providerId !== this.#snapshot(runtime).session.providerId
     ) {
-      return this.#handoff(runtime, params, params.providerId);
+      return this.#handoff(runtime, params, params.providerId, routing);
     }
     const configureSession = this.#adapter.configureSession?.bind(this.#adapter);
     if (configureSession === undefined) {
@@ -2823,6 +2840,7 @@ export class SessionManager {
       throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
     }
     return this.#serial(runtime, async () => {
+      if (routing !== undefined) this.#assertRouting(runtime, routing);
       const { session } = this.#snapshot(runtime);
       if (session.readOnly !== undefined) {
         throw new HostError('INVALID_STATE', 'session is read-only', {
@@ -2889,6 +2907,10 @@ export class SessionManager {
           type: 'session.configured',
           source: 'host',
           payload: {
+            ...(routing !== undefined && {
+              reason: 'usage_limit' as const,
+              failover: { attempt: routing.attempt, originTurnId: routing.originTurnId },
+            }),
             modelId,
             ...(reasoningEffort !== undefined && { reasoningEffort }),
             ...(fast && { fast }),
@@ -2911,10 +2933,12 @@ export class SessionManager {
     runtime: SessionRuntime,
     params: MethodParams<'session.configure'>,
     providerId: ProviderId,
+    routing?: RoutingDecision,
   ): Promise<Session> {
     const target = this.#storage.providers.get(providerId);
     if (!target) throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
     return this.#serial(runtime, async () => {
+      if (routing !== undefined) this.#assertRouting(runtime, routing);
       const record = this.#record(runtime);
       const { session } = this.#snapshot(runtime);
       if (session.providerId === target.id) return session;
@@ -3040,6 +3064,10 @@ export class SessionManager {
           type: 'session.handoff',
           source: 'host',
           payload: {
+            ...(routing !== undefined && {
+              reason: 'usage_limit' as const,
+              failover: { attempt: routing.attempt, originTurnId: routing.originTurnId },
+            }),
             from,
             to: {
               providerId: target.id,
@@ -6847,10 +6875,30 @@ export class SessionManager {
       Date.parse(resetsAt) > now
         ? resumeAtFor(resetsAt, now, this.#autoContinue?.delayMs)
         : undefined;
-    if (resumeAt !== undefined) {
+    const settings = this.#routing?.();
+    const decision =
+      settings?.enabled === true &&
+      finalOutcome === 'failed' &&
+      error?.usageLimit !== undefined &&
+      this.#canRoute(runtime, snapshot.session)
+        ? decideRouting({
+            settings,
+            providers: this.#storage.providers.list(),
+            account: (providerId) => this.#autoContinue?.account?.(providerId),
+            from: { providerId: snapshot.session.providerId, modelId: snapshot.session.modelId },
+            turnId: turn.turnId,
+            previous: this.#events.routingState(runtime.id),
+            now,
+          })
+        : undefined;
+    if (decision !== undefined) {
+      inputs.push({ type: 'routing.decided', source: 'host', payload: decision });
+    }
+    if (resumeAt !== undefined && decision?.to == null) {
       inputs.push(autoContinueEvent(turn.turnId, resumeAt));
     }
     this.#write(runtime, inputs);
+    if (decision?.to != null) this.#scheduleRouting(runtime);
     // 还有等待中的排队消息：随后发出第一条，排在命令队列里。
     if (this.#snapshot(runtime).pendingMessages?.some((pending) => pending.status === 'waiting')) {
       void this.#scheduleDispatch(runtime);
@@ -6961,10 +7009,19 @@ export class SessionManager {
     params: MethodParams<'session.continueWithModel'>,
     sentBy: ClientIdentity,
   ): Promise<MethodResult<'session.continueWithModel'>> {
+    return this.#continueWithModel(params, sentBy);
+  }
+
+  async #continueWithModel(
+    params: MethodParams<'session.continueWithModel'>,
+    sentBy: ClientIdentity,
+    routing?: RoutingDecision,
+  ): Promise<MethodResult<'session.continueWithModel'>> {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     this.#assertNotChild(runtime);
     const assertLimited = () => {
+      if (routing !== undefined) this.#assertRouting(runtime, routing);
       const { session } = this.#snapshot(runtime);
       const limited = this.#events.usageLimited(runtime.id);
       if (limited?.turnId !== params.turnId) {
@@ -7004,12 +7061,15 @@ export class SessionManager {
       return { providerId, modelId: params.modelId, current };
     });
     if (!current) {
-      await this.configure({
-        sessionId: params.sessionId,
-        ...(providerId !== this.#snapshot(runtime).session.providerId && { providerId }),
-        ...(modelId !== undefined && { modelId }),
-        ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
-      });
+      await this.#configure(
+        {
+          sessionId: params.sessionId,
+          ...(providerId !== this.#snapshot(runtime).session.providerId && { providerId }),
+          ...(modelId !== undefined && { modelId }),
+          ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
+        },
+        routing,
+      );
     }
     return this.#serial(runtime, async () => {
       assertLimited();
@@ -7020,6 +7080,107 @@ export class SessionManager {
       });
       return { session: this.#snapshot(runtime).session, turnId };
     });
+  }
+
+  /** 启动对账之后，账号池与 Provider 桥接就绪时再完成排着的路由。 */
+  resumePendingRouting(): void {
+    for (const sessionId of this.#routingRecovery) this.#scheduleRouting(this.#runtime(sessionId));
+    this.#routingRecovery.clear();
+  }
+
+  #canRoute(runtime: SessionRuntime, session: Session): boolean {
+    return (
+      runtime.parentId === undefined &&
+      session.readOnly === undefined &&
+      !unattended(session) &&
+      session.channel === undefined &&
+      !this.#record(runtime).side
+    );
+  }
+
+  #assertRouting(runtime: SessionRuntime, decision: RoutingDecision): void {
+    const snapshot = this.#snapshot(runtime);
+    const { session } = snapshot;
+    const pending = this.#events.routingState(runtime.id)?.pending;
+    if (
+      this.#shuttingDown ||
+      this.#disposed ||
+      this.#routing?.()?.enabled !== true ||
+      !this.#canRoute(runtime, session) ||
+      session.state !== 'idle' ||
+      pending?.turnId !== decision.turnId ||
+      pending.attempt !== decision.attempt ||
+      pending.at !== decision.at ||
+      ![decision.from.providerId, decision.to?.providerId].includes(session.providerId) ||
+      (snapshot.pendingMessages ?? []).some((message) => message.status !== 'held') ||
+      snapshot.pendingApprovals.length > 0 ||
+      (snapshot.pendingQuestions?.length ?? 0) > 0
+    ) {
+      throw new HostError('INVALID_STATE', 'routing decision is no longer pending', {
+        state: session.state,
+      });
+    }
+  }
+
+  #scheduleRouting(runtime: SessionRuntime): void {
+    // 不在引擎事件的命令队列里等待 configure：它也要进入同一个队列。
+    void Promise.resolve()
+      .then(async () => {
+        if (this.#shuttingDown || this.#disposed || this.#routing?.()?.enabled !== true) return;
+        const decision = this.#events.routingState(runtime.id)?.pending;
+        if (decision?.to == null) return;
+        const target = decision.to;
+        try {
+          await this.#continueWithModel(
+            {
+              sessionId: runtime.id,
+              turnId: decision.turnId,
+              ...decision.to,
+            },
+            this.#autoContinue?.identity ?? AUTO_CONTINUE_IDENTITY,
+            decision,
+          );
+        } catch (error) {
+          if (this.#shuttingDown || this.#disposed || this.#routing?.()?.enabled !== true) return;
+          await this.#serial(runtime, async () => {
+            const pending = this.#events.routingState(runtime.id)?.pending;
+            if (pending?.turnId !== decision.turnId || pending.attempt !== decision.attempt) return;
+            const { session } = this.#snapshot(runtime);
+            const limited = this.#events.usageLimited(runtime.id);
+            const resetsAt = limited?.limit.resetsAt;
+            const now = this.#now();
+            const resumeAt =
+              session.state === 'idle' &&
+              session.readOnly === undefined &&
+              session.providerId === limited?.providerId &&
+              resetsAt !== undefined &&
+              Date.parse(resetsAt) > now
+                ? resumeAtFor(resetsAt, now, this.#autoContinue?.delayMs)
+                : undefined;
+            this.#write(runtime, [
+              {
+                type: 'routing.decided',
+                source: 'host',
+                payload: {
+                  ...decision,
+                  to: null,
+                  skipped: [
+                    ...decision.skipped,
+                    { providerId: target.providerId, reason: 'switch_failed' },
+                  ],
+                  at: new Date(now).toISOString(),
+                },
+              },
+              ...(resumeAt === undefined ? [] : [autoContinueEvent(decision.turnId, resumeAt)]),
+            ]);
+          });
+          this.#onWarning('usage-limit routing could not continue', {
+            sessionId: runtime.id,
+            error,
+          });
+        }
+      })
+      .catch(this.#onError);
   }
 
   async retryTurn(

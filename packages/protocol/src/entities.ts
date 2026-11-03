@@ -29,6 +29,7 @@ import { GitObjectIdSchema } from './git.js';
 import { MarketMirrorPreferenceSchema } from './market.js';
 import { NotificationKindSettingsSchema } from './notifications.js';
 import { ImportedFromSchema } from './plugins.js';
+import { RoutingSettingsSchema } from './routing.js';
 import { ProfileVersionRefSchema } from './tuning.js';
 import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
 
@@ -1192,6 +1193,8 @@ export const UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES = 1440;
 
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
 export const HostSettingsSchema = z.object({
+  /** 额度路由（0.153.0）；缺省关闭，只允许用户修改。 */
+  routing: RoutingSettingsSchema.optional(),
   /** Claude 空闲会话在提示缓存过期前压缩；省略按关闭。 */
   compactIdleClaudeSessions: z.boolean().optional(),
   /** 按 Claude 来源覆盖全局闲置压缩开关；缺项沿用全局设置。 */
@@ -1301,6 +1304,7 @@ export const HostSettingsSchema = z.object({
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
 export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
+  routing: { enabled: false, chain: [], preferSoonestReset: true },
   sendWhileBusy: 'steer',
   promptSuggestions: true,
   sessionRecap: true,
