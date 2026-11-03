@@ -1703,6 +1703,24 @@ describe('预设角色', () => {
     return (list.body.result.tools as Array<{ name: string }>).map((tool) => tool.name);
   };
 
+  it('复核自己的工作交给引擎的子智能体：说明不引导开会话或自己要第二意见', async () => {
+    const h = await setup();
+    const descriptionOf = (name: string) =>
+      h.tools.tools.find((tool) => tool.name === name)?.description ?? '';
+    expect(APP_TOOLS_INSTRUCTIONS).not.toMatch(/get an advisor or a second opinion/);
+    expect(APP_TOOLS_INSTRUCTIONS).toMatch(
+      /reviews and helpers for your own work go to your built-in subagents/,
+    );
+    expect(APP_TOOLS_INSTRUCTIONS).toMatch(
+      /review of your changes, only when the user asks for one/,
+    );
+    expect(descriptionOf('wevir_session_create')).toMatch(
+      /reviews or checks of your own work here, in your built-in subagents/,
+    );
+    expect(descriptionOf('wevir_roles')).not.toMatch(/consider asking an advisor/);
+    expect(descriptionOf('wevir_roles')).toMatch(/use a built-in subagent instead/);
+  });
+
   it('wevir_roles：内置的、用户的、项目的（同名项目盖用户盖内置），坏文件另列', async () => {
     const h = await setup();
     mkdirSync(h.rolesDir, { recursive: true });

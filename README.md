@@ -27,9 +27,9 @@
 
 ## Overview
 
-**Wevir is a Codex-style, open-source desktop workspace for AI coding agents, independent of any single model provider.** It supports your own API keys, any OpenAI-compatible endpoint, and existing subscriptions (most with multiple accounts), with model switching mid-session.
+**Wevir is an open-source, local-first agent workspace that runs Codex, Claude Code, and other coding agents side by side, on any model.** It supports your own API keys, any OpenAI-compatible endpoint, and existing subscriptions, most with multiple accounts.
 
-Sessions, approvals, change review, project files, and an agent-driven built-in browser live in one desktop app. A local Host runs the agents and keeps their data on your machine; the `wevir` CLI connects to the same Host.
+A local Host owns the session timeline, the model gateway, every engine, and the data on your machine. Because these sit in one place, a session keeps its context when the engine, model, or account changes, and project knowledge, checks, and reviews are shared across engines. The desktop app, the `wevir` CLI, the web client, and the phone app connect to the same Host.
 
 <p align="center">
   <img src="./assets/readme/wevir-demo.webp" width="900" alt="Demo: the agent adds a TTL to a cache while the session switches from an OpenAI model to DeepSeek, then to a local Ollama model; the picker lists Codex, Claude, Cursor, OpenCode, Grok, and Antigravity subscriptions, with two accounts each for Codex and Claude" />
@@ -37,8 +37,13 @@ Sessions, approvals, change review, project files, and an agent-driven built-in 
 
 ### Highlights
 
+- **One session across engines.** Hand a session to another engine or provider with a handoff brief that can be previewed before switching and is flagged when it falls out of date. When a subscription reaches its usage limit, continue the turn on another model, or resume automatically when the limit resets.
+- **Project memory for every engine.** Agents keep project and global notes that every engine reads, each with its source and revision history; notes the user has edited are protected from agent overwrites.
+- **Independent review.** A second opinion from another provider runs read-only on a snapshot of the session. Project checks run after each turn, with optional bounded repair, and a task retro links every line to its source.
+- **Tuning from real sessions.** Wevir trials one change to a project's instructions, skills, or memory at a time and keeps or reverts it after five sessions, based on check pass rate and failed turns.
+- **Delegation.** A project channel's coordinator routes each request to a thread and reports back; assistants run errands under rules you set, reachable from the phone app.
 - **Model per task, not per app.** The open-source Codex agent runtime runs locally; Wevir's gateway translates its requests for OpenAI, Anthropic, Google, DeepSeek, a dozen other providers, local Ollama, and any OpenAI-compatible endpoint. Switch model or provider between turns within the same session.
-- **Multiple subscriptions, multiple accounts.** Codex (ChatGPT), Claude Code, Grok, OpenCode, Antigravity, and Cursor subscriptions work side by side, each with multi-account support. Accounts have isolated sign-in and data, custom labels, and per-account usage in the sidebar; each session runs on the account you choose.
+- **Multiple subscriptions, multiple accounts.** Codex (ChatGPT), Claude Code, Grok, OpenCode, Antigravity, and Cursor subscriptions work side by side, each with multi-account support and per-account usage.
 - **Review before anything lands.** Commands outside the sandbox require approval, every turn is checkpointed, and the changes pane shows per-turn, branch, or uncommitted diffs with comments, staging, and commits.
 - **Local-first.** Sessions, settings, and API keys stay in a local data directory. Keys are held by the Host and never passed to the agent process.
 
@@ -62,9 +67,29 @@ Sessions, approvals, change review, project files, and an agent-driven built-in 
 - **Key isolation**: API keys live in the Host's secret store and are never passed to the runtime process.
 - **Subscriptions**: ChatGPT sign-in, plus Claude, OpenCode, Grok, Antigravity, WorkBuddy, Devin, Cursor, GitHub Copilot, and Kiro subscriptions. Wevir runs the vendor's own client or SDK with your existing sign-in; client download and sign-in are available in Settings. Requirements per source: [Status](#status).
 - **Multiple accounts**: ChatGPT, Claude, Grok, OpenCode, Antigravity, Cursor, and GitHub Copilot support multiple accounts, with per-account credential and session directories, labels such as Work or Personal, and separate usage. WorkBuddy, Devin, and Kiro are limited to one account.
-- **Mid-session switching**: Change model and reasoning effort between turns, or hand a session to another provider with a summary of the history it lacks.
+- **Mid-session switching**: Change model and reasoning effort between turns; switches are marked in the timeline.
 
 <br clear="right" />
+
+### Continuity
+
+- **Handoff**: Move a session to another engine or provider. The receiving agent gets a brief of the task, constraints, notes, and recent history within a fixed size budget; the brief can be previewed, and a brief prepared before the session moved on is rejected as stale.
+- **Usage limits**: A turn stopped by a subscription's usage limit continues on another model from the limit card, or resumes automatically after the reset. Sources whose quota is also used up are listed last.
+- **Memory**: Project and global notes written by agents and read by every engine, with source, revisions, withdrawal, and conflict detection; notes edited by the user are not overwritten.
+- **Rules across engines**: `AGENTS.md`, `CLAUDE.md`, and similar rule files apply to every engine.
+
+### Quality and review
+
+- **Second opinion**: `/second-opinion` asks another provider or model to review the current changes. It runs read-only in a snapshot worktree; the review appears as a card and reaches the agent only when quoted.
+- **Checks and repair**: Saved test, build, typecheck, and lint checks run after each turn. A test check passes only when tests actually ran. Optional repair sends failures back to the agent within attempt, time, and token limits.
+- **Task retro**: A per-session account of the goal, progress, changes, checks, decisions, and next steps, built from the event log without a model call; each line links to its source.
+- **Tuning**: Opt-in. Each trial applies one change to rules, skills, memory, or guardrails, measures the next five sessions against the baseline, and keeps or reverts it. One switch, a monthly token cap, and undo on every change.
+
+### Channels and assistants
+
+- **Project channels**: A project timeline with a resident coordinator. Requests open threads, follow-ups go to the matching thread, and finished threads collapse to a line.
+- **Assistants**: Long-lived agents with their own workspace, schedule, and per-action rules (do, do and report, ask first, prepare only); group chats with several assistants.
+- **Phone**: Sessions, approvals, channels, and assistants on iOS and Android, over an end-to-end encrypted connection to your computer.
 
 ### Sessions
 
@@ -119,6 +144,8 @@ Wevir is in preview. **Supported**: shipped in the builds and covered by automat
 | | Kiro | Beta |
 | Other | `wevir` CLI | Beta |
 | | Web client | Beta |
+| | Project channels and assistants | Beta |
+| | Tuning | Beta |
 | | Computer use | Beta |
 
 ## Known limitations
