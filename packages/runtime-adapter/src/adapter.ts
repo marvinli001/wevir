@@ -23,6 +23,7 @@ import type {
   SessionCapability,
   SessionConfig,
   TitleRequest,
+  UserQuestion,
 } from './types.js';
 
 /**
@@ -340,6 +341,17 @@ export interface AgentRuntimeAdapter {
     requestId: string,
     answers: Record<string, string[]>,
   ): Promise<void>;
+
+  /**
+   * 不挂起回合的提问（`question.requested` 带 `async`，0.156.0）的回答写成发给引擎的用户消息正文：`questions` 是那次提问的问题，
+   * `answers` 按问题 ID，只含有回答的题。只按参数拼，不依赖会话状态（回合结束后、引擎重启后也能用；`engineSessionId` 只用来选
+   * 适配器）。会提这种问题的适配器必须实现。
+   */
+  formatAsyncAnswer?(
+    engineSessionId: string,
+    questions: UserQuestion[],
+    answers: Record<string, string[]>,
+  ): string;
 
   /**
    * 列出未决审批；不传 `engineSessionId` 时列出全部会话的。不认识的会话返回空列表。

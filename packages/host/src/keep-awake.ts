@@ -61,8 +61,11 @@ export class KeepAwake {
         this.#sessions.delete(event.sessionId);
       }
     } else if (activity !== undefined) {
-      if (event.type === 'question.requested') activity.questions.add(event.payload.question.id);
-      else activity.questions.delete(event.payload.questionId);
+      // 不挂起回合的提问（0.156.0）不让回合停下等用户。
+      if (event.type === 'question.requested') {
+        if (event.payload.question.async !== true)
+          activity.questions.add(event.payload.question.id);
+      } else activity.questions.delete(event.payload.questionId);
     }
     const after = this.#isRunning(this.#sessions.get(event.sessionId));
     if (before === after) return;

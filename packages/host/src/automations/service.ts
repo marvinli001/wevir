@@ -908,7 +908,10 @@ export class AutomationService {
           if (event.payload.approval.turnId === turnId) active.open.add(event.payload.approval.id);
           break;
         case 'question.requested':
-          if (event.payload.question.turnId === turnId) active.open.add(event.payload.question.id);
+          // 不挂起回合的提问（0.156.0）不让运行停下等人。
+          if (event.payload.question.turnId === turnId && event.payload.question.async !== true) {
+            active.open.add(event.payload.question.id);
+          }
           break;
         case 'approval.resolved':
           active.open.delete(event.payload.approvalId);

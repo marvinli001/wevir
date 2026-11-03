@@ -445,11 +445,22 @@ export interface FileUpdateChange {
   diff: string;
 }
 
-/** ThreadItem `agentMessage` */
+/**
+ * ThreadItem `agentMessage`。`delivery: 'async'` 且带 `questions` 的（0.156.0）是 `request_user_input_async` 的提问：`id` 是工具
+ * 调用的 call_id，`text` 是 Codex 把题目与选项拼成的 Markdown（v2/AgentMessageDelivery.ts、v2/AsyncUserInputQuestion.ts）。
+ */
 export interface AgentMessageItem {
   type: 'agentMessage';
   id: string;
   text: string;
+  delivery?: 'async' | null;
+  questions?: AsyncUserInputQuestion[] | null;
+}
+
+/** v2/AsyncUserInputQuestion.ts：不挂起回合的提问的一题。没有选项时只能自己填。 */
+export interface AsyncUserInputQuestion {
+  title: string;
+  options?: string[] | null;
 }
 
 /**

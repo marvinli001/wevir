@@ -863,6 +863,12 @@ export const QuestionRequestSchema = z.object({
    * 另一个会话里的 agent 开的）才有；省略表示一直等。
    */
   autoAnswerAt: IsoTimeSchema.optional(),
+  /**
+   * 不挂起回合的提问（0.156.0，Codex 的 `request_user_input_async`）：引擎提完接着做，回合结束后也还能回答。Host 把回答作为一条
+   * `from.question` 的用户消息交给引擎（回合进行中插话，空闲时开新回合）；全部跳过时只结掉提问，不发消息。随会话关闭、Host 重启
+   * 取消，不随回合取消或结束；没有 `autoAnswerAt`。
+   */
+  async: z.literal(true).optional(),
   resolvedAt: IsoTimeSchema.optional(),
   resolution: QuestionResolutionSchema.optional(),
 });
@@ -1108,6 +1114,11 @@ export const MessageFromSchema = z.object({
    * 转给线程的用户帖子（`kind` 是 `message`、`sessionId` 是协调者）。旧客户端照会话间消息显示。
    */
   channel: z.object({ channelId: ChannelIdSchema, kind: z.enum(['wake', 'relay']) }).optional(),
+  /**
+   * 不挂起回合的提问的回答（0.156.0，`QuestionRequest.async`）：Host 替用户把回答发给引擎。`kind` 是 `report`、`sessionId` 是这个会话
+   * 自己（旧客户端照回报显示）；新客户端不显示这条消息，回答写在提问那一处。
+   */
+  question: z.object({ questionId: QuestionIdSchema }).optional(),
 });
 export type MessageFrom = z.infer<typeof MessageFromSchema>;
 
@@ -2210,7 +2221,7 @@ export const SessionSchema = z.object({
   parentSessionId: SessionIdSchema.optional(),
   /** 只有子会话有（0.6.0）。 */
   subagent: SubagentInfoSchema.optional(),
-  /** 有问题等用户回答（0.10.0）：回合仍是 `running`，只是在等用户。 */
+  /** 有问题等用户回答（0.10.0）：回合仍是 `running`，只是在等用户。不挂起回合的提问（0.156.0，`QuestionRequest.async`）不算。 */
   awaitingInput: z.boolean().optional(),
   ...SessionEnvironmentFields,
   /** 从一项建议开出来的会话（0.16.0）。 */

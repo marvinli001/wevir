@@ -49,6 +49,7 @@ import {
   type TitleRequest,
   type TurnFailedEvent,
   URL_ELICITATION_OPTIONS,
+  type UserQuestion,
 } from '@wevir/runtime-adapter';
 import {
   type HistoryToolServer,
@@ -60,6 +61,7 @@ import {
   writeWebToolScript,
 } from '@wevir/runtime-adapter/web-tool';
 import { ChatgptAccount, CODEX_FAST_TIER } from './account.js';
+import { asyncAnswerText } from './async-questions.js';
 import {
   type CodexExit,
   type CodexLauncher,
@@ -2747,6 +2749,15 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         })),
       });
     });
+  }
+
+  /** 不挂起回合的提问的回答（0.156.0）：写成 Codex 的回复信封，Host 作为用户消息发出。 */
+  formatAsyncAnswer(
+    _engineSessionId: string,
+    questions: UserQuestion[],
+    answers: Record<string, string[]>,
+  ): string {
+    return asyncAnswerText(questions, answers);
   }
 
   /** 回答一组提问（0.10.0）：回 app-server `{answers}`，回合接着做。 */

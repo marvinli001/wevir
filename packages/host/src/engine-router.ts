@@ -91,6 +91,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly rewind?: AgentRuntimeAdapter['rewind'];
   readonly injectNote?: AgentRuntimeAdapter['injectNote'];
   readonly respondToQuestion?: AgentRuntimeAdapter['respondToQuestion'];
+  readonly formatAsyncAnswer?: AgentRuntimeAdapter['formatAsyncAnswer'];
   readonly generateTitle?: AgentRuntimeAdapter['generateTitle'];
   readonly compact?: AgentRuntimeAdapter['compact'];
   readonly review?: AgentRuntimeAdapter['review'];
@@ -199,6 +200,10 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.respondToQuestion !== undefined)) {
       this.respondToQuestion = async (id, requestId, answers) =>
         this.#method(id, 'respondToQuestion').respondToQuestion(id, requestId, answers);
+    }
+    if (adapters.some((adapter) => adapter.formatAsyncAnswer !== undefined)) {
+      this.formatAsyncAnswer = (id, questions, answers) =>
+        this.#method(id, 'formatAsyncAnswer').formatAsyncAnswer(id, questions, answers);
     }
     if (adapters.some((adapter) => adapter.acceptsImages !== undefined)) {
       // 问承载这个 Provider 的引擎；不认识的 Provider 当作不收。
@@ -583,6 +588,7 @@ type OptionalMethod =
   | 'configureSession'
   | 'injectNote'
   | 'respondToQuestion'
+  | 'formatAsyncAnswer'
   | 'generateTitle'
   | 'compact'
   | 'review'

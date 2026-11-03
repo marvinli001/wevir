@@ -142,7 +142,8 @@ export function sessionProgress(
   }
 
   const approval = snapshot.pendingApprovals[0];
-  const question = snapshot.pendingQuestions?.[0];
+  // 不挂起回合的提问（0.156.0）不算在等用户：提完照常在做。
+  const question = snapshot.pendingQuestions?.find((item) => item.async !== true);
   const running = [...tools.values()].reverse().find((tool) => tool.status === undefined);
   let doing: string;
   let waitingForUser = false;

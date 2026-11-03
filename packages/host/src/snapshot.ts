@@ -1068,7 +1068,8 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   const pendingQuestions = openQuestions(projection);
   if (pendingQuestions.length > 0) {
     snapshot.pendingQuestions = pendingQuestions;
-    session.awaitingInput = true;
+    // 不挂起回合的提问（0.156.0）不算在等输入：引擎提完接着做。
+    if (pendingQuestions.some((question) => question.async !== true)) session.awaitingInput = true;
   }
   if (projection.opinions.size > 0) snapshot.opinions = [...projection.opinions.values()];
   if (projection.insights.size > 0) snapshot.insights = [...projection.insights.values()];

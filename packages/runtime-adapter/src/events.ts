@@ -186,6 +186,11 @@ export interface QuestionRequestedEvent {
   /** 提问的工具调用；没有时省略。 */
   toolCallId?: string;
   questions: UserQuestion[];
+  /**
+   * 不挂起回合（0.156.0，Codex：`request_user_input_async`）：引擎已经接着做，不等 `respondToQuestion`，也不发 `question.cancelled`。
+   * Host 用 `formatAsyncAnswer` 把回答写成一条用户消息交给引擎。
+   */
+  async?: true;
 }
 
 /** 没有经过 `respondToQuestion` 就结束的提问，原因同 `approval.cancelled`。 */

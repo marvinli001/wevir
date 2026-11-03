@@ -13,6 +13,7 @@ import type {
 import { APP_TOOLS_MORE_SERVER, APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
 import { parseGuardrailMarkers } from '@wevir/runtime-adapter/guardrail';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
+import { asyncQuestions } from './async-questions.js';
 import type {
   AgentMessageItem,
   ApprovalRequestMethod,
@@ -490,6 +491,10 @@ export class CodexEventMapper {
     switch (item.type) {
       case 'agentMessage':
         if (!isAgentMessage(item)) return [this.raw('item/completed', params, item.type)];
+        {
+          const question = this.#asyncQuestion(item);
+          if (question !== undefined) return question;
+        }
         if (this.#review !== undefined && item.text === this.#review.text) {
           const { parsed } = this.#review;
           this.#review = undefined;
@@ -678,6 +683,29 @@ export class CodexEventMapper {
       events.push(this.#streamEnded(attemptId, 'committed'));
     }
     return events;
+  }
+
+  /**
+   * `request_user_input_async` 的提问（0.156.0，codex-event-mapping.md §6.6）：Codex 把它报成一条 `delivery: 'async'` 的 agentMessage，
+   * 模型随即接着做。报成不挂起回合的 `question.requested`，不再当助手消息；题目没有一题可用时照常当消息。
+   */
+  #asyncQuestion(item: AgentMessageItem): AgentEvent[] | undefined {
+    if (item.delivery !== 'async' || !Array.isArray(item.questions)) return undefined;
+    const questions = asyncQuestions(item.id, item.questions);
+    if (questions.length === 0) return undefined;
+    const state = this.#state(item.id, 'agentMessage');
+    if (state.completed) return [];
+    state.completed = true;
+    return [
+      {
+        type: 'question.requested',
+        engineSessionId: this.engineSessionId,
+        requestId: item.id,
+        toolCallId: item.id,
+        questions,
+        async: true,
+      },
+    ];
   }
 
   /** 审查的发现（0.83.0）；总体说明已作为助手消息报过时不再带。 */

@@ -327,7 +327,10 @@ export function TranscriptView({
 
 function liveState(transcript: Transcript): LiveState {
   const { state } = transcript;
-  if (state === 'running' && transcript.pendingQuestions.length > 0) return 'input';
+  // 不挂起回合的提问（0.156.0）不算在等输入：引擎提完接着做。
+  if (state === 'running' && transcript.pendingQuestions.some((question) => !question.async)) {
+    return 'input';
+  }
   return state === 'awaiting_approval'
     ? 'awaiting'
     : state === 'cancelling'

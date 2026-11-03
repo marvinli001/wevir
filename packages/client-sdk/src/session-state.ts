@@ -88,7 +88,8 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       delete next.wrapUp;
       break;
     case 'question.requested':
-      next.awaitingInput = true;
+      // 不挂起回合的提问（0.156.0）：引擎提完接着做，不算在等输入。
+      if (event.payload.question.async !== true) next.awaitingInput = true;
       break;
     case 'question.resolved':
       delete next.awaitingInput;

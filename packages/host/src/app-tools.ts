@@ -2584,7 +2584,8 @@ export class AppTools {
         }
         case 'question.requested': {
           const { question } = event.payload;
-          if (question.turnId !== turnId) break;
+          // 不挂起回合的提问（0.156.0）：对方提完照常在做，不算卡住。
+          if (question.turnId !== turnId || question.async === true) break;
           blocked = { id: question.id, what: `answer: ${question.questions[0]?.question ?? ''}` };
           break;
         }

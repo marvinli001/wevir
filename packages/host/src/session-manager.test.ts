@@ -3691,6 +3691,87 @@ describe('SessionManager：向用户提问（0.10.0）', () => {
   });
 });
 
+describe('SessionManager：不挂起回合的提问（0.156.0）', () => {
+  async function askAsync(h: Harness, id: SessionId, text = 'askasync') {
+    await send(h, id, text);
+    for (let i = 0; i < 200; i += 1) {
+      const pending = snapshot(h, id).pendingQuestions ?? [];
+      if (pending[0]) return pending[0];
+      await delay(5);
+    }
+    throw new Error('没有等到提问');
+  }
+
+  it('回合不等回答、结束后提问还在；回答作为 from.question 的消息开新回合', async () => {
+    const h = setup({ manager: { questionTimeoutMs: 20 } });
+    const id = await create(h);
+    const question = await askAsync(h, id);
+    expect(question).toMatchObject({ async: true, status: 'pending' });
+    expect(question.autoAnswerAt).toBeUndefined();
+    expect(snapshot(h, id).session.awaitingInput).toBeUndefined();
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).pendingQuestions?.map((q) => q.id)).toEqual([question.id]);
+    expect(ofType(h, id, 'question.resolved')).toEqual([]);
+
+    const result = await h.manager.respondToQuestion(
+      { questionId: question.id, answers: { scope: { answers: ['UI only'] } } },
+      desktop,
+    );
+    expect(result).toMatchObject({ status: 'answered', resolution: { reason: 'user' } });
+    await waitForState(h, id, 'idle');
+    const message = ofType(h, id, 'user.message').at(-1)?.payload;
+    expect(message).toMatchObject({
+      content: [{ type: 'text', text: 'Answered: scope=UI only' }],
+      sentBy: desktop,
+      from: { sessionId: id, kind: 'report', question: { questionId: question.id } },
+    });
+    expect(ofType(h, id, 'assistant.message').at(-1)?.payload.text).toContain(
+      'Echo: Answered: scope=UI only',
+    );
+    expect(snapshot(h, id).pendingQuestions).toBeUndefined();
+    // 再回答：返回已有的结局，不再发消息。
+    const again = await h.manager.respondToQuestion({ questionId: question.id, answers: {} }, cli);
+    expect(again).toEqual(result);
+    expect(ofType(h, id, 'user.message')).toHaveLength(2);
+  });
+
+  it('回合进行中回答：作为插话交给引擎', async () => {
+    const h = setup();
+    const id = await create(h);
+    const question = await askAsync(h, id, 'askasync slow');
+    expect(snapshot(h, id).session.state).toBe('running');
+    await h.manager.respondToQuestion(
+      { questionId: question.id, answers: { scope: { answers: ['Full stack'] } } },
+      desktop,
+    );
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'user.message')).toHaveLength(1);
+    expect(ofType(h, id, 'user.steered').at(-1)?.payload).toMatchObject({
+      content: [{ type: 'text', text: 'Answered: scope=Full stack' }],
+    });
+  });
+
+  it('全部跳过只结掉提问，不发消息；取消回合不取消它，关闭会话时取消', async () => {
+    const h = setup();
+    const id = await create(h);
+    const skipped = await askAsync(h, id);
+    await waitForState(h, id, 'idle');
+    await h.manager.respondToQuestion({ questionId: skipped.id, answers: {} }, desktop);
+    expect(ofType(h, id, 'user.message')).toHaveLength(1);
+    expect(snapshot(h, id).pendingQuestions).toBeUndefined();
+
+    const kept = await askAsync(h, id, 'askasync slow');
+    await h.manager.cancel(id);
+    expect(snapshot(h, id).pendingQuestions?.map((q) => q.id)).toEqual([kept.id]);
+    await h.manager.close(id);
+    expect(ofType(h, id, 'question.resolved').at(-1)?.payload).toEqual({
+      questionId: kept.id,
+      status: 'cancelled',
+      resolution: { reason: 'session_closed' },
+    });
+  });
+});
+
 describe('SessionManager：审批过期（0.105.0）', () => {
   async function unattendedSession(h: Harness): Promise<SessionId> {
     const parent = await create(h);

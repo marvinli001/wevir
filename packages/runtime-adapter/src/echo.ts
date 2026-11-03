@@ -251,6 +251,7 @@ interface ReplyBlock {
  * | `risky` | 同 `approve`，但审批的是一条删文件的命令（`echo_shell`，`rm -rf build`），Host 判为高风险（0.131.0） |
  * | `approval:<种类>:<内容>` | 同 `approve`，审批的调用由内容定（0.132.0，测助理的规矩用，可以有好几个，依次请求）：`mcp:<服务>/<工具>` 是连接器的工具（`mcp__<服务>__<工具>`），`shell:<命令>` 是一条命令（`+` 代表空格），`write:<路径>` 是写一个文件 |
  * | `ask` | 向用户提两个问题（0.10.0：一个单选可填其他、一个多选），等 `respondToQuestion` 后在回复末尾写出回答 |
+ * | `askasync` | 提一个不挂起回合的问题（0.156.0，像 Codex 的 `request_user_input_async`）后接着回复；回答经 `formatAsyncAnswer` 写成 `Answered: <题 ID>=<回答>; …` |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
  * | `hitlimit` | 回合因订阅的 5 小时用量上限失败（`turn.failed` 带 `usageLimit`，`ECHO_LIMIT_RESET_MS` 后重置，0.119.0） |
@@ -577,6 +578,17 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       ...(config.fast === true && { fast: true }),
       ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
     };
+  }
+
+  formatAsyncAnswer(
+    _engineSessionId: string,
+    questions: UserQuestion[],
+    answers: Record<string, string[]>,
+  ): string {
+    return `Answered: ${questions
+      .filter((question) => (answers[question.id] ?? []).length > 0)
+      .map((question) => `${question.id}=${(answers[question.id] ?? []).join(', ')}`)
+      .join('; ')}`;
   }
 
   async respondToQuestion(
@@ -1042,6 +1054,18 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       if (!subagent && /compact/i.test(text))
         await this.#compaction(signal, emit, engineSessionId, 'auto');
       let answered = '';
+      if (!subagent && /\baskasync\b/i.test(text)) {
+        const [question] = ECHO_QUESTIONS;
+        emit({
+          type: 'question.requested',
+          engineSessionId,
+          requestId: this.#nextId('qst_echo_async'),
+          questions: question
+            ? [{ ...question, options: question.options.map((option) => ({ ...option })) }]
+            : [],
+          async: true,
+        });
+      }
       if (!subagent && /\bask\b/i.test(text)) {
         const answers = await this.#askUser(turn, engineSessionId);
         answered = `\n\nAnswers: ${ECHO_QUESTIONS.map((q) => `${q.id}=${(answers[q.id] ?? []).join(', ')}`).join('; ')}`;

@@ -76,7 +76,14 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.from?.repair !== undefined) return <RepairReport message={message} />;
   if (message.from?.opinion !== undefined) return <OpinionQuote message={message} />;
   // 额度恢复后 Host 替用户发的继续消息（0.119.0）不显示：额度卡片上写着已自动继续。
-  if (message.from?.usageLimit !== undefined || message.from?.retry !== undefined) return null;
+  // 不挂起回合的提问的回答（0.156.0）不显示：回答写在提问那一处。
+  if (
+    message.from?.usageLimit !== undefined ||
+    message.from?.retry !== undefined ||
+    message.from?.question !== undefined
+  ) {
+    return null;
+  }
   if (message.from?.kind === 'report' || message.from?.kind === 'message') {
     return <RelayedMessage message={message} />;
   }

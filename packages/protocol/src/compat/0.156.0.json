@@ -1,0 +1,70 @@
+{
+  "protocolVersion": "0.156.0",
+  "methods": {},
+  "notifications": {},
+  "events": [
+    {
+      "sessionId": "ses_1",
+      "seq": 10,
+      "ts": "2026-11-04T00:00:00.000Z",
+      "type": "question.requested",
+      "source": "engine",
+      "payload": {
+        "question": {
+          "id": "qst_1",
+          "sessionId": "ses_1",
+          "turnId": "trn_1",
+          "toolCallId": "call_1",
+          "questions": [
+            {
+              "id": "[\"request_user_input_async\",\"call_1\",0]",
+              "question": "Which environment?",
+              "options": [
+                {
+                  "label": "Staging"
+                },
+                {
+                  "label": "Production"
+                }
+              ],
+              "allowOther": true,
+              "defaultOption": "Staging"
+            }
+          ],
+          "status": "pending",
+          "createdAt": "2026-11-04T00:00:00.000Z",
+          "async": true
+        }
+      }
+    },
+    {
+      "sessionId": "ses_1",
+      "seq": 11,
+      "ts": "2026-11-04T00:00:01.000Z",
+      "type": "user.message",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_2",
+        "content": [
+          {
+            "type": "text",
+            "text": "<send_user_message_question_reply>\n[{\"answer\":\"Staging\",\"question\":\"Which environment?\",\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"call_1\\\",0]\"}]\n</send_user_message_question_reply>"
+          }
+        ],
+        "sentBy": {
+          "deviceId": "dev_1",
+          "clientId": "cli_1",
+          "clientKind": "desktop"
+        },
+        "from": {
+          "sessionId": "ses_1",
+          "kind": "report",
+          "question": {
+            "questionId": "qst_1"
+          }
+        }
+      }
+    }
+  ],
+  "errors": []
+}

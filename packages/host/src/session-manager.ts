@@ -3404,6 +3404,8 @@ export class SessionManager {
         this.#detach(runtime);
       }
       inputs.push(
+        // 不挂起回合的提问（0.156.0）在空闲时也可能还没答。
+        ...cancelQuestions(this.#snapshot(runtime), 'session_closed'),
         stateChanged(state, 'closed', 'closed'),
         ...settlePendings(this.#snapshot(runtime), () => 'held'),
       );
@@ -6382,8 +6384,11 @@ export class SessionManager {
     const { session } = this.#snapshot(runtime);
     const questionId = newId('qst');
     const now = Date.now();
+    // 不挂起回合的提问（0.156.0）不自动回答：引擎已经接着做了。
     const timeoutMs =
-      this.#questionTimeoutMs > 0 && unattended(session) ? this.#questionTimeoutMs : undefined;
+      this.#questionTimeoutMs > 0 && unattended(session) && event.async !== true
+        ? this.#questionTimeoutMs
+        : undefined;
     const question: QuestionRequest = {
       id: questionId,
       sessionId: runtime.id,
@@ -6400,6 +6405,7 @@ export class SessionManager {
       status: 'pending',
       createdAt: new Date(now).toISOString(),
       ...(timeoutMs !== undefined && { autoAnswerAt: new Date(now + timeoutMs).toISOString() }),
+      ...(event.async === true && { async: true as const }),
     };
     runtime.questionIds.set(event.requestId, questionId);
     runtime.questionRequests.set(questionId, event.requestId);
@@ -6407,7 +6413,7 @@ export class SessionManager {
     const inputs: AppendInput[] = [
       { type: 'question.requested', source: 'engine', payload: { question } },
     ];
-    if (session.state === 'cancelling') {
+    if (session.state === 'cancelling' && event.async !== true) {
       inputs.push(questionResolved(questionId, 'cancelled', { reason: 'turn_cancelled' }));
     } else if (timeoutMs !== undefined) {
       const timer = setTimeout(() => {
@@ -6477,7 +6483,8 @@ export class SessionManager {
       throw new HostError('QUESTION_NOT_FOUND', `question ${questionId} not found`);
     }
     const runtime = this.#runtime(sessionId);
-    return this.#serial(runtime, async () => {
+    let reply: string | undefined;
+    const result = await this.#serial(runtime, async () => {
       const outcome = () => {
         const question = this.#events.question(runtime.id, questionId);
         if (!question || question.status === 'pending' || !question.resolution) return undefined;
@@ -6493,6 +6500,11 @@ export class SessionManager {
         answers: toAnswerRecord(answers),
         answeredBy,
       };
+      if (question.async === true) {
+        reply = this.#asyncAnswer(runtime, question, answers);
+        this.#write(runtime, [questionResolved(questionId, 'answered', resolution)]);
+        return { questionId, status: 'answered' as const, resolution };
+      }
       if (await this.#answerQuestion(runtime, questionId, answers, resolution)) {
         return { questionId, status: 'answered' as const, resolution };
       }
@@ -6500,6 +6512,35 @@ export class SessionManager {
       if (after) return after;
       throw new Error(`引擎报告问题 ${questionId} 已结束，但没有上报结束事件`);
     });
+    // `send` 自己排进命令队列，所以在队列外发。
+    if (reply !== undefined) {
+      await this.send(
+        { sessionId, content: [{ type: 'text', text: reply }], delivery: 'steer' },
+        answeredBy,
+        { from: { sessionId, kind: 'report', question: { questionId } } },
+      );
+    }
+    return result;
+  }
+
+  /**
+   * 不挂起回合的提问的回答（0.156.0）：发给引擎的消息正文；全部跳过时 `undefined`（只结掉提问）。要发时先查会话收得下：回合进行中
+   * 成为插话（引擎不能插话时排队），空闲时开新回合；出错、关闭、只读时报错，提问保持未答。要在会话的命令队列里调用。
+   */
+  #asyncAnswer(
+    runtime: SessionRuntime,
+    question: QuestionRequest,
+    answers: Record<string, string[]>,
+  ): string | undefined {
+    const answered = Object.fromEntries(
+      Object.entries(answers).filter(([, list]) => list.length > 0),
+    );
+    if (Object.keys(answered).length === 0) return undefined;
+    const format = this.#adapter.formatAsyncAnswer?.bind(this.#adapter);
+    if (format === undefined) throw new Error('引擎提了不挂起回合的问题，却写不出回答');
+    const snapshot = this.#snapshot(runtime);
+    if (!ACTIVE_STATES.includes(snapshot.session.state)) assertSendable(snapshot);
+    return format(runtime.engineSessionId, question.questions, answered);
   }
 
   /**
@@ -7457,7 +7498,7 @@ export class SessionManager {
       goal?.status !== 'active' &&
       subagent?.status !== 'running' &&
       snapshot.pendingApprovals.length === 0 &&
-      (snapshot.pendingQuestions ?? []).length === 0
+      blockingQuestions(snapshot).length === 0
     ) {
       return;
     }
@@ -7729,14 +7770,23 @@ export function defaultOptionOf(question: UserQuestion): string | undefined {
   return labels.find((label) => RECOMMENDED_LABEL.test(label)) ?? labels[0];
 }
 
-/** 未答的问题随回合、会话、引擎或 Host 一起取消（原因同审批）。 */
+/**
+ * 未答的问题随回合、会话、引擎或 Host 一起取消（原因同审批）。不挂起回合的提问（0.156.0）不随回合与引擎：回答是一条用户消息，
+ * 回合结束、取消或引擎退出后照样能发；只随会话关闭与 Host 重启取消。
+ */
 function cancelQuestions(
   snapshot: SessionSnapshot,
   reason: QuestionResolution['reason'],
 ): AppendInput[] {
-  return (snapshot.pendingQuestions ?? []).map((question) =>
-    questionResolved(question.id, 'cancelled', { reason }),
-  );
+  const withAsync = reason === 'session_closed' || reason === 'host_restarted';
+  return (snapshot.pendingQuestions ?? [])
+    .filter((question) => withAsync || question.async !== true)
+    .map((question) => questionResolved(question.id, 'cancelled', { reason }));
+}
+
+/** 挂着回合、等回答才接着做的提问（不含 0.156.0 的不挂起回合的提问）。 */
+function blockingQuestions(snapshot: SessionSnapshot): QuestionRequest[] {
+  return (snapshot.pendingQuestions ?? []).filter((question) => question.async !== true);
 }
 
 /**
@@ -7854,7 +7904,7 @@ function settlePendings(
 
 /**
  * 回合完成时放行暂停的、不是用户发的待发消息（T3 的 releaseUnattendedHolds）：带 `from` 的（别的会话的消息与回报、后台进程的
- * 通知、钩子、助理的唤醒与转帖）转回等待。引用第二意见是用户的操作，与用户自己发的一样仍等用户继续。
+ * 通知、钩子、助理的唤醒与转帖）转回等待。引用第二意见与提问的回答（0.156.0）是用户的操作，与用户自己发的一样仍等用户继续。
  */
 function releaseUnattended(snapshot: SessionSnapshot): AppendInput[] {
   const now = isoNow();
@@ -7863,7 +7913,8 @@ function releaseUnattended(snapshot: SessionSnapshot): AppendInput[] {
       (pending) =>
         pending.status === 'held' &&
         pending.from !== undefined &&
-        pending.from.opinion === undefined,
+        pending.from.opinion === undefined &&
+        pending.from.question === undefined,
     )
     .map((pending) => pendingUpdated({ ...pending, status: 'waiting', updatedAt: now }));
 }
