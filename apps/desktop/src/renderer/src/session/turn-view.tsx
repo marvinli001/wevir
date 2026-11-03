@@ -137,6 +137,25 @@ export const TurnView = memo(
             .join('\n\n')
             .trim()
         : '';
+    const liveLine =
+      live && !liveTail
+        ? {
+            live,
+            startedAt: fold.startedAt,
+            ...(compacting && { label: t('compaction.running') }),
+            ...(writingPlan && { label: t('plan.writing') }),
+          }
+        : undefined;
+    // 上一次画出的当前动作那一行；回合不再进行（live 没了）时它还在，就拿它收起。回合中途换成工作组时直接换掉。
+    const lastLive = useRef(liveLine);
+    const leavingLive = useRef<typeof liveLine>(undefined);
+    if (liveLine) {
+      lastLive.current = liveLine;
+      leavingLive.current = undefined;
+    } else if (lastLive.current) {
+      if (live === undefined) leavingLive.current = lastLive.current;
+      lastLive.current = undefined;
+    }
     // 回合末的下一步卡片（0.128.0）：agent 收尾时带了问题与按钮，画在回答与操作行下面。
     const wrapUp = turnWrapUp(messages);
     // 回答的时刻：回合开始加用时（插话分出的每条助手消息都带回合的开始与用时）。
@@ -155,16 +174,19 @@ export const TurnView = memo(
               </div>
             ) : null,
           )}
-          {fold.showHeader && fold.finished && (
-            <TurnHeader
-              controls={id}
-              outcome={fold.finished.outcome}
-              text={turnHeaderText(fold.finished)}
-              open={open}
-              issues={folded ? fold.issues : undefined}
-              onToggle={() => setOpen(!open)}
-            />
-          )}
+          {/* 回合在眼前结束时“已处理”一行展开进来，与过程收起、操作行出现同时过渡，消息流的总高不在结束那一帧跳。 */}
+          <Collapse open={fold.showHeader && fold.finished !== undefined} flow>
+            {fold.finished && (
+              <TurnHeader
+                controls={id}
+                outcome={fold.finished.outcome}
+                text={turnHeaderText(fold.finished)}
+                open={open}
+                issues={folded ? fold.issues : undefined}
+                onToggle={() => setOpen(!open)}
+              />
+            )}
+          </Collapse>
           <div id={id}>
             {messages.slice(lead).map((message) => {
               if (message.role === 'user') {
@@ -256,16 +278,22 @@ export const TurnView = memo(
               <PendingNoticeLine message={message} />
             </div>
           ))}
-          {live && !liveTail && (
-            <LiveLine
-              live={live}
-              startedAt={fold.startedAt}
-              {...(compacting && { label: t('compaction.running') })}
-              {...(writingPlan && { label: t('plan.writing') })}
-            />
+          {liveLine ? (
+            <LiveLine {...liveLine} />
+          ) : (
+            // 回合在眼前结束：当前动作那一行随过程一起收起，不在结束那一帧消失（回合中途换成工作组时照旧直接换）。
+            leavingLive.current && (
+              <Collapse open={false} fromOpen flow>
+                <LiveLine {...leavingLive.current} />
+              </Collapse>
+            )
           )}
-          {fold.finished && (changes.files > 0 || checks) && (
-            // 两颗药丸放进同一行 flex 居中：各自 inline-flex 时按基线对齐，“检查”以图标开头，基线落在图标底边，会比“已更改”高。
+          {/* 回合结束时出现的药丸与操作行展开进来；打开会话时已经结束的回合直接是展开的。 */}
+          <Collapse
+            open={fold.finished !== undefined && (changes.files > 0 || checks !== undefined)}
+            flow
+          >
+            {/* 两颗药丸放进同一行 flex 居中：各自 inline-flex 时按基线对齐，“检查”以图标开头，基线落在图标底边，会比“已更改”高。 */}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {changes.files > 0 && (
                 <ChangesChip
@@ -277,10 +305,13 @@ export const TurnView = memo(
               )}
               {checks && <ChecksChip checks={checks} />}
             </div>
-          )}
-          {fold.finished && (answer !== '' || branch !== undefined) && (
-            // 回答下面的“复制”（U36）与“分支到新会话”（0.38.0）：最后一个回合的一直显示，别的悬停时出现。占一行高度：消息流的
-            // 每一块有 `content-visibility: auto`（绘制裁在块里），叠到块外面的按钮既看不见也点不着。
+          </Collapse>
+          <Collapse
+            open={fold.finished !== undefined && (answer !== '' || branch !== undefined)}
+            flow
+          >
+            {/* 回答下面的“复制”（U36）与“分支到新会话”（0.38.0）：最后一个回合的一直显示，别的悬停时出现。占一行高度：消息流的
+                每一块有 `content-visibility: auto`（绘制裁在块里），叠到块外面的按钮既看不见也点不着。 */}
             <GlideGroup
               className={cn(
                 'mt-1 flex h-6 items-center gap-0.5',
@@ -298,7 +329,7 @@ export const TurnView = memo(
               />
               {answeredAt !== undefined && <RelativeTime ts={answeredAt} />}
             </GlideGroup>
-          )}
+          </Collapse>
           {fold.finished && !laterTurn && wrapUp !== undefined && (
             <WrapUpCard turnId={turnId} wrapUp={wrapUp} />
           )}
@@ -355,7 +386,10 @@ function TurnHeader({
         {issues && <IssueFlags issues={issues} />}
         <ChevronRight
           aria-hidden
-          className={cn('size-3.5 shrink-0 opacity-75 transition-transform', open && 'rotate-90')}
+          className={cn(
+            'size-3.5 shrink-0 opacity-75 transition-transform',
+            open && 'rotate-90',
+          )}
         />
       </button>
       <div aria-hidden className="mt-1.5 h-px bg-border" />
