@@ -23,6 +23,8 @@
     "@wevir/host": "workspace:*",
     "@wevir/noise": "workspace:*",
     "@wevir/protocol": "workspace:*",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "mute-stream": "3.0.0",
     "ws": "^8.22.0"
   },

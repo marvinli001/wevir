@@ -21,6 +21,7 @@ describe('命令行解析', () => {
     const main = await run(['--help'], { home });
     expect(main.code).toBe(0);
     for (const command of [
+      'wevir exec [选项]',
       'wevir host start',
       'wevir host status',
       'wevir host stop',
@@ -42,6 +43,12 @@ describe('命令行解析', () => {
     expect(group.out).toContain('wevir session attach');
     const sub = await run(['session', 'attach', '--help'], { home });
     expect(sub.out).toContain('Ctrl-C');
+    const execHelp = await run(['exec', '--help'], { home, lang: 'en' });
+    expect(execHelp.code).toBe(0);
+    expect(execHelp.out).toContain('--output-schema');
+    expect(execHelp.out).toContain(
+      '0 completed; 1 failed or disconnected; 2 input required or usage error; 3 invalid output; 130 cancelled',
+    );
   });
 
   it('用法错误：退出码 2，中文说明加下一步', async () => {

@@ -3,6 +3,34 @@
 import type { Messages } from './zh.js';
 
 export const en: Messages = {
+  'group.exec': 'One-shot execution',
+  'cmd.exec.summary': 'Run one prompt and wait for the turn to finish',
+  'cmd.exec.usage': 'wevir exec [options] <prompt | ->',
+  'cmd.exec.help': `Options:
+  --cwd <directory>         Working directory, defaults to the current directory
+  --provider <ID>           Provider
+  --model <ID>              Model
+  --permission-mode <mode> on_request (default), auto_review, full_access
+  --json                   JSON Lines, one original WevirEvent per line
+  --output-schema <file>   JSON Schema for the last answer (draft-07, 2019-09, 2020-12)
+
+- reads the prompt from stdin; starts the Host if needed
+Manual approvals or blocking questions cancel the turn; SIGINT cancels the turn; sessions are kept
+stdout: the last answer, or --json events; diagnostics go to stderr
+
+Exit codes: 0 completed; 1 failed or disconnected; 2 input required or usage error; 3 invalid output; 130 cancelled`,
+  'exec.emptyPrompt': 'Empty prompt',
+  'exec.badSchema': 'Invalid JSON Schema: {file} · {error}',
+  'exec.asyncSchema': 'Asynchronous JSON Schema is not supported',
+  'exec.approvalRequired': 'Manual approval required: {id} · {summary}',
+  'exec.questionRequired': 'Answer required: {id}',
+  'exec.sessionHint': 'wevir session show {id}',
+  'exec.disconnected': 'Host disconnected; turn outcome unknown',
+  'exec.noTurn': 'The prompt did not start a turn',
+  'exec.noResult': 'The event stream ended without a turn outcome',
+  'exec.failed': 'Turn did not complete',
+  'exec.invalidJson': 'The last answer is not JSON',
+  'exec.invalidOutput': 'The last answer does not match the JSON Schema: {error}',
   'list.separator': ', ',
   'list.semicolon': '; ',
   'common.paren': '({text})',

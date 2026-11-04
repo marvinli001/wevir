@@ -20,6 +20,7 @@ import {
   joinMonthlyArgs,
   parsePermission,
 } from './commands/automation.js';
+import { exec } from './commands/exec.js';
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
 import { inboxDismiss, inboxList, inboxRespond } from './commands/inbox.js';
 import {
@@ -191,6 +192,37 @@ function ruleOptions(values: Values): { workspace?: string; json: boolean } {
 }
 
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
+  exec: {
+    '': {
+      summary: 'cmd.exec.summary',
+      usage: 'cmd.exec.usage',
+      help: 'cmd.exec.help',
+      options: {
+        cwd: { type: 'string' },
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        'permission-mode': { type: 'string' },
+        'output-schema': { type: 'string' },
+        ...json,
+      },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [prompt]) => {
+        const cwd = str(v.cwd);
+        const provider = str(v.provider);
+        const model = str(v.model);
+        const permission = str(v['permission-mode']);
+        const outputSchema = str(v['output-schema']);
+        return exec(ctx, prompt as string, {
+          ...(cwd !== undefined && { cwd }),
+          ...(provider !== undefined && { provider }),
+          ...(model !== undefined && { model }),
+          ...(permission !== undefined && { permissionMode: parsePermission(permission) }),
+          ...(outputSchema !== undefined && { outputSchema }),
+          json: v.json === true,
+        });
+      },
+    },
+  },
   host: {
     start: {
       summary: 'cmd.host.start.summary',
@@ -1165,6 +1197,7 @@ const DEFAULT_COMMANDS: Record<string, string> = {
 };
 
 const GROUP_TITLES: Record<string, PlainMessageKey> = {
+  exec: 'group.exec',
   host: 'group.host',
   workspace: 'group.workspace',
   provider: 'group.provider',
@@ -1227,7 +1260,7 @@ function groupHelp(group: string): string {
 function usageFromParseError(error: unknown, group: string, name: string): UsageError {
   const { code, message } = error as { code?: string; message: string };
   const option = /'([^']+)'/.exec(message)?.[1];
-  const hint = t('usage.seeCommandHelp', { command: `${group} ${name}` });
+  const hint = t('usage.seeCommandHelp', { command: `${group} ${name}`.trim() });
   switch (code) {
     case 'ERR_PARSE_ARGS_UNKNOWN_OPTION':
       return new UsageError(t('usage.unknownOption', { option: option ?? message }), hint);
@@ -1289,7 +1322,8 @@ export async function runCli(io: CliIO): Promise<number> {
       fallback !== undefined &&
       !leading.help &&
       (first === undefined || (first.startsWith('-') && first !== '-h' && first !== '--help'));
-    const [name, ...rest] = useDefault ? [fallback, ...afterGroup] : afterGroup;
+    const [name, ...rest] =
+      group === 'exec' ? ['', ...afterGroup] : useDefault ? [fallback, ...afterGroup] : afterGroup;
     if (group === undefined || group === 'help') {
       if (leading.version && group === undefined) {
         io.stdout.write(`${CLI_VERSION}\n`);
@@ -1336,13 +1370,13 @@ export async function runCli(io: CliIO): Promise<number> {
     if (positionals.length < def.positionals.min) {
       throw new UsageError(
         t('usage.missingArgs'),
-        t('usage.seeCommandHelp', { command: `${group} ${name}` }),
+        t('usage.seeCommandHelp', { command: `${group} ${name}`.trim() }),
       );
     }
     if (positionals.length > def.positionals.max) {
       throw new UsageError(
         t('usage.extraArgs', { args: positionals.slice(def.positionals.max).join(' ') }),
-        t('usage.seeCommandHelp', { command: `${group} ${name}` }),
+        t('usage.seeCommandHelp', { command: `${group} ${name}`.trim() }),
       );
     }
     const homeOption = str(values.home) ?? leading.home;

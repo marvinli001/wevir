@@ -7,6 +7,34 @@
 // Key 输入、ChatGPT 的个人使用条款、删除凭据或取消回合的后果。命令、选项、路径与产品名（Wevir、Host、Provider）照原样写。
 
 export const zh = {
+  'group.exec': '一次性运行',
+  'cmd.exec.summary': '运行一条指令，等待回合结束',
+  'cmd.exec.usage': 'wevir exec [选项] <提示 | ->',
+  'cmd.exec.help': `选项：
+  --cwd <目录>              工作目录，默认当前目录
+  --provider <ID>           来源
+  --model <ID>              模型
+  --permission-mode <模式>  on_request（默认）、auto_review、full_access
+  --json                    JSON Lines，每行一个原协议 WevirEvent
+  --output-schema <文件>    最后一条回答的 JSON Schema（draft-07、2019-09、2020-12）
+
+- 从 stdin 读取提示；Host 未运行时自动启动
+人工审批或阻塞提问会取消回合；SIGINT 取消回合；会话保留
+stdout：最后一条回答，或 --json 事件流；诊断写入 stderr
+
+退出码：0 完成；1 失败或断线；2 需要人工处理或参数错误；3 输出校验失败；130 取消`,
+  'exec.emptyPrompt': '提示为空',
+  'exec.badSchema': 'JSON Schema 无效：{file} · {error}',
+  'exec.asyncSchema': '不支持异步 JSON Schema',
+  'exec.approvalRequired': '需要人工审批：{id} · {summary}',
+  'exec.questionRequired': '需要回答提问：{id}',
+  'exec.sessionHint': 'wevir session show {id}',
+  'exec.disconnected': 'Host 连接已断开，回合结果未知',
+  'exec.noTurn': '指令未开始回合',
+  'exec.noResult': '事件流结束，未收到回合结果',
+  'exec.failed': '回合未完成',
+  'exec.invalidJson': '最后一条回答不是 JSON',
+  'exec.invalidOutput': '最后一条回答不满足 JSON Schema：{error}',
   'list.separator': '、',
   'list.semicolon': '；',
   'common.paren': '（{text}）',
