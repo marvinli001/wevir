@@ -2,6 +2,7 @@ export type { AgentRuntimeAdapter, CancelOptions, EngineAccounts } from './adapt
 export * from './errors.js';
 export { EventHub, type EventHubOptions } from './event-hub.js';
 export * from './events.js';
+export type * from './gateway-privacy.js';
 export {
   type ElicitationResult,
   elicitationQuestions,
@@ -21,6 +22,7 @@ export {
 export { accountRateLimits, clampPercent, isoTime } from './rate-limits.js';
 export {
   looksLikeSecret,
+  PRIVATE_KEY_BLOCK,
   REDACTED,
   redactDiagnostics,
   redactSecrets,

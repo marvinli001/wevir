@@ -1,0 +1,76 @@
+{
+  "protocolVersion": "0.162.0",
+  "methods": {
+    "settings.get": {
+      "params": [{}],
+      "result": [
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "gatewayPrivacy": {
+              "enabled": true,
+              "excludedValueHashes": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "excludedPatterns": ["^test_"]
+            }
+          }
+        }
+      ]
+    },
+    "settings.update": {
+      "params": [
+        {
+          "settings": {
+            "gatewayPrivacy": {
+              "enabled": true,
+              "excludedValueHashes": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "excludedPatterns": ["^test_"]
+            }
+          }
+        },
+        {
+          "settings": {
+            "gatewayPrivacy": {
+              "enabled": false
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "gatewayPrivacy": {
+              "enabled": true,
+              "excludedValueHashes": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ],
+              "excludedPatterns": ["^test_"]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {
+    "settings.updated": [
+      {
+        "settings": {
+          "sendWhileBusy": "steer",
+          "gatewayPrivacy": {
+            "enabled": true,
+            "excludedValueHashes": [
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ],
+            "excludedPatterns": ["^test_"]
+          }
+        }
+      }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

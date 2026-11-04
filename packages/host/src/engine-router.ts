@@ -105,6 +105,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly hookCallbacks?: AgentRuntimeAdapter['hookCallbacks'];
   readonly appToolsContextInPrompt?: AgentRuntimeAdapter['appToolsContextInPrompt'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
+  readonly bindGatewayPrivacy?: AgentRuntimeAdapter['bindGatewayPrivacy'];
   readonly deleteSession?: AgentRuntimeAdapter['deleteSession'];
 
   /** 全部引擎：构造时的，加上之后添加的账号的。 */
@@ -118,6 +119,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   /** 最近一次 `configureProviders` 的全部 Provider：后加的路由要分到它的那份。 */
   #providers: readonly ProviderConfig[] = [];
   #pluginSource: import('@wevir/runtime-adapter').EnginePluginSource | undefined;
+  #privacySource: import('@wevir/runtime-adapter').GatewayPrivacySource | undefined;
   #appToolsGrant: Parameters<NonNullable<AgentRuntimeAdapter['bindEngineAppTools']>>[0] | undefined;
   /** 引擎会话 ID → 承载它的引擎。 */
   readonly #owners = new Map<string, EngineRoute>();
@@ -231,6 +233,12 @@ export class EngineRouter implements AgentRuntimeAdapter {
       // 问承载这个 Provider 的引擎把应用级工具的会话上下文放在哪；不认识的 Provider 照旧放 MCP 说明。
       this.appToolsContextInPrompt = (providerId) =>
         this.#routeOf(providerId)?.adapter.appToolsContextInPrompt?.(providerId) === true;
+    }
+    if (adapters.some((adapter) => adapter.bindGatewayPrivacy !== undefined)) {
+      this.bindGatewayPrivacy = (source) => {
+        this.#privacySource = source;
+        for (const route of this.#routes) route.adapter.bindGatewayPrivacy?.(source);
+      };
     }
     if (adapters.some((adapter) => adapter.bindEngineAppTools !== undefined)) {
       // 引擎令牌只认交给这个引擎的 Provider 种类：别的引擎的会话冒充不了。
@@ -500,6 +508,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
     this.#routes.push(route);
     this.#claimed.set(account.id, route);
     if (this.#pluginSource !== undefined) adapter.bindPlugins?.(this.#pluginSource);
+    if (this.#privacySource !== undefined) adapter.bindGatewayPrivacy?.(this.#privacySource);
     if (this.#appToolsGrant !== undefined) bindAppTools(route, this.#appToolsGrant);
     if (this.#providers.length > 0) {
       void this.configureProviders(this.#providers).catch(() => {});

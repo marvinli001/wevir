@@ -14,6 +14,7 @@ export class HostSettingsStore {
   readonly #listeners = new Set<(settings: HostSettings) => void>();
   #settings: HostSettings = { ...DEFAULT_HOST_SETTINGS };
   #queue: Promise<unknown> = Promise.resolve();
+  #privacyLoadFailed = false;
 
   constructor(
     options: {
@@ -41,37 +42,63 @@ export class HostSettingsStore {
     try {
       raw = JSON.parse(text);
     } catch {
+      this.#privacyLoadFailed = true;
       this.#onWarning('settings.json is not valid JSON; using defaults', { path });
       return this.get();
     }
-    const record = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      this.#privacyLoadFailed = true;
+      this.#onWarning('settings.json is not an object; using defaults', { path });
+      return this.get();
+    }
+    const record = raw as Record<string, unknown>;
     const settings: Record<string, unknown> = { ...DEFAULT_HOST_SETTINGS };
     for (const key of Object.keys(HostSettingsSchema.shape) as (keyof HostSettings)[]) {
       if (!(key in record)) continue;
       const field = HostSettingsSchema.shape[key].safeParse(record[key]);
       if (field.success) settings[key] = field.data;
-      else this.#onWarning('ignoring an invalid value in settings.json', { path, key });
+      else {
+        if (key === 'gatewayPrivacy') this.#privacyLoadFailed = true;
+        this.#onWarning('ignoring an invalid value in settings.json', { path, key });
+      }
     }
     this.#settings = HostSettingsSchema.parse(settings);
     return this.get();
   }
 
   get(): HostSettings {
-    return { ...this.#settings };
+    return {
+      ...this.#settings,
+      ...(this.#settings.gatewayPrivacy !== undefined && {
+        gatewayPrivacy: structuredClone(this.#settings.gatewayPrivacy),
+      }),
+    };
+  }
+
+  gatewayPrivacy(): HostSettings['gatewayPrivacy'] {
+    if (this.#privacyLoadFailed) throw new Error('Gateway privacy settings could not be loaded');
+    return this.get().gatewayPrivacy;
   }
 
   /** 改给出的字段，写文件，值变了时通知监听者。返回改后的全部设置。 */
   update(patch: Partial<HostSettings>): Promise<HostSettings> {
     const result = this.#queue.then(async () => {
+      if (this.#privacyLoadFailed && patch.gatewayPrivacy === undefined)
+        throw new Error(
+          'Gateway privacy settings could not be loaded; save privacy settings first',
+        );
       const next = HostSettingsSchema.parse({ ...this.#settings, ...definedOnly(patch) });
-      const changed = (Object.keys(next) as (keyof HostSettings)[]).some((key) =>
-        key === 'routing'
-          ? !isDeepStrictEqual(next.routing, this.#settings.routing)
-          : next[key] !== this.#settings[key],
-      );
+      const changed =
+        (this.#privacyLoadFailed && patch.gatewayPrivacy !== undefined) ||
+        (Object.keys(next) as (keyof HostSettings)[]).some((key) =>
+          key === 'routing' || key === 'gatewayPrivacy'
+            ? !isDeepStrictEqual(next[key], this.#settings[key])
+            : next[key] !== this.#settings[key],
+        );
       if (!changed) return this.get();
       await this.#save(next);
       this.#settings = next;
+      if (patch.gatewayPrivacy !== undefined) this.#privacyLoadFailed = false;
       for (const listener of this.#listeners) listener(this.get());
       return this.get();
     });

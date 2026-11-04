@@ -15,6 +15,7 @@ export {
   toMessagesRequest,
 } from './messages/request.js';
 export { MessagesStreamTranslator } from './messages/response.js';
+export { GatewayPrivacyMasker } from './privacy.js';
 export { PROVIDER_TEST_TIMEOUT_MS, testProvider } from './provider-test.js';
 export {
   DEEPSEEK_RESPONSES_BASE_URL,

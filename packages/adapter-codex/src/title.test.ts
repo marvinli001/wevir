@@ -1,5 +1,52 @@
+import { GatewayPrivacyMasker, startModelGateway } from '@wevir/model-gateway';
 import { describe, expect, it } from 'vitest';
-import { lowestEffort, responsesUsage, TitleCollector } from './title.js';
+import { lowestEffort, responsesUsage, TitleCollector, titleViaGateway } from './title.js';
+
+it('标题等辅助请求经过同一网关遮蔽并在返回时还原', async () => {
+  const value = 'fictional-title-credential';
+  const outbound: unknown[] = [];
+  const gateway = await startModelGateway({
+    privacy: new GatewayPrivacyMasker({
+      settings: () => ({ enabled: true }),
+      secrets: () => [value],
+    }),
+    fetch: async (_url, init) => {
+      const body = JSON.parse(init?.body as string);
+      outbound.push(body);
+      const text = body.input[0].content[0].text as string;
+      return new Response(
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: text })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { output: [] } })}\n\n`,
+        { headers: { 'content-type': 'text/event-stream' } },
+      );
+    },
+  });
+  try {
+    gateway.setProviders([
+      {
+        id: 'mock',
+        kind: 'openai-compatible',
+        api: 'openai-responses',
+        baseURL: 'https://mock.invalid/v1',
+        apiKey: 'fictional-auth-key',
+        displayName: 'Mock',
+        models: [{ id: 'mock' }],
+        defaultModelId: 'mock',
+      },
+    ]);
+    expect(
+      await titleViaGateway(
+        gateway,
+        'mock',
+        { id: 'mock' },
+        { instructions: 'title', input: value, outputSchema: {} },
+      ),
+    ).toBe(value);
+    expect(JSON.stringify(outbound)).not.toContain(value);
+    expect(JSON.stringify(outbound)).toContain('{{SECRET_');
+  } finally {
+    await gateway.close();
+  }
+});
 
 describe('lowestEffort', () => {
   it('取模型支持的最低一档，off 换成 Codex 的 none；不推理的模型没有', () => {

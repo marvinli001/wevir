@@ -1203,8 +1203,40 @@ export const AUTO_TUNING_MONTHLY_TOKENS_DEFAULT = 200_000;
 /** `unattendedApprovalTimeoutMinutes` 的上限（一天）。 */
 export const UNATTENDED_APPROVAL_TIMEOUT_MAX_MINUTES = 1440;
 
+/** 网关隐私偏好；精确值豁免只保存摘要。 */
+export const GatewayPrivacySettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  excludedValueHashes: z
+    .array(z.string().regex(/^[0-9a-f]{64}$/))
+    .max(100)
+    .optional(),
+  excludedPatterns: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(1000)
+        .refine(
+          (pattern) => {
+            try {
+              new RegExp(pattern, 'u');
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          { message: 'Invalid privacy exclusion pattern' },
+        ),
+    )
+    .max(100)
+    .optional(),
+});
+export type GatewayPrivacySettings = z.infer<typeof GatewayPrivacySettingsSchema>;
+
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
 export const HostSettingsSchema = z.object({
+  /** 0.162.0：仅本机网关的密钥遮蔽，缺省关闭；精确值豁免只存摘要。 */
+  gatewayPrivacy: GatewayPrivacySettingsSchema.optional(),
   /** 额度路由（0.153.0）；缺省关闭，只允许用户修改。 */
   routing: RoutingSettingsSchema.optional(),
   /** Claude 空闲会话在提示缓存过期前压缩；省略按关闭。 */

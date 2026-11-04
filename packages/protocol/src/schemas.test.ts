@@ -2443,6 +2443,20 @@ const standaloneCases: Case[] = [
     invalid: ['expired'],
   },
   {
+    name: 'GatewayPrivacySettings',
+    schema: protocol.GatewayPrivacySettingsSchema,
+    valid: [
+      {},
+      { enabled: false },
+      { enabled: true, excludedValueHashes: ['a'.repeat(64)], excludedPatterns: ['^test_'] },
+    ],
+    invalid: [
+      { enabled: 'yes' },
+      { excludedValueHashes: ['raw-secret-value'] },
+      { excludedPatterns: ['['] },
+    ],
+  },
+  {
     name: 'HostSettings',
     schema: HostSettingsSchema,
     valid: [

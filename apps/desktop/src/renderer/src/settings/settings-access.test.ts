@@ -29,6 +29,7 @@ describe('settingsTabVisible', () => {
     for (const hidden of [
       'storage',
       'devices',
+      'privacy',
       'providers',
       'routing',
       'web',

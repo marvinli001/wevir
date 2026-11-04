@@ -65,6 +65,8 @@ export interface CancelOptions {
 }
 
 export interface AgentRuntimeAdapter {
+  /** 本机模型网关的隐私配置与已知密钥；不实现的引擎不经过网关。 */
+  bindGatewayPrivacy?(source: import('./gateway-privacy.js').GatewayPrivacySource): void;
   /** 全局插件（0.41.0）：未声明的引擎不接收用户连接器或 skills。 */
   readonly mcpServers?: boolean;
   readonly skills?: boolean;

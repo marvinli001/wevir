@@ -52,6 +52,7 @@ import { ImportSettings } from '@/settings/import-settings';
 import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { PersonalizationSettings } from '@/settings/personalization-settings';
+import { PrivacySettings } from '@/settings/privacy-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { RoutingSettingsPage } from '@/settings/routing-settings';
 import { settingsTabVisible } from '@/settings/settings-access';
@@ -72,6 +73,15 @@ interface TabInfo {
 }
 
 const TABS: Record<SettingsTab, TabInfo> = {
+  privacy: {
+    label: 'settings.tab.privacy',
+    icon: ShieldCheck,
+    keywords: [
+      'settings.privacy.enabled',
+      'settings.privacy.exemptValues',
+      'settings.privacy.exemptRules',
+    ],
+  },
   general: {
     label: 'settings.tab.general',
     icon: Settings2,
@@ -219,7 +229,16 @@ const TABS: Record<SettingsTab, TabInfo> = {
 const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
   {
     label: 'settings.group.app',
-    tabs: ['general', 'appearance', 'notifications', 'devices', 'shortcuts', 'storage', 'about'],
+    tabs: [
+      'general',
+      'appearance',
+      'privacy',
+      'notifications',
+      'devices',
+      'shortcuts',
+      'storage',
+      'about',
+    ],
   },
   {
     label: 'settings.group.work',
@@ -435,6 +454,8 @@ function useTabVisible(): (tab: SettingsTab) => boolean {
     view.status !== 'connected' || view.hello.permissions.includes(permission);
   return (tab) =>
     settingsTabVisible(tab, capabilities(), can) &&
+    (tab !== 'privacy' ||
+      (view.status === 'connected' && hostSupports(view.hello.features, 'gateway_privacy'))) &&
     (tab !== 'routing' ||
       (view.status === 'connected' && hostSupports(view.hello.features, 'usage_limit_routing')));
 }
@@ -488,6 +509,8 @@ function TabList({ query, state }: { query: string; state: unknown }) {
 
 function SettingsTabContent({ tab }: { tab: SettingsTab }) {
   switch (tab) {
+    case 'privacy':
+      return <PrivacySettings />;
     case 'general':
       return <GeneralSettings />;
     case 'appearance':

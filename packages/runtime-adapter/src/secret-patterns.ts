@@ -22,7 +22,7 @@ export const SECRET_PATTERNS: readonly RegExp[] = [
 ];
 
 /** 私钥要连同正文一起换掉：从 BEGIN 到 END（没有 END 时到文本结尾）。 */
-const PRIVATE_KEY_BLOCK =
+export const PRIVATE_KEY_BLOCK =
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
 
 export const REDACTED = '[REDACTED]';

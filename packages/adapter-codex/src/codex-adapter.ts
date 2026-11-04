@@ -1,6 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import {
+  GatewayPrivacyMasker,
   type ModelGateway,
   type ModelGatewayOptions,
   type RequestObservation,
@@ -35,6 +36,7 @@ import {
   elicitationUrl,
   elicitationUrlDisplay,
   type ForkOptions,
+  type GatewayPrivacySource,
   type GoalStartRequest,
   isAdapterError,
   MCP_URL_ELICITATION_TOOL,
@@ -446,6 +448,11 @@ export const FILE_CHANGE_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.fr
  * ADR-0005 决策 2.2 与补记 3）、按当前的 Provider 写 config.toml 与模型目录，再给出 spawn 参数。
  */
 class Launcher implements CodexLauncher {
+  privacySource: GatewayPrivacySource | undefined;
+  readonly privacy = new GatewayPrivacyMasker({
+    settings: () => this.privacySource?.settings(),
+    secrets: () => this.privacySource?.secrets() ?? [],
+  });
   plugins: EnginePluginSource | undefined;
   readonly paths: CodexPaths;
   readonly #options: CodexAdapterOptions;
@@ -539,6 +546,7 @@ class Launcher implements CodexLauncher {
     await this.closeGateway();
     const gateway = await startModelGateway({
       ...this.#options.gateway,
+      privacy: this.#options.gateway?.privacy ?? this.privacy,
       logger: gatewayLogger(this.#logger),
       onRequest: (observation) => {
         this.onRequest?.(observation);
@@ -804,6 +812,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   // ── 会话与回合 ─────────────────────────────────────────────────────────────────────────
+
+  bindGatewayPrivacy(source: GatewayPrivacySource): void {
+    if (!this.#launcher.chatgpt) this.#launcher.privacySource = source;
+  }
 
   bindPlugins(source: EnginePluginSource): void {
     this.#launcher.plugins = source;

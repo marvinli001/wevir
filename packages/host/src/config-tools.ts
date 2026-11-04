@@ -89,6 +89,7 @@ type ConfigToolName = (typeof CONFIG_TOOLS)[number];
  * 每个 Host 设置谁能改：`agent` 照常、`approval` 要用户批准、`user` 只有用户。列全所有键，新加的设置不归档就编译不过。
  */
 export const SETTINGS_ACCESS: Record<keyof HostSettings, 'agent' | 'approval' | 'user'> = {
+  gatewayPrivacy: 'user',
   routing: 'user',
   sendWhileBusy: 'agent',
   promptSuggestions: 'agent',
@@ -121,12 +122,14 @@ export const SETTINGS_ACCESS: Record<keyof HostSettings, 'agent' | 'approval' | 
 
 /** 只有用户能改的设置在哪一页（`wevir_show` 的 `settings`）；没有界面的不给。 */
 const USER_SETTING_PAGE: Partial<Record<keyof HostSettings, string>> = {
+  gatewayPrivacy: 'privacy',
   computerUse: 'computerUse',
   remote: 'devices',
 };
 
 /** `wevir_show` 的 `settings` 能打开的页（桌面端的设置分页，加上插件页）。 */
 export const SETTINGS_PAGES = [
+  'privacy',
   'general',
   'appearance',
   'notifications',

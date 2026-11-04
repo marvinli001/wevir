@@ -16,6 +16,7 @@ export function settingsTabVisible(
       return platform.localHost;
     // 设备与配对、联网搜索、导入、个性化、听写、记忆的改动都是 Host 管理（`host.manage`）。
     case 'devices':
+    case 'privacy':
     case 'web':
     case 'import':
     case 'personalization':

@@ -29,6 +29,8 @@ export interface Logger {
   error(msg: string, fields?: LogFields): void;
   /** 之后的日志里，字符串中出现这个值的地方一律替换为 `[REDACTED]`（例如本次启动的令牌）。 */
   addSecret(value: string): void;
+  /** 已知值的进程内快照；只用于网关遮蔽，不能写入协议或日志。 */
+  secretValues(): readonly string[];
   /** 关闭日志文件；之后的日志只写 `mirror`。可重复调用。 */
   close(): void;
 }
@@ -104,6 +106,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
     addSecret: (value) => {
       if (value !== '' && !secrets.includes(value)) secrets.push(value);
     },
+    secretValues: () => [...secrets],
     close: () => {
       if (fd === undefined) return;
       try {

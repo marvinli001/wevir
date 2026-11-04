@@ -17,17 +17,22 @@ export function variablesRef(environmentId: string): string {
 export async function readVariables(
   secrets: SecretStore,
   environmentId: string,
+  strict = false,
 ): Promise<VariableEntries> {
   const raw = await secrets.get(variablesRef(environmentId));
   if (raw === undefined) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
+    if (!Array.isArray(parsed)) throw new Error('Invalid environment variable list');
+    const entries = parsed.filter(
       (entry): entry is [string, string] =>
         Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string',
     );
+    if (strict && entries.length !== parsed.length)
+      throw new Error('Invalid environment variable entry');
+    return entries;
   } catch {
+    if (strict) throw new Error('Could not read environment variables for privacy masking');
     return [];
   }
 }

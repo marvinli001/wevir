@@ -11,6 +11,7 @@ import type {
   EngineSession,
   EngineToolEnforcement,
   ForkOptions,
+  GatewayPrivacySource,
   GoalStartRequest,
   PendingApproval,
   PermissionMode,
@@ -108,6 +109,10 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   /** 护栏（0.86.0）：两个进程都把会话的 hooks 挂在 thread 上。 */
   hookDialect(): 'codex' {
     return 'codex';
+  }
+
+  bindGatewayPrivacy(source: GatewayPrivacySource): void {
+    this.gateway.bindGatewayPrivacy(source);
   }
 
   bindPlugins(source: EnginePluginSource): void {

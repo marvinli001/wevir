@@ -19,6 +19,8 @@ import {
 import type { ProviderTestResult } from '@wevir/runtime-adapter';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { gatewayError, normalizeErrorBody, phalaRoutingError } from './errors.js';
+import { type GatewayPrivacyMasker, type MaskedRequest, PrivacyMaskingError } from './privacy.js';
+import { restoreResponses } from './privacy-response.js';
 import { type ProviderTestOptions, testProvider } from './provider-test.js';
 import {
   type RequestObservation,
@@ -38,6 +40,7 @@ export interface GatewayLogger {
 }
 
 export interface ModelGatewayOptions {
+  privacy?: GatewayPrivacyMasker;
   logger?: GatewayLogger;
   onRequest?: (observation: RequestObservation) => void;
   /** `deepseek-official` 的 Responses 地址，默认 DeepSeek 官方（测试指向本地 mock）。 */
@@ -188,7 +191,26 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       return reject(400, `请求体不是合法的 JSON：${errorText(error)}`);
     }
 
-    const prepared = prepareUpstream(provider, body, { deepseekBaseURL: options.deepseekBaseURL });
+    let masked: MaskedRequest | undefined;
+    try {
+      masked = await options.privacy?.prepare(
+        body,
+        [provider, ...providers.values()].flatMap((item) =>
+          [item.apiKey, item.serviceAccountJson].filter(
+            (value): value is string => value !== undefined,
+          ),
+        ),
+      );
+    } catch (error) {
+      return reject(
+        500,
+        error instanceof PrivacyMaskingError ? error.message : '隐私遮蔽失败：无法处理请求正文',
+        'privacy_masking_failed',
+      );
+    }
+    const prepared = prepareUpstream(provider, masked?.body ?? body, {
+      deepseekBaseURL: options.deepseekBaseURL,
+    });
     if (!prepared.ok) return reject(prepared.status, prepared.message);
 
     const json = JSON.stringify(prepared.payload);
@@ -310,12 +332,24 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         responseObservation.json = prepared
           .contentType(upstream.headers.get('content-type'))
           .includes('application/json');
-      for await (const piece of prepared.translate(upstream, abort.signal)) {
-        responseObservation?.push(piece);
-        await write(
-          res,
-          provider.kind === 'google-vertex' && typeof piece === 'string' ? redact(piece) : piece,
-        );
+      const translated = prepared.translate(upstream, abort.signal);
+      const vertex = provider.kind === 'google-vertex';
+      async function* output() {
+        for await (const piece of translated) {
+          responseObservation?.push(piece);
+          yield vertex && typeof piece === 'string' ? redact(piece) : piece;
+        }
+      }
+      const restored =
+        masked === undefined
+          ? output()
+          : restoreResponses(
+              output(),
+              masked.values,
+              prepared.contentType(upstream.headers.get('content-type')),
+            );
+      for await (const piece of restored) {
+        await write(res, piece);
         if (res.destroyed) break;
       }
       if (res.destroyed) return log('client_closed', { upstreamStatus });
@@ -326,6 +360,17 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         return log('client_closed', {
           ...(upstreamStatus === undefined ? {} : { upstreamStatus }),
         });
+      if (error instanceof PrivacyMaskingError) {
+        if (!res.headersSent) send(res, 502, gatewayError(error.message, 'privacy_masking_failed'));
+        else {
+          await write(
+            res,
+            `event: error\ndata: ${JSON.stringify({ type: 'error', code: 'privacy_masking_failed', message: error.message })}\n\n`,
+          );
+          res.end();
+        }
+        return log('upstream_error', { upstreamStatus });
+      }
       throw error;
     } finally {
       responseObservation?.end();

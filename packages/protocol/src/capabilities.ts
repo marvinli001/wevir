@@ -83,6 +83,8 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
  * 每次握手时给出。
  */
 export const HOST_FEATURES = {
+  /** 0.162.0：API Key 网关的隐私遮蔽设置与用户豁免。 */
+  gatewayPrivacy: 'gateway_privacy',
   /** Host 全局连接器与 skills 注册表（0.41.0）。 */
   plugins: 'plugins',
   /** Wevir 插件包：`plugin.*` 方法与 `plugins.list` 的 `plugins`（0.42.0）。 */

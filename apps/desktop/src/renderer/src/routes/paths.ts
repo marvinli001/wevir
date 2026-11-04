@@ -48,6 +48,7 @@ export const AGENT_SEGMENT = 'agent/:childId';
 /** 设置的各页（U7 起“对话”并进“常规”）。 */
 export const SETTINGS_TABS = [
   'general',
+  'privacy',
   'appearance',
   'notifications',
   'devices',

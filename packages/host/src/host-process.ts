@@ -59,6 +59,7 @@ import { EventStore } from './event-store.js';
 import { ExternalImport } from './external-import/service.js';
 import { SessionImports } from './external-import/sessions.js';
 import { FileUrls } from './file-urls.js';
+import { gatewayPrivacySource } from './gateway-privacy.js';
 import { GitService } from './git/service.js';
 import { GuardrailService } from './guardrails/service.js';
 import { homePath } from './home.js';
@@ -459,6 +460,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     );
     // 设置与插件注册表互不依赖，一起读；连接器的 OAuth 令牌按注册表里的目标读，排在注册表之后。
     await Promise.all([settings.load(), plugins.load().then(() => mcpOAuth.load())]);
+    adapter.bindGatewayPrivacy?.(
+      gatewayPrivacySource({ settings, logger, plugins, storage, secrets }),
+    );
     startup.mark('settings_plugins');
     // 防休眠的判定（0.102.0，domain-model §3.45）：设置与会话事件进来，值变了经 `power.changed` 交给桌面主进程。
     const keepAwake = new KeepAwake(settings.get());
@@ -1795,6 +1799,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         provider_model_discovery: true,
         pending_messages: true,
         host_settings: true,
+        ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),
         workspace_git: true,
         workspace_diff: true,
         workspace_files: true,
