@@ -118,7 +118,9 @@ describe('wevir exec', () => {
     const listed = await run(['session', 'list', '--json'], { home });
     expect(listed.out).toContain('hello');
     const workspaces = await run(['workspace', 'list', '--json'], { home });
-    expect(workspaces.out).toContain(workspace);
+    expect(JSON.parse(workspaces.out)).toMatchObject([
+      { rootPath: realpathSync.native(workspace) },
+    ]);
   });
 
   it('stdin 提示、显式目录与配置，JSON Lines 使用原协议事件', async () => {
@@ -153,7 +155,7 @@ describe('wevir exec', () => {
     });
     const saved = await snapshot(home, result.out);
     expect(saved.session).toMatchObject({
-      cwd: realpathSync(workspace),
+      cwd: realpathSync.native(workspace),
       providerId: 'echo-test',
       modelId: 'echo-model',
       permissionMode: 'full_access',
