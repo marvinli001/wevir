@@ -2,6 +2,19 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'hook.action.blocked': 'Заблокировано',
+  'hook.action.denied': 'Отклонено',
+  'hook.action.allowed': 'Разрешено хуком',
+  'hook.action.continued': 'Требуется продолжение',
+  'hook.action.context': 'Контекст добавлен',
+  'hook.action.failed': 'Ошибка хука',
+  'hook.action.limit': 'Лимит продолжений',
+  'work.count.hook': 'Хуки: {count}',
+  'plugins.hooks.title': 'Хуки',
+  'plugins.hooks.unsupported': 'Не поддерживается',
+  'plugins.hooks.trust': 'Установка разрешает выполнение этих хуков.',
+  'plugins.add.previewUnsupported': 'Хост не поддерживает предпросмотр установки',
+
   'app.name': 'Wevir',
 
   'context.receipt.title': 'Начальный контекст',

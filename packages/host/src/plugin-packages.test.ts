@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import type { PluginsList } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
+import { HookService } from './hooks/service.js';
 import { type RunningHost, startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { readPluginPackage } from './plugin-packages.js';
@@ -461,13 +462,21 @@ describe('plugin.* RPC + echo', () => {
     clients.push(client);
     const info = JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8'));
     const hello = await client.hello(info.token);
-    expect(hello.result.features).toMatchObject({ plugins: true, plugin_packages: true });
+    expect(hello.result.features).toMatchObject({
+      plugins: true,
+      plugin_packages: true,
+      plugin_preview: true,
+    });
     let changes = 0;
     client.ws.on('message', (raw) => {
       if (JSON.parse(raw.toString()).method === 'plugins.changed') changes++;
     });
+    const preview = await client.request('plugin.preview', { path: fixture('wevir-plugin') });
+    expect(preview).toMatchObject({ id: 'sample-tools', hooks: [] });
+    expect((await client.request('plugins.list', {})).plugins).toEqual([]);
     const { plugin, ignored } = await client.request('plugin.install', {
       path: fixture('wevir-plugin'),
+      expectedDigest: preview.digest,
     });
     expect(ignored).toEqual([]);
     await expect(
@@ -522,5 +531,99 @@ describe('plugin.* RPC + echo', () => {
     await client.request('plugin.remove', { id: plugin.id });
     expect((await client.request('plugins.list', {})).plugins).toEqual([]);
     await client.until(() => (changes >= 3 ? true : undefined), 'plugins.changed');
+  });
+});
+
+describe('安装前钩子确认', () => {
+  function source(format: 'wevir' | 'claude' | 'codex') {
+    const root = join(temp(), 'hook-package');
+    const marker = format === 'wevir' ? 'wevir-plugin.json' : `.${format}-plugin/plugin.json`;
+    mkdirSync(join(root, marker, '..'), { recursive: true });
+    writeFileSync(
+      join(root, marker),
+      JSON.stringify(
+        format === 'wevir'
+          ? { schemaVersion: 1, id: 'hook-sample', name: 'Hook sample', version: '1.0.0' }
+          : { name: 'hook-sample', version: '1.0.0' },
+      ),
+    );
+    mkdirSync(join(root, 'hooks'));
+    writeFileSync(
+      join(root, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [{ type: 'command', command: `node "\${PLUGIN_ROOT}/check.js"` }],
+            },
+          ],
+          Stop: [{ hooks: [{ type: 'prompt', prompt: 'Check' }] }],
+        },
+      }),
+    );
+    writeFileSync(
+      join(root, 'check.js'),
+      'throw new Error("must not execute during installation");',
+    );
+    return root;
+  }
+
+  it.each(['wevir', 'claude', 'codex'] as const)(
+    '预览 %s 文件夹与 ZIP 不发布，确认绑定真实脚本内容',
+    async (format) => {
+      const { store } = await registry();
+      const root = source(format);
+      const preview = await store.previewPlugin(root);
+      expect(preview.hooks).toEqual([
+        {
+          event: 'PreToolUse',
+          matcher: 'Bash',
+          handler: 'command',
+          command: `node "\${PLUGIN_ROOT}/check.js"`,
+        },
+        { event: 'Stop', handler: 'prompt' },
+      ]);
+      const archive = zipFolder(root, 'export/');
+      expect((await store.previewPlugin(archive)).hooks).toEqual(preview.hooks);
+      expect(store.installedPackages()).toEqual([]);
+      expect(readdirSync(store.dir).some((name) => name.startsWith('.preview-'))).toBe(false);
+      writeFileSync(join(root, 'check.js'), 'throw new Error("changed script");');
+      await expect(store.installPlugin(root, { expectedDigest: preview.digest })).rejects.toThrow(
+        'changed',
+      );
+      expect(store.installedPackages()).toEqual([]);
+      const current = await store.previewPlugin(root);
+      const { plugin } = await store.installPlugin(root, { expectedDigest: current.digest });
+      expect(plugin.id).toBe(current.id);
+    },
+  );
+
+  it('装好后按来源信任，可单独停用，升级确认前不替换旧版', async () => {
+    const { store, home } = await registry();
+    const root = source('wevir');
+    const preview = await store.previewPlugin(root);
+    await store.installPlugin(root, { expectedDigest: preview.digest });
+    const hooks = new HookService({
+      dir: join(home, 'hooks'),
+      workspaceRoot: () => undefined,
+      plugins: () => store.installedPackages(),
+      claudeUserSettings: () => ({ path: join(home, 'missing-settings.json'), label: 'test' }),
+      scanTtlMs: 0,
+    });
+    const command = hooks.list().hooks.find((hook) => hook.handler === 'command');
+    expect(command).toMatchObject({ status: 'enabled', engines: ['*'], source: 'plugin' });
+    if (!command) throw new Error('missing command hook');
+    await hooks.setEnabled({ hookId: command.id, enabled: false });
+    expect(hooks.list().hooks.find((hook) => hook.id === command.id)?.status).toBe('disabled');
+    const manifest = join(root, 'wevir-plugin.json');
+    const value = JSON.parse(readFileSync(manifest, 'utf8'));
+    writeFileSync(manifest, JSON.stringify({ ...value, version: '2.0.0' }));
+    const upgraded = await store.previewPlugin(root);
+    expect(upgraded.version).toBe('2.0.0');
+    expect((await store.list()).plugins?.[0]?.version).toBe('1.0.0');
+    await store.installPlugin(root, { replace: true, expectedDigest: upgraded.digest });
+    expect((await store.list()).plugins?.[0]?.version).toBe('2.0.0');
+    expect(hooks.list().hooks.find((hook) => hook.id === command.id)?.status).toBe('disabled');
   });
 });

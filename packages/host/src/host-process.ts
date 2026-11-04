@@ -1791,6 +1791,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       features: {
         plugins: true,
         plugin_packages: true,
+        plugin_preview: true,
         provider_model_discovery: true,
         pending_messages: true,
         host_settings: true,

@@ -604,6 +604,7 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <GuardrailPart part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行；生成图片的工具由 PartsView 画成 GeneratedImage。
     case 'reasoning':
+    case 'hook':
     case 'tool':
     case 'raw':
     case 'subagent':

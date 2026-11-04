@@ -712,10 +712,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'skill.setEnabled': async ({ id, enabled }) => ({
       skill: await plugins().setSkillEnabled(id, enabled),
     }),
-    'plugin.install': ({ path, inputs, replace }) =>
+    'plugin.preview': ({ path, entry }) => {
+      if (path !== undefined) return plugins().previewPlugin(path);
+      const id = entry as string;
+      if (market().installing(id))
+        throw invalidParams(['entry'], 'A market installation is already in progress');
+      return market().install(id, (root) => plugins().previewPlugin(root), 'preview');
+    },
+    'plugin.install': ({ path, inputs, replace, expectedDigest }) =>
       plugins().installPlugin(path, {
         ...(inputs !== undefined && { inputs }),
         ...(replace !== undefined && { replace }),
+        ...(expectedDigest !== undefined && { expectedDigest }),
       }),
     'plugin.remove': async ({ id }) => {
       await plugins().removePlugin(id);
@@ -1472,13 +1480,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'market.index': ({ refresh }) => market().index(refresh === true),
     'market.file': ({ entry, path }) => market().file(entry, path),
     // 0.99.0：下载、校验后走 plugin.install 的同一套事务。
-    'market.install': ({ entry, inputs, replace }) =>
-      market().install(entry, (root, signal) =>
-        plugins().installPlugin(root, {
-          ...(inputs !== undefined && { inputs }),
-          ...(replace !== undefined && { replace }),
-          signal,
-        }),
+    'market.install': ({ entry, inputs, replace, expectedDigest }) =>
+      market().install(
+        entry,
+        (root, signal) =>
+          plugins().installPlugin(root, {
+            ...(inputs !== undefined && { inputs }),
+            ...(replace !== undefined && { replace }),
+            ...(expectedDigest !== undefined && { expectedDigest }),
+            signal,
+          }),
+        'install',
+        expectedDigest,
       ),
     'market.installCancel': ({ entry }) => {
       market().cancelInstall(entry);

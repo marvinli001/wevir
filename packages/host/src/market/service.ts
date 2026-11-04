@@ -101,7 +101,12 @@ export class MarketService {
   /** 正在进行的安装，按条目 id。 */
   readonly #installs = new Map<
     string,
-    { promise: Promise<unknown>; controller: AbortController }
+    {
+      promise: Promise<unknown>;
+      controller: AbortController;
+      operation: 'install' | 'preview';
+      expectedDigest: string | undefined;
+    }
   >();
   readonly #progressListeners = new Set<(progress: MarketInstallProgress) => void>();
 
@@ -186,9 +191,24 @@ export class MarketService {
    * 安装一个条目（0.99.0）：按索引的 `commit` 把 `files` 全部下载到 `installs/` 下的临时目录，逐个校验后交给 `run`（插件安装事务）。
    * `skills/` 下的简便投稿先包成只含这一个 skill 的 Wevir 插件。同一条目已在安装时并入那一次。
    */
-  install<T>(entryId: string, run: (root: string, signal: AbortSignal) => Promise<T>): Promise<T> {
+  install<T>(
+    entryId: string,
+    run: (root: string, signal: AbortSignal) => Promise<T>,
+    operation: 'install' | 'preview' = 'install',
+    expectedDigest?: string,
+  ): Promise<T> {
     const running = this.#installs.get(entryId);
-    if (running !== undefined) return running.promise as Promise<T>;
+    if (running !== undefined) {
+      if (running.operation !== operation || running.expectedDigest !== expectedDigest)
+        throw new HostError(
+          'INVALID_PARAMS',
+          'A different market operation is already in progress',
+          {
+            issues: [{ path: ['entry'], message: 'wait for the current operation' }],
+          },
+        );
+      return running.promise as Promise<T>;
+    }
     const controller = new AbortController();
     const promise = this.#install(entryId, run, controller.signal)
       .catch((error: unknown) => {
@@ -197,7 +217,7 @@ export class MarketService {
         throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
       })
       .finally(() => this.#installs.delete(entryId));
-    this.#installs.set(entryId, { promise, controller });
+    this.#installs.set(entryId, { promise, controller, operation, expectedDigest });
     return promise;
   }
 

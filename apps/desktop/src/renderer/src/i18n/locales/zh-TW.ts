@@ -2,6 +2,19 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'hook.action.blocked': '已攔截',
+  'hook.action.denied': '已拒絕',
+  'hook.action.allowed': '已改判放行',
+  'hook.action.continued': '要求繼續',
+  'hook.action.context': '已附加上下文',
+  'hook.action.failed': '鉤子出錯',
+  'hook.action.limit': '已達繼續上限',
+  'work.count.hook': '{count} 個鉤子',
+  'plugins.hooks.title': '鉤子',
+  'plugins.hooks.unsupported': '不支援',
+  'plugins.hooks.trust': '安裝後將信任以下鉤子',
+  'plugins.add.previewUnsupported': '背景服務不支援安裝預覽',
+
   'app.name': 'Wevir',
 
   'context.receipt.title': '開局上下文',

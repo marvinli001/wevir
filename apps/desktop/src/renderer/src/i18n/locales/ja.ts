@@ -2,6 +2,19 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'hook.action.blocked': 'ブロック済み',
+  'hook.action.denied': '拒否済み',
+  'hook.action.allowed': 'フックで許可',
+  'hook.action.continued': '継続要求',
+  'hook.action.context': 'コンテキスト追加済み',
+  'hook.action.failed': 'フックエラー',
+  'hook.action.limit': '継続上限',
+  'work.count.hook': 'フック {count} 件',
+  'plugins.hooks.title': 'フック',
+  'plugins.hooks.unsupported': '非対応',
+  'plugins.hooks.trust': 'インストール後、以下のフックを信頼します。',
+  'plugins.add.previewUnsupported': 'ホストはインストールのプレビューに非対応',
+
   'app.name': 'Wevir',
 
   'context.receipt.title': '開始時のコンテキスト',

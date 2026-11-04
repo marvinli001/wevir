@@ -217,8 +217,8 @@ export function isImageTool(part: ChatPart): boolean {
   return part.type === 'tool' && part.display.kind === 'image';
 }
 
-/** 工作组里的一条：一次思考、一次工具调用，或（只在开发模式投影的）未识别的引擎消息。 */
-export type WorkEntry = ToolPart | ReasoningPart | RawPart;
+/** 工作组里的一条：思考、工具调用、钩子结果，或（只在开发模式投影的）未识别的引擎消息。 */
+export type WorkEntry = ToolPart | ReasoningPart | RawPart | ChatPartOf<'hook'>;
 
 /** 助手消息渲染时的一项。 */
 export type StreamItem =
@@ -257,7 +257,12 @@ export function groupWork(parts: readonly ChatPart[]): StreamItem[] {
       flush();
       if (work) flush();
       items.push({ kind: 'part', part });
-    } else if (part.type === 'tool' || part.type === 'reasoning' || part.type === 'raw') {
+    } else if (
+      part.type === 'tool' ||
+      part.type === 'reasoning' ||
+      part.type === 'raw' ||
+      part.type === 'hook'
+    ) {
       if (agents) flush();
       work ??= [];
       work.push(part);
@@ -304,6 +309,7 @@ const COUNTED_KINDS = [
   'session_create',
   'session_read',
   'unknown',
+  'hook',
 ] as const;
 type CountedKind = (typeof COUNTED_KINDS)[number];
 
@@ -360,6 +366,10 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
   let lines: LineStats | undefined;
   let debug = 0;
   for (const entry of entries) {
+    if (entry.type === 'hook') {
+      counts.hook += 1;
+      continue;
+    }
     if (entry.type === 'raw') {
       debug += 1;
       continue;

@@ -2652,3 +2652,32 @@ describe('重连进度与额度卡片（0.119.0）', () => {
     );
   });
 });
+
+describe('生命周期钩子结果', () => {
+  it('按事件顺序投影回合与无回合的结果；重放和增量一致', () => {
+    const { list, add, turn } = events();
+    turn();
+    const outcome = {
+      event: 'UserPromptSubmit',
+      action: 'blocked',
+      command: 'node check.js',
+      reason: 'Stop here',
+      turnId: TURN,
+    };
+    const blocked = add('hook.outcome', outcome);
+    add('turn.finished', { turnId: TURN, outcome: 'cancelled', durationMs: 1 });
+    const { turnId: _turnId, ...outside } = outcome;
+    const context = add('hook.outcome', { ...outside, action: 'context' });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const transcript = projectTranscript(list);
+    expect(projection.snapshot()).toEqual(transcript);
+    expect(transcript.messages.find((message) => message.role === 'assistant')?.parts).toEqual([
+      { type: 'hook', key: `hook:${blocked.seq}`, outcome },
+    ]);
+    expect(transcript.messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'hook', key: `hook:${context.seq}`, outcome: { action: 'context' } }],
+    });
+  });
+});

@@ -3,7 +3,7 @@
 // 一个勾。有必填输入项时先弹输入项对话框。状态在 market-install.ts，列表与详情共用。插件带 OAuth 连接器的（0.97.0），装好后
 // 直接开始登录（打开浏览器）；还没登录时详情页的主按钮是“登录”。
 
-import type { Connector, MarketEntry } from '@wevir/protocol';
+import type { Connector, MarketEntry, PluginPreview } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, Plus } from 'lucide-react';
 import {
@@ -24,6 +24,7 @@ import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import type { Notice } from '@/settings/settings-ui';
 import { inputValues, missingRequired } from '../add-flow';
+import { PluginHooks } from '../plugin-hooks';
 import { InputField } from '../plugin-inputs';
 import {
   type InstallState,
@@ -71,7 +72,15 @@ export function MarketInstallButton({
   const navigate = useNavigate();
   const state = useInstallState(source, entry.id);
   const isInstalled = installed.has(entry.id);
-  const [asking, setAsking] = useState(false);
+  const [preview, setPreview] = useState<PluginPreview>();
+  const [checking, setChecking] = useState(false);
+  const attempt = useRef(0);
+  useEffect(
+    () => () => {
+      attempt.current += 1;
+    },
+    [],
+  );
   // 刚从圆环变成“已安装”时才播入场动画，打开页面时已经装好的不播。
   const wasInstalling = useRef(false);
   const justInstalled = isInstalled && state === undefined && wasInstalling.current;
@@ -80,13 +89,13 @@ export function MarketInstallButton({
   }, [state]);
 
   const name = entryText(entry, currentLocale()).name;
-  const supported = source?.install !== undefined;
+  const supported = source?.install !== undefined && source.preview !== undefined;
 
-  const install = (inputs?: Record<string, string>) => {
+  const install = (checked: PluginPreview, inputs?: Record<string, string>) => {
     if (source === undefined) return;
     notify(undefined);
     marketInstalls(source)
-      .start(entry.id, inputs, afterInstall)
+      .start(entry.id, inputs, afterInstall, checked.digest)
       .then(
         (outcome) => {
           if (outcome.status !== 'installed') return;
@@ -108,19 +117,42 @@ export function MarketInstallButton({
           }),
       );
   };
-  const begin = () => {
-    if (entry.contents.inputs.some((input) => input.required === true)) setAsking(true);
-    else install();
+  const begin = async () => {
+    if (!source?.preview || checking) return;
+    const token = ++attempt.current;
+    setChecking(true);
+    notify(undefined);
+    try {
+      const checked = await source.preview(entry.id);
+      if (attempt.current !== token) return;
+      if (checked.hooks.length > 0 || checked.inputs.some((input) => input.required === true))
+        setPreview(checked);
+      else install(checked);
+    } catch (reason) {
+      if (attempt.current === token)
+        notify({
+          tone: 'error',
+          text: t('plugins.market.installFailed', { error: describe(reason) }),
+        });
+    } finally {
+      if (attempt.current === token) setChecking(false);
+    }
   };
 
   let control: ReactNode;
-  if (state !== undefined) {
+  if (state !== undefined || checking) {
     control = (
       <InstallRing
-        state={state}
+        state={state ?? { phase: 'pending', receivedBytes: 0, totalBytes: 0 }}
         name={name}
         size={variant === 'detail' ? 'md' : 'sm'}
-        onStop={() => source && marketInstalls(source).cancel(entry.id)}
+        onStop={() => {
+          if (checking) {
+            attempt.current += 1;
+            setChecking(false);
+            void source?.cancelInstall?.(entry.id).catch(() => {});
+          } else if (source) marketInstalls(source).cancel(entry.id);
+        }}
       />
     );
   } else if (isInstalled && variant === 'detail' && signIns.has(entry.id)) {
@@ -158,7 +190,7 @@ export function MarketInstallButton({
       );
   } else if (variant === 'detail') {
     control = (
-      <Button disabled={!supported} onClick={begin} data-action="install">
+      <Button disabled={!supported} onClick={() => void begin()} data-action="install">
         {t('plugins.market.installPlugin')}
       </Button>
     );
@@ -169,7 +201,7 @@ export function MarketInstallButton({
         label={t('plugins.market.install')}
         className="relative z-10"
         onClick={() =>
-          supported ? begin() : navigate(paths.marketEntry(OFFICIAL_SOURCE, entry.id))
+          supported ? void begin() : navigate(paths.marketEntry(OFFICIAL_SOURCE, entry.id))
         }
         data-action="install"
       >
@@ -181,14 +213,14 @@ export function MarketInstallButton({
   return (
     <>
       {control}
-      {asking && (
+      {preview && (
         <InputsDialog
-          entry={entry}
-          name={name}
-          onClose={() => setAsking(false)}
+          preview={preview}
+          name={preview.name}
+          onClose={() => setPreview(undefined)}
           onSubmit={(values) => {
-            setAsking(false);
-            install(values);
+            setPreview(undefined);
+            install(preview, values);
           }}
         />
       )}
@@ -270,20 +302,20 @@ function InstallRing({
   );
 }
 
-/** 装之前先填输入项（只在有必填项时弹出）。 */
+/** 安装前确认钩子、填写输入项；没有钩子与必填项时不弹出。 */
 function InputsDialog({
-  entry,
+  preview,
   name,
   onClose,
   onSubmit,
 }: {
-  entry: MarketEntry;
+  preview: PluginPreview;
   name: string;
   onClose: () => void;
   onSubmit: (values: Record<string, string>) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
-  const inputs = entry.contents.inputs;
+  const inputs = preview.inputs;
   const missing = missingRequired({ inputs }, values).length > 0;
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -296,6 +328,7 @@ function InputsDialog({
           {t('plugins.add.install.title', { name })}
         </DialogTitle>
         <form onSubmit={submit} className="flex min-w-0 flex-col gap-4">
+          <PluginHooks hooks={preview.hooks} />
           {inputs.map((input) => (
             <InputField
               key={input.key}

@@ -25,6 +25,7 @@ import {
   PluginIdSchema,
   type PluginInput,
   PluginInputSchema,
+  type PluginPreview,
   type PluginsList,
   type Skill,
   SkillSchema,
@@ -46,7 +47,7 @@ import {
   type StoredOAuth,
   type StoredOAuthClient,
 } from './mcp-oauth/service.js';
-import { contained, copyPlugin, readSkills, stagePlugin } from './plugin-install.js';
+import { contained, copyPlugin, pluginDigest, readSkills, stagePlugin } from './plugin-install.js';
 import { expandConnector, inputRefs, readPluginPackage } from './plugin-packages.js';
 import { record, scanSkills } from './plugin-skills.js';
 
@@ -631,10 +632,37 @@ export class PluginRegistry {
     });
   }
 
+  async previewPlugin(path: string): Promise<PluginPreview> {
+    const stage = await mkdtemp(join(this.dir, '.preview-'));
+    try {
+      const root = await stagePlugin(path, join(stage, 'source'));
+      const pkg = await readPluginPackage(root);
+      return {
+        id: pkg.id,
+        name: pkg.name,
+        version: pkg.version,
+        inputs: pkg.inputs,
+        hooks: pkg.hooks,
+        digest: await pluginDigest(root),
+      };
+    } catch (error) {
+      throw error instanceof HostError
+        ? error
+        : invalid(error instanceof Error ? error.message : 'Plugin preview failed');
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
+  }
+
   /** 装 Wevir 插件包或导入 Claude / Codex 包（文件夹或 ZIP）；同 id 已装时 replace 升级，保留输入项与各项开关。 */
   async installPlugin(
     path: string,
-    options: { inputs?: Record<string, string>; replace?: boolean; signal?: AbortSignal } = {},
+    options: {
+      inputs?: Record<string, string>;
+      replace?: boolean;
+      signal?: AbortSignal;
+      expectedDigest?: string;
+    } = {},
   ): Promise<{ plugin: Plugin; ignored: string[] }> {
     const result = await this.#mutate(
       async (next) => {
@@ -647,6 +675,11 @@ export class PluginRegistry {
             throw invalid('Install a plugin folder or ZIP');
           const root = await stagePlugin(path, join(stage, 'source'));
           const pkg = await readPluginPackage(root);
+          if (
+            options.expectedDigest !== undefined &&
+            options.expectedDigest !== (await pluginDigest(root))
+          )
+            throw invalid('Plugin package changed; review it again');
           const old = next.plugins.find((item) => item.id === pkg.id);
           if (old && !options.replace)
             throw invalid(`Plugin "${pkg.id}" is already installed; pass replace to upgrade it`);

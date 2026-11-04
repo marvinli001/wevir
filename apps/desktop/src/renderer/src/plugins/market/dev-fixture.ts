@@ -276,6 +276,18 @@ const installListeners = new Set<(progress: MarketInstallProgress) => void>();
 const cancelled = new Set<string>();
 
 export const fakeMarketSource: MarketSource = {
+  async preview(entryId) {
+    const entry = INDEX.entries.find((item) => item.id === entryId);
+    if (!entry) throw new Error(`no market entry ${entryId}`);
+    return {
+      id: entry.id,
+      name: entry.id,
+      version: entry.version,
+      inputs: entry.contents.inputs,
+      hooks: [],
+      digest: '0'.repeat(64),
+    };
+  },
   async index(refresh) {
     await delay(refresh ? 900 : 500);
     if (MODE === 'fail') throw new Error('could not read the plugin market: github: HTTP 503');

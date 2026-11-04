@@ -872,6 +872,15 @@ const standaloneCases: Case[] = [
     invalid: [{ key: 'TOKEN' }, { key: 'TOKEN', label: 'Token', extra: 1 }],
   },
   {
+    name: 'PluginHookSummary',
+    schema: protocol.PluginHookSummarySchema,
+    valid: [
+      { event: 'PreToolUse', matcher: 'Bash', handler: 'command', command: 'node check.js' },
+      { event: 'Stop', handler: 'prompt' },
+    ],
+    invalid: [{ event: 'Stop' }, { handler: 'command' }],
+  },
+  {
     name: 'WevirPluginManifest',
     schema: protocol.WevirPluginManifestSchema,
     valid: [{ schemaVersion: 1, id: 'sample', name: 'Sample', version: '1.0.0' }],

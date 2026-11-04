@@ -56,13 +56,14 @@ class MarketInstalls {
     entry: string,
     inputs: Record<string, string> | undefined,
     afterInstall: () => Promise<void>,
+    expectedDigest?: string,
   ): Promise<InstallOutcome> {
     const install = this.#source.install;
     if (install === undefined || this.#states.has(entry)) return { status: 'cancelled' };
     this.#cancelled.delete(entry);
     this.#set(entry, { phase: 'pending', receivedBytes: 0, totalBytes: 0 });
     try {
-      const result = await install(entry, inputs);
+      const result = await install(entry, inputs, expectedDigest);
       const state = this.#states.get(entry);
       this.#set(entry, {
         phase: 'install',

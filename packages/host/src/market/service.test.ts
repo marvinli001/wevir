@@ -441,4 +441,40 @@ describe('MarketService.install（0.99.0）', () => {
     expect((error as HostError).code).toBe('INVALID_PARAMS');
     expect(requests).toEqual([]);
   });
+
+  it('市场预览读取实际包、不发布；确认摘要可安装，预览与安装不混用结果', async () => {
+    const { market } = serve();
+    const store = new PluginRegistry({
+      home: join(temp(), 'preview-home'),
+      userHome: join(temp(), 'preview-user'),
+      roots: () => [],
+      adapter: new EchoAdapter(),
+    });
+    await store.load();
+    const preview = await market.install('notes', (root) => store.previewPlugin(root), 'preview');
+    expect(preview.id).toBe('notes');
+    expect(store.installedPackages()).toEqual([]);
+    const installed = await market.install('notes', (root, signal) =>
+      store.installPlugin(root, { expectedDigest: preview.digest, signal }),
+    );
+    expect(installed.plugin.id).toBe('notes');
+    expect(installs()).toEqual([]);
+    const held = serve({ hold: true }).market;
+    const pending = held
+      .install('notes', async () => preview, 'preview')
+      .catch((error: unknown) => error);
+    expect(() => held.install('notes', async () => installed)).toThrow(
+      'different market operation',
+    );
+    held.cancelInstall('notes');
+    expect(await pending).toBeInstanceOf(HostError);
+    const installing = held
+      .install('notes', async () => installed, 'install', 'a'.repeat(64))
+      .catch((error: unknown) => error);
+    expect(() => held.install('notes', async () => installed, 'install', 'b'.repeat(64))).toThrow(
+      'different market operation',
+    );
+    held.cancelInstall('notes');
+    expect(await installing).toBeInstanceOf(HostError);
+  });
 });

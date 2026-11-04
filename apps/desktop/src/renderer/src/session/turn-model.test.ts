@@ -778,3 +778,31 @@ describe('按 seq 找位置', () => {
     },
   );
 });
+
+describe('钩子结果的执行过程', () => {
+  it('与思考和工具合组，正常回合默认折叠；被拦下的回合保留可展开的过程', () => {
+    for (const outcome of ['completed', 'cancelled'] as const) {
+      const s = session();
+      s.turn();
+      s.add('hook.outcome', {
+        turnId: TURN,
+        event: 'UserPromptSubmit',
+        action: 'context',
+        reason: 'Context',
+      });
+      if (outcome === 'completed') s.say(TURN, 'Answer');
+      s.finish(TURN, outcome);
+      const message = s.project().messages.find((entry) => entry.role === 'assistant');
+      expect(message).toBeDefined();
+      if (!message) continue;
+      const fold = foldTurn([message], false, false);
+      expect(fold.hasProcess).toBe(true);
+      expect(fold.defaultFolded).toBe(outcome === 'completed');
+      expect(foldedParts(message, fold).some((part) => part.type === 'hook')).toBe(false);
+      expect(groupWork(message.parts)[0]).toMatchObject({
+        kind: 'work',
+        entries: [{ type: 'hook' }],
+      });
+    }
+  });
+});

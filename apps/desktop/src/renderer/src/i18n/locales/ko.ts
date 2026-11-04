@@ -2,6 +2,19 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'hook.action.blocked': '차단됨',
+  'hook.action.denied': '거부됨',
+  'hook.action.allowed': '훅에서 허용',
+  'hook.action.continued': '계속 진행 요청',
+  'hook.action.context': '컨텍스트 추가됨',
+  'hook.action.failed': '훅 오류',
+  'hook.action.limit': '계속 진행 한도',
+  'work.count.hook': '훅 {count}개',
+  'plugins.hooks.title': '훅',
+  'plugins.hooks.unsupported': '지원 안 됨',
+  'plugins.hooks.trust': '설치하면 다음 훅을 신뢰합니다.',
+  'plugins.add.previewUnsupported': '호스트가 설치 미리 보기를 지원하지 않음',
+
   'app.name': 'Wevir',
 
   'context.receipt.title': '시작 컨텍스트',

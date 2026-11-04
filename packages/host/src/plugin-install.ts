@@ -2,6 +2,8 @@
 // Copyright 2025 OpenAI
 // 改写自 openai/codex codex-rs/core-plugins/src/manifest.rs，提交 092d3acd6bec3e3a14bdc7e7a2810ab628ab759d。
 // 修改：只读本地 Codex / Claude 包的清单与 MCP 配置（0.42.0 起由 plugin-packages.ts 转成 Wevir 插件）；不执行 hooks / 安装脚本。
+
+import { createHash } from 'node:crypto';
 import { constants, createWriteStream } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -16,6 +18,24 @@ import { record, scanSkills } from './plugin-skills.js';
 
 const MAX_ENTRIES = 2000;
 const MAX_BYTES = 64 * 1024 * 1024;
+
+/** 只对已暂存并校验过的包求摘要；路径、脚本内容与可执行位一并绑定确认。 */
+export async function pluginDigest(root: string): Promise<string> {
+  const hash = createHash('sha256');
+  const visit = async (path: string, name: string): Promise<void> => {
+    const info = await lstat(path);
+    hash.update(JSON.stringify([name, info.isDirectory() ? 'dir' : 'file', info.mode & 0o111]));
+    if (info.isDirectory()) {
+      for (const entry of (await readdir(path)).sort())
+        await visit(join(path, entry), `${name}/${entry}`);
+    } else {
+      hash.update(JSON.stringify(info.size));
+      hash.update(await readFile(path));
+    }
+  };
+  await visit(root, '');
+  return hash.digest('hex');
+}
 
 export function contained(root: string, path: string): boolean {
   const rel = relative(root, path);

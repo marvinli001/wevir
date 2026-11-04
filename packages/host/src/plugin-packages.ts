@@ -14,6 +14,7 @@ import {
   PLUGIN_ICON_MAX_BYTES,
   PLUGIN_INPUT_PATTERN,
   PluginConnectorNameSchema,
+  type PluginHookSummary,
   PluginIdSchema,
   type PluginInput,
   type Skill,
@@ -40,13 +41,6 @@ export interface PluginPackage {
   /** 包里的生命周期钩子（0.137.0）：安装确认列出，装上即信任这一版。`handler` 不是 `command` 的不执行。 */
   hooks: PluginHookSummary[];
   ignored: string[];
-}
-
-export interface PluginHookSummary {
-  event: string;
-  matcher?: string;
-  handler: string;
-  command?: string;
 }
 
 /** 包里的 hooks（清单的 `hooks` 或 `./hooks/hooks.json`）。读坏了时报错，免得装上一个以为没有 hooks 的包。 */

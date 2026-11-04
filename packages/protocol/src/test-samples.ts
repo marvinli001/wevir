@@ -3377,6 +3377,28 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'plugin.preview': {
+    params: {
+      valid: [{ path: '/plugins/sample.zip' }, { entry: 'sample' }],
+      invalid: [{}, { path: '/plugins/sample.zip', entry: 'sample' }, { path: '' }],
+    },
+    result: {
+      valid: [
+        {
+          id: 'sample',
+          name: 'Sample',
+          version: '1.0.0',
+          inputs: [],
+          hooks: [],
+          digest: '0'.repeat(64),
+        },
+      ],
+      invalid: [
+        {},
+        { id: 'sample', name: 'Sample', version: '1.0.0', inputs: [], hooks: [], digest: 'bad' },
+      ],
+    },
+  },
   'session.createFromHistory': {
     params: {
       valid: [

@@ -15,6 +15,19 @@
 // 产品名（Wevir）、Host、Provider、MCP 等术语保留英文。连接状态与连接提示不提 Host，说“后台服务”（维护者 2026-10-14：Host 对用户不可见）。
 
 export const zhCN = {
+  'hook.action.blocked': '已拦截',
+  'hook.action.denied': '已拒绝',
+  'hook.action.allowed': '已改判放行',
+  'hook.action.continued': '要求继续',
+  'hook.action.context': '已附加上下文',
+  'hook.action.failed': '钩子出错',
+  'hook.action.limit': '已达继续上限',
+  'work.count.hook': '{count} 个钩子',
+  'plugins.hooks.title': '钩子',
+  'plugins.hooks.unsupported': '不支持',
+  'plugins.hooks.trust': '安装后将信任以下钩子',
+  'plugins.add.previewUnsupported': '后台服务不支持安装预览',
+
   'app.name': 'Wevir',
 
   'context.receipt.title': '开局上下文',

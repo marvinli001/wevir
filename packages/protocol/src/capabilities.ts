@@ -87,6 +87,8 @@ export const HOST_FEATURES = {
   plugins: 'plugins',
   /** Wevir 插件包：`plugin.*` 方法与 `plugins.list` 的 `plugins`（0.42.0）。 */
   pluginPackages: 'plugin_packages',
+  /** 安装前读取真实包的钩子与输入项，并核对确认的内容（0.161.0）。 */
+  pluginPreview: 'plugin_preview',
   /** Ollama model discovery through Host (0.31.0). */
   providerModelDiscovery: 'provider_model_discovery',
   /**
@@ -616,6 +618,7 @@ export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 export const HostFeaturesSchema = z.looseObject({
   plugins: z.boolean().optional(),
   plugin_packages: z.boolean().optional(),
+  plugin_preview: z.boolean().optional(),
   provider_model_discovery: z.boolean().optional(),
   chatgpt_account: z.boolean().optional(),
   google_vertex: z.boolean().optional(),

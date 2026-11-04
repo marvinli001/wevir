@@ -5,7 +5,7 @@
 // 被摇掉。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
-import type { MarketInstallProgress, MethodResult } from '@wevir/protocol';
+import type { MarketInstallProgress, MethodResult, PluginPreview } from '@wevir/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { describe } from '@/host/host-connection';
 
@@ -20,7 +20,9 @@ export interface MarketSource {
   install?: (
     entry: string,
     inputs: Record<string, string> | undefined,
+    expectedDigest?: string,
   ) => Promise<MethodResult<'market.install'>>;
+  preview?: (entry: string) => Promise<PluginPreview>;
   cancelInstall?: (entry: string) => Promise<void>;
   /** 收安装进度，返回取消函数。 */
   onInstallProgress?: (listener: (progress: MarketInstallProgress) => void) => () => void;
@@ -35,7 +37,9 @@ function hostSource(client: WevirClient): MarketSource {
   let source = hostSources.get(client);
   if (source === undefined) {
     const files = hostSupports(client.hello.features, 'market_files');
-    const install = hostSupports(client.hello.features, 'market_install');
+    const install =
+      hostSupports(client.hello.features, 'market_install') &&
+      hostSupports(client.hello.features, 'plugin_preview');
     source = {
       index: (refresh) => client.request('market.index', refresh ? { refresh: true } : {}),
       ...(files && {
@@ -43,8 +47,17 @@ function hostSource(client: WevirClient): MarketSource {
           (await client.request('market.file', { entry, path })).data,
       }),
       ...(install && {
-        install: (entry: string, inputs: Record<string, string> | undefined) =>
-          client.request('market.install', { entry, ...(inputs !== undefined && { inputs }) }),
+        preview: (entry: string) => client.request('plugin.preview', { entry }),
+        install: (
+          entry: string,
+          inputs: Record<string, string> | undefined,
+          expectedDigest?: string,
+        ) =>
+          client.request('market.install', {
+            entry,
+            ...(inputs !== undefined && { inputs }),
+            ...(expectedDigest !== undefined && { expectedDigest }),
+          }),
         cancelInstall: async (entry: string) => {
           await client.request('market.installCancel', { entry });
         },

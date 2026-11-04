@@ -36,6 +36,7 @@ import { Elapsed } from './elapsed';
 import { livePreviewKey } from './file-preview-model';
 import { useFold } from './fold-state';
 import { formatJson } from './format';
+import { HookPart } from './hook-part';
 import { AWAITING_PILL, LiveIndicator, type LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SessionLink, useSessionEntry } from './session-link';
@@ -222,16 +223,22 @@ export function WorkGroup({
           )}
           data-work-list={clipped ? 'clipped' : undefined}
         >
-          {shown.map((entry) => (
-            <WorkLine
-              key={entry.key}
-              entry={entry}
-              turnActive={turnActive}
-              settled={entry !== entries.at(-1) || !tail}
-              enter={fresh(entry.key)}
-              preview={entry.key === previewKey}
-            />
-          ))}
+          {shown.map((entry) =>
+            entry.type === 'hook' ? (
+              <li key={entry.key} className={cn('shrink-0', fresh(entry.key) && 'rise-in')}>
+                <HookPart part={entry} />
+              </li>
+            ) : (
+              <WorkLine
+                key={entry.key}
+                entry={entry}
+                turnActive={turnActive}
+                settled={entry !== entries.at(-1) || !tail}
+                enter={fresh(entry.key)}
+                preview={entry.key === previewKey}
+              />
+            ),
+          )}
         </ul>
       </Collapse>
     </div>
@@ -332,7 +339,7 @@ function WorkLine({
   enter = false,
   preview = false,
 }: {
-  entry: WorkEntry;
+  entry: Exclude<WorkEntry, { type: 'hook' }>;
   turnActive: boolean;
   settled: boolean;
   /** 进行中新列进来的一行：挂上时上浮进入（只看挂上那一刻的值）。 */

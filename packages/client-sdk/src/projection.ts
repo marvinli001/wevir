@@ -33,6 +33,7 @@ import type {
   HandoffNoteRef,
   HandoffOmittedRange,
   HandoffStrategy,
+  HookOutcome,
   InsightId,
   IsoTime,
   MessageFrom,
@@ -315,7 +316,8 @@ export type ChatPart =
    * 护栏拦下一步（0.86.0，`guardrail.blocked`）：在当时所在的位置（`key` 是 `g:<seq>`），界面画成一行工具行。结束前检查在回合收尾时
    * 报，可能没有 `turnId`，这时是一条系统消息。
    */
-  | { type: 'guardrail'; key: string; blocked: GuardrailBlocked };
+  | { type: 'guardrail'; key: string; blocked: GuardrailBlocked }
+  | { type: 'hook'; key: string; outcome: HookOutcome };
 
 /** 文本与思考部件共有的字段。 */
 /** 用户消息文本的一段（0.90.0）：用户自己写的，或粘贴进来的（`pasted`）。 */
@@ -1078,6 +1080,13 @@ export class TranscriptProjection {
           type: 'guardrail',
           key: `g:${event.seq}`,
           blocked: event.payload,
+        });
+        return;
+      case 'hook.outcome':
+        this.#target(event.payload.turnId, event.seq).parts.push({
+          type: 'hook',
+          key: `hook:${event.seq}`,
+          outcome: event.payload,
         });
         return;
       case 'review.findings':

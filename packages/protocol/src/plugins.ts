@@ -386,6 +386,24 @@ const id = z.object({ id: text });
 const toggle = z.object({ id: text, enabled: z.boolean() });
 const connectorResult = z.object({ connector: ConnectorSchema });
 const pluginResult = z.object({ plugin: PluginSchema });
+
+export const PluginHookSummarySchema = z.object({
+  event: text,
+  matcher: z.string().optional(),
+  handler: text,
+  command: z.string().optional(),
+});
+export type PluginHookSummary = z.infer<typeof PluginHookSummarySchema>;
+
+export const PluginPreviewSchema = z.object({
+  id: PluginIdSchema,
+  name: text,
+  version: text,
+  inputs: z.array(PluginInputSchema),
+  hooks: z.array(PluginHookSummarySchema),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type PluginPreview = z.infer<typeof PluginPreviewSchema>;
 const connectorRef = z.object({
   name: ConnectorNameSchema,
   workspaceId: workspaceId.optional(),
@@ -443,11 +461,27 @@ export const PluginMethodSchemas = {
     result: z.object({ skill: SkillSchema }),
     permission: 'host.manage',
   },
+  /** 0.161.0：校验真实安装包；path 与市场 entry 二选一，不安装、不执行钩子。 */
+  'plugin.preview': {
+    params: z
+      .object({ path: text.optional(), entry: text.optional() })
+      .refine(
+        ({ path, entry }) => (path === undefined) !== (entry === undefined),
+        'Provide either path or entry',
+      ),
+    result: PluginPreviewSchema,
+    permission: 'host.manage',
+  },
   'plugin.install': {
     params: z.object({
       path: text,
       inputs: z.record(PluginInputKeySchema, z.string()).optional(),
       replace: z.boolean().optional(),
+      /** 0.161.0：预览的包内容摘要；不相同则拒绝安装，须重新确认。 */
+      expectedDigest: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .optional(),
     }),
     result: z.object({ plugin: PluginSchema, ignored: z.array(text) }),
     permission: 'host.manage',

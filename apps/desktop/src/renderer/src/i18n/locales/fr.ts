@@ -2,6 +2,19 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'hook.action.blocked': 'Bloqué',
+  'hook.action.denied': 'Refusé',
+  'hook.action.allowed': 'Autorisé par le hook',
+  'hook.action.continued': 'Poursuite requise',
+  'hook.action.context': 'Contexte ajouté',
+  'hook.action.failed': 'Échec du hook',
+  'hook.action.limit': 'Limite de poursuite',
+  'work.count.hook': '{count} hooks',
+  'plugins.hooks.title': 'Hooks',
+  'plugins.hooks.unsupported': 'Non pris en charge',
+  'plugins.hooks.trust': 'L’installation autorise ces hooks.',
+  'plugins.add.previewUnsupported': 'Le serveur ne permet pas l’aperçu de l’installation',
+
   'app.name': 'Wevir',
 
   'context.receipt.title': 'Contexte initial',

@@ -235,6 +235,10 @@ export const MarketMethodSchemas = {
       entry: PluginIdSchema,
       inputs: z.record(PluginInputKeySchema, z.string()).optional(),
       replace: z.boolean().optional(),
+      expectedDigest: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .optional(),
     }),
     result: z.object({ plugin: PluginSchema, ignored: z.array(z.string().min(1)) }),
     permission: 'host.manage',
