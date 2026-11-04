@@ -67,6 +67,7 @@ import { tuningAvailability } from '@/tuning/tuning-model';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { usageAvailability } from '@/usage/usage-model';
 import { layoutPrefs, toggleThread, toggleWorkspace } from './layout-state';
+import { moreChunks, moreWindow } from './more-list-model';
 import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
 import { ProjectContextMenuItems } from './project-context-menu';
 import {
@@ -90,10 +91,8 @@ const ROW_ACTIVE =
 const ROW_ACTION =
   'size-7 rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground dark:hover:bg-sidebar-foreground/10';
 
-/** 每个项目先列这么多个会话，其余的点“显示更多”。 */
+/** 每个项目与按状态分组的“已完成”先列这么多个，“显示更多”每次再多列这么多个，“收起”回到这么多个。 */
 const SESSIONS_SHOWN = 5;
-/** 按状态分组时“已完成”先列这么多个（U19）。 */
-const COMPLETED_SHOWN = 10;
 
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
@@ -367,7 +366,7 @@ function StatusTree() {
         <StatusGroup title={t('sidebar.group.completed')} id="completed">
           <MoreList
             items={completed}
-            limit={COMPLETED_SHOWN}
+            limit={SESSIONS_SHOWN}
             activeIndex={completed.findIndex((entry) => inThread(entry, sessionId))}
             render={row}
           />
@@ -751,8 +750,9 @@ function ThreadItem({
 }
 
 /**
- * 先列 `limit` 项，其余的收在“显示更多”后面，展开与收起是同一种高度过渡（U24，desktop-tokens.md §14）。当前会话排在
- * 后面时全部列出、不显示按钮，免得当前项被收起来。
+ * 先列 `limit` 项，“显示更多”每次再展开 `limit` 项，“收起”回到 `limit` 项；每一段各自一个高度过渡（U24，
+ * desktop-tokens.md §14），收起时几段一起收。当前会话排在后面时至少列到它所在的那一段，收起也只收到那一段，免得当前项被
+ * 收起来。
  */
 function MoreList<T>({
   items,
@@ -765,26 +765,41 @@ function MoreList<T>({
   activeIndex: number;
   render: (item: T) => ReactNode;
 }) {
-  const [showAll, setShowAll] = useState(false);
-  const pinned = activeIndex >= limit;
-  const rest = items.slice(limit);
+  const [shown, setShown] = useState(limit);
+  const { visible, more, less } = moreWindow(items.length, limit, shown, activeIndex);
   return (
     <>
       <ul className="space-y-0.5">{items.slice(0, limit).map(render)}</ul>
-      {rest.length > 0 && (
-        <Collapse open={showAll || pinned}>
-          <ul className="space-y-0.5 pt-0.5">{rest.map(render)}</ul>
+      {moreChunks(items, limit).map((chunk) => (
+        <Collapse key={chunk.start} open={chunk.start < visible}>
+          <ul className="space-y-0.5 pt-0.5">{chunk.items.map(render)}</ul>
         </Collapse>
-      )}
-      {rest.length > 0 && !pinned && (
-        <button
-          type="button"
-          aria-expanded={showAll}
-          onClick={() => setShowAll((value) => !value)}
-          className={cn(ROW, 'mt-0.5 pl-8 text-muted-foreground hover:text-foreground')}
-        >
-          {t(showAll ? 'sidebar.showLess' : 'sidebar.showMore')}
-        </button>
+      ))}
+      {(more || less) && (
+        <div className="mt-0.5 flex items-center gap-0.5">
+          {more && (
+            <button
+              type="button"
+              onClick={() => setShown(visible + limit)}
+              className={cn(ROW, 'flex-1 pl-8 text-muted-foreground hover:text-foreground')}
+            >
+              {t('sidebar.showMore')}
+            </button>
+          )}
+          {less && (
+            <button
+              type="button"
+              onClick={() => setShown(limit)}
+              className={cn(
+                ROW,
+                'text-muted-foreground hover:text-foreground',
+                more ? 'w-auto shrink-0 px-2' : 'flex-1 pl-8',
+              )}
+            >
+              {t('sidebar.showLess')}
+            </button>
+          )}
+        </div>
       )}
     </>
   );
