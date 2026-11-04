@@ -49,6 +49,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { type OutputChunk, rolldown } from 'rolldown';
+import { parseSync, Visitor } from 'rolldown/utils';
 
 const desktop = fileURLToPath(new URL('..', import.meta.url));
 const repo = join(desktop, '..', '..');
@@ -411,8 +412,14 @@ export function checkBundleImports(
     for (const specifier of [...chunk.imports, ...chunk.dynamicImports]) {
       check(chunk.fileName, specifier, 'import');
     }
+    const calls = new Set<number>();
+    new Visitor({
+      CallExpression(node) {
+        calls.add(node.start);
+      },
+    }).visit(parseSync(chunk.fileName, chunk.code).program);
     for (const match of chunk.code.matchAll(RUNTIME_REQUIRE)) {
-      check(chunk.fileName, match[1] as string, 'require');
+      if (calls.has(match.index)) check(chunk.fileName, match[1] as string, 'require');
     }
   }
   if (problems.length > 0) {

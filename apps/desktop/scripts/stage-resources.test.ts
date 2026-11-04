@@ -279,6 +279,32 @@ describe('bundleHost / checkBundleImports / writeBundleManifest', () => {
   });
 });
 
+it('checkBundleImports 忽略字符串、模板文本与注释里的 require，仍检查模板插值中的调用', () => {
+  const chunk = (code: string) => ({
+    fileName: 'main.js',
+    imports: [],
+    dynamicImports: [],
+    code,
+  });
+  expect(() =>
+    checkBundleImports(
+      [
+        chunk(
+          [
+            `const generated = 'require("ajv/dist/runtime/validation_error").default';`,
+            'const template = `require("ajv-formats/dist/formats")`;',
+            '// require("comment-only")',
+          ].join('\n'),
+        ),
+      ],
+      [],
+    ),
+  ).not.toThrow();
+  expect(() =>
+    checkBundleImports([chunk(`const value = \`result: \${require("missing-package")}\`;`)], []),
+  ).toThrow('require missing-package');
+});
+
 describe('pruneUnusedFiles', () => {
   let root: string;
   afterEach(() => rmSync(root, { recursive: true, force: true }));
