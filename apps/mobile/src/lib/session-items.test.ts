@@ -1,4 +1,4 @@
-import type { ChatMessage, Transcript } from '@wevir/client-sdk';
+import type { ChatMessage, ChatPart, Transcript } from '@wevir/client-sdk';
 import type { MessageFrom, PendingMessage, SessionId } from '@wevir/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { setLocale } from '../i18n';
@@ -37,6 +37,61 @@ function transcript(
 }
 
 beforeAll(() => setLocale('zh-CN'));
+
+describe('手机接力与额度部件', () => {
+  it('保留接力、模型配置与额度错误，不改成普通错误', () => {
+    const parts = [
+      {
+        type: 'notice',
+        key: 'n:1',
+        notice: {
+          kind: 'configured',
+          from: { providerId: 'api', modelId: 'm' },
+          to: { providerId: 'api', modelId: 'n' },
+        },
+      },
+      {
+        type: 'notice',
+        key: 'n:2',
+        notice: {
+          kind: 'handoff',
+          fromProviderId: 'api',
+          fromModelId: 'n',
+          providerId: 'claude',
+          modelId: 'm',
+          strategy: 'full_thread_summary',
+          resumed: false,
+          items: 2,
+          omittedItems: 0,
+          delivery: { status: 'prepared' },
+          reason: 'usage_limit',
+        },
+      },
+      {
+        type: 'error',
+        key: 'e:1',
+        message: 'quota',
+        category: 'provider',
+        fatal: false,
+        turnId: 'trn_1',
+        usageLimit: {},
+        routedTo: { providerId: 'claude', modelId: 'm' },
+        resumedAt: '2026-11-04T10:30:00Z',
+      },
+      { type: 'error', key: 'e:2', message: 'ordinary', category: 'provider', fatal: false },
+    ] satisfies ChatPart[];
+    const items = sessionItems(
+      transcript([{ id: 'system', role: 'system', parts, seqRange: [1, 4] }]),
+      LABELS,
+    );
+    expect(items).toEqual([
+      { kind: 'handoff', key: 'n:1', notice: parts[0]?.notice },
+      { kind: 'handoff', key: 'n:2', notice: parts[1]?.notice },
+      { kind: 'usage-limit', key: 'e:1', part: parts[2] },
+      { kind: 'error', key: 'e:2', text: 'ordinary' },
+    ]);
+  });
+});
 
 describe('sessionItems：不是用户写的消息', () => {
   it('后台进程的通知是一行标记，不是用户的气泡', () => {

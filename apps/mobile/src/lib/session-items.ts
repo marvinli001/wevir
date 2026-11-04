@@ -3,7 +3,13 @@
 // 消息。不是用户写的消息（别的会话发来的、回报、后台进程的通知等，`from`）照桌面端画成卡片或一行标记，不画成用户的气泡。
 // 子会话之类桌面专有的部件不画。纯逻辑。
 
-import { type ChatMessage, type ChatPartOf, reportBody, type Transcript } from '@wevir/client-sdk';
+import {
+  type ChatMessage,
+  type ChatPartOf,
+  type ContinuityNotice,
+  reportBody,
+  type Transcript,
+} from '@wevir/client-sdk';
 import type {
   MessageFrom,
   PendingDelivery,
@@ -39,6 +45,8 @@ export type SessionItem =
    */
   | { kind: 'live'; key: 'live'; action: LiveAction; startedAt?: string; detail?: string }
   | { kind: 'error'; key: string; text: string }
+  | { kind: 'handoff'; key: string; notice: ContinuityNotice }
+  | { kind: 'usage-limit'; key: string; part: ChatPartOf<'error'> }
   /** 待批准的审批：`post` 是助理审批卡的形状，`approvalId` 用来回应。 */
   | { kind: 'approval'; key: string; approvalId: string; post: BotPost }
   /** 等用户回答的问题。 */
@@ -270,7 +278,16 @@ function messageItems(
         });
         break;
       case 'error':
-        out.push({ kind: 'error', key: part.key, text: part.message });
+        out.push(
+          part.usageLimit !== undefined
+            ? { kind: 'usage-limit', key: part.key, part }
+            : { kind: 'error', key: part.key, text: part.message },
+        );
+        break;
+      case 'notice':
+        if (part.notice.kind === 'handoff' || part.notice.kind === 'configured') {
+          out.push({ kind: 'handoff', key: part.key, notice: part.notice });
+        }
         break;
     }
   }

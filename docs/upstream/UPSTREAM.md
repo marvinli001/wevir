@@ -449,6 +449,8 @@ iOS 模拟器的 helper（2026-10-24）移植自 facebook/idb，MIT，`Copyright
 
 模型服务的标志（U6，2026-10-14）：`apps/desktop/src/renderer/src/assets/provider-logos/*.svg`（含 2026-10-15 新增的 `azure-color.svg`），原样取自 npm 包 `@lobehub/icons-static-svg@1.95.1`（[lobehub/lobe-icons](https://github.com/lobehub/lobe-icons)）的 `icons/` 目录，MIT，`Copyright (c) 2023 LobeHub`；文件与 sha256 在同目录的 `SOURCE.md`，署名在 `NOTICE` 第 9 节。标志是各公司的商标，只用来指认服务。
 
+手机端订阅来源标志（2026-11-04）：`apps/mobile/assets/source-logos/*.png` 从上述已登记 SVG 导出为 64 px PNG，来源版本、MIT 许可证与版权不变；资产目录的 `SOURCE.md` 与 `NOTICE` 第 9 节同步登记。
+
 ## 5. 移植文件的文件头
 
 MIT 来源（OpenWork 的 MIT 区域）：

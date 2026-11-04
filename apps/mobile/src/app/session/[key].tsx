@@ -5,9 +5,11 @@
 
 import { ClientClosedError } from '@wevir/client-sdk';
 import type {
+  AccountState,
   ApprovalId,
   PendingDelivery,
   PendingMessageId,
+  ProviderProfile,
   QuestionAnswer,
   QuestionId,
   SessionId,
@@ -35,6 +37,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PostView } from '../../components/bot-cards';
 import { Composer } from '../../components/composer';
+import { type ContinuityContext, HandoffRow, UsageLimitCard } from '../../components/continuity';
 import { HeaderMenu } from '../../components/header-button';
 import { LiveStatus, ThoughtRow } from '../../components/live-status';
 import { Markdown } from '../../components/markdown';
@@ -107,6 +110,29 @@ export default function SessionScreen() {
   const showToast = useToast();
   const [keyboard, setKeyboard] = useState(0);
   const [composerHeight, setComposerHeight] = useState(64);
+  const [catalog, setCatalog] = useState<{
+    providers: ProviderProfile[];
+    accounts?: AccountState[];
+  }>({ providers: [] });
+
+  useEffect(() => {
+    let stopped = false;
+    setCatalog({ providers: [] });
+    if (client?.canReadProviders) {
+      void Promise.all([
+        client.request('provider.list', {}).then((value) => value.providers),
+        client.request('account.list', {}).then((value) => value.accounts),
+      ]).then(
+        ([providers, accounts]) => {
+          if (!stopped) setCatalog({ providers, accounts });
+        },
+        () => {},
+      );
+    }
+    return () => {
+      stopped = true;
+    };
+  }, [client]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` 变了（点了重试）就重新订阅
   useEffect(() => {
@@ -170,6 +196,20 @@ export default function SessionScreen() {
   const busy = isBusy(view.transcript ?? session);
   const readOnly = view.transcript?.readOnly ?? session?.readOnly;
   const canWrite = actions?.canWrite === true && readOnly === undefined;
+  const continuity: ContinuityContext = {
+    ...catalog,
+    autoContinue: {
+      ...(view.transcript?.autoContinue && { armed: view.transcript.autoContinue }),
+    },
+    ...(canWrite &&
+      snapshot?.status.kind === 'online' &&
+      view.caughtUp &&
+      !view.cachedAt &&
+      !view.offline &&
+      client?.supports('usage_auto_continue') && {
+        cancelAutoContinue: (turnId) => actions.cancelAutoContinue(turnId),
+      }),
+  };
   const title = view.transcript?.title || session?.title || t('session.untitled');
   const archived = session?.archivedAt !== undefined;
   const meta = [
@@ -330,6 +370,7 @@ export default function SessionScreen() {
             failed={view.error !== undefined || view.offline === true}
             theme={theme}
             canWrite={canWrite}
+            continuity={continuity}
             bottomInset={composerHeight + 16}
             onDecide={async (approvalId, decision) => {
               await watch.current?.respond(approvalId as ApprovalId, decision);
@@ -422,6 +463,7 @@ function SessionList({
   failed,
   theme,
   canWrite,
+  continuity,
   bottomInset,
   onDecide,
   onAnswer,
@@ -434,6 +476,7 @@ function SessionList({
   failed: boolean;
   theme: Theme;
   canWrite: boolean;
+  continuity: ContinuityContext;
   bottomInset: number;
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
@@ -536,6 +579,7 @@ function SessionList({
               now={now}
               theme={theme}
               canWrite={canWrite}
+              continuity={continuity}
               onDecide={onDecide}
               onAnswer={onAnswer}
               onCancelPending={onCancelPending}
@@ -578,6 +622,7 @@ function Item({
   now,
   theme,
   canWrite,
+  continuity,
   onDecide,
   onAnswer,
   onCancelPending,
@@ -586,11 +631,16 @@ function Item({
   now: Date;
   theme: Theme;
   canWrite: boolean;
+  continuity: ContinuityContext;
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
   onCancelPending: (pendingId: string) => void;
 }) {
   switch (item.kind) {
+    case 'handoff':
+      return <HandoffRow notice={item.notice} context={continuity} theme={theme} />;
+    case 'usage-limit':
+      return <UsageLimitCard part={item.part} context={continuity} theme={theme} />;
     case 'assistant':
       return (
         <View style={styles.reply}>

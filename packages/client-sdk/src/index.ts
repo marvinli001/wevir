@@ -3,6 +3,7 @@
 
 export * from './capabilities.js';
 export * from './client.js';
+export * from './continuity.js';
 export * from './errors.js';
 export { type BackoffOptions, DEFAULT_BACKOFF, type ReconnectReason } from './lifecycle.js';
 export * from './projection.js';

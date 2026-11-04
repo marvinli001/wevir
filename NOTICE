@@ -307,6 +307,8 @@ apps/desktop/src/renderer/src/assets/provider-logos/ 下的服务标志 SVG（�
 npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 见同目录的 SOURCE.md。许可证是 MIT，
 全文见文末“MIT License”。各标志是对应公司的商标，只用来指认服务。
 
+apps/mobile/assets/source-logos/ 下的 PNG 由上述订阅来源 SVG 导出为 64 px；沿用同一来源、版权与 MIT 许可证。
+
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 

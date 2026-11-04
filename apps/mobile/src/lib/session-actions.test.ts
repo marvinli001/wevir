@@ -61,6 +61,16 @@ function question(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
 }
 
 describe('session actions', () => {
+  it('only cancels an existing automatic continuation through the Host method', async () => {
+    const { fake, calls } = client();
+    await new SessionActions(fake, SES, random).cancelAutoContinue('trn_1');
+    expect(calls).toEqual([
+      {
+        method: 'session.setAutoContinue',
+        params: { sessionId: SES, turnId: 'trn_1', enabled: false },
+      },
+    ]);
+  });
   it('sends text with an idempotency key, and the delivery only while a turn runs', async () => {
     const { fake, calls } = client();
     const actions = new SessionActions(fake, SES, random);

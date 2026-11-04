@@ -3,8 +3,8 @@
 // 里不显示），卡片写出发出的时刻。每周额度等一天之后才重置的没有勾选。0.143.0 起还有“换模型继续”：点开是输入框模型菜单的列表，额度也用完的来源排在后面、标出来；选好后
 // Host 换模型（别的来源时接力），替用户发一条继续消息。重连进度（`retry` 部件）也在这里：一行“正在重新连接 2/5”，点开是断开的原因。
 
-import type { ChatPartOf } from '@wevir/client-sdk';
-import { AUTO_CONTINUE_MAX_WAIT_MS, type TurnId } from '@wevir/protocol';
+import { type ChatPartOf, usageLimitState } from '@wevir/client-sdk';
+import type { TurnId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronDown, Gauge, RotateCw, Shuffle } from 'lucide-react';
 import { useState } from 'react';
@@ -37,15 +37,7 @@ export function UsageLimitCard({ part }: { part: ChatPartOf<'error'> }) {
           window: windowName({ usedPercent: 100, windowMinutes: limit.windowMinutes }),
         });
   const resets = resetLabel(limit.resetsAt);
-  const pending = autoContinue?.armed;
-  const armed = pending?.turnId === part.turnId ? pending : undefined;
-  const resetsAt = limit.resetsAt === undefined ? Number.NaN : Date.parse(limit.resetsAt);
-  const toggleable =
-    autoContinue !== undefined &&
-    part.turnId !== undefined &&
-    autoContinue.lastTurnId === part.turnId &&
-    part.resumedAt === undefined &&
-    resetsAt - Date.now() <= AUTO_CONTINUE_MAX_WAIT_MS;
+  const { armed, toggleable } = usageLimitState(part, autoContinue);
   const toggle = (enabled: boolean) => {
     if (autoContinue === undefined || part.turnId === undefined) return;
     setBusy(true);

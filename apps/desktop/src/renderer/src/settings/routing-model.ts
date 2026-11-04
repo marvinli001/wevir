@@ -1,3 +1,4 @@
+import { routingReason as sharedRoutingReason } from '@wevir/client-sdk';
 import {
   type AccountState,
   isExhausted,
@@ -9,7 +10,7 @@ import {
   type WevirEvent,
 } from '@wevir/protocol';
 import { accountOfProvider, sourceOf } from '@/data/sources';
-import { type PlainMessageKey, t } from '@/i18n';
+import { t } from '@/i18n';
 
 export interface RoutingNode extends RoutingTarget {
   key: string;
@@ -108,22 +109,8 @@ export function moveRoutingNode(
   return next;
 }
 
-const REASONS: Record<string, PlainMessageKey> = {
-  attempt_limit: 'routing.reason.attempt_limit',
-  node_disabled: 'routing.reason.node_disabled',
-  provider_missing: 'routing.reason.provider_missing',
-  provider_disabled: 'routing.reason.provider_disabled',
-  visited: 'routing.reason.visited',
-  same_model: 'routing.reason.same_model',
-  signed_out: 'routing.reason.signed_out',
-  exhausted: 'routing.reason.exhausted',
-  model_missing: 'routing.reason.model_missing',
-  switch_failed: 'routing.reason.switch_failed',
-};
-
 export function routingReason(reason: string): string {
-  const key = REASONS[reason];
-  return key ? t(key) : reason;
+  return sharedRoutingReason(reason, t);
 }
 
 export function isRoutingSwitch(event: WevirEvent, decision: RoutingDecision): boolean {

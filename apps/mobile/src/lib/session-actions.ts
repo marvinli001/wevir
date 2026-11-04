@@ -9,6 +9,7 @@ import type {
   QuestionId,
   QuestionRequest,
   SessionId,
+  TurnId,
   UserContentPart,
   UserImageMimeType,
   UserImagePart,
@@ -140,6 +141,14 @@ export class SessionActions {
 
   async cancelPending(pendingId: PendingMessageId): Promise<void> {
     await this.#client.request('pending.cancel', { sessionId: this.#sessionId, pendingId });
+  }
+
+  async cancelAutoContinue(turnId: TurnId): Promise<void> {
+    await this.#client.request('session.setAutoContinue', {
+      sessionId: this.#sessionId,
+      turnId,
+      enabled: false,
+    });
   }
 
   async answer(questionId: QuestionId, answers: Record<string, QuestionAnswer>): Promise<void> {

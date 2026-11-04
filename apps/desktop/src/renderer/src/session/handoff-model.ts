@@ -1,6 +1,11 @@
 // 接力（0.25.0，domain-model §3.14）的纯逻辑：已有会话能换到哪些来源、当前的引擎能做什么、切换处那一行写什么。
 
-import type { SessionNotice } from '@wevir/client-sdk';
+import {
+  type ConfigurationNoticeOf,
+  type HandoffNoticeOf,
+  type HandoffText,
+  handoffDetailRows as sharedHandoffDetailRows,
+} from '@wevir/client-sdk';
 import type {
   AccountState,
   EngineFeatures,
@@ -10,7 +15,6 @@ import type {
 } from '@wevir/protocol';
 import { accountSuffix, sourceOf, sourceTitle } from '@/data/sources';
 import { t } from '@/i18n';
-import { routingReason } from '@/settings/routing-model';
 
 const ACTIVE: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
 
@@ -47,9 +51,6 @@ export function canHandoffTo(
   return true;
 }
 
-export type HandoffNoticeOf = Extract<SessionNotice, { kind: 'handoff' }>;
-export type ConfigurationNoticeOf = Extract<SessionNotice, { kind: 'configured' }>;
-
 export function handoffTransition(
   providers: readonly ProviderProfile[],
   fromProviderId: string,
@@ -74,167 +75,25 @@ export function handoffTransition(
   });
 }
 
-/** 接力详情里的一行：名称与值，`tone` 给状态上色。 */
-export interface HandoffDetailRow {
-  key: string;
-  label: string;
-  value: string;
-  tone?: 'success' | 'warning' | 'muted';
-}
+export type { ConfigurationNoticeOf, HandoffDetailRow, HandoffNoticeOf } from '@wevir/client-sdk';
 
-/**
- * 接力详情（只读）：方式、引擎会话、覆盖范围、条目、能不能读历史与递交状态，全部来自 `session.handoff` 与之后的回合。状态只说 Host
- * 有没有把摘要交给新来源，不说模型理解了没有。
- */
 export function handoffDetailRows(
   notice: HandoffNoticeOf | ConfigurationNoticeOf,
   providers: readonly ProviderProfile[] = [],
   accounts?: readonly AccountState[],
-): HandoffDetailRow[] {
-  const rows: HandoffDetailRow[] = [];
-  if (notice.reason !== undefined) {
-    rows.push({
-      key: 'reason',
-      label: t('handoff.detail.reason'),
-      value: t('handoff.reason.usage_limit'),
-    });
-    if (notice.failover !== undefined)
-      rows.push({
-        key: 'attempt',
-        label: t('handoff.detail.attempt'),
-        value: String(notice.failover.attempt),
-      });
-    if (notice.skipped !== undefined)
-      rows.push({
-        key: 'skipped',
-        label: t('handoff.detail.skipped'),
-        value:
-          notice.skipped.length === 0
-            ? t('handoff.detail.none')
-            : notice.skipped
-                .map((skip) => {
-                  const provider = providers.find((provider) => provider.id === skip.providerId);
-                  const source = provider && sourceOf(provider);
-                  const name = provider
-                    ? source
-                      ? sourceTitle(provider, accounts, t(source.name))
-                      : provider.displayName
-                    : skip.providerId;
-                  return `${name} · ${routingReason(skip.reason)}`;
-                })
-                .join(t('common.listSeparator')),
-      });
-  }
-  if (notice.kind === 'configured') return rows;
-  rows.push(...materialRows(notice));
-  // 递交记录（0.59.0）：旧 Host 写的事件没有。
-  const { receipt } = notice;
-  if (receipt !== undefined) {
-    if (receipt.omitted.length > 0) {
-      rows.push({
-        key: 'omitted',
-        label: t('handoff.detail.omitted'),
-        value: receipt.omitted
-          .map((range) =>
-            range.first === range.last
-              ? range.first
-              : t('handoff.detail.omittedRange', {
-                  first: range.first,
-                  last: range.last,
-                  count: range.count,
-                }),
-          )
-          .join(t('common.listSeparator')),
-      });
-    }
-    rows.push({
-      key: 'constraints',
-      label: t('handoff.detail.constraints'),
-      value: t('handoff.detail.count', { count: receipt.constraints }),
-    });
-    rows.push({
-      key: 'notes',
-      label: t('handoff.detail.notes'),
-      value:
-        receipt.notes.length === 0
-          ? t('handoff.detail.none')
-          : receipt.notes
-              .map((note) => `${note.name} · ${note.revision.slice(0, 8)}`)
-              .join(t('common.listSeparator')),
-    });
-    rows.push({
-      key: 'bytes',
-      label: t('handoff.detail.bytes'),
-      value: t('handoff.detail.budgetUsed', {
-        used: receipt.bytes.toLocaleString(),
-        budget: receipt.budgetBytes.toLocaleString(),
-      }),
-    });
-    rows.push({ key: 'hash', label: t('handoff.detail.hash'), value: receipt.hash.slice(0, 16) });
-  }
-  const { delivery } = notice;
-  rows.push({
-    key: 'status',
-    label: t('handoff.detail.status'),
-    value: t(`handoff.detail.status.${delivery.status}`),
-    tone:
-      delivery.status === 'delivered'
-        ? 'success'
-        : delivery.status === 'failed'
-          ? 'warning'
-          : 'muted',
+) {
+  return sharedHandoffDetailRows(notice, {
+    text: t as HandoffText,
+    providerLabel: (id) => {
+      const provider = providers.find((provider) => provider.id === id);
+      const source = provider && sourceOf(provider);
+      return provider
+        ? source
+          ? sourceTitle(provider, accounts, t(source.name))
+          : provider.displayName
+        : id;
+    },
   });
-  return rows;
-}
-
-function materialRows(
-  notice: Pick<HandoffNoticeOf, 'strategy' | 'resumed' | 'covered' | 'items' | 'omittedItems'> & {
-    historyTool?: boolean | undefined;
-  },
-): HandoffDetailRow[] {
-  const strategy =
-    notice.strategy === 'full_thread_summary'
-      ? t('handoff.detail.strategy.full')
-      : notice.strategy === 'delta_since_target_last_seen'
-        ? t('handoff.detail.strategy.delta')
-        : notice.strategy;
-  const rows: HandoffDetailRow[] = [
-    { key: 'strategy', label: t('handoff.detail.strategy'), value: strategy },
-    {
-      key: 'engine',
-      label: t('handoff.detail.engine'),
-      value: notice.resumed ? t('handoff.detail.engine.resumed') : t('handoff.detail.engine.new'),
-    },
-    {
-      key: 'covered',
-      label: t('handoff.detail.covered'),
-      value:
-        notice.covered === undefined
-          ? t('handoff.detail.none')
-          : t('handoff.detail.coveredRange', {
-              from: notice.covered.fromSeq,
-              to: notice.covered.toSeq,
-            }),
-    },
-    {
-      key: 'items',
-      label: t('handoff.detail.items'),
-      value: t('handoff.detail.itemCounts', {
-        items: notice.items,
-        omitted: notice.omittedItems,
-      }),
-      ...(notice.omittedItems > 0 && { tone: 'warning' as const }),
-    },
-  ];
-  if (notice.historyTool !== undefined) {
-    rows.push({
-      key: 'history',
-      label: t('handoff.detail.history'),
-      value: notice.historyTool ? t('handoff.detail.history.yes') : t('handoff.detail.history.no'),
-      ...(!notice.historyTool && { tone: 'warning' as const }),
-    });
-  }
-  return rows;
 }
 
 /**
