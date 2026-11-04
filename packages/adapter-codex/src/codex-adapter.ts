@@ -3061,6 +3061,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 登录的模型在 Codex 自己的目录里，大小取 Codex 报的，阈值不报。
    */
   #gatewayUsage(observation: RequestObservation): void {
+    if (this.#disposed !== undefined) return;
     const threadId = observation.threadId;
     if (threadId === undefined) {
       this.#logger.warn('gateway usage has no session');

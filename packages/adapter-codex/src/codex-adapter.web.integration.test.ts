@@ -153,7 +153,11 @@ describe.skipIf(binary === undefined)(
       expect(turn.some((e) => e.type === 'approval.requested')).toBe(false);
       expect(calls.at(-1)).toEqual({
         authorization: `Bearer ${TOKEN}`,
-        body: { name: WEB_SEARCH_TOOL, arguments: { query: 'Codex 最新版本', count: 3 } },
+        body: {
+          name: WEB_SEARCH_TOOL,
+          arguments: { query: 'Codex 最新版本', count: 3 },
+          engineSessionId: id,
+        },
       });
       expect(turn.find(ofType('tool.started'))).toMatchObject({
         toolName: `mcp__${WEB_TOOL_SERVER}__${WEB_SEARCH_TOOL}`,

@@ -221,6 +221,35 @@ describe.skipIf(binary === undefined)(
       expect(JSON.stringify(body?.input)).toContain('修一下登录的 500 错误');
     });
 
+    it('释放适配器时中止在途标题请求，不把最后的用量回调当成未知会话', async () => {
+      let entered!: () => void;
+      const requested = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const { adapter, id, logger } = await open(
+        {},
+        {
+          gateway: {
+            fetch: async (_input, init) => {
+              entered();
+              return new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+                  once: true,
+                });
+              });
+            },
+          },
+        },
+      );
+      const title = expect(adapter.generateTitle(id, TITLE_REQUEST)).rejects.toMatchObject({
+        code: 'engine_unavailable',
+      });
+      await requested;
+      await adapter.dispose();
+      await title;
+      expect(logger.warnings).toEqual([]);
+    });
+
     it('标题（临时 thread）：ephemeral thread、只读、带 outputSchema，取最终的助手消息；不影响会话', async () => {
       const { adapter, id, events, logger } = await open({}, { titleVia: 'thread' });
       script = () => ({ text: [TITLE_JSON] });
