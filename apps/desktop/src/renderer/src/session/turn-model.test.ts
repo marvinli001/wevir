@@ -11,6 +11,7 @@ import type {
 import { describe, expect, it } from 'vitest';
 import { currentAction, groupWork, type WorkEntry } from './tool-model';
 import {
+  adjoinsNotice,
   alwaysShown,
   blockSeqRange,
   continuesAgent,
@@ -19,7 +20,6 @@ import {
   foldedParts,
   foldSegments,
   foldTurn,
-  followsNotice,
   groupTurns,
   handoffAfterLastTurn,
   isActiveTurn,
@@ -33,6 +33,7 @@ import {
 const SES: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR';
 const TURN: TurnId = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR';
 const TURN2: TurnId = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQS';
+const TURN3: TurnId = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQT';
 const STREAM = 'stm_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
 const APPROVAL = 'apr_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
 const PENDING = 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
@@ -186,17 +187,25 @@ describe('groupTurns / turnStart', () => {
     ]);
   });
 
-  it('followsNotice：紧跟提示行的提示行挨着放，跟在回合后面的不算', () => {
+  it('adjoinsNotice：提示行和紧跟在它后面的块挨着放，回合之间照常隔开', () => {
     const s = session();
     s.turn();
     s.say(TURN, '完成。');
     s.finish(TURN, 'completed');
+    s.turn(TURN2);
+    s.say(TURN2, '再来。');
+    s.finish(TURN2, 'completed');
     s.add('session.read_only', { reason: 'engine_session_not_found', message: 'x' });
     s.add('session.resumed', {});
+    s.turn(TURN3);
+    s.say(TURN3, '继续。');
+    s.finish(TURN3, 'completed');
     const blocks = groupTurns(s.project().messages);
-    expect(blocks.map((block, index) => followsNotice(block, blocks[index - 1]))).toEqual([
+    expect(blocks.map((block, index) => adjoinsNotice(block, blocks[index - 1]))).toEqual([
       false,
       false,
+      true,
+      true,
       true,
     ]);
   });

@@ -88,12 +88,12 @@ function isNoticeOnly(block: TranscriptBlock | undefined): boolean {
   );
 }
 
-/** 紧跟在提示行后面的提示行（例如“会话已关闭”下面的“已切换到 …”）：两行挨着放，上方不按回合之间的间距隔开。 */
-export function followsNotice(
+/** 提示行（例如“已切换到 …”）和它上下的内容挨着放：提示行本身与紧跟在提示行后面的块，上方都不按回合之间的间距隔开。 */
+export function adjoinsNotice(
   block: TranscriptBlock,
   previous: TranscriptBlock | undefined,
 ): boolean {
-  return isNoticeOnly(block) && isNoticeOnly(previous);
+  return isNoticeOnly(block) || isNoticeOnly(previous);
 }
 
 /**

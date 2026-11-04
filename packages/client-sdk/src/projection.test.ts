@@ -166,7 +166,7 @@ describe('TranscriptProjection：增量与已提交消息（domain-model §6.3�
     expect(projection.snapshot()).toEqual(transcript);
   });
 
-  it('接力更新配置基线，之后相同的配置不重复标记', () => {
+  it('接力更新配置基线，之后相同的配置与只改思考强度都不标记', () => {
     const { list, add } = events();
     add('session.handoff', {
       from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'a' },
@@ -181,12 +181,14 @@ describe('TranscriptProjection：增量与已提交消息（domain-model §6.3�
     add('session.configured', { modelId: 'opus', reasoningEffort: 'high', fast: true });
     expect(projectTranscript(list).messages).toHaveLength(1);
     add('session.configured', { modelId: 'opus', reasoningEffort: 'low', fast: true });
+    expect(projectTranscript(list).messages).toHaveLength(1);
+    add('session.configured', { modelId: 'sonnet', reasoningEffort: 'low', fast: true });
     expect(projectTranscript(list).messages[1]?.parts).toMatchObject([
       {
         notice: {
           kind: 'configured',
-          from: { providerId: 'claude', modelId: 'opus', reasoningEffort: 'high' },
-          to: { providerId: 'claude', modelId: 'opus', reasoningEffort: 'low' },
+          from: { providerId: 'claude', modelId: 'opus', reasoningEffort: 'low' },
+          to: { providerId: 'claude', modelId: 'sonnet', reasoningEffort: 'low' },
         },
       },
     ]);

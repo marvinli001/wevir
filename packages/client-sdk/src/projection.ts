@@ -816,10 +816,11 @@ export class TranscriptProjection {
         const { modelId, reasoningEffort, fast } = event.payload;
         const next = { providerId: previous.providerId, modelId, reasoningEffort, fast };
         this.#configuration = next;
+        // 用户自己只改思考强度不在消息流里提示；自动路由（带 reason）改的仍然提示。
         if (
           previous.modelId !== modelId ||
-          previous.reasoningEffort !== reasoningEffort ||
-          (previous.fast === true) !== (fast === true)
+          (previous.fast === true) !== (fast === true) ||
+          (event.payload.reason !== undefined && previous.reasoningEffort !== reasoningEffort)
         ) {
           this.#notice(event, {
             kind: 'configured',

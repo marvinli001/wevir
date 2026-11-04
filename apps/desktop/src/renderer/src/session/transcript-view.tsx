@@ -23,9 +23,9 @@ import {
   transcriptFocus,
 } from './transcript-focus';
 import {
+  adjoinsNotice,
   blockSeqRange,
   continuesAgent,
-  followsNotice,
   groupTurns,
   isActiveTurn,
   isReportOnly,
@@ -242,7 +242,7 @@ export function TranscriptView({
                     key={block.key}
                     className={cn(
                       'transcript-item first:pt-0',
-                      isReportOnly(block) || followsNotice(block, blocks[index - 1])
+                      isReportOnly(block) || adjoinsNotice(block, blocks[index - 1])
                         ? 'pt-2'
                         : continuesAgent(block)
                           ? 'pt-0'
