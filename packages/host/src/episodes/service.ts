@@ -216,6 +216,11 @@ export class EpisodeService {
   forget(ids: readonly string[]): void {
     for (const id of ids) this.#cancel(id);
   }
+
+  afterDelete(workspaceId: WorkspaceId): void {
+    for (const listener of this.#listeners) listener({ workspaceId });
+  }
+
   dispose(): void {
     this.#disposed = true;
     this.forget([...this.#timers.keys()]);

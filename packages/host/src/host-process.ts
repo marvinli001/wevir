@@ -901,6 +901,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memory,
       memoryEnabled: () => settings.get().autoMemory !== false,
       episodes: {
+        afterDelete: (id) => episodes?.afterDelete(id),
         refresh: async (id) => episodes?.refresh(id),
         beforeClose: async (id) => {
           await episodes?.beforeClose(id);

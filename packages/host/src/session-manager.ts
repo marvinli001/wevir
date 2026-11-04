@@ -328,7 +328,7 @@ export interface SessionManagerOptions {
   historyDir?: string;
   /** 接力时用户选入的记忆笔记从这里读（0.59.0）。没给时不能选笔记。 */
   memory?: Pick<MemoryStore, 'read'>;
-  episodes?: Pick<EpisodeService, 'beforeClose' | 'catchUp' | 'refresh'>;
+  episodes?: Pick<EpisodeService, 'beforeClose' | 'catchUp' | 'refresh' | 'afterDelete'>;
   contexts?: {
     prepare(
       sessionId: SessionId,
@@ -3507,7 +3507,7 @@ export class SessionManager {
     );
     return this.#serial(runtime, async () => {
       const record = this.#assertDeletable(sessionId);
-      return deleteSessionData(
+      const result = await deleteSessionData(
         {
           storage: this.#storage,
           events: this.#events,
@@ -3527,6 +3527,8 @@ export class SessionManager {
         record,
         options.force === true,
       );
+      this.#episodes?.afterDelete(record.workspaceId as WorkspaceId);
+      return result;
     });
   }
 

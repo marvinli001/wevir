@@ -15,3 +15,6 @@ CREATE TABLE episodes (
   updated_at TEXT NOT NULL
 ) STRICT;
 CREATE INDEX episodes_by_workspace ON episodes(workspace_id, updated_at DESC, id DESC);
+CREATE TRIGGER session_episodes_delete AFTER DELETE ON sessions BEGIN
+  DELETE FROM episodes WHERE session_id = old.id AND pinned = 0;
+END;
