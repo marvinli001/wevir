@@ -21,11 +21,28 @@ export type TranscriptBlock =
   | { kind: 'turn'; key: string; turnId: TurnId; messages: ChatMessage[]; engine?: TurnEngine }
   | { kind: 'message'; key: string; message: ChatMessage };
 
+/**
+ * 只说“引擎会话已恢复”的系统消息：恢复是 Host 的常规动作（重启、切回会话都会发生），对用户没有信息量，不进消息流。带着接力
+ * 材料回执的恢复照常显示。
+ */
+function isPlainResume(message: ChatMessage): boolean {
+  return (
+    message.parts.length > 0 &&
+    message.parts.every(
+      (part) =>
+        part.type === 'notice' &&
+        part.notice.kind === 'resumed' &&
+        part.notice.contextPack === undefined,
+    )
+  );
+}
+
 /** 连续的同一回合的消息合成一块；系统消息单独一块。块的 key 是第一条消息的 ID。 */
 export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   let current: Extract<TranscriptBlock, { kind: 'turn' }> | undefined;
   for (const message of messages) {
+    if (message.role === 'system' && isPlainResume(message)) continue;
     if (message.role === 'system') {
       current = undefined;
       blocks.push({ kind: 'message', key: message.id, message });

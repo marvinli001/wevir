@@ -1158,7 +1158,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': 'Siehe logs/host.log',
 
   'notice.resumed': 'Engine-Sitzung wiederhergestellt',
-  'notice.resumedVersion': 'Engine-Sitzung wiederhergestellt ({version})',
   'notice.readOnly': 'Sitzung schreibgeschützt: {reason}',
   'notice.closed': 'Sitzung geschlossen',
   'session.engineTrail': 'Quellen',

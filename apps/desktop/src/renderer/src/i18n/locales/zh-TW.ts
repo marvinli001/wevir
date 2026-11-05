@@ -1138,7 +1138,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': '詳見 logs/host.log',
 
   'notice.resumed': '引擎工作階段已恢復',
-  'notice.resumedVersion': '引擎工作階段已恢復（{version}）',
   'notice.readOnly': '工作階段唯讀：{reason}',
   'notice.closed': '工作階段已關閉',
   'session.engineTrail': '來源',

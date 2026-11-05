@@ -1140,7 +1140,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': '자세한 내용은 logs/host.log 참조',
 
   'notice.resumed': '엔진 세션 복원됨',
-  'notice.resumedVersion': '엔진 세션 복원됨 ({version})',
   'notice.readOnly': '읽기 전용 세션: {reason}',
   'notice.closed': '세션 닫힘',
   'session.engineTrail': '소스',

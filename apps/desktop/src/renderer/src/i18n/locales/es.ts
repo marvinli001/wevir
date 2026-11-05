@@ -1163,7 +1163,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': 'Detalles en logs/host.log',
 
   'notice.resumed': 'Sesión del motor reanudada',
-  'notice.resumedVersion': 'Sesión del motor reanudada ({version})',
   'notice.readOnly': 'Sesión de solo lectura: {reason}',
   'notice.closed': 'Sesión cerrada',
   'session.engineTrail': 'Fuentes',

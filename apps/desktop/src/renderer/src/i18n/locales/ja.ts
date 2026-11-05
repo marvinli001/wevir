@@ -1147,7 +1147,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': '詳細は logs/host.log を参照',
 
   'notice.resumed': 'エンジンセッションを再開しました',
-  'notice.resumedVersion': 'エンジンセッションを再開しました ({version})',
   'notice.readOnly': 'セッションは読み取り専用: {reason}',
   'notice.closed': 'セッションは終了しました',
   'session.engineTrail': 'ソース',

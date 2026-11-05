@@ -1146,7 +1146,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': 'See logs/host.log',
 
   'notice.resumed': 'Engine session resumed',
-  'notice.resumedVersion': 'Engine session resumed ({version})',
   'notice.readOnly': 'Read-only session: {reason}',
   'notice.closed': 'Session closed',
   'session.engineTrail': 'Sources',

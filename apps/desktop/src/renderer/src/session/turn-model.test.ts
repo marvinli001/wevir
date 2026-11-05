@@ -155,6 +155,18 @@ describe('groupTurns / turnStart', () => {
     expect(turnStart(messages, 6)).toBe(5);
   });
 
+  it('只说引擎会话已恢复的系统消息不进消息流', () => {
+    const s = session();
+    s.turn();
+    s.say(TURN, '好的。');
+    s.finish(TURN, 'completed');
+    s.add('session.resumed', { engineVersion: 'rust-v0.165.0' });
+    s.turn(TURN2);
+    const { messages } = s.project();
+    expect(messages.some((m) => m.role === 'system')).toBe(true);
+    expect(groupTurns(messages).map((b) => b.kind)).toEqual(['turn', 'turn']);
+  });
+
   it('isReportOnly：回合结束后才到的任务回报自成一块，别的系统消息与回合不算', () => {
     const TASK = 'tsk_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
     const CHILD = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQS' as const;
@@ -201,11 +213,11 @@ describe('groupTurns / turnStart', () => {
     s.turn(TURN3);
     s.say(TURN3, '继续。');
     s.finish(TURN3, 'completed');
+    // 只读提示照常显示；随后的“已恢复”不进消息流。
     const blocks = groupTurns(s.project().messages);
     expect(blocks.map((block, index) => adjoinsNotice(block, blocks[index - 1]))).toEqual([
       false,
       false,
-      true,
       true,
       true,
     ]);

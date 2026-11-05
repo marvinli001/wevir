@@ -1173,7 +1173,6 @@ export const messages: Messages = {
   'engineError.hint.unknown': 'Подробности в logs/host.log',
 
   'notice.resumed': 'Сессия движка восстановлена',
-  'notice.resumedVersion': 'Сессия движка восстановлена ({version})',
   'notice.readOnly': 'Сессия только для чтения: {reason}',
   'notice.closed': 'Сессия закрыта',
   'session.engineTrail': 'Источники',

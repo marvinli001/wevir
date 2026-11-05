@@ -1152,7 +1152,6 @@ export const zhCN = {
   'engineError.hint.unknown': '详见 logs/host.log',
 
   'notice.resumed': '引擎会话已恢复',
-  'notice.resumedVersion': '引擎会话已恢复（{version}）',
   'notice.readOnly': '会话只读：{reason}',
   'notice.closed': '会话已关闭',
   'session.engineTrail': '来源',

@@ -782,9 +782,7 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
           .filter(Boolean)
           .join(' · ')
       : notice.kind === 'resumed'
-        ? notice.engineVersion
-          ? t('notice.resumedVersion', { version: notice.engineVersion })
-          : t('notice.resumed')
+        ? t('notice.resumed')
         : notice.kind === 'read_only'
           ? t('notice.readOnly', { reason: t(`readOnly.${notice.reason}`) })
           : t('notice.closed');
