@@ -1,5 +1,5 @@
-// 工作区目录的 git 状态（0.13.0，U18，host-api.md §3.1 的 `workspace.git`）：当前分支与相对 HEAD 的改动，给桌面端
-// 会话侧栏的“环境”与“变更”卡片。每次现跑只读的 git 命令，不缓存；同一个目录同时只跑一份，并发的调用共用结果。
+// 工作区目录的 git 状态（0.13.0，U18，host-api.md §3.1 的 `workspace.git`）：当前分支、相对 HEAD 的改动与（0.163.0）
+// 本分支相对默认分支的改动，给桌面端会话侧栏的“环境”与“变更”卡片。每次现跑只读的 git 命令，不缓存；同一个目录同时只跑一份，并发的调用共用结果。
 
 import { execFile } from 'node:child_process';
 import {
@@ -7,7 +7,13 @@ import {
   WORKSPACE_GIT_MAX_FILES,
   type WorkspaceGitResult,
 } from '@wevir/protocol';
-import { gitBinary, safeConfig, splitRawNumstat } from './git-diff.js';
+import {
+  branchBase,
+  gitBinary,
+  parseNumstat as parseRenamedNumstat,
+  safeConfig,
+  splitRawNumstat,
+} from './git-diff.js';
 
 /** 每条 git 命令的时限；超时按“不是仓库”处理。 */
 const TIMEOUT_MS = 5_000;
@@ -65,6 +71,7 @@ async function read(root: string): Promise<WorkspaceGitResult> {
   const others: GitFileChange[] = splitZ(untracked).map((path) => ({ path, status: 'untracked' }));
   const all = [...tracked, ...others];
   const branchName = branch?.trim();
+  const branchDiff = await readBranchDiff(root, config, hasHead, branchName, others.length);
   return {
     repo: true,
     ...(branchName ? { branch: branchName } : hasHead && { detachedAt: head.trim() }),
@@ -73,7 +80,65 @@ async function read(root: string): Promise<WorkspaceGitResult> {
     fileCount: all.length,
     files: all.slice(0, WORKSPACE_GIT_MAX_FILES),
     ...(all.length > WORKSPACE_GIT_MAX_FILES && { truncated: true }),
+    ...(branchDiff && { branchDiff }),
   };
+}
+
+type BranchDiff = NonNullable<WorkspaceGitResult['branchDiff']>;
+
+/**
+ * 本分支的改动（0.163.0）：工作树对默认分支与 HEAD 的 merge-base，同 `workspace.diff` 的 `branch`，含已提交未推送的提交与未跟踪
+ * 文件（未跟踪的只计文件数）。同 `git diff` 与 Claude Code 跟踪重命名，改名的文件不按整删整加算。还没有提交、读失败时省略。
+ */
+async function readBranchDiff(
+  root: string,
+  config: readonly string[],
+  hasHead: boolean,
+  branchName: string | undefined,
+  untracked: number,
+): Promise<BranchDiff | undefined> {
+  if (!hasHead) return undefined;
+  try {
+    const full = (
+      await run(root, config, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])
+    )?.trim();
+    if (!full) return undefined;
+    const repo = {
+      cwd: root,
+      toplevel: root,
+      head: full,
+      ...(branchName && { branch: branchName }),
+      config: [...config],
+    };
+    const { base, baseRef } = await branchBase(repo);
+    const ref = baseRef === undefined ? {} : { baseRef };
+    const diff = await run(
+      root,
+      config,
+      [
+        'diff',
+        '--numstat',
+        '-z',
+        '--find-renames',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--relative',
+        base,
+        '--',
+      ],
+      MAX_BUFFER * 2,
+    );
+    if (diff === undefined) return undefined;
+    const lines = parseRenamedNumstat(diff);
+    return {
+      ...ref,
+      added: lines.reduce((total, line) => total + (line.added ?? 0), 0),
+      removed: lines.reduce((total, line) => total + (line.removed ?? 0), 0),
+      fileCount: lines.length + untracked,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /** 跑一条 git 命令，成功时是 stdout，失败（退出码非 0、没有 git、超时）时是 undefined。 */

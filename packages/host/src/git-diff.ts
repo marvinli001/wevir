@@ -370,12 +370,17 @@ async function defaultBranch(repo: RepoInfo): Promise<string | undefined> {
       okCodes: [0, 1, 128],
     },
   );
-  const candidates = [
+  const listed = [
     ...(origin.code === 0 ? [origin.stdout.toString('utf8').trim()] : []),
     'main',
     'master',
     'origin/main',
     'origin/master',
+  ];
+  // 正在默认分支上时，本地的同名分支就是 HEAD，比不出已提交未推送的提交：先试 origin/…，都没有时才用它。
+  const candidates = [
+    ...listed.filter((name) => name !== repo.branch),
+    ...listed.filter((name) => name === repo.branch),
   ];
   for (const candidate of candidates) {
     if (candidate === '' || candidate.startsWith('-')) continue;
@@ -851,7 +856,7 @@ export function readBranch(dir: string): Promise<WorkspaceDiffResult> {
 }
 
 /** `branch` 的旧的一侧：默认分支与 HEAD 的 merge-base；找不到默认分支或没有共同的提交时是 HEAD（还没有提交时是空树）。 */
-async function branchBase(repo: RepoInfo): Promise<{ base: string; baseRef?: string }> {
+export async function branchBase(repo: RepoInfo): Promise<{ base: string; baseRef?: string }> {
   if (repo.head !== undefined) {
     const candidate = await defaultBranch(repo);
     if (candidate !== undefined) {

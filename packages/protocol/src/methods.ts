@@ -603,6 +603,19 @@ export const WorkspaceGitResultSchema = z.object({
   files: z.array(GitFileChangeSchema).max(WORKSPACE_GIT_MAX_FILES).optional(),
   /** `files` 只列了前 `WORKSPACE_GIT_MAX_FILES` 项。 */
   truncated: z.boolean().optional(),
+  /**
+   * 0.163.0：本分支的改动，同 `workspace.diff` 的 `branch`（工作树对默认分支与 HEAD 的 merge-base，含已提交未推送的提交与未跟踪
+   * 文件）。找不到默认分支或没有共同的提交时与上面的未提交改动相同。旧 Host 没有。
+   */
+  branchDiff: z
+    .object({
+      /** 比较的默认分支，例如 `origin/main`；找不到时省略。 */
+      baseRef: z.string().min(1).optional(),
+      added: z.int().min(0),
+      removed: z.int().min(0),
+      fileCount: z.int().min(0),
+    })
+    .optional(),
 });
 export type WorkspaceGitResult = z.infer<typeof WorkspaceGitResultSchema>;
 

@@ -58,6 +58,41 @@ describe('readGitStatus', () => {
       removed: 0,
       fileCount: 0,
       files: [],
+      branchDiff: { baseRef: 'main', added: 0, removed: 0, fileCount: 0 },
+    });
+  });
+
+  it('本分支的改动含已提交未推送的提交与未跟踪文件，对默认分支的 merge-base 比', async () => {
+    const origin = repo();
+    const dir = join(realpathSync(tempDir()), 'clone');
+    sh(origin, 'clone', '-q', origin, dir);
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\nfive\n');
+    sh(dir, 'commit', '-q', '-am', 'ahead');
+    writeFileSync(join(dir, 'c.txt'), 'c\n');
+    sh(dir, 'add', 'c.txt');
+    sh(dir, 'commit', '-q', '-m', 'ahead again');
+    writeFileSync(join(dir, 'sub', 'b.txt'), 'B\n');
+    writeFileSync(join(dir, 'new.md'), 'hello\n');
+    expect(await readGitStatus(dir)).toMatchObject({
+      branch: 'main',
+      added: 1,
+      removed: 1,
+      fileCount: 2,
+      branchDiff: { baseRef: 'origin/main', added: 4, removed: 1, fileCount: 4 },
+    });
+  });
+
+  it('本分支的改动跟踪重命名，改名的文件不按整删整加算', async () => {
+    const origin = repo();
+    const dir = join(realpathSync(tempDir()), 'clone');
+    sh(origin, 'clone', '-q', origin, dir);
+    sh(dir, 'mv', 'a.txt', 'renamed.txt');
+    sh(dir, 'commit', '-q', '-m', 'rename');
+    expect((await readGitStatus(dir)).branchDiff).toEqual({
+      baseRef: 'origin/main',
+      added: 0,
+      removed: 0,
+      fileCount: 1,
     });
   });
 
@@ -102,6 +137,7 @@ describe('readGitStatus', () => {
         { path: 'b.txt', status: 'modified', added: 1, removed: 0 },
         { path: 'c.txt', status: 'untracked' },
       ],
+      branchDiff: { baseRef: 'main', added: 1, removed: 0, fileCount: 2 },
     });
   });
 
@@ -175,6 +211,7 @@ describe('readGitStatus', () => {
         { path: 'a.txt', status: 'modified', added: 1, removed: 3 },
         { path: '.gitattributes', status: 'untracked' },
       ],
+      branchDiff: { baseRef: 'main', added: 1, removed: 3, fileCount: 2 },
     });
     expect(existsSync(marker)).toBe(false);
   });

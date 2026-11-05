@@ -1,0 +1,42 @@
+{
+  "protocolVersion": "0.163.0",
+  "methods": {
+    "workspace.git": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "repo": true,
+          "branch": "main",
+          "added": 0,
+          "removed": 0,
+          "fileCount": 0,
+          "files": [],
+          "branchDiff": {
+            "baseRef": "origin/main",
+            "added": 5921,
+            "removed": 309,
+            "fileCount": 87
+          }
+        },
+        {
+          "repo": true,
+          "added": 0,
+          "removed": 0,
+          "fileCount": 0,
+          "branchDiff": {
+            "added": 0,
+            "removed": 0,
+            "fileCount": 0
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

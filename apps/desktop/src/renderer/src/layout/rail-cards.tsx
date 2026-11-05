@@ -156,9 +156,19 @@ function LineCounts({ added, removed }: { added: number; removed: number }) {
 }
 
 /**
- * 照 Claude Code 的“Changes”：按 git 仓库一行，图标、项目名与 `+N −M`，不列文件。Host 有 `workspace_diff`（0.20.0）时点这一行
- * 在“变更”窗格里打开“未提交”，有 `git_commit`（0.67.0）时右边多一个“提交”，打开窗格并展开底部的提交区。
+ * 照 Claude Code 的“Changes”：按 git 仓库一行，图标、项目名与 `+N −M`，不列文件。数字是本分支对默认分支的改动（0.163.0 的
+ * `branchDiff`，含已提交未推送的提交）；旧 Host 没有时只算未提交的。Host 有 `workspace_diff`（0.20.0）时点这一行在“变更”窗格里
+ * 打开同一段（“本分支”或“未提交”），有 `git_commit`（0.67.0）且有未提交的改动时右边多一个“提交”，打开窗格并展开底部的提交区。
  */
+function changeCounts(status: WorkspaceGitResult): {
+  added: number;
+  removed: number;
+  fileCount: number;
+} {
+  const { added = 0, removed = 0, fileCount = 0 } = status.branchDiff ?? status;
+  return { added, removed, fileCount };
+}
+
 function useChangesCard({ entry, gitFolders, sessionId }: RailContext) {
   const panes = usePanes();
   const diffSupported = useDiffSupported();
@@ -169,11 +179,14 @@ function useChangesCard({ entry, gitFolders, sessionId }: RailContext) {
   );
   if (repos.length === 0) return null;
   const totals = repos.reduce(
-    (sum, { status }) => ({
-      added: sum.added + (status.added ?? 0),
-      removed: sum.removed + (status.removed ?? 0),
-      fileCount: sum.fileCount + (status.fileCount ?? 0),
-    }),
+    (sum, { status }) => {
+      const counts = changeCounts(status);
+      return {
+        added: sum.added + counts.added,
+        removed: sum.removed + counts.removed,
+        fileCount: sum.fileCount + counts.fileCount,
+      };
+    },
     { added: 0, removed: 0, fileCount: 0 },
   );
   return {
@@ -193,7 +206,7 @@ function useChangesCard({ entry, gitFolders, sessionId }: RailContext) {
                     openChanges(
                       panes,
                       sessionId,
-                      { kind: 'uncommitted' },
+                      status.branchDiff ? { kind: 'branch' } : { kind: 'uncommitted' },
                       multiple ? folder : undefined,
                     )
                 : undefined
@@ -218,7 +231,7 @@ function ChangesFolderRow({
   commitSupported: boolean;
   open: (() => void) | undefined;
 }) {
-  const { added = 0, removed = 0, fileCount = 0 } = status;
+  const { added, removed, fileCount } = changeCounts(status);
   const counts =
     fileCount === 0 ? (
       <span className="shrink-0 text-muted-foreground">{t('rail.changes.none')}</span>
@@ -249,7 +262,7 @@ function ChangesFolderRow({
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5">{label}</span>
       )}
-      {open && commitSupported && fileCount > 0 && (
+      {open && commitSupported && (status.fileCount ?? 0) > 0 && (
         <Button
           variant="secondary"
           size="xs"
