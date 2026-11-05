@@ -67,23 +67,49 @@ function EnvironmentForm({
   const workspaces =
     data.status === 'ready' ? projectsOf(data.workspaces).map((entry) => entry.workspace) : [];
 
+  // 列表顺序：打开时已勾选的按顺序在前，其余按项目列表的顺序；勾选不挪位置（挪了滚动会跟着跳），只有“上移”改顺序。
+  // 已勾选的文件夹在 `folders` 里的顺序始终与它们在列表里的先后一致。
+  const [order, setOrder] = useState<WorkspaceId[]>(() =>
+    (environment?.folders ?? []).map((folder) => folder.workspaceId),
+  );
+  const ordered = [
+    ...order.flatMap((id) => workspaces.filter((w) => w.id === id)),
+    ...workspaces.filter((workspace) => !order.includes(workspace.id)),
+  ];
+  const orderedIds = ordered.map((workspace) => workspace.id);
+
   const indexOf = (id: WorkspaceId) => folders.findIndex((folder) => folder.workspaceId === id);
-  const toggle = (id: WorkspaceId) =>
-    setFolders((current) =>
-      indexOf(id) >= 0
-        ? current.filter((folder) => folder.workspaceId !== id)
-        : [...current, { workspaceId: id, worktree: 'none' }],
-    );
+  const toggle = (id: WorkspaceId) => {
+    setOrder(orderedIds);
+    setFolders((current) => {
+      if (current.some((folder) => folder.workspaceId === id)) {
+        return current.filter((folder) => folder.workspaceId !== id);
+      }
+      // 插在列表里排在它后面的第一个已勾选文件夹之前。
+      const position = orderedIds.indexOf(id);
+      const at = current.findIndex((folder) => orderedIds.indexOf(folder.workspaceId) > position);
+      const next = [...current];
+      next.splice(at < 0 ? next.length : at, 0, { workspaceId: id, worktree: 'none' });
+      return next;
+    });
+  };
   const setWorktree = (id: WorkspaceId, on: boolean) =>
     setFolders((current) =>
       current.map((folder) =>
         folder.workspaceId === id ? { ...folder, worktree: on ? 'new' : 'none' } : folder,
       ),
     );
-  const moveUp = (id: WorkspaceId) =>
+  // 和上一个已勾选的文件夹互换：列表里换位置，`folders` 里也换。
+  const moveUp = (id: WorkspaceId) => {
+    const index = indexOf(id);
+    const previous = folders[index - 1];
+    if (index <= 0 || !previous) return;
+    const from = orderedIds.indexOf(id);
+    const to = orderedIds.indexOf(previous.workspaceId);
+    const nextOrder = [...orderedIds];
+    [nextOrder[to], nextOrder[from]] = [id, previous.workspaceId];
+    setOrder(nextOrder);
     setFolders((current) => {
-      const index = current.findIndex((folder) => folder.workspaceId === id);
-      if (index <= 0) return current;
       const next = [...current];
       [next[index - 1], next[index]] = [
         next[index] as EnvironmentFolder,
@@ -91,6 +117,7 @@ function EnvironmentForm({
       ];
       return next;
     });
+  };
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -132,12 +159,6 @@ function EnvironmentForm({
     setVariablesError(undefined);
     setView('main');
   };
-  // 已勾选的按顺序在前，其余按项目列表的顺序。
-  const ordered = [
-    ...folders.flatMap((folder) => workspaces.filter((w) => w.id === folder.workspaceId)),
-    ...workspaces.filter((workspace) => indexOf(workspace.id) < 0),
-  ];
-
   if (view === 'variables') {
     return (
       <DialogContent className="gap-4 p-5 sm:max-w-120" data-testid="environment-dialog">
