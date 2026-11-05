@@ -114,7 +114,7 @@ export function todoRowState(
   return status === 'in_progress' ? 'stalled' : status;
 }
 
-/** 回顾的素材：有清单时是进度，没有时是这一轮最近一个工作组的摘要；都没有时是 undefined。 */
+/** 回顾的素材：有清单时是进度，没有时是这一轮最近一个工作组的摘要（不算等审批的工具）；都没有时是 undefined。 */
 export type Recap = { kind: 'todos'; progress: TodoProgress } | { kind: 'work'; summary: string };
 
 export function turnRecap(
@@ -129,6 +129,10 @@ export function turnRecap(
   );
   const work = groupWork(parts).findLast((item) => item.kind === 'work');
   if (work?.kind !== 'work') return undefined;
-  const summary = workSummary(tallyWork(work.entries, transcript.activeTurnId === turnId));
+  // 卡片问的那个工具（等审批）还没做，不算进“这一轮做了什么”。
+  const done = work.entries.filter(
+    (entry) => entry.type !== 'tool' || entry.status !== 'awaiting_approval',
+  );
+  const summary = workSummary(tallyWork(done, transcript.activeTurnId === turnId));
   return summary === '' ? undefined : { kind: 'work', summary };
 }

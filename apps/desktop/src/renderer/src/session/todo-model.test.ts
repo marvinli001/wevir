@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatPart } from '@wevir/client-sdk';
+import type { ChatMessage, ChatPart, ChatPartOf } from '@wevir/client-sdk';
 import type { TodoItem, TurnId } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { latestTodos, todoProgress, todoRowState, todoStatus, turnRecap } from './todo-model';
@@ -152,5 +152,20 @@ describe('turnRecap', () => {
     expect(recap?.kind).toBe('work');
     expect(recap?.kind === 'work' && recap.summary).toBeTruthy();
     expect(turnRecap({ messages: [user(T1)], activeTurnId: T1 })).toBeUndefined();
+  });
+
+  it('等审批的命令不算进回顾：卡片问的就是它', () => {
+    const waiting: ChatPart = {
+      ...(tool('c', 'shell') as ChatPartOf<'tool'>),
+      status: 'awaiting_approval',
+    };
+    const recap = turnRecap({
+      messages: [user(T1), assistant(T1, [tool('b', 'shell'), waiting])],
+      activeTurnId: T1,
+    });
+    expect(recap).toEqual({ kind: 'work', summary: '运行了 1 条命令' });
+    expect(
+      turnRecap({ messages: [user(T1), assistant(T1, [waiting])], activeTurnId: T1 }),
+    ).toBeUndefined();
   });
 });
