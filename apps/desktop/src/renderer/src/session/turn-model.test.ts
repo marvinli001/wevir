@@ -19,7 +19,7 @@ import {
   filesAfterAnswer,
   finalAnswer,
   foldedParts,
-  foldSegments,
+  foldItems,
   foldTurn,
   groupTurns,
   handoffAfterLastTurn,
@@ -460,20 +460,15 @@ describe('foldTurn', () => {
       3,
       'part',
     ]);
-    // 分段：回答之前的整段过程（含中间说的话）一段，回答一段；各段的分组与整条消息的一致。
-    const segments = assistant ? foldSegments(assistant.id, assistant.parts, fold) : [];
-    expect(segments.map((segment) => [segment.kept, segment.parts.length])).toEqual([
-      [false, 8],
-      [true, 1],
+    // 逐项标好收起时留不留：只有回答留下；各项与整条消息的分组一致。
+    const folded = assistant ? foldItems(assistant.id, assistant.parts, fold) : [];
+    expect(folded.map(({ item, kept }) => [kept, item.kind])).toEqual([
+      [false, 'work'],
+      [false, 'part'],
+      [false, 'work'],
+      [true, 'part'],
     ]);
-    expect(segments[0]?.key).toBe(assistant?.parts[0]?.key);
-    expect(
-      segments.flatMap((segment) =>
-        groupWork(segment.parts).map((item) =>
-          item.kind === 'work' ? item.entries.length : item.kind,
-        ),
-      ),
-    ).toEqual([4, 'part', 3, 'part']);
+    expect(folded.map(({ item }) => item)).toEqual(items);
   });
 
   it('finalAnswer：只取收起时留下的最后一段正文，不带中途说的话', () => {
@@ -572,13 +567,14 @@ describe('foldTurn', () => {
     expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual(['tasks', 'text']);
     expect(
       assistant &&
-        foldSegments(assistant.id, assistant.parts, fold).map((segment) => [
-          segment.kept,
-          segment.parts.map((p) => p.type),
+        foldItems(assistant.id, assistant.parts, fold).map(({ item, kept }) => [
+          kept,
+          item.kind === 'part' ? item.part.type : item.kind,
         ]),
     ).toEqual([
-      [false, ['tool']],
-      [true, ['tasks', 'text']],
+      [false, 'work'],
+      [true, 'tasks'],
+      [true, 'text'],
     ]);
   });
 
@@ -726,12 +722,13 @@ describe('foldTurn', () => {
     const assistant = messages.find((m) => m.role === 'assistant');
     expect(
       assistant &&
-        foldSegments(assistant.id, filesAfterAnswer(assistant.id, assistant.parts, fold), fold).map(
-          (segment) => [segment.kept, segment.parts.map((p) => p.type)],
+        foldItems(assistant.id, filesAfterAnswer(assistant.id, assistant.parts, fold), fold).map(
+          ({ item, kept }) => [kept, item.kind === 'part' ? item.part.type : item.kind],
         ),
     ).toEqual([
-      [false, ['tool']],
-      [true, ['text', 'files']],
+      [false, 'work'],
+      [true, 'text'],
+      [true, 'files'],
     ]);
   });
 });

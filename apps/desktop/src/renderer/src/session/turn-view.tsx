@@ -2,7 +2,7 @@ import type { ChatMessage } from '@wevir/client-sdk';
 import type { PendingMessage, TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight, CircleAlert, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
-import { Fragment, memo, useContext, useEffect, useId, useRef } from 'react';
+import { memo, useContext, useEffect, useId, useRef } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { turnChangeStats } from '@/changes/changes-model';
 import { Collapse } from '@/components/collapse';
@@ -13,7 +13,13 @@ import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
 import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
 import { BranchButton, useMessageActions } from './message-actions';
-import { PartsView, PendingSteerMessage, RelativeTime, UserMessage } from './message-view';
+import {
+  PendingSteerMessage,
+  RelativeTime,
+  StreamItemView,
+  streamItemKey,
+  UserMessage,
+} from './message-view';
 import { PendingNoticeLine } from './pending-area';
 import { visibleParts } from './subagent-model';
 import { TurnTodoCard } from './todo-card';
@@ -23,7 +29,7 @@ import { OpenTurnChanges } from './turn-changes';
 import {
   filesAfterAnswer,
   finalAnswer,
-  foldSegments,
+  foldItems,
   foldTurn,
   type TurnFold,
   turnHeaderText,
@@ -49,7 +55,7 @@ const HEADER_TONES: Record<TurnOutcome, string> = {
 /**
  * 一个回合（U2，照 Codex 桌面端 design-refs/10–12）：用户消息、助手消息与中间的插话。正常完成的回合默认把过程收进一行
  * “已处理 2 分 31 秒”，只留最后的回答、错误与插话，回答下面是“N 个文件已更改”；出错、被停止、被中断的回合不自动收起，
- * 那一行写“出错 · 用时”等。有那一行时过程按段（turn-model.ts 的 foldSegments）放进 Collapse，点开、收起与回合结束时的
+ * 那一行写“出错 · 用时”等。过程的每一项（turn-model.ts 的 foldItems）放在 Collapse 里，点开、收起与回合结束时的
  * 自动收起都有高度过渡，留下的回答不动。进行中的回合末尾是当前动作那一行。按消息的对象身份 memo：投影只为改动过的消息
  * 换新对象，流式输出时只有进行中的回合重画。
  */
@@ -188,8 +194,8 @@ export const TurnView = memo(
           <div id={id}>
             {messages.slice(lead).map((message) => {
               if (message.role === 'user') {
-                // 回合中途插进来的后台进程通知属于过程：随过程一起收进“已处理”，不留在回答上面。
-                if (fold.showHeader && message.from?.process !== undefined) {
+                // 回合中途插进来的后台进程通知属于过程：随过程一起收进“已处理”，不留在回答上面。进行中也包着，结束时不重新挂载。
+                if (message.from?.process !== undefined) {
                   return (
                     <Collapse key={message.id} open={!folded} fromOpen={justFolded} flow>
                       <div className="mt-3" data-chat-message={message.id}>
@@ -213,69 +219,44 @@ export const TurnView = memo(
                 fold,
               );
               if (parts.length === 0) return null;
-              const view = (shown: typeof parts) => (
-                <PartsView
-                  parts={shown}
-                  turnActive={turnActive}
-                  {...(message === last && live && { live })}
-                  {...(fold.startedAt !== undefined && { startedAt: fold.startedAt })}
-                />
-              );
-              if (!fold.showHeader) {
-                return (
+              const items = foldItems(message.id, parts, fold);
+              // 整条都是过程：连同上边距一起收起（这时各项不再各自收起）。
+              const whole = fold.showHeader && items.every(({ kept }) => !kept);
+              // 进行中与结束后是同一棵树（消息与每一项都包着 Collapse，展开静止时是 display: contents）：回合结束时只有
+              // open 变化，留下的回答不重新挂载。
+              return (
+                <Collapse key={message.id} open={!(folded && whole)} fromOpen={justFolded} flow>
                   <div
-                    key={message.id}
                     className="mt-3"
                     data-message-role="assistant"
                     data-chat-message={message.id}
                   >
-                    {view(parts)}
-                  </div>
-                );
-              }
-              const segments = foldSegments(message.id, parts, fold);
-              // 整条都是过程：连同上边距一起收起。
-              if (segments.every((segment) => !segment.kept)) {
-                return (
-                  <Collapse key={message.id} open={!folded} fromOpen={justFolded} flow>
-                    <div
-                      className="mt-3"
-                      data-message-role="assistant"
-                      data-chat-message={message.id}
-                    >
-                      {view(parts)}
-                    </div>
-                  </Collapse>
-                );
-              }
-              return (
-                <div
-                  key={message.id}
-                  className="mt-3"
-                  data-message-role="assistant"
-                  data-chat-message={message.id}
-                >
-                  {segments.map((segment) =>
-                    segment.kept ? (
-                      <Fragment key={segment.key}>{view(segment.parts)}</Fragment>
-                    ) : (
-                      <Collapse key={segment.key} open={!folded} fromOpen={justFolded} flow>
-                        {view(segment.parts)}
+                    {items.map(({ item, kept }, index) => (
+                      <Collapse
+                        key={streamItemKey(item)}
+                        open={!folded || kept || whole}
+                        fromOpen={justFolded}
+                        flow
+                      >
+                        <StreamItemView
+                          item={item}
+                          tail={index === items.length - 1}
+                          turnActive={turnActive}
+                          {...(message === last && live && { live })}
+                          {...(fold.startedAt !== undefined && { startedAt: fold.startedAt })}
+                        />
                       </Collapse>
-                    ),
-                  )}
-                </div>
+                    ))}
+                  </div>
+                </Collapse>
               );
             })}
           </div>
-          {todos &&
-            (fold.showHeader ? (
-              <Collapse open={!folded} fromOpen={justFolded} flow>
-                <TurnTodoCard todos={todos} running={runningSubagents} />
-              </Collapse>
-            ) : (
+          {todos && (
+            <Collapse open={!folded} fromOpen={justFolded} flow>
               <TurnTodoCard todos={todos} running={runningSubagents} />
-            ))}
+            </Collapse>
+          )}
           {steers.map((message) => (
             <div key={message.id} className="mt-3">
               <PendingSteerMessage message={message} />

@@ -14,7 +14,14 @@ import { sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
 import { formatDuration } from './format';
 import { visibleParts } from './subagent-model';
-import { editStats, isImageTool, type LineStats, toolLifecycle } from './tool-model';
+import {
+  editStats,
+  groupWork,
+  isImageTool,
+  type LineStats,
+  type StreamItem,
+  toolLifecycle,
+} from './tool-model';
 
 /** 消息流的一块：一个回合的全部消息（用户消息、助手消息、插话），或一条不属于回合的系统消息。 */
 export type TranscriptBlock =
@@ -320,30 +327,26 @@ export function filesAfterAnswer<T extends ChatPart>(
   ];
 }
 
-/** 助手消息的一段：收起时留下的部件（`kept`），或夹在它们之间的一串过程。`key` 取第一个部件的 key。 */
-export interface FoldSegment {
-  key: string;
+/** 助手消息的一项（`groupWork` 的结果）与它收起时留不留下（`kept`）。 */
+export interface FoldItem {
+  item: StreamItem;
   kept: boolean;
-  parts: ChatPart[];
 }
 
 /**
- * 有回合那一行的助手消息按收起时留不留分段（`parts` 是这条消息要显示的部件，已按 `visibleParts` 筛过）：过程段在展开、
- * 收起时有高度过渡，留下的段不动。留下的部件不是思考、工具或子智能体，本来就断开工作组，分段不改变 `groupWork` 的分组。
+ * 助手消息的各项按收起时留不留标好（`parts` 是这条消息要显示的部件，已按 `visibleParts` 筛过）。回合视图逐项包一层
+ * Collapse，进行中与结束后是同一棵树：结束时只是过程那几项收起，留下的回答不重新挂载（高亮、图表、选区都不丢）。留下的
+ * 部件不是思考、工具或子智能体，本来就断开工作组：工作组与子智能体行总是过程，其余按 `keptInFold`。
  */
-export function foldSegments(
+export function foldItems(
   messageId: string,
   parts: readonly ChatPart[],
   fold: TurnFold,
-): FoldSegment[] {
-  const segments: FoldSegment[] = [];
-  for (const part of parts) {
-    const kept = keptInFold(messageId, part, fold);
-    const last = segments.at(-1);
-    if (last && last.kept === kept) last.parts.push(part);
-    else segments.push({ key: part.key, kept, parts: [part] });
-  }
-  return segments;
+): FoldItem[] {
+  return groupWork(parts).map((item) => ({
+    item,
+    kept: item.kind === 'part' && keptInFold(messageId, item.part, fold),
+  }));
 }
 
 /** 回合那一行的文字：“已处理 2 分 31 秒”“出错 · 12 秒”“已停止 · 3 秒”“已中断 · 1 分 2 秒”。 */

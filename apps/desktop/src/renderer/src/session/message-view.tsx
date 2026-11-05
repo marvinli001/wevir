@@ -57,7 +57,7 @@ import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { formatRelativeTime } from './subagent-model';
 import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
-import { groupWork, isImageTool } from './tool-model';
+import { groupWork, isImageTool, type StreamItem } from './tool-model';
 import { RetryRow, UsageLimitCard } from './usage-limit-card';
 import { useNow } from './use-now';
 import { WorkGroup } from './work-group';
@@ -500,6 +500,11 @@ function GoalContinuation() {
   );
 }
 
+/** 一项（`groupWork` 的结果）的 key：工作组与子智能体行取它们自己的，其余取部件的。 */
+export function streamItemKey(item: StreamItem): string {
+  return item.kind === 'part' ? item.part.key : item.key;
+}
+
 /**
  * 一条助手消息（或系统消息）的部件：连续的思考与工具调用是一个工作组，连续的子智能体标记是一行小标签，其余照常。
  * `live` 时最后一项若是工作组，它显示当前动作（否则回合在末尾另起“正在思考”那一行，turn-view.tsx）。
@@ -520,42 +525,60 @@ export function PartsView({
   const items = groupWork(parts);
   return (
     <>
-      {items.map((item, index) => {
-        const tail = index === items.length - 1;
-        switch (item.kind) {
-          case 'work':
-            return (
-              <WorkGroup
-                key={item.key}
-                foldKey={item.key}
-                entries={item.entries}
-                turnActive={turnActive}
-                tail={tail}
-                {...(tail && live && { live })}
-                {...(startedAt !== undefined && { startedAt })}
-              />
-            );
-          case 'subagents':
-            return <SubagentRow key={item.key} parts={item.parts} />;
-          default:
-            if (item.part.type === 'retry') {
-              return (
-                <RetryRow
-                  key={item.part.key}
-                  part={item.part}
-                  active={tail && live !== undefined}
-                />
-              );
-            }
-            return item.part.type === 'tool' && isImageTool(item.part) ? (
-              <GeneratedImage key={item.part.key} part={item.part} turnActive={turnActive} />
-            ) : (
-              <PartView key={item.part.key} part={item.part} />
-            );
-        }
-      })}
+      {items.map((item, index) => (
+        <StreamItemView
+          key={streamItemKey(item)}
+          item={item}
+          tail={index === items.length - 1}
+          turnActive={turnActive}
+          {...(live && { live })}
+          {...(startedAt !== undefined && { startedAt })}
+        />
+      ))}
     </>
   );
+}
+
+/** `PartsView` 的一项。回合视图逐项包一层 Collapse（turn-view.tsx），所以单独导出。 */
+export function StreamItemView({
+  item,
+  tail,
+  turnActive,
+  live,
+  startedAt,
+}: {
+  item: StreamItem;
+  /** 这条消息的最后一项。 */
+  tail: boolean;
+  turnActive: boolean;
+  /** 这是进行中回合的最后一条消息。 */
+  live?: LiveState;
+  startedAt?: string;
+}) {
+  switch (item.kind) {
+    case 'work':
+      return (
+        <WorkGroup
+          foldKey={item.key}
+          entries={item.entries}
+          turnActive={turnActive}
+          tail={tail}
+          {...(tail && live && { live })}
+          {...(startedAt !== undefined && { startedAt })}
+        />
+      );
+    case 'subagents':
+      return <SubagentRow parts={item.parts} />;
+    default:
+      if (item.part.type === 'retry') {
+        return <RetryRow part={item.part} active={tail && live !== undefined} />;
+      }
+      return item.part.type === 'tool' && isImageTool(item.part) ? (
+        <GeneratedImage part={item.part} turnActive={turnActive} />
+      ) : (
+        <PartView part={item.part} />
+      );
+  }
 }
 
 /** 不属于回合的提示与错误（恢复、只读、关闭；父会话空闲时才结束的子智能体）。 */
