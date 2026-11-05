@@ -103,6 +103,10 @@ export class SessionActivityTracker {
       case 'assistant.delta':
         tracked.writing = event.payload.kind === 'text' && tracked.running.size === 0;
         break;
+      // 一段正文写完、下一步还没开始（模型在想）：回到“正在思考”，同消息流末尾那一行。
+      case 'assistant.stream_ended':
+        tracked.writing = false;
+        break;
       default:
         return;
     }

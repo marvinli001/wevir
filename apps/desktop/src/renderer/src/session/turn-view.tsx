@@ -130,6 +130,9 @@ export const TurnView = memo(
     // 计划写到一半（0.37.0）：那一行写“正在写计划”。
     const writingPlan =
       tail?.kind === 'part' && tail.part.type === 'plan' && tail.part.state === 'streaming';
+    // 正文正在流式写出：那一行写“正在回复”，同侧栏的运行行（data/session-activity.ts）。
+    const writingText =
+      tail?.kind === 'part' && tail.part.type === 'text' && tail.part.state === 'streaming';
     // 回合结束后的回答（收起时留下的那段正文），悬停时下面出现“复制”（U36）。
     const answer = fold.finished ? finalAnswer(messages, fold) : '';
     const liveLine =
@@ -137,6 +140,7 @@ export const TurnView = memo(
         ? {
             live,
             startedAt: fold.startedAt,
+            ...(writingText && { label: t('agentStatus.writing') }),
             ...(compacting && { label: t('compaction.running') }),
             ...(writingPlan && { label: t('plan.writing') }),
           }
