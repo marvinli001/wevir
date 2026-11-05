@@ -1042,8 +1042,6 @@ export const messages: Messages = {
   'plan.implementInNew': 'In neuer Sitzung umsetzen',
   'plan.implementPrefix': 'Setze diesen Plan um:',
   'todo.title': 'Checkliste',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': '{done}/{total} erledigt',
   'todo.runningTasks': '{count, plural, one {# Aufgabe läuft} other {# Aufgaben laufen}}',
   'todo.status.completed': 'Erledigt',
   'todo.status.in_progress': 'In Arbeit',

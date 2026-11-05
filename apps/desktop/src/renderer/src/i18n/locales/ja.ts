@@ -1032,8 +1032,6 @@ export const messages: Messages = {
   'plan.implementInNew': '新しいセッションで実装',
   'plan.implementPrefix': 'このプランを実装してください：',
   'todo.title': 'チェックリスト',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': '{done}/{total} 完了',
   'todo.runningTasks': '{count} 件のタスクを実行中',
   'todo.status.completed': '完了',
   'todo.status.in_progress': '進行中',

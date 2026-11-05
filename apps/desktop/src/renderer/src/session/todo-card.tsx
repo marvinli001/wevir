@@ -1,77 +1,39 @@
 import type { Transcript } from '@wevir/client-sdk';
 import type { TodoItem } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, CircleCheck, CircleDashed, CircleDot, LoaderCircle } from 'lucide-react';
-import { useState } from 'react';
-import { Collapse } from '@/components/collapse';
+import { CircleCheck, CircleDashed, CircleDot, LoaderCircle } from 'lucide-react';
 import { Hint } from '@/components/hint';
 import { t } from '@/i18n';
-import {
-  type TurnTodos,
-  todoCollapsedByDefault,
-  todoProgress,
-  todoRowState,
-  turnRecap,
-} from './todo-model';
+import { type TurnTodos, todoRowState, turnRecap } from './todo-model';
 
 /**
  * 回合的实时清单（U20，desktop-tokens.md §25；截图 05–07）：2026-11-02 起照 Claude Code 画在消息流里回合末尾（当前动作那一行
- * 之前），不再停在输入框上方。回合结束时收成一行；回合结束后没标完的项不再转圈，回合自己做完收了尾的，没标完的按做完显示。
+ * 之前），不再停在输入框上方。2026-11-05 起也照 Claude Code 去掉标题行与折叠，只列各项；回合结束后没标完的项不再转圈，回合自己做完收了尾的，没标完的按做完显示。
  * `running` 是进行中的子会话数，写在进行中那一项下面。
  */
 export function TurnTodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
-  // 换回合时重建：用户点开或收起过的只对这一个回合有效。
   return <TodoCard key={todos.turnId} todos={todos} running={todos.active ? running : 0} />;
 }
 
 function TodoCard({ todos, running }: { todos: TurnTodos; running: number }) {
-  const [choice, setChoice] = useState<boolean>();
-  const open = choice ?? !todoCollapsedByDefault(todos);
-  const { done, total } = todoProgress(todos.items, todos.finishedWell);
   return (
     <section
       aria-label={t('todo.title')}
       data-testid="todo-card"
-      className="mt-3 rounded-xl border border-border bg-background animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
+      className="mt-3 rounded-xl border border-border bg-background px-3 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
     >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setChoice(!open)}
-        className={cn(
-          'flex w-full items-center gap-1 rounded-xl px-3 text-left text-xs text-muted-foreground outline-none transition-[height] focus-visible:focus-ring',
-          open ? 'h-7' : 'h-9',
-        )}
-      >
-        <span className="font-medium">{t('todo.title')}</span>
-        <span className="tabular-nums">
-          ·{' '}
-          {done === total
-            ? t('todo.allDone', { done, total })
-            : t('todo.progress', { done, total })}
-        </span>
-        <ChevronRight
-          aria-hidden
-          className={cn(
-            'size-3.5 transition-transform duration-200 ease-expand',
-            open && 'rotate-90',
-          )}
-        />
-      </button>
-      <Collapse open={open}>
-        <ul className="px-3 pb-2">
-          {todos.items.map((item, index) => (
-            <TodoRow
-              // biome-ignore lint/suspicious/noArrayIndexKey: 清单整体替换，没有稳定 ID。
-              key={index}
-              item={item}
-              turnActive={todos.active}
-              finishedWell={todos.finishedWell}
-              running={running}
-            />
-          ))}
-        </ul>
-      </Collapse>
+      <ul>
+        {todos.items.map((item, index) => (
+          <TodoRow
+            // biome-ignore lint/suspicious/noArrayIndexKey: 清单整体替换，没有稳定 ID。
+            key={index}
+            item={item}
+            turnActive={todos.active}
+            finishedWell={todos.finishedWell}
+            running={running}
+          />
+        ))}
+      </ul>
     </section>
   );
 }

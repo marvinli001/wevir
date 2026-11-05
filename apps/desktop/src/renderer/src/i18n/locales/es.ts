@@ -1047,8 +1047,6 @@ export const messages: Messages = {
   'plan.implementInNew': 'Implementar en una sesión nueva',
   'plan.implementPrefix': 'Implementa este plan:',
   'todo.title': 'Lista de tareas',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': '{done}/{total} completadas',
   'todo.runningTasks': '{count, plural, one {# tarea en ejecución} other {# tareas en ejecución}}',
   'todo.status.completed': 'Completada',
   'todo.status.in_progress': 'En curso',

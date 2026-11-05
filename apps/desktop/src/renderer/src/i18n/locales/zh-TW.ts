@@ -1026,8 +1026,6 @@ export const messages: Messages = {
   'plan.implementInNew': '在新工作階段中實施',
   'plan.implementPrefix': '請按這個計畫實施：',
   'todo.title': '清單',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': '{done}/{total} 已完成',
   'todo.runningTasks': '{count} 個工作執行中',
   'todo.status.completed': '已完成',
   'todo.status.in_progress': '進行中',

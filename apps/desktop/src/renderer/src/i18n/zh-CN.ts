@@ -1040,8 +1040,6 @@ export const zhCN = {
   'plan.implementInNew': '在新会话中实施',
   'plan.implementPrefix': '请按这个计划实施：',
   'todo.title': '清单',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': '{done}/{total} 已完成',
   'todo.runningTasks': '{count} 个任务在运行',
   'todo.status.completed': '已完成',
   'todo.status.in_progress': '进行中',

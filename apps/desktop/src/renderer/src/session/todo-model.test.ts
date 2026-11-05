@@ -1,14 +1,7 @@
 import type { ChatMessage, ChatPart } from '@wevir/client-sdk';
 import type { TodoItem, TurnId } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import {
-  latestTodos,
-  todoCollapsedByDefault,
-  todoProgress,
-  todoRowState,
-  todoStatus,
-  turnRecap,
-} from './todo-model';
+import { latestTodos, todoProgress, todoRowState, todoStatus, turnRecap } from './todo-model';
 
 const T1 = 'trn_1' as TurnId;
 const T2 = 'trn_2' as TurnId;
@@ -121,15 +114,6 @@ describe('进度与收起', () => {
       total: 3,
       current: { content: 's1', status: 'in_progress' },
     });
-  });
-
-  it('回合结束（做没做完都算）时收起', () => {
-    const done = { turnId: T1, items: items('completed', 'completed'), finishedWell: false };
-    const partial = { turnId: T1, items: items('completed', 'pending'), finishedWell: false };
-    expect(todoCollapsedByDefault({ ...done, active: false })).toBe(true);
-    expect(todoCollapsedByDefault({ ...done, active: true })).toBe(false);
-    expect(todoCollapsedByDefault({ ...partial, active: false })).toBe(true);
-    expect(todoCollapsedByDefault({ ...partial, active: true })).toBe(false);
   });
 
   it('回合自己做完收了尾：没标完的项显示成做完，进度也算做完；真正标完的不变', () => {

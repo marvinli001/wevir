@@ -1058,8 +1058,6 @@ export const messages: Messages = {
   'plan.implementInNew': 'Реализовать в новом сеансе',
   'plan.implementPrefix': 'Реализуй этот план:',
   'todo.title': 'Чек-лист',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': 'Выполнено {done}/{total}',
   'todo.runningTasks':
     '{count, plural, one {Выполняется # задача} few {Выполняются # задачи} many {Выполняется # задач} other {Выполняется # задачи}}',
   'todo.status.completed': 'Выполнено',

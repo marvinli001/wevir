@@ -100,13 +100,6 @@ export function todoProgress(items: readonly TodoItem[], settled = false): TodoP
 }
 
 /**
- * 清单卡片默认收起：回合结束（没标完的也收起：模型常忘了最后再更新一次，回合已经不在做了）。用户点过的照用户的。
- */
-export function todoCollapsedByDefault(todos: TurnTodos): boolean {
-  return !todos.active;
-}
-
-/**
  * 一项在卡片上的样子：回合自己做完收了尾（`finishedWell`）时没标完的显示成做完（`settled`，比真正标完的淡一点）；回合是被停、
  * 出错或中断的，还是“进行中”的不再转圈（`stalled`），没开始的照旧，不替模型改成完成。
  */

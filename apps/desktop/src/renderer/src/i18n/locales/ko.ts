@@ -1028,8 +1028,6 @@ export const messages: Messages = {
   'plan.implementInNew': '새 세션에서 구현',
   'plan.implementPrefix': '이 계획을 구현해 주세요:',
   'todo.title': '할 일',
-  'todo.progress': '{done}/{total}',
-  'todo.allDone': '{done}/{total} 완료',
   'todo.runningTasks': '작업 {count}개 실행 중',
   'todo.status.completed': '완료',
   'todo.status.in_progress': '진행 중',
