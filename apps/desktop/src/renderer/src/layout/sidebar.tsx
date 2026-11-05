@@ -596,6 +596,7 @@ function ProjectItem({
         <ThreadList
           workspaceId={workspace.id}
           sessions={sessions}
+          open={expanded}
           activeId={sessionId}
           isUnread={isUnread}
         />
@@ -606,15 +607,18 @@ function ProjectItem({
 
 /**
  * 一个项目（或“对话”）的会话列表：agent 开出的会话归在开出它的会话下面（session-threads.ts），“显示更多”按线程数。
+ * `open` 是项目展开着没有：收起项目再展开时回到先列 5 个。
  */
 function ThreadList({
   workspaceId,
   sessions,
+  open = true,
   activeId,
   isUnread,
 }: {
   workspaceId: string;
   sessions: readonly Session[];
+  open?: boolean;
   activeId: string | undefined;
   isUnread: (session: Session) => boolean;
 }) {
@@ -624,6 +628,7 @@ function ThreadList({
     <MoreList
       items={threads}
       limit={SESSIONS_SHOWN}
+      open={open}
       activeIndex={threads.findIndex((thread) => inThread(thread, activeId))}
       render={(thread) => (
         <ThreadItem
@@ -752,20 +757,28 @@ function ThreadItem({
 /**
  * 先列 `limit` 项，“显示更多”每次再展开 `limit` 项，“收起”回到 `limit` 项；每一段各自一个高度过渡（U24，
  * desktop-tokens.md §14），收起时几段一起收。当前会话排在后面时至少列到它所在的那一段，收起也只收到那一段，免得当前项被
- * 收起来。
+ * 收起来。外面整个收起（`open` 为 false，如收起项目）后再展开时回到先列 `limit` 项：收起的动画里内容保持原样，重新展开那一刻
+ * 才复位（收起动画结束后内容卸载，状态本来也会丢；这里管的是动画没完又展开的情况）。
  */
 function MoreList<T>({
   items,
   limit,
+  open = true,
   activeIndex,
   render,
 }: {
   items: readonly T[];
   limit: number;
+  open?: boolean;
   activeIndex: number;
   render: (item: T) => ReactNode;
 }) {
   const [shown, setShown] = useState(limit);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setShown(limit);
+  }
   const { visible, more, less } = moreWindow(items.length, limit, shown, activeIndex);
   return (
     <>
