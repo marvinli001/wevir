@@ -79,7 +79,11 @@ export function MemorySettings() {
   const data = useWorkbenchData();
   const last = useLastLocation();
   const [picked, setPicked] = useState<string>();
-  const [listing, setListing] = useState<MethodResult<'memory.list'>>();
+  // 读到的列表连同它属于哪个项目：换项目时先留着旧的，新的到了再换，页面高度不塌、滚动位置不跳。
+  const [loaded, setLoaded] = useState<{
+    workspaceId: WorkspaceId | undefined;
+    value: MethodResult<'memory.list'>;
+  }>();
   const [notice, setNotice] = useState<Notice>();
   const [busy, setBusy] = useState<string>();
   const [editing, setEditing] = useState<MemoryTarget>();
@@ -99,10 +103,9 @@ export function MemorySettings() {
 
   useEffect(() => {
     if (!client || !supported) return;
-    setListing(undefined);
     return client.watchMemory(
       workspaceId,
-      (value) => setListing(value),
+      (value) => setLoaded({ workspaceId, value }),
       (reason) =>
         setNotice({
           tone: 'error',
@@ -115,6 +118,9 @@ export function MemorySettings() {
     return <NoticeBanner notice={{ tone: 'info', text: t('settings.memory.unsupported') }} />;
   }
 
+  const listing = loaded?.value;
+  // 换了项目、新列表还没到：项目那一节先显示旧的（不可操作），全局那一节照常。
+  const stale = loaded !== undefined && loaded.workspaceId !== workspaceId;
   const sections = splitMemory(listing);
   const target = (note: MemorySummary): MemoryTarget => ({
     scope: note.scope,
@@ -142,8 +148,17 @@ export function MemorySettings() {
     if (result.conflict) setNotice({ tone: 'warning', text: t('settings.memory.deleteConflict') });
   };
 
-  const list = (scope: MemoryScope, notes: MemorySummary[], unreadable: string[]) => (
-    <div className="space-y-3">
+  const list = (
+    scope: MemoryScope,
+    notes: MemorySummary[],
+    unreadable: string[],
+    pending = false,
+  ) => (
+    <div
+      className={pending ? 'space-y-3 opacity-60' : 'space-y-3'}
+      inert={pending}
+      aria-busy={pending || undefined}
+    >
       {unreadable.length > 0 && (
         <div
           className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
@@ -269,7 +284,7 @@ export function MemorySettings() {
         {workspaceId === undefined ? (
           <EmptyList>{t('settings.memory.noProjects')}</EmptyList>
         ) : (
-          list('project', sections.project, sections.unreadable.project)
+          list('project', sections.project, sections.unreadable.project, stale)
         )}
       </SettingsSection>
       <EpisodeSettings workspaceId={workspaceId} />

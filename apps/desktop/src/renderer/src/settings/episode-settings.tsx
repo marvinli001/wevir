@@ -43,25 +43,32 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
   const settings = useHostSettings();
   const navigate = useNavigate();
   const supported = view.status === 'connected' && hostSupports(view.hello.features, 'episodes');
-  const [episodes, setEpisodes] = useState<EpisodeSummary[]>([]);
-  const [next, setNext] = useState<string>();
+  // 读到的一页连同它属于哪个项目：换项目时先留着旧的，新的到了再换，页面高度不塌、滚动位置不跳。
+  const [loaded, setLoaded] = useState<{
+    workspaceId: WorkspaceId;
+    episodes: EpisodeSummary[];
+    next?: string;
+  }>();
   const [editing, setEditing] = useState<Episode>();
   const [deleting, setDeleting] = useState<EpisodeSummary>();
   const [notice, setNotice] = useState<Notice>();
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setEpisodes([]);
-    setNext(undefined);
-    if (!client || !supported || workspaceId === undefined) return;
+    if (!client || !supported || workspaceId === undefined) {
+      setLoaded(undefined);
+      return;
+    }
     let active = true;
     const read = () =>
       void client
         .request('episode.list', { workspaceId })
         .then((value) => {
-          if (active) {
-            setEpisodes(value.episodes);
-            setNext(value.next);
-          }
+          if (active)
+            setLoaded({
+              workspaceId,
+              episodes: value.episodes,
+              ...(value.next !== undefined && { next: value.next }),
+            });
         })
         .catch((error: unknown) => {
           if (active) setNotice({ tone: 'error', text: describe(error) });
@@ -76,6 +83,9 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
     };
   }, [client, supported, workspaceId]);
   if (!supported || !client) return null;
+  const stale = loaded !== undefined && loaded.workspaceId !== workspaceId;
+  const episodes = loaded?.episodes ?? [];
+  const next = stale ? undefined : loaded?.next;
 
   const continueFrom = async (summary: EpisodeSummary) => {
     const { episode } = await client.request('episode.get', { id: summary.id });
@@ -121,7 +131,12 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
         {episodes.map((episode) => (
           <div
             key={episode.id}
-            className="flex items-center gap-2 border-t border-border px-4 py-3"
+            className={
+              stale
+                ? 'flex items-center gap-2 border-t border-border px-4 py-3 opacity-60'
+                : 'flex items-center gap-2 border-t border-border px-4 py-3'
+            }
+            inert={stale}
           >
             <button
               type="button"
@@ -178,8 +193,15 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
                 workspaceId,
                 cursor: next,
               });
-              setEpisodes((previous) => [...previous, ...value.episodes]);
-              setNext(value.next);
+              setLoaded((previous) =>
+                previous?.workspaceId === workspaceId
+                  ? {
+                      workspaceId,
+                      episodes: [...previous.episodes, ...value.episodes],
+                      ...(value.next !== undefined && { next: value.next }),
+                    }
+                  : previous,
+              );
             })
           }
         >
