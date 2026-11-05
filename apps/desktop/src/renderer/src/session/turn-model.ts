@@ -44,14 +44,16 @@ function isPlainResume(message: ChatMessage): boolean {
   );
 }
 
-/** 连续的同一回合的消息合成一块；系统消息单独一块。块的 key 是第一条消息的 ID。 */
+/**
+ * 同一回合的消息合成一块；系统消息单独一块。块的 key 是第一条消息的 ID。回合进行中插进来的系统消息（例如中途换模型的
+ * 提示）不把回合断成两块：后面同一回合的消息（插话、拒绝审批时附的话与之后的回答）仍并进前面那块，提示排在这一块之后。
+ */
 export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
   let current: Extract<TranscriptBlock, { kind: 'turn' }> | undefined;
   for (const message of messages) {
     if (message.role === 'system' && isPlainResume(message)) continue;
     if (message.role === 'system') {
-      current = undefined;
       blocks.push({ kind: 'message', key: message.id, message });
     } else if (current?.turnId === message.turnId) {
       current.messages.push(message);
@@ -158,14 +160,21 @@ export function blockSeqRange(block: TranscriptBlock): readonly [number, number]
 }
 
 /**
- * 分段渲染的起点往前挪到所在回合的第一条消息：一个回合不会只渲染后半截（折叠要看到整个回合）。
+ * 分段渲染的起点往前挪到所在回合的第一条消息：一个回合不会只渲染后半截（折叠要看到整个回合）。起点落在系统消息上时按它
+ * 后面第一条回合消息算；回合中途夹着的系统消息跳过（`groupTurns` 把两边并成一块）。
  */
 export function turnStart(messages: readonly ChatMessage[], index: number): number {
+  let next = index;
+  while (messages[next]?.role === 'system') next += 1;
+  const message = messages[next];
+  if (message === undefined || message.role === 'system') return index;
   let start = index;
-  const turnId = (message: ChatMessage | undefined) =>
-    message && message.role !== 'system' ? message.turnId : undefined;
-  const id = turnId(messages[start]);
-  while (id !== undefined && start > 0 && turnId(messages[start - 1]) === id) start -= 1;
+  for (let i = next - 1; i >= 0; i -= 1) {
+    const earlier = messages[i] as ChatMessage;
+    if (earlier.role === 'system') continue;
+    if (earlier.turnId !== message.turnId) break;
+    start = Math.min(start, i);
+  }
   return start;
 }
 

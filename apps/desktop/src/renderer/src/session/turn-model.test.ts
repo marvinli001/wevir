@@ -168,6 +168,44 @@ describe('groupTurns / turnStart', () => {
     expect(groupTurns(messages).map((b) => b.kind)).toEqual(['turn', 'turn']);
   });
 
+  it('回合中途的系统提示不把回合断开：之后的插话与回答并进同一块，提示排在后面', () => {
+    const s = session();
+    s.add('session.created', { workspaceId: 'ws_1', cwd: '/w', providerId: 'p', modelId: 'm' });
+    s.turn();
+    s.run(TURN, 'x1', { kind: 'shell', command: 'ls' });
+    s.add('session.configured', { modelId: 'other' });
+    s.add('user.steered', {
+      turnId: TURN,
+      pendingId: PENDING,
+      clientMessageId: 'c1',
+      content: [{ type: 'text', text: '顺便跑测试' }],
+      sentBy: self,
+    });
+    s.say(TURN, '好的。');
+    s.finish(TURN, 'completed');
+    s.turn(TURN2);
+    const { messages } = s.project();
+    expect(messages.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'system',
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+    ]);
+    const blocks = groupTurns(messages);
+    expect(blocks.map((b) => (b.kind === 'turn' ? [b.turnId, b.messages.length] : b.kind))).toEqual(
+      [[TURN, 4], 'message', [TURN2, 2]],
+    );
+    const [turn] = blocks;
+    expect(turn?.kind === 'turn' && foldTurn(turn.messages, false, false).showHeader).toBe(true);
+    // 分段渲染的起点落在提示或回合后半截时挪到回合开头；落在下一个回合时不动。
+    expect(turnStart(messages, 2)).toBe(0);
+    expect(turnStart(messages, 3)).toBe(0);
+    expect(turnStart(messages, 5)).toBe(5);
+  });
+
   it('isReportOnly：回合结束后才到的任务回报自成一块，别的系统消息与回合不算', () => {
     const TASK = 'tsk_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
     const CHILD = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQS' as const;
