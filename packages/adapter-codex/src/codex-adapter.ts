@@ -104,6 +104,7 @@ import {
   IGNORED_NOTIFICATIONS,
   isRecord,
 } from './mapping.js';
+import { descendants, killOrphans, type ProcEntry, readLinuxProcesses } from './orphans.js';
 import { OutputHub } from './output-hub.js';
 import {
   CODEX_VERSION,
@@ -1775,10 +1776,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /**
    * 结束停止回合时还在跑的命令（`thread/backgroundTerminals/terminate`，实验 API）：Codex 中断回合时不结束 unified exec
    * 进程，不结束的话命令在“已停止”之后照样跑完。只结束这个回合里没跑完的命令，更早的回合留下的后台进程不动。失败只记日志：
-   * 进程可能已经自己退出了。
+   * 进程可能已经自己退出了。Linux 上 Codex 结束得不彻底，结束之后再收拾被过继出去的进程（orphans.ts）。
    */
   async #terminateProcesses(session: CodexSession, processes: readonly string[]): Promise<void> {
     if (processes.length === 0 || this.process.state !== 'ready') return;
+    const root = process.platform === 'linux' ? this.process.pid : undefined;
+    const before = root === undefined ? undefined : this.#processTree(root);
     await Promise.all(
       processes.map((processId) => {
         const params: ThreadBackgroundTerminalsTerminateParams = {
@@ -1796,6 +1799,32 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           );
       }),
     );
+    if (root === undefined || before === undefined || before.size === 0) return;
+    try {
+      const killed = await killOrphans(root, before);
+      if (killed.length > 0) {
+        this.#logger.info?.('停止回合时结束了 Codex 漏掉的命令进程', {
+          engineSessionId: session.id,
+          pids: killed,
+        });
+      }
+    } catch (error) {
+      this.#logger.warn('停止回合时收拾命令进程失败', {
+        engineSessionId: session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  #processTree(root: number): Map<number, ProcEntry> | undefined {
+    try {
+      return descendants(readLinuxProcesses(), root);
+    } catch (error) {
+      this.#logger.warn('读不到 codex-app-server 的进程树', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   /**
