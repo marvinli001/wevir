@@ -252,6 +252,23 @@ export function foldTurn(
   };
 }
 
+/**
+ * 回答下面“复制”复制的文字：`finalKey` 那一段正文，收起时留下的就是它。之前的旁白（“我先运行…”）收在过程里，不算；
+ * 回答在更早的一段（插话之后那段没有正文）时同样找得到。
+ */
+export function finalAnswer(messages: readonly ChatMessage[], fold: TurnFold): string {
+  if (fold.finalKey === undefined) return '';
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue;
+    for (const part of message.parts) {
+      if (part.type === 'text' && partId(message.id, part.key) === fold.finalKey) {
+        return part.text.trim();
+      }
+    }
+  }
+  return '';
+}
+
 /** 收起时留在助手消息里的部件：最后一段正文与 `alwaysShown` 的那些。 */
 function keptInFold(messageId: string, part: ChatPart, fold: TurnFold): boolean {
   return partId(messageId, part.key) === fold.finalKey || alwaysShown(part);

@@ -17,6 +17,7 @@ import {
   continuesAgent,
   engineSources,
   filesAfterAnswer,
+  finalAnswer,
   foldedParts,
   foldSegments,
   foldTurn,
@@ -461,6 +462,17 @@ describe('foldTurn', () => {
         ),
       ),
     ).toEqual([4, 'part', 3, 'part']);
+  });
+
+  it('finalAnswer：只取收起时留下的最后一段正文，不带中途说的话', () => {
+    const { messages } = fullTurn().project();
+    expect(finalAnswer(messages, foldTurn(messages, false, false))).toBe('改好了，测试通过。');
+    const s = session();
+    s.turn();
+    s.run(TURN, 'x1', { kind: 'shell', command: 'ls' });
+    s.finish(TURN, 'cancelled');
+    const quiet = s.project().messages;
+    expect(finalAnswer(quiet, foldTurn(quiet, false, false))).toBe('');
   });
 
   it('只有正文的回合：没有那一行，也不收起', () => {

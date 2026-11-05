@@ -22,6 +22,7 @@ import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
 import {
   filesAfterAnswer,
+  finalAnswer,
   foldSegments,
   foldTurn,
   type TurnFold,
@@ -129,14 +130,8 @@ export const TurnView = memo(
     // 计划写到一半（0.37.0）：那一行写“正在写计划”。
     const writingPlan =
       tail?.kind === 'part' && tail.part.type === 'plan' && tail.part.state === 'streaming';
-    // 回合结束后的回答（最后一条助手消息的正文），悬停时下面出现“复制”（U36）。
-    const answer =
-      fold.finished && last?.role === 'assistant'
-        ? last.parts
-            .flatMap((part) => (part.type === 'text' ? [part.text] : []))
-            .join('\n\n')
-            .trim()
-        : '';
+    // 回合结束后的回答（收起时留下的那段正文），悬停时下面出现“复制”（U36）。
+    const answer = fold.finished ? finalAnswer(messages, fold) : '';
     const liveLine =
       live && !liveTail
         ? {
