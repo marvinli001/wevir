@@ -20,6 +20,26 @@ describe('displayCommand', () => {
     expect(displayCommand("sh -lc 'a\nb'")).toBe('a\nb');
   });
 
+  it('内层含单引号时 Codex 用双引号包，! 单独放进单引号', () => {
+    // 真实 gpt 回合里录到的形式（Codex 0.165.0）。
+    expect(
+      displayCommand(
+        `/bin/zsh -lc "pwd; if [ -d .codegraph ]; then printf 'CodeGraph index present\\\\n'; fi"`,
+      ),
+    ).toBe("pwd; if [ -d .codegraph ]; then printf 'CodeGraph index present\\n'; fi");
+    expect(
+      displayCommand(
+        `/bin/zsh -lc "rg --files -g AGENTS.md -g '"'!node_modules'"' -g '"'!.git'"' src"`,
+      ),
+    ).toBe("rg --files -g AGENTS.md -g '!node_modules' -g '!.git' src");
+    expect(displayCommand('bash -lc "echo \\"\\$HOME\\" \\`date\\`"')).toBe('echo "$HOME" `date`');
+  });
+
+  it('外壳后面不是一个完整的 shell 单词时原样', () => {
+    expect(displayCommand('bash -lc echo hi')).toBe('echo hi');
+    expect(displayCommand(`bash -lc "echo 'unterminated`)).toBe(`"echo 'unterminated`);
+  });
+
   it('认不出外壳时用唯一的解析动作，否则原样', () => {
     const one: CommandAction[] = [{ type: 'unknown', command: 'dir' }];
     expect(displayCommand('powershell.exe -Command dir', one)).toBe('dir');

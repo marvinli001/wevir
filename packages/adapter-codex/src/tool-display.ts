@@ -204,16 +204,60 @@ export function commandDisplay(
 
 /**
  * 给人看的命令：`item.command` 是 Codex 实际执行的、带 shell 外壳的形式（`/bin/zsh -lc 'cat README.md'`，R2 录制的
- * 样本），去掉 `<sh|bash|zsh> -lc '…'` 外壳；认不出外壳时，只有一个解析出的动作就用它的命令，否则原样。
+ * 样本），去掉 `<sh|bash|zsh> -lc …` 外壳。Codex 按 shlex 给内层命令加引号：通常是 `'…'`，内层含单引号时是 `"…"`，
+ * 其中的 `!` 再单独放进 `'…'`（`"a '"'!x'"' b"`），所以外壳后面按一个 shell 单词去引号；不是一个单词时原样。认不出外壳
+ * 时，只有一个解析出的动作就用它的命令，否则原样。
  */
 export function displayCommand(command: string, actions: readonly CommandAction[] = []): string {
   const wrapped = /^(?:\S*[/\\])?(?:ba|z)?sh(?:\.exe)?\s+-l?c\s+([\s\S]+)$/.exec(command.trim());
   const inner = wrapped?.[1];
-  if (inner !== undefined) {
-    const quoted = /^'([\s\S]*)'$/.exec(inner);
-    return quoted?.[1] === undefined ? inner : quoted[1].replaceAll("'\\''", "'");
-  }
+  if (inner !== undefined) return shellWord(inner) ?? inner;
   return actions.length === 1 && actions[0] !== undefined ? actions[0].command : command;
+}
+
+/**
+ * 整段是一个 POSIX shell 单词时，返回去掉引号后的值：`'…'` 原样，`"…"` 里 `\` 只转义 `$`、`` ` ``、`"`、`\` 与换行，
+ * 引号外的 `\` 转义下一个字符。有未加引号的空白、引号没闭合时返回 undefined。
+ */
+function shellWord(text: string): string | undefined {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const char = text[i] as string;
+    if (char === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end === -1) return undefined;
+      out += text.slice(i + 1, end);
+      i = end + 1;
+    } else if (char === '"') {
+      i += 1;
+      for (;;) {
+        if (i >= text.length) return undefined;
+        const inside = text[i] as string;
+        if (inside === '"') break;
+        const next = text[i + 1];
+        if (inside === '\\' && next !== undefined && '$`"\\\n'.includes(next)) {
+          if (next !== '\n') out += next;
+          i += 2;
+        } else {
+          out += inside;
+          i += 1;
+        }
+      }
+      i += 1;
+    } else if (char === '\\') {
+      const next = text[i + 1];
+      if (next === undefined) return undefined;
+      if (next !== '\n') out += next;
+      i += 2;
+    } else if (/\s/.test(char)) {
+      return undefined;
+    } else {
+      out += char;
+      i += 1;
+    }
+  }
+  return out;
 }
 
 /**
