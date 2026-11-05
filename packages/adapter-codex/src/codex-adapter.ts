@@ -986,16 +986,28 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const check = () => {
       if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
     };
-    const engineTurn = this.#sessions.get(engineSessionId)?.turn;
-    if (engineTurn?.engine === true && !engineTurn.cancelRequested) {
-      // 0.35.0：Host 开回合的同时 Codex 开了目标回合（Host 还没看到它的 turn.started）。turn/start 遇到进行中的回合时并进它，
-      // 之后的事件归 Host 的回合。
+    // 0.35.0：Host 开回合的同时 Codex 开了目标回合，或适配器叫醒了父会话（Host 还没看到它的 turn.started）。turn/start 遇到
+    // 进行中的回合时并进它，之后的事件归 Host 的回合。引擎回合也可能在 `#turnSession` 等插件同步与登录检查时才开始：那时同样
+    // 并进去，不报 session_busy（Host 会把它当成引擎故障，连同引擎回合一起停掉）。
+    const joinable = () => {
+      const turn = this.#sessions.get(engineSessionId)?.turn;
+      return turn?.engine === true && !turn.cancelRequested ? turn : undefined;
+    };
+    const join = async (turn: Turn) => {
       const session = this.#openSession(engineSessionId);
       check();
-      await this.#turnStart(session, engineTurn, userInput(input), input.collaborationMode);
-      return;
+      await this.#turnStart(session, turn, userInput(input), input.collaborationMode);
+    };
+    const early = joinable();
+    if (early !== undefined) return join(early);
+    let session: CodexSession;
+    try {
+      session = await this.#turnSession(engineSessionId, check);
+    } catch (error) {
+      const late = isAdapterError(error, 'session_busy') ? joinable() : undefined;
+      if (late === undefined) throw error;
+      return join(late);
     }
-    const session = await this.#turnSession(engineSessionId, check);
     const turn = this.#beginTurn(session);
     await this.#turnStart(session, turn, userInput(input), input.collaborationMode);
   }

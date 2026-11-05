@@ -4,13 +4,14 @@
 // 样本里的 thread、回合、item 与服务端请求的 ID 换成当前的。只用 Node 内置模块。
 //
 //   node fake-app-server.mjs [--fixtures <目录>] [--version] [--strict-config] [--thread-read-empty <n>]
-//                            [--notify-before-result]
+//                            [--notify-before-result] [--engine-turn <样本名>]
 //
 // - `--version`：打印锁定的版本（与 paths.ts 的 CODEX_VERSION 一致）后退出。
 // - initialize / thread/start / thread/resume / thread/unsubscribe / turn/start / turn/interrupt 有回应，其余回 -32601。
 // - `--thread-read-empty <n>`：也回应 thread/read，每个 thread 的前 n 次照真实二进制回 rollout 还是空的（-32603），之后
 //   给出昵称 Ampere（子 agent 刚报出时 rollout 还没写下的竞争）。不带这个参数时 thread/read 回 -32601。
 // - `--notify-before-result`：`turn/start` 先把整个样本的通知写完，再写结果（回合很快结束时结果晚于通知的竞争）。
+// - `--engine-turn <样本名>`：每个 thread 第一个回合结束后约 100 ms，自己开一个回合回放这个样本（目标续跑那样不经 turn/start）。
 // - 审批：样本里的 `{"serverRequest": …}` 发给客户端，等它回复 `{decision}`（MCP 的 elicitation 是 `{action}`），接着回放
 //   `<样本名>.<决定>.jsonl`；客户端的回复逐行记在 cwd 下的 fake-replies.jsonl
 //   （acceptForSession 用 accept 的分支）；审批未决时 `turn/interrupt` 回放 `<样本名>.interrupt.jsonl`（turn/completed
@@ -45,6 +46,8 @@ const FIXTURES =
 const threadReadIndex = args.indexOf('--thread-read-empty');
 const THREAD_READ_EMPTY = threadReadIndex >= 0 ? Number(args[threadReadIndex + 1]) : undefined;
 const NOTIFY_BEFORE_RESULT = args.includes('--notify-before-result');
+const engineTurnIndex = args.indexOf('--engine-turn');
+const ENGINE_TURN = engineTurnIndex >= 0 ? args[engineTurnIndex + 1] : undefined;
 /** threadId → 已经回过几次 rollout 是空的。 */
 const emptyReads = new Map();
 const STORE = join(process.cwd(), 'fake-threads.json');
@@ -175,6 +178,14 @@ function emit(turn, line) {
   if (message.method === 'turn/completed' && message.params.threadId === turn.thread.id) {
     endTurn(turn);
     turn.completed = true;
+    if (ENGINE_TURN !== undefined && !turn.thread.engineTurned) {
+      turn.thread.engineTurned = true;
+      setTimeout(() => {
+        const next = { id: randomUUID(), thread: turn.thread, ended: false };
+        turn.thread.turn = next;
+        void replay(next, ENGINE_TURN).catch((error) => process.stderr.write(`${error}\n`));
+      }, 100);
+    }
   }
 }
 

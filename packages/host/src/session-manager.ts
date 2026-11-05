@@ -561,6 +561,11 @@ interface TurnRuntime {
    */
   autoCompaction?: { pending: boolean; fruitless: number };
   compacted?: true;
+  /**
+   * 用户的回合已经写下、消息还没交给引擎（`#startTurn` 打快照、跑钩子的那段时间）。这时引擎自己开的回合（目标续跑、子 agent
+   * 跑完叫醒父会话）的事件并进这个回合（`#engineMainTurnStarted`），它的结束事件不结束这个回合：用户的消息还没交出去。
+   */
+  beforeSend?: true;
 }
 
 /** 一次对引擎事件流的订阅。 */
@@ -2335,6 +2340,7 @@ export class SessionManager {
       finished: deferred(),
       addedWhileCancelling: new Set(),
       ...(from?.repair !== undefined && { repair: true as const }),
+      beforeSend: true,
     };
 
     // 回合前的快照（0.20.0）：打完再交给引擎，免得快照里混进这个回合的改动。不会抛错。
@@ -2381,6 +2387,9 @@ export class SessionManager {
     const reminder = this.#customInstructions?.reminder(
       this.#events.rulesState(runtime.id)?.rules?.custom?.outputStyle,
     );
+    // 等待期间回合已经以别的方式结束（引擎退出、会话关闭）：不再交给引擎。
+    if (runtime.turn?.turnId !== turnId) return { turnId, seq: message.seq };
+    delete runtime.turn.beforeSend;
     try {
       const withPrefix =
         prefix === '' || nativeSlashCommand
@@ -6136,9 +6145,30 @@ export class SessionManager {
         this.#steered(runtime, turn, event);
         return;
       case 'turn.settled':
+        if (turn.beforeSend) {
+          this.#onError(
+            new Error(`会话 ${sessionId} 的引擎回合在用户消息交出之前结束，并进用户的回合`),
+          );
+          return;
+        }
         this.#turnEnded(runtime, turn, event.outcome, event.stopReason);
         return;
       case 'turn.failed':
+        if (turn.beforeSend) {
+          // 引擎自己开的回合失败了：错误照样写下（不致命），用户的回合接着交给引擎。
+          this.#write(runtime, [
+            engineError(
+              {
+                category: event.category,
+                message: event.message,
+                ...(event.code !== undefined && { code: event.code }),
+              },
+              false,
+              turnId,
+            ),
+          ]);
+          return;
+        }
         this.#turnEnded(runtime, turn, 'failed', undefined, {
           category: event.category,
           message: event.message,
