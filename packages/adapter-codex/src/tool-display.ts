@@ -173,8 +173,9 @@ function savedImage(path: string | undefined): string | undefined {
 }
 
 /**
- * 命令：`commandActions` 全是 read → `read`（路径取各 action 的 path）；全是 read / listFiles / search 且至少一个
- * listFiles 或 search → `search`（`query` 取第一个搜索词）；其余（含 unknown、空列表）→ `shell`。三种都带原始命令。
+ * 命令：`commandActions` 只有 read 与 listFiles、至少一个 read → `read`（路径只取读的文件，列目录不算读了文件）；全是
+ * read / listFiles / search 且有 search 或只有 listFiles → `search`（`query` 取第一个搜索词，没有搜索词时摘要是命令，不是
+ * 一串绝对路径）；其余（含 unknown、空列表）→ `shell`。三种都带原始命令。
  */
 export function commandDisplay(
   item: Pick<CommandExecutionItem, 'command' | 'commandActions'>,
@@ -185,8 +186,10 @@ export function commandDisplay(
   if (!exploring) return { kind: 'shell', summary: command, command };
   // every 的回调是推断出的类型谓词：这里的 actions 已经没有 unknown。
   const paths = unique(actions.flatMap((action) => (action.path ? [action.path] : [])));
-  if (actions.every((action) => action.type === 'read')) {
-    return { kind: 'read', summary: paths.join(', ') || command, paths, command };
+  const reads = actions.filter((action) => action.type === 'read');
+  if (reads.length > 0 && actions.every((action) => action.type !== 'search')) {
+    const read = unique(reads.map((action) => action.path));
+    return { kind: 'read', summary: read.join(', ') || command, paths: read, command };
   }
   const query =
     actions.find(
@@ -195,7 +198,7 @@ export function commandDisplay(
     )?.query ?? undefined;
   return {
     kind: 'search',
-    summary: query ?? (paths.join(', ') || command),
+    summary: query ?? command,
     ...(paths.length > 0 && { paths }),
     ...(query !== undefined && { query }),
     command,

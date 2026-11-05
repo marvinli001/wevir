@@ -82,6 +82,29 @@ describe('commandDisplay', () => {
     });
   });
 
+  it('读文件时顺带列目录：read，只算读的文件；没有搜索词的 search 摘要是命令', () => {
+    expect(
+      commandDisplay({
+        command: "zsh -lc 'ls /w/src && sed -n 1,80p /w/src/a.ts'",
+        commandActions: [
+          { type: 'listFiles', command: 'ls /w/src', path: '/w/src' },
+          { type: 'read', command: 'sed -n 1,80p /w/src/a.ts', name: 'a.ts', path: '/w/src/a.ts' },
+        ],
+      }),
+    ).toEqual({
+      kind: 'read',
+      summary: '/w/src/a.ts',
+      paths: ['/w/src/a.ts'],
+      command: 'ls /w/src && sed -n 1,80p /w/src/a.ts',
+    });
+    expect(
+      commandDisplay({
+        command: "zsh -lc 'ls /w/src'",
+        commandActions: [{ type: 'listFiles', command: 'ls /w/src', path: '/w/src' }],
+      }),
+    ).toEqual({ kind: 'search', summary: 'ls /w/src', paths: ['/w/src'], command: 'ls /w/src' });
+  });
+
   it('有 unknown 或没有解析结果：shell', () => {
     expect(
       commandDisplay({
