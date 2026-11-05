@@ -30,7 +30,6 @@ import {
   type EngineRuleFiles,
   type EngineSession,
   type EngineToolEnforcement,
-  EventHub,
   elicitationQuestions,
   elicitationResult,
   elicitationUrl,
@@ -105,6 +104,7 @@ import {
   IGNORED_NOTIFICATIONS,
   isRecord,
 } from './mapping.js';
+import { OutputHub } from './output-hub.js';
 import {
   CODEX_VERSION,
   type CodexFlavor,
@@ -377,7 +377,7 @@ interface CodexSession {
   readonly parentId?: string;
   /** open：挂在当前进程上；closed：已 close；detached：进程退出或重启后脱开（`resumeSession` 接回）。 */
   status: 'open' | 'closed' | 'detached';
-  readonly hub: EventHub<AgentEvent>;
+  readonly hub: OutputHub;
   readonly mapper: CodexEventMapper;
   turn?: Turn;
   /** Wevir 的 requestId → 未决审批。 */
@@ -2309,7 +2309,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       parentId: parent.id,
       status: 'open',
       // Host 收到 subagent.started 才订阅：之前的事件先存着。
-      hub: new EventHub<AgentEvent>({ bufferUntilSubscribed: true }),
+      hub: new OutputHub({ bufferUntilSubscribed: true }),
       mapper: new CodexEventMapper(
         childId,
         this.#usageOptions(() => model),
@@ -3099,7 +3099,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       roots,
       readOnly: engineTools?.denied.includes('edit') === true,
       status: 'open',
-      hub: new EventHub<AgentEvent>(),
+      hub: new OutputHub(),
       // 换了模型（0.9.0）后用新模型的上下文大小。
       mapper: new CodexEventMapper(
         id,
