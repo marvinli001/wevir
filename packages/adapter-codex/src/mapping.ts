@@ -989,11 +989,18 @@ export class CodexEventMapper {
   }
 }
 
-/** 若干增量流按块号拼起来的文本。 */
+/**
+ * 若干增量流按块号拼起来的文本。推理摘要的各块之间空一行，与 `item/completed` 时的 `reasoningText` 一致（中途停止时
+ * 不把几段摘要粘成一段）；正文与原始推理的块直接相连。
+ */
 function streamText(streams: ReadonlyArray<[string, StreamState]>): string {
   return streams
-    .flatMap(([, stream]) => [...stream.blocks.entries()].sort(([a], [b]) => a - b))
-    .map(([, piece]) => piece)
+    .map(([attemptId, stream]) =>
+      [...stream.blocks.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([, piece]) => piece)
+        .join(attemptId.endsWith(SUMMARY_SUFFIX) ? '\n\n' : ''),
+    )
     .join('');
 }
 

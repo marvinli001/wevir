@@ -621,6 +621,27 @@ describe('映射的边界情况', () => {
     ]);
   });
 
+  it('中断时补发的推理摘要各段之间空一行，与 item/completed 一致', () => {
+    const mapper = new CodexEventMapper(id);
+    for (const [summaryIndex, delta] of [
+      [0, '**A** one.'],
+      [1, '**B** two.'],
+    ] as const) {
+      mapper.map('item/reasoning/summaryTextDelta', {
+        threadId: id,
+        turnId,
+        itemId: 'r1',
+        delta,
+        summaryIndex,
+      });
+    }
+    const events = mapper.map('turn/completed', {
+      threadId: id,
+      turn: { id: turnId, status: 'interrupted', error: null },
+    });
+    expect(of(events, 'assistant.thought')).toMatchObject([{ text: '**A** one.\n\n**B** two.' }]);
+  });
+
   it('推理摘要与原始推理分开计块，thought 优先用原始推理', () => {
     const mapper = new CodexEventMapper(id);
     mapper.map('item/reasoning/summaryTextDelta', {
