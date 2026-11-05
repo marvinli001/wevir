@@ -134,6 +134,7 @@ import {
   type RequestId,
   type ReviewStartParams,
   type ReviewStartResponse,
+  type ThreadBackgroundTerminalsTerminateParams,
   type ThreadCompactStartParams,
   type ThreadDeleteParams,
   type ThreadDeleteResponse,
@@ -1704,6 +1705,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.turn;
     if (session === undefined || turn === undefined) return;
+    let processes: string[] = [];
     if (options?.notifyParent && session.parentId !== undefined) {
       // 0.14.0：用户单独停掉子 agent。Codex 把客户端中断的子 agent 记为 Interrupted、不算结束，父 agent 不会自己知道
       // （codex-event-mapping.md §6.5），子回合结算后往父 thread 补一条说明。
@@ -1726,6 +1728,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           }),
         );
       }
+      // 停止时还在跑的命令：中断之后 Codex 留着它们接着跑，回合结算后再结束（#terminateProcesses）。
+      processes = session.mapper.runningProcesses();
       // turn/start 的结果还没到时，等它到了再发（send 里）。
       if (turn.turnId !== undefined && session.turn === turn) this.#interrupt(session, turn);
       // 模型满载后等着续跑：不再续跑，回合就此取消。
@@ -1753,6 +1757,33 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         `发出 turn/interrupt 后 ${this.#cancelTimeoutMs} ms 内回合没有结算`,
       );
     }
+    await this.#terminateProcesses(session, processes);
+  }
+
+  /**
+   * 结束停止回合时还在跑的命令（`thread/backgroundTerminals/terminate`，实验 API）：Codex 中断回合时不结束 unified exec
+   * 进程，不结束的话命令在“已停止”之后照样跑完。只结束这个回合里没跑完的命令，更早的回合留下的后台进程不动。失败只记日志：
+   * 进程可能已经自己退出了。
+   */
+  async #terminateProcesses(session: CodexSession, processes: readonly string[]): Promise<void> {
+    if (processes.length === 0 || this.process.state !== 'ready') return;
+    await Promise.all(
+      processes.map((processId) => {
+        const params: ThreadBackgroundTerminalsTerminateParams = {
+          threadId: session.id,
+          processId,
+        };
+        return this.process
+          .request('thread/backgroundTerminals/terminate', params)
+          .catch((error: unknown) =>
+            this.#logger.warn('停止回合时结束命令进程失败', {
+              engineSessionId: session.id,
+              processId,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+      }),
+    );
   }
 
   /**

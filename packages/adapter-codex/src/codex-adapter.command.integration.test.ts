@@ -1,9 +1,9 @@
 // 压缩上下文与代码审查（0.24.0，codex-event-mapping.md §4.9）：真实 codex-app-server + 网关 + mock 模型。
 
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ProviderConfig } from '@wevir/runtime-adapter';
+import type { AgentEvent, ProviderConfig } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CodexAdapter } from './codex-adapter.js';
 import {
@@ -14,6 +14,7 @@ import {
   ofType,
   runTurn,
   TempDirs,
+  waitForEvent,
 } from './test-fixtures/harness.js';
 import {
   MOCK_MODEL,
@@ -232,6 +233,33 @@ describe.skipIf(binary === undefined)(
       turn = await finishTurn(events, from);
       expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain('main');
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    });
+
+    it('停止回合时结束还在跑的命令：Codex 中断之后不让它接着跑完', async () => {
+      const { adapter, id, events, workspace } = await open();
+      const late = join(workspace, 'late.txt');
+      script = (view) =>
+        view.lastUserText.includes('[slow-cmd]') && view.toolOutputs.length === 0
+          ? {
+              toolCalls: [
+                { kind: 'function', name: 'exec_command', args: { cmd: `sleep 3; touch ${late}` } },
+              ],
+            }
+          : { text: ['好'] };
+      const from = events.length;
+      await adapter.send(id, { content: [{ type: 'text', text: '[slow-cmd]' }] });
+      await waitForEvent(
+        events,
+        (event): event is AgentEvent =>
+          event.type === 'tool.started' && event.toolName === 'commandExecution',
+        '命令开始',
+        from,
+      );
+      await adapter.cancel(id);
+      const turn = await finishTurn(events, from);
+      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+      await new Promise((resolve) => setTimeout(resolve, 4_500));
+      expect(existsSync(late)).toBe(false);
     });
 
     it('compact 后马上取消：回合 ID 到了才发 turn/interrupt，回合以 cancelled 结束', async () => {

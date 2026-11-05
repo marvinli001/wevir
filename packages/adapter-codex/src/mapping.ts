@@ -361,6 +361,20 @@ export class CodexEventMapper {
    * 服务 `server` 还没完成的 MCP 工具调用里最近开始的那个（0.30.0）：Codex 的 MCP 批准请求（`mcpServer/elicitation/request`）
    * 不带 item id，调用在请求之前已经以 `item/started` 报出（codex-event-mapping.md §6.11）。
    */
+  /**
+   * 回合里还在运行的命令的 unified exec 进程 ID。Codex 中断回合时不结束这些进程（上游有意把它们留作后台终端，终端界面
+   * 另有 `/stop` 清理），用户停止回合时适配器按这些 ID 结束它们（codex-adapter.ts 的 `cancel`）。
+   */
+  runningProcesses(): string[] {
+    const ids: string[] = [];
+    for (const state of this.#items.values()) {
+      if (state.completed || state.tool?.type !== 'commandExecution') continue;
+      const processId = state.tool.processId;
+      if (typeof processId === 'string' && processId !== '') ids.push(processId);
+    }
+    return ids;
+  }
+
   openMcpCall(server: string): string | undefined {
     let found: string | undefined;
     for (const [id, state] of this.#items) {

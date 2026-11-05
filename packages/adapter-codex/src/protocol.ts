@@ -399,6 +399,15 @@ export interface TurnInterruptParams {
   turnId: string;
 }
 
+/**
+ * v2/ThreadBackgroundTerminalsTerminateParams.ts（实验 API；响应 `{ terminated: boolean }`）：结束 thread 的一个
+ * unified exec 进程，`processId` 即命令 item 的 `processId`。
+ */
+export interface ThreadBackgroundTerminalsTerminateParams {
+  threadId: string;
+  processId: string;
+}
+
 /** v2/ThreadDeleteParams.ts（0.43.0）：删掉 thread 与它派出的子 thread（rollout 与状态库），之后不能再 resume。 */
 export interface ThreadDeleteParams {
   threadId: string;
@@ -487,6 +496,8 @@ export interface CommandExecutionItem {
   id: string;
   command: string;
   cwd: string;
+  /** unified exec 的进程 ID（不是操作系统 pid）；还没起进程（等审批）时为 null。 */
+  processId?: string | null;
   status: ItemStatus;
   commandActions: CommandAction[];
   aggregatedOutput: string | null;
