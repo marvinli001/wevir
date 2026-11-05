@@ -349,6 +349,19 @@ export function foldItems(
   }));
 }
 
+/**
+ * 回合最后一条消息画出来的最后一项（进行中时决定末尾要不要另起“正在思考”那一行）。与消息里画的一样不算清单：清单统一画在
+ * 回合末尾，刚更新完清单时最后一项仍是前面的工作组，由它显示当前动作，不再另起一行。
+ */
+export function turnTail(
+  last: ChatMessage | undefined,
+  hasSubagents: boolean,
+): StreamItem | undefined {
+  if (last?.role !== 'assistant') return undefined;
+  const parts = visibleParts(last.parts, hasSubagents).filter((part) => part.type !== 'todo');
+  return groupWork(parts).at(-1);
+}
+
 /** 回合那一行的文字：“已处理 2 分 31 秒”“出错 · 12 秒”“已停止 · 3 秒”“已中断 · 1 分 2 秒”。 */
 export function turnHeaderText(finished: { outcome: TurnOutcome; durationMs: number }): string {
   return t(`turn.header.${finished.outcome}`, { duration: formatDuration(finished.durationMs) });

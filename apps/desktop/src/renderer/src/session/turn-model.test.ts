@@ -29,6 +29,7 @@ import {
   messageIndexForSeq,
   turnHeaderText,
   turnStart,
+  turnTail,
 } from './turn-model';
 
 const SES: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR';
@@ -469,6 +470,26 @@ describe('foldTurn', () => {
       [true, 'part'],
     ]);
     expect(folded.map(({ item }) => item)).toEqual(items);
+  });
+
+  it('turnTail：刚更新完清单时最后一项仍是工作组（清单画在回合末尾，不另起“正在思考”）', () => {
+    const s = session();
+    s.turn();
+    s.run(TURN, 'w1', { kind: 'plan' }, {}, null);
+    s.add('todo.updated', {
+      turnId: TURN,
+      toolCallId: 'w1',
+      items: [{ content: '列出本周提交', status: 'in_progress' }],
+    });
+    const messages = s.project().messages;
+    expect(messages.at(-1)?.parts.at(-1)?.type).toBe('todo');
+    expect(turnTail(messages.at(-1), false)?.kind).toBe('work');
+    s.say(TURN, '好的。');
+    expect(turnTail(s.project().messages.at(-1), false)).toMatchObject({
+      kind: 'part',
+      part: { type: 'text' },
+    });
+    expect(turnTail(messages[0], false)).toBeUndefined();
   });
 
   it('finalAnswer：只取收起时留下的最后一段正文，不带中途说的话', () => {

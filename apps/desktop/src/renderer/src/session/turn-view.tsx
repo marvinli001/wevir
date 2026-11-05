@@ -33,6 +33,7 @@ import {
   foldTurn,
   type TurnFold,
   turnHeaderText,
+  turnTail,
 } from './turn-model';
 import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
 import { DiffStat } from './work-group';
@@ -118,10 +119,7 @@ export const TurnView = memo(
     const last = messages.at(-1);
     // 进行中：最后一项是工作组（或进行中的压缩，0.24.0）时它显示当前动作，否则末尾另起“正在思考”一行；压缩上下文的回合
     // 在压缩开始之前那一行就写“正在压缩上下文”，计划写到一半时写“正在写计划”。
-    const tail =
-      last?.role === 'assistant'
-        ? groupWork(visibleParts(last.parts, hasSubagents)).at(-1)
-        : undefined;
+    const tail = turnTail(last, hasSubagents);
     const liveTail =
       live !== undefined &&
       (tail?.kind === 'work' ||
