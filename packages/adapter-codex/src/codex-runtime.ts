@@ -21,6 +21,7 @@ import type {
   ReviewRequest,
   SessionConfig,
   TitleRequest,
+  UserQuestion,
 } from '@wevir/runtime-adapter';
 import {
   CODEX_RULE_FILES,
@@ -185,6 +186,15 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     answers: Record<string, string[]>,
   ): Promise<void> {
     return this.#forSession(engineSessionId).respondToQuestion(engineSessionId, requestId, answers);
+  }
+
+  /** 不挂起回合的提问的回答（0.156.0）：只按参数拼，交给哪个进程都一样。 */
+  formatAsyncAnswer(
+    engineSessionId: string,
+    questions: UserQuestion[],
+    answers: Record<string, string[]>,
+  ): string {
+    return this.#forSession(engineSessionId).formatAsyncAnswer(engineSessionId, questions, answers);
   }
 
   configureSession(
