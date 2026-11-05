@@ -28,7 +28,7 @@ import {
   turnHeaderText,
 } from './turn-model';
 import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
-import { DiffStat, IssueFlags } from './work-group';
+import { DiffStat } from './work-group';
 import { WrapUpCard } from './wrap-up-card';
 import { turnWrapUp } from './wrap-up-model';
 
@@ -182,7 +182,6 @@ export const TurnView = memo(
                 outcome={fold.finished.outcome}
                 text={turnHeaderText(fold.finished)}
                 open={open}
-                issues={open ? fold.issues : undefined}
                 onToggle={() => setOpen(!open)}
               />
             )}
@@ -190,6 +189,16 @@ export const TurnView = memo(
           <div id={id}>
             {messages.slice(lead).map((message) => {
               if (message.role === 'user') {
+                // 回合中途插进来的后台进程通知属于过程：随过程一起收进“已处理”，不留在回答上面。
+                if (fold.showHeader && message.from?.process !== undefined) {
+                  return (
+                    <Collapse key={message.id} open={!folded} fromOpen={justFolded} flow>
+                      <div className="mt-3" data-chat-message={message.id}>
+                        <UserMessage message={message} />
+                      </div>
+                    </Collapse>
+                  );
+                }
                 return (
                   <div key={message.id} className="mt-3" data-chat-message={message.id}>
                     <UserMessage message={message} />
@@ -354,22 +363,20 @@ export const TurnView = memo(
 );
 
 /**
- * “已处理 2 分 31 秒 ›”，下面一条横线把它与回答隔开（照 Codex 桌面端）：点它展开或收起整个过程。展开时标出过程里的失败、
- * 被拒绝、状态未知，收起时不标。
+ * “已处理 2 分 31 秒 ›”，下面一条横线把它与回答隔开（照 Codex 桌面端）：点它展开或收起整个过程。不标失败、被拒绝等计数
+ * （失败的那一行在过程里自己用失败色）。
  */
 function TurnHeader({
   controls,
   outcome,
   text,
   open,
-  issues,
   onToggle,
 }: {
   controls: string;
   outcome: TurnOutcome;
   text: string;
   open: boolean;
-  issues?: TurnFold['issues'];
   onToggle(): void;
 }) {
   return (
@@ -383,7 +390,6 @@ function TurnHeader({
         className="flex min-h-6 max-w-full items-center gap-1.5 rounded-lg text-left text-sm text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:focus-ring"
       >
         <span className={cn('shrink-0', HEADER_TONES[outcome])}>{text}</span>
-        {issues && <IssueFlags issues={issues} />}
         <ChevronRight
           aria-hidden
           className={cn(

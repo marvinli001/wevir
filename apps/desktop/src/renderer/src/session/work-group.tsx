@@ -44,7 +44,6 @@ import { ToolDetails } from './tool-details';
 import {
   currentAction,
   editStats,
-  type IssueKind,
   isLiveEntry,
   isWebSearch,
   type LineStats,
@@ -57,7 +56,6 @@ import {
   toolLine,
   type WorkEntry,
   type WorkLineView,
-  workIssues,
   workSummaryParts,
 } from './tool-model';
 
@@ -89,12 +87,6 @@ const LINE_TONES: Record<WorkLineView['tone'], string> = {
   unknown: 'text-warning',
 };
 
-const ISSUE_TONES: Record<IssueKind, string> = {
-  failed: 'text-destructive',
-  denied: 'text-destructive',
-  unknown: 'text-warning',
-};
-
 /** 会话的工作目录：逐条里的路径相对它显示（transcript-view.tsx 提供）。 */
 export const WorkspaceRoot = createContext<string | undefined>(undefined);
 
@@ -108,23 +100,13 @@ export function DiffStat({ stats }: { stats: LineStats }) {
   );
 }
 
-/** 摘要后面的“· 1 个失败 · 1 个被拒绝”：失败与被拒绝用失败色，状态未知用警示色。 */
-export function IssueFlags({ issues }: { issues: Readonly<Record<IssueKind, number>> }) {
-  return workIssues(issues).map((issue) => (
-    <span key={issue.kind} data-work-issue={issue.kind} className="flex shrink-0 gap-1.5">
-      <span aria-hidden>·</span>
-      <span className={ISSUE_TONES[issue.kind]}>{issue.text}</span>
-    </span>
-  ));
-}
-
 /** 进行中的列表最多露出的行数；更早的往上推出去，顶上渐隐（照 Codex 的进行中列表）。 */
 const LIVE_ROWS = 8;
 
 /**
  * 一串连续的思考与工具调用（U2，照 Claude Code 桌面端与 Codex，design-refs/09、12）：收起时一行摘要（“思考了 17 秒，
- * 读取了 6 个文件，修改了 index.ts，运行了 2 条命令”加改动行数，只涉及一个文件时写出文件名；失败、被拒绝、状态未知
- * 只在展开时标在摘要后面，收起时不标）；展开是逐条的一行，有详情的那条可以再单独展开。进行中的回合里，排在最后的那一组显示当前动作（闪光文字、已用
+ * 读取了 6 个文件，修改了 index.ts，运行了 2 条命令”加改动行数，只涉及一个文件时写出文件名；不标失败、被拒绝等计数，
+ * 失败的那一行在展开的逐条里用失败色）；展开是逐条的一行，有详情的那条可以再单独展开。进行中的回合里，排在最后的那一组显示当前动作（闪光文字、已用
  * 时间，前面是状态图标位）。U16 起进行中的那一组默认展开，下面列出已经做完的步骤（照 Codex 的进行中列表），正在做的那条
  * 由组头代表；这一组做完（后面有了正文或回合结束）就收回成摘要，用户点过的照用户的。§55 起进行中新列进来的一行与换了的
  * 当前动作从下方上浮进入；列表超过 LIVE_ROWS 行时只露出最后几行，顶上渐隐。§56 起进行中的这一组里最近写完的文件那一行
@@ -202,7 +184,6 @@ export function WorkGroup({
           <>
             <SummaryText tally={tally} />
             {tally.lines && <DiffStat stats={tally.lines} />}
-            {open && <IssueFlags issues={tally.issues} />}
           </>
         )}
         <ChevronRight

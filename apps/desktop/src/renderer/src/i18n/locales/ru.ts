@@ -981,9 +981,6 @@ export const messages: Messages = {
     '{count, plural, one {Вызван # инструмент} few {Вызвано # инструмента} many {Вызвано # инструментов} other {Вызвано # инструмента}}',
   'work.count.raw':
     '{count, plural, one {# отладочное сообщение} few {# отладочных сообщения} many {# отладочных сообщений} other {# отладочного сообщения}}',
-  'work.issue.failed': 'Ошибок: {count}',
-  'work.issue.denied': 'Отклонено: {count}',
-  'work.issue.unknown': 'Статус неизвестен: {count}',
   'work.verb.read': 'чтение',
   'work.verb.search': 'поиск',
   'work.verb.edit': 'изменение',

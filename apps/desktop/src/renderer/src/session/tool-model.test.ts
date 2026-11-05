@@ -18,7 +18,6 @@ import {
   toolParameters,
   toolSummary,
   type WorkEntry,
-  workIssues,
   workSummary,
   workSummaryParts,
 } from './tool-model';
@@ -310,10 +309,9 @@ describe('工作组的摘要', () => {
     expect(workSummary(tally)).toBe(
       '思考了 17 秒，读取了 2 个文件，搜索了 2 次，修改了 2 个文件，运行了 1 条命令，获取了 1 个网页，更新了计划，调用了 1 个工具',
     );
-    expect(workIssues(tally.issues)).toEqual([]);
   });
 
-  it('失败、被拒绝、状态未知单独计数；失败的修改不算行数；没有思考时不写思考', () => {
+  it('失败的修改不算行数；没有思考时不写思考', () => {
     const tally = tallyWork(
       [
         tool('1', 'shell', { status: 'failed' }),
@@ -328,11 +326,6 @@ describe('工作组的摘要', () => {
     );
     expect(tally.lines).toBeUndefined();
     expect(workSummary(tally)).toBe('修改了 1 个文件，运行了 2 条命令');
-    expect(workIssues(tally.issues)).toEqual([
-      { kind: 'failed', text: '1 个失败' },
-      { kind: 'denied', text: '1 个被拒绝' },
-      { kind: 'unknown', text: '1 个状态未知' },
-    ]);
   });
 });
 

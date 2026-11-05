@@ -14,13 +14,7 @@ import { sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
 import { formatDuration } from './format';
 import { visibleParts } from './subagent-model';
-import {
-  editStats,
-  type IssueKind,
-  isImageTool,
-  type LineStats,
-  toolLifecycle,
-} from './tool-model';
+import { editStats, isImageTool, type LineStats, toolLifecycle } from './tool-model';
 
 /** 消息流的一块：一个回合的全部消息（用户消息、助手消息、插话），或一条不属于回合的系统消息。 */
 export type TranscriptBlock =
@@ -179,8 +173,6 @@ export interface TurnFold {
   defaultFolded: boolean;
   /** 成功的修改涉及的文件数与增删行数（回答下面的“N 个文件已更改”）。 */
   changes: { files: number } & LineStats;
-  /** 收起的过程里不能被吞掉的调用。 */
-  issues: Record<IssueKind, number>;
 }
 
 /**
@@ -232,18 +224,13 @@ export function foldTurn(
   const paths = new Set<string>();
   let unnamed = 0;
   const changes = { files: 0, added: 0, removed: 0 };
-  const issues: TurnFold['issues'] = { failed: 0, denied: 0, unknown: 0 };
   for (const message of messages) {
     if (message.role !== 'assistant') continue;
     for (const part of visibleParts(message.parts, hasSubagents)) {
       if (partId(message.id, part.key) === finalKey || alwaysShown(part)) continue;
       hasProcess = true;
       if (part.type !== 'tool') continue;
-      const lifecycle = toolLifecycle(part, turnActive);
-      if (lifecycle === 'failed' || lifecycle === 'denied' || lifecycle === 'unknown') {
-        issues[lifecycle] += 1;
-      }
-      if (lifecycle !== 'completed') continue;
+      if (toolLifecycle(part, turnActive) !== 'completed') continue;
       const stats = editStats(part);
       if (!stats) continue;
       if (part.display.paths?.length) for (const path of part.display.paths) paths.add(path);
@@ -262,7 +249,6 @@ export function foldTurn(
     showHeader,
     defaultFolded: finished?.outcome === 'completed' && hasProcess,
     changes,
-    issues,
   };
 }
 

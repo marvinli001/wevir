@@ -5,7 +5,7 @@
 // 修改：改写（T5.3，OpenWork 候选 #6；U2 再改）。工具分类从 OpenCode 的工具名换成 Wevir 的展示类型（ToolDisplay.kind，
 // domain-model §7）。U2 起照 Claude Code 桌面端与 Codex（design-refs/09–12）把一串连续的思考与工具调用（全部种类，
 // 同 OpenWork 的聚合）合成一个“工作组”：摘要是中文计数（“思考了 17 秒，读取了 6 个文件，运行了 2 条命令”）加改动行数，
-// 进行中显示当前动作（同 OpenWork 的当前动作行）；失败、被拒绝、状态未知单独计数，不被折叠吞掉。“状态未知”规则照搬
+// 进行中显示当前动作（同 OpenWork 的当前动作行）；失败、被拒绝、状态未知不计数，只在逐条那一行用各自的颜色。“状态未知”规则照搬
 // current-tool-lifecycle：只有回合仍在进行时未收尾的工具才算运行中，否则显示状态未知；另加“被拒绝”（同一 toolCallId
 // 的审批被拒）。
 
@@ -324,17 +324,12 @@ export interface WorkTally {
   sessions: Record<SessionToolKind, Array<{ sessionId: string; title?: string }>>;
   /** 成功的修改的增删行数；没有成功的修改时为 undefined。 */
   lines?: LineStats;
-  /** 不能被折叠吞掉的调用。 */
-  issues: Record<IssueKind, number>;
   /** 开发模式的调试信息条数。 */
   debug: number;
 }
 
-export type IssueKind = 'failed' | 'denied' | 'unknown';
-
 /** 摘要里按文件计数、只有一个时写出文件名的三种。 */
 type FileKind = 'read' | 'edit' | 'create';
-const ISSUE_KINDS: readonly IssueKind[] = ['failed', 'denied', 'unknown'];
 const SESSION_KINDS: readonly SessionToolKind[] = [
   'session_send',
   'session_create',
@@ -352,7 +347,6 @@ function countedKind(part: ToolPart): CountedKind {
 export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): WorkTally {
   let thinkingMs: number | undefined;
   const counts = Object.fromEntries(COUNTED_KINDS.map((kind) => [kind, 0])) as WorkTally['counts'];
-  const issues: WorkTally['issues'] = { failed: 0, denied: 0, unknown: 0 };
   const paths: Record<FileKind, Set<string>> = {
     read: new Set(),
     edit: new Set(),
@@ -380,9 +374,6 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
     }
     const kind = countedKind(entry);
     const lifecycle = toolLifecycle(entry, turnActive);
-    if (lifecycle === 'failed' || lifecycle === 'denied' || lifecycle === 'unknown') {
-      issues[lifecycle] += 1;
-    }
     if (kind === 'edit') {
       const changed = changedPaths(entry);
       if (changed.edit.length + changed.create.length === 0) counts.edit += 1;
@@ -424,7 +415,6 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
       session_read: [...sessions.session_read.values()],
     },
     ...(lines && { lines }),
-    issues,
     debug,
   };
 }
@@ -538,16 +528,6 @@ function changedPaths(entry: ToolPart): { edit: string[]; create: string[] } {
     if (out.edit.length + out.create.length > 0) return out;
   }
   return { edit: [...(entry.display.paths ?? [])], create: [] };
-}
-
-/** 摘要后面标出的失败、被拒绝、状态未知（各自的颜色由界面决定）；工作组与收起的回合共用。 */
-export function workIssues(
-  issues: Readonly<Record<IssueKind, number>>,
-): Array<{ kind: IssueKind; text: string }> {
-  return ISSUE_KINDS.filter((kind) => issues[kind] > 0).map((kind) => ({
-    kind,
-    text: t(`work.issue.${kind}`, { count: issues[kind] }),
-  }));
 }
 
 /** 展开后的一行。`tone` 决定颜色：进行中闪光、待审批用待审批色、失败与被拒绝用失败色、状态未知用警示色。 */

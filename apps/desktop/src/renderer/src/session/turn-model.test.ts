@@ -420,7 +420,7 @@ describe('alwaysShown', () => {
 });
 
 describe('foldTurn', () => {
-  it('正常完成：过程收起，只留最后的回答；文件改动只算成功的修改，失败的调用计数', () => {
+  it('正常完成：过程收起，只留最后的回答；文件改动只算成功的修改', () => {
     const transcript = fullTurn().project();
     const [user, assistant] = transcript.messages;
     const fold = foldTurn(transcript.messages, false, false);
@@ -430,8 +430,8 @@ describe('foldTurn', () => {
       showHeader: true,
       defaultFolded: true,
       changes: { files: 1, added: 2, removed: 1 },
-      issues: { failed: 1, denied: 0, unknown: 0 },
     });
+    expect(fold).not.toHaveProperty('issues');
     expect(turnHeaderText(fold.finished ?? { outcome: 'completed', durationMs: 0 })).toBe(
       '已处理 2 分 31 秒',
     );
@@ -516,7 +516,6 @@ describe('foldTurn', () => {
     s.finish(TURN, 'completed');
     const { messages } = s.project();
     const fold = foldTurn(messages, false, false);
-    expect(fold.issues).toEqual({ failed: 0, denied: 0, unknown: 1 });
     expect(
       texts(messages.map((m) => ({ ...m, parts: foldedParts(m, fold) }) as ChatMessage)),
     ).toEqual([['改一下'], ['error'], ['先别跑了'], ['好，停下了。']]);

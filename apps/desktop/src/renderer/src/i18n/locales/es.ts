@@ -972,9 +972,6 @@ export const messages: Messages = {
   'work.count.unknown': '{count, plural, one {# herramienta usada} other {# herramientas usadas}}',
   'work.count.raw':
     '{count, plural, one {# mensaje de depuración} other {# mensajes de depuración}}',
-  'work.issue.failed': '{count, plural, one {# fallida} other {# fallidas}}',
-  'work.issue.denied': '{count, plural, one {# denegada} other {# denegadas}}',
-  'work.issue.unknown': '{count} con estado desconocido',
   'work.verb.read': 'Lectura',
   'work.verb.search': 'Búsqueda',
   'work.verb.edit': 'Edición',
