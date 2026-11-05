@@ -54,6 +54,11 @@ export function splitMemory(listing: MethodResult<'memory.list'> | undefined): M
   };
 }
 
+/** 占上限的条数：启用且没失效的（停用的与被取代的不算，同 Host）。 */
+export function activeCount(notes: readonly MemorySummary[]): number {
+  return notes.filter((note) => note.enabled && note.validity?.invalidAt === undefined).length;
+}
+
 export const MEMORY_TYPE_LABELS: Record<MemoryType, PlainMessageKey> = {
   user: 'settings.memory.type.user',
   feedback: 'settings.memory.type.feedback',

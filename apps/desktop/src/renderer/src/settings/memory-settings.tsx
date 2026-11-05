@@ -38,6 +38,7 @@ import { useLastLocation } from '@/routes/last-location';
 import { EpisodeSettings } from './episode-settings';
 import { IMPORT_APP_LABEL } from './import-model';
 import {
+  activeCount,
   autoMemoryOn,
   defaultMemoryWorkspace,
   draftChanged,
@@ -246,7 +247,7 @@ export function MemorySettings() {
       <SettingsSection
         title={t('settings.memory.global')}
         description={t('settings.memory.count', {
-          count: sections.global.length,
+          count: activeCount(sections.global),
           max: MEMORY_MAX_PER_SCOPE,
         })}
         data-memory-scope="global"
@@ -259,7 +260,7 @@ export function MemorySettings() {
           workspaceId === undefined
             ? undefined
             : t('settings.memory.count', {
-                count: sections.project.length,
+                count: activeCount(sections.project),
                 max: MEMORY_MAX_PER_SCOPE,
               })
         }

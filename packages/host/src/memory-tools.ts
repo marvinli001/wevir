@@ -14,6 +14,7 @@ import {
   MEMORY_CONTENT_MAX_BYTES,
   MEMORY_DESCRIPTION_MAX,
   MEMORY_SCOPES,
+  MEMORY_SUPERSEDES_MAX,
   MEMORY_TYPES,
   type MemoryAgentWriter,
   MemoryError,
@@ -176,7 +177,7 @@ export function memoryTools({
         'Do not save code structure, task progress, secrets, or unconfirmed web/agent claims. ' +
         'List and read a matching note first; update it with its revision instead of duplicating it. ' +
         `Types: user, feedback, project, reference. Body ≤${MEMORY_CONTENT_MAX_BYTES} bytes. ` +
-        'supersedes replaces an old note in the same scope; supply its revision or read it first.',
+        'Merge: list the old names in supersedes (same scope). Move scope: save in the new one, delete the old.',
       inputSchema: objectSchema(
         {
           scope: scopeProperty,
@@ -191,10 +192,11 @@ export function memoryTools({
             description: 'Repository-relative paths.',
           },
           supersedes: {
-            type: 'string',
-            description: 'Replaced note.',
+            type: 'array',
+            maxItems: MEMORY_SUPERSEDES_MAX,
+            items: { type: 'string' },
+            description: 'Replaced notes.',
           },
-          supersedesRevision: { type: 'string', description: 'Revision of supersedes.' },
           type: { type: 'string', enum: [...MEMORY_TYPES] },
           description: {
             type: 'string',
@@ -221,8 +223,18 @@ export function memoryTools({
           (!Array.isArray(args.paths) || args.paths.some((path) => typeof path !== 'string'))
         )
           throw new AppToolError('paths must be strings.');
+        // 也收单个名字（旧的形状）。
         const supersedes =
-          args.supersedes === undefined ? undefined : requiredString(args, 'supersedes');
+          args.supersedes === undefined || args.supersedes === null
+            ? []
+            : typeof args.supersedes === 'string'
+              ? [args.supersedes]
+              : args.supersedes;
+        if (
+          !Array.isArray(supersedes) ||
+          supersedes.some((old) => typeof old !== 'string' || old === '')
+        )
+          throw new AppToolError('supersedes must be a list of note names.');
         const input = {
           ...(args.paths !== undefined && { paths: args.paths as string[] }),
           name,
@@ -238,12 +250,17 @@ export function memoryTools({
             return await memory.save(scope, workspaceId, input, {
               writer: writerOf(sessionId),
               cwd: cwdOf?.(sessionId),
-              ...(supersedes !== undefined && {
+              ...(supersedes.length > 0 && {
                 supersedes,
-                supersedesRevision:
-                  typeof args.supersedesRevision === 'string'
-                    ? args.supersedesRevision
-                    : seen.get(seenKey(sessionId, scope, workspaceId, supersedes)),
+                supersedesRevisions: Object.fromEntries(
+                  supersedes.flatMap((old) => {
+                    const seenRevision =
+                      supersedes.length === 1 && typeof args.supersedesRevision === 'string'
+                        ? args.supersedesRevision
+                        : seen.get(seenKey(sessionId, scope, workspaceId, old));
+                    return seenRevision === undefined ? [] : [[old, seenRevision]];
+                  }),
+                ),
               }),
               ...(revision !== undefined && { revision }),
             });
@@ -256,6 +273,7 @@ export function memoryTools({
           }
         });
         remember(key, saved.note.revision);
+        for (const old of supersedes) seen.delete(seenKey(sessionId, scope, workspaceId, old));
         return jsonResult({
           saved: saved.note.name,
           scope,
@@ -269,7 +287,7 @@ export function memoryTools({
       name: 'wevir_memory_delete',
       title: 'Delete a saved memory',
       description:
-        'Delete a saved note that turned out to be wrong or is no longer true. Do not delete notes just because they are old. ' +
+        'Delete a note that is wrong, outdated, a duplicate, or merged or moved. Do not delete notes just because they are old. ' +
         'To delete a note the user or another session saved, read it first.',
       inputSchema: objectSchema(
         { scope: scopeProperty, name: { type: 'string' }, revision: revisionProperty },

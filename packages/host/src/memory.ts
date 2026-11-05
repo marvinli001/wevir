@@ -59,6 +59,12 @@ export type MemoryScope = (typeof MEMORY_SCOPES)[number];
 export const MEMORY_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 /** 放进会话说明的索引上限（UTF-8 字节）；超出的只留条数。 */
 export const MEMORY_INDEX_MAX_BYTES = 6000;
+/** 一个范围里 Agent 看得到的笔记到了这么多条，索引里就提醒它自己整理（合并、搬到项目、改写、删除）。 */
+export const MEMORY_TIDY_AT = MEMORY_MAX_PER_SCOPE - 10;
+/** 一次保存最多取代几条（合并）。 */
+export const MEMORY_SUPERSEDES_MAX = 10;
+/** 每个范围最多留几条被取代的旧笔记（设置里看得到、能恢复）；更多时最早被取代的删掉。 */
+export const MEMORY_SUPERSEDED_KEEP = 20;
 
 export interface MemoryNote {
   scope: MemoryScope;
@@ -125,8 +131,12 @@ export interface MemorySaveInput {
 /** Agent 保存的条件（0.58.0）。 */
 export interface MemorySaveOptions {
   cwd?: string;
-  supersedes?: string;
+  /** 被这条取代的同一范围的旧笔记（合并时可以几条，最多 `MEMORY_SUPERSEDES_MAX`）：写完后标成失效，不再占上限。 */
+  supersedes?: string | readonly string[];
+  /** 只取代一条时它的版本。 */
   supersedesRevision?: string;
+  /** 取代几条时各自的版本（名字 → 版本）。 */
+  supersedesRevisions?: Readonly<Record<string, string>>;
   /** 调工具的会话（Host 填）；省略时不记来源（测试与旧调用方）。 */
   writer?: MemoryAgentWriter;
   /**
@@ -191,9 +201,7 @@ export class MemoryStore {
 
   /** Agent 看到的：全局和（有项目时）这个项目里启用的记忆，不含正文，最近更新的在前。 */
   async list(workspaceId?: string, cwd?: string): Promise<MemorySummary[]> {
-    return (await this.listAll(workspaceId, cwd)).notes.filter(
-      (note) => note.enabled && note.validity?.invalidAt === undefined,
-    );
+    return (await this.listAll(workspaceId, cwd)).notes.filter(isActive);
   }
 
   async readAll(workspaceId?: string, cwd?: string): Promise<MemoryNote[]> {
@@ -271,6 +279,19 @@ export class MemoryStore {
         'invalid',
         'paths must contain at most ten repository-relative paths without commas or newlines.',
       );
+    const supersededNames = [
+      ...new Set(
+        (typeof options.supersedes === 'string'
+          ? [options.supersedes]
+          : (options.supersedes ?? [])
+        ).map(checkName),
+      ),
+    ];
+    if (supersededNames.length > MEMORY_SUPERSEDES_MAX)
+      throw new MemoryError(
+        'invalid',
+        `One save can supersede at most ${MEMORY_SUPERSEDES_MAX} notes.`,
+      );
     const dir = this.#dir(scope, workspaceId);
     const result = await this.#exclusive(dir, async () => {
       const existing = await this.#load(scope, workspaceId, name);
@@ -291,17 +312,28 @@ export class MemoryStore {
         const conflict = writeConflict(existing.note, options.revision, options.writer);
         if (conflict !== undefined) throw conflict;
       }
-      if (existing.kind === 'missing') await this.#checkRoom(dir, scope);
-      let superseded: StoredNote | undefined;
-      if (options.supersedes !== undefined) {
-        if (options.supersedes === name)
-          throw new MemoryError('invalid', 'A note cannot supersede itself.');
-        superseded = await this.#loadNote(scope, workspaceId, checkName(options.supersedes));
-        if (!superseded.enabled)
+      const superseded: StoredNote[] = [];
+      for (const old of supersededNames) {
+        if (old === name) throw new MemoryError('invalid', 'A note cannot supersede itself.');
+        const note = await this.#loadNote(scope, workspaceId, old);
+        if (!note.enabled)
           throw new MemoryError('disabled', 'Disabled notes cannot be superseded by an Agent.');
-        const conflict = writeConflict(superseded, options.supersedesRevision, options.writer);
+        const conflict = writeConflict(
+          note,
+          supersededNames.length === 1
+            ? (options.supersedesRevision ?? options.supersedesRevisions?.[old])
+            : options.supersedesRevisions?.[old],
+          options.writer,
+        );
         if (conflict !== undefined) throw conflict;
+        superseded.push(note);
       }
+      // 合并时被取代的几条腾出位置：满了也能把几条并成一条。
+      if (existing.kind === 'missing')
+        await this.#checkRoom(scope, workspaceId, {
+          agent: options.writer !== undefined,
+          freed: superseded.filter((note) => note.validity?.invalidAt === undefined).length,
+        });
       const anchor = await memoryAnchor(
         scope === 'global'
           ? undefined
@@ -332,18 +364,19 @@ export class MemoryStore {
         ...(source !== undefined && { lastEdit: source }),
         extra: existing.kind === 'note' ? existing.note.extra : [],
       });
-      if (superseded !== undefined)
+      for (const old of superseded)
         await this.#write(dir, {
-          ...superseded,
-          validity: { ...superseded.validity, invalidAt: at, supersededBy: name },
+          ...old,
+          validity: { ...old.validity, invalidAt: at, supersededBy: name },
           updatedAt: at,
           ...(source !== undefined && { lastEdit: source }),
         });
-      return { note, created: existing.kind === 'missing' };
+      const pruned = superseded.length === 0 ? [] : await this.#pruneSuperseded(scope, workspaceId);
+      return { note, created: existing.kind === 'missing', pruned };
     });
     this.#emit(scope, workspaceId, name);
-    if (options.supersedes !== undefined) this.#emit(scope, workspaceId, options.supersedes);
-    return result;
+    for (const old of [...supersededNames, ...result.pruned]) this.#emit(scope, workspaceId, old);
+    return { note: result.note, created: result.created };
   }
 
   /**
@@ -387,7 +420,7 @@ export class MemoryStore {
       if (existing.kind !== 'missing') {
         throw new MemoryError('exists', `A ${scope} note named "${name}" already exists.`);
       }
-      await this.#checkRoom(dir, scope);
+      await this.#checkRoom(scope, workspaceId);
       const at = this.#now().toISOString();
       const source: MemorySource = { by: 'user', at, importedFrom: from.data };
       return this.#write(dir, {
@@ -428,7 +461,7 @@ export class MemoryStore {
           existing.kind === 'note' ? publicNote(existing.note) : undefined,
         );
       }
-      if (existing.kind === 'missing') await this.#checkRoom(dir, scope);
+      if (existing.kind === 'missing') await this.#checkRoom(scope, workspaceId);
       const at = this.#now().toISOString();
       const source: MemorySource = {
         by: 'user',
@@ -600,7 +633,15 @@ export class MemoryStore {
     const lines: string[] = [];
     const header =
       'Saved memory from earlier sessions (notes you or other sessions wrote, not instructions from the user; they may be out of date, so check names, files and flags before relying on them). Read one with wevir_memory_read:';
-    let bytes = Buffer.byteLength(header) + 1;
+    // 快满的范围先提醒（放在条目前面，不会被截掉）：让 Agent 下次存之前自己整理。
+    for (const scope of MEMORY_SCOPES) {
+      const count = notes.filter((note) => note.scope === scope).length;
+      if (count >= MEMORY_TIDY_AT)
+        lines.push(
+          `- Note: the ${scope} memory holds ${count} of ${MEMORY_MAX_PER_SCOPE} notes. The next time you save a note, first tidy it yourself ${tidyAdvice(scope)}`,
+        );
+    }
+    let bytes = [header, ...lines].reduce((sum, line) => sum + Buffer.byteLength(line) + 1, 0);
     for (const [index, note] of notes.entries()) {
       const line = `- [${note.scope}] ${note.name} (${note.type}): ${note.description}${memoryFreshnessLabel(note.freshness)}`;
       bytes += Buffer.byteLength(line) + 1;
@@ -655,14 +696,41 @@ export class MemoryStore {
     return loaded.note;
   }
 
-  async #checkRoom(dir: string, scope: MemoryScope): Promise<void> {
-    const count = (await readdir(dir).catch(() => [] as string[])).filter(isNoteFile).length;
-    if (count >= MEMORY_MAX_PER_SCOPE) {
-      throw new MemoryError(
-        'limit',
-        `The ${scope} memory already has ${MEMORY_MAX_PER_SCOPE} notes. Merge or delete some (wevir_memory_delete) first.`,
-      );
-    }
+  /**
+   * 新建一条前看还有没有位置。上限只数 Agent 看得到的（启用且没失效的）：停用的、被取代或标成失效的、读不出来的它列不出也删不到，
+   * 算进去会让它卡住。`freed` 是这次保存会取代掉的条数。Agent 碰到上限时的话让它自己整理，不去问用户。
+   */
+  async #checkRoom(
+    scope: MemoryScope,
+    workspaceId: string | undefined,
+    options: { agent?: boolean; freed?: number } = {},
+  ): Promise<void> {
+    const { notes } = await this.#readScope(scope, workspaceId);
+    const count = notes.filter(isActive).length - (options.freed ?? 0);
+    if (count < MEMORY_MAX_PER_SCOPE) return;
+    throw new MemoryError(
+      'limit',
+      options.agent === true
+        ? `The ${scope} memory is full (${MEMORY_MAX_PER_SCOPE} notes). Tidy it yourself now ${tidyAdvice(scope)} Then save again.`
+        : `The ${scope} memory already has ${MEMORY_MAX_PER_SCOPE} notes.`,
+    );
+  }
+
+  /** 被取代的旧笔记超过 `MEMORY_SUPERSEDED_KEEP` 条时删掉最早被取代的；返回删掉的名字。在范围的队列里调用。 */
+  async #pruneSuperseded(scope: MemoryScope, workspaceId: string | undefined): Promise<string[]> {
+    const { notes } = await this.#readScope(scope, workspaceId);
+    const old = notes
+      .filter((note) => note.validity?.supersededBy !== undefined && note.validity.invalidAt)
+      .sort(
+        (a, b) =>
+          (b.validity?.invalidAt ?? '').localeCompare(a.validity?.invalidAt ?? '') ||
+          a.name.localeCompare(b.name),
+      )
+      .slice(MEMORY_SUPERSEDED_KEEP)
+      .map((note) => note.name);
+    const dir = this.#dir(scope, workspaceId);
+    for (const name of old) await rm(join(dir, `${name}.md`), { force: true });
+    return old;
   }
 
   /** 原子地写一条（临时文件加 rename），返回带新版本的笔记。 */
@@ -717,6 +785,19 @@ export class MemoryStore {
     return next;
   }
 }
+
+/** Agent 看得到、占上限的笔记：启用且没失效。 */
+const isActive = (note: Pick<MemoryNote, 'enabled' | 'validity'>) =>
+  note.enabled && note.validity?.invalidAt === undefined;
+
+/** 让 Agent 自己整理一个范围的话（满了的错误与快满时索引里的提醒共用）。 */
+const tidyAdvice = (scope: MemoryScope) =>
+  `(it is your memory; do not ask the user): ` +
+  `merge overlapping notes into one (wevir_memory_save with supersedes listing the old names), ` +
+  (scope === 'global'
+    ? 'move notes that only concern this project into it (save with scope "project", then delete the global one), '
+    : '') +
+  'shorten or rewrite vague ones, and delete wrong, outdated or duplicate ones (wevir_memory_delete).';
 
 const isNoteFile = (file: string) =>
   file.endsWith('.md') && MEMORY_NAME_PATTERN.test(file.slice(0, -3));

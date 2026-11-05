@@ -18,6 +18,8 @@ import {
   MEMORY_CONTENT_MAX_BYTES,
   MEMORY_INDEX_MAX_BYTES,
   MEMORY_MAX_PER_SCOPE,
+  MEMORY_SUPERSEDED_KEEP,
+  MEMORY_TIDY_AT,
   MemoryError,
   MemoryStore,
 } from './memory.js';
@@ -131,6 +133,91 @@ describe('MemoryStore', () => {
     ).resolves.toMatchObject({
       created: false,
     });
+  });
+
+  it('上限只数 Agent 看得到的：停用的、被取代的不占位置；满了也能把几条并成一条；Agent 碰到上限被叫去自己整理', async () => {
+    const store = new MemoryStore({ dir: join(tempDir(), 'memory') });
+    const writer = { sessionId: SES };
+    for (let i = 0; i < MEMORY_MAX_PER_SCOPE; i++) {
+      await store.save('global', undefined, note({ name: `n-${i}` }), { writer });
+    }
+    const full = store.save('global', undefined, note({ name: 'one-more' }), { writer });
+    await expect(full).rejects.toMatchObject({ code: 'limit' });
+    await expect(full).rejects.toThrow(/Tidy it yourself now.*do not ask the user.*supersedes/);
+    // 满了的时候合并三条成一条：腾出位置，旧的标成被取代，Agent 列不出。
+    const merged = await store.save('global', undefined, note({ name: 'merged' }), {
+      writer,
+      supersedes: ['n-0', 'n-1', 'n-2'],
+    });
+    expect(merged.created).toBe(true);
+    const all = (await store.listAll()).notes;
+    expect(all.find((entry) => entry.name === 'n-1')?.validity?.supersededBy).toBe('merged');
+    expect((await store.list()).length).toBe(MEMORY_MAX_PER_SCOPE - 2);
+    // 停用一条也腾出位置。
+    await store.save('global', undefined, note({ name: 'fill-1' }), { writer });
+    await store.save('global', undefined, note({ name: 'fill-2' }), { writer });
+    await expect(
+      store.save('global', undefined, note({ name: 'fill-3' }), { writer }),
+    ).rejects.toMatchObject({ code: 'limit' });
+    await store.setEnabled('global', undefined, 'n-5', false);
+    await expect(
+      store.save('global', undefined, note({ name: 'fill-3' }), { writer }),
+    ).resolves.toMatchObject({ created: true });
+    // 用户导入碰到上限时不叫用户“自己整理”。
+    await expect(
+      store.importNote('global', undefined, note({ name: 'imported' }), {
+        app: 'codex',
+        path: '/x',
+      }),
+    ).rejects.toThrow(/^The global memory already has 100 notes\.$/);
+    await expect(
+      store.save('global', undefined, note({ name: 'too-many' }), {
+        writer,
+        supersedes: Array.from({ length: 11 }, (_, i) => `n-${10 + i}`),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+  });
+
+  it('被取代的旧笔记每个范围最多留 MEMORY_SUPERSEDED_KEEP 条，最早被取代的删掉', async () => {
+    let clock = Date.parse('2026-11-01T00:00:00.000Z');
+    const store = new MemoryStore({
+      dir: join(tempDir(), 'memory'),
+      now: () => {
+        clock += 1000;
+        return new Date(clock);
+      },
+    });
+    const changes: string[] = [];
+    store.watch((change) => changes.push(change.name));
+    for (let i = 0; i < MEMORY_SUPERSEDED_KEEP + 3; i++) {
+      await store.save('project', 'ws_1', note({ name: `old-${i}` }));
+      await store.save('project', 'ws_1', note({ name: `new-${i}` }), { supersedes: `old-${i}` });
+    }
+    const names = (await store.listAll('ws_1')).notes.map((entry) => entry.name);
+    expect(names.filter((name) => name.startsWith('old-'))).toHaveLength(MEMORY_SUPERSEDED_KEEP);
+    expect(names).not.toContain('old-0');
+    expect(names).not.toContain('old-2');
+    expect(names).toContain('old-3');
+    expect(names.filter((name) => name.startsWith('new-'))).toHaveLength(
+      MEMORY_SUPERSEDED_KEEP + 3,
+    );
+    expect(changes).toContain('old-0');
+  });
+
+  it('索引：快满的范围在条目前提醒 Agent 下次存之前自己整理', async () => {
+    const store = new MemoryStore({ dir: join(tempDir(), 'memory') });
+    for (let i = 0; i < MEMORY_TIDY_AT - 1; i++) {
+      await store.save('global', undefined, note({ name: `n-${i}` }));
+    }
+    expect(await store.indexText('ws_1')).not.toMatch(/tidy/);
+    await store.save('global', undefined, note({ name: 'last' }));
+    const text = (await store.indexText('ws_1')) ?? '';
+    const lines = text.split('\n');
+    expect(lines[1]).toBe(
+      `- Note: the global memory holds ${MEMORY_TIDY_AT} of ${MEMORY_MAX_PER_SCOPE} notes. The next time you save a note, first tidy it yourself (it is your memory; do not ask the user): merge overlapping notes into one (wevir_memory_save with supersedes listing the old names), move notes that only concern this project into it (save with scope "project", then delete the global one), shorten or rewrite vague ones, and delete wrong, outdated or duplicate ones (wevir_memory_delete).`,
+    );
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MEMORY_INDEX_MAX_BYTES);
+    expect(lines.at(-1)).toMatch(/^- … and \d+ more/);
   });
 
   it('同时保存同一个范围不丢条目', async () => {
@@ -341,6 +428,30 @@ describe('memoryTools', () => {
     };
     return { memory, tools, call };
   }
+
+  it('合并：supersedes 列几个旧名字（也收单个名字）；旧的从列表里消失', async () => {
+    const { call } = setup();
+    for (const name of ['a-1', 'a-2', 'a-3'])
+      await call('wevir_memory_save', { scope: 'global', ...note({ name }) });
+    await call('wevir_memory_save', {
+      scope: 'global',
+      ...note({ name: 'a-all' }),
+      supersedes: ['a-1', 'a-2'],
+    });
+    await call('wevir_memory_save', {
+      scope: 'global',
+      ...note({ name: 'a-3b' }),
+      supersedes: 'a-3',
+    });
+    const listed = await call('wevir_memory_list', {});
+    expect(
+      (listed.structuredContent as { notes: { name: string }[] }).notes.map((entry) => entry.name),
+    ).toEqual(expect.arrayContaining(['a-all', 'a-3b']));
+    expect((listed.structuredContent as { notes: unknown[] }).notes).toHaveLength(2);
+    await expect(
+      call('wevir_memory_save', { scope: 'global', ...note({ name: 'x' }), supersedes: [3] }),
+    ).rejects.toThrow(/supersedes must be a list/);
+  });
 
   it('四个工具都在放行表里；标只读（只写 Host 自己的文件）', () => {
     const { tools } = setup();
