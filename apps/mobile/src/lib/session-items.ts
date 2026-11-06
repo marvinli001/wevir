@@ -22,7 +22,7 @@ import { t } from '../i18n';
 import { approvalView, type BotPost } from './bots';
 import { isBusy } from './session-actions';
 
-export type ToolState = 'running' | 'done' | 'failed';
+export type ToolState = 'awaiting' | 'running' | 'done' | 'failed' | 'skipped' | 'unknown';
 
 /** 不是用户写的消息的图标：后台进程、自动修复、第二意见、回报、别的会话发来的消息。 */
 export type NoticeIcon = 'process' | 'repair' | 'opinion' | 'report' | 'message';
@@ -74,10 +74,11 @@ export type SessionItem =
       notice?: { icon: NoticeIcon; label: string };
     };
 
-function toolState(status: string): ToolState {
-  if (status === 'running' || status === 'awaiting_approval') return 'running';
-  if (status === 'failed' || status === 'cancelled') return 'failed';
-  return 'done';
+function toolState(part: ToolPart): ToolState {
+  if (part.status === 'completed') return 'done';
+  if (part.status === 'cancelled' || part.approval?.status === 'denied') return 'skipped';
+  if (part.status === 'awaiting_approval') return 'awaiting';
+  return part.status;
 }
 
 /**
@@ -274,7 +275,7 @@ function messageItems(
           kind: 'tool',
           key: part.key,
           label: toolLabel(part, labels),
-          state: toolState(part.status),
+          state: toolState(part),
         });
         break;
       case 'error':

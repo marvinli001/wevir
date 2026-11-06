@@ -689,17 +689,16 @@ function Item({
     case 'tool':
       return (
         <View style={styles.tool}>
-          <Icon
-            name={toolIcon(item.state)}
-            size={14}
-            color={item.state === 'failed' ? theme.destructive : theme.mutedForeground}
-          />
+          <Icon name={toolIcon(item.state)} size={14} color={toolColor(theme, item.state)} />
           <Text
             style={[styles.toolText, { color: theme.mutedForeground }]}
             numberOfLines={1}
             ellipsizeMode="middle"
           >
             {item.label}
+          </Text>
+          <Text style={[styles.toolState, { color: toolColor(theme, item.state) }]}>
+            {t(`tool.state.${item.state}`)}
           </Text>
         </View>
       );
@@ -865,6 +864,12 @@ function NoticeChip({
 
 function toolIcon(state: ToolState) {
   switch (state) {
+    case 'awaiting':
+      return { ios: 'hand.raised', android: 'front_hand' } as const;
+    case 'skipped':
+      return { ios: 'minus.circle', android: 'do_not_disturb_on' } as const;
+    case 'unknown':
+      return { ios: 'questionmark.circle', android: 'help_outline' } as const;
     case 'running':
       return { ios: 'ellipsis.circle', android: 'more_horiz' } as const;
     case 'failed':
@@ -872,6 +877,12 @@ function toolIcon(state: ToolState) {
     case 'done':
       return { ios: 'checkmark.circle', android: 'check_circle' } as const;
   }
+}
+
+function toolColor(theme: Theme, state: ToolState): string {
+  if (state === 'failed') return theme.destructive;
+  if (state === 'awaiting' || state === 'unknown') return theme.warning;
+  return theme.mutedForeground;
 }
 
 const styles = StyleSheet.create({
@@ -882,6 +893,7 @@ const styles = StyleSheet.create({
   reply: { paddingRight: 24 },
   tool: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
   toolText: { flex: 1, fontSize: TEXT.small },
+  toolState: { fontSize: TEXT.caption },
   note: { fontSize: TEXT.small, paddingHorizontal: 4 },
   cancel: { fontWeight: '600' },
   pending: { alignItems: 'flex-end', gap: 4 },

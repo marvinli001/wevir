@@ -249,6 +249,27 @@ const shell = (status: string, output?: string) => ({
   startedAt: '2026-11-02T10:00:01.000Z',
 });
 
+describe('sessionItems：工具执行回执', () => {
+  it.each([
+    { status: 'awaiting_approval', state: 'awaiting' },
+    { status: 'running', state: 'running' },
+    { status: 'completed', state: 'done' },
+    { status: 'failed', state: 'failed' },
+    { status: 'cancelled', state: 'skipped' },
+    { status: 'unknown', state: 'unknown' },
+    { status: 'failed', approvalStatus: 'denied', state: 'skipped' },
+    { status: 'running', approvalStatus: 'approved', state: 'running' },
+    { status: 'completed', approvalStatus: 'denied', state: 'done' },
+  ])('$status / $approvalStatus → $state', ({ status, approvalStatus, state }) => {
+    const part = {
+      ...shell(status),
+      ...(approvalStatus !== undefined && { approval: { status: approvalStatus } }),
+    };
+    const items = sessionItems(running([assistant([part])]), LABELS, { live: false });
+    expect(items).toMatchObject([{ kind: 'tool', state }]);
+  });
+});
+
 describe('sessionItems：回合进行中', () => {
   it('末尾是运行状态，正在流出的思考不另画一行，露在运行状态下面', () => {
     const items = sessionItems(
