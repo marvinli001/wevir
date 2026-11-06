@@ -58,4 +58,24 @@ describe('ToolDetails', () => {
     expect(historical).not.toContain('退出码');
     expect(historical).not.toContain('inProgress');
   });
+
+  it('Codex 托管的网页搜索没有结果时不写“无输出”，有结果时照常展示', () => {
+    const search = (extra: Partial<ToolPart> = {}): ToolPart => ({
+      ...command(),
+      toolName: 'webSearch',
+      display: { kind: 'search', summary: 'uiarc tabs', query: 'uiarc tabs' },
+      status: 'completed',
+      input: { type: 'webSearch', id: 'exec-1', query: 'uiarc tabs', action: null },
+      ...extra,
+    });
+    const hosted = renderToStaticMarkup(createElement(ToolDetails, { part: search() }));
+    expect(hosted).toContain('uiarc tabs');
+    expect(hosted).not.toContain('无输出');
+    const standalone = renderToStaticMarkup(
+      createElement(ToolDetails, {
+        part: search({ output: { text: 'Tabs\nhttps://uiarc.dev/tabs', truncated: false } }),
+      }),
+    );
+    expect(standalone).toContain('https://uiarc.dev/tabs');
+  });
 });

@@ -550,13 +550,21 @@ export class CodexEventMapper {
     state.completed = true;
     const display = toolDisplay(item);
     if (item.type === 'commandExecution' && item.cwd) display.cwd = item.cwd;
-    if (JSON.stringify(display) !== JSON.stringify(state.display)) {
+    const displayChanged = JSON.stringify(display) !== JSON.stringify(state.display);
+    // 网页搜索开始时的 item 是空的（query 为空串、action 为 null），完成时的动作才是参数。
+    const input = item.type === 'webSearch' ? toolInput(item) : undefined;
+    const inputChanged =
+      input !== undefined &&
+      state.tool !== undefined &&
+      JSON.stringify(input) !== JSON.stringify(toolInput(state.tool));
+    if (displayChanged || inputChanged) {
       state.display = display;
       events.push({
         type: 'tool.updated',
         engineSessionId: this.engineSessionId,
         toolCallId: item.id,
-        display,
+        ...(displayChanged && { display }),
+        ...(inputChanged && { input }),
       });
     }
     const output = toolOutput(item, state.output);

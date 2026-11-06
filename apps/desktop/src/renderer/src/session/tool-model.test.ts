@@ -101,7 +101,7 @@ describe('toolSummary / outputSummary', () => {
     expect(outputSummary(tool('a', 'search'))).toBeUndefined();
   });
 
-  it('命令失败时用最终退出码作摘要，不把此前的成功输出当失败原因', () => {
+  it('命令以非零退出码失败时不写说明，不把此前的成功输出当失败原因', () => {
     expect(
       outputSummary(
         tool('a', 'search', {
@@ -113,12 +113,31 @@ describe('toolSummary / outputSummary', () => {
           },
         }),
       ),
-    ).toBe('退出码 2');
-    expect(outputSummary(tool('a', 'shell', { status: 'failed', exitCode: 1 }))).toBe('退出码 1');
+    ).toBeUndefined();
+    expect(outputSummary(tool('a', 'shell', { status: 'failed', exitCode: 1 }))).toBeUndefined();
   });
 });
 
 describe('toolParameters', () => {
+  it('Codex 网页搜索：参数是动作，空查询不拿 item 的类型当摘要', () => {
+    const done = tool('a', 'search', {
+      toolName: 'webSearch',
+      input: {
+        type: 'webSearch',
+        id: 'exec-1',
+        query: 'uiarc tabs',
+        action: { type: 'search', query: 'uiarc tabs', queries: null },
+      },
+    });
+    expect(toolParameters(done)).toEqual({ type: 'search', query: 'uiarc tabs', queries: null });
+    const empty = tool('b', 'search', {
+      toolName: 'webSearch',
+      input: { type: 'webSearch', id: 'exec-2', query: '', action: null, results: null },
+    });
+    expect(toolParameters(empty)).toEqual({ query: '' });
+    expect(toolSummary(empty)).toBeUndefined();
+  });
+
   it('旧的 Codex 命令快照只展示命令、工作目录与审批理由', () => {
     expect(
       toolParameters(

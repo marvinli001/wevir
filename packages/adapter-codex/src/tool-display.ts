@@ -8,6 +8,7 @@ import type {
   FileUpdateChange,
   McpToolCallItem,
   ToolItem,
+  WebSearchToolItem,
 } from './protocol.js';
 
 // 工具类 item → 展示类型与工具名（docs/architecture/codex-event-mapping.md §6.3）。Codex 的 item 自带类型，命令还有
@@ -131,8 +132,10 @@ export function toolDisplay(item: ToolItem): ToolDisplay {
       return { kind: 'unknown', summary: toolName(item) };
     case 'collabAgentToolCall':
       return subAgentDisplay(item);
-    case 'webSearch':
-      return { kind: 'search', summary: item.query, query: item.query };
+    case 'webSearch': {
+      const query = webSearchQuery(item);
+      return query === '' ? { kind: 'search' } : { kind: 'search', summary: query, query };
+    }
     case 'imageView':
       return { kind: 'read', summary: item.path, paths: [item.path] };
     case 'imageGeneration': {
@@ -147,9 +150,65 @@ export function toolDisplay(item: ToolItem): ToolDisplay {
  * `tool.finished.images`）。`fileId` 只是个 ID，留着。
  */
 export function toolInput(item: ToolItem): unknown {
+  if (item.type === 'webSearch') {
+    // 搜索结果放进结果区（toolOutput），参数只留搜索词与动作。
+    const { results: _results, ...rest } = item;
+    return rest;
+  }
   if (item.type !== 'imageGeneration') return item;
   const { result: _result, ...rest } = item;
   return rest;
+}
+
+/**
+ * 网页搜索的搜索词：`query` 为空时照 codex-rs `web_search_action_detail` 从动作里取（搜索词、多个时第一个加 `...`、网址、
+ * 页内查找的 `'词' in 网址`）。开始时与 `other` 动作都是空串。
+ */
+export function webSearchQuery(item: WebSearchToolItem): string {
+  const query = item.query.trim();
+  if (query !== '') return query;
+  const action = item.action;
+  if (action === null || action === undefined) return '';
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+  switch (action.type) {
+    case 'search': {
+      if (text(action.query) !== '') return text(action.query);
+      const queries = Array.isArray(action.queries) ? action.queries.map(text) : [];
+      const first = queries[0] ?? '';
+      return queries.length > 1 && first !== '' ? `${first} ...` : first;
+    }
+    case 'openPage':
+      return text(action.url);
+    case 'findInPage': {
+      const pattern = text(action.pattern);
+      const url = text(action.url);
+      if (pattern !== '') return url === '' ? `'${pattern}'` : `'${pattern}' in ${url}`;
+      return url;
+    }
+    default:
+      return '';
+  }
+}
+
+/**
+ * 网页搜索的结果（`results`）：Codex 原样透传的 JSON（独立网页搜索才有；托管搜索的结果只给模型，item 里是 null）。每条认得出
+ * 标题与网址时写成两行，否则写 JSON。
+ */
+function webSearchResults(results: readonly unknown[] | null | undefined): string | undefined {
+  if (!results || results.length === 0) return undefined;
+  const lines = results.map((result) => {
+    if (typeof result !== 'object' || result === null) return JSON.stringify(result);
+    const fields = result as Record<string, unknown>;
+    const title = [fields.title, fields.name].find(
+      (value): value is string => typeof value === 'string' && value.trim() !== '',
+    );
+    const url = [fields.url, fields.link, fields.href].find(
+      (value): value is string => typeof value === 'string' && value.trim() !== '',
+    );
+    if (title === undefined && url === undefined) return JSON.stringify(result);
+    return [title?.trim(), url?.trim()].filter(Boolean).join('\n');
+  });
+  return lines.join('\n\n');
 }
 
 /**
@@ -317,6 +376,7 @@ export function toolOutput(item: ToolItem, streamed: string): string | undefined
         ? undefined
         : JSON.stringify(item.agentsStates);
     case 'webSearch':
+      return webSearchResults(item.results);
     case 'imageView':
       return undefined;
     case 'imageGeneration':

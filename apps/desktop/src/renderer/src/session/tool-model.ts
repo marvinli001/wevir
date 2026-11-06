@@ -55,7 +55,9 @@ export function toolSummary(part: Pick<ToolPart, 'display' | 'input'>): string |
     display.url;
   if (summary) return firstLine(summary);
   if (isRecord(part.input)) {
-    for (const value of Object.values(part.input)) {
+    // Codex 的 item 里 `type` 与 `id` 不是参数：空查询的网页搜索不该写成“已搜索 webSearch”。
+    for (const [key, value] of Object.entries(part.input)) {
+      if (key === 'type' || key === 'id') continue;
       if (typeof value === 'string' && value.trim()) return firstLine(value);
     }
   }
@@ -74,13 +76,19 @@ export function toolParameters(part: ToolPart): unknown {
     };
   }
   if (input.type === 'mcpToolCall' || input.type === 'dynamicToolCall') return input.arguments;
+  if (part.toolName === 'webSearch' && input.type === 'webSearch') {
+    // Codex 托管的网页搜索：动作里是搜索词或网址；旧记录只有开始时的空 item。
+    return isRecord(input.action) ? input.action : { query: input.query };
+  }
   return input;
 }
 
-/** 命令失败先显示退出码，其余取输出的第一行非空文字。 */
+/**
+ * 失败那行下面的一行说明：取输出的第一行非空文字。命令以非零退出码失败时不写：退出码在详情里，此前的成功输出也不是失败原因。
+ */
 export function outputSummary(part: ToolPart): string | undefined {
   if (part.status === 'failed' && part.exitCode !== undefined && part.exitCode !== 0) {
-    return t('tool.exitCode', { code: part.exitCode });
+    return undefined;
   }
   const text = part.output?.text;
   if (!text) return undefined;

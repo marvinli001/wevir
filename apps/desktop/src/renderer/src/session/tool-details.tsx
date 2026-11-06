@@ -29,34 +29,41 @@ export function ToolDetails({ part, root }: { part: ToolPart; root?: string }) {
       <Section label={t('tool.input')}>
         <ToolInput part={part} />
       </Section>
-      <Section label={t('tool.output')}>
-        {part.exitCode !== undefined && (
-          <p
-            className={cn(
-              'mb-1 text-xs text-muted-foreground',
-              part.exitCode !== 0 && 'text-destructive',
-            )}
-          >
-            {t('tool.exitCode', { code: part.exitCode })}
-          </p>
-        )}
-        {part.output ? (
-          <>
-            <Pre>{part.output.text || t('tool.noOutput')}</Pre>
-            {part.output.truncated && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('tool.outputTruncated', {
-                  length: part.output.originalLength ?? part.output.text.length,
-                })}
-              </p>
-            )}
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">{t('tool.noOutput')}</p>
-        )}
-      </Section>
+      {!hostedSearchWithoutResults(part) && (
+        <Section label={t('tool.output')}>
+          {part.exitCode !== undefined && (
+            <p
+              className={cn(
+                'mb-1 text-xs text-muted-foreground',
+                part.exitCode !== 0 && 'text-destructive',
+              )}
+            >
+              {t('tool.exitCode', { code: part.exitCode })}
+            </p>
+          )}
+          {part.output ? (
+            <>
+              <Pre>{part.output.text || t('tool.noOutput')}</Pre>
+              {part.output.truncated && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('tool.outputTruncated', {
+                    length: part.output.originalLength ?? part.output.text.length,
+                  })}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('tool.noOutput')}</p>
+          )}
+        </Section>
+      )}
     </div>
   );
+}
+
+/** Codex 托管的网页搜索只把结果交给模型，item 里没有结果：不写“无输出”。 */
+function hostedSearchWithoutResults(part: ToolPart): boolean {
+  return part.toolName === 'webSearch' && part.status === 'completed' && !part.output?.text;
 }
 
 function ToolInput({ part }: { part: ToolPart }) {

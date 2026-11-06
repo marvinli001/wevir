@@ -1099,8 +1099,37 @@ describe('映射的边界情况', () => {
       kind: 'search',
       summary: 'https://docs.sendflare.com/',
     });
+    expect(of(done, 'tool.updated')[0]?.input).toEqual({
+      type: 'webSearch',
+      id: 'exec-1',
+      query: 'https://docs.sendflare.com/',
+      action: { type: 'openPage', url: 'https://docs.sendflare.com/' },
+    });
     expect(of(done, 'tool.finished')[0]).toMatchObject({ status: 'completed' });
     expect(of(done, 'tool.finished')[0]).not.toHaveProperty('output');
+
+    // query 为空时从动作取搜索词；独立网页搜索带回的 results 放进结果。
+    mapper.map('item/started', { threadId: id, turnId, item: { ...started, id: 'exec-3' } });
+    const searched = mapper.map('item/completed', {
+      threadId: id,
+      turnId,
+      item: {
+        type: 'webSearch',
+        id: 'exec-3',
+        query: '',
+        action: { type: 'search', query: null, queries: ['uiarc tabs', 'uiarc dock'] },
+        results: [{ title: 'Tabs', url: 'https://uiarc.dev/tabs' }, { other: 1 }],
+      },
+    });
+    expect(of(searched, 'tool.updated')[0]?.display).toEqual({
+      kind: 'search',
+      summary: 'uiarc tabs ...',
+      query: 'uiarc tabs ...',
+    });
+    expect(of(searched, 'tool.updated')[0]?.input).not.toHaveProperty('results');
+    expect(of(searched, 'tool.finished')[0]?.output).toBe(
+      'Tabs\nhttps://uiarc.dev/tabs\n\n{"other":1}',
+    );
 
     const image = { type: 'imageView', id: 'img-1', path: '/tmp/a.png' };
     mapper.map('item/started', { threadId: id, turnId, item: image });
