@@ -46,6 +46,7 @@ import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
 import { Button, Icon, type IconName } from '../../components/ui';
 import { type MessageKey, t, timeAgo } from '../../i18n';
+import { ApprovalUnavailableError } from '../../lib/approval-gate';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { displayName } from '../../lib/records';
 import { ScrollFollow, type ScrollMetrics, showsLatest } from '../../lib/scroll-follow';
@@ -370,10 +371,13 @@ export default function SessionScreen() {
             failed={view.error !== undefined || view.offline === true}
             theme={theme}
             canWrite={canWrite}
+            clientId={client?.identity.clientId}
             continuity={continuity}
             bottomInset={composerHeight + 16}
             onDecide={async (approvalId, decision) => {
-              await watch.current?.respond(approvalId as ApprovalId, decision);
+              const current = watch.current;
+              if (current === undefined) throw new ApprovalUnavailableError('offline');
+              await current.respond(approvalId as ApprovalId, decision);
             }}
             onAnswer={async (questionId, answers) => {
               await actions?.answer(questionId as QuestionId, answers);
@@ -463,6 +467,7 @@ function SessionList({
   failed,
   theme,
   canWrite,
+  clientId,
   continuity,
   bottomInset,
   onDecide,
@@ -476,6 +481,7 @@ function SessionList({
   failed: boolean;
   theme: Theme;
   canWrite: boolean;
+  clientId: string | undefined;
   continuity: ContinuityContext;
   bottomInset: number;
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
@@ -579,6 +585,7 @@ function SessionList({
               now={now}
               theme={theme}
               canWrite={canWrite}
+              clientId={clientId}
               continuity={continuity}
               onDecide={onDecide}
               onAnswer={onAnswer}
@@ -622,6 +629,7 @@ function Item({
   now,
   theme,
   canWrite,
+  clientId,
   continuity,
   onDecide,
   onAnswer,
@@ -631,6 +639,7 @@ function Item({
   now: Date;
   theme: Theme;
   canWrite: boolean;
+  clientId: string | undefined;
   continuity: ContinuityContext;
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
@@ -670,6 +679,7 @@ function Item({
       return (
         <PostView
           post={item.post}
+          clientId={clientId}
           now={now}
           onDecide={(_, decision) => onDecide(item.approvalId, decision)}
           onOpenThread={() => {}}

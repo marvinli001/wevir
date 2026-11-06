@@ -2,7 +2,7 @@
 // 各台电脑的合成一个列表，标明来自哪台电脑。作答撞上别处先处理了（`ALREADY_DECIDED`）或过期（`APPROVAL_EXPIRED`）时，说清楚
 // 是谁、何时。纯逻辑。
 
-import { WevirRpcError } from '@wevir/client-sdk';
+import { ConnectionLostError, WevirRpcError } from '@wevir/client-sdk';
 import type {
   ApprovalResolution,
   ClientIdentity,
@@ -10,6 +10,8 @@ import type {
   MethodResult,
   NotificationParams,
 } from '@wevir/protocol';
+import type { MessageKey } from '../i18n';
+import { ApprovalNotVerifiedError, ApprovalUnavailableError } from './approval-gate';
 import { botKey } from './bots';
 
 export interface InboxList {
@@ -156,6 +158,41 @@ export function approvalConflict(
     ...(data.resolvedAt !== undefined && { at: data.resolvedAt }),
     result,
   };
+}
+
+export interface DecisionFeedback {
+  kind: 'handled' | 'failed';
+  message: MessageKey;
+}
+
+export function decisionFeedback(
+  error: unknown,
+  self: Pick<ClientIdentity, 'clientId'>,
+): DecisionFeedback {
+  const conflict = approvalConflict(error, self);
+  if (conflict !== undefined) {
+    const stopped =
+      error instanceof WevirRpcError &&
+      error.is('ALREADY_DECIDED') &&
+      error.data?.resolution.reason === 'turn_cancelled';
+    return {
+      kind: 'handled',
+      message: stopped
+        ? 'inbox.stopped'
+        : conflict.result === 'expired'
+          ? 'inbox.expired'
+          : `inbox.elsewhere.${conflict.by}`,
+    };
+  }
+  if (error instanceof ApprovalUnavailableError)
+    return error.reason === 'handled'
+      ? { kind: 'handled', message: 'inbox.handled' }
+      : { kind: 'failed', message: 'status.paused' };
+  if (error instanceof ConnectionLostError)
+    return { kind: 'failed', message: 'inbox.disconnected' };
+  if (error instanceof ApprovalNotVerifiedError)
+    return { kind: 'failed', message: 'lock.notVerified' };
+  return { kind: 'failed', message: 'inbox.failed' };
 }
 
 /** `question.respond` 的结果：已经结束的问题照样返回它的结局，不是本机答的就是别处处理了。 */

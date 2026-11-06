@@ -9,7 +9,11 @@ import type {
   WevirEventType,
 } from '@wevir/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApprovalNotVerifiedError, setApprovalGate } from './approval-gate';
+import {
+  ApprovalNotVerifiedError,
+  ApprovalUnavailableError,
+  setApprovalGate,
+} from './approval-gate';
 import { approval } from './bot-test-utils';
 import type { SessionCache } from './cache';
 import { type SessionItemLabels, sessionItems } from './session-items';
@@ -96,6 +100,7 @@ function client(items: SubscriptionItem[]) {
   const requests: Array<{ method: string; params: unknown }> = [];
   const subscription = feed(items);
   const sessions: SessionClient = {
+    identity: { clientId: 'mobile-1' },
     canWrite: true,
     request: (async (method: string, params: unknown) => {
       requests.push({ method, params });
@@ -155,8 +160,25 @@ describe('SessionWatch', () => {
     ]);
   });
 
+  it('没有连接或本地找不到审批时给出可识别的错误，不发送回复', async () => {
+    const offline = new SessionWatch(undefined, SES, () => {});
+    await expect(offline.respond(approval().id, 'approved')).rejects.toBeInstanceOf(
+      ApprovalUnavailableError,
+    );
+    const { sessions, requests } = client([]);
+    const online = new SessionWatch(sessions, SES, () => {});
+    await online.start();
+    await expect(online.respond(approval().id, 'approved')).rejects.toMatchObject({
+      name: 'ApprovalUnavailableError',
+      reason: 'handled',
+    });
+    online.stop();
+    expect(requests.map((r) => r.method)).toEqual(['session.get']);
+  });
+
   it('读不到会话时给出错误，停下后关掉订阅', async () => {
     const failing: SessionClient = {
+      identity: { clientId: 'mobile-1' },
       canWrite: true,
       request: (async () => {
         throw new Error('SESSION_NOT_FOUND');
@@ -227,7 +249,12 @@ describe('SessionWatch 的本地缓存', () => {
     });
     const items = sessionItems(offline.view.transcript as never, LABELS, { live: false });
     expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool']);
-    await offline.respond((approval() as ApprovalRequest).id, 'approved');
+    await expect(
+      offline.respond((approval() as ApprovalRequest).id, 'approved'),
+    ).rejects.toMatchObject({
+      name: 'ApprovalUnavailableError',
+      reason: 'offline',
+    });
   });
 
   it('有缓存时先显示缓存，连上回放完再换成最新的', async () => {

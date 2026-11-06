@@ -17,6 +17,7 @@ const SES = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' as SessionId;
 function client(results: Record<string, unknown> = {}, canWrite = true) {
   const calls: { method: string; params: unknown }[] = [];
   const fake: SessionClient = {
+    identity: { clientId: 'mobile-1' },
     canWrite,
     request: vi.fn(async (method: string, params: unknown) => {
       calls.push({ method, params });

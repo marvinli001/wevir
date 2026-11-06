@@ -5,9 +5,9 @@
 
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { formatBytes, type MessageKey, t, timeAgo } from '../i18n';
-import { ApprovalNotVerifiedError } from '../lib/approval-gate';
+import { formatBytes, t, timeAgo } from '../i18n';
 import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
+import { type DecisionFeedback, decisionFeedback } from '../lib/inbox';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
 import { BotAvatar } from './bot-avatar';
 import { Markdown } from './markdown';
@@ -23,6 +23,7 @@ export function PostView({
   onOpenThread,
   onRetry,
   onLoadImage,
+  clientId,
 }: {
   post: BotPost;
   now: Date;
@@ -30,6 +31,7 @@ export function PostView({
   onOpenThread: (sessionId: string) => void;
   /** 读帖子里的一张图片，给本机文件的 URI；不给时不画图片（会话页借用这里的文字与审批）。 */
   onLoadImage?: LoadImage;
+  clientId?: string | undefined;
   /** 群没有协调者，不给重试。 */
   onRetry?: () => void;
 }) {
@@ -41,7 +43,14 @@ export function PostView({
     case 'brief':
       return <BriefCard card={card} at={timeAgo(post.createdAt, now)} />;
     case 'approval':
-      return <ApprovalCard card={card} at={timeAgo(post.createdAt, now)} onDecide={decide} />;
+      return (
+        <ApprovalCard
+          card={card}
+          at={timeAgo(post.createdAt, now)}
+          clientId={clientId}
+          onDecide={decide}
+        />
+      );
     case 'thread':
       return <ThreadCard card={card} onPress={() => onOpenThread(card.sessionId)} />;
     case 'file':
@@ -209,10 +218,12 @@ function ApprovalCard({
   card,
   at,
   onDecide,
+  clientId,
 }: {
   card: Extract<BotCard, { kind: 'approval' }>;
   at: string;
   onDecide: Decide;
+  clientId?: string | undefined;
 }) {
   const theme = useTheme();
   const pending = card.decision === 'pending';
@@ -243,6 +254,7 @@ function ApprovalCard({
       )}
       <Decisions
         decision={card.decision}
+        clientId={clientId}
         {...(card.risky === true && { verify: true })}
         accept={t('bot.approve')}
         reject={t('bot.reject')}
@@ -275,6 +287,7 @@ function Decisions({
   rejected,
   verify = false,
   onDecide,
+  clientId = '',
 }: {
   decision: Decision;
   accept: string;
@@ -284,10 +297,18 @@ function Decisions({
   /** 允许前要本人验证：按钮上带 Face ID / 指纹图标。 */
   verify?: boolean;
   onDecide: Decide;
+  clientId?: string | undefined;
 }) {
   const theme = useTheme();
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState<MessageKey>();
+  const [feedback, setFeedback] = useState<DecisionFeedback>();
+  if (decision === 'pending' && feedback?.kind === 'handled') {
+    return (
+      <Text style={[styles.resultText, { color: theme.mutedForeground }]}>
+        {t(feedback.message)}
+      </Text>
+    );
+  }
   if (decision !== 'pending') {
     const yes = decision === 'approved';
     return (
@@ -309,15 +330,12 @@ function Decisions({
   }
   const press = (value: Exclude<Decision, 'pending'>) => {
     setBusy(true);
-    setFailed(undefined);
+    setFeedback(undefined);
     onDecide(value)
       .catch((error: unknown) => {
-        // 高风险审批没通过本人验证（取消，或手机没设锁屏）也要说出来，不然点了没反应。
-        if (error instanceof ApprovalNotVerifiedError) setFailed('lock.notVerified');
-        else {
-          setFailed('inbox.failed');
-          console.warn('[wevir] decision failed', error);
-        }
+        const next = decisionFeedback(error, { clientId });
+        setFeedback(next);
+        if (next.message === 'inbox.failed') console.warn('[wevir] decision failed', error);
       })
       .finally(() => setBusy(false));
   };
@@ -341,8 +359,8 @@ function Decisions({
           />
         </View>
       </View>
-      {failed !== undefined && (
-        <Text style={[styles.failed, { color: theme.destructive }]}>{t(failed)}</Text>
+      {feedback !== undefined && (
+        <Text style={[styles.failed, { color: theme.destructive }]}>{t(feedback.message)}</Text>
       )}
     </View>
   );

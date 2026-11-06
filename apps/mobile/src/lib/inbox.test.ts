@@ -1,10 +1,17 @@
-import { WevirRpcError } from '@wevir/client-sdk';
+import { ConnectionLostError, WevirRpcError } from '@wevir/client-sdk';
 import { ErrorCode, type InboxItem } from '@wevir/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ApprovalNotVerifiedError, setApprovalGate, verifyApproval } from './approval-gate';
+import { zhCN } from '../i18n/zh-CN';
+import {
+  ApprovalNotVerifiedError,
+  ApprovalUnavailableError,
+  setApprovalGate,
+  verifyApproval,
+} from './approval-gate';
 import {
   applyInboxChange,
   approvalConflict,
+  decisionFeedback,
   expiryOf,
   inboxTarget,
   isHighRisk,
@@ -174,6 +181,68 @@ describe('approvalConflict', () => {
   it('别的错误不归它管', () => {
     expect(approvalConflict(rpc('INVALID_PARAMS'), self)).toBeUndefined();
     expect(approvalConflict(new Error('offline'), self)).toBeUndefined();
+  });
+});
+
+describe('decisionFeedback', () => {
+  const self = { clientId: 'mobile-1' };
+
+  it.each([
+    {
+      name: '取消回合后的旧审批',
+      error: rpc('ALREADY_DECIDED', {
+        approvalId: 'apr_1',
+        status: 'cancelled',
+        resolution: { reason: 'turn_cancelled' },
+      }),
+      kind: 'handled',
+      label: '任务已停止',
+    },
+    {
+      name: '本机重复批准',
+      error: rpc('ALREADY_DECIDED', {
+        approvalId: 'apr_1',
+        status: 'approved',
+        resolution: {
+          reason: 'user',
+          optionId: 'allow-once',
+          decidedBy: { deviceId: 'dev-p', clientId: self.clientId, clientKind: 'mobile' },
+        },
+      }),
+      kind: 'handled',
+      label: '已在本机处理',
+    },
+    {
+      name: '过期',
+      error: rpc('APPROVAL_EXPIRED', {
+        approvalId: 'apr_1',
+        resolution: { reason: 'timeout' },
+      }),
+      kind: 'handled',
+      label: '已过期',
+    },
+    {
+      name: '回复途中断线',
+      error: new ConnectionLostError('approval.respond', 1006),
+      kind: 'failed',
+      label: '连接已断开',
+    },
+    {
+      name: '未连接',
+      error: new ApprovalUnavailableError('offline'),
+      kind: 'failed',
+      label: '未连接',
+    },
+    {
+      name: '本地审批已移除',
+      error: new ApprovalUnavailableError('handled'),
+      kind: 'handled',
+      label: '已处理',
+    },
+  ])('$name', ({ error, kind, label }) => {
+    const feedback = decisionFeedback(error, self);
+    expect(feedback.kind).toBe(kind);
+    expect(zhCN[feedback.message]).toBe(label);
   });
 });
 

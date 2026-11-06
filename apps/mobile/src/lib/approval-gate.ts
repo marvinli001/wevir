@@ -15,6 +15,13 @@ export class ApprovalNotVerifiedError extends Error {
   }
 }
 
+export class ApprovalUnavailableError extends Error {
+  override readonly name = 'ApprovalUnavailableError';
+  constructor(readonly reason: 'offline' | 'handled') {
+    super(`approval is unavailable: ${reason}`);
+  }
+}
+
 let gate: ApprovalGate | undefined;
 
 /** 装上验证；返回卸下的函数。 */

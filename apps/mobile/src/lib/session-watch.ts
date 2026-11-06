@@ -12,12 +12,20 @@ import type {
   WevirClient,
 } from '@wevir/client-sdk';
 import { TranscriptProjection } from '@wevir/client-sdk';
-import type { ApprovalId, ApprovalRequest, Session, SessionId, WevirEvent } from '@wevir/protocol';
-import { verifyApproval } from './approval-gate';
+import type {
+  ApprovalId,
+  ApprovalRequest,
+  ClientIdentity,
+  Session,
+  SessionId,
+  WevirEvent,
+} from '@wevir/protocol';
+import { ApprovalUnavailableError, verifyApproval } from './approval-gate';
 import type { SessionCache } from './cache';
 
 /** 一台电脑上按 ID 看会话的接口（`WevirClient` 的一部分）。 */
 export interface SessionClient {
+  readonly identity: Pick<ClientIdentity, 'clientId'>;
   /** 这台设备能批准（`session.write`）。 */
   readonly canWrite: boolean;
   request: WevirClient['request'];
@@ -132,8 +140,9 @@ export class SessionWatch {
   /** 批准或拒绝：选这一类里的“仅这一次”。高风险的批准先验证本人（approval-gate.ts）。 */
   async respond(approvalId: ApprovalId, decision: 'approved' | 'rejected'): Promise<void> {
     const client = this.#client;
+    if (client === undefined || this.#stopped) throw new ApprovalUnavailableError('offline');
     const request = this.#view.transcript?.approvals.get(approvalId);
-    if (request === undefined || client === undefined) return;
+    if (request === undefined) throw new ApprovalUnavailableError('handled');
     await verifyApproval(request, decision === 'approved' ? 'allow' : 'reject');
     await client.request('approval.respond', {
       approvalId,
