@@ -7,7 +7,13 @@ import type {
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { decideRouting } from '../../../../../../packages/host/src/routing.js';
-import { isRoutingSwitch, moveRoutingNode, routingNodes, routingReason } from './routing-model';
+import {
+  isRoutingSwitch,
+  moveRoutingNode,
+  routingMenuProviders,
+  routingNodes,
+  routingReason,
+} from './routing-model';
 
 const now = Date.parse('2026-11-03T00:00:00Z');
 const turnId = 'trn_1';
@@ -184,5 +190,26 @@ describe('路由链与 Host 一致', () => {
     );
     expect(routingReason('signed_out')).toBe('未登录');
     expect(routingReason('future_reason')).toBe('future_reason');
+  });
+});
+
+describe('路由模型菜单', () => {
+  it('只列启用且已登录的来源，当前用的照列', () => {
+    const providers = [
+      provider('claude'),
+      provider('signed-out'),
+      provider('api', 'openai-compatible'),
+      provider('off', 'openai-compatible', false),
+    ];
+    const accounts = [
+      account('claude'),
+      { ...account('signed-out'), status: 'signed_out' as const },
+    ];
+    expect(routingMenuProviders(providers, accounts).map((p) => p.id)).toEqual(['claude', 'api']);
+    expect(routingMenuProviders(providers, accounts, 'off').map((p) => p.id)).toEqual([
+      'claude',
+      'api',
+      'off',
+    ]);
   });
 });

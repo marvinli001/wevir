@@ -23,6 +23,7 @@ import {
   isRoutingSwitch,
   moveRoutingNode,
   type RoutingNode,
+  routingMenuProviders,
   routingNodes,
   routingReason,
 } from './routing-model';
@@ -53,7 +54,8 @@ export function RoutingSettingsPage() {
     view.status === 'connected' && hostSupports(view.hello.features, 'usage_limit_routing');
   if (data.status !== 'ready') return <SettingsLoading data={data} />;
   const providers = pickerOrder(data.providers);
-  const current = resolveChoice(providers, stored);
+  const pickable = routingMenuProviders(providers, accounts);
+  const current = resolveChoice(pickable, stored);
   // 同订阅段的顺序以 Host 的 provider.list 为准，模型菜单的品牌排序只用于选择。
   const nodes = routingNodes(data.providers, accounts, current, routing, now);
   const next = routing.enabled
@@ -126,7 +128,7 @@ export function RoutingSettingsPage() {
         title={t('routing.chain')}
         action={
           <RoutingModelMenu
-            providers={providers}
+            providers={pickable}
             value={current}
             disabled={!editable}
             label={t('routing.add')}
@@ -258,7 +260,7 @@ export function RoutingSettingsPage() {
                           <RoutingModelMenu
                             providers={
                               node.section === 'current'
-                                ? providers
+                                ? routingMenuProviders(providers, accounts, node.providerId)
                                 : providers.filter((provider) => provider.id === node.providerId)
                             }
                             value={node}

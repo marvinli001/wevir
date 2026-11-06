@@ -9,8 +9,19 @@ import {
   rateLimitWindows,
   type WevirEvent,
 } from '@wevir/protocol';
-import { accountOfProvider, sourceOf } from '@/data/sources';
+import { accountOfProvider, isPickable, sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
+
+/**
+ * 路由页模型菜单列哪些 Provider：与对话的模型选择一样只列能选的（停用的、订阅没登录或没装的不列）；`keep` 是当前用的，照列。
+ */
+export function routingMenuProviders<T extends ProviderProfile>(
+  providers: readonly T[],
+  accounts: readonly AccountState[] | undefined,
+  keep?: string,
+): T[] {
+  return providers.filter((provider) => provider.id === keep || isPickable(provider, accounts));
+}
 
 export interface RoutingNode extends RoutingTarget {
   key: string;
