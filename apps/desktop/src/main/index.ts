@@ -68,7 +68,13 @@ import { isBadgeCount, parseDesktopNotification } from './notification-input.js'
 import { inspectInstallSource, readSkillFile } from './plugin-source.js';
 import { serveRendererFile } from './renderer-files.js';
 import { markStartup, type StartupMark } from './startup-timing.js';
-import { BROWSER_PARTITION_DIR, cleanLogs, measureStorage } from './storage.js';
+import {
+  BROWSER_PARTITION_DIR,
+  cleanFileCaches,
+  cleanLogs,
+  DISK_CACHE_MAX_BYTES,
+  measureStorage,
+} from './storage.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
 import {
@@ -124,6 +130,8 @@ const home = resolveHome({ env: process.env });
 // ~/Library/Application Support/Wevir。改到数据目录的 desktop/ 子目录：不与 Host 的文件混在一起，
 // WEVIR_HOME 也能把桌面端的 Chromium 配置一并隔离（单实例锁同样按它）。
 app.setPath('userData', join(home, 'desktop'));
+// Chromium 的 HTTP 缓存默认按剩余空间放到几百 MB（内置浏览器的分区常年三百多 MB）：主窗口与内置浏览器的每个分区都以这个为上限。
+app.commandLine.appendSwitch('disk-cache-size', String(DISK_CACHE_MAX_BYTES));
 if (devServerUrl !== undefined) {
   // Chrome 远程调试端口只在开发模式开启（只监听 127.0.0.1）。
   app.commandLine.appendSwitch(
@@ -649,7 +657,8 @@ function run(): void {
     app.moveToApplicationsFolder();
   });
 
-  // 设置 → 存储：量数据目录（main/storage.ts）。缓存与内置浏览器的数据由 Chromium 自己清（文件还开着），日志直接清。
+  // 设置 → 存储：量数据目录（main/storage.ts）。缓存与内置浏览器的数据由 Chromium 自己清（文件还开着），日志与 Host 的
+  // 文件缓存（文档预览的 PDF）直接清。
   ipcMain.handle(IPC_CHANNELS.getStorageUsage, async (event): Promise<StorageUsage> => {
     assertSender(event);
     return measureStorage(home);
@@ -671,6 +680,7 @@ function run(): void {
             await target?.clearCache();
             await target?.clearCodeCaches({});
           }
+          await cleanFileCaches(home);
         } else if (category === 'browser') {
           // 内置浏览器的 Cookie、本地存储、登录状态：网站都要重新登录。
           await browserSession?.clearStorageData();

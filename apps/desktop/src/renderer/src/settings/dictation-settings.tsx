@@ -3,7 +3,7 @@
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { HostSettings, SpeechStatus } from '@wevir/protocol';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
@@ -19,14 +19,15 @@ import {
 } from './dictation-settings-model';
 import { LIST_CARD, type Notice, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
 
-export function DictationSettings() {
+/**
+ * 听写模型的状态（Host 有 `speech` 时）：打开时读一次，之后跟着 `speech.changed`。设置 → 听写与设置 → 存储的“下载的组件”共用。
+ */
+export function useSpeechStatus(onError: (reason: unknown) => void) {
   const { client, view } = useHostConnection();
   const supported = view.status === 'connected' && hostSupports(view.hello.features, 'speech');
-  const { settings, update } = useHostSettings();
-  const data = useWorkbenchData();
   const [status, setStatus] = useState<SpeechStatus>();
-  const [notice, setNotice] = useState<Notice>();
-  const [busy, setBusy] = useState(false);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useEffect(() => {
     if (!client || !supported) return;
@@ -38,7 +39,7 @@ export function DictationSettings() {
           if (!stopped) setStatus(result.status);
         })
         .catch((reason: unknown) => {
-          if (!stopped) setNotice({ tone: 'error', text: describe(reason) });
+          if (!stopped) onErrorRef.current(reason);
         });
     void load();
     const unsubscribe = client.onSpeechChanged((change) => {
@@ -50,6 +51,18 @@ export function DictationSettings() {
       unsubscribe();
     };
   }, [client, supported]);
+
+  return { client, supported, status };
+}
+
+export function DictationSettings() {
+  const [notice, setNotice] = useState<Notice>();
+  const { client, supported, status } = useSpeechStatus((reason) =>
+    setNotice({ tone: 'error', text: describe(reason) }),
+  );
+  const { settings, update } = useHostSettings();
+  const data = useWorkbenchData();
+  const [busy, setBusy] = useState(false);
 
   if (!supported) {
     return <NoticeBanner notice={{ tone: 'info', text: t('settings.dictation.unsupported') }} />;
@@ -141,15 +154,18 @@ export function DictationSettings() {
   );
 }
 
-function LocalModelAction({
+export function LocalModelAction({
   state,
   busy,
   onInstall,
   onCancel,
   onRemove,
+  installVariant = 'default',
 }: {
   state: SpeechStatus['local']['state'];
   busy: boolean;
+  /** 下载按钮的样式：设置 → 存储里与别的组件一样用 secondary。 */
+  installVariant?: 'default' | 'secondary';
   onInstall: () => void;
   onCancel: () => void;
   onRemove: () => void;
@@ -160,7 +176,13 @@ function LocalModelAction({
     case 'missing':
     case 'failed':
       return (
-        <Button size="sm" disabled={busy} onClick={onInstall} data-action="speech-install">
+        <Button
+          size="sm"
+          variant={installVariant}
+          disabled={busy}
+          onClick={onInstall}
+          data-action="speech-install"
+        >
           {state === 'failed' ? t('settings.dictation.retry') : t('settings.dictation.download')}
         </Button>
       );

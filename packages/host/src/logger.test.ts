@@ -1,8 +1,8 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, truncateSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HostError } from './errors.js';
-import { createLogger, LOG_FILE, REDACTED, redact } from './logger.js';
+import { createLogger, LOG_FILE, REDACTED, ROTATED_LOG_FILE, redact } from './logger.js';
 import { useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
@@ -79,6 +79,33 @@ describe('createLogger', () => {
     });
     expect(line.url).toBe(`ws://127.0.0.1:1/?t=${REDACTED}`);
     expect(line.error).toMatchObject({ name: 'Error', message: `bad token ${REDACTED}` });
+  });
+
+  it('host.log 超过上限时改名成 host.1.log（覆盖上一份）再开新的；被截短过的照实际大小算', () => {
+    const dir = join(tempDir(), 'logs');
+    const logger = createLogger({ dir, now: fixedNow, maxBytes: 200 });
+    for (let index = 0; index < 3; index += 1) logger.info(`first ${index}`);
+    expect(readdirSync(dir)).toEqual([LOG_FILE]);
+    logger.info('second 0');
+    expect(readdirSync(dir).sort()).toEqual([ROTATED_LOG_FILE, LOG_FILE].sort());
+    expect(readFileSync(join(dir, ROTATED_LOG_FILE), 'utf8')).toContain('first 2');
+    expect(lines(dir).map((line) => line.msg)).toEqual(['second 0']);
+    for (let index = 1; index < 4; index += 1) logger.info(`second ${index}`);
+    expect(readFileSync(join(dir, ROTATED_LOG_FILE), 'utf8')).not.toContain('first');
+
+    // 存储页清理日志：截成空的之后不因旧的计数立刻轮转。
+    truncateSync(join(dir, LOG_FILE), 0);
+    const rotated = readFileSync(join(dir, ROTATED_LOG_FILE), 'utf8');
+    logger.info('after clean');
+    expect(lines(dir).map((line) => line.msg)).toEqual(['after clean']);
+    expect(readFileSync(join(dir, ROTATED_LOG_FILE), 'utf8')).toBe(rotated);
+
+    // 重新打开时接着算已有的大小。
+    logger.close();
+    const reopened = createLogger({ dir, now: fixedNow, maxBytes: 200 });
+    for (let index = 0; index < 3; index += 1) reopened.info(`third ${index}`);
+    reopened.close();
+    expect(readFileSync(join(dir, ROTATED_LOG_FILE), 'utf8')).toContain('after clean');
   });
 
   it('写日志失败不抛出', () => {

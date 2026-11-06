@@ -142,6 +142,8 @@ export class AntigravityAdapter extends AcpAdapter {
       ...options.installation,
     });
     context.installation = installation;
+    // 以前的 Wevir 钉住的旧发布（几百 MB）：启动时删掉，不等下次安装。
+    void installation.removeInactiveReleases();
     let launcher: AntigravityLauncher | undefined;
     super({
       // 会话报要登录时账号改为未登录（登录过期、被撤销）。

@@ -336,6 +336,31 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
       version: ANTIGRAVITY_RELEASE_VERSION,
     });
     expect(await current.resolve()).toMatchObject({ version: ANTIGRAVITY_RELEASE_VERSION });
+    // 旧发布在新的启用后删掉。
+    expect(readdirSync(path.join(current.managedDirectory, 'versions'))).toEqual([
+      current.releaseAsset?.sha256,
+    ]);
+  });
+
+  it('启动时删掉 active.json 没指着的发布与别的发布的半截下载；没装过时什么都不做', async () => {
+    const url = await serve(ZIP);
+    const target = installation(assetFor(url));
+    await target.removeInactiveReleases();
+    expect(existsSync(target.managedDirectory)).toBe(false);
+
+    await target.install(() => {});
+    const versions = path.join(target.managedDirectory, 'versions');
+    const downloads = path.join(target.managedDirectory, 'downloads');
+    const stale = path.join(versions, 'a'.repeat(64));
+    mkdirSync(stale, { recursive: true });
+    writeFileSync(path.join(stale, 'agy_acp_server.par'), 'old');
+    writeFileSync(path.join(downloads, `${'b'.repeat(64)}.zip.part`), 'old');
+    writeFileSync(path.join(downloads, `${target.releaseAsset?.sha256}.zip.part`), 'resume');
+
+    await target.removeInactiveReleases();
+    expect(readdirSync(versions)).toEqual([target.releaseAsset?.sha256]);
+    expect(readdirSync(downloads)).toEqual([`${target.releaseAsset?.sha256}.zip.part`]);
+    expect(await target.resolve()).toMatchObject({ source: 'managed' });
   });
 
   it('运行体自报的不是这个发布：校验失败，不启用', async () => {

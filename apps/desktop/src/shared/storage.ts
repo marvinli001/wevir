@@ -1,12 +1,13 @@
 // 设置 → 存储（照 Codex 桌面端的 Storage）：Wevir 在本机数据目录里占了多少、分在哪几类，哪几类能手动清理。主进程量
 // （main/storage.ts）、清理，渲染进程只显示。数据目录是 Host 的（会话、worktree、引擎数据），只有缓存、内置浏览器的数据
-// 与日志这三类不经 Host 也能安全地清；会话在左栏与“已归档”里管理。
+// 与日志这三类不经 Host 也能安全地清；会话在左栏与“已归档”里管理，下载的组件（听写模型、文档预览引擎）经 Host 删除。
 
 /** 各类，按条形图里的顺序。 */
 export const STORAGE_CATEGORIES = [
   'sessions',
   'worktrees',
   'engines',
+  'components',
   'cache',
   'browser',
   'logs',

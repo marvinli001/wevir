@@ -19,6 +19,8 @@ import {
   type StorageCategory,
   type StorageUsage,
 } from '../../../shared/storage.js';
+import { LocalModelAction, useSpeechStatus } from './dictation-settings';
+import { localStatusText } from './dictation-settings-model';
 import { LIST_CARD, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
 import { SessionStorageCard } from './storage-sessions';
 
@@ -27,6 +29,7 @@ const TONE: Record<StorageCategory, string> = {
   sessions: 'bg-chart-1',
   worktrees: 'bg-chart-2',
   engines: 'bg-chart-3',
+  components: 'bg-chart-8',
   cache: 'bg-chart-4',
   browser: 'bg-chart-5',
   logs: 'bg-chart-6',
@@ -41,7 +44,8 @@ function Dot({ category, className }: { category: StorageCategory; className?: s
 
 /**
  * 设置 → 存储（照 Codex 桌面端的 Storage）：“此设备”下面是 Wevir 一共占了多少、彩色的占用条（悬停一段或图例看这一类）、
- * 每类的图例与大小、数据目录在哪；然后一张卡片逐类清理缓存、内置浏览器的数据与日志；最后一张卡片是按会话的清理与工作树
+ * 每类的图例与大小、数据目录在哪；然后一张卡片逐类清理缓存、内置浏览器的数据与日志；一张卡片是下载的组件（文档预览引擎、
+ * 听写模型，各自删除与重新下载）；最后一张卡片是按会话的清理与工作树
  * （Host 有 `session_delete` 时，storage-sessions.tsx，在对话框里看和删）与“已归档的会话”的入口。量数据目录与清理在主进程
  * （main/storage.ts），按会话的占用与删除经 Host。
  */
@@ -229,7 +233,13 @@ export function StorageSettings() {
             />
           ))}
         </div>
-        <OfficeEngineCard onChanged={refresh} />
+        <ComponentsCard
+          onChanged={refresh}
+          onError={(reason) => setError(t('settings.storage.failed', { error: describe(reason) }))}
+          onActionError={(reason) =>
+            setError(t('settings.dictation.failed', { error: describe(reason) }))
+          }
+        />
         <SessionStorageCard
           onDeleted={refresh}
           onOpenArchived={() => navigate(paths.settings('archived'), { replace: true })}
@@ -251,63 +261,127 @@ export function StorageSettings() {
   );
 }
 
-/** 文档预览引擎（0.138.0，文件窗格的页面预览）：大小、下载与删除。Host 没有 `office_preview` 或平台不支持时不显示。 */
-function OfficeEngineCard({ onChanged }: { onChanged: () => void }) {
+/**
+ * 下载的组件：按需下载、删了可以再下的大文件，各占一行——文档预览引擎（0.138.0，Host 有 `office_preview`）与听写的本机模型
+ * （0.92.0，Host 有 `speech`）。都不支持时不显示。装好或删掉之后重新量一遍存储。
+ */
+function ComponentsCard({
+  onChanged,
+  onError,
+  onActionError,
+}: {
+  onChanged: () => void;
+  /** 读听写模型的状态失败。 */
+  onError: (reason: unknown) => void;
+  /** 下载、取消或删除听写模型失败。 */
+  onActionError: (reason: unknown) => void;
+}) {
   const engine = useOfficeEngine();
-  const status = engine.status;
-  const state = status?.state;
-  // 装好或删掉之后重新量一遍存储。
+  const speech = useSpeechStatus(onError);
+  const [speechBusy, setSpeechBusy] = useState(false);
+  const officeState = engine.status?.state;
+  const speechState = speech.status?.local.state;
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在状态变成装好或没装时重量。
   useEffect(() => {
-    if (state === 'ready' || state === 'missing') onChanged();
-  }, [state]);
-  if (!engine.supported || status === undefined || status.state === 'unsupported') return null;
+    if (officeState === 'ready' || officeState === 'missing') onChanged();
+  }, [officeState]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 同上。
+  useEffect(() => {
+    if (speechState === 'ready' || speechState === 'missing') onChanged();
+  }, [speechState]);
+
+  const office =
+    engine.supported && engine.status !== undefined && engine.status.state !== 'unsupported'
+      ? engine.status
+      : undefined;
+  const local =
+    speech.supported && speech.status !== undefined && speech.status.local.state !== 'unsupported'
+      ? speech.status.local
+      : undefined;
+  if (office === undefined && local === undefined) return null;
+
+  const runSpeech = async (
+    method: 'speech.install' | 'speech.cancelInstall' | 'speech.uninstall',
+  ) => {
+    if (!speech.client) return;
+    setSpeechBusy(true);
+    try {
+      await speech.client.request(method, {});
+    } catch (reason) {
+      onActionError(reason);
+    } finally {
+      setSpeechBusy(false);
+    }
+  };
+
   return (
-    <div className={LIST_CARD}>
-      <SettingsRow
-        title={t('settings.storage.officeEngine')}
-        data-setting="office-engine"
-        description={engine.error ?? engineStatusText(status, currentLocale())}
-        control={
-          status.state === 'installing' ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={engine.busy}
-              onClick={engine.cancel}
-              data-action="office-engine-cancel"
-            >
-              {t('common.cancel')}
-            </Button>
-          ) : status.state === 'ready' ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={engine.busy}
-              onClick={engine.remove}
-              aria-busy={engine.busy || undefined}
-              className="aria-busy:opacity-100"
-              data-action="office-engine-remove"
-            >
-              {engine.busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
-              {t('settings.storage.officeEngine.remove')}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={engine.busy}
-              onClick={engine.install}
-              aria-busy={engine.busy || undefined}
-              className="aria-busy:opacity-100"
-              data-action="office-engine-install"
-            >
-              {engine.busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
-              {t('settings.storage.officeEngine.download')}
-            </Button>
-          )
-        }
-      />
+    <div className={LIST_CARD} data-storage-components>
+      {office && (
+        <SettingsRow
+          title={t('settings.storage.officeEngine')}
+          data-setting="office-engine"
+          description={engine.error ?? engineStatusText(office, currentLocale())}
+          control={<OfficeEngineAction engine={engine} />}
+        />
+      )}
+      {local && (
+        <SettingsRow
+          title={t('settings.storage.speechModel')}
+          data-setting="speech-local-model"
+          description={localStatusText(local, currentLocale())}
+          control={
+            <LocalModelAction
+              state={local.state}
+              busy={speechBusy}
+              installVariant="secondary"
+              onInstall={() => void runSpeech('speech.install')}
+              onCancel={() => void runSpeech('speech.cancelInstall')}
+              onRemove={() => void runSpeech('speech.uninstall')}
+            />
+          }
+        />
+      )}
     </div>
+  );
+}
+
+function OfficeEngineAction({ engine }: { engine: ReturnType<typeof useOfficeEngine> }) {
+  const state = engine.status?.state;
+  return state === 'installing' ? (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={engine.busy}
+      onClick={engine.cancel}
+      data-action="office-engine-cancel"
+    >
+      {t('common.cancel')}
+    </Button>
+  ) : state === 'ready' ? (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={engine.busy}
+      onClick={engine.remove}
+      aria-busy={engine.busy || undefined}
+      className="aria-busy:opacity-100"
+      data-action="office-engine-remove"
+    >
+      {engine.busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
+      {t('settings.storage.officeEngine.remove')}
+    </Button>
+  ) : (
+    <Button
+      size="sm"
+      variant="secondary"
+      disabled={engine.busy}
+      onClick={engine.install}
+      aria-busy={engine.busy || undefined}
+      className="aria-busy:opacity-100"
+      data-action="office-engine-install"
+    >
+      {engine.busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
+      {t('settings.storage.officeEngine.download')}
+    </Button>
   );
 }

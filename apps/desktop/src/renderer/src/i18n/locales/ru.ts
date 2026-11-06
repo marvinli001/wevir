@@ -2495,6 +2495,7 @@ export const messages: Messages = {
   'settings.storage.category.sessions': 'Чаты',
   'settings.storage.category.worktrees': 'Worktree',
   'settings.storage.category.engines': 'Данные движков',
+  'settings.storage.category.components': 'Загрузки',
   'settings.storage.category.cache': 'Кэш',
   'settings.storage.category.browser': 'Данные браузера',
   'settings.storage.category.logs': 'Журналы',
@@ -2533,6 +2534,7 @@ export const messages: Messages = {
   'settings.storage.chatsSummary':
     '{count, plural, one {# сеанс} few {# сеанса} many {# сеансов} other {# сеанса}} · {size}',
   'settings.storage.officeEngine': 'Движок просмотра документов',
+  'settings.storage.speechModel': 'Модель диктовки',
   'settings.storage.officeEngine.unsupported': 'Не поддерживается на этой платформе',
   'settings.storage.officeEngine.missing': 'Не загружен · {size}',
   'settings.storage.officeEngine.ready': 'Загружен · {size}',

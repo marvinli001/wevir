@@ -1,12 +1,24 @@
-import { chmodSync, closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  writeSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 export type LogFields = Record<string, unknown>;
 
-/** 日志文件名，位于 `<数据目录>/logs/`。骨架阶段只追加、不轮转。 */
+/** 日志文件名，位于 `<数据目录>/logs/`。超过 `LOG_MAX_BYTES` 时改名成 `ROTATED_LOG_FILE`（覆盖上一份）再重新开一个。 */
 export const LOG_FILE = 'host.log';
+/** 轮转下来的上一份日志。 */
+export const ROTATED_LOG_FILE = 'host.1.log';
+/** `host.log` 长到这么大就轮转：日志最多占两份这么大。 */
+export const LOG_MAX_BYTES = 10 * 1024 * 1024;
 
 /** 替换敏感内容的占位。 */
 export const REDACTED = '[REDACTED]';
@@ -45,6 +57,8 @@ export interface LoggerOptions {
   /** 每行都带的字段，例如 `pid`。 */
   base?: LogFields;
   now?: () => Date;
+  /** 轮转的大小，默认 `LOG_MAX_BYTES`（测试用）。 */
+  maxBytes?: number;
 }
 
 /**
@@ -60,16 +74,45 @@ export function createLogger(options: LoggerOptions = {}): Logger {
   const threshold = LOG_LEVELS.indexOf(level);
   const now = options.now ?? (() => new Date());
   const secrets: string[] = [];
+  const maxBytes = options.maxBytes ?? LOG_MAX_BYTES;
   let fd: number | undefined;
-  if (options.dir !== undefined) {
-    mkdirSync(options.dir, { recursive: true, mode: 0o700 });
-    const path = join(options.dir, LOG_FILE);
-    fd = openSync(path, 'a', 0o600);
-    if (process.platform !== 'win32') {
-      chmodSync(options.dir, 0o700);
-      chmodSync(path, 0o600);
+  /** 当前 `host.log` 的字节数（打开时的大小加上之后写的）。 */
+  let size = 0;
+  const path = options.dir === undefined ? undefined : join(options.dir, LOG_FILE);
+  const open = (file: string) => {
+    fd = openSync(file, 'a', 0o600);
+    if (process.platform !== 'win32') chmodSync(file, 0o600);
+    try {
+      size = fstatSync(fd).size;
+    } catch {
+      size = 0;
     }
+  };
+  if (options.dir !== undefined && path !== undefined) {
+    mkdirSync(options.dir, { recursive: true, mode: 0o700 });
+    if (process.platform !== 'win32') chmodSync(options.dir, 0o700);
+    open(path);
   }
+  // 当前文件写满了：改名成 host.1.log（覆盖上一份）再开新的。改名失败（Windows 上被别的进程开着）时接着写原来的文件。
+  const rotate = (dir: string, file: string) => {
+    if (fd === undefined) return;
+    try {
+      closeSync(fd);
+    } catch {
+      // 已关闭。
+    }
+    fd = undefined;
+    try {
+      renameSync(file, join(dir, ROTATED_LOG_FILE));
+    } catch {
+      // 留在原处，下面重新打开它。
+    }
+    try {
+      open(file);
+    } catch {
+      fd = undefined;
+    }
+  };
 
   const write = (lineLevel: LogLevel, msg: string, fields: LogFields | undefined): void => {
     if (LOG_LEVELS.indexOf(lineLevel) < threshold) return;
@@ -84,8 +127,19 @@ export function createLogger(options: LoggerOptions = {}): Logger {
       ...rest,
     });
     if (fd !== undefined) {
+      const text = `${line}\n`;
+      const bytes = Buffer.byteLength(text);
+      if (size + bytes > maxBytes && options.dir !== undefined && path !== undefined) {
+        // 设置 → 存储清理日志时会把文件截短：先看实际大小。
+        try {
+          size = fstatSync(fd).size;
+        } catch {
+          // 照计数。
+        }
+        if (size > 0 && size + bytes > maxBytes) rotate(options.dir, path);
+      }
       try {
-        writeSync(fd, `${line}\n`);
+        if (fd !== undefined) size += writeSync(fd, text);
       } catch {
         // 磁盘满、文件被删等：放弃这一行。
       }

@@ -5,7 +5,7 @@
 // 修改：Effect 改写成普通 TS；目录换到 Wevir 的 `<数据目录>/engines/antigravity/runtime/<平台>-<架构>/`；下载请求不压缩
 // （Accept-Encoding: identity），没下完的留在 downloads/ 里、下次用 Range 接着下；60 秒收不到数据算卡住；连不上时的说明
 // 指向 WEVIR_ANTIGRAVITY_MIRROR 与手填路径（大陆网络）；进度经回调报字节数；不做 T3 的租约与删除（Wevir 没有删除运行体
-// 的方法）；校验运行体（启动并核对 initialize）由调用方注入（process.ts 的 validateAntigravityRuntime）。
+// 的方法），只在新发布启用后与 Host 启动时删掉没在用的旧发布；校验运行体（启动并核对 initialize）由调用方注入（process.ts 的 validateAntigravityRuntime）。
 //
 // 运行体的安装（domain-model §3.6 的 account.install，docs/architecture/antigravity-event-mapping.md §2）：
 // versions/<sha256>/ 是装好的一个发布（两个可执行文件加 .install-complete.json），active.json 是指向它的原子指针，写下它才算
@@ -237,6 +237,7 @@ export class AntigravityInstallation {
         report('verifying', asset.archiveBytes);
         await this.#validate(existing, asset.version, signal);
         await this.#activate(asset);
+        await this.#removeOtherReleases(asset.sha256);
         return existing;
       }
 
@@ -306,6 +307,7 @@ export class AntigravityInstallation {
       }
       await fsp.rm(archivePath, { force: true }).catch(() => {});
       await this.#activate(asset);
+      await this.#removeOtherReleases(asset.sha256);
       return await this.#completedRelease(asset.sha256);
     } catch (error) {
       if (signal.aborted) {
@@ -622,6 +624,37 @@ export class AntigravityInstallation {
         'Could not activate Antigravity. The previous runtime is unchanged. Check for locked files and try again.',
         { cause },
       );
+    }
+  }
+
+  /**
+   * 删掉 active.json 没指着的发布与别的发布没下完的压缩包（Wevir 升级换了钉住的版本后，旧的一份几百 MB 一直留着）。正在安装、
+   * 或者还没装过时什么都不做。Host 启动时调一次，清掉以前的版本留下的。
+   */
+  async removeInactiveReleases(): Promise<void> {
+    if (this.#running !== undefined) return;
+    const active = await this.#readRecord<{ releaseId?: unknown }>(this.#activePath).catch(
+      () => undefined,
+    );
+    const releaseId = active?.releaseId;
+    if (typeof releaseId !== 'string' || !RELEASE_ID.test(releaseId)) return;
+    await this.#removeOtherReleases(releaseId);
+  }
+
+  /** 新发布启用后删掉别的发布（Windows 上还有进程在用的删不掉，忽略），以及不是钉住的发布的半截下载。 */
+  async #removeOtherReleases(keep: string): Promise<void> {
+    for (const entry of await fsp.readdir(this.#versions).catch(() => [] as string[])) {
+      if (entry !== keep && !entry.startsWith('.')) {
+        await fsp
+          .rm(path.join(this.#versions, entry), { recursive: true, force: true })
+          .catch(() => {});
+      }
+    }
+    const pending = this.releaseAsset === null ? undefined : `${this.releaseAsset.sha256}.zip.part`;
+    for (const entry of await fsp.readdir(this.#downloads).catch(() => [] as string[])) {
+      if (entry !== pending) {
+        await fsp.rm(path.join(this.#downloads, entry), { force: true }).catch(() => {});
+      }
     }
   }
 

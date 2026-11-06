@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanLogs, measureStorage } from './storage.js';
+import { cleanFileCaches, cleanLogs, measureStorage } from './storage.js';
 
 let home: string;
 
@@ -31,6 +31,12 @@ describe('measureStorage', () => {
     await file('images/a.png', 20);
     await file('worktrees/s1/repo/file.ts', 300);
     await file('engines/codex/state_5.sqlite', 400);
+    await file('engines/antigravity/profile/state.json', 13);
+    await file('engines/antigravity/runtime/darwin-arm64/versions/abc/agy', 90);
+    await file('engines/engines-note.json', 4);
+    await file('accounts/chatgpt-1/codex/sessions/rollout.jsonl', 200);
+    await file('tool-output/s1/out.txt', 15);
+    await file('speech/sense-voice/model.onnx', 40);
     await file('logs/host.log', 3);
     await file('office/engine/versions/0.2.0/node_modules/kit/engine.bin', 70);
     await file('office/pdf/abc.pdf', 5);
@@ -48,19 +54,21 @@ describe('measureStorage', () => {
     const usage = await measureStorage(home);
     expect(usage.root).toBe(home);
     expect(bytesOf(usage)).toEqual({
-      sessions: 142,
+      sessions: 157,
       worktrees: 300,
-      engines: 470,
-      cache: 140,
+      engines: 617,
+      components: 200,
+      cache: 145,
       browser: 17,
       logs: 3,
-      other: 29,
+      other: 24,
     });
-    expect(usage.total).toBe(1101);
+    expect(usage.total).toBe(1463);
     expect(usage.categories.map((category) => category.id)).toEqual([
       'sessions',
       'worktrees',
       'engines',
+      'components',
       'cache',
       'browser',
       'logs',
@@ -76,6 +84,17 @@ describe('measureStorage', () => {
     expect(bytesOf(usage).worktrees).toBeLessThan(1000);
     const missing = await measureStorage(join(home, 'nope'));
     expect(missing.total).toBe(0);
+  });
+});
+
+describe('cleanFileCaches', () => {
+  it('removes the converted PDFs and keeps the preview engine', async () => {
+    await file('office/pdf/abc.pdf', 5);
+    await file('office/pdf/abc.json', 1);
+    await file('office/engine/active.json', 1);
+    await cleanFileCaches(home);
+    expect(await readdir(join(home, 'office'))).toEqual(['engine']);
+    await expect(cleanFileCaches(join(home, 'nope'))).resolves.toBeUndefined();
   });
 });
 
