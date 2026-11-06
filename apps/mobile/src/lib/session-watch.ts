@@ -26,6 +26,7 @@ import type { SessionCache } from './cache';
 /** 一台电脑上按 ID 看会话的接口（`WevirClient` 的一部分）。 */
 export interface SessionClient {
   readonly identity: Pick<ClientIdentity, 'clientId'>;
+  readonly canReadProjects: boolean;
   /** 这台设备能批准（`session.write`）。 */
   readonly canWrite: boolean;
   request: WevirClient['request'];
@@ -34,6 +35,7 @@ export interface SessionClient {
 
 export interface SessionView {
   session?: Session;
+  projectName?: string;
   transcript?: Transcript;
   /** 历史已回放完（只有缓存时：缓存读完）。 */
   caughtUp: boolean;
@@ -104,6 +106,16 @@ export class SessionWatch {
       const { session } = await client.request('session.get', { sessionId: this.#sessionId });
       if (this.#stopped) return;
       this.#set({ session });
+      if (client.canReadProjects) {
+        void client.request('workspace.list', {}).then(
+          ({ workspaces }) => {
+            const project = workspaces.find((workspace) => workspace.id === session.workspaceId);
+            if (!this.#stopped && project !== undefined)
+              this.#set({ projectName: project.displayName });
+          },
+          () => {},
+        );
+      }
       // 只投影最后的样子：经中继时字节就是等待时间，工具的中间输出与被替换的增量不回放（0.127.0）。
       const subscription = client.subscribe(this.#sessionId, { elideSuperseded: true });
       this.#subscription = subscription;

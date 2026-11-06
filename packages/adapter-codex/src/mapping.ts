@@ -486,6 +486,7 @@ export class CodexEventMapper {
     const state = this.#state(item.id, item.type);
     if (state.tool !== undefined) return [];
     const display = toolDisplay(item);
+    if (item.type === 'commandExecution' && item.cwd) display.cwd = item.cwd;
     state.tool = item;
     state.display = display;
     return [
@@ -548,6 +549,7 @@ export class CodexEventMapper {
     if (state.completed) return events;
     state.completed = true;
     const display = toolDisplay(item);
+    if (item.type === 'commandExecution' && item.cwd) display.cwd = item.cwd;
     if (JSON.stringify(display) !== JSON.stringify(state.display)) {
       state.display = display;
       events.push({

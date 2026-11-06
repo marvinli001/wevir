@@ -16,6 +16,7 @@ import {
   SUBSCRIPTION_KINDS,
 } from '@wevir/protocol';
 import { type PlainMessageKey, t } from '@/i18n';
+import { abbreviateHome } from '@/layout/rail-model';
 
 /** 内容预览最多显示的行数。 */
 const PREVIEW_LINES = 6;
@@ -24,6 +25,7 @@ export interface ApprovalPresentation {
   title: string;
   /** 目标：命令全文或路径。 */
   target?: string;
+  directory?: { path: string; text: string };
   permission?: string;
   justification?: string;
   reason?: string;
@@ -66,6 +68,7 @@ export function approvalScope(
 export function presentApproval(
   approval: ApprovalRequest,
   scope?: ApprovalScope,
+  sessionCwd = scope?.roots[0],
 ): ApprovalPresentation {
   const detail = approval.detail;
   if (!detail) {
@@ -89,6 +92,14 @@ export function presentApproval(
       : (detail.display.paths?.join('\n') ?? detail.display.summary ?? detail.display.command)
   )?.trim();
   const presentation: ApprovalPresentation = { title };
+  const cwd = detail.display.cwd ?? sessionCwd;
+  if (cwd !== undefined && cwd !== sessionCwd) {
+    const text = abbreviateHome(cwd);
+    presentation.directory = {
+      path: cwd,
+      text: text.length > 56 ? `${text.slice(0, 20)}…${text.slice(-35)}` : text,
+    };
+  }
   if (detail.reason) presentation.reason = detail.reason;
   if (detail.fullAccessOverride) {
     presentation.confirmation = t(

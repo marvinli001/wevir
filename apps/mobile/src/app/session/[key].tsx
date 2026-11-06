@@ -187,10 +187,18 @@ export default function SessionScreen() {
               tool: toolVerb,
               sessionTitle: (id) => sessionTitles.get(id),
             },
-            { live: view.offline !== true },
+            {
+              live: view.offline !== true,
+              ...(view.session !== undefined && {
+                approvalContext: {
+                  cwd: view.session.cwd,
+                  ...(view.projectName !== undefined && { projectName: view.projectName }),
+                },
+              }),
+            },
           )
         : [],
-    [view.transcript, view.offline, sessionTitles],
+    [view.transcript, view.offline, view.session, view.projectName, sessionTitles],
   );
   const session = view.session;
   const state = view.transcript?.state ?? session?.state;

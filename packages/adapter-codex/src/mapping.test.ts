@@ -279,6 +279,7 @@ describe('回放 codex-app-server 的通知', () => {
     const [started] = of(events, 'tool.started');
     expect(started?.display).toEqual({
       kind: 'shell',
+      cwd: '<workspace>',
       summary: 'for i in 1 2 3; do echo line $i; sleep 0.2; done',
       command: 'for i in 1 2 3; do echo line $i; sleep 0.2; done',
     });
@@ -377,6 +378,7 @@ describe('回放 codex-app-server 的通知', () => {
 
   it('approval-exec：item/started 在请求之前，请求前补一条带理由的 tool.updated；同意后工具完成', () => {
     const events = replayConversation('approval-exec', 'accept');
+    expect(of(events, 'tool.started')[0]?.display.cwd).toBe('<workspace>');
     expect(
       checkTurnEvents(
         events.filter((e) => e.type !== 'approval.requested'),
@@ -397,6 +399,24 @@ describe('回放 codex-app-server 的通知', () => {
     });
     expect(of(events, 'tool.finished')).toMatchObject([{ status: 'completed' }]);
     expect(events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+
+  it('没有先收到命令 item 时，从审批请求补上实际运行目录', () => {
+    const mapper = new CodexEventMapper('<thread>');
+    expect(
+      mapper.approvalPrelude('item/commandExecution/requestApproval', {
+        threadId: '<thread>',
+        turnId: '<turn>',
+        itemId: 'command-1',
+        command: 'pwd',
+        cwd: '/home/me/project/subdir',
+      }),
+    ).toMatchObject([
+      {
+        type: 'tool.started',
+        display: { kind: 'shell', command: 'pwd', cwd: '/home/me/project/subdir' },
+      },
+    ]);
   });
 
   it('approval-exec：decline → 工具 failed、回合完成；cancel → 工具 failed、回合以 cancelled 结算', () => {

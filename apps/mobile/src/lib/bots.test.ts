@@ -179,6 +179,64 @@ describe('bots', () => {
     });
   });
 
+  it.each([
+    {
+      cwd: '/Users/me/project',
+      projectName: '控制台',
+      project: '控制台',
+      directory: '~/project',
+    },
+    {
+      cwd: '/home/me/project/subdir',
+      actualCwd: '/home/me/other',
+      projectName: '控制台',
+      project: '控制台',
+      directory: '~/other',
+    },
+    {
+      cwd: '/home/me/project',
+      actualCwd: '/tmp/subdir',
+      project: 'subdir',
+      directory: '/tmp/subdir',
+    },
+    {
+      cwd: 'C:\\Users\\me\\project',
+      project: 'project',
+      directory: '~\\project',
+    },
+  ])('审批元信息：$directory', ({ cwd, actualCwd, projectName, project, directory }) => {
+    const request = approval({
+      detail: {
+        toolName: 'shell',
+        display: {
+          kind: 'shell',
+          command: 'pwd',
+          ...(actualCwd !== undefined && { cwd: actualCwd }),
+        },
+      },
+    });
+    expect(
+      approvalView(request, 'pending', {
+        cwd,
+        ...(projectName !== undefined && { projectName }),
+      }).card,
+    ).toMatchObject({ location: { project, cwd: actualCwd ?? cwd, directory } });
+  });
+
+  it('截断的命令保留完整原文，未截断的命令不需要展开', () => {
+    const command = `${'x'.repeat(4_000)}\nrm -rf dist`;
+    const request = (text: string) =>
+      approval({ detail: { toolName: 'shell', display: { kind: 'shell', command: text } } });
+    expect(approvalView(request(command), 'pending').card).toMatchObject({
+      text: `${command.slice(0, 4_000)}…`,
+      fullText: command,
+    });
+    const short = command.slice(0, 4_000);
+    const card = approvalView(request(short), 'pending').card;
+    expect(card).toMatchObject({ text: short });
+    expect(card).not.toHaveProperty('fullText');
+  });
+
   it('时间线：线程挂在开它的帖子后面，审批按时间插入', () => {
     const posts = [post(CHANNEL_A, 1), post(CHANNEL_A, 2), post(CHANNEL_A, 3)];
     const elsewhere = post(CHANNEL_A, 99).id;

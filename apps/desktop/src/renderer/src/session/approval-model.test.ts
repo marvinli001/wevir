@@ -48,6 +48,34 @@ const codex: ApprovalScope = { roots: ['/repo'], sandboxed: true };
 const claude: ApprovalScope = { roots: ['/repo', '/wt/repo-feature'], sandboxed: false };
 
 describe('presentApproval（acp-event-mapping.md §5.5）', () => {
+  it('命令目录只在不同于会话目录时显示，未提供时沿用会话目录', () => {
+    const request = approval({
+      toolName: 'commandExecution',
+      display: { kind: 'shell', command: 'pwd' },
+    });
+    expect(presentApproval(request, codex).directory).toBeUndefined();
+    if (!request.detail) throw new Error('missing detail');
+    request.detail.display.cwd = '/repo';
+    expect(presentApproval(request, codex).directory).toBeUndefined();
+    expect(presentApproval(request, undefined, '/repo').directory).toBeUndefined();
+    request.detail.display.cwd = '/Users/me/project/subdir';
+    expect(presentApproval(request, codex).directory).toEqual({
+      path: '/Users/me/project/subdir',
+      text: '~/project/subdir',
+    });
+  });
+
+  it('长目录中间省略，保留完整路径供悬停核对', () => {
+    const cwd = `/home/me/${'long-directory/'.repeat(8)}subdir`;
+    const directory = presentApproval(
+      approval({ toolName: 'shell', display: { kind: 'shell', command: 'pwd', cwd } }),
+      codex,
+    ).directory;
+    expect(directory?.path).toBe(cwd);
+    expect(directory?.text).toHaveLength(56);
+    expect(directory?.text).toMatch(/^~\/long-directory\/.*….*\/subdir$/);
+  });
+
   it.each([
     ['ask_rule', 'Claude 的 ask 规则要求确认。'],
     ['provider_check', 'Claude 的安全检查或权限策略要求确认。'],

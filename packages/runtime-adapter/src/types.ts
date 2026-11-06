@@ -543,6 +543,8 @@ export interface ToolDisplay {
   /** 引擎输入里的原值，可能是相对路径。 */
   paths?: string[];
   command?: string;
+  /** 命令实际运行的绝对目录（0.164.0）。 */
+  cwd?: string;
   query?: string;
   url?: string;
   /** `mcp__<server>__<tool>` 的 server 部分。 */

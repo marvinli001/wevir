@@ -89,7 +89,7 @@ export function ApprovalDock({
   const [submitting, setSubmitting] = useState<ApprovalId>();
   const [notice, setNotice] = useState<Notice>();
   const shown = useRef<ApprovalId | undefined>(undefined);
-  const scope = useApprovalScope(transcript, session);
+  const { scope, cwd } = useApprovalScope(transcript, session);
   // 拒绝附言（0.144.0）：Host 有 `approval_messages` 时拒绝能附一段话。
   const { view } = useHostConnection();
   const feedback =
@@ -138,6 +138,8 @@ export function ApprovalDock({
           text: resolutionText(approval, error.data.resolution, self),
           tone: 'neutral',
         });
+      } else if (isRpcError(error, 'APPROVAL_EXPIRED')) {
+        setNotice({ text: t('approval.ended.timeout'), tone: 'neutral' });
       } else {
         setNotice({ text: t('approval.respondFailed', { error: describe(error) }), tone: 'error' });
       }
@@ -168,6 +170,7 @@ export function ApprovalDock({
             key={current.id}
             approval={current}
             scope={scope}
+            cwd={cwd}
             origin={origin && { subagent: origin, href: subagentHref?.(origin) }}
             remaining={remaining}
             recap={recap}
@@ -188,13 +191,16 @@ export function ApprovalDock({
 function useApprovalScope(
   transcript: Transcript,
   session: Session | undefined,
-): ApprovalScope | undefined {
+): { scope: ApprovalScope | undefined; cwd: string | undefined } {
   const ownerId = transcript.parent?.sessionId ?? transcript.sessionId;
   const listed = useSession(session === undefined ? ownerId : undefined);
   const providers = useWorkbenchProviders();
   const owner = session ?? listed;
   return useMemo(
-    () => (owner && providers ? approvalScope(owner, providers) : undefined),
+    () => ({
+      scope: owner && providers ? approvalScope(owner, providers) : undefined,
+      cwd: owner?.cwd,
+    }),
     [owner, providers],
   );
 }
@@ -209,6 +215,7 @@ function useApprovalScope(
 function ApprovalCard({
   approval,
   scope,
+  cwd,
   origin,
   remaining,
   recap,
@@ -219,6 +226,7 @@ function ApprovalCard({
 }: {
   approval: ApprovalRequest;
   scope: ApprovalScope | undefined;
+  cwd: string | undefined;
   /** 来自子会话的审批：哪个子智能体，以及它的视图地址。 */
   origin: { subagent: SubagentSummary; href: string | undefined } | undefined;
   remaining: number;
@@ -229,7 +237,7 @@ function ApprovalCard({
   error: string | undefined;
   onRespond: (optionId: string, remember?: ApprovalRuleScope, message?: string) => void;
 }) {
-  const presentation = presentApproval(approval, scope);
+  const presentation = presentApproval(approval, scope, cwd);
   const layout = useMemo(() => approvalLayout(approval.options), [approval.options]);
   // “总是允许”加的是审批规则，要 `policy.write`（0.98.0）：远程设备没有时不显示。
   const policyWrite = useCan('policy.write');
@@ -367,6 +375,14 @@ function ApprovalCard({
           >
             {presentation.target}
           </pre>
+        )}
+        {presentation.directory && (
+          <p
+            className="mt-1.5 truncate font-mono text-xs text-muted-foreground"
+            title={presentation.directory.path}
+          >
+            {presentation.directory.text}
+          </p>
         )}
         {presentation.preview && (
           <div className="mt-2">

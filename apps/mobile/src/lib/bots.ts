@@ -81,6 +81,8 @@ export type BotCard =
       subject?: string;
       /** 将要发出的原文（或命令、参数），原样展示。 */
       text: string;
+      fullText?: string;
+      location?: { project: string; cwd: string; directory: string };
       /** Host 判为高风险：允许前要本人验证（同收件箱）。 */
       risky?: true;
       decision: Decision;
@@ -323,8 +325,17 @@ function pick(input: Record<string, unknown>, keys: readonly string[]): string |
   return undefined;
 }
 
+export interface ApprovalContext {
+  cwd: string;
+  projectName?: string;
+}
+
 /** 审批画成什么：对外动作取将要发出的原文与收件人、主题；认不出的参数原样列出。 */
-export function approvalView(request: ApprovalRequest, decision: Decision): BotPost {
+export function approvalView(
+  request: ApprovalRequest,
+  decision: Decision,
+  context?: ApprovalContext,
+): BotPost {
   const detail = request.detail;
   const input =
     typeof detail?.input === 'object' && detail.input !== null && !Array.isArray(detail.input)
@@ -343,6 +354,18 @@ export function approvalView(request: ApprovalRequest, decision: Decision): BotP
       ? JSON.stringify(detail.input, null, 2)
       : (detail?.display.summary ?? ''));
   const text = raw.length > QUOTE_MAX ? `${raw.slice(0, QUOTE_MAX)}…` : raw;
+  const cwd = detail?.display.cwd ?? context?.cwd;
+  const location =
+    context !== undefined && cwd !== undefined
+      ? {
+          project: context.projectName || folderParts(cwd).name,
+          cwd,
+          directory: cwd.replace(
+            /^(?:\/(?:Users|home)\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)(?=$|[/\\])/,
+            '~',
+          ),
+        }
+      : undefined;
   return {
     id: request.id,
     author: 'bot',
@@ -353,6 +376,8 @@ export function approvalView(request: ApprovalRequest, decision: Decision): BotP
       ...(target !== undefined && { target }),
       ...(subject !== undefined && { subject }),
       text,
+      ...(raw.length > QUOTE_MAX && { fullText: raw }),
+      ...(location !== undefined && { location }),
       ...(request.risk?.level === 'high' && { risky: true as const }),
       decision,
     },

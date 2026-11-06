@@ -146,6 +146,7 @@ describe('new session', () => {
     expect(request).not.toHaveBeenCalled();
     const denied: NewSessionClient = {
       identity: { clientId: 'mobile-1' },
+      canReadProjects: false,
       canWrite: true,
       canReadProviders: true,
       supports: () => true,
@@ -164,6 +165,7 @@ describe('new session', () => {
   it('loads projects (not the chats workspace), sources and features', async () => {
     const client: NewSessionClient = {
       identity: { clientId: 'mobile-1' },
+      canReadProjects: false,
       canWrite: true,
       canReadProviders: true,
       supports: (feature) => feature !== 'session_worktree',
@@ -194,6 +196,7 @@ describe('new session', () => {
     const calls: { method: string; params: unknown }[] = [];
     const client: NewSessionClient = {
       identity: { clientId: 'mobile-1' },
+      canReadProjects: false,
       canWrite: true,
       canReadProviders: true,
       supports: () => true,

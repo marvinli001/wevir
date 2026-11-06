@@ -18,6 +18,7 @@ function client(results: Record<string, unknown> = {}, canWrite = true) {
   const calls: { method: string; params: unknown }[] = [];
   const fake: SessionClient = {
     identity: { clientId: 'mobile-1' },
+    canReadProjects: false,
     canWrite,
     request: vi.fn(async (method: string, params: unknown) => {
       calls.push({ method, params });

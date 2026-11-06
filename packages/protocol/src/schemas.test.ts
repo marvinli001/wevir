@@ -1315,7 +1315,11 @@ const standaloneCases: Case[] = [
   {
     name: 'ToolDisplay',
     schema: ToolDisplaySchema,
-    valid: [toolDisplay, { kind: 'unknown', mcpServer: 'github' }],
+    valid: [
+      toolDisplay,
+      { kind: 'unknown', mcpServer: 'github' },
+      { kind: 'shell', command: 'pwd', cwd: '/repo/subdir' },
+    ],
     invalid: [{ summary: 'x' }],
   },
   {

@@ -553,6 +553,8 @@ export const ToolDisplaySchema = z.object({
   /** `rawInput` 原值，可能是相对路径。 */
   paths: z.array(z.string()).optional(),
   command: z.string().optional(),
+  /** 命令实际运行的绝对目录（0.164.0）；省略时客户端取会话 cwd。 */
+  cwd: z.string().optional(),
   query: z.string().optional(),
   url: z.string().optional(),
   /** `mcp__<server>__<tool>` 的 server 部分。 */

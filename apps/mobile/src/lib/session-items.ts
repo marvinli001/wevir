@@ -19,7 +19,7 @@ import type {
   ToolDisplayKind,
 } from '@wevir/protocol';
 import { t } from '../i18n';
-import { approvalView, type BotPost } from './bots';
+import { type ApprovalContext, approvalView, type BotPost } from './bots';
 import { isBusy } from './session-actions';
 
 export type ToolState = 'awaiting' | 'running' | 'done' | 'failed' | 'skipped' | 'unknown';
@@ -368,7 +368,10 @@ function lastLine(text: string): string {
 export function sessionItems(
   transcript: Transcript,
   labels: SessionItemLabels,
-  { live: showLive = true }: { live?: boolean } = {},
+  {
+    live: showLive = true,
+    approvalContext,
+  }: { live?: boolean; approvalContext?: ApprovalContext } = {},
 ): SessionItem[] {
   const own = transcript.sessionId;
   const live = showLive ? liveStatus(transcript, labels) : undefined;
@@ -381,7 +384,7 @@ export function sessionItems(
       kind: 'approval',
       key: `approval:${request.id}`,
       approvalId: request.id,
-      post: approvalView(request, 'pending'),
+      post: approvalView(request, 'pending', approvalContext),
     });
   }
   for (const question of transcript.pendingQuestions) {

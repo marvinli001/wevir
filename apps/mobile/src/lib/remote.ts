@@ -216,6 +216,9 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
   const sessions: NewSessionClient | undefined = client.can('session.read')
     ? {
         identity,
+        get canReadProjects() {
+          return client.can('workspace.read');
+        },
         get canWrite() {
           return client.can('session.write');
         },

@@ -101,6 +101,7 @@ function client(items: SubscriptionItem[]) {
   const subscription = feed(items);
   const sessions: SessionClient = {
     identity: { clientId: 'mobile-1' },
+    canReadProjects: false,
     canWrite: true,
     request: (async (method: string, params: unknown) => {
       requests.push({ method, params });
@@ -143,6 +144,29 @@ describe('SessionWatch', () => {
     watch.stop();
   });
 
+  it('按会话所属项目读取名称，不阻塞消息回放', async () => {
+    const list = events();
+    const { sessions } = client([
+      ...list.map((event) => ({ type: 'event' as const, event })),
+      { type: 'caught_up', seq: list.length },
+    ]);
+    vi.spyOn(sessions, 'request')
+      .mockResolvedValueOnce({
+        session: { id: SES, workspaceId: 'ws_1', cwd: '/repo/subdir' },
+      } as never)
+      .mockResolvedValueOnce({
+        workspaces: [
+          { id: 'ws_other', displayName: '其他项目' },
+          { id: 'ws_1', displayName: '控制台' },
+        ],
+      } as never);
+    const watch = new SessionWatch({ ...sessions, canReadProjects: true }, SES, () => {});
+    await watch.start();
+    expect(watch.view.projectName).toBe('控制台');
+    expect(watch.view.caughtUp).toBe(true);
+    watch.stop();
+  });
+
   it('批准选“仅这一次”，拒绝选拒绝', async () => {
     const list = events();
     const { sessions, requests } = client([
@@ -179,6 +203,7 @@ describe('SessionWatch', () => {
   it('读不到会话时给出错误，停下后关掉订阅', async () => {
     const failing: SessionClient = {
       identity: { clientId: 'mobile-1' },
+      canReadProjects: false,
       canWrite: true,
       request: (async () => {
         throw new Error('SESSION_NOT_FOUND');

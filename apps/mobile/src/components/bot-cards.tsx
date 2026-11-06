@@ -4,7 +4,7 @@
 // 开在用户项目里的线程（0.134.0）状态后写项目名。
 
 import { type ReactNode, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatBytes, t, timeAgo } from '../i18n';
 import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
 import { type DecisionFeedback, decisionFeedback } from '../lib/inbox';
@@ -227,6 +227,8 @@ function ApprovalCard({
 }) {
   const theme = useTheme();
   const pending = card.decision === 'pending';
+  const [expanded, setExpanded] = useState(false);
+  const truncated = card.fullText !== undefined && !expanded;
   return (
     <Card
       icon={{ ios: 'hand.raised', android: 'front_hand' }}
@@ -244,9 +246,25 @@ function ApprovalCard({
       )}
       <View style={[styles.quote, { backgroundColor: theme.muted }]}>
         <Text style={[styles.quoteText, { color: theme.foreground }]} selectable>
-          {card.text}
+          {expanded ? (card.fullText ?? card.text) : card.text}
         </Text>
+        {truncated && (
+          <Pressable accessibilityRole="button" onPress={() => setExpanded(true)}>
+            <Text style={[styles.showAll, { color: theme.foreground }]}>{t('inbox.showAll')}</Text>
+          </Pressable>
+        )}
       </View>
+      {card.location !== undefined && (
+        <Text
+          style={[styles.location, { color: theme.mutedForeground }]}
+          numberOfLines={1}
+          ellipsizeMode="middle"
+          accessibilityLabel={`${card.location.project} · ${card.location.cwd}`}
+          selectable
+        >
+          {`${card.location.project} · ${card.location.directory}`}
+        </Text>
+      )}
       {card.risky === true && card.decision === 'pending' && (
         <View style={styles.risk}>
           <Badge text={t('inbox.highRisk')} color={theme.destructive} />
@@ -255,6 +273,7 @@ function ApprovalCard({
       <Decisions
         decision={card.decision}
         clientId={clientId}
+        allowDisabled={truncated}
         {...(card.risky === true && { verify: true })}
         accept={t('bot.approve')}
         reject={t('bot.reject')}
@@ -288,6 +307,7 @@ function Decisions({
   verify = false,
   onDecide,
   clientId = '',
+  allowDisabled = false,
 }: {
   decision: Decision;
   accept: string;
@@ -298,6 +318,7 @@ function Decisions({
   verify?: boolean;
   onDecide: Decide;
   clientId?: string | undefined;
+  allowDisabled?: boolean;
 }) {
   const theme = useTheme();
   const [busy, setBusy] = useState(false);
@@ -354,7 +375,7 @@ function Decisions({
           <Button
             title={accept}
             {...(verify && { icon: { ios: 'faceid', android: 'fingerprint' } as const })}
-            disabled={busy}
+            disabled={busy || allowDisabled}
             onPress={() => press('approved')}
           />
         </View>
@@ -567,6 +588,11 @@ const styles = StyleSheet.create({
   fieldLabel: { width: 56, fontSize: TEXT.small },
   fieldValue: { flex: 1, fontSize: TEXT.small, fontWeight: '500' },
   quote: { borderRadius: RADIUS.control, borderCurve: 'continuous', padding: 12 },
+  showAll: { fontSize: TEXT.small, fontWeight: '600', marginTop: 8 },
+  location: {
+    fontSize: TEXT.caption,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
   quoteText: { fontSize: 15, lineHeight: 21 },
   decide: { gap: 8 },
   risk: { flexDirection: 'row' },
