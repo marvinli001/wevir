@@ -2527,7 +2527,6 @@ export const messages: Messages = {
   'settings.storage.engineDataKept': 'Certaines données du moteur n’ont pas été supprimées.',
   'settings.storage.worktreesEmpty': 'Aucun worktree',
   'settings.storage.dirty': 'Modifications non validées',
-  'settings.storage.missing': 'Dossier introuvable',
   'settings.storage.snapshot': 'Instantané enregistré',
   'settings.storage.archived': 'Archivé',
   'settings.storage.cleanChats': 'Nettoyer les chats archivés',

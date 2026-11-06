@@ -2476,7 +2476,6 @@ export const messages: Messages = {
   'settings.storage.engineDataKept': '一部のエンジンデータは削除されていません。',
   'settings.storage.worktreesEmpty': 'ワークツリーはありません',
   'settings.storage.dirty': '未コミットの変更',
-  'settings.storage.missing': 'フォルダがありません',
   'settings.storage.snapshot': 'スナップショット保存済み',
   'settings.storage.archived': 'アーカイブ済み',
   'settings.storage.cleanChats': 'アーカイブ済みのチャットを整理',

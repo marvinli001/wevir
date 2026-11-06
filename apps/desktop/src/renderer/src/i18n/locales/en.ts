@@ -2491,7 +2491,6 @@ export const messages: Messages = {
   'settings.storage.engineDataKept': 'Some engine data was not deleted.',
   'settings.storage.worktreesEmpty': 'No worktrees',
   'settings.storage.dirty': 'Uncommitted changes',
-  'settings.storage.missing': 'Folder missing',
   'settings.storage.snapshot': 'Snapshot saved',
   'settings.storage.archived': 'Archived',
   'settings.storage.cleanChats': 'Clean up archived chats',

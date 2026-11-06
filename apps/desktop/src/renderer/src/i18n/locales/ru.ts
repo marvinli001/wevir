@@ -2525,7 +2525,6 @@ export const messages: Messages = {
   'settings.storage.engineDataKept': 'Часть данных движка не удалена.',
   'settings.storage.worktreesEmpty': 'Рабочих деревьев нет',
   'settings.storage.dirty': 'Незафиксированные изменения',
-  'settings.storage.missing': 'Папка отсутствует',
   'settings.storage.snapshot': 'Снимок сохранён',
   'settings.storage.archived': 'В архиве',
   'settings.storage.cleanChats': 'Очистить архивные сеансы',

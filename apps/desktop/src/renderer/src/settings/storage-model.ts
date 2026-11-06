@@ -58,7 +58,10 @@ export interface WorktreeRow extends Omit<SessionWorktreeUsage, 'archived'> {
   snapshot: boolean;
 }
 
-/** Host 为会话开的 worktree（已归档的与没归档的会话），大的在前。 */
+/**
+ * Host 为会话开的 worktree（已归档的与没归档的会话），大的在前。目录已经不在、又没有快照的（在别处删掉或清理过）不占空间也没什么可做，
+ * 不列。
+ */
 export function worktreeRows(
   sessions: readonly Session[],
   usage: readonly SessionUsage[],
@@ -69,6 +72,7 @@ export function worktreeRows(
     const session = byId.get(entry.sessionId);
     for (const worktree of entry.worktrees) {
       const { archived: snapshot, ...rest } = worktree;
+      if (rest.missing === true && snapshot !== true) continue;
       rows.push({
         ...rest,
         sessionId: entry.sessionId,

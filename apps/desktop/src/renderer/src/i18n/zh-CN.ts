@@ -2467,7 +2467,6 @@ export const zhCN = {
   'settings.storage.engineDataKept': '部分引擎数据未删除。',
   'settings.storage.worktreesEmpty': '暂无工作树',
   'settings.storage.dirty': '有未提交的改动',
-  'settings.storage.missing': '目录不存在',
   'settings.storage.snapshot': '已存快照',
   'settings.storage.archived': '已归档',
   'settings.storage.cleanChats': '清理已归档的会话',

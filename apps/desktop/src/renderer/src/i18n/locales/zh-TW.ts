@@ -2455,7 +2455,6 @@ export const messages: Messages = {
   'settings.storage.engineDataKept': '部分引擎資料未刪除。',
   'settings.storage.worktreesEmpty': '尚無工作樹',
   'settings.storage.dirty': '有未提交的變更',
-  'settings.storage.missing': '目錄不存在',
   'settings.storage.snapshot': '已存快照',
   'settings.storage.archived': '已封存',
   'settings.storage.cleanChats': '清理已封存的工作階段',

@@ -76,7 +76,7 @@ describe('storage-model', () => {
     ]);
   });
 
-  it('worktreeRows 把归档时删掉、有快照的 worktree 记成 snapshot（0.81.0）', () => {
+  it('worktreeRows 把归档时删掉、有快照的 worktree 记成 snapshot（0.81.0），目录不在又没快照的不列', () => {
     const rows = worktreeRows(
       [session('a', { archivedAt: '2026-10-03T00:00:00.000Z' })],
       [
@@ -84,6 +84,7 @@ describe('storage-model', () => {
           worktrees: [
             { ...worktree('/a', 0, true), missing: true, archived: true },
             worktree('/b', 0),
+            { ...worktree('/gone', 0), missing: true },
           ],
         }),
       ],

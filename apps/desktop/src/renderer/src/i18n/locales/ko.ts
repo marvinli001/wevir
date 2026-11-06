@@ -2465,7 +2465,6 @@ export const messages: Messages = {
   'settings.storage.engineDataKept': '일부 엔진 데이터는 삭제되지 않았습니다.',
   'settings.storage.worktreesEmpty': '워크트리가 없습니다',
   'settings.storage.dirty': '커밋되지 않은 변경 사항',
-  'settings.storage.missing': '폴더 없음',
   'settings.storage.snapshot': '스냅샷 저장됨',
   'settings.storage.archived': '보관됨',
   'settings.storage.cleanChats': '보관된 채팅 정리',
