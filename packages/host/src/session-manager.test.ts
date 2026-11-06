@@ -929,6 +929,75 @@ describe('SessionManager：取消与关闭', () => {
     ).rejects.toMatchObject({ code: 'ALREADY_DECIDED', data: { status: 'cancelled' } });
   });
 
+  it('旧审批不会回复复用引擎请求 ID 的新回合，同一客户端重复回复只生效一次', async () => {
+    const h = setup();
+    const mobile: ClientIdentity = {
+      deviceId: 'dev-phone',
+      clientId: 'mobile-1',
+      clientKind: 'mobile',
+    };
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    let pendingRequestId = '';
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      (async function* () {
+        for await (const event of subscribe(engineSessionId)) {
+          if (event.type === 'approval.requested') pendingRequestId = event.requestId;
+          // 模拟适配器重启后从 codex-1 重新计数。
+          yield event.type === 'approval.requested' || event.type === 'approval.cancelled'
+            ? { ...event, requestId: 'codex-1' }
+            : event;
+        }
+      })(),
+    );
+    const respond = h.adapter.respondToApproval.bind(h.adapter);
+    const respondSpy = vi
+      .spyOn(h.adapter, 'respondToApproval')
+      .mockImplementation((engineSessionId, requestId, decision) => {
+        expect(requestId).toBe('codex-1');
+        return respond(engineSessionId, pendingRequestId, decision);
+      });
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const first = await waitForApproval(h, id);
+    await h.manager.cancel(id);
+    expect(h.storage.approvals.get(first.id)).toMatchObject({
+      status: 'cancelled',
+      resolution: { reason: 'turn_cancelled' },
+    });
+
+    await send(h, id, 'please approve again');
+    const second = await waitForApproval(h, id);
+    expect(second.id).not.toBe(first.id);
+    expect(second.turnId).not.toBe(first.turnId);
+    await expect(
+      h.manager.respondToApproval({ approvalId: first.id, optionId: 'allow-once' }, mobile),
+    ).rejects.toMatchObject({
+      code: 'ALREADY_DECIDED',
+      data: { status: 'cancelled', resolution: { reason: 'turn_cancelled' } },
+    });
+    expect(snapshot(h, id).pendingApprovals).toEqual([second]);
+    expect(h.storage.approvals.get(second.id)?.status).toBe('pending');
+    expect(respondSpy).not.toHaveBeenCalled();
+
+    await expect(
+      h.manager.respondToApproval({ approvalId: second.id, optionId: 'allow-once' }, mobile),
+    ).resolves.toMatchObject({
+      status: 'approved',
+      resolution: { reason: 'user', decidedBy: mobile },
+    });
+    await expect(
+      h.manager.respondToApproval({ approvalId: second.id, optionId: 'allow-once' }, mobile),
+    ).rejects.toMatchObject({
+      code: 'ALREADY_DECIDED',
+      data: {
+        status: 'approved',
+        resolution: { reason: 'user', optionId: 'allow-once', decidedBy: mobile },
+      },
+    });
+    expect(respondSpy).toHaveBeenCalledTimes(1);
+    await waitForState(h, id, 'idle');
+  });
+
   it('#5 #8：生成中取消，已生成的半段作为已提交消息补发', async () => {
     const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 5, chunkSize: 1 }) });
     const id = await create(h);
