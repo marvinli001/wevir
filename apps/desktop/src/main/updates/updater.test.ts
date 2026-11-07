@@ -81,7 +81,10 @@ function controller(options: {
   let prefs: UpdatePrefs = options.prefs ?? {};
   const states: UpdateState[] = [];
   const ctl = new UpdateController({
-    updater: options.updater as never,
+    loadUpdater: async (feed) => {
+      options.updater.setFeedURL({ feed });
+      return options.updater as never;
+    },
     currentVersion: options.updater.currentVersion,
     platform: 'darwin',
     arch: 'arm64',
@@ -134,9 +137,11 @@ describe('UpdateController', () => {
       return fetcher(url, init);
     };
     const { ctl, states } = controller({ updater, fetcher: slowZip });
+    expect(updater.autoDownload).toBe(true);
+    expect(updater.feed).toBeUndefined();
+    await ctl.check();
     expect(updater.autoDownload).toBe(false);
     expect(updater.allowDowngrade).toBe(false);
-    await ctl.check();
     expect(ctl.state).toMatchObject({
       phase: 'available',
       version: '0.2.0',

@@ -72,10 +72,9 @@ import {
   uniqueSavePath,
 } from './downloads.js';
 import { loadFailure, loadFailureMessage } from './load-failure.js';
+import { BROWSER_PARTITION } from './partition.js';
 import { isAllowedNavigation, isAllowedRequest } from './url-policy.js';
 
-/** 内置浏览器的 session 分区：与默认 session（渲染进程）和用户自己的浏览器都分开，数据在 `<数据目录>/desktop/` 下。 */
-export const BROWSER_PARTITION = 'persist:wevir-browser';
 /** 标签页的上限（所有会话合计）：拒绝新开，不回收活着的页面（OpenWork 的 MAX_BROWSER_TABS）。 */
 export const MAX_BROWSER_TABS = 12;
 /** agent 新开、跳转的标签页等页面载入的上限。 */

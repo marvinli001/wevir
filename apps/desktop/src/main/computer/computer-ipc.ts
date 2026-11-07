@@ -6,9 +6,6 @@ import { ComputerRequestSchema } from '@wevir/protocol';
 import { app, type BrowserWindow, type IpcMainInvokeEvent, ipcMain, shell } from 'electron';
 import { IPC_CHANNELS } from '../../shared/desktop-api.js';
 import type { Log } from '../host-lifecycle.js';
-import { ComputerHelper, HelperError, resolveHelperBinary } from './helper.js';
-import { createComputerOverlay } from './overlay.js';
-import { ComputerService } from './service.js';
 
 export interface ComputerIpcOptions {
   getWindow(): BrowserWindow | undefined;
@@ -38,28 +35,49 @@ function strings(value: unknown, max: number, limit = 200): string[] {
 }
 
 export function registerComputerIpc(options: ComputerIpcOptions): { dispose(): void } {
-  const binary = () =>
-    resolveHelperBinary({ packaged: app.isPackaged, resourcesPath: process.resourcesPath });
-  const helper = new ComputerHelper({ binary, log: options.log });
-  const overlay = createComputerOverlay('Wevir is using your computer · Esc to stop');
-  const service = new ComputerService({
-    helper,
-    overlay,
-    hasHelper: () => binary() !== undefined,
-    onStopped: (sessionIds) => {
-      const window = options.getWindow();
-      if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
-      window.webContents.send(IPC_CHANNELS.computerStopped, sessionIds);
-    },
-  });
+  let disposed = false;
+  let resources: Awaited<ReturnType<typeof createResources>> | undefined;
+  let loading: ReturnType<typeof createResources> | undefined;
+  async function createResources() {
+    const [
+      { ComputerHelper, HelperError, resolveHelperBinary },
+      { createComputerOverlay },
+      { ComputerService },
+    ] = await Promise.all([import('./helper.js'), import('./overlay.js'), import('./service.js')]);
+    if (disposed) throw new Error('Computer service is closed');
+    const binary = () =>
+      resolveHelperBinary({ packaged: app.isPackaged, resourcesPath: process.resourcesPath });
+    const helper = new ComputerHelper({ binary, log: options.log });
+    const overlay = createComputerOverlay('Wevir is using your computer · Esc to stop');
+    const service = new ComputerService({
+      helper,
+      overlay,
+      hasHelper: () => binary() !== undefined,
+      onStopped: (sessionIds) => {
+        const window = options.getWindow();
+        if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+        window.webContents.send(IPC_CHANNELS.computerStopped, sessionIds);
+      },
+    });
+    const created = { helper, overlay, service, HelperError };
+    resources = created;
+    return created;
+  }
+  const getResources = () => {
+    loading ??= createResources();
+    return loading;
+  };
 
-  const handle = (channel: string, listener: (...args: unknown[]) => unknown) =>
-    ipcMain.handle(channel, (event, ...args) => {
+  const handle = (
+    channel: string,
+    listener: (runtime: Awaited<ReturnType<typeof createResources>>, ...args: unknown[]) => unknown,
+  ) =>
+    ipcMain.handle(channel, async (event, ...args) => {
       options.assertSender(event);
-      return listener(...args);
+      return listener(await getResources(), ...args);
     });
 
-  handle(IPC_CHANNELS.computerExecute, (raw) => {
+  handle(IPC_CHANNELS.computerExecute, (_runtime, raw) => {
     const parsed = ComputerRequestSchema.safeParse(raw);
     if (!parsed.success) {
       return {
@@ -70,39 +88,39 @@ export function registerComputerIpc(options: ComputerIpcOptions): { dispose(): v
         },
       };
     }
-    return service.execute(parsed.data);
+    return _runtime.service.execute(parsed.data);
   });
-  handle(IPC_CHANNELS.computerPrepareAccess, async (id, apps, reason) => {
+  handle(IPC_CHANNELS.computerPrepareAccess, async (_runtime, id, apps, reason) => {
     if (typeof reason !== 'string' || reason.length > 500) throw new Error('invalid reason');
     try {
-      return await service.prepareAccess(sessionId(id), strings(apps, 10), reason);
+      return await _runtime.service.prepareAccess(sessionId(id), strings(apps, 10), reason);
     } catch (error) {
-      if (error instanceof HelperError)
+      if (error instanceof _runtime.HelperError)
         return { error: { code: error.code, message: error.message } };
       throw error;
     }
   });
-  handle(IPC_CHANNELS.computerGrant, (accessId, bundleIds) => {
+  handle(IPC_CHANNELS.computerGrant, (_runtime, accessId, bundleIds) => {
     if (typeof accessId !== 'string') throw new Error('invalid access id');
-    return service.grant(accessId, strings(bundleIds, 10, 300));
+    return _runtime.service.grant(accessId, strings(bundleIds, 10, 300));
   });
-  handle(IPC_CHANNELS.computerStatus, () => service.status());
-  handle(IPC_CHANNELS.computerRequestPermission, async (kind) => {
+  handle(IPC_CHANNELS.computerStatus, (_runtime) => _runtime.service.status());
+  handle(IPC_CHANNELS.computerRequestPermission, async (_runtime, kind) => {
     if (kind !== 'screen_recording' && kind !== 'accessibility') throw new Error('invalid kind');
-    const status = await service.requestPermission(kind);
+    const status = await _runtime.service.requestPermission(kind);
     if (status.supported) await shell.openExternal(SETTINGS_PANES[kind]);
     return status;
   });
-  handle(IPC_CHANNELS.computerSetActiveSessions, (ids) => {
-    service.setActiveSessions(strings(ids, 1000, 80));
+  handle(IPC_CHANNELS.computerSetActiveSessions, (_runtime, ids) => {
+    _runtime.service.setActiveSessions(strings(ids, 1000, 80));
   });
-  handle(IPC_CHANNELS.computerSetOverlayLabel, (label) => {
+  handle(IPC_CHANNELS.computerSetOverlayLabel, (_runtime, label) => {
     if (typeof label !== 'string' || label.length === 0 || label.length > 120) {
       throw new Error('invalid label');
     }
-    overlay.setLabel(label);
+    _runtime.overlay.setLabel(label);
   });
-  handle(IPC_CHANNELS.computerAppIcon, async (path) => {
+  handle(IPC_CHANNELS.computerAppIcon, async (_runtime, path) => {
     if (typeof path !== 'string' || !path.endsWith('.app') || !existsSync(path)) return null;
     try {
       return (await app.getFileIcon(path, { size: 'normal' })).toDataURL();
@@ -113,8 +131,9 @@ export function registerComputerIpc(options: ComputerIpcOptions): { dispose(): v
 
   return {
     dispose() {
-      helper.close();
-      overlay.dispose();
+      disposed = true;
+      resources?.helper.close();
+      resources?.overlay.dispose();
     },
   };
 }

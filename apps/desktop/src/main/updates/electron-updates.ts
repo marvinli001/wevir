@@ -4,7 +4,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { app, net } from 'electron';
-import electronUpdater from 'electron-updater';
 import type { UpdateChannel } from '../../shared/desktop-api.js';
 import { type Fetcher, mirrorsFromEnv, UPDATE_MIRRORS } from './feed.js';
 import { UPDATE_PUBLIC_KEYS } from './keys.js';
@@ -57,7 +56,15 @@ export function createUpdateController(
     });
   const mirrors = mirrorsFromEnv(process.env.WEVIR_UPDATE_MIRRORS) ?? UPDATE_MIRRORS;
   return new UpdateController({
-    updater: electronUpdater.autoUpdater as unknown as UpdaterLike,
+    loadUpdater: async (feed) => {
+      const [{ default: electronUpdater }, { MirrorProvider }] = await Promise.all([
+        import('electron-updater'),
+        import('./mirror-provider.js'),
+      ]);
+      const updater = electronUpdater.autoUpdater as unknown as UpdaterLike;
+      updater.setFeedURL({ provider: 'custom', updateProvider: MirrorProvider, feed });
+      return updater;
+    },
     currentVersion: app.getVersion(),
     platform: process.platform,
     arch: process.arch,

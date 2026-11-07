@@ -23,7 +23,7 @@ import {
   UpdateFeedError,
   type UpdateMirror,
 } from './feed.js';
-import { type FeedSource, MirrorProvider } from './mirror-provider.js';
+import type { FeedSource } from './mirror-provider.js';
 
 /** 用到的 electron-updater 的部分（`AppUpdater`）。 */
 export interface UpdaterLike {
@@ -63,7 +63,7 @@ export type UpdateLog = (
 ) => void;
 
 export interface UpdateControllerOptions {
-  updater: UpdaterLike;
+  loadUpdater(feed: FeedSource): Promise<UpdaterLike>;
   currentVersion: string;
   platform: NodeJS.Platform;
   arch: string;
@@ -117,6 +117,7 @@ export class UpdateController implements FeedSource {
   #retried = false;
   #chosen: MirrorManifest | undefined;
   #checking: Promise<void> | undefined;
+  #updater: Promise<UpdaterLike> | undefined;
 
   constructor(options: UpdateControllerOptions) {
     this.#options = options;
@@ -129,39 +130,50 @@ export class UpdateController implements FeedSource {
       this.#state = { ...base, phase: 'disabled', reason: 'location' };
     else this.#state = { ...base, phase: 'idle' };
     if (this.#state.phase === 'disabled') return;
+  }
 
-    const { updater } = options;
-    updater.autoDownload = false;
-    // 下载好了但用户没点“重启以更新”就退出应用时，退出时安装（Codex 桌面端也是这样）。
-    updater.autoInstallOnAppQuit = options.manualInstall !== true;
-    updater.allowDowngrade = false;
-    updater.logger = {
-      info: (message) => options.log('info', `updater: ${String(message)}`),
-      warn: (message) => options.log('warn', `updater: ${String(message)}`),
-      error: (message) => options.log('error', `updater: ${String(message)}`),
-    };
-    updater.setFeedURL({ provider: 'custom', updateProvider: MirrorProvider, feed: this });
-    updater.on('update-available', (info) =>
-      this.#set({
-        phase: 'available',
-        version: info.version,
-        ...(options.manualInstall === true && { manual: true as const }),
-      }),
-    );
-    updater.on('update-not-available', () => this.#set({ phase: 'latest' }));
-    updater.on('download-progress', (progress) => {
-      const version = 'version' in this.#state ? this.#state.version : '';
-      this.#set({
-        phase: 'downloading',
-        version: version ?? '',
-        percent: Math.max(0, Math.min(100, progress.percent)),
-        bytesPerSecond: progress.bytesPerSecond,
+  #getUpdater(): Promise<UpdaterLike> {
+    this.#updater ??= this.#options
+      .loadUpdater(this)
+      .then((updater) => {
+        const options = this.#options;
+        updater.autoDownload = false;
+        // 下载好了但用户没点“重启以更新”就退出应用时，退出时安装（Codex 桌面端也是这样）。
+        updater.autoInstallOnAppQuit = options.manualInstall !== true;
+        updater.allowDowngrade = false;
+        updater.logger = {
+          info: (message) => options.log('info', `updater: ${String(message)}`),
+          warn: (message) => options.log('warn', `updater: ${String(message)}`),
+          error: (message) => options.log('error', `updater: ${String(message)}`),
+        };
+        updater.on('update-available', (info) =>
+          this.#set({
+            phase: 'available',
+            version: info.version,
+            ...(options.manualInstall === true && { manual: true as const }),
+          }),
+        );
+        updater.on('update-not-available', () => this.#set({ phase: 'latest' }));
+        updater.on('download-progress', (progress) => {
+          const version = 'version' in this.#state ? this.#state.version : '';
+          this.#set({
+            phase: 'downloading',
+            version: version ?? '',
+            percent: Math.max(0, Math.min(100, progress.percent)),
+            bytesPerSecond: progress.bytesPerSecond,
+          });
+        });
+        updater.on('update-downloaded', (info) =>
+          this.#set({ phase: 'downloaded', version: info.version }),
+        );
+        updater.on('error', (error) => this.#onUpdaterError(error));
+        return updater;
+      })
+      .catch((error) => {
+        this.#updater = undefined;
+        throw error;
       });
-    });
-    updater.on('update-downloaded', (info) =>
-      this.#set({ phase: 'downloaded', version: info.version }),
-    );
-    updater.on('error', (error) => this.#onUpdaterError(error));
+    return this.#updater;
   }
 
   get state(): UpdateState {
@@ -221,7 +233,7 @@ export class UpdateController implements FeedSource {
     const { version } = this.#state;
     this.#set({ phase: 'downloading', version, percent: 0, bytesPerSecond: 0 });
     try {
-      await this.#options.updater.downloadUpdate();
+      await (await this.#getUpdater()).downloadUpdate();
     } catch (error) {
       this.#onUpdaterError(error as Error);
     }
@@ -244,7 +256,7 @@ export class UpdateController implements FeedSource {
     try {
       // macOS 的 Squirrel 在应用退出后替换并重新打开；Windows 静默运行 NSIS 安装程序，装完重新打开；Linux 换掉 AppImage 文件，
       // 马上启动新版本（它等这个进程放开单实例锁，index.ts 的 acquireInstanceLock）。
-      this.#options.updater.quitAndInstall(true, true);
+      (await this.#getUpdater()).quitAndInstall(true, true);
     } catch (error) {
       this.#set({ phase: 'error', code: 'install', detail: (error as Error).message });
     }
@@ -322,7 +334,7 @@ export class UpdateController implements FeedSource {
   async #runCheck(): Promise<void> {
     this.#set({ phase: 'checking' });
     try {
-      await this.#options.updater.checkForUpdates();
+      await (await this.#getUpdater()).checkForUpdates();
     } catch (error) {
       this.#onUpdaterError(error as Error);
     } finally {
@@ -381,7 +393,7 @@ export class UpdateController implements FeedSource {
   async #retryDownload(): Promise<void> {
     this.#set({ phase: 'checking' });
     try {
-      await this.#options.updater.checkForUpdates();
+      await (await this.#getUpdater()).checkForUpdates();
       if (this.#state.phase === 'available') await this.download();
     } catch (error) {
       this.#onUpdaterError(error as Error);

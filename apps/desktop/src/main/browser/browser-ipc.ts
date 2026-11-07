@@ -7,7 +7,7 @@ import {
   type BrowserController,
   IPC_CHANNELS,
 } from '../../shared/desktop-api.js';
-import { type BrowserHost, createBrowserHost } from './browser-host.js';
+import type { BrowserHost } from './browser-host.js';
 import { addressToUrl } from './url-policy.js';
 
 export interface BrowserIpcOptions {
@@ -53,7 +53,9 @@ function address(value: unknown): string {
   return url;
 }
 
-export function registerBrowserIpc(options: BrowserIpcOptions): BrowserHost {
+export function registerBrowserIpc(
+  options: BrowserIpcOptions,
+): Pick<BrowserHost, 'destroy' | 'isBrowserContents'> {
   const send = (channel: string, payload: unknown) => {
     const window = options.getWindow();
     if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
@@ -63,46 +65,62 @@ export function registerBrowserIpc(options: BrowserIpcOptions): BrowserHost {
       // 窗口正在关
     }
   };
-  const host = createBrowserHost({
-    getWindow: options.getWindow,
-    sendState: (state) => send(IPC_CHANNELS.browserState, state),
-    sendReveal: (reveal) => send(IPC_CHANNELS.browserReveal, reveal),
-    log: options.log,
-  });
+  let loaded: BrowserHost | undefined;
+  let loading: Promise<BrowserHost> | undefined;
+  let disposed = false;
+  const getHost = () => {
+    loading ??= import('./browser-host.js').then(({ createBrowserHost }) => {
+      if (disposed) throw new Error('Browser service is closed');
+      loaded = createBrowserHost({
+        getWindow: options.getWindow,
+        sendState: (state) => send(IPC_CHANNELS.browserState, state),
+        sendReveal: (reveal) => send(IPC_CHANNELS.browserReveal, reveal),
+        log: options.log,
+      });
+      return loaded;
+    });
+    return loading;
+  };
 
-  const handle = (channel: string, listener: (...args: unknown[]) => unknown) =>
-    ipcMain.handle(channel, (event, ...args) => {
+  const handle = (channel: string, listener: (host: BrowserHost, ...args: unknown[]) => unknown) =>
+    ipcMain.handle(channel, async (event, ...args) => {
       options.assertSender(event);
-      return listener(...args);
+      return listener(await getHost(), ...args);
     });
 
-  handle(IPC_CHANNELS.browserExecute, (request) => host.execute(request));
-  handle(IPC_CHANNELS.browserGetState, () => host.state());
-  handle(IPC_CHANNELS.browserSetVisibleSession, (id) => {
+  handle(IPC_CHANNELS.browserExecute, (host, request) => host.execute(request));
+  handle(IPC_CHANNELS.browserGetState, (host) => host.state());
+  handle(IPC_CHANNELS.browserSetVisibleSession, (host, id) => {
     host.setVisibleSession(id === null ? null : sessionId(id));
   });
-  handle(IPC_CHANNELS.browserShow, (rect, id) => host.showPane(bounds(rect), sessionId(id)));
-  handle(IPC_CHANNELS.browserHide, () => host.hidePane());
-  handle(IPC_CHANNELS.browserOpen, (id, value) =>
+  handle(IPC_CHANNELS.browserShow, (host, rect, id) => host.showPane(bounds(rect), sessionId(id)));
+  handle(IPC_CHANNELS.browserHide, (host) => host.hidePane());
+  handle(IPC_CHANNELS.browserOpen, (host, id, value) =>
     host.openForUser(
       sessionId(id),
       value === undefined || value === '' ? undefined : address(value),
     ),
   );
-  handle(IPC_CHANNELS.browserClose, (id) => host.closeTab(tabId(id)));
-  handle(IPC_CHANNELS.browserSelect, (id) => host.selectTab(tabId(id)));
-  handle(IPC_CHANNELS.browserNavigate, (id, value) =>
+  handle(IPC_CHANNELS.browserClose, (host, id) => host.closeTab(tabId(id)));
+  handle(IPC_CHANNELS.browserSelect, (host, id) => host.selectTab(tabId(id)));
+  handle(IPC_CHANNELS.browserNavigate, (host, id, value) =>
     host.navigateForUser(tabId(id), address(value)),
   );
-  handle(IPC_CHANNELS.browserHistory, (id, action) => {
+  handle(IPC_CHANNELS.browserHistory, (host, id, action) => {
     if (action !== 'back' && action !== 'forward' && action !== 'reload' && action !== 'stop') {
       throw new Error('unknown history action');
     }
     host.historyForUser(tabId(id), action);
   });
-  handle(IPC_CHANNELS.browserSetController, (id, controller) => {
+  handle(IPC_CHANNELS.browserSetController, (host, id, controller) => {
     if (controller !== 'agent' && controller !== 'user') throw new Error('unknown controller');
     host.setController(tabId(id), controller as BrowserController);
   });
-  return host;
+  return {
+    isBrowserContents: (contents) => loaded?.isBrowserContents(contents) ?? false,
+    destroy() {
+      disposed = true;
+      loaded?.destroy();
+    },
+  };
 }
