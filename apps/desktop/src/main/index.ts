@@ -140,7 +140,10 @@ if (devServerUrl !== undefined) {
   );
 }
 protocol.registerSchemesAsPrivileged([
-  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true },
+  },
 ]);
 // 所有渲染进程都进沙箱，包括将来新建的窗口。
 app.enableSandbox();
