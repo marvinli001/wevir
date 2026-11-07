@@ -97,7 +97,7 @@ export async function testProvider(
       response = await doFetch(prepared.url, {
         method: 'POST',
         headers: prepared.headers,
-        body: JSON.stringify(prepared.payload),
+        body: prepared.serialized ?? Buffer.from(JSON.stringify(prepared.payload)),
         signal: controller.signal,
         redirect: 'error',
       });

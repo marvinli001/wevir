@@ -215,7 +215,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
     });
     if (!prepared.ok) return reject(prepared.status, prepared.message);
 
-    const json = JSON.stringify(prepared.payload);
+    const serialized = prepared.serialized ?? Buffer.from(JSON.stringify(prepared.payload));
     if (options.onRequest !== undefined) {
       const source = requestSource(body, req.headers);
       const key = JSON.stringify([providerId, source.threadId]);
@@ -232,7 +232,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         supply: requestStats(
           prepared.payload as Record<string, unknown>,
           prepared.mode,
-          json,
+          serialized,
           body,
           seen,
         ),
@@ -266,7 +266,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       const compress =
         provider.compat?.requestCompression === 'gzip' &&
         compression.get(compressionKey) !== 'rejected' &&
-        Buffer.byteLength(json) >= COMPRESS_MIN_BYTES;
+        serialized.length >= COMPRESS_MIN_BYTES;
       const request = (body: string | Uint8Array<ArrayBuffer>, gzipped: boolean) =>
         post(prepared.url, {
           method: 'POST',
@@ -278,11 +278,11 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       let upstream: Response;
       let encoding: Record<string, unknown> = {};
       try {
-        if (!compress) upstream = await request(json, false);
+        if (!compress) upstream = await request(serialized, false);
         else {
           // 在线程池里压缩，不占 Host 的事件循环；级别 1：比默认级别快一倍多，体积只大一成左右。
-          const gzipped = await gzipAsync(json, { level: constants.Z_BEST_SPEED });
-          upstream = await request(new Uint8Array(gzipped), true);
+          const gzipped = await gzipAsync(serialized, { level: constants.Z_BEST_SPEED });
+          upstream = await request(gzipped, true);
           encoding = { encoding: 'gzip' };
           if (upstream.ok) compression.set(compressionKey, 'accepted');
           else if (
@@ -292,7 +292,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
             // 可能是不收压缩的请求体：不压缩重发一次。重发成功才记住它不收，两次都失败说明错误与压缩无关。
             const rejected = upstream.status;
             await upstream.body?.cancel().catch(() => {});
-            upstream = await request(json, false);
+            upstream = await request(serialized, false);
             encoding = { encoding: 'identity', gzipRejected: rejected };
             if (upstream.ok) compression.set(compressionKey, 'rejected');
           }
@@ -494,7 +494,7 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
     if (size > MAX_REQUEST_BYTES) throw new BodyError(413, `请求体超过 ${MAX_REQUEST_BYTES} 字节`);
     chunks.push(chunk as Buffer);
   }
-  const raw = Buffer.concat(chunks);
+  const raw = chunks.length === 1 ? (chunks[0] as Buffer) : Buffer.concat(chunks);
   const encoding = (req.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
   const limit = { maxOutputLength: MAX_REQUEST_BYTES };
   try {

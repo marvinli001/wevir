@@ -8,7 +8,10 @@ import {
 import type { ResponsesRequest } from './types.js';
 
 const KINDS = ['PRIVATE_KEY', 'API_KEY', 'GITHUB', 'AWS', 'BEARER', 'GOOGLE', 'SLACK'];
-const PATTERNS = [PRIVATE_KEY_BLOCK, ...SECRET_PATTERNS.slice(1)];
+const PATTERNS = [PRIVATE_KEY_BLOCK, ...SECRET_PATTERNS.slice(1)].map(
+  (pattern) =>
+    new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`),
+);
 
 export class PrivacyMaskingError extends Error {}
 
@@ -21,6 +24,17 @@ export interface MaskedRequest {
 export class GatewayPrivacyMasker {
   readonly #source: GatewayPrivacySource;
   readonly #salt = randomBytes(32);
+  readonly #cache = new Map<
+    string,
+    { text: string; values: Array<[string, string]>; bytes: number }
+  >();
+  #cacheBytes = 0;
+  #signature = '';
+
+  #clearCache(): void {
+    this.#cache.clear();
+    this.#cacheBytes = 0;
+  }
 
   constructor(source: GatewayPrivacySource) {
     this.#source = source;
@@ -36,7 +50,10 @@ export class GatewayPrivacyMasker {
     } catch {
       throw new PrivacyMaskingError('隐私遮蔽失败：无法读取设置');
     }
-    if (settings?.enabled !== true) return undefined;
+    if (settings?.enabled !== true) {
+      this.#clearCache();
+      return undefined;
+    }
     let known: readonly string[];
     try {
       known = [...credentials, ...(await this.#source.secrets())];
@@ -77,13 +94,22 @@ export class GatewayPrivacyMasker {
       const knownPattern =
         literals.length === 0 ? [] : [new RegExp(literals.map(escapeRegex).join('|'), 'g')];
       const patterns = [...knownPattern, ...PATTERNS];
+      const detection = new RegExp(
+        patterns.map((pattern) => `(?:${pattern.source})`).join('|'),
+        'i',
+      );
+      const signature = createHash('sha256')
+        .update(JSON.stringify([literals, settings.excludedPatterns, settings.excludedValueHashes]))
+        .digest('hex');
+      if (signature !== this.#signature) {
+        this.#clearCache();
+        this.#signature = signature;
+      }
       const maskText = (text: string): string => {
+        if (!detection.test(text)) return text;
         let segments: Array<{ text: string; protected: boolean }> = [{ text, protected: false }];
         for (const pattern of patterns) {
-          const global = new RegExp(
-            pattern.source,
-            pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`,
-          );
+          const global = pattern;
           segments = segments.flatMap((segment) => {
             if (segment.protected) return [segment];
             const next: typeof segments = [];
@@ -100,7 +126,7 @@ export class GatewayPrivacyMasker {
         }
         return segments.map((segment) => segment.text).join('');
       };
-      const maskString = (text: string): string => {
+      const maskUncached = (text: string): string => {
         // 工具结果与参数经常是包在字符串里的 JSON，先解开其中的转义。
         if (/^\s*[[{]/.test(text)) {
           let nested: unknown;
@@ -113,6 +139,31 @@ export class GatewayPrivacyMasker {
           if (masked !== nested) return JSON.stringify(masked);
         }
         return maskText(text);
+      };
+      const maskString = (text: string): string => {
+        const cached = this.#cache.get(text);
+        if (cached !== undefined) {
+          this.#cache.delete(text);
+          this.#cache.set(text, cached);
+          for (const [token, value] of cached.values) values.set(token, value);
+          return cached.text;
+        }
+        const masked = maskUncached(text);
+        if (text.length <= 64 * 1024) {
+          const bytes = Buffer.byteLength(text) + (masked === text ? 0 : Buffer.byteLength(masked));
+          this.#cache.set(text, {
+            text: masked,
+            bytes,
+            values: masked === text ? [] : [...values].filter(([token]) => masked.includes(token)),
+          });
+          this.#cacheBytes += bytes;
+          while (this.#cache.size > 1024 || this.#cacheBytes > 4 * 1024 * 1024) {
+            const key = this.#cache.keys().next().value as string;
+            this.#cacheBytes -= this.#cache.get(key)?.bytes ?? 0;
+            this.#cache.delete(key);
+          }
+        }
+        return masked;
       };
       return { body: mapJsonStrings(body, maskString) as ResponsesRequest, values };
     } catch (error) {

@@ -34,6 +34,7 @@ export type Prepared =
       url: string;
       headers: Record<string, string>;
       payload: unknown;
+      serialized?: Buffer<ArrayBuffer>;
       /** 上游 2xx 之后：响应体 → 发给 Codex 的字节或 SSE 文本。`signal` 中断时抛出，不当作上游错误。 */
       translate(
         response: Response,
@@ -81,6 +82,7 @@ export function prepareUpstream(
     }
     const messages = toMessagesRequest(body, provider);
     let payload: unknown = messages.request;
+    let serialized: Buffer<ArrayBuffer> | undefined;
     if (provider.kind === 'google-vertex') {
       if (hasUrlImage(messages.request))
         return {
@@ -90,7 +92,8 @@ export function prepareUpstream(
         };
       const { model: _model, ...rest } = messages.request;
       payload = { ...rest, anthropic_version: 'vertex-2023-10-16' };
-      if (Buffer.byteLength(JSON.stringify(payload)) > 30_000_000)
+      serialized = Buffer.from(JSON.stringify(payload));
+      if (serialized.length > 30_000_000)
         return { ok: false, status: 413, message: 'Claude on Vertex 请求体超过 30 MB' };
     }
     const origin = { provider: provider.id, model: body.model };
@@ -100,6 +103,7 @@ export function prepareUpstream(
       url: route.url,
       headers,
       payload,
+      ...(serialized !== undefined && { serialized }),
       messages,
       contentType: () => 'text/event-stream',
       translate: (response, signal, onEvent) =>

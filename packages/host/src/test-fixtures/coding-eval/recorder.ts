@@ -134,9 +134,15 @@ export function recordingFetch(hooks: RecorderHooks = {}): RecordingFetch {
           ? input.href
           : (input as Request).url;
     let body: Record<string, unknown> = {};
-    if (typeof init?.body === 'string') {
+    const serialized =
+      typeof init?.body === 'string'
+        ? init.body
+        : init?.body instanceof Uint8Array
+          ? new TextDecoder().decode(init.body)
+          : undefined;
+    if (serialized !== undefined) {
       try {
-        body = JSON.parse(init.body) as Record<string, unknown>;
+        body = JSON.parse(serialized) as Record<string, unknown>;
       } catch {
         // 不是 JSON（例如 Vertex 认证的表单），记成空对象。
       }

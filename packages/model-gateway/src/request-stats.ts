@@ -14,7 +14,7 @@ export interface RequestSupply {
 export function requestStats(
   payload: Record<string, unknown>,
   mode: 'responses' | 'chat' | 'messages',
-  serialized: string,
+  serialized: string | Uint8Array,
   source: ResponsesRequest,
   seenOutputs = new Set<string>(),
 ): RequestSupply {
@@ -108,7 +108,10 @@ const bytes = (value: unknown) =>
   Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value ?? ''));
 
 /** Responses 请求（Codex 发给网关、网关透传给上游的形状）。 */
-export function responsesCatalog(body: Record<string, unknown>, serialized?: string): CatalogStats {
+export function responsesCatalog(
+  body: Record<string, unknown>,
+  serialized?: string | Uint8Array,
+): CatalogStats {
   const names: string[] = [];
   for (const tool of (body.tools as Array<Record<string, unknown>> | undefined) ?? []) {
     if (tool.type === 'namespace') {
@@ -135,12 +138,20 @@ export function responsesCatalog(body: Record<string, unknown>, serialized?: str
       input
         .filter((item) => item.role === 'system' || item.role === 'developer')
         .reduce((sum, item) => sum + bytes(item.content), 0),
-    requestBytes: serialized === undefined ? bytes(body) : bytes(serialized),
+    requestBytes:
+      serialized === undefined
+        ? bytes(body)
+        : typeof serialized === 'string'
+          ? bytes(serialized)
+          : serialized.byteLength,
   };
 }
 
 /** Chat Completions 请求（网关转换之后）。 */
-export function chatCatalog(body: Record<string, unknown>, serialized?: string): CatalogStats {
+export function chatCatalog(
+  body: Record<string, unknown>,
+  serialized?: string | Uint8Array,
+): CatalogStats {
   const tools = (body.tools as Array<{ function?: { name?: string } }> | undefined) ?? [];
   const messages = (body.messages as Array<{ role?: string; content?: unknown }> | undefined) ?? [];
   return {
@@ -150,18 +161,31 @@ export function chatCatalog(body: Record<string, unknown>, serialized?: string):
     instructionBytes: messages
       .filter((message) => message.role === 'system' || message.role === 'developer')
       .reduce((sum, message) => sum + bytes(message.content), 0),
-    requestBytes: serialized === undefined ? bytes(body) : bytes(serialized),
+    requestBytes:
+      serialized === undefined
+        ? bytes(body)
+        : typeof serialized === 'string'
+          ? bytes(serialized)
+          : serialized.byteLength,
   };
 }
 
 /** Anthropic Messages 请求（网关转换之后）。 */
-export function messagesCatalog(body: Record<string, unknown>, serialized?: string): CatalogStats {
+export function messagesCatalog(
+  body: Record<string, unknown>,
+  serialized?: string | Uint8Array,
+): CatalogStats {
   const tools = (body.tools as Array<{ name?: string }> | undefined) ?? [];
   return {
     tools: tools.length,
     names: tools.map((tool) => tool.name ?? '?'),
     toolBytes: bytes(tools),
     instructionBytes: bytes(body.system ?? ''),
-    requestBytes: serialized === undefined ? bytes(body) : bytes(serialized),
+    requestBytes:
+      serialized === undefined
+        ? bytes(body)
+        : typeof serialized === 'string'
+          ? bytes(serialized)
+          : serialized.byteLength,
   };
 }

@@ -33,6 +33,22 @@ async function restored(
 }
 
 describe('GatewayPrivacyMasker', () => {
+  it('历史缓存保留本次还原表，密钥与豁免变化后失效', async () => {
+    const known = ['fictional-private-value'];
+    const settings: GatewayPrivacySettings = { enabled: true };
+    const privacy = masker(known, settings);
+    const body = request(JSON.stringify({ value: known[0] }));
+    const first = await privacy.prepare(body, []);
+    const second = await privacy.prepare(structuredClone(body), []);
+    expect(second).toEqual(first);
+    settings.excludedValueHashes = [digest(known[0] as string)];
+    expect((await privacy.prepare(body, []))?.body).toEqual(body);
+    known.push('another-private-value');
+    const changed = await privacy.prepare(request('another-private-value'), []);
+    expect(changed?.body.input).not.toContain('another-private-value');
+    expect([...(changed?.values.values() ?? [])]).toEqual(['another-private-value']);
+  });
+
   it('已知值优先且长值先换，既有规则覆盖完整私钥与各种令牌', async () => {
     const known = ['short-secret', 'short-secret-and-longer'];
     const secrets = [
