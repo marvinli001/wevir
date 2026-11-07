@@ -409,6 +409,7 @@ function WorkLine({
           {entry.type === 'reasoning' ? (
             // 思考过程也按 Markdown 显示（Claude 等模型的思考常带标题与列表），收着看的不缓冲放字。
             <MarkdownView
+              cacheKey={entry}
               text={entry.text}
               streaming={entry.state === 'streaming'}
               smooth={false}

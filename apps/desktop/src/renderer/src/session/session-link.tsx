@@ -6,6 +6,7 @@ import {
   type ReactElement,
   type ReactNode,
   type RefObject,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -181,21 +182,17 @@ export function MarkdownSessionLinks({
     timers.current.close = window.setTimeout(() => setHover(undefined), CLOSE_DELAY_MS);
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 内容（version）换了要对新的 DOM 重新标。
-  useEffect(() => {
+  const mark = useCallback(() => {
     const element = root.current;
     if (!element || !store) return;
-    const mark = () => {
-      const links = element.querySelectorAll<HTMLElement>(LINK_SELECTOR);
-      if (links.length === 0) return;
-      const data = store.get();
-      for (const link of links) {
-        link.toggleAttribute('data-session-missing', !findSession(data, link.dataset.sessionLink));
-      }
-    };
-    mark();
-    return store.subscribe(mark);
-  }, [root, store, version]);
+    const data = store.get();
+    for (const link of element.querySelectorAll<HTMLElement>(LINK_SELECTOR)) {
+      link.toggleAttribute('data-session-missing', !findSession(data, link.dataset.sessionLink));
+    }
+  }, [root, store]);
+  useEffect(() => store?.subscribe(mark), [store, mark]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 新内容挂上后重新标记，不重新订阅列表。
+  useEffect(() => mark(), [mark, version]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 计时器与关闭只经 ref 与 setState，事件只注册一次。
   useEffect(() => {

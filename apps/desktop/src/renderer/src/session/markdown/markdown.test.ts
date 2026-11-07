@@ -1,6 +1,7 @@
 // 渲染器的纯逻辑测试，跑在 Node 上。Node 里没有 DOM，DOMPurify 用不了，这里换成原样返回，只核对 marked 的
 // 输出与流式时的块复用；清洗在 Electron 渲染进程里生效。
 
+import DOMPurify from 'dompurify';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   codeLanguage,
@@ -12,7 +13,7 @@ import { renderDocumentHtml } from './markdown-document';
 import { loadMath } from './markdown-math-loader';
 import { repairStreamingMarkdown } from './stream-safe';
 
-vi.mock('dompurify', () => ({ default: { sanitize: (html: string) => html } }));
+vi.mock('dompurify', () => ({ default: { sanitize: vi.fn((html: string) => html) } }));
 beforeAll(() => loadMath());
 
 describe('renderMarkdownHtml', () => {
@@ -67,6 +68,36 @@ describe('renderMarkdownHtml', () => {
     expect(html).toContain('<code class="language-mermaid">graph TD; A--&gt;B</code>');
     expect(html).toContain('后文');
   });
+});
+
+it('切回相同部件复用已清洗 HTML，正文变更不复用旧内容', () => {
+  const parts = Array.from({ length: 60 }, (_, index) => ({ text: `**message ${index}**` }));
+  vi.mocked(DOMPurify.sanitize).mockClear();
+  for (const part of parts) renderMarkdownHtml(part.text, part);
+  expect(DOMPurify.sanitize).toHaveBeenCalledTimes(60);
+  vi.mocked(DOMPurify.sanitize).mockClear();
+  for (const part of parts) renderMarkdownHtml(part.text, part);
+  expect(DOMPurify.sanitize).not.toHaveBeenCalled();
+  const part = parts[0];
+  expect(renderMarkdownHtml('changed', part)).toContain('changed');
+  expect(DOMPurify.sanitize).toHaveBeenCalledTimes(1);
+});
+
+it('增长中的代码仅转义，HTML 与恶意语言标签不能执行', () => {
+  const renderer = createStreamingMarkdownRenderer();
+  vi.mocked(DOMPurify.sanitize).mockClear();
+  for (let i = 1; i <= 20; i++) {
+    const html = renderer
+      .render('```ts\n' + '<script>alert(1)</script>\n'.repeat(i))
+      .map((block) => block.__html)
+      .join('');
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  }
+  expect(DOMPurify.sanitize).not.toHaveBeenCalled();
+  expect(
+    renderer.render('```x" onclick="alert(1)\n<svg/onload=alert(1)>')[0]?.__html,
+  ).not.toContain('onclick');
 });
 
 describe('createStreamingMarkdownRenderer', () => {

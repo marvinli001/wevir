@@ -598,7 +598,14 @@ export const SystemMessage = memo(function SystemMessage({
 const PartView = memo(function PartView({ part }: { part: ChatPart }) {
   switch (part.type) {
     case 'text':
-      return <MarkdownView text={part.text} streaming={part.state === 'streaming'} quotable />;
+      return (
+        <MarkdownView
+          cacheKey={part}
+          text={part.text}
+          streaming={part.state === 'streaming'}
+          quotable
+        />
+      );
     case 'todo':
       return <TodoList part={part} />;
     case 'error':

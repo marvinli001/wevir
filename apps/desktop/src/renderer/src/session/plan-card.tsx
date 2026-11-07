@@ -81,7 +81,12 @@ export const PlanCard = memo(function PlanCard({ part }: { part: ChatPartOf<'pla
       </header>
       <div className={cn('relative mt-2', collapsed && 'max-h-96 overflow-hidden')}>
         {/* 计划里的小节标题不比卡片的标题大。 */}
-        <MarkdownView text={body} streaming={streaming} className="[&_:is(h1,h2)]:text-base" />
+        <MarkdownView
+          cacheKey={part}
+          text={body}
+          streaming={streaming}
+          className="[&_:is(h1,h2)]:text-base"
+        />
         {collapsed && (
           <div
             aria-hidden

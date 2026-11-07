@@ -15,7 +15,7 @@ import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 import { sessionHrefId } from '@/session/session-link-model';
-import { withMath } from './markdown-math-loader';
+import { mathReady, withMath } from './markdown-math-loader';
 import { repairStreamingMarkdown } from './stream-safe';
 
 export function escapeHtml(value: string): string {
@@ -187,10 +187,17 @@ export function sanitizeMarkdown(html: string, allowImages = false): string {
   });
 }
 
-/** 整篇渲染（已定的消息、历史）。 */
-export function renderMarkdownHtml(text: string): string {
+const renderedParts = new WeakMap<object, { text: string; math: boolean; html: string }>();
+
+/** 整篇渲染；部件身份在转录缓存内保持稳定，弱引用不延长会话寿命。 */
+export function renderMarkdownHtml(text: string, part?: object): string {
   if (!text.trim()) return '';
-  return sanitizeMarkdown(parser.parse(text, { async: false }));
+  const math = mathReady();
+  const cached = part && renderedParts.get(part);
+  if (cached && cached.text === text && cached.math === math) return cached.html;
+  const html = sanitizeMarkdown(parser.parse(text, { async: false }));
+  if (part) renderedParts.set(part, { text, math, html });
+  return html;
 }
 
 /**
@@ -231,7 +238,11 @@ export function createStreamingMarkdownRenderer(): StreamingMarkdownRenderer {
   let state: StreamingState | null = null;
 
   const renderBlock = (token: Token): MarkdownBlockHtml => ({
-    __html: sanitizeMarkdown(parser.parser([token])),
+    // 代码块只含固定模板和已转义源码，不需要随增长反复构造清洗 DOM。
+    __html:
+      token.type === 'code' && codeLanguage(token.lang) !== 'mermaid'
+        ? codeBlockHtml(token.text, token.lang)
+        : sanitizeMarkdown(parser.parser([token])),
   });
 
   const renderAll = (source: string, previous: StreamingState | null): StreamingState => {

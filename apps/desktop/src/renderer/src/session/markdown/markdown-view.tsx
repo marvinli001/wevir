@@ -98,6 +98,7 @@ function useStreamingReveal(
  */
 export const MarkdownView = memo(function MarkdownView({
   text,
+  cacheKey,
   streaming,
   smooth = true,
   className,
@@ -105,6 +106,7 @@ export const MarkdownView = memo(function MarkdownView({
   quotable = false,
 }: {
   text: string;
+  cacheKey?: object;
   streaming: boolean;
   /** 选中里面的文字时可以引用（消息里选中文字的工具条，session/selection-toolbar.tsx）。 */
   quotable?: boolean;
@@ -143,14 +145,15 @@ export const MarkdownView = memo(function MarkdownView({
         ? [{ __html: documentMode.render(text) }]
         : live
           ? renderer.render(shown)
-          : [{ __html: renderMarkdownHtml(text) }],
-    [live, renderer, shown, text, documentMode],
+          : [{ __html: renderMarkdownHtml(text, cacheKey) }],
+    [live, renderer, shown, text, documentMode, cacheKey],
   );
 
   // 新放出的字淡入：只处理这一帧换了 HTML 的块（都在末尾），在它们里面把还在淡入的字包起来。
   const freshRef = useRef<FreshRange[]>([]);
   const lengthRef = useRef<number | undefined>(undefined);
   const blocksRef = useRef<MarkdownBlockHtml[]>([]);
+  const blockLengths = useRef<number[]>([]);
   useLayoutEffect(() => {
     const root = rootRef.current;
     const previous = blocksRef.current;
@@ -158,10 +161,18 @@ export const MarkdownView = memo(function MarkdownView({
     if (!root || !live || !animate) {
       freshRef.current = [];
       lengthRef.current = undefined;
+      blocksRef.current = [];
+      blockLengths.current = [];
       return;
     }
     const now = performance.now();
-    const length = root.textContent?.length ?? 0;
+    const lengths = blocks.map((block, index) =>
+      block === previous[index]
+        ? (blockLengths.current[index] ?? 0)
+        : (root.children[index]?.textContent?.length ?? 0),
+    );
+    blockLengths.current = lengths;
+    const length = lengths.reduce((sum, value) => sum + value, 0);
     const ranges = trackFresh(freshRef.current, lengthRef.current ?? length, length, now);
     freshRef.current = ranges;
     lengthRef.current = length;
@@ -170,18 +181,23 @@ export const MarkdownView = memo(function MarkdownView({
     let offset = length;
     for (let index = root.children.length - 1; index >= 0 && offset > from; index--) {
       const child = root.children[index] as Element;
-      offset -= child.textContent?.length ?? 0;
+      offset -= lengths[index] ?? 0;
       if (blocks[index] !== previous[index]) wrapFresh(child, offset, ranges, now);
     }
   }, [blocks, live, animate]);
   useMermaidEnhancer(rootRef, blocks, !live);
 
+  const styledBlocks = useRef<MarkdownBlockHtml[]>([]);
   // KaTeX 的 style 经 CSSOM 补回；文件窗格的图片向 Host 要地址。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 内容（blocks）换了要对新的 DOM 重新做。
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    restoreCspStyles(root);
+    const previous = styledBlocks.current;
+    styledBlocks.current = blocks;
+    for (let index = 0; index < blocks.length; index++) {
+      const child = root.children[index];
+      if (child && blocks[index] !== previous[index]) restoreCspStyles(child);
+    }
     if (!documentMode) return;
     let stopped = false;
     for (const image of root.querySelectorAll<HTMLImageElement>('img[data-file-image]')) {
