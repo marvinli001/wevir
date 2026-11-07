@@ -2,8 +2,8 @@
 // 改写自 different-ai/openwork apps/desktop/electron/browser-panel.mjs
 // 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
 // Copyright (c) 2026 Different AI
-// 修改：改写成 TypeScript，只留标签页与 WebContentsView 的生命周期、按会话归属与上屏、后台标签页停在不显示的窗口里继续绘制
-// （加上 DevTools 的视口与焦点模拟）、窗格位置的换算、载入失败与状态推送；去掉 OpenWork 的 WebMCP、代理、组织策略、任务审批、
+// 修改：改写成 TypeScript，只留标签页与 WebContentsView 的生命周期、按会话归属与上屏、后台标签页的停放与命令期间的绘制
+// （保留 DevTools 视口，agent 操作时模拟焦点）、窗格位置的换算、载入失败与状态推送；去掉 OpenWork 的 WebMCP、代理、组织策略、任务审批、
 // 原生右键菜单、挂起与恢复、关闭历史和快捷键。新增：Wevir 的安全基线（独立的 session 分区、只放行 http(s)、下载 / 权限 /
 // 外部协议一律拒绝、弹窗改成同一会话的新标签页）；标签页的操作方 `controller`（agent 开的归 agent，用户开的或用户在里面操作过的
 // 归用户，用户的标签页 agent 只读）；agent 的浏览器命令（Paseo 的自动化，automation/）在这里分发。不在屏幕上的标签页一律停在
@@ -114,7 +114,7 @@ const TAB_PREFERENCES = Object.freeze({
   webSecurity: true,
   allowRunningInsecureContent: false,
   webviewTag: false,
-  backgroundThrottling: false,
+  backgroundThrottling: true,
   spellcheck: false,
   // alert / confirm / prompt 不弹原生框：Chromium 立刻回答（alert 继续、confirm 为 false、prompt 为 null），页面不会被卡住；
   // CDP 仍然报 Page.javascriptDialogOpening，contents.ts 据此记下来。
@@ -478,7 +478,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
         paintWhenInitiallyHidden: true,
         focusable: false,
         skipTaskbar: true,
-        webPreferences: { backgroundThrottling: false, sandbox: true },
+        webPreferences: { backgroundThrottling: true, sandbox: true },
       });
     }
     return backgroundWindow;
@@ -506,7 +506,10 @@ export function createBrowserHost(options: BrowserHostOptions) {
     queueEmulation(tab, async () => {
       if (!tab.parked) return;
       if (!cdp.isAttached()) cdp.attach('1.3');
-      for (const { method, params } of backgroundTabEmulationCommands()) {
+      for (const { method, params } of backgroundTabEmulationCommands(
+        BACKGROUND_TAB_VIEWPORT,
+        tab.controller === 'agent' && tab.agentBusy > 0,
+      )) {
         if (!tab.parked) return;
         await cdp.sendCommand(method, params);
       }
@@ -532,7 +535,8 @@ export function createBrowserHost(options: BrowserHostOptions) {
       tab.view.setBounds({ x: 0, y: 0, ...BACKGROUND_TAB_VIEWPORT });
       host.contentView.addChildView(tab.view);
     }
-    tab.view.setVisible(true);
+    // 同一窗口有一个标签禁用节流就会唤醒整窗；空闲视图隐藏，避免别的命令带着它绘制。
+    tab.view.setVisible(tab.agentBusy > 0);
     if (!tab.parked) {
       tab.parked = true;
       if (tab.domReady) emulateBackground(tab);
@@ -721,7 +725,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
         const url = command.args.url;
         return guarded(tab, command, LOAD_TIMEOUT_MS + 4_000, () =>
           withTabEvents(tab, requestId, async () => {
-            if (url !== undefined) await busy(tab, () => loadNewTab(tab, url));
+            if (url !== undefined) await loadNewTab(tab, url);
             return {
               requestId,
               ok: true,
@@ -742,7 +746,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
         if (tab) place();
         return guarded(target, command, LOAD_TIMEOUT_MS + 4_000, () =>
           withTabEvents(target, requestId, async () => {
-            if (tab && url !== undefined) await busy(tab, () => loadNewTab(tab, url));
+            if (tab && url !== undefined) await loadNewTab(tab, url);
             registry.select(target.tabId);
             const shown = registry.visibleSessionId() === sessionId;
             if (shown) options.sendReveal({ sessionId, tabId: target.tabId });
@@ -822,7 +826,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
         withTabEvents(tab, requestId, async () => {
           tab.loadError = undefined;
           snapshotEngine.clearBrowser(tab.tabId);
-          await busy(tab, () => load(tab, command.args.url));
+          await load(tab, command.args.url);
           return {
             requestId,
             ok: true,
@@ -840,7 +844,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       return guarded(tab, command, LOAD_TIMEOUT_MS + 4_000, () =>
         withTabEvents(tab, requestId, async () => {
           snapshotEngine.clearBrowser(tab.tabId);
-          await busy(tab, () => reload(tab));
+          await reload(tab);
           return { requestId, ok: true, result: { command: 'reload', browserId: tab.tabId } };
         }),
       );
@@ -848,7 +852,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
     if (command.command === 'download') {
       const timeoutMs = command.args.timeoutMs ?? DOWNLOAD_TIMEOUT_MS;
       return guarded(tab, command, timeoutMs + 5_000, () =>
-        withTabEvents(tab, requestId, () => busy(tab, () => download(tab, request, command))),
+        withTabEvents(tab, requestId, () => download(tab, request, command)),
       );
     }
     const budget =
@@ -857,31 +861,29 @@ export function createBrowserHost(options: BrowserHostOptions) {
         : command.command === 'evaluate'
           ? Math.max(COMMAND_BUDGET_MS, (command.args.timeoutMs ?? 5_000) + 3_000)
           : COMMAND_BUDGET_MS;
-    return guarded(tab, command, budget, () =>
-      busy(tab, async () => {
-        const before = {
-          url: tab.view.webContents.getURL(),
-          navigations: tab.navigations,
-          commits: tab.commits,
-        };
-        const payload = await executeAutomationCommand(request, automationRegistry, {
-          snapshotEngine,
-        });
-        const navigation = INTERACTIVE_COMMANDS.has(command.command)
-          ? await settleNavigation(tab, before)
-          : undefined;
-        // 等跳转期间才开始的下载（点了下载链接）也报在这个命令里，不留到下一个。
-        const late = INTERACTIVE_COMMANDS.has(command.command)
-          ? takeDownloads(tab.view.webContents.id)
-          : [];
-        const downloads = [...(payload.effects?.downloads ?? []), ...late];
-        return withEffects(payload, {
-          ...(navigation && { navigation }),
-          ...takeOpenedTabs(tab),
-          ...(downloads.length > 0 && { downloads }),
-        });
-      }),
-    );
+    return guarded(tab, command, budget, async () => {
+      const before = {
+        url: tab.view.webContents.getURL(),
+        navigations: tab.navigations,
+        commits: tab.commits,
+      };
+      const payload = await executeAutomationCommand(request, automationRegistry, {
+        snapshotEngine,
+      });
+      const navigation = INTERACTIVE_COMMANDS.has(command.command)
+        ? await settleNavigation(tab, before)
+        : undefined;
+      // 等跳转期间才开始的下载（点了下载链接）也报在这个命令里，不留到下一个。
+      const late = INTERACTIVE_COMMANDS.has(command.command)
+        ? takeDownloads(tab.view.webContents.id)
+        : [];
+      const downloads = [...(payload.effects?.downloads ?? []), ...late];
+      return withEffects(payload, {
+        ...(navigation && { navigation }),
+        ...takeOpenedTabs(tab),
+        ...(downloads.length > 0 && { downloads }),
+      });
+    });
   }
 
   /**
@@ -1081,24 +1083,47 @@ export function createBrowserHost(options: BrowserHostOptions) {
     budgetMs: number,
     task: () => Promise<AutomationCommandPayload>,
   ): Promise<AutomationCommandPayload> {
-    if (tab.unresponsive) {
-      if (!(await responds(tab))) throw notResponding(tab, command, RESPONSIVE_PROBE_MS);
-      tab.unresponsive = false;
+    const contents = tab.view.webContents;
+    tab.agentBusy += 1;
+    contents.setBackgroundThrottling(false);
+    if (tab.parked) {
+      tab.view.setVisible(true);
+      if (tab.domReady) emulateBackground(tab);
     }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<'expired'>((resolve) => {
-      timer = setTimeout(() => resolve('expired'), budgetMs);
-    });
-    const running = task();
-    // 超时之后才失败的命令不要变成未处理的拒绝。
-    running.catch(() => {});
+    sendState();
     try {
-      const outcome = await Promise.race([running, expired]);
-      if (outcome !== 'expired') return outcome;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<'expired'>((resolve) => {
+        timer = setTimeout(() => resolve('expired'), budgetMs);
+      });
+      const running = (async () => {
+        await tab.emulation;
+        if (tab.unresponsive) {
+          if (!(await responds(tab))) throw notResponding(tab, command, RESPONSIVE_PROBE_MS);
+          tab.unresponsive = false;
+        }
+        return task();
+      })();
+      // 超时之后才失败的命令不要变成未处理的拒绝。
+      running.catch(() => {});
+      try {
+        const outcome = await Promise.race([running, expired]);
+        if (outcome !== 'expired') return outcome;
+      } finally {
+        clearTimeout(timer);
+      }
+      throw await stuckError(tab, command, budgetMs);
     } finally {
-      clearTimeout(timer);
+      tab.agentBusy -= 1;
+      if (!contents.isDestroyed()) {
+        contents.setBackgroundThrottling(tab.agentBusy === 0);
+        if (tab.parked) {
+          tab.view.setVisible(tab.agentBusy > 0);
+          if (tab.domReady) emulateBackground(tab);
+        }
+      }
+      sendState();
     }
-    throw await stuckError(tab, command, budgetMs);
   }
 
   /** 页面在 1 s 内能不能跑一个最简单的脚本。 */
@@ -1164,17 +1189,6 @@ export function createBrowserHost(options: BrowserHostOptions) {
       throw new BrowserHostError('browser_tab_closed', `Browser tab ${tabId} has been closed.`);
     }
     return tab;
-  }
-
-  async function busy<T>(tab: Tab, task: () => Promise<T>): Promise<T> {
-    tab.agentBusy += 1;
-    sendState();
-    try {
-      return await task();
-    } finally {
-      tab.agentBusy -= 1;
-      sendState();
-    }
   }
 
   /** 新开的标签页载入：打不开就关掉，不留下 agent 拿不到 browserId 的空标签页；超时的留着（页面可能还在来）。 */

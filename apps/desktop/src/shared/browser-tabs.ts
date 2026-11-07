@@ -6,7 +6,7 @@
 // 标签页总有归属，留着它只为与上游一致）；后台标签页的视口与命令照搬。主进程（browser-host.ts）与渲染进程（浏览器窗格）都用它。
 //
 // 内置浏览器（0.33.0）：整个窗口只有一个原生浏览器表面，每个标签页属于开它的会话。这里决定哪个标签页在屏幕上、一个会话看得到
-// 哪些标签页，以及属于后台会话的标签页在没人看时怎样仍像一个真实的页面。
+// 哪些标签页，以及后台标签页执行 agent 命令时使用的视口与焦点。
 
 /** 没有会话认领的标签页（共享标签页）的归属键。 */
 export const SHARED_OWNER_KEY = '*';
@@ -20,11 +20,11 @@ export interface DevToolsCommand {
 }
 
 /**
- * 让后台标签页像用户正看着的页面的 DevTools 命令：一个真实的视口（布局、点击、截图），加上焦点模拟（打字与 `:focus` 照常）。
- * 无头浏览器靠的也是这一套。
+ * 后台标签页保留布局视口；仅 agent 操作期间模拟焦点，空闲时允许 Chromium 节流。
  */
 export function backgroundTabEmulationCommands(
   viewport: { width: number; height: number } = BACKGROUND_TAB_VIEWPORT,
+  focused = false,
 ): DevToolsCommand[] {
   return [
     {
@@ -36,7 +36,7 @@ export function backgroundTabEmulationCommands(
         mobile: false,
       },
     },
-    { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: true } },
+    { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: focused } },
   ];
 }
 

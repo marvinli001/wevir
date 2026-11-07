@@ -154,6 +154,7 @@ export function adaptWebContents(contents: BrowserAutomationWebContents): TabCon
     invalidate: () => contents.invalidate(),
     withFrameProduction: async (capture) => {
       const previous = contents.getBackgroundThrottling();
+      if (!previous) return capture();
       contents.setBackgroundThrottling(false);
       try {
         return await capture();

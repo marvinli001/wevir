@@ -62,7 +62,7 @@ describe('渲染进程的过滤', () => {
 });
 
 describe('后台标签页的模拟', () => {
-  it('给后台标签页一个真实的视口与焦点，回到前台时撤销', () => {
+  it('保留后台视口，空闲不模拟焦点，agent 操作期间才开启', () => {
     expect(backgroundTabEmulationCommands().map((command) => command.method)).toEqual([
       'Emulation.setDeviceMetricsOverride',
       'Emulation.setFocusEmulationEnabled',
@@ -71,5 +71,9 @@ describe('后台标签页的模拟', () => {
       'Emulation.setFocusEmulationEnabled',
       'Emulation.clearDeviceMetricsOverride',
     ]);
+    expect(backgroundTabEmulationCommands().at(-1)?.params).toEqual({ enabled: false });
+    expect(backgroundTabEmulationCommands(undefined, true).at(-1)?.params).toEqual({
+      enabled: true,
+    });
   });
 });
