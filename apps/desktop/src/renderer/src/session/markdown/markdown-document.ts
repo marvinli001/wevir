@@ -16,13 +16,13 @@ import {
   renderer,
   sanitizeMarkdown,
 } from './markdown';
-import { markdownMath } from './markdown-math';
+import { withMath } from './markdown-math-loader';
 
 /** 这次渲染的文件里，图片的相对路径换成会话目录里的路径（renderDocumentHtml 同步设置）。 */
 let documentImagePath: ((href: string) => string | undefined) | undefined;
 
-const documentParser = new Marked<string, string>(
-  {
+const documentParser = withMath(
+  new Marked<string, string>({
     ...BASE_OPTIONS,
     renderer: {
       ...renderer,
@@ -32,8 +32,7 @@ const documentParser = new Marked<string, string>(
         return `<img data-file-image="${escapeHtml(path)}" alt="${escapeHtml(text)}" loading="lazy">`;
       },
     },
-  },
-  markdownMath(),
+  }),
 );
 
 /**

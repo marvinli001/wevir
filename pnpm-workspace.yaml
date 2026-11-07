@@ -59,3 +59,8 @@ patchedDependencies:
 # 跳过发布时长门槛的版本。electron@44.9.3：44.9.1 起屏蔽私钥泄露的 8 个中间 CA，安全修复不等满一天。
 minimumReleaseAgeExclude:
   - electron@44.9.3
+
+# Mermaid 使用的 lexer 与 KaTeX API 已与桌面端公式/图表渲染核对，统一版本避免重复打包。
+overrides:
+  'mermaid>katex': 0.18.10
+  'mermaid>marked': 18.1.0

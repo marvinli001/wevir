@@ -15,7 +15,7 @@ import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 import { sessionHrefId } from '@/session/session-link-model';
-import { markdownMath } from './markdown-math';
+import { withMath } from './markdown-math-loader';
 import { repairStreamingMarkdown } from './stream-safe';
 
 export function escapeHtml(value: string): string {
@@ -120,7 +120,7 @@ export const renderer: RendererObject<string, string> = {
   },
 };
 
-const parser = new Marked<string, string>({ ...BASE_OPTIONS, renderer }, markdownMath());
+const parser = withMath(new Marked<string, string>({ ...BASE_OPTIONS, renderer }));
 
 const SANITIZE_ATTR = [
   'href',

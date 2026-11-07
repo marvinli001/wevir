@@ -48,7 +48,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.2 打进桌面端产物的库
 
-从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`；0.20.0 加了 `@pierre/diffs`、`shiki`、`@shikijs/transformers`；0.32.0 加了 `mermaid`、`katex`、`marked-katex-extension`、`htmlparser2`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
+从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`；0.20.0 加了 `@pierre/diffs`、`shiki`；0.32.0 加了 `mermaid`、`katex`、`marked-katex-extension`、`htmlparser2`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
 
 | 包 | 版本 | 许可证 | 版权 |
 |---|---|---|---|

@@ -1,7 +1,7 @@
 // 渲染器的纯逻辑测试，跑在 Node 上。Node 里没有 DOM，DOMPurify 用不了，这里换成原样返回，只核对 marked 的
 // 输出与流式时的块复用；清洗在 Electron 渲染进程里生效。
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   codeLanguage,
   createStreamingMarkdownRenderer,
@@ -9,9 +9,11 @@ import {
   renderMarkdownHtml,
 } from './markdown';
 import { renderDocumentHtml } from './markdown-document';
+import { loadMath } from './markdown-math-loader';
 import { repairStreamingMarkdown } from './stream-safe';
 
 vi.mock('dompurify', () => ({ default: { sanitize: (html: string) => html } }));
+beforeAll(() => loadMath());
 
 describe('renderMarkdownHtml', () => {
   it('代码块带语言标签与复制按钮，源码转义', () => {

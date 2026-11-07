@@ -595,7 +595,7 @@ kiro-adapter.ts 的单次授权规则另参照 packages/provider-kiro/src/server
     仓库：https://github.com/pierrecomputer/pierre（取自 @pierre/theme 的 package.json，@pierre/diffs 没有写）
     许可证：Apache License 2.0，全文见文末
     版权：Copyright 2025 Pierre Computer Company
-  shiki 4.4.3、@shikijs/transformers 4.4.3（及其 @shikijs/* 依赖）
+  shiki 4.4.3（及其 @shikijs/* 依赖）
     仓库：https://github.com/shikijs/shiki
     许可证：MIT，全文见文末“MIT License”
     版权：Copyright (c) 2021 Pine Wu；Copyright (c) 2023 Anthony Fu <https://github.com/antfu>

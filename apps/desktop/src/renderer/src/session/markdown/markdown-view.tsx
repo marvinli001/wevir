@@ -12,6 +12,7 @@ import {
   type MarkdownBlockHtml,
   renderMarkdownHtml,
 } from './markdown';
+import { loadMath, mathReady } from './markdown-math-loader';
 import { restoreCspStyles, useMermaidEnhancer } from './mermaid';
 import {
   FRESH_FADE_MS,
@@ -114,7 +115,21 @@ export const MarkdownView = memo(function MarkdownView({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { shown, live, animate } = useStreamingReveal(text, streaming, smooth);
-  const renderer = useMemo(() => createStreamingMarkdownRenderer(), []);
+  const [renderer, setRenderer] = useState(createStreamingMarkdownRenderer);
+  const needsMath = /\$|\\\(|\\\[/.test(text);
+  const ready = mathReady();
+  useEffect(() => {
+    if (!needsMath || ready) return;
+    let mounted = true;
+    void loadMath()
+      .then(() => {
+        if (mounted) setRenderer(createStreamingMarkdownRenderer());
+      })
+      .catch((error) => console.error('[markdown] math loading failed', error));
+    return () => {
+      mounted = false;
+    };
+  }, [needsMath, ready]);
   // 事件委托只注册一次，打开文件的方式经 ref 取最新的。
   const openFileLink = useContext(OpenFileLink);
   const openFileRef = useRef(openFileLink);
