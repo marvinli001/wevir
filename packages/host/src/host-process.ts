@@ -805,6 +805,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         autoAllow: (sessionId, tool) => appTools?.autoAllow(sessionId, tool) ?? false,
         forget: (sessionIds) => {
+          appMcp?.forget(sessionIds);
           void processes?.removeSessions(sessionIds);
           terminals?.removeSessions(sessionIds);
           simulators?.removeSessions(sessionIds);
@@ -1614,7 +1615,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       appMcp = new AppMcpServer({
         tools: appTools.tools,
         turnOf: (sessionId) => ledgerEvents.snapshot(sessionId)?.session.activeTurn?.turnId,
-        onSupply: ({ sessionId, server, tools: supplied, instructions }) => {
+        onSupply: ({ sessionId, server, tools: supplied, instructionBytes, instructionDigest }) => {
           const serialized = JSON.stringify(supplied);
           usageStats.recordSupply({
             sessionId,
@@ -1622,7 +1623,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             at: new Date().toISOString(),
             toolCount: supplied.length,
             toolBytes: Buffer.byteLength(serialized),
-            instructionBytes: Buffer.byteLength(instructions),
+            instructionBytes,
             memoryIndexBytes:
               server === 'wevir' &&
               contexts.active(sessionId)?.receipt.channel === 'mcp_instructions'
@@ -1631,7 +1632,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             digest: createHash('sha256')
               .update(serialized)
               .update('\0')
-              .update(instructions)
+              .update(instructionDigest)
               .digest('hex'),
           });
         },

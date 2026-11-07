@@ -869,6 +869,13 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (session.turn !== undefined) {
       throw new AdapterError('session_busy', `session ${session.id} has a turn in progress`);
     }
+    if (![...session.children.values()].some((child) => child.running)) {
+      for (const owner of [session, ...session.children.values()]) {
+        owner.tools.clear();
+        owner.finished.clear();
+        owner.blockCounts.clear();
+      }
+    }
     const turn: Turn = {
       ...(kind !== undefined && { kind }),
       promptUuid: randomUUID(),
@@ -1111,6 +1118,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (session.live !== undefined) await this.#closeLive(session, session.live);
     session.open = false;
     this.#endHubs(session);
+    for (const owner of [session, ...session.children.values()]) {
+      owner.tools.clear();
+      owner.finished.clear();
+      owner.blockCounts.clear();
+    }
   }
 
   validateProvider(provider: ProviderConfig): ProviderIssue[] {
@@ -1234,6 +1246,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       session.open = false;
       this.#endHubs(session);
     }
+    this.#sessions.clear();
     this.accounts.dispose();
   }
 

@@ -215,12 +215,14 @@ export class SessionEventQueue {
     if (this.#inTurn) this.#flushChunks();
     this.#inTurn = false;
     this.#hub.emit(event);
+    this.#compactions.clear();
     this.#hub.end();
   }
 
   /** 结束订阅（会话关闭、适配器 dispose），不再发事件。 */
   end(): void {
     this.#inTurn = false;
+    this.#compactions.clear();
     this.#hub.end();
   }
 

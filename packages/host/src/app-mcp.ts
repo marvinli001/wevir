@@ -70,7 +70,8 @@ export interface AppMcpServerOptions {
     sessionId: SessionId;
     server: string;
     tools: unknown[];
-    instructions: string;
+    instructionBytes: number;
+    instructionDigest: string;
   }) => void;
   onCall?: (call: {
     sessionId: SessionId;
@@ -139,7 +140,10 @@ const digest = (token: string) => createHash('sha256').update(token).digest('hex
  * Host 重启后全部作废，恢复会话时适配器拿到新的。
  */
 export class AppMcpServer {
-  readonly #supplyInstructions = new Map<string, string>();
+  readonly #supplyInstructions = new Map<
+    string,
+    { instructionBytes: number; instructionDigest: string }
+  >();
   readonly #tools: ReadonlyMap<string, AppTool>;
   /** `dispatch` 列法里加的搜索与分发工具（给了 `tierOf` 时才有）。 */
   readonly #dispatch: ReadonlyMap<string, AppTool>;
@@ -199,6 +203,17 @@ export class AppMcpServer {
     return this.#sessions.get(digest(token));
   }
 
+  forget(sessionIds: readonly SessionId[]): void {
+    for (const id of sessionIds) {
+      const token = this.#tokens.get(id);
+      if (token !== undefined) this.#sessions.delete(digest(token));
+      this.#tokens.delete(id);
+      for (const key of this.#supplyInstructions.keys()) {
+        if ((JSON.parse(key) as unknown[])[0] === id) this.#supplyInstructions.delete(key);
+      }
+    }
+  }
+
   /**
    * 引擎令牌：只认 Provider 种类在 `kinds` 里的会话，同一组种类在 Host 运行期间一直用同一个。还没监听、没有种类或没有
    * `engineSession` 时 `undefined`。
@@ -223,6 +238,11 @@ export class AppMcpServer {
   close(): void {
     this.#closed = true;
     for (const controller of this.#inflight) controller.abort();
+    this.#tokens.clear();
+    this.#sessions.clear();
+    this.#supplyInstructions.clear();
+    this.#engineTokens.clear();
+    this.#engines.clear();
   }
 
   get toolNames(): string[] {
@@ -408,7 +428,10 @@ export class AppMcpServer {
           this.#options.onError?.(error);
         }
         if (sessionId !== undefined)
-          this.#supplyInstructions.set(JSON.stringify([sessionId, tier]), instructions ?? '');
+          this.#supplyInstructions.set(JSON.stringify([sessionId, tier]), {
+            instructionBytes: Buffer.byteLength(instructions ?? ''),
+            instructionDigest: digest(instructions ?? ''),
+          });
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
@@ -442,7 +465,10 @@ export class AppMcpServer {
                   ? 'wevir_dispatch'
                   : APP_TOOLS_SERVER,
             tools,
-            instructions: this.#supplyInstructions.get(JSON.stringify([sessionId, tier])) ?? '',
+            ...(this.#supplyInstructions.get(JSON.stringify([sessionId, tier])) ?? {
+              instructionBytes: 0,
+              instructionDigest: digest(''),
+            }),
           });
         return rpcResult(id, { tools });
       }

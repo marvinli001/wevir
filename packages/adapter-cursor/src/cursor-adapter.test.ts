@@ -755,6 +755,19 @@ describe('CursorAdapter', () => {
     expect(sdk.agent(engineSessionId).options.apiKey).toBe('new-key');
   });
 
+  it('关闭缓存有界，淘汰后仍可按持久化 ID 恢复', async () => {
+    const { adapter, home } = setup();
+    const config = { cwd: home, providerId: 'cursor', modelId: 'auto' };
+    let first = '';
+    for (let i = 0; i < 40; i += 1) {
+      const { engineSessionId } = await adapter.createSession(config);
+      if (i === 0) first = engineSessionId;
+      await adapter.close(engineSessionId);
+    }
+    expect(() => adapter.subscribe(first)).toThrow();
+    expect(await adapter.resumeSession(first, config)).toMatchObject({ engineSessionId: first });
+  });
+
   it('dispose：进行中的 run 取消、agent 关闭、订阅结束，之后的调用报 disposed', async () => {
     const { adapter, sdk, home } = setup();
     sdk.script = () => ({ updates: [], hang: true });

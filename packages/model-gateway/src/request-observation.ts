@@ -17,6 +17,7 @@ export interface RequestObservation {
   providerId: string;
   model: string;
   threadId?: string;
+  parentThreadId?: string;
   turnId?: string;
   agentName?: string;
   kind: 'agent' | 'compaction' | 'subagent' | 'auxiliary';
@@ -33,7 +34,10 @@ export interface RequestObservation {
 export function requestSource(
   body: ResponsesRequest,
   headers: IncomingHttpHeaders,
-): Pick<RequestObservation, 'threadId' | 'turnId' | 'agentName' | 'kind' | 'compactionTrigger'> {
+): Pick<
+  RequestObservation,
+  'threadId' | 'parentThreadId' | 'turnId' | 'agentName' | 'kind' | 'compactionTrigger'
+> {
   const metadata = isObject(body.client_metadata) ? body.client_metadata : {};
   const encoded = metadata['x-codex-turn-metadata'] ?? headers['x-codex-turn-metadata'];
   let turn: Record<string, unknown> = {};
@@ -52,6 +56,7 @@ export function requestSource(
   const compaction = isObject(turn.compaction) ? turn.compaction : {};
   return {
     ...(typeof threadId === 'string' && { threadId }),
+    ...(typeof turn.parent_thread_id === 'string' && { parentThreadId: turn.parent_thread_id }),
     ...(typeof turnId === 'string' && { turnId }),
     ...(typeof agentName === 'string' && { agentName }),
     kind:

@@ -25,6 +25,10 @@ export class EventHub<T> {
     return this.#ended;
   }
 
+  get awaitingFirstSubscriber(): boolean {
+    return this.#early !== undefined;
+  }
+
   emit(event: T): void {
     if (this.#ended) return;
     if (this.#early !== undefined) {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { SessionId } from '@wevir/protocol';
@@ -87,7 +88,8 @@ describe('tool ledger observations', () => {
       expect(supplied[0]).toMatchObject({
         sessionId: 'ses_1',
         server: 'wevir',
-        instructions: '记忆',
+        instructionBytes: Buffer.byteLength('记忆'),
+        instructionDigest: createHash('sha256').update('记忆').digest('hex'),
         tools: [{ name: 'visible' }],
       });
       expect(supplied[0]?.tools).toEqual((list.result as { tools: unknown[] }).tools);

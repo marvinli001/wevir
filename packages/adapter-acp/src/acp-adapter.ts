@@ -37,6 +37,7 @@ import {
   type SessionConfig,
   type TurnFailedEvent,
   type TurnSettledEvent,
+  trimSessionCache,
   URL_ELICITATION_OPTIONS,
   type UsageRecordedEvent,
   type UserQuestion,
@@ -276,7 +277,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     );
   }
 
-  /** 适配器记得的会话数（含已关闭、已脱开的）；dispose 之后为 0。 */
+  /** 适配器缓存的会话数（关闭、脱开记录按32项目标淘汰）；dispose 之后为 0。 */
   get sessionCount(): number {
     return this.#sessions.size;
   }
@@ -610,6 +611,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     }
     session.status = 'closed';
     session.queue.end();
+    this.#sessions.delete(engineSessionId);
+    this.#sessions.set(engineSessionId, session);
+    trimSessionCache(this.#sessions, (held) => held.status !== 'open');
   }
 
   dispose(): Promise<void> {
@@ -1472,6 +1476,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       session.turn = undefined;
       session.queue.exited({ type: 'engine.exited', engineSessionId: session.id, ...exit });
     }
+    trimSessionCache(this.#sessions, (held) => held.status !== 'open');
   }
 
   /** 登记一个刚挂到本进程上的会话；之前的记录（已关闭或已脱开，事件队列已结束）被替换。 */

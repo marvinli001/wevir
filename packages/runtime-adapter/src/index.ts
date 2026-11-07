@@ -29,6 +29,7 @@ export {
   redactSecrets,
   SECRET_PATTERNS,
 } from './secret-patterns.js';
+export { SESSION_CACHE_LIMIT, trimSessionCache } from './session-cache.js';
 export {
   ADAPTER_TOOL_OUTPUT_BYTES,
   ADAPTER_TOOL_OUTPUT_HEAD_BYTES,

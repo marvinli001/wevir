@@ -586,6 +586,7 @@ interface SessionRuntime {
   readonly parentId?: SessionId;
   /** 命令串行：每个命令排在上一个之后（ADR-0002 §4）。永不 reject。 */
   tail: Promise<unknown>;
+  commands: number;
   /** 没有时引擎会话尚未挂上：Host 重启后、关闭后、引擎异常后。 */
   attachment?: Attachment;
   turn?: TurnRuntime;
@@ -5079,6 +5080,7 @@ export class SessionManager {
     this.#insightRuns.clear();
     for (const runtime of this.#runtimes.values()) this.#detach(runtime);
     await Promise.all([...this.#runtimes.values()].map((runtime) => runtime.tail));
+    this.#runtimes.clear();
   }
 
   /**
@@ -7777,11 +7779,33 @@ export class SessionManager {
 
   /** 排在该会话上一个命令之后执行。 */
   #serial<T>(runtime: SessionRuntime, command: () => Promise<T>): Promise<T> {
+    runtime.commands += 1;
     const result = runtime.tail.then(command);
-    runtime.tail = result.then(
+    const tail = result.then(
       () => undefined,
       () => undefined,
     );
+    runtime.tail = tail;
+    void tail.then(() => {
+      runtime.commands -= 1;
+      if (this.#disposed || runtime.tail !== tail) return;
+      for (const [id, held] of this.#runtimes) {
+        if (this.#runtimes.size <= 32) break;
+        if (
+          held.commands ||
+          held.attachment ||
+          held.turn ||
+          held.holds ||
+          held.held.length ||
+          held.suggestion ||
+          held.titleRetry ||
+          held.idleCompaction
+        )
+          continue;
+        if (held.approvalIds.size || held.questionIds.size) continue;
+        if (this.#storage.sessions.get(id)?.state === 'closed') this.#runtimes.delete(id);
+      }
+    });
     return result;
   }
 
@@ -7806,6 +7830,7 @@ export class SessionManager {
           parentId: record.parentSessionId as SessionId,
         }),
         tail: Promise.resolve(),
+        commands: 0,
         holds: 0,
         held: [],
         approvalIds: new Map(),

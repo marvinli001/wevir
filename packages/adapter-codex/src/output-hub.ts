@@ -74,6 +74,7 @@ export class OutputHub extends EventHub<AgentEvent> {
 
   override end(): void {
     this.flush();
+    this.#sentAt.clear();
     super.end();
   }
 }

@@ -34,6 +34,8 @@ import { fileURLToPath } from 'node:url';
 
 const VERSION = '0.165.0';
 const args = process.argv.slice(2);
+const childIdIndex = args.indexOf('--child-id');
+const fixedChildId = childIdIndex < 0 ? undefined : args[childIdIndex + 1];
 if (args.includes('--version')) {
   process.stdout.write(`codex-app-server ${VERSION}\n`);
   process.exit(0);
@@ -125,7 +127,7 @@ function mapped(turn, kind, recorded, current) {
   if (ids.size === 0) ids.set(recorded, current);
   let id = ids.get(recorded);
   if (id === undefined) {
-    id = randomUUID();
+    id = kind === 'threads' && ids.size === 1 && fixedChildId ? fixedChildId : randomUUID();
     ids.set(recorded, id);
   }
   return id;

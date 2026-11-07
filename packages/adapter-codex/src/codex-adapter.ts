@@ -49,6 +49,7 @@ import {
   type SessionConfig,
   type TitleRequest,
   type TurnFailedEvent,
+  trimSessionCache,
   URL_ELICITATION_OPTIONS,
   type UserQuestion,
 } from '@wevir/runtime-adapter';
@@ -1858,6 +1859,40 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     session.turn?.settle();
     session.turn = undefined;
     session.hub.end();
+    session.mapper.reset();
+    session.collab.clear();
+    session.stoppedTurns?.clear();
+    this.#sessions.delete(engineSessionId);
+    this.#sessions.set(engineSessionId, session);
+    this.#clearPendingUsage(engineSessionId);
+    this.#trimClosedSessions();
+  }
+
+  #trimClosedSessions(): void {
+    trimSessionCache(
+      this.#sessions,
+      (held) =>
+        held.status !== 'open' &&
+        !held.hub.awaitingFirstSubscriber &&
+        ![...this.#sessions.values()].some(
+          (child) =>
+            child.parentId === held.id &&
+            (child.turn !== undefined || child.hub.awaitingFirstSubscriber),
+        ),
+    );
+  }
+
+  #clearPendingUsage(id: string): void {
+    const family = [id];
+    for (const parent of family) {
+      this.#pendingUsage.delete(parent);
+      for (const [thread, observations] of this.#pendingUsage) {
+        if (observations.some((observation) => observation.parentThreadId === parent)) {
+          this.#pendingUsage.delete(thread);
+          family.push(thread);
+        }
+      }
+    }
   }
 
   /**
@@ -1877,8 +1912,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         throw engineError(error, 'thread/delete');
       }
     }
-    for (const [id, session] of this.#sessions) {
-      if (id === engineSessionId || session.parentId === engineSessionId) this.#sessions.delete(id);
+    const family = new Set([engineSessionId]);
+    for (const parent of family) {
+      for (const [id, session] of this.#sessions) {
+        if (session.parentId === parent) family.add(id);
+      }
+      this.#sessions.delete(parent);
+      this.#clearPendingUsage(parent);
+      this.#launcher.gateway?.forgetThread(parent);
     }
   }
 
@@ -1896,6 +1937,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
       this.#sessions.clear();
       this.#unknownThreads.clear();
+      this.#pendingUsage.clear();
       this.#approvalsByRpc.clear();
       this.#questionsByRpc.clear();
       for (const collector of this.#titleThreads.values()) {
@@ -2986,12 +3028,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       session.hub.end();
     }
     this.#unknownThreads.clear();
+    this.#pendingUsage.clear();
     this.#approvalsByRpc.clear();
     this.#questionsByRpc.clear();
     for (const collector of this.#titleThreads.values()) {
       collector.fail(new AdapterError('engine_unavailable', 'codex-app-server 已退出或正在重启'));
     }
     this.#titleThreads.clear();
+    this.#trimClosedSessions();
   }
 
   // ── 内部 ─────────────────────────────────────────────────────────────────────────────
@@ -3157,11 +3201,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         this.#logger.warn('gateway usage has no matching session');
         return;
       }
-      if (this.#pendingUsage.size < 100) {
-        const held = this.#pendingUsage.get(threadId) ?? [];
-        if (held.length < 100) held.push(observation);
-        this.#pendingUsage.set(threadId, held);
-      }
+      const held = this.#pendingUsage.get(threadId) ?? [];
+      held.push(observation);
+      this.#pendingUsage.set(threadId, held);
       return;
     }
     session.hub.emit({

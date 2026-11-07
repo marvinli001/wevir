@@ -59,6 +59,8 @@ export interface ModelGateway {
   readonly token: string;
   /** 换上整套 Provider（含 Key）。之后的请求按新配置走，进行中的请求不受影响。 */
   setProviders(providers: readonly GatewayProvider[]): void;
+  /** 永久删除线程后释放输出去重标记；关闭后恢复仍保留。 */
+  forgetThread(threadId: string): void;
   /** 按正式请求的处理方式发一次最小的流式请求（provider.test）。 */
   testProvider(provider: GatewayProvider, modelId: string): Promise<ProviderTestResult>;
   /** 停止监听，中断所有进行中的上游请求。 */
@@ -425,10 +427,17 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       };
       return testProvider(provider, modelId, testOptions);
     },
+    forgetThread(threadId) {
+      for (const key of outputIds.keys()) {
+        if ((JSON.parse(key) as unknown[])[1] === threadId) outputIds.delete(key);
+      }
+    },
     async close() {
       if (closing) return;
       closing = true;
       auth.close();
+      outputIds.clear();
+      compression.clear();
       for (const abort of inflight) abort.abort();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

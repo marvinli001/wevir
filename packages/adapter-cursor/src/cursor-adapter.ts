@@ -40,6 +40,7 @@ import {
   type PermissionMode,
   type SessionConfig,
   type TurnFailedEvent,
+  trimSessionCache,
 } from '@wevir/runtime-adapter';
 import { CursorAccounts } from './accounts.js';
 import { cursorCredentialsPath } from './credentials.js';
@@ -610,6 +611,13 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     session.agent?.close();
     session.agent = undefined;
     session.hub.end();
+    this.#sessions.delete(engineSessionId);
+    this.#sessions.set(engineSessionId, session);
+    trimSessionCache(
+      this.#sessions,
+      (held) =>
+        held.agent === undefined && held.turn === undefined && !held.hub.awaitingFirstSubscriber,
+    );
   }
 
   async dispose(): Promise<void> {
@@ -628,6 +636,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       session.agent = undefined;
       session.hub.end();
     }
+    this.#sessions.clear();
   }
 
   // ── 回合 ─────────────────────────────────────────────────────────────────────
