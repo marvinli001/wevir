@@ -138,6 +138,7 @@ async function harness(
         listeners.set(id, set);
         return { unsubscribe: () => set.delete(listener) };
       },
+      readTypes: (id, types) => (log.get(id) ?? []).filter((event) => types.includes(event.type)),
       readSince: (id, since) => (log.get(id) ?? []).filter((event) => event.seq > since),
     },
     sessions: {

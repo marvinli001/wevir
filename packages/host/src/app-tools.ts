@@ -82,7 +82,7 @@ import { ConfigTools, type HostCall, SETTINGS_PAGES } from './config-tools.js';
 import type { ContextSearch } from './context-search.js';
 import { isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
-import { historyItems } from './handoff.js';
+import { HISTORY_EVENT_TYPES, historyItems } from './handoff.js';
 import {
   IMAGE_TOOL,
   IMAGE_TOOL_INSTRUCTIONS,
@@ -116,7 +116,7 @@ import {
 } from './roles.js';
 import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
-import { type SessionProgress, sessionProgress } from './session-progress.js';
+import { PROGRESS_EVENT_TYPES, type SessionProgress, sessionProgress } from './session-progress.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { describeSharedFile, SharedFileError } from './shared-files.js';
 import type { SimulatorService } from './simulator/service.js';
@@ -570,7 +570,7 @@ export class AppTools {
   #requesterOf(
     sessionId: SessionId,
     turnId: TurnId,
-    events: readonly WevirEvent[] = this.#options.events.readSince(sessionId, 0),
+    events: readonly WevirEvent[] = this.#options.events.readTypes(sessionId, ['user.message']),
   ): SessionId | undefined {
     const message = events.find(
       (event): event is Extract<WevirEvent, { type: 'user.message' }> =>
@@ -591,7 +591,14 @@ export class AppTools {
     for (const targets of this.#outstanding.values()) targets.delete(info.sessionId);
     const key = `${info.sessionId}:${info.turnId}`;
     if (this.#delivered.delete(key)) return;
-    const events = this.#options.events.readSince(info.sessionId, 0);
+    const events = this.#options.events.readTypes(info.sessionId, [
+      'user.message',
+      'turn.started',
+      'turn.finished',
+      'assistant.message',
+      'engine.error',
+      'usage.updated',
+    ]);
     const route = this.#reportRoute(info.sessionId, info.turnId, events);
     if (route === undefined) return;
     const { parent, wake } = route;
@@ -887,22 +894,22 @@ export class AppTools {
         // 用角色开的会话：第一条消息里 Wevir 拼进去的角色说明折成一行，只留任务正文。
         const role = this.#options.storage.sessions.get(target.id)?.origin?.role;
         let briefFolded = role === undefined;
-        const items = historyItems(this.#options.events.readSince(target.id, 0)).map(
-          (item, index) => {
-            if (!briefFolded && item.role === 'user') {
-              briefFolded = true;
-              const task = roleBriefTask(item.text);
-              if (task !== undefined) {
-                return {
-                  position: index + 1,
-                  ...item,
-                  text: `[Wevir's brief for the "${role}" role omitted; see wevir_roles]\n\n${task}`,
-                };
-              }
+        const items = historyItems(
+          this.#options.events.readTypes(target.id, HISTORY_EVENT_TYPES, { omitToolOutput: true }),
+        ).map((item, index) => {
+          if (!briefFolded && item.role === 'user') {
+            briefFolded = true;
+            const task = roleBriefTask(item.text);
+            if (task !== undefined) {
+              return {
+                position: index + 1,
+                ...item,
+                text: `[Wevir's brief for the "${role}" role omitted; see wevir_roles]\n\n${task}`,
+              };
             }
-            return { position: index + 1, ...item };
-          },
-        );
+          }
+          return { position: index + 1, ...item };
+        });
         const max = optionalInt(args, 'maxCharsPerItem', 200, 20000) ?? READ_DEFAULT_CHARS;
         const view = (item: (typeof items)[number], offset: number) => {
           const chars = Array.from(item.text);
@@ -1056,10 +1063,11 @@ export class AppTools {
           let items = positions.get(hit.sessionId);
           if (items === undefined) {
             items = new Map(
-              historyItems(this.#options.events.readSince(hit.sessionId, 0)).map((item, index) => [
-                item.itemId,
-                index + 1,
-              ]),
+              historyItems(
+                this.#options.events.readTypes(hit.sessionId, HISTORY_EVENT_TYPES, {
+                  omitToolOutput: true,
+                }),
+              ).map((item, index) => [item.itemId, index + 1]),
             );
             positions.set(hit.sessionId, items);
           }
@@ -1585,7 +1593,14 @@ export class AppTools {
         const timeoutMs = optionalInt(args, 'timeoutMs', 0, WAIT_MAX_MS) ?? WAIT_DEFAULT_MS;
         const timedOut = await this.#waitFor(target.id, sessionId, timeoutMs, signal);
         const session = this.#session(target.id);
-        const events = this.#options.events.readSince(target.id, 0);
+        const events = this.#options.events.readTypes(target.id, [
+          'user.message',
+          'turn.started',
+          'turn.finished',
+          'assistant.message',
+          'engine.error',
+          'usage.updated',
+        ]);
         const last = lastTurn(events);
         if (!timedOut && last !== undefined)
           this.#consumed(`${target.id}:${last.turnId}`, sessionId);
@@ -1630,7 +1645,17 @@ export class AppTools {
         const { events } = this.#options;
         const progress = this.#progress(target.id);
         const snapshot = events.snapshot(target.id);
-        const history = progress === undefined ? events.readSince(target.id, 0) : [];
+        const history =
+          progress === undefined
+            ? events.readTypes(target.id, [
+                'user.message',
+                'turn.started',
+                'turn.finished',
+                'assistant.message',
+                'engine.error',
+                'usage.updated',
+              ])
+            : [];
         const last = progress === undefined ? lastTurn(history) : undefined;
         const answer = last === undefined ? undefined : lastAnswer(history, last.turnId);
         const children = (snapshot?.subagents ?? []).slice(0, SUBAGENTS_MAX).map((child) => {
@@ -2591,7 +2616,14 @@ export class AppTools {
   #progress(id: SessionId): SessionProgress | undefined {
     const snapshot = this.#options.events.snapshot(id);
     if (snapshot?.session.activeTurn === undefined) return undefined;
-    return sessionProgress(snapshot, this.#options.events.readSince(id, 0), Date.now());
+    return sessionProgress(
+      snapshot,
+      this.#options.events.readTypes(id, PROGRESS_EVENT_TYPES, {
+        turnId: snapshot.session.activeTurn.turnId,
+        omitToolOutput: true,
+      }),
+      Date.now(),
+    );
   }
 
   /**

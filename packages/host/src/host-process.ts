@@ -146,6 +146,7 @@ import { UsageService } from './usage/usage-service.js';
 import {
   isUsageRecoveryEvent,
   reportsUsageRecovery,
+  USAGE_RECOVERY_EVENT_TYPES,
   usageRecoveryReports,
 } from './usage-recovery.js';
 import { ChecksStore } from './verification/checks-store.js';
@@ -1058,7 +1059,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       const session = store.snapshot(event.sessionId)?.session;
       if (session === undefined || !reportsUsageRecovery(session)) return;
       const report = usageRecoveryReports(
-        store.readSince(event.sessionId, 0),
+        store.readTypes(event.sessionId, USAGE_RECOVERY_EVENT_TYPES),
         (id) => sessionsDb.providers.get(id)?.displayName ?? id,
       ).find((report) => report.seq === event.seq);
       if (report === undefined) return;

@@ -46,7 +46,11 @@ import {
 import type { Storage } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
-import { type UsageRecoveryReport, usageRecoveryReports } from '../usage-recovery.js';
+import {
+  USAGE_RECOVERY_EVENT_TYPES,
+  type UsageRecoveryReport,
+  usageRecoveryReports,
+} from '../usage-recovery.js';
 import { type CheckExecutor, checkTimeoutMs, decide, runCheck } from './check.js';
 import { isValidTimezone, localTimezone, nextOccurrence } from './schedule.js';
 
@@ -74,9 +78,10 @@ export interface AutomationSessions {
 
 /** 自动化要用的事件库（EventStore 的一部分）。 */
 export interface AutomationEvents {
+  readTypes: import('../event-store.js').EventStore['readTypes'];
+  readSince(sessionId: SessionId, sinceSeq: number): WevirEvent[];
   snapshot(sessionId: SessionId): { session: Session } | undefined;
   subscribe(sessionId: SessionId, listener: (event: WevirEvent) => void): { unsubscribe(): void };
-  readSince(sessionId: SessionId, sinceSeq: number): WevirEvent[];
 }
 
 /** 发给助理的自动化（0.121.0）要的：助理的项目与模型、唤醒它（channels/service.ts）。 */
@@ -1012,7 +1017,7 @@ export class AutomationService {
     if (this.#options.storage.sessions.get(run.sessionId) === undefined) return false;
     let changed = false;
     for (const report of usageRecoveryReports(
-      this.#options.events.readSince(run.sessionId, 0),
+      this.#options.events.readTypes(run.sessionId, USAGE_RECOVERY_EVENT_TYPES),
       (id) => this.#options.storage.providers.get(id)?.displayName ?? id,
     )) {
       if (report.originTurnId === run.turnId) {

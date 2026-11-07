@@ -13,6 +13,14 @@ import { redactSecrets } from '../secret-patterns.js';
 
 export const EPISODE_SCHEMA_VERSION = 1;
 
+export const EPISODE_EVENT_TYPES = [
+  'session.created',
+  'session.handoff',
+  'guardrail.blocked',
+  'engine.error',
+  'turn.finished',
+] as const;
+
 export function redactEpisodeValue<T>(value: T): { value: T; count: number } {
   let count = 0;
   const walk = (item: unknown): unknown => {

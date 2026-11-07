@@ -158,6 +158,7 @@ import {
   HANDOFF_BUDGET_BYTES,
   type HandoffAssembly,
   type HandoffNote,
+  HISTORY_EVENT_TYPES,
   historyItems,
   isNativeSlashCommand,
   withHandoffContext,
@@ -190,6 +191,7 @@ import {
 import {
   analyzeSession,
   parseRecap,
+  RECAP_EVENT_TYPES,
   RECAP_MIN_TURNS,
   RECAP_OUTPUT_SCHEMA,
   RECAP_TIMEOUT_MS,
@@ -3430,7 +3432,10 @@ export class SessionManager {
     const dir = this.#historyDir;
     if (dir === undefined) return;
     try {
-      const items = historyItems(this.#events.readSince(sessionId, 0), describe);
+      const items = historyItems(
+        this.#events.readTypes(sessionId, HISTORY_EVENT_TYPES, { omitToolOutput: true }),
+        describe,
+      );
       writeHistoryFile(dir, {
         sessionId,
         throughSeq,
@@ -3804,7 +3809,7 @@ export class SessionManager {
     runtime: SessionRuntime,
   ): { branch: string; previousBranch: string } | undefined {
     let last: SessionMove | undefined;
-    for (const event of this.#events.readSince(runtime.id, 0)) {
+    for (const event of this.#events.readTypes(runtime.id, ['session.moved'])) {
       if (event.type === 'session.moved') last = event.payload;
     }
     return last?.to === 'local' && last.branch !== undefined && last.previousBranch !== undefined
@@ -4660,7 +4665,7 @@ export class SessionManager {
 
   /** 一个回合的用户消息文字（前 `UNDO_NOTE_PROMPT_MAX_LENGTH` 字，折叠空白）；命令或目标回合没有，是 `undefined`。 */
   #turnPrompt(sessionId: SessionId, turnId: TurnId): string | undefined {
-    for (const event of this.#events.readSince(sessionId, 0)) {
+    for (const event of this.#events.readTypes(sessionId, ['user.message'], { turnId })) {
       if (event.type !== 'user.message' || event.payload.turnId !== turnId) continue;
       const text = event.payload.content
         .flatMap((part) => (part.type === 'text' ? [part.text] : []))
@@ -4692,7 +4697,14 @@ export class SessionManager {
     const hidden = new Set<TurnId>();
     let redo: TurnId[] = [];
     let handoffSeq = 0;
-    for (const event of this.#events.readSince(sessionId, 0)) {
+    for (const event of this.#events.readTypes(sessionId, [
+      'turn.finished',
+      'turn.rewound',
+      'turn.undone',
+      'turn.redone',
+      'turn.started',
+      'session.handoff',
+    ])) {
       if (event.type === 'turn.finished')
         turns.push({ turnId: event.payload.turnId, seq: event.seq });
       else if (event.type === 'turn.rewound') {
@@ -5428,7 +5440,7 @@ export class SessionManager {
     if (session.state === 'awaiting_approval' || session.awaitingInput === true) {
       return skip('waiting');
     }
-    const analysis = analyzeSession(this.#events.readSince(runtime.id, 0));
+    const analysis = analyzeSession(this.#events.readTypes(runtime.id, RECAP_EVENT_TYPES));
     if (analysis.turns < RECAP_MIN_TURNS) return skip('few_turns');
     const marker = analysis.marker;
     if (marker === undefined || marker <= params.seenSeq) return skip('no_activity');
@@ -7035,7 +7047,7 @@ export class SessionManager {
   /** 一个回合最后一段回答的前 `TASK_SUMMARY_MAX_LENGTH` 字；没有回答时 `undefined`。 */
   #lastAnswer(sessionId: SessionId, turnId: TurnId): string | undefined {
     let text: string | undefined;
-    for (const event of this.#events.readSince(sessionId, 0)) {
+    for (const event of this.#events.readTypes(sessionId, ['assistant.message'], { turnId })) {
       if (event.type === 'assistant.message' && event.payload.turnId === turnId) {
         text = event.payload.text;
       }
@@ -7811,7 +7823,10 @@ export class SessionManager {
   /** 启动对账用：从事件里找出回合中已开始、未结束的工具调用。 */
   #openToolsFromEvents(sessionId: SessionId, turnId: TurnId): Set<string> {
     const open = new Set<string>();
-    for (const event of this.#events.readSince(sessionId, 0)) {
+    for (const event of this.#events.readTypes(sessionId, ['tool.started', 'tool.finished'], {
+      turnId,
+      omitToolOutput: true,
+    })) {
       if (event.type === 'tool.started' && event.payload.turnId === turnId) {
         open.add(event.payload.toolCallId);
       } else if (event.type === 'tool.finished' && event.payload.turnId === turnId) {

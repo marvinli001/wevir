@@ -354,6 +354,21 @@ export class EventStore {
     return this.#storage.events.list(sessionId, options).map(fromRecord);
   }
 
+  /** 内部历史查询；只读所需事实，完整回放仍走 readSince。 */
+  readTypes(
+    sessionId: SessionId,
+    types: readonly WevirEventType[],
+    options?: {
+      turnId?: TurnId;
+      omitToolOutput?: boolean;
+    },
+  ): WevirEvent[] {
+    const events: WevirEvent[] = [];
+    for (const record of this.#storage.events.iterateTypes(sessionId, types, options))
+      events.push(fromRecord(record));
+    return events;
+  }
+
   /**
    * `(sinceSeq, throughSeq]` 里内容已被之后的事件取代的 `seq`（0.127.0，`events.subscribe` 的 `elideSuperseded`，host-api.md §4）：
    * 同一 `toolCallId` 后面还有带 `output` 的 `tool.updated` / `tool.finished` 的、带 `output` 的 `tool.updated`；后面有

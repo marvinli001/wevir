@@ -51,6 +51,65 @@ describe('events', () => {
     expect(s.events.lastSeq('ses_01')).toBe(6);
   });
 
+  it('类型与回合查询等于全量过滤，工具正文可省略而元信息保留', () => {
+    const s = storage();
+    seedSession(s);
+    seedSession(s, { id: 'ses_02', engineSessionId: 'e2' });
+    const records = [
+      event(1, { type: 'tool.started', payload: { turnId: 'trn_a', toolCallId: 'a' } }),
+      event(2, {
+        type: 'tool.updated',
+        payload: {
+          turnId: 'trn_a',
+          toolCallId: 'a',
+          output: { text: 'long output' },
+          display: { summary: 'changed' },
+        },
+      }),
+      event(3, {
+        type: 'tool.finished',
+        payload: {
+          turnId: 'trn_a',
+          toolCallId: 'a',
+          status: 'completed',
+          output: { text: 'final' },
+        },
+      }),
+      event(4, { type: 'tool.started', payload: { turnId: 'trn_b', toolCallId: 'b' } }),
+      event(5),
+      event(1, { sessionId: 'ses_02', type: 'tool.started', payload: { turnId: 'trn_a' } }),
+    ];
+    for (const record of records) s.events.insert(record);
+    const types = ['tool.started', 'tool.updated', 'tool.finished'];
+    const expected = s.events.list('ses_01').filter((record) => types.includes(record.type));
+    expect([...s.events.iterateTypes('ses_01', types)]).toEqual(expected);
+    const current = expected.filter(
+      (record) => (record.payload as { turnId: string }).turnId === 'trn_a',
+    );
+    expect([...s.events.iterateTypes('ses_01', types, { turnId: 'trn_a' })]).toEqual(current);
+    expect([
+      ...s.events.iterateTypes('ses_01', types, { turnId: 'trn_a', omitToolOutput: true }),
+    ]).toEqual(
+      current.map((record) => {
+        const { output: _output, ...payload } = record.payload as Record<string, unknown>;
+        return { ...record, payload };
+      }),
+    );
+    for (const _record of s.events.iterateTypes('ses_01', types)) break;
+    expect([...s.events.iterateTypes('ses_01', types)]).toEqual(expected);
+    expect([...s.events.iterateTypes('ses_01', [])]).toEqual([]);
+    for (let seq = 6; seq < 506; seq++) s.events.insert(event(seq));
+    s.db.exec('ANALYZE events');
+    const plan = s.db
+      .prepare(
+        "EXPLAIN QUERY PLAN SELECT * FROM events WHERE session_id = ? AND type = ? AND json_extract(payload, '$.turnId') = ?",
+      )
+      .all('ses_01', 'tool.started', 'trn_a');
+    expect(plan.some((row) => String(row.detail).includes('events_by_session_type_turn'))).toBe(
+      true,
+    );
+  });
+
   it('没有事件时 lastSeq 为 0', () => {
     const s = storage();
     seedSession(s);

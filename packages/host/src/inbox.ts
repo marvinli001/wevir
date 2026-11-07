@@ -29,6 +29,7 @@ import { REDACTED, redactSecrets } from './secret-patterns.js';
 import {
   isUsageRecoveryEvent,
   reportsUsageRecovery,
+  USAGE_RECOVERY_EVENT_TYPES,
   type UsageRecoveryReport,
   usageRecoveryReports,
 } from './usage-recovery.js';
@@ -396,7 +397,7 @@ export class InboxService {
     if (session === undefined || !reportsUsageRecovery(session)) return;
     const since = new Date(this.#now() - INBOX_ATTENTION_MAX_AGE_DAYS * DAY_MS).toISOString();
     const reports = usageRecoveryReports(
-      this.#events.readSince(sessionId, 0),
+      this.#events.readTypes(sessionId, USAGE_RECOVERY_EVENT_TYPES),
       (id) => this.#storage.providers.get(id)?.displayName ?? id,
     );
     this.#recoveries.set(

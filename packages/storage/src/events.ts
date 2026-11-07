@@ -1,4 +1,4 @@
-import type { SqliteDatabase, SqlRow } from './driver.js';
+import type { SqliteDatabase, SqliteStatement, SqlParams, SqlRow } from './driver.js';
 import { integer, json, text, toJson } from './rows.js';
 
 /**
@@ -54,6 +54,15 @@ export interface EventRepository {
    * 调用它。
    */
   iterate(sessionId: string, options?: { afterSeq?: number }): IterableIterator<EventRecord>;
+  /** 按类型/回合流式读出；omitToolOutput 仅去掉工具事件的 output，不用于完整事件重放。 */
+  iterateTypes(
+    sessionId: string,
+    types: readonly string[],
+    options?: {
+      turnId?: string;
+      omitToolOutput?: boolean;
+    },
+  ): IterableIterator<EventRecord>;
   /** 会话里最大的 `seq`；没有事件时为 0。 */
   lastSeq(sessionId: string): number;
   /** `afterSeq < seq <= throughSeq` 里助手增量、已提交消息与工具更新的索引，按 `seq` 升序（`ReplayIndexRow`）。 */
@@ -67,6 +76,7 @@ export interface EventRepository {
 }
 
 export function createEventRepository(db: SqliteDatabase): EventRepository {
+  const typedQueries = new Map<string, SqliteStatement>();
   const insert = db.prepare(`
     INSERT INTO events (session_id, seq, ts, type, source, payload)
     VALUES (:sessionId, :seq, :ts, :type, :source, :payload)`);
@@ -132,6 +142,28 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
     *iterate(sessionId, options) {
       // for…of 在中途放弃时调用行迭代器的 return()，语句随之复位，不留着读事务。
       for (const row of iterate.iterate(sessionId, options?.afterSeq ?? 0)) yield fromRow(row);
+    },
+    *iterateTypes(sessionId, types, options) {
+      if (types.length === 0) return;
+      const key = `${types.length}:${options?.turnId !== undefined}:${options?.omitToolOutput === true}`;
+      let query = typedQueries.get(key);
+      if (query === undefined) {
+        const payload = options?.omitToolOutput
+          ? "CASE WHEN type IN ('tool.updated', 'tool.finished') THEN json_remove(payload, '$.output') ELSE payload END"
+          : 'payload';
+        query =
+          db.prepare(`SELECT session_id, seq, ts, type, source, ${payload} AS payload FROM events
+          WHERE session_id = :sessionId AND type IN (${types.map((_, index) => `:type${index}`).join(', ')})
+          ${options?.turnId !== undefined ? "AND json_extract(payload, '$.turnId') = :turnId" : ''}
+          ORDER BY seq`);
+        typedQueries.set(key, query);
+      }
+      const params: SqlParams = { sessionId };
+      types.forEach((type, index) => {
+        params[`type${index}`] = type;
+      });
+      if (options?.turnId !== undefined) params.turnId = options.turnId;
+      for (const row of query.iterate(params)) yield fromRow(row);
     },
     lastSeq: (sessionId) => integer(lastSeq.get(sessionId) ?? {}, 'seq'),
     replayIndex(sessionId, afterSeq, throughSeq) {

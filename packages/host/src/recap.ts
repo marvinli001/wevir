@@ -20,6 +20,18 @@ export const RECAP_MIN_AWAY_MS = SESSION_RECAP_MIN_AWAY_MS;
 /** 看得见的完整回合少于这么多不生成：刚开始的会话没有什么可回顾的。 */
 export const RECAP_MIN_TURNS = 2;
 
+export const RECAP_EVENT_TYPES = [
+  'turn.finished',
+  'turn.rewound',
+  'turn.undone',
+  'turn.redone',
+  'user.message',
+  'user.steered',
+  'assistant.message',
+  'review.findings',
+  'todo.updated',
+] as const;
+
 /** 等模型生成摘要的时限；超时按失败处理（静默）。 */
 export const RECAP_TIMEOUT_MS = 30_000;
 

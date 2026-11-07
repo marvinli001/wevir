@@ -13,7 +13,7 @@ import { episodeMarkdown, redactEpisodeValue } from './episodes/build.js';
 import type { EpisodeService } from './episodes/service.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
-import { historyItems } from './handoff.js';
+import { HISTORY_EVENT_TYPES, historyItems } from './handoff.js';
 import { MemoryError, type MemoryStore } from './memory.js';
 import { parseQuery, type SessionSearch, snippetOf } from './session-search.js';
 
@@ -301,9 +301,11 @@ export class ContextSearch {
       const record = this.#options.storage.sessions.get(match[1] as string);
       if (record === undefined || !scopes.includes(record.workspaceId) || record.side)
         throw this.#invalid('session is outside the search scope');
-      const item = historyItems(this.#options.events.readSince(record.id as SessionId, 0)).find(
-        (item) => item.itemId === match[2],
-      );
+      const item = historyItems(
+        this.#options.events.readTypes(record.id as SessionId, HISTORY_EVENT_TYPES, {
+          omitToolOutput: true,
+        }),
+      ).find((item) => item.itemId === match[2]);
       if (item === undefined) throw this.#invalid('session item is no longer available');
       text = redactEpisodeValue(item.text).value;
       source = { kind: 'history', sessionId: record.id as SessionId, itemId: item.itemId };

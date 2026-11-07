@@ -3,7 +3,7 @@ import { EpisodeSchema } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { buildRetro } from '../retro/build.js';
 import { emptyRetroState, foldRetro } from '../retro/fold.js';
-import { buildEpisode, episodeLessons, episodeMarkdown } from './build.js';
+import { buildEpisode, EPISODE_EVENT_TYPES, episodeLessons, episodeMarkdown } from './build.js';
 
 const sessionId: SessionId = 'ses_1';
 const at = '2026-11-04T00:00:00.000Z';
@@ -66,18 +66,26 @@ function fixture() {
       builtAt: at,
       build: 'full',
     });
+    const input = {
+      workspaceId: 'ws_1' as WorkspaceId,
+      rootSessionId: sessionId,
+      title: 'Invoices',
+      createdAt: at,
+      state,
+      retro,
+      events,
+    };
+    const episode = buildEpisode(input);
+    expect(
+      buildEpisode({
+        ...input,
+        events: events.filter((event) => EPISODE_EVENT_TYPES.some((type) => type === event.type)),
+      }),
+    ).toEqual(episode);
     return {
       state,
       retro,
-      episode: buildEpisode({
-        workspaceId: 'ws_1' as WorkspaceId,
-        rootSessionId: sessionId,
-        title: 'Invoices',
-        createdAt: at,
-        state,
-        retro,
-        events,
-      }),
+      episode,
     };
   };
   return { events, push, start, finish, run, edit, shell, build };

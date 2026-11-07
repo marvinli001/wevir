@@ -244,7 +244,10 @@ export async function deleteSessionData(
   let engineDataKept = false;
   const engineSessions = [record, ...family.filter((member) => member.side)].flatMap((member) => {
     if (member.origin?.kind === 'imported') return [];
-    const sessions = engineSessionsOf(member, deps.events.readSince(member.id as SessionId, 0));
+    const sessions = engineSessionsOf(
+      member,
+      deps.events.readTypes(member.id as SessionId, ['session.handoff']),
+    );
     const externalId =
       member.origin?.kind === 'history' ? member.origin.externalSessionId : undefined;
     if (externalId !== undefined) engineDataKept = true;

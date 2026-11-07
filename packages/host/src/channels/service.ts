@@ -170,8 +170,9 @@ export interface ChannelSessions {
 
 /** 频道要用的事件库（EventStore 的一部分）。 */
 export interface ChannelEvents {
-  snapshot(sessionId: SessionId): ReturnType<import('../event-store.js').EventStore['snapshot']>;
+  readTypes: import('../event-store.js').EventStore['readTypes'];
   readSince(sessionId: SessionId, sinceSeq: number): WevirEvent[];
+  snapshot(sessionId: SessionId): ReturnType<import('../event-store.js').EventStore['snapshot']>;
   listenAll(listener: (event: WevirEvent) => void): () => void;
 }
 
@@ -2462,7 +2463,11 @@ export class ChannelService {
     let replyCount = 0;
     let lastReply: ChannelThread['lastReply'];
     let answer: string | undefined;
-    for (const event of this.#options.events.readSince(sessionId, 0)) {
+    for (const event of this.#options.events.readTypes(sessionId, [
+      'assistant.message',
+      'turn.started',
+      'turn.finished',
+    ])) {
       if (event.type === 'assistant.message') answer = event.payload.text;
       if (event.type === 'turn.started') answer = undefined;
       if (event.type === 'turn.finished' && event.payload.outcome === 'completed') {

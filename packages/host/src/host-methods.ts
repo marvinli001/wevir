@@ -601,7 +601,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     const sessionId = source.sessionId;
     if (storage.sessions.get(sessionId) === undefined) return { ...source, status: 'deleted' };
     const withdrawn =
-      source.turnId !== undefined && turnWithdrawn(events.readSince(sessionId, 0), source.turnId);
+      source.turnId !== undefined &&
+      turnWithdrawn(
+        events.readTypes(sessionId, ['turn.rewound', 'turn.undone', 'turn.redone']),
+        source.turnId,
+      );
     return { ...source, status: withdrawn ? 'withdrawn' : 'available' };
   };
   /** MemoryStore 的错误换成 Host API 的：找不到是 `MEMORY_NOT_FOUND`，其余（不合规、超出上限）是 `INVALID_PARAMS`。 */

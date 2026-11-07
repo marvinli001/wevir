@@ -11,7 +11,7 @@ import type { EpisodeRecord, Storage } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import type { EventStore } from '../event-store.js';
 import type { RetroService } from '../retro/service.js';
-import { buildEpisode, episodeRevision, redactEpisodeValue } from './build.js';
+import { buildEpisode, EPISODE_EVENT_TYPES, episodeRevision, redactEpisodeValue } from './build.js';
 
 export const EPISODE_IDLE_MS = 10 * 60_000;
 export interface EpisodeChange {
@@ -138,7 +138,9 @@ export class EpisodeService {
       createdAt: session.createdAt,
       state: input.state,
       retro: input.retro,
-      events: events.readSince(sessionId, 0).filter((event) => event.seq <= input.state.throughSeq),
+      events: events
+        .readTypes(sessionId, EPISODE_EVENT_TYPES)
+        .filter((event) => event.seq <= input.state.throughSeq),
       ...(input.live.startHead !== undefined && { startHead: input.live.startHead }),
     });
     if (latest !== undefined && latest.deletedAt === undefined) {

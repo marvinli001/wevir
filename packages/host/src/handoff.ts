@@ -58,6 +58,19 @@ export interface HistoryItem {
  * 从事件整理出历史。只看对话里的东西：用户消息与插话、助手的回答（已提交的，不含思考）、命令、改了哪些文件、回合里的错误、
  * 每个回合最后的清单、之前的接力。`describeModel` 把 Provider 与模型说成给模型看的名字。
  */
+export const HISTORY_EVENT_TYPES = [
+  'user.message',
+  'user.steered',
+  'assistant.message',
+  'tool.started',
+  'tool.finished',
+  'todo.updated',
+  'plan.proposed',
+  'engine.error',
+  'review.findings',
+  'session.handoff',
+] as const;
+
 export function historyItems(
   events: readonly WevirEvent[],
   describeModel: (providerId: string, modelId: string) => string = (p, m) => `${p}/${m}`,

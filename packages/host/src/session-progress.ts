@@ -13,6 +13,17 @@ const LINE_MAX = 160;
 /** 最近一段回答最多多少字符。 */
 export const PROGRESS_TEXT_MAX = 400;
 
+export const PROGRESS_EVENT_TYPES = [
+  'turn.started',
+  'tool.started',
+  'tool.updated',
+  'tool.finished',
+  'todo.updated',
+  'assistant.message',
+  'assistant.delta',
+  'assistant.thought',
+] as const;
+
 export interface SessionProgress {
   turnId: TurnId;
   startedAt: string;

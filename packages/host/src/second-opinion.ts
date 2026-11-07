@@ -189,7 +189,7 @@ export class SecondOpinionService {
       throw error;
     }
     const now = new Date().toISOString();
-    const lastTurn = lastFinishedTurn(this.#events.readSince(sessionId, 0));
+    const lastTurn = lastFinishedTurn(this.#events.readTypes(sessionId, ['turn.finished']));
     const opinion: SecondOpinion = {
       id: opinionId,
       sessionId: session.id,
@@ -214,7 +214,7 @@ export class SecondOpinionService {
     const role = BUILTIN_ROLES.find((item) => item.name === OPINION_ROLE);
     const material = opinionMaterial({
       origin,
-      events: this.#events.readSince(sessionId, 0),
+      events: this.#events.readTypes(sessionId, ['user.message', 'assistant.message']),
       focus: request.focus,
       requestedBy: request.requestedBy,
       files,
@@ -337,7 +337,9 @@ export class SecondOpinionService {
         if (ACTIVE.has(this.#events.snapshot(record.id as SessionId)?.session.state ?? '')) {
           continue;
         }
-        const finished = firstFinishedTurn(this.#events.readSince(record.id as SessionId, 0));
+        const finished = firstFinishedTurn(
+          this.#events.readTypes(record.id as SessionId, ['turn.finished']),
+        );
         if (finished !== undefined) {
           this.#finish(record.id as SessionId, finished.turnId, finished.outcome);
         } else {
@@ -362,7 +364,10 @@ export class SecondOpinionService {
     const originId = origin.sessionId as SessionId;
     const opinion = this.#events.opinion(originId, origin.opinionId as OpinionId);
     if (opinion?.status !== 'running' || opinion.sessionId !== sessionId) return;
-    const answer = lastAnswer(this.#events.readSince(sessionId, 0), turnId);
+    const answer = lastAnswer(
+      this.#events.readTypes(sessionId, ['assistant.message'], { turnId }),
+      turnId,
+    );
     const ready = outcome === 'completed' && answer !== undefined;
     const next: SecondOpinion = {
       ...opinion,

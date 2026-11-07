@@ -2,6 +2,13 @@ import type { RoutingDecision, Session, SessionId, TurnId, WevirEvent } from '@w
 import { redactSecrets } from './secret-patterns.js';
 import { unattended } from './unattended.js';
 
+export const USAGE_RECOVERY_EVENT_TYPES = [
+  'routing.decided',
+  'session.auto_continue',
+  'session.handoff',
+  'session.configured',
+] as const;
+
 export interface UsageRecoveryReport {
   sessionId: SessionId;
   turnId: TurnId;

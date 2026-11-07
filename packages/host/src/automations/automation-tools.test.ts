@@ -44,6 +44,7 @@ async function setup(caller: Partial<AutomationCaller> = {}) {
     events: {
       snapshot: () => undefined,
       subscribe: () => ({ unsubscribe: () => {} }),
+      readTypes: () => [],
       readSince: () => [],
     },
     sessions: {
