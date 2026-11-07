@@ -637,7 +637,7 @@ describe('foldTurn', () => {
     ]);
   });
 
-  it('压缩上下文（0.24.0）：命令回合没有那一行；自动压缩在收起的回合里照样显示，不算过程', () => {
+  it('压缩上下文（0.24.0）：命令回合没有那一行；自动压缩是过程，回合收起时一起收起', () => {
     const s = session();
     s.add('turn.started', { turnId: TURN, command: { kind: 'compact' } });
     s.add('session.state_changed', { from: 'idle', to: 'running', reason: 'turn_started' });
@@ -658,10 +658,15 @@ describe('foldTurn', () => {
     fold = foldTurn(messages, false, false);
     expect(fold.defaultFolded).toBe(true);
     const assistant = messages.find((m) => m.role === 'assistant');
-    expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual([
-      'compaction',
-      'text',
-    ]);
+    expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual(['text']);
+
+    // 只有自动压缩、没有别的过程：照样算过程，有“已处理”一行。
+    s.turn(TURN3);
+    s.add('context.compacted', { turnId: TURN3, compactionId: 'c3', trigger: 'auto' });
+    s.say(TURN3, '继续。');
+    s.finish(TURN3, 'completed');
+    messages = s.project().messages.filter((m) => m.role !== 'system' && m.turnId === TURN3);
+    expect(foldTurn(messages, false, false)).toMatchObject({ hasProcess: true, showHeader: true });
   });
 
   it('审查发现（0.83.0）：在收起的回合里照样显示，不算过程', () => {

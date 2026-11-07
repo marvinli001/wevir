@@ -673,7 +673,7 @@ function QuestionPart({ part }: { part: ChatPartOf<'question'> }) {
 }
 
 /**
- * 上下文压缩（0.24.0）：消息流里的一条分隔线，进行中时文字闪动。引擎自己压缩的写“自动”，收起的回合里也在。
+ * 上下文压缩（0.24.0）：消息流里的一条分隔线，进行中时文字闪动。引擎自己压缩的写“自动”，回合收起时随过程收起；手动压缩一直在。
  */
 function CompactionPart({ part }: { part: ChatPartOf<'compaction'> }) {
   const running = part.status === 'running';
