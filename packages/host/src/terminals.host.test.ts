@@ -226,6 +226,33 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
   }, 40_000);
 
   describe.runIf(posix)('POSIX', () => {
+    it('自然退出只保留最后一屏，丢弃滚动历史后仍能重连显示', async () => {
+      const { home, workspaceDir } = dirs();
+      const h = await boot(home, workspaceDir);
+      const { terminal } = await h.client.request('terminal.create', {
+        workspaceId: h.workspaceId,
+        cols: 80,
+        rows: 24,
+      });
+      const attach = await h.client.request('terminal.attach', { terminalId: terminal.id });
+      const screen = view(h.client, terminal.id, attach);
+      await h.client.request('terminal.input', {
+        terminalId: terminal.id,
+        data: "i=0; while [ $i -lt 5000 ]; do printf 'row-%04d 0123456789012345678901234567890123456789\\n' $i; i=$((i+1)); done; printf 'FINAL-SCREEN\\n'\r",
+      });
+      await screen.untilContains('row-4999', '大量输出完成');
+      const running = await h.client.request('terminal.attach', { terminalId: terminal.id });
+      expect(running.data.length).toBeGreaterThan(200_000);
+      await h.client.request('terminal.input', { terminalId: terminal.id, data: 'exit\r' });
+      await changedUntil(h.client, terminal.id, (t) => t.status === 'exited', '自然退出');
+      const exited = await h.client.request('terminal.attach', { terminalId: terminal.id });
+      expect(exited.data.length).toBeLessThan(10_000);
+      const final = await render(exited.data, 80, 24);
+      expect(final.lines.length).toBeLessThanOrEqual(24);
+      expect(final.lines.join('\n')).toContain('FINAL-SCREEN');
+      expect(final.lines.join('\n')).not.toContain('row-0000');
+    }, 40_000);
+
     it('Ctrl-C 只打断前台程序；前台进程名、标题、尺寸；shell 自己退出后留着，关闭后忘掉', async () => {
       const { home, workspaceDir } = dirs();
       const h = await boot(home, workspaceDir);

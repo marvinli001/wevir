@@ -234,6 +234,7 @@ const SIMULATOR_SINCE = '0.122.0';
 
 /** 给旧客户端的提示（host-api.md §3.2 未知方法）。 */
 const UPGRADE_HINT = '请升级 Wevir Host';
+const serializedEvents = new WeakMap<WevirEvent, Map<string, string>>();
 
 type Phase = 'hello' | 'ready' | 'closing' | 'closed';
 
@@ -292,6 +293,7 @@ export class RpcConnection {
   #phase: Phase = 'hello';
   #client: ClientIdentity | undefined;
   #capabilities: ClientCapabilities = {};
+  #eventEncodingKey = '';
   #protocolVersion: string = PROTOCOL_VERSION;
   /** hello 时定下的身份与权限（domain-model §3.44）。 */
   #grant: ConnectionGrant = LOCAL_GRANT;
@@ -512,6 +514,7 @@ export class RpcConnection {
     };
     this.#capabilities = hello.capabilities;
     this.#protocolVersion = negotiation.protocolVersion;
+    this.#eventEncodingKey = JSON.stringify([this.#protocolVersion, this.#capabilities]);
     this.#grant = remoteGrant ?? this.#host.testConnectionGrant?.(this.#client) ?? LOCAL_GRANT;
     this.#permissions = new Set(this.#grant.permissions);
     this.#phase = 'ready';
@@ -986,14 +989,19 @@ export class RpcConnection {
   }
 
   #eventFrame(subscription: Subscription, event: WevirEvent): string {
-    return JSON.stringify({
-      jsonrpc: JSONRPC_VERSION,
-      method: 'events.event',
-      params: {
-        subscriptionId: subscription.id,
-        event: adaptEventForClient(event, this.#capabilities, this.#protocolVersion),
-      },
-    });
+    const adapted = adaptEventForClient(event, this.#capabilities, this.#protocolVersion);
+    let encodings = serializedEvents.get(event);
+    if (encodings === undefined) {
+      encodings = new Map();
+      serializedEvents.set(event, encodings);
+    }
+    const key = adapted === event ? '' : this.#eventEncodingKey;
+    let json = encodings.get(key);
+    if (json === undefined) {
+      json = JSON.stringify(adapted);
+      encodings.set(key, json);
+    }
+    return `{"jsonrpc":"${JSONRPC_VERSION}","method":"events.event","params":{"subscriptionId":"${subscription.id}","event":${json}}}`;
   }
 
   /**

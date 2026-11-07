@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import type { SessionId } from '@wevir/protocol';
 import { type AgentEvent, APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
 import type { Storage } from '@wevir/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppToolError, type AppToolResult } from './app-mcp.js';
 import { LspManager, serverEnv } from './lsp/manager.js';
 import { GO, nearestRoot, type ServerSpec, TYPESCRIPT } from './lsp/servers.js';
@@ -44,6 +44,7 @@ function setup(
     idleMs?: number;
     spec?: ServerSpec;
     link?: boolean;
+    watch?: boolean;
   } = {},
 ) {
   const cwd = tempDir();
@@ -57,7 +58,7 @@ function setup(
   const lsp = new LspManager({
     servers: [options.spec ?? fakeSpec()],
     env: { ...process.env, FAKE_LSP_LOG: log, ...options.env },
-    watch: false,
+    watch: options.watch ?? false,
     ...(options.idleMs !== undefined && { idleMs: options.idleMs }),
   });
   cleanups.push(() => lsp.close());
@@ -104,6 +105,22 @@ const edit = (toolCallId: string, paths: string[]): AgentEvent[] => [
 ];
 
 describe('LSP tools on a fake language server', () => {
+  it.runIf(process.platform === 'darwin' || process.platform === 'win32')(
+    'does not forward dependency or build directory watcher events',
+    async () => {
+      const { call, write, notifications } = setup({ watch: true, env: { FAKE_LSP_WATCH: '1' } });
+      write('main.fake', 'def foo');
+      await call('lsp_document_symbols', { path: 'main.fake' });
+      await vi.waitFor(() => expect(notifications()).toContain('watching'));
+      for (const dir of ['node_modules', 'dist', 'build', 'target', '.venv', '.next', '.git']) {
+        write(`${dir}/generated.fake`, 'generated');
+      }
+      write('src/changed.fake', 'source');
+      await vi.waitFor(() => expect(notifications()).toContain('changed.fake:'), { timeout: 5000 });
+      expect(notifications()).not.toContain('generated.fake:');
+    },
+  );
+
   it('lists the seven read-only tools', () => {
     const { tools } = setup();
     expect(tools.tools.map((tool) => tool.name)).toEqual([

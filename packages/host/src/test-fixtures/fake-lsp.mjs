@@ -95,6 +95,13 @@ connection.onRequest('initialize', () => ({
 }));
 connection.onNotification('initialized', () => {
   log('initialized');
+  if (process.env.FAKE_LSP_WATCH === '1') {
+    void connection
+      .sendRequest('client/registerCapability', {
+        registrations: [{ id: 'watch', method: 'workspace/didChangeWatchedFiles' }],
+      })
+      .then(() => log('watching'));
+  }
   const crashAfter = Number(process.env.FAKE_LSP_CRASH_AFTER_MS);
   if (crashAfter > 0) {
     setTimeout(() => {

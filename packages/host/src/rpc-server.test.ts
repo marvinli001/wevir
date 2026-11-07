@@ -966,6 +966,34 @@ describe('events.subscribe', () => {
     await other.waitForEvent(kept.subscriptionId, (e) => e.seq === 2);
   });
 
+  it('同一事件跨连接和订阅只序列化一次，订阅 ID 各自保留', async () => {
+    const h = await startHost();
+    const a = await readyClient(h, cli);
+    const b = await readyClient(h, desktop);
+    const sessionId = await createSession(h, a);
+    const subscriptions = [];
+    for (const client of [a, b]) {
+      for (let i = 0; i < 4; i++) {
+        subscriptions.push({ client, ...(await subscribe(client, sessionId, 1)) });
+      }
+    }
+    const stringify = vi.spyOn(JSON, 'stringify');
+    try {
+      const event = h.events.append(sessionId, usage(42));
+      const received = await Promise.all(
+        subscriptions.map(({ client, subscriptionId }) =>
+          client.waitForEvent(subscriptionId, (candidate) => candidate.seq === event.seq),
+        ),
+      );
+      expect(received).toEqual(subscriptions.map(() => event));
+      expect(
+        stringify.mock.calls.filter(([value]) => value === event || value?.params?.event === event),
+      ).toHaveLength(1);
+    } finally {
+      stringify.mockRestore();
+    }
+  });
+
   it('两个客户端同时订阅同一会话，各自收到同一条完整、连续的事件流', async () => {
     const h = await startHost();
     const a = await readyClient(h, cli);

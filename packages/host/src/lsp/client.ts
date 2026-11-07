@@ -56,6 +56,15 @@ const STDERR_TAIL = 4000;
 /** 一批文件变动最多转发几个；监视的去抖。 */
 const WATCH_BATCH_MAX = 1000;
 const WATCH_DEBOUNCE_MS = 200;
+const WATCH_IGNORED = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  'target',
+  '.venv',
+  '.next',
+]);
 const SHUTDOWN_TIMEOUT_MS = 2000;
 
 // LSP 规范的常量。
@@ -654,7 +663,7 @@ export class LspClient {
   // ── 文件监视 ─────────────────────────────────────────────────────
 
   /**
-   * 服务器注册了 didChangeWatchedFiles：在原生支持递归监视的平台（macOS、Windows）监视项目根，转发变动（.git 里的不算）。
+   * 服务器注册了 didChangeWatchedFiles：在原生支持递归监视的平台（macOS、Windows）监视项目根，忽略依赖和构建目录。
    * Linux 上 Node 的递归监视要逐个目录建 inotify，大仓库代价高，不开；那里靠引擎的文件改动事件与打开文档的重新同步。
    */
   #startWatching(): void {
@@ -664,7 +673,13 @@ export class LspClient {
       this.#watcher = watch(this.root, { recursive: true, persistent: false }, (event, name) => {
         if (name === null) return;
         const file = path.join(this.root, name.toString());
-        if (file.split(path.sep).includes('.git')) return;
+        if (
+          name
+            .toString()
+            .split(path.sep)
+            .some((part) => WATCH_IGNORED.has(part))
+        )
+          return;
         if (this.#watchQueue.size >= WATCH_BATCH_MAX) return;
         this.#watchQueue.set(file, this.#watchQueue.get(file) === 'rename' ? 'rename' : event);
         clearTimeout(this.#watchTimer);

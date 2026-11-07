@@ -9,7 +9,7 @@
 // - 结束：POSIX 上先 SIGHUP 给 shell（bash、zsh 转给它的作业；dash 等不转，shell 一退出就把 SIGHUP 发给这个终端会话里剩下的
 //   进程），宽限后 SIGKILL 会话里还在的进程；Windows 上 node-pty 结束控制台里的进程树。Host 退出、会话删除、项目移除时一并结束。
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -175,8 +175,9 @@ interface Attachment {
 interface Managed {
   info: Omit<Terminal, 'clients'>;
   pty: Pty | undefined;
-  emulator: HeadlessTerminal;
-  serializer: SerializeAddon;
+  emulator: HeadlessTerminal | undefined;
+  serializer: SerializeAddon | undefined;
+  exitedScreen?: Promise<{ data: string; next: number }>;
   /** 最近的输出，按位置排好；`start` 之前的已经丢掉。 */
   chunks: Chunk[];
   start: number;
@@ -407,7 +408,7 @@ export class TerminalService {
     if (managed.info.status !== 'running' || managed.pty === undefined) return;
     if (cols === managed.info.cols && rows === managed.info.rows) return;
     managed.pty.resize(cols, rows);
-    managed.emulator.resize(cols, rows);
+    (managed.emulator as HeadlessTerminal).resize(cols, rows);
     managed.info.cols = cols;
     managed.info.rows = rows;
     this.#changed(managed);
@@ -487,7 +488,7 @@ export class TerminalService {
     managed.start = managed.chunks[0]?.offset ?? managed.next;
     managed.fed += data.length;
     managed.parsing += data.length;
-    managed.emulator.write(data, () => {
+    (managed.emulator as HeadlessTerminal).write(data, () => {
       managed.parsing -= data.length;
     });
     this.#scheduleFlush(managed);
@@ -516,12 +517,16 @@ export class TerminalService {
    */
   async #snapshot(managed: Managed): Promise<{ data: string; next: number }> {
     for (let attempt = 0; ; attempt++) {
+      if (managed.exitedScreen !== undefined) return managed.exitedScreen;
+      const emulator = managed.emulator as HeadlessTerminal;
+      const serializer = managed.serializer as SerializeAddon;
       const marker = managed.fed;
       const snapshot = await new Promise<string>((resolve) => {
-        managed.emulator.write('', () =>
-          resolve(managed.serializer.serialize({ scrollback: TERMINAL_SCROLLBACK })),
+        emulator.write('', () =>
+          resolve(serializer.serialize({ scrollback: TERMINAL_SCROLLBACK })),
         );
       });
+      if (managed.exitedScreen !== undefined) return managed.exitedScreen;
       // 等的时候新到的输出多到挤掉了 marker 之后的那段：再来一次（只在极大的输出时发生）。
       if (marker >= managed.start || attempt >= 3) {
         const next = managed.next;
@@ -634,9 +639,25 @@ export class TerminalService {
     managed.markExited();
     if (managed.closing) {
       // dash 等 shell 收到 SIGHUP 时不转给后台作业（Debian、Ubuntu 的 /bin/sh），它们留在这个会话里：照 bash 的做法补发。
-      killSession(managed.info.pid, this.#platform, 'SIGHUP');
+      killSession(managed.info.pid, this.#platform, 'SIGHUP', this.#closed);
       this.#forget(managed);
     } else {
+      const emulator = managed.emulator as HeadlessTerminal;
+      const serializer = managed.serializer as SerializeAddon;
+      managed.exitedScreen = new Promise((resolve) => {
+        emulator.write('', () => {
+          const data = serializer.serialize({ scrollback: 0 });
+          emulator.dispose();
+          managed.emulator = undefined;
+          managed.serializer = undefined;
+          managed.chunks = [];
+          managed.start = managed.next;
+          resolve({ data, next: managed.next });
+        });
+      });
+      for (const disposable of managed.disposables) disposable.dispose();
+      managed.disposables = [];
+      managed.pty = undefined;
       this.#changed(managed);
     }
   }
@@ -663,7 +684,7 @@ export class TerminalService {
     }
     managed.killTimer = setTimeout(() => {
       // shell 已经退出时也要做：会话里还在的后台作业（忽略了 SIGHUP 的）一并结束。
-      killSession(pty.pid, this.#platform, 'SIGKILL');
+      killSession(pty.pid, this.#platform, 'SIGKILL', this.#closed);
       if (managed.info.status !== 'running') return;
       try {
         pty.kill(this.#platform === 'win32' ? undefined : 'SIGKILL');
@@ -684,7 +705,7 @@ export class TerminalService {
       } catch {}
     }
     managed.attachments.clear();
-    managed.emulator.dispose();
+    if (managed.exitedScreen === undefined) managed.emulator?.dispose();
     managed.chunks = [];
     this.#emit({ removed: { id: managed.info.id } });
   }
@@ -698,14 +719,21 @@ export function foregroundName(raw: string): string | undefined {
 
 /**
  * shell 的进程组以外的作业：给这个终端会话（shell 是会话首进程，会话 ID 就是它的 PID，shell 退出后也不变）里的所有进程发信号。
- * 同步查（`pgrep -s`）：Host 退出时 shell 一退出就要发出去，不能等到进程结束之后。
+ * Host 退出时同步查，其余路径异步查，避免定时清理阻塞事件循环。
  */
 function killSession(
   sid: number | undefined,
   platform: NodeJS.Platform,
   signal: NodeJS.Signals,
+  synchronous: boolean,
 ): void {
   if (platform === 'win32' || sid === undefined || sid <= 0) return;
+  if (!synchronous) {
+    execFile('pgrep', ['-s', String(sid)], { encoding: 'utf8', timeout: 2000 }, (error, stdout) => {
+      if (!error) signalSession(stdout, signal);
+    });
+    return;
+  }
   let stdout: string;
   try {
     stdout = execFileSync('pgrep', ['-s', String(sid)], { encoding: 'utf8', timeout: 2000 });
@@ -713,6 +741,10 @@ function killSession(
     // 没有匹配的进程时 pgrep 以 1 退出；没装 pgrep 时也一样跳过。
     return;
   }
+  signalSession(stdout, signal);
+}
+
+function signalSession(stdout: string, signal: NodeJS.Signals): void {
   for (const line of stdout.split('\n')) {
     const pid = Number(line.trim());
     if (Number.isInteger(pid) && pid > 0) {

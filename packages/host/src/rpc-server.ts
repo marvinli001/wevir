@@ -254,7 +254,12 @@ export class HostRpcServer {
       },
       onError,
     };
-    this.#wss = new WebSocketServer({ noServer: true, clientTracking: false });
+    this.#wss = new WebSocketServer({
+      noServer: true,
+      clientTracking: false,
+      // 保持 ws 既有上限：文本请求没有协议长度上限，图片最多约 13.34 MiB base64。
+      maxPayload: 100 * 1024 * 1024,
+    });
   }
 
   /** 开始监听，返回端点 URL。 */
