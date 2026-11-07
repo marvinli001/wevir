@@ -22,6 +22,7 @@ import { sessionTabs, tabLabel, useBrowserState } from '@/browser/browser-store'
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { everyWhileVisible } from '@/lib/visible-interval';
 import { platformApi } from '@/platform/platform';
 import type { BrowserBounds, BrowserTabState } from '../../../../shared/desktop-api.js';
 import type { PaneContext } from '../pane-registry';
@@ -291,6 +292,7 @@ function Toolbar({
 
 /** 盖住窗格时要先收起原生视图的弹层。 */
 const OVERLAYS = '[role="menu"],[role="dialog"],[role="alertdialog"],[role="listbox"]';
+const PORTALS = '[data-base-ui-portal]';
 
 function overlapsOverlay(rect: DOMRect): boolean {
   for (const element of document.querySelectorAll(OVERLAYS)) {
@@ -321,8 +323,7 @@ const LAYOUT_EVENTS = [
 ] as const;
 
 /**
- * 网页的位置：量占位的位置，变了就告诉主进程；看不见（标签页被切走、窗格收起、被弹层盖住）时收起。窗口与窗格的大小、DOM（弹层
- * 插入、窗格挪动、分隔条拖动）、过渡与动画、滚动有变化时每一帧量一次，量到稳定为止；什么都没变时不出帧。
+ * 网页的位置：占位祖先的尺寸、属性和布局事件，以及弹层变化后的 500 ms 里逐帧测量；不监视会话正文。
  */
 function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState | undefined }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -336,6 +337,7 @@ function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState 
       const element = ref.current;
       const rect = element?.getBoundingClientRect();
       const visible =
+        document.visibilityState !== 'hidden' &&
         tabId !== undefined &&
         rect !== undefined &&
         rect.width > 0 &&
@@ -353,7 +355,7 @@ function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState 
       if (bounds) void browser.show(bounds, sessionId).catch(() => {});
       else void browser.hide().catch(() => {});
     };
-    // 有变化时每一帧量一次（拖分隔条时跟得上）；窗口被挡住时浏览器不出帧，另有一个慢一些的定时器兜底。
+    // 有变化时每一帧量一次（拖分隔条时跟得上）；可见窗口另有慢一些的兜底。
     const tick = (now: number) => {
       measure();
       frame = now < settleUntil ? requestAnimationFrame(tick) : 0;
@@ -364,21 +366,55 @@ function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState 
     };
     measure();
     wake();
+    const ancestors = new Set<Element>();
+    for (let element: HTMLElement | null = ref.current; element; element = element.parentElement)
+      ancestors.add(element);
     const resizes = new ResizeObserver(wake);
-    resizes.observe(document.documentElement);
-    if (ref.current) resizes.observe(ref.current);
-    const mutations = new MutationObserver(wake);
-    mutations.observe(document.body, { subtree: true, childList: true, attributes: true });
-    for (const type of LAYOUT_EVENTS) {
-      document.addEventListener(type, wake, { capture: true, passive: true });
+    const overlays = new MutationObserver(wake);
+    const watchPortals = () => {
+      overlays.disconnect();
+      for (const child of document.body.children) {
+        if (ancestors.has(child)) continue;
+        if (child.matches(PORTALS) || child.matches(OVERLAYS) || child.querySelector(OVERLAYS))
+          overlays.observe(child, { subtree: true, childList: true, attributes: true });
+      }
+    };
+    const mutations = new MutationObserver((records) => {
+      if (records.some((record) => record.target === document.body && record.type === 'childList'))
+        watchPortals();
+      wake();
+    });
+    for (const element of ancestors) {
+      resizes.observe(element);
+      mutations.observe(element, { attributes: true, childList: element === document.body });
     }
-    const timer = setInterval(measure, 250);
+    watchPortals();
+    const onLayout = (event: Event) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (ancestors.has(target) || target.closest(PORTALS) || target.closest(OVERLAYS))
+      )
+        wake();
+    };
+    const onVisibility = () => {
+      measure();
+      if (document.visibilityState !== 'hidden') wake();
+    };
+    for (const type of LAYOUT_EVENTS) {
+      document.addEventListener(type, onLayout, { capture: true, passive: true });
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+    const stopTimer = everyWhileVisible(measure, 250);
     return () => {
       cancelAnimationFrame(frame);
       resizes.disconnect();
       mutations.disconnect();
-      for (const type of LAYOUT_EVENTS) document.removeEventListener(type, wake, { capture: true });
-      clearInterval(timer);
+      overlays.disconnect();
+      for (const type of LAYOUT_EVENTS)
+        document.removeEventListener(type, onLayout, { capture: true });
+      document.removeEventListener('visibilitychange', onVisibility);
+      stopTimer();
       void browser.hide().catch(() => {});
     };
   }, [sessionId, tabId]);

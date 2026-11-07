@@ -2,6 +2,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { cpus, freemem, release, totalmem } from 'node:os';
@@ -12,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { webSocketTransport } from '../../packages/client-sdk/dist/index.js';
 import { connectLocalHost } from '../../packages/client-sdk/dist/node.js';
+import { measureBrowserViewport, prepareBrowserViewport } from './browser-viewport.mjs';
 import { connectCdp } from './cdp.mjs';
 import {
   DELETE_SESSION,
@@ -31,6 +33,7 @@ const { values } = parseArgs({
     'library-mib': { type: 'string', default: '976' },
     'software-gpu': { type: 'boolean', default: false },
     'scroll-transcript': { type: 'boolean', default: false },
+    'browser-viewport': { type: 'boolean', default: false },
     help: { type: 'boolean' },
   },
 });
@@ -110,6 +113,7 @@ const report = {
 let desktop;
 let cdp;
 let client;
+let browserFixture;
 
 async function until(check, label, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
@@ -338,9 +342,25 @@ try {
     `location.hash = ${JSON.stringify(`#/workspace/${WORKSPACE}/session/${reply.id}`)}`,
   );
   await sleep(1000);
+  let browserTab;
+  if (values['browser-viewport']) {
+    browserFixture = createHttpServer((_request, response) => {
+      response.setHeader('Content-Type', 'text/html');
+      response.end('<!doctype html><title>Offline browser fixture</title><p>Viewport fixture</p>');
+    });
+    browserFixture.listen(0, '127.0.0.1');
+    await once(browserFixture, 'listening');
+    browserTab = await prepareBrowserViewport(
+      cdp,
+      reply.id,
+      `http://127.0.0.1:${browserFixture.address().port}`,
+    );
+  }
   await cdp.evaluate('globalThis.__wevirPerf.start()');
   report.scenarios.reply = await streamingTurn(reply, 'perf:reply');
   report.scenarios.reply.react = await cdp.evaluate('globalThis.__wevirPerf.stop()');
+  if (browserTab)
+    report.scenarios.browserViewport = await measureBrowserViewport(cdp, desktop, browserTab);
   if (
     !report.scenarios.reply.react.commits ||
     report.scenarios.reply.react.visibility !== 'visible'
@@ -432,6 +452,7 @@ try {
   report.status = 'complete';
 } finally {
   await stop();
+  if (browserFixture) await new Promise((resolveClose) => browserFixture.close(resolveClose));
   const log = await readFile(join(home, 'logs', 'host.log'), 'utf8').catch(() => '');
   report.hostSamples = log
     .split('\n')

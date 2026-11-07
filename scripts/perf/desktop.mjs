@@ -6,6 +6,10 @@ const require = createRequire(new URL('../../apps/desktop/package.json', import.
 const { app, BrowserWindow, utilityProcess } = require('electron');
 const fork = utilityProcess.fork.bind(utilityProcess);
 const output = (value) => console.log(JSON.stringify({ event: 'perf', ...value }));
+const mainWindow = () =>
+  BrowserWindow.getAllWindows().find((window) =>
+    window.webContents.getURL().startsWith('wevir://app'),
+  );
 let host;
 utilityProcess.fork = (entry, args, options) => {
   const isHost = options?.serviceName === 'Wevir Host';
@@ -35,8 +39,18 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
   if (request.type === 'sample') host.postMessage({ type: 'perf:sample', label: request.label });
   if (request.type === 'quit') app.quit();
+  if (request.type === 'background') mainWindow().hide();
+  if (request.type === 'native-views') {
+    const window = mainWindow();
+    const views = window.contentView.children
+      .filter((view) => view.webContents && view.webContents !== window.webContents)
+      .map((view) => ({ visible: view.getVisible(), bounds: view.getBounds() }));
+    void window.webContents.executeJavaScript(
+      `globalThis.__wevirNativeViews = ${JSON.stringify({ id: request.id, views })}`,
+    );
+  }
   if (request.type === 'foreground') {
-    const window = BrowserWindow.getAllWindows()[0];
+    const window = mainWindow();
     window.show();
     window.setAlwaysOnTop(true);
     window.focus();
