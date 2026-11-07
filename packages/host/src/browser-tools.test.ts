@@ -216,60 +216,67 @@ describe('浏览器工具', () => {
     expect(snapshot.content[0]?.text).toContain('accepted alert "hi"');
   });
 
-  it('截图带图片；错误带代码；参数不对时不发给桌面端', async () => {
-    const { connect, call } = await setup();
-    const desktop = await fakeDesktop(connect, (request) =>
-      request.command.command === 'screenshot'
-        ? {
-            ok: true,
-            result: {
-              command: 'screenshot',
-              browserId: 'tab_1',
-              mimeType: 'image/png',
-              dataBase64: 'iVBORw0KGgo=',
-              width: 1280,
-              height: 800,
-            },
-          }
-        : { ok: false, error: { code: 'browser_stale_ref', message: 'Ref @e9 is stale.' } },
-    );
-    const shot = await call('browser_screenshot', { browserId: 'tab_1' });
-    expect(shot.content[1]).toEqual({ type: 'image', data: 'iVBORw0KGgo=', mimeType: 'image/png' });
-    expect(shot.structuredContent).toBeUndefined();
-    const stale = await call('browser_click', { browserId: 'tab_1', ref: '@e9' });
-    expect(stale.isError).toBe(true);
-    expect(stale.content[0]?.text).toMatch(/new browser_snapshot/);
-    const before = desktop.requests.length;
-    for (const [name, args] of [
-      ['browser_navigate', { browserId: 'tab_1', url: 'file:///etc/passwd' }],
-      ['browser_navigate', { browserId: 'tab_1', url: 'javascript:alert(1)' }],
-      ['browser_click', { browserId: 'tab_1', ref: 'button' }],
-      ['browser_wait', { browserId: 'tab_1', text: 'a', url: 'b' }],
-      ['browser_click', { ref: '@e1' }],
-    ] as const) {
-      const result = await call(name, args);
-      expect(result.isError, name).toBe(true);
-    }
-    expect(desktop.requests).toHaveLength(before);
-    // 参数错误也带错误码，说清楚哪里不对（0.46.0）。
-    const texts = await Promise.all(
-      (
-        [
-          ['browser_navigate', { browserId: 'tab_1', url: 'file:///etc/hosts' }],
-          ['browser_new_tab', { url: 'not a url' }],
-          ['browser_click', { browserId: 'tab_1', ref: 'garbage' }],
-          ['browser_wait', { browserId: 'tab_1', text: 'a', url: 'b' }],
-        ] as const
-      ).map(async ([name, args]) => (await call(name, args)).content[0]?.text),
-    );
-    expect(texts).toEqual([
-      '[browser_invalid_url] file: URLs are not supported: the Wevir browser only opens http and https pages, by design.',
-      '[browser_invalid_url] "not a url" is not a URL. Pass an http(s) URL, or a host like localhost:5173.',
-      '[browser_invalid_argument] ref must be a ref from browser_snapshot, like @e3 (got "garbage").',
-      '[browser_invalid_argument] browser_wait needs exactly one of text, url, urlRegex, selector or networkIdle.',
-    ]);
-    expect(desktop.requests).toHaveLength(before);
-  });
+  it.each(['image/png', 'image/jpeg'] as const)(
+    '截图带图片（%s）；错误带代码；参数不对时不发给桌面端',
+    async (mimeType) => {
+      const { connect, call } = await setup();
+      const desktop = await fakeDesktop(connect, (request) =>
+        request.command.command === 'screenshot'
+          ? {
+              ok: true,
+              result: {
+                command: 'screenshot',
+                browserId: 'tab_1',
+                mimeType,
+                dataBase64: 'iVBORw0KGgo=',
+                width: 1280,
+                height: 800,
+              },
+            }
+          : { ok: false, error: { code: 'browser_stale_ref', message: 'Ref @e9 is stale.' } },
+      );
+      const shot = await call('browser_screenshot', { browserId: 'tab_1' });
+      expect(shot.content[1]).toEqual({ type: 'image', data: 'iVBORw0KGgo=', mimeType });
+      expect(shot.structuredContent).toBeUndefined();
+      expect(desktop.requests.at(-1)?.command).toMatchObject({
+        command: 'screenshot',
+        args: { format: 'jpeg' },
+      });
+      const stale = await call('browser_click', { browserId: 'tab_1', ref: '@e9' });
+      expect(stale.isError).toBe(true);
+      expect(stale.content[0]?.text).toMatch(/new browser_snapshot/);
+      const before = desktop.requests.length;
+      for (const [name, args] of [
+        ['browser_navigate', { browserId: 'tab_1', url: 'file:///etc/passwd' }],
+        ['browser_navigate', { browserId: 'tab_1', url: 'javascript:alert(1)' }],
+        ['browser_click', { browserId: 'tab_1', ref: 'button' }],
+        ['browser_wait', { browserId: 'tab_1', text: 'a', url: 'b' }],
+        ['browser_click', { ref: '@e1' }],
+      ] as const) {
+        const result = await call(name, args);
+        expect(result.isError, name).toBe(true);
+      }
+      expect(desktop.requests).toHaveLength(before);
+      // 参数错误也带错误码，说清楚哪里不对（0.46.0）。
+      const texts = await Promise.all(
+        (
+          [
+            ['browser_navigate', { browserId: 'tab_1', url: 'file:///etc/hosts' }],
+            ['browser_new_tab', { url: 'not a url' }],
+            ['browser_click', { browserId: 'tab_1', ref: 'garbage' }],
+            ['browser_wait', { browserId: 'tab_1', text: 'a', url: 'b' }],
+          ] as const
+        ).map(async ([name, args]) => (await call(name, args)).content[0]?.text),
+      );
+      expect(texts).toEqual([
+        '[browser_invalid_url] file: URLs are not supported: the Wevir browser only opens http and https pages, by design.',
+        '[browser_invalid_url] "not a url" is not a URL. Pass an http(s) URL, or a host like localhost:5173.',
+        '[browser_invalid_argument] ref must be a ref from browser_snapshot, like @e3 (got "garbage").',
+        '[browser_invalid_argument] browser_wait needs exactly one of text, url, urlRegex, selector or networkIdle.',
+      ]);
+      expect(desktop.requests).toHaveLength(before);
+    },
+  );
 
   it('桌面端断开时在途的调用失败', async () => {
     const { connect, call } = await setup();

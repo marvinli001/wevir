@@ -1,0 +1,44 @@
+{
+  "protocolVersion": "0.165.0",
+  "methods": {
+    "browser.respond": {
+      "params": [
+        {
+          "requestId": "brq_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "ok": true,
+          "result": {
+            "command": "screenshot",
+            "browserId": "tab_1",
+            "mimeType": "image/jpeg",
+            "dataBase64": "/9j/",
+            "width": 1280,
+            "height": 800
+          }
+        }
+      ],
+      "result": [
+        {
+          "accepted": true
+        }
+      ]
+    }
+  },
+  "notifications": {
+    "browser.request": [
+      {
+        "requestId": "brq_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "cwd": "/workspace",
+        "command": {
+          "command": "screenshot",
+          "args": {
+            "browserId": "tab_1",
+            "format": "jpeg"
+          }
+        }
+      }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

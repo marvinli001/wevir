@@ -423,14 +423,14 @@ const SPECS: BrowserToolSpec[] = [
     name: 'browser_screenshot',
     title: 'Screenshot a browser page',
     description:
-      'Capture a PNG screenshot of a tab (the visible viewport, or the whole page with fullPage=true, up to 8000 px tall). Use it to check ' +
+      'Capture a screenshot of a tab (the visible viewport, or the whole page with fullPage=true, up to 8000 px tall). Use it to check ' +
       'how the page looks; use browser_snapshot to find elements.',
     properties: { browserId: BROWSER_ID, fullPage: { type: 'boolean' } },
     required: ['browserId'],
     readOnly: true,
     command: (args) => ({
       command: 'screenshot',
-      args: { ...tab(args), ...(args.fullPage === true && { fullPage: true }) },
+      args: { ...tab(args), format: 'jpeg', ...(args.fullPage === true && { fullPage: true }) },
     }),
   },
   {

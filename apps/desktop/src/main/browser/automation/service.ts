@@ -60,6 +60,7 @@ export interface TabContents {
   canGoForward(): boolean;
   isLoading(): boolean;
   isDestroyed(): boolean;
+  getZoomFactor(): number;
   executeJavaScript(code: string): Promise<unknown>;
   loadURL(url: string): Promise<void>;
   goBack(): void;
@@ -103,6 +104,8 @@ export interface TabContents {
 
 export interface TabImage {
   toPNG(): Uint8Array;
+  toJPEG(quality: number): Uint8Array;
+  resize(size: { width: number; height: number }): TabImage;
   getSize(): { width: number; height: number };
 }
 
@@ -516,6 +519,7 @@ const commandHandlers: Record<
       sessionId,
       screenshotCommand.args.browserId,
       screenshotCommand.args.fullPage ?? false,
+      screenshotCommand.args.format ?? 'png',
       registry,
     );
   },
@@ -1365,10 +1369,11 @@ async function executeScreenshot(
   sessionId: string | undefined,
   browserId: string,
   fullPage: boolean,
+  format: 'png' | 'jpeg',
   registry: BrowserRegistry,
 ): Promise<AutomationCommandPayload> {
   if (fullPage) {
-    return executeFullPageScreenshot(requestId, sessionId, browserId, registry);
+    return executeFullPageScreenshot(requestId, sessionId, browserId, format, registry);
   }
 
   const target = resolveTabTarget({ requestId, sessionId, browserId, registry });
@@ -1388,17 +1393,30 @@ async function executeScreenshot(
       }
       throw error;
     }
+    if (format === 'jpeg') {
+      const viewport = (await target.contents.executeJavaScript(
+        '({ width: window.innerWidth, height: window.innerHeight })',
+      )) as { width: number; height: number };
+      const size = image.getSize();
+      const scale = Math.min(1, viewport.width / size.width, viewport.height / size.height);
+      if (scale < 1) {
+        image = image.resize({
+          width: Math.max(1, Math.round(size.width * scale)),
+          height: Math.max(1, Math.round(size.height * scale)),
+        });
+      }
+    }
     const size = image.getSize();
-    const png = image.toPNG();
-    if (png.byteLength > BROWSER_SCREENSHOT_MAX_BYTES) return screenshotTooLarge(requestId);
+    const encoded = format === 'jpeg' ? image.toJPEG(80) : image.toPNG();
+    if (encoded.byteLength > BROWSER_SCREENSHOT_MAX_BYTES) return screenshotTooLarge(requestId);
     return {
       requestId,
       ok: true,
       result: {
         command: 'screenshot',
         browserId: target.browserId,
-        mimeType: 'image/png',
-        dataBase64: Buffer.from(png).toString('base64'),
+        mimeType: format === 'jpeg' ? 'image/jpeg' : 'image/png',
+        dataBase64: Buffer.from(encoded).toString('base64'),
         width: size.width,
         height: size.height,
       },
@@ -1453,6 +1471,7 @@ async function executeFullPageScreenshot(
   requestId: string,
   sessionId: string | undefined,
   browserId: string,
+  format: 'png' | 'jpeg',
   registry: BrowserRegistry,
 ): Promise<AutomationCommandPayload> {
   const target = resolveTabTarget({ requestId, sessionId, browserId, registry });
@@ -1472,10 +1491,17 @@ async function executeFullPageScreenshot(
         const metrics = await getCdpLayoutMetrics(target.contents);
         width = Math.min(metrics.contentWidth, FULL_PAGE_MAX_PX);
         height = Math.min(metrics.contentHeight, FULL_PAGE_MAX_PX);
+        // CDP 的 clip 用 DIP；CSS 尺寸先乘页面缩放，再按 DPR 编码回 CSS 像素。
+        const zoom = format === 'jpeg' ? target.contents.getZoomFactor() : 1;
+        const scale =
+          format === 'jpeg'
+            ? 1 / ((await target.contents.executeJavaScript('window.devicePixelRatio')) as number)
+            : 1;
         return (await sendDebugCommand('Page.captureScreenshot', {
-          format: 'png',
+          format,
+          ...(format === 'jpeg' && { quality: 80 }),
           captureBeyondViewport: true,
-          clip: { x: 0, y: 0, width, height, scale: 1 },
+          clip: { x: 0, y: 0, width: width * zoom, height: height * zoom, scale },
         })) as CdpCaptureScreenshotResult;
       });
     } catch (error) {
@@ -1496,7 +1522,7 @@ async function executeFullPageScreenshot(
       result: {
         command: 'screenshot',
         browserId: target.browserId,
-        mimeType: 'image/png',
+        mimeType: format === 'jpeg' ? 'image/jpeg' : 'image/png',
         dataBase64: screenshot.data,
         width,
         height,

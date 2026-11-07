@@ -110,6 +110,7 @@ interface BrowserAutomationWebContents extends ConsoleMessageEmitter {
   readonly debugger: WebContentsDebugger;
   getURL(): string;
   getTitle(): string;
+  getZoomFactor(): number;
   canGoBack(): boolean;
   canGoForward(): boolean;
   isLoading(): boolean;
@@ -145,6 +146,7 @@ export function adaptWebContents(contents: BrowserAutomationWebContents): TabCon
     canGoForward: () => contents.canGoForward(),
     isLoading: () => contents.isLoading(),
     isDestroyed: () => contents.isDestroyed(),
+    getZoomFactor: () => contents.getZoomFactor(),
     executeJavaScript: (code: string) => contents.executeJavaScript(code),
     loadURL: (url: string) => contents.loadURL(url),
     goBack: () => contents.goBack(),

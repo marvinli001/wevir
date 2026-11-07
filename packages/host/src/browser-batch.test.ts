@@ -173,7 +173,7 @@ describe('browser_batch', () => {
       { command: 'fill', args: { browserId: 'tab_1', ref: '@e3', value: 'Ada' } },
       { command: 'click', args: { browserId: 'tab_1', ref: '@e4' } },
       { command: 'new_tab', args: { url: 'https://example.com/' } },
-      { command: 'screenshot', args: { browserId: 'tab_new' } },
+      { command: 'screenshot', args: { browserId: 'tab_new', format: 'jpeg' } },
     ]);
     const text = texts(result);
     expect(text).toMatch(/^Ran all 4 actions\./);

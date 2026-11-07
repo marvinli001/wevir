@@ -3188,6 +3188,7 @@ const standaloneCases: Case[] = [
     valid: [
       { command: 'list_tabs', args: {} },
       { command: 'screenshot', args: { browserId: browserTab.browserId, fullPage: true } },
+      { command: 'screenshot', args: { browserId: browserTab.browserId, format: 'jpeg' } },
       { command: 'scroll', args: { browserId: browserTab.browserId, deltaX: 0, deltaY: 400 } },
       // 0.48.0
       { command: 'evaluate', args: { browserId: browserTab.browserId, function: '() => 1' } },
@@ -3371,7 +3372,7 @@ const standaloneCases: Case[] = [
       {
         command: 'screenshot',
         browserId: browserTab.browserId,
-        mimeType: 'image/jpeg',
+        mimeType: 'image/gif',
         dataBase64: 'x',
         width: 1,
         height: 1,

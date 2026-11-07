@@ -37,6 +37,15 @@ class FakeImage implements TabImage {
     return this.bytes;
   }
 
+  public toJPEG(quality: number): Uint8Array {
+    expect(quality).toBe(80);
+    return new Uint8Array([255, 216, 255, 1, 2, 3]);
+  }
+
+  public resize(size: { width: number; height: number }): TabImage {
+    return new FakeImage(this.bytes, size);
+  }
+
   public getSize(): { width: number; height: number } {
     return this.size;
   }
@@ -57,6 +66,13 @@ class FakeTab implements TabContents {
   private readonly deferredCaptures: Array<(image: TabImage) => void> = [];
 
   public destroyed = false;
+  public viewportSize = { width: 640, height: 480 };
+  public pixelRatio = 1;
+  public zoomFactor = 1;
+
+  public getZoomFactor(): number {
+    return this.zoomFactor;
+  }
   public bodyText = '';
   public snapshotNodes: Array<{
     role: string;
@@ -133,6 +149,9 @@ class FakeTab implements TabContents {
 
   public async executeJavaScript(code: string): Promise<unknown> {
     this.scripts.push(code);
+    if (code === '({ width: window.innerWidth, height: window.innerHeight })')
+      return this.viewportSize;
+    if (code === 'window.devicePixelRatio') return this.pixelRatio;
     const overridden = this.scriptOverride?.(code);
     if (overridden !== undefined) {
       return overridden;
@@ -1458,6 +1477,76 @@ describe('executeAutomationCommand', () => {
     expect(browser.tab.capturedViewports).toHaveLength(1);
     expect(browser.tab.capturedViewports[0]?.aborted).toBe(true);
     expect(browser.tab.actions).toEqual(['invalidate', 'capture']);
+  });
+
+  test('JPEG viewport screenshots use quality 80 and keep their image dimensions', async () => {
+    const browser = new BrowserAutomationHarness();
+    const result = await browser.execute({
+      command: 'screenshot',
+      args: { browserId: BROWSER_A, format: 'jpeg' },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { mimeType: 'image/jpeg', dataBase64: '/9j/AQID', width: 640, height: 480 },
+    });
+  });
+
+  test('JPEG full-page screenshots use the requested format and quality', async () => {
+    const browser = new BrowserAutomationHarness();
+    const result = await browser.execute({
+      command: 'screenshot',
+      args: { browserId: BROWSER_A, format: 'jpeg', fullPage: true },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      result: { mimeType: 'image/jpeg', width: 390, height: 1200 },
+    });
+    expect(browser.tab.debugCommands.at(-1)).toMatchObject({
+      command: 'Page.captureScreenshot',
+      params: { format: 'jpeg', quality: 80 },
+    });
+  });
+
+  test('high-DPI JPEG captures have CSS pixel dimensions without upscaling', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.viewportSize = { width: 320, height: 240 };
+    browser.tab.pixelRatio = 2;
+    expect(
+      await browser.execute({
+        command: 'screenshot',
+        args: { browserId: BROWSER_A, format: 'jpeg' },
+      }),
+    ).toMatchObject({ ok: true, result: { width: 320, height: 240 } });
+    await browser.execute({
+      command: 'screenshot',
+      args: { browserId: BROWSER_A, format: 'jpeg', fullPage: true },
+    });
+    expect(browser.tab.debugCommands.at(-1)?.params?.clip).toEqual({
+      x: 0,
+      y: 0,
+      width: 390,
+      height: 1200,
+      scale: 0.5,
+    });
+    browser.tab.zoomFactor = 2;
+    await browser.execute({
+      command: 'screenshot',
+      args: { browserId: BROWSER_A, format: 'jpeg', fullPage: true },
+    });
+    expect(browser.tab.debugCommands.at(-1)?.params?.clip).toEqual({
+      x: 0,
+      y: 0,
+      width: 780,
+      height: 2400,
+      scale: 0.5,
+    });
+    browser.tab.viewportSize = { width: 1280, height: 960 };
+    expect(
+      await browser.execute({
+        command: 'screenshot',
+        args: { browserId: BROWSER_A, format: 'jpeg' },
+      }),
+    ).toMatchObject({ ok: true, result: { width: 640, height: 480 } });
   });
 
   test('screenshot returns no-frame when the viewport never paints', async () => {

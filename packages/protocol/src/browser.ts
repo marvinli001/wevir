@@ -154,7 +154,12 @@ export const BrowserCommandSchema = z.discriminatedUnion('command', [
   }),
   z.object({
     command: z.literal('screenshot'),
-    args: z.object({ ...tab, fullPage: z.boolean().optional() }),
+    args: z.object({
+      ...tab,
+      fullPage: z.boolean().optional(),
+      /** 缺省 PNG，保持旧 Host 与浏览器提供方兼容。 */
+      format: z.enum(['png', 'jpeg']).optional(),
+    }),
   }),
   z.object({
     command: z.literal('click'),
@@ -486,7 +491,7 @@ export const BrowserResultSchema = z.discriminatedUnion('command', [
   z.object({
     command: z.literal('screenshot'),
     ...tabResult,
-    mimeType: z.literal('image/png'),
+    mimeType: z.enum(['image/png', 'image/jpeg']),
     /** base64，解码后不超过 `BROWSER_SCREENSHOT_MAX_BYTES`。 */
     dataBase64: z.string().min(1),
     width: z.int().min(0),
