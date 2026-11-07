@@ -1661,6 +1661,35 @@ describe('SessionManager：引擎异常（#10）', () => {
 });
 
 describe('SessionManager：Host 启动对账（#15、#11）', () => {
+  it('归档会话里的活动回合仍对账，空闲会话刚排上的待发消息暂停', async () => {
+    const old = setup();
+    const active = await create(old);
+    await send(old, active, 'please approve');
+    const approval = await waitForApproval(old, active);
+    old.storage.sessions.setArchived(active, T0);
+    const idle = await create(old);
+    old.events.append(idle, {
+      type: 'pending.added',
+      source: 'host',
+      payload: {
+        pending: {
+          id: 'pnd_recovery',
+          content: text('queued just before restart'),
+          delivery: 'queue',
+          status: 'waiting',
+          sentBy: cli,
+          createdAt: T0,
+          updatedAt: T0,
+        },
+      },
+    });
+    const { h, report } = restart(old);
+    expect(report.interruptedSessions).toEqual([active]);
+    expect(h.storage.approvals.get(approval.id)?.status).toBe('expired');
+    expect(snapshot(h, idle).pendingMessages?.[0]?.status).toBe('held');
+    expect([...h.events.recoverySnapshots()]).toEqual([]);
+  });
+
   it('未决审批结为 expired，活动会话修正为 idle，已接受未确认的发送标为 unknown 且不重发', async () => {
     const old = setup();
     // A：等审批。

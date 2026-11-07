@@ -55,6 +55,10 @@ export class EventBus {
     return () => this.#everything.delete(listener);
   }
 
+  hasSubscribers(sessionId: SessionId): boolean {
+    return this.#subscriptions.has(sessionId);
+  }
+
   publish(events: readonly WevirEvent[]): void {
     this.#queue.push(...events);
     if (this.#draining) return;

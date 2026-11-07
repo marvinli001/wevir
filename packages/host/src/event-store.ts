@@ -48,6 +48,8 @@ export const DELTA_WINDOW_MS = 60;
 /** 写入时投影比它的检查点多出这么多条事件就顺带更新检查点（Host 被强行结束时，下次启动每个会话最多重放这么多条）。 */
 export const CHECKPOINT_INTERVAL = 500;
 
+export const PROJECTION_CACHE_LIMIT = 32;
+
 /** 待写入的事件：信封里由事件库决定的 `seq`、`sessionId`、`ts` 之外的部分。 */
 export type EventInput = {
   [T in WevirEventType]: { type: T; source: EventSource; payload: WevirEventPayload<T> };
@@ -95,6 +97,8 @@ export interface EventStoreOptions {
   checkpointCode?: string | null;
   /** 默认 `CHECKPOINT_INTERVAL`。 */
   checkpointInterval?: number;
+  /** 无占用的历史投影的总缓存目标；运行或被订阅的投影不会为满足此目标而淘汰。 */
+  projectionCacheLimit?: number;
 }
 
 export class SessionNotFoundError extends Error {
@@ -139,6 +143,8 @@ export class EventStore {
   readonly #touchListeners = new Set<(sessionIds: readonly SessionId[]) => void>();
   readonly #checkpointCode: string | undefined;
   readonly #checkpointInterval: number;
+  readonly #projectionCacheLimit: number;
+  readonly #retained = new Set<SessionId>();
   /** 各会话库里的检查点到哪个 `seq`（没有、过期时为 0）；第一次读入会话时记下。 */
   readonly #checkpointSeq = new Map<SessionId, number>();
   #closed = false;
@@ -154,6 +160,7 @@ export class EventStore {
         ? projectionCode()
         : (options.checkpointCode ?? undefined);
     this.#checkpointInterval = options.checkpointInterval ?? CHECKPOINT_INTERVAL;
+    this.#projectionCacheLimit = options.projectionCacheLimit ?? PROJECTION_CACHE_LIMIT;
   }
 
   /**
@@ -286,6 +293,7 @@ export class EventStore {
       this.#buffers.delete(sessionId);
       this.#projections.delete(sessionId);
       this.#checkpointSeq.delete(sessionId);
+      this.#retained.delete(sessionId);
     }
     this.touch(sessionIds);
   }
@@ -314,7 +322,7 @@ export class EventStore {
   }
 
   /**
-   * 把内存里比检查点新的投影写成检查点，一个事务；返回写了几个。Host 启动后过一会儿调一次（启动对账把每个会话都读进来了），下次启动
+   * 把内存里比检查点新的投影写成检查点，一个事务；返回写了几个。Host 启动后过一会儿调一次，保存对账读入的历史，下次启动
    * 就不必从头重放；`close` 也调。
    */
   saveCheckpoints(): number {
@@ -382,7 +390,46 @@ export class EventStore {
     listener: EventListener,
   ): { lastSeq: number; unsubscribe: () => void } {
     const lastSeq = this.#storage.events.lastSeq(sessionId);
-    return { lastSeq, unsubscribe: this.#bus.subscribe(sessionId, listener, lastSeq) };
+    const unsubscribe = this.#bus.subscribe(sessionId, listener, lastSeq);
+    return {
+      lastSeq,
+      unsubscribe: () => {
+        unsubscribe();
+        this.#evict();
+      },
+    };
+  }
+
+  /** 引擎挂着时保留投影，断开后交回 LRU。 */
+  retain(sessionId: SessionId): () => void {
+    this.#retained.add(sessionId);
+    return () => {
+      this.#retained.delete(sessionId);
+      this.#evict();
+    };
+  }
+
+  /** 未知的恢复索引逐个补齐，不同时保留所有历史快照。 */
+  *recoverySnapshots(): IterableIterator<SessionSnapshot> {
+    const ids =
+      this.#checkpointCode === undefined
+        ? this.#storage.sessions
+            .list({
+              includeRemovedWorkspaces: true,
+              includeChildren: true,
+              includeSide: true,
+              archived: 'include',
+            })
+            .map((record) => record.id)
+        : this.#storage.projections.recoveryCandidates(this.#checkpointCode);
+    for (const id of ids) {
+      const sessionId = id as SessionId;
+      const record = this.#storage.sessions.get(sessionId);
+      if (!record) continue;
+      const projection = this.#projection(sessionId);
+      this.#putRecovery(sessionId, projection);
+      yield toSnapshot(record, projection);
+    }
   }
 
   /** `session.get` 的快照；会话不存在时为 `undefined`。 */
@@ -514,9 +561,10 @@ export class EventStore {
         events.push(event);
       }
       this.#storage.sessions.update(sessionId, toCachePatch(projection));
+      this.#putRecovery(sessionId, projection);
       return { events, projection };
     });
-    this.#projections.set(sessionId, projection);
+    this.#cache(sessionId, projection);
     this.#bus.publish(events);
   }
 
@@ -547,6 +595,7 @@ export class EventStore {
         events.push(event);
       }
       this.#storage.sessions.update(sessionId, toCachePatch(projection));
+      this.#putRecovery(sessionId, projection);
       const checkpoint =
         this.#checkpointCode !== undefined &&
         projection.lastSeq - (this.#checkpointSeq.get(sessionId) ?? 0) >= this.#checkpointInterval;
@@ -555,7 +604,6 @@ export class EventStore {
       return { events, projection, checkpoint };
     });
 
-    this.#projections.set(sessionId, projection);
     if (checkpoint) this.#checkpointSeq.set(sessionId, projection.lastSeq);
     if (buffer && deltas.length > 0) {
       buffer.parts = [];
@@ -563,6 +611,7 @@ export class EventStore {
       if (buffer.timer) clearTimeout(buffer.timer);
       buffer.timer = undefined;
     }
+    this.#cache(sessionId, projection);
     this.#bus.publish(events);
     return events.slice(deltas.length);
   }
@@ -650,8 +699,58 @@ export class EventStore {
 
   #projection(sessionId: SessionId): SessionProjection {
     const projection = this.#catchUp(sessionId);
-    this.#projections.set(sessionId, projection);
+    this.#cache(sessionId, projection);
     return projection;
+  }
+
+  #putRecovery(sessionId: SessionId, projection: SessionProjection): void {
+    if (this.#checkpointCode === undefined) return;
+    this.#storage.projections.putRecovery(sessionId, {
+      seq: projection.lastSeq,
+      code: this.#checkpointCode,
+      required:
+        projection.autoContinue !== undefined ||
+        projection.routing?.pending !== undefined ||
+        (projection.state === 'idle' && projection.subagent?.status === 'running') ||
+        [...projection.pendings.values()].some((pending) => pending.status === 'waiting') ||
+        [...projection.questions.values()].some((question) => question.status === 'pending'),
+    });
+  }
+
+  #cache(sessionId: SessionId, projection: SessionProjection): void {
+    this.#projections.delete(sessionId);
+    this.#projections.set(sessionId, projection);
+    this.#evict();
+  }
+
+  #evict(): void {
+    if (this.#closed) return;
+    for (const [sessionId, projection] of this.#projections) {
+      if (this.#projections.size <= this.#projectionCacheLimit) break;
+      if (
+        this.#retained.has(sessionId) ||
+        this.#bus.hasSubscribers(sessionId) ||
+        ['running', 'awaiting_approval', 'cancelling'].includes(projection.state) ||
+        (this.#buffers.get(sessionId)?.parts.length ?? 0) > 0
+      )
+        continue;
+      if (
+        this.#checkpointCode !== undefined &&
+        projection.lastSeq > (this.#checkpointSeq.get(sessionId) ?? 0)
+      ) {
+        try {
+          this.#putCheckpoint(sessionId, projection);
+        } catch (error) {
+          this.#onError(error);
+          break;
+        }
+      }
+      this.#projections.delete(sessionId);
+      this.#checkpointSeq.delete(sessionId);
+      const buffer = this.#buffers.get(sessionId);
+      if (buffer?.timer) clearTimeout(buffer.timer);
+      this.#buffers.delete(sessionId);
+    }
   }
 
   #assertOpen(): void {

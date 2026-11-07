@@ -571,6 +571,7 @@ interface TurnRuntime {
 /** 一次对引擎事件流的订阅。 */
 interface Attachment {
   readonly iterator: AsyncIterator<AgentEvent>;
+  readonly releaseProjection: () => void;
   /** Host 主动断开（关闭、引擎异常、dispose）。之后到达的事件丢弃，流结束也不算中断。 */
   detached: boolean;
 }
@@ -1248,15 +1249,8 @@ export class SessionManager {
       interruptedSessions: [],
       unknownSends: 0,
     };
-    const records = this.#storage.sessions.list({
-      includeRemovedWorkspaces: true,
-      includeChildren: true,
-      includeSide: true,
-    });
-    for (const record of records) {
-      const sessionId = record.id as SessionId;
-      const snapshot = this.#events.snapshot(sessionId);
-      if (!snapshot) continue;
+    for (const snapshot of this.#events.recoverySnapshots()) {
+      const { id: sessionId, parentSessionId } = snapshot.session;
       const { state, activeTurn, subagent } = snapshot.session;
       const active = ACTIVE_STATES.includes(state);
       if (!active && state === 'idle' && subagent?.status === 'running') {
@@ -1271,7 +1265,7 @@ export class SessionManager {
           ),
           stateChanged('idle', 'error', 'engine_exited'),
         ]);
-        this.#mirror(sessionId, record.parentSessionId as SessionId);
+        this.#mirror(sessionId, parentSessionId as SessionId);
         continue;
       }
       // 额度恢复后自动继续（0.119.0）：计时器只在内存里，按快照重新排；早已过了时刻的随即发出。
@@ -1314,8 +1308,8 @@ export class SessionManager {
       inputs.push(...holds);
       this.#events.appendMany(sessionId, inputs);
       report.expiredApprovals += snapshot.pendingApprovals.length;
-      if (record.parentSessionId !== undefined) {
-        this.#mirror(sessionId, record.parentSessionId as SessionId);
+      if (parentSessionId !== undefined) {
+        this.#mirror(sessionId, parentSessionId);
       }
     }
     report.unknownSends = this.#storage.sendReceipts.markAcceptedAsUnknown(isoNow());
@@ -5716,7 +5710,11 @@ export class SessionManager {
     // 新的引擎会话：下一回合前再跑一次 SessionStart。
     this.#hooks?.restarted(runtime.id);
     const iterator = this.#adapter.subscribe(runtime.engineSessionId)[Symbol.asyncIterator]();
-    const attachment: Attachment = { iterator, detached: false };
+    const attachment: Attachment = {
+      iterator,
+      detached: false,
+      releaseProjection: this.#events.retain(runtime.id),
+    };
     runtime.attachment = attachment;
     void this.#consume(runtime, attachment);
   }
@@ -5727,6 +5725,7 @@ export class SessionManager {
     if (!attachment) return;
     runtime.attachment = undefined;
     attachment.detached = true;
+    attachment.releaseProjection();
     attachment.iterator.return?.().catch(this.#onError);
   }
 

@@ -43,6 +43,58 @@ describe('EventStore.append / readSince', () => {
   const dataDir = useTempDir();
   const { open } = useStorages();
 
+  it('冷投影按 LRU 淘汰，先存检查点，再读取时与完整重放相同', () => {
+    const storage = open(dataDir());
+    const third = 'ses_third';
+    const store = new EventStore({ storage, projectionCacheLimit: 2 });
+    for (const id of [SES, SES2, third] as const) {
+      seedSession(storage, id);
+      store.append(id, ev.created());
+      if (id === SES2) store.snapshot(SES);
+    }
+    expect(storage.projections.get(SES2)?.seq).toBe(1);
+    expect(storage.projections.get(SES)).toBeUndefined();
+    const replayed = new EventStore({ storage, checkpointCode: null });
+    expect(store.snapshot(SES2)).toEqual(replayed.snapshot(SES2));
+    store.close();
+    replayed.close();
+  });
+
+  it('引擎与客户端订阅中的投影保留，退订后才能淘汰', () => {
+    const storage = open(dataDir());
+    const store = new EventStore({ storage, projectionCacheLimit: 1 });
+    const release = store.retain(SES);
+    const subscription = store.subscribe(SES2, () => {});
+    for (const id of [SES, SES2]) {
+      seedSession(storage, id);
+      store.append(id, ev.created());
+    }
+    expect(storage.projections.get(SES)).toBeUndefined();
+    expect(storage.projections.get(SES2)).toBeUndefined();
+    subscription.unsubscribe();
+    expect(storage.projections.get(SES2)?.seq).toBe(1);
+    release();
+    store.close();
+  });
+
+  it('恢复只读候选；缺失或作废的索引重建，静态归档历史不反复加载', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage, { checkpointCode: 'v1' });
+    storage.sessions.setArchived(SES, T0);
+    const iterate = vi.spyOn(storage.events, 'iterate');
+    const restored = new EventStore({ storage, checkpointCode: 'v1' });
+    expect([...restored.recoverySnapshots()]).toEqual([]);
+    expect(iterate).not.toHaveBeenCalled();
+    storage.db.exec('DELETE FROM session_recovery');
+    expect([...restored.recoverySnapshots()].map((snapshot) => snapshot.session.id)).toEqual([SES]);
+    expect([...restored.recoverySnapshots()]).toEqual([]);
+    expect([...new EventStore({ storage, checkpointCode: 'v2' }).recoverySnapshots()]).toHaveLength(
+      1,
+    );
+    store.close();
+    restored.close();
+  });
+
   it('分配 seq 并返回完整事件；readSince 按 seq 升序读出同样的事件', () => {
     const storage = open(dataDir());
     seedSession(storage);
