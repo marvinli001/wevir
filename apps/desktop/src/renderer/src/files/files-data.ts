@@ -96,7 +96,7 @@ function useHostRead<T>(
 }
 
 /** 留在内存里的文件内容最多这么多字符（文本与图片的 base64 合计）。 */
-const FILES_MAX_CHARS = 32 * 1024 * 1024;
+const FILES_MAX_CHARS = 8 * 1024 * 1024;
 
 const directories = new LruMap<string, readonly WorkspaceEntry[]>(500);
 const files = new LruMap<string, WorkspaceReadFileResult>(64, {

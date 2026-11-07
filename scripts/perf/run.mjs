@@ -34,6 +34,7 @@ const { values } = parseArgs({
     'software-gpu': { type: 'boolean', default: false },
     'scroll-transcript': { type: 'boolean', default: false },
     'browser-viewport': { type: 'boolean', default: false },
+    'code-blocks': { type: 'boolean', default: false },
     help: { type: 'boolean' },
   },
 });
@@ -383,6 +384,31 @@ try {
     throw new Error('Software GPU effects were not disabled');
   await cdp.send('Emulation.setEmulatedMedia', { features: [] });
   await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+  if (values['code-blocks']) {
+    const code = await createSession();
+    await cdp.evaluate(
+      `location.hash = ${JSON.stringify(`#/workspace/${WORKSPACE}/session/${code.id}`)}`,
+    );
+    await sleep(700);
+    await turn(code, 'perf:code');
+    await until(
+      () => cdp.evaluate("document.querySelector('pre code.hljs') !== null"),
+      'chat code highlighting',
+    );
+    report.scenarios.code = await cdp.evaluate(`(() => {
+      const blocks = [...document.querySelectorAll('pre code')];
+      return blocks.map(block => ({length: block.textContent.length, highlighted: block.classList.contains('hljs'), scriptNodes: block.querySelectorAll('script').length}));
+    })()`);
+    const [small, large] = report.scenarios.code;
+    if (
+      !small?.highlighted ||
+      !large ||
+      large.highlighted ||
+      large.length <= 20_000 ||
+      small.scriptNodes
+    )
+      throw new Error('Chat code highlighting limits failed');
+  }
   if (values['scroll-transcript']) {
     await cdp.evaluate(
       `location.hash = ${JSON.stringify(`#/workspace/${WORKSPACE}/session/${SCROLL_SESSION}`)}`,

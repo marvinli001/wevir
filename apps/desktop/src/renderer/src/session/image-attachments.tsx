@@ -11,25 +11,31 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchProviders } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { LruMap } from '@/lib/lru';
 import { base64Of, modelAcceptsImages } from './composer-images';
 import { RemoveAttachmentButton } from './pasted-text';
 
-/** 读回来的图片（data URL），按 ID 缓存；最多留这么多张，先进先出。 */
+/** data URL 的 UTF-16 字节预算；正在显示的图片仍由组件持有。 */
 const CACHE_LIMIT = 40;
-const cache = new Map<ImageId, Promise<string>>();
+const CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const cache = new LruMap<ImageId, { data: Promise<string>; bytes: number }>(CACHE_LIMIT, {
+  maxWeight: CACHE_MAX_BYTES,
+  weigh: (entry) => entry.bytes,
+});
 
 function remember(imageId: ImageId, data: Promise<string>): Promise<string> {
-  cache.delete(imageId);
-  cache.set(imageId, data);
-  while (cache.size > CACHE_LIMIT) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) break;
-    cache.delete(oldest);
-  }
-  // 读失败的不留着，下次再读。
-  data.catch(() => {
-    if (cache.get(imageId) === data) cache.delete(imageId);
-  });
+  cache.set(imageId, { data, bytes: 0 });
+  data.then(
+    (src) => {
+      if (cache.get(imageId)?.data !== data) return;
+      const bytes = src.length * 2;
+      if (bytes > CACHE_MAX_BYTES) cache.delete(imageId);
+      else cache.set(imageId, { data, bytes });
+    },
+    () => {
+      if (cache.get(imageId)?.data === data) cache.delete(imageId);
+    },
+  );
   return data;
 }
 
@@ -74,7 +80,7 @@ export async function uploadImage(
 /** 按引用读回一张图片（`image.read`，大的分几段）。 */
 export function readImage(client: WevirClient, part: UserImagePart): Promise<string> {
   const cached = cache.get(part.imageId);
-  if (cached) return cached;
+  if (cached) return cached.data;
   const load = async () => {
     const first = await client.request('image.read', { imageId: part.imageId });
     let binary = atob(first.data);

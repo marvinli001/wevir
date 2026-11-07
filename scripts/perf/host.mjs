@@ -41,6 +41,11 @@ class PerfEcho extends EchoAdapter {
       } else if (scene === 'perf:reply' && event.type === 'assistant.message') {
         yield { ...event, text: reply };
         reply = undefined;
+      } else if (scene === 'perf:code' && event.type === 'assistant.message') {
+        yield {
+          ...event,
+          text: `\`\`\`javascript\nconst small = "<script>safe</script>";\n\`\`\`\n\n\`\`\`javascript\n${'const large = 1;\n'.repeat(1300)}\`\`\``,
+        };
       } else yield event;
     }
   }

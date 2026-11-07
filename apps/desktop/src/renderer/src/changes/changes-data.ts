@@ -11,6 +11,7 @@ import type {
   WorkspaceId,
 } from '@wevir/protocol';
 import { useCallback, useEffect, useState } from 'react';
+import { sameFields } from '@/data/transcript-selection';
 import { useHostConnection } from '@/host/host-connection';
 import { LruMap } from '@/lib/lru';
 import { everyWhileVisible } from '@/lib/visible-interval';
@@ -30,7 +31,7 @@ export function useMultiFolderChangesSupported(): boolean {
 }
 
 /** 最近一次读到的，换范围、换会话回来时先显示它（最近用过的一批；patch 合计最多这么多字符）。 */
-const DIFF_MAX_CHARS = 32 * 1024 * 1024;
+const DIFF_MAX_CHARS = 8 * 1024 * 1024;
 const lastDiff = new LruMap<string, WorkspaceDiffResult>(32, {
   maxWeight: DIFF_MAX_CHARS,
   weigh: (diff) => diff.patch?.length ?? 0,
@@ -82,8 +83,8 @@ export function useWorkspaceDiff(
     const settled = source.kind === 'turn' && lastDiff.get(key)?.head !== undefined;
     if (settled && manual === 0) return;
     let stopped = false;
-    const read = () => {
-      setLoading(true);
+    const read = (background = false) => {
+      if (!background) setLoading(true);
       client
         .request('workspace.diff', {
           workspaceId,
@@ -92,8 +93,26 @@ export function useWorkspaceDiff(
           ...(folder !== undefined && { folder }),
         })
         .then((result) => {
-          lastDiff.set(key, result);
-          if (!stopped) setState({ key, result });
+          const previous = lastDiff.get(key);
+          const sameFiles =
+            previous?.files === result.files ||
+            (previous?.files !== undefined &&
+              result.files !== undefined &&
+              previous.files.length === result.files.length &&
+              previous.files.every((file, index) => sameFields(file, result.files?.[index])));
+          const value =
+            previous &&
+            sameFiles &&
+            sameFields({ ...previous, files: undefined }, { ...result, files: undefined })
+              ? previous
+              : result;
+          lastDiff.set(key, value);
+          if (!stopped)
+            setState((current) =>
+              current.key === key && current.result === value && current.error === undefined
+                ? current
+                : { key, result: value },
+            );
         })
         .catch((error: unknown) => {
           if (!stopped) {
@@ -101,17 +120,18 @@ export function useWorkspaceDiff(
           }
         })
         .finally(() => {
-          if (!stopped) setLoading(false);
+          if (!stopped && !background) setLoading(false);
         });
     };
     read();
     const watch = !(source.kind === 'turn' && !live);
-    const stopTimer = live ? everyWhileVisible(read, LIVE_REFRESH_MS) : undefined;
-    if (watch) window.addEventListener('focus', read);
+    const stopTimer = live ? everyWhileVisible(() => read(true), LIVE_REFRESH_MS) : undefined;
+    const onFocus = () => read();
+    if (watch) window.addEventListener('focus', onFocus);
     return () => {
       stopped = true;
       stopTimer?.();
-      window.removeEventListener('focus', read);
+      window.removeEventListener('focus', onFocus);
     };
   }, [client, supported, workspaceId, sessionId, key, folder, live, refreshKey, manual]);
 

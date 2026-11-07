@@ -1,12 +1,18 @@
 import type { HostHello, WevirClient } from '@wevir/client-sdk';
-import { PERMISSIONS, PROTOCOL_VERSION, type ProviderProfile } from '@wevir/protocol';
+import {
+  type ImageId,
+  PERMISSIONS,
+  PROTOCOL_VERSION,
+  type ProviderProfile,
+  type UserImagePart,
+} from '@wevir/protocol';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkbenchProviders } from '@/data/workbench-data';
 import { type HostConnection, useHostConnection } from '@/host/host-connection';
 import { splitFiles } from './composer-images';
-import { useAcceptsImages } from './image-attachments';
+import { readImage, useAcceptsImages } from './image-attachments';
 
 vi.mock('@/data/workbench-data', () => ({ useWorkbenchProviders: vi.fn() }));
 vi.mock('@/host/host-connection', () => ({ useHostConnection: vi.fn() }));
@@ -64,6 +70,25 @@ function acceptedFiles(selected: typeof choice | undefined = choice) {
 }
 
 describe('输入框图片能力', () => {
+  it('共享正在读取的图片，按 data URL 字节预算淘汰缓存', async () => {
+    const data = 'A'.repeat(4 * 1024 * 1024);
+    const request = vi.fn(async () => ({ mimeType: 'image/png', size: 3 * 1024 * 1024, data }));
+    const client = { request } as unknown as WevirClient;
+    const part = (id: string): UserImagePart => ({
+      type: 'image',
+      imageId: id as ImageId,
+      mimeType: 'image/png',
+      size: 3 * 1024 * 1024,
+    });
+    const first = readImage(client, part('img_budget1'));
+    expect(readImage(client, part('img_budget1'))).toBe(first);
+    await first;
+    const second = readImage(client, part('img_budget2'));
+    await second;
+    expect(readImage(client, part('img_budget2'))).toBe(second);
+    await readImage(client, part('img_budget1'));
+    expect(request).toHaveBeenCalledTimes(3);
+  });
   it('短暂重连期间粘贴的 PNG 截图仍走图片上传', () => {
     expect(acceptedFiles()).toHaveLength(1);
     connection.view = { status: 'reconnecting', attempt: 1 };

@@ -14,7 +14,7 @@ function loadHighlighter(): Promise<Highlighter> {
 
 const HIGHLIGHTED = 'data-highlighted';
 /** 超过这个长度的代码块不高亮（highlight.js 在主线程上同步执行）。 */
-const MAX_HIGHLIGHT_LENGTH = 100_000;
+const MAX_HIGHLIGHT_LENGTH = 20_000;
 
 /** 给 `root` 里还没高亮、标了已知语言的代码块上色。highlight.js 的输出已转义，可以直接写回。 */
 export async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
@@ -23,7 +23,7 @@ export async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
   ];
   if (blocks.length === 0) return;
   const hljs = await loadHighlighter();
-  for (const code of blocks) {
+  for (const [index, code] of blocks.entries()) {
     if (!code.isConnected || code.hasAttribute(HIGHLIGHTED)) continue;
     code.setAttribute(HIGHLIGHTED, '');
     const language = code.className.replace(/^language-/, '');
@@ -31,6 +31,7 @@ export async function highlightCodeBlocks(root: HTMLElement): Promise<void> {
     if (!hljs.getLanguage(language) || text.length > MAX_HIGHLIGHT_LENGTH) continue;
     code.innerHTML = hljs.highlight(text, { language, ignoreIllegals: true }).value;
     code.classList.add('hljs');
+    if (index < blocks.length - 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 }
 

@@ -1,4 +1,4 @@
-import type { HostFeatures, SessionId, WorkspaceId } from '@wevir/protocol';
+import type { HostFeatures, SessionId, WorkspaceDiffResult, WorkspaceId } from '@wevir/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceGitFolders } from '@/data/workspace-git';
 import { useWorkspaceDiff } from './changes-data';
@@ -10,6 +10,8 @@ const hooks = vi.hoisted(() => ({
   cursor: 0,
   values: [] as unknown[],
   effects: new Map<number, { deps: readonly unknown[]; cleanup: undefined | (() => void) }>(),
+  polls: [] as Array<() => void>,
+  stateChanges: 0,
 }));
 const host = vi.hoisted(() => ({
   features: {} as HostFeatures,
@@ -25,7 +27,9 @@ vi.mock('react', async (original) => ({
     return [
       hooks.values[index],
       (next: unknown) => {
-        hooks.values[index] = typeof next === 'function' ? next(hooks.values[index]) : next;
+        const value = typeof next === 'function' ? next(hooks.values[index]) : next;
+        if (!Object.is(value, hooks.values[index])) hooks.stateChanges++;
+        hooks.values[index] = value;
       },
     ];
   },
@@ -52,7 +56,12 @@ vi.mock('@/host/host-connection', () => {
     }),
   };
 });
-vi.mock('@/lib/visible-interval', () => ({ everyWhileVisible: () => () => {} }));
+vi.mock('@/lib/visible-interval', () => ({
+  everyWhileVisible: (tick: () => void) => {
+    hooks.polls.push(tick);
+    return () => {};
+  },
+}));
 
 const workspaceId = 'ws_folders' as WorkspaceId;
 const sessionId = 'ses_folders' as SessionId;
@@ -77,6 +86,8 @@ async function settle() {
 beforeEach(() => {
   hooks.values = [];
   hooks.effects.clear();
+  hooks.polls = [];
+  hooks.stateChanges = 0;
   host.features = {
     workspace_git: true,
     workspace_diff: true,
@@ -99,6 +110,57 @@ afterEach(() => {
 });
 
 describe('多目录数据', () => {
+  it('相同 diff 的后台轮询不更新状态，patch 相同时仍保留文件元数据变化', async () => {
+    let result: WorkspaceDiffResult = {
+      repo: true,
+      patch: 'same',
+      files: [{ path: 'a.ts', status: 'modified', added: 1 }],
+    };
+    host.request.mockImplementation(async () => structuredClone(result));
+    const read = () =>
+      useWorkspaceDiff(
+        workspaceId,
+        'ses_polling' as SessionId,
+        { kind: 'uncommitted' },
+        { refreshKey: 0, live: true },
+      );
+    render(read);
+    await settle();
+    await settle();
+    const first = render(read).result;
+    hooks.stateChanges = 0;
+    for (let index = 0; index < 20; index++) {
+      hooks.polls[0]?.();
+      await settle();
+      await settle();
+    }
+    expect(hooks.stateChanges).toBe(0);
+    expect(render(read).result).toBe(first);
+    result = { ...result, files: [{ path: 'a.ts', status: 'modified', added: 2 }] };
+    hooks.polls[0]?.();
+    await settle();
+    await settle();
+    expect(render(read).result?.files?.[0]?.added).toBe(2);
+    result = { repo: false };
+    hooks.polls[0]?.();
+    await settle();
+    await settle();
+    hooks.stateChanges = 0;
+    hooks.polls[0]?.();
+    await settle();
+    await settle();
+    expect(hooks.stateChanges).toBe(0);
+    host.request.mockRejectedValueOnce(new Error('offline'));
+    hooks.polls[0]?.();
+    await settle();
+    await settle();
+    expect(render(read).error).toBe('offline');
+    hooks.polls[0]?.();
+    await settle();
+    await settle();
+    expect(render(read).error).toBeUndefined();
+    expect(render(read).result).toEqual({ repo: false });
+  });
   it('并行读取各目录，换会话时不闪现另一会话的仓库状态', async () => {
     let owner = sessionId;
     const read = () =>
