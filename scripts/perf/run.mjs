@@ -13,7 +13,14 @@ import { parseArgs, promisify } from 'node:util';
 import { webSocketTransport } from '../../packages/client-sdk/dist/index.js';
 import { connectLocalHost } from '../../packages/client-sdk/dist/node.js';
 import { connectCdp } from './cdp.mjs';
-import { DELETE_SESSION, PROVIDER, seedLibrary, WORKSPACE } from './fixture.mjs';
+import {
+  DELETE_SESSION,
+  PROVIDER,
+  SCROLL_SESSION,
+  seedLibrary,
+  seedScrollSession,
+  WORKSPACE,
+} from './fixture.mjs';
 import { installCommitProbe } from './metrics.mjs';
 import { processTree, readProcesses } from './process-tree.mjs';
 
@@ -23,6 +30,7 @@ const { values } = parseArgs({
     'idle-seconds': { type: 'string', default: '300' },
     'library-mib': { type: 'string', default: '976' },
     'software-gpu': { type: 'boolean', default: false },
+    'scroll-transcript': { type: 'boolean', default: false },
     help: { type: 'boolean' },
   },
 });
@@ -290,6 +298,7 @@ try {
   await stop();
   console.log(`Seeding ${libraryMiB} MiB of synthetic event payloads`);
   report.library = await seedLibrary(home, workspace, libraryMiB);
+  if (values['scroll-transcript']) report.library.scroll = seedScrollSession(home, workspace);
   report.library.database = await databaseSize();
   await launch('loaded-library');
   await cdp.send('Page.enable');
@@ -354,6 +363,60 @@ try {
     throw new Error('Software GPU effects were not disabled');
   await cdp.send('Emulation.setEmulatedMedia', { features: [] });
   await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+  if (values['scroll-transcript']) {
+    await cdp.evaluate(
+      `location.hash = ${JSON.stringify(`#/workspace/${WORKSPACE}/session/${SCROLL_SESSION}`)}`,
+    );
+    await until(
+      () => cdp.evaluate("document.querySelectorAll('.transcript-item').length >= 30"),
+      'long transcript',
+    );
+    await sleep(700);
+    report.scenarios.scroll = await cdp.evaluate(`(async () => {
+      const container = document.querySelector('.transcript-scroll');
+      const read = () => {
+        const items = container.querySelectorAll('.transcript-item');
+        return {count: items.length, start: items[0]?.dataset.messageId, end: items[items.length - 1]?.dataset.messageId};
+      };
+      const initial = read();
+      const pages = [];
+      const anchorDrift = [];
+      for (let index = 0; index < 8; index++) {
+        container.dispatchEvent(new WheelEvent('wheel', {deltaY: -500, bubbles: true}));
+        container.scrollTop = 0;
+        const anchor = [...container.querySelectorAll('.transcript-item')].find(item => item.getBoundingClientRect().bottom > container.getBoundingClientRect().top);
+        const offset = anchor?.getBoundingClientRect().top;
+        const earlier = container.querySelector('[data-action="show-earlier"]') ?? container.querySelector('[data-render-start] > div:first-child > button');
+        earlier?.click();
+        await new Promise(resolve => setTimeout(resolve, 180));
+        if (earlier && anchor?.isConnected) anchorDrift.push(Math.abs(anchor.getBoundingClientRect().top - offset));
+        pages.push(read());
+      }
+      const beforeLater = read();
+      let afterLater;
+      if (container.querySelector('[data-render-later]')) {
+        container.dispatchEvent(new WheelEvent('wheel', {deltaY: 500, bubbles: true}));
+        container.scrollTop = container.scrollHeight;
+        await new Promise(resolve => setTimeout(resolve, 400));
+        afterLater = read();
+      }
+      document.querySelector('[data-action="jump-to-latest"]').click();
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return {initial, pages, anchorDrift, beforeLater, afterLater, latest: read(), maxBlocks: Math.max(...pages.map(page => page.count))};
+    })()`);
+    const scroll = report.scenarios.scroll;
+    if (!scroll.pages.some((page) => page.start !== scroll.initial.start))
+      throw new Error('Transcript history did not expand');
+    if (scroll.latest.end !== scroll.initial.end)
+      throw new Error('Transcript window did not return to latest');
+    if (
+      scroll.afterLater &&
+      (scroll.afterLater.start === scroll.beforeLater.start ||
+        scroll.maxBlocks > 60 ||
+        scroll.anchorDrift.some((drift) => drift > 2))
+    )
+      throw new Error('Transcript window did not stay bounded or advance');
+  }
   await sample('before-delete');
   await sleep(50);
   const startedAt = Date.now();

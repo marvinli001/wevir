@@ -5,6 +5,58 @@ import { openStorage } from '../../packages/storage/dist/index.js';
 export const PROVIDER = 'perf-echo';
 export const WORKSPACE = 'ws_perf';
 export const DELETE_SESSION = 'ses_perf0';
+export const SCROLL_SESSION = 'ses_perfScroll';
+
+export function seedScrollSession(home, workspace) {
+  const storage = openStorage({ dataDir: home });
+  const events = new EventStore({ storage });
+  const at = '2026-01-01T00:00:00.000Z';
+  try {
+    storage.sessions.insert({
+      id: SCROLL_SESSION,
+      workspaceId: WORKSPACE,
+      cwd: workspace,
+      engine: 'echo',
+      engineSessionId: 'scroll-seed',
+      providerId: PROVIDER,
+      modelId: 'echo',
+      title: 'Scroll fixture',
+      titleSource: 'user',
+      state: 'idle',
+      lastSeq: 0,
+      createdAt: at,
+      updatedAt: at,
+    });
+    const append = (type, payload) =>
+      events.append(SCROLL_SESSION, { type, payload, source: 'host', ts: at });
+    append('session.created', {
+      workspaceId: WORKSPACE,
+      cwd: workspace,
+      providerId: PROVIDER,
+      modelId: 'echo',
+    });
+    for (let index = 0; index < 400; index++) {
+      const turnId = `trn_scroll${index}`;
+      append('user.message', {
+        turnId,
+        content: [{ type: 'text', text: `Question ${index}` }],
+        sentBy: { clientKind: 'cli', clientId: 'perf', deviceId: 'perf' },
+      });
+      append('turn.started', { turnId });
+      append('assistant.message', {
+        turnId,
+        messageId: `reply${index}`,
+        text: `## Answer ${index}\n\nA short paragraph for testing bounded history rendering.`,
+        replaces: [],
+      });
+      append('turn.finished', { turnId, outcome: 'completed', durationMs: 1 });
+    }
+    return { sessionId: SCROLL_SESSION, turns: 400, messages: 800 };
+  } finally {
+    events.close();
+    storage.close();
+  }
+}
 
 export async function seedLibrary(home, workspace, libraryMiB) {
   await mkdir(home, { recursive: true, mode: 0o700 });

@@ -659,6 +659,12 @@ export class TranscriptProjection {
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
+  #messageListDirty = true;
+  readonly #changedMessages = new Set<MutableMessage>();
+  readonly #messageIndices = new Map<MutableMessage, number>();
+  #chapterCandidates: TranscriptChapter[] = [];
+  #chapters: readonly TranscriptChapter[] = NO_CHAPTERS;
+  #chaptersDirty = true;
 
   constructor(options: TranscriptProjectionOptions = {}) {
     this.#includeRaw = options.includeRaw ?? false;
@@ -671,6 +677,12 @@ export class TranscriptProjection {
   /** 丢掉全部投影（订阅 `reset`：之后从 seq 1 重新回放）。 */
   reset(): void {
     this.#messages = [];
+    this.#messageListDirty = true;
+    this.#changedMessages.clear();
+    this.#messageIndices.clear();
+    this.#chapterCandidates = [];
+    this.#chapters = NO_CHAPTERS;
+    this.#chaptersDirty = true;
     this.#turns.clear();
     this.#tools.clear();
     this.#approvals.clear();
@@ -941,6 +953,8 @@ export class TranscriptProjection {
       case 'turn.undone': {
         const { turnId } = event.payload;
         this.#hidden.add(turnId);
+        this.#messageListDirty = true;
+        this.#chaptersDirty = true;
         this.#redo = [...this.#redo.filter((id) => id !== turnId), turnId];
         if (this.#latestPlan?.turnId === turnId) this.#latestPlan = undefined;
         return;
@@ -948,6 +962,8 @@ export class TranscriptProjection {
       case 'turn.redone': {
         const { turnId } = event.payload;
         this.#hidden.delete(turnId);
+        this.#messageListDirty = true;
+        this.#chaptersDirty = true;
         this.#redo = this.#redo.filter((id) => id !== turnId);
         return;
       }
@@ -1067,7 +1083,17 @@ export class TranscriptProjection {
       }
       case 'chapter.marked': {
         const { title, summary } = event.payload;
-        this.#target(event.payload.turnId, event.seq).parts.push({
+        const message = this.#target(event.payload.turnId, event.seq);
+        this.#chapterCandidates.push({
+          key: `h:${event.seq}`,
+          seq: event.seq,
+          title,
+          ...(summary !== undefined && { summary }),
+          messageId: message.id,
+          ...(message.turnId !== undefined && { turnId: message.turnId }),
+        });
+        this.#chaptersDirty = true;
+        message.parts.push({
           type: 'chapter',
           key: `h:${event.seq}`,
           seq: event.seq,
@@ -1105,13 +1131,45 @@ export class TranscriptProjection {
   /** 当前投影。自上次调用以来没有新事件时返回同一个对象。 */
   snapshot(): Transcript {
     if (!this.#dirty && this.#snapshot) return this.#snapshot;
-    const messages = this.#messages
-      .filter((message) => message.turnId === undefined || !this.#hidden.has(message.turnId))
-      .map((message) => {
-        message.snapshot ??= freeze(message);
-        return message.snapshot;
-      });
     const previous = this.#snapshot;
+    let messages = previous?.messages ?? [];
+    if (this.#messageListDirty || !previous) {
+      this.#messageIndices.clear();
+      messages = this.#messages
+        .filter((message) => message.turnId === undefined || !this.#hidden.has(message.turnId))
+        .map((message, index) => {
+          this.#messageIndices.set(message, index);
+          message.snapshot ??= freeze(message);
+          return message.snapshot;
+        });
+    } else {
+      let changed: ChatMessage[] | undefined;
+      for (const message of this.#changedMessages) {
+        const index = this.#messageIndices.get(message);
+        if (index === undefined) continue;
+        changed ??= [...messages];
+        message.snapshot ??= freeze(message);
+        changed[index] = message.snapshot;
+      }
+      messages = changed ?? messages;
+    }
+    this.#messageListDirty = false;
+    this.#changedMessages.clear();
+    if (this.#chaptersDirty) {
+      const existing = new Map(this.#messages.map((message, index) => [message.id, index]));
+      this.#chapterCandidates = this.#chapterCandidates.filter((chapter) =>
+        existing.has(chapter.messageId),
+      );
+      const visible = this.#chapterCandidates.filter(
+        (chapter) => chapter.turnId === undefined || !this.#hidden.has(chapter.turnId),
+      );
+      visible.sort(
+        (a, b) =>
+          (existing.get(a.messageId) ?? 0) - (existing.get(b.messageId) ?? 0) || a.seq - b.seq,
+      );
+      this.#chapters = visible.length === 0 ? NO_CHAPTERS : Object.freeze(visible);
+      this.#chaptersDirty = false;
+    }
     let approvals = previous?.approvals ?? EMPTY_APPROVALS;
     let pendingApprovals = previous?.pendingApprovals ?? [];
     if (this.#approvalsDirty || !previous) {
@@ -1159,7 +1217,7 @@ export class TranscriptProjection {
               runs: [...this.#runs.values()],
               ...(this.#repair !== undefined && { repair: this.#repair }),
             },
-      chapters: chaptersOf(messages, previous?.chapters),
+      chapters: this.#chapters,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -1171,6 +1229,7 @@ export class TranscriptProjection {
   #push(message: MutableMessage): MutableMessage {
     if (message.turnId !== undefined) message.engine = this.#turn(message.turnId).engine;
     this.#messages.push(message);
+    this.#messageListDirty = true;
     return message;
   }
 
@@ -1180,12 +1239,14 @@ export class TranscriptProjection {
       if (segment.wrapUp === undefined) continue;
       segment.wrapUp = undefined;
       segment.snapshot = undefined;
+      this.#changedMessages.add(segment);
       this.#dirty = true;
     }
   }
 
   #touch(message: MutableMessage, seq: number): MutableMessage {
     message.snapshot = undefined;
+    this.#changedMessages.add(message);
     message.lastSeq = seq;
     return message;
   }
@@ -1200,6 +1261,7 @@ export class TranscriptProjection {
     // 回合结束后才到、只装着这一个部件的系统消息整条去掉，不留一块空的。
     if (entry.message.role === 'system' && entry.message.parts.length === 0) {
       this.#messages = this.#messages.filter((message) => message !== entry.message);
+      this.#messageListDirty = true;
     }
   }
 
@@ -1440,6 +1502,8 @@ export class TranscriptProjection {
     const removed = new Set(this.#messages.filter((message) => message.turnId === turnId));
     if (removed.size === 0) return;
     this.#messages = this.#messages.filter((message) => !removed.has(message));
+    this.#messageListDirty = true;
+    this.#chaptersDirty = true;
     this.#turns.delete(turnId);
     for (const [toolCallId, message] of this.#tools) {
       if (removed.has(message)) this.#tools.delete(toolCallId);
@@ -1459,6 +1523,8 @@ export class TranscriptProjection {
     if (this.#latestPlan?.turnId === turnId) this.#latestPlan = undefined;
     // 撤销的回合被撤回（编辑重发退掉了它）：不再能重做。
     this.#hidden.delete(turnId);
+    this.#messageListDirty = true;
+    this.#chaptersDirty = true;
     this.#redo = this.#redo.filter((id) => id !== turnId);
   }
 
@@ -2082,36 +2148,3 @@ function freeze(message: MutableMessage): ChatMessage {
 }
 
 const NO_CHAPTERS: readonly TranscriptChapter[] = [];
-
-/** 看得见的消息里的章节；与上一份相同（同样的章节在同样的消息里）时返回上一份。 */
-function chaptersOf(
-  messages: readonly ChatMessage[],
-  previous: readonly TranscriptChapter[] | undefined,
-): readonly TranscriptChapter[] {
-  const chapters: TranscriptChapter[] = [];
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type !== 'chapter') continue;
-      chapters.push({
-        key: part.key,
-        seq: part.seq,
-        title: part.title,
-        ...(part.summary !== undefined && { summary: part.summary }),
-        messageId: message.id,
-        ...(message.role !== 'system' && { turnId: message.turnId }),
-      });
-    }
-  }
-  if (chapters.length === 0) return NO_CHAPTERS;
-  if (
-    previous !== undefined &&
-    previous.length === chapters.length &&
-    previous.every(
-      (chapter, index) =>
-        chapter.key === chapters[index]?.key && chapter.messageId === chapters[index]?.messageId,
-    )
-  ) {
-    return previous;
-  }
-  return Object.freeze(chapters);
-}

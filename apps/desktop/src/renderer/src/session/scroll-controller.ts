@@ -42,7 +42,7 @@ export function jumpVisible(sticky: boolean, distanceFromBottom: number): boolea
 interface Controller {
   jumpToLatest(behavior: ScrollBehavior): void;
   holdPosition(): void;
-  release(): void;
+  release(preservePosition?: boolean): void;
 }
 
 export interface StickToBottom {
@@ -60,8 +60,9 @@ export interface StickToBottom {
   /**
    * 转为手动模式、不再吸回底部（跳到某个事件的位置：任务回顾的出处 0.76.0、搜索结果 0.77.0）；之后非手势的滚动（滚动锚定、
    * 程序滚动）到了底部也不回到贴底，直到用户自己滚动或跳到最新。
+   * 翻页时传 preservePosition，按可见消息锚点校正裁剪前后的位置。
    */
-  release(): void;
+  release(preservePosition?: boolean): void;
 }
 
 /**
@@ -72,6 +73,7 @@ export function useStickToBottom(
   containerRef: RefObject<HTMLElement | null>,
   contentRef: RefObject<HTMLElement | null>,
   resetKey: string,
+  hasLaterRef?: RefObject<boolean>,
 ): StickToBottom {
   const [sticky, setSticky] = useState(() => !scrollPositions.has(resetKey));
   const [showJump, setShowJump] = useState(false);
@@ -110,10 +112,27 @@ export function useStickToBottom(
       if (Math.abs(container.scrollTop - before) > 1) restoreMovedAt = performance.now();
       lastKnownTop = container.scrollTop;
     };
+    const startRestoring = () => {
+      container.style.overflowAnchor = 'none';
+      restoreMovedAt = performance.now();
+      const startedAt = restoreMovedAt;
+      const step = () => {
+        restore();
+        updateJump();
+        const now = performance.now();
+        if (now - startedAt < RESTORE_MAX_MS && now - restoreMovedAt < RESTORE_SETTLE_MS) {
+          restoreFrame = requestAnimationFrame(step);
+        } else {
+          stopRestoring();
+        }
+      };
+      restoreFrame = requestAnimationFrame(step);
+    };
 
     const distance = () => container.scrollHeight - container.scrollTop - container.clientHeight;
     const updateJump = () => {
-      const next = jumpVisible(mode === 'sticky', distance());
+      const next =
+        mode !== 'sticky' && (hasLaterRef?.current === true || jumpVisible(false, distance()));
       if (next === jumpShown) return;
       jumpShown = next;
       setShowJump(next);
@@ -126,11 +145,12 @@ export function useStickToBottom(
       updateJump();
     };
     const hasGesture = () => pointerDown || performance.now() - lastGestureAt < GESTURE_WINDOW_MS;
-    const atBottom = () => distance() <= BOTTOM_GAP_PX;
+    const atBottom = () => !hasLaterRef?.current && distance() <= BOTTOM_GAP_PX;
     const jumpTo = (behavior: ScrollBehavior) => {
       stopRestoring();
       lastGestureAt = Number.NEGATIVE_INFINITY;
       parked = false;
+      if (hasLaterRef) hasLaterRef.current = false;
       setMode('sticky');
       smoothJump = behavior === 'smooth';
       container.scrollTo({ top: container.scrollHeight, behavior });
@@ -140,7 +160,8 @@ export function useStickToBottom(
     const settleGesture = () => {
       window.clearTimeout(settleTimer);
       settleTimer = window.setTimeout(() => {
-        if (pointerDown || mode !== 'manual' || !shouldResnap(distance())) return;
+        if (pointerDown || hasLaterRef?.current || mode !== 'manual' || !shouldResnap(distance()))
+          return;
         const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         jumpTo(reduced ? 'auto' : 'smooth');
       }, GESTURE_SETTLE_MS);
@@ -232,18 +253,7 @@ export function useStickToBottom(
       restore();
       updateJump();
       // content-visibility 的估高在挂载后还会变，等可见内容的排版稳定再停止校正。
-      const startedAt = performance.now();
-      const step = () => {
-        restore();
-        updateJump();
-        const now = performance.now();
-        if (now - startedAt < RESTORE_MAX_MS && now - restoreMovedAt < RESTORE_SETTLE_MS) {
-          restoreFrame = requestAnimationFrame(step);
-        } else {
-          stopRestoring();
-        }
-      };
-      restoreFrame = requestAnimationFrame(step);
+      startRestoring();
     } else {
       toBottom();
     }
@@ -271,7 +281,7 @@ export function useStickToBottom(
         window.clearTimeout(heldTimer);
         heldTimer = window.setTimeout(settleHold, 200);
       },
-      release() {
+      release(preservePosition) {
         stopRestoring();
         smoothJump = false;
         parked = true;
@@ -279,6 +289,10 @@ export function useStickToBottom(
         window.clearTimeout(heldTimer);
         window.clearTimeout(settleTimer);
         setMode('manual');
+        if (preservePosition) {
+          restoring = captureScrollPosition(container, content);
+          startRestoring();
+        }
       },
     };
 
@@ -302,7 +316,7 @@ export function useStickToBottom(
       window.removeEventListener('pointercancel', onPointerUp);
       controller.current = null;
     };
-  }, [containerRef, contentRef, resetKey]);
+  }, [containerRef, contentRef, resetKey, hasLaterRef]);
 
   const jumpToLatest = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -310,7 +324,10 @@ export function useStickToBottom(
   }, []);
 
   const holdPosition = useCallback(() => controller.current?.holdPosition(), []);
-  const release = useCallback(() => controller.current?.release(), []);
+  const release = useCallback(
+    (preservePosition = false) => controller.current?.release(preservePosition),
+    [],
+  );
 
   return { sticky, showJump, jumpToLatest, holdPosition, release };
 }

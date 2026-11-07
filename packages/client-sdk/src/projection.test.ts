@@ -2683,3 +2683,38 @@ describe('生命周期钩子结果', () => {
     });
   });
 });
+
+it('消息仅在变化时复制数组，旧快照不变；章节按消息顺序，撤销/重做/撤回与重置保持一致', () => {
+  const e = events();
+  e.turn(TURN);
+  e.add('chapter.marked', { turnId: TURN, title: 'first' });
+  e.add('assistant.message', { turnId: TURN, messageId: 'one', text: 'old', replaces: [] });
+  const projection = new TranscriptProjection();
+  for (const event of e.list) projection.apply(event);
+  const first = projection.snapshot();
+  projection.apply(e.add('session.title_changed', { title: 'new title', source: 'user' }));
+  expect(projection.snapshot().messages).toBe(first.messages);
+  projection.apply(
+    e.add('assistant.message', { turnId: TURN, messageId: 'one', text: 'new', replaces: [] }),
+  );
+  const changed = projection.snapshot();
+  expect(changed.messages).not.toBe(first.messages);
+  expect(first.messages[1]?.parts.find((part) => part.type === 'text')?.text).toBe('old');
+  expect(changed.chapters).toBe(first.chapters);
+  projection.apply(e.add('turn.started', { turnId: TURN2 }));
+  projection.apply(e.add('chapter.marked', { turnId: TURN2, title: 'second' }));
+  projection.apply(e.add('chapter.marked', { turnId: TURN, title: 'late first' }));
+  expect(projection.snapshot().chapters.map((chapter) => chapter.title)).toEqual([
+    'first',
+    'late first',
+    'second',
+  ]);
+  projection.apply(e.add('turn.undone', { turnId: TURN }));
+  expect(projection.snapshot().chapters.map((chapter) => chapter.title)).toEqual(['second']);
+  projection.apply(e.add('turn.redone', { turnId: TURN }));
+  expect(projection.snapshot().chapters).toHaveLength(3);
+  projection.apply(e.add('turn.rewound', { turnId: TURN }));
+  expect(projection.snapshot().chapters.map((chapter) => chapter.title)).toEqual(['second']);
+  projection.reset();
+  expect(projection.snapshot().chapters).toEqual([]);
+});

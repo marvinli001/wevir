@@ -22,6 +22,7 @@ import {
   findTextRange,
   transcriptFocus,
 } from './transcript-focus';
+import { RENDER_WINDOW, transcriptWindowEnd } from './transcript-window';
 import {
   adjoinsNotice,
   blockSeqRange,
@@ -37,7 +38,7 @@ import { turnChecks } from './verification-model';
 import { WorkspaceRoot } from './work-group';
 
 /** 一次渲染的消息条数；往上滚到顶时再多渲染这么多（分段渲染，长会话不一次铺满 DOM）。 */
-export const RENDER_WINDOW = 60;
+export { RENDER_WINDOW } from './transcript-window';
 
 export interface TranscriptViewHandle {
   jumpToLatest(behavior?: ScrollBehavior): void;
@@ -80,26 +81,35 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const laterRef = useRef<HTMLDivElement>(null);
+  const hasLaterRef = useRef(false);
   const { sticky, showJump, jumpToLatest, holdPosition, release } = useStickToBottom(
     containerRef,
     contentRef,
     sessionId,
+    hasLaterRef,
   );
   // 顶部（标题栏下方）与手动阅读时的底部渐隐；贴底时底部不渐隐。
   useScrollFade(containerRef, { bottom: !sticky });
   const { messages } = transcript;
   // 渲染从哪条消息开始。贴底时不固定：只渲染最后 RENDER_WINDOW 条，新消息进来时窗口随之后移，DOM 不随会话
-  // 增长；手动阅读时固定在当前第一条，新消息只追加，正在读的内容不会被挪走。向前扩展同样固定。
+  // 增长；手动阅读时固定起点并裁掉远处的底部，双向翻页保持当前可见回合。
   const [pinnedStart, setPinnedStart] = useState(() => scrollPositions.get(sessionId)?.start);
   // 跳到搜索结果（transcript-focus.ts）：那条消息一直在渲染的一段里，直到回到贴底。
   const [focusPin, setFocusPin] = useState<string>();
   const pinnedIndex = pinnedStart ? messages.findIndex((m) => m.id === pinnedStart) : -1;
   const focusIndex = focusPin ? messages.findIndex((m) => m.id === focusPin) : -1;
   const baseIndex = pinnedIndex >= 0 ? pinnedIndex : Math.max(0, messages.length - RENDER_WINDOW);
-  const start = turnStart(messages, focusIndex >= 0 ? Math.min(baseIndex, focusIndex) : baseIndex);
+  const start = turnStart(
+    messages,
+    focusIndex >= 0 ? Math.max(0, focusIndex - RENDER_WINDOW / 2) : baseIndex,
+  );
+  const end = sticky ? messages.length : transcriptWindowEnd(messages, start);
+  const hasLater = end < messages.length;
+  hasLaterRef.current = hasLater;
   const hidden = start;
   const firstRendered = messages[start]?.id;
-  const blocks = groupTurns(messages.slice(start));
+  const blocks = groupTurns(messages.slice(start, end));
   // 最后一个回合之前的回合都“后面还有回合”：它们的下一步卡片不再画。
   const lastTurnIndex = blocks.findLastIndex((block) => block.kind === 'turn');
   // 每个回合触发的检查（0.65.0），画在回答下面。
@@ -188,7 +198,18 @@ export function TranscriptView({
   if (firstRender) seen.current = { sessionId, keys: new Map() };
   const seenKeys = (seen.current as { keys: Map<string, number> }).keys;
   const renderedAt = performance.now();
-  const showEarlier = () => setPinnedStart(messages[Math.max(0, start - RENDER_WINDOW)]?.id);
+  const showEarlier = () => {
+    release(true);
+    setFocusPin(undefined);
+    setPinnedStart(messages[Math.max(0, start - RENDER_WINDOW)]?.id);
+  };
+  const showLater = () => {
+    release(true);
+    setFocusPin(undefined);
+    setPinnedStart(messages[Math.min(end, start + RENDER_WINDOW)]?.id);
+  };
+  const showLaterRef = useRef(showLater);
+  showLaterRef.current = showLater;
   const showEarlierRef = useRef(showEarlier);
   showEarlierRef.current = showEarlier;
 
@@ -207,6 +228,21 @@ export function TranscriptView({
     return () => observer.disconnect();
   }, [hidden]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 窗口移动后重新核对仍在视口内的哨兵。
+  useEffect(() => {
+    const sentinel = laterRef.current;
+    const container = containerRef.current;
+    if (!sentinel || !container || !hasLater) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) showLaterRef.current();
+      },
+      { root: container, rootMargin: '0px 0px 400px 0px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasLater, start]);
+
   return (
     <div className="relative min-h-0 flex-1">
       <section
@@ -220,11 +256,12 @@ export function TranscriptView({
         <div
           ref={contentRef}
           data-render-start={firstRendered}
+          data-render-end={messages[end - 1]?.id}
           className={cn('mx-auto w-full max-w-content pt-6 pb-4', compact ? 'px-4' : 'px-6')}
         >
           {hidden > 0 && (
             <div ref={sentinelRef} className="flex justify-center pb-2">
-              <Button variant="ghost" size="xs" onClick={showEarlier}>
+              <Button variant="ghost" size="xs" onClick={showEarlier} data-action="show-earlier">
                 {t('transcript.showEarlier', { count: Math.min(hidden, RENDER_WINDOW) })}
               </Button>
             </div>
@@ -284,7 +321,8 @@ export function TranscriptView({
               })}
             </WorkspaceRoot>
           </FoldScopeProvider>
-          {footer && <div className="pt-4 empty:hidden">{footer}</div>}
+          {hasLater && <div ref={laterRef} data-render-later className="h-4" />}
+          {!hasLater && footer && <div className="pt-4 empty:hidden">{footer}</div>}
         </div>
       </section>
       {quote && (
@@ -301,20 +339,20 @@ export function TranscriptView({
       )}
       {/* 一直挂着，出现与消失都过渡（出现走 reveal 弹簧，消失同弹层的 110 ms）；藏起时不接指针、不进 Tab 顺序。 */}
       <div
-        data-shown={showJump || undefined}
-        aria-hidden={!showJump || undefined}
+        data-shown={showJump || hasLater || undefined}
+        aria-hidden={!(showJump || hasLater) || undefined}
         className="pointer-events-none absolute inset-x-0 bottom-3 flex translate-y-1 scale-90 justify-center opacity-0 transition-[opacity,translate,scale] duration-110 ease-smooth data-shown:translate-y-0 data-shown:scale-100 data-shown:opacity-100 data-shown:duration-(--spring-reveal-duration) data-shown:ease-spring-reveal"
       >
         <Hint label={t('transcript.jumpToLatest')}>
           <button
             type="button"
             aria-label={t('transcript.jumpToLatest')}
-            tabIndex={showJump ? undefined : -1}
+            tabIndex={showJump || hasLater ? undefined : -1}
             onClick={() => jumpToLatest('smooth')}
             data-action="jump-to-latest"
             className={cn(
               'flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] hover:bg-muted hover:text-foreground focus-visible:focus-field',
-              showJump && 'pointer-events-auto',
+              (showJump || hasLater) && 'pointer-events-auto',
             )}
           >
             <ArrowDown aria-hidden className="size-4" />
