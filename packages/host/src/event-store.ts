@@ -19,6 +19,7 @@ import {
   type SessionSnapshot,
   type SuggestedTask,
   type TaskId,
+  type ToolOutput,
   type TurnId,
   type UsageLimit,
   type WevirEvent,
@@ -45,6 +46,8 @@ import { truncateJson, truncateToolOutput } from './truncate.js';
 /** 助手文本与计划增量的合并窗口（Paseo 取 60 ms，ADR-0002 §3）。 */
 export const DELTA_WINDOW_MS = 60;
 
+export const TOOL_OUTPUT_WINDOW_MS = 250;
+
 /** 写入时投影比它的检查点多出这么多条事件就顺带更新检查点（Host 被强行结束时，下次启动每个会话最多重放这么多条）。 */
 export const CHECKPOINT_INTERVAL = 500;
 
@@ -66,7 +69,8 @@ export type PlanDeltaInput = WevirEventPayload<'plan.delta'>;
 /** 缓冲里的一段增量。 */
 type BufferedDelta =
   | { type: 'assistant.delta'; payload: DeltaInput }
-  | { type: 'plan.delta'; payload: PlanDeltaInput };
+  | { type: 'plan.delta'; payload: PlanDeltaInput }
+  | { type: 'tool.updated'; payload: WevirEventPayload<'tool.updated'> };
 
 /** `handoffState` 的结果（0.25.0）。 */
 export interface HandoffState {
@@ -88,6 +92,7 @@ export interface EventStoreOptions {
   storage: Storage;
   /** 增量合并窗口，默认 `DELTA_WINDOW_MS`。 */
   deltaWindowMs?: number;
+  toolOutputWindowMs?: number;
   /**
    * 后台错误：定时 flush 增量失败（这批增量随之丢弃，以随后的已提交消息为准）、订阅者抛错。
    * 默认打到 stderr。
@@ -112,6 +117,7 @@ interface DeltaBuffer {
   /** 待写入的增量，相邻的同一块（同一份计划）已合并。 */
   parts: BufferedDelta[];
   timer?: ReturnType<typeof setTimeout>;
+  flushAt?: number;
   /** 上次写入增量的时间（`Date.now()`）。 */
   lastFlushAt?: number;
 }
@@ -136,6 +142,7 @@ interface DeltaBuffer {
 export class EventStore {
   readonly #storage: Storage;
   readonly #deltaWindowMs: number;
+  readonly #toolOutputWindowMs: number;
   readonly #onError: (error: unknown) => void;
   readonly #bus: EventBus;
   readonly #projections = new Map<SessionId, SessionProjection>();
@@ -152,6 +159,7 @@ export class EventStore {
   constructor(options: EventStoreOptions) {
     this.#storage = options.storage;
     this.#deltaWindowMs = options.deltaWindowMs ?? DELTA_WINDOW_MS;
+    this.#toolOutputWindowMs = options.toolOutputWindowMs ?? TOOL_OUTPUT_WINDOW_MS;
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] event store:', error));
     this.#bus = new EventBus({ onError: this.#onError });
@@ -247,6 +255,20 @@ export class EventStore {
     });
   }
 
+  /** 累计工具输出只缓冲最新值；展示/输入变化与最终结果仍经 appendMany 立即提交。 */
+  appendToolOutput(
+    sessionId: SessionId,
+    payload: { turnId: TurnId; toolCallId: string; output: ToolOutput },
+  ): void {
+    this.#assertOpen();
+    SessionIdSchema.parse(sessionId);
+    const input = prepare({ type: 'tool.updated', source: 'engine', payload }) as Extract<
+      AppendInput,
+      { type: 'tool.updated' }
+    >;
+    this.#buffer(sessionId, { type: 'tool.updated', payload: input.payload });
+  }
+
   #buffer(sessionId: SessionId, part: BufferedDelta): void {
     this.#projection(sessionId); // 会话不存在时现在就报错，而不是在定时器里。
     let buffer = this.#buffers.get(sessionId);
@@ -254,21 +276,32 @@ export class EventStore {
       buffer = { parts: [] };
       this.#buffers.set(sessionId, buffer);
     }
+    if (part.type === 'tool.updated') {
+      const previous = buffer.parts.findIndex(
+        (entry) =>
+          entry.type === 'tool.updated' &&
+          entry.payload.turnId === part.payload.turnId &&
+          entry.payload.toolCallId === part.payload.toolCallId,
+      );
+      if (previous >= 0) buffer.parts.splice(previous, 1);
+    }
     const last = buffer.parts.at(-1);
     const merged = last && mergeDelta(last, part);
     if (merged) buffer.parts[buffer.parts.length - 1] = merged;
     else buffer.parts.push(part);
-    if (buffer.timer) return;
-
+    const windowMs = buffer.parts.some((entry) => entry.type !== 'tool.updated')
+      ? this.#deltaWindowMs
+      : this.#toolOutputWindowMs;
     const sinceFlush =
       buffer.lastFlushAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - buffer.lastFlushAt;
-    if (sinceFlush >= this.#deltaWindowMs) {
+    if (sinceFlush >= windowMs) {
       this.#commit(sessionId, []); // 窗口首：一段静默之后的第一个增量不等待。
     } else {
-      buffer.timer = setTimeout(
-        () => this.#flushOnTimer(sessionId),
-        this.#deltaWindowMs - sinceFlush,
-      );
+      const flushAt = Date.now() + windowMs - sinceFlush;
+      if (buffer.timer && (buffer.flushAt as number) <= flushAt) return;
+      if (buffer.timer) clearTimeout(buffer.timer);
+      buffer.flushAt = flushAt;
+      buffer.timer = setTimeout(() => this.#flushOnTimer(sessionId), windowMs - sinceFlush);
       buffer.timer.unref?.();
     }
   }
@@ -625,6 +658,7 @@ export class EventStore {
       buffer.lastFlushAt = Date.now();
       if (buffer.timer) clearTimeout(buffer.timer);
       buffer.timer = undefined;
+      buffer.flushAt = undefined;
     }
     this.#cache(sessionId, projection);
     this.#bus.publish(events);
@@ -635,6 +669,7 @@ export class EventStore {
     const buffer = this.#buffers.get(sessionId);
     if (!buffer) return;
     buffer.timer = undefined;
+    buffer.flushAt = undefined;
     try {
       this.#commit(sessionId, []);
     } catch (error) {

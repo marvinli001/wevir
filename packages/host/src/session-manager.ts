@@ -6012,6 +6012,18 @@ export class SessionManager {
           if (event.display !== undefined) info.display = event.display;
           if (event.input !== undefined) info.input = event.input;
         }
+        if (
+          event.output !== undefined &&
+          event.display === undefined &&
+          event.input === undefined
+        ) {
+          this.#events.appendToolOutput(sessionId, {
+            turnId,
+            toolCallId: event.toolCallId,
+            output: { text: event.output, truncated: false },
+          });
+          return;
+        }
         this.#write(runtime, [
           {
             type: 'tool.updated',

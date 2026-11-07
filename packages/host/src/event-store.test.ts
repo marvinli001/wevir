@@ -345,6 +345,79 @@ describe('EventStore 增量合并', () => {
     ) as Array<[number, number, string, string]>;
   }
 
+  it('累计工具输出按250ms留最新值，最终值立即提交且实时流等于回放', () => {
+    const { storage, store, live } = setup();
+    store.append(SES, ev.toolStarted('call_1'));
+    const delivered: WevirEvent[] = [];
+    store.subscribe(SES, (event) => {
+      expect(storage.events.list(SES, { afterSeq: event.seq - 1, limit: 1 })[0]).toEqual(event);
+      delivered.push(event);
+    });
+    for (let index = 1; index <= 200; index++) {
+      store.appendToolOutput(SES, {
+        turnId: TURN,
+        toolCallId: 'call_1',
+        output: { text: `output ${index}`, truncated: false },
+      });
+      vi.advanceTimersByTime(25);
+    }
+    expect(delivered.filter((event) => event.type === 'tool.updated')).toHaveLength(21);
+    store.append(SES, ev.toolFinished('call_1', 'completed', 'final output'));
+    expect(delivered.at(-1)).toMatchObject({
+      type: 'tool.finished',
+      payload: { output: { text: 'final output' } },
+    });
+    expect(store.readSince(SES, 4)).toEqual(live);
+    expect(seqs(live)).toEqual(range(5, 27));
+    store.close();
+  });
+
+  it('并行工具只留各自最新输出，元信息保持顺序，文本不被250ms窗口拖慢', () => {
+    const { store, live } = setup();
+    store.append(SES, ev.toolStarted('call_1'));
+    store.append(SES, ev.toolStarted('call_2'));
+    const output = (toolCallId: string, text: string) =>
+      store.appendToolOutput(SES, { turnId: TURN, toolCallId, output: { text, truncated: false } });
+    output('call_1', 'a');
+    vi.advanceTimersByTime(10);
+    output('call_1', 'ab');
+    output('call_2', 'x');
+    output('call_1', 'abc');
+    store.appendDelta(SES, delta('answer'));
+    vi.advanceTimersByTime(49);
+    expect(live.at(-1)).toMatchObject({ payload: { output: { text: 'a' } } });
+    vi.advanceTimersByTime(1);
+    expect(live.slice(-3).map((event) => event.type)).toEqual([
+      'tool.updated',
+      'tool.updated',
+      'assistant.delta',
+    ]);
+    expect(live.slice(-3)).toMatchObject([
+      { payload: { toolCallId: 'call_2', output: { text: 'x' } } },
+      { payload: { toolCallId: 'call_1', output: { text: 'abc' } } },
+      { payload: { text: 'answer' } },
+    ]);
+    output('call_1', 'abcd');
+    store.append(SES, {
+      type: 'tool.updated',
+      source: 'engine',
+      payload: {
+        turnId: TURN,
+        toolCallId: 'call_1',
+        display: { kind: 'shell', summary: 'changed' },
+      },
+    });
+    expect(live.slice(-2)).toMatchObject([
+      { payload: { output: { text: 'abcd' } } },
+      { payload: { display: { summary: 'changed' } } },
+    ]);
+    output('call_2', 'last before close');
+    store.close();
+    expect(live.at(-1)).toMatchObject({ payload: { output: { text: 'last before close' } } });
+    vi.advanceTimersByTime(1000);
+    expect(store.readSince(SES, 4)).toEqual(live);
+  });
+
   it('窗口首尾各 flush 一次；相邻同一块合并，不同块分开且保持顺序', () => {
     const { store, live } = setup();
 
