@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { loadTerminalModules } from './terminals.js';
@@ -502,7 +502,7 @@ describe.runIf((await loadTerminalModules(() => {})) !== undefined)('用户终�
         'removed',
         10_000,
       );
-      await h.client.until(() => (alive(job) ? undefined : true), '后台作业结束', 10_000);
+      await vi.waitFor(() => expect(alive(job)).toBe(false), { timeout: 10_000 });
 
       // 另一个项目里的终端随项目移除结束。
       const otherDir = join(workspaceDir, '..', 'other');

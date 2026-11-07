@@ -95,7 +95,11 @@ describe('CodexProcess 的 stdout', () => {
     });
     await failed;
     expect(exits).toHaveLength(1);
-    expect(exits[0]?.signal).toBe('SIGTERM');
+    expect(exits[0]).toMatchObject(
+      process.platform === 'win32'
+        ? { exitCode: 1, signal: null }
+        : { exitCode: null, signal: 'SIGTERM' },
+    );
     expect(exits[0]?.stderrTail).toContain('超过 1024 字节');
   });
 

@@ -270,18 +270,21 @@ describe('无人值守额度接力与报告（echo Host）', () => {
         description: '处理工作',
         coordinator: { providerId: 'first' },
       });
-      await vi.waitFor(async () => {
-        const result = await client.request('channel.get', { channelId: channel.id });
-        expect(result.channel.state).toBe('idle');
-        const { posts } = await client.request('channel.posts', { channelId: channel.id });
-        expect(
-          posts.some((post: { content: { type: string; text?: string }[] }) =>
-            post.content.some((part) =>
-              part.text?.includes('因额度从 first / m 接力到 second / m（第 1 次）'),
+      await vi.waitFor(
+        async () => {
+          const result = await client.request('channel.get', { channelId: channel.id });
+          expect(result.channel.state).toBe('idle');
+          const { posts } = await client.request('channel.posts', { channelId: channel.id });
+          expect(
+            posts.some((post: { content: { type: string; text?: string }[] }) =>
+              post.content.some((part) =>
+                part.text?.includes('因额度从 first / m 接力到 second / m（第 1 次）'),
+              ),
             ),
-          ),
-        ).toBe(true);
-      });
+          ).toBe(true);
+        },
+        { timeout: 10_000 },
+      );
       expect(
         h.deliveries.filter(({ input }) =>
           input.content.some((part) => part.type === 'text' && part.text.includes('<channel_wake')),

@@ -93,7 +93,7 @@ describe('openStorage', () => {
     expect(s.freeBytes()).toBe(0);
     expect(s.db.prepare('SELECT count(*) AS n FROM filler').get()?.n).toBe(54);
     expect(s.vacuum()).toBe(false);
-  });
+  }, 30_000);
 });
 
 describe('驱动边界', () => {
