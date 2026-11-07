@@ -361,6 +361,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
+    try {
+      storage.vacuum();
+    } catch (error) {
+      logger.warn('database compaction failed', { error });
+    }
+    startup.mark('database_maintenance');
     const store = new EventStore({
       storage,
       onError: (error) => logger.error('event store error', { error }),

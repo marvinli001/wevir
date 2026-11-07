@@ -373,7 +373,7 @@ describe('session.delete', () => {
     expect(h.storage.sessions.get(session.id)).toBeUndefined();
   });
 
-  it('删掉大量事件之后库文件变小（VACUUM）', async () => {
+  it('删除不在 RPC 路径整理整库，小于阈值的空闲页保留复用', async () => {
     const h = await setup();
     const { session } = await h.methods['session.create']({ providerId: 'mock' }, context);
     const sessionId = session.id as SessionId;
@@ -396,8 +396,9 @@ describe('session.delete', () => {
     const before = statSync(h.storage.path).size;
     expect(before).toBeGreaterThan(2 * 1024 * 1024);
     await h.methods['session.delete']({ sessionId }, context);
-    expect(statSync(h.storage.path).size).toBeLessThan(before / 2);
-    expect(h.storage.freeBytes()).toBeLessThan(1024 * 1024);
+    expect(statSync(h.storage.path).size).toBeGreaterThanOrEqual(before);
+    expect(h.storage.freeBytes()).toBeGreaterThan(1024 * 1024);
+    expect(h.storage.vacuum()).toBe(false);
   });
 });
 

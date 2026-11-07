@@ -75,6 +75,25 @@ describe('openStorage', () => {
     });
     expect(existsSync(join(dataDir(), 'wevir.db-wal'))).toBe(true);
   });
+
+  it('整库整理同时满足空闲 64 MiB 与 25% 才执行，保留剩余数据', () => {
+    const s = storage();
+    s.db.exec('CREATE TABLE filler (body BLOB)');
+    const insert = s.db.prepare('INSERT INTO filler VALUES (zeroblob(4194304))');
+    s.transaction(() => {
+      for (let i = 0; i < 80; i++) insert.run();
+    });
+    s.db.exec('DELETE FROM filler WHERE rowid <= 1');
+    expect(s.vacuum()).toBe(false);
+    s.db.exec('DELETE FROM filler WHERE rowid <= 18');
+    expect(s.freeBytes()).toBeGreaterThan(64 * 1024 * 1024);
+    expect(s.vacuum()).toBe(false);
+    s.db.exec('DELETE FROM filler WHERE rowid <= 26');
+    expect(s.vacuum()).toBe(true);
+    expect(s.freeBytes()).toBe(0);
+    expect(s.db.prepare('SELECT count(*) AS n FROM filler').get()?.n).toBe(54);
+    expect(s.vacuum()).toBe(false);
+  });
 });
 
 describe('驱动边界', () => {

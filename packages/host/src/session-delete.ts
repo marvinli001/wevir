@@ -28,9 +28,6 @@ import {
   readArchived,
 } from './worktree-archive.js';
 
-/** 删完之后库文件里空闲页至少这么多时 `VACUUM`，文件才变小。 */
-export const VACUUM_MIN_FREE_BYTES = 1024 * 1024;
-
 export interface SessionDataOptions {
   storage: Storage;
   images?: ImageStore | undefined;
@@ -308,7 +305,7 @@ export async function deleteSessionData(
   }
 
   try {
-    if (storage.freeBytes() >= VACUUM_MIN_FREE_BYTES) storage.vacuum();
+    storage.db.exec('PRAGMA wal_checkpoint(PASSIVE)');
   } catch (error) {
     deps.onWarning('删除会话后整理数据库失败', { error: String(error) });
   }

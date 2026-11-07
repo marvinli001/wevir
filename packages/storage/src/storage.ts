@@ -89,8 +89,8 @@ export interface Storage {
   readonly search: SearchRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
   freeBytes(): number;
-  /** `VACUUM` 并截断 WAL（0.43.0，`session.delete` 之后空闲页多时）：文件变小。不能在事务里调用。 */
-  vacuum(): void;
+  /** Host 启动时整理空闲页 ≥ 64 MiB 且占比 ≥ 25% 的库；返回是否整理。不能在事务里调用。 */
+  vacuum(): boolean;
   close(): void;
 }
 
@@ -138,8 +138,13 @@ export function openStorage(options: { dataDir: string }): Storage {
         return Number(free.freelist_count) * Number(size.page_size);
       },
       vacuum: () => {
+        const free = Number(db.prepare('PRAGMA freelist_count').get()?.freelist_count);
+        const size = Number(db.prepare('PRAGMA page_size').get()?.page_size);
+        const pages = Number(db.prepare('PRAGMA page_count').get()?.page_count);
+        if (free * size < 64 * 1024 * 1024 || free < pages / 4) return false;
         db.exec('VACUUM');
         db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+        return true;
       },
       close: () => {
         try {
