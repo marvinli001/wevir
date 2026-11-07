@@ -13,12 +13,12 @@
 // 会留下：台账记下每个服务器的进程身份，下一个 Host 起服务器前把主人已经不在的那些停掉（只停 pid、启动时间、进程组与命令行
 // 都对得上的，不会误杀复用了 pid 的进程）。
 
-import { type ChildProcess, execFile, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
-import { trackProcessGroup } from '@wevir/runtime-adapter';
+import { killTree, trackProcessGroup } from '@wevir/runtime-adapter';
 import type { OpenCodePluginEntry } from './app-tools.js';
 import { serverConfigContent } from './permissions.js';
 
@@ -111,17 +111,6 @@ export function findFreePort(): Promise<number> {
   });
 }
 
-function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  const pid = child.pid;
-  if (pid === undefined) return;
-  try {
-    if (process.platform === 'win32') child.kill(signal);
-    else process.kill(-pid, signal);
-  } catch {
-    // 进程组可能已经没了。
-  }
-}
-
 /**
  * 起一个 opencode 服务器（T3 的 `startOpenCodeServerProcess`）。`OPENCODE_CONFIG_CONTENT` 沿用调用方或继承的值（T3：不能盖掉用户
  * 自己的配置，否则用户配的 Provider 与模型都看不见），并进 Wevir 的权限配置（permissions.ts 的 serverConfigContent）。
@@ -202,12 +191,12 @@ async function startServerAttempt(options: StartServerOptions): Promise<OpenCode
   const stop = (): Promise<void> => {
     stopping ??= (async () => {
       if (child.exitCode === null && child.signalCode === null) {
-        signalGroup(child, 'SIGTERM');
-        const timer = setTimeout(() => signalGroup(child, 'SIGKILL'), SERVER_STOP_GRACE_MS);
+        killTree(child, 'SIGTERM');
+        const timer = setTimeout(() => killTree(child, 'SIGKILL'), SERVER_STOP_GRACE_MS);
         await exited;
         clearTimeout(timer);
         // 启动器先退出时组里可能还留着真正的服务器。
-        signalGroup(child, 'SIGKILL');
+        killTree(child, 'SIGKILL');
       }
       forget?.();
     })();

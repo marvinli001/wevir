@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { npmShimExecutable } from '@wevir/runtime-adapter';
 
 // 用户自己装的 ACP 引擎（Grok Build、Gemini CLI，ADR-0005 决策 4 第 ②、③ 行与补记 14）：不随安装包分发，也不在任何
 // package.json 里声明（AGENTS.md 规则 2）。这里找它的可执行文件、核对版本；下载与组件目录由组件管理负责，它把装好的目录
@@ -32,6 +33,13 @@ export interface ResolveExecutableOptions {
   /** 默认 `process.env`：读 `envVar` 与 `PATH`（Windows 另读 `PATHEXT`）。 */
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+}
+
+const pathCache = new Map<string, { path: string | undefined; until: number }>();
+
+function cachePath(key: string, path: string | undefined): void {
+  if (pathCache.size >= 64) pathCache.delete(pathCache.keys().next().value as string);
+  pathCache.set(key, { path, until: performance.now() + 5000 });
 }
 
 export type ExecutableSource = 'env' | 'configured' | 'component' | 'path';
@@ -67,22 +75,46 @@ export function resolveExternalExecutable(
     if (!isExecutableFile(value, platform)) {
       throw new Error(`${label}指向的文件不存在或不能执行：${value}`);
     }
-    return { path: value, source };
+    return { path: platform === 'win32' ? (npmShimExecutable(value) ?? value) : value, source };
   }
   const names = candidateNames(spec.command, platform, env);
   if (options.componentDir !== undefined) {
     for (const dir of [join(options.componentDir, 'bin'), options.componentDir]) {
       const found = findIn(dir, names, platform);
-      if (found !== undefined) return { path: found, source: 'component' };
+      if (found !== undefined)
+        return {
+          path: platform === 'win32' ? (npmShimExecutable(found) ?? found) : found,
+          source: 'component',
+        };
     }
   }
+  const key = JSON.stringify([
+    platform,
+    env.PATH ?? env.Path ?? '',
+    env.PATHEXT,
+    spec.command,
+    options.extraDirs,
+  ]);
+  const cached = pathCache.get(key);
+  if (cached !== undefined && cached.until > performance.now() && cached.path !== undefined) {
+    return { path: cached.path, source: 'path' };
+  }
   const dirs = [
-    ...(env.PATH ?? env.Path ?? '').split(delimiter).filter((dir) => dir !== ''),
+    ...(env.PATH ?? env.Path ?? '')
+      .split(platform === 'win32' ? ';' : ':')
+      .filter((dir) => dir !== ''),
     ...(options.extraDirs ?? []),
   ];
-  for (const dir of dirs) {
-    const found = findIn(dir, names, platform);
-    if (found !== undefined) return { path: found, source: 'path' };
+  if (cached === undefined || cached.until <= performance.now()) {
+    for (const dir of dirs) {
+      const found = findIn(dir, names, platform);
+      if (found !== undefined) {
+        const path = platform === 'win32' ? (npmShimExecutable(found) ?? found) : found;
+        cachePath(key, path);
+        return { path, source: 'path' };
+      }
+    }
+    cachePath(key, undefined);
   }
   throw new Error(
     `找不到 ${spec.displayName}（${spec.command}）：没有设 ${spec.envVar}、设置里没填路径` +

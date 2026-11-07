@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   checkExternalVersion,
   compareVersions,
@@ -33,6 +33,26 @@ describe.skipIf(process.platform === 'win32')('resolveExternalExecutable', () =>
   const configured = executable(join(root, 'configured'));
   const fromEnv = executable(join(root, 'env'));
   const env = { PATH: [join(root, 'empty'), join(root, 'path-a')].join(delimiter) };
+
+  it('PATH结果短期复用，过期后重新发现移除或新安装的程序', () => {
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const dir = join(root, 'cache');
+    const path = executable(dir);
+    const options = { env: { PATH: dir } };
+    try {
+      expect(resolveExternalExecutable(spec, options).path).toBe(path);
+      rmSync(path);
+      expect(resolveExternalExecutable(spec, options).path).toBe(path);
+      clock.mockReturnValue(5001);
+      expect(() => resolveExternalExecutable(spec, options)).toThrow(/找不到/);
+      executable(dir);
+      expect(() => resolveExternalExecutable(spec, options)).toThrow(/找不到/);
+      clock.mockReturnValue(10002);
+      expect(resolveExternalExecutable(spec, options).path).toBe(path);
+    } finally {
+      clock.mockRestore();
+    }
+  });
 
   it('环境变量 → 设置里的路径 → 组件目录 → PATH', () => {
     const all = { configuredPath: configured, componentDir: join(root, 'component') };

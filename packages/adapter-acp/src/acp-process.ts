@@ -21,6 +21,7 @@ import {
 import {
   AdapterError,
   isAdapterError,
+  killTree,
   redactDiagnostics,
   trackProcessGroup,
 } from '@wevir/runtime-adapter';
@@ -538,9 +539,9 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
             launch.stderrTail = `${launch.stderrTail}[${error.message}]\n`.slice(
               -STDERR_TAIL_CHARS,
             );
-            signal(child, 'SIGTERM');
+            killTree(child, 'SIGTERM');
             if (!(await settledWithin(exited, this.#disposeTimeouts.sigtermMs))) {
-              signal(child, 'SIGKILL');
+              killTree(child, 'SIGKILL');
             }
           },
         }),
@@ -682,9 +683,9 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       const t = this.#disposeTimeouts;
       launch.child.stdin?.end();
       if (await settledWithin(launch.exited, t.stdinEofMs)) return launch.exit;
-      signal(launch.child, 'SIGTERM');
+      killTree(launch.child, 'SIGTERM');
       if (await settledWithin(launch.exited, t.sigtermMs)) return launch.exit;
-      signal(launch.child, 'SIGKILL');
+      killTree(launch.child, 'SIGKILL');
       await settledWithin(launch.exited, t.sigkillMs);
       return launch.exit;
     })();
@@ -694,23 +695,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   #disposedError(): AdapterError {
     return new AdapterError('disposed', `${this.#name} 进程已释放`);
   }
-}
-
-/**
- * POSIX 上发给整个进程组（启动器以 detached 启动引擎，它自己是组长），带上它留在组里的工具子进程。
- * 不是组长时（启动器没有分离）`-pid` 报 ESRCH，退回只发给引擎本身。
- */
-function signal(child: ChildProcess, sig: NodeJS.Signals): void {
-  const pid = child.pid;
-  if (pid !== undefined && process.platform !== 'win32') {
-    try {
-      process.kill(-pid, sig);
-      return;
-    } catch {
-      // 进程组已不存在（ESRCH），退回只发给引擎本身。
-    }
-  }
-  child.kill(sig);
 }
 
 /**

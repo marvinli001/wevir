@@ -1,3 +1,4 @@
+import { npmShimExecutable } from '@wevir/runtime-adapter';
 // 不依赖 opencode 的小函数：可执行文件、版本、规则集、配置、模型、工具展示、消息 ID、服务器输出与台账的解析、提问与错误归类。
 
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,7 +10,6 @@ import {
   compareVersions,
   detectAvx2,
   findOpenCode,
-  npmShimExecutable,
   OPENCODE_BIN_ENV,
   OPENCODE_LOGIN_COMMAND,
   openCodeAccountEnv,

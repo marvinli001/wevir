@@ -19,6 +19,7 @@ export {
   setProcessGroupTracker,
   trackProcessGroup,
 } from './process-groups.js';
+export { killTree, npmShimExecutable } from './process-tree.js';
 export { accountRateLimits, clampPercent, isoTime } from './rate-limits.js';
 export {
   looksLikeSecret,

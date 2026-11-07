@@ -597,3 +597,5 @@ T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处
 - **AST 相似**：13 处，分布在 11 个文件。shadcn 生成的 `sheet`、`dialog`、`tooltip`、`scroll-area` ↔ OpenWork 的同名文件；`markdown.ts` 已登记；`dsh-adapter.ts` 与 `dsh-process.ts` 的 `settledWithin` ↔ Paseo `acp-agent.test.ts` 的 `settlesWithin`（`Promise.race` 加超时、`finally` 清计时器，10 行的通用写法）；其余是测试里的断言表。
 - **其他文本文件**：1 处，`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` ↔ dsh `snapshots/sdk/bash-tool/tool-schemas.expected.json`，是 dsh 运行输出的录制（§4.1）。
 - **与依赖比对**：只有 `shadcn-variants.css` ↔ shadcn `dist/tailwind.css`，已登记。
+
+运行时共用的 npm 原生程序 shim 解析：`packages/runtime-adapter/src/process-tree.ts`，原实现迁自 `packages/adapter-opencode/src/executable.ts`；来源为 pingdotgg/t3code `packages/shared/src/shell.ts`，提交 `b6629dcd68dd26a98250e34087c594592ea55a46`，MIT（Copyright (c) 2026 T3 Tools Inc.）。仅绕过完整匹配的 npm shim，其余脚本保留原执行语义。

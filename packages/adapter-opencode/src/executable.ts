@@ -14,10 +14,11 @@
 // 与 `-musl` 变体，选哪个照 `opencode-ai` 主包 postinstall.mjs 的顺序）：tgz 里只有 `bin/opencode`（Windows 是 `bin/opencode.exe`）。
 
 import { execFile } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { npmShimExecutable } from '@wevir/runtime-adapter';
 import type { NpmPackageSpec } from '@wevir/runtime-adapter/npm-package';
 
 /** 官方的安装命令之一（opencode 的 README：`npm i -g opencode-ai@latest`；另有 `curl -fsSL https://opencode.ai/install | bash`）。 */
@@ -218,44 +219,6 @@ function executableNames(platform: NodeJS.Platform): string[] {
   return platform === 'win32'
     ? ['opencode.exe', 'opencode.cmd', 'opencode.bat', 'opencode']
     : ['opencode'];
-}
-
-// 移植自 pingdotgg/t3code packages/shared/src/shell.ts，b6629dcd68dd26a98250e34087c594592ea55a46，MIT。
-const NPM_SHIM_PREFIX = [
-  '@ECHO off',
-  'GOTO start',
-  ':find_dp0',
-  'SET dp0=%~dp0',
-  'EXIT /b',
-  ':start',
-  'SETLOCAL',
-  'CALL :find_dp0',
-];
-
-function readShim(file: string): string | undefined {
-  try {
-    return readFileSync(file, 'utf8');
-  } catch {
-    return undefined;
-  }
-}
-
-/** 只绕过 npm 原生程序 shim；CMD 保留的空白和额外命令必须原样比较。 */
-export function npmShimExecutable(
-  shim: string,
-  read: (file: string) => string | undefined = readShim,
-  exists: (file: string) => boolean = isFile,
-): string | undefined {
-  if (path.win32.extname(shim).toLowerCase() !== '.cmd') return undefined;
-  const lines = read(shim)
-    ?.split(/\r?\n/)
-    .filter((line) => line.length > 0);
-  if (lines?.length !== NPM_SHIM_PREFIX.length + 1) return undefined;
-  if (NPM_SHIM_PREFIX.some((line, index) => lines[index] !== line)) return undefined;
-  const target = /^"%dp0%\\([^"%]+\.exe)" +%\*$/.exec(lines.at(-1) ?? '')?.[1];
-  if (target === undefined) return undefined;
-  const executable = path.win32.join(path.win32.dirname(shim), target);
-  return exists(executable) ? executable : undefined;
 }
 
 export interface FindOpenCodeOptions {

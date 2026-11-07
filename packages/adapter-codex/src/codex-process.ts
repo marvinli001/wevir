@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
-import { AdapterError, trackProcessGroup } from '@wevir/runtime-adapter';
+import { AdapterError, killTree, trackProcessGroup } from '@wevir/runtime-adapter';
 import type {
   ClientInfo,
   InitializeParams,
@@ -558,9 +558,9 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
     launch.stderrTail = `${launch.stderrTail}[${reason.message}]\n`.slice(-STDERR_TAIL_CHARS);
     this.#rejectPending(launch, reason);
     void (async () => {
-      signal(launch.child, 'SIGTERM');
+      killTree(launch.child, 'SIGTERM');
       if (await settledWithin(launch.exited, this.#disposeTimeouts.sigtermMs)) return;
-      signal(launch.child, 'SIGKILL');
+      killTree(launch.child, 'SIGKILL');
     })();
   }
 
@@ -678,9 +678,9 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
       const t = this.#disposeTimeouts;
       launch.child.stdin?.end();
       if (await settledWithin(launch.exited, t.stdinEofMs)) return launch.exit;
-      signal(launch.child, 'SIGTERM');
+      killTree(launch.child, 'SIGTERM');
       if (await settledWithin(launch.exited, t.sigtermMs)) return launch.exit;
-      signal(launch.child, 'SIGKILL');
+      killTree(launch.child, 'SIGKILL');
       await settledWithin(launch.exited, t.sigkillMs);
       return launch.exit;
     })();
@@ -690,23 +690,6 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
   #disposedError(): AdapterError {
     return new AdapterError('disposed', 'codex-app-server 进程已释放');
   }
-}
-
-/**
- * POSIX 上发给整个进程组（启动器以 detached 启动 app-server，它自己是组长），带上它留在组里的工具子进程。
- * 不是组长时 `-pid` 报 ESRCH，退回只发给 app-server 本身。
- */
-function signal(child: ChildProcess, sig: NodeJS.Signals): void {
-  const pid = child.pid;
-  if (pid !== undefined && process.platform !== 'win32') {
-    try {
-      process.kill(-pid, sig);
-      return;
-    } catch {
-      // 进程组已不存在（ESRCH），退回只发给本身。
-    }
-  }
-  child.kill(sig);
 }
 
 export async function settledWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
