@@ -2499,10 +2499,10 @@ export class AppTools {
   /**
    * 工具事件落库前：browser_batch 与 browser_run 的显示换成每一步的列表与脚本全文（消息流与审批卡片都用它）。
    */
-  prepareEvent(sessionId: SessionId, input: AgentEvent): AgentEvent {
+  async prepareEvent(sessionId: SessionId, input: AgentEvent): Promise<AgentEvent> {
     // 配置工具：记下参数摘要（引擎的批准沿用），环境变量的值不落库；生图换成图片的展示。
     const configured = this.config?.prepareEvent(sessionId, input) ?? input;
-    const event = this.images?.prepareEvent(sessionId, configured) ?? configured;
+    const event = await (this.images?.prepareEvent(sessionId, configured) ?? configured);
     if (event.type !== 'tool.started' && event.type !== 'tool.updated') return event;
     const key = `${sessionId}:${event.toolCallId}`;
     const toolName = event.type === 'tool.started' ? event.toolName : this.#composeCalls.get(key);

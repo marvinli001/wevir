@@ -1061,7 +1061,7 @@ export class SessionManager {
     };
     const taps =
       this.#hooks !== undefined && this.#adapter.hookDialect?.(config.providerId) === 'codex'
-        ? this.#hooks.codexHooks(sessionId, hookInfo)
+        ? await this.#hooks.codexHooks(sessionId, hookInfo)
         : [];
     const engineHooks = [...(guardrails?.hooks ?? []), ...taps];
     const disabledHooks = guardrails?.disabledHooks ?? [];
@@ -5769,7 +5769,20 @@ export class SessionManager {
           );
           continue;
         }
-        this.#dispatch(runtime, () => this.#handle(runtime, event));
+        const images =
+          event.type === 'tool.finished' ? await this.#toolImages(runtime, event.images) : [];
+        if (attachment.detached) {
+          for (const image of images) {
+            await this.#images?.remove(image.imageId).catch((error) =>
+              this.#onWarning('failed to remove an unreferenced tool image', {
+                sessionId: runtime.id,
+                error: errorText(error),
+              }),
+            );
+          }
+          return;
+        }
+        this.#dispatch(runtime, () => this.#handle(runtime, event, images));
         // engine.exited 是该会话订阅的最后一个事件。
         if (event.type === 'engine.exited') return;
       }
@@ -5842,15 +5855,15 @@ export class SessionManager {
    * 工具产出的图片（0.118.0）存进图片目录，换成引用；没有图片目录、存不下或认不出的跳过（记一条警告），最多
    * `TOOL_IMAGES_MAX` 张。
    */
-  #toolImages(
+  async #toolImages(
     runtime: SessionRuntime,
     images: readonly AgentToolImage[] | undefined,
-  ): UserImagePart[] {
+  ): Promise<UserImagePart[]> {
     if (images === undefined || images.length === 0) return [];
     const saved: UserImagePart[] = [];
     for (const image of images.slice(0, TOOL_IMAGES_MAX)) {
       try {
-        const part = this.#images?.saveToolImage(image.data);
+        const part = await this.#images?.saveToolImage(image.data);
         if (part !== undefined) saved.push(part);
         else this.#onWarning('tool image skipped', { sessionId: runtime.id });
       } catch (error) {
@@ -5863,7 +5876,7 @@ export class SessionManager {
     return saved;
   }
 
-  #handle(runtime: SessionRuntime, event: AgentEvent): void {
+  #handle(runtime: SessionRuntime, event: AgentEvent, images: UserImagePart[] = []): void {
     const sessionId = runtime.id;
     switch (event.type) {
       case 'engine.exited':
@@ -6055,7 +6068,6 @@ export class SessionManager {
         // 取消期间的 failed 记为 cancelled，原文保留（domain-model §6.4）。
         const cancelling = this.#snapshot(runtime).session.state === 'cancelling';
         turn.openTools.delete(event.toolCallId);
-        const images = this.#toolImages(runtime, event.images);
         this.#write(runtime, [
           {
             type: 'tool.finished',

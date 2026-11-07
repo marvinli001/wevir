@@ -203,7 +203,7 @@ export class HookDispatcher {
         const blocked = await this.#guardrail(sessionId, event, context, input, options.signal);
         if (blocked !== undefined) return blocked;
       }
-      const handlers = this.#options.service.handlers(context.scope, event, input);
+      const handlers = await this.#options.service.handlers(context.scope, event, input);
       if (handlers.length === 0) return emptyDecision();
       const stdin = JSON.stringify(input);
       const runs = await Promise.all(
@@ -328,17 +328,18 @@ export class HookDispatcher {
    * Codex 会话的接点 hooks：有处理器的事件各挂一个转发命令（接点文件里是地址与这个会话的令牌）。Host 还没有端口、或没有检查程序时
    * 不挂。
    */
-  codexHooks(sessionId: SessionId, info: HookSessionInfo): EngineHook[] {
+  async codexHooks(sessionId: SessionId, info: HookSessionInfo): Promise<EngineHook[]> {
     const checker = this.#options.checker;
     if (checker === undefined || this.#httpPort === undefined) return [];
     const engine = this.#options.engineOf(info.providerId) ?? { engine: 'codex' };
     const context = {
       scope: { workspaceId: info.workspaceId, cwd: info.cwd, engine: engine.engine },
     };
-    const events = NATIVE_HOOK_EVENTS.map((event) => ({
-      event,
-      seconds: this.#options.service.pending(context.scope, event),
-    })).filter((item) => item.seconds > 0);
+    const events: Array<{ event: NativeHookEvent; seconds: number }> = [];
+    for (const event of NATIVE_HOOK_EVENTS) {
+      const seconds = await this.#options.service.pending(context.scope, event);
+      if (seconds > 0) events.push({ event, seconds });
+    }
     if (events.length === 0) return [];
     const timeoutSec = Math.max(...events.map((item) => item.seconds)) + TAP_TIMEOUT_SLACK_SEC;
     const file = this.#writeTap(sessionId, timeoutSec);
@@ -485,7 +486,9 @@ export class HookDispatcher {
     if (context === undefined) return undefined;
     const base = { tool_name: toolName, tool_input: toolInput ?? {} };
     const probe = this.#input(sessionId, 'PermissionRequest', context, base);
-    if (this.#options.service.handlers(context.scope, 'PermissionRequest', probe).length === 0) {
+    if (
+      (await this.#options.service.handlers(context.scope, 'PermissionRequest', probe)).length === 0
+    ) {
       return undefined;
     }
     const decision = await this.run(sessionId, 'PermissionRequest', base);
@@ -502,7 +505,7 @@ export class HookDispatcher {
   /** 有没有这个事件要跑的处理器（权限请求与提交提示先看一眼，免得没有 hooks 时也走异步）。 */
   has(sessionId: SessionId, event: string): boolean {
     const context = this.#context(sessionId);
-    return context !== undefined && this.#options.service.pending(context.scope, event) > 0;
+    return context !== undefined && this.#options.service.mayHaveHandlers(context.scope, event);
   }
 
   /** 全部会话的事件（`listenAll`）：SessionEnd，与没有原生接点的引擎的 Stop、PostToolUse。 */
@@ -554,7 +557,7 @@ export class HookDispatcher {
   #fallback(sessionId: SessionId, event: string): boolean {
     const context = this.#context(sessionId);
     if (context === undefined || context.engine.tap !== undefined) return false;
-    return this.#options.service.pending(context.scope, event) > 0;
+    return this.#options.service.mayHaveHandlers(context.scope, event);
   }
 
   async #fallbackStop(sessionId: SessionId, turnId: string, chained: boolean): Promise<void> {

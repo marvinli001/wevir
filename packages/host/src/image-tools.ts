@@ -3,8 +3,7 @@
 // 显示（`prepareEvent` 把展示换成 `image`、结束时带上图片）。模型拿到的是文件路径；属于项目的图由它用自己的 shell 复制进项目，
 // 所以 Host 只写自己的目录。归在工具预设的 `workbench` 组，常驻。
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { ProviderImageModel, ProviderModel, SessionId } from '@wevir/protocol';
 import { type AgentEvent, type AgentToolImage, appToolBaseName } from '@wevir/runtime-adapter';
@@ -102,7 +101,7 @@ export class ImageTools {
    * 工具事件落库前：生图调用的展示换成 `image`（摘要是提示），结束时带上生成的图片，输出换成给模型的那段文字（不带 base64）。
    * 别的事件原样返回。
    */
-  prepareEvent(sessionId: SessionId, event: AgentEvent): AgentEvent {
+  async prepareEvent(sessionId: SessionId, event: AgentEvent): Promise<AgentEvent> {
     if (event.type === 'tool.started' || event.type === 'tool.updated') {
       const key = `${sessionId}:${event.toolCallId}`;
       const known = this.#calls.has(key);
@@ -127,7 +126,7 @@ export class ImageTools {
     const images: AgentToolImage[] = [];
     for (const path of done.paths) {
       try {
-        images.push({ data: readFileSync(path).toString('base64') });
+        images.push({ data: (await readFile(path)).toString('base64') });
       } catch {}
     }
     return {
@@ -267,7 +266,7 @@ export class ImageTools {
     }
 
     const dir = join(this.#options.dir, sessionId);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const stem = fileStem(optionalText(args, 'name')) ?? 'image';
     const stamp = timestamp(new Date());
     const saved: Array<{ path: string; bytes: Buffer; mimeType: string; size?: string }> = [];
@@ -275,8 +274,7 @@ export class ImageTools {
       const header = sniffImage(image.bytes);
       if (header === undefined) continue;
       const ext = EXTENSION[header.mimeType] ?? 'png';
-      const path = uniquePath(dir, `${stem}-${stamp}`, ext);
-      writeFileSync(path, image.bytes, { mode: 0o600, flag: 'wx' });
+      const path = await uniquePath(dir, `${stem}-${stamp}`, ext, image.bytes);
       saved.push({
         path,
         bytes: image.bytes,
@@ -381,10 +379,20 @@ function timestamp(date: Date): string {
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
-function uniquePath(dir: string, base: string, ext: string): string {
+async function uniquePath(
+  dir: string,
+  stem: string,
+  extension: string,
+  bytes: Buffer,
+): Promise<string> {
   for (let index = 1; ; index += 1) {
-    const path = join(dir, index === 1 ? `${base}.${ext}` : `${base}-${index}.${ext}`);
-    if (!existsSync(path)) return path;
+    const path = join(dir, `${stem}${index === 1 ? '' : `-${index}`}.${extension}`);
+    try {
+      await writeFile(path, bytes, { mode: 0o600, flag: 'wx' });
+      return path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
   }
 }
 

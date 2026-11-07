@@ -611,11 +611,13 @@ describe('安装前钩子确认', () => {
       claudeUserSettings: () => ({ path: join(home, 'missing-settings.json'), label: 'test' }),
       scanTtlMs: 0,
     });
-    const command = hooks.list().hooks.find((hook) => hook.handler === 'command');
+    const command = (await hooks.list()).hooks.find((hook) => hook.handler === 'command');
     expect(command).toMatchObject({ status: 'enabled', engines: ['*'], source: 'plugin' });
     if (!command) throw new Error('missing command hook');
     await hooks.setEnabled({ hookId: command.id, enabled: false });
-    expect(hooks.list().hooks.find((hook) => hook.id === command.id)?.status).toBe('disabled');
+    expect((await hooks.list()).hooks.find((hook) => hook.id === command.id)?.status).toBe(
+      'disabled',
+    );
     const manifest = join(root, 'wevir-plugin.json');
     const value = JSON.parse(readFileSync(manifest, 'utf8'));
     writeFileSync(manifest, JSON.stringify({ ...value, version: '2.0.0' }));
@@ -624,6 +626,8 @@ describe('安装前钩子确认', () => {
     expect((await store.list()).plugins?.[0]?.version).toBe('1.0.0');
     await store.installPlugin(root, { replace: true, expectedDigest: upgraded.digest });
     expect((await store.list()).plugins?.[0]?.version).toBe('2.0.0');
-    expect(hooks.list().hooks.find((hook) => hook.id === command.id)?.status).toBe('disabled');
+    expect((await hooks.list()).hooks.find((hook) => hook.id === command.id)?.status).toBe(
+      'disabled',
+    );
   });
 });

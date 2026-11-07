@@ -402,11 +402,11 @@ describe('wevir_image_generate', () => {
       toolName: `mcp__wevir__${IMAGE_TOOL}`,
       input: { server: 'wevir', tool: IMAGE_TOOL, arguments: { prompt: 'a mug' } },
     } as AgentEvent;
-    expect(images.prepareEvent(SES, started)).toMatchObject({
+    expect(await images.prepareEvent(SES, started)).toMatchObject({
       display: { kind: 'image', summary: 'a mug' },
     });
     await images.tools[0]?.call({ prompt: 'a mug' }, call);
-    const finished = images.prepareEvent(SES, {
+    const finished = await images.prepareEvent(SES, {
       type: 'tool.finished',
       engineSessionId: 'e1',
       toolCallId: 'call_1',
@@ -425,7 +425,7 @@ describe('wevir_image_generate', () => {
       toolName: 'mcp__wevir__wevir_show',
       input: { prompt: 'x' },
     } as AgentEvent;
-    expect(images.prepareEvent(SES, other)).toBe(other);
+    expect(await images.prepareEvent(SES, other)).toBe(other);
   });
 
   it('文件名主干只留字母数字与连字符', () => {

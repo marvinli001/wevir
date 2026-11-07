@@ -1,4 +1,3 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
@@ -90,10 +89,10 @@ export class ImageStore {
 
   /**
    * 工具产出的图片（0.118.0，`tool.finished.images`）：认格式、读像素，直接写进 `images/`（事件引用它，不经过 `staged/`）。
-   * 同步写：Host 按顺序处理引擎事件，图片要在 `tool.finished` 写进事件之前就在。不是 base64、不是四种格式之一，或比
+   * Host 等写完后才处理 `tool.finished`。不是 base64、不是四种格式之一，或比
    * `TOOL_IMAGE_MAX_BYTES` 大时 `undefined`。
    */
-  saveToolImage(data: string): UserImagePart | undefined {
+  async saveToolImage(data: string): Promise<UserImagePart | undefined> {
     if (data.length % 4 !== 0 || !BASE64.test(data)) return undefined;
     const bytes = Buffer.from(data, 'base64');
     if (bytes.length === 0 || bytes.length > TOOL_IMAGE_MAX_BYTES) return undefined;
@@ -106,9 +105,9 @@ export class ImageStore {
       size: bytes.length,
       ...(header.width !== undefined && { width: header.width, height: header.height }),
     };
-    mkdirSync(this.#dir, { recursive: true, mode: 0o700 });
-    writeFileSync(join(this.#dir, fileName(part)), bytes, { mode: 0o600 });
-    writeFileSync(join(this.#dir, `${part.imageId}.json`), JSON.stringify(part), { mode: 0o600 });
+    await mkdir(this.#dir, { recursive: true, mode: 0o700 });
+    await writeFile(join(this.#dir, fileName(part)), bytes, { mode: 0o600 });
+    await writeFile(join(this.#dir, `${part.imageId}.json`), JSON.stringify(part), { mode: 0o600 });
     return part;
   }
 

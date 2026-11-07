@@ -193,7 +193,7 @@ describe('HookDispatcher', () => {
     });
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
     hub.setPort((server.address() as AddressInfo).port);
-    const engineHooks = hub.codexHooks(SES, info);
+    const engineHooks = await hub.codexHooks(SES, info);
     expect(engineHooks.map((hook) => hook.event)).toEqual(['PreToolUse']);
     const forward = engineHooks[0]?.command ?? '';
     const result = await sh(

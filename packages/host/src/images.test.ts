@@ -162,7 +162,7 @@ describe('ImageStore', () => {
 
   it('工具产出的图片直接写进 images/；认不出的、不是 base64 的不存', async () => {
     const { dir, images } = store();
-    const part = images.saveToolImage(png(1024, 768, 2000).toString('base64'));
+    const part = await images.saveToolImage(png(1024, 768, 2000).toString('base64'));
     expect(part).toMatchObject({
       type: 'image',
       mimeType: 'image/png',
@@ -173,9 +173,11 @@ describe('ImageStore', () => {
     if (part === undefined) throw new Error('expected an image');
     expect(readdirSync(dir).sort()).toEqual([`${part.imageId}.json`, `${part.imageId}.png`].sort());
     expect((await images.read({ imageId: part.imageId })).size).toBe(2000);
-    expect(images.saveToolImage('not base64!')).toBeUndefined();
-    expect(images.saveToolImage(Buffer.from('plain text').toString('base64'))).toBeUndefined();
-    expect(images.saveToolImage('')).toBeUndefined();
+    expect(await images.saveToolImage('not base64!')).toBeUndefined();
+    expect(
+      await images.saveToolImage(Buffer.from('plain text').toString('base64')),
+    ).toBeUndefined();
+    expect(await images.saveToolImage('')).toBeUndefined();
   });
 
   it('image.read 分段读，offset 越界回 INVALID_PARAMS', async () => {
@@ -260,7 +262,7 @@ describe('带图片的消息', () => {
       secrets: new FileSecretStore(join(root, 'data')),
       images,
     });
-    return { storage, events, manager, methods };
+    return { storage, events, manager, methods, images };
   }
   const context = { client: identity, capabilities: {} };
 
@@ -348,6 +350,35 @@ describe('带图片的消息', () => {
         context,
       ),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
+  it('图片保存期间不提交完成事件；退出后移除未引用的图片', async () => {
+    const env = setup();
+    const save = env.images.saveToolImage.bind(env.images);
+    const release = vi.fn<() => void>();
+    const gate = new Promise<void>((resolve) => release.mockImplementation(resolve));
+    const saved: UserImagePart[] = [];
+    vi.spyOn(env.images, 'saveToolImage').mockImplementation(async (data) => {
+      const image = await save(data);
+      if (image) saved.push(image);
+      await gate;
+      return image;
+    });
+    const session = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = session.id as SessionId;
+    await env.manager.send(
+      { sessionId, content: [{ type: 'text', text: 'imagine a fox' }] },
+      identity,
+    );
+    await vi.waitFor(() => expect(saved).toHaveLength(1));
+    expect(
+      env.events.readSince(sessionId, 0, 1000).some((event) => event.type === 'tool.finished'),
+    ).toBe(false);
+    const image = saved[0];
+    if (!image) throw new Error('no saved image');
+    await env.manager.dispose();
+    release();
+    await vi.waitFor(async () => expect(await env.images.files(image.imageId)).toEqual([]));
   });
 
   it('生成的图片（0.118.0）：tool.finished 带 Host 存下的图片，image.read 读得回', async () => {

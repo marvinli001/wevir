@@ -122,7 +122,9 @@ export class HookService {
 
   // ── 列出 ─────────────────────────────────────────────────────────────
 
-  list(workspaceId?: WorkspaceId): { hooks: Hook[]; warnings: string[]; support: HookSupport[] } {
+  async list(
+    workspaceId?: WorkspaceId,
+  ): Promise<{ hooks: Hook[]; warnings: string[]; support: HookSupport[] }> {
     const hooks: Hook[] = [];
     const warnings: string[] = [];
     const scopes: Scope[] = workspaceId === undefined ? ['global'] : ['global', workspaceId];
@@ -132,7 +134,9 @@ export class HookService {
     if (workspaceId !== undefined) {
       const root = this.#options.workspaceRoot(workspaceId);
       if (root !== undefined) {
-        const scan = this.#scan(`project:${root}`, () => scanProjectHooks(root, this.#platform));
+        const scan = await this.#scan(`project:${root}`, () =>
+          scanProjectHooks(root, this.#platform),
+        );
         const trusted = this.#files.get(workspaceId)?.trusted ?? {};
         for (const found of scan.hooks) {
           hooks.push(foundHook(found, trustStatus(found, trusted), trusted[found.id]?.at));
@@ -150,7 +154,7 @@ export class HookService {
       }
     }
     const disabled = this.#files.get('global')?.disabled ?? {};
-    for (const found of this.#globalFound(warnings)) {
+    for (const found of await this.#globalFound(warnings)) {
       hooks.push(foundHook(found, toggleStatus(found, disabled)));
     }
     return { hooks, warnings, support: this.#options.support?.() ?? [] };
@@ -223,7 +227,9 @@ export class HookService {
         throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
       }
       this.#scans.delete(`project:${root}`);
-      const found = scanProjectHooks(root, this.#platform).hooks.find((h) => h.id === hookId);
+      const found = (await scanProjectHooks(root, this.#platform)).hooks.find(
+        (h) => h.id === hookId,
+      );
       if (found !== undefined) {
         if (enabled && found.command === undefined) {
           throw invalid(['hookId'], 'only command hooks can be enabled');
@@ -241,7 +247,7 @@ export class HookService {
         return codexHook(repo);
       }
     }
-    const found = this.#globalFound([]).find((h) => h.id === hookId);
+    const found = (await this.#globalFound([])).find((h) => h.id === hookId);
     if (found === undefined) throw notFound(hookId);
     if (enabled && found.command === undefined) {
       throw invalid(['hookId'], 'only command hooks can be enabled');
@@ -262,7 +268,10 @@ export class HookService {
   // ── 执行时 ─────────────────────────────────────────────────────────────
 
   /** 对这个会话有效、事件对得上的处理器（不看 matcher）。只有能执行的命令处理器。 */
-  #effective(scope: HookScope, event: string): Array<RunnableHook & { matcher?: string }> {
+  async #effective(
+    scope: HookScope,
+    event: string,
+  ): Promise<Array<RunnableHook & { matcher?: string }>> {
     const out: Array<RunnableHook & { matcher?: string }> = [];
     const scopes: Scope[] =
       scope.workspaceId === undefined ? ['global'] : ['global', scope.workspaceId];
@@ -297,7 +306,7 @@ export class HookService {
     });
     if (scope.workspaceId !== undefined) {
       const trusted = this.#files.get(scope.workspaceId)?.trusted ?? {};
-      const scan = this.#scan(`project:${scope.cwd}`, () =>
+      const scan = await this.#scan(`project:${scope.cwd}`, () =>
         scanProjectHooks(scope.cwd, this.#platform),
       );
       for (const found of scan.hooks) {
@@ -305,34 +314,68 @@ export class HookService {
       }
     }
     const disabled = this.#files.get('global')?.disabled ?? {};
-    for (const found of this.#globalFound([])) {
+    for (const found of await this.#globalFound([])) {
       if (runs(found) && toggleStatus(found, disabled) === 'enabled') out.push(runnable(found));
     }
     return out;
   }
 
+  mayHaveHandlers(scope: HookScope, event: string): boolean {
+    for (const key of ['global', scope.workspaceId].filter(
+      (key): key is Scope => key !== undefined,
+    )) {
+      if (this.#files.get(key)?.hooks.some((hook) => hook.enabled && hook.event === event))
+        return true;
+    }
+    const keys: string[] = scope.workspaceId === undefined ? [] : [`project:${scope.cwd}`];
+    const user = this.#options.claudeUserSettings?.();
+    if (user) keys.push(`claude:${user.path}`);
+    for (const plugin of this.#options.plugins?.() ?? []) {
+      if (plugin.enabled) keys.push(`plugin:${plugin.id}:${plugin.path}`);
+    }
+    for (const key of keys) {
+      const cached = this.#scans.get(key);
+      if (!cached || Date.now() - cached.at >= (this.#options.scanTtlMs ?? SCAN_TTL_MS))
+        return true;
+      if (
+        cached.hooks.some(
+          (hook) =>
+            hook.event === event &&
+            hook.command !== undefined &&
+            (hook.engines.includes('*') || hook.engines.includes(scope.engine)),
+        )
+      )
+        return true;
+    }
+    return false;
+  }
+
   /** 这个事件有没有可能要跑的处理器（挂接点用，不看 matcher）。返回它们的时限之和（秒），没有时 0。 */
-  pending(scope: HookScope, event: string): number {
-    return this.#effective(scope, event).reduce(
+  async pending(scope: HookScope, event: string): Promise<number> {
+    return (await this.#effective(scope, event)).reduce(
       (sum, hook) => sum + (hook.timeoutSec ?? HOOK_TIMEOUT_DEFAULT_SEC),
       0,
     );
   }
 
   /** 这次调用要跑的处理器。 */
-  handlers(scope: HookScope, event: string, input: Record<string, unknown>): RunnableHook[] {
-    return this.#effective(scope, event)
+  async handlers(
+    scope: HookScope,
+    event: string,
+    input: Record<string, unknown>,
+  ): Promise<RunnableHook[]> {
+    return (await this.#effective(scope, event))
       .filter((hook) => matcherMatches(hook.matcher, event, input))
       .map(({ matcher: _matcher, ...hook }) => hook);
   }
 
   // ── 内部 ─────────────────────────────────────────────────────────────
 
-  #globalFound(warnings: string[]): FoundHook[] {
+  async #globalFound(warnings: string[]): Promise<FoundHook[]> {
     const found: FoundHook[] = [];
     const user = this.#options.claudeUserSettings?.();
     if (user !== undefined) {
-      const scan = this.#scan(`claude:${user.path}`, () =>
+      const scan = await this.#scan(`claude:${user.path}`, () =>
         scanClaudeUserHooks(user.path, user.label, this.#platform),
       );
       found.push(...scan.hooks);
@@ -340,7 +383,7 @@ export class HookService {
     }
     for (const plugin of this.#options.plugins?.() ?? []) {
       if (!plugin.enabled) continue;
-      const scan = this.#scan(`plugin:${plugin.id}:${plugin.path}`, () =>
+      const scan = await this.#scan(`plugin:${plugin.id}:${plugin.path}`, () =>
         scanPluginHooks(plugin, this.#platform),
       );
       found.push(...scan.hooks);
@@ -349,10 +392,10 @@ export class HookService {
     return found;
   }
 
-  #scan(
+  async #scan(
     key: string,
-    read: () => { hooks: FoundHook[]; warnings: string[] },
-  ): { hooks: FoundHook[]; warnings: string[] } {
+    read: () => Promise<{ hooks: FoundHook[]; warnings: string[] }>,
+  ): Promise<{ hooks: FoundHook[]; warnings: string[] }> {
     const now = Date.now();
     const cached = this.#scans.get(key);
     if (cached !== undefined && now - cached.at < (this.#options.scanTtlMs ?? SCAN_TTL_MS)) {
@@ -360,7 +403,7 @@ export class HookService {
     }
     let result: { hooks: FoundHook[]; warnings: string[] };
     try {
-      result = read();
+      result = await read();
     } catch (error) {
       result = { hooks: [], warnings: [`${key}: ${(error as Error).message}`] };
     }

@@ -44,17 +44,22 @@ export interface PluginPackage {
 }
 
 /** 包里的 hooks（清单的 `hooks` 或 `./hooks/hooks.json`）。读坏了时报错，免得装上一个以为没有 hooks 的包。 */
-function packageHooks(root: string, format: 'wevir' | 'claude' | 'codex'): PluginHookSummary[] {
+async function packageHooks(
+  root: string,
+  format: 'wevir' | 'claude' | 'codex',
+): Promise<PluginHookSummary[]> {
   const warnings: string[] = [];
-  const table = pluginHookTable(root, format, warnings);
+  const table = await pluginHookTable(root, format, warnings);
   if (warnings.length > 0) throw new Error(`Invalid hooks: ${warnings[0]}`);
   if (table === undefined) return [];
-  return parseHookTable(table, {
-    source: 'plugin',
-    idPrefix: 'plugin',
-    engines: [],
-    platform: process.platform,
-  }).map(({ event, matcher, handler, command }) => ({
+  return (
+    await parseHookTable(table, {
+      source: 'plugin',
+      idPrefix: 'plugin',
+      engines: [],
+      platform: process.platform,
+    })
+  ).map(({ event, matcher, handler, command }) => ({
     event,
     ...(matcher !== undefined && { matcher }),
     handler,
@@ -193,7 +198,7 @@ async function readWevir(root: string, raw: unknown): Promise<PluginPackage> {
     inputs,
     connectors,
     skills: await scanSkills(member(root, manifest.skills ?? './skills'), 'wevir', true),
-    hooks: packageHooks(root, 'wevir'),
+    hooks: await packageHooks(root, 'wevir'),
     ignored: [],
   };
 }
@@ -302,7 +307,7 @@ async function readImported(
     inputs: [],
     connectors,
     skills,
-    hooks: packageHooks(root, format),
+    hooks: await packageHooks(root, format),
     ignored: ignored.sort(),
   };
 }

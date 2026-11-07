@@ -5,8 +5,8 @@
 // 仓库来源的内容散列除了 hook 条目本身，还含命令里引用的仓库内文件（两家都只散列条目，脚本改了照样执行）：取前
 // `REFERENCED_FILES_MAX` 个、各 `REFERENCED_FILE_MAX_BYTES` 以内的；超出的照样启用，但标 `unhashedFiles`。
 
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createHash, webcrypto } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { HookSource } from '@wevir/protocol';
 import { HOOK_EVENTS } from '@wevir/protocol';
@@ -67,7 +67,7 @@ export function contentHash(identity: unknown): string {
  * 命令里引用的、`root` 下存在的文件（相对路径、`./…`、`$CLAUDE_PROJECT_DIR/…` 一类）：按出现先后，去重。只认带 `/` 或以 `.` 开头的词，
  * 免得把 `pnpm`、`test` 当成文件。
  */
-export function referencedFiles(command: string, root: string): string[] {
+export async function referencedFiles(command: string, root: string): Promise<string[]> {
   const words = command.match(/"[^"]*"|'[^']*'|[^\s;&|<>()]+/g) ?? [];
   const found: string[] = [];
   for (const raw of words) {
@@ -79,7 +79,7 @@ export function referencedFiles(command: string, root: string): string[] {
     const rel = relative(root, path);
     if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) continue;
     try {
-      if (!statSync(path).isFile()) continue;
+      if (!(await stat(path)).isFile()) continue;
     } catch {
       continue;
     }
@@ -89,24 +89,36 @@ export function referencedFiles(command: string, root: string): string[] {
 }
 
 /** 条目加上引用文件的内容一起散列。 */
-function hashWithFiles(
+const fileHashes = new Map<string, { stamp: string; hash: string }>();
+
+async function hashWithFiles(
   identity: unknown,
   command: string | undefined,
   root: string | undefined,
-): { hash: string; unhashedFiles?: true } {
+): Promise<{ hash: string; unhashedFiles?: true }> {
   if (command === undefined || root === undefined) return { hash: contentHash(identity) };
-  const files = referencedFiles(command, root);
+  const files = await referencedFiles(command, root);
   const contents: Record<string, string> = {};
   let skipped = files.length > REFERENCED_FILES_MAX;
   for (const file of files.slice(0, REFERENCED_FILES_MAX)) {
     try {
-      if (statSync(file).size > REFERENCED_FILE_MAX_BYTES) {
+      const info = await stat(file, { bigint: true });
+      if (info.size > BigInt(REFERENCED_FILE_MAX_BYTES)) {
         skipped = true;
         continue;
       }
-      contents[relative(root, file).split(sep).join('/')] = createHash('sha256')
-        .update(readFileSync(file))
-        .digest('hex');
+      const stamp = `${info.mtimeNs}:${info.ctimeNs}:${info.size}`;
+      const cached = fileHashes.get(file);
+      const hash =
+        cached?.stamp === stamp
+          ? cached.hash
+          : Buffer.from(await webcrypto.subtle.digest('SHA-256', await readFile(file))).toString(
+              'hex',
+            );
+      fileHashes.delete(file);
+      fileHashes.set(file, { stamp, hash });
+      if (fileHashes.size > 256) fileHashes.delete(fileHashes.keys().next().value as string);
+      contents[relative(root, file).split(sep).join('/')] = hash;
     } catch {
       skipped = true;
     }
@@ -131,16 +143,19 @@ export interface TableContext {
 }
 
 /** 一份 hooks 表里的处理器。认不出的事件不收；处理器种类照收（非 `command` 的列为不支持）。 */
-export function parseHookTable(table: Record<string, unknown>, context: TableContext): FoundHook[] {
+export async function parseHookTable(
+  table: Record<string, unknown>,
+  context: TableContext,
+): Promise<FoundHook[]> {
   const found: FoundHook[] = [];
   for (const [event, groups] of Object.entries(table)) {
     if (!KNOWN_EVENTS.has(event) || !Array.isArray(groups)) continue;
-    groups.forEach((group, groupIndex) => {
-      if (!isRecord(group) || !Array.isArray(group.hooks)) return;
+    for (const [groupIndex, group] of groups.entries()) {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) continue;
       const matcher =
         typeof group.matcher === 'string' && group.matcher !== '' ? group.matcher : undefined;
-      group.hooks.forEach((handler, handlerIndex) => {
-        if (!isRecord(handler)) return;
+      for (const [handlerIndex, handler] of group.hooks.entries()) {
+        if (!isRecord(handler)) continue;
         const type = typeof handler.type === 'string' ? handler.type : 'unknown';
         const command =
           type !== 'command'
@@ -172,23 +187,23 @@ export function parseHookTable(table: Record<string, unknown>, context: TableCon
           ...(timeoutSec !== undefined && { timeoutSec }),
           ...(onFailure !== undefined && { onFailure }),
           engines: context.engines,
-          ...hashWithFiles(identity, command, context.root),
+          ...(await hashWithFiles(identity, command, context.root)),
         });
-      });
-    });
+      }
+    }
   }
   return found;
 }
 
 /** 读一个 JSON 文件的 `hooks` 表；文件不存在时 undefined，读坏了进 `warnings`。 */
-function readTable(
+async function readTable(
   absolute: string,
   label: string,
   warnings: string[],
-): Record<string, unknown> | undefined {
+): Promise<Record<string, unknown> | undefined> {
   let text: string;
   try {
-    text = readFileSync(absolute, 'utf8');
+    text = await readFile(absolute, 'utf8');
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       warnings.push(`${label}: ${(error as Error).message}`);
@@ -212,10 +227,14 @@ function readTable(
 }
 
 /** `cwd` 所在仓库的根（向上找 `.git`，文件或目录都算）到 `cwd` 的每一层；不在仓库里时只有 `cwd`。 */
-export function projectDirs(cwd: string): { root: string; dirs: string[] } {
+export async function projectDirs(cwd: string): Promise<{ root: string; dirs: string[] }> {
   const start = resolve(cwd);
   for (let dir = start; ; dir = dirname(dir)) {
-    if (existsSync(join(dir, '.git'))) {
+    const found = await stat(join(dir, '.git')).then(
+      () => true,
+      () => false,
+    );
+    if (found) {
       const dirs = [dir];
       const rest = relative(dir, start);
       if (rest !== '') {
@@ -239,28 +258,28 @@ const PROJECT_FILES: ReadonlyArray<{ path: string[]; source: HookSource; engines
 ];
 
 /** 找出 `cwd` 一路上的仓库 hooks（`.codex/` 的除外）。 */
-export function scanProjectHooks(
+export async function scanProjectHooks(
   cwd: string,
   platform: NodeJS.Platform = process.platform,
-): HookScan {
-  const { root, dirs } = projectDirs(cwd);
+): Promise<HookScan> {
+  const { root, dirs } = await projectDirs(cwd);
   const hooks: FoundHook[] = [];
   const warnings: string[] = [];
   for (const dir of dirs) {
     for (const file of PROJECT_FILES) {
       const absolute = join(dir, ...file.path);
       const rel = relative(root, absolute).split(sep).join('/');
-      const table = readTable(absolute, rel, warnings);
+      const table = await readTable(absolute, rel, warnings);
       if (table === undefined) continue;
       hooks.push(
-        ...parseHookTable(table, {
+        ...(await parseHookTable(table, {
           source: file.source,
           idPrefix: `${file.source}:${rel}`,
           file: rel,
           engines: file.engines,
           root,
           platform,
-        }),
+        })),
       );
     }
   }
@@ -268,16 +287,16 @@ export function scanProjectHooks(
 }
 
 /** Claude 用户层的 `settings.json`（视为用户自己的，不算引用文件）。`label` 是显示用的路径。 */
-export function scanClaudeUserHooks(
+export async function scanClaudeUserHooks(
   path: string,
   label: string,
   platform: NodeJS.Platform = process.platform,
-): HookScan {
+): Promise<HookScan> {
   const warnings: string[] = [];
-  const table = readTable(path, label, warnings);
+  const table = await readTable(path, label, warnings);
   if (table === undefined) return { hooks: [], warnings };
   return {
-    hooks: parseHookTable(table, {
+    hooks: await parseHookTable(table, {
       source: 'claude_user',
       idPrefix: 'claude_user:settings.json',
       file: label,
@@ -301,19 +320,19 @@ export interface InstalledPluginHooks {
  * 插件包里的 hooks：清单的 `hooks`（包内路径或行内对象），没有时 `./hooks/hooks.json`。Wevir 的清单是 `wevir-plugin.json`，导入的
  * 包是 `.claude-plugin/plugin.json` / `.codex-plugin/plugin.json`。读出的是 `hooks` 表本身。
  */
-export function pluginHookTable(
+export async function pluginHookTable(
   dir: string,
   format: 'wevir' | 'claude' | 'codex',
   warnings: string[],
   label: string = format,
-): Record<string, unknown> | undefined {
+): Promise<Record<string, unknown> | undefined> {
   const manifestPath =
     format === 'wevir'
       ? join(dir, 'wevir-plugin.json')
       : join(dir, format === 'claude' ? '.claude-plugin' : '.codex-plugin', 'plugin.json');
   let declared: unknown;
   try {
-    declared = (JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>).hooks;
+    declared = (JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>).hooks;
   } catch {}
   if (isRecord(declared)) return isRecord(declared.hooks) ? declared.hooks : declared;
   const relativePath =
@@ -327,15 +346,15 @@ export function pluginHookTable(
   return readTable(absolute, `${label}: ${relativePath}`, warnings);
 }
 
-export function scanPluginHooks(
+export async function scanPluginHooks(
   plugin: InstalledPluginHooks,
   platform: NodeJS.Platform = process.platform,
-): HookScan {
+): Promise<HookScan> {
   const warnings: string[] = [];
-  const table = pluginHookTable(plugin.path, plugin.source, warnings, plugin.id);
+  const table = await pluginHookTable(plugin.path, plugin.source, warnings, plugin.id);
   if (table === undefined) return { hooks: [], warnings };
   return {
-    hooks: parseHookTable(table, {
+    hooks: await parseHookTable(table, {
       source: 'plugin',
       idPrefix: `plugin:${plugin.id}`,
       pluginId: plugin.id,

@@ -23,6 +23,7 @@ export const STDERR_TAIL_CHARS = 16 * 1024;
 /**
  * stdout 一行（一条消息，不含换行符）的上限（字节）。超过时不再读这个进程，按传输错误结束它：拼出这么长的字符串之前
  * 就停下，免得耗尽内存或超出 V8 字符串的长度上限让 Host 崩溃。
+ * 工具图片允许 64 MiB，base64 约 85.3 MiB，需给合法图片结果留出余量。
  */
 export const MAX_LINE_BYTES = 128 * 1024 * 1024;
 
