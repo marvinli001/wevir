@@ -20,7 +20,17 @@ export default defineConfig(({ command }) => {
       // 主进程按 SSR 构建：对它生效的是 ssr.resolve.conditions，顶层 resolve.conditions 不起作用（T6.1 在全新
       // 克隆里发现，之前主进程打包的其实是各包的 dist/，client-sdk 没构建过就失败）。
       ssr: { resolve: { conditions: ['@wevir/source', ...defaultServerConditions] } },
-      build: { externalizeDeps: { exclude: WORKSPACE_PACKAGES } },
+      build: {
+        externalizeDeps: { exclude: WORKSPACE_PACKAGES },
+        rollupOptions: {
+          input: {
+            index: fileURLToPath(new URL('./src/main/index.ts', import.meta.url)),
+            'storage-worker': fileURLToPath(
+              new URL('./src/main/storage-worker.ts', import.meta.url),
+            ),
+          },
+        },
+      },
     },
     preload: {
       build: {

@@ -74,8 +74,8 @@ import {
   cleanFileCaches,
   cleanLogs,
   DISK_CACHE_MAX_BYTES,
-  measureStorage,
 } from './storage.js';
+import { StorageUsageReader } from './storage-reader.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
 import {
@@ -673,9 +673,10 @@ function run(): void {
 
   // 设置 → 存储：量数据目录（main/storage.ts）。缓存与内置浏览器的数据由 Chromium 自己清（文件还开着），日志与 Host 的
   // 文件缓存（文档预览的 PDF）直接清。
+  const storageUsage = new StorageUsageReader(home);
   ipcMain.handle(IPC_CHANNELS.getStorageUsage, async (event): Promise<StorageUsage> => {
     assertSender(event);
-    return measureStorage(home);
+    return storageUsage.read();
   });
   ipcMain.handle(
     IPC_CHANNELS.cleanStorage,
@@ -704,7 +705,8 @@ function run(): void {
           await cleanLogs(home);
         }
       }
-      return measureStorage(home);
+      storageUsage.invalidate();
+      return storageUsage.read();
     },
   );
 
@@ -786,6 +788,7 @@ function run(): void {
       });
   });
   app.on('will-quit', () => {
+    storageUsage.dispose();
     if (installingUpdate) markInstallTiming(installTimingFile, 'quitAt', Date.now());
   });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => app.quit());
