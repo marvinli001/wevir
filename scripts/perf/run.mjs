@@ -23,6 +23,7 @@ import {
   seedScrollSession,
   WORKSPACE,
 } from './fixture.mjs';
+import { buildHighlightBenchmark } from './highlighting.mjs';
 import { installCommitProbe } from './metrics.mjs';
 import { processTree, readProcesses } from './process-tree.mjs';
 
@@ -35,6 +36,7 @@ const { values } = parseArgs({
     'scroll-transcript': { type: 'boolean', default: false },
     'browser-viewport': { type: 'boolean', default: false },
     'code-blocks': { type: 'boolean', default: false },
+    highlighting: { type: 'boolean', default: false },
     help: { type: 'boolean' },
   },
 });
@@ -115,6 +117,7 @@ let desktop;
 let cdp;
 let client;
 let browserFixture;
+let highlightFixture;
 
 async function until(check, label, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
@@ -384,6 +387,38 @@ try {
     throw new Error('Software GPU effects were not disabled');
   await cdp.send('Emulation.setEmulatedMedia', { features: [] });
   await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+  if (values.highlighting) {
+    highlightFixture = await buildHighlightBenchmark();
+    const memory = [];
+    const sampleMemory = async (label) => {
+      await cdp.send('HeapProfiler.collectGarbage');
+      const heap = await cdp.send('Runtime.getHeapUsage');
+      const measured = await sample(label);
+      memory.push({ label, heap, rendererRss: measured.tree.totals.renderer.rss });
+    };
+    await sampleMemory('highlighting-before');
+    const moduleMs = await cdp.evaluate(`(async () => {
+      const at = performance.now();
+      globalThis.__wevirHighlightBench = await import(${JSON.stringify(highlightFixture.url)});
+      return performance.now() - at;
+    })()`);
+    const hljs = await cdp.evaluate('globalThis.__wevirHighlightBench.measureHljs()');
+    await sampleMemory('highlighting-hljs');
+    const workerInit = await cdp.evaluate('globalThis.__wevirHighlightBench.startWorker()');
+    await sampleMemory('highlighting-worker-ready');
+    const worker = await cdp.evaluate('globalThis.__wevirHighlightBench.measureWorker()');
+    await sampleMemory('highlighting-worker-complete');
+    await cdp.evaluate('globalThis.__wevirHighlightBench.stopWorker()');
+    await sampleMemory('highlighting-worker-stopped');
+    report.scenarios.highlighting = {
+      moduleMs,
+      hljs,
+      workerInit,
+      worker,
+      memory,
+      bundle: highlightFixture.bundle,
+    };
+  }
   if (values['code-blocks']) {
     const code = await createSession();
     await cdp.evaluate(
@@ -478,6 +513,7 @@ try {
   report.status = 'complete';
 } finally {
   await stop();
+  await highlightFixture?.cleanup();
   if (browserFixture) await new Promise((resolveClose) => browserFixture.close(resolveClose));
   const log = await readFile(join(home, 'logs', 'host.log'), 'utf8').catch(() => '');
   report.hostSamples = log

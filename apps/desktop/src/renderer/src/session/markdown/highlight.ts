@@ -1,7 +1,7 @@
 // 代码块语法高亮（T5.3）：只在消息定稿（流式结束）且代码块进入视口附近后做，做法参考 OpenWork
-// markdown.tsx 的 enhanceNearViewport（候选 #5，只参考）。用 highlight.js 而不是 Shiki：highlight.js 输出
-// 带类名的 <span>，颜色由 styles/markdown.css 按设计 Token 给出；Shiki 输出内联 style、默认引擎要 WASM，
-// 都被渲染进程的 CSP 拦下（src/shared/csp.ts）。highlight.js 按需动态加载，首屏不带它。
+// markdown.tsx 的 enhanceNearViewport（候选 #5，只参考）。highlight.js 输出带类名的 <span>，颜色由
+// styles/markdown.css 按设计 Token 给出；按需动态加载，首屏不带它。Shiki WASM 已获 CSP 放行；聊天接入仍需
+// 复用 worker 生命周期、适配 AST 与主题样式，内联 style 继续受 CSP 限制（src/shared/csp.ts）。
 
 type Highlighter = typeof import('highlight.js/lib/common').default;
 
