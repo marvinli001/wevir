@@ -1,6 +1,6 @@
 // 最小的 SSE 解析与写出。上游的流（Chat Completions 与 Responses）都是 `data:` 行，事件之间空一行。
 // 解析按 WHATWG 的规则：`data:` 后的一个空格去掉，同一事件的多行 data 用换行拼接，`:` 开头是注释，
-// 兼容 CRLF；`event:` 记下但网关不依赖它（Codex 也只看 data 里 JSON 的 type，codex-api/src/sse/responses.rs）。
+// 兼容 CRLF；`event:` 供请求观测识别增量，Codex 仍只看 data 里 JSON 的 type。
 
 import type { ResponsesEvent } from './types.js';
 
@@ -11,6 +11,7 @@ export interface SseMessage {
 
 export class SseParser {
   #buffer = '';
+  #scanOffset = 0;
   #data: string[] = [];
   #event: string | undefined;
   readonly #decoder = new TextDecoder();
@@ -21,8 +22,12 @@ export class SseParser {
       typeof chunk === 'string' ? chunk : this.#decoder.decode(chunk, { stream: true });
     const out: SseMessage[] = [];
     for (;;) {
-      const newline = this.#buffer.indexOf('\n');
-      if (newline < 0) break;
+      const newline = this.#buffer.indexOf('\n', this.#scanOffset);
+      if (newline < 0) {
+        this.#scanOffset = this.#buffer.length;
+        break;
+      }
+      this.#scanOffset = 0;
       let line = this.#buffer.slice(0, newline);
       this.#buffer = this.#buffer.slice(newline + 1);
       if (line.endsWith('\r')) line = line.slice(0, -1);
@@ -36,6 +41,7 @@ export class SseParser {
     const out: SseMessage[] = [];
     const rest = this.#buffer + this.#decoder.decode();
     this.#buffer = '';
+    this.#scanOffset = 0;
     if (rest !== '') this.#line(rest.endsWith('\r') ? rest.slice(0, -1) : rest, out);
     this.#line('', out);
     return out;

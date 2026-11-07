@@ -35,7 +35,11 @@ export type Prepared =
       headers: Record<string, string>;
       payload: unknown;
       /** 上游 2xx 之后：响应体 → 发给 Codex 的字节或 SSE 文本。`signal` 中断时抛出，不当作上游错误。 */
-      translate(response: Response, signal: AbortSignal): AsyncIterable<Uint8Array | string>;
+      translate(
+        response: Response,
+        signal: AbortSignal,
+        onEvent?: (event: ResponsesEvent) => void,
+      ): AsyncIterable<Uint8Array | string>;
       /** 透传且没有改写响应时，原样转回上游的 content-type。 */
       contentType(upstream: string | null): string;
       /** Chat / Messages 转换的细节，或生效的方言修正（测试用）。 */
@@ -98,11 +102,12 @@ export function prepareUpstream(
       payload,
       messages,
       contentType: () => 'text/event-stream',
-      translate: (response, signal) =>
+      translate: (response, signal, onEvent) =>
         toResponsesEvents(
           response,
           rewriting(new MessagesStreamTranslator(messages.names, origin), searchRewrite),
           signal,
+          onEvent,
         ),
     };
   }
@@ -118,7 +123,7 @@ export function prepareUpstream(
       payload: chat.request,
       chat,
       contentType: () => 'text/event-stream',
-      translate: (response, signal) =>
+      translate: (response, signal, onEvent) =>
         toResponsesEvents(
           response,
           rewriting(
@@ -129,6 +134,7 @@ export function prepareUpstream(
             searchRewrite,
           ),
           signal,
+          onEvent,
         ),
     };
   }
@@ -234,8 +240,15 @@ async function* toResponsesEvents(
   response: Response,
   translator: StreamTranslator,
   signal: AbortSignal,
+  onEvent?: (event: ResponsesEvent) => void,
 ): AsyncIterable<string> {
-  const emit = (events: ResponsesEvent[]) => events.map(sseEvent).join('');
+  const emit = (events: ResponsesEvent[]) =>
+    events
+      .map((event) => {
+        onEvent?.(event);
+        return sseEvent(event);
+      })
+      .join('');
   yield emit(translator.start());
   try {
     if (/json/i.test(response.headers.get('content-type') ?? '')) {

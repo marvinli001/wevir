@@ -332,11 +332,18 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         responseObservation.json = prepared
           .contentType(upstream.headers.get('content-type'))
           .includes('application/json');
-      const translated = prepared.translate(upstream, abort.signal);
+      const translated = prepared.translate(
+        upstream,
+        abort.signal,
+        responseObservation === undefined
+          ? undefined
+          : (event) => responseObservation.observe(event),
+      );
       const vertex = provider.kind === 'google-vertex';
+      const observeBytes = prepared.mode === 'responses';
       async function* output() {
         for await (const piece of translated) {
-          responseObservation?.push(piece);
+          if (observeBytes) responseObservation?.push(piece);
           yield vertex && typeof piece === 'string' ? redact(piece) : piece;
         }
       }

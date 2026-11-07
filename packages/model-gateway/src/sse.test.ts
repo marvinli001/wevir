@@ -30,4 +30,13 @@ describe('SseParser', () => {
       'event: response.created\ndata: {"type":"response.created","response":{"id":"r"}}\n\n',
     );
   });
+
+  it('长行跨多个chunk后继续解析后续行与最后事件', () => {
+    const parser = new SseParser();
+    const text = 'x'.repeat(1024);
+    parser.push('data: ');
+    for (let i = 0; i < 100; i++) expect(parser.push(text)).toEqual([]);
+    expect(parser.push('\r\n\r\ndata: end')).toEqual([{ data: text.repeat(100) }]);
+    expect(parser.end()).toEqual([{ data: 'end' }]);
+  });
 });

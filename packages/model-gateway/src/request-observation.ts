@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import type { RequestSupply } from './request-stats.js';
-import { SseParser } from './sse.js';
+import { type SseMessage, SseParser } from './sse.js';
 import { isObject } from './tools.js';
 import type { ResponsesRequest } from './types.js';
 
@@ -89,12 +89,29 @@ export class ResponseObservation {
       this.#json += typeof piece === 'string' ? piece : Buffer.from(piece).toString('utf8');
       return;
     }
-    for (const event of this.#parser.push(piece)) this.#read(event.data);
+    for (const event of this.#parser.push(piece)) this.#readEvent(event);
   }
 
   end(): void {
     if (this.json) this.#read(this.#json);
-    else for (const event of this.#parser.end()) this.#read(event.data);
+    else for (const event of this.#parser.end()) this.#readEvent(event);
+  }
+
+  #readEvent(event: SseMessage): void {
+    if (event.event === undefined) {
+      this.#read(event.data);
+      return;
+    }
+    this.#firstToken(event.event);
+    if (event.event === 'response.completed') this.#read(event.data);
+  }
+
+  #firstToken(type: unknown): void {
+    if (
+      typeof type === 'string' &&
+      /^response\.(output_text|reasoning_text|function_call_arguments)\.delta$/.test(type)
+    )
+      this.firstTokenMs ??= Math.round(performance.now() - this.#started);
   }
 
   #read(data: string): void {
@@ -105,11 +122,11 @@ export class ResponseObservation {
       return;
     }
     if (!isObject(value)) return;
-    if (
-      typeof value.type === 'string' &&
-      /response\.(output_text|reasoning_text|function_call_arguments)\.delta/.test(value.type)
-    )
-      this.firstTokenMs ??= Math.round(performance.now() - this.#started);
+    this.observe(value);
+  }
+
+  observe(value: Record<string, unknown>): void {
+    this.#firstToken(value.type);
     const response = isObject(value.response) ? value.response : value;
     if (value.type !== undefined && value.type !== 'response.completed') return;
     const usage = response.usage;
