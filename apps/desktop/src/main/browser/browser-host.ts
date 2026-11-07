@@ -573,7 +573,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
     const onScreen = paneBounds === undefined ? null : registry.onScreenTabId();
     for (const tab of tabs.values()) {
       if (tab.tabId === onScreen && paneBounds !== undefined) show(tab, paneBounds);
-      else park(tab);
+      else if (!tab.parked) park(tab);
     }
     releaseBackgroundWindow();
   }
@@ -609,8 +609,18 @@ export function createBrowserHost(options: BrowserHostOptions) {
    */
   function showPane(bounds: BrowserBounds, sessionId: string): boolean {
     const visible = registry.visibleSessionId();
+    const next = toWindowBounds(bounds);
+    if (
+      visible === sessionId &&
+      paneBounds?.x === next?.x &&
+      paneBounds?.y === next?.y &&
+      paneBounds?.width === next?.width &&
+      paneBounds?.height === next?.height
+    ) {
+      return next !== undefined;
+    }
     registry.setVisibleSession(sessionId);
-    paneBounds = toWindowBounds(bounds);
+    paneBounds = next;
     place();
     if (registry.visibleSessionId() !== visible) sendState();
     return paneBounds !== undefined;

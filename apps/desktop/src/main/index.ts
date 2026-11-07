@@ -19,6 +19,7 @@ import {
   Menu,
   Notification,
   nativeTheme,
+  net,
   powerMonitor,
   powerSaveBlocker,
   protocol,
@@ -833,7 +834,7 @@ function run(): void {
       },
     );
     const rendererDir = fileURLToPath(new URL('../renderer/', import.meta.url));
-    protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
+    protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir, net.fetch));
     // 上次的主题模式与底色：窗口一出现就是对的深浅色与底色，不等页面加载完再换。
     windowAppearance = loadWindowAppearance(app.getPath('userData'));
     nativeTheme.themeSource = windowAppearance.themeMode;

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { CSP_NONCE_PLACEHOLDER, productionCsp } from '../shared/csp.js';
 import { APP_HOST } from '../shared/renderer-origin.js';
 
@@ -21,7 +22,11 @@ const CONTENT_TYPES: Record<string, string> = {
  * `productionCsp()`。只接受 GET / HEAD 与主机 `app`；路径解码后必须仍在 `root` 之内。页面本身（index.html）每次
  * 都生成新的样式 nonce：换掉 Vite 写进去的占位符，并写进这次响应的 CSP（src/shared/csp.ts）。
  */
-export async function serveRendererFile(request: Request, root: string): Promise<Response> {
+export async function serveRendererFile(
+  request: Request,
+  root: string,
+  fetchFile: (url: string) => Promise<Response>,
+): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD') return status(405);
   const url = new URL(request.url);
   if (url.host !== APP_HOST) return status(404);
@@ -34,20 +39,23 @@ export async function serveRendererFile(request: Request, root: string): Promise
   const base = resolve(root);
   const target = resolve(base, `.${pathname === '/' ? '/index.html' : pathname}`);
   if (!target.startsWith(base + sep)) return status(403);
-  let body: Buffer;
+  let body: string | Response['body'];
+  let nonce: string | undefined;
   try {
-    body = await readFile(target);
+    if (target === resolve(base, 'index.html')) {
+      const html = await readFile(target, 'utf8');
+      nonce = randomBytes(16).toString('base64');
+      body = request.method === 'HEAD' ? null : html.replaceAll(CSP_NONCE_PLACEHOLDER, nonce);
+    } else {
+      if (!(await stat(target)).isFile()) return status(404);
+      body = request.method === 'HEAD' ? null : (await fetchFile(pathToFileURL(target).href)).body;
+    }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'EISDIR' || code === 'ENOTDIR') return status(404);
     throw error;
   }
-  let nonce: string | undefined;
-  if (target === resolve(base, 'index.html')) {
-    nonce = randomBytes(16).toString('base64');
-    body = Buffer.from(body.toString('utf8').replaceAll(CSP_NONCE_PLACEHOLDER, nonce));
-  }
-  return new Response(request.method === 'HEAD' ? null : new Uint8Array(body), {
+  return new Response(body, {
     headers: {
       'Content-Type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream',
       'Content-Security-Policy': productionCsp(nonce),

@@ -1,13 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CSP_NONCE_PLACEHOLDER, productionCsp } from '../shared/csp.js';
 import { serveRendererFile } from './renderer-files.js';
 
 let root: string;
 let outside: string;
+const fetchFile = vi.fn(async (url: string) => new Response(readFileSync(fileURLToPath(url))));
 beforeEach(() => {
+  fetchFile.mockClear();
   outside = mkdtempSync(join(tmpdir(), 'wevir-renderer-'));
   root = join(outside, 'renderer');
   mkdirSync(join(root, 'assets'), { recursive: true });
@@ -20,7 +23,8 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(outside, { recursive: true, force: true }));
 
-const get = (url: string, method = 'GET') => serveRendererFile(new Request(url, { method }), root);
+const get = (url: string, method = 'GET') =>
+  serveRendererFile(new Request(url, { method }), root, fetchFile);
 
 describe('serveRendererFile（wevir:// 协议）', () => {
   it('从构建产物目录读文件，带内容类型与生产 CSP', async () => {
@@ -36,6 +40,24 @@ describe('serveRendererFile（wevir:// 协议）', () => {
     const head = await get('wevir://app/assets/app.js', 'HEAD');
     expect(head.status).toBe(200);
     expect(await head.text()).toBe('');
+    expect(fetchFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('非页面资源直接转发流，文件 URL 保留中文、空格与特殊字符', async () => {
+    const name = '图 #.svg';
+    writeFileSync(join(root, 'assets', name), '<svg/>');
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('<svg/>'));
+        controller.close();
+      },
+    });
+    fetchFile.mockResolvedValueOnce(new Response(stream));
+    const response = await get(`wevir://app/assets/${encodeURIComponent(name)}`);
+    expect(fileURLToPath(fetchFile.mock.calls[0]?.[0] as string)).toBe(join(root, 'assets', name));
+    expect(response.body).toBe(stream);
+    expect(response.headers.get('content-type')).toBe('image/svg+xml');
+    expect(await response.text()).toBe('<svg/>');
   });
 
   it('页面每次加载换一个样式 nonce：替换占位符，并写进这次的 CSP', async () => {

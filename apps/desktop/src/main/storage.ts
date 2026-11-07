@@ -40,6 +40,7 @@ const TOP_LEVEL: Record<string, StorageCategory> = {
   [HOME_LAYOUT.accountsDir]: 'engines',
   [HOME_LAYOUT.speechDir]: 'components',
   [HOME_LAYOUT.logsDir]: 'logs',
+  'node-compile-cache': 'cache',
 };
 
 /** engines/ 下按需下载的运行体：`engines/<引擎>/runtime/` 算下载的组件，其余是引擎数据。 */
@@ -179,7 +180,10 @@ export async function cleanLogs(home: string): Promise<void> {
   );
 }
 
-/** 清理 Host 的文件缓存：办公文档预览转出的 PDF（Host 找不到时重新转）。 */
+/** 清理 Host 的文件缓存：预览 PDF 与 Node 编译缓存（使用时重新生成）。 */
 export async function cleanFileCaches(home: string): Promise<void> {
-  await rm(join(home, HOME_LAYOUT.officeDir, OFFICE_PDF_DIR), { recursive: true, force: true });
+  await Promise.all([
+    rm(join(home, HOME_LAYOUT.officeDir, OFFICE_PDF_DIR), { recursive: true, force: true }),
+    rm(join(home, 'node-compile-cache'), { recursive: true, force: true }),
+  ]);
 }

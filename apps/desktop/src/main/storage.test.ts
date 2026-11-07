@@ -40,6 +40,7 @@ describe('measureStorage', () => {
     await file('logs/host.log', 3);
     await file('office/engine/versions/0.2.0/node_modules/kit/engine.bin', 70);
     await file('office/pdf/abc.pdf', 5);
+    await file('node-compile-cache/v24/module', 12);
     await file('plugins/registry.json', 2);
     await file('settings.json', 1);
     await file('desktop/Cache/Cache_Data/data_0', 50);
@@ -58,12 +59,12 @@ describe('measureStorage', () => {
       worktrees: 300,
       engines: 617,
       components: 200,
-      cache: 145,
+      cache: 157,
       browser: 17,
       logs: 3,
       other: 24,
     });
-    expect(usage.total).toBe(1463);
+    expect(usage.total).toBe(1475);
     expect(usage.categories.map((category) => category.id)).toEqual([
       'sessions',
       'worktrees',
@@ -88,12 +89,14 @@ describe('measureStorage', () => {
 });
 
 describe('cleanFileCaches', () => {
-  it('removes the converted PDFs and keeps the preview engine', async () => {
+  it('removes the converted PDFs and Node compile cache, keeping the preview engine', async () => {
     await file('office/pdf/abc.pdf', 5);
     await file('office/pdf/abc.json', 1);
     await file('office/engine/active.json', 1);
+    await file('node-compile-cache/v24/module', 12);
     await cleanFileCaches(home);
     expect(await readdir(join(home, 'office'))).toEqual(['engine']);
+    expect(await readdir(home)).not.toContain('node-compile-cache');
     await expect(cleanFileCaches(join(home, 'nope'))).resolves.toBeUndefined();
   });
 });

@@ -174,6 +174,30 @@ async function exited(pid: number, timeoutMs = 15_000): Promise<void> {
 }
 
 describe('HostLifecycle', () => {
+  it.each([false, true])('Host 编译缓存写入数据目录，允许显式覆盖（%s）', async (override) => {
+    const home = join(tempDir, 'home');
+    const cache = join(override ? tempDir : home, 'node-compile-cache');
+    const env = hostEnvironment(process.env);
+    delete env.NODE_COMPILE_CACHE;
+    if (override) env.NODE_COMPILE_CACHE = cache;
+    const spawner = nodeHostSpawner(process.execPath);
+    let spawnedEnv: NodeJS.ProcessEnv | undefined;
+    const { lifecycle: host } = lifecycle(home, {
+      env,
+      spawner: {
+        ...spawner,
+        spawn(entry, args, childEnv) {
+          spawnedEnv = childEnv;
+          return spawner.spawn(entry, args, childEnv);
+        },
+      },
+    });
+    await host.start();
+    expect(spawnedEnv?.NODE_COMPILE_CACHE).toBe(cache);
+    await host.stop();
+    expect(existsSync(cache)).toBe(true);
+  });
+
   it('没有 Host：拉起并拥有它；stop 关闭归属管道，Host 自己优雅退出并删除 host.json', async () => {
     const home = join(tempDir, 'home');
     const { lifecycle: host, logs } = lifecycle(home);

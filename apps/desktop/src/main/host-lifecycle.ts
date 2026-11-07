@@ -602,6 +602,7 @@ export class HostLifecycle {
 
   async #spawn(entry: string, args: string[]): Promise<OwnedChild> {
     const host = await this.#options.spawner.spawn(entry, args, {
+      NODE_COMPILE_CACHE: join(this.#options.home, 'node-compile-cache'),
       // wevir-host 的数据目录 WEVIR_HOME 优先于 --home：两处都给同一个值，继承来的 WEVIR_HOME 不会让它
       // 用到别的目录。
       ...(this.#options.env ?? hostEnvironment(process.env)),
