@@ -94,7 +94,7 @@ import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionContexts } from './session-context.js';
-import { listedSession, listRow } from './session-list.js';
+import { listedSession } from './session-list.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
@@ -1341,8 +1341,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         // 频道的协调者与线程（0.120.0）在频道里看，不进会话列表；开在用户项目里的线程（0.134.0）除外。
         sessions: records.flatMap((record) => {
           if (!listedSession(storage, record)) return [];
-          const snapshot = events.snapshot(record.id as SessionId);
-          return snapshot ? [listRow(snapshot, record.archivedAt)] : [];
+          return [events.listRow(record)];
         }),
       };
     },

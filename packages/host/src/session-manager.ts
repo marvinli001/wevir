@@ -5909,7 +5909,7 @@ export class SessionManager {
         return;
       case 'usage.recorded': {
         if (this.#onUsage === undefined) return;
-        const { providerId, modelId } = this.#snapshot(runtime).session;
+        const { providerId, modelId } = this.#events.state(sessionId) as Session;
         const turnId =
           event.engineTurnId === null
             ? undefined
@@ -5948,7 +5948,7 @@ export class SessionManager {
     const turn = runtime.turn;
     if (!turn) {
       // Host 已判定回合结束（取消超时、引擎异常、关闭）之后，引擎的残余事件是预期的。
-      const { state } = this.#snapshot(runtime).session;
+      const { state } = this.#events.state(sessionId) as Session;
       if (state !== 'error' && state !== 'closed') {
         this.#onError(new Error(`会话 ${sessionId} 没有进行中的回合，丢弃引擎事件 ${event.type}`));
       }

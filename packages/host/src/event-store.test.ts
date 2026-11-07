@@ -11,6 +11,7 @@ import {
   elideSuperseded,
   SessionNotFoundError,
 } from './event-store.js';
+import { listRow } from './session-list.js';
 import { EventRejectedError, projectionCode } from './snapshot.js';
 import {
   createStore,
@@ -42,6 +43,32 @@ function tick(ms: number): Promise<void> {
 describe('EventStore.append / readSince', () => {
   const dataDir = useTempDir();
   const { open } = useStorages();
+
+  it('轻量会话字段与列表行等于完整快照，session.get仍返回独立副本', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage);
+    store.appendMany(SES, [
+      ev.user(),
+      ev.turnStarted(),
+      ev.state('idle', 'running', 'turn_started'),
+      ev.toolStarted('call_apr_1'),
+      ev.approvalRequested('apr_1'),
+      ev.state('running', 'awaiting_approval', 'approval_requested'),
+    ]);
+    storage.sessions.setArchived(SES, T0);
+    const full = store.snapshot(SES);
+    const record = storage.sessions.get(SES);
+    if (full === undefined || record === undefined) throw new Error('missing fixture');
+    expect(store.state(SES)).toEqual(full.session);
+    expect(store.listRow(record)).toEqual(listRow(full, T0));
+    const approval = full.pendingApprovals[0];
+    if (approval === undefined) throw new Error('missing fixture approval');
+    approval.options = [];
+    full.session.title = 'changed outside';
+    expect(store.snapshot(SES)?.pendingApprovals[0]?.options.length).toBeGreaterThan(0);
+    expect(store.state(SES)?.title).not.toBe('changed outside');
+    store.close();
+  });
 
   it('冷投影按 LRU 淘汰，先存检查点，再读取时与完整重放相同', () => {
     const storage = open(dataDir());

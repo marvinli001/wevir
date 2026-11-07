@@ -13,6 +13,7 @@ import {
   type QuestionRequest,
   type SecondOpinion,
   SeqCursorSchema,
+  type Session,
   type SessionId,
   SessionIdSchema,
   type SessionRules,
@@ -27,7 +28,7 @@ import {
   type WevirEventPayload,
   type WevirEventType,
 } from '@wevir/protocol';
-import type { EventRecord, Storage } from '@wevir/storage';
+import type { EventRecord, SessionRecord, Storage } from '@wevir/storage';
 import { EventBus, type EventListener } from './event-bus.js';
 import {
   applyEvent,
@@ -39,6 +40,7 @@ import {
   type RoutingState,
   type SessionProjection,
   toCachePatch,
+  toSession,
   toSnapshot,
 } from './snapshot.js';
 import { truncateJson, truncateToolOutput } from './truncate.js';
@@ -485,6 +487,27 @@ export class EventStore {
     const record = this.#storage.sessions.get(sessionId);
     if (!record) return undefined;
     return toSnapshot(record, this.#projection(sessionId));
+  }
+
+  /** Host 内部只读的会话字段，不复制快照里的历史集合。 */
+  state(sessionId: SessionId): Readonly<Session> | undefined {
+    const record = this.#storage.sessions.get(sessionId);
+    return record === undefined ? undefined : toSession(record, this.#projection(sessionId));
+  }
+
+  listRow(record: SessionRecord): Session {
+    const projection = this.#projection(record.id as SessionId);
+    const session = toSession(record, projection);
+    const approvals = projection.pendingApprovals.length;
+    let questions = 0;
+    for (const question of projection.questions.values())
+      if (question.status === 'pending') questions++;
+    return {
+      ...session,
+      ...(record.archivedAt !== undefined && { archivedAt: record.archivedAt }),
+      ...(approvals > 0 && { pendingApprovalCount: approvals }),
+      ...(questions > 0 && { pendingQuestionCount: questions }),
+    };
   }
 
   /**

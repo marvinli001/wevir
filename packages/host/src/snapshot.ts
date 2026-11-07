@@ -949,10 +949,9 @@ function reject(message: string): never {
 }
 
 /**
- * `session.get` 的结果：身份字段取自 `sessions` 表，其余取自事件推导（与表里的缓存列不一致时以事件
- * 为准，domain-model §3.3）。返回独立的副本。
+ * 会话字段：身份取自 `sessions` 表，其余以投影为准。内部只读，可与投影共享嵌套值。
  */
-export function toSnapshot(record: SessionRecord, projection: SessionProjection): SessionSnapshot {
+export function toSession(record: SessionRecord, projection: SessionProjection): Session {
   const session: Session = {
     id: record.id as SessionId,
     workspaceId: record.workspaceId as WorkspaceId,
@@ -987,7 +986,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
-  if (projection.rules !== undefined) session.rules = structuredClone(projection.rules);
+  if (projection.rules !== undefined) session.rules = projection.rules;
   if (record.environmentId !== undefined) {
     session.environmentId = record.environmentId as EnvironmentId;
   }
@@ -1051,6 +1050,18 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.goal) session.goal = projection.goal;
   if (projection.autoContinue) session.autoContinue = { ...projection.autoContinue };
   if (projection.wrapUp) session.wrapUp = { ...projection.wrapUp };
+  for (const question of projection.questions.values()) {
+    if (question.status === 'pending' && question.async !== true) {
+      session.awaitingInput = true;
+      break;
+    }
+  }
+  return session;
+}
+
+/** `session.get` 的独立副本。 */
+export function toSnapshot(record: SessionRecord, projection: SessionProjection): SessionSnapshot {
+  const session = toSession(record, projection);
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],
@@ -1068,8 +1079,6 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   const pendingQuestions = openQuestions(projection);
   if (pendingQuestions.length > 0) {
     snapshot.pendingQuestions = pendingQuestions;
-    // 不挂起回合的提问（0.156.0）不算在等输入：引擎提完接着做。
-    if (pendingQuestions.some((question) => question.async !== true)) session.awaitingInput = true;
   }
   if (projection.opinions.size > 0) snapshot.opinions = [...projection.opinions.values()];
   if (projection.insights.size > 0) snapshot.insights = [...projection.insights.values()];

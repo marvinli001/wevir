@@ -165,8 +165,7 @@ export class SessionListFeed {
     if (!listedSession(this.#storage, record)) return undefined;
     const workspace = this.#storage.workspaces.get(record.workspaceId);
     if (workspace === undefined || workspace.removedAt !== undefined) return undefined;
-    const snapshot = this.#events.snapshot(sessionId);
-    return snapshot === undefined ? undefined : listRow(snapshot, record.archivedAt);
+    return this.#events.listRow(record);
   }
 }
 
