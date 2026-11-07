@@ -446,6 +446,8 @@ export class WevirClient {
   #hello: HostHello | undefined;
   readonly #queue = new Set<PendingRequest>();
   readonly #feeds = new Set<SessionFeed>();
+  readonly #sessionFeeds = new Map<SessionId, SessionFeed>();
+  readonly #feedOwners = new WeakMap<SessionFeed, SessionFeed>();
   /** 服务端 `subscriptionId` → 订阅。只含当前连接上有效的订阅。 */
   readonly #routes = new Map<string, SessionFeed>();
   #closedError: ClientClosedError | undefined;
@@ -1473,18 +1475,43 @@ export class WevirClient {
    * 迭代时抛出。中途加入：先 `session.get` 取快照，再以 `sinceSeq = session.lastSeq` 订阅。
    */
   subscribe(sessionId: SessionId, options: SubscribeOptions = {}): EventSubscription {
-    const feed = new SessionFeed(sessionId, options.sinceSeq ?? 0, {
-      onClose: (closed) => this.#unsubscribe(closed),
+    const consumer = new SessionFeed(sessionId, options.sinceSeq ?? 0, {
+      onClose: (closed) => {
+        const owner = this.#feedOwners.get(closed);
+        this.#feedOwners.delete(closed);
+        if (owner?.removeConsumer(closed) === 0) this.#unsubscribe(owner);
+      },
       onWarning: (message, detail) => this.#warn(message, detail),
     });
-    feed.elideSuperseded = options.elideSuperseded === true;
+    consumer.elideSuperseded = options.elideSuperseded === true;
     if (this.#closedError) {
-      feed.fail(this.#closedError);
-      return feed;
+      consumer.fail(this.#closedError);
+      return consumer;
     }
+    let feed = this.#sessionFeeds.get(sessionId);
+    const fresh = feed === undefined;
+    feed ??= new SessionFeed(
+      sessionId,
+      options.sinceSeq ?? 0,
+      {
+        onClose: (closed) => this.#unsubscribe(closed),
+        onWarning: (message, detail) => this.#warn(message, detail),
+      },
+      true,
+    );
+    const replay = feed.addConsumer(consumer);
+    this.#feedOwners.set(consumer, feed);
+    this.#sessionFeeds.set(sessionId, feed);
     this.#feeds.add(feed);
-    if (this.#connection) this.#subscribe(feed, this.#connection);
-    return feed;
+    if (replay) {
+      if (feed.serverId !== undefined) {
+        this.#routes.delete(feed.serverId);
+        if (this.#connection) this.#unsubscribeServer(this.#connection, feed.serverId);
+      }
+      feed.replayFrom(Math.min(feed.lastSeq, consumer.lastSeq));
+    }
+    if (this.#connection && (fresh || replay)) this.#subscribe(feed, this.#connection);
+    return consumer;
   }
 
   /**
@@ -1729,6 +1756,7 @@ export class WevirClient {
       else feed.fail(error);
     }
     this.#feeds.clear();
+    this.#sessionFeeds.clear();
   }
 
   // ── 请求 ────────────────────────────────────────────────────────────
@@ -1769,7 +1797,7 @@ export class WevirClient {
           const parsed = EventsSubscribeResultSchema.safeParse(raw);
           if (!parsed.success) {
             if (isCurrent()) {
-              this.#feeds.delete(feed);
+              this.#removeFeed(feed);
               feed.fail(
                 new ProtocolError(
                   'events.subscribe result does not match its schema',
@@ -1805,7 +1833,7 @@ export class WevirClient {
             return;
           }
           // 会话不存在、参数不对等：重试也不会好，结束这个订阅。
-          this.#feeds.delete(feed);
+          this.#removeFeed(feed);
           feed.fail(error);
         },
       },
@@ -1829,7 +1857,7 @@ export class WevirClient {
       feed.resyncCount = 1;
     }
     if (feed.resyncCount > MAX_RESYNCS_WITHOUT_PROGRESS) {
-      this.#feeds.delete(feed);
+      this.#removeFeed(feed);
       feed.fail(
         new ProtocolError(
           `the host keeps sending an invalid or out-of-order event after seq ${feed.lastSeq}`,
@@ -1843,13 +1871,19 @@ export class WevirClient {
 
   /** 上层关闭了订阅。 */
   #unsubscribe(feed: SessionFeed): void {
-    this.#feeds.delete(feed);
+    feed.finish();
+    this.#removeFeed(feed);
     // 还在路上的订阅结果因此过期，到达时退订。
     feed.generation += 1;
     if (feed.serverId === undefined) return;
     this.#routes.delete(feed.serverId);
     if (this.#connection) this.#unsubscribeServer(this.#connection, feed.serverId);
     feed.detach();
+  }
+
+  #removeFeed(feed: SessionFeed): void {
+    this.#feeds.delete(feed);
+    this.#sessionFeeds.delete(feed.sessionId);
   }
 
   #unsubscribeServer(connection: Connection, subscriptionId: string): void {

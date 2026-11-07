@@ -76,6 +76,7 @@ export class SessionFeed implements EventSubscription {
   /** 每次（续）订阅都带 `elideSuperseded`（`SubscribeOptions`）。 */
   elideSuperseded = false;
   readonly #hooks: FeedHooks;
+  readonly #consumers: Set<SessionFeed> | undefined;
   #lastSeq: number;
   /** 当前服务端订阅的 `replayedThroughSeq`。 */
   #through = 0;
@@ -87,10 +88,39 @@ export class SessionFeed implements EventSubscription {
   #ended = false;
   #failure: { error: unknown } | undefined;
 
-  constructor(sessionId: SessionId, sinceSeq: number, hooks: FeedHooks) {
+  constructor(sessionId: SessionId, sinceSeq: number, hooks: FeedHooks, shared = false) {
     this.sessionId = sessionId;
     this.#lastSeq = sinceSeq;
     this.#hooks = hooks;
+    this.#consumers = shared ? new Set() : undefined;
+  }
+
+  addConsumer(consumer: SessionFeed): boolean {
+    const replay =
+      consumer.lastSeq < this.#lastSeq || (this.elideSuperseded && !consumer.elideSuperseded);
+    this.#consumers?.add(consumer);
+    this.#updateElision();
+    if (this.serverId !== undefined && consumer.attach(this.serverId, this.#through) === 'reset') {
+      consumer.reset();
+      return true;
+    }
+    return replay;
+  }
+
+  removeConsumer(consumer: SessionFeed): number {
+    this.#consumers?.delete(consumer);
+    this.#updateElision();
+    return this.#consumers?.size ?? 0;
+  }
+
+  replayFrom(seq: number): void {
+    this.detach();
+    this.#lastSeq = seq;
+  }
+
+  #updateElision(): void {
+    if (this.#consumers)
+      this.elideSuperseded = [...this.#consumers].every((consumer) => consumer.elideSuperseded);
   }
 
   get lastSeq(): number {
@@ -114,6 +144,9 @@ export class SessionFeed implements EventSubscription {
     if (this.#lastSeq > replayedThroughSeq) return 'reset';
     this.serverId = serverId;
     this.#through = replayedThroughSeq;
+    for (const consumer of this.#consumers ?? []) {
+      if (consumer.attach(serverId, replayedThroughSeq) === 'reset') return 'reset';
+    }
     if (this.#lastSeq >= replayedThroughSeq) this.#markCaughtUp();
     else this.#caughtUp = false;
     return 'attached';
@@ -123,6 +156,7 @@ export class SessionFeed implements EventSubscription {
   detach(): void {
     this.serverId = undefined;
     this.#caughtUp = false;
+    for (const consumer of this.#consumers ?? []) consumer.detach();
   }
 
   reset(): void {
@@ -131,18 +165,19 @@ export class SessionFeed implements EventSubscription {
     this.#through = 0;
     this.#announce = true;
     this.#push({ type: 'reset' });
+    for (const consumer of this.#consumers ?? []) consumer.reset();
   }
 
   /** 应用当前服务端订阅送来的一条事件。`raw` 是原始对象，`envelope` 是它按信封解析的结果。 */
   apply(raw: unknown, envelope: WevirEventEnvelope): ApplyResult {
     if (envelope.seq <= this.#lastSeq) return 'duplicate';
     if (envelope.seq !== this.#lastSeq + 1) return 'gap';
-    this.#lastSeq = envelope.seq;
+    let event: WevirEvent | undefined;
     // 不认识的类型（Host 比客户端新）忽略内容、照常推进 lastSeq（host-api.md §4、§10 规则 5）。
     if (isKnownEventType(envelope.type)) {
       const parsed = WevirEventSchema.safeParse(raw);
       if (parsed.success) {
-        this.#push({ type: 'event', event: parsed.data });
+        event = parsed.data;
       } else {
         this.#hooks.onWarning('skipped an event that does not match its schema', {
           sessionId: this.sessionId,
@@ -152,16 +187,26 @@ export class SessionFeed implements EventSubscription {
         });
       }
     }
+    this.#applyParsed(envelope.seq, event);
+    for (const consumer of this.#consumers ?? []) consumer.#applyParsed(envelope.seq, event);
+    return 'applied';
+  }
+
+  #applyParsed(seq: number, event: WevirEvent | undefined): void {
+    if (seq <= this.#lastSeq || this.#ended) return;
+    this.#lastSeq = seq;
+    if (event) this.#push({ type: 'event', event });
     if (!this.#caughtUp && this.serverId !== undefined && this.#lastSeq >= this.#through) {
       this.#markCaughtUp();
     }
-    return 'applied';
   }
 
   /** 客户端关闭：已产出的项仍可读完，之后迭代结束。 */
   finish(): void {
     if (this.#ended) return;
     this.#ended = true;
+    for (const consumer of this.#consumers ?? []) consumer.finish();
+    this.#consumers?.clear();
     for (const waiter of this.#waiters.splice(0)) waiter.resolve({ done: true, value: undefined });
   }
 
@@ -169,6 +214,8 @@ export class SessionFeed implements EventSubscription {
   fail(error: unknown): void {
     if (this.#ended) return;
     this.#ended = true;
+    for (const consumer of this.#consumers ?? []) consumer.fail(error);
+    this.#consumers?.clear();
     const [first, ...rest] = this.#waiters.splice(0);
     if (first) first.reject(error);
     else this.#failure = { error };
@@ -211,7 +258,7 @@ export class SessionFeed implements EventSubscription {
   }
 
   #push(item: SubscriptionItem): void {
-    if (this.#ended) return;
+    if (this.#ended || this.#consumers) return;
     const waiter = this.#waiters.shift();
     if (waiter) waiter.resolve({ done: false, value: item });
     else this.#items.push(item);

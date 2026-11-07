@@ -491,6 +491,67 @@ describe('订阅', () => {
     expect(subscription.caughtUp).toBe(true);
   });
 
+  it('同一会话多播同一个已校验事件，最后一个消费者关闭才退订', async () => {
+    const host = new FakeHost();
+    subscribeHandler(host, () => 0);
+    const { client } = await connect(host);
+    const a = client.subscribe(SES);
+    const b = client.subscribe(SES);
+    await take(a, 1);
+    await take(b, 1);
+    expect(host.last.requests('events.subscribe')).toHaveLength(1);
+    host.last.notify('events.event', { subscriptionId: 'sub_1', event: event(1) });
+    const [left, right] = await Promise.all([a.next(), b.next()]);
+    if (left.value?.type !== 'event' || right.value?.type !== 'event')
+      throw new Error('missing event');
+    expect(left.value.event).toBe(right.value.event);
+    a.close();
+    expect(host.last.requests('events.unsubscribe')).toHaveLength(0);
+    b.close();
+    expect(host.last.requests('events.unsubscribe')[0]?.params).toEqual({
+      subscriptionId: 'sub_1',
+    });
+  });
+
+  it('晚加入的历史消费者从较早位置补发，现有消费者不重放、不重复追平', async () => {
+    const host = new FakeHost();
+    subscribeHandler(host, () => 2);
+    const { client } = await connect(host);
+    const sidebar = client.subscribe(SES, { sinceSeq: 2, elideSuperseded: true });
+    expect(seqs(await take(sidebar, 1))).toEqual(['caught_up@2']);
+    const transcript = client.subscribe(SES, { elideSuperseded: true });
+    await vi.waitFor(() => expect(host.last.requests('events.subscribe')).toHaveLength(2));
+    expect(host.last.requests('events.subscribe')[1]?.params).toEqual({
+      sessionId: SES,
+      sinceSeq: 0,
+      elideSuperseded: true,
+    });
+    await tick();
+    for (const seq of [1, 2, 3])
+      host.last.notify('events.event', { subscriptionId: 'sub_2', event: event(seq) });
+    expect(seqs(await take(transcript, 4))).toEqual([1, 2, 'caught_up@2', 3]);
+    expect(seqs(await take(sidebar, 1))).toEqual([3]);
+    expect(sidebar.lastSeq).toBe(3);
+  });
+
+  it('完整回放需求优先；消费者退出后重连恢复精简回放', async () => {
+    const host = new FakeHost();
+    subscribeHandler(host, () => 0);
+    const { client } = await connect(host);
+    const projected = client.subscribe(SES, { elideSuperseded: true });
+    await take(projected, 1);
+    const full = client.subscribe(SES);
+    await take(full, 1);
+    expect(
+      host.last.requests('events.subscribe').map((request) => request.params.elideSuperseded),
+    ).toEqual([true, undefined]);
+    full.close();
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(host.last.requests('events.subscribe')).toHaveLength(1));
+    expect(host.last.requests('events.subscribe')[0]?.params.elideSuperseded).toBe(true);
+  });
+
   it('缺口：退订旧订阅、以 sinceSeq = lastSeq 重新订阅；旧订阅后来的事件被丢弃', async () => {
     const host = new FakeHost();
     let through = 0;
@@ -648,7 +709,7 @@ describe('订阅', () => {
     );
   });
 
-  it('close() 退订；client.close() 让其他订阅的迭代正常结束', async () => {
+  it('close() 只移除自己的消费者；client.close() 让其他迭代正常结束', async () => {
     const host = new FakeHost();
     subscribeHandler(host, () => 0);
     const { client } = await connect(host);
@@ -657,11 +718,10 @@ describe('订阅', () => {
     await take(a, 1);
     await take(b, 1);
     a.close();
-    expect(host.last.requests('events.unsubscribe')[0]?.params).toEqual({
-      subscriptionId: 'sub_1',
-    });
+    expect(host.last.requests('events.unsubscribe')).toHaveLength(0);
     host.last.notify('events.event', { subscriptionId: 'sub_1', event: event(1) });
     expect(await a.next()).toEqual({ done: true, value: undefined });
+    expect(seqs(await take(b, 1))).toEqual([1]);
     client.close();
     expect(await b.next()).toEqual({ done: true, value: undefined });
     await expect(client.subscribe(SES).next()).rejects.toBeInstanceOf(ClientClosedError);
