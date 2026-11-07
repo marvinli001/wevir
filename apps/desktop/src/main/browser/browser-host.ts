@@ -55,6 +55,7 @@ import {
   recordBeforeUnload,
   recordDownload,
   resetDialogPolicy,
+  setNetworkMonitoring,
   takeDownloads,
   watchTab,
 } from './automation/contents.js';
@@ -161,6 +162,7 @@ interface Tab {
   unresponsive: boolean;
   /** browser_download 正在等的下载：下一个开始的下载存进 `dir`。 */
   armedDownload: { dir: string; onStart(item: DownloadItemLike, path: string): void } | undefined;
+  readonly onInput: (event: unknown, input: { type: string }) => void;
 }
 
 export interface BrowserHostOptions {
@@ -325,14 +327,19 @@ export function createBrowserHost(options: BrowserHostOptions) {
       openedTabs: [],
       unresponsive: false,
       armedDownload: undefined,
+      onInput: (_event, input) => {
+        if (tab.agentBusy > 0 || tab.parked) return;
+        if (input.type === 'mouseDown' || input.type === 'keyDown' || input.type === 'rawKeyDown') {
+          setTabController(tab, 'user');
+          sendState();
+        }
+      },
     };
     tabs.set(tabId, tab);
     registry.add({ tabId, ownerSessionId });
     const contents = view.webContents;
     view.setBackgroundColor('#ffffff');
-    // 从一开始（第一次载入之前）就记对话框、控制台与网络请求（browser_logs）。
-    watchTab(contents);
-    interceptFileChooser(contents.id, controller === 'agent');
+    setTabController(tab, controller);
 
     // 弹窗：http(s) 的在同一会话里开新标签页（agent 开的归 agent），别的拒绝；不交给系统浏览器。
     contents.setWindowOpenHandler(({ url }) => {
@@ -405,14 +412,6 @@ export function createBrowserHost(options: BrowserHostOptions) {
     contents.on('page-title-updated', () => sendState());
     contents.on('did-start-loading', () => sendState());
     contents.on('did-stop-loading', () => sendState());
-    // 用户在 agent 的标签页里点了、敲了：用户接手，agent 之后只读。agent 自己的输入（执行命令期间）不算。
-    contents.on('input-event', (_event, input) => {
-      if (tab.controller !== 'agent' || tab.agentBusy > 0 || tab.parked) return;
-      if (input.type === 'mouseDown' || input.type === 'keyDown' || input.type === 'rawKeyDown') {
-        setTabController(tab, 'user');
-        sendState();
-      }
-    });
     contents.once('destroyed', () => {
       if (tabs.get(tabId) === tab) closeTab(tabId);
     });
@@ -424,8 +423,17 @@ export function createBrowserHost(options: BrowserHostOptions) {
     tab.controller = controller;
     if (controller === 'agent') tab.disposition = undefined;
     if (!tab.view.webContents.isDestroyed()) {
-      interceptFileChooser(tab.view.webContents.id, controller === 'agent');
-      if (controller === 'user') resetDialogPolicy(tab.view.webContents.id);
+      const contents = tab.view.webContents;
+      contents.removeListener('input-event', tab.onInput);
+      if (controller === 'agent') {
+        watchTab(contents);
+        contents.on('input-event', tab.onInput);
+      } else {
+        interceptFileChooser(contents.id, false);
+        resetDialogPolicy(contents.id);
+      }
+      setNetworkMonitoring(contents.id, controller === 'agent' || tab.agentBusy > 0);
+      if (tab.parked && tab.domReady) emulateBackground(tab);
     }
   }
 
@@ -505,6 +513,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
     const cdp = tab.view.webContents.debugger;
     queueEmulation(tab, async () => {
       if (!tab.parked) return;
+      if (!cdp.isAttached() && tab.controller === 'user' && tab.agentBusy === 0) return;
       if (!cdp.isAttached()) cdp.attach('1.3');
       for (const { method, params } of backgroundTabEmulationCommands(
         BACKGROUND_TAB_VIEWPORT,
@@ -1084,6 +1093,8 @@ export function createBrowserHost(options: BrowserHostOptions) {
     task: () => Promise<AutomationCommandPayload>,
   ): Promise<AutomationCommandPayload> {
     const contents = tab.view.webContents;
+    watchTab(contents, tab.controller === 'agent');
+    setNetworkMonitoring(contents.id, true);
     tab.agentBusy += 1;
     contents.setBackgroundThrottling(false);
     if (tab.parked) {
@@ -1116,6 +1127,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
     } finally {
       tab.agentBusy -= 1;
       if (!contents.isDestroyed()) {
+        setNetworkMonitoring(contents.id, tab.controller === 'agent' || tab.agentBusy > 0);
         contents.setBackgroundThrottling(tab.agentBusy === 0);
         if (tab.parked) {
           tab.view.setVisible(tab.agentBusy > 0);

@@ -2,7 +2,7 @@
 // 这个标签页，响应体与交文件走那个子会话；子会话的根 frame 换文档不清空记录。用假的 webContents 驱动 TabMonitor。
 
 import { describe, expect, it, vi } from 'vitest';
-import { adaptWebContents } from './contents.js';
+import { adaptWebContents, setNetworkMonitoring, watchTab } from './contents.js';
 
 type Listener = (
   event: unknown,
@@ -11,7 +11,7 @@ type Listener = (
   sessionId?: string,
 ) => void;
 
-function fakeTab() {
+function fakeTab(agentControlled = true) {
   let listener: Listener | undefined;
   const sent: Array<{ command: string; params: Record<string, unknown>; sessionId?: string }> = [];
   const contents = {
@@ -36,13 +36,83 @@ function fakeTab() {
       },
     },
   };
+  watchTab(contents as never, agentControlled);
   const tab = adaptWebContents(contents as never);
   const emit = (method: string, params: Record<string, unknown>, sessionId = '') =>
     listener?.({}, method, params, sessionId);
-  return { tab, emit, sent };
+  return { tab, emit, sent, contents };
 }
 
 describe('跨进程 iframe 的 CDP 子会话', () => {
+  it('用户标签的首次只读命令不拦选文件框，并使用较小的网络缓冲', async () => {
+    const { sent } = fakeTab(false);
+    await vi.waitFor(() =>
+      expect(sent).toContainEqual({
+        command: 'Network.enable',
+        params: { maxTotalBufferSize: 4 * 1024 * 1024, maxResourceBufferSize: 1024 * 1024 },
+      }),
+    );
+    expect(sent).toContainEqual({
+      command: 'Page.setInterceptFileChooserDialog',
+      params: { enabled: false },
+    });
+  });
+
+  it('交回用户时停主页面与子会话的 Network，晚到记录不重新变成 pending，接管后可以恢复', async () => {
+    const { tab, contents, emit, sent } = fakeTab();
+    await vi.waitFor(() =>
+      expect(sent.some((entry) => entry.command === 'Target.setAutoAttach')).toBe(true),
+    );
+    emit('Target.attachedToTarget', {
+      sessionId: 'child-1',
+      targetInfo: { type: 'iframe' },
+      waitingForDebugger: true,
+    });
+    await vi.waitFor(() => expect(sent.at(-1)?.command).toBe('Runtime.runIfWaitingForDebugger'));
+    emit(
+      'Network.requestWillBeSent',
+      {
+        requestId: 'pending',
+        loaderId: 'L1',
+        timestamp: 1,
+        request: { url: 'https://child.test/pending', method: 'GET' },
+      },
+      'child-1',
+    );
+    expect(tab.getNetworkLog?.().entries).toHaveLength(1);
+    setNetworkMonitoring(contents.id, false);
+    expect(sent).toContainEqual({ command: 'Network.disable', params: {} });
+    expect(sent).toContainEqual({ command: 'Network.disable', params: {}, sessionId: 'child-1' });
+    emit(
+      'Network.requestWillBeSent',
+      {
+        requestId: 'late',
+        loaderId: 'L1',
+        timestamp: 2,
+        request: { url: 'https://child.test/late', method: 'GET' },
+      },
+      'child-1',
+    );
+    expect(tab.getNetworkLog?.().entries).toEqual([]);
+    setNetworkMonitoring(contents.id, true);
+    expect(sent.at(-1)).toEqual({
+      command: 'Network.enable',
+      params: { maxTotalBufferSize: 4 * 1024 * 1024, maxResourceBufferSize: 1024 * 1024 },
+      sessionId: 'child-1',
+    });
+    emit(
+      'Network.requestWillBeSent',
+      {
+        requestId: 'new',
+        loaderId: 'L1',
+        timestamp: 3,
+        request: { url: 'https://child.test/new', method: 'GET' },
+      },
+      'child-1',
+    );
+    expect(tab.getNetworkLog?.().entries).toHaveLength(1);
+  });
+
   it('主页面打开自动接上；接上的 iframe 打开各个域、装替身、接下一层，最后放行；worker 只放行', async () => {
     const { emit, sent } = fakeTab();
     await vi.waitFor(() =>

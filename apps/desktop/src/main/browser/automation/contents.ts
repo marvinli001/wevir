@@ -4,7 +4,7 @@
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 由 Wevir 修改：去掉 Paseo 的 ipcMain 处理与 <webview> 注册表（Wevir 的标签页是 WebContentsView，在 browser-host.ts 里登记），
 // 只留把 Electron 的 webContents 适配成自动化用的 `TabContents` 这部分；控制台消息按 Electron 35 起的事件对象读。
-// 0.46.0：对话框在标签页的整个生命期里都记（载入时、定时器里的也算，标签页的 `disableDialogs` 让 Chromium 不弹原生框、页面不被
+// 0.46.0：开始自动化监视后持续记录对话框（载入时、定时器里的也算，标签页的 `disableDialogs` 让 Chromium 不弹原生框、页面不被
 // 卡住，CDP 仍报 Page.javascriptDialogOpening），没在命令期间报掉的留到这个标签页的下一个命令；prompt 的替身装进每个新文档；
 // 网络记录改用 CDP 的 Network 域（方法、状态码、进行中与失败的请求，只留当前页面的）；控制台记录也只留当前页面的；页面要选本机
 // 文件时拦下原生文件框（Page.setInterceptFileChooserDialog）并报出来；下载由 browser-host.ts 拦下后记到这里。
@@ -45,8 +45,8 @@ import type { IsolatedKeyboardInputEvent } from './trusted-input.js';
 const MAX_CONSOLE_MESSAGES_PER_TAB = 200;
 const MAX_NETWORK_ENTRIES_PER_TAB = 200;
 /** Chromium 为取响应体留的缓冲（每个标签页合计、单个响应）；超过的响应体拿不到。 */
-const NETWORK_BUFFER_BYTES = 16 * 1024 * 1024;
-const NETWORK_RESOURCE_BUFFER_BYTES = 4 * 1024 * 1024;
+const NETWORK_BUFFER_BYTES = 4 * 1024 * 1024;
+const NETWORK_RESOURCE_BUFFER_BYTES = 1024 * 1024;
 /** 请求体最多留多少字符。 */
 const MAX_POST_DATA_CHARS = 2_000;
 /** 一个 frame 算编号最多等多久（卡住的 frame 不列出）。 */
@@ -230,11 +230,15 @@ export function resetDialogPolicy(contentsId: number): void {
 }
 
 /**
- * 开始看着一个标签页（建标签页时调一次，在第一次载入之前）：之后的对话框、控制台、网络请求、文件框都记下来。重复调用没有
- * 副作用。
+ * 首次 agent 命令或接管时开始监视；agent 新开的标签页在载入前开始，用户此前的记录不保证完整。
  */
-export function watchTab(contents: BrowserAutomationWebContents): void {
-  monitorFor(contents);
+export function watchTab(contents: BrowserAutomationWebContents, agentControlled = true): void {
+  monitorFor(contents, agentControlled).setFileChooserInterception(agentControlled);
+}
+
+/** 用户接手时释放 Chromium 的响应体缓冲；下次 agent 命令再启用。 */
+export function setNetworkMonitoring(contentsId: number, enabled: boolean): void {
+  monitorsByContentsId.get(contentsId)?.setNetworkMonitoring(enabled);
 }
 
 /** 页面要离开时的 beforeunload（browser-host.ts 的 `will-prevent-unload`，按策略离开或留下）。 */
@@ -265,10 +269,10 @@ export function interceptFileChooser(contentsId: number, enabled: boolean): void
   monitorsByContentsId.get(contentsId)?.setFileChooserInterception(enabled);
 }
 
-function monitorFor(contents: BrowserAutomationWebContents): TabMonitor {
+function monitorFor(contents: BrowserAutomationWebContents, interceptChooser = true): TabMonitor {
   const existing = monitorsByContentsId.get(contents.id);
   if (existing) return existing;
-  const monitor = new TabMonitor(contents);
+  const monitor = new TabMonitor(contents, interceptChooser);
   monitorsByContentsId.set(contents.id, monitor);
   contents.once('destroyed', () => monitorsByContentsId.delete(contents.id));
   monitor.start();
@@ -369,10 +373,16 @@ class TabMonitor {
   #shimScriptId: string | undefined;
   /** 当前页面的第一个请求的时间（CDP 时钟），网络记录的 `startTime` 从它算起。 */
   #pageStart: number | undefined;
-  #interceptFileChooser = true;
+  #interceptFileChooser: boolean;
+  #networkEnabled = true;
   #enabled = false;
 
-  constructor(private readonly contents: BrowserAutomationWebContents) {}
+  constructor(
+    private readonly contents: BrowserAutomationWebContents,
+    interceptChooser: boolean,
+  ) {
+    this.#interceptFileChooser = interceptChooser;
+  }
 
   start(): void {
     const cdpConsole = Boolean(this.contents.debugger.on);
@@ -426,13 +436,17 @@ class TabMonitor {
       ['Runtime.enable'],
       ['Log.enable'],
       // 响应体留在 Chromium 的缓冲里，要了才取（browser_network 的 body）。
-      [
-        'Network.enable',
-        {
-          maxTotalBufferSize: NETWORK_BUFFER_BYTES,
-          maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
-        },
-      ],
+      ...(this.#networkEnabled
+        ? [
+            [
+              'Network.enable',
+              {
+                maxTotalBufferSize: NETWORK_BUFFER_BYTES,
+                maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
+              },
+            ] as [string, Record<string, unknown>],
+          ]
+        : []),
     ];
     await Promise.all([
       this.#installShimScript(),
@@ -481,13 +495,17 @@ class TabMonitor {
         ['Page.setInterceptFileChooserDialog', { enabled: this.#interceptFileChooser }],
         ['Runtime.enable'],
         ['Log.enable'],
-        [
-          'Network.enable',
-          {
-            maxTotalBufferSize: NETWORK_BUFFER_BYTES,
-            maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
-          },
-        ],
+        ...(this.#networkEnabled
+          ? [
+              [
+                'Network.enable',
+                {
+                  maxTotalBufferSize: NETWORK_BUFFER_BYTES,
+                  maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
+                },
+              ] as [string, Record<string, unknown>],
+            ]
+          : []),
       ];
       await Promise.all([
         this.#send(
@@ -637,6 +655,27 @@ class TabMonitor {
           () => {},
         );
       }
+    }
+  }
+
+  setNetworkMonitoring(enabled: boolean): void {
+    if (this.#networkEnabled === enabled) return;
+    this.#networkEnabled = enabled;
+    if (!enabled) {
+      // 不会再收到这些请求的完成事件，避免下次 networkIdle 等待遗留的 pending 记录。
+      this.#network = this.#network.filter((record) => record.end !== undefined);
+      this.#extraHeaders.clear();
+    }
+    if (!this.#enabled || this.contents.isDestroyed()) return;
+    const command = enabled ? 'Network.enable' : 'Network.disable';
+    const params = enabled
+      ? {
+          maxTotalBufferSize: NETWORK_BUFFER_BYTES,
+          maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
+        }
+      : {};
+    for (const sessionId of [undefined, ...this.#children.keys()]) {
+      void this.#send(command, params, sessionId).catch(() => {});
     }
   }
 
@@ -800,6 +839,7 @@ class TabMonitor {
   }
 
   #onCdpEvent(method: string, params: Record<string, unknown>, sessionId?: string): void {
+    if (!this.#networkEnabled && method.startsWith('Network.')) return;
     switch (method) {
       case 'Target.attachedToTarget':
         // 不排进命令队列：iframe 停在第一行脚本之前，排在一个正等着它的命令后面会互相等。
