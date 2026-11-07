@@ -119,7 +119,7 @@ import { HostSettingsStore } from './settings.js';
 import { SimulatorService } from './simulator/service.js';
 import { Simctl, type SimctlRunner } from './simulator/simctl.js';
 import { SpeechModelInstaller } from './speech/install.js';
-import { LocalTranscriber, loadSherpa } from './speech/local.js';
+import { LocalTranscriber, loadSherpa, sherpaInstalled } from './speech/local.js';
 import {
   loadPolishInstructions,
   POLISH_OUTPUT_SCHEMA,
@@ -1675,12 +1675,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }
     startup.mark('app_tools');
     const speechInstaller = new SpeechModelInstaller({ directory: homePath(home, 'speechDir') });
-    const sherpa = loadSherpa((message, fields) => logger.info(message, fields));
+    const hasSherpa = sherpaInstalled();
     startup.mark('sherpa');
     const speech = new SpeechService({
       installer: speechInstaller,
-      ...(sherpa !== undefined && {
-        local: new LocalTranscriber(sherpa, () => speechInstaller.installed()),
+      ...(hasSherpa && {
+        local: new LocalTranscriber(
+          () => loadSherpa((message, fields) => logger.info(message, fields)),
+          () => speechInstaller.installed(),
+        ),
       }),
       settings: () => settings.get(),
       resolveProvider: async (providerId, modelId) => {

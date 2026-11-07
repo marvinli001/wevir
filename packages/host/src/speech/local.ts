@@ -28,6 +28,15 @@ export interface SherpaModule {
   Vad: new (config: unknown, bufferSizeInSeconds: number) => Vad;
 }
 
+export function sherpaInstalled(): boolean {
+  try {
+    createRequire(import.meta.url).resolve('sherpa-onnx-node');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 加载 `sherpa-onnx-node`；这个平台没有它的原生包（或加载失败）时 undefined。它是 CommonJS，用 createRequire 加载：打成 bundle 后
  * 从 bundle 所在处找 `node_modules/`（安装包里是 `host/node_modules/`，stage-resources 的 ON_DISK_PACKAGES）。
@@ -54,15 +63,19 @@ const MAX_SEGMENT_SECONDS = 20;
 const IDLE_UNLOAD_MS = 10 * 60_000;
 
 export class LocalTranscriber {
-  readonly #sherpa: SherpaModule;
+  readonly #loadSherpa: () => SherpaModule | undefined;
+  #sherpa: SherpaModule | undefined;
   readonly #paths: () => Promise<SpeechModelPaths | undefined>;
   #recognizer: { paths: SpeechModelPaths; ready: Promise<OfflineRecognizer> } | undefined;
   #idle: ReturnType<typeof setTimeout> | undefined;
   /** 同一时刻只识别一次：识别器不是线程安全的，几次录音排队。 */
   #queue: Promise<unknown> = Promise.resolve();
 
-  constructor(sherpa: SherpaModule, paths: () => Promise<SpeechModelPaths | undefined>) {
-    this.#sherpa = sherpa;
+  constructor(
+    load: () => SherpaModule | undefined,
+    paths: () => Promise<SpeechModelPaths | undefined>,
+  ) {
+    this.#loadSherpa = load;
     this.#paths = paths;
   }
 
@@ -83,8 +96,11 @@ export class LocalTranscriber {
   async #transcribe(pcm: Uint8Array): Promise<string | undefined> {
     const paths = await this.#paths();
     if (paths === undefined) return undefined;
-    const recognizer = await this.#load(paths);
-    const segments = this.#segments(pcmToFloat32(pcm), paths);
+    this.#sherpa ??= this.#loadSherpa();
+    const sherpa = this.#sherpa;
+    if (sherpa === undefined) throw new Error('Local speech recognition runtime is unavailable.');
+    const recognizer = await this.#load(paths, sherpa);
+    const segments = this.#segments(pcmToFloat32(pcm), paths, sherpa);
     const texts: string[] = [];
     for (const samples of segments) {
       const stream = recognizer.createStream();
@@ -95,9 +111,9 @@ export class LocalTranscriber {
     return joinSegments(texts);
   }
 
-  #load(paths: SpeechModelPaths): Promise<OfflineRecognizer> {
+  #load(paths: SpeechModelPaths, sherpa: SherpaModule): Promise<OfflineRecognizer> {
     if (this.#recognizer?.paths.dir === paths.dir) return this.#recognizer.ready;
-    const ready = this.#sherpa.OfflineRecognizer.createAsync({
+    const ready = sherpa.OfflineRecognizer.createAsync({
       featConfig: { sampleRate: SPEECH_SAMPLE_RATE, featureDim: 80 },
       modelConfig: {
         senseVoice: { model: paths.model, language: '', useInverseTextNormalization: 1 },
@@ -117,9 +133,9 @@ export class LocalTranscriber {
   }
 
   /** VAD 切出说话的段。 */
-  #segments(samples: Float32Array, paths: SpeechModelPaths): Float32Array[] {
+  #segments(samples: Float32Array, paths: SpeechModelPaths, sherpa: SherpaModule): Float32Array[] {
     const seconds = samples.length / SPEECH_SAMPLE_RATE;
-    const vad = new this.#sherpa.Vad(
+    const vad = new sherpa.Vad(
       {
         sileroVad: {
           model: paths.vad,

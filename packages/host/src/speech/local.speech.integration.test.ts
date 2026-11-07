@@ -25,7 +25,10 @@ describe.skipIf(skip)('LocalTranscriber（真实模型）', () => {
       tokens: join(modelDir, 'tokens.txt'),
       vad: join(modelDir, 'silero_vad.onnx'),
     };
-    const local = new LocalTranscriber(sherpa, async () => paths);
+    const local = new LocalTranscriber(
+      () => sherpa,
+      async () => paths,
+    );
     // 去掉 44 字节的 WAV 头，剩下 PCM。
     const pcm = readFileSync(wav).subarray(44);
     const text = await local.transcribe(pcm);
