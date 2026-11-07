@@ -605,6 +605,7 @@ dist/components/FileDiff.js 写 diff 的 HTML 之前把 Pierre 自己的 HAST �
 （渲染进程的 CSP 不放行 HTML 里的 style 属性）；新加 dist/utils/diffsText.js（与 .d.ts），dist/renderers/DiffHunksRenderer.js
 与 dist/utils/createSeparator.js 分隔条上的英文改由它提供，dist/index.js 与 index.d.ts 导出 setDiffsText。原因见
 pnpm-workspace.yaml。
+WorkerPoolManager.js 与 worker/types.d.ts 增加 initialPoolSize：按任务需求扩容，保留主题同步与终止约束。
 
 @pierre/theme 包内的 NOTICE（原文）：
 

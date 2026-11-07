@@ -165,7 +165,7 @@ settings:
 packageExtensionsChecksum: sha256-qN8MqwqhwzLgANSJ3fXjIt06EfZvojnj/zxCJZTD7VM=
 
 patchedDependencies:
-  '@pierre/diffs@1.5.1': d2094993b5ab5f03229ff5fe8ed30aac62fbb0d1179f6a8f9bd712a07be59810
+  '@pierre/diffs@1.5.1': b4e08333817a8b7b82a43f261144c1828f9c9de28ac840921a44c513dc54309d
   metal-fx@2.0.11: 28505134ca755ba5ea948a4b5513343d9459beb98a6c1686dbdb2d5490a31fa4
 
 importers:
@@ -241,7 +241,7 @@ importers:
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/diffs':
         specifier: 1.5.1
-        version: 1.5.1(patch_hash=d2094993b5ab5f03229ff5fe8ed30aac62fbb0d1179f6a8f9bd712a07be59810)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.5.1(patch_hash=b4e08333817a8b7b82a43f261144c1828f9c9de28ac840921a44c513dc54309d)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@shikijs/transformers':
         specifier: 4.4.3
         version: 4.4.3
@@ -8566,7 +8566,7 @@ snapshots:
       tslib: 2.8.1
       webcrypto-core: 1.9.2
 
-  '@pierre/diffs@1.5.1(patch_hash=d2094993b5ab5f03229ff5fe8ed30aac62fbb0d1179f6a8f9bd712a07be59810)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.5.1(patch_hash=b4e08333817a8b7b82a43f261144c1828f9c9de28ac840921a44c513dc54309d)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)

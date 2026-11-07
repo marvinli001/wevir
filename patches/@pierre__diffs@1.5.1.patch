@@ -257,3 +257,112 @@ index 0000000000000000000000000000000000000000..87d9620cc4a74c73575f2ce570ead92a
 +}
 +//#endregion
 +export { diffsText, setDiffsText };
+diff --git a/dist/worker/WorkerPoolManager.js b/dist/worker/WorkerPoolManager.js
+index caf2839d72599b7e7e8fb4917e6275c7efb3d258..1038d890c639f3f1254c2d53c40d3556a4eb9dc8 100644
+--- a/dist/worker/WorkerPoolManager.js
++++ b/dist/worker/WorkerPoolManager.js
+@@ -35,6 +35,8 @@ var WorkerPoolTaskCanceledError = class extends Error {
+ };
+ var WorkerPoolManager = class {
+ 	options;
++	growingPool;
++	growthFailed = false;
+ 	highlighter;
+ 	preferredHighlighter;
+ 	renderOptions;
+@@ -159,6 +161,7 @@ var WorkerPoolManager = class {
+ 	}
+ 	async setRenderOptionsOnWorkers(renderOptions, resolvedThemes) {
+ 		if (this.workersFailed) return;
++		await this.growingPool;
+ 		if (!this.isInitialized()) await this.initialize();
+ 		const taskPromises = [];
+ 		for (const managedWorker of this.workers) {
+@@ -293,13 +296,15 @@ var WorkerPoolManager = class {
+ 			this.queueBroadcastStateChanges();
+ 		} else return this.initialized;
+ 	}
+-	async initializeWorkers(resolvedThemes, resolvedLanguages) {
++	async initializeWorkers(resolvedThemes, resolvedLanguages, append = false) {
+ 		this.workersFailed = false;
+ 		const initPromises = [];
+ 		const customExtensionVersion = getCustomExtensionsVersion();
+ 		const customExtensionMap = customExtensionVersion > 0 ? getCustomExtensionsMap() : void 0;
+-		if (this.workers.length > 0) this.terminateWorkers();
+-		for (let i = 0; i < (this.options.poolSize ?? 8); i++) {
++		if (!append && this.workers.length > 0) this.terminateWorkers();
++		const first = this.workers.length;
++		const size = append ? first + 1 : Math.min(this.options.initialPoolSize ?? this.options.poolSize ?? 8, this.options.poolSize ?? 8);
++		for (let i = first; i < size; i++) {
+ 			const worker = this.options.workerFactory();
+ 			const managedWorker = {
+ 				worker,
+@@ -353,6 +358,34 @@ var WorkerPoolManager = class {
+ 			if (timeoutId != null) clearTimeout(timeoutId);
+ 		}
+ 	}
++	growPool() {
++		if (this.growingPool || this.growthFailed || this.workers.length >= (this.options.poolSize ?? 8)) return;
++		const { lifecycleGeneration } = this;
++		const first = this.workers.length;
++		this.growingPool = (async () => {
++			const themes = getThemes(this.renderOptions.theme);
++			const resolvedThemes = hasResolvedThemes(themes) ? getResolvedThemes(themes) : await resolveThemes(themes);
++			if (!this.isCurrentLifecycle(lifecycleGeneration)) return;
++			await this.initializeWorkers(resolvedThemes, [], true);
++		})().catch((error) => {
++			if (!this.isCurrentLifecycle(lifecycleGeneration)) return;
++			this.growthFailed = true;
++			for (const worker of this.workers.splice(first)) {
++				const task = this.activeTaskById.get(worker.pendingSetupRequestId);
++				if (task != null) {
++					task.reject(error);
++					this.cleanWorkerAndTask(worker, task);
++				}
++				worker.worker.terminate();
++			}
++			console.error("WorkerPoolManager: additional worker unavailable", error);
++		}).finally(() => {
++			if (!this.isCurrentLifecycle(lifecycleGeneration)) return;
++			this.growingPool = void 0;
++			this.queueDrain();
++			this.queueBroadcastStateChanges();
++		});
++	}
+ 	handleWorkerError(managedWorker, error) {
+ 		console.error("Worker error:", error, managedWorker);
+ 		const { pendingSetupRequestId } = managedWorker;
+@@ -373,7 +406,10 @@ var WorkerPoolManager = class {
+ 			}
+ 			const langs = getLangsFromTask(task);
+ 			const availableWorker = this.getAvailableWorker(langs);
+-			if (availableWorker == null) break;
++			if (availableWorker == null) {
++				this.growPool();
++				break;
++			}
+ 			this.queuedTasks.splice(i, 1);
+ 			this.assignWorkerToTask(task, availableWorker);
+ 			this.resolveLanguagesAndExecuteTask(availableWorker, task, langs);
+@@ -469,6 +505,8 @@ var WorkerPoolManager = class {
+ 	}
+ 	terminate() {
+ 		this.lifecycleGeneration++;
++		this.growingPool = void 0;
++		this.growthFailed = false;
+ 		this.cancelActiveWorkerTasks();
+ 		this.terminateWorkers();
+ 		const error = new WorkerPoolTerminatedError();
+diff --git a/dist/worker/types.d.ts b/dist/worker/types.d.ts
+index 9b3c16a39935dc84f5ca48979f39cee043cf6d45..07c1bca47a6202c1c874627ea9ca6dc01aaed721 100644
+--- a/dist/worker/types.d.ts
++++ b/dist/worker/types.d.ts
+@@ -103,6 +103,8 @@ interface WorkerPoolOptions {
+    * @default 8
+    */
+   poolSize?: number;
++  /** Initial workers; grows toward poolSize when queued work needs another worker. */
++  initialPoolSize?: number;
+   /**
+    * Maximum time to wait for the worker pool to initialize, in milliseconds.
+    * @default 10000

@@ -49,6 +49,7 @@ patchedDependencies:
   # 渲染进程的 CSP 不放行 HTML 里的 style 属性（apps/desktop/src/shared/csp.ts）。补丁在 FileDiff.js（U32 起还有文件预览用的
   # File.js）写 HTML 之前把 Pierre 自己的 HAST 里的 style 挪到 data-csp-style（不触发违规），写完经 CSSOM 原样补上；另把分隔条上写死的英文
   # （“N unmodified lines”等）换成可由使用方设置的 setDiffsText（新文件 utils/diffsText.js，从包入口导出），文案走 i18n。
+  # WorkerPoolManager 的 initialPoolSize 让共享池从 1 个 worker 按排队任务扩到最多 2 个。
   '@pierre/diffs@1.5.1': patches/@pierre__diffs@1.5.1.patch
   # 桌面端（U3，ADR-0004 补记 9）：最后一个 MetalFx 卸载时库调 loseContext()，那次异步的 webglcontextlost 回调写的是
   # 模块级的共享状态，同一次提交里新建的实例（切换会话时输入框重挂）拿到的新状态被标成“上下文丢失”，永远
