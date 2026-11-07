@@ -3,6 +3,7 @@
 
 import { initI18n } from './i18n/index.js';
 import { bootstrapWindowChrome } from './layout/window-chrome.js';
+import { bootstrapGpuEffects } from './lib/gpu-effects.js';
 import { bootstrapAppearance } from './theme/appearance.js';
 import { bootstrapTheme } from './theme/theme.js';
 
@@ -11,5 +12,5 @@ export async function bootstrapRenderer(): Promise<void> {
   bootstrapAppearance();
   bootstrapWindowChrome();
   // 界面语言的目录在第一次渲染之前加载好，t() 始终是同步的。
-  await initI18n();
+  await Promise.all([initI18n(), bootstrapGpuEffects()]);
 }

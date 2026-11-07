@@ -52,6 +52,12 @@ const api: DesktopApi = {
   setWindowAppearance: (appearance) =>
     ipcRenderer.invoke(IPC_CHANNELS.setWindowAppearance, appearance),
   setPreventSleep: (active) => ipcRenderer.invoke(IPC_CHANNELS.setPreventSleep, active),
+  getLowGpu: () => ipcRenderer.invoke(IPC_CHANNELS.getLowGpu),
+  onLowGpu: (listener) => {
+    const handler = (_event: IpcRendererEvent, lowGpu: boolean) => listener(lowGpu);
+    ipcRenderer.on(IPC_CHANNELS.lowGpu, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.lowGpu, handler);
+  },
   getWindowChrome: () => windowChrome,
   onWindowChrome: (listener) => {
     windowChromeListeners.add(listener);

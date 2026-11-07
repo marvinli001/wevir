@@ -8,6 +8,7 @@
 @import "./styles/markdown.css";
 @import "./styles/session.css";
 @import "./styles/scroll-fade.css";
+@import "./styles/low-gpu.css";
 
 @layer base {
   * {

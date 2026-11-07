@@ -1,5 +1,6 @@
 import { BorderBeam, type BorderBeamProps } from 'border-beam';
 import type { ReactNode } from 'react';
+import { useReducedGpuEffects } from '@/lib/gpu-effects';
 import { useFxTheme, useReducedMotion } from './motion';
 
 /**
@@ -37,6 +38,7 @@ export function Beam({
 }) {
   const theme = useFxTheme();
   const reduced = useReducedMotion();
+  const lowGpu = useReducedGpuEffects();
   const {
     size,
     colorVariant,
@@ -50,7 +52,7 @@ export function Beam({
       theme={theme}
       strength={strength}
       staticColors={staticColors}
-      active={active && !(reduced && size === 'line')}
+      active={active && !lowGpu && !(reduced && size === 'line')}
       data-beam-preset={preset}
       className={className}
     >

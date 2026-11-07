@@ -1,0 +1,83 @@
+:root[data-low-gpu]
+  :is(
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="popover-content"],
+    [data-slot="select-content"],
+    [data-slot="dialog-content"]
+  ) {
+  background-color: var(--popover);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-low-gpu] body .sidebar-peek {
+  background-color: var(--sidebar);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-low-gpu] body [data-composer-box] {
+  background-color: var(--card);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-low-gpu] body .scroll-fade {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+:root[data-low-gpu] body .shimmer {
+  animation: none;
+  background: none;
+  color: var(--muted-foreground);
+}
+:root[data-low-gpu] body [data-beam-preset],
+:root[data-low-gpu] body [data-beam-preset] *,
+:root[data-low-gpu] body [data-beam-preset]::before,
+:root[data-low-gpu] body [data-beam-preset]::after,
+:root[data-low-gpu] body [data-beam-preset] *::before,
+:root[data-low-gpu] body [data-beam-preset] *::after {
+  animation: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root
+    :is(
+      [data-slot="dropdown-menu-content"],
+      [data-slot="dropdown-menu-sub-content"],
+      [data-slot="context-menu-content"],
+      [data-slot="popover-content"],
+      [data-slot="select-content"],
+      [data-slot="dialog-content"]
+    ) {
+    background-color: var(--popover);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-theme] body .sidebar-peek {
+    background-color: var(--sidebar);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-theme] body [data-composer-box] {
+    background-color: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-theme] body .scroll-fade {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+  :root[data-theme] body .shimmer {
+    animation: none;
+    background: none;
+    color: var(--muted-foreground);
+  }
+  :root[data-theme] body [data-beam-preset],
+  :root[data-theme] body [data-beam-preset] *,
+  :root[data-theme] body [data-beam-preset]::before,
+  :root[data-theme] body [data-beam-preset]::after,
+  :root[data-theme] body [data-beam-preset] *::before,
+  :root[data-theme] body [data-beam-preset] *::after {
+    animation: none;
+  }
+}

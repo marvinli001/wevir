@@ -22,6 +22,7 @@ const { values } = parseArgs({
     out: { type: 'string' },
     'idle-seconds': { type: 'string', default: '300' },
     'library-mib': { type: 'string', default: '976' },
+    'software-gpu': { type: 'boolean', default: false },
     help: { type: 'boolean' },
   },
 });
@@ -87,6 +88,7 @@ const report = {
   config: {
     idleSeconds,
     libraryMiB,
+    softwareGpu: values['software-gpu'],
     toolLines: 20_000,
     toolUpdates: 200,
     replyChunks: 240,
@@ -128,6 +130,7 @@ async function launch(label) {
       fileURLToPath(new URL('./desktop.mjs', import.meta.url)),
       `--remote-debugging-port=${port}`,
       '--remote-debugging-address=127.0.0.1',
+      ...(values['software-gpu'] ? ['--disable-gpu'] : []),
     ],
     { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] },
   );
@@ -196,7 +199,17 @@ async function sample(label) {
   const tree = processTree(await readProcesses(), value);
   if (!tree.processes.some((row) => row.category === 'host'))
     throw new Error('Host missing from process tree');
-  const result = { label, ...value.host, tree, database: await databaseSize() };
+  const effects = await cdp.evaluate(`(() => {
+    const count = (selector, property, enabled) => [...document.querySelectorAll(selector)].filter(node => enabled(getComputedStyle(node)[property])).length;
+    return {
+      lowGpu: document.documentElement.hasAttribute('data-low-gpu'),
+      blurredComposers: count('[data-composer-box]', 'backdropFilter', value => value !== 'none'),
+      scrollMasks: count('.scroll-fade', 'maskImage', value => value !== 'none'),
+      shimmers: count('.shimmer', 'animationName', value => value !== 'none'),
+      beamAnimations: document.getAnimations().filter(animation => animation.playState === 'running' && animation.effect?.target?.closest('[data-beam-preset]')).length,
+    };
+  })()`);
+  const result = { label, ...value.host, tree, effects, database: await databaseSize() };
   report.samples.push(result);
   return result;
 }
@@ -325,6 +338,22 @@ try {
   )
     throw new Error('React commit measurement did not run in a visible renderer');
   await sample('reply-complete');
+  const theme = await cdp.evaluate('document.documentElement.dataset.theme');
+  await cdp.evaluate("document.documentElement.dataset.theme = 'dark'");
+  const dark = await sample('dark-effects');
+  await cdp.send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-transparency', value: 'reduce' }],
+  });
+  const reduced = await sample('reduced-transparency');
+  if (reduced.effects.scrollMasks || reduced.effects.blurredComposers)
+    throw new Error('Reduced transparency effects were not disabled');
+  if (
+    values['software-gpu'] &&
+    (!dark.effects.lowGpu || dark.effects.blurredComposers || dark.effects.scrollMasks)
+  )
+    throw new Error('Software GPU effects were not disabled');
+  await cdp.send('Emulation.setEmulatedMedia', { features: [] });
+  await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
   await sample('before-delete');
   await sleep(50);
   const startedAt = Date.now();

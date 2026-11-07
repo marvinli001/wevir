@@ -411,6 +411,8 @@ export interface DesktopApi {
   /** 运行时防止系统休眠（设置 → 常规）：有回合在跑且打开了这一项时为 true，系统不会因空闲而睡眠。 */
   setPreventSleep(active: boolean): Promise<void>;
   /** 当前的窗口标题栏形态。同步取值：preload 按平台给出初值，之后跟着主进程的推送更新。 */
+  getLowGpu(): Promise<boolean>;
+  onLowGpu(listener: (lowGpu: boolean) => void): () => void;
   getWindowChrome(): WindowChrome;
   /** 订阅窗口标题栏形态的变化（进出全屏、页面重新加载），返回取消订阅的函数。 */
   onWindowChrome(listener: (chrome: WindowChrome) => void): () => void;
@@ -503,6 +505,8 @@ export const IPC_CHANNELS = {
   setPreventSleep: 'wevir:set-prevent-sleep',
   /** 主进程 → 渲染进程的推送。 */
   windowChrome: 'wevir:window-chrome',
+  getLowGpu: 'wevir:get-low-gpu',
+  lowGpu: 'wevir:low-gpu',
   notify: 'wevir:notify',
   closeNotifications: 'wevir:close-notifications',
   setBadgeCount: 'wevir:set-badge-count',

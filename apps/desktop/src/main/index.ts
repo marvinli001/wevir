@@ -34,6 +34,7 @@ import {
   type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
+import { isLowGpu } from '../shared/gpu.js';
 import { canOpenExternally } from '../shared/open-path.js';
 import {
   APP_ENTRY_URL,
@@ -171,6 +172,11 @@ async function acquireInstanceLock(): Promise<boolean> {
 
 function run(): void {
   let mainWindow: BrowserWindow | undefined;
+  const gpuReady = new Promise<void>((resolve) => app.once('gpu-info-update', () => resolve()));
+  app.on('gpu-info-update', () => {
+    if (mainWindow && !mainWindow.isDestroyed())
+      mainWindow.webContents.send(IPC_CHANNELS.lowGpu, isLowGpu(app.getGPUFeatureStatus()));
+  });
   let tray: AppTray | undefined;
   /**
    * 关掉主窗口只是隐藏，Wevir 留在后台（菜单栏 / 通知区域的图标，tray.ts）；真正退出（菜单的退出、⌘Q、托盘的退出、
@@ -284,6 +290,11 @@ function run(): void {
     return mainWindow;
   };
 
+  ipcMain.handle(IPC_CHANNELS.getLowGpu, async (event): Promise<boolean> => {
+    assertSender(event);
+    await gpuReady;
+    return isLowGpu(app.getGPUFeatureStatus());
+  });
   ipcMain.handle(IPC_CHANNELS.getHostConnection, async (event): Promise<HostConnection> => {
     assertSender(event);
     const { identity, lifecycle } = await host;
