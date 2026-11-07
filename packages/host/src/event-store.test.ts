@@ -1,4 +1,6 @@
+import { join } from 'node:path';
 import {
+  EventPayloadSchemas,
   JSON_STRING_MAX_LENGTH,
   TOOL_OUTPUT_MAX_LENGTH,
   type WevirEvent,
@@ -43,6 +45,59 @@ function tick(ms: number): Promise<void> {
 describe('EventStore.append / readSince', () => {
   const dataDir = useTempDir();
   const { open } = useStorages();
+
+  it('生产增量校验与schema接受范围一致，未知字段仍被剥除', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    try {
+      const values = [
+        delta('ok'),
+        { ...delta('ok'), extra: 'discard' },
+        { ...delta('ok'), turnId: `trn_${'a'.repeat(64)}` },
+        { ...delta('ok'), turnId: `trn_${'a'.repeat(65)}` },
+        { ...delta('ok'), streamId: 'stm_bad-id' },
+        { ...delta('ok'), blockIndex: Number.MAX_SAFE_INTEGER + 1 },
+        { ...delta('ok'), kind: 'other' },
+        { ...delta('ok'), text: 4 },
+      ];
+      for (const [index, value] of values.entries()) {
+        const storage = open(join(dataDir(), String(index)));
+        const store = createStore(storage);
+        const parsed = EventPayloadSchemas['assistant.delta'].safeParse(value);
+        store.appendMany(SES, [
+          ev.turnStarted(parsed.success ? parsed.data.turnId : TURN),
+          ev.state('idle', 'running', 'turn_started'),
+        ]);
+        if (parsed.success) {
+          store.appendDelta(SES, value as ReturnType<typeof delta>);
+          store.flush(SES);
+          expect(store.readSince(SES, 0).at(-1)?.payload).toEqual(parsed.data);
+        } else expect(() => store.appendDelta(SES, value as ReturnType<typeof delta>)).toThrow();
+        store.close();
+        storage.close();
+      }
+      const plans = [
+        { turnId: TURN, planId: '计划', text: '正文', restart: true, extra: 'discard' },
+        { turnId: TURN, planId: 'p', text: 'body', restart: false },
+      ];
+      for (const [index, value] of plans.entries()) {
+        const storage = open(join(dataDir(), `plan-${index}`));
+        const store = createStore(storage);
+        store.appendMany(SES, [ev.turnStarted(), ev.state('idle', 'running', 'turn_started')]);
+        const parsed = EventPayloadSchemas['plan.delta'].safeParse(value);
+        const append = () =>
+          store.appendPlanDelta(SES, value as Parameters<EventStore['appendPlanDelta']>[1]);
+        if (parsed.success) {
+          append();
+          store.flush(SES);
+          expect(store.readSince(SES, 0).at(-1)?.payload).toEqual(parsed.data);
+        } else expect(append).toThrow();
+        store.close();
+        storage.close();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it('轻量会话字段与列表行等于完整快照，session.get仍返回独立副本', () => {
     const storage = open(dataDir());

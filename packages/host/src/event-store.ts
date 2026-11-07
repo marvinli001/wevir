@@ -55,6 +55,13 @@ export const CHECKPOINT_INTERVAL = 500;
 
 export const PROJECTION_CACHE_LIMIT = 32;
 
+const TURN_ID = /^trn_[0-9A-Za-z]{1,64}$/;
+const STREAM_ID = /^stm_[0-9A-Za-z]{1,64}$/;
+
+function fastDeltas(): boolean {
+  return process.env.NODE_ENV !== 'test' && process.env.NODE_ENV !== 'development';
+}
+
 /** 待写入的事件：信封里由事件库决定的 `seq`、`sessionId`、`ts` 之外的部分。 */
 export type EventInput = {
   [T in WevirEventType]: { type: T; source: EventSource; payload: WevirEventPayload<T> };
@@ -238,7 +245,24 @@ export class EventStore {
   appendDelta(sessionId: SessionId, delta: DeltaInput): void {
     this.#assertOpen();
     SessionIdSchema.parse(sessionId);
-    const payload = EventPayloadSchemas['assistant.delta'].parse(delta);
+    const payload =
+      fastDeltas() &&
+      typeof delta?.turnId === 'string' &&
+      TURN_ID.test(delta.turnId) &&
+      typeof delta.streamId === 'string' &&
+      STREAM_ID.test(delta.streamId) &&
+      Number.isSafeInteger(delta.blockIndex) &&
+      delta.blockIndex >= 0 &&
+      (delta.kind === 'text' || delta.kind === 'reasoning') &&
+      typeof delta.text === 'string'
+        ? {
+            turnId: delta.turnId,
+            streamId: delta.streamId,
+            blockIndex: delta.blockIndex,
+            kind: delta.kind,
+            text: delta.text,
+          }
+        : EventPayloadSchemas['assistant.delta'].parse(delta);
     if (payload.text === '') return;
     this.#buffer(sessionId, { type: 'assistant.delta', payload });
   }
@@ -251,9 +275,24 @@ export class EventStore {
     this.#assertOpen();
     SessionIdSchema.parse(sessionId);
     if (delta.text === '') return;
+    const payload =
+      fastDeltas() &&
+      typeof delta.turnId === 'string' &&
+      TURN_ID.test(delta.turnId) &&
+      typeof delta.planId === 'string' &&
+      delta.planId.length > 0 &&
+      typeof delta.text === 'string' &&
+      (delta.restart === undefined || delta.restart === true)
+        ? {
+            turnId: delta.turnId,
+            planId: delta.planId,
+            text: delta.text,
+            ...(delta.restart === true && { restart: true as const }),
+          }
+        : EventPayloadSchemas['plan.delta'].parse(delta);
     this.#buffer(sessionId, {
       type: 'plan.delta',
-      payload: EventPayloadSchemas['plan.delta'].parse(delta),
+      payload,
     });
   }
 
@@ -272,7 +311,7 @@ export class EventStore {
   }
 
   #buffer(sessionId: SessionId, part: BufferedDelta): void {
-    this.#projection(sessionId); // 会话不存在时现在就报错，而不是在定时器里。
+    if (!this.#projections.has(sessionId)) this.#projection(sessionId);
     let buffer = this.#buffers.get(sessionId);
     if (!buffer) {
       buffer = { parts: [] };
