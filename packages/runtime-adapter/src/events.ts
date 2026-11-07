@@ -12,7 +12,7 @@ import type {
 // 写成 WevirEvent（domain-model.md §6）。与那份事件目录相比：
 // - 没有 Host 自己的事实（session.*、user.message、turn.started、approval.resolved）；
 // - 用引擎的 ID（engineSessionId、attemptId、requestId），不用 Host 的 ses_ / stm_ / apr_；
-// - 工具输出是原文，截断与 `ToolOutput` 包装由 Host 做；
+// - 工具输出可保留有界的首尾预览，截断时携带原长；Host 再包装 `ToolOutput`；
 // - 多了只有适配器知道的回合结算（turn.settled / turn.failed）、引擎退出（engine.exited）和
 //   引擎侧结掉的审批（approval.cancelled）。
 //
@@ -100,8 +100,17 @@ export interface ToolUpdatedEvent {
   toolCallId: string;
   display?: ToolDisplay;
   input?: unknown;
-  /** 到目前为止的输出原文，未截断。 */
+  /** 到目前为止的输出；有界首尾预览由 outputMeta 标记。 */
   output?: string;
+  outputMeta?: AgentToolOutputMeta;
+}
+
+export interface AgentToolOutputMeta {
+  truncated: true;
+  /** 原始输出的 UTF-8 字节数。 */
+  totalBytes: number;
+  /** 原始输出的 UTF-16 code unit 数，与 Host ToolOutput 一致。 */
+  originalLength: number;
 }
 
 /**
@@ -116,6 +125,7 @@ export interface ToolFinishedEvent {
   /** 命令的最终退出码；引擎没有给时省略。 */
   exitCode?: number;
   output?: string;
+  outputMeta?: AgentToolOutputMeta;
   /** 工具产出的图片（0.118.0，展示类型 `image`）。Host 认格式、存进图片目录，事件里换成图片的引用。 */
   images?: AgentToolImage[];
 }

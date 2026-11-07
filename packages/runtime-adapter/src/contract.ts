@@ -732,6 +732,18 @@ export function checkTurnEvents(events: readonly AgentEvent[], engineSessionId: 
     if (event.engineSessionId !== engineSessionId) {
       problems.push(`#${index} ${event.type} 属于会话 ${event.engineSessionId}`);
     }
+    if ((event.type === 'tool.updated' || event.type === 'tool.finished') && event.outputMeta) {
+      const meta = event.outputMeta;
+      if (
+        event.output === undefined ||
+        meta.truncated !== true ||
+        !Number.isSafeInteger(meta.originalLength) ||
+        meta.originalLength <= event.output.length ||
+        !Number.isSafeInteger(meta.totalBytes) ||
+        meta.totalBytes < Buffer.byteLength(event.output)
+      )
+        problems.push(`#${index} ${event.type} 输出截断元数据无效`);
+    }
   });
   const terminals = events.flatMap((event, index) => (isTurnTerminal(event) ? [index] : []));
   if (terminals.length !== 1) {

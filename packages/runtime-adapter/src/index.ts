@@ -29,6 +29,12 @@ export {
   redactSecrets,
   SECRET_PATTERNS,
 } from './secret-patterns.js';
+export {
+  ADAPTER_TOOL_OUTPUT_BYTES,
+  ADAPTER_TOOL_OUTPUT_HEAD_BYTES,
+  boundedToolOutput,
+  ToolOutputBuffer,
+} from './tool-output.js';
 export type * from './types.js';
 export {
   APP_TOOLS_CALL,

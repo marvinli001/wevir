@@ -10,7 +10,12 @@ import type {
   UsageBreakdown,
   UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
-import { APP_TOOLS_MORE_SERVER, APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
+import {
+  APP_TOOLS_MORE_SERVER,
+  APP_TOOLS_SERVER,
+  boundedToolOutput,
+  ToolOutputBuffer,
+} from '@wevir/runtime-adapter';
 import { parseGuardrailMarkers } from '@wevir/runtime-adapter/guardrail';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
 import { asyncQuestions } from './async-questions.js';
@@ -171,7 +176,7 @@ interface ItemState {
   tool?: ToolItem;
   display?: ToolDisplay;
   /** 工具：累积的输出（命令输出增量、MCP 进度）。 */
-  output: string;
+  output: ToolOutputBuffer;
   completed: boolean;
   /** 计划（0.37.0）：这个回合里已经报过它的预览或全文。 */
   planSeen?: boolean;
@@ -439,7 +444,7 @@ export class CodexEventMapper {
   #state(id: string, type: string): ItemState {
     let state = this.#items.get(id);
     if (state === undefined) {
-      state = { type, streams: new Map(), output: '', completed: false };
+      state = { type, streams: new Map(), output: new ToolOutputBuffer(), completed: false };
       this.#items.set(id, state);
     }
     return state;
@@ -567,7 +572,14 @@ export class CodexEventMapper {
         ...(inputChanged && { input }),
       });
     }
-    const output = toolOutput(item, state.output);
+    const streamed = state.output.snapshot();
+    const output = toolOutput(item, streamed.output);
+    const bounded =
+      item.type === 'commandExecution' && item.aggregatedOutput === null
+        ? streamed
+        : output === undefined
+          ? undefined
+          : boundedToolOutput(output);
     const images = toolImages(item);
     events.push({
       type: 'tool.finished',
@@ -578,7 +590,7 @@ export class CodexEventMapper {
       status: toolStatus(item),
       ...(item.type === 'commandExecution' &&
         item.exitCode !== null && { exitCode: item.exitCode }),
-      ...(output !== undefined && { output }),
+      ...(output !== undefined && bounded),
       ...(images !== undefined && { images }),
     });
     // 建议的后续任务（0.16.0，§6.8）：Wevir 自己的 MCP 工具调用完成了，参数就是建议。
@@ -604,13 +616,13 @@ export class CodexEventMapper {
   #toolOutput(itemId: string, delta: string): AgentEvent[] {
     const state = this.#items.get(itemId);
     if (state?.tool === undefined || state.completed) return [];
-    state.output += delta;
+    state.output.append(delta);
     return [
       {
         type: 'tool.updated',
         engineSessionId: this.engineSessionId,
         toolCallId: itemId,
-        output: state.output,
+        ...state.output.snapshot(),
       },
     ];
   }

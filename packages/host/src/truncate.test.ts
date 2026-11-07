@@ -42,6 +42,9 @@ describe('truncateToolOutput', () => {
       {
         truncated: true,
         originalLength: 10_000_000,
+        text: expect.stringContaining(
+          `[… ${10_000_000 - TOOL_OUTPUT_MAX_LENGTH} chars truncated …]`,
+        ),
       },
     );
   });

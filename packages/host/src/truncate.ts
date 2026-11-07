@@ -20,12 +20,13 @@ export function truncateToolOutput(output: ToolOutput): ToolOutput {
   const half = TOOL_OUTPUT_MAX_LENGTH / 2;
   const start = head(text, half);
   const end = tail(text, half);
-  const omitted = text.length - start.length - end.length;
+  const originalLength = Math.max(text.length, output.originalLength ?? 0);
+  const omitted = originalLength - start.length - end.length;
   return {
     text: `${start}\n[… ${omitted} chars truncated …]\n${end}`,
     truncated: true,
     // 适配器已经截过一次时，保留它给的更大的原长。
-    originalLength: Math.max(text.length, output.originalLength ?? 0),
+    originalLength,
   };
 }
 

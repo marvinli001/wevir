@@ -726,7 +726,7 @@ describe('前台 Bash 的实时输出', () => {
     kind: 'message' as const,
     message: value,
   });
-  const bashScript = (holdMs: number) => ({
+  const bashScript = (holdMs: number, result = 'one\ntwo\nthree') => ({
     steps: [
       message({
         type: 'assistant',
@@ -755,7 +755,7 @@ describe('前台 Bash 的实时输出', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: 'toolu_bash', content: 'one\ntwo\nthree' }],
+          content: [{ type: 'tool_result', tool_use_id: 'toolu_bash', content: result }],
         },
         parent_tool_use_id: null,
         uuid: 'u-bash',
@@ -810,6 +810,27 @@ describe('前台 Bash 的实时输出', () => {
       expect(log.events.slice(finished).some((event) => event.type === 'tool.updated')).toBe(false);
     },
   );
+
+  it('大工具结果只发首尾预览和原始长度，SDK 的结果不变', async () => {
+    const result = `head${'中😀'.repeat(400_000)}tail`;
+    const script = bashScript(0, result);
+    const { adapter } = harness({ script: () => script });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('run it'));
+    await log.until(isTurnTerminal);
+    const event = log.events.find((event) => event.type === 'tool.finished');
+    if (event?.type !== 'tool.finished') throw new Error('missing tool result');
+    expect(Buffer.byteLength(event.output ?? '')).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(event.output?.startsWith('head')).toBe(true);
+    expect(event.output?.endsWith('tail')).toBe(true);
+    expect(event.output).not.toContain('�');
+    expect(event.outputMeta).toEqual({
+      truncated: true,
+      originalLength: result.length,
+      totalBytes: Buffer.byteLength(result),
+    });
+  });
 
   it('没有输出文件时照旧：没有 tool.updated，工具结果带完整输出', async () => {
     const { adapter, engineSessionId, log } = await bashSession(600);

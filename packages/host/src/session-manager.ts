@@ -6020,7 +6020,11 @@ export class SessionManager {
           this.#events.appendToolOutput(sessionId, {
             turnId,
             toolCallId: event.toolCallId,
-            output: { text: event.output, truncated: false },
+            output: {
+              text: event.output,
+              truncated: event.outputMeta?.truncated ?? false,
+              ...(event.outputMeta && { originalLength: event.outputMeta.originalLength }),
+            },
           });
           return;
         }
@@ -6034,7 +6038,11 @@ export class SessionManager {
               ...(event.display !== undefined && { display: event.display }),
               ...(event.input !== undefined && { input: event.input }),
               ...(event.output !== undefined && {
-                output: { text: event.output, truncated: false },
+                output: {
+                  text: event.output,
+                  truncated: event.outputMeta?.truncated ?? false,
+                  ...(event.outputMeta && { originalLength: event.outputMeta.originalLength }),
+                },
               }),
             },
           },
@@ -6056,7 +6064,11 @@ export class SessionManager {
               status: event.status === 'failed' && cancelling ? 'cancelled' : event.status,
               ...(event.exitCode !== undefined && { exitCode: event.exitCode }),
               ...(event.output !== undefined && {
-                output: { text: event.output, truncated: false },
+                output: {
+                  text: event.output,
+                  truncated: event.outputMeta?.truncated ?? false,
+                  ...(event.outputMeta && { originalLength: event.outputMeta.originalLength }),
+                },
               }),
               ...(images.length > 0 && { images }),
             },

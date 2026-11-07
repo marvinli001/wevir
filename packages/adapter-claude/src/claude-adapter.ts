@@ -29,6 +29,7 @@ import {
   APP_TOOLS_SERVER,
   type ApprovalDecision,
   type AppToolsEndpoint,
+  boundedToolOutput,
   type CancelOptions,
   type EngineRuleFiles,
   type EngineSession,
@@ -48,6 +49,7 @@ import {
   type ProviderIssue,
   type SessionConfig,
   type TitleRequest,
+  ToolOutputBuffer,
   type TurnFailedEvent,
   type TurnSettledEvent,
   trackProcessGroup,
@@ -1520,7 +1522,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   /**
    * 前台 Bash 的实时输出（T3 a5d9792）：`task_started` 是 `local_bash` 且没放到后台时读 Claude Code 写的输出文件，到目前为止的输出
-   * 随 `tool.updated` 报（与 Codex 的命令输出一样）。读不到就没有，工具结果照样带完整输出。
+   * 随 `tool.updated` 报（与 Codex 的命令输出一样）。读不到就没有，最终结果仍取引擎给的工具结果。
    */
   #tailCommandOutput(
     session: RootSession,
@@ -1542,15 +1544,20 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       (candidate) => candidate.tools.get(toolCallId)?.name === 'Bash',
     );
     if (owner === undefined || owner.finished.has(toolCallId)) return;
-    let output = '';
+    const output = new ToolOutputBuffer();
     const tail = tailClaudeTaskOutput({
       root: live.taskOutputRoot,
       sessionId: message.session_id,
       taskId: message.task_id,
       onChunk: (chunk) => {
         if (owner.finished.has(toolCallId)) return;
-        output += chunk;
-        owner.hub.emit({ type: 'tool.updated', engineSessionId: owner.id, toolCallId, output });
+        output.append(chunk);
+        owner.hub.emit({
+          type: 'tool.updated',
+          engineSessionId: owner.id,
+          toolCallId,
+          ...output.snapshot(),
+        });
       },
     });
     session.outputTails.set(toolCallId, tail);
@@ -2650,7 +2657,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         engineSessionId: owner.id,
         toolCallId,
         status: failed ? 'failed' : 'completed',
-        ...(text !== undefined && { output: text }),
+        ...(text !== undefined && boundedToolOutput(text)),
       });
       const tool = owner.tools.get(toolCallId);
       const structured = results.length === 1 ? result : undefined;

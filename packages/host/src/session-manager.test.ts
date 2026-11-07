@@ -419,6 +419,31 @@ describe('SessionManager：回合', () => {
     });
   });
 
+  it('适配器的截断预览保留原长，Host 仍截取首尾', async () => {
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    const output = `head${'x'.repeat(100_000)}tail`;
+    vi.spyOn(h.adapter, 'subscribe').mockImplementationOnce(async function* (engineSessionId) {
+      for await (const event of subscribe(engineSessionId)) {
+        yield event.type === 'tool.finished'
+          ? {
+              ...event,
+              output,
+              outputMeta: { truncated: true, totalBytes: 10_000_000, originalLength: 10_000_000 },
+            }
+          : event;
+      }
+    });
+    const id = await create(h);
+    await send(h, id, 'call a tool');
+    await waitForState(h, id, 'idle');
+    const result = ofType(h, id, 'tool.finished')[0]?.payload.output;
+    expect(result).toMatchObject({ truncated: true, originalLength: 10_000_000 });
+    expect(result?.text.startsWith('head')).toBe(true);
+    expect(result?.text.endsWith('tail')).toBe(true);
+    expect(result?.text).toContain('9934464 chars truncated');
+  });
+
   it('工具调用、思考照写；回合结束时未收尾的工具补 unknown', async () => {
     const h = setup();
     const id = await create(h);

@@ -296,6 +296,50 @@ describe('回放 codex-app-server 的通知', () => {
     });
   });
 
+  it.each([true, false])('大命令输出有界，最终全文存在：%s', (hasFinal) => {
+    const mapper = new CodexEventMapper('thread');
+    const item: CommandExecutionItem = {
+      type: 'commandExecution',
+      id: 'large',
+      command: 'synthetic',
+      cwd: '/tmp',
+      commandActions: [],
+      status: 'inProgress',
+      aggregatedOutput: null,
+      exitCode: null,
+      durationMs: null,
+    };
+    const full = `head${'x'.repeat(2 * 1024 * 1024)}tail`;
+    mapper.map('item/started', { threadId: 'thread', turnId: 'turn', item });
+    const [update] = of(
+      mapper.map('item/commandExecution/outputDelta', {
+        threadId: 'thread',
+        turnId: 'turn',
+        itemId: item.id,
+        delta: full,
+      }),
+      'tool.updated',
+    );
+    const [finished] = of(
+      mapper.map('item/completed', {
+        threadId: 'thread',
+        turnId: 'turn',
+        item: { ...item, status: 'completed', aggregatedOutput: hasFinal ? full : null },
+      }),
+      'tool.finished',
+    );
+    for (const event of [update, finished]) {
+      expect(Buffer.byteLength(event?.output ?? '')).toBe(2 * 1024 * 1024);
+      expect(event?.output?.startsWith('head')).toBe(true);
+      expect(event?.output?.endsWith('tail')).toBe(true);
+      expect(event?.outputMeta).toEqual({
+        truncated: true,
+        originalLength: full.length,
+        totalBytes: Buffer.byteLength(full),
+      });
+    }
+  });
+
   it.each([0, 2, null])('命令保留最终退出码 %s，状态与输出分别映射', (exitCode) => {
     const mapper = new CodexEventMapper('thread');
     const item: CommandExecutionItem = {

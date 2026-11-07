@@ -35,6 +35,24 @@ const settled: AgentEvent = {
   stopReason: 'end_turn',
 };
 
+it('工具输出截断契约接受原长，拒绝把预览长度当原长', () => {
+  const output: AgentEvent = {
+    type: 'tool.finished',
+    engineSessionId: S,
+    toolCallId: 'tool',
+    status: 'completed',
+    output: 'headtail',
+    outputMeta: { truncated: true, originalLength: 100, totalBytes: 100 },
+  };
+  expect(checkTurnEvents([output, settled], S)).toEqual([]);
+  expect(
+    checkTurnEvents(
+      [{ ...output, outputMeta: { truncated: true, originalLength: 8, totalBytes: 100 } }, settled],
+      S,
+    ),
+  ).toHaveLength(1);
+});
+
 describe('checkDeltaReplacement', () => {
   it('增量块都被其后的同类已提交事件替换时通过', () => {
     const events = [
