@@ -782,6 +782,7 @@ function run(): void {
   void app.whenReady().then(() => {
     mark('appReady');
     startup.readyAt = Date.now();
+    session.defaultSession.setSpellCheckerEnabled(false);
     // 渲染进程的权限（摄像头、通知、剪贴板读取等）一律拒绝（Electron 安全清单第 5 条），只有听写（0.92.0）要的麦克风例外：主窗口
     // 的主框架、应用自己的页面、只要音频（media-permission.ts）。主窗口销毁后（退出、装更新时）其他页面仍会触发权限检查，这时
     // 读 mainWindow.webContents 会抛 "Object has been destroyed"，未捕获的异常弹窗挡住退出，更新就装不上。

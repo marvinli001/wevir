@@ -194,6 +194,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
   function ensureSession(): Session {
     if (browserSession) return browserSession;
     const created = session.fromPartition(BROWSER_PARTITION);
+    created.setSpellCheckerEnabled(false);
     // 摄像头、麦克风、定位、通知、剪贴板读取、MIDI…一律拒绝。
     created.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     created.setPermissionCheckHandler(() => false);
