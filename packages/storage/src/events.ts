@@ -109,10 +109,10 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
     ORDER BY seq`);
 
   const payloadBytes = db.prepare(
-    'SELECT session_id, SUM(length(CAST(payload AS BLOB))) AS bytes FROM events GROUP BY session_id',
+    'SELECT session_id, payload_bytes AS bytes FROM event_session_metrics',
   );
   const withImages = db.prepare(
-    `SELECT session_id, payload FROM events WHERE payload LIKE '%"imageId":"%'`,
+    'SELECT session_id, image_id FROM event_image_refs ORDER BY image_id, session_id',
   );
 
   return {
@@ -185,19 +185,15 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
       const refs = new Map<string, Set<string>>();
       for (const row of withImages.all()) {
         const sessionId = text(row, 'session_id');
-        for (const match of text(row, 'payload').matchAll(IMAGE_ID)) {
-          const imageId = match[1] as string;
-          const sessions = refs.get(imageId) ?? new Set<string>();
-          sessions.add(sessionId);
-          refs.set(imageId, sessions);
-        }
+        const imageId = text(row, 'image_id');
+        const sessions = refs.get(imageId) ?? new Set<string>();
+        sessions.add(sessionId);
+        refs.set(imageId, sessions);
       }
       return refs;
     },
   };
 }
-
-const IMAGE_ID = /"imageId":"([^"\\]+)"/g;
 
 function fromRow(row: SqlRow): EventRecord {
   return {

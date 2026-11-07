@@ -17,6 +17,49 @@ function event(seq: number, overrides: Partial<EventRecord> = {}): EventRecord {
 describe('events', () => {
   const { storage } = useTempStorage();
 
+  it('字节计数与图片引用等于扫描结果，回滚与会话删除原子更新', () => {
+    const s = storage();
+    seedSession(s);
+    seedSession(s, { id: 'ses_02', engineSessionId: 'e2' });
+    const records = [
+      event(1, {
+        payload: {
+          text: '中文🙂',
+          nested: [{ imageId: 'img_shared' }, { imageId: 'img_shared' }, { imageId: 'img_one' }],
+        },
+      }),
+      event(1, {
+        sessionId: 'ses_02',
+        payload: { imageId: 'img_shared', escaped: { imageId: 'bad\\id' } },
+      }),
+    ];
+    for (const record of records) s.events.insert(record);
+    const bytes = new Map(
+      records.map((record) => [
+        record.sessionId,
+        Buffer.byteLength(JSON.stringify(record.payload)),
+      ]),
+    );
+    expect(s.events.payloadBytes()).toEqual(bytes);
+    expect(s.events.imageRefs()).toEqual(
+      new Map([
+        ['img_one', new Set(['ses_01'])],
+        ['img_shared', new Set(['ses_01', 'ses_02'])],
+      ]),
+    );
+    expect(() =>
+      s.transaction(() => {
+        s.events.insert(event(2, { payload: { imageId: 'img_rollback' } }));
+        throw new Error('rollback');
+      }),
+    ).toThrow('rollback');
+    expect(s.events.payloadBytes()).toEqual(bytes);
+    expect(s.events.imageRefs().has('img_rollback')).toBe(false);
+    s.transaction(() => s.sessions.remove(['ses_01']));
+    expect(s.events.payloadBytes()).toEqual(new Map([['ses_02', bytes.get('ses_02')]]));
+    expect(s.events.imageRefs()).toEqual(new Map([['img_shared', new Set(['ses_02'])]]));
+  });
+
   it('追加与按 seq 读取，payload 原样往返', () => {
     const s = storage();
     seedSession(s);

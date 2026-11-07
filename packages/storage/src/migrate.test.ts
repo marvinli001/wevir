@@ -2,9 +2,12 @@ import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from './driver.js';
+import { createEventRepository } from './events.js';
 import { loadMigrations, MIGRATIONS_DIR, migrate, schemaVersion } from './migrate.js';
+import { createSessionRepository } from './sessions.js';
 import { openStorage } from './storage.js';
-import { useTempDir, workspace } from './test-utils.js';
+import { session, useTempDir, workspace } from './test-utils.js';
+import { createWorkspaceRepository } from './workspaces.js';
 
 const TABLES = [
   'approval_rules',
@@ -17,6 +20,8 @@ const TABLES = [
   'devices',
   'environments',
   'episodes',
+  'event_image_refs',
+  'event_session_metrics',
   'events',
   'inbox_dismissals',
   'profile_versions',
@@ -40,6 +45,40 @@ const TABLES = [
 describe('migrate', () => {
   const dataDir = useTempDir();
 
+  it('0035从旧事件回填字节与图片引用，此后插入继续增量维护', () => {
+    const db = openDatabase(join(dataDir(), 'wevir.db'));
+    try {
+      migrate(db, loadMigrations().slice(0, 34));
+      createWorkspaceRepository(db).insert(workspace());
+      createSessionRepository(db).insert(session());
+      const payload = JSON.stringify({
+        text: '图片🙂',
+        content: [{ imageId: 'img_old' }, { imageId: 'img_old' }],
+      });
+      db.prepare(
+        'INSERT INTO events (session_id, seq, ts, type, source, payload) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run('ses_01', 1, '2026-11-07T00:00:00.000Z', 'user.message', 'host', payload);
+      expect(migrate(db)).toEqual({ from: 34, to: 35, applied: [35] });
+      const events = createEventRepository(db);
+      expect(events.payloadBytes()).toEqual(new Map([['ses_01', Buffer.byteLength(payload)]]));
+      expect(events.imageRefs()).toEqual(new Map([['img_old', new Set(['ses_01'])]]));
+      events.insert({
+        sessionId: 'ses_01',
+        seq: 2,
+        ts: '2026-11-07T00:00:00.000Z',
+        type: 'user.message',
+        source: 'host',
+        payload: { imageId: 'img_new' },
+      });
+      expect(events.imageRefs().has('img_new')).toBe(true);
+      expect(events.payloadBytes().get('ses_01')).toBe(
+        Buffer.byteLength(payload) + Buffer.byteLength(JSON.stringify({ imageId: 'img_new' })),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   /** 复制正式迁移到临时目录，再追加测试用的迁移文件。 */
   function migrationsWith(extra: Record<string, string>): string {
     const dir = join(dataDir(), 'migrations');
@@ -55,13 +94,13 @@ describe('migrate', () => {
       expect(schemaVersion(db)).toBe(0);
       expect(migrate(db)).toEqual({
         from: 0,
-        to: 34,
+        to: 35,
         applied: [
           1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-          26, 27, 28, 29, 30, 31, 32, 33, 34,
+          26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
         ],
       });
-      expect(schemaVersion(db)).toBe(34);
+      expect(schemaVersion(db)).toBe(35);
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
         .all()
@@ -103,6 +142,7 @@ describe('migrate', () => {
         { version: 32, name: 'episodes' },
         { version: 33, name: 'session_contexts' },
         { version: 34, name: 'event_queries' },
+        { version: 35, name: 'event_metrics' },
       ]);
     } finally {
       db.close();
@@ -113,9 +153,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      expect(migrate(db)).toEqual({ from: 34, to: 34, applied: [] });
-      expect(migrate(db)).toEqual({ from: 34, to: 34, applied: [] });
-      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(34);
+      expect(migrate(db)).toEqual({ from: 35, to: 35, applied: [] });
+      expect(migrate(db)).toEqual({ from: 35, to: 35, applied: [] });
+      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(35);
     } finally {
       db.close();
     }
@@ -127,7 +167,7 @@ describe('migrate', () => {
     first.close();
     const second = openStorage({ dataDir: dataDir() });
     try {
-      expect(schemaVersion(second.db)).toBe(34);
+      expect(schemaVersion(second.db)).toBe(35);
       expect(second.workspaces.get('ws_01')).toEqual(workspace());
     } finally {
       second.close();
@@ -138,9 +178,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      const dir = migrationsWith({ '0035_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 34, to: 35, applied: [35] });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 35, to: 35, applied: [] });
+      const dir = migrationsWith({ '0036_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 35, to: 36, applied: [36] });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 36, to: 36, applied: [] });
     } finally {
       db.close();
     }
@@ -154,7 +194,7 @@ describe('migrate', () => {
       db.prepare(`INSERT INTO usage_records (session_id, request_id, at, source, provider_id,
         provider_name, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens)
         VALUES ('ses_old', 'r', 1793692800123, 'codex', 'p', 'P', 'm', 10, 2, 3, 4, 0)`).run();
-      expect(migrate(db)).toEqual({ from: 29, to: 34, applied: [30, 31, 32, 33, 34] });
+      expect(migrate(db)).toEqual({ from: 29, to: 35, applied: [30, 31, 32, 33, 34, 35] });
       expect(
         db.prepare('SELECT at, input_tokens, turn_id, origin FROM usage_records').get(),
       ).toEqual({
@@ -197,12 +237,12 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       const dir = migrationsWith({
-        '0035_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
-        '0036_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
+        '0036_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
+        '0037_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
       });
       expect(() => migrate(db, loadMigrations(dir))).toThrow(/syntax error/);
       expect(db.isTransaction).toBe(false);
-      // 0001–0035 与 0036 的前半段都在同一个事务里，一起回滚。
+      // 0001–0036 与 0037 的前半段都在同一个事务里，一起回滚。
       expect(schemaVersion(db)).toBe(0);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all();
       expect(tables).toEqual([]);
@@ -214,15 +254,15 @@ describe('migrate', () => {
   it('数据库版本高于程序已知的最新版本时拒绝运行', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
-      migrate(db, loadMigrations(migrationsWith({ '0035_x.sql': 'SELECT 1;' })));
-      expect(() => migrate(db)).toThrow(/schema 版本 35 高于本程序支持的 34/);
+      migrate(db, loadMigrations(migrationsWith({ '0036_x.sql': 'SELECT 1;' })));
+      expect(() => migrate(db)).toThrow(/schema 版本 36 高于本程序支持的 35/);
     } finally {
       db.close();
     }
   });
 
   it('迁移文件名不合规或版本号不连续时报错', () => {
-    expect(() => loadMigrations(migrationsWith({ '0036_gap.sql': 'SELECT 1;' }))).toThrow(
+    expect(() => loadMigrations(migrationsWith({ '0037_gap.sql': 'SELECT 1;' }))).toThrow(
       /从 1 开始连续/,
     );
   });
