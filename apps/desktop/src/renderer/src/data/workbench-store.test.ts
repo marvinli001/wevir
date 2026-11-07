@@ -133,9 +133,11 @@ describe('WorkbenchStore 与远程设备的权限', () => {
 describe('WorkbenchStore 与 sessions.changed（0.101.0）', () => {
   it('版本连续时照推送增删、跟上新会话，不重读列表', async () => {
     const fake = fakeClient([{ sessions: [session('ses_a'), session('ses_b')], listVersion: 10 }]);
+    const subscribe = vi.spyOn(fake.client, 'subscribe');
     const store = new WorkbenchStore(fake.client);
     await store.refresh();
     expect(titles(store)).toEqual(['ses_a', 'ses_b']);
+    expect(subscribe).toHaveBeenCalledWith('ses_a', { sinceSeq: 1, elideSuperseded: true });
 
     fake.push({
       listVersion: 11,

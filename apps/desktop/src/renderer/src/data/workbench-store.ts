@@ -211,7 +211,10 @@ export class WorkbenchStore {
   /** 给会话开一条从当前 lastSeq 开始的订阅（已有就不重复开）。断线重连由 client-sdk 续订。 */
   #follow(session: Session): void {
     if (this.#subscriptions.has(session.id)) return;
-    const subscription = this.#client.subscribe(session.id, { sinceSeq: session.lastSeq });
+    const subscription = this.#client.subscribe(session.id, {
+      sinceSeq: session.lastSeq,
+      elideSuperseded: true,
+    });
     this.#subscriptions.set(session.id, subscription);
     void (async () => {
       try {
