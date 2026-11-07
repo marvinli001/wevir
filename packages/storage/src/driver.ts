@@ -57,7 +57,7 @@ function databaseClass(): DatabaseConstructor {
 
 /**
  * 打开（必要时创建）数据库文件并完成连接设置：`journal_mode=WAL`、`synchronous=NORMAL`、
- * 外键开启、busy timeout 5000 ms。只建连接，不跑迁移（见 `openStorage`）。
+ * 外键开启、busy timeout 5000 ms，限制空闲 WAL 与页缓存，临时表放内存并更新查询规划统计。只建连接，不跑迁移。
  */
 export function openDatabase(path: string): SqliteDatabase {
   const Database = databaseClass();
@@ -76,6 +76,10 @@ export function openDatabase(path: string): SqliteDatabase {
     // WAL 下 NORMAL：进程崩溃不丢已提交事务；掉电最多丢最后几个事务，不会损坏数据库。
     db.exec('PRAGMA synchronous = NORMAL');
     db.exec('PRAGMA foreign_keys = ON');
+    db.exec('PRAGMA journal_size_limit = 67108864');
+    db.exec('PRAGMA cache_size = -32000');
+    db.exec('PRAGMA temp_store = MEMORY');
+    db.exec('PRAGMA optimize = 0x10002');
   } catch (err) {
     db.close();
     throw err;

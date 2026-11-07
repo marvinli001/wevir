@@ -141,7 +141,13 @@ export function openStorage(options: { dataDir: string }): Storage {
         db.exec('VACUUM');
         db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       },
-      close: () => db.close(),
+      close: () => {
+        try {
+          db.exec('PRAGMA optimize');
+        } finally {
+          db.close();
+        }
+      },
     };
   } catch (err) {
     db.close();

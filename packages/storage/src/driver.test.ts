@@ -15,6 +15,9 @@ describe('openDatabase', () => {
       expect(pragma('synchronous')).toBe(1); // NORMAL
       expect(pragma('foreign_keys')).toBe(1);
       expect(pragma('busy_timeout')).toBe(BUSY_TIMEOUT_MS);
+      expect(pragma('journal_size_limit')).toBe(64 * 1024 * 1024);
+      expect(pragma('cache_size')).toBe(-32000);
+      expect(pragma('temp_store')).toBe(2);
       expect(BUSY_TIMEOUT_MS).toBe(5000);
     } finally {
       db.close();
