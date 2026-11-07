@@ -209,19 +209,48 @@ export function useAccountsStore(): AccountsStore | undefined {
   return useContext(StoresContext)?.accounts;
 }
 
-const NO_TRANSCRIPT = () => undefined;
-
 /**
  * 一个会话的消息投影（transcript-store.ts），按帧更新；还没连上 Host、或没有给会话（草稿页的窗格、置顶摘要）时为
  * undefined。
  */
 export function useTranscript(sessionId: SessionId | undefined): TranscriptState | undefined {
+  return useTranscriptSelector(sessionId, (state) => state);
+}
+
+export function useTranscriptSelector<T>(
+  sessionId: SessionId | undefined,
+  select: (state: TranscriptState | undefined) => T,
+  isEqual: (a: T, b: T) => boolean = Object.is,
+): T {
   const cache = useContext(StoresContext)?.transcripts;
   const store = useMemo(
     () => (sessionId === undefined ? undefined : cache?.get(sessionId)),
     [cache, sessionId],
   );
-  return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? NO_TRANSCRIPT);
+  const committed = useRef<{ value: T }>(undefined);
+  const getSnapshot = useMemo(() => {
+    let previous: { state: TranscriptState | undefined; value: T } | undefined;
+    return () => {
+      const state = store?.get();
+      if (previous && previous.state === state) return previous.value;
+      const selected = select(state);
+      const last = previous ?? committed.current;
+      const value = last && isEqual(last.value, selected) ? last.value : selected;
+      previous = { state, value };
+      return value;
+    };
+  }, [store, select, isEqual]);
+  const value = useSyncExternalStore(store?.subscribe ?? noop, getSnapshot);
+  useEffect(() => {
+    committed.current = { value };
+  }, [value]);
+  return value;
+}
+
+/** 事件处理时读取最新转录，不让只使用元信息的组件跟着正文更新。 */
+export function useReadTranscript(sessionId: SessionId): () => TranscriptState | undefined {
+  const cache = useContext(StoresContext)?.transcripts;
+  return useCallback(() => cache?.get(sessionId).get(), [cache, sessionId]);
 }
 
 const NO_ACTIVITY = () => () => {};

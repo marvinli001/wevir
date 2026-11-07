@@ -10,7 +10,8 @@ import { useNavigate } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
-import { useTranscript } from '@/data/workbench-data';
+import { sameItems } from '@/data/transcript-selection';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import { isChats } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -74,8 +75,17 @@ function useChecks(workspaceId: WorkspaceId, active: boolean, refreshKey: string
 }
 
 function useVerificationCard({ sessionId, session, entry, visible }: RailContext) {
-  const state = useTranscript(sessionId);
-  const verification = state?.transcript.verification;
+  const verification = useTranscriptSelector(
+    sessionId,
+    (state) => state?.transcript.verification,
+    (a, b) =>
+      a === b ||
+      (a !== undefined &&
+        b !== undefined &&
+        a.acceptance === b.acceptance &&
+        a.repair === b.repair &&
+        sameItems(a.runs, b.runs)),
+  );
   const { supported, checks } = useChecks(entry.workspace.id, visible, session.state);
   if (!supported || session.parentSessionId !== undefined || isChats(entry.workspace)) return null;
   if (verification === undefined && checks !== undefined && checks.length === 0) {
@@ -139,8 +149,17 @@ function VerificationDetails({
 }) {
   const { client } = useHostConnection();
   const navigate = useNavigate();
-  const state = useTranscript(sessionId);
-  const verification = state?.transcript.verification;
+  const verification = useTranscriptSelector(
+    sessionId,
+    (state) => state?.transcript.verification,
+    (a, b) =>
+      a === b ||
+      (a !== undefined &&
+        b !== undefined &&
+        a.acceptance === b.acceptance &&
+        a.repair === b.repair &&
+        sameItems(a.runs, b.runs)),
+  );
   const [viewing, setViewing] = useState<VerificationRun>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);

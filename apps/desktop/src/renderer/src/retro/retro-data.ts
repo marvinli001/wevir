@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { openChanges } from '@/changes/changes-store';
-import { useTranscript } from '@/data/workbench-data';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
@@ -53,7 +53,7 @@ export function useRetro(sessionId: SessionId, active: boolean): RetroData {
   const { client, view } = useHostConnection();
   const viewFeatures = view.status === 'connected' ? view.hello.features : undefined;
   const supported = useRetroSupported();
-  const lastSeq = useTranscript(sessionId)?.transcript.lastSeq ?? 0;
+  const lastSeq = useTranscriptSelector(sessionId, (state) => state?.transcript.lastSeq) ?? 0;
   const [state, setState] = useState<{
     sessionId: SessionId;
     retro?: SessionRetro;

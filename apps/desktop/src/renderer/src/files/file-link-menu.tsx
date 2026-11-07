@@ -25,7 +25,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useTranscript } from '@/data/workbench-data';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
@@ -62,7 +62,8 @@ export function useFileContextMenu(
 export function useAttachToSession(session: Session | undefined) {
   const { client } = useHostConnection();
   const sessionId = session?.id as SessionId | undefined;
-  const readOnly = useTranscript(sessionId)?.transcript.readOnly ?? session?.readOnly;
+  const readOnly =
+    useTranscriptSelector(sessionId, (state) => state?.transcript.readOnly) ?? session?.readOnly;
   const writable = client !== undefined && sessionId !== undefined && readOnly === undefined;
   return useMemo(
     () => (writable && sessionId ? (path: string) => insertMention(sessionId, path) : undefined),

@@ -8,7 +8,7 @@ import { useDiffSupported, useMultiFolderChangesSupported } from '@/changes/chan
 import { changesPrefs, openChanges } from '@/changes/changes-store';
 import { useGitSupported } from '@/changes/git-data';
 import { Button } from '@/components/ui/button';
-import { useTranscript } from '@/data/workbench-data';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
@@ -116,9 +116,9 @@ registerRailCard({
 // ── 上下文 ──────────────────────────────────────────────────────────
 
 function useContextCard({ sessionId, session, providers }: RailContext) {
-  const state = useTranscript(sessionId);
+  const currentUsage = useTranscriptSelector(sessionId, (state) => state?.transcript.usage);
   const onCompact = useCompactAction(sessionId);
-  const usage = contextUsage(state?.transcript.usage, session, providers);
+  const usage = contextUsage(currentUsage, session, providers);
   if (!usage) return null;
   return {
     summary: (

@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
-import { useTranscript, useWorkbenchProviders } from '@/data/workbench-data';
+import { sameFields } from '@/data/transcript-selection';
+import { useTranscriptSelector, useWorkbenchProviders } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 import { focusTranscript } from './transcript-focus';
@@ -12,9 +13,16 @@ import { engineSources } from './turn-model';
 const NO_PROVIDERS: readonly ProviderProfile[] = [];
 
 export function EngineTrail({ sessionId }: { sessionId: SessionId }) {
-  const state = useTranscript(sessionId);
+  const state = useTranscriptSelector(
+    sessionId,
+    (state) => ({
+      segments: state?.transcript.engineSegments,
+      firstSeq: state?.transcript.messages[0]?.seqRange[0],
+    }),
+    sameFields,
+  );
   const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
-  const segments = state?.transcript.engineSegments;
+  const segments = state.segments;
   const sources = useMemo(() => engineSources(segments ?? [], providers), [segments, providers]);
   if (sources.length === 0) return null;
   return (
@@ -37,10 +45,7 @@ export function EngineTrail({ sessionId }: { sessionId: SessionId }) {
             onClick={() =>
               focusTranscript({
                 sessionId,
-                seq:
-                  segment.segment === 0
-                    ? (state?.transcript.messages[0]?.seqRange[0] ?? segment.seq)
-                    : segment.seq,
+                seq: segment.segment === 0 ? (state.firstSeq ?? segment.seq) : segment.seq,
               })
             }
           >

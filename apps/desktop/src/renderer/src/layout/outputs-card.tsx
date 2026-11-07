@@ -2,8 +2,8 @@
 // 与“变更”（工作区的 git 状态）不同：只算这个会话自己动过的，不在 git 仓库里也有。
 
 import { cn } from 'cn';
-import { useMemo } from 'react';
-import { useTranscript } from '@/data/workbench-data';
+import { sameFields } from '@/data/transcript-selection';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import {
   FileLinkMenuProvider,
   useAttachToSession,
@@ -64,14 +64,24 @@ function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) 
 }
 
 function useOutputsCard({ sessionId, session }: RailContext) {
-  const state = useTranscript(sessionId);
   const panes = usePanes();
   const filesSupported = useFilesSupported();
   const attach = useAttachToSession(session);
-  const messages = state?.transcript.messages;
-  const files = useMemo(
-    () => (messages ? sessionOutputs(messages, session.cwd) : []),
-    [messages, session.cwd],
+  const files = useTranscriptSelector(
+    sessionId,
+    (state) => sessionOutputs(state?.transcript.messages ?? [], session.cwd),
+    (a, b) =>
+      a.length === b.length &&
+      a.every((file, index) => {
+        const other = b[index];
+        return (
+          other !== undefined &&
+          file.path === other.path &&
+          file.kind === other.kind &&
+          file.relative === other.relative &&
+          sameFields(file.lines, other.lines)
+        );
+      }),
   );
   if (files.length === 0) return null;
   // 会话目录里的在文件窗格里预览（Host 有 `workspace_files` 时），目录外的在访达里显示；删掉的不能打开。

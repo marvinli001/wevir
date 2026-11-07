@@ -35,8 +35,10 @@ import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { archiveSession, requestRename, useSessionManagement } from '@/data/session-actions';
 import {
+  useReadTranscript,
   useSessionTitleOf,
   useTranscript,
+  useTranscriptSelector,
   useWorkbenchData,
   useWorkbenchProviders,
   useWorkbenchStore,
@@ -100,7 +102,8 @@ import { recapEnabled } from './recap-model';
 import { useSessionRecap } from './recap-store';
 import { RecoveryPanel } from './recovery-panel';
 import type { QuoteActions } from './selection-toolbar';
-import { btwQuestion, hasFinishedTurn, openSide, startSide } from './side-session';
+import { sameSessionChrome, sessionChrome } from './session-chrome';
+import { btwQuestion, openSide, startSide } from './side-session';
 import {
   sendError,
   sendText,
@@ -108,16 +111,13 @@ import {
   usePermissionModes,
   useStartSession,
 } from './start-session';
-import { pendingApprovals } from './subagent-model';
 import { TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
-import { handoffAfterLastTurn, lastTurnId } from './turn-model';
 import { useUiShow } from './ui-show';
 import { UndoBanner } from './undo-banner';
 import { filesNotice, promptOfTurn, rewindPrompt } from './undo-model';
 import { useDraftCommands, useSessionCommands } from './use-composer-commands';
-import { lastTurnShowsWrapUp } from './wrap-up-model';
 
 /**
  * 一个会话：消息流、审批区、输入框与状态指示（T5.3）。消息流来自从 seq 0 开始的订阅（transcript-store.ts），
@@ -132,13 +132,14 @@ export function SessionView({
   variant?: 'main' | 'pane';
 }) {
   const panes = usePanes();
-  const { client, identity, view } = useHostConnection();
+  const { client, view } = useHostConnection();
   const hostSettings = useHostSettings();
   const { settings } = hostSettings;
   // 回合进行中也能发（R11）：Host 有待发消息时，回车按“回合进行中按回车”的设置。
   const pendingEnabled =
     view.status === 'connected' && hostSupports(view.hello.features, 'pending_messages');
-  const state = useTranscript(session.id);
+  const state = useTranscriptSelector(session.id, sessionChrome, sameSessionChrome);
+  const readTranscript = useReadTranscript(session.id);
   // 回合的“N 个文件已更改”打开“变更”窗格（0.20.0）：只在主会话里，支线没有回合快照。
   const diffEnabled =
     view.status === 'connected' && hostSupports(view.hello.features, 'workspace_diff');
@@ -204,7 +205,7 @@ export function SessionView({
       parentSessionId: session.parentSessionId,
     }),
     state: sessionState,
-    seq: transcript?.lastSeq ?? session.lastSeq,
+    seq: readTranscript()?.transcript.lastSeq ?? session.lastSeq,
   });
   // 旁观提示（0.79.0）：同回顾，只在主窗格的顶层会话里，Host 有功能、设置里开着（默认关）。
   const insight = insightsEnabled({
@@ -235,7 +236,7 @@ export function SessionView({
     session.subagent === undefined &&
     readOnly === undefined &&
     transcript !== undefined &&
-    hasFinishedTurn(transcript);
+    state?.finishedTurn === true;
 
   // 会话目标（0.35.0）：Host 声明 `session_goals`、会话当前的引擎有目标、会话是顶层且可写时，`/goal` 与目标横幅可用。
   const goalsEnabled =
@@ -306,7 +307,7 @@ export function SessionView({
     view.status === 'connected' &&
     hostSupports(view.hello.features, 'approval_messages') &&
     transcript !== undefined &&
-    pendingApprovals(transcript).length > 0;
+    state?.awaitingApproval === true;
   const deliver = useCallback(
     async (
       text: string,
@@ -492,7 +493,7 @@ export function SessionView({
   const rewindTurn = useCallback(
     async (turnId: TurnId) => {
       if (!client) return;
-      const messages = transcript?.messages ?? [];
+      const messages = readTranscript()?.transcript.messages ?? [];
       setNotice(undefined);
       try {
         await client.request('session.rewind', { sessionId: session.id, turnId });
@@ -507,13 +508,13 @@ export function SessionView({
       const prompt = rewindPrompt(messages, turnId);
       if (prompt !== undefined) restoreDraft(session.id, prompt, true);
     },
-    [client, session.id, transcript],
+    [client, session.id, readTranscript],
   );
   // 最后一个回合之后换过来源（0.25.0）：Host 不让编辑那个回合；额度用完的卡片比的是那个回合用的模型。
-  const handoff = transcript === undefined ? undefined : handoffAfterLastTurn(transcript);
+  const handoff = state?.handoff;
   const editTurnId =
     rewindEnabled && sessionState === 'idle' && transcript !== undefined && handoff === undefined
-      ? lastTurnId(transcript)
+      ? state?.turnId
       : undefined;
   const rewindRunningTurnId =
     rewindEnabled &&
@@ -521,7 +522,7 @@ export function SessionView({
       sessionState === 'awaiting_approval' ||
       sessionState === 'cancelling') &&
     transcript !== undefined
-      ? lastTurnId(transcript)
+      ? state?.turnId
       : undefined;
   // 额度恢复后自动继续（0.119.0）：用量上限的卡片上勾选，Host 到时替用户发继续消息。
   const autoContinueEnabled =
@@ -549,17 +550,16 @@ export function SessionView({
     sessionState === 'idle' &&
     transcript !== undefined &&
     handoff === undefined
-      ? lastTurnId(transcript)
+      ? state?.turnId
       : undefined;
   const autoContinueArmed = transcript?.autoContinue;
   const retryEnabled = messageActionsEnabled && hostSupports(view.hello.features, 'turn_retry');
-  const lastAssistant = transcript?.messages.findLast((message) => message.role === 'assistant');
   const retryTurnId =
     retryEnabled &&
     sessionState === 'idle' &&
     transcript !== undefined &&
-    lastAssistant?.finished?.outcome === 'failed'
-      ? lastTurnId(transcript)
+    state?.lastOutcome === 'failed'
+      ? state?.turnId
       : undefined;
   const retryTurn = useCallback(
     async (turnId: TurnId) => {
@@ -582,7 +582,7 @@ export function SessionView({
     messageActionsEnabled && hostSupports(view.hello.features, 'usage_limit_switch');
   const switchTurnId =
     switchModelEnabled && sessionState === 'idle' && transcript !== undefined
-      ? lastTurnId(transcript)
+      ? state?.turnId
       : undefined;
   const switchModelTo = useCallback(
     async (turnId: TurnId, next: ModelChoice) => {
@@ -621,7 +621,7 @@ export function SessionView({
   // 回合末的下一步卡片（0.128.0）：按钮发出 agent 写好的消息，同输入框发出的一样。
   const wrapUpTurnId =
     messageActionsEnabled && sessionState === 'idle' && transcript !== undefined
-      ? lastTurnId(transcript)
+      ? state?.turnId
       : undefined;
   const sendWrapUp = useCallback((message: string) => send(message), [send]);
   const routingAvailable =
@@ -872,10 +872,10 @@ export function SessionView({
     view.status === 'connected' &&
     undoSupported(view.hello.features, engine);
   const redoCount = transcript?.redoTurnIds.length ?? 0;
-  const hasTurns = transcript !== undefined && lastTurnId(transcript) !== undefined;
+  const hasTurns = transcript !== undefined && state?.turnId !== undefined;
   const undoTurn = useCallback(async () => {
     if (!client) return;
-    const messages = transcript?.messages ?? [];
+    const messages = readTranscript()?.transcript.messages ?? [];
     setNotice(undefined);
     try {
       if (sessionState === 'error' || sessionState === 'closed') {
@@ -893,7 +893,7 @@ export function SessionView({
           : t('undo.failed', { error: describe(error) }),
       );
     }
-  }, [client, session.id, sessionState, transcript]);
+  }, [client, session.id, sessionState, readTranscript]);
   const redoTurn = useCallback(async () => {
     if (!client) return;
     setNotice(undefined);
@@ -909,17 +909,27 @@ export function SessionView({
       );
     }
   }, [client, session.id]);
-  const onUndo = undoAvailable && hasTurns ? () => void undoTurn() : undefined;
-  const onRedo = undoAvailable && redoCount > 0 ? () => void redoTurn() : undefined;
+  const onUndo = useMemo(
+    () => (undoAvailable && hasTurns ? () => void undoTurn() : undefined),
+    [undoAvailable, hasTurns, undoTurn],
+  );
+  const onRedo = useMemo(
+    () => (undoAvailable && redoCount > 0 ? () => void redoTurn() : undefined),
+    [undoAvailable, redoCount, redoTurn],
+  );
+  const commandModel = useMemo(
+    () => ({
+      providerId: session.providerId,
+      modelId: session.modelId,
+      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+    }),
+    [session.providerId, session.modelId, session.reasoningEffort],
+  );
   const commands = useSessionCommands({
     workspaceId: session.workspaceId,
     sessionId: session.id as SessionId,
     providers,
-    model: {
-      providerId: session.providerId,
-      modelId: session.modelId,
-      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
-    },
+    model: commandModel,
     canConfigure:
       writable &&
       session.parentSessionId === undefined &&
@@ -1005,21 +1015,41 @@ export function SessionView({
       setFromHistoryOpen(true);
       return;
     }
-    if (!transcript) return;
-    setDraft(newSessionDraftKey(session.workspaceId), historyDigest(transcript));
+    const current = readTranscript()?.transcript;
+    if (!current) return;
+    setDraft(newSessionDraftKey(session.workspaceId), historyDigest(current));
     const origin: DraftOrigin = {
       providerId: session.providerId,
-      fromTitle: transcript.title || session.title,
+      fromTitle: current.title || session.title,
     };
     navigate(paths.draft(session.workspaceId), { state: origin });
   }, [
-    transcript,
+    readTranscript,
     session.workspaceId,
     session.providerId,
     session.title,
     navigate,
     fromHistorySupported,
   ]);
+
+  const composerModel = useMemo(
+    () => (
+      <>
+        <ContextMeter
+          session={session}
+          providers={providers}
+          busy={isBusy(sessionState)}
+          {...(onCompact && { onCompact })}
+        />
+        <SessionModelPicker session={session} onError={setNotice} />
+      </>
+    ),
+    [session, providers, sessionState, onCompact],
+  );
+  const composerLeading = useMemo(
+    () => <SessionPermissionPicker session={session} onError={setNotice} />,
+    [session],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
@@ -1038,30 +1068,19 @@ export function SessionView({
             title={t('transcript.failed', { error: state.error })}
           />
         </div>
-      ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
+      ) : transcript && (state.caughtUp || state.hasEvents) ? (
         <OpenTurnChanges value={turnChanges}>
           <OpenFileLink value={openLink}>
             <FileLinkMenuProvider cwd={session.cwd} attach={attachPath}>
               <OpenSessionFile value={openSessionFile}>
                 <MessageActionsContext value={messageActions}>
-                  <TranscriptView
+                  <SessionTranscript
                     key={session.id}
-                    sessionId={session.id}
-                    transcript={transcript}
-                    cwd={session.cwd}
+                    session={session}
                     onReady={onReady}
                     compact={variant === 'pane'}
                     {...(quote && { quote })}
-                    footer={
-                      <ApprovalDock
-                        transcript={transcript}
-                        session={session}
-                        client={client}
-                        self={identity}
-                        subagentHref={subagentHref}
-                        recap={<TurnRecap transcript={transcript} />}
-                      />
-                    }
+                    subagentHref={subagentHref}
                   />
                 </MessageActionsContext>
               </OpenSessionFile>
@@ -1083,7 +1102,7 @@ export function SessionView({
           {/* 输入框上方的提问、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
           <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
             {/* 最后一个回合的下一步卡片（0.128.0）已经在消息流底部说了同一段回顾，不再重复。 */}
-            {sessionRecap && !(transcript && lastTurnShowsWrapUp(transcript)) && (
+            {sessionRecap && !state?.hasWrapUp && (
               <RecapCard text={sessionRecap.text} onDismiss={sessionRecap.dismiss} />
             )}
             {insight && <InsightCard key={insight.id} sessionId={session.id} insight={insight} />}
@@ -1093,12 +1112,8 @@ export function SessionView({
               modelId={session.modelId}
               running={sessionState === 'running'}
             />
-            {transcript && (
-              <QuestionDock
-                transcript={transcript}
-                client={client}
-                recap={<TurnRecap transcript={transcript} />}
-              />
+            {(transcript?.pendingQuestions.length ?? 0) > 0 && (
+              <SessionQuestions sessionId={session.id} />
             )}
             <RecoveryPanel
               // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
@@ -1154,18 +1169,8 @@ export function SessionView({
             state={sessionState}
             disabled={!client || readOnly !== undefined}
             disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
-            model={
-              <>
-                <ContextMeter
-                  session={session}
-                  providers={providers}
-                  busy={isBusy(sessionState)}
-                  {...(onCompact && { onCompact })}
-                />
-                <SessionModelPicker session={session} onError={setNotice} />
-              </>
-            }
-            leading={<SessionPermissionPicker session={session} onError={setNotice} />}
+            model={composerModel}
+            leading={composerLeading}
             {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
             {...(pendingEnabled &&
               hostSettings.editable && { onBusyDeliveryChange: changeBusyDelivery })}
@@ -1182,6 +1187,52 @@ export function SessionView({
         </div>
       </div>
     </div>
+  );
+}
+
+function SessionTranscript({
+  session,
+  subagentHref,
+  ...props
+}: Omit<Parameters<typeof TranscriptView>[0], 'sessionId' | 'cwd' | 'transcript' | 'footer'> & {
+  session: Session;
+  subagentHref: (subagent: SubagentSummary) => string;
+}) {
+  const state = useTranscript(session.id);
+  const { client, identity } = useHostConnection();
+  if (!state) return null;
+  const transcript = state.transcript;
+  return (
+    <TranscriptView
+      {...props}
+      sessionId={session.id}
+      cwd={session.cwd}
+      transcript={transcript}
+      footer={
+        <ApprovalDock
+          transcript={transcript}
+          session={session}
+          client={client}
+          self={identity}
+          subagentHref={subagentHref}
+          recap={<TurnRecap transcript={transcript} />}
+        />
+      }
+    />
+  );
+}
+
+function SessionQuestions({ sessionId }: { sessionId: SessionId }) {
+  const state = useTranscript(sessionId);
+  const { client } = useHostConnection();
+  return (
+    state && (
+      <QuestionDock
+        transcript={state.transcript}
+        client={client}
+        recap={<TurnRecap transcript={state.transcript} />}
+      />
+    )
   );
 }
 

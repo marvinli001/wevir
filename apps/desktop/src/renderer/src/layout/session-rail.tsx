@@ -6,7 +6,7 @@ import { changeFolders } from '@/changes/change-folders';
 import { useMultiFolderChangesSupported } from '@/changes/changes-data';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
-import { useTranscript, useWorkbenchProviders } from '@/data/workbench-data';
+import { useTranscriptSelector, useWorkbenchProviders } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import {
   useWorkspaceGitFolders,
@@ -81,7 +81,8 @@ export function SessionRail({
   const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const { railOpen, railCards } = layoutPrefs.use();
   // 0.140.0：这个会话里 agent 请显示过的卡片，没在设置里打开也显示。
-  const agentCards = useTranscript(sessionId)?.transcript.railCards ?? NO_CARDS;
+  const agentCards =
+    useTranscriptSelector(sessionId, (state) => state?.transcript.railCards) ?? NO_CARDS;
   // 回合结束（离开 running）时重读一次，改动多半刚发生。
   // 环境会话新开了 worktree 时读它（0.15.0），否则读工作区目录。
   const multiple = useMultiFolderChangesSupported();

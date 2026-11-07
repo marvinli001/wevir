@@ -9,7 +9,8 @@ import { ChevronRight, Circle, CircleCheck, CircleDot, CircleSlash } from 'lucid
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { Collapse } from '@/components/collapse';
-import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
+import { sameFields } from '@/data/transcript-selection';
+import { useTranscriptSelector, useWorkbenchData } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { type RailContext, registerRailCard } from './session-rail';
 import {
@@ -180,7 +181,11 @@ function TaskBoardDetails({ groups }: { groups: readonly BoardGroup[] }) {
 const NO_SESSIONS: never[] = [];
 
 function useTaskBoardCard({ sessionId, session, entry, visible }: RailContext) {
-  const own = useTranscript(sessionId);
+  const own = useTranscriptSelector(
+    sessionId,
+    (state) => ({ board: state?.transcript.taskBoard, subagents: state?.transcript.subagents }),
+    sameFields,
+  );
   const data = useWorkbenchData();
   const sessions = useMemo(
     () =>
@@ -193,10 +198,13 @@ function useTaskBoardCard({ sessionId, session, entry, visible }: RailContext) {
   }, [session, sessions]);
   // 不是根会话时读根会话的投影（侧栏看得见时才订阅）；根会话读不了（已删除）时退回自己的。
   const shared = rootId !== sessionId;
-  const root = useTranscript(shared && visible ? rootId : undefined);
-  const board =
-    shared && root?.error === undefined ? root?.transcript.taskBoard : own?.transcript.taskBoard;
-  const subagents = own?.transcript.subagents;
+  const root = useTranscriptSelector(
+    shared && visible ? rootId : undefined,
+    (state) => ({ error: state?.error, board: state?.transcript.taskBoard }),
+    sameFields,
+  );
+  const board = shared && root?.error === undefined ? root.board : own.board;
+  const subagents = own.subagents;
   const workspaceId = entry.workspace.id;
   const groups = useMemo(
     () =>

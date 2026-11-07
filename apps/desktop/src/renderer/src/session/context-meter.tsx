@@ -7,7 +7,7 @@ import type { ProviderProfile, Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useTranscript } from '@/data/workbench-data';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { ContextDetails } from '@/layout/context-breakdown';
 import { type ContextUsage, contextUsage } from '@/layout/rail-model';
@@ -38,8 +38,8 @@ export function ContextMeter({
   busy: boolean;
   onCompact?: () => void;
 }) {
-  const state = useTranscript(session.id);
-  const usage = contextUsage(state?.transcript.usage, session, providers);
+  const currentUsage = useTranscriptSelector(session.id, (state) => state?.transcript.usage);
+  const usage = contextUsage(currentUsage, session, providers);
   const [open, setOpen] = useState(false);
   const shown = composerPrefs.use().showContext;
   if (!usage || !shown) return null;

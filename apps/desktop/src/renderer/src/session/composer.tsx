@@ -13,6 +13,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
+  memo,
   type ReactNode,
   useEffect,
   useId,
@@ -241,7 +242,7 @@ export function insertMention(draftKey: string, path: string): void {
  * 0.92.0 起有听写（Host 支持 `speech` 时）：发送键左边的麦克风按钮或 ⌘⇧D，按住说话、松开转写，文字放到光标处，不自动发送；
  * 录音时 Esc 丢掉这段。
  */
-export function Composer({
+export const Composer = memo(function Composer({
   draftKey,
   state,
   disabled = false,
@@ -1144,7 +1145,7 @@ export function Composer({
       <PastedTextPreview text={openPaste} onClose={() => setOpenPaste(undefined)} />
     </div>
   );
-}
+});
 
 /** 底栏的“计划”芯片（0.36.0）：计划模式开着时显示，点它退出（Shift+Tab 同）。 */
 function PlanChip({ disabled, onExit }: { disabled: boolean; onExit: () => void }) {

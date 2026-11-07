@@ -38,11 +38,28 @@ export function installCommitProbe() {
   const hook = {
     supportsFiber: true,
     inject: () => 1,
-    onCommitFiberRoot() {
+    onCommitFiberRoot(_renderer, root) {
       if (!active) return;
       const time = performance.now();
       const second = Math.floor((time - active.start) / 1000);
       active.buckets[second] = (active.buckets[second] ?? 0) + 1;
+      const visit = (fiber) => {
+        if (!fiber) return;
+        if (fiber.flags & 1) {
+          const props = fiber.memoizedProps;
+          if (props?.draftKey && props.onSend) active.composerRenders++;
+          if (
+            props?.session &&
+            fiber.child?.type === 'div' &&
+            fiber.child.memoizedProps?.className ===
+              'flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth'
+          )
+            active.sessionViewRenders++;
+        }
+        visit(fiber.child);
+        visit(fiber.sibling);
+      };
+      visit(root?.current);
       performance.measure('wevir.react.commit', { start: time, duration: 0 });
       performance.clearMeasures('wevir.react.commit');
     },
@@ -51,7 +68,7 @@ export function installCommitProbe() {
   globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
   globalThis.__wevirPerf = {
     start() {
-      active = { start: performance.now(), buckets: [] };
+      active = { start: performance.now(), buckets: [], composerRenders: 0, sessionViewRenders: 0 };
     },
     stop() {
       const durationMs = performance.now() - active.start;
@@ -60,10 +77,13 @@ export function installCommitProbe() {
         (_, index) => active.buckets[index] ?? 0,
       );
       const commits = perSecond.reduce((sum, value) => sum + value, 0);
+      const { composerRenders, sessionViewRenders } = active;
       active = undefined;
       return {
         durationMs,
         commits,
+        composerRenders,
+        sessionViewRenders,
         perSecond,
         commitsPerSecond: commits / (durationMs / 1000),
         visibility: document.visibilityState,

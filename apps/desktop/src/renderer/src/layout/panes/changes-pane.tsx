@@ -113,7 +113,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useTranscript } from '@/data/workbench-data';
+import { sameFields, sameItems } from '@/data/transcript-selection';
+import { useTranscriptSelector } from '@/data/workbench-data';
 import {
   FileLinkMenuProvider,
   useAttachToSession,
@@ -245,7 +246,40 @@ function SessionChanges({
     stored.scope.kind === 'staged' && !gitSupported
       ? { ...stored, scope: { kind: 'uncommitted' as const } }
       : stored;
-  const transcript = useTranscript(sessionId)?.transcript;
+  const transcript = useTranscriptSelector(
+    sessionId,
+    (state) => ({ state: state?.transcript.state, activeTurnId: state?.transcript.activeTurnId }),
+    sameFields,
+  );
+  const messages = useTranscriptSelector(
+    sessionId,
+    (state) =>
+      state?.transcript.messages.map((message) => ({
+        ...message,
+        parts: message.parts.filter((part) => part.type === 'tool' || part.type === 'files'),
+      })),
+    (a, b) =>
+      a === b ||
+      (a !== undefined &&
+        b !== undefined &&
+        a.length === b.length &&
+        a.every((message, index) => {
+          const other = b[index];
+          return (
+            other !== undefined &&
+            message.id === other.id &&
+            message.role === other.role &&
+            (message.role !== 'assistant' ||
+              (other.role === 'assistant' && message.finished === other.finished)) &&
+            sameItems(message.parts, other.parts)
+          );
+        })),
+  );
+  const turnIds = useTranscriptSelector(
+    sessionId,
+    (state) => [...turnNumbers(state?.transcript.messages ?? []).keys()],
+    sameItems,
+  );
   // 文件头的右键菜单（files/file-link-menu.tsx）：路径相对会话目录，“添加到对话”放进这个会话的输入框。
   const session = sessions.find((candidate) => candidate.id === sessionId);
   const multiple = useMultiFolderChangesSupported();
@@ -265,8 +299,7 @@ function SessionChanges({
   // 暂存与提交（0.67.0）：暂存状态变了（索引或 HEAD）时 diff 一起重读。
   const git = useGitStatus(workspaceId, sessionId, refreshKey, folder);
   const gitKey = `${git.status?.head ?? ''}:${git.status?.index ?? ''}`;
-  const messages = transcript?.messages;
-  const numbers = useMemo(() => turnNumbers(messages ?? []), [messages]);
+  const numbers = useMemo(() => new Map(turnIds.map((id, index) => [id, index + 1])), [turnIds]);
   const turns = useMemo(
     () => turnOptions(checkpoints ?? [], numbers, messages),
     [checkpoints, numbers, messages],
