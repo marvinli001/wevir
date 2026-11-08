@@ -160,9 +160,13 @@ fetch_url() {
     local repository="${release_path%%/releases/download/*}"
     local tag="${release_path#*/releases/download/}"
     tag="${tag%/*}"
+    local api_headers=(-H 'X-GitHub-Api-Version: 2026-03-10')
+    if [ -n "${GH_TOKEN:-}" ]; then
+      api_headers+=(-H "Authorization: Bearer $GH_TOKEN")
+    fi
     local metadata="$tmp/release-${repository//\//-}-${tag//\//-}.json"
     if [ ! -f "$metadata" ]; then
-      curl -fL --retry 3 -o "$metadata" \
+      curl -fL --retry 3 "${api_headers[@]}" -o "$metadata" \
         "https://api.github.com/repos/$repository/releases/tags/$tag" || return 1
     fi
     local asset_id
@@ -177,7 +181,7 @@ process.stdout.write(String(asset.id));
 JS
     )" || return 1
     echo "改用 GitHub 资产 API：$asset" >&2
-    curl -fL --retry 3 -H 'Accept: application/octet-stream' -o "$tmp/$asset" \
+    curl -fL --retry 3 "${api_headers[@]}" -H 'Accept: application/octet-stream' -o "$tmp/$asset" \
       "https://api.github.com/repos/$repository/releases/assets/$asset_id" || return 1
   fi
   local actual

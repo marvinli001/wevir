@@ -144,6 +144,7 @@ jobs:
       - name: 打包（macOS：签名、公证）
         if: runner.os == 'macOS'
         env:
+          GH_TOKEN: ${{ github.token }}
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -157,6 +158,8 @@ jobs:
 
       - name: 打包（Windows，不签名）
         if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: pnpm --filter @wevir/desktop package --target ${{ matrix.target }} --app-version ${{ needs.plan.outputs.version }}
 
       # 用户终端的 node-pty 在 Linux 上没有预编译：在 Debian 11（glibc 2.31）的容器里编，比 runner 的 Ubuntu 旧，安装包在
@@ -171,6 +174,8 @@ jobs:
       # 下载。最后核对用户终端的 pty.node 进了安装包（没有时 ls 失败，这一步失败）。
       - name: 打包（Linux，不签名）
         if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           pnpm --filter @wevir/desktop package --target ${{ matrix.target }} --app-version ${{ needs.plan.outputs.version }}
           pty=$(ls apps/desktop/release/linux-*unpacked/resources/host/node_modules/node-pty/prebuilds/linux-*/pty.node)
@@ -245,6 +250,8 @@ jobs:
             bash -c 'bash scripts/build-node-pty.sh && chown -R '"$(id -u):$(id -g)"' .wevir-dev node_modules/.pnpm/node-pty@*'
 
       - name: 打包
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: pnpm --filter @wevir/cli package --target ${{ matrix.target }} --version ${{ needs.plan.outputs.version }}
 
       - name: 核对用户终端（Linux）

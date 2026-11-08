@@ -94,6 +94,8 @@ jobs:
           key: codex-app-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-codex.sh') }}
 
       - name: 下载 codex-app-server
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/fetch-codex.sh
 
       - name: 缓存办公文档预览引擎
