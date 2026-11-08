@@ -4506,8 +4506,18 @@ export const methodSamples: MethodSamples = {
       valid: [
         { workspaceId: ids.workspace, path: 'README.md' },
         { workspaceId: ids.workspace, sessionId: ids.session, path: 'assets/logo.png' },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          folder: '/work/extra',
+          path: 'TODO.md',
+        },
       ],
-      invalid: [{ workspaceId: ids.workspace, path: '' }, { workspaceId: ids.workspace }],
+      invalid: [
+        { workspaceId: ids.workspace, path: '' },
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, folder: '', path: 'a.md' },
+      ],
     },
     result: {
       valid: [
@@ -4534,8 +4544,18 @@ export const methodSamples: MethodSamples = {
       valid: [
         { workspaceId: ids.workspace, path: 'docs/report.pdf' },
         { workspaceId: ids.workspace, sessionId: ids.session, path: 'site/index.html' },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          folder: '/work/extra',
+          path: 'a.pdf',
+        },
       ],
-      invalid: [{ workspaceId: ids.workspace, path: '' }, { path: 'a.pdf' }],
+      invalid: [
+        { workspaceId: ids.workspace, path: '' },
+        { path: 'a.pdf' },
+        { workspaceId: ids.workspace, folder: '', path: 'a.pdf' },
+      ],
     },
     result: {
       valid: [
@@ -4556,8 +4576,18 @@ export const methodSamples: MethodSamples = {
       valid: [
         { workspaceId: ids.workspace, path: 'docs/report.docx' },
         { workspaceId: ids.workspace, sessionId: ids.session, path: 'deck.pptx' },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          folder: 'C:\\work\\extra',
+          path: 'a.docx',
+        },
       ],
-      invalid: [{ workspaceId: ids.workspace, path: '' }, { path: 'a.docx' }],
+      invalid: [
+        { workspaceId: ids.workspace, path: '' },
+        { path: 'a.docx' },
+        { workspaceId: ids.workspace, folder: '', path: 'a.docx' },
+      ],
     },
     result: {
       valid: [
@@ -4585,8 +4615,16 @@ export const methodSamples: MethodSamples = {
           text: '',
           expectedMtimeMs: 1_760_000_000_123.456,
         },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          folder: '/work/extra',
+          path: 'TODO.md',
+          text: '- [ ] a\n',
+        },
       ],
       invalid: [
+        { workspaceId: ids.workspace, folder: '', path: 'notes.md', text: 'x' },
         { workspaceId: ids.workspace, path: 'notes.md' },
         { workspaceId: ids.workspace, path: '', text: 'x' },
         { workspaceId: ids.workspace, path: 'a', text: 'x', expectedMtimeMs: -1 },

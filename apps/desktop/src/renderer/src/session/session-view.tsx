@@ -46,7 +46,7 @@ import {
 import { isChats, type WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import { FileLinkMenuProvider, useAttachToSession } from '@/files/file-link-menu';
-import { OpenFileLink, OpenSessionFile, openFileLink } from '@/files/file-links';
+import { OpenFileLink, OpenSessionFile, openFileLink, useExtraFolders } from '@/files/file-links';
 import type { FileScope } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
 import { describe, useCan, useHostConnection } from '@/host/host-connection';
@@ -162,10 +162,17 @@ export function SessionView({
   // 助手消息里的文件链接（U32）：Host 有 `workspace_files` 时在文件窗格里打开（主会话与支线都用会话目录）。
   const filesEnabled =
     view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+  // 会话附加文件夹里的文件（0.168.0）也在文件窗格里打开，其余目录外的在访达里显示。
+  const multiFolderFiles =
+    view.status === 'connected' && hostSupports(view.hello.features, 'multi_folder_files');
+  const sessionFolders = useExtraFolders(session);
+  const linkFolders = multiFolderFiles ? sessionFolders : undefined;
   const openLink = useMemo(
     () =>
-      filesEnabled && panes ? (href: string) => openFileLink(panes, session.cwd, href) : undefined,
-    [filesEnabled, panes, session.cwd],
+      filesEnabled && panes
+        ? (href: string) => openFileLink(panes, session.cwd, href, linkFolders)
+        : undefined,
+    [filesEnabled, panes, session.cwd, linkFolders],
   );
   // 交给用户的文件（0.40.0）：点文件名在文件窗格里预览。
   const openSessionFile = useMemo(

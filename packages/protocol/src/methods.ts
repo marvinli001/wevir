@@ -789,6 +789,8 @@ export type WorkspaceListDirResult = z.infer<typeof WorkspaceListDirResultSchema
 export const WorkspaceReadFileParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  /** 0.168.0：源文件夹的绝对路径（会话的附加文件夹），`path` 相对它；Host 按 realpath 校验允许列表。省略时沿用会话或工作区目录。 */
+  folder: z.string().min(1).optional(),
   /** 相对路径，`/` 分隔。 */
   path: z.string().min(1).max(1024),
 });
@@ -838,6 +840,8 @@ export const WORKSPACE_WRITE_TEXT_MAX_BYTES = 1024 * 1024;
 export const WorkspaceFileUrlParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  /** 0.168.0：源文件夹的绝对路径（会话的附加文件夹），`path` 相对它；Host 按 realpath 校验允许列表。省略时沿用会话或工作区目录。 */
+  folder: z.string().min(1).optional(),
   /** 相对路径，`/` 分隔。 */
   path: z.string().min(1).max(1024),
 });
@@ -862,6 +866,8 @@ export type WorkspaceFileUrlResult = z.infer<typeof WorkspaceFileUrlResultSchema
 export const WorkspaceWriteFileParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  /** 0.168.0：源文件夹的绝对路径（会话的附加文件夹），`path` 相对它；Host 按 realpath 校验允许列表。省略时沿用会话或工作区目录。 */
+  folder: z.string().min(1).optional(),
   path: z.string().min(1).max(1024),
   /** 新的全文（UTF-8）。 */
   text: z.string(),

@@ -368,3 +368,62 @@ describe('multi-folder changes', () => {
     }
   });
 });
+
+describe('multi-folder files', () => {
+  it('readFile 与 writeFile 按 folder 读写附加文件夹，省略时仍是会话目录', async () => {
+    const { methods, extra, workspaceId, session } = setup();
+    const sessionId = session({ extraRoots: [extra] });
+    const scope = { workspaceId, sessionId };
+    await expect(
+      methods['workspace.readFile']({ ...scope, path: 'a.txt' }, context),
+    ).resolves.toMatchObject({ text: 'primary original\n' });
+    const read = await methods['workspace.readFile'](
+      { ...scope, folder: alias(extra, join(tempDir(), 'extra-alias')), path: 'sub/b.txt' },
+      context,
+    );
+    expect(read).toMatchObject({ path: 'sub/b.txt', text: 'nested\n' });
+    const base = await methods['workspace.readFile'](
+      { ...scope, folder: extra, path: 'a.txt' },
+      context,
+    );
+    expect(base.text).toBe('extra original\n');
+    const written = await methods['workspace.writeFile'](
+      { ...scope, folder: extra, path: 'a.txt', text: 'edited\n', expectedMtimeMs: base.mtimeMs },
+      context,
+    );
+    expect(written.conflict).toBeUndefined();
+    await expect(
+      methods['workspace.readFile']({ ...scope, folder: extra, path: 'a.txt' }, context),
+    ).resolves.toMatchObject({ text: 'edited\n' });
+    await expect(
+      methods['workspace.readFile']({ ...scope, path: 'a.txt' }, context),
+    ).resolves.toMatchObject({ text: 'primary original\n' });
+  });
+
+  it('文件方法拒绝列表外的 folder 与往上走的路径', async () => {
+    const { methods, extra, workspaceId, session } = setup();
+    const sessionId = session({ extraRoots: [extra] });
+    const outside = repo('outside');
+    const scope = { workspaceId, sessionId };
+    for (const call of [
+      () => methods['workspace.readFile']({ ...scope, folder: outside, path: 'a.txt' }, context),
+      () => methods['workspace.fileUrl']({ ...scope, folder: outside, path: 'a.txt' }, context),
+      () => methods['workspace.officePdf']({ ...scope, folder: outside, path: 'a.docx' }, context),
+      () =>
+        methods['workspace.writeFile'](
+          { ...scope, folder: outside, path: 'a.txt', text: 'x' },
+          context,
+        ),
+      () =>
+        methods['workspace.readFile'](
+          { ...scope, folder: join(extra, 'sub'), path: 'b.txt' },
+          context,
+        ),
+    ]) {
+      await expect(call()).rejects.toMatchObject(folderError);
+    }
+    await expect(
+      methods['workspace.readFile']({ ...scope, folder: extra, path: '../outside/a.txt' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+});

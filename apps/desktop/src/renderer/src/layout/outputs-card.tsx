@@ -9,7 +9,8 @@ import {
   useAttachToSession,
   useFileContextMenu,
 } from '@/files/file-link-menu';
-import { useFilesSupported } from '@/files/files-data';
+import { folderFilePath, useExtraFolders } from '@/files/file-links';
+import { useFilesSupported, useMultiFolderFilesSupported } from '@/files/files-data';
 import { openFile } from '@/files/files-store';
 import { t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
@@ -66,6 +67,8 @@ function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) 
 function useOutputsCard({ sessionId, session }: RailContext) {
   const panes = usePanes();
   const filesSupported = useFilesSupported();
+  const multiFolderFiles = useMultiFolderFilesSupported();
+  const folders = useExtraFolders(session);
   const attach = useAttachToSession(session);
   const files = useTranscriptSelector(
     sessionId,
@@ -84,11 +87,16 @@ function useOutputsCard({ sessionId, session }: RailContext) {
       }),
   );
   if (files.length === 0) return null;
-  // 会话目录里的在文件窗格里预览（Host 有 `workspace_files` 时），目录外的在访达里显示；删掉的不能打开。
+  // 会话目录与附加文件夹（0.168.0）里的在文件窗格里预览（Host 有 `workspace_files` 时），其余的在访达里显示；删掉的不能打开。
   const opener = (file: OutputFile) => {
     if (file.kind === 'deleted') return undefined;
     const relative = file.relative;
     if (relative !== undefined && filesSupported && panes) return () => openFile(panes, relative);
+    const inFolder =
+      relative === undefined && filesSupported && multiFolderFiles
+        ? folderFilePath(file.path, folders)
+        : undefined;
+    if (inFolder !== undefined && panes) return () => openFile(panes, inFolder);
     if (!capabilities().localFiles) return undefined;
     return () =>
       void platformApi()

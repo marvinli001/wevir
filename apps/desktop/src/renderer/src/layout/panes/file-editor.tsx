@@ -21,7 +21,7 @@ import { DIFF_SURFACE_THEME_UNSAFE_CSS, resolveDiffThemeName } from '@/changes/d
 import { DiffWorkerPoolProvider, PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
 import { Button } from '@/components/ui/button';
 import { FileSaveCoordinator } from '@/files/file-save-coordinator';
-import { type FileScope, rememberWrittenFile } from '@/files/files-data';
+import { type FileScope, rememberWrittenFile, scopeParams } from '@/files/files-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { useTheme } from '@/theme/theme';
@@ -140,8 +140,7 @@ function EditableSurface({
       setStatus('saving');
       try {
         const result = await client.request('workspace.writeFile', {
-          workspaceId: scope.workspaceId,
-          ...(scope.sessionId !== undefined && { sessionId: scope.sessionId }),
+          ...scopeParams(scope),
           path,
           text: contents,
           ...(!force && baseMtime.current !== undefined && { expectedMtimeMs: baseMtime.current }),

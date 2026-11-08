@@ -80,6 +80,46 @@ export function toRelativePath(path: string, cwd: string): string | undefined {
   return parts.join('/');
 }
 
+/** 附加文件夹里的一个文件：`folder` 是文件夹的绝对路径（原样），`path` 相对它、`/` 分隔、不为空。 */
+export interface FolderFile {
+  folder: string;
+  path: string;
+}
+
+/**
+ * 绝对路径落在哪个附加文件夹（会话的源文件夹，0.168.0）里；嵌套时取最深的那个。不在任何一个里、或就是文件夹本身时 undefined。
+ */
+export function folderFile(path: string, folders: readonly string[]): FolderFile | undefined {
+  if (!isAbsolutePath(normalize(path))) return undefined;
+  let found: FolderFile | undefined;
+  for (const folder of folders) {
+    const relative = toRelativePath(path, folder);
+    if (relative === undefined || relative === '') continue;
+    if (!found || normalize(folder).length > normalize(found.folder).length) {
+      found = { folder, path: relative };
+    }
+  }
+  return found;
+}
+
+/**
+ * 窗格参数里的路径对应读哪个目录、哪个文件：相对路径在会话目录里；绝对路径在会话目录里的换成相对路径，在附加文件夹里的
+ * （“变更”窗格与消息里的链接，0.168.0）带上 `folder`。其余的绝对路径读不了。
+ */
+export function paneFile<Scope extends { root: string; folder?: string }>(
+  scope: Scope,
+  path: string,
+  folders: readonly string[],
+): { scope: Scope; path: string } | undefined {
+  if (!isAbsolutePath(normalize(path))) return { scope, path };
+  const relative = toRelativePath(path, scope.root);
+  if (relative !== undefined && relative !== '') return { scope, path: relative };
+  const found = folderFile(path, folders);
+  return (
+    found && { scope: { ...scope, folder: found.folder, root: found.folder }, path: found.path }
+  );
+}
+
 /** 会话目录里的相对路径对应的绝对路径（给外部编辑器与访达）。 */
 export function toAbsolutePath(relativePath: string, cwd: string): string {
   const root = cwd.replace(/[\\/]+$/, '');

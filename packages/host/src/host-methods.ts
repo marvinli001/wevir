@@ -400,11 +400,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     workspaceId: string,
     sessionId: string | undefined,
     path: string,
+    folder?: string,
   ): Promise<{ root: string; file: Awaited<ReturnType<typeof statWorkspaceFile>> }> => {
     if (!isSafeRelativePath(path)) {
       throw invalidParams(['path'], 'path must be a relative path inside the directory');
     }
-    const root = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+    const { dir: root } = await changeDirectory(workspaceId, sessionId, folder);
     return { root, file: await statWorkspaceFile(root, path) };
   };
   // 写库成功之后才调用；引擎没能用上新配置时 Profile 仍已保存，报 ENGINE_ERROR 说明这一点。
@@ -941,19 +942,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return listDirectory(await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)), path);
     },
 
-    'workspace.readFile': async ({ workspaceId, sessionId, path }) => {
+    // 0.168.0 起可带 `folder`（会话的附加文件夹，校验同变更方法）。
+    'workspace.readFile': async ({ workspaceId, sessionId, folder, path }) => {
       if (!isSafeRelativePath(path)) {
         throw invalidParams(['path'], 'path must be a relative path inside the directory');
       }
-      return readWorkspaceFile(
-        await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
-        path,
-      );
+      return readWorkspaceFile((await changeDirectory(workspaceId, sessionId, folder)).dir, path);
     },
 
     // 0.32.0：文件预览的流式地址与编辑的写回。
-    'workspace.fileUrl': async ({ workspaceId, sessionId, path }) => {
-      const { root, file } = await resolveWorkspaceFile(workspaceId, sessionId, path);
+    'workspace.fileUrl': async ({ workspaceId, sessionId, folder, path }) => {
+      const { root, file } = await resolveWorkspaceFile(workspaceId, sessionId, path, folder);
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       // 令牌下只读得到能预览的类型（file-urls.ts），其余的文件不发地址。
       if (!isServablePath(path)) return { path, unavailable: 'unsupported' };
@@ -962,8 +961,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.138.0：办公文档转成 PDF，地址指向 Host 的 PDF 缓存（同一套令牌）。
-    'workspace.officePdf': async ({ workspaceId, sessionId, path }) => {
-      const { file } = await resolveWorkspaceFile(workspaceId, sessionId, path);
+    'workspace.officePdf': async ({ workspaceId, sessionId, folder, path }) => {
+      const { file } = await resolveWorkspaceFile(workspaceId, sessionId, path, folder);
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       if (options.office === undefined) return { path, unavailable: 'engine_missing' };
       try {
@@ -986,11 +985,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
     },
 
-    'workspace.writeFile': async ({ workspaceId, sessionId, path, text, expectedMtimeMs }) => {
+    'workspace.writeFile': async ({
+      workspaceId,
+      sessionId,
+      folder,
+      path,
+      text,
+      expectedMtimeMs,
+    }) => {
       if (!isSafeRelativePath(path)) {
         throw invalidParams(['path'], 'path must be a relative path inside the directory');
       }
-      const root = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      const { dir: root } = await changeDirectory(workspaceId, sessionId, folder);
       try {
         return await writeWorkspaceFile(root, path, text, expectedMtimeMs);
       } catch (error) {

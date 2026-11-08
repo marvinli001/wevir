@@ -1,0 +1,54 @@
+{
+  "protocolVersion": "0.168.0",
+  "frozenAt": "2026-11-08",
+  "methods": {
+    "workspace.readFile": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "path": "TODO.md"
+        }
+      ],
+      "result": []
+    },
+    "workspace.fileUrl": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "path": "docs/report.pdf"
+        }
+      ],
+      "result": []
+    },
+    "workspace.officePdf": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "C:\\work\\extra",
+          "path": "deck.pptx"
+        }
+      ],
+      "result": []
+    },
+    "workspace.writeFile": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "folder": "/work/extra",
+          "path": "TODO.md",
+          "text": "- [ ] a\n",
+          "expectedMtimeMs": 1760000000123.456
+        }
+      ],
+      "result": []
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

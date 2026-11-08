@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   fileLinkPaths,
+  folderFile,
   isMarkdownPath,
+  paneFile,
   parseFileHref,
   resolveRelativeTo,
   toAbsolutePath,
@@ -100,5 +102,55 @@ describe('fileLinkPaths', () => {
   it('不是文件链接时 undefined', () => {
     expect(fileLinkPaths('https://example.com', '/w')).toBeUndefined();
     expect(fileLinkPaths('#top', '/w')).toBeUndefined();
+  });
+});
+
+describe('folderFile', () => {
+  const folders = ['/work/extra', '/work/extra/nested', 'C:\\work\\win'];
+
+  it('找到附加文件夹与相对路径，嵌套时取最深的', () => {
+    expect(folderFile('/work/extra/docs/a.md', folders)).toEqual({
+      folder: '/work/extra',
+      path: 'docs/a.md',
+    });
+    expect(folderFile('/work/extra/nested/b.md', folders)).toEqual({
+      folder: '/work/extra/nested',
+      path: 'b.md',
+    });
+    expect(folderFile('C:\\work\\win\\c.md', folders)).toEqual({
+      folder: 'C:\\work\\win',
+      path: 'c.md',
+    });
+  });
+
+  it('文件夹外、文件夹本身、前缀相同的兄弟目录与相对路径都不算', () => {
+    expect(folderFile('/work/other/a.md', folders)).toBeUndefined();
+    expect(folderFile('/work/extra', folders)).toBeUndefined();
+    expect(folderFile('/work/extra-cloud/AGENTS.md', folders)).toBeUndefined();
+    expect(folderFile('docs/a.md', folders)).toBeUndefined();
+    expect(folderFile('/work/extra/a.md', [])).toBeUndefined();
+  });
+});
+
+describe('paneFile', () => {
+  const scope = { workspaceId: 'ws_a', sessionId: 'ses_a', root: '/work/main' };
+  const folders = ['/work/extra'];
+
+  it('相对路径照旧，会话目录里的绝对路径换成相对路径', () => {
+    expect(paneFile(scope, 'docs/a.md', folders)).toEqual({ scope, path: 'docs/a.md' });
+    expect(paneFile(scope, '/work/main/docs/a.md', folders)).toEqual({ scope, path: 'docs/a.md' });
+  });
+
+  it('附加文件夹里的绝对路径带上 folder，root 换成那个文件夹', () => {
+    expect(paneFile(scope, '/work/extra/TODO.md', folders)).toEqual({
+      scope: { ...scope, folder: '/work/extra', root: '/work/extra' },
+      path: 'TODO.md',
+    });
+  });
+
+  it('其余的绝对路径读不了', () => {
+    expect(paneFile(scope, '/elsewhere/a.md', folders)).toBeUndefined();
+    expect(paneFile(scope, '/work/extra/TODO.md', [])).toBeUndefined();
+    expect(paneFile(scope, '/work/main', folders)).toBeUndefined();
   });
 });

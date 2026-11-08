@@ -18,22 +18,33 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { describe, type HostConnectionView, useHostConnection } from '@/host/host-connection';
 import { LruMap } from '@/lib/lru';
 
-/** 读哪个目录：会话的目录（环境会话的 worktree），没有会话时是工作区的根目录。 */
+/**
+ * 读哪个目录：会话的目录（环境会话的 worktree），没有会话时是工作区的根目录；带 `folder` 时是会话的一个附加文件夹（0.168.0）。
+ */
 export interface FileScope {
   workspaceId: WorkspaceId;
   sessionId?: SessionId;
+  /** 附加文件夹的绝对路径（`multi_folder_files`），这时 `root` 与它相同。 */
+  folder?: string;
   /** 这个目录的绝对路径（给外部编辑器与访达）。 */
   root: string;
 }
 
-export function scopeKey(scope: Pick<FileScope, 'workspaceId' | 'sessionId'>): string {
-  return `${scope.workspaceId}:${scope.sessionId ?? ''}`;
+export function scopeKey(scope: Pick<FileScope, 'workspaceId' | 'sessionId' | 'folder'>): string {
+  const base = `${scope.workspaceId}:${scope.sessionId ?? ''}`;
+  return scope.folder === undefined ? base : `${base}:${scope.folder}`;
 }
 
-function scopeParams(scope: FileScope): { workspaceId: WorkspaceId; sessionId?: SessionId } {
+/** 文件方法的 `workspaceId` / `sessionId` / `folder`。 */
+export function scopeParams(scope: FileScope): {
+  workspaceId: WorkspaceId;
+  sessionId?: SessionId;
+  folder?: string;
+} {
   return {
     workspaceId: scope.workspaceId,
     ...(scope.sessionId !== undefined && { sessionId: scope.sessionId }),
+    ...(scope.folder !== undefined && { folder: scope.folder }),
   };
 }
 
@@ -41,6 +52,12 @@ function scopeParams(scope: FileScope): { workspaceId: WorkspaceId; sessionId?: 
 export function useFilesSupported(): boolean {
   const { view } = useHostConnection();
   return view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+}
+
+/** Host 声明了 `multi_folder_files`（0.168.0）：文件方法能读写会话的附加文件夹。 */
+export function useMultiFolderFilesSupported(): boolean {
+  const { view } = useHostConnection();
+  return view.status === 'connected' && hostSupports(view.hello.features, 'multi_folder_files');
 }
 
 interface Loaded<T> {

@@ -52,7 +52,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { filePreviewDelimiter } from '@/files/delimited-preview';
-import { resolveRelativeTo, toAbsolutePath } from '@/files/file-path';
+import { extraFolders } from '@/files/file-links';
+import { paneFile, resolveRelativeTo, toAbsolutePath } from '@/files/file-path';
 import {
   type FilePaneView,
   filePaneView,
@@ -61,10 +62,12 @@ import {
 } from '@/files/file-preview';
 import {
   type FileScope,
+  scopeParams,
   useFileContents,
   useFilePreviewSupported,
   useFilesSupported,
   useFileUrl,
+  useMultiFolderFilesSupported,
   useOfficePdf,
   useOfficePreviewSupported,
 } from '@/files/files-data';
@@ -104,12 +107,35 @@ const LINE_HEIGHT = 20;
 
 export function FilePane({ tab, context }: { tab: PaneTab; context: PaneContext }) {
   const supported = useFilesSupported();
-  const scope = useFileScope(context);
+  const multiFolder = useMultiFolderFilesSupported();
+  const base = useFileScope(context);
   const refreshKey = useScopeRefreshKey(context);
-  const path = tab.params?.path;
-  if (!scope || path === undefined) return <Note>{t('files.noProject')}</Note>;
+  const param = tab.params?.path;
+  const session = context.entry?.sessions.find((candidate) => candidate.id === context.sessionId);
+  // 按内容比较：会话对象随事件换新，文件夹多半没变，scope 要保持同一个对象。
+  const folderKey =
+    session && context.entry && multiFolder
+      ? extraFolders(context.entry.workspace, session).join('\0')
+      : '';
+  const target = useMemo(
+    () =>
+      base && param !== undefined
+        ? paneFile(base, param, folderKey === '' ? [] : folderKey.split('\0'))
+        : undefined,
+    [base, param, folderKey],
+  );
+  if (!base || param === undefined) return <Note>{t('files.noProject')}</Note>;
   if (!supported) return <Note>{t('files.unsupported')}</Note>;
-  return <FilePreview key={path} scope={scope} path={path} refreshKey={refreshKey} />;
+  if (!target) return <Note icon={FileWarning}>{t('files.unavailable')}</Note>;
+  return (
+    <FilePreview
+      key={param}
+      scope={target.scope}
+      path={target.path}
+      revealKey={param}
+      refreshKey={refreshKey}
+    />
+  );
 }
 
 /** 渲染与源码之间能切换的几种，以及记住选择的那一项设置。 */
@@ -122,10 +148,13 @@ const TOGGLES: Partial<Record<FilePaneView, 'renderMarkdown' | 'renderHtml' | 'r
 function FilePreview({
   scope,
   path,
+  revealKey,
   refreshKey,
 }: {
   scope: FileScope;
   path: string;
+  /** 打开时带的行号按窗格参数里的路径记（files-store.ts 的 `openFile`）。 */
+  revealKey: string;
   refreshKey: string;
 }) {
   const [manual, setManual] = useState(0);
@@ -134,7 +163,7 @@ function FilePreview({
   const key = `${refreshKey}:${manual}`;
   const prefs = filePrefs.use();
   const preview = useFilePreviewSupported();
-  const reveal = useFileReveal(path);
+  const reveal = useFileReveal(revealKey);
   const view = filePaneView(path);
   const toggle = TOGGLES[view];
   // 带行号打开时显示源码：行只在源码里（T3 同样）。
@@ -252,7 +281,15 @@ function FilePreview({
         />
       );
     } else {
-      body = <SourceView name={name} path={path} text={result.text ?? ''} wrap={prefs.wrap} />;
+      body = (
+        <SourceView
+          name={name}
+          path={path}
+          revealKey={revealKey}
+          text={result.text ?? ''}
+          wrap={prefs.wrap}
+        />
+      );
     }
   } else {
     body =
@@ -548,11 +585,7 @@ function DocumentBody({ scope, path, text }: { scope: FileScope; path: string; t
         if (!pending) {
           pending = client
             ? client
-                .request('workspace.fileUrl', {
-                  workspaceId: scope.workspaceId,
-                  ...(scope.sessionId !== undefined && { sessionId: scope.sessionId }),
-                  path: image,
-                })
+                .request('workspace.fileUrl', { ...scopeParams(scope), path: image })
                 .then((result) =>
                   result.url === undefined
                     ? undefined
@@ -581,16 +614,18 @@ function DocumentBody({ scope, path, text }: { scope: FileScope; path: string; t
 function SourceView({
   name,
   path,
+  revealKey,
   text,
   wrap,
 }: {
   name: string;
   path: string;
+  revealKey: string;
   text: string;
   wrap: boolean;
 }) {
   const { resolved: theme } = useTheme();
-  const reveal = useFileReveal(path);
+  const reveal = useFileReveal(revealKey);
   const wrapper = useRef<HTMLDivElement>(null);
   const line = reveal?.line;
 

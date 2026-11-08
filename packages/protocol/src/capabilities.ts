@@ -143,6 +143,8 @@ export const HOST_FEATURES = {
   workspaceDiff: 'workspace_diff',
   /** 0.150.0：变更与 Git 方法的 `folder`，按源文件夹读取、暂存与提交。 */
   multiFolderChanges: 'multi_folder_changes',
+  /** 0.168.0：`workspace.readFile`、`fileUrl`、`officePdf`、`writeFile` 的 `folder`，预览与编辑会话附加文件夹里的文件。 */
+  multiFolderFiles: 'multi_folder_files',
   /**
    * 工作区的文件（0.22.0）：`workspace.files`（按名字找）、`workspace.listDir`（列目录）、`workspace.readFile`（读文本与
    * 图片）。与引擎无关。
@@ -643,6 +645,7 @@ export const HostFeaturesSchema = z.looseObject({
   provider_enabled: z.boolean().optional(),
   workspace_diff: z.boolean().optional(),
   multi_folder_changes: z.boolean().optional(),
+  multi_folder_files: z.boolean().optional(),
   workspace_files: z.boolean().optional(),
   workspace_update: z.boolean().optional(),
   workspace_folders: z.boolean().optional(),
