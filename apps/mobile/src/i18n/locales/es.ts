@@ -149,6 +149,10 @@ export const es: Messages = {
   'live.thoughtPlain': 'Pensó',
   'live.seconds': '{n} s',
   'live.minutes': '{m} min {s} s',
+  'turn.header.completed': 'Trabajó durante {duration}',
+  'turn.header.failed': 'Error · {duration}',
+  'turn.header.cancelled': 'Detenido · {duration}',
+  'turn.header.interrupted': 'Interrumpido · {duration}',
 
   'bots.title': 'Asistentes',
   'bots.empty': 'Sin asistentes',

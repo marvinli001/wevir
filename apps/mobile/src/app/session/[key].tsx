@@ -1,7 +1,8 @@
 // 一个会话：大标题是会话标题，下面一行是所在电脑与状态；消息流（用户的话是气泡，回答是正文，工具一行），末尾是待批准的审批、
 // 等回答的提问（在手机上作答）与还没送达的消息（可取消）。底部是输入栏：发消息、附照片；回合进行中发出的按“插话 / 排队”送达
 // （默认取电脑上“回合进行中按回车”的设置），空着时是停止。右上角的菜单：查看改动、改名、归档。打开时停在最新一条。
-// 回合进行中消息流末尾是运行状态（components/live-status.tsx），回答逐字放出（components/markdown.tsx）。
+// 回合进行中消息流末尾是运行状态（components/live-status.tsx），回答逐字放出（components/markdown.tsx）。结束的回合同桌面端
+// 收进一行“已处理 2 分 31 秒”（lib/session-items.ts），点它展开过程。
 
 import { ClientClosedError } from '@wevir/client-sdk';
 import type {
@@ -14,9 +15,11 @@ import type {
   QuestionId,
   SessionId,
   ToolDisplayKind,
+  TurnOutcome,
 } from '@wevir/protocol';
 import { SESSION_TITLE_MAX_LENGTH } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
+import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -26,6 +29,7 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -45,7 +49,7 @@ import type { MenuSection } from '../../components/menu';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
 import { Button, Icon, type IconName } from '../../components/ui';
-import { type MessageKey, t, timeAgo } from '../../i18n';
+import { formatDuration, type MessageKey, t, timeAgo } from '../../i18n';
 import { ApprovalUnavailableError } from '../../lib/approval-gate';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { displayName } from '../../lib/records';
@@ -56,10 +60,12 @@ import {
   type SessionItem,
   sessionItems,
   type ToolState,
+  visibleItems,
 } from '../../lib/session-items';
 import { type SessionView, SessionWatch } from '../../lib/session-watch';
 import { useMinuteClock } from '../../state/clock';
 import { usePhotoAttachments } from '../../state/photo-attachments';
+import { useReducedMotion } from '../../state/reduced-motion';
 import { useComputer, useRegistry } from '../../state/registry';
 import { useToast } from '../../state/toast';
 import { SPACE, TEXT, type Theme, useTheme } from '../../theme';
@@ -501,6 +507,22 @@ function SessionList({
   const list = useRef<FlatList<SessionItem>>(null);
   const headerHeight = useHeaderHeight();
   const [scroll] = useState(() => new ScrollFollow());
+  const reduced = useReducedMotion();
+  // 点过的回合那一行：展开或收起，没点过的照默认（session-items.ts 的 `defaultOpen`）。
+  const [open, setOpen] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const shown = useMemo(() => visibleItems(items, open), [items, open]);
+  const toggle = useCallback(
+    (item: Extract<SessionItem, { kind: 'turn' }>) => {
+      void Haptics.selectionAsync().catch(() => {});
+      if (!reduced) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      // 展开时不跟着底部滚：留在点的那一行。
+      scroll.release();
+      setOpen((current) =>
+        new Map(current).set(item.key, !(current.get(item.key) ?? item.defaultOpen)),
+      );
+    },
+    [reduced, scroll],
+  );
   const viewport = useRef(0);
   const contentHeight = useRef(0);
   // 离底部远（翻到了上面）时右下角浮出“最新消息”按钮；期间有新内容时按钮上加一个点。
@@ -542,7 +564,7 @@ function SessionList({
     >
       <FlatList
         ref={list}
-        data={items}
+        data={shown}
         keyExtractor={(item) => item.key}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
@@ -586,10 +608,12 @@ function SessionList({
             </View>
           )
         }
-        renderItem={({ item }) => (
-          <View style={styles.item}>
+        renderItem={({ item, index }) => (
+          <View style={dense(item, shown[index - 1]) ? styles.step : styles.item}>
             <Item
               item={item}
+              open={item.kind === 'turn' && (open.get(item.key) ?? item.defaultOpen)}
+              onToggle={toggle}
               now={now}
               theme={theme}
               canWrite={canWrite}
@@ -632,8 +656,17 @@ function SessionList({
   );
 }
 
+/** 过程里相邻的思考与工具挨着放（同桌面端的工作组），别的行之间照常隔开。 */
+function dense(item: SessionItem, previous: SessionItem | undefined): boolean {
+  const step = (entry: SessionItem | undefined) =>
+    entry?.kind === 'tool' || entry?.kind === 'thought';
+  return step(item) && step(previous);
+}
+
 function Item({
   item,
+  open,
+  onToggle,
   now,
   theme,
   canWrite,
@@ -644,6 +677,8 @@ function Item({
   onCancelPending,
 }: {
   item: SessionItem;
+  open: boolean;
+  onToggle: (item: Extract<SessionItem, { kind: 'turn' }>) => void;
   now: Date;
   theme: Theme;
   canWrite: boolean;
@@ -654,6 +689,8 @@ function Item({
   onCancelPending: (pendingId: string) => void;
 }) {
   switch (item.kind) {
+    case 'turn':
+      return <TurnRow item={item} open={open} onToggle={onToggle} theme={theme} />;
     case 'handoff':
       return <HandoffRow notice={item.notice} context={continuity} theme={theme} />;
     case 'usage-limit':
@@ -695,21 +732,7 @@ function Item({
         />
       );
     case 'tool':
-      return (
-        <View style={styles.tool}>
-          <Icon name={toolIcon(item.state)} size={14} color={toolColor(theme, item.state)} />
-          <Text
-            style={[styles.toolText, { color: theme.mutedForeground }]}
-            numberOfLines={1}
-            ellipsizeMode="middle"
-          >
-            {item.label}
-          </Text>
-          <Text style={[styles.toolState, { color: toolColor(theme, item.state) }]}>
-            {t(`tool.state.${item.state}`)}
-          </Text>
-        </View>
-      );
+      return <ToolRow item={item} theme={theme} />;
     case 'error':
       return (
         <Text style={[styles.note, { color: theme.destructive }]} selectable>
@@ -870,20 +893,112 @@ function NoticeChip({
   );
 }
 
-function toolIcon(state: ToolState) {
+const TURN_TONES: Partial<Record<TurnOutcome, keyof Theme>> = {
+  failed: 'destructive',
+  interrupted: 'warning',
+};
+
+/** 结束的回合那一行（同桌面端）：“已处理 2 分 31 秒”与箭头，下面一条细线；点它展开或收起过程。 */
+function TurnRow({
+  item,
+  open,
+  onToggle,
+  theme,
+}: {
+  item: Extract<SessionItem, { kind: 'turn' }>;
+  open: boolean;
+  onToggle: (item: Extract<SessionItem, { kind: 'turn' }>) => void;
+  theme: Theme;
+}) {
+  const tone = TURN_TONES[item.outcome];
+  const color = tone !== undefined ? (theme[tone] as string) : theme.mutedForeground;
+  return (
+    <View testID="session-turn">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => onToggle(item)}
+        hitSlop={8}
+        style={({ pressed }) => [styles.turn, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <Text style={[styles.turnText, { color }]} numberOfLines={1}>
+          {t(`turn.header.${item.outcome}`, { duration: formatDuration(item.durationMs) })}
+        </Text>
+        <Icon
+          name={
+            open
+              ? { ios: 'chevron.down', android: 'expand_more' }
+              : { ios: 'chevron.right', android: 'chevron_right' }
+          }
+          size={11}
+          weight="semibold"
+          color={theme.mutedForeground}
+        />
+      </Pressable>
+      <View style={[styles.turnRule, { backgroundColor: theme.border }]} />
+    </View>
+  );
+}
+
+const KIND_ICONS: Record<ToolDisplayKind, IconName> = {
+  shell: { ios: 'apple.terminal', android: 'terminal' },
+  read: { ios: 'doc.text', android: 'description' },
+  edit: { ios: 'pencil', android: 'edit' },
+  write: { ios: 'square.and.pencil', android: 'edit_note' },
+  search: { ios: 'magnifyingglass', android: 'search' },
+  fetch: { ios: 'globe', android: 'public' },
+  plan: { ios: 'checklist', android: 'checklist' },
+  sub_agent: { ios: 'person.2', android: 'group' },
+  image: { ios: 'photo', android: 'image' },
+  unknown: { ios: 'wrench.and.screwdriver', android: 'build' },
+};
+
+const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
+
+/**
+ * 工具一行（同桌面端工作组里的逐条）：种类图标、动词与对象，命令用等宽字。做完的不写状态，失败、未执行、待批准与状态未知
+ * 换成状态图标并在行尾写出。
+ */
+function ToolRow({ item, theme }: { item: Extract<SessionItem, { kind: 'tool' }>; theme: Theme }) {
+  const color = toolColor(theme, item.state);
+  const settled = item.state === 'done' || item.state === 'running';
+  return (
+    <View style={styles.tool} testID="session-tool">
+      <Icon
+        name={settled ? KIND_ICONS[item.toolKind] : stateIcon(item.state)}
+        size={14}
+        color={color}
+      />
+      <Text style={styles.toolText} numberOfLines={1} ellipsizeMode="middle">
+        <Text style={{ color: theme.softForeground }}>{item.verb}</Text>
+        {item.target !== undefined && (
+          <Text
+            style={[
+              { color: theme.mutedForeground },
+              item.toolKind === 'shell' && styles.toolCommand,
+            ]}
+          >
+            {` ${item.target}`}
+          </Text>
+        )}
+      </Text>
+      {!settled && (
+        <Text style={[styles.toolState, { color }]}>{t(`tool.state.${item.state}`)}</Text>
+      )}
+    </View>
+  );
+}
+
+function stateIcon(state: ToolState): IconName {
   switch (state) {
     case 'awaiting':
-      return { ios: 'hand.raised', android: 'front_hand' } as const;
+      return { ios: 'hand.raised', android: 'front_hand' };
     case 'skipped':
-      return { ios: 'minus.circle', android: 'do_not_disturb_on' } as const;
-    case 'unknown':
-      return { ios: 'questionmark.circle', android: 'help_outline' } as const;
-    case 'running':
-      return { ios: 'ellipsis.circle', android: 'more_horiz' } as const;
+      return { ios: 'minus.circle', android: 'do_not_disturb_on' };
     case 'failed':
-      return { ios: 'xmark.circle', android: 'cancel' } as const;
-    case 'done':
-      return { ios: 'checkmark.circle', android: 'check_circle' } as const;
+      return { ios: 'xmark.circle', android: 'cancel' };
+    default:
+      return { ios: 'questionmark.circle', android: 'help_outline' };
   }
 }
 
@@ -898,9 +1013,14 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: SPACE.page },
   meta: { fontSize: TEXT.caption, paddingHorizontal: 4, paddingBottom: 8 },
   item: { marginTop: 12 },
+  step: { marginTop: 8 },
+  turn: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 24, paddingHorizontal: 4 },
+  turnText: { flexShrink: 1, fontSize: TEXT.small, fontVariant: ['tabular-nums'] },
+  turnRule: { height: StyleSheet.hairlineWidth, marginTop: 6, marginHorizontal: 4 },
   reply: { paddingRight: 24 },
   tool: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 },
   toolText: { flex: 1, fontSize: TEXT.small },
+  toolCommand: { fontFamily: MONO, fontSize: TEXT.caption },
   toolState: { fontSize: TEXT.caption },
   note: { fontSize: TEXT.small, paddingHorizontal: 4 },
   cancel: { fontWeight: '600' },

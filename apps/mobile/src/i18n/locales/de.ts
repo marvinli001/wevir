@@ -150,6 +150,10 @@ export const de: Messages = {
   'live.thoughtPlain': 'Nachgedacht',
   'live.seconds': '{n} s',
   'live.minutes': '{m} min {s} s',
+  'turn.header.completed': '{duration} gearbeitet',
+  'turn.header.failed': 'Fehler · {duration}',
+  'turn.header.cancelled': 'Gestoppt · {duration}',
+  'turn.header.interrupted': 'Unterbrochen · {duration}',
 
   'bots.title': 'Assistenten',
   'bots.empty': 'Keine Assistenten',

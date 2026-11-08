@@ -149,6 +149,10 @@ export const ja: Messages = {
   'live.thoughtPlain': '思考',
   'live.seconds': '{n} 秒',
   'live.minutes': '{m} 分 {s} 秒',
+  'turn.header.completed': '処理時間 {duration}',
+  'turn.header.failed': 'エラー · {duration}',
+  'turn.header.cancelled': '停止 · {duration}',
+  'turn.header.interrupted': '中断 · {duration}',
 
   'bots.title': 'アシスタント',
   'bots.empty': 'アシスタントなし',

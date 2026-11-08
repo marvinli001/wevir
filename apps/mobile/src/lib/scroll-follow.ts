@@ -52,6 +52,11 @@ export class ScrollFollow {
     this.#dragging = false;
   }
 
+  /** 展开或收起消息流中间的一段：停止跟随，留在点的那一处，不被内容变高推到底部。 */
+  release(): void {
+    this.following = false;
+  }
+
   /** 内容或可视区变了时要不要滚到底。 */
   get sticks(): boolean {
     return this.following && !this.#dragging;

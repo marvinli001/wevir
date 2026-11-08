@@ -135,7 +135,7 @@ describe('SessionWatch', () => {
       'live',
       'approval',
     ]);
-    expect(items[2]).toMatchObject({ label: '运行 · pnpm test', state: 'failed' });
+    expect(items[2]).toMatchObject({ verb: '运行', target: 'pnpm test', state: 'failed' });
     expect(items[3]).toMatchObject({ kind: 'live', action: { kind: 'awaiting' } });
     expect(items[4]).toMatchObject({
       kind: 'approval',

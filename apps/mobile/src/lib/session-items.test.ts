@@ -2,7 +2,7 @@ import type { ChatMessage, ChatPart, Transcript } from '@wevir/client-sdk';
 import type { MessageFrom, PendingMessage, SessionId } from '@wevir/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { setLocale } from '../i18n';
-import { type SessionItemLabels, sessionItems } from './session-items';
+import { type SessionItemLabels, sessionItems, visibleItems } from './session-items';
 
 const OWN = 'ses_own' as SessionId;
 const OTHER = 'ses_other' as SessionId;
@@ -388,5 +388,132 @@ describe('sessionItems：回合进行中', () => {
       LABELS,
     );
     expect(items).toEqual([{ kind: 'assistant', key: 't1', text: '好了' }]);
+  });
+});
+
+function answer(id: string, turnId: string, parts: unknown[], finished?: unknown): ChatMessage {
+  return {
+    role: 'assistant',
+    id,
+    turnId,
+    startedAt: '2026-11-02T10:00:00.000Z',
+    parts,
+    ...(finished !== undefined && { finished }),
+  } as unknown as ChatMessage;
+}
+
+function ask(id: string, turnId: string, text: string): ChatMessage {
+  return { ...user(id, text), turnId } as ChatMessage;
+}
+
+const thought = { type: 'reasoning', key: 'r1', text: '想想', state: 'done' };
+const done = (key: string) => ({ ...shell('completed'), key });
+
+describe('sessionItems：回合的折叠', () => {
+  it('正常完成且有过程的回合：用户消息下面一行“已处理”，过程带 fold，默认收起只留回答', () => {
+    const items = sessionItems(
+      transcript([
+        ask('m1', 'trn_1', '修一下'),
+        answer(
+          'a1',
+          'trn_1',
+          [
+            thought,
+            { type: 'text', key: 't1', text: '我先跑测试', state: 'done' },
+            done('tool1'),
+            { type: 'text', key: 't2', text: '修好了', state: 'done' },
+          ],
+          { outcome: 'completed', durationMs: 151_000 },
+        ),
+      ]),
+      LABELS,
+    );
+    expect(items.map((item) => [item.kind, item.fold])).toEqual([
+      ['user', undefined],
+      ['turn', undefined],
+      ['thought', 'turn:trn_1'],
+      ['assistant', 'turn:trn_1'],
+      ['tool', 'turn:trn_1'],
+      ['assistant', undefined],
+    ]);
+    expect(items[1]).toEqual({
+      kind: 'turn',
+      key: 'turn:trn_1',
+      outcome: 'completed',
+      durationMs: 151_000,
+      defaultOpen: false,
+    });
+    expect(visibleItems(items, new Map()).map((item) => item.key)).toEqual([
+      'm1',
+      'turn:trn_1',
+      't2',
+    ]);
+    expect(visibleItems(items, new Map([['turn:trn_1', true]]))).toHaveLength(6);
+  });
+
+  it('出错的回合默认展开；没有过程的正常回合不加那一行；进行中的回合不加', () => {
+    const failed = sessionItems(
+      transcript([
+        ask('m1', 'trn_1', '跑一下'),
+        answer('a1', 'trn_1', [done('tool1')], { outcome: 'failed', durationMs: 12_000 }),
+      ]),
+      LABELS,
+    );
+    expect(failed[1]).toMatchObject({ kind: 'turn', outcome: 'failed', defaultOpen: true });
+    expect(visibleItems(failed, new Map())).toHaveLength(3);
+
+    const plain = sessionItems(
+      transcript([
+        ask('m1', 'trn_1', '你好'),
+        answer('a1', 'trn_1', [{ type: 'text', key: 't1', text: '你好', state: 'done' }], {
+          outcome: 'completed',
+          durationMs: 2_000,
+        }),
+      ]),
+      LABELS,
+    );
+    expect(plain.map((item) => item.kind)).toEqual(['user', 'assistant']);
+
+    const busy = sessionItems(
+      running([ask('m1', 'trn_1', '跑一下'), answer('a1', 'trn_1', [done('tool1')])]),
+      LABELS,
+    );
+    expect(busy.map((item) => item.kind)).toEqual(['user', 'tool', 'live']);
+  });
+
+  it('只有用户消息就被停止的回合：那一行跟在用户消息后面', () => {
+    const items = sessionItems(
+      transcript([
+        ask('m1', 'trn_1', '跑一下'),
+        answer('a1', 'trn_1', [], { outcome: 'cancelled', durationMs: 1_000 }),
+        ask('m2', 'trn_2', '算了'),
+      ]),
+      LABELS,
+    );
+    expect(items.map((item) => item.key)).toEqual(['m1', 'turn:trn_1', 'm2']);
+  });
+
+  it('不挂起回合的提问的回答不显示，不画成回报', () => {
+    const from = {
+      sessionId: OWN,
+      kind: 'report',
+      question: { questionId: 'q_1' },
+    } as unknown as MessageFrom;
+    const items = sessionItems(
+      transcript(
+        [user('m1', '[Wevir] answer', from)],
+        [
+          {
+            id: 'pm_1',
+            status: 'waiting',
+            delivery: 'queue',
+            content: [{ type: 'text', text: '[Wevir] answer' }],
+            from,
+          } as unknown as Partial<PendingMessage>,
+        ],
+      ),
+      LABELS,
+    );
+    expect(items).toEqual([]);
   });
 });

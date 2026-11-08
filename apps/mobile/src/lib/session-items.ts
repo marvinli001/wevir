@@ -1,6 +1,8 @@
 // 会话页要画的行：用户的话、助手的回答（还在写的带 `streaming`，逐字放出）、思考与工具各一行、错误；回合进行中消息流末尾是
 // 运行状态（当前动作、已用时间、正在流出的思考或命令输出），之后是待批准的审批（画法同助理的审批卡）、等回答的问题与排队中的
 // 消息。不是用户写的消息（别的会话发来的、回报、后台进程的通知等，`from`）照桌面端画成卡片或一行标记，不画成用户的气泡。
+// 回合的折叠同桌面端（turn-model.ts）：结束的回合在用户消息下面有一行“已处理 2 分 31 秒”，正常完成且有过程时默认收起，只留
+// 最后一段回答、计划、错误与插话；过程（思考、工具、中间的旁白、后台进程的通知）带 `fold`，收起时不画（`visibleItems`）。
 // 子会话之类桌面专有的部件不画。纯逻辑。
 
 import {
@@ -17,6 +19,8 @@ import type {
   QuestionRequest,
   SessionId,
   ToolDisplayKind,
+  TurnId,
+  TurnOutcome,
 } from '@wevir/protocol';
 import { t } from '../i18n';
 import { type ApprovalContext, approvalView, type BotPost } from './bots';
@@ -32,13 +36,32 @@ export type LiveAction =
   | { kind: 'thinking' | 'awaiting' | 'input' | 'stopping' }
   | { kind: 'tool'; label: string };
 
-export type SessionItem =
+type SessionItemBody =
   | { kind: 'user'; key: string; text: string }
   /** `streaming`：还在流出的回答或计划。 */
   | { kind: 'assistant'; key: string; text: string; streaming?: true }
   /** 一段思考：一行“思考了 N 秒”，有文字时可展开。 */
   | { kind: 'thought'; key: string; text: string; durationMs?: number }
-  | { kind: 'tool'; key: string; label: string; state: ToolState }
+  /** 工具一行：种类（图标）、动词（不认识的种类用工具名）与对象（摘要、命令、网址或搜索词）。 */
+  | {
+      kind: 'tool';
+      key: string;
+      toolKind: ToolDisplayKind;
+      verb: string;
+      target?: string;
+      state: ToolState;
+    }
+  /**
+   * 结束的回合那一行（同桌面端）：“已处理 2 分 31 秒”“出错 · 12 秒”等，点它展开或收起这个回合的过程。`defaultOpen`：出错、
+   * 被停止、被中断或没有过程的回合默认展开。
+   */
+  | {
+      kind: 'turn';
+      key: string;
+      outcome: TurnOutcome;
+      durationMs: number;
+      defaultOpen: boolean;
+    }
   /**
    * 回合进行中的运行状态，在消息流末尾：当前动作，回合开始的时刻（`startedAt`，算已用时间），`detail` 是正在流出的思考或
    * 在跑的命令最近的输出。
@@ -73,6 +96,9 @@ export type SessionItem =
       delivery: PendingDelivery;
       notice?: { icon: NoticeIcon; label: string };
     };
+
+/** 消息流的一行。`fold`：属于哪个回合的过程（那个回合那一行的 key），收起时不画。 */
+export type SessionItem = SessionItemBody & { fold?: string };
 
 function toolState(part: ToolPart): ToolState {
   if (part.status === 'completed') return 'done';
@@ -169,12 +195,18 @@ function pendingItem(
 
 type ToolPart = ChatPartOf<'tool'>;
 
-/** 工具一行的文字：动词（不认识的种类用工具名）加摘要、命令、网址或搜索词。 */
-function toolLabel(part: ToolPart, labels: SessionItemLabels): string {
+/** 工具的动词（不认识的种类用工具名）与对象（摘要、命令、网址或搜索词）。 */
+function toolText(part: ToolPart, labels: SessionItemLabels): { verb: string; target?: string } {
   const display = part.display;
-  const detail = display.summary ?? display.command ?? display.url ?? display.query;
-  const name = labels.tool(display.kind) ?? part.toolName.split('__').at(-1) ?? part.toolName;
-  return detail !== undefined && detail !== '' ? `${name} · ${detail}` : name;
+  const target = display.summary ?? display.command ?? display.url ?? display.query;
+  const verb = labels.tool(display.kind) ?? part.toolName.split('__').at(-1) ?? part.toolName;
+  return target !== undefined && target !== '' ? { verb, target } : { verb };
+}
+
+/** 工具一行的文字：动词加对象。 */
+function toolLabel(part: ToolPart, labels: SessionItemLabels): string {
+  const { verb, target } = toolText(part, labels);
+  return target !== undefined ? `${verb} · ${target}` : verb;
 }
 
 function durationOf(part: ChatPartOf<'reasoning'>): number | undefined {
@@ -223,8 +255,9 @@ function messageItems(
       if (text !== '') out.push({ kind: 'user', key: message.id, text });
       return out;
     }
-    // 额度恢复后或点了恢复按钮后 Host 替用户发的继续消息不显示。
-    if (from.usageLimit !== undefined || from.retry !== undefined) return out;
+    // 额度恢复后或点了恢复按钮后 Host 替用户发的继续消息不显示；不挂起回合的提问的回答（0.156.0）也不显示，回答写在提问那一处。
+    if (from.usageLimit !== undefined || from.retry !== undefined || from.question !== undefined)
+      return out;
     const { icon, label, merged } = noticeOf(from, own, labels);
     if (icon === 'report' || icon === 'message') {
       out.push({
@@ -274,7 +307,8 @@ function messageItems(
         out.push({
           kind: 'tool',
           key: part.key,
-          label: toolLabel(part, labels),
+          toolKind: part.display.kind,
+          ...toolText(part, labels),
           state: toolState(part),
         });
         break;
@@ -375,9 +409,13 @@ export function sessionItems(
 ): SessionItem[] {
   const own = transcript.sessionId;
   const live = showLive ? liveStatus(transcript, labels) : undefined;
-  const out = transcript.messages
-    .flatMap((message) => messageItems(message, own, labels, live?.thoughtKey))
-    .filter((item) => item.key !== live?.toolKey);
+  const perMessage = transcript.messages.map((message) =>
+    messageItems(message, own, labels, live?.thoughtKey).filter(
+      (item) => item.key !== live?.toolKey,
+    ),
+  );
+  const active = isBusy(transcript) ? transcript.activeTurnId : undefined;
+  const out = foldTurns(transcript.messages, perMessage, active);
   if (live !== undefined) out.push(live.item);
   for (const request of transcript.pendingApprovals) {
     out.push({
@@ -391,8 +429,123 @@ export function sessionItems(
     out.push({ kind: 'question', key: `question:${question.id}`, request: question });
   }
   for (const message of transcript.pendingMessages) {
+    if (message.from?.question !== undefined) continue;
     if (message.status === 'waiting' || message.status === 'held')
       out.push(pendingItem(message, own, labels));
   }
   return out;
+}
+
+/** 回合的结果与最后一段回答（收起时留下的那段正文）。 */
+interface TurnInfo {
+  finished?: { outcome: TurnOutcome; durationMs: number };
+  finalKey?: string;
+}
+
+function turnInfo(messages: readonly ChatMessage[]): Map<TurnId, TurnInfo> {
+  const turns = new Map<TurnId, TurnInfo>();
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue;
+    const info = turns.get(message.turnId) ?? {};
+    if (message.finished !== undefined) info.finished = message.finished;
+    for (const part of message.parts) {
+      if (part.type === 'text' && part.text.trim() !== '') info.finalKey = part.key;
+    }
+    turns.set(message.turnId, info);
+  }
+  return turns;
+}
+
+/**
+ * 回合的过程：思考、工具与最后一段回答之前的旁白，回合中途插进来的后台进程通知。计划、错误、接力、插话与别的会话发来的消息
+ * 收起时也留下。
+ */
+function isProcess(item: SessionItem, message: ChatMessage, finalKey: string | undefined): boolean {
+  if (message.role === 'user') return item.kind === 'notice' && message.from?.process !== undefined;
+  if (item.kind === 'thought' || item.kind === 'tool') return true;
+  if (item.kind !== 'assistant' || item.key === finalKey) return false;
+  return message.parts.some((part) => part.key === item.key && part.type === 'text');
+}
+
+/**
+ * 给结束的回合加上那一行，过程标上 `fold`。那一行在回合开头用户自己的消息下面（同桌面端）；正常完成又没有过程的回合不加。
+ * 正在进行的回合（`activeTurnId`）不加。
+ */
+function foldTurns(
+  messages: readonly ChatMessage[],
+  perMessage: readonly (readonly SessionItem[])[],
+  activeTurnId: TurnId | undefined,
+): SessionItem[] {
+  const turns = turnInfo(messages);
+  const tagged = messages.map((message, index) => {
+    const items = perMessage[index] ?? [];
+    if (message.role === 'system') return items.map((item) => ({ item, process: false }));
+    const finalKey = turns.get(message.turnId)?.finalKey;
+    return items.map((item) => ({ item, process: isProcess(item, message, finalKey) }));
+  });
+  const headers = new Map<TurnId, Extract<SessionItem, { kind: 'turn' }>>();
+  for (const [turnId, info] of turns) {
+    const finished = info.finished;
+    if (finished === undefined || turnId === activeTurnId) continue;
+    const hasProcess = messages.some(
+      (message, index) =>
+        message.role !== 'system' &&
+        message.turnId === turnId &&
+        tagged[index]?.some((entry) => entry.process),
+    );
+    if (finished.outcome === 'completed' && !hasProcess) continue;
+    headers.set(turnId, {
+      kind: 'turn',
+      key: `turn:${turnId}`,
+      outcome: finished.outcome,
+      durationMs: finished.durationMs,
+      defaultOpen: finished.outcome !== 'completed',
+    });
+  }
+  const lastIndex = new Map<TurnId, number>();
+  messages.forEach((message, index) => {
+    if (message.role !== 'system') lastIndex.set(message.turnId, index);
+  });
+  const out: SessionItem[] = [];
+  const placed = new Set<TurnId>();
+  const seen = new Set<TurnId>();
+  messages.forEach((message, index) => {
+    const entries = tagged[index] ?? [];
+    if (message.role === 'system') {
+      for (const { item } of entries) out.push(item);
+      return;
+    }
+    const turnId = message.turnId;
+    const header = headers.get(turnId);
+    const lead = !seen.has(turnId) && message.role === 'user' && message.steered !== true;
+    seen.add(turnId);
+    if (header !== undefined && !lead && !placed.has(turnId)) {
+      out.push(header);
+      placed.add(turnId);
+    }
+    for (const { item, process } of entries) {
+      out.push(process && header !== undefined ? { ...item, fold: header.key } : item);
+    }
+    // 回合只有用户的消息（还没回答就被停止）：那一行跟在它后面。
+    if (header !== undefined && !placed.has(turnId) && lastIndex.get(turnId) === index) {
+      out.push(header);
+      placed.add(turnId);
+    }
+  });
+  return out;
+}
+
+/**
+ * 实际画出的行：收起的回合（`open` 里点过的照点过的，否则照 `defaultOpen`）不画它的过程。
+ */
+export function visibleItems(
+  items: readonly SessionItem[],
+  open: ReadonlyMap<string, boolean>,
+): readonly SessionItem[] {
+  const folded = new Set<string>();
+  for (const item of items) {
+    if (item.kind === 'turn' && !(open.get(item.key) ?? item.defaultOpen)) folded.add(item.key);
+  }
+  if (folded.size === 0) return items;
+  return items.filter((item) => item.fold === undefined || !folded.has(item.fold));
 }

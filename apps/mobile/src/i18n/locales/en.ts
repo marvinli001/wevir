@@ -148,6 +148,10 @@ export const en: Messages = {
   'live.thoughtPlain': 'Thought',
   'live.seconds': '{n}s',
   'live.minutes': '{m}m {s}s',
+  'turn.header.completed': 'Worked for {duration}',
+  'turn.header.failed': 'Error · {duration}',
+  'turn.header.cancelled': 'Stopped · {duration}',
+  'turn.header.interrupted': 'Interrupted · {duration}',
 
   'bots.title': 'Assistants',
   'bots.empty': 'No assistants',

@@ -61,4 +61,13 @@ describe('scroll follow', () => {
     scroll.momentumEnd(far);
     expect(scroll.following).toBe(true);
   });
+
+  it('stops following after a fold toggle until the user scrolls back down', () => {
+    const scroll = new ScrollFollow();
+    scroll.release();
+    expect(scroll.sticks).toBe(false);
+    scroll.beginDrag();
+    scroll.endDrag({ contentHeight: 1000, offset: 400, viewport: 560 }, 0);
+    expect(scroll.sticks).toBe(true);
+  });
 });

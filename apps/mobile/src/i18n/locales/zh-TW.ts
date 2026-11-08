@@ -143,6 +143,10 @@ export const zhTW: Messages = {
   'live.thoughtPlain': '思考過',
   'live.seconds': '{n} 秒',
   'live.minutes': '{m} 分 {s} 秒',
+  'turn.header.completed': '已處理 {duration}',
+  'turn.header.failed': '發生錯誤 · {duration}',
+  'turn.header.cancelled': '已停止 · {duration}',
+  'turn.header.interrupted': '已中斷 · {duration}',
 
   'bots.title': '助理',
   'bots.empty': '沒有助理',

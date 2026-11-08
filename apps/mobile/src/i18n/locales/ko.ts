@@ -147,6 +147,10 @@ export const ko: Messages = {
   'live.thoughtPlain': '생각함',
   'live.seconds': '{n}초',
   'live.minutes': '{m}분 {s}초',
+  'turn.header.completed': '{duration} 동안 처리함',
+  'turn.header.failed': '오류 · {duration}',
+  'turn.header.cancelled': '중지됨 · {duration}',
+  'turn.header.interrupted': '중단됨 · {duration}',
 
   'bots.title': '어시스턴트',
   'bots.empty': '어시스턴트 없음',

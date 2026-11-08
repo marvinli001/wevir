@@ -149,6 +149,10 @@ export const ru: Messages = {
   'live.thoughtPlain': 'Размышления',
   'live.seconds': '{n} с',
   'live.minutes': '{m} мин {s} с',
+  'turn.header.completed': 'Обработано за {duration}',
+  'turn.header.failed': 'Ошибка · {duration}',
+  'turn.header.cancelled': 'Остановлено · {duration}',
+  'turn.header.interrupted': 'Прервано · {duration}',
 
   'bots.title': 'Ассистенты',
   'bots.empty': 'Нет ассистентов',

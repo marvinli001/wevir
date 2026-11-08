@@ -144,6 +144,10 @@ export const zhCN = {
   'live.thoughtPlain': '思考过',
   'live.seconds': '{n} 秒',
   'live.minutes': '{m} 分 {s} 秒',
+  'turn.header.completed': '已处理 {duration}',
+  'turn.header.failed': '出错 · {duration}',
+  'turn.header.cancelled': '已停止 · {duration}',
+  'turn.header.interrupted': '已中断 · {duration}',
 
   'bots.title': '助理',
   'bots.empty': '没有助理',
