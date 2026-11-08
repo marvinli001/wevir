@@ -89,9 +89,17 @@ describe('first-use selection', () => {
     expect(
       historiesForProject([candidate], '/project', { ...entry, sessions: [imported] }),
     ).toEqual([]);
-    expect(historyProjects([entry], [candidate, other, other])).toEqual([
-      { value: '/project', label: 'Demo' },
-      { value: '/other', label: '/other' },
+    const nested = {
+      ...candidate,
+      key: 'nested',
+      project: 'C:\\work\\site\\',
+      updatedAt: '2026-11-02T00:00:00Z',
+    };
+    const older = { ...other, updatedAt: '2026-11-01T00:00:00Z' };
+    expect(historyProjects([entry], [candidate, older, older, nested])).toEqual([
+      { value: '/project', label: 'Demo', path: '/project' },
+      { value: nested.project, label: 'site', path: nested.project },
+      { value: '/other', label: 'other', path: '/other' },
     ]);
   });
 

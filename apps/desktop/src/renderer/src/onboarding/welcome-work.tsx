@@ -1,12 +1,24 @@
 import { hostSupports, isRpcError } from '@wevir/client-sdk';
 import type { ImportScanResult, ProviderId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  History,
+  LoaderCircle,
+  Lock,
+  MessageSquare,
+  Plus,
+} from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
+import { ProviderLogo, type ProviderLogoId } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
-import { Radio, RadioGroup } from '@/components/ui/radio-group';
-import { Select } from '@/components/ui/select';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { projectsOf } from '@/data/workbench-model';
 import { useWorkspaceManagement } from '@/data/workspace-actions';
@@ -18,9 +30,9 @@ import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { ModelPicker } from '@/session/model-picker';
 import { useModelChoice } from '@/session/start-session';
+import { formatRelativeTime } from '@/session/subagent-model';
 import { reasonLabel } from '@/settings/import-model';
 import { ImportSessionIssues } from '@/settings/import-session-issues';
-import { Segmented } from '@/settings/settings-ui';
 import {
   historiesForProject,
   historyProjects,
@@ -28,6 +40,19 @@ import {
   latestProject,
 } from './welcome-model';
 
+type App = 'claude' | 'codex';
+
+const APPS: readonly { app: App; name: string; logo: ProviderLogoId }[] = [
+  { app: 'claude', name: 'Claude Code', logo: 'claude' },
+  { app: 'codex', name: 'Codex', logo: 'codex' },
+];
+
+const NEW_TASK = 'new';
+
+/**
+ * 第二步：左列项目、右列这个项目的任务，两列开头各是一行“新建”。选“新任务”进项目草稿；选一条历史可查看或继续。
+ * 外部历史在左列底部按应用读取，读到的目录并进项目列表；读取不导入，只有查看或继续才导入那一条。
+ */
 export function WelcomeWork({
   onBack,
   onFinish,
@@ -41,43 +66,66 @@ export function WelcomeWork({
   const manage = useWorkspaceManagement();
   const { providers, choice, choose } = useModelChoice();
   const [project, setProject] = useState<string>();
-  const [existing, setExisting] = useState(false);
-  const [app, setApp] = useState<'claude' | 'codex'>('claude');
-  const [scan, setScan] = useState<ImportScanResult>();
-  const [scanning, setScanning] = useState(false);
+  const [scans, setScans] = useState<Partial<Record<App, ImportScanResult>>>({});
+  const [scanning, setScanning] = useState<App>();
   const scanGeneration = useRef(0);
-  const [selected, setSelected] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState(NEW_TASK);
+  /** 正在做的操作；按钮上的转圈画在点的那一个上。 */
+  const [pending, setPending] = useState<'start' | 'view' | 'continue'>();
+  const busy = pending !== undefined;
   const working = useRef(false);
   const [error, setError] = useState<string>();
   const workspaces = data.status === 'ready' ? data.workspaces : [];
-  const projects = projectsOf(workspaces);
-  const root = project ?? projects[0]?.workspace.rootPath;
-  const entry = projects.find((item) => item.workspace.rootPath === root);
-  const candidates = scan?.app === app ? (scan.sessions ?? []) : [];
+  const candidates = APPS.flatMap(({ app }) => scans[app]?.sessions ?? []);
+  const projects = historyProjects(workspaces, candidates);
+  const root = project ?? projects[0]?.value;
+  const entry = projectsOf(workspaces).find((item) => item.workspace.rootPath === root);
   const external = historiesForProject(candidates, root, entry);
   const sessions =
     entry?.sessions.filter(
       (session) => !session.parentSessionId && !session.side && !session.archivedAt,
     ) ?? [];
   const source = sessions.find((session) => `session:${session.id}` === selected);
-  const candidate = external.find((item) => `external:${item.key}` === selected);
+  const candidate = external.find((item) => `external:${item.app}:${item.key}` === selected);
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'external_session_import');
   const fromHistory =
     view.status === 'connected' && hostSupports(view.hello.features, 'session_from_history');
+  const needsModel = candidate !== undefined || source?.readOnly !== undefined;
 
-  const read = async () => {
-    if (!client || scanning) return;
+  const now = Date.now();
+  const tasks: Row[] = [
+    ...sessions.map((session) => ({
+      value: `session:${session.id}`,
+      title: session.title || t('session.untitled'),
+      detail: formatRelativeTime(session.updatedAt, now),
+      icon: <MessageSquare className="size-4 text-muted-foreground" />,
+      trailing: session.readOnly ? (
+        <Lock aria-label={t('recovery.readOnlyTitle')} className="size-3.5 text-muted-foreground" />
+      ) : undefined,
+      at: session.updatedAt,
+    })),
+    ...external.map((item) => ({
+      value: `external:${item.app}:${item.key}`,
+      title: item.title || item.externalId,
+      detail: `${formatRelativeTime(item.updatedAt, now)} · ${t('settings.import.turns', { count: item.turns })}`,
+      icon: <ProviderLogo logo={item.app === 'claude' ? 'claude' : 'codex'} className="size-4" />,
+      disabled: item.problem !== undefined,
+      at: item.updatedAt,
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+
+  const read = async (app: App) => {
+    if (!client) return;
     const generation = ++scanGeneration.current;
-    setScanning(true);
+    setScanning(app);
     setError(undefined);
     try {
       const result = await client.request('import.scan', { app });
       if (generation !== scanGeneration.current) return;
-      setScan(result);
-      // 还没选项目时落到最近一条历史所在的项目，列表直接出现。
-      if (root === undefined) {
+      setScans((current) => ({ ...current, [app]: result }));
+      // 还没有项目时落到最近一条历史所在的目录，右列直接出现。
+      if (project === undefined && projectsOf(workspaces).length === 0) {
         const latest = latestProject(result.sessions ?? []);
         if (latest !== undefined) setProject(latest);
       }
@@ -85,13 +133,17 @@ export function WelcomeWork({
       if (generation === scanGeneration.current)
         setError(t('settings.import.scanFailed', { error: describe(reason) }));
     } finally {
-      if (generation === scanGeneration.current) setScanning(false);
+      if (generation === scanGeneration.current) setScanning(undefined);
     }
+  };
+  const cancelRead = () => {
+    scanGeneration.current++;
+    setScanning(undefined);
   };
   const open = async (continueWork: boolean) => {
     if (!client || working.current) return;
     working.current = true;
-    setBusy(true);
+    setPending(continueWork ? 'continue' : 'view');
     setError(undefined);
     try {
       let session = source;
@@ -129,13 +181,13 @@ export function WelcomeWork({
       );
     } finally {
       working.current = false;
-      setBusy(false);
+      setPending(undefined);
     }
   };
   const start = async () => {
     if (!client || !root || working.current) return;
     working.current = true;
-    setBusy(true);
+    setPending('start');
     setError(undefined);
     try {
       const workspace =
@@ -147,136 +199,109 @@ export function WelcomeWork({
       setError(workspaceAddError(reason));
     } finally {
       working.current = false;
-      setBusy(false);
+      setPending(undefined);
     }
   };
   const changeProject = (value: string) => {
     setProject(value);
-    setSelected('');
+    setSelected(NEW_TASK);
     setError(undefined);
+  };
+  const canContinue =
+    !busy &&
+    (source !== undefined || candidate !== undefined) &&
+    (!needsModel || (choice !== undefined && fromHistory));
+  const primary = () => {
+    if (selected === NEW_TASK) {
+      if (client && root && !busy) void start();
+    } else if (canContinue) void open(true);
   };
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex shrink-0 flex-wrap gap-2">
-        <Select
-          aria-label={t('welcome.project')}
-          value={root ?? ''}
-          options={[
-            { value: '', label: t('welcome.project') },
-            ...historyProjects(workspaces, candidates),
-          ]}
-          onValueChange={changeProject}
-          disabled={busy}
-          className="h-9 flex-1"
-          data-action="welcome-project"
-        />
-        {manage.create && (
-          <Button
-            variant="outline"
-            size="lg"
-            disabled={busy}
-            onClick={() =>
-              openCreateProject({ onCreated: (workspace) => changeProject(workspace.rootPath) })
-            }
-          >
-            {t('project.create.title')}
-          </Button>
-        )}
-      </div>
-      <div className="shrink-0">
-        <Segmented
-          label={t('welcome.ready.title')}
-          value={existing ? 'existing' : 'new'}
-          options={[
-            { value: 'new', label: t('welcome.newTask') },
-            { value: 'existing', label: t('welcome.existingTask') },
-          ]}
-          disabled={busy}
-          onChange={(value) => {
-            setExisting(value === 'existing');
-            setError(undefined);
-          }}
-        />
-      </div>
-      {existing && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          {supported ? (
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Select
-                aria-label={t('settings.import.app')}
-                value={app}
-                options={[
-                  { value: 'claude', label: 'Claude Code' },
-                  { value: 'codex', label: 'Codex' },
-                ]}
-                disabled={busy}
-                onValueChange={(value) => {
-                  scanGeneration.current++;
-                  setScanning(false);
-                  setApp(value);
-                  setScan(undefined);
-                  setSelected('');
-                  setError(undefined);
-                }}
-                className="w-40"
-              />
-              <Button variant="outline" disabled={scanning || busy} onClick={() => void read()}>
-                {t(scanning ? 'settings.import.scanning' : 'welcome.readHistory')}
-              </Button>
-              {scanning && (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    scanGeneration.current++;
-                    setScanning(false);
-                  }}
-                >
-                  {t('common.cancel')}
-                </Button>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('settings.import.unsupported')}</p>
-          )}
-          {scan && <ImportSessionIssues issues={scan.sessionIssues} app={scan.app} compact />}
-          {scan?.unsupported.includes('session') ? (
-            <p className="text-sm text-muted-foreground">{t('settings.import.unsupportedKind')}</p>
-          ) : scan && !scan.found ? (
-            <p className="text-sm text-muted-foreground">
-              {t('settings.import.notFound', { app: app === 'claude' ? 'Claude Code' : 'Codex' })}
-            </p>
-          ) : (
-            sessions.length === 0 &&
-            external.length === 0 &&
-            root !== undefined &&
-            scan && (
-              <p className="text-sm text-muted-foreground">{t('settings.import.empty.session')}</p>
-            )
-          )}
-          {(sessions.length > 0 || external.length > 0) && (
-            <HistoryChoices
-              key={`${root}:${app}`}
-              selected={selected}
-              onSelect={setSelected}
+      <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-border">
+        <Column label={t('sidebar.projects')}>
+          {manage.create && (
+            <CreateRow
+              label={t('project.create.title')}
               disabled={busy}
-              items={[
-                ...sessions.map((session) => ({
-                  value: `session:${session.id}`,
-                  title: session.title || t('session.untitled'),
-                  detail: t(session.readOnly ? 'recovery.readOnlyTitle' : 'welcome.existingTask'),
-                })),
-                ...external.map((item) => ({
-                  value: `external:${item.key}`,
-                  title: item.title || item.externalId,
-                  detail: `${item.app === 'claude' ? 'Claude Code' : 'Codex'} · ${t('settings.import.turns', { count: item.turns })}${item.skipped > 0 ? ` · ${t('settings.import.skippedLines', { count: item.skipped })}` : ''}`,
-                  disabled: item.problem !== undefined,
-                })),
-              ]}
+              onClick={() =>
+                openCreateProject({ onCreated: (workspace) => changeProject(workspace.rootPath) })
+              }
+              data-action="welcome-create-project"
             />
           )}
-        </div>
-      )}
+          {supported && (
+            <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-1.5">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                <History className="size-3.5" />
+              </span>
+              <span className="shrink-0 text-sm font-medium">{t('welcome.readHistory')}</span>
+              <span className="ml-auto flex shrink-0 gap-1.5">
+                {APPS.map((item) => (
+                  <HistoryReader
+                    key={item.app}
+                    {...item}
+                    scan={scans[item.app]}
+                    scanning={scanning === item.app}
+                    disabled={busy || (scanning !== undefined && scanning !== item.app)}
+                    onRead={() => void read(item.app)}
+                    onCancel={cancelRead}
+                  />
+                ))}
+              </span>
+            </div>
+          )}
+          {APPS.map(
+            ({ app }) =>
+              (scans[app]?.sessionIssues?.length ?? 0) > 0 && (
+                <div key={app} className="flex shrink-0 px-3">
+                  <ImportSessionIssues issues={scans[app]?.sessionIssues} app={app} compact />
+                </div>
+              ),
+          )}
+          {projects.length > 0 && <hr className="mx-3 my-1.5 shrink-0 border-border" />}
+          <PagedRows
+            label={t('sidebar.projects')}
+            rows={projects.map((item) => ({
+              value: item.value,
+              title: item.label,
+              detail: item.path,
+              icon:
+                item.value === root ? (
+                  <FolderOpen className="size-4 text-foreground" />
+                ) : (
+                  <Folder className="size-4 text-muted-foreground" />
+                ),
+            }))}
+            selected={root ?? ''}
+            onSelect={changeProject}
+            disabled={busy}
+            data-welcome-projects=""
+          />
+        </Column>
+        <Column label={t('welcome.tasks')}>
+          <CreateRow
+            label={t('welcome.newTask')}
+            selected={selected === NEW_TASK && root !== undefined}
+            disabled={busy || root === undefined}
+            onClick={() => setSelected(NEW_TASK)}
+            onDoubleClick={primary}
+            data-action="welcome-new-task"
+          />
+          <PagedRows
+            key={root}
+            label={t('welcome.tasks')}
+            rows={tasks}
+            selected={selected}
+            onSelect={setSelected}
+            onActivate={primary}
+            onPage={() => setSelected(NEW_TASK)}
+            disabled={busy}
+            data-history-list=""
+          />
+        </Column>
+      </div>
       {error && (
         <p
           role="alert"
@@ -286,8 +311,8 @@ export function WelcomeWork({
           {error}
         </p>
       )}
-      <div className="mt-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
-        {choice && (candidate || source?.readOnly) && fromHistory && (
+      <div className="flex shrink-0 flex-wrap items-center gap-2 pt-2">
+        {choice && needsModel && fromHistory && (
           <ModelPicker
             providers={providers ?? []}
             value={choice}
@@ -295,7 +320,6 @@ export function WelcomeWork({
             readOnly={busy}
           />
         )}
-
         <span className="flex-1" />
         <Button variant="ghost" onClick={onBack} disabled={busy}>
           {t('welcome.back')}
@@ -310,97 +334,183 @@ export function WelcomeWork({
         >
           {t('welcome.skip')}
         </Button>
-        {existing ? (
-          <>
-            <Button
-              variant="outline"
-              disabled={busy || (!source && !candidate)}
-              onClick={() => void open(false)}
-            >
-              {t('welcome.viewHistory')}
-            </Button>
-            <Button
-              disabled={
-                busy ||
-                (!source && !candidate) ||
-                ((candidate !== undefined || source?.readOnly !== undefined) &&
-                  (!choice || !fromHistory))
-              }
-              onClick={() => void open(true)}
-              data-action="welcome-start"
-            >
-              {t('recovery.continue')}
-            </Button>
-          </>
-        ) : (
+        {selected === NEW_TASK ? (
           <Button
             disabled={!client || !root || busy}
+            className="min-w-24"
             onClick={() => void start()}
             data-action="welcome-start"
           >
             {t('welcome.start')}
+            <ActionIcon pending={pending === 'start'} />
           </Button>
+        ) : (
+          <>
+            {needsModel && (
+              <Button
+                variant="outline"
+                disabled={busy || (!source && !candidate)}
+                onClick={() => void open(false)}
+              >
+                {pending === 'view' && (
+                  <LoaderCircle className="animate-spin" data-icon="inline-start" />
+                )}
+                {t('welcome.viewHistory')}
+              </Button>
+            )}
+            <Button
+              disabled={!canContinue}
+              className="min-w-24"
+              onClick={() => void open(true)}
+              data-action="welcome-start"
+            >
+              {t('recovery.continue')}
+              <ActionIcon pending={pending === 'continue'} />
+            </Button>
+          </>
         )}
       </div>
     </section>
   );
 }
 
-interface HistoryChoice {
+function ActionIcon({ pending }: { pending: boolean }) {
+  return pending ? (
+    <LoaderCircle className="animate-spin" data-icon="inline-end" />
+  ) : (
+    <ArrowRight data-icon="inline-end" />
+  );
+}
+
+function Column({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-col gap-1 px-3 first:pl-0 last:pr-0">
+      <h2 className="shrink-0 px-3 pb-1 text-xs font-medium text-muted-foreground">{label}</h2>
+      {children}
+    </div>
+  );
+}
+
+const ROW =
+  'flex w-full min-w-0 items-center gap-3 rounded-lg px-3 text-left outline-none ' +
+  'transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-muted/60 focus-visible:focus-ring ' +
+  'disabled:pointer-events-none disabled:opacity-50';
+const ROW_SELECTED = 'bg-selected ring-1 ring-selected-border ring-inset hover:bg-selected';
+
+/** 两列开头的“新建”一行：加号在一块小底板上，和下面的列表行同宽。 */
+function CreateRow({
+  label,
+  selected = false,
+  disabled,
+  onClick,
+  onDoubleClick,
+  ...rest
+}: {
+  label: string;
+  selected?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  onDoubleClick?: () => void;
+  'data-action'?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={onDoubleClick ? selected : undefined}
+      disabled={disabled}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      className={cn(ROW, 'h-11 shrink-0 text-sm font-medium', selected && ROW_SELECTED)}
+      {...rest}
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+        <Plus className="size-3.5" />
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
+  );
+}
+
+interface Row {
   value: string;
   title: string;
   detail: string;
+  icon: ReactNode;
+  trailing?: ReactNode;
   disabled?: boolean;
 }
 
-function HistoryChoices({
-  items,
+const ROW_HEIGHT = 52;
+const ROW_GAP = 2;
+const PAGER_HEIGHT = 36;
+
+/** 按可用高度分页的行列表（引导页不滚动）：放得下就不画翻页，选中的那一行所在的页随缩放保持可见。 */
+function PagedRows({
+  label,
+  rows,
   selected,
   onSelect,
+  onActivate,
+  onPage,
   disabled,
+  ...rest
 }: {
-  items: HistoryChoice[];
+  label: string;
+  rows: Row[];
   selected: string;
   onSelect: (value: string) => void;
+  onActivate?: () => void;
+  onPage?: () => void;
   disabled: boolean;
+  'data-history-list'?: string;
+  'data-welcome-projects'?: string;
 }) {
   const [ref, size] = useElementSize();
   const [page, setPage] = useState(0);
-  const count = Math.max(1, Math.floor((size.height - 36) / 56));
-  const selectedIndex = items.findIndex((item) => item.value === selected);
+  const fit = (height: number) =>
+    Math.max(1, Math.floor((height + ROW_GAP) / (ROW_HEIGHT + ROW_GAP)));
+  const count =
+    rows.length <= fit(size.height) ? rows.length || 1 : fit(size.height - PAGER_HEIGHT);
+  const pages = Math.max(1, Math.ceil(rows.length / count));
+  const current = Math.min(page, pages - 1);
+  const selectedIndex = rows.findIndex((row) => row.value === selected);
   useEffect(() => {
     if (selectedIndex >= 0) setPage(Math.floor(selectedIndex / count));
   }, [count, selectedIndex]);
-  const pages = Math.ceil(items.length / count);
-  const current = Math.min(page, pages - 1);
+  const turn = (next: number) => {
+    onPage?.();
+    setPage(next);
+  };
   return (
-    <div ref={ref} className="flex min-h-0 flex-1 flex-col gap-2" data-history-list>
-      <RadioGroup
-        value={selected}
-        onValueChange={(value) => onSelect(String(value))}
-        aria-label={t('welcome.existingTask')}
-      >
-        <ul className="space-y-1">
-          {items.slice(current * count, (current + 1) * count).map((item) => (
-            <HistoryRow
-              key={item.value}
-              {...item}
-              selected={selected}
-              disabled={disabled || item.disabled === true}
-            />
-          ))}
-        </ul>
-      </RadioGroup>
+    <div ref={ref} className="flex min-h-0 flex-1 flex-col" {...rest}>
+      <ul className="flex flex-col gap-0.5" aria-label={label}>
+        {rows.slice(current * count, (current + 1) * count).map((row) => (
+          <li key={row.value} className="animate-in fade-in duration-200">
+            <button
+              type="button"
+              aria-pressed={row.value === selected}
+              disabled={disabled || row.disabled === true}
+              onClick={() => onSelect(row.value)}
+              onDoubleClick={onActivate}
+              className={cn(ROW, 'h-13', row.value === selected && ROW_SELECTED)}
+            >
+              <span className="flex size-6 shrink-0 items-center justify-center">{row.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm">{row.title}</span>
+                <span className="block truncate text-xs text-muted-foreground">{row.detail}</span>
+              </span>
+              {row.trailing}
+            </button>
+          </li>
+        ))}
+      </ul>
       {pages > 1 && (
-        <div className="mt-auto flex shrink-0 items-center justify-end gap-2 text-xs text-muted-foreground">
+        <div className="mt-auto flex shrink-0 items-center justify-end gap-2 pt-2 text-xs text-muted-foreground">
           <IconButton
             label={t('usage.page.prev')}
             variant="outline"
             disabled={current === 0 || disabled}
-            onClick={() => {
-              onSelect('');
-              setPage(current - 1);
-            }}
+            onClick={() => turn(current - 1)}
           >
             <ChevronLeft />
           </IconButton>
@@ -409,10 +519,7 @@ function HistoryChoices({
             label={t('usage.page.next')}
             variant="outline"
             disabled={current + 1 === pages || disabled}
-            onClick={() => {
-              onSelect('');
-              setPage(current + 1);
-            }}
+            onClick={() => turn(current + 1)}
           >
             <ChevronRight />
           </IconButton>
@@ -422,34 +529,50 @@ function HistoryChoices({
   );
 }
 
-function HistoryRow({
-  value,
-  selected,
-  title,
-  detail,
+/** 读取一个应用的历史：标志加名字；读取中换成转圈，再点取消；读完带一个勾，没找到时变淡。 */
+function HistoryReader({
+  name,
+  logo,
+  scan,
+  scanning,
   disabled,
+  onRead,
+  onCancel,
 }: {
-  value: string;
-  selected: string;
-  title: string;
-  detail: string;
+  name: string;
+  logo: ProviderLogoId;
+  scan: ImportScanResult | undefined;
+  scanning: boolean;
   disabled: boolean;
+  onRead: () => void;
+  onCancel: () => void;
 }) {
+  const missing =
+    scan !== undefined && (!scan.found || scan.unsupported.includes('session'))
+      ? scan.found
+        ? t('settings.import.unsupportedKind')
+        : t('settings.import.notFound', { app: name })
+      : undefined;
+  const done = scan !== undefined && missing === undefined;
   return (
-    <li>
-      <label
-        className={cn(
-          'flex cursor-pointer items-start gap-3 rounded-lg border border-border px-3 py-2 focus-within:focus-field',
-          selected === value && 'border-selected-border bg-selected',
-          disabled && 'opacity-50',
-        )}
+    <Hint label={scanning ? t('common.cancel') : missing}>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        aria-busy={scanning || undefined}
+        onClick={scanning ? onCancel : onRead}
+        className={cn(missing && 'text-muted-foreground')}
+        data-history-app={logo}
       >
-        <Radio value={value} disabled={disabled} aria-label={title} className="mt-0.5" />
-        <span className="min-w-0">
-          <span className="block truncate text-sm">{title}</span>
-          <span className="block text-xs text-muted-foreground">{detail}</span>
-        </span>
-      </label>
-    </li>
+        {scanning ? (
+          <LoaderCircle className="animate-spin" data-icon="inline-start" />
+        ) : (
+          <ProviderLogo logo={logo} className={cn('size-3.5', missing && 'opacity-40 grayscale')} />
+        )}
+        {name}
+        {done && <Check className="text-muted-foreground" data-icon="inline-end" />}
+      </Button>
+    </Hint>
   );
 }

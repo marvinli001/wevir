@@ -49,16 +49,27 @@ export function historiesForProject(
   );
 }
 
+export interface ProjectChoice {
+  value: string;
+  label: string;
+  /** 完整目录，项目行第二行显示。 */
+  path: string;
+}
+
+/** 第二步左列：Wevir 项目在前，再是外部历史里出现、还不是项目的目录（按最近一条历史排，名字取目录的最后一段）。 */
 export function historyProjects(
   workspaces: readonly WorkspaceEntry[],
   candidates: readonly ImportSessionCandidate[],
-): { value: string; label: string }[] {
-  const projects = projectsOf(workspaces).map(({ workspace }) => ({
+): ProjectChoice[] {
+  const projects: ProjectChoice[] = projectsOf(workspaces).map(({ workspace }) => ({
     value: workspace.rootPath,
     label: workspace.displayName,
+    path: workspace.rootPath,
   }));
   const known = new Set(projects.map((project) => project.value));
-  for (const candidate of candidates) {
+  // 外部目录按最近一条历史排，刚用过的项目在第一页。
+  const recent = [...candidates].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const candidate of recent) {
     if (
       candidate.project === undefined ||
       candidate.workspaceId !== undefined ||
@@ -66,9 +77,18 @@ export function historyProjects(
     )
       continue;
     known.add(candidate.project);
-    projects.push({ value: candidate.project, label: candidate.project });
+    projects.push({
+      value: candidate.project,
+      label: baseName(candidate.project),
+      path: candidate.project,
+    });
   }
   return projects;
+}
+
+function baseName(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts.at(-1) ?? path;
 }
 
 /** 最近一条可读历史所在的项目目录；读取后还没选项目时用它。 */
