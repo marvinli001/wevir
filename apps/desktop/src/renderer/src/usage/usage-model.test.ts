@@ -6,8 +6,11 @@ import {
   averageFirstToken,
   bucketEdges,
   bucketLabel,
+  bucketTitle,
   cacheHitRate,
+  calendarDays,
   createThrottle,
+  customRangeLabel,
   filterProviders,
   formatAxis,
   formatCost,
@@ -22,16 +25,22 @@ import {
   localMidnight,
   niceTicks,
   pageCount,
+  parseTimeInput,
+  pickDay,
   providerLogoOf,
   providerTitle,
+  recordTime,
   selectModel,
   selectProvider,
   sourceDisplay,
+  spanEdges,
   speedOf,
   timingSpeed,
   toFilter,
   totalTokens,
   usageAvailability,
+  usagePeriod,
+  windowKey,
 } from './usage-model';
 
 /** Intl 在数字与单位之间用不换行空格（U+00A0 / U+202F），比较时都当普通空格。 */
@@ -107,13 +116,99 @@ describe('分桶边界', () => {
     }
     expect(localMidnight(new Date(2026, 10, 1, 23), 1)).toBe(new Date(2026, 10, 2).getTime());
   });
+
+  it('自定义：首尾是起止本身，中间按整点切；两天以内按小时，再长按天、按月、按年', () => {
+    process.env.TZ = 'Asia/Shanghai';
+    const now = new Date(2026, 10, 8, 22, 31);
+    const from = new Date(2026, 10, 7, 9, 30).getTime();
+    const hourly = usagePeriod({ from, to: new Date(2026, 10, 8, 12, 15).getTime() }, now);
+    expect(hourly.unit).toBe('hour');
+    expect(hourly.spansDays).toBe(true);
+    expect(hourly.edges[0]).toBe(from);
+    expect(hourly.edges[1]).toBe(new Date(2026, 10, 7, 10).getTime());
+    expect(hourly.edges.at(-1)).toBe(new Date(2026, 10, 8, 12, 15).getTime());
+    expect(hourly.edges).toHaveLength(29);
+
+    const sameDay = usagePeriod({ from, to: new Date(2026, 10, 7, 18).getTime() }, now);
+    expect([sameDay.unit, sameDay.spansDays, sameDay.today]).toEqual(['hour', false, false]);
+
+    const live = usagePeriod({ from: new Date(2026, 9, 9, 22, 31).getTime() }, now);
+    expect(live.unit).toBe('day');
+    expect(live.edges.at(-1)).toBe(now.getTime());
+    expect(live.edges[1]).toBe(new Date(2026, 9, 10).getTime());
+    expect(live.edges).toHaveLength(32);
+
+    const year = usagePeriod({ from: new Date(2025, 10, 8).getTime() }, now);
+    expect(year.unit).toBe('month');
+    expect(year.edges[1]).toBe(new Date(2025, 11, 1).getTime());
+    const decades = usagePeriod({ from: new Date(2001, 0, 1).getTime() }, now);
+    expect(decades.unit).toBe('year');
+    expect(decades.edges.length - 1).toBeLessThanOrEqual(400);
+
+    // 结束不晚于开始：取开始之后一分钟，边界仍是升序。
+    expect(usagePeriod({ from, to: from }, now).edges).toEqual([from, from + 60_000]);
+    expect(spanEdges(from, from + 10 * 60_000, 'hour')).toEqual([from, from + 10 * 60_000]);
+    expect(usagePeriod('today', now)).toMatchObject({ unit: 'hour', today: true });
+    expect(windowKey('7d')).toBe('7d');
+    expect(windowKey({ from: 1 })).not.toBe(windowKey({ from: 1, to: 2 }));
+  });
+});
+
+describe('自定义时间段的选择', () => {
+  const at = (...parts: [number, number, number, number?, number?]) => new Date(...parts).getTime();
+
+  it('先改开始再改结束，时分不变；结束早于开始时那天成为新的开始', () => {
+    const draft = {
+      from: at(2026, 9, 9, 22, 31),
+      to: at(2026, 10, 8, 22, 31),
+      live: false,
+      field: 'from' as const,
+    };
+    const started = pickDay(draft, new Date(2026, 9, 12));
+    expect(started).toMatchObject({ from: at(2026, 9, 12, 22, 31), field: 'to' });
+    const ended = pickDay(started, new Date(2026, 9, 20));
+    expect(ended).toMatchObject({ from: at(2026, 9, 12, 22, 31), to: at(2026, 9, 20, 22, 31) });
+    const earlier = pickDay(ended, new Date(2026, 9, 1));
+    expect(earlier).toMatchObject({ from: at(2026, 9, 1, 22, 31), to: at(2026, 9, 20, 22, 31) });
+    // 开始挪到结束之后：结束跟着挪到同一天。
+    const later = pickDay({ ...draft, to: at(2026, 9, 10, 8) }, new Date(2026, 9, 15));
+    expect(later).toMatchObject({ from: at(2026, 9, 15, 22, 31), to: at(2026, 9, 15, 22, 31) });
+    // 结束跟随当前时刻：日历只改开始。
+    expect(pickDay({ ...draft, live: true, field: 'to' }, new Date(2026, 9, 3))).toMatchObject({
+      from: at(2026, 9, 3, 22, 31),
+      to: draft.to,
+      field: 'from',
+    });
+  });
+
+  it('时间框的值', () => {
+    const base = at(2026, 9, 9, 22, 31);
+    expect(parseTimeInput(base, '07:05')).toBe(at(2026, 9, 9, 7, 5));
+    expect(parseTimeInput(base, '7:05')).toBe(at(2026, 9, 9, 7, 5));
+    expect(parseTimeInput(base, '24:00')).toBeUndefined();
+    expect(parseTimeInput(base, '7:')).toBeUndefined();
+  });
+
+  it('月历 6 行，从这月 1 日所在的一周开始', () => {
+    const sunday = calendarDays(new Date(2026, 9, 1), 0);
+    expect(sunday).toHaveLength(42);
+    expect(sunday[0]?.getTime()).toBe(at(2026, 8, 27));
+    const monday = calendarDays(new Date(2026, 9, 1), 1);
+    expect(monday[0]?.getTime()).toBe(at(2026, 8, 28));
+    expect(calendarDays(new Date(2026, 1, 1), 0)[0]?.getTime()).toBe(at(2026, 1, 1));
+  });
 });
 
 describe('筛选', () => {
   it('换服务商清掉模型', () => {
     const full = { providerId: 'p1', model: 'm' } as const;
-    expect(selectProvider('p2')).toEqual({ providerId: 'p2' });
-    expect(selectProvider(undefined)).toEqual({});
+    expect(selectProvider(full, 'p2')).toEqual({ providerId: 'p2' });
+    expect(selectProvider(full, undefined)).toEqual({});
+    // 精度沿用，免得换服务商时先按没有精度读一遍。
+    expect(selectProvider({ ...full, precision: 'exact' }, 'p2')).toEqual({
+      providerId: 'p2',
+      precision: 'exact',
+    });
     expect(selectModel(full, undefined)).toEqual({ providerId: 'p1' });
     expect(selectModel({}, 'x')).toEqual({ model: 'x' });
   });
@@ -238,10 +333,30 @@ describe('数字的写法', () => {
 describe('时间与坐标轴', () => {
   it('按小时是 HH:mm，按天是 MM/DD（随语言）', () => {
     const at = new Date(2026, 9, 5, 7).getTime();
-    expect(bucketLabel(at, 'today', 'zh-CN')).toBe('07:00');
-    expect(bucketLabel(at, 'today', 'en')).toBe('07:00');
-    expect(bucketLabel(at, '7d', 'zh-CN')).toBe('10/05');
-    expect(bucketLabel(at, '7d', 'de')).toBe('05.10.');
+    const hour = { unit: 'hour', today: true, spansDays: false } as const;
+    const day = { unit: 'day', today: false, spansDays: false } as const;
+    expect(bucketLabel(at, hour, 'zh-CN')).toBe('07:00');
+    expect(bucketLabel(at, hour, 'en')).toBe('07:00');
+    expect(bucketLabel(at, day, 'zh-CN')).toBe('10/05');
+    expect(bucketLabel(at, day, 'de')).toBe('05.10.');
+    expect(bucketLabel(at, { ...hour, spansDays: true }, 'zh-CN')).toBe('10/05 07:00');
+    expect(bucketLabel(at, { ...day, unit: 'month' }, 'zh-CN')).toBe('2026年10月');
+    expect(bucketLabel(at, { ...day, unit: 'year' }, 'zh-CN')).toBe('2026年');
+    expect(bucketTitle(at, at + 3_600_000, hour, 'zh-CN')).toMatch(/^07:00\s*–\s*08:00$/);
+    expect(recordTime(at, hour, 'zh-CN')).toBe('07:00:00');
+    expect(recordTime(at, { ...hour, today: false }, 'zh-CN')).toBe('10/05 07:00:00');
+  });
+
+  it('自定义时间段的写法：跟随当前时刻写“现在”，跨年带年份', () => {
+    const now = new Date(2026, 10, 8, 22, 31);
+    const from = new Date(2026, 9, 9, 22, 31).getTime();
+    expect(plain(customRangeLabel({ from }, 'zh-CN', now))).toBe('10/09 22:31 – 现在');
+    expect(plain(customRangeLabel({ from, to: now.getTime() }, 'zh-CN', now))).toMatch(
+      /^10\/09 22:31 – 11\/08 22:31$/,
+    );
+    expect(customRangeLabel({ from: new Date(2025, 11, 30).getTime() }, 'zh-CN', now)).toContain(
+      '2025',
+    );
   });
 
   it('标签间隔与刻度', () => {

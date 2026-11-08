@@ -1,5 +1,7 @@
 // 使用统计页（0.62.0，Host 功能 `usage_stats`）：工作台主窗格里的一列。顶上是标题与价格表状态、刷新；下面是筛选（模型服务里
-// 添加的服务商，模型、时间段），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，写法与计算见 usage-model.ts。
+// 添加的服务商，模型、时间段：预设或自定义起止），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，
+// 写法与计算见 usage-model.ts。换服务商、模型、精度或时间段时都留着上次的内容变淡，新结果到了数字滚动、柱子过渡，不闪骨架屏；
+// 骨架屏只在第一次读到之前。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type {
@@ -11,7 +13,7 @@ import type {
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChartColumn, CircleAlert, RefreshCw } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -24,10 +26,12 @@ import { describe } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { formatRelativeTime } from '@/session/subagent-model';
 import { type Notice, NoticeBanner, Segmented } from '@/settings/settings-ui';
+import { RangePicker } from './range-picker';
 import { RecordDrawer } from './record-drawer';
 import { UsageChart } from './usage-chart';
 import {
   approxNote,
+  type CustomRange,
   cacheHitRate,
   filterProviders,
   formatCost,
@@ -42,11 +46,12 @@ import {
   totalTokens,
   USAGE_RANGES,
   USAGE_TABS,
+  type UsagePeriod,
   type UsageRange,
   type UsageSelection,
   type UsageTab,
 } from './usage-model';
-import { usagePrefs } from './usage-prefs';
+import { prefsWindow, usagePrefs } from './usage-prefs';
 import { ModelsTable, ProvidersTable, RecordsTable } from './usage-tables';
 import { type SummaryData, useUsage } from './use-usage';
 
@@ -76,33 +81,43 @@ export function UsagePage({ client }: { client: WevirClient }) {
   const workbench = useWorkbenchData();
   const providers = workbench.status === 'ready' ? workbench.providers : [];
   const entries = workbench.status === 'ready' ? workbench.workspaces : [];
-  const data = useUsage(client, prefs.range, selection, page);
-  const summary = data.summary.data;
+  const window = prefsWindow(prefs);
+  const data = useUsage(client, window, selection, page);
+  const latest = data.summary.data;
+  const ledger = client.supports('context_ledger');
 
-  const needsPrecision =
-    client.supports('context_ledger') &&
-    selection.precision === undefined &&
-    (summary?.result.options.precisions?.length ?? 0) > 0;
+  // 有上下文账本时同一次请求有几种精度的记录，不选精度会重复计数：这段时间有精度可选而查询的精度不在其中（第一次打开，或换到
+  // 没有这种精度的服务商、模型）时换成精确或第一种，这次的结果不显示。
+  const latestValid = latest !== undefined && precisionValid(latest, ledger);
   useEffect(() => {
     if (
-      !needsPrecision ||
-      summary === undefined ||
+      latest === undefined ||
+      latestValid ||
       data.summary.loading ||
-      summary.filter?.providerIds?.[0] !== selection.providerId ||
-      summary.filter?.models?.[0] !== selection.model
+      latest.filter?.providerIds?.[0] !== selection.providerId ||
+      latest.filter?.models?.[0] !== selection.model ||
+      latest.filter?.precision !== selection.precision
     )
       return;
-    const available = summary.result.options.precisions ?? [];
+    const available = latest.result.options.precisions ?? [];
     setSelection((current) => ({
       ...current,
       precision: available.includes('exact') ? 'exact' : available[0],
     }));
-  }, [needsPrecision, summary, data.summary.loading, selection.providerId, selection.model]);
+  }, [
+    latest,
+    latestValid,
+    data.summary.loading,
+    selection.providerId,
+    selection.model,
+    selection.precision,
+  ]);
 
-  const precisionChanging =
-    client.supports('context_ledger') &&
-    selection.precision !== undefined &&
-    summary?.filter?.precision !== selection.precision;
+  // 页面上显示的：最近一次精度有效的结果。新的还没到（或精度要换）时留着它变淡。
+  const shown = useRef<SummaryData>(undefined);
+  if (latestValid) shown.current = latest;
+  const summary = shown.current;
+  const updating = data.summary.loading || summary !== latest;
 
   // 选中的连接被删了（用量随之删除）：回到全部。
   const selectedGone =
@@ -110,12 +125,12 @@ export function UsagePage({ client }: { client: WevirClient }) {
     workbench.status === 'ready' &&
     !providers.some((provider) => provider.id === selection.providerId);
   useEffect(() => {
-    if (selectedGone) setSelection({});
+    if (selectedGone) setSelection((current) => selectProvider(current, undefined));
   }, [selectedGone]);
 
   // 换时间段或筛选时回到第一页。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在时间段或筛选变化时触发。
-  useEffect(() => setPage(0), [prefs.range, selection]);
+  useEffect(() => setPage(0), [prefs.range, prefs.custom, selection]);
 
   const refresh = () => {
     setNotice(undefined);
@@ -149,8 +164,14 @@ export function UsagePage({ client }: { client: WevirClient }) {
             summary={summary}
             selection={selection}
             range={prefs.range}
+            custom={prefs.custom}
+            period={summary?.period}
+            locale={locale}
             onSelection={setSelection}
             onRange={(range) => usagePrefs.set((current) => ({ ...current, range }))}
+            onCustom={(custom) =>
+              usagePrefs.set((current) => ({ ...current, range: 'custom', custom }))
+            }
             providers={providers}
           />
 
@@ -179,19 +200,29 @@ export function UsagePage({ client }: { client: WevirClient }) {
             </div>
           )}
 
-          {summary === undefined || needsPrecision || precisionChanging ? (
+          {summary === undefined ? (
             data.summary.error === undefined && <Skeleton />
           ) : summary.result.totals.requests === 0 ? (
-            <EmptyState
-              icon={<ChartColumn />}
-              title={isFiltered(selection) ? t('usage.emptyFiltered') : t('usage.empty')}
-            />
+            <div
+              key="empty"
+              className={cn(
+                'animate-in fade-in duration-200 ease-smooth transition-opacity',
+                updating && 'opacity-70',
+              )}
+            >
+              <EmptyState
+                icon={<ChartColumn />}
+                title={isFiltered(selection) ? t('usage.emptyFiltered') : t('usage.empty')}
+              />
+            </div>
           ) : (
             <div
+              key="content"
               className={cn(
-                'space-y-5 transition-opacity duration-150 ease-smooth',
-                data.summary.loading && 'opacity-70',
+                'animate-in fade-in space-y-5 transition-opacity duration-200 ease-smooth',
+                updating && 'opacity-70',
               )}
+              aria-busy={updating}
             >
               <Hero totals={summary.result.totals} locale={locale} />
               <UsageChart
@@ -216,7 +247,7 @@ export function UsagePage({ client }: { client: WevirClient }) {
                 {prefs.tab === 'records' && (
                   <Records
                     data={data.records}
-                    range={summary.range}
+                    period={summary.period}
                     locale={locale}
                     providers={providers}
                     onPage={setPage}
@@ -251,14 +282,14 @@ export function UsagePage({ client }: { client: WevirClient }) {
 
 function Records({
   data,
-  range,
+  period,
   locale,
   providers,
   onPage,
   onOpen,
 }: {
   data: ReturnType<typeof useUsage>['records'];
-  range: UsageRange;
+  period: UsagePeriod;
   locale: string;
   providers: Parameters<typeof RecordsTable>[0]['providers'];
   onPage: (page: number) => void;
@@ -282,7 +313,7 @@ function Records({
         records={data.data.records}
         total={data.data.total}
         page={data.data.page}
-        range={range}
+        period={period}
         locale={locale}
         providers={providers}
         onPage={onPage}
@@ -328,15 +359,23 @@ function Filters({
   summary,
   selection,
   range,
+  custom,
+  period,
+  locale,
   onSelection,
   onRange,
+  onCustom,
   providers,
 }: {
   summary: SummaryData | undefined;
   selection: UsageSelection;
-  range: UsageRange;
+  range: UsageRange | 'custom';
+  custom: CustomRange | undefined;
+  period: UsagePeriod | undefined;
+  locale: string;
   onSelection: (selection: UsageSelection) => void;
   onRange: (range: UsageRange) => void;
+  onCustom: (range: CustomRange) => void;
   providers: readonly ProviderProfile[];
 }) {
   const accounts = useAccounts();
@@ -356,7 +395,7 @@ function Filters({
         <legend className="sr-only">{t('usage.filter.provider')}</legend>
         <Chip
           active={selection.providerId === undefined}
-          onClick={() => onSelection(selectProvider(undefined))}
+          onClick={() => onSelection(selectProvider(selection, undefined))}
         >
           {t('usage.filter.all')}
         </Chip>
@@ -364,7 +403,7 @@ function Filters({
           <Chip
             key={provider.id}
             active={selection.providerId === provider.id}
-            onClick={() => onSelection(selectProvider(provider.id))}
+            onClick={() => onSelection(selectProvider(selection, provider.id))}
           >
             <ProviderLogo
               logo={providerLogoOf(provider.id, provider.kind, providers)}
@@ -380,10 +419,17 @@ function Filters({
           <Select
             aria-label={t('usage.precision')}
             value={selection.precision ?? 'exact'}
-            options={(['exact', 'engine', 'turn'] as const).map((value) => ({
-              value,
-              label: t(`usage.precision.${value}`),
-            }))}
+            options={(['exact', 'engine', 'turn'] as const)
+              .filter(
+                (value) =>
+                  options.precisions?.length === 0 ||
+                  options.precisions?.includes(value) ||
+                  value === selection.precision,
+              )
+              .map((value) => ({
+                value,
+                label: t(`usage.precision.${value}`),
+              }))}
             onValueChange={(value) =>
               onSelection({ ...selection, precision: value as 'exact' | 'engine' | 'turn' })
             }
@@ -402,10 +448,17 @@ function Filters({
           popupClassName="font-mono text-xs"
           data-filter="model"
         />
-        <div className="ml-auto shrink-0">
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2">
+          <RangePicker
+            active={range === 'custom'}
+            value={custom}
+            start={period?.edges[0] ?? Date.now()}
+            locale={locale}
+            onApply={onCustom}
+          />
           <Segmented<UsageRange>
             label={t('usage.range')}
-            value={range}
+            value={range === 'custom' ? undefined : range}
             onChange={onRange}
             options={USAGE_RANGES.map((value) => ({ value, label: t(RANGE_LABEL[value]) }))}
           />
@@ -413,6 +466,14 @@ function Filters({
       </div>
     </div>
   );
+}
+
+/** 查询的精度可以显示：没有上下文账本、这段时间没有精度可选，或查询的精度在可选的里面。 */
+function precisionValid(summary: SummaryData, ledger: boolean): boolean {
+  const available = summary.result.options.precisions ?? [];
+  if (!ledger || available.length === 0) return true;
+  const precision = summary.filter?.precision;
+  return precision !== undefined && available.includes(precision);
 }
 
 function Chip({

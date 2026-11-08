@@ -32,7 +32,7 @@ import {
   speedOf,
   timingSpeed,
   totalTokens,
-  type UsageRange,
+  type UsagePeriod,
 } from './usage-model';
 
 const TABLE_CARD = 'overflow-x-auto rounded-xl border border-border bg-card';
@@ -77,7 +77,7 @@ export function RecordsTable({
   records,
   total,
   page,
-  range,
+  period,
   locale,
   providers,
   onPage,
@@ -86,7 +86,7 @@ export function RecordsTable({
   records: readonly UsageRecord[];
   total: number;
   page: number;
-  range: UsageRange;
+  period: UsagePeriod;
   locale: string;
   providers: readonly ProviderProfile[];
   onPage: (page: number) => void;
@@ -134,7 +134,7 @@ export function RecordsTable({
                       onOpen(record);
                     }}
                   >
-                    {recordTime(record.at, range, locale)}
+                    {recordTime(record.at, period, locale)}
                   </button>
                 </td>
                 <td className={cn(TD, 'max-w-44')}>

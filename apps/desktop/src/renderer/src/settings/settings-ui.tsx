@@ -123,15 +123,15 @@ export function Segmented<T extends string>({
   onChange,
 }: {
   label: string;
-  value: T;
+  /** 省略时不选中任何一段（滑块淡出），例如选了分段之外的自定义值。 */
+  value: T | undefined;
   options: readonly { value: T; label: string; icon?: ReactNode }[];
   disabled?: boolean;
   onChange: (value: T) => void;
 }) {
-  const index = Math.max(
-    0,
-    options.findIndex((option) => option.value === value),
-  );
+  const found = options.findIndex((option) => option.value === value);
+  const none = value === undefined;
+  const index = Math.max(0, found);
   return (
     <fieldset
       className="relative inline-grid rounded-lg bg-muted p-0.5"
@@ -141,7 +141,10 @@ export function Segmented<T extends string>({
       <legend className="sr-only">{label}</legend>
       <span
         aria-hidden
-        className="absolute inset-y-0.5 left-0.5 rounded-md bg-switch-thumb shadow-xs ring-1 ring-border transition-transform duration-(--spring-press-duration) ease-spring-press"
+        className={cn(
+          'absolute inset-y-0.5 left-0.5 rounded-md bg-switch-thumb shadow-xs ring-1 ring-border transition-[transform,opacity] duration-(--spring-press-duration) ease-spring-press',
+          none && 'opacity-0',
+        )}
         style={{
           width: `calc((100% - 4px) / ${options.length})`,
           transform: `translateX(${index * 100}%)`,

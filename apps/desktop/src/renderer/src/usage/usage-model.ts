@@ -68,8 +68,178 @@ export function bucketEdges(range: UsageRange, now: Date): number[] {
   return Array.from({ length: days + 1 }, (_, index) => localMidnight(now, index - days + 1));
 }
 
-export function isHourly(range: UsageRange): boolean {
-  return range === 'today';
+/** 自定义时间段（本地时间选的起止，Unix 毫秒）：省略 `to` 表示结束跟随当前时刻。 */
+export interface CustomRange {
+  from: number;
+  to?: number;
+}
+
+/** 页面看的时间段：预设之一，或自定义起止。 */
+export type UsageWindow = UsageRange | CustomRange;
+
+/** 分桶的单位。 */
+export type BucketUnit = 'hour' | 'day' | 'month' | 'year';
+
+/** 一次查询的时间段：分桶边界与它们的写法。 */
+export interface UsagePeriod {
+  /** 升序的边界，`buckets[i]` 是 `[edges[i], edges[i + 1])`。 */
+  edges: number[];
+  unit: BucketUnit;
+  /** 预设“今天”：请求记录只写时分秒。 */
+  today: boolean;
+  /** 按小时分桶但跨了不止一天：横轴与提示带上日期。 */
+  spansDays: boolean;
+}
+
+/** 自定义时间段按小时分桶的上限（两天），按天分桶的上限（约四个月），按月的上限；再长按年。 */
+const MAX_HOURLY_BUCKETS = 48;
+const MAX_DAILY_BUCKETS = 120;
+const MAX_MONTHLY_BUCKETS = 120;
+
+function nextBoundary(at: number, unit: BucketUnit): number {
+  const date = new Date(at);
+  switch (unit) {
+    case 'hour':
+      return new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        date.getHours() + 1,
+      ).getTime();
+    case 'day':
+      return localMidnight(date, 1);
+    case 'month':
+      return new Date(date.getFullYear(), date.getMonth() + 1, 1).getTime();
+    case 'year':
+      return new Date(date.getFullYear() + 1, 0, 1).getTime();
+  }
+}
+
+/** `[from, to)` 按 `unit` 切开：首尾是起止本身，中间是各个整点、零点、月初或年初。 */
+export function spanEdges(from: number, to: number, unit: BucketUnit): number[] {
+  const edges = [from];
+  for (let at = nextBoundary(from, unit); at < to; at = nextBoundary(at, unit)) edges.push(at);
+  edges.push(to);
+  return edges;
+}
+
+/** 自定义时间段的分桶单位：放得下就用最细的。 */
+export function spanUnit(from: number, to: number): BucketUnit {
+  if (
+    to - from <= (MAX_HOURLY_BUCKETS + 1) * HOUR_MS &&
+    spanEdges(from, to, 'hour').length - 1 <= MAX_HOURLY_BUCKETS
+  )
+    return 'hour';
+  const days = (to - from) / (24 * HOUR_MS);
+  if (days <= MAX_DAILY_BUCKETS) return 'day';
+  if (days / 30 <= MAX_MONTHLY_BUCKETS) return 'month';
+  return 'year';
+}
+
+/** 自定义时间段的实际起止：跟随当前时刻时结束是 `now`；结束不晚于开始时取开始之后一分钟，免得边界不是升序。 */
+export function resolveCustom(range: CustomRange, now: Date): { from: number; to: number } {
+  const to = range.to ?? now.getTime();
+  return { from: range.from, to: Math.max(to, range.from + 60_000) };
+}
+
+export function usagePeriod(window: UsageWindow, now: Date): UsagePeriod {
+  if (typeof window === 'string') {
+    return {
+      edges: bucketEdges(window, now),
+      unit: window === 'today' ? 'hour' : 'day',
+      today: window === 'today',
+      spansDays: false,
+    };
+  }
+  const { from, to } = resolveCustom(window, now);
+  const unit = spanUnit(from, to);
+  return {
+    edges: spanEdges(from, to, unit),
+    unit,
+    today: false,
+    spansDays: unit === 'hour' && localMidnight(new Date(from)) !== localMidnight(new Date(to - 1)),
+  };
+}
+
+/** 时间段的标识：一样的时间段一样，换了才重读。 */
+export function windowKey(window: UsageWindow): string {
+  return typeof window === 'string' ? window : `${window.from}-${window.to ?? 'now'}`;
+}
+
+// ---- 自定义时间段的选择 ----
+
+/** 选择器里正在改的起止：`field` 是日历点下去改哪一头；`live` 时结束跟随当前时刻，日历只改开始。 */
+export interface RangeDraft {
+  from: number;
+  to: number;
+  live: boolean;
+  field: 'from' | 'to';
+}
+
+/** 换成 `day` 那天，时分不变。 */
+export function withDay(at: number, day: Date): number {
+  const date = new Date(at);
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+  ).getTime();
+}
+
+/** 时间框的值 `HH:mm`（本地时间，24 小时制）。 */
+export function timeInputValue(at: number): string {
+  const date = new Date(at);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+/** 时间框改了：`H:mm` 或 `HH:mm` 换成那个时分，日期不变；不完整或不合法时返回 undefined。 */
+export function parseTimeInput(at: number, value: string): number | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (match === null) return undefined;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return undefined;
+  const date = new Date(at);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes).getTime();
+}
+
+/** 日历上点了一天：改开始时接着改结束；结束早于开始时把这一天当新的开始。 */
+export function pickDay(draft: RangeDraft, day: Date): RangeDraft {
+  if (draft.live) return { ...draft, from: withDay(draft.from, day), field: 'from' };
+  if (draft.field === 'from') {
+    const from = withDay(draft.from, day);
+    const to = draft.to < from ? Math.max(withDay(draft.to, day), from) : draft.to;
+    return { ...draft, from, to, field: 'to' };
+  }
+  const to = withDay(draft.to, day);
+  if (to < draft.from) return { ...draft, from: withDay(draft.from, day), field: 'to' };
+  return { ...draft, to };
+}
+
+/** 一周从哪天开始（0 是星期日），按语言的习惯；取不到时从星期日开始。 */
+export function firstDayOfWeek(locale: string): number {
+  try {
+    const info = new Intl.Locale(locale) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+    const firstDay = (info.getWeekInfo?.() ?? info.weekInfo)?.firstDay;
+    return firstDay === undefined ? 0 : firstDay % 7;
+  } catch {
+    return 0;
+  }
+}
+
+/** 月历的 6 行 × 7 天：从 `month` 那月 1 日所在的一周开始。 */
+export function calendarDays(month: Date, firstDay: number): Date[] {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const offset = (first.getDay() - firstDay + 7) % 7;
+  return Array.from(
+    { length: 42 },
+    (_, index) => new Date(first.getFullYear(), first.getMonth(), 1 - offset + index),
+  );
 }
 
 // ---- 筛选 ----
@@ -81,9 +251,15 @@ export interface UsageSelection {
   model?: string;
 }
 
-/** 换服务商时清掉模型。 */
-export function selectProvider(providerId: string | undefined): UsageSelection {
-  return providerId === undefined ? {} : { providerId };
+/** 换服务商时清掉模型，精度沿用（新服务商没有这种精度时页面再换），免得换一次读两遍。 */
+export function selectProvider(
+  selection: UsageSelection,
+  providerId: string | undefined,
+): UsageSelection {
+  return {
+    ...(selection.precision !== undefined && { precision: selection.precision }),
+    ...(providerId !== undefined && { providerId }),
+  };
 }
 
 export function selectModel(selection: UsageSelection, model: string | undefined): UsageSelection {
@@ -295,21 +471,63 @@ function dateFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.D
 const HOUR_MINUTE = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } as const;
 const MONTH_DAY = { month: '2-digit', day: '2-digit' } as const;
 
-/** 横轴的标签：按小时是 `HH:mm`，按天是 `MM/DD`（各语言的月日顺序与分隔符）。 */
-export function bucketLabel(start: number, range: UsageRange, locale: string): string {
-  return dateFormat(locale, isHourly(range) ? HOUR_MINUTE : MONTH_DAY).format(start);
+type PeriodScale = Pick<UsagePeriod, 'unit' | 'today' | 'spansDays'>;
+
+const BUCKET_FORMAT: Record<BucketUnit, Intl.DateTimeFormatOptions> = {
+  hour: HOUR_MINUTE,
+  day: MONTH_DAY,
+  month: { year: 'numeric', month: '2-digit' },
+  year: { year: 'numeric' },
+};
+
+function bucketFormat(scale: PeriodScale): Intl.DateTimeFormatOptions {
+  return scale.unit === 'hour' && scale.spansDays
+    ? { ...MONTH_DAY, ...HOUR_MINUTE }
+    : BUCKET_FORMAT[scale.unit];
 }
 
-/** 悬停提示的标题：按小时是 `07:00 – 08:00`，按天是带星期的日期。 */
-export function bucketTitle(start: number, end: number, range: UsageRange, locale: string): string {
-  if (isHourly(range)) return dateFormat(locale, HOUR_MINUTE).formatRange(start, end);
-  return dateFormat(locale, { ...MONTH_DAY, weekday: 'short' }).format(start);
+/** 横轴的标签：按小时是 `HH:mm`（跨天时带月日），按天是 `MM/DD`（各语言的月日顺序与分隔符），按月是年月，按年是年。 */
+export function bucketLabel(start: number, scale: PeriodScale, locale: string): string {
+  return dateFormat(locale, bucketFormat(scale)).format(start);
 }
 
-/** 请求记录的时间：今天的只写时分秒，其余加上月日。 */
-export function recordTime(at: number, range: UsageRange, locale: string): string {
+/** 横轴标签之间至少留的宽度：带月日的小时标签更长。 */
+export function labelSpacing(scale: PeriodScale): number {
+  return scale.unit === 'hour' && scale.spansDays ? 88 : 56;
+}
+
+/** 悬停提示的标题：按小时是 `07:00 – 08:00`，按天是带星期的日期，按月、按年是起止（首尾两桶可能不满）。 */
+export function bucketTitle(
+  start: number,
+  end: number,
+  scale: PeriodScale,
+  locale: string,
+): string {
+  if (scale.unit === 'hour') return dateFormat(locale, bucketFormat(scale)).formatRange(start, end);
+  if (scale.unit === 'day')
+    return dateFormat(locale, { ...MONTH_DAY, weekday: 'short' }).format(start);
+  return dateFormat(locale, { year: 'numeric', ...MONTH_DAY }).formatRange(start, end - 1);
+}
+
+/** 请求记录的时间：“今天”只写时分秒，其余加上月日。 */
+export function recordTime(at: number, scale: PeriodScale, locale: string): string {
   const time = { ...HOUR_MINUTE, second: '2-digit' } as const;
-  return dateFormat(locale, isHourly(range) ? time : { ...MONTH_DAY, ...time }).format(at);
+  return dateFormat(locale, scale.today ? time : { ...MONTH_DAY, ...time }).format(at);
+}
+
+/** 自定义时间段的写法：`10/09 22:31 – 11/08 22:31`，跟随当前时刻时结束写“现在”；跨年时带年份。 */
+export function customRangeLabel(range: CustomRange, locale: string, now = new Date()): string {
+  const end = range.to ?? now.getTime();
+  const year = new Date(range.from).getFullYear();
+  const withYear = year !== new Date(end).getFullYear() || year !== now.getFullYear();
+  const options: Intl.DateTimeFormatOptions = {
+    ...(withYear && { year: 'numeric' }),
+    ...MONTH_DAY,
+    ...HOUR_MINUTE,
+  };
+  const format = dateFormat(locale, options);
+  if (range.to === undefined) return `${format.format(range.from)} – ${t('usage.range.now')}`;
+  return format.formatRange(range.from, range.to);
 }
 
 /** 详情里的完整时间。 */

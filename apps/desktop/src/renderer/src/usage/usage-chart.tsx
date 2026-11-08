@@ -1,5 +1,6 @@
 // 使用统计页的趋势图：手写的 SVG 柱状图（不引图表库）。Tokens 是四种 token 叠起来的柱（运行蓝两档 + 墨色两档，不用彩色），
-// 请求与成本是单列的柱；纵轴刻度是紧凑写法，横轴按小时 `HH:mm`、按天 `MM/DD`；悬停一桶显示它的准确数值。
+// 请求与成本是单列的柱；纵轴刻度是紧凑写法，横轴按小时 `HH:mm`、按天 `MM/DD`（自定义时间段还有按月、按年）；悬停一桶显示它的
+// 准确数值。桶数不变时（换服务商、模型或指标）柱子的高度 300 ms 过渡到新值，不整张重画。
 
 import type { UsageAggregate } from '@wevir/protocol';
 import { cn } from 'cn';
@@ -15,6 +16,7 @@ import {
   formatCost,
   formatCostAxis,
   formatInteger,
+  labelSpacing,
   labelStride,
   niceTicks,
   totalTokens,
@@ -57,6 +59,9 @@ const METRIC_LABEL: Record<ChartMetric, PlainMessageKey> = {
   cost: 'usage.chart.cost',
 };
 
+/** 柱子位置与高度的过渡（Chromium 把 SVG 的 y / height 当 CSS 属性，属性改了也会过渡）。 */
+const BAR_MOTION = 'transition-[y,height] duration-300 ease-smooth motion-reduce:transition-none';
+
 const HEIGHT = 220;
 const PAD_TOP = 8;
 const PAD_BOTTOM = 24;
@@ -98,7 +103,8 @@ export function UsageChart({
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hovered, setHovered] = useState<number>();
   const { buckets } = data.result;
-  const { edges, range } = data;
+  const { period } = data;
+  const { edges } = period;
   const count = buckets.length;
   const empty = data.result.totals.requests === 0;
 
@@ -109,7 +115,7 @@ export function UsageChart({
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
   const slot = count === 0 ? 0 : plotWidth / count;
   const barWidth = Math.max(1, Math.min(slot * 0.68, 28));
-  const stride = labelStride(count, plotWidth);
+  const stride = labelStride(count, plotWidth, labelSpacing(period));
   const y = (value: number) => PAD_TOP + plotHeight - (value / top) * plotHeight;
   const axis = (value: number) =>
     metric === 'cost' ? formatCostAxis(value, locale) : formatAxis(value, locale);
@@ -214,7 +220,7 @@ export function UsageChart({
                         y={y(metricValue(bucket, metric))}
                         width={barWidth}
                         height={Math.max(0, y(0) - y(metricValue(bucket, metric)))}
-                        className="fill-running/80"
+                        className={cn('fill-running/80', BAR_MOTION)}
                       />
                     )}
                     {index % stride === 0 && (
@@ -224,7 +230,7 @@ export function UsageChart({
                         textAnchor="middle"
                         className="fill-muted-foreground text-[11px] tabular-nums"
                       >
-                        {bucketLabel(start, range, locale)}
+                        {bucketLabel(start, period, locale)}
                       </text>
                     )}
                   </g>
@@ -240,7 +246,7 @@ export function UsageChart({
             data-testid="usage-chart-tooltip"
           >
             <p className="mb-1.5 font-medium">
-              {bucketTitle(edges[hovered] ?? 0, edges[hovered + 1] ?? 0, range, locale)}
+              {bucketTitle(edges[hovered] ?? 0, edges[hovered + 1] ?? 0, period, locale)}
             </p>
             <BucketValues bucket={hoveredBucket} metric={metric} locale={locale} />
           </div>
@@ -268,7 +274,7 @@ function TokenBar({
         const value = bucket.tokens[series.kind];
         const bottom = base;
         base += value;
-        if (value === 0) return null;
+        // 为 0 的一段也画（高度 0），数值变化时才能从原位长出来。
         return (
           <rect
             key={series.kind}
@@ -276,7 +282,7 @@ function TokenBar({
             y={y(base)}
             width={width}
             height={Math.max(0, y(bottom) - y(base))}
-            className={series.fill}
+            className={cn(series.fill, BAR_MOTION)}
           />
         );
       })}
