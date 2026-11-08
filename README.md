@@ -37,7 +37,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 
 ### Highlights
 
-- **One session across engines.** Hand a session to another engine or provider with a handoff brief that can be previewed before switching and is flagged when it falls out of date. When a subscription reaches its usage limit, continue the turn on another model, or resume automatically when the limit resets.
+- **One session across engines.** Hand a session to another engine or provider with a handoff brief and inspect the handoff details afterward. When a subscription reaches its usage limit, continue the turn on another model, or resume automatically when the limit resets.
 - **Project memory for every engine.** Agents keep project and global notes that every engine reads, each with its source and revision history; notes the user has edited are protected from agent overwrites.
 - **Independent review.** A second opinion from another provider runs read-only on a snapshot of the session. Project checks run after each turn, with optional bounded repair, and a task retro links every line to its source.
 - **Tuning from real sessions.** Wevir trials one change to a project's instructions, skills, or memory at a time and keeps or reverts it after five sessions, based on check pass rate and failed turns.
@@ -73,7 +73,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 
 ### Continuity
 
-- **Handoff**: Move a session to another engine or provider. The receiving agent gets a brief of the task, constraints, notes, and recent history within a fixed size budget; the brief can be previewed, and a brief prepared before the session moved on is rejected as stale.
+- **Handoff**: Move a session to another engine or provider. The receiving agent gets a brief of the task, constraints, notes, and recent history within a fixed size budget; handoff details can be inspected afterward.
 - **Usage limits**: A turn stopped by a subscription's usage limit continues on another model from the limit card, or resumes automatically after the reset. Sources whose quota is also used up are listed last.
 - **Memory**: Project and global notes written by agents and read by every engine, with source, revisions, withdrawal, and conflict detection; notes edited by the user are not overwritten.
 - **Rules across engines**: `AGENTS.md`, `CLAUDE.md`, and similar rule files apply to every engine.
