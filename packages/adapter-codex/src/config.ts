@@ -330,6 +330,7 @@ export function renderConfigToml(input: RenderConfigInput): string {
 /**
  * ChatGPT 进程（R6，ADR-0005 补记 10）多出的顶层键：
  * - `model_provider = "openai"`：Codex 内置的 openai Provider，登录后流量直连 OpenAI（chatgpt.com），不经网关；
+ * - `model_context_window = 1000000`：申请长上下文，Codex 按所选模型目录的 `max_context_window` 裁剪；
  * - `cli_auth_credentials_store = "file"`：登录凭据存在本进程 CODEX_HOME 的 `auth.json`（0600），与 Wevir 的
  *   `secrets.json` 同一个保护级别（docs/security.md §3），不碰系统钥匙串；
  * - `forced_login_method = "chatgpt"`：只允许 ChatGPT 登录（不接受 API Key 登录）；
@@ -337,6 +338,7 @@ export function renderConfigToml(input: RenderConfigInput): string {
  */
 export const CHATGPT_TOP: readonly string[] = [
   'model_provider = "openai"',
+  'model_context_window = 1000000',
   'cli_auth_credentials_store = "file"',
   'forced_login_method = "chatgpt"',
   'mcp_oauth_credentials_store = "file"',

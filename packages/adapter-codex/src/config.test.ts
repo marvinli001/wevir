@@ -262,6 +262,7 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
       'web_search = "disabled"',
       'thread_unload_delay_secs = 1800',
       'model_provider = "openai"',
+      'model_context_window = 1000000',
       'cli_auth_credentials_store = "file"',
       'forced_login_method = "chatgpt"',
       'mcp_oauth_credentials_store = "file"',
@@ -278,7 +279,12 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
 
   it('顶层键都在第一张表之前', () => {
     const firstTable = toml.indexOf('\n[');
-    for (const key of ['model_provider =', 'cli_auth_credentials_store', 'forced_login_method']) {
+    for (const key of [
+      'model_provider =',
+      'model_context_window =',
+      'cli_auth_credentials_store',
+      'forced_login_method',
+    ]) {
       expect(toml.indexOf(key)).toBeLessThan(firstTable);
     }
   });
