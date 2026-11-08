@@ -71,18 +71,22 @@ const pids: number[] = [];
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'wevir-desktop-'));
 });
-afterEach(async () => {
-  for (const client of clients.splice(0)) client.close();
-  for (const lifecycle of lifecycles.splice(0)) await lifecycle.stop();
-  // 用例中途失败时也不留下 Host 进程。等它们真正退出再删目录：Windows 上进程还开着日志与数据库时删不掉
-  // （EPERM），刚退出时句柄也可能稍晚才释放，所以删除另带重试。
-  for (const pid of pids.splice(0)) {
-    if (!isProcessAlive(pid)) continue;
-    process.kill(pid, 'SIGKILL');
-    await exited(pid);
-  }
-  rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-});
+// Host 退出允许等待 5s + 12s，Windows 清理钩子的预算须包含退出及句柄释放。
+afterEach(
+  async () => {
+    for (const client of clients.splice(0)) client.close();
+    for (const lifecycle of lifecycles.splice(0)) await lifecycle.stop();
+    // 用例中途失败时也不留下 Host 进程。等它们真正退出再删目录：Windows 上进程还开着日志与数据库时删不掉
+    // （EPERM），刚退出时句柄也可能稍晚才释放，所以删除另带重试。
+    for (const pid of pids.splice(0)) {
+      if (!isProcessAlive(pid)) continue;
+      process.kill(pid, 'SIGKILL');
+      await exited(pid);
+    }
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  },
+  process.platform === 'win32' ? 60_000 : 10_000,
+);
 
 function runtimeFile(home: string): string {
   return join(home, 'run', 'host.json');
