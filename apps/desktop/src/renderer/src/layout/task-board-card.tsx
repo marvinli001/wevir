@@ -155,7 +155,7 @@ function TaskBoardDetails({ groups }: { groups: readonly BoardGroup[] }) {
       return next;
     });
   return (
-    <div data-testid="rail-task-board" className="max-h-80 overflow-x-hidden overflow-y-auto">
+    <div data-testid="rail-task-board">
       {groups.map((group) => (
         <section key={group.status} className="mb-2 last:mb-0">
           <h3 className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
