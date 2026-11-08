@@ -77,6 +77,7 @@ export class ExternalImport {
         sessionImports === undefined
           ? []
           : (scan.sessions ?? []).map((draft) => sessionImports.candidate(draft)),
+      ...(scan.sessionIssues !== undefined && { sessionIssues: scan.sessionIssues }),
       unsupported: scan.unsupported,
     };
   }
@@ -154,7 +155,7 @@ export class ExternalImport {
     return {
       ...scan,
       ...(this.#options.sessions !== undefined && {
-        sessions: await scanSessions(app, scan.home),
+        ...(await scanSessions(app, scan.home)),
         unsupported:
           app === 'claude' || app === 'codex'
             ? scan.unsupported

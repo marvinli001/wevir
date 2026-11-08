@@ -7,6 +7,7 @@ import { dirname } from 'node:path';
 import {
   ConnectorNameSchema,
   type ImportKind,
+  type ImportScanResult,
   type McpServerConfig,
   McpServerConfigSchema,
   MEMORY_CONTENT_MAX_BYTES,
@@ -74,6 +75,7 @@ export interface SkillDraft extends DraftBase {
 
 export interface AppScan {
   sessions?: SessionDraft[];
+  sessionIssues?: ImportScanResult['sessionIssues'];
   home: string;
   found: boolean;
   memories: MemoryDraft[];

@@ -17,6 +17,30 @@ afterEach(async () => {
   for (const host of running.splice(0)) await host.shutdown();
 });
 
+it('returns partial history scan issues and imports only the selected session idempotently', async () => {
+  const { client, userHome } = await launch();
+  const text = readFileSync(new URL('./fixtures/claude-session.jsonl', import.meta.url), 'utf8');
+  const valid = put(join(userHome, '.claude', 'projects', 'demo', 'one.jsonl'), text);
+  const invalid = put(join(userHome, '.claude', 'projects', 'demo', 'bad.jsonl'), '{broken');
+  const scan = await client.request('import.scan', { app: 'claude' });
+  expect(scan.sessions).toHaveLength(1);
+  expect(scan.sessionIssues).toEqual([{ path: invalid, reason: 'invalid' }]);
+  const items = [{ key: scan.sessions[0].key }];
+  const first = await client.request('import.apply', { app: 'claude', items });
+  const second = await client.request('import.apply', { app: 'claude', items });
+  expect(first.results[0].outcome).toBe('imported');
+  expect(second.results[0]).toMatchObject({
+    outcome: 'skipped',
+    sessionId: first.results[0].sessionId,
+  });
+  const snapshot = await client.request('session.get', { sessionId: first.results[0].sessionId });
+  expect(snapshot.session).toMatchObject({
+    readOnly: { reason: 'imported' },
+    origin: { kind: 'imported', path: valid },
+  });
+  expect(readFileSync(valid, 'utf8')).toBe(text);
+});
+
 function put(path: string, text: string): string {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, text);

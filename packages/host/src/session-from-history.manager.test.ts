@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId } from '@wevir/protocol';
 import type { AgentInput, SessionConfig } from '@wevir/runtime-adapter';
@@ -140,6 +140,22 @@ async function send(
 }
 
 describe('createFromHistory', () => {
+  it('keeps history readable when its project directory is missing and creates no continuation', async () => {
+    const env = await setup();
+    const source = env.events.snapshot(env.id)?.session;
+    if (!source) throw new Error('missing fixture');
+    rmSync(source.cwd, { recursive: true });
+    await expect(env.manager.createFromHistory(env.id)).rejects.toMatchObject({
+      code: 'WORKSPACE_PATH_INVALID',
+    });
+    expect(env.events.snapshot(env.id)?.session).toMatchObject({
+      readOnly: { reason: 'imported' },
+      lastSeq: source.lastSeq,
+    });
+    expect(env.storage.sessions.list()).toHaveLength(1);
+    expect(env.adapter.inputs).toHaveLength(0);
+    expect(readFileSync(env.path, 'utf8')).toBe(env.source);
+  });
   it.each(['claude', 'codex'] as const)(
     '%s uses native resume only for a matching tool/directory and keeps the source read-only',
     async (app) => {

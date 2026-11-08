@@ -34,6 +34,7 @@ export function ChatgptAccountSection({
   accountId = 'chatgpt',
   provider,
   embedded = false,
+  setupOnly = false,
 }: {
   client: WevirClient;
   /** 哪个 ChatGPT 账号（0.63.0）：首个是 `chatgpt`，添加的账号状态从账号列表里取。 */
@@ -42,6 +43,7 @@ export function ChatgptAccountSection({
   provider: ProviderProfile | undefined;
   /** 放在订阅格子的详情里（0.19.0）：不画自己的卡片与标题，名称与状态由详情的头部给出。 */
   embedded?: boolean;
+  setupOnly?: boolean;
 }) {
   const store = useWorkbenchStore();
   const accountsStore = useAccountsStore();
@@ -154,7 +156,7 @@ export function ChatgptAccountSection({
       {phase.kind === 'device_code' && (
         <DeviceCodeProgress phase={phase} busy={busy} onCancel={() => cancel(phase.loginId)} />
       )}
-      {phase.kind === 'signed_in' && (
+      {phase.kind === 'signed_in' && !setupOnly && (
         <SignedIn
           client={client}
           account={account}
@@ -165,6 +167,16 @@ export function ChatgptAccountSection({
           onSaved={() => void store?.refresh()}
           onError={setError}
         />
+      )}
+      {setupOnly && phase.kind !== 'browser' && phase.kind !== 'device_code' && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => void run(() => client.request('account.get', { ...ref, refresh: true }))}
+        >
+          {t('source.recheck')}
+        </Button>
       )}
       {error !== undefined && <NoticeBanner notice={{ tone: 'error', text: error }} />}
       {confirmLogout && (

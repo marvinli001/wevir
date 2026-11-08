@@ -1,4 +1,4 @@
-// 首次引导走完或跳过之后不再出现（U6）。只记在本机；Host 里已有 Provider 时首页本来就不会进引导。
+// 首次引导走完或跳过之后不再出现；已有项目或会话的客户端也不强制进入。
 
 import { createPersistedStore } from '@/lib/store';
 

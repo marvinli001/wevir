@@ -1,3 +1,4 @@
+import { cn } from 'cn';
 import { ExternalLink } from 'lucide-react';
 import { useId, useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -12,18 +13,20 @@ export function VertexFields({
   form,
   errors,
   onChange,
+  compact = false,
 }: {
   form: ProviderForm;
   errors: Record<string, string>;
   onChange: (patch: Partial<ProviderForm>) => void;
+  compact?: boolean;
 }) {
   const id = useId();
   const [fileError, setFileError] = useState(false);
   const email = serviceAccountEmail(form.serviceAccountJson ?? '');
   const docsURL = VERTEX_PRESETS.find((preset) => preset.api === form.api)?.docsURL;
   return (
-    <div className="space-y-4" data-vertex-fields>
-      <div className="space-y-1.5 text-sm text-muted-foreground">
+    <div className={compact ? 'grid grid-cols-2 gap-3' : 'space-y-4'} data-vertex-fields>
+      <div className={cn('space-y-1.5 text-sm text-muted-foreground', compact && 'col-span-2')}>
         {docsURL && (
           <button
             type="button"
@@ -35,7 +38,7 @@ export function VertexFields({
           </button>
         )}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className={compact ? 'contents' : 'grid gap-4 sm:grid-cols-2'}>
         <div className="space-y-1.5">
           <label htmlFor={`${id}-project`} className="block text-sm font-medium">
             {t('provider.vertex.project')}

@@ -2,6 +2,7 @@ import { accountId, type WevirClient } from '@wevir/client-sdk';
 import type { AccountKind, AccountState, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
+  ArrowLeft,
   Check,
   Copy,
   Download,
@@ -30,6 +31,7 @@ import { Input } from '@/components/ui/input';
 import {
   accountRef,
   accountsOfKind,
+  isPickable,
   SOURCE_KINDS,
   SOURCE_PAGE_SIZE,
   SOURCES,
@@ -49,6 +51,7 @@ import {
 import { useReducedMotion } from '@/fx/motion';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { useElementSize } from '@/lib/use-element-size';
 import { platformApi } from '@/platform/platform';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
@@ -73,11 +76,18 @@ import { loginPrompt } from './subscription-upstreams-model';
 export function SubscriptionSources({
   client,
   providers,
+  setupOnly = false,
+  onChoose,
+  activeProviderId,
 }: {
   client: WevirClient | undefined;
   providers: readonly ProviderProfile[];
+  setupOnly?: boolean;
+  onChoose?: (providerId: string) => void;
+  activeProviderId?: string;
 }) {
   const accounts = useAccounts();
+  const [areaRef, area] = useElementSize();
   const [selected, setSelected] = useState<AccountKind>();
   // 详情收起的过程里继续画刚才那一格的内容，动画才不会先清空。
   const [shown, setShown] = useState<AccountKind>();
@@ -91,12 +101,45 @@ export function SubscriptionSources({
   const accountsOf = (kind: AccountKind) => accountsOfKind(kind, accounts);
   const accountOf = (kind: AccountKind) => {
     const list = accountsOf(kind);
-    return list.find((account) => accountId(account) === chosen[kind]) ?? list[0];
+    return (
+      list.find((account) => accountId(account) === chosen[kind]) ??
+      (setupOnly ? list.find(ready) : undefined) ??
+      list[0]
+    );
   };
   const providerOf = (id: string) => providers.find((provider) => provider.id === id);
 
+  const ready = (account: AccountState) => {
+    const provider = providerOf(accountId(account));
+    return (
+      account.status === 'signed_in' &&
+      account.installed !== false &&
+      provider !== undefined &&
+      isPickable(provider, accounts)
+    );
+  };
+  const selectedAccount = selected === undefined ? undefined : accountOf(selected);
+  const selectedProviderId =
+    selectedAccount && ready(selectedAccount) ? accountId(selectedAccount) : undefined;
+  const lastChosen = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (selectedProviderId === lastChosen.current) return;
+    lastChosen.current = selectedProviderId;
+    if (selectedProviderId !== undefined) onChoose?.(selectedProviderId);
+  }, [selectedProviderId, onChoose]);
+
   // 来源多于一页时分页：每页末尾一格翻页，翻页时这一页的格子缩回、下一页的错开着长出来；格子数不变，卡片不跳高。
-  const pages = sourcePages(SOURCE_KINDS);
+  const kinds = setupOnly
+    ? SOURCE_KINDS.filter((kind) => accountsOf(kind).length > 0).sort(
+        (a, b) => Number(accountsOf(b).some(ready)) - Number(accountsOf(a).some(ready)),
+      )
+    : SOURCE_KINDS;
+  const sideBySide = area.width >= 760;
+  const gridWidth = selected !== undefined && sideBySide ? area.width - 320 - 16 : area.width;
+  const columns = gridWidth >= 448 ? 3 : 2;
+  const rows = Math.max(1, Math.min(3, Math.floor(area.height / 112)));
+  const pageSize = setupOnly ? columns * rows - 1 : SOURCE_PAGE_SIZE;
+  const pages = sourcePages(kinds, pageSize);
   const paged = pages.length > 1;
   const [page, setPage] = useState(0);
   const [leaving, setLeaving] = useState(false);
@@ -121,80 +164,146 @@ export function SubscriptionSources({
     setLeaving(true);
     timer.current = setTimeout(swap, PAGE_EXIT_MS);
   };
-  const cells = paged ? SOURCE_PAGE_SIZE + 1 : SOURCE_KINDS.length;
+  const cells = paged ? pageSize + 1 : kinds.length;
+  const fillers = setupOnly
+    ? Array.from({ length: (columns - (cells % columns)) % columns }, (_, slot) => ({
+        slot,
+        base: true,
+        sm: true,
+      }))
+    : tileFillers(cells);
   const motion = (index: number) => cellMotion(leaving, entering && !reduced, index);
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-border bg-card"
+      ref={areaRef}
+      className={cn(
+        setupOnly
+          ? 'flex h-full min-h-0 gap-4'
+          : 'overflow-hidden rounded-xl border border-border bg-card',
+      )}
       data-section="subscriptions"
     >
-      {/* 格子之间的细线：网格底是分隔线色，格子之间留 1px 缝。行一样高，空页的格子也撑住高度。 */}
-      <ul
-        className="grid auto-rows-fr grid-cols-2 gap-px bg-border sm:grid-cols-3"
-        data-source-page={paged ? page + 1 : undefined}
+      <div
+        className={cn(
+          setupOnly
+            ? 'min-h-0 min-w-0 flex-1 self-start overflow-hidden rounded-xl border border-border bg-card'
+            : 'contents',
+          setupOnly && selected !== undefined && !sideBySide && 'hidden',
+        )}
       >
-        {current.map((kind, index) => (
-          <SourceTile
-            key={kind}
-            source={SOURCES[kind]}
-            phase={accounts === undefined ? undefined : sourcePhase(tileAccount(accountsOf(kind)))}
-            count={accountsOf(kind).length}
-            provider={providerOf(kind)}
-            selected={selected === kind}
-            onSelect={() => setSelected((value) => (value === kind ? undefined : kind))}
-            motion={motion(index)}
-          />
-        ))}
-        {paged && (
-          <>
-            {Array.from(
-              { length: SOURCE_PAGE_SIZE - current.length },
-              (_, offset) => current.length + offset + 1,
-            ).map((slot) => (
-              <li key={`blank-${slot}`} aria-hidden className="bg-card" />
-            ))}
-            <PageTile
-              key="page"
-              kinds={pages[nextPage] ?? []}
-              back={nextPage === 0}
-              signedIn={(pages[nextPage] ?? []).some(
-                (kind) =>
-                  sourcePhase(tileAccount(accountsOf(kind))).kind === 'signed_in' &&
-                  providerOf(kind)?.enabled !== false,
-              )}
-              disabled={leaving}
-              onTurn={turnPage}
-              motion={motion(current.length)}
-              stamp={page}
+        {/* 格子之间的细线：网格底是分隔线色，格子之间留 1px 缝。行一样高，空页的格子也撑住高度。 */}
+        <ul
+          className={cn(
+            'grid auto-rows-fr gap-px bg-border',
+            !setupOnly && 'grid-cols-2 sm:grid-cols-3',
+          )}
+          style={
+            setupOnly ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined
+          }
+          data-source-page={paged ? page + 1 : undefined}
+        >
+          {current.map((kind, index) => (
+            <SourceTile
+              key={kind}
+              source={SOURCES[kind]}
+              phase={
+                accounts === undefined ? undefined : sourcePhase(tileAccount(accountsOf(kind)))
+              }
+              count={accountsOf(kind).length}
+              provider={
+                setupOnly
+                  ? providerOf(accountId(tileAccount(accountsOf(kind)) ?? { kind }))
+                  : providerOf(kind)
+              }
+              selected={selected === kind}
+              active={
+                setupOnly &&
+                providers.find((provider) => provider.id === activeProviderId)?.kind === kind
+              }
+              compact={setupOnly}
+              onSelect={() => setSelected((value) => (value === kind ? undefined : kind))}
+              motion={motion(index)}
             />
-          </>
-        )}
-        {tileFillers(cells).map((filler) => (
-          <li
-            key={filler.slot}
-            aria-hidden
+          ))}
+          {paged && (
+            <>
+              {Array.from(
+                { length: pageSize - current.length },
+                (_, offset) => current.length + offset + 1,
+              ).map((slot) => (
+                <li key={`blank-${slot}`} aria-hidden className="bg-card" />
+              ))}
+              <PageTile
+                key="page"
+                kinds={pages[nextPage] ?? []}
+                back={nextPage === 0}
+                signedIn={(pages[nextPage] ?? []).some(
+                  (kind) =>
+                    sourcePhase(tileAccount(accountsOf(kind))).kind === 'signed_in' &&
+                    providerOf(kind)?.enabled !== false,
+                )}
+                disabled={leaving}
+                onTurn={turnPage}
+                motion={motion(current.length)}
+                stamp={page}
+                compact={setupOnly}
+              />
+            </>
+          )}
+          {fillers.map((filler) => (
+            <li
+              key={filler.slot}
+              aria-hidden
+              className={cn(
+                'bg-card',
+                filler.base ? 'block' : 'hidden',
+                filler.sm ? 'sm:block' : 'sm:hidden',
+              )}
+            />
+          ))}
+        </ul>
+      </div>
+      {setupOnly ? (
+        selected !== undefined && (
+          <div
             className={cn(
-              'bg-card',
-              filler.base ? 'block' : 'hidden',
-              filler.sm ? 'sm:block' : 'sm:hidden',
+              'min-h-0 min-w-0 rounded-xl border border-border bg-card',
+              sideBySide ? 'w-80 shrink-0' : 'flex-1',
             )}
-          />
-        ))}
-      </ul>
-      <Collapse open={selected !== undefined}>
-        {shown !== undefined && client !== undefined && (
-          <SourceDetail
-            key={shown}
-            client={client}
-            source={SOURCES[shown]}
-            accounts={accountsOf(shown)}
-            account={accountOf(shown)}
-            providerOf={providerOf}
-            onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
-          />
-        )}
-      </Collapse>
+          >
+            {shown !== undefined && client !== undefined && (
+              <SourceDetail
+                key={shown}
+                client={client}
+                source={SOURCES[shown]}
+                accounts={accountsOf(shown)}
+                account={accountOf(shown)}
+                providerOf={providerOf}
+                onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
+                setupOnly={setupOnly}
+                onBack={setupOnly ? () => setSelected(undefined) : undefined}
+              />
+            )}
+          </div>
+        )
+      ) : (
+        <Collapse open={selected !== undefined}>
+          {shown !== undefined && client !== undefined && (
+            <SourceDetail
+              key={shown}
+              client={client}
+              source={SOURCES[shown]}
+              accounts={accountsOf(shown)}
+              account={accountOf(shown)}
+              providerOf={providerOf}
+              onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
+              setupOnly={setupOnly}
+              onBack={setupOnly ? () => setSelected(undefined) : undefined}
+            />
+          )}
+        </Collapse>
+      )}
     </div>
   );
 }
@@ -240,6 +349,7 @@ function PageTile({
   onTurn,
   motion,
   stamp,
+  compact = false,
 }: {
   kinds: readonly AccountKind[];
   back: boolean;
@@ -249,6 +359,7 @@ function PageTile({
   motion: CellMotion;
   /** 当前页；换页时内容重新挂载，入场动画才会再播。 */
   stamp: number;
+  compact?: boolean;
 }) {
   const shown = kinds.slice(0, 3);
   return (
@@ -262,7 +373,11 @@ function PageTile({
       >
         <span
           key={stamp}
-          className={cn('flex h-full flex-col gap-3 px-4 pt-4 pb-3.5', motion.className)}
+          className={cn(
+            'flex h-full flex-col',
+            compact ? 'gap-2 px-3 py-3' : 'gap-3 px-4 pt-4 pb-3.5',
+            motion.className,
+          )}
           style={motion.style}
         >
           <span className="flex items-start justify-between gap-2">
@@ -345,6 +460,8 @@ function SourceTile({
   count,
   provider,
   selected,
+  active = false,
+  compact = false,
   onSelect,
   motion,
 }: {
@@ -355,6 +472,8 @@ function SourceTile({
   count: number;
   provider: ProviderProfile | undefined;
   selected: boolean;
+  active?: boolean;
+  compact?: boolean;
   onSelect: () => void;
   /** 翻页的动效：画在格子的内容上，格子的底色与分隔线不动。 */
   motion: CellMotion;
@@ -379,7 +498,11 @@ function SourceTile({
         )}
       >
         <span
-          className={cn('flex h-full flex-col gap-3 px-4 pt-4 pb-3.5', motion.className)}
+          className={cn(
+            'flex h-full flex-col',
+            compact ? 'gap-2 px-3 py-3' : 'gap-3 px-4 pt-4 pb-3.5',
+            motion.className,
+          )}
           style={motion.style}
         >
           <span className="flex items-start justify-between gap-2">
@@ -418,7 +541,7 @@ function SourceTile({
         aria-hidden
         className={cn(
           'pointer-events-none absolute inset-x-4 bottom-0 h-0.5 origin-center rounded-full bg-foreground transition-transform duration-200 ease-smooth',
-          selected ? 'scale-x-100' : 'scale-x-0',
+          selected || active ? 'scale-x-100' : 'scale-x-0',
         )}
       />
     </li>
@@ -474,6 +597,8 @@ function SourceDetail({
   account,
   providerOf,
   onSelect,
+  setupOnly = false,
+  onBack,
 }: {
   client: WevirClient;
   source: SourceInfo;
@@ -483,6 +608,8 @@ function SourceDetail({
   account: AccountState | undefined;
   providerOf: (id: string) => ProviderProfile | undefined;
   onSelect: (id: string) => void;
+  setupOnly?: boolean;
+  onBack?: () => void;
 }) {
   const store = useWorkbenchStore();
   const accountsStore = useAccountsStore();
@@ -498,7 +625,9 @@ function SourceDetail({
   const provider = providerOf(id);
   const several = accounts.length > 1;
   const canAdd =
-    client.supports('subscription_accounts') && accounts.some((each) => each.multiAccount === true);
+    !setupOnly &&
+    client.supports('subscription_accounts') &&
+    accounts.some((each) => each.multiAccount === true);
   const added = account !== undefined && id !== account.kind;
 
   const attempt = async (op: () => Promise<void>) => {
@@ -541,10 +670,19 @@ function SourceDetail({
 
   return (
     <div
-      className="border-t border-border bg-background/40 px-5 pt-4 pb-5 animate-in fade-in duration-200"
+      className={cn(
+        setupOnly
+          ? 'px-4 py-3'
+          : 'border-t border-border bg-background/40 px-5 pt-4 pb-5 animate-in fade-in duration-200',
+      )}
       data-source-detail={source.kind}
     >
       <div className="flex items-center gap-3">
+        {onBack && (
+          <Button variant="ghost" size="icon-sm" aria-label={t('source.back')} onClick={onBack}>
+            <ArrowLeft />
+          </Button>
+        )}
         <LogoWell logo={source.logo} fallback={name} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">
@@ -558,18 +696,20 @@ function SourceDetail({
             </p>
           )}
         </div>
-        {provider !== undefined && client.supports('provider_enabled') && (
-          <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-            <span aria-hidden>{t('source.showInPicker')}</span>
-            <Switch
-              checked={provider.enabled !== false}
-              label={t('source.showInPicker')}
-              disabled={toggling}
-              onChange={(next) => void setEnabled(next)}
-              data-action="toggle-source"
-            />
-          </div>
-        )}
+        {provider !== undefined &&
+          (!setupOnly || provider.enabled === false) &&
+          client.supports('provider_enabled') && (
+            <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+              <span aria-hidden>{t('source.showInPicker')}</span>
+              <Switch
+                checked={provider.enabled !== false}
+                label={t('source.showInPicker')}
+                disabled={toggling}
+                onChange={(next) => void setEnabled(next)}
+                data-action="toggle-source"
+              />
+            </div>
+          )}
       </div>
       {several && (
         <div className="mt-4">
@@ -592,6 +732,7 @@ function SourceDetail({
               accountId={id}
               provider={provider}
               embedded
+              setupOnly={setupOnly}
             />
           ) : (
             <p className="text-sm text-muted-foreground">{t('source.soon.body')}</p>
@@ -605,10 +746,13 @@ function SourceDetail({
             account={account}
             phase={phase}
             provider={provider}
+            setupOnly={setupOnly}
           />
         )}
       </div>
-      {source.kind === 'claude' && <ClaudeIdleCompactionSetting key={id} providerId={id} />}
+      {!setupOnly && source.kind === 'claude' && (
+        <ClaudeIdleCompactionSetting key={id} providerId={id} />
+      )}
       {canAdd && account !== undefined && (
         <div
           className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3"
@@ -656,13 +800,14 @@ function SourceDetail({
   );
 }
 
-function SubscriptionBody({
+export function SubscriptionBody({
   client,
   kind,
   name,
   account,
   phase,
   provider,
+  setupOnly = false,
 }: {
   client: WevirClient;
   kind: AccountKind;
@@ -670,6 +815,7 @@ function SubscriptionBody({
   account: AccountState | undefined;
   phase: SourcePhase;
   provider: ProviderProfile | undefined;
+  setupOnly?: boolean;
 }) {
   const accounts = useAccountsStore();
   const [busy, setBusy] = useState<string>();
@@ -696,6 +842,7 @@ function SubscriptionBody({
   const upstreams =
     kind === 'opencode' &&
     account?.signIn === 'in_app' &&
+    (!setupOnly || phase.kind !== 'signed_in') &&
     client.supports('subscription_upstreams');
   // 应用内登录按账号给的方式（GitHub Copilot 是设备码，0.125.0）；设备码由用户复制后自己打开页面，引擎的 CLI 也可能已经打开。
   const method = account?.loginMethods?.[0] ?? 'browser';
@@ -830,6 +977,15 @@ function SubscriptionBody({
             </>
           }
         />
+      ) : setupOnly ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy !== undefined}
+          onClick={() => void refresh()}
+        >
+          {t('source.recheck')}
+        </Button>
       ) : (
         <SignedIn
           client={client}
@@ -840,7 +996,8 @@ function SubscriptionBody({
           onRefresh={() => void refresh()}
         />
       )}
-      {account.installed !== false &&
+      {!setupOnly &&
+        account.installed !== false &&
         phase.kind !== 'installing' &&
         client.supports('subscription_updates') && (
           <RuntimeUpdate

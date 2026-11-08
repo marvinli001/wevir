@@ -1,0 +1,26 @@
+{
+  "protocolVersion": "0.166.0",
+  "methods": {
+    "import.scan": {
+      "params": [{ "app": "claude" }],
+      "result": [
+        {
+          "app": "claude",
+          "found": true,
+          "home": "/home/user/.claude",
+          "memories": [],
+          "connectors": [],
+          "skills": [],
+          "sessions": [],
+          "sessionIssues": [
+            { "path": "/home/user/.claude/projects/demo/log.jsonl", "reason": "invalid" }
+          ],
+          "unsupported": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

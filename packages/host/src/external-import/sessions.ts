@@ -3,6 +3,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import type {
   ImportApp,
   ImportApplyResultItem,
+  ImportScanResult,
   ImportSessionCandidate,
   SessionId,
   TurnId,
@@ -27,34 +28,53 @@ export interface SessionDraft extends ExternalSessionInfo {
 
 const PARSERS = { claude: parseClaudeSession, codex: parseCodexSession };
 
-async function* files(root: string, depth: number): AsyncGenerator<string> {
-  for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+type SessionIssues = NonNullable<ImportScanResult['sessionIssues']>;
+
+async function* files(root: string, depth: number, issues: SessionIssues): AsyncGenerator<string> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') issues.push({ path: root, reason: 'unreadable' });
+      return [];
+    },
+  );
+  for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
     const path = join(root, entry.name);
-    if (entry.isDirectory() && depth > 0) yield* files(path, depth - 1);
+    if (entry.isDirectory() && depth > 0) yield* files(path, depth - 1, issues);
     else if (entry.isFile() && entry.name.endsWith('.jsonl')) yield path;
   }
 }
 
-export async function scanSessions(app: ImportApp, home: string): Promise<SessionDraft[]> {
-  if (app !== 'claude' && app !== 'codex') return [];
+export async function scanSessions(
+  app: ImportApp,
+  home: string,
+): Promise<{ sessions: SessionDraft[]; sessionIssues: SessionIssues }> {
+  const sessionIssues: SessionIssues = [];
   const drafts: SessionDraft[] = [];
+  if (app !== 'claude' && app !== 'codex') return { sessions: drafts, sessionIssues };
   for await (const path of files(
     join(home, app === 'claude' ? 'projects' : 'sessions'),
     app === 'claude' ? 1 : 4,
+    sessionIssues,
   )) {
     if (app === 'codex' && !basename(path).startsWith('rollout-')) continue;
     try {
       const info = await PARSERS[app](path);
-      if (info === undefined || !isAbsolute(info.project)) continue;
+      if (info === undefined || !isAbsolute(info.project)) {
+        sessionIssues.push({ path, reason: 'invalid' });
+        continue;
+      }
       drafts.push({ ...info, app, path, key: draftKey('session', path, info.externalId) });
     } catch {
-      /* A concurrently removed or unreadable log is not a candidate. */
+      sessionIssues.push({ path, reason: 'unreadable' });
     }
   }
-  return drafts.sort(
-    (a, b) => a.project.localeCompare(b.project) || b.updatedAt.localeCompare(a.updatedAt),
-  );
+  return {
+    sessionIssues,
+    sessions: drafts.sort(
+      (a, b) => a.project.localeCompare(b.project) || b.updatedAt.localeCompare(a.updatedAt),
+    ),
+  };
 }
 
 export class SessionImports {

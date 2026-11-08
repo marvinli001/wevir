@@ -11,6 +11,7 @@ import type { FileScope } from '@/files/files-data';
 import { useCan, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
+import { needsWelcome } from '@/onboarding/welcome-model';
 import { useChatsSupported } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
 import { Composer, setDraft } from '@/session/composer';
@@ -38,7 +39,7 @@ const HOME_DRAFT = 'home';
  * `/`：首页（U4，方向稿 A 静器的 HomeA；U14 起照 Codex 桌面端排：品牌与随机句式的标题（如“今天在 [项目 ▾] 里做什么？”）、最近会话在内容区
  * 正中，输入框贴底，session/new-session.tsx）。发送后在所选项目新建会话并跳过去，和新会话草稿页是同一套流程
  * （session/start-session.ts）。新开窗口停在这里，不跳回上次的会话（维护者 2026-10-14 定）；默认的项目是上次所在的那个
- * （last-location.ts）。U6 起：没有 Provider 又没走过引导时转到整窗的分步引导（onboarding/welcome-route.tsx）；跳过引导
+ * （last-location.ts）。没有项目和会话且没走过引导时转到整窗的分步引导（onboarding/welcome-route.tsx）；跳过引导
  * 后没有 Provider 时输入框不能发、左下角是“添加模型服务”；没有项目时照常能输入，发送时先打开“创建项目”，建好后接着发。
  */
 export function HomeRoute() {
@@ -50,8 +51,7 @@ export function HomeRoute() {
   const canSetUp = useCan('provider.write');
   if (data.status === 'loading') return <PendingPage />;
   if (data.status === 'error') return <PendingPage error={data.error} />;
-  // 还没有 Provider、也没走过引导：先去分步引导（U6）。
-  if (data.providers.length === 0 && !welcomed && canSetUp)
+  if (canSetUp && needsWelcome(welcomed, data.workspaces))
     return <Navigate to={paths.welcome()} replace />;
   return (
     <Home entry={homeWorkspace(data, last, chats)} workspaces={data.workspaces} chats={chats} />

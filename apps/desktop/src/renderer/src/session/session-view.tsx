@@ -1126,6 +1126,14 @@ export function SessionView({
               onFromHistory={startFromHistory}
               fromHistorySupported={fromHistorySupported}
             />
+            {session.origin?.kind === 'history' && session.origin.via !== undefined && (
+              <p
+                className="mb-2 text-xs text-muted-foreground"
+                data-history-continuation={session.origin.via}
+              >
+                {t(session.origin.via === 'native' ? 'history.native' : 'history.summary')}
+              </p>
+            )}
             {notice && (
               <p
                 role="alert"

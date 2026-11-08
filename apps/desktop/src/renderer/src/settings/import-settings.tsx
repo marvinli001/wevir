@@ -11,6 +11,7 @@ import {
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
+import { useLocation } from 'react-router';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,7 @@ import {
   summarize,
   updateRow,
 } from './import-model';
+import { ImportSessionIssues } from './import-session-issues';
 import { EmptyList, LIST_CARD, NoticeBanner, Segmented, SettingsSection } from './settings-ui';
 
 type ScanState =
@@ -114,7 +116,10 @@ export function ImportSettings() {
     view.status === 'connected' && hostSupports(view.hello.features, 'external_session_import');
   const data = useWorkbenchData();
   const store = useWorkbenchStore();
-  const [app, setApp] = useState<ImportApp>('claude');
+  const location = useLocation();
+  const [app, setApp] = useState<ImportApp>(
+    () => IMPORT_APPS.find((value) => value === location.state?.importApp) ?? 'claude',
+  );
   const [state, setState] = useState<ScanState>({ status: 'loading', app });
   const [selection, setSelection] = useState<ImportSelection>({});
   const [applying, setApplying] = useState(false);
@@ -215,6 +220,7 @@ export function ImportSettings() {
           {summary && <ImportSummaryView summary={summary} />}
         </div>
       )}
+      {scan && <ImportSessionIssues issues={scan.sessionIssues} />}
       {state.status === 'error' && state.app === app ? (
         <NoticeBanner
           notice={{ tone: 'error', text: t('settings.import.scanFailed', { error: state.error }) }}

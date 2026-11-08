@@ -92,6 +92,9 @@ export const ImportScanResultSchema = z.object({
   skills: z.array(ImportSkillCandidateSchema),
   /** Session metadata only, grouped by project path by clients. */
   sessions: z.array(ImportSessionCandidateSchema).optional(),
+  sessionIssues: z
+    .array(z.object({ path: z.string().min(1), reason: z.enum(['unreadable', 'invalid']) }))
+    .optional(),
   /** 这个 Host 读不了的种类（格式还没支持），客户端照此显示而不是显示“没有”。 */
   unsupported: z.array(ImportKindSchema),
 });

@@ -99,7 +99,7 @@ describe.each(['claude', 'codex'] as const)('%s session parser', (app) => {
     const storage = storages.open(join(root, 'db'));
     const events = new EventStore({ storage });
     const imports = new SessionImports(storage, events);
-    const drafts = await scanSessions(app, join(root, 'external'));
+    const { sessions: drafts } = await scanSessions(app, join(root, 'external'));
     expect(drafts).toHaveLength(1);
     const draft = drafts[0];
     if (!draft) throw new Error('missing fixture');
@@ -136,6 +136,21 @@ it('marks shared-prefix Codex logs as incomplete and does not follow external hi
     ),
   );
   expect(await parseCodexSession(path)).toMatchObject({ nativeCompatible: false, skipped: 2 });
+});
+
+it('reports invalid files and unreadable directories without dropping valid histories; an absent directory is empty', async () => {
+  const root = temp();
+  expect(await scanSessions('claude', root)).toEqual({ sessions: [], sessionIssues: [] });
+  const valid = put(join(root, 'projects', 'demo', 'one.jsonl'), sourceFixture('claude'));
+  const invalid = put(join(root, 'projects', 'demo', 'bad.jsonl'), '{broken');
+  const scanned = await scanSessions('claude', root);
+  expect(scanned.sessions.map((item) => item.path)).toEqual([valid]);
+  expect(scanned.sessionIssues).toEqual([{ path: invalid, reason: 'invalid' }]);
+  const notDirectory = join(temp(), 'not-directory');
+  put(join(notDirectory, 'projects'), 'not a directory');
+  expect((await scanSessions('claude', notDirectory)).sessionIssues).toEqual([
+    { path: join(notDirectory, 'projects'), reason: 'unreadable' },
+  ]);
 });
 
 it('skips Claude sidechains and meta messages, and redacts secrets from text and nested tool inputs', async () => {
