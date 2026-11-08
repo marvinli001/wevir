@@ -21,7 +21,12 @@ import { useModelChoice } from '@/session/start-session';
 import { reasonLabel } from '@/settings/import-model';
 import { ImportSessionIssues } from '@/settings/import-session-issues';
 import { Segmented } from '@/settings/settings-ui';
-import { historiesForProject, historyProjects, importHistory } from './welcome-model';
+import {
+  historiesForProject,
+  historyProjects,
+  importHistory,
+  latestProject,
+} from './welcome-model';
 
 export function WelcomeWork({
   onBack,
@@ -69,7 +74,13 @@ export function WelcomeWork({
     setError(undefined);
     try {
       const result = await client.request('import.scan', { app });
-      if (generation === scanGeneration.current) setScan(result);
+      if (generation !== scanGeneration.current) return;
+      setScan(result);
+      // 还没选项目时落到最近一条历史所在的项目，列表直接出现。
+      if (root === undefined) {
+        const latest = latestProject(result.sessions ?? []);
+        if (latest !== undefined) setProject(latest);
+      }
     } catch (reason) {
       if (generation === scanGeneration.current)
         setError(t('settings.import.scanFailed', { error: describe(reason) }));
@@ -157,12 +168,13 @@ export function WelcomeWork({
           ]}
           onValueChange={changeProject}
           disabled={busy}
-          className="h-10 flex-1"
+          className="h-9 flex-1"
           data-action="welcome-project"
         />
         {manage.create && (
           <Button
             variant="outline"
+            size="lg"
             disabled={busy}
             onClick={() =>
               openCreateProject({ onCreated: (workspace) => changeProject(workspace.rootPath) })

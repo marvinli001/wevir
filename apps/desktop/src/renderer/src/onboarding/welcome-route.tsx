@@ -7,7 +7,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
@@ -31,6 +31,7 @@ import {
   presentTestResult,
   type TestPresentation,
 } from '@/settings/provider-test-result';
+import { Segmented } from '@/settings/settings-ui';
 import { VertexFields } from '@/settings/vertex-fields';
 import { onboardingDone } from './onboarding-state';
 import { ProviderCatalogDialog } from './provider-catalog-dialog';
@@ -44,6 +45,11 @@ export function WelcomeRoute() {
   const done = onboardingDone.use();
   const destination = useRef(paths.home());
   const [step, setStep] = useState<Step>('provider');
+  const accounts = useAccounts();
+  const [apiChosen, setApiChosen] = useState(false);
+  // 没有任何订阅来源（旧 Host 或不支持订阅）时第一步只有 API。
+  const subscriptions = accounts === undefined || accounts.length > 0;
+  const api = apiChosen || !subscriptions;
 
   if (data.status === 'loading') return <PendingPage />;
   if (data.status === 'error') return <PendingPage error={data.error} />;
@@ -61,9 +67,23 @@ export function WelcomeRoute() {
         <Stepper step={step} />
         <StepHeader
           title={t(step === 'provider' ? 'welcome.provider.title' : 'welcome.ready.title')}
+          aside={
+            step === 'provider' &&
+            subscriptions && (
+              <Segmented
+                label={t('welcome.provider.title')}
+                value={api ? 'api' : 'subscription'}
+                options={[
+                  { value: 'subscription', label: t('provider.section.subscriptions') },
+                  { value: 'api', label: 'API' },
+                ]}
+                onChange={(value) => setApiChosen(value === 'api')}
+              />
+            )
+          }
         />
         <div hidden={step !== 'provider'} className="min-h-0 flex-1">
-          <WelcomeSources onSkip={() => setStep('ready')} onNext={() => setStep('ready')}>
+          <WelcomeSources api={api} onSkip={() => setStep('ready')} onNext={() => setStep('ready')}>
             <ProviderStep
               onSkip={() => setStep('ready')}
               onConnected={(choice) => {
@@ -116,12 +136,12 @@ function Stepper({ step }: { step: Step }) {
   );
 }
 
-function StepHeader({ title, body }: { title: string; body?: string }) {
+function StepHeader({ title, aside }: { title: string; aside?: ReactNode }) {
   return (
-    <header className="flex shrink-0 items-center gap-3">
+    <header className="flex min-h-9 shrink-0 items-center gap-3">
       <BrandMark className="size-6 text-brand" />
-      <h1 className="text-2xl leading-tight font-semibold tracking-tight">{title}</h1>
-      {body && <p className="text-muted-foreground">{body}</p>}
+      <h1 className="flex-1 text-2xl leading-tight font-semibold tracking-tight">{title}</h1>
+      {aside}
     </header>
   );
 }
@@ -369,7 +389,7 @@ function ProviderTile({
       aria-pressed={selected}
       data-provider-tile={more ? 'more' : entry?.id}
       className={cn(
-        'group relative flex h-22 flex-col items-center justify-center gap-2.5 rounded-xl border bg-card px-2 text-sm outline-none',
+        'group relative flex min-h-22 flex-col items-center justify-center gap-2.5 rounded-xl border bg-card px-2 py-3 text-sm outline-none',
         'transition-[border-color,box-shadow,transform,background-color] duration-200 ease-out',
         'hover:-translate-y-0.5 hover:shadow-md focus-visible:focus-field active:translate-y-0 active:scale-[0.98]',
         selected ? 'border-foreground/70 shadow-md ring-1 ring-foreground/70' : 'border-border',

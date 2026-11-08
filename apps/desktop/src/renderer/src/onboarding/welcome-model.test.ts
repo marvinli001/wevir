@@ -11,6 +11,7 @@ import {
   historiesForProject,
   historyProjects,
   importHistory,
+  latestProject,
   needsWelcome,
   welcomeProviders,
 } from './welcome-model';
@@ -92,6 +93,20 @@ describe('first-use selection', () => {
       { value: '/project', label: 'Demo' },
       { value: '/other', label: '/other' },
     ]);
+  });
+
+  it('lands on the project of the most recent readable history', () => {
+    const at = (key: string, project: string | undefined, updatedAt: string, problem?: string) =>
+      ({ ...candidate, key, project, updatedAt, problem }) as ImportSessionCandidate;
+    expect(
+      latestProject([
+        at('a', '/a', '2026-11-01T00:00:00Z'),
+        at('b', '/b', '2026-11-03T00:00:00Z'),
+        at('c', '/c', '2026-11-05T00:00:00Z', 'unreadable'),
+        at('d', undefined, '2026-11-06T00:00:00Z'),
+      ]),
+    ).toBe('/b');
+    expect(latestProject([])).toBeUndefined();
   });
 
   it.each(['imported', 'skipped'])(

@@ -1221,7 +1221,6 @@ export const messages: Messages = {
   'home.noProvider': 'モデルプロバイダー未設定',
   'home.noProviderAccess': 'モデルプロバイダーへのアクセス権なし',
   'home.addProvider': 'モデルプロバイダーを追加',
-  'welcome.addApi': 'API を追加',
   'welcome.project': 'プロジェクトを選択',
   'welcome.newTask': '新しいタスク',
   'welcome.existingTask': '既存のタスク',

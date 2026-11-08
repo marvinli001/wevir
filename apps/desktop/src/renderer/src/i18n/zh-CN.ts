@@ -1224,7 +1224,6 @@ export const zhCN = {
   'home.noProvider': '未配置模型服务',
   'home.noProviderAccess': '无模型服务权限',
   'home.addProvider': '添加模型服务',
-  'welcome.addApi': '添加 API',
   'welcome.project': '选择项目',
   'welcome.newTask': '新任务',
   'welcome.existingTask': '已有任务',

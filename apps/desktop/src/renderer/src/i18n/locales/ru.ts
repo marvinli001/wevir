@@ -1246,7 +1246,6 @@ export const messages: Messages = {
   'home.noProvider': 'Поставщик моделей не настроен',
   'home.noProviderAccess': 'Нет доступа к поставщикам моделей',
   'home.addProvider': 'Добавить поставщика моделей',
-  'welcome.addApi': 'Добавить API',
   'welcome.project': 'Выбрать проект',
   'welcome.newTask': 'Новая задача',
   'welcome.existingTask': 'Существующая задача',

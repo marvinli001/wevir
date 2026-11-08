@@ -1213,7 +1213,6 @@ export const messages: Messages = {
   'home.noProvider': '구성된 모델 제공자 없음',
   'home.noProviderAccess': '모델 제공자 접근 권한 없음',
   'home.addProvider': '모델 제공자 추가',
-  'welcome.addApi': 'API 추가',
   'welcome.project': '프로젝트 선택',
   'welcome.newTask': '새 작업',
   'welcome.existingTask': '기존 작업',

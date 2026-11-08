@@ -1211,7 +1211,6 @@ export const messages: Messages = {
   'home.noProvider': '未設定模型服務',
   'home.noProviderAccess': '無模型服務權限',
   'home.addProvider': '新增模型服務',
-  'welcome.addApi': '新增 API',
   'welcome.project': '選擇專案',
   'welcome.newTask': '新任務',
   'welcome.existingTask': '現有任務',

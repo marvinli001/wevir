@@ -71,6 +71,19 @@ export function historyProjects(
   return projects;
 }
 
+/** 最近一条可读历史所在的项目目录；读取后还没选项目时用它。 */
+export function latestProject(candidates: readonly ImportSessionCandidate[]): string | undefined {
+  let latest: ImportSessionCandidate | undefined;
+  for (const candidate of candidates)
+    if (
+      candidate.project !== undefined &&
+      candidate.problem === undefined &&
+      (latest === undefined || candidate.updatedAt > latest.updatedAt)
+    )
+      latest = candidate;
+  return latest?.project;
+}
+
 export async function importHistory(
   client: WevirClient,
   candidate: ImportSessionCandidate,

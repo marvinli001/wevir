@@ -1220,7 +1220,6 @@ export const messages: Messages = {
   'home.noProvider': 'No model provider configured',
   'home.noProviderAccess': 'No access to model providers',
   'home.addProvider': 'Add model provider',
-  'welcome.addApi': 'Add API',
   'welcome.project': 'Select project',
   'welcome.newTask': 'New task',
   'welcome.existingTask': 'Existing task',

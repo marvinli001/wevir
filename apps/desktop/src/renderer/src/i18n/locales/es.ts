@@ -1237,7 +1237,6 @@ export const messages: Messages = {
   'home.noProvider': 'Ningún proveedor de modelos configurado',
   'home.noProviderAccess': 'Sin acceso a proveedores de modelos',
   'home.addProvider': 'Añadir proveedor de modelos',
-  'welcome.addApi': 'Añadir API',
   'welcome.project': 'Elegir proyecto',
   'welcome.newTask': 'Nueva tarea',
   'welcome.existingTask': 'Tarea existente',

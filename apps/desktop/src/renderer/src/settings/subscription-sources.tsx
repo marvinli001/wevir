@@ -268,7 +268,8 @@ export function SubscriptionSources({
         selected !== undefined && (
           <div
             className={cn(
-              'min-h-0 min-w-0 rounded-xl border border-border bg-card',
+              // 和网格一样按内容高度，不拉满整列。
+              'max-h-full min-h-0 min-w-0 self-start overflow-y-auto rounded-xl border border-border bg-card',
               sideBySide ? 'w-80 shrink-0' : 'flex-1',
             )}
           >
