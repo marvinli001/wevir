@@ -153,7 +153,33 @@ extract() {
 fetch_url() {
   local url="$1" asset="$2" expected="$3" pattern="$4"
   echo "下载 $url" >&2
-  curl -fL --retry 3 -o "$tmp/$asset" "$url"
+  if ! curl -fL --retry 3 -o "$tmp/$asset" "$url"; then
+    # 网页下载入口可能持续 504，官方资产 API 仍可用；显式镜像不回退直连。
+    [ "$mirror" = https://github.com ] || return 1
+    local release_path="${url#https://github.com/}"
+    local repository="${release_path%%/releases/download/*}"
+    local tag="${release_path#*/releases/download/}"
+    tag="${tag%/*}"
+    local metadata="$tmp/release-${repository//\//-}-${tag//\//-}.json"
+    if [ ! -f "$metadata" ]; then
+      curl -fL --retry 3 -o "$metadata" \
+        "https://api.github.com/repos/$repository/releases/tags/$tag" || return 1
+    fi
+    local asset_id
+    asset_id="$(node --input-type=module - "$metadata" "$asset" <<'JS'
+import { readFileSync } from 'node:fs';
+const release = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const asset = release.assets.find((entry) => entry.name === process.argv[3]);
+if (!asset || !Number.isSafeInteger(asset.id) || asset.id <= 0) {
+  throw new Error(`Release asset not found: ${process.argv[3]}`);
+}
+process.stdout.write(String(asset.id));
+JS
+    )" || return 1
+    echo "改用 GitHub 资产 API：$asset" >&2
+    curl -fL --retry 3 -H 'Accept: application/octet-stream' -o "$tmp/$asset" \
+      "https://api.github.com/repos/$repository/releases/assets/$asset_id" || return 1
+  fi
   local actual
   actual="$(sha256 "$tmp/$asset")"
   [ "$actual" = "$expected" ] || { echo "fetch-codex: $asset 的 sha256 不符：$actual ≠ $expected" >&2; exit 1; }
