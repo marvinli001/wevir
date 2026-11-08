@@ -22,7 +22,7 @@ import {
   findTextRange,
   transcriptFocus,
 } from './transcript-focus';
-import { RENDER_WINDOW, transcriptWindowEnd } from './transcript-window';
+import { laterWindowStart, RENDER_WINDOW, transcriptWindowEnd } from './transcript-window';
 import {
   adjoinsNotice,
   blockSeqRange,
@@ -206,7 +206,7 @@ export function TranscriptView({
   const showLater = () => {
     release(true);
     setFocusPin(undefined);
-    setPinnedStart(messages[Math.min(end, start + RENDER_WINDOW)]?.id);
+    setPinnedStart(messages[laterWindowStart(messages, start, end)]?.id);
   };
   const showLaterRef = useRef(showLater);
   showLaterRef.current = showLater;
