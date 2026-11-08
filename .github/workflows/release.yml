@@ -111,6 +111,8 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl, dir: linux-arm64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
     steps:
       - uses: actions/checkout@v7
         with:
@@ -316,6 +318,17 @@ jobs:
 
       - name: 安装依赖
         run: pnpm install --frozen-lockfile --filter "@wevir/mobile..."
+
+      - name: 准备 Gradle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/wevir-gradle"
+          gh release download v9.4.1 --repo gradle/gradle-distributions \
+            --pattern gradle-9.4.1-bin.zip --dir "$RUNNER_TEMP/wevir-gradle"
+          echo "2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb  $RUNNER_TEMP/wevir-gradle/gradle-9.4.1-bin.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/wevir-gradle/gradle-9.4.1-bin.zip" -d "$RUNNER_TEMP/wevir-gradle"
+          echo "GRADLE_HOME=$RUNNER_TEMP/wevir-gradle/gradle-9.4.1" >> "$GITHUB_ENV"
 
       - name: 打包
         env:

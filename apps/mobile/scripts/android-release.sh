@@ -14,6 +14,7 @@
 #   WEVIR_ANDROID_KEY_ALIAS           密钥别名，默认 wevir
 #   WEVIR_ANDROID_CERT_SHA256         签名证书的 SHA-256（十六进制，冒号可有可无）；设了就核对，换错密钥库时失败
 #   ANDROID_HOME、JAVA_HOME           Android SDK 与 JDK 17（GitHub 的 Ubuntu runner 自带 SDK）
+#   GRADLE_HOME                      已准备的 Gradle，版本须与生成的 Wrapper 相同；省略时使用 Wrapper
 
 set -euo pipefail
 
@@ -41,7 +42,14 @@ step "prebuild (android $version)"
 CI=1 pnpm exec expo prebuild --clean --platform android --no-install
 
 step "gradle assembleRelease"
-(cd android && ./gradlew --no-daemon assembleRelease \
+gradle=./gradlew
+if [ -n "${GRADLE_HOME:-}" ]; then
+  gradle="$GRADLE_HOME/bin/gradle"
+  expected="$(sed -n 's/^distributionUrl=.*gradle-\([0-9.]*\)-bin\.zip$/\1/p' android/gradle/wrapper/gradle-wrapper.properties)"
+  actual="$("$gradle" --version | sed -n 's/^Gradle //p')"
+  [ "$actual" = "$expected" ] || { echo "Gradle $actual does not match Wrapper $expected" >&2; exit 1; }
+fi
+(cd android && "$gradle" --no-daemon assembleRelease \
   -PreactNativeArchitectures=arm64-v8a,armeabi-v7a)
 cp android/app/build/outputs/apk/release/app-release.apk "$apk"
 
