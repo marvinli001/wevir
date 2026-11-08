@@ -262,7 +262,7 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
       'web_search = "disabled"',
       'thread_unload_delay_secs = 1800',
       'model_provider = "openai"',
-      'model_context_window = 1000000',
+      'model_context_window = 500000',
       'cli_auth_credentials_store = "file"',
       'forced_login_method = "chatgpt"',
       'mcp_oauth_credentials_store = "file"',
@@ -305,6 +305,10 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
     expect(chatgptThreadConfig(undefined)).toEqual({});
     expect(chatgptThreadConfig('off')).toEqual({ model_reasoning_effort: 'none' });
     expect(chatgptThreadConfig('high')).toEqual({ model_reasoning_effort: 'high' });
+    expect(chatgptThreadConfig('high', undefined, false, 872_000)).toEqual({
+      model_reasoning_effort: 'high',
+      model_context_window: 872_000,
+    });
   });
 });
 

@@ -324,6 +324,8 @@ export const HOST_FEATURES = {
    */
   usageStats: 'usage_stats',
   contextLedger: 'context_ledger',
+  /** 订阅账号按模型配置原始上下文窗口（0.167.0）。 */
+  subscriptionContextWindow: 'subscription_context_window',
   /**
    * 订阅多账号（0.63.0）：`account.add`、`account.remove`、`account.setLabel`，`account.*` 的 `id`，`AccountState` 的 `id`、
    * `label`、`localLogin`、`multiAccount`。哪些种类能添加看 `multiAccount`。
@@ -681,6 +683,7 @@ export const HostFeaturesSchema = z.looseObject({
   tool_presets: z.boolean().optional(),
   usage_stats: z.boolean().optional(),
   context_ledger: z.boolean().optional(),
+  subscription_context_window: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),

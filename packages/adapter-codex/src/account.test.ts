@@ -1,6 +1,6 @@
 import type { AccountState } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
-import { type AccountRpc, accountModels, ChatgptAccount } from './account.js';
+import { type AccountRpc, accountModels, ChatgptAccount, modelContextLimits } from './account.js';
 import type { GetAccountResponse } from './protocol.js';
 
 // ChatgptAccount 对着假的 app-server：请求的结果按方法给出，形状照 R6 在真实二进制上录到的（codex-event-mapping.md §8）。
@@ -49,6 +49,24 @@ function setup(handlers: Record<string, Handler>) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('ChatgptAccount', () => {
+  it('只使用账号目录明确声明的配置上限，不把默认窗口猜成上限', () => {
+    expect([
+      ...modelContextLimits({
+        models: [
+          { slug: 'gpt-6.1-sol', context_window: 500000, max_context_window: 872000 },
+          { slug: 'gpt-6-astra', context_window: 272000, max_context_window: 872000 },
+          { slug: 'unknown', context_window: 200000 },
+          { slug: 'invalid', max_context_window: -1 },
+          { slug: 'fraction', max_context_window: 1.5 },
+          null,
+        ],
+      }),
+    ]).toEqual([
+      ['gpt-6.1-sol', 872000],
+      ['gpt-6-astra', 872000],
+    ]);
+    expect([...modelContextLimits({ models: 'invalid' })]).toEqual([]);
+  });
   it('读账号：没登录；登录了带邮箱、套餐与用量（Unix 秒换成 ISO 时间）', async () => {
     let read = signedOut;
     const { account, calls } = setup({

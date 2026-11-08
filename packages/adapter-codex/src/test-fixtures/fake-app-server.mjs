@@ -224,6 +224,10 @@ const handlers = {
     requiresOpenaiAuth: true,
   }),
   'thread/start': (params) => {
+    appendFileSync(
+      join(process.cwd(), 'fake-thread-settings.jsonl'),
+      `${JSON.stringify({ method: 'thread/start', params })}\n`,
+    );
     const thread = {
       id: randomUUID(),
       cwd: params.cwd,
@@ -235,6 +239,10 @@ const handlers = {
     return threadResult(thread);
   },
   'thread/resume': (params) => {
+    appendFileSync(
+      join(process.cwd(), 'fake-thread-settings.jsonl'),
+      `${JSON.stringify({ method: 'thread/resume', params })}\n`,
+    );
     const { threadId } = params;
     if (!UUID.test(threadId)) throw rpcError(errorFixture('resume-invalid-id'));
     let thread = threads.get(threadId);

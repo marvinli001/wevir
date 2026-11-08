@@ -608,6 +608,8 @@ export interface ProviderModelConfig {
   id: string;
   displayName?: string;
   contextWindow?: number;
+  /** 订阅引擎的原始上下文窗口配置，与 protocol 同形。 */
+  contextWindowSettings?: { default: number; max: number; override?: number };
   maxTokens?: number;
   supportsImages?: boolean;
   /** 推理档位（off / minimal / low / medium / high / xhigh / max）；空数组表示不推理。 */

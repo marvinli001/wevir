@@ -1728,6 +1728,12 @@ export const messages: Messages = {
   'source.status.accounts':
     '{count, plural, one {# аккаунт} few {# аккаунта} many {# аккаунтов} other {# аккаунта}}',
   'source.account.list': 'Аккаунты',
+  'source.context.title': 'Контекст',
+  'source.context.model': 'Модель',
+  'source.context.reset': 'Сбросить',
+  'source.context.limit': 'Лимит Codex: {max} токенов',
+  'source.context.usable': 'Доступно: {value} токенов',
+  'source.context.invalid': 'Введите целое число от 1 до {max}',
   'source.account.add': 'Добавить аккаунт',
   'source.account.local': 'Это устройство',
   'source.account.label': 'Метка',

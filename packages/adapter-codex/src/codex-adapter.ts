@@ -358,6 +358,9 @@ interface CodexSession {
   readonly providerId: string;
   /** `configureSession`（0.9.0）可以换。 */
   model: ProviderModelConfig;
+  /** 根会话恢复时重建其工具、规则与环境；窗口覆盖只在回合之间应用。 */
+  resumeConfig?: SessionConfig;
+  appliedContextWindow?: number;
   /**
    * 会话中换过模型或推理档位（0.9.0）：之后每个 `turn/start` 都带上（Codex 对这个回合及之后生效，进程重启、resume 后
    * 照样要带）。
@@ -781,6 +784,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     );
     if (options.mode === 'chatgpt') {
       const account = new ChatgptAccount({
+        codexHome: this.#launcher.paths.codexHome,
         rpc: async () => {
           this.#assertUsable();
           await this.process.start();
@@ -877,6 +881,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.connectors,
         config.engineTools,
         config.fast,
+        config,
       );
       return engineSession(id, response);
     } finally {
@@ -933,6 +938,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.connectors,
         config.engineTools,
         config.fast,
+        config,
       );
       // 0.35.0：记下 thread 的目标（停止回合时要知道它是不是进行中）；Codex 恢复时的那次通知可能早于登记。
       const session = this.#sessions.get(engineSessionId);
@@ -1387,6 +1393,34 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     await this.#plugins.sync(session.cwd);
     await this.#account?.assertSignedIn();
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
+    if (this.#chatgpt && session.resumeConfig !== undefined) {
+      const config = session.resumeConfig;
+      const { provider, model } = this.#route({ ...config, modelId: session.model.id });
+      const window = model.contextWindow ?? 500_000;
+      if (window !== session.appliedContextWindow) {
+        // Codex 对仍有订阅者的 thread 忽略 config 覆盖；先退订再恢复，只重载这一条空闲会话。
+        await this.process.request('thread/unsubscribe', { threadId: session.id });
+        await this.#resumeThread({
+          threadId: session.id,
+          cwd: session.cwd,
+          ...this.#threadSettings(
+            provider,
+            model,
+            session.effort === null ? undefined : fromCodexEffort(session.effort),
+            config.appTools,
+            config.connectors,
+            config.hooks,
+            config.disabledHooks,
+            config.env,
+            config.engineTools,
+          ),
+          ...threadDeveloperInstructions(config),
+          excludeTurns: true,
+        });
+        session.appliedContextWindow = window;
+      }
+      session.model = model;
+    }
     return session;
   }
 
@@ -1531,6 +1565,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.connectors,
         config.engineTools,
         config.fast,
+        config,
       );
       if (!side) return engineSession(id, response);
       const inject: ThreadInjectItemsParams = {
@@ -3111,6 +3146,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
             reasoningEffort,
             this.#options.webTool?.state(),
             this.#launcher.webRegistered,
+            model.contextWindow ?? 500_000,
           ),
           ...tools,
         },
@@ -3157,6 +3193,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     connectors: SessionConfig['connectors'] = [],
     engineTools?: SessionConfig['engineTools'],
     fast?: boolean,
+    resumeConfig?: SessionConfig,
   ): void {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
@@ -3166,6 +3203,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       connectors: new Set(connectors.filter((item) => item.enabled).map((item) => item.name)),
       providerId: provider.id,
       model,
+      resumeConfig,
+      ...(this.#chatgpt && { appliedContextWindow: model.contextWindow ?? 500_000 }),
       effort: reasoningEffort === undefined ? null : toCodexEffort(reasoningEffort),
       fast: fast === true,
       permission,
@@ -3231,7 +3270,6 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     // 每次请求的用量记会话当前的模型（0.62.0）。
     if (this.#chatgpt) {
       return {
-        contextSize: () => model().contextWindow,
         model: () => model().id,
         subscription: true,
       };

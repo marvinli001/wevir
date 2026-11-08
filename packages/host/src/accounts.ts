@@ -8,7 +8,12 @@ import type {
   AccountUpstream,
   SessionId,
 } from '@wevir/protocol';
-import type { AccountLoginOptions, AccountModels, EngineAccounts } from '@wevir/runtime-adapter';
+import type {
+  AccountLoginOptions,
+  AccountModels,
+  EngineAccounts,
+  ProviderModelConfig,
+} from '@wevir/runtime-adapter';
 import type { ProviderProfileRecord, Storage } from '@wevir/storage';
 import type { EnginePathStore } from './engine-paths.js';
 import type { AccountPool } from './engine-router.js';
@@ -19,6 +24,31 @@ import { UsageRefresher } from './usage-refresh.js';
 /** ChatGPT 登录成功后 Host 自己建的 Provider（protocol `provider.upsert` 的 `chatgpt` 一支，ID 固定）。 */
 export const CHATGPT_PROVIDER_ID = 'chatgpt';
 export const CHATGPT_DISPLAY_NAME = 'ChatGPT';
+
+/** 引擎刷新元数据时保留用户的窗口选择，实际窗口按最新上限裁剪。 */
+export function mergeAccountModelSettings(
+  models: ProviderModelConfig[],
+  previous: unknown,
+): ProviderModelConfig[] {
+  const previousSettings = new Map(
+    ((previous ?? []) as ProviderModelConfig[]).map((model) => [
+      model.id,
+      model.contextWindowSettings,
+    ]),
+  );
+  return models.map((model) => {
+    const saved = previousSettings.get(model.id);
+    const settings = model.contextWindowSettings ?? saved;
+    const override = saved?.override;
+    return settings === undefined
+      ? model
+      : {
+          ...model,
+          contextWindow: Math.min(override ?? settings.default, settings.max),
+          contextWindowSettings: { ...settings, ...(override !== undefined && { override }) },
+        };
+  });
+}
 
 /**
  * 账号登录后 Host 自己建的 Provider 的显示名（0.19.0，domain-model §3.6）：ID 与种类相同。Claude 2026-10-17 起叫 “Claude”
@@ -588,7 +618,7 @@ export class HostAccounts {
         id,
         kind,
         displayName: this.#displayName(slot, existing),
-        models,
+        models: mergeAccountModelSettings(models, existing?.models),
         defaultModelId: keep ? existing.defaultModelId : defaultModelId,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   type AccountLoginMethod,
   type AccountModels,
@@ -41,6 +43,7 @@ export interface ChatgptAccountOptions {
   warn: (message: string, fields?: Record<string, unknown>) => void;
   /** 测试用。 */
   now?: () => Date;
+  codexHome?: string;
 }
 
 /** Wevir 的推理档位（protocol `ProviderReasoningLevel`）；Codex 多出来的（如 `ultra`）不列。 */
@@ -250,7 +253,29 @@ export class ChatgptAccount {
       cursor = response.nextCursor ?? null;
       if (cursor === null) break;
     }
-    return accountModels(data);
+    const models = accountModels(data);
+    const limits = await this.#contextLimits();
+    for (const model of models.models) {
+      const max = limits.get(model.id);
+      if (max === undefined) continue;
+      const window = Math.min(500_000, max);
+      model.contextWindow = window;
+      model.contextWindowSettings = { default: window, max };
+    }
+    return models;
+  }
+
+  async #contextLimits(): Promise<Map<string, number>> {
+    if (this.#options.codexHome === undefined) return new Map();
+    try {
+      const cache: unknown = JSON.parse(
+        await readFile(join(this.#options.codexHome, 'models_cache.json'), 'utf8'),
+      );
+      return modelContextLimits(cache);
+    } catch {
+      // 目录缓存可能尚未生成或正在替换；不把默认窗口猜成模型上限。
+      return new Map();
+    }
   }
 
   // ── 通知 ───────────────────────────────────────────────────────────────────────────
@@ -416,6 +441,21 @@ export class ChatgptAccount {
 
 /** Codex 的快速档 ID：目录的 `priority`（`ServiceTier::Fast` 的请求值）与旧的 `fast`。 */
 export const CODEX_FAST_TIER = 'priority';
+
+/** Codex 模型缓存的窗口元数据；不读取或返回其他模型字段。 */
+export function modelContextLimits(cache: unknown): Map<string, number> {
+  const limits = new Map<string, number>();
+  if (typeof cache !== 'object' || cache === null || !('models' in cache)) return limits;
+  if (!Array.isArray(cache.models)) return limits;
+  for (const model of cache.models) {
+    if (typeof model !== 'object' || model === null) continue;
+    const max = model.max_context_window;
+    if (typeof model.slug === 'string' && Number.isSafeInteger(max) && max > 0) {
+      limits.set(model.slug, max);
+    }
+  }
+  return limits;
+}
 
 function isFastTier(id: unknown): boolean {
   return id === CODEX_FAST_TIER || id === 'fast';

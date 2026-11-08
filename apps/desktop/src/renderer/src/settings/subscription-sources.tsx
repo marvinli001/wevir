@@ -63,6 +63,7 @@ import {
   RemoveAccountButton,
   RemoveAccountDialog,
 } from './subscription-accounts';
+import { SubscriptionContextWindow } from './subscription-context-window';
 import { LoginPanel, UpstreamList } from './subscription-upstreams';
 import { loginPrompt } from './subscription-upstreams-model';
 
@@ -753,6 +754,9 @@ function SourceDetail({
       </div>
       {!setupOnly && source.kind === 'claude' && (
         <ClaudeIdleCompactionSetting key={id} providerId={id} />
+      )}
+      {!setupOnly && provider !== undefined && account?.status === 'signed_in' && (
+        <SubscriptionContextWindow key={id} client={client} provider={provider} />
       )}
       {canAdd && account !== undefined && (
         <div

@@ -67,6 +67,69 @@ function turnStarts(home: string): {
 }
 
 describe('CodexAdapter.configureSession', () => {
+  it('ChatGPT 的账号模型窗口在创建、换模型、配置刷新与恢复时按原始值应用，只重载对应会话', async () => {
+    const { home, workspace } = dirs.make('chatgpt-context');
+    const provider = {
+      id: 'chatgpt',
+      kind: 'chatgpt' as const,
+      displayName: 'ChatGPT',
+      models: [
+        { id: MOCK_MODEL, contextWindow: 500000 },
+        { id: 'mock-large', contextWindow: 872000 },
+      ],
+      defaultModelId: MOCK_MODEL,
+    };
+    const adapter = newAdapter({
+      home,
+      mode: 'chatgpt',
+      binary: process.execPath,
+      binaryArgs: [FAKE_APP_SERVER],
+      providers: [provider],
+    });
+    adapters.push(adapter);
+    const config = {
+      cwd: workspace,
+      providerId: 'chatgpt',
+      modelId: MOCK_MODEL,
+      env: { CONTEXT_TEST: 'preserved' },
+    };
+    const { engineSessionId } = await adapter.createSession(config);
+    const other = await adapter.createSession(config);
+    const events = collectEvents(adapter, engineSessionId);
+    await runTurn(adapter, engineSessionId, 'one', events);
+    await adapter.configureSession(engineSessionId, {
+      modelId: 'mock-large',
+      reasoningEffort: 'high',
+    });
+    await runTurn(adapter, engineSessionId, 'two', events);
+    await adapter.configureProviders([
+      {
+        ...provider,
+        models: [
+          { id: MOCK_MODEL, contextWindow: 500000 },
+          { id: 'mock-large', contextWindow: 600000 },
+        ],
+      },
+    ]);
+    await runTurn(adapter, engineSessionId, 'three', events);
+    expect(adapter.hasSession(other.engineSessionId)).toBe(true);
+    await adapter.close(engineSessionId);
+    await adapter.resumeSession(engineSessionId, { ...config, modelId: 'mock-large' });
+    const file = findFile(home, 'fake-thread-settings.jsonl');
+    const requests = readFileSync(file as string, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(requests.map((entry) => entry.params.config.model_context_window)).toEqual([
+      500000, 500000, 872000, 600000, 600000,
+    ]);
+    expect(requests[2].params.config.model_reasoning_effort).toBe('high');
+    expect(requests[2].params.config['shell_environment_policy.set']).toEqual({
+      CONTEXT_TEST: 'preserved',
+    });
+    expect(events.some((event) => event.type === 'engine.exited')).toBe(false);
+  });
+
   it('之后的 turn/start 带 model 与 effort；没换过时不带；Provider 没有的模型报 invalid_input', async () => {
     const { home } = dirs.make('configure');
     const adapter = newAdapter({

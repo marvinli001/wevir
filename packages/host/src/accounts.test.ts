@@ -3,17 +3,21 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ProviderProfile } from '@wevir/protocol';
 import type {
   AccountKind,
   AccountLoginMethod,
   AccountModels,
   AccountState,
+  AgentRuntimeAdapter,
   EngineAccounts,
   ProviderConfig,
   ProviderIssue,
 } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
+import { mergeAccountModelSettings } from './accounts.js';
+import { EngineRouter } from './engine-router.js';
 import { type RunningHost, startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { loadTerminalModules } from './terminals.js';
@@ -113,8 +117,10 @@ class AccountAdapter extends EchoAdapter {
   }
 }
 
-async function start(adapter: EchoAdapter = new AccountAdapter()) {
-  const home = join(tempDir(), 'home');
+async function start(
+  adapter: AgentRuntimeAdapter = new AccountAdapter(),
+  home = join(tempDir(), 'home'),
+) {
   const host = await startHost({
     adapter,
     engine: 'echo',
@@ -138,6 +144,32 @@ async function start(adapter: EchoAdapter = new AccountAdapter()) {
 }
 
 describe('ChatGPT 账号（account.*）', () => {
+  it('窗口元数据暂缺时保留上次配置；上限下降时裁剪生效值并保留用户选择', () => {
+    const saved = [
+      {
+        id: 'm',
+        contextWindow: 800000,
+        contextWindowSettings: { default: 500000, max: 872000, override: 800000 },
+      },
+    ];
+    expect(mergeAccountModelSettings([{ id: 'm' }], saved)).toEqual(saved);
+    expect(
+      mergeAccountModelSettings(
+        [
+          {
+            id: 'm',
+            contextWindow: 272000,
+            contextWindowSettings: { default: 272000, max: 272000 },
+          },
+        ],
+        saved,
+      )[0],
+    ).toEqual({
+      id: 'm',
+      contextWindow: 272000,
+      contextWindowSettings: { default: 272000, max: 272000, override: 800000 },
+    });
+  });
   it('引擎有账号时 hello 声明 chatgpt_account；echo 引擎不声明，account.* 回 ENGINE_ERROR', async () => {
     const withAccounts = await start();
     expect((await withAccounts.connect()).hello.features).toEqual({
@@ -184,6 +216,7 @@ describe('ChatGPT 账号（account.*）', () => {
       episodes: true,
       context_search: true,
       chatgpt_account: true,
+      subscription_context_window: true,
       session_configure: true,
       user_questions: true,
       question_timeout: true,
@@ -400,6 +433,117 @@ describe('ChatGPT 账号（account.*）', () => {
       code: -32041,
       data: { message: 'failed to request device code: offline' },
     });
+  });
+
+  it('同模型的账号覆盖互相隔离，Host 重启与目录刷新后仍保留', async () => {
+    const makeAdapter = () => {
+      const adapter = new AccountAdapter();
+      adapter.accounts.models_ = {
+        models: [
+          {
+            id: 'gpt-6.1-sol',
+            contextWindow: 500000,
+            contextWindowSettings: { default: 500000, max: 872000 },
+          },
+        ],
+        defaultModelId: 'gpt-6.1-sol',
+      };
+      adapter.accounts.signIn();
+      return adapter;
+    };
+    const router = () =>
+      new EngineRouter([{ name: 'codex', adapter: makeAdapter(), kinds: ['chatgpt'] }], {
+        accountEngines: { kinds: ['chatgpt'], create: () => makeAdapter() },
+      });
+    const home = join(tempDir(), 'home');
+    const first = await start(router(), home);
+    const { client } = await first.connect({
+      provider_kind_chatgpt: true,
+      subscription_accounts: true,
+    });
+    await client.request('account.get', { kind: 'chatgpt' });
+    const { account } = await client.request('account.add', { kind: 'chatgpt' });
+    const id = account.id as string;
+    await client.request('account.get', { kind: 'chatgpt', id });
+    await client.request('account.setModelContextWindow', {
+      id,
+      modelId: 'gpt-6.1-sol',
+      contextWindow: 800000,
+    });
+    let providers = (await client.request('provider.list')).providers as ProviderProfile[];
+    expect(providers.find((entry) => entry.id === 'chatgpt')?.models[0]?.contextWindow).toBe(
+      500000,
+    );
+    expect(providers.find((entry) => entry.id === id)?.models[0]?.contextWindow).toBe(800000);
+    await first.host.shutdown();
+    running.splice(running.indexOf(first.host), 1);
+    const second = await start(router(), home);
+    const next = (
+      await second.connect({ provider_kind_chatgpt: true, subscription_accounts: true })
+    ).client;
+    await next.request('account.get', { kind: 'chatgpt', id, refresh: true });
+    providers = (await next.request('provider.list')).providers;
+    expect(
+      providers.find((entry) => entry.id === id)?.models[0]?.contextWindowSettings?.override,
+    ).toBe(800000);
+    expect(
+      providers.find((entry) => entry.id === 'chatgpt')?.models[0]?.contextWindowSettings?.override,
+    ).toBeUndefined();
+  });
+
+  it('按模型保存窗口、验证上限、刷新与默认模型变更保留覆盖，清除后回到默认', async () => {
+    const adapter = new AccountAdapter();
+    adapter.accounts.models_ = {
+      models: [
+        {
+          id: 'gpt-6.1-sol',
+          contextWindow: 500000,
+          contextWindowSettings: { default: 500000, max: 872000 },
+        },
+        {
+          id: 'gpt-6-astra',
+          contextWindow: 500000,
+          contextWindowSettings: { default: 500000, max: 872000 },
+        },
+        { id: 'unknown' },
+      ],
+      defaultModelId: 'gpt-6.1-sol',
+    };
+    const { connect } = await start(adapter);
+    const { client } = await connect();
+    await client.request('account.get', { kind: 'chatgpt' });
+    adapter.accounts.signIn();
+    await waitForProviders(client, 1);
+    const setWindow = (modelId: string, contextWindow: number | null) =>
+      client.request('account.setModelContextWindow', { id: 'chatgpt', modelId, contextWindow });
+    const { provider } = await setWindow('gpt-6-astra', 872000);
+    expect(provider.models[1]).toMatchObject({
+      contextWindow: 872000,
+      contextWindowSettings: { default: 500000, max: 872000, override: 872000 },
+    });
+    expect(provider.models[0]?.contextWindowSettings?.override).toBeUndefined();
+    await expect(setWindow('gpt-6-astra', 872001)).rejects.toThrow();
+    await expect(setWindow('unknown', 500000)).rejects.toThrow();
+    await expect(
+      client.request('account.setModelContextWindow', {
+        id: 'missing',
+        modelId: 'gpt-6-astra',
+        contextWindow: 500000,
+      }),
+    ).rejects.toThrow();
+    await client.request('provider.upsert', {
+      id: 'chatgpt',
+      kind: 'chatgpt',
+      displayName: 'ChatGPT',
+      defaultModelId: 'gpt-6-astra',
+    });
+    await client.request('account.get', { kind: 'chatgpt', refresh: true });
+    const refreshed = (await client.request('provider.list')).providers[0];
+    expect(refreshed?.models[1]?.contextWindowSettings?.override).toBe(872000);
+    expect(adapter.applied.at(-1)?.[0]?.models[1]?.contextWindow).toBe(872000);
+    const reset = await setWindow('gpt-6-astra', null);
+    expect(reset.provider.models[1]).toMatchObject({ contextWindow: 500000 });
+    expect(reset.provider.models[1]?.contextWindowSettings?.override).toBeUndefined();
   });
 
   it('登录成功后 Host 建 chatgpt Provider（模型与默认模型来自引擎），交给引擎；没有 provider_kind_chatgpt 的连接看不到它', async () => {

@@ -124,6 +124,14 @@ export const ProviderModelSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().optional(),
   contextWindow: z.int().min(1).optional(),
+  /** 订阅引擎声明的原始窗口配置；省略时不支持数值编辑。 */
+  contextWindowSettings: z
+    .object({
+      default: z.int().min(1),
+      max: z.int().min(1),
+      override: z.int().min(1).optional(),
+    })
+    .optional(),
   /** 最大输出 token（0.2.0）。省略时用 dsh 目录或路由的默认值。 */
   maxTokens: z.int().min(1).optional(),
   /** 是否接受图片输入（0.2.0）。省略时沿用 dsh 目录，目录里没有的模型只收文本。 */

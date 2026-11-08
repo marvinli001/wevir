@@ -5220,6 +5220,23 @@ export const methodSamples: MethodSamples = {
       invalid: [{ account: { ...labeledClaudeAccount, multiAccount: false } }],
     },
   },
+  'account.setModelContextWindow': {
+    params: {
+      valid: [
+        { id: 'chatgpt', modelId: 'gpt-6-astra', contextWindow: 500000 },
+        { id: 'chatgpt-7944', modelId: 'gpt-6.1-sol', contextWindow: null },
+      ],
+      invalid: [
+        { id: 'chatgpt', modelId: 'gpt-6-astra', contextWindow: 0 },
+        { id: 'chatgpt', modelId: 'gpt-6-astra', contextWindow: 1.5 },
+        { id: 'chatgpt', modelId: 'gpt-6-astra' },
+      ],
+    },
+    result: {
+      valid: [{ provider: chatgptProvider }],
+      invalid: [{}],
+    },
+  },
   'session.create': {
     params: {
       valid: [

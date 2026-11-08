@@ -33,7 +33,7 @@ import type {
   Storage,
   WorkspaceRecord,
 } from '@wevir/storage';
-import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
+import { CHATGPT_PROVIDER_ID, type HostAccounts, mergeAccountModelSettings } from './accounts.js';
 import type { ApprovalRuleService } from './approval-rules/service.js';
 import type { AutomationService } from './automations/service.js';
 import type { AssistantFolders } from './channels/assistants.js';
@@ -656,7 +656,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         id,
         kind: 'chatgpt',
         displayName: params.displayName,
-        models,
+        models: mergeAccountModelSettings(models, existing?.models),
         defaultModelId: params.defaultModelId,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
@@ -1317,6 +1317,46 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'account.setLabel': async ({ id, label }) => ({
       account: await requireAccounts().setLabel(id, label),
     }),
+
+    'account.setModelContextWindow': async ({ id, modelId, contextWindow }) => {
+      const account = requireAccounts();
+      if (account.kindOf(id) !== 'chatgpt') {
+        throw invalidParams(['id'], 'this account does not support context window settings');
+      }
+      const { models } = await account.models({ kind: 'chatgpt', id });
+      const model = models.find((entry) => entry.id === modelId);
+      const settings = model?.contextWindowSettings;
+      if (settings === undefined) {
+        throw invalidParams(
+          ['modelId'],
+          'this model does not provide a configurable context window',
+        );
+      }
+      if (contextWindow !== null && contextWindow > settings.max) {
+        throw invalidParams(['contextWindow'], `context window must not exceed ${settings.max}`);
+      }
+      return serialProvider(async () => {
+        const existing = storage.providers.get(id);
+        if (existing === undefined)
+          throw new HostError('PROVIDER_NOT_FOUND', `provider ${id} not found`);
+        const next = mergeAccountModelSettings(models, existing.models).map((entry) => {
+          if (entry.id !== modelId) return entry;
+          return {
+            ...entry,
+            contextWindow: contextWindow ?? settings.default,
+            contextWindowSettings: {
+              default: settings.default,
+              max: settings.max,
+              ...(contextWindow !== null && { override: contextWindow }),
+            },
+          };
+        });
+        const record = { ...existing, models: next, updatedAt: isoNow() };
+        storage.providers.update(record);
+        await applyProviders();
+        return { provider: toProviderProfile(record) };
+      });
+    },
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
 

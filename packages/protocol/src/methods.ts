@@ -1203,6 +1203,12 @@ export const AccountSetLabelParamsSchema = z.object({
   label: AccountLabelSchema.nullable(),
 });
 
+export const AccountSetModelContextWindowParamsSchema = z.object({
+  id: ProviderIdSchema,
+  modelId: z.string().min(1),
+  contextWindow: z.int().min(1).nullable(),
+});
+
 /** `account.updated` 通知：账号状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化），带完整的状态。 */
 export const AccountUpdatedParamsSchema = z.object({
   account: AccountStateSchema,
@@ -2286,6 +2292,11 @@ export const MethodSchemas = {
   'account.setLabel': {
     params: AccountSetLabelParamsSchema,
     result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.setModelContextWindow': {
+    params: AccountSetModelContextWindowParamsSchema,
+    result: z.object({ provider: ProviderProfileSchema }),
     permission: 'provider.write',
   },
 
