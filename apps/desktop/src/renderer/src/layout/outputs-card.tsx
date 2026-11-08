@@ -99,10 +99,7 @@ function useOutputsCard({ sessionId, session }: RailContext) {
     summary: t('rail.outputs.files', { count: files.length }),
     details: (
       <FileLinkMenuProvider cwd={session.cwd} attach={attach}>
-        <ul
-          data-testid="rail-outputs"
-          className="-mx-1.5 max-h-72 overflow-x-hidden overflow-y-auto px-1.5"
-        >
+        <ul data-testid="rail-outputs" className="-mx-1.5 px-1.5">
           {files.map((file) => {
             const open = opener(file);
             return <OutputRow key={file.path} file={file} {...(open && { onOpen: open })} />;
