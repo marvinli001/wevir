@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { compare } from 'semver';
 import { describe, expect, it } from 'vitest';
 import type { UpdateState } from '../../shared/desktop-api.js';
 import { fakeServer, manifestText, signText, testKeyPair } from '../test-fixtures/update-feed.js';
@@ -36,7 +37,8 @@ class FakeUpdater extends EventEmitter {
     const result = await this.feed?.latest();
     if (result === undefined) return null;
     this.lastBase = result.baseUrl;
-    if (result.info.version !== this.currentVersion) this.emit('update-available', result.info);
+    if (compare(result.info.version, this.currentVersion) > 0)
+      this.emit('update-available', result.info);
     else this.emit('update-not-available');
     return result;
   }
@@ -55,13 +57,20 @@ class FakeUpdater extends EventEmitter {
   }
 }
 
-function serve(version: string, mirrors = [GLOBAL, SECOND], delayMs: Record<string, number> = {}) {
+function serve(
+  version: string | readonly string[],
+  mirrors = [GLOBAL, SECOND],
+  delayMs: Record<string, number> = {},
+) {
   const routes: Record<string, string | Uint8Array> = {};
   for (const mirror of mirrors) {
     const base = `${mirror.url}/desktop/darwin-arm64/`;
-    routes[`${base}latest-mac.yml`] = manifestText(version);
-    routes[`${base}latest-mac.yml.sig`] = signText(manifestText(version), privateKey);
-    routes[`${base}Wevir-${version}-mac-arm64.zip`] = new Uint8Array(PROBE_BYTES);
+    for (const v of typeof version === 'string' ? [version] : version) {
+      const file = v.includes('-') ? 'beta-mac.yml' : 'latest-mac.yml';
+      routes[`${base}${file}`] = manifestText(v);
+      routes[`${base}${file}.sig`] = signText(manifestText(v), privateKey);
+      routes[`${base}Wevir-${v}-mac-arm64.zip`] = new Uint8Array(PROBE_BYTES);
+    }
   }
   return fakeServer(routes, { delayMs });
 }
@@ -293,12 +302,47 @@ describe('UpdateController', () => {
 
   it('换通道：记下并重新检查', async () => {
     const updater = new FakeUpdater('0.2.0');
-    const { ctl, prefs } = controller({ updater, fetcher: serve('0.2.0').fetcher });
+    const { ctl, prefs } = controller({ updater, fetcher: serve('0.2.1').fetcher });
     expect(ctl.state.channel).toBe('stable');
+    await ctl.check();
+    expect(ctl.state).toMatchObject({ phase: 'available', version: '0.2.1' });
     await ctl.setChannel('dev');
     expect(prefs()).toEqual({ channel: 'dev' });
-    // 还没有 beta 的清单：只看正式版的，照样是最新。
     expect(ctl.state).toMatchObject({ channel: 'dev', phase: 'latest' });
+  });
+
+  it('开发版保持开发通道，手动切到正式通道后才收到正式版', async () => {
+    const updater = new FakeUpdater('0.0.1-beta.766');
+    const { ctl } = controller({
+      updater,
+      fetcher: serve(['0.0.1-beta.766', '0.0.1']).fetcher,
+    });
+    await ctl.check();
+    expect(ctl.state).toMatchObject({ channel: 'dev', phase: 'latest' });
+    await ctl.setChannel('stable');
+    expect(ctl.state).toMatchObject({ channel: 'stable', phase: 'available', version: '0.0.1' });
+    await ctl.setChannel('dev');
+    expect(ctl.state).toMatchObject({ channel: 'dev', phase: 'latest' });
+  });
+
+  it('正式版切到开发通道可收到下一补丁号的 beta，切回正式通道不降级', async () => {
+    const fetcher = serve(['0.0.1', '0.0.2-beta.1']).fetcher;
+    const stable = controller({ updater: new FakeUpdater('0.0.1'), fetcher }).ctl;
+    await stable.check();
+    expect(stable.state).toMatchObject({ channel: 'stable', phase: 'latest' });
+    await stable.setChannel('dev');
+    expect(stable.state).toMatchObject({
+      channel: 'dev',
+      phase: 'available',
+      version: '0.0.2-beta.1',
+    });
+
+    const updater = new FakeUpdater('0.0.2-beta.1');
+    const beta = controller({ updater, fetcher }).ctl;
+    await beta.setChannel('stable');
+    expect(beta.state).toMatchObject({ channel: 'stable', phase: 'latest' });
+    expect(updater.allowDowngrade).toBe(false);
+    expect(updater.downloads).toEqual([]);
   });
 
   it('唤醒或回到前台：上次检查过久才补查，第一次检查之前与刚查过时不查', async () => {

@@ -52,7 +52,7 @@ describe('线路与清单的位置', () => {
     expect(manifestFile('latest', 'linux', 'x64')).toBe('latest-linux.yml');
     expect(manifestFile('beta', 'linux', 'arm64')).toBe('beta-linux-arm64.yml');
     expect(channelNames('stable')).toEqual(['latest']);
-    expect(channelNames('dev')).toEqual(['latest', 'beta']);
+    expect(channelNames('dev')).toEqual(['beta']);
   });
 
   it('GitHub Release 没有目录：清单前加平台与架构，安装包相对 Release 的下载地址', () => {
@@ -150,28 +150,40 @@ describe('readMirror / raceMirrors', () => {
         signal,
       });
 
-  it('开发版读 latest 与 beta 取高的：正式版发布后开发版用户也收到它', async () => {
-    const newerStable = fakeServer(routes(GLOBAL, '0.3.0', '0.3.0-beta.4'));
-    const { first } = await raceMirrors({
+  it.each([
+    ['dev', '0.3.0', '0.3.0-beta.4', '0.3.0-beta.4'],
+    ['dev', '0.3.0', '0.3.1-beta.1', '0.3.1-beta.1'],
+    ['stable', '0.3.0', '0.3.1-beta.1', '0.3.0'],
+  ] as const)(
+    '通道 %s 只读自己的清单（正式版 %s，开发版 %s）',
+    async (channel, latest, beta, expected) => {
+      const server = fakeServer(routes(GLOBAL, latest, beta));
+      const { first } = await raceMirrors({
+        mirrors: [GLOBAL],
+        timeoutMs: 1000,
+        read: read(server.fetcher, channel),
+      });
+      expect(first.info.version).toBe(expected);
+      const file = channel === 'dev' ? 'beta-mac.yml' : 'latest-mac.yml';
+      expect(server.requests.map((request) => request.url)).toEqual([
+        `${base(GLOBAL)}${file}`,
+        `${base(GLOBAL)}${file}.sig`,
+      ]);
+    },
+  );
+
+  it('开发通道没有清单时不回退到已发布的正式版', async () => {
+    const stableOnly = fakeServer(routes(GLOBAL, '0.3.0'));
+    const error = await raceMirrors({
       mirrors: [GLOBAL],
       timeoutMs: 1000,
-      read: read(newerStable.fetcher, 'dev'),
-    });
-    expect(first.info.version).toBe('0.3.0');
-    const newerBeta = fakeServer(routes(GLOBAL, '0.3.0', '0.3.1-beta.1'));
-    const dev = await raceMirrors({
-      mirrors: [GLOBAL],
-      timeoutMs: 1000,
-      read: read(newerBeta.fetcher, 'dev'),
-    });
-    expect(dev.first.info.version).toBe('0.3.1-beta.1');
-    const stable = await raceMirrors({
-      mirrors: [GLOBAL],
-      timeoutMs: 1000,
-      read: read(newerBeta.fetcher, 'stable'),
-    });
-    expect(stable.first.info.version).toBe('0.3.0');
-    expect(newerBeta.requests.some((r) => r.url.endsWith('beta-mac.yml'))).toBe(true);
+      read: read(stableOnly.fetcher, 'dev'),
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UpdateFeedError);
+    expect((error as UpdateFeedError).empty).toBe(true);
+    expect(stableOnly.requests.map((request) => request.url)).toEqual([
+      `${base(GLOBAL)}beta-mac.yml`,
+    ]);
   });
 
   it('还没发过正式版：开发版只读 beta；该通道一份清单都没有时报 empty（不是连不上）', async () => {

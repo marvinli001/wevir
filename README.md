@@ -162,7 +162,7 @@ Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Quest
 
 <img alt="Stable" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Flatest-mac.yml&query=%24.version&prefix=v&label=stable&color=80643D&style=flat-square&logo=github&logoColor=white" />
 
-Stable releases receive stable updates. Development builds (`X.Y.Z-beta.N`), published automatically from `master` after CI passes, receive both development and stable updates. The channel can be changed in **Settings → About**.
+Stable and development update channels are separate: each receives only its own releases. Development builds (`X.Y.Z-beta.N`) are published automatically from `master` after CI passes. All releases follow one version sequence; switching channels never downgrades the app. The channel can be changed in **Settings → About**.
 
 | Platform | Installer |
 | --- | --- |

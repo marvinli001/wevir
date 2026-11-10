@@ -5,8 +5,8 @@
 // （`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，Linux 是 `latest-linux.yml`、arm64 是
 // `latest-linux-arm64.yml`）、每份清单的签名 `<清单>.sig`，以及清单里
 // 列出的安装包与 blockmap（相对路径）。GitHub 线路是一个 Release（tag `desktop-updates`）的附件，附件没有目录：清单与签名
-// 名字前加 `<平台>-<架构>-`，安装包与 blockmap 的名字本来就带平台与架构，照原名放，清单里的相对路径照样指得到。正式版只读 latest，开发版读 latest 与 beta、取版本高的：正式版发布后开发版用户
-// 也会收到它，切回正式版时不降级（electron-updater 的 allowDowngrade 关着）。
+// 名字前加 `<平台>-<架构>-`，安装包与 blockmap 的名字本来就带平台与架构，照原名放，清单里的相对路径照样指得到。正式版只读 latest，开发版只读 beta；
+// 版本共用一条递增线，切换通道不降级（electron-updater 的 allowDowngrade 关着）。
 
 import { createPublicKey, verify } from 'node:crypto';
 import { load } from 'js-yaml';
@@ -80,7 +80,7 @@ export function manifestUrl(
 
 /** 通道读哪几份清单（electron-builder 的通道名：正式版 latest，开发版 beta）。 */
 export function channelNames(channel: UpdateChannel): readonly string[] {
-  return channel === 'dev' ? ['latest', 'beta'] : ['latest'];
+  return channel === 'dev' ? ['beta'] : ['latest'];
 }
 
 /** electron-builder 的清单文件名：Linux 上 x64 以外的架构带后缀（`latest-linux-arm64.yml`）。 */

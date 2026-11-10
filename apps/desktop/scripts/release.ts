@@ -1112,8 +1112,7 @@ function sha256Of(path: string): string {
 /**
  * 发命令行包：`<目录>` 里是各平台的 `wevir-cli-<版本>-*`。写这个版本的校验和文件，连同 apps/cli/scripts/ 的安装脚本放进去，然后
  * 照桌面端的顺序：包与校验和先传到所有线路（全球线路经 CDN 核对，见 uploadInstallers），都成功后核对通道文件只许更高的版本覆盖，
- * 再写安装脚本与通道文件。正式版同时把开发版的通道推到不低于它的版本（开发版用户也装得到正式版）。最后清理旧版本（各通道留
- * KEEP_VERSIONS 个，再加通道文件正指着的）。
+ * 再写安装脚本与所选通道的文件，两个通道互不改写。最后清理旧版本（各通道留 KEEP_VERSIONS 个，再加通道文件正指着的）。
  */
 async function publishCli(options: {
   channel: Channel;
@@ -1134,22 +1133,13 @@ async function publishCli(options: {
   const payload = [...packages, checksums];
   const lines = selectLines(options.only, { root: CLI_ROOT, release: CLI_RELEASE });
 
-  // 要写的通道文件与版本：开发版只写 beta.txt；正式版写 latest.txt，beta.txt 低于它时也写。
-  const pointers = (line: Line): string[] => {
-    const files = [cliChannelFile(channel)];
-    if (channel === 'stable') {
-      const beta = line.read('', cliChannelFile('dev'))?.trim();
-      if (beta === undefined || compareVersions(beta, version) < 0)
-        files.push(cliChannelFile('dev'));
-    }
-    return files;
-  };
+  const pointer = cliChannelFile(channel);
   const checkNewer = (): void => {
     for (const line of lines) {
-      const current = line.read('', cliChannelFile(channel))?.trim();
+      const current = line.read('', pointer)?.trim();
       if (current !== undefined && current !== '' && compareVersions(current, version) >= 0) {
         throw new Error(
-          `[${line.id}] ${CLI_ROOT}/${cliChannelFile(channel)} is already ${current}; not overwriting it with ${version}`,
+          `[${line.id}] ${CLI_ROOT}/${pointer} is already ${current}; not overwriting it with ${version}`,
         );
       }
     }
@@ -1199,12 +1189,10 @@ async function publishCli(options: {
         await line.upload('', name, join(dir, name));
         written.push(name);
       }
-      for (const name of pointers(line)) {
-        const file = join(temp, name);
-        writeFileSync(file, `${version}\n`);
-        await line.upload('', name, file);
-        written.push(name);
-      }
+      const file = join(temp, pointer);
+      writeFileSync(file, `${version}\n`);
+      await line.upload('', pointer, file);
+      written.push(pointer);
       if (line.id === 'global' && bunnyKey) {
         const urls = written.map((name) => line.url('', name));
         await purgeBunny(urls, bunnyKey);

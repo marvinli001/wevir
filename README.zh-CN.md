@@ -162,7 +162,7 @@
 
 <img alt="Stable" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Flatest-mac.yml&query=%24.version&prefix=v&label=stable&color=80643D&style=flat-square&logo=github&logoColor=white" />
 
-正式版接收正式版更新。开发版（`X.Y.Z-beta.N`）由 `master` 在 CI 通过后自动发布，同时接收开发版与正式版更新。通道可在**设置 → 关于**中切换。
+正式版与开发版更新通道相互隔离，各自只接收对应版本。开发版（`X.Y.Z-beta.N`）由 `master` 在 CI 通过后自动发布。所有版本沿同一条版本线递增，切换通道不降级。通道可在**设置 → 关于**中切换。
 
 | 平台 | 安装包 |
 | --- | --- |
