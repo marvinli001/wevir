@@ -1,7 +1,10 @@
 // 计划、回合失败的归类与会话标题（codex-event-mapping.md §6.1、§6.7、§4.4）：真实 codex-app-server + 网关 + mock 模型。
 
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import type { ProviderConfig } from '@wevir/runtime-adapter';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { historyToolServer } from '@wevir/runtime-adapter/history-tool';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CodexAdapter } from './codex-adapter.js';
 import { PLAN_TOOL_CALL_PREFIX } from './mapping.js';
 import {
@@ -61,6 +64,17 @@ const TITLE_REQUEST = {
   },
 };
 const TITLE_JSON = '{"title": "排查登录 500 错误", "description": "登录接口返回 500"}';
+
+/** app-server 直接起的、命令行里带 `marker` 的子进程个数（ps，Windows 上不跑）。 */
+function childProcesses(parent: number | undefined, marker: string): number {
+  if (parent === undefined) return 0;
+  return execFileSync('ps', ['-A', '-o', 'ppid=,command='], { encoding: 'utf8' })
+    .split('\n')
+    .filter((line) => {
+      const [ppid, ...command] = line.trim().split(/\s+/);
+      return Number(ppid) === parent && command.join(' ').includes(marker);
+    }).length;
+}
 
 describe.skipIf(binary === undefined)(
   'CodexAdapter 计划、错误与标题（真实 codex-app-server）',
@@ -265,5 +279,23 @@ describe.skipIf(binary === undefined)(
       const turn = await runTurn(adapter, id, 'hi', events);
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     });
+
+    it.skipIf(process.platform === 'win32')(
+      '标题的临时 thread 不起 MCP 服务；空闲的 thread 没有后台进程',
+      async () => {
+        const { root } = dirs.make('title-mcp');
+        const historyTool = historyToolServer(join(root, 'mcp'), join(root, 'history'));
+        const { adapter, id } = await open({}, { titleVia: 'thread', historyTool });
+        const pid = adapter.process.pid;
+        await vi.waitFor(() => expect(childProcesses(pid, 'wevir-history.mjs')).toBe(1), {
+          timeout: 15_000,
+        });
+        script = () => ({ text: [TITLE_JSON] });
+        expect(await adapter.generateTitle(id, TITLE_REQUEST)).toBe(TITLE_JSON);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        expect(childProcesses(pid, 'wevir-history.mjs')).toBe(1);
+        expect(await adapter.holdsIdleWork(id)).toBe(false);
+      },
+    );
   },
 );

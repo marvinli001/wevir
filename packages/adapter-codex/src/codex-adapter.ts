@@ -136,6 +136,8 @@ import {
   type RequestId,
   type ReviewStartParams,
   type ReviewStartResponse,
+  type ThreadBackgroundTerminalsListParams,
+  type ThreadBackgroundTerminalsListResponse,
   type ThreadBackgroundTerminalsTerminateParams,
   type ThreadCompactStartParams,
   type ThreadDeleteParams,
@@ -1903,6 +1905,28 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#trimClosedSessions();
   }
 
+  /**
+   * 空闲释放前（Host 的 `holdsIdleWork`）：thread 里还有 unified exec 后台进程（`thread/backgroundTerminals/list`，实验 API）时
+   * 不关。关掉的 thread 没有订阅者，空闲满 `thread_unload_delay_secs` 后 app-server 卸载它，后台进程跟着结束。查询失败按没有算。
+   */
+  async holdsIdleWork(engineSessionId: string): Promise<boolean> {
+    const session = this.#sessions.get(engineSessionId);
+    if (session?.status !== 'open' || this.process.state !== 'ready') return false;
+    try {
+      const response = await this.process.request<ThreadBackgroundTerminalsListResponse>(
+        'thread/backgroundTerminals/list',
+        { threadId: engineSessionId, limit: 1 } satisfies ThreadBackgroundTerminalsListParams,
+      );
+      return Array.isArray(response?.data) && response.data.length > 0;
+    } catch (error) {
+      this.#logger.warn('查后台进程失败，按没有处理', {
+        engineSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
   #trimClosedSessions(): void {
     trimSessionCache(
       this.#sessions,
@@ -2015,6 +2039,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     this.#activating += 1;
     try {
+      const mcpOff = await this.#mcpServersOff(session.cwd);
       let started: ThreadStartResponse;
       try {
         started = await this.process.request<ThreadStartResponse>('thread/start', {
@@ -2036,6 +2061,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
                   this.#options.providerExtra,
                 )),
             ...TITLE_THREAD_CONFIG,
+            ...mcpOff,
           },
         } satisfies ThreadStartParams);
       } catch (error) {
@@ -2066,6 +2092,32 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
     } finally {
       this.#activating -= 1;
+    }
+  }
+
+  /**
+   * 临时 thread 不起 MCP 服务：`config/read` 按 cwd 读出生效的 `mcp_servers`（Wevir 写的、插件的，加上受信任项目自己的
+   * `.codex/config.toml`），逐个 `enabled = false`。不关的话每生成一次标题、摘要就起一整套 MCP 进程，退订后还要等
+   * `thread_unload_delay_secs` 才随 thread 卸载（rust-v0.165.0 实测）。读不到时照常起，只记日志。
+   */
+  async #mcpServersOff(cwd: string): Promise<Record<string, false>> {
+    try {
+      const response = await this.process.request<{ config?: { mcp_servers?: unknown } }>(
+        'config/read',
+        { cwd },
+      );
+      const servers = response?.config?.mcp_servers;
+      if (!isRecord(servers)) return {};
+      const off: Record<string, false> = {};
+      for (const name of Object.keys(servers)) {
+        if (/^[A-Za-z0-9_-]+$/.test(name)) off[`mcp_servers.${name}.enabled`] = false;
+      }
+      return off;
+    } catch (error) {
+      this.#logger.warn('读 MCP 服务列表失败，临时 thread 照常起 MCP', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {};
     }
   }
 

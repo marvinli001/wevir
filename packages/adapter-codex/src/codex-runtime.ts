@@ -258,6 +258,10 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).close(engineSessionId);
   }
 
+  holdsIdleWork(engineSessionId: string): Promise<boolean> {
+    return this.#forSession(engineSessionId).holdsIdleWork(engineSessionId);
+  }
+
   generateTitle(engineSessionId: string, request: TitleRequest): Promise<string> {
     return this.#forSession(engineSessionId).generateTitle(engineSessionId, request);
   }

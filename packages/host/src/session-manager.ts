@@ -239,6 +239,15 @@ export const CANCEL_TIMEOUT_MS = 5000;
 export const QUESTION_TIMEOUT_MS = 5 * 60_000;
 
 /**
+ * 空闲释放：挂着的顶层会话空闲（没有回合、命令、审批、提问、进行中的目标与子会话）满这么久，Host 关掉它的引擎会话，下次发消息时
+ * 自动恢复，同 Host 重启后。引擎为每个挂着的会话留着进程与 MCP 服务（Codex 每个 thread 一套 MCP 进程，有订阅者就不卸载），不释放
+ * 的话长时间不重启时它们只增不减。
+ */
+export const SESSION_IDLE_RELEASE_MS = 20 * 60_000;
+/** 空闲释放多久查一次。 */
+const IDLE_RELEASE_SWEEP_MS = 60_000;
+
+/**
  * 连续几次自动压缩之后用量仍不低于压缩线，Host 就停下回合（`#checkAutoCompaction`）：这时再压缩也降不下来，引擎却会在每个
  * 请求之后接着压缩，一直花额度。
  */
@@ -257,6 +266,8 @@ export interface SessionManagerOptions {
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
+  /** 空闲释放（`SESSION_IDLE_RELEASE_MS`）的时长，毫秒；0 表示不释放。 */
+  idleReleaseMs?: number;
   /** 无人值守的会话里提问的超时（0.72.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
   questionTimeoutMs?: number;
   /**
@@ -587,8 +598,12 @@ interface SessionRuntime {
   /** 命令串行：每个命令排在上一个之后（ADR-0002 §4）。永不 reject。 */
   tail: Promise<unknown>;
   commands: number;
-  /** 没有时引擎会话尚未挂上：Host 重启后、关闭后、引擎异常后。 */
+  /** 没有时引擎会话尚未挂上：Host 重启后、关闭后、引擎异常后、空闲释放后。 */
   attachment?: Attachment;
+  /** 最近一次命令或引擎事件的时刻（`Date.now()`），空闲释放按它算。 */
+  lastActiveAt: number;
+  /** 引擎会话是空闲释放放下的（还没重新挂上）：离开后摘要先把它挂回去。 */
+  released?: true;
   turn?: TurnRuntime;
   /** 大于 0 时引擎事件先缓冲，等审批结算写入后再处理（domain-model §5 第 4 条）。 */
   holds: number;
@@ -938,6 +953,8 @@ export class SessionManager {
   #shuttingDown = false;
   #shutdown: Promise<void> | undefined;
   #disposed = false;
+  readonly #idleReleaseMs: number;
+  #idleReleaseTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: SessionManagerOptions) {
     this.#storage = options.storage;
@@ -945,6 +962,14 @@ export class SessionManager {
     this.#adapter = options.adapter;
     this.#engine = options.engine ?? 'echo';
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#idleReleaseMs = options.idleReleaseMs ?? SESSION_IDLE_RELEASE_MS;
+    if (this.#idleReleaseMs > 0) {
+      this.#idleReleaseTimer = setInterval(
+        () => this.#sweepIdle(),
+        Math.min(IDLE_RELEASE_SWEEP_MS, this.#idleReleaseMs),
+      );
+      this.#idleReleaseTimer.unref?.();
+    }
     this.#questionTimeoutMs = options.questionTimeoutMs ?? QUESTION_TIMEOUT_MS;
     this.#approvalTimeoutMs = options.approvalTimeoutMs ?? (() => 0);
     this.#onError =
@@ -5065,6 +5090,7 @@ export class SessionManager {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#whenDisposed.resolve();
+    clearInterval(this.#idleReleaseTimer);
     for (const settle of this.#appApprovals.values()) settle(false);
     this.#appApprovals.clear();
     for (const timer of this.#questionTimers.values()) clearTimeout(timer);
@@ -5459,9 +5485,12 @@ export class SessionManager {
     const generate = this.#adapter.generateTitle?.bind(this.#adapter);
     const instructions = this.#recapInstructions;
     if (generate === undefined || instructions === undefined) return skip('unsupported');
-    if (session.state === 'closed' || runtime.attachment === undefined) return skip('detached');
+    if (session.state === 'closed') return skip('detached');
     const cached = this.#recaps.get(runtime.id, marker);
     if (cached !== undefined) return { recap: cached };
+    if (runtime.attachment === undefined && !(await this.#reattachReleased(runtime))) {
+      return skip('detached');
+    }
     const pending =
       this.#recaps.pending(runtime.id, marker) ??
       this.#recaps.track(
@@ -5621,7 +5650,7 @@ export class SessionManager {
    * `WORKSPACE_PATH_INVALID`，状态不变；引擎失败时 idle→error（#11），返回 `ENGINE_ERROR`，引擎会话恢复不了时
    * 另写 `session.read_only`。
    */
-  async #autoResume(runtime: SessionRuntime): Promise<void> {
+  async #autoResume(runtime: SessionRuntime, options: { quiet?: boolean } = {}): Promise<void> {
     const record = this.#record(runtime);
     await this.#readyDirectory(record);
     let engine: EngineSession;
@@ -5652,11 +5681,34 @@ export class SessionManager {
       const rulesInput = this.#rulesInput(runtime.id, rules, runtime.engineSessionId, {
         fresh: false,
       });
-      this.#write(runtime, [
-        resumedEvent(engine),
+      const inputs = [
+        ...(options.quiet === true ? [] : [resumedEvent(engine)]),
         ...(rulesInput === undefined ? [] : [rulesInput]),
-      ]);
+      ];
+      if (inputs.length > 0) this.#write(runtime, inputs);
     }
+  }
+
+  /**
+   * 离开后摘要要用引擎会话：空闲释放放下的会话排进命令队列重新挂上，不写 `session.resumed`（释放时也没写事件，免得只是看一眼就
+   * 改了会话的更新时间）。Host 重启后还没挂上的不挂（同以前）。挂上了返回 true。
+   */
+  async #reattachReleased(runtime: SessionRuntime): Promise<boolean> {
+    if (runtime.released !== true) return false;
+    try {
+      await this.#serial(runtime, async () => {
+        if (runtime.attachment !== undefined || runtime.released !== true) return;
+        if (this.#snapshot(runtime).session.state !== 'idle') return;
+        await this.#autoResume(runtime, { quiet: true });
+      });
+    } catch (error) {
+      this.#onWarning('离开后摘要：重新挂上空闲释放的会话失败', {
+        sessionId: runtime.id,
+        error: errorText(error),
+      });
+      return false;
+    }
+    return runtime.attachment !== undefined;
   }
 
   /** #5，然后等结算（#8）或判定无法确认（#9）。不在活动状态时什么都不做。 */
@@ -5730,6 +5782,8 @@ export class SessionManager {
       releaseProjection: this.#events.retain(runtime.id),
     };
     runtime.attachment = attachment;
+    runtime.released = undefined;
+    runtime.lastActiveAt = Date.now();
     void this.#consume(runtime, attachment);
   }
 
@@ -5741,6 +5795,99 @@ export class SessionManager {
     attachment.detached = true;
     attachment.releaseProjection();
     attachment.iterator.return?.().catch(this.#onError);
+  }
+
+  // ── 空闲释放 ──────────────────────────────────────────────────────
+
+  /** 定时查一遍：空闲够久的挂着的会话排进各自的命令队列释放（`#releaseIdle` 在队列里再查一次）。 */
+  #sweepIdle(): void {
+    if (this.#shuttingDown || this.#disposed) return;
+    const now = Date.now();
+    for (const runtime of this.#runtimes.values()) {
+      if (!this.#idleReleasable(runtime, now)) continue;
+      // 排进队列时刷新的 lastActiveAt：之后有命令或引擎事件就不释放。
+      let queuedAt = 0;
+      this.#serial(runtime, () => this.#releaseIdle(runtime, queuedAt)).catch(this.#onError);
+      queuedAt = runtime.lastActiveAt;
+    }
+  }
+
+  /**
+   * 能不能空闲释放：挂着的顶层会话或支线（子会话的引擎会话跟着父 agent，Host 不关），空闲满 `#idleReleaseMs`，状态 `idle`，没有回合、
+   * 排着的命令、暂扣的事件、未决的审批与提问、进行中的目标、正在生成的输入建议、等着的空闲压缩，子会话也都闲着。
+   */
+  #idleReleasable(runtime: SessionRuntime, now: number, queued = 0): boolean {
+    if (
+      runtime.parentId !== undefined ||
+      runtime.attachment === undefined ||
+      runtime.attachment.detached ||
+      runtime.turn !== undefined ||
+      runtime.commands > queued ||
+      runtime.holds > 0 ||
+      runtime.held.length > 0 ||
+      runtime.approvalIds.size > 0 ||
+      runtime.questionIds.size > 0 ||
+      runtime.suggestion !== undefined ||
+      runtime.idleCompaction !== undefined ||
+      now - runtime.lastActiveAt < this.#idleReleaseMs
+    )
+      return false;
+    const snapshot = this.#events.snapshot(runtime.id);
+    if (
+      snapshot === undefined ||
+      snapshot.session.state !== 'idle' ||
+      snapshot.session.awaitingInput === true ||
+      snapshot.session.goal?.status === 'active' ||
+      snapshot.pendingApprovals.length > 0 ||
+      (snapshot.pendingQuestions?.length ?? 0) > 0
+    )
+      return false;
+    for (const child of this.#runtimes.values()) {
+      if (child.parentId !== runtime.id) continue;
+      if (child.turn !== undefined || child.commands > 0) return false;
+      if (child.approvalIds.size > 0 || child.questionIds.size > 0) return false;
+      const state = this.#events.snapshot(child.id)?.session.state;
+      if (state !== undefined && ACTIVE_STATES.includes(state)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 空闲释放（排在会话的命令队列里）：再查一次，问适配器关掉会不会丢掉还在跑的东西（`holdsIdleWork`，有就过一阵再问），然后照
+   * `session.close` 关掉引擎会话、断开订阅，但不写事件、不改状态（仍是 `idle`）；下次发消息时自动恢复（`#autoResume`）。
+   * 引擎关闭失败只记告警：恢复时引擎会话还挂着也照样能接上。
+   */
+  async #releaseIdle(runtime: SessionRuntime, queuedAt: number): Promise<void> {
+    // 这个命令自己算一个排着的命令；空闲的时长排进来之前已经查过。
+    const still = () =>
+      !this.#shuttingDown &&
+      !this.#disposed &&
+      runtime.lastActiveAt === queuedAt &&
+      this.#idleReleasable(runtime, Number.POSITIVE_INFINITY, 1);
+    if (!still()) return;
+    const attachment = runtime.attachment;
+    if (attachment === undefined) return;
+    let busy = false;
+    try {
+      busy = (await this.#adapter.holdsIdleWork?.(runtime.engineSessionId)) === true;
+    } catch (error) {
+      this.#onWarning('空闲释放前查询引擎失败，照常释放', {
+        sessionId: runtime.id,
+        error: errorText(error),
+      });
+    }
+    if (busy || runtime.attachment !== attachment || !still()) return;
+    attachment.detached = true;
+    try {
+      await this.#adapter.close(runtime.engineSessionId);
+    } catch (error) {
+      this.#onWarning('空闲释放时关闭引擎会话失败', {
+        sessionId: runtime.id,
+        error: errorText(error),
+      });
+    }
+    this.#detach(runtime);
+    runtime.released = true;
   }
 
   async #consume(runtime: SessionRuntime, attachment: Attachment): Promise<void> {
@@ -5798,6 +5945,7 @@ export class SessionManager {
 
   /** 审批提交期间先缓冲，否则立即处理。处理失败交给 `onError`。 */
   #dispatch(runtime: SessionRuntime, task: () => void): void {
+    runtime.lastActiveAt = Date.now();
     if (runtime.holds > 0) {
       runtime.held.push(task);
       return;
@@ -7792,6 +7940,7 @@ export class SessionManager {
   /** 排在该会话上一个命令之后执行。 */
   #serial<T>(runtime: SessionRuntime, command: () => Promise<T>): Promise<T> {
     runtime.commands += 1;
+    runtime.lastActiveAt = Date.now();
     const result = runtime.tail.then(command);
     const tail = result.then(
       () => undefined,
@@ -7800,6 +7949,7 @@ export class SessionManager {
     runtime.tail = tail;
     void tail.then(() => {
       runtime.commands -= 1;
+      runtime.lastActiveAt = Date.now();
       if (this.#disposed || runtime.tail !== tail) return;
       for (const [id, held] of this.#runtimes) {
         if (this.#runtimes.size <= 32) break;
@@ -7843,6 +7993,7 @@ export class SessionManager {
         }),
         tail: Promise.resolve(),
         commands: 0,
+        lastActiveAt: Date.now(),
         holds: 0,
         held: [],
         approvalIds: new Map(),

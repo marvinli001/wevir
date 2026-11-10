@@ -385,6 +385,12 @@ export interface AgentRuntimeAdapter {
   close(engineSessionId: string): Promise<void>;
 
   /**
+   * 空闲的会话关掉后会丢掉的东西（Host 的空闲释放问它）：回合结束后还在跑的后台进程等。返回 true 时 Host 不关这个会话，过一阵
+   * 再问。不实现表示没有。只对挂着的顶层会话调用；出错时 Host 照常关。
+   */
+  holdsIdleWork?(engineSessionId: string): Promise<boolean>;
+
+  /**
    * 永久删掉引擎为这个会话存下的数据（0.43.0，`session.delete`，domain-model §3.20）：引擎会话已经关闭，之后不能再
    * `resumeSession`。Host 重启后适配器不认识这个会话，所以带上它最后用的 `providerId`，多引擎的路由按它找引擎。引擎没有这个会话时
    * 直接成功。挂着时先关闭。不实现表示引擎的数据留着，Host 在结果里报 `engineDataKept`（Codex：`thread/delete`，连同它派出的子

@@ -60,7 +60,9 @@ import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
  *   rust-v0.165.0 默认就是 1800，rust-v0.166.0 改成了 60，写死免得升级后变化：Wevir 关会话（关闭、接力、移动）后常常
  *   很快又 `thread/resume` 回来，没卸载时直接接上，卸载了就要重读 rollout、把 MCP 服务重起一遍；卸载期间来的 resume 还会
  *   碰上 `thread … is closing`（codex-adapter.ts 的 RESUME_RETRIES 重试）。开着的会话一直有订阅者，不受这个值影响，插件页
- *   借连接查 `mcpServerStatus/list` 也只问开着的会话；代价是关掉的会话多占半小时内存与 MCP 进程（1800 本来就是这样）；
+ *   借连接查 `mcpServerStatus/list` 也只问开着的会话；代价是关掉的会话多占半小时内存与 MCP 进程（1800 本来就是这样）。
+ *   Host 把空闲满 `SESSION_IDLE_RELEASE_MS` 的会话也这样关掉（空闲释放），所以长时间不重启时挂着的 thread 不会只增不减；生成
+ *   标题与摘要的临时 thread 不起 MCP 服务（codex-adapter.ts 的 `#mcpServersOff`）；
  * - `tools.update_plan.enabled = true`：计划默认关；
  * - 未绑定 Host 插件注册表时 `skills.include_instructions = false`、`skills.bundled.enabled = false`：不把 skills 列表放进上下文，也不往
  *   CODEX_HOME 装内置 skills。Codex 读用户的 `~/.agents/skills`（HOME 是用户真实的家目录），不关就会把用户给别的

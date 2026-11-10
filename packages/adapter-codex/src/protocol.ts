@@ -408,6 +408,19 @@ export interface ThreadBackgroundTerminalsTerminateParams {
   processId: string;
 }
 
+/** v2/ThreadBackgroundTerminalsListParams.ts（实验 API）：thread 里还在跑的 unified exec 进程，分页。 */
+export interface ThreadBackgroundTerminalsListParams {
+  threadId: string;
+  cursor?: string | null;
+  limit?: number | null;
+}
+
+/** v2/ThreadBackgroundTerminalsListResponse.ts：本包只看有没有。 */
+export interface ThreadBackgroundTerminalsListResponse {
+  data: Array<{ processId: string; command: string }>;
+  nextCursor: string | null;
+}
+
 /** v2/ThreadDeleteParams.ts（0.43.0）：删掉 thread 与它派出的子 thread（rollout 与状态库），之后不能再 resume。 */
 export interface ThreadDeleteParams {
   threadId: string;

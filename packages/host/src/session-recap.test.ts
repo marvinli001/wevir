@@ -30,6 +30,7 @@ describe('session.recap', () => {
       generate?: (request: TitleRequest) => Promise<string>;
       /** 不给时有 `generate` 就用“写摘要”；`null` 表示没有读到提示词。 */
       instructions?: string | null;
+      idleReleaseMs?: number;
     } = {},
   ) {
     const adapter = new EchoAdapter({ stepDelayMs: 0 });
@@ -78,6 +79,7 @@ describe('session.recap', () => {
         ? { recapInstructions: options.instructions ?? '写摘要' }
         : {}),
       recapEnabled: () => state.enabled,
+      ...(options.idleReleaseMs !== undefined && { idleReleaseMs: options.idleReleaseMs }),
       onWarning: (message: string, fields?: Record<string, unknown>) =>
         warnings.push({ message, fields }),
     };
@@ -309,6 +311,24 @@ describe('session.recap', () => {
       reason: 'detached',
     });
     expect(env.calls).toHaveLength(0);
+  });
+
+  it('空闲释放放下的引擎会话：重新挂上再生成，不写事件', async () => {
+    const env = setup({ generate: async () => RECAP_OUTPUT, idleReleaseMs: 30 });
+    const close = vi.spyOn(env.adapter, 'close');
+    const resume = vi.spyOn(env.adapter, 'resumeSession');
+    const id = await newSession(env);
+    const seen = await awayAfterTurns(env, id);
+    await vi.waitFor(() => expect(close).toHaveBeenCalled(), { timeout: 2000 });
+    const resumedBefore = resume.mock.calls.length;
+    const before = lastSeq(env, id);
+
+    const result = await recap(env, id, seen);
+    expect(result.recap?.text).toBe('在补登录页的测试，两个用例已写好。请先跑一遍确认通过。');
+    expect(resume.mock.calls.length).toBe(resumedBefore + 1);
+    expect(env.calls).toHaveLength(1);
+    expect(lastSeq(env, id)).toBe(before);
+    expect(env.warnings).toEqual([]);
   });
 
   it('生成失败或输出解析不了：静默（reason failed、记告警），不缓存，下次重试', async () => {
