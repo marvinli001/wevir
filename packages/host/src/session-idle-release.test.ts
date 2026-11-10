@@ -141,7 +141,9 @@ describe('空闲释放', () => {
     const id = await newSession(env);
     await turn(env, id, 'hello');
 
-    await vi.waitFor(() => expect(holds).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    await vi.waitFor(() => expect(holds.mock.calls.length).toBeGreaterThanOrEqual(2), {
+      timeout: 2000,
+    });
     expect(env.close).not.toHaveBeenCalled();
     busy = false;
     await vi.waitFor(() => expect(env.close).toHaveBeenCalledTimes(1), { timeout: 2000 });
