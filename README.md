@@ -7,7 +7,7 @@
 <p align="center"><strong>A local-first desktop workspace for AI coding agents</strong></p>
 
 <p align="center">
-  <a href="#downloads"><img alt="Preview" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Fbeta-mac.yml&query=%24.version&prefix=v&label=preview&color=80643D&style=flat-square&logo=github&logoColor=white" /></a>
+  <a href="#downloads"><img alt="Stable" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Flatest-mac.yml&query=%24.version&prefix=v&label=stable&color=80643D&style=flat-square&logo=github&logoColor=white" /></a>
   <img alt="macOS arm64 and x64" src="https://img.shields.io/badge/macOS-arm64%20%7C%20x64-111111?style=flat-square&logo=apple&logoColor=white" />
   <img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" />
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
@@ -121,7 +121,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 
 ## Status
 
-Wevir is in preview. **Supported**: shipped in the builds and covered by automated tests. **Beta**: functional, with less test coverage, a third-party client dependency, or no real-account verification yet. **Planned**: not yet available.
+**Supported**: shipped in the builds and covered by automated tests. **Beta**: functional, with less test coverage, a third-party client dependency, or no real-account verification yet. **Planned**: not yet available.
 
 | Area | Item | Status |
 | --- | --- | --- |
@@ -150,8 +150,6 @@ Wevir is in preview. **Supported**: shipped in the builds and covered by automat
 
 ## Known limitations
 
-- **Preview builds only.** Every published build is a development build (`0.0.1-beta.N`), cut automatically from `master` after CI passes. Frequent updates; behavior may change between builds.
-- **Update channel.** In-app updates follow the development channel; the stable channel has no releases yet.
 - **Subscription sources.** They depend on each vendor's client or SDK and your existing sign-in, are subject to vendor terms, and may break when the client changes.
 - **Mobile app.** iOS builds are distributed through TestFlight only. The Android build has no push notifications yet; alerts appear while the app is open.
 - **Platforms.** No Windows on Arm build. Computer use is macOS only. On Linux only the AppImage updates in place; the deb build shows new versions with a link to the download page.
@@ -162,7 +160,9 @@ Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Quest
 
 ## Downloads
 
-<img alt="Preview" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Fbeta-mac.yml&query=%24.version&prefix=v&label=preview&color=80643D&style=flat-square&logo=github&logoColor=white" />
+<img alt="Stable" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Flatest-mac.yml&query=%24.version&prefix=v&label=stable&color=80643D&style=flat-square&logo=github&logoColor=white" />
+
+Stable releases receive stable updates. Development builds (`X.Y.Z-beta.N`), published automatically from `master` after CI passes, receive both development and stable updates. The channel can be changed in **Settings → About**.
 
 | Platform | Installer |
 | --- | --- |
@@ -180,7 +180,7 @@ The phone app connects to Wevir on your computers over an end-to-end encrypted c
 | Platform | Distribution |
 | --- | --- |
 | iOS | TestFlight beta. Invitations are issued in the [Telegram group](https://t.me/darkfiber_labs). |
-| Android | Signed APK, published with every desktop preview build under the same version number. A newer APK installs over the existing one. |
+| Android | Signed APK, published with every desktop release under the same version number. A newer APK installs over the existing one. |
 
 Pairing: **Settings → Devices → Add phone**.
 
@@ -198,7 +198,7 @@ Windows (PowerShell):
 irm https://dl.edgeweir.com/cli/install.ps1 | iex
 ```
 
-The script checks the package's sha256, installs to `~/.local/share/wevir-cli` with a `wevir` link in `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\wevir-cli`, added to the user `PATH`), and installs the beta channel until a stable release exists; run it again to update. Then:
+The script checks the package's sha256 and installs the stable release to `~/.local/share/wevir-cli` with a `wevir` link in `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\wevir-cli`, added to the user `PATH`); run it again to update. Then:
 
 ```bash
 wevir host start

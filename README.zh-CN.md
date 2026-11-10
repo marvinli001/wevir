@@ -7,7 +7,7 @@
 <p align="center"><strong>本地优先的 AI 编程 Agent 桌面工作台</strong></p>
 
 <p align="center">
-  <a href="#downloads"><img alt="Preview" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Fbeta-mac.yml&query=%24.version&prefix=v&label=preview&color=80643D&style=flat-square&logo=github&logoColor=white" /></a>
+  <a href="#downloads"><img alt="Stable" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Flatest-mac.yml&query=%24.version&prefix=v&label=stable&color=80643D&style=flat-square&logo=github&logoColor=white" /></a>
   <img alt="macOS arm64 and x64" src="https://img.shields.io/badge/macOS-arm64%20%7C%20x64-111111?style=flat-square&logo=apple&logoColor=white" />
   <img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" />
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
@@ -121,7 +121,7 @@
 
 ## 状态
 
-Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试覆盖。**测试版**：可用，但测试覆盖较少、依赖第三方客户端或未经真实账号验证。**计划中**：尚未提供。
+**支持**：随安装包发布，有自动化测试覆盖。**测试版**：可用，但测试覆盖较少、依赖第三方客户端或未经真实账号验证。**计划中**：尚未提供。
 
 | 类别 | 项目 | 状态 |
 | --- | --- | --- |
@@ -150,8 +150,6 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 
 ## 已知限制
 
-- **仅预览版。** 所有发布版本均为开发版（`0.0.1-beta.N`），由 `master` 在 CI 通过后自动构建。更新频繁，版本间行为可能变化。
-- **更新通道。** 应用内更新使用开发通道；正式通道尚未发布版本。
 - **订阅来源。** 依赖厂商官方客户端或 SDK 与本机登录，受厂商条款约束，客户端变更可能导致失效。
 - **移动端。** iOS 版仅通过 TestFlight 分发。Android 版暂不支持推送通知，仅在 App 打开时提醒。
 - **平台。** 无 Windows on Arm 安装包。电脑操作只有 macOS 版。Linux 上只有 AppImage 在应用内更新，deb 版只提示新版本并给出下载页。
@@ -162,7 +160,9 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 
 ## 下载
 
-<img alt="Preview" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Fbeta-mac.yml&query=%24.version&prefix=v&label=preview&color=80643D&style=flat-square&logo=github&logoColor=white" />
+<img alt="Stable" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Flatest-mac.yml&query=%24.version&prefix=v&label=stable&color=80643D&style=flat-square&logo=github&logoColor=white" />
+
+正式版接收正式版更新。开发版（`X.Y.Z-beta.N`）由 `master` 在 CI 通过后自动发布，同时接收开发版与正式版更新。通道可在**设置 → 关于**中切换。
 
 | 平台 | 安装包 |
 | --- | --- |
@@ -180,7 +180,7 @@ Wevir 处于预览阶段。**支持**：随安装包发布，有自动化测试�
 | 平台 | 分发方式 |
 | --- | --- |
 | iOS | TestFlight 测试版。邀请在 [Telegram 交流群](https://t.me/darkfiber_labs) 中发放。 |
-| Android | 已签名的 APK，随每个桌面端预览版发布，版本号与桌面端一致。新版 APK 可直接覆盖安装。 |
+| Android | 已签名的 APK，随每个桌面端版本发布，版本号与桌面端一致。新版 APK 可直接覆盖安装。 |
 
 配对：**设置 → 设备 → 添加手机**。
 
@@ -198,7 +198,7 @@ Windows（PowerShell）：
 irm https://dl.edgeweir.com/cli/install.ps1 | iex
 ```
 
-脚本核对安装包的 sha256，装到 `~/.local/share/wevir-cli`，并在 `~/.local/bin` 放 `wevir` 链接（Windows 装到 `%LOCALAPPDATA%\Programs\wevir-cli` 并加入用户 `PATH`）；还没有正式版时装开发版。再运行一次即更新。之后：
+脚本核对安装包的 sha256，将正式版装到 `~/.local/share/wevir-cli`，并在 `~/.local/bin` 放 `wevir` 链接（Windows 装到 `%LOCALAPPDATA%\Programs\wevir-cli` 并加入用户 `PATH`）。再运行一次即更新。之后：
 
 ```bash
 wevir host start
