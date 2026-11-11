@@ -89,6 +89,24 @@ describe('session actions', () => {
     expect(calls[1]?.params).toMatchObject({ delivery: 'queue' });
   });
 
+  it('resumes an errored session before sending, declines a pending approval and resumes held messages', async () => {
+    const { fake, calls } = client();
+    const actions = new SessionActions(fake, SES, random);
+    await actions.send({ text: 'again', resume: true });
+    await actions.send({ text: 'do this instead', declineApproval: true });
+    await actions.resumePending();
+    expect(calls.map((c) => c.method)).toEqual([
+      'session.resume',
+      'session.send',
+      'session.send',
+      'pending.resume',
+    ]);
+    expect(calls[0]?.params).toEqual({ sessionId: SES });
+    expect(calls[1]?.params).not.toHaveProperty('declineApproval');
+    expect(calls[2]?.params).toMatchObject({ declineApproval: true });
+    expect(calls[3]?.params).toEqual({ sessionId: SES });
+  });
+
   it('puts images before the text and skips empty messages', async () => {
     const image = {
       type: 'image' as const,

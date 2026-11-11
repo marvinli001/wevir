@@ -3,7 +3,8 @@
 //
 // 本地缓存（cache.ts）：给了 `cache` 时先拿上次存下的事件投影一遍立刻显示（`cachedAt`），连上之后照常从头回放，回放完再换成最新的；
 // 之后有新事件就隔一会儿存一次，离开时再存一次。没有连接（`client` 是 `undefined`）时只显示缓存，`offline` 为 true：不能作答，
-// 缓存里的待批准与待回答也不显示（它们在电脑上可能早已处理）。
+// 缓存里的待批准、待回答与待发的消息也不显示（它们在电脑上可能早已处理）。缓存里的回合状态同样可能过时：`liveSession` 之前
+// （`session.get` 还没回来）界面不按缓存算“运行中”。
 
 import type {
   EventSubscription,
@@ -44,6 +45,8 @@ export interface SessionView {
   offline?: boolean;
   /** 显示的是本地缓存（存下的时刻）；连上并回放完之后没有。 */
   cachedAt?: string;
+  /** `session` 是这次连上后 `session.get` 取的（不是缓存里的）。 */
+  liveSession?: boolean;
 }
 
 /** 攒一批事件再出一次快照：回放历史时不必每条都重画。 */
@@ -93,7 +96,12 @@ export class SessionWatch {
       const transcript = projection.snapshot();
       this.#set({
         session: cached.session,
-        transcript: { ...transcript, pendingApprovals: [], pendingQuestions: [] },
+        transcript: {
+          ...transcript,
+          pendingApprovals: [],
+          pendingQuestions: [],
+          pendingMessages: [],
+        },
         caughtUp: true,
         cachedAt: cached.savedAt,
       });
@@ -105,7 +113,7 @@ export class SessionWatch {
     try {
       const { session } = await client.request('session.get', { sessionId: this.#sessionId });
       if (this.#stopped) return;
-      this.#set({ session });
+      this.#set({ session, liveSession: true });
       if (client.canReadProjects) {
         void client.request('workspace.list', {}).then(
           ({ workspaces }) => {
@@ -147,6 +155,14 @@ export class SessionWatch {
     clearTimeout(this.#timer);
     this.#subscription?.close();
     this.#save();
+  }
+
+  /** 重新取会话的快照（归档、取消归档之后：这些不走事件流）。 */
+  async refreshSession(): Promise<void> {
+    const client = this.#client;
+    if (client === undefined || this.#stopped) return;
+    const { session } = await client.request('session.get', { sessionId: this.#sessionId });
+    if (!this.#stopped) this.#set({ session, liveSession: true });
   }
 
   /** 批准或拒绝：选这一类里的“仅这一次”。高风险的批准先验证本人（approval-gate.ts）。 */

@@ -340,6 +340,8 @@ export const fr: Messages = {
   'composer.delivery.queue': 'File d’attente',
   'composer.pending.steer': 'Intervention en attente',
   'composer.pending.queue': 'En file d’attente',
+  'composer.pending.held': 'En pause',
+  'composer.resumePending': 'Reprendre l’envoi',
   'composer.cancelPending': 'Annuler',
   'photo.library': 'Photothèque',
   'photo.camera': 'Prendre une photo',

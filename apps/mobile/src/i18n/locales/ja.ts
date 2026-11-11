@@ -339,6 +339,8 @@ export const ja: Messages = {
   'composer.delivery.queue': 'キュー',
   'composer.pending.steer': '割り込み待ち',
   'composer.pending.queue': 'キュー待ち',
+  'composer.pending.held': '一時停止中',
+  'composer.resumePending': '送信を再開',
   'composer.cancelPending': 'キャンセル',
   'photo.library': '写真ライブラリ',
   'photo.camera': '写真を撮る',

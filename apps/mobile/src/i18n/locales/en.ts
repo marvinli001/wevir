@@ -338,6 +338,8 @@ export const en: Messages = {
   'composer.delivery.queue': 'Queue',
   'composer.pending.steer': 'Steering',
   'composer.pending.queue': 'Queued',
+  'composer.pending.held': 'Paused',
+  'composer.resumePending': 'Resume sending',
   'composer.cancelPending': 'Cancel',
   'photo.library': 'Photo library',
   'photo.camera': 'Take photo',

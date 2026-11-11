@@ -297,6 +297,10 @@ describe('SessionWatch 的本地缓存', () => {
     const watch = new SessionWatch(sessions, SES, (view) => views.push({ ...view }), cache);
     await watch.start();
     expect(views[0]).toMatchObject({ cachedAt: '2026-10-27T08:00:00.000Z', caughtUp: true });
+    // 缓存里的待发消息同待批准一样不显示；这次连上后取到快照才算 `liveSession`。
+    expect(views[0]?.transcript?.pendingMessages).toEqual([]);
+    expect(views[0]?.liveSession).toBeUndefined();
+    expect(views.find((v) => v.liveSession === true)?.cachedAt).toBe('2026-10-27T08:00:00.000Z');
     // 回放期间不出半截的投影：只有缓存那一版与回放完的一版带消息流。
     const withTranscript = views.filter((v) => v.transcript !== undefined);
     expect(withTranscript.map((v) => v.cachedAt !== undefined)).toEqual([true, true, false]);

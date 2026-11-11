@@ -331,6 +331,8 @@ export const zhCN = {
   'composer.delivery.queue': '排队',
   'composer.pending.steer': '等待插话',
   'composer.pending.queue': '排队中',
+  'composer.pending.held': '已暂停',
+  'composer.resumePending': '继续发送',
   'composer.cancelPending': '取消',
   'photo.library': '从相册选择',
   'photo.camera': '拍照',

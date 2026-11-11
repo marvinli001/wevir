@@ -4,7 +4,7 @@
 // 回合进行中消息流末尾是运行状态（components/live-status.tsx），回答逐字放出（components/markdown.tsx）。结束的回合同桌面端
 // 收进一行“已处理 2 分 31 秒”（lib/session-items.ts），点它展开过程。
 
-import { ClientClosedError } from '@wevir/client-sdk';
+import { ClientClosedError, WevirRpcError } from '@wevir/client-sdk';
 import type {
   AccountState,
   ApprovalId,
@@ -46,11 +46,14 @@ import { HeaderMenu } from '../../components/header-button';
 import { LiveStatus, ThoughtRow } from '../../components/live-status';
 import { Markdown } from '../../components/markdown';
 import type { MenuSection } from '../../components/menu';
+import { type LoadImage, PostImages } from '../../components/post-images';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
 import { Button, Icon, type IconName } from '../../components/ui';
 import { formatDuration, type MessageKey, t, timeAgo } from '../../i18n';
 import { ApprovalUnavailableError } from '../../lib/approval-gate';
+import { cachedImage } from '../../lib/image-cache';
+import { readImage } from '../../lib/image-read';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { displayName } from '../../lib/records';
 import { ScrollFollow, type ScrollMetrics, showsLatest } from '../../lib/scroll-follow';
@@ -194,7 +197,8 @@ export default function SessionScreen() {
               sessionTitle: (id) => sessionTitles.get(id),
             },
             {
-              live: view.offline !== true,
+              // 缓存里的回合在电脑上可能早已结束：回放完之前不画运行状态。
+              live: view.offline !== true && view.cachedAt === undefined,
               ...(view.session !== undefined && {
                 approvalContext: {
                   cwd: view.session.cwd,
@@ -204,11 +208,25 @@ export default function SessionScreen() {
             },
           )
         : [],
-    [view.transcript, view.offline, view.session, view.projectName, sessionTitles],
+    [view.transcript, view.offline, view.cachedAt, view.session, view.projectName, sessionTitles],
   );
   const session = view.session;
-  const state = view.transcript?.state ?? session?.state;
-  const busy = isBusy(view.transcript ?? session);
+  // 回合状态：回放完之后看消息流；之前显示的是缓存，按这次连上后取的快照算，还没取到时不算（不把过时的“运行中”当真）。
+  const live =
+    view.cachedAt === undefined
+      ? (view.transcript ?? session)
+      : view.liveSession === true
+        ? session
+        : undefined;
+  const state = live?.state;
+  const busy = isBusy(live);
+  // 审批挂起时发消息即拒绝并改道（同桌面），Host 要有 `approval_messages`。
+  const redirect =
+    view.cachedAt === undefined &&
+    (view.transcript?.pendingApprovals.length ?? 0) > 0 &&
+    client?.supports('approval_messages') === true;
+  // 读取后来出错（会话被删、没有权限）：已有内容也提示。连接断了不算，那由连接状态管。
+  const watchFailed = view.error instanceof WevirRpcError;
   const readOnly = view.transcript?.readOnly ?? session?.readOnly;
   const canWrite = actions?.canWrite === true && readOnly === undefined;
   const continuity: ContinuityContext = {
@@ -258,27 +276,45 @@ export default function SessionScreen() {
   };
 
   const photos = usePhotoAttachments({ upload, onError: setError });
+  const loadImage = useMemo<LoadImage | undefined>(
+    () =>
+      client === undefined
+        ? undefined
+        : (image) =>
+            cachedImage(computer, image, (write) => readImage(client, image.imageId, write)),
+    [client, computer],
+  );
 
   const send = useCallback(
     async (text: string) => {
       if (actions === undefined) throw new Error('offline');
       setError(undefined);
       try {
-        await actions.send({ text, images: photos.images, ...(busy && { delivery }) });
+        await actions.send({
+          text,
+          images: photos.images,
+          ...(busy && { delivery }),
+          ...((state === 'error' || state === 'closed') && { resume: true }),
+          ...(redirect && { declineApproval: true }),
+        });
         photos.clear();
       } catch (e) {
         setError(sendErrorKey(e));
         throw e;
       }
     },
-    [actions, photos, busy, delivery],
+    [actions, photos, busy, delivery, state, redirect],
   );
 
   const archive = () => {
     if (actions === undefined) return;
     actions.archive(!archived).then(
       () => {
-        if (archived) return;
+        if (archived) {
+          // 取消归档不走事件流：重新取快照，标题下与菜单里的“已归档”跟着变。
+          void watch.current?.refreshSession().catch(() => {});
+          return;
+        }
         // 归档后会话从列表里消失、手机上找不回来：退回去，底部给几秒“撤销”。
         router.back();
         showToast({
@@ -383,6 +419,7 @@ export default function SessionScreen() {
             meta={meta}
             loading={!view.caughtUp && view.error === undefined}
             failed={view.error !== undefined || view.offline === true}
+            stale={watchFailed && items.length > 0}
             theme={theme}
             canWrite={canWrite}
             clientId={client?.identity.clientId}
@@ -404,6 +441,10 @@ export default function SessionScreen() {
               actions
                 ?.cancelPending(pendingId as PendingMessageId)
                 .catch((e: unknown) => setError(sendErrorKey(e)));
+            }}
+            onLoadImage={loadImage}
+            onResumePending={() => {
+              actions?.resumePending().catch((e: unknown) => setError(sendErrorKey(e)));
             }}
           />
           <View
@@ -479,6 +520,7 @@ function SessionList({
   meta,
   loading,
   failed,
+  stale,
   theme,
   canWrite,
   clientId,
@@ -487,12 +529,16 @@ function SessionList({
   onDecide,
   onAnswer,
   onCancelPending,
+  onResumePending,
+  onLoadImage,
   onRetry,
 }: {
   items: readonly SessionItem[];
   meta: string;
   loading: boolean;
   failed: boolean;
+  /** 已有内容，但之后的读取出错：内容可能不是最新的。 */
+  stale: boolean;
   theme: Theme;
   canWrite: boolean;
   clientId: string | undefined;
@@ -501,6 +547,8 @@ function SessionList({
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
   onCancelPending: (pendingId: string) => void;
+  onResumePending: () => void;
+  onLoadImage: LoadImage | undefined;
   onRetry: () => void;
 }) {
   const now = useMinuteClock();
@@ -585,9 +633,32 @@ function SessionList({
           if (scroll.sticks) toEnd(false);
         }}
         ListHeaderComponent={
-          <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
-            {meta}
-          </Text>
+          <>
+            <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
+              {meta}
+            </Text>
+            {stale && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={onRetry}
+                hitSlop={8}
+                style={styles.staleRow}
+                testID="session-stale"
+              >
+                <Icon
+                  name={{ ios: 'exclamationmark.triangle', android: 'warning' }}
+                  size={15}
+                  color={theme.destructive}
+                />
+                <Text style={[styles.note, { color: theme.destructive }]}>
+                  {t('thread.unavailable')}
+                </Text>
+                <Text style={[styles.note, styles.cancel, { color: theme.foreground }]}>
+                  {t('computer.retry')}
+                </Text>
+              </Pressable>
+            )}
+          </>
         }
         ListEmptyComponent={
           loading ? (
@@ -622,6 +693,8 @@ function SessionList({
               onDecide={onDecide}
               onAnswer={onAnswer}
               onCancelPending={onCancelPending}
+              onResumePending={onResumePending}
+              onLoadImage={onLoadImage}
             />
           </View>
         )}
@@ -675,6 +748,8 @@ function Item({
   onDecide,
   onAnswer,
   onCancelPending,
+  onResumePending,
+  onLoadImage,
 }: {
   item: SessionItem;
   open: boolean;
@@ -687,6 +762,9 @@ function Item({
   onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
   onCancelPending: (pendingId: string) => void;
+  onResumePending: () => void;
+  /** 没连着时没有：照片不画。 */
+  onLoadImage: LoadImage | undefined;
 }) {
   switch (item.kind) {
     case 'turn':
@@ -707,18 +785,25 @@ function Item({
       return <LiveStatus item={item} theme={theme} />;
     case 'user':
       return (
-        <PostView
-          post={{
-            id: item.key,
-            author: 'user',
-            createdAt: now.toISOString(),
-            card: { kind: 'text', text: item.text },
-          }}
-          now={now}
-          onDecide={async () => {}}
-          onOpenThread={() => {}}
-          onRetry={() => {}}
-        />
+        <View style={styles.userItem}>
+          {item.images !== undefined && onLoadImage !== undefined && (
+            <PostImages images={item.images} align="end" load={onLoadImage} />
+          )}
+          {item.text !== '' && (
+            <PostView
+              post={{
+                id: item.key,
+                author: 'user',
+                createdAt: now.toISOString(),
+                card: { kind: 'text', text: item.text },
+              }}
+              now={now}
+              onDecide={async () => {}}
+              onOpenThread={() => {}}
+              onRetry={() => {}}
+            />
+          )}
+        </View>
       );
     case 'approval':
       return (
@@ -780,8 +865,20 @@ function Item({
           )}
           <View style={styles.pendingMeta}>
             <Text style={[styles.note, { color: theme.mutedForeground }]}>
-              {t(`composer.pending.${item.delivery}`)}
+              {t(item.held ? 'composer.pending.held' : `composer.pending.${item.delivery}`)}
             </Text>
+            {canWrite && item.held && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('composer.resumePending')}
+                hitSlop={8}
+                onPress={onResumePending}
+              >
+                <Text style={[styles.note, styles.cancel, { color: theme.foreground }]}>
+                  {t('composer.resumePending')}
+                </Text>
+              </Pressable>
+            )}
             {canWrite && (
               <Pressable
                 accessibilityRole="button"
@@ -1035,6 +1132,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   pendingText: { fontSize: TEXT.body, lineHeight: 23 },
+  userItem: { gap: 6 },
+  staleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
   pendingMeta: { flexDirection: 'row', gap: 12, paddingHorizontal: 4 },
   chip: {
     flexDirection: 'row',

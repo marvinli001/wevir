@@ -34,6 +34,9 @@ if (__DEV__) {
 
 declare const HermesInternal: unknown;
 
+// 从系统打开的链接（配对链接、通知）冷启动时，标签页也垫在下面：否则那一页是栈里唯一的一页，关闭与返回都没有去处。
+export const unstable_settings = { anchor: '(tabs)' };
+
 // 同一台电脑、助理或会话在栈里只留一份：点开提醒时它已经开着，就退回到那一页，不再叠一份。
 const byName = (_: string, params: Record<string, unknown>) => String(params.name);
 const byKey = (_: string, params: Record<string, unknown>) => String(params.key);

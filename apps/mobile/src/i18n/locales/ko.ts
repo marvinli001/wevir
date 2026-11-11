@@ -335,6 +335,8 @@ export const ko: Messages = {
   'composer.delivery.queue': '대기열',
   'composer.pending.steer': '끼어들기 대기',
   'composer.pending.queue': '대기 중',
+  'composer.pending.held': '일시 중지됨',
+  'composer.resumePending': '전송 재개',
   'composer.cancelPending': '취소',
   'photo.library': '사진 보관함',
   'photo.camera': '사진 찍기',

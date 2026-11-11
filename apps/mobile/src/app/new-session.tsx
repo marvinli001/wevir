@@ -2,7 +2,7 @@
 // 展开菜单：电脑（多台时）、项目（或不在项目里的对话，带同目录 / 新工作树）、模型（引擎与账号、模型、思考力度）、权限。每台电脑上次的
 // 选择记在手机上，下次照用；从会话页打开时预选那个会话的项目。这台手机没有“查看模型服务”或“发消息”的权限时只说明要在电脑上新建。
 
-import type { UserImageMimeType } from '@wevir/protocol';
+import type { Session, UserImageMimeType } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -78,6 +78,12 @@ export default function NewSessionScreen() {
   const [choice, setChoice] = useState<ModelChoice>();
   const [permissionMode, setPermissionMode] = useState<PhonePermissionMode>('on_request');
   const [error, setError] = useState<MessageKey>();
+  /** 建好了、第一条消息没发出的会话：再发时发进它。换了电脑、项目、模型或权限就作废（重新建）。 */
+  const created = useRef<{ computer: string; session: Session }>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 选项一变就作废
+  useEffect(() => {
+    created.current = undefined;
+  }, [computer, workspaceId, newWorktree, choice, permissionMode]);
   const [keyboard, setKeyboard] = useState(0);
   // 从会话页带来的项目只在第一次读到这台电脑的选项时用；换了电脑就不再管它。
   const requested = useRef(params.workspace);
@@ -160,14 +166,24 @@ export default function NewSessionScreen() {
       choice,
       permissionMode,
     };
+    const existing = created.current?.computer === computer ? created.current.session : undefined;
+    let sent: boolean;
+    let session: Session;
     try {
-      const { session } = await startSession(
+      ({ session, sent } = await startSession(
         client,
         draft,
         ready.features,
         messageContent(text, photos.images),
         clientMessageId(getRandomBytes),
-      );
+        existing,
+      ));
+    } catch (e) {
+      console.warn('[wevir] could not create session', e);
+      setError(createErrorKey(e));
+      throw e;
+    }
+    if (existing === undefined) {
       const next: NewSessionMemory = {
         computer,
         computers: { ...memory?.computers, [computer]: rememberDraft(draft) },
@@ -175,15 +191,18 @@ export default function NewSessionScreen() {
       void saveNewSessionMemory(next).catch((e: unknown) =>
         console.warn('[wevir] could not save new session choices', e),
       );
-      router.dismissTo({
-        pathname: '/session/[key]',
-        params: { key: `${computer}/${session.id}` },
-      });
-    } catch (e) {
-      console.warn('[wevir] could not create session', e);
-      setError(createErrorKey(e));
-      throw e;
     }
+    if (!sent) {
+      // 会话建好了、消息没发出：留在这里（文字与照片都在），再点发送时发进这个会话。
+      created.current = { computer, session };
+      setError('session.sendFailed');
+      throw new Error('first message not sent');
+    }
+    created.current = undefined;
+    router.dismissTo({
+      pathname: '/session/[key]',
+      params: { key: `${computer}/${session.id}` },
+    });
   };
 
   const computerMenu: MenuSection[] = [

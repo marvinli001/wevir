@@ -295,15 +295,20 @@ export function rememberDraft(draft: NewSessionDraft): NewSessionDefaults {
   };
 }
 
-/** 建会话并发出第一条消息；返回建好的会话。消息没发出时会话已经建好，照样返回（之后在会话页再发）。 */
+/**
+ * 建会话并发出第一条消息；返回建好的会话。消息没发出时会话已经建好，照样返回：界面留在原页、保留文字与照片，再发时把上次建好的
+ * 会话作为 `existing` 传进来，只发消息、不再建一个。
+ */
 export async function startSession(
   client: SessionClient,
   draft: NewSessionDraft,
   features: NewSessionFeatures,
   content: UserContentPart[],
   clientMessageId: string,
+  existing?: Session,
 ): Promise<{ session: Session; sent: boolean }> {
-  const { session } = await client.request('session.create', createParams(draft, features));
+  const session =
+    existing ?? (await client.request('session.create', createParams(draft, features))).session;
   try {
     await client.request('session.send', {
       sessionId: session.id,

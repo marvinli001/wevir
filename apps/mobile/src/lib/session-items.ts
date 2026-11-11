@@ -21,6 +21,7 @@ import type {
   ToolDisplayKind,
   TurnId,
   TurnOutcome,
+  UserImagePart,
 } from '@wevir/protocol';
 import { t } from '../i18n';
 import { type ApprovalContext, approvalView, type BotPost } from './bots';
@@ -37,7 +38,8 @@ export type LiveAction =
   | { kind: 'tool'; label: string };
 
 type SessionItemBody =
-  | { kind: 'user'; key: string; text: string }
+  /** `images`：用户附的照片（按需 `image.read`）。 */
+  | { kind: 'user'; key: string; text: string; images?: readonly UserImagePart[] }
   /** `streaming`：还在流出的回答或计划。 */
   | { kind: 'assistant'; key: string; text: string; streaming?: true }
   /** 一段思考：一行“思考了 N 秒”，有文字时可展开。 */
@@ -94,6 +96,8 @@ type SessionItemBody =
       pendingId: string;
       text: string;
       delivery: PendingDelivery;
+      /** 上一回合异常结束，暂停发送（`pending.resume` 继续）。 */
+      held: boolean;
       notice?: { icon: NoticeIcon; label: string };
     };
 
@@ -189,6 +193,7 @@ function pendingItem(
     pendingId: message.id,
     text: userText(message.content, labels.image),
     delivery: message.delivery,
+    held: message.status === 'held',
     ...(notice !== undefined && { notice: { icon: notice.icon, label: notice.label } }),
   };
 }
@@ -252,7 +257,18 @@ function messageItems(
     const text = userText(message.parts, labels.image);
     const from = message.from;
     if (from === undefined) {
-      if (text !== '') out.push({ kind: 'user', key: message.id, text });
+      const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
+      const own = userText(
+        message.parts.filter((part) => part.type !== 'image'),
+        labels.image,
+      );
+      if (own !== '' || images.length > 0)
+        out.push({
+          kind: 'user',
+          key: message.id,
+          text: own,
+          ...(images.length > 0 && { images }),
+        });
       return out;
     }
     // 额度恢复后或点了恢复按钮后 Host 替用户发的继续消息不显示；不挂起回合的提问的回答（0.156.0）也不显示，回答写在提问那一处。

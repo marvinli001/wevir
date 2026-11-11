@@ -32,7 +32,7 @@ import {
   type TimelineParts,
 } from './bots';
 import type { SpeechClient } from './dictation';
-import { base64Bytes } from './photo-size';
+import { readImage } from './image-read';
 
 export const PAGE_SIZE = 30;
 
@@ -402,23 +402,10 @@ export class BotStore {
     return image;
   }
 
-  /**
-   * 读帖子里的一张图片：`image.read` 一段段往下读（每段最多 `IMAGE_READ_CHUNK_BYTES`），每段的 base64 交给 `write`（各段单独解码，
-   * 边界不用对齐）。
-   */
+  /** 读帖子里的一张图片（image-read.ts）。 */
   async readImage(key: string, imageId: string, write: (base64: string) => Promise<void>) {
     const { client } = this.connected(key);
-    let offset = 0;
-    for (;;) {
-      const chunk = await client.request('image.read', {
-        imageId: imageId as UserImagePart['imageId'],
-        offset,
-      });
-      const bytes = base64Bytes(chunk.data);
-      if (bytes > 0) await write(chunk.data);
-      offset += bytes;
-      if (bytes === 0 || offset >= chunk.size) return;
-    }
+    await readImage(client, imageId as UserImagePart['imageId'], write);
   }
 
   /** 停止协调者（群里是正在回的成员）这回合（0.135.0）。 */

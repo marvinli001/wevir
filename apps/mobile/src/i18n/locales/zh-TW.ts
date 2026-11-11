@@ -331,6 +331,8 @@ export const zhTW: Messages = {
   'composer.delivery.queue': '排隊',
   'composer.pending.steer': '等待插話',
   'composer.pending.queue': '排隊中',
+  'composer.pending.held': '已暫停',
+  'composer.resumePending': '繼續傳送',
   'composer.cancelPending': '取消',
   'photo.library': '從相簿選擇',
   'photo.camera': '拍照',

@@ -339,6 +339,8 @@ export const es: Messages = {
   'composer.delivery.queue': 'En cola',
   'composer.pending.steer': 'Intervención pendiente',
   'composer.pending.queue': 'En cola',
+  'composer.pending.held': 'En pausa',
+  'composer.resumePending': 'Reanudar envío',
   'composer.cancelPending': 'Cancelar',
   'photo.library': 'Fototeca',
   'photo.camera': 'Hacer foto',

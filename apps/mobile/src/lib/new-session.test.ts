@@ -227,6 +227,37 @@ describe('new session', () => {
     });
   });
 
+  it('only sends into a session created earlier whose first message did not go out', async () => {
+    const calls: string[] = [];
+    let fail = true;
+    const client: NewSessionClient = {
+      identity: { clientId: 'mobile-1' },
+      canReadProjects: false,
+      canWrite: true,
+      canReadProviders: true,
+      supports: () => true,
+      subscribe: vi.fn() as never,
+      request: vi.fn(async (method: string) => {
+        calls.push(method);
+        if (method === 'session.create') return { session: { id: 'ses_new' } };
+        if (fail) throw new Error('lost');
+        return { seq: 1 };
+      }) as never,
+    };
+    const draft = {
+      newWorktree: false,
+      choice: { providerId: 'p', modelId: 'a' },
+      permissionMode: 'on_request' as const,
+    };
+    const content = [{ type: 'text' as const, text: 'hello' }];
+    const first = await startSession(client, draft, FEATURES, content, 'm-1');
+    expect(first).toEqual({ session: { id: 'ses_new' }, sent: false });
+    fail = false;
+    const second = await startSession(client, draft, FEATURES, content, 'm-2', first.session);
+    expect(second).toEqual({ session: { id: 'ses_new' }, sent: true });
+    expect(calls).toEqual(['session.create', 'session.send', 'session.send']);
+  });
+
   describe('remembered choices', () => {
     const ready = {
       kind: 'ready' as const,

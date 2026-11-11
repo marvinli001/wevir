@@ -340,6 +340,8 @@ export const de: Messages = {
   'composer.delivery.queue': 'Einreihen',
   'composer.pending.steer': 'Wird eingeschoben',
   'composer.pending.queue': 'Eingereiht',
+  'composer.pending.held': 'Angehalten',
+  'composer.resumePending': 'Senden fortsetzen',
   'composer.cancelPending': 'Abbrechen',
   'photo.library': 'Fotomediathek',
   'photo.camera': 'Foto aufnehmen',

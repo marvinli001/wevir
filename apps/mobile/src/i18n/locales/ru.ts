@@ -339,6 +339,8 @@ export const ru: Messages = {
   'composer.delivery.queue': 'Очередь',
   'composer.pending.steer': 'Ожидает вмешательства',
   'composer.pending.queue': 'В очереди',
+  'composer.pending.held': 'Приостановлено',
+  'composer.resumePending': 'Продолжить отправку',
   'composer.cancelPending': 'Отменить',
   'photo.library': 'Медиатека',
   'photo.camera': 'Сделать снимок',

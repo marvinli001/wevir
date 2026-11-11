@@ -180,6 +180,46 @@ describe('sessionItems：不是用户写的消息', () => {
     ]);
   });
 
+  it('用户附的照片单独给出，不写成文字占位', () => {
+    const image = { type: 'image', imageId: 'img_1', mimeType: 'image/png', size: 10 };
+    const message = {
+      role: 'user',
+      id: 'm1',
+      turnId: 'trn_1',
+      parts: [
+        { type: 'text', key: 'm1:t', text: '看这张' },
+        { type: 'image', key: 'm1:i', image },
+      ],
+    } as unknown as ChatMessage;
+    const onlyImage = {
+      ...message,
+      id: 'm2',
+      parts: [{ type: 'image', key: 'm2:i', image }],
+    } as unknown as ChatMessage;
+    expect(sessionItems(transcript([message, onlyImage]), LABELS)).toMatchObject([
+      { kind: 'user', key: 'm1', text: '看这张', images: [image] },
+      { kind: 'user', key: 'm2', text: '', images: [image] },
+    ]);
+  });
+
+  it('暂停发送的消息标出来', () => {
+    const items = sessionItems(
+      transcript(
+        [],
+        [
+          {
+            id: 'pm_1',
+            status: 'held',
+            delivery: 'queue',
+            content: [{ type: 'text', text: '接着做' }],
+          } as unknown as Partial<PendingMessage>,
+        ],
+      ),
+      LABELS,
+    );
+    expect(items).toMatchObject([{ kind: 'pending', pendingId: 'pm_1', held: true }]);
+  });
+
   it('待送达的通知只显示一行说明', () => {
     const items = sessionItems(
       transcript(
@@ -212,7 +252,7 @@ describe('sessionItems：不是用户写的消息', () => {
         pendingId: 'pm_1',
         notice: { icon: 'process', label: '后台进程“tests”输出匹配' },
       },
-      { kind: 'pending', pendingId: 'pm_2', text: '顺便改标题' },
+      { kind: 'pending', pendingId: 'pm_2', text: '顺便改标题', held: false },
     ]);
     expect(items[1]).not.toHaveProperty('notice');
   });

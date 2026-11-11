@@ -340,6 +340,8 @@ export const it: Messages = {
   'composer.delivery.queue': 'In coda',
   'composer.pending.steer': 'In attesa di inserimento',
   'composer.pending.queue': 'In coda',
+  'composer.pending.held': 'In pausa',
+  'composer.resumePending': 'Riprendi invio',
   'composer.cancelPending': 'Annulla',
   'photo.library': 'Libreria foto',
   'photo.camera': 'Scatta foto',

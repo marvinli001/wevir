@@ -1,4 +1,4 @@
-// 会话页上能做的事（M2）：发消息（回合进行中插话或排队，照桌面的“回合进行中按回车”）、中断、取消排队的消息、回答提问、改名、
+// 会话页上能做的事（M2）：发消息（回合进行中插话或排队，照桌面的“回合进行中按回车”）、中断、取消或继续发送待发的消息、回答提问、改名、
 // 归档、上传照片。全部是隧道里的 JSON-RPC，连接由调用方注入（`SessionClient`），测试用假的。纯逻辑。
 
 import { isRpcError } from '@wevir/client-sdk';
@@ -96,6 +96,10 @@ export interface SendOptions {
   images?: readonly UserImagePart[];
   /** 回合进行中时：插话或排队。空闲时不带。 */
   delivery?: PendingDelivery;
+  /** 会话出错或已关闭：先 `session.resume` 再发（同桌面；这两个状态下 send 回 INVALID_STATE）。 */
+  resume?: boolean;
+  /** 审批挂起时（0.144.0 `approval_messages`）：拒绝最早的那条，这条消息作为附言交给 Agent（同桌面）。 */
+  declineApproval?: boolean;
 }
 
 export class SessionActions {
@@ -124,14 +128,17 @@ export class SessionActions {
     }
   }
 
-  async send({ text, images, delivery }: SendOptions): Promise<void> {
+  async send({ text, images, delivery, resume, declineApproval }: SendOptions): Promise<void> {
     const content = messageContent(text, images);
     if (content.length === 0) return;
+    if (resume === true)
+      await this.#client.request('session.resume', { sessionId: this.#sessionId });
     await this.#client.request('session.send', {
       sessionId: this.#sessionId,
       content,
       clientMessageId: clientMessageId(this.#random),
       ...(delivery !== undefined && { delivery }),
+      ...(declineApproval === true && { declineApproval: true }),
     });
   }
 
@@ -141,6 +148,11 @@ export class SessionActions {
 
   async cancelPending(pendingId: PendingMessageId): Promise<void> {
     await this.#client.request('pending.cancel', { sessionId: this.#sessionId, pendingId });
+  }
+
+  /** 上一回合异常结束后暂停的待发消息：全部继续发送。 */
+  async resumePending(): Promise<void> {
+    await this.#client.request('pending.resume', { sessionId: this.#sessionId });
   }
 
   async cancelAutoContinue(turnId: TurnId): Promise<void> {
