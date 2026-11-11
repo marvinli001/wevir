@@ -167,11 +167,19 @@ function PillIcon({ view, theme }: { view: BannerView; theme: Theme }) {
   }
 }
 
-/** 弹簧进出：收起时动画走完才卸下，期间仍画最后一次的内容。 */
+/**
+ * 弹簧进出：收起时动画走完才卸下，期间仍画最后一次的内容。
+ *
+ * 有玻璃时玻璃的祖先不做透明度动画、也不移出屏幕：UIKit 在祖先近乎透明时装不上玻璃效果，透明过一次的已装玻璃回来时也可能
+ * 不再渲染，胶囊就只剩文字（重连时收起中又弹出最常见）。玻璃改由系统自己的显隐动画（`none` ↔ `regular`）出现和消失，弹簧只管
+ * 在屏幕内的小幅位移与缩放，淡入淡出放在玻璃里面的内容上。
+ */
 function ConnectPill({ view }: { view: BannerView | undefined }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [shown, setShown] = useState(view);
+  /** 玻璃已画出：挂上后的第一次布局才从 `none` 换成 `regular`，好走系统的显现动画。 */
+  const [materialized, setMaterialized] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (view !== undefined) {
@@ -192,7 +200,9 @@ function ConnectPill({ view }: { view: BannerView | undefined }) {
       stiffness: 260,
       overshootClamping: true,
     }).start(({ finished }) => {
-      if (finished) setShown(undefined);
+      if (!finished) return;
+      setShown(undefined);
+      setMaterialized(false);
     });
   }, [view, progress]);
   const title = shown === undefined ? undefined : pillTitle(shown);
@@ -200,6 +210,11 @@ function ConnectPill({ view }: { view: BannerView | undefined }) {
     if (title !== undefined) AccessibilityInfo.announceForAccessibility(title);
   }, [title]);
   if (shown === undefined || title === undefined) return null;
+  const fade = progress.interpolate({
+    inputRange: [0, 0.4, 1],
+    outputRange: [0, 1, 1],
+    extrapolate: 'clamp',
+  });
   const content = (
     <>
       <View style={styles.pillIcon}>
@@ -215,17 +230,42 @@ function ConnectPill({ view }: { view: BannerView | undefined }) {
       </View>
     </>
   );
+  const label = `${title}, ${joinNames(shown.names)}`;
+  if (GLASS) {
+    return (
+      <View pointerEvents="none" style={[styles.pillLayer, { top: insets.top + 6 }]}>
+        <Animated.View
+          accessibilityLabel={label}
+          testID="connect-status"
+          style={{
+            transform: [
+              { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) },
+              { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+            ],
+          }}
+        >
+          <GlassView
+            glassEffectStyle={{
+              style: view !== undefined && materialized ? 'regular' : 'none',
+              animate: true,
+              animationDuration: 0.3,
+            }}
+            style={styles.pillGlass}
+            onLayout={() => setMaterialized(true)}
+          >
+            <Animated.View style={[styles.pill, { opacity: fade }]}>{content}</Animated.View>
+          </GlassView>
+        </Animated.View>
+      </View>
+    );
+  }
   return (
     <View pointerEvents="none" style={[styles.pillLayer, { top: insets.top + 6 }]}>
       <Animated.View
-        accessibilityLabel={`${title}, ${joinNames(shown.names)}`}
+        accessibilityLabel={label}
         testID="connect-status"
         style={{
-          opacity: progress.interpolate({
-            inputRange: [0, 0.4, 1],
-            outputRange: [0, 1, 1],
-            extrapolate: 'clamp',
-          }),
+          opacity: fade,
           transform: [
             {
               translateY: progress.interpolate({
@@ -237,22 +277,16 @@ function ConnectPill({ view }: { view: BannerView | undefined }) {
           ],
         }}
       >
-        {GLASS ? (
-          <GlassView glassEffectStyle="regular" style={styles.pill}>
-            {content}
-          </GlassView>
-        ) : (
-          <View
-            style={[
-              styles.pill,
-              styles.pillSolid,
-              { backgroundColor: theme.card, borderColor: theme.border },
-              !theme.dark && styles.pillShadow,
-            ]}
-          >
-            {content}
-          </View>
-        )}
+        <View
+          style={[
+            styles.pill,
+            styles.pillSolid,
+            { backgroundColor: theme.card, borderColor: theme.border },
+            !theme.dark && styles.pillShadow,
+          ]}
+        >
+          {content}
+        </View>
       </Animated.View>
     </View>
   );
@@ -289,6 +323,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.capsule,
     borderCurve: 'continuous',
   },
+  pillGlass: { borderRadius: RADIUS.capsule, borderCurve: 'continuous' },
   pillSolid: { borderWidth: StyleSheet.hairlineWidth },
   pillShadow: {
     shadowColor: '#000',
