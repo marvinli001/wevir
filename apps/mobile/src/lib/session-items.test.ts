@@ -557,3 +557,232 @@ describe('sessionItems：回合的折叠', () => {
     expect(items).toEqual([]);
   });
 });
+
+describe('sessionItems：桌面端的其余部件', () => {
+  it('清单、提问、文件、建议、意见、发现、章节与压缩各有一项', () => {
+    const items = sessionItems(
+      transcript([
+        answer('a1', 'trn_1', [
+          { type: 'todo', key: 'todo', items: [{ content: '跑测试', status: 'completed' }] },
+          {
+            type: 'question',
+            key: 'q:1',
+            question: {
+              id: 'q1',
+              status: 'answered',
+              questions: [
+                { id: 'a', question: '用哪个库？', header: '库' },
+                { id: 'b', question: '密码', secret: true },
+                { id: 'c', question: '跳过的' },
+              ],
+              resolution: { answers: { a: { answers: ['zod'] }, b: { answers: ['x'] } } },
+            },
+          },
+          {
+            type: 'question',
+            key: 'q:2',
+            question: { id: 'q2', status: 'pending', questions: [] },
+          },
+          { type: 'files', key: 'f:1', files: [{ path: 'out/a.pdf', name: 'a.pdf', size: 2048 }] },
+          { type: 'tasks', key: 'k:1', toolCallId: 'c', tasks: [{ id: 't', title: '补文档' }] },
+          { type: 'opinion', key: 'o:1', opinion: { id: 'o', status: 'running' } },
+          { type: 'findings', key: 'r:1', origin: 'x', summary: '  ', findings: [] },
+          { type: 'chapter', key: 'h:1', seq: 1, title: '实现' },
+          {
+            type: 'compaction',
+            key: 'c:1',
+            compactionId: 'c',
+            trigger: 'manual',
+            status: 'completed',
+          },
+        ]),
+      ]),
+      LABELS,
+    );
+    expect(items.map((item) => item.kind)).toEqual([
+      'todo',
+      'answers',
+      'files',
+      'tasks',
+      'opinion',
+      'findings',
+      'divider',
+      'divider',
+    ]);
+    expect(items[1]).toEqual({
+      kind: 'answers',
+      key: 'q:1',
+      rows: [
+        { question: '库', answer: 'zod' },
+        { question: '密码', answer: '••••' },
+        { question: '跳过的' },
+      ],
+    });
+    expect(items[5]).not.toHaveProperty('summary');
+    expect(items.slice(6)).toEqual([
+      { kind: 'divider', key: 'h:1', text: '实现', chapter: true },
+      { kind: 'divider', key: 'c:1', text: '已压缩上下文' },
+    ]);
+  });
+
+  it('重新连接、护栏、钩子、子智能体与回报是标记行；进行中回合最后的重新连接写“正在”', () => {
+    const items = sessionItems(
+      running([
+        assistant([
+          {
+            type: 'guardrail',
+            key: 'g:1',
+            blocked: {
+              kind: 'forbidden_command',
+              action: 'denied',
+              command: 'rm -rf /',
+              reason: '禁止',
+            },
+          },
+          {
+            type: 'hook',
+            key: 'k:1',
+            outcome: { event: 'PreToolUse', action: 'context', tool: 'Bash', reason: '附加' },
+          },
+          {
+            type: 'subagent',
+            key: 'a:ses_c',
+            subagent: { sessionId: 'ses_c', title: '', nickname: '小助手', status: 'running' },
+          },
+          {
+            type: 'subagent',
+            key: 'a:ses_c:end:9',
+            subagent: { sessionId: 'ses_c', title: '查日志', status: 'failed' },
+            ended: 'failed',
+          },
+          {
+            type: 'task_report',
+            key: 'tr:1',
+            task: { title: '补文档', sessionId: 'ses_t', outcome: 'cancelled' },
+            summary: '停了',
+          },
+          { type: 'retry', key: 't:1', attempt: 2, maxAttempts: 5, reason: '502' },
+        ]),
+      ]),
+      LABELS,
+    ).filter((item) => item.kind === 'line');
+    expect(items).toEqual([
+      {
+        kind: 'line',
+        key: 'g:1',
+        icon: 'guardrail',
+        tone: 'destructive',
+        text: '已拦截 禁止命令',
+        target: 'rm -rf /',
+        detail: '禁止',
+      },
+      {
+        kind: 'line',
+        key: 'k:1',
+        icon: 'hook',
+        tone: 'running',
+        text: '已附加上下文',
+        target: 'PreToolUse Bash',
+        detail: '附加',
+      },
+      { kind: 'line', key: 'a:ses_c', icon: 'agent', text: '小助手已启动', sessionId: 'ses_c' },
+      {
+        kind: 'line',
+        key: 'a:ses_c:end:9',
+        icon: 'failed',
+        tone: 'destructive',
+        text: '查日志运行失败',
+        sessionId: 'ses_c',
+      },
+      {
+        kind: 'line',
+        key: 'tr:1',
+        icon: 'failed',
+        tone: 'destructive',
+        text: '“补文档”已停止',
+        sessionId: 'ses_t',
+        detail: '停了',
+      },
+      {
+        kind: 'line',
+        key: 't:1',
+        icon: 'retry',
+        text: '正在重新连接 2/5',
+        detail: '502',
+        active: true,
+      },
+    ]);
+  });
+
+  it('会话级提示居中；工具产出的图片跟着工具那一行', () => {
+    const items = sessionItems(
+      transcript([
+        answer('a1', 'trn_1', [
+          { type: 'notice', key: 'n:1', notice: { kind: 'read_only', reason: 'imported' } },
+          {
+            type: 'notice',
+            key: 'n:2',
+            notice: { kind: 'moved', to: 'worktree', cwd: '/w', branch: 'fix' },
+          },
+          { ...done('tool1'), images: [{ type: 'image', imageId: 'img_1' }] },
+        ]),
+      ]),
+      LABELS,
+    );
+    expect(items).toMatchObject([
+      { kind: 'line', text: '会话只读：已导入', center: true },
+      { kind: 'line', text: '已移到工作树', target: 'fix', center: true },
+      { kind: 'tool', images: [{ imageId: 'img_1' }] },
+    ]);
+  });
+
+  it('收起时同桌面端：清单、提问、重新连接、钩子、子智能体与自动压缩随过程收起，其余留下', () => {
+    const items = sessionItems(
+      transcript([
+        ask('m1', 'trn_1', '做吧'),
+        answer(
+          'a1',
+          'trn_1',
+          [
+            { type: 'todo', key: 'todo', items: [{ content: 'x', status: 'pending' }] },
+            { type: 'retry', key: 't:1' },
+            { type: 'hook', key: 'k:1', outcome: { event: 'Stop', action: 'failed' } },
+            {
+              type: 'compaction',
+              key: 'c:1',
+              compactionId: 'c',
+              trigger: 'auto',
+              status: 'completed',
+            },
+            {
+              type: 'compaction',
+              key: 'c:2',
+              compactionId: 'd',
+              trigger: 'manual',
+              status: 'completed',
+            },
+            { type: 'chapter', key: 'h:1', seq: 1, title: '收尾' },
+            { type: 'files', key: 'f:1', files: [{ path: 'a', name: 'a', size: 1 }] },
+            {
+              type: 'guardrail',
+              key: 'g:1',
+              blocked: { kind: 'stop_check', action: 'allowed', reason: '' },
+            },
+            { type: 'text', key: 't2', text: '好了', state: 'done' },
+          ],
+          { outcome: 'completed', durationMs: 5_000 },
+        ),
+      ]),
+      LABELS,
+    );
+    expect(visibleItems(items, new Map()).map((item) => item.key)).toEqual([
+      'm1',
+      'turn:trn_1',
+      'c:2',
+      'h:1',
+      'f:1',
+      'g:1',
+      't2',
+    ]);
+  });
+});

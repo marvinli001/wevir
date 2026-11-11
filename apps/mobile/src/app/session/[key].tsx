@@ -49,6 +49,17 @@ import type { MenuSection } from '../../components/menu';
 import { type LoadImage, PostImages } from '../../components/post-images';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
+import {
+  AnswersRow,
+  DividerRow,
+  FilesCard,
+  FindingsCard,
+  LineRow,
+  type OpenSession,
+  OpinionCard,
+  TasksCard,
+  TodoCard,
+} from '../../components/transcript-parts';
 import { Button, Icon, type IconName } from '../../components/ui';
 import { formatDuration, type MessageKey, t, timeAgo } from '../../i18n';
 import { ApprovalUnavailableError } from '../../lib/approval-gate';
@@ -284,6 +295,12 @@ export default function SessionScreen() {
             cachedImage(computer, image, (write) => readImage(client, image.imageId, write)),
     [client, computer],
   );
+  // 子智能体、任务与第二意见的会话在同一台电脑上。
+  const openSession = useCallback(
+    (id: string) =>
+      router.push({ pathname: '/session/[key]', params: { key: `${computer}/${id}` } }),
+    [router, computer],
+  );
 
   const send = useCallback(
     async (text: string) => {
@@ -443,6 +460,7 @@ export default function SessionScreen() {
                 .catch((e: unknown) => setError(sendErrorKey(e)));
             }}
             onLoadImage={loadImage}
+            onOpenSession={openSession}
             onResumePending={() => {
               actions?.resumePending().catch((e: unknown) => setError(sendErrorKey(e)));
             }}
@@ -531,6 +549,7 @@ function SessionList({
   onCancelPending,
   onResumePending,
   onLoadImage,
+  onOpenSession,
   onRetry,
 }: {
   items: readonly SessionItem[];
@@ -549,6 +568,7 @@ function SessionList({
   onCancelPending: (pendingId: string) => void;
   onResumePending: () => void;
   onLoadImage: LoadImage | undefined;
+  onOpenSession: OpenSession;
   onRetry: () => void;
 }) {
   const now = useMinuteClock();
@@ -695,6 +715,7 @@ function SessionList({
               onCancelPending={onCancelPending}
               onResumePending={onResumePending}
               onLoadImage={onLoadImage}
+              onOpenSession={onOpenSession}
             />
           </View>
         )}
@@ -732,7 +753,9 @@ function SessionList({
 /** 过程里相邻的思考与工具挨着放（同桌面端的工作组），别的行之间照常隔开。 */
 function dense(item: SessionItem, previous: SessionItem | undefined): boolean {
   const step = (entry: SessionItem | undefined) =>
-    entry?.kind === 'tool' || entry?.kind === 'thought';
+    entry?.kind === 'tool' ||
+    entry?.kind === 'thought' ||
+    (entry?.kind === 'line' && entry.center !== true);
   return step(item) && step(previous);
 }
 
@@ -750,6 +773,7 @@ function Item({
   onCancelPending,
   onResumePending,
   onLoadImage,
+  onOpenSession,
 }: {
   item: SessionItem;
   open: boolean;
@@ -765,6 +789,7 @@ function Item({
   onResumePending: () => void;
   /** 没连着时没有：照片不画。 */
   onLoadImage: LoadImage | undefined;
+  onOpenSession: OpenSession;
 }) {
   switch (item.kind) {
     case 'turn':
@@ -817,7 +842,30 @@ function Item({
         />
       );
     case 'tool':
-      return <ToolRow item={item} theme={theme} />;
+      return item.images !== undefined && onLoadImage !== undefined ? (
+        <View style={styles.userItem}>
+          <ToolRow item={item} theme={theme} />
+          <PostImages images={item.images} align="start" load={onLoadImage} />
+        </View>
+      ) : (
+        <ToolRow item={item} theme={theme} />
+      );
+    case 'line':
+      return <LineRow item={item} theme={theme} onOpenSession={onOpenSession} />;
+    case 'divider':
+      return <DividerRow item={item} theme={theme} />;
+    case 'todo':
+      return <TodoCard item={item} theme={theme} />;
+    case 'answers':
+      return <AnswersRow item={item} theme={theme} />;
+    case 'files':
+      return <FilesCard item={item} theme={theme} />;
+    case 'tasks':
+      return <TasksCard item={item} theme={theme} onOpenSession={onOpenSession} />;
+    case 'opinion':
+      return <OpinionCard item={item} theme={theme} onOpenSession={onOpenSession} />;
+    case 'findings':
+      return <FindingsCard item={item} theme={theme} />;
     case 'error':
       return (
         <Text style={[styles.note, { color: theme.destructive }]} selectable>

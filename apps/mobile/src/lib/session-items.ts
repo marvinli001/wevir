@@ -17,13 +17,18 @@ import type {
   PendingDelivery,
   PendingMessage,
   QuestionRequest,
+  ReviewFinding,
+  SecondOpinion,
   SessionId,
+  SharedFile,
+  SuggestedTask,
+  TodoItem,
   ToolDisplayKind,
   TurnId,
   TurnOutcome,
   UserImagePart,
 } from '@wevir/protocol';
-import { t } from '../i18n';
+import { formatBytes, type MessageKey, t } from '../i18n';
 import { type ApprovalContext, approvalView, type BotPost } from './bots';
 import { isBusy } from './session-actions';
 
@@ -31,6 +36,17 @@ export type ToolState = 'awaiting' | 'running' | 'done' | 'failed' | 'skipped' |
 
 /** 不是用户写的消息的图标：后台进程、自动修复、第二意见、回报、别的会话发来的消息。 */
 export type NoticeIcon = 'process' | 'repair' | 'opinion' | 'report' | 'message';
+
+/** 标记行的图标。 */
+export type LineIcon =
+  | 'retry'
+  | 'guardrail'
+  | 'hook'
+  | 'agent'
+  | 'done'
+  | 'failed'
+  | 'info'
+  | 'context';
 
 /** 进行中的回合正在做什么（同桌面端的当前动作）：停止中、等审批、等回答、在跑的工具，都不是时在思考。 */
 export type LiveAction =
@@ -44,7 +60,10 @@ type SessionItemBody =
   | { kind: 'assistant'; key: string; text: string; streaming?: true }
   /** 一段思考：一行“思考了 N 秒”，有文字时可展开。 */
   | { kind: 'thought'; key: string; text: string; durationMs?: number }
-  /** 工具一行：种类（图标）、动词（不认识的种类用工具名）与对象（摘要、命令、网址或搜索词）。 */
+  /**
+   * 工具一行：种类（图标）、动词（不认识的种类用工具名）与对象（摘要、命令、网址或搜索词）。`images`：工具产出的图片（生图等），
+   * 画在这一行下面。
+   */
   | {
       kind: 'tool';
       key: string;
@@ -52,7 +71,45 @@ type SessionItemBody =
       verb: string;
       target?: string;
       state: ToolState;
+      images?: readonly UserImagePart[];
     }
+  /**
+   * 一行标记（同桌面端的工具行式样）：重新连接、护栏拦截、钩子、子智能体与任务的回报、会话级提示（`center`，居中）。`detail`
+   * 是点开看的原文（理由、命令）；有 `sessionId` 时点它打开那个会话。
+   */
+  | {
+      kind: 'line';
+      key: string;
+      icon: LineIcon;
+      tone?: 'destructive' | 'warning' | 'running';
+      text: string;
+      target?: string;
+      detail?: string;
+      sessionId?: SessionId;
+      center?: true;
+      /** 正在进行（重新连接中）。 */
+      active?: true;
+    }
+  /** 分隔线：压缩上下文（文字居中）与章节（`chapter`，标题在左）。 */
+  | { kind: 'divider'; key: string; text: string; chapter?: true }
+  /** Agent 的清单。 */
+  | { kind: 'todo'; key: string; items: readonly TodoItem[] }
+  /** 回答过的提问：每题一行“题目 → 回答”（`answer` 省略是跳过了）；取消了只有一行说明。 */
+  | {
+      kind: 'answers';
+      key: string;
+      rows: readonly { question: string; answer?: string }[];
+      cancelled?: true;
+      timedOut?: true;
+    }
+  /** Agent 交给用户的文件。 */
+  | { kind: 'files'; key: string; files: readonly SharedFile[] }
+  /** Agent 建议的后续任务。 */
+  | { kind: 'tasks'; key: string; tasks: readonly SuggestedTask[] }
+  /** 第二意见。 */
+  | { kind: 'opinion'; key: string; opinion: SecondOpinion }
+  /** 审查发现。 */
+  | { kind: 'findings'; key: string; summary?: string; findings: readonly ReviewFinding[] }
   /**
    * 结束的回合那一行（同桌面端）：“已处理 2 分 31 秒”“出错 · 12 秒”等，点它展开或收起这个回合的过程。`defaultOpen`：出错、
    * 被停止、被中断或没有过程的回合默认展开。
@@ -251,6 +308,8 @@ function messageItems(
   labels: SessionItemLabels,
   /** 正在流出、由运行状态代表的思考（不另画一行）。 */
   liveThought: string | undefined,
+  /** 进行中的回合（它最后一个部件是重新连接时写“正在重新连接”）。 */
+  activeTurnId: TurnId | undefined,
 ): SessionItem[] {
   const out: SessionItem[] = [];
   if (message.role === 'user') {
@@ -326,6 +385,7 @@ function messageItems(
           toolKind: part.display.kind,
           ...toolText(part, labels),
           state: toolState(part),
+          ...(part.images !== undefined && part.images.length > 0 && { images: part.images }),
         });
         break;
       case 'error':
@@ -335,14 +395,259 @@ function messageItems(
             : { kind: 'error', key: part.key, text: part.message },
         );
         break;
-      case 'notice':
-        if (part.notice.kind === 'handoff' || part.notice.kind === 'configured') {
-          out.push({ kind: 'handoff', key: part.key, notice: part.notice });
-        }
+      case 'notice': {
+        const notice = part.notice;
+        if (notice.kind === 'handoff' || notice.kind === 'configured') {
+          out.push({ kind: 'handoff', key: part.key, notice });
+        } else out.push(noticeLine(part.key, notice));
+        break;
+      }
+      case 'retry': {
+        const active =
+          message.role === 'assistant' &&
+          message.turnId === activeTurnId &&
+          message.parts.at(-1)?.key === part.key;
+        const counted = part.attempt !== undefined && part.maxAttempts !== undefined;
+        const text = counted
+          ? t(active ? 'retry.active' : 'retry.done', {
+              attempt: part.attempt ?? 0,
+              max: part.maxAttempts ?? 0,
+            })
+          : t(active ? 'retry.activePlain' : 'retry.donePlain');
+        out.push({
+          kind: 'line',
+          key: part.key,
+          icon: 'retry',
+          text,
+          ...(part.reason !== undefined && { detail: part.reason }),
+          ...(active && { active: true }),
+        });
+        break;
+      }
+      case 'guardrail':
+        out.push(guardrailLine(part));
+        break;
+      case 'hook':
+        out.push(hookLine(part));
+        break;
+      case 'subagent': {
+        const { subagent, ended } = part;
+        const title = subagent.title.trim() || subagent.nickname?.trim() || t('subagent.untitled');
+        const failed = ended === 'failed';
+        out.push({
+          kind: 'line',
+          key: part.key,
+          icon: failed ? 'failed' : ended === undefined ? 'agent' : 'done',
+          ...(failed && { tone: 'destructive' }),
+          text: t(ended === undefined ? 'subagent.marker.started' : `subagent.marker.${ended}`, {
+            title,
+          }),
+          sessionId: subagent.sessionId,
+        });
+        break;
+      }
+      case 'task_report': {
+        const outcome = part.task.outcome ?? 'completed';
+        const ok = outcome === 'completed';
+        out.push({
+          kind: 'line',
+          key: part.key,
+          icon: ok ? 'done' : 'failed',
+          ...(!ok && { tone: 'destructive' }),
+          text: t(
+            ok
+              ? 'suggest.report.completed'
+              : outcome === 'cancelled'
+                ? 'suggest.report.cancelled'
+                : 'suggest.report.failed',
+            { title: part.task.title },
+          ),
+          ...(part.task.sessionId !== undefined && { sessionId: part.task.sessionId }),
+          ...(part.summary !== undefined && { detail: part.summary }),
+        });
+        break;
+      }
+      case 'compaction': {
+        const auto = part.trigger === 'auto';
+        const running = part.status === 'running';
+        const key: MessageKey = running
+          ? auto
+            ? 'compaction.autoRunning'
+            : 'compaction.running'
+          : auto
+            ? 'compaction.autoDone'
+            : 'compaction.done';
+        out.push({ kind: 'divider', key: part.key, text: t(key) });
+        break;
+      }
+      case 'chapter':
+        out.push({ kind: 'divider', key: part.key, text: part.title, chapter: true });
+        break;
+      case 'todo':
+        if (part.items.length > 0) out.push({ kind: 'todo', key: part.key, items: part.items });
+        break;
+      case 'question': {
+        const answered = answersItem(part.key, part.question);
+        if (answered !== undefined) out.push(answered);
+        break;
+      }
+      case 'files':
+        if (part.files.length > 0) out.push({ kind: 'files', key: part.key, files: part.files });
+        break;
+      case 'tasks':
+        if (part.tasks.length > 0) out.push({ kind: 'tasks', key: part.key, tasks: part.tasks });
+        break;
+      case 'opinion':
+        out.push({ kind: 'opinion', key: part.key, opinion: part.opinion });
+        break;
+      case 'findings':
+        out.push({
+          kind: 'findings',
+          key: part.key,
+          ...(part.summary !== undefined &&
+            part.summary.trim() !== '' && { summary: part.summary }),
+          findings: part.findings,
+        });
         break;
     }
   }
   return out;
+}
+
+/** 会话级提示（恢复、只读、关闭、换目录、开局上下文）：居中的一行。 */
+function noticeLine(
+  key: string,
+  notice: Exclude<ChatPartOf<'notice'>['notice'], { kind: 'handoff' | 'configured' }>,
+): SessionItem {
+  switch (notice.kind) {
+    case 'context':
+      return {
+        kind: 'line',
+        key,
+        icon: 'context',
+        text: t('context.receipt.title'),
+        target: formatBytes(notice.receipt.bytes),
+        center: true,
+      };
+    case 'resumed':
+      return { kind: 'line', key, icon: 'info', text: t('notice.resumed'), center: true };
+    case 'read_only':
+      return {
+        kind: 'line',
+        key,
+        icon: 'info',
+        text: t('notice.readOnly', { reason: t(`readOnly.${notice.reason}`) }),
+        center: true,
+      };
+    case 'closed':
+      return { kind: 'line', key, icon: 'info', text: t('notice.closed'), center: true };
+    case 'moved':
+      return {
+        kind: 'line',
+        key,
+        icon: 'info',
+        text: t(notice.to === 'local' ? 'notice.movedToLocal' : 'notice.movedToWorktree'),
+        ...(notice.branch !== undefined && { target: notice.branch }),
+        center: true,
+      };
+  }
+}
+
+const GUARDRAIL_ACTIONS: Record<string, MessageKey> = {
+  denied: 'guardrail.action.denied',
+  continued: 'guardrail.action.continued',
+  allowed: 'guardrail.action.allowed',
+};
+
+const GUARDRAIL_KINDS: Record<string, MessageKey> = {
+  forbidden_command: 'guardrail.kind.forbidden_command',
+  protected_path: 'guardrail.kind.protected_path',
+  stop_check: 'guardrail.kind.stop_check',
+  commit_check: 'guardrail.kind.commit_check',
+};
+
+/** 认识的开放字符串换成界面文字，不认识的原样。 */
+function known(table: Record<string, MessageKey>, value: string): string {
+  const key = Object.hasOwn(table, value) ? table[value] : undefined;
+  return key !== undefined ? t(key) : value;
+}
+
+/** 护栏拦下的一步（同桌面端）：“已拦截 禁止命令 rm -rf /”，结束前检查带第几次；点开是交给 Agent 的理由。 */
+function guardrailLine(part: ChatPartOf<'guardrail'>): SessionItem {
+  const { blocked } = part;
+  const attempt =
+    blocked.attempt !== undefined && blocked.maxAttempts !== undefined
+      ? `${blocked.attempt}/${blocked.maxAttempts}`
+      : undefined;
+  const target = [blocked.command ?? blocked.path, attempt].filter(Boolean).join(' · ');
+  return {
+    kind: 'line',
+    key: part.key,
+    icon: 'guardrail',
+    ...(blocked.action === 'denied' && { tone: 'destructive' }),
+    ...(blocked.action === 'continued' && { tone: 'warning' }),
+    text: `${known(GUARDRAIL_ACTIONS, blocked.action)} ${known(GUARDRAIL_KINDS, blocked.kind)}`,
+    ...(target !== '' && { target }),
+    ...(blocked.reason.trim() !== '' && { detail: blocked.reason }),
+  };
+}
+
+const HOOK_ACTIONS: Record<string, MessageKey> = {
+  blocked: 'hook.action.blocked',
+  denied: 'hook.action.denied',
+  allowed: 'hook.action.allowed',
+  continued: 'hook.action.continued',
+  context: 'hook.action.context',
+  failed: 'hook.action.failed',
+  limit: 'hook.action.limit',
+};
+
+/** 一条 hook 的结果（同桌面端）：动作、事件与工具或命令；点开是命令与理由。 */
+function hookLine(part: ChatPartOf<'hook'>): SessionItem {
+  const { outcome } = part;
+  const blocked = outcome.action === 'blocked' || outcome.action === 'denied';
+  const tone =
+    blocked || outcome.action === 'failed'
+      ? 'destructive'
+      : outcome.action === 'context'
+        ? 'running'
+        : 'warning';
+  const target = [outcome.event, outcome.tool ?? outcome.command].filter(Boolean).join(' ');
+  const detail = [outcome.command, outcome.reason].filter(Boolean).join('\n\n');
+  return {
+    kind: 'line',
+    key: part.key,
+    icon: 'hook',
+    tone,
+    text: known(HOOK_ACTIONS, outcome.action),
+    target,
+    ...(detail !== '' && { detail }),
+  };
+}
+
+/** 回答过（或取消了）的提问；还在等回答的不画（在消息流末尾另有提问卡片）。 */
+function answersItem(key: string, question: QuestionRequest): SessionItem | undefined {
+  if (question.status === 'pending') return undefined;
+  if (question.status === 'cancelled') return { kind: 'answers', key, rows: [], cancelled: true };
+  const answers = question.resolution?.answers ?? {};
+  return {
+    kind: 'answers',
+    key,
+    rows: question.questions.map((item) => {
+      const answer = answers[item.id]?.answers ?? [];
+      const text =
+        answer.length === 0
+          ? undefined
+          : item.secret
+            ? '••••'
+            : answer.join(t('common.listSeparator'));
+      return {
+        question: item.header ?? item.question,
+        ...(text !== undefined && { answer: text }),
+      };
+    }),
+    ...(question.resolution?.reason === 'timeout' && { timedOut: true }),
+  };
 }
 
 /**
@@ -425,12 +730,12 @@ export function sessionItems(
 ): SessionItem[] {
   const own = transcript.sessionId;
   const live = showLive ? liveStatus(transcript, labels) : undefined;
+  const active = isBusy(transcript) ? transcript.activeTurnId : undefined;
   const perMessage = transcript.messages.map((message) =>
-    messageItems(message, own, labels, live?.thoughtKey).filter(
+    messageItems(message, own, labels, live?.thoughtKey, showLive ? active : undefined).filter(
       (item) => item.key !== live?.toolKey,
     ),
   );
-  const active = isBusy(transcript) ? transcript.activeTurnId : undefined;
   const out = foldTurns(transcript.messages, perMessage, active);
   if (live !== undefined) out.push(live.item);
   for (const request of transcript.pendingApprovals) {
@@ -473,14 +778,33 @@ function turnInfo(messages: readonly ChatMessage[]): Map<TurnId, TurnInfo> {
 }
 
 /**
- * 回合的过程：思考、工具与最后一段回答之前的旁白，回合中途插进来的后台进程通知。计划、错误、接力、插话与别的会话发来的消息
- * 收起时也留下。
+ * 收起时也留下的部件（同桌面端 turn-model.ts）：计划、错误、建议的任务与回报、第二意见、交出的文件、审查发现、护栏拦截、章节、
+ * 手动压缩，以及会话级提示与接力。
+ */
+const KEPT_PARTS: ReadonlySet<ChatMessage['parts'][number]['type']> = new Set([
+  'plan',
+  'error',
+  'tasks',
+  'task_report',
+  'opinion',
+  'files',
+  'findings',
+  'guardrail',
+  'chapter',
+  'notice',
+]);
+
+/**
+ * 回合的过程：思考、工具、清单、回答过的提问、重新连接、钩子、子智能体、自动压缩、最后一段回答之前的旁白，回合中途插进来的
+ * 后台进程通知。别的部件、插话与别的会话发来的消息收起时也留下。
  */
 function isProcess(item: SessionItem, message: ChatMessage, finalKey: string | undefined): boolean {
   if (message.role === 'user') return item.kind === 'notice' && message.from?.process !== undefined;
-  if (item.kind === 'thought' || item.kind === 'tool') return true;
-  if (item.kind !== 'assistant' || item.key === finalKey) return false;
-  return message.parts.some((part) => part.key === item.key && part.type === 'text');
+  const part = message.parts.find((candidate) => candidate.key === item.key);
+  if (part === undefined) return false;
+  if (part.type === 'text') return item.key !== finalKey;
+  if (part.type === 'compaction') return part.trigger === 'auto';
+  return !KEPT_PARTS.has(part.type);
 }
 
 /**
