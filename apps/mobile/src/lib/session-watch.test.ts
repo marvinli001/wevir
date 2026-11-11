@@ -1,4 +1,4 @@
-import type { EventSubscription, SubscriptionItem } from '@wevir/client-sdk';
+import type { EventSubscription, SubscribeOptions, SubscriptionItem } from '@wevir/client-sdk';
 import type {
   ApprovalRequest,
   Session,
@@ -96,9 +96,11 @@ function feed(items: SubscriptionItem[]): EventSubscription & { closed: boolean 
   return sub as unknown as EventSubscription & { closed: boolean };
 }
 
+/** 假的电脑：订阅时按 `sinceSeq` 只补发之后的事件（同 Host），记下每次订阅的选项。 */
 function client(items: SubscriptionItem[]) {
   const requests: Array<{ method: string; params: unknown }> = [];
-  const subscription = feed(items);
+  const subscribed: SubscribeOptions[] = [];
+  let subscription = feed(items);
   const sessions: SessionClient = {
     identity: { clientId: 'mobile-1' },
     canReadProjects: false,
@@ -109,9 +111,24 @@ function client(items: SubscriptionItem[]) {
         return { session: { id: SES, title: '修登录页', state: 'awaiting_approval' } as Session };
       return {};
     }) as SessionClient['request'],
-    subscribe: () => subscription,
+    subscribe: (_id, options = {}) => {
+      subscribed.push(options);
+      const since = options.sinceSeq ?? 0;
+      if (since > 0)
+        subscription = feed(
+          items.filter((item) => item.type !== 'event' || item.event.seq > since),
+        );
+      return subscription;
+    },
   };
-  return { sessions, requests, subscription };
+  return {
+    sessions,
+    requests,
+    subscribed,
+    get subscription() {
+      return subscription;
+    },
+  };
 }
 
 describe('SessionWatch', () => {
@@ -223,7 +240,7 @@ describe('SessionWatch', () => {
 });
 
 /** 内存里的缓存（真机是加密的 SQLite，cache.ts）。 */
-function memoryCache(): SessionCache & {
+function memoryCache(truncated = false): SessionCache & {
   conversations: Map<string, { session: Session; events: readonly WevirEvent[] }>;
 } {
   const conversations = new Map<string, { session: Session; events: readonly WevirEvent[] }>();
@@ -239,7 +256,7 @@ function memoryCache(): SessionCache & {
             session: saved.session,
             events: [...saved.events],
             savedAt: '2026-10-27T08:00:00.000Z',
-            truncated: false,
+            truncated,
           };
     },
     saveConversation: async (id, conversation) => {
@@ -307,6 +324,66 @@ describe('SessionWatch 的本地缓存', () => {
     expect(watch.view.cachedAt).toBeUndefined();
     expect(watch.view.transcript?.pendingApprovals).toHaveLength(1);
     watch.stop();
+  });
+
+  it('缓存完整时从它最后一条接着订阅，只补发之后的事件', async () => {
+    const list = events();
+    const cache = memoryCache();
+    cache.conversations.set(SES, { session: { id: SES } as Session, events: list.slice(0, 4) });
+    const { sessions, subscribed } = client([
+      ...list.map((event) => ({ type: 'event' as const, event })),
+      { type: 'caught_up', seq: list.length },
+    ]);
+    const watch = new SessionWatch(sessions, SES, () => {}, cache);
+    await watch.start();
+    expect(subscribed).toEqual([{ elideSuperseded: true, sinceSeq: 4 }]);
+    // 投影与从头回放的一样：缓存那段在前、补发的接在后面，不重复。
+    const items = sessionItems(watch.view.transcript as never, LABELS);
+    expect(items.map((item) => item.kind)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'live',
+      'approval',
+    ]);
+    watch.stop();
+    // 存回去的是完整的事件，下次接着从最后一条订阅。
+    expect(cache.conversations.get(SES)?.events.map((e) => e.seq)).toEqual(list.map((e) => e.seq));
+  });
+
+  it('缓存截断了就从头回放；Host 回 reset 时清空重来', async () => {
+    const list = events();
+    const cache = memoryCache(true);
+    cache.conversations.set(SES, { session: { id: SES } as Session, events: list.slice(2, 4) });
+    const truncated = client([
+      ...list.map((event) => ({ type: 'event' as const, event })),
+      { type: 'caught_up', seq: list.length },
+    ]);
+    const first = new SessionWatch(truncated.sessions, SES, () => {}, cache);
+    await first.start();
+    expect(truncated.subscribed).toEqual([{ elideSuperseded: true }]);
+    first.stop();
+
+    const fresh = memoryCache();
+    fresh.conversations.set(SES, { session: { id: SES } as Session, events: list.slice(0, 4) });
+    const replaced = client([]);
+    // 换了数据目录的 Host：`sinceSeq` 比它的还新，订阅先给 reset，再从 1 补发。
+    replaced.sessions.subscribe = () =>
+      feed([
+        { type: 'reset' },
+        ...list.map((event) => ({ type: 'event' as const, event })),
+        { type: 'caught_up', seq: list.length },
+      ]);
+    const second = new SessionWatch(replaced.sessions, SES, () => {}, fresh);
+    await second.start();
+    expect(sessionItems(second.view.transcript as never, LABELS).map((item) => item.kind)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'live',
+      'approval',
+    ]);
+    second.stop();
   });
 
   it('高风险的批准先验证本人', async () => {

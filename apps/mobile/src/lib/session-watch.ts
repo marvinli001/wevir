@@ -1,7 +1,9 @@
-// 手机上看一个会话（多是助理开出的线程）：`session.get` 取快照，再从头订阅事件、用 client-sdk 的消息投影算出消息流与待批准的审批。
+// 手机上看一个会话（多是助理开出的线程）：`session.get` 取快照，再订阅事件、用 client-sdk 的消息投影算出消息流与待批准的审批。
 // 连接与时钟由调用方注入，测试用假的。
 //
-// 本地缓存（cache.ts）：给了 `cache` 时先拿上次存下的事件投影一遍立刻显示（`cachedAt`），连上之后照常从头回放，回放完再换成最新的；
+// 本地缓存（cache.ts）：给了 `cache` 时先拿上次存下的事件投影一遍立刻显示（`cachedAt`），连上之后补发、回放完再换成最新的。缓存是完整
+// 的（没截断）时从它最后一条的 `seq` 接着订阅，只补发之后的事件：经中继时字节就是等待时间，长会话每次回来不必整段重放；截断了的
+// （只存了最近一段）照旧从头回放，免得连上后只剩最近几个回合。Host 换了数据目录时订阅给 `reset`，投影清空后从头来。
 // 之后有新事件就隔一会儿存一次，离开时再存一次。没有连接（`client` 是 `undefined`）时只显示缓存，`offline` 为 true：不能作答，
 // 缓存里的待批准、待回答与待发的消息也不显示（它们在电脑上可能早已处理）。缓存里的回合状态同样可能过时：`liveSession` 之前
 // （`session.get` 还没回来）界面不按缓存算“运行中”。
@@ -90,9 +92,12 @@ export class SessionWatch {
     const client = this.#client;
     const cached = await this.#cache?.loadConversation(this.#sessionId);
     if (this.#stopped) return;
+    const resumeFrom = cached !== undefined && !cached.truncated ? lastSeq(cached.events) : 0;
     if (cached !== undefined) {
-      const projection = new TranscriptProjection();
+      // 接着订阅时缓存就是投影的开头；否则另起一个只给显示用。
+      const projection = resumeFrom > 0 ? this.#projection : new TranscriptProjection();
       for (const event of cached.events) projection.apply(event);
+      if (resumeFrom > 0) this.#events = [...cached.events];
       const transcript = projection.snapshot();
       this.#set({
         session: cached.session,
@@ -125,7 +130,10 @@ export class SessionWatch {
         );
       }
       // 只投影最后的样子：经中继时字节就是等待时间，工具的中间输出与被替换的增量不回放（0.127.0）。
-      const subscription = client.subscribe(this.#sessionId, { elideSuperseded: true });
+      const subscription = client.subscribe(this.#sessionId, {
+        elideSuperseded: true,
+        ...(resumeFrom > 0 && { sinceSeq: resumeFrom }),
+      });
       this.#subscription = subscription;
       for await (const item of subscription) {
         if (this.#stopped) break;
@@ -215,6 +223,13 @@ export class SessionWatch {
     this.#view = next;
     this.#onChange(this.#view);
   }
+}
+
+/** 事件里最大的 `seq`；没有事件时 0（从头订阅）。 */
+function lastSeq(events: readonly WevirEvent[]): number {
+  let max = 0;
+  for (const event of events) if (event.seq > max) max = event.seq;
+  return max;
 }
 
 /** 审批里这一类（允许 / 拒绝）的“仅这一次”，没有时取这一类的第一个。 */
