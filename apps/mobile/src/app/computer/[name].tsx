@@ -1,5 +1,6 @@
 // 一台电脑：大标题是电脑名（右上角新建会话），下面一张状态卡（连接状态、说明、重试 / 重新配对），实时的会话列表（`session.list` +
-// `sessions.changed`，下拉重读或重连），这台电脑的推送状态，最后是“退出这台电脑”（点开从这一行展开的确认菜单）。
+// `sessions.changed`，下拉重读或重连），“已归档”一行（app/archived），这台电脑的推送状态，最后是“退出这台电脑”（点开从这一行展开的
+// 确认菜单）。
 
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -125,6 +126,19 @@ function ComputerDetail({ snapshot }: { snapshot: LinkSnapshot }) {
           </>
         )}
 
+        {status.kind !== 'removed' && (
+          <Group style={styles.archived}>
+            <Row
+              last
+              icon={{ ios: 'archivebox', android: 'archive' }}
+              title={t('session.archived')}
+              onPress={() =>
+                router.push({ pathname: '/archived/[name]', params: { name: record.name } })
+              }
+            />
+          </Group>
+        )}
+
         {status.kind !== 'removed' && <PushStatusSection name={record.name} />}
 
         <Group style={styles.forget}>
@@ -177,6 +191,7 @@ const styles = StyleSheet.create({
   statusText: { flex: 1, gap: 4 },
   notice: { fontSize: TEXT.small, lineHeight: 20 },
   placeholder: { fontSize: TEXT.small, marginHorizontal: 6 },
+  archived: { marginTop: 12 },
   forget: { marginTop: SPACE.section },
   forgetText: { fontSize: TEXT.body, fontWeight: '500', textAlign: 'center' },
 });

@@ -6,7 +6,7 @@ import type { Session } from '@wevir/protocol';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { t, timeAgo } from '../i18n';
 import { botKey } from '../lib/bots';
-import { pendingCount } from '../lib/sessions';
+import { folderName, pendingCount } from '../lib/sessions';
 import { useBot } from '../state/bots';
 import { TEXT, type Theme, useTheme } from '../theme';
 import { BotAvatar } from './bot-avatar';
@@ -33,12 +33,6 @@ function markColor(theme: Theme, mark: Mark): string {
     case 'quiet':
       return theme.mutedForeground;
   }
-}
-
-/** 会话所在目录的最后一段，作项目名。 */
-function folderName(cwd: string): string {
-  const parts = cwd.split(/[\\/]/).filter((p) => p !== '');
-  return parts[parts.length - 1] ?? cwd;
 }
 
 /** 线程所属助理的头像；助理不在了或还没读到时不画。 */

@@ -365,7 +365,7 @@ export default function SessionScreen() {
           void watch.current?.refreshSession().catch(() => {});
           return;
         }
-        // 归档后会话从列表里消失、手机上找不回来：退回去，底部给几秒“撤销”。
+        // 归档后会话从列表里消失（电脑页的“已归档”里还有）：退回去，底部给几秒“撤销”。
         router.back();
         showToast({
           text: t('session.archived'),

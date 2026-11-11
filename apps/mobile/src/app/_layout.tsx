@@ -67,6 +67,10 @@ export default function RootLayout() {
                       dangerouslySingular={byName}
                     />
                     <Stack.Screen
+                      name="archived/[name]"
+                      options={{ title: t('session.archived'), headerLargeTitleEnabled: true }}
+                    />
+                    <Stack.Screen
                       name="bot/[key]"
                       options={{ title: '', headerLargeTitleEnabled: true }}
                       dangerouslySingular={byKey}
