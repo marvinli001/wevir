@@ -479,6 +479,14 @@ export const zhCN = {
   'guardrail.kind.protected_path': '保护路径',
   'guardrail.kind.stop_check': '结束前检查',
   'guardrail.kind.commit_check': '提交前检查',
+
+  'tool.input': '参数',
+  'tool.output': '结果',
+  'tool.exitCode': '退出码 {code}',
+  'tool.noOutput': '无输出',
+  'tool.outputTruncated': '已截断（共 {length} 字符）',
+  'tool.inputTruncated': '已截断（共 {length} 字符）',
+  'tool.previewMore': '另有 {count} 行',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

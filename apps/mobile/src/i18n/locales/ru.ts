@@ -487,4 +487,12 @@ export const ru: Messages = {
   'guardrail.kind.protected_path': 'Защищённый путь',
   'guardrail.kind.stop_check': 'Проверка перед завершением',
   'guardrail.kind.commit_check': 'Проверка перед коммитом',
+
+  'tool.input': 'Параметры',
+  'tool.output': 'Результат',
+  'tool.exitCode': 'Код завершения {code}',
+  'tool.noOutput': 'Нет вывода',
+  'tool.outputTruncated': 'Обрезано (всего {length} симв.)',
+  'tool.inputTruncated': 'Обрезано (всего {length} симв.)',
+  'tool.previewMore': 'Ещё строк: {count}',
 };

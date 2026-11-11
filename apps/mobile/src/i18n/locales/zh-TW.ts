@@ -479,4 +479,12 @@ export const zhTW: Messages = {
   'guardrail.kind.protected_path': '保護路徑',
   'guardrail.kind.stop_check': '結束前檢查',
   'guardrail.kind.commit_check': '提交前檢查',
+
+  'tool.input': '參數',
+  'tool.output': '結果',
+  'tool.exitCode': '結束代碼 {code}',
+  'tool.noOutput': '無輸出',
+  'tool.outputTruncated': '已截斷（共 {length} 個字元）',
+  'tool.inputTruncated': '已截斷（共 {length} 個字元）',
+  'tool.previewMore': '另有 {count} 行',
 };

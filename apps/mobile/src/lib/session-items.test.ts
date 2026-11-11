@@ -786,3 +786,23 @@ describe('sessionItems：桌面端的其余部件', () => {
     ]);
   });
 });
+
+describe('sessionItems：工具失败的说明', () => {
+  it('失败与被拒绝的工具带结果第一行；成功的不带', () => {
+    const items = sessionItems(
+      transcript([
+        answer('a1', 'trn_1', [
+          { ...shell('failed', 'boom\ntrace'), key: 'x1' },
+          { ...shell('failed', 'User declined: no'), key: 'x2', approval: { status: 'denied' } },
+          { ...shell('completed', 'fine'), key: 'x3' },
+        ]),
+      ]),
+      LABELS,
+    );
+    expect(items.map((item) => (item.kind === 'tool' ? item.failure : 'none'))).toEqual([
+      'boom',
+      'User declined: no',
+      undefined,
+    ]);
+  });
+});

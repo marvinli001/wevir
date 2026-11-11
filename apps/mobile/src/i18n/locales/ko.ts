@@ -483,4 +483,12 @@ export const ko: Messages = {
   'guardrail.kind.protected_path': '보호 경로',
   'guardrail.kind.stop_check': '종료 전 검사',
   'guardrail.kind.commit_check': '커밋 전 검사',
+
+  'tool.input': '인수',
+  'tool.output': '결과',
+  'tool.exitCode': '종료 코드 {code}',
+  'tool.noOutput': '출력 없음',
+  'tool.outputTruncated': '잘림 (총 {length}자)',
+  'tool.inputTruncated': '잘림 (총 {length}자)',
+  'tool.previewMore': '{count}줄 더',
 };

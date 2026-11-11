@@ -488,4 +488,12 @@ export const de: Messages = {
   'guardrail.kind.protected_path': 'Geschützter Pfad',
   'guardrail.kind.stop_check': 'Prüfung vor Abschluss',
   'guardrail.kind.commit_check': 'Prüfung vor Commit',
+
+  'tool.input': 'Parameter',
+  'tool.output': 'Ergebnis',
+  'tool.exitCode': 'Exit-Code {code}',
+  'tool.noOutput': 'Keine Ausgabe',
+  'tool.outputTruncated': 'Gekürzt ({length} Zeichen insgesamt)',
+  'tool.inputTruncated': 'Gekürzt ({length} Zeichen insgesamt)',
+  'tool.previewMore': '{count} weitere Zeilen',
 };

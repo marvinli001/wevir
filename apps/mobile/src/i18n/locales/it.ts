@@ -488,4 +488,12 @@ export const it: Messages = {
   'guardrail.kind.protected_path': 'Percorso protetto',
   'guardrail.kind.stop_check': 'Controllo finale',
   'guardrail.kind.commit_check': 'Controllo prima del commit',
+
+  'tool.input': 'Parametri',
+  'tool.output': 'Risultato',
+  'tool.exitCode': 'Codice di uscita {code}',
+  'tool.noOutput': 'Nessun output',
+  'tool.outputTruncated': 'Troncato ({length} caratteri in totale)',
+  'tool.inputTruncated': 'Troncato ({length} caratteri in totale)',
+  'tool.previewMore': 'Altre {count} righe',
 };

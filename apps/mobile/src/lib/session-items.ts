@@ -31,6 +31,7 @@ import type {
 import { formatBytes, type MessageKey, t } from '../i18n';
 import { type ApprovalContext, approvalView, type BotPost } from './bots';
 import { isBusy } from './session-actions';
+import { failureSummary } from './tool-detail';
 
 export type ToolState = 'awaiting' | 'running' | 'done' | 'failed' | 'skipped' | 'unknown';
 
@@ -72,6 +73,10 @@ type SessionItemBody =
       target?: string;
       state: ToolState;
       images?: readonly UserImagePart[];
+      /** 失败时行下面的一行说明（结果的第一行）。 */
+      failure?: string;
+      /** 原部件：点开时由 tool-detail.ts 整理成参数与结果或改动预览。 */
+      part: ToolPart;
     }
   /**
    * 一行标记（同桌面端的工具行式样）：重新连接、护栏拦截、钩子、子智能体与任务的回报、会话级提示（`center`，居中）。`detail`
@@ -378,16 +383,23 @@ function messageItems(
         });
         break;
       }
-      case 'tool':
+      case 'tool': {
+        const state = toolState(part);
+        // 失败与被拒绝的（同桌面端）下面带结果的第一行。
+        const rejected = part.approval?.status === 'denied' && part.status !== 'completed';
+        const failure = state === 'failed' || rejected ? failureSummary(part) : undefined;
         out.push({
           kind: 'tool',
           key: part.key,
           toolKind: part.display.kind,
           ...toolText(part, labels),
-          state: toolState(part),
+          state,
           ...(part.images !== undefined && part.images.length > 0 && { images: part.images }),
+          ...(failure !== undefined && { failure }),
+          part,
         });
         break;
+      }
       case 'error':
         out.push(
           part.usageLimit !== undefined

@@ -486,4 +486,12 @@ export const en: Messages = {
   'guardrail.kind.protected_path': 'Protected path',
   'guardrail.kind.stop_check': 'Stop check',
   'guardrail.kind.commit_check': 'Commit check',
+
+  'tool.input': 'Input',
+  'tool.output': 'Output',
+  'tool.exitCode': 'Exit code {code}',
+  'tool.noOutput': 'No output',
+  'tool.outputTruncated': 'Truncated ({length} characters total)',
+  'tool.inputTruncated': 'Truncated ({length} characters total)',
+  'tool.previewMore': '{count} more lines',
 };

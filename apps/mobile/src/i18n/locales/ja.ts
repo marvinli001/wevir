@@ -488,4 +488,12 @@ export const ja: Messages = {
   'guardrail.kind.protected_path': '保護パス',
   'guardrail.kind.stop_check': '終了前チェック',
   'guardrail.kind.commit_check': 'コミット前チェック',
+
+  'tool.input': '引数',
+  'tool.output': '結果',
+  'tool.exitCode': '終了コード {code}',
+  'tool.noOutput': '出力なし',
+  'tool.outputTruncated': '切り詰め済み (全 {length} 文字)',
+  'tool.inputTruncated': '切り詰め済み (全 {length} 文字)',
+  'tool.previewMore': 'ほか {count} 行',
 };

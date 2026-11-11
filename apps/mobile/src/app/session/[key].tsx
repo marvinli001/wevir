@@ -49,6 +49,7 @@ import type { MenuSection } from '../../components/menu';
 import { type LoadImage, PostImages } from '../../components/post-images';
 import { QuestionCard } from '../../components/question-card';
 import { RenameDialog } from '../../components/sheets';
+import { ToolDetailView } from '../../components/tool-detail-view';
 import {
   AnswersRow,
   DividerRow,
@@ -1102,34 +1103,66 @@ const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 /**
  * 工具一行（同桌面端工作组里的逐条）：种类图标、动词与对象，命令用等宽字。做完的不写状态，失败、未执行、待批准与状态未知
- * 换成状态图标并在行尾写出。
+ * 换成状态图标并在行尾写出；失败的下面一行是结果的第一行。点它展开参数与结果，修改与写文件是改动预览。
  */
 function ToolRow({ item, theme }: { item: Extract<SessionItem, { kind: 'tool' }>; theme: Theme }) {
+  const [open, setOpen] = useState(false);
   const color = toolColor(theme, item.state);
   const settled = item.state === 'done' || item.state === 'running';
   return (
-    <View style={styles.tool} testID="session-tool">
-      <Icon
-        name={settled ? KIND_ICONS[item.toolKind] : stateIcon(item.state)}
-        size={14}
-        color={color}
-      />
-      <Text style={styles.toolText} numberOfLines={1} ellipsizeMode="middle">
-        <Text style={{ color: theme.softForeground }}>{item.verb}</Text>
-        {item.target !== undefined && (
-          <Text
-            style={[
-              { color: theme.mutedForeground },
-              item.toolKind === 'shell' && styles.toolCommand,
-            ]}
-          >
-            {` ${item.target}`}
-          </Text>
+    <View testID="session-tool">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => {
+          void Haptics.selectionAsync().catch(() => {});
+          setOpen(!open);
+        }}
+        hitSlop={6}
+        style={({ pressed }) => [styles.tool, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <Icon
+          name={settled ? KIND_ICONS[item.toolKind] : stateIcon(item.state)}
+          size={14}
+          color={color}
+        />
+        <Text style={styles.toolText} numberOfLines={1} ellipsizeMode="middle">
+          <Text style={{ color: theme.softForeground }}>{item.verb}</Text>
+          {item.target !== undefined && (
+            <Text
+              style={[
+                { color: theme.mutedForeground },
+                item.toolKind === 'shell' && styles.toolCommand,
+              ]}
+            >
+              {` ${item.target}`}
+            </Text>
+          )}
+        </Text>
+        {!settled && (
+          <Text style={[styles.toolState, { color }]}>{t(`tool.state.${item.state}`)}</Text>
         )}
-      </Text>
-      {!settled && (
-        <Text style={[styles.toolState, { color }]}>{t(`tool.state.${item.state}`)}</Text>
+        <Icon
+          name={
+            open
+              ? { ios: 'chevron.down', android: 'expand_more' }
+              : { ios: 'chevron.right', android: 'chevron_right' }
+          }
+          size={11}
+          weight="semibold"
+          color={theme.mutedForeground}
+        />
+      </Pressable>
+      {item.failure !== undefined && !open && (
+        <Text
+          style={[styles.toolFailure, { color: theme.destructive }]}
+          numberOfLines={2}
+          testID="tool-failure"
+        >
+          {item.failure}
+        </Text>
       )}
+      {open && <ToolDetailView part={item.part} theme={theme} />}
     </View>
   );
 }
@@ -1167,6 +1200,13 @@ const styles = StyleSheet.create({
   toolText: { flex: 1, fontSize: TEXT.small },
   toolCommand: { fontFamily: MONO, fontSize: TEXT.caption },
   toolState: { fontSize: TEXT.caption },
+  toolFailure: {
+    fontSize: TEXT.caption,
+    lineHeight: 17,
+    marginTop: 2,
+    paddingLeft: 26,
+    paddingRight: 4,
+  },
   note: { fontSize: TEXT.small, paddingHorizontal: 4 },
   cancel: { fontWeight: '600' },
   pending: { alignItems: 'flex-end', gap: 4 },

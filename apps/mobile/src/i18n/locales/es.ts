@@ -487,4 +487,12 @@ export const es: Messages = {
   'guardrail.kind.protected_path': 'Ruta protegida',
   'guardrail.kind.stop_check': 'Comprobación al terminar',
   'guardrail.kind.commit_check': 'Comprobación antes del commit',
+
+  'tool.input': 'Parámetros',
+  'tool.output': 'Resultado',
+  'tool.exitCode': 'Código de salida {code}',
+  'tool.noOutput': 'Sin salida',
+  'tool.outputTruncated': 'Truncado ({length} caracteres en total)',
+  'tool.inputTruncated': 'Truncado ({length} caracteres en total)',
+  'tool.previewMore': '{count} líneas más',
 };
