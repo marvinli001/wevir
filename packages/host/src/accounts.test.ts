@@ -45,6 +45,7 @@ const MODELS: AccountModels = {
 
 /** 假的引擎账号：状态由测试推动。 */
 class FakeAccounts implements EngineAccounts {
+  consumeResetCredit?: EngineAccounts['consumeResetCredit'];
   readonly kinds: readonly AccountKind[] = ['chatgpt'];
   state: AccountState = { kind: 'chatgpt', status: 'signed_out' };
   models_: AccountModels = MODELS;
@@ -144,6 +145,75 @@ async function start(
 }
 
 describe('ChatGPT 账号（account.*）', () => {
+  it('重置卡按账号 ID 路由，更新仅对应的账号，保留兑换请求的幂等标识', async () => {
+    const engines: AccountAdapter[] = [];
+    const consumed: unknown[][] = [];
+    const makeAdapter = () => {
+      const adapter = new AccountAdapter();
+      const index = engines.length;
+      engines.push(adapter);
+      consumed.push([]);
+      adapter.accounts.set({
+        kind: 'chatgpt',
+        status: 'signed_in',
+        email: `account-${index}@example.com`,
+        resetCredits: { availableCount: 1 },
+      });
+      adapter.accounts.consumeResetCredit = async (_kind, request) => {
+        consumed[index]?.push(request);
+        adapter.accounts.set({ ...adapter.accounts.state, resetCredits: { availableCount: 0 } });
+        return { account: adapter.accounts.state, outcome: 'reset' };
+      };
+      return adapter;
+    };
+    const { connect } = await start(
+      new EngineRouter([{ name: 'codex', adapter: makeAdapter(), kinds: ['chatgpt'] }], {
+        accountEngines: { kinds: ['chatgpt'], create: () => makeAdapter() },
+      }),
+    );
+    const { client, hello } = await connect({
+      provider_kind_chatgpt: true,
+      subscription_accounts: true,
+    });
+    expect(hello.features.account_reset_credits).toBe(true);
+    await client.request('account.get', { kind: 'chatgpt' });
+    const { account } = await client.request('account.add', { kind: 'chatgpt' });
+    const request = {
+      idempotencyKey: 'db101d5c-e272-4eca-afde-110a9124c42c',
+      creditId: 'credit-1',
+    };
+    const result = await client.request('account.consumeResetCredit', {
+      kind: 'chatgpt',
+      id: account.id,
+      ...request,
+    });
+    expect(result).toMatchObject({
+      outcome: 'reset',
+      account: {
+        id: account.id,
+        email: 'account-1@example.com',
+        resetCredits: { availableCount: 0 },
+      },
+    });
+    expect(consumed).toEqual([[], [request]]);
+    expect((await client.request('account.get', { kind: 'chatgpt' })).account.resetCredits).toEqual(
+      { availableCount: 1 },
+    );
+    expect(client.notifications('account.updated').at(-1)?.account.id).toBe(account.id);
+    expect(
+      (await client.call('account.consumeResetCredit', { kind: 'claude', ...request })).error?.code,
+    ).toBe(-32602);
+    expect(
+      (
+        await client.call('account.consumeResetCredit', {
+          kind: 'chatgpt',
+          id: 'chatgpt-ffff',
+          ...request,
+        })
+      ).error?.code,
+    ).toBe(-32602);
+  });
+
   it('窗口元数据暂缺时保留上次配置；上限下降时裁剪生效值并保留用户选择', () => {
     const saved = [
       {

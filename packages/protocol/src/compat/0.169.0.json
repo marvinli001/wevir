@@ -1,0 +1,67 @@
+{
+  "protocolVersion": "0.169.0",
+  "methods": {
+    "account.consumeResetCredit": {
+      "params": [
+        { "kind": "chatgpt", "idempotencyKey": "db101d5c-e272-4eca-afde-110a9124c42c" },
+        {
+          "kind": "chatgpt",
+          "id": "chatgpt-1234",
+          "idempotencyKey": "db101d5c-e272-4eca-afde-110a9124c42c",
+          "creditId": "credit-1"
+        }
+      ],
+      "result": [
+        {
+          "outcome": "reset",
+          "account": {
+            "kind": "chatgpt",
+            "status": "signed_in",
+            "resetCredits": { "availableCount": 0, "credits": [] }
+          }
+        },
+        {
+          "outcome": "nothingToReset",
+          "account": {
+            "kind": "chatgpt",
+            "status": "signed_in",
+            "resetCredits": { "availableCount": 1 }
+          }
+        },
+        {
+          "outcome": "noCredit",
+          "account": {
+            "kind": "chatgpt",
+            "status": "signed_in",
+            "resetCredits": { "availableCount": 0 }
+          }
+        },
+        { "outcome": "alreadyRedeemed", "account": { "kind": "chatgpt", "status": "signed_in" } }
+      ]
+    }
+  },
+  "notifications": {
+    "account.updated": [
+      {
+        "account": {
+          "kind": "chatgpt",
+          "id": "chatgpt-1234",
+          "status": "signed_in",
+          "resetCredits": {
+            "availableCount": 2,
+            "credits": [
+              {
+                "id": "credit-1",
+                "resetType": "codexRateLimits",
+                "status": "available",
+                "expiresAt": "2026-11-20T00:00:00.000Z"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   accountPhase,
+  nextResetCredit,
   planLabel,
   resetLabel,
   usageTone,
@@ -8,6 +9,26 @@ import {
 } from './chatgpt-account-model';
 
 describe('ChatGPT 账号的界面阶段（R6）', () => {
+  it('只选择已知可用且未过期的卡，优先使用最早到期的卡；不把明细长度当成总数', () => {
+    const card = { resetType: 'codexRateLimits', status: 'available' } as const;
+    const summary = {
+      availableCount: 10,
+      credits: [
+        { ...card, id: 'no-expiry' },
+        { ...card, id: 'later', expiresAt: '2026-11-20T00:00:00Z' },
+        { ...card, id: 'first', expiresAt: '2026-11-12T00:00:00Z' },
+        { ...card, id: 'expired', expiresAt: '2026-11-10T00:00:00Z' },
+        { ...card, id: 'unknown', resetType: 'unknown' as const },
+        { ...card, id: 'redeeming', status: 'redeeming' as const },
+      ],
+    };
+    expect(nextResetCredit(summary, Date.parse('2026-11-11T00:00:00Z'))?.id).toBe('first');
+    expect(summary.credits[0]?.id).toBe('no-expiry');
+    expect(summary.availableCount).toBe(10);
+    expect(nextResetCredit({ availableCount: 2 })).toBeUndefined();
+    expect(nextResetCredit(undefined)).toBeUndefined();
+  });
+
   it('没读到、未登录（带失败原因）、浏览器与设备码登录中、已登录', () => {
     expect(accountPhase(undefined)).toEqual({ kind: 'loading' });
     expect(accountPhase({ kind: 'chatgpt', status: 'signed_out' })).toEqual({ kind: 'signed_out' });

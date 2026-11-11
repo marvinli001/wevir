@@ -91,6 +91,7 @@ import {
   AccountKindSchema,
   AccountLabelSchema,
   AccountLoginMethodSchema,
+  AccountResetCreditOutcomeSchema,
   AccountStateSchema,
   AccountUpstreamSchema,
   APPROVAL_MESSAGE_MAX_LENGTH,
@@ -1184,6 +1185,18 @@ export const AccountCancelLoginParamsSchema = z.object({
 
 export const AccountResultSchema = z.object({
   account: AccountStateSchema,
+});
+
+export const AccountConsumeResetCreditParamsSchema = z.object({
+  kind: z.literal('chatgpt'),
+  ...AccountIdField,
+  idempotencyKey: z.uuid(),
+  creditId: z.string().min(1).max(512).optional(),
+});
+
+export const AccountConsumeResetCreditResultSchema = z.object({
+  account: AccountStateSchema,
+  outcome: AccountResetCreditOutcomeSchema,
 });
 
 /**
@@ -2298,6 +2311,11 @@ export const MethodSchemas = {
   'account.setLabel': {
     params: AccountSetLabelParamsSchema,
     result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.consumeResetCredit': {
+    params: AccountConsumeResetCreditParamsSchema,
+    result: AccountConsumeResetCreditResultSchema,
     permission: 'provider.write',
   },
   'account.setModelContextWindow': {

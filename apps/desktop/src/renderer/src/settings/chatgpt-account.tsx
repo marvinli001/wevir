@@ -22,6 +22,7 @@ import {
   usageWindows,
   windowName,
 } from './chatgpt-account-model';
+import { ChatgptResetCredits } from './chatgpt-reset-credits';
 import { NoticeBanner } from './settings-ui';
 
 /**
@@ -166,6 +167,7 @@ export function ChatgptAccountSection({
           onLogout={() => setConfirmLogout(true)}
           onSaved={() => void store?.refresh()}
           onError={setError}
+          onAccountChanged={setAccount}
         />
       )}
       {setupOnly && phase.kind !== 'browser' && phase.kind !== 'device_code' && (
@@ -338,6 +340,7 @@ function SignedIn({
   onLogout,
   onSaved,
   onError,
+  onAccountChanged,
 }: {
   client: WevirClient;
   account: AccountState | undefined;
@@ -347,6 +350,7 @@ function SignedIn({
   onLogout: () => void;
   onSaved: () => void;
   onError: (error: string | undefined) => void;
+  onAccountChanged: (account: AccountState) => void;
 }) {
   const modelSelect = useId();
   const [saving, setSaving] = useState(false);
@@ -400,6 +404,14 @@ function SignedIn({
             <UsageBar key={index} window={window} />
           ))}
         </div>
+      )}
+      {account !== undefined && (
+        <ChatgptResetCredits
+          key={`${idOf(account)}:${account.email ?? ''}`}
+          client={client}
+          account={account}
+          onChanged={onAccountChanged}
+        />
       )}
       <div className="flex items-center gap-3 text-sm">
         <label htmlFor={modelSelect} className="shrink-0 text-muted-foreground">

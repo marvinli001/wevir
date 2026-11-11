@@ -5258,6 +5258,38 @@ export const methodSamples: MethodSamples = {
       invalid: [{ account: { ...labeledClaudeAccount, multiAccount: false } }],
     },
   },
+  'account.consumeResetCredit': {
+    params: {
+      valid: [
+        { kind: 'chatgpt', idempotencyKey: 'db101d5c-e272-4eca-afde-110a9124c42c' },
+        {
+          kind: 'chatgpt',
+          id: 'chatgpt-1234',
+          idempotencyKey: 'db101d5c-e272-4eca-afde-110a9124c42c',
+          creditId: 'credit-1',
+        },
+      ],
+      invalid: [
+        {},
+        { kind: 'claude', idempotencyKey: 'db101d5c-e272-4eca-afde-110a9124c42c' },
+        { kind: 'chatgpt', idempotencyKey: '' },
+        { kind: 'chatgpt', idempotencyKey: 'db101d5c-e272-4eca-afde-110a9124c42c', creditId: '' },
+      ],
+    },
+    result: {
+      valid: (['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed'] as const).map(
+        (outcome) => ({
+          account: {
+            kind: 'chatgpt',
+            status: 'signed_in',
+            resetCredits: { availableCount: 0, credits: [] },
+          },
+          outcome,
+        }),
+      ),
+      invalid: [{ account: { kind: 'chatgpt', status: 'signed_in' }, outcome: 'ok' }],
+    },
+  },
   'account.setModelContextWindow': {
     params: {
       valid: [

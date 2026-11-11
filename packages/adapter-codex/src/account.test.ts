@@ -1,7 +1,7 @@
 import type { AccountState } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
 import { type AccountRpc, accountModels, ChatgptAccount, modelContextLimits } from './account.js';
-import type { GetAccountResponse } from './protocol.js';
+import type { GetAccountRateLimitsResponse, GetAccountResponse } from './protocol.js';
 
 // ChatgptAccount 对着假的 app-server：请求的结果按方法给出，形状照 R6 在真实二进制上录到的（codex-event-mapping.md §8）。
 
@@ -49,6 +49,135 @@ function setup(handlers: Record<string, Handler>) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('ChatgptAccount', () => {
+  it('兑换前发起的后台读取迟到时，不能覆盖兑换后的卡片状态', async () => {
+    let hold = false;
+    let consumed = false;
+    let release: ((value: unknown) => void) | undefined;
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => {
+        if (hold && !consumed)
+          return new Promise((resolve) => {
+            release = resolve;
+          });
+        return {
+          ...usage(),
+          rateLimitResetCredits: { availableCount: consumed ? 0 : 1, credits: null },
+        };
+      },
+      'account/rateLimitResetCredit/consume': () => {
+        consumed = true;
+        return { outcome: 'reset' };
+      },
+    });
+    await account.read();
+    hold = true;
+    const stale = account.refreshUsage();
+    await settle();
+    await account.consumeResetCredit({ idempotencyKey: 'reset-once' });
+    release?.({ ...usage(), rateLimitResetCredits: { availableCount: 1, credits: null } });
+    await stale;
+    expect(account.state.resetCredits?.availableCount).toBe(0);
+  });
+
+  it('读取卡片数量和到期时间；后台摘要保留同一数量的明细，数量变化时清掉旧明细', async () => {
+    let summary: GetAccountRateLimitsResponse['rateLimitResetCredits'] = {
+      availableCount: 3,
+      credits: [
+        {
+          id: 'credit-1',
+          resetType: 'codexRateLimits',
+          status: 'available',
+          expiresAt: 1_791_957_611,
+        },
+      ],
+    };
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => ({ ...usage(), rateLimitResetCredits: summary }),
+    });
+    expect((await account.read()).resetCredits).toEqual({
+      availableCount: 3,
+      credits: [
+        {
+          id: 'credit-1',
+          resetType: 'codexRateLimits',
+          status: 'available',
+          expiresAt: '2026-10-14T06:00:11.000Z',
+        },
+      ],
+    });
+    summary = { availableCount: 3, credits: null };
+    await account.refreshUsage();
+    expect(account.state.resetCredits?.credits).toHaveLength(1);
+    summary = { availableCount: 2, credits: null };
+    await account.refreshUsage();
+    expect(account.state.resetCredits).toEqual({ availableCount: 2 });
+    summary = null;
+    await account.refreshUsage();
+    expect(account.state.resetCredits).toBeUndefined();
+  });
+
+  it.each(['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed'] as const)(
+    '兑换返回 %s，保留幂等标识并刷新额度与卡片',
+    async (outcome) => {
+      let consumed = false;
+      const { account, calls } = setup({
+        'account/read': signedIn,
+        'account/rateLimits/read': () => ({
+          ...usage(),
+          rateLimitResetCredits: { availableCount: consumed ? 0 : 1, credits: null },
+        }),
+        'account/rateLimitResetCredit/consume': () => {
+          consumed = true;
+          return { outcome };
+        },
+      });
+      await account.read();
+      const request = { idempotencyKey: 'same-logical-request', creditId: 'credit-1' };
+      const result = await account.consumeResetCredit(request);
+      expect(result).toMatchObject({ outcome, account: { resetCredits: { availableCount: 0 } } });
+      expect(
+        calls.find((call) => call.method === 'account/rateLimitResetCredit/consume')?.params,
+      ).toEqual(request);
+      expect(calls.at(-1)).toEqual({
+        method: 'account/rateLimits/read',
+        params: { excludeResetCreditDetails: false },
+      });
+    },
+  );
+
+  it('兑换成功而刷新失败时仍返回已使用，清掉旧卡片和额度；传输失败可用同一标识重试', async () => {
+    let committed = false;
+    let fail = true;
+    const requests: unknown[] = [];
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => {
+        if (committed) throw new Error('usage unavailable');
+        return { ...usage(), rateLimitResetCredits: { availableCount: 1, credits: null } };
+      },
+      'account/rateLimitResetCredit/consume': (request) => {
+        requests.push(request);
+        if (fail) {
+          fail = false;
+          throw new Error('response lost');
+        }
+        committed = true;
+        return { outcome: 'alreadyRedeemed' };
+      },
+    });
+    await account.read();
+    const request = { idempotencyKey: 'same-logical-request' };
+    await expect(account.consumeResetCredit(request)).rejects.toThrow('response lost');
+    expect(account.state.resetCredits?.availableCount).toBe(1);
+    const result = await account.consumeResetCredit(request);
+    expect(requests).toEqual([request, request]);
+    expect(result.outcome).toBe('alreadyRedeemed');
+    expect(result.account.resetCredits).toBeUndefined();
+    expect(result.account.rateLimits).toBeUndefined();
+  });
+
   it('只使用账号目录明确声明的配置上限，不把默认窗口猜成上限', () => {
     expect([
       ...modelContextLimits({

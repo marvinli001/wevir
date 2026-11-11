@@ -8,6 +8,8 @@ import {
   AccountLoginOptionSchema,
   AccountLoginSchema,
   AccountRateLimitWindowSchema,
+  AccountResetCreditOutcomeSchema,
+  AccountResetCreditSchema,
   AccountStateSchema,
   AccountUpstreamMethodSchema,
   AccountUpstreamSchema,
@@ -1854,6 +1856,26 @@ const standaloneCases: Case[] = [
     schema: AccountLoginSchema,
     valid: [signingInAccount.login],
     invalid: [{ ...signingInAccount.login, startedAt: 'yesterday' }],
+  },
+  {
+    name: 'AccountResetCredit',
+    schema: AccountResetCreditSchema,
+    valid: [
+      {
+        id: 'credit-1',
+        resetType: 'codexRateLimits',
+        status: 'available',
+        expiresAt: '2026-11-20T00:00:00.000Z',
+      },
+      { id: 'future', resetType: 'unknown', status: 'unknown' },
+    ],
+    invalid: [{ id: '', resetType: 'codexRateLimits', status: 'available' }],
+  },
+  {
+    name: 'AccountResetCreditOutcome',
+    schema: AccountResetCreditOutcomeSchema,
+    valid: ['reset', 'nothingToReset', 'noCredit', 'alreadyRedeemed'],
+    invalid: ['ok', null],
   },
   {
     name: 'AccountRateLimitWindow',

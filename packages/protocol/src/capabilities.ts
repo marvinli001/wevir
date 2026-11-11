@@ -98,6 +98,8 @@ export const HOST_FEATURES = {
    * dsh 与 echo 引擎的 Host 不声明它。
    */
   chatgptAccount: 'chatgpt_account',
+  /** 0.169.0：ChatGPT 重置卡的状态与手动兑换。 */
+  accountResetCredits: 'account_reset_credits',
   /** 服务账号认证的 Vertex Provider（0.21.0），只有模型网关支持。 */
   googleVertex: 'google_vertex',
   /** 回合进行中发消息（0.8.0）：`session.send` 的 `delivery`、`pending.*` 方法与事件、`user.steered`。 */

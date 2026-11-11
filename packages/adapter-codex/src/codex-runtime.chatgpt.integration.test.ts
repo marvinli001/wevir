@@ -200,6 +200,61 @@ describe.skipIf(binary === undefined)('ChatGPT 进程（mock 登录服务）', {
     }
   });
 
+  it('重置卡：真实 0.165 查询明细、按 ID 兑换并刷新，重试同一请求只消耗一张', async () => {
+    const service = await startMockChatgpt({ resetCredits: 1 });
+    const proxy = await startLoggingProxy();
+    const created = new CodexRuntime({
+      home: dirs.make('reset-credit').home,
+      binary,
+      logger: collectingLogger(),
+      chatgptEndpoints: service.endpoints,
+      parentEnv: proxyEnv(proxy.url),
+      providers: [CHATGPT],
+    });
+    const states: AccountState[] = [];
+    created.accounts.onChange((state) => states.push(state));
+    try {
+      await created.accounts.login('chatgpt', 'device_code');
+      service.approveDeviceCode();
+      await waitFor('重置卡账号登录', () =>
+        states.find((state) => state.status === 'signed_in' && state.email),
+      );
+      const read = await created.accounts.read('chatgpt');
+      expect(read.resetCredits).toMatchObject({
+        availableCount: 1,
+        credits: [{ id: 'credit-1', status: 'available', expiresAt: expect.any(String) }],
+      });
+      const request = {
+        idempotencyKey: 'db101d5c-e272-4eca-afde-110a9124c42c',
+        creditId: 'credit-1',
+      };
+      const result = await created.accounts.consumeResetCredit?.('chatgpt', request);
+      expect(result).toMatchObject({
+        outcome: 'reset',
+        account: {
+          resetCredits: { availableCount: 0, credits: [] },
+          rateLimits: { primary: { usedPercent: 0 }, secondary: { usedPercent: 0 } },
+        },
+      });
+      expect((await created.accounts.consumeResetCredit?.('chatgpt', request))?.outcome).toBe(
+        'alreadyRedeemed',
+      );
+      const consumed = service.requests
+        .filter((r) => r.path.endsWith('/consume'))
+        .map((r) => JSON.parse(r.body));
+      expect(consumed).toEqual(
+        [1, 2].map(() => ({
+          redeem_request_id: request.idempotencyKey,
+          credit_id: request.creditId,
+        })),
+      );
+    } finally {
+      await created.dispose();
+      await service.close();
+      await proxy.close();
+    }
+  });
+
   it('浏览器登录：authUrl 指向登录服务、回调在本机；完成后已登录。取消：回到未登录，回调端口随之关闭', async () => {
     const { runtime: codex, states } = runtime();
     const first = await codex.accounts.login('chatgpt', 'browser');

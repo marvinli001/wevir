@@ -940,6 +940,22 @@ export interface GetAccountRateLimitsResponse {
   rateLimits: RateLimitSnapshot;
   /** 全部额度，键是 `limitId`；旧版本没有。 */
   rateLimitsByLimitId?: Record<string, RateLimitSnapshot> | null;
+  rateLimitResetCredits?: {
+    availableCount: number;
+    credits:
+      | {
+          id: string;
+          resetType: 'codexRateLimits' | 'unknown';
+          status: 'available' | 'redeeming' | 'redeemed' | 'unknown';
+          expiresAt: number | null;
+        }[]
+      | null;
+  } | null;
+}
+
+/** v2/ConsumeAccountRateLimitResetCreditResponse.ts。 */
+export interface ConsumeAccountRateLimitResetCreditResponse {
+  outcome: 'reset' | 'nothingToReset' | 'noCredit' | 'alreadyRedeemed';
 }
 
 /** v2/AccountRateLimitsUpdatedNotification.ts（`account/rateLimits/updated`，稀疏更新）。 */

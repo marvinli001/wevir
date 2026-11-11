@@ -74,8 +74,10 @@ function modelInfo(slug: string, isDefault: boolean): Record<string, unknown> {
   };
 }
 
-export async function startMockChatgpt(): Promise<MockChatgpt> {
+export async function startMockChatgpt(options?: { resetCredits: number }): Promise<MockChatgpt> {
   const requests: MockChatgptRequest[] = [];
+  let resetCredits = options?.resetCredits;
+  const redeemed = new Set<string>();
   let approved = false;
   const exp = Math.floor(Date.now() / 1000) + 24 * 3600;
   const auth = {
@@ -143,23 +145,49 @@ export async function startMockChatgpt(): Promise<MockChatgpt> {
           const now = Math.floor(Date.now() / 1000);
           return send(200, {
             plan_type: MOCK_CHATGPT_PLAN,
+            ...(resetCredits !== undefined && {
+              rate_limit_reset_credits: { available_count: resetCredits },
+            }),
             rate_limit: {
               allowed: true,
               limit_reached: false,
               primary_window: {
-                used_percent: 23,
+                used_percent: redeemed.size > 0 ? 0 : 23,
                 limit_window_seconds: 18_000,
                 reset_after_seconds: 3600,
                 reset_at: now + 3600,
               },
               secondary_window: {
-                used_percent: 40,
+                used_percent: redeemed.size > 0 ? 0 : 40,
                 limit_window_seconds: 604_800,
                 reset_after_seconds: 86_400,
                 reset_at: now + 86_400,
               },
             },
           });
+        }
+        case '/backend-api/wham/rate-limit-reset-credits':
+          if (resetCredits === undefined) return send(404, { error: 'not mocked' });
+          return send(200, {
+            available_count: resetCredits,
+            credits: Array.from({ length: resetCredits }, (_, i) => ({
+              id: `credit-${i + 1}`,
+              reset_type: 'codex_rate_limits',
+              status: 'available',
+              granted_at: new Date().toISOString(),
+              expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+            })),
+          });
+        case '/backend-api/wham/rate-limit-reset-credits/consume': {
+          const { redeem_request_id: key, credit_id: credit } = JSON.parse(body);
+          if (redeemed.has(key)) return send(200, { code: 'already_redeemed', windows_reset: 0 });
+          if (resetCredits === undefined || resetCredits === 0)
+            return send(200, { code: 'no_credit', windows_reset: 0 });
+          if (credit !== undefined && credit !== 'credit-1')
+            return send(400, { error: 'unknown credit' });
+          redeemed.add(key);
+          resetCredits -= 1;
+          return send(200, { code: 'reset', windows_reset: 2 });
         }
         case '/backend-api/codex/models':
           return send(200, {

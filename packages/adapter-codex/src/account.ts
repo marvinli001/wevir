@@ -4,9 +4,12 @@ import {
   type AccountLoginMethod,
   type AccountModels,
   type AccountRateLimitWindow,
+  type AccountResetCreditRequest,
+  type AccountResetCreditResult,
   type AccountState,
   AdapterError,
   isAdapterError,
+  isoTime,
   type ProviderModelConfig,
 } from '@wevir/runtime-adapter';
 import { fromCodexEffort } from './config.js';
@@ -17,6 +20,7 @@ import type {
   CancelLoginAccountParams,
   CancelLoginAccountResponse,
   CodexModel,
+  ConsumeAccountRateLimitResetCreditResponse,
   GetAccountParams,
   GetAccountRateLimitsResponse,
   GetAccountResponse,
@@ -91,6 +95,8 @@ export class ChatgptAccount {
    */
   readonly #notified = new Map<string, Pick<CodexRateLimit, 'primary' | 'secondary'>>();
   #published = '';
+  #resetCredits: AccountState['resetCredits'];
+  #usageGeneration = 0;
 
   constructor(options: ChatgptAccountOptions) {
     this.#options = options;
@@ -108,6 +114,9 @@ export class ChatgptAccount {
       if (base.plan !== undefined) state.plan = base.plan;
       const rateLimits = base.limits && codexRateLimits(base.limits);
       if (rateLimits !== undefined && this.#login === undefined) state.rateLimits = rateLimits;
+      if (this.#resetCredits !== undefined && this.#login === undefined) {
+        state.resetCredits = this.#resetCredits;
+      }
     }
     if (this.#login !== undefined) state.login = { ...this.#login };
     else if (base.lastError !== undefined) state.lastError = base.lastError;
@@ -142,7 +151,8 @@ export class ChatgptAccount {
       const plan = nonEmpty((account as { planType?: unknown }).planType);
       if (email !== undefined) base.email = email;
       if (plan !== undefined) base.plan = plan;
-      const limits = await this.#readRateLimits(rpc);
+      if (email !== this.#base?.email) this.#resetCredits = undefined;
+      const limits = await this.#readRateLimits(rpc, true);
       if (limits !== undefined) base.limits = limits;
       this.#base = base;
     } else {
@@ -317,6 +327,8 @@ export class ChatgptAccount {
     if (abandoned && params.success !== true) return;
     if (loginId === undefined || this.#login?.loginId === loginId) this.#login = undefined;
     if (params.success === true) {
+      this.#usageGeneration += 1;
+      this.#resetCredits = undefined;
       this.#base = { ...this.#base, signedIn: true };
       delete this.#base.lastError;
       this.#publish();
@@ -332,6 +344,8 @@ export class ChatgptAccount {
 
   #onAccountUpdated(params: AccountUpdatedNotification): void {
     if (params?.authMode === null || params?.authMode === undefined) {
+      this.#usageGeneration += 1;
+      this.#resetCredits = undefined;
       if (this.#base?.signedIn !== true) return;
       this.#base = { signedIn: false };
       this.#notified.clear();
@@ -376,7 +390,7 @@ export class ChatgptAccount {
     const rpc = await this.#options.rpc().catch(() => undefined);
     if (rpc === undefined) return;
     const limits = await this.#readRateLimits(rpc);
-    if (limits === undefined || this.#base?.signedIn !== true) return;
+    if (this.#base?.signedIn !== true) return;
     this.#base = { ...this.#base, limits };
     this.#publish();
   }
@@ -387,12 +401,62 @@ export class ChatgptAccount {
     );
   }
 
+  async consumeResetCredit(request: AccountResetCreditRequest): Promise<AccountResetCreditResult> {
+    await this.assertSignedIn();
+    const rpc = await this.#options.rpc();
+    let response: ConsumeAccountRateLimitResetCreditResponse;
+    try {
+      response = await rpc.request<ConsumeAccountRateLimitResetCreditResponse>(
+        'account/rateLimitResetCredit/consume',
+        request,
+      );
+    } catch (error) {
+      throw rpcError(error, 'account/rateLimitResetCredit/consume');
+    }
+    this.#usageGeneration += 1;
+    if (response.outcome === 'reset' || response.outcome === 'alreadyRedeemed') {
+      // 兑换已完成；随后读取失败不能留下旧卡片，让用户误以为还需兑换。
+      this.#resetCredits = undefined;
+      if (this.#base !== undefined) delete this.#base.limits;
+    }
+    if (response.outcome === 'noCredit') {
+      this.#resetCredits = { availableCount: 0, credits: [] };
+    }
+    const limits = await this.#readRateLimits(rpc, true);
+    if (this.#base?.signedIn === true) this.#base = { ...this.#base, limits };
+    return { outcome: response.outcome, account: this.#publish() };
+  }
+
   /** 全部额度（`rateLimitsByLimitId`，旧版本只有 `rateLimits`）；读不到时是上一次的。 */
-  async #readRateLimits(rpc: AccountRpc): Promise<Base['limits']> {
+  async #readRateLimits(rpc: AccountRpc, includeResetDetails = false): Promise<Base['limits']> {
+    const generation = this.#usageGeneration;
     try {
       const response = await rpc.request<GetAccountRateLimitsResponse>('account/rateLimits/read', {
-        excludeResetCreditDetails: true,
+        excludeResetCreditDetails: !includeResetDetails,
       });
+      if (generation !== this.#usageGeneration) return this.#base?.limits;
+      const summary = response.rateLimitResetCredits;
+      if (summary === undefined || summary === null) this.#resetCredits = undefined;
+      else {
+        const credits =
+          summary.credits?.map((credit) => {
+            const expiresAt =
+              credit.expiresAt === null ? undefined : isoTime(credit.expiresAt * 1000);
+            return {
+              id: credit.id,
+              resetType: credit.resetType,
+              status: credit.status,
+              ...(expiresAt !== undefined && { expiresAt }),
+            };
+          }) ??
+          (this.#resetCredits?.availableCount === summary.availableCount
+            ? this.#resetCredits.credits
+            : undefined);
+        this.#resetCredits = {
+          availableCount: summary.availableCount,
+          ...(credits !== undefined && { credits }),
+        };
+      }
       const snapshots: [string, RateLimitSnapshot | null | undefined][] = Object.entries(
         response.rateLimitsByLimitId ?? {},
       );

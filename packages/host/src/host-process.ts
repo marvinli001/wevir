@@ -1846,6 +1846,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         automation_conditions: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
+        ...(accounts?.hasResetCredits === true && { account_reset_credits: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { subscription_context_window: true }),
         ...(accounts?.hasSubscriptions === true && {
           subscription_sources: true,

@@ -3401,6 +3401,10 @@ function chatgptAccounts(account: ChatgptAccount): EngineAccounts {
       check(kind);
       await account.refreshUsage();
     },
+    consumeResetCredit: async (kind, request) => {
+      check(kind);
+      return account.consumeResetCredit(request);
+    },
     onChange: (listener) => account.onChange(listener),
   };
 }

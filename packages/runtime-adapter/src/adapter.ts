@@ -4,6 +4,8 @@ import type {
   AccountLoginMethod,
   AccountLoginOptions,
   AccountModels,
+  AccountResetCreditRequest,
+  AccountResetCreditResult,
   AccountState,
   AccountUpstream,
   AgentInput,
@@ -495,6 +497,11 @@ export interface EngineAccounts {
    * `read`（引擎缓存过期才真的去读）。
    */
   refreshUsage?(kind: AccountKind): Promise<void>;
+  /** 手动兑换，重试同一次操作时复用 idempotencyKey。 */
+  consumeResetCredit?(
+    kind: AccountKind,
+    request: AccountResetCreditRequest,
+  ): Promise<AccountResetCreditResult>;
   /**
    * 状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化）时调用，带完整的状态。返回退订函数。监听器里抛错不影响别的
    * 监听器。

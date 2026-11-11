@@ -367,6 +367,22 @@ export const AccountRateLimitWindowSchema = z.object({
 });
 export type AccountRateLimitWindow = z.infer<typeof AccountRateLimitWindowSchema>;
 
+export const AccountResetCreditSchema = z.object({
+  id: z.string().min(1),
+  resetType: z.enum(['codexRateLimits', 'unknown']),
+  status: z.enum(['available', 'redeeming', 'redeemed', 'unknown']),
+  expiresAt: IsoTimeSchema.optional(),
+});
+export type AccountResetCredit = z.infer<typeof AccountResetCreditSchema>;
+
+export const AccountResetCreditOutcomeSchema = z.enum([
+  'reset',
+  'nothingToReset',
+  'noCredit',
+  'alreadyRedeemed',
+]);
+export type AccountResetCreditOutcome = z.infer<typeof AccountResetCreditOutcomeSchema>;
+
 /**
  * 账号的状态。`signed_out`：没有登录（`lastError` 是最近一次登录失败的原因，取消的不算）；`signing_in`：有一次进行中的
  * 登录（`login`）；`signed_in`：已登录（`email`、`plan`，用量尽力而为，读不到时省略）。
@@ -392,6 +408,13 @@ export const AccountStateSchema = z.object({
   login: AccountLoginSchema.optional(),
   /** 引擎原文。 */
   lastError: z.string().optional(),
+  /** 0.169.0：省略表示未知；明细可能少于总数。 */
+  resetCredits: z
+    .object({
+      availableCount: z.int().min(0),
+      credits: z.array(AccountResetCreditSchema).optional(),
+    })
+    .optional(),
   /**
    * 主窗口（ChatGPT：5 小时）与次窗口（每周）的用量。0.45.0 起 `windows` 是全部窗口（按显示的先后），有它时客户端显示它；
    * 引擎同时把前两个放进 `primary` / `secondary`，给旧客户端。

@@ -1,7 +1,7 @@
 // 设置页“ChatGPT 账号”（R6）的纯逻辑：账号状态 → 界面的阶段、套餐名、用量的说法。账号与凭据都在 Host 的 Codex
 // 引擎里（host-api.md §3.1 account.*），这里只读状态。
 
-import type { AccountRateLimitWindow, AccountState } from '@wevir/protocol';
+import type { AccountRateLimitWindow, AccountResetCredit, AccountState } from '@wevir/protocol';
 import { currentLocale, t } from '@/i18n';
 
 /** 界面的几个阶段：没读到、未登录、浏览器登录中、设备码登录中、已登录。 */
@@ -112,4 +112,22 @@ export function usageTone(window: AccountRateLimitWindow): 'normal' | 'warning' 
   if (window.usedPercent >= 95) return 'danger';
   if (window.usedPercent >= 80) return 'warning';
   return 'normal';
+}
+
+export function nextResetCredit(
+  summary: AccountState['resetCredits'],
+  now = Date.now(),
+): AccountResetCredit | undefined {
+  return summary?.credits
+    ?.filter(
+      (credit) =>
+        credit.status === 'available' &&
+        credit.resetType === 'codexRateLimits' &&
+        (credit.expiresAt === undefined || Date.parse(credit.expiresAt) > now),
+    )
+    .sort(
+      (a, b) =>
+        (a.expiresAt === undefined ? Infinity : Date.parse(a.expiresAt)) -
+        (b.expiresAt === undefined ? Infinity : Date.parse(b.expiresAt)),
+    )[0];
 }

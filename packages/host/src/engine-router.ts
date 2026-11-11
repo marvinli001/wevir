@@ -10,6 +10,8 @@ import type { EngineFeatures, SessionCommand } from '@wevir/protocol';
 import type {
   AccountKind,
   AccountLoginOptions,
+  AccountResetCreditRequest,
+  AccountResetCreditResult,
   AccountState,
   AccountUpstream,
   AgentEvent,
@@ -628,6 +630,15 @@ class MergedAccounts implements EngineAccounts {
       for (const kind of part.kinds) if (!this.#byKind.has(kind)) this.#byKind.set(kind, part);
     }
     this.kinds = [...this.#byKind.keys()];
+    if (parts.some((part) => part.consumeResetCredit !== undefined)) {
+      this.consumeResetCredit = async (kind, request) => {
+        const part = this.#part(kind);
+        if (part.consumeResetCredit === undefined) {
+          throw new AdapterError('invalid_input', `the ${kind} account has no reset credits`);
+        }
+        return part.consumeResetCredit(kind, request);
+      };
+    }
     if (parts.some((part) => part.upstreams !== undefined)) {
       this.upstreams = async (kind) => {
         const part = this.#part(kind);
@@ -662,6 +673,10 @@ class MergedAccounts implements EngineAccounts {
 
   /** 有一个引擎的账号实现了上游，合并后的就实现（构造时定下）。 */
   upstreams?: (kind: AccountKind) => Promise<AccountUpstream[]>;
+  consumeResetCredit?: (
+    kind: AccountKind,
+    request: AccountResetCreditRequest,
+  ) => Promise<AccountResetCreditResult>;
 
   async cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState> {
     return this.#part(kind).cancelLogin(kind, loginId);

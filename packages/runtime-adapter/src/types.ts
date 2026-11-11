@@ -755,6 +755,10 @@ export interface AccountState {
     startedAt: string;
   };
   lastError?: string;
+  resetCredits?: {
+    availableCount: number;
+    credits?: AccountResetCredit[];
+  };
   rateLimits?: {
     primary?: AccountRateLimitWindow;
     secondary?: AccountRateLimitWindow;
@@ -785,6 +789,23 @@ export interface AccountRateLimitWindow {
   resetsAt?: string;
   period?: 'monthly';
   scope?: string;
+}
+
+export interface AccountResetCredit {
+  id: string;
+  resetType: 'codexRateLimits' | 'unknown';
+  status: 'available' | 'redeeming' | 'redeemed' | 'unknown';
+  expiresAt?: string;
+}
+
+export interface AccountResetCreditRequest {
+  idempotencyKey: string;
+  creditId?: string;
+}
+
+export interface AccountResetCreditResult {
+  account: AccountState;
+  outcome: 'reset' | 'nothingToReset' | 'noCredit' | 'alreadyRedeemed';
 }
 
 /** 账号能用的模型（ChatGPT：Codex 的 `model/list`）。 */

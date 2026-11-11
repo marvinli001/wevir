@@ -11,6 +11,8 @@ import type {
 import type {
   AccountLoginOptions,
   AccountModels,
+  AccountResetCreditRequest,
+  AccountResetCreditResult,
   EngineAccounts,
   ProviderModelConfig,
 } from '@wevir/runtime-adapter';
@@ -213,6 +215,10 @@ export class HostAccounts {
     return this.#options.accounts.upstreams !== undefined;
   }
 
+  get hasResetCredits(): boolean {
+    return this.#options.accounts.consumeResetCredit !== undefined;
+  }
+
   /** 能不能添加账号（Host 据此声明 `subscription_accounts`）。 */
   get canAddAccounts(): boolean {
     return this.kinds.some((kind) => this.#canAdd(kind));
@@ -357,6 +363,18 @@ export class HostAccounts {
   logout(ref: AccountRef, options?: { upstream?: string }): Promise<AccountState> {
     const slot = this.#slot(ref);
     return this.#stamped(slot, () => slot.engine.logout(slot.kind, options));
+  }
+
+  async consumeResetCredit(
+    ref: AccountRef,
+    request: AccountResetCreditRequest,
+  ): Promise<AccountResetCreditResult> {
+    const slot = this.#slot(ref);
+    const consume = slot.engine.consumeResetCredit;
+    if (consume === undefined) throw invalidAccount(['kind'], 'this account has no reset credits');
+    const result = await this.#call(() => consume.call(slot.engine, slot.kind, request));
+    this.#last.set(slot.id, result.account);
+    return { ...result, account: this.#stamp(slot, result.account) };
   }
 
   /** 指定可执行文件（`account.setPath`，按种类，这种的账号都用它）：先交给引擎（它重新检测），再记进 `engines.json`。 */
