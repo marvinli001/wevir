@@ -48,8 +48,22 @@ async function unlock(db: SQLiteDatabase, key: string): Promise<boolean> {
   }
 }
 
+// 库的打开与删除排成一队，一次只做一个。expo-sqlite 在各自的线程里解析库路径，首次读到的 `AppContext.fileSystem`
+// 是不加锁的 Swift `lazy var`：启动时几台电脑的库同时打开，两个线程各建一份，一份被另一份覆盖释放，正在用它的线程随即崩溃。
+let queue: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = queue.then(task, task);
+  queue = run.catch(() => {});
+  return run;
+}
+
 /** 打开这台电脑的缓存库；密钥不对或新建了密钥时先删旧库。 */
-export async function openComputerCache(routeId: string): Promise<ComputerCache> {
+export function openComputerCache(routeId: string): Promise<ComputerCache> {
+  return serialized(() => open(routeId));
+}
+
+async function open(routeId: string): Promise<ComputerCache> {
   const name = databaseName(routeId);
   const { hex: key, created } = await cacheKey(routeId);
   if (created) await deleteDatabaseAsync(name).catch(() => {});
@@ -64,7 +78,9 @@ export async function openComputerCache(routeId: string): Promise<ComputerCache>
 }
 
 /** 退出这台电脑：删库与密钥。 */
-export async function deleteComputerCache(routeId: string): Promise<void> {
-  await deleteDatabaseAsync(databaseName(routeId)).catch(() => {});
-  await SecureStore.deleteItemAsync(keyName(routeId), KEY_OPTIONS);
+export function deleteComputerCache(routeId: string): Promise<void> {
+  return serialized(async () => {
+    await deleteDatabaseAsync(databaseName(routeId)).catch(() => {});
+    await SecureStore.deleteItemAsync(keyName(routeId), KEY_OPTIONS);
+  });
 }
