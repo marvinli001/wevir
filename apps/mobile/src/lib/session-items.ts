@@ -13,6 +13,7 @@ import {
   type Transcript,
 } from '@wevir/client-sdk';
 import type {
+  EngineErrorCategory,
   MessageFrom,
   PendingDelivery,
   PendingMessage,
@@ -131,7 +132,18 @@ type SessionItemBody =
    * 在跑的命令最近的输出。
    */
   | { kind: 'live'; key: 'live'; action: LiveAction; startedAt?: string; detail?: string }
-  | { kind: 'error'; key: string; text: string }
+  /**
+   * 引擎的错误（同桌面端）：种类的标题、原文，没有恢复办法时一行提示。`recovery`：可重试（`retry`）或可继续生成（`continue`），
+   * 按钮只在它是最新一个失败的回合时（`retryableTurn`）显示。
+   */
+  | {
+      kind: 'error';
+      key: string;
+      text: string;
+      category: EngineErrorCategory;
+      turnId?: TurnId;
+      recovery?: 'retry' | 'continue';
+    }
   | { kind: 'handoff'; key: string; notice: ContinuityNotice }
   | { kind: 'usage-limit'; key: string; part: ChatPartOf<'error'> }
   /** 待批准的审批：`post` 是助理审批卡的形状，`approvalId` 用来回应。 */
@@ -404,7 +416,14 @@ function messageItems(
         out.push(
           part.usageLimit !== undefined
             ? { kind: 'usage-limit', key: part.key, part }
-            : { kind: 'error', key: part.key, text: part.message },
+            : {
+                kind: 'error',
+                key: part.key,
+                text: part.message,
+                category: part.category,
+                ...(part.turnId !== undefined && { turnId: part.turnId }),
+                ...(part.recovery !== undefined && { recovery: part.recovery }),
+              },
         );
         break;
       case 'notice': {
@@ -767,6 +786,16 @@ export function sessionItems(
       out.push(pendingItem(message, own, labels));
   }
   return out;
+}
+
+/**
+ * 能重试的回合（同桌面端）：会话空闲、不只读，最后一个回合以失败结束时是它；Host 还会再核对错误可不可恢复。
+ */
+export function retryableTurn(transcript: Transcript): TurnId | undefined {
+  if (isBusy(transcript) || transcript.readOnly !== undefined) return undefined;
+  const last = transcript.messages.findLast((message) => message.role !== 'system');
+  if (last?.role !== 'assistant') return undefined;
+  return last.finished?.outcome === 'failed' ? last.turnId : undefined;
 }
 
 /** 回合的结果与最后一段回答（收起时留下的那段正文）。 */

@@ -15,6 +15,7 @@ import type {
   QuestionId,
   SessionId,
   ToolDisplayKind,
+  TurnId,
   TurnOutcome,
 } from '@wevir/protocol';
 import { SESSION_TITLE_MAX_LENGTH } from '@wevir/protocol';
@@ -48,6 +49,7 @@ import { Markdown } from '../../components/markdown';
 import type { MenuSection } from '../../components/menu';
 import { type LoadImage, PostImages } from '../../components/post-images';
 import { QuestionCard } from '../../components/question-card';
+import { ErrorCard, RecoveryPanel } from '../../components/recovery';
 import { RenameDialog } from '../../components/sheets';
 import { ToolDetailView } from '../../components/tool-detail-view';
 import {
@@ -72,6 +74,7 @@ import { ScrollFollow, type ScrollMetrics, showsLatest } from '../../lib/scroll-
 import { isBusy, SessionActions, sendErrorKey } from '../../lib/session-actions';
 import {
   type NoticeIcon,
+  retryableTurn,
   type SessionItem,
   sessionItems,
   type ToolState,
@@ -303,6 +306,35 @@ export default function SessionScreen() {
     [router, computer],
   );
 
+  // 最新一个回合因可恢复的模型错误失败：错误卡片上“重试”或“继续生成”（Host 要有 `turn_retry`）。
+  const retryTurnId =
+    canWrite &&
+    view.cachedAt === undefined &&
+    view.transcript !== undefined &&
+    client?.supports('turn_retry') === true
+      ? retryableTurn(view.transcript)
+      : undefined;
+  const retryTurn = useCallback(
+    async (turnId: TurnId) => {
+      try {
+        await actions?.retryTurn(turnId);
+      } catch (e) {
+        Alert.alert(
+          t('engineError.retryFailed', { error: e instanceof Error ? e.message : String(e) }),
+        );
+      }
+    },
+    [actions],
+  );
+  const fromHistory =
+    session !== undefined && client?.supports('session_from_history') === true
+      ? async () => {
+          if (actions === undefined) return;
+          const next = await actions.createFromHistory(session);
+          router.replace({ pathname: '/session/[key]', params: { key: `${computer}/${next.id}` } });
+        }
+      : undefined;
+
   const send = useCallback(
     async (text: string) => {
       if (actions === undefined) throw new Error('offline');
@@ -462,6 +494,8 @@ export default function SessionScreen() {
             }}
             onLoadImage={loadImage}
             onOpenSession={openSession}
+            retryTurnId={retryTurnId}
+            onRetryTurn={retryTurn}
             onResumePending={() => {
               actions?.resumePending().catch((e: unknown) => setError(sendErrorKey(e)));
             }}
@@ -470,6 +504,20 @@ export default function SessionScreen() {
             style={[styles.composer, { paddingBottom: bottom }]}
             onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
           >
+            <RecoveryPanel
+              // 换会话、或从出错变为只读时重建，清掉上一次的失败提示。
+              key={`${sessionId}:${readOnly !== undefined ? 'read-only' : 'error'}`}
+              error={view.cachedAt === undefined && state === 'error'}
+              readOnly={view.cachedAt === undefined ? readOnly : undefined}
+              lastError={view.transcript?.lastError ?? session?.lastError}
+              disabled={actions?.canWrite !== true}
+              theme={theme}
+              onResume={async () => {
+                await actions?.resume();
+                void watch.current?.refreshSession().catch(() => {});
+              }}
+              onFromHistory={fromHistory}
+            />
             {error !== undefined && (
               <Text style={[styles.error, { color: theme.destructive }]} testID="session-error">
                 {t(error)}
@@ -551,6 +599,8 @@ function SessionList({
   onResumePending,
   onLoadImage,
   onOpenSession,
+  retryTurnId,
+  onRetryTurn,
   onRetry,
 }: {
   items: readonly SessionItem[];
@@ -570,6 +620,8 @@ function SessionList({
   onResumePending: () => void;
   onLoadImage: LoadImage | undefined;
   onOpenSession: OpenSession;
+  retryTurnId: TurnId | undefined;
+  onRetryTurn: (turnId: TurnId) => Promise<void>;
   onRetry: () => void;
 }) {
   const now = useMinuteClock();
@@ -717,6 +769,8 @@ function SessionList({
               onResumePending={onResumePending}
               onLoadImage={onLoadImage}
               onOpenSession={onOpenSession}
+              retryTurnId={retryTurnId}
+              onRetryTurn={onRetryTurn}
             />
           </View>
         )}
@@ -775,6 +829,8 @@ function Item({
   onResumePending,
   onLoadImage,
   onOpenSession,
+  retryTurnId,
+  onRetryTurn,
 }: {
   item: SessionItem;
   open: boolean;
@@ -791,6 +847,8 @@ function Item({
   /** 没连着时没有：照片不画。 */
   onLoadImage: LoadImage | undefined;
   onOpenSession: OpenSession;
+  retryTurnId: TurnId | undefined;
+  onRetryTurn: (turnId: TurnId) => Promise<void>;
 }) {
   switch (item.kind) {
     case 'turn':
@@ -867,12 +925,18 @@ function Item({
       return <OpinionCard item={item} theme={theme} onOpenSession={onOpenSession} />;
     case 'findings':
       return <FindingsCard item={item} theme={theme} />;
-    case 'error':
+    case 'error': {
+      const turnId = item.turnId;
+      const retryable =
+        item.recovery !== undefined && turnId !== undefined && turnId === retryTurnId;
       return (
-        <Text style={[styles.note, { color: theme.destructive }]} selectable>
-          {item.text}
-        </Text>
+        <ErrorCard
+          item={item}
+          theme={theme}
+          onRetry={retryable ? () => onRetryTurn(turnId) : undefined}
+        />
       );
+    }
     case 'relayed':
       return <RelayedCard item={item} theme={theme} />;
     case 'notice':

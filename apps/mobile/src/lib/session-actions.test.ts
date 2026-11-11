@@ -201,3 +201,37 @@ describe('question answers', () => {
     expect(questionsComplete(request, answers)).toBe(false);
   });
 });
+
+describe('SessionActions：重试与恢复', () => {
+  it('重试回合、恢复会话、基于历史新建（沿用来源、模型与推理强度）', async () => {
+    const created = { id: 'ses_new' };
+    const { fake, calls } = client({ 'session.createFromHistory': { session: created } });
+    const actions = new SessionActions(fake, SES, random);
+    await actions.retryTurn('trn_9' as never);
+    await actions.resume();
+    const next = await actions.createFromHistory({
+      providerId: 'deepseek' as never,
+      modelId: 'chat',
+      reasoningEffort: 'high',
+    });
+    await actions.createFromHistory({ providerId: 'deepseek' as never, modelId: 'chat' });
+    expect(next).toBe(created);
+    expect(calls).toEqual([
+      { method: 'session.retryTurn', params: { sessionId: SES, turnId: 'trn_9' } },
+      { method: 'session.resume', params: { sessionId: SES } },
+      {
+        method: 'session.createFromHistory',
+        params: {
+          sessionId: SES,
+          providerId: 'deepseek',
+          modelId: 'chat',
+          reasoningEffort: 'high',
+        },
+      },
+      {
+        method: 'session.createFromHistory',
+        params: { sessionId: SES, providerId: 'deepseek', modelId: 'chat' },
+      },
+    ]);
+  });
+});

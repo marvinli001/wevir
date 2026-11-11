@@ -2,7 +2,7 @@ import type { ChatMessage, ChatPart, Transcript } from '@wevir/client-sdk';
 import type { MessageFrom, PendingMessage, SessionId } from '@wevir/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { setLocale } from '../i18n';
-import { type SessionItemLabels, sessionItems, visibleItems } from './session-items';
+import { retryableTurn, type SessionItemLabels, sessionItems, visibleItems } from './session-items';
 
 const OWN = 'ses_own' as SessionId;
 const OTHER = 'ses_other' as SessionId;
@@ -88,7 +88,7 @@ describe('手机接力与额度部件', () => {
       { kind: 'handoff', key: 'n:1', notice: parts[0]?.notice },
       { kind: 'handoff', key: 'n:2', notice: parts[1]?.notice },
       { kind: 'usage-limit', key: 'e:1', part: parts[2] },
-      { kind: 'error', key: 'e:2', text: 'ordinary' },
+      { kind: 'error', key: 'e:2', text: 'ordinary', category: 'provider' },
     ]);
   });
 });
@@ -804,5 +804,61 @@ describe('sessionItems：工具失败的说明', () => {
       'User declined: no',
       undefined,
     ]);
+  });
+});
+
+describe('retryableTurn 与错误项', () => {
+  const failed = (extra: Partial<Transcript> = {}) =>
+    ({
+      ...transcript([
+        ask('m1', 'trn_1', '跑'),
+        answer(
+          'a1',
+          'trn_1',
+          [
+            {
+              type: 'error',
+              key: 'e:1',
+              category: 'provider',
+              message: '502',
+              fatal: false,
+              turnId: 'trn_1',
+              recovery: 'retry',
+            },
+          ],
+          { outcome: 'failed', durationMs: 1_000 },
+        ),
+      ]),
+      state: 'idle',
+      ...extra,
+    }) as Transcript;
+
+  it('错误项带种类、回合与恢复办法；空闲且最后一个回合失败时能重试', () => {
+    const t1 = failed();
+    expect(sessionItems(t1, LABELS).find((item) => item.kind === 'error')).toEqual({
+      kind: 'error',
+      key: 'e:1',
+      text: '502',
+      category: 'provider',
+      turnId: 'trn_1',
+      recovery: 'retry',
+    });
+    expect(retryableTurn(t1)).toBe('trn_1');
+  });
+
+  it('进行中、只读、之后又有新消息或回合没失败时不能重试', () => {
+    expect(retryableTurn(failed({ state: 'running', activeTurnId: 'trn_2' } as never))).toBe(
+      undefined,
+    );
+    expect(retryableTurn(failed({ readOnly: { reason: 'imported' } } as never))).toBeUndefined();
+    const later = failed();
+    expect(
+      retryableTurn({ ...later, messages: [...later.messages, ask('m2', 'trn_2', '再来')] }),
+    ).toBeUndefined();
+    expect(
+      retryableTurn(
+        transcript([answer('a1', 'trn_1', [], { outcome: 'completed', durationMs: 1 })]),
+      ),
+    ).toBeUndefined();
   });
 });

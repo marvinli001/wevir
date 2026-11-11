@@ -8,6 +8,7 @@ import type {
   QuestionAnswer,
   QuestionId,
   QuestionRequest,
+  Session,
   SessionId,
   TurnId,
   UserContentPart,
@@ -151,6 +152,32 @@ export class SessionActions {
   }
 
   /** 上一回合异常结束后暂停的待发消息：全部继续发送。 */
+  /** 重试最新一个因可恢复的模型错误失败的回合（Host 功能 `turn_retry`）：Host 发一条隐藏的继续消息。 */
+  async retryTurn(turnId: TurnId): Promise<void> {
+    await this.#client.request('session.retryTurn', { sessionId: this.#sessionId, turnId });
+  }
+
+  /** 出错或只读的会话再试一次接上引擎会话。 */
+  async resume(): Promise<void> {
+    await this.#client.request('session.resume', { sessionId: this.#sessionId });
+  }
+
+  /**
+   * 只读的会话基于历史新建一个（Host 功能 `session_from_history`）：同一项目、沿用原会话的来源、模型与推理强度，历史由 Host
+   * 交给新会话。返回新会话。
+   */
+  async createFromHistory(
+    from: Pick<Session, 'providerId' | 'modelId' | 'reasoningEffort'>,
+  ): Promise<Session> {
+    const { session } = await this.#client.request('session.createFromHistory', {
+      sessionId: this.#sessionId,
+      providerId: from.providerId,
+      modelId: from.modelId,
+      ...(from.reasoningEffort !== undefined && { reasoningEffort: from.reasoningEffort }),
+    });
+    return session;
+  }
+
   async resumePending(): Promise<void> {
     await this.#client.request('pending.resume', { sessionId: this.#sessionId });
   }
