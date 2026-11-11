@@ -315,11 +315,15 @@ describe('session.recap', () => {
 
   it('空闲释放放下的引擎会话：重新挂上再生成，不写事件', async () => {
     const env = setup({ generate: async () => RECAP_OUTPUT, idleReleaseMs: 30 });
+    let holdIdleWork = true;
+    Object.assign(env.adapter, { holdsIdleWork: async () => holdIdleWork });
     const close = vi.spyOn(env.adapter, 'close');
     const resume = vi.spyOn(env.adapter, 'resumeSession');
     const id = await newSession(env);
     const seen = await awayAfterTurns(env, id);
+    holdIdleWork = false;
     await vi.waitFor(() => expect(close).toHaveBeenCalled(), { timeout: 2000 });
+    await close.mock.results.at(-1)?.value;
     const resumedBefore = resume.mock.calls.length;
     const before = lastSeq(env, id);
 
