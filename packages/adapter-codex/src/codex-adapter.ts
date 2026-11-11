@@ -104,6 +104,7 @@ import {
   IGNORED_NOTIFICATIONS,
   isRecord,
 } from './mapping.js';
+import { modelProviderFailure } from './model-provider-error.js';
 import { descendants, killOrphans, type ProcEntry, readLinuxProcesses } from './orphans.js';
 import { OutputHub } from './output-hub.js';
 import {
@@ -869,7 +870,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       try {
         response = await this.process.request<ThreadStartResponse>('thread/start', params);
       } catch (error) {
-        throw engineError(error, 'thread/start');
+        throw engineError(error, 'thread/start', this.#logger);
       }
       const id = response.thread.id;
       this.#register(
@@ -964,6 +965,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         return await this.process.request<ThreadResumeResponse>('thread/resume', params);
       } catch (error) {
         if (isAdapterError(error)) throw error;
+        const providerFailure = modelProviderFailure(error, this.#logger);
+        if (providerFailure !== undefined) throw providerFailure;
         const classified = classifyResumeError(error);
         const { failure } = classified;
         if (failure.kind === 'closing' && attempt < RESUME_RETRIES) {
@@ -1047,7 +1050,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         });
       }
       if (turn.turnId === undefined) this.#dropTurn(session, turn);
-      throw engineError(error, 'turn/start');
+      throw engineError(error, 'turn/start', this.#logger);
     }
     session.settingsSynced = true;
     this.#learnTurnId(session, turn, response.turn.id);
@@ -1126,7 +1129,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     return true;
   }
 
-  /** 满载后续跑：空输入 `turn/start`，用回合原来的协作模式与会话当前的设置。没开成就以原来的失败结束回合。 */
+  /** 满载后续跑：空输入 turn/start；服务商配置错误单独报告，其余失败保留原容量错误。 */
   async #continueOverloaded(
     session: CodexSession,
     turn: Turn,
@@ -1146,12 +1149,25 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         this.#learnTurnId(session, turn, response.turn.id);
       }
     } catch (error) {
-      this.#logger.warn('模型满载后续跑的 turn/start 失败，回合按原来的失败结束', {
+      const providerFailure = modelProviderFailure(error, this.#logger);
+      this.#logger.warn('模型满载后续跑的 turn/start 失败', {
         engineSessionId: session.id,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (session.turn === turn && turn.turnId === undefined)
-        this.#finishTurn(session, turn, failed);
+      if (session.turn === turn && turn.turnId === undefined) {
+        this.#finishTurn(
+          session,
+          turn,
+          providerFailure === undefined
+            ? failed
+            : {
+                type: 'turn.failed',
+                engineSessionId: session.id,
+                category: providerFailure.code === 'engine_unavailable' ? 'unknown' : 'provider',
+                message: providerFailure.message,
+              },
+        );
+      }
     }
   }
 
@@ -1235,7 +1251,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       });
     } catch (error) {
       this.#dropTurn(session, turn);
-      throw engineError(error, 'thread/goal/set');
+      throw engineError(error, 'thread/goal/set', this.#logger);
     }
     try {
       await this.#turnStart(session, turn, userInput(request.input));
@@ -1272,7 +1288,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     try {
       return await this.#setThreadGoal(session, { status });
     } catch (error) {
-      throw engineError(error, 'thread/goal/set');
+      throw engineError(error, 'thread/goal/set', this.#logger);
     }
   }
 
@@ -1284,7 +1300,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     try {
       return await this.#clearThreadGoal(session);
     } catch (error) {
-      throw engineError(error, 'thread/goal/clear');
+      throw engineError(error, 'thread/goal/clear', this.#logger);
     }
   }
 
@@ -1335,7 +1351,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       await this.process.request('thread/compact/start', params);
     } catch (error) {
       this.#dropTurn(session, turn);
-      throw engineError(error, 'thread/compact/start');
+      throw engineError(error, 'thread/compact/start', this.#logger);
     }
   }
 
@@ -1360,7 +1376,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       response = await this.process.request<ReviewStartResponse>('review/start', params);
     } catch (error) {
       this.#dropTurn(session, turn);
-      throw engineError(error, 'review/start');
+      throw engineError(error, 'review/start', this.#logger);
     }
     this.#learnTurnId(session, turn, response.turn.id);
   }
@@ -1553,7 +1569,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       try {
         response = await this.process.request<ThreadForkResponse>('thread/fork', params);
       } catch (error) {
-        throw engineError(error, 'thread/fork');
+        throw engineError(error, 'thread/fork', this.#logger);
       }
       const id = response.thread.id;
       this.#register(
@@ -1584,7 +1600,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         await this.process.request('thread/inject_items', inject);
       } catch (error) {
         await this.close(id).catch(() => {});
-        throw engineError(error, 'thread/inject_items');
+        throw engineError(error, 'thread/inject_items', this.#logger);
       }
       return engineSession(id, response);
     } finally {
@@ -1606,7 +1622,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     try {
       await this.process.request('thread/revert', params);
     } catch (error) {
-      throw engineError(error, 'thread/revert');
+      throw engineError(error, 'thread/revert', this.#logger);
     }
     session.lastTurnId = undefined;
     session.settingsSynced = false;
@@ -1631,7 +1647,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       try {
         page = await this.process.request<ThreadTurnsListResponse>('thread/turns/list', params);
       } catch (error) {
-        throw engineError(error, 'thread/turns/list');
+        throw engineError(error, 'thread/turns/list', this.#logger);
       }
       for (const turn of page.data) {
         if (turn.status === 'inProgress') continue;
@@ -1688,13 +1704,15 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       await this.process.request<TurnSteerResponse>('turn/steer', params);
     } catch (error) {
       turn.steers.delete(steerId);
+      const providerFailure = modelProviderFailure(error, this.#logger);
+      if (providerFailure !== undefined) throw providerFailure;
       // app-server 的拒绝（没有进行中的回合、回合 ID 不符、review / compact 回合不能插话、输入过大）：Host 改为排队。
       if (error instanceof CodexRpcError) {
         throw new AdapterError('steer_rejected', `turn/steer 被拒：${error.message}`, {
           cause: error,
         });
       }
-      throw engineError(error, 'turn/steer');
+      throw engineError(error, 'turn/steer', this.#logger);
     }
   }
 
@@ -1968,7 +1986,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       await this.process.request<ThreadDeleteResponse>('thread/delete', params);
     } catch (error) {
       if (!(error instanceof CodexRpcError && THREAD_GONE.test(error.rpcMessage))) {
-        throw engineError(error, 'thread/delete');
+        throw engineError(error, 'thread/delete', this.#logger);
       }
     }
     const family = new Set([engineSessionId]);
@@ -2065,7 +2083,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           },
         } satisfies ThreadStartParams);
       } catch (error) {
-        throw engineError(error, 'thread/start（生成标题）');
+        throw engineError(error, 'thread/start（生成标题）', this.#logger);
       }
       const threadId = started.thread.id;
       const collector = new TitleCollector(request.onUsage, session.model.id);
@@ -2082,7 +2100,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         } satisfies TurnStartParams);
         return await collector.done;
       } catch (error) {
-        throw engineError(error, 'turn/start（生成标题）');
+        throw engineError(error, 'turn/start（生成标题）', this.#logger);
       } finally {
         request.signal?.removeEventListener('abort', abort);
         this.#titleThreads.delete(threadId);
@@ -3551,8 +3569,10 @@ function notificationTurnId(params: unknown): string | undefined {
 /** `thread/delete` 找不到 thread（0.43.0）：从没写过 rollout，或已经删了（codex-rs thread_delete.rs 与 thread store）。 */
 const THREAD_GONE = /^(?:thread not found: |no rollout found for (?:thread|conversation) id )/;
 
-function engineError(error: unknown, method: string): AdapterError {
+function engineError(error: unknown, method: string, logger: CodexAdapterLogger): AdapterError {
   if (isAdapterError(error)) return error;
+  const providerFailure = modelProviderFailure(error, logger);
+  if (providerFailure !== undefined) return providerFailure;
   const message = error instanceof Error ? error.message : String(error);
   const code = error instanceof CodexRpcError ? error.code : undefined;
   return new AdapterError(

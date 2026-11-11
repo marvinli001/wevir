@@ -76,7 +76,7 @@ describe('renderConfigToml', () => {
       'web_search = "disabled"',
       'thread_unload_delay_secs = 1800',
       '[analytics]\nenabled = false',
-      '[features]\nplugins = false\napps = false\ngoals = true\nimage_generation = true\nmemories = false\ninstant_interrupt = false',
+      '[features]\nplugins = false\napps = false\ndeferred_tool_world_state = false\nplugin_discovery_prefetch = false\ngoals = true\nimage_generation = true\nmemories = false\ninstant_interrupt = false',
       '[tools.update_plan]\nenabled = true',
       '[skills]\ninclude_instructions = false',
       '[skills.bundled]\nenabled = false',
@@ -266,7 +266,7 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
       'cli_auth_credentials_store = "file"',
       'forced_login_method = "chatgpt"',
       'mcp_oauth_credentials_store = "file"',
-      '[features]\nplugins = false\napps = false\ngoals = true\nimage_generation = true\nmemories = false\ninstant_interrupt = false',
+      '[features]\nplugins = false\napps = false\ndeferred_tool_world_state = false\nplugin_discovery_prefetch = false\ngoals = true\nimage_generation = true\nmemories = false\ninstant_interrupt = false',
       '[shell_environment_policy]\nignore_default_excludes = false\nexclude = ["WEVIR_*"]',
     ]) {
       expect(toml).toContain(line);

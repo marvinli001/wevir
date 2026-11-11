@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.165.0';
+const VERSION = '0.167.1';
 const args = process.argv.slice(2);
 const childIdIndex = args.indexOf('--child-id');
 const fixedChildId = childIdIndex < 0 ? undefined : args[childIdIndex + 1];

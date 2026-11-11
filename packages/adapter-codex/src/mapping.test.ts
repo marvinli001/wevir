@@ -116,7 +116,7 @@ describe('回放 codex-app-server 的通知', () => {
       {
         type: 'usage.recorded',
         engineSessionId: threadId,
-        requestId: '01a19647-6269-7b22-b79b-94e258b8d942:1020',
+        requestId: `${(fixture('stream').notifications.find((entry) => entry.method === 'turn/started')?.params.turn as { id: string } | undefined)?.id}:1020`,
         inputTokens: 1000,
         outputTokens: 20,
         reasoningTokens: 2,
@@ -257,16 +257,19 @@ describe('回放 codex-app-server 的通知', () => {
   it('tool-search：搜索与列目录都显示为 search，搜索词进 query', () => {
     const { events } = replay('tool-search');
     const started = of(events, 'tool.started');
-    expect(started.map((e) => e.display)).toEqual([
-      expect.objectContaining({
-        kind: 'search',
-        query: 'hello',
-        paths: ['.'],
-        command: 'grep -rn hello .',
-      }),
-      expect.objectContaining({ kind: 'search', summary: 'ls', command: 'ls' }),
-    ]);
-    // 两个命令并行执行，结束的先后不定。
+    expect(started).toHaveLength(2);
+    expect(started.map((e) => e.display)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'search',
+          query: 'hello',
+          paths: ['.'],
+          command: 'grep -rn hello .',
+        }),
+        expect.objectContaining({ kind: 'search', summary: 'ls', command: 'ls' }),
+      ]),
+    );
+    // 两个命令并行执行，开始与结束的先后均不固定。
     expect(
       of(events, 'tool.finished')
         .map((e) => `${e.status} ${e.output}`)

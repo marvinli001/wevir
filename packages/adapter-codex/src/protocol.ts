@@ -1,5 +1,5 @@
 // codex-app-server 协议里本包用到的子集，手写（不整批拷贝生成的类型）。每个类型注明它对应的生成文件，路径相对
-// upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.165.0 = 360319d）。只写本包读写的
+// upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.167.1 = 0a94398）。只写本包读写的
 // 字段，其余字段按 `[key: string]: unknown` 不管；收到的消息不做 schema 校验，读之前自己检查要用的字段（mapping.ts）。
 // 0.36.0 起 initialize 带 `experimentalApi: true`（ADR-0005 补记 16，结束未决事项 5），为的是协作模式（计划模式）：
 // `turn/start` 的 `collaborationMode` 与 `item/plan/delta`。其余仍只用稳定面的字段，用到的实验字段逐个注明。升级时与新版本的
@@ -30,6 +30,12 @@ export interface RpcErrorBody {
   data?: unknown;
 }
 
+/** v2/ModelProviderError.ts：JSON-RPC error.data 的结构化服务商错误。 */
+export type ModelProviderError =
+  | { type: 'modelProviderMismatch'; modelProvider: string; currentModelProvider: string }
+  | { type: 'modelProviderNotConfigured'; modelProvider: string }
+  | { type: 'modelProviderPolicyConflict'; modelProvider: string; requiredModelProvider: string };
+
 /** 通知（JSONRPCNotification）：没有 id。 */
 export interface RpcNotification {
   method: string;
@@ -50,6 +56,7 @@ export interface ClientInfo {
 export interface InitializeCapabilities {
   experimentalApi: boolean;
   requestAttestation: boolean;
+  requiredHumanApproval?: boolean;
 }
 
 /** InitializeParams.ts */
@@ -207,8 +214,11 @@ export interface LocalImageUserInput {
   path: string;
 }
 
-/** v2/UserInput.ts 里本包用到的变体。 */
-export type UserInput = TextUserInput | LocalImageUserInput;
+/** v2/UserInput.ts：音频可引用 URL 或后端文件 ID。 */
+export type AudioUserInput = { type: 'audio' } & ({ url: string } | { fileId: string });
+
+/** v2/UserInput.ts 的 wire 子集；Wevir 当前发送 text / localImage。 */
+export type UserInput = TextUserInput | LocalImageUserInput | AudioUserInput;
 
 /** v2/ApprovalsReviewer.ts：`auto_review` 由 Codex 的审查子 agent 用会话的模型判断（旧名 `guardian_subagent`）。 */
 export type ApprovalsReviewer = 'user' | 'auto_review';
@@ -349,6 +359,28 @@ export interface ThreadGoal {
   updatedAt: number;
 }
 
+/** v2/ThreadUsage.ts：微单位整数在 JSON wire 上解码为 number。 */
+export interface ThreadUsage {
+  threadId: string;
+  estimatedUsageCreditsMicros: number;
+  estimatedUsageUsdMicros: number | null;
+  nativeUsageUsdMicros?: number | null;
+  groups: ThreadUsageBreakdownGroup[];
+}
+
+/** v2/ThreadUsageBreakdownGroup.ts */
+export interface ThreadUsageBreakdownGroup {
+  model: string | null;
+  reasoningEffort: string | null;
+  speed: string | null;
+  estimatedUsageCreditsMicros: number;
+  netNewInputTokens: number | null;
+  cachedInputTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
 /** v2/ThreadGoalMutationOrigin.ts：`user` 时 Codex 把这次改动作为用户的话记进模型的上下文。 */
 export type ThreadGoalMutationOrigin = 'user' | 'automatic';
 
@@ -380,11 +412,14 @@ export interface ThreadGoalClearResponse {
 /** v2/ReviewTarget.ts 里 Wevir 用到的两种（`commit`、`custom` 不用）。 */
 export type ReviewTarget = { type: 'uncommittedChanges' } | { type: 'baseBranch'; branch: string };
 
-/** v2/ReviewStartParams.ts（0.24.0，§4.9）：`delivery: 'inline'` 在 thread 自己身上审查（`detached` 已弃用）。 */
+/** v2/ReviewDelivery.ts：0.167.1 已移除 detached。 */
+export type ReviewDelivery = 'inline';
+
+/** v2/ReviewStartParams.ts：inline 在 thread 自己身上审查。 */
 export interface ReviewStartParams {
   threadId: string;
   target: ReviewTarget;
-  delivery?: 'inline' | 'detached' | null;
+  delivery?: ReviewDelivery | null;
 }
 
 /** v2/ReviewStartResponse.ts */
@@ -444,6 +479,12 @@ export interface ThreadUnsubscribeResponse {
 
 // ── Item（v2/ThreadItem.ts 的变体，只写映射用到的字段）────────────────────────────────
 
+/** v2/ThreadItem.ts：wire 保持平铺；旧记录可能没有生命周期时间。 */
+export interface ThreadItemTiming {
+  startedAtMs?: number | null;
+  completedAtMs?: number | null;
+}
+
 /** v2/CommandAction.ts */
 export type CommandAction =
   | { type: 'read'; command: string; name: string; path: string }
@@ -471,7 +512,7 @@ export interface FileUpdateChange {
  * ThreadItem `agentMessage`。`delivery: 'async'` 且带 `questions` 的（0.156.0）是 `request_user_input_async` 的提问：`id` 是工具
  * 调用的 call_id，`text` 是 Codex 把题目与选项拼成的 Markdown（v2/AgentMessageDelivery.ts、v2/AsyncUserInputQuestion.ts）。
  */
-export interface AgentMessageItem {
+export interface AgentMessageItem extends ThreadItemTiming {
   type: 'agentMessage';
   id: string;
   text: string;
@@ -489,14 +530,14 @@ export interface AsyncUserInputQuestion {
  * ThreadItem `plan`（0.36.0）：计划模式里模型给出的 `<proposed_plan>` 块，Codex 从回答里拆出来，`text` 是块里的 Markdown；
  * 以 `item/completed` 的为准（`item/plan/delta` 是实验的预览）。
  */
-export interface PlanItem {
+export interface PlanItem extends ThreadItemTiming {
   type: 'plan';
   id: string;
   text: string;
 }
 
 /** ThreadItem `reasoning`：`summary` 与 `content`（原始推理）都是字符串数组。 */
-export interface ReasoningItem {
+export interface ReasoningItem extends ThreadItemTiming {
   type: 'reasoning';
   id: string;
   summary: string[];
@@ -504,7 +545,7 @@ export interface ReasoningItem {
 }
 
 /** ThreadItem `commandExecution` */
-export interface CommandExecutionItem {
+export interface CommandExecutionItem extends ThreadItemTiming {
   type: 'commandExecution';
   id: string;
   command: string;
@@ -519,7 +560,7 @@ export interface CommandExecutionItem {
 }
 
 /** ThreadItem `fileChange` */
-export interface FileChangeItem {
+export interface FileChangeItem extends ThreadItemTiming {
   type: 'fileChange';
   id: string;
   changes: FileUpdateChange[];
@@ -527,7 +568,7 @@ export interface FileChangeItem {
 }
 
 /** ThreadItem `mcpToolCall`（`result`、`error` 是 v2/McpToolCallResult.ts、v2/McpToolCallError.ts，原样保留）。 */
-export interface McpToolCallItem {
+export interface McpToolCallItem extends ThreadItemTiming {
   type: 'mcpToolCall';
   id: string;
   server: string;
@@ -539,7 +580,7 @@ export interface McpToolCallItem {
 }
 
 /** ThreadItem `dynamicToolCall`（`contentItems` 是 v2/DynamicToolCallOutputContentItem.ts）。 */
-export interface DynamicToolCallItem {
+export interface DynamicToolCallItem extends ThreadItemTiming {
   type: 'dynamicToolCall';
   id: string;
   namespace: string | null;
@@ -566,7 +607,7 @@ export interface CollabAgentState {
  * ThreadItem `collabAgentToolCall`（v2/CollabAgentTool.ts：`spawnAgent`、`sendInput`、`resumeAgent`、`wait`、`closeAgent`
  * 等；v2/CollabAgentToolCallStatus.ts）。`receiverThreadIds` 是子 agent 的 thread（spawn 时就是新派出的那个）。
  */
-export interface CollabAgentToolCallItem {
+export interface CollabAgentToolCallItem extends ThreadItemTiming {
   type: 'collabAgentToolCall';
   id: string;
   tool: string;
@@ -580,7 +621,7 @@ export interface CollabAgentToolCallItem {
 }
 
 /** ThreadItem `userMessage`（v2/UserInput.ts）：只读文本。 */
-export interface UserMessageItem {
+export interface UserMessageItem extends ThreadItemTiming {
   type: 'userMessage';
   id: string;
   /** `turn/start` / `turn/steer` 的 `clientUserMessageId`（R11 用插话的）；没给时为 null。 */
@@ -592,7 +633,7 @@ export interface UserMessageItem {
  * ThreadItem `webSearch`（WebSearchItem.ts）。没有 `status`：开始时 `query` 是空串、`action` 与 `results` 为 null，
  * 完成时 `query` 才有内容（搜索词，打开网页时是网址）。
  */
-export interface WebSearchToolItem {
+export interface WebSearchToolItem extends ThreadItemTiming {
   type: 'webSearch';
   id: string;
   query: string;
@@ -602,7 +643,7 @@ export interface WebSearchToolItem {
 }
 
 /** ThreadItem `imageView`（没有 `status`）。 */
-export interface ImageViewItem {
+export interface ImageViewItem extends ThreadItemTiming {
   type: 'imageView';
   id: string;
   path: string;
@@ -614,7 +655,7 @@ export interface ImageViewItem {
  * base64，或者只给图片后端的 `fileId`、不带图片数据（rust-v0.164.0 起，两者必有其一）。`savedPath` 是 Codex 存下的文件
  * （`$CODEX_HOME/generated_images/<thread>/<call>.png`），存不下时没有。
  */
-export interface ImageGenerationItem {
+export interface ImageGenerationItem extends ThreadItemTiming {
   type: 'imageGeneration';
   id: string;
   /** `in_progress`、`completed`、`failed`。 */
@@ -647,7 +688,7 @@ export type ToolItem =
   | ImageGenerationItem;
 
 /** 其余 item（userMessage、plan、contextCompaction 等）只看 `type` 与 `id`。 */
-export interface OtherItem {
+export interface OtherItem extends ThreadItemTiming {
   type: string;
   id: string;
   [key: string]: unknown;
@@ -657,7 +698,7 @@ export interface OtherItem {
 
 /** v2/ItemStartedNotification.ts、v2/ItemCompletedNotification.ts */
 export interface ItemNotification {
-  item: { type: string; id: string; [key: string]: unknown };
+  item: OtherItem;
   threadId: string;
   turnId: string;
 }
@@ -773,7 +814,7 @@ export const APPROVAL_REQUESTS = Object.freeze([
 export type ApprovalRequestMethod = (typeof APPROVAL_REQUESTS)[number];
 
 /** v2/CommandExecutionApprovalKind.ts：执行命令，或往已有终端写 stdin。 */
-export type CommandExecutionApprovalKind = 'command' | 'writeStdin';
+export type CommandExecutionApprovalKind = 'command' | 'humanCommand' | 'writeStdin';
 
 /**
  * v2/CommandExecutionRequestApprovalParams.ts 的稳定字段里本包读的。`approvalId` 只在 zsh 子命令与 stdin 的审批
@@ -904,7 +945,7 @@ export interface AccountUpdatedNotification {
 
 /** v2/Account.ts：Wevir 只认 `chatgpt`，其余（`apiKey`、`amazonBedrock`）按没有 ChatGPT 登录处理。 */
 export type CodexAccount =
-  | { type: 'chatgpt'; email: string | null; planType: string }
+  | { type: 'chatgpt'; email: string | null; planType: string; workspaceName: string | null }
   | { type: string; [key: string]: unknown };
 
 /** v2/GetAccountParams.ts / v2/GetAccountResponse.ts（`account/read`）。 */

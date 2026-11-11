@@ -100,14 +100,14 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.4 OpenAI Codex（`codex-app-server`）
 
-`rust-v0.165.0`（锁定提交 `360319d8dee62d87e2d59fc0c21805d79519cfed`），Apache-2.0，`Copyright 2025 OpenAI`。随包的文件（`apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边）：
+`rust-v0.167.1`（锁定提交 `0a94398fa60c4fac0e7659e4213a0a36e613dd46`），Apache-2.0，`Copyright 2025 OpenAI`。随包的文件（`apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边）：
 
 - `LICENSE`：Apache License 2.0 全文。
 - `NOTICE`：`OpenAI Codex`、`Copyright 2025 OpenAI`，以及派生自 Ratatui 的代码（MIT，`Copyright (c) 2016-2022 Florian Dehau`、`Copyright (c) 2023-2025 The Ratatui Developers`）。没有核实 `codex-app-server` 里是否链接了这部分代码，整份照附。
 
 随包还有 ripgrep（`codex-path/rg`，`15.2.0`，BurntSushi/ripgrep 的发布二进制）：MIT 与 Unlicense 双许可，`Copyright (c) 2015 Andrew Gallant`。两份许可证全文在 `apps/desktop/licenses/ripgrep/`（`LICENSE-MIT`、`UNLICENSE`），准备资源目录时复制到包里的 `ripgrep/`；命令行包的 `THIRD_PARTY_LICENSES.txt` 开头也指到这里。
 
-Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁定提交的 `codex-rs/vendor/bubblewrap/`（https://github.com/openai/codex/tree/360319d8dee62d87e2d59fc0c21805d79519cfed/codex-rs/vendor/bubblewrap ）。
+Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁定提交的 `codex-rs/vendor/bubblewrap/`（https://github.com/openai/codex/tree/0a94398fa60c4fac0e7659e4213a0a36e613dd46/codex-rs/vendor/bubblewrap ）。
 
 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证还没有核对，打包前做（UPSTREAM.md §2.4）。
 

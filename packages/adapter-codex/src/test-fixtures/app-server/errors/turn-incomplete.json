@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.165.0",
+    "codex": "rust-v0.167.1",
     "case": "turn-incomplete",
     "description": "上游以 response.incomplete 结束（输出达到上限）：other，不重试（rust-v0.163.0 起）"
   },
@@ -18,9 +18,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1793522635,
-      "completedAt": 1793522635,
-      "durationMs": 63
+      "startedAt": 1794437434,
+      "completedAt": 1794437434,
+      "durationMs": 62
     }
   }
 }

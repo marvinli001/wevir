@@ -336,6 +336,7 @@ describe('CodexAdapter.configureSession', () => {
       readFileSync(findFile(home, 'fake-initialize.json') as string, 'utf8'),
     ) as { capabilities: { experimentalApi: boolean } };
     expect(initialize.capabilities.experimentalApi).toBe(true);
+    expect(initialize.capabilities).not.toHaveProperty('requiredHumanApproval');
 
     const modes = turnStarts(home).map(({ collaborationMode }) => collaborationMode);
     expect(modes.map((mode) => mode?.mode)).toEqual(['plan', 'default', 'plan', 'default']);

@@ -19,7 +19,7 @@ bash scripts/upstream-sync.sh
 | `deepseek-harness`（dsh） | https://github.com/deepseek-ai/deepseek-harness | `master` | `d743267388641bc76f17c45ce8b4c231aed1d32c` | 2026-10-09 | 2026-10-12 | **MIT**（部分子目录 BSD-3-Clause，见 §2.1） |
 | `openwork` | https://github.com/different-ai/openwork | `dev` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | 2026-10-11 | 2026-10-12 | **`ee/` 之外 MIT；`ee/` 为 OpenWork EE License（非开源）** |
 | `paseo` | https://github.com/getpaseo/paseo | `main` | `dc7bc8db124e837ba909ffd3b4b20e16adaebe24` | 2026-10-12 | 2026-10-12 | **Apache-2.0**（少数第三方组件 MIT） |
-| `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.165.0` | `360319d8dee62d87e2d59fc0c21805d79519cfed` | 2026-10-27 | 2026-11-01 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
+| `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.167.1` | `0a94398fa60c4fac0e7659e4213a0a36e613dd46` | 2026-11-10 | 2026-11-12 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
 | `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `ec1313c8f8333292506f05a355bb72d308a455d8` | 2026-10-15 | 2026-10-15 | **MIT**（见 §2.5） |
 | `opencode` | https://github.com/sst/opencode（现为 anomalyco/opencode） | tag `v1.19.3` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | 2026-10-16 | 2026-10-17 | **MIT**（见 §2.6） |
 | `idb`（facebook/idb） | https://github.com/facebook/idb | `main` | `14baeffc8f681380527c400a8184512b746ee918` | 2026-10-23 | 2026-10-24 | **MIT**（见 §2.7） |
@@ -27,7 +27,7 @@ bash scripts/upstream-sync.sh
 补充：
 
 - dsh 不再作为依赖或引擎使用：Wevir 的运行时以 Codex 为底，吸收了 dsh 的长处；这份只读克隆只留作设计参考，不移植源码。锁定提交是 tag `dsh-v0.2.1-alpha.2` 指向的提交。
-- codex 锁定的是 release tag `rust-v0.165.0` 指向的提交（此前是 `rust-v0.163.0` / `8308618`，再之前是 `rust-v0.162.1` / `092d3ac`），与 `scripts/fetch-codex.sh` 下载的二进制同一版本，源码与运行的程序一致。运行时现按网关服务商分进程，每个进程通过 `-c model_provider="wevir_<id>"` 固定服务商，共用原家目录和一个网关。共享配置写入串行且原子替换；启动握手串行以避免首次 SQLite 建库竞争，握手后会话与回合并发。服务商 ID 和 rollout 无需迁移。§4 登记的移植来源文件里，`ext/skills/src/loader/mod.rs`、`config/src/mcp_types.rs`、`app-server-protocol/src/protocol/v2/{mcp,config}.rs`、`tui/src/app/thread_title.rs` 在 0.163.0 与 0.165.0 之间有改动，但都不在 Wevir 移植的部分（常量挪位置、新的禁用原因与 EMA 认证字段、`toolListMeta`、新的 hook 事件与 `reviewDomains`、TUI 的标题进度），其余文件没有改动，文件头与 `NOTICE` 的来源提交仍写 `092d3ac`。Codex 的 release 提交不在任何分支上（`rust-v0.165.0` 与 `main` 分叉：2026-11-01 领先 4 个提交，落后 373 个），所以 lock 的“分支”一栏写 tag，`upstream-sync.sh` 的回退路径按 tag 浅拉取。
+- codex 锁定 release tag `rust-v0.167.1`（`0a94398fa60c4fac0e7659e4213a0a36e613dd46`），与下载的二进制一致。网关服务商按进程固定 `wevir_<id>`，共享家目录、网关与配置写入锁，启动握手串行，回合与目标并发。0.165.0 至本版本的已登记来源变化主要是 config 的结构化服务商错误和 TUI 的 item 载荷/标题调度；已移植的模板片段未变，文件头与 NOTICE 保留原来源。LICENSE、NOTICE 与 ripgrep 清单未变。源码按 release tag 同步，不依据 main 的移动提交。
 
 ### 1.1 作为依赖运行的 npm 包
 
@@ -45,13 +45,15 @@ bash scripts/upstream-sync.sh
 
 ### 1.2 作为二进制运行的上游程序
 
+0.167.1 不分发 codex-exec-server，codex-package.json 不写 execServer。app-server 的命令执行使用自身辅助入口；升级时以真实二进制的命令、code mode 与隔离测试核实，不能仅凭资产清单判断必需组件。
+
 R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程运行 `codex-app-server`（ADR-0005 决策 1，codex-event-mapping.md）。开发环境用 `scripts/fetch-codex.sh` 下载到仓库的开发缓存，或用 `WEVIR_CODEX_BIN` 指定；安装包内置的那份由 `pnpm --filter @wevir/desktop resources` 用同一个脚本（`--target`、`--out`）放进 `apps/desktop/resources/engines/codex/`，运行时经 `WEVIR_RESOURCES_DIR` 找到（R9，ADR-0007 决策 5）。两处都是上游 Codex 的包布局（`codex-rs/install-context`、`scripts/codex_package/layout.py`）：`bin/` 放 `codex-app-server` 与 `codex-code-mode-host`，`codex-path/` 放 ripgrep，Linux 另有 `codex-resources/bwrap`，根上有 `codex-package.json`。Codex 凭二进制在 `bin/` 下且上一级有这个文件认出包，把 `codex-path/` 放到模型所跑命令的 PATH 最前面（只在 Unix 上，Windows 由 adapter-codex 的 `buildCodexEnv` 补）。版本必须与 adapter-codex 的 `CODEX_VERSION` 一致，启动前用 `--version` 核对。
 
 | 程序 | 版本 | 来源 | 校验 | 用处 |
 |---|---|---|---|---|
-| `codex-app-server`（独立二进制） | `rust-v0.165.0` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/codex/bin/`，CI 按脚本内容缓存；安装包的资源目录 `apps/desktop/resources/engines/codex/`；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
-| `codex-code-mode-host`（独立二进制） | `rust-v0.165.0` | 同一 release 的 `codex-code-mode-host-<target>.tar.gz`（Windows 是 `.exe.tar.gz`） | 6 个 sha256 同样写在 `scripts/fetch-codex.sh` | 放在 `bin/` 里 `codex-app-server` 旁边：code mode 的 `exec` 在这个独立进程里跑，codex-app-server 在自己所在目录找它（`codex-rs/install-context/src/lib.rs` 的 `code_mode_host_program`）；没有它时只给 code mode 的模型（ChatGPT 模型目录的 `tool_mode`）调不了任何工具 |
-| `bwrap`（Linux） | `rust-v0.165.0` | 同一 release 的 `bwrap-<target>.tar.gz`（只有两个 Linux musl 目标，0.2 MiB） | 两个 sha256 同样写在 `scripts/fetch-codex.sh` | Linux 上放在包根的 `codex-resources/bwrap`：`PATH` 上没有 `bwrap` 时 Codex 用它（§2.4）；Linux 还没实测，是否保留由 ADR-0005 未决事项 4 定 |
+| `codex-app-server`（独立二进制） | `rust-v0.167.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/codex/bin/`，CI 按脚本内容缓存；安装包的资源目录 `apps/desktop/resources/engines/codex/`；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
+| `codex-code-mode-host`（独立二进制） | `rust-v0.167.1` | 同一 release 的 `codex-code-mode-host-<target>.tar.gz`（Windows 是 `.exe.tar.gz`） | 6 个 sha256 同样写在 `scripts/fetch-codex.sh` | 放在 `bin/` 里 `codex-app-server` 旁边：code mode 的 `exec` 在这个独立进程里跑，codex-app-server 在自己所在目录找它（`codex-rs/install-context/src/lib.rs` 的 `code_mode_host_program`）；没有它时只给 code mode 的模型（ChatGPT 模型目录的 `tool_mode`）调不了任何工具 |
+| `bwrap`（Linux） | `rust-v0.167.1` | 同一 release 的 `bwrap-<target>.tar.gz`（只有两个 Linux musl 目标，0.2 MiB） | 两个 sha256 同样写在 `scripts/fetch-codex.sh` | Linux 上放在包根的 `codex-resources/bwrap`：`PATH` 上没有 `bwrap` 时 Codex 用它（§2.4）；Linux 还没实测，是否保留由 ADR-0005 未决事项 4 定 |
 | `rg`（ripgrep，Windows 是 `rg.exe`） | `15.2.0` | BurntSushi/ripgrep 的 GitHub Release：`ripgrep-15.2.0-<target>.tar.gz`（Windows 是 `.zip`；Linux arm64 用 `aarch64-unknown-linux-gnu`，ripgrep 没有 arm64 的 musl 构建），版本与 sha256 抄自 Codex 锁定提交的 `scripts/codex_package/rg`（DotSlash 清单） | 6 个 sha256 写在 `scripts/fetch-codex.sh`（2026-10-26 逐个下载核对过） | 放在包根的 `codex-path/`：Codex 官方包也带它，模型被教着先用 `rg` 搜索（`prompts/base.md`），用户机器上多半没装；MIT / Unlicense 双许可，`Copyright (c) 2015 Andrew Gallant`，许可证全文在 `apps/desktop/licenses/ripgrep/`，准备资源目录时复制到包里的 `ripgrep/`（third-party-notices.md §2.4） |
 | Antigravity ACP 运行体（`agy_acp_server.par` 加 `localharness_external`，Windows 是 `.exe`） | `1.4.5` | Google 的 `https://dl.google.com/agy-extensions/releases/<平台>/agy-acp-server-1.4.5-<平台>-<架构>.zip`，地址与校验值取自 T3 Code `ab8e488e10d883fa880b0ddcf01917b51839ab07` 的官方发布表，与 T3 Code 钉的相同；1.4.2–1.4.5 会往工作区写 `SKILL.md`，所有会话请求均以 `_meta.antigravity.disabledTools` 禁用 `run_workflow`；2026-11-03 已实测 new/load/resume | 6 个平台的 sha256、压缩包与两个文件的字节数写在 `packages/adapter-antigravity/src/release.ts`（T3 钉的值，Wevir 于 2026-11-03 下载核对 macOS arm64，其余平台沿用上游校验值）；解包时逐项核对条目名、类型与大小，再启动它核对 `initialize` | 订阅来源 Antigravity 的引擎（ADR-0005 补记 14）。**不随安装包分发**：用户在设置里点下载时由 Host 从 Google 下载到 `<数据目录>/engines/antigravity/runtime/`（`WEVIR_ANTIGRAVITY_MIRROR` 可替换 `https://dl.google.com` 前缀），或用户用 `account.setPath` 指定自己装的。Google 的软件，许可条款以 Google 的为准、不是开源许可证（能否再分发待维护者核对），Wevir 不复制它的代码（antigravity-event-mapping.md §2） |
 
@@ -533,7 +535,7 @@ R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），�
    git -C upstream/codex diff <旧SHA> <新SHA> -- codex-rs/app-server-protocol/src/protocol/common.rs | grep -n "experimental"
    ```
 
-   - 本包读写的字段改名、改类型、从稳定变成实验（`#[experimental]`）：改 `protocol.ts` 与用到的地方。Wevir 只用稳定面（`experimentalApi: false`），新出现的稳定字段不必用。
+   - 本包读写的字段改名、改类型、从稳定变成实验（`#[experimental]`）：改 `protocol.ts` 与用到的地方。初始化仅声明已评估的 experimentalApi 与 requestAttestation，不声明 requiredHumanApproval；新字段按实际需求评估。
    - `CodexErrorInfo` 加了变体：对照 `turn-error.ts` 的归类（codex-event-mapping.md §6.7）。
    - 审批请求与回复（`CommandExecutionRequestApprovalParams`、`*ApprovalDecision`）变了：对照 §6.6 的选项表与终端界面 `tui/src/bottom_pane/approval_overlay.rs` 的 `exec_options` / `patch_options`。
    - 新的服务端请求：默认回复“不支持”，逐个决定要不要处理。

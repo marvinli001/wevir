@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "codex": "rust-v0.165.0",
+    "codex": "rust-v0.167.1",
     "case": "turn-401",
     "description": "上游 401：httpConnectionFailed（401）"
   },
@@ -22,9 +22,9 @@
         "additionalDetails": null,
         "misalignment": null
       },
-      "startedAt": 1793522634,
-      "completedAt": 1793522634,
-      "durationMs": 68
+      "startedAt": 1794437433,
+      "completedAt": 1794437433,
+      "durationMs": 60
     }
   }
 }

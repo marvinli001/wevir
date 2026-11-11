@@ -4,10 +4,11 @@
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { CodexAdapter } from './codex-adapter.js';
+import { CodexRpcError } from './codex-process.js';
 import { collectEvents, newAdapter, ofType, runTurn, TempDirs } from './test-fixtures/harness.js';
-import { MOCK_MODEL, MOCK_UPSTREAM_KEY } from './test-fixtures/mock-model.js';
+import { MOCK_MODEL, MOCK_UPSTREAM_KEY, mockProvider } from './test-fixtures/mock-model.js';
 
 const FAKE_APP_SERVER = fileURLToPath(
   new URL('./test-fixtures/fake-app-server.mjs', import.meta.url),
@@ -17,6 +18,7 @@ const MESSAGE = 'Policy-restricted capacity is unavailable. Please try again lat
 const dirs = new TempDirs();
 let adapters: CodexAdapter[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.allSettled(adapters.map((adapter) => adapter.dispose()));
   adapters = [];
 });
@@ -53,6 +55,63 @@ describe('CodexAdapter 容量不足时续跑', () => {
 
   it('失败回合的通知先于 turn/start 的结果处理完：续跑照样开新回合，不把失败的回合 ID 记回去', async () => {
     await expectContinued(['--notify-before-result']);
+  });
+
+  it.each([
+    {
+      data: { type: 'modelProviderNotConfigured', modelProvider: 'wevir_deleted' },
+      category: 'provider',
+      message: '服务商已删除',
+    },
+    {
+      data: {
+        type: 'modelProviderMismatch',
+        modelProvider: 'wevir_a',
+        currentModelProvider: 'wevir_b',
+      },
+      category: 'unknown',
+      message: '路由异常',
+    },
+  ])('续跑收到 $data.type 时报告新原因，不复用容量失败', async ({ data, category, message }) => {
+    const { home, workspace } = dirs.make('capacity-provider');
+    const adapter = newAdapter({
+      home,
+      binary: process.execPath,
+      binaryArgs: [FAKE_APP_SERVER, '--fixtures', fixtures(home)],
+      providers: [mockProvider({ baseURL: 'http://127.0.0.1:9/v1' })],
+      overloadRetry: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 10 },
+    });
+    adapters.push(adapter);
+    const { engineSessionId } = await adapter.createSession({
+      cwd: workspace,
+      providerId: 'mock',
+      modelId: MOCK_MODEL,
+    });
+    const original = adapter.process.request.bind(adapter.process);
+    vi.spyOn(adapter.process, 'request').mockImplementation(
+      async <T>(method: string, params: unknown): Promise<T> => {
+        const input = (params as { input?: unknown[] }).input;
+        if (method === 'turn/start' && input?.length === 0)
+          throw new CodexRpcError(method, {
+            code: -32600,
+            message: 'native provider failure',
+            data,
+          });
+        return original<T>(method, params);
+      },
+    );
+    const turn = await runTurn(
+      adapter,
+      engineSessionId,
+      'replay:capacity',
+      collectEvents(adapter, engineSessionId),
+    );
+    expect(turn.at(-1)).toMatchObject({
+      type: 'turn.failed',
+      category,
+      message: expect.stringContaining(message),
+    });
+    expect(turn.at(-1)).not.toMatchObject({ message: MESSAGE });
   });
 });
 

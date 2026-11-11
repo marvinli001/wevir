@@ -129,6 +129,7 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   // 队列、内容审核的元数据都没有对应的 Wevir 事件。
   'thread/settings/updated',
   'thread/queue/changed',
+  'thread/section/changed',
   'turn/moderationMetadata',
   // 撤回（0.38.0，`thread/revert`）的回执：Host 自己写 `turn.rewound`。
   'thread/reverted',
