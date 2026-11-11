@@ -110,8 +110,6 @@ describe.skipIf(!binaryAvailable())(
         apiKey: 'wevir-mock-key-not-a-secret',
       });
 
-      // 冷启动单独等，避免 session.create 的 RPC 时限（Windows 20 s）先于 initialize 到期。
-      await adapter.gateway.process.start();
       const { session } = await client.request('session.create', {
         providerId: 'wevir-mock',
         permissionMode: 'full_access',

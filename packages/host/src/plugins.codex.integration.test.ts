@@ -72,7 +72,10 @@ describe.skipIf(!binary || process.platform === 'win32')(
           logger: { warn: () => {}, info: () => {} },
         };
         const adapter = mode === 'runtime' ? new CodexRuntime(options) : new CodexAdapter(options);
-        const engine = adapter instanceof CodexRuntime ? adapter.gateway : adapter;
+        const engine = () =>
+          adapter instanceof CodexRuntime
+            ? (adapter.gatewayAdapters.values().next().value as CodexAdapter)
+            : adapter;
         const host = await startHost({
           home,
           pluginUserHome: userHome,
@@ -150,7 +153,7 @@ describe.skipIf(!binary || process.platform === 'win32')(
           )
           .catch((error: unknown) => {
             throw new Error(
-              `${String(error)}; events=${JSON.stringify(events())}; tools=${JSON.stringify(model.requests.at(-1)?.body.tools)}; stderr=${engine.process.stderrTail}`,
+              `${String(error)}; events=${JSON.stringify(events())}; tools=${JSON.stringify(model.requests.at(-1)?.body.tools)}; stderr=${engine().process.stderrTail}`,
             );
           });
         expect(approval.type).toBe('approval.requested');
@@ -177,7 +180,7 @@ describe.skipIf(!binary || process.platform === 'win32')(
         expect(context()).toContain('imagegen');
         expect(context()).not.toContain('external-canary');
         expect(context()).not.toContain('project-canary');
-        const codexSkills = await engine.process.request<{
+        const codexSkills = await engine().process.request<{
           data: Array<{ skills: Array<{ name: string; enabled: boolean }> }>;
         }>('skills/list', { cwds: [cwd], forceReload: true });
         // Codex 自带的 skills（`CODEX_HOME/skills/.system` 里也有一个 imagegen）关着，只列 Wevir 的那一份。
@@ -282,7 +285,10 @@ describe.skipIf(!binary || process.platform === 'win32')(
           logger: { warn: () => {}, info: () => {} },
         };
         const adapter = mode === 'runtime' ? new CodexRuntime(options) : new CodexAdapter(options);
-        const engine = adapter instanceof CodexRuntime ? adapter.gateway : adapter;
+        const engine = () =>
+          adapter instanceof CodexRuntime
+            ? (adapter.gatewayAdapters.values().next().value as CodexAdapter)
+            : adapter;
         const host = await startHost({
           home,
           pluginUserHome: userHome,
@@ -347,7 +353,7 @@ describe.skipIf(!binary || process.platform === 'win32')(
           )
           .catch((error: unknown) => {
             throw new Error(
-              `${String(error)}; events=${JSON.stringify(events())}; stderr=${engine.process.stderrTail}`,
+              `${String(error)}; events=${JSON.stringify(events())}; stderr=${engine().process.stderrTail}`,
             );
           });
         if (approval.type !== 'approval.requested') throw new Error('missing approval');
@@ -368,7 +374,7 @@ describe.skipIf(!binary || process.platform === 'win32')(
         expect(context()).toContain('package-canary');
         const codexSkills = async () =>
           (
-            await engine.process.request<{
+            await engine().process.request<{
               data: Array<{ skills: Array<{ name: string; enabled: boolean }> }>;
             }>('skills/list', { cwds: [], forceReload: true })
           ).data.flatMap((item) => item.skills);

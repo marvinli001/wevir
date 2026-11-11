@@ -174,9 +174,8 @@ describe.skipIf(!binaryAvailable())(
       stopped = true;
       fake.emit('SIGTERM', 'SIGTERM');
       expect(await exit).toBe(EXIT_CODE.ok);
-      expect(adapter?.gateway.process.state).toBe('disposed');
-      expect(adapter?.gateway.process.pid).toBeUndefined();
-      expect(adapter?.gateway.gateway).toBeUndefined();
+      expect(adapter?.gatewayAdapters.size).toBe(0);
+      expect(adapter?.gatewayHome.gateway).toBeUndefined();
       // ChatGPT 进程没有用到，也就从没启动。
       expect(adapter?.chatgpt.process.pid).toBeUndefined();
       expect(existsSync(join(home, 'engines', 'codex-chatgpt'))).toBe(false);

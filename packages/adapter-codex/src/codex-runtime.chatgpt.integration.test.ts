@@ -95,7 +95,7 @@ describe.skipIf(binary === undefined)('ChatGPT 进程（mock 登录服务）', {
       codex.createSession({ cwd: workspace, providerId: 'chatgpt', modelId: MOCK_CHATGPT_MODEL }),
     ).rejects.toMatchObject({ name: 'AdapterError', code: 'missing_credentials' });
     expect(codex.chatgpt.process.state).toBe('ready');
-    expect(codex.gateway.process.state).toBe('stopped');
+    expect(codex.gatewayAdapters.size).toBe(0);
     expect((await codex.testProvider(CHATGPT, MOCK_CHATGPT_MODEL)).reason).toBe('auth');
   });
 
@@ -158,19 +158,25 @@ describe.skipIf(binary === undefined)('ChatGPT 进程（mock 登录服务）', {
       });
       expect(session).toMatchObject({ modelId: MOCK_CHATGPT_MODEL, reasoningEffort: 'high' });
       expect(codex.chatgpt.hasSession(session.engineSessionId)).toBe(true);
-      expect(codex.gateway.hasSession(session.engineSessionId)).toBe(false);
+      expect(
+        [...codex.gatewayAdapters.values()].some((adapter) =>
+          adapter.hasSession(session.engineSessionId),
+        ),
+      ).toBe(false);
       const gatewaySession = await codex.createSession({
         cwd: workspace,
         providerId: mockProvider(model).id,
         modelId: MOCK_MODEL,
       });
-      expect(codex.gateway.hasSession(gatewaySession.engineSessionId)).toBe(true);
+      expect(codex.gatewayAdapters.get('mock')?.hasSession(gatewaySession.engineSessionId)).toBe(
+        true,
+      );
       const events: Parameters<typeof runTurn>[3] = [];
       void (async () => {
         for await (const event of codex.subscribe(gatewaySession.engineSessionId))
           events.push(event);
       })();
-      const turn = await runTurn(codex.gateway, gatewaySession.engineSessionId, '你好', events);
+      const turn = await runTurn(codex, gatewaySession.engineSessionId, '你好', events);
       expect(turn.at(-1)?.type).toBe('turn.settled');
       await codex.close(session.engineSessionId);
 

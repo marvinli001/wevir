@@ -1,11 +1,9 @@
 import { realpath } from 'node:fs/promises';
 import { basename, join, sep } from 'node:path';
 import {
-  GatewayPrivacyMasker,
   type ModelGateway,
   type ModelGatewayOptions,
   type RequestObservation,
-  startModelGateway,
   testProvider,
   VertexTokenCache,
   validateProvider,
@@ -88,15 +86,16 @@ import {
   contextWindowOf,
   fromCodexEffort,
   renderChatgptConfigToml,
-  renderConfigToml,
   renderModelCatalog,
   sessionEnvConfig,
   threadConfig,
   toCodexEffort,
+  tomlString,
   webToolThreadConfig,
   writeCodexConfig,
 } from './config.js';
 import { buildCodexEnv } from './env.js';
+import { GatewayHome } from './gateway-home.js';
 import { engineGoal, goalNotification } from './goals.js';
 import { hooksThreadConfig } from './hooks.js';
 import {
@@ -239,7 +238,7 @@ const CHILD_STARTING_TOOLS = new Set(['spawnAgent', 'resumeAgent', 'sendInput'])
 export interface CodexAdapterLogger {
   warn(message: string, fields?: Record<string, unknown>): void;
   info?(message: string, fields?: Record<string, unknown>): void;
-  /** 登记要从日志里抹掉的值（网关令牌，每次启动进程换一个）。 */
+  /** 登记要从日志里抹掉的值（网关令牌在 Host 本次运行中共用）。 */
   addSecret?(value: string): void;
 }
 
@@ -248,9 +247,13 @@ export interface CodexAdapterOptions {
   home: string;
   /**
    * 进程的种类（ADR-0005 补记 10）：`gateway`（默认）承载经网关的 Provider；`chatgpt` 承载 ChatGPT 登录——Codex 内置的
-   * openai Provider 与它自己的模型目录，没有网关，`accounts` 可用。Host 用的 `CodexRuntime` 两种各建一个。
+   * openai Provider 与它自己的模型目录，没有网关，`accounts` 可用。Host 用的 `CodexRuntime` 按网关服务商建适配器，ChatGPT 账号保持独立。
    */
   mode?: CodexFlavor;
+  /** CodexRuntime 的网关进程共享同一个家目录管理器。 */
+  gatewayHome?: GatewayHome;
+  /** 网关进程的固定服务商；独立适配器省略。 */
+  providerId?: string;
   /**
    * 0.63.0：添加的 ChatGPT 账号（`mode: 'chatgpt'`）：它自己的 `CODEX_HOME`（凭据、rollout 与配置都在里面，与首个账号的进程
    * 互不相通）与它的 Provider ID（就是账号 ID）。省略时是首个账号：`engines/codex-chatgpt` 与 `chatgpt`。
@@ -452,23 +455,14 @@ export const FILE_CHANGE_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.fr
 ]);
 
 /**
- * 启动器：每次启动 codex-app-server 之前建好 `CODEX_HOME`、解析并核对二进制、新建网关实例（令牌随之换新，
- * ADR-0005 决策 2.2 与补记 3）、按当前的 Provider 写 config.toml 与模型目录，再给出 spawn 参数。
+ * 网关启动器向 GatewayHome 取得共享配置和环境，再固定进程的服务商；ChatGPT 独立准备目录与配置。
  */
 class Launcher implements CodexLauncher {
-  privacySource: GatewayPrivacySource | undefined;
-  readonly privacy = new GatewayPrivacyMasker({
-    settings: () => this.privacySource?.settings(),
-    secrets: () => this.privacySource?.secrets() ?? [],
-  });
+  readonly home: GatewayHome | undefined;
   plugins: EnginePluginSource | undefined;
   readonly paths: CodexPaths;
   readonly #options: CodexAdapterOptions;
   readonly #logger: CodexAdapterLogger;
-  readonly #prompt: BasePrompt;
-  providers: readonly ProviderConfig[] = [];
-  gateway: ModelGateway | undefined;
-  onRequest: ((observation: RequestObservation) => void) | undefined;
   readonly vertexAuth: VertexTokenCache;
   /** 当前进程启动时用的模型目录（判断目录是否过期）。 */
   launchedCatalog: string | undefined;
@@ -477,14 +471,18 @@ class Launcher implements CodexLauncher {
   #binary: string | undefined;
   #versionChecked = false;
 
-  constructor(options: CodexAdapterOptions, logger: CodexAdapterLogger, prompt: BasePrompt) {
+  constructor(options: CodexAdapterOptions, logger: CodexAdapterLogger) {
     this.paths = codexPaths(options.home, options.mode, options.account?.codexHome);
     this.#options = options;
-    this.vertexAuth = new VertexTokenCache({
-      fetch: options.gateway?.fetch ?? options.providerTest?.fetch,
-    });
+    this.home = this.chatgpt
+      ? undefined
+      : (options.gatewayHome ?? new GatewayHome(options, logger));
+    this.vertexAuth =
+      this.home?.vertexAuth ??
+      new VertexTokenCache({
+        fetch: options.gateway?.fetch ?? options.providerTest?.fetch,
+      });
     this.#logger = logger;
-    this.#prompt = prompt;
   }
 
   get chatgpt(): boolean {
@@ -493,11 +491,29 @@ class Launcher implements CodexLauncher {
 
   /** 模型目录；ChatGPT 进程没有（用 Codex 自己的）。 */
   catalog(): string | undefined {
-    if (this.chatgpt) return undefined;
-    return renderModelCatalog(this.providers, (vars) => this.#prompt.render(vars));
+    return this.home?.catalog();
+  }
+
+  get gateway(): ModelGateway | undefined {
+    return this.home?.gateway;
+  }
+
+  startProcess(process: CodexProcess): ReturnType<CodexProcess['start']> {
+    return this.home?.startProcess(process) ?? process.start();
   }
 
   async prepare(): Promise<CodexSpawnSpec> {
+    if (this.home !== undefined) {
+      const { spec, catalog, webRegistered } = await this.home.prepare();
+      this.launchedCatalog = catalog;
+      this.webRegistered = webRegistered;
+      if (this.#options.providerId !== undefined)
+        spec.args.push(
+          '-c',
+          `model_provider=${tomlString(codexProviderId(this.#options.providerId))}`,
+        );
+      return spec;
+    }
     const plugins = await this.plugins?.read();
     for (const value of plugins?.secrets ?? []) this.#logger.addSecret?.(value);
     for (const item of plugins?.connectors ?? []) {
@@ -550,46 +566,7 @@ class Launcher implements CodexLauncher {
       this.launchedCatalog = undefined;
       return this.#spawnSpec(binary, binaryArgs, buildCodexEnv(baseEnv));
     }
-    // 旧进程此时已经停了（重启先回收再启动），它的网关一起关掉。
-    await this.closeGateway();
-    const gateway = await startModelGateway({
-      ...this.#options.gateway,
-      privacy: this.#options.gateway?.privacy ?? this.privacy,
-      logger: gatewayLogger(this.#logger),
-      onRequest: (observation) => {
-        this.onRequest?.(observation);
-        this.#options.gateway?.onRequest?.(observation);
-      },
-      vertexAuth: this.vertexAuth,
-    });
-    this.gateway = gateway;
-    this.#logger.addSecret?.(gateway.token);
-    gateway.setProviders(this.providers);
-    const catalog = this.catalog();
-    writeCodexConfig(
-      this.paths,
-      pluginsToml(
-        renderConfigToml({
-          providers: this.providers,
-          gatewayBaseURL: (id) => gateway.baseURL(id),
-          ...(catalog !== undefined && { catalogFile: this.paths.catalogFile }),
-          providerExtra: this.#options.providerExtra,
-          suggestTasks,
-          ...(this.#options.historyTool !== undefined && {
-            historyTool: this.#options.historyTool,
-          }),
-          ...(webTool !== undefined && { webTool }),
-        }),
-        plugins,
-      ),
-      catalog,
-    );
-    this.launchedCatalog = catalog;
-    return this.#spawnSpec(
-      binary,
-      binaryArgs,
-      buildCodexEnv({ ...baseEnv, gatewayToken: gateway.token }),
-    );
+    throw new Error('ChatGPT 启动器模式无效');
   }
 
   #spawnSpec(
@@ -615,15 +592,16 @@ class Launcher implements CodexLauncher {
   }
 
   async closeGateway(): Promise<void> {
-    const gateway = this.gateway;
-    this.gateway = undefined;
-    await gateway?.close();
+    if (this.#options.gatewayHome === undefined) {
+      await this.home?.dispose();
+      if (this.home === undefined) this.vertexAuth.close();
+    }
   }
 }
 
 /**
  * Codex 的 `AgentRuntimeAdapter`（ADR-0005 决策 1.1，docs/architecture/codex-event-mapping.md）：一个
- * codex-app-server 进程承载全部会话，一个 Wevir 会话对应一个 thread，`threadId` 即 `engineSessionId`。
+ * codex-app-server 进程承载同一服务商的会话，一个 Wevir 会话对应一个 thread，`threadId` 即 `engineSessionId`。
  *
  * - **审批**（§6.6）：命令与补丁的审批请求 → `approval.requested`（选项固定，详情取同一 item 的工具），回复
  *   `{decision}`；app-server 自己结束的请求（`serverRequest/resolved`）、回合结束时仍未决的、取消与引擎退出时的
@@ -638,9 +616,8 @@ class Launcher implements CodexLauncher {
  *   `turn/started` 的 `rootTurnId`）认出，在父会话的流里报 `subagent.started`，之后它的通知按子会话上报，回合由引擎
  *   开始（`turn.started`）。认出之前的通知先存着。`close_agent` 报 `subagent.updated`（`closed`）。
  *
- * Provider（§5）：所有 Provider 都经网关（决策 2.2）。网关实例由本适配器在 Host 进程里创建并持有，每次启动
- * codex-app-server 新建一个（令牌随之换新）；`configureProviders` 立即交给运行中的网关（上游地址、Key、协议的变化
- * 不需要重启 Codex）。会话的 Provider 条目经 `thread/start` 的 `config` 覆盖带上，新增的 Provider 也不需要重启；
+ * Provider（§5）：网关实例、令牌和配置由 GatewayHome 持有，进程重启不重建网关。`configureProviders` 立即更新网关，
+ * 上游地址、Key、协议的变化不重启 Codex；新增服务商由 CodexRuntime 懒建独立进程。
  * 只有模型目录变了（新增模型、上下文大小或推理档位变了）才要重启，因为 Codex 只在启动时读一次目录：空闲时立即重启，
  * 有回合时等最后一个回合结束，挂着的会话以 `engine.exited`（`config_changed`）脱开。
  */
@@ -722,6 +699,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly accounts?: EngineAccounts;
   readonly #account: ChatgptAccount | undefined;
   readonly #launcher: Launcher;
+  readonly #unobserve: () => void;
   readonly #prompt: BasePrompt;
   readonly #options: CodexAdapterOptions;
   readonly #logger: CodexAdapterLogger;
@@ -755,8 +733,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#overloadRetry = { ...OVERLOAD_RETRY, ...options.overloadRetry };
     this.#prompt = new BasePrompt(options.promptsDir ?? defaultPromptsDir());
-    this.#launcher = new Launcher(options, this.#logger, this.#prompt);
-    this.#launcher.onRequest = (observation) => this.#gatewayUsage(observation);
+    this.#launcher = new Launcher(options, this.#logger);
+    this.#unobserve =
+      this.#launcher.home?.observe(options.providerId, (observation) =>
+        this.#gatewayUsage(observation),
+      ) ?? (() => {});
     this.paths = this.#launcher.paths;
     this.process = new CodexProcess({
       launcher: this.#launcher,
@@ -774,6 +755,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           .filter((session) => session.status === 'open')
           .map(({ id, cwd, connectors }) => ({ id, cwd, connectors })),
       (value) => this.#logger.addSecret?.(value),
+      this.#launcher.home?.pluginsState,
     );
     this.process.on('exit', (exit) => this.#onExit(exit));
     this.process.on('restarting', ({ attempt, maxRestarts, delayMs }) =>
@@ -810,7 +792,24 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     return this.#sessions.has(engineSessionId);
   }
 
-  /** 当前网关（进程运行时才有）。 */
+  /** 没有未关闭会话、激活操作或进行中的 RPC。 */
+  get idle(): boolean {
+    // ready 先于重启 Promise 的清理；回收只看实际的进程与请求状态。
+    return (
+      !this.#busy &&
+      this.process.state !== 'starting' &&
+      this.process.state !== 'restarting' &&
+      this.#titleThreads.size === 0 &&
+      this.process.pendingCount === 0 &&
+      ![...this.#sessions.values()].some(
+        (session) =>
+          session.status === 'open' &&
+          (session.parentId === undefined || session.goal?.status === 'active'),
+      )
+    );
+  }
+
+  /** 当前 Host 的共享网关。 */
   get gateway(): ModelGateway | undefined {
     return this.#launcher.gateway;
   }
@@ -823,26 +822,27 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   // ── 会话与回合 ─────────────────────────────────────────────────────────────────────────
 
   bindGatewayPrivacy(source: GatewayPrivacySource): void {
-    if (!this.#launcher.chatgpt) this.#launcher.privacySource = source;
+    if (this.#launcher.home !== undefined) this.#launcher.home.privacySource = source;
   }
 
   bindPlugins(source: EnginePluginSource): void {
     this.#launcher.plugins = source;
+    if (this.#launcher.home !== undefined) this.#launcher.home.plugins = source;
     this.#plugins.source = source;
   }
 
   reloadPlugins(): Promise<void> {
     return this.#plugins.sync();
   }
-  listConnectorStatus() {
-    return this.#plugins.status();
+  listConnectorStatus(includeGlobal = true) {
+    return this.#plugins.status(includeGlobal);
   }
 
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.#assertUsable();
     if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
     const { provider, model } = this.#route(config);
-    await this.process.start();
+    await this.#launcher.startProcess(this.process);
     await this.#applyConfigIfIdle();
     await this.#plugins.sync(config.cwd);
     // ChatGPT 会话：没登录时不建 thread（Codex 会拿着空的凭据去连 api.openai.com）。
@@ -904,7 +904,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       return { engineSessionId, engineVersion: CODEX_VERSION };
     }
     const { provider, model } = this.#route(config);
-    await this.process.start();
+    await this.#launcher.startProcess(this.process);
     await this.#applyConfigIfIdle();
     await this.#plugins.sync(config.cwd);
     await this.#account?.assertSignedIn();
@@ -1961,7 +1961,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   async deleteSession(engineSessionId: string): Promise<void> {
     this.#assertUsable();
     if (this.#sessions.get(engineSessionId)?.status === 'open') await this.close(engineSessionId);
-    await this.process.start();
+    await this.#launcher.startProcess(this.process);
     this.#assertUsable();
     const params: ThreadDeleteParams = { threadId: engineSessionId };
     try {
@@ -2005,7 +2005,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#titleThreads.clear();
       await this.process.dispose();
       await this.#launcher.closeGateway();
-      this.#launcher.vertexAuth.close();
+      this.#unobserve();
     })();
     return this.#disposed;
   }
@@ -2151,6 +2151,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   async configureProviders(providers: readonly ProviderConfig[]): Promise<void> {
     this.#assertUsable();
     this.#setProviders(providers);
+    if (this.#options.gatewayHome === undefined)
+      await this.#launcher.home?.configureProviders(providers);
     await this.#applyConfigIfIdle();
   }
 
@@ -2194,7 +2196,6 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const next = [...providers];
     if (!this.#chatgpt) renderModelCatalog(next, (vars) => this.#prompt.render(vars));
     this.#providers = new Map(next.map((provider) => [provider.id, provider]));
-    this.#launcher.providers = next;
     this.#launcher.vertexAuth.retain(next);
     this.#launcher.gateway?.setProviders(next);
   }
@@ -3559,13 +3560,6 @@ function engineError(error: unknown, method: string): AdapterError {
     `${method} 失败：${message}`,
     { cause: error },
   );
-}
-
-function gatewayLogger(logger: CodexAdapterLogger): NonNullable<ModelGatewayOptions['logger']> {
-  return {
-    info: (message, fields) => logger.info?.(message, fields),
-    warn: (message, fields) => logger.warn(message, fields),
-  };
 }
 
 /** 默认的告警出口：写 stderr。 */

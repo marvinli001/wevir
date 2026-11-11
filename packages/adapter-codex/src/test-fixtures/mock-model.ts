@@ -448,7 +448,7 @@ export const defaultMockScript: MockScript = (view) => {
 
 /** 指向 mock 的 Provider（`openai-compatible` + `openai-responses`，经网关透传）。 */
 export function mockProvider(
-  model: MockModel,
+  model: Pick<MockModel, 'baseURL'>,
   overrides: Partial<ProviderConfig> = {},
 ): ProviderConfig {
   return {

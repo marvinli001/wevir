@@ -10,7 +10,7 @@ import type {
   RpcErrorBody,
 } from './protocol.js';
 
-// 一个 codex-app-server 进程（ADR-0005 决策 1.1：一个 Host 一个进程，承载全部会话）。照 adapter-acp 的
+// 一个 codex-app-server 进程（ADR-0005 决策 1.1：网关按服务商分进程）。照 adapter-acp 的
 // AcpProcess（acp-process.ts）写：启动（经 CodexLauncher）、握手、意外退出的上报与有限次数的自动重启、回收；
 // 连接换成 app-server 自己的逐行 JSON（protocol.ts）。
 
@@ -112,6 +112,7 @@ export interface CodexFailed {
 }
 
 export interface CodexProcessEventMap {
+  activity: [];
   /** 进程完成握手，可以发请求。 */
   ready: [CodexReady];
   /** 就绪的进程意外退出（不论是否在回合中）。`dispose`、`restart` 引起的退出不报。 */
@@ -240,6 +241,10 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
     return launch !== undefined && launch.exit === undefined ? launch.child.pid : undefined;
   }
 
+  get pendingCount(): number {
+    return this.#current?.pending.size ?? 0;
+  }
+
   /** 已启动过的进程数（含失败的启动）。 */
   get generation(): number {
     return this.#generation;
@@ -359,6 +364,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
     const id = launch.nextId++;
     return new Promise<T>((resolve, reject) => {
       launch.pending.set(id, { method, resolve: resolve as (value: unknown) => void, reject });
+      this.emit('activity');
       this.#write(launch, { id, method, params });
     });
   }
@@ -590,6 +596,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
     const pending = launch.pending.get(id);
     if (pending === undefined) return;
     launch.pending.delete(id);
+    this.emit('activity');
     const error = message.error as RpcErrorBody | undefined;
     if (error !== undefined && error !== null) {
       pending.reject(new CodexRpcError(pending.method, error));
@@ -637,6 +644,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
   #rejectPending(launch: Launch, reason: unknown): void {
     const pending = [...launch.pending.values()];
     launch.pending.clear();
+    this.emit('activity');
     for (const { reject } of pending) reject(reason);
   }
 

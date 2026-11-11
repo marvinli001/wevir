@@ -649,6 +649,8 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
           expect(first, `${providerId} ${preset ?? 'none'} 的请求`).toBeDefined();
           return (first?.body ?? {}) as Json;
         };
+        // 目录对比固定项目上下文，前一个探针的自动任务记录不能改变下一个工具命名空间的说明。
+        await client.request('settings.update', { settings: { autoEpisodes: false } });
         const plain = responsesCatalog(await probe('mock', mock));
         const byPreset: Json = {};
         for (const preset of Object.keys(BASELINE_TOOL_PRESETS) as BaselinePresetName[]) {

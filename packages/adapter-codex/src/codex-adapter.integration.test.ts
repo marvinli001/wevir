@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { type AgentEvent, isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CodexAdapter } from './codex-adapter.js';
+import { CodexRuntime } from './codex-runtime.js';
 import { CODEX_VERSION } from './paths.js';
 import { codexBinaryOrSkip, newAdapter, TempDirs } from './test-fixtures/harness.js';
 import {
@@ -22,7 +23,7 @@ const binary = codexBinaryOrSkip('adapter-codex 集成测试');
 const dirs = new TempDirs();
 let mock: MockModel;
 let script: MockScript = defaultMockScript;
-const adapters: CodexAdapter[] = [];
+const adapters: Array<CodexAdapter | CodexRuntime> = [];
 
 function adapter(options: Partial<Parameters<typeof newAdapter>[0]> = {}): {
   adapter: CodexAdapter;
@@ -37,7 +38,7 @@ function adapter(options: Partial<Parameters<typeof newAdapter>[0]> = {}): {
 
 /** 订阅并发一条消息，等这个回合的终结事件；返回回合内的全部事件。 */
 async function turn(
-  a: CodexAdapter,
+  a: CodexAdapter | CodexRuntime,
   id: string,
   text: string,
   events: AgentEvent[],
@@ -54,7 +55,7 @@ async function turn(
   }
 }
 
-function collect(a: CodexAdapter, id: string): AgentEvent[] {
+function collect(a: CodexAdapter | CodexRuntime, id: string): AgentEvent[] {
   const events: AgentEvent[] = [];
   void (async () => {
     for await (const event of a.subscribe(id)) events.push(event);
@@ -138,26 +139,29 @@ describe.skipIf(binary === undefined)(
       expect(isAdapterError(resumed, 'session_lost')).toBe(true);
     });
 
-    it('新增 Provider（模型目录不变）：不重启进程，新会话经 thread/start 的覆盖用上它', async () => {
-      const { adapter: a, workspace } = adapter();
+    it('新增 Provider（模型目录不变）：原进程不重启，新服务商使用独立进程', async () => {
+      const { home, workspace } = dirs.make('add-provider');
+      const a = new CodexRuntime({ home, binary, providers: [mockProvider(mock)] });
+      adapters.push(a);
       const first = await a.createSession({
         cwd: workspace,
         providerId: 'mock',
         modelId: MOCK_MODEL,
       });
       const firstEvents = collect(a, first.engineSessionId);
-      const pid = a.process.pid;
+      const pid = a.gatewayAdapters.get('mock')?.process.pid;
       await a.configureProviders([
         mockProvider(mock),
         mockProvider(mock, { id: 'mock-two', displayName: 'Mock Two' }),
       ]);
-      expect(a.process.pid).toBe(pid);
+      expect(a.gatewayAdapters.get('mock')?.process.pid).toBe(pid);
       const second = await a.createSession({
         cwd: workspace,
         providerId: 'mock-two',
         modelId: MOCK_MODEL,
       });
       const events = collect(a, second.engineSessionId);
+      expect(a.gatewayAdapters.get('mock-two')?.process.pid).not.toBe(pid);
       const result = await turn(a, second.engineSessionId, 'hi', events);
       expect(result.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
       expect(JSON.stringify(mock.requests.at(-1)?.body.input[0])).toContain('由 Mock Two 提供');

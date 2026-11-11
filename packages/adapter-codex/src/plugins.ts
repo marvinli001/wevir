@@ -53,15 +53,29 @@ export function threadConnectorsConfig(
   return config;
 }
 
-export function pluginsToml(toml: string, config: EnginePluginConfig | undefined): string {
+export function effectivePlugins(config: EnginePluginConfig, discovered: ReadonlySet<string>) {
+  const rules = new Map([...discovered].map((path) => [path, false]));
+  for (const skill of config.skills) rules.set(skill.path, skill.enabled);
+  return {
+    connectors: config.connectors,
+    rules: [...rules].sort(([a], [b]) => a.localeCompare(b)),
+  };
+}
+
+export function pluginsToml(
+  toml: string,
+  config: EnginePluginConfig | undefined,
+  discovered: ReadonlySet<string> = new Set(),
+): string {
   if (config === undefined) return toml;
+  const { rules } = effectivePlugins(config, discovered);
   return [
     toml.replace('include_instructions = false', 'include_instructions = true'),
-    ...config.skills.flatMap((skill) => [
+    ...rules.flatMap(([path, enabled]) => [
       '',
       '[[skills.config]]',
-      `path = ${tomlString(skill.path)}`,
-      `enabled = ${skill.enabled}`,
+      `path = ${tomlString(path)}`,
+      `enabled = ${enabled}`,
     ]),
     ...config.connectors.flatMap((item) => [
       '',
@@ -102,16 +116,32 @@ export interface CodexPluginThread {
   connectors: ReadonlySet<string>;
 }
 
+/** config.toml 的文件状态；所有进程及启动配置共用同一把锁。 */
+export class CodexPluginFileState {
+  fingerprint = '';
+  names = new Set<string>();
+  readonly discoveredSkills = new Set<string>();
+  revision = 0;
+  #queue: Promise<unknown> = Promise.resolve();
+
+  run<T>(action: () => Promise<T>): Promise<T> {
+    const result = this.#queue.then(action);
+    this.#queue = result.catch(() => {});
+    return result;
+  }
+}
+
 export class CodexPlugins {
   source: EnginePluginSource | undefined;
   readonly #process: CodexProcess;
   readonly #threads: () => CodexPluginThread[];
   readonly #secret: (value: string) => void;
+  readonly #file: CodexPluginFileState;
   #queue: Promise<unknown> = Promise.resolve();
   #applied = '';
   #generation = 0;
-  #names = new Set<string>();
   #roots = '';
+  #revision = -1;
   #enabledNames = new Set<string>();
   /**
    * 上次应用成功时的配置与列过 skill 的目录。Codex 报 `skills/changed`、进程换代时清掉。见 `#sync`。
@@ -124,10 +154,12 @@ export class CodexPlugins {
     process: CodexProcess,
     threads: () => CodexPluginThread[],
     secret: (value: string) => void,
+    file = new CodexPluginFileState(),
   ) {
     this.#process = process;
     this.#threads = threads;
     this.#secret = secret;
+    this.#file = file;
   }
 
   notification(method: string): void {
@@ -144,7 +176,7 @@ export class CodexPlugins {
   }
 
   sync(cwd?: string): Promise<void> {
-    const result = this.#queue.then(() => this.#sync(cwd));
+    const result = this.#queue.then(() => this.#file.run(() => this.#sync(cwd)));
     this.#queue = result.catch(() => {});
     return result;
   }
@@ -154,7 +186,6 @@ export class CodexPlugins {
     if (this.#generation !== this.#process.generation) {
       this.#generation = this.#process.generation;
       this.#applied = '';
-      this.#names.clear();
       this.#enabledNames.clear();
       this.#roots = '';
       this.#listed = undefined;
@@ -180,6 +211,7 @@ export class CodexPlugins {
     const listed = this.#listed;
     if (
       listed !== undefined &&
+      this.#revision === this.#file.revision &&
       listed.config === configKey &&
       cwds.every((dir) => open.has(dir) && listed.cwds.has(dir))
     ) {
@@ -194,15 +226,11 @@ export class CodexPlugins {
       cwds,
       forceReload: true,
     });
-    const rules = new Map(config.skills.map((skill) => [skill.path, skill.enabled]));
     for (const skill of listing.data.flatMap((entry) => entry.skills))
-      if (!rules.has(skill.path)) rules.set(skill.path, false);
-    const effective = {
-      connectors: config.connectors,
-      rules: [...rules].sort(([a], [b]) => a.localeCompare(b)),
-    };
+      this.#file.discoveredSkills.add(skill.path);
+    const effective = effectivePlugins(config, this.#file.discoveredSkills);
     const fingerprint = JSON.stringify(effective);
-    if (fingerprint === this.#applied) {
+    if (fingerprint === this.#applied && this.#revision === this.#file.revision) {
       remember();
       return;
     }
@@ -215,7 +243,7 @@ export class CodexPlugins {
         mergeStrategy: 'replace',
       },
     ];
-    for (const name of this.#names)
+    for (const name of this.#file.names)
       if (!names.has(name))
         edits.push({ keyPath: `mcp_servers.${name}`, value: null, mergeStrategy: 'replace' });
     for (const secret of config.secrets ?? []) this.#secret(secret);
@@ -230,13 +258,21 @@ export class CodexPlugins {
         mergeStrategy: 'replace',
       });
     }
-    await this.#process.request('config/batchWrite', { edits, reloadUserConfig: true });
+    if (fingerprint !== this.#file.fingerprint) {
+      await this.#process.request('config/batchWrite', { edits, reloadUserConfig: true });
+      this.#file.fingerprint = fingerprint;
+      this.#file.names = names;
+      this.#file.revision += 1;
+    } else {
+      // MCP reload 不刷新既有 thread 的 skills；空 edits 只重载 user layer，不改文件。
+      await this.#process.request('config/batchWrite', { edits: [], reloadUserConfig: true });
+    }
     await this.#process.request('config/mcpServer/reload', undefined);
-    this.#names = names;
     this.#enabledNames = new Set(
       config.connectors.filter((item) => item.enabled).map((item) => item.name),
     );
     this.#applied = fingerprint;
+    this.#revision = this.#file.revision;
     remember();
   }
 
@@ -244,10 +280,13 @@ export class CodexPlugins {
    * Host 的连接器各问一次，带 `serverName`：带 thread 时 Codex 读那个 thread 已有的连接。不带 `serverName` 时 Codex 每次都
    * 把配置里的全部 MCP 服务新起一遍，按 thread 逐个这样问，开着几十个会话时插件页要等半分钟。
    */
-  async status(): Promise<EngineConnectorStatus[]> {
+  async status(includeGlobal = true): Promise<EngineConnectorStatus[]> {
     if (!this.source || this.#process.state !== 'ready') return [];
     const threads = this.#threads();
-    const names = new Set([...this.#enabledNames, ...threads.flatMap((t) => [...t.connectors])]);
+    const names = new Set([
+      ...(includeGlobal ? this.#enabledNames : []),
+      ...threads.flatMap((t) => [...t.connectors]),
+    ]);
     const statuses = await Promise.all(
       [...names]
         .filter((name) => !name.startsWith('wevir'))

@@ -10,6 +10,7 @@ const NOT_FORWARDED = new Set([
   'hasSession',
   'gateway',
   'sessionCount',
+  'idle',
   'historyTool',
   'googleVertex',
 ]);

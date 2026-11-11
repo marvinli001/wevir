@@ -205,9 +205,9 @@ describe('runHostCli', () => {
       expect(router.routes[9]?.adapter).toBeInstanceOf(KiroAdapter);
       expect((router.routes[9]?.adapter as KiroAdapter | undefined)?.process.state).toBe('stopped');
       const codex = router.routes[0]?.adapter as CodexRuntime;
-      expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
+      expect(codex.gatewayHome.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
-      expect(codex.gateway.process.state).toBe('stopped');
+      expect(codex.gatewayAdapters.size).toBe(0);
       expect(codex.chatgpt.process.state).toBe('stopped');
       expect(router.accounts?.kinds).toEqual([
         'chatgpt',

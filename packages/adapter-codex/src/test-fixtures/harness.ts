@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
+import { type AgentEvent, type AgentRuntimeAdapter, isTurnTerminal } from '@wevir/runtime-adapter';
 import { CodexAdapter, type CodexAdapterOptions } from '../codex-adapter.js';
 import { CODEX_BIN_ENV, FETCH_CODEX_COMMAND, resolveCodexBinary } from '../paths.js';
 
@@ -95,7 +95,10 @@ export function newAdapter(options: CodexAdapterOptions): CodexAdapter {
 }
 
 /** 订阅一个会话，把事件收进数组（订阅结束时停止）。 */
-export function collectEvents(adapter: CodexAdapter, engineSessionId: string): AgentEvent[] {
+export function collectEvents(
+  adapter: Pick<AgentRuntimeAdapter, 'subscribe'>,
+  engineSessionId: string,
+): AgentEvent[] {
   const events: AgentEvent[] = [];
   void (async () => {
     for await (const event of adapter.subscribe(engineSessionId)) events.push(event);
@@ -124,7 +127,7 @@ export async function waitForEvent<T extends AgentEvent>(
 
 /** 发一条消息，等这个回合的终结事件；返回回合内的全部事件。 */
 export async function runTurn(
-  adapter: CodexAdapter,
+  adapter: Pick<AgentRuntimeAdapter, 'send'>,
   engineSessionId: string,
   text: string,
   events: AgentEvent[],

@@ -1,4 +1,5 @@
-import { chmodSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { toolSearchMode } from '@wevir/model-gateway';
 import {
   APP_TOOLS_MORE_SERVER,
@@ -438,15 +439,24 @@ export function writeCodexConfig(
   paths: CodexPaths,
   toml: string,
   catalog: string | undefined,
-): void {
-  if (catalog !== undefined) writeSecretFile(paths.catalogFile, catalog);
-  writeSecretFile(paths.configFile, toml);
+): boolean {
+  const catalogChanged = catalog !== undefined && writeSecretFile(paths.catalogFile, catalog);
+  return writeSecretFile(paths.configFile, toml) || catalogChanged;
 }
 
-function writeSecretFile(file: string, content: string): void {
-  writeFileSync(file, content, { mode: 0o600 });
-  // writeFileSync 的 mode 只对新文件生效。
-  chmodSync(file, 0o600);
+function writeSecretFile(file: string, content: string): boolean {
+  if (existsSync(file) && readFileSync(file, 'utf8') === content) {
+    chmodSync(file, 0o600);
+    return false;
+  }
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, { mode: 0o600, flag: 'wx' });
+    renameSync(temporary, file);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  return true;
 }
 
 /**
