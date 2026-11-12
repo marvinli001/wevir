@@ -120,6 +120,54 @@ describe('FileUrls', () => {
     expect((await get(base.replace(/files\/[^/]+/, 'files/not-a-token'))).status).toBe(404);
   });
 
+  it('显式打开隐藏目录中的图片，只授权指定文件', async () => {
+    const { dir } = workspace();
+    const path = '.local/images/02-网站管理 #1.png';
+    mkdirSync(join(dir, '.local', 'images'), { recursive: true });
+    writeFileSync(join(dir, path), 'preview-png');
+    writeFileSync(join(dir, '.local', 'images', 'other.png'), 'other-png');
+    const { urls } = await serve();
+    const base = urls.issue(dir, 'clip.mp4').url;
+    const target = new URL(path.split('/').map(encodeURIComponent).join('/'), base).href;
+    expect((await get(target)).status).toBe(404);
+
+    const { url } = urls.issue(dir, path);
+    expect(await get(`${url}?v=123`)).toMatchObject({ status: 200, body: 'preview-png' });
+    expect((await get(new URL('other.png', url).href)).status).toBe(404);
+    expect((await get(new URL('../../.env', url).href)).status).toBe(404);
+    expect((await get(new URL('../../link.png', url).href)).status).toBe(404);
+  });
+
+  it('常见图片格式的流式响应带正确的 MIME', async () => {
+    const { dir } = workspace();
+    const { urls } = await serve();
+    for (const [extension, mime] of [
+      ['png', 'image/png'],
+      ['apng', 'image/apng'],
+      ['jpg', 'image/jpeg'],
+      ['jpeg', 'image/jpeg'],
+      ['jpe', 'image/jpeg'],
+      ['jfif', 'image/jpeg'],
+      ['pjpeg', 'image/jpeg'],
+      ['pjp', 'image/jpeg'],
+      ['gif', 'image/gif'],
+      ['webp', 'image/webp'],
+      ['avif', 'image/avif'],
+      ['svg', 'image/svg+xml'],
+      ['bmp', 'image/bmp'],
+      ['ico', 'image/x-icon'],
+      ['cur', 'image/x-icon'],
+    ] as const) {
+      const path = `image.${extension.toUpperCase()}`;
+      writeFileSync(join(dir, path), 'image-bytes');
+      const response = await get(urls.issue(dir, path).url);
+      expect(response.status, path).toBe(200);
+      expect(response.headers['content-type'], path).toBe(mime);
+      if (extension === 'svg')
+        expect(response.headers['content-security-policy']).toContain('sandbox');
+    }
+  });
+
   it('Range：单段 206，越界 416，带 If-Range 回整个文件', async () => {
     const { dir } = workspace();
     const { urls } = await serve();
@@ -173,6 +221,10 @@ describe('isServablePath / byteRange', () => {
     expect(isServablePath('a/.git/x.png')).toBe(false);
     expect(isServablePath('a//b.png')).toBe(false);
     expect(isServablePath('a\\b.png')).toBe(false);
+    expect(isServablePath('.local/images/a.png', true)).toBe(true);
+    for (const path of ['../a.png', 'a/../b.png', 'a/./b.png', '/a.png', 'a//b.png', 'a\\b.png']) {
+      expect(isServablePath(path, true), path).toBe(false);
+    }
   });
 
   it('字节范围（T3 的 assetByteRange）', () => {

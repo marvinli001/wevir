@@ -7,7 +7,7 @@
 //
 // 文件预览的流式地址（0.32.0，host-api.md §1、§3.1 的 `workspace.fileUrl`）：PDF、网页、音视频、Office 文件与大图片不走 base64 的
 // JSON-RPC，渲染进程从 Host 的 RPC 端口直接读（`GET /files/<令牌>/<路径>`）。照 T3 Code 的 AssetAccess：令牌按目录发，令牌给的
-// 文件之外，同一目录里只读得到网页会引用的几类文件（相对引用与 Markdown 里的图片照常加载），路径里不能有以 `.` 开头的段；
+// 文件之外，同一目录里只读得到网页会引用的几类文件（相对引用与 Markdown 里的图片照常加载）；隐藏路径只放行显式打开的文件。
 // HTML 放进 CSP 的沙箱（不透明 origin），且不能联网（html-preview-csp.ts）；HTML 的 <head> 开头插一段点链接的脚本（html-preview.ts，T3 的
 // htmlRender），外部链接请桌面端用系统浏览器打开。
 
@@ -30,12 +30,18 @@ export const FILE_URL_MAX_TOKENS = 64;
 const HTML_INJECT_MAX_BYTES = 8 * 1024 * 1024;
 
 const CONTENT_TYPES: Record<string, string> = {
+  '.apng': 'image/apng',
   '.avif': 'image/avif',
   '.bmp': 'image/bmp',
+  '.cur': 'image/x-icon',
   '.gif': 'image/gif',
   '.ico': 'image/x-icon',
   '.jpeg': 'image/jpeg',
+  '.jpe': 'image/jpeg',
+  '.jfif': 'image/jpeg',
   '.jpg': 'image/jpeg',
+  '.pjpeg': 'image/jpeg',
+  '.pjp': 'image/jpeg',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
@@ -77,6 +83,7 @@ interface Grant {
   /** 目录的 realpath。 */
   root: string;
   expiresAt: number;
+  explicitPaths: Set<string>;
 }
 
 export interface FileUrlsOptions {
@@ -112,11 +119,12 @@ export class FileUrls {
     let grant = token === undefined ? undefined : this.#grants.get(token);
     if (token === undefined || grant === undefined || grant.expiresAt - now < FILE_URL_TTL_MS / 2) {
       token = randomBytes(24).toString('base64url');
-      grant = { root, expiresAt: now + FILE_URL_TTL_MS };
+      grant = { root, expiresAt: now + FILE_URL_TTL_MS, explicitPaths: new Set() };
       this.#grants.set(token, grant);
       this.#byRoot.set(root, token);
       this.#prune(now);
     }
+    grant.explicitPaths.add(path);
     const encoded = path.split('/').map(encodeURIComponent).join('/');
     return {
       url: `http://127.0.0.1:${this.#port}${FILE_URL_PREFIX}${token}/${encoded}`,
@@ -166,7 +174,7 @@ export class FileUrls {
     } catch {
       return plain(res, 404);
     }
-    if (!isServablePath(path)) return plain(res, 404);
+    if (!isServablePath(path, grant.explicitPaths.has(path))) return plain(res, 404);
     const file = await statWorkspaceFile(grant.root, path);
     if (!file) return plain(res, 404);
     const headers = fileResponseHeaders(path);
@@ -222,12 +230,21 @@ export class FileUrls {
 
 /**
  * 令牌下能读的路径：令牌是按目录发的，任何相对路径都要过这一关（T3 对同目录资源的规则）——相对、不含 `..`、没有以 `.` 开头的段
- * （`.env`、`.git/`），扩展名是网页会引用的那几类或 Office 文件。
+ * （`.env`、`.git/`），扩展名是网页会引用的那几类或 Office 文件。显式打开的文件可含隐藏段，仍不能穿越目录。
  */
-export function isServablePath(path: string): boolean {
+export function isServablePath(path: string, allowHidden = false): boolean {
   if (path === '' || path.includes('\0') || path.includes('\\')) return false;
   const segments = path.split('/');
-  if (segments.some((segment) => segment === '' || segment.startsWith('.'))) return false;
+  if (
+    segments.some(
+      (segment) =>
+        segment === '' ||
+        segment === '.' ||
+        segment === '..' ||
+        (!allowHidden && segment.startsWith('.')),
+    )
+  )
+    return false;
   const extension = extname(path).toLowerCase();
   return SIBLING_EXTENSIONS.has(extension) || OFFICE_EXTENSIONS.has(extension);
 }

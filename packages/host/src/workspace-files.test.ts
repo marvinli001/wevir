@@ -180,6 +180,25 @@ describe('列目录', () => {
 });
 
 describe('读文件', () => {
+  it('PNG、JPEG 与图标的扩展名别名仍可通过 base64 预览', async () => {
+    const dir = realpathSync(tempDir());
+    for (const [extension, mimeType] of [
+      ['apng', 'image/png'],
+      ['jpe', 'image/jpeg'],
+      ['jfif', 'image/jpeg'],
+      ['pjpeg', 'image/jpeg'],
+      ['pjp', 'image/jpeg'],
+      ['cur', 'image/x-icon'],
+    ] as const) {
+      const path = `image.${extension.toUpperCase()}`;
+      const bytes = Buffer.from([1, 0, 2]);
+      writeFileSync(join(dir, path), bytes);
+      const result = await readWorkspaceFile(dir, path);
+      expect(result.image, path).toEqual({ mimeType, data: bytes.toString('base64') });
+      expect(MethodSchemas['workspace.readFile'].result.safeParse(result).success).toBe(true);
+    }
+  });
+
   it('文本、图片、二进制、过大与不存在', async () => {
     const dir = realpathSync(tempDir());
     writeFileSync(join(dir, 'a.txt'), '你好\n');

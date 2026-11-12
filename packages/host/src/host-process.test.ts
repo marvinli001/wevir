@@ -387,6 +387,19 @@ describe('文件预览（0.32.0）', () => {
       await client.request('workspace.fileUrl', { workspaceId: workspace.id, path: 'notes.md' }),
     ).toEqual({ path: 'notes.md', unavailable: 'unsupported' });
 
+    const imagePath = '.local/images/02-网站管理.png';
+    mkdirSync(join(workspaceDir, '.local', 'images'), { recursive: true });
+    writeFileSync(join(workspaceDir, imagePath), 'png-bytes');
+    const image = await client.request('workspace.fileUrl', {
+      workspaceId: workspace.id,
+      path: imagePath,
+    });
+    expect(image.url).toBeDefined();
+    const imageResponse = await fetch(image.url as string);
+    expect(imageResponse.status).toBe(200);
+    expect(imageResponse.headers.get('content-type')).toBe('image/png');
+    expect(await imageResponse.text()).toBe('png-bytes');
+
     const read = await client.request('workspace.readFile', {
       workspaceId: workspace.id,
       path: 'notes.md',

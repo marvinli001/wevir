@@ -25,6 +25,28 @@ describe('filePreviewKind（T3）', () => {
 });
 
 describe('filePaneView', () => {
+  it.each([
+    'png',
+    'apng',
+    'jpg',
+    'jpeg',
+    'jpe',
+    'jfif',
+    'pjpeg',
+    'pjp',
+    'gif',
+    'webp',
+    'avif',
+    'svg',
+    'bmp',
+    'ico',
+    'cur',
+  ])('图片 .%s 使用软件内的流式预览', (extension) => {
+    const path = `.local/images/图片.${extension.toUpperCase()}`;
+    expect(filePaneView(path)).toBe('image');
+    expect(isStreamedView(filePaneView(path))).toBe(true);
+  });
+
   it('窗格的显示方式', () => {
     expect(filePaneView('book.xlsx')).toBe('spreadsheet');
     expect(filePaneView('letter.DOCX')).toBe('document');

@@ -955,7 +955,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const { root, file } = await resolveWorkspaceFile(workspaceId, sessionId, path, folder);
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       // 令牌下只读得到能预览的类型（file-urls.ts），其余的文件不发地址。
-      if (!isServablePath(path)) return { path, unavailable: 'unsupported' };
+      if (!isServablePath(path, true)) return { path, unavailable: 'unsupported' };
       const { url, expiresAt } = options.fileUrls.issue(root, path);
       return { path, url, size: file.size, mtimeMs: file.mtimeMs, expiresAt };
     },

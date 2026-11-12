@@ -69,12 +69,18 @@ export function filePreviewKind(file: {
 }
 
 const IMAGE_MIME_TYPE_BY_EXTENSION = new Map([
+  ['.apng', 'image/apng'],
   ['.avif', 'image/avif'],
   ['.bmp', 'image/bmp'],
+  ['.cur', 'image/x-icon'],
   ['.gif', 'image/gif'],
   ['.ico', 'image/x-icon'],
   ['.jpeg', 'image/jpeg'],
+  ['.jpe', 'image/jpeg'],
+  ['.jfif', 'image/jpeg'],
   ['.jpg', 'image/jpeg'],
+  ['.pjpeg', 'image/jpeg'],
+  ['.pjp', 'image/jpeg'],
   ['.png', 'image/png'],
   ['.svg', 'image/svg+xml'],
   ['.webp', 'image/webp'],

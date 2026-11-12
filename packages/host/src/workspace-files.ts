@@ -62,13 +62,19 @@ const SKIPPED_DIRECTORIES = new Set([
 
 const IMAGE_TYPES: Record<string, PreviewImageMimeType> = {
   '.png': 'image/png',
+  '.apng': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.jpe': 'image/jpeg',
+  '.jfif': 'image/jpeg',
+  '.pjpeg': 'image/jpeg',
+  '.pjp': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.bmp': 'image/bmp',
   '.ico': 'image/x-icon',
+  '.cur': 'image/x-icon',
 };
 
 export interface FileIndexSnapshot {
