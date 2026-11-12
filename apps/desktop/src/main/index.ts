@@ -171,6 +171,9 @@ async function acquireInstanceLock(): Promise<boolean> {
   return false;
 }
 
+/** 第一次渲染最多等 GPU 信息这么久。 */
+const GPU_INFO_TIMEOUT_MS = 1500;
+
 function run(): void {
   let mainWindow: BrowserWindow | undefined;
   const gpuReady = new Promise<void>((resolve) => app.once('gpu-info-update', () => resolve()));
@@ -293,8 +296,13 @@ function run(): void {
 
   ipcMain.handle(IPC_CHANNELS.getLowGpu, async (event): Promise<boolean> => {
     assertSender(event);
-    await gpuReady;
-    return isLowGpu(app.getGPUFeatureStatus());
+    // 页面的第一次渲染等着这个答案：GPU 进程起不来或迟迟不报信息时（虚拟机、远程桌面）不能一直停在启动画面。到点先按正常
+    // 显示，信息来了由上面的 gpu-info-update 推过去。
+    const known = await Promise.race([
+      gpuReady.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), GPU_INFO_TIMEOUT_MS)),
+    ]);
+    return known && isLowGpu(app.getGPUFeatureStatus());
   });
   ipcMain.handle(IPC_CHANNELS.getHostConnection, async (event): Promise<HostConnection> => {
     assertSender(event);
@@ -840,6 +848,12 @@ function run(): void {
     nativeTheme.themeSource = windowAppearance.themeMode;
     mainWindow = createWindow();
     mark('windowCreated');
+    // 跟随系统时系统换了深浅色：页面自己重画，窗口底色也要跟上，否则缩放、最大化时露出的未绘制区域还是上一个主题的颜色
+    // （没有系统材质的窗口才看得到：Linux、Windows 10、关了半透明窗口）。
+    nativeTheme.on('updated', () => {
+      if (mainWindow && !mainWindow.isDestroyed())
+        mainWindow.setBackgroundColor(windowBackground());
+    });
     mainWindow.once('show', () => markInstallStartup('windowAt'));
     // 建好窗口（页面开始载入）之后再设图标：程序坞图标要解码一张 1024 px 的 PNG，不让页面等它；窗口在首帧之前不显示。
     applyAppIcon();
@@ -955,14 +969,27 @@ function applyWindowMaterial(window: BrowserWindow, on: boolean): void {
 const MIN_WINDOW = { width: 960, height: 600 };
 const DEFAULT_WINDOW: WindowState = { width: 1280, height: 800, maximized: false };
 
+/**
+ * 窗口的最小尺寸，不超过最大的那块屏幕的工作区：小屏幕放大显示时（1366×768 的 125 %、1920×1080 的 175 %）工作区不到 600 高，
+ * 窗口缩不进去，输入框会落在任务栏下面。
+ */
+function minWindowSize(workAreas: readonly { width: number; height: number }[]): {
+  width: number;
+  height: number;
+} {
+  if (workAreas.length === 0) return MIN_WINDOW;
+  return {
+    width: Math.min(MIN_WINDOW.width, Math.max(...workAreas.map((area) => area.width))),
+    height: Math.min(MIN_WINDOW.height, Math.max(...workAreas.map((area) => area.height))),
+  };
+}
+
 /** 上次的位置与大小（window-state.ts），对着当前的显示器校正过。 */
-function initialWindowState(): WindowState {
+function initialWindowState(): { state: WindowState; min: { width: number; height: number } } {
   const saved = loadWindowState(app.getPath('userData')) ?? DEFAULT_WINDOW;
-  return fitWindowState(
-    saved,
-    screen.getAllDisplays().map((display) => display.workArea),
-    MIN_WINDOW,
-  );
+  const workAreas = screen.getAllDisplays().map((display) => display.workArea);
+  const min = minWindowSize(workAreas);
+  return { state: fitWindowState(saved, workAreas, min), min };
 }
 
 /** 窗口挪动、缩放、最大化时记下来（停下 500 ms 后写一次），关掉（隐藏）与退出时立刻写。 */
@@ -997,13 +1024,13 @@ function trackWindowState(window: BrowserWindow): void {
 
 function createWindow(): BrowserWindow {
   const icon = windowIcon();
-  const state = initialWindowState();
+  const { state, min } = initialWindowState();
   const window = new BrowserWindow({
     width: state.width,
     height: state.height,
     ...(state.x !== undefined && state.y !== undefined && { x: state.x, y: state.y }),
-    minWidth: MIN_WINDOW.width,
-    minHeight: MIN_WINDOW.height,
+    minWidth: min.width,
+    minHeight: min.height,
     title: 'Wevir',
     ...(icon !== undefined && { icon }),
     ...(HIDDEN_TITLE_BAR && {
