@@ -10,7 +10,9 @@
 // 点开或收起一处（工作组、回合）时转为手动、保持位置，不被拉回底部（holdPosition）；跳到某个事件时直接转为手动（release）。去掉
 // 移动端轮次留白、几何信息的落盘、历史分页、“跳到消息开头”；手动阅读的位置按会话记在进程内，只交出
 // “是否贴底”给“跳到最新”按钮。交互手感一轮：手势停下时离底部不超过 RESNAP_GAP_PX 就吸回贴底；“跳到最新”只在离底部超过
-// JUMP_VISIBLE_GAP_PX 时出现，轻推几像素不闪出来。
+// JUMP_VISIBLE_GAP_PX 时出现，轻推几像素不闪出来。动效一轮：贴底时只有可能往上带的输入（向上的滚轮、触摸、向上的导航键、按住
+// 指针）才暂停跟随，在消息流里点一下、向下滚、横向滚代码块不再让跟随停 GESTURE_WINDOW_MS 之后跳一截；平滑跳到最新途中内容
+// 还在长时让它滚完再贴底，不在下一帧改成瞬移。
 
 import { type RefObject, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { captureScrollPosition, restoreScrollPosition, scrollPositions } from './scroll-position';
@@ -28,6 +30,21 @@ const GESTURE_WINDOW_MS = 600;
 const RESTORE_SETTLE_MS = 300;
 const RESTORE_MAX_MS = 1500;
 const NAVIGATION_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+/** 会把视图往上带的导航键。 */
+const UPWARD_KEYS = new Set(['ArrowUp', 'PageUp', 'Home']);
+/** 平滑跳到最新最多等这么久；到点还没收到 scrollend 就直接贴底。 */
+const SMOOTH_JUMP_MAX_MS = 1200;
+
+/**
+ * 贴底时内容长了，要不要立刻滚到底：按着指针（选文字、拖滚动条）或刚有过可能往上带的输入时先不动，等它的 scroll 事件来定模式。
+ */
+export function shouldFollow(
+  pointerDown: boolean,
+  sinceUpwardGestureMs: number,
+  smoothJump: boolean,
+): boolean {
+  return !pointerDown && !smoothJump && sinceUpwardGestureMs >= GESTURE_WINDOW_MS;
+}
 
 /** 手势停下时：离底部不远就吸回贴底。 */
 export function shouldResnap(distanceFromBottom: number): boolean {
@@ -86,8 +103,13 @@ export function useStickToBottom(
     const saved = scrollPositions.get(resetKey);
     let mode: 'sticky' | 'manual' = saved ? 'manual' : 'sticky';
     let lastGestureAt = Number.NEGATIVE_INFINITY;
+    /** 上一次可能把视图往上带的输入（向上的滚轮、触摸、向上的导航键）。 */
+    let lastUpwardAt = Number.NEGATIVE_INFINITY;
     let pointerDown = false;
     let smoothJump = false;
+    /** 平滑跳转已经追过一次途中新长出来的内容。 */
+    let smoothCatchUp = false;
+    let smoothTimer: number | undefined;
     let lastKnownTop = container.scrollTop;
     /** holdPosition 之后、布局之前：布局完仍在底部就回到贴底。 */
     let held = false;
@@ -151,10 +173,32 @@ export function useStickToBottom(
       lastGestureAt = Number.NEGATIVE_INFINITY;
       parked = false;
       if (hasLaterRef) hasLaterRef.current = false;
+      lastUpwardAt = Number.NEGATIVE_INFINITY;
       setMode('sticky');
-      smoothJump = behavior === 'smooth';
+      // 已经在底部时没有可滚的距离，也就没有 scrollend：不算平滑跳转，否则跟随要等到超时。
+      smoothJump = behavior === 'smooth' && distance() > BOTTOM_GAP_PX;
+      smoothCatchUp = false;
+      window.clearTimeout(smoothTimer);
+      if (smoothJump)
+        smoothTimer = window.setTimeout(() => endSmoothJump(true), SMOOTH_JUMP_MAX_MS);
       container.scrollTo({ top: container.scrollHeight, behavior });
       if (!smoothJump) lastKnownTop = container.scrollTop;
+    };
+    /**
+     * 平滑跳转滚完了（scrollend）或超时：途中内容又长了一截。长得多（流式输出中）就再平滑滚一次追上去，只追一次；剩下的
+     * 一小截直接贴底。
+     */
+    const endSmoothJump = (timedOut = false) => {
+      if (!smoothJump) return;
+      if (!timedOut && !smoothCatchUp && mode === 'sticky' && distance() > RESNAP_GAP_PX) {
+        smoothCatchUp = true;
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        return;
+      }
+      window.clearTimeout(smoothTimer);
+      smoothJump = false;
+      if (mode === 'sticky' && !atBottom()) toBottom();
+      updateJump();
     };
     /** 手势停下（滚动事件停了一会儿、松开了滚动条）：离底部不远就吸回贴底。 */
     const settleGesture = () => {
@@ -181,8 +225,11 @@ export function useStickToBottom(
     const reconcile = () => {
       restore();
       settleHold();
-      if (mode === 'sticky' && !hasGesture() && !atBottom()) {
-        smoothJump = false;
+      if (
+        mode === 'sticky' &&
+        shouldFollow(pointerDown, performance.now() - lastUpwardAt, smoothJump) &&
+        !atBottom()
+      ) {
         toBottom();
       }
       updateJump();
@@ -198,7 +245,9 @@ export function useStickToBottom(
         lastGestureAt = performance.now();
         smoothJump = false;
         parked = false;
-        setMode(atBottom() ? 'sticky' : 'manual');
+        // 贴底时往下移不算离开底部：内容刚长了一截、滚轮又往下推了一点，离底部可能暂时超过 BOTTOM_GAP_PX。
+        const stillSticky = mode === 'sticky' && top > lastKnownTop;
+        setMode(atBottom() || stillSticky ? 'sticky' : 'manual');
         settleGesture();
       } else if (smoothJump) {
         if (atBottom()) smoothJump = false;
@@ -213,15 +262,21 @@ export function useStickToBottom(
       updateJump();
     };
 
-    const markGesture = () => {
+    const markGesture = (upward: boolean) => {
       stopRestoring();
       lastGestureAt = performance.now();
+      if (upward) lastUpwardAt = lastGestureAt;
       if (smoothJump) {
         // 平滑跳转途中又动了滚轮：停在当前位置，交给用户。
         container.scrollTo({ top: container.scrollTop, behavior: 'instant' });
         smoothJump = false;
+        window.clearTimeout(smoothTimer);
       }
     };
+    const onScrollEnd = () => endSmoothJump();
+    const onWheel = (event: WheelEvent) => markGesture(event.deltaY < 0);
+    // 触摸的方向要等 scroll 事件才知道，按可能往上算。
+    const onTouchMove = () => markGesture(true);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       if (
@@ -230,7 +285,9 @@ export function useStickToBottom(
       ) {
         return;
       }
-      if (NAVIGATION_KEYS.has(event.key)) markGesture();
+      if (NAVIGATION_KEYS.has(event.key)) {
+        markGesture(UPWARD_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey));
+      }
     };
     const onPointerDown = (event: PointerEvent) => {
       if (event.isPrimary && event.button === 0) {
@@ -262,8 +319,9 @@ export function useStickToBottom(
     observer.observe(content);
     observer.observe(container);
     container.addEventListener('scroll', onScroll, { passive: true });
-    container.addEventListener('wheel', markGesture, { passive: true });
-    container.addEventListener('touchmove', markGesture, { passive: true });
+    container.addEventListener('scrollend', onScrollEnd);
+    container.addEventListener('wheel', onWheel, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: true });
     container.addEventListener('keydown', onKeyDown);
     container.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointerup', onPointerUp);
@@ -306,10 +364,12 @@ export function useStickToBottom(
       stopRestoring();
       window.clearTimeout(heldTimer);
       window.clearTimeout(settleTimer);
+      window.clearTimeout(smoothTimer);
       observer.disconnect();
       container.removeEventListener('scroll', onScroll);
-      container.removeEventListener('wheel', markGesture);
-      container.removeEventListener('touchmove', markGesture);
+      container.removeEventListener('scrollend', onScrollEnd);
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('touchmove', onTouchMove);
       container.removeEventListener('keydown', onKeyDown);
       container.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointerup', onPointerUp);
