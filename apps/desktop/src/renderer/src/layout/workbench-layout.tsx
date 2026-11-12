@@ -9,7 +9,7 @@ import { useRouteTarget, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
-import { useElementSize } from '@/lib/use-element-size';
+import { useElementHeight } from '@/lib/use-element-size';
 import { ProjectBackdropLayer } from '@/projects/backdrop';
 import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
@@ -76,8 +76,9 @@ const NO_PANES = emptyScope();
  * 按内容区的尺寸与当前会话的窗格状态算出来。
  *
  * U5 起照 Codex 桌面端：红绿灯后面固定是后退、前进与侧栏开关（window-controls.tsx），侧栏开合时它们不动；停靠的
- * 侧栏与窗格区开合都有宽度过渡（index.css 的 .layout-transition），侧栏露出的宽是根节点上的 `--sidebar-shown`，
- * 顶栏按它让出窗口按钮的位置。
+ * 侧栏与窗格区开合都有宽度过渡（index.css 的 .layout-transition），侧栏露出的宽是 `--sidebar-shown`，顶栏按它让出窗口
+ * 按钮的位置。这个变量不继承，只写在用到它的三处（侧栏、分隔条、顶栏）各自过渡：写在根节点上由后代继承的话，过渡的每一帧整个
+ * 工作台都要重算样式。内容区的宽也按开合后的终态算（下面的 content），过渡期间不跟着每帧重排。
  */
 export function WorkbenchLayout() {
   const viewportWidth = useViewportWidth();
@@ -115,7 +116,23 @@ export function WorkbenchLayout() {
   const storedScope = useScopePanes(scopeKey, workspaceId);
   const [draftSizes, setDraftSizes] = useState<PaneSizes>();
   const scope = storedScope && draftSizes ? { ...storedScope, sizes: draftSizes } : storedScope;
-  const [contentRef, content] = useElementSize();
+  const docked = sidebarPlan.sidebar === 'docked';
+  const sidebarShown = docked && !sidebarDrag?.collapsed;
+  // 内容区（顶栏下面、侧栏右边）的尺寸。宽不去量，按视口宽减掉侧栏露出的终态算：侧栏开合的过渡里它每一帧都在变，量出来的宽
+  // 会让整个工作台每帧重渲染一次、窗格区的宽每帧换一个目标；按终态算，窗格的排布在开合的那一下就定好，各自的宽度过渡一起走完。
+  const [contentRef, contentHeight] = useElementHeight();
+  const content = {
+    width: Math.max(0, viewportWidth - (sidebarShown ? sidebarPlan.sidebarWidth : 0)),
+    height: contentHeight,
+  };
+  // `--sidebar-shown` 与它的过渡开关，写在用到它的每个元素上。
+  const sidebarMotion = {
+    style: {
+      '--sidebar-shown': `${sidebarShown ? sidebarPlan.sidebarWidth : 0}px`,
+    } as CSSProperties,
+    'data-resizing': sidebarDrag !== undefined || undefined,
+    'data-snapping': sidebarSnapping || undefined,
+  };
   const maximized =
     transient.maximized && transient.maximized.scope === scopeKey
       ? transient.maximized.groupId
@@ -260,8 +277,6 @@ export function WorkbenchLayout() {
     <PaneTree node={node} context={paneContext} resize={splitResize} />
   );
 
-  const docked = sidebarPlan.sidebar === 'docked';
-  const sidebarShown = docked && !sidebarDrag?.collapsed;
   const auxDocked = plan.mode === 'docked' && plan.tree !== undefined;
   const auxShownWidth = auxDocked && !auxCollapsing;
   // 窗格区不再停靠（收起、改浮层、最大化）时丢掉拖动中的折叠草稿。
@@ -277,62 +292,62 @@ export function WorkbenchLayout() {
   return (
     <PaneControllerProvider value={panes}>
       <div
-        className="app-shell layout-transition relative flex h-full overflow-hidden"
+        className="app-shell relative flex h-full overflow-hidden"
         data-translucent-root
         data-layout-sidebar={sidebarPlan.sidebar}
-        data-resizing={sidebarDrag !== undefined || undefined}
-        data-snapping={sidebarSnapping || undefined}
-        style={
-          { '--sidebar-shown': `${sidebarShown ? sidebarPlan.sidebarWidth : 0}px` } as CSSProperties
-        }
       >
         {/* 收起时侧栏不卸载，宽度过渡到 0；里面一列始终是侧栏的宽，开合时不重新排版。 */}
         <aside
           aria-hidden={!docked}
           inert={!docked}
           aria-label={t('sidebar.label')}
-          className="relative shrink-0 overflow-hidden text-sidebar-foreground"
-          style={{ width: 'var(--sidebar-shown)' }}
+          className="layout-transition relative shrink-0 overflow-hidden text-sidebar-foreground"
+          {...sidebarMotion}
+          style={{ ...sidebarMotion.style, width: 'var(--sidebar-shown)' }}
         >
           <div className="flex h-full flex-col" style={{ width: sidebarPlan.sidebarWidth }}>
             <Sidebar />
           </div>
         </aside>
         {docked && (
-          <Splitter
-            orientation="vertical"
-            label={t('layout.resizeSidebar')}
-            valueNow={sidebarPlan.sidebarWidth}
-            valueMin={LAYOUT.sidebarMin}
-            valueMax={LAYOUT.sidebarMax}
-            collapsible="before"
-            onResizeStart={() => {
-              sidebarDragStart.current = sidebarPlan.sidebarWidth;
-            }}
-            onResize={(delta) =>
-              setSidebarDrag((current) => ({
-                width: clampSidebarWidth(sidebarDragStart.current + delta),
-                collapsed: current?.collapsed ?? false,
-              }))
-            }
-            onCollapseChange={(collapsed) => {
-              pulseSidebarSnap();
-              setSidebarDrag((current) => ({
-                width: current?.width ?? sidebarDragStart.current,
-                collapsed,
-              }));
-            }}
-            onResizeEnd={(delta, collapsed) =>
-              collapsed
-                ? collapseSidebarByDrag()
-                : commitSidebarWidth(sidebarDragStart.current + delta)
-            }
-            onResizeCancel={() => setSidebarDrag(undefined)}
-            onReset={() => commitSidebarWidth(LAYOUT.sidebarDefault)}
-            className="absolute inset-y-0 z-20"
-            // 跟着露出的宽走，正好落在侧栏与内容卡片之间的空隙里：吸附折叠时分隔条随侧栏的边一起滑走。
-            style={{ left: 'var(--sidebar-shown)' }}
-          />
+          // 跟着露出的宽走，正好落在侧栏与内容卡片之间的空隙里：吸附折叠时分隔条随侧栏的边一起滑走。
+          <div
+            className="layout-transition absolute inset-y-0 z-20 flex"
+            {...sidebarMotion}
+            style={{ ...sidebarMotion.style, left: 'var(--sidebar-shown)' }}
+          >
+            <Splitter
+              orientation="vertical"
+              label={t('layout.resizeSidebar')}
+              valueNow={sidebarPlan.sidebarWidth}
+              valueMin={LAYOUT.sidebarMin}
+              valueMax={LAYOUT.sidebarMax}
+              collapsible="before"
+              onResizeStart={() => {
+                sidebarDragStart.current = sidebarPlan.sidebarWidth;
+              }}
+              onResize={(delta) =>
+                setSidebarDrag((current) => ({
+                  width: clampSidebarWidth(sidebarDragStart.current + delta),
+                  collapsed: current?.collapsed ?? false,
+                }))
+              }
+              onCollapseChange={(collapsed) => {
+                pulseSidebarSnap();
+                setSidebarDrag((current) => ({
+                  width: current?.width ?? sidebarDragStart.current,
+                  collapsed,
+                }));
+              }}
+              onResizeEnd={(delta, collapsed) =>
+                collapsed
+                  ? collapseSidebarByDrag()
+                  : commitSidebarWidth(sidebarDragStart.current + delta)
+              }
+              onResizeCancel={() => setSidebarDrag(undefined)}
+              onReset={() => commitSidebarWidth(LAYOUT.sidebarDefault)}
+            />
+          </div>
         )}
         <Sheet open={sidebarPlan.sidebar === 'overlay'} onOpenChange={setSidebarOverlayOpen}>
           <SheetContent
@@ -356,9 +371,11 @@ export function WorkbenchLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* 顶栏画在壳上，下面的内容卡片自己有边，不再画分隔线。 */}
           <header
-            className="app-drag flex h-11 shrink-0 items-center gap-2 pr-3"
+            className="app-drag layout-transition flex h-11 shrink-0 items-center gap-2 pr-3"
+            {...sidebarMotion}
             // 窗口按钮在窗口左上角不动：侧栏露出得越少，顶栏越要让出它们的位置。
             style={{
+              ...sidebarMotion.style,
               paddingLeft:
                 'max(0.75rem, calc(max(0.5rem, var(--traffic-lights-inset)) + var(--window-controls-width) + 0.5rem - var(--sidebar-shown)))',
             }}

@@ -12,9 +12,13 @@ const CLOSE_DELAY_MS = 240;
  * 磨砂的浮动卡片从左边滑出来，背后的内容轻微变暗；指针离开卡片就收回，点了其中的链接（换页面）或按 Esc 也收回。卡片不抢焦点、
  * 不挡住窗口按钮（WindowControls 在 z-30，卡片在 z-20，顶上 44 px 是侧栏自己留给窗口按钮的空行），点窗口按钮的侧栏开关照常
  * 停靠侧栏。样式在 index.css 的 sidebar-peek。
+ *
+ * 卡片里的侧栏到第一次要滑出来时才挂载（指针碰到感应条的那一下，离真正滑出还有 OPEN_DELAY_MS）：不用窥视的人不必在看不见的
+ * 地方多养一份会话列表（每次列表变化都重渲染，运行中的行还带着流光与计时）。挂上之后不再卸载，再次滑出时滚动位置还在。
  */
 export function SidebarPeek({ width }: { width: number }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const location = useLocation();
 
@@ -46,7 +50,10 @@ export function SidebarPeek({ width }: { width: number }) {
         aria-hidden
         className="absolute top-11 bottom-0 left-0 z-20 w-1.5"
         hidden={open}
-        onPointerEnter={() => later(true, OPEN_DELAY_MS)}
+        onPointerEnter={() => {
+          setMounted(true);
+          later(true, OPEN_DELAY_MS);
+        }}
         onPointerLeave={cancel}
       />
       <div aria-hidden className="sidebar-peek-backdrop" data-open={open || undefined} />
@@ -60,7 +67,7 @@ export function SidebarPeek({ width }: { width: number }) {
         onPointerEnter={cancel}
         onPointerLeave={() => later(false, CLOSE_DELAY_MS)}
       >
-        <Sidebar />
+        {mounted && <Sidebar />}
       </aside>
     </>
   );

@@ -91,7 +91,7 @@ function TaskRow({ row, open, onToggle }: { row: BoardRow; open: boolean; onTogg
         <ChevronRight
           aria-hidden
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-smooth',
+            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-expand',
             open && 'rotate-90',
           )}
         />

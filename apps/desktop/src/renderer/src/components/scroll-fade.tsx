@@ -26,6 +26,7 @@ export function useScrollFade(
     const element = ref.current;
     if (!element || !any) return;
     let frame = 0;
+    let shownBar = -1;
     const measureEdges = () => {
       const edges = fadeEdges(element.scrollTop, element.scrollHeight, element.clientHeight);
       element.toggleAttribute('data-fade-top', enabled.current.top && edges.top);
@@ -39,7 +40,12 @@ export function useScrollFade(
         element.clientWidth -
         Number.parseFloat(style.borderLeftWidth) -
         Number.parseFloat(style.borderRightWidth);
-      element.style.setProperty('--scroll-fade-bar', `${Math.max(0, Math.round(bar))}px`);
+      const next = Math.max(0, Math.round(bar));
+      // 流式输出时内容每帧都在变高，滚动条的宽度并不变：没变就不写，免得每帧都让这个容器的样式失效一次。
+      if (next !== shownBar) {
+        shownBar = next;
+        element.style.setProperty('--scroll-fade-bar', `${next}px`);
+      }
       measureEdges();
     };
     let scrollFrame = 0;

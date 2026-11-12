@@ -44,8 +44,20 @@ function resolve(mode: ThemeMode): ResolvedTheme {
 }
 
 function apply(mode: ThemeMode): void {
-  currentResolved = resolve(mode);
-  document.documentElement.dataset.theme = currentResolved;
+  const next = resolve(mode);
+  const root = document.documentElement;
+  // 换深浅色的那一下不放过渡（index.css 的 data-theme-switching）：带 transition-colors 的按钮、列表行与输入框会各自淡 150 到
+  // 260 ms，没有过渡的表面当帧就换，看上去一块一块地变。先让新主题的样式在没有过渡的状态下算完，再放开。
+  const shown = root.dataset.theme;
+  const switching = shown !== undefined && shown !== next;
+  if (switching) root.setAttribute('data-theme-switching', '');
+  currentResolved = next;
+  root.dataset.theme = next;
+  if (switching) {
+    // 读一次计算样式，逼浏览器现在就把新主题算完；之后立刻放开，同一次点击里别的过渡（主题按钮的选中滑块）照常。
+    void window.getComputedStyle(root).colorScheme;
+    root.removeAttribute('data-theme-switching');
+  }
   for (const listener of listeners) listener();
 }
 

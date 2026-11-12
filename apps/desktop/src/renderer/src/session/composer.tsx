@@ -38,7 +38,7 @@ import { Beam } from '@/fx/beam';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
-import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { IS_MAC, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { capabilities, platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { type ComposerAction, ComposerButton } from './composer-button';
@@ -924,22 +924,27 @@ export const Composer = memo(function Composer({
           {tray}
         </div>
       )}
-      <Beam
-        preset={home ? 'focus' : 'composer'}
-        active={home ? focused && !disabled : busy && state !== 'awaiting_approval' && !disabled}
-        className="relative block w-full"
-      >
-        <div
-          data-composer-box
-          className={cn(
-            // 容器名 composer：底栏按输入框自己的宽度收紧（子会话窗格、窄窗口），见权限芯片与插话/排队切换。
-            '@container/composer rounded-3xl border border-border bg-card shadow-xs transition-colors',
-            // 首页的焦点只用光束表示（方向稿），会话里的输入框聚焦时描边加深一档。
-            !home && 'focus-within:border-input',
-            disabled && 'opacity-70',
-            dragging && 'border-ring ring-2 ring-ring/30',
-          )}
+      {/* 底板与内容分两层叠放：光束只包不带内容的底板（底色、描边、阴影），内容叠在上面。光束的动画每一帧都让它包住的子树重算
+          样式（fx/beam.tsx），包住整个输入框时文本框、芯片与按钮都跟着算。 */}
+      <div className={cn('group/composer grid w-full', disabled && 'opacity-70')}>
+        <Beam
+          preset={home ? 'focus' : 'composer'}
+          active={home ? focused && !disabled : busy && state !== 'awaiting_approval' && !disabled}
+          className="pointer-events-none col-start-1 row-start-1 block min-w-0"
         >
+          <div
+            data-composer-box
+            className={cn(
+              'size-full rounded-3xl border border-border bg-card shadow-xs transition-colors',
+              // 首页的焦点只用光束表示（方向稿），会话里的输入框聚焦时描边加深一档。
+              !home && 'group-focus-within/composer:border-input',
+              dragging && 'border-ring ring-2 ring-ring/30',
+            )}
+          />
+        </Beam>
+        {/* 容器名 composer：底栏按输入框自己的宽度收紧（子会话窗格、窄窗口），见权限芯片与插话/排队切换。透明的描边占住底板描边的
+            那 1 px，内容的位置与底板对齐。 */}
+        <div className="@container/composer relative col-start-1 row-start-1 min-w-0 rounded-3xl border border-transparent">
           {dictation.errorKey && (
             <div className="flex items-center gap-2 px-4 pt-3 text-xs" role="alert">
               <p className="min-w-0 text-destructive" data-testid="composer-dictation-error">
@@ -1121,7 +1126,7 @@ export const Composer = memo(function Composer({
             )}
           </div>
         </div>
-      </Beam>
+      </div>
       {imagesEnabled && (
         <input
           ref={imageInputRef}
@@ -1169,7 +1174,7 @@ function PlanChip({ disabled, onExit }: { disabled: boolean; onExit: () => void 
       </TooltipTrigger>
       <TooltipContent>
         {t('composer.planExit')}
-        <kbd className="ml-1.5 font-sans opacity-70">⇧Tab</kbd>
+        <kbd className="ml-1.5 font-sans opacity-70">{IS_MAC ? '⇧Tab' : 'Shift+Tab'}</kbd>
       </TooltipContent>
     </Tooltip>
   );

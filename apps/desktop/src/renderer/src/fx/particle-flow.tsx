@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { useEffect, useRef } from 'react';
+import { useReducedGpuEffects } from '@/lib/gpu-effects';
 import { useReducedMotion } from './motion';
 
 /**
@@ -14,7 +15,8 @@ export function ParticleFlow({
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const reduced = useReducedMotion();
+  const lowGpu = useReducedGpuEffects();
+  const reduced = useReducedMotion() || lowGpu;
 
   useEffect(() => {
     const canvas = canvasRef.current;

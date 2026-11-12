@@ -48,10 +48,11 @@
   --traffic-lights-inset: 78px;
 }
 
-/* 停靠的侧栏现在露出多宽（U5）：注册成长度，才能由工作台的根节点过渡，侧栏的宽与顶栏让出的位置一起动。 */
+/* 停靠的侧栏现在露出多宽（U5）：注册成长度才能过渡。不继承：写在用到它的三个元素上（侧栏、分隔条、顶栏，
+ * layout/workbench-layout.tsx），各自过渡、同起同止；可继承的变量在祖先上过渡时，每一帧所有后代都要重算样式。 */
 @property --sidebar-shown {
   syntax: "<length>";
-  inherits: true;
+  inherits: false;
   initial-value: 0px;
 }
 
@@ -158,6 +159,14 @@
   background-color: color-mix(in oklab, var(--popover) 84%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(1.5);
   backdrop-filter: blur(24px) saturate(1.5);
+}
+
+/* 换深浅色的那一下（theme/theme.ts 的 apply）：所有过渡都停掉，整个界面同一帧换完。写在层外，盖过工具类里的过渡；也要排在
+ * 上面 .layout-transition 那几条的后面。 */
+:root[data-theme-switching] *,
+:root[data-theme-switching] ::before,
+:root[data-theme-switching] ::after {
+  transition: none;
 }
 
 /* 选中文字：高光色的淡底（tokens.css 的 --highlight），字保持原色；深色底上淡底要浓一些才看得出。 */
@@ -297,12 +306,11 @@
   opacity: 0.45;
 }
 
-/* 消息输入框（session/composer.tsx）：浅色是实色的表面加 --elevation 的两层软影；深色改成磨砂，透出后面滚过的消息，
- * 不是一块死黑的板。 */
+/* 消息输入框（session/composer.tsx）：浅色是实色的表面加 --elevation 的两层软影；深色比卡片暗一档（表面色里掺 24% 的画布色），
+ * 不是一块发亮的板。输入框排在消息流的下面、不叠在它上面，背后没有会动的内容，所以不用 backdrop-filter：那只会在每次按键、
+ * 光束的每一帧把这一块重新模糊一遍，颜色与直接混出来的一样。 */
 :root[data-theme="dark"] [data-composer-box] {
-  background-color: color-mix(in oklab, var(--card) 76%, transparent);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
+  background-color: color-mix(in oklab, var(--card) 76%, var(--background));
 }
 
 /* 原生滚动条（overflow-auto 的容器）：macOS 是系统的浮动滚动条，自己会隐藏，不管；Windows、Linux 上默认是粗的常驻滚动条，

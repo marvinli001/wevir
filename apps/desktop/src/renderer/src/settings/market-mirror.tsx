@@ -30,9 +30,10 @@ export function MarketMirrorRow({
   // 插件页市场分段的齿轮带着 `focus: 'market-mirror'` 进来：滚到这一行。
   useEffect(() => {
     if ((location.state as { focus?: string } | null)?.focus !== 'market-mirror') return;
-    document
-      .querySelector('[data-setting="market-mirror"]')
-      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    document.querySelector('[data-setting="market-mirror"]')?.scrollIntoView({
+      block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
   }, [location.state]);
 
   // 自动模式下 `market.status` 可能要先测速（几秒），所以单独取，不挡住设置页。

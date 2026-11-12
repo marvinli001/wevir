@@ -251,7 +251,7 @@ function ProjectsSection() {
           <ChevronDown
             aria-hidden
             className={cn(
-              'size-3.5 opacity-0 transition-[opacity,rotate] duration-200 group-hover/projects:opacity-100',
+              'size-3.5 opacity-0 transition-[opacity,rotate] duration-200 ease-expand group-hover/projects:opacity-100',
               projectsCollapsed && '-rotate-90 opacity-100',
             )}
           />

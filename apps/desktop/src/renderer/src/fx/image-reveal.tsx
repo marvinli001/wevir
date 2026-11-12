@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useReducedGpuEffects } from '@/lib/gpu-effects';
 import { useReducedMotion } from './motion';
 
 // 图片出现时的显现动画（U3，img-fx 的 sweep-gradient）。img-fx 依赖 three，只在第一次真的要显现图片时动态加载（Vite 拆成
@@ -56,7 +57,9 @@ export function ImageReveal({
   animate?: boolean;
   className?: string | undefined;
 }) {
-  const reduced = useReducedMotion();
+  // 显现效果是 WebGL 着色器：没有 GPU 合成或光栅时（软件渲染）与减弱动效一样，直接显示图片。
+  const lowGpu = useReducedGpuEffects();
+  const reduced = useReducedMotion() || lowGpu;
   const [decoded, setDecoded] = useState<ImageSize>();
   const [done, setDone] = useState(() => revealKey !== undefined && revealed.has(revealKey));
   const size = known ?? decoded;

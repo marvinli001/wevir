@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
+import { IS_MAC } from '@/lib/shortcuts';
 import { paths } from '@/routes/paths';
 import { focusTranscript } from '@/session/transcript-focus';
 import {
@@ -412,8 +413,8 @@ function SearchPanel() {
           {notices.map(noticeText).join(' · ')}
         </span>
         <KeyHint keys="↑↓">{t('search.key.select')}</KeyHint>
-        <KeyHint keys="↵">{t('search.key.open')}</KeyHint>
-        <KeyHint keys="⇥">{t('search.key.kind')}</KeyHint>
+        <KeyHint keys={IS_MAC ? '↵' : 'Enter'}>{t('search.key.open')}</KeyHint>
+        <KeyHint keys={IS_MAC ? '⇥' : 'Tab'}>{t('search.key.kind')}</KeyHint>
         <KeyHint keys="esc">{t('search.key.close')}</KeyHint>
       </div>
     </div>

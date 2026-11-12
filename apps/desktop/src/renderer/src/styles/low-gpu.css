@@ -16,11 +16,6 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-:root[data-low-gpu] body [data-composer-box] {
-  background-color: var(--card);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
 :root[data-low-gpu] body .scroll-fade {
   mask-image: none;
   -webkit-mask-image: none;
@@ -37,6 +32,25 @@
 :root[data-low-gpu] body [data-beam-preset] *::before,
 :root[data-low-gpu] body [data-beam-preset] *::after {
   animation: none;
+}
+/* 入场动画里的模糊（消息流新出现的一块、标题逐字显出，theme.css 的 block-enter / glyph-in）：软件光栅下每帧都要重算一遍，
+ * 换成不带模糊的关键帧，只留位移与淡入。 */
+:root[data-low-gpu] body .block-enter {
+  animation-name: block-enter-plain;
+}
+:root[data-low-gpu] body .glyph-in {
+  animation-name: glyph-in-plain;
+}
+@keyframes block-enter-plain {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+@keyframes glyph-in-plain {
+  from {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -55,11 +69,6 @@
   }
   :root[data-theme] body .sidebar-peek {
     background-color: var(--sidebar);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  :root[data-theme] body [data-composer-box] {
-    background-color: var(--card);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

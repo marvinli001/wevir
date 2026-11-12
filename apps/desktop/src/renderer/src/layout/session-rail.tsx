@@ -165,7 +165,7 @@ function RailCardView({
           aria-hidden
           viewBox="0 0 8 8"
           className={cn(
-            'size-2 shrink-0 text-muted-foreground transition-transform duration-200 ease-smooth',
+            'size-2 shrink-0 text-muted-foreground transition-transform duration-200 ease-expand',
             !open && '-rotate-90',
           )}
         >
