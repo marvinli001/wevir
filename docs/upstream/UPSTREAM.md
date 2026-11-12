@@ -520,7 +520,17 @@ Copyright 2025 OpenAI
 
 ## 7. Codex 升级检查清单
 
-R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），每个版本都可能改协议、通知与措辞。Wevir 碰 Codex 的代码都在 `packages/adapter-codex`（网关在 `packages/model-gateway`，与 Codex 版本无关，但它解析的是 Codex 发的请求），升级只改这两个包、§1 的表、`upstream.lock`、`scripts/fetch-codex.sh` 与下面列到的文档（ADR-0005 决策 7）。按顺序做，每一步的结论写进提交说明；哪一步发现不兼容，先在 ADR-0005 补记与 codex-event-mapping.md 写清楚，再改代码。下文的“旧 SHA / 新 SHA”是 `upstream.lock` 里 codex 行的旧锁定提交与新 tag `rust-v<版本>` 指向的提交，先按 §6 第 1、2 步把 `upstream/codex` 同步到新 SHA（tag 不在任何分支上，同步脚本按 tag 浅拉取）。
+Codex app-server 的协议、通知与配置会随版本变化。先手动运行候选检查，再从输出进入下面的检查清单：
+
+```bash
+node scripts/check-codex-candidate.mjs rust-v<版本>
+```
+
+脚本从公开 Release 下载本机目标、按官方 SHA-256 校验，缓存于 `.wevir-dev/codex-candidate/rust-v<版本>/`。`report.md` / `report.json` 汇总 `protocol.ts` 注释指向的 schema 及传递依赖、特性默认值与阶段、包布局与六目标资产清单的差异；具体补丁在 `protocol.diff`、`features.diff`、`layout.diff`。没有生成稳定 schema 的实验类型单列为人工复核项，Rust 协议源码差异在 `experimental.diff`。上游参考 checkout 保持只读，缺少提交时在候选缓存中单独拉取。
+
+默认将当前工作区源码复制到临时目录，只在副本中调整版本断言，离线安装锁定依赖、构建 Host 及依赖，再用候选二进制跑 adapter-codex、model-gateway、host。真实模型开关清空，测试计数与输出保存到 `tests.json` / `tests.log`；需要先在当前 checkout 安装过依赖，以准备 pnpm 离线缓存。`WEVIR_CODEX_LEGACY_BIN` 可指向保留的 0.165.0，另跑历史数据升级回退与三协议请求基线；缺少时按测试条件跳过。`--diff-only` 仍下载并校验，但明确不运行测试。失败退出非零并在报告记下出错步骤；临时副本自动清理，当前工作区的版本、锁定文件和样本不改。
+
+报告是评估起点，不代替重录、桌面、真实服务及跨平台验收。按下面顺序处理差异，再更新锁定版本；提交说明写行为变化与验证结果。下文“旧 SHA / 新 SHA”分别为 `upstream.lock` 的 codex 提交与候选 tag 指向的提交。
 
 1. **读 release 说明。** GitHub Releases 里 `rust-v*` 的发布说明（Bug Fixes / Features），重点看 app-server、审批、沙箱、rollout 格式、模型 Provider 与配置键的变化。`codex-rs/app-server/README.md` 与 `codex-rs/docs/` 的改动一并看：
 

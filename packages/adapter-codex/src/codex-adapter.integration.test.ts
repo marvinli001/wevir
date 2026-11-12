@@ -91,7 +91,8 @@ describe.skipIf(binary === undefined)(
       const { adapter: a } = adapter({ clientInfo: { name: 'wevir', version: '9.8.7' } });
       const init = await a.process.start();
       // originator 是 clientInfo.name，后面带 Codex 的版本；clientInfo 的名字与版本在末尾（codex-notes §2.1）。
-      expect(init.userAgent).toMatch(/^wevir\/0\.167\.1 .*\(wevir; 9\.8\.7\)$/);
+      expect(init.userAgent.split(' ')[0]).toBe(`wevir/${CODEX_VERSION.slice(6)}`);
+      expect(init.userAgent).toMatch(/\(wevir; 9\.8\.7\)$/);
       expect(init.codexHome).toBe(a.paths.codexHome);
       const toml = readFileSync(a.paths.configFile, 'utf8');
       expect(toml).toContain(`base_url = "${a.gateway?.baseURL('mock')}"`);
