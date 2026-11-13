@@ -5,7 +5,7 @@
 // 转写，文字放到光标处，不自动发送。不能听写时麦克风灰着。
 // 给了 `draftKey` 时没发出的字记在 state/drafts.ts，离开页面再回来还在。
 
-import { isRpcError } from '@wevir/client-sdk';
+import { sendOutcomeUnknown } from '@wevir/client-sdk';
 import type { PendingDelivery } from '@wevir/protocol';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
@@ -23,7 +23,7 @@ import {
 import { type MessageKey, t } from '../i18n';
 import { insertDictation, type SpeechClient } from '../lib/dictation';
 import { type Dictation, useDictation } from '../state/dictation';
-import { loadDraft, readDraft, writeDraft } from '../state/drafts';
+import { loadDraft, readDraft, readDraftState, settleDraft, writeDraft } from '../state/drafts';
 import { TEXT, useTheme } from '../theme';
 import { type MenuSection, MenuTrigger } from './menu';
 import { GLASS, Icon } from './ui';
@@ -81,16 +81,25 @@ export function Composer({
   const [text, setText] = useState(() => (draftKey !== undefined ? readDraft(draftKey) : ''));
   const [draftReady, setDraftReady] = useState(draftKey === undefined);
   const [loadedDraftKey, setLoadedDraftKey] = useState<string>();
-  const [sendUncertain, setSendUncertain] = useState(false);
+  const [sendUncertain, setSendUncertain] = useState(() =>
+    draftKey ? readDraftState(draftKey).uncertain : false,
+  );
   const [draftError, setDraftError] = useState(false);
   const edited = useRef(false);
+  const scope = useRef(draftKey);
+  scope.current = draftKey;
   useEffect(() => {
     if (draftKey === undefined) return;
+    edited.current = false;
+    setDraftReady(false);
+    setText(readDraft(draftKey));
+    setSendUncertain(readDraftState(draftKey).uncertain);
     let active = true;
     void loadDraft(draftKey).then(
       (value) => {
         if (active) {
-          if (!edited.current) setText(value);
+          if (!edited.current) setText(value.text);
+          setSendUncertain(value.uncertain);
           setDraftReady(true);
           setLoadedDraftKey(draftKey);
         }
@@ -105,11 +114,11 @@ export function Composer({
   }, [draftKey]);
   useEffect(() => {
     if (draftKey !== undefined && loadedDraftKey === draftKey && (draftReady || edited.current))
-      void writeDraft(draftKey, text).then(
+      void writeDraft(draftKey, text, sendUncertain).then(
         () => setDraftError(false),
         () => setDraftError(true),
       );
-  }, [draftKey, draftReady, loadedDraftKey, text]);
+  }, [draftKey, draftReady, loadedDraftKey, text, sendUncertain]);
   const cursor = useRef(0);
   const dictation = useDictation({
     client: speech,
@@ -135,13 +144,20 @@ export function Composer({
     const value = text;
     setSending(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    onSend(value)
-      .then(() => {
+    void (async () => {
+      if (draftKey) await writeDraft(draftKey, value, true);
+      if (scope.current === draftKey) setSendUncertain(true);
+      await onSend(value);
+      if (draftKey) await settleDraft(draftKey, value);
+      if (scope.current === draftKey) {
         setSendUncertain(false);
         setText((current) => (current === value ? '' : current));
-      })
-      .catch((error: unknown) => {
-        setSendUncertain(!isRpcError(error));
+      }
+    })()
+      .catch(async (error: unknown) => {
+        const uncertain = sendOutcomeUnknown(error);
+        if (!uncertain && draftKey) await settleDraft(draftKey).catch(() => setDraftError(true));
+        if (scope.current === draftKey) setSendUncertain(uncertain);
         console.warn('[wevir] could not send', error);
       })
       .finally(() => setSending(false));
