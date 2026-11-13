@@ -1,0 +1,186 @@
+{
+  "protocolVersion": "0.181.0",
+  "methods": {
+    "sync.cancelBundle": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture"
+        }
+      ],
+      "result": [
+        {
+          "cancelled": true
+        }
+      ]
+    },
+    "sync.bundleVaults": {
+      "params": [{}],
+      "result": [
+        {
+          "vaults": []
+        }
+      ]
+    },
+    "sync.bundles": {
+      "params": [
+        {
+          "vaultId": "vault_fixture"
+        }
+      ],
+      "result": [
+        {
+          "bundles": []
+        }
+      ]
+    },
+    "sync.bundlePreview": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "heads": ["operation_fixture"],
+          "versions": [
+            {
+              "opId": "operation_fixture",
+              "parents": [],
+              "name": "Fixture",
+              "deleted": false,
+              "files": [],
+              "fileCount": 0,
+              "bytes": 0
+            }
+          ]
+        }
+      ]
+    },
+    "sync.bundleTargets": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture"
+        }
+      ],
+      "result": [
+        {
+          "targets": []
+        }
+      ]
+    },
+    "sync.bundleVersions": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture"
+        }
+      ],
+      "result": [
+        {
+          "versions": [
+            {
+              "opId": "operation_fixture",
+              "parents": [],
+              "name": "Fixture",
+              "deleted": false,
+              "files": [],
+              "fileCount": 0,
+              "bytes": 0
+            }
+          ]
+        }
+      ]
+    },
+    "sync.keepLocalBundle": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "expectedHeads": ["operation_fixture"],
+          "targetId": "target_fixture",
+          "fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_fixture"
+        }
+      ]
+    },
+    "sync.applyBundle": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "expectedHeads": ["operation_fixture"],
+          "selectedOpId": "operation_fixture",
+          "targetId": "target_fixture",
+          "fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_fixture"
+        }
+      ]
+    },
+    "sync.bundleFile": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "opId": "operation_fixture",
+          "path": "file.txt"
+        }
+      ],
+      "result": [
+        {
+          "path": "file.txt",
+          "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "bytes": 0,
+          "text": "",
+          "binary": false,
+          "truncated": false
+        }
+      ]
+    },
+    "sync.editBundleFile": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "path": "file.txt",
+          "text": "Edit",
+          "fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_fixture"
+        }
+      ]
+    },
+    "sync.retryBundle": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "opId": "operation_fixture"
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_fixture"
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

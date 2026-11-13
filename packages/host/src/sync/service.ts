@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   type MethodParams,
@@ -21,6 +22,7 @@ import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncArtifacts } from './artifacts.js';
 import { SyncBootstrap } from './bootstrap.js';
+import { SyncBundles } from './bundles.js';
 import { SyncBlobCache } from './cache.js';
 import { SyncEventCapture } from './capture.js';
 import { SyncProjectCatalog } from './catalog.js';
@@ -42,6 +44,7 @@ export interface SyncServiceOptions {
   client: ZuvClient;
   accounts: ZuvAccounts;
   home: string;
+  userHome?: string;
   memoryDir: string;
   images: ImageStore;
   settings: HostSettingsStore;
@@ -64,6 +67,10 @@ export class SyncService {
   readonly #bootstrap: SyncBootstrap;
   readonly #memoryConflicts: SyncMemoryConflicts;
   readonly #settingsConflicts: SyncSettingsConflicts;
+  readonly #bundles: SyncBundles;
+  #bundleAbort: AbortController | undefined;
+  #bundleEntity: string | undefined;
+  #bundleVault: string | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running: Promise<void> | undefined;
   #closed = false;
@@ -92,15 +99,23 @@ export class SyncService {
       storage: options.storage,
       eligible: () => this.#consented(),
     });
-    this.#materials = new SyncMaterials({
-      ...options,
-      settingsSync: this.#settings,
-      eligible: () => this.#consented(),
-      nativeSource: (id) => this.#capture.source(id),
-    });
     this.#files = new SyncFilesCapture({
       ...options,
       eligible: () => (this.#closed ? undefined : this.#consented()),
+    });
+    this.#bundles = new SyncBundles({
+      ...options,
+      userHome: options.userHome ?? homedir(),
+      files: this.#files,
+      nativeRoots: options.bundleRoots,
+      eligible: () => (this.#closed ? undefined : this.#consented()),
+    });
+    this.#materials = new SyncMaterials({
+      ...options,
+      settingsSync: this.#settings,
+      bundles: this.#bundles,
+      eligible: () => this.#consented(),
+      nativeSource: (id) => this.#capture.source(id),
     });
     this.#memoryConflicts = new SyncMemoryConflicts({
       ...options,
@@ -133,7 +148,7 @@ export class SyncService {
       client: options.client,
       cache,
       key: (vaultId, epoch, signal) => this.#keys.unlock(vaultId, epoch, signal),
-      prepareApply: (op, record) => this.#materials.prepareApply(op, record),
+      prepareApply: (op, record, signal) => this.#materials.prepareApply(op, record, { signal }),
     });
   }
 
@@ -179,7 +194,7 @@ export class SyncService {
     if (!vault) return;
     await this.#artifacts.scan(vault, false, false);
     if (vault.categories.some((value) => ['artifact', 'rule', 'skill-bundle'].includes(value)))
-      for (const root of await this.#options.bundleRoots(vault))
+      for await (const root of this.#bundles.roots(vault))
         await this.#files.bundle(vault, root, false, false);
   };
   recordRemoval = (sessionIds: readonly string[]): void => {
@@ -221,6 +236,7 @@ export class SyncService {
     this.#engine.stop();
     this.#catalog.stop();
     this.#resetAbort?.abort();
+    this.#bundleAbort?.abort();
     this.#initialized = false;
   }
   async suspend(): Promise<void> {
@@ -788,6 +804,110 @@ export class SyncService {
       throw this.#failure(error);
     }
   }
+  bundleVaults() {
+    return this.#bundles.vaults();
+  }
+  bundleList(vaultId: string, after?: string) {
+    try {
+      return this.#bundles.list(vaultId, after);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+  bundlePreview(vaultId: string, entityId: string, fileOffset?: number, opId?: string) {
+    return this.#bundles.preview(vaultId, entityId, fileOffset, opId).catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  bundleTargets(vaultId: string, entityId: string) {
+    return this.#bundles.targets(vaultId, entityId).catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  bundleVersions(vaultId: string, entityId: string, after?: string) {
+    try {
+      return this.#bundles.versions(vaultId, entityId, after);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+  keepLocalBundle(input: MethodParams<'sync.keepLocalBundle'>) {
+    return this.#bundleOperation(input.vaultId, input.entityId, (signal) =>
+      this.#bundles.keepLocal(input, signal),
+    );
+  }
+  bundleFile(input: MethodParams<'sync.bundleFile'>) {
+    return this.#bundles.file(input).catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  applyBundle(input: MethodParams<'sync.applyBundle'>) {
+    return this.#bundleOperation(input.vaultId, input.entityId, (signal) =>
+      this.#bundles.apply(input, signal),
+    );
+  }
+  editBundleFile(input: MethodParams<'sync.editBundleFile'>) {
+    return this.#bundleOperation(input.vaultId, input.entityId, (signal) =>
+      this.#bundles.edit(input, signal),
+    );
+  }
+  retryBundle(input: MethodParams<'sync.retryBundle'>) {
+    return this.#bundleOperation(input.vaultId, input.entityId, (signal) =>
+      this.#bundles.retry(input.vaultId, input.entityId, input.opId, signal),
+    );
+  }
+  async cancelBundle(vaultId: string, entityId: string) {
+    if (this.#bundleEntity !== entityId || this.#bundleVault !== vaultId)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    this.#bundleAbort?.abort();
+    await this.#configurationDone;
+    return { cancelled: true as const };
+  }
+  async #bundleOperation<T>(
+    vaultId: string,
+    entityId: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    if (this.#closed || this.#configuring)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    if (this.#options.storage.sync.activeBootstrapJob(vaultId))
+      throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
+    this.#configuring = true;
+    this.#configurationDone = new Promise((resolve) => {
+      this.#finishConfiguration = resolve;
+    });
+    this.stop();
+    const abort = new AbortController();
+    this.#bundleAbort = abort;
+    this.#bundleEntity = entityId;
+    this.#bundleVault = vaultId;
+    try {
+      await this.#running?.catch(() => {});
+      await this.#catalog.drain();
+      return await operation(abort.signal);
+    } catch (error) {
+      throw this.#failure(abort.signal.aborted ? new ZuvRequestError('SCOPE_DISABLED') : error);
+    } finally {
+      if (abort.signal.aborted) {
+        const app = this.#options.storage.sync.pendingBundleApplication(vaultId, entityId);
+        if (app)
+          this.#options.storage.transaction(() =>
+            this.#options.storage.sync.pauseBundleApplication(vaultId, app.opId, true),
+          );
+      }
+      this.#bundleAbort = undefined;
+      this.#bundleEntity = undefined;
+      this.#bundleVault = undefined;
+      this.#configuring = false;
+      this.#finishConfiguration?.();
+      this.#finishConfiguration = undefined;
+      this.#configurationDone = undefined;
+      if (!this.#closed && !this.#options.client.changingIdentity) {
+        this.#engine.restart();
+        this.#schedule(0);
+      }
+    }
+  }
   previewSettingsMerge(entityId: string) {
     return this.#memoryOperation(() => this.#settingsConflicts.preview(entityId));
   }
@@ -878,8 +998,9 @@ export class SyncService {
     await this.#artifacts.scan(vault, initialize, includeHistory);
     this.#settings.capture(vault, initialize, includeHistory);
     this.#materials.sessions.scan(initialize, includeHistory);
+    await this.#bundles.recover(vault);
     if (vault.categories.some((value) => ['rule', 'skill-bundle', 'artifact'].includes(value)))
-      for (const root of await this.#options.bundleRoots(vault))
+      for await (const root of this.#bundles.roots(vault))
         await this.#files.bundle(vault, root, initialize, includeHistory);
   }
 

@@ -166,18 +166,20 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
       vaultId: string,
       limit = 256,
       scopes?: { categories: string[]; projectIds: string[] },
+      prioritizeChunks = false,
     ): SyncDraftRecord[] {
       return db
         .prepare(`SELECT d.* FROM sync_drafts d JOIN sync_entities e USING (vault_id, entity_id)
           WHERE d.vault_id = :vaultId
           AND (:categories IS NULL OR e.entity_type IN (SELECT value FROM json_each(:categories)))
           AND (:projects IS NULL OR e.project_id IS NULL OR e.project_id IN (SELECT value FROM json_each(:projects)))
-          ORDER BY d.rowid LIMIT :limit`)
+          ORDER BY CASE WHEN :prioritizeChunks AND json_extract(d.content,'$.body.schema')='wevir-chunk/1' THEN 0 ELSE 1 END, d.rowid LIMIT :limit`)
         .all({
           vaultId,
           limit,
           categories: scopes ? toJson(scopes.categories) : null,
           projects: scopes ? toJson(scopes.projectIds) : null,
+          prioritizeChunks: Number(prioritizeChunks),
         })
         .map((row) => ({
           vaultId: text(row, 'vault_id'),

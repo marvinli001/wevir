@@ -59,6 +59,14 @@ export class MockSyncGateway {
   readonly acknowledgements: Array<{ deviceId: string; cursor: string; restoreId?: string }> = [];
   readonly attempts = { uploads: 0, downloads: 0, reservations: 0, commits: 0 };
   pendingCommits = false;
+  readonly pendingEntities = new Set<string>();
+  acceptedOperations(entityId: string): SyncOperation[] {
+    return [...this.#vaults.values()].flatMap((vault) =>
+      [...vault.commits.values()].flatMap((commit) =>
+        commit.batch.operations.filter((operation) => operation.entityId === entityId),
+      ),
+    );
+  }
   failDownloads = false;
   budgetPaused = false;
   readonly limitOverrides: Record<string, number> = {};
@@ -109,7 +117,11 @@ export class MockSyncGateway {
   finalize(): void {
     for (const vault of this.#vaults.values())
       for (const commit of vault.commits.values()) {
-        if (commit.state === 'committed') continue;
+        if (
+          commit.state === 'committed' ||
+          commit.batch.operations.some((operation) => this.pendingEntities.has(operation.entityId))
+        )
+          continue;
         for (const operation of commit.batch.operations) {
           if (vault.operations.some((entry) => entry.operation.opId === operation.opId)) continue;
           const manifest = commit.batch.recordManifest.find(

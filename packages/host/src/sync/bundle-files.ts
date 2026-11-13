@@ -33,6 +33,8 @@ interface Options {
   storage: Storage;
   home: string;
   eligible: () => SyncVaultRecord | undefined;
+  currentScope?: (binding: SyncBundleBinding, vault: SyncVaultRecord) => boolean;
+  publish?: (application: SyncBundleApplication, signal: AbortSignal) => Promise<() => void>;
 }
 const folded = (path: string) => path.normalize('NFC').toLowerCase();
 const signature = (value: SyncBundleChange['next']) =>
@@ -49,6 +51,7 @@ export class SyncBundleFiles {
     sourceRoot: string,
     signal: AbortSignal,
     publish = false,
+    explicit = false,
   ) {
     signal.throwIfAborted();
     const body = SyncBundleContentSchema.parse(content);
@@ -110,6 +113,8 @@ export class SyncBundleFiles {
       },
       true,
     );
+    if (!binding.revision && before.files.length && !publish && !explicit)
+      throw new ZuvRequestError('REVISION_CONFLICT');
     if (
       bundleFingerprint({
         ...before,
@@ -267,17 +272,12 @@ export class SyncBundleFiles {
     const guard = () => this.#guard(app, signal);
     this.#guard(app, signal);
     if (app.digest !== this.#digest(app)) throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (app.state === 'applied') return () => {};
     this.#validatePaths(app.files.map((file) => file.path));
     const binding = this.#options.storage.sync.bundleBinding(
       app.vaultId,
       app.entityId,
     ) as SyncBundleBinding;
-    if (
-      binding.revision === app.opId &&
-      binding.fingerprint === app.nextHash &&
-      app.state === 'applied'
-    )
-      return () => {};
     if (binding.revision !== app.previousRevision || binding.fingerprint !== app.previousHash)
       throw new ZuvRequestError('REVISION_CONFLICT');
     this.#options.storage.transaction(() =>
@@ -353,6 +353,8 @@ export class SyncBundleFiles {
         );
       throw error;
     }
+    const publish =
+      app.publish && this.#options.publish ? await this.#options.publish(app, signal) : undefined;
     return () => {
       this.#guard(app, signal);
       const current = this.#options.storage.sync.bundleBinding(app.vaultId, app.entityId);
@@ -365,7 +367,8 @@ export class SyncBundleFiles {
       const operation = app.operation as SyncMaterialRevision;
       const entity = this.#options.storage.sync.entity(app.vaultId, app.entityId);
       if (!entity) throw new ZuvRequestError('INTEGRITY_FAILED');
-      if (app.publish) {
+      if (publish) publish();
+      else if (app.publish) {
         const id = new SyncQueue(this.#options.storage).enqueue({
           opId: app.opId,
           vaultId: app.vaultId,
@@ -405,7 +408,7 @@ export class SyncBundleFiles {
         fingerprint: app.nextHash,
         opId: app.opId,
       });
-      if (operation.kind === 'resolve')
+      if (app.publish || operation.kind === 'resolve')
         this.#options.storage.sync.clearMaterialConflicts(
           app.vaultId,
           app.entityId,
@@ -413,6 +416,35 @@ export class SyncBundleFiles {
         );
       this.#options.storage.sync.setBundleApplicationState(app.vaultId, app.opId, 'applied');
     };
+  }
+  reauthorize(opId: string, signal: AbortSignal): void {
+    const vault = this.#options.eligible();
+    const old = vault && this.#options.storage.sync.bundleApplication(vault.vaultId, opId);
+    if (!vault || !old || old.digest !== this.#digest(old))
+      throw new ZuvRequestError('RECOVERY_REQUIRED');
+    const next = { ...old, scopeRevision: vault.revision };
+    this.#guard(next, signal);
+    this.#options.storage.transaction(() =>
+      this.#options.storage.sync.reauthorizeBundleApplication(
+        old.vaultId,
+        opId,
+        old.digest,
+        vault.revision,
+        this.#digest(next),
+      ),
+    );
+  }
+
+  async versionFile(vaultId: string, opId: string, path: string): Promise<Buffer> {
+    const app = this.#options.storage.sync.bundleApplication(vaultId, opId);
+    if (!app || app.digest !== this.#digest(app)) throw new ZuvRequestError('INTEGRITY_FAILED');
+    const index = app.files.findIndex((file) => file.path === path && file.next);
+    if (index < 0) throw new ZuvRequestError('RECOVERY_REQUIRED');
+    await this.#directory(this.#staging(app), this.#options.home, false);
+    const file = await this.#read(join(this.#staging(app), `${index}.next`));
+    if (file.sha256 !== app.files[index]?.next?.sha256)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    return file.bytes;
   }
 
   async #preflight(
@@ -586,6 +618,7 @@ export class SyncBundleFiles {
     const vault = this.#options.eligible(),
       op = app.operation as SyncMaterialRevision;
     const entity = this.#options.storage.sync.entity(app.vaultId, app.entityId);
+    const binding = this.#options.storage.sync.bundleBinding(app.vaultId, app.entityId);
     if (
       !vault ||
       vault.vaultId !== app.vaultId ||
@@ -593,7 +626,8 @@ export class SyncBundleFiles {
       vault.revision !== app.scopeRevision ||
       !vault.categories.includes(op.entityType) ||
       (entity?.projectId && !vault.projectIds.includes(entity.projectId)) ||
-      this.#options.storage.sync.owner(entity?.localKey ?? '') !== app.vaultId
+      this.#options.storage.sync.owner(entity?.localKey ?? '') !== app.vaultId ||
+      (binding && this.#options.currentScope && !this.#options.currentScope(binding, vault))
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
   }

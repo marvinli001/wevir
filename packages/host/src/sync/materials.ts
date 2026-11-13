@@ -41,6 +41,7 @@ import { validMemoryMarkdown } from '../memory.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sharedFilesKey } from './artifacts.js';
+import type { SyncBundles } from './bundles.js';
 import { sha256 } from './crypto.js';
 import { type SyncApplyContext, type SyncMaterialRevision, SyncQueue } from './queue.js';
 import { SyncSessionMaterials } from './session-materials.js';
@@ -58,6 +59,7 @@ export class SyncMaterials {
   readonly #queue: SyncQueue;
   readonly #settings: SyncSettings;
   readonly #client: ZuvClient;
+  readonly #bundles: SyncBundles | undefined;
   readonly #deviceHosts = new Map<string, string>();
   readonly sessions: SyncSessionMaterials;
   readonly #changed = new Map<SessionId, number>();
@@ -69,6 +71,7 @@ export class SyncMaterials {
     images: ImageStore;
     settingsSync: SyncSettings;
     client: ZuvClient;
+    bundles?: SyncBundles;
     eligible: () => SyncVaultRecord | undefined;
     nativeSource: (sessionId: string) => SyncSourceRecord | undefined;
     onEpisodeChanged?: (change: EpisodeChange) => void;
@@ -81,6 +84,7 @@ export class SyncMaterials {
     this.#queue = new SyncQueue(options.storage);
     this.#settings = options.settingsSync;
     this.#client = options.client;
+    this.#bundles = options.bundles;
     this.sessions = new SyncSessionMaterials({
       ...options,
       ensureSource: (vaultId, source, projectId) => this.#ensureSource(vaultId, source, projectId),
@@ -638,17 +642,19 @@ export class SyncMaterials {
       const digest = createHash('sha256');
       let length = 0;
       try {
-        for (const part of file.parts) {
+        for (const [index, part] of file.parts.entries()) {
           const stored = this.#storage.sync.getOperation(op.vaultId, part.opId);
           if (
             !stored ||
             stored.entityId !== part.entityId ||
             stored.projectId !== record.projectId ||
             !['applied', 'committed'].includes(stored.state)
-          )
+          ) {
             throw new ZuvRequestError('MISSING_PARENT');
+          }
           const chunk = SyncChunkContentSchema.parse((stored.record as MaterialRecord).content);
-          if (chunk.ownerId !== op.entityId) throw new ZuvRequestError('INTEGRITY_FAILED');
+          if (chunk.ownerId !== op.entityId || chunk.index !== index)
+            throw new ZuvRequestError('INTEGRITY_FAILED');
           const bytes = Buffer.from(chunk.data, 'base64url');
           digest.update(bytes);
           length += bytes.length;
@@ -671,6 +677,36 @@ export class SyncMaterials {
         !(await this.#images.importSynced(part, resolve(root, body.files[0]?.path as string)))
       )
         throw new ZuvRequestError('INTEGRITY_FAILED');
+    }
+    const binding = this.#storage.sync.bundleBinding(op.vaultId, op.entityId);
+    if (binding && this.#bundles) {
+      try {
+        return await this.#bundles.receive(
+          op,
+          body,
+          root,
+          context.signal ?? new AbortController().signal,
+        );
+      } catch (error) {
+        if (
+          !(error instanceof ZuvRequestError) ||
+          !['REVISION_CONFLICT', 'SCOPE_DISABLED'].includes(error.code)
+        )
+          throw error;
+        return () => {
+          this.#entity(op, localKey, record, false, { preserveRevision: true });
+          this.#storage.sync.putMaterialJournal({
+            vaultId: op.vaultId,
+            entityId: op.entityId,
+            opId: op.opId,
+            localKey,
+            targetPath: binding.targetPath,
+            previousHash: binding.fingerprint,
+            nextHash: sha256(jcs(body)),
+            state: 'conflict',
+          });
+        };
+      }
     }
     return () => {
       this.#entity(op, localKey, record, localKey.startsWith('shared-files:'), context);

@@ -154,6 +154,89 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it.each(['rule', 'skill-bundle', 'workspace-snapshot'] as const)(
+    'commits chunks before an older %s draft can carry a later dependent revision',
+    async (category) => {
+      const { first, server } = await setup();
+      await first.enable();
+      const scopes = await first.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+        expectedRevision: '1',
+        enabled: true,
+        categories: ['project', 'artifact', category],
+        projectIds: ['project_synthetic'],
+      });
+      first.storage.sync.setScopes(first.opened.vaultId, scopes);
+      await first.client.getEntitlements();
+      const queue = new SyncQueue(first.storage);
+      first.storage.transaction(() =>
+        queue.enqueue({
+          vaultId: first.opened.vaultId,
+          entityId: 'project_synthetic',
+          entityType: 'project',
+          projectId: 'project_synthetic',
+          localKey: 'project:synthetic',
+          content: {
+            schema: 'wevir-project/1',
+            projectId: 'project_synthetic',
+            displayName: 'Synthetic',
+          },
+        }),
+      );
+      await first.engine.run();
+      const bytes = Buffer.from('Synthetic dependent file');
+      first.storage.transaction(() => {
+        const base = {
+          vaultId: first.opened.vaultId,
+          entityId: 'bundle_synthetic',
+          entityType: category,
+          projectId: 'project_synthetic',
+          localKey: 'bundle:synthetic',
+        };
+        const body = {
+          schema: 'wevir-bundle/1',
+          category,
+          name: 'Synthetic',
+          files: [],
+          exclusions: [],
+        };
+        queue.enqueue({ ...base, content: body });
+        const chunk = queue.enqueue({
+          vaultId: first.opened.vaultId,
+          entityId: 'chunk_synthetic',
+          entityType: 'artifact',
+          projectId: 'project_synthetic',
+          localKey: 'chunk:synthetic',
+          content: {
+            schema: 'wevir-chunk/1',
+            ownerId: base.entityId,
+            index: 0,
+            data: bytes.toString('base64url'),
+            sha256: sha256(bytes),
+          },
+        });
+        queue.enqueue({
+          ...base,
+          content: {
+            ...body,
+            files: [
+              {
+                path: 'synthetic.txt',
+                bytes: bytes.length,
+                sha256: sha256(bytes),
+                parts: [{ entityId: 'chunk_synthetic', opId: chunk }],
+              },
+            ],
+          },
+        });
+      });
+      await first.engine.run();
+      expect(server.sync.acceptedOperations('chunk_synthetic')).toHaveLength(1);
+      expect(server.sync.acceptedOperations('bundle_synthetic')).toHaveLength(0);
+      await first.engine.run();
+      expect(server.sync.acceptedOperations('bundle_synthetic')).toHaveLength(2);
+      expect(server.errors).toEqual([]);
+    },
+  );
   it.each(['reserve', 'commit'] as const)(
     'reconciles RESET outbox receipts without rewriting an uncertain %s request',
     async (point) => {

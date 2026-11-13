@@ -2,6 +2,37 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'sync.bundles': 'Pacchetti di file',
+  'sync.localData': 'Dati locali',
+  'sync.currentAccount': 'Account attuale',
+  'sync.choosePackage': 'Seleziona pacchetto',
+  'sync.bound': 'Collegato',
+  'sync.noBundles': 'Nessun pacchetto',
+  'sync.packageTarget': 'Destinazione locale',
+  'sync.managedCopy': 'Copia separata',
+  'sync.applyPackage': 'Applica versione',
+  'sync.resumeApply': 'Riprendi applicazione',
+  'sync.moreFiles': 'Altri file',
+  'sync.binaryFile': 'File binario',
+  'sync.truncatedFile': 'Contenuto troncato',
+  'sync.currentFiles': 'Modifica file locale',
+  'sync.newFile': 'Nuovo file',
+  'sync.fileName': 'Nome file',
+  'sync.saveFile': 'Salva file',
+  'sync.deleteFile': 'Elimina file',
+  'sync.pauseApply': 'Sospendi applicazione',
+  'sync.applyPackageConsequences':
+    'Sostituisce i file gestiti. Conserva versioni, attivazione e attendibilità degli Skill.',
+  'sync.deleteFileConsequences':
+    'Elimina il file dalla destinazione locale e sincronizza la modifica. Le versioni precedenti sono conservate.',
+  'sync.moreVersions': 'Altre versioni',
+  'sync.rebindPackage': 'Cambia destinazione',
+  'sync.keepLocalPackage': 'Mantieni file locali',
+  'sync.keepLocalPackageConsequences':
+    'Sincronizza i file locali come nuova versione. Le altre versioni e i backup delle applicazioni interrotte sono conservati.',
+  'sync.applyPaused': 'Applicazione sospesa',
+  'sync.applyConflict': 'Conflitto di file locale',
+  'sync.applyingPackage': 'Applicazione in corso',
   'hook.action.blocked': 'Bloccato',
   'hook.action.denied': 'Negato',
   'hook.action.allowed': 'Consentito dall’hook',

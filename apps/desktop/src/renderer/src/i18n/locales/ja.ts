@@ -2,6 +2,37 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'sync.bundles': 'ファイルパッケージ',
+  'sync.localData': 'ローカル資料',
+  'sync.currentAccount': '現在のアカウント',
+  'sync.choosePackage': 'パッケージを選択',
+  'sync.bound': '関連付け済み',
+  'sync.noBundles': 'パッケージなし',
+  'sync.packageTarget': 'ローカル保存先',
+  'sync.managedCopy': '独立コピー',
+  'sync.applyPackage': 'バージョンを適用',
+  'sync.resumeApply': '適用を再開',
+  'sync.moreFiles': 'その他のファイル',
+  'sync.binaryFile': 'バイナリファイル',
+  'sync.truncatedFile': '内容は省略されています',
+  'sync.currentFiles': 'ローカルファイルを編集',
+  'sync.newFile': '新規ファイル',
+  'sync.fileName': 'ファイル名',
+  'sync.saveFile': 'ファイルを保存',
+  'sync.deleteFile': 'ファイルを削除',
+  'sync.pauseApply': '適用を一時停止',
+  'sync.applyPackageConsequences':
+    '管理対象ファイルを置き換えます。元の版、Skill の有効化と信頼設定は保持されます。',
+  'sync.deleteFileConsequences':
+    'ローカル保存先からファイルを削除し、変更を同期します。過去のバージョンは保持されます。',
+  'sync.moreVersions': 'その他のバージョン',
+  'sync.rebindPackage': '保存先を変更',
+  'sync.keepLocalPackage': 'ローカルを保持',
+  'sync.keepLocalPackageConsequences':
+    'ローカルファイルを新しいバージョンとして同期します。他のバージョンと中断された適用のバックアップは保持されます。',
+  'sync.applyPaused': '適用は一時停止中',
+  'sync.applyConflict': 'ローカルファイルの競合',
+  'sync.applyingPackage': '適用中',
   'hook.action.blocked': 'ブロック済み',
   'hook.action.denied': '拒否済み',
   'hook.action.allowed': 'フックで許可',

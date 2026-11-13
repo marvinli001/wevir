@@ -2,6 +2,37 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'sync.bundles': 'File bundles',
+  'sync.localData': 'Local data',
+  'sync.currentAccount': 'Current account',
+  'sync.choosePackage': 'Select bundle',
+  'sync.bound': 'Bound',
+  'sync.noBundles': 'No bundles',
+  'sync.packageTarget': 'Local target',
+  'sync.managedCopy': 'Separate copy',
+  'sync.applyPackage': 'Apply version',
+  'sync.resumeApply': 'Resume application',
+  'sync.moreFiles': 'More files',
+  'sync.binaryFile': 'Binary file',
+  'sync.truncatedFile': 'Content truncated',
+  'sync.currentFiles': 'Edit local file',
+  'sync.newFile': 'New file',
+  'sync.fileName': 'File name',
+  'sync.saveFile': 'Save file',
+  'sync.deleteFile': 'Delete file',
+  'sync.pauseApply': 'Pause application',
+  'sync.applyPackageConsequences':
+    'Replaces managed files. Keeps original versions, skill activation and trust.',
+  'sync.deleteFileConsequences':
+    'Deletes the file at the local target and syncs the change. Historical versions are retained.',
+  'sync.moreVersions': 'More versions',
+  'sync.rebindPackage': 'Rebind target',
+  'sync.keepLocalPackage': 'Keep local files',
+  'sync.keepLocalPackageConsequences':
+    'Syncs local files as a new version. Other versions and interrupted application backups are retained.',
+  'sync.applyPaused': 'Application paused',
+  'sync.applyConflict': 'Local file conflict',
+  'sync.applyingPackage': 'Applying',
   'hook.action.blocked': 'Blocked',
   'hook.action.denied': 'Denied',
   'hook.action.allowed': 'Allowed by hook',

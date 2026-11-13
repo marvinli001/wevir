@@ -2,6 +2,37 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'sync.bundles': 'Пакеты файлов',
+  'sync.localData': 'Локальные данные',
+  'sync.currentAccount': 'Текущий аккаунт',
+  'sync.choosePackage': 'Выбрать пакет',
+  'sync.bound': 'Связан',
+  'sync.noBundles': 'Нет пакетов',
+  'sync.packageTarget': 'Локальное назначение',
+  'sync.managedCopy': 'Отдельная копия',
+  'sync.applyPackage': 'Применить версию',
+  'sync.resumeApply': 'Продолжить применение',
+  'sync.moreFiles': 'Другие файлы',
+  'sync.binaryFile': 'Двоичный файл',
+  'sync.truncatedFile': 'Содержимое сокращено',
+  'sync.currentFiles': 'Изменить локальный файл',
+  'sync.newFile': 'Новый файл',
+  'sync.fileName': 'Имя файла',
+  'sync.saveFile': 'Сохранить файл',
+  'sync.deleteFile': 'Удалить файл',
+  'sync.pauseApply': 'Приостановить применение',
+  'sync.applyPackageConsequences':
+    'Заменяет управляемые файлы. Версии, активация и доверие Skills сохраняются.',
+  'sync.deleteFileConsequences':
+    'Удаляет файл из локального назначения и синхронизирует изменение. Предыдущие версии сохраняются.',
+  'sync.moreVersions': 'Другие версии',
+  'sync.rebindPackage': 'Сменить назначение',
+  'sync.keepLocalPackage': 'Сохранить локальные файлы',
+  'sync.keepLocalPackageConsequences':
+    'Синхронизирует локальные файлы как новую версию. Другие версии и резервные копии прерванного применения сохраняются.',
+  'sync.applyPaused': 'Применение приостановлено',
+  'sync.applyConflict': 'Конфликт локального файла',
+  'sync.applyingPackage': 'Применение',
   'hook.action.blocked': 'Заблокировано',
   'hook.action.denied': 'Отклонено',
   'hook.action.allowed': 'Разрешено хуком',

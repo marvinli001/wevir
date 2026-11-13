@@ -17,6 +17,14 @@ export interface SyncContentRefRecord {
 
 export function createSyncReferenceRepository(db: SqliteDatabase) {
   return {
+    sessionDeclaration(vaultId: string, entityId: string): unknown {
+      const row = db
+        .prepare(`SELECT json_extract(record,'$.content') AS content FROM sync_operations
+        WHERE vault_id=? AND entity_id=? AND state IN ('applied','committed')
+        AND json_extract(record,'$.content.schema')='wevir-session/1' ORDER BY rowid LIMIT 1`)
+        .get(vaultId, entityId);
+      return row && json(row, 'content');
+    },
     scopeInitialized(vaultId: string): boolean {
       return Boolean(
         db.prepare('SELECT scope_initialized FROM sync_vaults WHERE vault_id = ?').get(vaultId)
