@@ -28,6 +28,7 @@ const GROUPS: ReadonlyArray<{
   { label: 'sync.rules', categories: ['rule'] },
   { label: 'sync.skills', categories: ['skill-bundle'] },
   { label: 'sync.artifacts', categories: ['artifact'] },
+  { label: 'sync.workspace', categories: ['workspace-snapshot'] },
   { label: 'sync.settings', categories: ['settings'] },
 ];
 const STATES: Record<NonNullable<SyncStatus['state']>, PlainMessageKey> = {
@@ -134,7 +135,11 @@ export function ZuvSyncSection({
     run(async () => {
       const selected = [...new Set(categories)];
       if (projects.length && !selected.includes('project')) selected.push('project');
-      if (selected.includes('rule') || selected.includes('skill-bundle'))
+      if (
+        selected.includes('rule') ||
+        selected.includes('skill-bundle') ||
+        selected.includes('workspace-snapshot')
+      )
         if (!selected.includes('artifact')) selected.push('artifact');
       setStatus(
         await client.request('sync.configure', {

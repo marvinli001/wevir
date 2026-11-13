@@ -49,6 +49,7 @@ const OUTPUT_NOTIFY_MS = 1000;
 type Change = NotificationParams<'readiness.changed'>;
 
 export interface ReadinessServiceOptions {
+  workspaceRestoreRoot?: (workspaceId: WorkspaceId, restoreId: string) => Promise<string>;
   storage: Storage;
   /** 工作区的检查（回合后验证）；省略时报告里没有检查的项。 */
   checks?: (workspaceId: WorkspaceId) => Promise<readonly CheckDefinition[]>;
@@ -117,12 +118,26 @@ export class ReadinessService {
     workspaceId: WorkspaceId;
     sessionId?: SessionId;
     refresh?: boolean;
+    workspaceRestoreId?: string;
   }): Promise<ReadinessReport> {
     await this.#load();
-    const root = this.#root(params.workspaceId, params.sessionId);
+    const root = params.workspaceRestoreId
+      ? await this.#restoreRoot(params.workspaceId, params.workspaceRestoreId)
+      : this.#root(params.workspaceId, params.sessionId);
     if (params.refresh === true) this.#probeCache.clear();
     const report = await this.#build(params.workspaceId, params.sessionId, root);
     return report;
+  }
+
+  async getDirectory(workspaceId: WorkspaceId, root: string): Promise<ReadinessReport> {
+    await this.#load();
+    return this.#build(workspaceId, undefined, root);
+  }
+
+  async #restoreRoot(workspaceId: WorkspaceId, restoreId: string) {
+    if (!this.#options.workspaceRestoreRoot)
+      throw new HostError('INVALID_PARAMS', 'workspace restore is unavailable', { issues: [] });
+    return this.#options.workspaceRestoreRoot(workspaceId, restoreId);
   }
 
   async #build(
@@ -218,12 +233,15 @@ export class ReadinessService {
   async install(params: {
     workspaceId: WorkspaceId;
     sessionId?: SessionId;
+    workspaceRestoreId?: string;
     planId: string;
     timeoutMs?: number;
   }): Promise<InstallRun> {
     await this.#load();
     if (this.#disposed) throw new HostError('HOST_SHUTTING_DOWN', 'the host is shutting down');
-    const root = this.#root(params.workspaceId, params.sessionId);
+    const root = params.workspaceRestoreId
+      ? await this.#restoreRoot(params.workspaceId, params.workspaceRestoreId)
+      : this.#root(params.workspaceId, params.sessionId);
     for (const running of this.#running.values()) {
       if (running.run.root === root) {
         throw new HostError('RESOURCE_IN_USE', 'an install is already running in this folder', {

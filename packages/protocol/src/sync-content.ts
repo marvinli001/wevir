@@ -5,7 +5,7 @@ import { MemoryNameSchema, SessionForkedFromSchema } from './entities.js';
 import { RetroSummarySchema } from './retro.js';
 import { SyncStreamRefSchema } from './sync.js';
 import { SyncSettingsContentSchema } from './sync-settings.js';
-import { decimal, id } from './sync-wire.js';
+import { decimal, digest, id } from './sync-wire.js';
 
 export { SyncSettingsContentSchema, SyncSettingsValuesSchema } from './sync-settings.js';
 
@@ -127,6 +127,24 @@ export const SyncBundleContentSchema = z.object({
     ),
   exclusions: z.array(SyncRelativePathSchema).max(10000),
   metadata: z.json().optional(),
+  recoveredFrom: z
+    .object({
+      vaultId: id,
+      deviceId: id,
+      opId: id,
+      commitId: id.optional(),
+      source: SyncStreamRefSchema.optional(),
+      origin: z
+        .object({
+          hostId: id,
+          sessionId: SessionIdSchema,
+          streamId: id,
+          fromSeq: decimal,
+          throughSeq: decimal,
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export const SyncSharedFilesMetadataSchema = z.object({
@@ -136,7 +154,27 @@ export const SyncSharedFilesMetadataSchema = z.object({
   capture: z.enum(['shared', 'backfill']),
 });
 
+export const SyncWorkspaceMetadataSchema = z
+  .object({
+    schema: z.literal('wevir-workspace-snapshot/1'),
+    projectId: id,
+    source: SyncStreamRefSchema,
+    throughSeq: z.number().int().nonnegative(),
+    sourceHead: z
+      .string()
+      .regex(/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/)
+      .nullable(),
+    base: z.literal('bounded-tree'),
+    statusHash: digest,
+    selectedUntracked: z.array(SyncRelativePathSchema).max(1000),
+    ruleVersions: z.array(z.object({ entityId: id, opId: id })).max(1000),
+    capturedAt: z.iso.datetime(),
+  })
+  .strict();
+export type SyncWorkspaceMetadata = z.infer<typeof SyncWorkspaceMetadataSchema>;
+
 export const SYNC_CONTENT_SCHEMAS = {
+  workspace: SyncWorkspaceMetadataSchema,
   sharedFiles: SyncSharedFilesMetadataSchema,
   project: SyncProjectContentSchema,
   session: SyncSessionContentSchema,

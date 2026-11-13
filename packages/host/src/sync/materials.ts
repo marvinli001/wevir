@@ -20,6 +20,7 @@ import {
   SyncSessionContentSchema,
   SyncSharedFilesMetadataSchema,
   type SyncStreamRef,
+  SyncWorkspaceMetadataSchema,
   UserImagePartSchema,
   type WevirEvent,
   WevirEventSchema,
@@ -45,6 +46,7 @@ import { sha256 } from './crypto.js';
 import { type SyncApplyContext, type SyncMaterialRevision, SyncQueue } from './queue.js';
 import { SyncSessionMaterials } from './session-materials.js';
 import type { SyncSettings } from './settings.js';
+import { validateWorkspacePaths } from './workspace-git.js';
 
 type MaterialRecord = typeof packRecord._output;
 const MISSING = 'missing';
@@ -584,6 +586,27 @@ export class SyncMaterials {
   ): Promise<() => void> {
     const body = SyncBundleContentSchema.parse(record.content);
     if (body.category !== op.entityType) throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (op.entityType === 'workspace-snapshot') {
+      const metadata = SyncWorkspaceMetadataSchema.parse(body.metadata);
+      if (metadata.projectId !== record.projectId || metadata.source.deviceId !== op.deviceId)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      if (!this.#deviceHosts.has(op.deviceId)) {
+        for (const device of (
+          await this.#client.json('devices', 'GET', '/api/wevir/sync/v1/devices')
+        ).devices)
+          this.#deviceHosts.set(device.deviceId, device.originHostId);
+      }
+      if (this.#deviceHosts.get(op.deviceId) !== metadata.source.hostId)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      for (const layer of ['base', 'index', 'worktree'])
+        validateWorkspacePaths(
+          body.files
+            .filter((file) => file.path.startsWith(`${layer}/`))
+            .map((file) => file.path.slice(layer.length + 1)),
+        );
+      if (body.files.some((file) => !/^(?:base|index|worktree)\//.test(file.path)))
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+    }
     let localKey = `bundle:${op.entityId}`;
     if ((body.metadata as { schema?: string } | undefined)?.schema === 'wevir-shared-files/1') {
       const metadata = SyncSharedFilesMetadataSchema.parse(body.metadata);
@@ -638,7 +661,7 @@ export class SyncMaterials {
       const digest = createHash('sha256');
       let length = 0;
       try {
-        for (const part of file.parts) {
+        for (const [index, part] of file.parts.entries()) {
           const stored = this.#storage.sync.getOperation(op.vaultId, part.opId);
           if (
             !stored ||
@@ -649,6 +672,8 @@ export class SyncMaterials {
             throw new ZuvRequestError('MISSING_PARENT');
           const chunk = SyncChunkContentSchema.parse((stored.record as MaterialRecord).content);
           if (chunk.ownerId !== op.entityId) throw new ZuvRequestError('INTEGRITY_FAILED');
+          if (op.entityType === 'workspace-snapshot' && chunk.index !== index)
+            throw new ZuvRequestError('INTEGRITY_FAILED');
           const bytes = Buffer.from(chunk.data, 'base64url');
           digest.update(bytes);
           length += bytes.length;

@@ -3431,6 +3431,66 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{ opId: 'operation_resolved' }], invalid: [{}] },
   },
+  'sync.workspaceCapture': {
+    params: {
+      valid: [{ sessionId: ids.session, untracked: [] }],
+      invalid: [{}, { sessionId: ids.session, untracked: ['../escape'] }],
+    },
+    result: {
+      valid: [
+        {
+          snapshot: {
+            vaultId: 'vault_fixture',
+            entityId: 'workspace_fixture',
+            opId: 'operation_fixture',
+            projectId: 'project_fixture',
+            source: {
+              hostId: 'host_fixture',
+              deviceId: 'device_fixture',
+              sessionId: ids.session,
+              streamId: 'stream_fixture',
+            },
+            capturedAt: '2026-11-13T00:00:00.000Z',
+            files: 0,
+            bytes: 0,
+            exclusions: [],
+          },
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.workspaceSnapshots': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: { valid: [{ snapshots: [] }], invalid: [{}] },
+  },
+  'sync.workspaceRestore': {
+    params: {
+      valid: [
+        {
+          sessionId: ids.session,
+          snapshot: {
+            vaultId: 'vault_fixture',
+            entityId: 'workspace_fixture',
+            opId: 'operation_fixture',
+          },
+        },
+      ],
+      invalid: [{}],
+    },
+    result: {
+      valid: [
+        {
+          restoreId: 'restore_fixture',
+          cwd: '/synthetic/workspace',
+          sourceHead: null,
+          head: '0'.repeat(40),
+          requiresTrust: [],
+        },
+      ],
+      invalid: [{}],
+    },
+  },
   'sync.settingsConflicts': {
     params: { valid: [{}], invalid: [null] },
     result: { valid: [{ conflicts: [] }], invalid: [{}] },

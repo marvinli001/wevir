@@ -43,12 +43,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 export function InstallDialog({
   workspaceId,
   sessionId,
+  workspaceRestoreId,
   root,
   plan,
   onClose,
 }: {
   workspaceId: WorkspaceId;
   sessionId?: SessionId;
+  workspaceRestoreId?: string;
   root: string;
   plan: InstallPlan;
   onClose: (started: boolean) => void;
@@ -65,6 +67,7 @@ export function InstallDialog({
       await client.request('readiness.install', {
         workspaceId,
         ...(sessionId && { sessionId }),
+        ...(workspaceRestoreId && { workspaceRestoreId }),
         planId: plan.id,
         acceptScripts: true,
       });

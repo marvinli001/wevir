@@ -73,6 +73,79 @@
     },
     "metadata": {
       "$ref": "#/$defs/__schema0"
+    },
+    "recoveredFrom": {
+      "type": "object",
+      "properties": {
+        "vaultId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "opId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "commitId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "hostId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "deviceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "sessionId": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+            },
+            "streamId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            }
+          },
+          "required": ["hostId", "deviceId", "sessionId", "streamId"],
+          "additionalProperties": false
+        },
+        "origin": {
+          "type": "object",
+          "properties": {
+            "hostId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "sessionId": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+            },
+            "streamId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "fromSeq": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,38})$"
+            },
+            "throughSeq": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,38})$"
+            }
+          },
+          "required": ["hostId", "sessionId", "streamId", "fromSeq", "throughSeq"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["vaultId", "deviceId", "opId"],
+      "additionalProperties": false
     }
   },
   "required": ["schema", "category", "name", "files", "exclusions"],

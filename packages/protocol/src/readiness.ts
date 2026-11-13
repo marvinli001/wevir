@@ -244,6 +244,7 @@ export const ReadinessGetParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
   refresh: z.boolean().optional(),
+  workspaceRestoreId: z.string().min(8).max(128).optional(),
 });
 export const ReadinessGetResultSchema = z.object({ report: ReadinessReportSchema });
 
@@ -254,6 +255,7 @@ export const ReadinessGetResultSchema = z.object({ report: ReadinessReportSchema
 export const ReadinessInstallParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  workspaceRestoreId: z.string().min(8).max(128).optional(),
   planId: z.string().min(1).max(80),
   acceptScripts: z.literal(true),
   timeoutMs: z.int().min(10_000).max(INSTALL_TIMEOUT_MAX_MS).optional(),
