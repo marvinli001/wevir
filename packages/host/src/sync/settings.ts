@@ -4,7 +4,7 @@ import {
   SyncSettingsContentSchema,
   SyncSettingsValuesSchema,
 } from '@wevir/protocol';
-import { jcs, type packRecord, type SyncOperation } from '@wevir/protocol/sync';
+import { jcs, type packRecord } from '@wevir/protocol/sync';
 import type {
   Storage,
   SyncLocalWriteRecord,
@@ -15,7 +15,7 @@ import { newId } from '../ids.js';
 import { type HostSettingsStore, SettingsRevisionError } from '../settings.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
-import { SyncQueue } from './queue.js';
+import { type SyncMaterialRevision, SyncQueue } from './queue.js';
 
 type Values = typeof SyncSettingsValuesSchema._output;
 type Key = keyof Values;
@@ -123,7 +123,7 @@ export class SyncSettings {
       }
     });
   }
-  async prepare(op: SyncOperation, record: typeof packRecord._output): Promise<() => void> {
+  async prepare(op: SyncMaterialRevision, record: typeof packRecord._output): Promise<() => void> {
     const body = SyncSettingsContentSchema.parse(record.content);
     const keys = Object.keys(body.values) as Key[];
     const key = keys[0];

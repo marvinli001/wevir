@@ -139,6 +139,58 @@ describe('durable sync mappings', () => {
     expect(storage().sync.heads(vault.vaultId, 'entity_fixture')).toEqual(['operation_resolved']);
   });
 
+  it('clears only conflict journals in the resolved causal ancestry, including pending drafts', () => {
+    bind();
+    storage().transaction(() => {
+      let sequence = 0;
+      for (const [opId, parents] of [
+        ['operation_base', []],
+        ['operation_left', ['operation_base']],
+        ['operation_right', ['operation_base']],
+        ['operation_merged', ['operation_left', 'operation_right']],
+        ['operation_unseen', ['operation_base']],
+      ] as const) {
+        storage().sync.putOperation(
+          op({ opId, deviceSeq: String(++sequence), digest: opId, envelope: { parents } }),
+        );
+        storage().sync.applyHeads(vault.vaultId, 'entity_fixture', opId, parents);
+        storage().sync.putMaterialJournal({
+          vaultId: vault.vaultId,
+          opId,
+          entityId: 'entity_fixture',
+          localKey: 'memory:global:synthetic',
+          targetPath: '/synthetic/note.md',
+          nextHash: opId,
+          state: 'conflict',
+        });
+      }
+      storage().sync.putEntity({
+        vaultId: vault.vaultId,
+        entityId: 'entity_fixture',
+        entityType: 'memory',
+        localKey: 'memory:global:synthetic',
+        materialized: true,
+      });
+      storage().sync.putDraft({
+        vaultId: vault.vaultId,
+        opId: 'draft_resolution',
+        entityId: 'entity_fixture',
+        kind: 'resolve',
+        parents: ['operation_merged'],
+        content: {},
+        createdAt: '2026-11-14T00:00:00.000Z',
+      });
+      storage().sync.clearMaterialConflicts(vault.vaultId, 'entity_fixture', ['draft_resolution']);
+    });
+    expect(
+      storage()
+        .sync.materialJournals(vault.vaultId)
+        .map((journal) => journal.opId),
+    ).toEqual(['operation_unseen']);
+    expect(storage().sync.getOperation(vault.vaultId, 'operation_left')).toBeDefined();
+    expect(storage().sync.getOperation(vault.vaultId, 'operation_right')).toBeDefined();
+  });
+
   it('restarts a changed consent range without discarding operations or claiming unapplied pages', () => {
     bind();
     storage().transaction(() => {

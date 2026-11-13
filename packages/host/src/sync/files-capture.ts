@@ -75,7 +75,7 @@ export class SyncFilesCapture {
     this.#activeWrites.add(write.id);
     return () => {
       try {
-        this.#finishWrite(write);
+        this.finishWrite(write);
       } finally {
         this.#activeWrites.delete(write.id);
       }
@@ -99,7 +99,7 @@ export class SyncFilesCapture {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
-      if (actual === pending.nextHash) this.#finishWrite(pending);
+      if (actual === pending.nextHash) this.finishWrite(pending);
       else this.#storage.sync.abandonLocalWrite(pending.id);
     }
   }
@@ -130,21 +130,33 @@ export class SyncFilesCapture {
     };
   }
 
-  #finishWrite(pending: SyncLocalWriteRecord): void {
-    this.#storage.transaction(() => {
+  finishWrite(pending: SyncLocalWriteRecord): void {
+    const finish = () => {
       if (!this.#storage.sync.localWrites(pending.vaultId).some((value) => value.id === pending.id))
         return;
       const opId = this.#queue.enqueue({
         ...pending,
         entityType: 'memory',
+        ...(pending.resolution && { opId: pending.id, kind: 'resolve' }),
       });
+      if (pending.resolution) {
+        this.#storage.sync.clearMaterialConflicts(
+          pending.vaultId,
+          pending.entityId,
+          pending.parents,
+        );
+        const journal = this.#storage.sync.materialJournal(pending.vaultId, pending.id);
+        if (journal) this.#storage.sync.putMaterialJournal({ ...journal, state: 'applied' });
+      }
       this.#storage.sync.putFileBaseline({
         ...pending,
         fingerprint: pending.nextHash,
         ...(opId && { opId }),
       });
       this.#storage.sync.removeLocalWrite(pending.id);
-    });
+    };
+    if (this.#storage.db.isTransaction) finish();
+    else this.#storage.transaction(finish);
   }
 
   async memory(

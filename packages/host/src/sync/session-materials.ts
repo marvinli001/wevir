@@ -10,7 +10,7 @@ import {
   type SyncStreamRef,
   SyncStreamRefSchema,
 } from '@wevir/protocol';
-import { jcs, type packRecord, type SyncOperation } from '@wevir/protocol/sync';
+import { jcs, type packRecord } from '@wevir/protocol/sync';
 import type {
   EpisodeRecord,
   RetroSummaryRecord,
@@ -27,6 +27,7 @@ import { newId } from '../ids.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
+import type { SyncMaterialRevision } from './queue.js';
 import { type SyncDraftPayload, SyncQueue } from './queue.js';
 
 type Record = typeof packRecord._output;
@@ -293,7 +294,7 @@ export class SyncSessionMaterials {
     });
   }
 
-  async prepare(op: SyncOperation, record: Record): Promise<() => void> {
+  async prepare(op: SyncMaterialRevision, record: Record): Promise<() => void> {
     const raw = record.content as { schema?: string };
     if (
       ![
@@ -428,7 +429,7 @@ export class SyncSessionMaterials {
         continue;
       const body = this.#body(vaultId, ref.entityId);
       if (!body || !stored.projectId) continue;
-      this.#apply(stored.envelope as SyncOperation, body, ref, stored.projectId);
+      this.#apply(stored.envelope as SyncMaterialRevision, body, ref, stored.projectId);
     }
   }
 
@@ -523,7 +524,7 @@ export class SyncSessionMaterials {
     return draft && ((draft.content as SyncDraftPayload).body as Body);
   }
 
-  #apply(op: SyncOperation, body: Body, ref: SyncContentRefRecord, projectId: string): void {
+  #apply(op: SyncMaterialRevision, body: Body, ref: SyncContentRefRecord, projectId: string): void {
     const { storage } = this.#options;
     const source = storage.sync
       .sources(op.vaultId)

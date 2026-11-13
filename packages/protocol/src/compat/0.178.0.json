@@ -1,0 +1,62 @@
+{
+  "protocolVersion": "0.178.0",
+  "methods": {
+    "sync.memoryConflicts": {
+      "params": [{}],
+      "result": [
+        {
+          "conflicts": []
+        }
+      ]
+    },
+    "sync.previewMemoryMerge": {
+      "params": [
+        {
+          "entityId": "memory_fixture"
+        }
+      ],
+      "result": [
+        {
+          "entityId": "memory_fixture",
+          "name": "synthetic-note",
+          "scope": "global",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "fileFingerprint": "missing",
+          "versions": [
+            {
+              "opId": "operation_left",
+              "parents": [],
+              "deleted": true
+            },
+            {
+              "opId": "operation_right",
+              "parents": [],
+              "deleted": true
+            }
+          ],
+          "mergeState": "unavailable"
+        }
+      ]
+    },
+    "sync.resolveMemory": {
+      "params": [
+        {
+          "entityId": "memory_fixture",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "fileFingerprint": "missing",
+          "deleted": true
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_resolved"
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

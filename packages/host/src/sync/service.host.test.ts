@@ -122,6 +122,85 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('previews and explicitly merges concurrent memory edits through the Host while retaining both revisions', async () => {
+    const { mock, first, second } = await fixture();
+    const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
+    await first.rpc.request('sync.configure', scope);
+    expect((await second.rpc.call('sync.configure', scope)).error).toMatchObject({
+      data: { code: 'RECOVERY_REQUIRED' },
+    });
+    const status = await second.rpc.request('sync.status');
+    await first.rpc.request('sync.approveDevice', { deviceId: status.binding.deviceId });
+    await second.rpc.request('sync.configure', scope);
+    await first.memory.save('global', undefined, {
+      name: 'synthetic-merge',
+      type: 'project',
+      description: 'Synthetic merge',
+      content: 'Alpha\n\nMiddle\n\nOmega',
+    });
+    await expect
+      .poll(
+        async () =>
+          second.memory.read('global', undefined, 'synthetic-merge').then(
+            (note) => note.content,
+            (error) => error.code,
+          ),
+        { timeout: 8000 },
+      )
+      .toBe('Alpha\n\nMiddle\n\nOmega');
+    const commits = mock.sync.attempts.commits;
+    mock.sync.pendingCommits = true;
+    for (const [peer, content] of [
+      [first, 'Local alpha\n\nMiddle\n\nOmega'],
+      [second, 'Alpha\n\nMiddle\n\nRemote omega'],
+    ] as const) {
+      const note = await peer.memory.read('global', undefined, 'synthetic-merge');
+      await peer.memory.update('global', undefined, 'synthetic-merge', note.revision, { content });
+    }
+    await expect
+      .poll(() => mock.sync.attempts.commits, { timeout: 8000 })
+      .toBeGreaterThanOrEqual(commits + 2);
+    mock.sync.pendingCommits = false;
+    mock.sync.finalize();
+    await expect
+      .poll(async () => (await first.rpc.request('sync.memoryConflicts')).conflicts.length, {
+        timeout: 8000,
+      })
+      .toBe(1);
+    const [entry] = (await first.rpc.request('sync.memoryConflicts')).conflicts;
+    const preview = await first.rpc.request('sync.previewMemoryMerge', {
+      entityId: entry.entityId,
+    });
+    expect(preview).toMatchObject({
+      name: 'synthetic-merge',
+      scope: 'global',
+      mergeState: 'clean',
+    });
+    expect(preview.merged).toContain('Local alpha\n\nMiddle\n\nRemote omega');
+    const resolved = await first.rpc.request('sync.resolveMemory', {
+      ...preview,
+      markdown: preview.merged,
+    });
+    expect(resolved.opId).toMatch(/^sop_/);
+    expect((await first.memory.read('global', undefined, 'synthetic-merge')).content).toBe(
+      'Local alpha\n\nMiddle\n\nRemote omega',
+    );
+    expect(
+      (await first.rpc.call('sync.resolveMemory', { ...preview, markdown: preview.merged })).error,
+    ).toMatchObject({ data: { code: 'REVISION_CONFLICT' } });
+    await expect
+      .poll(
+        async () => (await second.memory.read('global', undefined, 'synthetic-merge')).content,
+        { timeout: 8000 },
+      )
+      .toBe('Local alpha\n\nMiddle\n\nRemote omega');
+    expect((await first.rpc.request('sync.memoryConflicts')).conflicts).toEqual([]);
+    expect((await second.rpc.request('sync.memoryConflicts')).conflicts).toEqual([]);
+    expect((await first.rpc.request('sync.status')).conflicts).toBe(0);
+    expect((await second.rpc.request('sync.status')).conflicts).toBe(0);
+    expect(mock.errors).toEqual([]);
+  }, 25000);
+
   it('reads immutable text, binary and HTML artifacts by source event without falling back to local files', async () => {
     const { first, second } = await fixture(true);
     await linkSessions(first, second, true, true);

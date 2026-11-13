@@ -1874,6 +1874,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         cloud_sync: true,
         sync_project_catalog: true,
         sync_project_conflicts: true,
+        sync_memory_conflicts: true,
         sync_artifacts: true,
         zuv_account: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),

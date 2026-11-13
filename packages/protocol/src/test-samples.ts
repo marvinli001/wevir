@@ -3377,6 +3377,47 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'sync.memoryConflicts': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ conflicts: [] }], invalid: [{}] },
+  },
+  'sync.previewMemoryMerge': {
+    params: { valid: [{ entityId: 'memory_fixture' }], invalid: [null] },
+    result: {
+      valid: [
+        {
+          entityId: 'memory_fixture',
+          name: 'synthetic-note',
+          scope: 'global',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          fileFingerprint: 'missing',
+          versions: [
+            { opId: 'operation_left', parents: [], deleted: true },
+            { opId: 'operation_right', parents: [], deleted: true },
+          ],
+          mergeState: 'unavailable',
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.resolveMemory': {
+    params: {
+      valid: [
+        {
+          entityId: 'memory_fixture',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          fileFingerprint: 'missing',
+          deleted: true,
+        },
+      ],
+      invalid: [null],
+    },
+    result: { valid: [{ opId: 'operation_resolved' }], invalid: [{}] },
+  },
+
   'sync.projectCatalog': {
     params: { valid: [{}, { enable: true }], invalid: [null, { enable: 'true' }] },
     result: { valid: [{ projects: [] }], invalid: [{}] },

@@ -25,7 +25,7 @@ import {
   WevirEventSchema,
   type WorkspaceId,
 } from '@wevir/protocol';
-import { jcs, type packRecord, type SyncOperation } from '@wevir/protocol/sync';
+import { jcs, type packRecord } from '@wevir/protocol/sync';
 import type {
   SessionRecord,
   Storage,
@@ -42,7 +42,7 @@ import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sharedFilesKey } from './artifacts.js';
 import { sha256 } from './crypto.js';
-import { SyncQueue } from './queue.js';
+import { type SyncMaterialRevision, SyncQueue } from './queue.js';
 import { SyncSessionMaterials } from './session-materials.js';
 import type { SyncSettings } from './settings.js';
 
@@ -96,7 +96,7 @@ export class SyncMaterials {
     this.sessions.notify();
   }
 
-  async prepareApply(op: SyncOperation, record: MaterialRecord): Promise<() => void> {
+  async prepareApply(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
     try {
       if (op.entityType === 'project') {
         const body = SyncProjectContentSchema.parse(record.content);
@@ -156,7 +156,12 @@ export class SyncMaterials {
     }
   }
 
-  #entity(op: SyncOperation, localKey: string, record: MaterialRecord, materialized = true): void {
+  #entity(
+    op: SyncMaterialRevision,
+    localKey: string,
+    record: MaterialRecord,
+    materialized = true,
+  ): void {
     const old = this.#storage.sync.entity(op.vaultId, op.entityId);
     const owner = this.#storage.sync.localEntity(op.vaultId, localKey);
     const canAdvance =
@@ -187,7 +192,7 @@ export class SyncMaterials {
     return workspace;
   }
 
-  #prepareEvents(op: SyncOperation, record: MaterialRecord): () => void {
+  #prepareEvents(op: SyncMaterialRevision, record: MaterialRecord): () => void {
     const body = SyncEventStreamContentSchema.parse(record.content);
     const origin = op.origin;
     if (
@@ -409,7 +414,7 @@ export class SyncMaterials {
     }
   }
 
-  async #prepareMemory(op: SyncOperation, record: MaterialRecord): Promise<() => void> {
+  async #prepareMemory(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
     const body = SyncMemoryContentSchema.parse(record.content);
     if (
       !['put', 'delete', 'resolve'].includes(op.kind) ||
@@ -529,6 +534,8 @@ export class SyncMaterials {
         ...(backup && { backupPath: backup }),
         state: 'applied',
       });
+      if (op.kind === 'resolve')
+        this.#storage.sync.clearMaterialConflicts(op.vaultId, op.entityId, op.parents);
     };
   }
 
@@ -539,7 +546,7 @@ export class SyncMaterials {
     );
   }
 
-  async #prepareChunk(op: SyncOperation, record: MaterialRecord): Promise<() => void> {
+  async #prepareChunk(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
     const body = SyncChunkContentSchema.parse(record.content);
     const bytes = Buffer.from(body.data, 'base64url');
     if (bytes.toString('base64url') !== body.data || sha256(bytes) !== body.sha256)
@@ -548,7 +555,7 @@ export class SyncMaterials {
     return () => this.#entity(op, `chunk:${op.entityId}`, record, false);
   }
 
-  async #prepareBundle(op: SyncOperation, record: MaterialRecord): Promise<() => void> {
+  async #prepareBundle(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
     const body = SyncBundleContentSchema.parse(record.content);
     if (body.category !== op.entityType) throw new ZuvRequestError('INTEGRITY_FAILED');
     let localKey = `bundle:${op.entityId}`;
@@ -644,7 +651,7 @@ export class SyncMaterials {
     };
   }
 
-  async #stage(op: SyncOperation, bytes: Uint8Array): Promise<string> {
+  async #stage(op: SyncMaterialRevision, bytes: Uint8Array): Promise<string> {
     const directory = join(this.#home, 'sync/staging', op.vaultId);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const target = join(directory, `${op.opId}.bin`);

@@ -6,6 +6,7 @@ export interface SyncDraftPayload {
   origin?: SyncOperation['origin'];
   events?: typeof packRecord._output.events;
 }
+export type SyncMaterialRevision = Omit<SyncOperation, 'protocol' | 'deviceSeq' | 'payload'>;
 
 import type { Storage, SyncEntityRecord } from '@wevir/storage';
 import { newId } from '../ids.js';
@@ -18,6 +19,7 @@ export class SyncQueue {
   }
 
   enqueue(input: {
+    opId?: string;
     vaultId: string;
     entityType: EntityType;
     localKey: string;
@@ -43,7 +45,7 @@ export class SyncQueue {
     };
     const fingerprint = sha256(jcs({ kind, content: payload }));
     if (existing?.fingerprint === fingerprint && kind !== 'resolve') return undefined;
-    const opId = newId('sop');
+    const opId = input.opId ?? newId('sop');
     const entity: SyncEntityRecord = {
       vaultId: input.vaultId,
       entityId: existing?.entityId ?? input.entityId ?? newId('sen'),

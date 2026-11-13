@@ -1,5 +1,5 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
-import { json, optionalText, text } from './rows.js';
+import { integer, json, optionalText, text } from './rows.js';
 
 export interface SyncLocalWriteRecord {
   id: string;
@@ -14,6 +14,7 @@ export interface SyncLocalWriteRecord {
   parents: string[];
   nextHash: string;
   state: 'pending' | 'abandoned';
+  resolution?: boolean;
 }
 
 export interface SyncMaterialJournalRecord {
@@ -33,8 +34,8 @@ export function createSyncMaterialRepository(db: SqliteDatabase) {
   return {
     putLocalWrite(value: SyncLocalWriteRecord): void {
       if (!db.isTransaction) throw new Error('sync file capture requires a transaction');
-      db.prepare(`INSERT INTO sync_local_writes (id, vault_id, entity_id, entity_type, project_id, local_key, path, content, kind, parents, next_hash, state)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      db.prepare(`INSERT INTO sync_local_writes (id, vault_id, entity_id, entity_type, project_id, local_key, path, content, kind, parents, next_hash, state, resolution)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         value.id,
         value.vaultId,
         value.entityId,
@@ -47,6 +48,7 @@ export function createSyncMaterialRepository(db: SqliteDatabase) {
         JSON.stringify(value.parents),
         value.nextHash,
         value.state,
+        Number(value.resolution === true),
       );
     },
     localWrites(vaultId: string): SyncLocalWriteRecord[] {
@@ -66,6 +68,7 @@ export function createSyncMaterialRepository(db: SqliteDatabase) {
           parents: json(row, 'parents') as string[],
           nextHash: text(row, 'next_hash'),
           state: text(row, 'state') as SyncLocalWriteRecord['state'],
+          ...(integer(row, 'resolution') === 1 && { resolution: true }),
         }));
     },
     abandonLocalWrite(id: string): void {
@@ -74,6 +77,28 @@ export function createSyncMaterialRepository(db: SqliteDatabase) {
     removeLocalWrite(id: string): void {
       if (!db.isTransaction) throw new Error('sync file capture requires a transaction');
       db.prepare('DELETE FROM sync_local_writes WHERE id = ?').run(id);
+    },
+    clearMaterialConflicts(vaultId: string, entityId: string, parents: readonly string[]): void {
+      if (!db.isTransaction) throw new Error('sync conflict resolution requires a transaction');
+      const ancestors = db
+        .prepare(`WITH RECURSIVE observed(op_id) AS (
+        SELECT value FROM json_each(:parents)
+        UNION SELECT parent.value FROM observed
+          JOIN sync_operations op ON op.vault_id = :vaultId AND op.entity_id = :entityId AND op.op_id = observed.op_id
+          JOIN json_each(op.envelope, '$.parents') parent
+        UNION SELECT parent.value FROM observed
+          JOIN sync_drafts draft ON draft.vault_id = :vaultId AND draft.entity_id = :entityId AND draft.op_id = observed.op_id
+          JOIN json_each(draft.parents) parent
+        LIMIT 50001
+      ) SELECT op_id FROM observed`)
+        .all({ vaultId, entityId, parents: JSON.stringify(parents) });
+      if (ancestors.length > 50000) throw new Error('sync conflict ancestry exceeds limit');
+      db.prepare(`DELETE FROM sync_material_journal WHERE vault_id = ? AND entity_id = ? AND state = 'conflict'
+        AND op_id IN (SELECT value FROM json_each(?))`).run(
+        vaultId,
+        entityId,
+        JSON.stringify(ancestors.map((row) => text(row, 'op_id'))),
+      );
     },
     owner(localKey: string): string | undefined {
       const row = db

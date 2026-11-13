@@ -81,6 +81,20 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         .all(vaultId)
         .map(entityFromRow);
     },
+    memoryConflictEntities(
+      vaultId: string,
+      projectIds: readonly string[],
+      after = '',
+    ): SyncEntityRecord[] {
+      return db
+        .prepare(`SELECT e.* FROM sync_entities e WHERE e.vault_id = ? AND e.entity_type = 'memory'
+        AND e.materialized = 1 AND e.entity_id > ?
+        AND (e.project_id IS NULL OR e.project_id IN (SELECT value FROM json_each(?)))
+        AND (SELECT COUNT(*) FROM sync_heads h WHERE h.vault_id = e.vault_id AND h.entity_id = e.entity_id) > 1
+        ORDER BY e.entity_id LIMIT 101`)
+        .all(vaultId, after, toJson(projectIds))
+        .map(entityFromRow);
+    },
     putEntity(entity: SyncEntityRecord): void {
       transactionRequired();
       const previous = db
@@ -120,6 +134,22 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         toJson(draft.parents),
         toJson(draft.content),
         draft.createdAt,
+      );
+    },
+    draft(vaultId: string, opId: string): SyncDraftRecord | undefined {
+      const row = db
+        .prepare('SELECT * FROM sync_drafts WHERE vault_id = ? AND op_id = ?')
+        .get(vaultId, opId);
+      return (
+        row && {
+          vaultId: text(row, 'vault_id'),
+          opId: text(row, 'op_id'),
+          entityId: text(row, 'entity_id'),
+          kind: text(row, 'kind'),
+          parents: json(row, 'parents') as string[],
+          content: json(row, 'content'),
+          createdAt: text(row, 'created_at'),
+        }
       );
     },
     drafts(

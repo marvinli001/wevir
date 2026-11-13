@@ -8,7 +8,7 @@ import {
   type SyncDraftRecord,
   type SyncVaultRecord,
 } from '@wevir/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
 import { ImageStore } from '../images.js';
@@ -19,6 +19,7 @@ import { ZuvClient } from '../zuv/client.js';
 import { sha256 } from './crypto.js';
 import { SyncFilesCapture } from './files-capture.js';
 import { SyncMaterials } from './materials.js';
+import { SyncMemoryConflicts } from './memory-conflicts.js';
 import type { SyncDraftPayload } from './queue.js';
 import { SyncSettings } from './settings.js';
 
@@ -133,7 +134,151 @@ function draft(entityId: string, content: unknown): SyncDraftRecord {
   };
 }
 
+async function memoryConflictFixture(
+  baseText: string,
+  leftText: string | undefined,
+  rightText: string,
+) {
+  const h = fixture();
+  h.storage.sync.setScopes(h.vault.vaultId, { ...h.vault, categories: ['memory'] });
+  const vault = h.storage.sync.activeVault() as SyncVaultRecord;
+  const memory = new MemoryStore({ dir: join(h.home, 'memory') });
+  let index = 0;
+  const markdown = (text: string) =>
+    `---\nname: synthetic-note\ndescription: Synthetic\ntype: project\nupdated: 2026-11-${12 + index++}T00:00:00.000Z\nupdated-by: user\n---\n\n${text}\n`;
+  const change = (text: string | undefined, parents: string[] = []) => ({
+    ...draft('memory_synthetic', {
+      schema: 'wevir-memory/1',
+      scope: 'global',
+      name: 'synthetic-note',
+      ...(text === undefined ? { deleted: true } : { markdown: markdown(text) }),
+    }),
+    parents,
+    kind: text === undefined ? 'delete' : 'put',
+  });
+  const base = await h.apply(change(baseText), 'memory');
+  const left = await h.apply(change(leftText, [base.opId]), 'memory');
+  const right = await h.apply(change(rightText, [base.opId]), 'memory');
+  const conflicts = new SyncMemoryConflicts({
+    storage: h.storage,
+    home: h.home,
+    memoryDir: memory.dir,
+    files: h.capture,
+    materials: h.materials,
+    eligible: () => h.storage.sync.activeVault(),
+  });
+  return { ...h, vault, memory, markdown, conflicts, base, left, right };
+}
+
 describe('untrusted synchronized packages', () => {
+  it('merges independent memory edits with all causal parents and recovers the same resolution after file promotion rolls back', async () => {
+    const h = await memoryConflictFixture(
+      'Alpha\n\nMiddle\n\nOmega',
+      'Local alpha\n\nMiddle\n\nOmega',
+      'Alpha\n\nMiddle\n\nRemote omega',
+    );
+    const { vault, memory, conflicts, left, right } = h;
+    const preview = await conflicts.preview('memory_synthetic');
+    expect(preview.mergeState).toBe('clean');
+    expect(preview.merged).toContain('Local alpha\n\nMiddle\n\nRemote omega');
+    expect(new Set(preview.expectedHeads)).toEqual(new Set([left.opId, right.opId]));
+    const putDraft = vi.spyOn(h.storage.sync, 'putDraft').mockImplementationOnce(() => {
+      throw new Error('synthetic DB rollback');
+    });
+    await expect(conflicts.resolve({ ...preview, markdown: preview.merged })).rejects.toThrow(
+      'synthetic DB rollback',
+    );
+    putDraft.mockRestore();
+    const [pending] = h.storage.sync.localWrites(vault.vaultId);
+    expect(pending).toMatchObject({ resolution: true, parents: preview.expectedHeads });
+    expect((await memory.read('global', undefined, 'synthetic-note')).content).toBe(
+      'Local alpha\n\nMiddle\n\nRemote omega',
+    );
+    await h.capture.recoverWrites(vault);
+    const [resolution] = h.storage.sync.drafts(vault.vaultId);
+    expect(resolution).toMatchObject({
+      opId: pending?.id,
+      kind: 'resolve',
+      parents: preview.expectedHeads,
+    });
+    expect(h.storage.sync.localWrites(vault.vaultId)).toEqual([]);
+    expect(h.storage.sync.getOperation(vault.vaultId, left.opId)?.record).toBeDefined();
+    expect(h.storage.sync.getOperation(vault.vaultId, right.opId)?.record).toBeDefined();
+    expect(
+      h.storage.sync
+        .materialJournals(vault.vaultId)
+        .filter((journal) => journal.state === 'conflict'),
+    ).toEqual([]);
+  });
+
+  it('keeps overlapping memory versions and refuses a stale preview after a new local edit', async () => {
+    const h = await memoryConflictFixture('Base line', 'Local line', 'Remote line');
+    const preview = await h.conflicts.preview('memory_synthetic');
+    expect(preview.mergeState).toBe('conflict');
+    expect(preview.merged).toBeUndefined();
+    const note = await h.memory.read('global', undefined, 'synthetic-note');
+    await h.memory.update('global', undefined, 'synthetic-note', note.revision, {
+      content: 'New local edit',
+    });
+    await expect(
+      h.conflicts.resolve({ ...preview, markdown: h.markdown('Manual merge') }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect((await h.memory.read('global', undefined, 'synthetic-note')).content).toBe(
+      'New local edit',
+    );
+    expect(h.storage.sync.localWrites(h.vault.vaultId)).toEqual([]);
+    expect(h.storage.sync.drafts(h.vault.vaultId).every((draft) => draft.kind !== 'resolve')).toBe(
+      true,
+    );
+  });
+
+  it('resolves deletion versus an edit only on explicit choice while retaining the edited revision', async () => {
+    const h = await memoryConflictFixture('Base line', undefined, 'Remote edited line');
+    const preview = await h.conflicts.preview('memory_synthetic');
+    expect(preview.mergeState).toBe('conflict');
+    expect(preview.merged).toBeUndefined();
+    const resolved = await h.conflicts.resolve({ ...preview, deleted: true });
+    expect(h.storage.sync.draft(h.vault.vaultId, resolved.opId)).toMatchObject({
+      kind: 'resolve',
+      parents: preview.expectedHeads,
+      content: { body: { deleted: true } },
+    });
+    await expect(h.memory.read('global', undefined, 'synthetic-note')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    expect(h.storage.sync.getOperation(h.vault.vaultId, h.right.opId)?.record).toMatchObject({
+      content: { markdown: expect.stringContaining('Remote edited line') },
+    });
+  });
+
+  it('keeps both histories when criss-cross resolutions have no unique three-way base', async () => {
+    const h = await memoryConflictFixture('Base line', 'Local line', 'Remote line');
+    for (const text of ['First cross merge', 'Second cross merge'])
+      await h.apply(
+        {
+          ...draft('memory_synthetic', {
+            schema: 'wevir-memory/1',
+            scope: 'global',
+            name: 'synthetic-note',
+            markdown: h.markdown(text),
+          }),
+          kind: 'resolve',
+          parents: [h.left.opId, h.right.opId],
+        },
+        'memory',
+      );
+    const preview = await h.conflicts.preview('memory_synthetic');
+    expect(preview.mergeState).toBe('unavailable');
+    expect(preview.base).toBeUndefined();
+    expect(preview.merged).toBeUndefined();
+    expect(preview.versions.map((version) => version.markdown)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('First cross merge'),
+        expect.stringContaining('Second cross merge'),
+      ]),
+    );
+  });
+
   it('retains the materialized project name on concurrent edits until a revision resolves both heads', async () => {
     const h = fixture();
     const projectId = 'project_synthetic';

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { SessionIdSchema, WorkspaceIdSchema } from './common.js';
-import { decimal, entityType, id, PROTOCOL, schemas } from './sync-wire.js';
+import { decimal, digest, entityType, id, PROTOCOL, schemas } from './sync-wire.js';
 
 export const SyncStreamRefSchema = z.object({
   hostId: id,
@@ -92,7 +92,74 @@ export const SyncProjectCatalogSchema = z.object({
     .max(1000),
 });
 
+const memoryVersion = z.object({
+  opId: id,
+  parents: z.array(id).max(32),
+  markdown: z
+    .string()
+    .max(128 * 1024)
+    .optional(),
+  deleted: z.boolean().optional(),
+});
+const resolutionHeads = z
+  .array(id)
+  .min(2)
+  .max(32)
+  .refine((heads) => new Set(heads).size === heads.length);
+const fileFingerprint = z.union([digest, z.literal('missing')]);
 export const SyncMethodSchemas = {
+  'sync.memoryConflicts': {
+    params: z.object({ after: id.optional() }),
+    result: z.object({
+      conflicts: z
+        .array(
+          z.object({
+            entityId: id,
+            name: z.string().min(1).max(80),
+            scope: z.enum(['global', 'project']),
+            projectId: id.optional(),
+            heads: resolutionHeads,
+          }),
+        )
+        .max(100),
+      next: id.optional(),
+    }),
+    permission: 'host.manage',
+  },
+  'sync.previewMemoryMerge': {
+    params: z.object({ entityId: id }),
+    result: z.object({
+      entityId: id,
+      name: z.string().min(1).max(80),
+      scope: z.enum(['global', 'project']),
+      expectedHeads: resolutionHeads,
+      localRevision: id,
+      fileFingerprint,
+      versions: z.array(memoryVersion).min(2).max(32),
+      base: memoryVersion.optional(),
+      merged: z
+        .string()
+        .max(128 * 1024)
+        .optional(),
+      mergeState: z.enum(['clean', 'conflict', 'unavailable']),
+    }),
+    permission: 'host.manage',
+  },
+  'sync.resolveMemory': {
+    params: z.object({
+      entityId: id,
+      expectedHeads: resolutionHeads,
+      localRevision: id,
+      fileFingerprint,
+      markdown: z
+        .string()
+        .max(128 * 1024)
+        .optional(),
+      deleted: z.boolean().optional(),
+    }),
+    result: z.object({ opId: id }),
+    permission: 'host.manage',
+  },
   'sync.projectCatalog': {
     params: z.object({ enable: z.boolean().optional() }),
     result: SyncProjectCatalogSchema,

@@ -15,6 +15,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
+import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
 
 const GROUPS: ReadonlyArray<{
   label: PlainMessageKey;
@@ -398,6 +399,14 @@ export function ZuvSyncSection({
           )}
         </div>
       )}
+      {client.supports('sync_memory_conflicts') &&
+        status?.binding?.categories.includes('memory') && (
+          <ZuvMemoryConflicts
+            client={client}
+            disabled={busy || !active || !status.binding.enabled}
+            onResolved={refresh}
+          />
+        )}
       {devices && (
         <ul className="space-y-2 border-t border-border pt-2">
           {devices.map((device) => (

@@ -27,6 +27,7 @@ import { SyncEngine } from './engine.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncMaterials } from './materials.js';
+import { SyncMemoryConflicts } from './memory-conflicts.js';
 import { SyncQueue } from './queue.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSettings } from './settings.js';
@@ -58,6 +59,7 @@ export class SyncService {
   readonly #keys: SyncVaultKeys;
   readonly #settings: SyncSettings;
   readonly #catalog: SyncProjectCatalog;
+  readonly #memoryConflicts: SyncMemoryConflicts;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running: Promise<void> | undefined;
   #closed = false;
@@ -86,6 +88,12 @@ export class SyncService {
       nativeSource: (id) => this.#capture.source(id),
     });
     this.#files = new SyncFilesCapture(options);
+    this.#memoryConflicts = new SyncMemoryConflicts({
+      ...options,
+      files: this.#files,
+      materials: this.#materials,
+      eligible: () => (this.#closed ? undefined : this.#consented()),
+    });
     this.#artifacts = new SyncArtifacts({
       ...options,
       files: this.#files,
@@ -560,6 +568,44 @@ export class SyncService {
       return result;
     } catch (error) {
       throw this.#failure(error);
+    }
+  }
+  memoryConflicts(after?: string) {
+    try {
+      return this.#memoryConflicts.list(after);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+  previewMemoryMerge(entityId: string) {
+    return this.#memoryOperation(() => this.#memoryConflicts.preview(entityId));
+  }
+  resolveMemory(input: MethodParams<'sync.resolveMemory'>) {
+    return this.#memoryOperation(() => this.#memoryConflicts.resolve(input));
+  }
+  async #memoryOperation<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.#closed || this.#configuring)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    this.#configuring = true;
+    this.#configurationDone = new Promise((resolve) => {
+      this.#finishConfiguration = resolve;
+    });
+    try {
+      this.stop();
+      await this.#running?.catch(() => {});
+      await this.#catalog.drain();
+      return await operation();
+    } catch (error) {
+      throw this.#failure(error);
+    } finally {
+      this.#configuring = false;
+      this.#finishConfiguration?.();
+      this.#configurationDone = undefined;
+      this.#finishConfiguration = undefined;
+      if (!this.#closed && !this.#options.client.changingIdentity) {
+        this.#engine.restart();
+        this.#schedule(0);
+      }
     }
   }
 
