@@ -154,6 +154,9 @@ import { CheckRunner } from './verification/runner.js';
 import { loadRepairTemplate, VerificationService } from './verification/service.js';
 import type { WebService } from './web/service.js';
 import { WritingStyleStore } from './writing-style/store.js';
+import { ZuvAccounts } from './zuv/accounts.js';
+import { ZuvClient, type ZuvClientOptions } from './zuv/client.js';
+import { zuvGatewayAuth } from './zuv/gateway-auth.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
 export const HOST_VERSION: string = packageJson.version;
@@ -181,6 +184,8 @@ export type ShutdownTrigger =
   | { kind: 'api' };
 
 export interface StartHostOptions {
+  /** 隔离测试替换 ZUV origin、传输与时钟；产品入口使用固定的正式来源。 */
+  zuv?: Omit<ZuvClientOptions, 'secrets' | 'onSecret' | 'onIdentityChanging'>;
   /**
    * 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作。wevir-host 与桌面的入口不传它，Host 也不从
    * 环境变量读，省略时每条连接都是本机身份、全部权限。
@@ -350,6 +355,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let devPreviews: PreviewService | undefined;
   let dictation: SpeechService | undefined;
   let accounts: HostAccounts | undefined;
+  let zuvAccounts: ZuvAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
   let sessionList: SessionListFeed | undefined;
@@ -445,6 +451,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
     const secrets = new FileSecretStore(home);
+    const zuvClient = new ZuvClient({
+      ...options.zuv,
+      secrets,
+      onSecret: (value) => logger.addSecret(value),
+      onIdentityChanging: () => {
+        const vault = sessionsDb.sync.activeVault();
+        if (vault) sessionsDb.sync.detachVault(vault.vaultId);
+      },
+    });
+    const zuv = new ZuvAccounts(zuvClient);
+    zuvAccounts = zuv;
+    await zuv.load().catch(() => logger.warn('ZUV credentials unreadable'));
+    adapter.bindGatewayAuth?.(zuvGatewayAuth(zuvClient));
     // 远程 MCP 服务的 OAuth（0.97.0，mcp-oauth/）：令牌在密钥文件里，代理开在 RPC 的同一个端口上（监听之后才交给引擎）。
     const mcpOAuth = new McpOAuthService({
       secrets,
@@ -1327,22 +1346,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const providerLock = createProviderLock();
     const db = storage;
     const pool = adapter instanceof EngineRouter ? adapter.accountPool : undefined;
-    accounts =
-      adapter.accounts === undefined
-        ? undefined
-        : new HostAccounts({
-            accounts: adapter.accounts,
-            storage: db,
-            providerLock,
-            applyProviders: () => syncProviders(db, secrets, adapter),
-            onWarning: (message, fields) => logger.warn(message, fields),
-            paths: new EnginePathStore({
-              path: homePath(home, 'enginesFile'),
-              onWarning: (message, fields) => logger.warn(message, fields),
-            }),
-            ...(pool !== undefined && { pool, accountsDir: homePath(home, 'accountsDir') }),
-            onUsageRemoved: () => usageStats.recordsChanged(),
-          });
+    accounts = new HostAccounts({
+      accounts: adapter.accounts,
+      serviceAccounts: zuv,
+      storage: db,
+      providerLock,
+      applyProviders: () => syncProviders(db, secrets, adapter),
+      onWarning: (message, fields) => logger.warn(message, fields),
+      paths: new EnginePathStore({
+        path: homePath(home, 'enginesFile'),
+        onWarning: (message, fields) => logger.warn(message, fields),
+      }),
+      ...(pool !== undefined && { pool, accountsDir: homePath(home, 'accountsDir') }),
+      onUsageRemoved: () => usageStats.recordsChanged(),
+    });
 
     startup.mark('services_late');
     // 把已存的 Provider（含 Key）交给引擎（T3.4）。失败不阻止 Host 启动：会话建不起来时报引擎错误。
@@ -1811,6 +1828,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         pending_messages: true,
         host_settings: true,
         sync_metadata: true,
+        zuv_account: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),
         workspace_git: true,
         workspace_diff: true,
@@ -1851,8 +1869,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts?.kinds.includes('chatgpt') === true && { subscription_context_window: true }),
         ...(accounts?.hasSubscriptions === true && {
           subscription_sources: true,
-          subscription_updates: true,
         }),
+        ...(accounts?.hasRuntimeUpdates === true && { subscription_updates: true }),
         ...(accounts?.hasUpstreams === true && { subscription_upstreams: true }),
         ...(accounts?.canAddAccounts === true && { subscription_accounts: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
@@ -2048,6 +2066,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         push: pushService,
       },
       shutdown: (trigger = { kind: 'api' }) => {
+        const zuvClosed = zuv.close();
         episodeService.dispose();
         contexts.dispose();
         stopMemoryContextIndex();
@@ -2055,41 +2074,43 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         pushService.close();
         stopIdleExpiry();
         clearTimeout(checkpointTimer);
-        stopping ??= shutdownSequence({
-          trigger,
-          budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
-          logger,
-          rpc: server,
-          remoteListener,
-          appMcp: mcp,
-          mcpRemote,
-          mcpOAuth,
-          processes,
-          previews,
-          speech,
-          office,
-          terminals,
-          simulators,
-          verification,
-          readiness: readinessService,
-          lsp,
-          lspStatus,
-          sessions: manager,
-          adapter,
-          accounts,
-          automations: automationService,
-          channels: channelService,
-          checkpoints,
-          events: store,
-          search,
-          sessionList: listFeed,
-          inbox: inboxService,
-          notifications: notificationService,
-          storage: db,
-          runtimeFile,
-          ...(options.web !== undefined && { web: options.web }),
-          closeProcessGroups,
-        });
+        stopping ??= zuvClosed.then(() =>
+          shutdownSequence({
+            trigger,
+            budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
+            logger,
+            rpc: server,
+            remoteListener,
+            appMcp: mcp,
+            mcpRemote,
+            mcpOAuth,
+            processes,
+            previews,
+            speech,
+            office,
+            terminals,
+            simulators,
+            verification,
+            readiness: readinessService,
+            lsp,
+            lspStatus,
+            sessions: manager,
+            adapter,
+            accounts,
+            automations: automationService,
+            channels: channelService,
+            checkpoints,
+            events: store,
+            search,
+            sessionList: listFeed,
+            inbox: inboxService,
+            notifications: notificationService,
+            storage: db,
+            runtimeFile,
+            ...(options.web !== undefined && { web: options.web }),
+            closeProcessGroups,
+          }),
+        );
         return stopping;
       },
       releaseRuntimeFileSync: () => runtimeFile.releaseSync(),
@@ -2114,6 +2135,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
     await iosSimulators?.dispose().catch(() => {});
+    await zuvAccounts?.close();
     accounts?.dispose();
     automations?.dispose();
     channels?.dispose();

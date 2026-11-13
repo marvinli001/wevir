@@ -2132,6 +2132,7 @@ const LATER_SUBSCRIPTION_KINDS: Readonly<Record<string, string>> = {
   devin: '0.88.0',
   copilot: '0.125.0',
   kiro: '0.141.0',
+  zuv: '0.171.0',
 };
 
 function subscriptionKindSupported(

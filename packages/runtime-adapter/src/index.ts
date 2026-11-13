@@ -2,6 +2,7 @@ export type { AgentRuntimeAdapter, CancelOptions, EngineAccounts } from './adapt
 export * from './errors.js';
 export { EventHub, type EventHubOptions } from './event-hub.js';
 export * from './events.js';
+export type * from './gateway-auth.js';
 export type * from './gateway-privacy.js';
 export {
   type ElicitationResult,

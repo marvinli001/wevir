@@ -77,7 +77,7 @@ async function providersOf(client: TestRpcClient, ids: string[]) {
 }
 
 describe('订阅来源（0.19.0）', () => {
-  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出九种', async () => {
+  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 包括 Host 管理的 ZUV', async () => {
     const { connect } = await start();
     const { client, hello } = await connect();
     expect(hello.features).toMatchObject({ subscription_sources: true, provider_enabled: true });
@@ -94,6 +94,7 @@ describe('订阅来源（0.19.0）', () => {
       'devin',
       'copilot',
       'kiro',
+      'zuv',
     ]);
     expect(accounts[0]).toMatchObject({
       kind: 'claude',

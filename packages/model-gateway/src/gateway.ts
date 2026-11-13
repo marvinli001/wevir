@@ -16,7 +16,7 @@ import {
   inflateSync,
   zstdDecompressSync,
 } from 'node:zlib';
-import type { ProviderTestResult } from '@wevir/runtime-adapter';
+import type { GatewayAuthSource, ProviderTestResult } from '@wevir/runtime-adapter';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { gatewayError, normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { type GatewayPrivacyMasker, type MaskedRequest, PrivacyMaskingError } from './privacy.js';
@@ -40,6 +40,7 @@ export interface GatewayLogger {
 }
 
 export interface ModelGatewayOptions {
+  auth?: GatewayAuthSource;
   privacy?: GatewayPrivacyMasker;
   logger?: GatewayLogger;
   onRequest?: (observation: RequestObservation) => void;
@@ -170,10 +171,15 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
     };
     if (method !== 'POST') return reject(405, `${method} 不支持，只接受 POST`);
     // 取请求开始时的配置：之后的 setProviders 不影响这个请求。
-    const provider = providers.get(providerId);
+    let provider = providers.get(providerId);
     if (provider === undefined)
       return reject(404, `没有 Provider ${providerId}`, 'model_not_found');
-    if (!credentialOf(provider))
+    if (provider.kind === 'zuv') {
+      const baseURL = options.auth?.baseURL(providerId);
+      if (!baseURL) return reject(401, 'AUTH_REQUIRED', 'AUTH_REQUIRED');
+      provider = { ...provider, api: 'openai-responses', baseURL, apiKey: undefined };
+    }
+    if (provider.kind !== 'zuv' && !credentialOf(provider))
       return reject(
         401,
         `Provider ${providerId} 没有${provider.kind === 'google-vertex' ? '服务账号 JSON' : ' API Key'}`,
@@ -260,21 +266,50 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
           return log('auth_error', { status: 401 });
         }
       }
+      const authSecrets: string[] = upstreamKey ? [upstreamKey] : [];
       const redact = (value: string) =>
-        upstreamKey ? value.replaceAll(upstreamKey, '***') : value;
+        authSecrets.reduce((text, secret) => text.replaceAll(secret, '***'), value);
       const compressionKey = `${providerId}\n${prepared.url}`;
       const compress =
+        provider.kind !== 'zuv' &&
         provider.compat?.requestCompression === 'gzip' &&
         compression.get(compressionKey) !== 'rejected' &&
         serialized.length >= COMPRESS_MIN_BYTES;
-      const request = (body: string | Uint8Array<ArrayBuffer>, gzipped: boolean) =>
-        post(prepared.url, {
+      const request = async (body: Uint8Array<ArrayBuffer>, gzipped: boolean) => {
+        let headers = gzipped
+          ? { ...prepared.headers, 'content-encoding': 'gzip' }
+          : prepared.headers;
+        if (provider.kind === 'zuv') {
+          const authorization = await options.auth?.authorize({
+            providerId,
+            url: prepared.url,
+            body,
+            signal: abort.signal,
+          });
+          if (!authorization?.ok)
+            return new Response(
+              JSON.stringify(
+                gatewayError(
+                  authorization?.code ?? 'AUTH_REQUIRED',
+                  authorization?.code ?? 'AUTH_REQUIRED',
+                ),
+              ),
+              {
+                status: authorization?.status ?? 401,
+                headers: { 'content-type': 'application/json' },
+              },
+            );
+          headers = { ...headers, ...authorization.headers };
+          authSecrets.push(...authorization.secrets);
+        }
+        return post(prepared.url, {
           method: 'POST',
-          headers: gzipped ? { ...prepared.headers, 'content-encoding': 'gzip' } : prepared.headers,
+          headers,
           body,
           signal: abort.signal,
           redirect: 'error',
         });
+      };
       let upstream: Response;
       let encoding: Record<string, unknown> = {};
       try {
@@ -314,7 +349,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         // 状态码原样转给 Codex（429 / 5xx 由 Codex 自己的重试策略处理），正文整理成 {"error": {"message"}}。
         const text = await readLimited(upstream, abort.signal).catch(() => '');
         const normalized =
-          provider.kind === 'google-vertex'
+          provider.kind === 'google-vertex' || provider.kind === 'zuv'
             ? normalizeErrorBody(redact(text), upstream.status)
             : normalizeErrorBody(text, upstream.status, provider.apiKey, provider.baseURL);
         send(
@@ -349,14 +384,19 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
           yield vertex && typeof piece === 'string' ? redact(piece) : piece;
         }
       }
+      const contentType = prepared.contentType(upstream.headers.get('content-type'));
+      const authenticated =
+        provider.kind === 'zuv'
+          ? restoreResponses(
+              output(),
+              new Map(authSecrets.map((secret) => [secret, '***'])),
+              contentType,
+            )
+          : output();
       const restored =
         masked === undefined
-          ? output()
-          : restoreResponses(
-              output(),
-              masked.values,
-              prepared.contentType(upstream.headers.get('content-type')),
-            );
+          ? authenticated
+          : restoreResponses(authenticated, masked.values, contentType);
       for await (const piece of restored) {
         await write(res, piece);
         if (res.destroyed) break;

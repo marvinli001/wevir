@@ -50,9 +50,10 @@ import {
 } from '@/data/workbench-data';
 import { useReducedMotion } from '@/fx/motion';
 import { describe } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { useElementSize } from '@/lib/use-element-size';
 import { platformApi } from '@/platform/platform';
+import { formatFileSize } from '@/session/shared-files-model';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
 import { ClaudeIdleCompactionSetting } from './claude-idle-compaction';
@@ -556,6 +557,10 @@ function TileMark({ phase, disabled }: { phase: SourcePhase | undefined; disable
     return <LoaderCircle aria-hidden className="size-3.5 animate-spin text-muted-foreground" />;
   }
   if (phase?.kind !== 'signed_in') return null;
+  if (phase.zuv && (phase.zuv.connection !== 'online' || phase.zuv.subscriptionState !== 'active'))
+    return (
+      <StatusDot tone="warning" label={phaseText(phase, SOURCES.zuv)} className="mt-1 size-2" />
+    );
   return disabled ? (
     <span
       aria-hidden
@@ -567,6 +572,18 @@ function TileMark({ phase, disabled }: { phase: SourcePhase | undefined; disable
 }
 
 function phaseText(phase: SourcePhase, source: SourceInfo): string {
+  const zuv = 'zuv' in phase ? phase.zuv : undefined;
+  if (zuv?.connection === 'revoked') return t('source.zuv.revoked');
+  if (zuv?.connection === 'reauthorization_required') return t('source.zuv.reauthorize');
+  if (zuv?.connection === 'offline') return t('source.zuv.offline');
+  if (phase.kind === 'signed_in' && zuv?.subscriptionState)
+    return t(
+      zuv.subscriptionState === 'active'
+        ? 'source.zuv.active'
+        : zuv.subscriptionState === 'expired'
+          ? 'source.zuv.expired'
+          : 'source.zuv.inactive',
+    );
   switch (phase.kind) {
     case 'soon':
       return t('source.status.soon');
@@ -1004,6 +1021,7 @@ export function SubscriptionBody({
       {!setupOnly &&
         account.installed !== false &&
         phase.kind !== 'installing' &&
+        kind !== 'zuv' &&
         client.supports('subscription_updates') && (
           <RuntimeUpdate
             key={`${kind}:${account.executablePath ?? ''}:${account.version ?? ''}`}
@@ -1278,6 +1296,26 @@ function SignedIn({
   const windows = usageWindows(account.rateLimits);
   const facts: [string, ReactNode][] = [];
   const plan = account.planLabel ?? account.plan;
+  if (account.zuv?.subscriptionState) {
+    const state = account.zuv.subscriptionState;
+    facts.push([
+      t('source.fact.plan'),
+      t(
+        state === 'active'
+          ? 'source.zuv.active'
+          : state === 'expired'
+            ? 'source.zuv.expired'
+            : 'source.zuv.inactive',
+      ),
+    ]);
+    const used = account.zuv.quota?.physicalBytes;
+    const capacity = account.zuv.quota?.capacityBytes;
+    if (used !== undefined && capacity !== undefined)
+      facts.push([
+        t('source.zuv.storage'),
+        `${formatFileSize(used, currentLocale())} / ${formatFileSize(capacity, currentLocale())}`,
+      ]);
+  }
   if (plan !== undefined) facts.push([t('source.fact.plan'), plan]);
   if (account.version !== undefined) facts.push([t('source.fact.version'), account.version]);
   if (account.executablePath !== undefined) {

@@ -31,6 +31,25 @@ function provider(id: string, kind: ProviderProfile['kind'], extra: Partial<Prov
 }
 
 describe('订阅来源', () => {
+  it('ZUV 仅有效订阅可选，网络错误保留身份和来源状态', () => {
+    const zuv = provider('zuv', 'zuv');
+    expect(isPickable(zuv, undefined)).toBe(false);
+    const active: AccountState = {
+      kind: 'zuv',
+      status: 'signed_in',
+      zuv: { connection: 'online', subscriptionState: 'active' },
+    };
+    expect(isPickable(zuv, [active])).toBe(true);
+    expect(
+      isPickable(zuv, [{ ...active, zuv: { connection: 'offline', subscriptionState: 'active' } }]),
+    ).toBe(true);
+    expect(
+      isPickable(zuv, [{ ...active, zuv: { connection: 'online', subscriptionState: 'expired' } }]),
+    ).toBe(false);
+    expect(
+      sourcePhase({ ...active, zuv: { connection: 'offline', subscriptionState: 'active' } }),
+    ).toMatchObject({ kind: 'signed_in', zuv: { connection: 'offline' } });
+  });
   it('tileFillers：两列、三列各补满最后一行，排满了不补', () => {
     expect(tileFillers(6)).toEqual([]);
     // 七个来源：两列缺 1 格，三列缺 2 格。
@@ -147,7 +166,7 @@ describe('来源分页', () => {
       'workbuddy',
       'devin',
     ]);
-    expect(pages[1]).toEqual(['copilot', 'kiro']);
+    expect(pages[1]).toEqual(['copilot', 'kiro', 'zuv']);
     expect(sourcePages(['claude', 'cursor', 'grok'], 2)).toEqual([['claude', 'cursor'], ['grok']]);
   });
 });

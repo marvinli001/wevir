@@ -825,6 +825,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   bindGatewayPrivacy(source: GatewayPrivacySource): void {
     if (this.#launcher.home !== undefined) this.#launcher.home.privacySource = source;
   }
+  bindGatewayAuth(source: import('@wevir/runtime-adapter').GatewayAuthSource): void {
+    if (this.#launcher.home !== undefined) this.#launcher.home.authSource = source;
+  }
 
   bindPlugins(source: EnginePluginSource): void {
     this.#launcher.plugins = source;

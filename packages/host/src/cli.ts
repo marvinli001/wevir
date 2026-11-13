@@ -6,8 +6,8 @@ import {
   resolveCodexBinary,
   resolvePromptsDir,
 } from '@wevir/adapter-codex';
-import { type AccountKind, SUBSCRIPTION_KINDS, type SubscriptionKind } from '@wevir/protocol';
-import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
+import { type AccountKind, SUBSCRIPTION_KINDS } from '@wevir/protocol';
+import type { AgentRuntimeAdapter, SubscriptionKind } from '@wevir/runtime-adapter';
 import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import {
   EchoAccounts,
@@ -151,6 +151,7 @@ const GATEWAY_KINDS = [
   'openai-compatible',
   'google-vertex',
   'chatgpt',
+  'zuv',
 ] as const;
 
 /**
@@ -186,7 +187,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
           {
             name: 'echo-subscriptions',
             adapter: new EchoSubscriptionEngine(scenarios),
-            kinds: SUBSCRIPTION_KINDS,
+            kinds: SUBSCRIPTION_KINDS.filter((kind) => kind !== 'zuv'),
           },
         ],
         {

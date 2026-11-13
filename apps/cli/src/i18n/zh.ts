@@ -659,6 +659,12 @@ stdout：最后一条回答，或 --json 事件流；诊断写入 stderr
 
   // commands/account.ts
   'account.unknownKind': '未知账号类型：{kind}',
+  'subscription.zuv.active': '有效',
+  'subscription.zuv.expired': '已到期',
+  'subscription.zuv.inactive': '未订阅',
+  'subscription.zuv.revoked': '已撤销',
+  'subscription.zuv.reauthorize': '需重新登录',
+  'subscription.zuv.offline': '网络错误',
   'account.unknownKind.hint': '仅支持 chatgpt；其他来源用 wevir account login',
   'account.alreadySignedIn': '已登录 ChatGPT：{account}',
   'account.alreadySignedIn.hint': '切换账号需先运行 wevir provider logout',

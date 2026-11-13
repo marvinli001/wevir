@@ -1,0 +1,78 @@
+{
+  "protocolVersion": "0.171.0",
+  "methods": {
+    "account.get": {
+      "params": [{ "kind": "zuv" }],
+      "result": [
+        {
+          "account": {
+            "kind": "zuv",
+            "id": "zuv",
+            "status": "signed_in",
+            "signIn": "in_app",
+            "loginMethods": ["browser"],
+            "zuv": {
+              "connection": "online",
+              "subscriptionState": "active",
+              "syncState": "disabled",
+              "quota": { "physicalBytes": 0, "capacityBytes": 5368709120 },
+              "retentionUntil": null,
+              "recoveryEligible": false
+            }
+          }
+        }
+      ]
+    },
+    "account.login": {
+      "params": [{ "kind": "zuv", "method": "browser" }],
+      "result": [
+        {
+          "account": {
+            "kind": "zuv",
+            "id": "zuv",
+            "status": "signing_in",
+            "login": {
+              "loginId": "enrollment_fixture",
+              "method": "browser",
+              "authUrl": "https://zuv.test/console/devices/enroll?id=enrollment_fixture",
+              "startedAt": "2026-11-13T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "provider.list": {
+      "params": [{}],
+      "result": [
+        {
+          "providers": [
+            {
+              "id": "zuv",
+              "kind": "zuv",
+              "displayName": "ZUV",
+              "models": [{ "id": "synthetic-model" }],
+              "defaultModelId": "synthetic-model",
+              "hasSecret": false,
+              "createdAt": "2026-11-13T00:00:00.000Z",
+              "updatedAt": "2026-11-13T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {
+    "account.updated": [
+      {
+        "account": {
+          "kind": "zuv",
+          "id": "zuv",
+          "status": "signed_in",
+          "zuv": { "connection": "offline", "subscriptionState": "expired" }
+        }
+      }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

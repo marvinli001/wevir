@@ -37,6 +37,22 @@ function account(kind: AccountState['kind'], overrides: Partial<AccountState> = 
 const FEATURES = { chats: true, worktree: true, permissionModes: true };
 
 describe('new session', () => {
+  it('selects ZUV only after identity and active subscription are known', () => {
+    const source = provider('zuv', { kind: 'zuv' });
+    expect(pickableProviders([source], undefined)).toEqual([]);
+    expect(
+      pickableProviders(
+        [source],
+        [account('zuv', { zuv: { connection: 'online', subscriptionState: 'active' } })],
+      ),
+    ).toEqual([source]);
+    expect(
+      pickableProviders(
+        [source],
+        [account('zuv', { zuv: { connection: 'online', subscriptionState: 'expired' } })],
+      ),
+    ).toEqual([]);
+  });
   it('lists enabled, signed-in sources with subscriptions first', () => {
     const list = pickableProviders(
       [

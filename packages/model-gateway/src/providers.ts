@@ -212,6 +212,8 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
       const problem = baseURLProblem(provider.baseURL);
       if (problem !== undefined) issue(['baseURL'], problem);
     }
+  } else if (provider.kind === 'zuv') {
+    if (provider.apiKey !== undefined) issue(['apiKey'], 'ZUV 凭据由 Host 管理');
   } else if (provider.kind === 'google-vertex') {
     if (!['openai-completions', 'anthropic-messages'].includes(provider.api ?? ''))
       issue(['api'], 'Vertex 只支持 Gemini Chat 或 Claude Messages');

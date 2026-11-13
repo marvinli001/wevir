@@ -40,6 +40,7 @@ export const SOURCES: Readonly<Record<AccountKind, SourceInfo>> = {
   devin: { kind: 'devin', name: 'source.devin', logo: 'devin' },
   copilot: { kind: 'copilot', name: 'source.copilot', logo: 'copilot' },
   kiro: { kind: 'kiro', name: 'source.kiro', logo: 'kiro' },
+  zuv: { kind: 'zuv', name: 'source.zuv', logo: 'zuv' },
 };
 
 /**
@@ -169,6 +170,8 @@ export function isPickable(
   if (provider.enabled === false) return false;
   if (!isSourceKind(provider.kind)) return true;
   const account = accountOfProvider(provider, accounts);
+  if (provider.kind === 'zuv')
+    return account?.status === 'signed_in' && account.zuv?.subscriptionState === 'active';
   return account === undefined || account.status === 'signed_in';
 }
 
@@ -195,9 +198,9 @@ export type SourcePhase =
   | { kind: 'soon' }
   | { kind: 'missing'; canInstall: boolean; requires?: 'git' }
   | { kind: 'installing'; percent: number | undefined }
-  | { kind: 'signed_out'; signIn: 'in_app' | 'command' }
+  | { kind: 'signed_out'; signIn: 'in_app' | 'command'; zuv?: AccountState['zuv'] }
   | { kind: 'signing_in' }
-  | { kind: 'signed_in'; plan: string | undefined };
+  | { kind: 'signed_in'; plan: string | undefined; zuv?: AccountState['zuv'] };
 
 export function sourcePhase(account: AccountState | undefined): SourcePhase {
   if (account === undefined) return { kind: 'soon' };
@@ -221,7 +224,15 @@ export function sourcePhase(account: AccountState | undefined): SourcePhase {
   }
   if (account.status === 'signing_in') return { kind: 'signing_in' };
   if (account.status === 'signed_in') {
-    return { kind: 'signed_in', plan: account.planLabel ?? account.plan };
+    return {
+      kind: 'signed_in',
+      plan: account.planLabel ?? account.plan,
+      ...(account.zuv && { zuv: account.zuv }),
+    };
   }
-  return { kind: 'signed_out', signIn: account.signIn ?? 'in_app' };
+  return {
+    kind: 'signed_out',
+    signIn: account.signIn ?? 'in_app',
+    ...(account.zuv && { zuv: account.zuv }),
+  };
 }

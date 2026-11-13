@@ -67,6 +67,7 @@ export const ACCOUNT_PROVIDER_NAMES: Readonly<Record<AccountKind, string>> = {
   devin: 'Devin',
   copilot: 'GitHub Copilot',
   kiro: 'Kiro',
+  zuv: 'ZUV',
 };
 
 /** 以前的默认显示名：Provider 还叫它时刷新时换成 `ACCOUNT_PROVIDER_NAMES` 里现在的。 */
@@ -98,7 +99,9 @@ export interface AccountRef {
 }
 
 export interface HostAccountsOptions {
-  accounts: EngineAccounts;
+  accounts?: EngineAccounts;
+  /** Host 管理的模型服务账号，与引擎生命周期独立。 */
+  serviceAccounts?: EngineAccounts;
   storage: Storage;
   /** Provider 写操作的串行锁（与 `provider.upsert` / `provider.remove` 共用）。 */
   providerLock: <T>(op: () => Promise<T>) => Promise<T>;
@@ -159,19 +162,28 @@ export class HostAccounts {
     const labels = new Map(
       options.storage.accounts.list().map((record) => [record.id, record.label] as const),
     );
-    for (const kind of options.accounts.kinds) {
-      const label = labels.get(kind);
-      this.#slots.set(kind, {
-        id: kind,
-        kind,
-        added: false,
-        engine: options.accounts,
-        ...(label !== undefined && { label }),
-      });
+    const unsubscribers: Array<() => void> = [];
+    for (const source of [options.accounts, options.serviceAccounts]) {
+      if (!source) continue;
+      for (const kind of source.kinds) {
+        const label = labels.get(kind);
+        this.#slots.set(kind, {
+          id: kind,
+          kind,
+          added: false,
+          engine: source,
+          ...(label !== undefined && { label }),
+        });
+      }
+      unsubscribers.push(
+        source.onChange((state) => {
+          if (this.#slots.get(state.kind)?.added === false) this.#onChange(state.kind, state);
+        }),
+      );
     }
-    this.#unsubscribe = options.accounts.onChange((state) => {
-      if (this.#slots.get(state.kind)?.added === false) this.#onChange(state.kind, state);
-    });
+    this.#unsubscribe = () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
     // 添加的账号：建好它们的引擎（会话恢复时要找得到）。种类现在不能添加了（SDK 没装等）的，登记留着、不列出。
     for (const record of options.storage.accounts.list()) {
       if (record.id === record.kind || this.#slots.has(record.id)) continue;
@@ -197,7 +209,7 @@ export class HostAccounts {
   }
 
   get kinds(): readonly AccountKind[] {
-    return this.#options.accounts.kinds;
+    return [...new Set([...this.#slots.values()].map((slot) => slot.kind))];
   }
 
   /** 全部账号的 ID（首个账号在前）。 */
@@ -209,14 +221,17 @@ export class HostAccounts {
   get hasSubscriptions(): boolean {
     return this.kinds.some((kind) => kind !== 'chatgpt');
   }
+  get hasRuntimeUpdates(): boolean {
+    return this.kinds.some((kind) => kind !== 'chatgpt' && kind !== 'zuv');
+  }
 
   /** 有没有引擎的账号后面接着好几家上游（Host 据此声明 `subscription_upstreams`）。 */
   get hasUpstreams(): boolean {
-    return this.#options.accounts.upstreams !== undefined;
+    return this.#options.accounts?.upstreams !== undefined;
   }
 
   get hasResetCredits(): boolean {
-    return this.#options.accounts.consumeResetCredit !== undefined;
+    return this.#options.accounts?.consumeResetCredit !== undefined;
   }
 
   /** 能不能添加账号（Host 据此声明 `subscription_accounts`）。 */
@@ -381,7 +396,8 @@ export class HostAccounts {
   setPath(kind: AccountKind, path: string | null): Promise<AccountState> {
     const slot = this.#slot({ kind });
     return this.#stamped(slot, async () => {
-      const { accounts, paths } = this.#options;
+      const { paths } = this.#options;
+      const accounts = slot.engine;
       if (accounts.setExecutablePath === undefined || paths === undefined) {
         throw new Error(`the ${kind} engine has no executable path setting`);
       }
@@ -400,7 +416,7 @@ export class HostAccounts {
       if (other.kind === kind) this.#updates.delete(other.id);
     }
     return this.#stamped(slot, async () => {
-      const { accounts } = this.#options;
+      const accounts = slot.engine;
       if (accounts.install === undefined) throw new Error(`the ${kind} engine cannot be installed`);
       return accounts.install(kind);
     });

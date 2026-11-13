@@ -80,7 +80,7 @@ export class SecretRestorer {
     const input = this.#pending + text;
     let end = input.length;
     for (let start = Math.max(0, end - this.#longest + 1); start < end; start++) {
-      if (input[start] !== '{') continue;
+      if (!this.#tokens.some((token) => token[0] === input[start])) continue;
       const suffix = input.slice(start);
       if (this.#tokens.some((token) => token.length > suffix.length && token.startsWith(suffix))) {
         end = start;

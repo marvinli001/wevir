@@ -108,6 +108,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly appToolsContextInPrompt?: AgentRuntimeAdapter['appToolsContextInPrompt'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
   readonly bindGatewayPrivacy?: AgentRuntimeAdapter['bindGatewayPrivacy'];
+  readonly bindGatewayAuth?: AgentRuntimeAdapter['bindGatewayAuth'];
   readonly deleteSession?: AgentRuntimeAdapter['deleteSession'];
 
   /** 全部引擎：构造时的，加上之后添加的账号的。 */
@@ -122,6 +123,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   #providers: readonly ProviderConfig[] = [];
   #pluginSource: import('@wevir/runtime-adapter').EnginePluginSource | undefined;
   #privacySource: import('@wevir/runtime-adapter').GatewayPrivacySource | undefined;
+  #authSource: import('@wevir/runtime-adapter').GatewayAuthSource | undefined;
   #appToolsGrant: Parameters<NonNullable<AgentRuntimeAdapter['bindEngineAppTools']>>[0] | undefined;
   /** 引擎会话 ID → 承载它的引擎。 */
   readonly #owners = new Map<string, EngineRoute>();
@@ -240,6 +242,12 @@ export class EngineRouter implements AgentRuntimeAdapter {
       this.bindGatewayPrivacy = (source) => {
         this.#privacySource = source;
         for (const route of this.#routes) route.adapter.bindGatewayPrivacy?.(source);
+      };
+    }
+    if (adapters.some((adapter) => adapter.bindGatewayAuth !== undefined)) {
+      this.bindGatewayAuth = (source) => {
+        this.#authSource = source;
+        for (const route of this.#routes) route.adapter.bindGatewayAuth?.(source);
       };
     }
     if (adapters.some((adapter) => adapter.bindEngineAppTools !== undefined)) {
@@ -517,6 +525,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
     this.#claimed.set(account.id, route);
     if (this.#pluginSource !== undefined) adapter.bindPlugins?.(this.#pluginSource);
     if (this.#privacySource !== undefined) adapter.bindGatewayPrivacy?.(this.#privacySource);
+    if (this.#authSource !== undefined) adapter.bindGatewayAuth?.(this.#authSource);
     if (this.#appToolsGrant !== undefined) bindAppTools(route, this.#appToolsGrant);
     if (this.#providers.length > 0) {
       void this.configureProviders(this.#providers).catch(() => {});

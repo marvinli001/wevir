@@ -124,6 +124,7 @@ describe('订阅多账号（0.63.0）', () => {
       'devin',
       'copilot',
       'kiro',
+      'zuv',
     ]);
     const byId = new Map(accounts.map((account) => [account.id, account]));
     expect(byId.get('claude')).toMatchObject({ localLogin: true, multiAccount: true });

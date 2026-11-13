@@ -40,6 +40,7 @@ const SOURCE_NAMES: Record<(typeof SOURCE_KINDS)[number], string> = {
   devin: 'Devin',
   copilot: 'Copilot',
   kiro: 'Kiro',
+  zuv: 'ZUV',
 };
 
 function isSourceKind(kind: string): kind is (typeof SOURCE_KINDS)[number] {
@@ -70,6 +71,8 @@ export function pickableProviders(
     .filter((provider) => {
       if (provider.enabled === false) return false;
       const account = accountOf(provider, accounts);
+      if (provider.kind === 'zuv')
+        return account?.status === 'signed_in' && account.zuv?.subscriptionState === 'active';
       return account === undefined || account.status === 'signed_in';
     })
     .map((provider, index) => ({ provider, index }))

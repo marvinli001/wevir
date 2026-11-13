@@ -240,7 +240,7 @@ describe('ChatGPT 账号（account.*）', () => {
       contextWindowSettings: { default: 272000, max: 272000, override: 800000 },
     });
   });
-  it('引擎有账号时 hello 声明 chatgpt_account；echo 引擎不声明，account.* 回 ENGINE_ERROR', async () => {
+  it('ChatGPT 能力按引擎声明，ZUV 服务账号独立存在；不支持的 ChatGPT 账号保留 ENGINE_ERROR', async () => {
     const withAccounts = await start();
     expect((await withAccounts.connect()).hello.features).toEqual({
       plugins: true,
@@ -254,6 +254,9 @@ describe('ChatGPT 账号（account.*）', () => {
       second_opinion: true,
       pending_messages: true,
       host_settings: true,
+      sync_metadata: true,
+      zuv_account: true,
+      subscription_sources: true,
       workspace_git: true,
       workspace_diff: true,
       workspace_files: true,
@@ -362,6 +365,9 @@ describe('ChatGPT 账号（account.*）', () => {
       second_opinion: true,
       pending_messages: true,
       host_settings: true,
+      sync_metadata: true,
+      zuv_account: true,
+      subscription_sources: true,
       workspace_git: true,
       workspace_diff: true,
       workspace_files: true,

@@ -29,6 +29,7 @@ export const ACCOUNT_NAMES: Record<AccountKind, string> = {
   devin: 'Devin',
   copilot: 'GitHub Copilot',
   kiro: 'Kiro',
+  zuv: 'ZUV',
 };
 
 /** 账号的说法：`Claude`，添加的账号带标签或 ID：`Claude（工作）`。 */
@@ -51,7 +52,8 @@ const refParams = (ref: AccountRef) => ({
 });
 
 function requireAccountKind(client: WevirClient, kind: AccountKind): void {
-  if (kind === 'chatgpt') {
+  if (kind === 'zuv') requireFeature(client, 'zuv_account');
+  else if (kind === 'chatgpt') {
     if (!client.supports('chatgpt_account')) {
       throw new CliError(t('account.unsupported'), t('account.unsupported.hint'));
     }
@@ -88,6 +90,18 @@ function withAccount<T>(
 }
 
 function statusLabel(account: AccountState): string {
+  const zuv = account.status === 'signing_in' ? undefined : account.zuv;
+  if (zuv?.connection === 'revoked') return t('subscription.zuv.revoked');
+  if (zuv?.connection === 'reauthorization_required') return t('subscription.zuv.reauthorize');
+  if (zuv?.connection === 'offline') return t('subscription.zuv.offline');
+  if (account.status === 'signed_in' && zuv?.subscriptionState)
+    return t(
+      zuv.subscriptionState === 'active'
+        ? 'subscription.zuv.active'
+        : zuv.subscriptionState === 'expired'
+          ? 'subscription.zuv.expired'
+          : 'subscription.zuv.inactive',
+    );
   if (account.installing !== undefined) return t('subscription.installing');
   if (account.installed === false) return t('subscription.notInstalled');
   switch (account.status) {
@@ -163,7 +177,7 @@ export async function accountShow(
 function printAccount(ctx: Context, account: AccountState): void {
   const name = accountName(account);
   const s = ctx.styles;
-  if (account.status === 'signed_in') {
+  if (account.status === 'signed_in' && account.kind !== 'zuv') {
     const plan = planText(account);
     const who = `${account.email ?? t('account.unknownEmail')}${
       plan === undefined ? '' : t('common.parenAfter', { text: plan })

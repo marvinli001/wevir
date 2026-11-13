@@ -38,6 +38,7 @@ export class GatewayHome {
   readonly vertexAuth: VertexTokenCache;
   plugins: EnginePluginSource | undefined;
   privacySource: GatewayPrivacySource | undefined;
+  authSource: import('@wevir/runtime-adapter').GatewayAuthSource | undefined;
   gateway: ModelGateway | undefined;
   readonly #options: CodexAdapterOptions;
   readonly #logger: CodexAdapterLogger;
@@ -150,6 +151,12 @@ export class GatewayHome {
       if (this.gateway === undefined) {
         this.gateway = await startModelGateway({
           ...this.#options.gateway,
+          auth: {
+            baseURL: (id) => this.authSource?.baseURL(id),
+            authorize: (request) =>
+              this.authSource?.authorize(request) ??
+              Promise.resolve({ ok: false, status: 401, code: 'AUTH_REQUIRED' }),
+          },
           privacy: this.#options.gateway?.privacy ?? this.#privacy,
           vertexAuth: this.vertexAuth,
           logger: {

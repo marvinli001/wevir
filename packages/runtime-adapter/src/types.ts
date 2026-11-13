@@ -632,7 +632,13 @@ export interface ProviderConfig {
    * 在 `validateProvider` 里拒绝它、在 `configureProviders` 里跳过它（Host 可能带着库里已有的这类 Provider 换引擎启动）。
    * 订阅来源（0.19.0）同理：模型来自对应引擎的 `EngineAccounts.models`，Host 的引擎路由只把它交给那个引擎。
    */
-  kind: 'deepseek-official' | 'openai-compatible' | 'google-vertex' | 'chatgpt' | SubscriptionKind;
+  kind:
+    | 'deepseek-official'
+    | 'openai-compatible'
+    | 'google-vertex'
+    | 'chatgpt'
+    | 'zuv'
+    | SubscriptionKind;
   displayName: string;
   /** `openai-compatible` 必有；google-vertex 只用 openai-completions / anthropic-messages。 */
   api?: string;
@@ -682,7 +688,7 @@ export interface ProviderTestResult {
 
 // ── 账号（R6）──────────────────────────────────────────────────────────────
 
-/** 与 @wevir/protocol 的 `SubscriptionKind` 同形（0.19.0，订阅来源，ADR-0005 补记 14）。 */
+/** 由独立引擎运行的订阅来源；ZUV 由 Host 管账号，经现有 Codex 网关推理。 */
 export type SubscriptionKind =
   | 'claude'
   | 'cursor'
@@ -695,7 +701,7 @@ export type SubscriptionKind =
   | 'kiro';
 
 /** 与 @wevir/protocol 的 `AccountKind` 同形。 */
-export type AccountKind = 'chatgpt' | SubscriptionKind;
+export type AccountKind = 'chatgpt' | 'zuv' | SubscriptionKind;
 
 /** 与 @wevir/protocol 的 `AccountLoginMethod` 同形。 */
 export type AccountLoginMethod = 'browser' | 'device_code';
@@ -734,6 +740,14 @@ export interface AccountLoginOptions {
 
 /** 与 @wevir/protocol 的 `AccountState` 同形（domain-model §3.6）。 */
 export interface AccountState {
+  zuv?: {
+    connection: 'online' | 'offline' | 'revoked' | 'reauthorization_required';
+    subscriptionState?: 'active' | 'inactive' | 'expired' | 'none';
+    syncState?: 'disabled' | 'ready' | 'paused' | 'deleting' | 'recovery-required';
+    quota?: Record<string, number>;
+    retentionUntil?: string | null;
+    recoveryEligible?: boolean;
+  };
   kind: AccountKind;
   /**
    * 0.63.0 多账号的字段：账号 ID、标签、本机登录、能不能添加账号。由 Host 按它的账号登记填，引擎不填（一个引擎实例只有一个

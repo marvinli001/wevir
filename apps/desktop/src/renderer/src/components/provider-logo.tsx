@@ -32,6 +32,7 @@ import xai from '@/assets/provider-logos/xai.svg';
 import mimo from '@/assets/provider-logos/xiaomimimo.svg';
 import zai from '@/assets/provider-logos/zai.svg';
 import zhipu from '@/assets/provider-logos/zhipu-color.svg';
+import zuv from '@/assets/provider-logos/zuv.svg';
 
 interface LogoEntry {
   src: string;
@@ -77,6 +78,7 @@ const LOGOS = {
   devin: { src: devin, mono: false },
   copilot: { src: copilot, mono: true },
   kiro: { src: kiro, mono: false },
+  zuv: { src: zuv, mono: false },
 } satisfies Record<string, LogoEntry>;
 
 export type ProviderLogoId = keyof typeof LOGOS;

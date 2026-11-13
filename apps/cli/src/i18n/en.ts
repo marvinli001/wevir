@@ -677,6 +677,12 @@ Also:
   'provider.testFailedHttp': '✗ Test failed ({reason}, HTTP {status})',
 
   'account.unknownKind': 'Unknown account type: {kind}',
+  'subscription.zuv.active': 'Active',
+  'subscription.zuv.expired': 'Expired',
+  'subscription.zuv.inactive': 'No subscription',
+  'subscription.zuv.revoked': 'Revoked',
+  'subscription.zuv.reauthorize': 'Sign in again',
+  'subscription.zuv.offline': 'Network error',
   'account.unknownKind.hint': 'Only chatgpt; for other sources use wevir account login',
   'account.alreadySignedIn': 'Already signed in to ChatGPT: {account}',
   'account.alreadySignedIn.hint': 'To switch accounts, run wevir provider logout first',
