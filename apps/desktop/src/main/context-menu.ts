@@ -1,5 +1,5 @@
 // 右键菜单（编辑）：Electron 默认不给页面弹任何菜单。输入框里给撤销、重做、剪切、复制、粘贴、全选（做不了的置灰），选中的文字给
-// 复制，其余地方不弹。页面自己处理了右键（侧边栏的会话、项目菜单）时 Chromium 不发 context-menu 事件，不会叠两层。
+// 复制，图片（消息里的图片、点开的大图）给拷贝图像（同时选中了文字再加复制），其余地方不弹。页面自己处理了右键（侧边栏的会话、项目菜单）时 Chromium 不发 context-menu 事件，不会叠两层。
 // 文字与应用菜单共用（app-menu.ts，渲染进程按界面语言送来）。
 //
 // 只拼模板，不碰 Electron 的运行时（index.ts 用 Menu.buildFromTemplate 弹出），单元测试直接检查模板。
@@ -9,7 +9,7 @@ import type { AppMenuLabels } from '../shared/desktop-api.js';
 
 export type EditContextMenuParams = Pick<
   ContextMenuParams,
-  'isEditable' | 'selectionText' | 'editFlags'
+  'isEditable' | 'selectionText' | 'editFlags' | 'mediaType' | 'hasImageContents'
 >;
 
 /** 菜单项点下去要做的事，对应 webContents 上的同名方法。 */
@@ -18,6 +18,8 @@ export interface EditContextMenuActions {
   redo(): void;
   cut(): void;
   copy(): void;
+  /** 拷贝右键处的图片（`webContents.copyImageAt`）。 */
+  copyImage(): void;
   paste(): void;
   selectAll(): void;
 }
@@ -71,15 +73,23 @@ export function editContextMenuTemplate(
       },
     ];
   }
-  if (params.selectionText.trim() !== '') {
-    return [
-      {
-        label: labels.copy,
-        enabled: flags.canCopy,
-        click: actions.copy,
-        ...shortcut('CmdOrCtrl+C'),
-      },
-    ];
+  const copyText: MenuItemConstructorOptions[] =
+    params.selectionText.trim() === ''
+      ? []
+      : [
+          {
+            label: labels.copy,
+            enabled: flags.canCopy,
+            click: actions.copy,
+            ...shortcut('CmdOrCtrl+C'),
+          },
+        ];
+  if (params.mediaType === 'image' && params.hasImageContents) {
+    const copyImage: MenuItemConstructorOptions = {
+      label: labels.copyImage,
+      click: actions.copyImage,
+    };
+    return copyText.length === 0 ? [copyImage] : [copyImage, { type: 'separator' }, ...copyText];
   }
-  return [];
+  return copyText;
 }

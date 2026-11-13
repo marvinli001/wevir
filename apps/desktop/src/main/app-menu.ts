@@ -23,6 +23,7 @@ export const DEFAULT_APP_MENU_LABELS: AppMenuLabels = {
   redo: 'Redo',
   cut: 'Cut',
   copy: 'Copy',
+  copyImage: 'Copy Image',
   paste: 'Paste',
   pasteAndMatchStyle: 'Paste and Match Style',
   delete: 'Delete',

@@ -159,6 +159,7 @@ export const APP_MENU_LABEL_KEYS = [
   'redo',
   'cut',
   'copy',
+  'copyImage',
   'paste',
   'pasteAndMatchStyle',
   'delete',

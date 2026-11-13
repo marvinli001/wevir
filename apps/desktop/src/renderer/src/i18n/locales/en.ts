@@ -2366,6 +2366,7 @@ export const messages: Messages = {
   'appMenu.redo': 'Redo',
   'appMenu.cut': 'Cut',
   'appMenu.copy': 'Copy',
+  'appMenu.copyImage': 'Copy Image',
   'appMenu.paste': 'Paste',
   'appMenu.pasteAndMatchStyle': 'Paste and Match Style',
   'appMenu.delete': 'Delete',

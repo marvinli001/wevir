@@ -2396,6 +2396,7 @@ export const messages: Messages = {
   'appMenu.redo': 'Rehacer',
   'appMenu.cut': 'Cortar',
   'appMenu.copy': 'Copiar',
+  'appMenu.copyImage': 'Copiar imagen',
   'appMenu.paste': 'Pegar',
   'appMenu.pasteAndMatchStyle': 'Pegar con el mismo estilo',
   'appMenu.delete': 'Eliminar',

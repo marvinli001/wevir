@@ -2349,6 +2349,7 @@ export const zhCN = {
   'appMenu.redo': '重做',
   'appMenu.cut': '剪切',
   'appMenu.copy': '拷贝',
+  'appMenu.copyImage': '拷贝图像',
   'appMenu.paste': '粘贴',
   'appMenu.pasteAndMatchStyle': '粘贴并匹配样式',
   'appMenu.delete': '删除',

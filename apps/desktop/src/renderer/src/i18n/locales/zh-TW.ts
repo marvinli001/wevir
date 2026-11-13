@@ -2337,6 +2337,7 @@ export const messages: Messages = {
   'appMenu.redo': '重做',
   'appMenu.cut': '剪下',
   'appMenu.copy': '拷貝',
+  'appMenu.copyImage': '拷貝影像',
   'appMenu.paste': '貼上',
   'appMenu.pasteAndMatchStyle': '貼上並符合樣式',
   'appMenu.delete': '刪除',

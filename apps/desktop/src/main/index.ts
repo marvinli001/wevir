@@ -748,6 +748,7 @@ function run(): void {
         redo: () => contents.redo(),
         cut: () => contents.cut(),
         copy: () => contents.copy(),
+        copyImage: () => contents.copyImageAt(params.x, params.y),
         paste: () => contents.paste(),
         selectAll: () => contents.selectAll(),
       });

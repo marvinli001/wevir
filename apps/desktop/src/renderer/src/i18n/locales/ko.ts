@@ -2347,6 +2347,7 @@ export const messages: Messages = {
   'appMenu.redo': '실행 복귀',
   'appMenu.cut': '오려두기',
   'appMenu.copy': '복사하기',
+  'appMenu.copyImage': '이미지 복사하기',
   'appMenu.paste': '붙여넣기',
   'appMenu.pasteAndMatchStyle': '붙여넣기 및 스타일 일치',
   'appMenu.delete': '삭제',
