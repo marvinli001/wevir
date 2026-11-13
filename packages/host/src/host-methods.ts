@@ -1739,6 +1739,86 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('INVALID_STATE', 'sync is unavailable', { state: 'closed' });
       return options.sync.workspaceRestore(params);
     },
+    'sync.recoveryRequest': ({ vaultId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.recoveryRequest(vaultId);
+    },
+    'sync.recoveryInfo': () => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.recoveryInfo();
+    },
+    'sync.recoveryStatus': ({ vaultId, refresh }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.recoveryStatus(vaultId, refresh);
+    },
+    'sync.recoveryComplete': ({ vaultId, requestId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.recoveryComplete(vaultId, requestId);
+    },
+    'sync.recoverySnapshot': ({ vaultId, jobId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.recoverySnapshot(vaultId, jobId);
+    },
+    'sync.recoveryDownload': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.recoveryDownload(params);
+    },
+    'sync.unlockKeys': ({ vaultId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.unlockKeys(vaultId);
+    },
+    'sync.deleteCloud': ({ vaultId, stepUpId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.deleteCloud(vaultId, stepUpId);
+    },
+    'sync.detach': ({ vaultId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.detach(vaultId);
+    },
+    'sync.exportLocal': ({ directory }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.exportLocal(directory);
+    },
+    'sync.importPrepare': ({ path }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importPrepare(path);
+    },
+    'sync.importApply': ({ importId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importApply(importId);
+    },
+    'sync.importList': () => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importList();
+    },
+    'sync.importRead': ({ importId, after }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importRead(importId, after);
+    },
+    'sync.importEntry': ({ importId, entryId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importEntry(importId, entryId);
+    },
+    'sync.importConversation': ({ importId, sessionId, afterSeq }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importConversation(importId, sessionId, afterSeq);
+    },
     'sync.status': () => {
       if (options.sync) return options.sync.status();
       const vault = storage.sync.activeVault();

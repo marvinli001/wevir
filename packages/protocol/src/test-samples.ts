@@ -3380,6 +3380,31 @@ export const episode: Episode = {
   updatedAt: '2026-11-04T00:00:00.000Z',
 };
 
+export const portablePreview: MethodResult<'sync.importPrepare'> = {
+  importId: 'import_synthetic',
+  packageId: 'package_synthetic',
+  path: '/synthetic/package',
+  createdAt: TS,
+  protection: 'plaintext',
+  entries: 0,
+  bytes: 0,
+  counts: {},
+  omissions: ['engine.raw'],
+  state: 'staged',
+};
+export const portableEntry: MethodResult<'sync.importRead'>['entries'][number] = {
+  id: 'entry_synthetic',
+  kind: 'settings',
+  key: 'settings',
+  bytes: 2,
+  sha256: 'A'.repeat(43),
+  encoding: 'json',
+};
+export const recoveryStatus: MethodResult<'sync.recoveryStatus'> = {
+  vaultId: 'vault_synthetic',
+  unlocked: false,
+  keyEpoch: '1',
+};
 export const methodSamples: MethodSamples = {
   'sync.sessionConflicts': {
     params: { valid: [{}], invalid: [null] },
@@ -3617,6 +3642,123 @@ export const methodSamples: MethodSamples = {
       invalid: [{}],
     },
     result: { valid: [{ opId: 'operation_fixture' }], invalid: [{}] },
+  },
+  'sync.importConversation': {
+    params: {
+      valid: [{ importId: 'import_synthetic', sessionId: ids.session }],
+      invalid: [{ importId: 'import_synthetic' }],
+    },
+    result: { valid: [{ session, events: [] }], invalid: [{ events: [] }] },
+  },
+  'sync.recoveryInfo': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ eligible: false, manageUrl: 'https://synthetic.invalid/console/subscription' }],
+      invalid: [{}],
+    },
+  },
+  'sync.recoveryRequest': {
+    params: { valid: [{ vaultId: 'vault_synthetic' }], invalid: [{}] },
+    result: { valid: [recoveryStatus], invalid: [{ vaultId: 'vault_synthetic' }] },
+  },
+  'sync.recoveryStatus': {
+    params: {
+      valid: [{ vaultId: 'vault_synthetic', refresh: true }],
+      invalid: [{ vaultId: 'vault_synthetic', refresh: 'true' }],
+    },
+    result: { valid: [recoveryStatus], invalid: [{}] },
+  },
+  'sync.recoveryComplete': {
+    params: {
+      valid: [{ vaultId: 'vault_synthetic', requestId: 'request_synthetic' }],
+      invalid: [{ vaultId: 'vault_synthetic' }],
+    },
+    result: { valid: [recoveryStatus], invalid: [{}] },
+  },
+  'sync.unlockKeys': {
+    params: { valid: [{ vaultId: 'vault_synthetic' }], invalid: [{ vaultId: 'short' }] },
+    result: { valid: [recoveryStatus], invalid: [{}] },
+  },
+  'sync.recoverySnapshot': {
+    params: {
+      valid: [
+        { vaultId: 'vault_synthetic' },
+        { vaultId: 'vault_synthetic', jobId: 'job_synthetic' },
+      ],
+      invalid: [{}],
+    },
+    result: {
+      valid: [
+        {
+          jobId: 'job_synthetic',
+          restoreId: 'restore_synthetic',
+          projectIds: [],
+          operations: 0,
+          expiresAt: TS,
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.recoveryDownload': {
+    params: {
+      valid: [
+        {
+          vaultId: 'vault_synthetic',
+          jobId: 'job_synthetic',
+          categories: ['memory'],
+          projectIds: [],
+        },
+      ],
+      invalid: [
+        { vaultId: 'vault_synthetic', jobId: 'job_synthetic', categories: [], projectIds: [] },
+      ],
+    },
+    result: { valid: [portablePreview], invalid: [{}] },
+  },
+  'sync.deleteCloud': {
+    params: {
+      valid: [{ vaultId: 'vault_synthetic', stepUpId: 'grant_synthetic' }],
+      invalid: [{ vaultId: 'vault_synthetic' }],
+    },
+    result: { valid: [{ state: 'retained', retentionUntil: TS }], invalid: [{ state: 'deleted' }] },
+  },
+  'sync.detach': {
+    params: { valid: [{ vaultId: 'vault_synthetic' }], invalid: [{}] },
+    result: { valid: [{ detached: true }], invalid: [{ detached: false }] },
+  },
+  'sync.exportLocal': {
+    params: { valid: [{}, { directory: '/synthetic/export' }], invalid: [{ directory: '' }] },
+    result: { valid: [portablePreview], invalid: [{}] },
+  },
+  'sync.importPrepare': {
+    params: { valid: [{ path: '/synthetic/package' }], invalid: [{}] },
+    result: { valid: [portablePreview], invalid: [{}] },
+  },
+  'sync.importApply': {
+    params: { valid: [{ importId: 'import_synthetic' }], invalid: [{}] },
+    result: { valid: [portablePreview], invalid: [{}] },
+  },
+  'sync.importList': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ packages: [portablePreview] }], invalid: [{ packages: {} }] },
+  },
+  'sync.importRead': {
+    params: {
+      valid: [{ importId: 'import_synthetic', after: 100 }],
+      invalid: [{ importId: 'import_synthetic', after: -1 }],
+    },
+    result: {
+      valid: [{ entries: [portableEntry], next: 100 }],
+      invalid: [{ entries: [], next: -1 }],
+    },
+  },
+  'sync.importEntry': {
+    params: {
+      valid: [{ importId: 'import_synthetic', entryId: 'entry_synthetic' }],
+      invalid: [{}],
+    },
+    result: { valid: [{ entry: portableEntry, base64: 'e30=' }], invalid: [{ base64: 'e30=' }] },
   },
   'sync.settingsConflicts': {
     params: { valid: [{}], invalid: [null] },

@@ -32,6 +32,15 @@ export class SyncVaultKeys {
     return pending;
   }
 
+  async cached(vaultId: string, keyEpoch: string): Promise<Uint8Array> {
+    id.parse(vaultId);
+    decimal.parse(keyEpoch);
+    const material = await this.#secrets.get(`sync.${vaultId}.key.${keyEpoch}`);
+    if (material === undefined) throw new ZuvRequestError('RECOVERY_REQUIRED');
+    this.#onSecret(material);
+    return this.#decode(material);
+  }
+
   async #unlock(
     vaultId: string,
     keyEpoch: string,

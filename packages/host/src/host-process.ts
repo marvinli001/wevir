@@ -630,6 +630,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           userHome: options.userHome ?? options.pluginUserHome,
           env: options.importEnv,
         }),
+      exportRoots: () =>
+        syncBundleRoots({
+          vault: {
+            vaultId: 'portable_local',
+            accountId: 'portable_local',
+            deviceId: 'portable_local',
+            originHostId: 'portable_local',
+            deviceSeq: '0',
+            active: false,
+            enabled: false,
+            revision: '0',
+            categories: ['rule', 'skill-bundle', 'artifact'],
+            projectIds: [],
+            appliedCursor: '',
+          },
+          storage: sessionsDb,
+          plugins,
+          images,
+          allLocal: true,
+          userHome: options.userHome ?? options.pluginUserHome,
+          env: options.importEnv,
+        }),
     });
     syncService = sync;
     // 写作风格（0.95.0）：档案与建档期间的样本；放了太久的样本启动时删掉。
@@ -1932,6 +1954,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sync_session_conflicts: true,
         sync_bundles: true,
         sync_reset: true,
+        sync_recovery: true,
         sync_artifacts: true,
         zuv_account: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),

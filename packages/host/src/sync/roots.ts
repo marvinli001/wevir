@@ -14,12 +14,22 @@ export async function syncBundleRoots(options: {
   images: ImageStore;
   userHome?: string;
   env?: NodeJS.ProcessEnv;
+  allLocal?: boolean;
 }): Promise<SyncBundleRoot[]> {
   const { vault, storage } = options;
   const roots: SyncBundleRoot[] = [];
-  const projects = storage.sync
-    .projects(vault.vaultId)
-    .filter((value) => value.workspaceId && vault.projectIds.includes(value.projectId))
+  const mappings = options.allLocal
+    ? storage.workspaces.list({ includeRemoved: true }).map((workspace) => ({
+        projectId: workspace.id,
+        workspaceId: workspace.id,
+        displayName: workspace.displayName,
+      }))
+    : storage.sync.projects(vault.vaultId);
+  const projects = mappings
+    .filter(
+      (value) =>
+        value.workspaceId && (options.allLocal || vault.projectIds.includes(value.projectId)),
+    )
     .flatMap((value) => {
       const workspace = storage.workspaces.get(value.workspaceId as string);
       return workspace ? [{ ...value, workspace }] : [];

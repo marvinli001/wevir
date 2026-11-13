@@ -82,6 +82,7 @@ import {
   accountLogin as subscriptionLogin,
   accountLogout as subscriptionLogout,
 } from './commands/subscription.js';
+import { syncCall } from './commands/sync.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import {
   workspaceAdd,
@@ -192,6 +193,196 @@ function ruleOptions(values: Values): { workspace?: string; json: boolean } {
 }
 
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
+  sync: {
+    conversation: {
+      summary: 'cmd.sync.conversation.summary',
+      usage: 'cmd.sync.conversation.usage',
+      options: { stdin: { type: 'boolean' } },
+      positionals: { min: 2, max: 2 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(
+          ctx,
+          'sync.importConversation',
+          { importId: p[0], sessionId: p[1] },
+          v.stdin === true,
+        ),
+    },
+    status: {
+      summary: 'cmd.sync.status.summary',
+      usage: 'cmd.sync.status.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => syncCall(ctx, 'sync.status', {}, v.stdin === true),
+    },
+    retry: {
+      summary: 'cmd.sync.retry.summary',
+      usage: 'cmd.sync.retry.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => syncCall(ctx, 'sync.retry', {}, v.stdin === true),
+    },
+    configure: {
+      summary: 'cmd.sync.configure.summary',
+      usage: 'cmd.sync.configure.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => syncCall(ctx, 'sync.configure', {}, v.stdin === true),
+    },
+    devices: {
+      summary: 'cmd.sync.devices.summary',
+      usage: 'cmd.sync.devices.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => syncCall(ctx, 'sync.devices', {}, v.stdin === true),
+    },
+    approve: {
+      summary: 'cmd.sync.approve.summary',
+      usage: 'cmd.sync.approve.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncCall(ctx, 'sync.approveDevice', { deviceId: p[0] }, v.stdin === true),
+    },
+    'recovery-request': {
+      summary: 'cmd.sync.recovery-request.summary',
+      usage: 'cmd.sync.recovery-request.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(ctx, 'sync.recoveryRequest', { vaultId: p[0] }, v.stdin === true),
+    },
+    'recovery-status': {
+      summary: 'cmd.sync.recovery-status.summary',
+      usage: 'cmd.sync.recovery-status.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(
+          ctx,
+          'sync.recoveryStatus',
+          { vaultId: p[0], refresh: v.refresh === true },
+          v.stdin === true,
+        ),
+    },
+    'recovery-complete': {
+      summary: 'cmd.sync.recovery-complete.summary',
+      usage: 'cmd.sync.recovery-complete.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 2, max: 2 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(
+          ctx,
+          'sync.recoveryComplete',
+          { vaultId: p[0], requestId: p[1] },
+          v.stdin === true,
+        ),
+    },
+    unlock: {
+      summary: 'cmd.sync.unlock.summary',
+      usage: 'cmd.sync.unlock.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncCall(ctx, 'sync.unlockKeys', { vaultId: p[0] }, v.stdin === true),
+    },
+    snapshot: {
+      summary: 'cmd.sync.snapshot.summary',
+      usage: 'cmd.sync.snapshot.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 2 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(
+          ctx,
+          'sync.recoverySnapshot',
+          { vaultId: p[0], ...(p[1] && { jobId: p[1] }) },
+          v.stdin === true,
+        ),
+    },
+    download: {
+      summary: 'cmd.sync.download.summary',
+      usage: 'cmd.sync.download.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => syncCall(ctx, 'sync.recoveryDownload', {}, v.stdin === true),
+    },
+    export: {
+      summary: 'cmd.sync.export.summary',
+      usage: 'cmd.sync.export.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 1 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(ctx, 'sync.exportLocal', { ...(p[0] && { directory: p[0] }) }, v.stdin === true),
+    },
+    import: {
+      summary: 'cmd.sync.import.summary',
+      usage: 'cmd.sync.import.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncCall(ctx, 'sync.importPrepare', { path: p[0] }, v.stdin === true),
+    },
+    'import-apply': {
+      summary: 'cmd.sync.import-apply.summary',
+      usage: 'cmd.sync.import-apply.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncCall(ctx, 'sync.importApply', { importId: p[0] }, v.stdin === true),
+    },
+    imports: {
+      summary: 'cmd.sync.imports.summary',
+      usage: 'cmd.sync.imports.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => syncCall(ctx, 'sync.importList', {}, v.stdin === true),
+    },
+    entries: {
+      summary: 'cmd.sync.entries.summary',
+      usage: 'cmd.sync.entries.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncCall(ctx, 'sync.importRead', { importId: p[0] }, v.stdin === true),
+    },
+    entry: {
+      summary: 'cmd.sync.entry.summary',
+      usage: 'cmd.sync.entry.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 2, max: 2 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(ctx, 'sync.importEntry', { importId: p[0], entryId: p[1] }, v.stdin === true),
+    },
+    detach: {
+      summary: 'cmd.sync.detach.summary',
+      usage: 'cmd.sync.detach.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncCall(ctx, 'sync.detach', { vaultId: p[0] }, v.stdin === true),
+    },
+    'delete-cloud': {
+      summary: 'cmd.sync.delete-cloud.summary',
+      usage: 'cmd.sync.delete-cloud.usage',
+      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      positionals: { min: 2, max: 2 },
+      remote: true,
+      run: (ctx, v, p) =>
+        syncCall(ctx, 'sync.deleteCloud', { vaultId: p[0], stepUpId: p[1] }, v.stdin === true),
+    },
+  },
   exec: {
     '': {
       summary: 'cmd.exec.summary',
