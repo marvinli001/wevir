@@ -6070,7 +6070,116 @@ const syncContentCases: Case[] = [
     ],
   },
 ];
+const portableCases: Case[] = [
+  {
+    name: 'PortableEntry',
+    schema: protocol.PortableEntrySchema,
+    valid: [samples.portableEntry],
+    invalid: [{ ...samples.portableEntry, bytes: 4 * 1024 * 1024 + 1 }],
+  },
+  {
+    name: 'PortablePreview',
+    schema: protocol.PortablePreviewSchema,
+    valid: [samples.portablePreview],
+    invalid: [{ ...samples.portablePreview, entries: -1 }],
+  },
+  {
+    name: 'PortableManifest',
+    schema: protocol.PortableManifestSchema,
+    valid: [
+      {
+        schema: 'wevir-portable/1',
+        packageId: 'package_synthetic',
+        createdAt: samples.TS,
+        hostProtocol: '0.184.0',
+        protection: 'plaintext',
+        consistency: 'database-cas-and-per-root-snapshots',
+        omissions: ['engine.raw'],
+        recovery: protocol.PORTABLE_RECOVERY_INSTRUCTIONS,
+        entries: [samples.portableEntry],
+      },
+    ],
+    invalid: [{ schema: 'wevir-portable/2' }],
+  },
+  {
+    name: 'PortableVersion',
+    schema: protocol.PortableVersionSchema,
+    valid: [
+      {
+        vaultId: 'vault_synthetic',
+        entityId: 'entity_synthetic',
+        opId: 'operation_synthetic',
+        entityType: 'memory',
+        record: {
+          opId: 'operation_synthetic',
+          entityId: 'entity_synthetic',
+          kind: 'delete',
+          parents: [],
+          content: null,
+        },
+      },
+    ],
+    invalid: [
+      {
+        vaultId: 'vault_synthetic',
+        entityId: 'entity_synthetic',
+        opId: 'operation_synthetic',
+        entityType: 'unknown',
+        record: {},
+      },
+    ],
+  },
+  {
+    name: 'PortableLocalFiles',
+    schema: protocol.PortableLocalFilesSchema,
+    valid: [{ schema: 'wevir-portable-files/1', files: [] }],
+    invalid: [
+      {
+        schema: 'wevir-portable-files/1',
+        files: [
+          { key: 'synthetic', path: '../escape', bytes: 0, sha256: 'A'.repeat(43), parts: [] },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'PortableConversation',
+    schema: protocol.PortableConversationSchema,
+    valid: [{ session: samples.session, events: [] }],
+    invalid: [{ events: [] }],
+  },
+  {
+    name: 'SyncRecoveryStatus',
+    schema: protocol.SyncRecoveryStatusSchema,
+    valid: [samples.recoveryStatus],
+    invalid: [{ vaultId: 'vault_synthetic', unlocked: 'true' }],
+  },
+  {
+    name: 'SyncRecoveryJournal',
+    schema: protocol.SyncRecoveryJournalSchema,
+    valid: [
+      {
+        v: 1,
+        origin: 'https://synthetic.invalid',
+        accountId: 'account_synthetic',
+        deviceId: 'device_synthetic',
+        vaultId: 'vault_synthetic',
+      },
+    ],
+    invalid: [
+      {
+        v: 1,
+        origin: 'https://synthetic.invalid',
+        accountId: 'account_synthetic',
+        deviceId: 'device_synthetic',
+        vaultId: 'vault_synthetic',
+        keyMaterial: 'A'.repeat(43),
+      },
+    ],
+  },
+];
 const allCases = [
+  ...portableCases,
   ...syncContentCases,
   ...episodeCases,
   ...standaloneCases,

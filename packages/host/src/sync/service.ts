@@ -27,9 +27,12 @@ import { SyncProjectCatalog } from './catalog.js';
 import { SyncEngine } from './engine.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
 import { SyncVaultKeys } from './keys.js';
+import { SyncLifecycle } from './lifecycle.js';
 import { SyncMaterials } from './materials.js';
 import { SyncMemoryConflicts } from './memory-conflicts.js';
+import { SyncPortable } from './portable.js';
 import { SyncQueue } from './queue.js';
+import { SyncRecoveryFiles } from './recovery-files.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSettings } from './settings.js';
 import { SyncSettingsConflicts } from './settings-conflicts.js';
@@ -47,6 +50,7 @@ export interface SyncServiceOptions {
   settings: HostSettingsStore;
   onSecret: (value: string) => void;
   bundleRoots: (vault: SyncVaultRecord) => Promise<SyncBundleRoot[]>;
+  exportRoots?: () => Promise<SyncBundleRoot[]>;
   intervalMs?: number;
   onEpisodeChanged?: (change: EpisodeChange) => void;
 }
@@ -59,6 +63,9 @@ export class SyncService {
   readonly #files: SyncFilesCapture;
   readonly #artifacts: SyncArtifacts;
   readonly #keys: SyncVaultKeys;
+  readonly #lifecycle: SyncLifecycle;
+  readonly #portable: SyncPortable;
+  readonly #recoveryFiles: SyncRecoveryFiles;
   readonly #settings: SyncSettings;
   readonly #catalog: SyncProjectCatalog;
   readonly #bootstrap: SyncBootstrap;
@@ -88,6 +95,8 @@ export class SyncService {
       secrets: options.secrets,
       onSecret: options.onSecret,
     });
+    this.#lifecycle = new SyncLifecycle({ ...options, keys: this.#keys });
+    this.#portable = new SyncPortable({ ...options, keys: this.#keys });
     this.#capture = new SyncEventCapture({
       storage: options.storage,
       eligible: () => this.#consented(),
@@ -117,6 +126,13 @@ export class SyncService {
     const cache = new SyncBlobCache(join(options.home, 'sync/blobs'));
     const snapshots = new SyncSnapshots(options);
     const data = new SyncRestoreData({ ...options, cache, snapshots, keys: this.#keys });
+    this.#recoveryFiles = new SyncRecoveryFiles({
+      client: options.client,
+      snapshots,
+      data,
+      portable: this.#portable,
+      storage: options.storage,
+    });
     this.#bootstrap = new SyncBootstrap({
       ...options,
       snapshots,
@@ -837,19 +853,89 @@ export class SyncService {
     }
   }
 
+  recoveryRequest(vaultId: string) {
+    return this.#memoryOperation(() => this.#lifecycle.request(vaultId));
+  }
+  recoveryInfo() {
+    return this.#lifecycle.info();
+  }
+  exportLocal(directory?: string) {
+    return this.#memoryOperation(() => this.#portable.exportLocal(directory));
+  }
+  importPrepare(path: string) {
+    return this.#memoryOperation(() => this.#portable.importPrepare(path));
+  }
+  importApply(importId: string) {
+    return this.#memoryOperation(() => this.#portable.importApply(importId));
+  }
+  importList() {
+    return this.#portable.list().catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  importRead(importId: string, after?: number) {
+    return this.#portable.read(importId, after).catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  importEntry(importId: string, entryId: string) {
+    return this.#portable.entry(importId, entryId).catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  importConversation(importId: string, sessionId: string, afterSeq?: number) {
+    return this.#portable.conversation(importId, sessionId, afterSeq).catch((error) => {
+      throw this.#failure(error);
+    });
+  }
+  recoveryStatus(vaultId: string, refresh?: boolean) {
+    return this.#memoryOperation(() => this.#lifecycle.status(vaultId, refresh));
+  }
+  recoveryComplete(vaultId: string, requestId: string) {
+    return this.#memoryOperation(() => this.#lifecycle.complete(vaultId, requestId));
+  }
+  recoverySnapshot(vaultId: string, jobId?: string) {
+    return this.#memoryOperation(() => this.#recoveryFiles.snapshot(vaultId, jobId));
+  }
+  recoveryDownload(input: MethodParams<'sync.recoveryDownload'>) {
+    return this.#memoryOperation(() => this.#recoveryFiles.download(input));
+  }
+  unlockKeys(vaultId: string) {
+    return this.#memoryOperation(async () => {
+      await this.#options.client.getEntitlements();
+      return this.#lifecycle.unlock(vaultId);
+    });
+  }
+  deleteCloud(vaultId: string, stepUpId: string) {
+    return this.#memoryOperation(async () => {
+      const result = await this.#lifecycle.deleteCloud(vaultId, stepUpId);
+      const vault = this.#options.storage.sync.getVault(vaultId);
+      if (vault) this.#options.storage.sync.setScopes(vaultId, { ...vault, enabled: false });
+      return result;
+    });
+  }
+  detach(vaultId: string) {
+    return this.#memoryOperation(async () => {
+      const vault = this.#options.storage.sync.activeVault();
+      if (vault?.vaultId !== vaultId) throw new ZuvRequestError('REVISION_CONFLICT');
+      this.#options.storage.transaction(() => this.#options.storage.sync.detachVault(vaultId));
+      return { detached: true as const };
+    });
+  }
+
   async approveDevice(deviceId: string) {
     const vault = this.#options.storage.sync.activeVault();
     if (!vault) throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
-    try {
+    return this.#memoryOperation(async () => {
+      await this.#options.client.getEntitlements();
+      await this.#lifecycle.unlock(vault.vaultId);
       return await this.#options.client.json(
         'approved',
         'POST',
         `/api/wevir/sync/v1/devices/${deviceId}/approve`,
-        { keyEpoch: this.#options.storage.sync.vaultTransport(vault.vaultId).keyEpoch },
+        { keyEpoch: this.#options.client.entitlements?.vault?.keyEpoch },
       );
-    } catch (error) {
-      throw this.#failure(error);
-    }
+    });
   }
 
   #consented(): SyncVaultRecord | undefined {

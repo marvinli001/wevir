@@ -136,6 +136,23 @@ export function createSyncRepository(db: SqliteDatabase) {
       };
     },
     getVault,
+    rememberRecoveryVault(
+      input: Pick<SyncVaultRecord, 'vaultId' | 'accountId' | 'deviceId' | 'originHostId'>,
+    ): void {
+      requireTransaction();
+      const existing = getVault(input.vaultId);
+      if (existing && existing.accountId !== input.accountId)
+        throw new SyncStorageError('VAULT_BOUND');
+      if (!existing)
+        db.prepare(`INSERT INTO sync_vaults
+        (vault_id, account_id, device_id, origin_host_id, applied_cursor, active, enabled)
+        VALUES (?, ?, ?, ?, '', 0, 0)`).run(
+          input.vaultId,
+          input.accountId,
+          input.deviceId,
+          input.originHostId,
+        );
+    },
     activeVault(): SyncVaultRecord | undefined {
       const row = db.prepare('SELECT * FROM sync_vaults WHERE active = 1').get();
       return row && vaultFromRow(row);
@@ -267,6 +284,13 @@ export function createSyncRepository(db: SqliteDatabase) {
       ).run(...args, sha256, localSeq ?? null);
     },
     getOperation,
+    portableVersionIds(vaultId: string): string[] {
+      return db
+        .prepare(`SELECT op_id FROM sync_operations WHERE vault_id = ?
+        UNION SELECT op_id FROM sync_drafts WHERE vault_id = ? ORDER BY op_id`)
+        .all(vaultId, vaultId)
+        .map((row) => text(row, 'op_id'));
+    },
     hasPendingEntity(vaultId: string, entityId: string): boolean {
       return Boolean(
         db

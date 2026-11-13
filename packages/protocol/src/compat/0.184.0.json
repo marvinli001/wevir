@@ -1,0 +1,293 @@
+{
+  "protocolVersion": "0.184.0",
+  "methods": {
+    "sync.recoveryInfo": {
+      "params": [{}],
+      "result": [
+        {
+          "eligible": false,
+          "manageUrl": "https://synthetic.invalid/console/subscription"
+        }
+      ]
+    },
+    "sync.recoveryRequest": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_synthetic",
+          "keyEpoch": "1",
+          "unlocked": false
+        }
+      ]
+    },
+    "sync.recoveryStatus": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic",
+          "refresh": true
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_synthetic",
+          "keyEpoch": "1",
+          "unlocked": false
+        }
+      ]
+    },
+    "sync.recoveryComplete": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic",
+          "requestId": "request_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_synthetic",
+          "keyEpoch": "1",
+          "unlocked": false
+        }
+      ]
+    },
+    "sync.unlockKeys": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_synthetic",
+          "keyEpoch": "1",
+          "unlocked": false
+        }
+      ]
+    },
+    "sync.recoverySnapshot": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "jobId": "job_synthetic",
+          "restoreId": "restore_synthetic",
+          "projectIds": [],
+          "operations": 0,
+          "expiresAt": "2026-11-13T00:00:00.000Z"
+        }
+      ]
+    },
+    "sync.recoveryDownload": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic",
+          "jobId": "job_synthetic",
+          "categories": ["memory"],
+          "projectIds": []
+        }
+      ],
+      "result": [
+        {
+          "importId": "import_synthetic",
+          "packageId": "package_synthetic",
+          "path": "/synthetic/package",
+          "createdAt": "2026-11-13T00:00:00.000Z",
+          "protection": "plaintext",
+          "entries": 0,
+          "bytes": 0,
+          "counts": {},
+          "omissions": ["engine.raw"],
+          "state": "staged"
+        }
+      ]
+    },
+    "sync.deleteCloud": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic",
+          "stepUpId": "grant_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "state": "retained",
+          "retentionUntil": "2026-11-13T00:00:00.000Z"
+        }
+      ]
+    },
+    "sync.detach": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "detached": true
+        }
+      ]
+    },
+    "sync.exportLocal": {
+      "params": [{}],
+      "result": [
+        {
+          "importId": "import_synthetic",
+          "packageId": "package_synthetic",
+          "path": "/synthetic/package",
+          "createdAt": "2026-11-13T00:00:00.000Z",
+          "protection": "plaintext",
+          "entries": 0,
+          "bytes": 0,
+          "counts": {},
+          "omissions": ["engine.raw"],
+          "state": "staged"
+        }
+      ]
+    },
+    "sync.importPrepare": {
+      "params": [
+        {
+          "path": "/synthetic/package"
+        }
+      ],
+      "result": [
+        {
+          "importId": "import_synthetic",
+          "packageId": "package_synthetic",
+          "path": "/synthetic/package",
+          "createdAt": "2026-11-13T00:00:00.000Z",
+          "protection": "plaintext",
+          "entries": 0,
+          "bytes": 0,
+          "counts": {},
+          "omissions": ["engine.raw"],
+          "state": "staged"
+        }
+      ]
+    },
+    "sync.importApply": {
+      "params": [
+        {
+          "importId": "import_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "importId": "import_synthetic",
+          "packageId": "package_synthetic",
+          "path": "/synthetic/package",
+          "createdAt": "2026-11-13T00:00:00.000Z",
+          "protection": "plaintext",
+          "entries": 0,
+          "bytes": 0,
+          "counts": {},
+          "omissions": ["engine.raw"],
+          "state": "staged"
+        }
+      ]
+    },
+    "sync.importList": {
+      "params": [{}],
+      "result": [
+        {
+          "packages": [
+            {
+              "importId": "import_synthetic",
+              "packageId": "package_synthetic",
+              "path": "/synthetic/package",
+              "createdAt": "2026-11-13T00:00:00.000Z",
+              "protection": "plaintext",
+              "entries": 0,
+              "bytes": 0,
+              "counts": {},
+              "omissions": ["engine.raw"],
+              "state": "staged"
+            }
+          ]
+        }
+      ]
+    },
+    "sync.importRead": {
+      "params": [
+        {
+          "importId": "import_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "entries": [
+            {
+              "id": "entry_synthetic",
+              "kind": "settings",
+              "key": "settings",
+              "bytes": 2,
+              "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "encoding": "json"
+            }
+          ]
+        }
+      ]
+    },
+    "sync.importEntry": {
+      "params": [
+        {
+          "importId": "import_synthetic",
+          "entryId": "entry_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "entry": {
+            "id": "entry_synthetic",
+            "kind": "settings",
+            "key": "settings",
+            "bytes": 2,
+            "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "encoding": "json"
+          },
+          "base64": "e30="
+        }
+      ]
+    },
+    "sync.importConversation": {
+      "params": [
+        {
+          "importId": "import_synthetic",
+          "sessionId": "ses_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_synthetic",
+            "workspaceId": "ws_synthetic",
+            "cwd": "/synthetic",
+            "engine": {
+              "kind": "echo",
+              "sessionId": "native_synthetic"
+            },
+            "providerId": "synthetic",
+            "modelId": "synthetic",
+            "title": "Synthetic",
+            "titleSource": "user",
+            "state": "closed",
+            "createdAt": "2026-11-13T00:00:00.000Z",
+            "updatedAt": "2026-11-13T00:00:00.000Z",
+            "lastSeq": 0
+          },
+          "events": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

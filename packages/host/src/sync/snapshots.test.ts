@@ -2,15 +2,19 @@ import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { FileSecretStore, openStorage, type SyncVaultRecord } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EventStore } from '../event-store.js';
+import { HostSettingsStore } from '../settings.js';
 import { useTempDir } from '../test-utils.js';
 import { ZuvClient } from '../zuv/client.js';
 import { startMockZuv } from '../zuv/mock.test-utils.js';
 import { SyncBootstrap } from './bootstrap.js';
 import { SyncBlobCache } from './cache.js';
-import { eventDigest } from './crypto.js';
+import { eventDigest, sha256 } from './crypto.js';
 import { SyncEngine } from './engine.js';
 import { SyncVaultKeys } from './keys.js';
+import { SyncPortable } from './portable.js';
 import { SyncQueue } from './queue.js';
+import { SyncRecoveryFiles } from './recovery-files.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSnapshots } from './snapshots.js';
 
@@ -157,6 +161,192 @@ async function fixture(fault: 'none' | 'page' | 'export' | 'manifest' = 'none') 
 }
 
 describe('fixed recoverable snapshot metadata', () => {
+  it('includes only referenced chunks when restoring a selected bundle category', async () => {
+    const h = await fixture();
+    h.mock.sync.limitOverrides.operations = 256;
+    await h.client.getEntitlements();
+    const scopes = await h.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+      enabled: true,
+      categories: ['skill-bundle', 'artifact'],
+      projectIds: [],
+      expectedRevision: h.vault.revision,
+    });
+    h.storage.sync.setScopes(h.vault.vaultId, scopes);
+    const bytes = Buffer.from('referenced synthetic binary');
+    h.storage.transaction(() => {
+      const queue = new SyncQueue(h.storage);
+      queue.enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'artifact',
+        entityId: 'chunk_selected',
+        opId: 'operation_chunk_selected',
+        localKey: 'selected-chunk',
+        content: {
+          schema: 'wevir-chunk/1',
+          ownerId: 'bundle_selected',
+          index: 0,
+          data: bytes.toString('base64url'),
+          sha256: sha256(bytes),
+        },
+      });
+      queue.enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'skill-bundle',
+        entityId: 'bundle_selected',
+        opId: 'operation_bundle_selected',
+        localKey: 'selected-bundle',
+        content: {
+          schema: 'wevir-bundle/1',
+          category: 'skill-bundle',
+          name: 'Selected synthetic skill',
+          exclusions: [],
+          files: [
+            {
+              path: 'binary.dat',
+              bytes: bytes.length,
+              sha256: sha256(bytes),
+              parts: [{ entityId: 'chunk_selected', opId: 'operation_chunk_selected' }],
+            },
+          ],
+        },
+      });
+      queue.enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'artifact',
+        entityId: 'chunk_unselected',
+        opId: 'operation_chunk_unselected',
+        localKey: 'unselected-chunk',
+        content: {
+          schema: 'wevir-chunk/1',
+          ownerId: 'unselected_bundle',
+          index: 0,
+          data: Buffer.from('unselected private bytes').toString('base64url'),
+          sha256: sha256('unselected private bytes'),
+        },
+      });
+    });
+    expect(await h.engine.run()).toBe(true);
+    expect(await h.engine.run()).toBe(true);
+    expect(h.storage.sync.getOperation(h.vault.vaultId, 'operation_bundle_selected')?.state).toBe(
+      'committed',
+    );
+    const events = new EventStore({ storage: h.storage });
+    cleanups.push(() => events.close());
+    const portable = new SyncPortable({
+      home: h.home,
+      storage: h.storage,
+      events,
+      keys: h.keys,
+      settings: new HostSettingsStore(),
+      memoryDir: join(h.home, 'memory'),
+      bundleRoots: async () => [],
+    });
+    const files = new SyncRecoveryFiles({
+      client: h.client,
+      storage: h.storage,
+      snapshots: h.snapshots,
+      data: new SyncRestoreData({
+        client: h.client,
+        storage: h.storage,
+        snapshots: h.snapshots,
+        keys: h.keys,
+        cache: new SyncBlobCache(join(h.home, 'sync/blobs')),
+      }),
+      portable,
+    });
+    const snapshot = await files.snapshot(h.vault.vaultId);
+    const staged = await files.download({
+      vaultId: h.vault.vaultId,
+      jobId: snapshot.jobId,
+      categories: ['skill-bundle'],
+      projectIds: [],
+    });
+    expect(staged.counts.version).toBe(2);
+    await portable.importApply(staged.importId);
+    const entries = (await portable.read(staged.importId)).entries;
+    expect(entries.some((entry) => entry.opId === 'operation_chunk_selected')).toBe(true);
+    expect(entries.some((entry) => entry.opId === 'operation_chunk_unselected')).toBe(false);
+  });
+  it('restores a newly approved expired device into an isolated offline mirror without enabling sync', async () => {
+    const h = await fixture();
+    const home = join(tempDir(), 'cold-device');
+    const storage = openStorage({ dataDir: home });
+    const events = new EventStore({ storage });
+    cleanups.push(() => {
+      events.close();
+      storage.close();
+    });
+    const secrets = new FileSecretStore(home);
+    const client = new ZuvClient({ origin: h.mock.origin, allowLoopback: true, secrets });
+    cleanups.push(() => client.close());
+    await client.load();
+    const enrollment = await client.beginEnrollment('Synthetic cold restore');
+    h.mock.approve(enrollment.verificationUri);
+    await client.pollEnrollment();
+    await client.getEntitlements();
+    await client.json('vaultOpened', 'POST', '/api/wevir/sync/v1/vaults/open', {
+      consent: true,
+      protocol: 'wevir-sync/1',
+    });
+    const keys = new SyncVaultKeys({ client, secrets, onSecret: () => {} });
+    const snapshots = new SyncSnapshots({ client, home });
+    const data = new SyncRestoreData({
+      client,
+      storage,
+      keys,
+      snapshots,
+      cache: new SyncBlobCache(join(home, 'sync/blobs')),
+    });
+    const portable = new SyncPortable({
+      home,
+      storage,
+      events,
+      keys,
+      settings: new HostSettingsStore(),
+      memoryDir: join(home, 'memory'),
+      bundleRoots: async () => [],
+    });
+    const files = new SyncRecoveryFiles({ client, storage, data, snapshots, portable });
+    await expect(files.snapshot(h.vault.vaultId)).rejects.toThrow();
+    await h.client.json(
+      'approved',
+      'POST',
+      `/api/wevir/sync/v1/devices/${client.deviceId}/approve`,
+      { keyEpoch: '1' },
+    );
+    const entitlements = await client.getEntitlements();
+    entitlements.subscriptionState = 'expired';
+    const snapshot = await files.snapshot(h.vault.vaultId);
+    h.enqueue('synthetic-later-than-fixed-snapshot');
+    await h.engine.run();
+    const acknowledgements = h.mock.sync.acknowledgements.length;
+    const staged = await files.download({
+      vaultId: h.vault.vaultId,
+      jobId: snapshot.jobId,
+      categories: ['memory'],
+      projectIds: [],
+    });
+    expect(staged.counts.version).toBe(3);
+    expect(storage.sync.activeVault()).toBeUndefined();
+    expect(storage.sync.getVault(h.vault.vaultId)).toMatchObject({
+      active: false,
+      enabled: false,
+      appliedCursor: '',
+    });
+    expect(h.mock.sync.acknowledgements).toHaveLength(acknowledgements);
+    await portable.importApply(staged.importId);
+    const entries = (await portable.read(staged.importId)).entries.filter(
+      (entry) => entry.kind === 'version',
+    );
+    const texts = await Promise.all(
+      entries.map(async (entry) =>
+        Buffer.from((await portable.entry(staged.importId, entry.id)).base64, 'base64').toString(),
+      ),
+    );
+    expect(texts.join()).toContain('synthetic-first');
+    expect(texts.join()).not.toContain('synthetic-later-than-fixed-snapshot');
+    expect(storage.sync.counts(h.vault.vaultId).pending).toBe(0);
+  });
   it('applies each restored revision atomically, resumes after a projection crash and ACKs only the fixed snapshot', async () => {
     const h = await fixture();
     const home = join(tempDir(), 'receiver');

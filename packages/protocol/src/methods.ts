@@ -226,6 +226,7 @@ import {
   WorkspaceOfficePdfResultSchema,
 } from './office.js';
 import { PluginMethodSchemas } from './plugins.js';
+import { PortableMethodSchemas } from './portable.js';
 import {
   PreviewChangedParamsSchema,
   PreviewListParamsSchema,
@@ -326,6 +327,7 @@ import {
   SpeechStatusResultSchema,
 } from './speech.js';
 import { SyncMethodSchemas } from './sync.js';
+import { SyncLifecycleMethodSchemas } from './sync-lifecycle.js';
 import {
   TerminalAttachParamsSchema,
   TerminalAttachResultSchema,
@@ -2102,6 +2104,8 @@ export interface MethodSpec {
  */
 export const MethodSchemas = {
   ...SyncMethodSchemas,
+  ...SyncLifecycleMethodSchemas,
+  ...PortableMethodSchemas,
   ...PluginMethodSchemas,
   ...ImportMethodSchemas,
   ...MarketMethodSchemas,
