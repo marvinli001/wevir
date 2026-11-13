@@ -313,6 +313,11 @@ describe('workspace handoff through two isolated Hosts', () => {
       kind: 'history',
       sessionId: mirrored.id,
       via: 'handoff',
+      syncContinuation: {
+        vaultId: snapshot.vaultId,
+        runId: snapshot.source.sessionId,
+        source: snapshot.source,
+      },
       workspaceSnapshot: { opId: snapshot.opId, sourceHead: restored.sourceHead },
     });
     await second.rpc.request('session.send', {
@@ -327,6 +332,26 @@ describe('workspace handoff through two isolated Hosts', () => {
           )?.state,
       )
       .toBe('idle');
+    const continued = (await second.rpc.request('session.get', { sessionId: continuation.id }))
+      .session;
+    expect(continued.syncExecution.runId).toBe(snapshot.source.sessionId);
+    expect(continued.syncExecution.streamId).not.toBe(snapshot.source.streamId);
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: continuation.id,
+      sinceSeq: 0,
+    });
+    await second.rpc.untilTrue(
+      () =>
+        second.rpc
+          .events(subscriptionId)
+          .some(
+            (event) =>
+              event.type === 'session.execution' &&
+              event.payload.branchRequired === true &&
+              event.payload.runId === snapshot.source.sessionId,
+          ),
+      'workspace handoff retains the independent execution branch',
+    );
     expect(JSON.stringify(second.adapter.inputs)).toContain(
       'Keep the index and worktree separate.',
     );
