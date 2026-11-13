@@ -1745,6 +1745,12 @@ export const messages: Messages = {
   'sync.saved': '同期済み',
   'sync.paused': '一時停止',
   'sync.attention': '対応が必要',
+  'sync.recoverOutbox': 'オフライン作業を復元',
+  'sync.outboxUncertain': '送信結果不明',
+  'sync.outboxRejected': '送信拒否',
+  'sync.deviceChanged': 'デバイス変更',
+  'sync.recoverOutboxConsequences':
+    'オフライン作業を新しい分岐に保存します。元の送信は保持され、後の確認で並行する版が生じる場合があります。',
   'sync.resetRequired': '復元が必要',
   'sync.categories': '範囲',
   'sync.workspace': 'ワークスペース',

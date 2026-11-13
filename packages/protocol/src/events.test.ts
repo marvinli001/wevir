@@ -129,6 +129,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.action;
     case 'session.auto_continue':
       return event.payload.resumeAt ?? '';
+    case 'session.execution':
+      return event.payload.state;
     case 'turn.retrying':
       return event.payload.reason ?? '';
     default: {

@@ -1746,6 +1746,12 @@ export const messages: Messages = {
   'sync.saved': 'Synced',
   'sync.paused': 'Paused',
   'sync.attention': 'Action required',
+  'sync.recoverOutbox': 'Recover offline work',
+  'sync.outboxUncertain': 'Commit unconfirmed',
+  'sync.outboxRejected': 'Commit rejected',
+  'sync.deviceChanged': 'Device changed',
+  'sync.recoverOutboxConsequences':
+    'Offline work will be preserved in a new branch. The original commit remains; later confirmation may produce parallel versions.',
   'sync.resetRequired': 'Recovery required',
   'sync.categories': 'Categories',
   'sync.workspace': 'Workspace',

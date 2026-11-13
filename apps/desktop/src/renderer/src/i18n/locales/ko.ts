@@ -1734,6 +1734,12 @@ export const messages: Messages = {
   'sync.saved': '동기화됨',
   'sync.paused': '일시 중지됨',
   'sync.attention': '조치 필요',
+  'sync.recoverOutbox': '오프라인 작업 복구',
+  'sync.outboxUncertain': '커밋 미확인',
+  'sync.outboxRejected': '커밋 거부됨',
+  'sync.deviceChanged': '기기 변경됨',
+  'sync.recoverOutboxConsequences':
+    '오프라인 작업을 새 분기에 보존합니다. 원본 커밋은 유지되며 나중에 확인되면 병렬 버전이 생길 수 있습니다.',
   'sync.resetRequired': '복구 필요',
   'sync.categories': '범위',
   'sync.workspace': '작업 공간',

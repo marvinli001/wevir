@@ -9,7 +9,7 @@ import {
   type SyncStatus,
   SyncStatusSchema,
 } from '@wevir/protocol';
-import { packRecord } from '@wevir/protocol/sync';
+import { packRecord, validateOperation } from '@wevir/protocol/sync';
 import type { SecretStore, Storage, SyncVaultRecord } from '@wevir/storage';
 import type { EpisodeChange } from '../episodes/service.js';
 import { HostError } from '../errors.js';
@@ -27,10 +27,12 @@ import { SyncBlobCache } from './cache.js';
 import { SyncEventCapture } from './capture.js';
 import { SyncProjectCatalog } from './catalog.js';
 import { SyncEngine } from './engine.js';
+import { SyncExecutions } from './executions.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncMaterials } from './materials.js';
 import { SyncMemoryConflicts } from './memory-conflicts.js';
+import { SyncOutboxRecovery } from './outbox-recovery.js';
 import { SyncQueue } from './queue.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSessionConflicts } from './session-conflicts.js';
@@ -62,6 +64,7 @@ export class SyncService {
   readonly #engine: SyncEngine;
   readonly #materials: SyncMaterials;
   readonly #capture: SyncEventCapture;
+  readonly executions: SyncExecutions;
   readonly #files: SyncFilesCapture;
   readonly #artifacts: SyncArtifacts;
   readonly #keys: SyncVaultKeys;
@@ -102,6 +105,11 @@ export class SyncService {
     this.#capture = new SyncEventCapture({
       storage: options.storage,
       eligible: () => this.#consented(),
+    });
+    this.executions = new SyncExecutions({
+      ...options,
+      capture: this.#capture,
+      eligible: () => (this.#closed ? undefined : this.#consented()),
     });
     this.#files = new SyncFilesCapture({
       ...options,
@@ -254,17 +262,21 @@ export class SyncService {
     this.#initialized = false;
   }
   async suspend(): Promise<void> {
+    this.executions.stop();
     this.stop();
     await this.#running?.catch(() => {});
     await this.#catalog.drain();
     await this.#configurationDone;
+    await this.executions.drain();
   }
   async close(): Promise<void> {
+    this.executions.stop();
     this.#closed = true;
     this.stop();
     await this.#running?.catch(() => {});
     await this.#catalog.drain();
     await this.#configurationDone;
+    await this.executions.drain();
   }
 
   status(): SyncStatus {
@@ -317,6 +329,28 @@ export class SyncService {
         })),
       }),
       ...counts,
+      ...(vault && {
+        currentDeviceId: client.entitlements?.identity.deviceId,
+        outbox: storage.sync
+          .commits(vault.vaultId)
+          .slice(0, 100)
+          .map((commit) => {
+            const batch = JSON.parse(commit.body) as { operations: unknown[] };
+            const operation = validateOperation(batch.operations[0]);
+            return {
+              commitId: commit.commitId,
+              deviceId: operation.deviceId,
+              outcome:
+                commit.outcome === 'rejected'
+                  ? 'rejected'
+                  : commit.attempts > 0
+                    ? 'uncertain'
+                    : 'ready',
+              ...(commit.errorCode && { errorCode: commit.errorCode }),
+              operations: batch.operations.length,
+            };
+          }),
+      }),
       ...(resetJob && {
         reset: {
           jobId: resetJob.jobId,
@@ -579,6 +613,55 @@ export class SyncService {
     this.#engine.restart();
     await this.flush();
     return this.status();
+  }
+
+  async recoverOutbox(params: MethodParams<'sync.recoverOutbox'>): Promise<SyncStatus> {
+    if (this.#closed || this.#configuring)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const vault = this.#options.storage.sync.activeVault();
+    const job = vault && this.#options.storage.sync.activeBootstrapJob(vault.vaultId);
+    if (
+      job &&
+      this.#options.storage.sync.bootstrapApplication(job.vaultId, job.jobId)?.state !==
+        'acknowledged'
+    )
+      throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
+    this.#configuring = true;
+    this.#configurationDone = new Promise((resolve) => {
+      this.#finishConfiguration = resolve;
+    });
+    this.stop();
+    const abort = new AbortController();
+    this.#resetAbort = abort;
+    try {
+      await this.#running?.catch(() => {});
+      await this.#catalog.drain();
+      const storage = this.#options.storage;
+      storage.transaction(() =>
+        this.#capture.preserveForRemoval(
+          vault ? storage.sync.captures(vault.vaultId).map((value) => value.localSessionId) : [],
+        ),
+      );
+      await new SyncOutboxRecovery({ ...this.#options, engine: this.#engine }).recover(
+        params,
+        abort.signal,
+      );
+      this.#initialized = false;
+      this.#errorCode = undefined;
+      return this.status();
+    } catch (error) {
+      throw this.#failure(error);
+    } finally {
+      this.#resetAbort = undefined;
+      this.#configuring = false;
+      this.#finishConfiguration?.();
+      this.#configurationDone = undefined;
+      this.#finishConfiguration = undefined;
+      if (!this.#closed && !this.#options.client.changingIdentity) {
+        this.#engine.restart();
+        this.#schedule(0);
+      }
+    }
   }
 
   resetPrepare(restart = false): SyncStatus {

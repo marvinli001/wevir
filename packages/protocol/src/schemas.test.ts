@@ -6148,6 +6148,43 @@ const syncContentCases: Case[] = [
       },
     ],
   },
+  {
+    name: 'SyncContinuation',
+    schema: protocol.SyncContinuationSchema,
+    valid: [
+      {
+        vaultId: 'vault_synthetic',
+        runId: 'run_synthetic',
+        epoch: '1',
+        source: {
+          hostId: 'host_synthetic',
+          deviceId: 'device_synthetic',
+          sessionId: 'ses_synthetic',
+          streamId: 'stream_synthetic',
+        },
+      },
+    ],
+    invalid: [{ vaultId: 'vault_synthetic', runId: 'run_synthetic', epoch: '-1', source: {} }],
+  },
+  {
+    name: 'SyncRecoveredFrom',
+    schema: protocol.SyncRecoveredFromSchema,
+    valid: [
+      {
+        vaultId: 'vault_synthetic',
+        deviceId: 'device_synthetic',
+        opId: 'op_synthetic',
+        origin: {
+          hostId: 'host_synthetic',
+          sessionId: 'ses_synthetic',
+          streamId: 'stream_synthetic',
+          fromSeq: '1',
+          throughSeq: '2',
+        },
+      },
+    ],
+    invalid: [{ vaultId: 'vault_synthetic', opId: 'op_synthetic' }],
+  },
 ];
 const allCases = [
   ...syncContentCases,

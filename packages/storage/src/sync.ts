@@ -2,6 +2,7 @@ import type { SqliteDatabase, SqlRow } from './driver.js';
 import { integer, json, optionalText, text, toJson } from './rows.js';
 import { createSyncBootstrapRepository } from './sync-bootstrap.js';
 import { createSyncBundleRepository } from './sync-bundles.js';
+import { createSyncExecutionRepository } from './sync-executions.js';
 import { createSyncMaterialRepository } from './sync-materials.js';
 import { createSyncQueueRepository } from './sync-queue.js';
 import { createSyncReferenceRepository } from './sync-references.js';
@@ -99,6 +100,7 @@ export function createSyncRepository(db: SqliteDatabase) {
   return {
     ...createSyncBootstrapRepository(db),
     ...createSyncBundleRepository(db),
+    ...createSyncExecutionRepository(db),
     ...createSyncQueueRepository(db),
     ...createSyncMaterialRepository(db),
     ...createSyncReferenceRepository(db),

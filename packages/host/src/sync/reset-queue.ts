@@ -30,6 +30,20 @@ export function rebaseResetCommit(
           parts: file.parts.map((part) => ({ ...part, opId: ids.get(part.opId) ?? part.opId })),
         })),
       };
+      const metadata = bundle.metadata as
+        | { ruleVersions?: Array<{ entityId: string; opId: string }> }
+        | undefined;
+      if (metadata && Array.isArray(metadata.ruleVersions))
+        body = {
+          ...(body as object),
+          metadata: {
+            ...metadata,
+            ruleVersions: metadata.ruleVersions.map((ref) => ({
+              ...ref,
+              opId: ids.get(ref.opId) ?? ref.opId,
+            })),
+          },
+        };
     }
     return {
       ...draft,

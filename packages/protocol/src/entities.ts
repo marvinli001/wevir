@@ -2173,6 +2173,46 @@ export const ImportedSessionOriginSchema = z.object({
   nativeCompatible: z.boolean().optional(),
 });
 export type ImportedSessionOrigin = z.infer<typeof ImportedSessionOriginSchema>;
+export const SyncContinuationSchema = z.object({
+  vaultId: z.string().min(8).max(128),
+  runId: z.string().min(8).max(128),
+  epoch: z.string().regex(/^(0|[1-9]\d*)$/),
+  source: z.object({
+    hostId: z.string().min(8).max(128),
+    deviceId: z.string().min(8).max(128),
+    sessionId: SessionIdSchema,
+    streamId: z.string().min(8).max(128),
+  }),
+});
+export type SyncContinuation = z.infer<typeof SyncContinuationSchema>;
+export const SyncRecoveredFromSchema = z.object({
+  vaultId: z.string().min(8).max(128),
+  deviceId: z.string().min(8).max(128),
+  opId: z.string().min(8).max(128),
+  commitId: z.string().min(8).max(128).optional(),
+  source: SyncContinuationSchema.shape.source.optional(),
+  origin: z
+    .object({
+      hostId: z.string().min(8).max(128),
+      sessionId: SessionIdSchema,
+      streamId: z.string().min(8).max(128),
+      fromSeq: z.string().regex(/^(0|[1-9]\d*)$/),
+      throughSeq: z.string().regex(/^(0|[1-9]\d*)$/),
+    })
+    .optional(),
+});
+export type SyncRecoveredFrom = z.infer<typeof SyncRecoveredFromSchema>;
+export const SessionExecutionSchema = z.object({
+  runId: z.string().min(8).max(128),
+  streamId: z.string().min(8).max(128),
+  epoch: z.string().regex(/^(0|[1-9]\d*)$/),
+  state: z.enum(['claimed', 'offline', 'conflict', 'lost', 'released']),
+  turnId: TurnIdSchema.optional(),
+  expiresAt: z.iso.datetime().optional(),
+  branchRequired: z.boolean().optional(),
+  source: SyncContinuationSchema.shape.source.optional(),
+});
+export type SessionExecution = z.infer<typeof SessionExecutionSchema>;
 export const HistorySessionOriginSchema = z.object({
   kind: z.literal('history'),
   sessionId: SessionIdSchema,
@@ -2188,6 +2228,7 @@ export const HistorySessionOriginSchema = z.object({
       recoveredFrom: z.object({ deviceId: z.string(), opId: z.string() }).optional(),
     })
     .optional(),
+  syncContinuation: SyncContinuationSchema.optional(),
 });
 export const SessionOriginSchema = z.discriminatedUnion('kind', [
   SuggestedTaskOriginSchema,
@@ -2195,6 +2236,8 @@ export const SessionOriginSchema = z.discriminatedUnion('kind', [
   HistorySessionOriginSchema,
   z.object({
     kind: z.literal('synced'),
+    syncContinuation: SyncContinuationSchema.optional(),
+    recoveredFrom: SyncRecoveredFromSchema.optional(),
     relatedTo: SessionIdSchema.optional(),
     vaultId: z.string().min(8).max(128),
     hostId: z.string().min(8).max(128),
@@ -2395,6 +2438,7 @@ export const SessionSchema = z.object({
   wrapUp: SessionWrapUpSchema.optional(),
   /** 这个会话当前的来源加载的规则文件（0.68.0，最近一次 `session.rules`）；Host 没记过时省略。 */
   rules: SessionRulesSchema.optional(),
+  syncExecution: SessionExecutionSchema.optional(),
   /**
    * 未决的审批数（0.101.0，Host 功能 `session_list_push`）：只出现在 `session.list` 的行与 `sessions.changed` 里，0 时省略。
    */

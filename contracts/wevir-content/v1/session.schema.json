@@ -6,6 +6,88 @@
       "type": "string",
       "const": "wevir-session/1"
     },
+    "recoveredFrom": {
+      "type": "object",
+      "properties": {
+        "vaultId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "opId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "commitId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128
+        },
+        "source": {
+          "type": "object",
+          "properties": {
+            "hostId": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "deviceId": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "sessionId": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+            },
+            "streamId": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          },
+          "required": ["hostId", "deviceId", "sessionId", "streamId"],
+          "additionalProperties": false
+        },
+        "origin": {
+          "type": "object",
+          "properties": {
+            "hostId": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "sessionId": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+            },
+            "streamId": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "fromSeq": {
+              "type": "string",
+              "pattern": "^(0|[1-9]\\d*)$"
+            },
+            "throughSeq": {
+              "type": "string",
+              "pattern": "^(0|[1-9]\\d*)$"
+            }
+          },
+          "required": ["hostId", "sessionId", "streamId", "fromSeq", "throughSeq"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["vaultId", "deviceId", "opId"],
+      "additionalProperties": false
+    },
     "sessionId": {
       "type": "string",
       "pattern": "^ses_[0-9A-Za-z]{1,64}$"

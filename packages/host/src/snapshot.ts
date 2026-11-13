@@ -28,6 +28,7 @@ import type {
   SessionAcceptance,
   SessionAutoContinue,
   SessionEngine,
+  SessionExecution,
   SessionGoal,
   SessionId,
   SessionInsight,
@@ -59,6 +60,8 @@ import {
   PROMPT_SUGGESTION_VOIDING_EVENTS,
   PROTOCOL_VERSION,
   SESSION_ACTIVITY_EVENTS,
+  SyncContinuationSchema,
+  SyncRecoveredFromSchema,
   VERIFICATION_RUNS_KEPT,
 } from '@wevir/protocol';
 import type { SessionCachePatch, SessionRecord } from '@wevir/storage';
@@ -114,6 +117,7 @@ export interface SessionProjection {
    * 规则文件（0.68.0）：最近一次 `session.rules`，不含 `engineSessionId` 与 `context`。
    */
   readonly rules?: SessionRules;
+  readonly syncExecution?: SessionExecution;
   /** 还没随消息交给引擎的规则正文（`channel` 是 `message` 的 `session.rules` 的 `context`）与它给的引擎会话。 */
   readonly rulesPending?: { readonly engineSessionId: string; readonly context: string };
   /** 已经随消息收到规则正文的引擎会话：接力回到它、恢复它时不再补。 */
@@ -474,6 +478,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       };
       break;
     }
+    case 'session.execution':
+      next.syncExecution = event.payload;
+      break;
     case 'session.rules': {
       const { engineSessionId, context, ...rules } = event.payload;
       next.rules = rules;
@@ -988,6 +995,7 @@ export function toSession(record: SessionRecord, projection: SessionProjection):
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
   if (projection.rules !== undefined) session.rules = projection.rules;
+  if (projection.syncExecution !== undefined) session.syncExecution = projection.syncExecution;
   if (record.environmentId !== undefined) {
     session.environmentId = record.environmentId as EnvironmentId;
   }
@@ -1010,6 +1018,13 @@ export function toSession(record: SessionRecord, projection: SessionProjection):
   if (record.origin?.kind === 'synced') {
     session.origin = {
       kind: 'synced',
+      ...(record.origin.relatedTo && { relatedTo: record.origin.relatedTo as SessionId }),
+      ...(record.origin.syncContinuation !== undefined && {
+        syncContinuation: SyncContinuationSchema.parse(record.origin.syncContinuation),
+      }),
+      ...(record.origin.recoveredFrom !== undefined && {
+        recoveredFrom: SyncRecoveredFromSchema.parse(record.origin.recoveredFrom),
+      }),
       vaultId: record.origin.vaultId,
       hostId: record.origin.hostId,
       sessionId: record.origin.sessionId as SessionId,
@@ -1027,6 +1042,9 @@ export function toSession(record: SessionRecord, projection: SessionProjection):
   } else if (record.origin?.kind === 'history') {
     session.origin = {
       kind: 'history',
+      ...(record.origin.syncContinuation !== undefined && {
+        syncContinuation: SyncContinuationSchema.parse(record.origin.syncContinuation),
+      }),
       sessionId: record.origin.sessionId as SessionId,
       ...(record.origin.via !== undefined && { via: record.origin.via }),
       ...(record.origin.workspaceSnapshot !== undefined && {

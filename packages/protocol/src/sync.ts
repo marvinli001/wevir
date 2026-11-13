@@ -45,6 +45,19 @@ export const SyncStatusSchema = z.object({
     .optional(),
   errorCode: z.string().max(64).optional(),
   lastSyncAt: z.iso.datetime().optional(),
+  outbox: z
+    .array(
+      z.object({
+        commitId: id,
+        deviceId: id,
+        outcome: z.enum(['ready', 'uncertain', 'rejected']),
+        errorCode: z.string().max(64).optional(),
+        operations: z.number().int().positive(),
+      }),
+    )
+    .max(100)
+    .optional(),
+  currentDeviceId: id.optional(),
   reset: z
     .object({
       jobId: id,
@@ -254,6 +267,14 @@ export const SyncMethodSchemas = {
     permission: 'host.manage',
   },
   'sync.retry': { params: z.object({}), result: SyncStatusSchema, permission: 'host.manage' },
+  'sync.recoverOutbox': {
+    params: z.object({
+      expectedDeviceId: id,
+      commitIds: z.array(id).min(1).max(100),
+    }),
+    result: SyncStatusSchema,
+    permission: 'host.manage',
+  },
   'sync.resetPrepare': {
     params: z.object({ restart: z.boolean().optional() }),
     result: SyncStatusSchema,

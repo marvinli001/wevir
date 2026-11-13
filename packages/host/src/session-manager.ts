@@ -446,6 +446,11 @@ export interface SessionManagerOptions {
   >;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
+  execution?: {
+    prepare(sessionId: SessionId, turnId: TurnId): Promise<void>;
+    finish(sessionId: SessionId, turnId: TurnId): void;
+    continuation(sessionId: SessionId): import('@wevir/protocol').SyncContinuation | undefined;
+  };
   /**
    * 审查发现（0.83.0，review/service.ts 的 `recordFindings`）：引擎的审查结果（`review.findings`）与 `wevir_report_findings`
    * 报出的发现，存成批注后写 `review.findings` 事件。没给时发现只有文字。
@@ -841,6 +846,7 @@ interface HistoryContinuation {
       NonNullable<Session['origin']>,
       { kind: 'history' }
     >['workspaceSnapshot'];
+    syncContinuation?: import('@wevir/protocol').SyncContinuation;
   };
   directory?: string;
   engineSessionId?: string;
@@ -933,6 +939,7 @@ export class SessionManager {
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
+  readonly #execution: SessionManagerOptions['execution'];
   readonly #reviewFindings: SessionManagerOptions['reviewFindings'];
   readonly #usageTurns = new Map<string, TurnId>();
   readonly #onUsage: SessionManagerOptions['onUsage'];
@@ -1024,6 +1031,7 @@ export class SessionManager {
     this.#guardrails = options.guardrails;
     this.#hooks = options.hooks;
     this.#onTurnFinished = options.onTurnFinished;
+    this.#execution = options.execution;
     this.#autoContinue = options.autoContinue;
     this.#routing = options.routing;
     this.#idleCompaction = options.idleCompaction;
@@ -1716,6 +1724,7 @@ export class SessionManager {
               ...(history.origin.workspaceSnapshot && {
                 workspaceSnapshot: history.origin.workspaceSnapshot,
               }),
+              syncContinuation: history.origin.syncContinuation,
             },
             ...(history.origin.via === 'handoff' &&
               history.context !== undefined && { historyContext: history.context }),
@@ -2264,6 +2273,8 @@ export class SessionManager {
       await this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
     }
     try {
+      await this.#execution?.prepare(runtime.id, turnId);
+      if (runtime.turn?.turnId !== turnId) return { turnId, seq: started.seq };
       await this.#runCommand(runtime.engineSessionId, command);
     } catch (error) {
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
@@ -2447,6 +2458,8 @@ export class SessionManager {
               ...withPrefix,
               content: [...withPrefix.content, { type: 'text' as const, text: reminder }],
             };
+      await this.#execution?.prepare(runtime.id, turnId);
+      if (runtime.turn?.turnId !== turnId) return { turnId, seq: message.seq };
       if (goal === undefined) {
         await this.#adapter.send(
           runtime.engineSessionId,
@@ -4222,6 +4235,7 @@ export class SessionManager {
               kind: 'history',
               sessionId: sourceSessionId,
               via: 'handoff',
+              syncContinuation: this.#execution?.continuation(sourceSessionId),
               ...(record.origin?.role !== undefined && { role: record.origin.role }),
               ...(workspace && { workspaceSnapshot: workspace.origin }),
             },
@@ -7923,6 +7937,7 @@ export class SessionManager {
         this.#autoContinueTimers.clear(runtime.id);
       }
       if (event.type === 'turn.finished') {
+        this.#execution?.finish(runtime.id, event.payload.turnId);
         // 回合没有回答就结束（出错、取消）：这个会话不计。
         this.#startup?.drop(runtime.id);
         const turn = runtime.turn;

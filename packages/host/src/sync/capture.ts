@@ -283,7 +283,9 @@ export class SyncEventCapture {
       for (const event of records) {
         if (event.seq > capture.throughSeq || events.length >= 4096) break;
         const stable =
-          event.type === 'engine.raw' ? { ...event, payload: { omitted: true } } : event;
+          event.type === 'engine.raw'
+            ? { ...event, sessionId: source.sessionId, payload: { omitted: true } }
+            : { ...event, sessionId: source.sessionId };
         const size = Buffer.byteLength(jcs(stable));
         if (events.length && bytes + size > 192 * 1024) break;
         const seq = String(event.seq);
@@ -335,21 +337,31 @@ export class SyncEventCapture {
   }
 
   #source(vault: SyncVaultRecord, session: SessionRecord): SyncSourceRecord {
+    const execution = this.#storage.sync.execution(vault.vaultId, session.id);
     const existing = this.#storage.sync
       .sources(vault.vaultId)
       .find(
         (value) =>
           value.localSessionId === session.id &&
           value.hostId === vault.originHostId &&
+          (!execution || value.streamId === execution.streamId) &&
           !value.mirrored,
       );
     if (existing) return existing;
     const source: SyncSourceRecord = {
       vaultId: vault.vaultId,
       hostId: vault.originHostId,
-      sessionId: session.id,
+      sessionId:
+        this.#storage.sync
+          .sources(vault.vaultId)
+          .find(
+            (value) =>
+              value.localSessionId === session.id &&
+              value.hostId === vault.originHostId &&
+              !value.mirrored,
+          )?.sessionId ?? session.id,
       localSessionId: session.id,
-      streamId: newId('sst'),
+      streamId: execution?.streamId ?? newId('sst'),
       mirrored: false,
       deviceId: vault.deviceId,
     };
@@ -366,7 +378,15 @@ export class SyncEventCapture {
   ): void {
     if (vault.categories.includes('project')) this.#project(vault, projectId, session.workspaceId);
     if (!vault.categories.includes('session')) return;
-    const native = this.#source(vault, session);
+    const native =
+      this.#storage.sync
+        .sources(vault.vaultId)
+        .find(
+          (value) =>
+            value.localSessionId === session.id &&
+            value.hostId === vault.originHostId &&
+            !value.mirrored,
+        ) ?? this.#source(vault, session);
     const source = {
       hostId: native.hostId,
       deviceId: native.deviceId as string,
@@ -376,7 +396,7 @@ export class SyncEventCapture {
     const body = {
       schema: 'wevir-session/1',
       source,
-      sessionId: session.id,
+      sessionId: native.sessionId,
       throughSeq: String(throughSeq),
       title: session.title,
       titleSource: session.titleSource,
@@ -390,12 +410,12 @@ export class SyncEventCapture {
       ...(session.archivedAt && { archivedAt: session.archivedAt }),
       ...(session.origin && { origin: session.origin }),
     };
-    const existing = this.#storage.sync.entity(vault.vaultId, session.id);
-    const baseline = this.#storage.sync.fileBaseline(vault.vaultId, session.id);
+    const existing = this.#storage.sync.entity(vault.vaultId, native.sessionId);
+    const baseline = this.#storage.sync.fileBaseline(vault.vaultId, native.sessionId);
     const fingerprint = sha256(jcs(body));
     this.#storage.sync.putContentRef({
       vaultId: vault.vaultId,
-      entityId: session.id,
+      entityId: native.sessionId,
       kind: 'session',
       source,
       localId: session.id,
@@ -405,24 +425,24 @@ export class SyncEventCapture {
       if (!existing)
         this.#storage.sync.putEntity({
           vaultId: vault.vaultId,
-          entityId: session.id,
+          entityId: native.sessionId,
           entityType: 'session',
           projectId,
-          localKey: `session:${session.id}`,
+          localKey: `session:${native.sessionId}`,
           materialized: true,
         });
     } else
       this.#queue.enqueue({
         vaultId: vault.vaultId,
-        entityId: session.id,
+        entityId: native.sessionId,
         entityType: 'session',
         projectId,
-        localKey: existing?.localKey ?? `session:${session.id}`,
+        localKey: existing?.localKey ?? `session:${native.sessionId}`,
         content: body,
       });
     this.#storage.sync.putFileBaseline({
       vaultId: vault.vaultId,
-      entityId: session.id,
+      entityId: native.sessionId,
       entityType: 'session',
       projectId,
       path: `sqlite:session:${session.id}`,

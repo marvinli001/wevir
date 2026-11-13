@@ -18,6 +18,7 @@ import { NoticeBanner } from './settings-ui';
 import { ZuvBundles } from './zuv-bundles';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
 import { ZuvSessionConflicts } from './zuv-session-conflicts';
+import { ZuvOutbox } from './zuv-outbox';
 import { ZuvSettingsConflicts } from './zuv-settings-conflicts';
 
 const GROUPS: ReadonlyArray<{
@@ -535,6 +536,20 @@ export function ZuvSyncSection({
           client={client}
           currentVaultId={status?.binding?.vaultId}
           writable={!!active && !!status?.binding?.enabled && !busy && !reset && !resetBusy}
+        />
+      )}
+      {status && (
+        <ZuvOutbox
+          client={client}
+          status={status}
+          disabled={
+            busy ||
+            resetBusy ||
+            !active ||
+            !status.binding?.enabled ||
+            (!!reset && reset.phase !== 'acknowledged')
+          }
+          onRecovered={setStatus}
         />
       )}
       {client.supports('sync_settings_conflicts') &&

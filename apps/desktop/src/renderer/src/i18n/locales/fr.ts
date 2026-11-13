@@ -1765,6 +1765,12 @@ export const messages: Messages = {
   'sync.saved': 'Synchronisé',
   'sync.paused': 'En pause',
   'sync.attention': 'Action requise',
+  'sync.recoverOutbox': 'Récupérer le travail local',
+  'sync.outboxUncertain': 'Envoi non confirmé',
+  'sync.outboxRejected': 'Envoi refusé',
+  'sync.deviceChanged': 'Appareil modifié',
+  'sync.recoverOutboxConsequences':
+    'Le travail hors ligne sera conservé dans une nouvelle branche. L’envoi initial reste conservé ; sa confirmation ultérieure peut créer des versions parallèles.',
   'sync.resetRequired': 'Restauration requise',
   'sync.categories': 'Catégories',
   'sync.workspace': 'Espace de travail',
