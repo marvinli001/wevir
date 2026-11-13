@@ -1,4 +1,4 @@
-import { validateSyncBatch } from '@wevir/protocol';
+import { validateSyncBatch, validateSyncPage } from '@wevir/protocol';
 import {
   jcs,
   LIMITS,
@@ -22,10 +22,11 @@ import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import type { SyncBlobCache } from './cache.js';
 import { decryptPack, encryptPack, parseEnvelope, sha256 } from './crypto.js';
+import { MAX_AUTOMATIC_TRANSFERS, SyncDownloads } from './downloads.js';
 import type { SyncDraftPayload } from './queue.js';
 
 type Record = typeof packRecord._output;
-const MAX_AUTOMATIC_TRANSFERS = 3;
+
 const PACK_TARGET_BYTES = 256 * 1024;
 
 export interface SyncEngineOptions {
@@ -468,13 +469,11 @@ export class SyncEngine {
       { signal, maxBytes: this.#limit('changeBytes', LIMITS.changeBytes) },
     );
     const pageId = newId('spg');
-    if (changes.operations.length)
-      validateSyncBatch({
-        commitId: pageId,
-        operations: changes.operations,
-        recordManifest: changes.recordManifest,
-      });
-    else if (changes.recordManifest.length) throw new ZuvRequestError('INTEGRITY_FAILED');
+    try {
+      validateSyncPage(changes);
+    } catch {
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    }
     this.#guard(vault, signal);
     storage.transaction(() => {
       for (const op of changes.operations) {
@@ -629,61 +628,10 @@ export class SyncEngine {
   }
 
   async #download(vault: SyncVaultRecord, blobId: string, signal: AbortSignal): Promise<Buffer> {
-    const { storage, client, cache } = this.#options;
-    let blob = storage.sync.blob(vault.vaultId, blobId);
-    if (blob?.state === 'quarantined') throw new ZuvRequestError('INTEGRITY_FAILED');
-    if (blob?.state === 'ready') {
-      try {
-        return await cache.read(vault.vaultId, blobId, blob.cipherBytes, blob.cipherSha256);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
-    }
-    if ((blob?.downloadAttempts ?? 0) >= MAX_AUTOMATIC_TRANSFERS)
-      throw new ZuvRequestError('RATE_LIMITED');
-    this.#guard(vault, signal);
-    const ticket = await client.json(
-      'downloadReserved',
-      'POST',
-      '/api/wevir/sync/v1/downloads',
-      { blobId },
-      { signal },
-    );
-    if (ticket.cipherBytes > this.#limit('blobBytes', LIMITS.blobBytes))
-      throw new ZuvRequestError('QUOTA_EXCEEDED');
-    if (ticket.cipherBytes > this.#maximumTransferBytes())
-      throw new ZuvRequestError('QUOTA_EXCEEDED');
-    if (Date.parse(ticket.expiresAt) <= Date.now()) throw new ZuvRequestError('RATE_LIMITED');
-    await cache.assertSpace(vault.vaultId, ticket.cipherBytes);
-    blob = {
-      vaultId: vault.vaultId,
-      blobId,
-      cipherBytes: ticket.cipherBytes,
-      cipherSha256: ticket.cipherSha256,
-      keyEpoch: blob?.keyEpoch ?? '',
-      cachePath: cache.path(vault.vaultId, blobId),
-      state: 'local',
-      uploadAttempts: blob?.uploadAttempts ?? 0,
-      downloadAttempts: (blob?.downloadAttempts ?? 0) + 1,
-    };
-    storage.sync.putBlob(blob);
-    this.#guard(vault, signal);
-    const response = await client.transfer({
-      method: 'GET',
-      path: `/api/wevir/sync/v1/downloads/${ticket.downloadId}`,
-      maxBytes: ticket.cipherBytes,
-      signal,
-      transfer: this.#transferLimits(),
-    });
-    if (
-      response.bytes.length !== ticket.cipherBytes ||
-      sha256(response.bytes) !== ticket.cipherSha256
-    )
-      throw new ZuvRequestError('INTEGRITY_FAILED');
-    const path = await cache.put(vault.vaultId, blobId, response.bytes, ticket.cipherSha256);
-    const header = parseEnvelope(response.bytes).header;
-    storage.sync.putBlob({ ...blob, state: 'ready', cachePath: path, keyEpoch: header.keyEpoch });
-    return response.bytes;
+    return new SyncDownloads({
+      ...this.#options,
+      guard: (current, token) => this.#guard(current, token),
+    }).read(vault, blobId, signal);
   }
 
   #limit(name: string, baseline: number): number {

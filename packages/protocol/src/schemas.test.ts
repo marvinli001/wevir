@@ -5971,6 +5971,35 @@ const syncContentCases: Case[] = [
     ],
   },
   {
+    name: 'SyncSnapshotJob',
+    schema: protocol.SyncSnapshotJobSchema,
+    valid: [
+      {
+        v: 1,
+        jobId: 'restore_fixture',
+        vaultId: 'vault_fixture',
+        accountId: 'account_fixture',
+        deviceId: 'device_fixture',
+        origin: 'https://synthetic.invalid',
+        state: 'creating',
+        pages: [],
+      },
+    ],
+    invalid: [{ v: 1, jobId: '../unsafe', state: 'verified', pages: [] }],
+  },
+  {
+    name: 'SyncSnapshotEntries',
+    schema: protocol.SyncSnapshotEntriesSchema,
+    valid: [[]],
+    invalid: [[{}]],
+  },
+  {
+    name: 'SyncSigningKeysCache',
+    schema: protocol.SyncSigningKeysCacheSchema,
+    valid: [[], [['signing_fixture', 'A'.repeat(40)]]],
+    invalid: [[['short', 'key']]],
+  },
+  {
     name: 'SyncSharedFilesMetadata',
     schema: protocol.SyncSharedFilesMetadataSchema,
     valid: [

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import { validateSyncBatch } from '@wevir/protocol';
 import {
   jcs,
@@ -33,7 +33,7 @@ type Vault = {
   trusted: Set<string>;
   blobs: Map<string, Blob>;
   uploads: Map<string, string>;
-  downloads: Map<string, string>;
+  downloads: Map<string, { blobId: string; deviceId: string; restoreId?: string }>;
   commits: Map<string, { batch: Batch; state: 'pending' | 'committed'; cursor?: string }>;
   operations: Array<{ operation: SyncOperation; manifest: RecordManifest }>;
   cursors: Map<string, number>;
@@ -43,6 +43,17 @@ const newId = (prefix: string) => `${prefix}_${randomUUID()}`;
 
 export class MockSyncGateway {
   readonly #vaults = new Map<string, Vault>();
+  readonly #signer = generateKeyPairSync('ed25519');
+  readonly #restores = new Map<
+    string,
+    {
+      vaultId: string;
+      deviceId: string;
+      entries: Vault['operations'];
+      response: typeof schemas.exported._output;
+    }
+  >();
+  exports = 0;
   readonly acknowledgements: Array<{ deviceId: string; cursor: string }> = [];
   readonly attempts = { uploads: 0, downloads: 0, reservations: 0, commits: 0 };
   pendingCommits = false;
@@ -158,6 +169,96 @@ export class MockSyncGateway {
     const vault = this.#vault(userId);
     const scopes = vault.scopes.get(deviceId);
     if (!scopes) throw new MockSyncError('SCOPE_DISABLED', 403);
+    if (path === '/sync/v1/signing-keys' && method === 'GET') {
+      const keyId = url.searchParams.get('keyId');
+      if (keyId && keyId !== 'signing_synthetic') throw new MockSyncError('NOT_FOUND', 404);
+      return {
+        value: {
+          keys: [
+            {
+              keyId: 'signing_synthetic',
+              publicKey: String(this.#signer.publicKey.export({ type: 'spki', format: 'pem' })),
+            },
+          ],
+        },
+      };
+    }
+    if (path === '/recovery/exports' && method === 'POST') {
+      const input = schemas.recoveryExport.parse(value);
+      if (!vault.trusted.has(deviceId)) throw new MockSyncError('RECOVERY_REQUIRED');
+      const offset =
+        input.snapshotCursor === undefined
+          ? vault.operations.length
+          : vault.cursors.get(input.snapshotCursor);
+      if (offset === undefined) throw new MockSyncError('RESET_REQUIRED');
+      const entries = structuredClone(vault.operations.slice(0, offset));
+      const blobs = new Set(
+        entries.flatMap((entry) =>
+          entry.operation.payload ? [entry.operation.payload.blobId] : [],
+        ),
+      );
+      const manifest = [...blobs].map((blobId) => {
+        const blob = vault.blobs.get(blobId);
+        if (!blob?.bytes) throw new MockSyncError('BLOB_INCOMPLETE');
+        return { blobId, cipherBytes: blob.cipherBytes, cipherSha256: blob.cipherSha256 };
+      });
+      const restoreId = newId('restore');
+      const snapshotCursor = newId('cursor');
+      vault.cursors.set(snapshotCursor, offset);
+      const body = {
+        protocol: 'wevir-sync-snapshot/1' as const,
+        vaultId: vault.id,
+        restoreId,
+        snapshotCursor,
+        operationsSha256: sha256(
+          jcs(
+            entries.map((entry) => ({
+              operation: entry.operation,
+              recordManifest: entry.manifest,
+            })),
+          ),
+        ),
+        blobManifestSha256: sha256(jcs(manifest)),
+        signingKeyId: 'signing_synthetic',
+      };
+      const response = {
+        restoreId,
+        snapshotCursor,
+        manifest,
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+        snapshot: {
+          ...body,
+          signature: sign(null, Buffer.from(jcs(body)), this.#signer.privateKey).toString(
+            'base64url',
+          ),
+        },
+      };
+      this.#restores.set(restoreId, { vaultId: vault.id, deviceId, entries, response });
+      this.exports++;
+      return { value: response };
+    }
+    const downloadTicket =
+      path.startsWith('/sync/v1/downloads/') && method === 'GET'
+        ? vault.downloads.get(path.split('/').at(-1) as string)
+        : undefined;
+    const restoreId =
+      path === '/sync/v1/downloads' && method === 'POST'
+        ? schemas.download.parse(value).restoreId
+        : (downloadTicket?.restoreId ?? url.searchParams.get('restoreId'));
+    const restore = restoreId ? this.#restores.get(restoreId) : undefined;
+    const restoring =
+      Boolean(restoreId) &&
+      ((path === '/sync/v1/changes' && method === 'GET') ||
+        (path === '/sync/v1/downloads' && method === 'POST') ||
+        downloadTicket !== undefined);
+    if (
+      restoring &&
+      (!restore ||
+        restore.vaultId !== vault.id ||
+        restore.deviceId !== deviceId ||
+        Date.parse(restore.response.expiresAt) <= Date.now())
+    )
+      throw new MockSyncError('RECOVERY_REQUIRED');
     if (path === '/sync/v1/keys/unlock' && method === 'POST') {
       const input = schemas.unlock.parse(value);
       if (!vault.trusted.has(deviceId)) throw new MockSyncError('RECOVERY_REQUIRED', 403);
@@ -196,8 +297,8 @@ export class MockSyncGateway {
       vault.scopes.set(deviceId, result);
       return { value: result };
     }
-    if (!scopes.enabled) throw new MockSyncError('SCOPE_DISABLED', 403);
-    if (this.budgetPaused) throw new MockSyncError('BUDGET_PAUSED', 503);
+    if (!scopes.enabled && !restoring) throw new MockSyncError('SCOPE_DISABLED', 403);
+    if (this.budgetPaused && !restoring) throw new MockSyncError('BUDGET_PAUSED', 503);
     const allowed = (entityType: string, projectId?: string) => {
       if (
         !scopes.categories.includes(entityType as (typeof scopes.categories)[number]) ||
@@ -303,17 +404,19 @@ export class MockSyncGateway {
       };
     }
     if (path === '/sync/v1/changes' && method === 'GET') {
+      const operations = restore?.entries ?? vault.operations;
       const cursor = url.searchParams.get('cursor');
       let offset = cursor ? vault.cursors.get(cursor) : 0;
       if (offset === undefined) throw new MockSyncError('RESET_REQUIRED');
       const limit = Number(url.searchParams.get('limit') ?? 256);
       const selected: typeof vault.operations = [];
-      while (offset < vault.operations.length && selected.length < limit) {
-        const entry = vault.operations[offset++];
+      while (offset < operations.length && selected.length < limit) {
+        const entry = operations[offset++];
         if (
           entry &&
-          scopes.categories.includes(entry.operation.entityType) &&
-          (!entry.manifest.projectId || scopes.projectIds.includes(entry.manifest.projectId))
+          (restoring ||
+            (scopes.categories.includes(entry.operation.entityType) &&
+              (!entry.manifest.projectId || scopes.projectIds.includes(entry.manifest.projectId))))
         )
           selected.push(entry);
       }
@@ -324,7 +427,7 @@ export class MockSyncGateway {
           operations: selected.map((entry) => entry.operation),
           recordManifest: selected.map((entry) => entry.manifest),
           nextCursor,
-          hasMore: offset < vault.operations.length,
+          hasMore: offset < operations.length,
         },
       };
     }
@@ -335,9 +438,16 @@ export class MockSyncGateway {
         (entry) => entry.operation.payload?.blobId === input.blobId,
       );
       if (!blob?.bytes || !reference) throw new MockSyncError('NOT_FOUND', 404);
-      allowed(reference.operation.entityType, reference.manifest.projectId);
+      if (restore) {
+        if (!restore.entries.some((entry) => entry.operation.payload?.blobId === input.blobId))
+          throw new MockSyncError('SCOPE_DISABLED', 403);
+      } else allowed(reference.operation.entityType, reference.manifest.projectId);
       const downloadId = newId('download');
-      vault.downloads.set(downloadId, input.blobId);
+      vault.downloads.set(downloadId, {
+        blobId: input.blobId,
+        deviceId,
+        ...(input.restoreId && { restoreId: input.restoreId }),
+      });
       return {
         value: {
           downloadId,
@@ -349,8 +459,9 @@ export class MockSyncGateway {
     }
     if (path.startsWith('/sync/v1/downloads/') && method === 'GET') {
       const downloadId = path.split('/').at(-1) as string;
-      const blobId = vault.downloads.get(downloadId);
-      const blob = blobId ? vault.blobs.get(blobId) : undefined;
+      const ticket = vault.downloads.get(downloadId);
+      if (ticket?.deviceId !== deviceId) throw new MockSyncError('SCOPE_DISABLED', 403);
+      const blob = vault.blobs.get(ticket.blobId);
       if (!blob?.bytes) throw new MockSyncError('NOT_FOUND', 404);
       vault.downloads.delete(downloadId);
       this.attempts.downloads++;

@@ -4,14 +4,30 @@ export function validateSyncBatch(value: unknown) {
   const batch = schemas.commit.parse(value);
   if (new TextEncoder().encode(jcs(batch)).length > LIMITS.commitBytes)
     throw new Error('commit size limit');
-  if (batch.recordManifest.length !== batch.operations.length)
+  validateSyncEntries(batch, 4096n);
+  return batch;
+}
+
+export function validateSyncPage(value: unknown) {
+  const page = schemas.changes.parse(value);
+  if (new TextEncoder().encode(jcs(page)).length > LIMITS.changeBytes)
+    throw new Error('change page size limit');
+  validateSyncEntries(page);
+  return page;
+}
+
+function validateSyncEntries(
+  entries: Pick<typeof schemas.commit._output, 'operations' | 'recordManifest'>,
+  maxSourceEvents?: bigint,
+): void {
+  if (entries.recordManifest.length !== entries.operations.length)
     throw new Error('manifest count mismatch');
-  const manifests = new Map(batch.recordManifest.map((entry) => [entry.opId, entry]));
-  if (manifests.size !== batch.recordManifest.length) throw new Error('duplicate manifest');
+  const manifests = new Map(entries.recordManifest.map((entry) => [entry.opId, entry]));
+  if (manifests.size !== entries.recordManifest.length) throw new Error('duplicate manifest');
   const opIds = new Set<string>();
   const sequences = new Set<string>();
   let eventCount = 0n;
-  for (const value of batch.operations) {
+  for (const value of entries.operations) {
     const op = validateOperation(value);
     const sequence = `${op.deviceId}:${op.deviceSeq}`;
     if (opIds.has(op.opId) || sequences.has(sequence)) throw new Error('duplicate operation');
@@ -34,7 +50,8 @@ export function validateSyncBatch(value: unknown) {
     if (op.origin) {
       const count = BigInt(op.origin.throughSeq) - BigInt(op.origin.fromSeq) + 1n;
       eventCount += count;
-      if (eventCount > 4096n) throw new Error('source sequence limit');
+      if (maxSourceEvents !== undefined && eventCount > maxSourceEvents)
+        throw new Error('source sequence limit');
       if (!manifest.events || BigInt(manifest.events.length) !== count)
         throw new Error('manifest event range mismatch');
       for (const [index, event] of manifest.events.entries()) {
@@ -45,5 +62,4 @@ export function validateSyncBatch(value: unknown) {
       throw new Error('manifest origin required');
     }
   }
-  return batch;
 }

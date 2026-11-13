@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { validateSyncBatch } from './sync-validation.js';
+import { validateSyncBatch, validateSyncPage } from './sync-validation.js';
 import { jcs, schemas, validateOperation } from './sync-wire.js';
 
 const root = new URL('../../../contracts/wevir-sync/v1/', import.meta.url);
@@ -108,6 +108,49 @@ describe('wevir-sync/1 artifact revision 1', () => {
         ...batch,
         recordManifest: [{ ...manifest, events: [manifest.events[0], manifest.events[0]] }],
       }),
+    ).toThrow();
+  });
+
+  it('bounds a change page independently from the combined source limit of a single commit', () => {
+    const base = read('fixtures.json').valid[0].value;
+    const operations = [0, 1].map((index) => ({
+      ...base,
+      opId: `operation_page_${index}`,
+      entityType: 'event-segment',
+      entityId: `segment_page_${index}`,
+      deviceSeq: String(index + 1),
+      origin: {
+        hostId: 'host_fixture',
+        sessionId: 'session_fixture',
+        streamId: 'stream_fixture',
+        fromSeq: String(index * 2500 + 1),
+        throughSeq: String((index + 1) * 2500),
+      },
+    }));
+    const recordManifest = operations.map((operation, index) => ({
+      opId: operation.opId,
+      ...operation.payload,
+      projectId: 'project_fixture',
+      events: Array.from({ length: 2500 }, (_, seq) => ({
+        seq: String(index * 2500 + seq + 1),
+        sha256: 'A'.repeat(43),
+      })),
+    }));
+    const page = {
+      operations,
+      recordManifest,
+      nextCursor: 'cursor_after_two_commits',
+      hasMore: false,
+    };
+    expect(() =>
+      validateSyncBatch({ commitId: 'commit_fixture', operations, recordManifest }),
+    ).toThrow('source sequence limit');
+    expect(validateSyncPage(page)).toEqual(page);
+    expect(() => validateSyncPage({ ...page, recordManifest: recordManifest.slice(1) })).toThrow(
+      'manifest count mismatch',
+    );
+    expect(() =>
+      validateSyncPage({ ...page, operations: [operations[0], operations[0]] }),
     ).toThrow();
   });
 
