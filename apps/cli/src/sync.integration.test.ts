@@ -34,6 +34,26 @@ describe('portable data through the Host CLI', () => {
     const directory = join(temp(), 'synthetic-project');
     await mkdir(directory);
     expect((await run(['workspace', 'add', directory], { home: first })).code).toBe(0);
+    const provider = await run(
+      [
+        'provider',
+        'add',
+        '--kind',
+        'openai-compatible',
+        '--id',
+        'synthetic-echo',
+        '--base-url',
+        'http://127.0.0.1:9/v1',
+        '--model',
+        'synthetic',
+      ],
+      { home: first, input: 'synthetic-provider-key\n' },
+    );
+    expect(provider.code, provider.err).toBe(0);
+    const original = await run(['session', 'new', '-w', directory, 'Portable continuity sample'], {
+      home: first,
+    });
+    expect(original.code, original.err).toBe(0);
     const exported = await run(['sync', 'export'], { home: first });
     expect(exported.code, exported.err).toBe(0);
     const archive = JSON.parse(exported.out);
@@ -51,6 +71,17 @@ describe('portable data through the Host CLI', () => {
     const project = JSON.parse(entries.out).entries.find(
       (entry: { kind: string }) => entry.kind === 'project',
     );
+    const source = JSON.parse(entries.out).entries.find(
+      (entry: { kind: string }) => entry.kind === 'session',
+    );
+    const conversation = await run(['sync', 'conversation', preview.importId, source.key], {
+      home: second,
+    });
+    expect(conversation.code, conversation.err).toBe(0);
+    expect(JSON.parse(conversation.out).session.readOnly.reason).toBe('imported');
+    expect(JSON.stringify(JSON.parse(conversation.out).events)).toContain(
+      'Portable continuity sample',
+    );
     const read = await run(['sync', 'entry', preview.importId, project.id], { home: second });
     expect(read.code, read.err).toBe(0);
     expect(Buffer.from(JSON.parse(read.out).base64, 'base64').toString()).toContain(
@@ -58,6 +89,15 @@ describe('portable data through the Host CLI', () => {
     );
     const status = await run(['sync', 'status'], { home: second });
     expect(JSON.parse(status.out)).toMatchObject({ state: 'disabled', pending: 0 });
+    const generic = await run(['sync', 'call', 'status'], { home: second });
+    expect(generic.code, generic.err).toBe(0);
+    expect(JSON.parse(generic.out)).toMatchObject({ state: 'disabled', pending: 0 });
+    const malformed = await run(['sync', 'call', 'recoveryRequest', '--stdin'], {
+      home: second,
+      input: '{"vaultId":"private-synthetic-marker",',
+    });
+    expect(malformed.code).not.toBe(0);
+    expect(malformed.err).not.toContain('private-synthetic-marker');
     expect((await run(['session', 'list', '--json'], { home: second })).out).not.toContain(
       'synthetic-project',
     );

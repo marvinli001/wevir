@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const ja: Messages = {
+  'draft.failed': 'ローカル保存不可・下書き未保存',
+  'draft.sendUnknown': '送信結果不明・下書きを保持',
+  'draft.notExecuted': '下書き · 未実行',
   'common.listSeparator': '、',
   'handoff.detail.attempt': '試行回数',
   'handoff.detail.budgetUsed': '{used} / {budget} バイト',

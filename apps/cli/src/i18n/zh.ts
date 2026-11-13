@@ -7,6 +7,8 @@
 // Key 输入、ChatGPT 的个人使用条款、删除凭据或取消回合的后果。命令、选项、路径与产品名（Wevir、Host、Provider）照原样写。
 
 export const zh = {
+  'cmd.sync.call.summary': '调用同步接口',
+  'cmd.sync.call.usage': 'wevir sync call <method> [--stdin]',
   'cmd.sync.conversation.summary': '读取镜像会话',
   'cmd.sync.conversation.usage': 'wevir sync conversation <importId> <sessionId>',
   'group.sync': '同步与恢复',

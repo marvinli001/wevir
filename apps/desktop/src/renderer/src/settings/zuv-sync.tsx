@@ -16,6 +16,7 @@ import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
+import { ZuvRecoverySection } from './zuv-recovery';
 import { ZuvSettingsConflicts } from './zuv-settings-conflicts';
 
 const GROUPS: ReadonlyArray<{
@@ -165,6 +166,7 @@ export function ZuvSyncSection({
     reset && ['staged', 'applying', 'applied', 'acknowledged'].includes(reset.phase);
   return (
     <div className="space-y-3 border-t border-border pt-3" data-zuv-sync>
+      <ZuvRecoverySection client={client} account={account} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">{t('sync.title')}</span>
         <span className="text-xs text-muted-foreground" role="status">

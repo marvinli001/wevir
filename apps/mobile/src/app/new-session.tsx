@@ -434,11 +434,12 @@ export default function NewSessionScreen() {
             </Text>
           )}
           <Composer
-            draftKey="new-session"
+            key={snapshot?.record.routeId ?? 'unassigned'}
+            draftKey={`${snapshot?.record.routeId ?? 'unassigned'}/new-session`}
             onSend={start}
             autoFocus
             canSend={canStart}
-            disabled={options !== undefined && !writable}
+            disabled={false}
             placeholder={t('newSession.message')}
             {...(writable && {
               attachMenu: photos.menu,

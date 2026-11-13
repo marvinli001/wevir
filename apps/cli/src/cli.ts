@@ -82,7 +82,7 @@ import {
   accountLogin as subscriptionLogin,
   accountLogout as subscriptionLogout,
 } from './commands/subscription.js';
-import { syncCall } from './commands/sync.js';
+import { syncCall, syncInvoke } from './commands/sync.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import {
   workspaceAdd,
@@ -194,6 +194,14 @@ function ruleOptions(values: Values): { workspace?: string; json: boolean } {
 
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
   sync: {
+    call: {
+      summary: 'cmd.sync.call.summary',
+      usage: 'cmd.sync.call.usage',
+      options: { stdin: { type: 'boolean' } },
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, v, p) => syncInvoke(ctx, p[0] as string, v.stdin === true),
+    },
     conversation: {
       summary: 'cmd.sync.conversation.summary',
       usage: 'cmd.sync.conversation.usage',

@@ -325,6 +325,21 @@ describe('请求', () => {
     expect(error).toBeInstanceOf(RequestTimeoutError);
     expect(error).toMatchObject({ sent: false, timeoutMs: 20 });
   });
+  it('execution requests with queue disabled stay unsent after reconnection', async () => {
+    const host = new FakeHost();
+    const { client } = await connect(host, { reconnect: { initialDelayMs: 10000 } });
+    host.last.drop();
+    await expect(
+      client.request(
+        'session.send',
+        { sessionId: SES, content: [{ type: 'text', text: 'synthetic offline draft' }] },
+        { queue: false },
+      ),
+    ).rejects.toBeInstanceOf(ConnectionLostError);
+    client.reconnectNow();
+    await vi.waitFor(() => expect(client.state.status).toBe('connected'));
+    expect(host.sockets.flatMap((socket) => socket.requests('session.send'))).toHaveLength(0);
+  });
 
   it('close()：在途与排队的请求报 ClientClosedError，之后的请求立即失败；以 1000 关闭连接', async () => {
     const host = new FakeHost().on('workspace.list', () => 'no-reply');

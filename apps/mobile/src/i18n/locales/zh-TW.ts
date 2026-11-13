@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const zhTW: Messages = {
+  'draft.failed': '本機儲存無法使用，草稿未儲存',
+  'draft.sendUnknown': '傳送結果未確認，草稿已保留',
+  'draft.notExecuted': '草稿 · 未執行',
   'common.listSeparator': '、',
   'handoff.detail.attempt': '第幾次',
   'handoff.detail.budgetUsed': '{used} / {budget} 位元組',

@@ -133,14 +133,22 @@ export class SessionActions {
     const content = messageContent(text, images);
     if (content.length === 0) return;
     if (resume === true)
-      await this.#client.request('session.resume', { sessionId: this.#sessionId });
-    await this.#client.request('session.send', {
-      sessionId: this.#sessionId,
-      content,
-      clientMessageId: clientMessageId(this.#random),
-      ...(delivery !== undefined && { delivery }),
-      ...(declineApproval === true && { declineApproval: true }),
-    });
+      await this.#client.request(
+        'session.resume',
+        { sessionId: this.#sessionId },
+        { queue: false },
+      );
+    await this.#client.request(
+      'session.send',
+      {
+        sessionId: this.#sessionId,
+        content,
+        clientMessageId: clientMessageId(this.#random),
+        ...(delivery !== undefined && { delivery }),
+        ...(declineApproval === true && { declineApproval: true }),
+      },
+      { queue: false },
+    );
   }
 
   async interrupt(): Promise<void> {

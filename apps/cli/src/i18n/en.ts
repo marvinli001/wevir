@@ -3,6 +3,8 @@
 import type { Messages } from './zh.js';
 
 export const en: Messages = {
+  'cmd.sync.call.summary': 'Call a synchronization method',
+  'cmd.sync.call.usage': 'wevir sync call <method> [--stdin]',
   'cmd.sync.conversation.summary': 'Read a mirrored conversation',
   'cmd.sync.conversation.usage': 'wevir sync conversation <importId> <sessionId>',
   'group.sync': 'Synchronization and recovery',

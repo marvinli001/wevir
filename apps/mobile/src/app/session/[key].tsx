@@ -524,15 +524,24 @@ export default function SessionScreen() {
               </Text>
             )}
             <Composer
-              draftKey={key}
+              key={snapshot?.record.routeId ?? key}
+              draftKey={snapshot ? `${snapshot.record.routeId}/${sessionId}` : key}
               onSend={send}
-              disabled={!canWrite}
+              disabled={false}
+              canSend={
+                canWrite &&
+                view.offline !== true &&
+                view.cachedAt === undefined &&
+                snapshot?.status.kind === 'online'
+              }
               placeholder={
                 readOnly !== undefined
                   ? t('session.readOnly')
                   : actions !== undefined && !actions.canWrite
                     ? t('error.computerOnly')
-                    : undefined
+                    : view.offline === true
+                      ? t('draft.notExecuted')
+                      : undefined
               }
               {...(canWrite && { attachMenu: photos.menu })}
               attachments={photos.attachments}

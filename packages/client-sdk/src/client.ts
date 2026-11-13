@@ -321,6 +321,8 @@ export type RequestMethod = Exclude<
 export interface RequestOptions {
   /** 默认 `timeouts.requestMs`。 */
   timeoutMs?: number;
+  /** False rejects before dispatch while offline; execution drafts must not wait for reconnection. */
+  queue?: boolean;
 }
 
 /** 没有必填参数的方法可以省略 params（`Record<never, never>` 即空对象类型）。 */
@@ -1460,6 +1462,10 @@ export class WevirClient {
       const connection = this.#connection;
       if (connection) {
         this.#dispatch(request, connection);
+        return;
+      }
+      if (options?.queue === false) {
+        reject(new ConnectionLostError(method, undefined));
         return;
       }
       request.timer = setTimeout(() => {

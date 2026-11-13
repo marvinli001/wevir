@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const ru: Messages = {
+  'draft.failed': 'Локальное хранилище недоступно; черновик не сохранён',
+  'draft.sendUnknown': 'Результат отправки неизвестен; черновик сохранён',
+  'draft.notExecuted': 'Черновик · не выполнен',
   'common.listSeparator': ', ',
   'handoff.detail.attempt': 'Попытка',
   'handoff.detail.budgetUsed': '{used} / {budget} байт',

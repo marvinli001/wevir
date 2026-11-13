@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const ko: Messages = {
+  'draft.failed': '로컬 저장소 사용 불가 · 초안 미저장',
+  'draft.sendUnknown': '전송 결과 미확인 · 초안 보존',
+  'draft.notExecuted': '초안 · 미실행',
   'common.listSeparator': ', ',
   'handoff.detail.attempt': '시도 횟수',
   'handoff.detail.budgetUsed': '{used} / {budget}바이트',

@@ -6,6 +6,7 @@ export * from './client.js';
 export * from './continuity.js';
 export * from './errors.js';
 export { type BackoffOptions, DEFAULT_BACKOFF, type ReconnectReason } from './lifecycle.js';
+export * from './offline.js';
 export * from './projection.js';
 export * from './remote.js';
 export * from './report-body.js';

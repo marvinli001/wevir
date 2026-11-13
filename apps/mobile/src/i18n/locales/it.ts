@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const it: Messages = {
+  'draft.failed': 'Archivio locale non disponibile; bozza non salvata',
+  'draft.sendUnknown': 'Esito sconosciuto; bozza conservata',
+  'draft.notExecuted': 'Bozza · non eseguita',
   'common.listSeparator': ', ',
   'handoff.detail.attempt': 'Tentativo',
   'handoff.detail.budgetUsed': '{used} / {budget} byte',

@@ -342,12 +342,16 @@ export class BotStore {
     const trimmed = text.trim();
     if (trimmed === '' && images.length === 0) return;
     const { channelId, client } = this.connected(key);
-    const { post } = await client.request('channel.post', {
-      channelId,
-      content: [...(trimmed === '' ? [] : [{ type: 'text' as const, text: trimmed }]), ...images],
-      clientPostId: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      ...(mentions.length > 0 && { mentions: mentions as Channel['id'][] }),
-    });
+    const { post } = await client.request(
+      'channel.post',
+      {
+        channelId,
+        content: [...(trimmed === '' ? [] : [{ type: 'text' as const, text: trimmed }]), ...images],
+        clientPostId: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        ...(mentions.length > 0 && { mentions: mentions as Channel['id'][] }),
+      },
+      { queue: false },
+    );
     this.addPosts(key, [post]);
   }
 

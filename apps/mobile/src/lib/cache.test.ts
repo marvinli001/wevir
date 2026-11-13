@@ -58,6 +58,20 @@ function conversation(turns: number, per: number, text = 'x'): WevirEvent[] {
 const SES = 'ses_1' as SessionId;
 
 describe('ComputerCache', () => {
+  it('persists drafts across reopen and removes only the forgotten device scope', async () => {
+    const file = join(tmpdir(), `wevir-drafts-${process.pid}-${Date.now()}.db`);
+    const first = await ComputerCache.open(nodeDb(file));
+    await first.saveDraft('route-a/session', 'synthetic pending input');
+    await first.saveDraft('route-b/session', 'independent input');
+    await first.close();
+    const second = await ComputerCache.open(nodeDb(file));
+    expect(await second.loadDraft('route-a/session')).toBe('synthetic pending input');
+    await second.forgetDrafts('route-a');
+    expect(await second.loadDraft('route-a/session')).toBe('');
+    expect(await second.loadDraft('route-b/session')).toBe('independent input');
+    await second.close();
+    rmSync(file, { force: true });
+  });
   it('存取会话列表与对话；重开同一个库仍在', async () => {
     const file = join(tmpdir(), `wevir-cache-${process.pid}-${Date.now()}.db`);
     let now = new Date('2026-10-27T08:00:00.000Z');

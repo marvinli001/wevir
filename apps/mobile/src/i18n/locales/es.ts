@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const es: Messages = {
+  'draft.failed': 'Almacenamiento local no disponible; borrador sin guardar',
+  'draft.sendUnknown': 'Resultado desconocido; borrador conservado',
+  'draft.notExecuted': 'Borrador · sin ejecutar',
   'common.listSeparator': ', ',
   'handoff.detail.attempt': 'Intento',
   'handoff.detail.budgetUsed': '{used} / {budget} bytes',

@@ -311,13 +311,19 @@ export async function startSession(
   existing?: Session,
 ): Promise<{ session: Session; sent: boolean }> {
   const session =
-    existing ?? (await client.request('session.create', createParams(draft, features))).session;
+    existing ??
+    (await client.request('session.create', createParams(draft, features), { queue: false }))
+      .session;
   try {
-    await client.request('session.send', {
-      sessionId: session.id,
-      content,
-      clientMessageId,
-    });
+    await client.request(
+      'session.send',
+      {
+        sessionId: session.id,
+        content,
+        clientMessageId,
+      },
+      { queue: false },
+    );
     return { session, sent: true };
   } catch {
     return { session, sent: false };
